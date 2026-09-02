@@ -12,7 +12,7 @@ different things in the same match.
 | policy | one line | model calls / match | base play | signature harness rules |
 | --- | --- | --- | --- | --- |
 | `aggressive/` | hunts; tight zone margins; re-calls eagerly | up to 8, min 6 s apart | `jackal` (holds in cover, joins the first fight heard) | kill-feed lines in the summary; margins clamped tight; pacts always `returnFire`; races pickups |
-| `cautious/` | survives; wide margins; calls rarely | up to 4, min 15 s apart | `edge_ride` | margins floored wide; omitted params filled with safe defaults; pacts always `disengage`; hold fire until zone phase 2 (`target_law holdTrigger {zonePhase: 2}`); short safe detours for pickups |
+| `cautious/` | survives; wide margins; calls rarely | up to 4, min 15 s apart | `edge_ride` | margins floored wide; omitted params filled with safe defaults; pacts always `disengage`; hold fire until zone phase 1 (`target_law holdTrigger {zonePhase: 1}` — phase 2 cost it 26 gun deaths in 30 competitive episodes); short safe detours for pickups |
 | `collaborative/` | duo-first; pact with protect always; talks | up to 6, min 10 s apart | `edge_ride` | partner state leads the summary; a coordination chat line every turn; duo pact injected with `protect: true`; `bodyguard` only when the ward drifts past its leash |
 
 Every persona also carries the shared live loop, live-state summary, and
@@ -48,7 +48,14 @@ The PoC made an opening call plus one or two re-calls and then exited; the
 seat rode its last ladder with nobody home for ~75% of every match. The
 starters now stay connected until the server closes the socket:
 
-1. **Lobby.** One model turn: chat line, playbook upload, opening call.
+1. **Lobby.** Playbook upload, then a **pre-call** — a model-free opening
+   ladder from the persona's own rules (clone pact and never-list, the
+   spawn-phase `scatter` base, the persona's hold-fire law) — then one model
+   turn: chat line and the real opening call. The pre-call exists because a
+   model answer takes 10–30 s and in league rounds that lands after the
+   drop; before it, the seat spent the opening seconds with no pact and no
+   scatter, and clone-on-clone kills were the aggressive starter's top cause
+   of death.
 2. **Live loop** (`starter_harness._live_loop`). The seat pumps the socket
    and watches the 0xB1 view. It re-calls the model when something changed —
    own hp fell, zone phase moved, duo partner eliminated, shot at, kills in

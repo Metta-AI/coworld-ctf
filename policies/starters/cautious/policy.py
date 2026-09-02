@@ -7,7 +7,7 @@ Harness deltas (the code that makes this seat behave unlike the other two):
   15 s apart); between calls the seat rides its standing ladder and the
   harness only re-sends it when a gate (a medkit while wounded, a safe
   pickup) opens or closes,
-* hold fire until zone phase 2 (``target_law holdTrigger``), then fight,
+* hold fire until zone phase 1 (``target_law holdTrigger``), then fight,
 * ``adjust_entries`` clamps every edge_ride toward the safe end (margin
   floored at 280, early enterLead, high coverBias) and fills any parameter
   the model omitted with a conservative default instead of the play's own --
@@ -56,11 +56,18 @@ def adjust_entries(entries, context, view):
             # A zone-phase trigger releases on the clock (phase 2 is ~25 s
             # into play), and an aliveTeams trigger is clamped so it can
             # release once the first team falls.
+            # Competitive rounds 3705-3706: 26 of 45 cautious deaths were gun
+            # kills, 12 of them before tick 600, while the seat held fire
+            # for zone phase 2 -- it walked around visible and never shot
+            # back. Phase 1 (the first shrink, ~15 s in) is the latest hold
+            # that does not cost the seat its life.
             trigger = params.get("holdTrigger")
             if isinstance(trigger, dict) and "aliveTeams" in trigger:
                 trigger["aliveTeams"] = max(int(trigger["aliveTeams"]), 7)
+            elif isinstance(trigger, dict) and "zonePhase" in trigger:
+                trigger["zonePhase"] = min(int(trigger["zonePhase"]), 1)
             elif not isinstance(trigger, dict):
-                params["holdTrigger"] = {"zonePhase": 2}
+                params["holdTrigger"] = {"zonePhase": 1}
         elif entry.get("play") == "supply_run":
             # Heal early and never fight over an item. whenHpBelow is
             # ABSOLUTE hp units (a full seat is only a few), so the floor
@@ -100,7 +107,7 @@ PERSONA = Persona(
                       "with a wide leash -- never interpose."),
         "target_law": ("target_law: always carry a holdTrigger, but one "
                        "that actually releases while you are alive -- "
-                       '{"zonePhase": 2} sits out the opening brawl and '
+                       '{"zonePhase": 1} sits out the drop and '
                        "then lets you defend yourself; an aliveTeams "
                        "trigger below 7 never fires before you die. A "
                        "released hold NEVER re-arms."),
@@ -113,11 +120,10 @@ PERSONA = Persona(
                 {"play": "edge_ride", "entry_id": "shelter",
                  "params": {"margin": 420, "enterLead": 320,
                             "coverBias": 1.0}},
-                # Hold-fire discipline: not a shot until the field thins
-                # to six teams. A released hold never re-arms, so the
-                # trigger is chosen for the endgame, not the skirmish.
+                # Hold-fire discipline: not a shot until the first shrink.
+                # A released hold never re-arms.
                 {"play": "target_law", "entry_id": "discipline",
-                 "params": {"holdTrigger": {"zonePhase": 2}}},
+                 "params": {"holdTrigger": {"zonePhase": 1}}},
             ]},
         },
         {

@@ -732,9 +732,10 @@ def build_call(decision: dict, available: list[str]) -> tuple[bytes, list]:
         }
         if params:
             entry["params"] = params
-        # `when` is deliberately NOT forwarded: for play seats the engine
-        # evaluates guards against noGuardContext() (all zeros), so a guard
-        # can only misfire. The harness gates rungs itself (layer_ladder).
+        # `when` is deliberately NOT forwarded: the harness gates rungs
+        # itself (layer_ladder) so a gate flip also re-sends the ladder, and
+        # so a starter on a pre-0.7.290 image (guards evaluated on zeros)
+        # cannot regress.
         entries.append(entry)
         if len(entries) >= wire.MAX_LADDER_ENTRIES:
             break
@@ -975,7 +976,29 @@ def run(persona: Persona, args) -> int:
             _log(persona, "FAILED: no 0xB0 PlayContext from the server")
             return 1
 
-        # Turn 1: opening decision, chat (echo required), playbook, call.
+        # Playbook first: nothing can be called until the modules are READY.
+        for name, blob in playbook:
+            if not seat.upload(name, blob):
+                failures.append(f"module {name} never reached module_ready")
+            seat.pump()
+            seat.drain(0.3)
+
+        # Pre-call: a model-free opening ladder from the persona's own rules
+        # (clone pact + never-list, spawn-phase scatter base, the persona's
+        # hold-fire law) the moment the playbook is up. The model's answer
+        # can take 10-30 s and in league rounds that lands AFTER the drop;
+        # until this call existed the seat spent that gap with no pact and
+        # no scatter, and clone-on-clone kills in the opening seconds were
+        # the aggressive starter's top cause of death.
+        seed = persona.canned_turns[0] if persona.canned_turns else {}
+        payload, pre_entries = repair_call(seed, persona, seat, available)
+        _log(persona, "pre-call ladder: "
+                      + ", ".join(e.get("play", "?") for e in pre_entries))
+        opening = seat.call(payload, "pre-call")
+        if opening is None or opening["kind"] != "call_accepted":
+            failures.append("pre-call was not accepted")
+
+        # Turn 1: opening decision, chat (echo required), call.
         summary = summarize(seat, "lobby, before the drop", persona)
         _log(persona, "model input:\n" + summary)
         with _persona_prompt(prompt):
@@ -991,19 +1014,13 @@ def run(persona: Persona, args) -> int:
             # elapsed (or into a config with the window at 0) gets
             # lobby_chat refusals or silence by design — chat is decorative,
             # and killing the pod over it turned healthy hosted rounds into
-            # exit-1 "crashes". Playbook upload and accepted calls below are
-            # the correctness bar.
+            # exit-1 "crashes". Playbook upload and accepted calls are the
+            # correctness bar.
             _log(persona, "no 0xB2 echo for the opening chat "
                           "(lobby window closed or missed) -- continuing")
         else:
             _log(persona, f"chat echoed at ordinal {echo['ordinal']}")
         _send_coordination(persona, seat, turn=1, await_echo=True)
-
-        for name, blob in playbook:
-            if not seat.upload(name, blob):
-                failures.append(f"module {name} never reached module_ready")
-            seat.pump()
-            seat.drain(0.3)
 
         payload, _ = repair_call(decision, persona, seat, available)
         opening = seat.call(payload, "opening call")
