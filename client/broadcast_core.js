@@ -685,6 +685,61 @@
       scheduleDraw();
     }
 
+    // ---- Endgame camera geometry (Swap#13 THEATER C1) ----------------------
+    // Pure helpers for a page-driven auto-camera. The core knows nothing
+    // about teams or "alive" — the page (which parses the JSON roster) hands
+    // over board-space object ids and reads back positions / a target view;
+    // the page then EASES toward that target over several of its own
+    // animation frames rather than snapping here, so a live spectator sees a
+    // directed pull-in, not a cut. Kept as three small primitives (read
+    // positions / compute a target / apply a view) instead of one "auto zoom
+    // to these ids" call, so the easing logic — the part that actually reads
+    // as good or bad camera work — stays in one place the page owns and can
+    // tune without touching this renderer.
+    function getObjectPositions(ids) {
+      const out = [];
+      for (let i = 0; i < ids.length; i++) {
+        const obj = objects.get(ids[i]);
+        // dispX/dispY (the already-interpolated glide target) is what is
+        // actually ON SCREEN this frame — using the raw wire x/y would aim
+        // the camera at where a cog is HEADING on a fast board, not where a
+        // viewer's eye currently finds it.
+        if (obj) out.push({ id: ids[i], x: obj.dispX, y: obj.dispY });
+      }
+      return out;
+    }
+
+    // Given a map-space box, returns the {zoom, focusX, focusY} that frames
+    // it centered with `paddingFrac` of breathing room on each side, floored
+    // at `minSpanPx` (map px) so a down-to-the-last-two-cogs finish does not
+    // zoom in past a readable slice of arena. A pure calculation — never
+    // mutates the view; see setView to apply it (directly, or eased).
+    function frameTargetForBBox(minX, minY, maxX, maxY, paddingFrac, minSpanPx) {
+      const cx = (minX + maxX) / 2;
+      const cy = (minY + maxY) / 2;
+      const pad = 1 + Math.max(0, paddingFrac || 0) * 2;
+      const spanX = Math.max(minSpanPx || 1, (maxX - minX) * pad);
+      const spanY = Math.max(minSpanPx || 1, (maxY - minY) * pad);
+      const size = canvasCssSize();
+      const scaleNeeded = Math.min(size.w / spanX, size.h / spanY);
+      const targetZoom = Math.min(maxZoom, Math.max(minZoom,
+        fitScale > 0 ? scaleNeeded / fitScale : minZoom));
+      return { zoom: targetZoom, focusX: cx, focusY: cy };
+    }
+
+    // Applies zoom + focus in one settle (one computeFit, one redraw), for a
+    // caller that already picked both — the interactive controls below
+    // (zoomAt/panTo/panBy) each anchor a single interactive gesture and are
+    // the wrong shape for an external animation loop stepping both axes
+    // every frame.
+    function setView(level, mapX, mapY) {
+      if (level > 0) zoom = Math.min(maxZoom, Math.max(minZoom, level));
+      if (typeof mapX === 'number') focusX = mapX;
+      if (typeof mapY === 'number') focusY = mapY;
+      computeFit();
+      scheduleDraw();
+    }
+
     // ---- Minimap ----------------------------------------------------------
     // The core draws it, not the page, for the same reason the transform lives
     // here: the static bundle composites inside a Worker, so the page has no
@@ -1952,6 +2007,9 @@
       panTo,
       resetView,
       attachMinimap,
+      getObjectPositions,
+      frameTargetForBBox,
+      setView,
       stop
     };
   }

@@ -260,6 +260,36 @@ html, body {
    classic scorebug already uses for a dominant lead (see .plate.leader
    above), reused here rather than inventing a second pulse language. */
 .br-stat.urgent .br-stat-num { color: var(--amber); animation: leaderpulse 1.9s ease-in-out infinite; }
+/* Rank-identity strip under "Teams alive" (THEATER C3, ten-second read): the
+   aggregate count answers "how many" but not "who's winning" — a cold
+   viewer glancing at a bare number has no subject. One small team-colour
+   pip per team, built ONCE per roster (ensureScorebug) in a FIXED order so
+   it never reorders/jitters as lives change tick to tick; renderScorebug
+   only toggles .dead (eliminated — dimmed, not removed, so the strip's
+   shape stays stable all match) and .leader (current max-lives team(s) —
+   a ring, no numerals). Ink & Print restraint: no labels, no per-pip text,
+   just a glanceable shape a bystander reads in under a second. */
+.br-rank {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: calc(3 * var(--u));
+  max-width: calc(150 * var(--u));
+  margin-top: calc(4 * var(--u));
+}
+.br-rank-pip {
+  width: calc(9 * var(--u));
+  height: calc(9 * var(--u));
+  border-radius: 50%;
+  background: var(--pc, var(--paper-dim));
+  border: 1px solid rgba(0,0,0,0.45);
+  flex: 0 0 auto;
+  transition: opacity 200ms ease;
+}
+.br-rank-pip.dead { opacity: 0.2; }
+.br-rank-pip.leader {
+  box-shadow: 0 0 0 calc(2 * var(--u)) rgba(242,232,216,0.6);
+}
 /* Orientation is a SIDE property, not a color property: right-side plates
    mirror so both team names stay innermost, flanking the clock. */
 .plate.side-r { flex-direction: row-reverse; text-align: right; }
@@ -2276,6 +2306,91 @@ body[data-live] #transport { display: none !important; }
     statusEl.classList.toggle('show', st !== 'open');
   }
 
+  // ---- endgame camera (Swap#13 THEATER C1) --------------------------------
+  // The zoom/pan plumbing above (core.setZoom/panTo/etc) was manual-only —
+  // built for a human at the controls. This drives it from GAME STATE
+  // instead, once few enough teams remain that "the closing fight" is a
+  // real, findable place on the board: it eases the live view toward the
+  // bounding box of currently-living cogs, converting the byte-identical
+  // fitted-whole framing every match used to end on into an actual closing
+  // shot. LIVE-only (/client/global) — a replay viewer mid-scrub is a human
+  // already at the wheel, and auto-moving their view out from under them
+  // would be a regression, not a broadcast improvement.
+  //
+  // Cog positions come from each living player's RIG HEAD object
+  // (RigHeadObjectBase + joinOrder, src/ctf/global.nim) — the one per-player
+  // object the spectator board always draws at the cog's true position,
+  // looked up through core.getObjectPositions rather than duplicating any
+  // game logic here. Not yet published on window.CTF_WIRE, so this mirrors
+  // the same "wire value with a literal fallback" pattern every other
+  // hard-coded protocol id in this file already uses.
+  var RIG_HEAD_OBJECT_BASE =
+    (window.CTF_WIRE && window.CTF_WIRE.rigHeadObjectBase) || 38100;
+  var ENDGAME_CAM_TEAMS = 4;      // teamsAlive <= this arms the auto-camera
+  var ENDGAME_CAM_EASE = 0.045;   // per-animation-frame lerp fraction
+  var ENDGAME_CAM_PAD = 0.28;     // fractional breathing room around the bbox
+  var ENDGAME_CAM_MIN_SPAN = 260; // map-px floor -- never zooms in past a
+                                   // readable slice of arena for a 1-2 cog
+                                   // final duel ("degrade gracefully" as the
+                                   // field spreads: the bbox just grows and
+                                   // the target zoom eases back out with it)
+  var endgameCamArmed = false;
+  var endgameCamTarget = null;    // last good {zoom, focusX, focusY} or null
+  var endgameCamRaf = null;
+
+  function endgameCamEligible(s) {
+    if (!LIVE || !core.getObjectPositions || !core.frameTargetForBBox) return false;
+    if (!s || s.ph !== 'playing') return false;
+    var teams = activeTeams(s);
+    if (teams.length <= 4) return false;  // already a close 2-4 team frame
+    var tr = s.teams || {};
+    var aliveTeams = teams.filter(function (t) {
+      return (tr[t] && tr[t].lives) > 0;
+    }).length;
+    return aliveTeams > 0 && aliveTeams <= ENDGAME_CAM_TEAMS;
+  }
+
+  function updateEndgameCameraTarget(s) {
+    endgameCamArmed = endgameCamEligible(s);
+    if (!endgameCamArmed) return;
+    var ids = [];
+    (s.roster || []).forEach(function (p) {
+      if (p.alive && p.s >= 0) ids.push(RIG_HEAD_OBJECT_BASE + p.s);
+    });
+    var pts = core.getObjectPositions(ids);
+    // Degrade gracefully: nothing resolvable this frame (a mid-glide
+    // object-id churn, or a frame between deletes) just holds the last
+    // good target instead of collapsing the view to a point or the origin.
+    if (pts.length < 1) return;
+    var minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+    pts.forEach(function (o) {
+      if (o.x < minX) minX = o.x; if (o.x > maxX) maxX = o.x;
+      if (o.y < minY) minY = o.y; if (o.y > maxY) maxY = o.y;
+    });
+    endgameCamTarget = core.frameTargetForBBox(
+      minX, minY, maxX, maxY, ENDGAME_CAM_PAD, ENDGAME_CAM_MIN_SPAN);
+  }
+
+  function endgameCamTick() {
+    endgameCamRaf = null;
+    if (!endgameCamArmed || !endgameCamTarget) return;
+    var t = core.getTransform();
+    core.setView(
+      t.zoom + (endgameCamTarget.zoom - t.zoom) * ENDGAME_CAM_EASE,
+      t.focusX + (endgameCamTarget.focusX - t.focusX) * ENDGAME_CAM_EASE,
+      t.focusY + (endgameCamTarget.focusY - t.focusY) * ENDGAME_CAM_EASE
+    );
+    // Self-perpetuating while armed; a disarm (round ends, or the field
+    // climbs back past ENDGAME_CAM_TEAMS on a fresh round) just lets this
+    // chain end instead of cancelling a handle — the next armed frame
+    // starts a new chain via scheduleEndgameCamTick's null check below.
+    endgameCamRaf = requestAnimationFrame(endgameCamTick);
+  }
+
+  function scheduleEndgameCamTick() {
+    if (endgameCamRaf == null) endgameCamRaf = requestAnimationFrame(endgameCamTick);
+  }
+
   // ============================================================
   //  Frame ingest
   // ============================================================
@@ -2313,8 +2428,20 @@ body[data-live] #transport { display: none !important; }
     // the boost as a seek.
     var stride = (s.ff || lastFf) ? Math.min((s.sp || 1) * 8, 64) : (s.sp || 1);
     var jumped = (s.t < lastTick) || (lastTick >= 0 && s.t - lastTick > stride * 4 + 2);
-    if (jumped) { clearFeed(); clearBanners(); }
+    if (jumped) {
+      clearFeed(); clearBanners();
+      // LIVE only: on this route a tick discontinuity can only mean a new
+      // round/match started (there is no viewer-driven seek to protect), so
+      // an endgame-camera pull-in from the PREVIOUS round must not carry
+      // into the new one's establishing frame — refit to the whole board,
+      // same as any fresh board already does via updateNativeSize's own
+      // reset when the map itself changes size.
+      if (LIVE && core.resetView) core.resetView();
+    }
     lastFf = !!s.ff;
+
+    updateEndgameCameraTarget(s);
+    if (endgameCamArmed) scheduleEndgameCamTick();
 
     renderScorebug(s);
     renderClock(s);
@@ -2499,6 +2626,12 @@ body[data-live] #transport { display: none !important; }
         '<div class="br-stat" id="br-stat-alive">' +
         '<div class="br-stat-num" id="br-alive-num">' + teams.length + '</div>' +
         '<div class="br-stat-label">Teams alive</div>' +
+        '<div class="br-rank" id="br-rank">' +
+        teams.map(function (t) {
+          return '<span class="br-rank-pip" id="br-rank-' + t +
+            '" style="--pc:' + (teamCol(t) || AMBER) + '"></span>';
+        }).join('') +
+        '</div>' +
         '</div>';
       sides[1].innerHTML =
         '<div class="br-stat" id="br-stat-cogs">' +
@@ -2562,6 +2695,17 @@ body[data-live] #transport { display: none !important; }
       if (aliveStat) {
         aliveStat.classList.toggle('urgent', aliveTeams > 0 && aliveTeams <= 3 && s.ph === 'playing');
       }
+      // Rank-identity strip: dim eliminated teams' pips in place (no
+      // reflow) and ring whichever team(s) currently hold the max lives
+      // among the living — "who's winning" at a glance, no numerals.
+      var maxLives = 0;
+      teams.forEach(function (t) { if (lives[t] > maxLives) maxLives = lives[t]; });
+      teams.forEach(function (t) {
+        var pip = $('br-rank-' + t);
+        if (!pip) return;
+        pip.classList.toggle('dead', lives[t] <= 0);
+        pip.classList.toggle('leader', maxLives > 0 && lives[t] === maxLives);
+      });
       return;
     }
 
