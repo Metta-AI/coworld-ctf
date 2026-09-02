@@ -7,7 +7,9 @@ Harness deltas (the code that makes this seat behave unlike the other two):
   15 s apart); between calls the seat rides its standing ladder and the
   harness only re-sends it when a gate (a medkit while wounded, a safe
   pickup) opens or closes,
-* hold fire until zone phase 1 (``target_law holdTrigger``), then fight,
+* ``target_law holdTrigger {zonePhase: 1}`` -- which releases at the drop
+  (the zone reports phase 1 from the first tick), so in practice NO hold: the
+  phase-2 hold it replaced cost 26 gun deaths in 30 competitive episodes,
 * ``adjust_entries`` clamps every edge_ride toward the safe end (margin
   floored at 280, early enterLead, high coverBias) and fills any parameter
   the model omitted with a conservative default instead of the play's own --
@@ -59,8 +61,11 @@ def adjust_entries(entries, context, view):
             # Competitive rounds 3705-3706: 26 of 45 cautious deaths were gun
             # kills, 12 of them before tick 600, while the seat held fire
             # for zone phase 2 -- it walked around visible and never shot
-            # back. Phase 1 (the first shrink, ~15 s in) is the latest hold
-            # that does not cost the seat its life.
+            # back. The zone reports phase 1 from the first tick, so a
+            # phase-1 trigger releases at the drop: effectively no hold at
+            # all -- and the seat leads the field that way (1.00 kills, 1st
+            # of 8 on GV52). Kept as the documented shape rather than
+            # dropping target_law, so the never-list still rides along.
             trigger = params.get("holdTrigger")
             if isinstance(trigger, dict) and "aliveTeams" in trigger:
                 trigger["aliveTeams"] = max(int(trigger["aliveTeams"]), 7)
@@ -107,21 +112,22 @@ PERSONA = Persona(
                       "with a wide leash -- never interpose."),
         "target_law": ("target_law: always carry a holdTrigger, but one "
                        "that actually releases while you are alive -- "
-                       '{"zonePhase": 1} sits out the drop and '
-                       "then lets you defend yourself; an aliveTeams "
+                       '{"zonePhase": 1} releases at the drop (the zone '
+                       "reports phase 1 from the first tick) -- carry it, "
+                       "but do not expect a hold; an aliveTeams "
                        "trigger below 7 never fires before you die. A "
                        "released hold NEVER re-arms."),
     },
     canned_turns=[
         {
-            "chat": "No heroes over here. Riding the wide line, holding "
-                    "fire until the field thins. Good luck all.",
+            "chat": "No heroes over here. Riding the wide line, shooting "
+                    "only what comes to me. Good luck all.",
             "call": {"entries": [
                 {"play": "edge_ride", "entry_id": "shelter",
                  "params": {"margin": 420, "enterLead": 320,
                             "coverBias": 1.0}},
-                # Hold-fire discipline: not a shot until the first shrink.
-                # A released hold never re-arms.
+                # The documented hold shape; phase 1 is the opening phase,
+                # so this releases at the drop (see adjust_entries).
                 {"play": "target_law", "entry_id": "discipline",
                  "params": {"holdTrigger": {"zonePhase": 1}}},
             ]},

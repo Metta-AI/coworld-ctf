@@ -12,7 +12,7 @@ different things in the same match.
 | policy | one line | model calls / match | base play | signature harness rules |
 | --- | --- | --- | --- | --- |
 | `aggressive/` | hunts; tight zone margins; re-calls eagerly | up to 8, min 6 s apart | `edge_ride` (tight); `jackal` gated above it while an enemy is tracked | kill-feed lines in the summary; margins capped at 260 (close but covered); pacts always `returnFire`; races pickups |
-| `cautious/` | survives; wide margins; calls rarely | up to 4, min 15 s apart | `edge_ride` | margins floored wide; omitted params filled with safe defaults; pacts always `disengage`; hold fire until zone phase 1 (`target_law holdTrigger {zonePhase: 1}` — phase 2 cost it 26 gun deaths in 30 competitive episodes); short safe detours for pickups |
+| `cautious/` | survives; wide margins; calls rarely | up to 4, min 15 s apart | `edge_ride` | margins floored wide; omitted params filled with safe defaults; pacts always `disengage`; `target_law holdTrigger {zonePhase: 1}`, which releases at the drop (the zone reports phase 1 from the first tick) — so no hold in practice; the phase-2 hold it replaced cost 26 gun deaths in 30 competitive episodes; short safe detours for pickups |
 | `collaborative/` | duo-first; pact with protect always; talks | up to 6, min 10 s apart | `edge_ride` | partner state leads the summary; a coordination chat line every turn; duo pact injected with `protect: true`; `bodyguard` only when the ward drifts past its leash |
 
 Every persona also carries the shared live loop, live-state summary, and
@@ -81,12 +81,16 @@ starters now stay connected until the server closes the socket:
    it: `edge_ride` (default), `jackal` (the hunter: holds in cover until a
    fight is heard), or `None` (the engine default rotate + zone reflex
    drive; set `POC_NO_BASE_PLAY=1` to force it). For the first 150 ticks
-   after the seat's first view the base is always `scatter` (walk away from
+   after the seat's first view (the persona's `spawn_phase_ticks`) the base is always `scatter` (walk away from
    the nearest tracked enemy, toward the zone centre when nobody is tracked),
-   whatever the persona chose — a base that holds when idle, parked at spawn
+   whatever the persona chose (`Persona.spawn_phase_ticks`; the aggressive
+   starter scatters until the first shrink, 340 ticks) — a base that holds when idle, parked at spawn
    next to a hostile duo, was the aggressive starter's top cause of death,
    and the one entrant near the top of the competitive table is the one whose
-   ladder scatters off the spawn.
+   ladder scatters off the spawn. Nothing gated rides above `scatter` in
+   that window either: the engine seats both duo members on one point (24 px
+   apart since GV52), and a `jackal` whose gate opened at spawn used to hold
+   the seat there.
 5. **Clones.** The league seats an entrant's two seats as separate duos on
    different teams, often adjacent at spawn, and to the body a clone is just
    an enemy. `ally_clones` finds the same entrant's other seats from the

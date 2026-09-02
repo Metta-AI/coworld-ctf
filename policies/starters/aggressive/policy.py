@@ -137,6 +137,10 @@ PERSONA = Persona(
     # seat lived on the zone line with no cover. v17 keeps edge_ride and
     # rides it at 140-260 px like the two starters that outscore it.
     base_play="edge_ride",
+    # Scatter until the first shrink (~340 ticks), not 150: on GV52 the
+    # aggressive seat still lost 17 of 37 lives before tick 300, hunting
+    # into a field that is densest right after the drop.
+    spawn_phase_ticks=340,
     include_kill_feed=True,
     adjust_entries=adjust_entries,
 )
