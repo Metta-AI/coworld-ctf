@@ -914,18 +914,6 @@
     // than invented fresh (see renderTopBar/teamAliveChips for the wire
     // read this is driven by).
     + '#phud-top .phud-chips{display:inline-flex;gap:3px;align-items:center;align-self:center;}\n'
-    // Partner-out toast — Swap#12 item 5 (DUET C: "the partner is a dot,
-    // death of partner = zero acknowledgment"). One-shot, feed-style line
-    // that reuses the same panel/eyebrow-adjacent idiom as the rest of this
-    // HUD rather than inventing a new chrome language; --tc is the
-    // partner's own team color (teamColor(), set at fire time), and the
-    // left accent bar borrows the exact "colored edge on a dark panel"
-    // read replay_broadcast.html's own banner-chip already established.
-    + '#phud-partner{position:fixed;left:50%;top:' + S(38) + ';transform:translateX(-50%) translateY(-6px);'
-    + 'font-family:' + F_NUM + ';font-size:' + S(13) + ';font-weight:700;letter-spacing:.1em;text-transform:uppercase;'
-    + 'background:rgba(10,8,5,.88);border-left:3px solid var(--tc,#e8a33d);padding:' + S(6) + ' ' + S(12) + ';'
-    + 'opacity:0;transition:opacity .25s ease,transform .25s ease;white-space:nowrap;pointer-events:none;}\n'
-    + '#phud-partner.show{opacity:1;transform:translateX(-50%) translateY(0);}\n'
     + '#phud-top .phud-chip{width:' + S(10) + ';height:' + S(10) + ';border-radius:2px;flex:none;box-shadow:inset 0 0 0 1px rgba(0,0,0,.55);}\n'
     + '#phud-top .phud-chip.wiped{background:transparent;opacity:.5;box-shadow:inset 0 0 0 1px rgba(184,172,152,.6);}\n'
     + '#phud-mini-wrap{position:fixed;right:10px;bottom:10px;display:flex;flex-direction:column;align-items:flex-end;gap:5px;}\n'
@@ -996,7 +984,6 @@
     const root = el('div'); root.id = 'phud-root';
     root.innerHTML =
       '<div id="phud-top" class="phud-panel" style="display:none"></div>' +
-      '<div id="phud-partner"></div>' +
       '<div id="phud-rail" class="phud-panel">' +
       '<div class="phud-stat"><span class="phud-eyebrow">kills</span><span class="phud-num" id="phud-k">—</span></div>' +
       '<div class="phud-stat"><span class="phud-eyebrow">deaths</span><span class="phud-num" id="phud-d">—</span></div>' +
@@ -1049,7 +1036,6 @@
       scaleToggle: root.querySelector('#phud-scale-toggle'),
       score: root.querySelector('#phud-score'),
       scoreBody: root.querySelector('#phud-score-body'),
-      partnerToast: root.querySelector('#phud-partner'),
     };
   }
 
@@ -1194,23 +1180,6 @@
       }
     }
     ctx.globalAlpha = 1;
-
-    // Partner pulse (Swap#12 item 5) — a one-time expanding, fading ring at
-    // the partner's last known position, armed by trackPartner()'s own
-    // deaths-transition detection (see that function). Purely decorative;
-    // clears itself once and never re-triggers on its own.
-    if (partnerPulse) {
-      if (now < partnerPulse.expireAt) {
-        const t = (now - partnerPulse.startAt) / PARTNER_PULSE_MS;
-        const ppx = partnerPulse.x * scale, ppy = partnerPulse.y * scale;
-        ctx.globalAlpha = Math.max(0, 1 - t);
-        ctx.beginPath(); ctx.arc(ppx, ppy, 3 + t * 16, 0, Math.PI * 2);
-        ctx.strokeStyle = partnerPulse.color; ctx.lineWidth = 2.2; ctx.stroke();
-        ctx.globalAlpha = 1;
-      } else {
-        partnerPulse = null; // expired — stop drawing/checking it every frame
-      }
-    }
   }
 
   // ---------------------------------------------------------------------
@@ -1440,24 +1409,17 @@
   let nodes = null, canvasEl = null;
   let prevKills = null, prevSeated = false;
   let cooldownPrevReady = null;
-  // Swap#12 item 5 (DUET C: "death of partner = zero acknowledgment, tested").
-  // Client-side only -- no engine channel exists for this, so it is derived
-  // entirely from playerRows/cogs the client already receives. See
-  // trackPartner()/firePartnerPulse() below.
-  const PARTNER_PULSE_MS = 1800;
-  let partnerWasAlive = null;   // null = unresolved/not-a-duo; true/false once known
-  let partnerLastPos = null;    // {x,y} world coords, refreshed every frame the partner's own cog is visible+alive
-  let partnerNotified = false;  // one-shot per life; rearmed the moment the partner reads alive again (next round)
-  let partnerPulse = null;      // {startAt, expireAt, x, y, color} while the one-time minimap pulse animates
-  let partnerToastTimer = null;
   // Swap#12 item 7 (ORIENT C10/GRAVITY C5): player_client.html's own dead-
-  // view line wants the human's own kill count for the round it just lost
-  // ("OUT * N tags"). That file never parses the "kd " label itself — this
-  // module already does, every frame, via scanWire()/buildState() — so
-  // rather than duplicate label-scanning in a second file, the last-resolved
-  // value is exposed read-only below (window.PaintbotHUD.selfKills). null
-  // until a "kd " label has actually arrived, same tolerance as combat.kills
-  // itself; never a fabricated zero.
+  // view line wants the human's own kill tally ("OUT * N tags"). That file
+  // never parses the "kd " label itself — this module already does, every
+  // frame, via scanWire()/buildState() — so rather than duplicate label-
+  // scanning in a second file, the last-resolved value is exposed read-only
+  // below (window.PaintbotHUD.selfKills). null until a "kd " label has
+  // actually arrived, same tolerance as combat.kills itself; never a
+  // fabricated zero. NOTE: this is a MATCH-scoped total, not per-round (see
+  // that label's own doc / global.nim's matchKillsDeaths comment) — the
+  // dead-view line's copy was corrected to say just "N tags", not "this
+  // round", after this surfaced live-debugging item 5 (see below).
   let lastCombatKills = null;
   // Found by testing (a live tick-animation check came back silently false):
   // the self-attaching auto-scan loop below and the public update() push API
@@ -1485,62 +1447,7 @@
     render(normalizeState(state), now); // no-op here (buildState's output is always complete) — see normalizeState's own comment for why this guard exists at all
   }
 
-  // ---------------------------------------------------------------------
-  // Partner tracking (Swap#12 item 5, DUET) — a duo team is exactly TWO
-  // playerRows sharing selfTeam; no numeric seat id ever reaches this
-  // module (playerRows only ever carries name/team/lives/kills/deaths/
-  // human/self, see buildState above), so "the other row on my team" is
-  // both the only signal available AND unambiguous for a duo specifically
-  // — a solo (1 row) or squad (>2 rows) team just skips the feature rather
-  // than guess who the partner is. deaths>0 = SPLAT is the same one-life
-  // BR convention renderScoreboard already uses for the ALIVE/SPLAT column.
-  // ---------------------------------------------------------------------
-  function trackPartner(state, now) {
-    const selfTeam = state.selfTeam;
-    if (!selfTeam) return;
-    const teamRows = state.playerRows.filter(function (r) { return r.team === selfTeam; });
-    if (teamRows.length !== 2) {
-      // Not a duo (solo/squad/unresolved roster) — never latch a stale
-      // notified/alive flag across a variant this feature doesn't apply to.
-      partnerWasAlive = null; partnerLastPos = null; partnerNotified = false;
-      return;
-    }
-    const selfRow = teamRows.filter(function (r) { return r.self; })[0];
-    const partnerRow = teamRows.filter(function (r) { return !r.self; })[0];
-    if (!selfRow || !partnerRow) return; // which row is "me" is unresolved this frame — wait, don't guess
-
-    // Cache the partner's minimap position every frame their cog is visible
-    // and alive. BR is one-life: once they die, the wire is likely to stop
-    // sending their cog object at all THIS SAME FRAME the death shows up in
-    // playerRows, so "last known position" has to be captured ahead of the
-    // death tick, never looked up after it.
-    const partnerCog = state.cogs.filter(function (c) { return !c.self && c.color === selfTeam; })[0];
-    if (partnerCog && partnerCog.alive !== false) partnerLastPos = { x: partnerCog.x, y: partnerCog.y };
-
-    if (partnerRow.deaths === null) return; // honest unknown wire shape — never fabricate a transition
-    const alive = partnerRow.deaths === 0;
-    if (alive && partnerWasAlive === false) partnerNotified = false; // partner's back up — new round, rearm
-    if (partnerWasAlive === true && !alive && !partnerNotified) {
-      partnerNotified = true;
-      firePartnerPulse(selfTeam, partnerLastPos, now);
-    }
-    partnerWasAlive = alive;
-  }
-
-  function firePartnerPulse(team, pos, now) {
-    const toast = nodes.partnerToast;
-    if (toast) {
-      toast.textContent = 'YOUR PARTNER IS OUT';
-      toast.style.setProperty('--tc', teamColor(team));
-      toast.classList.add('show');
-      clearTimeout(partnerToastTimer);
-      partnerToastTimer = setTimeout(function () { toast.classList.remove('show'); }, 3400);
-    }
-    if (pos) partnerPulse = { startAt: now, expireAt: now + PARTNER_PULSE_MS, x: pos.x, y: pos.y, color: teamColor(team) };
-  }
-
   function render(state, now) {
-    trackPartner(state, now);
     lastCombatKills = state.combat.kills;
     // A — weapon-ready STATUS, fixed in the condition panel (bottom-left),
     // never cursor-anchored — see the CSS block's own comment for the field
