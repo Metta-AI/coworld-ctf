@@ -373,7 +373,7 @@ against the CURRENT rules and must be re-recorded on every GameVersion
 bump (`tools/record_fixture.sh`; exact recipes in
 `tests/test_broadcast_state.nim`).
 
-**ALL SIX, every time — the shards only read four.** `gen-small-pits` and
+**ALL SEVEN, every time — the shards only read five.** `gen-small-pits` and
 `gen-colossal-4team` are read by NO native test; only the CI
 `wasm-replay-viewer` smoke job loads them, so a re-record pass that works
 from the test files alone misses them and CI fails on a job that looks
@@ -384,6 +384,7 @@ unrelated (GV44 shipped exactly this way). The full set and its recipes:
 | `tests/fixtures/capture-seed1` | `record_fixture.sh <out> 1` |
 | `tests/fixtures/wipe-lives1` | `record_fixture.sh <out> 3 10000 '{"lives":1,"hitPoints":1,"carrierSpeedPct":1}'` |
 | `tests/fixtures/draw-nokill` | `record_fixture.sh <out> 7 1500 '{"hitPoints":1000,"carrierSpeedPct":1,"barrageMaxPerSec":0}'` |
+| `tests/fixtures/seats-numagents16` | `record_fixture.sh <out> 5 1500 '{"num_agents":16}'` — the hosted config shape (a seat count set); guards the `num_agents` echo |
 | `tests/replays/ctf` | `record_fixture.sh <out> 907 10000 '{"lives":9}'` |
 | `tests/fixtures/gen-small-pits` | `record_fixture.sh <out> 4242 1500 '{"mapPath":"gen","mapSeed":4242,"mapSize":"small"}'` |
 | `tests/fixtures/gen-colossal-4team` | `record_colossal_demo.sh <out> 4242 1500 16` |
