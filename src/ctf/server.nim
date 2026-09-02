@@ -1560,18 +1560,18 @@ proc playContextBytes(sim: SimServer; config: GameConfig; seat: int): string =
     mapWidth: sim.gameMap.width, mapHeight: sim.gameMap.height,
     selfSeat: seat, selfTeam: config.slots[seat].team,
     gunRange: config.gunRange, viewInterval: config.viewIntervalTicks)
-  # The socket 0xB0 builds its roster here, from config.slots directly; the
-  # play_init copy is episode.nim's contextRoster (initFirstLightEpisode).
-  # Keep the two rows identical — the roster names (James, 2026-09-02)
-  # first shipped only on the episode side, and the live 0xB0 stayed
-  # nameless (round 3641, 0.7.287).
+  var controls: seq[SlotControl]
+  var teams: seq[Team]
+  var names: seq[string]
   for index, slot in config.slots:
-    source.roster.add(PlayContextRosterRow(
-      seat: index, team: slot.team,
-      control: if slot.control == scPlay: pccPlay else: pccInput,
-      name: rosterDisplayName(slot.name)))
+    controls.add(slot.control)
+    teams.add(slot.team)
+    names.add(slot.name)
     if config.brMode and index != seat and slot.team == source.selfTeam:
       source.duoPartner = some(index)
+  # Same builder as episode.nim's contextRoster, so the socket 0xB0 and the
+  # play_init context cannot drift (view.playContextRosterRows).
+  source.roster = playContextRosterRows(controls, teams, names)
   buildPlayContext(source)
 
 proc playSocketStillCurrent(seat: int; websocket: WebSocket;

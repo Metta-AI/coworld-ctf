@@ -14,13 +14,18 @@ import reflexes
 import replay_records
 import types
 import standing_order
+# `view` needs no runtime (std, sim_types, body, body_map, canonical_fast,
+# finisher, types only) and server.nim imports it unconditionally; keeping
+# it under the runtime guard once hid PlayContextRosterRow from the stub
+# shape (CI run 33597295995).
+import view
 
 const ShellRuntimeAvailable* =
   compileOption("threads") and static(getEnv("WASMTIME_C_API")).len > 0
 
 when ShellRuntimeAvailable:
   import binary_view, call_validation, canonical, compile_plane, emit_validator,
-    guards, instance, ladder, runtime, view
+    guards, instance, ladder, runtime
 
 type
   FirstLightInventory* = object
@@ -281,9 +286,6 @@ proc initFirstLightEpisode*(season2Shell, brMode: bool,
   if teams.len > 0 and teams.len != controls.len:
     raise newException(ValueError,
       "FIRST LIGHT team/control facts must have the same length")
-  if names.len > 0 and names.len != controls.len:
-    raise newException(ValueError,
-      "FIRST LIGHT name/control facts must have the same length")
   result.brMode = brMode
   result.rosterSize = controls.len
   result.map = map
@@ -297,12 +299,7 @@ proc initFirstLightEpisode*(season2Shell, brMode: bool,
     result.gunRange = liveGunRangePx
     result.viewInterval = viewInterval
     if teams.len > 0:
-      for index, control in controls:
-        result.contextRoster.add(PlayContextRosterRow(
-          seat: index,
-          team: teams[index],
-          control: if control == scPlay: pccPlay else: pccInput,
-          name: if names.len > 0: rosterDisplayName(names[index]) else: ""))
+      result.contextRoster = playContextRosterRows(controls, teams, names)
     result.runtimeState = FirstLightRuntimeState(
       frames: newSeq[FirstLightViewFrameSlot](controls.len),
       selfPositions: newSeq[BodyPoint](controls.len),
@@ -312,15 +309,14 @@ proc initFirstLightEpisode*(season2Shell, brMode: bool,
       result.enabled = true
       result.seats.add(FirstLightSeatState(seat: uint8(index)))
 
-when ShellRuntimeAvailable:
-  proc playContextRoster*(episode: FirstLightEpisode):
-      seq[PlayContextRosterRow] =
-    ## The roster every seat's PlayContext carries (seat order), for tests
-    ## and diagnostics. Runtime-linked shape only: the row type comes from
-    ## `view`, which this module imports under the same guard, so the whole
-    ## proc lives under it — a guarded body beneath an unguarded signature
-    ## does not compile in the stub shape (CI run 33597295995).
+proc playContextRoster*(episode: FirstLightEpisode): seq[PlayContextRosterRow] =
+  ## The roster every seat's PlayContext carries (seat order), for tests and
+  ## diagnostics; empty in the stub shape and until a Season 2 episode with
+  ## team facts exists.
+  when ShellRuntimeAvailable:
     episode.contextRoster
+  else:
+    @[]
 
 proc initFirstLightPlaybackEpisode*(season2Shell, brMode: bool,
     controls: openArray[SlotControl],

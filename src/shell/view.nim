@@ -670,6 +670,27 @@ proc rosterDisplayName*(name: string): string =
     dec cut
   name[0 ..< cut]
 
+proc playContextRosterRows*(controls: openArray[SlotControl],
+                            teams: openArray[Team],
+                            names: openArray[string]): seq[PlayContextRosterRow] =
+  ## THE roster the PlayContext carries, in seat order, from the configured
+  ## slots' control, team, and display name (`names` may be empty: no names).
+  ## Both producers — episode.nim's contextRoster (play_init) and server.nim's
+  ## socket 0xB0 — build through here, so the two payloads cannot drift: they
+  ## did once (names shipped on the episode side only, round 3641).
+  if teams.len != controls.len:
+    raise newException(ValueError,
+      "roster team/control facts must have the same length")
+  if names.len > 0 and names.len != controls.len:
+    raise newException(ValueError,
+      "roster name/control facts must have the same length")
+  for index, control in controls:
+    result.add(PlayContextRosterRow(
+      seat: index,
+      team: teams[index],
+      control: if control == scPlay: pccPlay else: pccInput,
+      name: if names.len > 0: rosterDisplayName(names[index]) else: ""))
+
 proc jsonEncodedSize*(model: PlayViewModel): int =
   var sizeWriter = initCanonicalWriter(MaxViewFrameBytes)
   encodedWith(sizeWriter):
