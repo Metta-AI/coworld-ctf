@@ -1684,7 +1684,9 @@ proc pumpPlayOutbound(sim: SimServer; config: GameConfig;
         sim.phase == Playing:
       if playerIndex >= 0 and playerIndex < sim.players.len and
           sim.players[playerIndex].alive:
-        viewBytes = episode.firstLightViewBytes(seat, tick)
+        # Socket copy = JSON (0xB1 wire contract); the guest's PV1 binary
+        # frame never crosses the websocket (see firstLightSocketViewBytes).
+        viewBytes = episode.firstLightSocketViewBytes(seat, tick)
     let payload = encodePacket(PlayViewPacket(
       tick: tick, control: current.controlViewEnvelope(ingressCounters),
       view: viewBytes))
