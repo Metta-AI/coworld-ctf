@@ -1139,6 +1139,14 @@ function sendDirectAim(px,py){
 const ROTATE_AIM_DEADZONE_PX=24;
 let lastRotateDesiredBrads=null;
 let mouseX=0,mouseY=0,haveMouse=false,lmb=false;
+/* mouseClientX/Y: raw screen coords, cached alongside mouseX/mouseY below
+   but NEVER combined with camWorldOriginX/Y at cache time -- see
+   mouseWorldNow() near drawReticle for why (Swap#11 item 5, reticle
+   offset). mouseX/mouseY stay exactly as they were (a world-space snapshot
+   taken once per mousemove event) for every consumer that already reads
+   them -- cellUnderCursor, the rotate-aim bearing calc above, and
+   sendDirectAim's own outgoing packet -- none of those are touched here. */
+let mouseClientX=0,mouseClientY=0;
 let estAim=0,aimSeeded=false,selfPos=null,selfTeam=null;
 let committedRotate=null,emittedAttack=false,tickMask=0,wasSeated=false,isDead=false;
 /* roundEndedAlive: the sibling of isDead for the OTHER way seatedNow can go
@@ -1745,6 +1753,28 @@ function toMap(ev){
   return {x:(ev.clientX-r.left)*(c.width/Math.max(1,r.width))+camWorldOriginX,
           y:(ev.clientY-r.top)*(c.height/Math.max(1,r.height))+camWorldOriginY};
 }
+/* mouseWorldNow(): same buffer-local -> world conversion as toMap() above,
+   but keyed off the CACHED raw screen position (mouseClientX/Y) instead of
+   a live event, so it can be called from the per-frame draw loop where
+   there is no fresh mousemove event to hand it. This is the fix for the
+   reticle offset (Swap#11 item 5, measured up to ~28.5px at default zoom):
+   toMap() bakes in camWorldOriginX/Y AT CALL TIME, and the old code only
+   ever called it once, inside the mousemove handler, then cached the
+   resulting WORLD point (mouseX/mouseY) and reused it across every
+   subsequent render frame. camWorldOriginX/Y keeps easing every frame
+   (follow-camera glide) even when the mouse sits still on screen, so that
+   cached world point silently drifted away from the screen pixel it was
+   computed for -- the reticle crept off the real cursor purely from camera
+   motion, worst right after a camera push with no mouse movement at all.
+   Calling THIS every frame instead re-derives the world point from the
+   unchanging screen position against whatever camWorldOriginX/Y is RIGHT
+   NOW, so the reticle always lands under the actual cursor regardless of
+   how far the camera has eased since the last physical mouse movement. */
+function mouseWorldNow(){
+  const r=c.getBoundingClientRect();
+  return {x:(mouseClientX-r.left)*(c.width/Math.max(1,r.width))+camWorldOriginX,
+          y:(mouseClientY-r.top)*(c.height/Math.max(1,r.height))+camWorldOriginY};
+}
 function cellUnderCursor(){
   return (haveMouse&&mapW&&mapH)?CC.chessCell(mouseX,mouseY,mapW,mapH):null;
 }
@@ -1878,12 +1908,19 @@ function drawReticle(){
     x.lineTo(selfPos.x+ux*88,selfPos.y+uy*88);x.stroke();
   }
   if(!haveMouse)return;
+  // mouseWorldNow(), not the cached mouseX/mouseY: re-derives the world
+  // point from the raw screen position EVERY frame against whatever
+  // camWorldOriginX/Y is right now, so the crosshair can't drift off the
+  // real cursor as the camera eases between mousemove events (Swap#11
+  // item 5). mouseX/mouseY themselves are untouched -- they still drive
+  // cellUnderCursor, the rotate-aim bearing calc, and sendDirectAim.
+  const mw=mouseWorldNow();
   x.strokeStyle=lmb?"rgba(255,0,77,.95)":"rgba(232,228,220,.85)";x.lineWidth=1;
   x.beginPath();
-  x.moveTo(mouseX-5,mouseY+.5);x.lineTo(mouseX-1,mouseY+.5);
-  x.moveTo(mouseX+2,mouseY+.5);x.lineTo(mouseX+6,mouseY+.5);
-  x.moveTo(mouseX+.5,mouseY-5);x.lineTo(mouseX+.5,mouseY-1);
-  x.moveTo(mouseX+.5,mouseY+2);x.lineTo(mouseX+.5,mouseY+6);
+  x.moveTo(mw.x-5,mw.y+.5);x.lineTo(mw.x-1,mw.y+.5);
+  x.moveTo(mw.x+2,mw.y+.5);x.lineTo(mw.x+6,mw.y+.5);
+  x.moveTo(mw.x+.5,mw.y-5);x.lineTo(mw.x+.5,mw.y-1);
+  x.moveTo(mw.x+.5,mw.y+2);x.lineTo(mw.x+.5,mw.y+6);
   x.stroke();
 }
 /* Self tag: at whole-map-fit scale the self cog is visually near-identical
@@ -2567,7 +2604,7 @@ function drawHitmarker(nowT){
    loop/timer here at all. A click that lands on cooldown is now silent
    rather than lying about it (no distinct "denied" cue yet -- silence was
    judged safer than inventing a new sound without direction). */
-addEventListener("mousemove",e=>{const m=toMap(e);mouseX=m.x;mouseY=m.y;haveMouse=true;sendDirectAim(mouseX,mouseY)});
+addEventListener("mousemove",e=>{const m=toMap(e);mouseX=m.x;mouseY=m.y;mouseClientX=e.clientX;mouseClientY=e.clientY;haveMouse=true;sendDirectAim(mouseX,mouseY)});
 c.addEventListener("mousedown",e=>{
   if(e.button===0){
     lmb=true;e.preventDefault();
