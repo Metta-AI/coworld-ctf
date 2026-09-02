@@ -94,6 +94,24 @@ for i, turn in enumerate(PERSONA.canned_turns, start=1):
 # ── zone discipline + formation floors ────────────────────────────────────
 import json as _json
 FIGHT_PLAYS = {"hold_vs_gun", "fire_superiority", "jackal"}
+
+# Server guard compiler rejects expressions deeper than GuardDepthMax=4
+# (src/shell/types.nim:461); "get" and number literals are single nodes.
+GUARD_DEPTH_MAX = 4
+
+
+def _gdepth(node):
+    if isinstance(node, list) and node and node[0] != "get":
+        return 1 + max((_gdepth(c) for c in node[1:]), default=0)
+    return 1
+
+
+for i, turn in enumerate(PERSONA.canned_turns, start=1):
+    for e in turn["call"]["entries"]:
+        if "when" in e:
+            check(f"turn {i}: {e['entry_id']} guard within depth cap",
+                  _gdepth(e["when"]) <= GUARD_DEPTH_MAX,
+                  f"depth {_gdepth(e['when'])}: {_json.dumps(e['when'])}")
 for i, turn in enumerate(PERSONA.canned_turns, start=1):
     for e in turn["call"]["entries"]:
         if e["play"] in FIGHT_PLAYS | {"bodyguard"}:
