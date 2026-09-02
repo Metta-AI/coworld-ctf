@@ -22,6 +22,14 @@ the change it carries. All uploads below were made with
 | aggressive spawn-phase override: edge_ride base for the first 150 ticks, then jackal | — | v11 | — | 29 eps: agg 0.74 / 5%, spawn deaths 27% → 17%, survival ticks 594 → 727 |
 | same images, `--bedrock-model anthropic/claude-haiku-4.5` (does the model matter?) | v11 | v12 | v10 | 30 eps: agg 0.72 / 2%, caut 0.27 / 3%, collab 0.85 / 7% — indistinguishable from qwen (arm K); the model is not the lever today |
 
+| player swap: cautious re-uploaded as player **Games Bond** so it can hold its own champion seat (v12 was the same image accidentally bound to the default player — inert) | v12 (James Botts), v13 (Games Bond) | — | — | competitive seating |
+
+Seating rule learned the hard way: the scheduler seats **one champion per player**, an
+account is capped at **2 active players**, and a policy version is bound to the player
+that uploaded it. So at most two starters can compete as entrants at once
+(aggressive under James Botts, cautious under Games Bond); collaborative stays in the
+filler list, which is only consulted when fewer than 8 entrants are active.
+
 **Pooled before/after, pinned seats vs 10 random champions.** v3 (50 episodes): 0.57 kills and 0.75
 Glory per starter seat, 5% end-survivors. Final (60 episodes): 0.73 kills (+28%) and 0.96 Glory (+28%),
 6.4% end-survivors. Calibration: a seat with NO policy (engine default rotate + zone reflex + the body's
