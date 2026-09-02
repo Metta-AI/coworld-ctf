@@ -916,6 +916,46 @@
     + '#phud-top .phud-chips{display:inline-flex;gap:3px;align-items:center;align-self:center;}\n'
     + '#phud-top .phud-chip{width:' + S(10) + ';height:' + S(10) + ';border-radius:2px;flex:none;box-shadow:inset 0 0 0 1px rgba(0,0,0,.55);}\n'
     + '#phud-top .phud-chip.wiped{background:transparent;opacity:.5;box-shadow:inset 0 0 0 1px rgba(184,172,152,.6);}\n'
+    // Zone ETA (Swap#13 S6, AGENCY C9) — a countdown number folded into the
+    // existing "zone" eyebrow's SHRINKING/HOLD word rather than a new panel;
+    // .phud-zone-warn escalates the word's own color as the player's own
+    // cog reads outside (or nearing the edge of) the current rect — see
+    // renderTopBar's own comment for the exact thresholds. Still no
+    // fabricated countdown: the number only ever appears once a real
+    // "zone_eta" cosmetic-fx packet has arrived (notifyZoneEta below).
+    + '#phud-top .phud-zone-warn{color:#ff7b54;}\n'
+    + '#phud-top .phud-zone-danger{color:#ff004d;animation:phud-zone-pulse 1s ease-in-out infinite;}\n'
+    + '@keyframes phud-zone-pulse{0%,100%{opacity:1;}50%{opacity:.55;}}\n'
+    // Partner-out toast — Swap#13 S1 (DUET C2/C7: "the partner is a dot,
+    // death of partner = zero acknowledgment"). One-shot, feed-style line,
+    // same idiom as the rest of this HUD; --tc is the partner's own team
+    // color, set at fire time (notifyPartnerDown below). Originally shipped
+    // client-side in Swap#12 item 5 and reverted (the trigger it used —
+    // polling the roster's MATCH-scoped deaths — could fire at most once
+    // per server lifetime, not once per round); this is the same toast/
+    // pulse rendering, now armed by a real per-round server event instead
+    // (see notifyPartnerDown's own comment).
+    + '#phud-partner{position:fixed;left:50%;top:' + S(38) + ';transform:translateX(-50%) translateY(-6px);'
+    + 'font-family:' + F_NUM + ';font-size:' + S(13) + ';font-weight:700;letter-spacing:.1em;text-transform:uppercase;'
+    + 'background:rgba(10,8,5,.88);border-left:3px solid var(--tc,#e8a33d);padding:' + S(6) + ' ' + S(12) + ';'
+    + 'opacity:0;transition:opacity .25s ease,transform .25s ease;white-space:nowrap;pointer-events:none;text-align:center;}\n'
+    + '#phud-partner .sub{display:block;font-size:' + S(10) + ';font-weight:600;letter-spacing:.06em;text-transform:none;opacity:.75;margin-top:2px;}\n'
+    + '#phud-partner.show{opacity:1;transform:translateX(-50%) translateY(0);}\n'
+    // Partner chip — Swap#13 S2 (DUET C2): tiny always-on corner readout,
+    // fed by join/roster data this module already resolves (partner name/
+    // color) plus S1's own round-scoped alive tracking (partnerAliveThisRound
+    // below) — NOT the match-scoped "roster " deaths field player_hud.js
+    // uses for the scoreboard's ALIVE/SPLAT column elsewhere, which is the
+    // exact signal Swap#12 item 5 proved unusable for a per-round read.
+    // Mirrors #phud-mini-wrap's corner-anchored, label-over-value layout so
+    // it reads as part of the same HUD family rather than a bolted-on chip.
+    + '#phud-partner-chip{position:fixed;left:10px;top:9px;display:none;flex-direction:column;'
+    + 'font-family:' + F_NUM + ';white-space:nowrap;}\n'
+    + '#phud-partner-chip.show{display:flex;}\n'
+    + '#phud-partner-chip .t{font-size:' + S(13) + ';font-weight:700;letter-spacing:.04em;display:flex;align-items:center;gap:5px;}\n'
+    + '#phud-partner-chip .dot{width:' + S(8) + ';height:' + S(8) + ';border-radius:50%;flex:none;box-shadow:inset 0 0 0 1px rgba(0,0,0,.55);}\n'
+    + '#phud-partner-chip .status{opacity:.7;}\n'
+    + '#phud-partner-chip.out .status{color:#8a7f72;}\n'
     + '#phud-mini-wrap{position:fixed;right:10px;bottom:10px;display:flex;flex-direction:column;align-items:flex-end;gap:5px;}\n'
     + '#phud-mini-wrap .phud-eyebrow{padding-right:2px;}\n'
     // Toolbar row: the "standings · tab" toggle plus the new HUD-size
@@ -984,6 +1024,9 @@
     const root = el('div'); root.id = 'phud-root';
     root.innerHTML =
       '<div id="phud-top" class="phud-panel" style="display:none"></div>' +
+      '<div id="phud-partner"></div>' +
+      '<div id="phud-partner-chip"><span class="t"><span class="dot" id="phud-partner-dot"></span>' +
+      '<span id="phud-partner-name">—</span></span><span class="phud-eyebrow status" id="phud-partner-status"></span></div>' +
       '<div id="phud-rail" class="phud-panel">' +
       '<div class="phud-stat"><span class="phud-eyebrow">kills</span><span class="phud-num" id="phud-k">—</span></div>' +
       '<div class="phud-stat"><span class="phud-eyebrow">deaths</span><span class="phud-num" id="phud-d">—</span></div>' +
@@ -1036,6 +1079,11 @@
       scaleToggle: root.querySelector('#phud-scale-toggle'),
       score: root.querySelector('#phud-score'),
       scoreBody: root.querySelector('#phud-score-body'),
+      partnerToast: root.querySelector('#phud-partner'),
+      partnerChip: root.querySelector('#phud-partner-chip'),
+      partnerDot: root.querySelector('#phud-partner-dot'),
+      partnerName: root.querySelector('#phud-partner-name'),
+      partnerStatus: root.querySelector('#phud-partner-status'),
     };
   }
 
@@ -1180,6 +1228,24 @@
       }
     }
     ctx.globalAlpha = 1;
+
+    // Partner pulse (Swap#13 S1) — a one-time expanding, fading ring at the
+    // partner's last known position, armed by notifyPartnerDown (a real
+    // per-round server event on the cosmetic-fx channel). Purely
+    // decorative; clears itself once and never re-triggers on its own.
+    if (partnerPulse) {
+      const now = performance.now();
+      if (now < partnerPulse.expireAt) {
+        const t = (now - partnerPulse.startAt) / PARTNER_PULSE_MS;
+        const ppx = partnerPulse.x * scale, ppy = partnerPulse.y * scale;
+        ctx.globalAlpha = Math.max(0, 1 - t);
+        ctx.beginPath(); ctx.arc(ppx, ppy, 3 + t * 16, 0, Math.PI * 2);
+        ctx.strokeStyle = partnerPulse.color; ctx.lineWidth = 2.2; ctx.stroke();
+        ctx.globalAlpha = 1;
+      } else {
+        partnerPulse = null; // expired — stop drawing/checking it every frame
+      }
+    }
   }
 
   // ---------------------------------------------------------------------
@@ -1279,6 +1345,26 @@
   // BR). Always-on, never gated behind Tab; team count alone (present every
   // tick) picks the variant the same way buildState() does.
   // ---------------------------------------------------------------------
+  // Swap#13 S6 (ORIENT C3: "the ring explains itself... BEFORE it kills
+  // you"): escalating proximity read, purely from geometry this module
+  // already has — state.zone.current (world rect off the "zone "/"zoneNext "
+  // labels) and the self cog's own x/y. 'phud-zone-danger' once actually
+  // outside the current rect (matches updateZone's own inside-test, mirrored
+  // here client-side), 'phud-zone-warn' once within ZONE_WARN_MARGIN_PX of
+  // any edge while still inside. No new server data needed for this half —
+  // only the ETA number above depends on notifyZoneEta.
+  function zoneProximityClass(state) {
+    if (!state.zone || !state.zone.current) return '';
+    const self = state.cogs.filter(function (c) { return c.self; })[0];
+    if (!self) return '';
+    const z = state.zone.current;
+    const outside = self.x < z.x0 || self.x > z.x1 || self.y < z.y0 || self.y > z.y1;
+    if (outside) return 'phud-zone-danger';
+    const distToEdge = Math.min(self.x - z.x0, z.x1 - self.x, self.y - z.y0, z.y1 - self.y);
+    if (distToEdge <= ZONE_WARN_MARGIN_PX) return 'phud-zone-warn';
+    return '';
+  }
+
   function renderTopBar(nodes, state) {
     if (state.variant === 'unknown') { nodes.top.style.display = 'none'; return; }
     nodes.top.style.display = '';
@@ -1301,6 +1387,18 @@
     } else {
       const zoneWord = state.zone ? (state.zone.shrinking ? 'SHRINKING' : 'HOLD') : '—';
       const chips = teamAliveChips(state);
+      // Swap#13 S6 (AGENCY C9): a real numeric countdown beside the word —
+      // "the schedule is init-only... a real countdown is computable" — fed
+      // by notifyZoneEta (server.nim's zone_eta cosmetic-fx packet,
+      // sim.zoneTicksToNextEvent()). Absent (fmtDash("")) until a packet has
+      // actually arrived, same tolerance idiom as every other field here.
+      // .phud-zone-warn/.phud-zone-danger escalate the WORD's own color as
+      // the player's own cog reads near or outside the current rect — see
+      // zoneProximityClass, computed purely from state.zone.current (world
+      // knowledge already on the wire) and the self cog's own position, no
+      // new server data needed for this half.
+      const etaSec = lastZoneEta ? Math.max(0, Math.ceil(lastZoneEta.ticks / ZONE_TICKS_PER_SEC)) : null;
+      const zoneClass = zoneProximityClass(state);
       // Swap#11 item 6: the real wire count (state.teamsAlive, "teamsalive "
       // label) now takes priority over teamAliveChips' own locally-derived
       // aliveCount heuristic — that heuristic is only as fresh as whatever
@@ -1312,7 +1410,8 @@
         fmtDash(state.teamsAlive != null ? state.teamsAlive : chips.aliveCount) +
         ' <span class="phud-dim">/ ' + fmtDash(state.teamScores.length) + '</span></span>' +
         '<span class="phud-chips">' + chips.html + '</span>' +
-        '<span class="phud-eyebrow">zone</span><span class="t">' + zoneWord + '</span>';
+        '<span class="phud-eyebrow">zone</span><span class="t' + (zoneClass ? ' ' + zoneClass : '') + '">' +
+        zoneWord + (etaSec !== null ? ' <span class="phud-dim">' + etaSec + 's</span>' : '') + '</span>';
     }
     positionTopBar(nodes);
   }
@@ -1421,6 +1520,23 @@
   // dead-view line's copy was corrected to say just "N tags", not "this
   // round", after this surfaced live-debugging item 5 (see below).
   let lastCombatKills = null;
+  let lastTeamsAlive = null; // S7 mirror — see its own comment in render() and the public getter below.
+  let lastTeamsInMatch = null; // S7 mirror of state.teamScores.length (the top bar's own "/ M" read).
+  // Swap#13 signal-layer bridge state (S1/S2/S6). Unlike lastCombatKills
+  // above (a read-only MIRROR of something this module already scans every
+  // frame), these are fed by explicit push calls from player_client.html's
+  // own cosmetic-fx socket consumer — see notifyPartnerDown/notifyZoneEta
+  // in the public API below for why a push is necessary here: both carry
+  // data (one-shot server events, or a fast per-tick number) this module
+  // has no independent way to observe via its own DOM/label auto-scan.
+  const PARTNER_PULSE_MS = 1800;
+  const ZONE_TICKS_PER_SEC = 24; // sim_types.TargetFps — the same tick rate zoneTicksToNextEvent's ticks are counted in.
+  const ZONE_WARN_MARGIN_PX = 60; // deliberately generous "starting to close" margin, not a precise measurement — enough to read as a rising warning before the ring actually bites.
+  let partnerToastTimer = null;
+  let partnerPulse = null;       // {startAt, expireAt, x, y, color} while the one-time minimap pulse animates
+  let partnerAliveThisRound = null; // null = unresolved/not-a-duo; true/false once known — S2's chip status
+  let prevTeamsAliveForRearm = null; // best-effort round-boundary detector: teamsAlive can only ever DECREASE within a round (eliminated teams don't come back), so a rise means a new round started — see render()'s own use of this.
+  let lastZoneEta = null;        // {ticks, shrinking, receivedAt} — S6
   // Found by testing (a live tick-animation check came back silently false):
   // the self-attaching auto-scan loop below and the public update() push API
   // both write the SAME shared render state (prevKills, cooldownPrevReady,
@@ -1449,6 +1565,23 @@
 
   function render(state, now) {
     lastCombatKills = state.combat.kills;
+    // Swap#13 S7 (ORIENT C10/GRAVITY): read-only mirror of state.teamsAlive
+    // (the "teamsalive " label, Swap#11 item 6), same idiom as
+    // lastCombatKills above — lets player_client.html's dead-view line show
+    // a real placement number without duplicating this module's own
+    // label-scanning. See window.PaintbotHUD.teamsAliveNow below.
+    if (state.teamsAlive != null) lastTeamsAlive = state.teamsAlive;
+    if (state.teamScores.length) lastTeamsInMatch = state.teamScores.length;
+    // Swap#13 S2: best-effort round-boundary rearm for partnerAliveThisRound
+    // — see that variable's own declaration comment. A rise in teamsAlive
+    // can only mean a fresh round; a fall or hold never touches the flag.
+    if (state.teamsAlive != null) {
+      if (prevTeamsAliveForRearm != null && state.teamsAlive > prevTeamsAliveForRearm) {
+        partnerAliveThisRound = true;
+      }
+      prevTeamsAliveForRearm = state.teamsAlive;
+    }
+    renderPartnerChip(state);
     // A — weapon-ready STATUS, fixed in the condition panel (bottom-left),
     // never cursor-anchored — see the CSS block's own comment for the field
     // report this replaced. No seat = nothing to show.
@@ -1516,6 +1649,63 @@
     nodes.score.classList.toggle('open', open);
     if (open) renderScoreboard(nodes, state);
   }
+
+  // Swap#13 S2 (DUET C2): tiny always-on corner chip — partner name/color
+  // off state.playerRows (already resolved every frame, same "two rows
+  // sharing selfTeam" convention the reverted Swap#12 item 5 client-side
+  // attempt used for IDENTITY, which is fine — only that attempt's ALIVE
+  // read was the broken match-scoped signal). ALIVE/OUT here instead reads
+  // partnerAliveThisRound, armed by notifyPartnerDown (a real per-round
+  // server event) and rearmed by render()'s own teamsAlive-rise check.
+  // Hidden entirely for a solo/squad roster (no unambiguous partner) or
+  // before any duo has resolved at all — never a guessed chip.
+  function renderPartnerChip(state) {
+    const selfTeam = state.selfTeam;
+    const chip = nodes.partnerChip;
+    if (!chip) return;
+    if (!selfTeam) { chip.classList.remove('show'); return; }
+    const teamRows = state.playerRows.filter(function (r) { return r.team === selfTeam; });
+    if (teamRows.length !== 2) { chip.classList.remove('show'); return; }
+    const partnerRow = teamRows.filter(function (r) { return !r.self; })[0];
+    if (!partnerRow) { chip.classList.remove('show'); return; }
+    chip.classList.add('show');
+    nodes.partnerDot.style.background = teamColor(selfTeam);
+    nodes.partnerName.textContent = partnerRow.name || 'partner';
+    const alive = partnerAliveThisRound;
+    nodes.partnerStatus.textContent = alive === false ? 'OUT' : 'ALIVE';
+    chip.classList.toggle('out', alive === false);
+  }
+
+  // Swap#13 S1 (DUET C2/C7): fires the partner-out toast + one-time minimap
+  // pulse. Called by player_client.html's cosmetic-fx consumer on a
+  // "partner_down" packet (server.nim buildCosmeticFxPacket, populated in
+  // killPlayer) — a real per-round server event, unlike Swap#12 item 5's
+  // reverted client-side deaths-polling attempt (see this file's history).
+  function notifyPartnerDown(x, y, color) {
+    partnerAliveThisRound = false;
+    const toast = nodes.partnerToast;
+    if (toast) {
+      toast.innerHTML = 'YOUR PARTNER IS OUT<span class="sub">you\'re the last of your crew</span>';
+      toast.style.setProperty('--tc', color || '#e8a33d');
+      toast.classList.add('show');
+      clearTimeout(partnerToastTimer);
+      partnerToastTimer = setTimeout(function () { toast.classList.remove('show'); }, 3400);
+    }
+    if (typeof x === 'number' && typeof y === 'number') {
+      partnerPulse = { startAt: performance.now(), expireAt: performance.now() + PARTNER_PULSE_MS, x: x, y: y, color: color || '#e8a33d' };
+    }
+  }
+
+  // Swap#13 S6 (AGENCY C9): last-resolved zone_eta packet, read by
+  // renderTopBar below. receivedAt lets a consumer notice a stale value
+  // (the gate went off, or the socket dropped) if it ever needs to, though
+  // renderTopBar today just trusts the latest packet — the server sends one
+  // essentially every tick whenever zonePhases is configured at all (see
+  // buildCosmeticFxPacket), so staleness in practice means "no zone this
+  // map," not a dropped packet.
+  function notifyZoneEta(ticks, shrinking) {
+    lastZoneEta = { ticks: ticks, shrinking: shrinking, receivedAt: performance.now() };
+  }
   function setStat(elm, value, didTick) {
     const tick = didTick();
     elm.textContent = fmtDash(value);
@@ -1550,5 +1740,17 @@
     // player_client.html's dead-view line show a real number without
     // duplicating this module's label-scanning.
     get selfKills() { return lastCombatKills; },
+    // Swap#13 S7: read-only, last-resolved teams-alive count — see
+    // lastTeamsAlive's own comment in render().
+    get teamsAliveNow() { return lastTeamsAlive; },
+    // Swap#13 S7: read-only, last-resolved total team count (state.
+    // teamScores.length) — the "/ M" half of "Nth of M".
+    get teamsInMatch() { return lastTeamsInMatch; },
+    // Swap#13 S1/S6: WRITE bridge points for player_client.html's cosmetic-fx
+    // socket consumer — see notifyPartnerDown/notifyZoneEta's own doc
+    // comments for why a push is needed here (one-shot server events and a
+    // fast per-tick number this module has no independent way to scan for).
+    notifyPartnerDown: function (x, y, color) { if (nodes) notifyPartnerDown(x, y, color); },
+    notifyZoneEta: function (ticks, shrinking) { if (nodes) notifyZoneEta(ticks, shrinking); },
   };
 })();
