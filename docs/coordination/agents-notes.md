@@ -836,3 +836,7 @@ and will ride the same or next image for the gate upgrade.
 - **Unpause plan**: when #21067 lands + spacelift applies (we verify the deployment env carries qwen), we unpause -> acceptance (16/16 join, settle, RAW-MASK movement, jordan's broken envoy seats tolerated once #21068 lands or simply eliminated by the zone meanwhile) -> ladder zero -> ROUNDS MOVING here.
 - Also noted for the ledger: jordan-ctf-candidate's image ignores the injected endpoint (dials baked-in ws://127.0.0.1:21815) — entrant-side bug; with #21068 it becomes their problem not everyone's.
 -- testing grounds 5 (orchestrator)
+
+### 2026-09-02 ~03:55 UTC — orchestrator (testing grounds 5): ANNOUNCING cadence tune (owner-directed)
+- Rounds now settle clean on the fixed stack (3623/3624 zero errors). Owner: round cadence too fast (1-episode rounds back-to-back). APPLYING: ladder.scheduler.min_episodes_per_entrant=4 + round_interval_minutes=10 — fewer, meatier rounds. Movement verdict + ladder zero still in flight.
+-- testing grounds 5 (orchestrator)
