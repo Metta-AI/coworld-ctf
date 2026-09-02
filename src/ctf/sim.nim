@@ -1029,8 +1029,12 @@ proc killPlayer*(
   # "purely additive" gating as the tag-site paint stain above. Skipped for
   # an elimination death (GV35: nobody was shot, the team's heart was
   # captured — there is no partner-out MOMENT to notify, and nothing to
-  # avenge) exactly like the deaths-stat block just above.
-  if not elimination and targetIndex < sim.lastKilledBy.len:
+  # avenge) exactly like the deaths-stat block just above, AND gated on
+  # brMode: both signals are scoped to the one-life duo game (DUET's own
+  # rubric is duos-only) — a classic CTF team of exactly two would otherwise
+  # fire "your partner is out"/PAYBACK on every ordinary respawn trade,
+  # which is not what either signal means there.
+  if sim.config.brMode and not elimination and targetIndex < sim.lastKilledBy.len:
     let partner = sim.partnerIndex(targetIndex)
     if partner >= 0:
       sim.partnerDownFx.add PartnerDownFx(
