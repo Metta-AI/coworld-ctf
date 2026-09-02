@@ -74,9 +74,17 @@ starters now stay connected until the server closes the socket:
    it: `edge_ride` (default), `jackal` (the hunter: holds in cover until a
    fight is heard), or `None` (the engine default rotate + zone reflex
    drive; set `POC_NO_BASE_PLAY=1` to force it). For the first 150 ticks
-   after the seat's first view the base is always `edge_ride`, whatever the
-   persona chose — a base that holds when idle, parked at spawn next to a
-   hostile duo, was the aggressive starter's top cause of death.
+   after the seat's first view the base is always `scatter` (walk away from
+   the nearest tracked enemy, toward the zone centre when nobody is tracked),
+   whatever the persona chose — a base that holds when idle, parked at spawn
+   next to a hostile duo, was the aggressive starter's top cause of death,
+   and the one entrant near the top of the competitive table is the one whose
+   ladder scatters off the spawn.
+5. **Clones.** The league seats an entrant's two seats as separate duos on
+   different teams, often adjacent at spawn, and to the body a clone is just
+   an enemy. `ally_clones` finds the same entrant's other seats from the
+   roster's de-duplicated names and, on every ladder, pacts with them and
+   keeps them on `target_law`'s never-list.
 
 Why the harness gates rather than relying on the wire's `when` guards: until
 2026-09-02 the engine evaluated play-seat guards against `noGuardContext()`

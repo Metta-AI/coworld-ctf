@@ -827,13 +827,16 @@ def gate_and_build(seat: StarterSeat, available: list[str]) -> tuple[bytes, list
     it. Re-runs the generic repair so the result is still clamped, sorted,
     deduplicated and capped whatever a persona hook did."""
     base_play = getattr(seat, "base_play", "edge_ride")
-    if _in_spawn_phase(seat) and base_play != "edge_ride":
+    if _in_spawn_phase(seat):
         # Spawn phase: whatever the persona's base is, get OFF the spawn.
         # A jackal (or anything else that holds when idle) parked at spawn
-        # next to a hostile duo is the aggressive starter's top cause of
-        # death: 15 of 60 seats dead inside 110 ticks in one 30-episode arm,
-        # against 3-8% for the personas whose base moves at once.
-        base_play = "edge_ride"
+        # next to a hostile duo was the aggressive starter's top cause of
+        # death (15 of 60 seats dead inside 110 ticks in one arm), and in the
+        # first competitive rounds the one entrant near the top of the table
+        # was the one whose ladder installed its own spawn-scatter intents.
+        # `scatter` walks away from the nearest tracked enemy for the opening
+        # seconds; an image without it falls back to edge_ride.
+        base_play = "scatter" if "scatter" in available else "edge_ride"
     gated = layer_ladder(seat.wanted_entries, seat.view or {},
                          seat.context or {}, seat.kill_feed,
                          base_play=base_play)

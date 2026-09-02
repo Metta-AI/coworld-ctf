@@ -235,6 +235,11 @@ type
     contested*: SupplyContestedMode
     medkits*: bool
 
+  ScatterParams* = object
+    valid*: bool
+    distance*: int32
+    ticks*: int32
+
   BodyguardParams* = object
     valid*: bool
     wardPresent*: bool
@@ -1535,6 +1540,29 @@ proc readLootParams*(ctx: PlayContext): LootParams =
         result.valid = false
     elif r.stringEquals(key, "medkits"):
       result.valid = result.valid and r.readBoolValue(result.medkits)
+    else:
+      discard r.skipParamValue()
+      result.valid = false
+  result.valid = result.valid and r.ok and r.pos == r.len
+
+proc readScatterParams*(ctx: PlayContext): ScatterParams =
+  result.valid = true
+  result.distance = 320
+  result.ticks = 300
+  var r = initJsonReader(ctx.data, ctx.len)
+  if not r.beginObject():
+    result.valid = false
+    return
+  var key: JsonString
+  while r.nextObjectKey(key):
+    if r.stringEquals(key, "distance"):
+      result.valid = result.valid and r.readIntValue(result.distance)
+      if result.distance < 60 or result.distance > 1200:
+        result.valid = false
+    elif r.stringEquals(key, "ticks"):
+      result.valid = result.valid and r.readIntValue(result.ticks)
+      if result.ticks < 24 or result.ticks > 2400:
+        result.valid = false
     else:
       discard r.skipParamValue()
       result.valid = false
