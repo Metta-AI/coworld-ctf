@@ -982,3 +982,17 @@ Measurement path for starters from now on (James: starters are filler-only): an 
 **19:55Z GV52 pushed — PUSH FREEZE until Upload Coworld promotes it.** `spawnPosition` staggers re-shared points by `SpawnShareStagger` (24 px, along y); all eight fixtures recut (`tools/record_all_fixtures.sh`; capture-seed1 needed eleven takes to carry a rescue deed with a capture-delivered ending — the first six were rolled while an XP fetch loaded the machine), derived goldens regenerated, every fixture re-simulates hash-clean at "52", four shards green locally (334/711/443/348) in the runtime-linked shape, both `nim check` shapes clean, replay-viewer bundle rebuilt last and `tools/qa_module_eval.cjs` passes. Re-pins: `test_br_team_bridge` (second duo member sits +24 px), `test_broadcast_state` (the new capture take: Red captures the blue heart). Next: when 0.7.29x with GV52 is canonical, re-run the starters-vs-field XP on it and expect the spawn-pixel stacking (18% of pairs at 150 ticks) to be gone for every entrant.
 
 **20:50Z GV52 VERIFIED LIVE.** paintbot 0.7.298 (b672ea8c) is canonical and carries GV52: in a 20-episode field XP on it, 0 of 160 duo pairs share a pixel at play start (160/160 on every GV51 build, including 0.7.297 which was built from 6b6d0ec3, before the fix). Starters in that batch: cautious 1.00 kills / 1.45 Glory (1st of 8), collaborative 0.78 / longest survival (2nd), aggressive 0.60 (5th). Push freeze lifted. Platform issue found on the way: `coworld xp-request list` fails on every install (the API route moved to cursor pagination — `entries` + `next_cursor` — and the CLI still requires `limit`/`offset`; `create` and `episodes` still work; poll `/v2/experience-requests/{id}` directly).
+
+**21:40Z the aggressive starter's 'handicap' was the measurement roster.** v19 (scatter until the first shrink) scored 1.35 then 1.23 kills on a rotated XP roster; v18 on the same rotated roster scored 1.20 — all first of eight. On the fixed roster used for every earlier batch the aggressive seats' spawn group was adjacent to the cautious starter's every episode and lost 13 of 37 GV52 lives to it; adjacency at spawn decides the opening more than any ladder choice. Rule for future starter measurement: rotate or shuffle the XP roster per batch (`scratchpad/ship_aggressive.sh` now does). v19 stays as the filler. Pooled over the three rotated batches (n=120 seat-rows per policy, 0.7.298/0.7.299 = GV52):
+
+```
+policy                                        n  kills  surv%  survT  items  deeds  d<150    acc
+starter-aggressive                          120   1.26     19   1449   0.42   1.62      0   0.84
+co-gas-paintbot-s2-cautious-richard         120   0.93      5    885   0.50   1.29      0   0.86
+nancy-paintbot-s2                           120   0.71      8    778   0.14   0.88      0   0.81
+starter-cautious                            120   0.68      7    954   1.23   0.88      0   0.79
+Monet                                       120   0.61      2    877   0.38   0.80      0   0.86
+starter-collaborative                       120   0.53      6   1158   1.25   0.75      0   0.87
+co-gas-paintbot-s2-cautious-relhalpha       120   0.41      4    594   0.44   0.56      0   0.76
+paintbot-huddle                             120   0.26      8    705   0.55   0.31      0   0.95
+```
