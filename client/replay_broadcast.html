@@ -1536,10 +1536,19 @@ html, body {
 #endcard .ec-teams.br {
   flex-direction: column;
   align-items: center;
+  /* flex-start, NOT the base class's justify-content:center: in a column
+     flex box that is also the scroll container, centered overflow clips
+     the TOP of the content beyond scroll reach — with the glory hero
+     grown to card scale that was the winner's own name. flex-start pins
+     the hero at the scrollport top and lets only the tail scroll. */
+  justify-content: flex-start;
   flex-wrap: nowrap;
   gap: calc(10 * var(--u));
   width: 100%;
   max-width: calc(360 * var(--u));
+  /* The glory-first hero is taller than the old two-line hero; 52% forced
+     an internal scroll on a plain 16:9 board. */
+  max-height: 62%;
 }
 #endcard .ec-hero {
   display: flex;
@@ -1575,7 +1584,7 @@ html, body {
 }
 #endcard .ec-hero.has-glory .ec-glory-hero { display: flex; }
 #endcard .ec-glory-hero-num {
-  font-size: calc(46 * var(--u));
+  font-size: calc(40 * var(--u));
   color: var(--amber);
   font-variant-numeric: tabular-nums;
   text-shadow: 0 0 calc(10 * var(--u)) rgba(232, 163, 61, 0.45), 0 calc(2 * var(--u)) 0 var(--ink);
