@@ -201,3 +201,72 @@ measured by a different agent with different code:
   Mean deaths of 21.6 of 24 reproduces the near-exhaustion picture exactly
   (this battery: loser 24, winner 19.2, mean 21.6). The finding is not an
   artifact of the arena map.
+
+================== CONFIRMATION ARM, pre-registered 2026-09-01 ==================
+Written BEFORE any champion self-play episode of this arm completed. The
+prior attempt at this arm (18 episodes, 5254 frames/ep, 0.75 captures/ep)
+was lost to a rate limit and is NOT pooled here.
+
+QUESTION
+  Does "the capture is the finisher on an attrition race that is ~93%
+  complete" hold on the build the league actually runs? The 239-episode
+  result above was measured on the 3,474-line repo baseline at plain
+  -d:release (SUBJECT CAVEAT above). It is now shaping strategy, so it
+  must be re-measured on the champion or withdrawn.
+
+SUBJECT -- the live champion, not the repo baseline with champion defines
+  paintbot-focusfire:v26 (champion.json pvid 7690b9b9, since 2026-08-06):
+  the private fork's baseline.nim (6,734 lines, player tree 825f2a74b8ea,
+  self-contained, no engine imports) at the LIVE 46-define set. The fork's
+  DEFINES file is the 47-define v25 seed; v26 dropped -d:gv36SlotHunt
+  ("GV40 era repair": v25 fired 4.6/ep against v26's 78-151). The
+  interrupted arm used the 47-define set against the REPO source, which is
+  neither the champion's code nor its live define set; its numbers are not
+  comparable and are reported only as what they were.
+  Built by exp/build_champion.sh: nim 2.2.6 arm64, compile line as the
+  fork's Dockerfile (-d:release -d:useMalloc --opt:speed --stackTrace:on).
+  Toolchain caveat: this compiles against the repo lock's bitworld
+  9af28b41 rather than the fork lock's 5d229acd; the shipped image is
+  linux/amd64 on nim 2.2.4.
+  Server: src/ctf.nim @ this branch (074ef5b4, 518 commits past the
+  champion's engine pin ec244e6), same repo config.json as every battery
+  above (8v8, arena, maxTicks 7200). This is the harness the calibration
+  (46.3%, [0.350,0.578], 0 skipped) was done on.
+
+SMOKE (lessons.md #10, a case whose answer is known): champ46 vs stock.out,
+  6 episodes, 6 in flight. Champion 5-1, kills/ep 23.2 vs 15.8, 0 skipped
+  frames, frames/ep 3935 +- 352. The build is alive and shoots; it is not
+  a blind bot.
+
+DESIGN
+  champ46 vs champ46 (self-play), 160 episodes, sides alternated exactly
+  as above, 6 in flight, one exclusive port each (2500-2505), this Mac
+  only. Draws excluded from the decisive denominator and reported.
+  Validity gate: 0 skipped frames in every episode. Any episode with a
+  skipped frame is reported and excluded; if more than 5% of episodes
+  skip, the whole arm is reported as invalid, not summarised.
+
+READOUT (exp/termination.py, unchanged) side by side with the baseline:
+  1. capture-ending vs elimination-ending share (exact 95% CI)
+  2. loser deaths at game end, each mode
+  3. captures landing with the loser already at >= 23/22/21/20/18/15 of 24
+  4. any decisive game resolved with the loser BELOW 15/24
+  plus frames/ep and captures/ep for the completed arm.
+
+WHAT "THE ATTRITION CLAIM SURVIVES" MEANS, fixed now:
+  Baseline: capture-ending loser deaths mean 22.3/24, 84.7% at >= 22,
+  min 15, 0/239 below 15.
+  SURVIVES   (a) 0 decisive episodes with the loser below 15/24 (exact
+                 upper 95% bound on that rate < 2.5% at n=160: 0/160), AND
+             (b) capture-ending loser deaths mean >= 21/24 (>= 87.5% of
+                 the pool, i.e. the race is still "~90% complete"), AND
+             (c) >= 70% of captures land with the loser at >= 22/24.
+  HALF       (a) holds but (b) or (c) fails: a capture still needs a
+             heavily attrited loser, but it is no longer merely the last
+             kill by another name -- kills remain the objective, the
+             "~93% complete / finisher" framing is withdrawn.
+  FAILS      (a) fails in more than 1 episode: captures resolve games
+             before attrition does on the champion build, and the
+             strategic conclusion drawn from the baseline is withdrawn.
+  These bars are not retuned after the data. A result between the bars is
+  reported as exactly that.
