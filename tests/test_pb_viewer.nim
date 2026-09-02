@@ -86,7 +86,13 @@ suite "broadcast chrome (both modes, one page)":
 
   test "the paintball chrome activates by frame content, never by default":
     check "var PB_MODE = false;" in page
-    check "s.regime !== undefined" in page
+    # modechrome lane: `s.regime` rides every squad-seated frame (BR AND
+    # Campaign/classic squad variants alike, not just Paintball), so the
+    # latch reads the wire's actual Paintball-exclusive tell (`hillOwner`,
+    # only ever emitted behind `sim.config.hill`, which only the `paintball`
+    # manifest variant sets) via isPaintballMode() instead.
+    check "function isPaintballMode(s) { return !!(s && s.hillOwner !== undefined); }" in page
+    check "if (!PB_MODE && isPaintballMode(s) && !isElim(s)) PB_MODE = true;" in page
     check "if (PB_MODE && window.PaintballChrome" in page
 
   test "chrome_common.js is byte-identical to the shared original":
