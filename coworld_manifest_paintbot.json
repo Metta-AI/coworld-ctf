@@ -1884,8 +1884,7 @@
         "barrageMaxPerSec": 15,
         "barrageStartPerSec": 4,
         "barrageStartSec": 30,
-        "barrageSaturateSec": 30,
-        "allowDeprecatedModes": true
+        "barrageSaturateSec": 30
       }
     },
     {
@@ -2147,8 +2146,7 @@
         "barrageMaxPerSec": 15,
         "barrageStartPerSec": 4,
         "barrageStartSec": 30,
-        "barrageSaturateSec": 30,
-        "allowDeprecatedModes": true
+        "barrageSaturateSec": 30
       }
     },
     {
@@ -2194,8 +2192,7 @@
         "barrageMaxPerSec": 15,
         "barrageStartPerSec": 4,
         "barrageStartSec": 30,
-        "barrageSaturateSec": 30,
-        "allowDeprecatedModes": true
+        "barrageSaturateSec": 30
       }
     },
     {

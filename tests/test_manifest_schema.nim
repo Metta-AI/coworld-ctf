@@ -227,13 +227,15 @@ suite "league manifest config_schema vs GameConfig":
         check variant["game_config"]["aimTurnRate"].getInt == expected
 
   test "published manifest leads with Season 2 and archive preserves nine ids":
-    ## TEMPORARY UNION: canonicalization refuses a manifest that strands a
-    ## league (HTTP 409, "existing Leagues are incompatible"), and the Elite
-    ## Paintbot league still references classic variants. The archived
-    ## variants therefore stay re-published BEHIND battle-royale-s2 until
-    ## every league migrates; the engine's allowDeprecatedModes boot refusal
-    ## still governs what can actually run live. Restore the s2-only pin
-    ## when the last legacy league reference is gone.
+    ## UNION, now permanent by owner reversal (2026-09-02): the season2-only
+    ## cleanup this union was staged to finish is reversed now that Season 2
+    ## is established -- "campaign" (1v1/2v2/4ffa) and "elite" (2v2) are
+    ## live leagues again, each carrying allowDeprecatedModes: true so they
+    ## boot (see the deprecated live-mode boot seam suite). CTF itself
+    ## ("ctf-default"/"ctf-1v1", and "default" which is CTF in all but
+    ## name) stays deprecated and dead: no override, still refused at live
+    ## boot. The ids below are therefore not a staging step to unwind --
+    ## they are the shipped shape.
     var variantIds: seq[string]
     for variant in parseFile(GameDir / ManifestName)["variants"]:
       variantIds.add variant["id"].getStr()
