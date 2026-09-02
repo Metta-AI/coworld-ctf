@@ -97,3 +97,34 @@ suite "shell FIRST LIGHT server seam":
     sim.fovCaches.setLen(0)
     let grenadeInputs = sim.firstLightBodyInputs(viewerIndex)
     check grenadeInputs.visibleTracks[0].weapon == some(bwGrenade)
+
+  test "item sightings are populated from the fixed pickup spawns":
+    # Before this pass nothing fed BodyTickInputs.sightedItems outside the
+    # tests, so body.items -- and the play view's items array -- stayed empty
+    # for the whole match and no play could ever see a pickup.
+    var sim = initSimServer(defaultGameConfig())
+    let viewerIndex = sim.addPlayer("red0")
+    let viewer = sim.players[viewerIndex]
+    sim.grenadeSpawns = @[PickupSpawn(x: viewer.x, y: viewer.y, present: true)]
+    sim.medKitSpawns = @[PickupSpawn(x: viewer.x + 1, y: viewer.y,
+      present: false, respawnAt: 999)]
+    sim.shieldSpawns = @[PickupSpawn(x: viewer.x, y: viewer.y + 1,
+      present: true)]
+    sim.sprayPaintSpawns.setLen(0)
+    sim.barrierSpawns.setLen(0)
+
+    let inputs = sim.firstLightBodyInputs(viewerIndex)
+    check inputs.sightedItems.len == 3
+    var kinds: seq[BodyItemKind]
+    for sighting in inputs.sightedItems:
+      kinds.add sighting.kind
+      check sighting.tick == uint32(sim.tickCount + 1)
+    check bikGrenade in kinds
+    check bikMedkit in kinds
+    check bikShield in kinds
+    for sighting in inputs.sightedItems:
+      if sighting.kind == bikMedkit:
+        check not sighting.present  # a taken kit is still a sighting
+        check sighting.pos == (viewer.x + 1, viewer.y)
+      else:
+        check sighting.present

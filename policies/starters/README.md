@@ -78,11 +78,15 @@ starters now stay connected until the server closes the socket:
    persona chose — a base that holds when idle, parked at spawn next to a
    hostile duo, was the aggressive starter's top cause of death.
 
-Why the harness gates instead of the wire's `when` guards: for play seats
-the engine currently evaluates guards against `noGuardContext()`
-(`src/shell/episode.nim`) — every path reads `0.0`/`false` — so a
-`self.hp_frac < 0.8` guard is always true and `partner.alive` always false.
-The harness deliberately never forwards `when`.
+Why the harness gates rather than relying on the wire's `when` guards: until
+2026-09-02 the engine evaluated play-seat guards against `noGuardContext()`
+(every path `0.0`/`false`), so `self.hp_frac < 0.8` was always true and
+`partner.alive` always false. The engine now builds a real context from the
+seat's own body (`src/shell/episode.nim playGuardContext`), so `when` guards
+work — but the harness keeps gating in Python too, because a gate that flips
+is also the trigger for re-sending the ladder, and because a starter that
+still runs against an older hosted image must not regress. The harness
+never forwards `when`.
 
 Robustness, both learned the hard way on hosted rounds: the play socket is
 opened with retries inside the lobby join allowance (`--connect-deadline`,

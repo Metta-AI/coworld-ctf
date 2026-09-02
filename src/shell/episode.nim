@@ -5,7 +5,7 @@
 ## actuation. This module owns only the server-side lifecycle,
 ## default-order installation, mask handoff, annotations, and timing split.
 
-import std/[json, monotimes, options, os, strformat, strutils, times]
+import std/[json, math, monotimes, options, os, strformat, strutils, times]
 import bitworld/spriteprotocol
 import ../ctf/sim_types
 import body_map
@@ -14,6 +14,7 @@ import reflexes
 import replay_records
 import types
 import standing_order
+import body
 # `view` needs no runtime (std, sim_types, body, body_map, canonical_fast,
 # finisher, types only) and server.nim imports it unconditionally; keeping
 # it under the runtime guard once hid PlayContextRosterRow from the stub
@@ -482,6 +483,8 @@ when ShellRuntimeAvailable:
     ReflexSubscription(kind: rkZoneEscape, epoch: 0)]
 
   proc noGuardContext(): IntentContext =
+    ## For seats with no body this tick (absent, dead, not playing). Every
+    ## path reads 0.0 / false; a live seat gets playGuardContext instead.
     IntentContext(
       resolveNumber: proc(path: string): float =
         discard path
@@ -489,6 +492,88 @@ when ShellRuntimeAvailable:
       resolveBool: proc(path: string): bool =
         discard path
         false)
+
+  proc pointDistancePx(a, b: BodyPoint): float =
+    let dx = float(a.x - b.x)
+    let dy = float(a.y - b.y)
+    sqrt(dx * dx + dy * dy)
+
+  proc rectEdgeDistancePx(point: BodyPoint, rect: MapRect): float =
+    ## 0 inside the rect; otherwise the straight-line distance to it.
+    let dx = max(max(rect.x - point.x, 0), point.x - (rect.x + rect.w - 1))
+    let dy = max(max(rect.y - point.y, 0), point.y - (rect.y + rect.h - 1))
+    sqrt(float(dx * dx + dy * dy))
+
+  proc playGuardContext*(body: SeatBody, facts: BrDefaultFacts): IntentContext =
+    ## The registered guard paths (src/ctf/policy_page.nim DefaultPaths)
+    ## resolved from this seat's own fogged body state -- the same facts the
+    ## plays read -- so a call's `when` guard evaluates over the live view as
+    ## the design promises. Before this, every play seat got noGuardContext()
+    ## and a guard like `self.hp_frac < 0.8` was always true.
+    ##
+    ## Sentinels follow the registry's contract: -1 where "never observed"
+    ## (partner.dist, nearest_enemy_dist, weakest_enemy_hp, medkit_dist,
+    ## item_dist), 0 for zone_dist when inside. The `intent.*` paths describe
+    ## a candidate intent being scored and have no meaning for a ladder
+    ## guard; they resolve to 0 / false.
+    let selfPos = body.selfState.pos
+    var enemyCount = 0
+    var nearestEnemy = -1.0
+    var weakestEnemy = -1.0
+    var partnerInCombat = false
+    let partner = facts.partner
+    for track in body.tracks:
+      if track.isNone:
+        continue
+      inc enemyCount
+      let d = pointDistancePx(selfPos, track.get.pos)
+      if nearestEnemy < 0 or d < nearestEnemy:
+        nearestEnemy = d
+      if track.get.hpKnown.isSome:
+        let hp = float(track.get.hpKnown.get)
+        if weakestEnemy < 0 or hp < weakestEnemy:
+          weakestEnemy = hp
+      if partner.isSome and partner.get.alive and
+          pointDistancePx(partner.get.pos, track.get.pos) <= 200.0:
+        partnerInCombat = true
+    var medkitDist = -1.0
+    var itemDist = -1.0
+    for item in body.items:
+      if not item.present:
+        continue
+      let d = pointDistancePx(selfPos, item.pos)
+      if item.kind == bikMedkit:
+        if medkitDist < 0 or d < medkitDist:
+          medkitDist = d
+      elif itemDist < 0 or d < itemDist:
+        itemDist = d
+    let hasZone = facts.currentZone.w > 0 and facts.currentZone.h > 0
+    let zoneDist = if hasZone: rectEdgeDistancePx(selfPos, facts.currentZone)
+      else: 0.0
+    let inZone = (not hasZone) or zoneDist <= 0.0
+    let hpFrac = body.selfState.hpFrac
+    let partnerAlive = partner.isSome and partner.get.alive
+    let partnerDist = if partner.isSome: pointDistancePx(selfPos, partner.get.pos)
+      else: -1.0
+    IntentContext(
+      resolveNumber: proc(path: string): float =
+        case path
+        of "self.hp_frac": hpFrac
+        of "partner.dist": partnerDist
+        of "world.enemy_count": float(enemyCount)
+        of "world.nearest_enemy_dist": nearestEnemy
+        of "world.weakest_enemy_hp": weakestEnemy
+        of "world.zone_dist": zoneDist
+        of "world.medkit_dist": medkitDist
+        of "world.item_dist": itemDist
+        of "intent.target_hp", "intent.target_dist": -1.0
+        else: 0.0,
+      resolveBool: proc(path: string): bool =
+        case path
+        of "partner.alive": partnerAlive
+        of "partner.in_combat": partnerInCombat
+        of "world.in_zone": inZone
+        else: false)
 
   proc firstLightContextBytes(episode: FirstLightEpisode; seatIndex: int;
                               frame: FirstLightSeatFrame): string =
@@ -1034,7 +1119,7 @@ proc step*(episode: var FirstLightEpisode,
             episode.firstLightViewBytes(seat, tick)
           else:
             episode.viewSource(seat, tick)),
-          guardContext: noGuardContext(),
+          guardContext: playGuardContext(state.body, facts),
           defaultIntent: finished.intent,
           defaultGoal: decision.goal,
           nativeBase: reflexDecision.nativeBase)

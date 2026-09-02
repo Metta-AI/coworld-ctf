@@ -1064,3 +1064,60 @@ suite "shell episode ladder":
       (if pass: "verdict=PASS" else: "verdict=FAIL")
     check sawReflexInstall
     check pass
+
+  test "play-seat guard context resolves the registered paths from the body":
+    # Before playGuardContext every live play seat got noGuardContext(): each
+    # registered path read 0.0 / false, so `self.hp_frac < 0.8` was always
+    # true and `partner.alive` always false whatever the match looked like.
+    let map = testMap()
+    let body = activateSeatBody(map, 3, 331)
+    var inputs = BodyTickInputs(self: BodySelfState(pos: (100, 100), hp: 2,
+      hpFrac: 2.0 / 3.0, alive: true))
+    inputs.visibleTracks.add BodyTrackUpdate(seat: 7, pos: (400, 100),
+      team: Blue, aimBrads: some(0), hpKnown: some(1), tick: 10)
+    inputs.partner = some(PartnerSample(seat: 11, pos: (150, 100),
+      aimBrads: 0, alive: true))
+    inputs.sightedItems = @[
+      ItemSighting(kind: bikMedkit, pos: (100, 160), present: true, tick: 10),
+      ItemSighting(kind: bikGrenade, pos: (100, 400), present: true, tick: 10),
+      ItemSighting(kind: bikShield, pos: (100, 110), present: false, tick: 10)]
+    body.updateBelief(inputs, 10)
+    let facts = brDefaultFacts(body, 10, BrDefaultFallbacks(
+      currentZone: MapRect(x: 0, y: 0, w: 256, h: 256),
+      nextZone: MapRect(x: 64, y: 64, w: 128, h: 128),
+      ticksToNextShrink: 100, zonePhase: 1))
+    let ctx = playGuardContext(body, facts)
+    check abs(ctx.resolveNumber("self.hp_frac") - 2.0 / 3.0) < 1e-6
+    check ctx.resolveNumber("world.enemy_count") == 1.0
+    check abs(ctx.resolveNumber("world.nearest_enemy_dist") - 300.0) < 1e-6
+    check ctx.resolveNumber("world.weakest_enemy_hp") == 1.0
+    check abs(ctx.resolveNumber("world.medkit_dist") - 60.0) < 1e-6
+    # the shield is seen-but-taken, so the nearest non-medkit item is the grenade
+    check abs(ctx.resolveNumber("world.item_dist") - 300.0) < 1e-6
+    check ctx.resolveBool("partner.alive")
+    check abs(ctx.resolveNumber("partner.dist") - 50.0) < 1e-6
+    check not ctx.resolveBool("partner.in_combat")  # enemy is 250 px from partner
+    check ctx.resolveBool("world.in_zone")
+    check ctx.resolveNumber("world.zone_dist") == 0.0
+    check ctx.resolveNumber("intent.target_dist") == -1.0
+    check not ctx.resolveBool("intent.is_enemy")
+
+  test "play-seat guard context reports the sentinels when nothing was seen":
+    let map = testMap()
+    let body = activateSeatBody(map, 4, 331)
+    body.updateBelief(BodyTickInputs(self: BodySelfState(pos: (300, 300),
+      hp: 3, hpFrac: 1.0, alive: true)), 5)
+    let facts = brDefaultFacts(body, 5, BrDefaultFallbacks(
+      currentZone: MapRect(x: 0, y: 0, w: 256, h: 256),
+      nextZone: MapRect(x: 0, y: 0, w: 128, h: 128),
+      ticksToNextShrink: 100, zonePhase: 1))
+    let ctx = playGuardContext(body, facts)
+    check ctx.resolveNumber("world.enemy_count") == 0.0
+    check ctx.resolveNumber("world.nearest_enemy_dist") == -1.0
+    check ctx.resolveNumber("world.weakest_enemy_hp") == -1.0
+    check ctx.resolveNumber("world.medkit_dist") == -1.0
+    check ctx.resolveNumber("world.item_dist") == -1.0
+    check ctx.resolveNumber("partner.dist") == -1.0
+    check not ctx.resolveBool("partner.alive")
+    check not ctx.resolveBool("world.in_zone")   # (300, 300) is outside 0..255
+    check ctx.resolveNumber("world.zone_dist") > 0.0

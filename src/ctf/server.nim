@@ -3678,6 +3678,23 @@ proc firstLightBodyInputs(sim: var SimServer, playerIndex: int): BodyTickInputs 
         weapon: target.bodyVisibleWeapon,
         veteranMarker: target.bodyVeteranMarker,
         tick: uint32(sim.tickCount + 1)))
+  # Item sightings: every fixed pickup point inside this seat's fog, whether
+  # the item is there or taken (the body's item memory keeps "seen empty"
+  # facts so a play stops chasing a kit someone else grabbed). Until this
+  # pass existed nothing fed BodyTickInputs.sightedItems outside the tests,
+  # so body.items -- and with it the play view's `items` array -- was always
+  # empty in live play: supply_run and loot could never see a pickup.
+  template sight(spawns: seq[PickupSpawn], itemKind: BodyItemKind) =
+    for spawn in spawns:
+      if sim.fovVisibleAt(playerIndex, spawn.x, spawn.y):
+        result.sightedItems.add(ItemSighting(kind: itemKind,
+          pos: (spawn.x, spawn.y), present: spawn.present,
+          tick: uint32(sim.tickCount + 1)))
+  sight(sim.grenadeSpawns, bikGrenade)
+  sight(sim.medKitSpawns, bikMedkit)
+  sight(sim.shieldSpawns, bikShield)
+  sight(sim.sprayPaintSpawns, bikSpray)
+  sight(sim.barrierSpawns, bikBarrier)
 
 proc firstLightVelocity(sim: SimServer, playerIndex: int): int =
   let player = sim.players[playerIndex]
