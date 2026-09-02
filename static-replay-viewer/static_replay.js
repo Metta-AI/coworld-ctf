@@ -1,7 +1,19 @@
 (function () {
   'use strict';
 
+  // Observatory readiness protocol. A second channel beside the page's
+  // ?embed=1 postToShell bridge: the host keeps a "Loading replay..." overlay
+  // over this iframe until `ready`, shows `error`, and stamps each `phase`
+  // with its own clock (so no timestamps travel). Target origin is '*': the
+  // bundle cannot know its embedder and the payload is timings only.
+  function tellHost(message) {
+    if (window.parent === window) return;
+    window.parent.postMessage(Object.assign({ src: 'coworld-replay' }, message), '*');
+  }
+  tellHost({ type: 'loading' });
+
   var failed = false;
+  var readyPosted = false;
   var scriptUrl = document.currentScript && document.currentScript.src;
   var workerUrl = new URL('./static_replay_worker.js', scriptUrl || location.href);
 
@@ -11,6 +23,10 @@
     // diagnostic instead of overwriting it with the generic one.
     if (failed) return;
     failed = true;
+    tellHost({
+      type: 'error',
+      message: error && error.message ? error.message : String(error)
+    });
     // The failure marker, on <html>, next to data-replay-loaded: without it a
     // deadlocked bundle is indistinguishable from a slow one, and every
     // failure mode below degrades to the harness's timeout instead of an
@@ -24,6 +40,14 @@
       status.textContent = 'Replay failed: ' + (error.message || String(error));
       status.classList.add('show');
     }
+  }
+
+  function markReady() {
+    // One animation frame after the first drawn frame, so the host lifts its
+    // overlay onto a painted board rather than a black stage.
+    if (readyPosted) return;
+    readyPosted = true;
+    requestAnimationFrame(function () { tellHost({ type: 'ready' }); });
   }
 
   function setMismatchTick(tick) {
@@ -157,6 +181,7 @@
           if (config.onStatus) config.onStatus(message.status);
         } else if (message.type === 'firstFrame') {
           if (config.onFirstFrame) config.onFirstFrame();
+          markReady();
         } else if (message.type === 'transform') {
           transform = message.transform;
           // The view lives a thread away, so the page's controls can only learn
@@ -178,6 +203,7 @@
           }
           loaded = true;
           document.documentElement.setAttribute('data-replay-loaded', 'true');
+          markReady();
           requestAnimationFrame(animate);
         } else if (message.type === 'advanced') {
           setMismatchTick(message.mismatchTick);
@@ -190,6 +216,14 @@
           // One frame the Worker ran on its own to apply a viewer input
           // promptly. Nothing to reschedule — the rAF loop owns pacing.
           setMismatchTick(message.mismatchTick);
+        } else if (message.type === 'phase') {
+          // The Worker has no window.parent of its own; relay its load marks.
+          tellHost({
+            type: 'phase',
+            phase: message.phase,
+            bytes: message.bytes,
+            compressed: message.compressed
+          });
         } else if (message.type === 'error') {
           showFailure(new Error(message.message || 'Replay Worker failed'));
           stop();
