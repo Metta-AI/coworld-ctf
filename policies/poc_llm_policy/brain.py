@@ -39,6 +39,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import time
 import urllib.error
 import urllib.request
@@ -287,9 +288,39 @@ class OpenAiChatBrain:
         except (KeyError, IndexError) as error:
             raise BrainError(f"unexpected completion response: {payload}") from error
         try:
-            return json.loads(content)
-        except json.JSONDecodeError as error:
+            return parse_model_json(content)
+        except ValueError as error:
             raise BrainError(f"model did not return JSON: {content[:400]}") from error
+
+
+def parse_model_json(text: str) -> dict:
+    """Parse the JSON object a chat model returned, tolerating the wrappers
+    models actually emit.
+
+    ``response_format: json_object`` is a request, not a guarantee: the hosted
+    sidecar has returned Claude's answer wrapped in a ```json fence (Paintbot
+    league round 3625, 2026-09-02), and a policy that fed that straight to
+    ``json.loads`` died with "model did not return JSON" and lost its seat.
+    Accepted shapes, in order: the bare object; the object inside the first
+    ```…``` fence (with or without a language tag); the outermost ``{…}`` span
+    in surrounding prose. Anything else, including a top-level array, raises
+    ``ValueError`` so the caller's degrade path still fires for real garbage.
+    """
+    candidates = [text.strip()]
+    fence = re.search(r"```[A-Za-z0-9_-]*\s*\n?(.*?)```", text, re.DOTALL)
+    if fence:
+        candidates.append(fence.group(1).strip())
+    first, last = text.find("{"), text.rfind("}")
+    if first != -1 and last > first:
+        candidates.append(text[first:last + 1])
+    for candidate in candidates:
+        try:
+            parsed = json.loads(candidate)
+        except json.JSONDecodeError:
+            continue
+        if isinstance(parsed, dict):
+            return parsed
+    raise ValueError("no JSON object in model output")
 
 
 class BedrockInvokeBrain:
@@ -356,8 +387,8 @@ class BedrockInvokeBrain:
             raise BrainError(f"unexpected InvokeModel response: {payload}") from error
         text = "{" + text
         try:
-            return json.loads(text)
-        except json.JSONDecodeError as error:
+            return parse_model_json(text)
+        except ValueError as error:
             raise BrainError(f"model did not return JSON: {text[:400]}") from error
 
 

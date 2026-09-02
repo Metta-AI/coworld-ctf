@@ -284,6 +284,42 @@ suite "ctf replay":
     check reWall == 0
     check reFov == 0
 
+  test "a seat-count config echoes num_agents so playback rebuilds the same game":
+    ## Hosted classic variants set num_agents so the platform can seat
+    ## policies. gameHash, playback's leave handling and resetToLobby all key
+    ## on numAgents, so a recording that drops the key re-simulates a
+    ## structurally different game and fails its hash check at tick 1 — the
+    ## Season 2 league's replays did exactly that. Default-only configs keep
+    ## echoing nothing, so the classic fixtures' headers stay byte-identical.
+    var seated = defaultGameConfig()
+    seated.update("""{"num_agents": 16}""")
+    let echoed = parseJson(seated.configJson())
+    check echoed["num_agents"].getInt() == 16
+    var round = defaultGameConfig()
+    round.update(seated.configJson())
+    check round.numAgents == 16
+    check not parseJson(defaultGameConfig().configJson()).hasKey("num_agents")
+
+  test "the seat-count fixture re-simulates hash-clean":
+    ## tests/fixtures/seats-numagents16.bitreplay is a classic game recorded
+    ## with num_agents: 16 — the hosted league's config shape — and is the
+    ## regression guard for the echo above (recorded before the fix, it
+    ## mismatched at tick 1).
+    let data = loadReplay(
+      GameDir / "tests" / "fixtures" / "seats-numagents16.bitreplay")
+    check parseJson(data.configJson)["num_agents"].getInt() == 16
+    var
+      sim = data.initReplaySim()
+      replay = initReplayPlayer(data)
+    check sim.config.numAgents == 16
+    replay.looping = false
+    replay.mismatchQuit = true
+    while replay.playing:
+      replay.stepReplay(sim)
+    check replay.hashIndex == data.hashes.len
+    check not replay.hashValidationFailed
+    check replay.hashMismatchTick == -1
+
   test "hashes match":
     let data = loadReplay(CtfReplayPath)
     var

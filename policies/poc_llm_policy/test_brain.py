@@ -175,3 +175,62 @@ else:
     print("starter-harness repair over the degraded decision: OK")
 
 print("test_brain: all assertions passed")
+
+# ── 6. A model that fences its JSON (```json … ```) still yields a decision ─
+# Observed live (Paintbot league round 3625, 2026-09-02): the sidecar returned
+# Claude's answer wrapped in a markdown code fence despite response_format
+# json_object, and the policy died with "model did not return JSON". The
+# contract: fenced or prose-wrapped JSON parses; the model call COUNTS as a
+# completed call (no degrade); only genuinely non-JSON output degrades.
+class FencedJson(BaseHTTPRequestHandler):
+    hits = 0
+    reply = ('Here is my call:\n```json\n{"chat": "fenced line",\n "call": '
+             '{"entries": [{"play": "edge_ride", "entry_id": "zone_ride",'
+             ' "params": {"margin": 280}}]}}\n```\nGood luck.')
+
+    def do_POST(self):
+        type(self).hits += 1
+        self.rfile.read(int(self.headers.get("Content-Length", 0)))
+        body = json.dumps({"choices": [{"message": {
+            "content": self.reply}}]}).encode("utf-8")
+        self.send_response(200)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
+    def log_message(self, *args):
+        pass
+
+
+fenced_server = HTTPServer(("127.0.0.1", 0), FencedJson)
+threading.Thread(target=fenced_server.serve_forever, daemon=True).start()
+fenced_endpoint = f"http://127.0.0.1:{fenced_server.server_port}"
+
+with env(**{**CLEAN, "AWS_ENDPOINT_URL_BEDROCK_RUNTIME": fenced_endpoint,
+            "BEDROCK_MODEL": INJECTED}):
+    engine, why = brain.build_brain(False, brain.DEFAULT_MODEL)
+    log = io.StringIO()
+    with contextlib.redirect_stdout(log):
+        decision = engine.decide("lobby, before the drop")
+    assert decision["chat"] == "fenced line", decision
+    assert entries_of(decision)[0]["entry_id"] == "zone_ride", decision
+    assert engine.error is None, f"fenced JSON must not degrade: {engine.error}"
+    assert engine.calls == 1, engine.calls
+    assert "playing on" not in log.getvalue(), log.getvalue()
+
+# The pure parser, on the shapes the sidecar has been seen to return.
+assert brain.parse_model_json('{"a": 1}') == {"a": 1}
+assert brain.parse_model_json('```json\n{"a": 1}\n```') == {"a": 1}
+assert brain.parse_model_json('```\n{"a": [1, 2]}\n```') == {"a": [1, 2]}
+assert brain.parse_model_json('Sure! {"a": {"b": "}"}} trailing') == {"a": {"b": "}"}}
+for bad in ("", "no json here", "```json\n{not json}\n```", "[1, 2]"):
+    try:
+        brain.parse_model_json(bad)
+    except ValueError:
+        pass
+    else:
+        raise AssertionError(f"parse_model_json accepted {bad!r}")
+
+fenced_server.shutdown()
+print("fenced-JSON model output: OK")
