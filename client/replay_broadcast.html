@@ -3768,7 +3768,7 @@ body[data-noviewpanel] #viewpanel { display: none !important; }
       badge = '<span class="badge">double KO</span>';
       row.innerHTML = '<span class="who ' + (victimTeam || '') + '">' + esc(shortName(rosterName(s, victim))) + '</span>' + badge;
     } else {
-      if (e.tk) { badge = '<span class="badge tk">team kill</span>'; row.classList.add('flagkill'); }
+      if (e.tk) { badge = '<span class="badge tk">friendly tag</span>'; row.classList.add('flagkill'); }
       var killerName = killer >= 0 ? shortName(rosterName(s, killer)) : 'the arena';
       row.innerHTML = '<span class="who ' + (killerTeam || '') + '">' + esc(killerName) + '</span>' +
         '<span class="glyph">' + glyph + '</span>' +
@@ -3952,7 +3952,7 @@ body[data-noviewpanel] #viewpanel { display: none !important; }
     var html = '';
     function rowHtml(p) {
       var mvp = mvpSlot != null && p.s === mvpSlot;
-      var marks = endcardBadge('bs', p.tk, 'Backstab — killed a teammate');
+      var marks = endcardBadge('bs', p.tk, 'Backstab — tagged a teammate');
       var cluster = (p.mk2 || 0) + (p.mk3 || 0);
       return '<div class="ec-row' + (mvp ? ' mvp' : '') + '">' +
         '<span class="pcell">' +
