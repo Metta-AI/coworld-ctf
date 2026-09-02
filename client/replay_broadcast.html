@@ -507,6 +507,19 @@ html, body {
 }
 .clock.tiebreak-warn .time { color: var(--amber); }
 
+/* B3: "5 TEAMS · 7 COGS" -- one explicit phrase tying the two BR .br-stat
+   blocks together, centered under the clock (see markup comment above).
+   Same restrained caption styling as .br-stat-label; hidden outside BR
+   "many" mode. */
+.br-relate {
+  font-family: var(--finefont);
+  font-size: calc(7.5 * var(--u));
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--paper-dim);
+  white-space: nowrap;
+}
+
 /* Center column holds just the clock now — the capture-chase gauge was retired
    in favor of the two bottom carry indicators. */
 .clock-col {
@@ -603,7 +616,7 @@ html, body {
 .feed-row.leaving { animation: feedout 260ms ease-in forwards; }
 @keyframes feedin { from { transform: translateX(calc(30 * var(--u))); opacity: 0; } to { transform: none; opacity: 1; } }
 @keyframes feedout { to { opacity: 0; transform: translateX(calc(14 * var(--u))); } }
-.feed-row .who { white-space: nowrap; }  /* names are pre-bounded to 10 chars by shortName(); show in full, never ellipsize */
+.feed-row .who { white-space: nowrap; }  /* names are pre-bounded to 10 chars (incl. any …) by shortName(); show in full, no CSS ellipsize needed on top */
 .feed-row .who { color: var(--tc, var(--paper)); }
 .feed-row .glyph { color: var(--paper); font-size: calc(9 * var(--u)); }
 .feed-row .badge {
@@ -1728,6 +1741,12 @@ body[data-live] #transport { display: none !important; }
           <span class="ffwd-mini" id="ffwd-mini">▸▸</span>
           <div class="caption" id="clock-caption">In the locker room</div>
         </div>
+        <!-- B3: BR-only (>4 teams) bridge between the two per-side stat
+             blocks (Teams alive / Cogs standing, see .br-stat) -- those read
+             as two unrelated numbers to a cold viewer who doesn't already
+             know a "team" is several cogs. Sits equidistant from both,
+             toggled by ensureScorebug, text filled by renderScorebug. -->
+        <div class="br-relate" id="br-relate" style="display:none"></div>
       </div>
 
       <div class="plates" id="plates-r"></div>
@@ -2391,6 +2410,198 @@ body[data-live] #transport { display: none !important; }
     if (endgameCamRaf == null) endgameCamRaf = requestAnimationFrame(endgameCamTick);
   }
 
+  // ---- Mid-round fight camera (Broadcast Round 2, B1) ---------------------
+  // The endgame camera above only engages once the field is down to 4-or-
+  // fewer alive teams — for a full BR field (8-16), that is the LAST 10-20%
+  // of a match. THEATER's re-audit found the gap: for the other ~85% of
+  // watch time, mid-round fights happen as anonymous dots on the fitted-
+  // whole board, off-frame from whatever the camera happens to be centered
+  // on. This extends the same page-driven-auto-camera pattern (core stays
+  // dumb: read positions / compute a target / ease a view) to mid-round
+  // fight CLUSTERS.
+  //
+  // The wire's per-frame event stream carries only kill/respawn/steal/
+  // return/capture/phase/gameover (src/ctf/broadcast.nim's stepEvents) —
+  // there is no separate "hit"/"shot" beat on this channel (that lives only
+  // in the offline tier-2 jsonl extractor, src/ctf/events.nim, never sent
+  // live). A `kill` event IS a fight resolving, so it is the fight-location
+  // signal this camera uses — the same feed already rendering into
+  // #killfeed via applyEvent below, not a new subscription. Each kill's
+  // location is read off whichever combatant's rig-head object is still
+  // resolvable this tick (killer preferred — the victim's own object may
+  // already be gone the instant it dies; see registerFightPoint), through
+  // the SAME core.getObjectPositions the endgame camera uses — no game-logic
+  // duplication here either.
+  //
+  // Recent kill points are grouped into clusters (single-link by radius);
+  // the camera eases toward the largest ACTIVE cluster's bbox, and eases
+  // back to the fitted-whole overview once nothing recent remains. Two
+  // requirements from the brief map directly to state below: "never
+  // whiplash" -> FIGHT_CAM_SWITCH_COOLDOWN_TICKS gates committing to a
+  // DIFFERENT cluster (the current cluster's own bbox keeps updating every
+  // frame, uncooled, so it can still track a moving brawl); "if two
+  // clusters, stay wide" -> a tied largest-cluster weight is read as
+  // genuinely ambiguous and this camera backs off to overview rather than
+  // picking one arbitrarily.
+  //
+  // Mutually exclusive with the endgame camera (whichever is armed owns the
+  // frame) and gated the same way endgame's own eligibility is (teams.length
+  // <= 4 boards are already framed close by default — nothing to find).
+  var FIGHT_WINDOW_TICKS = 24 * 7;        // ~7s: how long a kill still reads
+                                           // as part of "this" fight
+  var FIGHT_CLUSTER_RADIUS = 260;         // map-px: points this close chain
+                                           // into one cluster (matches
+                                           // ENDGAME_CAM_MIN_SPAN's sense of
+                                           // "one readable slice of arena")
+  var FIGHT_CAM_MIN_WEIGHT = 2;           // a single stray kill alone in its
+                                           // neighborhood doesn't earn a pull
+                                           // -- needs >=2 recent kills nearby
+                                           // to read as an ONGOING fight
+  var FIGHT_CAM_EASE = 0.03;              // gentler than the endgame cam's
+                                           // 0.045: a mid-round pull competes
+                                           // with the default overview, so it
+                                           // should never feel snappy/urgent
+  var FIGHT_CAM_PAD = 0.45;               // more breathing room than endgame
+                                           // -- mid-round should still read
+                                           // as "somewhere on a big board"
+  var FIGHT_CAM_MIN_SPAN = 340;
+  var FIGHT_CAM_SWITCH_COOLDOWN_TICKS = 24 * 5; // 5s floor before committing
+                                           // to a DIFFERENT cluster's
+                                           // centroid -- the anti-whiplash
+                                           // rate limit
+  var fightPoints = [];        // recent {t, x, y} kill-derived fight points
+  var fightCamArmed = false;
+  var fightCamTarget = null;   // {zoom, focusX, focusY} -- a cluster bbox OR
+                                // the overview target
+  var fightCamRaf = null;
+  var fightCamCurrentCentroid = null;  // {x,y} of the cluster committed to
+  var fightCamLastSwitchTick = -Infinity;
+
+  function registerFightPoint(e, s) {
+    // Fires on every 'kill' event (applyEvent below), including trades. Try
+    // killer, then the trade partner, then the victim -- averaging whichever
+    // of those rig-head objects are still resolvable this tick, same
+    // degrade-gracefully contract as updateEndgameCameraTarget: a tick where
+    // NOTHING resolves just contributes no point rather than a bad one.
+    // LIVE-only, same as the camera itself (fightCamEligible) -- a replay
+    // scrub session can run for a long time and would otherwise accumulate
+    // fightPoints forever for a camera that can never arm to consume them.
+    if (!LIVE) return;
+    var slots = [];
+    if (e.killer >= 0) slots.push(e.killer);
+    if (e.trade >= 0) slots.push(e.trade);
+    slots.push(e.victim);
+    var ids = slots.map(function (slot) { return RIG_HEAD_OBJECT_BASE + slot; });
+    var pts = core.getObjectPositions(ids);
+    if (!pts.length) return;
+    var sx = 0, sy = 0;
+    pts.forEach(function (o) { sx += o.x; sy += o.y; });
+    fightPoints.push({ t: e.t, x: sx / pts.length, y: sy / pts.length });
+  }
+
+  function pruneFightPoints(nowTick) {
+    fightPoints = fightPoints.filter(function (p) { return nowTick - p.t <= FIGHT_WINDOW_TICKS; });
+  }
+
+  function clusterFightPoints() {
+    // Greedy single-link clustering: a point joins the first existing
+    // cluster it is within radius of ANY member of (chaining a spread-out
+    // brawl into one cluster even if its ends are farther apart than the
+    // radius), else starts a new one. N is a handful of recent kills at
+    // most -- O(n^2) is plenty.
+    var clusters = [];
+    fightPoints.forEach(function (p) {
+      var joined = null;
+      for (var i = 0; i < clusters.length && !joined; i++) {
+        var c = clusters[i];
+        for (var j = 0; j < c.points.length; j++) {
+          var q = c.points[j], dx = p.x - q.x, dy = p.y - q.y;
+          if (dx * dx + dy * dy <= FIGHT_CLUSTER_RADIUS * FIGHT_CLUSTER_RADIUS) { joined = c; break; }
+        }
+      }
+      if (joined) joined.points.push(p); else clusters.push({ points: [p] });
+    });
+    return clusters;
+  }
+
+  function dominantFightCluster() {
+    var clusters = clusterFightPoints();
+    if (!clusters.length) return null;
+    clusters.sort(function (a, b) { return b.points.length - a.points.length; });
+    var top = clusters[0], second = clusters[1];
+    if (top.points.length < FIGHT_CAM_MIN_WEIGHT) return null;
+    // "if two clusters, stay wide": a tied largest weight means there is no
+    // single dominant fight to commit to -- picking one over the other would
+    // be a coinflip that reads as favoritism, so back off to overview.
+    if (second && second.points.length === top.points.length) return null;
+    return top;
+  }
+
+  function fightCamEligible(s) {
+    if (!LIVE || !core.getObjectPositions || !core.frameTargetForBBox) return false;
+    if (!s || s.ph !== 'playing') return false;
+    if (endgameCamArmed) return false;  // endgame camera owns the frame once it's armed
+    return activeTeams(s).length > 4;   // small-roster board is already framed close
+  }
+
+  function updateFightCameraTarget(s) {
+    if (!fightCamEligible(s)) { fightCamArmed = false; return; }
+    pruneFightPoints(s.t);
+    var top = dominantFightCluster();
+    if (!top) {
+      // No active fight cluster (none recent, or an ambiguous tie): ease
+      // back to the full-board overview instead of holding a stale target --
+      // same "ease back to overview when it resolves" contract as the brief.
+      fightCamArmed = true;
+      fightCamCurrentCentroid = null;
+      fightCamTarget = { zoom: 1, focusX: (s.boardW || 0) / 2, focusY: (s.boardH || 0) / 2 };
+      return;
+    }
+    var minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+    top.points.forEach(function (p) {
+      if (p.x < minX) minX = p.x; if (p.x > maxX) maxX = p.x;
+      if (p.y < minY) minY = p.y; if (p.y > maxY) maxY = p.y;
+    });
+    var cx = (minX + maxX) / 2, cy = (minY + maxY) / 2;
+    var isSameCluster = fightCamCurrentCentroid &&
+      Math.hypot(cx - fightCamCurrentCentroid.x, cy - fightCamCurrentCentroid.y) <= FIGHT_CLUSTER_RADIUS;
+    if (!isSameCluster) {
+      // Anti-whiplash: committing to a DIFFERENT cluster is rate-limited.
+      // The current cluster's own bbox keeps updating every frame above
+      // (isSameCluster stays true as it drifts), so a moving brawl is still
+      // tracked live -- only a jump to a new location's cooled down.
+      if (s.t - fightCamLastSwitchTick < FIGHT_CAM_SWITCH_COOLDOWN_TICKS) return;
+      fightCamLastSwitchTick = s.t;
+    }
+    fightCamCurrentCentroid = { x: cx, y: cy };
+    fightCamArmed = true;
+    fightCamTarget = core.frameTargetForBBox(minX, minY, maxX, maxY, FIGHT_CAM_PAD, FIGHT_CAM_MIN_SPAN);
+  }
+
+  function fightCamTick() {
+    fightCamRaf = null;
+    if (!fightCamArmed || !fightCamTarget || endgameCamArmed) return;
+    var t = core.getTransform();
+    core.setView(
+      t.zoom + (fightCamTarget.zoom - t.zoom) * FIGHT_CAM_EASE,
+      t.focusX + (fightCamTarget.focusX - t.focusX) * FIGHT_CAM_EASE,
+      t.focusY + (fightCamTarget.focusY - t.focusY) * FIGHT_CAM_EASE
+    );
+    // Converged on the overview target with nothing new happening: let the
+    // chain end instead of holding a RAF forever -- the next fight cluster
+    // re-arms it via scheduleFightCamTick, same idiom as the endgame cam.
+    var settled = !fightCamCurrentCentroid &&
+      Math.abs(t.zoom - fightCamTarget.zoom) < 0.01 &&
+      Math.abs(t.focusX - fightCamTarget.focusX) < 2 &&
+      Math.abs(t.focusY - fightCamTarget.focusY) < 2;
+    if (settled) { fightCamArmed = false; return; }
+    fightCamRaf = requestAnimationFrame(fightCamTick);
+  }
+
+  function scheduleFightCamTick() {
+    if (fightCamRaf == null) fightCamRaf = requestAnimationFrame(fightCamTick);
+  }
+
   // ============================================================
   //  Frame ingest
   // ============================================================
@@ -2437,11 +2648,21 @@ body[data-live] #transport { display: none !important; }
       // same as any fresh board already does via updateNativeSize's own
       // reset when the map itself changes size.
       if (LIVE && core.resetView) core.resetView();
+      // Same reasoning for the fight camera (B1): a new round's kill history
+      // starts empty, and any in-flight cluster commitment from the PREVIOUS
+      // round must not bleed into this one's establishing frame.
+      fightPoints = [];
+      fightCamArmed = false;
+      fightCamTarget = null;
+      fightCamCurrentCentroid = null;
+      fightCamLastSwitchTick = -Infinity;
     }
     lastFf = !!s.ff;
 
     updateEndgameCameraTarget(s);
     if (endgameCamArmed) scheduleEndgameCamTick();
+    updateFightCameraTarget(s);
+    if (fightCamArmed) scheduleFightCamTick();
 
     renderScorebug(s);
     renderClock(s);
@@ -2616,6 +2837,10 @@ body[data-live] #transport { display: none !important; }
     sides[1].classList.toggle('row', teams.length > 2);
     sides[0].classList.toggle('many', many);
     sides[1].classList.toggle('many', many);
+    // B3: the connecting "N TEAMS · M COGS" phrase only makes sense once the
+    // two per-side blocks it bridges exist (the `many` branch below).
+    var relateEl = $('br-relate');
+    if (relateEl) relateEl.style.display = many ? '' : 'none';
     if (many) {
       // BR (16 seats): sixteen name+lives chips is unreadable noise — the
       // number that matters live is how many teams are still in it, not a
@@ -2691,6 +2916,14 @@ body[data-live] #transport { display: none !important; }
       (s.roster || []).forEach(function (p) { if (p.alive) cogsAlive++; });
       var cogsNum = $('br-cogs-num');
       if (cogsNum) cogsNum.textContent = cogsAlive;
+      // B3: spell the relationship out as one phrase (e.g. "5 TEAMS · 7
+      // COGS") instead of leaving it to two separately-labelled numbers a
+      // cold viewer has to reconcile themselves.
+      var relateEl = $('br-relate');
+      if (relateEl) {
+        relateEl.textContent = aliveTeams + ' TEAM' + (aliveTeams === 1 ? '' : 'S') +
+          ' · ' + cogsAlive + ' COG' + (cogsAlive === 1 ? '' : 'S');
+      }
       var aliveStat = $('br-stat-alive');
       if (aliveStat) {
         aliveStat.classList.toggle('urgent', aliveTeams > 0 && aliveTeams <= 3 && s.ph === 'playing');
@@ -2758,7 +2991,13 @@ body[data-live] #transport { display: none !important; }
     n = String(n || '');
     // Names are player addresses; keep them short + readable.
     var at = n.indexOf('@'); if (at > 0) n = n.slice(0, at);
-    if (n.length > 10) n = n.slice(0, 10);
+    // B2: a hard cut with no marker reads as a complete (if unusual) short
+    // name -- "Copper Anchor" silently became "Copper Anc". Truncating one
+    // char shorter and appending an ellipsis keeps the SAME total budget (10
+    // chars) but marks the cut as a cut, so a cold viewer never mistakes it
+    // for the whole name.
+    var MAX = 10;
+    if (n.length > MAX) n = n.slice(0, MAX - 1) + '…';
     return n || '?';
   }
 
@@ -3894,7 +4133,7 @@ body[data-live] #transport { display: none !important; }
   // ============================================================
   function applyEvent(e, s) {
     switch (e.k) {
-      case 'kill': onKill(e, s); markBeat(e.t, 'kill', killMarkerTeam(e, s)); beatPulse(); break;
+      case 'kill': onKill(e, s); markBeat(e.t, 'kill', killMarkerTeam(e, s)); beatPulse(); registerFightPoint(e, s); break;
       case 'steal': onSteal(e, s); markBeat(e.t, 'steal', e.flag); beatPulse(); break;
       case 'return': onReturn(e, s); markBeat(e.t, 'return', e.flag); beatPulse(); break;
       case 'capture': recordCapHeart(e); onCapture(e, s); markBeat(e.t, 'capture', captureTeam(s, e)); beatPulse(); break;
