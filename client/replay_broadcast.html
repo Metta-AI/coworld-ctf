@@ -1527,17 +1527,28 @@ html, body {
 }
 /* ---- BR (elim) variant: a winner-dominant hero card + a ranked, compressed
    field list — replaces the per-team KDA panel grid above, which is still
-   used as-is for classic 2-4 team CTF (#endcard .ec-teams:not(.br)). BR has
-   no per-match glory data yet (that lane lands separately), so this shows
-   only what the wire actually carries: lives, placement, and kills summed
-   from the roster — never a glory/XP/rank vocabulary. */
+   used as-is for classic 2-4 team CTF (#endcard .ec-teams:not(.br)).
+   GLORY-FIRST since 2026-09-01: the wire's per-team round glory
+   (over.teams[team].glory) is the hero's dominant numeral and each field
+   row's leading stat — see .ec-glory-hero / .ec-fglory above and
+   renderEndcardBR in JS; everything glory stays gated on the field
+   actually being present, so a pre-glory replay renders glory-free. */
 #endcard .ec-teams.br {
   flex-direction: column;
   align-items: center;
+  /* flex-start, NOT the base class's justify-content:center: in a column
+     flex box that is also the scroll container, centered overflow clips
+     the TOP of the content beyond scroll reach — with the glory hero
+     grown to card scale that was the winner's own name. flex-start pins
+     the hero at the scrollport top and lets only the tail scroll. */
+  justify-content: flex-start;
   flex-wrap: nowrap;
   gap: calc(10 * var(--u));
   width: 100%;
   max-width: calc(360 * var(--u));
+  /* The glory-first hero is taller than the old two-line hero; 52% forced
+     an internal scroll on a plain 16:9 board. */
+  max-height: 62%;
 }
 #endcard .ec-hero {
   display: flex;
@@ -1557,6 +1568,46 @@ html, body {
   font-size: calc(10.5 * var(--u));
   color: var(--paper-dim);
 }
+/* GLORY-FIRST ENDCARD (2026-09-01, owner's ruling: "the win slide at the
+   end doesn't even highlight how much glory the win was worth, the most
+   important thing!"). The winner's round glory total is THE number on the
+   slide — the same dominant-numeral treatment the scorebug redesign gave
+   .glory-num (glory leads, lives/kills demote), scaled up for the card.
+   Gated on .has-glory exactly like the scorebug plates: a pre-glory-port
+   replay never gains the class, so its endcard renders as before. */
+#endcard .ec-glory-hero {
+  display: none;
+  align-items: baseline;
+  gap: calc(8 * var(--u));
+  font-family: var(--pixfont);
+  line-height: 1;
+}
+#endcard .ec-hero.has-glory .ec-glory-hero { display: flex; }
+#endcard .ec-glory-hero-num {
+  font-size: calc(40 * var(--u));
+  color: var(--amber);
+  font-variant-numeric: tabular-nums;
+  text-shadow: 0 0 calc(10 * var(--u)) rgba(232, 163, 61, 0.45), 0 calc(2 * var(--u)) 0 var(--ink);
+}
+#endcard .ec-glory-hero-label {
+  font-size: calc(12 * var(--u));
+  letter-spacing: 0.14em;
+  color: var(--amber);
+  opacity: 0.85;
+}
+/* GLORY LEADER callout: the episode's highest-glory team, surfaced even
+   (especially) when it is NOT the survivor — a 4th-place team that
+   out-earned the winner IS the season's result, not a footnote. Empty
+   (and therefore hidden) when the wire carries no glory. */
+#endcard .ec-mvp-line {
+  font-family: var(--pixfont);
+  font-size: calc(11 * var(--u));
+  color: var(--amber);
+  letter-spacing: 0.03em;
+}
+#endcard .ec-mvp-line:empty { display: none; }
+#endcard .ec-mvp-line .ec-mvp-team { color: var(--tc, var(--amber)); }
+#endcard .ec-mvp-line .ec-mvp-dim { color: var(--paper-dim); }
 #endcard .ec-field {
   width: 100%;
   display: flex;
@@ -1573,6 +1624,21 @@ html, body {
   font-size: calc(11 * var(--u));
   background: rgba(20, 14, 9, 0.4);
 }
+/* GLORY-FIRST field rows: once the wire actually ships glory (.has-glory
+   on #ec-field), every real row gains a dedicated GLORY column right
+   after the name — amber and a step larger than the demoted kills/lives
+   figures, so it reads first. The compressed "+N more" row keeps its own
+   2-track template either way, and a pre-glory replay (no .has-glory)
+   keeps the original 4-track rows byte-for-byte. */
+#endcard .ec-field.has-glory .ec-frow:not(.ec-fcompressed) {
+  grid-template-columns: calc(28 * var(--u)) 1fr calc(44 * var(--u)) calc(30 * var(--u)) calc(44 * var(--u));
+}
+#endcard .ec-fglory {
+  color: var(--amber);
+  font-size: calc(12.5 * var(--u));
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
 #endcard .ec-frank {
   color: var(--paper-dim);
   font-size: calc(9 * var(--u));
@@ -1580,10 +1646,35 @@ html, body {
 }
 #endcard .ec-fname {
   color: var(--tc, var(--paper));
+  display: flex;
+  align-items: center;
+  gap: calc(5 * var(--u));
+  min-width: 0;
+  text-align: left;
   white-space: nowrap;
+}
+#endcard .ec-fname .ec-fname-text {
   overflow: hidden;
   text-overflow: ellipsis;
-  text-align: left;
+  min-width: 0;
+}
+/* BR identity IS the palette: every row wears its team swatch, and two
+   different duos running the SAME starter policy additionally carry
+   their seat range — never two bare identical labels. */
+#endcard .ec-fswatch {
+  width: calc(8 * var(--u));
+  height: calc(8 * var(--u));
+  border-radius: calc(2 * var(--u));
+  background: var(--tc, var(--paper-dim));
+  box-shadow: inset 0 0 0 calc(1 * var(--u)) rgba(0, 0, 0, 0.45);
+  flex: none;
+}
+#endcard .ec-fseats {
+  font-family: var(--finefont);
+  font-size: calc(8 * var(--u));
+  letter-spacing: 0.06em;
+  color: var(--paper-dim);
+  flex: none;
 }
 #endcard .ec-fstat {
   color: var(--paper-dim);
@@ -4868,6 +4959,14 @@ body[data-noviewpanel] #viewpanel { display: none !important; }
       hero.className = 'ec-hero';
       hero.innerHTML =
         '<div class="ec-hero-name" id="ec-hero-name">—</div>' +
+        // GLORY-FIRST (2026-09-01, owner's ruling): the winner's round
+        // glory total is THE number on the slide — the dominant numeral,
+        // above the demoted survival/kills summary — with the GLORY
+        // LEADER callout line beneath it. Both stay empty/hidden (CSS
+        // gates) on a replay whose wire carries no glory fields.
+        '<div class="ec-glory-hero"><span class="ec-glory-hero-num" id="ec-glory-hero-num">0</span>' +
+        '<span class="ec-glory-hero-label">GLORY</span></div>' +
+        '<div class="ec-mvp-line" id="ec-mvp-line"></div>' +
         '<div class="ec-hero-line" id="ec-hero-line"></div>';
       wrap.appendChild(hero);
       var field = document.createElement('div');
@@ -4928,14 +5027,54 @@ body[data-noviewpanel] #viewpanel { display: none !important; }
     return n;
   }
 
-  // BR end-card body: winner-dominant hero + the rest of the field in
-  // placement order, compressed past BR_SHOW_RANKS. Placement comes from the
-  // wire's over.teams[team].place when the server ships it (BR games only);
-  // an older replay without that field falls back to final-lives ordering —
-  // an honest approximation (ties at 0 lives keep their activeTeams order),
-  // never invented elimination time. No glory/XP/rank vocabulary anywhere
-  // here — kills/lives/placement are exactly what's computed, named for
-  // what they are.
+  function teamGloryOf(o, team) {
+    // The verdict frame's per-team round glory, or null when the wire
+    // predates the glory port (never coerce a missing field to 0 — 0 is a
+    // real ledger value).
+    var g = o.teams && o.teams[team] && o.teams[team].glory;
+    return typeof g === 'number' ? g : null;
+  }
+  function brTeamLabel(s, team) {
+    // BR endcard identity, per the scorebug v3 ruling (duos are TEAMS):
+    // ONE team name, never teamName()'s "A + B" join — a duo seating one
+    // shared policy resolves to that policy (teamPolicies already collapses
+    // the hosted runtime's "(N)" seat suffixes), anything without a single
+    // shared identity falls back to the palette name, which IS the BR team
+    // identity. Resolution stays rooted in the SEAT NAMES the roster
+    // records (p.pol / p.name) — the platform's endcard-identity rule.
+    var pols = teamPolicies(s, team);
+    return pols.length === 1 && pols[0] ? teamHeadline(pols[0]) : String(team).toUpperCase();
+  }
+  function brSeatRange(s, team) {
+    // The join slots seated on this team ("3+19" for an s2 duo's k/k+16
+    // mirror) — the disambiguator when two DIFFERENT duos genuinely run
+    // the same starter policy and would otherwise read as two bare
+    // identical rows.
+    var slots = [];
+    (s.roster || []).forEach(function (p) { if (p.team === team) slots.push(p.s); });
+    slots.sort(function (a, b) { return a - b; });
+    return slots.join('+');
+  }
+
+  // BR end-card body: GLORY-FIRST (2026-09-01, owner's ruling: "the win
+  // slide at the end doesn't even highlight how much glory the win was
+  // worth, the most important thing!"). The season's score IS glory — a
+  // ledger of deeds, not placement — so the winner's round glory total is
+  // the slide's dominant numeral (the scorebug's glory-leads treatment,
+  // scaled up), the survival/kills summary demotes to the line beneath,
+  // and a GLORY LEADER line calls out the episode's highest-glory team
+  // even — especially — when it is not the survivor: a 4th-place team
+  // that out-earned the winner is the result the season actually scores,
+  // not a footnote. The field list stays in placement order, but glory
+  // reads first in every row (its own amber column; kills/lives demote to
+  // trailing stats), and the glory leader's row is never compressed away.
+  // Placement comes from the wire's over.teams[team].place when the
+  // server ships it (BR games only); an older replay without that field
+  // falls back to final-lives ordering — an honest approximation (ties at
+  // 0 lives keep their activeTeams order), never invented elimination
+  // time. Every glory element is gated on the wire actually carrying a
+  // numeric glory field, so a pre-glory-port replay still renders the
+  // original glory-free card.
   function renderEndcardBR(s, o, teams) {
     var winner = o.draw ? null : o.winner;
     var ranked = teams.slice().sort(function (a, b) {
@@ -4946,26 +5085,55 @@ body[data-noviewpanel] #viewpanel { display: none !important; }
       if (b === winner) return 1;
       return overLives(o, b) - overLives(o, a);
     });
+    var placeOf = {};
+    ranked.forEach(function (team, i) {
+      placeOf[team] = (o.teams[team] && o.teams[team].place) || (i + 1);
+    });
+    var anyGlory = teams.some(function (t) { return teamGloryOf(o, t) !== null; });
+    // The episode's glory leader. Strict > keeps the FIRST team in
+    // placement order on a tie, so an equal-glory winner is never demoted
+    // by its own callout.
+    var gloryLeader = null, leaderGlory = -Infinity;
+    ranked.forEach(function (t) {
+      var g = teamGloryOf(o, t);
+      if (g !== null && g > leaderGlory) { leaderGlory = g; gloryLeader = t; }
+    });
+    // Identity: one label per team (scorebug v3 rule, brTeamLabel). Where
+    // two different teams resolve to the SAME label (two duos running one
+    // starter policy), each carries its seat range beside the palette
+    // swatch every row already wears — never two bare identical labels.
+    var labelOf = {}, labelCount = {};
+    teams.forEach(function (t) {
+      labelOf[t] = brTeamLabel(s, t);
+      labelCount[labelOf[t]] = (labelCount[labelOf[t]] || 0) + 1;
+    });
+    function labelHtml(team) {
+      return esc(labelOf[team]) +
+        (labelCount[labelOf[team]] > 1
+          ? ' <span class="ec-fseats">seats ' + esc(brSeatRange(s, team)) + '</span>' : '');
+    }
 
+    var heroEl = document.querySelector('#endcard .ec-hero');
     var heroName = $('ec-hero-name'), heroLine = $('ec-hero-line');
+    var heroGloryNum = $('ec-glory-hero-num'), mvpLine = $('ec-mvp-line');
+    var heroGlory = winner !== null ? teamGloryOf(o, winner) : null;
+    if (heroEl) heroEl.classList.toggle('has-glory', heroGlory !== null);
     if (winner) {
       heroName.style.setProperty('--tc', teamCol(winner) || AMBER);
-      heroName.textContent = teamName(s, winner, String(winner).toUpperCase());
+      heroName.innerHTML = labelHtml(winner);
+      if (heroGlory !== null && heroGloryNum) heroGloryNum.textContent = heroGlory;
       var rivals = teams.length - 1;
       var heroAlive = teamAliveCount(s, winner), heroSeats = teamSeatCount(s, winner);
       var heroKills = teamKillTotal(s, winner);
+      // Context only — the glory total is the numeral above, never
+      // repeated down here; kills and the achievements ledger read as the
+      // small print they now are.
       var heroLineText = 'Outlasted ' + rivals + (rivals === 1 ? ' rival team' : ' rival teams') +
         ' — ' + heroAlive + ' of ' + heroSeats + (heroSeats === 1 ? ' cog' : ' cogs') +
         ' standing · ' + heroKills + (heroKills === 1 ? ' kill' : ' kills');
-      // SEASON 2: fold the winner's MATCH GLORY total + claimed-tier count
-      // onto the same summary line, rather than growing a 16-team field grid
-      // with a glory column no one but the winner needs to compare — the
-      // per-team breakdown belongs on the CTF/PB panel above, not here.
-      var heroGlory = o.teams && o.teams[winner] && o.teams[winner].glory;
-      if (typeof heroGlory === 'number') {
-        heroLineText += ' · ' + heroGlory + ' glory';
+      if (heroGlory !== null) {
         var heroClaims = (o.achievements || []).filter(function (c) { return c.team === winner; });
-        if (heroClaims.length) heroLineText += ' (' + heroClaims.length + '/' + ACH_TOTAL + ' achievements)';
+        if (heroClaims.length) heroLineText += ' · ' + heroClaims.length + '/' + ACH_TOTAL + ' achievements';
       }
       heroLine.textContent = heroLineText;
     } else {
@@ -4973,28 +5141,41 @@ body[data-noviewpanel] #viewpanel { display: none !important; }
       heroName.textContent = 'NO SURVIVORS';
       heroLine.textContent = 'Every team was eliminated — no team left standing.';
     }
+    if (mvpLine) {
+      mvpLine.innerHTML = anyGlory && gloryLeader !== null
+        ? 'GLORY LEADER — <span class="ec-mvp-team" style="--tc:' +
+          (teamCol(gloryLeader) || AMBER) + '">' + labelHtml(gloryLeader) +
+          '</span> ' + leaderGlory + 'g <span class="ec-mvp-dim">(' +
+          ordinal(placeOf[gloryLeader]) + ')</span>'
+        : '';
+    }
 
     var rest = winner ? ranked.filter(function (t) { return t !== winner; }) : ranked;
     var shown = rest.slice(0, BR_SHOW_RANKS);
-    var hidden = rest.slice(BR_SHOW_RANKS);
+    // The glory leader's row never compresses away: past the cut it is
+    // pulled in as one extra row — placement order is preserved because a
+    // hidden leader can only rank BELOW the cut, so it appends after the
+    // shown block.
+    if (gloryLeader !== null && gloryLeader !== winner && shown.indexOf(gloryLeader) < 0) {
+      shown = shown.concat([gloryLeader]);
+    }
+    var hidden = rest.filter(function (t) { return shown.indexOf(t) < 0; });
     var html = '';
-    shown.forEach(function (team, i) {
-      var place = (o.teams[team] && o.teams[team].place) || (i + (winner ? 2 : 1));
+    shown.forEach(function (team) {
       var lv = overLives(o, team);
-      var fg = o.teams[team] && o.teams[team].glory;
-      // SEASON 2: glory folds into the existing lives cell (a "N lives ·
-      // Mg" combined readout) rather than adding a 5th grid column — the
-      // BR field grid's `.ec-frow` template is a fixed 4-track grid
-      // (rank/name/kills/lives) shared by every row including the
-      // compressed "+N more" row, so widening it would need a second,
-      // parallel template just for this one extra figure.
+      var fg = teamGloryOf(o, team);
       html += '<div class="ec-frow">' +
-        '<span class="ec-frank">' + ordinal(place) + '</span>' +
+        '<span class="ec-frank">' + ordinal(placeOf[team]) + '</span>' +
         '<span class="ec-fname" style="--tc:' + (teamCol(team) || AMBER) + '">' +
-        esc(teamName(s, team, team.toUpperCase())) + '</span>' +
+        '<span class="ec-fswatch"></span>' +
+        '<span class="ec-fname-text">' + esc(labelOf[team]) + '</span>' +
+        (labelCount[labelOf[team]] > 1
+          ? '<span class="ec-fseats">seats ' + esc(brSeatRange(s, team)) + '</span>' : '') +
+        '</span>' +
+        (anyGlory
+          ? '<span class="ec-fglory">' + (fg !== null ? fg + 'g' : '—') + '</span>' : '') +
         '<span class="ec-fstat">' + teamKillTotal(s, team) + ' K</span>' +
-        '<span class="ec-fstat">' + lv + (lv === 1 ? ' life' : ' lives') +
-        (typeof fg === 'number' ? ' · ' + fg + 'g' : '') + '</span>' +
+        '<span class="ec-fstat">' + lv + (lv === 1 ? ' life' : ' lives') + '</span>' +
         '</div>';
     });
     if (hidden.length) {
@@ -5003,7 +5184,9 @@ body[data-noviewpanel] #viewpanel { display: none !important; }
         '<span class="ec-fname">' + hidden.length + ' more eliminated earlier</span>' +
         '</div>';
     }
-    $('ec-field').innerHTML = html;
+    var field = $('ec-field');
+    field.classList.toggle('has-glory', anyGlory);
+    field.innerHTML = html;
   }
 
   // SEASON 2: this team's claimed-tier line for the endcard — "N/40 · +180"
@@ -5038,7 +5221,20 @@ body[data-noviewpanel] #viewpanel { display: none !important; }
     $('ec-replay').innerHTML = s.lp && s.hold > 0
       ? 'Replaying in <b>' + s.hold + '</b>' : '';
 
-    var key = [s.mx, o.winner, o.draw, o.timeLimit, (s.roster || []).length].join('|');
+    // The verdict frame's glory joins the render key: server-side the over
+    // frame reads sim.teamGlory live on every game-over frame and the
+    // terminal-tick conclusion sweep (finishGame's
+    // evalAchievementsAtConclusion) runs synchronously BEFORE the first
+    // such frame, so the first render already includes what the win
+    // minted — but if minting ever landed on a LATER game-over frame, a
+    // glory-blind key would hold the stale pre-mint card forever. Keying
+    // on the summed ledger re-renders on any late-landing glory instead.
+    var gsum = 0;
+    if (o.teams) teams.forEach(function (t) {
+      var g = o.teams[t] && o.teams[t].glory;
+      if (typeof g === 'number') gsum += g;
+    });
+    var key = [s.mx, o.winner, o.draw, o.timeLimit, (s.roster || []).length, gsum].join('|');
     if (card._key === key) return;
     card._key = key;
 
@@ -5132,7 +5328,11 @@ body[data-noviewpanel] #viewpanel { display: none !important; }
     }
 
     var winner = o.winner;
-    var winName = teamName(s, winner, String(winner).toUpperCase());
+    // BR identity rule (scorebug v3, duos are TEAMS): the elim headline
+    // takes ONE resolved name — never teamName()'s "A + B" join, which on
+    // this board reads as the team listed twice.
+    var winName = elim ? brTeamLabel(s, winner)
+      : teamName(s, winner, String(winner).toUpperCase());
     card.style.setProperty('--tc', teamCol(winner) || AMBER);
     head.className = 'headline ' + winner;
     head.textContent = winName + ' WINS';
