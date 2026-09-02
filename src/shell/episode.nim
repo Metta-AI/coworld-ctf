@@ -202,16 +202,19 @@ proc playZoneTicksToShrink(value: int): int =
   else:
     value
 
-proc firstLightViewBytes*(episode: FirstLightEpisode; seatIndex: int;
-                          tick: uint32): string =
-  when ShellRuntimeAvailable:
+when ShellRuntimeAvailable:
+  proc firstLightPlayViewSource(episode: FirstLightEpisode; seatIndex: int;
+                                tick: uint32): Option[PlayViewSource] =
+    ## The one fogged per-seat view source. Both encoders below MUST feed
+    ## from here so the guest and the socket can never observe different
+    ## worlds for one seat at one tick.
     let frame = episode.frameForSeat(seatIndex)
     if frame.isNone:
-      return "{}"
+      return none(PlayViewSource)
     for state in episode.seats:
       if state.active and state.seat.int == seatIndex:
         let fallbacks = frame.get.defaultFallbacks
-        let source = playViewSourceFromBody(
+        return some(playViewSourceFromBody(
           state.body,
           tick,
           if episode.brMode: gmBr else: gmCtf,
@@ -226,9 +229,39 @@ proc firstLightViewBytes*(episode: FirstLightEpisode; seatIndex: int;
               h: fallbacks.nextZone.h)),
             ticksToShrink:
               playZoneTicksToShrink(fallbacks.ticksToNextShrink),
-            dps: fallbacks.zoneDps)))
-        return buildBinaryPlayView(source)
+            dps: fallbacks.zoneDps))))
+    none(PlayViewSource)
+
+proc firstLightViewBytes*(episode: FirstLightEpisode; seatIndex: int;
+                          tick: uint32): string =
+  ## The GUEST's copy: the fixed-layout PV1 binary frame (the 2026-08-31
+  ## lane-C ruling — a wasm play reads fields as aligned loads, not JSON).
+  when ShellRuntimeAvailable:
+    let source = episode.firstLightPlayViewSource(seatIndex, tick)
+    if source.isNone:
+      return "{}"
+    buildBinaryPlayView(source.get)
+  else:
+    discard episode
+    discard seatIndex
+    discard tick
     "{}"
+
+proc firstLightSocketViewBytes*(episode: FirstLightEpisode; seatIndex: int;
+                                tick: uint32): string =
+  ## The SOCKET's copy of the same view: JSON, per the ratified 0xB1 wire
+  ## contract ("u8[viewLen] view JSON" — play-calling shell design §3.2 wire
+  ## table; play_view.schema.json: "the encoded payload is always valid
+  ## JSON") and the binary-frame ruling's own boundary ("the play's copy
+  ## ... becomes a fixed-layout binary frame; JSON stays for the socket and
+  ## replay copies"). Wiring the PV1 binary frame here instead is what every
+  ## conforming policy client (starter_harness/wire.py: json.loads on the
+  ## view payload) crashes on at the round's first live view.
+  when ShellRuntimeAvailable:
+    let source = episode.firstLightPlayViewSource(seatIndex, tick)
+    if source.isNone:
+      return "{}"
+    buildPlayView(source.get)
   else:
     discard episode
     discard seatIndex

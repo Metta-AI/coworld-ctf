@@ -441,3 +441,36 @@ suite "shell FIRST LIGHT":
       "\"schema\":\"intent\",\"v\":1}"
     check resetOutput.installs.allIt(it.bytes != oldStandingBytes)
     check episode.seats[0].body.map == newMap
+
+  test "socket view copy is JSON; the PV1 binary frame never crosses the socket":
+    ## Regression pin for the 2026-09-01 season-2 live incident (rounds
+    ## 3589..3611): the 0xB1 wire contract carries `u8[viewLen] view JSON`
+    ## (strategy-play-calling-shell §3.2 wire table; play_view.schema.json:
+    ## "the encoded payload is always valid JSON"), and the 2026-08-31
+    ## binary-frame ruling moved only the GUEST's copy to PV1 ("JSON stays
+    ## for the socket and replay copies"). The play-seat pump was handed the
+    ## guest's PV1 frame instead, so every conforming policy client
+    ## (starter_harness/wire.py json-decodes the view payload) died with an
+    ## unhandled decode error — exit code 1 — at the round's first live
+    ## view, one pod charged per episode.
+    let map = testBodyMap()
+    when ShellRuntimeAvailable:
+      var episode = initFirstLightEpisode(true, true, controls(scPlay, 1),
+        map, 331)
+      discard episode.step([frame(map, 0, alive = true)], 12)
+      let guestBytes = episode.firstLightViewBytes(0, 12)
+      check guestBytes[0 .. 3] == "PV1\0"
+      let socketBytes = episode.firstLightSocketViewBytes(0, 12)
+      check not socketBytes.startsWith("PV1")
+      let parsed = parseJson(socketBytes)  # must not raise
+      check parsed["tick"].getInt == 12
+      # Both encoders feed the SAME fogged source: the socket copy's tick
+      # matches the guest frame's tick field (PV1 header offset 8, LE u32).
+      let guestTick = ord(guestBytes[8]) or (ord(guestBytes[9]) shl 8) or
+        (ord(guestBytes[10]) shl 16) or (ord(guestBytes[11]) shl 24)
+      check guestTick == 12
+      # An absent seat answers the historical "{}" sentinel on both copies.
+      check episode.firstLightSocketViewBytes(1, 12) == "{}"
+      check episode.firstLightViewBytes(1, 12) == "{}"
+    else:
+      skip()
