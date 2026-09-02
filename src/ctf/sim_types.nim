@@ -3738,9 +3738,45 @@ const
   ## true-color reading of the NAME, not the quantized `Palette` swatch —
   ## the tint pipeline anchored its 192 art files on these RGBA values, so
   ## changing one after art lands is an art regen, not a free edit.
-  BlackEndzoneColor* = rgba(38, 38, 42, 255)     ## team onyx.
-  SilverEndzoneColor* = rgba(192, 192, 197, 255) ## team silver.
-  IvoryEndzoneColor* = rgba(240, 234, 214, 255)  ## team ivory.
+  ##
+  ## DUO PALETTE FIX (Season 2, 8-duo BR — Red/Blue/Green/Yellow/Black/
+  ## Silver/Ivory/Pink is the active-8 prefix): a visual audit of real
+  ## hosted episodes found Black/Silver/Ivory near-indistinguishable from
+  ## EACH OTHER (pale white/cream/silver/gray, all low-saturation) and from
+  ## the eliminated-state treatment (`.br-cell.out{filter:grayscale(1)}` —
+  ## a LOW-saturation live color barely changes under that filter, so an
+  ## already-near-gray duo reads the same alive or knocked out), and Black
+  ## specifically was near-invisible against the near-black chrome/stage
+  ## (measured ~18,13,9). Re-hued all three to fully-saturated, mutually
+  ## distinct hues (teal/violet/orchid) spaced away from the other five
+  ## duo hues around the wheel, EACH AT ITS OWN LIGHTNESS (teal mid,
+  ## violet dark/indigo, orchid light) rather than three same-lightness
+  ## chips — a CVD simulation (Machado/Vienot protanopia+deuteranopia+
+  ## tritanopia matrices) showed same-lightness blue/violet/orchid
+  ## collapsing together under red-green deficiency; spreading the
+  ## lightness (40.8%/66.7% for violet/orchid vs blue's 50.8%) lifted the
+  ## worst-case simulated pair distance from 15 to 35 (0-441 scale). The
+  ## closest remaining pairs are teal-vs-pink under protanopia/
+  ## deuteranopia and teal-vs-blue under (rare) tritanopia — both still
+  ## clearly separated, not a collision, but the tightest margins of the
+  ## 8. Reserved the actual gray/silver/cream/near-black range for the
+  ## eliminated state only. This is a TRUE-COLOR (chrome/wire/endzone-
+  ## floor-bake) change only — it does NOT touch the quantized retro
+  ## `Palette` or regenerate the pre-baked `soldier_black/silver/
+  ## ivory_*.png` art, which still carry the OLD onyx/silver/ivory tint
+  ## until a separate art-regen pass runs; the team NAMES (wire text
+  ## "black"/"silver"/"ivory", used only internally — viewers see the
+  ## seated policy's own name, never these words) are unchanged, so
+  ## nothing else in the wire protocol or old replays moves. Team ->
+  ## color assignment itself is still `teamForSlot`'s per-episode
+  ## `Team(order mod teamCount)` (roster.nim) — seat order, not a policy-
+  ## id hash — so a duo's color is stable WITHIN one episode but NOT
+  ## guaranteed to repeat for the same policy ACROSS episodes; making it
+  ## policy-stable would mean reworking roster/seat assignment, out of
+  ## scope for a colour-palette change.
+  BlackEndzoneColor* = rgba(47, 168, 160, 255)   ## team teal (was onyx).
+  SilverEndzoneColor* = rgba(72, 60, 148, 255)   ## team violet/indigo (was silver).
+  IvoryEndzoneColor* = rgba(198, 130, 210, 255)  ## team orchid (was ivory).
   PinkEndzoneColor* = rgba(237, 111, 158, 255)   ## team flamingo pink.
   UmberEndzoneColor* = rgba(122, 93, 68, 255)    ## team raw umber.
   RustEndzoneColor* = rgba(183, 65, 14, 255)     ## team rust.
