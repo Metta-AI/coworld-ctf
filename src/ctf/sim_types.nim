@@ -1309,8 +1309,9 @@ type
     ## pipeline generated 192 files keyed to this exact sequence, so
     ## reordering these silently mismatches every team's art to another
     ## team's color. `activeTeams()`/`teamCount()` gate active play to a
-    ## PREFIX of the enum (2, 4, or 16 — never e.g. 8), so a 4-team game
-    ## never sees these; only 16-team BR does.
+    ## PREFIX of the enum (2, 4, 8, or 16 — never any other count), so a
+    ## 4-team game never sees these; 16-team BR uses all of them, and the
+    ## 8-team (8-duo Season 2) BR game uses Black..Pink of this block.
     Black
     Silver
     Ivory
@@ -3767,10 +3768,11 @@ proc teamCount*(gameMap: CtfMap): int =
 proc activeTeams*(count: int): Slice[Team] =
   ## Returns the active-team slice for one team count. Active teams are
   ## always a prefix of the enum, so 2-team games iterate exactly Red..Blue
-  ## — every historical loop, hash, and wire frame is unchanged. 16 is BR
-  ## play (see BR_MAPGEN.md §6.2); 8 is deliberately excluded — no code path
-  ## seats a team count between 4 and 16.
-  doAssert count in [2, 4, 16], "team count must be 2, 4, or 16"
+  ## — every historical loop, hash, and wire frame is unchanged. 16 is
+  ## full-field BR play (see BR_MAPGEN.md §6.2); 8 is the half-field BR
+  ## variant (Season 2's 8-duo/16-seat game — same per-duo area, half the
+  ## groups). Any other count between 4 and 16 stays excluded.
+  doAssert count in [2, 4, 8, 16], "team count must be 2, 4, 8, or 16"
   Red .. Team(count - 1)
 
 proc teams*(gameMap: CtfMap): Slice[Team] =
