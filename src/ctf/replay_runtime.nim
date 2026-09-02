@@ -170,7 +170,8 @@ proc buildReplayViewerPacket*(
     replay.replayMaxTick(),
     replay.looping,
     true,
-    replay.hashMismatchTick
+    replay.hashMismatchTick,
+    replay.sameEngineBuild
   )
   if result.len == 0:
     return
@@ -215,7 +216,8 @@ proc buildReplayViewerPacket*(
       # zero-arg default), same "absent means never sent" contract as every
       # other lead-frame field.
       if sendLead: lobbyChat else: nil,
-      if sendLead: ballots else: nil
+      if sendLead: ballots else: nil,
+      mismatchSameBuild = replay.sameEngineBuild
     )
   )
   if sendLead:

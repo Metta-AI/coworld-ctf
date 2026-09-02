@@ -248,3 +248,97 @@ suite "lobby-fill reconnect wedge":
     check appState.playerIndices[reconnected] != UnresolvedPlayerIndex
     for i in 8 .. 15:
       check appState.playerIndices[allSockets[i]] != UnresolvedPlayerIndex
+
+  test "season-2 battle royale: 32 play-seat joins all seat, through scramble and a pre-admission blip":
+    ## Regression pin for the 2026-09-01 season-2 live incident class
+    ## ("player slot N never joined the lobby within 7200 lobby ticks",
+    ## exactly one seat reported per episode, slot varying): on the
+    ## battle-royale-s2 shape -- 32 closed-roster PLAY seats, 16 duo teams,
+    ## brMode, season2Shell -- every one of 32 policy joins must seat, with
+    ## the worst-case arrival scramble, a play seat that drops BEFORE its
+    ## admission (retainShellSocketLoss's pending-registration discard), and
+    ## its fresh reconnect. The play-seat registration path (ingress binding,
+    ## outbound binding, tombstones) must not eat, reserve, or miscount a
+    ## single seat.
+    initAppState()
+    # The config under test is the PUBLISHED variant itself, read from the
+    # manifest (assert against the source, not a hand-restated copy), with
+    # only the platform-supplied tokens and two lobby-pacing knobs added:
+    # startWaitTicks 1 / lobbyChatTicks 0 so the started round is quick to
+    # observe. Seats, teams, brMode, season2Shell, mapSpec all ride verbatim.
+    let manifest = parseJson(readFile(GameDir / "coworld_manifest_paintbot.json"))
+    var variantConfig: JsonNode = nil
+    for variant in manifest["variants"]:
+      if variant["id"].getStr() == "battle-royale-s2":
+        variantConfig = variant["game_config"]
+        break
+    check variantConfig != nil
+    var tokens = newJArray()
+    for i in 0 ..< 32:
+      tokens.add %("tok" & $i)
+    variantConfig["tokens"] = tokens
+    variantConfig["startWaitTicks"] = %1
+    variantConfig["lobbyChatTicks"] = %0
+    var config = defaultGameConfig()
+    let previousDir = getCurrentDir()
+    setCurrentDir(GameDir)
+    var sim: SimServer
+    try:
+      config.update($variantConfig)
+      sim = initSimServer(config)
+    finally:
+      setCurrentDir(previousDir)
+    check config.slots.len == 32
+    check config.isPlaySeatEpisode()
+    appState.config = config
+    configurePlayIngress(config)
+
+    var socketsToClose: seq[WebSocket] = @[]
+    var overlays: seq[DebugOverlay] = @[]
+    var prevInputs: seq[InputState] = @[]
+
+    # Worst-case arrival scramble: strictly slot-sequential admission means
+    # every seat that arrives before its predecessors sits pending; a fixed
+    # deterministic shuffle covers low, high, and duo-mirror (k/k+16)
+    # interleavings.
+    var arrival: seq[int] = @[]
+    for k in 0 ..< 32:
+      arrival.add (k * 11 + 7) mod 32
+    var sockets = newSeq[WebSocket](32)
+    for slot in arrival:
+      sockets[slot] = cast[WebSocket](7000 + slot)
+      check registerPlayerWebSocket(
+        sockets[slot], "Player" & $(slot + 1), slot, "tok" & $slot)
+      check appState.playerIndices[sockets[slot]] == UnresolvedPlayerIndex
+
+    # THE BLIP: one pending play seat (never admitted -- nothing below its
+    # slot is seated yet when it drops in a real burst) vanishes and comes
+    # back on a fresh socket, like a policy pod restart during the fill.
+    check sim.retainShellSocketLoss(sockets[19], prevInputs)
+    check sockets[19] notin appState.playerIndices
+    sockets[19] = cast[WebSocket](7999)
+    check registerPlayerWebSocket(sockets[19], "Player20", 19, "tok19")
+
+    # The exact reconciliation loop runServerLoop runs each tick.
+    var progressed = true
+    while progressed:
+      progressed = false
+      var pendingPlayers: seq[PendingPlayerJoin] = @[]
+      for ws, idx in appState.playerIndices.pairs:
+        if ws.isPlayerWebSocket() and idx == UnresolvedPlayerIndex:
+          pendingPlayers.add(sim.pendingPlayerJoin(ws))
+      for join in sim.admitPendingJoins(
+          pendingPlayers, socketsToClose, overlays):
+        progressed = true
+
+    check socketsToClose.len == 0
+    check sim.players.len == 32
+    check sim.nextPlayerSlot() == 32
+    for slot in 0 ..< 32:
+      check sim.playerIndexForSlot(slot) >= 0
+      check appState.playerSlots[sockets[slot]] == slot
+    check not sim.lobbyJoinTimedOut()
+    check sim.phase == Lobby
+    for _ in 0 ..< 5:
+      sim.step(newSeq[InputState](32), newSeq[InputState](32))
+    check sim.phase != Lobby  # the full 32-seat duos round actually starts

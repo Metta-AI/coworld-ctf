@@ -17,7 +17,7 @@
 // at module load surfaces only as `worker.onerror`, i.e. as a line number in
 // static_replay.js pointing nowhere near the real fault.
 //
-// Two contracts:
+// Four contracts:
 //
 // 1. EVERY hand-written viewer module EVALUATES. Each is run under Node with
 //    the minimal globals its real context provides. The worker is evaluated
@@ -36,6 +36,7 @@
 const fs = require('fs');
 const path = require('path');
 const vm = require('vm');
+const { execFileSync } = require('child_process');
 
 const repo = path.join(__dirname, '..');
 let failures = 0;
@@ -186,12 +187,32 @@ for (const [src, out] of bundled) {
 // `require()`) and ask it directly, rather than inferring anything from
 // file mtimes or git history.
 {
-  const wasmGameVersion = () => new Promise((resolve, reject) => {
+  // One instantiation answers BOTH identity questions: the hand-bumped
+  // GameVersion (contract 3) and the machine-derived sim-sources stamp
+  // (contract 4 below). Each reads as `null` when the committed bundle
+  // predates that export's existence, '' when the export exists but was
+  // built without a value.
+  const wasmIdentity = () => new Promise((resolve, reject) => {
     const distDir = path.join(repo, 'static-replay-viewer');
     const bundlePath = path.join(distDir, 'ctf_replay.js');
     const watchdog = setTimeout(
       () => reject(new Error('wasm runtime did not initialize within 60s')),
       60000);
+    const readExport = (lenName, ptrName) => {
+      if (typeof Module[lenName] !== 'function' ||
+          typeof Module[ptrName] !== 'function') {
+        // The exact shape of a bundle that predates the export (the OLD
+        // 19c310dc-era bundle for GameVersion; every pre-stamp bundle for
+        // the sim-sources stamp): fail as "stale", not as a TypeError from
+        // calling an undefined function.
+        return null;
+      }
+      const length = Module[lenName]();
+      if (!length) return '';
+      const pointer = Module[ptrName]();
+      return Buffer.from(
+        Module.HEAPU8.subarray(pointer, pointer + length)).toString('utf8');
+    };
     const Module = {
       locateFile: (p) => path.join(distDir, p),
       onAbort: (what) => {
@@ -201,19 +222,12 @@ for (const [src, out] of bundled) {
       onRuntimeInitialized: () => {
         clearTimeout(watchdog);
         try {
-          if (typeof Module._ctf_game_version_len !== 'function' ||
-              typeof Module._ctf_game_version_ptr !== 'function') {
-            // The exact shape of the OLD 19c310dc-era bundle: it predates
-            // this check's own export, so it fails here rather than on a
-            // TypeError from calling an undefined function.
-            resolve(null);
-            return;
-          }
-          const length = Module._ctf_game_version_len();
-          if (!length) { resolve(''); return; }
-          const pointer = Module._ctf_game_version_ptr();
-          resolve(Buffer.from(
-            Module.HEAPU8.subarray(pointer, pointer + length)).toString('utf8'));
+          resolve({
+            gameVersion: readExport(
+              '_ctf_game_version_len', '_ctf_game_version_ptr'),
+            simSourcesStamp: readExport(
+              '_ctf_sim_sources_stamp_len', '_ctf_sim_sources_stamp_ptr'),
+          });
         } catch (e) {
           reject(e);
         }
@@ -241,7 +255,24 @@ for (const [src, out] of bundled) {
     return m[1];
   };
 
-  wasmGameVersion().then((wasmVersion) => {
+  // ---- 4. the committed wasm was built from the sim sources at HEAD ---
+  // Contract 3 catches a GameVersion someone bumped without rebuilding.
+  // It is blind BY DESIGN to the opposite failure: sim-behavior changes
+  // that ship WITHOUT a bump. That blind spot shipped on 2026-09-01, hours
+  // after contract 3 itself landed (#347): an engine train (default
+  // restores incl. cogsPerTeam, deprecation gates, season2Shell default)
+  // merged same-day at GameVersion 50, so replays recorded on the new
+  // canonical engine re-simulated differently in the freshly rebuilt
+  // bundle -- every hosted replay showed the hash-mismatch banner while
+  // this file stayed green. The stamp is a content hash over the wasm
+  // build's actual Nim inputs (tools/sim_sources_stamp.sh), baked in at
+  // build time by tools/build_replay_viewer.sh; recomputing it here at
+  // HEAD catches ANY sim-source drift, versioned or not.
+  const sourceSimStamp = () =>
+    execFileSync(path.join(repo, 'tools', 'sim_sources_stamp.sh'),
+      { encoding: 'utf8' }).trim();
+
+  wasmIdentity().then((wasm) => {
     let sourceVersion;
     try {
       sourceVersion = sourceGameVersion();
@@ -251,7 +282,7 @@ for (const [src, out] of bundled) {
       process.exit(failures);
       return;
     }
-    if (wasmVersion === null) {
+    if (wasm.gameVersion === null) {
       check('committed wasm GameVersion matches src/ctf/sim_types.nim',
         false,
         'static-replay-viewer/ctf_replay.wasm does not export ' +
@@ -260,8 +291,8 @@ for (const [src, out] of bundled) {
         '. Rebuild with tools/build_replay_viewer.sh.');
     } else {
       check('committed wasm GameVersion matches src/ctf/sim_types.nim',
-        wasmVersion === sourceVersion,
-        'wasm reports GameVersion ' + JSON.stringify(wasmVersion) +
+        wasm.gameVersion === sourceVersion,
+        'wasm reports GameVersion ' + JSON.stringify(wasm.gameVersion) +
         ', source (src/ctf/sim_types.nim) is GameVersion ' +
         JSON.stringify(sourceVersion) + ' -- the committed ' +
         'static-replay-viewer/ctf_replay.wasm is stale (this is the exact ' +
@@ -269,10 +300,41 @@ for (const [src, out] of bundled) {
         'with no matching bundle rebuild). Rebuild with ' +
         'tools/build_replay_viewer.sh and commit the result.');
     }
+
+    let expectedStamp;
+    try {
+      expectedStamp = sourceSimStamp();
+    } catch (e) {
+      check('committed wasm sim-sources stamp matches HEAD', false,
+        'could not run tools/sim_sources_stamp.sh: ' +
+        (e && e.message ? e.message : String(e)));
+      process.exit(failures);
+      return;
+    }
+    if (wasm.simSourcesStamp === null || wasm.simSourcesStamp === '') {
+      check('committed wasm sim-sources stamp matches HEAD', false,
+        (wasm.simSourcesStamp === null
+          ? 'static-replay-viewer/ctf_replay.wasm does not export ' +
+            'ctf_sim_sources_stamp_ptr/len -- it predates the sim-sources ' +
+            'stamp and cannot prove what it was built from.'
+          : 'static-replay-viewer/ctf_replay.wasm carries an EMPTY ' +
+            'sim-sources stamp -- it was built without ' +
+            'tools/build_replay_viewer.sh (which injects the stamp).') +
+        ' Treating it as: bundle built from older sim sources -- rebuild ' +
+        'with tools/build_replay_viewer.sh and commit the result.');
+    } else {
+      check('committed wasm sim-sources stamp matches HEAD',
+        wasm.simSourcesStamp === expectedStamp,
+        'bundle built from older sim sources -- rebuild with ' +
+        'tools/build_replay_viewer.sh and commit the result. (wasm stamp ' +
+        wasm.simSourcesStamp.slice(0, 12) + '..., sources at HEAD hash to ' +
+        expectedStamp.slice(0, 12) + '...; the sim sources changed after ' +
+        'this bundle was built -- with or without a GameVersion bump, ' +
+        'which is exactly the drift contract 3 cannot see.)');
+    }
     process.exit(failures);
   }).catch((e) => {
-    check('committed wasm GameVersion matches src/ctf/sim_types.nim',
-      false,
+    check('committed wasm identity exports readable', false,
       'could not instantiate static-replay-viewer/ctf_replay.wasm: ' +
       (e && e.message ? e.message : String(e)) +
       ' -- rebuild with tools/build_replay_viewer.sh.');
