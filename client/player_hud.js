@@ -415,11 +415,26 @@
     // wrong the moment a real clock ran it.
     lastFetchAt: -Infinity,
     failed: false,
+    // Swap#14 Z1: real display names for HUMAN-held seats, off the server's
+    // own public /takeover/status (seat, name, cogX/cogY while driving).
+    // The wire roster stays anonymous BY DESIGN (identity privacy), and
+    // /api/field does not exist on the engine server at all -- this is the
+    // one join data the client legitimately has that knows 'Cedar Sniper'.
+    humanSeats: [],
   };
   const ROSTER_POLL_MS = 5000;
   function pollRoster(now) {
     if (now - roster.lastFetchAt < ROSTER_POLL_MS) return;
     roster.lastFetchAt = now;
+    fetch('/takeover/status', { credentials: 'same-origin' })
+      .then(function (r) { return r.ok ? r.json() : Promise.reject(r.status); })
+      .then(function (data) {
+        const seats = (data && Array.isArray(data.seats)) ? data.seats : [];
+        roster.humanSeats = seats
+          .filter(function (s) { return s && s.state === 'driving' && s.name; })
+          .map(function (s) { return { seat: s.seat, name: String(s.name), x: s.cogX, y: s.cogY }; });
+      })
+      .catch(function () { /* endpoint absent (league host) -- cache stays empty, chip keeps its wire fallback */ });
     fetch(roster.url, { credentials: 'same-origin' })
       .then(function (r) { return r.ok ? r.json() : Promise.reject(r.status); })
       .then(function (data) {
@@ -1709,6 +1724,42 @@
   // server event) and rearmed by render()'s own teamsAlive-rise check.
   // Hidden entirely for a solo/squad roster (no unambiguous partner) or
   // before any duo has resolved at all — never a guessed chip.
+  // Swap#14 Z1 (two independent audit hits): the chip printed the engine's
+  // anonymous slot codename ('alpha'/'beta' -- roster.nim IdentityNames,
+  // per-team rank, privacy by design on the wire). Prefer a REAL seat name
+  // when one is legitimately knowable client-side:
+  //   1. the HTTP roster (league hosts), keyed by the row name;
+  //   2. /takeover/status humans (roster.humanSeats above): with exactly one
+  //      other human it is unambiguously the partner; with several, join by
+  //      proximity to the partner's own cog (same nearest() idiom the
+  //      identity badges already use). Bots keep the codename -- there is
+  //      genuinely no name for them on this wire, and inventing one would
+  //      break the label contract.
+  function resolvePartnerDisplayName(partnerRow, state) {
+    const fallback = partnerRow.name || 'partner';
+    if (roster.resolved && partnerRow.name) {
+      const entry = roster.byName.get(String(partnerRow.name).toLowerCase());
+      if (entry && entry.name && entry.name !== partnerRow.name) return entry.name;
+    }
+    const myName = (myIdentity.name || '').toLowerCase();
+    const others = roster.humanSeats.filter(function (h) { return h.name.toLowerCase() !== myName; });
+    if (others.length === 1) return others[0].name;
+    if (others.length > 1) {
+      const pc = state.cogs.filter(function (c) { return !c.self && c.alive && c.color === state.selfTeam; })[0];
+      if (pc) {
+        let best = null, bestD = 140 * 140; // generous: status positions are poll-stale
+        for (let i = 0; i < others.length; i++) {
+          const h = others[i];
+          if (typeof h.x !== 'number' || typeof h.y !== 'number') continue;
+          const d = (h.x - pc.x) * (h.x - pc.x) + (h.y - pc.y) * (h.y - pc.y);
+          if (d < bestD) { bestD = d; best = h; }
+        }
+        if (best) return best.name;
+      }
+    }
+    return fallback;
+  }
+
   function renderPartnerChip(state) {
     const selfTeam = state.selfTeam;
     const chip = nodes.partnerChip;
@@ -1720,7 +1771,7 @@
     if (!partnerRow) { chip.classList.remove('show'); return; }
     chip.classList.add('show');
     nodes.partnerDot.style.background = teamColor(selfTeam);
-    nodes.partnerName.textContent = partnerRow.name || 'partner';
+    nodes.partnerName.textContent = resolvePartnerDisplayName(partnerRow, state);
     const alive = partnerAliveThisRound;
     nodes.partnerStatus.textContent = alive === false ? 'OUT' : 'ALIVE';
     chip.classList.toggle('out', alive === false);
