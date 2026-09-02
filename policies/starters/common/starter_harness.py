@@ -496,7 +496,14 @@ def run(persona: Persona, args) -> int:
         seat.send(wire.encode_lobby_chat(chat_text))
         echo = seat.await_chat(chat_text)
         if echo is None:
-            failures.append("no 0xB2 broadcast echo for our opening chat")
+            # NOT a failure: a hosted pod that joins after lobbyChatTicks has
+            # elapsed (or into a config with the window at 0) gets
+            # lobby_chat refusals or silence by design — chat is decorative,
+            # and killing the pod over it turned healthy hosted rounds into
+            # exit-1 "crashes". Playbook upload and accepted calls below are
+            # the correctness bar.
+            _log(persona, "no 0xB2 echo for the opening chat "
+                          "(lobby window closed or missed) -- continuing")
         else:
             _log(persona, f"chat echoed at ordinal {echo['ordinal']}")
         _send_coordination(persona, seat, turn=1, await_echo=True)
