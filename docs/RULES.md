@@ -1089,6 +1089,19 @@ a player frame is read by that policy's rivals, and this codebase's test
 suite polices exactly that leak (`tests/test_identity_privacy.nim`). Same
 human-only gating as `kd `.
 
+**How many teams are still in it is on the player stream too.** One
+invisible 1x1 HUD marker, `teamsalive <n>`: the count of the match's teams
+(`sim.teams()`) that still have at least one life anywhere on the roster
+(`sim.teamsAliveCount()`, the `teamLivesRemaining() > 0` sibling), restated
+every tick the number actually changes. Before this marker existed, the only
+way a human `/client/player` HUD could show a "teams alive" readout was to
+approximate it client-side from whatever per-seat `roster `/`score ` death
+data happened to have arrived — this states the real, already-known number
+outright instead. Same human-only gating as `kd `/`roster `: not sent to a
+Sprites Off (0x87) viewer, so a policy's byte stream (and gameHash, which
+this marker never touches either way — it is a pure function of already-
+hashed `player.lives`/`alive` state) is unaffected by its existence.
+
 The full wire
 contract, including the CTF input-protocol extensions, is in
 [`PROTOCOL.md`](PROTOCOL.md). Labels, sprite/object ids, and layers are

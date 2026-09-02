@@ -146,6 +146,28 @@ const
     ## them too) — a policy wanting its own kill/death count is a real,
     ## separate ask (one-line ungate here) that was not in scope for the
     ## human-HUD request this label was added for.
+  LabelPrefixTeamsAlive* = "teamsalive "
+    ## Match-wide teams-still-in-it count, `teamsalive <n>`: an invisible 1x1
+    ## marker on the PLAYER stream, re-sent whenever the number changes
+    ## (dirty-tracked like every other own-stat label here). `<n>` is
+    ## `sim.teamsAliveCount()` (sim.nim, sibling of `teamLivesRemaining`) —
+    ## the count of teams in `sim.teams()` whose `teamLivesRemaining(team)`
+    ## is still > 0. Swap#11 item 6: before this label existed, the one
+    ## human-facing consumer (player_hud.js's top-bar "teams alive" readout)
+    ## had no real feed for the reserved `state.teamsAlive` contract field
+    ## and fell back to a client-side heuristic (counting per-seat "deaths"
+    ## data off the roster/score rows) that can only ever be as fresh as
+    ## whatever per-seat data has arrived. This label states the real,
+    ## already-known number outright instead — pure emission of state the
+    ## sim already computes for the end-card's own `over.teams[...].lives`,
+    ## never a new source of truth, same reasoning as `LabelPrefixKd` above.
+    ##
+    ## HUMAN-WIRE ONLY, same as `LabelPrefixKd`/`LabelPrefixRoster`: gated on
+    ## `not spritesOff`, so the scripted/policy byte stream — and therefore
+    ## gameHash, which this label never touches either way (it is a pure
+    ## function of already-hashed player.lives/alive state, not itself
+    ## hashed, exactly like `matchKillsDeaths` above) — is untouched by this
+    ## marker's existence.
   LabelPrefixRoster* = "roster "
     ## One roster row, restated on the PLAYER stream: `roster <team> <name>
     ## <lives> <kills>/<deaths>`. Same per-player roster addScoreboard also
@@ -551,6 +573,12 @@ proc labelKd*(kills, deaths: int): string =
   ## The own kill/death HUD label, `kd <kills>/<deaths>`. See
   ## LabelPrefixKd for the human-only wire gating.
   LabelPrefixKd & $kills & "/" & $deaths
+
+proc labelTeamsAlive*(aliveCount: int): string =
+  ## The match-wide teams-alive marker label, `teamsalive <n>`. See
+  ## LabelPrefixTeamsAlive for the human-only wire gating and the exact
+  ## `<n>` source (sim.teamsAliveCount).
+  LabelPrefixTeamsAlive & $aliveCount
 
 proc labelRoster*(team, name: string; lives, kills, deaths: int): string =
   ## One roster row on the player stream,

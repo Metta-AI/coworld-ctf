@@ -3276,6 +3276,20 @@ proc teamLivesRemaining*(sim: SimServer, team: Team): int =
     if p.alive:
       inc result
 
+proc teamsAliveCount*(sim: SimServer): int =
+  ## Returns how many of the match's teams (`sim.teams()`) still have at
+  ## least one life anywhere on the roster — a team reads "alive" here the
+  ## instant `teamLivesRemaining(team) > 0`, same floor the end-card's own
+  ## `over.teams[team].lives` already keys elimination off. Swap#11 item 6:
+  ## the real feed behind `LabelPrefixTeamsAlive`, which routes this number
+  ## onto the human player wire instead of leaving player_hud.js to
+  ## reconstruct an approximation from whatever per-seat death data has
+  ## happened to arrive. Pure read of already-hashed player.lives/alive
+  ## state — never itself part of gameHash, same as teamLivesRemaining.
+  for team in sim.teams():
+    if sim.teamLivesRemaining(team) > 0:
+      inc result
+
 proc flagCarryProgress*(sim: SimServer, flagTeam: Team): int =
   ## Returns how far one team's STOLEN flag has been advanced from its
   ## pedestal toward its carrier's home; 0 while it sits home. (0.7.0

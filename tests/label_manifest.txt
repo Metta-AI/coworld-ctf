@@ -82,6 +82,7 @@ team score BLUE <n>/1
 team score GREEN <n>/0
 team score RED <n>/0
 team score YELLOW <n>/0
+teamsalive <n>
 throw target
 trench <n>,<n> <n>,<n>
 walkability map

@@ -728,6 +728,16 @@ const
   SpritePlayerOwnAimObjectId = 5023  ## ("own aim <brads>", player stream only).
   SpritePlayerKdSpriteId = 5024  ## own kill/death HUD text ("kd <n>/<n>"),
   SpritePlayerKdObjectId = 5025  ## human-wire only — see LabelPrefixKd.
+  SpritePlayerTeamsAliveSpriteId = 5025  ## invisible teams-alive marker
+  SpritePlayerTeamsAliveObjectId = 5026  ## ("teamsalive <n>", human-wire
+    ## only, player stream only — see LabelPrefixTeamsAlive). Sprite id
+    ## 5025 is safe to share numerically with SpritePlayerKdObjectId above:
+    ## sprite ids and object ids are two disjoint wire fields (see the
+    ## "player HUD" entries in BoardSpritePools/BoardObjectPools below,
+    ## each audited in its own separate namespace) — this file already
+    ## reuses numbers across the two spaces elsewhere (e.g.
+    ## SpritePlayerInterstitialSpriteId == SpritePlayerInterstitialObjectId
+    ## == 5006).
   RosterSpriteBase = 5026  ## One invisible roster-row marker per player,
     ## keyed by row (join order) 0..MaxPlayers-1: 5026..5057. Player stream
     ## only, human-wire only — see LabelPrefixRoster.
@@ -870,10 +880,11 @@ const
     ("map bands", MapBandObjectBase, 960),
     ("players (POV view)", PlayerObjectBase, MaxPlayers),
     ("replay UI", ReplayTickObjectId, 5),
-    # 5006..5025: was 16 (5006..5021), widened to 20 to cover the own
+    # 5006..5026: was 16 (5006..5021), widened to 20 to cover the own
     # kd-readout object (SpritePlayerKdObjectId, 5025) added alongside
-    # weapon/own-aim.
-    ("player HUD", SpritePlayerInterstitialObjectId, 20),
+    # weapon/own-aim, then to 21 (Swap#11 item 6) to cover the teams-alive
+    # readout object (SpritePlayerTeamsAliveObjectId, 5026).
+    ("player HUD", SpritePlayerInterstitialObjectId, 21),
     ("roster rows (player stream)", RosterObjectBase, MaxPlayers),
     ("flags", FlagObjectBase, TeamPoolWidth),
     ("own-view flag markers", SpritePlayerFlagObjectBase, TeamPoolWidth),
@@ -1016,9 +1027,11 @@ const
     # current base and range at TeamPoolWidth=16).
     ("identity badges", IdentityBadgeSpriteBase,
       TeamPoolWidth * IdentityNames.len * SoldierRotations),
-    # 5000..5024: was 23 (5000..5022), widened to 25 to cover the own
-    # kd-readout sprite (SpritePlayerKdSpriteId, 5024).
-    ("player HUD", SpritePlayerFireSpriteId, 25),
+    # 5000..5025: was 23 (5000..5022), widened to 25 to cover the own
+    # kd-readout sprite (SpritePlayerKdSpriteId, 5024), then to 26 (Swap#11
+    # item 6) to cover the teams-alive readout sprite
+    # (SpritePlayerTeamsAliveSpriteId, 5025).
+    ("player HUD", SpritePlayerFireSpriteId, 26),
     ("roster rows (player stream)", RosterSpriteBase, MaxPlayers),
     ("self soldiers", SpritePlayerSelfSpriteBase, 2 * SoldierRotations),
     ("selected soldiers", int(SelectedPlayerSpriteBase),
@@ -9038,6 +9051,37 @@ proc buildSpriteProtocolPlayerUpdates*(
         0,
         HudTopRightLayerId,
         SpritePlayerKdSpriteId
+      )
+
+      # Match-wide teams-alive readout, human viewers only: an invisible 1x1
+      # marker (no pixel text drawn on the raw feed — player_hud.js draws
+      # its own top-bar chip row/counter from the label, same idiom as the
+      # roster rows just below), restating sim.teamsAliveCount() — the same
+      # number the end-card's own over.teams[...].lives already lets a
+      # viewer derive by hand mid-match. Swap#11 item 6: this label is the
+      # real feed for the reserved `state.teamsAlive` HUD contract field,
+      # replacing the client's own per-seat-deaths heuristic
+      # (teamAliveChips in player_hud.js). Re-sent only on ticks the count
+      # actually changes (addSpriteChanged's own dirty-tracking, same as
+      # every other label here) — a pure function of already-hashed
+      # player.lives/alive state, never itself part of gameHash, same
+      # reasoning as matchKillsDeaths above.
+      currentIds.add(SpritePlayerTeamsAliveObjectId)
+      result.addSpriteChanged(
+        nextState.spriteDefs,
+        SpritePlayerTeamsAliveSpriteId,
+        1,
+        1,
+        newRgbaPixels(1, 1),
+        labelTeamsAlive(sim.teamsAliveCount())
+      )
+      result.addBoardObject(
+        SpritePlayerTeamsAliveObjectId,
+        0,
+        0,
+        0,
+        HudTopRightLayerId,
+        SpritePlayerTeamsAliveSpriteId
       )
 
       # Roster-wide scoreboard rows, human viewers only: restates the SAME

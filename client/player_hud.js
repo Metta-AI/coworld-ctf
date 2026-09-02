@@ -152,7 +152,10 @@
 
        variant: 'ctf' | 'br' | 'unknown',        // RESOLVED from live team count on the wire
        teamScores: [ { team, kills, deaths } ],   // RESOLVED — always sent regardless of team count
-       teamsAlive: null,                          // ROUTED to realcog (teamLivesRemaining(), sim.nim:3198)
+       teamsAlive: number|null,                   // RESOLVED (Swap#11 item 6) — "teamsalive "
+                                                   // label, sim.teamsAliveCount(); null pre-Swap#11
+                                                   // engine, render() falls back to teamAliveChips'
+                                                   // per-seat-deaths heuristic in that case only
        playerRows: [ { name, team, lives: number|null, kills: number|null,
                         deaths: number|null, human: bool|null, self: bool } ],
                                                    // source priority: "roster " markers (the live
@@ -203,8 +206,9 @@
        row resolves via selfTeam when unambiguous (one seat on my team),
        else via the identity badge nearest the self cog; else no row is
        highlighted (never a guess).
-       teamsAlive: still reserved (teamLivesRemaining() is end-card only).
-       Placement (sim.brPlacements()) stays END-CARD ONLY; its always-empty
+       teamsAlive: RESOLVED (Swap#11 item 6) — real feed via the
+       "teamsalive " label (sim.teamsAliveCount()), not end-card-only
+       anymore. Placement (sim.brPlacements()) stays END-CARD ONLY; its always-empty
        column is gone from the BR table. So is the numeric lives column:
        wire lives = respawns remaining, which reads 0 for every LIVING
        one-life player — BR renders an ALIVE/SPLAT status column derived
@@ -303,6 +307,14 @@
   function parseKdLabel(label) {
     const m = /^kd (\d+)\/(\d+)$/.exec(label);
     return m ? { kills: +m[1], deaths: +m[2] } : null;
+  }
+  // "teamsalive <n>" — match-wide count of teams still in it, human wire
+  // only (labels.nim LabelPrefixTeamsAlive, Swap#11 item 6). Absent on
+  // older engines; the caller keeps null (teamAliveChips' heuristic takes
+  // over) rather than inventing a number.
+  function parseTeamsAliveLabel(label) {
+    const m = /^teamsalive (\d+)$/.exec(label);
+    return m ? +m[1] : null;
   }
   // "roster <team> <name> <lives> <kills>/<deaths>" — one marker per roster
   // seat on the live player stream (labels.nim LabelPrefixRoster, 8ad1c420).
@@ -451,6 +463,12 @@
       // for — landed 50a13efc). Stays null when the label never arrives
       // (pre-50a13efc engine), which renders as "—", never a fabricated 0.
       kdSelf: null,
+      // Match-wide teams-alive count off the "teamsalive " label (Swap#11
+      // item 6, labels.nim LabelPrefixTeamsAlive). Stays null against a
+      // pre-Swap#11 engine (label never arrives) — teamAliveChips' own
+      // per-seat-deaths heuristic is the fallback for that case, same
+      // tolerance idiom as kdSelf above, never a fabricated number.
+      teamsAlive: null,
     };
     if (!objs || !sprs) return raw;
     objs.forEach(function (o) {
@@ -486,6 +504,7 @@
       }
       if (label.indexOf('lives ') === 0) { raw.livesLabel = parseLivesLabel(label); return; }
       if (label.indexOf('kd ') === 0) { raw.kdSelf = parseKdLabel(label); return; }
+      if (label.indexOf('teamsalive ') === 0) { raw.teamsAlive = parseTeamsAliveLabel(label); return; }
       if (label.indexOf('hp ') === 0) {
         const hp = parseHpLabel(label);
         if (hp) raw.hpMarkers.push({ x: o.x, y: o.y, lit: hp.lit, total: hp.total, shield: hp.shield });
@@ -695,7 +714,12 @@
       cogs: cogs,
       variant: variant,
       teamScores: raw.teamScoreRows,
-      teamsAlive: null, // reserved — teamLivesRemaining() (sim.nim:3198) routed for player-stream emission
+      // Swap#11 item 6: real feed off the "teamsalive " label
+      // (labels.nim LabelPrefixTeamsAlive -> sim.teamsAliveCount(), the
+      // teamLivesRemaining() sibling). Null against a pre-Swap#11 engine —
+      // teamAliveChips' per-seat-deaths heuristic is the fallback render
+      // path for that case (see render()'s own use of this field).
+      teamsAlive: raw.teamsAlive,
       playerRows: playerRows,
       roster: { resolved: roster.resolved, url: roster.url },
     };
@@ -1258,9 +1282,15 @@
     } else {
       const zoneWord = state.zone ? (state.zone.shrinking ? 'SHRINKING' : 'HOLD') : '—';
       const chips = teamAliveChips(state);
+      // Swap#11 item 6: the real wire count (state.teamsAlive, "teamsalive "
+      // label) now takes priority over teamAliveChips' own locally-derived
+      // aliveCount heuristic — that heuristic is only as fresh as whatever
+      // per-seat deaths data has arrived, and stays as the fallback purely
+      // for a pre-Swap#11 engine that never sends the label (state.teamsAlive
+      // null in that case, same tolerance idiom as combat.kills/deaths).
       nodes.top.innerHTML =
         '<span class="phud-eyebrow">teams alive</span><span class="t">' +
-        fmtDash(chips.aliveCount != null ? chips.aliveCount : state.teamsAlive) +
+        fmtDash(state.teamsAlive != null ? state.teamsAlive : chips.aliveCount) +
         ' <span class="phud-dim">/ ' + fmtDash(state.teamScores.length) + '</span></span>' +
         '<span class="phud-chips">' + chips.html + '</span>' +
         '<span class="phud-eyebrow">zone</span><span class="t">' + zoneWord + '</span>';
@@ -1317,9 +1347,11 @@
   // yet). Filled = alive or unknown (honest default); hollow/greyed =
   // confirmed wiped. aliveCount is a locally-derived DISPLAY read (same
   // pattern as "shrinking"/"ALIVE"/"SPLAT" elsewhere in this file) — it does
-  // NOT change the reserved state.teamsAlive contract field, which stays
-  // whatever buildState() set it to (null today; real feed once realcog
-  // routes teamLivesRemaining() onto the wire).
+  // NOT change state.teamsAlive itself, which stays whatever buildState()
+  // set it to (the real "teamsalive " wire count as of Swap#11 item 6, or
+  // null against an older engine). render()'s own top-bar code prefers
+  // state.teamsAlive over this function's aliveCount whenever the real
+  // value is present — see the comment at that call site.
   function teamAliveChips(state) {
     const status = teamAliveStatus(state);
     const teams = state.teamScores.map(function (t) { return t.team; });
