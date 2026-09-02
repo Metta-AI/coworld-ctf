@@ -1399,13 +1399,23 @@
         const sprite = sprites.get(obj.spriteId);
         const cx = obj.dispX + (sprite ? sprite.width / 2 : 0);
         const cy = obj.dispY + (sprite ? sprite.height / 2 : 0);
-        const base = Math.max(sprite ? Math.max(sprite.width, sprite.height) : 0, 14) * 1.3;
+        // sprite.width/height here is the rig HEAD segment's canvas
+        // (RigCanvas, src/ctf/rig_art.nim: 96px, HUB-centered to "fit the
+        // swung legs + castered wheels + reaching arms") — a padded bound,
+        // not the cog's drawn footprint, which is a few times smaller. The
+        // old 1.3x/1.25x multipliers took that padded box as the base and
+        // grew it further still, so the ring's max diameter landed near a
+        // third of a standard 1235px board: a map-wide sweep, not a marker
+        // on one cog. Scaled down to read as a local ping (max diameter
+        // ~9% of a standard board — comfortably under an eighth — while
+        // staying clearly bigger than the cog itself).
+        const base = Math.max(sprite ? Math.max(sprite.width, sprite.height) : 0, 14) * 0.55;
         for (let ring = 0; ring < 2; ring++) {
           const ringAge = age - ring * 7;
           if (ringAge < 0) continue;
           const t = ringAge / FLASH_PULSE_TICKS;
           if (t > 1) continue;
-          const radius = base * (0.55 + 1.25 * t);
+          const radius = base * (0.55 + 0.5 * t);
           targetCtx.beginPath();
           targetCtx.arc(cx, cy, radius, 0, Math.PI * 2);
           targetCtx.strokeStyle =
