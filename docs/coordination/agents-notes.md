@@ -970,3 +970,5 @@ collaborative brought up to ~empty-seat level, (b) a harness that no longer cras
 **17:35Z paintbot 0.7.291 CANONICAL** (5f45eb46: GV51 collision fix by personal-paintbot-33 + clone-ally harness): all three engine gaps are live in the league. Push freeze lifted; scatter play commits pushed.
 
 **17:47Z collision fix verified in the wild (personal-paintbot-33):** round 3706, first on 0.7.291, 15/15 episodes; three replays re-simulate hash-clean under GV51; longest movement-held-no-displacement run across 48 cogs is 13 ticks (jostling); the only never-moving cogs had zero movement input (policy idleness, not sim). Probes: personal-paintbot scratchpad push_probe_gv51 / move_probe_gv51.
+
+**18:00Z first competitive rounds on the scatter build (3705-3706, 30 episodes):** starter-aggressive 0.52 → 0.69 kills, survival 4 → 12%, survival ticks 685 → 1164 (longest in the field), pickups 0.15 → 1.08 (most in the field), Glory 0.63 → 0.88, spawn deaths 20 → 10%; starter-cautious (Games Bond) debut 0.48 kills, 1.25 pickups, 42% moving, 0 spawn deaths. Field leaders co-gas ~1.1 kills. Both starters now mid-table rather than bottom; items are being used since 0.7.290.
