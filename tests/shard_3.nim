@@ -6,6 +6,7 @@ import
   test_barriers,
   test_blocked_damage,
   test_br_map_pool,
+  test_br_s2_map_pool,
   test_br_spawn_points,
   test_deprecated_modes,
   test_dedup_object_placements_perf,

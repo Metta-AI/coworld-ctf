@@ -71,3 +71,69 @@ proc getBrMap*(name: string, path: string = BrMapPoolPath): CtfMap =
     if node["name"].getStr() == name:
       return mapFromSpecJson($node)
   raise newException(ValueError, &"br map pool at '{path}' has no entry named '{name}'")
+
+## --- Season 2 rotating pool (8 duos / 16 seats) ----------------------------
+##
+## `data/br_s2_map_pool.json` is the battle-royale-s2 variant's map source:
+## a JSON array of LEDGER ENTRIES (not bare specs), each
+##   {"name", "seed", "certifiedAt", "gates": {..18 booleans + "all"..},
+##    "spec": {..full expanded ctf mapSpec..}}
+## Every entry is a fresh `tools/brmapkit generate --seed <N> --groups 8
+## --scale 1.8384776` draw (the exact br-gen-8024 params from #354),
+## converted by `tools/br_spec_to_ctf`, that passed the FULL `validateBr`
+## 18-gate `allPass` — rejection-gated at generation time (a failing draw
+## is never written, never patched, never `--lenient`'ed) and re-asserted
+## by the rotation tool. The embedded gate ledger + certification date make
+## age queryable: `tools/rotate_br_pool.sh --replace N` swaps out the N
+## OLDEST entries for freshly certified draws without ever changing pool
+## SIZE, only membership.
+##
+## Selection is per-episode and deterministic: `brPoolIndex(seed, len)` —
+## the episode seed through a splitmix64 finalizer, mod pool size. The
+## same episode seed maps to a DIFFERENT map after a rotation changes the
+## membership under its index; that is fine and intended (an episode's
+## replay never re-selects — the chosen spec is pinned into the replay
+## config at parse time, see sim_config's `update`).
+
+const
+  BrS2MapPoolPath* = "data/br_s2_map_pool.json"
+    ## Repo-root-relative, same rule (and same caveat) as BrMapPoolPath.
+  BrPoolMapName* = "brpool"
+    ## The mapPath value that selects from this pool ("map": "brpool" /
+    ## "mapPath": "brpool" in a variant's game_config).
+
+proc brPoolIndex*(seed, n: int): int =
+  ## Deterministic, platform-stable spread of an episode seed over `n`
+  ## pool slots: the splitmix64 finalizer, mod n. Pure integer math on
+  ## fixed-width unsigned words — no float, no std/random, no wall clock —
+  ## so the same seed picks the same slot on every box, forever.
+  doAssert n > 0, "brPoolIndex needs a non-empty pool"
+  var x = uint64(seed)
+  x = (x xor (x shr 30)) * 0xBF58476D1CE4E5B9'u64
+  x = (x xor (x shr 27)) * 0x94D049BB133111EB'u64
+  x = x xor (x shr 31)
+  int(x mod uint64(n))
+
+proc loadBrS2PoolRaw*(path: string = BrS2MapPoolPath): JsonNode =
+  ## The s2 pool file as parsed JSON: a top-level array of ledger entries.
+  result = parseJson(readFile(path))
+  if result.kind != JArray:
+    raise newException(ValueError, &"br s2 map pool at '{path}' is not a JSON array")
+  if result.len == 0:
+    raise newException(ValueError, &"br s2 map pool at '{path}' is empty")
+
+proc pickBrS2SpecJson*(seed: int, path: string = BrS2MapPoolPath): string =
+  ## The mapSpec JSON (as a string, ready for `config.mapSpec`) of the pool
+  ## member this episode seed selects. Raises on a missing/empty/misshapen
+  ## pool — a config that asked for "brpool" must never silently fall back.
+  let pool = loadBrS2PoolRaw(path)
+  let entry = pool[brPoolIndex(seed, pool.len)]
+  if entry.kind != JObject or not entry.hasKey("spec"):
+    raise newException(ValueError,
+      &"br s2 map pool at '{path}' entry {brPoolIndex(seed, pool.len)} has no \"spec\"")
+  result = $entry["spec"]
+
+proc brS2PoolNames*(path: string = BrS2MapPoolPath): seq[string] =
+  ## Every s2 pool member's name, in file (= certification) order.
+  for node in loadBrS2PoolRaw(path):
+    result.add node["name"].getStr()
