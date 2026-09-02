@@ -270,3 +270,85 @@ WHAT "THE ATTRITION CLAIM SURVIVES" MEANS, fixed now:
              strategic conclusion drawn from the baseline is withdrawn.
   These bars are not retuned after the data. A result between the bars is
   reported as exactly that.
+
+============================ CONFIRMATION RESULT ============================
+Recorded 2026-09-01 after the arm completed. Bars above unchanged.
+Data: exp/results/champ46_selfplay/episodes.jsonl (160 rows, episodes
+0..159, none missing, 0 draws). Smoke arm: exp/results/smoke_champ46_vs_stock.jsonl.
+
+VALIDITY
+  0 skipped frames in 160/160 episodes (server "Frame pacing" line read per
+  episode; no episode with an unparsed pacing line). 6 in flight on this Mac,
+  ports 2500-2505. No episode hit maxTicks (frames 4019..5898 < 7200).
+  The battery process was killed externally after 97 logged episodes
+  (0..96); episodes 97..102 were in flight and produced no row. Resumed with
+  --start 97 --episodes 63 into the same episodes.jsonl (append mode); the
+  six restarted episodes reran with fresh server seeds. No partial data was
+  pooled. Load during the arm: 8-16 on 16 cores, one other agent's single
+  python process at 100% of one core; the pacing gate held throughout.
+  Self-play symmetry: A 73/160 = 0.456 [0.377,0.537]; red 75/160 = 0.469
+  [0.390,0.549]. Kills/ep A 21.05 vs B 21.06. Nothing loads one arm.
+
+TERMINATION, champion v26 self-play (n=160 decisive) vs baseline (n=239)
+                                      champion v26          repo baseline
+  capture-ending                       67 = 41.9% [34.1,49.9]   98 = 41.0%
+  elimination-ending                   93 = 58.1%              141 = 59.0%
+     Fisher two-sided p = 0.92: the capture share is the SAME.
+  loser deaths, capture-ending   mean 22.0/24 median 22 min 17   mean 22.3 median 23 min 15
+  loser deaths, elimination      24/24 by definition            24/24
+  winner deaths                  19.6 capture / 19.3 elim       19.7 / 19.2
+  captures with loser at >= 23   30/67 = 44.8% [32.6,57.4]      60/98 = 61.2%   p=0.040
+                         >= 22   49/67 = 73.1% [60.9,83.2]      83/98 = 84.7%   p=0.077
+                         >= 21   60/67 = 89.6%
+                         >= 20   62/67 = 92.5%
+                         >= 18   66/67 = 98.5%
+                         >= 15   67/67 = 100%                   98/98 = 100%
+  loser below 15/24, any mode    0/160  (exact upper 95%: 2.3%) 0/239
+  loser deaths, all decisive     mean 23.1/24 = 96.4% of pool   ~96% (24 / 22.3 mix)
+  capture-ending loser deaths histogram: 17:1 18:1 19:3 20:2 21:11 22:19 23:30
+
+  frames/ep      4834 +- 54  (2.27x the baseline's 2133 +- 61; interrupted
+                              arm read 5254 on 18 episodes of a DIFFERENT
+                              build, see SUBJECT)
+  captures/ep    0.419 (combined, = capture-ending share since no episode
+                        had two captures; interrupted arm read 0.75)
+  wall s/ep      213 +- 2 at 6 in flight
+
+VERDICT AGAINST THE PRE-REGISTERED BARS: SURVIVES.
+  (a) 0/160 below 15/24                          bar 0        -> met
+  (b) capture-ending loser mean 22.0/24 = 91.5%  bar >= 21    -> met
+  (c) 73.1% of captures land at >= 22/24         bar >= 70%   -> met at the
+      point estimate; the bar sits inside the interval [60.9, 83.2], so (c)
+      is met, not proven.
+
+WHAT THAT MEANS, plainly
+  On the build the league runs, the capture is still the finisher on an
+  attrition race: every one of 160 games was resolved after the loser had
+  spent >= 17 of 24 lives (71%), the median capture lands with one life
+  left on the losing side, and the mean capture-ending game has the loser
+  at 91.5% of its pool (baseline 93%). The capture share is identical to the
+  baseline's (41.9% vs 41.0%). The strategic conclusion -- kill exchange
+  rate is the real objective -- stands on the champion.
+
+  What is WEAKER on the champion, and should be said with the claim:
+  captures land a little earlier in the race. The >= 23 share drops from
+  61% to 45% (p = 0.04), the >= 22 share from 85% to 73% (p = 0.08), and
+  the earliest capture lands at 17/24 rather than 15/24 on a smaller
+  sample -- so the "~93% complete" figure is 91.5% here, and 1 in 4
+  captures now lands with the loser holding 3+ lives (vs 1 in 6.5). Read
+  "finisher" as "the last 1-3 kills by another name", not "the last kill".
+
+  The interrupted arm's "different game" (2.5x frames, 0.75 captures/ep)
+  does not reproduce on the live champion: frames are 2.27x, captures/ep
+  0.42. That arm was the REPO baseline source at the 47-define v25 set,
+  which includes -d:gv36SlotHunt -- the define v26 dropped because it broke
+  the bot's firing under the GV40 engine. It is not the champion, and its
+  18 episodes should not be cited for anything.
+
+CAVEATS carried from SUBJECT
+  Arena map, not the league's "gen" maps; the paintbot-rl replication
+  (champion self-play on gen, mean deaths 21.6/24, 100 eps) is the only gen
+  read and it agrees on the near-exhaustion picture. Compiled here on nim
+  2.2.6 arm64 against bitworld 9af28b41; the shipped image is nim 2.2.4
+  amd64 against bitworld 5d229acd. Server is this branch's engine, 518
+  commits past the champion's build pin.
