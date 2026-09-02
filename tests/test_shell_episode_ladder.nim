@@ -499,6 +499,73 @@ suite "shell episode ladder":
         pos.applyMask(output.masks[0].input)
       check sawEntryInstall
 
+  test "accepted mid-episode play call drives movement within the window":
+    ## Live-round regression pin (r3626 / ereq_e33bbe4a, 0.7.281): a starter
+    ## seat's 0xB1 call_accepted landed mid-episode (tick 768) while
+    ## FIRST_LIGHT_MOVEMENT stayed moving=0 for the whole episode. This test
+    ## asserts the executor contract at the mask level FIRST_LIGHT_MOVEMENT
+    ## counts: before the call the default holds (zero movement bits), and
+    ## within a bounded window after acceptance the play's masks move the
+    ## seat. Discriminating on both halves keeps a future wiring drop (an
+    ## orphaned executor writer, a lane binding gap) from reading as green.
+    when ShellRuntimeAvailable:
+      const
+        MovementBits = ButtonUp or ButtonDown or ButtonLeft or ButtonRight
+        PreCallControlTicks = 30
+        DriveWindowTicks = 120
+      buildEdgeRideWasm()
+      let map = testMap()
+      var episode = initFirstLightEpisode(true, true, controls(1), map, 331)
+      defer:
+        episode.closeFirstLightEpisode()
+
+      let admitted = episode.admitPlayModule(0, 190_000, 1,
+        readFile(EdgeRideWasm).bytesOf)
+      check admitted.accepted
+      var
+        tick = 1
+        pos: BodyPoint = (20, 128)
+      discard episode.waitReady(0, 190_000, tick, pos)
+
+      # Control half: the frame() fallbacks pin the default to hold (zone
+      # covers the map, shrink beyond the rotate lead, no threats), so any
+      # movement bit below is attributable to the play alone.
+      var preCallMovementTicks = 0
+      for _ in 0 ..< PreCallControlTicks:
+        let output = episode.step([frame(0, pos, tick)], uint32(tick))
+        check output.masks.len == 1
+        if (output.masks[0].input.encodeInputMask() and MovementBits) != 0:
+          inc preCallMovementTicks
+        pos.applyMask(output.masks[0].input)
+        inc tick
+      check preCallMovementTicks == 0
+
+      # The prod shape: the call is accepted MID-episode, over the same
+      # acceptPlayCall seam the 0xA1 socket consumer drains into.
+      let acceptedTick = tick
+      check acceptedTick > 1
+      let accepted = episode.acceptPlayCall(0, 190_100, 1,
+        uint32(acceptedTick), edgeRideCallBytes())
+      check accepted.accepted
+      check accepted.epoch == 1
+
+      var
+        movementTicks = 0
+        sawPlayInstall = false
+      let startPos = pos
+      for _ in 0 ..< DriveWindowTicks:
+        let output = episode.step([frame(0, pos, tick)], uint32(tick))
+        check output.masks.len == 1
+        sawPlayInstall = sawPlayInstall or
+          output.installs.anyIt(it.provenance == "entry:edge_ride")
+        if (output.masks[0].input.encodeInputMask() and MovementBits) != 0:
+          inc movementTicks
+        pos.applyMask(output.masks[0].input)
+        inc tick
+      check sawPlayInstall
+      check movementTicks > 0
+      check pos != startPos
+
   test "live admission upload quota resets on the episode tick":
     when ShellRuntimeAvailable:
       buildEdgeRideWasm()
