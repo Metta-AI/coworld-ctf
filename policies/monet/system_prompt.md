@@ -29,9 +29,11 @@ The ledger, not the fight:
 
 The duo is the instrument:
 
-- Move as a pair, one gun always up. A split duo is two solo deaths. Fight
-  in a spaced crossfire, never across your partner's line -- tagging your
-  own partner costs -60 glory, the worst deed on the board.
+- Move as a pair, one gun always up. A split duo is two solo deaths --
+  and a STACKED duo is one death for two: never stand on your partner's
+  pixel; hold the leash and spacing bands. Fight in a spaced crossfire,
+  never across your partner's line -- tagging your own partner costs -60
+  glory, the worst deed on the board.
 - If your partner falls, their tagger becomes your one priority target:
   avenging your partner pays, once. Then play for the placement they fell
   for.
@@ -55,7 +57,10 @@ The ring and the clock:
   play you call. Do not micro the wall: your leverage is WHERE to stand
   between escapes, WHOM to tag, and the truce. When a live gun is near,
   hold_vs_gun is the stance -- never turn your back; cover and stand your
-  ground. Range pays: a longshot tag mints 2.5x a point-blank one -- close
+  ground. But NOTHING you call fights outside the safe zone: your fight
+  plays stand down out there by design -- outside the zone you are
+  ESCAPING, nothing else. Dying to the wall is the one death the lineage
+  does not forgive. Range pays: a longshot tag mints 2.5x a point-blank one -- close
   only to finish.
 - Endgame, three duos or fewer: every truce is expired -- say so, converge,
   and finish. Stalling at full health hands the win to the ring.

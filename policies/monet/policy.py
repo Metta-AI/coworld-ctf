@@ -48,6 +48,10 @@ SUPPLY_DEFAULTS = {"whenHpBelow": 3, "detourMax": 300, "contested": "avoid"}
 # includes the placeholder when we ARE team 0).
 PACT_PLACEHOLDER = {"seat:0", "seat:16"}
 
+# Formation floors: below these the duo is stacked and tags itself.
+MIN_LEASH = 100
+MIN_SPACING = 120
+
 # Jackal doctrine: leave with the profit. A second tag is allowed, a third
 # is greed the attrition ledger punishes.
 JACKAL_MAX_KILLS = 2
@@ -120,6 +124,20 @@ def adjust_entries(entries, context, view):
                     and isinstance(exit_after.get("kills"), int)):
                 exit_after["kills"] = min(exit_after["kills"],
                                           JACKAL_MAX_KILLS)
+        elif entry.get("play") == "bodyguard":
+            # ANTI-STACK: a leash floor keeps the duo off each other's
+            # pixel -- stacked duos tag each other by accident.
+            leash = entry.setdefault("params", {}).get("leash")
+            if (isinstance(leash, list) and len(leash) == 2
+                    and isinstance(leash[0], int)):
+                leash[0] = max(leash[0], MIN_LEASH)
+                leash[1] = max(leash[1], leash[0])
+        elif entry.get("play") == "crossfire":
+            spacing = entry.setdefault("params", {}).get("spacing")
+            if (isinstance(spacing, list) and len(spacing) == 2
+                    and isinstance(spacing[0], int)):
+                spacing[0] = max(spacing[0], MIN_SPACING)
+                spacing[1] = max(spacing[1], spacing[0])
 
     # CONVERSION: every ladder banks the life. The rung sits above the
     # rotation controller (wounded beats rotating) and below any fight
@@ -184,9 +202,12 @@ PERSONA = Persona(
                        "harness guarantees the rung; you tune it. Avoid "
                        "contested kits unless your pact gives you the "
                        "numbers to race."),
-        "bodyguard": ("bodyguard when your partner is the wounded one: ward "
-                      "defaults to them, interpose true, moderate leash. "
-                      "One gun always up while they recover."),
+        "bodyguard": ("bodyguard is ALSO the formation spring: on a calm "
+                      "field ride it with leash [110, 280] and interpose "
+                      "false so the duo is held apart, never stacked (the "
+                      "harness floors the leash). When your partner is the "
+                      "wounded one: interpose true, one gun always up "
+                      "while they recover."),
         "crossfire": ("crossfire is the duo's fighting shape: a spacing "
                       "band wide enough that no line crosses your partner, "
                       "minAngle real. You see your partner only through "
@@ -237,13 +258,18 @@ PERSONA = Persona(
                  "params": {"prefer": ["revenge", "bounty", "weakened",
                             "isolated"]}},
                 {"play": "hold_vs_gun", "entry_id": "holdgun",
-                 "when": ["or",
-                          ["and",
-                           [">=", ["get", "world.nearest_enemy_dist"], 0],
-                           ["<", ["get", "world.nearest_enemy_dist"], 500]],
-                          ["get", "partner.in_combat"]],
+                 "when": ["and", ["get", "world.in_zone"],
+                          ["or",
+                           ["and",
+                            [">=", ["get", "world.nearest_enemy_dist"], 0],
+                            ["<", ["get", "world.nearest_enemy_dist"], 500]],
+                           ["get", "partner.in_combat"]]],
                  "params": {"calmTicks": 48, "coverMax": 260,
                             "engageDist": 500}},
+                {"play": "bodyguard", "entry_id": "spring",
+                 "when": ["get", "world.in_zone"],
+                 "params": {"leash": [110, 280], "interpose": False,
+                            "peelHp": 2}},
                 {"play": "supply_run", "entry_id": "bank",
                  "params": {"whenHpBelow": 3, "detourMax": 350,
                             "contested": "avoid"}},
@@ -262,13 +288,18 @@ PERSONA = Persona(
                  "params": {"prefer": ["revenge", "bounty", "weakened",
                             "isolated"]}},
                 {"play": "hold_vs_gun", "entry_id": "holdgun",
-                 "when": ["or",
-                          ["and",
-                           [">=", ["get", "world.nearest_enemy_dist"], 0],
-                           ["<", ["get", "world.nearest_enemy_dist"], 500]],
-                          ["get", "partner.in_combat"]],
+                 "when": ["and", ["get", "world.in_zone"],
+                          ["or",
+                           ["and",
+                            [">=", ["get", "world.nearest_enemy_dist"], 0],
+                            ["<", ["get", "world.nearest_enemy_dist"], 500]],
+                           ["get", "partner.in_combat"]]],
                  "params": {"calmTicks": 48, "coverMax": 260,
                             "engageDist": 500}},
+                {"play": "bodyguard", "entry_id": "spring",
+                 "when": ["get", "world.in_zone"],
+                 "params": {"leash": [110, 280], "interpose": False,
+                            "peelHp": 2}},
                 {"play": "supply_run", "entry_id": "bank",
                  "params": {"whenHpBelow": 3, "detourMax": 350,
                             "contested": "avoid"}},
@@ -287,22 +318,29 @@ PERSONA = Persona(
                 {"play": "target_law", "entry_id": "law",
                  "params": {"prefer": ["revenge", "bounty", "weakened",
                             "isolated"]}},
-                {"play": "hold_vs_gun", "entry_id": "holdgun",
-                 "when": ["or",
-                          ["and",
-                           [">=", ["get", "world.nearest_enemy_dist"], 0],
-                           ["<", ["get", "world.nearest_enemy_dist"], 500]],
-                          ["get", "partner.in_combat"]],
-                 "params": {"calmTicks": 48, "coverMax": 260,
-                            "engageDist": 500}},
                 {"play": "fire_superiority", "entry_id": "pressbreak",
-                 "when": [">=", ["get", "world.enemy_count"], 1],
+                 "when": ["and", ["get", "world.in_zone"],
+                          [">=", ["get", "world.enemy_count"], 1]],
                  "params": {"breakDeficit": 2, "coverMax": 260,
                             "engageDist": 600, "pressRange": 400,
                             "woundedPct": 50}},
+                {"play": "hold_vs_gun", "entry_id": "holdgun",
+                 "when": ["and", ["get", "world.in_zone"],
+                          ["or",
+                           ["and",
+                            [">=", ["get", "world.nearest_enemy_dist"], 0],
+                            ["<", ["get", "world.nearest_enemy_dist"], 500]],
+                           ["get", "partner.in_combat"]]],
+                 "params": {"calmTicks": 48, "coverMax": 260,
+                            "engageDist": 500}},
                 {"play": "jackal", "entry_id": "third",
-                 "params": {"earshot": 700, "joinWhen": "afterKill",
+                 "when": ["get", "world.in_zone"],
+                 "params": {"earshot": 450, "joinWhen": "afterKill",
                             "exitAfter": {"kills": 2}}},
+                {"play": "bodyguard", "entry_id": "spring",
+                 "when": ["get", "world.in_zone"],
+                 "params": {"leash": [110, 280], "interpose": False,
+                            "peelHp": 2}},
                 {"play": "supply_run", "entry_id": "bank",
                  "params": {"whenHpBelow": 3, "detourMax": 250,
                             "contested": "avoid"}},
@@ -322,7 +360,8 @@ PERSONA = Persona(
                  "params": {"prefer": ["revenge", "bounty", "weakened",
                             "isolated"]}},
                 {"play": "fire_superiority", "entry_id": "pressbreak",
-                 "when": [">=", ["get", "world.enemy_count"], 1],
+                 "when": ["and", ["get", "world.in_zone"],
+                          [">=", ["get", "world.enemy_count"], 1]],
                  "params": {"breakDeficit": 2, "coverMax": 200,
                             "engageDist": 600, "pressRange": 340,
                             "woundedPct": 34}},

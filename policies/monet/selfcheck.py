@@ -91,6 +91,30 @@ for i, turn in enumerate(PERSONA.canned_turns, start=1):
             check(f"{label}: truce-break releases the neighbors",
                   never == {PARTNER_REF}, str(never))
 
+# ── zone discipline + formation floors ────────────────────────────────────
+import json as _json
+FIGHT_PLAYS = {"hold_vs_gun", "fire_superiority", "jackal"}
+for i, turn in enumerate(PERSONA.canned_turns, start=1):
+    for e in turn["call"]["entries"]:
+        if e["play"] in FIGHT_PLAYS | {"bodyguard"}:
+            gated = '["get", "world.in_zone"]' in _json.dumps(e.get("when", []))
+            check(f"turn {i}: {e['play']} rung is zone-gated", gated,
+                  _json.dumps(e.get("when")))
+
+stacked = starter_harness.repair_call(
+    {"call": {"entries": [
+        {"play": "bodyguard", "entry_id": "spring",
+         "params": {"leash": [10, 60], "interpose": False}},
+        {"play": "crossfire", "entry_id": "shape",
+         "params": {"spacing": [20, 200], "minAngle": 36}},
+    ]}}, PERSONA, FAKE_SEAT, AVAILABLE)[1]
+bg = next(e for e in stacked if e["play"] == "bodyguard")
+cf = next(e for e in stacked if e["play"] == "crossfire")
+check("anti-stack: bodyguard leash floored", bg["params"]["leash"][0] >= 100,
+      str(bg["params"]["leash"]))
+check("anti-stack: crossfire spacing floored", cf["params"]["spacing"][0] >= 120,
+      str(cf["params"]["spacing"]))
+
 # canned turns cover the arc; extra model turns clamp to the last (endgame)
 # entry by harness design, so the budget may exceed the scripted count.
 check("canned turns cover the arc within the model-turn budget",
