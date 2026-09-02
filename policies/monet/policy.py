@@ -197,6 +197,15 @@ PERSONA = Persona(
                         "the guard fails and the rungs below drive. Never "
                         "call it unguarded as your only controller: on a "
                         "calm field it just stands still."),
+        "fire_superiority": ("fire_superiority is press-vs-break: count "
+                             "the guns you can SEE, and treat unknown hp "
+                             "as healthy -- never reason about invisible "
+                             "state. Superior means press to a range band, "
+                             "never a brawl; outgunned means break to "
+                             "facing cover. Keep it guarded on enemy "
+                             "contact: it is how a winning fight gets "
+                             "FINISHED instead of drawn, and a draw pays "
+                             "nobody."),
         "jackal": ("jackal is your signature tag source: join after the "
                    "first tag lands, exit after one or two -- leave with "
                    "the profit. The feed only says a fight HAPPENED, not "
@@ -276,6 +285,11 @@ PERSONA = Persona(
                           ["get", "partner.in_combat"]],
                  "params": {"calmTicks": 48, "coverMax": 260,
                             "engageDist": 500}},
+                {"play": "fire_superiority", "entry_id": "pressbreak",
+                 "when": [">=", ["get", "world.enemy_count"], 1],
+                 "params": {"breakDeficit": 2, "coverMax": 260,
+                            "engageDist": 600, "pressRange": 220,
+                            "woundedPct": 50}},
                 {"play": "jackal", "entry_id": "third",
                  "params": {"earshot": 700, "joinWhen": "afterKill",
                             "exitAfter": {"kills": 1}}},
@@ -286,14 +300,21 @@ PERSONA = Persona(
         },
         {
             # Endgame: the pact is DROPPED -- said out loud -- so the law
-            # releases the truce seats on this same call. Crossfire is the
-            # one controller: converge and FINISH (the engine's own bots
-            # stall at full health and let the ring decide).
+            # releases the truce seats on this same call. fire_superiority
+            # is the DRIVING controller on contact -- press-vs-break is how
+            # a winning fight gets finished (the engine's own bots stall at
+            # full health and let the ring decide; a draw pays nobody) --
+            # with crossfire beneath it owning the duo's shape off contact.
             "chat": "Field is thin: our truce ends here, no hard feelings. "
                     "Partner, on me -- we finish.",
             "call": {"entries": [
                 {"play": "target_law", "entry_id": "law",
                  "params": {"prefer": ["weakened", "isolated"]}},
+                {"play": "fire_superiority", "entry_id": "pressbreak",
+                 "when": [">=", ["get", "world.enemy_count"], 1],
+                 "params": {"breakDeficit": 2, "coverMax": 200,
+                            "engageDist": 600, "pressRange": 200,
+                            "woundedPct": 34}},
                 {"play": "crossfire", "entry_id": "shape",
                  "params": {"spacing": [120, 280], "minAngle": 36}},
                 {"play": "supply_run", "entry_id": "bank",

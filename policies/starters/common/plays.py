@@ -251,6 +251,47 @@ PLAYS = {
             "distance that switches from calm to shadowing from cover."
         ),
     },
+    # MONET custom play #2 (2026-09-01, compiled from
+    # policies/monet/plays/fire_superiority.nim by the monet Dockerfile).
+    # Picasso's SEAL lever #9, press-vs-break. Spec transcribed from the
+    # play's own wasm-carried manifest.
+    "fire_superiority": {
+        "class": "controller",
+        "params": {
+            "breakDeficit": {"kind": "int", "min": 1, "max": 8, "default": 2},
+            "coverMax": {"kind": "int", "min": 0, "max": 600, "default": 260},
+            "engageDist": {"kind": "int", "min": 100, "max": 1200,
+                           "default": 600},
+            "pressRange": {"kind": "int", "min": 60, "max": 500,
+                           "default": 220},
+            "woundedPct": {"kind": "int", "min": 0, "max": 100,
+                           "default": 50},
+        },
+        "brief": (
+            '"fire_superiority" (class: controller). Press-vs-break: it '
+            "counts only guns it can SEE (fresh tracks within engageDist; "
+            "an enemy whose hp it never read counts as HEALTHY). When your "
+            "side outnumbers them -- or matches them with enough of them "
+            "known-wounded -- it PRESSES: advances on the weakest visible "
+            "enemy and holds a range band, never melting into point-blank. "
+            "When outnumbered by breakDeficit or more it BREAKS to facing "
+            "cover, never moving through the enemy bearing. Even or no "
+            "contact: holds at cover. Call it on a guarded rung (enemy "
+            "contact guard); a draw pays nobody, so finish winning fights. "
+            "Params:\n"
+            "     - breakDeficit: integer 1..8, default 2. Enemy-gun margin "
+            "that forces the break.\n"
+            "     - coverMax: integer 0..600, default 260. Maximum px to a "
+            "cover point; 0 = never reposition.\n"
+            "     - engageDist: integer 100..1200, default 600. Range within "
+            "which a fresh enemy track counts as a live gun.\n"
+            "     - pressRange: integer 60..500, default 220. The band in px "
+            "to hold off the target while pressing.\n"
+            "     - woundedPct: integer 0..100, default 50. Percent of "
+            "counted enemies that must be known-wounded to press when "
+            "numbers are merely even."
+        ),
+    },
 }
 
 LADDER_RULES = """\
