@@ -43,6 +43,11 @@ type
     alive*: bool
     lives*: Option[int]
     carrying*: bool
+    downed*: bool
+      ## LOOT(s2): a frozen ghost -- never true unless downedMode is armed.
+      ## Stays `alive == true` while downed (that is what makes it
+      ## revivable), so a policy needs THIS bit, not `alive`, to know it
+      ## cannot fire/loot/shout right now.
 
   PlayZone* = object
     phase*: int
@@ -69,6 +74,12 @@ type
     hp*: Option[int]
     freshTick*: uint32
     bounty*: bool
+    downed*: bool
+      ## LOOT(s2): this tracked seat is a frozen ghost. For a fogged enemy
+      ## track this rides the same visibility as the rest of the row; for
+      ## the duo-partner grant row (playViewSourceFromBody) it is the
+      ## deliberate reason this field exists at all -- a policy cannot
+      ## revive a partner it cannot see is down.
 
   PlayItemKind* = enum
     pikGrenade
@@ -311,6 +322,8 @@ proc writeJson*(w: var CanonicalWriter, value: PlaySelf, mode: GameMode) =
   w.field("alive", value.alive)
   if value.carrying:
     w.field("carrying", true)
+  if value.downed:
+    w.field("downed", true)
   w.field("hp", int64(value.hp))
   w.field("hp_frac", value.hpFrac)
   if mode != gmBr and value.lives.isSome:
@@ -347,6 +360,8 @@ proc writeJson*(w: var CanonicalWriter, value: PlayTrack) =
     w.field("aim_brads", int64(value.aimBrads.get))
   if value.bounty:
     w.field("bounty", true)
+  if value.downed:
+    w.field("downed", true)
   w.field("fresh_tick", int64(value.freshTick))
   if value.hp.isSome:
     w.field("hp", int64(value.hp.get))
@@ -981,7 +996,7 @@ proc playViewSourceFromBody*(body: SeatBody, tick: uint32, mode: GameMode,
   result.self = PlaySelf(pos: body.selfState.pos, hp: body.selfState.hp,
     hpFrac: body.selfState.hpFrac, aimBrads: body.selfState.aimBrads,
     alive: body.selfState.alive, carrying: body.selfState.carrying,
-    lives: body.selfState.lives)
+    lives: body.selfState.lives, downed: body.selfState.downed)
   result.aliveTeams = aliveTeams
   result.zone = zone
   result.objectives = @objectives
@@ -993,7 +1008,21 @@ proc playViewSourceFromBody*(body: SeatBody, tick: uint32, mode: GameMode,
       result.tracks.add(PlayTrack(seat: seat, team: track.team,
         pos: track.pos, aimBrads: track.aimBrads,
         hp: track.hpKnown, freshTick: track.freshTick,
-        bounty: track.freshTick == tick and track.veteranMarker))
+        bounty: track.freshTick == tick and track.veteranMarker,
+        downed: track.downed))
+  # The duo partner's row is a DELIBERATE GRANT (play_view.schema.json §world
+  # tracks comment, §5.2): full trust, not fog-limited like the loop above.
+  # `body.tracks[]` never carries the partner (same-team seats are excluded
+  # from `visibleTracks` at the seam, src/ctf/server.nim
+  # firstLightBodyInputs), so this is the only place a partner row can come
+  # from. `downed` is why this row exists for LOOT(s2): a policy cannot
+  # revive a partner it cannot see is down.
+  let partner = body.partnerTelemetry()
+  if partner.isSome:
+    let grant = partner.get
+    result.tracks.add(PlayTrack(seat: grant.seat.int, team: grant.team,
+      pos: grant.pos, aimBrads: some(grant.aimBrads), hp: none(int),
+      freshTick: tick, bounty: false, downed: grant.downed))
   for item in body.items:
     result.items.add(PlayItem(eventId: item.eventId,
       kind: item.kind.toPlayItemKind, pos: item.pos,

@@ -122,8 +122,20 @@ suite "paintbot manifest, battle-royale-s2 variant":
     check sim.players[Teams].team == survivorTeam  ## slot 0's duo partner is slot 8.
     ## Wipe every OTHER team's both seats (slots 1..7 and their partners
     ## 9..15), leaving team 0's duo (slots 0 and 8) as the sole survivor.
+    ## This variant now arms downedMode (LOOT(s2)), so killPlayer's first
+    ## call on an upright cog DOWNS it (a frozen, still-`alive` ghost) --
+    ## src/ctf/sim.nim's killPlayer interception, `sim.downPlayer`. A second
+    ## killPlayer call on that same (now downed) victim carries it past the
+    ## interception guard (`not sim.players[targetIndex].downed` is false)
+    ## and completes the permanent death, the same path a real splat or
+    ## bleed-out finalization (`finalizeDowned`) takes. Two calls per
+    ## victim is this test's from-outside-the-module equivalent of "down,
+    ## then finish" -- the whole team must be genuinely dead, not merely
+    ## downed, before checkWinCondition can end the round.
     for i in 1 ..< Teams:
       sim.killPlayer(i, 0)
+      sim.killPlayer(i, 0)
+      sim.killPlayer(i + Teams, 0)
       sim.killPlayer(i + Teams, 0)
     sim.checkWinCondition()
     check sim.phase == GameOver

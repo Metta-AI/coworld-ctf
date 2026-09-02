@@ -26,7 +26,8 @@ proc baseFacts(): BrDefaultFacts =
     ticksToNextShrink: BrRotateLeadTicks + 1,
     zoneDps: 1,
     idleAimCenterBrads: 64,
-    partner: some((seat: 1'u8, pos: (20, 20), aimBrads: 32, alive: true)),
+    partner: some((seat: 1'u8, team: Red, pos: (20, 20), aimBrads: 32,
+      alive: true, downed: false)),
     rotateTarget: (150, 150))
 
 proc wireName(kind: IntentKind): string =
@@ -173,8 +174,8 @@ suite "shell default play":
     facts.rotateTarget = (200, 200)
     facts.coverGoal = some(facts.map.goal(40, 40))
     facts.threatPositions = @[(300, 300)]
-    facts.partner = some((seat: 1'u8, pos: (399, 399),
-      aimBrads: 32, alive: true))
+    facts.partner = some((seat: 1'u8, team: Red, pos: (399, 399),
+      aimBrads: 32, alive: true, downed: false))
     facts.ticksToNextShrink = BrRotateLeadTicks
 
     let rotate = computeBrDefault(facts)
@@ -187,8 +188,8 @@ suite "shell default play":
     check partner.rule == brPartnerLeash
     check partner.intent.point == some(MapPoint(x: 399, y: 399))
 
-    facts.partner = some((seat: 1'u8, pos: (20, 20),
-      aimBrads: 32, alive: true))
+    facts.partner = some((seat: 1'u8, team: Red, pos: (20, 20),
+      aimBrads: 32, alive: true, downed: false))
     let cover = computeBrDefault(facts)
     check cover.rule == brCoverHold
     check cover.intent.point == some(MapPoint(x: 40, y: 40))

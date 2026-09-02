@@ -241,25 +241,36 @@ suite "shell body seat belief-lite seam":
   test "duo telemetry is live sim truth and ends exactly at death":
     let body = activateSeatBody(openMap(), 0, 331)
     body.updateBelief(BodyTickInputs(self: selfState(), partner:
-      some(PartnerSample(seat: 1, pos: (70, 30), aimBrads: 12,
+      some(PartnerSample(seat: 1, team: Red, pos: (70, 30), aimBrads: 12,
         alive: true))), 3)
     check body.tracks[1].isNone
-    check body.partnerTelemetry == some((seat: 1'u8, pos: (70, 30),
-      aimBrads: 12, alive: true))
+    check body.partnerTelemetry == some((seat: 1'u8, team: Red, pos: (70, 30),
+      aimBrads: 12, alive: true, downed: false))
 
     body.updateBelief(BodyTickInputs(self: selfState(), visibleTracks: @[
       BodyTrackUpdate(seat: 1, pos: (60, 30), team: Red,
         aimBrads: some(8), hpKnown: none(int), tick: 3)], partner:
-      some(PartnerSample(seat: 1, pos: (74, 31), aimBrads: 14,
+      some(PartnerSample(seat: 1, team: Red, pos: (74, 31), aimBrads: 14,
         alive: true))), 4)
     check body.tracks[1].get.pos == (60, 30)
     check body.partnerTelemetry.get.pos == (74, 31)
 
     body.updateBelief(BodyTickInputs(self: selfState(), partner:
-      some(PartnerSample(seat: 1, pos: (74, 31), aimBrads: 14,
+      some(PartnerSample(seat: 1, team: Red, pos: (74, 31), aimBrads: 14,
         alive: false))), 5)
     check body.partnerTelemetry.isNone
     check body.tracks[1].get.pos == (60, 30)
+
+  test "duo telemetry carries the down flag":
+    let body = activateSeatBody(openMap(), 0, 331)
+    body.updateBelief(BodyTickInputs(self: selfState(), partner:
+      some(PartnerSample(seat: 1, team: Red, pos: (70, 30), aimBrads: 12,
+        alive: true, downed: true))), 3)
+    check body.partnerTelemetry.get.downed
+    body.updateBelief(BodyTickInputs(self: selfState(), partner:
+      some(PartnerSample(seat: 1, team: Red, pos: (70, 30), aimBrads: 12,
+        alive: true, downed: false))), 4)
+    check not body.partnerTelemetry.get.downed
 
     let solo = activateSeatBody(openMap(), 2, 331)
     solo.updateBelief(BodyTickInputs(self: selfState()), 1)
