@@ -461,9 +461,13 @@ def run(persona: Persona, args) -> int:
          + ", ".join(f"{n} ({len(b)}B)" for n, b in playbook))
 
     prompt = build_system_prompt(persona, available)
-    engine, why = brain.build_brain(args.canned, args.model)
-    if isinstance(engine, brain.CannedBrain):
-        engine = PersonaCannedBrain(persona)
+    # The persona's canned turns are BOTH the offline/CI engine and the live
+    # engine's degrade target: if the sidecar rejects the model (allowlist
+    # 403) or any completions call fails, brain.ResilientBrain logs once and
+    # this seat keeps playing its scripted persona instead of exiting 1.
+    engine, why = brain.build_brain(args.canned, args.model,
+                                    fallback=PersonaCannedBrain(persona))
+    if isinstance(engine, PersonaCannedBrain):
         why += f"; persona-canned turns for {persona.name}"
     _log(persona, f"model backend: {engine.name} ({why})")
 

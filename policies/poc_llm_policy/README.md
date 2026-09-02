@@ -214,7 +214,7 @@ server to loopback, so for a container run start the server yourself.
 | Variable | Set by | Meaning |
 | --- | --- | --- |
 | `AWS_ENDPOINT_URL_BEDROCK_RUNTIME` | the platform, in a hosted pod | **presence selects the production backend.** Never hardcode it |
-| `BEDROCK_MODEL` | `--bedrock-model` at upload | the model id the sidecar backend calls; required when the endpoint is set. A legacy Bedrock id or a canonical `vendor/model` slug both work — the sidecar resolves aliases |
+| `BEDROCK_MODEL` | `--bedrock-model` at upload | the model id the sidecar backend calls; always preferred when set. A legacy Bedrock id or a canonical `vendor/model` slug both work — the sidecar resolves aliases. When absent, the harness falls back to the default model |
 | `POC_LLM_PROTOCOL` | you, rarely | `bedrock` switches the sidecar call to the legacy `InvokeModel` shape. Opt-in escape hatch only |
 | `OPENROUTER_API_KEY` | you, for local dev | selects the OpenRouter backend when no sidecar is present |
 | `POC_MODEL` | you | OpenRouter model id (default `qwen/qwen3-30b-a3b-instruct-2507`); ignored on the sidecar path |
@@ -260,8 +260,14 @@ slot. It speaks **OpenAI-compatible chat completions, served by OpenRouter**.
   against the model allowlist (`resolve_model`,
   `app_backend/.../job_runner/llm_sidecar.py:260-268`), so a legacy Bedrock id
   *and* a canonical `vendor/model` slug both work. If the endpoint is set and
-  this is not, the harness **refuses loudly** — a silent fallback here is the
-  documented way to score zero completed episodes without noticing.
+  this is not, the harness logs it and tries the default model instead.
+- **A completions failure never kills the policy.** Every live backend is
+  wrapped in `ResilientBrain`: the first failure of any kind — the sidecar's
+  allowlist `403 model_not_allowed`, an unreachable proxy, unusable output —
+  is logged once, no further model calls are attempted, and the seat keeps
+  playing on canned decisions (each starter's own persona-scripted turns).
+  A policy that cannot reach its LLM plays dumb; it does not exit 1 and
+  forfeit the seat.
 - Rate limited per player slot; a 429 carries `Retry-After` / `Retry-After-Ms`,
   honoured once. Every call is timeout-bounded, because a slow call times the
   episode out and scores as a loss.

@@ -22,6 +22,11 @@ The happy consequence of (1) and (2) speaking the same protocol: they are the
 *same client class* with a different URL and a different auth header. Only the
 opt-in Bedrock fallback below needs its own code path.
 
+Live backends are wrapped in :class:`ResilientBrain`: the first completions
+failure of any kind (the sidecar's model-allowlist 403 first among them) is
+logged once and the policy degrades to canned decisions instead of dying. A
+policy that cannot reach its LLM plays dumb; it never exits 1 over it.
+
 Everything uses ``urllib`` from the standard library, so the image needs no HTTP
 or cloud SDK dependency.
 
@@ -84,11 +89,15 @@ OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions"
 ANTHROPIC_BEDROCK_VERSION = "bedrock-2023-05-31"
 
 DEFAULT_MODEL = "qwen/qwen3-30b-a3b-instruct-2507"
-"""The dev-path default: a cheap, capable open-weights model with JSON mode.
+"""The last-resort default: a cheap, capable open-weights model with JSON mode.
 
-Only used on the direct-OpenRouter path. On the sidecar path the model comes
-from ``BEDROCK_MODEL`` and must be on the platform's allowlist (which carries
-`anthropic/claude-haiku-4.5` and `anthropic/claude-sonnet-4.5`, among others).
+The platform-injected ``BEDROCK_MODEL`` always wins when present; this is used
+on the direct-OpenRouter dev path and as the sidecar-path fallback when nothing
+was injected. NOTE it is not necessarily on the platform's allowlist (which
+carries `anthropic/claude-haiku-4.5` and `anthropic/claude-sonnet-4.5`, among
+others) -- a hosted pod that ends up asking for it may be refused with a 403
+``model_not_allowed``, which :class:`ResilientBrain` turns into degraded canned
+play rather than a dead pod.
 """
 
 
@@ -352,6 +361,51 @@ class BedrockInvokeBrain:
             raise BrainError(f"model did not return JSON: {text[:400]}") from error
 
 
+class ResilientBrain:
+    """Keeps the policy alive when its model cannot be reached or used.
+
+    Wraps a live backend. The first ``decide`` failure of ANY kind -- an HTTP
+    4xx such as the sidecar's model-allowlist 403 ``model_not_allowed``, a
+    transport error, unusable output -- is logged ONCE, and every decision
+    from then on comes from the canned ``fallback`` instead. No further model
+    calls are attempted, so a hard rejection costs exactly one upstream
+    request.
+
+    Why: a policy that cannot reach its LLM should play its scripted game, not
+    exit 1. On the hosted platform a dead pod forfeits the seat, and when the
+    sidecar's allowlist rejected the starters' default model that was ten dead
+    seats per episode.
+    """
+
+    def __init__(self, primary, fallback=None) -> None:
+        self.primary = primary
+        self.fallback = fallback if fallback is not None else CannedBrain()
+        self.error: Exception | None = None
+
+    @property
+    def name(self) -> str:
+        if self.error is None:
+            return self.primary.name
+        return (f"{self.primary.name} (degraded to {self.fallback.name}: "
+                f"{str(self.error)[:200]})")
+
+    @property
+    def calls(self) -> int:
+        """Real model calls, for the end-of-run summary."""
+        return getattr(self.primary, "calls", 0)
+
+    def decide(self, summary: str) -> dict:
+        if self.error is None:
+            try:
+                return self.primary.decide(summary)
+            except Exception as error:  # noqa: BLE001 -- ANY model failure
+                self.error = error
+                print(f"[poc] model backend {self.primary.name} failed; "
+                      f"playing on with {self.fallback.name} decisions: "
+                      f"{error}", flush=True)
+        return self.fallback.decide(summary)
+
+
 def _retry_delay(headers, default: float = 2.0) -> float:
     """Honour the proxy's throttling hint. `Retry-After-Ms` wins if present."""
     milliseconds = headers.get("Retry-After-Ms")
@@ -369,43 +423,66 @@ def _retry_delay(headers, default: float = 2.0) -> float:
     return default
 
 
-def build_brain(canned: bool, model: str) -> tuple[object, str]:
+def build_brain(canned: bool, model: str, fallback=None) -> tuple[object, str]:
     """Pick a backend and report why, so the run log is unambiguous.
 
     Order is production-first: the hosted sidecar, then a developer's own
     OpenRouter key, then canned. `--canned` overrides everything so an offline
     or CI run is never at the mercy of ambient environment.
+
+    ``fallback`` is the canned engine used when nothing is configured AND as
+    the degrade target when a live backend fails (see :class:`ResilientBrain`).
+    Callers with scripted personas pass their own; ``None`` means the PoC's
+    :class:`CannedBrain`.
+
+    Model precedence on the sidecar path: the platform-injected
+    ``BEDROCK_MODEL`` wins (set per player pod from the upload's
+    ``--bedrock-model`` -- the dispatcher's documented injection seam, see
+    metta app_backend job_runner/dispatcher.py and COWORLD_MECHANICS.md);
+    ``model`` (usually :data:`DEFAULT_MODEL`) is used only when nothing was
+    injected.
     """
+    if fallback is None:
+        fallback = CannedBrain()
     if canned:
-        return CannedBrain(), "canned mode requested"
+        return fallback, "canned mode requested"
 
     endpoint = os.environ.get(SIDECAR_ENDPOINT_ENV, "").strip()
     if endpoint:
-        sidecar_model = os.environ.get(SIDECAR_MODEL_ENV, "").strip()
-        if not sidecar_model:
-            # Falling back silently here is the documented way to score zero
-            # completed episodes without noticing, so refuse loudly instead.
-            raise BrainError(
-                f"{SIDECAR_ENDPOINT_ENV} is set but {SIDECAR_MODEL_ENV} is not. "
-                "Upload the policy with --bedrock-model, and read the model "
-                "from that variable rather than hardcoding one.")
+        injected = os.environ.get(SIDECAR_MODEL_ENV, "").strip()
+        if injected:
+            sidecar_model = injected
+            source = f"{SIDECAR_MODEL_ENV}={injected}"
+        else:
+            # Nothing injected. This used to refuse loudly (exit 1 before the
+            # seat ever played, on a hosted pod). Degraded play beats a dead
+            # pod: try the default model, and if the sidecar rejects it the
+            # ResilientBrain wrapper keeps the seat alive on canned decisions.
+            sidecar_model = model
+            source = (f"{SIDECAR_MODEL_ENV} unset; trying the default "
+                      f"model {model}")
         if os.environ.get(SIDECAR_PROTOCOL_ENV, "").strip().lower() == "bedrock":
-            return (BedrockInvokeBrain(endpoint, sidecar_model),
+            return (ResilientBrain(BedrockInvokeBrain(endpoint, sidecar_model),
+                                   fallback),
                     f"hosted sidecar at {endpoint}, legacy InvokeModel path "
-                    f"({SIDECAR_PROTOCOL_ENV}=bedrock)")
-        return (OpenAiChatBrain(
-                    f"{endpoint.rstrip('/')}/v1/chat/completions",
-                    sidecar_model,
-                    label=f"sidecar-openai {sidecar_model}"),
+                    f"({SIDECAR_PROTOCOL_ENV}=bedrock, {source})")
+        return (ResilientBrain(
+                    OpenAiChatBrain(
+                        f"{endpoint.rstrip('/')}/v1/chat/completions",
+                        sidecar_model,
+                        label=f"sidecar-openai {sidecar_model}"),
+                    fallback),
                 f"hosted sidecar at {endpoint}, OpenAI-compatible chat "
-                f"completions ({SIDECAR_MODEL_ENV}={sidecar_model})")
+                f"completions ({source})")
 
     key = os.environ.get("OPENROUTER_API_KEY", "").strip()
     if key:
-        return (OpenAiChatBrain(OPENROUTER_URL, model, api_key=key,
-                                label=model),
+        return (ResilientBrain(
+                    OpenAiChatBrain(OPENROUTER_URL, model, api_key=key,
+                                    label=model),
+                    fallback),
                 f"direct OpenRouter, model {model} (dev path)")
 
-    return CannedBrain(), (
+    return fallback, (
         f"neither {SIDECAR_ENDPOINT_ENV} nor OPENROUTER_API_KEY is set; "
         "falling back to canned")
