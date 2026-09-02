@@ -2529,12 +2529,21 @@ function deathStatusLine(){
      protocol (chrome_common.js renderClock, s.t/s.st/s.mt), which this
      socket never receives. Rather than fabricate a countdown this file has
      no data for, only the number this file CAN get honestly is added: the
-     round's own kill tally, off player_hud.js's already-parsed "kd " label
+     player's own kill tally, off player_hud.js's already-parsed "kd " label
      (window.PaintbotHUD.selfKills -- see that file's Swap#12 item 7 note).
-     Falls back to the exact prior text when the value or the module isn't
-     there (older engine, or player_hud.js not loaded), never a guessed 0. */
+     CORRECTION (found live-debugging item 5, same swap): the "kd " label is
+     MATCH-scoped, not round-scoped -- global.nim's own comment on the kd
+     readout is explicit that it reads sim.matchKillsDeaths(), deliberately
+     NOT the per-round Player.kills/deaths pair, because "a player's K/D is
+     a MATCH statistic and must not visibly reset off a round boundary".
+     The first version of this line said "N tags this round", which is
+     therefore a fabricated scope this file has no license to claim -- fixed
+     to the honest, unscoped "N tags" (a real number, just not a per-round
+     one). Falls back to the exact prior text when the value or the module
+     isn't there (older engine, or player_hud.js not loaded), never a
+     guessed 0. */
   const kills=(window.PaintbotHUD&&typeof window.PaintbotHUD.selfKills==="number")?window.PaintbotHUD.selfKills:null;
-  const tagPart=kills===null?"":" -- "+kills+(kills===1?" tag":" tags")+" this round";
+  const tagPart=kills===null?"":" -- "+kills+(kills===1?" tag":" tags");
   return "you're out for this round"+tagPart+" -- next round starts soon...";
 }
 function renderDeathOverlay(){
