@@ -402,3 +402,72 @@ in section 6 is sequenced:
 🤖 Drafted for review; nothing here ships without James's ruling on
 section 6's remaining open item, and without Maxwell's go per the
 standing see-and-test rule.
+
+---
+
+## Addendum (2026-09-01): the MAP ballot — brpool candidates, rekey, and the replay contract
+
+Everything above described v1's mode-bundle ballot. The map-vote lane
+keeps every byte of the wire above and changes WHAT the ballot is about
+when — and only when — a **brpool** episode is parsed with
+`voteTicks > 0`:
+
+1. **Candidates ride the config header, not the record stream.** At
+   config parse (`sim_config.update`), an armed brpool episode pins
+   `voteMapSpecs`: an array of 4 FULL expanded mapSpec objects — 4
+   DISTINCT members of `data/br_s2_map_pool.json`, drawn
+   `brPoolIndex(seed + i, n)` for i in 0..3 (the splitmix64 finalizer;
+   i = 0 is EXACTLY the #355 single pick), deduplicated by +1 mod n.
+   The replay header's configJson therefore carries every candidate's
+   exact geometry (mapSpec's own rotation-proof pinning discipline);
+   playback and the viewer never consult the rotating pool. `mapSpec`
+   itself stays candidate 0, so the gate-off parse is byte-identical
+   to #355.
+
+2. **Resolution semantics (MAP ballot only).** Only EXPLICIT casts
+   count — there is no implicit-D and no delegation, because every
+   option is a real map. Zero casts ⇒ option 0 (candidate A — the very
+   map the gate-off path would have played). Plurality wins; ties take
+   the same seed-deterministic `voteDraw`. At resolution the winner's
+   spec is INSTALLED as the episode map (`applyVoteWinnerMap`): map def,
+   bakes, paint grid, pickups re-seated — still in Lobby, before the
+   huddle window opens.
+
+3. **The rekey (pre-arming gate, ruled).** `voteSeats` is keyed by the
+   seat's stable configured slot (`Player.joinOrder`), never by position
+   in the compacting `sim.players` array. Record `0x17` kind-0's `seat`
+   field is that same stable slot. An accepted cast survives its
+   caster's disconnect and is never re-attributed.
+
+4. **Record stream (unchanged wire shape) + VIEWER CONTRACT
+   (episodeflow lane).** A live episode with the gate on emits, in
+   ordinal order inside the phase-3 batch:
+   - `0x17` kind 0 per FRESH accepted cast:
+     `u8 0x17, u32 replayTimeMs, u8 0, u64 ordinal, u8 seat(STABLE
+     slot), u8 team, u8 option` — 17 bytes.
+   - `0x17` kind 1 exactly once at resolution:
+     `u8 0x17, u32 replayTimeMs, u8 1, u64 ordinal(=last cast ordinal
+     + 1), u8 category, u8 tieBreakDrawn, u8 finalOption` — 17 bytes.
+   The viewer renders the 4-quadrant vote from the lead-frame chrome
+   key `state["vote"]` (replay-viewer/ctf_replay.nim -> broadcast.nim):
+   `{"candidates": [4 map names, option index == array index],
+   "records": [{"k":"cast","ms","ord","seat","team","opt"} ... ,
+   {"k":"resolved","ms","ord","cat","tie","final"}]}` — running
+   tallies from the cast records in ordinal order (a seat's vote is
+   its LATEST cast), winner from `final`. Full candidate geometry, if
+   thumbnails want it, is the header configJson's `voteMapSpecs[0..3]`
+   (each spec self-names via its `"name"` field).
+
+5. **Playback re-application.** `stepReplay` re-applies kind-0 casts at
+   their recorded tick (`applyReplayBallotCast`, by stable slot) before
+   the tick steps — the same pre-step slot the live drain used — so
+   `resolveVote` re-derives the identical tally, early-resolution tick,
+   winner, and map install; kind-1 is chrome and is skipped. Keyframe
+   restores that cross the install rebuild the map bakes from the
+   restored `gameMap` (`deserializeReplaySim`).
+
+6. **Still unlanded / other lanes:** 0xB3 VoteState OUTBOUND broadcast
+   (seats today cast blind inside the window), and lifting 0xA4/0xB3
+   into packets.nim's `decodeClientPacket`/`decodeServerPacket`
+   switches (the classifier currently decodes 0xA4 via the standalone
+   vote_packets module).

@@ -31,6 +31,9 @@ type
     hashValidationFailed*: bool
     hashMismatchTick*: int
     lifecyclePlayback*: LifecyclePlayback
+    ballotIndex*: int
+      ## MAP VOTE: cursor into ReplayPlayer.ballots at this keyframe, so a
+      ## seek re-applies exactly the casts the walk had applied by then.
 
   ReplayPlayer* = object
     data*: ReplayData
@@ -42,6 +45,14 @@ type
     hashIndex*: int
     lifecycleIndex*: int
     lifecycle*: seq[LifecycleRecord]
+    ballots*: seq[BallotRecord]
+      ## The recorded `0x17` stream (shell.ballots), retained for playback:
+      ## kind-0 casts are RE-APPLIED at their recorded tick
+      ## (applyReplayEvents), so the sim's own resolveVote reproduces the
+      ## live resolution — tally, early-exit tick, and the winner-map
+      ## install — from the recorded truth. kind-1 (resolved) records are
+      ## viewer chrome only; playback re-derives resolution and skips them.
+    ballotIndex*: int
     playSeats*: seq[bool]
     lifecyclePlayback*: LifecyclePlayback
     overlays*: seq[DebugOverlay]
@@ -484,9 +495,30 @@ proc deserializeReplaySim*(bytes: string, donor: var SimServer): SimServer =
   ## semantics: `donor` gives its bakes to the returned sim (every caller
   ## replaces the donor with the result immediately after).
   result = bytes.fromFlatty(SimServer)
+  ## MAP VOTE: "static for the whole episode" stopped being true the day a
+  ## resolved map ballot could swap the episode map mid-lobby. The keyframe
+  ## DOES serialize `gameMap` (only the derived bakes are stripped), so a
+  ## restore that crosses the swap in either direction — donor post-swap,
+  ## keyframe pre-swap, or the reverse — can detect the disagreement by
+  ## name and rebuild the bakes from the restored map def instead of
+  ## donating stale ones. Same-map restores (every episode without an
+  ## armed vote, and every seek on one side of the swap) keep the cheap
+  ## donation path, byte-identical to before.
+  let crossMap = result.gameMap.name != donor.gameMap.name
   var bakes: ReplayStaticBakes
   donor.swapStaticBakes(bakes)
   result.swapStaticBakes(bakes)
+  if crossMap:
+    let darkBg = move(result.darkBgPixels)   # map-independent: keep donated.
+    result.buildMapBakes()
+    result.darkBgPixels = darkBg
+    ## The restored fovCaches were computed against the keyframe's own
+    ## masks, which buildMapBakes just reproduced — but restamp below
+    ## needs the diamond-free base first, and a cross-map cache carries no
+    ## guarantee the donor path's "valid by construction" argument relies
+    ## on. Drop them; the next viewer read re-casts.
+    for i in 0 ..< result.fovCaches.len:
+      result.fovCaches[i].valid = false
   ## The donated walk/wall/fov masks are NOT fully static: the spinning
   ## diamonds stamp tick-dependent stone into them, and the donor's stamps
   ## are at ITS tick's spin frame — not the keyframe's. The restored
@@ -544,6 +576,7 @@ proc initReplayPlayer*(data: CtfReplayData): ReplayPlayer =
   ## Builds playback with the verified lifecycle stream retained.
   result = initReplayPlayer(data.replay)
   result.lifecycle = data.shell.lifecycle
+  result.ballots = data.shell.ballots
   result.playSeats = configuredPlaySeats(data.replay.configJson)
   result.lifecyclePlayback = initLifecyclePlayback(result.playSeats)
 
@@ -571,6 +604,7 @@ proc resetReplay*(replay: var ReplayPlayer) =
   replay.debugSpriteIndex = 0
   replay.hashIndex = 0
   replay.lifecycleIndex = 0
+  replay.ballotIndex = 0
   replay.lifecyclePlayback = initLifecyclePlayback(replay.playSeats)
   replay.hashValidationFailed = false
   replay.hashMismatchTick = -1
@@ -595,6 +629,7 @@ proc saveReplayKeyframe(
     debugSpriteIndex: replay.debugSpriteIndex,
     hashIndex: replay.hashIndex,
     lifecycleIndex: replay.lifecycleIndex,
+    ballotIndex: replay.ballotIndex,
     overlaysBytes: replay.overlays.toFlatty(),
     masks: replay.masks,
     lastAppliedMasks: replay.lastAppliedMasks,
@@ -623,6 +658,7 @@ proc restoreReplayKeyframe(
   replay.debugSpriteIndex = keyframe.debugSpriteIndex
   replay.hashIndex = keyframe.hashIndex
   replay.lifecycleIndex = keyframe.lifecycleIndex
+  replay.ballotIndex = keyframe.ballotIndex
   replay.lifecyclePlayback = keyframe.lifecyclePlayback
   replay.overlays = keyframe.overlaysBytes.fromFlatty(seq[DebugOverlay])
   replay.masks = keyframe.masks
@@ -727,6 +763,23 @@ proc applyReplayEvents(replay: var ReplayPlayer, sim: var SimServer) =
           "Replay input-seat rebind occurs outside the lobby")
       sim.clearReplayAbandon(playerIndex)
     inc replay.lifecycleIndex
+
+  # MAP VOTE: re-apply recorded `0x17` kind-0 casts at their recorded tick,
+  # BEFORE this tick's step — mirroring the live server, which drains
+  # pending casts (stamped tickTime(sim.tickCount)) in the same pre-step
+  # block that drains lobby chat. The record's `seat` field is the STABLE
+  # configured slot (the voteSeats rekey key), so re-application lands on
+  # the same seat regardless of any roster compaction since. kind-1
+  # (resolved) records are skipped: resolveVote re-derives the identical
+  # resolution (and winner-map install) from the re-applied casts + the
+  # config seed, on the same tick — early resolution included.
+  while replay.ballotIndex < replay.ballots.len and
+      replay.ballots[replay.ballotIndex].replayTimeMs <= time:
+    let record = replay.ballots[replay.ballotIndex]
+    if record.kind == brkCast:
+      sim.applyReplayBallotCast(
+        int(record.seat), record.option, record.ordinal)
+    inc replay.ballotIndex
 
   while replay.inputIndex < replay.data.inputs.len and
       replay.data.inputs[replay.inputIndex].time <= time:
@@ -976,6 +1029,7 @@ proc initReplayScan*(
   scan.sim.gameEventLoggingEnabled = false
   scan.builder = initReplayPlayer(replay.data)
   scan.builder.lifecycle = replay.lifecycle
+  scan.builder.ballots = replay.ballots
   scan.builder.playSeats = replay.playSeats
   scan.builder.lifecyclePlayback = initLifecyclePlayback(replay.playSeats)
   scan.builder.looping = false
