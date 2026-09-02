@@ -253,7 +253,7 @@ off; seats are squad commanders driven by the server-side control layer
 
 | Field | Type / default | JSON key | Bounds | Effect |
 |---|---|---|---|---|
-| `numAgents` | int / `0` | `num_agents`, `numAgents` | `>=0` | Seats (websocket connections); `>0` marks seats; squad mode arms only together with `cogsPerTeam > 1` (deprecated). 2 in the archived `paintball` variant. |
+| `numAgents` | int / `0` | `num_agents`, `numAgents` | `>=0` | Seats (websocket connections); `>0` marks seats; squad mode arms only together with `cogsPerTeam > 1` (deprecated). 2 in the archived `paintball` variant. Echoed as `num_agents` whenever nonzero: the replay hash layout, playback's leave handling and the lobby reset all key on it, so a recording must carry it for playback to rebuild the same game. |
 | `cogsPerTeam` | int / `1` | | `1..8` | Cogs one seat commands; the archived paintball variant overrides this to 4 (RED-alpha..delta). |
 | `zonePhases` | `seq[ZonePhase]` / `@[]` (off) | `zonePhases` | array, `<=MaxZonePhases` (8) entries; see below | Closing-rectangle schedule for the battle-royale mode (docs/designs/BR_PLAYS.md); empty = the mechanic never runs — no center draw, no rect, no damage, no markers, byte-identical to a build without the field. |
 | `zonePhases[].z` | float, required | `z` | `(0, 1]`, and STRICTLY less than the previous phase's (implicit `1.0` for phase 0) | Target scale of the aspect-matched rect for this phase; stored internally as a permille like the handicap/perk fractions. |

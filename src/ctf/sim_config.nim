@@ -1331,6 +1331,24 @@ proc echoBarrageKeys(config: GameConfig, node: JsonNode) =
     node["barrageStartSec"] = %config.barrageStartSec
     node["barrageSaturateSec"] = %config.barrageSaturateSec
 
+proc echoSeatCountKey(config: GameConfig, node: JsonNode) =
+  ## Echo `num_agents` whenever a config sets it, paintball or not.
+  ##
+  ## The seat count is not just seating plumbing: gameHash keys the
+  ## needsReregister mix on `numAgents == 0`, playback keys its leave
+  ## handling and between-games archive on `numAgents > 0`, resetToLobby
+  ## keys the tick-counter reset on it, and the per-seat results collapse
+  ## folds cogs onto seats by it. Every hosted classic variant sets
+  ## num_agents so the platform can seat policies, and until this echo
+  ## existed the recording dropped it — playback rebuilt the config with
+  ## numAgents == 0 and re-simulated a structurally different game, so every
+  ## hosted replay failed its hash check at tick 1 (found on a Season 2
+  ## league episode; reproduced by tests/fixtures/seats-numagents16.bitreplay).
+  ## Default-only (numAgents == 0) configs echo nothing here, so the classic
+  ## fixtures' headers stay byte-identical.
+  if config.numAgents != 0:
+    node["num_agents"] = %config.numAgents
+
 proc echoPaintballKeys(config: GameConfig, node: JsonNode) =
   ## Echo the paintball keys only when the mode is engaged, so a classic
   ## game's replay config stays byte-identical to pre-paintball builds. When
@@ -1348,7 +1366,9 @@ proc echoPaintballKeys(config: GameConfig, node: JsonNode) =
   ## numAgents disjunct was always redundant for a genuine paintball game
   ## and only ever fired spuriously for a classic one — dropping it changes
   ## nothing for paintball and restores the byte-identical guarantee for
-  ## classic squad games.
+  ## classic squad games. The seat count itself still has to reach the
+  ## recording: echoSeatCountKey below carries `num_agents` on its own,
+  ## because playback semantics depend on it (see that proc).
   let paintballOn = config.loadout != LoadoutCtf or config.floorPaint or
     config.hill
   if paintballOn:
@@ -1625,6 +1645,7 @@ proc configJson*(config: GameConfig): string =
     node["players"] = players
   echoPuddleKeys(config, node)
   echoBarrierKeys(config, node)
+  echoSeatCountKey(config, node)
   echoPaintballKeys(config, node)
   echoHandicapKeys(config, node)
   echoPerkKeys(config, node)

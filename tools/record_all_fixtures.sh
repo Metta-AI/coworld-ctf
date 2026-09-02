@@ -48,6 +48,8 @@ tools/record_fixture.sh tests/fixtures/wipe-lives1.bitreplay 3 10000 \
   '{"lives":1,"hitPoints":1,"carrierSpeedPct":1}'
 tools/record_fixture.sh tests/fixtures/draw-nokill.bitreplay 7 1500 \
   '{"hitPoints":1000,"carrierSpeedPct":1,"barrageMaxPerSec":0}'
+tools/record_fixture.sh tests/fixtures/seats-numagents16.bitreplay 5 1500 \
+  '{"num_agents":16}'
 
 echo "== compiling the event-substrate acceptance check =="
 EVENT_CHECK=/tmp/record-extract-events-check

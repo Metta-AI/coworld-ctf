@@ -4,7 +4,7 @@
 ## hook. It runs real RuntimeEngine/ShellInstance/BodyMap/CompilePlane work
 ## against already-admitted Wasm bytes and returns deterministic evidence rows.
 
-import std/[options, strutils, times]
+import std/[math, options, strutils, times]
 import bitworld/spriteprotocol
 
 import ../ctf/sim_types
@@ -82,6 +82,10 @@ const
     ## exists only to scale fixed CPU-time gates across slower CI cores.
   ControlCallValidationBudget* = 64
   ControlAckBudget* = 32
+  BodyTimingSamples* = 3
+    ## Samples of the deterministic body tick per wave; the minimum is gated
+    ## (see the wave loop). Three is enough to shed one contended sample
+    ## without making the gate meaningfully slower.
 
   EmptyModule = [
     0x00'u8, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00]
@@ -288,10 +292,26 @@ proc runContainmentGate*(engine: RuntimeEngine, hostiles: openArray[HostileModul
     finally:
       validation.close()
 
-    let bodyStarted = cpuTime()
-    wave.defaultBodyOk = cleanDefaultBodyTick(map, seatCount,
-      uint32(waveIndex + 1))
-    wave.maxBodyUs = elapsedUs(bodyStarted)
+    # The body tick is deterministic and builds fresh state on every call, so
+    # it is sampled BodyTimingSamples times and the minimum is the gate input.
+    # A single cpuTime() sample of ~5 ms of work is not a measurement of the
+    # code on a shared CI runner: cpuTime() excludes preemption but not the
+    # cache and SMT contention of the sibling shards running on the same two
+    # cores, and the calibration probe cannot see contention that arrives
+    # after it ran. The minimum of a few samples is the standard estimator
+    # for "how long does this deterministic work take here": transient
+    # contention inflates individual samples but not the floor, while a real
+    # regression in the body raises every sample and therefore the floor.
+    # Observed before this: 7.0-8.1 ms samples against a 6.25 ms scaled gate
+    # on a docs-only commit (GitHub run 33588409127), i.e. runner noise
+    # failing the build and blocking the image upload.
+    wave.defaultBodyOk = true
+    wave.maxBodyUs = Inf
+    for _ in 0 ..< BodyTimingSamples:
+      let bodyStarted = cpuTime()
+      let bodyOk = cleanDefaultBodyTick(map, seatCount, uint32(waveIndex + 1))
+      wave.maxBodyUs = min(wave.maxBodyUs, elapsedUs(bodyStarted))
+      wave.defaultBodyOk = wave.defaultBodyOk and bodyOk
 
     let controlStarted = cpuTime()
     let control = runControlMaximum(engine, seatCount)
