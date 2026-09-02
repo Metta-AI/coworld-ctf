@@ -446,13 +446,40 @@ proc planGrenadeEscape(input: PlanEscapeInput;
                        grenades: seq[VisibleGrenade]): PlanEscapeResult =
   input.planGrenadeEscapeThroughStage(grenades, psTupleComparison)
 
-proc betterZone(insideNext, safeTicks, arrival: int64; ordinal: int;
-                bestInsideNext, bestSafeTicks, bestArrival: int64;
-                bestOrdinal: int): bool =
+proc rectDistanceSquared*(point: BodyPoint; rect: MapRect): int64 =
+  ## Squared distance from a point to the nearest point of the rect, 0 when
+  ## the point is inside. Integer-only so native and wasm rank identically.
+  let dx =
+    if point.x < rect.x: rect.x - point.x
+    elif point.x >= rect.x + rect.w: point.x - (rect.x + rect.w - 1)
+    else: 0
+  let dy =
+    if point.y < rect.y: rect.y - point.y
+    elif point.y >= rect.y + rect.h: point.y - (rect.y + rect.h - 1)
+    else: 0
+  int64(dx) * int64(dx) + int64(dy) * int64(dy)
+
+proc betterZone(insideNext, safeTicks, distNext, arrival: int64; ordinal: int;
+                bestInsideNext, bestSafeTicks, bestDistNext,
+                bestArrival: int64; bestOrdinal: int): bool =
+  ## Zone escape ranking: inside the next rect first, then the safest
+  ## current-zone standing, then CLOSER TO THE NEXT RECT, then arrival.
+  ## The distance term is what makes the reflex an escape on a field-sized
+  ## board: the candidate lattice spans only ReflexCandidateRadiusPx around
+  ## the cog, and on the hosted 2271x1212 maps the next rect is usually
+  ## farther than that, so no candidate is inside it and every candidate
+  ## shares the same safeTicks. Without the distance term the arrival
+  ## tie-break then picks the cog's OWN position (arrival 0): the body
+  ## reads that as "arrived", holds still, and the zone kills it — league
+  ## round 3633 (0.7.283) lost ten of fourteen cogs exactly this way. With
+  ## it, the reflex hands the body the lattice edge nearest the next rect
+  ## and re-plans as the cog advances, so the cog walks in.
   if insideNext != bestInsideNext:
     return insideNext > bestInsideNext
   if safeTicks != bestSafeTicks:
     return safeTicks > bestSafeTicks
+  if distNext != bestDistNext:
+    return distNext < bestDistNext
   if arrival != bestArrival:
     return arrival < bestArrival
   ordinal < bestOrdinal
@@ -470,6 +497,7 @@ proc planZoneExactThroughStage(input: PlanEscapeInput;
     bestArrival = InfiniteArrival
     bestInsideNext = low(int64)
     bestSafeTicks = low(int64)
+    bestDistNext = high(int64)
 
   for dy in countup(-ReflexCandidateRadiusPx, ReflexCandidateRadiusPx,
                    ReflexCandidateSpacingPx):
@@ -495,18 +523,21 @@ proc planZoneExactThroughStage(input: PlanEscapeInput;
       let
         insideNext = if resolved.pointInRect(nextZone): 1'i64 else: 0'i64
         safeTicks = zoneTicksUntilOutside(resolved)
+        distNext = resolved.rectDistanceSquared(nextZone)
       if stage == psScorer:
         inc ordinal
         continue
 
-      if not haveBest or betterZone(insideNext, safeTicks, arrival, ordinal,
-          bestInsideNext, bestSafeTicks, bestArrival, bestOrdinal):
+      if not haveBest or betterZone(insideNext, safeTicks, distNext, arrival,
+          ordinal, bestInsideNext, bestSafeTicks, bestDistNext, bestArrival,
+          bestOrdinal):
         haveBest = true
         bestPoint = resolved
         bestOrdinal = ordinal
         bestArrival = arrival
         bestInsideNext = insideNext
         bestSafeTicks = safeTicks
+        bestDistNext = distNext
       inc ordinal
 
   if not haveBest:
@@ -536,9 +567,10 @@ proc planZoneEscapeThroughStage(input: PlanEscapeInput;
         insideNext = if candidate.resolved.pointInRect(nextZone): 1'i64
           else: 0'i64
         safeTicks = zoneTicksUntilOutside(candidate.resolved)
-      EscapeScore(hardPass: true,
-        normal: scoreKey2(maxKey(insideNext), maxKey(safeTicks)),
-        fallback: scoreKey2(maxKey(insideNext), maxKey(safeTicks))),
+        distNext = candidate.resolved.rectDistanceSquared(nextZone)
+        keys = scoreKeys([maxKey(insideNext), maxKey(safeTicks),
+          minKey(distNext)])
+      EscapeScore(hardPass: true, normal: keys, fallback: keys),
     stage)
 
 proc planZoneEscape(input: PlanEscapeInput; source: ReflexTickInput):

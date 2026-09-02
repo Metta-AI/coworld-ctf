@@ -499,6 +499,59 @@ suite "shell episode ladder":
         pos.applyMask(output.masks[0].input)
       check sawEntryInstall
 
+  test "sixteen play seats all escape a far next zone on a field-sized board":
+    ## League round 3633 (0.7.283): with the next rect beyond the reflex
+    ## lattice, sixteen seats sharing one flat planning budget, and every
+    ## re-installed goal cancelling the plan in flight, cogs stood outside
+    ## the closing zone until it killed them. This pins the whole chain at
+    ## the mask level FIRST_LIGHT_MOVEMENT counts: every seat must move and
+    ## end the window nearer the next rect than it started.
+    when ShellRuntimeAvailable:
+      const
+        Width = 2048
+        Height = 1024
+        Seats = 16
+        WindowTicks = 300
+        Movement = ButtonUp or ButtonDown or ButtonLeft or ButtonRight
+      var walkable = newSeq[bool](Width * Height)
+      for value in walkable.mitems:
+        value = true
+      let map = newBodyMap(walkable, Width, Height, 1,
+        @[(64, 64), (1984, 960)])
+      var episode = initFirstLightEpisode(true, true, controls(Seats), map,
+        1300)
+      defer:
+        episode.closeFirstLightEpisode()
+      let nextZone = MapRect(x: 960, y: 448, w: 128, h: 128)
+      var pos = newSeq[BodyPoint](Seats)
+      for seat in 0 ..< Seats:
+        pos[seat] = (200 + (seat mod 8) * 220, if seat < 8: 120 else: 900)
+      let start = pos
+      var movementTicks = newSeq[int](Seats)
+      var tick = 1
+      for _ in 0 ..< WindowTicks:
+        var frames: seq[FirstLightSeatFrame]
+        for seat in 0 ..< Seats:
+          var seatFrame = frame(seat, pos[seat], tick)
+          seatFrame.defaultFallbacks.currentZone =
+            MapRect(x: 0, y: 0, w: Width, h: Height)
+          seatFrame.defaultFallbacks.nextZone = nextZone
+          seatFrame.defaultFallbacks.ticksToNextShrink = ReflexZoneTriggerTicks
+          seatFrame.motionScale = MotionScale
+          seatFrame.velocity = MaxSpeed
+          frames.add seatFrame
+        let output = episode.step(frames, uint32(tick))
+        check output.masks.len == Seats
+        for mask in output.masks:
+          if (mask.input.encodeInputMask() and Movement) != 0:
+            inc movementTicks[mask.playerIndex]
+          pos[mask.playerIndex].applyMask(mask.input)
+        inc tick
+      for seat in 0 ..< Seats:
+        check movementTicks[seat] > 0
+        check pos[seat].rectDistanceSquared(nextZone) <
+          start[seat].rectDistanceSquared(nextZone)
+
   test "accepted mid-episode play call drives movement within the window":
     ## Live-round regression pin (r3626 / ereq_e33bbe4a, 0.7.281): a starter
     ## seat's 0xB1 call_accepted landed mid-episode (tick 768) while

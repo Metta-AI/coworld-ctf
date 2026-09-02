@@ -165,27 +165,30 @@ proc anyPendingWork(system: BodyNavSystem): bool =
   system.anyPendingPlan or system.hasPendingMint
 
 proc assertBudgetBound(planTrace: openArray[PlanningVisit],
-                       mintTrace: openArray[MintVisit]) =
+                       mintTrace: openArray[MintVisit],
+                       budgetPerTick: int) =
+  ## Every tick's cold work fits the system's pooled budget
+  ## (ColdPlanBudgetPerTick per configured seat).
   var unitsByTick = initTable[int, int]()
   for visit in planTrace:
     if visit.tick < 0:
-      check visit.units <= ColdPlanBudgetPerTick
+      check visit.units <= budgetPerTick
       continue
     unitsByTick[visit.tick] = unitsByTick.getOrDefault(visit.tick) + visit.units
   for visit in mintTrace:
     if visit.tick < 0:
-      check visit.units <= ColdPlanBudgetPerTick
+      check visit.units <= budgetPerTick
       continue
     unitsByTick[visit.tick] = unitsByTick.getOrDefault(visit.tick) + visit.units
   for tick, units in unitsByTick:
-    check units <= ColdPlanBudgetPerTick
+    check units <= budgetPerTick
 
 proc runToQuiescence(system: BodyNavSystem,
                      order: openArray[int] = []): int =
   var tick = 0
   while system.anyPendingWork:
     let spent = system.runPlanningTick(tick, order)
-    doAssert spent <= ColdPlanBudgetPerTick
+    doAssert spent <= system.planBudgetPerTick
     inc tick
     doAssert tick < 100_000
   tick
@@ -289,7 +292,7 @@ proc runMassPlan(map: BodyMap, start: BodyPoint,
   var pending = 32
   while pending > 0:
     let spent = system.runPlanningTick(result.ticks, order)
-    doAssert spent <= ColdPlanBudgetPerTick
+    doAssert spent <= system.planBudgetPerTick
     if result.ticks == 0:
       for seat in 0 ..< 32:
         doAssert system.seats[seat].activePath == standing
@@ -606,7 +609,44 @@ suite "shell body seat navigation":
     check withMint.planningTraceSnapshot == withoutMint.planningTraceSnapshot
     check withMint.planningTraceSnapshot.anyIt(it.completed)
     check withMint.mintTraceSnapshot.anyIt(it.completed)
-    assertBudgetBound(withMint.planningTraceSnapshot, withMint.mintTraceSnapshot)
+    assertBudgetBound(withMint.planningTraceSnapshot, withMint.mintTraceSnapshot,
+      withMint.planBudgetPerTick)
+
+  test "cold-plan budget pools one slice per configured seat":
+    ## A flat 256 units a tick server-wide starved a 16-seat league roster
+    ## on a field-sized map (round 3633): one long route costs ~17k units,
+    ## so each seat's plan advanced every thirty-odd ticks and the follower
+    ## held the cog still meanwhile. The pool now scales with the roster;
+    ## a single seat keeps the historical 256.
+    let map = openMap()
+    check newBodyNavSystem(map, 1, 331).planBudgetPerTick ==
+      ColdPlanBudgetPerTick
+    check newBodyNavSystem(map, 16, 331).planBudgetPerTick ==
+      16 * ColdPlanBudgetPerTick
+
+  test "a cancelled plan is re-requested instead of following the stale path":
+    ## Round 3633: the zone reflex re-installs its goal a few pixels over as
+    ## the cog advances; setStandingIntent cancels the pending plan, the
+    ## sub-threshold goal shift and the still-loaded old path kept every
+    ## replan trigger quiet, and the seat followed the stale path into a
+    ## wall for good. A loaded path older than the last requested plan must
+    ## trigger a replan.
+    let map = openMap()
+    let start: BodyPoint = (16, 80)
+    let first = map.validateGoal((96, 80), start).get
+    let system = newBodyNavSystem(map, 1, 331, DangerCadenceK, 100_000)
+    system.replacePlan(0, 1, start, first)
+    discard system.runToQuiescence()
+    check system.seats[0].pathLen > 0
+    let second = map.validateGoal((200, 80), start).get
+    system.replacePlan(0, 2, start, second)
+    check system.seats[0].job.planPending
+    system.seats[0].cache.cancelPlan(system.seats[0].job)
+    check not system.seats[0].job.planPending
+    check system.seats[0].pathRevision != system.seats[0].revision
+    let nearby = map.validateGoal((204, 80), start).get
+    discard system.navigationWaypoint(0, start, nearby, 10)
+    check system.seats[0].job.planPending
 
   test "prewarm and budgeted plan drain produce the same plans":
     let map = openMap()
@@ -683,7 +723,7 @@ suite "shell body seat navigation":
     check not withQueuedMint.hasPendingMint
     check withQueuedMint.mintTraceSnapshot.anyIt(it.completed)
     assertBudgetBound(withQueuedMint.planningTraceSnapshot,
-      withQueuedMint.mintTraceSnapshot)
+      withQueuedMint.mintTraceSnapshot, withQueuedMint.planBudgetPerTick)
 
   test "mint lifecycle cancels, preserves, and skips at the right boundaries":
     let map = openMap()
@@ -747,10 +787,11 @@ suite "shell body seat navigation":
     check baseline.paths == references
     check baseline.workUnits == baseline.trace.mapIt(it.units).foldl(a + b, 0)
     check baseline.trace.len > baseline.ticks
-    assertBudgetBound(baseline.trace, baseline.mintTrace)
+    assertBudgetBound(baseline.trace, baseline.mintTrace,
+      ColdPlanBudgetPerTick * 32)
     for visit in baseline.trace:
       check visit.units >= 0
-      check visit.units <= ColdPlanBudgetPerTick
+      check visit.units <= ColdPlanBudgetPerTick * 32
     for seat in 0 ..< 32:
       check map.routeKey(requestedGoals[seat]) notin baseline.readyRouteKeys[seat]
     let permuted = runMassPlan(map, start, requestedGoals, permutation)
@@ -768,7 +809,8 @@ suite "shell body seat navigation":
     check prewarmed.workUnits == baseline.workUnits
     check prewarmed.cursor == baseline.cursor
     check prewarmed.queuedMints.allIt(it)
-    assertBudgetBound(prewarmed.trace, prewarmed.mintTrace)
+    assertBudgetBound(prewarmed.trace, prewarmed.mintTrace,
+      ColdPlanBudgetPerTick * 32)
     # Plans-only prewarm intentionally leaves route-field mints queued. After
     # ruling 10, plans are not blocked by route fields; stencil mints fields
     # lazily on demand, so the activation barrier must not warm them.

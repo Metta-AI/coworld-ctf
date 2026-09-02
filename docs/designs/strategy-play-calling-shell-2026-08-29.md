@@ -3348,6 +3348,26 @@ evidence needed to maintain and verify historical replays.
   activation-barrier prewarm probe is recorded by absolute p95 only; its
   old 434 ms comparison baseline was this lane's episode-build number,
   not a pre-change prewarm measurement.
+- Ruling eleven (2026-09-02, from league round 3633 on 0.7.283): the
+  cold-plan budget pools **one 256-unit slice per configured seat**
+  (`planBudgetPerTick`, `src/shell/body_nav.nim`), not one flat 256 units
+  server-wide. Ruling ten's cold rows above (~500 ticks to a far goal on
+  the real BR map) are what a 16-seat roster actually suffered: a 900 px
+  route costs ~17k units on the `PlanStepPx` lattice, sixteen such plans
+  took a slice every thirty-odd ticks, and the follower holds a cog still
+  while its plan is pending, so cogs stood where they spawned until the
+  zone killed them. With the pool, the same sixteen long plans finish in
+  under seventy ticks in parallel; a single seat keeps the historical 256,
+  and the pass stays outside the containment body-tick gate. Two sibling
+  fixes landed with it: the zone reflex ranks candidates by distance to
+  the next rect before its arrival tie-break (on field-sized boards the
+  next rect lies beyond the candidate lattice, and the old ranking chose
+  the cog's own position), and the follower replans whenever its loaded
+  path predates the last requested plan (a goal re-installed a few pixels
+  over cancelled the plan in flight and left every replan trigger quiet).
+  Pinned by `test_shell_reflexes` ("beyond the candidate lattice"),
+  `test_shell_body_nav` (pool + stale path), and `test_shell_episode_ladder`
+  ("sixteen play seats all escape").
 - Lane C's optimized JSON reader measured 28-57 fuel per byte on
   2026-08-31, on top of an 11,187-fuel fixed cost; even a loop that
   merely touched each byte cost 23 instructions per byte with checks on

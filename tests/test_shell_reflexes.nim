@@ -192,14 +192,18 @@ proc legacyGrenadeScorer(grenades: seq[VisibleGrenade]): EscapeScorer =
         maxKey(earliestInAggregation)]))
 
 proc legacyZoneScorer(facts: ReflexTickInput): EscapeScorer =
+  ## The zone ranking written out as a plain scorer: inside the next rect,
+  ## safest standing, then nearest to the next rect (the term that makes
+  ## the reflex an escape when the next rect lies beyond the lattice).
   result = proc(candidate: EscapeCandidate): EscapeScore =
     let
       insideNext = if candidate.resolved.pointInRect(facts.nextZone): 1'i64
         else: 0'i64
       safeTicks = facts.zoneTicksUntilOutside(candidate.resolved)
-    EscapeScore(hardPass: true,
-      normal: scoreKeys([maxKey(insideNext), maxKey(safeTicks)]),
-      fallback: scoreKeys([maxKey(insideNext), maxKey(safeTicks)]))
+      distNext = candidate.resolved.rectDistanceSquared(facts.nextZone)
+      keys = scoreKeys([maxKey(insideNext), maxKey(safeTicks),
+        minKey(distNext)])
+    EscapeScore(hardPass: true, normal: keys, fallback: keys)
 
 proc triggeringForSelf(facts: ReflexTickInput): seq[VisibleGrenade] =
   for grenade in facts.visibleGrenades:
@@ -407,6 +411,26 @@ suite "shell reflexes":
     facts.zoneTicksUntilOutside = fixedZone(0)
     decision = state.selectReflex(facts, [sub(rkZoneEscape)])
     check not decision.selected
+
+  test "zone escape steps toward a next rect beyond the candidate lattice":
+    ## League round 3633 (0.7.283): on the field-sized boards the next rect
+    ## lies farther than the candidate lattice reaches, so no candidate is
+    ## inside it and every candidate shares safeTicks; the arrival tie-break
+    ## then chose the cog's OWN position and the body held still until the
+    ## zone killed it. The nearest-to-next-rect term must pick a candidate
+    ## that closes the distance instead.
+    let map = openMap()
+    var state: ReflexSeatState
+    var facts = input(map, pos = (600, 600))
+    facts.nextZone = MapRect(x: 32, y: 32, w: 64, h: 64)
+    facts.zoneTicksUntilOutside = fixedZone(ReflexZoneTriggerTicks)
+    let decision = state.selectReflex(facts, [sub(rkZoneEscape)])
+    check decision.selected
+    let point = decision.order.intent.point.get
+    let chosen: BodyPoint = (point.x, point.y)
+    check chosen != facts.selfPos
+    check chosen.rectDistanceSquared(facts.nextZone) <
+      facts.selfPos.rectDistanceSquared(facts.nextZone)
 
   test "observers run without subscription and a later ladder picks up the emergency":
     let map = openMap()
