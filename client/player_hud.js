@@ -888,6 +888,7 @@
     + '#phud-rail{display:flex;gap:' + S(16) + ';flex-wrap:wrap;}\n'
     + '#phud-rail .phud-stat{display:flex;flex-direction:column;gap:1px;min-width:' + S(44) + ';}\n'
     + '#phud-rail .phud-num.tick{animation:phud-tick .42s ease-out;}\n'
+    + '#phud-rail-cap{flex-basis:100%;font-size:' + S(9) + ';opacity:.75;margin-top:2px;}\n'
     + '@keyframes phud-tick{0%{transform:scale(1);color:#f2e8d8;}30%{transform:scale(1.28);color:#e8a33d;}100%{transform:scale(1);color:#f2e8d8;}}\n'
     + '#phud-cond{position:fixed;left:10px;bottom:8px;display:flex;gap:' + S(13) + ';align-items:baseline;}\n'
     + '#phud-cond .phud-stat{display:flex;flex-direction:column;gap:1px;}\n'
@@ -1067,6 +1068,7 @@
       // loop below (nodes.scTile/nodes.rkTile).
       '<div class="phud-stat" id="phud-sc-tile" style="display:none"><span class="phud-eyebrow">score</span><span class="phud-num" id="phud-sc">—</span></div>' +
       '<div class="phud-stat" id="phud-rk-tile" style="display:none"><span class="phud-eyebrow">rank</span><span class="phud-num" id="phud-rk" style="font-size:11px">—</span></div>' +
+      '<span class="phud-eyebrow" id="phud-rail-cap" style="display:none" title="This seat existed before you took it over; these tiles count YOUR session. The seat\'s full match totals are in the standings (Tab).">your session · seat totals: tab</span>' +
       '</div>' +
       '<div id="phud-partner-chip" class="phud-panel"><span class="phud-eyebrow">partner</span>' +
       '<span class="t"><span class="dot" id="phud-partner-dot"></span>' +
@@ -1098,6 +1100,7 @@
       top: root.querySelector('#phud-top'),
       rail: root.querySelector('#phud-rail'),
       k: root.querySelector('#phud-k'), d: root.querySelector('#phud-d'),
+      railCap: root.querySelector('#phud-rail-cap'),
       sc: root.querySelector('#phud-sc'), rk: root.querySelector('#phud-rk'),
       scTile: root.querySelector('#phud-sc-tile'), rkTile: root.querySelector('#phud-rk-tile'),
       hp: root.querySelector('#phud-hp'), lv: root.querySelector('#phud-lv'),
@@ -1617,6 +1620,17 @@
   let partnerAliveThisRound = null; // null = unresolved/not-a-duo; true/false once known — S2's chip status
   let prevTeamsAliveForRearm = null; // best-effort round-boundary detector: teamsAlive can only ever DECREASE within a round (eliminated teams don't come back), so a rise means a new round started — see render()'s own use of this.
   let lastZoneEta = null;        // {ticks, shrinking, receivedAt} — S6
+  // Swap#14 Z3: session baseline for the OWN k/d tiles. Seat stats are
+  // match-scoped BY DESIGN (/reward identity = the seat name; a takeover
+  // INHERITS them) -- so a first-timer joining mid-match read KILLS 2 /
+  // DEATHS 3 at t=0. Display-layer only, the wire is untouched: baseline
+  // = the first non-null kd this page ever sees (the inherited totals),
+  // tiles render raw-minus-baseline. A drop below baseline can only mean
+  // a fresh match zeroed the seat stats -> baseline collapses to 0 and
+  // the display equals the raw totals again (the human held the seat from
+  // that match's start, so session == seat from then on). Raw seat totals
+  // stay untouched in the standings panel (playerRows).
+  let sessionBaseKills = null, sessionBaseDeaths = null;
   // Found by testing (a live tick-animation check came back silently false):
   // the self-attaching auto-scan loop below and the public update() push API
   // both write the SAME shared render state (prevKills, cooldownPrevReady,
@@ -1699,9 +1713,31 @@
     renderTopBar(nodes, state);
 
     // E — persistent kills/deaths/score, with a restrained tick on real increment.
-    setStat(nodes.k, state.combat.kills, function () { return prevKills !== null && state.combat.kills !== null && state.combat.kills > prevKills; });
+    // Swap#14 Z3: session-relative numbers (see sessionBaseKills above);
+    // the increment-tick animation still compares RAW values, so it fires
+    // on exactly the same real events it always did.
+    let dispKills = state.combat.kills, dispDeaths = state.combat.deaths;
+    if (state.combat.kills !== null) {
+      if (sessionBaseKills === null) sessionBaseKills = state.combat.kills;
+      else if (state.combat.kills < sessionBaseKills) sessionBaseKills = 0;
+      dispKills = state.combat.kills - sessionBaseKills;
+    }
+    if (state.combat.deaths !== null) {
+      if (sessionBaseDeaths === null) sessionBaseDeaths = state.combat.deaths;
+      else if (state.combat.deaths < sessionBaseDeaths) sessionBaseDeaths = 0;
+      dispDeaths = state.combat.deaths - sessionBaseDeaths;
+    }
+    // Honest label (audit: a first-timer must not read inherited stats as
+    // their own): the caption row appears ONLY while a nonzero baseline is
+    // actually being subtracted -- a from-the-start seat sees the plain
+    // rail it always saw (no new cluster in the common case).
+    if (nodes.railCap) {
+      const baselined = (sessionBaseKills > 0 || sessionBaseDeaths > 0);
+      nodes.railCap.style.display = baselined ? '' : 'none';
+    }
+    setStat(nodes.k, dispKills, function () { return prevKills !== null && state.combat.kills !== null && state.combat.kills > prevKills; });
     prevKills = state.combat.kills;
-    nodes.d.textContent = fmtDash(state.combat.deaths);
+    nodes.d.textContent = fmtDash(dispDeaths);
     // SCORE/RANK tiles stay structurally absent while Glory is undeployed
     // (combat.score/rank null placeholder) and reappear untouched — same
     // text, same markup — the moment the wire starts carrying real values.
