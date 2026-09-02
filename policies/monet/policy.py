@@ -171,12 +171,11 @@ PERSONA = Persona(
                        "editing the list. Set a holdTrigger only for a "
                        "planned endgame release: a released hold LATCHES "
                        "and can never re-arm."),
-        "edge_ride": ("edge_ride: think twice. The native escape reflex "
-                      "outranks it at the wall and the default rotation "
-                      "measurably outplaces it -- calling edge_ride "
-                      "REPLACES a good default. Call it only with a "
-                      "specific positional read; margin is depth inside "
-                      "the safe zone (deeper = safer) if you do."),
+        "edge_ride": ("edge_ride: the native escape reflex outranks every "
+                      "play at the wall, and calling a rotation REPLACES "
+                      "the default one. Call it only with a specific "
+                      "positional read; margin is depth inside the safe "
+                      "zone (deeper = safer) if you do."),
         "supply_run": ("supply_run is the conversion play this lineage "
                        "always skipped: after a fight, bank the life. The "
                        "harness guarantees the rung; you tune it. Avoid "
@@ -190,6 +189,14 @@ PERSONA = Persona(
                       "minAngle real. You see your partner only through "
                       "your own fog tracks -- hold formation where you can "
                       "see each other."),
+        "hold_vs_gun": ("hold_vs_gun is the Picasso lever: never turn "
+                        "your back on a live gun. Keep it a GUARDED rung "
+                        "above jackal and supply_run -- when the proximity "
+                        "guard passes it owns movement and stands its "
+                        "ground facing the threat; when the field is calm "
+                        "the guard fails and the rungs below drive. Never "
+                        "call it unguarded as your only controller: on a "
+                        "calm field it just stands still."),
         "jackal": ("jackal is your signature tag source: join after the "
                    "first tag lands, exit after one or two -- leave with "
                    "the profit. The feed only says a fight HAPPENED, not "
@@ -212,6 +219,14 @@ PERSONA = Persona(
                             "protect": False, "onBetrayal": "returnFire"}},
                 {"play": "target_law", "entry_id": "law",
                  "params": {"prefer": ["weakened", "isolated"]}},
+                {"play": "hold_vs_gun", "entry_id": "holdgun",
+                 "when": ["or",
+                          ["and",
+                           [">=", ["get", "world.nearest_enemy_dist"], 0],
+                           ["<", ["get", "world.nearest_enemy_dist"], 500]],
+                          ["get", "partner.in_combat"]],
+                 "params": {"calmTicks": 48, "coverMax": 260,
+                            "engageDist": 500}},
                 {"play": "supply_run", "entry_id": "bank",
                  "params": {"whenHpBelow": 3, "detourMax": 350,
                             "contested": "avoid"}},
@@ -228,6 +243,14 @@ PERSONA = Persona(
                             "protect": False, "onBetrayal": "returnFire"}},
                 {"play": "target_law", "entry_id": "law",
                  "params": {"prefer": ["weakened", "isolated"]}},
+                {"play": "hold_vs_gun", "entry_id": "holdgun",
+                 "when": ["or",
+                          ["and",
+                           [">=", ["get", "world.nearest_enemy_dist"], 0],
+                           ["<", ["get", "world.nearest_enemy_dist"], 500]],
+                          ["get", "partner.in_combat"]],
+                 "params": {"calmTicks": 48, "coverMax": 260,
+                            "engageDist": 500}},
                 {"play": "supply_run", "entry_id": "bank",
                  "params": {"whenHpBelow": 3, "detourMax": 350,
                             "contested": "avoid"}},
@@ -245,6 +268,14 @@ PERSONA = Persona(
                             "protect": False, "onBetrayal": "returnFire"}},
                 {"play": "target_law", "entry_id": "law",
                  "params": {"prefer": ["weakened", "isolated"]}},
+                {"play": "hold_vs_gun", "entry_id": "holdgun",
+                 "when": ["or",
+                          ["and",
+                           [">=", ["get", "world.nearest_enemy_dist"], 0],
+                           ["<", ["get", "world.nearest_enemy_dist"], 500]],
+                          ["get", "partner.in_combat"]],
+                 "params": {"calmTicks": 48, "coverMax": 260,
+                            "engageDist": 500}},
                 {"play": "jackal", "entry_id": "third",
                  "params": {"earshot": 700, "joinWhen": "afterKill",
                             "exitAfter": {"kills": 1}}},
@@ -271,8 +302,8 @@ PERSONA = Persona(
             ]},
         },
     ],
-    recall_count=3,
-    recall_seconds=45.0,
+    recall_count=5,
+    recall_seconds=30.0,
     include_kill_feed=True,
     partner_focus=True,
     adjust_entries=adjust_entries,

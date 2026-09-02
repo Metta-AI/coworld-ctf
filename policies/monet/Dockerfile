@@ -40,6 +40,24 @@ COPY policies/starters/common/build_playbook.sh ./policies/starters/common/
 RUN chmod +x policies/starters/common/build_playbook.sh \
     && policies/starters/common/build_playbook.sh /playbook
 
+# MONET custom plays (hold_vs_gun, ...): same recipe discovery as
+# build_playbook.sh -- a play is a .nim with a .nims build recipe beside it;
+# support files without a recipe (panicoverride.nim) are skipped by
+# construction. PAIRING REQUIREMENT: every play baked here must have a
+# manifest row in policies/starters/common/plays.py or scan_playbook's
+# drift guard refuses to start the harness (that is the point of the guard).
+COPY policies/monet/plays ./policies/monet/plays
+RUN set -eux; \
+    built=0; \
+    for recipe in policies/monet/plays/*.nims; do \
+      [ -e "$recipe" ] || continue; \
+      play="$(basename "$recipe" .nims)"; \
+      nim c -f --hints:off "policies/monet/plays/$play.nim"; \
+      cp "policies/monet/plays/.build/$play.wasm" "/playbook/$play.wasm"; \
+      built=$((built + 1)); \
+    done; \
+    echo "monet custom plays baked: $built"
+
 # ── Stage 2: the harness ──────────────────────────────────────────────────
 FROM python:3.12-slim
 

@@ -219,6 +219,38 @@ PLAYS = {
             "released hold."
         ),
     },
+    # MONET custom play (2026-09-01, compiled from
+    # policies/monet/plays/hold_vs_gun.nim by the monet Dockerfile). Spec
+    # transcribed from the play's own wasm-carried manifest -- it validated
+    # module_ready + call_accepted against the live shell on 2026-09-01
+    # (sha256 cd92cffd...). Baking this wasm WITHOUT this row trips
+    # scan_playbook's drift guard by design.
+    "hold_vs_gun": {
+        "class": "controller",
+        "params": {
+            "calmTicks": {"kind": "int", "min": 12, "max": 120, "default": 48},
+            "coverMax": {"kind": "int", "min": 0, "max": 600, "default": 260},
+            "engageDist": {"kind": "int", "min": 100, "max": 1200,
+                           "default": 500},
+        },
+        "brief": (
+            '"hold_vs_gun" (class: controller). Never turn your back on a '
+            "live gun: while fire is incoming it stands its ground facing "
+            "the threat (your body keeps aiming and returning fire) and "
+            "moves only to nearby cover that still faces the gun -- never "
+            "directly away from it. With an enemy merely in view it shadows "
+            "them from cover without advancing across the open; on a calm "
+            "field it holds in place. Meant for a GUARDED ladder rung "
+            "(proximity guard) above your rotation, so it owns movement "
+            "only under threat. Params:\n"
+            "     - calmTicks: integer 12..120, default 48. How fresh "
+            "incoming fire must be (in ticks) to count as a live threat.\n"
+            "     - coverMax: integer 0..600, default 260. Maximum px to a "
+            "cover point; 0 = never reposition, pure stand-ground.\n"
+            "     - engageDist: integer 100..1200, default 500. Enemy-track "
+            "distance that switches from calm to shadowing from cover."
+        ),
+    },
 }
 
 LADDER_RULES = """\

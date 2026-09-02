@@ -91,9 +91,10 @@ for i, turn in enumerate(PERSONA.canned_turns, start=1):
             check(f"{label}: truce-break releases the neighbors",
                   never == {PARTNER_REF}, str(never))
 
-# turn count matches the model-turn budget (opening + recall_count re-calls)
-check("canned turns cover every model turn",
-      len(PERSONA.canned_turns) == 1 + PERSONA.recall_count,
+# canned turns cover the arc; extra model turns clamp to the last (endgame)
+# entry by harness design, so the budget may exceed the scripted count.
+check("canned turns cover the arc within the model-turn budget",
+      4 <= len(PERSONA.canned_turns) <= 1 + PERSONA.recall_count,
       f"{len(PERSONA.canned_turns)} turns vs recall_count {PERSONA.recall_count}")
 
 # ── extra chat ────────────────────────────────────────────────────────────

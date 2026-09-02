@@ -4,11 +4,11 @@
 # tools/br_outcome_probe.nim against the recorded replay.
 #
 # 32 seats = 16 duos; duo/team k = seats k and k+16 (config.practice.json's
-# own slot->team layout, unmodified). Per seed index s (0-4), team t runs
+# own slot->team layout, unmodified). Per seed index s (0-9), team t runs
 # PERSONAS[(t + s) % 4] -- both seats of the duo run the same persona, and
 # the rotation shifts each seed so no persona owns a "lucky" team number.
 #
-# Usage: policies/monet/run_series.sh <seed_index 0-4> [OUT_ROOT]
+# Usage: policies/monet/run_series.sh <seed_index 0-9> [OUT_ROOT]
 #
 # Idempotent: re-running an index wipes and rebuilds only that seed's
 # directory under OUT_ROOT/seed<idx>/ -- other seeds are untouched.
@@ -17,16 +17,30 @@
 # binary, playbook .wasm, python venv with websockets>=13) -- see
 # MONET_FIRE_DIR below. Point it elsewhere (or build fresh into a new dir
 # and pass that) if those artifacts are gone.
+#
+# Scoring tools (br_outcome_probe, dump_glory_from_replay) are built ONCE
+# into a persistent cache (MONET_TOOLS_CACHE) and copied into OUT_ROOT on
+# every invocation -- a fresh OUT_ROOT (e.g. a new series directory) used to
+# leave the probe missing there (br_outcome_probe lives IN OUT_ROOT, not the
+# cache, because outcome extraction shells out to "$OUT_ROOT/br_outcome_probe";
+# a new OUT_ROOT with nothing copied in silently failed extraction with
+# "PROBE PRODUCED NO OUTPUT" -- v2 series tripped on exactly this). The build
+# (when needed) runs with cwd = REPO_ROOT: these tools' GameDir/asset
+# resolution is CWD-relative at invocation time (toolutil.chdirGameDir does
+# NOT reliably bake an absolute compile-time path on this toolchain --
+# verified empirically), so both the build AND every later invocation of the
+# copied binary must run with REPO_ROOT as cwd, which run_series.sh already
+# guarantees (it cd's there once, top of file, and never leaves).
 set -uo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 cd "$REPO_ROOT"
 
-IDX="${1:?usage: run_series.sh <seed_index 0-4> [OUT_ROOT]}"
+IDX="${1:?usage: run_series.sh <seed_index 0-9> [OUT_ROOT]}"
 OUT_ROOT="${2:-/tmp/monet-series}"
 
-SEEDS=(31337 20260830 20260903 424242 90210)
+SEEDS=(31337 20260830 20260903 424242 90210 71823 559013 20260901 8675309 314159)
 NUM_SEEDS=${#SEEDS[@]}
 if ! [[ "$IDX" =~ ^[0-9]+$ ]] || [ "$IDX" -ge "$NUM_SEEDS" ]; then
   echo "seed index must be 0..$((NUM_SEEDS - 1))" >&2
@@ -48,6 +62,27 @@ for f in "$SERVER_BIN" "$VENV_PY"; do
   fi
 done
 [ -d "$PLAYBOOK_DIR" ] || { echo "missing playbook dir: $PLAYBOOK_DIR" >&2; exit 1; }
+
+mkdir -p "$OUT_ROOT"
+TOOLS_CACHE="${MONET_TOOLS_CACHE:-/tmp/monet-tools-cache}"
+mkdir -p "$TOOLS_CACHE"
+ensure_tool() {
+  # $1 = binary name, $2 = source .nim path (relative to REPO_ROOT)
+  local name="$1" src="$2"
+  if [ ! -x "$TOOLS_CACHE/$name" ]; then
+    echo "building $name into $TOOLS_CACHE (cache miss) ..."
+    nim c -d:release --hints:off --path:src \
+      $(sed 's/^/ /' "$FIRE_DIR/deps_paths2.cfg" | tr '\n' ' ') \
+      -o:"$TOOLS_CACHE/$name" "$src" \
+      > "$TOOLS_CACHE/$name.build.log" 2>&1 \
+      || { echo "failed to build $name -- see $TOOLS_CACHE/$name.build.log" >&2; exit 1; }
+    codesign -f -s - "$TOOLS_CACHE/$name" 2>/dev/null || true
+  fi
+  cp "$TOOLS_CACHE/$name" "$OUT_ROOT/$name"
+  chmod +x "$OUT_ROOT/$name"
+}
+ensure_tool br_outcome_probe tools/br_outcome_probe.nim
+ensure_tool dump_glory_from_replay tools/dump_glory_from_replay.nim
 
 SEED_DIR="$OUT_ROOT/seed$IDX"
 rm -rf "$SEED_DIR"

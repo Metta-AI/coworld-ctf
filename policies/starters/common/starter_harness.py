@@ -379,6 +379,12 @@ def build_call(decision: dict, available: list[str]) -> tuple[bytes, list]:
         }
         if params:
             entry["params"] = params
+        # Entry-level ladder guard (call_validation.nim `when`): carried
+        # through as-is for the server to validate against the guard path
+        # registry -- the harness owns params repair, not guard vocabulary.
+        # bool and expression-array forms only; anything else is dropped.
+        if isinstance(raw.get("when"), (list, bool)):
+            entry["when"] = raw["when"]
         entries.append(entry)
         if len(entries) >= wire.MAX_LADDER_ENTRIES:
             break
