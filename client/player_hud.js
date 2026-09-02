@@ -949,7 +949,7 @@
     // exact signal Swap#12 item 5 proved unusable for a per-round read.
     // Mirrors #phud-mini-wrap's corner-anchored, label-over-value layout so
     // it reads as part of the same HUD family rather than a bolted-on chip.
-    + '#phud-partner-chip{position:fixed;left:10px;top:9px;display:none;flex-direction:column;'
+    + '#phud-partner-chip{position:fixed;left:10px;top:72px;display:none;flex-direction:column;'
     + 'font-family:' + F_NUM + ';white-space:nowrap;}\n'
     + '#phud-partner-chip.show{display:flex;}\n'
     + '#phud-partner-chip .t{font-size:' + S(13) + ';font-weight:700;letter-spacing:.04em;display:flex;align-items:center;gap:5px;}\n'
