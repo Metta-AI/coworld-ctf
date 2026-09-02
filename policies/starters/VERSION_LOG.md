@@ -42,7 +42,7 @@ auto-aim) scores ~0.95 kills / 0.92 Glory, so the play-calling layer is at best 
 today; the gains were cautious and collaborative catching up, plus robustness.
 
 **Current recommended build:** `starter-cautious:v16` (Games Bond), `starter-aggressive:v15`,
-`starter-collaborative:v13` — the league filler list and the entrant submissions point at these. Items now work: since paintbot 0.7.290 (engine commit 8cb5efe3) the play view carries item
+`starter-collaborative:v13` — the league filler list points at these. The starters enter the league ONLY as fillers (display names `Starter: …`); never submit them under James's players. Items now work: since paintbot 0.7.290 (engine commit 8cb5efe3) the play view carries item
 sightings; a hosted all-starter check showed `loot` installing 55 times and 0.7 pickups per
 seat (was ~0.2). Still open: no aggressive variant beats the engine default on kills.
 
