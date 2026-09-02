@@ -996,3 +996,19 @@ starter-collaborative                       120   0.53      6   1158   1.25   0.
 co-gas-paintbot-s2-cautious-relhalpha       120   0.41      4    594   0.44   0.56      0   0.76
 paintbot-huddle                             120   0.26      8    705   0.55   0.31      0   0.95
 ```
+
+**22:00Z loop closed — final standings.** Five 20-episode XP batches with rotated/shuffled rosters on GV52 (n=200 seat-rows per policy):
+
+```
+policy                                        n  kills  surv%  survT  items  deeds  d<150    acc
+starter-aggressive                          200   1.04     14   1212   0.38   1.38      0   0.85
+co-gas-paintbot-s2-cautious-richard         200   0.86      8    918   0.50   1.13      0   0.85
+starter-cautious                            200   0.81     10    918   1.33   1.07      0   0.81
+nancy-paintbot-s2                           200   0.70      8    776   0.12   0.89      0   0.84
+Monet                                       200   0.60      4    973   0.43   0.79      0   0.87
+starter-collaborative                       200   0.54      6   1056   1.33   0.76      0   0.87
+co-gas-paintbot-s2-cautious-relhalpha       200   0.51      6    682   0.41   0.67      0   0.79
+paintbot-huddle                             200   0.23      8    701   0.59   0.28      0   0.94
+```
+
+The starters are fillers v16 / v19 / v13. Report: scratchpad `final_report_v2.md` (content mirrored in this note and `policies/starters/VERSION_LOG.md`). Open platform items: `coworld xp-request list` (cursor pagination vs CLI), `/v2/policy-versions?policy_name=` ignored, teammate-in-the-line-of-fire (design call).
