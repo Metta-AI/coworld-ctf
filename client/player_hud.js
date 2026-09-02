@@ -879,7 +879,13 @@
     // else, but its base is the actual fix, not the control.
     + '.phud-num{font-family:' + F_NUM + ';font-size:' + S(19) + ';font-weight:700;letter-spacing:.2px;font-variant-numeric:tabular-nums;}\n'
     + '.phud-sub{font-size:' + S(11) + ';color:#b8ac98;letter-spacing:.2px;}\n'
-    + '#phud-rail{position:fixed;left:10px;top:9px;display:flex;gap:' + S(16) + ';}\n'
+    // Swap#14 Z2 (HUD-calm): the top-left corner is ONE grouped cluster --
+    // a fixed flex column (#phud-left-col) owns the anchor; the k/d rail
+    // and the partner chip stack inside it, aligned, with a shared gap.
+    // This also retires the swap13 magic-number chip offset (top:72px vs a
+    // measured 61px rail bottom) -- flex order can never occlude.
+    + '#phud-left-col{position:fixed;left:10px;top:9px;display:flex;flex-direction:column;align-items:flex-start;gap:' + S(6) + ';}\n'
+    + '#phud-rail{display:flex;gap:' + S(16) + ';flex-wrap:wrap;}\n'
     + '#phud-rail .phud-stat{display:flex;flex-direction:column;gap:1px;min-width:' + S(44) + ';}\n'
     + '#phud-rail .phud-num.tick{animation:phud-tick .42s ease-out;}\n'
     + '@keyframes phud-tick{0%{transform:scale(1);color:#f2e8d8;}30%{transform:scale(1.28);color:#e8a33d;}100%{transform:scale(1);color:#f2e8d8;}}\n'
@@ -964,7 +970,7 @@
     // exact signal Swap#12 item 5 proved unusable for a per-round read.
     // Mirrors #phud-mini-wrap's corner-anchored, label-over-value layout so
     // it reads as part of the same HUD family rather than a bolted-on chip.
-    + '#phud-partner-chip{position:fixed;left:10px;top:72px;display:none;flex-direction:column;'
+    + '#phud-partner-chip{display:none;flex-direction:column;'
     + 'font-family:' + F_NUM + ';white-space:nowrap;}\n'
     + '#phud-partner-chip.show{display:flex;}\n'
     + '#phud-partner-chip .t{font-size:' + S(13) + ';font-weight:700;letter-spacing:.04em;display:flex;align-items:center;gap:5px;}\n'
@@ -1016,6 +1022,12 @@
     + '#phud-toggle,#phud-scale-toggle{pointer-events:auto;cursor:pointer;font-family:' + F_NUM + ';font-size:' + S(10) + ';font-weight:700;letter-spacing:.1em;'
     + 'text-transform:uppercase;color:#b8ac98;background:rgba(13,10,6,.55);border:1px solid rgba(232,163,61,.28);padding:' + S(3) + ' ' + S(7) + ';user-select:none;white-space:nowrap;}\n'
     + '#phud-toggle:hover,#phud-scale-toggle:hover{color:#f2e8d8;}\n'
+    // Swap#14 Z2 (HUD-calm): 'hud size: m' is a settings control, not match
+    // state -- it earns attention only when the eye is already on the
+    // toolbar. Hidden at rest, revealed on hover of the minimap cluster or
+    // on keyboard focus; nothing is removed, the control still works.
+    + '#phud-scale-toggle{opacity:0;transition:opacity .15s;}\n'
+    + '#phud-mini-wrap:hover #phud-scale-toggle,#phud-scale-toggle:focus{opacity:1;}\n'
     + '#phud-toggle.pinned{color:#e8a33d;border-color:rgba(232,163,61,.55);}\n'
     // top offset scales alongside #phud-top above it (S(64) not a bare
     // 64px) so a bigger --phud-scale, which makes #phud-top taller too,
@@ -1040,8 +1052,7 @@
     root.innerHTML =
       '<div id="phud-top" class="phud-panel" style="display:none"></div>' +
       '<div id="phud-partner"></div>' +
-      '<div id="phud-partner-chip"><span class="t"><span class="dot" id="phud-partner-dot"></span>' +
-      '<span id="phud-partner-name">—</span></span><span class="phud-eyebrow status" id="phud-partner-status"></span></div>' +
+      '<div id="phud-left-col">' +
       '<div id="phud-rail" class="phud-panel">' +
       '<div class="phud-stat"><span class="phud-eyebrow">kills</span><span class="phud-num" id="phud-k">—</span></div>' +
       '<div class="phud-stat"><span class="phud-eyebrow">deaths</span><span class="phud-num" id="phud-d">—</span></div>' +
@@ -1056,6 +1067,10 @@
       // loop below (nodes.scTile/nodes.rkTile).
       '<div class="phud-stat" id="phud-sc-tile" style="display:none"><span class="phud-eyebrow">score</span><span class="phud-num" id="phud-sc">—</span></div>' +
       '<div class="phud-stat" id="phud-rk-tile" style="display:none"><span class="phud-eyebrow">rank</span><span class="phud-num" id="phud-rk" style="font-size:11px">—</span></div>' +
+      '</div>' +
+      '<div id="phud-partner-chip" class="phud-panel"><span class="phud-eyebrow">partner</span>' +
+      '<span class="t"><span class="dot" id="phud-partner-dot"></span>' +
+      '<span id="phud-partner-name">—</span></span><span class="phud-eyebrow status" id="phud-partner-status"></span></div>' +
       '</div>' +
       '<div id="phud-cond" class="phud-panel">' +
       '<div class="phud-stat"><span class="phud-eyebrow">condition</span><span class="phud-num" id="phud-hp">—</span></div>' +
