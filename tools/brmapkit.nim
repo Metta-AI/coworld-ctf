@@ -466,10 +466,23 @@ proc gridSpawns(rng: var Rand, width, height, n: int): seq[BrSpawn] =
   ## bigger than gunRange (~331px), so two spawns landing close enough to
   ## matter essentially never happens; the retry exists so it CAN'T happen
   ## rather than because it's expected to.
-  const GridCols = 4
-  const GridRows = 4
-  doAssert GridCols * GridRows == n,
-    "gridSpawns is authored for a 4x4 grid; group count changed"
+  ## Grid dims per group count — the squarest factor pair on the derived
+  ## field (landscape, ~1.87 aspect), locked in a whitelist rather than
+  ## computed so a new count is a deliberate authoring decision with its
+  ## own reviewed cell geometry, never an accidental degenerate grid:
+  ##   16 -> 4x4 (giant field: ~803x428px cells) — BIT-IDENTICAL draws to
+  ##            the historical hardcoded 4x4;
+  ##    8 -> 4x2 (half-area field at scale 2.6/sqrt(2): ~568x606px cells,
+  ##            both dims still far over minSep and gunRange).
+  let (gridCols, gridRows) =
+    case n
+    of 16: (4, 4)
+    of 8: (4, 2)
+    else:
+      doAssert false, "gridSpawns supports 16 or 8 groups, got " & $n
+      (0, 0)
+  let GridCols = gridCols
+  let GridRows = gridRows
   let cellW = float(width) / float(GridCols)
   let cellH = float(height) / float(GridRows)
   let edgeMargin = ArenaBorderPx + 70 + 20 ## keep the duo pocket off the border wall
@@ -2677,7 +2690,7 @@ proc caveFillPatches(
 proc generateBrMap(
   seed: int, style: MapStyle, paramsIn: StyleParams, keystone: KeystoneFamily,
   terrain: TerrainSwitch = tMixed, theme: ThemeSwitch = iExterior,
-  scale: float = GiantScale
+  scale: float = GiantScale, groups: int = Groups
 ): BrMap =
   ## LOOT(s2) map-scale variants: `scale` multiplies the CTF standard field
   ## into this draw's dimensions (2.6 = the doctrine giant, unchanged
@@ -2692,18 +2705,18 @@ proc generateBrMap(
   result.style = style
   result.width = w
   result.height = h
-  result.groups = Groups
+  result.groups = groups
   result.seatsPerGroup = SeatsPerGroup
   result.zoneZ = ZoneZ
   result.keystone = keystone
   result.terrain = terrain
   result.theme = theme
-  result.gunRange = deriveGunRange(w, h, Groups)
+  result.gunRange = deriveGunRange(w, h, groups)
   let (cw, ch) = spawnClearance(scale)
   result.spawnClearW = cw
   result.spawnClearH = ch
   var spawnRng = initRand(seed xor 0x1A2B_3C4D)
-  result.spawns = gridSpawns(spawnRng, w, h, Groups)
+  result.spawns = gridSpawns(spawnRng, w, h, groups)
   ## `pockets` is now used ONLY as the post-hoc CARVE (dropShapesNearSpawns,
   ## ensurePerSpawnCover, the exit-rule ring, zone-viability) — never as a
   ## placement exclusion. Round 5 (Maxwell's ruling): "we banned that."
@@ -3582,6 +3595,15 @@ const
   ## here instead of silently in the spec-size gate).
   PlaceCountFloor = 25
   PlaceCountCeiling = 60
+    ## ^ the GIANT (scale 2.6) field's expression of the doctrine density —
+    ## round 8 derived them from the CTF program's own reference density AT
+    ## THAT SIZE ("~3x the mass count" of round-7's 12-18 on 3211x1713).
+    ## Mass COUNT is area-extensive: the same welded-mass density on a
+    ## smaller field is fewer masses, so the band a draw is judged against
+    ## must scale with its own field area (placeCountBandFor) or every
+    ## off-giant scale fails/passes for being small/large, not for being
+    ## wrong. Density-normalized gates (cover permille, distToCover px,
+    ## item-fairness px) need no scaling and keep their absolute values.
   PerSpawnCoverGR = 1.5       ## round-2 §2.3: rotation cover within 1.5 G
   PocketExitMargin = 24       ## shared with ensurePerSpawnCover so a screen
                                ## blob can never be placed ON its own spawn's
@@ -4631,6 +4653,16 @@ proc classifySites(m: BrMap): seq[ClassifiedSite] =
   result.add corners
   result.add alleys
 
+proc placeCountBandFor(w, h: int): tuple[floor, ceiling: int] =
+  ## The place-count band for a field of this size: the giant band scaled
+  ## by field area (masses-per-px2 is the invariant round 8 actually
+  ## pinned). At the giant size itself the ratio is exactly 1.0, so every
+  ## 16-group draw is judged against the historical [25,60], bit-identical.
+  let (gw, gh) = fieldSize(GiantScale)
+  let ratio = float(w) * float(h) / (float(gw) * float(gh))
+  (max(1, int(round(float(PlaceCountFloor) * ratio))),
+   max(2, int(round(float(PlaceCountCeiling) * ratio))))
+
 proc validateBr(m: BrMap): BrValidation =
   let (cols, rows) = gridDims(m.width, m.height)
   let wall = buildWallGrid(m)
@@ -4737,16 +4769,19 @@ proc validateBr(m: BrMap): BrValidation =
     else: &"{confetti} confetti-sized masses (< {ConfettiFloorPx2}px^2), ceiling {ConfettiCeiling}"
   result.bigMassCount = result.massCount - confetti
 
-  # 3b. Place-count BAND (round 2 floor, round 8 adds a ceiling) ----------------
+  # 3b. Place-count BAND (round 2 floor, round 8 adds a ceiling; scaled by
+  # field area so off-giant scales are judged against their own size's
+  # expression of the same density — see placeCountBandFor) ---------------------
+  let (pcFloor, pcCeiling) = placeCountBandFor(m.width, m.height)
   result.placeCountPass =
-    result.bigMassCount >= PlaceCountFloor and result.bigMassCount <= PlaceCountCeiling
+    result.bigMassCount >= pcFloor and result.bigMassCount <= pcCeiling
   result.placeCountReason =
     if result.placeCountPass: ""
-    elif result.bigMassCount < PlaceCountFloor:
-      &"{result.bigMassCount} welded masses, need >= {PlaceCountFloor} " &
+    elif result.bigMassCount < pcFloor:
+      &"{result.bigMassCount} welded masses, need >= {pcFloor} " &
         "(\"empty pan with islands\" if this stays low)"
     else:
-      &"{result.bigMassCount} welded masses, ceiling is {PlaceCountCeiling} " &
+      &"{result.bigMassCount} welded masses, ceiling is {pcCeiling} " &
         "(no open ground left to fight across)"
 
   # 3c. Per-spawn cover (round 2, doc §2.3 sharpened) ---------------------------
@@ -6553,7 +6588,7 @@ proc printMetrics(m: BrMap) =
     let confetti = sizesPx2.filterIt(it < ConfettiFloorPx2).len
     echo &"  confetti (<{ConfettiFloorPx2}px^2): {confetti}"
 
-  echo "spawn grid (4x4, jittered — round 5, supersedes the ring):"
+  echo &"spawn grid ({m.spawns.len} spawns, jittered — round 5, supersedes the ring):"
   var nearestDists: seq[float]
   for i in 0 ..< m.spawns.len:
     var best = Inf
@@ -6902,13 +6937,19 @@ proc cmdGenerate(a: Args) =
     # gates (validateBr) still judge the result, so an implausible scale
     # fails loudly instead of certifying a broken board.
     scale = a.floatFlag("scale", GiantScale)
+    # 8-duo (Season 2 half-field) variant: --groups 8 with the derived
+    # half-area scale. 16 (the default) draws bit-identically to before.
+    groups = a.intFlag("groups", Groups)
   if scale <= 0.0:
     fail("--scale must be positive, got: " & $scale)
+  if groups notin [8, 16]:
+    fail("--groups must be 8 or 16, got: " & $groups)
   var params = brDefaultParams(style)
   applyParams(params, a.params)
   when defined(brDebugBurrow):
     let genT0 = epochTime()
-  var m = generateBrMap(seed, style, params, keystone, terrain, theme, scale)
+  var m = generateBrMap(seed, style, params, keystone, terrain, theme, scale,
+    groups)
   when defined(brDebugBurrow):
     stderr.writeLine(&"TIMING generateBrMap={(epochTime()-genT0)*1000:.0f}ms")
   let rawCount = m.obstacles.len
@@ -7050,7 +7091,7 @@ proc cmdGenerate(a: Args) =
       &" -> {(if gatePass or lenient: outPath else: \"(refused)\")}")
     stderr.writeLine(
       &"  cover={v.coverPermille}‰ (band [{CoverPermilleMinBr},{CoverPermilleMaxBr}])" &
-      &" masses={v.bigMassCount} (band [{PlaceCountFloor},{PlaceCountCeiling}], confetti={v.confettiCount}/{ConfettiCeiling})" &
+      &" masses={v.bigMassCount} (band [{placeCountBandFor(m.width, m.height).floor},{placeCountBandFor(m.width, m.height).ceiling}], confetti={v.confettiCount}/{ConfettiCeiling})" &
       &" distToCover p95={v.distToCoverP95Px:.0f}px max={v.distToCoverMaxPx:.0f}px" &
       &" specSize={v.specSizeBytes}B headroom={SpecSizeBudgetBytes - v.specSizeBytes}B" &
       &" allPass={v.allPass}")
@@ -7100,17 +7141,17 @@ proc cmdRender(a: Args) =
     renderZoneHeatmap(m, v, maxDim).writeFile(heatPath)
     stderr.writeLine(&"rendered zone-coverage heatmap -> {heatPath}")
 
-proc printValidation(v: BrValidation) =
+proc printValidation(m: BrMap, v: BrValidation) =
   echo &"connectivity:  {(if v.connectivityPass: \"PASS\" else: \"FAIL: \" & v.connectivityReason)}  (components={v.componentCount}, dominant={v.dominantFrac*100:.1f}%)"
   echo &"exit rule:     {(if v.exitPass: \"PASS\" else: \"FAIL: \" & v.exitReason)}  (min pocket exits={v.minPocketExits})"
   echo &"anti-confetti: {(if v.antiConfettiPass: \"PASS\" else: \"FAIL: \" & v.antiConfettiReason)}  (masses={v.massCount}, confetti={v.confettiCount}, largest={v.largestMassPx2}px^2)"
   echo &"zone-viable:   {(if v.zonePass: \"PASS\" else: \"FAIL: \" & v.zoneReason)}  (viable={v.zoneViableFrac*100:.1f}% of {v.zoneCandidates.len} candidates)"
   echo &"spec size:     {(if v.specSizePass: \"PASS\" else: \"FAIL: \" & v.specSizeReason)}  ({v.specSizeBytes}B / {SpecSizeBudgetBytes}B budget)"
-  echo &"place count:   {(if v.placeCountPass: \"PASS\" else: \"FAIL: \" & v.placeCountReason)}  (bigMasses={v.bigMassCount}, band=[{PlaceCountFloor},{PlaceCountCeiling}])"
-  echo &"per-spawn cvr: {(if v.perSpawnCoverPass: \"PASS\" else: \"FAIL: \" & v.perSpawnCoverReason)}  (uncovered={v.uncoveredSpawns}/16 within {PerSpawnCoverGR}G)"
+  echo &"place count:   {(if v.placeCountPass: \"PASS\" else: \"FAIL: \" & v.placeCountReason)}  (bigMasses={v.bigMassCount}, band=[{placeCountBandFor(m.width, m.height).floor},{placeCountBandFor(m.width, m.height).ceiling}])"
+  echo &"per-spawn cvr: {(if v.perSpawnCoverPass: \"PASS\" else: \"FAIL: \" & v.perSpawnCoverReason)}  (uncovered={v.uncoveredSpawns}/{m.spawns.len} within {PerSpawnCoverGR}G)"
   echo &"cover permille:{(if v.coverPermillePass: \"PASS\" else: \"FAIL: \" & v.coverPermilleReason)}  ({v.coverPermille}‰, band=[{CoverPermilleMinBr},{CoverPermilleMaxBr}]‰)"
   echo &"dist-to-cover: {(if v.distToCoverPass: \"PASS\" else: \"FAIL: \" & v.distToCoverReason)}  (p95={v.distToCoverP95Px:.0f}px, max={v.distToCoverMaxPx:.0f}px, floors=[{DistToCoverP95FracG}G,{DistToCoverMaxFracG}G])"
-  echo &"item coverage: {(if v.itemCoveragePass: \"PASS\" else: \"FAIL: \" & v.itemCoverageReason)}  (uncovered={v.uncoveredSpawnsItems}/16 within {PerSpawnCoverGR}G)"
+  echo &"item coverage: {(if v.itemCoveragePass: \"PASS\" else: \"FAIL: \" & v.itemCoverageReason)}  (uncovered={v.uncoveredSpawnsItems}/{m.spawns.len} within {PerSpawnCoverGR}G)"
   echo &"POI has loot:  {(if v.poiLootPass: \"PASS\" else: \"FAIL: \" & v.poiLootReason)}  (missing={v.poisWithoutLoot} POIs)"
   echo &"keystone:      {(if v.keystonePass: \"PASS\" else: \"FAIL: \" & v.keystoneReason)}  ({v.keystoneLabel}={v.keystoneValue:.2f}, floor={v.keystoneFloor:.2f})"
   echo &"interior conn: {(if v.interiorConnPass: \"PASS\" else: \"FAIL: \" & v.interiorConnReason)}  (stranded rooms={v.strandedRooms})"
@@ -7131,7 +7172,7 @@ proc cmdValidate(a: Args) =
   let m = readSpec(a.positionals[0])
   printMetrics(m)
   let v = validateBr(m)
-  printValidation(v)
+  printValidation(m, v)
   if v.allPass:
     echo "PASS"
     quit(0)
