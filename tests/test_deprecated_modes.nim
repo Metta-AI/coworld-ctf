@@ -93,6 +93,54 @@ suite "deprecated live-mode boot seam":
     config.update($manifestVariantConfig("battle-royale-s2"))
     config.checkDeprecatedMode()
 
+  test "battle-royale-s2 manifest entry carries no override -- the gate stays live for it":
+    ## Elite/Campaign's fix is scoped to the classic templates below; this
+    ## guards against "fix" meaning "defeat the gate for everyone".
+    let s2GameConfig = manifestVariantConfig("battle-royale-s2")
+    check not s2GameConfig.hasKey("allowDeprecatedModes")
+
+  test "campaign and elite classic manifest variants boot with the deprecated-mode override":
+    ## Root cause of the game_unhealthy crash on Elite (resolves to "2v2")
+    ## and Campaign (resolves to "1v1"/"2v2"/"4ffa", one per board cell
+    ## mode): every classic (non-Season-2) template hits
+    ## checkDeprecatedMode's CtfError at live boot unless its game_config
+    ## carries allowDeprecatedModes: true. This loads each id's REAL shipped
+    ## game_config out of the manifest file and boots it for real -- drop
+    ## the flag from any one entry (or from the manifest generally) and
+    ## only this test catches it; that's the discriminating property, not
+    ## just an engine-level check against a hand-built config.
+    ##
+    ## "4ffa8", "paintball", and "battle-royale" ride along with the
+    ## override too: they are gated by this exact same non-variant-specific
+    ## check, are not literally CTF (4ffa8 is 4ffa's own ruleset at double
+    ## muster; paintball is a different loadout entirely; battle-royale is
+    ## explicitly flagless), and leaving them refusing while their siblings
+    ## boot would just be a landmine for whatever else references them.
+    for variantId in ["2v2", "4ffa", "4ffa8", "1v1", "paintball",
+        "battle-royale"]:
+      var config = defaultGameConfig()
+      config.update($manifestVariantConfig(variantId))
+      check config.allowDeprecatedModes
+      config.checkDeprecatedMode()
+
+  test "CTF-branded classic templates stay dead -- CTF is still gone":
+    ## Owner correction (2026-09-02): reversing the season2-only cleanup
+    ## resurrects "campaign" (1v1/2v2/4ffa) and "elite" (2v2), but CTF
+    ## itself stays deprecated. "ctf-default" and "ctf-1v1" are CTF by
+    ## name; "default" is CTF in all but name (its description is the
+    ## byte-identical "Sixteen-player 8v8 CTF episode using the default
+    ## balanced game settings." as ctf-default's). None of the three may
+    ## carry the override, and each must still refuse to boot -- this is
+    ## the inverse of the test above, asserted explicitly so nobody
+    ## re-adds the flag to a CTF id by copy-paste from a sibling.
+    for variantId in ["ctf-default", "ctf-1v1", "default"]:
+      let gameConfig = manifestVariantConfig(variantId)
+      check not gameConfig.hasKey("allowDeprecatedModes")
+      var config = defaultGameConfig()
+      config.update($gameConfig)
+      check not config.allowDeprecatedModes
+      config.expectDeprecatedRefusal("classic")
+
   test "legacy replay fixture drives the real replay path without override":
     ## The fixture is cut by tools/record_fixture.sh, which boots the live
     ## server with the legacy override (a classic game refuses to boot
