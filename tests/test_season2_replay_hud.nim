@@ -139,3 +139,26 @@ suite "SEASON 2 replay viewer HUD: phase presentation + comms":
     let coreText = readFile(GameDir / "client" / "broadcast_core.js")
     check coreText.contains("function drawFlashPulses(targetCtx)")
     check coreText.contains("RIG_HEAD_OBJECT_BASE")
+
+  test "a downed seat's roster flag fades its rig, no new chrome":
+    # Page side: every frame's roster (src/ctf/broadcast.nim's rosterJson,
+    # downedMode-gated) is turned into a seat-index list and handed to the
+    # core -- same "page resolves identity, core just draws" split as the
+    # flash pulse above.
+    checkInBoth "function pushDownedSeatsToCore(s)"
+    checkInBoth "pushDownedSeatsToCore(s);"
+    checkInBoth "r[i] && r[i].downed"
+    # Core side: the rig object family (head/arms/legs/wheels/gun) for each
+    # downed seat draws at reduced alpha in drawObject -- a fade, not a new
+    # sprite pool or an overlay marker.
+    let coreText = readFile(GameDir / "client" / "broadcast_core.js")
+    check coreText.contains("function setDownedSeats(seats)")
+    check coreText.contains("downedObjectIds")
+    check coreText.contains("DOWNED_FADE_ALPHA")
+    check coreText.contains("RIG_ARM_OBJECT_BASE")
+    check coreText.contains("RIG_LEG_OBJECT_BASE")
+    check coreText.contains("RIG_WHEEL_OBJECT_BASE")
+    check coreText.contains("RIG_GUN_OBJECT_BASE")
+    let drawObj = coreText.find("function drawObject(targetCtx, obj)")
+    check drawObj >= 0
+    check coreText.find("downedObjectIds.has(obj.id)", drawObj) > drawObj
