@@ -3091,15 +3091,14 @@ body[data-noviewpanel] #viewpanel { display: none !important; }
     var s;
     try { s = JSON.parse(txt); } catch (e) { return; }
     lastState = s;
-    // `regime` rides ANY squad-seated frame (numAgents > 0), not just a true
-    // Paintball hill match — BR's 16 duo seats also set numAgents > 0, so a
-    // BR replay was false-latching PB_MODE and getting the deprecated
-    // Paintball chrome (hill clock, RED/BLUE hillLine, game N/M regime chip,
-    // the alias-only tagout feed row) stamped over its real GLORY-first
-    // endcard and kill feed. `s.br.elim` is BR's own unambiguous signal
-    // (set only by config.brMode) — exclude it here so Paintball chrome
-    // never claims a BR frame, however numAgents ends up configured.
-    if (!PB_MODE && s.regime !== undefined && !isElim(s)) PB_MODE = true;
+    // modechrome lane: `regime` was never a Paintball-exclusive signal (see
+    // isPaintballMode's comment) — it also rides Campaign/classic squad
+    // episodes, which were false-latching PB_MODE and getting the same
+    // deprecated hill/RED-BLUE/game-N/M chrome #364 stripped off BR. Gate
+    // on the wire's actual Paintball tell (`hillOwner`) instead; keep the
+    // `!isElim(s)` exclusion as defense-in-depth so BR can never claim this
+    // chrome even if hill were ever misconfigured for it.
+    if (!PB_MODE && isPaintballMode(s) && !isElim(s)) PB_MODE = true;
     dismissLockerRoom();  // the board is live — fade the pre-load curtain
 
     if (START_SPEED != null) { send(START_SPEED); START_SPEED = null; }
@@ -3439,6 +3438,17 @@ body[data-noviewpanel] #viewpanel { display: none !important; }
   // too. Absent block = classic CTF, so every existing replay is unchanged.
   function isFlagless(s) { return !!(s && s.br && s.br.flagless); }
   function isElim(s) { return !!(s && s.br && s.br.elim); }
+  // Genuine Paintball, extending #364's lesson one layer up: `regime` rides
+  // ANY squad-seated frame (numAgents > 0) — BR's 16 duo seats AND every
+  // Campaign/classic squad variant (4ffa, 2v2, ctf-default, ...) also set
+  // numAgents > 0, per sim_config.nim's own `squadModeConfigured` comment
+  // ("numAgents alone is not a paintball signal"). `hillOwner` is the wire's
+  // actual Paintball-exclusive tell: broadcast.nim only emits it behind
+  // `sim.config.hill`, which the manifest sets true ONLY for the `paintball`
+  // variant (never Campaign's 4ffa/4ffa8, never BR). Using it instead of
+  // `regime` is what stops a Campaign/territory episode from false-latching
+  // the deprecated hill/RED-BLUE/game-N/M chrome #364 already fixed for BR.
+  function isPaintballMode(s) { return !!(s && s.hillOwner !== undefined); }
 
   function renderScorebug(s) {
     var teams = activeTeams(s);
@@ -3550,15 +3560,19 @@ body[data-noviewpanel] #viewpanel { display: none !important; }
       setHandicap('hcap-' + team, s, team);
       // SEASON 2 GLORY: the team's running ledger total (sim.teamGlory,
       // broadcast.nim teamStateJson's unconditional "glory" key — present
-      // on every replay from the glory port onward, absent on anything
-      // recorded before it). The plate only grows the second row once the
-      // field is actually a number, so an older replay's topbar is
-      // unchanged pixel-for-pixel.
+      // on every replay from the glory port onward, regardless of mode, so
+      // `typeof gv === 'number'` alone is NOT a "this is a Glory match"
+      // signal — it was true, and rendering "GLORY 0" plates, on a
+      // Campaign/territory episode too. Owner ruling (modechrome lane):
+      // Campaign is territory-scored; Glory is the Season 2 BR economy
+      // only. Require `isElim(s)` (BR) same as the endcard's per-team
+      // panel below, so a pre-glory replay AND every non-BR mode both
+      // render this row exactly as if the field were absent.
       var gv = tr[team] && tr[team].glory;
       var platePre = document.querySelector('.plate[data-team="' + team + '"]');
-      if (platePre) platePre.classList.toggle('has-glory', typeof gv === 'number');
+      if (platePre) platePre.classList.toggle('has-glory', isElim(s) && typeof gv === 'number');
       var gloryEl = $('glory-' + team);
-      if (gloryEl && typeof gv === 'number') gloryEl.textContent = gv;
+      if (gloryEl && isElim(s) && typeof gv === 'number') gloryEl.textContent = gv;
       // HEAT FLAME: same trailing-window gain tracker the BR leader block
       // uses (noteGloryForHeat/applyHeatFlame above) — one tracker per team
       // key, so a classic 2-4 team plate's flame and the BR block never
@@ -5383,13 +5397,21 @@ body[data-noviewpanel] #viewpanel { display: none !important; }
     // pairs with draw below. BR is the one exception: brTiebreakWinner()
     // crowns a winner off the clock too, draw-free by design, so `elim`
     // gets its own timeLimit branch instead of falling into that rule.)
-    if (o.endRule !== undefined && !elim) {
+    // modechrome lane: `o.endRule` rides broadcast.nim's "Squad-game
+    // endcard extras" block, gated on `numAgents > 0` — the same
+    // over-broad tell #364 (and this lane) already found is NOT
+    // Paintball-exclusive: Campaign/classic squad episodes (elim=false,
+    // never genuinely Paintball) also carry it, defaulted to the
+    // SimServer struct's startup "full_time" forever since classic CTF
+    // win logic never sets it. `!elim` alone let those through into this
+    // switch and rendered "FULL TIME ON THE HILL" on a Campaign match
+    // that had just ended by elimination. Require PB_MODE (the same
+    // genuine-Paintball latch as the live scorebug/chrome) instead —
+    // BR already takes its own branch below either way.
+    if (o.endRule !== undefined && PB_MODE) {
       // PAINTBALL names the RULE the server actually applied, so the chip can
-      // never disagree with the endRule in results.json. `endRule` is NOT a
-      // BR signal — BR never sets it, so a BR frame just carries the
-      // SimServer struct's own startup default ("full_time") forever, which
-      // read here as a genuine Paintball hill verdict ("FULL TIME ON THE
-      // HILL") on a game that has no hill. Skipped entirely when `elim`.
+      // never disagree with the endRule in results.json. Skipped for BR (own
+      // branch below) and for every non-Paintball classic/Campaign mode.
       switch (o.endRule) {
         case 'wipe': return o.draw ? 'MUTUAL WIPE' : 'WIPE';
         case 'mercy': return 'MERCY — LEAD BEYOND THE CLOCK';
@@ -5854,9 +5876,15 @@ body[data-noviewpanel] #viewpanel { display: none !important; }
         // omitted (row hidden by the .has-glory/.has-ach CSS gate above)
         // when the field genuinely isn't there — a replay recorded before
         // the glory port renders this panel exactly as it always did.
+        // modechrome lane: `o.teams[team].glory` is unconditional on the
+        // wire (broadcast.nim), same as the live scorebug's `gv` — so
+        // `typeof teamGlory === 'number'` alone rendered "GLORY 0" on a
+        // Campaign/territory endcard too. This whole branch is already
+        // `!elim` (BR takes the `renderEndcardBR` branch above), and Glory
+        // is the BR economy only (owner ruling) — so it never belongs here.
         var teamGlory = o.teams && o.teams[team] && o.teams[team].glory;
-        ecTeamEl.classList.toggle('has-glory', typeof teamGlory === 'number');
-        if (typeof teamGlory === 'number') {
+        ecTeamEl.classList.toggle('has-glory', elim && typeof teamGlory === 'number');
+        if (elim && typeof teamGlory === 'number') {
           var ecGloryEl = $('ec-glory-' + team);
           if (ecGloryEl) ecGloryEl.textContent = teamGlory;
         }
