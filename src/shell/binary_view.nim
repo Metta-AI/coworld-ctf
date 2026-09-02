@@ -68,12 +68,14 @@ const
   SelfAliveFlag* = 1'u32
   SelfLivesPresentFlag* = 2'u32
   SelfCarryingFlag* = 4'u32
+  SelfDownedFlag* = 8'u32
   ObjectivePosPresentFlag* = 1'u32
   ZoneNextPresentFlag* = 1'u32
   ZoneDpsPresentFlag* = 2'u32
   TrackAimPresentFlag* = 1'u32
   TrackHpPresentFlag* = 2'u32
   TrackBountyFlag* = 4'u32
+  TrackDownedFlag* = 8'u32
   ItemPresentFieldFlag* = 1'u32
   ItemPresentValueFlag* = 2'u32
   AggressorSeatPresentFlag* = 1'u32
@@ -199,6 +201,7 @@ proc selfPayload(value: PlaySelf): string =
   if value.alive: flags = flags or SelfAliveFlag
   if value.lives.isSome: flags = flags or SelfLivesPresentFlag
   if value.carrying: flags = flags or SelfCarryingFlag
+  if value.downed: flags = flags or SelfDownedFlag
   result.putU32(flags)
   result.putI32(value.pos.x)
   result.putI32(value.pos.y)
@@ -249,6 +252,7 @@ proc tracksPayload(rows: openArray[PlayTrack]): string =
     if row.aimBrads.isSome: flags = flags or TrackAimPresentFlag
     if row.hp.isSome: flags = flags or TrackHpPresentFlag
     if row.bounty: flags = flags or TrackBountyFlag
+    if row.downed: flags = flags or TrackDownedFlag
     result.putU32(flags)
     result.putU32(uint32(row.seat))
     result.putU32(uint32(row.team.teamId))

@@ -848,8 +848,10 @@ and custom configurations; empty means no rectangle, damage, or markers.
 Five independent BR mechanisms remain available as explicit configuration
 options. Their neutral engine values preserve replay compatibility: omitted
 keys add no pickup family or hash input. `lootStart` and `downedMode` require
-`brMode: true`; the published `battle-royale-s2` configuration currently leaves
-both disabled.
+`brMode: true`; the published `battle-royale-s2` configuration arms both
+(`coworld_manifest_paintbot.json`'s `battle-royale-s2` variant), at their
+ruled default timing constants (`downedBleedOutTicks` 360, `downedReviveTicks`
+48, `downedEscalation` on).
 
 - **Hit points per BR variant** — no new flag: the existing `hitPoints`
   config is live under `brMode` (proved end-to-end by

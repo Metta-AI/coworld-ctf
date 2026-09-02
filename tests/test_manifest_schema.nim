@@ -126,6 +126,8 @@ const SampleJson = """{
   "playSeatBindTicks": {"playSeatBindTicks": 7201},
   "zonePhases": {"zonePhases": [{"z": 0.5}]},
   "zoneCenter": {"zoneCenter": [500, 500]},
+  "lootStart": {"lootStart": true, "brMode": true},
+  "downedMode": {"downedMode": true, "brMode": true},
   "allowSeatTakeover": {"allowSeatTakeover": true},
   "allowDirectAim": {"allowDirectAim": true},
   "allowAimAssist": {"allowAimAssist": true, "allowDirectAim": true},
