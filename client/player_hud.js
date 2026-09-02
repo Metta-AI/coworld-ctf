@@ -708,14 +708,19 @@
   // rgba(13,10,6,.55), --line (amber-tinted hairline) rgba(232,163,61,.28),
   // --paper #f2e8d8 text, --paper-dim #b8ac98 / --ghost #8a7f72 secondary,
   // --amber #e8a33d reserved for the one emphasis job per zone (never every
-  // label — principles.md "reserve the primary accent"). Word chrome
-  // (eyebrows/headers/toggle) uses the cheat sheet's condensed-sans stack;
-  // numerals and table data stay in the existing in-game monospace face
-  // (player_client.html's own #hud/#feed use it) for legible tabular digits
-  // and player names — a deliberate word-face/number-face split, not a
-  // half-applied font swap. No left-border accent stripes anywhere (the
-  // hard floor this spec calls out by name against player_client.html's own
-  // .wchip) — hairlines run all the way around or not at all.
+  // label — principles.md "reserve the primary accent"). Swap#11 item 2:
+  // eyebrows/headers/toggle/standings-th previously carried the cheat
+  // sheet's condensed-sans display face (Rajdhani) — that violates this
+  // codebase's own rule (player_client.html:101-109, stated at
+  // --eventfont's definition) that the display face may not touch
+  // readouts; these ARE readouts (labels over live numeric data), not a
+  // headline beat like the death card / round-flip / endcard. Every word
+  // AND every numeral in this HUD now shares the one in-game monospace
+  // face (player_client.html's own #hud/#feed use it) for legible tabular
+  // digits and player names — no word-face/number-face split left. No
+  // left-border accent stripes anywhere (the hard floor this spec calls
+  // out by name against player_client.html's own .wchip) — hairlines run
+  // all the way around or not at all.
   // ---------------------------------------------------------------------
   // ---------------------------------------------------------------------
   // HUD scale (Maxwell, live 8/30: "no numbers on the scorecard thing in
@@ -778,7 +783,12 @@
   // or a click on the toggle) moves every dependent rule in lockstep.
   function S(px) { return 'calc(' + px + 'px * var(--phud-scale,1))'; }
 
-  const F_WORD = "'rajdhani','Avenir Next Condensed','Arial Narrow',sans-serif";
+  // F_WORD (the cheat sheet's Rajdhani display face) intentionally removed
+  // here, Swap#11 item 2: every use-site in this module was a readout
+  // (eyebrow/header/toggle/standings-th), which the display-face rule
+  // forbids — see the comment above. Rajdhani stays sanctioned ONLY for
+  // player_client.html's own headline beats (death card / round-flip /
+  // endcard via --eventfont), which are untouched.
   const F_NUM = 'ui-monospace,SFMono-Regular,Menlo,monospace';
   const CSS = '\n'
     + '#phud-root{position:fixed;inset:0;pointer-events:none;z-index:35;'
@@ -799,7 +809,7 @@
     // painted underneath; verified by screenshot over painted ground, not
     // assumed.
     + '.phud-panel{background:rgba(10,8,5,.82);border:1px solid rgba(232,163,61,.28);padding:' + S(7) + ' ' + S(10) + ';}\n'
-    + '.phud-eyebrow{font-family:' + F_WORD + ';font-size:' + S(11) + ';font-weight:700;letter-spacing:.12em;'
+    + '.phud-eyebrow{font-family:' + F_NUM + ';font-size:' + S(11) + ';font-weight:700;letter-spacing:.12em;'
     + 'text-transform:uppercase;color:#b8ac98;white-space:nowrap;}\n'
     // 15px -> 19px base (Maxwell, live 8/30: "barely readable at that
     // size"): this is the number the player scans mid-fight, so it carries
@@ -902,7 +912,7 @@
     // explicitly so this element can never again inherit host-page canvas
     // styling by accident, at any window size.
     + '#phud-mini{display:block;position:static;left:auto;top:auto;image-rendering:pixelated;}\n'
-    + '#phud-toggle,#phud-scale-toggle{pointer-events:auto;cursor:pointer;font-family:' + F_WORD + ';font-size:' + S(10) + ';font-weight:700;letter-spacing:.1em;'
+    + '#phud-toggle,#phud-scale-toggle{pointer-events:auto;cursor:pointer;font-family:' + F_NUM + ';font-size:' + S(10) + ';font-weight:700;letter-spacing:.1em;'
     + 'text-transform:uppercase;color:#b8ac98;background:rgba(13,10,6,.55);border:1px solid rgba(232,163,61,.28);padding:' + S(3) + ' ' + S(7) + ';user-select:none;white-space:nowrap;}\n'
     + '#phud-toggle:hover,#phud-scale-toggle:hover{color:#f2e8d8;}\n'
     + '#phud-toggle.pinned{color:#e8a33d;border-color:rgba(232,163,61,.55);}\n'
@@ -912,9 +922,9 @@
     + '#phud-score{position:fixed;left:50%;top:' + S(64) + ';transform:translateX(-50%);min-width:340px;max-width:min(78vw,620px);'
     + 'max-height:min(60vh,520px);overflow:auto;display:none;}\n'
     + '#phud-score.open{display:block;}\n'
-    + '#phud-score h2{font-family:' + F_WORD + ';font-size:' + S(13) + ';font-weight:700;letter-spacing:.12em;text-transform:uppercase;color:#b8ac98;margin:0 0 6px;}\n'
+    + '#phud-score h2{font-family:' + F_NUM + ';font-size:' + S(13) + ';font-weight:700;letter-spacing:.12em;text-transform:uppercase;color:#b8ac98;margin:0 0 6px;}\n'
     + '#phud-score table{border-collapse:collapse;width:100%;font-size:' + S(13) + ';}\n'
-    + '#phud-score th{text-align:left;font-family:' + F_WORD + ';font-size:' + S(11) + ';font-weight:700;letter-spacing:.08em;text-transform:uppercase;'
+    + '#phud-score th{text-align:left;font-family:' + F_NUM + ';font-size:' + S(11) + ';font-weight:700;letter-spacing:.08em;text-transform:uppercase;'
     + 'color:#b8ac98;border-bottom:1px solid rgba(232,163,61,.28);padding:' + S(3) + ' ' + S(8) + ' ' + S(4) + ' 0;}\n'
     + '#phud-score td{padding:' + S(4) + ' ' + S(9) + ' ' + S(4) + ' 0;border-bottom:1px solid rgba(232,163,61,.14);white-space:nowrap;}\n'
     + '#phud-score tr.self td{color:#e8a33d;font-weight:700;}\n'
