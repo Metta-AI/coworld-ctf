@@ -29,12 +29,16 @@ export glory
 
 const
   GameName* = "ctf"
-  ReplayCompatibleGameVersions* = ["50"]
+  ReplayCompatibleGameVersions* = ["51"]
     ## The replay-load allowlist (play-calling design §4.3): versions whose
     ## recorded files still play back correctly under THIS engine. The
     ## criterion is the GameVersion changelog below, not chronology — a
     ## version is listed only when nothing since changed the gameHash
-    ## schema, the hash trajectory, or a flatty keyframe layout. GV49 stays
+    ## schema, the hash trajectory, or a flatty keyframe layout. GV50 is
+    ## excluded because GV51 changed the collision rule (parallel motion
+    ## between touching bodies now passes), a hash TRAJECTORY change: a GV50
+    ## recording with two cogs abreast re-simulates to different positions
+    ## from their first such contact. GV49 stays
     ## out of the launch allowlist because GV50 is the first shipped shell
     ## replay surface: play-seat episodes can now carry the 0x10-0x16 shell
     ## records and call/replay attribution channel, so the committed fixtures
@@ -48,10 +52,20 @@ const
     ## RewardAccount on the wire. Widening requires a real archived fixture
     ## that survives initialization and stepping (PM ruling, 2026-08-30),
     ## never a header rewrite.
-  GameVersion* = "50"
-    ## GV50 (SEASON 2 FLIP): the play-calling shell's first shipped version:
-    ## play seats, wasm playbooks, the seven-play reference menu, lobby chat,
-    ## and the call/replay attribution channel (0x10-0x16 shell records).
+  GameVersion* = "51"
+    ## GV51 (COLLISION: PARALLEL MOTION PASSES): blockingPlayerAt refuses
+    ## only steps that bring two bodies CLOSER (`toDist < fromDist`); a step
+    ## that keeps their Chebyshev distance — two cogs abreast walking the
+    ## same way — passes. The old `<=` deadlocked every duo standing within
+    ## PlayerSolidSpan: each blocked the other, the slide scan could not leave
+    ## the solid band, equal-velocity bounces changed nothing, and both stood
+    ## until the zone killed them. Recorded input masks re-simulate to
+    ## different positions from the first such contact, hence the bump.
+    ##
+    ## Previously GV50 (SEASON 2 FLIP): the play-calling shell's first shipped
+    ## version: play seats, wasm playbooks, the seven-play reference menu,
+    ## lobby chat, and the call/replay attribution channel (0x10-0x16 shell
+    ## records).
     ##
     ## Previously GV49 (GLORY v12: HEART RECUT + STRUCTURAL CONCLUSION SWEEP):
     ## the curriculum's terminal-tick hole is closed. `finishGame` now runs one

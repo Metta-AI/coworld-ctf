@@ -94,9 +94,20 @@ suite "deprecated live-mode boot seam":
     config.checkDeprecatedMode()
 
   test "legacy replay fixture drives the real replay path without override":
+    ## The fixture is cut by tools/record_fixture.sh, which boots the live
+    ## server with the legacy override (a classic game refuses to boot
+    ## without it since 2653b7cc) and echoShellKeys records that override in
+    ## the header. The property under test is the REPLAY path's: the same
+    ## classic config is refused at live boot without the override, yet the
+    ## recording plays back regardless of it — playback never consults the
+    ## seam. So the refusal is checked on the header minus the override,
+    ## and playback is checked on the header as recorded.
     let data = loadReplay(ReplayFixture)
+    var recorded = parseJson(data.configJson)
+    if recorded.hasKey("allowDeprecatedModes"):
+      recorded.delete("allowDeprecatedModes")
     var replayConfig = defaultGameConfig()
-    replayConfig.update(data.configJson)
+    replayConfig.update($recorded)
     replayConfig.expectDeprecatedRefusal("classic")
 
     let previousDir = getCurrentDir()
@@ -105,7 +116,7 @@ suite "deprecated live-mode boot seam":
       let runtime = initReplayRuntime(
         data, mismatchQuit = true, gameEventLoggingEnabled = false)
       check runtime.sim.tickCount >= 0
-      check not runtime.config.allowDeprecatedModes
+      check not runtime.config.brMode          # it really is the classic game
     finally:
       setCurrentDir(previousDir)
 

@@ -1,5 +1,5 @@
 #!/bin/bash
-# Re-records ALL SEVEN replay fixtures pinned by the native test suite AND
+# Re-records ALL EIGHT replay fixtures pinned by the native test suite AND
 # the wasm-replay-viewer CI smoke job, then regenerates the DERIVED goldens
 # that carry a GameVersion stamp. Run this once after any GameVersion bump
 # (AGENTS.md "Replay fixtures") — every committed .bitreplay must carry the
@@ -7,8 +7,9 @@
 # "EVERY committed .bitreplay carries the current GameVersion" sweep fails
 # loudly on any straggler.
 #
-# ALL SEVEN, every time — the native shards only read five
-# (capture-seed1, wipe-lives1, draw-nokill, ctf, br-golden-16team);
+# ALL EIGHT, every time — the native shards only read six
+# (capture-seed1, wipe-lives1, draw-nokill, seats-numagents16, ctf,
+# br-golden-16team);
 # gen-small-pits and gen-colossal-4team are read by NO native test, only the
 # CI wasm-replay-viewer job, so a re-record pass working from the test files
 # alone silently misses them (GV44 shipped exactly this way once). The
@@ -92,7 +93,10 @@ echo "== recording the seventh fixture: the BR golden (own script) =="
 # Its LOAD RULE is stricter than the six above (a permanent golden hash, not
 # a redo-able tuning run) — see record_br_golden.sh's own header. Override
 # BR_GOLDEN_PORT to a fleet-free port when the default collides.
-PORT="${BR_GOLDEN_PORT:-21777}" tools/record_br_golden.sh
+# Seed 4248 since GV51: 4242 no longer reaches the shield pool under the
+# parallel-motion collision rule (three of eight seeds did; 4248 is the first
+# that also keeps the closing-distance property).
+PORT="${BR_GOLDEN_PORT:-21777}" tools/record_br_golden.sh 4248
 
 echo "== regenerating the DERIVED goldens (deterministic — no dice roll) =="
 # replay-compat byte goldens: written at module load under this define; the

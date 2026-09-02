@@ -1361,7 +1361,16 @@ proc blockingPlayerAt(
       continue
     let fromDist =
       max(abs(fromX - sim.players[i].x), abs(fromY - sim.players[i].y))
-    if toDist <= fromDist:
+    # Refuse only steps that bring the bodies CLOSER. A step that keeps the
+    # Chebyshev distance unchanged is parallel motion — two cogs abreast on
+    # one row both walking up — and used to be refused as well (`<=`),
+    # which deadlocked every duo standing within PlayerSolidSpan of each
+    # other: each cog's step was blocked by the other, the slide scan
+    # (a few px) could not leave the solid band, and the bounce of two
+    # equal velocities changed nothing, so both held the button at full
+    # velocity until the zone killed them (GV51; local 16-seat run on
+    # 0.7.287, seats 3/11 at (1021,1075)/(1027,1075) for 150 ticks).
+    if toDist < fromDist:
       return i
   -1
 

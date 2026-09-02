@@ -28,7 +28,8 @@
 ## episode as the permanent golden).
 ##
 ## The two numeric floors below (MinDisplacementPx, MinTeamsFiring) are
-## read off THIS fixture's own recorded numbers (seed 4242) with margin, not
+## read off THIS fixture's own recorded numbers (seed 4248 since GV51; 4242
+## before) with margin, not
 ## invented. RE-DERIVED for GameVersion 48 (GLORY v11, BR increment 3 —
 ## this fixture was re-recorded fresh for the gameHash schema change, same
 ## seed/recipe, new engine): the recording's least-active team (blue) moved
