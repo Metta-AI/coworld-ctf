@@ -101,7 +101,8 @@ def adjust_entries(entries, context, view):
     law = next((e for e in entries if e.get("play") == "target_law"), None)
     if law is None and law_never:
         law = {"play": "target_law", "entry_id": "law",
-               "params": {"prefer": ["weakened", "isolated"]}}
+               "params": {"prefer": ["revenge", "bounty", "weakened",
+                            "isolated"]}}
         entries.insert(0, law)
     if law is not None:
         params = law.setdefault("params", {})
@@ -164,13 +165,15 @@ PERSONA = Persona(
                  "seats (seat:N form only). A pact nobody heard is not a "
                  "truce. Keep it in every call while it stands -- dropping "
                  "it IS the betrayal, so say so when you do."),
-        "target_law": ("target_law: prefer weakened and isolated -- the "
-                       "proven greatest-threat lever. The harness mirrors "
-                       "your partner and every pact seat into never; you "
-                       "release seats by dropping the pact, never by "
-                       "editing the list. Set a holdTrigger only for a "
-                       "planned endgame release: a released hold LATCHES "
-                       "and can never re-arm."),
+        "target_law": ("target_law: prefer revenge, bounty, weakened, "
+                       "isolated -- all four. Your fallen partner's tagger "
+                       "pays once (revenge leads); bounty marks pay extra; "
+                       "weakened+isolated is the proven greatest-threat "
+                       "lever. The harness mirrors your partner and every "
+                       "pact seat into never; you release seats by dropping "
+                       "the pact, never by editing the list. Set a "
+                       "holdTrigger only for a planned endgame release: a "
+                       "released hold LATCHES and can never re-arm."),
         "edge_ride": ("edge_ride: the native escape reflex outranks every "
                       "play at the wall, and calling a rotation REPLACES "
                       "the default one. Call it only with a specific "
@@ -200,16 +203,20 @@ PERSONA = Persona(
         "fire_superiority": ("fire_superiority is press-vs-break: count "
                              "the guns you can SEE, and treat unknown hp "
                              "as healthy -- never reason about invisible "
-                             "state. Superior means press to a range band, "
-                             "never a brawl; outgunned means break to "
-                             "facing cover. Keep it guarded on enemy "
+                             "state. Superior means press to the FAR band "
+                             "-- a longshot tag mints 2.5x a point-blank "
+                             "one -- never a brawl; outgunned means break "
+                             "to facing cover. Keep it guarded on enemy "
                              "contact: it is how a winning fight gets "
                              "FINISHED instead of drawn, and a draw pays "
                              "nobody."),
         "jackal": ("jackal is your signature tag source: join after the "
-                   "first tag lands, exit after one or two -- leave with "
-                   "the profit. The feed only says a fight HAPPENED, not "
-                   "where; move on fights your own tracks can place."),
+                   "first tag lands and stay for TWO -- clustered tags in "
+                   "one fight multiply the glory (x2, x4, x8 as the streak "
+                   "climbs); scattered pokes never do. Leave when the "
+                   "second tag banks or your hp says the streak is over. "
+                   "The feed only says a fight HAPPENED, not where; move "
+                   "on fights your own tracks can place."),
     },
     canned_turns=[
         {
@@ -227,7 +234,8 @@ PERSONA = Persona(
                  "params": {"partners": ["seat:0", "seat:16"],
                             "protect": False, "onBetrayal": "returnFire"}},
                 {"play": "target_law", "entry_id": "law",
-                 "params": {"prefer": ["weakened", "isolated"]}},
+                 "params": {"prefer": ["revenge", "bounty", "weakened",
+                            "isolated"]}},
                 {"play": "hold_vs_gun", "entry_id": "holdgun",
                  "when": ["or",
                           ["and",
@@ -251,7 +259,8 @@ PERSONA = Persona(
                  "params": {"partners": ["seat:0", "seat:16"],
                             "protect": False, "onBetrayal": "returnFire"}},
                 {"play": "target_law", "entry_id": "law",
-                 "params": {"prefer": ["weakened", "isolated"]}},
+                 "params": {"prefer": ["revenge", "bounty", "weakened",
+                            "isolated"]}},
                 {"play": "hold_vs_gun", "entry_id": "holdgun",
                  "when": ["or",
                           ["and",
@@ -276,7 +285,8 @@ PERSONA = Persona(
                  "params": {"partners": ["seat:0", "seat:16"],
                             "protect": False, "onBetrayal": "returnFire"}},
                 {"play": "target_law", "entry_id": "law",
-                 "params": {"prefer": ["weakened", "isolated"]}},
+                 "params": {"prefer": ["revenge", "bounty", "weakened",
+                            "isolated"]}},
                 {"play": "hold_vs_gun", "entry_id": "holdgun",
                  "when": ["or",
                           ["and",
@@ -288,11 +298,11 @@ PERSONA = Persona(
                 {"play": "fire_superiority", "entry_id": "pressbreak",
                  "when": [">=", ["get", "world.enemy_count"], 1],
                  "params": {"breakDeficit": 2, "coverMax": 260,
-                            "engageDist": 600, "pressRange": 220,
+                            "engageDist": 600, "pressRange": 400,
                             "woundedPct": 50}},
                 {"play": "jackal", "entry_id": "third",
                  "params": {"earshot": 700, "joinWhen": "afterKill",
-                            "exitAfter": {"kills": 1}}},
+                            "exitAfter": {"kills": 2}}},
                 {"play": "supply_run", "entry_id": "bank",
                  "params": {"whenHpBelow": 3, "detourMax": 250,
                             "contested": "avoid"}},
@@ -309,11 +319,12 @@ PERSONA = Persona(
                     "Partner, on me -- we finish.",
             "call": {"entries": [
                 {"play": "target_law", "entry_id": "law",
-                 "params": {"prefer": ["weakened", "isolated"]}},
+                 "params": {"prefer": ["revenge", "bounty", "weakened",
+                            "isolated"]}},
                 {"play": "fire_superiority", "entry_id": "pressbreak",
                  "when": [">=", ["get", "world.enemy_count"], 1],
                  "params": {"breakDeficit": 2, "coverMax": 200,
-                            "engageDist": 600, "pressRange": 200,
+                            "engageDist": 600, "pressRange": 340,
                             "woundedPct": 34}},
                 {"play": "crossfire", "entry_id": "shape",
                  "params": {"spacing": [120, 280], "minAngle": 36}},
