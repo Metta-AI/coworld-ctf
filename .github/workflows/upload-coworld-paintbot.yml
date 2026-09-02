@@ -84,6 +84,10 @@ jobs:
         if: steps.freshness.outputs.stale != '1'
         working-directory: coworld-ctf
         run: |
+          # Stamp the game image's engine so its recordings carry
+          # "engineStamp" (compose.yaml forwards this to the Dockerfile).
+          export SIM_SOURCES_STAMP="$(tools/sim_sources_stamp.sh)"
+          echo "engine stamp: $SIM_SOURCES_STAMP"
           uvx --from "coworld[auth]==0.1.43" coworld build \
             --version "${{ steps.version.outputs.version }}" \
             --project . \

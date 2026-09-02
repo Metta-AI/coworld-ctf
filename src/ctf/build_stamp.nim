@@ -20,8 +20,12 @@
 ##   ignore unknown keys (sim_config.nim `update` reads keys selectively),
 ##   so both directions of skew keep loading exactly as before.
 ##
+## The hosted game image gets the define from the upload workflow
+## (.github/workflows/upload-coworld-paintbot.yml exports SIM_SOURCES_STAMP,
+## compose.yaml forwards it as a build arg, the Dockerfile passes it to nim).
 ## Empty ("") in builds that did not pass the define — tests, ad-hoc dev
-## builds. An empty stamp claims nothing: recordings carry no stamp and the
-## viewer never claims a mismatch is same-build.
+## builds, a local `coworld build` without the variable. An empty stamp
+## claims nothing: recordings carry no stamp and the viewer never claims a
+## mismatch is same-build.
 
 const ctfSimSourcesStamp* {.strdefine.} = ""

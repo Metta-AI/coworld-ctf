@@ -42,6 +42,13 @@ ARG NimFlags="-d:release -d:useMalloc --threads:on --opt:speed --stackTrace:on"
 ARG CtfRuntimeFlags="-d:noSignalHandler -d:shellStaticWasmtime"
 ARG NimCommand="c"
 ARG NimMain="src/ctf.nim"
+# Engine build stamp (tools/sim_sources_stamp.sh over the sim sources), baked
+# into the server so every recording it writes carries "engineStamp" in its
+# header and the replay viewer can tell a same-build replay from a foreign one
+# (src/ctf/build_stamp.nim). The build context has no .git to derive it from,
+# so the caller passes it: compose.yaml forwards $SIM_SOURCES_STAMP and the
+# upload workflow exports it. Empty means "unstamped" — the pre-stamp header.
+ARG SIM_SOURCES_STAMP=""
 RUN tools/runtime_spike/fetch_deps.sh > /tmp/runtime_deps.env && \
   wasmtime_root="$(sed -n 's/^WASMTIME_C_API=//p' /tmp/runtime_deps.env)" && \
   test -f "$wasmtime_root/include/wasmtime.h" && \
@@ -49,6 +56,7 @@ RUN tools/runtime_spike/fetch_deps.sh > /tmp/runtime_deps.env && \
   WASMTIME_C_API="$wasmtime_root" nim $NimCommand \
     $NimFlags \
     $CtfRuntimeFlags \
+    -d:ctfSimSourcesStamp="${SIM_SOURCES_STAMP}" \
     --nimcache:/tmp/ctf-nimcache \
     --out:ctf \
     $NimMain && \
