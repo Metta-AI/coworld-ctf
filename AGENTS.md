@@ -32,7 +32,12 @@ git merge origin/main    # or: git rebase origin/main — bring the branch curre
 
 If `behind` is non-zero, merge/rebase `origin/main` **first**, then start.
 Re-derive version-sensitive work (the `GameVersion` const, replay fixtures)
-against the *updated* code, never the base you happened to check out. When
+against the *updated* code, never the base you happened to check out. Any
+change under `src/*.nim` also changes the sim-sources stamp
+(`tools/sim_sources_stamp.sh`), so rebuild the committed viewer bundle
+(`tools/build_replay_viewer.sh "$PWD/static-replay-viewer"`, a Docker build)
+and commit it with the change — otherwise the `wasm-replay-viewer` CI job
+fails its staleness check and the paintbot upload is skipped. When
 working in a worktree, also confirm you're editing files under that worktree's
 path — not a sibling checkout on an unrelated branch.
 
