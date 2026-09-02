@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>Ctf — Broadcast Replay</title>
+<title>Paintbot — Broadcast Replay</title>
 <style>
 /* ============================================================
    Ink & Print — warm CRT-phosphor arena broadcast.
@@ -216,7 +216,9 @@ html, body {
 .plates.row.tight { gap: calc(10 * var(--u)); }
 .plates.row.tight .plate { gap: calc(5 * var(--u)); }
 .plates.row.tight .team-name { font-size: calc(11 * var(--u)); }
-.plates.row.tight .lives-num { font-size: calc(13 * var(--u)); }
+.plates.row.tight .lives-num { font-size: calc(10 * var(--u)); }
+.plates.row.tight .plate:not(.has-glory) .lives-num { font-size: calc(13 * var(--u)); }
+.plates.row.tight .glory-num { font-size: calc(16 * var(--u)); }
 /* The labels are the first thing to go: "Hill"/"Lives" repeated four times is
    four words saying what the numeral's position already says. */
 .plates.row.tight .lives-label { display: none; }
@@ -249,39 +251,119 @@ html, body {
 .plates.row.many .squad { display: none; }  /* per-seat pips are unreadable
                                                at 16 chips; the numeral is
                                                the honest summary. */
-/* BR top bar (>4 teams): ensureScorebug's `many` branch replaces the whole
-   16-chip row with ONE compact live stat per side — teams alive (left) and
-   cogs standing (right) — instead of the compaction above. "N of 16 chips,
-   all reading 0 LIVES LEFT" was the exact defect Maxwell called
-   unacceptable; the number that matters at a glance during BR play is how
-   many teams are still in it, not sixteen individually illegible plates.
-   Per-team detail moves to the end-card, which can afford the room. */
-.br-stat {
+/* BR top bar (>4 teams / 16 seats): GLORY SCOREBUG v2 (2026-09-01, Maxwell's
+   ruling — supersedes the single-leader .br-glory block from the prior
+   PR). His words: "it should show the 16 teams, their glory, and they get
+   grayed out when knocked out." Every team gets a compact cell — a
+   palette swatch (BR identity IS the palette, per Maxwell), a short name,
+   and that team's own GLORY numeral, the prominent figure in the cell.
+   Cells split 8-per-side flanking the clock (position/size unchanged —
+   "keep the clock centered and legible") in .br-cellband, a flex-wrap row
+   that wraps itself to a 2-row band once a side can't fit ~4 cells at
+   common widths — no JS breakpoint needed. Eliminated teams (lives<=0,
+   the same signal the old "Teams alive" counter read) get .out: dimmed +
+   desaturated, but they STAY in their slot, so the band reads as a ledger
+   of the whole field, not a shrinking list. Leader emphasis rides the
+   heat flame on ONE cell (the current glory leader) rather than a
+   bar-wide takeover — see renderScorebug's many-branch in JS. Per-team
+   kill/rank detail still lives on the end-card, which can afford the
+   room. */
+.br-cellband {
   display: flex;
-  flex-direction: column;
-  align-items: center;
+  flex-wrap: wrap;
+  align-content: center;
   justify-content: center;
+  gap: calc(3 * var(--u)) calc(9 * var(--u));
   height: 100%;
+  /* .plates.row (the parent, shared with the classic 3-4 team layout) is
+     flex-direction:row with no wrap of its own -- this is what actually
+     shrinks to the grid track's real width and wraps its OWN children
+     (the cells) instead of the band overrunning the centered clock. */
+  flex: 1 1 0;
+  min-width: 0;
 }
-.br-stat-num {
+.br-cell {
+  display: flex;
+  align-items: center;
+  gap: calc(3 * var(--u));
+  flex: 0 0 auto;
+  min-width: 0;
+  transition: opacity 300ms ease, filter 300ms ease;
+}
+.br-cell-swatch {
+  width: calc(9 * var(--u));
+  height: calc(9 * var(--u));
+  border-radius: calc(2 * var(--u));
+  flex: none;
+  box-shadow: inset 0 0 0 calc(1 * var(--u)) rgba(0, 0, 0, 0.45);
+}
+.br-cell-name {
   font-family: var(--pixfont);
-  font-size: calc(24 * var(--u));
-  line-height: 1;
-  color: var(--paper);
-  font-variant-numeric: tabular-nums;
-}
-.br-stat-label {
-  margin-top: calc(2 * var(--u));
-  font-family: var(--finefont);
-  font-size: calc(8 * var(--u));
-  letter-spacing: 0.14em;
-  text-transform: uppercase;
+  font-size: calc(7.5 * var(--u));
+  letter-spacing: 0.2px;
   color: var(--paper-dim);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: calc(38 * var(--u));
+  flex: none;
 }
-/* Endgame tension at 3-or-fewer teams left: the same amber pulse grammar the
-   classic scorebug already uses for a dominant lead (see .plate.leader
-   above), reused here rather than inventing a second pulse language. */
-.br-stat.urgent .br-stat-num { color: var(--amber); animation: leaderpulse 1.9s ease-in-out infinite; }
+/* The prominent figure in the cell — glory is still the score, just one
+   per team now instead of one for the whole bar (Maxwell: show all 16). */
+.br-cell-glory {
+  font-family: var(--pixfont);
+  font-size: calc(15 * var(--u));
+  line-height: 1;
+  color: var(--amber);
+  font-variant-numeric: tabular-nums;
+  flex: none;
+}
+/* Eliminated: STAYS in its slot (never removed/collapsed — the band is a
+   ledger of the whole field, not a shrinking list), just visually dead. */
+.br-cell.out {
+  filter: grayscale(1);
+  opacity: 0.35;
+}
+.br-cell.out .br-cell-glory { color: var(--paper-dim); }
+/* Leader emphasis: the flame (shared tiers/markup with the classic
+   plates — see .heat-flame below) rides only the current glory leader's
+   cell; every other cell's flame element stays at its cold default (JS
+   passes it a null team, see renderScorebug). A little extra glow on the
+   leader's own numeral, reusing the leaderpulse language's color rather
+   than its animation (16 cells pulsing at once would be noise). */
+.br-cell .heat-flame {
+  width: calc(8 * var(--u));
+  height: calc(11 * var(--u));
+}
+.br-cell.leader .br-cell-glory { text-shadow: 0 0 calc(6 * var(--u)) var(--amber); }
+/* HEAT FLAME: how fast the glory readout beside it is currently climbing —
+   see noteGloryForHeat/heatTierFor in JS, which bucket a short trailing window of
+   glory gain into 4 tiers. Cold (no recent gain) is near-invisible so an
+   idle scorebug doesn't wear a dead icon; each tier up adds opacity, a
+   warmer color and (top tier) the same leaderpulse glow the leader plate
+   already uses, so "on fire" reads as literally that. */
+.heat-flame {
+  width: calc(11 * var(--u));
+  height: calc(15 * var(--u));
+  flex: none;
+  opacity: 0.18;
+  color: var(--paper-dim);
+  transition: opacity 220ms ease, color 220ms ease;
+}
+.heat-flame svg { width: 100%; height: 100%; display: block; }
+.heat-flame.heat-warm { opacity: 0.55; color: var(--amber); }
+.heat-flame.heat-hot { opacity: 0.85; color: var(--amber); filter: drop-shadow(0 0 calc(3 * var(--u)) rgba(232, 163, 61, 0.65)); }
+.heat-flame.heat-blazing {
+  opacity: 1;
+  color: var(--red);
+  filter: drop-shadow(0 0 calc(4 * var(--u)) rgba(224, 82, 58, 0.8));
+  animation: heatflicker 0.9s ease-in-out infinite;
+}
+@keyframes heatflicker {
+  0%, 100% { transform: scale(1); }
+  50% { transform: scale(1.12) translateY(calc(-1 * var(--u))); }
+}
+#stage.beat-active .heat-flame { animation-play-state: paused; }
 /* Orientation is a SIDE property, not a color property: right-side plates
    mirror so both team names stay innermost, flanking the clock. */
 .plate.side-r { flex-direction: row-reverse; text-align: right; }
@@ -314,49 +396,61 @@ html, body {
   display: flex;
   align-items: baseline;
   gap: calc(6 * var(--u));
+  margin-top: calc(1 * var(--u));
 }
 .plate.side-l .lives-line { flex-direction: row-reverse; }
+/* GLORY SCOREBUG REDESIGN (2026-09-01): lives used to be the dominant
+   numeral (20u) with glory riding beneath it at ~60% size (13u) as a
+   secondary line. Maxwell's ruling flips that relationship outright: glory
+   is THE score, so .glory-num now leads at 24u (bigger than the old 20u
+   lives numeral it demotes) and .lives-num shrinks to 13u — the exact swap,
+   so a viewer's eye lands on the number that matters. The glory row also
+   moves ABOVE the lives row in DOM order (see the plate builders in JS) so
+   it reads first top-to-bottom as well as biggest. */
 .lives-num {
   font-family: var(--pixfont);
-  font-size: calc(20 * var(--u));
+  font-size: calc(13 * var(--u));
   line-height: 1;
-  color: var(--paper);
+  color: var(--paper-dim);
   flex: none;
 }
 .lives-label {
   font-family: var(--finefont);
-  font-size: calc(8 * var(--u));
+  font-size: calc(7 * var(--u));
   letter-spacing: 0.14em;
   text-transform: uppercase;
   color: var(--paper-dim);
   flex: none;
 }
-/* SEASON 2 GLORY: a second, smaller baseline row under .lives-line — same
-   name-innermost/label/numeral rhythm, at ~60% the lives numeral's size so
-   it reads as the SECONDARY score (lives is still the primal "are you
-   alive" number; glory is the season's scoring layer riding beside it).
-   Absent entirely (no row at all) until the first frame carries a `glory`
-   field, via JS toggling `.has-glory` on the plate — a pre-GLORY-port
-   replay's topbar is therefore byte-for-byte the old one. */
+/* SEASON 2 GLORY: now the DOMINANT baseline row (sits above .lives-line —
+   see the plate builders), name-innermost/label/numeral rhythm carried over
+   unchanged. Absent entirely (no row at all) until the first frame carries a
+   `glory` field, via JS toggling `.has-glory` on the plate — a pre-GLORY-port
+   replay's topbar is therefore byte-for-byte the old one (lives-only, at its
+   original weight — see .plate:not(.has-glory) .lives-num below). */
 .plate .glory-line {
   display: none;
   align-items: baseline;
-  gap: calc(5 * var(--u));
-  margin-top: calc(1 * var(--u));
+  gap: calc(6 * var(--u));
 }
 .plate.has-glory .glory-line { display: flex; }
 .plate.side-l .glory-line { flex-direction: row-reverse; }
+/* Pre-glory replays never gain .has-glory, so the lives numeral stays at
+   its historic dominant size — the demotion above only fires once glory is
+   actually on screen to take its place. */
+.plate:not(.has-glory) .lives-num { font-size: calc(20 * var(--u)); color: var(--paper); }
 .glory-num {
   font-family: var(--pixfont);
-  font-size: calc(13 * var(--u));
+  font-size: calc(24 * var(--u));
   line-height: 1;
   color: var(--amber);
   flex: none;
   font-variant-numeric: tabular-nums;
+  text-shadow: 0 calc(2 * var(--u)) 0 var(--ink);
 }
 .glory-label {
   font-family: var(--finefont);
-  font-size: calc(7 * var(--u));
+  font-size: calc(8 * var(--u));
   letter-spacing: 0.14em;
   text-transform: uppercase;
   color: var(--paper-dim);
@@ -544,15 +638,20 @@ html, body {
 .clock.amb { animation: clocktick 2s ease-in-out infinite; }
 @keyframes clocktick { 0%,100% { opacity: 0.94; } 50% { opacity: 1; } }
 
-/* leader pulse when a team's lives lead is >=3 */
-.plate.leader .lives-num { animation: leaderpulse 1.9s ease-in-out infinite; }
+/* leader pulse when a team's lives lead is >=3. GLORY REDESIGN: also pulses
+   .glory-num now — it's the dominant numeral the leader cue needs to land
+   on; .lives-num keeps the pulse too (harmless at its demoted size, and
+   free for pre-glory replays where .glory-num never renders at all). */
+.plate.leader .lives-num,
+.plate.leader .glory-num { animation: leaderpulse 1.9s ease-in-out infinite; }
 @keyframes leaderpulse { 0%,100% { text-shadow: none; } 50% { text-shadow: 0 0 calc(10 * var(--u)) var(--amber); } }
 
 /* Beat-pause (§11): idle systems freeze the instant a beat lands, so ambient
    never competes with a kill/steal/capture for the eye. Applied on #stage; the
    engine-driven board (24Hz) is untouched — only chrome ambient pauses. */
 #stage.beat-active .amb,
-#stage.beat-active .plate.leader .lives-num { animation-play-state: paused; }
+#stage.beat-active .plate.leader .lives-num,
+#stage.beat-active .plate.leader .glory-num { animation-play-state: paused; }
 
 /* ---------- 3. BANNER LANE ---------- */
 #bannerlane {
@@ -1823,7 +1922,9 @@ html, body {
 
 @media (prefers-reduced-motion: reduce) {
   #grain, .clock.amb { animation: none; }
-  .plate.leader .lives-num { animation: none; }
+  .plate.leader .lives-num,
+  .plate.leader .glory-num,
+  .heat-flame.heat-blazing { animation: none; }
   .banner-chip, .feed-row { animation-duration: 1ms; }
 }
 
@@ -2395,6 +2496,59 @@ body[data-noviewpanel] #viewpanel { display: none !important; }
       '<div class="carrier-tag"></div>';
   }
 
+  // ---- heat flame icon (GLORY SCOREBUG REDESIGN) ----
+  // A single static flame glyph in currentColor — the .heat-flame tiers
+  // (heat-warm/hot/blazing, CSS above) do all the actual signalling via
+  // opacity/color/glow/animation, so one markup shape covers every tier.
+  var HEAT_FLAME_SVG =
+    '<svg viewBox="0 0 16 20" aria-hidden="true">' +
+    '<path fill="currentColor" d="M8 1C5 5 3 8 3 12C3 16.4 5.2 19 8 19' +
+    'C10.8 19 13 16.4 13 12C13 9.2 11.3 7 10 5C10.3 7.5 9 8.7 8.3 8.9' +
+    'C8.6 6.8 9 4 8 1Z"/>' +
+    '</svg>';
+  function buildHeatFlame(el) { if (el) el.innerHTML = HEAT_FLAME_SVG; }
+
+  // Heat = how fast a team's glory total is climbing right now, bucketed off
+  // a short trailing window so it reads as "on fire", not a running average.
+  // Keyed by team so classic plates + the BR leader block share one tracker;
+  // each entry is the last few (tick, glory) samples actually observed (the
+  // frame rate the wire arrives at, not wall time, so it degrades cleanly
+  // under skip-lulls/fast-forward instead of reading falsely cold).
+  var HEAT_WINDOW_TICKS = 5 * 24; // ~5s at the replay's 24 ticks/s baseline
+  var HEAT_HISTORY_CAP = 40;      // bounds memory; window trim keeps it far under this
+  var heatHistory = {};           // team -> [{tick, glory}, …] oldest-first
+  function noteGloryForHeat(team, tick, glory) {
+    if (typeof glory !== 'number' || typeof tick !== 'number') return;
+    var hist = heatHistory[team];
+    if (!hist) { hist = heatHistory[team] = []; }
+    var last = hist[hist.length - 1];
+    if (last && last.tick === tick) { last.glory = glory; }
+    else { hist.push({ tick: tick, glory: glory }); }
+    while (hist.length > HEAT_HISTORY_CAP) hist.shift();
+    while (hist.length > 1 && tick - hist[0].tick > HEAT_WINDOW_TICKS) hist.shift();
+  }
+  // Gain-per-second over the retained window, tiered against GLORY_TIERS-
+  // scale numbers (a full match banks on the order of a few hundred glory;
+  // these thresholds are deliberately generous fractions of that so "hot"
+  // fires on a real scoring burst, not steady background trickle).
+  function heatTierFor(team) {
+    var hist = heatHistory[team];
+    if (!hist || hist.length < 2) return '';
+    var first = hist[0], last = hist[hist.length - 1];
+    var ticks = last.tick - first.tick;
+    if (ticks <= 0) return '';
+    var perSec = ((last.glory - first.glory) / ticks) * 24;
+    if (perSec >= 6) return 'heat-blazing';
+    if (perSec >= 3) return 'heat-hot';
+    if (perSec >= 1) return 'heat-warm';
+    return '';
+  }
+  function applyHeatFlame(el, team) {
+    if (!el) return;
+    var tier = heatTierFor(team);
+    el.className = 'heat-flame' + (tier ? ' ' + tier : '');
+  }
+
   // (speed chips are built + rendered by the shared chrome via ctx.send)
 
   // ---- core (board renderer + WS) ----
@@ -2737,21 +2891,43 @@ body[data-noviewpanel] #viewpanel { display: none !important; }
     sides[0].classList.toggle('many', many);
     sides[1].classList.toggle('many', many);
     if (many) {
-      // BR (16 seats): sixteen name+lives chips is unreadable noise — the
-      // number that matters live is how many teams are still in it, not a
-      // wall of identical-looking plates. One compact stat per side
-      // replaces the whole chip row (see .br-stat); renderScorebug fills
-      // the numbers in. Per-team detail moves to the end-card instead.
-      sides[0].innerHTML =
-        '<div class="br-stat" id="br-stat-alive">' +
-        '<div class="br-stat-num" id="br-alive-num">' + teams.length + '</div>' +
-        '<div class="br-stat-label">Teams alive</div>' +
-        '</div>';
-      sides[1].innerHTML =
-        '<div class="br-stat" id="br-stat-cogs">' +
-        '<div class="br-stat-num" id="br-cogs-num">0</div>' +
-        '<div class="br-stat-label">Cogs standing</div>' +
-        '</div>';
+      // BR (16 seats): sixteen name+lives chips used to be unreadable noise
+      // (the pre-glory board this replaced), so this branch has always
+      // rebuilt the whole chip row rather than compacting the classic
+      // .plate markup. GLORY SCOREBUG v2 (2026-09-01, Maxwell's ruling,
+      // supersedes the single-leader .br-glory block from the prior PR):
+      // "it should show the 16 teams, their glory, and they get grayed out
+      // when knocked out." One .br-cell per team — swatch (BR identity IS
+      // the palette) + short name + that team's own GLORY numeral — split
+      // 8-per-side flanking the clock; renderScorebug fills in the
+      // numbers, elimination state and leader emphasis every frame.
+      function cellsHtml(list) {
+        var html = '';
+        list.forEach(function (team) {
+          var col = teamCol(team) || AMBER;
+          html +=
+            '<div class="br-cell" id="cell-' + team + '" data-team="' + team + '">' +
+            '<span class="br-cell-swatch" style="background:' + col + '"></span>' +
+            '<span class="br-cell-name" id="cell-name-' + team + '">' + team.toUpperCase() + '</span>' +
+            '<span class="heat-flame" id="cell-flame-' + team + '"></span>' +
+            '<span class="br-cell-glory" id="cell-glory-' + team + '">0</span>' +
+            '</div>';
+        });
+        return html;
+      }
+      // Split evenly, first half left / second half right — activeTeams()
+      // already returns them in canonical TEAM_ORDER, same ordering the
+      // classic plates use.
+      var half = Math.ceil(teams.length / 2);
+      // .plates.row is flex-direction:row with no wrap (it also carries the
+      // classic 3-4 team layout, which must NOT wrap) — .br-cellband is its
+      // own nested flex-wrap container so 8 cells wrap to two rows on their
+      // own instead of overrunning the clock. Bug caught in review: an
+      // earlier draft set the cells as sides[]'s direct children, which
+      // inherited nowrap and visibly collided with the clock at 1440px.
+      sides[0].innerHTML = '<div class="br-cellband">' + cellsHtml(teams.slice(0, half)) + '</div>';
+      sides[1].innerHTML = '<div class="br-cellband">' + cellsHtml(teams.slice(half)) + '</div>';
+      teams.forEach(function (team) { buildHeatFlame($('cell-flame-' + team)); });
       return;
     }
     teams.forEach(function (team, i) {
@@ -2763,18 +2939,24 @@ body[data-noviewpanel] #viewpanel { display: none !important; }
         // coverage, tag-outs) — the plate, the sides, the squad strip and the
         // clock column are the classic ones. The heart/flag icon is gone with
         // the objective it belonged to.
+        // GLORY SCOREBUG REDESIGN: .glory-line now sits ABOVE .lives-line in
+        // DOM order (was below) — it is the dominant row now, see the CSS
+        // above, so it reads first top-to-bottom as well as biggest. The
+        // heat flame rides between the label and numeral so it lands next to
+        // the number on both side-l (reversed) and side-r plates.
         plate.innerHTML =
           '<div class="hillchip" id="hill-' + team + '" title="Hill coverage">—</div>' +
           '<div class="team-id">' +
+          '<div class="glory-line">' +
+          '<span class="glory-label">Glory</span>' +
+          '<span class="heat-flame" id="heat-' + team + '"></span>' +
+          '<span class="glory-num" id="glory-' + team + '">0</span>' +
+          '</div>' +
           '<div class="lives-line">' +
           '<span class="team-name plate-name" id="name-' + team + '">' + team.toUpperCase() + '</span>' +
           '<span class="hcap" id="hcap-' + team + '" style="display:none"></span>' +
           '<span class="lives-label pb-lbl">Hill</span>' +
           '<span class="lives-num" id="lives-' + team + '">—</span>' +
-          '</div>' +
-          '<div class="glory-line">' +
-          '<span class="glory-label">Glory</span>' +
-          '<span class="glory-num" id="glory-' + team + '">0</span>' +
           '</div>' +
           '<div class="pb-sub">' +
           '<span class="pb-tags pb-lbl" id="tags-' + team + '"></span>' +
@@ -2782,6 +2964,7 @@ body[data-noviewpanel] #viewpanel { display: none !important; }
           '</div>' +
           '</div>';
         sides[i % 2].appendChild(plate);
+        buildHeatFlame($('heat-' + team));
         return;
       }
       // BR: a colour swatch, and "Alive" rather than "Lives" — with no
@@ -2790,21 +2973,23 @@ body[data-noviewpanel] #viewpanel { display: none !important; }
         '<div class="' + (flagless ? 'swatchicon' : 'flagicon') +
         '" id="flag-' + team + '"></div>' +
         '<div class="team-id">' +
+        '<div class="glory-line">' +
+        '<span class="glory-label">Glory</span>' +
+        '<span class="heat-flame" id="heat-' + team + '"></span>' +
+        '<span class="glory-num" id="glory-' + team + '">0</span>' +
+        '</div>' +
         '<div class="lives-line">' +
         '<span class="team-name" id="name-' + team + '">' + team.toUpperCase() + '</span>' +
         '<span class="hcap" id="hcap-' + team + '" style="display:none"></span>' +
         '<span class="lives-label">' + (elim ? 'Alive' : 'Lives') + '</span>' +
         '<span class="lives-num" id="lives-' + team + '">—</span>' +
         '</div>' +
-        '<div class="glory-line">' +
-        '<span class="glory-label">Glory</span>' +
-        '<span class="glory-num" id="glory-' + team + '">0</span>' +
-        '</div>' +
         '<div class="squad" id="squad-' + team + '"></div>' +
         '</div>';
       sides[i % 2].appendChild(plate);
       if (flagless) buildSwatch($('flag-' + team), teamCol(team) || AMBER);
       else buildFlag($('flag-' + team), teamCol(team) || AMBER);
+      buildHeatFlame($('heat-' + team));
     });
   }
 
@@ -2825,20 +3010,45 @@ body[data-noviewpanel] #viewpanel { display: none !important; }
     });
 
     if (teams.length > 4) {
-      // BR top-bar stats (see ensureScorebug's `many` branch): teams alive
-      // from the live lives count (0 = eliminated, matches the end-card's
-      // own definition), cogs standing summed straight off the roster.
-      var aliveTeams = teams.filter(function (t) { return lives[t] > 0; }).length;
-      var aliveNum = $('br-alive-num');
-      if (aliveNum) aliveNum.textContent = aliveTeams;
-      var cogsAlive = 0;
-      (s.roster || []).forEach(function (p) { if (p.alive) cogsAlive++; });
-      var cogsNum = $('br-cogs-num');
-      if (cogsNum) cogsNum.textContent = cogsAlive;
-      var aliveStat = $('br-stat-alive');
-      if (aliveStat) {
-        aliveStat.classList.toggle('urgent', aliveTeams > 0 && aliveTeams <= 3 && s.ph === 'playing');
-      }
+      // GLORY SCOREBUG v2 (2026-09-01, Maxwell's ruling — supersedes the
+      // single-leader block from the prior PR): "it should show the 16
+      // teams, their glory, and they get grayed out when knocked out."
+      // Every cell gets its own name + GLORY numeral + elimination state
+      // every frame. Elimination reads the same lives<=0 signal the old
+      // "Teams alive" counter used (0 = eliminated, matches the end-card's
+      // own definition) — a cell STAYS in its slot when eliminated, it
+      // just grays out (.out via CSS filter:grayscale), so the band never
+      // re-shrinks or reflows as the field thins; it reads as a ledger of
+      // the whole field, not a shrinking list.
+      var leader = null, leaderGlory = -Infinity;
+      teams.forEach(function (team) {
+        var gv = tr[team] && tr[team].glory;
+        if (typeof gv !== 'number') return;
+        noteGloryForHeat(team, s.t, gv);
+        if (gv > leaderGlory) { leaderGlory = gv; leader = team; }
+      });
+      // leaderGlory > 0 gate: at kickoff every team reads 0, and "the
+      // leader" of an all-zero field is just whichever team sorted first —
+      // no cell earns the leader glow/flame until someone actually scores.
+      var haveLeader = leader !== null && leaderGlory > 0;
+      teams.forEach(function (team) {
+        // Identity via teamName() — the exact helper the classic plates +
+        // end-card already resolve names through, so "seat name" stays one
+        // resolution path everywhere it is shown, same as the prior PR.
+        setName('cell-name-' + team, teamName(s, team, team.toUpperCase()));
+        var gv = tr[team] && tr[team].glory;
+        var gloryEl = $('cell-glory-' + team);
+        if (gloryEl) gloryEl.textContent = typeof gv === 'number' ? gv : '—';
+        var cell = $('cell-' + team);
+        var isLeader = haveLeader && team === leader;
+        if (cell) {
+          cell.classList.toggle('out', lives[team] <= 0);
+          cell.classList.toggle('leader', isLeader);
+        }
+        // Leader emphasis rides ONE flame (Maxwell: "no single-block
+        // takeover") — every other cell's flame resets to cold.
+        applyHeatFlame($('cell-flame-' + team), isLeader ? team : null);
+      });
       return;
     }
 
@@ -2856,6 +3066,14 @@ body[data-noviewpanel] #viewpanel { display: none !important; }
       if (platePre) platePre.classList.toggle('has-glory', typeof gv === 'number');
       var gloryEl = $('glory-' + team);
       if (gloryEl && typeof gv === 'number') gloryEl.textContent = gv;
+      // HEAT FLAME: same trailing-window gain tracker the BR leader block
+      // uses (noteGloryForHeat/applyHeatFlame above) — one tracker per team
+      // key, so a classic 2-4 team plate's flame and the BR block never
+      // fight over history if a page somehow renders both shapes in one
+      // session (they don't today, but the tracker is keyed off `team`
+      // either way, so there is nothing mode-specific to get wrong here).
+      if (typeof gv === 'number') noteGloryForHeat(team, s.t, gv);
+      applyHeatFlame($('heat-' + team), typeof gv === 'number' ? team : null);
       if (PB_MODE) {
         var t = tr[team] || {};
         // PAINTBALL: the big numeral is HILL TIME HELD (M:SS), the chip is
