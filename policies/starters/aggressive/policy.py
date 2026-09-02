@@ -7,8 +7,8 @@ Harness deltas (the code that makes this seat behave unlike the other two):
   6 s apart); a tight edge_ride is the always-on base rung, and jackal rides
   above it whenever an enemy is tracked,
 * the match summary carries kill-feed lines, so the model reacts to fights,
-* ``adjust_entries`` clamps every edge_ride toward the tight end (margin
-  capped at 160, small enterLead, low coverBias) and forces any pact to
+* ``adjust_entries`` caps every edge_ride at a close-but-covered ride (margin
+  capped at 260, enterLead at 200, coverBias at 0.8) and forces any pact to
   ``onBetrayal: returnFire`` -- whatever the model asked for, this seat plays
   forward.
 """
@@ -26,19 +26,19 @@ from starter_harness import Persona  # noqa: E402
 
 # The tight-end clamps. build_call has already ranged-checked the values, so
 # these only ever NARROW toward the aggressive corner of each range.
-MAX_MARGIN = 160
-MAX_ENTER_LEAD = 120
-MAX_COVER_BIAS = 0.5
+MAX_MARGIN = 260
+MAX_ENTER_LEAD = 200
+MAX_COVER_BIAS = 0.8
 
 
 def adjust_entries(entries, context, view):
     for entry in entries:
         params = entry.setdefault("params", {})
         if entry.get("play") == "edge_ride":
-            params["margin"] = min(int(params.get("margin", 100)), MAX_MARGIN)
-            params["enterLead"] = min(int(params.get("enterLead", 60)),
+            params["margin"] = min(int(params.get("margin", 180)), MAX_MARGIN)
+            params["enterLead"] = min(int(params.get("enterLead", 120)),
                                       MAX_ENTER_LEAD)
-            params["coverBias"] = min(float(params.get("coverBias", 0.3)),
+            params["coverBias"] = min(float(params.get("coverBias", 0.5)),
                                       MAX_COVER_BIAS)
         elif entry.get("play") == "pact":
             # An aggressive pact is a tool: any betrayal is answered.
@@ -62,9 +62,10 @@ PERSONA = Persona(
     play_notes={
         "loot": ("loot: grenades and spray cans are your tools -- race for "
                  "them when nobody is tracked; the harness gates it."),
-        "edge_ride": ("edge_ride is your hunting lane: margin under 160, "
-                      "small enterLead, low coverBias. The edge is where the "
-                      "rotations funnel -- meet them there."),
+        "edge_ride": ("edge_ride is your hunting lane: margin 140-260, "
+                      "enterLead up to 200, coverBias up to 0.8. The edge is "
+                      "where the rotations funnel -- meet them there, from "
+                      "cover."),
         "pact": ("pact only when it buys you a fight you would lose alone; "
                  "never protect, always returnFire on betrayal."),
         "supply_run": ("supply_run only when a kit is on your path or "
@@ -91,8 +92,8 @@ PERSONA = Persona(
                     "watch the feed.",
             "call": {"entries": [
                 {"play": "edge_ride", "entry_id": "hunt",
-                 "params": {"margin": 60, "enterLead": 40,
-                            "coverBias": 0.25}},
+                 "params": {"margin": 200, "enterLead": 140,
+                            "coverBias": 0.5}},
             ]},
         },
         {
@@ -100,8 +101,8 @@ PERSONA = Persona(
                     "wounded first.",
             "call": {"entries": [
                 {"play": "edge_ride", "entry_id": "hunt",
-                 "params": {"margin": 50, "enterLead": 20,
-                            "coverBias": 0.2}},
+                 "params": {"margin": 170, "enterLead": 110,
+                            "coverBias": 0.45}},
                 # The hunter's standing law: bias toward the easy kills,
                 # no never-list, no hold -- fire at will.
                 {"play": "target_law", "entry_id": "law",
@@ -117,21 +118,24 @@ PERSONA = Persona(
                  "params": {"earshot": 900, "joinWhen": "afterKill",
                             "exitAfter": {"kills": 2}}},
                 {"play": "edge_ride", "entry_id": "hunt",
-                 "params": {"margin": 40, "enterLead": 0,
-                            "coverBias": 0.15}},
+                 "params": {"margin": 140, "enterLead": 80,
+                            "coverBias": 0.4}},
             ]},
         },
     ],
     recall_count=2,
     recall_seconds=6.0,
     max_calls=8,
-    # The always-on rung is a tight edge_ride; jackal is a gated rung that
+    # The always-on rung is a close edge_ride; jackal is a gated rung that
     # the harness puts above it only while an enemy is tracked. Jackal as
     # the base (v4-v15) won the all-starter self-play arms, but against the
     # field (XP xreq_619f6a5f, 20 episodes) it finished 7th of 8 at 0.53
     # kills while both edge_ride-based starters scored 0.70-0.78: an idle
     # jackal holds in cover and waits for fights that a field of cautious
-    # bots never starts.
+    # bots never starts. v16 tried edge_ride at the old 40-60 px margins
+    # and lost survival (944 -> 567 ticks) and items (1.27 -> 0.35): the
+    # seat lived on the zone line with no cover. v17 keeps edge_ride and
+    # rides it at 140-260 px like the two starters that outscore it.
     base_play="edge_ride",
     include_kill_feed=True,
     adjust_entries=adjust_entries,

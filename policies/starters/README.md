@@ -11,7 +11,7 @@ different things in the same match.
 
 | policy | one line | model calls / match | base play | signature harness rules |
 | --- | --- | --- | --- | --- |
-| `aggressive/` | hunts; tight zone margins; re-calls eagerly | up to 8, min 6 s apart | `edge_ride` (tight); `jackal` gated above it while an enemy is tracked | kill-feed lines in the summary; margins clamped tight; pacts always `returnFire`; races pickups |
+| `aggressive/` | hunts; tight zone margins; re-calls eagerly | up to 8, min 6 s apart | `edge_ride` (tight); `jackal` gated above it while an enemy is tracked | kill-feed lines in the summary; margins capped at 260 (close but covered); pacts always `returnFire`; races pickups |
 | `cautious/` | survives; wide margins; calls rarely | up to 4, min 15 s apart | `edge_ride` | margins floored wide; omitted params filled with safe defaults; pacts always `disengage`; hold fire until zone phase 1 (`target_law holdTrigger {zonePhase: 1}` — phase 2 cost it 26 gun deaths in 30 competitive episodes); short safe detours for pickups |
 | `collaborative/` | duo-first; pact with protect always; talks | up to 6, min 10 s apart | `edge_ride` | partner state leads the summary; a coordination chat line every turn; duo pact injected with `protect: true`; `bodyguard` only when the ward drifts past its leash |
 
