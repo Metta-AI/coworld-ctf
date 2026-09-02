@@ -4,7 +4,8 @@
 Harness deltas (the code that makes this seat behave unlike the other two):
 
 * the tightest live-loop schedule of the three (up to 8 model calls a match,
-  6 s apart) and jackal as the always-on base rung,
+  6 s apart); a tight edge_ride is the always-on base rung, and jackal rides
+  above it whenever an enemy is tracked,
 * the match summary carries kill-feed lines, so the model reacts to fights,
 * ``adjust_entries`` clamps every edge_ride toward the tight end (margin
   capped at 160, small enterLead, low coverBias) and forces any pact to
@@ -124,11 +125,14 @@ PERSONA = Persona(
     recall_count=2,
     recall_seconds=6.0,
     max_calls=8,
-    # The hunter's always-on rung is jackal, not edge_ride: idle jackal holds
-    # in cover with the gun up and joins the first fight it hears; the zone
-    # reflex handles the rotations. Measured: the v4 aggressive (jackal on
-    # top) beat every edge_ride-based build on kills and survival.
-    base_play="jackal",
+    # The always-on rung is a tight edge_ride; jackal is a gated rung that
+    # the harness puts above it only while an enemy is tracked. Jackal as
+    # the base (v4-v15) won the all-starter self-play arms, but against the
+    # field (XP xreq_619f6a5f, 20 episodes) it finished 7th of 8 at 0.53
+    # kills while both edge_ride-based starters scored 0.70-0.78: an idle
+    # jackal holds in cover and waits for fights that a field of cautious
+    # bots never starts.
+    base_play="edge_ride",
     include_kill_feed=True,
     adjust_entries=adjust_entries,
 )

@@ -8,10 +8,13 @@ What this harness does differently from the other two starters:
 - **The busiest live-loop schedule** — up to 8 model calls a match, at
   least 6 s apart, re-called on kills, hp loss, zone phases and being shot
   at (see `../README.md`, "How a starter plays a match").
-- **Jackal is the base play** — the always-on rung above any `edge_ride`:
-  idle jackal holds in cover with the gun up and joins the first fight it
-  hears, the zone reflex handles rotations. For the first 150 ticks the
-  harness swaps in `edge_ride` so the seat gets off its spawn first.
+- **Tight edge_ride is the base play, jackal rides above it when an enemy
+  is tracked** — jackal (hold in cover with the gun up, join the first fight
+  heard) was the base through v15; against the field it finished 7th of 8
+  at 0.53 kills while the two edge_ride-based starters scored 0.70–0.78,
+  because an idle jackal waits for fights a cautious field never starts.
+  For the first 150 ticks the harness swaps in `scatter` so the seat gets
+  off its spawn first.
 - **Kill-feed awareness** — the match summary fed to the model carries the
   accumulated kill feed from the 0xB1 view stream ("tick N: seat V
   eliminated by team K"), so decisions react to fights.
