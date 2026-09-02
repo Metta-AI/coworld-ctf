@@ -2520,9 +2520,22 @@ function deathStatusLine(){
      never on a round/match ending some other way, so a win can never read
      this line. CTF's respawn line is untouched: a mid-life death there
      really is temporary, so it never needed the sport's elimination word. */
-  return cameraContext==="br"?
-    "you're out for this round -- next round starts soon...":
-    "you're down -- waiting to respawn...";
+  if(cameraContext!=="br")return "you're down -- waiting to respawn...";
+  /* Swap#12 item 7: this line used to be 185s of static text with zero real
+     data in it. The obvious upgrade -- "round ends in ~M:SS" -- turned out
+     to be unbuildable from THIS file's own honesty rule: the human player
+     wire (labels.nim) carries no time/clock label at all; "TIME LEFT"
+     exists only on the SEPARATE broadcast/global viewer's JSON frame
+     protocol (chrome_common.js renderClock, s.t/s.st/s.mt), which this
+     socket never receives. Rather than fabricate a countdown this file has
+     no data for, only the number this file CAN get honestly is added: the
+     round's own kill tally, off player_hud.js's already-parsed "kd " label
+     (window.PaintbotHUD.selfKills -- see that file's Swap#12 item 7 note).
+     Falls back to the exact prior text when the value or the module isn't
+     there (older engine, or player_hud.js not loaded), never a guessed 0. */
+  const kills=(window.PaintbotHUD&&typeof window.PaintbotHUD.selfKills==="number")?window.PaintbotHUD.selfKills:null;
+  const tagPart=kills===null?"":" -- "+kills+(kills===1?" tag":" tags")+" this round";
+  return "you're out for this round"+tagPart+" -- next round starts soon...";
 }
 function renderDeathOverlay(){
   if(!isDead){deathCardKey="";n("");return}

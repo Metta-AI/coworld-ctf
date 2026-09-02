@@ -1450,6 +1450,15 @@
   let partnerNotified = false;  // one-shot per life; rearmed the moment the partner reads alive again (next round)
   let partnerPulse = null;      // {startAt, expireAt, x, y, color} while the one-time minimap pulse animates
   let partnerToastTimer = null;
+  // Swap#12 item 7 (ORIENT C10/GRAVITY C5): player_client.html's own dead-
+  // view line wants the human's own kill count for the round it just lost
+  // ("OUT * N tags"). That file never parses the "kd " label itself — this
+  // module already does, every frame, via scanWire()/buildState() — so
+  // rather than duplicate label-scanning in a second file, the last-resolved
+  // value is exposed read-only below (window.PaintbotHUD.selfKills). null
+  // until a "kd " label has actually arrived, same tolerance as combat.kills
+  // itself; never a fabricated zero.
+  let lastCombatKills = null;
   // Found by testing (a live tick-animation check came back silently false):
   // the self-attaching auto-scan loop below and the public update() push API
   // both write the SAME shared render state (prevKills, cooldownPrevReady,
@@ -1532,6 +1541,7 @@
 
   function render(state, now) {
     trackPartner(state, now);
+    lastCombatKills = state.combat.kills;
     // A — weapon-ready STATUS, fixed in the condition panel (bottom-left),
     // never cursor-anchored — see the CSS block's own comment for the field
     // report this replaced. No seat = nothing to show.
@@ -1628,5 +1638,10 @@
     attach: function (opts) { if (opts && opts.canvas) canvasEl = opts.canvas; },
     config: { set rosterUrl(v) { roster.url = v; }, get rosterUrl() { return roster.url; } },
     GLORY_RANKS: GLORY_RANKS,
+    // Swap#12 item 7: read-only, last-resolved own kill count (the "kd "
+    // label; null until one has arrived on this engine/connection). Lets
+    // player_client.html's dead-view line show a real number without
+    // duplicating this module's label-scanning.
+    get selfKills() { return lastCombatKills; },
   };
 })();
