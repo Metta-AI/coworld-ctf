@@ -93,6 +93,30 @@ suite "deprecated live-mode boot seam":
     config.update($manifestVariantConfig("battle-royale-s2"))
     config.checkDeprecatedMode()
 
+  test "battle-royale-s2 manifest entry carries no override -- the gate stays live for it":
+    ## Elite/Campaign's fix is scoped to the classic templates below; this
+    ## guards against "fix" meaning "defeat the gate for everyone".
+    let s2GameConfig = manifestVariantConfig("battle-royale-s2")
+    check not s2GameConfig.hasKey("allowDeprecatedModes")
+
+  test "campaign and elite classic manifest variants boot with the deprecated-mode override":
+    ## Root cause of the game_unhealthy crash on Elite Paintbot (resolves to
+    ## "2v2") and the restored Season 1 campaign (resolves to "1v1"/"2v2"/
+    ## "4ffa", one per board cell mode): every classic (non-Season-2)
+    ## template the manifest still publishes hits checkDeprecatedMode's
+    ## CtfError at live boot unless its game_config carries
+    ## allowDeprecatedModes: true. This loads each id's REAL shipped
+    ## game_config out of the manifest file and boots it for real -- drop
+    ## the flag from any one entry (or from the manifest generally) and
+    ## only this test catches it; that's the discriminating property, not
+    ## just an engine-level check against a hand-built config.
+    for variantId in ["2v2", "4ffa", "4ffa8", "default", "1v1", "ctf-default",
+        "ctf-1v1", "paintball", "battle-royale"]:
+      var config = defaultGameConfig()
+      config.update($manifestVariantConfig(variantId))
+      check config.allowDeprecatedModes
+      config.checkDeprecatedMode()
+
   test "legacy replay fixture drives the real replay path without override":
     ## The fixture is cut by tools/record_fixture.sh, which boots the live
     ## server with the legacy override (a classic game refuses to boot
