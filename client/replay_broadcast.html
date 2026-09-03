@@ -293,26 +293,23 @@ html, body {
   min-width: 0;
   transition: opacity 300ms ease, filter 300ms ease;
 }
-.br-cell-swatch {
-  width: calc(9 * var(--u));
-  height: calc(9 * var(--u));
-  border-radius: calc(2 * var(--u));
-  flex: none;
-  box-shadow: inset 0 0 0 calc(1 * var(--u)) rgba(0, 0, 0, 0.45);
-}
 /* PLAYER IDENTITY SCOREBUG (2026-09-02, owner's direction: "the life
    squares can stack vertically and have the name to the right or
    something" — supersedes v3's single team-name text). Each cell is now
-   swatch + a vertical member stack + glory: one row per seated MEMBER,
-   that cog's own life square with its seat/policy name to the right —
-   both duo members named (seats k and k+16, the engine's teamForSlot
-   mirror), a solo seat one row, a filler seat named as the wire seats it.
-   The palette stays the primary key (swatch + --cellcol on every square);
+   a vertical member stack + glory: one row per seated MEMBER, that cog's
+   own life square with its seat/policy name to the right — both duo
+   members named (seats k and k+16, the engine's teamForSlot mirror), a
+   solo seat one row, a filler seat named as the wire seats it.
+   The palette stays the primary key (--cellcol on every member square);
    names ride small/secondary and truncate by brShortIdent (leading
    namespace segments cut, the distinctive tail kept) + CSS ellipsis, one
    rule for all 16 chips. A member's row dims (.dead) while that cog is
    down; the whole cell still only grays (.out, below) when ALL members
-   are out, the same lives<=0 ledger signal as before. */
+   are out, the same lives<=0 ledger signal as before.
+   2026-09-03 (owner): the cell's separate big `.br-cell-swatch` plate —
+   redundant with the member squares, which already wear the same
+   `--cellcol` — is REMOVED; the member squares are the only swatches a
+   cell draws now. */
 .br-cell-members {
   display: flex;
   flex-direction: column;
@@ -1198,7 +1195,6 @@ body.sidelanes #scorebug .br-cell-name { max-width: none; }
 /* owner: "life squares stack vertically, name to the right" — pure re-flow
    (order/direction only); what the cells render is untouched. The glory
    numeral rides the rail's right edge so the column reads as a ledger. */
-body.sidelanes #scorebug .br-cell-swatch { order: -2; }
 body.sidelanes #scorebug .br-cell-lives { order: -1; flex-direction: column; }
 body.sidelanes #scorebug .br-cell-glory { margin-left: auto; }
 /* In the top band the two plate tracks flank a center clock, so the right
@@ -3587,7 +3583,6 @@ body[data-noviewpanel] #viewpanel { display: none !important; }
           html +=
             '<div class="br-cell" id="cell-' + team + '" data-team="' + team +
             '" style="--cellcol:' + col + '">' +
-            '<span class="br-cell-swatch" style="background:' + col + '"></span>' +
             '<span class="br-cell-members" id="cell-members-' + team + '"></span>' +
             '<span class="heat-flame" id="cell-flame-' + team + '"></span>' +
             '<span class="br-cell-glory" id="cell-glory-' + team + '">0</span>' +
@@ -5251,10 +5246,54 @@ body[data-noviewpanel] #viewpanel { display: none !important; }
   function gloryPopKey(p) {
     return p.team + '|' + p.t + '|' + p.x + '|' + p.y + '|' + p.word + '|' + p.lbl;
   }
+  // MULTIPLIER RECUT NOTATION (2026-09-03, owner): under the armed v13
+  // recut a positive pop's `amt` is not a glory GAIN, it is the single
+  // integer FACTOR just folded into the team's running product (see
+  // sim.nim's awardDeed — "amount is REPURPOSED on this path as the
+  // event's product-space value") — so it must read "×N", never "+NG".
+  // The dark v12 ledger (every classic match, and any BR match the recut
+  // flag hasn't armed) is additive and keeps "+NG" exactly as before.
+  //
+  // The wire carries NO per-episode flag for which economy is live (see
+  // broadcast.nim's "br" key — flagless/elim only; tracked separately,
+  // no realized-ruleset stamp today). This infers it instead from
+  // resetGloryLedger's own invariant (glory.nim/sim.nim): every team's
+  // ledger opens at RecutSeed (1) when armed, at 0 when dark — sampled
+  // ONCE, on the first 'playing' frame this session observes (before any
+  // deed could have minted a real value). A client that only joins after
+  // kickoff never sees that frame and `recutArmed` stays null, which
+  // falls back to the safe pre-existing "+NG" rendering — never a guess
+  // that could mislabel a real additive gain as a multiplier.
+  var recutArmed = null;   // null = unknown (renders as classic +NG); true/false once sampled
+  var recutArmedSampled = false;
+  function sampleRecutArmed(s) {
+    if (recutArmedSampled || recutArmed !== null) return;
+    if (!isElim(s) || s.ph !== 'playing') return;
+    recutArmedSampled = true; // one shot only — the first 'playing' frame seen
+    var teams = activeTeams(s);
+    var tr = s.teams || {};
+    if (!teams.length) return;
+    var allSeed = teams.every(function (team) { return tr[team] && tr[team].glory === 1; });
+    var allZero = teams.every(function (team) { return tr[team] && tr[team].glory === 0; });
+    if (allSeed) recutArmed = true;
+    else if (allZero) recutArmed = false;
+    // else: ambiguous (e.g. a mid-fight join) — stays null/classic, deliberately.
+  }
+  function gloryPopText(p) {
+    if (p.lbl) return p.lbl; // achievement claim: name only, never an amount
+    if (p.amt === 0) return p.word || ''; // e.g. RANK UP — never draw an empty "+0G"
+    if (p.amt > 0 && recutArmed) return '×' + p.amt + (p.word ? ' ' + p.word : '');
+    // Negative amounts under armed recut are a FF halving count (a
+    // division, not a factor — sim.nim's dTeamKill branch), not glory
+    // notation at all; left as the existing signed "-NG" shape rather
+    // than guessing at a division glyph the owner didn't ask for.
+    return (p.amt >= 0 ? '+' : '') + p.amt + 'G' + (p.word ? ' ' + p.word : '');
+  }
   function renderGloryPops(s) {
     if (!gloryPopsEl || !core || !core.getTransform) return;
     var t = core.getTransform();
     if (!t || !t.scale) return;
+    sampleRecutArmed(s);
     var root = document.documentElement;
     var topBand = parseFloat(getComputedStyle(root).getPropertyValue('--topband')) || 0;
     var seen = {};
@@ -5271,9 +5310,7 @@ body[data-noviewpanel] #viewpanel { display: none !important; }
       if (!el) {
         el = document.createElement('div');
         el.className = 'glory-pop' + (p.lbl ? ' claim' : '') + (p.amt < 0 ? ' neg' : '');
-        el.textContent = p.lbl
-          ? p.lbl
-          : (p.amt >= 0 ? '+' : '') + p.amt + 'G' + (p.word ? ' ' + p.word : '');
+        el.textContent = gloryPopText(p);
         gloryPopsEl.appendChild(el);
         gloryPopEls[key] = el;
       }
