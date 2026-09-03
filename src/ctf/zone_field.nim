@@ -24,7 +24,7 @@ import
   std/[heapqueue, math],
   bitworld/profile
 
-import sim_types, arena, sim_config, sim_state
+import sim_types, arena
 
 ## ============================================================================
 ## BR ZONE PAINT — round 3: ARRIVAL-TIME FIELD + INCREMENTAL ACCUMULATION.
@@ -1076,7 +1076,10 @@ proc zoneScheduleTotalTicks(sim: SimServer): int =
 
 proc zoneScheduleFingerprint(sim: SimServer): int =
   ## Folds the zonePhases schedule into one int for the arrival-field cache
-  ## key — RENDER-ONLY (never gameHash), same unsigned FNV-ish idiom as
+  ## key — CACHE-KEY-ONLY (never gameHash; under zoneDamageByPaint the FIELD
+  ## is gameplay-semantic but this fingerprint still only decides cache
+  ## reuse, and a false hit is impossible mid-episode because every folded
+  ## input is episode-constant), same unsigned FNV-ish idiom as
   ## zoneMeniscusHash/zoneDropletCellHash so the mix can't hit a checked
   ## overflow. dps is left out on purpose: it affects damage, never geometry.
   var hu = 0xCBF29CE484222325'u64
@@ -1236,8 +1239,8 @@ proc zoneBaseArrivalTickAt(
 ): int =
   ## The tick the TRUE (honest, rounded-corner) damage boundary passes this
   ## point, ignoring flow — a bisection against roundedRectSignedDist over
-  ## zoneRectAndDps's own schedule (the SAME function damage reads, sim.nim,
-  ## untouched by this file). Rects shrink monotonically over the whole
+  ## zoneRectAndDps's own schedule (the SAME schedule walk updateZone reads,
+  ## defined above in this module). Rects shrink monotonically over the whole
   ## schedule (every edge is a single affine function of z), so the signed
   ## distance at a fixed point is monotonic non-decreasing in t and a plain
   ## integer bisection finds the exact crossing tick.
