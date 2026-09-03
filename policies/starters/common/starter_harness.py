@@ -546,6 +546,7 @@ def _clean_params(play: str, params) -> dict | None:
 MAX_HP_FALLBACK = 6  # a full seat; refined from the live view when we have one
 TRACK_FRESH_TICKS = 240  # a track older than this no longer counts as "seen"
 LOOT_CLEAR_PX = 500      # loot only with no fresh enemy track closer than this
+PARTNER_COMBAT_PX = 200  # an enemy this close to the partner = they are in a fight
 
 
 def _max_hp(view: dict) -> float:
@@ -594,6 +595,23 @@ def _view_facts(view: dict, context: dict, kill_feed: list) -> dict:
             return _inside(pos, rect)
         return True
 
+    # Partner observability, honestly stated: today's server never emits
+    # same-team tracks (src/ctf/server.nim firstLightBodyInputs skips
+    # target.team == player.team), so partner_track -- and both facts below
+    # -- stay None/False on the live build and any gate case reading them is
+    # dormant until partner perception lands. When it does: freshness rides
+    # the ordinary track fresh_tick, and "under fire" is the same 200px
+    # enemy-proximity rule the engine's partner.in_combat guard path uses
+    # (src/ctf/policy_page.nim DefaultPaths).
+    partner_track_fresh = False
+    partner_in_combat = False
+    if partner_track is not None:
+        p_age = (tick - partner_track["fresh_tick"]
+                 if isinstance(partner_track.get("fresh_tick"), int) else 0)
+        partner_track_fresh = p_age <= TRACK_FRESH_TICKS
+        partner_in_combat = any(
+            _dist(partner_track["pos"], t["pos"]) <= PARTNER_COMBAT_PX
+            for t in enemies)
     in_zone = _in_rect(zone.get("current"))
     in_next_zone = _in_rect(zone.get("next"))
     ticks_to_shrink = (zone.get("ticks_to_shrink")
@@ -604,6 +622,8 @@ def _view_facts(view: dict, context: dict, kill_feed: list) -> dict:
         nearest_enemy=nearest_enemy, in_zone=in_zone,
         in_next_zone=in_next_zone, ticks_to_shrink=ticks_to_shrink,
         partner=partner, partner_dead=partner_dead, partner_track=partner_track,
+        partner_track_fresh=partner_track_fresh,
+        partner_in_combat=partner_in_combat,
         partner_dist=(_dist(pos, partner_track["pos"])
                       if pos is not None and partner_track is not None else None),
     )
@@ -647,6 +667,19 @@ def gate_open(entry: dict, facts: dict) -> bool:
         leash_max = leash[1] if isinstance(leash, list) and len(leash) == 2 else 220
         if facts["partner"] is None or facts["partner_dead"] or facts["partner_track"] is None:
             return False
+        # A WOUNDED or under-fire partner opens the gate regardless of drift
+        # (owner: "keep each other alive -- pick teammate up"). Observable
+        # honestly: hp only if the partner's fogged track carries one, and
+        # "under fire" only as enemy-proximity to their last-known pos --
+        # both dormant on today's server, which emits no same-team tracks
+        # (see the _view_facts note).
+        peel = params.get(
+            "peelHp", plays.PLAYS["bodyguard"]["params"]["peelHp"]["default"])
+        track_hp = facts["partner_track"].get("hp")
+        wounded = isinstance(track_hp, int) and track_hp <= peel
+        if facts.get("partner_track_fresh") and (
+                wounded or facts.get("partner_in_combat")):
+            return True
         d = facts["partner_dist"]
         return d is not None and d > leash_max
     if play == "jackal":

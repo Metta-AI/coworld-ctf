@@ -202,12 +202,14 @@ PERSONA = Persona(
                        "harness guarantees the rung; you tune it. Avoid "
                        "contested kits unless your pact gives you the "
                        "numbers to race."),
-        "bodyguard": ("bodyguard is ALSO the formation spring: on a calm "
-                      "field ride it with leash [110, 280] and interpose "
-                      "false so the duo is held apart, never stacked (the "
-                      "harness floors the leash). When your partner is the "
-                      "wounded one: interpose true, one gun always up "
-                      "while they recover."),
+        "bodyguard": ("bodyguard is BOTH the formation spring and the "
+                      "shield: on a calm field ride it with leash "
+                      "[110, 280] and interpose false so the duo is held "
+                      "apart, never stacked (the harness floors the "
+                      "leash). But your partner alive is worth more than "
+                      "any tag -- when their track reads wounded or under "
+                      "fire, shield them: interpose true, tight leash, one "
+                      "gun always up while they recover."),
         "crossfire": ("crossfire is the duo's fighting shape: a spacing "
                       "band wide enough that no line crosses your partner, "
                       "minAngle real. You see your partner only through "
@@ -295,8 +297,8 @@ PERSONA = Persona(
                 {"play": "hold_vs_gun", "entry_id": "holdgun",
                  "params": {"calmTicks": 48, "coverMax": 260,
                             "engageDist": 500}},
-                {"play": "bodyguard", "entry_id": "spring",
-                 "params": {"leash": [110, 280], "interpose": False,
+                {"play": "bodyguard", "entry_id": "shield",
+                 "params": {"leash": [100, 200], "interpose": True,
                             "peelHp": 2}},
                 {"play": "supply_run", "entry_id": "bank",
                  "params": {"whenHpBelow": 3, "detourMax": 350,
@@ -325,12 +327,12 @@ PERSONA = Persona(
                 {"play": "hold_vs_gun", "entry_id": "holdgun",
                  "params": {"calmTicks": 48, "coverMax": 260,
                             "engageDist": 500}},
+                {"play": "bodyguard", "entry_id": "shield",
+                 "params": {"leash": [100, 200], "interpose": True,
+                            "peelHp": 2}},
                 {"play": "jackal", "entry_id": "third",
                  "params": {"earshot": 450, "joinWhen": "afterKill",
                             "exitAfter": {"kills": 2}}},
-                {"play": "bodyguard", "entry_id": "spring",
-                 "params": {"leash": [110, 280], "interpose": False,
-                            "peelHp": 2}},
                 {"play": "supply_run", "entry_id": "bank",
                  "params": {"whenHpBelow": 3, "detourMax": 250,
                             "contested": "avoid"}},

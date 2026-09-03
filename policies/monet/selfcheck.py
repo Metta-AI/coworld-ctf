@@ -113,6 +113,7 @@ def facts(**kw):
                 nearest_enemy=None, in_zone=True, in_next_zone=True,
                 ticks_to_shrink=None, partner=19,
                 partner_dead=False, partner_track=None, partner_dist=None,
+                partner_track_fresh=False, partner_in_combat=False,
                 max_hp=6)
     base.update(kw)
     return base
@@ -145,6 +146,30 @@ check("all three custom plays are registered as gated",
       "hold_vs_gun" in starter_harness.GATED_PLAYS
       and "fire_superiority" in starter_harness.GATED_PLAYS
       and "ring_walker" in starter_harness.GATED_PLAYS)
+
+BG = {"play": "bodyguard",
+      "params": {"leash": [100, 200], "interpose": True, "peelHp": 2}}
+P_TRACK = {"seat": 19, "pos": [520, 500], "fresh_tick": 990}
+check("gate bodyguard OPEN: partner track reads wounded (hp <= peelHp)",
+      starter_harness.gate_open(BG, facts(
+          partner_track={**P_TRACK, "hp": 2}, partner_track_fresh=True,
+          partner_dist=20.0)))
+check("gate bodyguard OPEN: partner under fire (enemy at their pos)",
+      starter_harness.gate_open(BG, facts(
+          partner_track=dict(P_TRACK), partner_track_fresh=True,
+          partner_in_combat=True, partner_dist=20.0)))
+check("gate bodyguard CLOSED: partner healthy, close, unpressed",
+      not starter_harness.gate_open(BG, facts(
+          partner_track={**P_TRACK, "hp": 6}, partner_track_fresh=True,
+          partner_dist=150.0)))
+check("gate bodyguard OPEN: drift beyond leash max (existing rule intact)",
+      starter_harness.gate_open(BG, facts(
+          partner_track={**P_TRACK, "hp": 6}, partner_track_fresh=True,
+          partner_dist=400.0)))
+check("gate bodyguard CLOSED: stale wounded track does not open the shield",
+      not starter_harness.gate_open(BG, facts(
+          partner_track={**P_TRACK, "hp": 2}, partner_track_fresh=False,
+          partner_dist=20.0)))
 
 RW = {"play": "ring_walker", "params": {"inset": 64, "leadTicks": 240}}
 check("gate ring_walker OPEN: outside the current rect",
