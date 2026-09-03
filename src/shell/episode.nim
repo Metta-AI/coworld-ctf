@@ -130,8 +130,20 @@ type
     noneShootableSeats*: seq[uint8]
     aligningSeats*: seq[uint8]
 
+  FirstLightHandoff* = object
+    ## §4.1 amendment: one seat's STANDING give-item declaration this tick —
+    ## the Intent's `handoff` field lifted off the installed standing order
+    ## ("" = no declaration wanted). The episode never touches the sim: the
+    ## server hook compares this against the sim's declared state and calls
+    ## the sim.declareHandoff consent seam (recording exactly what the sim
+    ## accepted), the same division of labor as the mask handoff above it.
+    seat*: uint8
+    playerIndex*: int
+    item*: string
+
   FirstLightTickResult* = object
     masks*: seq[FirstLightMask]
+    handoffs*: seq[FirstLightHandoff]
     annotations*: seq[ShellAnnotation]
     installs*: seq[FirstLightInstall]
     moduleStatuses*: seq[FirstLightModuleStatus]
@@ -1214,6 +1226,15 @@ proc step*(episode: var FirstLightEpisode,
       input = seatTick(state.body, frame.bodyInputs, tick)
       result.bodyNanoseconds += (getMonoTime() - bodyStarted).inNanoseconds
       summarizeSeatTick(state.body, result)
+      # §4.1 amendment: surface the standing order's give-item declaration
+      # beside the mask it was resolved with. Upright seats only — a dead
+      # seat's declaration dies sim-side with the life that made it, and
+      # the consent seam refuses dead/downed seats anyway.
+      if state.standing.hasStanding:
+        result.handoffs.add(FirstLightHandoff(
+          seat: state.seat,
+          playerIndex: frame.playerIndex,
+          item: state.standing.intent.handoff))
     result.masks.add(FirstLightMask(
       seat: state.seat, playerIndex: frame.playerIndex, input: input))
   episode.nav.rebuildScheduledDanger(tick.int, episode.dangerInputs(tick))

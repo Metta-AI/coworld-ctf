@@ -2054,9 +2054,29 @@ proc emitTargetLawPolicy*(noShoot: var array[MaxPactRefs, PactRef];
   appendLiteral("\"schema\":\"combat_policy\",\"v\":1}")
   playEmit(cast[int32](addr emitBuffer[0]), emitLen)
 
-proc emitHoldController*(reason: static[string] = ""): int32 =
+template checkHandoffItem(handoff: static[string]) =
+  ## The engine's closed give-item vocabulary (BR only; the target is always
+  ## the duo partner — never a parameter). A typo here should fail the
+  ## play's BUILD, not its first emission.
+  static:
+    doAssert handoff.len == 0 or handoff == "gun" or handoff == "hopper" or
+      handoff == "bandage", "handoff must be \"gun\", \"hopper\" or \"bandage\""
+
+template appendHandoff(handoff: static[string]) =
+  ## Canonical key order: "handoff" sorts directly after "arrive_radius"
+  ## in intents that carry no "combat"/"clamp_to_endzone" field.
+  when handoff.len > 0:
+    appendLiteral(",\"handoff\":\"")
+    appendLiteral(handoff)
+    appendLiteral("\"")
+
+proc emitHoldController*(reason: static[string] = "";
+                         handoff: static[string] = ""): int32 =
+  checkHandoffItem(handoff)
   clearEmitBuffer()
-  appendLiteral("{\"arrive_radius\":0.0,\"kind\":\"hold\"")
+  appendLiteral("{\"arrive_radius\":0.0")
+  appendHandoff(handoff)
+  appendLiteral(",\"kind\":\"hold\"")
   when reason.len > 0:
     appendLiteral(",\"reason\":\"")
     appendLiteral(reason)
@@ -2065,12 +2085,15 @@ proc emitHoldController*(reason: static[string] = ""): int32 =
   playEmit(cast[int32](addr emitBuffer[0]), emitLen)
 
 proc emitNavigateController*(goal: ValidatedGoal; arriveRadius: static[string];
-                             reason: static[string] = ""): int32 =
+                             reason: static[string] = "";
+                             handoff: static[string] = ""): int32 =
+  checkHandoffItem(handoff)
   if not goal.ok:
     return -3
   clearEmitBuffer()
   appendLiteral("{\"arrive_radius\":")
   appendLiteral(arriveRadius)
+  appendHandoff(handoff)
   appendLiteral(",\"kind\":\"navigate_to\",\"point\":[")
   appendInt(goal.x)
   appendLiteral(",")
