@@ -1918,6 +1918,40 @@ function controlsTick(){
     else{roundEndedAlive=true;triggerMatchOver()}
     roundBoundaryPending=true;
   }
+  else if(!seatedNow&&!wasSeated&&!isDead&&objects.has(1)){
+    /* Swap#15 item 2 (DEAD-SEAT TAKEOVER DISPLAY): the edge above only fires
+       on a WITNESSED alive->dead transition (wasSeated was genuinely true a
+       moment ago) -- exactly right for a mid-life death, but a takeover
+       connecting straight into a seat whose cog is ALREADY dead (BR
+       elimination, or mid-respawn-wait) never witnesses that edge: wasSeated
+       starts false and stays false, so isDead never flipped true. Nothing
+       here ever set the #s "dead" class or death-card text, so the seat
+       rendered as if nothing were wrong -- no hp/weapon readout (that panel
+       is player_hud.js's own, independently gated on the same absent self
+       marker, and was already correct), but no "you're down"/"you're out"
+       text either, which reads as broken/frozen rather than honestly dead.
+       Same objects.has(1) disambiguation as the witnessed branch (still
+       distinguishes "mid-round, actually dead" from "between matches/lobby"
+       -- the latter is already covered by takeover.html's own outer-page
+       copy, "next spawn" wording, so it is left alone here). No SPLAT: there
+       was no hit THIS client witnessed to dramatize, just a status to show
+       honestly.
+       !isDead (not a one-shot "first tick" flag) is the re-arm guard: parseSprite
+       delivers DELTA packets, so object 1 (the map camera, the lobby/live
+       disambiguator) is not guaranteed present on this connection's very
+       first processed tick -- a one-shot attempt gated on "first tick only"
+       silently gave up forever the moment that ordering didn't line up
+       (caught live on this rig: freeplay CTF landed fresh takeovers on a
+       respawning-but-still-dead cog repeatedly with the overlay staying
+       blank the whole wait). Retrying every tick until objects.has(1) goes
+       true costs nothing (cheap check, and it latches via isDead=true the
+       first time it fires) and self-clears the instant seatedNow goes true
+       via the branch below, same as a witnessed death always has. */
+    diedAt=performance.now();
+    isDead=true;
+    deathPlacement=(window.PaintbotHUD&&typeof window.PaintbotHUD.teamsAliveNow==="number")?window.PaintbotHUD.teamsAliveNow:null;
+    roundBoundaryPending=true;
+  }
   else if(seatedNow){
     if(!wasSeated){
       /* BR elimination is permanent within a round (sim.nim forces lives to
