@@ -43,9 +43,51 @@ Knobs (environment variables):
 - Seats 0-7 additionally run the `edge_ride` reference play (`rule=edge_ride`,
   `provenance=entry:edge_ride`); the other 24 stay on the default.
 - `FIRST_LIGHT_MOVEMENT tick=... moving=N aiming=M` telemetry windows.
+- The diagnostic lines below, all keyed by `tick=` so they join against each
+  other, the `FIRST_LIGHT_INSTALL` stream, and the replay's per-tick masks.
 - Zone-damage eliminations ("caught outside the zone") and a normal BR
   ending. This scenario should emit no policy-selected fire because it installs
   no combat-policy overlay; that is a scenario choice, not a missing body path.
+
+## Diagnostic log lines
+
+Every line carries `tick=` (the same tick numbering as `FIRST_LIGHT_INSTALL`
+and the replay), so any two streams join on it. Seat lists are printed as
+`[0,5,17]`.
+
+- `FIRST_LIGHT_ANNOTATION ... kind=play_fault epoch=E entry=ID reason="..."`
+  — a play instance faulted (trap, fuel exhaustion, epoch deadline, nonzero
+  return, ABI violation). `player=` carries the seat's roster name when the
+  episode has one, and `reason` is the runtime's own message with the cause
+  first (`wasm trap: ...`, fuel exhaustion, the epoch deadline) and the
+  backtrace frames after it, because the status that carries it is capped at
+  256 bytes and trimmed from the end. Printed on the fault
+  tick; the same record is written to the replay's annotation stream. The
+  `FIRST_LIGHT_INSTALL` line that follows on that tick and seat shows what
+  the standing order fell back to, so a provenance switch with a fault line
+  beside it was a fault, and one without was a guard, reflex, or call.
+- `FIRST_LIGHT_PLAN_BUDGET tick=T seat=S revision=R visits=V units=U
+  outcome=suspended|completed|failed` — the seat's cold route plan ran out
+  of the pooled per-tick budget (`suspended`, once per starved visit), or a
+  plan that had been suspended at least once finally resolved
+  (`completed`/`failed`, with `visits` as the total retry count). A plan
+  that fits its first visit prints nothing.
+- `FIRST_LIGHT_NAV tick=T pending_plans=N stale_path=[...] no_path=[...]` —
+  follower census: seats walking a route planned for an earlier request
+  while the current one computes, and seats with a navigate order and no
+  route at all (standing still). Printed once a second and on every tick
+  with a plan-budget event, so the two join.
+- `FIRST_LIGHT_COMBAT tick=T fired= aligning= none_shootable= vetoed=
+  no_enemy= no_policy= no_policy_enemy_in_range= ..._seats=[...]` — weapon
+  path census, once a second. `no_policy` means the seat's folded combat
+  policy is the neutral value, under which the body never runs the weapon
+  path (the default play and the safe hold both produce it);
+  `no_policy_enemy_in_range` is the subset that had a shootable non-partner
+  track at the time, which is the "facing each other and never shooting"
+  signature. `aligning` is a shootable target held but not yet fired on
+  (rotating, cooldown, windup); `none_shootable` is fresh tracks with none
+  in range and line of sight; `vetoed` is shootable tracks excluded by
+  noShoot, protect, or holdFire.
 
 ## Gating
 

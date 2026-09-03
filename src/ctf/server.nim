@@ -3652,7 +3652,15 @@ proc firstLightPartner(sim: SimServer, playerIndex: int): Option[PartnerSample] 
         pos: other.bodyPoint,
         aimBrads: other.aimBrads,
         alive: other.alive,
-        downed: other.downed))
+        downed: other.downed,
+        # PERCEPTION(glory-2 §17): gated on frameLoadoutFlags, never
+        # lootStart -- other.hasGun/hasHopper are the sim TRUTH in every
+        # mode (constant true/true outside lootStart); this flag controls
+        # only whether the partner grant may carry them. Dark by
+        # construction: both sit at their zero value (false) whenever the
+        # flag is off, exactly like every other perception field here.
+        hasGun: sim.config.frameLoadoutFlags and other.hasGun,
+        hasHopper: sim.config.frameLoadoutFlags and other.hasHopper))
   none(PartnerSample)
 
 proc firstLightBodyInputs(sim: var SimServer, playerIndex: int): BodyTickInputs =
@@ -3699,6 +3707,13 @@ proc firstLightBodyInputs(sim: var SimServer, playerIndex: int): BodyTickInputs 
   sight(sim.shieldSpawns, bikShield)
   sight(sim.sprayPaintSpawns, bikSpray)
   sight(sim.barrierSpawns, bikBarrier)
+  # PERCEPTION(glory-2 §17): the lootStart marker/hopper crates -- same
+  # sight() template, same fog rule as every family above. No separate
+  # gate needed: sim.weaponSpawns/hopperSpawns are themselves empty
+  # whenever lootStart is dark (resetLootCrates's own contract), so a
+  # dark game sights nothing here, identically to every other family.
+  sight(sim.weaponSpawns, bikGun)
+  sight(sim.hopperSpawns, bikHopper)
 
 proc firstLightVelocity(sim: SimServer, playerIndex: int): int =
   let player = sim.players[playerIndex]
@@ -4987,7 +5002,48 @@ proc runServerLoop*(
           for install in firstLight.installs:
             echo install.formatInstall()
           for annotation in firstLight.annotations:
+            if annotation.kind == akPlayFault:
+              echo annotation.formatLifecycleAnnotation(
+                firstLightEpisode.seatDisplayName(annotation.seat.int))
             replayWriter.writeAnnotation(annotation)
+          # Cold-planning budget events print on the tick they happen; the
+          # follower census prints once a second and on every event tick so
+          # the two join by tick. The weapon-path census prints once a second.
+          for event in firstLight.planBudget:
+            echo event.formatPlanBudgetEvent()
+          let secondBoundary = (sim.tickCount mod 24) == 0
+          if firstLight.masks.len > 0:
+            if (secondBoundary or firstLight.planBudget.len > 0) and
+                (firstLight.nav.pendingPlans > 0 or
+                 firstLight.nav.stalePathSeats.len > 0 or
+                 firstLight.nav.noPathSeats.len > 0):
+              echo formatNavSummary(uint32(sim.tickCount + 1), firstLight.nav)
+            if secondBoundary:
+              echo formatCombatSummary(uint32(sim.tickCount + 1),
+                firstLight.combat)
+          # The give-item HANDOFF drain, written in the reflash drain's
+          # shape on purpose (see the policy-page drain above): declare at
+          # this tick boundary, and record EXACTLY what the consent seam
+          # accepted, stamped with the tick it was accepted on. The sim's
+          # own declared state is the dedupe — the standing order restates
+          # its declaration every tick, and only a difference is worth a
+          # call, so an accepted declaration writes ONE record, a refused
+          # one (dark gate, downed giver, no partner yet) writes nothing
+          # and retries while the order stands, and a completed transfer
+          # (the sim clears the declaration) re-declares under the still-
+          # standing order. declareHandoff is the single predicate this
+          # path and playback consult, so the file can never claim a
+          # declaration the sim refused, nor omit one it took.
+          for declared in firstLight.handoffs:
+            if declared.playerIndex < 0 or
+                declared.playerIndex >= sim.players.len:
+              continue
+            if sim.players[declared.playerIndex].giveDeclItem ==
+                declared.item:
+              continue
+            if sim.declareHandoff(declared.playerIndex, declared.item):
+              replayWriter.writeHandoffDeclaration(
+                tickTime(sim.tickCount), declared.playerIndex, declared.item)
         # ---- direct aim: point the turret, THEN run the tick ------------
         # The one write that makes a human's aim absolute instead of a
         # traverse. Re-derived per STEP, not per frame: at >1x the frame runs
@@ -5436,11 +5492,33 @@ proc runServerLoop*(
         echo "Replay written: ", saveReplayPath,
           " (", getFileSize(saveReplayPath), " bytes)"
         runtimeConfig.writeReplay(readFile(saveReplayPath))
+      # STAMP (recut contract Amendment 2 §2): the realized-config stamp,
+      # emitted at finalize when its OWN flag is armed (per-flag activation
+      # — independent of the recut economy and of every loot flag). Engine-
+      # side homes: the events summary row (below) and this log line; the
+      # replay header already pins the same facts via the config echo +
+      # engineStamp (replay_codec.nim). The episode-attributes API upload is
+      # the league-side reporter's job, made from these homes. Dark
+      # (stampRealizedConfig=false, every existing config): not a byte of
+      # output moves.
+      let realizedStamp =
+        if sim.config.stampRealizedConfig:
+          sim.config.realizedConfigStampJson()
+        else:
+          ""
+      if realizedStamp.len > 0:
+        echo "Realized config stamp: ", realizedStamp
       if eventsPath.len > 0:
         # Always written when a sink is configured, even with zero events: the
         # summary row is how a reader tells "this match had none" from "the
         # upload never happened".
-        writeFile(eventsPath, collectedEvents.eventsJsonl(sim.tickCount))
+        let summaryExtra =
+          if realizedStamp.len > 0:
+            %*{"realizedConfigStamp": parseJson(realizedStamp)}
+          else:
+            nil
+        writeFile(eventsPath,
+          collectedEvents.eventsJsonl(sim.tickCount, summaryExtra))
         echo "Events written: ", eventsPath,
           " (", collectedEvents.len, " events, ", getFileSize(eventsPath), " bytes)"
       if runtimeConfig.resultsUri.len > 0:

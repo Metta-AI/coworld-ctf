@@ -19,6 +19,7 @@ const FixtureDir = "tests" / "fixtures" / "shell"
 
 const GoldenFiles = [
   "intent.golden.json", "intent_safe_hold.golden.json",
+  "intent_handoff.golden.json",
   "combat_policy.golden.json",
   "status_module_accepted.golden.json", "status_module_ready.golden.json",
   "status_module_rejected.golden.json", "status_call_accepted.golden.json",

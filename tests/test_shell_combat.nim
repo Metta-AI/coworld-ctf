@@ -448,3 +448,73 @@ suite "shell combat policy":
     check left.selectCombatTarget(policy,
       [candidate(2, 1.0), candidate(1, 1.0), candidate(3, 0.0)],
       60, 331, 3).selectedSeat == a.selectedSeat
+
+  test "seat tick records why the weapon path did or did not fire":
+    ## Feeds the server's FIRST_LIGHT_COMBAT census. The neutral policy is
+    ## the case that matters most: the weapon path never runs under it, so a
+    ## cog can stare at an enemy in range and only idle-aim. The outcome
+    ## names that explicitly instead of leaving it indistinguishable from
+    ## "nobody was there".
+    let active = CombatPolicy(prefer: @[ptWeakened])
+    let enemy = track(1, p(136, 80), Blue, 80, hp = 1)
+
+    block neutralPolicyWithEnemyInRange:
+      let body = activateSeatBody(openMap(), 0, 331)
+      body.setStandingIntent(combatHold(CombatPolicy()), none(ValidatedGoal), 1)
+      let input = body.seatTick(BodyTickInputs(self: selfState(),
+        visibleTracks: @[enemy]), 80)
+      check not input.attack
+      check body.combatOutcome == coNoPolicyEnemyInRange
+
+    block neutralPolicyPartnerIsNotAnEnemy:
+      let body = activateSeatBody(openMap(), 0, 331)
+      body.setStandingIntent(combatHold(CombatPolicy()), none(ValidatedGoal), 1)
+      discard body.seatTick(BodyTickInputs(self: selfState(),
+        visibleTracks: @[enemy],
+        partner: some(PartnerSample(seat: 1'u8, pos: p(136, 80),
+          aimBrads: 0, alive: true))), 80)
+      check body.combatOutcome == coNoPolicy
+
+    block neutralPolicyNobodyThere:
+      let body = activateSeatBody(openMap(), 0, 331)
+      body.setStandingIntent(combatHold(CombatPolicy()), none(ValidatedGoal), 1)
+      discard body.seatTick(BodyTickInputs(self: selfState()), 80)
+      check body.combatOutcome == coNoPolicy
+
+    block activePolicyFires:
+      let body = activateSeatBody(openMap(), 0, 331)
+      body.setStandingIntent(combatHold(active), none(ValidatedGoal), 1)
+      let input = body.seatTick(BodyTickInputs(self: selfState(),
+        visibleTracks: @[enemy]), 80)
+      check input.attack
+      check body.combatOutcome == coFired
+
+    block activePolicyNoEnemy:
+      let body = activateSeatBody(openMap(), 0, 331)
+      body.setStandingIntent(combatHold(active), none(ValidatedGoal), 1)
+      discard body.seatTick(BodyTickInputs(self: selfState()), 80)
+      check body.combatOutcome == coNoEnemy
+
+    block activePolicyEnemyOutOfRange:
+      let body = activateSeatBody(openMap(), 0, 100)
+      body.setStandingIntent(combatHold(active), none(ValidatedGoal), 1)
+      discard body.seatTick(BodyTickInputs(self: selfState(),
+        visibleTracks: @[enemy]), 80)
+      check body.combatOutcome == coNoneShootable
+
+    block holdFireVetoesAShootableEnemy:
+      let body = activateSeatBody(openMap(), 0, 331)
+      body.setStandingIntent(combatHold(CombatPolicy(holdFire: true,
+        prefer: @[ptWeakened])), none(ValidatedGoal), 1)
+      let input = body.seatTick(BodyTickInputs(self: selfState(),
+        visibleTracks: @[enemy]), 80)
+      check not input.attack
+      check body.combatOutcome == coVetoed
+
+    block cooldownHoldsTheTarget:
+      let body = activateSeatBody(openMap(), 0, 331)
+      body.setStandingIntent(combatHold(active), none(ValidatedGoal), 1)
+      let input = body.seatTick(BodyTickInputs(self: selfState(fireCooldown = 1),
+        visibleTracks: @[enemy]), 80)
+      check not input.attack
+      check body.combatOutcome == coAligning

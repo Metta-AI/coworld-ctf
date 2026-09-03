@@ -830,6 +830,48 @@ window.ChromeCommon = function (ctx) {
     }
   }
 
+  // ---- episode-transition reset --------------------------------------------
+  // A live spectator page can outlive its episode: when the next episode's
+  // server takes over the same URL, broadcast_core reconnects the SAME page
+  // to a DIFFERENT match. Everything in this closure that latches "once per
+  // match" (the up-front beat timeline, the verdict chip, the momentum
+  // series, the lull spans, placed scrubber markers) must be re-derived from
+  // the incoming stream, or the old episode's chrome plays over the new one
+  // — the owner's live screenshot: CTF markers + red/blue momentum over a
+  // 16-duo battle royale, "fixed" only by a manual refresh. The pages call
+  // this from their reconnect hook; a refresh IS this reset, done by hand.
+  function resetEpisode() {
+    lullSpans = null;
+    lullsRendered = false;
+    var lullBox = $('lulls');
+    if (lullBox) lullBox.innerHTML = '';
+    seenMarkers = {};
+    pendingMarkers = [];
+    // Sweep by class, not only the tracked divs: the paintball block's
+    // labelled buttons share the scrubber and the .beat-marker class.
+    if (scrubEl) {
+      var stale = scrubEl.querySelectorAll('.beat-marker');
+      for (var i = 0; i < stale.length; i++) {
+        if (stale[i].parentNode) stale[i].parentNode.removeChild(stale[i]);
+      }
+    }
+    markerEls = [];
+    beatTimeline = null;
+    verdict = null;
+    var cap = $('scrub-win');
+    if (cap) cap.className = 'scrub-win';
+    var chip = $('win-chip');
+    if (chip) { chip.textContent = ''; chip.className = 'win-chip'; }
+    momentumSeen = {};
+    momentumDirty = true;
+    fullLeadSeries = null;
+    momentumSamples = [];
+    momentumTeams = null;
+    momClipRect = null;
+    var mom = $('momentum');
+    if (mom) mom.innerHTML = '';
+  }
+
   return {
     // constants + helpers the pages alias locally
     $: $,
@@ -848,6 +890,7 @@ window.ChromeCommon = function (ctx) {
     ingestLullSpans: ingestLullSpans, renderLullSpans: renderLullSpans,
     markBeat: markBeat, killMarkerTeam: killMarkerTeam, renderBeatMarkers: renderBeatMarkers,
     captureTeam: captureTeam, ingestBeats: ingestBeats, setVerdict: setVerdict,
+    resetEpisode: resetEpisode,
     ingestLeadSeries: ingestLeadSeries, recordMomentum: recordMomentum,
     renderMomentum: renderMomentum,
     // UI toggles ([spoilers] + the generic URL-param reader for future ones)

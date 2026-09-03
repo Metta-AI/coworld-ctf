@@ -76,6 +76,12 @@ const
   TrackHpPresentFlag* = 2'u32
   TrackBountyFlag* = 4'u32
   TrackDownedFlag* = 8'u32
+  TrackHasGunFlag* = 16'u32
+    ## PERCEPTION(glory-2 §17): appended bit in the SAME reserved flags
+    ## word every track row already carries -- no stride change, so this
+    ## is ABI-additive: an old-compiled policy's reader simply never tests
+    ## this bit and ignores it, same as any other unrecognized flag.
+  TrackHasHopperFlag* = 32'u32
   ItemPresentFieldFlag* = 1'u32
   ItemPresentValueFlag* = 2'u32
   AggressorSeatPresentFlag* = 1'u32
@@ -148,6 +154,8 @@ proc itemId(kind: PlayItemKind): int {.inline.} =
   of pikShield: 2
   of pikSpray: 3
   of pikBarrier: 4
+  of pikGun: 5
+  of pikHopper: 6
 
 proc sprayKindId(kind: PlaySprayHazardKind): int {.inline.} =
   case kind
@@ -253,6 +261,8 @@ proc tracksPayload(rows: openArray[PlayTrack]): string =
     if row.hp.isSome: flags = flags or TrackHpPresentFlag
     if row.bounty: flags = flags or TrackBountyFlag
     if row.downed: flags = flags or TrackDownedFlag
+    if row.hasGun: flags = flags or TrackHasGunFlag
+    if row.hasHopper: flags = flags or TrackHasHopperFlag
     result.putU32(flags)
     result.putU32(uint32(row.seat))
     result.putU32(uint32(row.team.teamId))

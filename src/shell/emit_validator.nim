@@ -225,6 +225,16 @@ proc parseIntent(r: var CanonicalReader, ctx: EmitValidationContext): Intent =
       result.clampToEndzone = r.readRequiredBool()
     of "combat":
       result.combat = r.parseCombatPolicy(ctx)
+    of "handoff":
+      # §4.1 amendment: the standing give-item declaration. A duo fact, so
+      # it is mode-gated exactly the way "duo:" seat references are; the
+      # vocabulary is the engine seam's own (sim.declareHandoff).
+      if ctx.mode != gmBr:
+        unknown("noDuosInMode")
+      let value = r.readRequiredString()
+      if value notin HandoffItems:
+        unknown("unknown handoff item")
+      result.handoff = value
     of "idle_aim_center_brads":
       let value = r.readRequiredInt()
       if value < 0 or value > 255:

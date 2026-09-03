@@ -845,13 +845,16 @@ and custom configurations; empty means no rectangle, damage, or markers.
 
 ## Season 2 battle-royale loot options
 
-Five independent BR mechanisms remain available as explicit configuration
+Seven independent BR mechanisms remain available as explicit configuration
 options. Their neutral engine values preserve replay compatibility: omitted
-keys add no pickup family or hash input. `lootStart` and `downedMode` require
-`brMode: true`; the published `battle-royale-s2` configuration arms both
+keys add no pickup family or hash input. `lootStart`, `downedMode`,
+`giveItem` and the spawn-loot-seeding knobs below require `brMode: true`;
+the published `battle-royale-s2` configuration arms the first two
 (`coworld_manifest_paintbot.json`'s `battle-royale-s2` variant), at their
 ruled default timing constants (`downedBleedOutTicks` 360, `downedReviveTicks`
-48, `downedEscalation` on).
+48, `downedEscalation` on). `giveItem` ships dark and arms only on explicit
+go (its activation additionally needs the play shell's HANDOFF vocabulary —
+see the flag's own bullet).
 
 - **Hit points per BR variant** — no new flag: the existing `hitPoints`
   config is live under `brMode` (proved end-to-end by
@@ -903,12 +906,93 @@ ruled default timing constants (`downedBleedOutTicks` 360, `downedReviveTicks`
   two appended event kinds, tail ordinals, archived replays unaffected.
   Broadcast: the first-person self HUD and the omniscient map players
   carry a `downed` flag while the mode is armed.
-- **Map-size variants** — not an engine mechanism: `tools/brmapkit
+- **`giveItem`** (bool, default off, brMode only) — **play-called item
+  exchange**: a seat that has DECLARED a handoff (`declareHandoff`, the
+  engine seam for the play shell's HANDOFF play) and then HOLDS
+  `GiveItemRange` (= `DownedTagRange`, 40 px) adjacency to its duo partner
+  for `GiveChannelTicks` (= `DownedReviveTicksDefault`, 48 = 2 s)
+  transfers the declared item — **marker** (`gun`), **hopper**, or
+  **bandage** — to that partner. Both channel constants DERIVE from the
+  revive channel's own (owner spec: mirror the revive channel). The
+  channel is interruptible by construction: it resets to zero the tick any
+  condition breaks (range, either side downed/dead, the giver no longer
+  holding the item, the recipient unable to take it — marker/hopper are
+  binary, bandages cap at `BandageCarryCap`); the declaration itself
+  stands until completion or the giver's death/down. **No declaration, no
+  transfer** — proximity alone never moves an item, so an endgame cover
+  huddle trades nothing (owner ruling 2026-09-02: no auto-share; guns,
+  hoppers and bandages alike move by play or death-drop only). Analysis
+  stream: `item_give` (source = actor, target = recipient, `item`,
+  amount = channel ticks) — one appended event kind, tail ordinal,
+  archived replays unaffected; every row is by construction a play-called
+  act (dHandoff's intent-clean predicate). Broadcast: a declared giver's
+  self HUD, omniscient map entry and board roster row carry a `handoff`
+  {item, progress, needed} object while armed (the progress-arc feed);
+  idle and dark bytes are untouched.
+- **`lootSpawnSeedGuns`** / **`lootSpawnSeedHoppers`** (int, default `0`,
+  brMode + `lootStart` only) / **`lootSpawnSeedRadius`** (int, default `0`,
+  read only while either count above is positive) — **spawn-area loot
+  seeding** (owner-approved starter fix 2026-09-03, verbatim: "i like the
+  idea of filling spawn areas with guns and hoppers so they accidentally
+  grab it anyway"): the field's policies mostly do not route toward loot
+  (78.8% of measured BR downs were zone/environmental, from unarmed cogs),
+  so rather than teach every playbook to path to a crate, these ADD N
+  marker and M hopper crates within `lootSpawnSeedRadius` px of EVERY spawn
+  cluster (one cluster per team; a BR duo's two seats already land within
+  `SpawnShareStagger`, 24 px, of each other around one shared spawn point)
+  ON TOP of `resetLootCrates`'s own placement — the map's authored pool or
+  its grenade/med-kit fallback, which is untouched. Additive only: the
+  existing global scatter is never rewritten. Each candidate resolves
+  through `nearestWalkable`'s expanding-ring search, the same guarantee
+  every other pickup family uses, so a seeded crate can never land inside a
+  wall or an unreachable pocket. Pure integer 8-compass-direction geometry
+  (no floats/host libm — replay-determinism, same rule as arena.nim's
+  DiamondCos table), never touches `sim.rng`, so arming it cannot perturb
+  any other rng-consuming draw and re-simulating one seed always seeds the
+  same crates at the same pixels. Both seeded families stay one-shot, same
+  as the base crates (see `resetLootCrates`'s own note). LOOT ECONOMY NOTE
+  (flagged, not solved): arming this raises the total gun/hopper count on
+  the field — weigh that against fight pacing during the feel-pass.
   generate --scale N.N` (default 2.6, the doctrine giant — omitting the
   flag draws bit-identically to before) generates the field at another
   scale through the same doctrine gates, and the BR variant pins whichever
   full spec it certifies. `gunRange` re-derives from the scaled field; the
   duo spawn pocket deliberately does not scale.
+
+## Season 2 glory multiplier recut (GLORY v13 — dark)
+
+The pure-multiplier glory economy (frozen 2026-09-02 contract), shipped
+DARK. Each key below is its OWN manifest `game_config` key, independently
+settable — never coupled to `lootStart`/`downedMode`, to a variant switch,
+or to each other (per-flag activation, recut contract Amendment 2 §1).
+Merged and deployed is NOT armed: arming any of these is an explicit,
+separate manifest publish.
+
+- **`gloryMultiplierRecut`** (bool, default off, BOTH modes): no base
+  points — episode glory = seed(1) × the product of integer act
+  multipliers (`RecutClassTable`/`RecutTierClass`, glory.nim §6b), with
+  the territory rung shift (+1 on enemy ground, above-×1 classes only),
+  heat/carry folded per event under their existing gates, the Fibonacci
+  teammates-in-context stack (×1,2,3,5,8,13), and friendly fire as an
+  uncapped compounding DIVISION (BR ÷2 per incident, CTF ÷2 per two).
+  ×1 commons still mint, pop and count — they carry no score weight.
+  BR-only marquee deeds (`dDuoDown` ×2, `dClosingTime` ×2, `dLastLight`
+  ×4, `dVictory` ×8) mint only under this flag. Off: every number prices
+  exactly as GLORY v12, fixtures byte-identical.
+- **`stampRealizedConfig`** (bool, default off): at episode finalize the
+  engine emits the realized-config stamp — `{stampVersion, realizedBuild
+  {gameVersion, gloryVersion, engineStamp}, variantId, flagSet}` (flagSet
+  = the S2 dark-flag family as sorted `key=value` pairs, false values
+  included) — into the events summary row and the episode log.
+  Observability only; independent of every other flag.
+- **`variantId`** (string, default empty): self-label echoed into the
+  stamp and the replay header so replay-only audits can name the
+  publishing variant without platform access.
+
+Staging variants `battle-royale-s2-lootstart` and `battle-royale-s2-downed`
+(published behind the flagship in `coworld_manifest_paintbot.json`) carry
+exactly one of the two loot flags each, so the S2 flag family can be staged
+or bisected per-flag instead of riding one coupled variant switch.
 
 ## Engine reward scoring
 

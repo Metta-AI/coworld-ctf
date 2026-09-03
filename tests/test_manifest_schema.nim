@@ -128,6 +128,14 @@ const SampleJson = """{
   "zoneCenter": {"zoneCenter": [500, 500]},
   "lootStart": {"lootStart": true, "brMode": true},
   "downedMode": {"downedMode": true, "brMode": true},
+  "giveItem": {"giveItem": true, "brMode": true},
+  "lootSpawnSeedGuns": {"lootSpawnSeedGuns": 3, "lootStart": true, "brMode": true},
+  "lootSpawnSeedHoppers": {"lootSpawnSeedHoppers": 3, "lootStart": true, "brMode": true},
+  "lootSpawnSeedRadius": {"lootSpawnSeedRadius": 48, "lootStart": true, "brMode": true},
+  "gloryMultiplierRecut": {"gloryMultiplierRecut": true},
+  "stampRealizedConfig": {"stampRealizedConfig": true},
+  "frameLoadoutFlags": {"frameLoadoutFlags": true},
+  "variantId": {"variantId": "battle-royale-s2"},
   "allowSeatTakeover": {"allowSeatTakeover": true},
   "allowDirectAim": {"allowDirectAim": true},
   "allowAimAssist": {"allowAimAssist": true, "allowDirectAim": true},
@@ -244,7 +252,12 @@ suite "league manifest config_schema vs GameConfig":
     var variantIds: seq[string]
     for variant in parseFile(GameDir / ManifestName)["variants"]:
       variantIds.add variant["id"].getStr()
-    check variantIds == @["battle-royale-s2", "2v2", "4ffa", "4ffa8",
+    # RECUT (v13, contract Amendment 2 §1 — per-flag activation): the two
+    # battle-royale-s2-* STAGING variants sit directly behind the flagship
+    # so each S2 flag (lootStart / downedMode) can be staged or bisected on
+    # its own instead of riding one coupled variant switch.
+    check variantIds == @["battle-royale-s2", "battle-royale-s2-lootstart",
+      "battle-royale-s2-downed", "2v2", "4ffa", "4ffa8",
       "default", "1v1", "ctf-default", "ctf-1v1", "paintball",
       "battle-royale"]
     variantIds.setLen(0)

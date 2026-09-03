@@ -5,7 +5,7 @@
 ## actuation. This module owns only the server-side lifecycle,
 ## default-order installation, mask handoff, annotations, and timing split.
 
-import std/[json, math, monotimes, options, os, strformat, strutils, times]
+import std/[json, math, monotimes, options, os, sequtils, strformat, strutils, times]
 import bitworld/spriteprotocol
 import ../ctf/sim_types
 import body_map
@@ -112,13 +112,46 @@ type
     lines*: seq[string]
     callIdentities*: seq[FirstLightCallReplayIdentity]
 
+  FirstLightNavSummary* = object
+    ## Per-tick follower census over active, alive play seats; the server
+    ## prints it as FIRST_LIGHT_NAV so plan-budget events can be joined by
+    ## tick to what the followers were doing.
+    pendingPlans*: int            ## seats whose cold plan is still computing
+    stalePathSeats*: seq[uint8]   ## walking an older route while a plan computes
+    noPathSeats*: seq[uint8]      ## navigate order, not arrived, no route loaded
+
+  FirstLightCombatSummary* = object
+    ## Per-tick weapon-path census over active, alive play seats; the server
+    ## prints it as FIRST_LIGHT_COMBAT. The seat lists name the outcomes an
+    ## operator most needs to chase: a neutral policy with an enemy in range,
+    ## fresh tracks with nothing shootable, and a held target not yet fired on.
+    counts*: array[CombatOutcome, int]
+    noPolicyEnemyInRangeSeats*: seq[uint8]
+    noneShootableSeats*: seq[uint8]
+    aligningSeats*: seq[uint8]
+
+  FirstLightHandoff* = object
+    ## §4.1 amendment: one seat's STANDING give-item declaration this tick —
+    ## the Intent's `handoff` field lifted off the installed standing order
+    ## ("" = no declaration wanted). The episode never touches the sim: the
+    ## server hook compares this against the sim's declared state and calls
+    ## the sim.declareHandoff consent seam (recording exactly what the sim
+    ## accepted), the same division of labor as the mask handoff above it.
+    seat*: uint8
+    playerIndex*: int
+    item*: string
+
   FirstLightTickResult* = object
     masks*: seq[FirstLightMask]
+    handoffs*: seq[FirstLightHandoff]
     annotations*: seq[ShellAnnotation]
     installs*: seq[FirstLightInstall]
     moduleStatuses*: seq[FirstLightModuleStatus]
     ladderStatuses*: seq[FirstLightLadderStatus]
     retuned*: seq[FirstLightEntryIdentity]
+    planBudget*: seq[PlanBudgetEvent]
+    nav*: FirstLightNavSummary
+    combat*: FirstLightCombatSummary
     bodyNanoseconds*: int64
     runtimeNanoseconds*: int64
 
@@ -1021,6 +1054,20 @@ proc dangerInputs(episode: FirstLightEpisode,
       result[state.seat.int] =
         state.body.dangerInputFromTracks(tick, acceptDangerTrack)
 
+proc summarizeSeatTick(body: SeatBody, result: var FirstLightTickResult) =
+  ## Folds one seat's follower and weapon-path outcomes into the tick census.
+  let seat = uint8(body.seatIndex)
+  case body.navState
+  of bnsStalePath: result.nav.stalePathSeats.add seat
+  of bnsNoPath: result.nav.noPathSeats.add seat
+  of bnsIdle, bnsFollowing: discard
+  inc result.combat.counts[body.combatOutcome]
+  case body.combatOutcome
+  of coNoPolicyEnemyInRange: result.combat.noPolicyEnemyInRangeSeats.add seat
+  of coNoneShootable: result.combat.noneShootableSeats.add seat
+  of coAligning: result.combat.aligningSeats.add seat
+  of coNoPolicy, coNoEnemy, coVetoed, coFired: discard
+
 proc step*(episode: var FirstLightEpisode,
     frames: openArray[FirstLightSeatFrame], tick: uint32): FirstLightTickResult =
   ## Runs configured play seats in configured-seat order. Disabled episodes
@@ -1128,6 +1175,17 @@ proc step*(episode: var FirstLightEpisode,
       for row in ladderOutput.seats:
         for status in row.statuses:
           result.ladderStatuses.add status.ladderStatus
+          if status.status.kind == skPlayFaulted:
+            # The fault is minted into the annotation stream so the replay
+            # and the server log both say WHY the provenance switched on this
+            # tick; the standing-order annotation that follows says to what.
+            result.annotations.add(ShellAnnotation(
+              tick: tick,
+              seat: uint8(row.seat),
+              kind: akPlayFault,
+              faultAtEpoch: status.status.faultEpoch,
+              faultEntryId: status.entryId,
+              annotationFaultReason: status.status.faultReason))
         for identity in row.retuned:
           result.retuned.add entryIdentity(row.seat, identity)
       for state in episode.seats.mitems:
@@ -1167,10 +1225,22 @@ proc step*(episode: var FirstLightEpisode,
       let bodyStarted = getMonoTime()
       input = seatTick(state.body, frame.bodyInputs, tick)
       result.bodyNanoseconds += (getMonoTime() - bodyStarted).inNanoseconds
+      summarizeSeatTick(state.body, result)
+      # §4.1 amendment: surface the standing order's give-item declaration
+      # beside the mask it was resolved with. Upright seats only — a dead
+      # seat's declaration dies sim-side with the life that made it, and
+      # the consent seam refuses dead/downed seats anyway.
+      if state.standing.hasStanding:
+        result.handoffs.add(FirstLightHandoff(
+          seat: state.seat,
+          playerIndex: frame.playerIndex,
+          item: state.standing.intent.handoff))
     result.masks.add(FirstLightMask(
       seat: state.seat, playerIndex: frame.playerIndex, input: input))
   episode.nav.rebuildScheduledDanger(tick.int, episode.dangerInputs(tick))
   discard episode.nav.runPlanningTick(tick.int)
+  result.planBudget = episode.nav.drainPlanBudgetEvents()
+  result.nav.pendingPlans = episode.nav.pendingPlanCount()
 
 proc observeDeaths*(episode: var FirstLightEpisode,
     frames: openArray[FirstLightSeatFrame], tick: uint32): seq[ShellAnnotation] =
@@ -1193,7 +1263,48 @@ proc formatInstall*(install: FirstLightInstall): string =
     &"rule={install.rule} provenance={install.provenance} " &
     &"bytes_fnv1a64={install.bytesHash} bytes={install.bytes}"
 
-proc formatLifecycleAnnotation*(annotation: ShellAnnotation): string =
+proc seatDisplayName*(episode: FirstLightEpisode, seat: int): string =
+  ## The seat's roster display name, or "" when the episode has none.
+  when ShellRuntimeAvailable:
+    for row in episode.contextRoster:
+      if row.seat == seat:
+        return row.name
+  ""
+
+proc seatList(seats: seq[uint8]): string =
+  "[" & seats.mapIt($it).join(",") & "]"
+
+proc formatPlanBudgetEvent*(event: PlanBudgetEvent): string =
+  let outcome =
+    case event.outcome
+    of pboSuspended: "suspended"
+    of pboCompleted: "completed"
+    of pboFailed: "failed"
+  &"FIRST_LIGHT_PLAN_BUDGET tick={event.tick} seat={event.seat} " &
+    &"revision={event.revision} visits={event.visits} units={event.units} " &
+    &"outcome={outcome}"
+
+proc formatNavSummary*(tick: uint32, nav: FirstLightNavSummary): string =
+  &"FIRST_LIGHT_NAV tick={tick} pending_plans={nav.pendingPlans} " &
+    &"stale_path={nav.stalePathSeats.seatList} " &
+    &"no_path={nav.noPathSeats.seatList}"
+
+proc formatCombatSummary*(tick: uint32,
+                          combat: FirstLightCombatSummary): string =
+  &"FIRST_LIGHT_COMBAT tick={tick} fired={combat.counts[coFired]} " &
+    &"aligning={combat.counts[coAligning]} " &
+    &"none_shootable={combat.counts[coNoneShootable]} " &
+    &"vetoed={combat.counts[coVetoed]} no_enemy={combat.counts[coNoEnemy]} " &
+    &"no_policy={combat.counts[coNoPolicy]} " &
+    &"no_policy_enemy_in_range={combat.counts[coNoPolicyEnemyInRange]} " &
+    &"no_policy_enemy_in_range_seats={combat.noPolicyEnemyInRangeSeats.seatList} " &
+    &"none_shootable_seats={combat.noneShootableSeats.seatList} " &
+    &"aligning_seats={combat.aligningSeats.seatList}"
+
+proc formatLifecycleAnnotation*(annotation: ShellAnnotation,
+                                player = ""): string =
+  ## `player` is the seat's display name; it is printed only when known.
+  let playerField = if player.len > 0: &" player={player.escape}" else: ""
   case annotation.kind
   of akClearOnDeath:
     &"FIRST_LIGHT_ANNOTATION tick={annotation.tick} seat={annotation.seat} " &
@@ -1205,5 +1316,7 @@ proc formatLifecycleAnnotation*(annotation: ShellAnnotation): string =
     &"FIRST_LIGHT_ANNOTATION tick={annotation.tick} seat={annotation.seat} " &
       &"kind=accepted_intent epoch={annotation.effectiveEpoch}"
   of akPlayFault:
-    &"FIRST_LIGHT_ANNOTATION tick={annotation.tick} seat={annotation.seat} " &
-      &"kind=play_fault epoch={annotation.faultAtEpoch}"
+    &"FIRST_LIGHT_ANNOTATION tick={annotation.tick} seat={annotation.seat}" &
+      &"{playerField} kind=play_fault epoch={annotation.faultAtEpoch} " &
+      &"entry={annotation.faultEntryId} " &
+      &"reason={annotation.annotationFaultReason.escape}"

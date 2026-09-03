@@ -245,7 +245,8 @@ suite "shell body seat belief-lite seam":
         alive: true))), 3)
     check body.tracks[1].isNone
     check body.partnerTelemetry == some((seat: 1'u8, team: Red, pos: (70, 30),
-      aimBrads: 12, alive: true, downed: false))
+      aimBrads: 12, alive: true, downed: false, hasGun: false,
+      hasHopper: false))
 
     body.updateBelief(BodyTickInputs(self: selfState(), visibleTracks: @[
       BodyTrackUpdate(seat: 1, pos: (60, 30), team: Red,

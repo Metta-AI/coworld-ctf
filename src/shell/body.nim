@@ -11,7 +11,7 @@
 ## including a later respawn in the same cell. No counter, clock, or address
 ## identity participates in belief ids.
 
-import std/[algorithm, hashes, math, options]
+import std/[algorithm, hashes, math, options, sequtils]
 import bitworld/spriteprotocol
 import ../ctf/sim_types
 import body_cache, body_map, body_nav, body_planner
@@ -70,6 +70,11 @@ type
     bikShield
     bikSpray
     bikBarrier
+    bikGun     ## PERCEPTION(glory-2 §17): the lootStart marker crate.
+               ## Appended (never inserted) — see itemEventId's ord(kind)
+               ## use below, the same append-only rule as every enum in
+               ## this file.
+    bikHopper  ## PERCEPTION(glory-2 §17): the lootStart hopper (ammo) crate.
 
   BodySelfState* = object
     pos*: BodyPoint
@@ -227,10 +232,22 @@ type
       ## (the duo-telemetry trust boundary): a policy cannot revive what it
       ## cannot see is down. HP stays withheld through the ordinary fogged
       ## track channel, per the existing partner-grant design.
+    hasGun*: bool
+    hasHopper*: bool
+      ## PERCEPTION(glory-2 §17): the partner's own loadout flags --
+      ## granted alongside downed above (same duo-telemetry trust
+      ## boundary), gated by config.frameLoadoutFlags at the seam that
+      ## builds this sample (src/ctf/server.nim's firstLightPartner), never
+      ## by config.lootStart -- the flags are the sim TRUTH regardless of
+      ## mode; this gate controls only whether a play may SEE them.
+      ## Required for an intelligent HANDOFF call: a play needs to see the
+      ## crate (item perception) AND the partner's gap (this) to know a
+      ## handoff would help. Enemy held-state is deliberately never
+      ## granted anywhere in this file.
 
   PartnerTelemetry* = tuple[
     seat: uint8, team: Team, pos: BodyPoint, aimBrads: int, alive: bool,
-    downed: bool]
+    downed: bool, hasGun: bool, hasHopper: bool]
 
   BodyTickInputs* = object
     ## Contracted trust boundary. The server supplies only this seat's
@@ -285,6 +302,25 @@ type
     selectedTick: uint32
     shootable: bool
 
+  BodyNavState* = enum
+    ## What the follower did on the last seat tick; read by the episode's
+    ## per-tick navigation summary (FIRST_LIGHT_NAV).
+    bnsIdle        ## no navigate order drove movement (hold, arrived, no goal, fire freeze)
+    bnsFollowing   ## walking the route planned for the current request
+    bnsStalePath   ## walking an older route while the current request's plan computes
+    bnsNoPath      ## navigate order, not arrived, but no route loaded yet: standing still
+
+  CombatOutcome* = enum
+    ## Why the weapon path did or did not fire on the last seat tick; read by
+    ## the episode's per-tick combat summary (FIRST_LIGHT_COMBAT).
+    coNoPolicy              ## combat policy neutral: the weapon path never ran
+    coNoPolicyEnemyInRange  ## neutral policy while a non-partner track was shootable
+    coNoEnemy               ## policy active, no fresh track this tick
+    coNoneShootable         ## fresh tracks (possibly a held target), none in range with a clear line of sight
+    coVetoed                ## shootable tracks, all excluded by noShoot, protect, or holdFire
+    coAligning              ## shootable target held; rotating, cooling down, or winding up
+    coFired                 ## attack or grenade button emitted this tick
+
   SeatBody* = ref object
     map*: BodyMap
     seatIndex*: int
@@ -308,6 +344,8 @@ type
     fireHoldTicks: int
     throwChargeTicks: int
     throwTarget: Option[CombatTarget]
+    navState*: BodyNavState        ## last seat tick's follower outcome
+    combatOutcome*: CombatOutcome  ## last seat tick's weapon-path outcome
 
 proc tickInsideWindow(eventTick, now, window: uint32): bool =
   eventTick <= now and uint64(now - eventTick) < uint64(window)
@@ -635,7 +673,8 @@ proc updateBelief*(body: SeatBody, inputs: BodyTickInputs, tick: uint32) =
     if inputs.self.alive and partner.alive:
       body.partnerGrant = some((seat: partner.seat, team: partner.team,
         pos: partner.pos, aimBrads: partner.aimBrads, alive: true,
-        downed: partner.downed))
+        downed: partner.downed, hasGun: partner.hasGun,
+        hasHopper: partner.hasHopper))
 
 proc partnerTelemetry*(body: SeatBody): Option[PartnerTelemetry] =
   ## Sim-truth position and aim grant for a live duo partner. HP deliberately
@@ -1226,6 +1265,22 @@ proc weaponActuationMask*(body: SeatBody, policy: shellTypes.CombatPolicy,
       return mask
   mask or body.gunActuationMask(policy, decision.get, tick)
 
+proc enemyShootableWithoutPolicy(body: SeatBody, tick: uint32): bool =
+  ## Diagnostic only: would the weapon path have had a shootable target this
+  ## tick if the combat policy were active? "Enemy" is any fresh track that
+  ## is not the granted duo partner; the body has no own-team fact beyond
+  ## that grant. Used to flag seats whose neutral policy is the only reason
+  ## they are not shooting (coNoPolicyEnemyInRange).
+  let liveRange = body.nav.liveWeaponRangePx(body.seatIndex)
+  let partnerSeat =
+    if body.partnerGrant.isSome: body.partnerGrant.get.seat.int else: -1
+  for seat in 0 ..< MaxPlayers:
+    if seat == body.seatIndex or seat == partnerSeat:
+      continue
+    if body.trackShootable(shellTypes.CombatPolicy(), seat, tick, liveRange):
+      return true
+  false
+
 proc seatTick*(body: SeatBody, inputs: BodyTickInputs,
                tick: uint32): InputState =
   ## Executes one seat's body tick.
@@ -1233,6 +1288,8 @@ proc seatTick*(body: SeatBody, inputs: BodyTickInputs,
   ## Cold plan work and danger rebuild cadence stay episode-owned; callers run
   ## `runPlanningTick` and `rebuildScheduledDanger` on the shared BodyNavSystem.
   body.updateBelief(inputs, tick)
+  body.navState = bnsIdle
+  body.combatOutcome = coNoPolicy
   if not body.selfState.alive:
     body.resetWeaponState()
     return InputState()
@@ -1263,6 +1320,10 @@ proc seatTick*(body: SeatBody, inputs: BodyTickInputs,
           body.selfState.pos, goal, tick.int,
           body.standingIntent.movingGoal, body.standingIntent.profile)
         mask = octantToward(body.selfState.pos, waypoint)
+        body.navState =
+          if seat.hasNoPath: bnsNoPath
+          elif seat.followingStalePath: bnsStalePath
+          else: bnsFollowing
         if mask != 0'u8:
           seat.noteProgress(body.selfState.pos)
         else:
@@ -1285,8 +1346,19 @@ proc seatTick*(body: SeatBody, inputs: BodyTickInputs,
         not body.standingIntent.suppressFireFreeze:
       mask = mask and not uint8(MovementMask)
     mask = mask or weaponMask
+    body.combatOutcome =
+      if (weaponMask and (ButtonA or ButtonC)) != 0: coFired
+      elif decision.isSome:
+        # The selector may hold an unshootable target (out of range or
+        # behind a wall) to keep aiming at it; that is not "aligning".
+        if decision.get.combatShootable: coAligning else: coNoneShootable
+      elif candidates.len == 0: coNoEnemy
+      elif candidates.anyIt(it.shootable): coVetoed
+      else: coNoneShootable
   else:
     body.resetWeaponState()
+    if body.enemyShootableWithoutPolicy(tick):
+      body.combatOutcome = coNoPolicyEnemyInRange
 
   if needsIdleAim and (mask and (ButtonB or ButtonSelect)) == 0:
     mask = mask or body.idleAimMask()

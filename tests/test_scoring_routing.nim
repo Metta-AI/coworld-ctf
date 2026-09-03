@@ -108,7 +108,9 @@ suite "scoring schema routing":
     # terminal-tick fact) can still add to it, so the total the results doc
     # must report is whatever the ledger holds once the match has fully
     # wrapped up, not a snapshot mid-way.
-    let redGlory = sim.teamGlory[Red]
+    let
+      redGlory = sim.teamGlory[Red]
+      blueGlory = sim.teamGlory[Blue]
     check redGlory > 0  # sanity: this scenario actually minted something.
 
     let results = parseJson(sim.playerResultsJson())
@@ -121,12 +123,11 @@ suite "scoring schema routing":
     check results["win"][0].getBool()
     check not results["win"][1].getBool()
     # `scores` is now the GLORY-AS-LEAGUE-SCORE field (see roster.nim's
-    # ctfPlayerResultsJson doc comment): the winner banks its team's exact
-    # ledger total, the loser banks exactly 0 -- not the old WinReward/
-    # LossReward RL-training figures.
-    check results["scores"][0].getInt() != results["scores"][1].getInt()
+    # ctfPlayerResultsJson doc comment): every slot banks its OWN team's
+    # exact ledger total, win or lose -- not the old WinReward/LossReward
+    # RL-training figures, and no longer flattened to 0 for the loser.
     check results["scores"][0].getInt() == redGlory
-    check results["scores"][1].getInt() == 0
+    check results["scores"][1].getInt() == blueGlory
     # The RL training reward signal itself is UNTOUCHED: it never lived in
     # this results document (a separate, real-time `buildRewardPacket`
     # websocket message reads `player.reward`), so repurposing `scores` here
@@ -147,6 +148,7 @@ suite "scoring schema routing":
     sim.recordKillCredit(0, 1)
     sim.awardDeed(Red, dHonorableKill, 10, 10)
     sim.finishGame(Red)
+    let blueGlory = sim.teamGlory[Blue]
 
     let results = parseJson(sim.playerResultsJson())
     check results.hasKey("kills")
@@ -158,7 +160,9 @@ suite "scoring schema routing":
     check results["win"][0].getBool()
     check not results["win"][1].getBool()
     check results["scores"][0].getInt() > 0
-    check results["scores"][1].getInt() == 0
+    # Loser's row now reports its own team's ledger total (not a flattened
+    # 0), same as the winner's row does for its own team.
+    check results["scores"][1].getInt() == blueGlory
 
   test "a paintball config with num_agents == 0 still routes on loadout, not the seat count":
     ## The discriminating edge in the OTHER direction: a hypothetical
