@@ -442,6 +442,11 @@
           "type": "boolean",
           "default": false
         },
+        "giveItem": {
+          "description": "Battle-royale play-called item exchange: a seat with a DECLARED handoff (declareHandoff — the engine seam for the play shell's HANDOFF play) that holds GiveItemRange adjacency to its duo partner for GiveChannelTicks transfers the declared item (gun, hopper, or bandage) to that partner, emitting the item_give wire row {actor, recipient, item, tick}. No declaration, no transfer — proximity alone never moves an item (owner ruling 2026-09-02: no auto-share). Requires brMode: true. Off by default; armed only on explicit go.",
+          "type": "boolean",
+          "default": false
+        },
         "allowSeatTakeover": {
           "description": "Allow a human client to take over a live bot-controlled seat mid-round.",
           "type": "boolean",

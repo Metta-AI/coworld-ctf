@@ -493,6 +493,16 @@ proc rosterJson(sim: SimServer): JsonNode =
     # Keyed on the gate so a dark game's roster bytes stay untouched.
     if sim.config.downedMode:
       item["downed"] = %p.downed
+    # GIVE(s2): the declared handoff channel on the spectator/replay board
+    # roster — same gate-plus-declaration keying as mapEntry/selfJson (this
+    # module, below), so dark AND armed-but-idle roster bytes stay
+    # untouched and the board can draw the progress arc over the giver.
+    if sim.config.giveItem and p.giveDeclItem.len > 0:
+      item["handoff"] = %*{
+        "item": p.giveDeclItem,
+        "progress": p.giveProgress,
+        "needed": GiveChannelTicks
+      }
     result.add(item)
 
 proc gloryPopsJson(sim: SimServer): JsonNode =
@@ -866,6 +876,17 @@ proc firstPersonJson(sim: SimServer, playerIndex: int): JsonNode =
   # down" distinctly from dead — hp is 0 either way).
   if sim.config.downedMode:
     selfJson["downed"] = %self.downed
+  # GIVE(s2): the declared handoff channel, keyed on the gate AND an
+  # active declaration — dark bytes untouched, and an armed-but-idle
+  # seat's HUD JSON is also untouched (the progress arc exists only while
+  # a play is declared; the revive arc's own idiom). `needed` rides along
+  # so the client never hardcodes the channel length.
+  if sim.config.giveItem and self.giveDeclItem.len > 0:
+    selfJson["handoff"] = %*{
+      "item": self.giveDeclItem,
+      "progress": self.giveProgress,
+      "needed": GiveChannelTicks
+    }
 
   # Un-fogged tactical map: EVERY player, both hearts, and all present pickups in
   # world coordinates, plus this seat's position + aim + cone geometry. This is
@@ -889,6 +910,14 @@ proc firstPersonJson(sim: SimServer, playerIndex: int): JsonNode =
     # the gate: dark bytes untouched.
     if sim.config.downedMode:
       mapEntry["downed"] = %p.downed
+    # GIVE(s2): same gate-plus-declaration keying as selfJson above, so the
+    # spectator board can draw the arc over the giver.
+    if sim.config.giveItem and p.giveDeclItem.len > 0:
+      mapEntry["handoff"] = %*{
+        "item": p.giveDeclItem,
+        "progress": p.giveProgress,
+        "needed": GiveChannelTicks
+      }
     mapPlayers.add(mapEntry)
   var mapHearts = newJArray()
   # BR N-point spawn subsystem: a flagless map arms no flag — the omniscient
