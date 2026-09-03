@@ -287,6 +287,82 @@ check("team-0 seat re-aims the placeholder pact off its own duo",
       and set(pact0["params"]["partners"]) == {"seat:1", "seat:17"},
       str(pact0))
 
+# ── awareness digest (the extra_summary seam) ─────────────────────────────
+check("persona wires the awareness digest",
+      PERSONA.extra_summary is policy.awareness_lines)
+check("awareness is silent before the first view",
+      policy.awareness_lines(fake_seat()) is None)
+
+AW_VIEW = {
+    "tick": 1200,
+    "self": {"pos": [500, 500], "hp": 4, "hp_frac": 0.67, "alive": True},
+    "world": {"zone": {"current": [0, 0, 2000, 2000],
+                       "next": [800, 800, 600, 600], "phase": 2,
+                       "ticks_to_shrink": 210, "dps": 1},
+              "alive_teams": 9},
+    "tracks": [
+        # partner (same-team tracks are dormant on today's server; the
+        # digest must still read them the day partner perception lands)
+        {"seat": 19, "team": 3, "pos": [600, 400], "fresh_tick": 1190,
+         "hp": 5},
+        {"seat": 9, "team": 5, "pos": [760, 500], "fresh_tick": 1100,
+         "hp": 2},                                      # fresh enemy, 260px E
+        {"seat": 12, "team": 6, "pos": [1500, 1500], "fresh_tick": 100,
+         "hp": 6},                                      # stale enemy
+    ],
+    "items": [{"kind": "medkit", "pos": [500, 310], "present": True},
+              {"kind": "ammo", "pos": [1900, 1900], "present": True}],
+    "aggressors": [{"seat": 9, "tick": 1150}],
+}
+aw_seat = fake_seat(context={"self": {"seat": 3, "team": 3,
+                                      "duo_partner": 19}},
+                    view=AW_VIEW)
+block = policy.awareness_lines(aw_seat)
+check("awareness is one dense line",
+      isinstance(block, list) and len(block) == 1, str(block))
+line = (block or [""])[0]
+check("awareness stays tight (under 320 chars)", len(line) < 320,
+      f"{len(line)} chars")
+check("awareness: ring in cur / out of next + shrink clock",
+      "IN cur" in line and "OUT of next" in line and "210t" in line, line)
+check("awareness: partner hp and distance off the track",
+      "partner s19 hp 5" in line and "141px NE" in line, line)
+check("awareness: fresh-vs-stale threat census with nearest bearing",
+      "threats 1 fresh (+1 stale)" in line and "260px E hp 2" in line, line)
+check("awareness: incoming fire counted", "shot at x1" in line, line)
+check("awareness: near items only (far ammo dropped)",
+      "medkit 190px N" in line and "ammo" not in line, line)
+
+# hp trend across model turns: same seat, partner track falls 5 -> 3 while
+# INSIDE the safe rect => UNDER FIRE, not zone-burning.
+AW_VIEW["tracks"][0]["hp"] = 3
+line2 = policy.awareness_lines(aw_seat)[0]
+check("awareness: partner hp trend reads UNDER FIRE inside the rect",
+      "FALLING 5->3 (UNDER FIRE)" in line2, line2)
+
+dead_seat = fake_seat(context={"self": {"seat": 3, "team": 3,
+                                        "duo_partner": 19}},
+                      view=AW_VIEW)
+dead_seat.kill_feed = [{"tick": 900, "victim_seat": 19, "killer_team": 5}]
+check("awareness: dead partner reads DOWN",
+      "partner s19 DOWN" in policy.awareness_lines(dead_seat)[0])
+
+unseen_seat = fake_seat(context={"self": {"seat": 3, "team": 3,
+                                          "duo_partner": 19}},
+                        view={**AW_VIEW, "tracks": AW_VIEW["tracks"][1:]})
+check("awareness: no partner track reads honestly as unseen",
+      "partner s19 alive, unseen" in policy.awareness_lines(unseen_seat)[0])
+
+# End to end: summarize() carries the digest on a populated live view.
+full_seat = types.SimpleNamespace(context=aw_seat.context, view=AW_VIEW,
+                                  kill_feed=[], chat=[], slot=3,
+                                  last_view_tick=1200)
+summary = starter_harness.summarize(
+    full_seat, starter_harness.match_phase(full_seat), PERSONA)
+check("summarize() carries the awareness digest", "AWARENESS: " in summary)
+check("summarize() keeps partner-first and the kill feed around the digest",
+      "PARTNER STATUS FIRST" in summary and "Kill feed" in summary)
+
 print()
 if failures:
     print(f"SELF-CHECK FAILED: {len(failures)} failing check(s)")

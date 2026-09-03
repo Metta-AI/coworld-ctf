@@ -16,7 +16,12 @@ whole research program, translated to the play-calling layer:
   never-list whether or not the model remembered (a partner tag is -60g);
   CONVERSION -- a supply_run rung is guaranteed in every ladder, because the
   lineage's oldest measured failure is winning the fight and never banking
-  the life.
+  the life,
+* ``extra_summary`` appends a one-line AWARENESS digest to every model turn:
+  ring in/out + shrink clock, partner state (hp TREND across turns, falling
+  hp attributed UNDER FIRE vs zone-burning by rect), fresh-vs-stale threat
+  census with nearest bearing, incoming fire, near items -- numbers, not
+  prose, because summary tokens are sidecar cost.
 """
 
 from __future__ import annotations
@@ -55,6 +60,12 @@ MIN_SPACING = 120
 # Jackal doctrine: leave with the profit. A second tag is allowed, a third
 # is greed the attrition ledger punishes.
 JACKAL_MAX_KILLS = 2
+
+# Awareness digest: a track older than this is a memory, not a threat (the
+# harness's own 10-s freshness/aggressor window). An item further than
+# NEAR_ITEM_PX is a detour, not "near".
+FRESH_TICKS = 240
+NEAR_ITEM_PX = 500
 
 
 def _neighbor_duo(context):
@@ -152,6 +163,120 @@ def adjust_entries(entries, context, view):
         else:
             entries.append(rung)
     return entries
+
+
+def awareness_lines(seat):
+    """MONET's per-turn awareness digest: ONE dense numeric line -- ring
+    (in current? in next? shrink clock), partner (hp with a TREND across
+    model turns, distance, dead/unseen honestly stated), fresh-vs-stale
+    threat census with the nearest bearing, incoming fire, near items.
+
+    The common state block carries the prose; this is the glanceable strip
+    the doctrine keys on, numbers not sentences (summary tokens are sidecar
+    cost). Partner hp/dist ride the fogged track, so on today's server --
+    which emits no same-team tracks (see the harness's _view_facts note) --
+    the partner clause reads "unseen"; the trend machinery arms itself the
+    day partner perception lands. A falling partner hp is attributed by
+    rect: inside the safe zone it reads UNDER FIRE, outside it reads
+    zone-burning."""
+    view = seat.view or {}
+    me = view.get("self") or {}
+    pos = me.get("pos")
+    if not view or not starter_harness._is_pos(pos):
+        return None
+    _dist = starter_harness._dist
+    _bearing = starter_harness._bearing
+    context = seat.context or {}
+    self_facts = context.get("self") or {}
+    my_seat = self_facts.get("seat")
+    my_team = self_facts.get("team")
+    partner = self_facts.get("duo_partner")
+    tick = view.get("tick", 0)
+    parts = []
+
+    zone = (view.get("world") or {}).get("zone") or {}
+    cur, nxt = zone.get("current"), zone.get("next")
+    if isinstance(cur, list) and len(cur) == 4:
+        ring = ("ring IN cur" if starter_harness._inside(pos, cur)
+                else "ring OUT of cur (burning)")
+        if isinstance(nxt, list) and len(nxt) == 4:
+            if starter_harness._inside(pos, nxt):
+                ring += ", IN next"
+            else:
+                center = starter_harness._rect_center(nxt)
+                ring += (f", OUT of next ({int(_dist(pos, center))}px "
+                         f"{_bearing(pos, center)} to center)")
+        tts = zone.get("ticks_to_shrink")
+        if isinstance(tts, (int, float)):
+            ring += f", shrink {int(tts)}t (~{int(tts) // 24}s)"
+        parts.append(ring)
+
+    if partner is not None:
+        label = f"partner s{partner}"
+        if any(k.get("victim_seat") == partner for k in seat.kill_feed):
+            parts.append(label + " DOWN -- you are solo")
+        else:
+            track = next(
+                (t for t in view.get("tracks", [])
+                 if isinstance(t, dict) and t.get("seat") == partner
+                 and starter_harness._is_pos(t.get("pos"))), None)
+            if track is None:
+                parts.append(label + " alive, unseen")
+            else:
+                hp = track.get("hp")
+                last = getattr(seat, "_monet_partner_hp", None)
+                trend = ""
+                if isinstance(hp, int) and isinstance(last, int) and hp < last:
+                    in_cur = (isinstance(cur, list) and len(cur) == 4
+                              and starter_harness._inside(track["pos"], cur))
+                    trend = (f" FALLING {last}->{hp} "
+                             + ("(UNDER FIRE)" if in_cur else "(zone-burning)"))
+                if isinstance(hp, int):
+                    seat._monet_partner_hp = hp
+                parts.append(f"{label} hp {hp}{trend}, "
+                             f"{int(_dist(pos, track['pos']))}px "
+                             f"{_bearing(pos, track['pos'])}")
+
+    fresh, stale = [], 0
+    for track in view.get("tracks", []):
+        if (not isinstance(track, dict)
+                or not starter_harness._is_pos(track.get("pos"))
+                or track.get("seat") in (my_seat, partner)
+                or (my_team is not None and track.get("team") == my_team)):
+            continue
+        age = (tick - track["fresh_tick"]
+               if isinstance(track.get("fresh_tick"), int) else None)
+        if age is not None and age <= FRESH_TICKS:
+            fresh.append(track)
+        else:
+            stale += 1
+    stale_note = f" (+{stale} stale)" if stale else ""
+    if fresh:
+        fresh.sort(key=lambda t: _dist(pos, t["pos"]))
+        near = fresh[0]
+        parts.append(f"threats {len(fresh)} fresh{stale_note}, nearest "
+                     f"{int(_dist(pos, near['pos']))}px "
+                     f"{_bearing(pos, near['pos'])} hp {near.get('hp', '?')}")
+    else:
+        parts.append("threats 0 fresh" + stale_note)
+
+    shots = sum(1 for a in view.get("aggressors", [])
+                if isinstance(a, dict) and isinstance(a.get("tick"), int)
+                and tick - a["tick"] <= FRESH_TICKS)
+    if shots:
+        parts.append(f"shot at x{shots} in 10s")
+
+    items = [i for i in view.get("items", [])
+             if isinstance(i, dict) and i.get("present", True)
+             and starter_harness._is_pos(i.get("pos"))
+             and _dist(pos, i["pos"]) <= NEAR_ITEM_PX]
+    items.sort(key=lambda i: _dist(pos, i["pos"]))
+    if items:
+        parts.append("items " + ", ".join(
+            f"{i.get('kind', '?')} {int(_dist(pos, i['pos']))}px "
+            f"{_bearing(pos, i['pos'])}" for i in items[:2]))
+
+    return ["AWARENESS: " + " | ".join(parts) + "."]
 
 
 def extra_chat(context, turn):
@@ -375,6 +500,7 @@ PERSONA = Persona(
     partner_focus=True,
     adjust_entries=adjust_entries,
     extra_chat=extra_chat,
+    extra_summary=awareness_lines,
 )
 
 if __name__ == "__main__":

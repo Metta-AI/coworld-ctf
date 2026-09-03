@@ -9,8 +9,8 @@ bookkeeping and the scalar/seat-set param cleaners) directly from
 behave differently:
 
 * a :class:`Persona` -- the prompt, the canned decisions, the re-call
-  schedule, and two hooks (``adjust_entries``, ``extra_chat``) that are each
-  policy's "harness delta",
+  schedule, and three hooks (``adjust_entries``, ``extra_chat``,
+  ``extra_summary``) that are each policy's "harness delta",
 * a system prompt GENERATED from the plays manifest (``plays.py``) filtered
   to the plays actually baked in the playbook, so the model is never told
   about a play it cannot call,
@@ -106,6 +106,11 @@ class Persona:
     #: (context, turn) -> str | None. An additional deliberate chat line per
     #: turn (the collaborative policy's coordination channel).
     extra_chat: Callable | None = None
+    #: (seat) -> list[str] | None. Persona-owned summary lines appended after
+    #: the common live-state block on every model turn -- the persona's own
+    #: awareness digest. Return None/[] to add nothing (e.g. before the first
+    #: view). Additive seam: personas without it see the summary unchanged.
+    extra_summary: Callable | None = None
 
 
 class PersonaCannedBrain:
@@ -416,6 +421,11 @@ def summarize(seat: StarterSeat, phase: str, persona: Persona,
     if state:
         lines.append("")
         lines.extend(state)
+    if persona.extra_summary is not None:
+        extra = persona.extra_summary(seat)
+        if extra:
+            lines.append("")
+            lines.extend(extra)
     if persona.include_kill_feed:
         lines.append("")
         lines.extend(_kill_feed_lines(seat))
