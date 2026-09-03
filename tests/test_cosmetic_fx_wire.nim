@@ -375,3 +375,102 @@ suite "buildCosmeticFxPacket: S1/S4/S5/S6 additive kinds (Swap#13)":
   test "gate on, nothing to say (no shots/stains/incoming/partnerDown/avenge/zonePhases) returns empty string":
     var sim = cosmeticFxSim(true)
     check buildCosmeticFxPacket(sim, 0) == ""
+
+suite "buildCosmeticFxPacket: the 'bearing' kind (Gap-closing lane: CONTACT BEARING, swap14)":
+  test "a bearing entry serializes only kind+bearing -- never x/y/distance/identity":
+    var sim = cosmeticFxSim(true)
+    let packet = buildCosmeticFxPacket(sim, 0, bearing = 37)
+    let parsed = parseJson(packet)
+    check parsed["fx"].len == 1
+    check parsed["fx"][0]["kind"].getStr == "bearing"
+    check parsed["fx"][0]["bearing"].getInt == 37
+    check not parsed["fx"][0].hasKey("x")
+    check not parsed["fx"][0].hasKey("y")
+    check not parsed["fx"][0].hasKey("distance")
+
+  test "bearing=-1 (the 'nothing to say' sentinel) adds no entry":
+    var sim = cosmeticFxSim(true)
+    check buildCosmeticFxPacket(sim, 0, bearing = -1) == ""
+
+suite "contactBearingFor (Gap-closing lane: CONTACT BEARING, swap14)":
+  ## Unit tests on the eligibility/rate-limit decision itself -- separate
+  ## from buildCosmeticFxPacket's own suite above, which only covers wire
+  ## serialization of an already-decided value. Per this repo's "assert
+  ## against the source" rule, these poke sim.tickCount/lastContactTick
+  ## directly (same idiom the zoneTicksToNextEvent suite above already
+  ## uses) rather than re-deriving the threshold from prose.
+
+  test "gate off returns -1 even long after the quiet threshold would clear":
+    var sim = cosmeticFxSim(false)
+    sim.tickCount = 10_000
+    check sim.contactBearingFor(0) == -1
+
+  test "still within the quiet threshold (recent contact) returns -1":
+    var sim = cosmeticFxSim(true)
+    sim.tickCount += 100  # well under ContactBearingQuietTicks (TargetFps*10 = 240).
+    check sim.contactBearingFor(0) == -1
+
+  test "past the quiet threshold with a living hostile fires a bearing and stamps the emit clock":
+    var sim = cosmeticFxSim(true)
+    let
+      cx = sim.players[0].x + CollisionW div 2
+      cy = sim.players[0].y + CollisionH div 2
+    sim.players[1].x = cx + 200 - CollisionW div 2
+    sim.players[1].y = cy - CollisionH div 2
+    sim.tickCount += 1000  # well past ContactBearingQuietTicks.
+    check sim.lastBearingEmitTick[0] == -1
+    let brads = sim.contactBearingFor(0)
+    check brads >= 0
+    check sim.lastBearingEmitTick[0] == sim.tickCount
+
+  test "an immediate second call is rate-limited even though the corridor is still quiet":
+    var sim = cosmeticFxSim(true)
+    sim.players[1].x = sim.players[0].x + 200
+    sim.tickCount += 1000
+    check sim.contactBearingFor(0) >= 0  # first call fires and stamps the cooldown.
+    check sim.contactBearingFor(0) == -1 # same tick, cooldown just stamped.
+
+  test "a dead seat never gets a bearing":
+    var sim = cosmeticFxSim(true)
+    sim.players[0].alive = false
+    sim.tickCount += 1000
+    check sim.contactBearingFor(0) == -1
+
+  test "no living hostile anywhere (every enemy dead) returns -1":
+    var sim = cosmeticFxSim(true)
+    sim.players[1].alive = false
+    sim.tickCount += 1000
+    check sim.contactBearingFor(0) == -1
+
+  test "points toward the NEAREST living hostile, not a farther one":
+    var sim = duoFxSim(true)  # 0/1 = Red duo, 2/3 = Blue duo.
+    let
+      cx = sim.players[0].x + CollisionW div 2
+      cy = sim.players[0].y + CollisionH div 2
+    sim.players[2].x = cx + 100 - CollisionW div 2  # blue0: close, due east.
+    sim.players[2].y = cy - CollisionH div 2
+    sim.players[3].x = cx - 900 - CollisionW div 2  # blue1: far, due west.
+    sim.players[3].y = cy - CollisionH div 2
+    sim.tickCount += 1000
+    check sim.contactBearingFor(0) == bradsOfVector(100, 0)
+
+suite "updateContactBearingClocks (Gap-closing lane: CONTACT BEARING, swap14 -- via real sim.step)":
+  ## Engine-level check that the per-tick proximity scan sim.step() runs
+  ## (sim.nim) actually drives lastContactTick, independent of the
+  ## server.nim decision proc's own unit tests above.
+  test "no hostile within config.gunRange: lastContactTick holds at match-start while tickCount advances":
+    var sim = cosmeticFxSim(true)
+    sim.players[1].x = sim.players[0].x + sim.config.gunRange * 3
+    for i in 0 ..< 5:
+      sim.step(@[], @[])
+    check sim.lastContactTick[0] == 0
+    check sim.tickCount == 5
+
+  test "a hostile stepping inside config.gunRange stamps lastContactTick to that tick":
+    var sim = cosmeticFxSim(true)
+    sim.players[1].x = sim.players[0].x + sim.config.gunRange * 3
+    sim.step(@[], @[])
+    check sim.lastContactTick[0] == 0  # still nothing in range on tick 1.
+    sim.players[1].x = sim.players[0].x + 50  # now well inside config.gunRange.
+    sim.step(@[], @[])
+    check sim.lastContactTick[0] == sim.tickCount
