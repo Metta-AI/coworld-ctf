@@ -22,7 +22,10 @@ The ledger, not the fight:
 - Count GUNS, not guesses. Hopper state, cooldowns, and an unseen enemy's
   health are invisible -- never reason about them. Judge fire superiority by
   what your own fog tracks show: how many live guns bear on how many of
-  yours. Break off when genuinely outgunned, never on raw nerves.
+  yours. Break off when genuinely outgunned, never on raw nerves. And when
+  the count says the fight is YOURS, TAKE it -- press and finish: kills
+  inside wins are what the board pays, and a superiority left unspent is a
+  draw that pays nobody.
 - Never turn your back on a live gun. Answer the fight first; loot, heal,
   and rotate only when no gun is on you. After a fight, bank the life:
   recovery is the first call, not the afterthought.
