@@ -22,7 +22,7 @@ import
   helpers,
   std/[json, unittest],
   bitworld/spriteprotocol,
-  ctf/[sim, events, arena]
+  ctf/[sim, events, arena, broadcast]
 
 proc brConfig(): GameConfig =
   result = defaultGameConfig()
@@ -331,6 +331,36 @@ suite "row 4 — downed-state: ghost, tag revive, bleed-out, splat":
     # Frozen trigger: cooldown clear changes nothing.
     sim.players[1].fireCooldown = 0
     check not sim.canFire(1)
+
+  test "dark: the roster wire never carries a downed key":
+    # The spectator/replay BOARD (buildStateJson -> the wasm decoder ->
+    # broadcast_core.js) has no baked "downed corpse" sprite pool to fall
+    # back on the way the POV ghost view does -- it reads this roster flag
+    # and fades the rig at draw time (client/broadcast_core.js's
+    # setDownedSeats/drawObject), so a dark game must never carry the key.
+    var sim = startedGame(brConfig(), 2)
+    sim.killPlayer(1, 0)
+    let state = parseJson(sim.buildStateJson(
+      newJArray(), false, 1, 100, false, true, -1, -1
+    ))
+    for seat in state["roster"]:
+      check not seat.hasKey("downed")
+
+  test "armed: the roster wire flags exactly the downed seat":
+    var sim = startedGame(downedConfig(), 4)
+    sim.centerOn(1, 400, 300)
+    sim.centerOn(0, 900, 300)
+    sim.centerOn(2, 900, 340)
+    sim.centerOn(3, 700, 500)
+    sim.killPlayer(1, 0)
+    let state = parseJson(sim.buildStateJson(
+      newJArray(), false, 1, 100, false, true, -1, -1
+    ))
+    check state["roster"].len == 4
+    for seat in state["roster"]:
+      check seat.hasKey("downed")
+      let isGhostSeat = seat["s"].getInt == sim.players[1].joinOrder
+      check seat["downed"].getBool == isGhostSeat
 
   test "an adjacent teammate tags the ghost back in at 1 hp":
     var sim = startedGame(downedConfig(), 4)

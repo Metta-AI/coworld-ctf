@@ -845,13 +845,16 @@ and custom configurations; empty means no rectangle, damage, or markers.
 
 ## Season 2 battle-royale loot options
 
-Five independent BR mechanisms remain available as explicit configuration
+Six independent BR mechanisms remain available as explicit configuration
 options. Their neutral engine values preserve replay compatibility: omitted
-keys add no pickup family or hash input. `lootStart` and `downedMode` require
-`brMode: true`; the published `battle-royale-s2` configuration arms both
+keys add no pickup family or hash input. `lootStart`, `downedMode` and
+`giveItem` require `brMode: true`; the published `battle-royale-s2`
+configuration arms the first two
 (`coworld_manifest_paintbot.json`'s `battle-royale-s2` variant), at their
 ruled default timing constants (`downedBleedOutTicks` 360, `downedReviveTicks`
-48, `downedEscalation` on).
+48, `downedEscalation` on). `giveItem` ships dark and arms only on explicit
+go (its activation additionally needs the play shell's HANDOFF vocabulary —
+see the flag's own bullet).
 
 - **Hit points per BR variant** — no new flag: the existing `hitPoints`
   config is live under `brMode` (proved end-to-end by
@@ -903,7 +906,29 @@ ruled default timing constants (`downedBleedOutTicks` 360, `downedReviveTicks`
   two appended event kinds, tail ordinals, archived replays unaffected.
   Broadcast: the first-person self HUD and the omniscient map players
   carry a `downed` flag while the mode is armed.
-- **Map-size variants** — not an engine mechanism: `tools/brmapkit
+- **`giveItem`** (bool, default off, brMode only) — **play-called item
+  exchange**: a seat that has DECLARED a handoff (`declareHandoff`, the
+  engine seam for the play shell's HANDOFF play) and then HOLDS
+  `GiveItemRange` (= `DownedTagRange`, 40 px) adjacency to its duo partner
+  for `GiveChannelTicks` (= `DownedReviveTicksDefault`, 48 = 2 s)
+  transfers the declared item — **marker** (`gun`), **hopper**, or
+  **bandage** — to that partner. Both channel constants DERIVE from the
+  revive channel's own (owner spec: mirror the revive channel). The
+  channel is interruptible by construction: it resets to zero the tick any
+  condition breaks (range, either side downed/dead, the giver no longer
+  holding the item, the recipient unable to take it — marker/hopper are
+  binary, bandages cap at `BandageCarryCap`); the declaration itself
+  stands until completion or the giver's death/down. **No declaration, no
+  transfer** — proximity alone never moves an item, so an endgame cover
+  huddle trades nothing (owner ruling 2026-09-02: no auto-share; guns,
+  hoppers and bandages alike move by play or death-drop only). Analysis
+  stream: `item_give` (source = actor, target = recipient, `item`,
+  amount = channel ticks) — one appended event kind, tail ordinal,
+  archived replays unaffected; every row is by construction a play-called
+  act (dHandoff's intent-clean predicate). Broadcast: a declared giver's
+  self HUD, omniscient map entry and board roster row carry a `handoff`
+  {item, progress, needed} object while armed (the progress-arc feed);
+  idle and dark bytes are untouched.
   generate --scale N.N` (default 2.6, the doctrine giant — omitting the
   flag draws bit-identically to before) generates the field at another
   scale through the same doctrine gates, and the BR variant pins whichever

@@ -109,7 +109,11 @@ proc defaultGameConfig*(): GameConfig =
     downedMode: false,
     downedBleedOutTicks: DownedBleedOutTicksDefault,
     downedReviveTicks: DownedReviveTicksDefault,
-    downedEscalation: true
+    downedEscalation: true,
+    # GIVE(s2): the play-called exchange mechanic, dark by default — no
+    # declaration is ever accepted and the channel never runs (echoed only
+    # when armed, echoGiveItemKeys).
+    giveItem: false
   )
 
 proc squadModeConfigured*(config: GameConfig): bool =
@@ -1085,6 +1089,10 @@ proc validate(config: GameConfig) =
   if config.downedMode and config.downedReviveTicks < 1:
     raise newException(CtfError,
       "Config field downedReviveTicks must be at least 1 under downedMode.")
+  # GIVE(s2): same brMode fence as lootStart/downedMode above — the target
+  # of a handoff is THE duo partner, a BR fact; CTF configs cannot arm it.
+  if config.giveItem and not config.brMode:
+    raise newException(CtfError, "Config field giveItem requires brMode.")
 
 proc update*(config: var GameConfig, jsonText: string) =
   ## Updates a gameplay config from a JSON object.
@@ -1270,6 +1278,10 @@ proc update*(config: var GameConfig, jsonText: string) =
   node.readConfigInt("downedBleedOutTicks", config.downedBleedOutTicks)
   node.readConfigInt("downedReviveTicks", config.downedReviveTicks)
   node.readConfigBool("downedEscalation", config.downedEscalation)
+  # GIVE(s2): appended read for the appended giveItem field (sim_types.nim)
+  # — same tail-append rule as everything above. An absent key leaves the
+  # dark default, so an existing config JSON parses to an unchanged config.
+  node.readConfigBool("giveItem", config.giveItem)
   config.validate()
 
 proc slotTeamText(slot: PlayerSlotConfig): string =
@@ -1608,6 +1620,15 @@ proc echoDownedKeys(config: GameConfig, node: JsonNode) =
     node["downedReviveTicks"] = %config.downedReviveTicks
     node["downedEscalation"] = %config.downedEscalation
 
+proc echoGiveItemKeys(config: GameConfig, node: JsonNode) =
+  ## GIVE(s2): the play-called exchange gate, echoed only when on — same
+  ## byte-identity rule as every echo above. The channel's range and length
+  ## are compile-time derivations of the revive channel's constants
+  ## (GiveItemRange/GiveChannelTicks, sim_types.nim), not knobs, so the
+  ## gate is the only key.
+  if config.giveItem:
+    node["giveItem"] = %config.giveItem
+
 proc configJson*(config: GameConfig): string =
   ## Returns the complete replay JSON for a gameplay config: the always-
   ## present base keys, built as one object literal below, followed by one
@@ -1710,4 +1731,5 @@ proc configJson*(config: GameConfig): string =
   echoHealingKeys(config, node)
   echoLootStartKeys(config, node)
   echoDownedKeys(config, node)
+  echoGiveItemKeys(config, node)
   result = $node

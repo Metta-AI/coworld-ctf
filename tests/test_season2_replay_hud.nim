@@ -74,6 +74,35 @@ suite "SEASON 2 replay viewer HUD: glory":
     checkInBoth "o.achievements || []"
     checkInBoth "ACH_TOTAL"
 
+  test "endcard names the players behind every color (owner 2026-09-02)":
+    # "naming the color that won alone is pointless! you have to name the
+    # players too." The BR endcard's winner banner carries a secondary
+    # names line under the color headline, and every standings row carries
+    # the duo's seat/policy names beside its color chip. brTeamNames reads
+    # the wire roster's own identities (teamPolicies: teams[team].policies
+    # or per-seat p.pol/p.name — the seat name IS the identity contract).
+    checkInBoth "function brTeamNames(s, team)"
+    checkInBoth "id=\"ec-hero-duo\""
+    checkInBoth "heroDuo.textContent = namesFor(winner)"
+    checkInBoth "class=\"ec-fduo\""
+    # Names render only where they ADD identity — a single-policy team's
+    # label already IS its name, never the same string twice.
+    checkInBoth "names !== labelOf[team] ? names : ''"
+
+  test "BR scorebug cells name every member beside their life square":
+    # Owner direction 2026-09-02: "the life squares can stack vertically
+    # and have the name to the right or something" — each 16-team cell is
+    # swatch + a vertical member stack (life square + that seat's own
+    # policy name per row, both duo members) + glory. brShortIdent keeps
+    # the DISTINCTIVE tail of the long shared-namespace policy names, one
+    # truncation rule for all 16 chips.
+    checkInBoth "class=\"br-cell-members\""
+    checkInBoth "function brShortIdent(n)"
+    checkInBoth "class=\"br-cell-mname\""
+    # Per-member identity reads the roster's own pol field (the identity
+    # contract), never name-matching.
+    checkInBoth "p.pol != null ? p.pol : stripSeatSuffix(p.name)"
+
 suite "SEASON 2 replay viewer HUD: phase presentation + comms":
   test "phase overlays exist, are wired per-frame, and degrade to nothing":
     # The three-act presentation (owner spec): MAP VOTE stage, HUDDLE stage,
@@ -139,3 +168,66 @@ suite "SEASON 2 replay viewer HUD: phase presentation + comms":
     let coreText = readFile(GameDir / "client" / "broadcast_core.js")
     check coreText.contains("function drawFlashPulses(targetCtx)")
     check coreText.contains("RIG_HEAD_OBJECT_BASE")
+
+  test "a downed seat's roster flag fades its rig, no new chrome":
+    # Page side: every frame's roster (src/ctf/broadcast.nim's rosterJson,
+    # downedMode-gated) is turned into a seat-index list and handed to the
+    # core -- same "page resolves identity, core just draws" split as the
+    # flash pulse above.
+    checkInBoth "function pushDownedSeatsToCore(s)"
+    checkInBoth "pushDownedSeatsToCore(s);"
+    checkInBoth "r[i] && r[i].downed"
+    # Core side: the rig object family (head/arms/legs/wheels/gun) for each
+    # downed seat draws at reduced alpha in drawObject -- a fade, not a new
+    # sprite pool or an overlay marker.
+    let coreText = readFile(GameDir / "client" / "broadcast_core.js")
+    check coreText.contains("function setDownedSeats(seats)")
+    check coreText.contains("downedObjectIds")
+    check coreText.contains("DOWNED_FADE_ALPHA")
+    check coreText.contains("RIG_ARM_OBJECT_BASE")
+    check coreText.contains("RIG_LEG_OBJECT_BASE")
+    check coreText.contains("RIG_WHEEL_OBJECT_BASE")
+    check coreText.contains("RIG_GUN_OBJECT_BASE")
+    let drawObj = coreText.find("function drawObject(targetCtx, obj)")
+    check drawObj >= 0
+    check coreText.find("downedObjectIds.has(obj.id)", drawObj) > drawObj
+
+suite "SEASON 2 replay viewer HUD: side-lane docking (letterbox rails)":
+  ## Owner spec 2026-09-02: "use the full left lane letterbox space to put
+  ## the names and scorebug and chat and everything." When the fitted board
+  ## leaves a real pillarbox column on both flanks, relayout() docks the
+  ## overlay chrome into the dead bands (identity LEFT, live surfaces
+  ## RIGHT); narrow boxes keep the classic centered-stage layout untouched.
+  test "both pillarbox rails exist and relayout decides the tiers by geometry":
+    checkInBoth "id=\"lane-l\""
+    checkInBoth "id=\"lane-r\""
+    # Tier 2 (both rails) needs a real lane each side of the free-fit board;
+    # tier 1 (left rail only) caps the board at boxW - RAIL_MIN and engages
+    # only while that costs < 10% of the free fit — the rail must eat the
+    # letterbox, never the arena.
+    checkInBoth "var lanesBoth = !EMBED && (boxW - fit0) >= 2 * LANE_MIN;"
+    checkInBoth "(!EMBED && boxW > boxH && cappedW / fit0 >= 0.9);"
+    checkInBoth "dockLanes(sideLanes, sideLanes && lanesBoth);"
+
+  test "docked mode gives the board the top band back":
+    checkInBoth "topBand = (sideLanes || !scorebug) ? 0 : scorebug.offsetHeight;"
+
+  test "docking MOVES elements and the narrow fallback restores the home DOM":
+    # Moved, never cloned: getElementById references and listeners stay
+    # live, and the recorded home parent/next-sibling puts everything back.
+    checkInBoth "d.lane.insertBefore(d.el, d.before);"
+    checkInBoth "d.home.insertBefore(d.el, d.homeNext);"
+
+  test "left rail = identity (scorebug + comms), right rail = live surfaces":
+    checkInBoth "body.sidelanes #scorebug"
+    checkInBoth "body.sidelanes #commsdock"
+    checkInBoth "body.sidelanes-both #viewpanel"
+    checkInBoth "body.sidelanes-both #killfeed"
+    # The BR 8-per-side cell bands re-flow to one roster column; the cells
+    # themselves (the endcard-player-names lane's territory) are untouched.
+    checkInBoth "body.sidelanes #scorebug .br-cellband"
+
+  test "the chat surface exists in the rail even when the lobby never spoke":
+    checkInBoth "(sideLanes || (COMMS_AVAILABLE && (boxW - stageW) >= 280));"
+    checkInBoth "cd-empty"
+    checkInBoth "#commsFeed:empty + .cd-empty { display: block; }"

@@ -128,6 +128,7 @@ const SampleJson = """{
   "zoneCenter": {"zoneCenter": [500, 500]},
   "lootStart": {"lootStart": true, "brMode": true},
   "downedMode": {"downedMode": true, "brMode": true},
+  "giveItem": {"giveItem": true, "brMode": true},
   "allowSeatTakeover": {"allowSeatTakeover": true},
   "allowDirectAim": {"allowDirectAim": true},
   "allowAimAssist": {"allowAimAssist": true, "allowDirectAim": true},
