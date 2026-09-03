@@ -1833,6 +1833,18 @@ body.commswide.act-huddle #commsdock {
   font-size: calc(10.5 * var(--u));
   color: var(--paper-dim);
 }
+/* SEAT NAMES (owner ruling 2026-09-02): the players behind the winning
+   color, secondary-weight under the hero headline — the color keeps the
+   hierarchy (palette = how viewers read the map), the names carry the
+   identity. Hidden entirely when empty (single shared policy already IS
+   the headline). */
+#endcard .ec-hero-players {
+  font-family: var(--finefont);
+  font-size: calc(11 * var(--u));
+  letter-spacing: 0.08em;
+  color: var(--paper);
+}
+#endcard .ec-hero-players:empty { display: none; }
 /* GLORY-FIRST ENDCARD (2026-09-01, owner's ruling: "the win slide at the
    end doesn't even highlight how much glory the win was worth, the most
    important thing!"). The winner's round glory total is THE number on the
@@ -1940,6 +1952,18 @@ body.commswide.act-huddle #commsdock {
   letter-spacing: 0.06em;
   color: var(--paper-dim);
   flex: none;
+}
+/* SEAT NAMES on the standings rows (owner ruling 2026-09-02): the two
+   policies behind each color chip, secondary-weight beside the label;
+   shrinks with ellipsis so the G/K/lives columns never move. */
+#endcard .ec-fplayers {
+  font-family: var(--finefont);
+  font-size: calc(8 * var(--u));
+  letter-spacing: 0.04em;
+  color: var(--paper-dim);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
 }
 #endcard .ec-fstat {
   color: var(--paper-dim);
@@ -5639,6 +5663,12 @@ body[data-noviewpanel] #viewpanel { display: none !important; }
       hero.className = 'ec-hero';
       hero.innerHTML =
         '<div class="ec-hero-name" id="ec-hero-name">—</div>' +
+        // SEAT NAMES (2026-09-02, owner's ruling: "naming the color that
+        // won alone is pointless! you have to name the players too"): the
+        // winning duo's seat identities, right under the palette headline.
+        // Empty (CSS-hidden) when the headline already IS the single
+        // shared policy name.
+        '<div class="ec-hero-players" id="ec-hero-players"></div>' +
         // GLORY-FIRST (2026-09-01, owner's ruling): the winner's round
         // glory total is THE number on the slide — the dominant numeral,
         // above the demoted survival/kills summary — with the GLORY
@@ -5792,15 +5822,30 @@ body[data-noviewpanel] #viewpanel { display: none !important; }
         (labelCount[labelOf[team]] > 1
           ? ' <span class="ec-fseats">seats ' + esc(brSeatRange(s, team)) + '</span>' : '');
     }
+    // SEAT NAMES (owner ruling 2026-09-02: "naming the color that won
+    // alone is pointless! you have to name the players too"). teamPolicies
+    // is the wire's own per-team identity list (state.teams[].policies,
+    // else per-seat p.pol/name in join-slot order — the seat-name identity
+    // contract), shown verbatim: a distinct_teammates duo reads "A + B", a
+    // filler-completed team shows the real policy plus the filler's seat
+    // name exactly as the wire records it. One shared identity means the
+    // team LABEL above already IS that name, so no extra line is added.
+    function seatNames(team) {
+      var pols = teamPolicies(s, team);
+      if (pols.length < 2) return '';
+      return pols.map(function (p) { return teamHeadline(p); }).join(' + ');
+    }
 
     var heroEl = document.querySelector('#endcard .ec-hero');
     var heroName = $('ec-hero-name'), heroLine = $('ec-hero-line');
+    var heroPlayers = $('ec-hero-players');
     var heroGloryNum = $('ec-glory-hero-num'), mvpLine = $('ec-mvp-line');
     var heroGlory = winner !== null ? teamGloryOf(o, winner) : null;
     if (heroEl) heroEl.classList.toggle('has-glory', heroGlory !== null);
     if (winner) {
       heroName.style.setProperty('--tc', teamCol(winner) || AMBER);
       heroName.innerHTML = labelHtml(winner);
+      if (heroPlayers) heroPlayers.textContent = seatNames(winner);
       if (heroGlory !== null && heroGloryNum) heroGloryNum.textContent = heroGlory;
       var rivals = teams.length - 1;
       var heroAlive = teamAliveCount(s, winner), heroSeats = teamSeatCount(s, winner);
@@ -5819,6 +5864,7 @@ body[data-noviewpanel] #viewpanel { display: none !important; }
     } else {
       heroName.style.removeProperty('--tc');
       heroName.textContent = 'NO SURVIVORS';
+      if (heroPlayers) heroPlayers.textContent = '';
       heroLine.textContent = 'Every team was eliminated — no team left standing.';
     }
     if (mvpLine) {
@@ -5844,6 +5890,7 @@ body[data-noviewpanel] #viewpanel { display: none !important; }
     shown.forEach(function (team) {
       var lv = overLives(o, team);
       var fg = teamGloryOf(o, team);
+      var names = seatNames(team);
       html += '<div class="ec-frow">' +
         '<span class="ec-frank">' + ordinal(placeOf[team]) + '</span>' +
         '<span class="ec-fname" style="--tc:' + (teamCol(team) || AMBER) + '">' +
@@ -5851,6 +5898,7 @@ body[data-noviewpanel] #viewpanel { display: none !important; }
         '<span class="ec-fname-text">' + esc(labelOf[team]) + '</span>' +
         (labelCount[labelOf[team]] > 1
           ? '<span class="ec-fseats">seats ' + esc(brSeatRange(s, team)) + '</span>' : '') +
+        (names ? '<span class="ec-fplayers">' + esc(names) + '</span>' : '') +
         '</span>' +
         (anyGlory
           ? '<span class="ec-fglory">' + (fg !== null ? fg + 'G' : '—') + '</span>' : '') +
