@@ -1294,7 +1294,10 @@
         "variantId": "battle-royale-s2",
         "gloryMultiplierRecut": true,
         "stampRealizedConfig": true,
-        "giveItem": true
+        "giveItem": true,
+        "lootSpawnSeedGuns": 3,
+        "lootSpawnSeedHoppers": 3,
+        "lootSpawnSeedRadius": 48
       }
     },
     {
