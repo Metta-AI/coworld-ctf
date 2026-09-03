@@ -509,3 +509,160 @@ suite "row 4 — downed-state: ghost, tag revive, bleed-out, splat":
     check sim.players[1].downed
     check sim.players[1].zoneOutsideTicks == 0
     check sim.players[1].puddleTicks == 0
+
+## row 5 — spawn-loot seeding (owner-approved starter fix, 2026-09-03 lane):
+## ADDITIONAL marker/hopper crates seeded within `lootSpawnSeedRadius` of
+## every spawn cluster (one per team; a BR duo's two seats already land
+## within SpawnShareStagger of each other around one shared spawn point, see
+## sim.nim's seedSpawnLoot), on top of resetLootCrates' own base placement
+## (the map's authored pool or its grenade/med-kit fallback), which stays
+## untouched. Dark by default (both counts 0); lootSpawnSeedGuns/Hoppers
+## additionally require lootStart (a config that never places any crate
+## family cannot seed extra ones into it).
+proc twoTeamSeatedGame(config: GameConfig): SimServer =
+  ## A started 4-seat BR game on the classic 2-team arena, round-robin
+  ## seated Red,Blue,Red,Blue — so team Red is (p0, p2) and team Blue is
+  ## (p1, p3), the SAME duo pairing row 4's downed-state suite already
+  ## relies on (its tag-revive tests use p1/p3 as one team on purpose).
+  startedGame(config, 4)
+
+suite "row 5 — spawn loot seeding: additive crates near spawn clusters (dark by default)":
+  test "defaults are dark and the default echo carries none of the keys":
+    let config = defaultGameConfig()
+    check config.lootSpawnSeedGuns == 0
+    check config.lootSpawnSeedHoppers == 0
+    check config.lootSpawnSeedRadius == 0
+    let echoed = parseJson(config.configJson())
+    for key in ["lootSpawnSeedGuns", "lootSpawnSeedHoppers", "lootSpawnSeedRadius"]:
+      check not echoed.hasKey(key)
+
+  test "dark: a lootStart game seeds nothing beyond the existing fallback":
+    var config = brConfig()
+    config.lootStart = true
+    var sim = twoTeamSeatedGame(config)
+    # Same fallback pools row 3's own dark-lootStart test asserts on
+    # (grenade points for guns, med-kit points for hoppers) — untouched.
+    check sim.weaponSpawns.len == sim.grenadeSpawns.len
+    check sim.hopperSpawns.len ==
+      sim.gameMap.medKitSpawns.len + sim.gameMap.medKitCandidates.len
+
+  test "validation: negative counts/radius, and seeding without lootStart, all refuse":
+    for badJson in [
+        """{"brMode": true, "lootSpawnSeedGuns": -1}""",
+        """{"brMode": true, "lootSpawnSeedHoppers": -1}""",
+        """{"brMode": true, "lootSpawnSeedRadius": -1}""",
+        """{"brMode": true, "lootSpawnSeedGuns": 2}""",              # no lootStart
+        """{"brMode": true, "lootSpawnSeedHoppers": 2}"""]:          # no lootStart
+      var config = defaultGameConfig()
+      expect CtfError:
+        config.update(badJson)
+    # Positive counts DO validate once lootStart is armed alongside them.
+    var ok = defaultGameConfig()
+    ok.update("""{"brMode": true, "lootStart": true,
+      "lootSpawnSeedGuns": 1, "lootSpawnSeedHoppers": 1}""")
+    check ok.lootSpawnSeedGuns == 1
+
+  test "armed keys round-trip through config JSON only when a count is positive":
+    var config = defaultGameConfig()
+    config.update("""{"brMode": true, "lootStart": true,
+      "lootSpawnSeedGuns": 3, "lootSpawnSeedHoppers": 2,
+      "lootSpawnSeedRadius": 48}""")
+    check config.lootSpawnSeedGuns == 3
+    check config.lootSpawnSeedHoppers == 2
+    check config.lootSpawnSeedRadius == 48
+    let echoed = parseJson(config.configJson())
+    check echoed["lootSpawnSeedGuns"].getInt == 3
+    check echoed["lootSpawnSeedHoppers"].getInt == 2
+    check echoed["lootSpawnSeedRadius"].getInt == 48
+
+  test "armed: seeded crates are appended ON TOP of the dark fallback, base entries untouched":
+    var dark = brConfig()
+    dark.lootStart = true
+    let darkSim = twoTeamSeatedGame(dark)
+    var armed = brConfig()
+    armed.lootStart = true
+    armed.lootSpawnSeedGuns = 3
+    armed.lootSpawnSeedHoppers = 2
+    armed.lootSpawnSeedRadius = 40
+    var armedSim = twoTeamSeatedGame(armed)
+    # The base pool is an untouched PREFIX, byte-identical to the dark run —
+    # the existing global scatter is never rewritten, only appended to.
+    check armedSim.weaponSpawns[0 ..< darkSim.weaponSpawns.len] ==
+      darkSim.weaponSpawns
+    check armedSim.hopperSpawns[0 ..< darkSim.hopperSpawns.len] ==
+      darkSim.hopperSpawns
+    # 2 teams (2 clusters) * 3 seeded guns / 2 seeded hoppers each, appended.
+    check armedSim.weaponSpawns.len == darkSim.weaponSpawns.len + 2 * 3
+    check armedSim.hopperSpawns.len == darkSim.hopperSpawns.len + 2 * 2
+
+  test "every seeded crate lands on walkable ground (placement is a guarantee, not a filter)":
+    var config = brConfig()
+    config.lootStart = true
+    config.lootSpawnSeedGuns = 5
+    config.lootSpawnSeedHoppers = 5
+    config.lootSpawnSeedRadius = 60
+    var sim = twoTeamSeatedGame(config)
+    for spawn in sim.weaponSpawns:
+      check sim.canOccupy(spawn.x, spawn.y)
+    for spawn in sim.hopperSpawns:
+      check sim.canOccupy(spawn.x, spawn.y)
+
+  test "duo-aware: each team's cluster carries >=2 reachable guns and >=2 hoppers for BOTH seats":
+    var config = brConfig()
+    config.lootStart = true
+    config.lootSpawnSeedGuns = 2
+    config.lootSpawnSeedHoppers = 2
+    config.lootSpawnSeedRadius = 48
+    var sim = twoTeamSeatedGame(config)   # Red: p0,p2  Blue: p1,p3
+    proc withinReach(spawn: PickupSpawn, px, py, dist: int): bool =
+      abs(spawn.x - px) <= dist and abs(spawn.y - py) <= dist
+    # SpawnShareStagger covers the partner spread; +40px covers a couple of
+    # early-game movement ticks (MaxSpeed 704/s at 24 ticks/s is ~29px/tick).
+    let reach = config.lootSpawnSeedRadius + SpawnShareStagger + 40
+    for pair in [(0, 2), (1, 3)]:
+      let (a, b) = pair
+      var guns, hoppers = 0
+      for spawn in sim.weaponSpawns:
+        if spawn.withinReach(sim.players[a].x, sim.players[a].y, reach) or
+            spawn.withinReach(sim.players[b].x, sim.players[b].y, reach):
+          inc guns
+      for spawn in sim.hopperSpawns:
+        if spawn.withinReach(sim.players[a].x, sim.players[a].y, reach) or
+            spawn.withinReach(sim.players[b].x, sim.players[b].y, reach):
+          inc hoppers
+      check guns >= 2
+      check hoppers >= 2
+
+  test "a seeded crate loots by touch exactly like any other crate":
+    var config = brConfig()
+    config.lootStart = true
+    config.lootSpawnSeedGuns = 2
+    config.lootSpawnSeedHoppers = 2
+    config.lootSpawnSeedRadius = 40
+    var sim = twoTeamSeatedGame(config)
+    # Appended last by seedSpawnLoot, so this is a SEEDED crate, not the
+    # base fallback's.
+    let seededGunX = sim.weaponSpawns[^1].x
+    let seededGunY = sim.weaponSpawns[^1].y
+    sim.centerOn(0, seededGunX, seededGunY)
+    sim.stepIdle(1)
+    check sim.players[0].hasGun
+    check not sim.weaponSpawns[^1].present
+
+  test "determinism: two fresh sims of the same seed seed identical crates":
+    proc buildSim(): SimServer =
+      var config = brConfig()
+      config.lootStart = true
+      config.lootSpawnSeedGuns = 3
+      config.lootSpawnSeedHoppers = 3
+      config.lootSpawnSeedRadius = 48
+      config.seed = 424242
+      twoTeamSeatedGame(config)
+    let simA = buildSim()
+    let simB = buildSim()
+    check simA.weaponSpawns == simB.weaponSpawns
+    check simA.hopperSpawns == simB.hopperSpawns
+    # ...keyed on the identical anchors the two sims independently derived.
+    for i in 0 ..< simA.players.len:
+      check simA.players[i].homeX == simB.players[i].homeX
+      check simA.players[i].homeY == simB.players[i].homeY

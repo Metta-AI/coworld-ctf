@@ -1007,6 +1007,99 @@ proc resetBandages*(sim: var SimServer) =
     targets.add(base[k mod base.len])
   sim.placeWalkablePickups(bandageSpawns, targets)
 
+const
+  SpawnLootDirs: array[8, tuple[dx, dy: int]] = [
+    (0, -1), (1, -1), (1, 0), (1, 1),
+    (0, 1), (-1, 1), (-1, 0), (-1, -1),
+  ]
+    ## SPAWNLOOT: an 8-compass-direction ring, pure integer offsets — no
+    ## floats/host libm, following the same "geometry must not use host
+    ## libm" replay-determinism rule arena.nim's DiamondCos table documents
+    ## (a libm trig call can differ in its last bit across platforms/
+    ## compilers; a hashed replay position never may).
+
+template seedSpawnLootFamily(
+  sim: var SimServer, spawnsField: untyped,
+  anchorX, anchorY, count, radius, dirOffset: int
+) =
+  ## SPAWNLOOT: appends `count` crates within `radius` px of one spawn
+  ## cluster's anchor point to `spawnsField`, each nudged to the nearest
+  ## walkable cell via `nearestWalkable` — the SAME expanding-ring
+  ## guarantee `placeWalkablePickups` above already relies on for every
+  ## other pickup family, so a seeded crate can never land inside a wall or
+  ## an unreachable pocket (placement is a GUARANTEE, not a filter). Extra
+  ## items beyond the first 8 lap an inner ring a third of the radius
+  ## closer in, so a large count does not restack new crates on the outer
+  ## ring's own pixels. `dirOffset` phase-shifts the guns/hoppers rings 4
+  ## of the 8 directions apart so the two families do not stack on the
+  ## exact same pixel either.
+  for spawnLootIdx in 0 ..< count:
+    let
+      spawnLootDir =
+        SpawnLootDirs[(spawnLootIdx + dirOffset) mod SpawnLootDirs.len]
+      spawnLootRing = spawnLootIdx div SpawnLootDirs.len
+      spawnLootDist =
+        max(1, radius - spawnLootRing * (radius div 3))
+      spawnLootSpot = sim.nearestWalkable(
+        anchorX + spawnLootDir.dx * spawnLootDist,
+        anchorY + spawnLootDir.dy * spawnLootDist)
+    sim.spawnsField.add PickupSpawn(
+      x: spawnLootSpot.x, y: spawnLootSpot.y, present: true, respawnAt: 0)
+
+proc seedSpawnLoot(sim: var SimServer) =
+  ## SPAWNLOOT: owner-approved starter fix (2026-09-03, verbatim: "i like
+  ## the idea of filling spawn areas with guns and hoppers so they
+  ## accidentally grab it anyway") for the field's unarmed-cog problem —
+  ## live data showed 78.8% of BR downs are zone/environmental because no
+  ## policy routes toward loot. Rather than teach every playbook to path to
+  ## a crate, put a crate where a cog's own first few steps in ANY
+  ## direction already land.
+  ##
+  ## ADDITIVE ONLY, called from resetLootCrates right after it has already
+  ## placed the base weaponSpawns/hopperSpawns (the map's authored pool, or
+  ## the grenade/med-kit fallback) — this only APPENDS more crates on top;
+  ## that existing placement is untouched. Both families stay one-shot (see
+  ## resetLootCrates's own note): a seeded crate is taken exactly like any
+  ## other, never refilled. NOTE (loot economy, flagged not solved): this
+  ## raises the total gun/hopper count on the field when armed — the
+  ## simulator/owner feel-pass should weigh that against fight pacing.
+  ##
+  ## One cluster PER TEAM, not per seat: arrangeHomePositions (called
+  ## earlier in startGame, before resetLootCrates) already staggers a BR
+  ## duo's two seats within SpawnShareStagger (24px) of each other around
+  ## one shared point (sim_state.nim's spawnPosition), so the FIRST seated
+  ## player's own homeX/homeY for that team already IS the cluster's spawn
+  ## anchor — no need to re-derive spawnPosition/spawnGroupOffset here, and
+  ## no risk of drifting from wherever the players actually spawned.
+  ## lootSpawnSeedRadius must comfortably clear that 24px partner spread
+  ## for BOTH duo seats to land in range (design requirement: >=2 guns and
+  ## >=2 hoppers reachable per pair at the armed starting constants).
+  ##
+  ## Dark by construction: both counts default to 0, so the early return
+  ## below fires and neither family's length changes — byte-identical to a
+  ## build without this feature. Never touches sim.rng: placement is a pure
+  ## function of homeX/homeY (themselves a pure function of the seed via
+  ## spawnPosition/spawnGroupOffset), so arming this cannot perturb any
+  ## OTHER rng-consuming draw's sequence, and re-simulating one seed always
+  ## seeds the same crates at the same pixels.
+  if sim.config.lootSpawnSeedGuns <= 0 and sim.config.lootSpawnSeedHoppers <= 0:
+    return
+  var seenTeam: array[Team, bool]
+  for i in 0 ..< sim.players.len:
+    let team = sim.players[i].team
+    if seenTeam[team]:
+      continue
+    seenTeam[team] = true
+    let
+      anchorX = sim.players[i].homeX
+      anchorY = sim.players[i].homeY
+    if sim.config.lootSpawnSeedGuns > 0:
+      sim.seedSpawnLootFamily(weaponSpawns, anchorX, anchorY,
+        sim.config.lootSpawnSeedGuns, sim.config.lootSpawnSeedRadius, 0)
+    if sim.config.lootSpawnSeedHoppers > 0:
+      sim.seedSpawnLootFamily(hopperSpawns, anchorX, anchorY,
+        sim.config.lootSpawnSeedHoppers, sim.config.lootSpawnSeedRadius, 4)
+
 proc resetLootCrates*(sim: var SimServer) =
   ## LOOT(s2): places the loot-start crates — the marker (gun) and the
   ## hopper (its ammo), the two halves a cog must BOTH loot to fire. The
@@ -1053,6 +1146,7 @@ proc resetLootCrates*(sim: var SimServer) =
       ]
   sim.placeWalkablePickups(weaponSpawns, weaponTargets)
   sim.placeWalkablePickups(hopperSpawns, hopperTargets)
+  sim.seedSpawnLoot()
 
 proc resetShields*(sim: var SimServer) =
   ## Places one shield deep in each team's endzone, in the same back column

@@ -2470,6 +2470,34 @@ type
                         ## the realized-config stamp. The engine only
                         ## reports it — empty when the config predates the
                         ## key or was hand-built.
+    # ── SPAWN LOOT SEEDING (owner-approved starter fix, 2026-09-03) ──
+    # appended fields, same append-safety reasoning as every block above.
+    # Every default is 0 = off, so a dark config places not one extra crate
+    # and the config echo carries none of these keys (echoSpawnLootSeedKeys,
+    # sim_config.nim) — byte-identical to a build without this feature.
+    # lootStart-gated (validate): seeding an unlootable crate on a config
+    # that spawns everyone already armed would be a silent no-op, so it is
+    # refused loudly instead, same "requires lootStart" shape as
+    # downedMode/giveItem require brMode.
+    lootSpawnSeedGuns*: int ## SPAWNLOOT: marker (gun) crates ADDITIONALLY
+                        ## placed within lootSpawnSeedRadius px of EVERY
+                        ## spawn cluster (one cluster per team — a BR duo's
+                        ## two seats already land within SpawnShareStagger
+                        ## of each other), on top of resetLootCrates' own
+                        ## placement (the map's authored pool or its
+                        ## grenade-point fallback), which is untouched. 0 =
+                        ## none seeded (default).
+    lootSpawnSeedHoppers*: int ## SPAWNLOOT: same as lootSpawnSeedGuns for
+                        ## hopper crates. 0 = none seeded (default).
+    lootSpawnSeedRadius*: int ## SPAWNLOOT: px radius the seeded crates
+                        ## above are scattered within around each spawn
+                        ## cluster's own anchor point. Read only while
+                        ## either seed count above is > 0. Every candidate
+                        ## still resolves through nearestWalkable's
+                        ## expanding-ring search (the same guarantee every
+                        ## other pickup family uses), so an oversized
+                        ## radius degrades to "somewhere reachable," never
+                        ## a wall/void placement.
 
   Player* = object
     x*, y*: int
