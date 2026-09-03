@@ -432,6 +432,16 @@
             "type": "integer"
           }
         },
+        "lootStart": {
+          "description": "Battle-royale loot-start: every seat spawns unarmed (no gun, no hopper). The gun's two lootable halves — the marker (hasGun) and the hopper, its ammo (hasHopper) — wait as one-shot crates on the map's authored weaponSpawns/hopperSpawns (or the grenade/med-kit points when absent); a cog needs both to fire. Requires brMode: true. Off by default; the battle-royale-s2 variant turns it on.",
+          "type": "boolean",
+          "default": false
+        },
+        "downedMode": {
+          "description": "Battle-royale ghost-tag-revive: a lethal hit downs a cog into a frozen, non-colliding ghost instead of killing it outright. The ghost stays alive on the wire (that is what makes it revivable) — an upright teammate within DownedTagRange for downedReviveTicks tags it back in at 1 hp; an enemy gun hit splats it for an immediate confirmed elimination; an untagged ghost bleeds out after downedBleedOutTicks (halved per successive down while downedEscalation holds). Requires brMode: true. Off by default; the battle-royale-s2 variant turns it on at the ruled default timing (downedBleedOutTicks 360, downedReviveTicks 48, downedEscalation on).",
+          "type": "boolean",
+          "default": false
+        },
         "allowSeatTakeover": {
           "description": "Allow a human client to take over a live bot-controlled seat mid-round.",
           "type": "boolean",
@@ -1216,6 +1226,8 @@
         "barrageMaxPerSec": 0,
         "mapPath": "brpool",
         "brMode": true,
+        "lootStart": true,
+        "downedMode": true,
         "zonePhases": [
           {
             "z": 0.75,
@@ -1884,7 +1896,8 @@
         "barrageMaxPerSec": 15,
         "barrageStartPerSec": 4,
         "barrageStartSec": 30,
-        "barrageSaturateSec": 30
+        "barrageSaturateSec": 30,
+        "allowDeprecatedModes": true
       }
     },
     {
@@ -2146,7 +2159,8 @@
         "barrageMaxPerSec": 15,
         "barrageStartPerSec": 4,
         "barrageStartSec": 30,
-        "barrageSaturateSec": 30
+        "barrageSaturateSec": 30,
+        "allowDeprecatedModes": true
       }
     },
     {
@@ -2192,7 +2206,8 @@
         "barrageMaxPerSec": 15,
         "barrageStartPerSec": 4,
         "barrageStartSec": 30,
-        "barrageSaturateSec": 30
+        "barrageSaturateSec": 30,
+        "allowDeprecatedModes": true
       }
     },
     {

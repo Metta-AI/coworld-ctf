@@ -3638,7 +3638,8 @@ proc firstLightSelfState(sim: SimServer, playerIndex: int): BodySelfState =
     hasSprayPaint: player.hasSprayPaint,
     arcTicksLeft: player.arcTicksLeft,
     alive: player.alive,
-    carrying: player.carryingFlag)
+    carrying: player.carryingFlag,
+    downed: player.downed)
 
 proc firstLightPartner(sim: SimServer, playerIndex: int): Option[PartnerSample] =
   let player = sim.players[playerIndex]
@@ -3647,9 +3648,11 @@ proc firstLightPartner(sim: SimServer, playerIndex: int): Option[PartnerSample] 
         other.joinOrder >= 0 and other.joinOrder < MaxPlayers:
       return some(PartnerSample(
         seat: uint8(other.joinOrder),
+        team: other.team,
         pos: other.bodyPoint,
         aimBrads: other.aimBrads,
-        alive: other.alive))
+        alive: other.alive,
+        downed: other.downed))
   none(PartnerSample)
 
 proc firstLightBodyInputs(sim: var SimServer, playerIndex: int): BodyTickInputs =
@@ -3677,7 +3680,8 @@ proc firstLightBodyInputs(sim: var SimServer, playerIndex: int): BodyTickInputs 
         shielded: target.hasShield,
         weapon: target.bodyVisibleWeapon,
         veteranMarker: target.bodyVeteranMarker,
-        tick: uint32(sim.tickCount + 1)))
+        tick: uint32(sim.tickCount + 1),
+        downed: target.downed))
   # Item sightings: every fixed pickup point inside this seat's fog, whether
   # the item is there or taken (the body's item memory keeps "seen empty"
   # facts so a play stops chasing a kit someone else grabbed). Until this

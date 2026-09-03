@@ -355,6 +355,36 @@ suite "BR N-point spawn subsystem":
     check sim.lastCaptureTeam == Red  ## default zero-value: never assigned.
     check sim.lastCaptureTick == -1   ## never set — no capture ever fired.
 
+  test "GV52: seats that re-share one authored point are staggered apart, not stacked":
+    ## The 16-team BR generator authors ONE point per team and a duo seats
+    ## two, so the second member used to spawn on the first one's pixel --
+    ## inside its solid band, where either partner's shot at a third seat
+    ## landed on the other first (18% of 928 league/XP duo pairs on GV51
+    ## were both still on that pixel 150 ticks in). Four points, four
+    ## teams, eight seats reproduces the re-share on the test map.
+    var config = defaultGameConfig()
+    config.teams = 4
+    var spec = parseJson(fourTeamSpec(spawnPoints = true, flagless = true))
+    spec["spawnPoints"] = %*[[150, 150], [W - 150, 150],
+                             [150, H - 150], [W - 150, H - 150]]
+    config.mapSpec = $spec
+    var sim = initCtfForTest(config)
+    for i in 0 ..< 8:
+      discard sim.addPlayer("p" & $i)
+    sim.startGame()
+    for i in 0 ..< 4:
+      let
+        first = sim.players[i]        ## team i's first seat: the point itself
+        second = sim.players[i + 4]   ## its duo partner: the same point, re-shared
+      check second.x == first.x
+      check second.y - first.y == SpawnShareStagger
+      check max(abs(second.x - first.x), abs(second.y - first.y)) >= PlayerSolidSpan
+      check sim.canOccupy(second.x, second.y)
+    ## And the stagger stays inside the pocket: every seat is on protected
+    ## spawn floor, not nudged out by nearestWalkable.
+    for i in 0 ..< 8:
+      check sim.canOccupy(sim.players[i].x, sim.players[i].y)
+
   test "wire: a flagless episode carries zero flag/pedestal/heart sprites and zero flag/endzone labels":
     ## "they don't need hearts and pedestals. this is not ctf. it is battle
     ## royale." — flagless must not just be gameplay-inert, the WIRE stream

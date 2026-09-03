@@ -98,6 +98,7 @@ class Persona:
     #: an experiment knob, because locally the engine default out-survived
     #: an actively riding edge_ride against the continuous S2 shrink.
     base_play: str | None = "edge_ride"
+    spawn_phase_ticks: int = 150
     include_kill_feed: bool = False
     partner_focus: bool = False
     #: (entries, context, view) -> entries. Runs after the generic repair and
@@ -931,6 +932,15 @@ def gate_and_build(seat: StarterSeat, available: list[str]) -> tuple[bytes, list
     gated = layer_ladder(seat.wanted_entries, seat.view or {},
                          seat.context or {}, seat.kill_feed,
                          base_play=base_play)
+    if _in_spawn_phase(seat):
+        # Nothing rides above scatter in the spawn phase. Gated controllers
+        # sort above the base, and a jackal whose gate opens the moment an
+        # enemy is in view holds the seat ON the spawn point -- on top of
+        # its duo partner, since the engine drops both on one point -- where
+        # the two shoot each other. Measured over 928 duo pairs: 32% of
+        # aggressive seats were still on the spawn point 150 ticks in, 0% of
+        # cautious and collaborative (no jackal).
+        gated = [e for e in gated if e.get("play") not in GATED_PLAYS]
     gated = ally_clones(gated, seat.context or {})
     return build_call({"call": {"entries": gated}}, available)
 
@@ -939,8 +949,9 @@ SPAWN_PHASE_TICKS = 150
 
 
 def _in_spawn_phase(seat: StarterSeat) -> bool:
-    """True for the first SPAWN_PHASE_TICKS after the seat's first view (the
-    views start when the match does), and before any view at all."""
+    """True for the persona's spawn_phase_ticks (default SPAWN_PHASE_TICKS)
+    after the seat's first view (the views start when the match does), and
+    before any view at all."""
     view = seat.view or {}
     tick = view.get("tick")
     if not isinstance(tick, int):
@@ -949,7 +960,7 @@ def _in_spawn_phase(seat: StarterSeat) -> bool:
     if first is None:
         seat.first_view_tick = tick
         first = tick
-    return tick - first < SPAWN_PHASE_TICKS
+    return tick - first < getattr(seat, "spawn_phase_ticks", SPAWN_PHASE_TICKS)
 
 
 # ── The run ───────────────────────────────────────────────────────────────
@@ -1056,6 +1067,7 @@ def run(persona: Persona, args) -> int:
         seat = StarterSeat(ws, args.slot)
         seat.base_play = (None if os.environ.get("POC_NO_BASE_PLAY") == "1"
                           else persona.base_play)
+        seat.spawn_phase_ticks = persona.spawn_phase_ticks
 
         for _ in range(40):
             seat.pump()

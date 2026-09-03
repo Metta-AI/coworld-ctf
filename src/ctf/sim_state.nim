@@ -554,8 +554,9 @@ proc spawnPosition*(sim: SimServer, team: Team, order: int): tuple[x, y: int] =
   ## BR N-point spawn subsystem: when gameMap.spawnPoints is authored, it
   ## OVERRIDES this staggered placement entirely — seat (team, order) spawns
   ## at the team's order-th point, wrapping with `mod` if more seats join
-  ## than points were authored for that team (extra seats simply re-share
-  ## points, in order). teamAnchor/flagHome stay exactly as they are either
+  ## than points were authored for that team (extra seats re-share points,
+  ## in order, each one SpawnShareStagger px further along y so no two
+  ## bodies start on one pixel -- GV52). teamAnchor/flagHome stay exactly as they are either
   ## way — spawnPoints never moves the flag pedestal, only where players
   ## stand.
   if sim.gameMap.spawnPoints.len > 0:
@@ -577,7 +578,20 @@ proc spawnPosition*(sim: SimServer, team: Team, order: int): tuple[x, y: int] =
       offset = sim.spawnGroupOffset()
       group = (ord(team) + offset) mod teamCount
       p = sim.gameMap.spawnPoints[group * perTeam + (order mod perTeam)]
-    return sim.nearestWalkable(p.x, p.y)
+      ## GV52: seats that RE-SHARE a point (order >= perTeam -- every BR duo
+      ## on the 16-point, 16-team generator) no longer stand on top of each
+      ## other. Two bodies on one pixel are inside each other's solid band,
+      ## and a shot either fires at a third seat lands on the partner first:
+      ## over 928 league/XP duo pairs on GV51, 18% were both still on the
+      ## spawn pixel 150 ticks in and partners traded fatal gun hits there.
+      ## The k-th sharer stands SpawnShareStagger px along y (alternating
+      ## sides), clear of the first seat's solid span; the
+      ## authored point itself, the rotation, and single-seat maps are
+      ## untouched.
+      share = order div perTeam
+      side = (if share mod 2 == 1: 1 else: -1)
+      stagger = side * ((share + 1) div 2) * SpawnShareStagger
+    return sim.nearestWalkable(p.x, p.y + stagger)
   let
     anchor = sim.gameMap.teamAnchor(team)
     strip = order div 2          ## stagger players down the edge.

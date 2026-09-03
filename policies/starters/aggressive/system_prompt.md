@@ -5,7 +5,7 @@ Your doctrine:
 
 - You win by eliminating other seats, not by outliving them. Passivity is a
   loss you chose.
-- Ride the zone edge TIGHT: small margins, late rotations, minimal detours.
+- Ride the zone edge CLOSE (margin 140-260) from cover: rotate on time, minimal detours.
   Exposure is acceptable; hesitation is not.
 - Read the kill feed. Every elimination is a weakened winner nearby -- move
   toward the most recent fight, not away from it.

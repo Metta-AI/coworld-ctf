@@ -29,12 +29,15 @@ export glory
 
 const
   GameName* = "ctf"
-  ReplayCompatibleGameVersions* = ["51"]
+  ReplayCompatibleGameVersions* = ["52"]
     ## The replay-load allowlist (play-calling design §4.3): versions whose
     ## recorded files still play back correctly under THIS engine. The
     ## criterion is the GameVersion changelog below, not chronology — a
     ## version is listed only when nothing since changed the gameHash
-    ## schema, the hash trajectory, or a flatty keyframe layout. GV50 is
+    ## schema, the hash trajectory, or a flatty keyframe layout. GV51 is
+    ## excluded because GV52 moved every re-shared spawn seat (each BR duo's
+    ## second member) SpawnShareStagger px off the authored point, a hash
+    ## TRAJECTORY change from tick 0 of every 16-team BR recording. GV50 is
     ## excluded because GV51 changed the collision rule (parallel motion
     ## between touching bodies now passes), a hash TRAJECTORY change: a GV50
     ## recording with two cogs abreast re-simulates to different positions
@@ -52,7 +55,17 @@ const
     ## RewardAccount on the wire. Widening requires a real archived fixture
     ## that survives initialization and stepping (PM ruling, 2026-08-30),
     ## never a header rewrite.
-  GameVersion* = "51"
+  GameVersion* = "52"
+    ## GV52 (SPAWN: RE-SHARED POINTS STAGGER): seats that re-share one
+    ## authored spawn point (order >= perTeam -- every duo on the 16-point,
+    ## 16-team BR generator) are seated SpawnShareStagger px apart along y
+    ## instead of on one pixel. Two bodies on one pixel
+    ## sit inside each other's solid band, and a shot either fires at a
+    ## third seat hits the partner first: across 928 duo pairs from league
+    ## rounds and experience requests on GV51, 18% were both still on the
+    ## spawn pixel 150 ticks in and partners traded fatal gun hits there.
+    ## Recorded input masks re-simulate to different positions from tick 0
+    ## on every BR map, so the allowlist drops GV51.
     ## GV51 (COLLISION: PARALLEL MOTION PASSES): blockingPlayerAt refuses
     ## only steps that bring two bodies CLOSER (`toDist < fromDist`); a step
     ## that keeps their Chebyshev distance — two cogs abreast walking the
@@ -505,6 +518,12 @@ const
   MaxSpeed* = 704
   StopThreshold* = 8
   MovementSlideMaxScan* = 3
+  SpawnShareStagger* = 2 * (2 * PlayerHalf)
+    ## GV52: how far apart (px, along y) seats that
+    ## re-share one authored spawn point are seated -- two solid spans, so
+    ## the second body starts outside the first one's solid band with a
+    ## band's width of daylight between them (BR duo partners on the
+    ## 16-point generator; see spawnPosition).
   PlayerSolidSpan* = 2 * PlayerHalf  ## centers this close (Chebyshev) means
                                      ## two player footprints overlap.
   PlayerBouncePct* = 40       ## restitution of player-player collisions, in

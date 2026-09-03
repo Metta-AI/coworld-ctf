@@ -86,8 +86,30 @@ suite "broadcast chrome (both modes, one page)":
 
   test "the paintball chrome activates by frame content, never by default":
     check "var PB_MODE = false;" in page
-    check "s.regime !== undefined" in page
+    # modechrome lane: `s.regime` rides every squad-seated frame (BR AND
+    # Campaign/classic squad variants alike, not just Paintball), so the
+    # latch reads the wire's actual Paintball-exclusive tell (`hillOwner`,
+    # only ever emitted behind `sim.config.hill`, which only the `paintball`
+    # manifest variant sets) via isPaintballMode() instead.
+    check "function isPaintballMode(s) { return !!(s && s.hillOwner !== undefined); }" in page
+    check "if (!PB_MODE && isPaintballMode(s) && !isElim(s)) PB_MODE = true;" in page
     check "if (PB_MODE && window.PaintballChrome" in page
+
+  test "heart banners are classic-CTF-only chrome (BR/flagless/PB gated)":
+    # Hotfix lane 2026-09-02: the wire's steal/return/capture events are
+    # diffed off sim.flags carrier flips, a mechanism #370's loot rework now
+    # also exercises on BR frames — a LIVE battle royale rendered a
+    # "BLUE HEART RETURNED" banner. The heart banner/beat/cap-heart paths
+    # must sit behind the same mode tells #364/#369 established.
+    check "if ((e.k === 'steal' || e.k === 'return' || e.k === 'capture') &&" in page
+    check "(isElim(s) || isFlagless(s) || PB_MODE)) return;" in page
+    check "if (self.carry && !isElim(lastState) && !isFlagless(lastState) && !PB_MODE)" in page
+    check "if (!s.beats || isElim(s) || isFlagless(s) || PB_MODE) return;" in page
+    # The up-front beat timeline path too: replays ship every heart beat on
+    # the first HUD frame, so without this a BR scrubber still grew steal
+    # markers even with applyEvent gated.
+    check "ingestBeats(heartGatedBeats(s));" in page
+    check "function heartGatedBeats(s)" in page
 
   test "chrome_common.js is byte-identical to the shared original":
     check fingerprint(chrome) == ChromeCommonFingerprint

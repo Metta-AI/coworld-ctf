@@ -76,6 +76,11 @@ type
     aimBrads*: int32
     alivePresent*: bool
     alive*: bool
+    downed*: bool
+      ## LOOT(s2): a frozen ghost -- never true unless downedMode is armed.
+      ## Stays alive==true while downed (that is what makes it revivable),
+      ## so a play needs THIS bit, not `alive`, to know it cannot
+      ## fire/loot/shout right now.
 
   SdkZone* = object
     phasePresent*: bool
@@ -104,6 +109,10 @@ type
     aimBrads*: int32
     bountyPresent*: bool
     bounty*: bool
+    downed*: bool
+      ## LOOT(s2): this seat is a frozen ghost. On the duo-partner grant row
+      ## this is the reason to watch this field: revive it instead of
+      ## treating it as a live threat/ally.
 
   SdkAggressor* = object
     tickPresent*: bool
@@ -377,10 +386,12 @@ const
   ContextSelfRecordNeed = 16'i32
 
   SelfAliveFlag = 1'u32
+  SelfDownedFlag = 8'u32
   ZoneNextPresentFlag = 1'u32
   TrackAimPresentFlag = 1'u32
   TrackHpPresentFlag = 2'u32
   TrackBountyFlag = 4'u32
+  TrackDownedFlag = 8'u32
   ItemPresentFieldFlag = 1'u32
   ItemPresentValueFlag = 2'u32
   AggressorSeatPresentFlag = 1'u32
@@ -934,6 +945,7 @@ proc readSelf(frame: BinaryFrame; section: BinarySection): SdkSelf =
   discard frame.u32At(offset, flags)
   result.alivePresent = true
   result.alive = (flags and SelfAliveFlag) != 0
+  result.downed = (flags and SelfDownedFlag) != 0
   result.pos.present =
     frame.i32At(offset + 4, result.pos.x) and
     frame.i32At(offset + 8, result.pos.y)
@@ -989,6 +1001,7 @@ proc readTrack(frame: BinaryFrame; section: BinarySection;
   if (flags and TrackBountyFlag) != 0:
     result.bountyPresent = true
     result.bounty = true
+  result.downed = (flags and TrackDownedFlag) != 0
 
 proc readItem(frame: BinaryFrame; section: BinarySection;
               index: int32): SdkItem =

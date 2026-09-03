@@ -66,6 +66,10 @@
         "carrying": {
           "type": "boolean",
           "$comment": "ctf only; omit when false"
+        },
+        "downed": {
+          "type": "boolean",
+          "$comment": "LOOT(s2), br downedMode only; omit when false. A frozen ghost: stays alive==true (that is what makes it revivable) but cannot fire, loot, shout, or be hurt by hazards -- a policy needs THIS bit, not alive, to know it is down."
         }
       }
     },
@@ -212,6 +216,10 @@
           "bounty": {
             "type": "boolean",
             "$comment": "fog-derived from the visible veteran marker with track freshness; omit when false/unseen/stale (\u00a75.2)"
+          },
+          "downed": {
+            "type": "boolean",
+            "$comment": "LOOT(s2), br downedMode only; omit when false. On the duo-partner grant row this is the reason the row exists: a policy cannot revive a partner it cannot see is down. On an ordinary fogged enemy row it rides the same visibility as the rest of the row."
           }
         }
       }

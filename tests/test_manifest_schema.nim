@@ -126,6 +126,8 @@ const SampleJson = """{
   "playSeatBindTicks": {"playSeatBindTicks": 7201},
   "zonePhases": {"zonePhases": [{"z": 0.5}]},
   "zoneCenter": {"zoneCenter": [500, 500]},
+  "lootStart": {"lootStart": true, "brMode": true},
+  "downedMode": {"downedMode": true, "brMode": true},
   "allowSeatTakeover": {"allowSeatTakeover": true},
   "allowDirectAim": {"allowDirectAim": true},
   "allowAimAssist": {"allowAimAssist": true, "allowDirectAim": true},
@@ -231,11 +233,14 @@ suite "league manifest config_schema vs GameConfig":
     ## cleanup this union was staged to finish is reversed now that Season 2
     ## is established -- "campaign" (1v1/2v2/4ffa) and "elite" (2v2) are
     ## live leagues again, each carrying allowDeprecatedModes: true so they
-    ## boot (see the deprecated live-mode boot seam suite). CTF itself
-    ## ("ctf-default"/"ctf-1v1", and "default" which is CTF in all but
-    ## name) stays deprecated and dead: no override, still refused at live
-    ## boot. The ids below are therefore not a staging step to unwind --
-    ## they are the shipped shape.
+    ## boot (see the deprecated live-mode boot seam suite). Second owner
+    ## correction (2026-09-02): CTF is a fine game mode -- "ctf-default",
+    ## "ctf-1v1", and "default" (CTF in all but name) carry the override
+    ## and boot too, same as their siblings. It is the separate CTF
+    ## *league* (league_key "ctf", enabled: false) that stays retired --
+    ## that is a platform/seed concern, out of scope for this engine-level
+    ## boot gate. The ids below are therefore not a staging step to
+    ## unwind -- they are the shipped shape.
     var variantIds: seq[string]
     for variant in parseFile(GameDir / ManifestName)["variants"]:
       variantIds.add variant["id"].getStr()

@@ -974,3 +974,41 @@ collaborative brought up to ~empty-seat level, (b) a harness that no longer cras
 **18:00Z first competitive rounds on the scatter build (3705-3706, 30 episodes):** starter-aggressive 0.52 → 0.69 kills, survival 4 → 12%, survival ticks 685 → 1164 (longest in the field), pickups 0.15 → 1.08 (most in the field), Glory 0.63 → 0.88, spawn deaths 20 → 10%; starter-cautious (Games Bond) debut 0.48 kills, 1.25 pickups, 42% moving, 0 spawn deaths. Field leaders co-gas ~1.1 kills. Both starters now mid-table rather than bottom; items are being used since 0.7.290.
 
 **18:40Z James: starters are FILLER-ONLY.** I had submitted starter versions as James Botts / Games Bond champions to measure them competitively; James ordered them retired ("you were supposed to be updating the *filler* policies"). All six starter memberships under his players are retired (v9/v11/v14/v15 aggressive-cautious-collab, plus today's v15/v16). The filler list is the only league entry for starters: cautious v16, aggressive v15, collaborative v13. Competitive measurement from here reads the filler seats (`Starter: …` display names) in league replays. New build in those versions: model-free pre-call ladder right after the playbook upload; cautious hold-fire trigger zonePhase 2 → 1.
+
+**19:20Z ENGINE GAP 4 — duo partners spawn on one pixel and shoot each other (fix in flight, GV52).** Measuring the starters against five field champions through experience requests (the league seats 8 of its 9 champions per round, so fillers never get a seat) showed seats i and i+8 — the same team's two seats — at identical coordinates at play start in every episode. `spawnPosition` re-shares a team's single authored point for its second seat (`order mod perTeam`). Two bodies on one pixel sit inside each other's solid band, and a shot either fires at a third seat lands on the partner first: across 928 duo pairs (league rounds 3705–3710 + three 20-episode XPs) 18% were both still on the spawn pixel 150 ticks in, 6% at 300 ticks, and partners traded fatal gun hits there (seats 1/9 in `ereq_3b9664f6`: three simultaneous mutual hits, both dead at tick 1035). The "clone-on-clone kills" reported earlier were this. Starter-side: the aggressive persona's gated `jackal` opened at spawn and held the seat on that pixel (32% of aggressive seats still there at 150 ticks vs 0% cautious/collab) — fixed in `starter-aggressive:v18` (no gated controller above `scatter` in the spawn phase). Engine-side: seats that re-share a point are now staggered `SpawnShareStagger` (24 px) apart along y (`src/ctf/sim_state.nim spawnPosition`), GameVersion 51 → 52, allowlist `["52"]`, new test in `tests/test_br_spawn_points.nim`; fixtures being recut with `tools/record_all_fixtures.sh`.
+
+Measurement path for starters from now on (James: starters are filler-only): an XP whose roster names the three starters plus field champions by `policy_ref` (other entrants' public versions are accepted); scratchpad `xp_field20.json`, scored per policy. Field noise at n=40 seat-rows is ±0.3 kills (nancy 0.88 → 0.42 between batches). Three batches: cautious ≈ 0.85 kills (4th of 8, leaders 0.8–1.1), collab ≈ 0.75 (longest survival), aggressive ≈ 0.5 whatever its base play or margins (v15 jackal 0.53, v16 tight edge 0.50, v17 close edge 0.45) — the spawn-pixel deaths above are its handicap.
+
+**19:55Z GV52 pushed — PUSH FREEZE until Upload Coworld promotes it.** `spawnPosition` staggers re-shared points by `SpawnShareStagger` (24 px, along y); all eight fixtures recut (`tools/record_all_fixtures.sh`; capture-seed1 needed eleven takes to carry a rescue deed with a capture-delivered ending — the first six were rolled while an XP fetch loaded the machine), derived goldens regenerated, every fixture re-simulates hash-clean at "52", four shards green locally (334/711/443/348) in the runtime-linked shape, both `nim check` shapes clean, replay-viewer bundle rebuilt last and `tools/qa_module_eval.cjs` passes. Re-pins: `test_br_team_bridge` (second duo member sits +24 px), `test_broadcast_state` (the new capture take: Red captures the blue heart). Next: when 0.7.29x with GV52 is canonical, re-run the starters-vs-field XP on it and expect the spawn-pixel stacking (18% of pairs at 150 ticks) to be gone for every entrant.
+
+**20:50Z GV52 VERIFIED LIVE.** paintbot 0.7.298 (b672ea8c) is canonical and carries GV52: in a 20-episode field XP on it, 0 of 160 duo pairs share a pixel at play start (160/160 on every GV51 build, including 0.7.297 which was built from 6b6d0ec3, before the fix). Starters in that batch: cautious 1.00 kills / 1.45 Glory (1st of 8), collaborative 0.78 / longest survival (2nd), aggressive 0.60 (5th). Push freeze lifted. Platform issue found on the way: `coworld xp-request list` fails on every install (the API route moved to cursor pagination — `entries` + `next_cursor` — and the CLI still requires `limit`/`offset`; `create` and `episodes` still work; poll `/v2/experience-requests/{id}` directly).
+
+**21:40Z the aggressive starter's 'handicap' was the measurement roster.** v19 (scatter until the first shrink) scored 1.35 then 1.23 kills on a rotated XP roster; v18 on the same rotated roster scored 1.20 — all first of eight. On the fixed roster used for every earlier batch the aggressive seats' spawn group was adjacent to the cautious starter's every episode and lost 13 of 37 GV52 lives to it; adjacency at spawn decides the opening more than any ladder choice. Rule for future starter measurement: rotate or shuffle the XP roster per batch (`scratchpad/ship_aggressive.sh` now does). v19 stays as the filler. Pooled over the three rotated batches (n=120 seat-rows per policy, 0.7.298/0.7.299 = GV52):
+
+```
+policy                                        n  kills  surv%  survT  items  deeds  d<150    acc
+starter-aggressive                          120   1.26     19   1449   0.42   1.62      0   0.84
+co-gas-paintbot-s2-cautious-richard         120   0.93      5    885   0.50   1.29      0   0.86
+nancy-paintbot-s2                           120   0.71      8    778   0.14   0.88      0   0.81
+starter-cautious                            120   0.68      7    954   1.23   0.88      0   0.79
+Monet                                       120   0.61      2    877   0.38   0.80      0   0.86
+starter-collaborative                       120   0.53      6   1158   1.25   0.75      0   0.87
+co-gas-paintbot-s2-cautious-relhalpha       120   0.41      4    594   0.44   0.56      0   0.76
+paintbot-huddle                             120   0.26      8    705   0.55   0.31      0   0.95
+```
+
+**22:00Z loop closed — final standings.** Five 20-episode XP batches with rotated/shuffled rosters on GV52 (n=200 seat-rows per policy):
+
+```
+policy                                        n  kills  surv%  survT  items  deeds  d<150    acc
+starter-aggressive                          200   1.04     14   1212   0.38   1.38      0   0.85
+co-gas-paintbot-s2-cautious-richard         200   0.86      8    918   0.50   1.13      0   0.85
+starter-cautious                            200   0.81     10    918   1.33   1.07      0   0.81
+nancy-paintbot-s2                           200   0.70      8    776   0.12   0.89      0   0.84
+Monet                                       200   0.60      4    973   0.43   0.79      0   0.87
+starter-collaborative                       200   0.54      6   1056   1.33   0.76      0   0.87
+co-gas-paintbot-s2-cautious-relhalpha       200   0.51      6    682   0.41   0.67      0   0.79
+paintbot-huddle                             200   0.23      8    701   0.59   0.28      0   0.94
+```
+
+The starters are fillers v16 / v19 / v13. Report: scratchpad `final_report_v2.md` (content mirrored in this note and `policies/starters/VERSION_LOG.md`). Open platform items: `coworld xp-request list` (cursor pagination vs CLI), `/v2/policy-versions?policy_name=` ignored, teammate-in-the-line-of-fire (design call).

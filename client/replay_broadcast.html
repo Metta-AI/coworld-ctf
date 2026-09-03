@@ -3091,7 +3091,14 @@ body[data-noviewpanel] #viewpanel { display: none !important; }
     var s;
     try { s = JSON.parse(txt); } catch (e) { return; }
     lastState = s;
-    if (!PB_MODE && s.regime !== undefined) PB_MODE = true;
+    // modechrome lane: `regime` was never a Paintball-exclusive signal (see
+    // isPaintballMode's comment) — it also rides Campaign/classic squad
+    // episodes, which were false-latching PB_MODE and getting the same
+    // deprecated hill/RED-BLUE/game-N/M chrome #364 stripped off BR. Gate
+    // on the wire's actual Paintball tell (`hillOwner`) instead; keep the
+    // `!isElim(s)` exclusion as defense-in-depth so BR can never claim this
+    // chrome even if hill were ever misconfigured for it.
+    if (!PB_MODE && isPaintballMode(s) && !isElim(s)) PB_MODE = true;
     dismissLockerRoom();  // the board is live — fade the pre-load curtain
 
     if (START_SPEED != null) { send(START_SPEED); START_SPEED = null; }
@@ -3139,7 +3146,12 @@ body[data-noviewpanel] #viewpanel { display: none !important; }
     ingestLeadSeries(s);
     ingestFpMap(s);
     ingestLullSpans(s);
-    ingestBeats(s);
+    // The up-front beat timeline is the OTHER path heart chrome rides
+    // (replays ship every steal/return/capture beat on the first HUD frame,
+    // so applyEvent's gate alone still left steal markers on a BR scrubber).
+    // Same heart gate, applied before chrome_common's ingestBeats latches
+    // its once-only beatTimeline.
+    ingestBeats(heartGatedBeats(s));
     ingestCapHearts(s);
     recordMomentum(s);
 
@@ -3431,6 +3443,31 @@ body[data-noviewpanel] #viewpanel { display: none !important; }
   // too. Absent block = classic CTF, so every existing replay is unchanged.
   function isFlagless(s) { return !!(s && s.br && s.br.flagless); }
   function isElim(s) { return !!(s && s.br && s.br.elim); }
+  // Genuine Paintball, extending #364's lesson one layer up: `regime` rides
+  // ANY squad-seated frame (numAgents > 0) — BR's 16 duo seats AND every
+  // Campaign/classic squad variant (4ffa, 2v2, ctf-default, ...) also set
+  // numAgents > 0, per sim_config.nim's own `squadModeConfigured` comment
+  // ("numAgents alone is not a paintball signal"). `hillOwner` is the wire's
+  // actual Paintball-exclusive tell: broadcast.nim only emits it behind
+  // `sim.config.hill`, which the manifest sets true ONLY for the `paintball`
+  // variant (never Campaign's 4ffa/4ffa8, never BR). Using it instead of
+  // `regime` is what stops a Campaign/territory episode from false-latching
+  // the deprecated hill/RED-BLUE/game-N/M chrome #364 already fixed for BR.
+  function isPaintballMode(s) { return !!(s && s.hillOwner !== undefined); }
+  // Heart gate for the up-front beat timeline: on a BR/flagless/PB frame,
+  // hand ingestBeats a copy with the steal/return/capture beats stripped so
+  // the scrubber never grows heart markers (the mode tells ride the SAME
+  // frame as the beats — broadcast.nim pins `br` on every brMode frame — so
+  // this can never race the latch). Classic frames pass through untouched.
+  function heartGatedBeats(s) {
+    if (!s || !s.beats || !(isElim(s) || isFlagless(s) || PB_MODE)) return s;
+    var copy = {};
+    for (var k in s) copy[k] = s[k];
+    copy.beats = s.beats.filter(function (b) {
+      return b.k !== 'steal' && b.k !== 'return' && b.k !== 'capture';
+    });
+    return copy;
+  }
 
   function renderScorebug(s) {
     var teams = activeTeams(s);
@@ -3542,15 +3579,19 @@ body[data-noviewpanel] #viewpanel { display: none !important; }
       setHandicap('hcap-' + team, s, team);
       // SEASON 2 GLORY: the team's running ledger total (sim.teamGlory,
       // broadcast.nim teamStateJson's unconditional "glory" key — present
-      // on every replay from the glory port onward, absent on anything
-      // recorded before it). The plate only grows the second row once the
-      // field is actually a number, so an older replay's topbar is
-      // unchanged pixel-for-pixel.
+      // on every replay from the glory port onward, regardless of mode, so
+      // `typeof gv === 'number'` alone is NOT a "this is a Glory match"
+      // signal — it was true, and rendering "GLORY 0" plates, on a
+      // Campaign/territory episode too. Owner ruling (modechrome lane):
+      // Campaign is territory-scored; Glory is the Season 2 BR economy
+      // only. Require `isElim(s)` (BR) same as the endcard's per-team
+      // panel below, so a pre-glory replay AND every non-BR mode both
+      // render this row exactly as if the field were absent.
       var gv = tr[team] && tr[team].glory;
       var platePre = document.querySelector('.plate[data-team="' + team + '"]');
-      if (platePre) platePre.classList.toggle('has-glory', typeof gv === 'number');
+      if (platePre) platePre.classList.toggle('has-glory', isElim(s) && typeof gv === 'number');
       var gloryEl = $('glory-' + team);
-      if (gloryEl && typeof gv === 'number') gloryEl.textContent = gv;
+      if (gloryEl && isElim(s) && typeof gv === 'number') gloryEl.textContent = gv;
       // HEAT FLAME: same trailing-window gain tracker the BR leader block
       // uses (noteGloryForHeat/applyHeatFlame above) — one tracker per team
       // key, so a classic 2-4 team plate's flame and the BR block never
@@ -4600,7 +4641,11 @@ body[data-noviewpanel] #viewpanel { display: none !important; }
     if (typeof self.lives === 'number') bits.push('×' + self.lives);
     (self.items || []).forEach(function (it) { bits.push(ITEM_LABEL[it] || it.toUpperCase()); });
     var html = bits.map(function (b) { return '<span>' + b + '</span>'; }).join('');
-    if (self.carry) html += '<span class="carry">♥ HEART</span>';
+    // Heart chrome is classic-CTF-only (same tells as applyEvent's heart
+    // gate): a BR/flagless/Paintball frame never shows the carry chip.
+    if (self.carry && !isElim(lastState) && !isFlagless(lastState) && !PB_MODE) {
+      html += '<span class="carry">♥ HEART</span>';
+    }
     gearEl.innerHTML = html;
   }
 
@@ -4800,6 +4845,15 @@ body[data-noviewpanel] #viewpanel { display: none !important; }
       beatPulse();
       return;
     }
+    // HEARTS ARE CLASSIC-CTF CHROME ONLY (extends #364/#369's mode tells):
+    // the wire's steal/return/capture events are DIFFED off sim.flags
+    // carrier flips (broadcast.nim), a mechanism #370's loot rework now
+    // also exercises on BR frames — a LIVE battle royale was rendering a
+    // "BLUE HEART RETURNED" banner (owner screenshot, hotfix lane). A BR
+    // (isElim), flagless, or Paintball frame must never reach the heart
+    // banner/beat/cap-heart handlers below, whatever the wire carries.
+    if ((e.k === 'steal' || e.k === 'return' || e.k === 'capture') &&
+        (isElim(s) || isFlagless(s) || PB_MODE)) return;
     switch (e.k) {
       case 'kill': onKill(e, s); markBeat(e.t, 'kill', killMarkerTeam(e, s)); beatPulse(); break;
       case 'steal': onSteal(e, s); markBeat(e.t, 'steal', e.flag); beatPulse(); break;
@@ -4957,7 +5011,7 @@ body[data-noviewpanel] #viewpanel { display: none !important; }
         el.className = 'glory-pop' + (p.lbl ? ' claim' : '') + (p.amt < 0 ? ' neg' : '');
         el.textContent = p.lbl
           ? p.lbl
-          : (p.amt >= 0 ? '+' : '') + p.amt + 'g' + (p.word ? ' ' + p.word : '');
+          : (p.amt >= 0 ? '+' : '') + p.amt + 'G' + (p.word ? ' ' + p.word : '');
         gloryPopsEl.appendChild(el);
         gloryPopEls[key] = el;
       }
@@ -5368,14 +5422,28 @@ body[data-noviewpanel] #viewpanel { display: none !important; }
     return team === 'red' ? (o.redLives || 0) : team === 'blue' ? (o.blueLives || 0) : 0;
   }
 
-  function endcardWinCondition(o, teams) {
+  function endcardWinCondition(o, teams, elim) {
     // The condition CHIP: how the match ended, in two or three words.
-    // (A time-limit ending is always a draw in the current rules — the sim's
-    // checkMaxTicks path never crowns a winner — so timeLimit only pairs
-    // with draw here.)
-    if (o.endRule !== undefined) {
+    // (A time-limit ending is always a draw in classic rules — the sim's
+    // checkMaxTicks path never crowns a winner there — so timeLimit only
+    // pairs with draw below. BR is the one exception: brTiebreakWinner()
+    // crowns a winner off the clock too, draw-free by design, so `elim`
+    // gets its own timeLimit branch instead of falling into that rule.)
+    // modechrome lane: `o.endRule` rides broadcast.nim's "Squad-game
+    // endcard extras" block, gated on `numAgents > 0` — the same
+    // over-broad tell #364 (and this lane) already found is NOT
+    // Paintball-exclusive: Campaign/classic squad episodes (elim=false,
+    // never genuinely Paintball) also carry it, defaulted to the
+    // SimServer struct's startup "full_time" forever since classic CTF
+    // win logic never sets it. `!elim` alone let those through into this
+    // switch and rendered "FULL TIME ON THE HILL" on a Campaign match
+    // that had just ended by elimination. Require PB_MODE (the same
+    // genuine-Paintball latch as the live scorebug/chrome) instead —
+    // BR already takes its own branch below either way.
+    if (o.endRule !== undefined && PB_MODE) {
       // PAINTBALL names the RULE the server actually applied, so the chip can
-      // never disagree with the endRule in results.json.
+      // never disagree with the endRule in results.json. Skipped for BR (own
+      // branch below) and for every non-Paintball classic/Campaign mode.
       switch (o.endRule) {
         case 'wipe': return o.draw ? 'MUTUAL WIPE' : 'WIPE';
         case 'mercy': return 'MERCY — LEAD BEYOND THE CLOCK';
@@ -5386,6 +5454,8 @@ body[data-noviewpanel] #viewpanel { display: none !important; }
       }
     }
     if (o.draw) return o.timeLimit ? 'TIME LIMIT — DRAW' : 'DRAW';
+    if (elim && o.timeLimit) return 'TIME LIMIT — TIEBREAK';
+    if (elim) return 'LAST TEAM STANDING';
     var losers = teams.filter(function (t) { return t !== o.winner; });
     var bestLoser = 0;
     losers.forEach(function (t) { bestLoser = Math.max(bestLoser, overLives(o, t)); });
@@ -5419,7 +5489,9 @@ body[data-noviewpanel] #viewpanel { display: none !important; }
     (capHeartsBySlot[e.by] = capHeartsBySlot[e.by] || []).push(e.flag);
   }
   function ingestCapHearts(s) {
-    if (!s.beats) return;
+    // Same heart gate as applyEvent: captured-heart endcard badges are
+    // classic-CTF chrome; never ingest them off a BR/flagless/PB frame.
+    if (!s.beats || isElim(s) || isFlagless(s) || PB_MODE) return;
     for (var i = 0; i < s.beats.length; i++) {
       if (s.beats[i].k === 'capture') recordCapHeart(s.beats[i]);
     }
@@ -5718,7 +5790,7 @@ body[data-noviewpanel] #viewpanel { display: none !important; }
       mvpLine.innerHTML = anyGlory && gloryLeader !== null
         ? 'GLORY LEADER — <span class="ec-mvp-team" style="--tc:' +
           (teamCol(gloryLeader) || AMBER) + '">' + labelHtml(gloryLeader) +
-          '</span> ' + leaderGlory + 'g <span class="ec-mvp-dim">(' +
+          '</span> ' + leaderGlory + 'G <span class="ec-mvp-dim">(' +
           ordinal(placeOf[gloryLeader]) + ')</span>'
         : '';
     }
@@ -5746,7 +5818,7 @@ body[data-noviewpanel] #viewpanel { display: none !important; }
           ? '<span class="ec-fseats">seats ' + esc(brSeatRange(s, team)) + '</span>' : '') +
         '</span>' +
         (anyGlory
-          ? '<span class="ec-fglory">' + (fg !== null ? fg + 'g' : '—') + '</span>' : '') +
+          ? '<span class="ec-fglory">' + (fg !== null ? fg + 'G' : '—') + '</span>' : '') +
         '<span class="ec-fstat">' + teamKillTotal(s, team) + ' K</span>' +
         '<span class="ec-fstat">' + lv + (lv === 1 ? ' life' : ' lives') + '</span>' +
         '</div>';
@@ -5812,7 +5884,7 @@ body[data-noviewpanel] #viewpanel { display: none !important; }
     card._key = key;
 
     var head = $('ec-headline'), how = $('ec-how');
-    $('ec-wincond').textContent = endcardWinCondition(o, teams);
+    $('ec-wincond').textContent = endcardWinCondition(o, teams, elim);
 
     // MVP: the winning team's best final line (kills > fewer deaths >
     // captures — the capturer keeps their ⚑ mark, the star follows the guns).
@@ -5838,9 +5910,15 @@ body[data-noviewpanel] #viewpanel { display: none !important; }
         // omitted (row hidden by the .has-glory/.has-ach CSS gate above)
         // when the field genuinely isn't there — a replay recorded before
         // the glory port renders this panel exactly as it always did.
+        // modechrome lane: `o.teams[team].glory` is unconditional on the
+        // wire (broadcast.nim), same as the live scorebug's `gv` — so
+        // `typeof teamGlory === 'number'` alone rendered "GLORY 0" on a
+        // Campaign/territory endcard too. This whole branch is already
+        // `!elim` (BR takes the `renderEndcardBR` branch above), and Glory
+        // is the BR economy only (owner ruling) — so it never belongs here.
         var teamGlory = o.teams && o.teams[team] && o.teams[team].glory;
-        ecTeamEl.classList.toggle('has-glory', typeof teamGlory === 'number');
-        if (typeof teamGlory === 'number') {
+        ecTeamEl.classList.toggle('has-glory', elim && typeof teamGlory === 'number');
+        if (elim && typeof teamGlory === 'number') {
           var ecGloryEl = $('ec-glory-' + team);
           if (ecGloryEl) ecGloryEl.textContent = teamGlory;
         }
@@ -5916,21 +5994,29 @@ body[data-noviewpanel] #viewpanel { display: none !important; }
     losers.forEach(function (t) { bestLoser = Math.max(bestLoser, overLives(o, t)); });
 
     if (o.timeLimit) {
-      // Time-limit resolution — name the key and the values (F3).
+      // Time-limit resolution — name the key and the values (F3). BR's
+      // brTiebreakWinner() is draw-free and ranks on more than lives alone,
+      // so a lives tie here can still be a real, non-arbitrary decision —
+      // "heart progress" is classic-CTF-only vocabulary (BR is flagless).
       if (winL !== bestLoser) {
         how.textContent = 'Time expired — ' + winName + ' held more lives (' + winL + ' vs ' + bestLoser + ').';
       } else {
-        how.textContent = 'Time expired — lives tied; ' + winName + ' won on heart progress.';
+        how.textContent = elim
+          ? 'Time expired — lives tied; ' + winName + ' won on the tiebreak.'
+          : 'Time expired — lives tied; ' + winName + ' won on heart progress.';
       }
     } else {
       if (bestLoser <= 0) {
         head.textContent = losers.length === 1
           ? winName + ' WIPES OUT ' +
-            teamName(s, losers[0], String(losers[0]).toUpperCase())
+            (elim ? brTeamLabel(s, losers[0]) : teamName(s, losers[0], String(losers[0]).toUpperCase()))
           : winName + ' WIPES THE FIELD';
-        how.textContent = winName + ' eliminated every opposing life.';
+        how.textContent = elim
+          ? winName + ' outlasted every rival team.'
+          : winName + ' eliminated every opposing life.';
       } else {
-        how.textContent = winName + ' captured the enemy heart.';
+        // BR is flagless (isFlagless) — there is no heart to capture.
+        how.textContent = elim ? winName + ' outlasted the field.' : winName + ' captured the enemy heart.';
       }
     }
   }

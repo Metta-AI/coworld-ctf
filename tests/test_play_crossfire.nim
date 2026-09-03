@@ -127,12 +127,17 @@ proc liveFrame(pos: BodyPoint; tick: int): FirstLightSeatFrame =
         windup: none(int), hasGrenade: false, hasShield: false, shieldHp: 0,
         hasSprayPaint: false, arcTicksLeft: 0, alive: true,
         carrying: false),
-      partner: some(PartnerSample(seat: 1, pos: (100, 80),
+      # The duo partner (seat 1, same team) is granted through `partner`
+      # only -- production (src/ctf/server.nim firstLightBodyInputs) never
+      # puts a same-team seat in visibleTracks, and playViewSourceFromBody
+      # now injects the partner grant as its own tracks row (LOOT(s2)
+      # downed visibility, view.nim). Seeding seat 1 into visibleTracks
+      # too would duplicate that row under the WRONG team (PartnerSample's
+      # own `team` must match self's, or the injected row misreads as an
+      # opponent -- exactly the bug this comment replaced).
+      partner: some(PartnerSample(seat: 1, team: Navy, pos: (100, 80),
         aimBrads: 0, alive: true)),
-      visibleTracks: @[BodyTrackUpdate(seat: 1, pos: (100, 80), team: Navy,
-        aimBrads: some(0), hpKnown: some(3), shielded: false,
-        weapon: some(bwGun), veteranMarker: false, tick: uint32(tick)),
-        BodyTrackUpdate(seat: 2, pos: (500, 80), team: Rust,
+      visibleTracks: @[BodyTrackUpdate(seat: 2, pos: (500, 80), team: Rust,
         aimBrads: some(0), hpKnown: some(3), shielded: false,
         weapon: some(bwGun), veteranMarker: false, tick: uint32(tick))]),
     defaultFallbacks: BrDefaultFallbacks(

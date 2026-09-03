@@ -92,6 +92,11 @@ type
     arcTicksLeft*: int     ## Self active spray-cone ticks (`sim_types.nim:2210-2226`).
     alive*: bool
     carrying*: bool
+    downed*: bool
+      ## LOOT(s2): self is a frozen ghost (`Player.downed`, `sim_types.nim`).
+      ## Never true unless config.downedMode; stays `alive == true` while
+      ## downed (that is what makes it revivable) so a policy needs this
+      ## bit, not `alive`, to know it cannot fire/loot/shout right now.
 
   BodyTrack* = object
     pos*: BodyPoint
@@ -109,6 +114,10 @@ type
       ## than defaulting to `bwGun`, matching unknown hp and optional aim.
     veteranMarker*: bool
     freshTick*: uint32
+    downed*: bool
+      ## LOOT(s2): target is a frozen ghost (`sim_types.nim` Player.downed).
+      ## Never true unless config.downedMode; a downed ghost is the visible
+      ## fact that makes it targetable-for-splat vs revivable.
 
   BodyTrackUpdate* = object
     seat*: int
@@ -127,6 +136,7 @@ type
       ## than defaulting to `bwGun`, matching unknown hp and optional aim.
     veteranMarker*: bool
     tick*: uint32
+    downed*: bool
 
   ItemSighting* = object
     kind*: BodyItemKind
@@ -207,12 +217,20 @@ type
 
   PartnerSample* = object
     seat*: uint8
+    team*: Team
     pos*: BodyPoint
     aimBrads*: int
     alive*: bool
+    downed*: bool
+      ## LOOT(s2): partner is a frozen ghost -- Never true unless
+      ## config.downedMode. Deliberately granted alongside pos/aim/alive
+      ## (the duo-telemetry trust boundary): a policy cannot revive what it
+      ## cannot see is down. HP stays withheld through the ordinary fogged
+      ## track channel, per the existing partner-grant design.
 
   PartnerTelemetry* = tuple[
-    seat: uint8, pos: BodyPoint, aimBrads: int, alive: bool]
+    seat: uint8, team: Team, pos: BodyPoint, aimBrads: int, alive: bool,
+    downed: bool]
 
   BodyTickInputs* = object
     ## Contracted trust boundary. The server supplies only this seat's
@@ -556,7 +574,7 @@ proc updateBelief*(body: SeatBody, inputs: BodyTickInputs, tick: uint32) =
         team: update.team, aimBrads: update.aimBrads,
         hpKnown: update.hpKnown, shielded: update.shielded,
         weapon: update.weapon, veteranMarker: update.veteranMarker,
-        freshTick: update.tick))
+        freshTick: update.tick, downed: update.downed))
 
   for sighting in inputs.sightedItems:
     validateTick(sighting.tick, tick, "item sighting")
@@ -615,8 +633,9 @@ proc updateBelief*(body: SeatBody, inputs: BodyTickInputs, tick: uint32) =
     if partner.seat.int < 0 or partner.seat.int >= MaxPlayers:
       raise newException(ValueError, "partner seat is out of range")
     if inputs.self.alive and partner.alive:
-      body.partnerGrant = some((seat: partner.seat, pos: partner.pos,
-        aimBrads: partner.aimBrads, alive: true))
+      body.partnerGrant = some((seat: partner.seat, team: partner.team,
+        pos: partner.pos, aimBrads: partner.aimBrads, alive: true,
+        downed: partner.downed))
 
 proc partnerTelemetry*(body: SeatBody): Option[PartnerTelemetry] =
   ## Sim-truth position and aim grant for a live duo partner. HP deliberately
@@ -1294,6 +1313,7 @@ proc beliefFingerprint*(body: SeatBody): Hash =
     hash(body.selfState.hasShield) !& hash(body.selfState.shieldHp) !&
     hash(body.selfState.hasSprayPaint) !&
     hash(body.selfState.arcTicksLeft) !& hash(body.selfState.carrying) !&
+    hash(body.selfState.downed) !&
     hash(body.selfState.lives.isSome)
   if body.selfState.lives.isSome:
     value = value !& hash(body.selfState.lives.get)
@@ -1306,7 +1326,8 @@ proc beliefFingerprint*(body: SeatBody): Hash =
       value = value !& hash(seat) !& hash(track.pos) !& hash(ord(track.team)) !&
         hash(track.aimBrads.isSome) !& hash(track.hpKnown.isSome) !&
         hash(track.shielded) !& hash(track.weapon.isSome) !&
-        hash(track.veteranMarker) !& hash(track.freshTick)
+        hash(track.veteranMarker) !& hash(track.freshTick) !&
+        hash(track.downed)
       if track.aimBrads.isSome:
         value = value !& hash(track.aimBrads.get)
       if track.hpKnown.isSome:
@@ -1354,6 +1375,7 @@ proc beliefFingerprint*(body: SeatBody): Hash =
   value = value !& hash(body.partnerGrant.isSome)
   if body.partnerGrant.isSome:
     let partner = body.partnerGrant.get
-    value = value !& hash(partner.seat) !& hash(partner.pos) !&
-      hash(partner.aimBrads) !& hash(partner.alive)
+    value = value !& hash(partner.seat) !& hash(ord(partner.team)) !&
+      hash(partner.pos) !& hash(partner.aimBrads) !& hash(partner.alive) !&
+      hash(partner.downed)
   !$value
