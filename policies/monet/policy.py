@@ -205,12 +205,15 @@ def awareness_lines(seat):
 
     The common state block carries the prose; this is the glanceable strip
     the doctrine keys on, numbers not sentences (summary tokens are sidecar
-    cost). Partner hp/dist ride the fogged track, so on today's server --
-    which emits no same-team tracks (see the harness's _view_facts note) --
-    the partner clause reads "unseen"; the trend machinery arms itself the
-    day partner perception lands. A falling partner hp is attributed by
-    rect: inside the safe zone it reads UNDER FIRE, outside it reads
-    zone-burning."""
+    cost). Partner dist/pos DO arrive: the duo partner rides its own
+    unconditional grant row (view.nim partnerTelemetry, landed 9511b240),
+    a separate channel from the ordinary same-team-excluded track loop the
+    harness's _view_facts note still correctly describes for enemies. hp
+    stays genuinely absent on that row by design (body.nim: hp withheld
+    even from the partner grant), so the trend machinery below only ever
+    arms once hp itself is exposed some other way -- distance/bearing are
+    live today. A falling partner hp is attributed by rect: inside the
+    safe zone it reads UNDER FIRE, outside it reads zone-burning."""
     view = seat.view or {}
     me = view.get("self") or {}
     pos = me.get("pos")

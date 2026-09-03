@@ -366,8 +366,11 @@ AW_VIEW = {
                        "ticks_to_shrink": 210, "dps": 1},
               "alive_teams": 9},
     "tracks": [
-        # partner (same-team tracks are dormant on today's server; the
-        # digest must still read them the day partner perception lands)
+        # partner: pos/team/fresh_tick are LIVE today via the unconditional
+        # grant row (view.nim partnerTelemetry); hp is NOT (withheld by
+        # design -- body.nim PartnerSample) and never appears on a real
+        # grant row. This fixture still carries "hp" so the trend-tracking
+        # branch below stays covered for the day hp arrives some other way.
         {"seat": 19, "team": 3, "pos": [600, 400], "fresh_tick": 1190,
          "hp": 5},
         {"seat": 9, "team": 5, "pos": [760, 500], "fresh_tick": 1100,
@@ -617,6 +620,61 @@ zone_reaches = [
 check("medic zoneReach tightens in the endgame turn (v10)",
       bool(zone_reaches) and zone_reaches[-1][1] < zone_reaches[0][1],
       str(zone_reaches))
+
+# ── v11: the duo-partner grant row is LIVE, not dormant. Pins the exact
+# shape view.nim's unconditional partnerTelemetry channel puts on the wire
+# (pos/aim_brads/fresh_tick=tick, hp genuinely absent, downed only when
+# true) and that _view_facts recovers pos/dist/fresh/in_combat/downed from
+# it end-to-end -- the fact the stale comments this lane fixed had been
+# claiming was impossible. ─────────────────────────────────────────────
+PARTNER_GRANT_VIEW = {
+    "tick": 1000,
+    "self": {"pos": [500, 500], "hp_frac": 1.0},
+    "world": {"zone": {"current": [0, 0, 2000, 2000]}},
+    "tracks": [
+        # The partner grant row: no "hp" key (withheld by design), and
+        # fresh_tick equal to the current tick (the grant is never stale).
+        {"seat": 19, "team": "peach", "pos": [560, 500], "aim_brads": 40,
+         "fresh_tick": 1000},
+        {"seat": 9, "team": "blue", "pos": [700, 500], "fresh_tick": 995},
+    ],
+}
+PARTNER_GRANT_CONTEXT = {"self": {"seat": 3, "team": "peach", "duo_partner": 19}}
+
+live_facts = starter_harness._view_facts(PARTNER_GRANT_VIEW,
+                                          PARTNER_GRANT_CONTEXT, [])
+check("_view_facts: partner grant row is recovered from view.tracks",
+      live_facts["partner_track"] is not None, str(live_facts["partner_track"]))
+check("_view_facts: partner hp stays genuinely absent on the grant row",
+      "hp" not in (live_facts["partner_track"] or {}),
+      str(live_facts["partner_track"]))
+check("_view_facts: partner_track_fresh is True (grant fresh_tick == tick)",
+      live_facts["partner_track_fresh"] is True)
+check("_view_facts: partner_dist matches the grant row's real position",
+      live_facts["partner_dist"] == 60.0, str(live_facts["partner_dist"]))
+check("_view_facts: partner_downed is False when the grant carries no flag",
+      live_facts["partner_downed"] is False)
+
+FAR_ENEMY_VIEW = dict(PARTNER_GRANT_VIEW,
+                       tracks=[PARTNER_GRANT_VIEW["tracks"][0],
+                               {**PARTNER_GRANT_VIEW["tracks"][1],
+                                "pos": [1400, 1400]}])
+far_facts = starter_harness._view_facts(FAR_ENEMY_VIEW, PARTNER_GRANT_CONTEXT, [])
+check("_view_facts: partner_in_combat is False once the only enemy is far",
+      far_facts["partner_in_combat"] is False)
+check("_view_facts: partner_in_combat is True with an enemy inside 200px "
+      "of the partner (the same radius the engine's partner.in_combat "
+      "guard path uses)",
+      live_facts["partner_in_combat"] is True)
+
+DOWNED_GRANT_VIEW = dict(PARTNER_GRANT_VIEW, tracks=[
+    {**PARTNER_GRANT_VIEW["tracks"][0], "downed": True},
+    PARTNER_GRANT_VIEW["tracks"][1],
+])
+downed_facts = starter_harness._view_facts(DOWNED_GRANT_VIEW,
+                                            PARTNER_GRANT_CONTEXT, [])
+check("_view_facts: partner_downed tracks the grant row's downed flag",
+      downed_facts["partner_downed"] is True)
 
 print()
 if failures:

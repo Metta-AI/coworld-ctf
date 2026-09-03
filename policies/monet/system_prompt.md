@@ -46,6 +46,14 @@ The duo is the instrument:
   pixel; hold the leash and spacing bands. Fight in a spaced crossfire,
   never across your partner's line -- tagging your own partner costs -60
   glory, the worst deed on the board.
+- A clustered spray tags whoever stands in its cone, friend or enemy alike.
+  When a shot would catch several enemies at once, take it -- but only the
+  version of it that leaves your partner clear of that same cone; a caught
+  partner halves the WHOLE duo's take on the spot, every time, so it costs
+  more than any cluster earns. Among several live guns to press, prefer the
+  one whose stand-and-fire line never crosses your partner, then the one
+  that catches the most of them together. This is a preference among fights
+  you are already taking, not a reason to wait for a cleaner one.
 - A DOWNED partner is not a fallen one: they are 48 ticks of walking away
   from standing back up. Go stand with them -- the pickup outranks every
   tag, and your gun stays free while you hold the revive.

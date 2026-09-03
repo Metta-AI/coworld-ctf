@@ -611,14 +611,20 @@ def _view_facts(view: dict, context: dict, kill_feed: list) -> dict:
             return _inside(pos, rect)
         return True
 
-    # Partner observability, honestly stated: today's server never emits
-    # same-team tracks (src/ctf/server.nim firstLightBodyInputs skips
-    # target.team == player.team), so partner_track -- and both facts below
-    # -- stay None/False on the live build and any gate case reading them is
-    # dormant until partner perception lands. When it does: freshness rides
-    # the ordinary track fresh_tick, and "under fire" is the same 200px
-    # enemy-proximity rule the engine's partner.in_combat guard path uses
-    # (src/ctf/policy_page.nim DefaultPaths).
+    # Partner observability, honestly stated: the ORDINARY per-tick track
+    # loop above never emits same-team tracks (src/ctf/server.nim
+    # firstLightBodyInputs skips target.team == player.team) -- but the duo
+    # partner rides a SEPARATE, unconditional grant row (view.nim
+    # partnerTelemetry, landed 9511b240) that lands in `view["tracks"]`
+    # every tick both seats are alive, and the `t.get("seat") == partner`
+    # check above picks it up regardless of team. So partner_track and both
+    # facts below are LIVE on the live build, not dormant: freshness rides
+    # the ordinary track fresh_tick (the grant row's is always the current
+    # tick), and "under fire" is the same 200px enemy-proximity rule the
+    # engine's partner.in_combat guard path uses (src/ctf/policy_page.nim
+    # DefaultPaths). hp alone stays withheld on that row by design (see
+    # partner_downed below and body.nim's PartnerSample comment) -- that is
+    # the one fact this function still cannot recover.
     partner_track_fresh = False
     partner_in_combat = False
     if partner_track is not None:

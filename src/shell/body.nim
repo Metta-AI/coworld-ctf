@@ -1096,7 +1096,7 @@ proc idleAimMask(body: SeatBody): uint8 =
   aimRotationMask(body.idleSweepAim(body.standingIntent.idleAimCenterBrads.get),
     body.selfState.aimBrads)
 
-proc sprayContains(fromPos: BodyPoint, aimBrads: int,
+proc sprayContains*(fromPos: BodyPoint, aimBrads: int,
                    target: BodyPoint): bool =
   let
     (ux, uy) = aimVector(normalAimBrads(aimBrads))

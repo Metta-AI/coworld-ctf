@@ -7,16 +7,19 @@
 ##
 ## Fog-honest superiority estimate, per step:
 ## - our guns   = self alive, +1 when the duo partner has a fresh live track
-##   (on today's server same-team tracks are never emitted --
-##   src/ctf/server.nim:3545 skips them -- so this degrades to 1 until
-##   partner perception lands; that is the ledger's own discipline: count
-##   only guns you can SEE),
+##   (the duo partner rides its own unconditional grant row -- view.nim
+##   partnerTelemetry, landed 9511b240 -- separate from the ordinary
+##   same-team-excluded track loop the "their guns" count below still uses.
+##   This is LIVE on today's server, not a future-perception placeholder:
+##   the grant carries pos/aim/downed every tick both seats are alive, so
+##   `partnerFresh` below is already counting a real second gun, not
+##   degrading to 1),
 ## - their guns = fresh enemy tracks within engageDist,
 ## - wounded    = counted enemies with KNOWN hp <= 2; unknown hp is HEALTHY.
 ##
 ## Superior (outnumber, or match numbers with enough of them wounded):
-## PRESS -- navigate to a pressRange band off the weakest/nearest track,
-## never melting into point-blank against a target that can still fight back
+## PRESS -- navigate to a pressRange band off a chosen enemy track, never
+## melting into point-blank against a target that can still fight back
 ## (point-blank accuracy is inverted on this engine). EXCEPTION -- v10,
 ## measured gap: leaders bank dPointBlankKill 3x our rate, and the accuracy
 ## inversion is a risk against a live gun, not against one already known
@@ -25,7 +28,24 @@
 ## finishRange instead -- a fixed approximation of the engine's own
 ## `pointBlankPxFor` band (not exposed to plays, so not exactly reproduced;
 ## see glory.nim PointBlankPx/scaledByGunRange). Unknown-hp and full-health
-## targets keep the wider pressRange band. Inferior by breakDeficit or more:
+## targets keep the wider pressRange band.
+##
+## Press-target choice among several live enemies (v11, the duo-partner
+## grant closing a real safety gap): a wide spray that catches N enemies at
+## once mints per-victim, compounding (our biggest single scoring events are
+## clustered tags) -- but catching our OWN partner in that same cone is an
+## uncapped compounding HALVING of the whole duo's take, and the engine's
+## spray gate (`sprayContains`, src/shell/body.nim, ArcFireRangePx=170px
+## reach / ArcMaxWidthPx=85px full width at max reach) has no partner
+## exclusion of its own. `withinFireCone` below mirrors that exact gate
+## (sqrt-free -- see tests/test_shell_body_spray_cone.nim for the pin
+## against the real engine proc) to pick, among the enemies we could press
+## toward, the one whose stand-and-fire position (a) never also catches our
+## partner and, failing a tie, (b) catches the most OTHER enemies. This is a
+## preference among targets we are already pressing, not a reason to wait --
+## an all-candidates-catch-partner fallback keeps the old
+## lowest-hp/nearest choice rather than holding off the fight.
+## Inferior by breakDeficit or more:
 ## BREAK -- facing cover, never navigating through the enemy bearing
 ## (composes with hold_vs_gun's never-turn-your-back doctrine). Even or no
 ## contact: hold at cover.
@@ -45,6 +65,15 @@ const
 
   FreshGunTicks = 60'i32   ## a track older than this is not a live gun
   WoundedHpMax = 2'i32     ## known hp+shield at or below this = wounded
+
+  # src/shell/body.nim: ArcFireRangePx (spray reach) / ArcMaxWidthPx (full
+  # cone width AT that reach; width scales linearly with distance from 0 at
+  # the muzzle). Pinned against the real engine proc `sprayContains` by
+  # tests/test_shell_body_spray_cone.nim -- if the host retunes the cone,
+  # that test catches the drift before this file goes stale silently.
+  ArcFireRangePx = 170'i64
+  ArcMaxWidthPx = 85'i64
+  MaxCandidates = 32'i32  ## matches play_sdk MaxViewTracks
 
 type
   DecisionKind = enum
@@ -93,6 +122,33 @@ proc sq(value: int32): int64 {.inline.} =
 
 proc distSq(a, b: SdkPoint): int64 {.inline.} =
   sq(a.x - b.x) + sq(a.y - b.y)
+
+proc withinFireCone(origin, aimAt, other: SdkPoint): bool =
+  ## Mirrors the engine's `sprayContains` (src/shell/body.nim) for the case
+  ## that matters here: a body standing at `origin` and aiming straight at
+  ## `aimAt` (an actual track position, exactly what happens once this play
+  ## presses into range and the phase-4 selector commits to that seat).
+  ## `other` is caught if it falls in the same forward-widening triangle.
+  ## No sqrt (this runtime carries no libm): the shared |aimAt-origin|
+  ## factor is cancelled algebraically instead of normalized away --
+  ## tests/test_shell_body_spray_cone.nim cross-checks this against the
+  ## real `sprayContains` across a grid of points and aim angles.
+  let
+    dx = int64(aimAt.x - origin.x)
+    dy = int64(aimAt.y - origin.y)
+    dSq = dx * dx + dy * dy
+  if dSq <= 0:
+    return false
+  let
+    vx = int64(other.x - origin.x)
+    vy = int64(other.y - origin.y)
+    forward = vx * dx + vy * dy
+    cross = vx * dy - vy * dx
+  if forward <= 0:
+    return false
+  if forward * forward > ArcFireRangePx * ArcFireRangePx * dSq:
+    return false
+  2'i64 * ArcFireRangePx * absI64(cross) <= ArcMaxWidthPx * forward
 
 proc quadrantSector(adx, ady: int64): int32 =
   if ady * SlopeScale <= adx * Tan1125: 0
@@ -324,13 +380,13 @@ proc play_step*(viewPtr, viewLen: int32): int32 {.exportc, cdecl.} =
   var theirGuns = 0'i32
   var wounded = 0'i32
   var partnerFresh = false
-  var targetFound = false
-  var target: SdkPoint
-  var targetHp = high(int32)          # known hp of the chosen press target
-  var targetDistSq = high(int64)
+  var partnerPos: SdkPoint
   var nearestFound = false
   var nearest: SdkPoint
   var nearestDistSq = high(int64)
+  var candCount = 0'i32
+  var candPos: array[MaxCandidates, SdkPoint]
+  var candHp: array[MaxCandidates, int32]
   for index in 0 ..< decoded.trackCount:
     let track = decoded.tracks[index]
     if not track.pos.present:
@@ -345,6 +401,7 @@ proc play_step*(viewPtr, viewLen: int32): int32 {.exportc, cdecl.} =
     if ally:
       if fresh and not (track.hpPresent and track.hp <= 0):
         partnerFresh = true
+        partnerPos = track.pos
       continue
     if not fresh:
       continue
@@ -359,13 +416,10 @@ proc play_step*(viewPtr, viewLen: int32): int32 {.exportc, cdecl.} =
       nearestFound = true
       nearest = track.pos
       nearestDistSq = d
-    let hpRank = if hpKnown: track.hp else: high(int32)
-    if not targetFound or hpRank < targetHp or
-        (hpRank == targetHp and d < targetDistSq):
-      targetFound = true
-      target = track.pos
-      targetHp = hpRank
-      targetDistSq = d
+    if candCount < MaxCandidates:
+      candPos[candCount] = track.pos
+      candHp[candCount] = if hpKnown: track.hp else: high(int32)
+      inc candCount
 
   if theirGuns == 0:
     # No live contact: the ladder guard normally keeps us from owning this.
@@ -377,14 +431,54 @@ proc play_step*(viewPtr, viewLen: int32): int32 {.exportc, cdecl.} =
   let inferior = theirGuns - ourGuns >= params.breakDeficit
 
   if superior:
+    # Choose which live enemy to press, among candCount options, by the
+    # actual fire-cone consequence of standing at that press band and
+    # aiming at them: never a candidate that would also catch our partner
+    # (uncapped compounding loss) unless every candidate does, then prefer
+    # whichever candidate's cone also catches the most OTHER enemies
+    # (compounding gain) -- see the file header and withinFireCone above.
+    # Ties, and the all-unsafe fallback, keep the original lowest-hp /
+    # nearest tie-break so behavior is unchanged whenever there is only one
+    # live enemy or no partner/cluster distinction to make.
+    var bestIdx = 0'i32
+    var bestClean = false
+    var bestCluster = -1'i32
+    var bestHp = high(int32)
+    var bestDistSq = high(int64)
+    for i in 0 ..< candCount:
+      let band = if candHp[i] <= WoundedHpMax: params.finishRange
+                 else: params.pressRange
+      let stand = projectFrom(candPos[i], decoded.self.pos, band)
+      var cluster = 0'i32
+      for j in 0 ..< candCount:
+        if j != i and withinFireCone(stand, candPos[i], candPos[j]):
+          inc cluster
+      let clean = not (partnerFresh and
+        withinFireCone(stand, candPos[i], partnerPos))
+      let d = distSq(decoded.self.pos, candPos[i])
+      let better =
+        if i == 0: true
+        elif clean != bestClean: clean
+        elif cluster != bestCluster: cluster > bestCluster
+        elif candHp[i] != bestHp: candHp[i] < bestHp
+        else: d < bestDistSq
+      if better:
+        bestIdx = i
+        bestClean = clean
+        bestCluster = cluster
+        bestHp = candHp[i]
+        bestDistSq = d
+
     # PRESS to the range band; inside it the body finishes the work. A
     # target we KNOW is wounded (hp <= WoundedHpMax) is worth closing to
     # finishRange for -- the inverted-accuracy risk is against a live gun
     # that can still out-trade us, not one already this close to done.
     # Unknown-hp and healthy targets keep the wider pressRange band.
+    let target = candPos[bestIdx]
+    let targetHp = candHp[bestIdx]
     let band = if targetHp <= WoundedHpMax: params.finishRange
                else: params.pressRange
-    if targetDistSq <= sq(band):
+    if bestDistSq <= sq(band):
       return emitHoldIfChanged()
     let stand = projectFrom(target, decoded.self.pos, band)
     let goal = nearestReachable(stand.x, stand.y)
