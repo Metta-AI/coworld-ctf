@@ -534,22 +534,38 @@ PERSONA = Persona(
                  # exactly where the ring bites hardest, never grows.
                  "params": {"abortHpFloor": 1, "zoneReach": 160}},
                 {"play": "fire_superiority", "entry_id": "pressbreak",
-                 # v10: breakDeficit STAYS PARKED at 2 (see the mid-turn
-                 # note -- negative sign under either glory rule). woundedPct
-                 # RE-ARMED 34->25: presses a numerically-even endgame fight
-                 # sooner once a quarter of the field is known-wounded,
-                 # turning the measured stalled-endgame failure mode (full-
-                 # health seats decline the finish and hand the win to the
-                 # ring) into an actual finish. This only moves PRESS-vs-HOLD
-                 # on a fight already at parity, never HOLD-vs-BREAK on one
-                 # we're losing, so it is a fair bet under the OLD rule too;
-                 # Amendment 6 makes it a clearer one still (more finishes
-                 # bank in more episodes). finishRange NEW (v10), tighter
-                 # than mid's 140: fewer duos left means less flank risk
-                 # while closing on a target already known wounded.
+                 # v10 AMENDMENT (owner field report 2026-09-02): woundedPct
+                 # ZEROED 25->0 for the ENDGAME TURN ONLY -- kills the exact
+                 # standoff the owner watched happen live: a tied, fully-
+                 # healthy fight (ourGuns == theirGuns, nobody wounded) fell
+                 # through fire_superiority.nim's own "Even: hold at cover"
+                 # branch (the play's last fallback when neither `superior`
+                 # nor `inferior` fires) and just stood there, paint can in
+                 # hand, until the ring decided it for us. `superior` reads
+                 # `ourGuns > theirGuns or (ourGuns >= theirGuns and
+                 # wounded*100 >= woundedPct*theirGuns)`; at woundedPct=0 the
+                 # wounded clause is trivially true, so ANY numeric parity or
+                 # better now PRESSES instead of holding. This does NOT touch
+                 # `inferior` (theirGuns - ourGuns >= breakDeficit) at all --
+                 # a fight we are actually behind in still breaks to cover
+                 # unchanged, so this is "take the fight we can already win,"
+                 # never "brawl while outgunned." Press still respects the
+                 # point-blank inversion: an unknown/healthy target keeps the
+                 # wider pressRange band, only a CONFIRMED-wounded target
+                 # (hp<=2) gets closed to finishRange. Scoped to the endgame
+                 # turn alone (mid-turn keeps woundedPct 50) because this is
+                 # specifically the small-zone, few-duos-left failure mode
+                 # the report described, not a general license to brawl
+                 # early. breakDeficit STAYS PARKED at 2 (see the mid-turn
+                 # note -- negative sign under either glory rule, and
+                 # orthogonal to this fix: the standoff was an EVEN fight,
+                 # never an outgunned one, so the break threshold was never
+                 # the lever that needed to move). finishRange NEW (v10),
+                 # tighter than mid's 140: fewer duos left means less flank
+                 # risk while closing on a target already known wounded.
                  "params": {"breakDeficit": 2, "coverMax": 200,
                             "engageDist": 600, "finishRange": 120,
-                            "pressRange": 340, "woundedPct": 25}},
+                            "pressRange": 340, "woundedPct": 0}},
                 {"play": "crossfire", "entry_id": "shape",
                  "params": {"spacing": [120, 280], "minAngle": 36}},
                 {"play": "supply_run", "entry_id": "bank",

@@ -76,7 +76,11 @@ The ring and the clock:
   lead the ladder with ring_walker and the walk back in. No partner
   detours, no fights, no loot: a dead cog picks nobody up and tags nobody.
 - Endgame, three duos or fewer: every truce is expired -- say so, converge,
-  and finish. Stalling at full health hands the win to the ring.
+  and finish. Here parity IS the edge: an even, reachable enemy is a fight
+  worth taking, not one to wait out -- a non-win banks nothing, so the tied
+  fight you decline is worth exactly as much as the one you lose. Do not sit
+  beside a beatable duo, paint can in hand, waiting for the ring to decide
+  it for you. Stalling at full health hands the win to the ring.
 
 Speak with intent: chat is for truce offers, truce endings, target calls,
 and partner coordination -- specific, seat-addressed, sparing.

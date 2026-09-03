@@ -535,8 +535,57 @@ for i, turn in enumerate(PERSONA.canned_turns, start=1):
 
 endgame_fs = next(e for e in PERSONA.canned_turns[-1]["call"]["entries"]
                    if e["play"] == "fire_superiority")
-check("endgame woundedPct RE-ARMED to 25 (v10 decision)",
-      endgame_fs["params"].get("woundedPct") == 25, str(endgame_fs["params"]))
+check("endgame woundedPct ZEROED to 0 (v10 amendment: kill the standoff)",
+      endgame_fs["params"].get("woundedPct") == 0, str(endgame_fs["params"]))
+
+
+# ── v10 amendment: the endgame standoff fix, pinned against the SOURCE
+# formula (fire_superiority.nim play_step), not just the raw param value --
+# a future param edit that keeps woundedPct==0 but changes the arithmetic
+# would still be caught here. `superior`/`inferior` are exact mirrors of the
+# Nim booleans; see plays/fire_superiority.nim's play_step for the source. ─
+def fs_superior(our_guns: int, their_guns: int, wounded: int,
+                wounded_pct: int) -> bool:
+    return (our_guns > their_guns
+            or (our_guns >= their_guns
+                and wounded * 100 >= wounded_pct * their_guns))
+
+
+def fs_inferior(our_guns: int, their_guns: int, break_deficit: int) -> bool:
+    return their_guns - our_guns >= break_deficit
+
+
+mid_fs = next(e for e in PERSONA.canned_turns[2]["call"]["entries"]
+              if e["play"] == "fire_superiority")
+_endgame_wp = endgame_fs["params"]["woundedPct"]
+_endgame_bd = endgame_fs["params"]["breakDeficit"]
+_mid_wp = mid_fs["params"]["woundedPct"]
+
+check("endgame: a tied, fully-healthy 1v1 now PRESSES (was: hold at cover)",
+      fs_superior(1, 1, 0, _endgame_wp), f"woundedPct={_endgame_wp}")
+check("endgame: a tied, fully-healthy 2v2 (both duos whole) now PRESSES",
+      fs_superior(2, 2, 0, _endgame_wp), f"woundedPct={_endgame_wp}")
+check("endgame: numeric superiority still presses regardless of wounded",
+      fs_superior(2, 1, 0, _endgame_wp), f"woundedPct={_endgame_wp}")
+check("endgame: still BREAKS off when actually outgunned by breakDeficit "
+      "(woundedPct never touches the break threshold -- not a license to "
+      "brawl outgunned)",
+      fs_inferior(1, 3, _endgame_bd) and not fs_superior(1, 3, 0, _endgame_wp),
+      f"breakDeficit={_endgame_bd} woundedPct={_endgame_wp}")
+check("endgame: a tie is never classified as outgunned",
+      not fs_inferior(1, 1, _endgame_bd)
+      and not fs_inferior(2, 2, _endgame_bd),
+      f"breakDeficit={_endgame_bd}")
+check("mid-turn: a tied, fully-healthy fight still HOLDS (re-arm is "
+      "endgame-scoped, not a global aggression change)",
+      not fs_superior(1, 1, 0, _mid_wp) and not fs_superior(2, 2, 0, _mid_wp),
+      f"mid woundedPct={_mid_wp}")
+
+check("prompt: endgame doctrine says parity is enough late (matches the "
+      "zeroed woundedPct lever)",
+      "parity IS the edge" in prompt, "endgame prompt text not found")
+check("prompt: endgame doctrine names the standoff being killed",
+      "paint can in hand" in prompt, "endgame prompt text not found")
 
 # ── v10: partner-enabling -- bodyguard shields at half health, not a
 # quarter (peelHp 2->3), since the duo-shared OR-gate mints for both of us
