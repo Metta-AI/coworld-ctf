@@ -70,6 +70,26 @@
   const FLASH_PULSE_TICKS = 32;        // ~1.3 s at 24 Hz
   const FLASH_PULSE_COLOR = '232, 163, 61';  // the chrome's amber accent
 
+  // LOOT(s2) downedMode: the rest of one player's rig object family (see
+  // RIG_HEAD_OBJECT_BASE above — same "sim.players INDEX" keying, same
+  // wire-preferred/literal-fallback contract). A downed cog draws its FULL
+  // rig at reduced alpha (setDownedSeats/drawObject below), not just the
+  // head, so it still reads as an articulated cog, just faded.
+  const RIG_ARM_OBJECT_BASE =
+    (window.CTF_WIRE && window.CTF_WIRE.rigArmObjectBase) || 38140;
+  const RIG_LEG_OBJECT_BASE =
+    (window.CTF_WIRE && window.CTF_WIRE.rigLegObjectBase) || 38220;
+  const RIG_WHEEL_OBJECT_BASE =
+    (window.CTF_WIRE && window.CTF_WIRE.rigWheelObjectBase) || 38340;
+  const RIG_GUN_OBJECT_BASE =
+    (window.CTF_WIRE && window.CTF_WIRE.rigGunObjectBase) || 38460;
+  // Same opacity ratio soldierCorpse (src/ctf/global.nim) bakes into a dead
+  // player's flat POV sprite (~55%) — reused here as the board's "faded but
+  // still alive" idiom for a downed cog's rig, applied at draw time instead
+  // of baked into pixels (the rig sprite ids are shared by every player at
+  // the same team/skin/pose, so baking would fade a healthy teammate too).
+  const DOWNED_FADE_ALPHA = 140 / 255;
+
   // BR zone paint (round 3): the shrinking zone's cosmetic flood is a STATIC
   // per-episode arrival-time field (src/ctf/global.nim's addZoneEdgeBand),
   // shipped once as a data sprite — never drawn as an image, decoded into
@@ -431,6 +451,12 @@
     // on a replay with no calls — drawFlashPulses exits on the first check.
     let flashCalls = null;
     let flashClockTick = -1;
+
+    // LOOT(s2) downedMode: the rig object ids a downed seat's frame should
+    // draw faded (setDownedSeats below), rebuilt whenever the page pushes a
+    // fresh downed-seat list off the roster's `downed` flags. Empty (and
+    // therefore free) on any replay that never arms downedMode.
+    let downedObjectIds = new Set();
 
     let socket = null;
     let rafHandle = null;
@@ -926,7 +952,17 @@
       }
       const sprite = sprites.get(obj.spriteId);
       if (!sprite || !sprite.pixels) return;
-      targetCtx.drawImage(spriteSurface(sprite), obj.dispX, obj.dispY);
+      // LOOT(s2) downedMode: fade a downed cog's rig objects at draw time
+      // (see downedObjectIds/setDownedSeats above) rather than baking a
+      // separate faded sprite pool — the same cached rig-pose sprite serves
+      // an alive teammate at full opacity and a downed one dimmed.
+      if (downedObjectIds.has(obj.id)) {
+        targetCtx.globalAlpha = DOWNED_FADE_ALPHA;
+        targetCtx.drawImage(spriteSurface(sprite), obj.dispX, obj.dispY);
+        targetCtx.globalAlpha = 1;
+      } else {
+        targetCtx.drawImage(spriteSurface(sprite), obj.dispX, obj.dispY);
+      }
     }
 
     const ZONE_FIELD_CELL_PX =
@@ -1381,6 +1417,46 @@
           typeof call.idx === 'number' && call.idx >= 0)
         .map(call => ({ idx: call.idx, tick: Math.round(call.ms * fps / 1000) }));
       if (!flashCalls.length) flashCalls = null;
+    }
+
+    function downedRigObjectIds(seat) {
+      // The whole rig object family for one seat (see RIG_*_OBJECT_BASE
+      // above): 1 head + 2 arms + 3 legs + 3 wheels + 1 gun, mirroring
+      // src/ctf/global.nim's addCogRigObjects id math exactly.
+      return [
+        RIG_HEAD_OBJECT_BASE + seat,
+        RIG_ARM_OBJECT_BASE + seat * 2, RIG_ARM_OBJECT_BASE + seat * 2 + 1,
+        RIG_LEG_OBJECT_BASE + seat * 3, RIG_LEG_OBJECT_BASE + seat * 3 + 1,
+        RIG_LEG_OBJECT_BASE + seat * 3 + 2,
+        RIG_WHEEL_OBJECT_BASE + seat * 3, RIG_WHEEL_OBJECT_BASE + seat * 3 + 1,
+        RIG_WHEEL_OBJECT_BASE + seat * 3 + 2,
+        RIG_GUN_OBJECT_BASE + seat
+      ];
+    }
+
+    function setDownedSeats(seats) {
+      // LOOT(s2) downedMode: pushed by the page every frame off the
+      // roster's per-seat `downed` flags (src/ctf/broadcast.nim's
+      // rosterJson), same "page resolves identity, core just draws" split
+      // as setFlashCalls above. `seats` are sim.players INDEX values (the
+      // roster's array position), matching RIG_HEAD_OBJECT_BASE's own
+      // keying. Rebuilding a small Set every frame is cheap and needs no
+      // change-tracking of its own; `dirty` is set only when the resolved
+      // object-id set actually differs, so a downedMode-off replay (always
+      // an empty list) never forces an extra composite.
+      const next = new Set();
+      for (const seat of (seats || [])) {
+        if (typeof seat !== 'number' || seat < 0) continue;
+        for (const id of downedRigObjectIds(seat)) next.add(id);
+      }
+      let changed = next.size !== downedObjectIds.size;
+      if (!changed) {
+        for (const id of next) {
+          if (!downedObjectIds.has(id)) { changed = true; break; }
+        }
+      }
+      downedObjectIds = next;
+      if (changed) dirty = true;
     }
 
     function drawFlashPulses(targetCtx) {
@@ -2088,6 +2164,7 @@
       resetView,
       attachMinimap,
       setFlashCalls,
+      setDownedSeats,
       stop
     };
   }

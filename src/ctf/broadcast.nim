@@ -482,6 +482,17 @@ proc rosterJson(sim: SimServer): JsonNode =
         if perk in p.perks:
           pk.add(%perkText(perk))
       item["pk"] = pk
+    # LOOT(s2): the same downedMode-gated flag `mapEntry`/`selfJson` already
+    # carry (this module, above) — the ONLY roster consumer that reaches the
+    # spectator/replay BOARD (buildStateJson -> buildReplayViewerPacket ->
+    # ctf_replay.nim's wasm decoder, unchanged). The board's rig sprite ids
+    # are shared across every player at the same team/skin/pose, so the
+    # fade cannot be baked into those cached pixels without a whole new
+    # sprite pool; the client instead reads this per-seat flag and dims the
+    # already-drawn rig objects at draw time (client/broadcast_core.js).
+    # Keyed on the gate so a dark game's roster bytes stay untouched.
+    if sim.config.downedMode:
+      item["downed"] = %p.downed
     result.add(item)
 
 proc gloryPopsJson(sim: SimServer): JsonNode =

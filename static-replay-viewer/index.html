@@ -5184,6 +5184,24 @@ body[data-noviewpanel] #viewpanel { display: none !important; }
       return { ms: c.ms, idx: info ? info.idx : -1 };
     }));
   }
+  // LOOT(s2) downedMode: pushed every frame straight off the roster's
+  // per-seat `downed` flag (src/ctf/broadcast.nim's rosterJson, gated on
+  // the mode so a dark game's roster never carries the key at all). Reuses
+  // the roster's own array position `i` as the seat id — the same
+  // sim.players-INDEX keying learnSeats already relies on for the rig-head
+  // object pool (see its own comment above) — so no seatInfo lookup is
+  // needed here.
+  function pushDownedSeatsToCore(s) {
+    if (!core || !core.setDownedSeats) return;
+    var r = s.roster;
+    var downed = [];
+    if (r && r.length) {
+      for (var i = 0; i < r.length; i++) {
+        if (r[i] && r[i].downed) downed.push(i);
+      }
+    }
+    core.setDownedSeats(downed);
+  }
   function seatName(seat) {
     var info = seatInfo[seat];
     return (info && info.name && info.name !== '?') ? info.name : ('SEAT ' + seat);
@@ -5375,6 +5393,7 @@ body[data-noviewpanel] #viewpanel { display: none !important; }
     }
     if (s.vote && !voteCache) voteCache = s.vote.slice().sort(byOrd);
     learnSeats(s);
+    pushDownedSeatsToCore(s);
 
     var inLobby = s.ph === 'lobby';
     var nowMs = (s.t || 0) * 1000 / FPS;
