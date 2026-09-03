@@ -29,12 +29,16 @@ export glory
 
 const
   GameName* = "ctf"
-  ReplayCompatibleGameVersions* = ["57"]
+  ReplayCompatibleGameVersions* = ["58"]
     ## The replay-load allowlist (play-calling design §4.3): versions whose
     ## recorded files still play back correctly under THIS engine. The
     ## criterion is the GameVersion changelog below, not chronology — a
     ## version is listed only when nothing since changed the gameHash
-    ## schema, the hash trajectory, or a flatty keyframe layout. GV56
+    ## schema, the hash trajectory, or a flatty keyframe layout. GV57 drops
+    ## out because GV58 moves when a friendly-fire down under armed
+    ## downedMode prices its dTeamKill/gloryFfIncidents (at the down, not
+    ## the eventual bleed-out/finalize), a hash TRAJECTORY change from the
+    ## down tick onward for any GV57 recording that contains one. GV56
     ## drops out because GV57 both appends `recutFinalFired` to
     ## `SimServer` (a flatty keyframe layout change) AND moves the hash
     ## TRAJECTORY three independent ways — the heat cadence (heatEmbers,
@@ -74,8 +78,40 @@ const
     ## RewardAccount on the wire. Widening requires a real archived fixture
     ## that survives initialization and stepping (PM ruling, 2026-08-30),
     ## never a header rewrite.
-  GameVersion* = "57"
-    ## GV57 (GLORY: SOLO RECUT + ALLIANCE KEYING + HEAT ARM E):
+  GameVersion* = "58"
+    ## GV58 (GLORY: FRIENDLY-FIRE PRICES AT THE DOWN, Amendment 5): under
+    ## armed downedMode, a lethal friendly hit reached downPlayer and
+    ## returned before killPlayer's priceTheKill block ever ran, so
+    ## dTeamKill/gloryFfIncidents (both hashed state) minted only if the
+    ## downed partner actually bled out (finalizeDowned re-entering
+    ## killPlayer) -- a revived friendly-fire down was free: measured,
+    ## dTeamKill fired 4x in 72 wins where it should have fired every
+    ## incident. The mint now happens in downPlayer itself, once per
+    ## incident, at the down; finalizeDowned's later re-entry for that
+    ## same incident is guarded off so a bled-out/team-wiped friendly down
+    ## never double-mints. A GV57 recording that contains a friendly-fire
+    ## down under downedMode re-simulates to a different hash trajectory
+    ## from the down tick onward under this engine -- every other
+    ## recording (downedMode off, or on with no friendly-fire down) is
+    ## byte-identical, but the gameversion-tripwire job cannot see a
+    ## conditional trajectory move, only a headline collision, and stays
+    ## green on a same-number reuse either way. Ruled (spec owner, glory-2,
+    ## 2026-09-03): a behavior-changing fix that moves a MEASURED
+    ## distribution takes a GameVersion bump on its own, even when the
+    ## tripwire passes untouched -- GameVersion is the only reliable
+    ## IN-BAND era marker a replay header carries; build-to-commit
+    ## provenance is not derivable after the fact. Renumbered THREE TIMES
+    ## from this fix's original GV53 claim (PR #384): first to GV56 when
+    ## main had spent GV53-55 on the alliance declaration protocol while
+    ## this PR sat open, then to GV57 when a second alliance PR (#434)
+    ## claimed GV56 out from under that renumbering, then to GV58 when the
+    ## solo-recut/heat-arm PR (#435) claimed GV57 out from under that
+    ## renumbering in turn before this one could merge -- AGENTS.md's
+    ## cross-branch claim rule (take the next number no open branch has
+    ## claimed; the second to merge always renumbers, however many times
+    ## that takes).
+    ##
+    ## Previously GV57 (GLORY: SOLO RECUT + ALLIANCE KEYING + HEAT ARM E):
     ## GloryVersion 13 -> 14 rides this bump — one PR, one cutover (the
     ## 28:0x ship-shape ruling; the full sized economics live in
     ## glory.nim's own v14 changelog, authoritative inputs
