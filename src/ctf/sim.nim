@@ -2027,6 +2027,23 @@ proc downPlayer(
     targetSlot = killerSlot
   )
   sim.logGameEvent(playerColorText(victim.color) & " is down")
+  # AMENDMENT 5 (glory-2, spec owner override, recut contract): a downed
+  # victim never reaches `killPlayer`'s priceTheKill block until
+  # `finalizeDowned` re-enters it -- revived (updateDowned's tag-back-up
+  # path), that block never runs at all, so a friendly down that gets
+  # tagged back up minted ZERO `dTeamKill`/`gloryFfIncidents` (a free FF:
+  # "spray your partner, tag them back up"). Detect + price the friendly
+  # incident HERE, at the down itself, exactly once per incident --
+  # `killPlayer`'s own re-mint at `finalizeDowned` time is guarded off for
+  # this same incident (see the `victim.downed and ctx.friendly` check
+  # there), so a bled-out/splat-confirmed/team-wiped friendly down still
+  # mints only once, just earlier. `killDeed` resolves ANY friendly hit to
+  # `dTeamKill` unconditionally (its first, highest-precedence check), so
+  # no other kill context is needed to know the deed here.
+  if killerIndex >= 0 and killerIndex < sim.players.len and
+      sim.players[killerIndex].team == victim.team:
+    sim.awardDeed(victim.team, dTeamKill, victim.x, victim.y,
+                  byIndex = killerIndex, fxActor = killerIndex)
 
 proc recutZonePhase*(sim: SimServer, elapsedTicks: int):
     tuple[closing, final: bool] =
@@ -2243,8 +2260,10 @@ proc killPlayer*(
             # Finish off an enemy duo: this kill leaves no member of the
             # victim's team alive. Under armed downedMode a downed-but-
             # unfinalized partner still reads `alive`, so the duo-down
-            # fires at the FINALIZE that truly empties the duo — the same
-            # once-at-finalize timing the FF ruling recorded.
+            # fires at the FINALIZE that truly empties the duo -- an enemy
+            # kill has no earlier "down" moment of its own to price at (that
+            # is the FF-specific timing Amendment 5 moved -- see
+            # `downPlayer`'s own comment).
             var partnerAlive = false
             for i, p in sim.players:
               if i != targetIndex and p.team == victim.team and p.alive:
@@ -2256,17 +2275,30 @@ proc killPlayer*(
           if marquee != dNone and
               RecutClassTable[marquee] > RecutClassTable[deed]:
             deed = marquee
-      # Glory-toast channel source (GameConfig.allowCosmeticFx): `fxActor`
-      # is -1 for a grenade-caused kill regardless of which deed `killDeed`
-      # resolved to -- the swap9-era wire never wired the grenade blast-kill
-      # site (fragile GV24-hash attribution branch); this keeps the same
-      # class of kill silent on the toast wire even now that every weapon
-      # funnels through this one chokepoint. See `awardDeed`'s own doc
-      # comment on `fxActor` for the full rationale.
-      sim.awardDeed(killer.team, deed, victim.x, victim.y,
-                    byIndex = killerIndex,
-                    fxActor = (if ctx.weaponGrenade: -1 else: killerIndex),
-                    stackK = stackK)
+      # AMENDMENT 5 (glory-2, spec owner override, recut contract): a
+      # friendly hit under armed downedMode never reaches here undowned --
+      # `killPlayer`'s own down-intercept routes it to `downPlayer` first,
+      # which now mints this incident's `dTeamKill`/`gloryFfIncidents`
+      # itself, at the down. The only way `ctx.friendly` is true HERE, with
+      # `victim.downed` also true, is `finalizeDowned` re-entering for that
+      # SAME incident's deferred death bookkeeping (bleed-out, team-wipe --
+      # a splat-confirm can never be friendly, applyFire's own guard
+      # requires an enemy shooter) -- re-minting would double-charge one
+      # incident. Every other path (non-downedMode; a downedMode
+      # elimination fold, never downed; any non-friendly kill) is
+      # unaffected and mints exactly where it always did.
+      if not (sim.config.downedMode and victim.downed and ctx.friendly):
+        # Glory-toast channel source (GameConfig.allowCosmeticFx): `fxActor`
+        # is -1 for a grenade-caused kill regardless of which deed `killDeed`
+        # resolved to -- the swap9-era wire never wired the grenade blast-kill
+        # site (fragile GV24-hash attribution branch); this keeps the same
+        # class of kill silent on the toast wire even now that every weapon
+        # funnels through this one chokepoint. See `awardDeed`'s own doc
+        # comment on `fxActor` for the full rationale.
+        sim.awardDeed(killer.team, deed, victim.x, victim.y,
+                      byIndex = killerIndex,
+                      fxActor = (if ctx.weaponGrenade: -1 else: killerIndex),
+                      stackK = stackK)
       # The taper only latches once the payback ACTUALLY minted: a kill
       # that also satisfies a higher-precedence descriptor (an ace tag, a
       # denial, ...) resolves to that deed instead, same as `avengesKiller`
