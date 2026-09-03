@@ -216,6 +216,47 @@ suite "recut product algebra":
     # and the guard: not cheaper than CTF's ratified superb ceiling.
     check product > 7_077_888
 
+  test "the ratified CTF superb derives exactly from the table's rules: 7,077,888":
+    # The table publishes CTF's superb NUMBER (§1: 7,077,888 = 2^18 × 3^3,
+    # "the specific bump combination that produces the ratified superb")
+    # but never its composition. Derived here from the table's own rules,
+    # mirroring the §1b BR recipe's structure — the opening double
+    # (FIRST!), one marquee shot (LONGSHOT carrying the episode's single
+    # heat-rung-3 and single stack factor, 3-teammate context per §2's
+    # "the CTF superb number, built on a 3-teammate context"), the bounty,
+    # then the full CTF-only objective line (§1b: STEAL, PEEL, CAPTURE,
+    # WIPEOUT), Tier V claimed FIRST:
+    #
+    #   FIRST!(2) × LONGSHOT(3)×heat(8)×stack(3) × BOUNTY(4) × STEAL(4)
+    #   × PEEL(4) × CAPTURE(8) × WIPEOUT(8) × TierV-FIRST(12) = 7,077,888
+    #
+    # NOTE for the spec record: products commute, so the composition is
+    # not unique — e.g. swapping FIRST!+LONGSHOT (2×3) for DENIED!(6)
+    # lands the identical number. This recipe is the one structurally
+    # parallel to the published BR recipe; the spec lead picks the
+    # canonical wording.
+    var product = int64(RecutSeed)
+    let home = SiteMultHomePct
+    product = recutFold(product,
+      recutFactor(dFirstBlood, 0, home, false))          # ×2
+    product = recutFold(product,
+      recutFactor(dLongshotKill, 10, home, false, 3))    # ×3×8×3 (heat rung 3, 3-teammate)
+    product = recutFold(product,
+      recutFactor(dAceTag, 0, home, false))              # ×4
+    product = recutFold(product,
+      recutFactor(dFlagSteal, 0, home, false))           # ×4
+    product = recutFold(product,
+      recutFactor(dCarrierKill, 0, home, false))         # ×4
+    product = recutFold(product,
+      recutFactor(dCapture, 0, home, false))             # ×8
+    product = recutFold(product,
+      recutFactor(dWipe, 0, home, false))                # ×8
+    product = recutFold(product,
+      int64(recutAchievementFactor(4, isFirst = true)))  # ×12
+    check product == 7_077_888
+    # Symmetric cross-check with the BR recipe above: the §7 guard ratio.
+    check 9_437_184.float / product.float == 4.0 / 3.0
+
 suite "recut armed sim: per-duo single walk, seed, FF, dark parity":
   test "dark path is the additive v12 ledger, to the gram":
     var sim = startedGame(defaultGameConfig(), 4)
