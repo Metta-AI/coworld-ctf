@@ -405,6 +405,67 @@ check("summarize() carries the awareness digest", "AWARENESS: " in summary)
 check("summarize() keeps partner-first and the kill feed around the digest",
       "PARTNER STATUS FIRST" in summary and "Kill feed" in summary)
 
+# ── cadence: priority triggers and the recall-gap floor ───────────────────
+import types as _types
+
+CALM_SNAP_VIEW = {
+    "tick": 1000,
+    "self": {"pos": [500, 500], "hp": 6, "alive": True},
+    "world": {"zone": {"current": [0, 0, 2000, 2000],
+                       "next": [900, 900, 600, 600], "phase": 2,
+                       "ticks_to_shrink": 500}},
+    "tracks": [{"seat": 19, "pos": [520, 500], "fresh_tick": 1000}],
+}
+
+
+def snap(view, kill_feed=()):
+    seat = _types.SimpleNamespace(view=view, kill_feed=list(kill_feed))
+    return starter_harness._snapshot(seat, 19)
+
+
+import copy
+calm = snap(CALM_SNAP_VIEW)
+check("cadence: calm snapshot is not ring-exposed and partner is upright",
+      not calm["ring_exposed"] and not calm["partner_downed"], str(calm))
+
+ring_view = copy.deepcopy(CALM_SNAP_VIEW)
+ring_view["world"]["zone"]["ticks_to_shrink"] = 300  # < RING_IMMINENT_TICKS
+ring_now = snap(ring_view)
+check("cadence: outside next rect + shrink < 360 reads ring_exposed",
+      ring_now["ring_exposed"], str(ring_now))
+pr = starter_harness._priority_triggers(calm, ring_now)
+check("cadence: ring-imminent-while-exposed is a PRIORITY trigger",
+      any("ring is imminent" in r for r in pr), str(pr))
+
+down_view = copy.deepcopy(CALM_SNAP_VIEW)
+down_view["tracks"][0]["downed"] = True
+down_now = snap(down_view)
+pr2 = starter_harness._priority_triggers(calm, down_now)
+check("cadence: partner DOWN is a PRIORITY trigger",
+      any("DOWN" in r for r in pr2), str(pr2))
+check("cadence: no priority trigger on a calm pair of snapshots",
+      not starter_harness._priority_triggers(calm, snap(CALM_SNAP_VIEW)))
+
+hp_before = dict(calm, partner_hp=5)
+hp_now = dict(calm, partner_hp=3)
+ordinary = starter_harness._triggers(hp_before, hp_now)
+check("cadence: partner-hp-falling fires as an ORDINARY trigger (dormant "
+      "today: grant row withholds hp)",
+      any("partner's hp fell" in r for r in ordinary), str(ordinary))
+check("cadence: partner-hp-falling is NOT priority",
+      not starter_harness._priority_triggers(hp_before, hp_now))
+
+ga = starter_harness._gap_allows
+check("cadence gap: ordinary trigger honors the full min gap",
+      not ga(12.0, 30.0, False, 5.0) and ga(31.0, 30.0, False, 5.0))
+check("cadence gap: priority trigger cuts in at the 5s floor",
+      ga(6.0, 30.0, True, 5.0) and not ga(3.0, 30.0, True, 5.0))
+check("cadence gap: no floor configured = no bypass (upstream default)",
+      not ga(6.0, 30.0, True, None))
+check("monet opts into the 5s priority floor",
+      PERSONA.priority_recall_floor == 5.0,
+      str(PERSONA.priority_recall_floor))
+
 print()
 if failures:
     print(f"SELF-CHECK FAILED: {len(failures)} failing check(s)")

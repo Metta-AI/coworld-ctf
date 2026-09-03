@@ -508,6 +508,10 @@ PERSONA = Persona(
     ],
     recall_count=5,
     recall_seconds=30.0,
+    # Awareness-audit cadence: a lost/downed partner or an imminent ring
+    # while exposed may cut the recall gap to 5s. Budget (max_calls) is
+    # untouched -- these are rare edge events, not extra spend.
+    priority_recall_floor=5.0,
     # Upstream's own measurement note (layer_ladder): hold-until-fight-heard
     # plus the zone reflex out-survives active riding, and it matches this
     # persona's doctrine -- jackal IS monet's patience.

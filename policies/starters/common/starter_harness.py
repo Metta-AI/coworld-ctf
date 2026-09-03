@@ -91,6 +91,11 @@ class Persona:
     recall_seconds: float = 6.0
     periodic_seconds: float | None = None
     max_calls: int = 6
+    #: PRIORITY re-call floor (seconds): partner ELIMINATED/DOWNED and
+    #: ring-imminent-while-exposed triggers may bypass ``recall_seconds``
+    #: down to this floor. None (default) = no bypass; the budget
+    #: (``max_calls``) is never bypassed, so hosted cost is unchanged.
+    priority_recall_floor: float | None = None
     #: The always-on base controller appended when the gated ladder has no
     #: unguarded rung. "edge_ride" (default) rides the zone margin; None
     #: leaves the base empty so the ENGINE default (rotate toward the next
@@ -1166,6 +1171,9 @@ def run(persona: Persona, args) -> int:
     return 0
 
 
+RING_IMMINENT_TICKS = 360  # awareness audit: the shrink is "imminent" here
+
+
 def _snapshot(seat: StarterSeat, partner) -> dict:
     """The facts a re-call trigger compares against."""
     view = seat.view or {}
@@ -1174,27 +1182,87 @@ def _snapshot(seat: StarterSeat, partner) -> dict:
     zone = world.get("zone") or {}
     aggressors = [a for a in view.get("aggressors", [])
                   if isinstance(a, dict) and isinstance(a.get("tick"), int)]
+    # Ring-imminent-while-exposed: outside the NEXT rect with the shrink
+    # closer than RING_IMMINENT_TICKS. Missing rect/ticks/pos = not exposed.
+    pos = me.get("pos") if _is_pos(me.get("pos")) else None
+    nxt = zone.get("next")
+    tts = (zone.get("ticks_to_shrink")
+           if isinstance(zone.get("ticks_to_shrink"), int) else None)
+    outside_next = (pos is not None and isinstance(nxt, (list, tuple))
+                    and len(nxt) == 4
+                    and all(isinstance(v, (int, float)) for v in nxt)
+                    and not _inside(pos, nxt))
+    # Partner state off their view row (the never-fogged grant row when the
+    # server emits one). The grant row deliberately withholds hp, so
+    # partner_hp stays None until partner perception lands -- the falling-hp
+    # trigger below is coded and DORMANT, by design.
+    partner_downed = False
+    partner_hp = None
+    if partner is not None:
+        for t in view.get("tracks", []):
+            if isinstance(t, dict) and t.get("seat") == partner:
+                partner_downed = bool(t.get("downed"))
+                if isinstance(t.get("hp"), int):
+                    partner_hp = t["hp"]
+                break
     return {
         "hp": me.get("hp"),
         "zone_phase": zone.get("phase"),
         "alive_teams": world.get("alive_teams"),
         "partner_dead": partner is not None and any(
             k.get("victim_seat") == partner for k in seat.kill_feed),
+        "partner_downed": partner_downed,
+        "partner_hp": partner_hp,
+        "ring_exposed": (outside_next and tts is not None
+                         and tts < RING_IMMINENT_TICKS),
         "kills": len(seat.kill_feed),
         "last_aggressor_tick": max((a["tick"] for a in aggressors), default=-1),
     }
 
 
-def _triggers(before: dict, now: dict) -> list[str]:
-    """Human-readable reasons to re-call, from two snapshots."""
+def _priority_triggers(before: dict, now: dict) -> list[str]:
+    """The rare events worth interrupting the recall gap for (down to a
+    persona's priority_recall_floor): a partner lost or downed, and the
+    ring about to close on an exposed seat. Edge-triggered on snapshots."""
     reasons = []
+    if now["partner_dead"] and not before["partner_dead"]:
+        reasons.append("your duo partner was ELIMINATED")
+    if now.get("partner_downed") and not before.get("partner_downed"):
+        reasons.append("your duo partner is DOWN -- the pickup window is "
+                       "ticking")
+    if now.get("ring_exposed") and not before.get("ring_exposed"):
+        reasons.append("the ring is imminent and you are OUTSIDE the next "
+                       "rect")
+    return reasons
+
+
+def _gap_allows(elapsed: float, min_gap: float, has_priority: bool,
+                floor: float | None) -> bool:
+    """May a re-call fire now? Ordinary triggers honor min_gap; priority
+    triggers may cut in at the persona's floor (never below 1s). The call
+    BUDGET is enforced by the caller and never bypassed."""
+    if elapsed >= min_gap:
+        return True
+    if floor is None or not has_priority:
+        return False
+    return elapsed >= max(1.0, float(floor))
+
+
+def _triggers(before: dict, now: dict) -> list[str]:
+    """Human-readable reasons to re-call, from two snapshots. Priority
+    reasons (see _priority_triggers) lead the list."""
+    reasons = _priority_triggers(before, now)
     if (isinstance(before["hp"], int) and isinstance(now["hp"], int)
             and now["hp"] < before["hp"]):
         reasons.append(f"your hp fell {before['hp']} -> {now['hp']}")
+    if (isinstance(before.get("partner_hp"), int)
+            and isinstance(now.get("partner_hp"), int)
+            and now["partner_hp"] < before["partner_hp"]):
+        # Dormant today: the partner grant row withholds hp (fog-honest).
+        reasons.append(f"your partner's hp fell "
+                       f"{before['partner_hp']} -> {now['partner_hp']}")
     if before["zone_phase"] != now["zone_phase"] and now["zone_phase"] is not None:
         reasons.append(f"zone phase {before['zone_phase']} -> {now['zone_phase']}")
-    if now["partner_dead"] and not before["partner_dead"]:
-        reasons.append("your duo partner was ELIMINATED")
     if now["last_aggressor_tick"] > before["last_aggressor_tick"]:
         reasons.append("you were shot at")
     if (isinstance(before["alive_teams"], int) and isinstance(now["alive_teams"], int)
@@ -1271,9 +1339,12 @@ def _live_loop(persona: Persona, seat: StarterSeat, engine, prompt: str,
         if calls >= budget:
             continue
         elapsed = time.monotonic() - last_call_at
-        if elapsed < min_gap:
-            continue
         now = _snapshot(seat, partner)
+        priority = _priority_triggers(before, now)
+        if not _gap_allows(elapsed, min_gap,
+                           bool(priority),
+                           getattr(persona, "priority_recall_floor", None)):
+            continue
         reasons = _triggers(before, now)
         if not reasons and elapsed >= periodic:
             reasons = [f"periodic check ({int(elapsed)} s since your last call)"]
