@@ -1833,6 +1833,25 @@ body.commswide.act-huddle #commsdock {
   font-size: calc(10.5 * var(--u));
   color: var(--paper-dim);
 }
+/* PLAYER IDENTITY (2026-09-02, owner's ruling: "naming the color that won
+   alone is pointless! you have to name the players too"): the winning
+   team's seat/policy names, one secondary line directly under the color
+   headline. Palette stays the primary key (the map-reading key); the
+   names ride the mvp-line's type scale in paper so they read as identity,
+   not as another glory callout. Empty (hidden) whenever the headline
+   already IS the identity (a single shared policy resolved by
+   brTeamLabel) or the roster carries none. */
+#endcard .ec-hero-duo {
+  font-family: var(--pixfont);
+  font-size: calc(11 * var(--u));
+  letter-spacing: 0.03em;
+  color: var(--paper);
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+#endcard .ec-hero-duo:empty { display: none; }
 /* GLORY-FIRST ENDCARD (2026-09-01, owner's ruling: "the win slide at the
    end doesn't even highlight how much glory the win was worth, the most
    important thing!"). The winner's round glory total is THE number on the
@@ -1940,6 +1959,21 @@ body.commswide.act-huddle #commsdock {
   letter-spacing: 0.06em;
   color: var(--paper-dim);
   flex: none;
+}
+/* PLAYER IDENTITY (2026-09-02): the duo's seat/policy names beside the
+   color chip on every standings row — secondary weight (the .ec-fseats
+   fine-type voice, a step up for legibility), truncating before it can
+   push the stat columns. Only rendered when the row's label doesn't
+   already carry the identity (palette-label fallback rows). */
+#endcard .ec-fduo {
+  font-family: var(--finefont);
+  font-size: calc(9 * var(--u));
+  letter-spacing: 0.04em;
+  color: var(--paper-dim);
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 #endcard .ec-fstat {
   color: var(--paper-dim);
@@ -5604,6 +5638,11 @@ body[data-noviewpanel] #viewpanel { display: none !important; }
       hero.className = 'ec-hero';
       hero.innerHTML =
         '<div class="ec-hero-name" id="ec-hero-name">—</div>' +
+        // PLAYER IDENTITY (2026-09-02, owner): the winning duo's seat/policy
+        // names, the secondary line under the color headline — see
+        // renderEndcardBR, which fills it only when the headline itself
+        // is not already the identity.
+        '<div class="ec-hero-duo" id="ec-hero-duo"></div>' +
         // GLORY-FIRST (2026-09-01, owner's ruling): the winner's round
         // glory total is THE number on the slide — the dominant numeral,
         // above the demoted survival/kills summary — with the GLORY
@@ -5690,6 +5729,17 @@ body[data-noviewpanel] #viewpanel { display: none !important; }
     var pols = teamPolicies(s, team);
     return pols.length === 1 && pols[0] ? teamHeadline(pols[0]) : String(team).toUpperCase();
   }
+  function brTeamNames(s, team) {
+    // PLAYER IDENTITY (2026-09-02, owner's ruling): the seat/policy names
+    // behind a palette label — the distinct identities seated on the team,
+    // join-slot order, "A + B" for an s2 distinct-teammates duo.
+    // teamPolicies prefers the wire's own teams[team].policies list and
+    // falls back to the roster's per-seat p.pol / stripped p.name — so a
+    // filler seat reads as whatever the wire seats there, as-is (the seat
+    // name IS the identity contract). Returns '' when the roster carries
+    // no identity at all (never invent one).
+    return teamPolicies(s, team).map(teamHeadline).join(' + ');
+  }
   function brSeatRange(s, team) {
     // The join slots seated on this team ("3+19" for an s2 duo's k/k+16
     // mirror) — the disambiguator when two DIFFERENT duos genuinely run
@@ -5752,6 +5802,14 @@ body[data-noviewpanel] #viewpanel { display: none !important; }
       labelOf[t] = brTeamLabel(s, t);
       labelCount[labelOf[t]] = (labelCount[labelOf[t]] || 0) + 1;
     });
+    // PLAYER IDENTITY (2026-09-02, owner): the names behind each label.
+    // Rendered only where they ADD identity — a single-policy team's label
+    // already IS its name (brTeamLabel), so namesFor() returns '' for it
+    // rather than repeating the same string at secondary weight.
+    function namesFor(team) {
+      var names = brTeamNames(s, team);
+      return names && names !== labelOf[team] ? names : '';
+    }
     function labelHtml(team) {
       return esc(labelOf[team]) +
         (labelCount[labelOf[team]] > 1
@@ -5763,9 +5821,11 @@ body[data-noviewpanel] #viewpanel { display: none !important; }
     var heroGloryNum = $('ec-glory-hero-num'), mvpLine = $('ec-mvp-line');
     var heroGlory = winner !== null ? teamGloryOf(o, winner) : null;
     if (heroEl) heroEl.classList.toggle('has-glory', heroGlory !== null);
+    var heroDuo = $('ec-hero-duo');
     if (winner) {
       heroName.style.setProperty('--tc', teamCol(winner) || AMBER);
       heroName.innerHTML = labelHtml(winner);
+      if (heroDuo) heroDuo.textContent = namesFor(winner);
       if (heroGlory !== null && heroGloryNum) heroGloryNum.textContent = heroGlory;
       var rivals = teams.length - 1;
       var heroAlive = teamAliveCount(s, winner), heroSeats = teamSeatCount(s, winner);
@@ -5784,13 +5844,19 @@ body[data-noviewpanel] #viewpanel { display: none !important; }
     } else {
       heroName.style.removeProperty('--tc');
       heroName.textContent = 'NO SURVIVORS';
+      if (heroDuo) heroDuo.textContent = '';
       heroLine.textContent = 'Every team was eliminated — no team left standing.';
     }
     if (mvpLine) {
       mvpLine.innerHTML = anyGlory && gloryLeader !== null
         ? 'GLORY LEADER — <span class="ec-mvp-team" style="--tc:' +
           (teamCol(gloryLeader) || AMBER) + '">' + labelHtml(gloryLeader) +
-          '</span> ' + leaderGlory + 'G <span class="ec-mvp-dim">(' +
+          '</span>' +
+          // PLAYER IDENTITY (2026-09-02): the leader callout names a color
+          // too — carry the duo's names, dim, when the label alone doesn't.
+          (namesFor(gloryLeader)
+            ? ' <span class="ec-mvp-dim">' + esc(namesFor(gloryLeader)) + '</span>' : '') +
+          ' ' + leaderGlory + 'G <span class="ec-mvp-dim">(' +
           ordinal(placeOf[gloryLeader]) + ')</span>'
         : '';
     }
@@ -5816,6 +5882,11 @@ body[data-noviewpanel] #viewpanel { display: none !important; }
         '<span class="ec-fname-text">' + esc(labelOf[team]) + '</span>' +
         (labelCount[labelOf[team]] > 1
           ? '<span class="ec-fseats">seats ' + esc(brSeatRange(s, team)) + '</span>' : '') +
+        // PLAYER IDENTITY (2026-09-02, owner): both duo members' names
+        // beside the color chip — secondary weight, truncating before the
+        // stat columns move. '' when the label already carries them.
+        (namesFor(team)
+          ? '<span class="ec-fduo">' + esc(namesFor(team)) + '</span>' : '') +
         '</span>' +
         (anyGlory
           ? '<span class="ec-fglory">' + (fg !== null ? fg + 'G' : '—') + '</span>' : '') +

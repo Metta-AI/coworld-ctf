@@ -74,6 +74,21 @@ suite "SEASON 2 replay viewer HUD: glory":
     checkInBoth "o.achievements || []"
     checkInBoth "ACH_TOTAL"
 
+  test "endcard names the players behind every color (owner 2026-09-02)":
+    # "naming the color that won alone is pointless! you have to name the
+    # players too." The BR endcard's winner banner carries a secondary
+    # names line under the color headline, and every standings row carries
+    # the duo's seat/policy names beside its color chip. brTeamNames reads
+    # the wire roster's own identities (teamPolicies: teams[team].policies
+    # or per-seat p.pol/p.name — the seat name IS the identity contract).
+    checkInBoth "function brTeamNames(s, team)"
+    checkInBoth "id=\"ec-hero-duo\""
+    checkInBoth "heroDuo.textContent = namesFor(winner)"
+    checkInBoth "class=\"ec-fduo\""
+    # Names render only where they ADD identity — a single-policy team's
+    # label already IS its name, never the same string twice.
+    checkInBoth "names !== labelOf[team] ? names : ''"
+
 suite "SEASON 2 replay viewer HUD: phase presentation + comms":
   test "phase overlays exist, are wired per-frame, and degrade to nothing":
     # The three-act presentation (owner spec): MAP VOTE stage, HUDDLE stage,
