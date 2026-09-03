@@ -42,8 +42,9 @@ body {
 }
 .pix { font-family: 'nes-pixel', monospace; text-transform: none; }
 
-/* the real paint splats — drawn by the viewer's own makeSplat/drawSplat */
-#splats { position: absolute; top: 0; left: 0; z-index: 0; pointer-events: none; }
+/* the game's own splat sprites, ported out of global.nim (see the script) */
+#splats { position: absolute; top: 0; left: 0; z-index: 0; pointer-events: none;
+          image-rendering: pixelated; image-rendering: crisp-edges; }
 
 .wrap { position: relative; z-index: 1; max-width: 1180px; margin: 0 auto; padding: 34px 22px 46px; }
 
@@ -97,6 +98,7 @@ body {
 .achhead .prices { font-size: 11px; color: var(--paper-dim); }
 .achhead .prices b { color: var(--amber); font-weight: 600; }
 .trees { display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; }
+.trees.endcard { grid-template-columns: repeat(2, 1fr); max-width: 620px; margin: 0 auto; }
 .tree { background: var(--panel); border: 1px solid var(--line); padding: 10px 12px; }
 .tree h3 { font-size: 10px; margin: 0 0 8px; color: var(--paper); letter-spacing: 0.08em; border-bottom: 1px solid var(--line); padding-bottom: 6px; }
 .tree .row { padding: 2.5px 0; }
@@ -139,17 +141,17 @@ body {
     <!-- ── RANK UP ── -->
     <div class="panel">
       <h2 class="pix">RANK UP <small>XP &middot; ONE LIFE</small></h2>
-      <div class="row rank"><span class="name pix">RECRUIT</span><span class="fill"></span><span class="amt pix">0</span></div>
+      <div class="row rank"><span class="name pix">PRIMER</span><span class="fill"></span><span class="amt pix">0</span></div>
       <div class="rankbuff">base kit</div>
-      <div class="row rank"><span class="name pix">TAGGER</span><span class="stars">&#10033;</span><span class="fill"></span><span class="amt pix">9</span></div>
+      <div class="row rank"><span class="name pix">DABBLER</span><span class="stars">&#10033;</span><span class="fill"></span><span class="amt pix">9</span></div>
       <div class="rankbuff">windup 5 &rarr; 4</div>
-      <div class="row rank"><span class="name pix">MARKSMAN</span><span class="stars">&#10033;&#10033;</span><span class="fill"></span><span class="amt pix">15</span></div>
+      <div class="row rank"><span class="name pix">SPLATTER</span><span class="stars">&#10033;&#10033;</span><span class="fill"></span><span class="amt pix">15</span></div>
       <div class="rankbuff">spray recharge 20 &rarr; 12</div>
-      <div class="row rank"><span class="name pix">IRONHIDE</span><span class="stars">&#10033;&#10033;&#10033;</span><span class="fill"></span><span class="amt pix">24</span></div>
+      <div class="row rank"><span class="name pix">DRENCHER</span><span class="stars">&#10033;&#10033;&#10033;</span><span class="fill"></span><span class="amt pix">24</span></div>
       <div class="rankbuff">+1 max hp &middot; supply drops on &middot; you = bounty</div>
-      <div class="row rank"><span class="name pix">QUICKDRAW</span><span class="stars">&#10033;&#10033;&#10033;&#10033;</span><span class="fill"></span><span class="amt pix">33</span></div>
+      <div class="row rank"><span class="name pix">ARTIST</span><span class="stars">&#10033;&#10033;&#10033;&#10033;</span><span class="fill"></span><span class="amt pix">33</span></div>
       <div class="rankbuff">cooldown &minus;25% &middot; bombs hold 2</div>
-      <div class="row rank"><span class="name pix">LEGEND</span><span class="stars">&#10033;&#10033;&#10033;&#10033;&#10033;</span><span class="fill"></span><span class="amt pix">48</span></div>
+      <div class="row rank"><span class="name pix">MAESTRO</span><span class="stars">&#10033;&#10033;&#10033;&#10033;&#10033;</span><span class="fill"></span><span class="amt pix">48</span></div>
       <div class="rankbuff">windup &rarr; 3 &middot; carry at full speed</div>
       <div class="foot">RESET ON DEATH &middot; +HP IS HEADROOM, NOT A HEAL</div>
     </div>
@@ -168,14 +170,17 @@ body {
       <div class="row"><span class="pop pix">LONGSHOT</span><span class="q">past 700 px</span><span class="fill"></span><span class="amt pix">+30</span></div>
       <div class="row"><span class="pop pix">MULTI!</span><span class="q">2+ with one blast</span><span class="fill"></span><span class="amt pix">+35</span></div>
       <div class="row"><span class="pop pix">BOUNTY</span><span class="q">down an ace &#10033;&#10033;&#10033;</span><span class="fill"></span><span class="amt pix">+40</span></div>
-      <div class="subhead">THE HEART</div>
+      <div class="row"><span class="pop pix">WIPEOUT</span><span class="q">whole squad splatted</span><span class="fill"></span><span class="amt pix">+400</span></div>
+      <div class="subhead">COLLABORATION</div>
       <div class="row"><span class="pop pix">ESCORT</span><span class="q">kill while ally carries</span><span class="fill"></span><span class="amt pix">+14</span></div>
+      <div class="row"><span class="pop pix">ASSIST</span><span class="q">last hit before an ally's kill</span><span class="fill"></span><span class="amt pix">+14</span></div>
+      <div class="row"><span class="pop pix">RESCUE</span><span class="q">kill the one who almost got an ally</span><span class="fill"></span><span class="amt pix">+18</span></div>
+      <div class="subhead">THE HEART</div>
       <div class="row"><span class="pop pix">STEAL</span><span class="fill"></span><span class="amt pix">+40</span></div>
       <div class="row"><span class="pop pix">PEEL</span><span class="q">kill their carrier</span><span class="fill"></span><span class="amt pix">+90</span></div>
       <div class="row"><span class="pop pix">DENIED!</span><span class="q">peel at the doorstep</span><span class="fill"></span><span class="amt pix">+120</span></div>
       <div class="row"><span class="pop pix">CAPTURE</span><span class="fill"></span><span class="amt pix">+250</span></div>
       <div class="subhead">TEAM</div>
-      <div class="row"><span class="pop pix">WIPEOUT</span><span class="q">whole squad splatted</span><span class="fill"></span><span class="amt pix">+400</span></div>
       <div class="row"><span class="pop quiet pix">SHIELD SOAK</span><span class="q">no pop, no heat</span><span class="fill"></span><span class="amt pix">+4<span class="q">/hp</span></span></div>
       <div class="row"><span class="pop neg pix">OWN PAINT</span><span class="q">&minus;20 xp too</span><span class="fill"></span><span class="amt pix neg">&minus;60</span></div>
       <div class="row"><span class="pop quiet pix">RANK UP &#10033;</span><span class="q">stars only</span><span class="fill"></span><span class="amt pix zero">+0</span></div>
@@ -264,10 +269,10 @@ body {
     <div class="tree">
       <h3 class="pix">THE HEART</h3>
       <div class="row"><span class="tier pix">I</span><span class="name">Hands On</span><span class="fill"></span><span class="q">contested steal</span></div>
-      <div class="row"><span class="tier pix">II</span><span class="name">Delivered</span><span class="fill"></span><span class="q">capture</span></div>
-      <div class="row"><span class="tier pix">III</span><span class="name">Fighting Carry</span><span class="fill"></span><span class="q">kill while carrying</span></div>
-      <div class="row"><span class="tier pix">IV</span><span class="name">Uphill</span><span class="fill"></span><span class="q">capture outnumbered</span></div>
-      <div class="row"><span class="tier pix">V</span><span class="name">Fast Break</span><span class="fill"></span><span class="q">steal &rarr; score in 10 s</span></div>
+      <div class="row"><span class="tier pix">II</span><span class="name">Fighting Carry</span><span class="fill"></span><span class="q">kill while carrying</span></div>
+      <div class="row"><span class="tier pix">III</span><span class="name">Double Steal</span><span class="fill"></span><span class="q">2 contested steals</span></div>
+      <div class="row"><span class="tier pix">IV</span><span class="name">Hard Carry</span><span class="fill"></span><span class="q">2 steals + a carry kill</span></div>
+      <div class="row"><span class="tier pix">V</span><span class="name">Delivered</span><span class="fill"></span><span class="q">capture</span></div>
     </div>
 
     <div class="tree">
@@ -290,115 +295,148 @@ body {
 
   </div>
 
-  <div class="colo pix">glory.nim &middot; GLORYVERSION 10</div>
+  <!-- ── endcard distinctions: pinned on the capture, no glory, no claim ── -->
+  <div class="achhead">
+    <h2 class="pix">ENDCARD DISTINCTIONS <small style="color:var(--ghost); font-size:9px;">ON THE CAPTURE ITSELF &middot; NO GLORY &middot; MATCH RECORD ONLY</small></h2>
+  </div>
+  <div class="trees endcard">
+    <div class="tree">
+      <h3 class="pix">UPHILL</h3>
+      <div class="row"><span class="q">capture while your team is outnumbered</span></div>
+    </div>
+    <div class="tree">
+      <h3 class="pix">FAST BREAK</h3>
+      <div class="row"><span class="q">steal &rarr; capture again in 10 s, same life</span></div>
+    </div>
+  </div>
+
+  <div class="colo pix">glory.nim &middot; GLORYVERSION 12</div>
+  <div class="colo pix" style="margin-top:4px;">NOTE: a further pricing pass is staged but not yet live &mdash; every number above is today's active economy.</div>
 
 </div>
 
 <script>
-// The paint splats are the REAL ones: makeSplat/drawSplat/hexA lifted verbatim
-// out of client/replay_broadcast.html (the visor-hit + endcard splat machinery),
-// so a splat on this sheet is the same torn multi-lobe gob with the same
-// feathered edges and running drips the broadcast paints.
-var RED = '#e0523a', BLUE = '#3f7cc4';
+// ── THE SPLATS ARE THE GAME'S OWN ──────────────────────────────────────────
+// Ported pixel-for-pixel out of src/ctf/global.nim — same integer hash, same
+// droplet offsets, same wobble, same fade stages — so these are the exact
+// shapes the engine stamps on the floor, not an impression of them:
+//
+//   buildHitSparkSprite (21x21, HitSplatCoreR 6.0) — the on-hit paint splat:
+//     a wet glossy core with a hash-perturbed irregular edge, SIX flung
+//     droplets ringed around it, a bright sheen lobe up-left, and a thin dark
+//     contour of the same hue so it pops off a dark floor.
+//   buildSplatterSprite (13x13) — the puddle: a dense blob thinned by a
+//     per-pixel hash dither, sparser as the stage climbs.
+//
+// Recolored to the two team paints, which Maxwell has explicitly sanctioned.
+// The three color transforms are the sprite's own: paint lightens the base so
+// it never muddies, sheen runs near-white, contour is a deep version of the
+// SAME hue (never brown — this is paint, not blood).
+var RED = '#e0523a', BLUE = '#3f7cc4';   // the two team paints (--red / --blue)
+var HIT_SIZE = 21, HIT_CORE_R = 6.0, PUDDLE_SIZE = 13, SPLAT_STAGES = 4;
+var DROPLETS = [[-8,-3,2.4], [7,-6,2.0], [9,4,2.6], [-6,7,2.2], [2,9,1.8], [-9,2,1.7]];
 
-function makeSplat(tick, color) {
-  function rnd(i) { var x = Math.sin((tick * 13.13 + i * 7.77)) * 43758.5453; return x - Math.floor(x); }
-  var anchors = [
-    { x: 0.26, y: 0.30 }, { x: 0.74, y: 0.30 },
-    { x: 0.26, y: 0.70 }, { x: 0.74, y: 0.70 },
-    { x: 0.20, y: 0.50 }, { x: 0.80, y: 0.50 }
-  ];
-  var a = anchors[Math.floor(rnd(0) * anchors.length) % anchors.length];
-  var mainR = 0.15 + rnd(1) * 0.04;
-  var blobs = [{ x: a.x, y: a.y, r: mainR, drip: 0.8 + rnd(2) * 0.5 }];
-  var count = 3 + Math.floor(rnd(3) * 2);
-  for (var i = 0; i < count; i++) {
-    var ang = rnd(i * 3 + 4) * Math.PI * 2;
-    blobs.push({
-      x: a.x + Math.cos(ang) * mainR * (0.7 + rnd(i * 3 + 5) * 0.5),
-      y: a.y + Math.sin(ang) * mainR * (0.6 + rnd(i * 3 + 6) * 0.5),
-      r: mainR * (0.32 + rnd(i * 3 + 7) * 0.34),
-      drip: rnd(i * 5 + 8) * 0.7
-    });
-  }
-  return { tick: tick, color: color, blobs: blobs, cx: a.x, cy: a.y, mainR: mainR };
+// global.nim's pixel hash, in uint32 (Math.imul keeps the 32-bit wrap honest).
+function hashNoise(x, y) {
+  var n = (Math.imul(x, 374761393) + Math.imul(y, 668265263)) >>> 0;
+  return Math.imul(n ^ (n >>> 13), 1274126177) >>> 0;
 }
-
-function hexA(hex, a) {
+function rgbOf(hex) {
   var m = /^#?([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})$/i.exec(hex);
-  if (!m) return hex;
-  return 'rgba(' + parseInt(m[1], 16) + ',' + parseInt(m[2], 16) + ',' + parseInt(m[3], 16) + ',' + a + ')';
+  return { r: parseInt(m[1], 16), g: parseInt(m[2], 16), b: parseInt(m[3], 16) };
+}
+function spriteCanvas(w, h) {
+  var cv = document.createElement('canvas'); cv.width = w; cv.height = h; return cv;
 }
 
-function drawSplat(ctx, W, H, splat, life) {
-  if (life <= 0) return;
-  ctx.save();
-  var a = Math.min(0.7, life * 1.05);
-  ctx.globalAlpha = a;
-  var col = splat.color;
-  for (var i = 0; i < splat.blobs.length; i++) {
-    var b = splat.blobs[i];
-    var bx = b.x * W, by = b.y * H, br = b.r * Math.min(W, H);
-    var g = ctx.createRadialGradient(bx, by, br * 0.15, bx, by, br);
-    g.addColorStop(0, col); g.addColorStop(0.7, col);
-    g.addColorStop(1, hexA(col, 0));
-    ctx.fillStyle = g;
-    ctx.beginPath(); ctx.arc(bx, by, br, 0, Math.PI * 2); ctx.fill();
-    if (b.drip > 0.35) {
-      // TWO DELIBERATE DEVIATIONS from the broadcast's drip, both because that
-      // one is ~10 px tall and gone in a third of a second while these are
-      // static and large:
-      //  1. The bead is a BUG there — the arc is filled with a gradient that
-      //     reaches ZERO alpha at exactly the bead's own y, so the drop the
-      //     code clearly intends never renders and the trail just tapers to a
-      //     point. The ramp now stays wet to the tip and the bead paints solid.
-      //  2. Straight quadratic sides read as a geometric caret at this scale,
-      //     so the trail leans and bulges on a per-blob deterministic wobble.
-      var dl = br * (0.8 + b.drip * 1.6);
-      var dw = br * 0.32;
-      var j = Math.sin(b.x * 91.7 + b.y * 47.3) * 43758.5453;
-      j = j - Math.floor(j);                       // stable 0..1 for this blob
-      var lean = (j - 0.5) * dw * 1.2;             // the run drifts off-axis
-      var beadR = dw * (0.44 + j * 0.26);
-      var beadY = by + dl;
-      var dg = ctx.createLinearGradient(bx, by, bx, beadY + beadR);
-      dg.addColorStop(0, col);
-      dg.addColorStop(0.8, col);
-      dg.addColorStop(1, hexA(col, 0.6));
-      ctx.fillStyle = dg;
-      ctx.beginPath();
-      ctx.moveTo(bx - dw, by);
-      ctx.bezierCurveTo(bx - dw * (0.92 + j * 0.34), by + dl * 0.34,
-                        bx + lean - beadR * 0.95,    by + dl * 0.74,
-                        bx + lean - beadR * 0.6,     beadY);
-      ctx.lineTo(bx + lean + beadR * 0.6, beadY);
-      ctx.bezierCurveTo(bx + lean + beadR * 0.95,    by + dl * 0.74,
-                        bx + dw * (0.66 + j * 0.4),  by + dl * 0.28,
-                        bx + dw, by);
-      ctx.closePath(); ctx.fill();
-      // the bead itself: the fattest, wettest part — a drop about to fall
-      ctx.fillStyle = hexA(col, 0.92);
-      ctx.beginPath(); ctx.arc(bx + lean, beadY, beadR, 0, Math.PI * 2); ctx.fill();
+// buildHitSparkSprite
+function buildHitSplat(hex, stage) {
+  var base = rgbOf(hex);
+  var paint = { r: (base.r * 3 + 255) >> 2, g: (base.g * 3 + 255) >> 2, b: (base.b * 3 + 255) >> 2 };
+  var sheenC = { r: (base.r + 765) >> 2, g: (base.g + 765) >> 2, b: (base.b + 765) >> 2 };
+  var edge = { r: (base.r * 2 / 5) | 0, g: (base.g * 2 / 5) | 0, b: (base.b * 2 / 5) | 0 };
+  var c = (HIT_SIZE - 1) / 2;
+  var fade = 1.0 - 0.62 * (stage / (SPLAT_STAGES - 1));
+  var coreR2 = HIT_CORE_R * HIT_CORE_R;
+  var cv = spriteCanvas(HIT_SIZE, HIT_SIZE);
+  var ictx = cv.getContext('2d');
+  var img = ictx.createImageData(HIT_SIZE, HIT_SIZE);
+  for (var y = 0; y < HIT_SIZE; y++) {
+    for (var x = 0; x < HIT_SIZE; x++) {
+      var dx = x - c, dy = y - c, d2 = dx * dx + dy * dy;
+      var noise = hashNoise(x, y);
+      var wobble = ((noise >>> 16) % 7) - 3;              // -3..+3 px
+      var coreEdge = HIT_CORE_R + wobble * 0.5;
+      var inShape = d2 <= coreEdge * coreEdge;
+      var onEdge = d2 > (coreEdge - 1.6) * (coreEdge - 1.6) && inShape;
+      if (!inShape) {
+        for (var k = 0; k < DROPLETS.length; k++) {
+          var ox = DROPLETS[k][0], oy = DROPLETS[k][1], dr = DROPLETS[k][2];
+          var ddx = x - (c + ox), ddy = y - (c + oy), dd2 = ddx * ddx + ddy * ddy;
+          if (dd2 <= dr * dr) { inShape = true; onEdge = dd2 > (dr - 1.0) * (dr - 1.0); break; }
+        }
+      }
+      if (!inShape) continue;
+      var sxr = dx + 2.0, syr = dy + 2.0;
+      var sheen = d2 <= coreR2 && (sxr * sxr + syr * syr) <= 5.2 * 5.2 && ((noise >>> 9) % 5) > 0;
+      var col = onEdge ? edge : (sheen ? sheenC : paint);
+      var i = (y * HIT_SIZE + x) * 4;
+      img.data[i] = col.r; img.data[i + 1] = col.g; img.data[i + 2] = col.b;
+      img.data[i + 3] = Math.max(0, Math.min(255, Math.round(255 * fade)));
     }
   }
-  ctx.restore();
+  ictx.putImageData(img, 0, 0);
+  return cv;
 }
 
-// Where the paint landed. `life` doubles as the opacity dial (drawSplat caps at
-// 0.7); kept under 0.72 so no splat fires its wet-impact rim flash on a static
-// page. Ticks are fixed, so the sheet paints identically every load.
-// Every splat is DRAWN at full strength (life 0.7, drawSplat's own alpha cap)
-// so it keeps its solid core and reads as a torn gob; `a` then dials how
-// present it is on the page. Fading via `life` instead would erase the core
-// and leave only the feathered rim — colored fog, not paint.
+// buildSplatterSprite — the puddle. Late stages shade darker in-engine; these
+// stay on the bright paint so a decorative puddle never reads as a scab.
+function buildPuddle(hex, stage) {
+  var base = rgbOf(hex);
+  var half = PUDDLE_SIZE >> 1;
+  var cv = spriteCanvas(PUDDLE_SIZE, PUDDLE_SIZE);
+  var ictx = cv.getContext('2d');
+  var img = ictx.createImageData(PUDDLE_SIZE, PUDDLE_SIZE);
+  for (var y = 0; y < PUDDLE_SIZE; y++) {
+    for (var x = 0; x < PUDDLE_SIZE; x++) {
+      var dx = x - half, dy = y - half, d2 = dx * dx + dy * dy;
+      if (d2 > half * half) continue;
+      var noise = hashNoise(x, y);
+      var density = 120 - stage * 25 - d2 * 2;
+      if (((noise >>> 16) % 100) < density) {
+        var i = (y * PUDDLE_SIZE + x) * 4;
+        img.data[i] = base.r; img.data[i + 1] = base.g; img.data[i + 2] = base.b;
+        img.data[i + 3] = 255;
+      }
+    }
+  }
+  ictx.putImageData(img, 0, 0);
+  return cv;
+}
+
+var spriteCache = {};
+function sprite(kind, hex, stage) {
+  var key = kind + hex + stage;
+  if (!spriteCache[key]) {
+    spriteCache[key] = kind === 'hit' ? buildHitSplat(hex, stage) : buildPuddle(hex, stage);
+  }
+  return spriteCache[key];
+}
+
+// Where the paint landed. `px` is the pixel scale (these are 21px and 13px
+// sprites, drawn big with smoothing OFF so they stay crisp game pixels).
+// `rot` is in QUARTER turns only — an arbitrary angle would resample the pixel
+// grid and soften the very thing that makes them read as the game's art.
 var SPOTS = [
-  { x: 0.055, y: 0.05, s: 0.54, c: RED,  tick: 3,   a: 0.85 },
-  { x: 0.945, y: 0.08, s: 0.56, c: BLUE, tick: 17,  a: 0.85 },
-  { x: 0.030, y: 0.40, s: 0.38, c: BLUE, tick: 42,  a: 0.55 },
-  { x: 0.965, y: 0.50, s: 0.40, c: RED,  tick: 66,  a: 0.55 },
-  { x: 0.070, y: 0.76, s: 0.42, c: RED,  tick: 91,  a: 0.60 },
-  { x: 0.930, y: 0.87, s: 0.40, c: BLUE, tick: 128, a: 0.55 },
-  { x: 0.480, y: 0.97, s: 0.30, c: RED,  tick: 155, a: 0.40 }
+  { x: 0.055, y: 0.045, k: 'hit',    c: RED,  st: 0, px: 15, a: 0.90, rot: 0, flip: false },
+  { x: 0.945, y: 0.075, k: 'hit',    c: BLUE, st: 0, px: 16, a: 0.90, rot: 1, flip: true  },
+  { x: 0.140, y: 0.150, k: 'puddle', c: RED,  st: 1, px: 11, a: 0.55, rot: 2, flip: false },
+  { x: 0.030, y: 0.400, k: 'puddle', c: BLUE, st: 0, px: 13, a: 0.60, rot: 3, flip: false },
+  { x: 0.968, y: 0.500, k: 'hit',    c: RED,  st: 1, px: 12, a: 0.70, rot: 2, flip: false },
+  { x: 0.075, y: 0.760, k: 'hit',    c: RED,  st: 1, px: 13, a: 0.70, rot: 3, flip: true  },
+  { x: 0.930, y: 0.870, k: 'hit',    c: BLUE, st: 1, px: 12, a: 0.70, rot: 0, flip: false },
+  { x: 0.870, y: 0.700, k: 'puddle', c: BLUE, st: 1, px: 10, a: 0.45, rot: 1, flip: false },
+  { x: 0.030, y: 0.992, k: 'puddle', c: RED,  st: 2, px: 12, a: 0.45, rot: 0, flip: true  }
 ];
 
 var splatCanvas = document.getElementById('splats');
@@ -413,23 +451,20 @@ function paintSplats() {
   var ctx = splatCanvas.getContext('2d');
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
   ctx.clearRect(0, 0, W, H);
+  ctx.imageSmoothingEnabled = false;
+  // Narrow screens get a smaller pixel scale so a splat never swallows a panel.
+  var k = W < 620 ? 0.55 : (W < 980 ? 0.78 : 1);
   for (var i = 0; i < SPOTS.length; i++) {
     var sp = SPOTS[i];
-    var box = sp.s * Math.min(W, 1100);
-    var splat = makeSplat(sp.tick, sp.c);
-    // Render at full strength into an offscreen pad (drips run ~1.2 boxes past
-    // the blob, so the pad is taller than the box), then composite it at `a`.
-    var padW = Math.ceil(box * 1.35), padH = Math.ceil(box * 1.70);
-    var off = document.createElement('canvas');
-    off.width = Math.round(padW * dpr); off.height = Math.round(padH * dpr);
-    var octx = off.getContext('2d');
-    octx.setTransform(dpr, 0, 0, dpr, 0, 0);
-    drawSplat(octx, box, box, splat, 0.7);
-    // Anchor by the gob's OWN center (makeSplat picks one of six off-center
-    // anchors), not the pad's, so x/y above is where the paint actually lands.
+    var cv = sprite(sp.k, sp.c, sp.st);
+    var s = cv.width * sp.px * k;
     ctx.save();
     ctx.globalAlpha = sp.a;
-    ctx.drawImage(off, sp.x * W - splat.cx * box, sp.y * H - splat.cy * box, padW, padH);
+    ctx.imageSmoothingEnabled = false;
+    ctx.translate(Math.round(sp.x * W), Math.round(sp.y * H));
+    if (sp.rot) ctx.rotate(sp.rot * Math.PI / 2);
+    if (sp.flip) ctx.scale(-1, 1);
+    ctx.drawImage(cv, Math.round(-s / 2), Math.round(-s / 2), Math.round(s), Math.round(s));
     ctx.restore();
   }
 }
