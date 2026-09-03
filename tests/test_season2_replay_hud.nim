@@ -74,6 +74,35 @@ suite "SEASON 2 replay viewer HUD: glory":
     checkInBoth "o.achievements || []"
     checkInBoth "ACH_TOTAL"
 
+  test "endcard names the players behind every color (owner 2026-09-02)":
+    # "naming the color that won alone is pointless! you have to name the
+    # players too." The BR endcard's winner banner carries a secondary
+    # names line under the color headline, and every standings row carries
+    # the duo's seat/policy names beside its color chip. brTeamNames reads
+    # the wire roster's own identities (teamPolicies: teams[team].policies
+    # or per-seat p.pol/p.name — the seat name IS the identity contract).
+    checkInBoth "function brTeamNames(s, team)"
+    checkInBoth "id=\"ec-hero-duo\""
+    checkInBoth "heroDuo.textContent = namesFor(winner)"
+    checkInBoth "class=\"ec-fduo\""
+    # Names render only where they ADD identity — a single-policy team's
+    # label already IS its name, never the same string twice.
+    checkInBoth "names !== labelOf[team] ? names : ''"
+
+  test "BR scorebug cells name every member beside their life square":
+    # Owner direction 2026-09-02: "the life squares can stack vertically
+    # and have the name to the right or something" — each 16-team cell is
+    # swatch + a vertical member stack (life square + that seat's own
+    # policy name per row, both duo members) + glory. brShortIdent keeps
+    # the DISTINCTIVE tail of the long shared-namespace policy names, one
+    # truncation rule for all 16 chips.
+    checkInBoth "class=\"br-cell-members\""
+    checkInBoth "function brShortIdent(n)"
+    checkInBoth "class=\"br-cell-mname\""
+    # Per-member identity reads the roster's own pol field (the identity
+    # contract), never name-matching.
+    checkInBoth "p.pol != null ? p.pol : stripSeatSuffix(p.name)"
+
 suite "SEASON 2 replay viewer HUD: phase presentation + comms":
   test "phase overlays exist, are wired per-frame, and degrade to nothing":
     # The three-act presentation (owner spec): MAP VOTE stage, HUDDLE stage,
