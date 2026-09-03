@@ -1290,7 +1290,9 @@
         "viewIntervalTicks": 6,
         "lobbyChatTicks": 600,
         "playSeatBindTicks": 7200,
-        "variantId": "battle-royale-s2"
+        "variantId": "battle-royale-s2",
+        "gloryMultiplierRecut": true,
+        "stampRealizedConfig": true
       }
     },
     {
