@@ -2615,7 +2615,15 @@ body[data-noviewpanel] #viewpanel { display: none !important; }
     var s;
     try { s = JSON.parse(txt); } catch (e) { return; }
     lastState = s;
-    if (!PB_MODE && s.regime !== undefined) PB_MODE = true;
+    // modechrome lane (#364/#369, ported to the LIVE path): `regime` was
+    // never a Paintball-exclusive signal — it rides ANY squad-seated frame
+    // (numAgents > 0), so BR's 16 duo seats AND Campaign/classic squad
+    // episodes were false-latching PB_MODE and getting the deprecated
+    // hill/RED-BLUE/game-N/M chrome live. Gate on the wire's actual
+    // Paintball tell (`hillOwner`) instead; keep the `!isElim(s)` exclusion
+    // as defense-in-depth so BR can never claim this chrome even if hill
+    // were ever misconfigured for it.
+    if (!PB_MODE && isPaintballMode(s) && !isElim(s)) PB_MODE = true;
     dismissLockerRoom();  // the board is live — fade the pre-load curtain
 
     if (START_SPEED != null) { send(START_SPEED); START_SPEED = null; }
@@ -2661,7 +2669,12 @@ body[data-noviewpanel] #viewpanel { display: none !important; }
     ingestLeadSeries(s);
     ingestFpMap(s);
     ingestLullSpans(s);
-    ingestBeats(s);
+    // The up-front beat timeline is the OTHER path heart chrome rides
+    // (replays ship every steal/return/capture beat on the first HUD frame,
+    // so applyEvent's gate alone still left steal markers on a BR scrubber).
+    // Same heart gate, applied before chrome_common's ingestBeats latches
+    // its once-only beatTimeline.
+    ingestBeats(heartGatedBeats(s));
     ingestCapHearts(s);
     recordMomentum(s);
 
@@ -2906,6 +2919,26 @@ body[data-noviewpanel] #viewpanel { display: none !important; }
   // too. Absent block = classic CTF, so every existing replay is unchanged.
   function isFlagless(s) { return !!(s && s.br && s.br.flagless); }
   function isElim(s) { return !!(s && s.br && s.br.elim); }
+  // Genuine Paintball (#369's helper, ported to the LIVE path): `hillOwner`
+  // is the wire's actual Paintball-exclusive tell — broadcast.nim only emits
+  // it behind `sim.config.hill`, which the manifest sets true ONLY for the
+  // `paintball` variant (never Campaign's squad modes, never BR). `regime`
+  // rides ANY numAgents > 0 frame and is NOT a Paintball signal.
+  function isPaintballMode(s) { return !!(s && s.hillOwner !== undefined); }
+  // Heart gate for the up-front beat timeline: on a BR/flagless/PB frame,
+  // hand ingestBeats a copy with the steal/return/capture beats stripped so
+  // the scrubber never grows heart markers (the mode tells ride the SAME
+  // frame as the beats — broadcast.nim pins `br` on every brMode frame — so
+  // this can never race the latch). Classic frames pass through untouched.
+  function heartGatedBeats(s) {
+    if (!s || !s.beats || !(isElim(s) || isFlagless(s) || PB_MODE)) return s;
+    var copy = {};
+    for (var k in s) copy[k] = s[k];
+    copy.beats = s.beats.filter(function (b) {
+      return b.k !== 'steal' && b.k !== 'return' && b.k !== 'capture';
+    });
+    return copy;
+  }
 
   function renderScorebug(s) {
     var teams = activeTeams(s);
@@ -3984,7 +4017,11 @@ body[data-noviewpanel] #viewpanel { display: none !important; }
     if (typeof self.lives === 'number') bits.push('×' + self.lives);
     (self.items || []).forEach(function (it) { bits.push(ITEM_LABEL[it] || it.toUpperCase()); });
     var html = bits.map(function (b) { return '<span>' + b + '</span>'; }).join('');
-    if (self.carry) html += '<span class="carry">♥ HEART</span>';
+    // Heart chrome is classic-CTF-only (same tells as applyEvent's heart
+    // gate): a BR/flagless/Paintball frame never shows the carry chip.
+    if (self.carry && !isElim(lastState) && !isFlagless(lastState) && !PB_MODE) {
+      html += '<span class="carry">♥ HEART</span>';
+    }
     gearEl.innerHTML = html;
   }
 
@@ -4184,6 +4221,15 @@ body[data-noviewpanel] #viewpanel { display: none !important; }
       beatPulse();
       return;
     }
+    // HEARTS ARE CLASSIC-CTF CHROME ONLY (extends #364/#369's mode tells):
+    // the wire's steal/return/capture events are DIFFED off sim.flags
+    // carrier flips (broadcast.nim), a mechanism #370's loot rework now
+    // also exercises on BR frames — a LIVE battle royale was rendering a
+    // "BLUE HEART RETURNED" banner (owner screenshot, hotfix lane). A BR
+    // (isElim), flagless, or Paintball frame must never reach the heart
+    // banner/beat/cap-heart handlers below, whatever the wire carries.
+    if ((e.k === 'steal' || e.k === 'return' || e.k === 'capture') &&
+        (isElim(s) || isFlagless(s) || PB_MODE)) return;
     switch (e.k) {
       case 'kill': onKill(e, s); markBeat(e.t, 'kill', killMarkerTeam(e, s)); beatPulse(); break;
       case 'steal': onSteal(e, s); markBeat(e.t, 'steal', e.flag); beatPulse(); break;
@@ -4324,12 +4370,18 @@ body[data-noviewpanel] #viewpanel { display: none !important; }
     return team === 'red' ? (o.redLives || 0) : team === 'blue' ? (o.blueLives || 0) : 0;
   }
 
-  function endcardWinCondition(o, teams) {
+  function endcardWinCondition(o, teams, elim) {
     // The condition CHIP: how the match ended, in two or three words.
-    // (A time-limit ending is always a draw in the current rules — the sim's
-    // checkMaxTicks path never crowns a winner — so timeLimit only pairs
-    // with draw here.)
-    if (o.endRule !== undefined) {
+    // (A time-limit ending is always a draw in classic rules — the sim's
+    // checkMaxTicks path never crowns a winner there — so timeLimit only
+    // pairs with draw below. BR is the one exception: brTiebreakWinner()
+    // crowns a winner off the clock too, so `elim` gets its own branches.)
+    // #364, ported to the LIVE path: `o.endRule` rides broadcast.nim's
+    // "Squad-game endcard extras" (numAgents > 0) — NOT Paintball-exclusive;
+    // BR duos and Campaign squads carry it too, defaulted to "full_time".
+    // Require PB_MODE (the genuine-Paintball latch) so a BR/Campaign match
+    // can never render "FULL TIME ON THE HILL".
+    if (o.endRule !== undefined && PB_MODE) {
       // PAINTBALL names the RULE the server actually applied, so the chip can
       // never disagree with the endRule in results.json.
       switch (o.endRule) {
@@ -4342,6 +4394,8 @@ body[data-noviewpanel] #viewpanel { display: none !important; }
       }
     }
     if (o.draw) return o.timeLimit ? 'TIME LIMIT — DRAW' : 'DRAW';
+    if (elim && o.timeLimit) return 'TIME LIMIT — TIEBREAK';
+    if (elim) return 'LAST TEAM STANDING';
     var losers = teams.filter(function (t) { return t !== o.winner; });
     var bestLoser = 0;
     losers.forEach(function (t) { bestLoser = Math.max(bestLoser, overLives(o, t)); });
@@ -4375,7 +4429,9 @@ body[data-noviewpanel] #viewpanel { display: none !important; }
     (capHeartsBySlot[e.by] = capHeartsBySlot[e.by] || []).push(e.flag);
   }
   function ingestCapHearts(s) {
-    if (!s.beats) return;
+    // Same heart gate as applyEvent: captured-heart endcard badges are
+    // classic-CTF chrome; never ingest them off a BR/flagless/PB frame.
+    if (!s.beats || isElim(s) || isFlagless(s) || PB_MODE) return;
     for (var i = 0; i < s.beats.length; i++) {
       if (s.beats[i].k === 'capture') recordCapHeart(s.beats[i]);
     }
@@ -4620,7 +4676,7 @@ body[data-noviewpanel] #viewpanel { display: none !important; }
     card._key = key;
 
     var head = $('ec-headline'), how = $('ec-how');
-    $('ec-wincond').textContent = endcardWinCondition(o, teams);
+    $('ec-wincond').textContent = endcardWinCondition(o, teams, elim);
 
     // MVP: the winning team's best final line (kills > fewer deaths >
     // captures — the capturer keeps their ⚑ mark, the star follows the guns).

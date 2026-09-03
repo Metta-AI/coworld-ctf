@@ -918,7 +918,12 @@
       '<div id="phud-cond" class="phud-panel">' +
       '<div class="phud-stat"><span class="phud-eyebrow">condition</span><span class="phud-num" id="phud-hp">—</span></div>' +
       '<div class="phud-stat"><span class="phud-eyebrow">lives</span><span class="phud-num" id="phud-lv">—</span></div>' +
-      '<div class="phud-stat"><span class="phud-eyebrow">weapon</span><span class="phud-num"><span id="phud-cooldown"></span><span id="phud-weapon-text">—</span></span></div>' +
+      // Eyebrow text only ("marker" -- Maxwell's ruling 8/30, real
+      // paintball's own word for the gun): CSS uppercases it to MARKER,
+      // same treatment as every other eyebrow here. The DOM ids
+      // (phud-weapon-text etc.) and the wire fields they read stay exactly
+      // as they were -- this is a chrome label, not a protocol rename.
+      '<div class="phud-stat"><span class="phud-eyebrow">marker</span><span class="phud-num"><span id="phud-cooldown"></span><span id="phud-weapon-text">—</span></span></div>' +
       '<div class="phud-stat" id="phud-buffwrap" style="display:none"><span class="phud-eyebrow">buffs</span><span class="phud-sub" id="phud-buffs"></span></div>' +
       '</div>' +
       '<div id="phud-mini-wrap">' +
