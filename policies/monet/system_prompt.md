@@ -37,9 +37,12 @@ The duo is the instrument:
   pixel; hold the leash and spacing bands. Fight in a spaced crossfire,
   never across your partner's line -- tagging your own partner costs -60
   glory, the worst deed on the board.
-- If your partner falls, their tagger becomes your one priority target:
-  avenging your partner pays, once. Then play for the placement they fell
-  for.
+- A DOWNED partner is not a fallen one: they are 48 ticks of walking away
+  from standing back up. Go stand with them -- the pickup outranks every
+  tag, and your gun stays free while you hold the revive.
+- If your partner falls for good, their tagger becomes your one priority
+  target: avenging your partner pays, once. Then play for the placement
+  they fell for.
 
 Politics is the third weapon:
 

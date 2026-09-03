@@ -623,6 +623,12 @@ def _view_facts(view: dict, context: dict, kill_feed: list) -> dict:
         partner_in_combat = any(
             _dist(partner_track["pos"], t["pos"]) <= PARTNER_COMBAT_PX
             for t in enemies)
+    # LOOT(s2) downed bits: self.downed rides the view's self row; the duo
+    # partner's downed bit rides the never-fogged GRANT row (view.nim
+    # partnerTelemetry -> tracks; "downed" is emitted only when true).
+    self_downed = bool(me.get("downed"))
+    partner_downed = bool(partner_track is not None
+                          and partner_track.get("downed"))
     in_zone = _in_rect(zone.get("current"))
     in_next_zone = _in_rect(zone.get("next"))
     ticks_to_shrink = (zone.get("ticks_to_shrink")
@@ -635,6 +641,7 @@ def _view_facts(view: dict, context: dict, kill_feed: list) -> dict:
         partner=partner, partner_dead=partner_dead, partner_track=partner_track,
         partner_track_fresh=partner_track_fresh,
         partner_in_combat=partner_in_combat,
+        self_downed=self_downed, partner_downed=partner_downed,
         partner_dist=(_dist(pos, partner_track["pos"])
                       if pos is not None and partner_track is not None else None),
     )
@@ -711,6 +718,13 @@ def gate_open(entry: dict, facts: dict) -> bool:
         tts = facts.get("ticks_to_shrink")
         return (not facts.get("in_next_zone", True)
                 and tts is not None and tts < lead)
+    if play == "medic":
+        # Pick your teammate back up: duo partner exists, their grant row
+        # reads downed, we are upright and they are not already lost.
+        return (facts["partner"] is not None
+                and not facts["partner_dead"]
+                and not facts.get("self_downed")
+                and facts.get("partner_downed", False))
     if play == "hold_vs_gun":
         # Stand-your-ground only bites with a live gun in reach: a fresh
         # enemy track within its own engageDist -- and only inside the zone
@@ -730,7 +744,7 @@ def gate_open(entry: dict, facts: dict) -> bool:
 
 
 GATED_PLAYS = ("supply_run", "loot", "bodyguard", "jackal", "crossfire",
-               "hold_vs_gun", "fire_superiority", "ring_walker")
+               "hold_vs_gun", "fire_superiority", "ring_walker", "medic")
 
 
 def layer_ladder(entries: list, view: dict, context: dict | None = None,

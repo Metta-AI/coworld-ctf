@@ -114,6 +114,7 @@ def facts(**kw):
                 ticks_to_shrink=None, partner=19,
                 partner_dead=False, partner_track=None, partner_dist=None,
                 partner_track_fresh=False, partner_in_combat=False,
+                self_downed=False, partner_downed=False,
                 max_hp=6)
     base.update(kw)
     return base
@@ -146,6 +147,47 @@ check("all three custom plays are registered as gated",
       "hold_vs_gun" in starter_harness.GATED_PLAYS
       and "fire_superiority" in starter_harness.GATED_PLAYS
       and "ring_walker" in starter_harness.GATED_PLAYS)
+
+MEDIC = {"play": "medic", "params": {"abortHpFloor": 1, "zoneReach": 220}}
+GHOST = {"seat": 19, "pos": [700, 700], "fresh_tick": 995, "downed": True}
+check("gate medic OPEN: partner grant row reads downed",
+      starter_harness.gate_open(MEDIC, facts(
+          partner_track=dict(GHOST), partner_downed=True)))
+check("gate medic CLOSED: no partner",
+      not starter_harness.gate_open(MEDIC, facts(partner=None)))
+check("gate medic CLOSED: self is downed too",
+      not starter_harness.gate_open(MEDIC, facts(
+          partner_track=dict(GHOST), partner_downed=True, self_downed=True)))
+check("gate medic CLOSED: partner upright",
+      not starter_harness.gate_open(MEDIC, facts(
+          partner_track={"seat": 19, "pos": [700, 700], "fresh_tick": 995})))
+check("gate medic CLOSED: partner already dead",
+      not starter_harness.gate_open(MEDIC, facts(
+          partner_track=dict(GHOST), partner_downed=True, partner_dead=True)))
+
+for _i, _t in enumerate(PERSONA.canned_turns, start=1):
+    _order = [e["play"] for e in _t["call"]["entries"]]
+    _fights = [j for j, p in enumerate(_order)
+               if p in ("fire_superiority", "hold_vs_gun", "jackal",
+                        "crossfire")]
+    check(f"turn {_i}: medic rides directly below ring_walker, above fights",
+          _order.index("medic") == _order.index("ring_walker") + 1
+          and (not _fights or _order.index("medic") < min(_fights)),
+          str(_order))
+
+# Downed partner on the grant row: medic gates onto the wire ladder.
+DOWNED_VIEW = {
+    "tick": 1000,
+    "self": {"pos": [500, 500], "hp_frac": 1.0},
+    "world": {"zone": {"current": [0, 0, 2000, 2000], "phase": 1}},
+    "tracks": [{"seat": 19, "pos": [700, 700], "fresh_tick": 1000,
+                "downed": True}],
+}
+downed_ladder = [e["play"] for e in starter_harness.layer_ladder(
+    [dict(e) for e in PERSONA.canned_turns[0]["call"]["entries"]],
+    DOWNED_VIEW, FAKE_CONTEXT, [], base_play=PERSONA.base_play)]
+check("layer_ladder downed partner: medic on the wire ladder",
+      "medic" in downed_ladder, str(downed_ladder))
 
 BG = {"play": "bodyguard",
       "params": {"leash": [100, 200], "interpose": True, "peelHp": 2}}

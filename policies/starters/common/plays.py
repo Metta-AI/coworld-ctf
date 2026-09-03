@@ -363,6 +363,33 @@ PLAYS = {
             "next rect."
         ),
     },
+    # MONET custom play #4 (2026-09-02, compiled from
+    # policies/monet/plays/medic.nim by the monet Dockerfile). Revive scout
+    # verified: pure-proximity revive (DownedTagRange 40px, sim.nim
+    # updateDowned), partner pos+downed on a never-fogged grant row. Spec
+    # transcribed from the play's own wasm-carried manifest.
+    "medic": {
+        "class": "controller",
+        "params": {
+            "abortHpFloor": {"kind": "int", "min": 0, "max": 6, "default": 1},
+            "zoneReach": {"kind": "int", "min": 0, "max": 600,
+                          "default": 220},
+        },
+        "brief": (
+            '"medic" (class: controller). Picks your downed partner back '
+            "up: walks to their exact granted position (the duo partner is "
+            "always visible to you, downed or not) and STANDS with them -- "
+            "revive is pure proximity, about two seconds of adjacency, and "
+            "your gun stays free the whole time. Two honest refusals: at "
+            "or below abortHpFloor hp it will not walk into an enemy "
+            "camped on the ghost, and it will not chase a ghost deeper "
+            "than zoneReach px outside the safe zone. Params:\n"
+            "     - abortHpFloor: integer 0..6, default 1. At or below "
+            "this hp, refuse a camped revive.\n"
+            "     - zoneReach: integer 0..600, default 220. Maximum px "
+            "outside the safe zone worth walking for the pickup."
+        ),
+    },
 }
 
 LADDER_RULES = """\
