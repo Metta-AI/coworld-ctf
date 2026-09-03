@@ -2085,12 +2085,88 @@ const CosmeticFxShotSamples = 14
   ## the PiP's tracer polyline, kept in step even though this channel draws
   ## top-down (raw world xy) instead of the PiP's projected bearing/range.
 
+const
+  ContactBearingQuietTicks = TargetFps * 10
+    ## Gap-closing (CONTACT BEARING, swap14): ~10s of continuous
+    ## no-hostile-within-GunRange (sim.nim's updateContactBearingClocks)
+    ## before a seat's corridor counts as "quiet" and becomes eligible for
+    ## a bearing cue — inside the brief's 8-12s window; this measured gap's
+    ## own numbers (median 1.71 fights/min, a 97s hostile-free corridor)
+    ## make 10s comfortably a genuine lull, not a normal reposition beat.
+  ContactBearingCooldownTicks = TargetFps * 4
+    ## Rate limit: at most one bearing cue every ~4s per seat, so this reads
+    ## as an occasional nudge, not a compass that never turns off — the
+    ## same "direction only + rate-limited" pair that keeps this a nudge
+    ## rather than an ESP (see buildCosmeticFxPacket's "bearing" kind doc).
+
+proc contactBearingFor(sim: var SimServer, cog: int): int =
+  ## Gap-closing (CONTACT BEARING, swap14): returns brads toward the
+  ## nearest living hostile when `cog`'s corridor has been quiet long
+  ## enough (sim.lastContactTick) and the per-seat rate limit
+  ## (sim.lastBearingEmitTick) allows another cue this tick, or -1 when
+  ## none should fire — dead, the cosmetic-fx gate is off, still in active
+  ## contact, on cooldown, or there is simply no living hostile left to
+  ## point at (e.g. every enemy already eliminated).
+  ##
+  ## DIRECTION ONLY: the caller learns a bearing and nothing else — never
+  ## the hostile's identity, distance, or position — so this cannot be
+  ## read back into a wallhack the way the killcam's exact killerX/killerY
+  ## deliberately can for a victim whose round is already over (see
+  ## buildShotFeedbackPacket's own killcam-narrowing comment). See this
+  ## proc's own "bearing" kind doc in buildCosmeticFxPacket for the fog
+  ## philosophy this preserves.
+  ##
+  ## SIDE EFFECT: on a firing cue, stamps
+  ## sim.lastBearingEmitTick[cog] = sim.tickCount — this is the ONLY writer
+  ## of that clock, so calling this proc IS "sending" the cue for
+  ## rate-limit purposes. A caller must not call it speculatively and then
+  ## discard a non-negative result.
+  if not sim.config.allowCosmeticFx:
+    return -1
+  if cog < 0 or cog >= sim.players.len:
+    return -1
+  if not sim.players[cog].alive:
+    return -1
+  if cog >= sim.lastContactTick.len:
+    return -1  # not yet tracked this match — step() hasn't run since startGame.
+  if sim.tickCount - sim.lastContactTick[cog] < ContactBearingQuietTicks:
+    return -1
+  if cog < sim.lastBearingEmitTick.len and sim.lastBearingEmitTick[cog] >= 0 and
+      sim.tickCount - sim.lastBearingEmitTick[cog] < ContactBearingCooldownTicks:
+    return -1
+  let
+    cx = sim.players[cog].x + CollisionW div 2
+    cy = sim.players[cog].y + CollisionH div 2
+  var
+    bestDistSq = -1
+    bestBrads = -1
+  for j in 0 ..< sim.players.len:
+    if j == cog or not sim.players[j].alive or
+        sim.players[j].team == sim.players[cog].team:
+      continue
+    let
+      ex = sim.players[j].x + CollisionW div 2
+      ey = sim.players[j].y + CollisionH div 2
+      dx = ex - cx
+      dy = ey - cy
+      distSq = dx * dx + dy * dy
+    if bestDistSq < 0 or distSq < bestDistSq:
+      bestDistSq = distSq
+      bestBrads = bradsOfVector(dx, dy)
+  if bestBrads < 0:
+    return -1  # no living hostile anywhere — nothing to point at.
+  while sim.lastBearingEmitTick.len <= cog:
+    sim.lastBearingEmitTick.add -1
+  sim.lastBearingEmitTick[cog] = sim.tickCount
+  bestBrads
+
 proc buildCosmeticFxPacket(
   sim: SimServer,
   viewerIndex: int,
   incoming: seq[ShotFeedbackFx] = @[],
   partnerDown: seq[PartnerDownFx] = @[],
-  avenge: seq[AvengeFx] = @[]
+  avenge: seq[AvengeFx] = @[],
+  bearing: int = -1
 ): string {.measure.} =
   ## Builds the fog-clipped cosmetic-effects JSON for one takeover socket's
   ## cog this tick (GameConfig.allowCosmeticFx): the two effects
@@ -2152,6 +2228,18 @@ proc buildCosmeticFxPacket(
   ##     C9). Unfiltered/unfogged (match-wide schedule, not a per-viewer
   ##     fact) — sim.zoneTicksToNextEvent(), added whenever zonePhases is
   ##     configured at all, independent of `incoming`/`partnerDown`/`avenge`.
+  ##   {"kind":"bearing", "bearing":int}  -- Gap-closing lane (CONTACT
+  ##     BEARING, swap14): the caller's pre-computed `bearing` param
+  ##     (server.nim's contactBearingFor — ALL of the quiet-corridor
+  ##     eligibility, the ~4s rate limit, and the dead/gate suppression
+  ##     live there, not here), added only when that call returned >= 0.
+  ##     Same DIRECTION-ONLY shape as "incoming" above — no distance, no
+  ##     hostile identity, no position — so a human seat gets a felt nudge
+  ##     toward the fight during a genuinely empty stretch (the measured
+  ##     gap: median 1.71 fights/min, a 97s hostile-free corridor) without
+  ##     becoming a radar. Client renders this as a quiet edge-of-minimap
+  ##     compass tick, not the loud full-screen "incoming" flash — see
+  ##     player_hud.js's notifyContactBearing/drawMinimap.
   if not sim.config.allowCosmeticFx:
     return ""
   if viewerIndex < 0 or viewerIndex >= sim.players.len:
@@ -2214,6 +2302,8 @@ proc buildCosmeticFxPacket(
   if sim.config.zonePhases.len > 0:
     let (etaTicks, shrinking) = sim.zoneTicksToNextEvent()
     fx.add(%*{"kind": "zone_eta", "ticks": etaTicks, "shrinking": shrinking})
+  if bearing >= 0:
+    fx.add(%*{"kind": "bearing", "bearing": bearing})
   if fx.len == 0:
     return ""
   $(%*{"fx": fx})
@@ -3153,8 +3243,17 @@ proc runServerLoop*(
       for fx in frameAvengeFx:
         if fx.avengerIndex == takeoverCogs[i]:
           cogAvenge.add fx
+      # Gap-closing (CONTACT BEARING, swap14): unlike cogIncoming/
+      # cogPartnerDown/cogAvenge above (pure filters over an already-
+      # computed frame seq), contactBearingFor is a live per-cog DECISION
+      # with a side effect (stamps sim.lastBearingEmitTick on a firing
+      # cue) — it must be called exactly once per cog per tick, which this
+      # single call site guarantees. See its own doc comment for the
+      # eligibility rules (quiet threshold, cooldown, dead/gate
+      # suppression).
+      let cogBearing = sim.contactBearingFor(takeoverCogs[i])
       let cosmeticFxPacket = sim.buildCosmeticFxPacket(
-        takeoverCogs[i], cogIncoming, cogPartnerDown, cogAvenge)
+        takeoverCogs[i], cogIncoming, cogPartnerDown, cogAvenge, cogBearing)
       if cosmeticFxPacket.len > 0:
         try:
           takeoverSockets[i].send(cosmeticFxPacket, TextMessage)
