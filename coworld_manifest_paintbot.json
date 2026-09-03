@@ -717,6 +717,21 @@
           "description": "Self-label: the manifest variant id this game_config was published under, echoed verbatim into the realized-config stamp and the replay header so replay-only audits can name the variant without platform access. The engine only reports it.",
           "type": "string",
           "default": ""
+        },
+        "lootSpawnSeedGuns": {
+          "description": "Spawn-area loot seeding (owner order 2026-09-03): number of gun crates appended to weaponSpawns around EACH duo spawn cluster at episode init, placed via the nearestWalkable expanding-ring guarantee within lootSpawnSeedRadius. Arms the field by accidental contact pickup (91.8% of seats never armed without it). Additive to the map's base loot pool. Requires lootStart: true. 0 = off (default).",
+          "type": "integer",
+          "default": 0
+        },
+        "lootSpawnSeedHoppers": {
+          "description": "Spawn-area loot seeding: hopper crates per duo spawn cluster, same placement mechanism and lootStart requirement as lootSpawnSeedGuns. 0 = off (default).",
+          "type": "integer",
+          "default": 0
+        },
+        "lootSpawnSeedRadius": {
+          "description": "Placement radius in px around each duo spawn cluster for seeded crates. 48 keeps the worst-case diagonal (~68px) inside the BR map pool's 70px guaranteed-clear spawn pocket while covering the duo's 24px SpawnShareStagger spread. Only meaningful when seed counts > 0.",
+          "type": "integer",
+          "default": 0
         }
       }
     },
