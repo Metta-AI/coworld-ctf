@@ -901,11 +901,17 @@ proc ctfPlayerResultsJson(sim: SimServer): string =
   ## delivered every tick over the separate `buildRewardPacket` websocket
   ## message; NOT this results document). This field is repurposed to carry
   ## `sim.teamGlory[team]` (the GV48 GLORY ledger, glory.nim/sim.nim's
-  ## `awardDeed`) instead: "to get the glory you have to win, and if you win
-  ## you get that score" -- a winning slot reports its team's full glory
-  ## total, a losing slot reports exactly 0. A draw (`sim.isDraw`) banks 0
-  ## for everyone -- nobody won, so nobody banks -- which falls out of the
-  ## same `playerWon` gate already used for `win[]` below, unchanged.
+  ## `awardDeed`) instead: every slot reports its OWN team's already-tracked
+  ## glory total, win, lose, or draw -- `playerWon` no longer gates this
+  ## (it still gates `win[]` below, unchanged). Glory is per-duo already
+  ## (`sim.teamGlory` has one slot per `Team`, 16 in the 8-duo BR game), so
+  ## nothing is lost by reporting a non-winner's own total instead of
+  ## collapsing it to 0. This can carry a NEGATIVE value (e.g. a
+  ## friendly-fire-heavy duo) straight through to the platform's league
+  ## ledger -- that is intentional here, not a bug: it is the literal
+  ## contents of that duo's own ledger. The only remaining zero-gate is
+  ## `sim.phase == GameOver` below (an aborted/incomplete episode still
+  ## banks 0 for everyone -- nobody's ledger is final until conclusion).
   ## `scores` is the platform's hardcoded canonical league-score key (its
   ## results schema is `additionalProperties: false` with no field-selection
   ## knob), so glory rides the existing key rather than adding a new one.
@@ -997,24 +1003,22 @@ proc ctfPlayerResultsJson(sim: SimServer): string =
     if not hasTeam and slotConfig.hasTeam:
       playerTeam = slotConfig.team
       hasTeam = true
-    # GLORY: banked only on a genuine, CONCLUDED win.
-    #
-    # `playerWon` alone is not a safe gate: `sim.winner` and `sim.isDraw`
-    # only mean something once `finishGame` has actually run (it sets both,
-    # `sim.phase = GameOver`, at the top of that proc). A match that never
-    # reaches a decision -- e.g. the roster empties mid-`Playing` with
-    # `maxGames <= 0`, which sends the sim straight to `resetToLobby`
-    # (`sim.players = @[]`, `sim.phase = Lobby`) without ever calling
-    # `finishGame` -- leaves `sim.winner` at its zero-value default (`Red`)
-    # and `sim.isDraw` at `false`. A still-connected Red-team slot would
-    # then read `playerWon = not false and Red == Red = true` even though
-    # nobody actually won anything. Requiring `sim.phase == GameOver` closes
-    # that: it is true only once `finishGame` has genuinely run (nothing
-    # else sets it on the CTF path), so an aborted/incomplete episode banks
-    # 0 for every slot -- the same "nobody won" shape a draw already gets
-    # for free from `playerWon` being false.
+    # GLORY: every slot banks its OWN team's ledger total once the match
+    # has genuinely CONCLUDED. `playerWon` does NOT gate this (dropped
+    # deliberately -- it still gates `win[]` below, unchanged): a losing or
+    # drawing seat reports its own `sim.teamGlory[playerTeam]`, negative
+    # values included, instead of a flattened 0. `sim.phase == GameOver` is
+    # the one gate that remains, and it is load-bearing on its own: it is
+    # true only once `finishGame` has actually run (it sets `sim.winner`,
+    # `sim.isDraw`, and `sim.phase = GameOver` together, at the top of that
+    # proc). A match that never reaches a decision -- e.g. the roster
+    # empties mid-`Playing` with `maxGames <= 0`, which sends the sim
+    # straight to `resetToLobby` (`sim.players = @[]`, `sim.phase = Lobby`)
+    # without ever calling `finishGame` -- must still bank 0 for every
+    # slot: the episode's ledger was never finalized, so none of it should
+    # reach the platform's league score, independent of win/lose/draw.
     let glory =
-      if sim.phase == GameOver and hasTeam and playerWon:
+      if sim.phase == GameOver and hasTeam:
         sim.teamGlory[playerTeam]
       else:
         0
