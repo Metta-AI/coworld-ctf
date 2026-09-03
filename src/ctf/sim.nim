@@ -10,9 +10,9 @@ import
   pixie
 
 import sim_types, rig_art, arena, map_art, sim_config, sim_state, roster,
-  paint, ballot
+  paint, ballot, zone_field
 export sim_types, rig_art, arena, map_art, sim_config, sim_state, roster,
-  paint, ballot
+  paint, ballot, zone_field
 
 # ─────────────────────────────────────────────────────────────────────────
 # GLORY PORT, increment 2/3 — the team ledger, the per-life ladder,
@@ -1445,6 +1445,7 @@ proc startGame*(sim: var SimServer) =
     sim.players[i].downedCount = 0
     sim.players[i].downedBy = -1
     sim.players[i].reviveProgress = 0
+    sim.players[i].zonePaintBleedBank = 0
     sim.recordGameTeamAssigned(i)
   sim.resetFlags()
   sim.lastCaptureTick = -1
@@ -2019,6 +2020,9 @@ proc downPlayer(
   inc victim.downedCount
   victim.downedBy = killerIndex
   victim.reviveProgress = 0
+  # ZONEPAINT: every down starts with a clean acceleration bank (unhashed,
+  # 0-over-0 when dark — sim_types.nim's field note).
+  victim.zonePaintBleedBank = 0
   sim.emitEvent(
     Downed, source = targetIndex, target = killerIndex,
     amount = victim.downedCount, hp = 0,
@@ -2474,6 +2478,7 @@ proc killPlayer*(
   # fields already 0/false).
   sim.players[targetIndex].downed = false
   sim.players[targetIndex].reviveProgress = 0
+  sim.players[targetIndex].zonePaintBleedBank = 0
 
 proc finalizeDowned(
   sim: var SimServer,
@@ -5258,180 +5263,6 @@ proc updatePuddles*(sim: var SimServer) =
     if sim.players[i].hp <= 0:
       sim.killPlayer(i, -1, cause = "dissolved in a paint puddle")
 
-proc lerpInt(a, b, t, total: int): int {.inline.} =
-  ## Integer linear interpolation from `a` to `b`: exactly `a` at t=0 and
-  ## exactly `b` at t=total (the multiply-then-divide cancels precisely
-  ## regardless of sign), intermediate values integer-truncated. `total <= 0`
-  ## returns `b` outright (an instant snap, never a division by zero).
-  if total <= 0:
-    return b
-  a + (b - a) * t div total
-
-proc zoneFinalPermille(sim: SimServer): int =
-  ## The LAST configured phase's scale — the z the schedule closes on, and
-  ## the z at which the zone has fully arrived at its drawn centre.
-  if sim.config.zonePhases.len > 0: sim.config.zonePhases[^1].zPermille
-  else: 1000
-
-proc zoneCenterAtScale*(sim: SimServer, zPermille: int): MapPoint =
-  ## The centre the zone rect is built about at scale `zPermille`. It DRIFTS,
-  ## from the board's own centre at z = 1.0 to the drawn `sim.zoneCenter` at
-  ## the schedule's final z.
-  ##
-  ## Why it must drift (Maxwell's ruling, 2026-08-24). A full-SIZE rect built
-  ## about a drawn centre hangs off one edge of the board and leaves an equal
-  ## band of real field OUTSIDE the zone. The doctrine calls phase 0 the DROP
-  ## and gives it z = 1.00 — the whole field is safe — and it was not: the
-  ## first BR match killed 6 of 16 duos at tick 256, before a shot was fired,
-  ## because their spawns sat in that band. Spawns span the WHOLE field by
-  ## ruling (BR_MAPGEN.md §4.2: no keep-away, not inset), so that is
-  ## structural, not a bad draw.
-  ##
-  ## Clamping the rect to the board does NOT fix it, which is worth stating
-  ## because it was the first thing tried: intersecting removes the part
-  ## that hangs OFF the board but cannot cover the strip on the OPPOSITE
-  ## side, so the far band stays lethal. Only moving the centre makes z = 1.0
-  ## mean the whole board.
-  ##
-  ## Drifting also says the right thing about the mode: at the drop everyone
-  ## is safe and the zone has no opinion about where the fight ends, and the
-  ## drawn centre — the thing that stops a fixed middle deciding every
-  ## episode (§4.3) — expresses itself progressively as the zone closes,
-  ## which is exactly when it should matter. It is also what real battle
-  ## royales do: the circle moves as it shrinks.
-  let
-    zFinal = sim.zoneFinalPermille()
-    boardCx = sim.gameMap.width div 2
-    boardCy = sim.gameMap.height div 2
-  ## Degenerate schedules (none configured, or one that never shrinks) keep
-  ## the drawn centre outright rather than dividing by zero.
-  if zFinal >= 1000:
-    return sim.zoneCenter
-  ## Progress from "full board" to "fully arrived", in permille of the span
-  ## the schedule actually covers.
-  let travelled = clamp(
-    (1000 - zPermille) * 1000 div (1000 - zFinal), 0, 1000)
-  MapPoint(
-    x: boardCx + (sim.zoneCenter.x - boardCx) * travelled div 1000,
-    y: boardCy + (sim.zoneCenter.y - boardCy) * travelled div 1000)
-
-proc zoneRectAtScale*(sim: SimServer, zPermille: int): MapRect =
-  ## Returns the shrink-zone rectangle at scale `zPermille` (1..1000) about
-  ## `zoneCenterAtScale(zPermille)`: the map's own aspect ratio (width and
-  ## height scaled by the SAME permille from gameMap.width/height), so it is
-  ## geometrically similar to the field at every phase. Integer math
-  ## throughout — the only float in the whole feature is parsing the AUTHORED
-  ## 0..1 `z` at config load (readZonePhaseZ), matching the handicaps/perkMods
-  ## convention.
-  ##
-  ## At z = 1.0 this is the board exactly, whatever centre was drawn — see
-  ## zoneCenterAtScale for why the centre drifts rather than sitting still.
-  let
-    w = max(1, sim.gameMap.width * zPermille div 1000)
-    h = max(1, sim.gameMap.height * zPermille div 1000)
-    c = sim.zoneCenterAtScale(zPermille)
-  MapRect(x: c.x - w div 2, y: c.y - h div 2, w: w, h: h)
-
-proc zoneClampToBoard*(sim: SimServer, rect: MapRect): MapRect =
-  ## One zone rect INTERSECTED with the board — the EFFECTIVE zone.
-  ##
-  ## zoneRectAtScale is a pure geometric statement: a rect of the field's
-  ## aspect, scaled about the DRAWN center. At small z that rect sits wholly
-  ## on the board and the two are the same thing. At large z it does not:
-  ## a full-SIZE rect centered anywhere but the board's own center hangs off
-  ## one edge, and leaves an equal band of real field OUTSIDE the zone. So
-  ## the doctrine's "phase 0 (drop), z = 1.00" — the whole field is safe —
-  ## was false for every drawn center, and the drop phase killed 6 of 16
-  ## duos at tick 256 of the first BR match without a shot being fired.
-  ##
-  ## Maxwell's ruling (2026-08-24): the effective rect is rect INTERSECT
-  ## board at EVERY phase. z = 1.0 therefore means the whole board is safe
-  ## whatever the drawn center, and the center only starts to express itself
-  ## once the rect has shrunk inside the board's edges — which is exactly
-  ## when it should matter.
-  ##
-  ## This is applied in ONE place, wrapping the schedule, because damage,
-  ## art and the published label must never disagree about where the
-  ## boundary is (the honest-boundary rule). Clamping per-consumer would be
-  ## three chances to drift.
-  let
-    x0 = max(0, rect.x)
-    y0 = max(0, rect.y)
-    x1 = min(sim.gameMap.width, rect.x + rect.w)
-    y1 = min(sim.gameMap.height, rect.y + rect.h)
-  MapRect(x: x0, y: y0, w: max(0, x1 - x0), h: max(0, y1 - y0))
-
-proc zoneRectAndDpsRaw(
-  sim: SimServer, elapsedTicks: int
-): tuple[cur, next: MapRect, dps: int] =
-  ## Returns the shrink-zone's CURRENT rect, the NEXT (target) rect it is
-  ## heading toward, and the active phase's dps, `elapsedTicks` after the
-  ## game started (sim.tickCount - sim.gameStartTick). Pure function of
-  ## config + zoneCenter + elapsed ticks — no stored rect/phase-index state
-  ## on SimServer, so there is nothing else to keep in sync or hash.
-  ##
-  ## Walks the phases in order: each holds the PREVIOUS rect (phase 0's
-  ## previous is the implicit full-scale z=1.0 rect) for `waitTicks`, then
-  ## linearly interpolates into its own target over `shrinkTicks`. Once every
-  ## phase's wait+shrink has elapsed, the rect holds at the LAST phase's
-  ## target forever and `next` == `cur` (nothing left to pre-rotate toward).
-  ## Callers must not call this with an empty zonePhases (guard first, like
-  ## updateZone/addZoneMarkers do) — the loop below returns the implicit
-  ## full-field rect with dps=0 in that case, which is harmless but pointless
-  ## work.
-  var
-    previousPermille = 1000
-    t = max(0, elapsedTicks)
-  for phase in sim.config.zonePhases:
-    if t < phase.waitTicks:
-      return (
-        sim.zoneRectAtScale(previousPermille),
-        sim.zoneRectAtScale(phase.zPermille),
-        phase.dps
-      )
-    t -= phase.waitTicks
-    let target = sim.zoneRectAtScale(phase.zPermille)
-    if t < phase.shrinkTicks or phase.shrinkTicks <= 0:
-      if phase.shrinkTicks <= 0:
-        return (target, target, phase.dps)
-      let
-        prevRect = sim.zoneRectAtScale(previousPermille)
-        tShrink = min(t + 1, phase.shrinkTicks)
-        cur = MapRect(
-          x: lerpInt(prevRect.x, target.x, tShrink, phase.shrinkTicks),
-          y: lerpInt(prevRect.y, target.y, tShrink, phase.shrinkTicks),
-          w: lerpInt(prevRect.w, target.w, tShrink, phase.shrinkTicks),
-          h: lerpInt(prevRect.h, target.h, tShrink, phase.shrinkTicks)
-        )
-      return (cur, target, phase.dps)
-    t -= phase.shrinkTicks
-    previousPermille = phase.zPermille
-  let final = sim.zoneRectAtScale(previousPermille)
-  let lastDps = if sim.config.zonePhases.len > 0: sim.config.zonePhases[^1].dps
-    else: 0
-  (final, final, lastDps)
-
-proc zoneRectAndDps*(
-  sim: SimServer, elapsedTicks: int
-): tuple[cur, next: MapRect, dps: int] =
-  ## The schedule above, with both rects clamped to the board — see
-  ## zoneClampToBoard. EVERY consumer goes through here (updateZone's
-  ## damage test, the seepage art, the published zone label), so all three
-  ## read one boundary.
-  ##
-  ## The interpolation deliberately runs on the RAW rects and is clamped
-  ## afterwards, not the other way round: the geometric rect shrinks
-  ## continuously from the drawn center, and clamping the result means a
-  ## shrink that is still off-board simply does not move the visible edge
-  ## yet. Clamping the endpoints first would instead drag the board-edge
-  ## edges inward from tick 0 and invent motion that the schedule never
-  ## asked for.
-  let raw = sim.zoneRectAndDpsRaw(elapsedTicks)
-  (
-    sim.zoneClampToBoard(raw.cur),
-    sim.zoneClampToBoard(raw.next),
-    raw.dps
-  )
 
 proc updateZone*(sim: var SimServer) =
   ## One tick of the battle-royale shrink-zone hazard (§4.3): a player whose
@@ -5455,8 +5286,23 @@ proc updateZone*(sim: var SimServer) =
     let
       px = sim.players[i].x + CollisionW div 2
       py = sim.players[i].y + CollisionH div 2
-      inside = px >= rect.x and px <= rect.x + rect.w - 1 and
-        py >= rect.y and py <= rect.y + rect.h - 1
+    var inside = px >= rect.x and px <= rect.x + rect.w - 1 and
+      py >= rect.y and py <= rect.y + rect.h - 1
+    # ZONEPAINT (owner order 2026-09-03): when armed, the damage test IS the
+    # painted test — "being on the pink paint is what does damage, not an
+    # invisible rectangle." Same cadence, same dps, same source=-1
+    # environment attribution, same kill cause below: ONLY the membership
+    # verdict changes, from rect geometry to the shared arrival field
+    # (zone_field.nim, the exact surface the viewer draws). Wall/off-grid
+    # cells (onField=false) keep the rect verdict — the flow field is
+    # undefined there and no pixel may read as immortal ground. Dark
+    # (default): this branch never runs and the rect path above is
+    # byte-identical to the pre-flag build.
+    if sim.config.zoneDamageByPaint:
+      let q = sim.zonePaintedForDamageAt(
+        px, py, sim.tickCount - sim.gameStartTick)
+      if q.onField:
+        inside = not q.painted
     if inside:
       sim.players[i].zoneOutsideTicks = 0
       continue
@@ -6981,6 +6827,32 @@ proc updateDowned(sim: var SimServer) =
       sim.finalizeDowned(i, sim.players[i].downedBy,
         "faded out with their team")
       continue
+    # ZONEPAINT (glory-2 amendment 1): paint on a ghost's cell ACCELERATES
+    # the bleed clock — it NEVER finalizes directly, and it never touches
+    # the revive channel below (a revive under closing paint stays possible
+    # by construction; Last Light's premium moment). Each painted tick
+    # banks (permille - 1000) extra clock permille; whole extra ticks are
+    # applied by pulling downedTick further into the past, so the ONLY
+    # death gate is still this proc's own windowed expiry check, floored by
+    # DownedMinBleedOutTicks on the escalated path and bounded by the
+    # config ceiling (ZonePaintDownedBleedPermilleMax) at load. Stacks with
+    # downedEscalation: the window halves per prior down AND the clock runs
+    # faster under paint — two independent multipliers on the same check.
+    # Dark (default): the branch never runs, byte-identical.
+    if sim.config.zoneDamageByPaint and
+        sim.config.zonePaintDownedBleedPermille > 1000 and
+        sim.config.zonePhases.len > 0:
+      let
+        zx = sim.players[i].x + CollisionW div 2
+        zy = sim.players[i].y + CollisionH div 2
+        q = sim.zonePaintedForDamageAt(
+          zx, zy, sim.tickCount - sim.gameStartTick)
+      if q.onField and q.painted:
+        sim.players[i].zonePaintBleedBank +=
+          sim.config.zonePaintDownedBleedPermille - 1000
+        while sim.players[i].zonePaintBleedBank >= 1000:
+          sim.players[i].zonePaintBleedBank -= 1000
+          dec sim.players[i].downedTick
     if sim.tickCount - sim.players[i].downedTick >=
         sim.downedBleedOutWindow(sim.players[i].downedCount):
       sim.finalizeDowned(i, sim.players[i].downedBy, "bled out")
@@ -7007,6 +6879,10 @@ proc updateDowned(sim: var SimServer) =
     if sim.players[i].reviveProgress >= sim.config.downedReviveTicks:
       sim.players[i].downed = false
       sim.players[i].reviveProgress = 0
+      # ZONEPAINT: a stood-up cog starts its next down (if any) with a
+      # clean acceleration bank. Writing 0 over 0 when dark — unhashed
+      # either way (sim_types.nim's field note).
+      sim.players[i].zonePaintBleedBank = 0
       sim.players[i].hp = 1
       sim.emitEvent(
         Revived, source = tagger, target = i,
