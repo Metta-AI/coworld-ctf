@@ -74,6 +74,9 @@ html, body {
 
 #stage {
   position: relative;
+  /* A flex item now (the side lanes flank it): never let the px size
+     relayout() computes be squeezed by the lane columns. */
+  flex: none;
   /* width/height are set in px by relayout() to the board's native aspect
      (1235:659) fitted into #viewport; the canvas fills it exactly (matching
      aspect → no internal letterbox) and all chrome is pinned in this space. */
@@ -1108,6 +1111,144 @@ body.commswide.act-huddle #board,
 body.commswide.act-huddle #lightpool { filter: brightness(0.45) saturate(0.7); }
 body.commswide.act-huddle #commsdock {
   background: linear-gradient(180deg, rgba(36, 26, 18, 0.9), rgba(22, 15, 9, 0.8));
+}
+
+/* ---------- 1d. SIDE-LANE HUD (owner spec 2026-09-02) ----------
+   "use the full left lane letterbox space to put the names and scorebug and
+   chat and everything." When the fitted board leaves a REAL pillarbox column
+   on BOTH flanks (>= 300 free px a side, measured the way the docked layout
+   will actually sit — scorebug out of the top band), relayout() sets
+   body.sidelanes and dockLanes() MOVES the overlay chrome into the dead
+   bands: LEFT rail = identity (clock, the scorebug roster, the comms/huddle
+   feed), RIGHT rail (tier 2, .sidelanes-both, when both flanks are wide) =
+   live surfaces (view instrument, kill feed). The board gets the whole
+   frame height back (--topband collapses to 0) and nothing floats over
+   play that has a rail to live in. Narrow boxes keep today's centered
+   stage + overlay chrome unchanged — dockLanes restores every element to
+   its exact home slot. The rails are designed columns: type + whitespace
+   on the warm letterbox tone, never a stack of boxed widgets. See
+   relayout() for the two-tier geometry decision. */
+#lane-l, #lane-r {
+  display: none;
+  flex-direction: column;
+  min-width: 0;
+  align-self: stretch;
+}
+/* Plain comms-wide (no side lanes): the left lane is a transparent shell
+   around #commsdock, so the pre-lane presentation is intact. */
+body.commswide #lane-l { display: flex; flex: 1 1 auto; }
+#lane-l #commsdock { min-height: 0; }
+/* Tier 1: the left rail alone takes ALL the letterbox (stage docks right,
+   "use the full left lane letterbox space"). Tier 2 adds the right rail;
+   the two 1-1-0 columns then split the leftover evenly, which is exactly
+   what re-centers the stage. */
+body.sidelanes #lane-l {
+  display: flex;
+  flex: 1 1 0;
+  padding: calc(14 * var(--u)) calc(16 * var(--u));
+  gap: calc(12 * var(--u));
+  overflow: hidden;
+}
+body.sidelanes-both #lane-r {
+  display: flex;
+  flex: 1 1 0;
+  padding: calc(14 * var(--u)) calc(16 * var(--u));
+  gap: calc(12 * var(--u));
+  overflow: hidden;
+}
+body.sidelanes #viewport { justify-content: center; }
+
+/* LEFT RAIL — identity. The scorebug keeps its DOM (plates, cells and
+   everything inside them stay the scorebug component's own business — the
+   endcard-player-names lane owns those internals); the rail only re-flows
+   the component: clock on top, every team below it in ONE readable column
+   at the full local unit (the top band's 0.8 shrink bought room the rail
+   already has). */
+body.sidelanes #scorebug {
+  position: static;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: calc(12 * var(--u));
+  --u: calc(1px * var(--hudscale));
+  padding: 0;
+  background: none;
+  box-shadow: none;
+  flex: none;
+  min-height: 0;
+}
+body.sidelanes #scorebug .clock-col { order: -1; }
+body.sidelanes #scorebug .plates,
+body.sidelanes #scorebug .plates.row {
+  flex-direction: column;
+  align-items: stretch;
+  gap: calc(7 * var(--u));
+}
+/* BR (16 teams): the two 8-cell bands become one continuous roster column. */
+body.sidelanes #scorebug .br-cellband {
+  flex-direction: column;
+  flex-wrap: nowrap;
+  align-items: stretch;
+  justify-content: flex-start;
+  height: auto;
+  gap: calc(4 * var(--u));
+}
+body.sidelanes #scorebug .br-cell { width: 100%; }
+body.sidelanes #scorebug .br-cell-name { max-width: none; }
+/* owner: "life squares stack vertically, name to the right" — pure re-flow
+   (order/direction only); what the cells render is untouched. The glory
+   numeral rides the rail's right edge so the column reads as a ledger. */
+body.sidelanes #scorebug .br-cell-swatch { order: -2; }
+body.sidelanes #scorebug .br-cell-lives { order: -1; flex-direction: column; }
+body.sidelanes #scorebug .br-cell-glory { margin-left: auto; }
+/* In the top band the two plate tracks flank a center clock, so the right
+   track mirrors (.side-r row-reverse). Stacked in one rail there is no
+   center to flank: every plate reads in the LEFT track's direction. */
+body.sidelanes #scorebug .plate.side-r { flex-direction: row; text-align: left; }
+body.sidelanes #scorebug .plate.side-r .lives-line { flex-direction: row-reverse; }
+body.sidelanes #scorebug .plate.side-r .glory-line { flex-direction: row-reverse; }
+/* The comms/huddle surface fills the rest of the rail. The chat column
+   belongs here even when nobody spoke (owner spec) — relayout() opens the
+   dock in sidelanes regardless of comms, and the :empty state names the
+   silence instead of showing a bare hole. */
+body.sidelanes #commsdock {
+  display: flex;
+  background: none;
+  padding: 0;
+  flex: 1 1 auto;
+  min-height: 0;
+}
+.cd-empty {
+  display: none;
+  color: var(--ghost);
+  font-family: var(--pixfont);
+  font-size: calc(8.5 * var(--u));
+  letter-spacing: 0.08em;
+  line-height: 1.7;
+}
+#commsFeed:empty + .cd-empty { display: block; }
+/* An empty feed must not flex-grow, or the quiet-lobby line lands at the
+   rail's far bottom instead of under its own COMMS head. */
+#commsFeed:empty { flex: 0 0 auto; }
+
+/* RIGHT RAIL (tier 2 only — .sidelanes-both): live surfaces. The view
+   instrument (zoom + minimap) docks on top at the rail's width; the kill
+   feed takes the remaining height, newest row lowest (its own
+   column-reverse), rows anchored toward the board they narrate. In the
+   single-rail tier these keep their classic overlay positions. */
+body.sidelanes-both #viewpanel {
+  position: static;
+  flex: none;
+  align-items: stretch;
+  --viewpanel-w: 100%;
+}
+body.sidelanes-both #killfeed {
+  position: static;
+  width: auto;
+  min-height: 0;
+  flex: 1 1 auto;
+  align-items: flex-start;
+  overflow: hidden;
 }
 
 /* ---------- 2. KILL FEED ---------- */
@@ -2404,12 +2545,15 @@ body[data-noviewpanel] #viewpanel { display: none !important; }
 </head>
 <body>
 <div id="viewport">
+<div id="lane-l">
 <div id="commsdock">
   <div class="cd-head">Comms</div>
   <div id="commsFeed"></div>
+  <div class="cd-empty">The lobby is quiet — no huddle chatter this match.</div>
   <button id="commsLive">▾ Jump to live</button>
   <!-- votearm lane: ballot casts / play-vote rows will join this same feed
        as new entry kinds — commsEntryHtml() is the insertion point. -->
+</div>
 </div>
 <div id="stage">
   <canvas id="board"></canvas>
@@ -2578,6 +2722,7 @@ body[data-noviewpanel] #viewpanel { display: none !important; }
 
   <div id="status">connecting</div>
 </div>
+<div id="lane-r"></div>
 </div>
 
 <!-- WIRE_CONSTANTS -->
@@ -6561,6 +6706,33 @@ body[data-noviewpanel] #viewpanel { display: none !important; }
   //  one unit. Chrome sizes off the STAGE width, so overlays stay locked to
   //  the graphics at any container shape (§2, L82 bounded-embed).
   // ============================================================
+  // SIDE-LANE HUD docking (owner spec 2026-09-02). Elements are MOVED,
+  // never cloned — every getElementById reference and listener stays live —
+  // and each records its home parent/next-sibling ONCE so the narrow
+  // fallback restores the exact original DOM (rebase-proof against lanes
+  // that edit the scorebug's internals: we relocate the component whole,
+  // we never reach inside it).
+  var LANE_DOCKS = [
+    { side: 'l', el: document.getElementById('scorebug'),
+      lane: document.getElementById('lane-l'),
+      before: document.getElementById('commsdock') },
+    { side: 'r', el: document.getElementById('viewpanel'),
+      lane: document.getElementById('lane-r'), before: null },
+    { side: 'r', el: document.getElementById('killfeed'),
+      lane: document.getElementById('lane-r'), before: null }
+  ];
+  LANE_DOCKS.forEach(function (d) {
+    if (d.el) { d.home = d.el.parentNode; d.homeNext = d.el.nextSibling; }
+  });
+  function dockLanes(left, right) {
+    LANE_DOCKS.forEach(function (d) {
+      if (!d.el || !d.lane || !d.home) return;
+      var on = d.side === 'l' ? left : right;
+      if (on) { if (d.el.parentNode !== d.lane) d.lane.insertBefore(d.el, d.before); }
+      else if (d.el.parentNode !== d.home) d.home.insertBefore(d.el, d.homeNext);
+    });
+  }
+
   function relayout() {
     var boxW = viewport.clientWidth, boxH = viewport.clientHeight;
     if (!boxW || !boxH) return;
@@ -6579,14 +6751,49 @@ body[data-noviewpanel] #viewpanel { display: none !important; }
     var topBand = parseFloat(getComputedStyle(root).getPropertyValue('--topband')) || 0;
     var band = parseFloat(getComputedStyle(root).getPropertyValue('--band')) || 0;
     var stageW = 0, stageH = 0;
+    // SIDE-LANE HUD (owner spec 2026-09-02): use the letterbox columns for
+    // the chrome instead of overlaying/top-barring the arena. Two tiers,
+    // decided from pure geometry (no DOM measuring, so the mode can never
+    // oscillate with its own layout):
+    //   - fit0: the board fitted with the scorebug OUT of the top band
+    //     (that is how every docked tier actually sits).
+    //   - TIER 2 (both rails)  — fit0 leaves >= LANE_MIN a side: identity
+    //     rail LEFT, live-surface rail RIGHT, stage centered, aspect fit
+    //     untouched. The square-board / ultrawide case.
+    //   - TIER 1 (left rail)   — the wide 1.87:1 arena at a 16:9 window
+    //     leaves only a thin column, and reclaiming the top band widens the
+    //     board and eats it. So cap the board at (boxW - RAIL_MIN) and dock
+    //     it RIGHT: the freed top band pays for the rail (the board ends up
+    //     LARGER than the undocked layout at 1920x1080), and the whole
+    //     letterbox consolidates into one usable left column. Engaged only
+    //     while the cap costs < 10% of the free-fit width — past that the
+    //     rail would be eating the arena, not the letterbox.
+    //   - otherwise            — today's centered stage + overlay chrome,
+    //     byte-for-byte (dockLanes restores the exact home DOM).
+    var LANE_MIN = 300, RAIL_MIN = 240;
+    var availH0 = Math.max(1, boxH - band);
+    var fit0 = Math.min(boxW, Math.round(availH0 * BOARD_ASPECT));
+    var lanesBoth = !EMBED && (boxW - fit0) >= 2 * LANE_MIN;
+    var cappedW = Math.min(fit0, Math.max(320, boxW - RAIL_MIN));
+    var sideLanes = lanesBoth ||
+      (!EMBED && boxW > boxH && cappedW / fit0 >= 0.9);
+    if (document.body.classList.contains('sidelanes') !== sideLanes ||
+        document.body.classList.contains('sidelanes-both') !== (sideLanes && lanesBoth)) {
+      document.body.classList.toggle('sidelanes', sideLanes);
+      document.body.classList.toggle('sidelanes-both', sideLanes && lanesBoth);
+      dockLanes(sideLanes, sideLanes && lanesBoth);
+    }
+    // Tier 1 fits the board into the box MINUS the reserved rail; tier 2 and
+    // the fallback fit the full box.
+    var fitBoxW = sideLanes && !lanesBoth ? Math.max(320, boxW - RAIL_MIN) : boxW;
     for (var pass = 0; pass < 4; pass++) {
       var prevTop = topBand, prevBand = band;
       var availH = Math.max(1, boxH - topBand - band);
       var boardW, boardH;
-      if (boxW / availH > BOARD_ASPECT) {
+      if (fitBoxW / availH > BOARD_ASPECT) {
         boardH = availH; boardW = Math.round(availH * BOARD_ASPECT);
       } else {
-        boardW = boxW; boardH = Math.round(boxW / BOARD_ASPECT);
+        boardW = fitBoxW; boardH = Math.round(fitBoxW / BOARD_ASPECT);
       }
       stageW = boardW; stageH = boardH + topBand + band;
       stage.style.width = stageW + 'px';
@@ -6598,8 +6805,10 @@ body[data-noviewpanel] #viewpanel { display: none !important; }
       var scale = Math.max(0.5, Math.min(1.6, boardW / 760));
       root.style.setProperty('--hudscale', scale.toFixed(3));
       stage.classList.toggle('tiny', boardW <= 620);
-      // Measure each band's natural height → reserve exactly that.
-      topBand = scorebug ? scorebug.offsetHeight : 0;
+      // Measure each band's natural height → reserve exactly that. With the
+      // scorebug docked in the left rail the top band is simply gone — the
+      // board gets the whole frame height back.
+      topBand = (sideLanes || !scorebug) ? 0 : scorebug.offsetHeight;
       band = transport ? transport.offsetHeight : 0;
       root.style.setProperty('--topband', topBand + 'px');
       root.style.setProperty('--band', band + 'px');
@@ -6612,7 +6821,12 @@ body[data-noviewpanel] #viewpanel { display: none !important; }
     // own wall chrome around the iframe) keep the centered stage + the
     // chip/panel presentation. The fitted stage SIZE is untouched either
     // way — this only decides where the letterbox space goes.
-    var commsWide = !EMBED && COMMS_AVAILABLE && (boxW - stageW) >= 280;
+    // In side-lane mode the chat surface belongs in the left rail even when
+    // the lobby never spoke (owner spec) — the dock opens regardless of comms,
+    // the .cd-empty state names the silence, and the rail counts as the WIDE
+    // comms presentation (chip/panel stay put) whatever its exact width.
+    var commsWide = !EMBED &&
+      (sideLanes || (COMMS_AVAILABLE && (boxW - stageW) >= 280));
     document.body.classList.toggle('commswide', commsWide);
     if (lastState) renderPhaseOverlays(lastState);
     core.setViewportFit();
