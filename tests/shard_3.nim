@@ -18,6 +18,7 @@ import
   test_global_plus_pov,
   test_give_item,
   test_glory_lockstep,
+  test_glory_recut,
   test_gv44_br_rotation,
   test_home_rotation,
   test_loot_rework,
