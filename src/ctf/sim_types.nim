@@ -2418,6 +2418,21 @@ type
       ## reset in startGame/resetToLobby. Cosmetic-only avenge-detection
       ## state (killPlayer's own comment has the exact check) — excluded
       ## from gameHash, same as every Fx seq on this object.
+    lastContactTick*: seq[int]  ## Gap-closing (CONTACT BEARING, swap14):
+      ## per-player tick of the most recent tick a living hostile stood
+      ## within GunRange of this player — the "hostile contact" clock the
+      ## quiet-corridor bearing cue (buildCosmeticFxPacket's "bearing" kind,
+      ## server.nim's contactBearingFor) counts up from. Recomputed every
+      ## tick in step() (sim.nim's updateContactBearingClocks) purely from
+      ## live position/alive/team state already inside gameHash — consumes
+      ## no RNG, decides no gameplay outcome — so this seq itself stays
+      ## excluded from gameHash and is reset in startGame/resetToLobby,
+      ## same contract as lastKilledBy above.
+    lastBearingEmitTick*: seq[int]  ## Gap-closing (CONTACT BEARING,
+      ## swap14): per-player tick the "bearing" cue was last SENT (-1 =
+      ## never this match), so contactBearingFor's rate limit can be
+      ## enforced across ticks. Same exclusion/reset shape as
+      ## lastContactTick; the ONLY writer is contactBearingFor (server.nim).
     partnerDownFx*: seq[PartnerDownFx]  ## PRIVATE one-shot partner-death
       ## notices, config-gated (allowCosmeticFx) and excluded from gameHash;
       ## drained every tick by server.nim's send loop, same shape as

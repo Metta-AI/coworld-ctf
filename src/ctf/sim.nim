@@ -377,6 +377,18 @@ proc startGame*(sim: var SimServer) =
   sim.lastKilledBy = newSeq[int](sim.players.len)
   for i in 0 ..< sim.lastKilledBy.len:
     sim.lastKilledBy[i] = -1
+  # Gap-closing (CONTACT BEARING, swap14): every seat starts "just had
+  # contact" at the spawn whistle (not zero-filled -1, which would read as
+  # ancient history and could fire a bearing cue before anyone has even
+  # moved) — see lastContactTick's own doc comment. lastBearingEmitTick
+  # starts at -1 ("never sent"), same -1-means-none convention lastKilledBy
+  # already uses above.
+  sim.lastContactTick = newSeq[int](sim.players.len)
+  for i in 0 ..< sim.lastContactTick.len:
+    sim.lastContactTick[i] = sim.tickCount
+  sim.lastBearingEmitTick = newSeq[int](sim.players.len)
+  for i in 0 ..< sim.lastBearingEmitTick.len:
+    sim.lastBearingEmitTick[i] = -1
   sim.partnerDownFx = @[]
   sim.avengeFx = @[]
   sim.recentShouts = @[]
@@ -4389,6 +4401,8 @@ proc resetToLobby*(sim: var SimServer) =
   sim.damagePops = @[]
   sim.shotFeedback = @[]
   sim.lastKilledBy = @[]
+  sim.lastContactTick = @[]
+  sim.lastBearingEmitTick = @[]
   sim.partnerDownFx = @[]
   sim.avengeFx = @[]
   sim.nextJoinOrder = 0
@@ -4493,6 +4507,50 @@ proc respawnPlayers(sim: var SimServer) =
           x = float(sim.players[i].x + CollisionW div 2),
           y = float(sim.players[i].y + CollisionH div 2)
         )
+
+proc updateContactBearingClocks(sim: var SimServer) =
+  ## Gap-closing (CONTACT BEARING, swap14): keeps SimServer.lastContactTick
+  ## current — the "hostile contact" clock the quiet-corridor bearing cue
+  ## (buildCosmeticFxPacket's "bearing" kind, server.nim's
+  ## contactBearingFor) counts up from. A living player is in contact this
+  ## tick when ANY living enemy stands within sim.config.gunRange — the
+  ## LIVE, per-match engagement radius (see canFire's own comment on why
+  ## this reads config.gunRange and never the sim_types.GunRange constant:
+  ## config.practice.json overrides it to 497, well under the 1050
+  ## default), so "contact" reads as "close enough THIS match's guns could
+  ## plausibly start a fight" — not the much tighter VisionBubble, and
+  ## deliberately NOT gated on fog/line-of-sight: a hostile you cannot
+  ## currently see but are standing next to is still a reason the corridor
+  ## does not read as empty. O(n^2) over the live roster (<=32 seats on the
+  ## largest BR map) — same cost class as the friendly-fire/avenge team
+  ## comparisons step() already runs every tick elsewhere.
+  ##
+  ## Pure re-derivation of state already inside gameHash (position/alive/
+  ## team/config) — consumes no RNG, decides no gameplay outcome — so
+  ## lastContactTick itself stays excluded from gameHash and safe to grow
+  ## every tick without touching replay determinism, same contract as
+  ## lastKilledBy.
+  while sim.lastContactTick.len < sim.players.len:
+    sim.lastContactTick.add sim.tickCount
+  let rangeSq = sim.config.gunRange * sim.config.gunRange
+  for i in 0 ..< sim.players.len:
+    if not sim.players[i].alive:
+      continue
+    let
+      cx = sim.players[i].x + CollisionW div 2
+      cy = sim.players[i].y + CollisionH div 2
+    for j in 0 ..< sim.players.len:
+      if j == i or not sim.players[j].alive or
+          sim.players[j].team == sim.players[i].team:
+        continue
+      let
+        ex = sim.players[j].x + CollisionW div 2
+        ey = sim.players[j].y + CollisionH div 2
+        dx = ex - cx
+        dy = ey - cy
+      if dx * dx + dy * dy <= rangeSq:
+        sim.lastContactTick[i] = sim.tickCount
+        break
 
 template pruneAgedFx(sim: var SimServer, fxField, tickField: untyped,
     life: untyped) =
@@ -4608,6 +4666,10 @@ proc step*(
 
   sim.checkWinCondition()
   sim.checkMaxTicks()
+
+  # Gap-closing (CONTACT BEARING, swap14): cosmetic-only bookkeeping,
+  # excluded from gameHash — see updateContactBearingClocks' own comment.
+  sim.updateContactBearingClocks()
 
   # Prune expired shot tracers and splatters (cosmetic only; excluded from
   # gameHash).
