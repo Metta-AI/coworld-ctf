@@ -1822,7 +1822,11 @@ body.commswide.act-huddle #commsdock {
   flex-wrap: nowrap;
   gap: calc(10 * var(--u));
   width: 100%;
-  max-width: calc(360 * var(--u));
+  /* 360u predates the player-identity rows (2026-09-02): with both duo
+     members named beside the palette label, the name track needs the
+     extra ~70u or the second member vanishes into the ellipsis on real
+     ladder name lengths. Still comfortably inside a 16:9 board. */
+  max-width: calc(430 * var(--u));
   /* The glory-first hero is taller than the old two-line hero; 52% forced
      an internal scroll on a plain 16:9 board. */
   max-height: 62%;
@@ -1982,7 +1986,11 @@ body.commswide.act-huddle #commsdock {
   font-size: calc(9 * var(--u));
   letter-spacing: 0.04em;
   color: var(--paper-dim);
-  flex: 0 1 auto;
+  /* Leftover-space column (grow from a 0 basis): the palette label keeps
+     its NATURAL width — colors stay the primary key, so "YELLOW" must
+     never squeeze to "YE…" to make room for the names — and it is the
+     names that ellipsis when the row runs out of track. */
+  flex: 1 1 0;
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -5850,6 +5858,14 @@ body[data-noviewpanel] #viewpanel { display: none !important; }
       var names = brTeamNames(s, team);
       return names && names !== labelOf[team] ? names : '';
     }
+    // Row-width variant: same gate, but each member chip-shortened by
+    // brShortIdent (the scorebug's one truncation rule) so BOTH duo
+    // members stay visible inside a standings row's name track — a tail
+    // ellipsis that swallowed the second member showed only half the duo.
+    function namesForShort(team) {
+      return namesFor(team)
+        ? teamPolicies(s, team).map(brShortIdent).join(' + ') : '';
+    }
     function labelHtml(team) {
       return esc(labelOf[team]) +
         (labelCount[labelOf[team]] > 1
@@ -5894,8 +5910,8 @@ body[data-noviewpanel] #viewpanel { display: none !important; }
           '</span>' +
           // PLAYER IDENTITY (2026-09-02): the leader callout names a color
           // too — carry the duo's names, dim, when the label alone doesn't.
-          (namesFor(gloryLeader)
-            ? ' <span class="ec-mvp-dim">' + esc(namesFor(gloryLeader)) + '</span>' : '') +
+          (namesForShort(gloryLeader)
+            ? ' <span class="ec-mvp-dim">' + esc(namesForShort(gloryLeader)) + '</span>' : '') +
           ' ' + leaderGlory + 'G <span class="ec-mvp-dim">(' +
           ordinal(placeOf[gloryLeader]) + ')</span>'
         : '';
@@ -5923,10 +5939,12 @@ body[data-noviewpanel] #viewpanel { display: none !important; }
         (labelCount[labelOf[team]] > 1
           ? '<span class="ec-fseats">seats ' + esc(brSeatRange(s, team)) + '</span>' : '') +
         // PLAYER IDENTITY (2026-09-02, owner): both duo members' names
-        // beside the color chip — secondary weight, truncating before the
-        // stat columns move. '' when the label already carries them.
-        (namesFor(team)
-          ? '<span class="ec-fduo">' + esc(namesFor(team)) + '</span>' : '') +
+        // beside the color chip — secondary weight, each member
+        // chip-shortened (brShortIdent) so the SECOND member never
+        // disappears into a tail ellipsis. '' when the label already
+        // carries them.
+        (namesForShort(team)
+          ? '<span class="ec-fduo">' + esc(namesForShort(team)) + '</span>' : '') +
         '</span>' +
         (anyGlory
           ? '<span class="ec-fglory">' + (fg !== null ? fg + 'G' : '—') + '</span>' : '') +
