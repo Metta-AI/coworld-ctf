@@ -46,6 +46,13 @@ TEAM_COUNT = 16
 # engine (a bodyguard peels at 2-3); below 2 means genuinely wounded.
 SUPPLY_DEFAULTS = {"whenHpBelow": 3, "detourMax": 300, "contested": "avoid"}
 
+# The guaranteed armament rung. self.hasGun/hasHopper are never exposed to
+# a policy (only the human broadcast HUD sees them), so this cannot gate on
+# "am I armed" -- it is the same blind loot the three starters already run
+# unconditionally, never fighting anyone for it (medkits stay off; that
+# family is supply_run's job).
+LOOT_DEFAULTS = {"detourMax": 400, "contested": "avoid"}
+
 # A pact with no partners is dropped by the generic repair BEFORE the hook
 # runs (partners is required), so a canned pact carries team 0's duo as a
 # placeholder that survives cleaning; adjust_entries re-aims it at the
@@ -156,6 +163,31 @@ def adjust_entries(entries, context, view):
     if not any(e.get("play") == "supply_run" for e in entries):
         rung = {"play": "supply_run", "entry_id": "bank",
                 "params": dict(SUPPLY_DEFAULTS)}
+        for i, entry in enumerate(entries):
+            if entry.get("play") == "edge_ride":
+                entries.insert(i, rung)
+                break
+        else:
+            entries.append(rung)
+
+    # ARMAMENT: the lineage cannot tag from range, cluster streaks, or
+    # avenge a partner with empty hands, and lootStart makes "empty hands"
+    # the default spawn state -- the marker and its hopper are two separate
+    # one-shot crates, gated 12px like every pickup. self.hasGun/hasHopper
+    # and the crates' own item kind are never exposed to a policy
+    # (src/shell/body.nim, play_sdk/play.nim), so this cannot key off "am I
+    # armed" -- but the SDK view DOES carry grenade/shield/spray/barrier
+    # item kind and position, and on every live BR map (0 of the 64 br_s2
+    # + 11 br pool maps author a separate weaponSpawns pool) the gun crate
+    # lands on exactly the resolved grenade-spawn points
+    # (sim.nim:resetLootCrates) -- so walking to the nearest grenade is,
+    # today, walking to the gun. aggressive/cautious/collaborative all
+    # guarantee this rung already; MONET never did. Sits below the
+    # conversion rung (recovery is still the first call) and above
+    # rotation, same slot as supply_run.
+    if not any(e.get("play") == "loot" for e in entries):
+        rung = {"play": "loot", "entry_id": "arm",
+                "params": dict(LOOT_DEFAULTS)}
         for i, entry in enumerate(entries):
             if entry.get("play") == "edge_ride":
                 entries.insert(i, rung)
@@ -330,6 +362,16 @@ PERSONA = Persona(
                        "harness guarantees the rung; you tune it. Avoid "
                        "contested kits unless your pact gives you the "
                        "numbers to race."),
+        "loot": ("loot is how you get a gun in your hands at all: you "
+                 "spawn empty-handed, the marker and its hopper are two "
+                 "separate pickups, and a paint can none of us ever finds "
+                 "is a paint can that never tags anyone. The harness "
+                 "guarantees the rung and gates it -- it only walks when "
+                 "the field is calm and something is in reach, never "
+                 "fights anyone over a contested crate. You cannot see "
+                 "which crate is which, so do not call it looking for a "
+                 "specific item; tune detourMax if you want it to reach "
+                 "further, nothing more."),
         "bodyguard": ("bodyguard is BOTH the formation spring and the "
                       "shield: on a calm field ride it with leash "
                       "[110, 280] and interpose false so the duo is held "

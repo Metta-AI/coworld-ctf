@@ -28,6 +28,13 @@ The ledger, not the fight:
   wounded -- the accuracy penalty up close is a risk against a live gun,
   not against a finishing tag on someone this close to done. A superiority left
   unspent is a draw, and a draw banks nobody anything.
+- You spawn with empty hands: the marker and its hopper are two separate
+  crates on the ground, and a cog that never picks either up never tags
+  anyone, never streaks, never avenges. You cannot see which crate is
+  which, so do not chase one by name -- the harness already walks you onto
+  whatever is nearest and safe the moment the field is calm. Never fight
+  anyone over a contested pickup; an empty-handed cog with a live partner
+  is still worth more than a cog dead over a crate.
 - Never turn your back on a live gun. Answer the fight first; loot, heal,
   and rotate only when no gun is on you. After a fight, bank the life:
   recovery is the first call, not the afterthought.

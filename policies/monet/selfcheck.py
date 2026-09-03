@@ -83,6 +83,16 @@ for i, turn in enumerate(PERSONA.canned_turns, start=1):
           f"submitted {submitted} wanted {wanted}")
     check(f"{label}: conversion rung guaranteed (wanted)",
           "supply_run" in wanted, str(wanted))
+    check(f"{label}: armament rung guaranteed (wanted)",
+          "loot" in wanted, str(wanted))
+    check(f"{label}: recovery outranks arming (supply_run above loot)",
+          "supply_run" not in wanted or "loot" not in wanted
+          or wanted.index("supply_run") < wanted.index("loot"),
+          str(wanted))
+    check(f"{label}: loot never claims medkits (that stays supply_run's job)",
+          all(e["params"].get("medkits") is not True
+              for e in seat.wanted_entries if e["play"] == "loot"),
+          str(wanted))
     check(f"{label}: payload under cap", len(payload) <= 4096,
           f"{len(payload)} bytes")
     check(f"{label}: wire ladder carries no `when`",
