@@ -1298,7 +1298,18 @@ proc resolveActiveArcCones*(sim: var SimServer) =
       let blocked = sim.absorbDamage(
         victimIndex, SprayPaintDamage, arcFire.attacker, "spray"
       )
-      if sim.config.allowShotFeedback:
+      # Swap#15 items 3/4: allowCosmeticFx added to this gate alongside
+      # allowShotFeedback -- the cosmetic-fx "incoming"/"tag_landed" kinds
+      # (server.nim buildCosmeticFxPacket) read this SAME seq, and were
+      # silently dead on every config that leaves allowShotFeedback off
+      # (every deployed freeplay config) despite riding the independently-
+      # gated, always-on cosmetic-fx channel: nothing ever populated
+      # sim.shotFeedback for them to read. This struct-only push has no
+      # side effects and never enters gameHash (see ShotFeedbackFx's own
+      # doc comment) — safe to widen the collection gate; each CONSUMER
+      # (buildShotFeedbackPacket vs buildCosmeticFxPacket) still applies
+      # its own independent send-gate on top of this.
+      if sim.config.allowShotFeedback or sim.config.allowCosmeticFx:
         # Same private hit-confirm the gun's damage site pushes (applyFire) —
         # area weapons are cheap to cover here since victimIndex/attacker are
         # already resolved above; see GameConfig.allowShotFeedback.
@@ -1686,7 +1697,9 @@ proc applyFire(sim: var SimServer, shot: PendingGunShot) =
         ]
       )
     impactReported = true
-    if sim.config.allowShotFeedback:
+    # Swap#15 items 3/4: allowCosmeticFx added -- see the spray site's own
+    # comment above (same seq, same reasoning, same fix).
+    if sim.config.allowShotFeedback or sim.config.allowCosmeticFx:
       # Private, gate-only hit-confirm for both combat participants: never
       # broadcast, never in gameHash — server.nim's send loop drains and
       # delivers this seq (see SimServer.shotFeedback / GameConfig.
@@ -2101,7 +2114,10 @@ proc explodeGrenade(sim: var SimServer, grenade: AirborneGrenade) =
       # gun's damage site).
       bubbleUp = sim.players[i].hasShield and sim.players[i].shieldHp > 0
       blocked = sim.absorbDamage(i, dmg, throwerIndex, "grenade")
-    if sim.config.allowShotFeedback and throwerIndex >= 0 and i != throwerIndex:
+    # Swap#15 items 3/4: allowCosmeticFx added -- see the spray site's own
+    # comment above (same seq, same reasoning, same fix).
+    if (sim.config.allowShotFeedback or sim.config.allowCosmeticFx) and
+        throwerIndex >= 0 and i != throwerIndex:
       # Same private hit-confirm the gun's damage site pushes (applyFire) —
       # area weapons are cheap to cover here too. Excludes self-splash
       # (i == throwerIndex, same guard the kill-crediting code below already

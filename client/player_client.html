@@ -53,11 +53,26 @@ input{position:fixed;left:50%;bottom:18px;transform:translateX(-50%);width:min(8
    own comment) shows this one alone. --ix/--iy (screen-space %) are set per
    trigger from the server's coarse bearing (buildCosmeticFxPacket's
    "incoming" kind), never exact position — see that packet's own doc
-   comment for the wallhack-narrowing reasoning this mirrors. */
+   comment for the wallhack-narrowing reasoning this mirrors.
+   Swap#15 item 4 (ORIENT C7 FAIL: an uncoached player took 3 hits with NO
+   perceived cue, despite this existing): two compounding bugs, not one
+   under-tuned effect. Root cause A (sim.nim, see the allowCosmeticFx
+   comments there): the underlying data this reads was NEVER POPULATED on
+   any config without allowShotFeedback -- every deployed freeplay config --
+   so this could not have fired even once; that is fixed at the source now,
+   not just papered over here. Root cause B, this file: even fed real
+   events, a 60%-alpha blob fading to transparent at 40% of its own radius,
+   held only 180ms before a 380ms fade (~560ms total), positioned near the
+   screen EDGE where peripheral vision is weakest, was genuinely missable
+   mid-combat. Now: brighter (.6 -> .92 alpha), bigger (the falloff radius
+   moves from 40% to 68%, so the glow reaches well past screen center
+   instead of staying pinned to the rim), and held over 3x longer (180ms ->
+   650ms hold, 380ms -> 600ms fade => ~1250ms total, comfortably past a
+   single glance). */
 #incomingFlash{position:fixed;inset:0;pointer-events:none;z-index:49;opacity:0;
   --ix:50%;--iy:0%;
-  background:radial-gradient(circle at var(--ix) var(--iy),rgba(255,70,20,.6),transparent 40%);
-  transition:opacity 380ms ease-out}
+  background:radial-gradient(circle at var(--ix) var(--iy),rgba(255,70,20,.92),transparent 68%);
+  transition:opacity 600ms ease-out}
 #incomingFlash.show{opacity:1;transition:opacity 40ms ease-out}
 /* Event-chrome display face (Maxwell, "it can't say SPLAT when you die AND
    when a game ends even if you win... and the font is not painty at all"):
@@ -2292,8 +2307,11 @@ function triggerDamageFlash(amount){
    formula the reticle's own aim-preview already uses (see the estAim->a
    conversion above): cos for x, -sin for y, since brads count clockwise
    from north and screen y grows downward. Never fires for a fatal hit --
-   the killcam already owns that moment (killcamInfo/updateCamera). */
-const INCOMING_FLASH_HOLD_MS=180;
+   the killcam already owns that moment (killcamInfo/updateCamera).
+   Swap#15 item 4: 180 -> 650 (plus the CSS #incomingFlash comment's own
+   fade-duration bump) -- see that comment for the measured miss this
+   fixes. */
+const INCOMING_FLASH_HOLD_MS=650;
 let incomingFlashHideTimer=0;
 function triggerIncomingFlash(bearing){
   if(!incomingFlashEl||typeof bearing!=="number")return;
