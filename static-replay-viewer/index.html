@@ -3077,6 +3077,41 @@ body[data-noviewpanel] #viewpanel { display: none !important; }
   function onStatus(st) {
     statusEl.textContent = st;
     statusEl.classList.toggle('show', st !== 'open');
+    // EPISODE-TRANSITION RESET (owner hotfix): a re-open after the first is
+    // a NEW stream, and on the live S2 page it is usually a DIFFERENT match
+    // (the next episode's server taking over the same URL; broadcast_core
+    // reconnects this same page to it). Every "once per match" latch below
+    // must re-derive from the incoming stream — carrying it is exactly the
+    // owner's screenshot: CTF chrome, stale heart markers and the previous
+    // match's momentum curve over a live BR episode, cured by a refresh.
+    // broadcast_core clears its own layer/sprite/object state in connect().
+    if (st === 'open') {
+      streamsOpened++;
+      if (streamsOpened > 1) resetEpisodeChrome();
+    }
+  }
+  var streamsOpened = 0;
+
+  function resetEpisodeChrome() {
+    PB_MODE = false;
+    lastTick = -1;
+    lastFf = false;
+    tradeConsumed = {};
+    capHeartsBySlot = {};
+    capHeartsSeen = {};
+    if (feedEl) feedEl.innerHTML = '';
+    if (bannerEl) bannerEl.innerHTML = '';
+    var card = $('endcard');
+    card.classList.remove('on');
+    card.classList.remove('pb');
+    card._key = null;
+    ecTeams = null;
+    sbTeams = null;
+    resetZoneEndcard();
+    C.resetEpisode();
+    if (window.PaintballChrome && window.PaintballChrome.reset) {
+      window.PaintballChrome.reset();
+    }
   }
 
   // ============================================================
@@ -6766,7 +6801,16 @@ button.beat-marker {
   window.PaintballChrome = {
     install: function (ctx) { CTX = ctx; },
     frame: pbFrame,
-    event: pbEvent
+    event: pbEvent,
+    // Episode-transition reset: the placed-button dedup and the game/regime
+    // latch are per-match state; the page calls this from its reconnect
+    // hook (the scrubber buttons themselves are swept by the shared
+    // chrome's resetEpisode — one .beat-marker sweep covers both families).
+    reset: function () {
+      placed = {};
+      lastRegime = '';
+      lastGame = -1;
+    }
   };
 })();
 </script>
