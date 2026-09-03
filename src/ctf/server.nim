@@ -5006,6 +5006,29 @@ proc runServerLoop*(
             if secondBoundary:
               echo formatCombatSummary(uint32(sim.tickCount + 1),
                 firstLight.combat)
+          # The give-item HANDOFF drain, written in the reflash drain's
+          # shape on purpose (see the policy-page drain above): declare at
+          # this tick boundary, and record EXACTLY what the consent seam
+          # accepted, stamped with the tick it was accepted on. The sim's
+          # own declared state is the dedupe — the standing order restates
+          # its declaration every tick, and only a difference is worth a
+          # call, so an accepted declaration writes ONE record, a refused
+          # one (dark gate, downed giver, no partner yet) writes nothing
+          # and retries while the order stands, and a completed transfer
+          # (the sim clears the declaration) re-declares under the still-
+          # standing order. declareHandoff is the single predicate this
+          # path and playback consult, so the file can never claim a
+          # declaration the sim refused, nor omit one it took.
+          for declared in firstLight.handoffs:
+            if declared.playerIndex < 0 or
+                declared.playerIndex >= sim.players.len:
+              continue
+            if sim.players[declared.playerIndex].giveDeclItem ==
+                declared.item:
+              continue
+            if sim.declareHandoff(declared.playerIndex, declared.item):
+              replayWriter.writeHandoffDeclaration(
+                tickTime(sim.tickCount), declared.playerIndex, declared.item)
         # ---- direct aim: point the turret, THEN run the tick ------------
         # The one write that makes a human's aim absolute instead of a
         # traverse. Re-derived per STEP, not per frame: at >1x the frame runs

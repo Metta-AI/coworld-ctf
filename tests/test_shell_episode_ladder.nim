@@ -89,6 +89,43 @@ proc writeCurrentSelfProbeWasm(path: string) =
       "i32.const 0))"
   writeFile(path, wat.watBytes)
 
+proc writeHandoffProbeWasm(path: string) =
+  ## §4.1 amendment probe: a controller that declares nothing on its first
+  ## step (the seat's installed DEFAULT stands — the neutral row), then a
+  ## gun handoff on every step after (the item rides the intent; the
+  ## target is never a parameter). The split-by-a-tick shape is deliberate:
+  ## it is what lets one short episode observe BOTH the neutral row and
+  ## the declared row through the same real accept-then-run path, rather
+  ## than asserting either truth from a hand-built Intent alone.
+  let manifest =
+    "{\"abi\":1,\"class\":\"controller\",\"modes\":[\"br\"]," &
+    "\"name\":\"handoff_probe\",\"params\":{},\"retune\":true}"
+  let intent =
+    "{\"arrive_radius\":0.0,\"handoff\":\"gun\",\"kind\":\"hold\"," &
+    "\"reason\":\"handoff_probe\",\"schema\":\"intent\",\"v\":1}"
+  let wat = "(module\n" &
+    "  (import \"play\" \"emit\" (func $emit (param i32 i32) (result i32)))\n" &
+    "  (memory (export \"memory\") 1 16)\n" &
+    "  (data (i32.const 256) \"" & manifest.watEscape & "\")\n" &
+    "  (data (i32.const 512) \"" & intent.watEscape & "\")\n" &
+    "  (global $heap (mut i32) (i32.const 4096))\n" &
+    "  (global $steps (mut i32) (i32.const 0))\n" &
+    "  (func (export \"play_alloc\") (param $len i32) (result i32) " &
+      "global.get $heap global.get $heap local.get $len i32.add " &
+      "global.set $heap)\n" &
+    "  (func (export \"play_manifest\") i32.const 256 i32.const " &
+      $manifest.len & " call $emit drop)\n" &
+    "  (func (export \"play_init\") (param i32 i32 i32 i32) (result i32) " &
+      "i32.const 0)\n" &
+    "  (func (export \"play_step\") (param i32 i32) (result i32) " &
+      "global.get $steps i32.const 1 i32.add global.set $steps " &
+      "global.get $steps i32.const 2 i32.ge_s " &
+      "(if (then i32.const 512 i32.const " & $intent.len &
+      " call $emit drop)) i32.const 0)\n" &
+    "  (func (export \"play_retune\") (param i32 i32 i32 i32) (result i32) " &
+      "i32.const 0))"
+  writeFile(path, wat.watBytes)
+
 proc writeStepTrapWasm(path: string) =
   let manifest =
     "{\"abi\":1,\"class\":\"controller\",\"modes\":[\"br\"]," &
@@ -390,6 +427,55 @@ suite "shell episode ladder":
     check newRoom.installs.anyIt(it.provenance == "entry:current_self_probe" and
       it.bytes.contains("\"point\":[650,30]") and
       it.bytes.contains("\"reason\":\"current_self_probe\""))
+
+  test "handoff intent rides the standing order into the tick result rows":
+    # §4.1 amendment wiring, shell side: a play that declares "handoff" in
+    # its emitted Intent must surface that declaration in the step result's
+    # handoffs rows (which the server hook feeds to sim.declareHandoff),
+    # and a defaulting seat must surface the neutral "" row.
+    let modulePath = getTempDir() / "handoff-probe-" &
+      $getCurrentProcessId() & ".wasm"
+    writeHandoffProbeWasm(modulePath)
+    defer:
+      if fileExists(modulePath):
+        removeFile(modulePath)
+
+    let map = splitRoomsMap()
+    var episode = initFirstLightEpisode(true, true, controls(1), map, 331)
+    defer:
+      episode.closeFirstLightEpisode()
+    let configLines = episode.configureFirstLightPlay(FirstLightPlayConfig(
+      modulePath: modulePath,
+      playName: "handoff_probe",
+      paramsBytes: "{}",
+      seats: @[0],
+      uploadIdBase: 95_000,
+      proposalIdBase: 96_000,
+      originGeneration: 1))
+    check configLines.anyIt(it.contains("FIRST_LIGHT_PLAY_CALL seat=0") and
+      it.contains("accepted=true"))
+
+    var
+      sawNeutralRow = false
+      sawDeclaredRow = false
+    for tick in 1 .. 5:
+      let output = episode.step([frame(0, (30, 30), tick)], uint32(tick))
+      for declared in output.handoffs:
+        check declared.seat == 0'u8
+        check declared.playerIndex == 0
+        if declared.item == "":
+          sawNeutralRow = true
+        elif declared.item == "gun":
+          # The row mirrors the installed standing order, whose canonical
+          # bytes carry the declaration.
+          check episode.seats[0].standing.intent.handoff == "gun"
+          check episode.seats[0].standing.intentBytes.contains(
+            "\"handoff\":\"gun\"")
+          sawDeclaredRow = true
+    # The safe activation hold declares nothing; the probe's accepted
+    # emission declares the gun. Both truths must have appeared.
+    check sawNeutralRow
+    check sawDeclaredRow
 
   test "real edge_ride wasm drives a real episode tick and differs from default":
     buildEdgeRideWasm()

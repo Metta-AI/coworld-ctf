@@ -124,6 +124,49 @@ suite "shell emit validator":
       "\"schema\":\"combat_policy\",\"v\":1}", unknownDuo).code ==
       AbiUnknownReference
 
+  test "handoff declares only in battle royale and only the seam's items":
+    # §4.1 amendment: the standing give-item declaration. Same mode rule as
+    # duo refs (a duo fact), same closed vocabulary as sim.declareHandoff.
+    let map = openRoomsMap()
+    var br = map.controllerContext
+    br.mode = gmBr
+    let declared = "{\"arrive_radius\":0.0,\"handoff\":\"gun\"," &
+      "\"kind\":\"hold\",\"schema\":\"intent\",\"v\":1}"
+    let accepted = validateEmit(declared, br)
+    check accepted.code == AbiOk
+    check accepted.accepted
+    check accepted.intent.handoff == "gun"
+    # The canonical re-encoding keeps the field in sorted position, and a
+    # typed round trip reproduces the emission byte-for-byte.
+    check accepted.canonicalBytes == declared
+    check accepted.canonicalBytes == canonicalIntent(accepted.intent)
+
+    # Every item of the seam's vocabulary is accepted; anything else is an
+    # unknown reference, never a silent drop.
+    for item in ["bandage", "hopper"]:
+      check validateEmit("{\"arrive_radius\":0.0,\"handoff\":\"" & item &
+        "\",\"kind\":\"hold\",\"schema\":\"intent\",\"v\":1}", br).accepted
+    check validateEmit("{\"arrive_radius\":0.0,\"handoff\":\"shield\"," &
+      "\"kind\":\"hold\",\"schema\":\"intent\",\"v\":1}", br).code ==
+      AbiUnknownReference
+    check validateEmit("{\"arrive_radius\":0.0,\"handoff\":true," &
+      "\"kind\":\"hold\",\"schema\":\"intent\",\"v\":1}", br).code ==
+      AbiSchemaViolation
+
+    # A duo fact has no meaning outside battle royale: rejected by the same
+    # rule (and reason) that rejects "duo:" references there.
+    for mode in [gmCtf, gmKoth]:
+      var ctx = map.controllerContext
+      ctx.mode = mode
+      let rejected = validateEmit(declared, ctx)
+      check rejected.code == AbiUnknownReference
+      check rejected.reason == "noDuosInMode"
+
+    # Neutral is omitted: an intent that declares nothing encodes without
+    # the key, so every pre-amendment emission is byte-identical.
+    check "handoff" notin canonicalIntent(Intent(kind: ikHold,
+      arriveRadius: 0.0))
+
   test "protected set writer is shared across finisher and emit validation":
     let map = openRoomsMap()
     let protectedSet = ProtectedSet(seats: @[
