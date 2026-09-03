@@ -2442,6 +2442,34 @@ type
                         ## partner. No transfer of any kind without a
                         ## declaration (owner ruling 2026-09-02: proximity
                         ## can never imply consent — no auto-share).
+    # ── MULTIPLIER RECUT (GLORY v13) ── appended fields, same append-safety
+    # reasoning as the S2 LOOT block above: every default means "feature
+    # off", every echo is gated on departure from default
+    # (echoRecutKeys/echoStampKeys/echoVariantIdKeys, sim_config.nim), so a
+    # dark game's replay config stays byte-identical to a build without
+    # these fields. PER-FLAG ACTIVATION (recut contract AMENDMENT 2 §1):
+    # each of these is its OWN manifest game_config key, independently
+    # settable — never coupled to lootStart/downedMode or to each other.
+    gloryMultiplierRecut*: bool ## RECUT(v13): the entire pure-multiplier
+                        ## economy (glory.nim §6b — episode score =
+                        ## seed × Π(act factors) ÷ 2^FF, per the FROZEN
+                        ## 2026-09-02 contract). BOTH modes (unlike
+                        ## lootStart/downedMode it does NOT require
+                        ## brMode: CTF is repriced too). Dark = false:
+                        ## every number prices exactly as GLORY v12.
+    stampRealizedConfig*: bool ## STAMP(amendment 2 §2): emit the
+                        ## realized-config stamp {realizedBuild, flagSet,
+                        ## variantId, stampVersion} at finalize — into the
+                        ## events sink and the game-over log (engine-side
+                        ## homes; the episode-attributes API upload rides
+                        ## the league-side reporter, which owns that
+                        ## channel). Its own flag so observability stages
+                        ## independently of the economy. Dark = false.
+    variantId*: string  ## STAMP(amendment 2 §2): the manifest variant id
+                        ## this config was published under, echoed into
+                        ## the realized-config stamp. The engine only
+                        ## reports it — empty when the config predates the
+                        ## key or was hand-built.
 
   Player* = object
     x*, y*: int
@@ -3665,7 +3693,40 @@ type
     # accounting -- there is no pre-glory BR recording to backfill, so the
     # rig has no BR use case; the golden fixture was re-recorded fresh in
     # the same commit that landed this increment).
-    teamGlory*: array[Team, int]      ## GLORY: the team ledger.
+    teamGlory*: array[Team, int]      ## GLORY: the team ledger. Under the
+                                      ## armed multiplier recut (v13) this
+                                      ## carries the DERIVED integer score
+                                      ## `recutScore(gloryProduct,
+                                      ## halvings)` instead of a running
+                                      ## sum, so every existing reader
+                                      ## (broadcast "glory", the banked
+                                      ## league score, the endcard) shows
+                                      ## the recut score with zero reader
+                                      ## changes. Dark: exactly the v12
+                                      ## sum, byte-identical.
+    # ── MULTIPLIER RECUT (GLORY v13) canonical armed state ── written ONLY
+    # while `config.gloryMultiplierRecut` is armed (awardDeed/
+    # claimAchievement else-branches, sim.nim) and mixed into gameHash ONLY
+    # then (sim_state.nim's guarded block), so a dark game's hash schema
+    # and trajectory are untouched — the same dark-field discipline the
+    # LOOT(s2) block established. ONE product per TEAM: in BR a team IS a
+    # duo, which is exactly the contract's "one de-duplicated product per
+    # duo, never one per seat" (§7a) — `awardDeed` is the single mint and
+    # is called once per shared fact; both seats read the same value.
+    gloryProduct*: array[Team, int64] ## RECUT: Π(event factors), seed 1.
+    gloryFfIncidents*: array[Team, int] ## RECUT: `dTeamKill` incidents
+                               ## this game; halvings derive per mode via
+                               ## `recutFfHalvings` (BR ÷2/incident, CTF
+                               ## ÷2 per two).
+    recutDamageMarks*: seq[seq[tuple[attacker: int, tick: int]]]
+                               ## RECUT: per-VICTIM damager history (the
+                               ## dJointAct incident window, 120t) feeding
+                               ## the Fibonacci stack's k at the kill
+                               ## site. Armed-only maintained; derived
+                               ## deterministically from the damage stream
+                               ## (re-simulates identically), so it stays
+                               ## OUT of gameHash — the product it feeds
+                               ## is hashed, which is the causal surface.
     heatEmbers*: array[Team, int]     ## GLORY: rampage embers -> the heat
                                       ## multiplier.
     heatLastDeed*: array[Team, int]   ## GLORY: tick of the team's latest

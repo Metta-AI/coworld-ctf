@@ -3,9 +3,9 @@
 ## docs/plans/2026-08-01-sim-split.md; re-exported by sim.nim.
 
 import
-  std/[json, strutils],
+  std/[algorithm, json, strutils],
   jsony,
-  sim_types, arena, br_map_pool
+  sim_types, arena, br_map_pool, build_stamp, glory
 
 proc defaultGameConfig*(): GameConfig =
   ## Returns the default CTF gameplay config.
@@ -113,7 +113,13 @@ proc defaultGameConfig*(): GameConfig =
     # GIVE(s2): the play-called exchange mechanic, dark by default — no
     # declaration is ever accepted and the channel never runs (echoed only
     # when armed, echoGiveItemKeys).
-    giveItem: false
+    giveItem: false,
+    # RECUT(v13): the multiplier-recut economy and the realized-config
+    # stamp, both dark by default and each its OWN independently-settable
+    # key (per-flag activation, recut contract Amendment 2 §1).
+    gloryMultiplierRecut: false,
+    stampRealizedConfig: false,
+    variantId: ""
   )
 
 proc squadModeConfigured*(config: GameConfig): bool =
@@ -1282,6 +1288,15 @@ proc update*(config: var GameConfig, jsonText: string) =
   # — same tail-append rule as everything above. An absent key leaves the
   # dark default, so an existing config JSON parses to an unchanged config.
   node.readConfigBool("giveItem", config.giveItem)
+  # RECUT(v13): appended reads for the multiplier-recut fields
+  # (sim_types.nim) — same tail-append rule as everything above. Absent
+  # keys leave the dark defaults, so an existing config JSON parses to an
+  # unchanged config. Each is its OWN key on purpose (per-flag activation,
+  # recut contract Amendment 2 §1): the economy, the stamp and the variant
+  # label stage independently — of each other AND of lootStart/downedMode.
+  node.readConfigBool("gloryMultiplierRecut", config.gloryMultiplierRecut)
+  node.readConfigBool("stampRealizedConfig", config.stampRealizedConfig)
+  node.readConfigString("variantId", config.variantId)
   config.validate()
 
 proc slotTeamText(slot: PlayerSlotConfig): string =
@@ -1629,6 +1644,25 @@ proc echoGiveItemKeys(config: GameConfig, node: JsonNode) =
   if config.giveItem:
     node["giveItem"] = %config.giveItem
 
+proc echoRecutKeys(config: GameConfig, node: JsonNode) =
+  ## RECUT(v13): the multiplier-recut gate, echoed only when armed — same
+  ## byte-identity rule as every echo above. An armed replay's header pins
+  ## the economy it actually played under; a dark echo carries nothing.
+  if config.gloryMultiplierRecut:
+    node["gloryMultiplierRecut"] = %config.gloryMultiplierRecut
+
+proc echoStampKeys(config: GameConfig, node: JsonNode) =
+  ## STAMP(recut contract Amendment 2 §2): the stamp gate and the variant
+  ## label, echoed only on departure from their dark defaults. The
+  ## variantId echoes on its own (a labelled-but-unstamped config still
+  ## records which variant published it — the label is observability
+  ## either way, and byte-identity only requires ABSENT keys to stay
+  ## absent).
+  if config.stampRealizedConfig:
+    node["stampRealizedConfig"] = %config.stampRealizedConfig
+  if config.variantId.len > 0:
+    node["variantId"] = %config.variantId
+
 proc configJson*(config: GameConfig): string =
   ## Returns the complete replay JSON for a gameplay config: the always-
   ## present base keys, built as one object literal below, followed by one
@@ -1732,4 +1766,56 @@ proc configJson*(config: GameConfig): string =
   echoLootStartKeys(config, node)
   echoDownedKeys(config, node)
   echoGiveItemKeys(config, node)
+  echoRecutKeys(config, node)
+  echoStampKeys(config, node)
   result = $node
+
+proc realizedConfigStampJson*(config: GameConfig): string =
+  ## STAMP (recut contract AMENDMENT 2 §2): the per-episode realized-config
+  ## stamp — {realizedBuild, flagSet as SORTED key=value pairs, variantId,
+  ## stampVersion}. This is the machine-readable answer to the live hazard
+  ## the directive recorded (realized builds/flags oscillating under a
+  ## pinned canonical): every consumer reads what ACTUALLY ran, never
+  ## assumes canonical (the §7c pinning rule).
+  ##
+  ## realizedBuild carries BOTH version layers: the hand-bumped GameVersion
+  ## and the machine-derived source stamp (`ctfSimSourcesStamp`, empty in
+  ## builds that never passed the define — an empty stamp claims nothing,
+  ## same rule as build_stamp.nim), plus GloryVersion (the economy table
+  ## the episode priced under). flagSet pins the S2 dark-flag family
+  ## EXPLICITLY, false values included — a dark episode positively records
+  ## its darkness, which is the whole point.
+  ##
+  ## Engine-side homes (emitted at finalize when `stampRealizedConfig` is
+  ## armed): the events sink and the game-over log line (server.nim/
+  ## sim.nim). The episode-attributes API upload is the league-side
+  ## reporter's to make from those homes — the engine has no attributes
+  ## channel (bitworld runtime carries results/replay/log only) and the
+  ## results document is schema-closed. The replay header already pins the
+  ## same facts through the config echo + engineStamp (replay_codec.nim),
+  ## which serves as the amendment's replay-manifest secondary copy.
+  var flags: seq[string] = @[
+    "bandagePickups=" & $config.bandagePickups,
+    "brMode=" & $config.brMode,
+    "downedEscalation=" & $config.downedEscalation,
+    "downedMode=" & $config.downedMode,
+    "gloryMultiplierRecut=" & $config.gloryMultiplierRecut,
+    "lootStart=" & $config.lootStart,
+    "medKitCount=" & $config.medKitCount,
+    "stampRealizedConfig=" & $config.stampRealizedConfig,
+  ]
+  flags.sort()
+  var flagSet = newJArray()
+  for f in flags:
+    flagSet.add(%f)
+  let node = %*{
+    "stampVersion": 1,
+    "realizedBuild": {
+      "gameVersion": GameVersion,
+      "gloryVersion": GloryVersion,
+      "engineStamp": ctfSimSourcesStamp
+    },
+    "variantId": config.variantId,
+    "flagSet": flagSet
+  }
+  $node

@@ -161,8 +161,15 @@ proc addGloryPop(sim: var SimServer, team: Team, x, y, amount: int,
   )
 
 proc awardDeed*(sim: var SimServer, team: Team, deed: Deed, x, y: int,
-                times = 1, byIndex = -1, fxActor = -1) =
+                times = 1, byIndex = -1, fxActor = -1, stackK = 1) =
   ## THE SINGLE MINT. Every glory award in the engine goes through here.
+  ##
+  ## `stackK` (RECUT v13, appended — every existing positional call site
+  ## unchanged) is the teammates-in-context count for the Fibonacci
+  ## ally-stack (glory.nim `RecutStackLadder`), computed ONCE by the kill
+  ## site against the shared fact (contract §7a: a property of the EVENT,
+  ## never re-evaluated per seat). 1 = no context (the neutral column);
+  ## read only when `config.gloryMultiplierRecut` is armed.
   ##
   ## `x, y` is the PRICING site and nothing else -- feeds `deedSitePct`, and
   ## (STALE-COMMENT FIX, glory-league-score pass) even now that `teamGlory`
@@ -206,8 +213,45 @@ proc awardDeed*(sim: var SimServer, team: Team, deed: Deed, x, y: int,
     if c >= 0 and sim.players[c].team == team:
       carrying = true
       break
-  let amount = mintGlory(deed, sim.heatEmbers[team], sitePct, carrying) * times
-  sim.teamGlory[team] += amount
+  var amount = mintGlory(deed, sim.heatEmbers[team], sitePct, carrying) * times
+  if not sim.config.gloryMultiplierRecut:
+    # DARK PATH — GLORY v12, byte-for-byte: the additive ledger.
+    sim.teamGlory[team] += amount
+  else:
+    # ── MULTIPLIER RECUT (v13, armed) ── the pure-product economy.
+    # This event contributes exactly ONE element to the per-team (= per-duo
+    # in BR) composition, evaluated here at mint time on the shared fact
+    # and never again (contract §7a): a positive deed folds ONE integer
+    # factor (class × heat × carry × ally-stack, territory-shifted) into
+    # the running product; a friendly-fire incident advances the division
+    # counter instead (table §4 — a division, not a class).
+    #
+    # `amount` is REPURPOSED on this path as the event's product-space
+    # value — the folded factor for a positive deed (so the score pop, the
+    # toast, the log line and the tier-2 GloryDeed event all carry the real
+    # per-event factor, which is also what an offline scorer needs to
+    # rebuild the product in lockstep, §6), or minus the halvings this
+    # incident just charged for `dTeamKill` (0 on the first of a CTF pair).
+    if deed == dTeamKill:
+      let before = recutFfHalvings(sim.gloryFfIncidents[team],
+                                   sim.config.brMode)
+      inc sim.gloryFfIncidents[team], times
+      let after = recutFfHalvings(sim.gloryFfIncidents[team],
+                                  sim.config.brMode)
+      amount = -(after - before)
+    else:
+      let factor = recutFactor(deed, sim.heatEmbers[team], sitePct,
+                               carrying, stackK)
+      for _ in 1 .. times:
+        sim.gloryProduct[team] = recutFold(sim.gloryProduct[team], factor)
+      amount = factor
+    # The int ledger carries the DERIVED score (floor of the division —
+    # see recutScore's own comment), so every existing reader (broadcast
+    # "glory", the banked league score, the endcard) reports the recut
+    # score with zero reader changes.
+    sim.teamGlory[team] = int(recutScore(
+      sim.gloryProduct[team],
+      recutFfHalvings(sim.gloryFfIncidents[team], sim.config.brMode)))
   inc sim.deedCounts[deed], times
   sim.deedGloryMass[deed] += amount
   if popsScore(deed):
@@ -281,10 +325,25 @@ proc claimAchievement*(sim: var SimServer, team: Team, tree: Tree, tier: int,
   let
     effectiveFirst = isFirst and tier == AchievementTiers - 1
     home = sim.gameMap.flagHome(team)
-    amount = mintAchievement(tier, sim.deedSitePct(team, home.x, home.y),
-                             effectiveFirst)
+  var amount = mintAchievement(tier, sim.deedSitePct(team, home.x, home.y),
+                               effectiveFirst)
   sim.claimedFirst[key] = true
-  sim.teamGlory[team] += amount
+  if not sim.config.gloryMultiplierRecut:
+    # DARK PATH — GLORY v12, byte-for-byte.
+    sim.teamGlory[team] += amount
+  else:
+    # ── MULTIPLIER RECUT (v13, armed) ── a claim folds RecutTierClass
+    # (×1/×1/×2/×2/×4) × the surviving FIRST ×3 into the same single
+    # per-team product every deed feeds (contract §7a: one walk, one
+    # product). Never heat (law 4), never territory (home-pedestal mint —
+    # see recutAchievementFactor). `amount` carries the factor for the
+    # feed/pop/log/event, same repurposing as awardDeed's armed path.
+    let factor = recutAchievementFactor(tier, effectiveFirst)
+    sim.gloryProduct[team] = recutFold(sim.gloryProduct[team], factor)
+    amount = factor
+    sim.teamGlory[team] = int(recutScore(
+      sim.gloryProduct[team],
+      recutFfHalvings(sim.gloryFfIncidents[team], sim.config.brMode)))
   inc sim.deedCounts[dAchievement]
   sim.deedGloryMass[dAchievement] += amount
   let byCog = byIndex >= 0 and byIndex < sim.players.len and
@@ -599,7 +658,19 @@ proc resetGloryLedger*(sim: var SimServer) =
   ## cosmetic pop queue. Does NOT touch per-player counters (startGame's
   ## own per-player loop owns those). Called from `startGame`.
   for team in sim.teams():
-    sim.teamGlory[team] = 0
+    # RECUT(v13): armed, the ledger opens at the SEED — directive §2's open-
+    # guards line verbatim: "Seed = 1; a no-deed episode scores seed" (the
+    # league's loser-banks-0 gate is roster.nim's, unchanged). Dark: 0,
+    # byte-identical to v12.
+    sim.teamGlory[team] =
+      if sim.config.gloryMultiplierRecut: RecutSeed else: 0
+    # The armed product state resets with the ledger it backs.
+    # Unconditional (not flag-gated) on purpose: writing the seed into a
+    # dark game's fields costs nothing observable (they are hashed and read
+    # only under the armed flag) and means an armed game can never inherit
+    # a stale product through any reset path.
+    sim.gloryProduct[team] = RecutSeed
+    sim.gloryFfIncidents[team] = 0
     sim.heatEmbers[team] = 0
     sim.heatLastDeed[team] = 0
     sim.heatLastDecay[team] = 0
@@ -615,6 +686,7 @@ proc resetGloryLedger*(sim: var SimServer) =
   sim.firstBloodDone = false
   sim.achievementFeed = @[]
   sim.gloryPops = @[]
+  sim.recutDamageMarks = @[]
 
 proc stealIsContested(sim: SimServer, playerIndex: int): bool =
   ## True when a LIVE enemy stands within `ContestedStealPx` of the stealer
@@ -1862,6 +1934,78 @@ proc downPlayer(
   )
   sim.logGameEvent(playerColorText(victim.color) & " is down")
 
+proc recutZonePhase*(sim: SimServer, elapsedTicks: int):
+    tuple[closing, final: bool] =
+  ## RECUT(v13, table §1b): where the shrink schedule stands at a tick, for
+  ## the BR marquee band's two zone deeds. `closing` = the zone is actively
+  ## shrinking (inside some phase's shrink segment — instant snaps,
+  ## shrinkTicks <= 0, never count as closing); `final` = play has entered
+  ## the LAST authored phase (its wait, its shrink, or the hold-forever
+  ## after it). Same phase walk as zoneRectAndDpsRaw, minus the geometry —
+  ## a pure function of config + elapsed ticks, nothing stored or hashed.
+  ## Callers guard `zonePhases.len > 0` (both fields false without a
+  ## schedule — no zone, no zone deeds).
+  result = (closing: false, final: false)
+  if sim.config.zonePhases.len == 0:
+    return
+  var t = max(0, elapsedTicks)
+  for i, phase in sim.config.zonePhases:
+    let isLast = i == sim.config.zonePhases.len - 1
+    if t < phase.waitTicks:
+      return (closing: false, final: isLast)
+    t -= phase.waitTicks
+    if phase.shrinkTicks > 0 and t < phase.shrinkTicks:
+      return (closing: true, final: isLast)
+    if phase.shrinkTicks > 0:
+      t -= phase.shrinkTicks
+  # Every phase's wait+shrink has elapsed: holding at the final circle.
+  result = (closing: false, final: true)
+
+proc recutContextK*(sim: SimServer, killerIndex, victimIndex: int): int =
+  ## RECUT(v13, table §2): k — teammates-in-context — for the Fibonacci
+  ## ally-stack on ONE kill, computed once at the mint against the shared
+  ## fact (contract §7a). The context predicate is the contract-named one:
+  ## participation in the victim's open damage incident (the dJointAct
+  ## window machinery — `recutDamageMarks`, 120-tick merge), counting
+  ## distinct participating cogs:
+  ##
+  ##   - CTF: literal same-team players (§2) — the killer plus every
+  ##     teammate with a qualifying hit on this victim inside the window.
+  ##   - BR: allies-in-context (§2's ruled widening) — the killer's own
+  ##     duo PLUS cogs of OTHER duos co-engaged on the same victim in the
+  ##     window (a truce/joint-act moment, the dJointAct predicate). The
+  ##     victim's own duo never counts (friendly fire is never an
+  ##     alliance — the spec's own exclusion).
+  ##
+  ## Exact ally-counting refinement (who counts, how a window closes) is
+  ## PARKED BEHIND T5 by the table itself; this is the minimal
+  ## contract-named predicate, flagged as such to conformance review.
+  ## Friendly kills return 1 (no stack on a penalty). k >= the table's last
+  ## column clamps in `recutStackMult`.
+  if killerIndex < 0 or killerIndex >= sim.players.len or
+      victimIndex < 0 or victimIndex >= sim.players.len:
+    return 1
+  let
+    killerTeam = sim.players[killerIndex].team
+    victimTeam = sim.players[victimIndex].team
+  if killerTeam == victimTeam:
+    return 1
+  var participants: seq[int] = @[killerIndex]
+  if victimIndex < sim.recutDamageMarks.len:
+    for mark in sim.recutDamageMarks[victimIndex]:
+      if sim.tickCount - mark.tick > AssistWindowTicks:
+        continue
+      if mark.attacker < 0 or mark.attacker >= sim.players.len:
+        continue
+      if mark.attacker in participants:
+        continue
+      let attackerTeam = sim.players[mark.attacker].team
+      if attackerTeam == victimTeam:
+        continue
+      if attackerTeam == killerTeam or sim.config.brMode:
+        participants.add mark.attacker
+  participants.len
+
 proc killPlayer*(
   sim: var SimServer,
   targetIndex,
@@ -1976,7 +2120,48 @@ proc killPlayer*(
         fleeing: opening > 0,
         escorted: escortCarrier >= 0
       )
-      let deed = killDeed(ctx)
+      var deed = killDeed(ctx)
+      # ── MULTIPLIER RECUT (v13, armed) ── kill-site context, computed
+      # ONCE against the shared fact and passed down to the single mint
+      # (contract §7a). Dark path: stackK stays 1 and `deed` is exactly
+      # `killDeed(ctx)` — not a byte of the v12 flow moves.
+      var stackK = 1
+      if sim.config.gloryMultiplierRecut:
+        stackK = sim.recutContextK(killerIndex, targetIndex)
+        # BR-native marquee band (table §1b), UPGRADE-ONLY under the
+        # one-kill-one-deed law: the kill re-classifies to a marquee deed
+        # only when that deed's recut class is STRICTLY higher than the
+        # resolved one — the anti-stacking rule keeps one label per kill,
+        # and "the more specific, rarer feat" (killDeed's own principle)
+        # is read in class order. Precedence inside the band: dLastLight
+        # (×4) > dDuoDown (×2) > dClosingTime (×2) — duo-finishing is the
+        # more specific fact than time-of-kill at equal class. A marquee
+        # fact shadowed by a higher-class kill deed goes unminted
+        # (flagged to conformance review, same one-deed law as every
+        # other co-satisfied kill).
+        if sim.config.brMode and not ctx.friendly:
+          var marquee = dNone
+          if sim.config.zonePhases.len > 0:
+            let zone = sim.recutZonePhase(sim.tickCount - sim.gameStartTick)
+            if zone.final: marquee = dLastLight
+            elif zone.closing: marquee = dClosingTime
+          if marquee != dLastLight:
+            # Finish off an enemy duo: this kill leaves no member of the
+            # victim's team alive. Under armed downedMode a downed-but-
+            # unfinalized partner still reads `alive`, so the duo-down
+            # fires at the FINALIZE that truly empties the duo — the same
+            # once-at-finalize timing the FF ruling recorded.
+            var partnerAlive = false
+            for i, p in sim.players:
+              if i != targetIndex and p.team == victim.team and p.alive:
+                partnerAlive = true
+                break
+            if not partnerAlive and RecutClassTable[dDuoDown] >=
+                RecutClassTable[marquee]:
+              marquee = dDuoDown
+          if marquee != dNone and
+              RecutClassTable[marquee] > RecutClassTable[deed]:
+            deed = marquee
       # Glory-toast channel source (GameConfig.allowCosmeticFx): `fxActor`
       # is -1 for a grenade-caused kill regardless of which deed `killDeed`
       # resolved to -- the swap9-era wire never wired the grenade blast-kill
@@ -1986,7 +2171,8 @@ proc killPlayer*(
       # comment on `fxActor` for the full rationale.
       sim.awardDeed(killer.team, deed, victim.x, victim.y,
                     byIndex = killerIndex,
-                    fxActor = (if ctx.weaponGrenade: -1 else: killerIndex))
+                    fxActor = (if ctx.weaponGrenade: -1 else: killerIndex),
+                    stackK = stackK)
       # The taper only latches once the payback ACTUALLY minted: a kill
       # that also satisfies a higher-precedence descriptor (an ace tag, a
       # denial, ...) resolves to that deed instead, same as `avengesKiller`
@@ -2075,6 +2261,12 @@ proc killPlayer*(
         playerColorText(sim.players[targetIndex].color) &
           " killed by " & sim.playerText(killerIndex)
       )
+  # RECUT(v13): a death closes the victim's damage incident — a fresh life
+  # starts a fresh dJointAct window (the alliance-vocab spec's own rule).
+  # The seq only ever fills while the recut is armed, so this is a no-op on
+  # every dark path.
+  if targetIndex < sim.recutDamageMarks.len:
+    sim.recutDamageMarks[targetIndex] = @[]
   # A dying trigger pull never releases, and a carried grenade is lost.
   sim.players[targetIndex].fireWindup = 0
   sim.players[targetIndex].windupBrads = -1
@@ -2227,6 +2419,23 @@ proc absorbDamage*(
   # leaves 0.
   if sim.config.bandagePickups > 0 and amount > 0:
     sim.players[targetIndex].lastDamageTick = sim.tickCount
+  # RECUT(v13): the per-victim damager history feeding the Fibonacci
+  # stack's k — the dJointAct incident-window machinery (alliance-vocab
+  # spec 2026-09-01: per-victim damage incidents, `AssistWindowTicks`=120
+  # as the ruled shared merge constant; environmental damage — no
+  # attacker — can never open or join a window). Armed-only maintained:
+  # a dark game never touches these seqs, and they stay out of gameHash
+  # either way (derived state — see the field's own comment).
+  if sim.config.gloryMultiplierRecut and attackerIndex >= 0 and
+      attackerIndex != targetIndex and amount > 0:
+    while sim.recutDamageMarks.len < sim.players.len:
+      sim.recutDamageMarks.add newSeq[tuple[attacker: int, tick: int]]()
+    var kept = newSeq[tuple[attacker: int, tick: int]]()
+    for mark in sim.recutDamageMarks[targetIndex]:
+      if sim.tickCount - mark.tick <= AssistWindowTicks:
+        kept.add mark
+    kept.add (attacker: attackerIndex, tick: sim.tickCount)
+    sim.recutDamageMarks[targetIndex] = kept
   var firstTouch = false
   if attackerIndex >= 0 and attackerIndex != targetIndex:
     if attackerIndex < 32:
@@ -4533,6 +4742,17 @@ proc finishGame*(sim: var SimServer, winner: Team, isDraw = false, timeLimitReac
   # Sheet -- a full-game requirement no Playing-phase read can satisfy --
   # keeps its "the whole game, however it ended" scope, now via
   # `satisfiedAchievements`' `atConclusion` read instead of a special case.
+  #
+  # ── MULTIPLIER RECUT (v13, armed) ── `dVictory` (table §1b): "the game
+  # is over, you won" as a BR-native ×8, minted at the winner's own
+  # pedestal (the same pricing site achievements use — home ground, so the
+  # territory shift is a structural no-op) BEFORE the conclusion sweep, so
+  # the sweep's deed counters already include it. brMode-only (CTF's
+  # game-over deed is the capture/wipe that ended it), decisive games only
+  # (a draw crowns nobody). Dark-inert: the flag gates the mint entirely.
+  if sim.config.gloryMultiplierRecut and sim.config.brMode and not isDraw:
+    let home = sim.gameMap.flagHome(winner)
+    sim.awardDeed(winner, dVictory, home.x, home.y)
   sim.evalAchievementsAtConclusion()
   if isDraw:
     if timeLimitReached:
