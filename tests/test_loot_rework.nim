@@ -666,3 +666,72 @@ suite "row 5 — spawn loot seeding: additive crates near spawn clusters (dark b
     for i in 0 ..< simA.players.len:
       check simA.players[i].homeX == simB.players[i].homeX
       check simA.players[i].homeY == simB.players[i].homeY
+proc ffRecutConfig(): GameConfig =
+  ## `downedConfig` (armed downedMode) plus the v13 multiplier recut, so
+  ## `gloryFfIncidents` -- otherwise permanently 0, see `awardDeed`'s own
+  ## dark/armed split -- actually moves and is observable.
+  result = downedConfig()
+  result.gloryMultiplierRecut = true
+
+suite "Amendment 5 (glory-2, spec owner override) — FF prices at the DOWN, not the finalize":
+  ## The confirmed hole: a lethal friendly hit under downedMode reaches
+  ## `downPlayer` and returns before `killPlayer`'s priceTheKill block ever
+  ## runs -- so `dTeamKill`/`gloryFfIncidents` minted only if the downed
+  ## partner actually bled out. A revived FF was free: "spray your partner,
+  ## tag them back up" cost nothing. The fix moves the mint to the down
+  ## itself, once per incident, and guards `finalizeDowned`'s later
+  ## re-entry into `killPlayer` off so the same incident never mints twice.
+  test "armed: a friendly down mints once immediately, even if revived (the hole)":
+    var sim = startedGame(ffRecutConfig(), 4)
+    sim.centerOn(1, 400, 300)
+    sim.centerOn(3, 400 + DownedTagRange - 10, 300)   # teammate: downer + reviver
+    sim.centerOn(0, 900, 300)
+    sim.centerOn(2, 900, 340)
+    let team = sim.players[1].team
+    check sim.players[1].team == sim.players[3].team  # 1, 3 are teammates
+    check sim.gloryFfIncidents[team] == 0
+    check sim.deedCounts[dTeamKill] == 0
+    sim.killPlayer(1, 3)                              # 3 downs its own teammate
+    check sim.players[1].downed
+    check sim.players[1].alive
+    check sim.gloryFfIncidents[team] == 1              # minted AT THE DOWN
+    check sim.deedCounts[dTeamKill] == 1
+    # Revived before any bleed-out -- pre-fix this incident never re-entered
+    # killPlayer's pricing at all, so it minted NOTHING. Post-fix: unchanged
+    # from the down, no second mint from the revive either.
+    sim.stepIdle(5)                                    # downedReviveTicks
+    check not sim.players[1].downed
+    check sim.players[1].alive
+    check sim.gloryFfIncidents[team] == 1
+    check sim.deedCounts[dTeamKill] == 1
+
+  test "armed: a friendly down that bleeds out still mints exactly once (no double-mint)":
+    var sim = startedGame(ffRecutConfig(), 4)
+    sim.centerOn(1, 400, 300)
+    sim.centerOn(3, 900, 500)                          # teammate out of tag range
+    sim.centerOn(0, 900, 300)
+    sim.centerOn(2, 900, 340)
+    let team = sim.players[1].team
+    sim.killPlayer(1, 3)                               # friendly down
+    check sim.gloryFfIncidents[team] == 1
+    check sim.deedCounts[dTeamKill] == 1
+    let window = 3 * DownedMinBleedOutTicks
+    sim.stepIdle(window + 1)                           # bleeds out -> finalizeDowned
+    check not sim.players[1].downed
+    check not sim.players[1].alive
+    check sim.players[1].deaths == 1
+    check sim.gloryFfIncidents[team] == 1               # NOT re-minted at finalize
+    check sim.deedCounts[dTeamKill] == 1
+
+  test "dark (non-downedMode) friendly kill mints dTeamKill exactly as before (regression)":
+    var config = brConfig()
+    config.gloryMultiplierRecut = true
+    check config.downedMode == false
+    var sim = startedGame(config, 4)
+    let team = sim.players[1].team
+    check sim.players[1].team == sim.players[3].team
+    sim.killPlayer(1, 3)                                # friendly kill, no down state
+    check not sim.players[1].downed
+    check not sim.players[1].alive
+    check sim.gloryFfIncidents[team] == 1
+    check sim.deedCounts[dTeamKill] == 1

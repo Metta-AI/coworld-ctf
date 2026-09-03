@@ -29,12 +29,16 @@ export glory
 
 const
   GameName* = "ctf"
-  ReplayCompatibleGameVersions* = ["52"]
+  ReplayCompatibleGameVersions* = ["53"]
     ## The replay-load allowlist (play-calling design §4.3): versions whose
     ## recorded files still play back correctly under THIS engine. The
     ## criterion is the GameVersion changelog below, not chronology — a
     ## version is listed only when nothing since changed the gameHash
-    ## schema, the hash trajectory, or a flatty keyframe layout. GV51 is
+    ## schema, the hash trajectory, or a flatty keyframe layout. GV52 is
+    ## excluded because GV53 moved when a friendly-fire down under armed
+    ## downedMode prices its dTeamKill/gloryFfIncidents (at the down, not
+    ## the eventual bleed-out/finalize), a hash TRAJECTORY change from the
+    ## down tick onward for any GV52 recording that contains one. GV51 is
     ## excluded because GV52 moved every re-shared spawn seat (each BR duo's
     ## second member) SpawnShareStagger px off the authored point, a hash
     ## TRAJECTORY change from tick 0 of every 16-team BR recording. GV50 is
@@ -55,8 +59,31 @@ const
     ## RewardAccount on the wire. Widening requires a real archived fixture
     ## that survives initialization and stepping (PM ruling, 2026-08-30),
     ## never a header rewrite.
-  GameVersion* = "52"
-    ## GV52 (SPAWN: RE-SHARED POINTS STAGGER): seats that re-share one
+  GameVersion* = "53"
+    ## GV53 (GLORY: FRIENDLY-FIRE PRICES AT THE DOWN, Amendment 5): under
+    ## armed downedMode, a lethal friendly hit reached downPlayer and
+    ## returned before killPlayer's priceTheKill block ever ran, so
+    ## dTeamKill/gloryFfIncidents (both hashed state) minted only if the
+    ## downed partner actually bled out (finalizeDowned re-entering
+    ## killPlayer) -- a revived friendly-fire down was free: measured,
+    ## dTeamKill fired 4x in 72 wins where it should have fired every
+    ## incident. The mint now happens in downPlayer itself, once per
+    ## incident, at the down; finalizeDowned's later re-entry for that
+    ## same incident is guarded off so a bled-out/team-wiped friendly down
+    ## never double-mints. A GV52 recording that contains a friendly-fire
+    ## down under downedMode re-simulates to a different hash trajectory
+    ## from the down tick onward under this engine -- every other
+    ## recording (downedMode off, or on with no friendly-fire down) is
+    ## byte-identical, but the gameversion-tripwire job cannot see a
+    ## conditional trajectory move, only a headline collision, and stays
+    ## green on a same-number reuse either way. Ruled (spec owner, glory-2,
+    ## 2026-09-03): a behavior-changing fix that moves a MEASURED
+    ## distribution takes a GameVersion bump on its own, even when the
+    ## tripwire passes untouched -- GameVersion is the only reliable
+    ## IN-BAND era marker a replay header carries; build-to-commit
+    ## provenance is not derivable after the fact.
+    ##
+    ## Previously GV52 (SPAWN: RE-SHARED POINTS STAGGER): seats that re-share one
     ## authored spawn point (order >= perTeam -- every duo on the 16-point,
     ## 16-team BR generator) are seated SpawnShareStagger px apart along y
     ## instead of on one pixel. Two bodies on one pixel
