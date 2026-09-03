@@ -155,6 +155,22 @@ function flushPendingKeys(w) {
   for (const code of pendingHeldKeys) {
     w.onkeydown({ code: code, preventDefault: () => {} });
   }
+  // Swap#15 item 1 (found under real system load, not in a hand-timed
+  // test): this used to leave the codes in the set after flushing. A quick
+  // TAP whose keyup lands between this flush and the next poll tick then
+  // hit the keydown/keyup handlers below with pendingHeldKeys still
+  // "possessing" the code, which is harmless there (only makes the keyup
+  // handler redundantly re-send an already-deduped keydown) -- but it also
+  // meant a genuinely fast press+release entirely inside the readiness gap
+  // (keydown queued, keyup arrives before flush OR before this line
+  // existed) relied on the keyup handler alone, which used to call
+  // w.onkeyup() unconditionally without ever having sent the matching
+  // w.onkeydown() first -- the iframe's own onkeyup no-ops on a key it
+  // never saw go down (if(!k[e.code])return), so the ENTIRE tap vanished:
+  // no movement packet at all, not even a trailing mask=0. Clearing here
+  // makes "pending" mean exactly "never delivered", which the keyup
+  // handler below now uses to replay the missed keydown first.
+  pendingHeldKeys.clear();
 }
 // Poll for "the iframe can now handle a key" rather than waiting on 'load'
 // (measured ~58ms) or navigation timing -- onkeydown/onkeyup exist the
@@ -187,9 +203,19 @@ document.addEventListener("keydown", (e) => {
   }
 });
 document.addEventListener("keyup", (e) => {
-  pendingHeldKeys.delete(e.code);
+  // Set.prototype.delete returns true iff the code was still there, i.e.
+  // its keydown was NEVER forwarded (see flushPendingKeys' own comment on
+  // why this matters: a naive unconditional w.onkeyup() here silently lost
+  // a fast tap that landed entirely inside the "iframe not ready yet"
+  // window under load). Replay the missed keydown first so the iframe's
+  // own k[code] actually gets set before the keyup clears it -- a real,
+  // if brief, movement pulse instead of nothing at all.
+  const wasNeverDelivered = pendingHeldKeys.delete(e.code);
   const w = iframeKeyHandlers();
-  if (w) w.onkeyup({ code: e.code, preventDefault: () => {} });
+  if (w) {
+    if (wasNeverDelivered) w.onkeydown({ code: e.code, preventDefault: () => {} });
+    w.onkeyup({ code: e.code, preventDefault: () => {} });
+  }
 });
 
 // Capability DETECTION, not a build flag: one bundle is served to a league
