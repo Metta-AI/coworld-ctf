@@ -191,3 +191,43 @@ suite "SEASON 2 replay viewer HUD: phase presentation + comms":
     let drawObj = coreText.find("function drawObject(targetCtx, obj)")
     check drawObj >= 0
     check coreText.find("downedObjectIds.has(obj.id)", drawObj) > drawObj
+
+suite "SEASON 2 replay viewer HUD: side-lane docking (letterbox rails)":
+  ## Owner spec 2026-09-02: "use the full left lane letterbox space to put
+  ## the names and scorebug and chat and everything." When the fitted board
+  ## leaves a real pillarbox column on both flanks, relayout() docks the
+  ## overlay chrome into the dead bands (identity LEFT, live surfaces
+  ## RIGHT); narrow boxes keep the classic centered-stage layout untouched.
+  test "both pillarbox rails exist and relayout decides the tiers by geometry":
+    checkInBoth "id=\"lane-l\""
+    checkInBoth "id=\"lane-r\""
+    # Tier 2 (both rails) needs a real lane each side of the free-fit board;
+    # tier 1 (left rail only) caps the board at boxW - RAIL_MIN and engages
+    # only while that costs < 10% of the free fit — the rail must eat the
+    # letterbox, never the arena.
+    checkInBoth "var lanesBoth = !EMBED && (boxW - fit0) >= 2 * LANE_MIN;"
+    checkInBoth "(!EMBED && boxW > boxH && cappedW / fit0 >= 0.9);"
+    checkInBoth "dockLanes(sideLanes, sideLanes && lanesBoth);"
+
+  test "docked mode gives the board the top band back":
+    checkInBoth "topBand = (sideLanes || !scorebug) ? 0 : scorebug.offsetHeight;"
+
+  test "docking MOVES elements and the narrow fallback restores the home DOM":
+    # Moved, never cloned: getElementById references and listeners stay
+    # live, and the recorded home parent/next-sibling puts everything back.
+    checkInBoth "d.lane.insertBefore(d.el, d.before);"
+    checkInBoth "d.home.insertBefore(d.el, d.homeNext);"
+
+  test "left rail = identity (scorebug + comms), right rail = live surfaces":
+    checkInBoth "body.sidelanes #scorebug"
+    checkInBoth "body.sidelanes #commsdock"
+    checkInBoth "body.sidelanes-both #viewpanel"
+    checkInBoth "body.sidelanes-both #killfeed"
+    # The BR 8-per-side cell bands re-flow to one roster column; the cells
+    # themselves (the endcard-player-names lane's territory) are untouched.
+    checkInBoth "body.sidelanes #scorebug .br-cellband"
+
+  test "the chat surface exists in the rail even when the lobby never spoke":
+    checkInBoth "(sideLanes || (COMMS_AVAILABLE && (boxW - stageW) >= 280));"
+    checkInBoth "cd-empty"
+    checkInBoth "#commsFeed:empty + .cd-empty { display: block; }"
