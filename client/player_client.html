@@ -282,6 +282,20 @@ input{position:fixed;left:50%;bottom:18px;transform:translateX(-50%);width:min(8
 <script src="player_controls.js"></script>
 <script>
 const c=document.getElementById("c"),i=document.getElementById("i"),s=document.getElementById("s"),hud=document.getElementById("hud"),muteBtn=document.getElementById("mute"),feedEl=document.getElementById("feed"),dmgFlashEl=document.getElementById("dmgFlash"),incomingFlashEl=document.getElementById("incomingFlash"),splatEl=document.getElementById("splat"),roundFlipEl=document.getElementById("roundFlip"),matchOverEl=document.getElementById("matchOver"),paybackEl=document.getElementById("payback"),leaveBtn=document.getElementById("leave"),x=c.getContext("2d");
+/* Swap#15 item 1: self-focus the INSTANT this script runs, not just on a
+   later mousedown/load event. Wire-measured (this rig, 2026-09-02b): the
+   takeover page's own 'load'-driven focus() call lands ~58ms after the
+   takeover page starts (capabilities() round-trip + this navigation +
+   asset load) -- any key pressed before that is silently dropped on the
+   PARENT document. This line runs the moment the parser reaches here
+   (elements already exist -- this script tag is the last thing in <body>),
+   which is earlier than this document's own 'load' event and earlier than
+   takeover.html's retry loop can possibly land its first hit. Self-focus
+   from within a same-origin frame is allowed with no gesture; a no-op when
+   not embedded (window===window.top). Takeover.html's own retry loop +
+   keydown/keyup forwarder (see that file) is the remaining safety net for
+   the still-shorter window before THIS script has even run. */
+if(window!==window.top){try{window.focus()}catch(err){}}
 /* Only offer it where it can actually work -- see #leave's own comment
    above for why the portal's embedded iframe (sandboxed, no
    allow-top-navigation) must stay on its own existing "Leave the field"
@@ -2775,6 +2789,15 @@ function drawHitmarker(nowT){
    rather than lying about it (no distinct "denied" cue yet -- silence was
    judged safer than inventing a new sound without direction). */
 addEventListener("mousemove",e=>{const m=toMap(e);mouseX=m.x;mouseY=m.y;mouseClientX=e.clientX;mouseClientY=e.clientY;haveMouse=true;sendDirectAim(mouseX,mouseY)});
+/* Belt-and-suspenders for the same self-focus problem as the canvas
+   mousedown below: any pointerdown ANYWHERE in this document (not just on
+   the canvas -- #viewport/body margins, future UI) should also pull
+   keyboard focus in. Capture phase so it runs even if some future element
+   stops propagation before bubbling here; passive (no preventDefault) so
+   it never fights the canvas handler's own click/drag suppression. */
+document.addEventListener("pointerdown",()=>{
+  if(window!==window.top){try{window.focus()}catch(err){}}
+},true);
 c.addEventListener("mousedown",e=>{
   /* preventDefault below also suppresses the browser's click-to-focus
      default -- when this page is EMBEDDED (takeover.html's iframe), a

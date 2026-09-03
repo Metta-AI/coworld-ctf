@@ -87,6 +87,111 @@ const name = q.get("name") || "Guest";
 document.getElementById("who").textContent = name;
 document.getElementById("seatno").textContent = seat;
 
+// Keyboard focus must START inside the iframe, or every key is silently
+// dead: the client's canvas mousedown handler preventDefault()s (to stop
+// text-selection/drag), and preventDefault on mousedown ALSO suppresses
+// the browser's click-to-focus default — so clicking the field can NEVER
+// move keyboard focus into the iframe. Wire-measured on the swap13 rig
+// (Z adjudication, 2026-09-02): with the parent focused, holding Z or W
+// produced ZERO packets in sendMask; the moment the iframe held focus,
+// Z pulsed the fire bit every other tick.
+//
+// Swap#15 item 1 (Z0 was NOT the fix -- wire-measured 2026-09-02b, this
+// rig, in two rounds):
+//
+// Round 1 finding: a single 'load'-event focus() call is a race, not a
+// fix. Timing probe on this exact page: capabilities() fetch -> field.src
+// set -> iframe navigates -> iframe 'load' fires took 58ms on localhost
+// with zero network latency (25ms is just the capabilities round-trip
+// BEFORE the iframe even starts loading). Any key pressed inside that
+// window used to land on the PARENT document, where nothing was
+// listening, and vanish -- the "first click/keypress dead, second one
+// works" symptom both auditors hit.
+//
+// Round 2 finding, from actually instrumenting the fix: calling
+// field.contentWindow.focus() EAGERLY (before the iframe has navigated
+// past about:blank) makes it WORSE, not better. focus() moves which
+// browsing context receives key events immediately -- so a key pressed a
+// tick later routes INTO the still-loading iframe, hits its still-empty
+// about:blank document (no listeners yet), and is swallowed THERE. Worse:
+// once the iframe holds focus this way, events never reach the parent
+// document at all (frames don't bubble events to each other), so a
+// parent-side keydown listener can no longer see -- let alone rescue --
+// the very keystrokes it exists to catch. Wire-measured: with the eager
+// focus() call in place, pressing a key at t=0 produced neither a parent-
+// side catch nor an iframe-side sendMask packet -- silently gone in the
+// about:blank void in between.
+//
+// The actual fix: DON'T move focus into the iframe until it has something
+// listening. Until then, deliberately leave focus on the parent (the
+// default -- nothing here calls .focus() early), so keydown/keyup keep
+// landing on the PARENT's own listener below, where they're queued. The
+// instant the iframe's own inline script has run far enough to define
+// onkeydown/onkeyup (polled every 15ms -- long before its 'load' event,
+// which also waits on player_hud.js and every image/audio asset), this
+// page flushes the queue straight into those real handlers AND only then
+// takes focus, so the transition is invisible to the player. This
+// composes with two more independent layers:
+//   - keydown/keyup that land at the parent AFTER the iframe is ready are
+//     forwarded directly into its onkeydown/onkeyup (not just queued),
+//     covering the sliver where the poll hasn't yet re-armed focus.
+//   - player_client.html (that file, near its top) ALSO self-focuses the
+//     moment ITS OWN script runs, and on any pointerdown anywhere in its
+//     document -- not just canvas mousedown -- as a second, independent
+//     path that doesn't depend on this parent page's timing at all.
+const field = document.getElementById("field");
+const pendingHeldKeys = new Set(); // keys held before the iframe had a handler to send them to
+function iframeKeyHandlers() {
+  const w = field.contentWindow;
+  return w && typeof w.onkeydown === "function" && typeof w.onkeyup === "function"
+    ? w : null;
+}
+function tryFocusField() {
+  try { field.focus(); } catch (e) {}
+  try { field.contentWindow.focus(); } catch (e) {}
+}
+function flushPendingKeys(w) {
+  if (!pendingHeldKeys.size) return;
+  for (const code of pendingHeldKeys) {
+    w.onkeydown({ code: code, preventDefault: () => {} });
+  }
+}
+// Poll for "the iframe can now handle a key" rather than waiting on 'load'
+// (measured ~58ms) or navigation timing -- onkeydown/onkeyup exist the
+// moment that inline script has executed a few dozen lines, well before
+// the rest of the document (images, player_hud.js, audio) finishes.
+let readyPoll = 0;
+const READY_POLL_MS = 15, READY_POLL_MAX = 140; // ~2.1s ceiling
+const readyTimer = setInterval(() => {
+  const w = iframeKeyHandlers();
+  if (w) {
+    flushPendingKeys(w);
+    tryFocusField();
+  }
+  if ((w && document.activeElement === field) || ++readyPoll >= READY_POLL_MAX) {
+    clearInterval(readyTimer);
+  }
+}, READY_POLL_MS);
+field.addEventListener("load", () => {
+  const w = iframeKeyHandlers();
+  if (w) flushPendingKeys(w);
+  tryFocusField();
+});
+document.addEventListener("keydown", (e) => {
+  const w = iframeKeyHandlers();
+  if (w) {
+    tryFocusField();
+    w.onkeydown({ code: e.code, preventDefault: () => {} });
+  } else {
+    pendingHeldKeys.add(e.code); // iframe script hasn't run yet -- replay the instant it has
+  }
+});
+document.addEventListener("keyup", (e) => {
+  pendingHeldKeys.delete(e.code);
+  const w = iframeKeyHandlers();
+  if (w) w.onkeyup({ code: e.code, preventDefault: () => {} });
+});
+
 // Capability DETECTION, not a build flag: one bundle is served to a league
 // server and a play server, so what this connection may ask for is read off
 // the server rather than compiled in. Asking for something a league server
@@ -112,32 +217,19 @@ function connect(caps) {
     // player_client.html's readKeys() now genuinely binds Z as a fire alias
     // (see that file, Swap#12 item 4) so this text is honest either way.
     document.getElementById("controls").innerHTML =
-      '<kbd>WASD</kbd> / <kbd>&larr; &uarr; &darr; &rarr;</kbd> move \u00b7 ' +
+      '<kbd>WASD</kbd> / <kbd>&larr; &uarr; &darr; &rarr;</kbd> move · ' +
       '<kbd>Left click</kbd> / <kbd>Z</kbd> fire ' +
-      '\u00b7 <b>the turret points wherever your cursor is</b> \u2014 the same ' +
+      '· <b>the turret points wherever your cursor is</b> — the same ' +
       'eight buttons the policy was pressing, aimed by hand.';
   }
   // player=1 is not optional. The stock client infers "I am a player, capture
   // keys" from its socket path being /player; a takeover socket lands on
   // /takeover, so without this the field renders and the keyboard does nothing.
-  const field = document.getElementById("field");
   field.src =
     "/client/player?player=1&address=" + encodeURIComponent(ws) +
     "&slot=" + encodeURIComponent(seat) +
     "&token=" + encodeURIComponent(token) +
     "&name=" + encodeURIComponent(name);
-  // Keyboard focus must START inside the iframe, or every key is silently
-  // dead: the client's canvas mousedown handler preventDefault()s (to stop
-  // text-selection/drag), and preventDefault on mousedown ALSO suppresses
-  // the browser's click-to-focus default — so clicking the field can NEVER
-  // move keyboard focus into the iframe. Wire-measured on the swap13 rig
-  // (Z adjudication, 2026-09-02): with the parent focused, holding Z or W
-  // produced ZERO packets in sendMask; the moment the iframe held focus,
-  // Z pulsed the fire bit every other tick. Focus it on load, and once
-  // inside, canvas clicks keep focus there (no default action runs at all).
-  field.addEventListener("load", () => {
-    try { field.contentWindow.focus(); } catch (e) { field.focus(); }
-  });
 }
 capabilities().then(connect);
 
