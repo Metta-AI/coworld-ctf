@@ -5454,11 +5454,33 @@ proc runServerLoop*(
         echo "Replay written: ", saveReplayPath,
           " (", getFileSize(saveReplayPath), " bytes)"
         runtimeConfig.writeReplay(readFile(saveReplayPath))
+      # STAMP (recut contract Amendment 2 §2): the realized-config stamp,
+      # emitted at finalize when its OWN flag is armed (per-flag activation
+      # — independent of the recut economy and of every loot flag). Engine-
+      # side homes: the events summary row (below) and this log line; the
+      # replay header already pins the same facts via the config echo +
+      # engineStamp (replay_codec.nim). The episode-attributes API upload is
+      # the league-side reporter's job, made from these homes. Dark
+      # (stampRealizedConfig=false, every existing config): not a byte of
+      # output moves.
+      let realizedStamp =
+        if sim.config.stampRealizedConfig:
+          sim.config.realizedConfigStampJson()
+        else:
+          ""
+      if realizedStamp.len > 0:
+        echo "Realized config stamp: ", realizedStamp
       if eventsPath.len > 0:
         # Always written when a sink is configured, even with zero events: the
         # summary row is how a reader tells "this match had none" from "the
         # upload never happened".
-        writeFile(eventsPath, collectedEvents.eventsJsonl(sim.tickCount))
+        let summaryExtra =
+          if realizedStamp.len > 0:
+            %*{"realizedConfigStamp": parseJson(realizedStamp)}
+          else:
+            nil
+        writeFile(eventsPath,
+          collectedEvents.eventsJsonl(sim.tickCount, summaryExtra))
         echo "Events written: ", eventsPath,
           " (", collectedEvents.len, " events, ", getFileSize(eventsPath), " bytes)"
       if runtimeConfig.resultsUri.len > 0:

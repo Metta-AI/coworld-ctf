@@ -39,7 +39,14 @@ suite "glory: deed pricing":
         continue  # dNone is the null; dAchievement is tier-priced;
                   # dClutchHeal/dLevelUp are the intentional zero+tombstones
                   # above.
-      check (deedGlory(deed) != 0 or deedDrama(deed) != 0)
+      # GLORY v13: the BR marquee band is priced by the RECUT class table
+      # (armed-only mints; additive rows 0 by design -- see the Deed enum's
+      # own block comment), so "priced somewhere" now includes an above-x1
+      # recut class. dClosingTime/dLastLight carry 0 drama deliberately
+      # (no specced drama exists; flagged open in DeedDramaTable) and would
+      # otherwise read as dead weight here.
+      check (deedGlory(deed) != 0 or deedDrama(deed) != 0 or
+             RecutClassTable[deed] > 1)
 
   test "dLevelUp pays no glory, no drama, no heat, no pop (v10 ruling)":
     # The direct law assertion: leveling's reward is the POWER, never the

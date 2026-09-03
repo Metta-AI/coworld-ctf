@@ -348,16 +348,16 @@
           }
         },
         "mapSpec": {
-          "description": "Full expanded map geometry (obstacles, trenches, endzones, and \u2014 for a battle-royale map \u2014 spawn points/spawnGroups and the four neutral item pools) as a JSON object. Pins an exact authored map \u2014 e.g. a league board cell's custom organic terrain, or a generated flagless BR map \u2014 overriding mapPath/mapSeed/mapSize. Same format the replay config carries.",
+          "description": "Full expanded map geometry (obstacles, trenches, endzones, and — for a battle-royale map — spawn points/spawnGroups and the four neutral item pools) as a JSON object. Pins an exact authored map — e.g. a league board cell's custom organic terrain, or a generated flagless BR map — overriding mapPath/mapSeed/mapSize. Same format the replay config carries.",
           "type": "object"
         },
         "brMode": {
-          "description": "Battle-royale elimination ruleset (docs/designs/BR_MAPGEN.md \u00a71): no respawns (a death is permanent for the round), last team standing wins, flags never end or score the round, and a stalled timeout resolves by tiebreak (most living players, then total damage dealt) instead of an automatic draw. Off by default; the battle-royale variant turns it on.",
+          "description": "Battle-royale elimination ruleset (docs/designs/BR_MAPGEN.md §1): no respawns (a death is permanent for the round), last team standing wins, flags never end or score the round, and a stalled timeout resolves by tiebreak (most living players, then total damage dealt) instead of an automatic draw. Off by default; the battle-royale variant turns it on.",
           "type": "boolean",
           "default": false
         },
         "season2Shell": {
-          "description": "Master gate for the Season 2 play-calling shell. On by default; the Season 2 shell is the default and only supported mode \u2014 legacy variants are deprecated.",
+          "description": "Master gate for the Season 2 play-calling shell. On by default; the Season 2 shell is the default and only supported mode — legacy variants are deprecated.",
           "type": "boolean",
           "default": true
         },
@@ -388,7 +388,7 @@
           "default": 7200
         },
         "zonePhases": {
-          "description": "Battle-royale closing-zone schedule: a list of {z, waitTicks, shrinkTicks, dps} phases (docs/designs/BR_MAPGEN.md \u00a74.3). z (0 < z <= 1) is the target scale relative to the full map, strictly decreasing phase over phase (including the implicit phase-0 value of 1.0); waitTicks holds the previous rect before shrinking; shrinkTicks linearly interpolates into the target; dps is hit points per continuous second spent outside the current rect (through the shield layer first). Omitted/empty (the engine default) turns the mode off entirely - no draw, no rect, no damage. At most 8 phases.",
+          "description": "Battle-royale closing-zone schedule: a list of {z, waitTicks, shrinkTicks, dps} phases (docs/designs/BR_MAPGEN.md §4.3). z (0 < z <= 1) is the target scale relative to the full map, strictly decreasing phase over phase (including the implicit phase-0 value of 1.0); waitTicks holds the previous rect before shrinking; shrinkTicks linearly interpolates into the target; dps is hit points per continuous second spent outside the current rect (through the shield layer first). Omitted/empty (the engine default) turns the mode off entirely - no draw, no rect, no damage. At most 8 phases.",
           "type": "array",
           "minItems": 0,
           "maxItems": 8,
@@ -490,7 +490,7 @@
               "effect": "10% of landed gun shots deal 2 damage"
             }
           ],
-          "description": "Per-team perk buffs, keyed by team name. Vocabulary: armor (+1 max hp), scope (50% tighter gun aim), grenade (+25% throw range), thruster (+10% max speed), luck (10% of landed gun shots deal 2 damage) \u2014 magnitudes tunable via perkMods. A team's value is a flat array of perk names (the whole team shares them), an array of such arrays (per-policy groups for 2v2 seats, dealt to the team's distinct policies in join order), or an object keyed by policy name pinning each group to exactly that policy (unmatched policies get nothing). Omitted teams have no perks.",
+          "description": "Per-team perk buffs, keyed by team name. Vocabulary: armor (+1 max hp), scope (50% tighter gun aim), grenade (+25% throw range), thruster (+10% max speed), luck (10% of landed gun shots deal 2 damage) — magnitudes tunable via perkMods. A team's value is a flat array of perk names (the whole team shares them), an array of such arrays (per-policy groups for 2v2 seats, dealt to the team's distinct policies in join order), or an object keyed by policy name pinning each group to exactly that policy (unmatched policies get nothing). Omitted teams have no perks.",
           "type": "object",
           "additionalProperties": false,
           "properties": {
@@ -565,7 +565,7 @@
           "default": 0
         },
         "barrageMaxPerSec": {
-          "description": "Grenade-barrage endgame: the launch rate the bombardment ramps up to, in grenades/second across the whole board. 0 disables the mode; requires maxTicks > 0 when set. With the barrage on, the time limit no longer ends the game \u2014 it plays past 0:00 under full bombardment until one team is wiped.",
+          "description": "Grenade-barrage endgame: the launch rate the bombardment ramps up to, in grenades/second across the whole board. 0 disables the mode; requires maxTicks > 0 when set. With the barrage on, the time limit no longer ends the game — it plays past 0:00 under full bombardment until one team is wiped.",
           "type": "integer",
           "minimum": 0,
           "maximum": 50,
@@ -701,6 +701,21 @@
             "resident"
           ],
           "description": "Which cogs a seat drives, per game index."
+        },
+        "gloryMultiplierRecut": {
+          "description": "GLORY v13 multiplier recut (frozen 2026-09-02 contract): the pure-multiplier economy — no base points; episode score = seed(1) x the product of integer act multipliers, divided by 2 per friendly-fire step (BR: every incident; CTF: every second incident). Applies to BOTH modes (does not require brMode). Off by default everywhere: merged+deployed is NOT armed — arming is an explicit, separate manifest publish of this one key on the chosen variant.",
+          "type": "boolean",
+          "default": false
+        },
+        "stampRealizedConfig": {
+          "description": "Realized-config stamp (recut contract Amendment 2): when true the engine emits, at episode finalize, a stamp of the build and flag set that ACTUALLY ran — {stampVersion, realizedBuild {gameVersion, gloryVersion, engineStamp}, variantId, flagSet as sorted key=value pairs} — into the events summary row and the episode log. Observability only; independent of every other flag. Off by default.",
+          "type": "boolean",
+          "default": false
+        },
+        "variantId": {
+          "description": "Self-label: the manifest variant id this game_config was published under, echoed verbatim into the realized-config stamp and the replay header so replay-only audits can name the variant without platform access. The engine only reports it.",
+          "type": "string",
+          "default": ""
         }
       }
     },
@@ -822,7 +837,7 @@
           }
         },
         "residentScore": {
-          "description": "One entry per SEAT (roster.nim squadResultsJson: `for seat in 0 ..< seats`, seats = num_agents), not one per team \u2014 a 2-team-era assumption. Bounds match scores/win/team: 1..32.",
+          "description": "One entry per SEAT (roster.nim squadResultsJson: `for seat in 0 ..< seats`, seats = num_agents), not one per team — a 2-team-era assumption. Bounds match scores/win/team: 1..32.",
           "type": "array",
           "minItems": 1,
           "maxItems": 32,
@@ -980,7 +995,7 @@
       {
         "id": "pacifist",
         "name": "Pacifist",
-        "description": "Win a game in which no cog on your team attacked at all \u2014 no gun shots, grenades, or spray.",
+        "description": "Win a game in which no cog on your team attacked at all — no gun shots, grenades, or spray.",
         "points": 25
       },
       {
@@ -992,7 +1007,7 @@
       {
         "id": "almost",
         "name": "Almost",
-        "description": "Win a game with under 2 hit points of life left across the whole team \u2014 living hp plus any respawns still owed.",
+        "description": "Win a game with under 2 hit points of life left across the whole team — living hp plus any respawns still owed.",
         "points": 50
       },
       {
@@ -1016,7 +1031,7 @@
       {
         "id": "sniper",
         "name": "Sniper",
-        "description": "Win a game in which every point of damage your team dealt came from the paintball gun \u2014 no grenades, no spray.",
+        "description": "Win a game in which every point of damage your team dealt came from the paintball gun — no grenades, no spray.",
         "points": 30
       },
       {
@@ -1088,8 +1103,8 @@
   "variants": [
     {
       "id": "battle-royale-s2",
-      "name": "Battle Royale \u2014 Season 2",
-      "description": "The 16-seat battle royale with the Season 2 play-calling shell armed: every seat is a play seat. Policies upload WebAssembly playbooks over the wire, talk in an open 600-tick (~25 s) lobby-chat window before the round, then drive their cogs by calling plays \u2014 an ordered ladder of named plays with typed parameters, replaced or retuned mid-match as the zone closes. The engine ships a public seven-play reference menu (docs/designs/BR_PLAYS.md): pact, edge_ride, bodyguard, jackal, target_law, supply_run, crossfire \u2014 the competitive floor every private playbook must beat. Same rules as classic Battle Royale at half the field: eight duos on a generated flagless map scaled to keep every duo's share of territory (and the derived gun range) identical to the 32-seat giant, no respawns, six zone phases that close the field completely, last team standing, classic scoring with placement bonuses.",
+      "name": "Battle Royale — Season 2",
+      "description": "The 16-seat battle royale with the Season 2 play-calling shell armed: every seat is a play seat. Policies upload WebAssembly playbooks over the wire, talk in an open 600-tick (~25 s) lobby-chat window before the round, then drive their cogs by calling plays — an ordered ladder of named plays with typed parameters, replaced or retuned mid-match as the zone closes. The engine ships a public seven-play reference menu (docs/designs/BR_PLAYS.md): pact, edge_ride, bodyguard, jackal, target_law, supply_run, crossfire — the competitive floor every private playbook must beat. Same rules as classic Battle Royale at half the field: eight duos on a generated flagless map scaled to keep every duo's share of territory (and the derived gun range) identical to the 32-seat giant, no respawns, six zone phases that close the field completely, last team standing, classic scoring with placement bonuses.",
       "game_config": {
         "players": [
           {
@@ -1274,7 +1289,392 @@
         "season2Shell": true,
         "viewIntervalTicks": 6,
         "lobbyChatTicks": 600,
-        "playSeatBindTicks": 7200
+        "playSeatBindTicks": 7200,
+        "variantId": "battle-royale-s2",
+        "gloryMultiplierRecut": true,
+        "stampRealizedConfig": true
+      }
+    },
+    {
+      "id": "battle-royale-s2-lootstart",
+      "name": "Battle Royale — Season 2 (loot-start only)",
+      "description": "STAGING variant (recut contract Amendment 2 §1 — per-flag activation): identical to battle-royale-s2 with ONLY lootStart armed; downedMode stays dark. Exists so the S2 flags can be staged/bisected one at a time instead of riding one coupled variant switch.",
+      "game_config": {
+        "players": [
+          {
+            "name": "Player1"
+          },
+          {
+            "name": "Player2"
+          },
+          {
+            "name": "Player3"
+          },
+          {
+            "name": "Player4"
+          },
+          {
+            "name": "Player5"
+          },
+          {
+            "name": "Player6"
+          },
+          {
+            "name": "Player7"
+          },
+          {
+            "name": "Player8"
+          },
+          {
+            "name": "Player9"
+          },
+          {
+            "name": "Player10"
+          },
+          {
+            "name": "Player11"
+          },
+          {
+            "name": "Player12"
+          },
+          {
+            "name": "Player13"
+          },
+          {
+            "name": "Player14"
+          },
+          {
+            "name": "Player15"
+          },
+          {
+            "name": "Player16"
+          }
+        ],
+        "slots": [
+          {
+            "team": "red",
+            "control": "play"
+          },
+          {
+            "team": "blue",
+            "control": "play"
+          },
+          {
+            "team": "green",
+            "control": "play"
+          },
+          {
+            "team": "yellow",
+            "control": "play"
+          },
+          {
+            "team": "black",
+            "control": "play"
+          },
+          {
+            "team": "silver",
+            "control": "play"
+          },
+          {
+            "team": "ivory",
+            "control": "play"
+          },
+          {
+            "team": "pink",
+            "control": "play"
+          },
+          {
+            "team": "red",
+            "control": "play"
+          },
+          {
+            "team": "blue",
+            "control": "play"
+          },
+          {
+            "team": "green",
+            "control": "play"
+          },
+          {
+            "team": "yellow",
+            "control": "play"
+          },
+          {
+            "team": "black",
+            "control": "play"
+          },
+          {
+            "team": "silver",
+            "control": "play"
+          },
+          {
+            "team": "ivory",
+            "control": "play"
+          },
+          {
+            "team": "pink",
+            "control": "play"
+          }
+        ],
+        "seed": 679961,
+        "num_agents": 16,
+        "minPlayers": 16,
+        "lives": 1,
+        "hitPoints": 3,
+        "respawnTicks": 72,
+        "gunRange": 1300,
+        "fireCooldownTicks": 12,
+        "carrierSpeedPct": 70,
+        "playerBouncePct": 40,
+        "aimTurnRate": 5,
+        "visionConeDeg": 60,
+        "visionBubble": 90,
+        "startWaitTicks": 120,
+        "lobbyJoinTimeoutTicks": 7200,
+        "gameOverTicks": 360,
+        "maxTicks": 10000,
+        "maxGames": 1,
+        "showPlayerLabels": true,
+        "teams": 8,
+        "fireWindupTicks": 5,
+        "barrageMaxPerSec": 0,
+        "mapPath": "brpool",
+        "brMode": true,
+        "lootStart": true,
+        "zonePhases": [
+          {
+            "z": 0.75,
+            "waitTicks": 345,
+            "shrinkTicks": 213,
+            "dps": 0
+          },
+          {
+            "z": 0.55,
+            "waitTicks": 0,
+            "shrinkTicks": 244,
+            "dps": 3
+          },
+          {
+            "z": 0.35,
+            "waitTicks": 0,
+            "shrinkTicks": 348,
+            "dps": 6
+          },
+          {
+            "z": 0.2,
+            "waitTicks": 0,
+            "shrinkTicks": 600,
+            "dps": 10
+          },
+          {
+            "z": 0.08,
+            "waitTicks": 0,
+            "shrinkTicks": 1550,
+            "dps": 15
+          },
+          {
+            "z": 0.001,
+            "waitTicks": 0,
+            "shrinkTicks": 1700,
+            "dps": 20
+          }
+        ],
+        "season2Shell": true,
+        "viewIntervalTicks": 6,
+        "lobbyChatTicks": 600,
+        "playSeatBindTicks": 7200,
+        "variantId": "battle-royale-s2-lootstart"
+      }
+    },
+    {
+      "id": "battle-royale-s2-downed",
+      "name": "Battle Royale — Season 2 (downed-state only)",
+      "description": "STAGING variant (recut contract Amendment 2 §1 — per-flag activation): identical to battle-royale-s2 with ONLY downedMode armed; lootStart stays dark. Exists so the S2 flags can be staged/bisected one at a time instead of riding one coupled variant switch.",
+      "game_config": {
+        "players": [
+          {
+            "name": "Player1"
+          },
+          {
+            "name": "Player2"
+          },
+          {
+            "name": "Player3"
+          },
+          {
+            "name": "Player4"
+          },
+          {
+            "name": "Player5"
+          },
+          {
+            "name": "Player6"
+          },
+          {
+            "name": "Player7"
+          },
+          {
+            "name": "Player8"
+          },
+          {
+            "name": "Player9"
+          },
+          {
+            "name": "Player10"
+          },
+          {
+            "name": "Player11"
+          },
+          {
+            "name": "Player12"
+          },
+          {
+            "name": "Player13"
+          },
+          {
+            "name": "Player14"
+          },
+          {
+            "name": "Player15"
+          },
+          {
+            "name": "Player16"
+          }
+        ],
+        "slots": [
+          {
+            "team": "red",
+            "control": "play"
+          },
+          {
+            "team": "blue",
+            "control": "play"
+          },
+          {
+            "team": "green",
+            "control": "play"
+          },
+          {
+            "team": "yellow",
+            "control": "play"
+          },
+          {
+            "team": "black",
+            "control": "play"
+          },
+          {
+            "team": "silver",
+            "control": "play"
+          },
+          {
+            "team": "ivory",
+            "control": "play"
+          },
+          {
+            "team": "pink",
+            "control": "play"
+          },
+          {
+            "team": "red",
+            "control": "play"
+          },
+          {
+            "team": "blue",
+            "control": "play"
+          },
+          {
+            "team": "green",
+            "control": "play"
+          },
+          {
+            "team": "yellow",
+            "control": "play"
+          },
+          {
+            "team": "black",
+            "control": "play"
+          },
+          {
+            "team": "silver",
+            "control": "play"
+          },
+          {
+            "team": "ivory",
+            "control": "play"
+          },
+          {
+            "team": "pink",
+            "control": "play"
+          }
+        ],
+        "seed": 679961,
+        "num_agents": 16,
+        "minPlayers": 16,
+        "lives": 1,
+        "hitPoints": 3,
+        "respawnTicks": 72,
+        "gunRange": 1300,
+        "fireCooldownTicks": 12,
+        "carrierSpeedPct": 70,
+        "playerBouncePct": 40,
+        "aimTurnRate": 5,
+        "visionConeDeg": 60,
+        "visionBubble": 90,
+        "startWaitTicks": 120,
+        "lobbyJoinTimeoutTicks": 7200,
+        "gameOverTicks": 360,
+        "maxTicks": 10000,
+        "maxGames": 1,
+        "showPlayerLabels": true,
+        "teams": 8,
+        "fireWindupTicks": 5,
+        "barrageMaxPerSec": 0,
+        "mapPath": "brpool",
+        "brMode": true,
+        "downedMode": true,
+        "zonePhases": [
+          {
+            "z": 0.75,
+            "waitTicks": 345,
+            "shrinkTicks": 213,
+            "dps": 0
+          },
+          {
+            "z": 0.55,
+            "waitTicks": 0,
+            "shrinkTicks": 244,
+            "dps": 3
+          },
+          {
+            "z": 0.35,
+            "waitTicks": 0,
+            "shrinkTicks": 348,
+            "dps": 6
+          },
+          {
+            "z": 0.2,
+            "waitTicks": 0,
+            "shrinkTicks": 600,
+            "dps": 10
+          },
+          {
+            "z": 0.08,
+            "waitTicks": 0,
+            "shrinkTicks": 1550,
+            "dps": 15
+          },
+          {
+            "z": 0.001,
+            "waitTicks": 0,
+            "shrinkTicks": 1700,
+            "dps": 20
+          }
+        ],
+        "season2Shell": true,
+        "viewIntervalTicks": 6,
+        "lobbyChatTicks": 600,
+        "playSeatBindTicks": 7200,
+        "variantId": "battle-royale-s2-downed"
       }
     },
     {
@@ -1413,7 +1813,7 @@
     {
       "id": "4ffa",
       "name": "4-team free-for-all",
-      "description": "Four teams \u2014 red, blue, green, yellow \u2014 one entrant policy per team (slot mod 4), each defending its own heart on a generated square corner or plus map. Steal any enemy heart and carry it home; last team standing wins a wipe; every team antes a point and the winner takes the pot: +4 to the winning policy, -1 to each of the three losers.",
+      "description": "Four teams — red, blue, green, yellow — one entrant policy per team (slot mod 4), each defending its own heart on a generated square corner or plus map. Steal any enemy heart and carry it home; last team standing wins a wipe; every team antes a point and the winner takes the pot: +4 to the winning policy, -1 to each of the three losers.",
       "game_config": {
         "players": [
           {
@@ -1546,7 +1946,7 @@
     {
       "id": "4ffa8",
       "name": "4-team free-for-all (8 per team)",
-      "description": "Four teams \u2014 red, blue, green, yellow \u2014 one entrant policy per team (slot mod 4) at double muster: 32 seats, 8 agents per team, always on a giant generated corner or plus map. Rules and scoring match 4ffa: steal any enemy heart and carry it home, last team standing wins a wipe, and every team antes a point with the winner taking the pot: +4 to the winning policy, -1 to each of the three losers.",
+      "description": "Four teams — red, blue, green, yellow — one entrant policy per team (slot mod 4) at double muster: 32 seats, 8 agents per team, always on a giant generated corner or plus map. Rules and scoring match 4ffa: steal any enemy heart and carry it home, last team standing wins a wipe, and every team antes a point with the winner taking the pot: +4 to the winning policy, -1 to each of the three losers.",
       "game_config": {
         "players": [
           {
@@ -2217,7 +2617,7 @@
     },
     {
       "id": "paintball",
-      "name": "Paintball \u2014 King of the Hill",
+      "name": "Paintball — King of the Hill",
       "description": "The league default: two 90-second games on one hill, the first commanding your whole squad and the second as a lone visitor beside scripted teammates. The two halves are averaged.",
       "game_config": {
         "players": [

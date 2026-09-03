@@ -437,6 +437,17 @@ proc gameHash*(sim: SimServer): uint64 =
   result.mixHashBool(sim.firstBloodDone)
   for team in sim.teams():
     result.mixHashBool(sim.squadVolleyDone[team])
+  # MULTIPLIER RECUT (GLORY v13): the canonical armed pair — the running
+  # product and the FF incident count halvings derive from. Mixed ONLY when
+  # the recut is armed, so a dark replay's hash schema and trajectory are
+  # byte-identical to a build without these fields — the same rule as the
+  # allowCallouts/zonePhases/barrageStartTick guards above.
+  # `recutDamageMarks` stays OUT (derived deterministically from the damage
+  # stream; the product it feeds is what is causal — see its field comment).
+  if sim.config.gloryMultiplierRecut:
+    for team in sim.teams():
+      result.mixHashInt(int(sim.gloryProduct[team]))
+      result.mixHashInt(sim.gloryFfIncidents[team])
 
 proc applyPolicyPage*(
   sim: var SimServer,
