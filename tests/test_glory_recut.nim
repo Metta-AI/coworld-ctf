@@ -35,10 +35,12 @@ suite "recut config surface (dark by default, per-flag)":
   test "defaults are dark and the default echo carries none of the keys":
     let config = defaultGameConfig()
     check config.gloryMultiplierRecut == false
+    check config.winAsMultiplier == false
     check config.stampRealizedConfig == false
     check config.variantId == ""
     let echoed = parseJson(config.configJson())
-    for key in ["gloryMultiplierRecut", "stampRealizedConfig", "variantId"]:
+    for key in ["gloryMultiplierRecut", "winAsMultiplier",
+        "stampRealizedConfig", "variantId"]:
       check not echoed.hasKey(key)
 
   test "each flag arms independently and round-trips through the echo":
@@ -56,6 +58,14 @@ suite "recut config surface (dark by default, per-flag)":
     check stamp.stampRealizedConfig
     check not stamp.gloryMultiplierRecut
     check stamp.variantId == "battle-royale-s2"
+    # §A6: winAsMultiplier is its OWN key too (per-flag discipline) — arming
+    # it never drags the recut, and vice versa.
+    var winMult = defaultGameConfig()
+    winMult.update("""{"winAsMultiplier": true}""")
+    check winMult.winAsMultiplier
+    check not winMult.gloryMultiplierRecut
+    check parseJson(winMult.configJson()).hasKey("winAsMultiplier")
+    check not parseJson(recut.configJson()).hasKey("winAsMultiplier")
 
   test "the realized-config stamp pins the flag family, sorted, false included":
     var config = defaultGameConfig()
@@ -74,6 +84,7 @@ suite "recut config surface (dark by default, per-flag)":
     check "downedMode=true" in flags
     check "gloryMultiplierRecut=false" in flags
     check "lootStart=false" in flags
+    check "winAsMultiplier=false" in flags
 
 suite "recut integer map (table §1, verbatim)":
   test "the ruled class map, row by row":
@@ -96,6 +107,10 @@ suite "recut integer map (table §1, verbatim)":
     check RecutClassTable[dCapture] == 8
     check RecutClassTable[dWipe] == 8
     check RecutClassTable[dVictory] == 8
+    # §A6 even-maximums band (armed+winAsMultiplier mints only) — the two
+    # ×2 rows; the frozen v13 rows above are untouched by the flag.
+    check RecutClassTable[dTagBack] == 2
+    check RecutClassTable[dJointAct] == 2
 
   test "tier conversion I/II ×1, III/IV ×2, V ×4; FIRST ×3 survives":
     check RecutTierClass == [1, 1, 2, 2, 4]
@@ -254,8 +269,10 @@ suite "recut product algebra":
     product = recutFold(product,
       int64(recutAchievementFactor(4, isFirst = true)))  # ×12
     check product == 7_077_888
-    # Symmetric cross-check with the BR recipe above: the §7 guard ratio.
-    check 9_437_184.float / product.float == 4.0 / 3.0
+    # The old §7 guard ratio (BR/CTF = 4/3) is DEAD — Amendment 6's
+    # even-maximums ruling replaced it with BASE EQUALITY: BR base == CTF
+    # base == 7,077,888 exactly, with the win factor OUTSIDE the base.
+    # The §A6 suite below derives and asserts both recipes symmetrically.
 
 suite "recut armed sim: per-duo single walk, seed, FF, dark parity":
   test "dark path is the additive v12 ledger, to the gram":
@@ -379,3 +396,276 @@ suite "recut armed sim: per-duo single walk, seed, FF, dark parity":
     check sim.recutContextK(0, victim) == 2
     sim.tickCount += AssistWindowTicks + 1
     check sim.recutContextK(0, victim) == 1
+
+# ─────────────────────────────────────────────────────────────────────────
+# §A6 EVEN MAXIMUMS + AMENDMENT 7 (winAsMultiplier) — the win factor, the
+# two new deeds, the ClosingTime rung bump, and BASE EQUALITY. Everything
+# below is behind `GameConfig.winAsMultiplier` (its own flag, dark by
+# default); the dark tests are the #378 else-branch pattern — with the flag
+# OFF the v13 armed world must stay byte-identical (dVictory still mints
+# ×8, no new deeds, old rungs).
+# ─────────────────────────────────────────────────────────────────────────
+
+proc winMultConfig(br: bool): GameConfig =
+  result = recutConfig(br)
+  result.winAsMultiplier = true
+
+proc centerOn(sim: var SimServer, playerIndex, x, y: int) =
+  ## Places one player so its collision CENTER sits at (x, y).
+  sim.players[playerIndex].x = x - CollisionW div 2
+  sim.players[playerIndex].y = y - CollisionH div 2
+
+proc stepIdle(sim: var SimServer, ticks: int) =
+  for _ in 0 ..< ticks:
+    sim.step(sim.none(), sim.none())
+
+suite "§A6 even maximums: rungs, composition, the mode-keyed win factor":
+  test "ClosingTime base rung 2→3 under the flag; the frozen table untouched":
+    check RecutClassTable[dClosingTime] == 2                        # frozen v13
+    check recutShiftedClass(dClosingTime, SiteMultHomePct) == 2     # dark
+    check recutShiftedClass(dClosingTime, SiteMultHomePct, true) == 3
+    # the territory rung shift still composes on top of the bumped base
+    check recutShiftedClass(dClosingTime, SiteMultEnemyPct, true) == 4
+    # the new deeds shift on enemy ground like every above-×1 class (§3)
+    check recutShiftedClass(dTagBack, SiteMultHomePct, true) == 2
+    check recutShiftedClass(dTagBack, SiteMultEnemyPct, true) == 3
+    check recutShiftedClass(dJointAct, SiteMultEnemyPct, true) == 3
+
+  test "new-deed composition: territory+stack compose; heat/carry stay dark":
+    # Amendment 7 §1's verification rule: wire = shiftedClass × heat ×
+    # carry × stack, via recutFactor — exercised here for the new rows.
+    check recutFactor(dTagBack, 0, SiteMultHomePct, false, 1, true) == 2
+    check recutFactor(dJointAct, 0, SiteMultHomePct, false, 5, true) == 2 * 8
+    check recutFactor(dTagBack, 0, SiteMultEnemyPct, false, 2, true) == 3 * 2
+    # the drama column is explicitly untouched by the contract (§5.7): both
+    # new deeds carry 0 specced drama (flagged OPEN to conformance review),
+    # so neither climbs heat nor takes carry — max embers and a carried
+    # flag change NOTHING.
+    check recutFactor(dTagBack, 10, SiteMultHomePct, true, 1, true) == 2
+    check recutFactor(dJointAct, 10, SiteMultHomePct, true, 1, true) == 2
+
+  test "dark (#378 else-branch): without the flag the v13 factors are byte-identical":
+    # recutFactor/recutShiftedClass default winAsMult=false — every
+    # pre-existing call site prices exactly as frozen v13.
+    check recutFactor(dClosingTime, 0, SiteMultHomePct, false) == 2
+    check recutShiftedClass(dClosingTime, SiteMultEnemyPct) == 3   # 2 + shift
+
+  test "the win factor is mode-keyed: BR ×4 ruled; CTF deferred (the seam)":
+    check RecutWinFactorBR == 4
+    check recutWinFactor(true) == 4
+    # M_CTF is DEFERRED to CTF-arming: ×1 (a no-op fold) until it is
+    # ruled — recutWinFactor is the seam where it lands, nothing else.
+    check recutWinFactor(false) == 1
+
+suite "§A6 BASE EQUALITY: BR base == CTF base == 7,077,888; ceiling 28,311,552":
+  test "the §A6 BR base recipe derives to exactly 7,077,888 (no dVictory)":
+    # The even-maximums recipe (A6 Candidate 1, ruled): the v13 §1b superb
+    # WITHOUT the retired dVictory deed, plus the two new ×2 deeds and the
+    # ClosingTime 2→3 bump — heat rung 3 (×8) and the 5-ally Fibonacci
+    # (×8) ride ONE event each (the LONGSHOT), exactly as before:
+    #
+    #   FIRST!(2) × CHASE(2) × LONGSHOT(3)×heat(8)×stack(8) × BOUNTY(4)
+    #   × dDuoDown²(2×2) × ClosingTime(3) × LastLight(4) × dTagBack(2)
+    #   × dJointAct(2) × TierV-FIRST(12) = 7,077,888 = 2^18 × 3^3
+    var product = int64(RecutSeed)
+    let home = SiteMultHomePct
+    product = recutFold(product,
+      recutFactor(dFirstBlood, 0, home, false, 1, true))       # ×2
+    product = recutFold(product,
+      recutFactor(dRunDown, 0, home, false, 1, true))          # ×2
+    product = recutFold(product,
+      recutFactor(dLongshotKill, 10, home, false, 5, true))    # ×3×8×8
+    product = recutFold(product,
+      recutFactor(dAceTag, 0, home, false, 1, true))           # ×4
+    product = recutFold(product,
+      recutFactor(dDuoDown, 0, home, false, 1, true))          # ×2
+    product = recutFold(product,
+      recutFactor(dDuoDown, 0, home, false, 1, true))          # ×2
+    product = recutFold(product,
+      recutFactor(dClosingTime, 0, home, false, 1, true))      # ×3 (bumped)
+    product = recutFold(product,
+      recutFactor(dLastLight, 0, home, false, 1, true))        # ×4
+    product = recutFold(product,
+      recutFactor(dTagBack, 0, home, false, 1, true))          # ×2 (new)
+    product = recutFold(product,
+      recutFactor(dJointAct, 0, home, false, 1, true))         # ×2 (new)
+    product = recutFold(product,
+      int64(recutAchievementFactor(4, isFirst = true)))        # ×12
+    check product == 7_077_888
+
+  test "the CTF base is INVARIANT under the flag — the same 7,077,888":
+    # Symmetric derivation (the existing ratified CTF recipe, winAsMult
+    # threaded): no CTF deed's rung moves under the flag — the marquee
+    # band and the new deeds are BR-shaped, ClosingTime never mints in
+    # CTF — so the CTF base is the same number with the flag on or off.
+    var product = int64(RecutSeed)
+    let home = SiteMultHomePct
+    product = recutFold(product,
+      recutFactor(dFirstBlood, 0, home, false, 1, true))       # ×2
+    product = recutFold(product,
+      recutFactor(dLongshotKill, 10, home, false, 3, true))    # ×3×8×3
+    product = recutFold(product,
+      recutFactor(dAceTag, 0, home, false, 1, true))           # ×4
+    product = recutFold(product,
+      recutFactor(dFlagSteal, 0, home, false, 1, true))        # ×4
+    product = recutFold(product,
+      recutFactor(dCarrierKill, 0, home, false, 1, true))      # ×4
+    product = recutFold(product,
+      recutFactor(dCapture, 0, home, false, 1, true))          # ×8
+    product = recutFold(product,
+      recutFactor(dWipe, 0, home, false, 1, true))             # ×8
+    product = recutFold(product,
+      int64(recutAchievementFactor(4, isFirst = true)))        # ×12
+    check product == 7_077_888
+
+  test "BASE EQUALITY + CEILING: bases equal EXACTLY; BR total = ×4 = 28,311,552":
+    # Amendment 6, owner-ruled ("we definitely want even maximums"): the
+    # 4/3 gap is CLOSED — equality replaces the old ratio guard.
+    let base = int64(7_077_888)
+    check base * int64(recutWinFactor(true)) == 28_311_552
+    # the CTF total stays at base × M_CTF (deferred, ×1 for now) — the
+    # ceiling asymmetry is the WIN FACTOR only, never the base.
+    check base * int64(recutWinFactor(false)) == 7_077_888
+
+suite "§A6 armed sim: win factor, dTagBack, dJointAct, dark parity":
+  test "armed: the win factor replaces the stochastic wire dVictory (flat ×4 vs ×64)":
+    # The LOOK-BEFORE-ARM truth, as a test: the OFF-path dVictory is
+    # stochastic — ×8 class × heat at the mint tick (×16-64 wire) — while
+    # the ON-path win factor is a flat, composition-neutral ×4. Identical
+    # sims, identical heat (rung 3), only the flag differs.
+    var off = startedGame(recutConfig(br = true), 4)
+    var on = startedGame(winMultConfig(br = true), 4)
+    let winner = off.players[0].team
+    off.heatEmbers[winner] = 10   # rung 3: OFF-path dVictory pays ×8 heat
+    on.heatEmbers[winner] = 10    # the win factor must NOT
+    off.finishGame(winner)
+    on.finishGame(winner)
+    check off.deedCounts[dVictory] == 1
+    check off.deedGloryMass[dVictory] == 64        # 8 × heatMult(10): the wire
+    check on.deedCounts[dVictory] == 0             # Amendment 7 §3: deed RETIRED
+    # composition-neutral and deterministic: exactly ×4 where OFF took ×64,
+    # everything else (the conclusion sweep) identical between the two.
+    check off.gloryProduct[winner] == on.gloryProduct[winner] * 16
+    check on.teamGlory[winner] == int(on.gloryProduct[winner])
+
+  test "armed: a draw crowns nobody — no win factor on isDraw":
+    var on = startedGame(winMultConfig(br = true), 4)
+    var off = startedGame(recutConfig(br = true), 4)
+    let team = on.players[0].team
+    on.finishGame(team, isDraw = true)
+    off.finishGame(team, isDraw = true)
+    check on.gloryProduct[team] == off.gloryProduct[team]
+    check on.deedCounts[dVictory] == 0
+
+  test "armed: dTagBack mints from the completed revive, tagger-attributed, ×2":
+    var config = winMultConfig(br = true)
+    config.downedMode = true
+    config.downedBleedOutTicks = 3 * DownedMinBleedOutTicks
+    config.downedReviveTicks = 5
+    var sim = startedGame(config, 4)
+    sim.centerOn(1, 400, 300)
+    sim.centerOn(3, 400 + DownedTagRange - 10, 300)   # partner in tag range
+    sim.centerOn(0, 900, 300)                          # enemies far away
+    sim.centerOn(2, 900, 340)
+    sim.killPlayer(1, 0)
+    check sim.players[1].downed
+    let ghostTeam = sim.players[1].team
+    check sim.players[3].team == ghostTeam             # the tagger's duo
+    let productBefore = sim.gloryProduct[ghostTeam]
+    sim.stepIdle(5)                                    # downedReviveTicks
+    check not sim.players[1].downed
+    check sim.deedCounts[dTagBack] == 1
+    # The ghost lay on ENEMY ground in this fixture, so the §3 territory
+    # rung shift composes on the live mint path — ×2 climbs to ×3, exactly
+    # the Amendment 7 §1 verification rule (wire = shiftedClass × heat ×
+    # carry × stack; heat/carry are 0-gated for this deed, no stack here).
+    check sim.deedSitePct(ghostTeam, 400, 300) == SiteMultEnemyPct
+    check sim.deedGloryMass[dTagBack] == 3
+    check sim.gloryProduct[ghostTeam] == productBefore * 3
+
+  test "dark (#378 else-branch): the same revive mints NOTHING with the flag off":
+    var config = recutConfig(br = true)                # recut ARMED, flag dark
+    config.downedMode = true
+    config.downedBleedOutTicks = 3 * DownedMinBleedOutTicks
+    config.downedReviveTicks = 5
+    var sim = startedGame(config, 4)
+    sim.centerOn(1, 400, 300)
+    sim.centerOn(3, 400 + DownedTagRange - 10, 300)
+    sim.centerOn(0, 900, 300)
+    sim.centerOn(2, 900, 340)
+    sim.killPlayer(1, 0)
+    let ghostTeam = sim.players[1].team
+    let productBefore = sim.gloryProduct[ghostTeam]
+    sim.stepIdle(5)
+    check not sim.players[1].downed                    # the revive still works
+    check sim.deedCounts[dTagBack] == 0                # the deed does not exist yet
+    check sim.gloryProduct[ghostTeam] == productBefore # v13 armed world untouched
+
+  test "armed: dJointAct — ≥2 duos on one victim in one incident, seat-keyed":
+    var sim = startedGame(winMultConfig(br = true), 6)
+    # Manual duo layout (a team IS a duo in BR): victim's duo Red (0,1),
+    # duo Blue (2,3), duo Green (4,5).
+    sim.players[0].team = Red
+    sim.players[1].team = Red
+    sim.players[2].team = Blue
+    sim.players[3].team = Blue
+    sim.players[4].team = Green
+    sim.players[5].team = Green
+    sim.players[0].hp = 100                            # stays alive throughout
+    # Green is a manually-dealt third duo the 2-team test map never seated,
+    # so its product opens unseeded — seed it like the engine seeds active
+    # teams, purely so the fold below is observable.
+    sim.gloryProduct[Green] = RecutSeed
+    discard sim.absorbDamage(0, 1, attackerIndex = 2, weapon = "gun")
+    check sim.deedCounts[dJointAct] == 0               # one duo is no joint act
+    discard sim.absorbDamage(0, 1, attackerIndex = 4, weapon = "gun")
+    check sim.deedCounts[dJointAct] == 2               # BOTH contributing seats
+    # The victim stands on its OWN (Red) ground — enemy ground for both
+    # attackers, so each ×2 climbs to ×3 via the §3 territory shift at the
+    # victim's site (Amendment 7 §1's zone-deed precedent, composed live).
+    check sim.deedSitePct(Blue, sim.players[0].x, sim.players[0].y) ==
+      SiteMultEnemyPct
+    check sim.deedGloryMass[dJointAct] == 6            # ×3 each
+    check sim.gloryProduct[Blue] == 3                  # seat 2's duo product
+    check sim.gloryProduct[Green] == 3                 # seat 4's duo product
+    # dedup: more hits by an already-credited seat never re-mint
+    discard sim.absorbDamage(0, 1, attackerIndex = 2, weapon = "gun")
+    check sim.deedCounts[dJointAct] == 2
+    # seat-keyed: the second Blue seat joining mints for ITS seat — once
+    # per contributing seat, never once per duo
+    discard sim.absorbDamage(0, 1, attackerIndex = 3, weapon = "gun")
+    check sim.deedCounts[dJointAct] == 3
+    check sim.gloryProduct[Blue] == 9
+    # the victim's own duo neither contributes nor qualifies
+    discard sim.absorbDamage(0, 1, attackerIndex = 1, weapon = "gun")
+    check sim.deedCounts[dJointAct] == 3
+    check sim.gloryProduct[Red] == RecutSeed
+
+  test "armed: the joint-act incident expires (>120t); a fresh one re-mints":
+    var sim = startedGame(winMultConfig(br = true), 6)
+    sim.players[0].team = Red
+    sim.players[1].team = Red
+    sim.players[2].team = Blue
+    sim.players[3].team = Blue
+    sim.players[4].team = Green
+    sim.players[5].team = Green
+    sim.players[0].hp = 100
+    discard sim.absorbDamage(0, 1, attackerIndex = 2, weapon = "gun")
+    discard sim.absorbDamage(0, 1, attackerIndex = 4, weapon = "gun")
+    check sim.deedCounts[dJointAct] == 2
+    sim.tickCount += AssistWindowTicks + 1             # the chain breaks
+    discard sim.absorbDamage(0, 1, attackerIndex = 2, weapon = "gun")
+    check sim.deedCounts[dJointAct] == 2               # fresh incident, one duo
+    discard sim.absorbDamage(0, 1, attackerIndex = 4, weapon = "gun")
+    check sim.deedCounts[dJointAct] == 4               # once per (seat, incident)
+
+  test "dark (#378 else-branch): the same cross-duo damage mints NOTHING":
+    var sim = startedGame(recutConfig(br = true), 6)   # recut ARMED, flag dark
+    sim.players[0].team = Red
+    sim.players[2].team = Blue
+    sim.players[4].team = Green
+    sim.players[0].hp = 100
+    discard sim.absorbDamage(0, 1, attackerIndex = 2, weapon = "gun")
+    discard sim.absorbDamage(0, 1, attackerIndex = 4, weapon = "gun")
+    check sim.deedCounts[dJointAct] == 0
+    check sim.recutJointSeats.len == 0                 # state never even touched

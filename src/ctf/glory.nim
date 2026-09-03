@@ -237,6 +237,37 @@ type
                        ## problem, priced for when supply exists).
     dVictory           ## you won the BR match. Recut class x8 -- ties
                        ## CAPTURE/WIPEOUT as "the game is over, you won".
+                       ## RETIRED when `GameConfig.winAsMultiplier` arms
+                       ## (Amendment 7 §3): the win becomes the
+                       ## deterministic `recutWinFactor` fold at finalize
+                       ## instead of a deed -- this member then never
+                       ## mints (the enum row stays for the dark path).
+
+    # ── §A6 EVEN-MAXIMUMS band (WIN-AS-MULTIPLIER, Amendment 7 §2) ───────
+    #
+    # APPENDED members, same append-only rule as the v13 band above. Both
+    # mint ONLY when `GameConfig.gloryMultiplierRecut` AND
+    # `GameConfig.winAsMultiplier` are armed (and `brMode` -- both
+    # predicates are duo-shaped); with `winAsMultiplier` dark the v13
+    # armed world stays byte-identical (no new deeds, dVictory still
+    # mints, old rungs). Additive rows are 0 for the same belt-and-braces
+    # reason as the v13 band: armed they price via `RecutClassTable`,
+    # dark they never fire at all.
+    dTagBack           ## revived your ghost partner (the tag) -- mints
+                       ## from the `Revived` raw event, credited to the
+                       ## TAGGER (the event's source seat), never to the
+                       ## revived ghost. Recut class x2 (§A6 Candidate 1:
+                       ## 18g dRescue-parity; the highest-volume measured
+                       ## section-B moment, 0.360/ep).
+    dJointAct          ## an inter-duo JOINT ACT: >=2 distinct duos landed
+                       ## qualifying hits on the same victim inside one
+                       ## merged 120-tick damage incident -- the
+                       ## alliance-vocab predicate, riding the exact
+                       ## `recutDamageMarks` chain the ally-stack already
+                       ## reads. Seat-keyed: every contributing seat of a
+                       ## qualifying incident mints once per (seat,
+                       ## incident); the victim's own duo never counts.
+                       ## Recut class x2 (§A6 Candidate 1: 14g band).
 
 const
   GloryVersion* = 13
@@ -706,6 +737,11 @@ const
     0,      # dClosingTime
     0,      # dLastLight
     0,      # dVictory
+    # §A6 even-maximums band (winAsMultiplier): additive prices 0 BY
+    # DESIGN, same rule as the v13 band above -- armed they price via
+    # `RecutClassTable`, dark they never mint.
+    0,      # dTagBack
+    0,      # dJointAct
   ]
 
   DeedDramaTable: array[Deed, int] = [
@@ -752,6 +788,14 @@ const
     0,      # dClosingTime (OPEN: no specced drama -- see block comment)
     0,      # dLastLight   (OPEN: no specced drama -- see block comment)
     70,     # dVictory  (alliance-vocab spec increment-2 §4 parity)
+    # §A6 even-maximums band (winAsMultiplier). NO specced drama anywhere
+    # (the vocab specs price gold, not drama; §5.7: the drama column is
+    # explicitly untouched by the recut contract) -- held at 0 and FLAGGED
+    # to conformance review as an open drama-column item, exactly the
+    # dClosingTime/dLastLight posture above. 0 drama also means neither
+    # climbs heat nor takes carry (`paysHeat`/`isDrama` read this table).
+    0,      # dTagBack  (OPEN: no specced drama -- see block comment)
+    0,      # dJointAct (OPEN: no specced drama -- see block comment)
   ]
 
   # ───────────────────────────────────────────────────────────────────────
@@ -2309,9 +2353,21 @@ const
     1,      # dAchievement     — tier-priced: `RecutTierClass`, never here.
     # BR-native marquee band (§1b), armed+brMode mints only:
     2,      # dDuoDown         ×2 (ESCORT/CHASE tier by ruling — see enum)
-    2,      # dClosingTime     ×2
+    2,      # dClosingTime     ×2 (winAsMultiplier bumps the BASE to ×3 —
+            #                  a rung bump lives in `recutShiftedClass`,
+            #                  never here: this table is the FROZEN v13
+            #                  contract, byte-exact)
     4,      # dLastLight       ×4
-    8,      # dVictory         ×8
+    8,      # dVictory         ×8 (winAsMultiplier-DARK path only —
+            #                  Amendment 7 §3 retires the DEED when the
+            #                  win factor arms; this row is then never
+            #                  minted)
+    # §A6 EVEN-MAXIMUMS band (armed+winAsMultiplier mints only): the two
+    # rows that, with the dClosingTime 2→3 base bump, close the frozen ×6
+    # gap — BR base == CTF base == 7,077,888 exactly (A6 Candidate 1,
+    # pen-picked 09-03; the ruled table).
+    2,      # dTagBack         ×2 (18g, dRescue parity)
+    2,      # dJointAct        ×2 (14g band)
   ]
 
   RecutTierClass*: array[AchievementTiers, int] = [1, 1, 2, 2, 4]
@@ -2349,7 +2405,8 @@ func recutStackMult*(k: int): int {.inline.} =
   elif k >= RecutStackLadder.len: RecutStackLadder[^1]
   else: RecutStackLadder[k - 1]
 
-func recutShiftedClass*(deed: Deed, sitePct: int): int {.inline.} =
+func recutShiftedClass*(deed: Deed, sitePct: int,
+                        winAsMult: bool = false): int {.inline.} =
   ## The deed's integer class with the territory rung shift applied
   ## (table §3): a deed minted on ENEMY ground climbs one integer rung
   ## (×2→×3, ×3→×4, ×4→×5, ×6→×7, ×8→×9); home/neutral ground is
@@ -2359,11 +2416,17 @@ func recutShiftedClass*(deed: Deed, sitePct: int): int {.inline.} =
   ## (`SiteMultEnemyPct`); neutral (dead in this engine, see
   ## `SiteMultNeutralPct`) and home fall through unshifted.
   result = RecutClassTable[deed]
+  if winAsMult and deed == dClosingTime:
+    # §A6 even-maximums (winAsMultiplier): ClosingTime BASE rung 2→3 —
+    # ties LONGSHOT, a tie not an overtake (ordinal-clean, the ruled
+    # gentlest existing-rung nudge). The frozen table above is untouched;
+    # dark keeps the v13 rung byte-identical.
+    result = 3
   if result >= 2 and sitePct == SiteMultEnemyPct:
     inc result
 
 func recutFactor*(deed: Deed; embers, sitePct: int; carrying: bool;
-                  stackK: int = 1): int =
+                  stackK: int = 1; winAsMult: bool = false): int =
   ## THE ARMED SINGLE MINT — one de-duplicated event's ONE integer factor
   ## (contract §7a): its class (territory-shifted, §3) × every live-state
   ## multiplier active at the mint tick — heat (only for deeds that pay
@@ -2375,7 +2438,7 @@ func recutFactor*(deed: Deed; embers, sitePct: int; carrying: bool;
   ##
   ## `dTeamKill` never routes here (it is a division, not a factor — see
   ## `recutFfHalvings`); if it ever does, its ×1 row makes it inert.
-  let class = recutShiftedClass(deed, sitePct)
+  let class = recutShiftedClass(deed, sitePct, winAsMult)
   if class <= 1:
     return 1
   result = class
@@ -2427,6 +2490,25 @@ func recutScore*(product: int64, halvings: int): int64 {.inline.} =
   if halvings <= 0: return product
   if halvings >= 63: return 0
   product div (int64(1) shl halvings)
+
+const
+  RecutWinFactorBR* = 4
+    ## §A6/AMENDMENT 7 §3 (winAsMultiplier): the BR WIN FACTOR — the
+    ## deterministic ×M folded into the canonical product at finalize when
+    ## the flag is armed, REPLACING the retired dVictory deed. M=×4 ruled
+    ## on the upset curve (23.2% upset rate). NOT a deed and
+    ## COMPOSITION-NEUTRAL BY LAW: it pays no heat, no territory, no
+    ## carry, no stack, and never routes through `recutFactor` (today's
+    ## wire dVictory was stochastic ×16-64 with folded heat; this is the
+    ## flat ×4 that replaces it). BR total ceiling = the even-maximums
+    ## base 7,077,888 × 4 = 28,311,552.
+
+func recutWinFactor*(brMode: bool): int {.inline.} =
+  ## The MODE-KEYED win factor (Amendment 6 ruling: win factors are
+  ## mode-keyed). BR = ×4, ruled. CTF = ×1 here DELIBERATELY: M_CTF is
+  ## DEFERRED to CTF-arming (TBD, expected < 4) — this func is the seam
+  ## where it lands; nothing else is built for the CTF side yet.
+  if brMode: RecutWinFactorBR else: 1
 
 # ───────────────────────────────────────────────────────────────────────────
 # §7  ONE KILL, ONE DEED — the anti-stacking rule
@@ -2603,6 +2685,8 @@ func deedName*(deed: Deed): string =
   of dClosingTime: "closing time"
   of dLastLight: "last light"
   of dVictory: "victory"
+  of dTagBack: "tag back"
+  of dJointAct: "joint act"
 
 func deedPopWord*(deed: Deed): string =
   ## 🎖 (VOCABULARY wave, V4, Maxwell's ruling: "instead of splat appearing on
@@ -2672,3 +2756,5 @@ func deedPopWord*(deed: Deed): string =
   of dClosingTime: "CLOSING TIME"
   of dLastLight: "LAST LIGHT"
   of dVictory: "VICTORY"
+  of dTagBack: "TAG BACK"    ## §A6 band (armed+winAsMultiplier mints only).
+  of dJointAct: "JOINT ACT"

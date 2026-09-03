@@ -718,6 +718,11 @@
           "type": "boolean",
           "default": false
         },
+        "winAsMultiplier": {
+          "description": "GLORY win-as-multiplier (Amendment 6/7, frozen §A6 even-maximums table): retires the dVictory DEED for a deterministic, composition-neutral x4 BR win factor folded into the canonical product at finalize (no heat/territory/carry/stack — it is not a deed); adds dTagBack (x2, minted from revived events with tagger attribution) and dJointAct (x2, the 120-tick cross-duo damage-window predicate) to the priced economy; dClosingTime base rung 2 to 3. Equalizes BR base == CTF base == 7,077,888 exactly; BR total ceiling 28,311,552. Reads only while gloryMultiplierRecut is armed; the CTF win factor is deferred to CTF-arming. Off by default everywhere: merged+deployed is NOT armed — arming is an explicit, separate manifest publish of this one key on the chosen variant.",
+          "type": "boolean",
+          "default": false
+        },
         "stampRealizedConfig": {
           "description": "Realized-config stamp (recut contract Amendment 2): when true the engine emits, at episode finalize, a stamp of the build and flag set that ACTUALLY ran — {stampVersion, realizedBuild {gameVersion, gloryVersion, engineStamp}, variantId, flagSet as sorted key=value pairs} — into the events summary row and the episode log. Observability only; independent of every other flag. Off by default.",
           "type": "boolean",

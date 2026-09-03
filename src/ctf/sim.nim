@@ -241,7 +241,7 @@ proc awardDeed*(sim: var SimServer, team: Team, deed: Deed, x, y: int,
       amount = -(after - before)
     else:
       let factor = recutFactor(deed, sim.heatEmbers[team], sitePct,
-                               carrying, stackK)
+                               carrying, stackK, sim.config.winAsMultiplier)
       for _ in 1 .. times:
         sim.gloryProduct[team] = recutFold(sim.gloryProduct[team], factor)
       amount = factor
@@ -2104,6 +2104,60 @@ proc recutContextK*(sim: SimServer, killerIndex, victimIndex: int): int =
         participants.add mark.attacker
   participants.len
 
+proc recutJointActOnDamage(sim: var SimServer,
+                           victimIndex, attackerIndex: int,
+                           freshIncident: bool) =
+  ## §A6/AMENDMENT 7 §2 (winAsMultiplier): the dJointAct MINT — the
+  ## 120-tick cross-duo damage-window predicate, riding the exact merged
+  ## incident chain `recutDamageMarks` maintains (one mechanism, two
+  ## readers: the ally-stack reads it for k, this mints from it). An
+  ## incident QUALIFIES when ≥2 distinct duos (a team IS a duo in BR)
+  ## have landed qualifying hits on the same victim inside one chain;
+  ## every contributing seat then mints ONCE per (seat, incident) — a duo
+  ## with both seats hitting mints once per SEAT, never once per duo (the
+  ## vocab spec's seat-keyed identity rule). Friendly fire is never this
+  ## deed: the victim's own duo neither contributes nor qualifies (it
+  ## still extends the chain — the merge rule counts damage EVENTS, the
+  ## qualifying set counts duos). Environmental damage (no attacker seat)
+  ## never reaches here. Priced at the VICTIM's site, like every
+  ## victim-site deed (Amendment 7 §1's territory precedent).
+  ##
+  ## Called ONLY armed+winAsMultiplier+brMode — a dark or v13-armed game
+  ## never touches `recutJointSeats`, which is the byte-identity guard.
+  while sim.recutJointSeats.len < sim.players.len:
+    sim.recutJointSeats.add newSeq[tuple[seat: int, minted: bool]]()
+  if freshIncident:
+    # The chain broke (>120 idle ticks on this victim): the NEXT event
+    # opens a FRESH incident — dedup state resets with it. The
+    # death/respawn reset lives at the kill site with the marks' own.
+    sim.recutJointSeats[victimIndex] = @[]
+  let victimTeam = sim.players[victimIndex].team
+  if sim.players[attackerIndex].team == victimTeam:
+    return
+  var known = false
+  for entry in sim.recutJointSeats[victimIndex]:
+    if entry.seat == attackerIndex:
+      known = true
+      break
+  if not known:
+    sim.recutJointSeats[victimIndex].add (seat: attackerIndex, minted: false)
+  var duos: seq[Team] = @[]
+  for entry in sim.recutJointSeats[victimIndex]:
+    let t = sim.players[entry.seat].team
+    if t notin duos:
+      duos.add t
+  if duos.len < 2:
+    return
+  let
+    vx = sim.players[victimIndex].x + CollisionW div 2
+    vy = sim.players[victimIndex].y + CollisionH div 2
+  for entry in sim.recutJointSeats[victimIndex].mitems:
+    if entry.minted:
+      continue
+    entry.minted = true
+    sim.awardDeed(sim.players[entry.seat].team, dJointAct, vx, vy,
+                  byIndex = entry.seat)
+
 proc killPlayer*(
   sim: var SimServer,
   targetIndex,
@@ -2365,6 +2419,11 @@ proc killPlayer*(
   # every dark path.
   if targetIndex < sim.recutDamageMarks.len:
     sim.recutDamageMarks[targetIndex] = @[]
+  # §A6 (winAsMultiplier): the joint-act incident dies with the life too —
+  # a fresh life starts a fresh incident (the same vocab-spec rule the
+  # marks reset above implements; dedup state resets with the chain).
+  if targetIndex < sim.recutJointSeats.len:
+    sim.recutJointSeats[targetIndex] = @[]
   # A dying trigger pull never releases, and a carried grenade is lost.
   sim.players[targetIndex].fireWindup = 0
   sim.players[targetIndex].windupBrads = -1
@@ -2545,8 +2604,15 @@ proc absorbDamage*(
     for mark in sim.recutDamageMarks[targetIndex]:
       if sim.tickCount - mark.tick <= AssistWindowTicks:
         kept.add mark
+    # §A6 (winAsMultiplier): an EMPTY pre-add window means the last damage
+    # event on this victim is >120 ticks gone — the merged incident chain
+    # broke, so THIS event opens a fresh incident (the vocab spec's own
+    # merge rule; the death/respawn reset lives at the kill site).
+    let freshIncident = kept.len == 0
     kept.add (attacker: attackerIndex, tick: sim.tickCount)
     sim.recutDamageMarks[targetIndex] = kept
+    if sim.config.winAsMultiplier and sim.config.brMode:
+      sim.recutJointActOnDamage(targetIndex, attackerIndex, freshIncident)
   var firstTouch = false
   if attackerIndex >= 0 and attackerIndex != targetIndex:
     if attackerIndex < 32:
@@ -4861,10 +4927,31 @@ proc finishGame*(sim: var SimServer, winner: Team, isDraw = false, timeLimitReac
   # the sweep's deed counters already include it. brMode-only (CTF's
   # game-over deed is the capture/wipe that ended it), decisive games only
   # (a draw crowns nobody). Dark-inert: the flag gates the mint entirely.
-  if sim.config.gloryMultiplierRecut and sim.config.brMode and not isDraw:
+  if sim.config.gloryMultiplierRecut and sim.config.brMode and not isDraw and
+      not sim.config.winAsMultiplier:
     let home = sim.gameMap.flagHome(winner)
     sim.awardDeed(winner, dVictory, home.x, home.y)
   sim.evalAchievementsAtConclusion()
+  # ── WIN-AS-MULTIPLIER (§A6/Amendment 7 §3) ── the dVictory deed above
+  # is RETIRED when the flag is armed: winning is a DETERMINISTIC,
+  # COMPOSITION-NEUTRAL ×M fold on the canonical product at finalize — it
+  # pays no heat, no territory, no carry, no stack, and never routes
+  # through `recutFactor` (it is not a deed; the wire dVictory it replaces
+  # was stochastic ×16-64 with folded heat). Mode-keyed via
+  # `recutWinFactor`: BR ×4 now, M_CTF deferred to CTF-arming (that func
+  # is the whole seam). Applied AFTER the conclusion sweep so the ledger
+  # is final-correct the moment it folds (products commute — the ceiling
+  # arithmetic is identical either side of the sweep). Decisive games
+  # only — a draw crowns nobody, exactly like the deed it replaces.
+  if sim.config.gloryMultiplierRecut and sim.config.winAsMultiplier and
+      sim.config.brMode and not isDraw:
+    let winFactor = recutWinFactor(sim.config.brMode)
+    sim.gloryProduct[winner] = recutFold(sim.gloryProduct[winner], winFactor)
+    sim.teamGlory[winner] = int(recutScore(
+      sim.gloryProduct[winner],
+      recutFfHalvings(sim.gloryFfIncidents[winner], sim.config.brMode)))
+    if sim.gameEventLoggingEnabled:
+      sim.logGameEvent(teamText(winner) & " win factor x" & $winFactor)
   if isDraw:
     if timeLimitReached:
       # A time-limit draw is a lose-lose: every player on both teams takes
@@ -6889,6 +6976,18 @@ proc updateDowned(sim: var SimServer) =
         amount = sim.config.downedReviveTicks, hp = 1,
         x = float(gx), y = float(gy)
       )
+      # ── WIN-AS-MULTIPLIER (§A6/Amendment 7 §2) ── dTagBack: the
+      # completed revive IS the deed, minted off this exact raw event
+      # with TAGGER ATTRIBUTION (the event's source seat — the reviving
+      # teammate; the ghost earns nothing). One completed channel = one
+      # `Revived` event = one mint — the event is already the dedup.
+      # Priced at the ghost's site (where the act happened). Dark
+      # (winAsMultiplier off): the v13 armed world never sees this deed —
+      # byte-identical.
+      if sim.config.gloryMultiplierRecut and sim.config.winAsMultiplier and
+          sim.config.brMode:
+        sim.awardDeed(sim.players[tagger].team, dTagBack, gx, gy,
+                      byIndex = tagger)
       sim.logGameEvent(
         playerColorText(sim.players[i].color) & " tagged back in by " &
           sim.playerText(tagger)
