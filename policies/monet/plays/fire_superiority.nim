@@ -16,16 +16,25 @@
 ##
 ## Superior (outnumber, or match numbers with enough of them wounded):
 ## PRESS -- navigate to a pressRange band off the weakest/nearest track,
-## never melting into point-blank (point-blank accuracy is inverted on this
-## engine). Inferior by breakDeficit or more: BREAK -- facing cover, never
-## navigating through the enemy bearing (composes with hold_vs_gun's
-## never-turn-your-back doctrine). Even or no contact: hold at cover.
+## never melting into point-blank against a target that can still fight back
+## (point-blank accuracy is inverted on this engine). EXCEPTION -- v10,
+## measured gap: leaders bank dPointBlankKill 3x our rate, and the accuracy
+## inversion is a risk against a live gun, not against one already known
+## wounded (hp <= WoundedHpMax) and unlikely to out-trade us even at reduced
+## accuracy. When the chosen press target is confirmed wounded, close to
+## finishRange instead -- a fixed approximation of the engine's own
+## `pointBlankPxFor` band (not exposed to plays, so not exactly reproduced;
+## see glory.nim PointBlankPx/scaledByGunRange). Unknown-hp and full-health
+## targets keep the wider pressRange band. Inferior by breakDeficit or more:
+## BREAK -- facing cover, never navigating through the enemy bearing
+## (composes with hold_vs_gun's never-turn-your-back doctrine). Even or no
+## contact: hold at cover.
 
 import ../../../play_sdk/play
 
 const
   ManifestBytes =
-    "{\"abi\":1,\"class\":\"controller\",\"doc\":\"press-vs-break: count the guns you can see -- press a winning fight to a range band, break off only when truly outgunned\",\"modes\":[\"br\"],\"name\":\"fire_superiority\",\"params\":{\"breakDeficit\":{\"default\":2,\"integer\":true,\"kind\":\"number\",\"max\":8,\"min\":1},\"coverMax\":{\"default\":260,\"integer\":true,\"kind\":\"number\",\"max\":600,\"min\":0},\"engageDist\":{\"default\":600,\"integer\":true,\"kind\":\"number\",\"max\":1200,\"min\":100},\"pressRange\":{\"default\":220,\"integer\":true,\"kind\":\"number\",\"max\":500,\"min\":60},\"woundedPct\":{\"default\":50,\"integer\":true,\"kind\":\"number\",\"max\":100,\"min\":0}},\"retune\":true}"
+    "{\"abi\":1,\"class\":\"controller\",\"doc\":\"press-vs-break: count the guns you can see -- press a winning fight to a range band, break off only when truly outgunned\",\"modes\":[\"br\"],\"name\":\"fire_superiority\",\"params\":{\"breakDeficit\":{\"default\":2,\"integer\":true,\"kind\":\"number\",\"max\":8,\"min\":1},\"coverMax\":{\"default\":260,\"integer\":true,\"kind\":\"number\",\"max\":600,\"min\":0},\"engageDist\":{\"default\":600,\"integer\":true,\"kind\":\"number\",\"max\":1200,\"min\":100},\"finishRange\":{\"default\":140,\"integer\":true,\"kind\":\"number\",\"max\":260,\"min\":40},\"pressRange\":{\"default\":220,\"integer\":true,\"kind\":\"number\",\"max\":500,\"min\":60},\"woundedPct\":{\"default\":50,\"integer\":true,\"kind\":\"number\",\"max\":100,\"min\":0}},\"retune\":true}"
 
   # src/shell/cover_scorer.nim's half-sector slope thresholds (16 sectors).
   SlopeScale = 1_000_000'i64
@@ -50,6 +59,7 @@ type
     breakDeficit: int32
     coverMax: int32
     engageDist: int32
+    finishRange: int32
     pressRange: int32
     woundedPct: int32
 
@@ -134,7 +144,7 @@ proc readParams(dataPtr, dataLen: int32): FsParams =
   ## Strict reader over the canonical params bytes; missing keys keep the
   ## manifest defaults, anything undeclared or out of range is invalid.
   result = FsParams(valid: true, breakDeficit: 2, coverMax: 260,
-    engageDist: 600, pressRange: 220, woundedPct: 50)
+    engageDist: 600, finishRange: 140, pressRange: 220, woundedPct: 50)
   if dataLen <= 0:
     return
   let buf = cast[ptr UncheckedArray[byte]](dataPtr)
@@ -178,6 +188,9 @@ proc readParams(dataPtr, dataLen: int32): FsParams =
     elif buf.keyIs(keyStart, keyLen, "engageDist"):
       result.engageDist = value
       if value < 100 or value > 1200: result.valid = false
+    elif buf.keyIs(keyStart, keyLen, "finishRange"):
+      result.finishRange = value
+      if value < 40 or value > 260: result.valid = false
     elif buf.keyIs(keyStart, keyLen, "pressRange"):
       result.pressRange = value
       if value < 60 or value > 500: result.valid = false
@@ -364,10 +377,16 @@ proc play_step*(viewPtr, viewLen: int32): int32 {.exportc, cdecl.} =
   let inferior = theirGuns - ourGuns >= params.breakDeficit
 
   if superior:
-    # PRESS to the range band; inside it the body finishes the work.
-    if targetDistSq <= sq(params.pressRange):
+    # PRESS to the range band; inside it the body finishes the work. A
+    # target we KNOW is wounded (hp <= WoundedHpMax) is worth closing to
+    # finishRange for -- the inverted-accuracy risk is against a live gun
+    # that can still out-trade us, not one already this close to done.
+    # Unknown-hp and healthy targets keep the wider pressRange band.
+    let band = if targetHp <= WoundedHpMax: params.finishRange
+               else: params.pressRange
+    if targetDistSq <= sq(band):
       return emitHoldIfChanged()
-    let stand = projectFrom(target, decoded.self.pos, params.pressRange)
+    let stand = projectFrom(target, decoded.self.pos, band)
     let goal = nearestReachable(stand.x, stand.y)
     if not goal.ok:
       return emitHoldIfChanged()

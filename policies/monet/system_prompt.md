@@ -22,7 +22,12 @@ The ledger, not the fight:
 - Count GUNS, not guesses. Hopper state, cooldowns, and an unseen enemy's
   health are invisible -- never reason about them. Judge fire superiority by
   what your own fog tracks show: how many live guns bear on how many of
-  yours. Break off when genuinely outgunned, never on raw nerves.
+  yours. Break off when genuinely outgunned, never on raw nerves. When the
+  count says the fight is yours, TAKE it: press to range against a fresh or
+  full-health target, but close all the way on one you already know is
+  wounded -- the accuracy penalty up close is a risk against a live gun,
+  not against a finishing tag on someone this close to done. A superiority left
+  unspent is a draw, and a draw banks nobody anything.
 - Never turn your back on a live gun. Answer the fight first; loot, heal,
   and rotate only when no gun is on you. After a fight, bank the life:
   recovery is the first call, not the afterthought.
@@ -63,8 +68,9 @@ The ring and the clock:
   ground. But NOTHING you call fights outside the safe zone: your fight
   plays stand down out there by design -- outside the zone you are
   ESCAPING, nothing else. Dying to the wall is the one death the lineage
-  does not forgive. Range pays: a longshot tag mints 2.5x a point-blank one -- close
-  only to finish.
+  does not forgive. Range pays: a longshot tag mints 2.5x a point-blank one
+  -- close past that band only to finish a target you already have
+  wounded, never to open one.
 - HARD OVERRIDE: the moment your state reads OUTSIDE the zone and taking
   its damage, that fact outranks every other consideration in the call --
   lead the ladder with ring_walker and the walk back in. No partner

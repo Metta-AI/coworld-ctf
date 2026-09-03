@@ -14,6 +14,7 @@ client, where it now lives. Run from anywhere:
 
 from __future__ import annotations
 
+import json
 import pathlib
 import sys
 import types
@@ -477,6 +478,86 @@ check("cadence gap: no floor configured = no bypass (upstream default)",
 check("monet opts into the 5s priority floor",
       PERSONA.priority_recall_floor == 5.0,
       str(PERSONA.priority_recall_floor))
+
+# ── v10: param round-trip -- no submitted lever is silently dropped or
+# reclamped by drift between a play's own manifest and this harness's
+# mirrored plays.py spec (the exact "prompt and levers disagree" failure
+# mode the brief calls out; _clean_params is where that drift would hide).
+for i, turn in enumerate(PERSONA.canned_turns, start=1):
+    for entry in turn["call"]["entries"]:
+        play = entry.get("play")
+        submitted = entry.get("params") or {}
+        cleaned = starter_harness._clean_params(play, submitted)
+        check(f"turn {i}: {play} params match the manifest spec exactly "
+              "(no silent drop or reclamp)",
+              cleaned is not None
+              and json.loads(json.dumps(cleaned, sort_keys=True))
+                  == json.loads(json.dumps(submitted, sort_keys=True)),
+              f"submitted {submitted} cleaned {cleaned}")
+
+# ── v10: fire_superiority's new finishRange lever (point-blank yield) ────
+check("plays registry declares finishRange for fire_superiority",
+      "finishRange" in plays.PLAYS["fire_superiority"]["params"],
+      str(plays.PLAYS["fire_superiority"]["params"]))
+
+for i, turn in enumerate(PERSONA.canned_turns, start=1):
+    fs = next((e for e in turn["call"]["entries"]
+               if e.get("play") == "fire_superiority"), None)
+    if fs is None:
+        continue
+    fr = fs["params"].get("finishRange")
+    pr = fs["params"].get("pressRange")
+    check(f"turn {i}: fire_superiority carries finishRange",
+          isinstance(fr, int), str(fs["params"]))
+    check(f"turn {i}: finishRange strictly tighter than pressRange (else "
+          "the wounded-target exception is a no-op or backwards)",
+          isinstance(fr, int) and isinstance(pr, int) and fr < pr,
+          f"finishRange {fr} pressRange {pr}")
+
+# ── v10 aggression decision, pinned so a future edit cannot silently flip
+# it: breakDeficit stays PARKED (negative sign under either glory rule --
+# a self tag-out forfeits the rest of the episode's minting whether a loss
+# banks zero or banks its own sum); woundedPct/earshot are RE-ARMED (they
+# only move press-vs-hold or where we loiter, never hold-vs-break on a
+# fight we are losing, so the win-probability downside they carry is small
+# under either rule, and Amendment 6 makes the upside larger). ───────────
+for i, turn in enumerate(PERSONA.canned_turns, start=1):
+    fs = next((e for e in turn["call"]["entries"]
+               if e.get("play") == "fire_superiority"), None)
+    if fs is not None:
+        check(f"turn {i}: breakDeficit stays PARKED at 2 (v10 decision)",
+              fs["params"].get("breakDeficit") == 2, str(fs["params"]))
+    jk = next((e for e in turn["call"]["entries"]
+               if e.get("play") == "jackal"), None)
+    if jk is not None:
+        check(f"turn {i}: jackal earshot RE-ARMED to 550 (v10 decision)",
+              jk["params"].get("earshot") == 550, str(jk["params"]))
+
+endgame_fs = next(e for e in PERSONA.canned_turns[-1]["call"]["entries"]
+                   if e["play"] == "fire_superiority")
+check("endgame woundedPct RE-ARMED to 25 (v10 decision)",
+      endgame_fs["params"].get("woundedPct") == 25, str(endgame_fs["params"]))
+
+# ── v10: partner-enabling -- bodyguard shields at half health, not a
+# quarter (peelHp 2->3), since the duo-shared OR-gate mints for both of us
+# every episode now, win or lose. ─────────────────────────────────────────
+for i, turn in enumerate(PERSONA.canned_turns, start=1):
+    for e in turn["call"]["entries"]:
+        if e.get("play") == "bodyguard":
+            check(f"turn {i}: bodyguard peelHp RAISED to 3 (v10)",
+                  e["params"].get("peelHp") == 3, str(e["params"]))
+
+# ── v10: marquee chaining -- medic's storm-dip budget tightens in the
+# endgame turn only (survival-to-close outranks the revive dip when the
+# two conflict; see policy.py's endgame medic comment). ──────────────────
+zone_reaches = [
+    (i, e["params"].get("zoneReach"))
+    for i, turn in enumerate(PERSONA.canned_turns, start=1)
+    for e in turn["call"]["entries"] if e.get("play") == "medic"
+]
+check("medic zoneReach tightens in the endgame turn (v10)",
+      bool(zone_reaches) and zone_reaches[-1][1] < zone_reaches[0][1],
+      str(zone_reaches))
 
 print()
 if failures:

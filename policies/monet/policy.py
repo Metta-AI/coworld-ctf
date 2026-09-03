@@ -354,13 +354,18 @@ PERSONA = Persona(
         "fire_superiority": ("fire_superiority is press-vs-break: count "
                              "the guns you can SEE, and treat unknown hp "
                              "as healthy -- never reason about invisible "
-                             "state. Superior means press to the FAR band "
-                             "-- a longshot tag mints 2.5x a point-blank "
-                             "one -- never a brawl; outgunned means break "
-                             "to facing cover. Keep it guarded on enemy "
-                             "contact: it is how a winning fight gets "
-                             "FINISHED instead of drawn, and a draw pays "
-                             "nobody."),
+                             "state. Superior means press -- to the FAR "
+                             "band against a fresh or full-health target "
+                             "(a longshot tag mints 2.5x a point-blank "
+                             "one; never brawl one), but ALL THE WAY IN "
+                             "(finishRange) against a target you already "
+                             "know is wounded -- the accuracy penalty up "
+                             "close is a risk against a live gun, not a "
+                             "finishing tag on someone this close to done; "
+                             "outgunned means break to facing cover. Keep "
+                             "it guarded on enemy contact: it is how a "
+                             "winning fight gets FINISHED instead of "
+                             "drawn, and a draw pays nobody."),
         "ring_walker": ("ring_walker is survival rule zero: the ring is "
                         "a schedule, not a surprise -- leave the building "
                         "BEFORE the walk turns into an escape, and only "
@@ -411,8 +416,15 @@ PERSONA = Persona(
                  "params": {"calmTicks": 48, "coverMax": 260,
                             "engageDist": 500}},
                 {"play": "bodyguard", "entry_id": "spring",
+                 # peelHp RAISED (v10) 2->3: shield the ward at half of a
+                 # 6-hp seat, not just the last quarter -- the duo-shared
+                 # OR-gate (claimAchievement, sim.nim:273-310) means a live
+                 # partner mints for BOTH of us every episode, win or lose
+                 # (Amendment 6, 774ab1d4); protecting proactively rather
+                 # than reactively is a bet that pays under either glory
+                 # rule, since it only moves WHEN we shield, never whether.
                  "params": {"leash": [110, 280], "interpose": False,
-                            "peelHp": 2}},
+                            "peelHp": 3}},
                 {"play": "supply_run", "entry_id": "bank",
                  "params": {"whenHpBelow": 3, "detourMax": 350,
                             "contested": "avoid"}},
@@ -439,7 +451,7 @@ PERSONA = Persona(
                             "engageDist": 500}},
                 {"play": "bodyguard", "entry_id": "shield",
                  "params": {"leash": [100, 200], "interpose": True,
-                            "peelHp": 2}},
+                            "peelHp": 3}},
                 {"play": "supply_run", "entry_id": "bank",
                  "params": {"whenHpBelow": 3, "detourMax": 350,
                             "contested": "avoid"}},
@@ -463,22 +475,35 @@ PERSONA = Persona(
                 {"play": "medic", "entry_id": "pickup",
                  "params": {"abortHpFloor": 1, "zoneReach": 220}},
                 {"play": "fire_superiority", "entry_id": "pressbreak",
-                 # breakDeficit PARKED at pre-aggression 2 (v13b raised it to
-                 # 3; that lever ships in its own hosted A/B, not v9 -- flip
-                 # back to 3 to re-arm, do not touch anything else here).
+                 # v10: breakDeficit STAYS PARKED at 2 -- "keep fighting
+                 # while outgunned" trades win probability for size, and a
+                 # self tag-out forfeits the rest of THIS episode's minting
+                 # under either glory rule (old hard-win-gate, or Amendment
+                 # 6's every-episode-banks -- 774ab1d4 dropping `and
+                 # playerWon` at roster.nim:1017): negative sign both ways,
+                 # so not re-armed. finishRange is NEW (v10, see
+                 # fire_superiority.nim): closes to a tight band ONLY on a
+                 # target already known wounded, aimed at the measured 3x
+                 # dPointBlankKill gap without breakDeficit's downside.
                  "params": {"breakDeficit": 2, "coverMax": 260,
-                            "engageDist": 600, "pressRange": 400,
-                            "woundedPct": 50}},
+                            "engageDist": 600, "finishRange": 140,
+                            "pressRange": 400, "woundedPct": 50}},
                 {"play": "hold_vs_gun", "entry_id": "holdgun",
                  "params": {"calmTicks": 48, "coverMax": 260,
                             "engageDist": 500}},
                 {"play": "bodyguard", "entry_id": "shield",
                  "params": {"leash": [100, 200], "interpose": True,
-                            "peelHp": 2}},
+                            "peelHp": 3}},
                 {"play": "jackal", "entry_id": "third",
-                 # earshot PARKED at pre-aggression 450 (v13b raised it to
-                 # 550 for the same unproven aggression lever -- see above).
-                 "params": {"earshot": 450, "joinWhen": "afterKill",
+                 # earshot RE-ARMED (v10) 450->550: a wider loiter net joins
+                 # more fights. Under Amendment 6 every joined fight mints
+                 # deeds in ALL ~20 episodes/round, not just the ~5 we win --
+                 # a clear gain. Under the OLD hard-win-gate rule it is still
+                 # a fair bet on its own: earshot only widens WHERE we
+                 # loiter, it does not touch exitAfter's 2-kill leash or ask
+                 # us to fight outgunned, so unlike breakDeficit it does not
+                 # trade away win probability to get there.
+                 "params": {"earshot": 550, "joinWhen": "afterKill",
                             "exitAfter": {"kills": 2}}},
                 {"play": "supply_run", "entry_id": "bank",
                  "params": {"whenHpBelow": 3, "detourMax": 250,
@@ -501,14 +526,30 @@ PERSONA = Persona(
                 {"play": "ring_walker", "entry_id": "ring",
                  "params": {"inset": 64, "leadTicks": 240}},
                 {"play": "medic", "entry_id": "pickup",
-                 "params": {"abortHpFloor": 1, "zoneReach": 220}},
+                 # zoneReach TIGHTENED (v10) 220->160 for the endgame turn
+                 # only: item-2 marquee chaining ranks "alive at Last Light"
+                 # ABOVE "partner down-then-revived" (a dead reviver forfeits
+                 # the win and every multiplier riding it, the revive
+                 # forfeits only itself) -- so the storm-dip budget shrinks
+                 # exactly where the ring bites hardest, never grows.
+                 "params": {"abortHpFloor": 1, "zoneReach": 160}},
                 {"play": "fire_superiority", "entry_id": "pressbreak",
-                 # breakDeficit/woundedPct PARKED at pre-aggression 2/34
-                 # (v13b's unproven press lever -- see the mid-turn note
-                 # above; re-arm both together when its own A/B ships).
+                 # v10: breakDeficit STAYS PARKED at 2 (see the mid-turn
+                 # note -- negative sign under either glory rule). woundedPct
+                 # RE-ARMED 34->25: presses a numerically-even endgame fight
+                 # sooner once a quarter of the field is known-wounded,
+                 # turning the measured stalled-endgame failure mode (full-
+                 # health seats decline the finish and hand the win to the
+                 # ring) into an actual finish. This only moves PRESS-vs-HOLD
+                 # on a fight already at parity, never HOLD-vs-BREAK on one
+                 # we're losing, so it is a fair bet under the OLD rule too;
+                 # Amendment 6 makes it a clearer one still (more finishes
+                 # bank in more episodes). finishRange NEW (v10), tighter
+                 # than mid's 140: fewer duos left means less flank risk
+                 # while closing on a target already known wounded.
                  "params": {"breakDeficit": 2, "coverMax": 200,
-                            "engageDist": 600, "pressRange": 340,
-                            "woundedPct": 34}},
+                            "engageDist": 600, "finishRange": 120,
+                            "pressRange": 340, "woundedPct": 25}},
                 {"play": "crossfire", "entry_id": "shape",
                  "params": {"spacing": [120, 280], "minAngle": 36}},
                 {"play": "supply_run", "entry_id": "bank",
