@@ -1076,7 +1076,9 @@
       '</div>' +
       '<div id="phud-cond" class="phud-panel">' +
       '<div class="phud-stat"><span class="phud-eyebrow">condition</span><span class="phud-num" id="phud-hp">—</span></div>' +
-      '<div class="phud-stat"><span class="phud-eyebrow">lives</span><span class="phud-num" id="phud-lv">—</span></div>' +
+      // Swap#15 item 5 (HUD-CALM): id'd so render() can hide this whole tile
+      // in BR (single-life) mode -- see that toggle's own comment for why.
+      '<div class="phud-stat" id="phud-lv-tile"><span class="phud-eyebrow">lives</span><span class="phud-num" id="phud-lv">—</span></div>' +
       // Eyebrow text only ("marker" -- Maxwell's ruling 8/30, real
       // paintball's own word for the gun): CSS uppercases it to MARKER,
       // same treatment as every other eyebrow here. The DOM ids
@@ -1104,6 +1106,7 @@
       sc: root.querySelector('#phud-sc'), rk: root.querySelector('#phud-rk'),
       scTile: root.querySelector('#phud-sc-tile'), rkTile: root.querySelector('#phud-rk-tile'),
       hp: root.querySelector('#phud-hp'), lv: root.querySelector('#phud-lv'),
+      lvTile: root.querySelector('#phud-lv-tile'),
       buffWrap: root.querySelector('#phud-buffwrap'), buffs: root.querySelector('#phud-buffs'),
       cooldown: root.querySelector('#phud-cooldown'), weaponText: root.querySelector('#phud-weapon-text'),
       mini: root.querySelector('#phud-mini'),
@@ -1705,6 +1708,18 @@
       nodes.hp.textContent = '—'; nodes.hp.className = 'phud-num';
       nodes.lv.textContent = '—';
     }
+    // Swap#15 item 5 (HUD-CALM, ORIENT C6 FAIL): wire `lives` is respawns
+    // REMAINING, which reads 0 for every LIVING single-life (BR) player —
+    // "0 left" next to a fully-populated, clearly-alive condition panel
+    // reads as "out of lives" (game over), the exact opposite of true.
+    // renderScoreboard already solved the same wire fact for the roster
+    // table (its ALIVE/SPLAT column reads off deaths, never lives) — this
+    // tile has no equivalent alternate number worth inventing, so in BR it
+    // is structurally hidden instead of lying, same idiom the score/rank
+    // tiles above already use for "a tile that can only ever read one
+    // misleading value is not an honest placeholder". CTF is untouched: its
+    // lives count is real and varies, so the tile stays exactly as it was.
+    if (nodes.lvTile) nodes.lvTile.style.display = (state.variant === 'br') ? 'none' : '';
     if (state.combat.buffs.length) {
       nodes.buffWrap.style.display = ''; nodes.buffs.textContent = state.combat.buffs.join(', ');
     } else nodes.buffWrap.style.display = 'none';
