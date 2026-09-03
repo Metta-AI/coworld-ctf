@@ -2491,6 +2491,17 @@ function handleCosmeticFx(list){
       if(window.PaintbotHUD&&typeof window.PaintbotHUD.notifyZoneEta==="function")
         window.PaintbotHUD.notifyZoneEta(e.ticks,e.shrinking===true);
     }
+    else if(e.kind==="bearing"&&typeof e.bearing==="number"){
+      // Gap-closing lane (CONTACT BEARING, swap14): server.nim only ever
+      // sends this after a genuinely quiet stretch (contactBearingFor),
+      // rate-limited to ~4s -- player_hud.js owns the minimap canvas, so
+      // this is the same explicit push bridge partner_down/zone_eta above
+      // use, rendering a quiet edge-of-minimap compass tick rather than
+      // the loud full-screen "incoming" flash (direction only, same
+      // wallhack-narrowing shape as "incoming").
+      if(window.PaintbotHUD&&typeof window.PaintbotHUD.notifyContactBearing==="function")
+        window.PaintbotHUD.notifyContactBearing(e.bearing);
+    }
     // else: an unrecognized kind is ignored, not an error -- the additive
     // contract GameConfig.allowCosmeticFx's doc comment promises.
   }
