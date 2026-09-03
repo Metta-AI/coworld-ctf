@@ -713,6 +713,11 @@
           "type": "boolean",
           "default": false
         },
+        "frameLoadoutFlags": {
+          "description": "PERCEPTION (glory-2 §17): exposes each seat's hasGun/hasHopper booleans on the replay frame (roster + first-person self/map) and grants a play its OWN duo partner's hasGun/hasHopper — never an enemy's — for intelligent HANDOFF calling. Consumers derive armed = hasGun AND hasHopper; no third field is ever emitted. Independent of every other flag. Off by default.",
+          "type": "boolean",
+          "default": false
+        },
         "variantId": {
           "description": "Self-label: the manifest variant id this game_config was published under, echoed verbatim into the realized-config stamp and the replay header so replay-only audits can name the variant without platform access. The engine only reports it.",
           "type": "string",
@@ -1312,7 +1317,8 @@
         "giveItem": true,
         "lootSpawnSeedGuns": 3,
         "lootSpawnSeedHoppers": 3,
-        "lootSpawnSeedRadius": 48
+        "lootSpawnSeedRadius": 48,
+        "frameLoadoutFlags": true
       }
     },
     {

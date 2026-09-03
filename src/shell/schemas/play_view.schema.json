@@ -220,6 +220,14 @@
           "downed": {
             "type": "boolean",
             "$comment": "LOOT(s2), br downedMode only; omit when false. On the duo-partner grant row this is the reason the row exists: a policy cannot revive a partner it cannot see is down. On an ordinary fogged enemy row it rides the same visibility as the rest of the row."
+          },
+          "has_gun": {
+            "type": "boolean",
+            "$comment": "PERCEPTION(glory-2 §17), frameLoadoutFlags only; omit when false. ONLY ever present on the duo-partner grant row (§5.2) — never on an ordinary fogged enemy row; enemy held-state is out of scope."
+          },
+          "has_hopper": {
+            "type": "boolean",
+            "$comment": "PERCEPTION(glory-2 §17), frameLoadoutFlags only; omit when false. Same duo-partner-only scope as has_gun — derive armed = has_gun AND has_hopper, there is no third field."
           }
         }
       }
@@ -243,7 +251,9 @@
               "medkit",
               "shield",
               "spray",
-              "barrier"
+              "barrier",
+              "gun",
+              "hopper"
             ]
           },
           "pos": {

@@ -2376,6 +2376,18 @@ proc killPlayer*(
   sim.players[targetIndex].ownPaintTicks = 0
   sim.players[targetIndex].paintUnder = puNone
   sim.players[targetIndex].hasBarrier = false  # carried cardboard is lost too.
+  # PERCEPTION(glory-2 §17): the death-drop clear — a looted marker/hopper
+  # is lost on a real death (this chokepoint also re-entered from
+  # finalizeDowned, so a ghost's eventual bleed-out/splat drops it too;
+  # downPlayer itself never reaches here, which is what lets the flags
+  # persist through the downed window). Gated on lootStart, never
+  # frameLoadoutFlags: this is the engine TRUTH the perception flag only
+  # exposes. Dark-inert in every other mode, where hasGun/hasHopper sit at
+  # their spawn-armed constant true and this branch never runs — the
+  # "classic emits constant true/true" contract stays intact.
+  if sim.config.lootStart:
+    sim.players[targetIndex].hasGun = false
+    sim.players[targetIndex].hasHopper = false
   sim.players[targetIndex].puddleTicks = 0
   for team in sim.teams():
     if sim.flags[team].carrier == targetIndex:

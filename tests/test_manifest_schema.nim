@@ -134,6 +134,7 @@ const SampleJson = """{
   "lootSpawnSeedRadius": {"lootSpawnSeedRadius": 48, "lootStart": true, "brMode": true},
   "gloryMultiplierRecut": {"gloryMultiplierRecut": true},
   "stampRealizedConfig": {"stampRealizedConfig": true},
+  "frameLoadoutFlags": {"frameLoadoutFlags": true},
   "variantId": {"variantId": "battle-royale-s2"},
   "allowSeatTakeover": {"allowSeatTakeover": true},
   "allowDirectAim": {"allowDirectAim": true},

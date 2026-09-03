@@ -113,6 +113,12 @@ type
       ## LOOT(s2): this seat is a frozen ghost. On the duo-partner grant row
       ## this is the reason to watch this field: revive it instead of
       ## treating it as a live threat/ally.
+    hasGun*: bool
+    hasHopper*: bool
+      ## PERCEPTION(glory-2 §17): loadout flags, granted ONLY on the
+      ## duo-partner row (never a fogged enemy row) and only while
+      ## frameLoadoutFlags is armed -- false on every other track. Derive
+      ## armed = hasGun and hasHopper; there is no separate armed field.
 
   SdkAggressor* = object
     tickPresent*: bool
@@ -137,6 +143,9 @@ type
     sikShield
     sikSpray
     sikBarrier
+    sikGun     ## PERCEPTION(glory-2 §17): the lootStart marker crate.
+               ## Appended (never inserted) -- id 5, mirrors pikGun/bikGun.
+    sikHopper  ## PERCEPTION(glory-2 §17): the lootStart hopper crate.
 
   SdkItem* = object
     kindPresent*: bool
@@ -392,6 +401,8 @@ const
   TrackHpPresentFlag = 2'u32
   TrackBountyFlag = 4'u32
   TrackDownedFlag = 8'u32
+  TrackHasGunFlag = 16'u32
+  TrackHasHopperFlag = 32'u32
   ItemPresentFieldFlag = 1'u32
   ItemPresentValueFlag = 2'u32
   AggressorSeatPresentFlag = 1'u32
@@ -922,13 +933,15 @@ proc teamFromId(id: int32): SdkTeam =
 
 proc itemFromId(id: int32): SdkItemKind =
   ## `src/shell/binary_view.nim` writes PlayItemKind ids:
-  ## grenade=0, medkit=1, shield=2, spray=3, barrier=4.
+  ## grenade=0, medkit=1, shield=2, spray=3, barrier=4, gun=5, hopper=6.
   case id
   of 0: sikGrenade
   of 1: sikMedkit
   of 2: sikShield
   of 3: sikSpray
   of 4: sikBarrier
+  of 5: sikGun
+  of 6: sikHopper
   else: sikUnknown
 
 proc rectAt(frame: BinaryFrame; offset: int32): SdkRect =
@@ -1002,6 +1015,8 @@ proc readTrack(frame: BinaryFrame; section: BinarySection;
     result.bountyPresent = true
     result.bounty = true
   result.downed = (flags and TrackDownedFlag) != 0
+  result.hasGun = (flags and TrackHasGunFlag) != 0
+  result.hasHopper = (flags and TrackHasHopperFlag) != 0
 
 proc readItem(frame: BinaryFrame; section: BinarySection;
               index: int32): SdkItem =

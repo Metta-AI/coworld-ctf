@@ -3652,7 +3652,15 @@ proc firstLightPartner(sim: SimServer, playerIndex: int): Option[PartnerSample] 
         pos: other.bodyPoint,
         aimBrads: other.aimBrads,
         alive: other.alive,
-        downed: other.downed))
+        downed: other.downed,
+        # PERCEPTION(glory-2 §17): gated on frameLoadoutFlags, never
+        # lootStart -- other.hasGun/hasHopper are the sim TRUTH in every
+        # mode (constant true/true outside lootStart); this flag controls
+        # only whether the partner grant may carry them. Dark by
+        # construction: both sit at their zero value (false) whenever the
+        # flag is off, exactly like every other perception field here.
+        hasGun: sim.config.frameLoadoutFlags and other.hasGun,
+        hasHopper: sim.config.frameLoadoutFlags and other.hasHopper))
   none(PartnerSample)
 
 proc firstLightBodyInputs(sim: var SimServer, playerIndex: int): BodyTickInputs =
@@ -3699,6 +3707,13 @@ proc firstLightBodyInputs(sim: var SimServer, playerIndex: int): BodyTickInputs 
   sight(sim.shieldSpawns, bikShield)
   sight(sim.sprayPaintSpawns, bikSpray)
   sight(sim.barrierSpawns, bikBarrier)
+  # PERCEPTION(glory-2 §17): the lootStart marker/hopper crates -- same
+  # sight() template, same fog rule as every family above. No separate
+  # gate needed: sim.weaponSpawns/hopperSpawns are themselves empty
+  # whenever lootStart is dark (resetLootCrates's own contract), so a
+  # dark game sights nothing here, identically to every other family.
+  sight(sim.weaponSpawns, bikGun)
+  sight(sim.hopperSpawns, bikHopper)
 
 proc firstLightVelocity(sim: SimServer, playerIndex: int): int =
   let player = sim.players[playerIndex]
