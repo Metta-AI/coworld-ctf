@@ -430,9 +430,29 @@
       .then(function (r) { return r.ok ? r.json() : Promise.reject(r.status); })
       .then(function (data) {
         const seats = (data && Array.isArray(data.seats)) ? data.seats : [];
+        // Swap#15 item 6: used to require state==='driving', which excludes
+        // a takeover that is still "suiting-up"/"seated-awaiting-round" --
+        // a real name IS already bound at WS-upgrade time regardless of
+        // driving state (server.nim registerTakeoverWebSocket), so a chip
+        // resolving before either side has actually started driving (a
+        // landing-page "walk on" straight into an occupied/queued seat,
+        // not a direct-takeover URL someone sat on until their cog spawned)
+        // used to have nothing here to prove teammate-ship against and fell
+        // to the anonymous codename -- not because the name was unknown,
+        // only because this filter hadn't recorded it yet. requestedSeat is
+        // also kept now: it is the one field the seat-arithmetic proof
+        // below can match on that never depends on name propagation
+        // surviving a landing-page redirect intact.
         roster.humanSeats = seats
-          .filter(function (s) { return s && s.state === 'driving' && s.name; })
-          .map(function (s) { return { seat: s.seat, name: String(s.name), x: s.cogX, y: s.cogY }; });
+          .filter(function (s) { return s && s.name; })
+          .map(function (s) {
+            return {
+              seat: s.seat, requestedSeat: s.requestedSeat, name: String(s.name),
+              driving: s.state === 'driving',
+              x: s.state === 'driving' ? s.cogX : null,
+              y: s.state === 'driving' ? s.cogY : null,
+            };
+          });
       })
       .catch(function () { /* endpoint absent (league host) -- cache stays empty, chip keeps its wire fallback */ });
     fetch(roster.url, { credentials: 'same-origin' })
