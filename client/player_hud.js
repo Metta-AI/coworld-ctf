@@ -1246,6 +1246,48 @@
         partnerPulse = null; // expired — stop drawing/checking it every frame
       }
     }
+
+    // Contact bearing pulse (gap-closing lane, CONTACT BEARING swap14) — a
+    // quiet edge-of-minimap compass tick, armed by notifyContactBearing
+    // (server.nim's "bearing" cosmetic-fx kind, sent only after ~10s with
+    // no living hostile within GunRange AND the ~4s per-seat rate limit
+    // clears — see contactBearingFor's own comment). DIRECTION ONLY: the
+    // server never tells this client a distance or a position, just a
+    // bearing, so the tick is drawn at the MINIMAP'S OWN EDGE along that
+    // heading rather than at any world coordinate — the same
+    // wallhack-narrowing shape "incoming"'s directional flash already
+    // uses, just a softer register (a still, fading arrowhead, not a
+    // full-screen radial) so an empty corridor reads as a nudge to walk
+    // somewhere, not an alarm.
+    if (bearingPulse) {
+      const now = performance.now();
+      if (now < bearingPulse.expireAt) {
+        const t = (now - bearingPulse.startAt) / BEARING_PULSE_MS;
+        // Fade in fast, hold, fade out — an envelope so this reads as one
+        // beat rather than a linear sweep (same shape a single pulse of
+        // "felt pressure" should have, not a ramping alarm).
+        const alpha = t < 0.15 ? (t / 0.15) : (t > 0.6 ? Math.max(0, 1 - (t - 0.6) / 0.4) : 1);
+        const a = bearingPulse.bearing * Math.PI / (AIM_BRADS_TURN / 2), ux = Math.cos(a), uy = -Math.sin(a);
+        const cxm = w / 2, cym = h / 2, margin = 3;
+        let edgeT = Infinity;
+        if (Math.abs(ux) > 1e-6) edgeT = Math.min(edgeT, (cxm - margin) / Math.abs(ux));
+        if (Math.abs(uy) > 1e-6) edgeT = Math.min(edgeT, (cym - margin) / Math.abs(uy));
+        if (!isFinite(edgeT)) edgeT = Math.min(cxm, cym) - margin;
+        const tickX = cxm + ux * edgeT, tickY = cym + uy * edgeT;
+        ctx.save();
+        ctx.globalAlpha = alpha * 0.92;
+        ctx.translate(tickX, tickY);
+        ctx.rotate(Math.atan2(uy, ux));
+        ctx.beginPath();
+        ctx.moveTo(6, 0); ctx.lineTo(-4.5, 3.6); ctx.lineTo(-4.5, -3.6); ctx.closePath();
+        ctx.fillStyle = 'rgba(255,255,255,.88)';
+        ctx.fill();
+        ctx.strokeStyle = 'rgba(0,0,0,.55)'; ctx.lineWidth = 0.8; ctx.stroke();
+        ctx.restore();
+      } else {
+        bearingPulse = null; // expired — stop drawing/checking it every frame
+      }
+    }
   }
 
   // ---------------------------------------------------------------------
@@ -1532,8 +1574,16 @@
   const PARTNER_PULSE_MS = 1800;
   const ZONE_TICKS_PER_SEC = 24; // sim_types.TargetFps — the same tick rate zoneTicksToNextEvent's ticks are counted in.
   const ZONE_WARN_MARGIN_PX = 60; // deliberately generous "starting to close" margin, not a precise measurement — enough to read as a rising warning before the ring actually bites.
+  // Gap-closing lane (CONTACT BEARING, swap14): AIM_BRADS_TURN mirrors
+  // sim_types.AimBradsTurn (256 brads/turn) the same way ZONE_TICKS_PER_SEC
+  // above mirrors TargetFps — this module has no shared-constants import,
+  // so the brads-to-screen-vector conversion (identical formula to
+  // triggerIncomingFlash in player_client.html) needs its own local copy.
+  const AIM_BRADS_TURN = 256;
+  const BEARING_PULSE_MS = 2200; // comfortably under the server's ~4s per-seat cooldown, so pulses never overlap/stack.
   let partnerToastTimer = null;
   let partnerPulse = null;       // {startAt, expireAt, x, y, color} while the one-time minimap pulse animates
+  let bearingPulse = null;       // {startAt, expireAt, bearing} while the contact-bearing minimap-edge tick animates
   let partnerAliveThisRound = null; // null = unresolved/not-a-duo; true/false once known — S2's chip status
   let prevTeamsAliveForRearm = null; // best-effort round-boundary detector: teamsAlive can only ever DECREASE within a round (eliminated teams don't come back), so a rise means a new round started — see render()'s own use of this.
   let lastZoneEta = null;        // {ticks, shrinking, receivedAt} — S6
@@ -1706,6 +1756,17 @@
   function notifyZoneEta(ticks, shrinking) {
     lastZoneEta = { ticks: ticks, shrinking: shrinking, receivedAt: performance.now() };
   }
+
+  // Gap-closing lane (CONTACT BEARING, swap14): arms the minimap-edge
+  // compass-tick pulse. Called by player_client.html's cosmetic-fx consumer
+  // on a "bearing" packet (server.nim buildCosmeticFxPacket, computed by
+  // contactBearingFor — already quiet-threshold-gated, rate-limited, and
+  // dead/gate-suppressed server-side, so this function does no eligibility
+  // checking of its own: every call it receives is meant to display.
+  function notifyContactBearing(bearing) {
+    if (typeof bearing !== 'number') return;
+    bearingPulse = { startAt: performance.now(), expireAt: performance.now() + BEARING_PULSE_MS, bearing: bearing };
+  }
   function setStat(elm, value, didTick) {
     const tick = didTick();
     elm.textContent = fmtDash(value);
@@ -1752,5 +1813,8 @@
     // fast per-tick number this module has no independent way to scan for).
     notifyPartnerDown: function (x, y, color) { if (nodes) notifyPartnerDown(x, y, color); },
     notifyZoneEta: function (ticks, shrinking) { if (nodes) notifyZoneEta(ticks, shrinking); },
+    // Gap-closing lane (CONTACT BEARING, swap14): see notifyContactBearing's
+    // own doc comment.
+    notifyContactBearing: function (bearing) { if (nodes) notifyContactBearing(bearing); },
   };
 })();
