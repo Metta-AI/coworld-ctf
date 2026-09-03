@@ -119,7 +119,12 @@ proc defaultGameConfig*(): GameConfig =
     # key (per-flag activation, recut contract Amendment 2 §1).
     gloryMultiplierRecut: false,
     stampRealizedConfig: false,
-    variantId: ""
+    variantId: "",
+    # SPAWNLOOT: dark by default (see sim_types.nim's own field comments) —
+    # 0 seeded guns, 0 seeded hoppers, so the radius is never read.
+    lootSpawnSeedGuns: 0,
+    lootSpawnSeedHoppers: 0,
+    lootSpawnSeedRadius: 0
   )
 
 proc squadModeConfigured*(config: GameConfig): bool =
@@ -1099,6 +1104,24 @@ proc validate(config: GameConfig) =
   # of a handoff is THE duo partner, a BR fact; CTF configs cannot arm it.
   if config.giveItem and not config.brMode:
     raise newException(CtfError, "Config field giveItem requires brMode.")
+  # SPAWNLOOT: seeding an unlootable crate on a config that never places any
+  # (lootStart dark, so hasGun/hasHopper already start true) would silently
+  # place crates nobody's canFire gate ever consults — refuse it loudly
+  # instead of shipping a no-op, same "requires X" shape as every fence
+  # above.
+  if config.lootSpawnSeedGuns < 0:
+    raise newException(CtfError,
+      "Config field lootSpawnSeedGuns must not be negative.")
+  if config.lootSpawnSeedHoppers < 0:
+    raise newException(CtfError,
+      "Config field lootSpawnSeedHoppers must not be negative.")
+  if config.lootSpawnSeedRadius < 0:
+    raise newException(CtfError,
+      "Config field lootSpawnSeedRadius must not be negative.")
+  if (config.lootSpawnSeedGuns > 0 or config.lootSpawnSeedHoppers > 0) and
+      not config.lootStart:
+    raise newException(CtfError,
+      "Config fields lootSpawnSeedGuns/lootSpawnSeedHoppers require lootStart.")
 
 proc update*(config: var GameConfig, jsonText: string) =
   ## Updates a gameplay config from a JSON object.
@@ -1297,6 +1320,13 @@ proc update*(config: var GameConfig, jsonText: string) =
   node.readConfigBool("gloryMultiplierRecut", config.gloryMultiplierRecut)
   node.readConfigBool("stampRealizedConfig", config.stampRealizedConfig)
   node.readConfigString("variantId", config.variantId)
+  # SPAWNLOOT: appended reads for the appended spawn-loot-seeding fields
+  # (sim_types.nim) — same tail-append rule as everything above. Absent
+  # keys leave the dark defaults, so an existing config JSON parses to an
+  # unchanged config.
+  node.readConfigInt("lootSpawnSeedGuns", config.lootSpawnSeedGuns)
+  node.readConfigInt("lootSpawnSeedHoppers", config.lootSpawnSeedHoppers)
+  node.readConfigInt("lootSpawnSeedRadius", config.lootSpawnSeedRadius)
   config.validate()
 
 proc slotTeamText(slot: PlayerSlotConfig): string =
@@ -1663,6 +1693,18 @@ proc echoStampKeys(config: GameConfig, node: JsonNode) =
   if config.variantId.len > 0:
     node["variantId"] = %config.variantId
 
+proc echoSpawnLootSeedKeys(config: GameConfig, node: JsonNode) =
+  ## SPAWNLOOT: the spawn-cluster crate-seeding knobs, echoed only when at
+  ## least one count departs from its dark default — same byte-identity
+  ## rule as every echo above. The radius rides the counts (only echoed
+  ## alongside them, matching the "knobs ride the gate" idiom
+  ## echoDownedKeys already uses): it is also only READ while a count is
+  ## positive, so a dark echo never carries it either.
+  if config.lootSpawnSeedGuns > 0 or config.lootSpawnSeedHoppers > 0:
+    node["lootSpawnSeedGuns"] = %config.lootSpawnSeedGuns
+    node["lootSpawnSeedHoppers"] = %config.lootSpawnSeedHoppers
+    node["lootSpawnSeedRadius"] = %config.lootSpawnSeedRadius
+
 proc configJson*(config: GameConfig): string =
   ## Returns the complete replay JSON for a gameplay config: the always-
   ## present base keys, built as one object literal below, followed by one
@@ -1768,6 +1810,7 @@ proc configJson*(config: GameConfig): string =
   echoGiveItemKeys(config, node)
   echoRecutKeys(config, node)
   echoStampKeys(config, node)
+  echoSpawnLootSeedKeys(config, node)
   result = $node
 
 proc realizedConfigStampJson*(config: GameConfig): string =

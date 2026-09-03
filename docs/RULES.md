@@ -845,11 +845,11 @@ and custom configurations; empty means no rectangle, damage, or markers.
 
 ## Season 2 battle-royale loot options
 
-Six independent BR mechanisms remain available as explicit configuration
+Seven independent BR mechanisms remain available as explicit configuration
 options. Their neutral engine values preserve replay compatibility: omitted
-keys add no pickup family or hash input. `lootStart`, `downedMode` and
-`giveItem` require `brMode: true`; the published `battle-royale-s2`
-configuration arms the first two
+keys add no pickup family or hash input. `lootStart`, `downedMode`,
+`giveItem` and the spawn-loot-seeding knobs below require `brMode: true`;
+the published `battle-royale-s2` configuration arms the first two
 (`coworld_manifest_paintbot.json`'s `battle-royale-s2` variant), at their
 ruled default timing constants (`downedBleedOutTicks` 360, `downedReviveTicks`
 48, `downedEscalation` on). `giveItem` ships dark and arms only on explicit
@@ -929,6 +929,30 @@ see the flag's own bullet).
   self HUD, omniscient map entry and board roster row carry a `handoff`
   {item, progress, needed} object while armed (the progress-arc feed);
   idle and dark bytes are untouched.
+- **`lootSpawnSeedGuns`** / **`lootSpawnSeedHoppers`** (int, default `0`,
+  brMode + `lootStart` only) / **`lootSpawnSeedRadius`** (int, default `0`,
+  read only while either count above is positive) — **spawn-area loot
+  seeding** (owner-approved starter fix 2026-09-03, verbatim: "i like the
+  idea of filling spawn areas with guns and hoppers so they accidentally
+  grab it anyway"): the field's policies mostly do not route toward loot
+  (78.8% of measured BR downs were zone/environmental, from unarmed cogs),
+  so rather than teach every playbook to path to a crate, these ADD N
+  marker and M hopper crates within `lootSpawnSeedRadius` px of EVERY spawn
+  cluster (one cluster per team; a BR duo's two seats already land within
+  `SpawnShareStagger`, 24 px, of each other around one shared spawn point)
+  ON TOP of `resetLootCrates`'s own placement — the map's authored pool or
+  its grenade/med-kit fallback, which is untouched. Additive only: the
+  existing global scatter is never rewritten. Each candidate resolves
+  through `nearestWalkable`'s expanding-ring search, the same guarantee
+  every other pickup family uses, so a seeded crate can never land inside a
+  wall or an unreachable pocket. Pure integer 8-compass-direction geometry
+  (no floats/host libm — replay-determinism, same rule as arena.nim's
+  DiamondCos table), never touches `sim.rng`, so arming it cannot perturb
+  any other rng-consuming draw and re-simulating one seed always seeds the
+  same crates at the same pixels. Both seeded families stay one-shot, same
+  as the base crates (see `resetLootCrates`'s own note). LOOT ECONOMY NOTE
+  (flagged, not solved): arming this raises the total gun/hopper count on
+  the field — weigh that against fight pacing during the feel-pass.
   generate --scale N.N` (default 2.6, the doctrine giant — omitting the
   flag draws bit-identically to before) generates the field at another
   scale through the same doctrine gates, and the BR variant pins whichever
