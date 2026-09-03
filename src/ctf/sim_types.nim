@@ -839,6 +839,16 @@ const
   DownedReviveTicksDefault* = 2 * ReplayFps    ## revive channel length.
   DownedMinBleedOutTicks* = 2 * ReplayFps      ## escalation floor: however
                               ## many downs, a ghost always gets this long.
+  # ── S2 GIVE-ITEM (exchange) tunables ── read ONLY while config.giveItem
+  # is armed. Both DERIVE from the revive channel's own constants (owner
+  # spec 2026-09-02: mirror the revive channel; same source, never a
+  # separately-tuned copy), so a revive-channel retune moves both together.
+  GiveItemRange* = DownedTagRange ## px center-to-center: duo adjacency that
+                              ## advances a DECLARED handoff channel. The
+                              ## giver's exposure IS the cost, exactly as
+                              ## for a revive tag.
+  GiveChannelTicks* = DownedReviveTicksDefault ## held-adjacency ticks to
+                              ## complete a declared handoff.
   SprayPaintSpawnInset* = GrenadeSpawnInset
   SprayPaintPickupRange* = 12  ## touch radius to pick a spray can up.
   SprayPaintRespawnTicks* = 30 * ReplayFps
@@ -2416,6 +2426,95 @@ type
                         ## => the seed-deterministic draw; the winner's
                         ## spec is installed as the episode map at
                         ## resolution (sim.applyVoteWinnerMap).
+    # ── S2 GIVE-ITEM (exchange) ── appended field, same append-safety
+    # reasoning as everything above. Default false = the mechanic does not
+    # exist: declareHandoff refuses, the step-loop channel is a no-op, and
+    # the config echo carries no key (echoGiveItemKeys) — a dark game's
+    # replay config stays byte-identical to a build without this field.
+    # brMode only (validate): "duo partner" is a BR fact, so CTF configs
+    # cannot arm it.
+    giveItem*: bool     ## GIVE(s2): the play-called item-exchange gate. A
+                        ## DECLARED handoff (declareHandoff — the consent
+                        ## record; the play-calling shell is its intended
+                        ## caller) plus GiveItemRange adjacency HELD for
+                        ## GiveChannelTicks transfers the declared item
+                        ## ("gun" | "hopper" | "bandage") to the duo
+                        ## partner. No transfer of any kind without a
+                        ## declaration (owner ruling 2026-09-02: proximity
+                        ## can never imply consent — no auto-share).
+    # ── MULTIPLIER RECUT (GLORY v13) ── appended fields, same append-safety
+    # reasoning as the S2 LOOT block above: every default means "feature
+    # off", every echo is gated on departure from default
+    # (echoRecutKeys/echoStampKeys/echoVariantIdKeys, sim_config.nim), so a
+    # dark game's replay config stays byte-identical to a build without
+    # these fields. PER-FLAG ACTIVATION (recut contract AMENDMENT 2 §1):
+    # each of these is its OWN manifest game_config key, independently
+    # settable — never coupled to lootStart/downedMode or to each other.
+    gloryMultiplierRecut*: bool ## RECUT(v13): the entire pure-multiplier
+                        ## economy (glory.nim §6b — episode score =
+                        ## seed × Π(act factors) ÷ 2^FF, per the FROZEN
+                        ## 2026-09-02 contract). BOTH modes (unlike
+                        ## lootStart/downedMode it does NOT require
+                        ## brMode: CTF is repriced too). Dark = false:
+                        ## every number prices exactly as GLORY v12.
+    stampRealizedConfig*: bool ## STAMP(amendment 2 §2): emit the
+                        ## realized-config stamp {realizedBuild, flagSet,
+                        ## variantId, stampVersion} at finalize — into the
+                        ## events sink and the game-over log (engine-side
+                        ## homes; the episode-attributes API upload rides
+                        ## the league-side reporter, which owns that
+                        ## channel). Its own flag so observability stages
+                        ## independently of the economy. Dark = false.
+    variantId*: string  ## STAMP(amendment 2 §2): the manifest variant id
+                        ## this config was published under, echoed into
+                        ## the realized-config stamp. The engine only
+                        ## reports it — empty when the config predates the
+                        ## key or was hand-built.
+    # ── SPAWN LOOT SEEDING (owner-approved starter fix, 2026-09-03) ──
+    # appended fields, same append-safety reasoning as every block above.
+    # Every default is 0 = off, so a dark config places not one extra crate
+    # and the config echo carries none of these keys (echoSpawnLootSeedKeys,
+    # sim_config.nim) — byte-identical to a build without this feature.
+    # lootStart-gated (validate): seeding an unlootable crate on a config
+    # that spawns everyone already armed would be a silent no-op, so it is
+    # refused loudly instead, same "requires lootStart" shape as
+    # downedMode/giveItem require brMode.
+    lootSpawnSeedGuns*: int ## SPAWNLOOT: marker (gun) crates ADDITIONALLY
+                        ## placed within lootSpawnSeedRadius px of EVERY
+                        ## spawn cluster (one cluster per team — a BR duo's
+                        ## two seats already land within SpawnShareStagger
+                        ## of each other), on top of resetLootCrates' own
+                        ## placement (the map's authored pool or its
+                        ## grenade-point fallback), which is untouched. 0 =
+                        ## none seeded (default).
+    lootSpawnSeedHoppers*: int ## SPAWNLOOT: same as lootSpawnSeedGuns for
+                        ## hopper crates. 0 = none seeded (default).
+    lootSpawnSeedRadius*: int ## SPAWNLOOT: px radius the seeded crates
+                        ## above are scattered within around each spawn
+                        ## cluster's own anchor point. Read only while
+                        ## either seed count above is > 0. Every candidate
+                        ## still resolves through nearestWalkable's
+                        ## expanding-ring search (the same guarantee every
+                        ## other pickup family uses), so an oversized
+                        ## radius degrades to "somewhere reachable," never
+                        ## a wall/void placement.
+    # ── PERCEPTION (glory-2 §17) ── appended field, same append-safety
+    # reasoning as everything above. Default false = the exposure does not
+    # exist: rosterJson/firstPersonJson's self+map objects and the
+    # duo-partner grant carry none of the hasGun/hasHopper keys, and the
+    # echo carries no key (echoFrameLoadoutKeys) — a dark game's replay
+    # bytes stay byte-identical to a build without this field. The
+    # UNDERLYING hasGun/hasHopper engine fields (LOOT(s2), above) are
+    # unaffected either way — this flag gates PERCEPTION of them, never
+    # their gameplay truth.
+    frameLoadoutFlags*: bool ## PERCEPTION(glory-2 §17): exposes each
+                        ## seat's hasGun/hasHopper booleans on the replay
+                        ## frame (roster/self/map) and grants a play's OWN
+                        ## duo partner the same two bits (never an enemy's)
+                        ## — the measurement surface dCoverLoot needs for
+                        ## per-seat time-to-armed. Consumers derive
+                        ## armed = hasGun AND hasHopper; no third field is
+                        ## ever emitted.
 
   Player* = object
     x*, y*: int
@@ -2816,6 +2915,24 @@ type
     reviveProgress*: int ## LOOT(s2): consecutive adjacent-teammate ticks
                         ## toward downedReviveTicks; resets to 0 the tick
                         ## the tag breaks.
+    # GIVE(s2): none of the three fields below enters gameHash (the
+    # puddleTicks/hasBarrier rule) — the transfer the channel completes
+    # moves already-hashed state (hasGun/hasHopper/bandages drive hashed
+    # behavior), and the channel itself is a pure function of declared
+    # state plus already-hashed positions.
+    giveDeclItem*: string ## GIVE(s2): the declared handoff item ("gun" |
+                        ## "hopper" | "bandage"), "" = no declaration. Set
+                        ## only through declareHandoff while config.giveItem
+                        ## is armed; cleared on completion or on the
+                        ## giver's death/down.
+    giveProgress*: int  ## GIVE(s2): consecutive qualifying adjacent ticks
+                        ## toward GiveChannelTicks; resets to 0 the tick
+                        ## any channel condition breaks (interruptible by
+                        ## construction).
+    handoffs*: int      ## GIVE(s2): completed play-called handoffs GIVEN
+                        ## by this cog this episode (analysis counter —
+                        ## the deed lane's mint feed is the ItemGive event
+                        ## stream, never this counter).
 
   PlayerFov* = object
     ## One player's cached fog-of-war visibility grid (FovGridW x FovGridH
@@ -3191,6 +3308,18 @@ type
     Revived     ## LOOT(s2): a teammate's tag brought a ghost back at 1 hp.
                 ## source = the reviving teammate, target = the revived
                 ## cog, amount = the completed channel length in ticks.
+    # ── S2 GIVE-ITEM ── appended, never inserted, per this enum's own
+    # positional discipline: archived replays encoding the ordinals above
+    # keep them unchanged; this is a new tail entry.
+    ItemGive    ## GIVE(s2): a DECLARED handoff completed — the item moved
+                ## from actor to recipient (config.giveItem). source = the
+                ## giving cog (actor), target = the receiving duo partner
+                ## (recipient), item = "gun" | "hopper" | "bandage",
+                ## amount = the completed channel length in ticks, x/y =
+                ## the giver's center at completion. Auto-transfers do not
+                ## exist (owner ruling 2026-09-02: proximity can never
+                ## imply consent), so every row of this kind is a
+                ## play-called act — dHandoff's intent-clean predicate.
 
   EventDamage* = object
     ## One victim damaged by a primary impact/use event.
@@ -3609,7 +3738,40 @@ type
     # accounting -- there is no pre-glory BR recording to backfill, so the
     # rig has no BR use case; the golden fixture was re-recorded fresh in
     # the same commit that landed this increment).
-    teamGlory*: array[Team, int]      ## GLORY: the team ledger.
+    teamGlory*: array[Team, int]      ## GLORY: the team ledger. Under the
+                                      ## armed multiplier recut (v13) this
+                                      ## carries the DERIVED integer score
+                                      ## `recutScore(gloryProduct,
+                                      ## halvings)` instead of a running
+                                      ## sum, so every existing reader
+                                      ## (broadcast "glory", the banked
+                                      ## league score, the endcard) shows
+                                      ## the recut score with zero reader
+                                      ## changes. Dark: exactly the v12
+                                      ## sum, byte-identical.
+    # ── MULTIPLIER RECUT (GLORY v13) canonical armed state ── written ONLY
+    # while `config.gloryMultiplierRecut` is armed (awardDeed/
+    # claimAchievement else-branches, sim.nim) and mixed into gameHash ONLY
+    # then (sim_state.nim's guarded block), so a dark game's hash schema
+    # and trajectory are untouched — the same dark-field discipline the
+    # LOOT(s2) block established. ONE product per TEAM: in BR a team IS a
+    # duo, which is exactly the contract's "one de-duplicated product per
+    # duo, never one per seat" (§7a) — `awardDeed` is the single mint and
+    # is called once per shared fact; both seats read the same value.
+    gloryProduct*: array[Team, int64] ## RECUT: Π(event factors), seed 1.
+    gloryFfIncidents*: array[Team, int] ## RECUT: `dTeamKill` incidents
+                               ## this game; halvings derive per mode via
+                               ## `recutFfHalvings` (BR ÷2/incident, CTF
+                               ## ÷2 per two).
+    recutDamageMarks*: seq[seq[tuple[attacker: int, tick: int]]]
+                               ## RECUT: per-VICTIM damager history (the
+                               ## dJointAct incident window, 120t) feeding
+                               ## the Fibonacci stack's k at the kill
+                               ## site. Armed-only maintained; derived
+                               ## deterministically from the damage stream
+                               ## (re-simulates identically), so it stays
+                               ## OUT of gameHash — the product it feeds
+                               ## is hashed, which is the causal surface.
     heatEmbers*: array[Team, int]     ## GLORY: rampage embers -> the heat
                                       ## multiplier.
     heatLastDeed*: array[Team, int]   ## GLORY: tick of the team's latest

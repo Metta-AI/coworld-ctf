@@ -11,6 +11,7 @@ import
   test_glory_fx_wire,
   test_grenades,
   test_handicaps,
+  test_handoff_declaration,
   test_identity_badges,
   test_label_contract,
   test_live_broadcast_chrome,

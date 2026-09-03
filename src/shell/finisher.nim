@@ -75,6 +75,7 @@ proc writeIntent*(w: var CanonicalWriter, intent: Intent) =
   assert intent.arriveRadius >= 0.0
   assert intent.reason.len <= IntentReasonMaxBytes
   assert (intent.kind == ikNavigateTo) == intent.point.isSome
+  assert intent.handoff.len == 0 or intent.handoff in HandoffItems
   if intent.idleAimCenterBrads.isSome:
     assert intent.idleAimCenterBrads.get in 0 .. 255
 
@@ -85,6 +86,8 @@ proc writeIntent*(w: var CanonicalWriter, intent: Intent) =
   if not intent.combat.combatPolicyEmpty:
     w.key("combat")
     w.writeCombatPolicy(intent.combat)
+  if intent.handoff.len > 0:
+    w.field("handoff", intent.handoff)
   if intent.idleAimCenterBrads.isSome:
     w.field("idle_aim_center_brads", int64(intent.idleAimCenterBrads.get))
   w.field("kind", intent.kind.wireName)

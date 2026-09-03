@@ -177,6 +177,12 @@ suite "global_plus_pov's bundle carries the composited control path":
     check "if (!s.beats || isElim(s) || isFlagless(s) || PB_MODE) return;" in bundle
     check "ingestBeats(heartGatedBeats(s));" in bundle
     check "function heartGatedBeats(s)" in bundle
+    # Episode-transition reset (owner hotfix 2026-09-02): this live page
+    # must reset every once-per-match latch when broadcast_core reconnects
+    # it to the next episode's stream, same as replay_broadcast.html.
+    check "if (streamsOpened > 1) resetEpisodeChrome();" in bundle
+    check "function resetEpisodeChrome()" in bundle
+    check "C.resetEpisode();" in bundle
 
   test "a reconnect re-arms the requested POV slot instead of settling into board mode":
     # broadcast_core.js retries the socket itself after a drop, but a fresh

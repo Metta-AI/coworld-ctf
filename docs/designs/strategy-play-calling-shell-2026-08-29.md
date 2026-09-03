@@ -384,6 +384,21 @@ retained, replaced, or deleted:
 | `suppressFireFreeze: bool` | retained |
 | `reason: string` | retained; telemetry only, capped at 64 bytes |
 
+**Amendment (owner-specced, 2026-09-02/03 — the S2 give-item exchange):**
+one optional field, `handoff` (`"gun" | "hopper" | "bandage"`, omitted when
+absent), the STANDING give-item declaration. Valid only in mode `br` —
+it is a duo fact, rejected elsewhere exactly like `duo:` seat references.
+The target is deliberately not a field: it is always the duo partner,
+resolved by the engine at execution through the `sim.declareHandoff`
+consent seam (the engine half landed in PR #379; the 0x10 play-call
+record remains the attribution record, and the sim-applied declaration
+rides the replay chat stream the way the policy-page reflash does).
+The neutral value is omitted, so every pre-amendment intent encodes
+byte-identically; per the strictness rule of Appendix P.1 a
+pre-amendment engine rejects a non-neutral `handoff` loudly by name.
+Movement semantics are untouched — the declaration rides the standing
+order and the body's mask stream stays the determinism artifact.
+
 One field is added, the combat policy:
 
 ```nim

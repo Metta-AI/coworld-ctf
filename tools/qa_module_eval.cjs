@@ -81,6 +81,9 @@ function windowContext() {
   };
   win.window = win;
   win.self = win;
+  // A top-level window: the shell's Observatory bridge posts only when
+  // window.parent !== window, so this stays silent here.
+  win.parent = win;
   const doc = {
     currentScript: { src: 'http://localhost/static_replay.js' },
     documentElement: { setAttribute: noop, style: {} },

@@ -25,6 +25,7 @@ const FixtureDir = "tests" / "fixtures" / "shell"
 
 const GoldenFiles = [
   "intent.golden.json", "intent_safe_hold.golden.json",
+  "intent_handoff.golden.json",
   "combat_policy.golden.json",
   "status_module_accepted.golden.json", "status_module_ready.golden.json",
   "status_module_rejected.golden.json", "status_call_accepted.golden.json",
@@ -44,6 +45,7 @@ const SchemaDir = "src" / "shell" / "schemas"
 const GoldenSchemas = {
   "intent.golden.json": "intent.schema.json",
   "intent_safe_hold.golden.json": "intent.schema.json",
+  "intent_handoff.golden.json": "intent.schema.json",
   "combat_policy.golden.json": "combat_policy.schema.json",
   "status_module_accepted.golden.json": "status_entry.schema.json",
   "status_module_ready.golden.json": "status_entry.schema.json",

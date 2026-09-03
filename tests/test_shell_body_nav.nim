@@ -624,6 +624,60 @@ suite "shell body seat navigation":
     check newBodyNavSystem(map, 16, 331).planBudgetPerTick ==
       16 * ColdPlanBudgetPerTick
 
+  test "plan budget events report suspensions and the visits to clear them":
+    ## Operator logging (FIRST_LIGHT_PLAN_BUDGET): a plan that needs more
+    ## than one visit produces one suspended event per starved visit and a
+    ## final completed event carrying the total visit count. Nothing is
+    ## recorded for a plan that fits its first visit, and nothing for a
+    ## prewarm pass, which has no tick to join against.
+    let map = newBodyMap(mapFromSpecJson(
+      readFile("tests/fixtures/br-golden-map.json")))
+    let start: BodyPoint = (16, 16)
+    let far = map.validateGoal((3194, 1696), start).get
+    let system = newBodyNavSystem(map, 1, 331)
+    system.replacePlan(0, 1, start, far)
+    var events: seq[PlanBudgetEvent]
+    var tick = 0
+    while system.seats[0].job.planPending:
+      discard system.runPlanningTick(tick)
+      events.add system.drainPlanBudgetEvents()
+      inc tick
+      doAssert tick < 100_000
+    check tick > 1
+    check system.drainPlanBudgetEvents().len == 0
+    check events.len == tick
+    for index in 0 ..< tick - 1:
+      check events[index].outcome == pboSuspended
+      check events[index].tick == index
+      check events[index].seat == 0
+      check events[index].revision == 1'u64
+      check events[index].visits == index + 1
+    check events[^1].outcome == pboCompleted
+    check events[^1].visits == tick
+    check system.pendingPlanCount == 0
+    check not system.seats[0].followingStalePath
+    check not system.seats[0].hasNoPath
+
+    # A new request keeps the loaded route until its own plan lands, and the
+    # follower reports that it is walking a stale one meanwhile.
+    let next = map.validateGoal((3194, 1600), start).get
+    system.replacePlan(0, 2, start, next)
+    check system.pendingPlanCount == 1
+    check system.seats[0].followingStalePath
+    check not system.seats[0].hasNoPath
+
+    # Silent when the plan fits one visit, and silent under prewarm.
+    let near = map.validateGoal((48, 16), start).get
+    let quick = newBodyNavSystem(map, 1, 331)
+    quick.replacePlan(0, 1, start, near)
+    discard quick.runPlanningTick(0)
+    check not quick.seats[0].job.planPending
+    check quick.drainPlanBudgetEvents().len == 0
+    let warmed = newBodyNavSystem(map, 1, 331)
+    warmed.replacePlan(0, 1, start, far)
+    warmed.prewarmColdPlans()
+    check warmed.drainPlanBudgetEvents().len == 0
+
   test "a cancelled plan is re-requested instead of following the stale path":
     ## Round 3633: the zone reflex re-installs its goal a few pixels over as
     ## the cog advances; setStandingIntent cancels the pending plan, the

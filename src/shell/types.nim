@@ -93,6 +93,16 @@ type
     suppressFireFreeze*: bool
     reason*: string            ## telemetry only, at most IntentReasonMaxBytes
     combat*: CombatPolicy
+    handoff*: string           ## §4.1 amendment (owner spec 2026-09-02): the
+                               ## STANDING give-item declaration — "" (neutral,
+                               ## omitted) or one of HandoffItems. gmBr only
+                               ## (a duo fact, rejected elsewhere like duo
+                               ## refs). The target is NOT a field: it is
+                               ## always THE duo partner, resolved by the
+                               ## engine at execution (sim.declareHandoff, the
+                               ## consent seam). While the standing order
+                               ## carries it the engine keeps the declaration
+                               ## current; movement semantics are untouched.
 
   # ── §4.3: play-seat socket lifecycle and instance states ──────────────
   PlaySeatSocketState* = enum
@@ -323,6 +333,10 @@ const
   LobbyChatMaxPerSeatPerPhase* = 16
   LobbyChatMinSpacingTicks* = 24
   IntentReasonMaxBytes* = 64
+  HandoffItems* = ["bandage", "gun", "hopper"]
+    ## §4.1 amendment: the closed give-item vocabulary of the Intent's
+    ## `handoff` field — the exact strings sim.declareHandoff accepts (the
+    ## engine seam is the authority; this list mirrors it for validation).
 
   # The five config fields' defaults and ranges (ViewIntervalTicks*,
   # LobbyChatTicks*, PlaySeatBindTicks*) live in ctf/sim_types.nim beside

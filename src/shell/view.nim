@@ -80,6 +80,14 @@ type
       ## the duo-partner grant row (playViewSourceFromBody) it is the
       ## deliberate reason this field exists at all -- a policy cannot
       ## revive a partner it cannot see is down.
+    hasGun*: bool
+    hasHopper*: bool
+      ## PERCEPTION(glory-2 §17): loadout flags. ONLY ever populated on the
+      ## duo-partner grant row (playViewSourceFromBody, same block that
+      ## sets `downed` on that row) -- the ordinary fogged-enemy-track
+      ## constructor never sets these, so they stay at their zero value
+      ## (false) for every enemy row by construction. Enemy held-state is
+      ## deliberately out of scope; do not wire these into the enemy path.
 
   PlayItemKind* = enum
     pikGrenade
@@ -87,6 +95,9 @@ type
     pikShield
     pikSpray
     pikBarrier
+    pikGun     ## PERCEPTION(glory-2 §17): the lootStart marker crate.
+               ## Appended (never inserted) -- mirrors bikGun/sikGun.
+    pikHopper  ## PERCEPTION(glory-2 §17): the lootStart hopper crate.
 
   PlayItem* = object
     eventId*: uint64
@@ -262,6 +273,8 @@ proc itemName(kind: PlayItemKind): string {.inline.} =
   of pikShield: "shield"
   of pikSpray: "spray"
   of pikBarrier: "barrier"
+  of pikGun: "gun"
+  of pikHopper: "hopper"
 
 proc writePoint(w: var CanonicalWriter, point: PlayPoint) =
   w.beginArray()
@@ -363,6 +376,10 @@ proc writeJson*(w: var CanonicalWriter, value: PlayTrack) =
   if value.downed:
     w.field("downed", true)
   w.field("fresh_tick", int64(value.freshTick))
+  if value.hasGun:
+    w.field("has_gun", true)
+  if value.hasHopper:
+    w.field("has_hopper", true)
   if value.hp.isSome:
     w.field("hp", int64(value.hp.get))
   w.key("pos")
@@ -967,6 +984,8 @@ proc toPlayItemKind(kind: BodyItemKind): PlayItemKind =
   of bikShield: pikShield
   of bikSpray: pikSpray
   of bikBarrier: pikBarrier
+  of bikGun: pikGun
+  of bikHopper: pikHopper
 
 proc toPlaySprayHazard(hazard: BodySprayHazard): PlaySprayHazard =
   case hazard.kind
@@ -1016,13 +1035,17 @@ proc playViewSourceFromBody*(body: SeatBody, tick: uint32, mode: GameMode,
   # from `visibleTracks` at the seam, src/ctf/server.nim
   # firstLightBodyInputs), so this is the only place a partner row can come
   # from. `downed` is why this row exists for LOOT(s2): a policy cannot
-  # revive a partner it cannot see is down.
+  # revive a partner it cannot see is down. `hasGun`/`hasHopper` ride the
+  # same grant (PERCEPTION, glory-2 §17) -- already gated to false at the
+  # source (src/ctf/server.nim firstLightPartner) whenever
+  # frameLoadoutFlags is dark, so this row needs no gate of its own.
   let partner = body.partnerTelemetry()
   if partner.isSome:
     let grant = partner.get
     result.tracks.add(PlayTrack(seat: grant.seat.int, team: grant.team,
       pos: grant.pos, aimBrads: some(grant.aimBrads), hp: none(int),
-      freshTick: tick, bounty: false, downed: grant.downed))
+      freshTick: tick, bounty: false, downed: grant.downed,
+      hasGun: grant.hasGun, hasHopper: grant.hasHopper))
   for item in body.items:
     result.items.add(PlayItem(eventId: item.eventId,
       kind: item.kind.toPlayItemKind, pos: item.pos,

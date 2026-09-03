@@ -90,6 +90,7 @@ type
     lastPlanTick*: int
     followReplans*: int
     followStuckEvents*: int
+    planVisits*: int   ## planning visits spent on the current revision
 
   PlanningVisit* = object
     tick*: int
@@ -110,6 +111,24 @@ type
     seat*: int
     sourceCount*: int
 
+  PlanBudgetOutcome* = enum
+    pboSuspended   ## the pooled budget ran out with this plan still pending
+    pboCompleted   ## a plan that needed more than one visit finally landed
+    pboFailed      ## a plan that needed more than one visit finally failed
+
+  PlanBudgetEvent* = object
+    ## One operator-visible cold-planning budget event (always-on, unlike the
+    ## capacity-gated traces above). A plan that fits its first visit produces
+    ## no event; every suspension does, and so does the visit that finally
+    ## resolves a plan which was suspended at least once, so the log shows
+    ## both the stall and how many visits (retries) it took to clear.
+    tick*: int
+    seat*: int
+    revision*: uint64
+    visits*: int       ## planning visits spent on this revision so far
+    units*: int        ## work units spent on this visit
+    outcome*: PlanBudgetOutcome
+
   BodyNavSystem* = ref object
     map*: BodyMap
     seats*: seq[BodyNavSeat]
@@ -123,6 +142,7 @@ type
     planningTraceLen: int
     mintTraceLen: int
     dangerTraceLen: int
+    planBudgetEvents: seq[PlanBudgetEvent]  ## drained by the episode each tick
 
 proc pyRound(value: float): int =
   let lower = floor(value).int
@@ -235,6 +255,37 @@ proc recordMint(system: BodyNavSystem, value: MintVisit) {.inline.} =
   if system.mintTraceLen < system.mintTrace.len:
     system.mintTrace[system.mintTraceLen] = value
     inc system.mintTraceLen
+
+proc recordPlanBudget(system: BodyNavSystem, tick: int, seat: BodyNavSeat,
+                      revision: uint64, units: int) =
+  ## Called after every planning visit. Prewarm passes (tick < 0) are silent:
+  ## they run before the match and have no tick to join against.
+  if tick < 0:
+    return
+  var outcome: PlanBudgetOutcome
+  if seat.job.planPending:
+    outcome = pboSuspended
+  elif seat.planVisits > 1:
+    outcome = if seat.job.planSucceeded: pboCompleted else: pboFailed
+  else:
+    return
+  system.planBudgetEvents.add(PlanBudgetEvent(tick: tick, seat: seat.index,
+    revision: revision, visits: seat.planVisits, units: units,
+    outcome: outcome))
+
+proc drainPlanBudgetEvents*(system: BodyNavSystem): seq[PlanBudgetEvent] =
+  ## Hands the events recorded since the last drain to the caller (the
+  ## episode, once per tick) and clears them.
+  result = move(system.planBudgetEvents)
+  system.planBudgetEvents = @[]
+
+proc followingStalePath*(seat: BodyNavSeat): bool =
+  ## True while the follower walks a route planned for an earlier request
+  ## because the current request's plan has not landed yet.
+  seat.pathLen > 0 and seat.pathRevision != seat.revision
+
+proc hasNoPath*(seat: BodyNavSeat): bool =
+  seat.pathLen == 0
 
 proc planningTraceSnapshot*(system: BodyNavSystem): seq[PlanningVisit] =
   result = newSeq[PlanningVisit](system.planningTraceLen)
@@ -474,6 +525,7 @@ proc replacePlan*(system: BodyNavSystem, seatIndex: int, revision: uint64,
   seat.desiredProfile = profile
   seat.planner.startPlan(seat.cache, seat.job, revision, selfXy,
     goal, profile, avoid)
+  seat.planVisits = 0
   seat.enqueueMint(goal.goalPoint, revision)
 
 proc installCompletedPath(seat: BodyNavSeat) =
@@ -489,6 +541,12 @@ proc hasPendingPlan(system: BodyNavSystem): bool =
   for seat in system.seats:
     if seat.job.planPending:
       return true
+
+proc pendingPlanCount*(system: BodyNavSystem): int =
+  ## Seats whose cold plan is still computing at the end of the tick.
+  for seat in system.seats:
+    if seat.job.planPending:
+      inc result
 
 proc hasPendingMint*(system: BodyNavSystem): bool =
   for seat in system.seats:
@@ -525,8 +583,10 @@ proc runPlanningWork(system: BodyNavSystem, tick, budgetLimit: int,
       let revision = seat.job.revision
       let units = seat.planner.stepPlan(seat.cache, seat.danger, seat.job, budget)
       system.lastPlanSeat = index
+      inc seat.planVisits
       system.recordPlanning(PlanningVisit(tick: tick, seat: index,
         revision: revision, units: units, completed: seat.job.planFinished))
+      system.recordPlanBudget(tick, seat, revision, units)
       if seat.job.planSucceeded:
         seat.installCompletedPath()
       if budget == 0:

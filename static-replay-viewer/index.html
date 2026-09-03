@@ -74,6 +74,9 @@ html, body {
 
 #stage {
   position: relative;
+  /* A flex item now (the side lanes flank it): never let the px size
+     relayout() computes be squeezed by the lane columns. */
+  flex: none;
   /* width/height are set in px by relayout() to the board's native aspect
      (1235:659) fitted into #viewport; the canvas fills it exactly (matching
      aspect → no internal letterbox) and all chrome is pinned in this space. */
@@ -290,39 +293,36 @@ html, body {
   min-width: 0;
   transition: opacity 300ms ease, filter 300ms ease;
 }
-.br-cell-swatch {
-  width: calc(9 * var(--u));
-  height: calc(9 * var(--u));
-  border-radius: calc(2 * var(--u));
+/* PLAYER IDENTITY SCOREBUG (2026-09-02, owner's direction: "the life
+   squares can stack vertically and have the name to the right or
+   something" — supersedes v3's single team-name text). Each cell is now
+   a vertical member stack + glory: one row per seated MEMBER, that cog's
+   own life square with its seat/policy name to the right — both duo
+   members named (seats k and k+16, the engine's teamForSlot mirror), a
+   solo seat one row, a filler seat named as the wire seats it.
+   The palette stays the primary key (--cellcol on every member square);
+   names ride small/secondary and truncate by brShortIdent (leading
+   namespace segments cut, the distinctive tail kept) + CSS ellipsis, one
+   rule for all 16 chips. A member's row dims (.dead) while that cog is
+   down; the whole cell still only grays (.out, below) when ALL members
+   are out, the same lives<=0 ledger signal as before.
+   2026-09-03 (owner): the cell's separate big `.br-cell-swatch` plate —
+   redundant with the member squares, which already wear the same
+   `--cellcol` — is REMOVED; the member squares are the only swatches a
+   cell draws now. */
+.br-cell-members {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: calc(1.5 * var(--u));
+  min-width: 0;
   flex: none;
-  box-shadow: inset 0 0 0 calc(1 * var(--u)) rgba(0, 0, 0, 0.45);
 }
-.br-cell-name {
-  font-family: var(--pixfont);
-  font-size: calc(7.5 * var(--u));
-  letter-spacing: 0.2px;
-  color: var(--paper-dim);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  max-width: calc(38 * var(--u));
-  flex: none;
-}
-/* GLORY SCOREBUG v3 (2026-09-01, Maxwell's ruling — duos are TEAMS): "one
-   team name with two squares for lives next to it", never repeat a team.
-   One small square per MEMBER rides beside the name — two for an s2 duo
-   (seats k and k+16, the engine's teamForSlot mirror), one for a solo BR
-   seat — and each square is that cog's own life light: lit in the team's
-   palette while the cog stands, dimmed (.dead) once it is down. One
-   palette per team (squares wear the cell's --cellcol, same color as the
-   swatch — never a per-seat color); the whole cell only grays (.out,
-   below) when ALL members are out, the same lives<=0 ledger signal as
-   before. */
-.br-cell-lives {
+.br-cell-member {
   display: flex;
   align-items: center;
-  gap: calc(2 * var(--u));
-  flex: none;
+  gap: calc(3 * var(--u));
+  min-width: 0;
 }
 .br-cell-life {
   width: calc(5 * var(--u));
@@ -331,8 +331,20 @@ html, body {
   background: var(--cellcol, var(--paper-dim));
   box-shadow: inset 0 0 0 calc(0.75 * var(--u)) rgba(0, 0, 0, 0.45);
   transition: opacity 300ms ease;
+  flex: none;
 }
-.br-cell-life.dead { opacity: 0.22; }
+.br-cell-mname {
+  font-family: var(--pixfont);
+  font-size: calc(7 * var(--u));
+  letter-spacing: 0.2px;
+  color: var(--paper-dim);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: calc(58 * var(--u));
+}
+.br-cell-member.dead .br-cell-life { opacity: 0.22; }
+.br-cell-member.dead .br-cell-mname { opacity: 0.45; }
 /* The prominent figure in the cell — glory is still the score, just one
    per team now instead of one for the whole bar (Maxwell: show all 16). */
 .br-cell-glory {
@@ -1098,6 +1110,143 @@ body.commswide.act-huddle #commsdock {
   background: linear-gradient(180deg, rgba(36, 26, 18, 0.9), rgba(22, 15, 9, 0.8));
 }
 
+/* ---------- 1d. SIDE-LANE HUD (owner spec 2026-09-02) ----------
+   "use the full left lane letterbox space to put the names and scorebug and
+   chat and everything." When the fitted board leaves a REAL pillarbox column
+   on BOTH flanks (>= 300 free px a side, measured the way the docked layout
+   will actually sit — scorebug out of the top band), relayout() sets
+   body.sidelanes and dockLanes() MOVES the overlay chrome into the dead
+   bands: LEFT rail = identity (clock, the scorebug roster, the comms/huddle
+   feed), RIGHT rail (tier 2, .sidelanes-both, when both flanks are wide) =
+   live surfaces (view instrument, kill feed). The board gets the whole
+   frame height back (--topband collapses to 0) and nothing floats over
+   play that has a rail to live in. Narrow boxes keep today's centered
+   stage + overlay chrome unchanged — dockLanes restores every element to
+   its exact home slot. The rails are designed columns: type + whitespace
+   on the warm letterbox tone, never a stack of boxed widgets. See
+   relayout() for the two-tier geometry decision. */
+#lane-l, #lane-r {
+  display: none;
+  flex-direction: column;
+  min-width: 0;
+  align-self: stretch;
+}
+/* Plain comms-wide (no side lanes): the left lane is a transparent shell
+   around #commsdock, so the pre-lane presentation is intact. */
+body.commswide #lane-l { display: flex; flex: 1 1 auto; }
+#lane-l #commsdock { min-height: 0; }
+/* Tier 1: the left rail alone takes ALL the letterbox (stage docks right,
+   "use the full left lane letterbox space"). Tier 2 adds the right rail;
+   the two 1-1-0 columns then split the leftover evenly, which is exactly
+   what re-centers the stage. */
+body.sidelanes #lane-l {
+  display: flex;
+  flex: 1 1 0;
+  padding: calc(14 * var(--u)) calc(16 * var(--u));
+  gap: calc(12 * var(--u));
+  overflow: hidden;
+}
+body.sidelanes-both #lane-r {
+  display: flex;
+  flex: 1 1 0;
+  padding: calc(14 * var(--u)) calc(16 * var(--u));
+  gap: calc(12 * var(--u));
+  overflow: hidden;
+}
+body.sidelanes #viewport { justify-content: center; }
+
+/* LEFT RAIL — identity. The scorebug keeps its DOM (plates, cells and
+   everything inside them stay the scorebug component's own business — the
+   endcard-player-names lane owns those internals); the rail only re-flows
+   the component: clock on top, every team below it in ONE readable column
+   at the full local unit (the top band's 0.8 shrink bought room the rail
+   already has). */
+body.sidelanes #scorebug {
+  position: static;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: calc(12 * var(--u));
+  --u: calc(1px * var(--hudscale));
+  padding: 0;
+  background: none;
+  box-shadow: none;
+  flex: none;
+  min-height: 0;
+}
+body.sidelanes #scorebug .clock-col { order: -1; }
+body.sidelanes #scorebug .plates,
+body.sidelanes #scorebug .plates.row {
+  flex-direction: column;
+  align-items: stretch;
+  gap: calc(7 * var(--u));
+}
+/* BR (16 teams): the two 8-cell bands become one continuous roster column. */
+body.sidelanes #scorebug .br-cellband {
+  flex-direction: column;
+  flex-wrap: nowrap;
+  align-items: stretch;
+  justify-content: flex-start;
+  height: auto;
+  gap: calc(4 * var(--u));
+}
+body.sidelanes #scorebug .br-cell { width: 100%; }
+body.sidelanes #scorebug .br-cell-name { max-width: none; }
+/* owner: "life squares stack vertically, name to the right" — pure re-flow
+   (order/direction only); what the cells render is untouched. The glory
+   numeral rides the rail's right edge so the column reads as a ledger. */
+body.sidelanes #scorebug .br-cell-lives { order: -1; flex-direction: column; }
+body.sidelanes #scorebug .br-cell-glory { margin-left: auto; }
+/* In the top band the two plate tracks flank a center clock, so the right
+   track mirrors (.side-r row-reverse). Stacked in one rail there is no
+   center to flank: every plate reads in the LEFT track's direction. */
+body.sidelanes #scorebug .plate.side-r { flex-direction: row; text-align: left; }
+body.sidelanes #scorebug .plate.side-r .lives-line { flex-direction: row-reverse; }
+body.sidelanes #scorebug .plate.side-r .glory-line { flex-direction: row-reverse; }
+/* The comms/huddle surface fills the rest of the rail. The chat column
+   belongs here even when nobody spoke (owner spec) — relayout() opens the
+   dock in sidelanes regardless of comms, and the :empty state names the
+   silence instead of showing a bare hole. */
+body.sidelanes #commsdock {
+  display: flex;
+  background: none;
+  padding: 0;
+  flex: 1 1 auto;
+  min-height: 0;
+}
+.cd-empty {
+  display: none;
+  color: var(--ghost);
+  font-family: var(--pixfont);
+  font-size: calc(8.5 * var(--u));
+  letter-spacing: 0.08em;
+  line-height: 1.7;
+}
+#commsFeed:empty + .cd-empty { display: block; }
+/* An empty feed must not flex-grow, or the quiet-lobby line lands at the
+   rail's far bottom instead of under its own COMMS head. */
+#commsFeed:empty { flex: 0 0 auto; }
+
+/* RIGHT RAIL (tier 2 only — .sidelanes-both): live surfaces. The view
+   instrument (zoom + minimap) docks on top at the rail's width; the kill
+   feed takes the remaining height, newest row lowest (its own
+   column-reverse), rows anchored toward the board they narrate. In the
+   single-rail tier these keep their classic overlay positions. */
+body.sidelanes-both #viewpanel {
+  position: static;
+  flex: none;
+  align-items: stretch;
+  --viewpanel-w: 100%;
+}
+body.sidelanes-both #killfeed {
+  position: static;
+  width: auto;
+  min-height: 0;
+  flex: 1 1 auto;
+  align-items: flex-start;
+  overflow: hidden;
+}
+
 /* ---------- 2. KILL FEED ---------- */
 #killfeed {
   position: absolute;
@@ -1810,7 +1959,11 @@ body.commswide.act-huddle #commsdock {
   flex-wrap: nowrap;
   gap: calc(10 * var(--u));
   width: 100%;
-  max-width: calc(360 * var(--u));
+  /* 360u predates the player-identity rows (2026-09-02): with both duo
+     members named beside the palette label, the name track needs the
+     extra ~70u or the second member vanishes into the ellipsis on real
+     ladder name lengths. Still comfortably inside a 16:9 board. */
+  max-width: calc(430 * var(--u));
   /* The glory-first hero is taller than the old two-line hero; 52% forced
      an internal scroll on a plain 16:9 board. */
   max-height: 62%;
@@ -1833,6 +1986,25 @@ body.commswide.act-huddle #commsdock {
   font-size: calc(10.5 * var(--u));
   color: var(--paper-dim);
 }
+/* PLAYER IDENTITY (2026-09-02, owner's ruling: "naming the color that won
+   alone is pointless! you have to name the players too"): the winning
+   team's seat/policy names, one secondary line directly under the color
+   headline. Palette stays the primary key (the map-reading key); the
+   names ride the mvp-line's type scale in paper so they read as identity,
+   not as another glory callout. Empty (hidden) whenever the headline
+   already IS the identity (a single shared policy resolved by
+   brTeamLabel) or the roster carries none. */
+#endcard .ec-hero-duo {
+  font-family: var(--pixfont);
+  font-size: calc(11 * var(--u));
+  letter-spacing: 0.03em;
+  color: var(--paper);
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+#endcard .ec-hero-duo:empty { display: none; }
 /* GLORY-FIRST ENDCARD (2026-09-01, owner's ruling: "the win slide at the
    end doesn't even highlight how much glory the win was worth, the most
    important thing!"). The winner's round glory total is THE number on the
@@ -1940,6 +2112,25 @@ body.commswide.act-huddle #commsdock {
   letter-spacing: 0.06em;
   color: var(--paper-dim);
   flex: none;
+}
+/* PLAYER IDENTITY (2026-09-02): the duo's seat/policy names beside the
+   color chip on every standings row — secondary weight (the .ec-fseats
+   fine-type voice, a step up for legibility), truncating before it can
+   push the stat columns. Only rendered when the row's label doesn't
+   already carry the identity (palette-label fallback rows). */
+#endcard .ec-fduo {
+  font-family: var(--finefont);
+  font-size: calc(9 * var(--u));
+  letter-spacing: 0.04em;
+  color: var(--paper-dim);
+  /* Leftover-space column (grow from a 0 basis): the palette label keeps
+     its NATURAL width — colors stay the primary key, so "YELLOW" must
+     never squeeze to "YE…" to make room for the names — and it is the
+     names that ellipsis when the row runs out of track. */
+  flex: 1 1 0;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 #endcard .ec-fstat {
   color: var(--paper-dim);
@@ -2350,12 +2541,15 @@ body[data-noviewpanel] #viewpanel { display: none !important; }
 </head>
 <body>
 <div id="viewport">
+<div id="lane-l">
 <div id="commsdock">
   <div class="cd-head">Comms</div>
   <div id="commsFeed"></div>
+  <div class="cd-empty">The lobby is quiet — no huddle chatter this match.</div>
   <button id="commsLive">▾ Jump to live</button>
   <!-- votearm lane: ballot casts / play-vote rows will join this same feed
        as new entry kinds — commsEntryHtml() is the insertion point. -->
+</div>
 </div>
 <div id="stage">
   <canvas id="board"></canvas>
@@ -2524,6 +2718,7 @@ body[data-noviewpanel] #viewpanel { display: none !important; }
 
   <div id="status">connecting</div>
 </div>
+<div id="lane-r"></div>
 </div>
 
 <script src="./wire_constants.js"></script>
@@ -3077,6 +3272,41 @@ body[data-noviewpanel] #viewpanel { display: none !important; }
   function onStatus(st) {
     statusEl.textContent = st;
     statusEl.classList.toggle('show', st !== 'open');
+    // EPISODE-TRANSITION RESET (owner hotfix): a re-open after the first is
+    // a NEW stream, and on the live S2 page it is usually a DIFFERENT match
+    // (the next episode's server taking over the same URL; broadcast_core
+    // reconnects this same page to it). Every "once per match" latch below
+    // must re-derive from the incoming stream — carrying it is exactly the
+    // owner's screenshot: CTF chrome, stale heart markers and the previous
+    // match's momentum curve over a live BR episode, cured by a refresh.
+    // broadcast_core clears its own layer/sprite/object state in connect().
+    if (st === 'open') {
+      streamsOpened++;
+      if (streamsOpened > 1) resetEpisodeChrome();
+    }
+  }
+  var streamsOpened = 0;
+
+  function resetEpisodeChrome() {
+    PB_MODE = false;
+    lastTick = -1;
+    lastFf = false;
+    tradeConsumed = {};
+    capHeartsBySlot = {};
+    capHeartsSeen = {};
+    if (feedEl) feedEl.innerHTML = '';
+    if (bannerEl) bannerEl.innerHTML = '';
+    var card = $('endcard');
+    card.classList.remove('on');
+    card.classList.remove('pb');
+    card._key = null;
+    ecTeams = null;
+    sbTeams = null;
+    resetZoneEndcard();
+    C.resetEpisode();
+    if (window.PaintballChrome && window.PaintballChrome.reset) {
+      window.PaintballChrome.reset();
+    }
   }
 
   // ============================================================
@@ -3334,16 +3564,18 @@ body[data-noviewpanel] #viewpanel { display: none !important; }
       // .plate markup. GLORY SCOREBUG v2 (2026-09-01, Maxwell's ruling,
       // supersedes the single-leader .br-glory block from the prior PR):
       // "it should show the 16 teams, their glory, and they get grayed out
-      // when knocked out." v3 (same day, Maxwell — duos are TEAMS): "one
-      // team name with two squares for lives next to it", NEVER repeat a
-      // team. One .br-cell per TEAM always — swatch (BR identity IS the
-      // palette, one palette per duo) + ONE team name + a life square per
-      // MEMBER (two for an s2 duo, one for a solo seat) + that team's own
-      // GLORY numeral — split 8-per-side flanking the clock;
-      // renderScorebug fills in the names, numbers, member life squares,
-      // elimination state and leader emphasis every frame. --cellcol
-      // carries the palette to the member squares so a duo's two squares
-      // wear ONE color, never a per-seat color.
+      // when knocked out." v3 (same day, Maxwell — duos are TEAMS): NEVER
+      // repeat a team. PLAYER IDENTITY (2026-09-02, owner: "the life
+      // squares can stack vertically and have the name to the right or
+      // something"): one .br-cell per TEAM always — swatch (BR identity IS
+      // the palette, one palette per duo) + a vertical MEMBER stack (each
+      // member's own life square with its seat/policy name to the right —
+      // both duo members named, a filler seat as the wire seats it) + that
+      // team's own GLORY numeral — split 8-per-side flanking the clock;
+      // renderScorebug fills in the member rows, numbers, elimination
+      // state and leader emphasis every frame. --cellcol carries the
+      // palette to the member squares so a duo's two squares wear ONE
+      // color, never a per-seat color.
       function cellsHtml(list) {
         var html = '';
         list.forEach(function (team) {
@@ -3351,9 +3583,7 @@ body[data-noviewpanel] #viewpanel { display: none !important; }
           html +=
             '<div class="br-cell" id="cell-' + team + '" data-team="' + team +
             '" style="--cellcol:' + col + '">' +
-            '<span class="br-cell-swatch" style="background:' + col + '"></span>' +
-            '<span class="br-cell-name" id="cell-name-' + team + '">' + team.toUpperCase() + '</span>' +
-            '<span class="br-cell-lives" id="cell-lives-' + team + '"></span>' +
+            '<span class="br-cell-members" id="cell-members-' + team + '"></span>' +
             '<span class="heat-flame" id="cell-flame-' + team + '"></span>' +
             '<span class="br-cell-glory" id="cell-glory-' + team + '">0</span>' +
             '</div>';
@@ -3518,17 +3748,6 @@ body[data-noviewpanel] #viewpanel { display: none !important; }
       // no cell earns the leader glow/flame until someone actually scores.
       var haveLeader = leader !== null && leaderGlory > 0;
       teams.forEach(function (team) {
-        // Identity, v3: ONE team name, never a joined pair. A duo seating
-        // one policy resolves to that policy (teamPolicies already collapses
-        // the hosted runtime's "(N)" seat suffixes — the exact resolution
-        // the classic plates use); anything without a single shared
-        // identity (local scrim duos seating two distinct bots, 3+ names)
-        // falls back to the palette name, which IS the BR team identity.
-        // Never teamName()'s "A + B" doubles join here — on this board that
-        // reads as the team listed twice, the exact defect v3 removes.
-        var pols = teamPolicies(s, team);
-        setName('cell-name-' + team,
-          pols.length === 1 && pols[0] ? teamHeadline(pols[0]) : team.toUpperCase());
         var gv = tr[team] && tr[team].glory;
         var gloryEl = $('cell-glory-' + team);
         if (gloryEl) gloryEl.textContent = typeof gv === 'number' ? gv : '—';
@@ -3538,33 +3757,50 @@ body[data-noviewpanel] #viewpanel { display: none !important; }
           cell.classList.toggle('out', lives[team] <= 0);
           cell.classList.toggle('leader', isLeader);
         }
-        // v3 member life squares: one per seated cog, lead seat (k) first,
-        // its k+16 mirror second (sorted by join slot — the roster keys
-        // members by stable slot `s`). Persistent DOM: rebuilt only when
-        // the member list itself changes (a join/leave), retinted never —
-        // the square wears the cell's --cellcol; only .dead toggles per
-        // frame. A member's square dims the moment that cog is down
-        // (p.alive false) and relights on respawn while it still has
-        // lives; the CELL only grays via .out above once every member is
-        // out for good.
-        var livesEl = $('cell-lives-' + team);
-        if (livesEl) {
+        // PLAYER IDENTITY member rows (2026-09-02, owner: "the life
+        // squares can stack vertically and have the name to the right"):
+        // one row per seated cog — its life square + its own seat/policy
+        // name — lead seat (k) first, its k+16 mirror second (sorted by
+        // join slot — the roster keys members by stable slot `s`). The
+        // name is the roster's own identity (p.pol, the same field
+        // teamPolicies reads; a filler seat reads as whatever the wire
+        // seats there), chip-shortened by brShortIdent with the full name
+        // on the row's title. Persistent DOM: rebuilt only when the
+        // member/identity list itself changes (a join/leave), retinted
+        // never — the square wears the cell's --cellcol; only the row's
+        // .dead toggles per frame. A member's row dims the moment that
+        // cog is down (p.alive false) and relights on respawn while it
+        // still has lives; the CELL only grays via .out above once every
+        // member is out for good. A pre-roster frame holds the palette
+        // name in the stack so an early cell is never a bare swatch.
+        var membersEl = $('cell-members-' + team);
+        if (membersEl) {
           var members = (membersByTeam[team] || []).slice().sort(
             function (a, b) { return (a.s || 0) - (b.s || 0); });
-          var mkey = members.map(function (p) { return p.s; }).join(',');
-          if (livesEl._mkey !== mkey) {
-            livesEl.innerHTML = '';
+          var mkey = members.map(function (p) {
+            return p.s + ':' + (p.pol != null ? p.pol : p.name);
+          }).join(',');
+          if (membersEl._mkey !== mkey) {
+            membersEl.innerHTML = '';
+            if (!members.length) {
+              membersEl.innerHTML = '<span class="br-cell-member">' +
+                '<span class="br-cell-mname">' +
+                esc(String(team).toUpperCase()) + '</span></span>';
+            }
             members.forEach(function (p) {
-              var sq = document.createElement('span');
-              sq.className = 'br-cell-life';
-              sq.title = shortName(p.name);
-              livesEl.appendChild(sq);
+              var ident = p.pol != null ? p.pol : stripSeatSuffix(p.name);
+              var row = document.createElement('span');
+              row.className = 'br-cell-member';
+              row.title = teamHeadline(ident);
+              row.innerHTML = '<span class="br-cell-life"></span>' +
+                '<span class="br-cell-mname">' + esc(brShortIdent(ident)) + '</span>';
+              membersEl.appendChild(row);
             });
-            livesEl._mkey = mkey;
+            membersEl._mkey = mkey;
           }
           members.forEach(function (p, mi) {
-            var sq = livesEl.children[mi];
-            if (sq) sq.classList.toggle('dead', !p.alive);
+            var row = membersEl.children[mi];
+            if (row) row.classList.toggle('dead', !p.alive);
           });
         }
         // Leader emphasis rides ONE flame (Maxwell: "no single-block
@@ -3680,6 +3916,27 @@ body[data-noviewpanel] #viewpanel { display: none !important; }
     var at = n.indexOf('@'); if (at > 0) n = n.slice(0, at);
     if (n.length > 10) n = n.slice(0, 10);
     return n || '?';
+  }
+
+  function brShortIdent(n) {
+    // Chip-width identity for the BR scorebug's member rows. Policy names
+    // run long with a shared leading namespace
+    // ("co-gas-paintbot-s2-cautious-richard") — the DISTINCTIVE part is
+    // the tail, so shortName's head-cut above would keep exactly the
+    // shared half. Cut leading -/space segments (marking the cut with a
+    // leading ellipsis) until the tail fits; a single monster segment is
+    // left for the CSS ellipsis backstop (.br-cell-mname's max-width).
+    // One rule for every chip, so all 16 cells truncate identically.
+    var full = teamHeadline(n);
+    var MAX = 18;
+    if (full.length <= MAX) return full;
+    var tail = full;
+    while (tail.length > MAX - 1) {
+      var m = /^[^-\s]+[-\s]+(.+)$/.exec(tail);
+      if (!m) break;
+      tail = m[1];
+    }
+    return tail === full ? full : '\u2026' + tail;
   }
 
   // (clock, transport and lull shading live in the shared chrome —
@@ -4989,10 +5246,54 @@ body[data-noviewpanel] #viewpanel { display: none !important; }
   function gloryPopKey(p) {
     return p.team + '|' + p.t + '|' + p.x + '|' + p.y + '|' + p.word + '|' + p.lbl;
   }
+  // MULTIPLIER RECUT NOTATION (2026-09-03, owner): under the armed v13
+  // recut a positive pop's `amt` is not a glory GAIN, it is the single
+  // integer FACTOR just folded into the team's running product (see
+  // sim.nim's awardDeed — "amount is REPURPOSED on this path as the
+  // event's product-space value") — so it must read "×N", never "+NG".
+  // The dark v12 ledger (every classic match, and any BR match the recut
+  // flag hasn't armed) is additive and keeps "+NG" exactly as before.
+  //
+  // The wire carries NO per-episode flag for which economy is live (see
+  // broadcast.nim's "br" key — flagless/elim only; tracked separately,
+  // no realized-ruleset stamp today). This infers it instead from
+  // resetGloryLedger's own invariant (glory.nim/sim.nim): every team's
+  // ledger opens at RecutSeed (1) when armed, at 0 when dark — sampled
+  // ONCE, on the first 'playing' frame this session observes (before any
+  // deed could have minted a real value). A client that only joins after
+  // kickoff never sees that frame and `recutArmed` stays null, which
+  // falls back to the safe pre-existing "+NG" rendering — never a guess
+  // that could mislabel a real additive gain as a multiplier.
+  var recutArmed = null;   // null = unknown (renders as classic +NG); true/false once sampled
+  var recutArmedSampled = false;
+  function sampleRecutArmed(s) {
+    if (recutArmedSampled || recutArmed !== null) return;
+    if (!isElim(s) || s.ph !== 'playing') return;
+    recutArmedSampled = true; // one shot only — the first 'playing' frame seen
+    var teams = activeTeams(s);
+    var tr = s.teams || {};
+    if (!teams.length) return;
+    var allSeed = teams.every(function (team) { return tr[team] && tr[team].glory === 1; });
+    var allZero = teams.every(function (team) { return tr[team] && tr[team].glory === 0; });
+    if (allSeed) recutArmed = true;
+    else if (allZero) recutArmed = false;
+    // else: ambiguous (e.g. a mid-fight join) — stays null/classic, deliberately.
+  }
+  function gloryPopText(p) {
+    if (p.lbl) return p.lbl; // achievement claim: name only, never an amount
+    if (p.amt === 0) return p.word || ''; // e.g. RANK UP — never draw an empty "+0G"
+    if (p.amt > 0 && recutArmed) return '×' + p.amt + (p.word ? ' ' + p.word : '');
+    // Negative amounts under armed recut are a FF halving count (a
+    // division, not a factor — sim.nim's dTeamKill branch), not glory
+    // notation at all; left as the existing signed "-NG" shape rather
+    // than guessing at a division glyph the owner didn't ask for.
+    return (p.amt >= 0 ? '+' : '') + p.amt + 'G' + (p.word ? ' ' + p.word : '');
+  }
   function renderGloryPops(s) {
     if (!gloryPopsEl || !core || !core.getTransform) return;
     var t = core.getTransform();
     if (!t || !t.scale) return;
+    sampleRecutArmed(s);
     var root = document.documentElement;
     var topBand = parseFloat(getComputedStyle(root).getPropertyValue('--topband')) || 0;
     var seen = {};
@@ -5009,9 +5310,7 @@ body[data-noviewpanel] #viewpanel { display: none !important; }
       if (!el) {
         el = document.createElement('div');
         el.className = 'glory-pop' + (p.lbl ? ' claim' : '') + (p.amt < 0 ? ' neg' : '');
-        el.textContent = p.lbl
-          ? p.lbl
-          : (p.amt >= 0 ? '+' : '') + p.amt + 'G' + (p.word ? ' ' + p.word : '');
+        el.textContent = gloryPopText(p);
         gloryPopsEl.appendChild(el);
         gloryPopEls[key] = el;
       }
@@ -5148,6 +5447,24 @@ body[data-noviewpanel] #viewpanel { display: none !important; }
       var info = seatInfo[c.seat];
       return { ms: c.ms, idx: info ? info.idx : -1 };
     }));
+  }
+  // LOOT(s2) downedMode: pushed every frame straight off the roster's
+  // per-seat `downed` flag (src/ctf/broadcast.nim's rosterJson, gated on
+  // the mode so a dark game's roster never carries the key at all). Reuses
+  // the roster's own array position `i` as the seat id — the same
+  // sim.players-INDEX keying learnSeats already relies on for the rig-head
+  // object pool (see its own comment above) — so no seatInfo lookup is
+  // needed here.
+  function pushDownedSeatsToCore(s) {
+    if (!core || !core.setDownedSeats) return;
+    var r = s.roster;
+    var downed = [];
+    if (r && r.length) {
+      for (var i = 0; i < r.length; i++) {
+        if (r[i] && r[i].downed) downed.push(i);
+      }
+    }
+    core.setDownedSeats(downed);
   }
   function seatName(seat) {
     var info = seatInfo[seat];
@@ -5340,6 +5657,7 @@ body[data-noviewpanel] #viewpanel { display: none !important; }
     }
     if (s.vote && !voteCache) voteCache = s.vote.slice().sort(byOrd);
     learnSeats(s);
+    pushDownedSeatsToCore(s);
 
     var inLobby = s.ph === 'lobby';
     var nowMs = (s.t || 0) * 1000 / FPS;
@@ -5604,6 +5922,11 @@ body[data-noviewpanel] #viewpanel { display: none !important; }
       hero.className = 'ec-hero';
       hero.innerHTML =
         '<div class="ec-hero-name" id="ec-hero-name">—</div>' +
+        // PLAYER IDENTITY (2026-09-02, owner): the winning duo's seat/policy
+        // names, the secondary line under the color headline — see
+        // renderEndcardBR, which fills it only when the headline itself
+        // is not already the identity.
+        '<div class="ec-hero-duo" id="ec-hero-duo"></div>' +
         // GLORY-FIRST (2026-09-01, owner's ruling): the winner's round
         // glory total is THE number on the slide — the dominant numeral,
         // above the demoted survival/kills summary — with the GLORY
@@ -5690,6 +6013,17 @@ body[data-noviewpanel] #viewpanel { display: none !important; }
     var pols = teamPolicies(s, team);
     return pols.length === 1 && pols[0] ? teamHeadline(pols[0]) : String(team).toUpperCase();
   }
+  function brTeamNames(s, team) {
+    // PLAYER IDENTITY (2026-09-02, owner's ruling): the seat/policy names
+    // behind a palette label — the distinct identities seated on the team,
+    // join-slot order, "A + B" for an s2 distinct-teammates duo.
+    // teamPolicies prefers the wire's own teams[team].policies list and
+    // falls back to the roster's per-seat p.pol / stripped p.name — so a
+    // filler seat reads as whatever the wire seats there, as-is (the seat
+    // name IS the identity contract). Returns '' when the roster carries
+    // no identity at all (never invent one).
+    return teamPolicies(s, team).map(teamHeadline).join(' + ');
+  }
   function brSeatRange(s, team) {
     // The join slots seated on this team ("3+19" for an s2 duo's k/k+16
     // mirror) — the disambiguator when two DIFFERENT duos genuinely run
@@ -5752,6 +6086,22 @@ body[data-noviewpanel] #viewpanel { display: none !important; }
       labelOf[t] = brTeamLabel(s, t);
       labelCount[labelOf[t]] = (labelCount[labelOf[t]] || 0) + 1;
     });
+    // PLAYER IDENTITY (2026-09-02, owner): the names behind each label.
+    // Rendered only where they ADD identity — a single-policy team's label
+    // already IS its name (brTeamLabel), so namesFor() returns '' for it
+    // rather than repeating the same string at secondary weight.
+    function namesFor(team) {
+      var names = brTeamNames(s, team);
+      return names && names !== labelOf[team] ? names : '';
+    }
+    // Row-width variant: same gate, but each member chip-shortened by
+    // brShortIdent (the scorebug's one truncation rule) so BOTH duo
+    // members stay visible inside a standings row's name track — a tail
+    // ellipsis that swallowed the second member showed only half the duo.
+    function namesForShort(team) {
+      return namesFor(team)
+        ? teamPolicies(s, team).map(brShortIdent).join(' + ') : '';
+    }
     function labelHtml(team) {
       return esc(labelOf[team]) +
         (labelCount[labelOf[team]] > 1
@@ -5763,9 +6113,11 @@ body[data-noviewpanel] #viewpanel { display: none !important; }
     var heroGloryNum = $('ec-glory-hero-num'), mvpLine = $('ec-mvp-line');
     var heroGlory = winner !== null ? teamGloryOf(o, winner) : null;
     if (heroEl) heroEl.classList.toggle('has-glory', heroGlory !== null);
+    var heroDuo = $('ec-hero-duo');
     if (winner) {
       heroName.style.setProperty('--tc', teamCol(winner) || AMBER);
       heroName.innerHTML = labelHtml(winner);
+      if (heroDuo) heroDuo.textContent = namesFor(winner);
       if (heroGlory !== null && heroGloryNum) heroGloryNum.textContent = heroGlory;
       var rivals = teams.length - 1;
       var heroAlive = teamAliveCount(s, winner), heroSeats = teamSeatCount(s, winner);
@@ -5784,13 +6136,19 @@ body[data-noviewpanel] #viewpanel { display: none !important; }
     } else {
       heroName.style.removeProperty('--tc');
       heroName.textContent = 'NO SURVIVORS';
+      if (heroDuo) heroDuo.textContent = '';
       heroLine.textContent = 'Every team was eliminated — no team left standing.';
     }
     if (mvpLine) {
       mvpLine.innerHTML = anyGlory && gloryLeader !== null
         ? 'GLORY LEADER — <span class="ec-mvp-team" style="--tc:' +
           (teamCol(gloryLeader) || AMBER) + '">' + labelHtml(gloryLeader) +
-          '</span> ' + leaderGlory + 'G <span class="ec-mvp-dim">(' +
+          '</span>' +
+          // PLAYER IDENTITY (2026-09-02): the leader callout names a color
+          // too — carry the duo's names, dim, when the label alone doesn't.
+          (namesForShort(gloryLeader)
+            ? ' <span class="ec-mvp-dim">' + esc(namesForShort(gloryLeader)) + '</span>' : '') +
+          ' ' + leaderGlory + 'G <span class="ec-mvp-dim">(' +
           ordinal(placeOf[gloryLeader]) + ')</span>'
         : '';
     }
@@ -5816,6 +6174,13 @@ body[data-noviewpanel] #viewpanel { display: none !important; }
         '<span class="ec-fname-text">' + esc(labelOf[team]) + '</span>' +
         (labelCount[labelOf[team]] > 1
           ? '<span class="ec-fseats">seats ' + esc(brSeatRange(s, team)) + '</span>' : '') +
+        // PLAYER IDENTITY (2026-09-02, owner): both duo members' names
+        // beside the color chip — secondary weight, each member
+        // chip-shortened (brShortIdent) so the SECOND member never
+        // disappears into a tail ellipsis. '' when the label already
+        // carries them.
+        (namesForShort(team)
+          ? '<span class="ec-fduo">' + esc(namesForShort(team)) + '</span>' : '') +
         '</span>' +
         (anyGlory
           ? '<span class="ec-fglory">' + (fg !== null ? fg + 'G' : '—') + '</span>' : '') +
@@ -6378,6 +6743,33 @@ body[data-noviewpanel] #viewpanel { display: none !important; }
   //  one unit. Chrome sizes off the STAGE width, so overlays stay locked to
   //  the graphics at any container shape (§2, L82 bounded-embed).
   // ============================================================
+  // SIDE-LANE HUD docking (owner spec 2026-09-02). Elements are MOVED,
+  // never cloned — every getElementById reference and listener stays live —
+  // and each records its home parent/next-sibling ONCE so the narrow
+  // fallback restores the exact original DOM (rebase-proof against lanes
+  // that edit the scorebug's internals: we relocate the component whole,
+  // we never reach inside it).
+  var LANE_DOCKS = [
+    { side: 'l', el: document.getElementById('scorebug'),
+      lane: document.getElementById('lane-l'),
+      before: document.getElementById('commsdock') },
+    { side: 'r', el: document.getElementById('viewpanel'),
+      lane: document.getElementById('lane-r'), before: null },
+    { side: 'r', el: document.getElementById('killfeed'),
+      lane: document.getElementById('lane-r'), before: null }
+  ];
+  LANE_DOCKS.forEach(function (d) {
+    if (d.el) { d.home = d.el.parentNode; d.homeNext = d.el.nextSibling; }
+  });
+  function dockLanes(left, right) {
+    LANE_DOCKS.forEach(function (d) {
+      if (!d.el || !d.lane || !d.home) return;
+      var on = d.side === 'l' ? left : right;
+      if (on) { if (d.el.parentNode !== d.lane) d.lane.insertBefore(d.el, d.before); }
+      else if (d.el.parentNode !== d.home) d.home.insertBefore(d.el, d.homeNext);
+    });
+  }
+
   function relayout() {
     var boxW = viewport.clientWidth, boxH = viewport.clientHeight;
     if (!boxW || !boxH) return;
@@ -6396,14 +6788,49 @@ body[data-noviewpanel] #viewpanel { display: none !important; }
     var topBand = parseFloat(getComputedStyle(root).getPropertyValue('--topband')) || 0;
     var band = parseFloat(getComputedStyle(root).getPropertyValue('--band')) || 0;
     var stageW = 0, stageH = 0;
+    // SIDE-LANE HUD (owner spec 2026-09-02): use the letterbox columns for
+    // the chrome instead of overlaying/top-barring the arena. Two tiers,
+    // decided from pure geometry (no DOM measuring, so the mode can never
+    // oscillate with its own layout):
+    //   - fit0: the board fitted with the scorebug OUT of the top band
+    //     (that is how every docked tier actually sits).
+    //   - TIER 2 (both rails)  — fit0 leaves >= LANE_MIN a side: identity
+    //     rail LEFT, live-surface rail RIGHT, stage centered, aspect fit
+    //     untouched. The square-board / ultrawide case.
+    //   - TIER 1 (left rail)   — the wide 1.87:1 arena at a 16:9 window
+    //     leaves only a thin column, and reclaiming the top band widens the
+    //     board and eats it. So cap the board at (boxW - RAIL_MIN) and dock
+    //     it RIGHT: the freed top band pays for the rail (the board ends up
+    //     LARGER than the undocked layout at 1920x1080), and the whole
+    //     letterbox consolidates into one usable left column. Engaged only
+    //     while the cap costs < 10% of the free-fit width — past that the
+    //     rail would be eating the arena, not the letterbox.
+    //   - otherwise            — today's centered stage + overlay chrome,
+    //     byte-for-byte (dockLanes restores the exact home DOM).
+    var LANE_MIN = 300, RAIL_MIN = 240;
+    var availH0 = Math.max(1, boxH - band);
+    var fit0 = Math.min(boxW, Math.round(availH0 * BOARD_ASPECT));
+    var lanesBoth = !EMBED && (boxW - fit0) >= 2 * LANE_MIN;
+    var cappedW = Math.min(fit0, Math.max(320, boxW - RAIL_MIN));
+    var sideLanes = lanesBoth ||
+      (!EMBED && boxW > boxH && cappedW / fit0 >= 0.9);
+    if (document.body.classList.contains('sidelanes') !== sideLanes ||
+        document.body.classList.contains('sidelanes-both') !== (sideLanes && lanesBoth)) {
+      document.body.classList.toggle('sidelanes', sideLanes);
+      document.body.classList.toggle('sidelanes-both', sideLanes && lanesBoth);
+      dockLanes(sideLanes, sideLanes && lanesBoth);
+    }
+    // Tier 1 fits the board into the box MINUS the reserved rail; tier 2 and
+    // the fallback fit the full box.
+    var fitBoxW = sideLanes && !lanesBoth ? Math.max(320, boxW - RAIL_MIN) : boxW;
     for (var pass = 0; pass < 4; pass++) {
       var prevTop = topBand, prevBand = band;
       var availH = Math.max(1, boxH - topBand - band);
       var boardW, boardH;
-      if (boxW / availH > BOARD_ASPECT) {
+      if (fitBoxW / availH > BOARD_ASPECT) {
         boardH = availH; boardW = Math.round(availH * BOARD_ASPECT);
       } else {
-        boardW = boxW; boardH = Math.round(boxW / BOARD_ASPECT);
+        boardW = fitBoxW; boardH = Math.round(fitBoxW / BOARD_ASPECT);
       }
       stageW = boardW; stageH = boardH + topBand + band;
       stage.style.width = stageW + 'px';
@@ -6415,8 +6842,10 @@ body[data-noviewpanel] #viewpanel { display: none !important; }
       var scale = Math.max(0.5, Math.min(1.6, boardW / 760));
       root.style.setProperty('--hudscale', scale.toFixed(3));
       stage.classList.toggle('tiny', boardW <= 620);
-      // Measure each band's natural height → reserve exactly that.
-      topBand = scorebug ? scorebug.offsetHeight : 0;
+      // Measure each band's natural height → reserve exactly that. With the
+      // scorebug docked in the left rail the top band is simply gone — the
+      // board gets the whole frame height back.
+      topBand = (sideLanes || !scorebug) ? 0 : scorebug.offsetHeight;
       band = transport ? transport.offsetHeight : 0;
       root.style.setProperty('--topband', topBand + 'px');
       root.style.setProperty('--band', band + 'px');
@@ -6429,7 +6858,12 @@ body[data-noviewpanel] #viewpanel { display: none !important; }
     // own wall chrome around the iframe) keep the centered stage + the
     // chip/panel presentation. The fitted stage SIZE is untouched either
     // way — this only decides where the letterbox space goes.
-    var commsWide = !EMBED && COMMS_AVAILABLE && (boxW - stageW) >= 280;
+    // In side-lane mode the chat surface belongs in the left rail even when
+    // the lobby never spoke (owner spec) — the dock opens regardless of comms,
+    // the .cd-empty state names the silence, and the rail counts as the WIDE
+    // comms presentation (chip/panel stay put) whatever its exact width.
+    var commsWide = !EMBED &&
+      (sideLanes || (COMMS_AVAILABLE && (boxW - stageW) >= 280));
     document.body.classList.toggle('commswide', commsWide);
     if (lastState) renderPhaseOverlays(lastState);
     core.setViewportFit();
@@ -6766,7 +7200,16 @@ button.beat-marker {
   window.PaintballChrome = {
     install: function (ctx) { CTX = ctx; },
     frame: pbFrame,
-    event: pbEvent
+    event: pbEvent,
+    // Episode-transition reset: the placed-button dedup and the game/regime
+    // latch are per-match state; the page calls this from its reconnect
+    // hook (the scrubber buttons themselves are swept by the shared
+    // chrome's resetEpisode — one .beat-marker sweep covers both families).
+    reset: function () {
+      placed = {};
+      lastRegime = '';
+      lastGame = -1;
+    }
   };
 })();
 </script>

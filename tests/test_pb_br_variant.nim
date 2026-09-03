@@ -93,6 +93,10 @@ suite "paintbot manifest, battle-royale-s2 variant":
     config.update($gc)
     check config.brMode
     check config.teams == Teams
+    # PERCEPTION (glory-2 §17): this variant ships ARMED, not dark -- the
+    # owner's doctrine call. Frame loadout flags and duo held-state are
+    # live on the flagship variant from day one.
+    check config.frameLoadoutFlags
     var sim = initCtfForTest(config)
     ## The variant's own "players" list binds each slot's NAME (see
     ## roster.nim's slotRestricted/matchingConfiguredSlot): a real join

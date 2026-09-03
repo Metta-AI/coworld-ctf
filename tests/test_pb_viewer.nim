@@ -6,12 +6,14 @@ import std/[os, strutils, unittest]
 
 const
   ## Bump ONLY for a deliberate edit to the shared chrome, and say what moved.
-  ## Last: SPEED_CMD (the speed -> one-character command map) hoisted beside
-  ## SPEEDS and exported. It had been a private literal inside the speed-chip
-  ## IIFE with a comment noting both pages carry an identical copy; the
-  ## broadcast page's ?speed= opt-in became its second reader, so it is one
-  ## exported table now instead of two literals drifting apart.
-  ChromeCommonFingerprint = "a2d497b1f62074ca"
+  ## Last: resetEpisode() added + exported (episode-transition reset, owner
+  ## hotfix 2026-09-02). A live spectator page outlives its episode — the
+  ## next episode's server takes over the same URL and broadcast_core
+  ## reconnects the SAME page to a DIFFERENT match — so every once-per-match
+  ## latch in the shared chrome closure (beat timeline, verdict chip,
+  ## momentum series, lull spans, placed scrubber markers) now has one reset
+  ## entry point the pages call from their reconnect hook.
+  ChromeCommonFingerprint = "f99ef73a84c5f67d"
     ## chrome_common.js pinned: everything paintball adds lives in the
     ## appended game block, so an edit to the shared chrome fails a test
     ## instead of silently drifting. Re-pinned during the season2 main
@@ -110,6 +112,25 @@ suite "broadcast chrome (both modes, one page)":
     # markers even with applyEvent gated.
     check "ingestBeats(heartGatedBeats(s));" in page
     check "function heartGatedBeats(s)" in page
+
+  test "an episode transition resets every once-per-match latch":
+    # Owner hotfix 2026-09-02, second half: the live S2 page auto-advances —
+    # the next episode's server takes over the same URL and broadcast_core
+    # reconnects the SAME page to a DIFFERENT match. Without a full reset the
+    # old episode's chrome (PB_MODE, beat timeline, verdict, momentum,
+    # cap-hearts, scrubber markers) and the old episode's board OBJECTS
+    # (hearts/med kits the new server's empty per-viewer ledger can never
+    # diff-delete) play over the new episode until a manual refresh.
+    check "if (streamsOpened > 1) resetEpisodeChrome();" in page
+    check "function resetEpisodeChrome()" in page
+    check "C.resetEpisode();" in page
+    check "resetEpisode: resetEpisode," in chrome
+    check "function resetEpisode()" in chrome
+    # broadcast_core clears its render state (layers/sprites/objects/zone)
+    # at the top of every connect, so a reconnect can never composite the
+    # previous stream's objects over the new board.
+    check "function resetStreamState()" in core
+    check "resetStreamState();" in core
 
   test "chrome_common.js is byte-identical to the shared original":
     check fingerprint(chrome) == ChromeCommonFingerprint

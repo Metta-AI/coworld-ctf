@@ -185,7 +185,10 @@ runtime comparison that picked wasmtime
 inventory (`docs/recon/paintbot-s2-policy-shell-2026-08-29.md`). New policy
 authors should start in `policies/starters/`; `policies/poc_llm_policy/` is the
 lower-level wire reference. The original dark-landing history is preserved in
-`docs/reports/br-season2-landing-notes-2026-08-30.md`.
+`docs/reports/br-season2-landing-notes-2026-08-30.md`. The server's per-tick
+diagnostic log lines for play seats (`FIRST_LIGHT_INSTALL`, play faults,
+`FIRST_LIGHT_PLAN_BUDGET`, `FIRST_LIGHT_NAV`, `FIRST_LIGHT_COMBAT`) are
+described in `docs/designs/FIRST_LIGHT_DEMO.md` under "Diagnostic log lines".
 
 ## Build shapes
 
@@ -428,6 +431,28 @@ full config JSON it was recorded with. Gotchas:
   the comment history in `test_extract_events.nim` shows the seed walking
   902 → 905 → 908 → 907, and some of that walking was probably this
   nondeterminism, not the rule changes it was blamed on.
+
+## Operating the prod league (settings, fillers, pause, retire)
+
+Read `docs/recon/observatory-permission-model-2026-09-02.md` before touching league
+state; the Season 2 retrospective (`docs/reports/s2-permissions-retrospective-2026-09-02.md`)
+records what it cost to guess. The short version:
+
+- API base is `https://softmax.com/api/observatory`; `/api/v2/...` returns an HTML 404.
+- James's user token is not a league owner. Send `X-Use-Elevated-Privileges: true`
+  (CLI: `coworld --elevated`) on every league read or write; without it a team
+  member's token is an ordinary user token. A `ply_` session (after
+  `coworld player use`) cannot manage leagues or use `--elevated`.
+- `POST /v2/leagues/{id}/settings` replaces the whole document with no version
+  check and no actor audit: GET, snapshot, modify, POST, read back, and post a
+  one-line intent in `docs/coordination/agents-notes.md` first. Announcing is
+  notification, not a request for approval.
+- The filler list is `POST /v2/leagues/{id}/filler-policies`; pool credits are on
+  `GET /v2/leagues/{id}/owner-status` (an unfunded pool skips rounds silently);
+  retire or re-enable a seeded league with
+  `PATCH /v2/coworld-league-seeds/{lseed_...} {"enabled": ...}`, not a DB write.
+- Disabled and private leagues 404 everywhere by design. `GET /v2/rounds` takes
+  `league_id`; unknown query parameters are dropped silently.
 
 ## Debugging prod league replays (don't drive the Observatory UI)
 

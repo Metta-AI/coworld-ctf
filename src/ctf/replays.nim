@@ -330,9 +330,48 @@ const
     ## One byte between the hash and the page. A page is JSON, which cannot
     ## begin with a space, so the split point is unambiguous.
 
+  # --- The HANDOFF DECLARATION record (S2 give-item, the play shell's
+  # HANDOFF play). Same road as the reflash record above, for the same
+  # reasons: declareHandoff is an out-of-band input — nothing in the mask
+  # stream witnesses it, but the transfer its channel completes moves HASHED
+  # state (hasGun/hasHopper/bandages) — so a replay that does not carry the
+  # declaration re-simulates a match where the exchange never happened. It
+  # rides the CHAT record under the second high bit of the player byte
+  # (both set), which no cog index and no reflash record can produce, so
+  # the three tenants of the stream never collide. No content hash: the
+  # payload is a closed <=7-byte vocabulary and the membership check IS the
+  # integrity check (a hash would be weaker than the vocabulary).
+  ReplayHandoffRecordFlag* = 0xc0'u8
+    ## Marks a CHAT record as a give-item handoff DECLARATION: `player` is
+    ## (flag or cogIndex) and `message` is the declared item — "gun",
+    ## "hopper", "bandage", or "" for an explicit clear.
+
 proc isPolicyPageRecord*(chat: ReplayChat): bool =
   ## True when a chat record carries a flashed policy page, not a shout.
-  (chat.player and ReplayReflashRecordFlag) != 0
+  ## Checked on BOTH high bits: a handoff declaration record (0xc0) also
+  ## carries the reflash bit and must never read as a page. Archived
+  ## replays are untouched — no cog index can set either bit, and every
+  ## recorded reflash byte is (0x80 or a six-bit index), never 0xc0.
+  (chat.player and ReplayHandoffRecordFlag) == ReplayReflashRecordFlag
+
+proc isHandoffDeclarationRecord*(chat: ReplayChat): bool =
+  ## True when a chat record carries a give-item handoff declaration.
+  (chat.player and ReplayHandoffRecordFlag) == ReplayHandoffRecordFlag
+
+proc handoffRecordPlayer*(chat: ReplayChat): int =
+  ## The cog index a handoff declaration record addresses.
+  int(chat.player and ReplayReflashPlayerMask)
+
+proc decodeHandoffDeclarationRecord*(chat: ReplayChat): string =
+  ## The declared item a handoff record carries, checked against the consent
+  ## seam's own closed vocabulary. Raises ReplayError on anything else:
+  ## an unknown item would re-simulate to a refused declaration and let the
+  ## hash chain report the divergence at a tick that explains nothing —
+  ## failing HERE names the bad record instead.
+  result = chat.message
+  if result.len > 0 and result != "gun" and result != "hopper" and
+      result != "bandage":
+    raise newException(ReplayError, "Replay handoff record item is unknown")
 
 proc policyPageRecordPlayer*(chat: ReplayChat): int =
   ## The cog index a reflash record addresses.
@@ -402,6 +441,31 @@ proc writePolicyPageFlash*(
     time,
     int(uint8(playerIndex) or ReplayReflashRecordFlag),
     encodePolicyPageRecord(page)
+  )
+
+proc writeHandoffDeclaration*(
+  replayWriter: var CtfReplayWriter,
+  time: uint32,
+  playerIndex: int,
+  item: string
+) =
+  ## Writes one replay event for a give-item handoff declaration the sim
+  ## JUST accepted (sim.declareHandoff returned true) — item "" is an
+  ## accepted explicit clear. Same home and same discipline as
+  ## writePolicyPageFlash above: callers record ONLY what the consent seam
+  ## accepted, stamped with the tick it was accepted on, so the file can
+  ## never claim a declaration the sim refused nor omit one it took. The
+  ## unaddressable-cog doAssert carries writePolicyPageFlash's argument
+  ## verbatim: the declaration is already applied, so returning quietly
+  ## would leave an applied-but-unrecorded input.
+  doAssert playerIndex >= 0 and playerIndex <= int(ReplayReflashPlayerMask),
+    "Cog index " & $playerIndex & " cannot be addressed by a handoff record"
+  doAssert item.len == 0 or item == "gun" or item == "hopper" or
+    item == "bandage", "Handoff record item is outside the seam's vocabulary"
+  replayWriter.writeChat(
+    time,
+    int(uint8(playerIndex) or ReplayHandoffRecordFlag),
+    item
   )
 
 proc openReplayWriter*(
@@ -804,7 +868,31 @@ proc applyReplayEvents(replay: var ReplayPlayer, sim: var SimServer) =
   while replay.chatIndex < replay.data.chats.len and
       replay.data.chats[replay.chatIndex].time <= time:
     let chat = replay.data.chats[replay.chatIndex]
-    if chat.isPolicyPageRecord():
+    if chat.isHandoffDeclarationRecord():
+      # THE SWAP, handoff edition, at the identical tick boundary the live
+      # server made it: the server's shell hook declares (and records) in
+      # the same pre-step block that hands the play seats' masks over, so
+      # the declaration is live for exactly the same first channel tick on
+      # both sides. Checked BEFORE isPolicyPageRecord: the handoff byte
+      # carries both high bits, and the page predicate excludes it by the
+      # second one.
+      #
+      # A refusal here is fatal on purpose, on writePolicyPageFlash's own
+      # argument: declareHandoff's acceptance rule reads only the armed
+      # gate, the phase, the seat's upright life and its duo partner — all
+      # of which the recording already satisfied — so a `false` means the
+      # replay and the build disagree about what the channel even is (a
+      # declaration under a dark giveItem config, a seat with no partner
+      # on this roster). Swallowing it would resume the match without the
+      # consent record and let the hash chain report the divergence at the
+      # transfer tick, a place that explains nothing.
+      if not sim.declareHandoff(
+          chat.handoffRecordPlayer(), chat.decodeHandoffDeclarationRecord()):
+        raise newException(
+          ReplayError,
+          "Replay handoff declaration was refused at tick " & $sim.tickCount
+        )
+    elif chat.isPolicyPageRecord():
       # THE SWAP, on playback, at the identical tick boundary the live
       # server made it: the server drains its pending pages inside the same
       # pre-step block that drains chat (server.nim), stamping the record
