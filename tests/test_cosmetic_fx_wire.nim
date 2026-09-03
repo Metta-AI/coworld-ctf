@@ -252,6 +252,21 @@ suite "killPlayer: S1/S5 avenge/partner-down tracking (Swap#13)":
     check sim.partnerDownFx[0].x == 111 + CollisionW div 2
     check sim.partnerDownFx[0].y == 222 + CollisionH div 2
     check sim.partnerDownFx[0].color == sim.players[0].color
+    # Gap-closing lane: the surviving partner previously had no field
+    # naming who to hunt at all (only the dying player's own killcam did) --
+    # a real killer must now be named on the notice.
+    check sim.partnerDownFx[0].hasKiller
+    check sim.partnerDownFx[0].killerColor == sim.players[2].color
+
+  test "a causeless (killerless) BR death still notifies the partner, with no killer to name":
+    var sim = duoFxSim(true)
+    sim.killPlayer(0, -1, cause = "caught outside the zone")
+    check sim.partnerDownFx.len == 1
+    check not sim.partnerDownFx[0].hasKiller
+    # Never a guessed identity for a causeless death -- killerColor stays
+    # at its zero default and buildCosmeticFxPacket must gate on hasKiller,
+    # not read this value, to decide whether to name anyone.
+    check sim.partnerDownFx[0].killerColor == 0
 
   test "self-avenge fires when the just-killed cog is your own last killer":
     var sim = duoFxSim(true)
@@ -341,9 +356,11 @@ suite "buildCosmeticFxPacket: S1/S4/S5/S6 additive kinds (Swap#13)":
     check not parsed["fx"][0].hasKey("x")
     check not parsed["fx"][0].hasKey("y")
 
-  test "a 'partner_down' entry serializes x/y/color":
+  test "a 'partner_down' entry serializes x/y/color/killerColor":
     var sim = cosmeticFxSim(true)
-    let fx = @[PartnerDownFx(partnerIndex: 0, x: 55, y: 66, color: sim.players[1].color)]
+    let fx = @[PartnerDownFx(partnerIndex: 0, x: 55, y: 66,
+      color: sim.players[1].color, hasKiller: true,
+      killerColor: sim.players[0].color)]
     let packet = buildCosmeticFxPacket(sim, 0, partnerDown = fx)
     let parsed = parseJson(packet)
     check parsed["fx"].len == 1
@@ -351,6 +368,16 @@ suite "buildCosmeticFxPacket: S1/S4/S5/S6 additive kinds (Swap#13)":
     check parsed["fx"][0]["x"].getInt == 55
     check parsed["fx"][0]["y"].getInt == 66
     check parsed["fx"][0]["color"].getStr == playerColorText(sim.players[1].color)
+    check parsed["fx"][0]["killerColor"].getStr == playerColorText(sim.players[0].color)
+
+  test "a 'partner_down' entry with no killer serializes killerColor as null":
+    var sim = cosmeticFxSim(true)
+    let fx = @[PartnerDownFx(partnerIndex: 0, x: 55, y: 66,
+      color: sim.players[1].color, hasKiller: false)]
+    let packet = buildCosmeticFxPacket(sim, 0, partnerDown = fx)
+    let parsed = parseJson(packet)
+    check parsed["fx"][0]["kind"].getStr == "partner_down"
+    check parsed["fx"][0]["killerColor"].kind == JNull
 
   test "an 'avenge' entry serializes just the kind, one per AvengeFx":
     var sim = cosmeticFxSim(true)

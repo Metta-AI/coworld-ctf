@@ -1049,11 +1049,14 @@ proc killPlayer*(
   if sim.config.brMode and not elimination and targetIndex < sim.lastKilledBy.len:
     let partner = sim.partnerIndex(targetIndex)
     if partner >= 0:
+      let killerKnown = killerIndex >= 0 and killerIndex < sim.players.len
       sim.partnerDownFx.add PartnerDownFx(
         partnerIndex: partner,
         x: sim.players[targetIndex].x + CollisionW div 2,
         y: sim.players[targetIndex].y + CollisionH div 2,
-        color: sim.players[targetIndex].color
+        color: sim.players[targetIndex].color,
+        hasKiller: killerKnown,
+        killerColor: (if killerKnown: sim.players[killerIndex].color else: 0)
       )
     if killerIndex >= 0 and killerIndex < sim.lastKilledBy.len and
         killerIndex != targetIndex:

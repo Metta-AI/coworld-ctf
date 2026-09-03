@@ -1834,11 +1834,22 @@
   // "partner_down" packet (server.nim buildCosmeticFxPacket, populated in
   // killPlayer) — a real per-round server event, unlike Swap#12 item 5's
   // reverted client-side deaths-polling attempt (see this file's history).
-  function notifyPartnerDown(x, y, color) {
+  // killerColorWord: the wire's raw color WORD (server.nim playerColorText,
+  // e.g. "dark teal"), not a CSS value — null on a causeless (zone/puddle)
+  // partner-down, where there is no one to name. Answers "who do I avenge?":
+  // the dying player already gets this (and the exact spot) from the
+  // killcam; the surviving partner had no equivalent field until this one.
+  // Still only a TEAM cue, not a cog one — a duo shares one color, so this
+  // narrows the hunt to two candidates, not one (see AvengeFx's own doc
+  // comment, sim_types.nim).
+  function notifyPartnerDown(x, y, color, killerColorWord) {
     partnerAliveThisRound = false;
     const toast = nodes.partnerToast;
     if (toast) {
-      toast.innerHTML = 'YOUR PARTNER IS OUT<span class="sub">you\'re the last of your crew</span>';
+      const sub = killerColorWord
+        ? ('tagged by ' + String(killerColorWord).toUpperCase() + ' — you\'re the last of your crew')
+        : 'you\'re the last of your crew';
+      toast.innerHTML = 'YOUR PARTNER IS OUT<span class="sub">' + sub + '</span>';
       toast.style.setProperty('--tc', color || '#e8a33d');
       toast.classList.add('show');
       clearTimeout(partnerToastTimer);

@@ -2216,11 +2216,15 @@ proc buildCosmeticFxPacket(
   ##     coarser cousin for the hits that don't end the life, so a
   ##     still-standing victim gets a rough turn-toward cue, never a
   ##     wallhack-grade fix (see that proc's own killcam-narrowing comment).
-  ##   {"kind":"partner_down", "x":int, "y":int, "color":string}  -- S1
-  ##     (DUET C2/C7). One entry per PartnerDownFx the caller filtered to
-  ##     this cog (sim.partnerDownFx, populated in killPlayer). Delivered
-  ##     UNFOGGED like ShotFeedbackFx's own two participants — see
-  ##     PartnerDownFx's doc comment.
+  ##   {"kind":"partner_down", "x":int, "y":int, "color":string,
+  ##    "killerColor":string|null}  -- S1 (DUET C2/C7). One entry per
+  ##     PartnerDownFx the caller filtered to this cog (sim.partnerDownFx,
+  ##     populated in killPlayer). Delivered UNFOGGED like ShotFeedbackFx's
+  ##     own two participants — see PartnerDownFx's doc comment. `killerColor`
+  ##     is the dying player's OWN killcam identity (buildShotFeedbackPacket's
+  ##     killerColor) mirrored to their SURVIVING partner, who previously had
+  ##     no field naming who to hunt at all; null on a causeless death
+  ##     (PartnerDownFx.hasKiller false).
   ##   {"kind":"avenge"}  -- S5 (DUET C6). No payload; one entry per
   ##     AvengeFx the caller filtered to this cog (sim.avengeFx, populated
   ##     in killPlayer — see that proc's own avenge-check comment).
@@ -2295,7 +2299,10 @@ proc buildCosmeticFxPacket(
       "kind": "partner_down",
       "x": pd.x,
       "y": pd.y,
-      "color": playerColorText(pd.color)
+      "color": playerColorText(pd.color),
+      "killerColor":
+        if pd.hasKiller: %playerColorText(pd.killerColor)
+        else: newJNull()
     })
   for i in 0 ..< avenge.len:
     fx.add(%*{"kind": "avenge"})

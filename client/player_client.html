@@ -2482,9 +2482,13 @@ function handleCosmeticFx(list){
       // player_hud.js owns the toast + minimap pulse (it already owns the
       // minimap canvas) -- this is the explicit push bridge that module's
       // own comment documents, since it has no way to see this file's
-      // socket messages on its own.
+      // socket messages on its own. killerColor is the wire's raw color
+      // WORD (server.nim buildCosmeticFxPacket, playerColorText) -- passed
+      // through as-is (not colorWordCss'd) since the toast prints it as
+      // text, the same word the death-card/killcam already uses, not a
+      // swatch; null on a causeless (zone/puddle) partner-down.
       if(window.PaintbotHUD&&typeof window.PaintbotHUD.notifyPartnerDown==="function")
-        window.PaintbotHUD.notifyPartnerDown(e.x,e.y,colorWordCss(e.color));
+        window.PaintbotHUD.notifyPartnerDown(e.x,e.y,colorWordCss(e.color),e.killerColor||null);
     }
     else if(e.kind==="zone_eta"&&typeof e.ticks==="number"){
       // player_hud.js owns the "zone" eyebrow this countdown lives beside.

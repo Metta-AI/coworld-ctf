@@ -2195,6 +2195,23 @@ type
                         ## target — see buildCosmeticFxPacket's "partner_down"
                         ## kind).
     color*: uint8        ## the fallen partner's paint color.
+    hasKiller*: bool     ## true for a real combat kill (a `killerIndex >= 0`
+                        ## death); false for elimination/zone/puddle, where
+                        ## there is no one to name. Gates killerColor below
+                        ## the same way killPlayer's own avenge check already
+                        ## gates on `killerIndex >= 0` — never a guessed
+                        ## identity for a causeless death.
+    killerColor*: uint8  ## the killer's paint color, when hasKiller. Lets
+                        ## the SURVIVING partner's toast name who to hunt —
+                        ## the dying player already gets this (and the exact
+                        ## killerX/killerY) from buildShotFeedbackPacket's
+                        ## own killcam, but the partner notified here had no
+                        ## equivalent field until this one. Still only a
+                        ## TEAM-level cue, not a cog-level one: a duo shares
+                        ## one color, so this narrows "who killed my
+                        ## partner" to two candidates, not one — killing the
+                        ## wrong one of the two still will not fire AvengeFx
+                        ## (that check is exact-cog, see killPlayer).
 
   AvengeFx* = object
     ## A PRIVATE, one-shot "you just avenged a death" acknowledgment —
