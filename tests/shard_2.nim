@@ -31,6 +31,7 @@ import
   test_pb_directives,
   test_pb_manifest,
   test_pb_regimes,
+  test_perception_loadout_sdk,
   test_play_harness,
   test_play_bodyguard,
   test_play_crossfire,

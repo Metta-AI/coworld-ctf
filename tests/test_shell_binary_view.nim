@@ -229,6 +229,8 @@ proc itemFromId(id: uint32): string =
   of pikShield: "shield"
   of pikSpray: "spray"
   of pikBarrier: "barrier"
+  of pikGun: "gun"
+  of pikHopper: "hopper"
 
 proc sprayKindFromId(id: uint32): string =
   case PlaySprayHazardKind(id)
@@ -657,6 +659,47 @@ suite "shell binary play view":
   test "deterministic bytes across repeats":
     let model = selectPlayView(maxSource(), MaxViewFrameBytes)
     check buildBinaryPlayView(model) == buildBinaryPlayView(model)
+
+  test "PERCEPTION (glory-2 §17): track hasGun/hasHopper ride the SAME reserved flags word":
+    # ABI-additive proof: the two new bits sit inside the existing 4-byte
+    # flags field every track row already carried (the record stride below
+    # is unchanged), so an old-compiled policy that only ever tests the
+    # four original bits (aim/hp/bounty/downed) keeps decoding correctly —
+    # it simply never asks about the two it doesn't know.
+    var source = baseSource()
+    source.tracks = @[
+      PlayTrack(seat: 2, team: Blue, pos: p(0, 0), freshTick: 0,
+        hasGun: true, hasHopper: true),
+      PlayTrack(seat: 3, team: Red, pos: p(0, 0), freshTick: 0)]
+    let bytes = buildBinaryPlayView(selectPlayView(source, MaxViewFrameBytes))
+    let tracks = bytes.section(BvTracks).get
+    check tracks.recordStride == 32                    # stride unchanged
+    let armedFlags = bytes.readU32(tracks.offset)
+    check (armedFlags and TrackHasGunFlag) != 0
+    check (armedFlags and TrackHasHopperFlag) != 0
+    # An old reader's own four bits are untouched by the two new ones.
+    check (armedFlags and (TrackAimPresentFlag or TrackHpPresentFlag or
+      TrackBountyFlag or TrackDownedFlag)) == 0'u32
+    # Pre-existing fields sit at their SAME offsets, unmoved by the new bits.
+    check bytes.readU32(tracks.offset + 4) == 2'u32
+    let darkFlags = bytes.readU32(tracks.offset + tracks.recordStride)
+    check (darkFlags and (TrackHasGunFlag or TrackHasHopperFlag)) == 0'u32
+
+  test "PERCEPTION (glory-2 §17): gun/hopper item kind ids are additive (5, 6)":
+    var source = baseSource()
+    source.items = @[
+      # Distinct freshTicks (sortedItems' primary sort key, descending) pin
+      # the row order explicitly -- the tiebreaker beneath it (kind ordinal
+      # ascending) would otherwise put barrier(4) first, unrelated to what
+      # this test is proving.
+      PlayItem(eventId: 1, kind: pikGun, pos: p(0, 0), freshTick: 3),
+      PlayItem(eventId: 2, kind: pikHopper, pos: p(0, 0), freshTick: 2),
+      PlayItem(eventId: 3, kind: pikBarrier, pos: p(0, 0), freshTick: 1)]
+    let bytes = buildBinaryPlayView(selectPlayView(source, MaxViewFrameBytes))
+    let items = bytes.section(BvItems).get
+    check bytes.readU32(items.offset + 4) == 5'u32
+    check bytes.readU32(items.offset + items.recordStride + 4) == 6'u32
+    check bytes.readU32(items.offset + items.recordStride * 2 + 4) == 4'u32 # barrier unmoved
 
 suite "shell binary play context":
   test "context header sections and fields":

@@ -503,6 +503,15 @@ proc rosterJson(sim: SimServer): JsonNode =
         "progress": p.giveProgress,
         "needed": GiveChannelTicks
       }
+    # PERCEPTION(glory-2 §17): per-seat loadout flags on the spectator/
+    # replay roster — the frame-level source dCoverLoot's matrix lanes read
+    # for per-seat time-to-armed. Same single-gate idiom as `downed` above
+    # (own flag, not lootStart): a dark game's roster bytes stay
+    # byte-identical to a build without this field. Consumers derive
+    # armed = hasGun AND hasHopper; no third field is ever emitted.
+    if sim.config.frameLoadoutFlags:
+      item["hasGun"] = %p.hasGun
+      item["hasHopper"] = %p.hasHopper
     result.add(item)
 
 proc gloryPopsJson(sim: SimServer): JsonNode =
@@ -887,6 +896,13 @@ proc firstPersonJson(sim: SimServer, playerIndex: int): JsonNode =
       "progress": self.giveProgress,
       "needed": GiveChannelTicks
     }
+  # PERCEPTION(glory-2 §17): same single-gate idiom as `downed` above — a
+  # dark game's HUD JSON stays byte-identical. Separate from `items`
+  # above (that array is the lootStart-gated carried-item list; these are
+  # the explicit named booleans dCoverLoot's matrix lanes read).
+  if sim.config.frameLoadoutFlags:
+    selfJson["hasGun"] = %self.hasGun
+    selfJson["hasHopper"] = %self.hasHopper
 
   # Un-fogged tactical map: EVERY player, both hearts, and all present pickups in
   # world coordinates, plus this seat's position + aim + cone geometry. This is
@@ -918,6 +934,10 @@ proc firstPersonJson(sim: SimServer, playerIndex: int): JsonNode =
         "progress": p.giveProgress,
         "needed": GiveChannelTicks
       }
+    # PERCEPTION(glory-2 §17): same single-gate idiom as `downed` above.
+    if sim.config.frameLoadoutFlags:
+      mapEntry["hasGun"] = %p.hasGun
+      mapEntry["hasHopper"] = %p.hasHopper
     mapPlayers.add(mapEntry)
   var mapHearts = newJArray()
   # BR N-point spawn subsystem: a flagless map arms no flag — the omniscient

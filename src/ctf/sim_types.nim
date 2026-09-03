@@ -2498,6 +2498,23 @@ type
                         ## other pickup family uses), so an oversized
                         ## radius degrades to "somewhere reachable," never
                         ## a wall/void placement.
+    # ── PERCEPTION (glory-2 §17) ── appended field, same append-safety
+    # reasoning as everything above. Default false = the exposure does not
+    # exist: rosterJson/firstPersonJson's self+map objects and the
+    # duo-partner grant carry none of the hasGun/hasHopper keys, and the
+    # echo carries no key (echoFrameLoadoutKeys) — a dark game's replay
+    # bytes stay byte-identical to a build without this field. The
+    # UNDERLYING hasGun/hasHopper engine fields (LOOT(s2), above) are
+    # unaffected either way — this flag gates PERCEPTION of them, never
+    # their gameplay truth.
+    frameLoadoutFlags*: bool ## PERCEPTION(glory-2 §17): exposes each
+                        ## seat's hasGun/hasHopper booleans on the replay
+                        ## frame (roster/self/map) and grants a play's OWN
+                        ## duo partner the same two bits (never an enemy's)
+                        ## — the measurement surface dCoverLoot needs for
+                        ## per-seat time-to-armed. Consumers derive
+                        ## armed = hasGun AND hasHopper; no third field is
+                        ## ever emitted.
 
   Player* = object
     x*, y*: int

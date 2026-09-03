@@ -124,7 +124,11 @@ proc defaultGameConfig*(): GameConfig =
     # 0 seeded guns, 0 seeded hoppers, so the radius is never read.
     lootSpawnSeedGuns: 0,
     lootSpawnSeedHoppers: 0,
-    lootSpawnSeedRadius: 0
+    lootSpawnSeedRadius: 0,
+    # PERCEPTION(glory-2 §17): the frame loadout-flag exposure, dark by
+    # default — no hasGun/hasHopper key ever appears on the replay frame
+    # or the duo-partner grant until armed.
+    frameLoadoutFlags: false
   )
 
 proc squadModeConfigured*(config: GameConfig): bool =
@@ -1327,6 +1331,11 @@ proc update*(config: var GameConfig, jsonText: string) =
   node.readConfigInt("lootSpawnSeedGuns", config.lootSpawnSeedGuns)
   node.readConfigInt("lootSpawnSeedHoppers", config.lootSpawnSeedHoppers)
   node.readConfigInt("lootSpawnSeedRadius", config.lootSpawnSeedRadius)
+  # PERCEPTION(glory-2 §17): appended read for the appended
+  # frameLoadoutFlags field (sim_types.nim) — same tail-append rule as
+  # everything above. An absent key leaves the dark default, so an
+  # existing config JSON parses to an unchanged config.
+  node.readConfigBool("frameLoadoutFlags", config.frameLoadoutFlags)
   config.validate()
 
 proc slotTeamText(slot: PlayerSlotConfig): string =
@@ -1705,6 +1714,12 @@ proc echoSpawnLootSeedKeys(config: GameConfig, node: JsonNode) =
     node["lootSpawnSeedHoppers"] = %config.lootSpawnSeedHoppers
     node["lootSpawnSeedRadius"] = %config.lootSpawnSeedRadius
 
+proc echoFrameLoadoutKeys(config: GameConfig, node: JsonNode) =
+  ## PERCEPTION(glory-2 §17): the frame loadout-flag exposure gate, echoed
+  ## only when armed — same byte-identity rule as every echo above.
+  if config.frameLoadoutFlags:
+    node["frameLoadoutFlags"] = %config.frameLoadoutFlags
+
 proc configJson*(config: GameConfig): string =
   ## Returns the complete replay JSON for a gameplay config: the always-
   ## present base keys, built as one object literal below, followed by one
@@ -1811,6 +1826,7 @@ proc configJson*(config: GameConfig): string =
   echoRecutKeys(config, node)
   echoStampKeys(config, node)
   echoSpawnLootSeedKeys(config, node)
+  echoFrameLoadoutKeys(config, node)
   result = $node
 
 proc realizedConfigStampJson*(config: GameConfig): string =
@@ -1842,6 +1858,7 @@ proc realizedConfigStampJson*(config: GameConfig): string =
     "brMode=" & $config.brMode,
     "downedEscalation=" & $config.downedEscalation,
     "downedMode=" & $config.downedMode,
+    "frameLoadoutFlags=" & $config.frameLoadoutFlags,
     "gloryMultiplierRecut=" & $config.gloryMultiplierRecut,
     "lootStart=" & $config.lootStart,
     "medKitCount=" & $config.medKitCount,

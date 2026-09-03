@@ -70,6 +70,11 @@ type
     bikShield
     bikSpray
     bikBarrier
+    bikGun     ## PERCEPTION(glory-2 §17): the lootStart marker crate.
+               ## Appended (never inserted) — see itemEventId's ord(kind)
+               ## use below, the same append-only rule as every enum in
+               ## this file.
+    bikHopper  ## PERCEPTION(glory-2 §17): the lootStart hopper (ammo) crate.
 
   BodySelfState* = object
     pos*: BodyPoint
@@ -227,10 +232,22 @@ type
       ## (the duo-telemetry trust boundary): a policy cannot revive what it
       ## cannot see is down. HP stays withheld through the ordinary fogged
       ## track channel, per the existing partner-grant design.
+    hasGun*: bool
+    hasHopper*: bool
+      ## PERCEPTION(glory-2 §17): the partner's own loadout flags --
+      ## granted alongside downed above (same duo-telemetry trust
+      ## boundary), gated by config.frameLoadoutFlags at the seam that
+      ## builds this sample (src/ctf/server.nim's firstLightPartner), never
+      ## by config.lootStart -- the flags are the sim TRUTH regardless of
+      ## mode; this gate controls only whether a play may SEE them.
+      ## Required for an intelligent HANDOFF call: a play needs to see the
+      ## crate (item perception) AND the partner's gap (this) to know a
+      ## handoff would help. Enemy held-state is deliberately never
+      ## granted anywhere in this file.
 
   PartnerTelemetry* = tuple[
     seat: uint8, team: Team, pos: BodyPoint, aimBrads: int, alive: bool,
-    downed: bool]
+    downed: bool, hasGun: bool, hasHopper: bool]
 
   BodyTickInputs* = object
     ## Contracted trust boundary. The server supplies only this seat's
@@ -656,7 +673,8 @@ proc updateBelief*(body: SeatBody, inputs: BodyTickInputs, tick: uint32) =
     if inputs.self.alive and partner.alive:
       body.partnerGrant = some((seat: partner.seat, team: partner.team,
         pos: partner.pos, aimBrads: partner.aimBrads, alive: true,
-        downed: partner.downed))
+        downed: partner.downed, hasGun: partner.hasGun,
+        hasHopper: partner.hasHopper))
 
 proc partnerTelemetry*(body: SeatBody): Option[PartnerTelemetry] =
   ## Sim-truth position and aim grant for a live duo partner. HP deliberately
