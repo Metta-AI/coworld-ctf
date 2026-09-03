@@ -8,6 +8,8 @@ import bitworld/spriteprotocol
 import ../src/ctf/sim_types
 import ../src/shell/[body, body_map, canonical, default_play, episode,
   replay_records, standing_order, reflexes, types, wasmtime_c]
+when ShellRuntimeAvailable:
+  import ../src/shell/instance
 
 const
   Seats = 32
@@ -868,6 +870,19 @@ suite "shell episode ladder":
       check faults[0].tick == uint32(tick)
       check faults[0].faultEntryId == "step_trap"
       check faults[0].annotationFaultReason.len > 0
+      # The cause leads so the capped status keeps it: "wasm trap: ..." first,
+      # frames after.
+      check faults[0].annotationFaultReason.startsWith("wasm trap:")
+      check faults[0].annotationFaultReason.len <= 200
+      check compactRuntimeFault("error while executing at wasm backtrace:\n" &
+        "    0:   0x3708 - <unknown>!<wasm function 25>\n" &
+        "    1:   0x7400 - <unknown>!<wasm function 40>\n\n" &
+        "Caused by:\n    wasm trap: out of bounds memory access") ==
+        "wasm trap: out of bounds memory access at " &
+        "0:   0x3708 - <unknown>!<wasm function 25> < " &
+        "1:   0x7400 - <unknown>!<wasm function 40>"
+      check compactRuntimeFault("play_step returned nonzero") ==
+        "play_step returned nonzero"
       let line = faults[0].formatLifecycleAnnotation("Botts")
       check line.startsWith(&"FIRST_LIGHT_ANNOTATION tick={tick} seat=0 ")
       check "player=\"Botts\"" in line

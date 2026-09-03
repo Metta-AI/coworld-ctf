@@ -71,6 +71,33 @@ proc byteVecString(bytes: WasmByteVec): string =
   if bytes.size > 0:
     copyMem(addr result[0], bytes.data, bytes.size)
 
+proc compactRuntimeFault*(message: string): string =
+  ## Puts the cause first. Wasmtime reports a guest trap as a backtrace
+  ## followed by "Caused by:\n    wasm trap: <kind>"; the status entry that
+  ## carries the reason is capped at StatusEntryMaxBytes and is trimmed from
+  ## the end, so the useful part (the trap kind, fuel exhaustion, the epoch
+  ## deadline) was the first thing lost. The frames follow the cause on one
+  ## line, so the operator log and the policy both see "wasm trap: ..." even
+  ## after trimming.
+  if "Caused by:" notin message:
+    return message
+  let split = message.rfind("Caused by:")
+  var cause = ""
+  for line in message[split + "Caused by:".len .. ^1].splitLines:
+    if line.strip.len > 0:
+      cause = line.strip
+      break
+  var frames: seq[string]
+  for line in message[0 ..< split].splitLines:
+    let text = line.strip
+    if text.len > 0 and text[0] in {'0' .. '9'} and ':' in text:
+      frames.add(text)
+  if cause.len == 0:
+    return message
+  if frames.len == 0:
+    return cause
+  cause & " at " & frames.join(" < ")
+
 proc consumeError(error: ptr WasmtimeError): string =
   if error == nil:
     return ""
@@ -397,10 +424,10 @@ proc callFunc(instance: ShellInstance, callee: var WasmtimeFunc,
     argsPtr, args.len.csize_t, resultsPtr, results.len.csize_t, addr trap)
   if error != nil:
     if trap != nil: discard consumeTrap(trap)
-    instance.host.invocation.fault(consumeError(error))
+    instance.host.invocation.fault(compactRuntimeFault(consumeError(error)))
     return -1
   if trap != nil:
-    instance.host.invocation.fault(consumeTrap(trap))
+    instance.host.invocation.fault(compactRuntimeFault(consumeTrap(trap)))
     return -1
   if results.len == 0:
     0
