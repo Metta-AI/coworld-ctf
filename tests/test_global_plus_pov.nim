@@ -159,6 +159,25 @@ suite "global_plus_pov's bundle carries the composited control path":
     check "confirmedSlot !== insetSlot" in bundle
     check "setInsetSlot(-1)" in bundle
 
+  test "the LIVE path carries the #364/#369 mode latch and the heart gate":
+    # Hotfix lane 2026-09-02: this page is the OTHER live client, forked
+    # before #364/#369, so it still latched PB_MODE off `regime` (a signal
+    # every squad-seated frame carries — BR duos and Campaign alike) and
+    # rendered heart banners on BR wire events. The ported latch reads the
+    # genuine Paintball tell, the endcard's endRule switch requires PB_MODE,
+    # and the steal/return/capture handlers sit behind the heart gate.
+    check "function isPaintballMode(s) { return !!(s && s.hillOwner !== undefined); }" in bundle
+    check "if (!PB_MODE && isPaintballMode(s) && !isElim(s)) PB_MODE = true;" in bundle
+    check "s.regime !== undefined) PB_MODE = true" notin bundle
+    check "if (o.endRule !== undefined && PB_MODE) {" in bundle
+    check "if (elim) return 'LAST TEAM STANDING';" in bundle
+    check "if ((e.k === 'steal' || e.k === 'return' || e.k === 'capture') &&" in bundle
+    check "(isElim(s) || isFlagless(s) || PB_MODE)) return;" in bundle
+    check "if (self.carry && !isElim(lastState) && !isFlagless(lastState) && !PB_MODE)" in bundle
+    check "if (!s.beats || isElim(s) || isFlagless(s) || PB_MODE) return;" in bundle
+    check "ingestBeats(heartGatedBeats(s));" in bundle
+    check "function heartGatedBeats(s)" in bundle
+
   test "a reconnect re-arms the requested POV slot instead of settling into board mode":
     # broadcast_core.js retries the socket itself after a drop, but a fresh
     # connection starts in board mode -- 'v:' has to be resent on the very

@@ -3146,7 +3146,12 @@ body[data-noviewpanel] #viewpanel { display: none !important; }
     ingestLeadSeries(s);
     ingestFpMap(s);
     ingestLullSpans(s);
-    ingestBeats(s);
+    // The up-front beat timeline is the OTHER path heart chrome rides
+    // (replays ship every steal/return/capture beat on the first HUD frame,
+    // so applyEvent's gate alone still left steal markers on a BR scrubber).
+    // Same heart gate, applied before chrome_common's ingestBeats latches
+    // its once-only beatTimeline.
+    ingestBeats(heartGatedBeats(s));
     ingestCapHearts(s);
     recordMomentum(s);
 
@@ -3449,6 +3454,20 @@ body[data-noviewpanel] #viewpanel { display: none !important; }
   // `regime` is what stops a Campaign/territory episode from false-latching
   // the deprecated hill/RED-BLUE/game-N/M chrome #364 already fixed for BR.
   function isPaintballMode(s) { return !!(s && s.hillOwner !== undefined); }
+  // Heart gate for the up-front beat timeline: on a BR/flagless/PB frame,
+  // hand ingestBeats a copy with the steal/return/capture beats stripped so
+  // the scrubber never grows heart markers (the mode tells ride the SAME
+  // frame as the beats — broadcast.nim pins `br` on every brMode frame — so
+  // this can never race the latch). Classic frames pass through untouched.
+  function heartGatedBeats(s) {
+    if (!s || !s.beats || !(isElim(s) || isFlagless(s) || PB_MODE)) return s;
+    var copy = {};
+    for (var k in s) copy[k] = s[k];
+    copy.beats = s.beats.filter(function (b) {
+      return b.k !== 'steal' && b.k !== 'return' && b.k !== 'capture';
+    });
+    return copy;
+  }
 
   function renderScorebug(s) {
     var teams = activeTeams(s);
@@ -4622,7 +4641,11 @@ body[data-noviewpanel] #viewpanel { display: none !important; }
     if (typeof self.lives === 'number') bits.push('×' + self.lives);
     (self.items || []).forEach(function (it) { bits.push(ITEM_LABEL[it] || it.toUpperCase()); });
     var html = bits.map(function (b) { return '<span>' + b + '</span>'; }).join('');
-    if (self.carry) html += '<span class="carry">♥ HEART</span>';
+    // Heart chrome is classic-CTF-only (same tells as applyEvent's heart
+    // gate): a BR/flagless/Paintball frame never shows the carry chip.
+    if (self.carry && !isElim(lastState) && !isFlagless(lastState) && !PB_MODE) {
+      html += '<span class="carry">♥ HEART</span>';
+    }
     gearEl.innerHTML = html;
   }
 
@@ -4822,6 +4845,15 @@ body[data-noviewpanel] #viewpanel { display: none !important; }
       beatPulse();
       return;
     }
+    // HEARTS ARE CLASSIC-CTF CHROME ONLY (extends #364/#369's mode tells):
+    // the wire's steal/return/capture events are DIFFED off sim.flags
+    // carrier flips (broadcast.nim), a mechanism #370's loot rework now
+    // also exercises on BR frames — a LIVE battle royale was rendering a
+    // "BLUE HEART RETURNED" banner (owner screenshot, hotfix lane). A BR
+    // (isElim), flagless, or Paintball frame must never reach the heart
+    // banner/beat/cap-heart handlers below, whatever the wire carries.
+    if ((e.k === 'steal' || e.k === 'return' || e.k === 'capture') &&
+        (isElim(s) || isFlagless(s) || PB_MODE)) return;
     switch (e.k) {
       case 'kill': onKill(e, s); markBeat(e.t, 'kill', killMarkerTeam(e, s)); beatPulse(); break;
       case 'steal': onSteal(e, s); markBeat(e.t, 'steal', e.flag); beatPulse(); break;
@@ -5457,7 +5489,9 @@ body[data-noviewpanel] #viewpanel { display: none !important; }
     (capHeartsBySlot[e.by] = capHeartsBySlot[e.by] || []).push(e.flag);
   }
   function ingestCapHearts(s) {
-    if (!s.beats) return;
+    // Same heart gate as applyEvent: captured-heart endcard badges are
+    // classic-CTF chrome; never ingest them off a BR/flagless/PB frame.
+    if (!s.beats || isElim(s) || isFlagless(s) || PB_MODE) return;
     for (var i = 0; i < s.beats.length; i++) {
       if (s.beats[i].k === 'capture') recordCapHeart(s.beats[i]);
     }
