@@ -185,7 +185,10 @@ runtime comparison that picked wasmtime
 inventory (`docs/recon/paintbot-s2-policy-shell-2026-08-29.md`). New policy
 authors should start in `policies/starters/`; `policies/poc_llm_policy/` is the
 lower-level wire reference. The original dark-landing history is preserved in
-`docs/reports/br-season2-landing-notes-2026-08-30.md`.
+`docs/reports/br-season2-landing-notes-2026-08-30.md`. The server's per-tick
+diagnostic log lines for play seats (`FIRST_LIGHT_INSTALL`, play faults,
+`FIRST_LIGHT_PLAN_BUDGET`, `FIRST_LIGHT_NAV`, `FIRST_LIGHT_COMBAT`) are
+described in `docs/designs/FIRST_LIGHT_DEMO.md` under "Diagnostic log lines".
 
 ## Build shapes
 

@@ -860,6 +860,21 @@ suite "shell episode ladder":
         it.status.kind == skPlayFaulted and
         it.status.entryId == "step_trap" and
         it.statusBytes.len > 0)
+      # The fault is also minted into the annotation stream (replay + server
+      # log), naming the entry and the runtime's reason.
+      let faults = fault.annotations.filterIt(it.kind == akPlayFault)
+      check faults.len == 1
+      check faults[0].seat == 0
+      check faults[0].tick == uint32(tick)
+      check faults[0].faultEntryId == "step_trap"
+      check faults[0].annotationFaultReason.len > 0
+      let line = faults[0].formatLifecycleAnnotation("Botts")
+      check line.startsWith(&"FIRST_LIGHT_ANNOTATION tick={tick} seat=0 ")
+      check "player=\"Botts\"" in line
+      check "kind=play_fault" in line
+      check "entry=step_trap" in line
+      check "reason=\"" in line
+      check episode.seatDisplayName(0) == ""
 
   test "pending retunes report identities and complete exactly once":
     when ShellRuntimeAvailable:

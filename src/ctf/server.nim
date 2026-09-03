@@ -4987,7 +4987,25 @@ proc runServerLoop*(
           for install in firstLight.installs:
             echo install.formatInstall()
           for annotation in firstLight.annotations:
+            if annotation.kind == akPlayFault:
+              echo annotation.formatLifecycleAnnotation(
+                firstLightEpisode.seatDisplayName(annotation.seat.int))
             replayWriter.writeAnnotation(annotation)
+          # Cold-planning budget events print on the tick they happen; the
+          # follower census prints once a second and on every event tick so
+          # the two join by tick. The weapon-path census prints once a second.
+          for event in firstLight.planBudget:
+            echo event.formatPlanBudgetEvent()
+          let secondBoundary = (sim.tickCount mod 24) == 0
+          if firstLight.masks.len > 0:
+            if (secondBoundary or firstLight.planBudget.len > 0) and
+                (firstLight.nav.pendingPlans > 0 or
+                 firstLight.nav.stalePathSeats.len > 0 or
+                 firstLight.nav.noPathSeats.len > 0):
+              echo formatNavSummary(uint32(sim.tickCount + 1), firstLight.nav)
+            if secondBoundary:
+              echo formatCombatSummary(uint32(sim.tickCount + 1),
+                firstLight.combat)
         # ---- direct aim: point the turret, THEN run the tick ------------
         # The one write that makes a human's aim absolute instead of a
         # traverse. Re-derived per STEP, not per frame: at >1x the frame runs
