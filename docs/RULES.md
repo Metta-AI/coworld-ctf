@@ -935,6 +935,41 @@ see the flag's own bullet).
   full spec it certifies. `gunRange` re-derives from the scaled field; the
   duo spawn pocket deliberately does not scale.
 
+## Season 2 glory multiplier recut (GLORY v13 — dark)
+
+The pure-multiplier glory economy (frozen 2026-09-02 contract), shipped
+DARK. Each key below is its OWN manifest `game_config` key, independently
+settable — never coupled to `lootStart`/`downedMode`, to a variant switch,
+or to each other (per-flag activation, recut contract Amendment 2 §1).
+Merged and deployed is NOT armed: arming any of these is an explicit,
+separate manifest publish.
+
+- **`gloryMultiplierRecut`** (bool, default off, BOTH modes): no base
+  points — episode glory = seed(1) × the product of integer act
+  multipliers (`RecutClassTable`/`RecutTierClass`, glory.nim §6b), with
+  the territory rung shift (+1 on enemy ground, above-×1 classes only),
+  heat/carry folded per event under their existing gates, the Fibonacci
+  teammates-in-context stack (×1,2,3,5,8,13), and friendly fire as an
+  uncapped compounding DIVISION (BR ÷2 per incident, CTF ÷2 per two).
+  ×1 commons still mint, pop and count — they carry no score weight.
+  BR-only marquee deeds (`dDuoDown` ×2, `dClosingTime` ×2, `dLastLight`
+  ×4, `dVictory` ×8) mint only under this flag. Off: every number prices
+  exactly as GLORY v12, fixtures byte-identical.
+- **`stampRealizedConfig`** (bool, default off): at episode finalize the
+  engine emits the realized-config stamp — `{stampVersion, realizedBuild
+  {gameVersion, gloryVersion, engineStamp}, variantId, flagSet}` (flagSet
+  = the S2 dark-flag family as sorted `key=value` pairs, false values
+  included) — into the events summary row and the episode log.
+  Observability only; independent of every other flag.
+- **`variantId`** (string, default empty): self-label echoed into the
+  stamp and the replay header so replay-only audits can name the
+  publishing variant without platform access.
+
+Staging variants `battle-royale-s2-lootstart` and `battle-royale-s2-downed`
+(published behind the flagship in `coworld_manifest_paintbot.json`) carry
+exactly one of the two loot flags each, so the S2 flag family can be staged
+or bisected per-flag instead of riding one coupled variant switch.
+
 ## Engine reward scoring
 
 The published Season 2 variant uses `scoring: "classic"`, with the BR placement
