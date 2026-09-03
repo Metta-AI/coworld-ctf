@@ -839,6 +839,16 @@ const
   DownedReviveTicksDefault* = 2 * ReplayFps    ## revive channel length.
   DownedMinBleedOutTicks* = 2 * ReplayFps      ## escalation floor: however
                               ## many downs, a ghost always gets this long.
+  # ── S2 GIVE-ITEM (exchange) tunables ── read ONLY while config.giveItem
+  # is armed. Both DERIVE from the revive channel's own constants (owner
+  # spec 2026-09-02: mirror the revive channel; same source, never a
+  # separately-tuned copy), so a revive-channel retune moves both together.
+  GiveItemRange* = DownedTagRange ## px center-to-center: duo adjacency that
+                              ## advances a DECLARED handoff channel. The
+                              ## giver's exposure IS the cost, exactly as
+                              ## for a revive tag.
+  GiveChannelTicks* = DownedReviveTicksDefault ## held-adjacency ticks to
+                              ## complete a declared handoff.
   SprayPaintSpawnInset* = GrenadeSpawnInset
   SprayPaintPickupRange* = 12  ## touch radius to pick a spray can up.
   SprayPaintRespawnTicks* = 30 * ReplayFps
@@ -2416,6 +2426,22 @@ type
                         ## => the seed-deterministic draw; the winner's
                         ## spec is installed as the episode map at
                         ## resolution (sim.applyVoteWinnerMap).
+    # ── S2 GIVE-ITEM (exchange) ── appended field, same append-safety
+    # reasoning as everything above. Default false = the mechanic does not
+    # exist: declareHandoff refuses, the step-loop channel is a no-op, and
+    # the config echo carries no key (echoGiveItemKeys) — a dark game's
+    # replay config stays byte-identical to a build without this field.
+    # brMode only (validate): "duo partner" is a BR fact, so CTF configs
+    # cannot arm it.
+    giveItem*: bool     ## GIVE(s2): the play-called item-exchange gate. A
+                        ## DECLARED handoff (declareHandoff — the consent
+                        ## record; the play-calling shell is its intended
+                        ## caller) plus GiveItemRange adjacency HELD for
+                        ## GiveChannelTicks transfers the declared item
+                        ## ("gun" | "hopper" | "bandage") to the duo
+                        ## partner. No transfer of any kind without a
+                        ## declaration (owner ruling 2026-09-02: proximity
+                        ## can never imply consent — no auto-share).
 
   Player* = object
     x*, y*: int
@@ -2816,6 +2842,24 @@ type
     reviveProgress*: int ## LOOT(s2): consecutive adjacent-teammate ticks
                         ## toward downedReviveTicks; resets to 0 the tick
                         ## the tag breaks.
+    # GIVE(s2): none of the three fields below enters gameHash (the
+    # puddleTicks/hasBarrier rule) — the transfer the channel completes
+    # moves already-hashed state (hasGun/hasHopper/bandages drive hashed
+    # behavior), and the channel itself is a pure function of declared
+    # state plus already-hashed positions.
+    giveDeclItem*: string ## GIVE(s2): the declared handoff item ("gun" |
+                        ## "hopper" | "bandage"), "" = no declaration. Set
+                        ## only through declareHandoff while config.giveItem
+                        ## is armed; cleared on completion or on the
+                        ## giver's death/down.
+    giveProgress*: int  ## GIVE(s2): consecutive qualifying adjacent ticks
+                        ## toward GiveChannelTicks; resets to 0 the tick
+                        ## any channel condition breaks (interruptible by
+                        ## construction).
+    handoffs*: int      ## GIVE(s2): completed play-called handoffs GIVEN
+                        ## by this cog this episode (analysis counter —
+                        ## the deed lane's mint feed is the ItemGive event
+                        ## stream, never this counter).
 
   PlayerFov* = object
     ## One player's cached fog-of-war visibility grid (FovGridW x FovGridH
@@ -3191,6 +3235,18 @@ type
     Revived     ## LOOT(s2): a teammate's tag brought a ghost back at 1 hp.
                 ## source = the reviving teammate, target = the revived
                 ## cog, amount = the completed channel length in ticks.
+    # ── S2 GIVE-ITEM ── appended, never inserted, per this enum's own
+    # positional discipline: archived replays encoding the ordinals above
+    # keep them unchanged; this is a new tail entry.
+    ItemGive    ## GIVE(s2): a DECLARED handoff completed — the item moved
+                ## from actor to recipient (config.giveItem). source = the
+                ## giving cog (actor), target = the receiving duo partner
+                ## (recipient), item = "gun" | "hopper" | "bandage",
+                ## amount = the completed channel length in ticks, x/y =
+                ## the giver's center at completion. Auto-transfers do not
+                ## exist (owner ruling 2026-09-02: proximity can never
+                ## imply consent), so every row of this kind is a
+                ## play-called act — dHandoff's intent-clean predicate.
 
   EventDamage* = object
     ## One victim damaged by a primary impact/use event.

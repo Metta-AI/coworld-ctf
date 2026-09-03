@@ -6692,6 +6692,127 @@ proc updateDowned(sim: var SimServer) =
           sim.playerText(tagger)
       )
 
+proc duoPartnerIndex*(sim: SimServer, playerIndex: int): int =
+  ## GIVE(s2): the seat's duo partner — the one OTHER member of its team
+  ## (BR seats duos two to a team; deterministic lowest-index pick if a
+  ## variant ever seats more). -1 = no partner has joined.
+  result = -1
+  for j in 0 ..< sim.players.len:
+    if j != playerIndex and
+        sim.players[j].team == sim.players[playerIndex].team:
+      return j
+
+proc declareHandoff*(
+  sim: var SimServer, playerIndex: int, item: string
+): bool {.discardable.} =
+  ## GIVE(s2): declares — or, with item = "", clears — a HANDOFF play for
+  ## one seat: "give my `item` to my duo partner". The declaration is the
+  ## CONSENT record: without one the channel below never advances and no
+  ## item ever moves (owner ruling 2026-09-02 — proximity can never imply
+  ## consent, so there is no auto-share path to be gated). Target is not a
+  ## parameter: it is always THE duo partner, resolved at execution time.
+  ##
+  ## This proc is the engine seam for the play-calling shell's HANDOFF
+  ## play (the 0x10-recorded play call is the matching intent record).
+  ## NOTHING in the engine calls it yet — the shell-side Intent vocabulary
+  ## and the replay-side declaration record are the arming lane's work
+  ## (see the PR's activation section). Returns true when the declaration
+  ## was accepted. Re-declaring a different item restarts the channel.
+  if not sim.config.giveItem or sim.phase != Playing:
+    return false
+  if playerIndex < 0 or playerIndex >= sim.players.len:
+    return false
+  if not sim.players[playerIndex].alive or sim.players[playerIndex].downed:
+    return false
+  if item.len == 0:
+    sim.players[playerIndex].giveDeclItem = ""
+    sim.players[playerIndex].giveProgress = 0
+    return true
+  if item != "gun" and item != "hopper" and item != "bandage":
+    return false
+  if sim.duoPartnerIndex(playerIndex) < 0:
+    return false
+  if sim.players[playerIndex].giveDeclItem != item:
+    sim.players[playerIndex].giveProgress = 0
+  sim.players[playerIndex].giveDeclItem = item
+  true
+
+proc updateGiveChannel(sim: var SimServer) =
+  ## GIVE(s2): one tick of the play-called handoff channel, per declared
+  ## giver. The channel advances only while EVERY condition holds this
+  ## tick — giver upright and still holding the declared item, partner
+  ## upright and able to receive it (marker/hopper are binary; bandages
+  ## cap at BandageCarryCap), and both inside GiveItemRange — and resets
+  ## to zero the tick any of them breaks (interruptible by construction,
+  ## the revive channel's own shape). At GiveChannelTicks the declared
+  ## item transfers, the declaration clears, and the ItemGive row is
+  ## emitted — the ONLY transfer path in the game besides death-drops
+  ## (owner ruling 2026-09-02: guns, hoppers and bandages alike move by
+  ## play or not at all).
+  ## Tick-based, RNG-free; a no-op unless giveItem is armed.
+  if not sim.config.giveItem or sim.phase != Playing:
+    return
+  for i in 0 ..< sim.players.len:
+    if sim.players[i].giveDeclItem.len == 0:
+      continue
+    # A dead or downed giver's declaration dies with the life that made it.
+    if not sim.players[i].alive or sim.players[i].downed:
+      sim.players[i].giveDeclItem = ""
+      sim.players[i].giveProgress = 0
+      continue
+    let
+      item = sim.players[i].giveDeclItem
+      partner = sim.duoPartnerIndex(i)
+    var holds = partner >= 0 and sim.players[partner].alive and
+      not sim.players[partner].downed
+    if holds:
+      holds =
+        case item
+        of "gun":
+          sim.players[i].hasGun and not sim.players[partner].hasGun
+        of "hopper":
+          sim.players[i].hasHopper and not sim.players[partner].hasHopper
+        else:
+          sim.players[i].bandages > 0 and
+            sim.players[partner].bandages < BandageCarryCap
+    if holds:
+      let
+        gx = sim.players[i].x + CollisionW div 2
+        gy = sim.players[i].y + CollisionH div 2
+        px = sim.players[partner].x + CollisionW div 2
+        py = sim.players[partner].y + CollisionH div 2
+      holds = distSq(gx, gy, px, py) <= GiveItemRange * GiveItemRange
+    if not holds:
+      sim.players[i].giveProgress = 0
+      continue
+    inc sim.players[i].giveProgress
+    if sim.players[i].giveProgress < GiveChannelTicks:
+      continue
+    case item
+    of "gun":
+      sim.players[i].hasGun = false
+      sim.players[partner].hasGun = true
+    of "hopper":
+      sim.players[i].hasHopper = false
+      sim.players[partner].hasHopper = true
+    else:
+      dec sim.players[i].bandages
+      inc sim.players[partner].bandages
+    sim.players[i].giveDeclItem = ""
+    sim.players[i].giveProgress = 0
+    inc sim.players[i].handoffs
+    sim.emitEvent(
+      ItemGive, source = i, target = partner, item = item,
+      amount = GiveChannelTicks,
+      x = float(sim.players[i].x + CollisionW div 2),
+      y = float(sim.players[i].y + CollisionH div 2)
+    )
+    sim.logGameEvent(
+      playerColorText(sim.players[i].color) & " handed a " &
+        (if item == "gun": "marker" else: item) & " to " &
+        sim.playerText(partner)
+    )
+
 template pruneAgedFx(sim: var SimServer, fxField, tickField: untyped,
     life: untyped) =
   ## Keeps the entries of one aged FX/state seq that are younger than `life`
@@ -6832,6 +6953,10 @@ proc step*(
   # resolution exactly as a direct kill would. Config-gated at the proc
   # head; a no-op when dark.
   sim.updateDowned()
+  # GIVE(s2): the play-called handoff channel, after the downed machine so
+  # a partner revived this tick can hold the channel and a giver downed
+  # this tick cannot. Config-gated at the proc head; a no-op when dark.
+  sim.updateGiveChannel()
   sim.armSprayCans()          ## a respawned cog comes back holding its can.
   sim.updatePackTicks()
   # Puddle damage resolves after movement and pickups, before the win check,
