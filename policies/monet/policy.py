@@ -463,7 +463,10 @@ PERSONA = Persona(
                 {"play": "medic", "entry_id": "pickup",
                  "params": {"abortHpFloor": 1, "zoneReach": 220}},
                 {"play": "fire_superiority", "entry_id": "pressbreak",
-                 "params": {"breakDeficit": 3, "coverMax": 260,
+                 # breakDeficit PARKED at pre-aggression 2 (v13b raised it to
+                 # 3; that lever ships in its own hosted A/B, not v9 -- flip
+                 # back to 3 to re-arm, do not touch anything else here).
+                 "params": {"breakDeficit": 2, "coverMax": 260,
                             "engageDist": 600, "pressRange": 400,
                             "woundedPct": 50}},
                 {"play": "hold_vs_gun", "entry_id": "holdgun",
@@ -473,7 +476,9 @@ PERSONA = Persona(
                  "params": {"leash": [100, 200], "interpose": True,
                             "peelHp": 2}},
                 {"play": "jackal", "entry_id": "third",
-                 "params": {"earshot": 550, "joinWhen": "afterKill",
+                 # earshot PARKED at pre-aggression 450 (v13b raised it to
+                 # 550 for the same unproven aggression lever -- see above).
+                 "params": {"earshot": 450, "joinWhen": "afterKill",
                             "exitAfter": {"kills": 2}}},
                 {"play": "supply_run", "entry_id": "bank",
                  "params": {"whenHpBelow": 3, "detourMax": 250,
@@ -498,9 +503,12 @@ PERSONA = Persona(
                 {"play": "medic", "entry_id": "pickup",
                  "params": {"abortHpFloor": 1, "zoneReach": 220}},
                 {"play": "fire_superiority", "entry_id": "pressbreak",
-                 "params": {"breakDeficit": 3, "coverMax": 200,
+                 # breakDeficit/woundedPct PARKED at pre-aggression 2/34
+                 # (v13b's unproven press lever -- see the mid-turn note
+                 # above; re-arm both together when its own A/B ships).
+                 "params": {"breakDeficit": 2, "coverMax": 200,
                             "engageDist": 600, "pressRange": 340,
-                            "woundedPct": 25}},
+                            "woundedPct": 34}},
                 {"play": "crossfire", "entry_id": "shape",
                  "params": {"spacing": [120, 280], "minAngle": 36}},
                 {"play": "supply_run", "entry_id": "bank",
