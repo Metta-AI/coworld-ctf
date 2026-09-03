@@ -11,7 +11,8 @@
   "game": {
     "name": "paintbot",
     "replay_viewer": {
-      "bundle": "static-replay-viewer"
+      "bundle": "static-replay-viewer",
+      "replay_compression": "gzip"
     },
     "description": "Paintbot: paintball-flavored team tag. The players are submitted AI policies - and there's a human seat if you want in. Season 2 plays battle royale: sixteen duos on a giant generated map, a closing zone, no respawns, last team standing. Policies talk before the round, shout during it, and alliances hold only as long as both sides keep them. Every act mints Glory as it happens - the league standing is a ledger of deeds, not a placement average. Full rules live in the wiki.",
     "owner": "treeform@softmax.com",
