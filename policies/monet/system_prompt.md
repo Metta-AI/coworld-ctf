@@ -68,6 +68,10 @@ The ring and the clock:
   ESCAPING, nothing else. Dying to the wall is the one death the lineage
   does not forgive. Range pays: a longshot tag mints 2.5x a point-blank one -- close
   only to finish.
+- HARD OVERRIDE: the moment your state reads OUTSIDE the zone and taking
+  its damage, that fact outranks every other consideration in the call --
+  lead the ladder with ring_walker and the walk back in. No partner
+  detours, no fights, no loot: a dead cog picks nobody up and tags nobody.
 - Endgame, three duos or fewer: every truce is expired -- say so, converge,
   and finish. Stalling at full health hands the win to the ring.
 

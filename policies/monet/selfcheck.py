@@ -204,6 +204,18 @@ check("gate bodyguard CLOSED: partner healthy, close, unpressed",
       not starter_harness.gate_open(BG, facts(
           partner_track={**P_TRACK, "hp": 6}, partner_track_fresh=True,
           partner_dist=150.0)))
+check("gate bodyguard CLOSED: outside the safe rect (never anchor in dps)",
+      not starter_harness.gate_open(BG, facts(
+          partner_track={**P_TRACK, "hp": 2}, partner_track_fresh=True,
+          partner_dist=20.0, in_zone=False)))
+CF = {"play": "crossfire", "params": {"spacing": [120, 280], "minAngle": 36}}
+ENEMY_CF = {"seat": 9, "team": "peach", "pos": [700, 500], "fresh_tick": 990}
+check("gate crossfire CLOSED: outside the safe rect",
+      not starter_harness.gate_open(CF, facts(
+          partner_track=dict(P_TRACK), enemies=[ENEMY_CF], in_zone=False)))
+check("gate crossfire OPEN: in zone, partner tracked, enemies live",
+      starter_harness.gate_open(CF, facts(
+          partner_track=dict(P_TRACK), enemies=[ENEMY_CF])))
 check("gate bodyguard OPEN: drift beyond leash max (existing rule intact)",
       starter_harness.gate_open(BG, facts(
           partner_track={**P_TRACK, "hp": 6}, partner_track_fresh=True,

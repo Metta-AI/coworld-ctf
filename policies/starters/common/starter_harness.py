@@ -690,6 +690,12 @@ def gate_open(entry: dict, facts: dict) -> bool:
         leash_max = leash[1] if isinstance(leash, list) and len(leash) == 2 else 220
         if facts["partner"] is None or facts["partner_dead"] or facts["partner_track"] is None:
             return False
+        # NEVER anchor outside the safe rect: the reference bodyguard wasm
+        # has no zone branch, so a partner-leash rung called out there holds
+        # a seat in the dps (endgame miner, 62 v8 losses: 48% died early-mid
+        # anchored outside the rect). ring_walker owns that state instead.
+        if not facts.get("in_zone", True):
+            return False
         # A WOUNDED or under-fire partner opens the gate regardless of drift
         # (owner: "keep each other alive -- pick teammate up"). Observable
         # honestly: hp only if the partner's fogged track carries one, and
@@ -708,7 +714,9 @@ def gate_open(entry: dict, facts: dict) -> bool:
     if play == "jackal":
         return bool(facts["enemies"])
     if play == "crossfire":
-        return (facts["partner"] is not None and not facts["partner_dead"]
+        # Same zone rule as bodyguard: formation never anchors in the dps.
+        return (facts.get("in_zone", True)
+                and facts["partner"] is not None and not facts["partner_dead"]
                 and facts["partner_track"] is not None and bool(facts["enemies"]))
     if play == "ring_walker":
         # The anti-corner walk (owner field report 2026-09-02): on the

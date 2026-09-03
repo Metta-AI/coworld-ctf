@@ -321,7 +321,10 @@ PERSONA = Persona(
                       "play at the wall, and calling a rotation REPLACES "
                       "the default one. Call it only with a specific "
                       "positional read; margin is depth inside the safe "
-                      "zone (deeper = safer) if you do."),
+                      "zone (deeper = safer) if you do -- and under "
+                      "late-phase dps set enterLead 300 or more: starting "
+                      "the rotation late is how seats die to an "
+                      "uncontested wall."),
         "supply_run": ("supply_run is the conversion play this lineage "
                        "always skipped: after a fight, bank the life. The "
                        "harness guarantees the rung; you tune it. Avoid "
