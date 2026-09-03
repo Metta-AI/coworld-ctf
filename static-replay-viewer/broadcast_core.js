@@ -1866,9 +1866,34 @@
       paceSchedule();
     }
 
+    // Episode-transition reset: a reconnect is a NEW stream, and it may be a
+    // DIFFERENT match (the next episode's server taking over the same URL —
+    // the S2 live page's auto-advance path). The server treats the fresh
+    // socket as a brand-new viewer with an EMPTY per-viewer object ledger, so
+    // its per-frame delete diff can never reap the ids only THIS client still
+    // holds from the previous episode — the old match's hearts/med kits/decals
+    // stay composited over the new board forever (owner's live screenshots;
+    // "fixed" only by a refresh, which is exactly this clear done by hand).
+    // Everything cleared here is re-shipped by the new connection's init
+    // packet (map bands, sprite defs, objects, the episode's zone field).
+    function resetStreamState() {
+      layers.clear();
+      sprites.clear();
+      objects.clear();
+      zoneField = null;
+      zoneCanvas = null;
+      zoneCtx = null;
+      zoneImage = null;
+      zoneLastAppliedTick = -1;
+      zoneLastTouchedCells = 0;
+      pendingDecodes = 0;
+      dirty = true;
+    }
+
     function connect() {
       if (stopped) return;
       if (paceEnabled) paceReset();
+      resetStreamState();
       const ws = new WebSocket(websocketAddress(window.location.href));
       socket = ws;
       ws.binaryType = 'arraybuffer';
