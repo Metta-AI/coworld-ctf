@@ -1293,7 +1293,8 @@
         "playSeatBindTicks": 7200,
         "variantId": "battle-royale-s2",
         "gloryMultiplierRecut": true,
-        "stampRealizedConfig": true
+        "stampRealizedConfig": true,
+        "giveItem": true
       }
     },
     {
