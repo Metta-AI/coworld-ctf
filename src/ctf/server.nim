@@ -2166,7 +2166,8 @@ proc buildCosmeticFxPacket(
   incoming: seq[ShotFeedbackFx] = @[],
   partnerDown: seq[PartnerDownFx] = @[],
   avenge: seq[AvengeFx] = @[],
-  bearing: int = -1
+  bearing: int = -1,
+  landed: seq[ShotFeedbackFx] = @[]
 ): string {.measure.} =
   ## Builds the fog-clipped cosmetic-effects JSON for one takeover socket's
   ## cog this tick (GameConfig.allowCosmeticFx): the two effects
@@ -2244,6 +2245,26 @@ proc buildCosmeticFxPacket(
   ##     becoming a radar. Client renders this as a quiet edge-of-minimap
   ##     compass tick, not the loud full-screen "incoming" flash — see
   ##     player_hud.js's notifyContactBearing/drawMinimap.
+  ##   {"kind":"tag_landed", "onKill":bool, "friendlyFire":bool}  -- Swap#15
+  ##     item 3 (AGENCY's top gap: swap13's S3 only ever fired a ONE-TIME
+  ##     "first tag!" feed line, off buildShotFeedbackPacket's shotsLanded —
+  ##     which is allowShotFeedback-gated, default OFF, so on today's live
+  ##     config NEITHER that line NOR its hitmarker fired even once, and the
+  ##     client-side damage-pop heuristic that otherwise drives the
+  ##     hitmarker (handleDamagePopBirth) only sees a hit that is actually
+  ##     VISIBLE to the shooter — a fogged/occluded landed shot, same two
+  ##     cases buildShotFeedbackPacket's own doc names (a grenade blast with
+  ##     no per-victim LOS check; a windup shot whose target broke LOS
+  ##     before resolution), got NO feedback at all). One entry per `landed`
+  ##     the caller filtered to this cog as shooterIndex — same source data
+  ##     as cogIncoming above (frameShotFeedback), so this is independent of
+  ##     allowShotFeedback exactly the way "incoming" already is: the
+  ##     underlying record is always populated, only buildShotFeedbackPacket
+  ##     itself is gated. EVERY landed shot gets an entry (kills included,
+  ##     unlike cogIncoming's non-fatal-only filter — a kill already gets
+  ##     the killcam via shot feedback when that channel is on, but this
+  ##     channel is the only one guaranteed live, so it must not skip kills
+  ##     or a confirmed kill shot would be the one hit that goes silent).
   if not sim.config.allowCosmeticFx:
     return ""
   if viewerIndex < 0 or viewerIndex >= sim.players.len:
@@ -2311,6 +2332,12 @@ proc buildCosmeticFxPacket(
     fx.add(%*{"kind": "zone_eta", "ticks": etaTicks, "shrinking": shrinking})
   if bearing >= 0:
     fx.add(%*{"kind": "bearing", "bearing": bearing})
+  for hit in landed:
+    fx.add(%*{
+      "kind": "tag_landed",
+      "onKill": hit.kill,
+      "friendlyFire": hit.friendlyFire
+    })
   if fx.len == 0:
     return ""
   $(%*{"fx": fx})
@@ -3239,9 +3266,15 @@ proc runServerLoop*(
       # comment); a NON-fatal hit only, since a fatal one already has the
       # killcam.
       var cogIncoming: seq[ShotFeedbackFx] = @[]
+      var cogHitsLanded: seq[ShotFeedbackFx] = @[]
       for fx in frameShotFeedback:
         if fx.targetIndex == takeoverCogs[i] and not fx.kill:
           cogIncoming.add fx
+        # Swap#15 item 3: EVERY shot this cog landed, kills included (see
+        # "tag_landed"'s own doc comment on buildCosmeticFxPacket for why
+        # kills are not excluded the way cogIncoming excludes them).
+        if fx.shooterIndex == takeoverCogs[i]:
+          cogHitsLanded.add fx
       var cogPartnerDown: seq[PartnerDownFx] = @[]
       for fx in framePartnerDownFx:
         if fx.partnerIndex == takeoverCogs[i]:
@@ -3260,7 +3293,8 @@ proc runServerLoop*(
       # suppression).
       let cogBearing = sim.contactBearingFor(takeoverCogs[i])
       let cosmeticFxPacket = sim.buildCosmeticFxPacket(
-        takeoverCogs[i], cogIncoming, cogPartnerDown, cogAvenge, cogBearing)
+        takeoverCogs[i], cogIncoming, cogPartnerDown, cogAvenge, cogBearing,
+        cogHitsLanded)
       if cosmeticFxPacket.len > 0:
         try:
           takeoverSockets[i].send(cosmeticFxPacket, TextMessage)

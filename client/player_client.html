@@ -2396,6 +2396,7 @@ const DEATH_ATTRIB_MS=3000;
 let lastPopFeedbackAt=0,lastPopFeedbackKill=false;
 let lastWireFeedbackAt=0,lastWireFeedbackKill=false;
 let firstTagShown=false; // Swap#13 S3 -- see handleShotFeedback's own comment.
+let tagsLandedCount=0; // Swap#15 item 3 -- see handleTagLanded's own comment.
 let deathInfo=null,diedAt=0,deathCardKey="";
 const shotFeedbackCounts={framesSeen:0,shotsLanded:0,hitsTaken:0,killsConfirmed:0,dedupedConfirms:0};
 /* Published for the HUD lane and for scripted verification, same idiom as
@@ -2512,6 +2513,38 @@ function handleTextFrame(text){
    last message's set is authoritative and a stale leftover from before a
    turn or a fog change must not linger -- the same "only what you can see
    RIGHT NOW" contract splatters/stains already follow on the sprite wire. */
+/* Swap#15 item 3 (AGENCY's top gap): "tag_landed" cosmetic-fx consumer --
+   see buildCosmeticFxPacket's own doc comment for why this exists at all
+   (S3's per-hit feedback only ever rode the allowShotFeedback-gated wire,
+   default OFF, so it never fired live; the damage-pop heuristic that DOES
+   run unconditionally only sees a hit that is actually visible, missing
+   fogged/occluded ones entirely). Fires EVERY landed shot, unlike
+   firstTagShown's one-time milestone below, and increments a visible
+   counter so "did it register" is provable, not just felt. Dedups against
+   BOTH other confirm paths (the damage-pop heuristic's lastPopFeedbackAt,
+   and handleShotFeedback's own lastWireFeedbackAt when that channel
+   happens to also be on) so a hit visible to more than one path only ever
+   plays one hitstop/hitmarker/sound -- same SHOT_FEEDBACK_DEDUPE_MS window
+   and kill-outranks-hit rule those two already share. */
+function handleTagLanded(onKill,friendlyFire){
+  const nowT=performance.now();
+  const alreadyConfirmed=
+    (lastPopFeedbackAt&&nowT-lastPopFeedbackAt<=SHOT_FEEDBACK_DEDUPE_MS&&(lastPopFeedbackKill||!onKill))||
+    (lastWireFeedbackAt&&nowT-lastWireFeedbackAt<=SHOT_FEEDBACK_DEDUPE_MS&&(lastWireFeedbackKill||!onKill));
+  if(!alreadyConfirmed){
+    lastWireFeedbackAt=nowT;lastWireFeedbackKill=onKill;
+    triggerHitstop();triggerHitmarker(onKill);
+    if(onKill)playKillConfirm();else playHitDealt();
+  }
+  // The counter and feed line are NOT gated on alreadyConfirmed -- a landed
+  // shot is real either way (dedup only suppresses a repeated CHIME for the
+  // one trigger pull two channels both saw), same rule firstTagShown's own
+  // comment already established just below.
+  tagsLandedCount++;
+  firstTagShown=true;
+  pushFeedEvent(null,onKill===true,
+    (onKill?"tag + kill":friendlyFire?"tag (friendly fire)":"tag")+" #"+tagsLandedCount);
+}
 let cosmeticFxTracers=[],cosmeticFxStains=[];
 function handleCosmeticFx(list){
   const tracers=[],stains=[];
@@ -2554,6 +2587,7 @@ function handleCosmeticFx(list){
       if(window.PaintbotHUD&&typeof window.PaintbotHUD.notifyContactBearing==="function")
         window.PaintbotHUD.notifyContactBearing(e.bearing);
     }
+    else if(e.kind==="tag_landed")handleTagLanded(e.onKill===true,e.friendlyFire===true);
     // else: an unrecognized kind is ignored, not an error -- the additive
     // contract GameConfig.allowCosmeticFx's doc comment promises.
   }
@@ -2653,7 +2687,17 @@ function handleShotFeedback(landed,taken){
      truthful "it landed", no celebration chime for splatting a teammate. */
   if(landed.length){
     const realKill=landed.some(sh=>sh&&sh.kill===true&&sh.friendlyFire!==true);
-    if(lastPopFeedbackAt&&nowT-lastPopFeedbackAt<=SHOT_FEEDBACK_DEDUPE_MS&&(lastPopFeedbackKill||!realKill)){
+    // Swap#15 item 3: also check lastWireFeedbackAt here now, not just
+    // lastPopFeedbackAt -- handleTagLanded (the cosmetic-fx "tag_landed"
+    // consumer, always live) writes that same timestamp, and on a config
+    // that has BOTH allowShotFeedback and allowCosmeticFx on (e.g.
+    // config.practice.json) the identical physical hit arrives on both
+    // channels in the same tick. Without this, this branch would fire its
+    // own second hitstop/hitmarker/sound for a hit handleTagLanded already
+    // confirmed a moment earlier -- same three-way dedup rule that function
+    // documents.
+    if((lastPopFeedbackAt&&nowT-lastPopFeedbackAt<=SHOT_FEEDBACK_DEDUPE_MS&&(lastPopFeedbackKill||!realKill))||
+       (lastWireFeedbackAt&&nowT-lastWireFeedbackAt<=SHOT_FEEDBACK_DEDUPE_MS&&(lastWireFeedbackKill||!realKill))){
       shotFeedbackCounts.dedupedConfirms++;
     }else{
       lastWireFeedbackAt=nowT;lastWireFeedbackKill=realKill;
@@ -2661,12 +2705,15 @@ function handleShotFeedback(landed,taken){
       triggerHitstop();triggerHitmarker(realKill);
       if(realKill)playKillConfirm();else playHitDealt();
     }
-    // Swap#13 S3: one-time "first tag!" milestone off the FIRST landed shot
-    // this channel ever confirms, regardless of the dedupe branch above
-    // (a landed shot is real either way -- dedupe only suppresses a
-    // REPEATED confirm chime for the same trigger pull, not the fact a hit
-    // happened). Never rearms -- a per-page, not per-life, milestone.
-    if(!firstTagShown){firstTagShown=true;pushFeedEvent(null,false,"first tag!")}
+    // Swap#15 item 3: the per-hit feed line + counter now live in
+    // handleTagLanded (cosmetic-fx "tag_landed", always live -- this
+    // allowShotFeedback-gated channel is off on every deployed freeplay
+    // config today), which fires on every landed shot including the first,
+    // so the old one-time "first tag!" milestone that used to live here is
+    // fully superseded -- kept only as the shared firstTagShown flag in
+    // case this channel is ever the sole one on and beats the cosmetic-fx
+    // message here (same physical event, so no separate line is owed).
+    firstTagShown=true;
   }
   publishShotFeedback();
   if(isDead)scheduleDraw(); // a card datum trailing the death edge repaints now, not at the next packet
