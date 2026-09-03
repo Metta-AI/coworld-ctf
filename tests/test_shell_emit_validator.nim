@@ -154,24 +154,32 @@ suite "shell emit validator":
     elif declared(GC_disableOrc):
       GC_disableOrc()
     var maxNs = 0'i64
+    var overCeiling = 0
     for _ in 0 ..< 1000:
       let started = getMonoTime()
       let outcome = validateEmit(bytes, ctx)
       let elapsed = (getMonoTime() - started).inNanoseconds
       if elapsed > maxNs:
         maxNs = elapsed
+      if elapsed > 100_000:
+        inc overCeiling
       check outcome.code == AbiNormalized
     when declared(GC_enable):
       GC_enable()
     elif declared(GC_enableOrc):
       GC_enableOrc()
     echo "SHELL_EMIT_VALIDATION_MAX_US ", (maxNs.float / 1000.0)
+    echo "SHELL_EMIT_VALIDATION_OVER_CEILING ", overCeiling
     when defined(release):
       when defined(shellShardRegressionGate):
         # Shard 2 runs concurrently with the other CI shards, so this path keeps
         # a regression-class ceiling while the serial focused phase gate above
-        # remains the strict 15 us acceptance check.
-        check maxNs <= 100_000
+        # remains the strict 15 us acceptance check. Gate on the count of
+        # iterations over the ceiling rather than the single worst sample:
+        # max-of-1000 on a preempted shared runner is a tail-latency lottery
+        # (bit twice on main 2026-09-03), while a genuine regression pushes
+        # every iteration over and still fails this check.
+        check overCeiling <= 10
       else:
         check maxNs <= 15_000
     else:
