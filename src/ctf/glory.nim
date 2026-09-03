@@ -210,10 +210,72 @@ type
     dAchievement       ## an achievement tier claimed; priced by tier, not
                        ## here. Never climbs heat (see `paysHeat`).
 
+    # ── BR-native marquee band (MULTIPLIER RECUT v13, table §1b) ─────────
+    #
+    # APPENDED members (never inserted -- every existing deed keeps its
+    # ordinal, so `deedCounts`/`DeedGloryTable` indexing and the `$deed`
+    # wire strings of the pre-v13 world are untouched). All four mint ONLY
+    # when `GameConfig.gloryMultiplierRecut` is armed AND `brMode` is on --
+    # a dark or classic ledger never sees them, which is what keeps the
+    # committed fixtures byte-identical with the flag off. Their
+    # `DeedGloryTable` rows are 0 on purpose: in the armed world they are
+    # priced by `RecutClassTable` (the additive column is dead there), and
+    # in the dark world they never fire at all -- belt and braces.
+    dDuoDown           ## finished off an enemy DUO: this kill left the
+                       ## victim's whole team dead (BR teams seat exactly
+                       ## two). Recut class x2 -- deliberately the
+                       ## ESCORT/CHASE tier, not marquee (table §1b:
+                       ## 14.12 duo-eliminations/ep at the LOBBY level;
+                       ## pricing it higher re-explodes the same way
+                       ## common kills would).
+    dClosingTime       ## a kill during the zone's CLOSING phase (the
+                       ## shrink is actively running). Recut class x2.
+    dLastLight         ## a kill in the zone's FINAL phase (at or past the
+                       ## last authored `zonePhases` entry). Recut class
+                       ## x4 -- the rarest signal in the table (measured
+                       ## 0.0% under the shipped 7-phase pacing; a supply
+                       ## problem, priced for when supply exists).
+    dVictory           ## you won the BR match. Recut class x8 -- ties
+                       ## CAPTURE/WIPEOUT as "the game is over, you won".
+
 const
-  GloryVersion* = 12
+  GloryVersion* = 13
     ## Bumped on any pricing change, so a ledger can be attributed to the
     ## table that produced it. A cross-version comparison is invalid.
+    ##
+    ## v13 (2026-09-02, MULTIPLIER RECUT -- built VERBATIM from the frozen
+    ## contract `~/.ctf/handoff/2026-09-02-multiplier-recut-table.md` +
+    ## `...-multiplier-recut-directive.md`; glory-2 lead holds conformance
+    ## review): the pure-multiplier economy, DARK behind
+    ## `GameConfig.gloryMultiplierRecut` (default false everywhere -- with
+    ## the flag off every number in this file prices exactly as v12 and the
+    ## committed fixtures replay byte-identical; the batched fixture
+    ## re-record rides a later coordinated pass, deliberately NOT this
+    ## increment).
+    ##   - NO BASE POINTS (directive §2): armed episode score = RecutSeed(1)
+    ##     x PRODUCT(per-event integer factors) / 2^(FF halvings). Every
+    ##     deed/achievement maps to an integer CLASS (`RecutClassTable` /
+    ##     `RecutTierClass`, table §1): x1 commons carry no score weight at
+    ##     all (§5.8 -- they still mint, pop, count); x2+ classes fold, per
+    ##     event, class x heat (`HeatLadder`, unchanged cadence) x carry
+    ##     (x2) x ally-stack (`RecutStackLadder`, Fibonacci §2), with the
+    ##     territory rung shift (+1 on enemy ground, above-x1 only, §3)
+    ##     applied to the class before the live-state factors.
+    ##   - FF PENALTY = DIVISION, PER MODE (§4): BR /2 per `dTeamKill`
+    ##     incident, CTF /2 per TWO incidents, both compounding, both
+    ##     uncapped. Canonical state is the integer pair (product,
+    ##     halvings); the int ledger reports the floor division (the
+    ##     table's accepted non-integer tail, e.g. 1.125, floors on the int
+    ##     wire -- flagged to conformance, not hidden).
+    ##   - BR-NATIVE MARQUEE BAND (§1b): new deeds `dDuoDown` (x2),
+    ##     `dClosingTime` (x2), `dLastLight` (x4), `dVictory` (x8) -- ALL
+    ##     four mint ONLY when the recut is armed (brMode + flag), so the
+    ##     dark ledger never sees them.
+    ##   - PER-DUO, NOT PER-SEAT (§7a): the product lives on the TEAM key
+    ##     (`awardDeed` is the single mint, called once per shared fact);
+    ##     both seats of a duo read the SAME product; nothing is evaluated
+    ##     twice through the mirrored per-seat display ledger.
+    ##   - Drama column deliberately UNTOUCHED (§5.7 -- open owner call).
     ##
     ## v12 (2026-08-31, HEART RECUT + CONCLUSION SWEEP -- the ruled
     ## 2026-08-31 recut contract plus its Amendment 1, implemented verbatim):
@@ -637,6 +699,13 @@ const
             #          leveling pays POWER, not the scoreboard; see the
             #          Deed enum comment. Was 6, ~30% of ALL deed glory mass.)
     0,      # dAchievement (priced by tier — see TierGlory)
+    # BR-native marquee band (v13): additive prices are 0 BY DESIGN -- these
+    # four exist only in the armed multiplier world (`RecutClassTable`) and
+    # never mint dark. See the Deed enum block comment.
+    0,      # dDuoDown
+    0,      # dClosingTime
+    0,      # dLastLight
+    0,      # dVictory
   ]
 
   DeedDramaTable: array[Deed, int] = [
@@ -672,6 +741,17 @@ const
             #          drama also means it never climbs heat any more,
             #          `paysHeat` reads `isDrama`. Was 5.)
     0,      # dAchievement — tier-priced (TierDrama)
+    # BR-native marquee band (v13). dDuoDown/dVictory carry the drama the
+    # alliance-vocab spec (2026-09-01, increment-2 §4) already derived for
+    # them (35/70). dClosingTime/dLastLight have NO specced drama anywhere
+    # -- held at 0 (they neither climb heat nor rank the replay feed) and
+    # FLAGGED to the glory-2 conformance review as an open drama-column
+    # item rather than invented here (§5.7: the drama column is explicitly
+    # untouched by the recut contract). Armed-only mints either way.
+    35,     # dDuoDown  (alliance-vocab spec increment-2 §4 parity)
+    0,      # dClosingTime (OPEN: no specced drama -- see block comment)
+    0,      # dLastLight   (OPEN: no specced drama -- see block comment)
+    70,     # dVictory  (alliance-vocab spec increment-2 §4 parity)
   ]
 
   # ───────────────────────────────────────────────────────────────────────
@@ -2170,6 +2250,185 @@ func mintAchievement*(tier: int, sitePct: int, isFirst: bool): int =
     result = result * AchievementFirstMultPct div 100
 
 # ───────────────────────────────────────────────────────────────────────────
+# §6b  THE MULTIPLIER RECUT (v13) — the armed pure-product economy
+# ───────────────────────────────────────────────────────────────────────────
+#
+# Built VERBATIM from the FROZEN 2026-09-02 recut contract (table + owner
+# directive; see GloryVersion's v13 changelog for the file refs). Everything
+# in this section is DEAD CODE while `GameConfig.gloryMultiplierRecut` is
+# false: nothing on the dark path calls into it, which is the byte-identity
+# guarantee. Armed, the episode score is
+#
+#     score = RecutSeed × Π(per-event factor) ÷ 2^(FF halvings)
+#
+# with each factor an INTEGER (owner constraint §4: whole numbers only) and
+# the division the ONLY non-integer-producing element (table §4's accepted
+# structural note -- the int ledger reports the FLOOR of the division; the
+# canonical (product, halvings) pair is kept losslessly on the sim).
+#
+# In log space the score is exactly Σ log-factors (directive §2) -- the unit
+# tests assert that property directly.
+
+const
+  RecutSeed* = 1
+    ## Directive §2 open-guards line, verbatim: "Seed = 1; a no-deed episode
+    ## scores seed; losers still bank 0 at the league." The league-side loss
+    ## gate is roster.nim's existing playerWon gate, untouched.
+
+  RecutClassTable*: array[Deed, int] = [
+    1,      # dNone (never minted; neutral by construction)
+    # ×1 — commons (table §1 row 1): "still mint, still pop, still count
+    # toward K/D/Elo, just carry no score weight" (§5.8). A ×1 class takes
+    # NO live-state factor of any kind (heat/carry/territory/stack) -- that
+    # exemption is load-bearing (§3: commons NEVER shift, on any ground).
+    2,      # dFirstBlood      FIRST!       ×2 (table §1 row 2)
+    1,      # dHonorableKill   TAG          ×1
+    1,      # dSprayKill       SPRAYED      ×1
+    1,      # dGrenadeKill     BOMBED       ×1
+    1,      # dPointBlankKill  POINT-BLANK  ×1
+    3,      # dLongshotKill    LONGSHOT     ×3
+    3,      # dSplashMultiKill MULTI!       ×3
+    2,      # dRevengeKill     PAYBACK      ×2
+    2,      # dRunDown         CHASE        ×2
+    4,      # dAceTag          BOUNTY       ×4
+    1,      # dTeamKill        OWN PAINT — NOT a class: the penalty is a
+            #                  DIVISION (table §4), handled entirely by
+            #                  `recutFfHalvings` below. This row is never
+            #                  read on the FF path; 1 = inert if it ever is.
+    4,      # dFlagSteal       STEAL        ×4
+    8,      # dCapture         CAPTURE      ×8 (bumped, §1)
+    4,      # dCarrierKill     PEEL         ×4
+    6,      # dDenial          DENIED!      ×6 (bumped, §1)
+    2,      # dEscortKill      ESCORT       ×2
+    2,      # dAssist          ASSIST       ×2 (in-flight #339, priced §1)
+    2,      # dRescue          RESCUE       ×2 (in-flight #339, priced §1)
+    1,      # dClutchHeal      (retired; ×1 = weightless either way)
+    1,      # dShieldSoak      SHIELD SOAK  ×1
+    8,      # dWipe            WIPEOUT      ×8 (bumped, §1)
+    1,      # dLevelUp         RANK UP      ×1
+    1,      # dAchievement     — tier-priced: `RecutTierClass`, never here.
+    # BR-native marquee band (§1b), armed+brMode mints only:
+    2,      # dDuoDown         ×2 (ESCORT/CHASE tier by ruling — see enum)
+    2,      # dClosingTime     ×2
+    4,      # dLastLight       ×4
+    8,      # dVictory         ×8
+  ]
+
+  RecutTierClass*: array[AchievementTiers, int] = [1, 1, 2, 2, 4]
+    ## TierGlory's conversion (table §1): Tier I/II ×1, Tier III/IV ×2,
+    ## Tier V ×4 (bumped). The FIRST-claim ×3 (`AchievementFirstMultPct`)
+    ## survives as an integer factor — the table's own recomputed BR superb
+    ## (9,437,184) requires "Tier V claimed FIRST" = ×4×3, so the ×3 is
+    ## contract arithmetic, not an invention here.
+
+  RecutStackLadder* = [1, 2, 3, 5, 8, 13]
+    ## FIBONACCI ally-stack (table §2, ruled): multiplier by k =
+    ## teammates-in-context, k=1..6, clamped at both ends. What k COUNTS is
+    ## mode-specific (§2): CTF = literal same-team players in the moment;
+    ## BR = allies-in-context through the dJointAct joint-act-window
+    ## predicate (the 2026-09-01 alliance-vocab spec's 120-tick per-victim
+    ## damage-incident machinery — `AssistWindowTicks` is the ruled shared
+    ## constant). Exact ally-counting refinement is PARKED BEHIND T5 by the
+    ## table itself; the sim.nim predicate is the minimal contract-named
+    ## one and is flagged as such to conformance review.
+
+  RecutProductCap* = int64(1) shl 62
+    ## Saturation guard for the running product. The table's superb ceiling
+    ## is ~9.4M (2^23.2); an adversarial marquee/heat/stack chain could in
+    ## principle exceed int64, so folds saturate here instead of wrapping.
+    ## Saturation is unreachable under any measured episode shape — this is
+    ## an overflow guard, not an economy cap (the ruling bans caps on the
+    ## FF side; the product side has no ruled ceiling and this bound is
+    ## ~2^38 above the contract's own superb).
+
+func recutStackMult*(k: int): int {.inline.} =
+  ## The Fibonacci stack factor for k teammates-in-context. k <= 1 (alone,
+  ## or a non-contextable deed) is neutral; k past the table's last column
+  ## holds at ×13 (the table defines 6 columns and nothing above them).
+  if k <= 1: RecutStackLadder[0]
+  elif k >= RecutStackLadder.len: RecutStackLadder[^1]
+  else: RecutStackLadder[k - 1]
+
+func recutShiftedClass*(deed: Deed, sitePct: int): int {.inline.} =
+  ## The deed's integer class with the territory rung shift applied
+  ## (table §3): a deed minted on ENEMY ground climbs one integer rung
+  ## (×2→×3, ×3→×4, ×4→×5, ×6→×7, ×8→×9); home/neutral ground is
+  ## unchanged; commons (×1) NEVER shift, on any ground — load-bearing,
+  ## not a style choice. Enemy ground is recognised by the same
+  ## `deedSitePct` signal the additive economy already prices
+  ## (`SiteMultEnemyPct`); neutral (dead in this engine, see
+  ## `SiteMultNeutralPct`) and home fall through unshifted.
+  result = RecutClassTable[deed]
+  if result >= 2 and sitePct == SiteMultEnemyPct:
+    inc result
+
+func recutFactor*(deed: Deed; embers, sitePct: int; carrying: bool;
+                  stackK: int = 1): int =
+  ## THE ARMED SINGLE MINT — one de-duplicated event's ONE integer factor
+  ## (contract §7a): its class (territory-shifted, §3) × every live-state
+  ## multiplier active at the mint tick — heat (only for deeds that pay
+  ## heat, same gate the additive mint used), carry (possession as
+  ## leverage, ×2, only for drama deeds — same gate), ally-stack (§2).
+  ## Evaluated ONCE per shared fact; the caller folds it into the ONE
+  ## per-team (= per-duo in BR) running product. A ×1 common returns
+  ## exactly 1 — no live-state factor can attach to it (§5.8).
+  ##
+  ## `dTeamKill` never routes here (it is a division, not a factor — see
+  ## `recutFfHalvings`); if it ever does, its ×1 row makes it inert.
+  let class = recutShiftedClass(deed, sitePct)
+  if class <= 1:
+    return 1
+  result = class
+  if paysHeat(deed):
+    result = result * heatMult(embers)
+  if carrying and isDrama(deed):
+    result = result * CarrierHoldMultPct div 100
+  result = result * recutStackMult(stackK)
+
+func recutAchievementFactor*(tier: int, isFirst: bool): int =
+  ## The armed factor for one achievement-tier claim: `RecutTierClass`
+  ## (×1/×1/×2/×2/×4) × the surviving FIRST-claim ×3
+  ## (`AchievementFirstMultPct` — see `RecutTierClass`'s own comment for
+  ## why the ×3 is contract arithmetic). Never heat (law 4, unchanged);
+  ## never territory (claims mint at the team's own pedestal — home ground
+  ## never shifts, so passing the site through would be a no-op by
+  ## construction and is skipped for clarity).
+  if tier < 0 or tier >= AchievementTiers:
+    return 1
+  result = RecutTierClass[tier]
+  if isFirst and result > 1:
+    result = result * AchievementFirstMultPct div 100
+
+func recutFfHalvings*(incidents: int, brMode: bool): int {.inline.} =
+  ## Table §4, ruled and baked per mode: BR = ÷2 per `dTeamKill` incident;
+  ## CTF = ÷2 per TWO incidents. Both compounding, NEITHER capped (owner,
+  ## verbatim: "capping anything feels wrong"). Returns the total number of
+  ## halvings the episode's incident count has earned. Under armed
+  ## downedMode the incident charges once at FINALIZE (directive §10's
+  ## audit-verified live behavior — the down-vs-bleed-out split is an OPEN
+  ## owner feel-check, deliberately NOT built here).
+  if brMode: incidents else: incidents div 2
+
+func recutFold*(product: int64, factor: int): int64 {.inline.} =
+  ## Folds one event factor into the running product, saturating at
+  ## `RecutProductCap` (overflow guard only — see the cap's comment).
+  if factor <= 1: return product
+  if product >= RecutProductCap div int64(factor):
+    return RecutProductCap
+  product * int64(factor)
+
+func recutScore*(product: int64, halvings: int): int64 {.inline.} =
+  ## The reported integer episode score: seed×product ÷ 2^halvings,
+  ## FLOORED. The table accepts the non-integer tail of the uncapped
+  ## division explicitly (§4's structural note: CTF max-FF median-win =
+  ## 1.125); the platform's league-score wire is integer, so the int
+  ## report floors — the canonical (product, halvings) pair on the sim
+  ## keeps the exact value. Flagged to conformance review, not hidden.
+  if halvings <= 0: return product
+  if halvings >= 63: return 0
+  product div (int64(1) shl halvings)
+
+# ───────────────────────────────────────────────────────────────────────────
 # §7  ONE KILL, ONE DEED — the anti-stacking rule
 # ───────────────────────────────────────────────────────────────────────────
 #
@@ -2340,6 +2599,10 @@ func deedName*(deed: Deed): string =
   of dWipe: "wipeout"
   of dLevelUp: "rank up"
   of dAchievement: "achievement"
+  of dDuoDown: "duo down"
+  of dClosingTime: "closing time"
+  of dLastLight: "last light"
+  of dVictory: "victory"
 
 func deedPopWord*(deed: Deed): string =
   ## 🎖 (VOCABULARY wave, V4, Maxwell's ruling: "instead of splat appearing on
@@ -2405,3 +2668,7 @@ func deedPopWord*(deed: Deed): string =
                              ## header comment.
   of dAchievement: ""        ## excluded from `popsScore`; claims carry their
                              ## own name through the labelled pop path.
+  of dDuoDown: "DUO DOWN"    ## v13 marquee band (armed+brMode mints only).
+  of dClosingTime: "CLOSING TIME"
+  of dLastLight: "LAST LIGHT"
+  of dVictory: "VICTORY"
