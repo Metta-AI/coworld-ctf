@@ -1281,6 +1281,30 @@ proc enemyShootableWithoutPolicy(body: SeatBody, tick: uint32): bool =
       return true
   false
 
+proc resolveClassGoal(body: SeatBody): ValidatedGoal =
+  ## NAVCLASS: the standing order's class target, re-resolved for THIS tick.
+  ##
+  ## The class REPLACES an already-valid goal with another already-valid one;
+  ## it never produces the absence of a goal. Every failure to resolve — no
+  ## field published yet, already standing on surviving ground, nothing
+  ## reachable, the resolved point failing validation — falls back to the
+  ## point the play emitted. A seat with no goal is a seat standing still, and
+  ## standing still in a closing zone is the round-3633 death.
+  ##
+  ## Decisions stay with the play: it chose to pursue, and it chose the class.
+  ## What leaves is the arithmetic it was doing badly.
+  result = body.standingGoal.get
+  if body.standingIntent.targetClass.len == 0 or body.nav == nil:
+    return
+  var resolved = none(BodyPoint)
+  if body.standingIntent.targetClass == NavTargetClassZoneSafeGround:
+    resolved = body.nav.zoneSafeTarget(body.selfState.pos)
+  if resolved.isNone:
+    return
+  let validated = body.map.validateGoal(resolved.get, body.selfState.pos)
+  if validated.isSome:
+    result = validated.get
+
 proc seatTick*(body: SeatBody, inputs: BodyTickInputs,
                tick: uint32): InputState =
   ## Executes one seat's body tick.
@@ -1309,7 +1333,7 @@ proc seatTick*(body: SeatBody, inputs: BodyTickInputs,
     elif fireFreeze:
       discard
     else:
-      let goal = body.standingGoal.get
+      let goal = body.resolveClassGoal()
       let seat = body.nav.seats[body.seatIndex]
       if arrived(body.selfState.pos, goal.goalPoint,
           body.standingIntent.arriveRadius):

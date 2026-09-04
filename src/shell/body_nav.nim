@@ -27,7 +27,8 @@ import body_cache, body_hazard, body_map, body_planner
 import types as shellTypes
 
 export body_hazard.BodyHazardField, body_hazard.hasField,
-  body_hazard.arrivalAt, body_hazard.HazardNeverArrives
+  body_hazard.arrivalAt, body_hazard.staysDryUntil,
+  body_hazard.HazardNeverArrives
 
 const
   DangerCadenceK* = 32
@@ -834,6 +835,67 @@ proc zoneSafeDirBrads*(system: BodyNavSystem,
     [64,       0, 192],   ## dx =  0:  N,  --,  S
     [32,       0, 224]]   ## dx = +1: NE,  E,  SE
   some(OctantBrads[dx + 1][dy + 1].int)
+
+proc zoneSafeTarget*(system: BodyNavSystem,
+                     point: BodyPoint): Option[BodyPoint] =
+  ## The nearest ground that stays dry through the horizon, as a POINT the
+  ## planner can be given as a goal.
+  ##
+  ## Walking the flow field's parent chain to its source: the distance
+  ## strictly decreases at every step (that is what a Dijkstra parent IS), so
+  ## the walk terminates, and the cell it terminates on is a SEED — ground
+  ## that survives the horizon.
+  ##
+  ## THE BOUND IS THE CELL COUNT, NOT W + H. An earlier draft bounded the walk
+  ## at gridWidth + gridHeight + 2, which is the length of a straight line
+  ## across the board and nothing like the length of a geodesic through a
+  ## maze. On a real Season 2 board the parent chain out of a pocket routinely
+  ## exceeds it. A simple path visits each cell at most once, so the only
+  ## honest bound is the cell count.
+  ##
+  ## AND A TRUNCATED WALK MUST RETURN NOTHING. The same earlier draft returned
+  ## `some(cell)` after breaking on the bound — mid-chain ground that is still
+  ## on the flooding side of the board, handed to the planner as a "safe"
+  ## goal. That is worst exactly where it matters: late-game, in the mazes
+  ## where the chain is longest and the paint is closest. The post-loop check
+  ## below demands `routeHopAt == 0` (a genuine source) and otherwise returns
+  ## none, so a corrupted or truncated field degrades to "no answer" instead
+  ## of to "a confident wrong answer".
+  ##
+  ## `none` means "already standing on surviving ground", or no field, or
+  ## nothing reachable, or the walk did not reach a source — all of them cases
+  ## where the caller must keep the play's own goal rather than invent one.
+  let slot = system.zoneSafeSlot()
+  if slot < 0:
+    return none(BodyPoint)
+  var cell = system.map.nearestWalkable(system.map.cellOf(point))
+  if not system.map.cellWalkable(cell):
+    return none(BodyPoint)
+  var index = cell.y * system.map.gridWidth + cell.x
+  if system.world.store.routeDistanceAt(slot, index).classify == fcInf:
+    return none(BodyPoint)
+  var steps = 0
+  # A simple path visits each cell at most once.
+  let bound = system.map.gridWidth * system.map.gridHeight
+  var truncated = false
+  while true:
+    let hop = system.world.store.routeHopAt(slot, index).int
+    if hop <= 0 or hop > Neighbors.len:
+      break
+    let delta = Neighbors[hop - 1]
+    cell = (cell.x + delta[0], cell.y + delta[1])
+    index = cell.y * system.map.gridWidth + cell.x
+    inc steps
+    if steps > bound:
+      truncated = true
+      break
+  if truncated or system.world.store.routeHopAt(slot, index) != 0'u8:
+    # Not a source cell: we ran out of walk before reaching dry ground. Say so
+    # rather than hand back the flooding cell we happened to stop on.
+    return none(BodyPoint)
+  if steps == 0:
+    return none(BodyPoint)   ## already a source cell: already safe
+  some(cellCenter(cell))
 
 proc navHintsFor*(system: BodyNavSystem, point: BodyPoint, tick: int):
     tuple[ticksUntilPaintHere, ticksToSafety, safeDistPx,

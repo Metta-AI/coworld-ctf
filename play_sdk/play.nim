@@ -2116,6 +2116,21 @@ template appendHandoff(handoff: static[string]) =
     appendLiteral(handoff)
     appendLiteral("\"")
 
+template checkTargetClass(targetClass: static[string]) =
+  ## The engine's CLOSED target-class vocabulary. A typo should fail the
+  ## play's BUILD, not its first emission — same discipline as the handoff
+  ## vocabulary above.
+  static:
+    doAssert targetClass.len == 0 or targetClass == "zone_safe_ground",
+      "target_class must be \"zone_safe_ground\""
+
+template appendTargetClass(targetClass: static[string]) =
+  ## Canonical key order: "target_class" sorts directly before "v".
+  when targetClass.len > 0:
+    appendLiteral(",\"target_class\":\"")
+    appendLiteral(targetClass)
+    appendLiteral("\"")
+
 proc emitHoldController*(reason: static[string] = "";
                          handoff: static[string] = ""): int32 =
   checkHandoffItem(handoff)
@@ -2132,8 +2147,13 @@ proc emitHoldController*(reason: static[string] = "";
 
 proc emitNavigateController*(goal: ValidatedGoal; arriveRadius: static[string];
                              reason: static[string] = "";
-                             handoff: static[string] = ""): int32 =
+                             handoff: static[string] = "";
+                             targetClass: static[string] = ""): int32 =
+  ## `targetClass` names a CLASS the engine re-resolves and navigates to every
+  ## tick. `goal` stays required and becomes the fallback for any tick the
+  ## class cannot be resolved — pass the point you would have used anyway.
   checkHandoffItem(handoff)
+  checkTargetClass(targetClass)
   if not goal.ok:
     return -3
   clearEmitBuffer()
@@ -2149,7 +2169,9 @@ proc emitNavigateController*(goal: ValidatedGoal; arriveRadius: static[string];
     appendLiteral(",\"reason\":\"")
     appendLiteral(reason)
     appendLiteral("\"")
-  appendLiteral(",\"schema\":\"intent\",\"v\":1}")
+  appendLiteral(",\"schema\":\"intent\"")
+  appendTargetClass(targetClass)
+  appendLiteral(",\"v\":1}")
   playEmit(cast[int32](addr emitBuffer[0]), emitLen)
 
 proc emitHoldFireOverlay*(): int32 =

@@ -1053,6 +1053,35 @@ was, until this flag, a route the engine considered optimal.
     plays are retuned to read it and the planner's own effect has been
     measured on its own.
 
+### Class-targeted navigation (`target_class`)
+
+No config flag: an empty `target_class` is the neutral default and every
+pre-existing emission encodes byte-identically. A `navigate_to` intent may
+name a **class** the engine re-resolves and navigates to every tick instead of
+a fixed point. The vocabulary is CLOSED — the membership check *is* the
+integrity check, and the moment it admits a free-form expression the engine
+starts making strategic choices. Adding a class is an owner ruling.
+
+- **`zone_safe_ground`** — the nearest ground that survives the engine's
+  forward paint horizon, read off the shared retreat flow field. This is what
+  replaces a play computing zone survival against a rectangle that does not
+  describe the damage.
+- **`point` stays REQUIRED** and becomes the FALLBACK the engine uses on any
+  tick the class cannot be resolved (no field yet, already safe, nothing
+  reachable). An unresolvable class with no fallback would leave the seat with
+  no goal, and a seat with no goal stands still — the round-3633 death. It
+  also keeps the engine's "every goal is validated before an Intent can exist"
+  invariant exactly as it shipped: a class only ever replaces one already-valid
+  goal with another.
+- **The autonomy line.** The play decides *whether* to pursue and *which*
+  class; it never touched steps and still does not. What leaves is arithmetic
+  it was doing badly.
+- Item classes (`nearest_hopper` and friends) are deliberately **not** members:
+  a server-wide item field would leak crates a seat has never seen into a
+  per-seat fogged view, so they must resolve over the seat's own item memory
+  ranked geodesically — which needs a per-seat distance-from-me field that
+  does not exist yet.
+
 ## Season 2 glory multiplier recut (GLORY v13 — dark)
 
 The pure-multiplier glory economy (frozen 2026-09-02 contract), shipped

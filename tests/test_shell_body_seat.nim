@@ -476,6 +476,71 @@ suite "shell body seat belief-lite seam":
     check first.hazards.grenades[0].eventId == 200
     check first.hazards.sprays.len == 2
 
+  test "NAVCLASS: a class target re-steers the seat, and falls back to the point":
+    ## The engine resolves the class every tick and navigates there; the
+    ## play's own point is the fallback for any tick it cannot. The fallback
+    ## is the load-bearing half: a class that resolves to nothing must never
+    ## leave the seat goal-less, because a goal-less seat stands still and a
+    ## seat standing still in a closing zone is the round-3633 death.
+    let map = openMap()
+    let start: BodyPoint = (16, 48)
+    let fallback: BodyPoint = (32, 48)          ## deliberately BEHIND the cog
+    let intent = shellTypes.Intent(kind: shellTypes.ikNavigateTo,
+      point: some(MapPoint(x: fallback.x, y: fallback.y)),
+      arriveRadius: 4.0, profile: shellTypes.cpDefault,
+      combat: shellTypes.CombatPolicy(),
+      targetClass: NavTargetClassZoneSafeGround)
+
+    # No hazard field installed: the class cannot resolve, so the emitted
+    # point still drives the seat -- byte-for-byte the pre-ruling behaviour.
+    block:
+      let nav = newBodyNavSystem(map, 1, 331)
+      let body = activateSeatBody(nav, 0)
+      body.setStandingIntent(intent, some(map.validateGoal(fallback,
+        start).get), 1)
+      discard body.seatTick(BodyTickInputs(self: selfState(start)), 1'u32)
+      nav.prewarmColdPlans()
+      check nav.seats[0].desiredGoal.get == fallback
+
+    # With a field published and the whole LEFT half flooding, the class
+    # resolves to dry ground on the right and overrides the fallback.
+    block:
+      let nav = newBodyNavSystem(map, 1, 331, hazardAware = true)
+      var arrival = newSeq[uint16]((map.width div 4) * (map.height div 4))
+      for index in 0 ..< arrival.len:
+        let sourceX = index mod (map.width div 4)
+        arrival[index] =
+          if sourceX * 4 < map.width div 2: 60'u16 else: HazardNeverArrives
+      nav.installZoneHazard(arrival, map.width div 4, map.height div 4, 4)
+      var tick = 0
+      while not nav.zoneSafeReady:
+        discard nav.runPlanningTick(tick)
+        inc tick
+        doAssert tick < 20_000
+      let target = nav.zoneSafeTarget(start)
+      check target.isSome
+      check target.get.x > map.width div 2   ## the dry half, around walls
+
+      let body = activateSeatBody(nav, 0)
+      body.setStandingIntent(intent, some(map.validateGoal(fallback,
+        start).get), 1)
+      discard body.seatTick(BodyTickInputs(self: selfState(start)),
+        uint32(tick))
+      check nav.seats[0].desiredGoal.isSome
+      check nav.seats[0].desiredGoal.get != fallback
+      check nav.seats[0].desiredGoal.get.x > map.width div 2
+
+      # Standing ON dry ground the class resolves to nothing, and the seat
+      # goes back to honouring the play's own point rather than jittering.
+      check nav.zoneSafeTarget((map.width - 24, 48)).isNone
+
+      # AND the answer is a genuine SOURCE cell, never mid-chain ground that
+      # still floods. Walking the chain is only useful if what it returns is
+      # ground the seed predicate actually accepted -- a truncated walk must
+      # return none, not the flooding cell it stopped on.
+      let cell = map.cellOf(target.get)
+      check nav.hazard.staysDryUntil(cell.x, cell.y, SafeHorizonTicks)
+
   test "seatTick follows externally-budgeted navigation to a standing goal":
     let map = openMap()
     let nav = newBodyNavSystem(map, 1, 331)
