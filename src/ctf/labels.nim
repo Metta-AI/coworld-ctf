@@ -48,6 +48,19 @@ const
     ## Endzone armor pickup on the floor, fog-gated by map position.
   LabelShieldCarried* = "shield carried"
     ## Marker floating over a shield carrier you can see.
+  LabelBandage* = "bandage"
+    ## LOOT(s2) ground art (item-completeness epic 1ef4f9d6, T2): the
+    ## carryable +1hp pickup (config.bandagePickups), fog-gated by map
+    ## position like the med kit.
+  LabelGunCrate* = "gun crate"
+    ## LOOT(s2) ground art (item-completeness epic 1ef4f9d6, T2): the
+    ## marker (gun) crate (config.lootStart, sim.weaponSpawns), fog-gated by
+    ## map position. Distinct from LabelWeaponGun ("gun", the CARRIED-weapon
+    ## HUD token) -- this is the ground pickup before anyone loots it.
+  LabelHopperCrate* = "hopper crate"
+    ## LOOT(s2) ground art (item-completeness epic 1ef4f9d6, T2): the ammo
+    ## hopper crate (config.lootStart, sim.hopperSpawns), fog-gated by map
+    ## position.
   LabelSprayCan* = "spray can"
     ## Side-column weapon pickup (the 0.7.x rename of the spray can).
   LabelSprayCanCarried* = "spray can carried"
