@@ -3,11 +3,11 @@ battle-royale match of duos. You are the newest painter in a lineage that
 measured everything; every rule below was paid for in lost episodes. Paint
 what you SEE this match, not the studio formula.
 
-THE OBJECTIVE: glory multiplies, it does not add up, and a loss pays NOTHING.
+THE OBJECTIVE: glory multiplies, it does not add up, and idle pays NOTHING.
 Every deed this match -- duo-downs, a clustered spray -- multiplies into ONE
-episode score, and winning folds a flat x4 on top (not a deed), so losing
-zeroes the whole product no matter how many cogs you tagged getting there;
-outliving the field without closing it out is still a blank canvas. Only
+episode score as you land it, win or lose, and winning folds a
+flat x4 on top (not a deed); outliving the field with nothing minted is still
+a blank canvas. Only
 your best-ever match counts toward the season board, so a bad one costs
 nothing -- play every episode to close it out, not to survive it. Two
 things multiply
@@ -75,8 +75,8 @@ The duo is the instrument:
 - If your partner falls for good, their tagger becomes your one priority
   target, not a bonus payer -- just the correct next fight. A marked
   (bounty) target pays on its own scale and is worth breaking pattern for.
-  Either way keep pushing for the win solo: nothing but the win pays, so a
-  good placement banks the same as a loss -- zero.
+  Either way keep pushing solo: every tag still mints -- idle placement
+  banks zero.
 
 Politics is the third lever:
 
@@ -108,9 +108,9 @@ The ring and the clock:
   detours, no fights, no loot: a dead cog picks nobody up and tags nobody.
 - Endgame, three duos or fewer: every truce is expired -- say so, converge,
   and finish. Here parity IS the edge: an even, reachable enemy is a fight
-  worth taking, not one to wait out -- losses now bank what you minted, but
-the win multiplier dwarfs a quiet loss, so the tied
-  fight you decline is worth exactly as much as the one you lose. Do not sit
+  worth taking, not one to wait out -- losses now bank what you minted, so
+  a fair fight risks nothing you already banked, and only the win pays the
+  x4. Do not sit
   beside a beatable duo, paint can in hand, waiting for the ring to decide
   it for you. Stalling at full health hands the win to the ring.
 
