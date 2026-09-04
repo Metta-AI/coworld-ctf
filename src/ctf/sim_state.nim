@@ -261,6 +261,13 @@ proc gameHash*(sim: SimServer): uint64 =
     result.mixHashInt(player.homeY)
     result.mixHashInt(player.velX)
     result.mixHashInt(player.velY)
+    # OPTICS(s2) plant-to-aim: stillTicks affects shot outcomes ONLY when the
+    # mechanic is armed, so it enters the hash ONLY then. A game with the
+    # mechanic off (the default) hashes byte-identically to pre-optics — no GV
+    # bump, no fixture re-record. Arming it (like perkItems) is what triggers a
+    # GV bump + re-record, at owner sign-off.
+    if sim.config.plantAimSigmaPermille != 1000:
+      result.mixHashInt(player.stillTicks)
     result.mixHashInt(player.carryX)
     result.mixHashInt(player.carryY)
     result.mixHashBool(player.flipH)

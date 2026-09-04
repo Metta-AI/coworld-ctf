@@ -29,6 +29,10 @@ proc defaultGameConfig*(): GameConfig =
     aimTurnRate: AimTurnRate,
     visionConeDeg: VisionConeDeg,
     visionBubble: VisionBubble,
+    barrelRederiveJitter: false,
+    plantAimBarrelOnly: false,
+    plantAimSigmaPermille: 1000,
+    plantSettleTicks: 12,
     minPlayers: MinPlayers,
     startWaitTicks: StartWaitTicks,
     lobbyJoinTimeoutTicks: 0,
@@ -613,7 +617,8 @@ proc readConfigPerkMods(node: JsonNode, config: var GameConfig) =
     raise newException(CtfError, "Config field perkMods must be an object.")
   for key in mods.keys:
     if key notin ["armorHp", "scopeAim", "grenadeRange", "thrusterSpeed",
-        "luckChance", "luckDamage"]:
+        "luckChance", "luckDamage",
+        "sightVision", "sightConeDeg", "barrelRange"]:
       raise newException(
         CtfError, "Config field perkMods has unknown key " & key & ".")
   mods.readPerkModInt("armorHp", config.perkMods.armorHp)
@@ -622,6 +627,11 @@ proc readConfigPerkMods(node: JsonNode, config: var GameConfig) =
   mods.readPerkModPermille("thrusterSpeed", config.perkMods.thrusterSpeed)
   mods.readPerkModPermille("luckChance", config.perkMods.luckChance)
   mods.readPerkModInt("luckDamage", config.perkMods.luckDamage)
+  # OPTICS(s2): sight distance & barrel range are 0..1 fractions -> permille;
+  # the sight cone bump is whole degrees (readPerkModInt, capped at 100).
+  mods.readPerkModPermille("sightVision", config.perkMods.sightVision)
+  mods.readPerkModInt("sightConeDeg", config.perkMods.sightConeDeg)
+  mods.readPerkModPermille("barrelRange", config.perkMods.barrelRange)
   if config.perkMods.luckDamage < 1:
     raise newException(
       CtfError, "Config field perkMods.luckDamage must be at least 1.")
@@ -835,6 +845,15 @@ proc validate(config: GameConfig) =
     raise newException(CtfError, "Config field hitPoints must be at least 1.")
   if config.gunRange <= 0:
     raise newException(CtfError, "Config field gunRange must be positive.")
+  # OPTICS(s2) plant-to-aim knobs. plantAimSigmaPermille 1000 = OFF (default);
+  # armed values scale sigma DOWN, so 1..1000 (a 0 would mean perfect aim).
+  if config.plantAimSigmaPermille < 1 or config.plantAimSigmaPermille > 1000:
+    raise newException(
+      CtfError, "Config field plantAimSigmaPermille must be 1..1000 (1000 = off).")
+  # A 0-tick settle would read as "planted" every tick; require >= 1.
+  if config.plantSettleTicks < 1:
+    raise newException(
+      CtfError, "Config field plantSettleTicks must be at least 1.")
   if config.fireWindupTicks < 0:
     raise newException(CtfError, "Config field fireWindupTicks must not be negative.")
   if config.carrierSpeedPct <= 0 or config.carrierSpeedPct > 100:
@@ -1199,6 +1218,11 @@ proc update*(config: var GameConfig, jsonText: string) =
   node.readConfigInt("aimTurnRate", config.aimTurnRate)
   node.readConfigInt("visionConeDeg", config.visionConeDeg)
   node.readConfigInt("visionBubble", config.visionBubble)
+  # OPTICS(s2): barrel-extender calibration + plant-to-aim knobs.
+  node.readConfigBool("barrelRederiveJitter", config.barrelRederiveJitter)
+  node.readConfigBool("plantAimBarrelOnly", config.plantAimBarrelOnly)
+  node.readConfigInt("plantAimSigmaPermille", config.plantAimSigmaPermille)
+  node.readConfigInt("plantSettleTicks", config.plantSettleTicks)
   node.readConfigInt("minPlayers", config.minPlayers)
   node.readConfigInt("startWaitTicks", config.startWaitTicks)
   node.readConfigInt("gameStartWaitTicks", config.startWaitTicks)
@@ -1476,7 +1500,10 @@ proc echoPerkModKeys(config: GameConfig, node: JsonNode) =
       "grenadeRange": config.perkMods.grenadeRange.float / 1000.0,
       "thrusterSpeed": config.perkMods.thrusterSpeed.float / 1000.0,
       "luckChance": config.perkMods.luckChance.float / 1000.0,
-      "luckDamage": config.perkMods.luckDamage
+      "luckDamage": config.perkMods.luckDamage,
+      "sightVision": config.perkMods.sightVision.float / 1000.0,
+      "sightConeDeg": config.perkMods.sightConeDeg,
+      "barrelRange": config.perkMods.barrelRange.float / 1000.0
     }
 
 proc echoBarrageKeys(config: GameConfig, node: JsonNode) =
@@ -1844,6 +1871,10 @@ proc configJson*(config: GameConfig): string =
     "aimTurnRate": config.aimTurnRate,
     "visionConeDeg": config.visionConeDeg,
     "visionBubble": config.visionBubble,
+    "barrelRederiveJitter": config.barrelRederiveJitter,
+    "plantAimBarrelOnly": config.plantAimBarrelOnly,
+    "plantAimSigmaPermille": config.plantAimSigmaPermille,
+    "plantSettleTicks": config.plantSettleTicks,
     "minPlayers": config.minPlayers,
     "startWaitTicks": config.startWaitTicks,
     "lobbyJoinTimeoutTicks": config.lobbyJoinTimeoutTicks,

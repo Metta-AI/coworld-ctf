@@ -622,14 +622,18 @@ proc firstPersonJson(sim: SimServer, playerIndex: int): JsonNode =
     py = float(self.y + CollisionH div 2)
     aim = float(self.aimBrads)
     # The inset FOV is literally the player's vision-cone half-angle, so the
-    # strip shows exactly the arc they perceive.
-    halfFov = float(sim.config.visionConeDeg) * float(AimBradsTurn) / 360.0
+    # strip shows exactly the arc they perceive. OPTICS(s2): per-viewer, so a
+    # SCOPE-carrying seat's strip widens with its cone. Dark == visionConeDeg.
+    halfFov = float(visionConeDegFor(sim.config, self.perks)) *
+      float(AimBradsTurn) / 360.0
     # View depth = VISION reach, not weapon reach: the strip marches as far
     # as the fog lets this seat see (visionRange, 1.5x the gun range —
     # GV34). It used config.gunRange, which stopped being map-wide when
     # GV34 fixed the gun range at 1050 on every map; the strip keeps the
     # half-again sight advantage instead of going blind at the paint line.
-    maxRange = float(sim.visionRange())
+    # OPTICS(s2): per-viewer — a SCOPE/BARREL seat's strip reaches its extended
+    # sight. Dark == sim.visionRange() (config.gunRange*3 div 2).
+    maxRange = float(visionRangeFor(sim.config, self.perks))
     radPerBrad = PI / float(AimBradsTurn div 2)
 
   let

@@ -1440,6 +1440,20 @@ type
     PerkGrenade   ## grenade max throw range +perkMods.grenadeRange.
     PerkThruster  ## max speed +perkMods.thrusterSpeed.
     PerkLuck      ## perkMods.luckChance of landed gun shots deal luckDamage.
+    PerkSight     ## OPTICS(s2): vision distance x(1+sightVisionPermille) AND
+                  ## vision cone half-angle +sightConeDeg -- the SCOPE item
+                  ## ("see/control the ridge"). Pure fog-of-war widening welded
+                  ## to aim (never omni), so it stays on-thesis: sight outranges
+                  ## paint. Granted by touching a scope pickup (perkitems lane).
+    PerkBarrel    ## OPTICS(s2): gun range x(1+barrelRangePermille) -- the
+                  ## BARREL EXTENDER item. config.barrelRederiveJitter picks the
+                  ## feel: false (DEFAULT, owner-confirmed "risky long shot")
+                  ## HOLDS aimJitterSigma at the base range, so hit-rate falls
+                  ## off past today's max (~68% at +30%); true RE-DERIVES sigma
+                  ## from the extended range so ~80% at the new max is preserved
+                  ## (and the gun is tighter at every closer range). Vision
+                  ## extends with range (visionRange = gunRange*3/2, per-player)
+                  ## so you SEE what you can now hit. Granted by a barrel pickup.
 
   PerkSet* = set[Perk]
 
@@ -1466,6 +1480,14 @@ type
     thrusterSpeed*: int  ## thruster: extra max speed, permille.
     luckChance*: int     ## luck: chance a landed gun shot is lucky, permille.
     luckDamage*: int     ## luck: hit points a lucky shot removes.
+    sightVision*: int    ## OPTICS(s2) sight/SCOPE: extra vision DISTANCE, stored
+                               ## permille, authored 0..1 (visionRange x (1000+this)
+                               ## div 1000).
+    sightConeDeg*: int   ## OPTICS(s2) sight/SCOPE: extra vision-cone HALF-ANGLE,
+                               ## whole degrees, added to config.visionConeDeg.
+    barrelRange*: int    ## OPTICS(s2) barrel/BARREL EXTENDER: extra gun RANGE,
+                               ## stored permille, authored 0..1 (gunRange x
+                               ## (1000+this) div 1000).
 
   PaintUnder* = enum
     ## What a cog's BODY CENTRE is standing on this tick, sampled once per
@@ -1964,6 +1986,36 @@ type
     aimTurnRate*: int          ## brads/tick a held rotate button turns the aim.
     visionConeDeg*: int
     visionBubble*: int
+    barrelRederiveJitter*: bool  ## OPTICS(s2): how the BARREL EXTENDER's extra
+                               ## gun range interacts with aim jitter. false
+                               ## (DEFAULT, owner-confirmed "risky long shot"):
+                               ## aimJitterSigma HOLDS at the base config.gunRange,
+                               ## so the extra reach lands at a falling hit-rate
+                               ## (~68% at +30% range) -- the extended shot is a
+                               ## gamble. true: aimJitterSigma RE-DERIVES from the
+                               ## seat's extended gunRangeFor, preserving ~80% at
+                               ## the new max (and tightening the gun at every
+                               ## closer range). Dark either way (no PerkBarrel =>
+                               ## gunRangeFor == config.gunRange).
+    plantAimBarrelOnly*: bool  ## OPTICS(s2): scope of the plant-to-aim bonus when
+                               ## armed. false = GLOBAL (every gun shot narrows
+                               ## its cone while the shooter is planted); true =
+                               ## only seats carrying PerkBarrel get it. Inert
+                               ## unless plantAimSigmaPermille < 1000.
+    plantAimSigmaPermille*: int  ## OPTICS(s2): plant-to-aim k_still. 1000
+                               ## (DEFAULT) = OFF: a planted shooter's aim jitter
+                               ## is unchanged and NOTHING new enters gameHash
+                               ## (byte-identical). <1000 arms the mechanic: a
+                               ## shooter stopped for plantSettleTicks fires with
+                               ## aimJitterSigma x (this div 1000) -- e.g. 700 =
+                               ## sigma x0.70 (tighter cone, higher hit% at range).
+                               ## FEEL, owner-tunable.
+    plantSettleTicks*: int     ## OPTICS(s2): ticks a shooter must be fully
+                               ## stopped (velX==0 and velY==0) before the
+                               ## plant-to-aim bonus applies. 12 (~0.5s @24fps)
+                               ## by default; friction leaves residual velocity
+                               ## after a tap, so this cannot be strafe-tapped.
+                               ## Only read when plantAimSigmaPermille < 1000.
     minPlayers*: int
     startWaitTicks*: int
     lobbyJoinTimeoutTicks*: int  ## finite matches only: abort the lobby when
@@ -2615,6 +2667,13 @@ type
     x*, y*: int
     homeX*, homeY*: int
     velX*, velY*: int
+    stillTicks*: int           ## OPTICS(s2) plant-to-aim: consecutive ticks this
+                               ## seat has been fully stopped (velX==0 and
+                               ## velY==0), reset to 0 on any velocity. Read only
+                               ## when config.plantAimSigmaPermille < 1000, and
+                               ## mixed into gameHash ONLY then -- so a game with
+                               ## the mechanic off never maintains it (stays 0)
+                               ## and its hash is byte-identical to pre-optics.
     carryX*, carryY*: int
     flipH*: bool
     aimBrads*: int             ## aim angle in brads, 0..255: 0 = east (+x),
@@ -4259,7 +4318,11 @@ proc missPermilleFor*(config: GameConfig, team: Team): int =
 # engine without perks. See docs/plans/2026-08-07-team-perks-design.md.
 
 const PerkNames*: array[Perk, string] = [
-  "armor", "scope", "grenade", "thruster", "luck"]
+  "armor", "scope", "grenade", "thruster", "luck", "sight", "barrel"]
+  ## OPTICS(s2): "sight" = PerkSight (SCOPE item), "barrel" = PerkBarrel
+  ## (BARREL EXTENDER). These are the WIRE names (config JSON, roster `pk`,
+  ## the "perk_"&name pickup sprite key); the owner-facing DISPLAY labels
+  ## ("SCOPE"/"BARREL EXTENDER") are a client concern and may differ.
   ## The authored/wire name of each perk (config JSON, broadcast roster `pk`,
   ## marker labels, scorebug icon keys).
 
@@ -4269,7 +4332,11 @@ const DefaultPerkMods* = PerkMods(
   grenadeRange: 250,  # grenade: +25% throw range.
   thrusterSpeed: 100, # thruster: +10% max speed.
   luckChance: 100,    # luck: 10% of landed shots are lucky.
-  luckDamage: 2       # luck: a lucky shot deals 2 hp.
+  luckDamage: 2,      # luck: a lucky shot deals 2 hp.
+  # OPTICS(s2) defaults -- FEEL, owner-tunable (see the perkMods config block):
+  sightVision: 500,   # scope: +50% sight distance (visionRange x1.5).
+  sightConeDeg: 20,   # scope: +20deg cone half-angle (60 -> 80).
+  barrelRange: 300,   # barrel: +30% gun range (1050 -> 1365).
 )
 
 proc perkText*(perk: Perk): string =
@@ -4304,6 +4371,35 @@ proc grenadeRangeFor*(config: GameConfig, maxRange: int, perks: PerkSet): int =
   result = maxRange
   if PerkGrenade in perks:
     result = result * (1000 + config.perkMods.grenadeRange) div 1000
+
+proc gunRangeFor*(config: GameConfig, perks: PerkSet): int =
+  ## OPTICS(s2): one seat's gun RANGE in px. The map-wide config.gunRange,
+  ## extended by the barrel perk (BARREL EXTENDER) when carried. Drives target
+  ## selection, the tracer march, AND -- when config.barrelRederiveJitter is
+  ## true -- the aim-jitter calibration; a perk-free seat returns config.gunRange
+  ## byte-for-byte (no arithmetic), so a barrel-free game is unchanged.
+  result = config.gunRange
+  if PerkBarrel in perks:
+    result = result * (1000 + config.perkMods.barrelRange) div 1000
+
+proc visionRangeFor*(config: GameConfig, perks: PerkSet): int =
+  ## OPTICS(s2): how far ONE seat's vision cone reaches, in px. Base is 1.5x the
+  ## seat's (possibly barrel-extended) gun range -- the GV34 sight>paint rule,
+  ## now per-player -- then x(1+sightVisionPermille) when the seat carries the
+  ## scope (sight) perk. A perk-free seat returns config.gunRange*3 div 2, the
+  ## exact global value sim.visionRange() used to return for everyone.
+  result = gunRangeFor(config, perks) * 3 div 2
+  if PerkSight in perks:
+    result = result * (1000 + config.perkMods.sightVision) div 1000
+
+proc visionConeDegFor*(config: GameConfig, perks: PerkSet): int =
+  ## OPTICS(s2): one seat's vision-cone HALF-ANGLE in degrees. config.visionConeDeg
+  ## widened by sightConeDeg when the scope (sight) perk is carried. Still a cone
+  ## welded to aim (never an omni reveal) -- fog-of-war identity preserved. A
+  ## perk-free seat returns config.visionConeDeg unchanged.
+  result = config.visionConeDeg
+  if PerkSight in perks:
+    result += config.perkMods.sightConeDeg
 
 proc perkGroupTexts*(config: GameConfig, team: Team): seq[string] =
   ## Each of one team's perk groups as comma-joined perk names in Perk enum
