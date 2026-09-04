@@ -1,5 +1,5 @@
 #!/bin/bash
-# Re-records ALL EIGHT replay fixtures pinned by the native test suite AND
+# Re-records ALL NINE replay fixtures pinned by the native test suite AND
 # the wasm-replay-viewer CI smoke job, then regenerates the DERIVED goldens
 # that carry a GameVersion stamp. Run this once after any GameVersion bump
 # (AGENTS.md "Replay fixtures") — every committed .bitreplay must carry the
@@ -7,15 +7,16 @@
 # "EVERY committed .bitreplay carries the current GameVersion" sweep fails
 # loudly on any straggler.
 #
-# ALL EIGHT, every time — the native shards only read six
+# ALL NINE, every time — the native shards only read six
 # (capture-seed1, wipe-lives1, draw-nokill, seats-numagents16, ctf,
 # br-golden-16team);
-# gen-small-pits and gen-colossal-4team are read by NO native test, only the
-# CI wasm-replay-viewer job, so a re-record pass working from the test files
-# alone silently misses them (GV44 shipped exactly this way once). The
-# derived goldens are the same trap one layer down: they are BYTES computed
-# from the current constants/fixtures, not recordings, so nothing about a
-# re-record pass touches them — format2-legacy.golden.bin stamps the CURRENT
+# gen-small-pits, gen-colossal-4team, and br-zonepaint-smoke are read by NO
+# native test, only the CI wasm-replay-viewer job, so a re-record pass
+# working from the test files alone silently misses them (GV44 shipped
+# exactly this way once). The derived goldens are the same trap one layer
+# down: they are BYTES computed from the current constants/fixtures, not
+# recordings, so nothing about a re-record pass touches them —
+# format2-legacy.golden.bin stamps the CURRENT
 # GameVersion (the GV49 recut pass missed exactly this one), and the glory
 # lockstep claims golden is derived from capture-seed1's fresh bytes.
 #
@@ -89,7 +90,15 @@ tools/record_fixture.sh tests/fixtures/gen-small-pits.bitreplay 4242 1500 \
   '{"mapPath":"gen","mapSeed":4242,"mapSize":"small"}'
 tools/record_colossal_demo.sh tests/fixtures/gen-colossal-4team.bitreplay 4242 1500 16
 
-echo "== recording the seventh fixture: the BR golden (own script) =="
+echo "== recording br-zonepaint-smoke: the only fixture with zoneDamageByPaint armed =="
+# battle-royale-s2 shape (brMode, 8 duo teams, brpool map) with a short
+# 3-phase zone schedule so the FMM arrival field actually mints inside 1500
+# ticks (#392 follow-up, 2026-09-04) -- see AGENTS.md's fixture table for
+# the full recipe this line mirrors.
+tools/record_fixture.sh tests/fixtures/br-zonepaint-smoke.bitreplay 55221 1500 \
+  '{"mapPath":"brpool","teams":8,"brMode":true,"lives":1,"barrageMaxPerSec":0,"slots":[{"team":"red"},{"team":"blue"},{"team":"green"},{"team":"yellow"},{"team":"black"},{"team":"silver"},{"team":"ivory"},{"team":"pink"},{"team":"red"},{"team":"blue"},{"team":"green"},{"team":"yellow"},{"team":"black"},{"team":"silver"},{"team":"ivory"},{"team":"pink"}],"zoneDamageByPaint":true,"zonePhases":[{"z":0.75,"waitTicks":40,"shrinkTicks":80,"dps":2},{"z":0.45,"waitTicks":0,"shrinkTicks":120,"dps":4},{"z":0.15,"waitTicks":0,"shrinkTicks":160,"dps":8}]}'
+
+echo "== recording the BR golden (own script) =="
 # Its LOAD RULE is stricter than the six above (a permanent golden hash, not
 # a redo-able tuning run) — see record_br_golden.sh's own header. Override
 # BR_GOLDEN_PORT to a fleet-free port when the default collides.
@@ -132,7 +141,8 @@ for f in tests/fixtures/capture-seed1.bitreplay \
     tests/replays/ctf.bitreplay \
     tests/fixtures/gen-small-pits.bitreplay \
     tests/fixtures/gen-colossal-4team.bitreplay \
-    tests/fixtures/br-golden-16team.bitreplay; do
+    tests/fixtures/br-golden-16team.bitreplay \
+    tests/fixtures/br-zonepaint-smoke.bitreplay; do
   echo "--- $f ---"
   if ! nim r --hints:off tools/extract_events.nim "$f" \
       > "/tmp/$(basename "$f").events.jsonl" 2>"/tmp/$(basename "$f").err.log"; then

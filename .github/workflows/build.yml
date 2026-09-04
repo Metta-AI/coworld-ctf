@@ -229,10 +229,20 @@ jobs:
         # Every class that has ever actually played DOES gate, at full
         # length: ctf.bitreplay and gen-small-pits both complete 6000 frames
         # (467 MB and 343 MB measured), so a regression in either is caught.
+        #
+        # br-zonepaint-smoke.bitreplay (#392 follow-up, 2026-09-04): the
+        # FMM zone arrival field (zoneDamageByPaint + zonePhases, the
+        # battle-royale-s2 shrink mechanic) had NEVER been in a
+        # native-vs-wasm hash comparison until this fixture — every prior
+        # fixture here recorded with zoneDamageByPaint off. Recorded via
+        # tools/record_fixture.sh (recipe in AGENTS.md's fixture table);
+        # config echo confirmed brMode/teams=8/zoneDamageByPaint=true/
+        # zonePhases.len=3. First run: PASS, no divergence observed.
         run: |
           fail=0
           for replay in tests/replays/ctf.bitreplay \
-              tests/fixtures/gen-small-pits.bitreplay; do
+              tests/fixtures/gen-small-pits.bitreplay \
+              tests/fixtures/br-zonepaint-smoke.bitreplay; do
             echo "::group::$replay"
             node tools/wasm_replay_smoke.cjs replay-viewer/dist "$replay" 6000 || fail=1
             echo "::endgroup::"

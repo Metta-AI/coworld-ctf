@@ -18,6 +18,15 @@
 ## tools/qa_module_eval.cjs's own header comment names. A source fix that
 ## never got rebuilt into the served copy looks green everywhere else and
 ## is broken in the browser.
+##
+## CONCURRENCY: do not run this suite while tools/build_replay_viewer.sh is
+## rebuilding static-replay-viewer/ in the same checkout. That script
+## `rm -rf`s the whole directory before repopulating it (see its own
+## "ecos 2026-08-23 scar" comment), and ServedPage below reads
+## static-replay-viewer/index.html straight off disk -- a read that lands
+## inside the rm -rf window sees a missing or half-written file and fails
+## this suite for a reason that has nothing to do with the change under
+## test.
 
 import
   helpers,
