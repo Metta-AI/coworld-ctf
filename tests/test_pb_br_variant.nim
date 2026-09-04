@@ -97,6 +97,12 @@ suite "paintbot manifest, battle-royale-s2 variant":
     # owner's doctrine call. Frame loadout flags and duo held-state are
     # live on the flagship variant from day one.
     check config.frameLoadoutFlags
+    # WIN-AS-MULTIPLIER (glory-2 A6/Amendment 7): this variant ships the
+    # win factor ARMED too -- the flagship BR economy is the even-maximums
+    # one from day one, and this key is the rollback switch (flip it false
+    # here and the v13 dVictory economy returns with no code change).
+    check config.gloryMultiplierRecut
+    check config.winAsMultiplier
     var sim = initCtfForTest(config)
     ## The variant's own "players" list binds each slot's NAME (see
     ## roster.nim's slotRestricted/matchingConfiguredSlot): a real join

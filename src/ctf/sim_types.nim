@@ -2471,6 +2471,21 @@ type
                         ## lootStart/downedMode it does NOT require
                         ## brMode: CTF is repriced too). Dark = false:
                         ## every number prices exactly as GLORY v12.
+    winAsMultiplier*: bool ## §A6/AMENDMENT 7 (win-as-multiplier): the
+                        ## dVictory DEED is retired for the deterministic,
+                        ## composition-neutral ×4 BR win factor folded
+                        ## into the canonical product at finalize
+                        ## (glory.nim `recutWinFactor`; M_CTF deferred to
+                        ## CTF-arming), plus the §A6 even-maximums recut:
+                        ## dTagBack/dJointAct enter the priced economy at
+                        ## ×2 each and dClosingTime's BASE rung goes 2→3
+                        ## — equalizing BR base == CTF base == 7,077,888
+                        ## exactly (BR ceiling ×4 = 28,311,552). Read
+                        ## only while `gloryMultiplierRecut` is armed.
+                        ## Dark = false: the v13 armed world is
+                        ## byte-identical (dVictory still mints ×8, no
+                        ## new deeds, old rungs). Its OWN manifest key
+                        ## (per-flag activation, Amendment 2 §1).
     stampRealizedConfig*: bool ## STAMP(amendment 2 §2): emit the
                         ## realized-config stamp {realizedBuild, flagSet,
                         ## variantId, stampVersion} at finalize — into the
@@ -3825,6 +3840,17 @@ type
                                ## (re-simulates identically), so it stays
                                ## OUT of gameHash — the product it feeds
                                ## is hashed, which is the causal surface.
+    recutJointSeats*: seq[seq[tuple[seat: int, minted: bool]]]
+                               ## §A6 (winAsMultiplier): per-VICTIM
+                               ## contributor seats of the CURRENT merged
+                               ## damage incident (the same 120t chain
+                               ## the marks above track), with the
+                               ## per-(seat, incident) minted flag for
+                               ## the dJointAct dedup. Maintained ONLY
+                               ## armed+winAsMultiplier+brMode; derived
+                               ## from the damage stream like the marks,
+                               ## so OUT of gameHash for the same reason
+                               ## (the product it mints into is hashed).
     heatEmbers*: array[Team, int]     ## GLORY: rampage embers -> the heat
                                       ## multiplier.
     heatLastDeed*: array[Team, int]   ## GLORY: tick of the team's latest

@@ -135,6 +135,7 @@ const SampleJson = """{
   "zoneDamageByPaint": {"zoneDamageByPaint": true, "zonePhases": [{"z": 0.5}]},
   "zonePaintDownedBleedPermille": {"zonePaintDownedBleedPermille": 3000, "zoneDamageByPaint": true, "zonePhases": [{"z": 0.5}]},
   "gloryMultiplierRecut": {"gloryMultiplierRecut": true},
+  "winAsMultiplier": {"winAsMultiplier": true},
   "stampRealizedConfig": {"stampRealizedConfig": true},
   "frameLoadoutFlags": {"frameLoadoutFlags": true},
   "variantId": {"variantId": "battle-royale-s2"},
