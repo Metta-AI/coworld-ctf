@@ -263,7 +263,7 @@ const
                                  ## is covered by the ramp's own gated sends
                                  ## (EndzoneRampBandsPerFrame).
   GlowFadeStages* = 8          ## crossfade steps; 0 = full glow, 7 = fully cold.
-  NeutralItemPoolWidth* = 64
+  NeutralItemPoolWidth* = NeutralPickupPoolWidth
     ## Shared object-id pool width for the four NEUTRAL pickup families
     ## (grenades/shields/med kits/spray cans): the render loop below indexes
     ## each one Base + i for every point the MAP authors, and BR authors

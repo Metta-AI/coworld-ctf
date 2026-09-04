@@ -897,6 +897,95 @@ template placeWalkablePickups(
       x: spot.x, y: spot.y, present: true, respawnAt: 0
     )
 
+const
+  SpawnLootDirs: array[8, tuple[dx, dy: int]] = [
+    (0, -1), (1, -1), (1, 0), (1, 1),
+    (0, 1), (-1, 1), (-1, 0), (-1, -1),
+  ]
+    ## SPAWNLOOT/SITECLASS: an 8-compass-direction ring, pure integer offsets
+    ## — no floats/host libm, following the same "geometry must not use host
+    ## libm" replay-determinism rule arena.nim's DiamondCos table documents
+    ## (a libm trig call can differ in its last bit across platforms/
+    ## compilers; a hashed replay position never may).
+
+func distinctSites(points: seq[tuple[x, y: int]]): seq[tuple[x, y: int]] =
+  ## PLACEMENT: the point list with exact duplicates dropped, first-occurrence
+  ## order preserved.
+  ##
+  ## Not a nicety — the med-kit-derived fallbacks NEEDED it.
+  ## `medKitSpawns` and `medKitCandidates` are the SAME list on every BR-pool
+  ## map and on both hand-authored arenas (arena.nim assigns
+  ## `medKitCandidates = medKitSpawns` outright; only the classic 2-team
+  ## generator differs, drawing 4 candidates and picking 2 OF THEM as
+  ## spawns). Concatenating the two — which both `resetBandages` and
+  ## `resetLootCrates`' hopper fallback did — therefore produced a target
+  ## list that was up to 100% duplicate pairs. Two crates on the same pixel
+  ## are not two pickups: `pickupByTouch` takes the first present spawn in
+  ## range and returns, and the taker's own `hasHopper`/pocket gate then
+  ## walks it straight over the twin, so the second copy is dead weight that
+  ## halves the family's PER-CRATE pickup rate for nothing. Measured on the
+  ## live battle-royale-s2 variant: 80 hopper crates over 52 distinct sites
+  ## (28 doubled) against 38 marker crates over 38 distinct sites — the
+  ## marker fallback reads `sim.grenadeSpawns`, one list, and never doubled.
+  for point in points:
+    if point notin result:
+      result.add point
+
+proc ringSite(
+  sim: var SimServer, x, y, lap, dirOffset, radius: int,
+  clear: openArray[tuple[x, y: int]] = []
+): tuple[x, y: int] =
+  ## PLACEMENT: the shared deterministic ring rule. `lap` 0 is the anchor
+  ## itself; lap N >= 1 steps the 8-compass ring rotated by `dirOffset`,
+  ## pulling a third of the radius further in on every full turn so a family
+  ## that laps its anchor set many times spirals inward instead of restacking
+  ## on the outer ring's own pixels. Every result resolves through
+  ## `nearestWalkable`'s expanding-ring search, so a ringed point can never
+  ## land inside a wall or an unreachable pocket — placement is a GUARANTEE,
+  ## not a filter, the same contract `placeWalkablePickups` carries.
+  ##
+  ## Pure integer geometry and a pure function of the index: it never touches
+  ## `sim.rng`, so re-simulating a seed always lands the same pixels and
+  ## arming any caller cannot perturb another rng-consuming draw's sequence.
+  ##
+  ## `clear` is the "and it must not land ON one of these" strengthening the
+  ## site-class callers need. `nearestWalkable` can pull a ringed point back
+  ## onto the anchor's own cell (or onto a neighbour's) when the ring lands
+  ## in a wall, which re-stacks the pickup on whatever already stands there
+  ## — a med kit under a bandage, a marker under a hopper, or a twin of its
+  ## own family — and a stacked pickup is dead weight (see `distinctSites`).
+  ## So the ring is scanned one full turn for a spot clear of that list,
+  ## settling for the last candidate if the pocket is genuinely that tight:
+  ## the walkability GUARANTEE always outranks the offset. Empty (the
+  ## default) is a single unconditional step, which is what the spawn-loot
+  ## seeding passes — its ring stays byte-identical to what shipped.
+  if lap <= 0:
+    return sim.nearestWalkable(x, y)
+  let steps = if clear.len == 0: 1 else: SpawnLootDirs.len
+  for step in 0 ..< steps:
+    let
+      dir = SpawnLootDirs[(lap - 1 + step + dirOffset) mod SpawnLootDirs.len]
+      ring = (lap - 1 + step) div SpawnLootDirs.len
+      dist = max(1, radius - ring * (radius div 3))
+    result = sim.nearestWalkable(x + dir.dx * dist, y + dir.dy * dist)
+    if result notin clear:
+      return result
+
+func cappedForPool(
+  targets: seq[tuple[x, y: int]], reserve = 0
+): seq[tuple[x, y: int]] =
+  ## PLACEMENT: trims a family's target list to what the board can actually
+  ## address — `NeutralPickupPoolWidth` object ids, minus `reserve` ids the
+  ## caller still owes (the spawn-seeded crates it appends afterwards). Past
+  ## that width the render loop clamps and its own `doAssert` fires, so the
+  ## surplus points were never pickups a cog could SEE; keeping the first N
+  ## is the same "keep the map's first N points" rule `medKitCount` already
+  ## uses. The cap binds only on the runtime-sized BR pools (up to 49 med-kit
+  ## points + 24 seeded crates on the live variant, over the 64-wide pool);
+  ## every classic map is an order of magnitude under it.
+  let cap = max(0, NeutralPickupPoolWidth - reserve)
+  if targets.len <= cap: targets else: targets[0 ..< cap]
+
 proc resetGrenades*(sim: var SimServer) =
   ## Refills every grenade pickup and clears carried and airborne grenades.
   ##
@@ -986,15 +1075,32 @@ proc resetMedKits*(sim: var SimServer) =
   sim.placeWalkablePickups(medKitSpawns, targets)
 
 proc resetBandages*(sim: var SimServer) =
-  ## LOOT(s2): places `config.bandagePickups` bandage pickups at the map's
-  ## med-kit points (active spawns first, then the drawn candidates,
-  ## cycling when the knob exceeds the points), nudged to walkable floor
-  ## like every pickup family. Reuses the med-kit geometry on purpose: those
-  ## points already passed the map's item-fairness reasoning, and the
-  ## intended test arm swaps kits OUT for bandages (medKitCount: 0), so the
-  ## bandages inherit exactly the fairness the kits vacated. Empties the
-  ## family outright when the knob is 0 — the dark default — so no dark
-  ## surface (broadcast lists included) ever sees one.
+  ## LOOT(s2): places `config.bandagePickups` bandage pickups in the map's
+  ## RETREAT site class — the med-kit points (active spawns plus the drawn
+  ## candidates, DEDUPED, cycling when the knob exceeds the points) — each
+  ## one ring-offset off its anchor and nudged to walkable floor like every
+  ## pickup family. Empties the family outright when the knob is 0 — the dark
+  ## default — so no dark surface (broadcast lists included) ever sees one.
+  ##
+  ## Site class is deliberate and stays: healing belongs where a hurt cog
+  ## RETREATS to, those points already passed the map's item-fairness
+  ## reasoning, and the ruled test arm swaps kits OUT for bandages
+  ## (medKitCount: 0), so the bandages inherit exactly the fairness the kits
+  ## vacated. Contrast the hopper fallback below, whose inherited med-kit
+  ## siting was WRONG for ammo and is what `hopperSiteTrafficPermille` moves.
+  ##
+  ## Two placement rules the old cycling `base[k mod base.len]` got wrong:
+  ##   * `distinctSites` — `medKitSpawns` and `medKitCandidates` are the same
+  ##     list on nearly every map, so the un-deduped base doubled every
+  ##     anchor and the first lap of bandages landed pixel-on-pixel in pairs;
+  ##   * `ringSite` at lap >= 1 — a bandage sits `LootSiteRingRadius` off its
+  ##     anchor rather than ON it. That keeps it inside the anchor's own room
+  ##     (same site class) while making it a SEPARATE touch from the med kit
+  ##     that is usually still standing there: at lap 0 the kit's full heal
+  ##     and the bandage's carry share one walk-over, and the kit wins, so an
+  ##     armed bandage economy would read as dead on any map that also keeps
+  ##     its kits. Laps past the anchor count keep spiraling instead of
+  ##     restacking.
   if sim.config.bandagePickups <= 0 or sim.paintballLoadout():
     sim.bandageSpawns.setLen(0)
     return
@@ -1003,26 +1109,29 @@ proc resetBandages*(sim: var SimServer) =
     base.add((point.x, point.y))
   for point in sim.gameMap.medKitCandidates:
     base.add((point.x, point.y))
+  base = distinctSites(base)
   if base.len == 0:
     base = @[
       (MapWidth div 2, MapHeight div 3),
       (MapWidth div 2, 2 * MapHeight div 3),
     ]
-  var targets: seq[tuple[x, y: int]]
-  for k in 0 ..< sim.config.bandagePickups:
-    targets.add(base[k mod base.len])
-  sim.placeWalkablePickups(bandageSpawns, targets)
-
-const
-  SpawnLootDirs: array[8, tuple[dx, dy: int]] = [
-    (0, -1), (1, -1), (1, 0), (1, 1),
-    (0, 1), (-1, 1), (-1, 0), (-1, -1),
-  ]
-    ## SPAWNLOOT: an 8-compass-direction ring, pure integer offsets — no
-    ## floats/host libm, following the same "geometry must not use host
-    ## libm" replay-determinism rule arena.nim's DiamondCos table documents
-    ## (a libm trig call can differ in its last bit across platforms/
-    ## compilers; a hashed replay position never may).
+  ## `update()` already refuses a knob past the pool width; the second clamp
+  ## is for the direct-field-assignment path tests and tools use.
+  let count = min(sim.config.bandagePickups, NeutralPickupPoolWidth)
+  sim.bandageSpawns.setLen(0)
+  var placed: seq[tuple[x, y: int]]
+  for k in 0 ..< count:
+    let anchor = base[k mod base.len]
+    ## Clear both the anchor's own cell (where a med kit still stands
+    ## whenever medKitCount left one there) and every bandage already
+    ## placed, so the family never doubles up on one pixel.
+    var clear = placed
+    clear.add sim.nearestWalkable(anchor.x, anchor.y)
+    let spot = sim.ringSite(anchor.x, anchor.y, k div base.len + 1,
+      BandageSiteDirOffset, LootSiteRingRadius, clear)
+    placed.add spot
+    sim.bandageSpawns.add PickupSpawn(
+      x: spot.x, y: spot.y, present: true, respawnAt: 0)
 
 template seedSpawnLootFamily(
   sim: var SimServer, spawnsField: untyped,
@@ -1040,15 +1149,11 @@ template seedSpawnLootFamily(
   ## of the 8 directions apart so the two families do not stack on the
   ## exact same pixel either.
   for spawnLootIdx in 0 ..< count:
-    let
-      spawnLootDir =
-        SpawnLootDirs[(spawnLootIdx + dirOffset) mod SpawnLootDirs.len]
-      spawnLootRing = spawnLootIdx div SpawnLootDirs.len
-      spawnLootDist =
-        max(1, radius - spawnLootRing * (radius div 3))
-      spawnLootSpot = sim.nearestWalkable(
-        anchorX + spawnLootDir.dx * spawnLootDist,
-        anchorY + spawnLootDir.dy * spawnLootDist)
+    ## `ringSite` at lap `idx + 1` is exactly the ring this template used to
+    ## inline (same dir table, same `idx div 8` inward pull) — one shared
+    ## placement rule now, byte-identical to the seeding that shipped.
+    let spawnLootSpot =
+      sim.ringSite(anchorX, anchorY, spawnLootIdx + 1, dirOffset, radius)
     sim.spawnsField.add PickupSpawn(
       x: spawnLootSpot.x, y: spawnLootSpot.y, present: true, respawnAt: 0)
 
@@ -1125,6 +1230,18 @@ proc resetLootCrates*(sim: var SimServer) =
     sim.weaponSpawns.setLen(0)
     sim.hopperSpawns.setLen(0)
     return
+  ## Object ids the spawn seeding below still owes: reserve them BEFORE the
+  ## base pools spend the family's `NeutralPickupPoolWidth`, so a big
+  ## map-derived fallback can never crowd out the seeded starter crates (the
+  ## whole point of SPAWNLOOT is that they are the ones a cog trips over).
+  let
+    seedClusters =
+      if sim.config.lootSpawnSeedGuns > 0 or sim.config.lootSpawnSeedHoppers > 0:
+        sim.gameMap.teamCount()
+      else:
+        0
+    gunReserve = seedClusters * max(0, sim.config.lootSpawnSeedGuns)
+    hopperReserve = seedClusters * max(0, sim.config.lootSpawnSeedHoppers)
   var weaponTargets: seq[tuple[x, y: int]]
   if sim.gameMap.weaponSpawns.len > 0:
     for point in sim.gameMap.weaponSpawns:
@@ -1132,24 +1249,78 @@ proc resetLootCrates*(sim: var SimServer) =
   else:
     for spawn in sim.grenadeSpawns:
       weaponTargets.add((spawn.x, spawn.y))
+  weaponTargets = cappedForPool(distinctSites(weaponTargets), gunReserve)
   var hopperTargets: seq[tuple[x, y: int]]
+  var trafficSited = 0
   if sim.gameMap.hopperSpawns.len > 0:
     for point in sim.gameMap.hopperSpawns:
       hopperTargets.add((point.x, point.y))
+    hopperTargets = cappedForPool(distinctSites(hopperTargets), hopperReserve)
   else:
     # NOT the spray-can points: a co-located can pickup would put a can in
     # the looter's hands, and a can carrier cannot fire the gun — the crate
     # would disarm the very cog it just armed. The med-kit points are the
     # harmless fair set (a co-located kit merely heals a hurt looter).
+    var retreat: seq[tuple[x, y: int]]
     for point in sim.gameMap.medKitSpawns:
-      hopperTargets.add((point.x, point.y))
+      retreat.add((point.x, point.y))
     for point in sim.gameMap.medKitCandidates:
-      hopperTargets.add((point.x, point.y))
-    if hopperTargets.len == 0:
-      hopperTargets = @[
+      retreat.add((point.x, point.y))
+    retreat = distinctSites(retreat)
+    if retreat.len == 0:
+      retreat = @[
         (MapWidth div 2, MapHeight div 3),
         (MapWidth div 2, 2 * MapHeight div 3),
       ]
+    retreat = cappedForPool(retreat, hopperReserve)
+    ## SITECLASS (hopper-siteclass spec, 2026-09-03): the med-kit points are
+    ## the RETREAT class — rooms and corners, the lowest-hotspot sites on the
+    ## map — while the marker crates fall back onto the grenade points, the
+    ## TRAFFIC class (alleys and hotspots). Inheriting the retreat class put
+    ## the gun's AMMO half where fights are not: measured across 75 live
+    ## episodes, hoppers were the most plentiful crate on the field and the
+    ## worst collected, 0.47x the marker's PER-CRATE pickup rate. No live map
+    ## authors `hopperSpawns` (0/75), so this fallback IS the live placement.
+    ##
+    ## `hopperSiteTrafficPermille` re-sites that share of the fallback onto
+    ## the traffic points, ring-offset by `HopperSiteDirOffset` so a
+    ## re-sited hopper is a SEPARATE walk-over from the marker crate sharing
+    ## its anchor (co-locating them would arm both halves in one touch and
+    ## dissolve the two-halves gate). The COUNT never changes — every
+    ## re-sited crate is one the retreat class no longer gets — so the
+    ## hopper:marker per-crate ratio moves on site class alone, with supply
+    ## held fixed. 0 (default) reproduces the inherited siting exactly.
+    let
+      permille = clamp(sim.config.hopperSiteTrafficPermille, 0, 1000)
+      traffic = distinctSites(block:
+        var pts: seq[tuple[x, y: int]]
+        for spawn in sim.grenadeSpawns:
+          pts.add((spawn.x, spawn.y))
+        pts)
+    if permille <= 0 or traffic.len == 0:
+      hopperTargets = retreat
+    else:
+      var retreatIdx = 0
+      for i in 0 ..< retreat.len:
+        ## Integer dither, no floats: index i takes a traffic site exactly
+        ## when the running floor(i * permille / 1000) ticks over, so the
+        ## traffic share is floor(n * permille / 1000) spread evenly through
+        ## the list rather than bunched at one end of the map.
+        if (i + 1) * permille div 1000 != i * permille div 1000:
+          let anchor = traffic[trafficSited mod traffic.len]
+          ## Clear the marker crate sharing this traffic point, every other
+          ## marker, and every hopper already sited: the two halves of the
+          ## gun must stay two separate walk-overs, and a hopper stacked on
+          ## a hopper is the very waste this pass exists to remove.
+          var clear = weaponTargets
+          clear.add hopperTargets
+          hopperTargets.add sim.ringSite(anchor.x, anchor.y,
+            trafficSited div traffic.len + 1,
+            HopperSiteDirOffset, LootSiteRingRadius, clear)
+          inc trafficSited
+        else:
+          hopperTargets.add retreat[retreatIdx]
+          inc retreatIdx
   sim.placeWalkablePickups(weaponSpawns, weaponTargets)
   sim.placeWalkablePickups(hopperSpawns, hopperTargets)
   sim.seedSpawnLoot()
