@@ -116,7 +116,7 @@ proc faultCodeFromTrap(trap: ptr WasmTrap): FaultCode =
   case code
   of 0: fcStackOverflow
   of 1: fcMemoryOutOfBounds
-  of 2: fcHeapMisaligned
+  # 2 (heap misaligned) needs shared memory, which runtime.nim disables.
   of 3: fcTableOutOfBounds
   of 4: fcIndirectCallToNull
   of 5: fcBadSignature
@@ -506,7 +506,12 @@ proc finishResult(instance: ShellInstance, kind: InvocationKind,
     faulted: instance.host.invocation.faulted,
     refused: refused,
     reason: instance.host.invocation.faultReason,
-    code: (if refused: fcRefused else: instance.host.invocation.faultCode),
+    # A refusal is play_retune returning nonzero; a retune that TRAPS is a
+    # fault that happens to end in the refused state, and keeps its cause.
+    code: (if instance.host.invocation.faulted:
+             instance.host.invocation.faultCode
+           elif refused: fcRefused
+           else: instance.host.invocation.faultCode),
     counters: instance.host.invocation.counters,
     emitCodes: instance.host.emitCodes,
     lastAccepted: instance.lastAccepted,
@@ -631,13 +636,15 @@ proc terminalStatus*(invocationResult: ShellInvocationResult; ordinal,
   if invocationResult.kind == ivRetune and invocationResult.refused:
     var entry = StatusEntry(kind: skRetuneRefused, ordinal: ordinal,
       originGeneration: originGeneration, faultEpoch: epoch,
-      entryId: entryId, faultReason: invocationResult.reason)
+      entryId: entryId, faultCode: invocationResult.code,
+      faultReason: invocationResult.reason)
     entry.fitTerminalStatus()
     return some(entry)
   if invocationResult.faulted:
     var entry = StatusEntry(kind: skPlayFaulted, ordinal: ordinal,
       originGeneration: originGeneration, faultEpoch: epoch,
-      entryId: entryId, faultReason: invocationResult.reason)
+      entryId: entryId, faultCode: invocationResult.code,
+      faultReason: invocationResult.reason)
     entry.fitTerminalStatus()
     return some(entry)
   none(StatusEntry)

@@ -151,7 +151,6 @@ type
     fcIntegerOverflow = "integerOverflow"
     fcIntegerDivisionByZero = "integerDivisionByZero"
     fcBadConversionToInteger = "badConversionToInteger"
-    fcHeapMisaligned = "heapMisaligned"
     fcTrap = "trap"                      ## any other wasmtime trap kind
     fcHostError = "hostError"            ## a runtime error that was not a guest trap
     fcReturnedNonzero = "returnedNonzero"  ## play_init / play_step returned nonzero

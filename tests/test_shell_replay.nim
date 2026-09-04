@@ -388,6 +388,30 @@ suite "shell replay record bytes":
       check offset == bytes.len
     check sampleAnnotations()[0].provenance.overlays[0].acceptedTick == 19
 
+  test "legacy kind-3 play-fault annotations still decode with code unknown":
+    ## paintbot 0.7.311 and 0.7.312 wrote the play fault as kind byte 3 with
+    ## no code. Those replays must keep decoding; re-encoding writes kind 4.
+    let coded = sampleAnnotations()[3].encodeAnnotationRecord()
+    var legacy = ""
+    legacy.addU8(uint8(coded[0]))
+    legacy.addU32(21)
+    legacy.addU8(0)
+    legacy.addU8(3)
+    legacy.addU64(9)
+    legacy.addString16("controller")
+    legacy.addString16("fuel")
+    var offset = 0
+    let decoded = legacy.decodeAnnotationRecord(offset)
+    check offset == legacy.len
+    check decoded.kind == akPlayFault
+    check decoded.faultAtEpoch == 9
+    check decoded.faultEntryId == "controller"
+    check decoded.annotationFaultReason == "fuel"
+    check decoded.faultCode == fcUnknown
+    let reencoded = decoded.encodeAnnotationRecord()
+    check uint8(reencoded[6]) == 4
+    check reencoded.len == legacy.len + 1
+
   test "lobby u16 length is capped before conversion":
     var hostile = ""
     hostile.addU8(RecLobbyChat)

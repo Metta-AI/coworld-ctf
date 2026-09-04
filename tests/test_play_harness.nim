@@ -216,6 +216,17 @@ suite "play harness":
       frames = "[{\"op\":\"manifest\"},{\"op\":\"init\",\"params\":{}," &
         "\"context\":{}},{\"op\":\"retune\",\"old_params\":{}," &
         "\"new_params\":{\"level\":1}}]")
+    # A retune that traps ends refused, but its code is the trap, not
+    # "refused" (which is reserved for a nonzero return).
+    let retuneTrap = makeCase(dir, "retune_trap", "i32.const 0",
+      retuneBody = "unreachable i32.const 0",
+      frames = "[{\"op\":\"manifest\"},{\"op\":\"init\",\"params\":{}," &
+        "\"context\":{}},{\"op\":\"retune\",\"old_params\":{}," &
+        "\"new_params\":{\"level\":1}}]")
+    let trapped = runCli(retuneTrap)
+    check "\"code\":\"unreachable\"" in trapped
+    check "\"faulted\":true" in trapped
+    check "\"refused\":true" in trapped
 
     for pair in [
       (normalization, "normalization.golden.json"),
