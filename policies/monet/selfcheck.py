@@ -1049,16 +1049,50 @@ check("prompt: partner doctrine states the revive-close combat rule "
       "(system_prompt.md)",
       "revive-close" in prompt, "revive-close doctrine text not found")
 
-# ── win-as-multiplier (build 0.7.319, engine commit a1acd96a #393): armed
-# on battle-royale-s2 -- dVictory (the old win DEED, threaded through
-# recutFactor's heat/territory/carry/stack) is retired; a flat,
-# composition-neutral x4 fold replaces it on the winner's product at
-# finishGame. Pins the corrected THE OBJECTIVE passage so a future edit
-# reverting to "the win itself [is just another deed]" is caught here. ───
-check("prompt: objective states winning is a flat x4 fold, not a deed "
-      "(winAsMultiplier armed on battle-royale-s2, dVictory retired)",
-      "flat x4 on top (not a deed)" in prompt,
-      "win-as-multiplier text not found")
+# ── win-as-multiplier ROLLED BACK (commit d595f300 #401,
+# 2026-09-04T10:34:18-07:00): the dTagBack revive-loop (zone-bleed re-downs
+# the partner, revive completes at 48 ticks, repeat -- a 57-tick metronome)
+# mints dTagBack x2 per completed Revived event, 24-27x per episode; the
+# multiplicative recut PRODUCT compounds those per-event x2 factors
+# together, so the product overshot the 28,311,552 design ceiling by
+# ~10^6x (r3894 hit 9.15e15). The manifest flag winAsMultiplier flipped
+# back to false on battle-royale-s2 -- confirmed from source
+# (coworld_manifest_paintbot.json variants[0].game_config), not the commit
+# metadata alone. This did NOT fix the metronome: sim.nim still emits an
+# unconditional `Revived` event every completed channel (the down/revive
+# LOOP is untouched -- only the deed mint is gated). What the flag flip
+# actually does, read from sim.nim directly:
+#   - dVictory (sim.nim ~line 5108-5118) mints again: gated on
+#     `gloryMultiplierRecut and brMode and not isDraw and not
+#     winAsMultiplier` -- all four now true on battle-royale-s2, so the
+#     win is back to being an ordinary x8 deed, routed through the same
+#     RecutClassTable/heat/carry/stack pricing as every other deed (NOT a
+#     flat multiplier bypass -- that was the retired winAsMultiplier fold,
+#     sim.nim ~line 5120-5131, now dark).
+#   - dTagBack (sim.nim ~line 7164-7174) and dJointAct are BOTH gated on
+#     `gloryMultiplierRecut AND winAsMultiplier` (glory.nim ~line 246-262)
+#     -- with winAsMultiplier false, NEITHER mints at all right now, so
+#     the metronome's repeated Revived events are scoring-inert today.
+#     Revive-farming is not currently a live strategy, but the loop
+#     itself is only latent, not closed -- re-arming winAsMultiplier
+#     without a per-episode dTagBack mint cap reproduces the exact
+#     overshoot (owner's own rollback-commit ruling: "re-arm only after
+#     repeatable deeds get per-episode mint caps / diminishing rungs").
+# This is the SECOND flip on this key in <36h (dark -> armed a1acd96a
+# #393 2026-09-03 ~21:xx -> dark d595f300 #401 2026-09-04 10:34), so the
+# pinned phrase below deliberately names the DOCTRINE ("the win itself is
+# a deed that multiplies like everything else") rather than the specific
+# fold arithmetic (no "x4"/"x8" in the prose) -- a future recut-class
+# repricing of dVictory does not need to touch this passage; only another
+# winAsMultiplier flip does, and this comment block is where to update it
+# when that happens. ─────────────────────────────────────────────────────
+check("prompt: objective lists the win itself as a deed that multiplies "
+      "(winAsMultiplier DARK again on battle-royale-s2 as of d595f300 "
+      "#401 2026-09-04T10:34:18-07:00 -- dVictory is back, x8, "
+      "recutFactor-routed; dTagBack/dJointAct are dark, gated on "
+      "winAsMultiplier too)",
+      "duo-downs, a clustered spray, the win itself" in prompt,
+      "win-as-deed text not found")
 
 # ── loss/placement economics (glory.nim: recutFold folds the x4 ONLY onto
 # the winner's own gloryProduct at finishGame; a losing team's product is

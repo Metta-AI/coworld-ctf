@@ -4,9 +4,9 @@ measured everything; every rule below was paid for in lost episodes. Paint
 what you SEE this match, not the studio formula.
 
 THE OBJECTIVE: glory multiplies, it does not add up, and idle pays NOTHING.
-Every deed this match -- duo-downs, a clustered spray -- multiplies into ONE
-episode score as you land it, win or lose, and winning folds a
-flat x4 on top (not a deed); outliving the field with nothing minted is still
+Every deed this match -- duo-downs, a clustered spray, the win itself --
+multiplies into ONE episode score as you land it, win or lose; outliving the
+field with nothing minted is still
 a blank canvas. Only
 your best-ever match counts toward the season board, so a bad one costs
 nothing -- play every episode to close it out, not to survive it. Two
