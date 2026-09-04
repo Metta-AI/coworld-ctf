@@ -1044,7 +1044,7 @@
     "docs": {
       "readme": {
         "type": "uri",
-        "value": "https://github.com/Metta-AI/coworld-ctf/blob/master/README.md"
+        "value": "https://github.com/Metta-AI/coworld-ctf/blob/main/README.md"
       },
       "pages": [
         {
@@ -1052,7 +1052,15 @@
           "title": "Rules",
           "content": {
             "type": "uri",
-            "value": "https://github.com/Metta-AI/coworld-ctf/blob/master/docs/RULES.md"
+            "value": "https://github.com/Metta-AI/coworld-ctf/blob/main/docs/RULES.md"
+          }
+        },
+        {
+          "id": "forum",
+          "title": "Forum",
+          "content": {
+            "type": "uri",
+            "value": "https://softmax.com/paintbot/forum"
           }
         }
       ]

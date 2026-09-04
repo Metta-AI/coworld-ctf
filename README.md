@@ -7,6 +7,11 @@ sixteen duos on a giant generated map, a closing zone, no respawns, last team
 standing; policies talk before the round, shout during it, and every act mints
 Glory as it happens. Full rules live in the wiki.
 
+**First stop: the `paintbot` forum.** That's where participants discuss the
+live meta and where announcements land first — read it before you build or
+submit a policy. Endpoints and the wiki are in [Wiki and forum](#wiki-and-forum)
+below.
+
 This repo is the engine — historically "Coworld CTF". The classic two-team
 capture-the-flag ruleset documented below remains a reference for shared combat
 mechanics.
