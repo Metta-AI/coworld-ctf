@@ -443,6 +443,11 @@
           "type": "boolean",
           "default": false
         },
+        "perkItems": {
+          "description": "Season-2 perks-as-items rework: perk buffs are EARNED on the board instead of assigned at join via `perks`. When on, perk crates wait on the map — each grants its perk to the first eligible cog that touches it (players[i].perks.incl), PERMANENT for the rest of that cog's life; different perks STACK (each is its own set member, no magnitude stacking), and a cog already holding a crate's perk walks over it untouched. Crates come from the map's authored perkSpawns (tagged {perk,x,y} points) or, when a map authors none, a deterministic fallback that scatters ONE crate per perk kind across the map's interior pickup candidates (objbalance owns the real rarity/deep-in-buildings gradient). Composes additively with `perks` (a join-buff still applies), but the S2 thesis is `perks` empty + perkItems on: no fixed loadout advantage, map control = power. Requires brMode: true. Off by default; the battle-royale-s2 variant turns it on.",
+          "type": "boolean",
+          "default": false
+        },
         "giveItem": {
           "description": "Battle-royale play-called item exchange: a seat with a DECLARED handoff (declareHandoff — the engine seam for the play shell's HANDOFF play) that holds GiveItemRange adjacency to its duo partner for GiveChannelTicks transfers the declared item (gun, hopper, or bandage) to that partner, emitting the item_give wire row {actor, recipient, item, tick}. No declaration, no transfer — proximity alone never moves an item (owner ruling 2026-09-02: no auto-share). Requires brMode: true. Off by default; armed only on explicit go.",
           "type": "boolean",
@@ -1299,6 +1304,7 @@
         "brMode": true,
         "lootStart": true,
         "downedMode": true,
+        "perkItems": true,
         "zoneDamageByPaint": true,
         "zonePhases": [
           {

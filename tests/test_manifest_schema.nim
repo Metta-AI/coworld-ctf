@@ -128,6 +128,7 @@ const SampleJson = """{
   "zoneCenter": {"zoneCenter": [500, 500]},
   "lootStart": {"lootStart": true, "brMode": true},
   "downedMode": {"downedMode": true, "brMode": true},
+  "perkItems": {"perkItems": true, "brMode": true},
   "giveItem": {"giveItem": true, "brMode": true},
   "lootSpawnSeedGuns": {"lootSpawnSeedGuns": 3, "lootStart": true, "brMode": true},
   "lootSpawnSeedHoppers": {"lootSpawnSeedHoppers": 3, "lootStart": true, "brMode": true},
