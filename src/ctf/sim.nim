@@ -2183,6 +2183,7 @@ proc downPlayer(
   victim.hp = 0
   victim.velX = 0
   victim.velY = 0
+  victim.stillTicks = 0   # OPTICS(s2): a corpse is not "planted".
   victim.carryX = 0
   victim.carryY = 0
   victim.fireWindup = 0
@@ -2683,6 +2684,7 @@ proc killPlayer*(
   sim.players[targetIndex].hurtByMask = 0   # the next life starts untouched
   sim.players[targetIndex].velX = 0
   sim.players[targetIndex].velY = 0
+  sim.players[targetIndex].stillTicks = 0   # OPTICS(s2): fresh life, not planted.
   sim.players[targetIndex].carryX = 0
   sim.players[targetIndex].carryY = 0
   # GV35: elimination deaths never touch the deaths stat — the counter (and
@@ -3149,30 +3151,48 @@ proc tryFireArc*(sim: var SimServer, attackerIndex: int) =
   sim.startArcFire(attackerIndex)
   sim.resolveActiveArcCones()
 
-proc aimJitterSigma(sim: SimServer, perks: PerkSet): float =
-  ## The per-shot Gaussian aim-noise sigma, in radians (GV34): calibrated
-  ## against the LIVE config.gunRange so that a fully visible body at max
-  ## range is hit exactly 80% of the time — see AimJitterCentralZ for the
-  ## derivation. PlayerHalf + BulletHalfWidth is the corridor's continuous
-  ## acceptance half-window for a centered silhouette. A scope-perked shooter
-  ## deviates less: sigma shrinks by perkMods.scopeAim (the scale applies
-  ## only when the perk is present, so a perk-free shot's draw is untouched).
-  let window = (float(PlayerHalf) + BulletHalfWidth) / float(sim.config.gunRange)
+proc aimJitterSigma(sim: SimServer, perks: PerkSet, planted: bool): float =
+  ## The per-shot Gaussian aim-noise sigma, in radians (GV34): calibrated so a
+  ## fully visible body at max range is hit ~80% of the time — see
+  ## AimJitterCentralZ for the derivation. PlayerHalf + BulletHalfWidth is the
+  ## corridor's continuous acceptance half-window for a centered silhouette.
+  ## A scope-perked shooter deviates less: sigma shrinks by perkMods.scopeAim
+  ## (the scale applies only when the perk is present, so a perk-free shot's
+  ## draw is untouched).
+  ##
+  ## OPTICS(s2) BARREL EXTENDER: the range fed to the calibration is the
+  ## shooter's gunRangeFor(perks) ONLY when config.barrelRederiveJitter (Mode A
+  ## — the barrel keeps ~80% at its extended max and tightens the gun at every
+  ## closer range); otherwise the base config.gunRange (Mode B, DEFAULT — the
+  ## extra reach lands at a falling hit-rate, the "risky long shot": ~68% at
+  ## +30% range with the default barrelRange). Dark either way: a seat without
+  ## PerkBarrel has gunRangeFor == config.gunRange, so `window` is unchanged.
+  ##
+  ## OPTICS(s2) plant-to-aim: a shooter who has held still long enough narrows
+  ## the cone by plantAimSigmaPermille. 1000 (DEFAULT) leaves sigma untouched
+  ## and adds no branch effect — byte-identical to pre-optics.
+  let calibRange =
+    if sim.config.barrelRederiveJitter: gunRangeFor(sim.config, perks)
+    else: sim.config.gunRange
+  let window = (float(PlayerHalf) + BulletHalfWidth) / float(calibRange)
   result = arcsin(min(1.0, window)) / AimJitterCentralZ
   if PerkScope in perks:
     result = result * float(1000 - sim.config.perkMods.scopeAim) / 1000.0
+  if planted and sim.config.plantAimSigmaPermille != 1000:
+    result = result * float(sim.config.plantAimSigmaPermille) / 1000.0
 
 proc jitterDirection(
-  sim: var SimServer, headingBrads: int, perks: PerkSet
+  sim: var SimServer, headingBrads: int, perks: PerkSet, planted: bool
 ): tuple[x, y: float] =
   ## The actual unit direction of one released shot: the locked aim rotated
   ## by a Gaussian draw on the deterministic sim RNG (like the trench duck,
   ## it is part of the hashed game, so replays re-roll identically). The
   ## same fuzzed direction drives target selection AND the tracer/stain, so
-  ## where the paint lands is where the viewer sees it fly.
+  ## where the paint lands is where the viewer sees it fly. `planted` is the
+  ## OPTICS(s2) plant-to-aim state, passed straight to aimJitterSigma.
   let
     (bx, by) = aimVector(headingBrads)
-    jitter = gauss(sim.rng, 0.0, sim.aimJitterSigma(perks))
+    jitter = gauss(sim.rng, 0.0, sim.aimJitterSigma(perks, planted))
     cj = cos(jitter)
     sj = sin(jitter)
   # aimVector is (cos a, -sin a) (screen y down), so adding jitter to the
@@ -3203,7 +3223,9 @@ proc selectFireTarget(
     shooter = sim.players[shooterIndex]
     sx = shooter.x + CollisionW div 2
     sy = shooter.y + CollisionH div 2
-    maxRange = float(sim.config.gunRange)
+    # OPTICS(s2): the bullet corridor reaches the shooter's per-seat gun range
+    # (config.gunRange, extended by the BARREL EXTENDER). Dark == config.gunRange.
+    maxRange = float(gunRangeFor(sim.config, shooter.perks))
     shooterTrench = sim.playerTrench(shooterIndex)
   # Every body the bullet corridor crosses, at its distance along the ray.
   var crossed: seq[tuple[t: float, index: int]] = @[]
@@ -3268,7 +3290,15 @@ proc selectGunShot(sim: var SimServer, shooterIndex: int): PendingGunShot =
         sim.tickCount - sim.config.fireWindupTicks
       else:
         sim.tickCount
-    (ux, uy) = sim.jitterDirection(headingBrads, shooter.perks)
+    # OPTICS(s2) plant-to-aim: this shot is "planted" when the mechanic is
+    # armed, the shooter has been fully stopped for plantSettleTicks, and (when
+    # barrel-only) the shooter carries PerkBarrel. Off => always false => no
+    # RNG or outcome change.
+    planted =
+      sim.config.plantAimSigmaPermille != 1000 and
+      shooter.stillTicks >= sim.config.plantSettleTicks and
+      (not sim.config.plantAimBarrelOnly or PerkBarrel in shooter.perks)
+    (ux, uy) = sim.jitterDirection(headingBrads, shooter.perks, planted)
   PendingGunShot(
     shooterIndex: shooterIndex,
     targetIndex: sim.selectFireTarget(shooterIndex, ux, uy),
@@ -3330,8 +3360,10 @@ proc applyFire(sim: var SimServer, shot: PendingGunShot) =
     )
   else:
     # March along the unit aim to the last wall-free pixel or max range
-    # (checking each sampled pixel keeps this O(range) at 1050px).
-    let maxRange = sim.config.gunRange
+    # (checking each sampled pixel keeps this O(range) at 1050px). OPTICS(s2):
+    # the tracer ends at the shooter's per-seat gun range so a barrel-extended
+    # miss visibly flies its full extended reach. Dark == config.gunRange.
+    let maxRange = gunRangeFor(sim.config, shooter.perks)
     var
       lastClear = 0
       wallX = 0
@@ -4676,6 +4708,17 @@ proc applyInput*(
   sim.applyMomentumAxis(playerIndex, preferredSlideY, true)
   sim.applyMomentumAxis(playerIndex, preferredSlideX, false)
 
+  # OPTICS(s2) plant-to-aim: count consecutive fully-stopped ticks (capped at
+  # the settle window). Gated so a game with the mechanic off never writes the
+  # field (it stays 0) and never enters gameHash — byte-identical to pre-optics.
+  # velX/velY are this tick's post-friction, post-slide velocity, so a coasting
+  # cog is not "stopped" until friction has zeroed it.
+  if sim.config.plantAimSigmaPermille != 1000:
+    if player.velX == 0 and player.velY == 0:
+      player.stillTicks = min(player.stillTicks + 1, sim.config.plantSettleTicks)
+    else:
+      player.stillTicks = 0
+
 proc fovCellIndex*(cx, cy: int): int {.inline.} =
   ## Returns the flat index of one fog-of-war grid cell.
   cy * FovGridW + cx
@@ -4806,13 +4849,21 @@ proc applyFovCone*(
   sim: SimServer,
   originCx, originCy, aimBrads: int,
   shadowcast: seq[bool],
-  visible: var seq[bool]
+  visible: var seq[bool],
+  visionRangePx, visionConeDeg: int
 ) {.measure.} =
   ## The aim-dependent half of fog-of-war: intersects a cached shadowcast
   ## with the forward vision cone (half-angle visionConeDeg around the aim
-  ## angle, reaching visionRange px — 1.5x the gun range, GV34) plus the
-  ## omnidirectional vision bubble (visionBubble px, exempt from the range
-  ## cap).
+  ## angle, reaching visionRangePx) plus the omnidirectional vision bubble
+  ## (visionBubble px, exempt from the range cap).
+  ##
+  ## OPTICS(s2): visionRangePx and visionConeDeg are now PER-VIEWER — the
+  ## caller passes visionRangeFor/visionConeDegFor(config, viewer.perks), so
+  ## the SCOPE item widens+extends exactly this seat's cone. A viewer without
+  ## PerkSight/PerkBarrel gets config.gunRange*3 div 2 and config.visionConeDeg
+  ## — the exact global values this proc used to read for everyone. The cone is
+  ## still welded to `aimBrads`: a wider cone, never an omni reveal (fog
+  ## identity preserved).
   if visible.len != FovCellCount:
     visible.setLen(FovCellCount)
   copyMem(addr visible[0], unsafeAddr shadowcast[0],
@@ -4820,9 +4871,9 @@ proc applyFovCone*(
   let
     (ox, oy) = fovCellCenter(originCx, originCy)
     (ax, ay) = aimVector(aimBrads)
-    coneCos = cos(float(sim.config.visionConeDeg) * PI / 180.0)
+    coneCos = cos(float(visionConeDeg) * PI / 180.0)
     bubbleSq = float(sim.config.visionBubble * sim.config.visionBubble)
-    rangeSq = float(sim.visionRange() * sim.visionRange())
+    rangeSq = float(visionRangePx * visionRangePx)
   for cy in 0 ..< FovGridH:
     for cx in 0 ..< FovGridW:
       let index = fovCellIndex(cx, cy)
@@ -4845,15 +4896,18 @@ proc applyFovCone*(
 proc computeFovVisible*(
   sim: SimServer,
   originCx, originCy, aimBrads: int,
-  visible: var seq[bool]
+  visible: var seq[bool],
+  perks: PerkSet = {}
 ) {.measure.} =
   ## Computes one viewer's full fog-of-war cell visibility in one shot:
   ## shadowcast, then cone/range filter. Uncached path, kept for tools and
   ## probes; the server loop goes through refreshPlayerFov's two-level
-  ## cache instead.
+  ## cache instead. OPTICS(s2): pass the viewer's `perks` to widen/extend the
+  ## cone (the SCOPE item); the default {} reproduces the pre-optics global cone.
   var shadowcast = newSeq[bool](FovCellCount)
   sim.computeFovShadowcast(originCx, originCy, shadowcast)
-  sim.applyFovCone(originCx, originCy, aimBrads, shadowcast, visible)
+  sim.applyFovCone(originCx, originCy, aimBrads, shadowcast, visible,
+    visionRangeFor(sim.config, perks), visionConeDegFor(sim.config, perks))
 
 proc ensureFovCacheSlots(sim: var SimServer) =
   ## Keeps player-indexed fog-of-war cache storage aligned with players.
@@ -4889,7 +4943,9 @@ proc refreshPlayerFov*(sim: var SimServer, playerIndex: int): bool {.measure.} =
     cache.cellValid = true
     cache.cellCx = cx
     cache.cellCy = cy
-  sim.applyFovCone(cx, cy, player.aimBrads, cache.cellVisible, cache.visible)
+  sim.applyFovCone(cx, cy, player.aimBrads, cache.cellVisible, cache.visible,
+    visionRangeFor(sim.config, player.perks),
+    visionConeDegFor(sim.config, player.perks))
   cache.valid = true
   cache.originCx = cx
   cache.originCy = cy

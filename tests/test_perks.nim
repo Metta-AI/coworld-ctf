@@ -128,7 +128,9 @@ suite "perk config parsing":
       "luckDamage": 3}}""")
     check cfg.perkMods == PerkMods(
       armorHp: 2, scopeAim: 800, grenadeRange: 500, thrusterSpeed: 200,
-      luckChance: 1000, luckDamage: 3)
+      luckChance: 1000, luckDamage: 3,
+      # OPTICS(s2): unspecified above, so these keep their DefaultPerkMods values.
+      sightVision: 500, sightConeDeg: 20, barrelRange: 300)
 
   test "an unknown perkMods key is rejected":
     var cfg = defaultGameConfig()
