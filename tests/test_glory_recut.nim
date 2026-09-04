@@ -669,3 +669,324 @@ suite "§A6 armed sim: win factor, dTagBack, dJointAct, dark parity":
     discard sim.absorbDamage(0, 1, attackerIndex = 4, weapon = "gun")
     check sim.deedCounts[dJointAct] == 0
     check sim.recutJointSeats.len == 0                 # state never even touched
+
+# ─────────────────────────────────────────────────────────────────────────
+# MINTCAP (2026-09-04) — per-episode, per-duo MINT BUDGETS on the
+# repeatable deeds, plus the meaningful product backstop. The durable fix
+# behind winAsMultiplier's re-arm: incident d595f300 rolled the flag off
+# after the zone-bleed/revive metronome minted dTagBack 24-27× in one
+# episode (2^24+ folds; r3894 reported 9.15e15 against a 28,311,552
+# design ceiling) and the 2^62 overflow guard — sited ~2^38 ABOVE the
+# ceiling it nominally guarded — never fired.
+#
+# Everything below is behind `GameConfig.deedMintCaps` (its own flag, dark
+# by default). The dark tests are the #378 else-branch pattern: with the
+# flag OFF, BOTH the v12 additive world and the LIVE v13-armed world must
+# stay byte-identical.
+# ─────────────────────────────────────────────────────────────────────────
+
+proc capsConfig(br: bool, winMult = true): GameConfig =
+  result = recutConfig(br)
+  result.winAsMultiplier = winMult
+  result.deedMintCaps = true
+
+suite "mintcap config surface (dark by default, its own key)":
+  test "the cap flag is dark by default and absent from a dark echo":
+    let config = defaultGameConfig()
+    check config.deedMintCaps == false
+    check not parseJson(config.configJson()).hasKey("deedMintCaps")
+
+  test "it arms independently of the recut and the win factor":
+    # PER-FLAG ACTIVATION (Amendment 2 §1): the caps are their own key —
+    # arming them never drags the recut or the win factor, and arming
+    # either of those never arms the caps.
+    var caps = defaultGameConfig()
+    caps.update("""{"deedMintCaps": true}""")
+    check caps.deedMintCaps
+    check not caps.gloryMultiplierRecut
+    check not caps.winAsMultiplier
+    check parseJson(caps.configJson()).hasKey("deedMintCaps")
+    var winMult = defaultGameConfig()
+    winMult.update("""{"winAsMultiplier": true}""")
+    check not winMult.deedMintCaps
+    check not parseJson(winMult.configJson()).hasKey("deedMintCaps")
+
+  test "the realized-config stamp records the caps, false included":
+    var config = defaultGameConfig()
+    config.update("""{"stampRealizedConfig": true}""")
+    var flags: seq[string]
+    for f in parseJson(config.realizedConfigStampJson())["flagSet"]:
+      flags.add f.getStr
+    check "deedMintCaps=false" in flags
+    config.update("""{"deedMintCaps": true}""")
+    flags = @[]
+    for f in parseJson(config.realizedConfigStampJson())["flagSet"]:
+      flags.add f.getStr
+    check "deedMintCaps=true" in flags
+
+suite "mintcap: the repeatable-deed enumeration and its budgets":
+  test "exactly four deeds carry a budget; every other row is uncapped":
+    # A deed is REPEATABLE-UNBOUNDED when its per-duo mint count is not
+    # bounded by a scarce, contested, non-renewable resource. These four
+    # are the whole set (glory.nim's table comment carries the
+    # deed-by-deed audit that produced it).
+    var capped: seq[Deed]
+    for deed in Deed:
+      if RecutMintCapTable[deed] > 0:
+        capped.add deed
+    check capped == @[dShieldSoak, dDuoDown, dTagBack, dJointAct]
+    check recutMintCap(dTagBack) == 3
+    check recutMintCap(dJointAct) == 6      # seat-keyed: 2 seats × 3
+    check recutMintCap(dDuoDown) == 4       # 2× the ceiling recipe's own use
+    check recutMintCap(dShieldSoak) == 3
+    check recutMintCap(dAceTag) == 0        # enemy lives are the bound
+    check recutMintCap(dVictory) == 0       # once, at finalize
+
+  test "the two uncapped unbounded deeds are pinned weightless":
+    # dClutchHeal and dLevelUp are structurally unbounded too (a medkit at
+    # 1hp, an xp threshold — neither spends an opponent) but are
+    # permanently ×1 zero+tombstones that always mint times = 1, so they
+    # need no budget. This test is the tripwire: reprice either row and it
+    # goes red, forcing the repricer to decide whether it just created a
+    # fifth repeatable deed.
+    check RecutClassTable[dClutchHeal] == 1
+    check RecutClassTable[dLevelUp] == 1
+    check recutFactor(dClutchHeal, 10, SiteMultEnemyPct, true, 6, true) == 1
+    check recutFactor(dLevelUp, 10, SiteMultEnemyPct, true, 6, true) == 1
+
+  test "every budget sits strictly above the §A6 ceiling recipe's own use":
+    # THE SIZING LAW: the ruled superb episode (7,077,888) uses dTagBack
+    # once, dJointAct once and dDuoDown twice. A cap below those would
+    # move the frozen ceiling; a cap at them would make it a knife-edge.
+    # Every budget clears its recipe multiplicity, so a cap can only ever
+    # bind on a composition the contract never contemplated.
+    check recutMintCap(dTagBack) > 1
+    check recutMintCap(dJointAct) > 1
+    check recutMintCap(dDuoDown) > 2
+    # dShieldSoak appears in no recipe at all (×1, weightless).
+    check recutMintCap(dShieldSoak) > 0
+
+  test "the budget clamp: inside, at the boundary, and past it":
+    # `recutCappedFolds(minted, times, cap)` is the whole cap.
+    check recutCappedFolds(0, 1, 3) == 1        # first mint, inside
+    check recutCappedFolds(2, 1, 3) == 1        # the LAST mint inside
+    check recutCappedFolds(3, 1, 3) == 0        # the boundary: budget spent
+    check recutCappedFolds(9, 1, 3) == 0        # long past it
+    check recutCappedFolds(0, 1, 0) == 1        # cap 0 = uncapped
+    check recutCappedFolds(99, 40, 0) == 40     # uncapped batches whole
+    # a BATCH straddling the boundary folds only the part inside it
+    check recutCappedFolds(1, 40, 3) == 2
+    check recutCappedFolds(0, 40, 3) == 3
+    check recutCappedFolds(0, 2, 3) == 2
+
+suite "mintcap: the product backstop (defense-in-depth layer 2)":
+  test "the bound drops from the useless 2^62 guard to ~2× the ceiling":
+    check RecutProductCap == int64(1) shl 62
+    check RecutProductCapArmed == 67108864          # 2^26
+    check recutProductCap(false) == RecutProductCap  # dark: unchanged
+    check recutProductCap(true) == RecutProductCapArmed
+    # THE INCIDENT, as arithmetic: the design ceiling is 28,311,552 and
+    # the blown episode reported 9.15e15. The old guard sat above BOTH.
+    check RecutProductCap > int64(9_150_000_000_000_000)
+    check RecutProductCapArmed > int64(28_311_552)   # ceiling stays payable
+    check RecutProductCapArmed < int64(28_311_552) * 3
+    # and 19.9× the legit all-time high the ladder has actually paid.
+    check RecutProductCapArmed > int64(3_375_440) * 19
+
+  test "armed: a runaway composition CLAMPS at the backstop, it does not print":
+    var product = int64(RecutSeed)
+    for _ in 0 ..< 64:
+      product = recutFold(product, 13, capsArmed = true)
+    check product == RecutProductCapArmed
+    check recutFold(RecutProductCapArmed, 8, capsArmed = true) ==
+      RecutProductCapArmed
+    # the clamp is a KNOWN constant, so an audit can grep for it.
+    check recutScore(product, 0) == RecutProductCapArmed
+
+  test "dark: the fold keeps the historical guard byte-for-byte":
+    # Every pre-mintcap call site passes no third argument, so the LIVE
+    # v13-armed variant folds exactly as it does today.
+    var product = int64(RecutSeed)
+    for _ in 0 ..< 64:
+      product = recutFold(product, 13)
+    check product == RecutProductCap
+    check recutFold(7077888, 4) == 28311552          # the ceiling still pays
+    check recutFold(7077888, 4, capsArmed = true) == 28311552
+
+suite "mintcap: THE METRONOME — 24 revives score as 3":
+  test "armed: 24 metronome revives mint 24 dTagBacks and fold exactly 3":
+    # The incident, reproduced on the real revive path and then bounded.
+    # The zone-bleed metronome re-downs the partner and the tagger revives
+    # it, over and over; nothing here spends an enemy, which is precisely
+    # why the deed needed a budget. Two identical sims, ONE flag apart.
+    proc metronomeSim(caps: bool): SimServer =
+      var config = capsConfig(br = true)
+      config.deedMintCaps = caps
+      config.downedMode = true
+      config.downedBleedOutTicks = 3 * DownedMinBleedOutTicks
+      config.downedReviveTicks = 5
+      result = startedGame(config, 4)
+      result.centerOn(1, 400, 300)
+      result.centerOn(3, 400 + DownedTagRange - 10, 300)
+      result.centerOn(0, 900, 300)
+      result.centerOn(2, 900, 340)
+
+    proc runMetronome(sim: var SimServer, cycles: int) =
+      for _ in 0 ..< cycles:
+        sim.killPlayer(1, 0)
+        check sim.players[1].downed
+        sim.stepIdle(5)                       # downedReviveTicks
+        check not sim.players[1].downed
+
+    var capped = metronomeSim(caps = true)
+    var uncapped = metronomeSim(caps = false)
+    var honest = metronomeSim(caps = false)   # what 3 legit revives pay
+    let ghostTeam = capped.players[1].team
+    capped.runMetronome(24)
+    uncapped.runMetronome(24)
+    honest.runMetronome(3)
+
+    # 1. THE DEED STILL MINTS. Only the score is bounded — deedCounts,
+    #    the pops, the wire and every achievement gate downstream see all
+    #    24, exactly as they do with the caps dark.
+    check capped.deedCounts[dTagBack] == 24
+    check uncapped.deedCounts[dTagBack] == 24
+
+    # 2. THE BLOWOUT, REPRODUCED: with the caps dark the product folds 24
+    #    times and runs away — orders of magnitude past the ceiling.
+    check uncapped.gloryProduct[ghostTeam] > int64(28_311_552)
+
+    # 3. THE FIX: 24 metronome revives score EXACTLY what 3 honest ones
+    #    do. The capped product is the honest 3-revive product, to the
+    #    integer — the 21 folds past the budget contributed nothing.
+    check capped.gloryProduct[ghostTeam] == honest.gloryProduct[ghostTeam]
+    check capped.gloryProduct[ghostTeam] < uncapped.gloryProduct[ghostTeam]
+    check capped.gloryProduct[ghostTeam] <= int64(28_311_552)
+    check capped.gloryProduct[ghostTeam] < RecutProductCapArmed
+
+    # 4. and the wire tells the truth about which mints paid: the capped
+    #    run's LAST dTagBack reports factor 1, the neutral element, so an
+    #    offline scorer rebuilding the product (§6) lands on the same
+    #    number the engine did.
+    check capped.deedGloryMass[dTagBack] <
+      uncapped.deedGloryMass[dTagBack]
+
+  test "dark: the same 24 revives are byte-identical to today (#378)":
+    # The rollback-safety proof. With deedMintCaps off, an armed
+    # winAsMultiplier episode prices exactly as the shipped build does —
+    # the caps land as dead code until their own key is published.
+    proc darkSim(): SimServer =
+      var config = winMultConfig(br = true)
+      config.downedMode = true
+      config.downedBleedOutTicks = 3 * DownedMinBleedOutTicks
+      config.downedReviveTicks = 5
+      result = startedGame(config, 4)
+      result.centerOn(1, 400, 300)
+      result.centerOn(3, 400 + DownedTagRange - 10, 300)
+      result.centerOn(0, 900, 300)
+      result.centerOn(2, 900, 340)
+    var a = darkSim()
+    var b = darkSim()
+    b.config.deedMintCaps = false
+    for _ in 0 ..< 6:
+      a.killPlayer(1, 0); a.stepIdle(5)
+      b.killPlayer(1, 0); b.stepIdle(5)
+    let ghostTeam = a.players[1].team
+    check a.gloryProduct[ghostTeam] == b.gloryProduct[ghostTeam]
+    check a.deedCounts[dTagBack] == 6
+    check a.gloryProduct[ghostTeam] > RecutSeed        # it really did fold 6×
+    check a.teamGlory[ghostTeam] == b.teamGlory[ghostTeam]
+
+suite "mintcap: every repeatable deed is bounded at its own budget":
+  # Driven through `awardDeed`, THE SINGLE MINT every deed in the engine
+  # routes through — so these assert the real capping site, not a model of
+  # it. `dShieldSoak` additionally exercises the batch (`times > 1`) path.
+  proc capSim(): SimServer =
+    result = startedGame(capsConfig(br = true), 4)
+
+  test "dTagBack folds 3 and then nothing, however many times it mints":
+    var sim = capSim()
+    let team = sim.players[0].team
+    for _ in 0 ..< 27:
+      sim.awardDeed(team, dTagBack, 0, 0, byIndex = 0)
+    check sim.deedCounts[dTagBack] == 27          # every mint still counted
+    check sim.recutMintCounts[team][dTagBack] == 27
+    check sim.gloryProduct[team] == int64(RecutSeed) * 2 * 2 * 2
+
+  test "dJointAct folds 6 — the doubled budget of a seat-keyed deed":
+    var sim = capSim()
+    let team = sim.players[0].team
+    for _ in 0 ..< 20:
+      sim.awardDeed(team, dJointAct, 0, 0, byIndex = 0)
+    check sim.deedCounts[dJointAct] == 20
+    check sim.gloryProduct[team] == int64(RecutSeed) * (2 ^ 6)
+
+  test "dDuoDown folds 4, heat and stack included on those four only":
+    var sim = capSim()
+    let team = sim.players[0].team
+    for _ in 0 ..< 12:
+      sim.awardDeed(team, dDuoDown, 0, 0, byIndex = 0)
+    check sim.deedCounts[dDuoDown] == 12
+    # dDuoDown pays heat (35 drama), so its own mints climb the ladder —
+    # the budget bounds the COUNT of folds, whatever each one is worth.
+    check sim.gloryProduct[team] > int64(RecutSeed)
+    check sim.gloryProduct[team] < RecutProductCapArmed
+    var uncapped = startedGame(winMultConfig(br = true), 4)
+    for _ in 0 ..< 12:
+      uncapped.awardDeed(team, dDuoDown, 0, 0, byIndex = 0)
+    check uncapped.gloryProduct[team] > sim.gloryProduct[team]
+
+  test "dShieldSoak: a BATCH spends the budget and folds only what fits":
+    # The only deed that passes times > 1 (`times = fromShield`): one call
+    # can ask for hundreds of folds. ×1 today, so the arithmetic is inert
+    # — the assertion that matters is that the BUDGET is spent by the
+    # batch, so a repriced row could never fold 200 times.
+    var sim = capSim()
+    let team = sim.players[0].team
+    sim.awardDeed(team, dShieldSoak, 0, 0, times = 40)
+    check sim.recutMintCounts[team][dShieldSoak] == 40
+    check recutCappedFolds(0, 40, recutMintCap(dShieldSoak)) == 3
+    sim.awardDeed(team, dShieldSoak, 0, 0, times = 40)
+    check sim.recutMintCounts[team][dShieldSoak] == 80
+    check recutCappedFolds(40, 40, recutMintCap(dShieldSoak)) == 0
+    check sim.gloryProduct[team] == int64(RecutSeed)   # ×1: inert either way
+
+  test "an uncapped deed is untouched by the flag: dAceTag folds every time":
+    var sim = capSim()
+    let team = sim.players[0].team
+    for _ in 0 ..< 5:
+      sim.awardDeed(team, dAceTag, 0, 0, byIndex = 0)
+    check sim.recutMintCounts[team][dAceTag] == 0   # never even counted
+    check sim.gloryProduct[team] > int64(4 * 4 * 4 * 4)
+
+  test "the budget is PER DUO and resets with the ledger":
+    var sim = capSim()
+    let a = sim.players[0].team
+    var b = a
+    for p in sim.players:
+      if p.team != a:
+        b = p.team
+        break
+    check a != b
+    # One mint each, on a virgin sim, gives each duo its own per-event
+    # factor (the two duos stand on different ground here, so the §3
+    # territory shift makes them differ — which is the point: the cap
+    # bounds the COUNT of folds, never their value).
+    var probe = capSim()
+    probe.awardDeed(a, dTagBack, 0, 0)
+    let factorA = probe.gloryProduct[a]
+    probe.awardDeed(b, dTagBack, 0, 0)
+    let factorB = probe.gloryProduct[b]
+    for _ in 0 ..< 9:
+      sim.awardDeed(a, dTagBack, 0, 0)
+      sim.awardDeed(b, dTagBack, 0, 0)
+    # each duo spent its OWN budget — one duo's metronome never charges
+    # the other, and neither one folds more than three times.
+    check sim.gloryProduct[a] == factorA * factorA * factorA
+    check sim.gloryProduct[b] == factorB * factorB * factorB
+    sim.resetGloryLedger()
+    check sim.recutMintCounts[a][dTagBack] == 0
+    check sim.recutMintCounts[b][dTagBack] == 0
+    # a fresh episode gets a fresh budget (load-bearing for maxGames > 1)
+    sim.awardDeed(a, dTagBack, 0, 0)
+    check sim.gloryProduct[a] == factorA

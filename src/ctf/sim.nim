@@ -240,10 +240,38 @@ proc awardDeed*(sim: var SimServer, team: Team, deed: Deed, x, y: int,
                                   sim.config.brMode)
       amount = -(after - before)
     else:
-      let factor = recutFactor(deed, sim.heatEmbers[team], sitePct,
+      var factor = recutFactor(deed, sim.heatEmbers[team], sitePct,
                                carrying, stackK, sim.config.winAsMultiplier)
-      for _ in 1 .. times:
-        sim.gloryProduct[team] = recutFold(sim.gloryProduct[team], factor)
+      # ── PER-EPISODE MINT CAP (mintcap, GameConfig.deedMintCaps) ──
+      # A repeatable deed gets a per-DUO budget (glory.nim
+      # `RecutMintCapTable`): the first `cap` mints fold normally, every
+      # occurrence after that folds factor 1 — the identity of a product
+      # economy, so it scores NOTHING. Only the SCORE is bounded: the
+      # lines below this branch still count the deed, still pop it, still
+      # climb heat, still put it on the wire, so no achievement gate and
+      # no analysis counter moves. Caps dark: `folds == times` and the
+      # fold keeps its historical bound, so the LIVE v13-armed variant is
+      # byte-identical.
+      #
+      # A `times`-batched event (only `dShieldSoak` passes times > 1)
+      # spends `times` of the budget and folds only the part inside it;
+      # `amount` then reports the factor that actually folded, or 1 once
+      # the budget is spent — which is what an offline scorer rebuilding
+      # the product from the wire (§6) needs. A PARTIALLY clamped batch
+      # is the one shape a single `amount` cannot express exactly, and it
+      # is unreachable today: the only batching deed is ×1 and reports 1
+      # either way.
+      var folds = times
+      if sim.config.deedMintCaps:
+        let cap = recutMintCap(deed)
+        if cap > 0:
+          folds = recutCappedFolds(sim.recutMintCounts[team][deed], times, cap)
+          inc sim.recutMintCounts[team][deed], times
+          if folds == 0:
+            factor = 1
+      for _ in 1 .. folds:
+        sim.gloryProduct[team] = recutFold(sim.gloryProduct[team], factor,
+                                           sim.config.deedMintCaps)
       amount = factor
     # The int ledger carries the DERIVED score (floor of the division —
     # see recutScore's own comment), so every existing reader (broadcast
@@ -338,8 +366,13 @@ proc claimAchievement*(sim: var SimServer, team: Team, tree: Tree, tier: int,
     # product). Never heat (law 4), never territory (home-pedestal mint —
     # see recutAchievementFactor). `amount` carries the factor for the
     # feed/pop/log/event, same repurposing as awardDeed's armed path.
+    # No MINT cap here: a claim is one-shot per (tree, tier) via `claimed`
+    # — already bounded by construction, which is exactly the property
+    # `RecutMintCapTable` exists to supply for the deeds that lack it. The
+    # armed PRODUCT bound still rides along (layer 2 covers every fold).
     let factor = recutAchievementFactor(tier, effectiveFirst)
-    sim.gloryProduct[team] = recutFold(sim.gloryProduct[team], factor)
+    sim.gloryProduct[team] = recutFold(sim.gloryProduct[team], factor,
+                                       sim.config.deedMintCaps)
     amount = factor
     sim.teamGlory[team] = int(recutScore(
       sim.gloryProduct[team],
@@ -671,6 +704,15 @@ proc resetGloryLedger*(sim: var SimServer) =
     # a stale product through any reset path.
     sim.gloryProduct[team] = RecutSeed
     sim.gloryFfIncidents[team] = 0
+    # MINTCAP: the per-episode budget ledger opens empty with the product
+    # it bounds. Unconditional for the same reason the seed is: writing
+    # zeroes into a caps-dark game's fields is unobservable (the array is
+    # read only under the armed flag and is out of gameHash), and it
+    # means an armed game can never inherit a previous game's spent
+    # budget through any reset path — a multi-game config would otherwise
+    # hand game 2 a duo that has already spent its dTagBack allowance.
+    for deed in Deed:
+      sim.recutMintCounts[team][deed] = 0
     sim.heatEmbers[team] = 0
     sim.heatLastDeed[team] = 0
     sim.heatLastDecay[team] = 0
@@ -5131,7 +5173,11 @@ proc finishGame*(sim: var SimServer, winner: Team, isDraw = false, timeLimitReac
   if sim.config.gloryMultiplierRecut and sim.config.winAsMultiplier and
       sim.config.brMode and not isDraw:
     let winFactor = recutWinFactor(sim.config.brMode)
-    sim.gloryProduct[winner] = recutFold(sim.gloryProduct[winner], winFactor)
+    # Once per episode by construction (one finalize, one winner) — no
+    # MINT cap applies; the armed PRODUCT bound does, so the backstop
+    # covers the last fold of the episode too.
+    sim.gloryProduct[winner] = recutFold(sim.gloryProduct[winner], winFactor,
+                                         sim.config.deedMintCaps)
     sim.teamGlory[winner] = int(recutScore(
       sim.gloryProduct[winner],
       recutFfHalvings(sim.gloryFfIncidents[winner], sim.config.brMode)))

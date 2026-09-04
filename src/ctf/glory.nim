@@ -307,6 +307,19 @@ const
     ##     both seats of a duo read the SAME product; nothing is evaluated
     ##     twice through the mirrored per-seat display ledger.
     ##   - Drama column deliberately UNTOUCHED (§5.7 -- open owner call).
+    ##   - 2026-09-04 MINTCAP (no version bump -- the change is flag-gated
+    ##     and the realized-config stamp's flagSet is the finer
+    ##     attribution): `RecutMintCapTable` bounds the per-episode,
+    ##     per-duo mint count of the four REPEATABLE-UNBOUNDED deeds and
+    ##     `RecutProductCapArmed` re-sites the saturation guard at ~2x the
+    ##     design ceiling, both behind `GameConfig.deedMintCaps`. Written
+    ##     after the incident that rolled `winAsMultiplier` back
+    ##     (d595f300): the contract priced deeds on MEASURED RATES and
+    ##     nothing in the engine held a rate to its measurement, so one
+    ##     mechanically repeatable deed multiplied the ceiling by 10^6.
+    ##     The lesson generalises past dTagBack: in a PRODUCT economy an
+    ##     unbounded mint count is not a pricing error, it is an
+    ##     unbounded exponent.
     ##
     ## v12 (2026-08-31, HEART RECUT + CONCLUSION SWEEP -- the ruled
     ## 2026-08-31 recut contract plus its Amendment 1, implemented verbatim):
@@ -2396,6 +2409,157 @@ const
     ## an overflow guard, not an economy cap (the ruling bans caps on the
     ## FF side; the product side has no ruled ceiling and this bound is
     ## ~2^38 above the contract's own superb).
+    ##
+    ## 🚨 2026-09-04 INCIDENT (d595f300): "unreachable under any measured
+    ## episode shape" was FALSE. The zone-bleed/revive metronome minted
+    ## dTagBack 24-27× in one episode and r3894 reported 9.15e15 — 2^53,
+    ## nine orders above the superb and STILL nine orders BELOW this
+    ## bound, so the guard never fired. A backstop sited 2^38 above the
+    ## thing it guards is not a backstop. See `RecutProductCapArmed`.
+
+  RecutProductCapArmed* = int64(1) shl 26
+    ## 67,108,864 — the MEANINGFUL backstop (defense-in-depth layer 2),
+    ## live only when `GameConfig.deedMintCaps` is armed. 2.37× the §A6
+    ## BR design ceiling (28,311,552 = base 7,077,888 × M_BR 4), 7.1×
+    ## today's live v13-armed ceiling (9,437,184), and 19.9× the legit
+    ## all-time high the ladder has actually paid (3,375,440 @ r3860).
+    ##
+    ## It should NEVER bind: `RecutMintCapTable` below bounds every deed
+    ## whose repeat count is not itself bounded by a scarce contested
+    ## resource, so a capped episode cannot compose past the ceiling in
+    ## the first place. This is the layer that catches the composition
+    ## bug nobody has thought of yet — the NEXT dTagBack — and clamps it
+    ## to ~2× the ceiling instead of letting it print 10^6× and poison a
+    ## season of records. A clamped episode reports one KNOWN constant,
+    ## which is exactly the point: an audit greps for it.
+
+  RecutMintCapTable*: array[Deed, int] = [
+    ## PER-EPISODE, PER-DUO MINT BUDGET (mintcap increment, 2026-09-04) —
+    ## live only when `GameConfig.deedMintCaps` is armed. `0` = UNCAPPED.
+    ##
+    ## THE RULE: the first `cap` mints of a deed fold their factor into
+    ## the duo's product normally; every occurrence after that folds
+    ## NOTHING (factor 1 — the identity of a product economy). Only the
+    ## SCORE is capped: the deed still mints, still pops, still counts in
+    ## `deedCounts`, still climbs heat, still reaches the wire, so every
+    ## achievement gate and analysis counter downstream is untouched.
+    ##
+    ## FLAT BUDGET, NOT DIMINISHING RUNGS. Diminishing (×2 → ×1.5 → ×1.2
+    ## …) was the considered alternative and is REJECTED FOR NOW on three
+    ## counts: (1) the economy is integer-only by owner constraint (§4),
+    ## so a diminishing ladder has to be a SECOND rung table with its own
+    ## rounding, doubling the frozen-table surface conformance review has
+    ## to carry; (2) it is not auditable from the wire — an offline
+    ## scorer rebuilding the product (§6) would need each deed's full
+    ## per-duo ORDER, not just its factors; (3) it does not actually
+    ## BOUND anything — 24 mints of a decaying ladder still diverges,
+    ## just slower, which is the exact property that let this bug
+    ## through. A flat budget is a hard bound, reads as one integer per
+    ## deed, and any auditor can verify it by counting `GloryDeed`
+    ## events. Diminishing stays available as a FEEL refinement once a
+    ## bound exists; it is not a substitute for one.
+    ##
+    ## WHICH DEEDS. A deed is REPEATABLE-UNBOUNDED when its per-duo mint
+    ## count is not bounded by a scarce, contested, non-renewable
+    ## resource. Every other priced deed is bounded by construction:
+    ## dFirstBlood/dVictory once an episode, dAchievement one-shot per
+    ## (tree, tier) via `claimed`, dWipe by the team count, and the whole
+    ## kill band (dAceTag/dLongshotKill/dSplashMultiKill/dRunDown/
+    ## dRevengeKill/dAssist/dRescue/dEscortKill/dClosingTime/dLastLight)
+    ## by ENEMY LIVES — none of them mints without spending an opponent.
+    ## The four rows below have no such gate; dClutchHeal and dLevelUp
+    ## are the same shape but are permanently ×1 zero+tombstones that
+    ## always mint `times = 1`, so they are left uncapped and a unit test
+    ## pins their class at 1 so a future repricing cannot quietly join
+    ## this list without turning that test red.
+    ##
+    ## SIZING. Each cap sits strictly ABOVE the §A6 ceiling recipe's own
+    ## multiplicity for that deed, so the ruled superb episode
+    ## (7,077,888) stays exactly reachable and a cap can only bind on a
+    ## composition the frozen contract never contemplated.
+    0,      # dNone
+    0,      # dFirstBlood      once per episode (`sim.firstBloodDone`)
+    0,      # dHonorableKill   enemy lives; ×1 commons
+    0,      # dSprayKill       enemy lives; ×1 commons
+    0,      # dGrenadeKill     enemy lives; ×1 commons
+    0,      # dPointBlankKill  enemy lives; ×1 commons
+    0,      # dLongshotKill    enemy lives
+    0,      # dSplashMultiKill enemy lives
+    0,      # dRevengeKill     enemy lives
+    0,      # dRunDown         enemy lives
+    0,      # dAceTag          enemy lives
+    0,      # dTeamKill        never a factor — the FF path is a DIVISION
+    0,      # dFlagSteal       the (single) enemy heart; inert in BR
+    0,      # dCapture         the heart; bounded by the win condition
+    0,      # dCarrierKill     requires a live enemy carrier
+    0,      # dDenial          requires a live enemy carrier
+    0,      # dEscortKill      enemy lives
+    0,      # dAssist          enemy lives
+    0,      # dRescue          enemy lives
+    0,      # dClutchHeal      UNBOUNDED but ×1 zero+tombstone (see above)
+    3,      # dShieldSoak      UNBOUNDED, and the ONLY deed that folds a
+            #                  BATCH (`times = fromShield`, sim.nim) — one
+            #                  call can fold hundreds of factors. ×1
+            #                  today, so this cap is inert arithmetic; it
+            #                  exists because a batch fold on a repriced
+            #                  row is the sharpest edge in the table. In
+            #                  no ceiling recipe → the floor, 3.
+    0,      # dWipe            bounded by the team count
+    0,      # dLevelUp         UNBOUNDED but ×1 zero+tombstone (see above)
+    0,      # dAchievement     one-shot per (tree, tier), `claimed`
+    4,      # dDuoDown         UNBOUNDED under armed downedMode: a duo can
+            #                  be re-emptied after a revive, and this is
+            #                  the only marquee row that ALSO pays heat
+            #                  (35 drama) and carry, so a single mint can
+            #                  reach ×312. Ceiling-recipe multiplicity is
+            #                  2 (`dDuoDown²`, §A6) → cap 4 = 2× the
+            #                  ceiling's own use, and 4.5× the 0.88 per
+            #                  duo per episode implied by the measured
+            #                  14.12 lobby-level duo-eliminations (§1b).
+    0,      # dClosingTime     enemy lives
+    0,      # dLastLight       enemy lives
+    0,      # dVictory         once, at finalize (retired when armed)
+    3,      # dTagBack         THE BLOWOUT. Minted per `Revived`, which
+            #                  needs no enemy at all: a bleed source plus
+            #                  a partner IS a metronome. Measured natural
+            #                  rate 0.360 revives/ep (glorybug, measured
+            #                  pre-downedMode); the exploit ran 24-27.
+            #                  Ceiling-recipe multiplicity is 1 → cap 3 =
+            #                  3× the ceiling's use, 8.3× the measured
+            #                  rate. 24 mints now score as 3.
+    6,      # dJointAct        UNBOUNDED and SEAT-KEYED: a fresh 120-tick
+            #                  incident opens on every victim after every
+            #                  idle window, and BOTH duo seats mint per
+            #                  incident into the ONE per-duo product — so
+            #                  the duo budget is doubled (2 seats × 3).
+            #                  Ceiling-recipe multiplicity is 1; measured
+            #                  live rate 0.035/ep. Same §A6 band, same
+            #                  unboundedness, no enemy spend required.
+  ]
+
+func recutMintCap*(deed: Deed): int {.inline.} =
+  ## This deed's per-episode, per-duo mint budget; 0 = uncapped. Read only
+  ## on the armed recut path and only when `GameConfig.deedMintCaps` is on
+  ## — the caller owns that gate, so a dark or caps-dark game never
+  ## consults the table at all.
+  RecutMintCapTable[deed]
+
+func recutProductCap*(capsArmed: bool): int64 {.inline.} =
+  ## The saturation bound in force. Caps dark → the historical int64
+  ## overflow guard, byte-identical to every pre-mintcap episode; caps
+  ## armed → the meaningful ~2× ceiling backstop.
+  if capsArmed: RecutProductCapArmed else: RecutProductCap
+
+func recutCappedFolds*(minted, times, cap: int): int {.inline.} =
+  ## How many of this event's `times` folds are still INSIDE the budget,
+  ## given `minted` = the deed's mints already banked by this duo this
+  ## episode. `cap <= 0` (uncapped) folds everything. The clamp is the
+  ## whole cap: past the budget this returns 0 and the caller folds
+  ## nothing.
+  if cap <= 0: return times
+  result = cap - minted
+  if result < 0: result = 0
+  if result > times: result = times
 
 func recutStackMult*(k: int): int {.inline.} =
   ## The Fibonacci stack factor for k teammates-in-context. k <= 1 (alone,
@@ -2472,12 +2636,19 @@ func recutFfHalvings*(incidents: int, brMode: bool): int {.inline.} =
   ## owner feel-check, deliberately NOT built here).
   if brMode: incidents else: incidents div 2
 
-func recutFold*(product: int64, factor: int): int64 {.inline.} =
+func recutFold*(product: int64, factor: int,
+                capsArmed: bool = false): int64 {.inline.} =
   ## Folds one event factor into the running product, saturating at
-  ## `RecutProductCap` (overflow guard only — see the cap's comment).
+  ## `recutProductCap(capsArmed)`. `capsArmed = false` (every pre-mintcap
+  ## call site, unchanged) keeps the historical int64 overflow guard, so
+  ## the dark AND the already-shipped v13-armed paths are byte-identical.
+  ## Armed, the bound drops to the ~2× design-ceiling backstop — which
+  ## should never bind, because `RecutMintCapTable` bounds the mint counts
+  ## that could reach it (defense in depth, layer 2 behind layer 1).
   if factor <= 1: return product
-  if product >= RecutProductCap div int64(factor):
-    return RecutProductCap
+  let cap = recutProductCap(capsArmed)
+  if product >= cap div int64(factor):
+    return cap
   product * int64(factor)
 
 func recutScore*(product: int64, halvings: int): int64 {.inline.} =
