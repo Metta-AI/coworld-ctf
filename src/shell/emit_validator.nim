@@ -261,6 +261,15 @@ proc parseIntent(r: var CanonicalReader, ctx: EmitValidationContext): Intent =
       schemaName = r.readRequiredString()
     of "suppress_fire_freeze":
       result.suppressFireFreeze = r.readRequiredBool()
+    of "target_class":
+      # NAVCLASS: the standing class target. Closed vocabulary, exactly like
+      # `handoff` above — the membership check IS the integrity check, and it
+      # is what keeps the engine from ever being handed a strategic
+      # expression to evaluate.
+      let value = r.readRequiredString()
+      if value notin NavTargetClasses:
+        unknown("unknown target class")
+      result.targetClass = value
     of "v":
       version = r.readRequiredInt()
     else:
@@ -278,6 +287,10 @@ proc parseIntent(r: var CanonicalReader, ctx: EmitValidationContext): Intent =
       rangeViolation("arrival radius exceeds map diagonal")
   if (result.kind == ikNavigateTo) != result.point.isSome:
     schema("point presence does not match intent kind")
+  # NAVCLASS: a class target is a NAVIGATION order, and it never replaces the
+  # point — see the field's own comment for why the fallback is mandatory.
+  if result.targetClass.len > 0 and result.kind != ikNavigateTo:
+    schema("target class requires a navigate_to intent")
 
 proc writeCombatPolicy(w: var CanonicalWriter, value: CombatPolicy) =
   w.beginObject()

@@ -103,6 +103,31 @@ type
                                ## consent seam). While the standing order
                                ## carries it the engine keeps the declaration
                                ## current; movement semantics are untouched.
+    targetClass*: string       ## NAVCLASS (owner ruling 2026-09-04): "" 
+                               ## (neutral, omitted) or one of
+                               ## NavTargetClasses. When kind is ikNavigateTo
+                               ## and this is set, the engine RE-RESOLVES the
+                               ## goal from the named class every tick and
+                               ## navigates there; `point` stays REQUIRED and
+                               ## becomes the fallback the engine uses on any
+                               ## tick the class cannot be resolved.
+                               ##
+                               ## WHY point STAYS REQUIRED (deviation from the
+                               ## design note, deliberate): an unresolvable
+                               ## class with no fallback leaves the seat with
+                               ## no goal, and a seat with no goal is a seat
+                               ## standing still — the round-3633 shape. It
+                               ## also keeps the "every goal is validated
+                               ## before an Intent can exist" invariant
+                               ## (body_map.ValidatedGoal) exactly as it
+                               ## shipped: the class only ever REPLACES an
+                               ## already-valid goal with another valid one.
+                               ##
+                               ## The play still decides WHETHER to pursue and
+                               ## WHICH class. It stops doing the arithmetic it
+                               ## was doing badly (a Euclidean argmin through
+                               ## walls, or a bearing to a rectangle edge that
+                               ## does not describe the damage).
 
   # ── §4.3: play-seat socket lifecycle and instance states ──────────────
   PlaySeatSocketState* = enum
@@ -361,6 +386,26 @@ const
   LobbyChatMaxPerSeatPerPhase* = 16
   LobbyChatMinSpacingTicks* = 24
   IntentReasonMaxBytes* = 64
+  NavTargetClassZoneSafeGround* = "zone_safe_ground"
+    ## NAVCLASS: navigate to the nearest ground that survives the engine's
+    ## forward paint horizon, re-resolved every tick from the shared
+    ## zone-safe flow field. This is the class that replaces `edge_ride`'s
+    ## rect arithmetic with the surface that actually charges damage.
+  NavTargetClasses* = [NavTargetClassZoneSafeGround]
+    ## NAVCLASS: the CLOSED target-class vocabulary of the Intent's
+    ## `targetClass`. The membership check IS the integrity check — the exact
+    ## rationale the `handoff` vocabulary is built on.
+    ##
+    ## KEEP IT CLOSED. The moment this grows a free-form expression the engine
+    ## starts making strategic choices and the teamwork razor is violated.
+    ## Adding a class is an owner ruling, not a refactor.
+    ##
+    ## Only classes the engine can resolve EXACTLY and FOG-HONESTLY belong
+    ## here. Item classes ("nearest_hopper" and friends) are deliberately
+    ## absent: a server-wide item field would leak crates a seat has never
+    ## seen into a per-seat fogged view, so they must resolve over the seat's
+    ## OWN item memory ranked geodesically, which needs a per-seat
+    ## distance-from-me field that does not exist yet.
   HandoffItems* = ["bandage", "gun", "hopper"]
     ## §4.1 amendment: the closed give-item vocabulary of the Intent's
     ## `handoff` field — the exact strings sim.declareHandoff accepts (the

@@ -76,6 +76,8 @@ proc writeIntent*(w: var CanonicalWriter, intent: Intent) =
   assert intent.reason.len <= IntentReasonMaxBytes
   assert (intent.kind == ikNavigateTo) == intent.point.isSome
   assert intent.handoff.len == 0 or intent.handoff in HandoffItems
+  assert intent.targetClass.len == 0 or intent.targetClass in NavTargetClasses
+  assert intent.targetClass.len == 0 or intent.kind == ikNavigateTo
   if intent.idleAimCenterBrads.isSome:
     assert intent.idleAimCenterBrads.get in 0 .. 255
 
@@ -115,6 +117,11 @@ proc writeIntent*(w: var CanonicalWriter, intent: Intent) =
   w.field("schema", "intent")
   if intent.suppressFireFreeze:
     w.field("suppress_fire_freeze", true)
+  # NAVCLASS: canonical key order is alphabetical, so target_class sits
+  # between suppress_fire_freeze and v. Omitted when neutral, which is what
+  # keeps every existing standing order's canonical bytes unchanged.
+  if intent.targetClass.len > 0:
+    w.field("target_class", intent.targetClass)
   w.field("v", 1'i64)
   w.endObject()
 

@@ -167,6 +167,47 @@ suite "shell emit validator":
     check "handoff" notin canonicalIntent(Intent(kind: ikHold,
       arriveRadius: 0.0))
 
+  test "NAVCLASS: target_class is a closed vocabulary on a navigate_to order":
+    ## The membership check IS the integrity check (the handoff rationale).
+    ## `point` stays required, because an unresolvable class with no fallback
+    ## would leave the seat with no goal at all.
+    let map = openRoomsMap()
+    let ctx = map.controllerContext
+    let declared = "{\"arrive_radius\":0.0,\"kind\":\"navigate_to\"," &
+      "\"point\":[40,30],\"schema\":\"intent\"," &
+      "\"target_class\":\"zone_safe_ground\",\"v\":1}"
+    let accepted = validateEmit(declared, ctx)
+    check accepted.code == AbiOk
+    check accepted.accepted
+    check accepted.intent.targetClass == "zone_safe_ground"
+    check accepted.intent.point.isSome  ## the fallback survives the round trip
+    # Canonical position (between suppress_fire_freeze and v) and a typed
+    # round trip that reproduces the emission byte for byte.
+    check accepted.canonicalBytes == declared
+    check accepted.canonicalBytes == canonicalIntent(accepted.intent)
+
+    # Anything outside the vocabulary is an unknown reference, never a silent
+    # drop -- including the item classes that are deliberately NOT members.
+    for bogus in ["nearest_hopper", "zone_safe", "", "duo_partner"]:
+      check validateEmit("{\"arrive_radius\":0.0," &
+        "\"kind\":\"navigate_to\",\"point\":[40,30]," &
+        "\"schema\":\"intent\",\"target_class\":\"" & bogus &
+        "\",\"v\":1}", ctx).code == AbiUnknownReference
+    check validateEmit("{\"arrive_radius\":0.0," &
+      "\"kind\":\"navigate_to\",\"point\":[40,30]," &
+      "\"schema\":\"intent\",\"target_class\":true,\"v\":1}",
+      ctx).code == AbiSchemaViolation
+    # A class target on a HOLD order is meaningless: refused, not ignored.
+    check validateEmit("{\"arrive_radius\":0.0,\"kind\":\"hold\"," &
+      "\"schema\":\"intent\",\"target_class\":\"zone_safe_ground\"," &
+      "\"v\":1}", ctx).code == AbiSchemaViolation
+
+    # Neutral is omitted: every pre-ruling emission encodes byte-identically.
+    check "target_class" notin canonicalIntent(Intent(kind: ikHold,
+      arriveRadius: 0.0))
+    check "target_class" notin canonicalIntent(Intent(kind: ikNavigateTo,
+      arriveRadius: 0.0, point: some(MapPoint(x: 40, y: 30))))
+
   test "protected set writer is shared across finisher and emit validation":
     let map = openRoomsMap()
     let protectedSet = ProtectedSet(seats: @[
