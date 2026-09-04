@@ -66,7 +66,8 @@ proc writeBytes(path: string; bytes: openArray[byte]) =
   writeFile(path, text)
 
 proc moduleWat(name, stepBody: string; retuneBody = "i32.const 0";
-               memory = "1 16"; playClass = "controller"): string =
+               memory = "1 16"; playClass = "controller";
+               logBytes = ""): string =
   let manifest = "{\"abi\":1,\"class\":\"" & playClass & "\",\"modes\":[\"br\"]," &
     "\"name\":\"" & name & "\",\"params\":{},\"retune\":true}"
   let blockedIntent =
@@ -79,6 +80,10 @@ proc moduleWat(name, stepBody: string; retuneBody = "i32.const 0";
     "  (global $next (mut i32) (i32.const 4096))\n" &
     "  (data (i32.const 256) \"" & manifest.watEscape & "\")\n" &
     "  (data (i32.const 512) \"" & blockedIntent.watEscape & "\")\n" &
+    (if logBytes.len > 0:
+      "  (data (i32.const 2048) \"" & logBytes.watEscape & "\")\n"
+    else:
+      "") &
     "  (func (export \"play_alloc\") (param $len i32) (result i32)\n" &
     "    global.get $next\n" &
     "    global.get $next local.get $len i32.add global.set $next)\n" &
@@ -98,10 +103,11 @@ proc writeCase(dir, name, frames: string): string =
 
 proc makeCase(dir, name, stepBody: string; frames: string;
               retuneBody = "i32.const 0"; memory = "1 16";
-              playClass = "controller"): string =
+              playClass = "controller"; logBytes = ""): string =
   createDir(dir)
   writeBytes(dir / (name & ".wasm"),
-    watBytes(moduleWat(name, stepBody, retuneBody, memory, playClass)))
+    watBytes(moduleWat(name, stepBody, retuneBody, memory, playClass,
+      logBytes)))
   writeCase(dir, name, frames)
 
 proc runCli(casePath: string): string =
@@ -123,6 +129,17 @@ proc assertValidationParity(casePath, output: string) =
   check trace["reason"].getStr == validation.reason
   check trace["detail"].getStr == validation.detail
   check trace["sha256"].getStr == validation.sha256
+
+proc decodeHex(text: string): seq[byte] =
+  proc nibble(ch: char): byte =
+    case ch
+    of '0' .. '9': byte(ord(ch) - ord('0'))
+    of 'a' .. 'f': byte(ord(ch) - ord('a') + 10)
+    else: raise newException(ValueError, "non-lowercase hex digit")
+  if text.len mod 2 != 0:
+    raise newException(ValueError, "odd hex length")
+  for index in countup(0, text.high, 2):
+    result.add (nibble(text[index]) shl 4) or nibble(text[index + 1])
 
 const HelloFuelToleranceUnits = 200'i64
 
@@ -160,7 +177,8 @@ proc checkMatchesHelloGolden(actual, goldenText: string) =
     let goldenFrame = goldenJson["frames"][i]
     for key in ["op", "reason", "refused", "faulted", "returned",
                 "last_accepted", "manifest_bytes",
-                "fuel_installed_before_alloc", "emit_codes", "counters"]:
+                "fuel_installed_before_alloc", "emit_codes", "counters",
+                "logs"]:
       check actualFrame[key] == goldenFrame[key]
     let actualFuel = parseBiggestInt(actualFrame["fuel_remaining"].getStr)
     let goldenFuel = parseBiggestInt(goldenFrame["fuel_remaining"].getStr)
@@ -237,6 +255,25 @@ suite "play harness":
       check cli == runHarnessFile(pair[0])
       check cli == readFile(FixtureDir / pair[1]).strip
       assertValidationParity(pair[0], cli)
+
+    let logBytes = "\0\e\x7f\x80\xff"
+    let logs = makeCase(dir, "logs",
+      "i32.const -2147483648 i32.const 2048 i32.const 5 call $log " &
+        "i32.const 17 i32.const 2049 i32.const 3 call $log i32.const 0",
+      frames = "[{\"op\":\"manifest\"},{\"op\":\"init\",\"params\":{}," &
+        "\"context\":{}},{\"op\":\"step\",\"view\":{},\"tick\":1}]",
+      logBytes = logBytes)
+    let logOutput = runCli(logs)
+    check logOutput == readFile(FixtureDir / "logs.golden.json").strip
+    let logTrace = parseJson(logOutput)
+    let records = logTrace["frames"][2]["logs"]
+    check records.len == 2
+    check records[0]["level"].getBiggestInt == low(int32).int64
+    check records[0]["bytes_hex"].getStr.decodeHex ==
+      @[0'u8, 0x1b, 0x7f, 0x80, 0xff]
+    check records[1]["level"].getInt == 17
+    check records[1]["bytes_hex"].getStr.decodeHex ==
+      @[0x1b'u8, 0x7f, 0x80]
 
   test "manifest class is enforced even without a manifest frame":
     ensureHarnessBuilt()

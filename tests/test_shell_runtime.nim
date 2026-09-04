@@ -2,7 +2,7 @@
 
 import std/[os, strutils, times, unittest]
 
-import ../src/shell/[runtime, wasmtime_c]
+import ../src/shell/[body_map, instance, runtime, wasmtime_c]
 
 const
   EmptyModule = [
@@ -15,6 +15,61 @@ const
     0x03, 0x02, 0x01, 0x00,
     0x08, 0x01, 0x00,
     0x0a, 0x05, 0x01, 0x03, 0x00, 0x00, 0x0b]
+
+proc watBytes(text: string): seq[byte] =
+  var output: WasmByteVec
+  let error = wasmtimeWat2Wasm(text.cstring, text.len.csize_t, addr output)
+  doAssert error == nil, "runtime WAT fixture must be syntactically valid"
+  defer: wasmByteVecDelete(addr output)
+  result = newSeq[byte](output.size.int)
+  if output.size > 0:
+    copyMem(addr result[0], output.data, output.size)
+
+proc openRoomsMap(): BodyMap =
+  const
+    Width = 64
+    Height = 64
+  var walkable = newSeq[bool](Width * Height)
+  for y in 1 ..< Height - 1:
+    for x in 1 ..< Width - 1:
+      walkable[y * Width + x] = true
+  newBodyMap(walkable, Width, Height, 2, @[(16, 16), (48, 48)])
+
+type ShellFixture = object
+  engine: RuntimeEngine
+  module: RuntimeModule
+  instance: ShellInstance
+
+proc close(fixture: var ShellFixture) =
+  fixture.instance.close()
+  fixture.module.close()
+  fixture.engine.close()
+
+proc compileFixture(wat: string): ShellFixture =
+  result.engine = newRuntimeEngine()
+  result.module = result.engine.compileModule(wat.watBytes)
+  result.instance = newShellInstance(result.module, openRoomsMap(), (16, 16))
+
+proc loggingModule(manifestBody, initBody, stepBody, retuneBody: string): string =
+  const Manifest = "{\"abi\":1}"
+  "(module\n" &
+    "  (import \"play\" \"emit\" (func $emit (param i32 i32) (result i32)))\n" &
+    "  (import \"play\" \"log\" (func $log (param i32 i32 i32)))\n" &
+    "  (memory (export \"memory\") 1 16)\n" &
+    "  (data (i32.const 256) \"{\\22abi\\22:1}\")\n" &
+    "  (data (i32.const 512) \"\\00\\1b\\7f\\80\\ffinitstepretune\")\n" &
+    "  (global $next (mut i32) (i32.const 4096))\n" &
+    "  (func (export \"play_alloc\") (param $len i32) (result i32)\n" &
+    "    global.get $next\n" &
+    "    global.get $next local.get $len i32.add global.set $next)\n" &
+    "  (func (export \"play_manifest\") " & manifestBody &
+      " i32.const 256 i32.const " & $Manifest.len & " call $emit drop)\n" &
+    "  (func (export \"play_init\") (param i32 i32 i32 i32) (result i32) " &
+      initBody & ")\n" &
+    "  (func (export \"play_step\") (param i32 i32) (result i32) " &
+      stepBody & ")\n" &
+    "  (func (export \"play_retune\") (param i32 i32 i32 i32) (result i32) " &
+      retuneBody & "))"
 
 suite "shell Wasmtime runtime":
   test "C ABI and pinned runtime manifest match Wasmtime 48.0.1":
@@ -113,3 +168,57 @@ suite "shell Wasmtime runtime":
     check RuntimePoolSlots == 514
     check EpochPeriodMs == 5
     check EpochDeadlineTicks == 4
+
+  test "accepted logs preserve raw bytes, signed levels, phase order, and quota":
+    var fixture = compileFixture(loggingModule(
+      "i32.const -2147483648 i32.const 512 i32.const 5 call $log",
+      "i32.const -7 i32.const 517 i32.const 4 call $log i32.const 0",
+      "i32.const 1 i32.const 521 i32.const 1 call $log " &
+        "i32.const 2 i32.const 522 i32.const 1 call $log " &
+        "i32.const 3 i32.const 523 i32.const 1 call $log " &
+        "i32.const 4 i32.const 524 i32.const 1 call $log " &
+        "i32.const 5 i32.const 525 i32.const 1 call $log i32.const 0",
+      "i32.const 9 i32.const 525 i32.const 6 call $log i32.const 0"))
+    defer: fixture.close()
+
+    let manifest = fixture.instance.invokeManifest()
+    check manifest.logs == @[
+      ShellLogRecord(level: low(int32), bytes: "\0\e\x7f\x80\xff")]
+    let init = fixture.instance.invokeInit("{}", "{}")
+    check init.logs == @[ShellLogRecord(level: -7, bytes: "init")]
+    let step = fixture.instance.invokeStep("{}", 1, (16, 16))
+    check step.counters.logs == 5
+    check step.logs == @[
+      ShellLogRecord(level: 1, bytes: "s"),
+      ShellLogRecord(level: 2, bytes: "t"),
+      ShellLogRecord(level: 3, bytes: "e"),
+      ShellLogRecord(level: 4, bytes: "p")]
+    let retune = fixture.instance.invokeRetune("{}", "{}")
+    check retune.logs == @[ShellLogRecord(level: 9, bytes: "retune")]
+
+  test "invalid ranges are not captured and accepted pre-fault logs survive":
+    var invalid = compileFixture(loggingModule("",
+      "i32.const 1 i32.const 512 i32.const 5 call $log " &
+        "i32.const 2 i32.const 65535 i32.const 2 call $log i32.const 0",
+      "i32.const 0", "i32.const 0"))
+    let invalidResult = invalid.instance.invokeInit("{}", "{}")
+    check invalidResult.faulted
+    check invalidResult.logs == @[
+      ShellLogRecord(level: 1, bytes: "\0\e\x7f\x80\xff")]
+    invalid.close()
+
+    var nonzero = compileFixture(loggingModule("", "i32.const 0",
+      "i32.const 3 i32.const 521 i32.const 4 call $log i32.const 1",
+      "i32.const 0"))
+    let nonzeroResult = nonzero.instance.invokeStep("{}", 1, (16, 16))
+    check nonzeroResult.faulted
+    check nonzeroResult.logs == @[ShellLogRecord(level: 3, bytes: "step")]
+    nonzero.close()
+
+    var trapped = compileFixture(loggingModule("", "i32.const 0",
+      "i32.const 4 i32.const 521 i32.const 4 call $log unreachable",
+      "i32.const 0"))
+    let trappedResult = trapped.instance.invokeStep("{}", 1, (16, 16))
+    check trappedResult.faulted
+    check trappedResult.logs == @[ShellLogRecord(level: 4, bytes: "step")]
+    trapped.close()

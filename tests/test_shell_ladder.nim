@@ -4,7 +4,7 @@ import std/[json, options, sequtils, strutils, tables, unittest]
 
 import ../src/ctf/sim_types
 import ../src/shell/[body_map, call_validation, canonical, emit_validator,
-  finisher, guards, ladder, manifest, types]
+  finisher, guards, instance, ladder, manifest, types]
 
 type
   FakeBook = ref object
@@ -14,10 +14,12 @@ type
     closeCounts: Table[string, int]
     trace: seq[string]
     silentControllers: seq[string]
+    faultInits: seq[string]
     faultControllers: seq[string]
     retuneRefusers: seq[string]
 
 proc newBook(silentControllers: seq[string] = @[];
+             faultInits: seq[string] = @[];
              faultControllers: seq[string] = @[];
              retuneRefusers: seq[string] = @[]): FakeBook =
   FakeBook(initCounts: initTable[string, int](),
@@ -25,6 +27,7 @@ proc newBook(silentControllers: seq[string] = @[];
     retuneCounts: initTable[string, int](),
     closeCounts: initTable[string, int](),
     silentControllers: silentControllers,
+    faultInits: faultInits,
     faultControllers: faultControllers,
     retuneRefusers: retuneRefusers)
 
@@ -65,13 +68,21 @@ proc fakeGuest(book: FakeBook; entryName: string;
     discard paramsBytes
     discard contextBytes
     book.initCounts.incKey(entryName)
+    result.logs.add ShellLogRecord(level: 1, bytes: entryName & ":init")
+    if entryName in book.faultInits:
+      result.faulted = true
+      result.reason = "init fault"
+      return
   result.runStep = proc(viewBytes: string; tick: uint32; selfPos: BodyPoint): LadderInvocationResult =
     discard viewBytes
     discard tick
     book.stepCounts.incKey(entryName)
     book.trace.add(entryName)
+    result.logs.add ShellLogRecord(level: 2, bytes: entryName & ":step")
     if entryName in book.faultControllers:
-      return LadderInvocationResult(faulted: true, reason: "fake fault")
+      result.faulted = true
+      result.reason = "fake fault"
+      return
     if emitClass == ecController:
       if entryName notin book.silentControllers:
         result.emission.intent = some(controllerIntent(entryName))
@@ -84,8 +95,11 @@ proc fakeGuest(book: FakeBook; entryName: string;
     discard oldParamsBytes
     discard newParamsBytes
     book.retuneCounts.incKey(entryName)
+    result.logs.add ShellLogRecord(level: 3, bytes: entryName & ":retune")
     if entryName in book.retuneRefusers:
-      return LadderInvocationResult(refused: true, reason: "retune refused")
+      result.refused = true
+      result.reason = "retune refused"
+      return
   result.close = proc() =
     book.closeCounts.incKey(entryName)
 
@@ -228,6 +242,55 @@ suite "shell ladder":
     check output.seats[0].statuses[0].status.kind == skPlayFaulted
     check output.seats[0].selectedEntryId == "beta"
     check output.seats[0].intent.reason == "beta"
+
+  test "logs carry phase, seat, and entry identity through terminal paths":
+    let initBook = newBook(faultInits = @["init_fail"])
+    let initBindings = @[binding(initBook, "init_fail")]
+    let initDriver = newLadderDriver(1, registry())
+    defer: initDriver.close()
+    check initDriver.accept(
+      """{"plays":[{"entry_id":"init_fail","play":"init_fail"}]}""",
+      initBindings).accepted
+    let initOutput = initDriver.tick([input()], 1, initBindings)
+    check initOutput.seats[0].logs == @[LadderLogRecord(
+      phase: ivInit, seat: 0, entryId: "init_fail", level: 1,
+      bytes: "init_fail:init")]
+    check initOutput.seats[0].statuses[0].status.kind == skPlayFaulted
+
+    let stepBook = newBook()
+    let stepBindings = @[binding(stepBook, "step_fail")]
+    let stepDriver = newLadderDriver(1, registry())
+    defer: stepDriver.close()
+    check stepDriver.accept(
+      """{"plays":[{"entry_id":"step_fail","play":"step_fail"}]}""",
+      stepBindings).accepted
+    let first = stepDriver.tick([input()], 1, stepBindings)
+    check first.seats[0].logs.mapIt(it.phase) == @[ivInit, ivStep]
+    stepBook.faultControllers.add "step_fail"
+    let stepOutput = stepDriver.tick([input()], 2, stepBindings)
+    check stepOutput.seats[0].logs == @[LadderLogRecord(
+      phase: ivStep, seat: 0, entryId: "step_fail", level: 2,
+      bytes: "step_fail:step")]
+    check stepOutput.seats[0].statuses[0].status.kind == skPlayFaulted
+
+    let retuneBook = newBook(retuneRefusers = @["retune_fail"])
+    let retuneBindings = @[binding(retuneBook, "retune_fail", params =
+      "{\"n\":{\"integer\":true,\"kind\":\"number\",\"max\":10,\"min\":0}}",
+      retune = true)]
+    let retuneDriver = newLadderDriver(1, registry())
+    defer: retuneDriver.close()
+    check retuneDriver.accept(
+      """{"plays":[{"entry_id":"retune_fail","params":{"n":1},"play":"retune_fail"}]}""",
+      retuneBindings).accepted
+    discard retuneDriver.tick([input()], 1, retuneBindings)
+    check retuneDriver.accept(
+      """{"plays":[{"entry_id":"retune_fail","params":{"n":2},"play":"retune_fail","retune":true}]}""",
+      retuneBindings, proposalId = 2).accepted
+    let retuneOutput = retuneDriver.tick([input()], 2, retuneBindings)
+    check retuneOutput.seats[0].logs == @[LadderLogRecord(
+      phase: ivRetune, seat: 0, entryId: "retune_fail", level: 3,
+      bytes: "retune_fail:retune")]
+    check retuneOutput.seats[0].statuses[0].status.kind == skRetuneRefused
 
   test "guard flaps remove and restore overlay contribution without reinit":
     let book = newBook()

@@ -27,6 +27,14 @@ type
     reason*: string
     code*: FaultCode   ## the status `code`; test guests leave it fcUnknown
     emission*: LadderEmission
+    logs*: seq[ShellLogRecord]
+
+  LadderLogRecord* = object
+    phase*: InvocationKind
+    seat*: int
+    entryId*: string
+    level*: int32
+    bytes*: string
 
   LadderGuest* = ref object
     runInit*: proc(paramsBytes, contextBytes: string): LadderInvocationResult {.closure.}
@@ -82,6 +90,7 @@ type
     retuned*: seq[LadderEntryIdentity]
     stepped*: seq[string]
     statuses*: seq[LadderStatus]
+    logs*: seq[LadderLogRecord]
     selectedEntryId*: string
     usedDefault*: bool
     stepCount*: int
@@ -149,6 +158,7 @@ proc toLadder(invocation: ShellInvocationResult,
   result.refused = invocation.refused
   result.reason = invocation.reason
   result.code = invocation.code
+  result.logs = invocation.logs
   if invocation.lastAccepted.isSome:
     let accepted = invocation.lastAccepted.get
     result.emission.canonicalBytes = accepted.bytes
@@ -406,6 +416,13 @@ proc appendStatus(output: var LadderSeatTick; seatIndex: int; entryId: string;
   output.statuses.add LadderStatus(seat: seatIndex, entryId: entryId,
     status: status, statusBytes: encodeStatusEntry(status))
 
+proc appendLogs(output: var LadderSeatTick; phase: InvocationKind;
+                seatIndex: int; entryId: string;
+                logs: openArray[ShellLogRecord]) =
+  for log in logs:
+    output.logs.add LadderLogRecord(phase: phase, seat: seatIndex,
+      entryId: entryId, level: log.level, bytes: log.bytes)
+
 proc initializeEntry(driver: LadderDriver; seatIndex, entryIndex: int;
                      input: LadderSeatInput;
                      bindings: openArray[LadderBinding];
@@ -424,6 +441,7 @@ proc initializeEntry(driver: LadderDriver; seatIndex, entryIndex: int;
     return false
   let initResult = entry[].guest.runInit(entry[].call.paramsBytes,
     input.contextBytes)
+  output.appendLogs(ivInit, seatIndex, entry[].call.entryId, initResult.logs)
   if initResult.faulted:
     entry[].state = pisFaulted
     entry[].close()
@@ -446,6 +464,8 @@ proc retuneEntry(driver: LadderDriver; seatIndex, entryIndex: int;
     return false
   let retuneResult = entry[].guest.runRetune(entry[].oldParamsBytes,
     entry[].call.paramsBytes)
+  output.appendLogs(ivRetune, seatIndex, entry[].call.entryId,
+    retuneResult.logs)
   if retuneResult.refused or retuneResult.faulted:
     entry[].state = pisAbsent
     entry[].close()
@@ -548,6 +568,7 @@ proc stepEntry(driver: LadderDriver; seatIndex, entryIndex: int;
   if viewBytes.isNone:
     viewBytes = some(input.viewSource(seatIndex, tick))
   let stepResult = entry[].guest.runStep(viewBytes.get, tick, input.selfPos)
+  output.appendLogs(ivStep, seatIndex, entry[].call.entryId, stepResult.logs)
   inc output.stepCount
   output.stepped.add entry[].call.entryId
   if stepResult.faulted:

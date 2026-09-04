@@ -4998,6 +4998,8 @@ proc runServerLoop*(
           retainProductionModuleStatuses(firstLight.moduleStatuses)
           retainProductionLadderOutcomes(
             firstLight.ladderStatuses, firstLight.retuned)
+          for line in firstLight.playLogLines:
+            echo line
           var firstLightMoving, firstLightAiming = 0
           for mask in firstLight.masks:
             let encoded = mask.input.encodeInputMask()

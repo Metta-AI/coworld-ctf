@@ -148,6 +148,7 @@ type
     installs*: seq[FirstLightInstall]
     moduleStatuses*: seq[FirstLightModuleStatus]
     ladderStatuses*: seq[FirstLightLadderStatus]
+    playLogLines*: seq[string]
     retuned*: seq[FirstLightEntryIdentity]
     planBudget*: seq[PlanBudgetEvent]
     nav*: FirstLightNavSummary
@@ -170,10 +171,16 @@ type
     present: bool
     frame: FirstLightSeatFrame
 
+  PlayLogWindowState = object
+    window: uint32
+    admitted: int
+    dropped: int
+
   FirstLightRuntimeState = ref object
     frames: seq[FirstLightViewFrameSlot]
     selfPositions: seq[BodyPoint]
     reflexStates: seq[ReflexSeatState]
+    playLogWindows: seq[PlayLogWindowState]
     lastCompileTick: Option[uint32]
 
   FirstLightSeatState* = object
@@ -337,7 +344,8 @@ proc initFirstLightEpisode*(season2Shell, brMode: bool,
     result.runtimeState = FirstLightRuntimeState(
       frames: newSeq[FirstLightViewFrameSlot](controls.len),
       selfPositions: newSeq[BodyPoint](controls.len),
-      reflexStates: newSeq[ReflexSeatState](controls.len))
+      reflexStates: newSeq[ReflexSeatState](controls.len),
+      playLogWindows: newSeq[PlayLogWindowState](controls.len))
   for index, control in controls:
     if control == scPlay:
       result.enabled = true
@@ -1067,6 +1075,44 @@ proc summarizeSeatTick(body: SeatBody, result: var FirstLightTickResult) =
   of coAligning: result.combat.aligningSeats.add seat
   of coNoPolicy, coNoEnemy, coVetoed, coFired: discard
 
+when ShellRuntimeAvailable:
+  const
+    PlayLogLinesPerWindow = 4
+    PlayLogWindowTicks = 24'u32
+
+  proc playLogPhase(kind: InvocationKind): string =
+    case kind
+    of ivManifest: "manifest"
+    of ivInit: "init"
+    of ivStep: "step"
+    of ivRetune: "retune"
+
+  proc formatPlayLog(tick: uint32; log: LadderLogRecord;
+                     droppedPrevious: int): string =
+    result = &"FIRST_LIGHT_PLAY_LOG tick={tick} seat={log.seat} " &
+      &"entry={log.entryId} phase={log.phase.playLogPhase} " &
+      &"level={log.level} message={log.bytes.escape}"
+    if droppedPrevious > 0:
+      result.add &" dropped_previous={droppedPrevious}"
+
+  proc appendPlayLogs(episode: var FirstLightEpisode; tick: uint32;
+                      logs: openArray[LadderLogRecord];
+                      lines: var seq[string]) =
+    let window = (tick - 1) div PlayLogWindowTicks
+    for log in logs:
+      var state = addr episode.runtimeState.playLogWindows[log.seat]
+      var droppedPrevious = 0
+      if state[].window != window:
+        droppedPrevious = state[].dropped
+        state[].window = window
+        state[].admitted = 0
+        state[].dropped = 0
+      if state[].admitted < PlayLogLinesPerWindow:
+        lines.add formatPlayLog(tick, log, droppedPrevious)
+        inc state[].admitted
+      else:
+        inc state[].dropped
+
 proc step*(episode: var FirstLightEpisode,
     frames: openArray[FirstLightSeatFrame], tick: uint32): FirstLightTickResult =
   ## Runs configured play seats in configured-seat order. Disabled episodes
@@ -1175,6 +1221,7 @@ proc step*(episode: var FirstLightEpisode,
 
       let ladderOutput = episode.ladder.tick(inputs, tick, episode.bindings)
       for row in ladderOutput.seats:
+        episode.appendPlayLogs(tick, row.logs, result.playLogLines)
         for status in row.statuses:
           result.ladderStatuses.add status.ladderStatus
           if status.status.kind == skPlayFaulted:

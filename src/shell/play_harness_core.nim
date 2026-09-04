@@ -37,6 +37,10 @@ type
     duoSeats*: array[Team, DuoSeats]
     frames*: seq[HarnessFrame]
 
+  HarnessLogTrace* = object
+    level*: int32
+    bytesHex*: string
+
   HarnessFrameTrace* = object
     op*: string
     returned*: int32
@@ -46,6 +50,7 @@ type
     code*: FaultCode           ## written only on a faulted or refused frame
     counters*: AbiCounters
     emitCodes*: seq[int32]
+    logs*: seq[HarnessLogTrace]
     manifestBytes*: string
     lastAcceptedBytes*: string
     fuelRemaining*: uint64
@@ -266,7 +271,7 @@ proc readModuleBytes(path: string): seq[byte] =
 
 proc toTrace(kind: HarnessFrameKind; invocationResult: ShellInvocationResult):
     HarnessFrameTrace =
-  HarnessFrameTrace(
+  result = HarnessFrameTrace(
     op: kind.wireName,
     returned: invocationResult.returned,
     refused: invocationResult.refused,
@@ -283,6 +288,9 @@ proc toTrace(kind: HarnessFrameKind; invocationResult: ShellInvocationResult):
         "",
     fuelRemaining: invocationResult.fuelRemaining,
     fuelInstalledBeforeAlloc: invocationResult.fuelInstalledBeforeAlloc)
+  for log in invocationResult.logs:
+    result.logs.add HarnessLogTrace(
+      level: log.level, bytesHex: log.bytes.toHex.toLowerAscii)
 
 proc runHarnessCase*(caseData: HarnessCase): HarnessTrace =
   let moduleBytes = readModuleBytes(caseData.modulePath)
@@ -343,6 +351,14 @@ proc encodeFrameTrace(frame: HarnessFrameTrace; w: var CanonicalWriter) =
   w.field("fuel_installed_before_alloc", frame.fuelInstalledBeforeAlloc)
   w.fieldUint64("fuel_remaining", frame.fuelRemaining)
   w.field("last_accepted", frame.lastAcceptedBytes)
+  w.key("logs")
+  w.beginArray()
+  for log in frame.logs:
+    w.beginObject()
+    w.field("bytes_hex", log.bytesHex)
+    w.field("level", int64(log.level))
+    w.endObject()
+  w.endArray()
   w.field("manifest_bytes", frame.manifestBytes)
   w.field("op", frame.op)
   w.field("reason", frame.reason)
