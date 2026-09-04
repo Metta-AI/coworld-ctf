@@ -23,8 +23,11 @@
 import std/[hashes, math, options]
 import bitworld/spriteprotocol
 import ../ctf/sim_types
-import body_cache, body_map, body_planner
+import body_cache, body_hazard, body_map, body_planner
 import types as shellTypes
+
+export body_hazard.BodyHazardField, body_hazard.hasField,
+  body_hazard.arrivalAt, body_hazard.HazardNeverArrives
 
 const
   DangerCadenceK* = 32
@@ -42,6 +45,26 @@ const
   FollowStuckWindowTicks = 48
   FollowBlockTtlTicks = 96
   MaxDangerSources* = 8
+
+  SafeHorizonBucketTicks* = 48
+    ## Re-mint cadence of the zone-safe flow field, in ticks (2 s at 24 fps).
+    ## The seed set is a threshold on a STATIC array, so it changes only when
+    ## the horizon crosses cell arrivals; bucketing turns "re-solve every tick"
+    ## into "re-solve about once per two seconds" and every tick in between
+    ## into an O(1) raster readout.
+  SafeHorizonCrossingTicks* = 192
+    ## Slack for actually walking to the ground the field points at.
+  SafeHorizonTicks* = SafeHorizonBucketTicks + SafeHorizonCrossingTicks
+    ## INVARIANT: SafeHorizonTicks >= SafeHorizonBucketTicks + a crossing
+    ## budget. The field is minted with a FORWARD threshold, so it is
+    ## stale-conservative by design: it points at ground that survives
+    ## SafeHorizonTicks and is re-minted a full bucket before that guarantee
+    ## expires. Shrinking the horizon below the bucket would let the field
+    ## recommend ground that paints before the next re-mint.
+  WorldFieldClassZoneSafe* = 1
+    ## World-field class ordinal, namespaced into the key's high bits so a
+    ## world key can never collide with a per-seat route key (a raster cell
+    ## index). Class 0 is reserved for "not a world field".
 
 type
   DangerWorkspace = object
@@ -115,6 +138,14 @@ type
     pboSuspended   ## the pooled budget ran out with this plan still pending
     pboCompleted   ## a plan that needed more than one visit finally landed
     pboFailed      ## a plan that needed more than one visit finally failed
+    pboWorldSuspended  ## a WORLD field mint ran out of leftover budget (seat -1)
+    pboWorldCompleted  ## a world field mint published (seat -1)
+      ## World-field outcomes exist so world minting can never starve SILENTLY.
+      ## The round-3633 postmortem (a flat server-wide budget starved 16 seats
+      ## and 14/16 cogs died standing on spawn) is the reason world fields ride
+      ## strictly BEHIND every seat plan and every seat mint, and the reason
+      ## their stalls are on the operator-visible channel rather than a
+      ## capacity-gated trace.
 
   PlanBudgetEvent* = object
     ## One operator-visible cold-planning budget event (always-on, unlike the
@@ -129,10 +160,47 @@ type
     units*: int        ## work units spent on this visit
     outcome*: PlanBudgetOutcome
 
+  BodyWorldFields* = ref object
+    ## The SERVER-WIDE field tier, beside the per-seat one.
+    ##
+    ## A class field ("ground that stays dry", later "nearest hopper") is the
+    ## SAME field for every seat; minting it per-seat 32x is pure waste, and
+    ## MaxRouteFieldsPerSeat = 4 would thrash the seat tier immediately. One
+    ## shared store, one shared minter, at most one mint in flight.
+    ##
+    ## It carries its OWN BodyFieldMinter because BodyFieldMinter owns a single
+    ## heap: a world mint sharing the seat minter would clobber a suspended
+    ## seat mint's frontier mid-search.
+    store*: BodySeatCache
+    minter*: BodyFieldMinter
+    job*: BodyMintJob
+    pendingKey*: int   ## key of the mint in flight, -1 when idle
+    readyKey*: int     ## key of the published field, -1 when none
+    mintsCompleted*: int
+    mintsStarted*: int
+
   BodyNavSystem* = ref object
     map*: BodyMap
     seats*: seq[BodyNavSeat]
     minter*: BodyFieldMinter
+    hazard*: BodyHazardField
+      ## Projected zone paint-arrival, empty unless the episode installed one.
+      ## READ-ONLY: see body_hazard's module doc for why the nav layer must
+      ## never write back to the zone field.
+    hazardTickOffset*: int
+      ## THE HAZARD FIELD SPEAKS A DIFFERENT CLOCK. Its arrival values are the
+      ## ZONE SCHEDULE's elapsed ticks (`sim.tickCount - sim.gameStartTick`,
+      ## the clock zonePaintedForDamageAt charges damage against), while every
+      ## tick the shell hands the nav layer is the absolute sim tick. Comparing
+      ## the two directly makes the whole board read as already painted the
+      ## moment a lobby is longer than the schedule. This offset is the ONE
+      ## conversion, applied at the two entry points that mint a tick into the
+      ## hazard's domain (replacePlan and the world-field horizon).
+    hazardAware*: bool
+      ## Activation-time arming. Chosen once, at the activation barrier,
+      ## because it decides whether the per-seat planners allocate their
+      ## path-length column at all.
+    world*: BodyWorldFields
     dangerK*: int
     lastPlanSeat*: int
     lastMintSeat*: int
@@ -196,7 +264,8 @@ proc initDangerGeometry(liveGunRangePx: int): tuple[kernel: seq[float32],
 
 proc newBodyNavSystem*(map: BodyMap, seatCount, liveGunRangePx: int,
                        dangerK = DangerCadenceK,
-                       traceCapacity = 0): BodyNavSystem =
+                       traceCapacity = 0,
+                       hazardAware = false): BodyNavSystem =
   ## Activation-barrier constructor: route rasters, planner workspaces,
   ## follower path buffers, and danger buffers are all allocated here.
   if seatCount <= 0 or seatCount > MaxPlayers:
@@ -210,6 +279,10 @@ proc newBodyNavSystem*(map: BodyMap, seatCount, liveGunRangePx: int,
   new(result)
   result.map = map
   result.minter = newBodyFieldMinter(map)
+  result.hazardAware = hazardAware
+  if hazardAware:
+    result.world = BodyWorldFields(store: newBodySeatCache(map),
+      minter: newBodyFieldMinter(map), pendingKey: -1, readyKey: -1)
   result.dangerK = dangerK
   result.lastPlanSeat = -1
   result.lastMintSeat = -1
@@ -220,7 +293,7 @@ proc newBodyNavSystem*(map: BodyMap, seatCount, liveGunRangePx: int,
   let dangerGeometry = initDangerGeometry(liveGunRangePx)
   for index in 0 ..< seatCount:
     let cache = newBodySeatCache(map)
-    let planner = newBodyPlanner(map)
+    let planner = newBodyPlanner(map, hazardAware)
     let danger = initDanger(map)
     result.seats[index] = BodyNavSeat(index: index, cache: cache,
       planner: planner, danger: danger.field,
@@ -516,7 +589,7 @@ proc enqueueMint(seat: BodyNavSeat, goal: BodyPoint, revision: uint64) =
 proc replacePlan*(system: BodyNavSystem, seatIndex: int, revision: uint64,
                   selfXy: BodyPoint, goal: ValidatedGoal,
                   profile = shellTypes.cpDefault,
-                  avoid = none(BodyPoint)) =
+                  avoid = none(BodyPoint), nowTick = 0) =
   let seat = system.seats[seatIndex]
   if seat.job.planPending:
     seat.cache.cancelPlan(seat.job)
@@ -524,7 +597,7 @@ proc replacePlan*(system: BodyNavSystem, seatIndex: int, revision: uint64,
   seat.desiredGoal = some(goal.goalPoint)
   seat.desiredProfile = profile
   seat.planner.startPlan(seat.cache, seat.job, revision, selfXy,
-    goal, profile, avoid)
+    goal, profile, avoid, nowTick)
   seat.planVisits = 0
   seat.enqueueMint(goal.goalPoint, revision)
 
@@ -581,7 +654,8 @@ proc runPlanningWork(system: BodyNavSystem, tick, budgetLimit: int,
     let seat = system.seats[index]
     if seat.job.planPending:
       let revision = seat.job.revision
-      let units = seat.planner.stepPlan(seat.cache, seat.danger, seat.job, budget)
+      let units = seat.planner.stepPlan(seat.cache, seat.danger, seat.job,
+        budget, system.hazard)
       system.lastPlanSeat = index
       inc seat.planVisits
       system.recordPlanning(PlanningVisit(tick: tick, seat: index,
@@ -618,6 +692,147 @@ proc runPlanningWork(system: BodyNavSystem, tick, budgetLimit: int,
           "pending mint made no progress under available budget")
   budgetLimit - budget
 
+proc worldFieldKey*(class, bucket: int): int {.inline.} =
+  ## Namespaced world-field key. The per-seat tier keys a field by its goal
+  ## cell's raster index (always < 2^40 on any board we can allocate), so the
+  ## class ordinal in the high bits keeps the two key spaces disjoint even if a
+  ## future field class shares a store.
+  (class shl 40) or (bucket and ((1 shl 40) - 1))
+
+proc zoneSafeBucket*(tick: int): int {.inline.} =
+  ## The horizon bucket. A PURE FUNCTION OF THE TICK — nothing a play does can
+  ## move it, so no play can pump the re-mint rate. That is the whole reason
+  ## the seed threshold is bucketed rather than read live (metronome test:
+  ## "world re-mint rate is bounded by the horizon bucket").
+  (tick + SafeHorizonTicks) div SafeHorizonBucketTicks
+
+proc zoneSafeKey*(tick: int): int {.inline.} =
+  worldFieldKey(WorldFieldClassZoneSafe, zoneSafeBucket(tick))
+
+proc zoneClockTick*(system: BodyNavSystem, tick: int): int {.inline.} =
+  ## An absolute sim tick expressed in the hazard field's own clock.
+  tick - system.hazardTickOffset
+
+proc installZoneHazard*(system: BodyNavSystem,
+                        arrival: openArray[uint16],
+                        sourceW, sourceH, sourceCellPx: int,
+                        clockOffset = 0) =
+  ## Installs a projected snapshot of the zone module's paint DAMAGE surface.
+  ## Called from the one seam that owns the zone field (ctf/server.nim), once
+  ## per actual field build. A dark or hazard-unaware system ignores it, so the
+  ## call site needs no second flag test.
+  ##
+  ## This is the ONLY entry point that writes system.hazard. Everything
+  ## downstream reads it.
+  if system == nil or not system.hazardAware:
+    return
+  system.hazard = projectHazardField(system.map.gridWidth,
+    system.map.gridHeight, NavCell, sourceW, sourceH, sourceCellPx, arrival)
+  system.hazardTickOffset = clockOffset
+  # A new hazard surface invalidates every published safe-ground field: the
+  # seed predicate reads the array that just changed. Drop the ready key rather
+  # than serve a field minted against the previous episode's paint.
+  if system.world != nil:
+    system.world.readyKey = -1
+
+proc zoneSafeReady*(system: BodyNavSystem): bool =
+  system != nil and system.world != nil and system.world.readyKey >= 0 and
+    system.world.store.routeSlotReady(system.world.readyKey)
+
+proc zoneSafeSlot(system: BodyNavSystem): int =
+  if not system.zoneSafeReady:
+    return -1
+  system.world.store.findRouteSlot(system.world.readyKey)
+
+proc zoneSafeDistancePx*(system: BodyNavSystem,
+                         point: BodyPoint): Option[float] =
+  ## Geodesic px from `point` to the nearest ground that stays dry through the
+  ## horizon. `none` when the field is not published, or when no safe ground is
+  ## reachable from this cell — never a fabricated zero.
+  let slot = system.zoneSafeSlot()
+  if slot < 0:
+    return none(float)
+  let cell = system.map.nearestWalkable(system.map.cellOf(point))
+  if not system.map.cellWalkable(cell):
+    return none(float)
+  let distance = system.world.store.routeDistanceAt(slot,
+    cell.y * system.map.gridWidth + cell.x)
+  if distance.classify == fcInf:
+    return none(float)
+  some(distance * NavCell.float)
+
+proc zoneSafeStep*(system: BodyNavSystem,
+                   point: BodyPoint): Option[BodyPoint] =
+  ## One step of the safe-ground FLOW FIELD: the center of the next nav cell
+  ## toward dry ground. `none` when the field is not published, when this cell
+  ## is already a source (already safe), or when nothing is reachable.
+  ##
+  ## The parent-direction byte is `1 + reverseNeighborIndex(delta)` of the step
+  ## that REACHED this cell, so the parent — the cell one step closer to a
+  ## source — is `cell + Neighbors[hop - 1]`.
+  let slot = system.zoneSafeSlot()
+  if slot < 0:
+    return none(BodyPoint)
+  let cell = system.map.nearestWalkable(system.map.cellOf(point))
+  if not system.map.cellWalkable(cell):
+    return none(BodyPoint)
+  let index = cell.y * system.map.gridWidth + cell.x
+  if system.world.store.routeDistanceAt(slot, index).classify == fcInf:
+    return none(BodyPoint)
+  let hop = system.world.store.routeHopAt(slot, index).int
+  if hop <= 0 or hop > Neighbors.len:
+    return none(BodyPoint)
+  let delta = Neighbors[hop - 1]
+  some(cellCenter((cell.x + delta[0], cell.y + delta[1])))
+
+proc recordWorldBudget(system: BodyNavSystem, tick, units: int,
+                       outcome: PlanBudgetOutcome) =
+  if tick < 0 or units == 0:
+    return
+  system.planBudgetEvents.add(PlanBudgetEvent(tick: tick, seat: -1,
+    revision: uint64(system.world.job.routeKey), visits: system.world.mintsStarted,
+    units: units, outcome: outcome))
+
+proc runWorldFieldWork(system: BodyNavSystem, tick: int, budget: var int) =
+  ## World-field minting, on whatever the seat plans AND the seat mints left
+  ## behind. Strictly lowest priority, by construction: this proc is only
+  ## reached with the leftover tail.
+  ##
+  ## A mint in flight is NEVER cancelled when the horizon bucket rolls over.
+  ## Cancel-and-restart on every bucket boundary is how a field that takes
+  ## longer than a bucket to solve never publishes at all; letting it finish
+  ## and publishing a bucket-stale field is exactly the "stale but published is
+  ## still served" rule, and SafeHorizonCrossingTicks is the slack that pays
+  ## for it.
+  let world = system.world
+  if world == nil or not system.hazard.hasField:
+    return
+  let zoneTick = system.zoneClockTick(tick)
+  if not world.job.mintPending:
+    let desired = zoneSafeKey(zoneTick)
+    if desired == world.readyKey or budget <= 0:
+      return
+    world.minter.beginMintDryGround(world.store, world.job, desired,
+      zoneTick + SafeHorizonTicks, uint64(desired))
+    world.pendingKey = desired
+    inc world.mintsStarted
+    if world.job.mintFinished:
+      # The slot was already published for this key (LRU hit).
+      world.readyKey = desired
+      world.pendingKey = -1
+      return
+  if budget <= 0:
+    return
+  let units = world.minter.stepMint(world.store, world.job, budget,
+    system.hazard)
+  if world.job.mintFinished:
+    world.readyKey = world.pendingKey
+    world.pendingKey = -1
+    inc world.mintsCompleted
+    system.recordWorldBudget(tick, units, pboWorldCompleted)
+  else:
+    system.recordWorldBudget(tick, units, pboWorldSuspended)
+
 proc planBudgetPerTick*(system: BodyNavSystem): int =
   ## The pooled cold-work budget for one tick: ColdPlanBudgetPerTick for
   ## every configured seat (see the module comment for why it scales).
@@ -625,7 +840,14 @@ proc planBudgetPerTick*(system: BodyNavSystem): int =
 
 proc runPlanningTick*(system: BodyNavSystem, tick: int,
     evaluationOrder: openArray[int] = []): int =
-  system.runPlanningWork(tick, system.planBudgetPerTick, evaluationOrder)
+  let limit = system.planBudgetPerTick
+  var leftover = limit - system.runPlanningWork(tick, limit, evaluationOrder)
+  # World fields spend ONLY what the seat pass left. Calling this here rather
+  # than inside runPlanningWork is the structural guarantee that no world mint
+  # can ever be scheduled ahead of a pending seat plan or seat mint.
+  if leftover > 0:
+    system.runWorldFieldWork(tick, leftover)
+  limit - leftover
 
 proc prewarmColdPlans*(system: BodyNavSystem) =
   ## Activation-barrier cold-plan drain.
@@ -755,7 +977,8 @@ proc navigationWaypoint*(system: BodyNavSystem, seatIndex: int,
     inc seat.revision
     let avoid = if seat.blockedPenalty.isSome:
       some(seat.blockedPenalty.get.pos) else: none(BodyPoint)
-    system.replacePlan(seatIndex, seat.revision, selfXy, goal, profile, avoid)
+    system.replacePlan(seatIndex, seat.revision, selfXy, goal, profile, avoid,
+      system.zoneClockTick(tick))
     seat.desiredMoving = movingTarget
     seat.lastPlanTick = tick
     seat.stuckTicks = 0

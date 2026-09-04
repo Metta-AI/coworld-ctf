@@ -139,19 +139,30 @@ proc selectRouteSlot(cache: BodySeatCache, key: int): int =
     raise newException(BodyMapError,
       "all route-field slots are pinned; exactly one pin is permitted")
 
-proc beginRouteField*(cache: BodySeatCache, goal: BodyPoint): int =
-  ## Reserve the goal's LRU slot. Existing ready/building membership is kept.
-  let key = cache.routeKey(goal)
+proc beginRouteFieldKeyed*(cache: BodySeatCache, key: int,
+                           anchorCell: BodyPoint): int =
+  ## Reserve the LRU slot for an ARBITRARY field key.
+  ##
+  ## The per-seat route tier keys a field by its goal cell's raster index, and
+  ## `beginRouteField` below is exactly that spelling. A multi-source world
+  ## field has no single goal cell to key on (the zone-safe field's sources are
+  ## every dry cell on the board), so it names its own key — see
+  ## body_nav.worldFieldKey, which namespaces the class into the high bits so a
+  ## world key and a cell index can never collide inside one store.
   result = cache.selectRouteSlot(key)
   var slot = addr cache.routeSlots[result]
   slot.lastUse = cache.nextClock()
   if slot.key == key and (slot.valid or slot.building):
     return
   slot.key = key
-  slot.goalCell = cache.map.cellOf(goal)
+  slot.goalCell = anchorCell
   slot.valid = false
   slot.building = true
   slot.clearCursor = 0
+
+proc beginRouteField*(cache: BodySeatCache, goal: BodyPoint): int =
+  ## Reserve the goal's LRU slot. Existing ready/building membership is kept.
+  cache.beginRouteFieldKeyed(cache.routeKey(goal), cache.map.cellOf(goal))
 
 proc clearRouteCell*(cache: BodySeatCache, slotIndex: int): bool =
   ## Clear exactly one raster cell. Returns true once the field is clean.
@@ -183,6 +194,13 @@ proc routeSlotReady*(cache: BodySeatCache, goal: BodyPoint): bool =
 
 proc routeDistanceAt*(cache: BodySeatCache, slotIndex, cellIndex: int): float =
   cache.routeSlots[slotIndex].distances[cellIndex]
+
+proc routeHopAt*(cache: BodySeatCache, slotIndex, cellIndex: int): uint8 =
+  ## The parent-direction byte the minter stores beside every distance:
+  ## `1 + reverseNeighborIndex(dx, dy)` of the step that reached this cell, so
+  ## the route raster is ALREADY a flow field. 0 means "a source cell, or never
+  ## reached". Readers resolve the parent as `cell + Neighbors[hop - 1]`.
+  cache.routeSlots[slotIndex].hops[cellIndex]
 
 proc setRouteDistance*(cache: BodySeatCache, slotIndex, cellIndex: int,
                        distance: float, hop: uint8) =

@@ -33,5 +33,9 @@ import
   test_pb_identity_privacy,
   test_pb_perf,
   test_pb_shouts,
-  test_pb_viewer
+  test_pb_viewer,
+  # PATHING: the zone-aware planner's laws. Placed in the smallest shard per
+  # this file's own sharding rule; the suite is pure BodyMap/planner work with
+  # no SimServer, so it costs the shard very little.
+  test_shell_body_hazard
 {.warning[UnusedImport]: on.}
