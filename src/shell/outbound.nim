@@ -7,7 +7,7 @@
 
 import std/options
 
-import ./[module_cache, types]
+import ./[canonical_fast, module_cache, types]
 
 type
   PlayControlCounters* = object
@@ -16,6 +16,14 @@ type
     droppedChat*: uint32
     faultsDropped*: uint32
     backpressure*: uint32
+
+  PlayContextAcceptedCall* = object
+    proposalId*: uint64
+    bytes*: string
+
+  PlayContextReadyModule* = object
+    name*: string
+    sha256*: string
 
   PlayContextRecovery* = object
     generation*: uint64
@@ -26,6 +34,8 @@ type
     uploadBytesLeft*: int
     ackMark*: uint64
     lobbyTranscriptMark*: uint64
+    call*: Option[PlayContextAcceptedCall]
+    playbook*: seq[PlayContextReadyModule]
 
   RetainedPlayStatus = object
     entry: StatusEntry
@@ -212,18 +222,43 @@ proc controlViewEnvelope*[Socket](seat: PlayOutboundSeat[Socket];
   result.add(",\"v\":1}")
 
 proc controlContextEnvelope*(recovery: PlayContextRecovery): string =
-  ## Canonical byte order from control_context.schema.json. Runtime-owned
-  ## call/playbook fields attach here once lane A exposes its episode seam.
-  "{\"ack_mark\":\"" & $recovery.ackMark &
-    "\",\"budgets\":{\"modules_left\":" & $recovery.modulesLeft &
-    ",\"upload_bytes_left\":" & $recovery.uploadBytesLeft &
-    "},\"epoch\":\"" & $recovery.epoch &
-    "\",\"floors\":{\"proposal_id\":\"" & $recovery.proposalIdFloor &
-    "\",\"upload_id\":\"" & $recovery.uploadIdFloor &
-    "\"},\"gen\":\"" & $recovery.generation &
-    "\",\"lobby_transcript_mark\":\"" &
-    $recovery.lobbyTranscriptMark &
-    "\",\"schema\":\"control_context\",\"v\":1}"
+  var writer = initCanonicalWriter()
+  writer.beginObject()
+  writer.fieldUint64("ack_mark", recovery.ackMark)
+  writer.key("budgets")
+  writer.beginObject()
+  writer.field("modules_left", recovery.modulesLeft.int64)
+  writer.field("upload_bytes_left", recovery.uploadBytesLeft.int64)
+  writer.endObject()
+  if recovery.call.isSome:
+    let call = recovery.call.get
+    writer.key("call")
+    writer.beginObject()
+    writer.field("bytes", call.bytes)
+    writer.fieldUint64("proposal_id", call.proposalId)
+    writer.endObject()
+  writer.fieldUint64("epoch", recovery.epoch)
+  writer.key("floors")
+  writer.beginObject()
+  writer.fieldUint64("proposal_id", recovery.proposalIdFloor)
+  writer.fieldUint64("upload_id", recovery.uploadIdFloor)
+  writer.endObject()
+  writer.fieldUint64("gen", recovery.generation)
+  writer.fieldUint64("lobby_transcript_mark", recovery.lobbyTranscriptMark)
+  if recovery.playbook.len > 0:
+    writer.key("playbook")
+    writer.beginArray()
+    for module in recovery.playbook:
+      writer.beginObject()
+      writer.field("name", module.name)
+      writer.field("sha256", module.sha256)
+      writer.field("state", "ready")
+      writer.endObject()
+    writer.endArray()
+  writer.field("schema", "control_context")
+  writer.field("v", 1'i64)
+  writer.endObject()
+  writer.take()
 
 proc shouldSendView*[Socket](seat: PlayOutboundSeat[Socket]; tick: uint32;
                              interval: int): bool =

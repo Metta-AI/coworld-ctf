@@ -13,6 +13,7 @@ import body_nav
 import reflexes
 import replay_records
 import types
+import outbound
 import standing_order
 import body
 # `view` needs no runtime (std, sim_types, body, body_map, canonical_fast,
@@ -810,6 +811,21 @@ when ShellRuntimeAvailable:
     if accepted.accepted:
       result.replayIdentity = some(callReplayIdentity(seatIndex, accepted))
 
+  proc firstLightRecovery*(episode: FirstLightEpisode; seatIndex: int):
+      tuple[epoch: uint64, call: Option[PlayContextAcceptedCall],
+            playbook: seq[PlayContextReadyModule]] =
+    if episode.ladder != nil:
+      let call = episode.ladder.callSnapshot(seatIndex)
+      if call.isSome:
+        let current = call.get
+        result.epoch = current.epoch
+        result.call = some(PlayContextAcceptedCall(
+          proposalId: current.proposalId, bytes: current.bytes))
+    if episode.compilePlane != nil:
+      for bound in episode.compilePlane.boundModules(seatIndex):
+        result.playbook.add PlayContextReadyModule(
+          name: bound.name, sha256: bound.hash)
+
   proc callBytes(config: FirstLightPlayConfig): string =
     canonicalJson(parseJson("{\"plays\":[{\"entry_id\":\"" &
       config.playName & "\",\"params\":" & config.paramsBytes &
@@ -866,6 +882,12 @@ when ShellRuntimeAvailable:
     episode.configureFirstLightPlayWithReplayIdentities(config).lines
 
 else:
+  proc firstLightRecovery*(episode: FirstLightEpisode; seatIndex: int):
+      tuple[epoch: uint64, call: Option[PlayContextAcceptedCall],
+            playbook: seq[PlayContextReadyModule]] =
+    discard episode
+    discard seatIndex
+
   proc admitPlayModule*(episode: var FirstLightEpisode; seatIndex: int;
       uploadId, originGeneration: uint64; bytes: openArray[byte]):
       FirstLightAdmissionResult =

@@ -260,6 +260,7 @@ proc admitUpload[Socket](
   seat: var PlayIngressSeat[Socket],
   message: sink PlayIngressMessage[Socket],
   drain: var PlayIngressDrain[Socket],
+  uploadWindowClosed: bool,
 ) =
   let packet = message.upload
   if packet.uploadId in seat.uploadPayloads:
@@ -279,6 +280,10 @@ proc admitUpload[Socket](
       uint64(MaxUploadBytesPerSeatPerEpisode) - seat.admittedUploadBytes:
     drain.refuse(pirUpload, message.generation, packet.uploadId,
       "upload_byte_budget_exhausted")
+    return
+  if uploadWindowClosed:
+    drain.refuse(pirUpload, message.generation, packet.uploadId,
+      "uploadWindowClosed")
     return
   if not seat.reserve(UploadStatusReservation):
     drain.refuse(pirUpload, message.generation, packet.uploadId,
@@ -317,6 +322,7 @@ proc admitCall[Socket](
 
 proc drainPlayIngress*[Socket](
   seat: var PlayIngressSeat[Socket],
+  uploadWindowClosed: bool,
 ): PlayIngressDrain[Socket] =
   let pending = move(seat.pending)
   seat.pending = @[]
@@ -329,7 +335,7 @@ proc drainPlayIngress*[Socket](
       continue
     case message.kind
     of pimUpload:
-      seat.admitUpload(message, result)
+      seat.admitUpload(message, result, uploadWindowClosed)
     of pimCall:
       seat.admitCall(message, result)
 

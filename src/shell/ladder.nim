@@ -127,6 +127,11 @@ type
     hasCachedIntent*: bool
     hasCachedPolicy*: bool
 
+  LadderCallSnapshot* = object
+    epoch*: uint64
+    proposalId*: uint64
+    bytes*: string
+
   LadderEntry = object
     call: ValidatedCallEntry
     hash: string
@@ -142,6 +147,8 @@ type
   LadderSeat = object
     entries: seq[LadderEntry]
     epoch: uint64
+    acceptedProposalId: uint64
+    callBytes: string
     nextStatusOrdinal: uint64
 
   LadderDriver* = ref object
@@ -310,6 +317,15 @@ proc seatEpoch*(driver: LadderDriver; seatIndex: int): uint64 =
     return 0
   driver.seats[seatIndex].epoch
 
+proc callSnapshot*(driver: LadderDriver; seatIndex: int):
+    Option[LadderCallSnapshot] =
+  if driver == nil or seatIndex < 0 or seatIndex >= driver.seats.len or
+      driver.seats[seatIndex].epoch == 0:
+    return none(LadderCallSnapshot)
+  let seat = driver.seats[seatIndex]
+  some(LadderCallSnapshot(epoch: seat.epoch,
+    proposalId: seat.acceptedProposalId, bytes: seat.callBytes))
+
 proc acceptCall*(driver: LadderDriver; seatIndex: int; proposalId,
                  originGeneration: uint64; tick: uint32; bytes: sink string;
                  bindings: openArray[LadderBinding];
@@ -373,9 +389,11 @@ proc acceptCall*(driver: LadderDriver; seatIndex: int; proposalId,
 
   seat[].entries = move(newEntries)
   seat[].epoch = nextEpoch
+  seat[].acceptedProposalId = proposalId
+  seat[].callBytes = validated.canonicalBytes
   result.accepted = true
   result.epoch = nextEpoch
-  result.ladderBytes = validated.canonicalBytes
+  result.ladderBytes = seat[].callBytes
   result.status = seat[].callAcceptedStatus(proposalId, originGeneration,
     nextEpoch, tick)
   result.statusBytes = encodeStatusEntry(result.status)

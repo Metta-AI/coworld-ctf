@@ -111,7 +111,11 @@ Robustness, both learned the hard way on hosted rounds: the play socket is
 opened with retries inside the lobby join allowance (`--connect-deadline`,
 240 s; a single 30 s attempt lost 15 of 114 seats in one batch), and the
 client keepalive `ping_timeout` is disabled (a late pong during a model call
-closed live sockets with 1011, and a play seat cannot rebind mid-match).
+closed live sockets with 1011). The current starter harness does not reconnect,
+but the protocol supports mid-match replacement: a replacement must resume from
+`control_context`'s accepted call, ready playbook, budgets, floors, and marks.
+It must not re-upload after the pre-step phase has reached `Playing`; replacement
+does not reopen module admission. Upload the complete playbook during startup.
 
 ## The prompt/playbook drift guard
 
