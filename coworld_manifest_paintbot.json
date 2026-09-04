@@ -1352,7 +1352,7 @@
         "hopperSiteTrafficPermille": 750,
         "bandagePickups": 12,
         "frameLoadoutFlags": true,
-        "winAsMultiplier": true
+        "winAsMultiplier": false
       }
     },
     {
