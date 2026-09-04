@@ -2,6 +2,15 @@
 ## validates every variant and the certification fixture against config_schema
 ## (additionalProperties: false) and rejects any results key the schema does
 ## not name, so these assertions still pin the archived variant's shape.
+##
+## CONCURRENCY: this suite's "the replay viewer is the STATIC bundle" test
+## reads the manifest's declared bundle name ("static-replay-viewer"), not
+## the directory's contents -- but still do not run it concurrently with a
+## tools/build_replay_viewer.sh rebuild. That script `rm -rf`s the
+## static-replay-viewer/ directory mid-run (see test_season2_replay_hud.nim,
+## which does read the directory's contents and hits this window directly),
+## and any assertion added here later against the bundle's actual contents
+## would inherit the same phantom-failure risk.
 import std/[json, strutils, unittest]
 import pb_helpers
 

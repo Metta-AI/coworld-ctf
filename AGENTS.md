@@ -381,11 +381,12 @@ against the CURRENT rules and must be re-recorded on every GameVersion
 bump (`tools/record_fixture.sh`; exact recipes in
 `tests/test_broadcast_state.nim`).
 
-**ALL EIGHT, every time — the shards only read six.** `gen-small-pits` and
-`gen-colossal-4team` are read by NO native test; only the CI
-`wasm-replay-viewer` smoke job loads them, so a re-record pass that works
-from the test files alone misses them and CI fails on a job that looks
-unrelated (GV44 shipped exactly this way). The full set and its recipes:
+**ALL NINE, every time — the shards only read six.** `gen-small-pits`,
+`gen-colossal-4team`, and `br-zonepaint-smoke` are read by NO native test;
+only the CI `wasm-replay-viewer` smoke job loads them, so a re-record pass
+that works from the test files alone misses them and CI fails on a job that
+looks unrelated (GV44 shipped exactly this way). The full set and its
+recipes:
 
 | fixture | recipe |
 |---|---|
@@ -397,6 +398,7 @@ unrelated (GV44 shipped exactly this way). The full set and its recipes:
 | `tests/fixtures/gen-small-pits` | `record_fixture.sh <out> 4242 1500 '{"mapPath":"gen","mapSeed":4242,"mapSize":"small"}'` |
 | `tests/fixtures/gen-colossal-4team` | `record_colossal_demo.sh <out> 4242 1500 16` |
 | `tests/fixtures/br-golden-16team` | `record_br_golden.sh 4248` (own script, own port; seed 4248 since GV51 — 4242 stopped reaching the shield pool under the parallel-motion collision rule) |
+| `tests/fixtures/br-zonepaint-smoke` | `record_fixture.sh <out> 55221 1500 '{"mapPath":"brpool","teams":8,"brMode":true,"lives":1,"barrageMaxPerSec":0,"slots":[{"team":"red"},{"team":"blue"},{"team":"green"},{"team":"yellow"},{"team":"black"},{"team":"silver"},{"team":"ivory"},{"team":"pink"},{"team":"red"},{"team":"blue"},{"team":"green"},{"team":"yellow"},{"team":"black"},{"team":"silver"},{"team":"ivory"},{"team":"pink"}],"zoneDamageByPaint":true,"zonePhases":[{"z":0.75,"waitTicks":40,"shrinkTicks":80,"dps":2},{"z":0.45,"waitTicks":0,"shrinkTicks":120,"dps":4},{"z":0.15,"waitTicks":0,"shrinkTicks":160,"dps":8}]}'` — the only fixture with zoneDamageByPaint armed (#392 follow-up); the battle-royale-s2 shape (brMode, 8 duo teams, brpool map) with a short 3-phase zone schedule so the FMM arrival field actually mints inside 1500 ticks |
 
 `test_replay`'s "EVERY committed .bitreplay carries the current
 GameVersion" sweeps `tests/` and fails on any straggler, so a miss now

@@ -1,9 +1,12 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-repo_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+repo_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)"
 if [[ "$#" -ne 1 ]]; then
   echo "usage: $0 /absolute/path/to/static-replay-viewer" >&2
+  echo "  this rm -rf's the output dir mid-run -- do not run" >&2
+  echo "  tests/test_season2_replay_hud.nim or tests/test_pb_manifest.nim" >&2
+  echo "  concurrently against the same checkout (phantom failures)" >&2
   exit 1
 fi
 
