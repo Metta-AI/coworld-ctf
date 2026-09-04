@@ -465,6 +465,17 @@ proc removePlayerAt*(sim: var SimServer, playerIndex: int) =
       sim.resetFlag(team)
     elif sim.flags[team].carrier > playerIndex:
       dec sim.flags[team].carrier
+  # GVNEXT(drop): `dropper` is a players[] INDEX, exactly like flags.carrier
+  # above, so a mid-match leave shifts it the same way. Left unfixed, the
+  # re-grab delay would attach to whichever seat slid into the departed
+  # index — the removePlayer-sentinel family of bug. A drop whose OWN dropper
+  # leaves becomes ownerless (-1): nobody is serving its delay, so anyone may
+  # take it immediately, which is the open-steal default anyway.
+  for item in sim.droppedItems.mitems:
+    if item.dropper == playerIndex:
+      item.dropper = -1
+    elif item.dropper > playerIndex:
+      dec item.dropper
   sim.players.delete(playerIndex)
   if playerIndex < sim.fovCaches.len:
     sim.fovCaches.delete(playerIndex)

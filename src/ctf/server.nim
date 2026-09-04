@@ -3714,6 +3714,30 @@ proc firstLightBodyInputs(sim: var SimServer, playerIndex: int): BodyTickInputs 
   # dark game sights nothing here, identically to every other family.
   sight(sim.weaponSpawns, bikGun)
   sight(sim.hopperSpawns, bikHopper)
+  # GVNEXT(drop): ground drops are sighted exactly like the fixed pickups
+  # above — same fog test, same ItemSighting shape — so a play can SEE a
+  # dropped can/marker and walk to it. Without this the open-steal ruling is
+  # unreachable for policies: they would be stealing blind.
+  #
+  # A dropped BANDAGE is not sighted, because BodyItemKind has no bandage
+  # member and `sim.bandageSpawns` is not sighted either: dropped bandages
+  # are exactly as visible to a play as placed ones, which keeps the two
+  # halves of the bandage economy consistent rather than inventing a
+  # perception the pickup side does not have.
+  for item in sim.droppedItems:
+    if not sim.fovVisibleAt(playerIndex, item.x, item.y):
+      continue
+    let sighted =
+      case item.kind
+      of dkSpray: bikSpray
+      of dkGun: bikGun
+      of dkHopper: bikHopper
+      of dkGrenade: bikGrenade
+      of dkBarrier: bikBarrier
+      of dkBandage: continue
+    result.sightedItems.add(ItemSighting(kind: sighted,
+      pos: (item.x, item.y), present: true,
+      tick: uint32(sim.tickCount + 1)))
 
 proc firstLightVelocity(sim: SimServer, playerIndex: int): int =
   let player = sim.players[playerIndex]

@@ -236,7 +236,17 @@ square map:
 - The aim is **decoupled from movement**. Hold **B** to rotate the aim
   **counter-clockwise**, hold **Select** to rotate **clockwise**, at
   `aimTurnRate` brads per tick (default 5 ≈ 7°/tick; a full turn takes ~2.1s).
-  Holding both rotate buttons cancels out. The d-pad **never** touches the aim.
+  Holding both rotate buttons cancels out **for the aim** — but see the
+  warning below: on a `dropItem` game that combination is the **drop chord**.
+  The d-pad **never** touches the aim.
+
+> **Holding B+Select is no longer inert.** It cancels the aim traverse on
+> every game, as it always has, but where `dropItem` is armed (the
+> `battle-royale-s2` variant) holding both for `DropChordTicks` (10 ≈ 0.4 s)
+> **drops one carried item to the ground**. Authors who used the both-bits
+> combination as a "hold my aim still" idiom must stop: on an armed variant it
+> sheds the spray can (and then nothing more — the drop latches until the
+> chord is released). To hold an aim, emit **neither** rotate bit.
 - The aim drives everything directional: the **gun** fires along it, the
   **vision cone** centers on it, and the sprite flip follows it (you face left
   while aiming left-ish).
@@ -929,6 +939,31 @@ see the flag's own bullet).
   self HUD, omniscient map entry and board roster row carry a `handoff`
   {item, progress, needed} object while armed (the progress-arc feed);
   idle and dark bytes are untouched.
+- **`dropItem`** (bool, default off, brMode only) — **button-chord item
+  drop**: holding the **aim-pair chord** (B *and* Select together — the
+  combination the engine has always ignored for aim, since it turns only on
+  `b != select`, so no archived replay ever used it) for `DropChordTicks`
+  (10 ≈ 0.4 s) **while carrying a droppable** spills the highest-priority
+  carried item to the ground. Priority is **spray can → marker → hopper →
+  grenade → barrier → bandage**; marker and hopper are droppable only under
+  `lootStart` (off it they sit at a constant `true` and are not real
+  inventory), and the spray can is not droppable under the paintball loadout
+  (there is nowhere to pick another up). The drop **latches**: one hold is
+  exactly one item however long it is held, re-arming only when the chord
+  breaks. Dropping a **spray can clears `hasSprayPaint`, which hands the gun
+  back** (`canFire`'s guard) — the only exit from the spray lock, and the one
+  thing `giveItem` cannot do. A dropped item is an **open** pickup: anyone in
+  `DroppedPickupRange` may take it (no team gate — Minecraft-style), except
+  the dropper itself for `DropperRegrabTicks` (24 = 1 s) so a drop is not
+  vacuumed straight back up. Drops never respawn, are capped at
+  `MaxDroppedItems` (64, oldest evaporates), and expire after
+  `DroppedItemTtlTicks` (60 s) unclaimed. **Coexists with `giveItem`** — drop
+  is the free/flexible path, the handoff still guarantees partner delivery.
+  Human seat: **Q**. Play shell: the standing `drop` order. Emits the
+  `item_drop` event (source = dropper, item, x/y) and an `item_pickup` when
+  claimed; dropped items render with their family's existing ground art and
+  are fog-gated like every fixed pickup.
+
 - **`lootSpawnSeedGuns`** / **`lootSpawnSeedHoppers`** (int, default `0`,
   brMode + `lootStart` only) / **`lootSpawnSeedRadius`** (int, default `0`,
   read only while either count above is positive) — **spawn-area loot
@@ -1031,6 +1066,7 @@ objective tied purely to winning.
 | B | Rotate aim counter-clockwise (browser client: X or K) |
 | Select | Rotate aim clockwise (browser client: Space or L) |
 | C | Hold to charge a grenade throw, release to throw (browser client: C) |
+| B + Select | **Drop chord** — hold both for `DropChordTicks` (10 ≈ 0.4 s) while carrying something to drop one item (browser client: **Q**). Requires `dropItem`; inert otherwise |
 | Chat packet | Shout, max 10 chars (browser client: Enter to type) |
 
 ---

@@ -225,6 +225,13 @@ proc parseIntent(r: var CanonicalReader, ctx: EmitValidationContext): Intent =
       result.clampToEndzone = r.readRequiredBool()
     of "combat":
       result.combat = r.parseCombatPolicy(ctx)
+    of "drop":
+      # GVNEXT(drop): the standing drop order. Mode-gated exactly like
+      # "handoff" below — both are S2 BR mechanics — so a CTF page naming it
+      # fails loudly instead of emitting a chord the engine ignores.
+      if ctx.mode != gmBr:
+        unknown("noDropInMode")
+      result.drop = r.readRequiredBool()
     of "handoff":
       # §4.1 amendment: the standing give-item declaration. A duo fact, so
       # it is mode-gated exactly the way "duo:" seat references are; the

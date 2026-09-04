@@ -219,6 +219,13 @@ type
     lastAppliedReflashHash: string
     pendingProposal: string         # a candidate raw page waiting to be sent
                                     # over the wire (see pollForNewPage)
+    carryingSpray: bool             # GVNEXT(drop): our OWN spray-can carry
+                                    # marker, read the same 30px way as the
+                                    # nade marker below. This is what makes
+                                    # the drop decidable from a page: the can
+                                    # LOCKS the gun (canFire's guard), so
+                                    # "am I holding one" is the whole
+                                    # question behind "should I drop".
     carryingNade: bool              # our OWN grenade-carry marker, within
                                     # 30px of us (baseline.nim:2769-2774)
     nadeCharge: int                 # ticks ButtonC has been held; 0 = idle
@@ -720,6 +727,13 @@ proc updatePerception(bot: OnepageBot, client: ProtocolClient, me: Vec) =
     if dist(client.mapPos(o), me) <= 30.0:
       bot.carryingNade = true
       break
+  # GVNEXT(drop): the same read for our own spray can. Identical marker
+  # geometry, identical 30px self-test.
+  bot.carryingSpray = false
+  for o in client.spriteObjectsWithLabel(LabelSprayCanCarried):
+    if dist(client.mapPos(o), me) <= 30.0:
+      bot.carryingSpray = true
+      break
   # Enemies: every OTHER color in the FULL BR roster (rosterColorCount(),
   # not a 4-color clamp) — the exact gap baseline.nim:301-312 documents on
   # the ladder's own bot, closed here from the start.
@@ -1132,6 +1146,7 @@ type WorldFeatures = object
   worldItemDist: float            # -1 = none known
   worldThirdPartyDist: float       # -1 = no fight-between-others visible
   worldCarryingNade: bool
+  worldCarryingSpray: bool  ## GVNEXT(drop): page-visible "I hold a can".
 
 proc buildFeatures(bot: OnepageBot, me: Vec): WorldFeatures =
   result.selfHpFrac = float(bot.hp) / float(MaxHp)
@@ -1173,6 +1188,7 @@ proc buildFeatures(bot: OnepageBot, me: Vec): WorldFeatures =
     let i = findThirdPartyTarget(bot, me)
     if i >= 0: result.worldThirdPartyDist = dist(bot.enemies[i].pos, me)
   result.worldCarryingNade = bot.carryingNade
+  result.worldCarryingSpray = bot.carryingSpray
 
 proc intentTagBool(intent: Intent, path: string): bool =
   ## The COARSE `intent.*` tags: what KIND of row this is, so a page can
@@ -1239,6 +1255,7 @@ proc boolPath(f: WorldFeatures, intent: Intent, path: string): bool =
   of "partner.in_combat": f.partnerInCombat
   of "world.in_zone": f.worldInZone
   of "world.carrying_nade": f.worldCarryingNade
+  of "world.carrying_spray": f.worldCarryingSpray
   of "self.in_ring": f.worldInZone                # alias, real
   of "self.partner_alive": f.partnerAlive          # alias, real
   else: intentTagBool(intent, path)

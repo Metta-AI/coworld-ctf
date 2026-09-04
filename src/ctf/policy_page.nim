@@ -188,6 +188,15 @@ const DefaultPaths* = [
   ("world.zone_dist", pkNumber),          # px to nearest zone-rect edge; 0 if inside or no zone marker yet
   ("world.medkit_dist", pkNumber),        # px to nearest medkit believed stocked; -1 if none known [SENTINEL]
   ("world.item_dist", pkNumber),          # px to nearest non-medkit pickup (shield/spray/grenade/barrier, one bucket); -1 if none known [SENTINEL]
+  # GVNEXT(drop): the drop mechanic's page-facing fact. Real and resolver-
+  # backed (onepage reads its own spray-can carry marker the same 30px way it
+  # reads the grenade marker), not speculative. A carried can LOCKS the gun
+  # (canFire's `not hasSprayPaint` guard), so "am I holding one" is the whole
+  # question behind "should I drop it" — the one decision the drop chord
+  # exists to serve. The drop ACTION itself rides the play shell's standing
+  # order (shell Intent.drop -> the aim-pair chord), not a 13th menu intent:
+  # the 12-intent menu is ratified and expanding it is an owner call.
+  ("world.carrying_spray", pkBool),       # we hold a spray can (which locks our gun)
 
   # -- intent (per-menu-item tag: true iff the row being scored IS that
   #    named intent; the engine resolves the winning intent into concrete

@@ -898,6 +898,17 @@ const
                              ## all (one rotate bit per tick by construction).
   DroppedPickupRange* = 12   ## touch radius to walk a dropped item up (the
                              ## spray/grenade pickup radius).
+  MaxDroppedItems* = 64      ## GVNEXT(drop): hard ceiling on simultaneous
+                             ## ground drops. The chord is repeatable by
+                             ## construction (drop, re-grab, drop again), so
+                             ## the list is unbounded without this: at the cap
+                             ## the OLDEST drop evaporates to make room. 64 is
+                             ## the board's per-family object-id pool width,
+                             ## the same ceiling bandagePickups takes.
+  DroppedItemTtlTicks* = 60 * ReplayFps  ## GVNEXT(drop): a drop nobody claims
+                             ## evaporates after ~60s, so abandoned litter
+                             ## cannot accumulate for a whole episode (and a
+                             ## seat cannot park items to bloat the hash).
   DropperRegrabTicks* = 24   ## ~1s the DROPPER alone cannot re-grab its own
                              ## drop (so it is not vacuumed straight back up);
                              ## every OTHER cog may take it immediately (open
@@ -2492,7 +2503,7 @@ type
                         ## partner. No transfer of any kind without a
                         ## declaration (owner ruling 2026-09-02: proximity
                         ## can never imply consent — no auto-share).
-    dropItem*: bool     ## DROP(s2): the button-chord item drop. Holding the
+    dropItem*: bool     ## GVNEXT(drop): the button-chord item drop. Holding the
                         ## aim-pair chord (ButtonB and ButtonSelect together
                         ## — a dead no-op before this field: applyInput turns
                         ## the aim only on `b != select`) for DropChordTicks
@@ -3104,7 +3115,15 @@ type
                         ## replay's chain; the acceleration reaches the
                         ## hash through hp/alive and the Death event when
                         ## it actually bites).
-    dropChordTicks*: int ## DROP(s2): consecutive ticks this cog has held the
+    dropLatched*: bool  ## GVNEXT(drop): true once THIS hold of the drop chord
+                        ## has already spilled an item. Cleared only when the
+                        ## chord BREAKS (or the cog dies/downs), so one hold is
+                        ## exactly one drop however long it is held — without
+                        ## it a human holding Q for ~0.85s sheds the spray can
+                        ## and then the marker behind it. Hashed with
+                        ## dropChordTicks under the same config.dropItem gate.
+                        ## APPENDED last (flatty positional layout).
+    dropChordTicks*: int ## GVNEXT(drop): consecutive ticks this cog has held the
                         ## aim-pair drop chord WHILE carrying a droppable
                         ## (the context gate); at DropChordTicks it spills one
                         ## item and resets, so one hold = one drop. A pure
@@ -3698,6 +3717,7 @@ type
     dropper*: int              ## who dropped it (for the re-grab delay).
     dropTick*: int             ## tick it hit the ground.
 
+
   ZonePhase* = object
     ## One entry of the config-gated battle-royale shrink zone's schedule
     ## (docs/designs/BR_MAPGEN.md §4.3). The zone is a rectangle of the map's
@@ -3820,13 +3840,23 @@ type
                                           ## sides maps, 4 on 4-team maps).
     shieldSpawns*: seq[PickupSpawn]       ## one shield per team endzone.
     sprayPaintSpawns*: seq[PickupSpawn]    ## one spray can per team endzone.
-    droppedItems*: seq[DroppedItem]        ## DROP(s2): items spilled to the
+    droppedItems*: seq[DroppedItem]        ## GVNEXT(drop): items spilled to the
                                            ## ground by the drop chord; empty
                                            ## (and never touched) unless
                                            ## config.dropItem is armed, so a
                                            ## dark game's flatty/hash schema is
                                            ## byte-identical. Mixed into
                                            ## gameHash only under that gate.
+                                           ## INSERTED mid-object rather than
+                                           ## appended: SimServer is flatty-
+                                           ## serialized POSITIONALLY, so this
+                                           ## shifts every field below it in a
+                                           ## keyframe. Safe because keyframes
+                                           ## are never read across builds (the
+                                           ## puddleTicks contract) — a replay
+                                           ## carries the masks and re-derives.
+                                           ## Player fields, which DO cross,
+                                           ## are appended instead.
     airborneGrenades*: seq[AirborneGrenade]
     sprayPaintFlashes*: seq[SprayPaintFx]
     gameStartTick*: int
@@ -4166,6 +4196,18 @@ const
   NavyEndzoneColor* = rgba(38, 55, 110, 255)     ## team navy, deep blue.
   AzureEndzoneColor* = rgba(56, 150, 219, 255)   ## team azure, sky blue.
   PeachEndzoneColor* = rgba(240, 178, 140, 255)  ## team peach.
+
+const
+  DroppedItemNames*: array[DropKind, string] = [
+    dkSpray: "spray", dkGun: "gun", dkHopper: "hopper",
+    dkGrenade: "grenade", dkBarrier: "barrier", dkBandage: "bandage"]
+    ## GVNEXT(drop): DropKind -> the VIEW vocabulary the pickup surfaces
+    ## already speak (broadcast billboards, the map-item list, the world
+    ## sprite atlas). It differs from `$kind` in exactly one place: the spray
+    ## can is "spray" to a view and "spray_can" on the analysis wire, which is
+    ## the split the fixed pickups already have (tryPickupSprayPaints emits
+    ## "spray_can"; broadcast's addPickup draws "spray"). Dropped items reuse
+    ## the EXISTING ground art for their kind — a dropped can looks like a can.
 
 proc teamEndzoneColor*(team: Team): ColorRGBA =
   ## THE single team -> true-color-RGBA mapping. Was duplicated three ways

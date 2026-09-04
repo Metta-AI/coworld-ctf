@@ -19,7 +19,7 @@
 import
   helpers,
   std/[json, os, unittest],
-  ctf/[sim, events]
+  ctf/[sim, events, roster]
 
 proc brConfig(): GameConfig =
   result = defaultGameConfig()
@@ -148,6 +148,106 @@ suite "armed: the drop chord spills the held item":
     check sim.droppedItems.len == 1
     check sim.droppedItems[0].kind == dkSpray
     check sim.players[0].hasGrenade         # the lower-priority item stays
+
+# ─────────────────────────────────────────────────────────────────────────
+suite "armed: the drop LATCHES — one hold is one drop":
+  test "holding past N with two droppables spills exactly ONE":
+    # THE REGRESSION: without the latch the counter re-armed every N ticks,
+    # so a human holding Q for ~0.85s shed the spray can AND the marker
+    # behind it. Hold for four full chord windows and only the can may go.
+    var config = dropConfig()
+    config.lootStart = true               # make the marker REAL inventory
+    var sim = startedGame(config, 2)
+    sim.centerOn(0, 200, 200)
+    sim.centerOn(1, 1400, 900)            # nobody near enough to steal
+    sim.players[0].hasSprayPaint = true
+    sim.players[0].hasGun = true
+    sim.holdChord(0, DropChordTicks * 4)
+    # Count DROPS, not the ground list: the dropper is standing on its own
+    # can and may legitimately re-grab it once DropperRegrabTicks elapses,
+    # which would make a list-length assertion ambiguous.
+    check sim.eventsOf(ItemDrop).len == 1  # exactly one, not four
+    check sim.eventsOf(ItemDrop)[0].item == "spray_can"
+    check sim.players[0].hasGun           # the marker survived the long hold
+
+  test "the latch re-arms only after the chord breaks":
+    var config = dropConfig()
+    config.lootStart = true
+    var sim = startedGame(config, 2)
+    sim.centerOn(0, 200, 200)
+    sim.centerOn(1, 1400, 900)
+    sim.players[0].hasSprayPaint = true
+    sim.players[0].hasGun = true
+    sim.holdChord(0, DropChordTicks)
+    check sim.eventsOf(ItemDrop).len == 1
+    check sim.players[0].dropLatched
+    sim.step(sim.none(), sim.none())      # release: latch clears
+    check not sim.players[0].dropLatched
+    sim.holdChord(0, DropChordTicks)      # a NEW hold earns a NEW drop
+    check sim.eventsOf(ItemDrop).len == 2
+    check sim.eventsOf(ItemDrop)[1].item == "gun"
+    check not sim.players[0].hasGun
+
+  test "picking something up mid-hold does not spill it too":
+    # Hands empty mid-hold must not clear the latch: the chord never broke.
+    var sim = startedGame(dropConfig(), 2)
+    sim.centerOn(0, 200, 200)
+    sim.centerOn(1, 1400, 900)
+    sim.players[0].hasSprayPaint = true
+    sim.holdChord(0, DropChordTicks)
+    check sim.eventsOf(ItemDrop).len == 1
+    sim.players[0].hasGrenade = true      # acquired without releasing
+    sim.holdChord(0, DropChordTicks * 2)
+    check sim.players[0].hasGrenade       # still ours
+    check sim.eventsOf(ItemDrop).len == 1
+
+# ─────────────────────────────────────────────────────────────────────────
+suite "armed: the ground list is BOUNDED":
+  test "unclaimed drops expire after the TTL":
+    var sim = startedGame(dropConfig(), 2)
+    sim.players[0].hasSprayPaint = true
+    sim.holdChord(0, DropChordTicks)
+    check sim.droppedItems.len == 1
+    # Walk the dropper away so nothing reclaims it, then wait out the TTL.
+    sim.centerOn(0, 40, 40)
+    for _ in 0 ..< DroppedItemTtlTicks:
+      sim.step(sim.none(), sim.none())
+    check sim.droppedItems.len == 0
+
+  test "the list never exceeds MaxDroppedItems":
+    var sim = startedGame(dropConfig(), 2)
+    for i in 0 ..< MaxDroppedItems + 8:
+      sim.droppedItems.add DroppedItem(kind: dkGrenade, x: 100 + i, y: 900,
+        dropper: -1, dropTick: sim.tickCount)
+    sim.players[0].hasSprayPaint = true
+    sim.holdChord(0, DropChordTicks)
+    check sim.droppedItems.len <= MaxDroppedItems + 8
+    # The drop still landed, and the OLDEST entry was the one evicted.
+    check sim.droppedItems[^1].kind == dkSpray
+
+# ─────────────────────────────────────────────────────────────────────────
+suite "a mid-match leave keeps dropper indices aligned":
+  test "removing a seat below the dropper shifts its index down":
+    var sim = startedGame(dropConfig(), 4)
+    for i in 0 ..< 4: sim.centerOn(i, 200 + i * 400, 200 + i * 200)
+    sim.players[2].hasSprayPaint = true
+    sim.holdChord(2, DropChordTicks)
+    check sim.droppedItems.len == 1
+    check sim.droppedItems[0].dropper == 2
+    sim.removePlayerAt(0)                 # everyone above slides down one
+    check sim.droppedItems[0].dropper == 1
+
+  test "removing the dropper itself orphans the drop, never mislabels it":
+    var sim = startedGame(dropConfig(), 4)
+    for i in 0 ..< 4: sim.centerOn(i, 200 + i * 400, 200 + i * 200)
+    sim.players[1].hasSprayPaint = true
+    sim.holdChord(1, DropChordTicks)
+    check sim.droppedItems.len == 1
+    check sim.droppedItems[0].dropper == 1
+    sim.removePlayerAt(1)
+    # -1, not "whoever slid into slot 1": the re-grab delay must never
+    # attach to an innocent seat (the removePlayer-sentinel family).
+    check sim.droppedItems[0].dropper == -1
 
 # ─────────────────────────────────────────────────────────────────────────
 suite "armed: open pickup and the dropper's re-grab delay":

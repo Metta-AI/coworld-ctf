@@ -3867,6 +3867,13 @@ proc dropHeldItem(sim: var SimServer, playerIndex: int) =
     dec p.bandages
   else:
     return
+  # GVNEXT(drop): the list is bounded. The chord is repeatable (drop, walk
+  # back, drop again), so without a ceiling a match could mint ground items
+  # forever — and every one of them is hashed. At the cap the OLDEST drop
+  # evaporates, which keeps the newest (the one a player just made and can
+  # see) always real.
+  if sim.droppedItems.len >= MaxDroppedItems:
+    sim.droppedItems.delete(0)
   sim.droppedItems.add DroppedItem(
     kind: kind, x: cx, y: cy, dropper: playerIndex, dropTick: sim.tickCount)
   sim.emitEvent(
@@ -3879,22 +3886,36 @@ proc dropHeldItem(sim: var SimServer, playerIndex: int) =
 proc applyDropInput(sim: var SimServer, playerIndex: int, input: InputState) =
   ## DROP(s2): the aim-pair chord (ButtonB and ButtonSelect together — the
   ## dead no-op applyInput ignores, `b != select` false). Held for
-  ## DropChordTicks WHILE carrying a droppable, it spills one item and resets
-  ## the counter, so one hold = one drop. Runs every tick for every seat and
-  ## early-returns on a dark config; the counter zeroes the moment the chord
-  ## breaks, the cog dies/downs, or its hands go empty, so a dead cog is never
-  ## hashed mid-hold. No-op unless config.dropItem is armed.
+  ## DropChordTicks WHILE carrying a droppable, it spills ONE item and
+  ## LATCHES: the drop cannot re-arm until the chord is released (or the cog
+  ## dies/downs), so one hold = exactly one drop no matter how long it is
+  ## held. Without the latch a human holding Q for ~0.85s would shed the
+  ## spray can AND then the marker. Runs every tick for every seat and
+  ## early-returns on a dark config. No-op unless config.dropItem is armed.
   if not sim.config.dropItem:
     return
   template p: untyped = sim.players[playerIndex]
-  if not p.alive or p.downed or not input.b or not input.select or
-      not sim.holdsDroppable(playerIndex):
+  # Chord BROKEN (or the cog can no longer drop): disarm the latch and the
+  # counter together. This is the ONLY path that re-arms a drop, which is
+  # what makes one hold exactly one drop.
+  if not p.alive or p.downed or not input.b or not input.select:
+    p.dropChordTicks = 0
+    p.dropLatched = false
+    return
+  # Chord HELD but already spent this hold: sit at the latch. The counter
+  # stays parked at DropChordTicks so the hashed state is stable while held.
+  if p.dropLatched:
+    return
+  if not sim.holdsDroppable(playerIndex):
+    # Hands empty mid-hold: stop counting, but do NOT clear the latch — the
+    # chord has not broken, so picking something up without releasing must
+    # not spill it too.
     p.dropChordTicks = 0
     return
   inc p.dropChordTicks
   if p.dropChordTicks >= DropChordTicks:
     sim.dropHeldItem(playerIndex)
-    p.dropChordTicks = 0
+    p.dropLatched = true
 
 proc applyGrenadeInput(
   sim: var SimServer,
@@ -4475,6 +4496,22 @@ proc tryPickupDropped*(sim: var SimServer, playerIndex: int) =
            else: $d.kind))
       sim.droppedItems.delete(i)
       return
+
+proc updateDroppedItems*(sim: var SimServer) =
+  ## GVNEXT(drop): expires ground drops nobody claimed. An unclaimed drop
+  ## evaporates after DroppedItemTtlTicks so abandoned litter cannot pile up
+  ## for a whole episode (each entry is hashed, so the list is real state, not
+  ## decoration). Runs before the pickup pass, so an item reaching its last
+  ## tick is gone before anyone can touch it — one rule, no straddle.
+  ## No-op unless dropItem is armed.
+  if not sim.config.dropItem or sim.droppedItems.len == 0:
+    return
+  var index = 0
+  while index < sim.droppedItems.len:
+    if sim.tickCount - sim.droppedItems[index].dropTick >= DroppedItemTtlTicks:
+      sim.droppedItems.delete(index)
+    else:
+      inc index
 
 proc updateBarriers*(sim: var SimServer) =
   ## Refills barrier pickups whose respawn timer elapsed, then flattens any
@@ -7644,6 +7681,8 @@ proc step*(
     sim.updateBarriers()
     # LOOT(s2): bandage refill — a no-op (empty family) on a dark config.
     sim.updateBandages()
+    # GVNEXT(drop): expire unclaimed ground drops before the pickup pass.
+    sim.updateDroppedItems()
 
     for playerIndex in 0 ..< sim.players.len:
       sim.tryPickupFlags(playerIndex)
