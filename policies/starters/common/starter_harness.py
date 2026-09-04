@@ -706,8 +706,9 @@ def gate_open(entry: dict, facts: dict) -> bool:
         # (owner: "keep each other alive -- pick teammate up"). Observable
         # honestly: hp only if the partner's fogged track carries one, and
         # "under fire" only as enemy-proximity to their last-known pos --
-        # both dormant on today's server, which emits no same-team tracks
-        # (see the _view_facts note).
+        # both LIVE on today's server via the partner grant row (view.nim
+        # partnerTelemetry, landed 9511b240; see the _view_facts note) --
+        # only hp itself stays withheld on that row.
         peel = params.get(
             "peelHp", plays.PLAYS["bodyguard"]["params"]["peelHp"]["default"])
         track_hp = facts["partner_track"].get("hp")

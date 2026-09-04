@@ -1041,10 +1041,26 @@ check("medic-conversion audit: tightened leashMax sits under the "
       "break-even distance with margin for pathing/latency",
       150 < BREAK_EVEN_PX, str(BREAK_EVEN_PX))
 
-check("prompt: bodyguard doctrine names the tightened mid-phase leashMax",
-      "leashMax to 150" in prompt, "bodyguard leash tightening text not found")
-check("prompt: bodyguard doctrine names the combat-close band",
-      "COMBAT-CLOSE" in prompt, "combat-close bodyguard text not found")
+check("prompt: bodyguard doctrine names the quiet-phase leash band",
+      "leash [100, 150]" in prompt, "bodyguard quiet-phase leash text not found")
+check("prompt: bodyguard doctrine names the combat-close leash band",
+      "leash [40, 120]" in prompt, "combat-close bodyguard text not found")
+# ── v14: the note must be DIRECTIVE, not descriptive -- 21 sampled bodyguard
+# calls showed the model inventing a single self-named entry (echoing
+# format_rules' generic "ride" exemplar) instead of the two-entry split that
+# only ever appeared in canned templates it never sees. Pin both literal
+# entry_id strings and both leash bands in the note text itself so the
+# directive survives any future rewrite.
+check("prompt: bodyguard doctrine names the literal entry_id "
+      "\"shield-close\"", "\"shield-close\"" in prompt,
+      "shield-close entry_id text not found")
+check("prompt: bodyguard doctrine names the literal entry_id \"shield\"",
+      "\"shield\"" in prompt, "shield entry_id text not found")
+check("prompt: bodyguard doctrine directs submitting TWO simultaneous "
+      "entries, never a single self-named one",
+      "TWO simultaneous bodyguard entries" in prompt
+      and "never one self-named entry" in prompt,
+      "directive two-entry language not found")
 check("prompt: partner doctrine states the revive-close combat rule "
       "(system_prompt.md)",
       "revive-close" in prompt, "revive-close doctrine text not found")
