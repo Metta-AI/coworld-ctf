@@ -1829,7 +1829,7 @@
         <tr><td><code>MaxInstancesPerSeat</code></td><td>16 (one per ladder entry; equals the entries cap)</td></tr>
         <tr><td><code>StepFuel</code> (fuel units per <code>play_step</code>; host-call bodies are not fuel-metered and are bounded by the per-step call caps below)</td><td>200,000</td></tr>
         <tr><td><code>InitFuel</code> (per <code>play_init</code> or <code>play_retune</code>)</td><td>1,000,000</td></tr>
-        <tr><td><code>MaxInitsPerSeatPerTick</code> (instances initialized or retuned per seat per tick; <a href="#s7-2">section 7.2</a>)</td><td>1</td></tr>
+        <tr><td><code>MaxInitsPerSeatPerTick</code> (instances initialized or retuned per seat per tick; <a href="#s7-2">section 7.2</a>)</td><td>3</td></tr>
         <tr><td><code>ManifestFuel</code> (per <code>play_manifest</code>)</td><td>1,000,000</td></tr>
         <tr><td><code>MaxAllocsPerInvocation</code> (<code>play_alloc</code> calls per invocation; two is the most any consumer needs)</td><td>2</td></tr>
         <tr><td><code>MaxActiveOverlays</code> (overlay entries per call; call validation rejects more)</td><td>4</td></tr>
@@ -1847,7 +1847,7 @@
         <tr><td><code>MaxBinaryContextBytes</code> (play-facing fixed-layout binary play-context frame; the 60% rule would allow ~150 KB, the actual context frame is ~140 B, and 8192 is chosen for symmetry with the view cap and bounded-allocation hygiene, not derived)</td><td>8192</td></tr>
         <tr><td><code>MaxViewFrameBytes</code> (JSON socket/replay play-view payload)</td><td>32768</td></tr>
         <tr><td><code>MaxContextBytes</code> (JSON socket/replay play-context payload; no atlas, <a href="#s5">section 5</a>)</td><td>65536</td></tr>
-        <tr><td><code>MaxInitsPerTick</code> (server-wide, all seats; round-robin across seats by seat index, resuming where the last tick stopped)</td><td>4</td></tr>
+        <tr><td><code>MaxInitsPerTick</code> (server-wide, all seats; round-robin across seats by seat index, resuming where the last tick stopped; measured map-backed init quota)</td><td>16</td></tr>
         <tr><td><code>ValidatorRadiusPx</code> (stencil's <code>32 * NavCell</code>, an <em>engine</em> constant; queries answered from the exact precomputed table)</td><td>256</td></tr>
         <tr><td><code>MaxValidatorTableBytes</code> (play-seat map validator cap on the per-spawn-component canonical-winner rasters)</td><td>268435456</td></tr>
         <tr><td><code>MaxPendingCompileBytes</code> (server-wide raw bytes admitted but not yet finished; admission backpressures past it)</td><td>8388608</td></tr>
@@ -2179,16 +2179,19 @@
     entry's module under the budgets of <a href="#s6-1">section 6.1</a>, runs <code>play_init</code> with the entry's
     canonical params and the <code>PlayContext</code>, and, in the same tick, runs its first
     <code>play_step</code>. A guarded <code>supply_run</code> that never triggers never costs an instance.
-    Initialization is rationed so a call that activates many entries at once cannot spend sixteen
+    Initialization is rationed so a call that activates many entries at once cannot spend more than sixteen
     <code>InitFuel</code> budgets in one tick, and so thirty-two seats re-calling on the same tick cannot
     spend thirty-two: at most <code>MaxInitsPerSeatPerTick</code> instances are created (or retuned) per
     seat per tick, in ladder order, and at most <code>MaxInitsPerTick</code> across the whole server,
-    granted round-robin by seat index and resuming on the next tick where the last one stopped. An active
+    granted in one-grant-per-seat rounds by seat index and resuming on the next tick where the last one
+    stopped. A failed attempt consumes a global grant and ends that seat's grants for the tick. An active
     entry still waiting for its initialization is treated as not passing on that tick, so the driver falls
     through to the next initialized passing controller or the default play, and overlays not yet
-    initialized contribute nothing until they are. A fresh four-entry call therefore reaches its full
-    shape over a few ticks, with the default play covering the gap; goldens pin the tick-by-tick
-    activation order within one ladder and across seats. Once created, an instance persists while the
+    initialized contribute nothing until they are. The simultaneously active shape is at most two
+    overlays plus one controller, so one seat can initialize all three in one tick when global capacity
+    exists. Thirty-two seats receive their first entries over two ticks; ninety-six simultaneously active
+    entries take six. The default play covers any gap, and goldens pin the tick-by-tick activation order
+    within one ladder and across seats. Once created, an instance persists while the
     ladder stands, across guard flapping, so a <code>supply_run</code> that triggers twice resumes its own
     memory; it is stepped only on ticks it is active. It also persists across the seat's death and respawn
     (parked, <a href="#s4-3">section 4.3</a>), which is what lets <code>pact</code>'s and <code>target_law</code>'s latches
@@ -3084,6 +3087,13 @@
       not a platform or match-app feature (James: "the engine-native lobby chat phase is really what we
       want"); in-match chat is the existing shout.</li>
       <li>Playback never re-executes plays; masks stay the determinism artifact.</li>
+      <li>Production-shaped instantiation measurements (2026-09-04) raised
+      <code>MaxInitsPerTick</code> 2→16 and <code>MaxInitsPerSeatPerTick</code> 1→3. On the hosted
+      one-vCPU x86 floor, sixteen sequential cache-hit, map-backed instance-plus-init operations measured
+      0.770 ms median / 0.817 ms p95 / 0.833 ms max; the worst per-play p95 was 63.290 µs. Sixteen
+      conservatively uses about one quarter of the runtime's 4 ms share, leaving the rest for view
+      construction, guest steps, host calls, and emit validation. Three matches two overlays plus one
+      controller. Grants remain shared by init and retune and proceed in one-grant-per-seat rounds.</li>
     </ul>
 
     <h3 id="h-2">H.2 Superseded architectures</h3>

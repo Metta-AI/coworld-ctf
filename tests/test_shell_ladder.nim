@@ -233,25 +233,77 @@ suite "shell ladder":
     check book.initCounts["law"] == 1
     check on.seats[0].intent.combat.noShoot.seats == @[SeatRef(9)]
 
-  test "init quotas are one per seat and two server-wide round-robin":
+  test "init quotas grant every eligible seat before second grants":
     let book = newBook()
-    let bindings = @[binding(book, "base", params =
-      "{\"n\":{\"integer\":true,\"kind\":\"number\",\"max\":10,\"min\":0}}",
-      retune = true)]
+    let bindings = @[
+      binding(book, "law", "overlay"),
+      binding(book, "pact", "overlay"),
+      binding(book, "base")]
     let driver = newLadderDriver(32, registry())
     defer: driver.close()
     for seat in 0 ..< 32:
       check driver.acceptCall(seat, uint64(seat + 1), 7, 1,
-        canonical("""{"plays":[{"entry_id":"base","params":{"n":1},"play":"base"}]}"""),
-        bindings, ctx()).accepted
+        canonical("""
+          {"plays":[
+            {"entry_id":"law","play":"law"},
+            {"entry_id":"pact","play":"pact"},
+            {"entry_id":"base","play":"base"}]}
+        """), bindings, ctx()).accepted
     let first = driver.tick(newSeqWith(32, input()), 1, bindings)
     check first.initCount == MaxInitsPerTick
-    check first.seats[0].initialized == @["base"]
-    check first.seats[1].initialized == @["base"]
-    check first.seats[2].initialized.len == 0
+    for seat in 0 ..< 32:
+      check first.seats[seat].initialized ==
+        (if seat < MaxInitsPerTick: @["law"] else: newSeq[string]())
     let second = driver.tick(newSeqWith(32, input()), 2, bindings)
-    check second.seats[2].initialized == @["base"]
-    check second.seats[3].initialized == @["base"]
+    check second.initCount == MaxInitsPerTick
+    for seat in 0 ..< 32:
+      check second.seats[seat].initialized ==
+        (if seat < MaxInitsPerTick: newSeq[string]() else: @["law"])
+    let third = driver.tick(newSeqWith(32, input()), 3, bindings)
+    for seat in 0 ..< 32:
+      check third.seats[seat].initialized ==
+        (if seat < MaxInitsPerTick: @["pact"] else: newSeq[string]())
+
+  test "one seat initializes three active entries in ladder order":
+    let book = newBook()
+    let bindings = @[
+      binding(book, "law", "overlay"),
+      binding(book, "pact", "overlay"),
+      binding(book, "base")]
+    let driver = newLadderDriver(1, registry())
+    defer: driver.close()
+    check driver.accept("""
+      {"plays":[
+        {"entry_id":"law","play":"law"},
+        {"entry_id":"pact","play":"pact"},
+        {"entry_id":"base","play":"base"}]}
+    """, bindings).accepted
+    let output = driver.tick([input()], 1, bindings)
+    check output.initCount == MaxInitsPerSeatPerTick
+    check output.seats[0].initialized == @["law", "pact", "base"]
+    check output.seats[0].stepped == @["law", "pact", "base"]
+
+  test "failed initialization consumes the seat grant and retries next tick":
+    let book = newBook()
+    let bindings = @[
+      binding(book, "law", "overlay"),
+      binding(book, "pact", "overlay"),
+      binding(book, "base")]
+    let driver = newLadderDriver(1, registry())
+    defer: driver.close()
+    check driver.accept("""
+      {"plays":[
+        {"entry_id":"law","play":"law"},
+        {"entry_id":"pact","play":"pact"},
+        {"entry_id":"base","play":"base"}]}
+    """, bindings).accepted
+    let failed = driver.tick([input()], 1, newSeq[LadderBinding]())
+    check failed.initCount == 1
+    check failed.seats[0].initialized.len == 0
+    check book.initCounts.len == 0
+    let retried = driver.tick([input()], 2, bindings)
+    check retried.initCount == MaxInitsPerSeatPerTick
+    check retried.seats[0].initialized == @["law", "pact", "base"]
 
   test "retunes share the init quota and clear old output until stepped":
     let book = newBook()
@@ -273,7 +325,7 @@ suite "shell ladder":
       canonical("""{"plays":[{"entry_id":"base","params":{"n":2},"play":"base","retune":true}]}"""),
       bindings, ctx()).accepted
     let retuned = driver.tick(newSeqWith(2, input()), 2, bindings)
-    check retuned.initCount == MaxInitsPerTick
+    check retuned.initCount == 2
     check retuned.seats[0].retuned == @[
       LadderEntryIdentity(entryId: "base", play: "base")]
     check retuned.seats[1].retuned == @[
@@ -300,9 +352,10 @@ suite "shell ladder":
             {"entry_id":"pact","play":"pact"},
             {"entry_id":"base","play":"base"}]}
         """), bindings, ctx()).accepted
-    for tick in 1'u32 .. 48'u32:
-      discard driver.tick(newSeqWith(32, input()), tick, bindings)
-    let full = driver.tick(newSeqWith(32, input()), 49, bindings)
+    var full: LadderTickResult
+    for tick in 1'u32 .. 6'u32:
+      full = driver.tick(newSeqWith(32, input()), tick, bindings)
+      check full.initCount == MaxInitsPerTick
     check full.stepCount == MaxPlayers * MaxStepsPerSeatPerTick
     for seat in full.seats:
       check seat.stepCount == MaxStepsPerSeatPerTick

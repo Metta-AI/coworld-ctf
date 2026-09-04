@@ -260,14 +260,14 @@ suite "shell replacement":
         if entry.state == pisPendingRetune:
           check tick.seats[0].provenance.base.kind == pbDefault
 
-  test "thirty-two changed retunes share the server quota over sixteen ticks":
+  test "thirty-two changed retunes share the server quota over two ticks":
     let book = newBook()
     let bindings = @[binding(book, "base")]
     let driver = newLadderDriver(32, registry())
     defer: driver.close()
     for seat in 0 ..< 32:
       check driver.accept(seat, call(), bindings, uint64(seat + 1)).accepted
-    for tick in 1'u32 .. 16'u32:
+    for tick in 1'u32 .. 2'u32:
       discard driver.tick(newSeqWith(32, input()), tick, bindings)
     check book.storeCount == 32
 
@@ -278,7 +278,7 @@ suite "shell replacement":
     book.silentEntries.add "base"
 
     var retunedSeats: seq[int]
-    for tick in 17'u32 .. 32'u32:
+    for tick in 3'u32 .. 4'u32:
       let output = driver.tick(newSeqWith(32, input()), tick, bindings)
       check output.initCount == MaxInitsPerTick
       for seatIndex, seat in output.seats:

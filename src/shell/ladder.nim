@@ -475,27 +475,31 @@ proc scheduleInitializations(driver: LadderDriver;
   var
     granted = 0
     scanned = 0
-    grantedSeat = newSeq[bool](driver.seats.len)
+    grantsPerSeat = newSeq[int](driver.seats.len)
   while granted < MaxInitsPerTick and scanned < driver.seats.len:
     let seatIndex = driver.nextInitSeat
     driver.nextInitSeat = (driver.nextInitSeat + 1) mod driver.seats.len
     inc scanned
-    if seatIndex >= inputs.len or grantedSeat[seatIndex]:
+    if seatIndex >= inputs.len or
+        grantsPerSeat[seatIndex] >= MaxInitsPerSeatPerTick:
       continue
     let candidate = driver.seats[seatIndex].firstInitializationCandidate(
       inputs[seatIndex].guardContext)
     if candidate < 0:
       continue
+    var succeeded: bool
     if driver.seats[seatIndex].entries[candidate].state == pisPendingRetune:
-      discard driver.retuneEntry(seatIndex, candidate, bindings,
+      succeeded = driver.retuneEntry(seatIndex, candidate, bindings,
         seatOutputs[seatIndex])
     else:
       if not inputs[seatIndex].alive:
         continue
-      discard driver.initializeEntry(seatIndex, candidate, inputs[seatIndex],
+      succeeded = driver.initializeEntry(seatIndex, candidate, inputs[seatIndex],
         bindings, seatOutputs[seatIndex])
     inc granted
-    grantedSeat[seatIndex] = true
+    inc grantsPerSeat[seatIndex]
+    if not succeeded:
+      grantsPerSeat[seatIndex] = MaxInitsPerSeatPerTick
     result = granted
     scanned = 0
 
