@@ -217,6 +217,27 @@ suite "shell body seat belief-lite seam":
     let input = body.seatTick(BodyTickInputs(self: selfState(start)), 10)
     check input.mask == 0
 
+  test "seatTick matches explicit belief fold then action":
+    let
+      map = openMap()
+      wrapped = activateSeatBody(map, 0, 331)
+      split = activateSeatBody(map, 0, 331)
+      inputs = BodyTickInputs(self: selfState(aimBrads = 0),
+        visibleTracks: @[
+          BodyTrackUpdate(seat: 1, pos: (80, 48), team: Blue,
+            aimBrads: some(128), hpKnown: some(2), tick: 10)])
+    wrapped.setStandingIntent(holdIntent(some(64)), none(ValidatedGoal), 1)
+    split.setStandingIntent(holdIntent(some(64)), none(ValidatedGoal), 1)
+
+    let wrappedInput = wrapped.seatTick(inputs, 10)
+    split.updateBelief(inputs, 10)
+    let splitInput = split.actFromBelief(10)
+
+    check wrapped.beliefFingerprint == split.beliefFingerprint
+    check wrappedInput.mask == splitInput.mask
+    check wrapped.navState == split.navState
+    check wrapped.combatOutcome == split.combatOutcome
+
   test "fog absence preserves stale tracks and never invents knowledge":
     let body = activateSeatBody(openMap(), 0, 331)
     for track in body.tracks:
