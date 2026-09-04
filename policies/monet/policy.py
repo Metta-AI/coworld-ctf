@@ -64,6 +64,24 @@ PACT_PLACEHOLDER = {"seat:0", "seat:16"}
 MIN_LEASH = 100
 MIN_SPACING = 120
 
+# COMBAT-CLOSE floor (measured revive protocol, 28 leader tag-backs: revives
+# succeed when the duo is ALREADY within ~40px at the down -- 27/28
+# zero-travel, median separation 0-15px, successes cluster under 100px).
+# MIN_LEASH's 100px anti-stack floor is right for a quiet field but too
+# loose to land inside that window once a fight (or a wounded/downed
+# partner) is live. This is a SECOND, narrower floor for the entry_id
+# "shield-close" rung only -- applying MIN_LEASH here instead would invert
+# the deliberately tighter band (max(leash[0], 100) drags a [40,120] pair
+# back up to [100,120]), which is exactly the generic-sorter trap this
+# floor exists to avoid. Held at 40, not the literal 20px stacking floor:
+# fire_superiority's withinFireCone exclusion (a0854837) only screens OUR
+# OWN press-target choice, not a stranger partner's fire, so closer
+# spacing still raises cluster-fire exposure -- 40 is the value this lane
+# can defend (inside the <100px success cluster, clear margin off the
+# literal stack floor) over the more aggressive [20,100] the measured data
+# would also support.
+MIN_LEASH_COMBAT = 40
+
 # Jackal doctrine: leave with the profit. A second tag is allowed, a third
 # is greed the attrition ledger punishes.
 JACKAL_MAX_KILLS = 2
@@ -144,11 +162,19 @@ def adjust_entries(entries, context, view):
                                           JACKAL_MAX_KILLS)
         elif entry.get("play") == "bodyguard":
             # ANTI-STACK: a leash floor keeps the duo off each other's
-            # pixel -- stacked duos tag each other by accident.
+            # pixel -- stacked duos tag each other by accident. The
+            # combat-close rung (entry_id "shield-close") gets its OWN,
+            # lower floor: applying the quiet-phase MIN_LEASH here would
+            # invert that deliberately tighter band (see MIN_LEASH_COMBAT's
+            # comment above) -- lift BOTH ends off the right floor for the
+            # band, never the same floor for every bodyguard entry.
             leash = entry.setdefault("params", {}).get("leash")
             if (isinstance(leash, list) and len(leash) == 2
                     and isinstance(leash[0], int)):
-                leash[0] = max(leash[0], MIN_LEASH)
+                floor = (MIN_LEASH_COMBAT
+                         if entry.get("entry_id") == "shield-close"
+                         else MIN_LEASH)
+                leash[0] = max(leash[0], floor)
                 leash[1] = max(leash[1], leash[0])
         elif entry.get("play") == "crossfire":
             spacing = entry.setdefault("params", {}).get("spacing")
@@ -387,7 +413,15 @@ PERSONA = Persona(
                       "a downed partner's revive is only reachable in the "
                       "time zone-bleedout allows if you were already close "
                       "when they went down -- medic itself cannot outrun a "
-                      "chase, the native reflex owns the walk there."),
+                      "chase, the native reflex owns the walk there. Those "
+                      "same two turns also carry a COMBAT-CLOSE rung "
+                      "(leash [40, 120], measured revive protocol: real "
+                      "tag-back revives land from ~40px, not 150) that "
+                      "takes over the instant either of you has a live "
+                      "enemy tracked or your partner reads wounded/downed, "
+                      "and hands back to the wider [100, 150] band the "
+                      "moment the field goes quiet again -- the two never "
+                      "run together."),
         "crossfire": ("crossfire is the duo's fighting shape: a spacing "
                       "band wide enough that no line crosses your partner, "
                       "minAngle real. You see your partner only through "
@@ -545,6 +579,31 @@ PERSONA = Persona(
                 {"play": "hold_vs_gun", "entry_id": "holdgun",
                  "params": {"calmTicks": 48, "coverMax": 260,
                             "engageDist": 500}},
+                {"play": "bodyguard", "entry_id": "shield-close",
+                 # COMBAT-CLOSE band (measured revive protocol, 28 leader
+                 # tag-backs): revives succeed when the duo is ALREADY
+                 # within ~40px at the down (27/28 zero-travel, median
+                 # separation 0-15px, successes cluster under 100px) -- the
+                 # [100,150] "shield" band below is right for a quiet field
+                 # but too loose to land inside that window. Mutually
+                 # exclusive with "shield" by entry_id (see gate_open's
+                 # bodyguard branch in starter_harness.py): opens only when
+                 # either seat has a live enemy tracked or the partner
+                 # reads wounded/downed/under fire, hands back to the wider
+                 # band the instant the field goes quiet -- the wire ladder
+                 # never carries both at once. [40,120] chosen over the
+                 # more aggressive [20,100] the data would also support:
+                 # fire_superiority's withinFireCone exclusion (a0854837)
+                 # only screens OUR OWN press-target choice, not a
+                 # stranger partner's fire, so tighter spacing still raises
+                 # cluster-fire exposure -- 40 clears the literal 20px
+                 # stacking floor with real margin. PARTIAL closure only:
+                 # medic's own movement priority still starves behind
+                 # ladder.nim's nativeBase branch (see "shield" below), so
+                 # a tighter leash is not expected to reach leader parity
+                 # on its own.
+                 "params": {"leash": [40, 120], "interpose": True,
+                            "peelHp": 3}},
                 {"play": "bodyguard", "entry_id": "shield",
                  # leashMax TIGHTENED (medic-conversion audit) 200->150:
                  # medic converted 0/96 revivable downs (partner upright at
@@ -630,6 +689,15 @@ PERSONA = Persona(
                 {"play": "hold_vs_gun", "entry_id": "holdgun",
                  "params": {"calmTicks": 48, "coverMax": 260,
                             "engageDist": 500}},
+                {"play": "bodyguard", "entry_id": "shield-close",
+                 # COMBAT-CLOSE band: same rationale and [40,120] band as
+                 # the consolidation turn's shield-close entry above --
+                 # this is the OTHER turn covering the dominant
+                 # zone-bleedout phase (z=0.55/0.35, 75% of revivable
+                 # downs). Mutually exclusive with "shield" below by
+                 # entry_id.
+                 "params": {"leash": [40, 120], "interpose": True,
+                            "peelHp": 3}},
                 {"play": "bodyguard", "entry_id": "shield",
                  # leashMax TIGHTENED (medic-conversion audit) 200->150: same
                  # break-even rationale as the consolidation turn's shield

@@ -712,6 +712,24 @@ def gate_open(entry: dict, facts: dict) -> bool:
             "peelHp", plays.PLAYS["bodyguard"]["params"]["peelHp"]["default"])
         track_hp = facts["partner_track"].get("hp")
         wounded = isinstance(track_hp, int) and track_hp <= peel
+        # COMBAT-CLOSE band (measured revive protocol, 28 leader tag-backs:
+        # revives succeed when the duo is ALREADY within ~40px at the down,
+        # 27/28 zero-travel). A live enemy tracked on EITHER seat, or the
+        # partner wounded/downed, means a down is reachable right now -- the
+        # tighter "shield-close" rung should own the tick instead of the
+        # wider quiet-phase "shield" rung. Entry_id-paired and mutually
+        # exclusive by construction (only these two names opt in -- any
+        # other bodyguard entry, e.g. the opening turn's unpaired "spring",
+        # keeps the original unconditional behavior below) so the wire
+        # ladder never carries two live bodyguard controllers at once. See
+        # policy.py's canned consolidation/mid turns.
+        entry_id = entry.get("entry_id")
+        if entry_id in ("shield-close", "shield"):
+            combat_close = bool(
+                wounded or facts.get("partner_downed")
+                or facts.get("partner_in_combat") or facts["enemies"])
+            if (entry_id == "shield-close") != combat_close:
+                return False
         if facts.get("partner_track_fresh") and (
                 wounded or facts.get("partner_in_combat")):
             return True

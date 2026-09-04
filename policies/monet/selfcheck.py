@@ -236,6 +236,82 @@ check("gate bodyguard CLOSED: stale wounded track does not open the shield",
           partner_track={**P_TRACK, "hp": 2}, partner_track_fresh=False,
           partner_dist=20.0)))
 
+# ── combat-close band: entry_id-paired mutual exclusion (measured revive
+# protocol) -- "shield-close" and "shield" must never both gate open on the
+# same facts, and any OTHER bodyguard entry_id (e.g. the opening turn's
+# unpaired "spring") keeps the original unconditional behavior untouched
+# (combat-close pairing is opt-in by entry_id, not a global change to
+# every bodyguard call). ───────────────────────────────────────────────
+BG_CLOSE = {"play": "bodyguard", "entry_id": "shield-close",
+            "params": {"leash": [40, 120], "interpose": True, "peelHp": 3}}
+BG_QUIET = {"play": "bodyguard", "entry_id": "shield",
+            "params": {"leash": [100, 150], "interpose": True, "peelHp": 3}}
+BG_UNPAIRED = {"play": "bodyguard", "entry_id": "spring",
+               "params": {"leash": [110, 280], "interpose": False,
+                          "peelHp": 3}}
+check("gate shield-close CLOSED: fully quiet field (healthy, in-band, no "
+      "enemies) -- the wide band owns the tick instead",
+      not starter_harness.gate_open(BG_CLOSE, facts(
+          partner_track={**P_TRACK, "hp": 6}, partner_track_fresh=True,
+          partner_dist=110.0)))
+check("gate shield OPEN: same quiet facts but drifted beyond ITS OWN "
+      "leash max -- quiet-phase drift behavior is unchanged",
+      starter_harness.gate_open(BG_QUIET, facts(
+          partner_track={**P_TRACK, "hp": 6}, partner_track_fresh=True,
+          partner_dist=200.0)))
+check("gate shield-close OPEN: self has a live enemy tracked, partner "
+      "otherwise healthy and close",
+      starter_harness.gate_open(BG_CLOSE, facts(
+          partner_track={**P_TRACK, "hp": 6}, partner_track_fresh=True,
+          partner_dist=200.0, enemies=[ENEMY])))
+check("gate shield CLOSED: same live-enemy facts -- defers to shield-close",
+      not starter_harness.gate_open(BG_QUIET, facts(
+          partner_track={**P_TRACK, "hp": 6}, partner_track_fresh=True,
+          partner_dist=200.0, enemies=[ENEMY])))
+check("gate shield-close OPEN: partner downed and beyond its own leash "
+      "max (no enemy in view, no hp on the grant track) -- downed does "
+      "not get the wounded/in-combat unconditional-open branch (medic, "
+      "ranked above bodyguard, owns the final close-in touch), but still "
+      "opens via the ordinary drift check once out of the [40,120] band",
+      starter_harness.gate_open(BG_CLOSE, facts(
+          partner_track=dict(P_TRACK), partner_track_fresh=True,
+          partner_dist=200.0, partner_downed=True)))
+check("gate shield-close CLOSED: partner downed but already inside the "
+      "[40,120] band -- nothing left for bodyguard to do (medic takes the "
+      "final steps)",
+      not starter_harness.gate_open(BG_CLOSE, facts(
+          partner_track=dict(P_TRACK), partner_track_fresh=True,
+          partner_dist=50.0, partner_downed=True)))
+check("gate shield CLOSED: same downed+far facts -- defers to shield-close",
+      not starter_harness.gate_open(BG_QUIET, facts(
+          partner_track=dict(P_TRACK), partner_track_fresh=True,
+          partner_dist=200.0, partner_downed=True)))
+check("gate shield-close OPEN: partner wounded (hp <= peelHp)",
+      starter_harness.gate_open(BG_CLOSE, facts(
+          partner_track={**P_TRACK, "hp": 2}, partner_track_fresh=True,
+          partner_dist=50.0)))
+check("gate shield-close OPEN: partner under fire (in combat)",
+      starter_harness.gate_open(BG_CLOSE, facts(
+          partner_track=dict(P_TRACK), partner_track_fresh=True,
+          partner_dist=50.0, partner_in_combat=True)))
+check("gate shield-close CLOSED even when drifted, if the field reads "
+      "quiet (no enemy, partner healthy/uncontested)",
+      not starter_harness.gate_open(BG_CLOSE, facts(
+          partner_track={**P_TRACK, "hp": 6}, partner_track_fresh=True,
+          partner_dist=400.0)))
+check("gate shield-close OPEN: drifted beyond its OWN (tighter) leash max "
+      "while combat-close -- closes the gap toward 120, not 150",
+      starter_harness.gate_open(BG_CLOSE, facts(
+          partner_track={**P_TRACK, "hp": 6}, partner_track_fresh=True,
+          partner_dist=130.0, enemies=[ENEMY])))
+check("gate unpaired bodyguard entry_id (e.g. the opening turn's 'spring') "
+      "keeps the ORIGINAL unconditional behavior -- combat-close pairing "
+      "is opt-in by entry_id, so a rung with no shield/shield-close "
+      "companion still opens on drift alone regardless of live enemies",
+      starter_harness.gate_open(BG_UNPAIRED, facts(
+          partner_track={**P_TRACK, "hp": 6}, partner_track_fresh=True,
+          partner_dist=300.0, enemies=[ENEMY])))
+
 RW = {"play": "ring_walker", "params": {"inset": 64, "leadTicks": 240}}
 check("gate ring_walker OPEN: outside the current rect",
       starter_harness.gate_open(RW, facts(in_zone=False)))
@@ -277,6 +353,53 @@ check("layer_ladder turn 3, no enemies: base jackal present",
 check("monet base_play is jackal", PERSONA.base_play == "jackal",
       str(PERSONA.base_play))
 
+# ── layer_ladder: combat-close band, end-to-end on the real mid turn ─────
+# Turn 3 (mid) now carries BOTH "shield-close" and "shield" bodyguard
+# rungs -- these views pin that exactly one of the two ever reaches the
+# wire, never both, on the actual canned entries (not a synthetic fixture).
+COMBAT_BG_VIEW = {
+    "tick": 1000,
+    "self": {"pos": [500, 500], "hp_frac": 1.0},
+    "world": {"zone": {"current": [0, 0, 2000, 2000], "phase": 1}},
+    # Same 300px partner separation as QUIET_DRIFT_BG_VIEW below, plus a
+    # live enemy -- isolates the enemy-present branch as the thing that
+    # flips which rung owns the tick.
+    "tracks": [ENEMY, {"seat": 19, "pos": [500, 800], "fresh_tick": 1000}],
+}
+QUIET_DRIFT_BG_VIEW = {
+    "tick": 1000,
+    "self": {"pos": [500, 500], "hp_frac": 1.0},
+    "world": {"zone": {"current": [0, 0, 2000, 2000], "phase": 1}},
+    "tracks": [{"seat": 19, "pos": [500, 800], "fresh_tick": 1000}],
+}
+QUIET_INBAND_BG_VIEW = {
+    "tick": 1000,
+    "self": {"pos": [500, 500], "hp_frac": 1.0},
+    "world": {"zone": {"current": [0, 0, 2000, 2000], "phase": 1}},
+    "tracks": [{"seat": 19, "pos": [500, 620], "fresh_tick": 1000}],
+}
+combat_bg = [e["entry_id"] for e in starter_harness.layer_ladder(
+    TURN3, COMBAT_BG_VIEW, FAKE_CONTEXT, [], base_play=PERSONA.base_play)
+    if e["play"] == "bodyguard"]
+quiet_drift_bg = [e["entry_id"] for e in starter_harness.layer_ladder(
+    TURN3, QUIET_DRIFT_BG_VIEW, FAKE_CONTEXT, [], base_play=PERSONA.base_play)
+    if e["play"] == "bodyguard"]
+quiet_inband_bg = [e["entry_id"] for e in starter_harness.layer_ladder(
+    TURN3, QUIET_INBAND_BG_VIEW, FAKE_CONTEXT, [], base_play=PERSONA.base_play)
+    if e["play"] == "bodyguard"]
+check("layer_ladder mid turn + live enemy: shield-close on the wire, "
+      "shield is not, at the SAME 300px separation that opens the quiet "
+      "band on its own (QUIET_DRIFT_BG_VIEW below) -- isolates the enemy "
+      "as what flips which rung owns the tick",
+      combat_bg == ["shield-close"], str(combat_bg))
+check("layer_ladder mid turn, quiet + drifted (300px, no enemy): shield "
+      "on the wire, shield-close is not -- quiet-phase drift behavior "
+      "reaches the wire unchanged",
+      quiet_drift_bg == ["shield"], str(quiet_drift_bg))
+check("layer_ladder mid turn, quiet + already in the [100,150] band: "
+      "neither bodyguard rung on the wire (nothing to do)",
+      quiet_inband_bg == [], str(quiet_inband_bg))
+
 # Outside the NEXT rect with the shrink close: ring_walker leads the ladder.
 RING_VIEW = {
     "tick": 1000,
@@ -310,6 +433,27 @@ check("anti-stack: bodyguard leash floored", bg["params"]["leash"][0] >= 100,
       str(bg["params"]["leash"]))
 check("anti-stack: crossfire spacing floored", cf["params"]["spacing"][0] >= 120,
       str(cf["params"]["spacing"]))
+
+# The combat-close rung (entry_id "shield-close") gets its OWN, lower floor
+# (MIN_LEASH_COMBAT=40) -- this is the generic-sorter trap the task called
+# out: applying the quiet MIN_LEASH=100 floor to a deliberately tighter
+# band would drag leash[0] up to 100 and then leash[1]=max(leash[1], 100)
+# along with it, inverting/erasing the whole band. Proves both the lower
+# floor applies AND an unrelated "spring" entry (no pairing) still gets the
+# ordinary 100px floor untouched.
+close_seat = fake_seat()
+starter_harness.repair_call(
+    {"call": {"entries": [
+        {"play": "bodyguard", "entry_id": "shield-close",
+         "params": {"leash": [5, 30], "interpose": True}},
+    ]}}, PERSONA, close_seat, AVAILABLE)
+close_bg = next(e for e in close_seat.wanted_entries if e["play"] == "bodyguard")
+check("combat-close floor: shield-close leash floors to MIN_LEASH_COMBAT "
+      "(40), not the quiet MIN_LEASH (100)",
+      close_bg["params"]["leash"][0] == 40, str(close_bg["params"]["leash"]))
+check("combat-close floor: shield-close leashMax stays coupled to ITS OWN "
+      "min, never inverted/pinned up to the quiet floor",
+      close_bg["params"]["leash"] == [40, 40], str(close_bg["params"]["leash"]))
 
 # canned turns cover the arc; extra model turns clamp to the last (endgame)
 # entry by harness design, so the budget may exceed the scripted count.
@@ -808,8 +952,11 @@ check("prompt: chat doctrine no longer treats partner lines as a lever",
 # (the anti-stack floor) or touches turns outside that window. ───────────
 BODYGUARD_TIGHTENED_TURNS = (2, 3)  # 1-indexed: consolidation, mid
 for i, turn in enumerate(PERSONA.canned_turns, start=1):
+    # The quiet-phase rung specifically -- "shield-close" (see below) is a
+    # separate, intentionally tighter rung and must not be picked up here.
     bg = next((e for e in turn["call"]["entries"]
-               if e.get("play") == "bodyguard"), None)
+               if e.get("play") == "bodyguard"
+               and e.get("entry_id") != "shield-close"), None)
     if bg is None:
         continue
     leash_min, leash_max = bg["params"]["leash"]
@@ -821,6 +968,43 @@ for i, turn in enumerate(PERSONA.canned_turns, start=1):
               "break-even distance (medic-conversion audit)",
               leash_max <= 150, str(bg["params"]))
 
+# ── combat-close band (measured revive protocol, 28 leader tag-backs):
+# a second, entry_id-keyed bodyguard rung ("shield-close") tightens the
+# leash toward revive range the instant either seat has a live enemy
+# tracked or the partner reads wounded/downed, mutually exclusive with
+# "shield" above by construction (gate_open in starter_harness.py). Pins:
+# present only in the same two turns as the quiet-phase tightening (same
+# zone-bleedout window, not a general retune), the exact band chosen
+# ([40,120], the softer option this lane picked over [20,100]), and that
+# the quiet-phase [100,150] band above is genuinely UNCHANGED by its
+# presence. ─────────────────────────────────────────────────────────────
+for i, turn in enumerate(PERSONA.canned_turns, start=1):
+    close = next((e for e in turn["call"]["entries"]
+                  if e.get("play") == "bodyguard"
+                  and e.get("entry_id") == "shield-close"), None)
+    order = [e.get("play") for e in turn["call"]["entries"]]
+    if i in BODYGUARD_TIGHTENED_TURNS:
+        check(f"turn {i}: combat-close bodyguard rung present",
+              close is not None, str(order))
+        if close is not None:
+            leash_min, leash_max = close["params"]["leash"]
+            check(f"turn {i}: combat-close leash matches the chosen "
+                  "[40,120] band (softer than the [20,100] the measured "
+                  "data would also support -- see policy.py's "
+                  "MIN_LEASH_COMBAT comment)",
+                  [leash_min, leash_max] == [40, 120], str(close["params"]))
+            check(f"turn {i}: combat-close leashMin clears the literal "
+                  "20px anti-stack floor with real margin",
+                  leash_min > 20, str(close["params"]))
+            check(f"turn {i}: combat-close band sits fully inside the "
+                  "quiet-phase [100,150] band -- confirms this is a "
+                  "deliberately tighter rung, not a stray unfloored value",
+                  leash_max < 150, str(close["params"]))
+    else:
+        check(f"turn {i}: no combat-close bodyguard rung outside the "
+              "tightened window (scoped fix, not a general leash retune)",
+              close is None, str(order))
+
 BREAK_EVEN_PX = 26 + (103 - 48) * (704 / 256)
 check("medic-conversion audit: break-even distance matches the measured "
       "arithmetic (StandInPx + (window-channel) * MaxSpeed/MotionScale)",
@@ -831,6 +1015,11 @@ check("medic-conversion audit: tightened leashMax sits under the "
 
 check("prompt: bodyguard doctrine names the tightened mid-phase leashMax",
       "leashMax to 150" in prompt, "bodyguard leash tightening text not found")
+check("prompt: bodyguard doctrine names the combat-close band",
+      "COMBAT-CLOSE" in prompt, "combat-close bodyguard text not found")
+check("prompt: partner doctrine states the revive-close combat rule "
+      "(system_prompt.md)",
+      "revive-close" in prompt, "revive-close doctrine text not found")
 
 print()
 if failures:

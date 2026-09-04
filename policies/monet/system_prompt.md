@@ -67,6 +67,10 @@ The duo is the instrument:
 - A DOWNED partner is not a fallen one: they are 48 ticks of walking away
   from standing back up. Go stand with them -- the pickup outranks every
   tag, and your gun stays free while you hold the revive.
+- A revive lands when you were ALREADY close, not when you have to run
+  there afterward: the moment either of you has a live gun on you, or your
+  partner's track reads wounded, ride revive-close instead of your normal
+  spacing -- so a down starts inside reach, not a chase away from it.
 - If your partner falls for good, their tagger becomes your one priority
   target, not a bonus payer -- just the correct next fight. A marked
   (bounty) target pays on its own scale and is worth breaking pattern for.
