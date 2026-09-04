@@ -959,6 +959,76 @@ see the flag's own bullet).
   full spec it certifies. `gunRange` re-derives from the scaled field; the
   duo spawn pocket deliberately does not scale.
 
+## Season 2 zone-aware routing
+
+The Season 2 play-calling shell already owns movement completely: a play emits
+an Intent (`navigate_to` with a point, a profile and an arrive radius) and
+never sees a grid, a path or a mask. The engine's weighted-A* planner produced
+that route from a cost function built **exclusively from enemy line-of-sight
+danger**, so it was blind to the one thing that kills a cog in a battle royale
+— the closing paint. A route straight through ground the paint reaches first
+was, until this flag, a route the engine considered optimal.
+
+- **`hazardAwarePlanner`** (bool, default off, requires `zonePhases`,
+  `season2Shell` and `zoneDamageByPaint`): adds the zone to the planner's own
+  cost function and mints one shared retreat field. The `zoneDamageByPaint`
+  fence is not cosmetic: under rect semantics the arrival field describes a
+  picture rather than the mechanic, so routing around it would price a hazard
+  the sim never charges.
+  - **The hazard surface.** The zone module already computes, once per
+    episode, the exact tick paint reaches every 4px cell (`zone_field.nim`'s
+    arrival/damage field) — the same array `zoneDamageByPaint` charges damage
+    from and the client draws from. The nav layer takes a **read-only,
+    conservative min-projection** of that damage surface onto its own 8px
+    navigation grid: a nav cell is as dangerous as its earliest-painted
+    quarter. It never writes to, re-solves, or re-quantizes the zone field —
+    that array is hash-load-bearing (arrival → painted → damage → hp →
+    positions → `gameHash`) and belongs to the zone rules, not to routing.
+  - **Safe by time.** Each A* edge is priced by the estimated tick the cog
+    would ARRIVE at the far cell (`nowTick + pathPixels / movePxPerTick`, the
+    speed deliberately derated so the estimate errs LATE). Ground that stays
+    dry well past that estimate costs nothing extra; the price ramps in as the
+    estimate closes on the arrival tick and **saturates at a large but finite
+    value** on ground already painted. Finite is the ruling, not an accident:
+    a hard prune can make a goal unreachable and stand the cog still, so
+    crossing paint stays possible when it is the only way out.
+  - **What the estimate actually guarantees — and the trap.** The estimate is
+    an **upper bound**, not an exact earliest arrival. A\* settles each node at
+    its minimum *priced cost*, and the pixel length carried alongside is the
+    length of that minimum-cost path — which can be physically longer than the
+    shortest path. Combined with the speed derate, the arrival estimate is
+    **conservative-late**, so paint can be over-priced (ground the cog could in
+    fact beat may read as risky).
+    **🚨 That is safe only because the hazard is a PRICE. Converting this term
+    into a feasibility prune with this property is UNSOUND** — a late estimate
+    prunes genuinely reachable ground, and enough such prunes make the goal
+    unreachable, hand the follower `hasNoPath`, and stand the cog still, which
+    is round 3633 ("14/16 cogs died standing on spawn"). A sound prune needs a
+    *true lower bound* on arrival (a separate minimum-length relaxation, or a
+    time-expanded search); the planner does not compute one.
+    Separately and still true: arrival ticks never recede (the zone field's own
+    monotonicity contract), so arriving later is never *better* and no
+    waiting-edge machinery is needed. **If paint is ever made to recede, even
+    the price must be re-derived, not re-tuned.**
+  - **The retreat field.** One server-wide multi-source Dijkstra seeded from
+    every cell that stays dry through a forward horizon gives, at every cell
+    on the board, the geodesic distance to survivable ground plus a
+    ready-made flow direction toward it. It is minted once per ~2 s horizon
+    bucket (a threshold on a static array, so nothing a play does can pump the
+    rate), shared by all seats rather than minted 32 times, and spends **only
+    the cold-work budget the seat plans and seat mints leave behind** — the
+    round-3633 rule, with its own operator-visible budget events so a stall is
+    never silent.
+  - **Neutral to policies, replays and the wire.** No view field, no intent
+    field, no wire byte changes. Replays store the input-mask stream and are
+    re-driven from it, and the nav layer is regenerated only in live play, so
+    arming this invalidates no archived replay. Off = the shipped
+    enemies-only cost function, with neither the path-length column nor the
+    world-field tier allocated at all.
+  - The published `battle-royale-s2` variant arms it: on the one variant where
+    painted ground is what kills you, routing into paint is a defect, and the
+    flag is a rollback switch rather than a staging gate.
+
 ## Season 2 glory multiplier recut (GLORY v13 — dark)
 
 The pure-multiplier glory economy (frozen 2026-09-02 contract), shipped

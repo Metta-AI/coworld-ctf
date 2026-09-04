@@ -135,6 +135,7 @@ const SampleJson = """{
   "zoneDamageByPaint": {"zoneDamageByPaint": true, "zonePhases": [{"z": 0.5}]},
   "zonePaintDownedBleedPermille": {"zonePaintDownedBleedPermille": 3000, "zoneDamageByPaint": true, "zonePhases": [{"z": 0.5}]},
   "zoneBlocksRevive": {"zoneBlocksRevive": true, "zoneDamageByPaint": true, "zonePhases": [{"z": 0.5}]},
+  "hazardAwarePlanner": {"hazardAwarePlanner": true, "season2Shell": true, "zoneDamageByPaint": true, "zonePhases": [{"z": 0.5}]},
   "hopperSiteTrafficPermille": {"hopperSiteTrafficPermille": 750, "lootStart": true, "brMode": true},
   "bandagePickups": {"bandagePickups": 12, "brMode": true},
   "medKitCount": {"medKitCount": 0, "brMode": true},

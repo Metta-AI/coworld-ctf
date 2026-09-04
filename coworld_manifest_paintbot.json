@@ -463,6 +463,11 @@
           "type": "boolean",
           "default": false
         },
+        "hazardAwarePlanner": {
+          "description": "Zone-aware routing (engine-pathing phases 1-2): the Season 2 shell's route planner prices the ZONE, not only enemies. The engine projects the paint-arrival damage surface onto its 8px navigation grid and adds one cost term to the existing weighted-A*, so a cog stops settling routes through ground that paints before it can arrive; it also mints one shared, server-wide \"ground that stays dry\" flow field on the budget the seat plans leave behind, strictly at lower priority than any pending seat plan. Policies are unaffected: this changes no wire field, no view frame, and no intent, so it cannot invalidate an archived replay (replays re-drive recorded input masks, and the nav layer is regenerated only in live play). Requires zonePhases, season2Shell and zoneDamageByPaint (under rect semantics the arrival field describes a picture, not the mechanic, so routing around it would price a hazard the sim never charges). Off by default (the shipped enemies-only cost function); the battle-royale-s2 variant turns it on.",
+          "type": "boolean",
+          "default": false
+        },
         "allowSeatTakeover": {
           "description": "Allow a human client to take over a live bot-controlled seat mid-round.",
           "type": "boolean",
@@ -1311,6 +1316,7 @@
         "downedMode": true,
         "zoneDamageByPaint": true,
         "zoneBlocksRevive": true,
+        "hazardAwarePlanner": true,
         "zonePhases": [
           {
             "z": 0.75,

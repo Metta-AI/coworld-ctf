@@ -314,7 +314,8 @@ proc initFirstLightEpisode*(season2Shell, brMode: bool,
     teams: openArray[Team] = [],
     mapName = "",
     viewInterval = ViewIntervalTicksDefault,
-    names: openArray[string] = []): FirstLightEpisode =
+    names: openArray[string] = [],
+    hazardAwarePlanner = false): FirstLightEpisode =
   ## `names` are the seats' display names in seat order (the closed
   ## roster's players[].name); empty means the context carries none.
   if teams.len > 0 and teams.len != controls.len:
@@ -327,7 +328,12 @@ proc initFirstLightEpisode*(season2Shell, brMode: bool,
     return
   if map == nil:
     raise newException(ValueError, "FIRST LIGHT requires a BodyMap")
-  result.nav = newBodyNavSystem(map, controls.len, liveGunRangePx)
+  # hazardAwarePlanner is an ACTIVATION-TIME choice, not a per-tick one: it
+  # decides whether every seat planner allocates its path-length column and
+  # whether the world-field tier exists at all. A dark episode allocates
+  # neither and runs the shipped arithmetic byte for byte.
+  result.nav = newBodyNavSystem(map, controls.len, liveGunRangePx,
+    hazardAware = hazardAwarePlanner)
   when ShellRuntimeAvailable:
     result.mapName = mapName
     result.gunRange = liveGunRangePx
@@ -389,13 +395,46 @@ proc resetFirstLightEpisode*(episode: var FirstLightEpisode,
     teams: openArray[Team] = [],
     mapName = "",
     viewInterval = ViewIntervalTicksDefault,
-    names: openArray[string] = []) =
+    names: openArray[string] = [],
+    hazardAwarePlanner = false) =
   ## Full episode replacement boundary for any server-side sim/config
   ## replacement. Fresh bodies re-run the activation safe install instead of
   ## carrying standing orders, nav state, or map-owned goals across matches.
   episode.closeFirstLightEpisode()
   episode = initFirstLightEpisode(season2Shell, brMode, controls, map,
-    liveGunRangePx, teams, mapName, viewInterval, names)
+    liveGunRangePx, teams, mapName, viewInterval, names, hazardAwarePlanner)
+
+proc installZoneHazard*(episode: var FirstLightEpisode,
+    arrival: openArray[uint16], sourceW, sourceH, sourceCellPx: int,
+    clockOffset: int) =
+  ## Carries ONE snapshot of the zone module's paint DAMAGE surface into the
+  ## nav layer, projected onto the nav grid.
+  ##
+  ## The zone field is built once per episode and is a pure function of map +
+  ## drawn center + schedule, but the CENTER is only drawn at game start
+  ## (sim.resetZone), which is after this episode object exists. So the install
+  ## is driven by the zone module's own rebuild signal at the caller
+  ## (ctf/server.nim reads ensureZoneArrivalField's "did I rebuild" return),
+  ## not by a guess about episode lifetime here.
+  if not episode.enabled or episode.nav == nil:
+    return
+  episode.nav.installZoneHazard(arrival, sourceW, sourceH, sourceCellPx,
+    clockOffset)
+
+proc hazardAwarePlanner*(episode: FirstLightEpisode): bool =
+  episode.nav != nil and episode.nav.hazardAware
+
+proc hasZoneHazard*(episode: FirstLightEpisode): bool =
+  ## False until a real field has landed, so the caller retries on later ticks
+  ## instead of arming the planner against an empty projection.
+  episode.nav != nil and episode.nav.hazard.hasField
+
+proc zoneHazardClockOffset*(episode: FirstLightEpisode): int =
+  ## The game-start tick the installed hazard was keyed to. A new GAME inside
+  ## one episode restarts that clock, and the zone field only rebuilds when its
+  ## own key moves — so the caller compares this rather than assuming a rebuild
+  ## always accompanies a restart.
+  if episode.nav == nil: 0 else: episode.nav.hazardTickOffset
 
 proc safeIntent(reason: string, idleAimCenterBrads: int): FinishedOrder =
   finishDefault(Intent(
@@ -1281,6 +1320,10 @@ proc formatPlanBudgetEvent*(event: PlanBudgetEvent): string =
     of pboSuspended: "suspended"
     of pboCompleted: "completed"
     of pboFailed: "failed"
+    # PATHING: world-field mints ride the same operator channel as seat plans
+    # (seat = -1) so their stalls are never silent — the round-3633 lesson.
+    of pboWorldSuspended: "world_suspended"
+    of pboWorldCompleted: "world_completed"
   &"FIRST_LIGHT_PLAN_BUDGET tick={event.tick} seat={event.seat} " &
     &"revision={event.revision} visits={event.visits} units={event.units} " &
     &"outcome={outcome}"

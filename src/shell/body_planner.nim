@@ -8,7 +8,8 @@
 ## Dijkstra heap.
 
 import std/[hashes, math, options]
-import body_cache, body_map
+import ../ctf/sim_types as ctfTypes
+import body_cache, body_hazard, body_map
 import types as shellTypes
 
 const
@@ -17,13 +18,39 @@ const
   PlanWeight = 1.0
   FollowBlockFactor = 8.0
   Sqrt2 = sqrt(2.0)
-  Neighbors = [
+  Neighbors* = [
     (-1, 0), (1, 0), (0, -1), (0, 1),
     (-1, -1), (-1, 1), (1, -1), (1, 1)]
+    ## Exported so a flow-field reader can decode the parent-direction byte the
+    ## minter stores (`1 + reverseNeighborIndex`) without a second copy of the
+    ## table; two copies of this array is exactly how a flow field starts
+    ## pointing the wrong way.
+
+  MaxMintSeeds* = 64
+    ## Fixed in-job seed buffer for an explicit multi-source mint. Bounded so a
+    ## mint job allocates nothing on a playing tick, like every other workspace
+    ## in this module. The zone-safe field does NOT use this path — its seed set
+    ## is the whole dry board, produced by a resumable scan (bmsDryGround).
+
+  PlanSpeedNumerator = ctfTypes.MaxSpeed * 3
+  PlanSpeedDenominator = ctfTypes.MotionScale * 4
+    ## Estimated-arrival speed: three quarters of top speed
+    ## (MaxSpeed/MotionScale = 2.75 px/tick -> 2.0625 px/tick).
+    ##
+    ## THE DERATE DIRECTION IS THE WHOLE POINT. An OPTIMISTIC ETA (assuming top
+    ## speed) makes ground read safer than it is — we would believe we beat the
+    ## paint and route into it, which is the exact failure the hazard term
+    ## exists to fix. Deratng absorbs acceleration, friction, turning, and the
+    ## corridor micro's ±20px wander, so the estimate errs late.
 
 type
   PlanCostProfile* = object
     dangerWeight*: float
+    zoneWeight*: float
+      ## Weight on the zone paint-arrival risk term (body_hazard.hazardRisk).
+      ## Read only while a hazard field is installed; 0 everywhere else, and a
+      ## profile with zoneWeight 0 reproduces the pre-hazard route byte for
+      ## byte (regression gate: "zoneWeight 0 reproduces the dark route").
 
   BodyDangerField* = object
     values*: seq[float32]
@@ -49,6 +76,14 @@ type
     keys: seq[int]
     closed: seq[bool]
     gScore: seq[float]
+    gPixels: seq[float]
+      ## Raw path LENGTH in px along the best-cost path, tracked beside the
+      ## priced gScore only when the planner was activated hazard-aware.
+      ## gScore is danger-priced, so it is not a distance; the arrival-time
+      ## estimate needs the physical length or a danger-heavy route would read
+      ## as arriving impossibly late everywhere. Empty (and untouched) on a
+      ## dark activation, which is what keeps the dark path allocation- and
+      ## byte-identical.
     cameFrom: seq[int]
     generation: uint64
     count: int
@@ -86,6 +121,10 @@ type
     start*, planStart*, goal*: BodyPoint
     startSnapped*: bool
     profile*: shellTypes.CostProfile
+    nowTick*: int
+      ## The tick the plan was requested on, the base of every node's
+      ## estimated arrival. Negative (the activation-barrier prewarm's -1)
+      ## behaves as 0; a prewarm has no match clock to price paint against.
     avoid*: Option[BodyPoint]
     endpointScan: EndpointScan
     connector: ConnectorScan
@@ -111,6 +150,29 @@ type
     mjsClear
     mjsSearch
     mjsComplete
+    mjsSeed
+      ## APPENDED, not inserted: mintFingerprint hashes `ord(job.stage)`, so
+      ## renumbering a shipped stage would silently move every recorded
+      ## suspension fingerprint. New stages go on the end, always.
+
+  BodyMintSeedMode* = enum
+    ## Where a mint's distance-0 sources come from. The route field has always
+    ## been a flow field (the parent-direction byte); all multi-source seeding
+    ## adds is a loop instead of a single push.
+    bmsGoalPoint
+      ## The shipped per-seat spelling: exactly the job's own goal cell, seeded
+      ## with no charged work unit. Kept on its original zero-charge path so a
+      ## seat mint's work-unit accounting stays byte-identical.
+    bmsSeedList
+      ## An explicit, bounded, PRE-SORTED seed list (see beginMintFromSet). The
+      ## sort is not cosmetic: equal-distance ties in the heap break on
+      ## (tie1, tie2) = (cellX, cellY), so an unsorted push order would produce
+      ## a different — still valid, but different — parent field run to run.
+    bmsDryGround
+      ## Every nav cell whose hazard arrival is at or after `horizonTick`, found
+      ## by a resumable row-major scan. This is the zone-safe field: distance =
+      ## geodesic px to ground that survives the horizon, parent byte = a
+      ## ready-made flow field pointing at it.
 
   BodyMintJob* = object
     stage*: BodyMintStage
@@ -120,16 +182,27 @@ type
     goalCell*: BodyPoint
     revision*: uint64
     workUnits*, expansions*: int
+    seedMode*: BodyMintSeedMode
+    seedCursor*: int      ## bmsSeedList: next seed index; bmsDryGround: next cell
+    seedCount*: int
+    seedsFound*: int      ## sources actually pushed, for the oracle tests
+    horizonTick*: int     ## bmsDryGround: ground must stay dry at least this long
+    seeds: array[MaxMintSeeds, BodyPoint]
 
   BodyFieldMinter* = ref object
     map*: BodyMap
     heap: FixedHeap
 
 proc planCostProfile*(kind: shellTypes.CostProfile): PlanCostProfile =
+  ## zoneWeight mirrors dangerWeight's ladder on purpose: a carrier is the
+  ## profile that most needs to survive the trip and least needs the shortest
+  ## one, and a hunter is the profile that is allowed to take the aggressive
+  ## line. The ratio, not the absolute value, is the tuning surface; the
+  ## saturation lives in body_hazard.HazardRiskMax.
   case kind
-  of shellTypes.cpDefault: PlanCostProfile(dangerWeight: 1.0)
-  of shellTypes.cpCarrier: PlanCostProfile(dangerWeight: 2.5)
-  of shellTypes.cpHunter: PlanCostProfile(dangerWeight: 0.25)
+  of shellTypes.cpDefault: PlanCostProfile(dangerWeight: 1.0, zoneWeight: 1.0)
+  of shellTypes.cpCarrier: PlanCostProfile(dangerWeight: 2.5, zoneWeight: 2.5)
+  of shellTypes.cpHunter: PlanCostProfile(dangerWeight: 0.25, zoneWeight: 0.25)
 
 proc sample*(field: BodyDangerField, map: BodyMap, point: BodyPoint): float =
   if field.values.len != map.gridWidth * map.gridHeight:
@@ -247,11 +320,19 @@ proc ensureRecord(store: var SearchStore, key: int): int =
   store.keys[result] = key
   store.closed[result] = false
   store.gScore[result] = Inf
+  if store.gPixels.len > 0:
+    store.gPixels[result] = 0.0
   store.cameFrom[result] = -1
 
-proc newBodyPlanner*(map: BodyMap): BodyPlanner =
+proc newBodyPlanner*(map: BodyMap, hazardAware = false): BodyPlanner =
   ## Activation-barrier constructor. Capacity is the complete primary
   ## PlanStepPx lattice; fallback searches use the same sparse fixed store.
+  ##
+  ## `hazardAware` allocates the path-length column the zone term reads. It is
+  ## a whole extra lattice-sized float array per seat (~1.4 MB on the Season 2
+  ## board), so a dark episode does not pay for it — and the dark A* never
+  ## touches the column, which is what makes the dark route byte-identical
+  ## rather than merely equal.
   new(result)
   result.map = map
   let latticeW = (map.width - 1) div PlanStepPx + 1
@@ -267,8 +348,20 @@ proc newBodyPlanner*(map: BodyMap): BodyPlanner =
   result.search.keys = newSeq[int](result.capacity)
   result.search.closed = newSeq[bool](result.capacity)
   result.search.gScore = newSeq[float](result.capacity)
+  if hazardAware:
+    result.search.gPixels = newSeq[float](result.capacity)
   result.search.cameFrom = newSeq[int](result.capacity)
   result.resultPath = newSeq[BodyPoint](result.capacity + 2)
+
+proc hazardAware*(planner: BodyPlanner): bool {.inline.} =
+  planner.search.gPixels.len > 0
+
+proc estimatedArrivalTicks*(nowTick: int, pathPixels: float): int {.inline.} =
+  ## etaTicks(n) = nowTick + g(n) / movePxPerTick, all integers out.
+  ## Truncation is deliberate: a step function of path length is more stable
+  ## across resumed searches than a float tick would be.
+  max(0, nowTick) +
+    int(pathPixels * float(PlanSpeedDenominator) / float(PlanSpeedNumerator))
 
 proc workspaceCapacity*(planner: BodyPlanner): int = planner.capacity
 
@@ -440,16 +533,62 @@ proc reverseNeighborIndex(dx, dy: int): int =
     if delta[0] == -dx and delta[1] == -dy:
       return index
 
-proc initMintSearch(minter: BodyFieldMinter, cache: BodySeatCache,
-                    job: var BodyMintJob) =
-  let slot = job.routeSlot
-  let cell = job.goalCell
+proc pushMintSeed(minter: BodyFieldMinter, cache: BodySeatCache,
+                  job: var BodyMintJob, cell: BodyPoint) {.inline.} =
   let index = cell.y * minter.map.gridWidth + cell.x
-  cache.setRouteDistance(slot, index, 0.0, 0)
-  minter.heap.begin()
+  cache.setRouteDistance(job.routeSlot, index, 0.0, 0)
   minter.heap.pushOrDecrease(HeapNode(priority: 0.0, cost: 0.0,
     tie1: cell.x, tie2: cell.y, item: index))
+  inc job.seedsFound
+
+proc initMintSearch(minter: BodyFieldMinter, cache: BodySeatCache,
+                    job: var BodyMintJob) =
+  minter.heap.begin()
+  minter.pushMintSeed(cache, job, job.goalCell)
   job.stage = mjsSearch
+
+proc initSeedScan(minter: BodyFieldMinter, job: var BodyMintJob) =
+  minter.heap.begin()
+  job.seedCursor = 0
+  job.stage = mjsSeed
+
+proc advanceSeedScan(minter: BodyFieldMinter, cache: BodySeatCache,
+                     job: var BodyMintJob,
+                     hazard: BodyHazardField): bool =
+  ## Charges one work unit per candidate inspected, so a whole-board seed scan
+  ## is a resumable state machine like every other map-sized loop here rather
+  ## than a burst on one tick.
+  ##
+  ## Row-major order is the determinism contract for multi-source seeding: all
+  ## seeds enter at priority 0 and break ties on (cellX, cellY), so a fixed
+  ## scan order fixes the parent field exactly.
+  case job.seedMode
+  of bmsGoalPoint:
+    job.stage = mjsSearch
+    return false
+  of bmsSeedList:
+    if job.seedCursor >= job.seedCount:
+      job.stage = mjsSearch
+      return false
+    let cell = job.seeds[job.seedCursor]
+    inc job.seedCursor
+    if minter.map.cellWalkable(cell):
+      minter.pushMintSeed(cache, job, cell)
+    return true
+  of bmsDryGround:
+    let cells = minter.map.gridWidth * minter.map.gridHeight
+    if job.seedCursor >= cells:
+      job.stage = mjsSearch
+      return false
+    let
+      index = job.seedCursor
+      cell: BodyPoint = (index mod minter.map.gridWidth,
+                         index div minter.map.gridWidth)
+    inc job.seedCursor
+    if minter.map.cellWalkable(cell) and
+        hazard.staysDryUntil(cell.x, cell.y, job.horizonTick):
+      minter.pushMintSeed(cache, job, cell)
+    return true
 
 proc advanceMintSearch(minter: BodyFieldMinter, cache: BodySeatCache,
                        job: var BodyMintJob): bool =
@@ -496,21 +635,64 @@ proc beginMint*(minter: BodyFieldMinter, cache: BodySeatCache,
   job = BodyMintJob(stage: mjsClear, routeKey: key, routeSlot: slot,
     goal: goal, goalCell: minter.map.cellOf(goal), revision: revision)
 
+proc beginMintFromSet*(minter: BodyFieldMinter, cache: BodySeatCache,
+                       job: var BodyMintJob, key: int,
+                       seeds: openArray[BodyPoint], revision: uint64) =
+  ## Multi-source mint from an explicit, bounded seed set.
+  ##
+  ## CALLER CONTRACT: `seeds` must already be in row-major cell order
+  ## ((y, x) ascending) and deduplicated. Seeding is otherwise identical to the
+  ## single-source path — the result is exactly "min over the per-source
+  ## single-source fields", which is what the oracle test asserts.
+  if seeds.len > MaxMintSeeds:
+    raise newException(BodyMapError,
+      "multi-source mint exceeds the fixed seed buffer")
+  if cache.routeSlotReady(key):
+    job = BodyMintJob(stage: mjsComplete, routeKey: key, routeSlot: -1,
+      revision: revision, seedMode: bmsSeedList)
+    return
+  let anchor: BodyPoint = if seeds.len > 0: seeds[0] else: (0, 0)
+  let slot = cache.beginRouteFieldKeyed(key, anchor)
+  job = BodyMintJob(stage: mjsClear, routeKey: key, routeSlot: slot,
+    goalCell: anchor, revision: revision, seedMode: bmsSeedList,
+    seedCount: seeds.len)
+  for index, seed in seeds:
+    job.seeds[index] = seed
+
+proc beginMintDryGround*(minter: BodyFieldMinter, cache: BodySeatCache,
+                         job: var BodyMintJob, key, horizonTick: int,
+                         revision: uint64) =
+  ## The zone-safe flow field: a multi-source Dijkstra seeded from every nav
+  ## cell that is still dry at `horizonTick`. The seed set is a THRESHOLD ON A
+  ## STATIC ARRAY, so it only changes when the horizon crosses cell arrivals —
+  ## which is why the caller buckets the horizon instead of re-minting per tick.
+  if cache.routeSlotReady(key):
+    job = BodyMintJob(stage: mjsComplete, routeKey: key, routeSlot: -1,
+      revision: revision, seedMode: bmsDryGround, horizonTick: horizonTick)
+    return
+  let slot = cache.beginRouteFieldKeyed(key, (0, 0))
+  job = BodyMintJob(stage: mjsClear, routeKey: key, routeSlot: slot,
+    revision: revision, seedMode: bmsDryGround, horizonTick: horizonTick)
+
 proc cancelMint*(cache: BodySeatCache, job: var BodyMintJob) =
   if job.stage in {mjsClear, mjsSearch}:
     cache.cancelRouteFieldBuild(job.routeSlot)
   job.stage = mjsIdle
 
-proc mintPending*(job: BodyMintJob): bool =
-  job.stage in {mjsClear, mjsSearch}
-
 proc mintFinished*(job: BodyMintJob): bool =
   job.stage == mjsComplete
 
+proc mintPending*(job: BodyMintJob): bool =
+  job.stage in {mjsClear, mjsSeed, mjsSearch}
+
 proc stepMint*(minter: BodyFieldMinter, cache: BodySeatCache,
-               job: var BodyMintJob, budget: var int): int =
+               job: var BodyMintJob, budget: var int,
+               hazard = BodyHazardField()): int =
   ## Spend at most budget units. This is the former route-field clear/search
-  ## state machine lifted out of the plan path unchanged.
+  ## state machine lifted out of the plan path unchanged; multi-source seeding
+  ## adds one charged stage between the clear and the search, and the
+  ## single-source (bmsGoalPoint) path still skips it entirely so a seat mint's
+  ## work-unit accounting is byte-identical to the shipped one.
   let initial = budget
   block processing:
     while job.mintPending:
@@ -521,7 +703,15 @@ proc stepMint*(minter: BodyFieldMinter, cache: BodySeatCache,
         dec budget
         inc job.workUnits
         if cleared:
-          minter.initMintSearch(cache, job)
+          if job.seedMode == bmsGoalPoint:
+            minter.initMintSearch(cache, job)
+          else:
+            minter.initSeedScan(job)
+      of mjsSeed:
+        if budget == 0: break processing
+        if minter.advanceSeedScan(cache, job, hazard):
+          dec budget
+          inc job.workUnits
       of mjsSearch:
         if minter.heap.len > 0 and budget == 0: break processing
         if minter.advanceMintSearch(cache, job):
@@ -536,7 +726,9 @@ proc mintFingerprint*(minter: BodyFieldMinter, cache: BodySeatCache,
   var value: Hash = hash(ord(job.stage)) !& hash(job.revision) !&
     hash(job.routeKey) !& hash(job.routeSlot) !& hash(job.goal) !&
     hash(job.goalCell) !& hash(job.workUnits) !& hash(job.expansions) !&
-    hash(minter.heap.len) !& cache.routeStateFingerprint
+    hash(ord(job.seedMode)) !& hash(job.seedCursor) !& hash(job.seedsFound) !&
+    hash(job.horizonTick) !& hash(minter.heap.len) !&
+    cache.routeStateFingerprint
   for index in 0 ..< minter.heap.len:
     let node = minter.heap.nodes[index]
     value = value !& hash(node.priority) !& hash(node.cost) !&
@@ -558,6 +750,8 @@ proc initAstarSearch(planner: BodyPlanner, cache: BodySeatCache,
   job.searchGeneration = planner.search.generation
   let sourceRecord = planner.search.ensureRecord(job.sourceIndex)
   planner.search.gScore[sourceRecord] = 0.0
+  if planner.search.gPixels.len > 0:
+    planner.search.gPixels[sourceRecord] = 0.0
   planner.search.cameFrom[sourceRecord] = -1
   let sourcePoint = job.latticePoint(job.sourceIndex)
   let targetPoint = job.latticePoint(job.targetIndex)
@@ -582,8 +776,48 @@ proc startFallback(planner: BodyPlanner, job: var BodyPlanJob): bool =
   true
 
 proc advanceAstar(planner: BodyPlanner, cache: BodySeatCache,
-                  danger: BodyDangerField, job: var BodyPlanJob): bool =
+                  danger: BodyDangerField, hazard: BodyHazardField,
+                  job: var BodyPlanJob): bool =
   ## Returns true only when a heap pop was consumed.
+  ##
+  ## SAFE BY TIME — what the arrival estimate actually guarantees.
+  ##
+  ## ⚠️ READ THIS BEFORE CHANGING THE TERM. An earlier draft of this comment
+  ## claimed A* settles each node at its MINIMUM PATH LENGTH and therefore at
+  ## its EARLIEST possible arrival. THAT CLAIM IS FALSE, and the correction
+  ## is the whole reason the term is shaped the way it is:
+  ##
+  ##   * `gScore` is the PRICED cost — base length multiplied by the danger
+  ##     and hazard weights. It is not a distance.
+  ##   * `gPixels` is the raw pixel LENGTH OF THE MINIMUM-COST PATH, which is
+  ##     the path A* actually settles. That is >= the length of the
+  ##     minimum-LENGTH path: a route priced cheap through open ground can be
+  ##     physically longer than the short dangerous one it beat.
+  ##   * Closed nodes are never re-opened, so a node's `gPixels` is fixed at
+  ##     the length of whichever path won on COST, not on length.
+  ##
+  ## So `estimatedArrivalTicks` is an UPPER BOUND on the true earliest
+  ## arrival — CONSERVATIVE-LATE, in the same direction as (and compounding
+  ## with) the speed derate. Paint can therefore be OVER-priced: ground that
+  ## the cog could in fact beat may read as risky.
+  ##
+  ## 🚨 THIS IS SAFE ONLY BECAUSE THE HAZARD IS A PRICE. Over-pricing a cell
+  ## costs a slightly longer route and nothing else. CONVERTING THIS TERM TO A
+  ## FEASIBILITY PRUNE WITH THIS PROPERTY IS UNSOUND: a conservative-late ETA
+  ## would prune ground that is genuinely reachable in time, and enough such
+  ## prunes make the goal unreachable, hand the follower `hasNoPath`, and
+  ## stand the cog still — round 3633, "14/16 cogs died standing on spawn".
+  ## A sound prune needs a TRUE lower bound on arrival (a separate
+  ## minimum-LENGTH relaxation, or a time-expanded search), which this
+  ## planner does not compute. Do not "simplify" the price into a prune.
+  ##
+  ## Separately, and still true: paint never recedes (ctf/zone_field's own
+  ## contract, "MONOTONE by construction ... arrival ticks never produce
+  ## receding paint"), so arriving later is never BETTER and no waiting-edge
+  ## machinery is needed. If the zone ever gains a receding or re-openable
+  ## surface, even the price has to be re-derived rather than re-tuned.
+  ##
+  ## See body_hazard.HazardRiskMax for why the finite saturation was chosen.
   if planner.heap.len == 0:
     if not planner.startFallback(job):
       job.stage = pjsFailed
@@ -605,6 +839,9 @@ proc advanceAstar(planner: BodyPlanner, cache: BodySeatCache,
     return
   let currentPoint = job.latticePoint(currentIndex)
   let targetPoint = job.latticePoint(job.targetIndex)
+  let zoneArmed = hazard.hasField and planner.search.gPixels.len > 0
+  let currentPixels =
+    if zoneArmed: planner.search.gPixels[record] else: 0.0
   for delta in Neighbors:
     let nextPoint: BodyPoint = (currentPoint.x + delta[0] * job.step,
                                 currentPoint.y + delta[1] * job.step)
@@ -622,14 +859,31 @@ proc advanceAstar(planner: BodyPlanner, cache: BodySeatCache,
       (if delta[0] != 0 and delta[1] != 0: Sqrt2 else: 1.0)
     let midpoint: BodyPoint = ((currentPoint.x + nextPoint.x) div 2,
                                (currentPoint.y + nextPoint.y) div 2)
-    var edgeCost = baseCost * (1.0 +
-      planCostProfile(job.profile).dangerWeight * danger.sample(planner.map, midpoint))
+    let nextPixels = currentPixels + baseCost
+    # The dark expression is spelled EXACTLY as it shipped, and the zone term
+    # is a separate addend applied only when a hazard field is installed.
+    # `x + 0.0 == x` in IEEE, but the point is not to rely on that: a dark
+    # build must execute the same instruction sequence, not merely land on the
+    # same number.
+    var costFactor = 1.0 +
+      planCostProfile(job.profile).dangerWeight * danger.sample(planner.map, midpoint)
+    if zoneArmed:
+      # The ETA is priced at the cell we would STAND on (nextPoint), not the
+      # edge midpoint the danger term samples: arrival time is a property of
+      # the node, and the paint verdict is a per-cell threshold.
+      let nextCell = planner.map.cellOf(nextPoint)
+      costFactor += planCostProfile(job.profile).zoneWeight *
+        hazard.hazardRisk(nextCell.x, nextCell.y,
+          estimatedArrivalTicks(job.nowTick, nextPixels))
+    var edgeCost = baseCost * costFactor
     if job.avoid.isSome and
         planner.map.cellOf(midpoint) == planner.map.cellOf(job.avoid.get):
       edgeCost *= FollowBlockFactor
     let nextCost = current.cost + edgeCost
     if nextCost < planner.search.gScore[nextRecord]:
       planner.search.gScore[nextRecord] = nextCost
+      if zoneArmed:
+        planner.search.gPixels[nextRecord] = nextPixels
       planner.search.cameFrom[nextRecord] = currentIndex
       planner.heap.pushOrDecrease(HeapNode(
         priority: nextCost + planner.heuristic(cache, nextPoint, targetPoint, job.goal),
@@ -692,12 +946,13 @@ proc beginResolvedPlan(planner: BodyPlanner, cache: BodySeatCache,
 proc startPlan*(planner: BodyPlanner, cache: BodySeatCache,
                 job: var BodyPlanJob, revision: uint64, start: BodyPoint,
                 goal: ValidatedGoal, profile = shellTypes.cpDefault,
-                avoid = none(BodyPoint)) =
+                avoid = none(BodyPoint), nowTick = 0) =
   if not goal.belongsTo(planner.map):
     raise newException(BodyMapError, "validated goal belongs to another body map")
   let point = goal.goalPoint
   job = BodyPlanJob(stage: pjsIdle, revision: revision,
-    start: start, goal: point, profile: profile, avoid: avoid, step: PlanStepPx)
+    start: start, goal: point, profile: profile, nowTick: nowTick,
+    avoid: avoid, step: PlanStepPx)
   planner.resultLen = 0
   if planner.map.canStand(start):
     job.planStart = start
@@ -722,7 +977,7 @@ proc planSucceeded*(job: BodyPlanJob): bool = job.stage == pjsComplete
 
 proc stepPlan*(planner: BodyPlanner, cache: BodySeatCache,
                danger: BodyDangerField, job: var BodyPlanJob,
-               budget: var int): int =
+               budget: var int, hazard = BodyHazardField()): int =
   ## Spend at most budget units. Constant state transitions do not consume a
   ## unit; every map-sized loop advances only through a charged arm below.
   let initial = budget
@@ -773,7 +1028,7 @@ proc stepPlan*(planner: BodyPlanner, cache: BodySeatCache,
           inc job.workUnits
       of pjsAstarSearch:
         if planner.heap.len > 0 and budget == 0: break processing
-        if planner.advanceAstar(cache, danger, job):
+        if planner.advanceAstar(cache, danger, hazard, job):
           dec budget
           inc job.workUnits
       of pjsReconstruct:
