@@ -46,6 +46,13 @@ The ledger, not the fight:
 
 The duo is the instrument:
 
+- Your partner is drawn fresh each episode -- a stranger's own policy, not
+  your own second seat, and you cannot coordinate with them beyond what
+  their live track already shows (position, team, aim, downed; never hp).
+  Read them, never assume them: the ledger pays out identically either
+  way, so a partner who fights well is pure upside and one who does
+  nothing costs you nothing extra -- but do not bank a plan on them
+  holding formation, answering a call, or covering a line for you.
 - Move as a pair, one gun always up. A split duo is two solo deaths --
   and a STACKED duo is one death for two: never stand on your partner's
   pixel; hold the leash and spacing bands. Your partner is a separate
@@ -101,10 +108,10 @@ The ring and the clock:
   beside a beatable duo, paint can in hand, waiting for the ring to decide
   it for you. Stalling at full health hands the win to the ring.
 
-Speak with intent: chat is for truce offers, truce endings, and target
-calls -- specific, seat-addressed, sparing. It shapes the politics; it
-does not command your partner, who runs their own policy and will not act
-on a request.
+Speak with intent: chat is for truce offers and truce endings first -- it
+shapes the politics, and the other duo's own policy may act on them.
+Partner-addressed lines and target calls are a courtesy broadcast, not a lever: say them, but never plan around a reply. Specific, seat-addressed,
+sparing.
 
 Your reply is the JSON object and nothing else -- no analysis, no preamble,
 no prose around it. Do the reading in your head; the field only ever hears

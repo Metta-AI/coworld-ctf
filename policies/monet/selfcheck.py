@@ -676,6 +676,76 @@ downed_facts = starter_harness._view_facts(DOWNED_GRANT_VIEW,
 check("_view_facts: partner_downed tracks the grant row's downed flag",
       downed_facts["partner_downed"] is True)
 
+# ── v-next (stranger-partner audit): ourGuns credit requires the partner
+# be WITHIN engageDist of self, not merely alive somewhere on the map. A
+# fresh partner track used to count as a full second gun unconditionally;
+# since the duo partner is a re-drawn stranger every episode (not our own
+# second Monet seat, R3746/47), presence is not evidence they are in THIS
+# fight. Mirrors fire_superiority.nim's `ally` branch. ────────────────────
+def fs_partner_counts(partner_dist: float, engage_dist: int) -> bool:
+    return partner_dist <= engage_dist
+
+
+for i, turn in enumerate(PERSONA.canned_turns, start=1):
+    fs = next((e for e in turn["call"]["entries"]
+               if e.get("play") == "fire_superiority"), None)
+    if fs is None:
+        continue
+    ed = fs["params"]["engageDist"]
+    check(f"turn {i}: fs_partner_counts -- partner just inside engageDist "
+          "still counts as a second gun",
+          fs_partner_counts(ed - 1, ed))
+    check(f"turn {i}: fs_partner_counts -- partner beyond engageDist does "
+          "NOT count (alive elsewhere on the map is not a gun in THIS "
+          "fight)", not fs_partner_counts(ed + 1, ed))
+
+# ── v-next (stranger-partner audit): partner-line exposure. We cannot read
+# a stranger's actual aim (no brads-to-vector decode exists in this SDK),
+# so fire_superiority.nim's press-target tie-break instead treats every
+# OTHER visible enemy as a plausible aim target FOR the partner, and
+# deprioritizes a stand point that falls in that line. `within_fire_cone`
+# below is the exact sqrt-free mirror fire_superiority.nim uses (== the
+# engine's sprayContains, pinned independently by
+# tests/test_shell_body_spray_cone.nim -- ArcFireRangePx=170,
+# ArcMaxWidthPx=85, src/shell/body.nim). ──────────────────────────────────
+def within_fire_cone(origin, aim_at, other) -> bool:
+    arc_range, arc_width = 170, 85
+    dx, dy = aim_at[0] - origin[0], aim_at[1] - origin[1]
+    d_sq = dx * dx + dy * dy
+    if d_sq <= 0:
+        return False
+    vx, vy = other[0] - origin[0], other[1] - origin[1]
+    forward = vx * dx + vy * dy
+    cross = vx * dy - vy * dx
+    if forward <= 0:
+        return False
+    if forward * forward > arc_range * arc_range * d_sq:
+        return False
+    return 2 * arc_range * abs(cross) <= arc_width * forward
+
+
+check("within_fire_cone: straight ahead, in range and width, is caught",
+      within_fire_cone((0, 0), (500, 0), (100, 0)))
+check("within_fire_cone: directly behind the aim is never caught",
+      not within_fire_cone((0, 0), (500, 0), (-50, 0)))
+check("within_fire_cone: 300px off-axis at forward=100 is not caught "
+      "(half-width there is ~25px)",
+      not within_fire_cone((0, 0), (500, 0), (100, 300)))
+check("exposure proxy: a stand point sitting on the partner's plausible "
+      "line to ANOTHER enemy is flagged exposed",
+      within_fire_cone((0, 0), (500, 0), (100, 0)))
+check("exposure proxy: a stand point well off that line is not flagged",
+      not within_fire_cone((0, 0), (500, 0), (100, 300)))
+
+# ── v-next: prompt carries the stranger-partner doctrine (audit deliverable
+# -- a future edit reverting to "our own second seat" language is caught
+# here, same convention as the endgame-standoff prompt pins above). ───────
+check("prompt: partner doctrine states the partner is redrawn each episode "
+      "(not our own second seat)",
+      "drawn fresh each episode" in prompt, "stranger-partner text not found")
+check("prompt: chat doctrine no longer treats partner lines as a lever",
+      "not a lever" in prompt, "chat doctrine text not found")
+
 print()
 if failures:
     print(f"SELF-CHECK FAILED: {len(failures)} failing check(s)")

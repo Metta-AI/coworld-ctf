@@ -410,7 +410,14 @@ PERSONA = Persona(
                              "outgunned means break to facing cover. Keep "
                              "it guarded on enemy contact: it is how a "
                              "winning fight gets FINISHED instead of "
-                             "drawn, and a draw pays nobody."),
+                             "drawn, and a draw pays nobody. Your partner "
+                             "only counts as a second gun when they are "
+                             "close enough to THIS fight to matter -- "
+                             "alive-but-distant is not a 1v1 flipped to a "
+                             "2v1. Among targets you could press, the play "
+                             "already steers off any line that would catch "
+                             "your partner, and off any spot that would "
+                             "put you in theirs."),
         "ring_walker": ("ring_walker is survival rule zero: the ring is "
                         "a schedule, not a surprise -- leave the building "
                         "BEFORE the walk turns into an escape, and only "

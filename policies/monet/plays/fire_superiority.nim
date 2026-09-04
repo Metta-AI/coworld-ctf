@@ -7,13 +7,23 @@
 ##
 ## Fog-honest superiority estimate, per step:
 ## - our guns   = self alive, +1 when the duo partner has a fresh live track
-##   (the duo partner rides its own unconditional grant row -- view.nim
-##   partnerTelemetry, landed 9511b240 -- separate from the ordinary
-##   same-team-excluded track loop the "their guns" count below still uses.
-##   This is LIVE on today's server, not a future-perception placeholder:
-##   the grant carries pos/aim/downed every tick both seats are alive, so
-##   `partnerFresh` below is already counting a real second gun, not
-##   degrading to 1),
+##   WITHIN engageDist of self (the duo partner rides its own unconditional
+##   grant row -- view.nim partnerTelemetry, landed 9511b240 -- separate
+##   from the ordinary same-team-excluded track loop the "their guns" count
+##   below still uses; the grant carries pos/aim/downed every tick both
+##   seats are alive). The engageDist gate is v-next (stranger-partner
+##   audit): since S2 the second seat is a re-drawn stranger every episode
+##   (measured forum change, R3746/47), not our own second Monet instance --
+##   a fresh-but-distant partner track proves they are alive somewhere on
+##   the map, never that they are IN this fight. Presence used to be
+##   treated as proof of a second gun unconditionally; it is now held to
+##   the exact distance the enemy count already uses, so a partner off
+##   fighting their own battle elsewhere no longer flips an actual 1v2 into
+##   a false "superior" read. This still cannot tell whether the stranger
+##   is even armed (self.hasGun/hasHopper are never exposed to a policy,
+##   same gap loot.nim's own header documents) -- proximity is the
+##   cheapest honest proxy available given that blind spot, not a fix for
+##   it,
 ## - their guns = fresh enemy tracks within engageDist,
 ## - wounded    = counted enemies with KNOWN hp <= 2; unknown hp is HEALTHY.
 ##
@@ -45,6 +55,21 @@
 ## preference among targets we are already pressing, not a reason to wait --
 ## an all-candidates-catch-partner fallback keeps the old
 ## lowest-hp/nearest choice rather than holding off the fight.
+##
+## Partner-line exposure (v-next, stranger-partner audit -- the inverse of
+## the paragraph above): that check only ever protects the partner from OUR
+## spray. A stranger partner can just as easily spray THROUGH us toward
+## their own chosen target, and the same uncapped compounding halving lands
+## on their fire, not ours. Their actual aim cannot be read -- aimBrads
+## only ever rides the wire as an opaque int and this SDK exposes no
+## cos/sin table to turn it into a direction, so this cannot be the
+## mirror-exact gate `clean` above is. The proxy used instead: treat every
+## OTHER visible enemy as a plausible aim target FOR the partner
+## (withinFireCone(partnerPos, thatEnemy, ourCandidateStand)) and
+## deprioritize -- never forbid, an all-exposed field still has to fight --
+## a stand position that falls in any of those lines, once `clean` is
+## already tied. Positioning hygiene, not a promise: a stranger aiming at a
+## THIRD target we cannot see at all stays unmodelled.
 ## Inferior by breakDeficit or more:
 ## BREAK -- facing cover, never navigating through the enemy bearing
 ## (composes with hold_vs_gun's never-turn-your-back doctrine). Even or no
@@ -399,7 +424,11 @@ proc play_step*(viewPtr, viewLen: int32): int32 {.exportc, cdecl.} =
     if track.seatPresent and track.seat == selfSeat:
       continue
     if ally:
-      if fresh and not (track.hpPresent and track.hp <= 0):
+      # v-next: alive somewhere on the map is not "in this fight" -- hold
+      # the partner to the same engageDist enemies already clear (see the
+      # file header's "our guns" note).
+      if fresh and not (track.hpPresent and track.hp <= 0) and
+          distSq(decoded.self.pos, track.pos) <= sq(params.engageDist):
         partnerFresh = true
         partnerPos = track.pos
       continue
@@ -442,6 +471,7 @@ proc play_step*(viewPtr, viewLen: int32): int32 {.exportc, cdecl.} =
     # live enemy or no partner/cluster distinction to make.
     var bestIdx = 0'i32
     var bestClean = false
+    var bestExposed = true
     var bestCluster = -1'i32
     var bestHp = high(int32)
     var bestDistSq = high(int64)
@@ -455,16 +485,29 @@ proc play_step*(viewPtr, viewLen: int32): int32 {.exportc, cdecl.} =
           inc cluster
       let clean = not (partnerFresh and
         withinFireCone(stand, candPos[i], partnerPos))
+      # PARTNER-LINE EXPOSURE (v-next): would this stand point sit in a
+      # plausible partner fire line -- the partner aiming at some OTHER
+      # visible enemy? See the file header; a proxy, not a read of their
+      # actual aim. Ranked below `clean` (protecting the partner from OUR
+      # fire still comes first) but above the cluster/hp/distance ties.
+      var exposed = false
+      if partnerFresh:
+        for k in 0 ..< candCount:
+          if k != i and withinFireCone(partnerPos, candPos[k], stand):
+            exposed = true
+            break
       let d = distSq(decoded.self.pos, candPos[i])
       let better =
         if i == 0: true
         elif clean != bestClean: clean
+        elif exposed != bestExposed: not exposed
         elif cluster != bestCluster: cluster > bestCluster
         elif candHp[i] != bestHp: candHp[i] < bestHp
         else: d < bestDistSq
       if better:
         bestIdx = i
         bestClean = clean
+        bestExposed = exposed
         bestCluster = cluster
         bestHp = candHp[i]
         bestDistSq = d
