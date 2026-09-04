@@ -6,7 +6,7 @@ the audit table T2 needed to scope its own work; it also seeds T1's fuller
 census (matrix × ALL layers incl. exchange/HUD/wiki, file:line per cell).
 
 Scope of what was actually fixed in this slice: **ground sprite art for
-bandage / gun crate / hopper crate**, wired end-to-end (asset → loader →
+bandage / marker half / hopper**, wired end-to-end (asset → loader →
 sprite/object id pools → both packet-builder call sites). Everything else
 below is audited, not built, in this slice.
 
@@ -27,8 +27,8 @@ labels.nim, broadcast.nim) plus the SDK perception layer in `src/shell/`
 | spray can | `sprayPaintSpawns` | always on | global.nim:5987 (`addSprayPaints`) |
 | barrier | `barrierSpawns` | `barrierPickups > 0` | global.nim:6456 (`addBarriers`) |
 | **bandage** | `bandageSpawns` | `bandagePickups > 0` | sim_types.nim:3884 |
-| **gun / marker crate** | `weaponSpawns` | `lootStart` (brMode only) | sim_types.nim:1803, 3879 |
-| **hopper crate** | `hopperSpawns` | `lootStart` (brMode only) | sim_types.nim:1807, 3882 |
+| **gun / marker half** | `weaponSpawns` | `lootStart` (brMode only) | sim_types.nim:1803, 3879 |
+| **hopper** | `hopperSpawns` | `lootStart` (brMode only) | sim_types.nim:1807, 3882 |
 | perks (armor/scope/grenade/thruster/luck) | `config.perks[team]` | authored per-team/policy at config time | sim_config.nim:460-524 |
 
 **"scope" is a PHANTOM as a ground/pickup item.** It is one of 5 team-level
@@ -55,8 +55,8 @@ Columns: **world sprite** (this slice) · **HUD/pickup token** (wire
 | spray can | ✅ | n/a | ✅ | ✅ `pikSpray` | n/a |
 | barrier | ✅ | n/a | ✅ | ✅ `pikBarrier` | n/a |
 | **bandage** | ✅ **FIXED this slice** | ✅ `"bandage"` (broadcast.nim:773,967) | ✅ +1hp self-apply, 72-tick calm clock (sim.nim:3894) | ❌ **GAP — no `pikBandage`/`sikBandage`/`bikBandage`; only `pikMedkit` exists** (view.nim:93-99) | ✅ `giveDeclItem` whitelist incl. `"bandage"` (sim_types.nim:2923) |
-| **gun / marker crate** | ✅ **FIXED this slice** | ✅ `"gun"` (broadcast.nim:771,965) | ✅ grants `hasGun` (sim.nim:3948) | ✅ `pikGun`/`sikGun`/`bikGun` (view.nim:92, landed glory-2 §17) | ✅ `"gun"` in whitelist |
-| **hopper crate** | ✅ **FIXED this slice** | ✅ `"hopper"` (broadcast.nim:772,966) | ✅ grants `hasHopper` (sim.nim:3967) | ✅ `pikHopper`/`sikHopper`/`bikHopper` | ✅ `"hopper"` in whitelist |
+| **gun / marker half** | ✅ **FIXED this slice** | ✅ `"gun"` (broadcast.nim:771,965) | ✅ grants `hasGun` (sim.nim:3948) | ✅ `pikGun`/`sikGun`/`bikGun` (view.nim:92, landed glory-2 §17) | ✅ `"gun"` in whitelist |
+| **hopper** | ✅ **FIXED this slice** | ✅ `"hopper"` (broadcast.nim:772,966) | ✅ grants `hasHopper` (sim.nim:3967) | ✅ `pikHopper`/`sikHopper`/`bikHopper` | ✅ `"hopper"` in whitelist |
 | perks incl. scope | n/a (config-time, not a pickup) | n/a | ✅ (stat modifiers apply automatically) | n/a | n/a |
 
 **Before this slice: bandage/gun-crate/hopper-crate had sim-side touch/pickup
@@ -77,27 +77,39 @@ board now renders them as visually distinct pickups. Grepped
 
 ## What this slice built (commits on `maxwell/bandages-visible`)
 
-- **Assets**: `data/bandage.png`, `data/gun_crate.png`, `data/hopper_crate.png`
+- **Assets**: `data/bandage.png`, `data/marker_half.png`, `data/hopper.png`
   (700×700 RGBA, chunky bold-outline painted style matching
   `medkit.png`/`shield.png`/`paintbomb.png`/`spraycan.png` — generated via
   the nano-banana skill on a flat magenta backdrop, chroma-keyed to real
-  alpha, cropped/padded to a square canvas).
-- **Loaders**: `loadBandageSprite`/`loadGunCrateSprite`/`loadHopperCrateSprite`
+  alpha, cropped/padded to a square canvas). **Revised 2026-09-03 per owner
+  review**: the first pass drew generic wooden crates with an icon stenciled
+  on the lid; owner correction was that the ground item IS the marker half
+  and IS the hopper (top-down marker body with an empty feed-neck port, a
+  standalone paintball hopper), not a container around it — regenerated to
+  match, filenames renamed `gun_crate.png`→`marker_half.png`,
+  `hopper_crate.png`→`hopper.png`.
+- **Loaders**: `loadBandageSprite`/`loadMarkerHalfSprite`/`loadHopperSprite`
   in `src/ctf/rig_art.nim`, same `loadRgbaSprite(..., alphaCutoff=128)`
   pattern as every other neutral pickup.
-- **Sprite/object id pools**: `BandageSpriteId=1495`/`GunCrateSpriteId=1496`/
-  `HopperCrateSpriteId=1497` (free run after the barrier statics, clear of
-  the corpses at 2900) and `BandageObjectBase=35586`/`GunCrateObjectBase=35650`/
-  `HopperCrateObjectBase=35714` (free run after the spray-can pickups, each
+- **Sprite/object id pools**: `BandageSpriteId=1495`/`MarkerHalfSpriteId=1496`/
+  `HopperSpriteId=1497` (free run after the barrier statics, clear of
+  the corpses at 2900) and `BandageObjectBase=35586`/`MarkerHalfObjectBase=35650`/
+  `HopperObjectBase=35714` (free run after the spray-can pickups, each
   `NeutralItemPoolWidth`=64 wide, clear of the barrier pickups at 36600) in
   `src/ctf/global.nim`, registered in both compile-time collision audits
   (`BoardObjectPools`, `BoardSpritePools`).
-- **Render procs**: `addBandages`/`addGunCrates`/`addHopperCrates` in
+- **Render procs**: `addBandages`/`addMarkerHalves`/`addHoppers` in
   `global.nim`, modeled exactly on `addMedKits` (fog-gated by
   `fovVisibleAt`, sprite defined lazily), wired into BOTH packet-builder
   call sites (the per-player POV stream and the board/replay stream).
-- **Labels**: `LabelBandage="bandage"`, `LabelGunCrate="gun crate"`,
-  `LabelHopperCrate="hopper crate"` in `src/ctf/labels.nim`. Not added to
+- **Labels**: `LabelBandage="bandage"`, `LabelMarkerHalf="marker half"`,
+  `LabelHopper="hopper"` in `src/ctf/labels.nim` (renamed from the first
+  pass's `"gun crate"`/`"hopper crate"` per owner ruling 2026-09-03 —
+  tagging language, never shooter; "marker half" also reads correctly
+  against the shipped `Intent.handoff`/wire item-token vocabulary from #380
+  (`"gun"`/`"hopper"`/`"bandage"`), which is untouched — these are
+  unshipped ground-sprite labels, a different namespace, free to rename
+  before landing). Not added to
   `PolicyScannedLabels` — the reference policy does not read them yet
   (that's T4/T5 territory); the golden manifest (`tests/label_manifest.txt`)
   is unaffected because the new render procs emit nothing when
@@ -108,7 +120,7 @@ board now renders them as visually distinct pickups. Grepped
   `tools/spray_probe.nim`) poses three pickups directly, renders a real
   board frame via `buildSpriteProtocolUpdates`, and crops each — confirms
   both the pixels and the wire labels (`sprite 1495 "bandage"`,
-  `sprite 1496 "gun crate"`, `sprite 1497 "hopper crate"`).
+  `sprite 1496 "marker half"`, `sprite 1497 "hopper"`).
 
 ## Placement (T3) — explicitly OUT of this slice's scope
 

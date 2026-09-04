@@ -1,5 +1,5 @@
 ## Renders the three LOOT(s2) ground-art additions (item-completeness epic
-## 1ef4f9d6, T2: bandage/gun-crate/hopper-crate) to PNGs without a server or
+## 1ef4f9d6, T2: bandage / marker half / hopper) to PNGs without a server or
 ## a replay -- same probe pattern as tools/spray_probe.nim: pose the sim by
 ## hand (three pickups placed directly, bypassing the brMode/lootStart config
 ## fence the same way tests/test_perception_loadout_sdk.nim does for the SDK
@@ -32,7 +32,7 @@ proc main() =
     sim.players[index].x = x - CollisionW div 2
     sim.players[index].y = y - CollisionH div 2
 
-  # Open floor, far from both players so the crates render undisturbed and
+  # Open floor, far from both players so the pickups render undisturbed and
   # unpicked-up.
   let midY = MapHeight div 2
   placeAt(red, 300, midY - 200)
@@ -41,14 +41,14 @@ proc main() =
   # Three pickups placed directly (the same shortcut
   # tests/test_perception_loadout_sdk.nim uses for the SDK-perception half of
   # this feature): this proves the RENDER path independent of the
-  # lootStart/bandagePickups config gate and the crate-placement mechanism
-  # (T3's territory, not this probe's).
+  # lootStart/bandagePickups config gate and the placement mechanism (T3's
+  # territory, not this probe's).
   let
     bandageXY = (x: 500, y: midY - 60)
-    gunXY = (x: 700, y: midY - 60)
+    markerXY = (x: 700, y: midY - 60)
     hopperXY = (x: 900, y: midY - 60)
   sim.bandageSpawns = @[PickupSpawn(x: bandageXY.x, y: bandageXY.y, present: true)]
-  sim.weaponSpawns = @[PickupSpawn(x: gunXY.x, y: gunXY.y, present: true)]
+  sim.weaponSpawns = @[PickupSpawn(x: markerXY.x, y: markerXY.y, present: true)]
   sim.hopperSpawns = @[PickupSpawn(x: hopperXY.x, y: hopperXY.y, present: true)]
 
   var
@@ -70,20 +70,20 @@ proc main() =
   let board = renderBoard()
   cropOf(board, bandageXY.x, bandageXY.y, 80, 80)
     .resize(80 * 3, 80 * 3).writeFile(outDir / "loot-art-bandage.png")
-  cropOf(board, gunXY.x, gunXY.y, 90, 90)
-    .resize(90 * 3, 90 * 3).writeFile(outDir / "loot-art-gun-crate.png")
+  cropOf(board, markerXY.x, markerXY.y, 90, 90)
+    .resize(90 * 3, 90 * 3).writeFile(outDir / "loot-art-marker-half.png")
   cropOf(board, hopperXY.x, hopperXY.y, 90, 90)
-    .resize(90 * 3, 90 * 3).writeFile(outDir / "loot-art-hopper-crate.png")
+    .resize(90 * 3, 90 * 3).writeFile(outDir / "loot-art-hopper.png")
   # One wide shot with all three in frame, for a single at-a-glance proof.
   cropOf(board, 700, midY - 60, 620, 160)
     .resize(620 * 2, 160 * 2).writeFile(outDir / "loot-art-all-three.png")
 
-  echo "wrote loot-art-bandage.png, loot-art-gun-crate.png, ",
-    "loot-art-hopper-crate.png, loot-art-all-three.png to ", outDir
+  echo "wrote loot-art-bandage.png, loot-art-marker-half.png, ",
+    "loot-art-hopper.png, loot-art-all-three.png to ", outDir
 
   echo "--- loot-art sprite labels on the wire ---"
   for id, label in world.labels:
-    if "bandage" in label or "gun crate" in label or "hopper crate" in label:
+    if "bandage" in label or "marker half" in label or "hopper" in label:
       echo "  sprite ", id, "  \"", label, "\""
 
 main()

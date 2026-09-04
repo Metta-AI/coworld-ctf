@@ -422,27 +422,33 @@ const
   ## LOOT(s2) ground art (item-completeness epic 1ef4f9d6, T2): the three
   ## sim-side pickup families that had touch/pickup logic (sim.nim
   ## pickupByTouch) and wire item_pickup/map_item tokens (broadcast.nim) but
-  ## NO board presence at all — a cog could walk straight through a crate it
-  ## could not see. Same "neutral pickup" shape as med kits/shields above:
-  ## fog-gated by map position, sprite defined lazily on first need. Statics
+  ## NO board presence at all — a cog could walk straight through a pickup
+  ## it could not see. Same "neutral pickup" shape as med kits/shields
+  ## above: fog-gated by map position, sprite defined lazily on first need.
+  ## The marker half (owner ruling 2026-09-03: tagging language, never
+  ## shooter — "marker half"/"hopper", NOT "gun crate"/"hopper crate") and
+  ## the hopper are each the ITEM ITSELF lying on the ground (a top-down
+  ## marker body with its empty feed-neck port, a standalone paintball
+  ## hopper), not a container art asset around it — the two-touch pickup
+  ## literally assembles a working marker out of its two halves. Statics
   ## land in the free run right after the barrier carry marker (1491) and
   ## well clear of the corpses at 2900; objects land in the free run right
   ## after the spray can pickups (35522..35585) and well clear of the
   ## barrier pickups at 36600 — see PaintBombPickupObjectBase's comment for
   ## why that post-tracer-dot gap is where every NeutralItemPoolWidth pool
   ## lives now.
-  BandageSpriteId = 1495         ## carryable +1hp pickup (bandagePickups).
-  GunCrateSpriteId = 1496        ## the marker (gun) crate, lootStart only.
-  HopperCrateSpriteId = 1497     ## the ammo hopper crate, lootStart only.
-  BandageSize = 20               ## px footprint of a bandage pickup.
-  GunCrateSize = 26              ## px footprint of a gun crate pickup.
-  HopperCrateSize = 26           ## px footprint of a hopper crate pickup.
-  BandageObjectBase = 35586      ## bandages, NeutralItemPoolWidth-wide:
-                                 ## 35586..35649.
-  GunCrateObjectBase = 35650     ## gun crates, NeutralItemPoolWidth-wide:
-                                 ## 35650..35713.
-  HopperCrateObjectBase = 35714  ## hopper crates, NeutralItemPoolWidth-wide:
-                                 ## 35714..35777.
+  BandageSpriteId = 1495       ## carryable +1hp pickup (bandagePickups).
+  MarkerHalfSpriteId = 1496    ## the ground marker half, lootStart only.
+  HopperSpriteId = 1497        ## the ground hopper, lootStart only.
+  BandageSize = 20             ## px footprint of a bandage pickup.
+  MarkerHalfSize = 26          ## px footprint of a marker half pickup.
+  HopperSize = 26              ## px footprint of a hopper pickup.
+  BandageObjectBase = 35586    ## bandages, NeutralItemPoolWidth-wide:
+                               ## 35586..35649.
+  MarkerHalfObjectBase = 35650 ## marker halves, NeutralItemPoolWidth-wide:
+                               ## 35650..35713.
+  HopperObjectBase = 35714     ## hoppers, NeutralItemPoolWidth-wide:
+                               ## 35714..35777.
   RotDiamondSpriteBase = 1401    ## spinning diamond frames: 1401..1416;
                                  ## 850 collided with CorpseSpriteBase.
   RotDiamondObjectBase = 19610   ## spinning center diamonds: 19610..19617;
@@ -968,8 +974,8 @@ const
     ("endzone shields", ShieldObjectBase, NeutralItemPoolWidth),
     ("med kits", MedKitObjectBase, NeutralItemPoolWidth),
     ("bandages", BandageObjectBase, NeutralItemPoolWidth),
-    ("gun crates", GunCrateObjectBase, NeutralItemPoolWidth),
-    ("hopper crates", HopperCrateObjectBase, NeutralItemPoolWidth),
+    ("marker halves", MarkerHalfObjectBase, NeutralItemPoolWidth),
+    ("hoppers", HopperObjectBase, NeutralItemPoolWidth),
     ("rot diamonds", RotDiamondObjectBase, 8),
     ("spray can pickups", SprayPaintPickupObjectBase, NeutralItemPoolWidth),
     ("spray can carry markers", SprayPaintCarryObjectBase, MaxPlayers),
@@ -1072,8 +1078,8 @@ const
     ("tracer heads", TracerHeadSpriteBase, 64),
     ("med kit", MedKitSpriteId, 1),
     ("bandage", BandageSpriteId, 1),
-    ("gun crate", GunCrateSpriteId, 1),
-    ("hopper crate", HopperCrateSpriteId, 1),
+    ("marker half", MarkerHalfSpriteId, 1),
+    ("hopper", HopperSpriteId, 1),
     ("rot diamonds", RotDiamondSpriteBase, 16),
     ("shield statics", ShieldSpriteId, 3),
     ("corpses", CorpseSpriteBase, 2 * TeamPoolWidth * SoldierRotations),
@@ -6092,7 +6098,7 @@ proc addBandages(
       spawn.y, MapLayerId, BandageSpriteId
     )
 
-proc addGunCrates(
+proc addMarkerHalves(
   sim: SimServer,
   spriteDefs: var seq[SpriteDefinition],
   currentIds: var seq[int],
@@ -6100,16 +6106,18 @@ proc addGunCrates(
   viewerIndex = -1
 ) {.measure.} =
   ## LOOT(s2) ground art (item-completeness epic 1ef4f9d6, T2): places the
-  ## marker (gun) crate pickups (config.lootStart, sim.weaponSpawns),
-  ## fog-gated by map position like every other neutral pickup. These
-  ## one-shot crates (taken crates never respawn -- see weaponSpawns' own
-  ## comment) had touch/pickup logic and wire item_pickup tokens with NO
-  ## board presence before this: a cog walked straight through a crate it
-  ## could not see. Empty (lootStart=false, the default) is byte-identical
-  ## to an engine without this proc.
+  ## marker-half pickups (config.lootStart, sim.weaponSpawns) -- the marker
+  ## body itself, top-down, its feed-neck port empty until a hopper is
+  ## loaded onto it -- fog-gated by map position like every other neutral
+  ## pickup. These one-shot pickups (taken ones never respawn -- see
+  ## weaponSpawns' own comment) had touch/pickup logic and wire
+  ## item_pickup tokens with NO board presence before this: a cog walked
+  ## straight through a marker half it could not see. Empty
+  ## (lootStart=false, the default) is byte-identical to an engine without
+  ## this proc.
   doAssert sim.weaponSpawns.len <= NeutralItemPoolWidth,
-    "map authors " & $sim.weaponSpawns.len & " gun crates, more than the " &
-    $NeutralItemPoolWidth & "-wide GunCrateObjectBase pool can address " &
+    "map authors " & $sim.weaponSpawns.len & " marker halves, more than the " &
+    $NeutralItemPoolWidth & "-wide MarkerHalfObjectBase pool can address " &
     "without colliding with the next pool."
   for i in 0 ..< min(sim.weaponSpawns.len, NeutralItemPoolWidth):
     let spawn = sim.weaponSpawns[i]
@@ -6117,23 +6125,23 @@ proc addGunCrates(
       continue
     if viewerIndex >= 0 and not sim.fovVisibleAt(viewerIndex, spawn.x, spawn.y):
       continue
-    if spriteDefs.spriteDefinitionIndex(GunCrateSpriteId) < 0:
+    if spriteDefs.spriteDefinitionIndex(MarkerHalfSpriteId) < 0:
       packet.addBoardSpriteChanged(
-        spriteDefs, GunCrateSpriteId,
-        GunCrateSize, GunCrateSize,
-        loadGunCrateSprite(GunCrateSize * boardScale), LabelGunCrate,
+        spriteDefs, MarkerHalfSpriteId,
+        MarkerHalfSize, MarkerHalfSize,
+        loadMarkerHalfSprite(MarkerHalfSize * boardScale), LabelMarkerHalf,
         native = boardScale
       )
-    let objectId = GunCrateObjectBase + i
+    let objectId = MarkerHalfObjectBase + i
     currentIds.add(objectId)
     packet.addBoardObject(
       objectId,
-      spawn.x - GunCrateSize div 2,
-      spawn.y - GunCrateSize div 2,
-      spawn.y, MapLayerId, GunCrateSpriteId
+      spawn.x - MarkerHalfSize div 2,
+      spawn.y - MarkerHalfSize div 2,
+      spawn.y, MapLayerId, MarkerHalfSpriteId
     )
 
-proc addHopperCrates(
+proc addHoppers(
   sim: SimServer,
   spriteDefs: var seq[SpriteDefinition],
   currentIds: var seq[int],
@@ -6141,12 +6149,14 @@ proc addHopperCrates(
   viewerIndex = -1
 ) {.measure.} =
   ## LOOT(s2) ground art (item-completeness epic 1ef4f9d6, T2): places the
-  ## ammo hopper crate pickups (config.lootStart, sim.hopperSpawns), the
-  ## twin of addGunCrates above (same one-shot/fog-gated shape, its own
-  ## sprite so the two crates read as distinct on the floor).
+  ## hopper pickups (config.lootStart, sim.hopperSpawns) -- the standalone
+  ## paintball hopper itself, overflowing with rainbow paintballs, the twin
+  ## of addMarkerHalves above (same one-shot/fog-gated shape, its own
+  ## sprite so the marker half and the hopper read as distinct on the
+  ## floor).
   doAssert sim.hopperSpawns.len <= NeutralItemPoolWidth,
-    "map authors " & $sim.hopperSpawns.len & " hopper crates, more than " &
-    "the " & $NeutralItemPoolWidth & "-wide HopperCrateObjectBase pool " &
+    "map authors " & $sim.hopperSpawns.len & " hoppers, more than " &
+    "the " & $NeutralItemPoolWidth & "-wide HopperObjectBase pool " &
     "can address without colliding with the next pool."
   for i in 0 ..< min(sim.hopperSpawns.len, NeutralItemPoolWidth):
     let spawn = sim.hopperSpawns[i]
@@ -6154,20 +6164,20 @@ proc addHopperCrates(
       continue
     if viewerIndex >= 0 and not sim.fovVisibleAt(viewerIndex, spawn.x, spawn.y):
       continue
-    if spriteDefs.spriteDefinitionIndex(HopperCrateSpriteId) < 0:
+    if spriteDefs.spriteDefinitionIndex(HopperSpriteId) < 0:
       packet.addBoardSpriteChanged(
-        spriteDefs, HopperCrateSpriteId,
-        HopperCrateSize, HopperCrateSize,
-        loadHopperCrateSprite(HopperCrateSize * boardScale), LabelHopperCrate,
+        spriteDefs, HopperSpriteId,
+        HopperSize, HopperSize,
+        loadHopperSprite(HopperSize * boardScale), LabelHopper,
         native = boardScale
       )
-    let objectId = HopperCrateObjectBase + i
+    let objectId = HopperObjectBase + i
     currentIds.add(objectId)
     packet.addBoardObject(
       objectId,
-      spawn.x - HopperCrateSize div 2,
-      spawn.y - HopperCrateSize div 2,
-      spawn.y, MapLayerId, HopperCrateSpriteId
+      spawn.x - HopperSize div 2,
+      spawn.y - HopperSize div 2,
+      spawn.y, MapLayerId, HopperSpriteId
     )
 
 proc addShields(
@@ -7781,13 +7791,13 @@ proc buildSpriteProtocolPlayerUpdates*(
       result,
       viewerIndex = playerIndex
     )
-    sim.addGunCrates(
+    sim.addMarkerHalves(
       nextState.spriteDefs,
       currentIds,
       result,
       viewerIndex = playerIndex
     )
-    sim.addHopperCrates(
+    sim.addHoppers(
       nextState.spriteDefs,
       currentIds,
       result,
@@ -8852,8 +8862,8 @@ proc buildSpriteProtocolUpdates*(
   sim.addRotatingDiamonds(nextState.spriteDefs, currentIds, result)
   sim.addMedKits(nextState.spriteDefs, currentIds, result)
   sim.addBandages(nextState.spriteDefs, currentIds, result)
-  sim.addGunCrates(nextState.spriteDefs, currentIds, result)
-  sim.addHopperCrates(nextState.spriteDefs, currentIds, result)
+  sim.addMarkerHalves(nextState.spriteDefs, currentIds, result)
+  sim.addHoppers(nextState.spriteDefs, currentIds, result)
   sim.addShields(nextState.spriteDefs, currentIds, result)
   sim.addGrenades(nextState.spriteDefs, currentIds, result)
   sim.addBarriers(nextState.spriteDefs, currentIds, result)

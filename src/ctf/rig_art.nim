@@ -173,21 +173,26 @@ proc loadBandageSprite*(size: int): seq[uint8] =
   ## beside on the map. Hard alpha edge keeps the outline crisp on the floor.
   loadRgbaSprite("data/bandage.png", size, alphaCutoff = 128'u8)
 
-proc loadGunCrateSprite*(size: int): seq[uint8] =
-  ## LOOT(s2) ground art (item-completeness epic 1ef4f9d6, T2): the marker
-  ## (gun) crate (config.lootStart, sim.weaponSpawns) — a chunky wooden ammo
-  ## crate stenciled with the marker's silhouette, same bold-outline painted
-  ## style as every other neutral pickup. Hard alpha edge keeps the outline
-  ## crisp on the floor.
-  loadRgbaSprite("data/gun_crate.png", size, alphaCutoff = 128'u8)
-
-proc loadHopperCrateSprite*(size: int): seq[uint8] =
-  ## LOOT(s2) ground art (item-completeness epic 1ef4f9d6, T2): the ammo
-  ## hopper crate (config.lootStart, sim.hopperSpawns) — the same wooden
-  ## crate family as the gun crate, topped with a hopper overflowing with
-  ## rainbow paintballs so the two crates read as distinct at a glance. Hard
+proc loadMarkerHalfSprite*(size: int): seq[uint8] =
+  ## LOOT(s2) ground art (item-completeness epic 1ef4f9d6, T2): the ground
+  ## marker pickup (config.lootStart, sim.weaponSpawns) — the marker itself,
+  ## top-down, muzzle-and-grip silhouette in matte gunmetal, its round
+  ## feed-neck port empty (no hopper mounted) — same bold-outline painted
+  ## style as every other neutral pickup. Owner ruling 2026-09-03: the
+  ## ground item IS the marker half, not a container/crate around it. Hard
   ## alpha edge keeps the outline crisp on the floor.
-  loadRgbaSprite("data/hopper_crate.png", size, alphaCutoff = 128'u8)
+  loadRgbaSprite("data/marker_half.png", size, alphaCutoff = 128'u8)
+
+proc loadHopperSprite*(size: int): seq[uint8] =
+  ## LOOT(s2) ground art (item-completeness epic 1ef4f9d6, T2): the ground
+  ## hopper pickup (config.lootStart, sim.hopperSpawns) — a standalone
+  ## top-down paintball hopper (translucent dome overflowing with rainbow
+  ## paintballs, open feed-neck ring on the bottom), same bold-outline
+  ## painted style as the marker half so the two read as distinct at a
+  ## glance. Owner ruling 2026-09-03: the ground item IS the hopper, not a
+  ## container/crate around it. Hard alpha edge keeps the outline crisp on
+  ## the floor.
+  loadRgbaSprite("data/hopper.png", size, alphaCutoff = 128'u8)
 
 proc loadPaintBombSprite*(size: int): seq[uint8] =
   ## The thrown grenade, a kid-friendly dungeon-crawler alchemical paint-bomb orb
