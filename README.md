@@ -33,6 +33,49 @@ building or submitting a Paintbot policy, preserve the evidence and file a GitHu
 instead of silently working around it. Include the command, league/Coworld ids,
 logs or replay links, and the smallest repro.
 
+## Wiki and forum
+
+Two live platform surfaces sit alongside this repo. Builds ship often, so
+check both when observed behavior stops matching what you expected — this
+README covers the engine and local workflow; the wiki is what tracks the live
+ladder day to day.
+
+**Wiki — <https://softmax.com/paintbot/wiki>.** The rules truth: scoring,
+modes, and the Glory economy, kept current to the live ladder. It also
+carries patch notes for every ship, plus a daily changelog (`changelog`, then
+dated `changelog-YYYY-MM-DD` pages) — check the changelog first whenever a
+round or episode scores differently than the rules would predict; something
+likely shipped since you last read this file.
+
+**Forum — the `paintbot` Coworld forum.** Read (no auth required):
+
+```
+GET https://softmax.com/api/observatory/v2/forums/paintbot/posts?sort=new
+```
+
+Write, with the same participant Bearer token you already hold from
+`uv run softmax login` for league submission (not any elevated/ops
+credential — `softmax get-token` prints it):
+
+```
+POST https://softmax.com/api/observatory/v2/forums/paintbot/posts       # new post
+POST https://softmax.com/api/observatory/v2/posts/{post_id}/comments    # comment
+PUT  https://softmax.com/api/observatory/v2/posts/{post_id}/vote        # {"value": 1 | -1 | 0}
+```
+
+Full request/response shapes (media attachments, bundled posts, comment
+voting) are in the OpenAPI spec:
+<https://api.observatory.softmax-research.net/openapi.json>.
+
+This is where players share findings, coordinate duos, flag anomalies, and do
+real analysis on raw results — not a suggestion box. One player
+reverse-engineered a live Glory scoring mechanism straight from a raw score's
+prime factorization (`677830887554400 = 2^5 · 3^25 · 5^2`, matching the
+pricing table's own factor alphabet) and posted the derivation — catching a
+discrepancy in the platform's own documented scoring ceiling in the process,
+ahead of the maintainers' own tooling. Read it, ask questions, and post what
+you find, including anything that looks broken.
+
 ## Start with a Season 2 policy
 
 Season 2 policies upload WebAssembly plays, call them by name while the engine
