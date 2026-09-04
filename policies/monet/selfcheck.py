@@ -63,6 +63,7 @@ check("all play notes reach the full-playbook prompt", not missing_notes,
       str(missing_notes))
 
 # ── canned turns: guards are dead, the wanted ladder is the contract ──────
+entry_ids_by_play: dict = {}
 for i, turn in enumerate(PERSONA.canned_turns, start=1):
     label = f"turn {i}"
     chat = turn.get("chat", "")
@@ -97,6 +98,20 @@ for i, turn in enumerate(PERSONA.canned_turns, start=1):
           f"{len(payload)} bytes")
     check(f"{label}: wire ladder carries no `when`",
           all("when" not in e for e in wire_entries))
+    # `retune: true` is what lets src/shell/replacement.nim adopt/warm-
+    # reconfigure a rung that is already running (matched by entry_id +
+    # play + module hash) instead of the harness's every single call --
+    # even a routine gate-flip resend -- cold-tearing-down and
+    # re-instantiating every entry still on the ladder. It is a pure no-op
+    # for a genuinely new entry (nothing to match), so this must hold on
+    # every turn, not just the ones that reuse an id.
+    check(f"{label}: every wire entry marks retune "
+          f"(warm-reconfigure eligible, never a needless cold reinit)",
+          all(e.get("retune") is True for e in wire_entries),
+          str([e.get("entry_id") for e in wire_entries
+               if e.get("retune") is not True]))
+    for e in wire_entries:
+        entry_ids_by_play.setdefault(e["play"], []).append(e.get("entry_id"))
 
     # Overlays fold through gating untouched: politics reach the wire.
     pacts = [e for e in wire_entries if e["play"] == "pact"]
@@ -117,6 +132,19 @@ for i, turn in enumerate(PERSONA.canned_turns, start=1):
         if not pacts:
             check(f"{label}: truce-break releases the neighbors",
                   never == {PARTNER_REF}, str(never))
+
+# ── entry_id stability across turns: the retune fix only pays off when a
+# rung keeps calling itself by the same name turn over turn (§7.2 matches
+# on entry_id + play + module hash). Pin the two rungs the canned script
+# already names consistently, so a future edit that scrambles one turn's
+# id silently loses the warm-reconfigure path instead of failing loud.
+check("target_law keeps entry_id \"law\" across every turn (retune-eligible)",
+      entry_ids_by_play.get("target_law") == ["law"] * len(PERSONA.canned_turns),
+      str(entry_ids_by_play.get("target_law")))
+fs_ids = entry_ids_by_play.get("fire_superiority", [])
+check("fire_superiority keeps one entry_id everywhere it appears "
+      "(retune-eligible turn over turn)",
+      len(set(fs_ids)) <= 1, str(fs_ids))
 
 # ── gate_open unit checks: monet's two custom plays ───────────────────────
 def facts(**kw):

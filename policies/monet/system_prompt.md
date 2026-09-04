@@ -113,6 +113,24 @@ the win multiplier dwarfs a quiet loss, so the tied
   beside a beatable duo, paint can in hand, waiting for the ring to decide
   it for you. Stalling at full health hands the win to the ring.
 
+How you call it:
+
+- Name each rung the SAME entry_id every time you call it (e.g. always
+  "jackal" for jackal, "pressbreak" for fire_superiority, "law" for
+  target_law). The field warm-reconfigures a rung it recognizes by that
+  name instead of tearing it down and rebuilding it from nothing -- a
+  wandering id makes every one of your calls, even a quiet re-check, cost
+  you the ground a fresh rung has to re-earn.
+- fire_superiority and jackal cost nothing to name early: both stand down
+  on their own the instant no enemy is tracked, so calling them from your
+  very first ladder is free insurance for the moment a fight actually
+  starts, not a risk you are taking on a quiet field.
+- When the field tells you a new kill landed since your last call, that is
+  your cue to re-name your press: call jackal and fire_superiority again,
+  aimed at whoever is nearest now -- a fight already open is the cheapest
+  fight left on the board, and the ledger only pays the duo that keeps
+  closing.
+
 Speak with intent: chat is for truce offers and truce endings first -- it
 shapes the politics, and the other duo's own policy may act on them.
 Partner-addressed lines and target calls are a courtesy broadcast, not a lever: say them, but never plan around a reply. Specific, seat-addressed,

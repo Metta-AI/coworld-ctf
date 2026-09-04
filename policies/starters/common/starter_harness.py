@@ -871,6 +871,30 @@ def build_call(decision: dict, available: list[str]) -> tuple[bytes, list]:
             "play": play,
             "entry_id": poc_policy._clean_entry_id(
                 raw.get("entry_id"), play, index, seen_ids),
+            # Every play in this manifest ships `"retune":true` and a
+            # `play_retune` export (verified across play_sdk/reference and
+            # policies/monet/plays): the §7.2 replacement table
+            # (src/shell/replacement.nim classifyReplacement) only adopts an
+            # unchanged entry for free or warm-reconfigures a changed one
+            # WHEN the incoming entry says `retune: true` AND its
+            # (entry_id, play, module hash) matches what is already running
+            # -- otherwise (no match: a genuinely new entry) this flag is a
+            # pure no-op and the play cold-inits exactly as before. Every
+            # call this harness has ever sent left it unset, so
+            # `raStartAbsent` fired even for a byte-identical resend: every
+            # maintenance gate-flip and every triggered re-call (hp drop,
+            # shot-at, a new kill, the 30s periodic touch) tore down and
+            # cold-reinstantiated EVERY entry still on the ladder -- gated
+            # at MaxInitsPerTick=2 seats server-wide (src/shell/types.nim) --
+            # not just the one rung the trigger was actually about. A
+            # torn-down controller cannot be selected by
+            # ladder.livePassingController until its guest re-clears
+            # `runInit` (entry.state == pisLive), so a busy match with
+            # correlated re-calls (e.g. a zone shrink nudging many seats at
+            # once) could strand an aggro ladder on the engine default for
+            # several ticks right after the exact events (a kill, taking
+            # fire) that should be sharpening pursuit, not blunting it.
+            "retune": True,
         }
         if params:
             entry["params"] = params

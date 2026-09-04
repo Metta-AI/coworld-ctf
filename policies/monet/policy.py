@@ -456,7 +456,11 @@ PERSONA = Persona(
                              "2v1. Among targets you could press, the play "
                              "already steers off any line that would catch "
                              "your partner, and off any spot that would "
-                             "put you in theirs."),
+                             "put you in theirs. It is gated on a tracked "
+                             "enemy -- naming it in your OPENING call costs "
+                             "nothing on a quiet field and is already armed "
+                             "the instant a fight starts; do not wait for "
+                             "consolidation to call it the first time."),
         "ring_walker": ("ring_walker is survival rule zero: the ring is "
                         "a schedule, not a surprise -- leave the building "
                         "BEFORE the walk turns into an escape, and only "
