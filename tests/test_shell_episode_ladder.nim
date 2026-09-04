@@ -1086,6 +1086,14 @@ suite "shell episode ladder":
       for seat in 0 ..< Seats:
         batch.add frame(seat, positions[seat], tick)
       let output = episode.step(batch, uint32(tick))
+      let initializedSeats = output.installs.filterIt(
+        it.provenance == "entry:edge_ride").mapIt(it.seat.int)
+      if tick == 1:
+        check initializedSeats == (0 ..< MaxInitsPerTick).toSeq
+      elif tick == 2:
+        check initializedSeats == (MaxInitsPerTick ..< Seats).toSeq
+      else:
+        check initializedSeats.len == 0
       for mask in output.masks:
         positions[mask.seat.int].applyMask(mask.input)
 

@@ -1733,7 +1733,7 @@ not the mechanism.
 | `MaxInstancesPerSeat` | 16 (one per ladder entry; equals the entries cap) |
 | `StepFuel` (fuel units per `play_step`; host-call bodies are not fuel-metered and are bounded by the per-step call caps below; P0-retuned 200,000→50,000 — the measured worst tick metered ~32M guest instructions at the old value) | 50,000 |
 | `InitFuel` (per `play_init` or `play_retune`; P0-retuned) | 500,000 |
-| `MaxInitsPerSeatPerTick` (instances initialized or retuned per seat per tick; section 7.2) | 1 |
+| `MaxInitsPerSeatPerTick` (instances initialized or retuned per seat per tick; section 7.2) | 3 |
 | `ManifestFuel` (per `play_manifest`) | 1,000,000 |
 | `MaxAllocsPerInvocation` (`play_alloc` calls per invocation; two is the most any consumer needs) | 2 |
 | `MaxActiveOverlays` (overlay entries per call; call validation rejects more; P0-retuned) | 2 |
@@ -1751,7 +1751,7 @@ not the mechanism.
 | `MaxBinaryContextBytes` (play-facing fixed-layout binary play-context frame; the 60% rule would allow ~150 KB, the actual context frame is ~140 B, and 8192 is chosen for symmetry with the view cap and bounded-allocation hygiene, not derived) | 8192 |
 | `MaxViewFrameBytes` (JSON socket/replay play-view payload; retained for the canonical JSON copy while the play's fixed-layout binary view frame has its own cap) | 32768 |
 | `MaxContextBytes` (JSON socket/replay play-context payload; no atlas, section 5; retained for the canonical JSON copy under the same socket/replay versus play-binary split) | 65536 |
-| `MaxInitsPerTick` (server-wide, all seats; round-robin across seats by seat index, resuming where the last tick stopped; P0-retuned) | 2 |
+| `MaxInitsPerTick` (server-wide, all seats; round-robin across seats by seat index, resuming where the last tick stopped; measured map-backed init quota) | 16 |
 | `ValidatorRadiusPx` (stencil's `32 * NavCell`, an *engine* constant; queries answered from the exact precomputed table) | 256 |
 | `MaxValidatorTableBytes` (play-seat map validator cap on the per-spawn-component canonical-winner rasters) | 268435456 |
 | `MaxPendingCompileBytes` (server-wide raw bytes admitted but not yet finished; admission backpressures past it) | 8388608 |
@@ -2168,18 +2168,23 @@ budgets of section 6.1, runs `play_init` with the entry's canonical
 params and the `PlayContext`, and, in the same tick, runs its first
 `play_step`. A guarded `supply_run` that never triggers never costs an
 instance. Initialization is rationed so a call that activates many
-entries at once cannot spend sixteen `InitFuel` budgets in one tick, and
-so thirty-two seats re-calling on the same tick cannot spend thirty-two:
+entries at once cannot spend more than sixteen `InitFuel` budgets in one
+tick, and so thirty-two seats re-calling on the same tick cannot spend
+thirty-two:
 at most `MaxInitsPerSeatPerTick` instances are created (or retuned) per
 seat per tick, in ladder order, and at most `MaxInitsPerTick` across the
-whole server, granted round-robin by seat index and resuming on the next
-tick where the last one stopped. An active entry still waiting for its
-initialization is treated as not passing on that tick, so the driver
+whole server, granted in one-grant-per-seat rounds by seat index and resuming
+on the next tick where the last one stopped. A failed attempt consumes a
+global grant and ends that seat's grants for the tick. An active entry still
+waiting for its initialization is treated as not passing on that tick, so the driver
 falls through to the next initialized passing controller or the default
 play, and overlays not yet initialized contribute nothing until they
-are. A fresh four-entry call therefore reaches its full shape over a few
-ticks, with the default play covering the gap; goldens pin the
-tick-by-tick activation order within one ladder and across seats. Once created, an instance persists while the ladder stands,
+are. The simultaneously active shape is at most two overlays plus one
+controller, so one seat can initialize all three in one tick when global
+capacity exists. Thirty-two seats receive their first entries over two ticks;
+ninety-six simultaneously active entries take six. The default play covers
+any gap, and goldens pin the tick-by-tick activation order within one ladder
+and across seats. Once created, an instance persists while the ladder stands,
 across guard flapping, so a `supply_run` that triggers twice resumes its
 own memory; it is stepped only on ticks it is active. It also persists
 across the seat's death and respawn (parked, section 4.3), which is what
@@ -3335,6 +3340,15 @@ evidence needed to maintain and verify historical replays.
   beside this row. All provisional until the freeze: the native gen-5+ x86
   run and the quiet-window body pass, after which the frozen values
   get the full cold review and the measured-values write-back.
+- Production-shaped instantiation measurements (2026-09-04) raised
+  `MaxInitsPerTick` 2→16 and `MaxInitsPerSeatPerTick` 1→3. On the hosted
+  one-vCPU x86 floor, sixteen sequential cache-hit, map-backed instance-plus-init
+  operations measured 0.770 ms median / 0.817 ms p95 / 0.833 ms max; the worst
+  per-play p95 was 63.290 µs. Sixteen conservatively uses about one quarter of
+  the runtime's 4 ms share, leaving the rest for view construction, guest steps,
+  host calls, and emit validation. Three matches the maximum simultaneous
+  per-seat shape of two overlays plus one controller. Grants remain shared by
+  init and retune and proceed in one-grant-per-seat rounds.
 - The atlas constants were P0-adjusted (James, 2026-08-30):
   `MaxCoverRadiusPx` 600→331 (the BR derived weapon range) and
   `MaxCoverPostsExamined` 512→1536, after lane A measured the BR golden

@@ -406,9 +406,9 @@ const
     ## P0-retuned with StepFuel; provisional until the freeze.
   ManifestFuel* = 1_000_000
     ## P0: provisional, same rule.
-  MaxInitsPerSeatPerTick* = 1
-  MaxInitsPerTick* = 2                ## server-wide, round-robin by seat;
-                                      ## P0-retuned 4→2
+  MaxInitsPerSeatPerTick* = 3         ## two overlays plus one controller
+  MaxInitsPerTick* = 16               ## server-wide, round-robin by seat;
+                                      ## measured map-backed init quota
   MaxAllocsPerInvocation* = 2
   MaxStepsPerSeatPerTick* = 3         ## MaxActiveOverlays + 1 controller
   MaxEmitsPerStep* = 2                ## P0-retuned 4→2 (emit validation
