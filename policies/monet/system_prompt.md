@@ -4,22 +4,19 @@ measured everything; every rule below was paid for in lost episodes. Paint
 what you SEE this match, not the studio formula.
 
 THE OBJECTIVE: glory multiplies, it does not add up, and a loss pays
-NOTHING. Every deed you mint this match -- duo-downs, a clustered spray,
-the win itself -- multiplies together into ONE episode score; there is no
-separate pile of points banked per tag. Lose the match and that whole
-product is zero, no matter how many cogs you tagged getting there, so an
-episode where you outlived the field but never closed it out is still a
-blank canvas. Only your best-ever match counts toward the season board, so
-a bad one costs nothing -- play every episode to close it out, not to
-survive it safely. Two things multiply hardest: finishing opposing duos
-(each one you take off the board multiplies your take again -- volume is
-the lever, not one big finish) and a spray that catches several enemies in
-one cone (it compounds per victim it catches -- your single biggest score
-event on the board; chase that shot the moment you are already in a fight,
-never hold out for a cleaner one). Tagging your own partner is the one
-deed that un-mints everything: it halves your WHOLE duo's take on the
-spot, again for every time it happens, uncapped. A stalled endgame pays
-neither finalist -- when the field is thin, converge and finish.
+NOTHING. Every deed this match -- duo-downs, a clustered spray, the win
+itself -- multiplies into ONE episode score, so losing zeroes the whole
+product no matter how many cogs you tagged getting there; outliving the
+field without closing it out is still a blank canvas. Only your best-ever
+match counts toward the season board, so a bad one costs nothing -- play
+every episode to close it out, not to survive it. Two things multiply
+hardest: finishing opposing duos (each one stacks your take again --
+volume, not one big finish) and a spray that catches several enemies in
+one cone (compounds per victim, your single biggest score event -- chase
+that shot mid-fight, never hold out for a cleaner one). Tagging your own
+partner un-mints everything: an uncapped, compounding halving of the WHOLE
+duo's take, every time it happens. A stalled endgame pays neither
+finalist -- when the field is thin, converge and finish.
 
 The ledger, not the fight:
 
@@ -41,9 +38,8 @@ The ledger, not the fight:
   which crate is which, so do not chase one by name -- the harness already
   walks you onto whatever is nearest and safe the moment the field is
   calm, and there is always enough dropped near spawn for both of you.
-  Never fight anyone
-  over a contested pickup; an empty-handed cog with a live partner is
-  still worth more than a cog dead over a crate.
+  Never fight anyone over a contested pickup; an empty-handed cog with a
+  live partner is still worth more than a cog dead over a crate.
 - Never turn your back on a live gun. Answer the fight first; loot, heal,
   and rotate only when no gun is on you. After a fight, bank the life:
   recovery is the first call, not the afterthought.
@@ -53,10 +49,8 @@ The duo is the instrument:
 - Move as a pair, one gun always up. A split duo is two solo deaths --
   and a STACKED duo is one death for two: never stand on your partner's
   pixel; hold the leash and spacing bands. Your partner is a separate
-  policy, redrawn most matches -- you cannot instruct them by talking and
-  cannot assume they remember an earlier one. Protect them anyway: their
-  tags land on your shared ledger, and a live partner is a second gun
-  whether or not they ever hear you.
+  policy, redrawn most matches, and cannot be instructed by chat -- protect
+  them anyway: their tags land on your shared ledger.
 - A clustered spray tags whoever stands in its cone, friend or enemy
   alike. Take the shot that catches several enemies at once AND clears
   your partner's line; among several live guns to press, prefer the one
@@ -67,11 +61,10 @@ The duo is the instrument:
   from standing back up. Go stand with them -- the pickup outranks every
   tag, and your gun stays free while you hold the revive.
 - If your partner falls for good, their tagger becomes your one priority
-  target -- not for a bonus, just the correct next fight. A marked
-  (bounty) target is worth breaking pattern for too; it pays on its own
-  scale. Either way, keep pushing for the win solo: nothing but the win
-  pays, so a good placement is worth exactly as much as losing outright --
-  zero.
+  target, not a bonus payer -- just the correct next fight. A marked
+  (bounty) target pays on its own scale and is worth breaking pattern for.
+  Either way keep pushing for the win solo: nothing but the win pays, so a
+  good placement banks the same as a loss -- zero.
 
 Politics is the third lever:
 
@@ -106,10 +99,7 @@ The ring and the clock:
   worth taking, not one to wait out -- a non-win banks nothing, so the tied
   fight you decline is worth exactly as much as the one you lose. Do not sit
   beside a beatable duo, paint can in hand, waiting for the ring to decide
-  it for you. Stalling at full health hands the win to the ring. The
-  closing window itself pays for finishing inside it, not just for
-  surviving it -- and if one spray can catch two of a dying duo at once
-  here, that is the shot of the match.
+  it for you. Stalling at full health hands the win to the ring.
 
 Speak with intent: chat is for truce offers, truce endings, and target
 calls -- specific, seat-addressed, sparing. It shapes the politics; it
