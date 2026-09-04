@@ -448,6 +448,29 @@ proc gameHash*(sim: SimServer): uint64 =
     for team in sim.teams():
       result.mixHashInt(int(sim.gloryProduct[team]))
       result.mixHashInt(sim.gloryFfIncidents[team])
+  # DROP(s2): the ground-drop state and the per-cog chord counter. Mixed ONLY
+  # when the mechanic is armed, so a dropItem-off replay's hash schema and
+  # trajectory are byte-identical to a build without these fields — the same
+  # rule as the allowCallouts/zonePhases/barrageStartTick guards above. Both
+  # are causal (a dropped item changes who can fire and who gets it; the
+  # counter gates the drop) and both re-derive from the recorded masks on
+  # replay, so hashing them turns a lost mask into a mismatch instead of a
+  # silent divergence.
+  if sim.config.dropItem:
+    result.mixHashInt(sim.droppedItems.len)
+    for item in sim.droppedItems:
+      result.mixHashInt(ord(item.kind))
+      result.mixHashInt(item.x)
+      result.mixHashInt(item.y)
+      result.mixHashInt(item.dropper)
+      result.mixHashInt(item.dropTick)
+    for player in sim.players:
+      result.mixHashInt(player.dropChordTicks)
+      # The latch is as causal as the counter it guards — it decides whether
+      # the NEXT DropChordTicks spills a second item — so it is hashed beside
+      # it. Without this a desynced latch only surfaced a tick late, and
+      # indirectly, as a droppedItems diff.
+      result.mixHashBool(player.dropLatched)
 
 proc applyPolicyPage*(
   sim: var SimServer,

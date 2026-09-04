@@ -93,6 +93,19 @@ type
     suppressFireFreeze*: bool
     reason*: string            ## telemetry only, at most IntentReasonMaxBytes
     combat*: CombatPolicy
+    drop*: bool                ## GVNEXT(drop): the STANDING drop order. While
+                               ## true the body emits the aim-pair DROP CHORD
+                               ## (ButtonB|ButtonSelect) every tick, and the
+                               ## engine spills ONE item after DropChordTicks
+                               ## and latches until the order clears — so a
+                               ## play that sets it and forgets drops exactly
+                               ## one item, not a stream. The chord overrides
+                               ## the tick's aim traverse (they share the two
+                               ## rotate bits), which is why a play should
+                               ## clear it once the item is gone. gmBr only,
+                               ## like handoff below: both are S2 BR mechanics.
+                               ## Off by default, so every existing page emits
+                               ## exactly the mask it emitted before.
     handoff*: string           ## §4.1 amendment (owner spec 2026-09-02): the
                                ## STANDING give-item declaration — "" (neutral,
                                ## omitted) or one of HandoffItems. gmBr only

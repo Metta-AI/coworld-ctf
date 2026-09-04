@@ -413,6 +413,16 @@ type
     firedLast: bool           # A was set on the previous sent mask
     estAim: int               # dead-reckoned own aim angle in brads
     rotSign: int              # rotation of the last sent mask: +1 B, -1 Select
+    wantDrop: bool            # DROP(s2) SDK seam: set true to emit the
+                              # aim-pair drop chord (ButtonB|ButtonSelect)
+                              # this tick. Held DropChordTicks while carrying
+                              # a droppable, the engine spills one item
+                              # (config.dropItem). The raw mask is a byte so
+                              # any combination is expressible on the wire —
+                              # this field is how a hand-written reference
+                              # policy states the intent. Shipped baseline
+                              # never sets it, so its play/replays are
+                              # byte-identical; a fork flips it to drop.
     wasDead: bool             # respawn resets the aim to the spawn heading
     scanHigh: bool            # scan sweep currently heading to the high end
     lastPos: Vec
@@ -3334,9 +3344,17 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 {.measure.} =
     nadeC = true
   if nadeC:
     mask = mask or ButtonC
+  # DROP(s2): the aim-pair chord OVERRIDES any single rotate this tick — both
+  # bits set is the dead no-op the engine ignores for aim (b != select is
+  # false), so a drop hold and an aim traverse cannot share a tick.
+  if bot.wantDrop:
+    mask = mask or ButtonB or ButtonSelect
   bot.firedLast = (mask and ButtonA) != 0
   bot.rotSign =
-    if (mask and ButtonB) != 0: 1
+    # Both rotate bits = the drop chord: the engine turns the aim by nothing,
+    # so the dead-reckoned estAim must not drift either (rotSign 0).
+    if (mask and ButtonB) != 0 and (mask and ButtonSelect) != 0: 0
+    elif (mask and ButtonB) != 0: 1
     elif (mask and ButtonSelect) != 0: -1
     else: 0
   artFrame(FrameSnap(

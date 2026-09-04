@@ -578,6 +578,26 @@ const
                                ## currently on screen is ever emitted, so a
                                ## painted diamond costs one sprite per spin
                                ## step, not 16 at once.
+  DroppedItemObjectBase* = 39700 ## GVNEXT(drop): ground drops made by the drop
+                               ## chord, MaxDroppedItems-wide: 39700..39763,
+                               ## in the gap between the paint stains (end
+                               ## 39699) and the paint tiles (start 40000),
+                               ## leaving 236 ids of headroom above it. One
+                               ## pool for every KIND of drop: a drop is
+                               ## addressed by its SLOT in sim.droppedItems,
+                               ## not by its family, because the list is
+                               ## heterogeneous.
+                               ##
+                               ## Registered in BoardObjectPools below, which
+                               ## is the ONLY thing that makes this safe: the
+                               ## static block there proves every pair of
+                               ## pools disjoint at COMPILE time. An earlier
+                               ## cut of this constant sat at 38200 and
+                               ## silently overlapped the rig arms
+                               ## (38140..38203) and rig legs (38220..38315) —
+                               ## a hand-read of the neighbouring comment
+                               ## missed them. Never hand-verify a base; add
+                               ## the row and let the compiler check it.
   StainObjectBase = 38500      ## one object per stain: 38500..39699, between
                                ## the rig object pools (..38491) and the
                                ## paint-tile pool below. Moved off 33000: the
@@ -939,7 +959,7 @@ const
   ## index-bounded families (map bands, protocol text, map markers) are
   ## generous envelopes, not exact caps.
   U16ObjectIdCeiling = 65535
-  BoardObjectPools = [
+  BoardObjectPools* = [
     ("map bands", MapBandObjectBase, 960),
     ("players (POV view)", PlayerObjectBase, MaxPlayers),
     ("replay UI", ReplayTickObjectId, 5),
@@ -998,6 +1018,7 @@ const
     ("rig wheels", RigWheelObjectBase, MaxPlayers * 3),
     ("rig guns", RigGunObjectBase, MaxPlayers),
     ("paint stains", StainObjectBase, StainMaxCount),
+    ("dropped items", DroppedItemObjectBase, MaxDroppedItems),
     ("paint tiles", PaintTileObjectBase, MaxPaintTiles),
     ("hill overlay", HillObjectId, 1),
     ("barrage marker", BarrageMarkerObjectId, 1),
@@ -6660,6 +6681,90 @@ proc addBarriers(
       barrier.maxY, MapLayerId, spriteId
     )
 
+proc addDroppedItems(
+  sim: SimServer,
+  spriteDefs: var seq[SpriteDefinition],
+  currentIds: var seq[int],
+  packet: var seq[uint8],
+  viewerIndex = -1
+) {.measure.} =
+  ## GVNEXT(drop): places items spilled to the ground by the drop chord,
+  ## fog-gated by map position exactly like every fixed pickup family. Each
+  ## drop REUSES its family's existing ground art (a dropped can is the same
+  ## can sprite the spawn-placed can uses), so nothing new had to be drawn --
+  ## and a dropped item is visually indistinguishable from a placed one,
+  ## which is the point: you walk over it the same way.
+  ##
+  ## Open steal is unreachable blind, so this proc is what makes the owner's
+  ## Minecraft ruling actually playable. Empty (dropItem=false, the default)
+  ## is byte-identical to an engine without this proc: the loop never runs.
+  ##
+  ## The pool is indexed by SLOT in sim.droppedItems, not by family, because
+  ## the list is heterogeneous; MaxDroppedItems bounds it to the pool width.
+  for i in 0 ..< min(sim.droppedItems.len, MaxDroppedItems):
+    let item = sim.droppedItems[i]
+    if viewerIndex >= 0 and not sim.fovVisibleAt(viewerIndex, item.x, item.y):
+      continue
+    var
+      spriteId: int
+      size: int
+    case item.kind
+    of dkSpray:
+      spriteId = SprayPaintPickupSpriteId
+      size = SprayPaintPickupSize
+      if spriteDefs.spriteDefinitionIndex(spriteId) < 0:
+        packet.addBoardSpriteChanged(
+          spriteDefs, spriteId, size, size,
+          loadSprayCanSprite(size * boardScale), LabelSprayCan,
+          native = boardScale)
+    of dkGun:
+      spriteId = MarkerHalfSpriteId
+      size = MarkerHalfSize
+      if spriteDefs.spriteDefinitionIndex(spriteId) < 0:
+        packet.addBoardSpriteChanged(
+          spriteDefs, spriteId, size, size,
+          loadMarkerHalfSprite(size * boardScale), LabelMarkerHalf,
+          native = boardScale)
+    of dkHopper:
+      spriteId = HopperSpriteId
+      size = HopperSize
+      if spriteDefs.spriteDefinitionIndex(spriteId) < 0:
+        packet.addBoardSpriteChanged(
+          spriteDefs, spriteId, size, size,
+          loadHopperSprite(size * boardScale), LabelHopper,
+          native = boardScale)
+    of dkGrenade:
+      spriteId = PaintBombPickupSpriteId
+      size = PaintBombPickupSize
+      if spriteDefs.spriteDefinitionIndex(spriteId) < 0:
+        packet.addBoardSpriteChanged(
+          spriteDefs, spriteId, size, size,
+          loadPaintBombSprite(size * boardScale), LabelGrenade,
+          native = boardScale)
+    of dkBarrier:
+      spriteId = BarrierPickupSpriteId
+      size = BarrierPickupSize
+      if spriteDefs.spriteDefinitionIndex(spriteId) < 0:
+        packet.addBoardSpriteChanged(
+          spriteDefs, spriteId, size, size,
+          buildBarrierSheetSprite(), LabelBarrier)
+    of dkBandage:
+      spriteId = BandageSpriteId
+      size = BandageSize
+      if spriteDefs.spriteDefinitionIndex(spriteId) < 0:
+        packet.addBoardSpriteChanged(
+          spriteDefs, spriteId, size, size,
+          loadBandageSprite(size * boardScale), LabelBandage,
+          native = boardScale)
+    let objectId = DroppedItemObjectBase + i
+    currentIds.add(objectId)
+    packet.addBoardObject(
+      objectId,
+      item.x - size div 2,
+      item.y - size div 2,
+      item.y, MapLayerId, spriteId
+    )
+
 proc shoutOffset(shout: Shout): (int, int) =
   ## The deterministic jitter for one shout's heard position, salted apart
   ## from the shot rings: nearby players learn the neighborhood the shout
@@ -7803,6 +7908,13 @@ proc buildSpriteProtocolPlayerUpdates*(
       result,
       viewerIndex = playerIndex
     )
+    # GVNEXT(drop): ground drops, fog-gated like every family above.
+    sim.addDroppedItems(
+      nextState.spriteDefs,
+      currentIds,
+      result,
+      viewerIndex = playerIndex
+    )
     sim.addShields(
       nextState.spriteDefs,
       currentIds,
@@ -8864,6 +8976,7 @@ proc buildSpriteProtocolUpdates*(
   sim.addBandages(nextState.spriteDefs, currentIds, result)
   sim.addMarkerHalves(nextState.spriteDefs, currentIds, result)
   sim.addHoppers(nextState.spriteDefs, currentIds, result)
+  sim.addDroppedItems(nextState.spriteDefs, currentIds, result)
   sim.addShields(nextState.spriteDefs, currentIds, result)
   sim.addGrenades(nextState.spriteDefs, currentIds, result)
   sim.addBarriers(nextState.spriteDefs, currentIds, result)

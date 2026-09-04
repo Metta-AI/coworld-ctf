@@ -771,6 +771,15 @@ proc firstPersonJson(sim: SimServer, playerIndex: int): JsonNode =
     for sp in sim.weaponSpawns: addPickup("gun", sp)
     for sp in sim.hopperSpawns: addPickup("hopper", sp)
     for sp in sim.bandageSpawns: addPickup("bandage", sp)
+    # GVNEXT(drop): items spilled to the ground by the drop chord, drawn with
+    # the SAME billboard and the SAME fog rule as the fixed pickups above (a
+    # dropped can looks like a can). Open steal is unreachable blind, so this
+    # surface is what makes the mechanic playable. Always present (a drop is
+    # only in the list while it is really there). Empty seq — zero entries,
+    # zero bytes — on every game that never armed dropItem.
+    for item in sim.droppedItems:
+      addPickup(DroppedItemNames[item.kind],
+                PickupSpawn(x: item.x, y: item.y, present: true))
 
     # --- paintball beams in flight (sim.recentShots; cosmetic, never hashed) ---
     # A hitscan shot has no travelling body, so the board draws it as a COMET: a
@@ -965,6 +974,11 @@ proc firstPersonJson(sim: SimServer, playerIndex: int): JsonNode =
   for sp in sim.weaponSpawns: addMapItem("gun", sp)
   for sp in sim.hopperSpawns: addMapItem("hopper", sp)
   for sp in sim.bandageSpawns: addMapItem("bandage", sp)
+  # GVNEXT(drop): ground drops join the map-item list on the same terms as
+  # every fixed pickup above; empty on a dark game.
+  for item in sim.droppedItems:
+    addMapItem(DroppedItemNames[item.kind],
+               PickupSpawn(x: item.x, y: item.y, present: true))
 
   let mapJson = %*{
     "w": MapWidth,

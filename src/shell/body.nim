@@ -1362,6 +1362,15 @@ proc seatTick*(body: SeatBody, inputs: BodyTickInputs,
 
   if needsIdleAim and (mask and (ButtonB or ButtonSelect)) == 0:
     mask = mask or body.idleAimMask()
+  # GVNEXT(drop): the standing drop order emits the aim-pair CHORD, and it
+  # goes on LAST because it OVERRIDES whatever the aim logic just decided:
+  # both rotate bits set is the dead combo the engine ignores for aim, so a
+  # tick cannot both traverse and drop. Held DropChordTicks the engine spills
+  # one item and latches, so a play that leaves the order standing still
+  # drops exactly one. Off by default -- every existing page emits the mask
+  # it emitted before, bit for bit.
+  if body.standingIntent.drop:
+    mask = mask or ButtonB or ButtonSelect
   decodeInputMask(mask)
 
 proc dangerInputFromTracks*(body: SeatBody, tick: uint32,

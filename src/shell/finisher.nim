@@ -86,6 +86,12 @@ proc writeIntent*(w: var CanonicalWriter, intent: Intent) =
   if not intent.combat.combatPolicyEmpty:
     w.key("combat")
     w.writeCombatPolicy(intent.combat)
+  # GVNEXT(drop): "drop" sorts between "combat" and "handoff" — canonical
+  # (alphabetical) key order is asserted by canonical_fast, so placement here
+  # is load-bearing, not cosmetic. Omitted when false, like every other
+  # default-valued field, so an unchanged page round-trips byte-identically.
+  if intent.drop:
+    w.field("drop", true)
   if intent.handoff.len > 0:
     w.field("handoff", intent.handoff)
   if intent.idleAimCenterBrads.isSome:
