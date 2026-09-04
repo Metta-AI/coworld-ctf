@@ -31,6 +31,8 @@ var
 
 while replay.playing:
   replay.stepReplay(game)
+  if game.phase != Playing:
+    continue
   for i in 0 ..< min(game.players.len, 16):
     let p = game.players[i]
     history[i].add((p.x, p.y, p.alive))
@@ -63,5 +65,6 @@ rows.sort()
 rows.reverse()
 for (frac, i) in rows:
   let (st, sx, sy) = worstSpots[i]
-  echo &"player{i + 1} stuck {frac * 100:.1f}% of alive time, " &
+  echo &"player{i + 1} {game.players[i].team}({game.players[i].address}) " &
+    &"stuck {frac * 100:.1f}% of alive time, " &
     &"longest stall {stallLen[i]} ticks at tick {st} pos ({sx},{sy})"
