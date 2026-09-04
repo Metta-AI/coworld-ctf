@@ -967,8 +967,12 @@
       it, and the record says so rather than pretending attribution.</li>
       <li><strong>Play faults.</strong> A play that traps, exhausts its budget, or breaks the ABI's
       per-step rules (<a href="#s6-1">section 6.1</a>) is faulted for the life of the ladder instance (<a href="#s7-2">section 7.2</a>),
-      reported as <code>playFaulted(epoch, entryId, reason)</code>, and the standing order continues under
-      the remaining entries or the default play. Recovery is the LLM's business: a new call
+      reported as <code>playFaulted(epoch, entryId, code, reason)</code>, and the standing order continues under
+      the remaining entries or the default play (<code>code</code> is the stable cause, the engine
+      <code>FaultCode</code>: wasmtime's own trap kinds such as <code>outOfFuel</code>,
+      <code>epochDeadline</code>, <code>unreachable</code>, plus the engine's ABI verdicts such as
+      <code>returnedNonzero</code> and <code>abiViolation</code>; <code>reason</code> is the human text,
+      cause first, trimmed to the entry cap). Recovery is the LLM's business: a new call
       re-instantiates.</li>
       <li><strong>Bounded ingress.</strong> Arbitrary player code feeds these queues, so uploads and calls
       have per-seat admission budgets per tick (message count and aggregate bytes), with deterministic
@@ -1014,7 +1018,7 @@
       list that could not hold its result. These are regular slots, never the fault reserve. The status
       union is therefore: <code>moduleAccepted</code>, <code>moduleReady</code>,
       <code>moduleRejected</code>, <code>callAccepted</code>, <code>callRejected</code>,
-      <code>retuneRefused(epoch, entryId, reason)</code>, and <code>playFaulted</code>, every one carrying
+      <code>retuneRefused(epoch, entryId, code, reason)</code>, and <code>playFaulted</code>, every one carrying
       its ordinal and origin generation inside the 256-byte encoding rule. Autonomous outcomes, which no
       admission gates, have their own reserved capacity: 16 of the 64 entries are held for
       <code>playFaulted</code> records (one per possible instance), and if a seat somehow exhausts even
@@ -1333,7 +1337,7 @@
     (<code>reason: respawn</code>), recording the exact bytes that became standing, always at the reserved
     epoch zero because a server-synthesized order is by definition undeclared (the accepted call epoch, if
     any, remains current for the seat's next play emission); and
-    <code>playFault(tick, seat, epoch, entryId, reason)</code>, which is metadata and never changes the
+    <code>playFault(tick, seat, epoch, entryId, code, reason)</code>, which is metadata and never changes the
     standing order. The unconditional activation record is what makes the array complete: a seat whose
     plays never emit still has an annotation stating exactly what stood from activation to death.
     Same-tick ordering records the transitions in the exact order the server made them, keyed by (tick,
@@ -2204,7 +2208,7 @@
     <table>
       <thead><tr><th>Outgoing entry</th><th>New entry has <code>retune: true</code> and params identical</th><th><code>retune: true</code> and params differ</th><th>no <code>retune</code> or no match</th></tr></thead>
       <tbody>
-        <tr><td><code>live</code> or <code>parked</code></td><td>adopted silently, same state, cached output kept (it was produced under these same parameters)</td><td>adopted as <code>pendingRetune</code>, its cached output cleared on entry (<a href="#s7-4">section 7.4</a>); at its quota turn <code>play_retune</code> runs under <code>InitFuel</code>: 0 restores <code>live</code> (or <code>parked</code> if the seat is dead) with the new params and no cached output until a fresh step accepts one; nonzero, a trap, or a missing export drops it, mints <code>retuneRefused(epoch, entryId, reason)</code>, and the entry becomes <code>absent</code></td><td>dropped; entry <code>absent</code></td></tr>
+        <tr><td><code>live</code> or <code>parked</code></td><td>adopted silently, same state, cached output kept (it was produced under these same parameters)</td><td>adopted as <code>pendingRetune</code>, its cached output cleared on entry (<a href="#s7-4">section 7.4</a>); at its quota turn <code>play_retune</code> runs under <code>InitFuel</code>: 0 restores <code>live</code> (or <code>parked</code> if the seat is dead) with the new params and no cached output until a fresh step accepts one; nonzero, a trap, or a missing export drops it, mints <code>retuneRefused(epoch, entryId, code, reason)</code>, and the entry becomes <code>absent</code></td><td>dropped; entry <code>absent</code></td></tr>
         <tr><td><code>pendingRetune</code></td><td>dropped; entry <code>absent</code> (a retune that never ran is not adoptable)</td><td>dropped; entry <code>absent</code></td><td>dropped; entry <code>absent</code></td></tr>
         <tr><td><code>absent</code> or <code>faulted</code></td><td>entry <code>absent</code></td><td>entry <code>absent</code></td><td>entry <code>absent</code></td></tr>
       </tbody>

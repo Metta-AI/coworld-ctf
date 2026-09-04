@@ -170,6 +170,7 @@ proc writeStatusEntry*(w: var CanonicalWriter; entry: StatusEntry) =
     w.field("reason", entry.moduleReason)
     w.key("upload_id"); w.addUint64(entry.rejectedUploadId)
   of skPlayFaulted:
+    w.field("code", $entry.faultCode)
     w.field("entry_id", entry.entryId)
     w.key("epoch"); w.addUint64(entry.faultEpoch)
     w.key("gen"); w.addUint64(entry.originGeneration)
@@ -177,6 +178,7 @@ proc writeStatusEntry*(w: var CanonicalWriter; entry: StatusEntry) =
     w.key("ordinal"); w.addUint64(entry.ordinal)
     w.field("reason", entry.faultReason)
   of skRetuneRefused:
+    w.field("code", $entry.faultCode)
     w.field("entry_id", entry.entryId)
     w.key("epoch"); w.addUint64(entry.faultEpoch)
     w.key("gen"); w.addUint64(entry.originGeneration)

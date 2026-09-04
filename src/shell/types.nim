@@ -130,8 +130,34 @@ type
     skModuleRejected   ## terminal: named reason (uploadId, reason)
     skCallAccepted     ## proposalId, epoch, tick
     skCallRejected     ## proposalId, reason (with the parameter path)
-    skRetuneRefused    ## epoch, entryId, reason
-    skPlayFaulted      ## epoch, entryId, reason (autonomous; reserved slots)
+    skRetuneRefused    ## epoch, entryId, code, reason
+    skPlayFaulted      ## epoch, entryId, code, reason (autonomous; reserved slots)
+
+  FaultCode* = enum
+    ## The stable, policy-facing cause of a play fault or retune refusal.
+    ## Guest trap kinds are wasmtime's own trap codes; the rest are the
+    ## engine's ABI verdicts. The string is the wire value (`code` in the
+    ## status entry) and the ordinal is the replay annotation byte, so
+    ## NEVER reorder or renumber: append only.
+    fcUnknown = "unknown"                ## legacy records minted before codes
+    fcOutOfFuel = "outOfFuel"            ## StepFuel/InitFuel/ManifestFuel spent
+    fcEpochDeadline = "epochDeadline"    ## the wall-clock backstop (§7.0)
+    fcUnreachable = "unreachable"        ## `unreachable` executed
+    fcStackOverflow = "stackOverflow"
+    fcMemoryOutOfBounds = "memoryOutOfBounds"
+    fcTableOutOfBounds = "tableOutOfBounds"
+    fcIndirectCallToNull = "indirectCallToNull"
+    fcBadSignature = "badSignature"
+    fcIntegerOverflow = "integerOverflow"
+    fcIntegerDivisionByZero = "integerDivisionByZero"
+    fcBadConversionToInteger = "badConversionToInteger"
+    fcTrap = "trap"                      ## any other wasmtime trap kind
+    fcHostError = "hostError"            ## a runtime error that was not a guest trap
+    fcReturnedNonzero = "returnedNonzero"  ## play_init / play_step returned nonzero
+    fcRefused = "refused"                ## play_retune returned nonzero (§7.2)
+    fcAbiViolation = "abiViolation"      ## host import misuse, emit flood, bad alloc, rejected manifest emission
+    fcInstantiateFailed = "instantiateFailed"
+    fcRetuneAbsent = "retuneAbsent"      ## play_retune export missing
 
   StatusEntry* = object
     ## One ordered entry in the per-seat status list. The complete canonical
@@ -161,6 +187,7 @@ type
     of skRetuneRefused, skPlayFaulted:
       faultEpoch*: uint64
       entryId*: string
+      faultCode*: FaultCode
       faultReason*: string
 
   # ── §4.3: the non-hashed annotation stream (replay record 0x11) ───────
@@ -224,6 +251,7 @@ type
     of akPlayFault:
       faultAtEpoch*: uint64
       faultEntryId*: string
+      faultCode*: FaultCode
       annotationFaultReason*: string
 
 const

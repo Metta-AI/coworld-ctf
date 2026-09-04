@@ -1185,6 +1185,7 @@ proc step*(episode: var FirstLightEpisode,
               kind: akPlayFault,
               faultAtEpoch: status.status.faultEpoch,
               faultEntryId: status.entryId,
+              faultCode: status.status.faultCode,
               annotationFaultReason: status.status.faultReason))
         for identity in row.retuned:
           result.retuned.add entryIdentity(row.seat, identity)
@@ -1318,5 +1319,5 @@ proc formatLifecycleAnnotation*(annotation: ShellAnnotation,
   of akPlayFault:
     &"FIRST_LIGHT_ANNOTATION tick={annotation.tick} seat={annotation.seat}" &
       &"{playerField} kind=play_fault epoch={annotation.faultAtEpoch} " &
-      &"entry={annotation.faultEntryId} " &
+      &"entry={annotation.faultEntryId} code={annotation.faultCode} " &
       &"reason={annotation.annotationFaultReason.escape}"

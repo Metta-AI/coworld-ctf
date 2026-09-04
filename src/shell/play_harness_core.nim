@@ -43,6 +43,7 @@ type
     refused*: bool
     faulted*: bool
     reason*: string
+    code*: FaultCode           ## written only on a faulted or refused frame
     counters*: AbiCounters
     emitCodes*: seq[int32]
     manifestBytes*: string
@@ -271,6 +272,7 @@ proc toTrace(kind: HarnessFrameKind; invocationResult: ShellInvocationResult):
     refused: invocationResult.refused,
     faulted: invocationResult.faulted,
     reason: invocationResult.reason,
+    code: invocationResult.code,
     counters: invocationResult.counters,
     emitCodes: invocationResult.emitCodes,
     manifestBytes: invocationResult.manifestBytes,
@@ -323,6 +325,8 @@ proc runHarnessCase*(caseData: HarnessCase): HarnessTrace =
 
 proc encodeFrameTrace(frame: HarnessFrameTrace; w: var CanonicalWriter) =
   w.beginObject()
+  if frame.faulted or frame.refused:
+    w.field("code", $frame.code)
   w.key("counters")
   w.beginObject()
   w.field("allocations", int64(frame.counters.allocations))

@@ -170,6 +170,7 @@ proc `==`*(a, b: ShellAnnotation): bool =
   of akPlayFault:
     a.faultAtEpoch == b.faultAtEpoch and
       a.faultEntryId == b.faultEntryId and
+      a.faultCode == b.faultCode and
       a.annotationFaultReason == b.annotationFaultReason
 
 proc `==`*(a, b: BallotRecord): bool =
@@ -492,11 +493,32 @@ proc readProvenance(bytes: string, offset: var int): Provenance =
       acceptedTick: bytes.readU32(offset),
       policySha256: bytes.rawHash(offset)))
 
+const
+  ## Annotation wire kinds. These are NOT AnnotationKind ordinals: records
+  ## carry no length prefix, so a layout change needs a new byte, and the
+  ## bytes below are the contract. Allocate future kinds from 5.
+  WireAcceptedIntentChange = 0'u8
+  WireClearOnDeath = 1'u8
+  WireInstallSafeIntent = 2'u8
+  WirePlayFaultLegacy = 3'u8
+    ## The pre-code play-fault layout (epoch, entryId, reason), written by
+    ## paintbot 0.7.311 and 0.7.312. Still decoded (code = fcUnknown); never
+    ## written again.
+  WirePlayFaultCoded = 4'u8
+    ## epoch, code byte, entryId, reason.
+
+proc wireKind(kind: AnnotationKind): uint8 =
+  case kind
+  of akAcceptedIntentChange: WireAcceptedIntentChange
+  of akClearOnDeath: WireClearOnDeath
+  of akInstallSafeIntent: WireInstallSafeIntent
+  of akPlayFault: WirePlayFaultCoded
+
 proc encodeAnnotationRecord*(annotation: ShellAnnotation): string =
   result.addU8(RecBehaviorAnnotation)
   result.addU32(annotation.tick)
   result.addU8(annotation.seat)
-  result.addU8(uint8(annotation.kind.ord))
+  result.addU8(annotation.kind.wireKind)
   case annotation.kind
   of akAcceptedIntentChange:
     result.addU64(annotation.effectiveEpoch)
@@ -512,6 +534,7 @@ proc encodeAnnotationRecord*(annotation: ShellAnnotation): string =
     result.addString16(annotation.safeBytes)
   of akPlayFault:
     result.addU64(annotation.faultAtEpoch)
+    result.addU8(uint8(annotation.faultCode.ord))
     result.addString16(annotation.faultEntryId)
     result.addString16(annotation.annotationFaultReason)
 
@@ -525,7 +548,7 @@ proc decodeAnnotationRecord*(bytes: string,
   result.seat = bytes.readU8(offset)
   let kind = bytes.readU8(offset)
   case kind
-  of uint8(akAcceptedIntentChange.ord):
+  of WireAcceptedIntentChange:
     result = ShellAnnotation(
       tick: result.tick,
       seat: result.seat,
@@ -533,13 +556,13 @@ proc decodeAnnotationRecord*(bytes: string,
       effectiveEpoch: bytes.readU64(offset),
       provenance: bytes.readProvenance(offset),
       intentBytes: bytes.readString16(offset))
-  of uint8(akClearOnDeath.ord):
+  of WireClearOnDeath:
     result = ShellAnnotation(
       tick: result.tick,
       seat: result.seat,
       kind: akClearOnDeath,
       clearGeneration: bytes.readU64(offset))
-  of uint8(akInstallSafeIntent.ord):
+  of WireInstallSafeIntent:
     let
       generation = bytes.readU64(offset)
       reason = bytes.readString16(offset)
@@ -553,13 +576,27 @@ proc decodeAnnotationRecord*(bytes: string,
       installGeneration: generation,
       installReason: reason,
       safeBytes: safeBytes)
-  of uint8(akPlayFault.ord):
+  of WirePlayFaultLegacy:
     result = ShellAnnotation(
       tick: result.tick,
       seat: result.seat,
       kind: akPlayFault,
       faultAtEpoch: bytes.readU64(offset),
       faultEntryId: bytes.readString16(offset),
+      faultCode: fcUnknown,
+      annotationFaultReason: bytes.readString16(offset))
+  of WirePlayFaultCoded:
+    let epoch = bytes.readU64(offset)
+    let codeByte = bytes.readU8(offset)
+    if codeByte > uint8(high(FaultCode).ord):
+      recordError("unknown annotation fault code")
+    result = ShellAnnotation(
+      tick: result.tick,
+      seat: result.seat,
+      kind: akPlayFault,
+      faultAtEpoch: epoch,
+      faultEntryId: bytes.readString16(offset),
+      faultCode: FaultCode(codeByte),
       annotationFaultReason: bytes.readString16(offset))
   else:
     recordError("unknown annotation kind")

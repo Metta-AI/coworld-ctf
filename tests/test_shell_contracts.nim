@@ -376,6 +376,11 @@ suite "shell canonical encoding":
       "upload_id": "1", "name": "pact"}, "status_entry.schema.json")
     check bad(%*{"kind": "module_accepted", "ordinal": "07", "gen": "1",
       "upload_id": "1"}, "status_entry.schema.json")
+    check bad(%*{"kind": "module_accepted", "ordinal": "7", "gen": "1",
+      "upload_id": "1", "code": "outOfFuel"}, "status_entry.schema.json")
+    check bad(%*{"kind": "play_faulted", "ordinal": "7", "gen": "1",
+      "epoch": "1", "entry_id": "x", "reason": "r"},
+      "status_entry.schema.json")
 
   test "every status-entry golden fits the 256-byte entry cap":
     for name in GoldenFiles:

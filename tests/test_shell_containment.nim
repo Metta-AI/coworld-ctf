@@ -142,11 +142,12 @@ suite "shell runtime containment":
   test "terminal status mapping is capped and canonical":
     let longReason = repeat("x", StatusEntryMaxBytes * 2)
     let fault = ShellInvocationResult(kind: ivStep, faulted: true,
-      reason: longReason)
+      code: fcOutOfFuel, reason: longReason)
     let faultBytes = fault.terminalStatusBytes(1, 2, 3, "entry")
     check faultBytes.len > 0
     check faultBytes.len <= StatusEntryMaxBytes
     check faultBytes.contains("\"kind\":\"play_faulted\"")
+    check faultBytes.contains("\"code\":\"outOfFuel\"")
 
     let refusal = ShellInvocationResult(kind: ivRetune, refused: true,
       reason: longReason)

@@ -60,6 +60,31 @@
     "reason": {
       "type": "string",
       "$comment": "module_rejected / call_rejected (carries the offending parameter path) / retune_refused / play_faulted; truncated to fit the 256-byte entry cap"
+    },
+    "code": {
+      "type": "string",
+      "enum": [
+        "unknown",
+        "outOfFuel",
+        "epochDeadline",
+        "unreachable",
+        "stackOverflow",
+        "memoryOutOfBounds",
+        "tableOutOfBounds",
+        "indirectCallToNull",
+        "badSignature",
+        "integerOverflow",
+        "integerDivisionByZero",
+        "badConversionToInteger",
+        "trap",
+        "hostError",
+        "returnedNonzero",
+        "refused",
+        "abiViolation",
+        "instantiateFailed",
+        "retuneAbsent"
+      ],
+      "$comment": "retune_refused / play_faulted: the stable cause (engine FaultCode). Guest trap kinds are wasmtime's trap codes; the rest are engine ABI verdicts. Never trimmed; `reason` is the human text with the cause first."
     }
   },
   "allOf": [
@@ -111,6 +136,11 @@
               "required": [
                 "reason"
               ]
+            },
+            {
+              "required": [
+                "code"
+              ]
             }
           ]
         }
@@ -155,6 +185,11 @@
             {
               "required": [
                 "reason"
+              ]
+            },
+            {
+              "required": [
+                "code"
               ]
             }
           ]
@@ -205,6 +240,11 @@
               "required": [
                 "entry_id"
               ]
+            },
+            {
+              "required": [
+                "code"
+              ]
             }
           ]
         }
@@ -249,6 +289,11 @@
             {
               "required": [
                 "reason"
+              ]
+            },
+            {
+              "required": [
+                "code"
               ]
             }
           ]
@@ -299,6 +344,11 @@
               "required": [
                 "entry_id"
               ]
+            },
+            {
+              "required": [
+                "code"
+              ]
             }
           ]
         }
@@ -317,6 +367,7 @@
       },
       "then": {
         "required": [
+          "code",
           "epoch",
           "entry_id",
           "reason"

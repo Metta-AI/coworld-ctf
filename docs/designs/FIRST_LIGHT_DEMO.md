@@ -55,13 +55,16 @@ Every line carries `tick=` (the same tick numbering as `FIRST_LIGHT_INSTALL`
 and the replay), so any two streams join on it. Seat lists are printed as
 `[0,5,17]`.
 
-- `FIRST_LIGHT_ANNOTATION ... kind=play_fault epoch=E entry=ID reason="..."`
-  — a play instance faulted (trap, fuel exhaustion, epoch deadline, nonzero
-  return, ABI violation). `player=` carries the seat's roster name when the
-  episode has one, and `reason` is the runtime's own message with the cause
-  first (`wasm trap: ...`, fuel exhaustion, the epoch deadline) and the
-  backtrace frames after it, because the status that carries it is capped at
-  256 bytes and trimmed from the end. Printed on the fault
+- `FIRST_LIGHT_ANNOTATION ... kind=play_fault epoch=E entry=ID code=C
+  reason="..."` — a play instance faulted. `code` is the stable cause
+  (`outOfFuel`, `epochDeadline`, `unreachable`, `memoryOutOfBounds`,
+  `returnedNonzero`, `abiViolation`, ... — the engine `FaultCode`, the same
+  value the policy sees as `code` in its `play_faulted` status), so faults
+  aggregate by code without parsing text. `player=` carries the seat's roster
+  name when the episode has one, and `reason` is the runtime's own message
+  with the cause first and the backtrace frames after it, because the status
+  that carries it is capped at 256 bytes and trimmed from the end. Printed on
+  the fault
   tick; the same record is written to the replay's annotation stream. The
   `FIRST_LIGHT_INSTALL` line that follows on that tick and seat shows what
   the standing order fell back to, so a provenance switch with a fault line
