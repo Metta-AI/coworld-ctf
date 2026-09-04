@@ -33,7 +33,12 @@ String-form `view` values remain exact bytes.
 
 The output is canonical JSON containing module acceptance/rejection, invocation
 return codes, fuel remaining, fault/refusal reason, counters, emit return codes,
-manifest bytes, and the last accepted canonical emission.
+manifest bytes, and the last accepted canonical emission. A faulted or refused
+frame also carries `code`: the stable engine `FaultCode` (`outOfFuel`,
+`epochDeadline`, `unreachable`, `memoryOutOfBounds`, `returnedNonzero`,
+`refused`, `abiViolation`, ...), the same value the live server reports in the
+seat's `play_faulted` / `retune_refused` status, so a play author can match
+what they see locally against the league log.
 
 Authoring envelope: the spatial-call budget is two spatial calls
 per step. A play comparing more than two cover candidates per step is doing the

@@ -130,8 +130,8 @@ type
     skModuleRejected   ## terminal: named reason (uploadId, reason)
     skCallAccepted     ## proposalId, epoch, tick
     skCallRejected     ## proposalId, reason (with the parameter path)
-    skRetuneRefused    ## epoch, entryId, reason
-    skPlayFaulted      ## epoch, entryId, reason (autonomous; reserved slots)
+    skRetuneRefused    ## epoch, entryId, code, reason
+    skPlayFaulted      ## epoch, entryId, code, reason (autonomous; reserved slots)
 
   FaultCode* = enum
     ## The stable, policy-facing cause of a play fault or retune refusal.

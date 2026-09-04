@@ -968,7 +968,11 @@
       <li><strong>Play faults.</strong> A play that traps, exhausts its budget, or breaks the ABI's
       per-step rules (<a href="#s6-1">section 6.1</a>) is faulted for the life of the ladder instance (<a href="#s7-2">section 7.2</a>),
       reported as <code>playFaulted(epoch, entryId, code, reason)</code>, and the standing order continues under
-      the remaining entries or the default play. Recovery is the LLM's business: a new call
+      the remaining entries or the default play (<code>code</code> is the stable cause, the engine
+      <code>FaultCode</code>: wasmtime's own trap kinds such as <code>outOfFuel</code>,
+      <code>epochDeadline</code>, <code>unreachable</code>, plus the engine's ABI verdicts such as
+      <code>returnedNonzero</code> and <code>abiViolation</code>; <code>reason</code> is the human text,
+      cause first, trimmed to the entry cap). Recovery is the LLM's business: a new call
       re-instantiates.</li>
       <li><strong>Bounded ingress.</strong> Arbitrary player code feeds these queues, so uploads and calls
       have per-seat admission budgets per tick (message count and aggregate bytes), with deterministic
