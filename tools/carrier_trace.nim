@@ -4,7 +4,7 @@ import std/[os, strformat], ../src/ctf/sim, toolutil
 # each flag (if any) with its position — plus that carrier's position stream
 # so a stalled run home is visible at a glance.
 
-const SampleEvery = 250
+const SampleEvery = 25
 
 let path = commandLineParams()[0]
 chdirGameDir()
@@ -15,7 +15,7 @@ while replay.playing:
   replay.stepReplay(game)
   inc tick
   if tick mod SampleEvery == 0:
-    for team in [Red, Blue]:
+    for team in game.teams():
       let c = game.flags[team].carrier
       if c >= 0:
         let p = game.players[c]
