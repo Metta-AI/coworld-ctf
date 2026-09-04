@@ -734,7 +734,7 @@ const
   RigArmObjectBase = 38140     ## 2 arm objects per player: 38140..38203.
   RigLegObjectBase = 38220     ## 3 leg objects per player: 38220..38315.
   RigWheelObjectBase = 38340   ## 3 wheel objects per player: 38340..38435.
-  RigGunObjectBase = 38460     ## 1 gun object per player: 38460..38491.
+  RigGunObjectBase* = 38460    ## 1 gun object per player: 38460..38491.
   ## The retired aim-dot indicator left sprites 780..795 and objects
   ## 18000..18063 unallocated; both ranges are free to reuse.
   PlayerNameSpriteBase = 7000
@@ -8643,22 +8643,34 @@ proc addCogRigObjects(
   # reads. A cog holds exactly one thing — the sim swaps the gun out whenever a
   # spray can is carried, so the art swaps with it and the silhouette shows which
   # weapon is live. Both share one object slot (a cog can't hold both).
-  let
-    holdsSpray = player.hasSprayPaint
-    weaponSpriteId =
+  #
+  # LOADOUT(owner 2026-09-03): draw the held weapon only when the cog ACTUALLY
+  # holds one. Under lootStart a cog that has not looted the paintball marker
+  # has `hasGun == false` and holds nothing — so it must render bare-handed, not
+  # armed (the reported bug: every cog was drawn holding a gun regardless of its
+  # real loadout). Classic keeps `hasGun == true` for life (sim.nim: the reset
+  # is gated on lootStart), so the marker still always shows there — zero change.
+  # A spray-can cog (paintball loadout) always holds its can. The hopper is
+  # AMMO, not a held silhouette, so it has no board sprite of its own; armed =
+  # hasGun for what the board can draw. When the cog holds nothing we emit no
+  # weapon object and drop its id from `currentIds`, so any gun drawn on a prior
+  # frame is deleted by the stale-object sweep below.
+  let holdsSpray = player.hasSprayPaint
+  if holdsSpray or player.hasGun:
+    let weaponSpriteId =
       if holdsSpray: rigSpraySpriteId(player.team, aimStep)
       else: rigGunSpriteId(player.team, aimStep)
-  if spriteDefs.spriteDefinitionIndex(weaponSpriteId) < 0:
-    packet.addBoardSpriteChanged(
-      spriteDefs, weaponSpriteId, RigCanvas, RigCanvas,
-      (if holdsSpray: rigSprayCanPixels(player.team, aimStep, boardScale)
-       else: rigGunPixels(player.team, aimStep, boardScale)),
-      labelCogWeapon(color, spray = holdsSpray),
-      native = boardScale)
-  let weaponObjectId = RigGunObjectBase + base
-  currentIds.add(weaponObjectId)
-  packet.addBoardObject(
-    weaponObjectId, rigX, rigY, player.y + 1, MapLayerId, weaponSpriteId)
+    if spriteDefs.spriteDefinitionIndex(weaponSpriteId) < 0:
+      packet.addBoardSpriteChanged(
+        spriteDefs, weaponSpriteId, RigCanvas, RigCanvas,
+        (if holdsSpray: rigSprayCanPixels(player.team, aimStep, boardScale)
+         else: rigGunPixels(player.team, aimStep, boardScale)),
+        labelCogWeapon(color, spray = holdsSpray),
+        native = boardScale)
+    let weaponObjectId = RigGunObjectBase + base
+    currentIds.add(weaponObjectId)
+    packet.addBoardObject(
+      weaponObjectId, rigX, rigY, player.y + 1, MapLayerId, weaponSpriteId)
 
 proc buildSpriteProtocolUpdates*(
   sim: var SimServer,

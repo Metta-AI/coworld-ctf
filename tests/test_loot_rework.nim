@@ -22,7 +22,7 @@ import
   helpers,
   std/[json, unittest],
   bitworld/spriteprotocol,
-  ctf/[sim, events, arena, broadcast]
+  ctf/[sim, events, arena, broadcast, global]
 
 proc brConfig(): GameConfig =
   result = defaultGameConfig()
@@ -318,6 +318,44 @@ suite "row 3 — loot-start: unarmed spawn, marker+hopper BOTH to shoot":
     sim.centerOn(0, sim.weaponSpawns[0].x, sim.weaponSpawns[0].y)
     sim.stepIdle(1)
     check sim.weaponSpawns[0].present
+
+suite "row 3 — loadout drives the drawn weapon silhouette (owner bug 2026-09-03)":
+  # The reported bug: the spectator board drew a gun over EVERY cog's head from
+  # tick 0, even under lootStart where cogs spawn bare-handed. The held weapon
+  # object (RigGunObjectBase + joinOrder) must track the cog's real loadout: the
+  # marker (hasGun) IS the held silhouette; the hopper is ammo, not a silhouette.
+  test "dark (classic): every cog carries the marker sprite from spawn":
+    var sim = startedGame(brConfig(), 2)   # lootStart off -> hasGun == true
+    var state = initGlobalViewerState()
+    let messages = sim.buildGlobalMessages(state)
+    for i in 0 ..< sim.players.len:
+      check sim.players[i].hasGun
+      check messages.hasObject(RigGunObjectBase + sim.players[i].joinOrder)
+
+  test "armed (lootStart): an unlooted cog draws NO weapon object":
+    var config = brConfig()
+    config.lootStart = true
+    var sim = startedGame(config, 2)        # spawns bare-handed
+    var state = initGlobalViewerState()
+    let messages = sim.buildGlobalMessages(state)
+    for i in 0 ..< sim.players.len:
+      check not sim.players[i].hasGun
+      check not messages.hasObject(RigGunObjectBase + sim.players[i].joinOrder)
+
+  test "armed (lootStart): the marker alone brings the weapon object back":
+    # Looting the marker (hasGun) restores the silhouette even before the hopper
+    # arrives — the cog physically holds the marker; it just can't fire yet.
+    var config = brConfig()
+    config.lootStart = true
+    var sim = startedGame(config, 2)
+    sim.centerOn(0, sim.weaponSpawns[0].x, sim.weaponSpawns[0].y)
+    sim.stepIdle(1)
+    check sim.players[0].hasGun
+    check not sim.players[0].hasHopper
+    var state = initGlobalViewerState()
+    let messages = sim.buildGlobalMessages(state)
+    check messages.hasObject(RigGunObjectBase + sim.players[0].joinOrder)
+    check not messages.hasObject(RigGunObjectBase + sim.players[1].joinOrder)
 
 proc downedConfig(): GameConfig =
   result = brConfig()
