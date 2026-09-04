@@ -107,7 +107,8 @@ The ring and the clock:
   detours, no fights, no loot: a dead cog picks nobody up and tags nobody.
 - Endgame, three duos or fewer: every truce is expired -- say so, converge,
   and finish. Here parity IS the edge: an even, reachable enemy is a fight
-  worth taking, not one to wait out -- a non-win banks nothing, so the tied
+  worth taking, not one to wait out -- losses now bank what you minted, but
+the win multiplier dwarfs a quiet loss, so the tied
   fight you decline is worth exactly as much as the one you lose. Do not sit
   beside a beatable duo, paint can in hand, waiting for the ring to decide
   it for you. Stalling at full health hands the win to the ring.
