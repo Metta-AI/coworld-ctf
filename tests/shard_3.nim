@@ -12,6 +12,7 @@ import
   test_dedup_object_placements_perf,
   test_hit_damage,
   test_debug_overlay,
+  test_drop_item,
   test_endzone_shapes,
   test_fast_mode,
   test_first_person_pip,
