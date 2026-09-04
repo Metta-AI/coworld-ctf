@@ -830,6 +830,7 @@ const
                               ## carried bandage self-applies +1 hp.
   BandagePickupRange* = MedKitPickupRange ## same touch radius as med kits.
   WeaponPickupRange* = MedKitPickupRange  ## marker/hopper crate touch radius.
+  PerkPickupRange* = MedKitPickupRange  ## PERKITEM(s2): perk crate touch radius.
   NeutralPickupPoolWidth* = 64 ## PLACEMENT CAP: board-object ids are handed
                               ## out in fixed-width per-family pools (see
                               ## global.nim's NeutralItemPoolWidth, which is
@@ -853,6 +854,10 @@ const
                               ## spawn-seed rings' 0/4) so families sharing
                               ## an anchor lap away from each other rather
                               ## than restacking on the same pixels.
+  PerkSiteDirOffset* = 6      ## PERKITEM(s2): ring phase for fallback perk
+                              ## crates -- distinct from bandages(2)/hoppers(4)
+                              ## /spawn-seed(0,4) so a perk crate laps away
+                              ## from another family sharing its anchor.
   DownedTagRange* = 40        ## px center-to-center: teammate adjacency that
                               ## counts as the revive tag. Deliberately looser
                               ## than the 12px item touch — a tag is a hug,
@@ -1550,6 +1555,15 @@ type
   MapPoint* = object
     x*, y*: int
 
+  PerkPoint* = object
+    ## PERKITEM(s2): one authored perk-pickup point -- a MapPoint tagged with
+    ## the perk its crate grants. The map-authored analog of PerkSpawn (the
+    ## runtime board object). Spec key "perkSpawns"; empty (the default) = the
+    ## sim seeds a deterministic fallback when perkItems arms. Season-2 turns
+    ## perks from a join-time team buff into an item earned on the board.
+    perk*: Perk
+    x*, y*: int
+
   TeamPickupPoints* = object
     ## EXPLICIT per-team pickup points for a full-board (symNone) map, in team
     ## order (Red, Blue, [Green, Yellow]). Empty on symmetric maps (the orbit
@@ -1847,6 +1861,11 @@ type
                                ## points — a co-located can would disarm
                                ## the looter's gun). Spec key
                                ## "hopperSpawns".
+    perkSpawns*: seq[PerkPoint] ## PERKITEM(s2): authored perk-item crate
+                               ## points, each tagged with the perk it grants
+                               ## on touch; empty = the sim seeds a fallback
+                               ## scatter when perkItems arms. Spec key
+                               ## "perkSpawns".
 
   CrewSprite* = ref object
     width*, height*: int
@@ -2424,6 +2443,16 @@ type
                         ## the hopper (its ammo) are separate lootable
                         ## crates and a cog needs BOTH to fire the gun.
                         ## brMode only. Dark = false.
+    perkItems*: bool    ## PERKITEM(s2): perks-as-items rework -- perk buffs
+                        ## are earned on the board (perk crates granted by
+                        ## touch, players[i].perks.incl) instead of assigned
+                        ## at join via config.perks. Arms the perkSpawns
+                        ## family (map-authored PerkPoints or a fallback
+                        ## scatter). Composes additively with config.perks
+                        ## (a join-buff still applies) but the S2 thesis is
+                        ## config.perks empty + perkItems on: no fixed
+                        ## loadout advantage, map control = power. brMode
+                        ## only. Dark = false (byte-identical to no perks).
     downedMode*: bool   ## LOOT(s2): a lethal hit downs instead of kills —
                         ## the victim becomes a frozen, non-colliding ghost
                         ## of itself; a teammate standing within
@@ -3586,6 +3615,18 @@ type
     present*: bool
     respawnAt*: int            ## tick the pickup refills (when not present).
 
+  PerkSpawn* = object
+    ## PERKITEM(s2): one perk-item crate on the board -- a PickupSpawn tagged
+    ## with the perk it grants on touch (players[i].perks.incl perk). Runtime
+    ## analog of the authored PerkPoint. One-shot: a taken crate is never
+    ## refilled (respawnAt inert) and the granted perk stays for the cog's
+    ## life. The optics lane's PerkSight/PerkBarrel ride this same struct with
+    ## no per-perk code (the generic tryPickupPerks handler grants spawn.perk).
+    perk*: Perk
+    x*, y*: int
+    present*: bool
+    respawnAt*: int
+
   ZonePhase* = object
     ## One entry of the config-gated battle-royale shrink zone's schedule
     ## (docs/designs/BR_MAPGEN.md §4.3). The zone is a rectangle of the map's
@@ -4001,6 +4042,10 @@ type
                             ## only. One-shot like weaponSpawns.
     bandageSpawns*: seq[PickupSpawn] ## LOOT(s2): bandage pickups,
                             ## bandagePickups only. Refills like med kits.
+    perkSpawns*: seq[PerkSpawn]      ## PERKITEM(s2): perk-item crates,
+                            ## perkItems only. One-shot like weaponSpawns; a
+                            ## granted perk (players[i].perks.incl) is
+                            ## permanent for the life of the cog.
 
 # Team endzone display colors (shared by the map bake and the paint FX).
 const

@@ -771,6 +771,15 @@ proc firstPersonJson(sim: SimServer, playerIndex: int): JsonNode =
     for sp in sim.weaponSpawns: addPickup("gun", sp)
     for sp in sim.hopperSpawns: addPickup("hopper", sp)
     for sp in sim.bandageSpawns: addPickup("bandage", sp)
+    # PERKITEM(s2): perk-item crates a seat can see -- empty seq on every
+    # dark game (perkItems off). Keyed "perk_<name>" off perkText, so the
+    # optics lane's scope/barrel crates render with no extra code. Fog-honest
+    # like every other in-cone billboard (addPickup takes PickupSpawn, so the
+    # tagged PerkSpawn is billboarded inline here).
+    for sp in sim.perkSpawns:
+      if sp.present and sim.fovVisibleAt(playerIndex, sp.x, sp.y):
+        addEnt("item", "", float(sp.x), float(sp.y), -1, false,
+               %*{"item": "perk_" & perkText(sp.perk)})
 
     # --- paintball beams in flight (sim.recentShots; cosmetic, never hashed) ---
     # A hitscan shot has no travelling body, so the board draws it as a COMET: a
@@ -965,6 +974,10 @@ proc firstPersonJson(sim: SimServer, playerIndex: int): JsonNode =
   for sp in sim.weaponSpawns: addMapItem("gun", sp)
   for sp in sim.hopperSpawns: addMapItem("hopper", sp)
   for sp in sim.bandageSpawns: addMapItem("bandage", sp)
+  # PERKITEM(s2): perk crates on the omniscient map -- empty on a dark game.
+  for sp in sim.perkSpawns:
+    if sp.present:
+      mapItems.add(%*{"x": sp.x, "y": sp.y, "item": "perk_" & perkText(sp.perk)})
 
   let mapJson = %*{
     "w": MapWidth,

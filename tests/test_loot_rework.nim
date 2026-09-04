@@ -849,3 +849,130 @@ suite "row 6 — placement: dedup, site class, and the renderable pool cap":
     check a.hopperSpawns == b.hopperSpawns
     check a.weaponSpawns == b.weaponSpawns
     check a.bandageSpawns == b.bandageSpawns
+
+suite "row 6 — perkItems: perks are EARNED on the board, not assigned at join":
+  ## The Season-2 item-system centerpiece: perk buffs become board pickups.
+  ## One generic tagged struct (PerkSpawn) + one generic grant handler
+  ## (tryPickupPerks) serve every perk kind, so these tests assert the REAL
+  ## grant path (step-loop pickup -> players[i].perks.incl -> the existing
+  ## accessor lights up), never config prose, and count from the Perk enum
+  ## bounds so they stay correct as the optics lane extends the enum.
+  test "perkItems defaults dark and the default echo omits it":
+    let config = defaultGameConfig()
+    check config.perkItems == false
+    check not parseJson(config.configJson()).hasKey("perkItems")
+
+  test "perkItems round-trips through config JSON when armed":
+    var config = defaultGameConfig()
+    config.update("""{"brMode": true, "perkItems": true}""")
+    check config.perkItems
+    check parseJson(config.configJson())["perkItems"].getBool
+
+  test "perkItems refuses a non-BR config":
+    var config = defaultGameConfig()
+    expect CtfError:
+      config.update("""{"perkItems": true}""")
+
+  test "dark places no perk crates; armed seeds a fallback of one per perk kind":
+    let dark = startedGame(brConfig(), 2)
+    check dark.perkSpawns.len == 0
+    var config = brConfig()
+    config.perkItems = true
+    let sim = startedGame(config, 2)
+    check sim.perkSpawns.len == ord(high(Perk)) - ord(low(Perk)) + 1
+    var seen: set[Perk]
+    for sp in sim.perkSpawns:
+      seen.incl sp.perk
+    check seen == {low(Perk) .. high(Perk)}
+
+  test "touch grants the crate's perk permanently and emits a perk_<name> pickup":
+    var config = brConfig()
+    config.perkItems = true
+    var sim = startedGame(config, 2)
+    let want = sim.perkSpawns[0].perk
+    check want notin sim.players[0].perks
+    sim.centerOn(0, sim.perkSpawns[0].x, sim.perkSpawns[0].y)
+    sim.stepIdle(1)
+    check want in sim.players[0].perks
+    check not sim.perkSpawns[0].present
+    var found = false
+    for ev in sim.eventsOf(Pickup):
+      if ev.item == "perk_" & perkText(want):
+        found = true
+    check found
+    # Permanent until death: survives many idle ticks (no duration timer).
+    sim.stepIdle(30)
+    check want in sim.players[0].perks
+
+  test "a cog already holding the perk walks over its crate untouched":
+    var config = brConfig()
+    config.perkItems = true
+    var sim = startedGame(config, 2)
+    let want = sim.perkSpawns[0].perk
+    sim.players[0].perks.incl want
+    sim.centerOn(0, sim.perkSpawns[0].x, sim.perkSpawns[0].y)
+    sim.stepIdle(1)
+    check sim.perkSpawns[0].present     # left for a teammate, not wasted
+
+  test "different perk crates STACK on one cog (no magnitude stacking)":
+    var config = brConfig()
+    config.perkItems = true
+    var sim = startedGame(config, 2)
+    check sim.perkSpawns.len >= 2
+    let a = sim.perkSpawns[0]
+    let b = sim.perkSpawns[1]
+    check a.perk != b.perk               # fallback deals one per kind, in order
+    sim.centerOn(0, a.x, a.y)
+    sim.stepIdle(1)
+    sim.centerOn(0, b.x, b.y)
+    sim.stepIdle(1)
+    check a.perk in sim.players[0].perks
+    check b.perk in sim.players[0].perks
+
+  test "a granted armor crate lights up the existing maxHpFor accessor":
+    var config = brConfig()
+    config.perkItems = true
+    var sim = startedGame(config, 2)
+    var idx = -1
+    for i in 0 ..< sim.perkSpawns.len:
+      if sim.perkSpawns[i].perk == PerkArmor:
+        idx = i
+    check idx >= 0
+    let before = sim.config.maxHpFor(sim.players[0].team, sim.players[0].perks)
+    sim.centerOn(0, sim.perkSpawns[idx].x, sim.perkSpawns[idx].y)
+    sim.stepIdle(1)
+    check PerkArmor in sim.players[0].perks
+    let after = sim.config.maxHpFor(sim.players[0].team, sim.players[0].perks)
+    check after == before + sim.config.perkMods.armorHp
+
+  test "an existing map's spec pins no perkSpawns; authored tagged points round-trip":
+    let sim = initCtfForTest(defaultGameConfig())
+    check not parseJson(mapSpecJson(sim.gameMap)).hasKey("perkSpawns")
+    var authored = sim.gameMap
+    authored.perkSpawns = @[
+      PerkPoint(perk: PerkArmor, x: 305, y: 306),
+      PerkPoint(perk: PerkThruster, x: 405, y: 406)]
+    let reread = mapFromSpecJson(mapSpecJson(authored))
+    check reread.perkSpawns == authored.perkSpawns
+
+  test "authored map perk points win over the fallback scatter":
+    var config = brConfig()
+    config.perkItems = true
+    var sim = startedGame(config, 2)
+    sim.gameMap.perkSpawns = @[
+      PerkPoint(perk: PerkLuck, x: 200, y: 200),
+      PerkPoint(perk: PerkGrenade, x: 260, y: 200)]
+    sim.resetPerkPickups()
+    check sim.perkSpawns.len == 2
+    var seen: set[Perk]
+    for sp in sim.perkSpawns:
+      seen.incl sp.perk
+    check seen == {PerkLuck, PerkGrenade}
+
+  test "determinism: the same seed seeds the same perk crates":
+    proc build(): SimServer =
+      var config = brConfig()
+      config.perkItems = true
+      config.seed = 424242
+      startedGame(config, 4)
+    check build().perkSpawns == build().perkSpawns
