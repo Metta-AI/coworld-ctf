@@ -687,6 +687,12 @@ proc resetGloryLedger*(sim: var SimServer) =
   sim.achievementFeed = @[]
   sim.gloryPops = @[]
   sim.recutDamageMarks = @[]
+  # A6 (winAsMultiplier): the joint-act incident state is the marks'
+  # companion and resets with them -- a new game never inherits a
+  # previous game's contributor set or its per-(seat, incident) mint
+  # flags. Inert on battle-royale-s2 (maxGames 1), load-bearing for
+  # every multi-game config.
+  sim.recutJointSeats = @[]
 
 proc stealIsContested(sim: SimServer, playerIndex: int): bool =
   ## True when a LIVE enemy stands within `ContestedStealPx` of the stealer
