@@ -1281,13 +1281,11 @@ proc enemyShootableWithoutPolicy(body: SeatBody, tick: uint32): bool =
       return true
   false
 
-proc seatTick*(body: SeatBody, inputs: BodyTickInputs,
-               tick: uint32): InputState =
-  ## Executes one seat's body tick.
+proc actFromBelief*(body: SeatBody, tick: uint32): InputState =
+  ## Executes one seat's action phase from its current belief.
   ##
   ## Cold plan work and danger rebuild cadence stay episode-owned; callers run
   ## `runPlanningTick` and `rebuildScheduledDanger` on the shared BodyNavSystem.
-  body.updateBelief(inputs, tick)
   body.navState = bnsIdle
   body.combatOutcome = coNoPolicy
   if not body.selfState.alive:
@@ -1372,6 +1370,12 @@ proc seatTick*(body: SeatBody, inputs: BodyTickInputs,
   if body.standingIntent.drop:
     mask = mask or ButtonB or ButtonSelect
   decodeInputMask(mask)
+
+proc seatTick*(body: SeatBody, inputs: BodyTickInputs,
+               tick: uint32): InputState =
+  ## Folds one seat's current inputs, then executes its action phase.
+  body.updateBelief(inputs, tick)
+  body.actFromBelief(tick)
 
 proc dangerInputFromTracks*(body: SeatBody, tick: uint32,
                             predicate: TrackPredicate): DangerInput =

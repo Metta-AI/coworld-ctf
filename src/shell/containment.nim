@@ -172,7 +172,7 @@ proc cleanDefaultBodyTick(map: BodyMap, seatCount: int, tick: uint32): bool =
         idleAimCenterBrads: idleAimCenterBrads)
     var state: StandingOrderState
     state.stepFirstLightDefault(body, tick, fallback)
-    let mask = body.seatTick(inputs, tick)
+    let mask = body.actFromBelief(tick)
     let unsafeBits = mask.encodeInputMask() and
       (ButtonUp or ButtonDown or ButtonLeft or ButtonRight or ButtonA or
         ButtonC)

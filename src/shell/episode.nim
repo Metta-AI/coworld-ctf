@@ -1,8 +1,8 @@
 ## FIRST LIGHT's play-seat episode owner: lifecycle, standing-order handoff,
 ## ordinary InputState masks, annotations, and split body/runtime timings.
 ##
-## Lane A supplies the concrete body, belief-lite, navigation, and seatTick
-## actuation. This module owns only the server-side lifecycle,
+## Lane A supplies the concrete body, belief-lite, navigation, and action
+## execution. This module owns only the server-side lifecycle,
 ## default-order installation, mask handoff, annotations, and timing split.
 
 import std/[json, math, monotimes, options, os, sequtils, strformat, strutils, times]
@@ -1001,7 +1001,6 @@ proc activate(state: var FirstLightSeatState, frame: FirstLightSeatFrame,
     output: var FirstLightTickResult) =
   state.body = activateSeatBody(nav, state.seat.int)
   nav.setSeatActive(state.seat.int, true)
-  state.body.updateBelief(frame.bodyInputs, tick)
   let safe = safeIntent(reason, frame.defaultFallbacks.idleAimCenterBrads)
   let safeBytes = canonicalIntent(safe.intent)
   setStandingIntent(state.body, safe.intent, none(ValidatedGoal), 0)
@@ -1220,11 +1219,11 @@ proc step*(episode: var FirstLightEpisode,
       continue
     let frame = frames[frameIndex]
     # Every present play seat hands one mask to the caller each tick. Lane A's
-    # FL-B seatTick is the sole movement/action executor for active seats.
+    # action phase is the sole movement/action executor for active seats.
     var input = InputState()
     if state.active and frame.playing and frame.alive:
       let bodyStarted = getMonoTime()
-      input = seatTick(state.body, frame.bodyInputs, tick)
+      input = actFromBelief(state.body, tick)
       result.bodyNanoseconds += (getMonoTime() - bodyStarted).inNanoseconds
       summarizeSeatTick(state.body, result)
       # §4.1 amendment: surface the standing order's give-item declaration
