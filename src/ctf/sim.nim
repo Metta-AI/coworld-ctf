@@ -1549,6 +1549,7 @@ proc startGame*(sim: var SimServer) =
   sim.recentShots = @[]
   sim.hitFlashes = @[]
   sim.bubbleImpacts = @[]
+  sim.droppedItems = @[]       ## DROP(s2): no item survives a game boundary.
   sim.splatters = @[]
   sim.paintStains = @[]        ## each match starts on a clean arena.
   sim.diamondStains = @[]
@@ -3813,6 +3814,88 @@ proc applyBarrierInput(
   if input.c and not prev.c:
     sim.placeBarrier(playerIndex)
 
+proc holdsDroppable*(sim: SimServer, playerIndex: int): bool =
+  ## DROP(s2): does this cog carry anything the drop chord could spill? Spray
+  ## is droppable EXCEPT under the paintball loadout, where the can is never
+  ## lost (there is nowhere on the map to pick another up — the death-drop's
+  ## own paintballLoadout() carve-out). The marker/hopper are REAL inventory
+  ## only under lootStart; off it they sit at the spawn-armed constant `true`
+  ## (the canFire/death-drop truth) and must never be dropped — dropping a
+  ## phantom marker every cog "holds" would be nonsense. Grenade, barrier and
+  ## bandages are real pickups in every mode. The chord is inert unless this
+  ## holds, so a chord held empty-handed never trips the counter (the context
+  ## gate).
+  let p = sim.players[playerIndex]
+  (p.hasSprayPaint and not sim.paintballLoadout()) or
+    (sim.config.lootStart and (p.hasGun or p.hasHopper)) or
+    p.hasGrenade or p.hasBarrier or p.bandages > 0
+
+proc dropHeldItem(sim: var SimServer, playerIndex: int) =
+  ## DROP(s2): spills the highest-priority carried item to the ground as an
+  ## open, no-respawn DroppedItem and clears the carried flag. Priority is
+  ## spray-first: shedding the can clears hasSprayPaint, and canFire's
+  ## `not hasSprayPaint` guard hands the gun straight back — the drop is the
+  ## only exit from the spray lock. Only reached with holdsDroppable true, so
+  ## the trailing `return` is defensive.
+  template p: untyped = sim.players[playerIndex]
+  let
+    cx = p.x + CollisionW div 2
+    cy = p.y + CollisionH div 2
+  var kind: DropKind
+  if p.hasSprayPaint and not sim.paintballLoadout():
+    kind = dkSpray
+    p.hasSprayPaint = false
+    # A spray windup in flight dies with the can (the pickup path arms the
+    # mirror-image reset when the can is taken).
+    p.fireWindup = 0
+    p.windupBrads = -1
+  elif sim.config.lootStart and p.hasGun:
+    kind = dkGun
+    p.hasGun = false
+  elif sim.config.lootStart and p.hasHopper:
+    kind = dkHopper
+    p.hasHopper = false
+  elif p.hasGrenade:
+    kind = dkGrenade
+    p.hasGrenade = false
+    p.throwCharge = 0
+  elif p.hasBarrier:
+    kind = dkBarrier
+    p.hasBarrier = false
+  elif p.bandages > 0:
+    kind = dkBandage
+    dec p.bandages
+  else:
+    return
+  sim.droppedItems.add DroppedItem(
+    kind: kind, x: cx, y: cy, dropper: playerIndex, dropTick: sim.tickCount)
+  sim.emitEvent(
+    ItemDrop, source = playerIndex, item = $kind,
+    x = float(cx), y = float(cy))
+  sim.logGameEvent(
+    playerColorText(p.color) & " dropped a " &
+      (if kind == dkGun: "marker" elif kind == dkSpray: "spray can" else: $kind))
+
+proc applyDropInput(sim: var SimServer, playerIndex: int, input: InputState) =
+  ## DROP(s2): the aim-pair chord (ButtonB and ButtonSelect together — the
+  ## dead no-op applyInput ignores, `b != select` false). Held for
+  ## DropChordTicks WHILE carrying a droppable, it spills one item and resets
+  ## the counter, so one hold = one drop. Runs every tick for every seat and
+  ## early-returns on a dark config; the counter zeroes the moment the chord
+  ## breaks, the cog dies/downs, or its hands go empty, so a dead cog is never
+  ## hashed mid-hold. No-op unless config.dropItem is armed.
+  if not sim.config.dropItem:
+    return
+  template p: untyped = sim.players[playerIndex]
+  if not p.alive or p.downed or not input.b or not input.select or
+      not sim.holdsDroppable(playerIndex):
+    p.dropChordTicks = 0
+    return
+  inc p.dropChordTicks
+  if p.dropChordTicks >= DropChordTicks:
+    sim.dropHeldItem(playerIndex)
+    p.dropChordTicks = 0
+
 proc applyGrenadeInput(
   sim: var SimServer,
   playerIndex: int,
@@ -4330,6 +4413,68 @@ proc tryPickupBarriers*(sim: var SimServer, playerIndex: int) =
       playerColorText(sim.players[playerIndex].color) &
         " picked up a cardboard barrier"
     )
+
+proc tryPickupDropped*(sim: var SimServer, playerIndex: int) =
+  ## DROP(s2): lets a living cog walk a dropped item up. Open steal — no team
+  ## gate (owner ruling 2026-09-03) — so the first eligible cog in range, in
+  ## player-index order, takes it. The DROPPER alone waits DropperRegrabTicks
+  ## before it may re-grab its own drop, so a drop is not vacuumed straight
+  ## back up; everyone else grabs at once. A taken item is REMOVED (never
+  ## respawns). Each kind honours its own carry gate; an item the cog cannot
+  ## hold is passed over, left for a cog that can. No-op unless dropItem armed.
+  if not sim.config.dropItem:
+    return
+  template p: untyped = sim.players[playerIndex]
+  if not p.alive or p.downed:
+    return
+  let
+    px = p.x + CollisionW div 2
+    py = p.y + CollisionH div 2
+    rangeSq = DroppedPickupRange * DroppedPickupRange
+  for i in 0 ..< sim.droppedItems.len:
+    let d = sim.droppedItems[i]
+    if distSq(px, py, d.x, d.y) > rangeSq:
+      continue
+    if playerIndex == d.dropper and
+        sim.tickCount < d.dropTick + DropperRegrabTicks:
+      continue
+    var took = false
+    case d.kind
+    of dkSpray:
+      if not p.hasSprayPaint:
+        p.hasSprayPaint = true
+        p.fireWindup = 0
+        p.windupBrads = -1
+        took = true
+    of dkGun:
+      if not p.hasGun:
+        p.hasGun = true
+        took = true
+    of dkHopper:
+      if not p.hasHopper:
+        p.hasHopper = true
+        took = true
+    of dkGrenade:
+      if not p.hasGrenade and not p.hasBarrier:
+        p.hasGrenade = true
+        took = true
+    of dkBarrier:
+      if not p.hasBarrier and not p.hasGrenade:
+        p.hasBarrier = true
+        took = true
+    of dkBandage:
+      if p.bandages < BandageCarryCap:
+        inc p.bandages
+        took = true
+    if took:
+      sim.emitPickup(playerIndex, $d.kind, d.x, d.y)
+      sim.logGameEvent(
+        playerColorText(p.color) & " picked up a dropped " &
+          (if d.kind == dkGun: "marker"
+           elif d.kind == dkSpray: "spray can"
+           else: $d.kind))
+      sim.droppedItems.delete(i)
+      return
 
 proc updateBarriers*(sim: var SimServer) =
   ## Refills barrier pickups whose respawn timer elapsed, then flattens any
@@ -6549,6 +6694,7 @@ proc resetToLobby*(sim: var SimServer) =
   # sprays for the crate-fallback points.
   sim.resetBandages()
   sim.resetLootCrates()
+  sim.droppedItems = @[]       ## DROP(s2): no item survives a game boundary.
   sim.recentBlasts = @[]
   sim.sprayPaintFlashes = @[]
   sim.recentShouts = @[]
@@ -7458,6 +7604,9 @@ proc step*(
     sim.applyInput(playerIndex, input)
     sim.applyGrenadeInput(playerIndex, input, prev)
     sim.applyBarrierInput(playerIndex, input, prev)
+    # DROP(s2): the aim-pair chord's held-counter, after the movement/aim
+    # apply so the same tick's mask drives it. Dark-inert unless dropItem.
+    sim.applyDropInput(playerIndex, input)
     # `directAimActive` is this tick's ONLY signal that a human, not a
     # policy, is pointing this cog (see the field doc) — read it once, then
     # clear it so it can never leak into next tick's decision.
@@ -7507,6 +7656,8 @@ proc step*(
       sim.tryPickupBandages(playerIndex)
       sim.tryPickupWeapons(playerIndex)
       sim.tryPickupHoppers(playerIndex)
+      # DROP(s2): walk-over recovery of dropped items; no-op when dark.
+      sim.tryPickupDropped(playerIndex)
     sim.updateFlags()
     # LOOT(s2): bandage self-application, after pickups so a bandage
     # pocketed this tick still waits out its own calm window. Config-gated

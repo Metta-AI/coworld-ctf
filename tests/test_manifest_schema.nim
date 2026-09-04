@@ -129,6 +129,7 @@ const SampleJson = """{
   "lootStart": {"lootStart": true, "brMode": true},
   "downedMode": {"downedMode": true, "brMode": true},
   "giveItem": {"giveItem": true, "brMode": true},
+  "dropItem": {"dropItem": true, "brMode": true},
   "lootSpawnSeedGuns": {"lootSpawnSeedGuns": 3, "lootStart": true, "brMode": true},
   "lootSpawnSeedHoppers": {"lootSpawnSeedHoppers": 3, "lootStart": true, "brMode": true},
   "lootSpawnSeedRadius": {"lootSpawnSeedRadius": 48, "lootStart": true, "brMode": true},

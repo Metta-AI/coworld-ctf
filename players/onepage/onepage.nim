@@ -173,6 +173,15 @@ type
     desiredAim: int
     wantFire: bool
     holdC: bool
+    wantDrop: bool  ## DROP(s2): emit the aim-pair drop chord this tick
+                    ## (ButtonB|ButtonSelect together). Held DropChordTicks
+                    ## while carrying a droppable, the engine spills one item
+                    ## (config.dropItem). This is the ONLY way a policy can
+                    ## express the chord — the mask is a raw byte so any
+                    ## combination is expressible on the wire, but a policy
+                    ## that never sets both bits is drop-blind. Defaults false
+                    ## on every Act, so a resolver that ignores it plays
+                    ## byte-identically to before this field existed.
 
   OnepageBot = ref object
     slot: int
@@ -1420,8 +1429,16 @@ proc actToMask(bot: OnepageBot, act: Act): uint8 =
   bot.firedLast = (mask and ButtonA) != 0
   if act.holdC:
     mask = mask or ButtonC
+  # DROP(s2): the aim-pair chord OVERRIDES any single rotate this tick —
+  # both bits set is the dead no-op the engine ignores for aim (b != select
+  # is false), so the drop hold and an aim traverse cannot share a tick.
+  if act.wantDrop:
+    mask = mask or ButtonB or ButtonSelect
   bot.rotSign =
-    if (mask and ButtonB) != 0: 1
+    # Both rotate bits = the drop chord: the engine turns the aim by nothing,
+    # so the dead-reckoned estAim must not drift either (rotSign 0).
+    if (mask and ButtonB) != 0 and (mask and ButtonSelect) != 0: 0
+    elif (mask and ButtonB) != 0: 1
     elif (mask and ButtonSelect) != 0: -1
     else: 0
   mask

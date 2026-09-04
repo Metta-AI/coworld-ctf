@@ -185,6 +185,15 @@
   // a client-side speed change would be a human-only capability no policy
   // could express -- exactly what the governing rule forbids. Shipping it
   // would require a real Season 2 engine mechanic with its own bit.
+  // DROP (Q) synthesizes the aim-pair CHORD: both rotate bits at once. The
+  // engine turns the aim only on `b != select` (sim.nim applyInput), so both
+  // bits set has always been a dead no-op -- which is exactly why it is safe
+  // to repurpose as the drop sentinel WITHOUT a new bit. Held DropChordTicks
+  // (~10) while carrying a droppable, the engine spills one item to the
+  // ground (config.dropItem). It is a real chord a policy can also emit (a
+  // policy's Act sets both bits too), never a human-only capability -- the
+  // governing rule. It OVERRIDES this tick's aim traverse (you cannot turn
+  // and drop at once), so it is applied AFTER the rotate bits.
   function buildMask(state, prev) {
     const p = prev || {};
     let mask = moveMask(state);
@@ -192,6 +201,7 @@
     else if (state.rotate === "select") mask |= BUTTON.select;
     mask |= fireBit(state.fire, p.attack);
     mask |= itemBit(state.item);
+    if (state.drop) mask |= BUTTON.b | BUTTON.select;
     return mask;
   }
 
@@ -220,6 +230,11 @@
     { id: "item",   label: "Use item",      keys: ["Space"], alt: [],
       wire: "mask", bits: ["c"], status: "live",
       note: "hold to charge a grenade, release to throw" },
+    { id: "drop",   label: "Drop item",     keys: ["Q"], alt: [],
+      wire: "mask", bits: ["b", "select"], status: "live",
+      note: "hold ~0.4s to drop your held item to the ground (spray can " +
+            "first, then looted gear); synthesizes the aim-pair chord, so " +
+            "your aim holds while you drop; only live when the game arms it" },
     { id: "ping",   label: "Callout",       keys: ["1", "2", "3", "4", "5", "6"], alt: [],
       wire: "chat", bits: [], status: "live",
       note: "team callout at the cursor; one per second" },

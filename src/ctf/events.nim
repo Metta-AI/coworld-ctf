@@ -43,6 +43,7 @@ proc key*(kind: SimEventKind): string =
   of Downed: "downed"
   of Revived: "revived"
   of ItemGive: "item_give"
+  of ItemDrop: "item_drop"
 
 proc jsonRow*(event: SimEvent): JsonNode =
   ## Returns one JSON-lines row for a tier-2 sim event.

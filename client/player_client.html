@@ -1577,6 +1577,10 @@ function readKeys(){
     up:!z&&!!(k.KeyW||k.ArrowUp), down:!z&&!!(k.KeyS||k.ArrowDown),
     left:!z&&!!(k.KeyA||k.ArrowLeft), right:!z&&!!(k.KeyD||k.ArrowRight),
     rotate:committedRotate, fire:!z&&lmb, item:!z&&!!k.Space,
+    /* DROP(s2): Q synthesizes the aim-pair chord in buildMask (both rotate
+       bits). Held ~DropChordTicks while carrying a droppable, the engine
+       spills one item; inert unless the game arms config.dropItem. */
+    drop:!z&&!!k.KeyQ,
   };
 }
 /* Movement and item respond the instant a key moves, but the rotate and

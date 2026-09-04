@@ -114,6 +114,11 @@ proc defaultGameConfig*(): GameConfig =
     # declaration is ever accepted and the channel never runs (echoed only
     # when armed, echoGiveItemKeys).
     giveItem: false,
+    # DROP(s2): the button-chord item drop, dark by default — the aim-pair
+    # chord stays the inert no-op it always was, droppedItems never populate,
+    # and the gameHash carries no drop block (echoed only when armed,
+    # echoDropItemKeys).
+    dropItem: false,
     # RECUT(v13): the multiplier-recut economy and the realized-config
     # stamp, both dark by default and each its OWN independently-settable
     # key (per-flag activation, recut contract Amendment 2 §1).
@@ -1373,6 +1378,10 @@ proc update*(config: var GameConfig, jsonText: string) =
   # — same tail-append rule as everything above. An absent key leaves the
   # dark default, so an existing config JSON parses to an unchanged config.
   node.readConfigBool("giveItem", config.giveItem)
+  # DROP(s2): appended read for the appended dropItem field (sim_types.nim)
+  # — same tail-append rule as everything above. An absent key leaves the
+  # dark default, so an existing config JSON parses to an unchanged config.
+  node.readConfigBool("dropItem", config.dropItem)
   # RECUT(v13): appended reads for the multiplier-recut fields
   # (sim_types.nim) — same tail-append rule as everything above. Absent
   # keys leave the dark defaults, so an existing config JSON parses to an
@@ -1755,6 +1764,15 @@ proc echoGiveItemKeys(config: GameConfig, node: JsonNode) =
   if config.giveItem:
     node["giveItem"] = %config.giveItem
 
+proc echoDropItemKeys(config: GameConfig, node: JsonNode) =
+  ## DROP(s2): the button-chord item-drop gate, echoed only when on — same
+  ## byte-identity rule as every echo above. The chord length, pickup radius
+  ## and re-grab delay are compile-time constants (DropChordTicks /
+  ## DroppedPickupRange / DropperRegrabTicks, sim_types.nim), not knobs, so
+  ## the gate is the only key.
+  if config.dropItem:
+    node["dropItem"] = %config.dropItem
+
 proc echoRecutKeys(config: GameConfig, node: JsonNode) =
   ## RECUT(v13): the multiplier-recut gate, echoed only when armed — same
   ## byte-identity rule as every echo above. An armed replay's header pins
@@ -1926,6 +1944,7 @@ proc configJson*(config: GameConfig): string =
   echoLootStartKeys(config, node)
   echoDownedKeys(config, node)
   echoGiveItemKeys(config, node)
+  echoDropItemKeys(config, node)
   echoRecutKeys(config, node)
   echoStampKeys(config, node)
   echoSpawnLootSeedKeys(config, node)
