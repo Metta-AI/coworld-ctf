@@ -578,6 +578,26 @@ const
                                ## currently on screen is ever emitted, so a
                                ## painted diamond costs one sprite per spin
                                ## step, not 16 at once.
+  DroppedItemObjectBase* = 39700 ## GVNEXT(drop): ground drops made by the drop
+                               ## chord, MaxDroppedItems-wide: 39700..39763,
+                               ## in the gap between the paint stains (end
+                               ## 39699) and the paint tiles (start 40000),
+                               ## leaving 236 ids of headroom above it. One
+                               ## pool for every KIND of drop: a drop is
+                               ## addressed by its SLOT in sim.droppedItems,
+                               ## not by its family, because the list is
+                               ## heterogeneous.
+                               ##
+                               ## Registered in BoardObjectPools below, which
+                               ## is the ONLY thing that makes this safe: the
+                               ## static block there proves every pair of
+                               ## pools disjoint at COMPILE time. An earlier
+                               ## cut of this constant sat at 38200 and
+                               ## silently overlapped the rig arms
+                               ## (38140..38203) and rig legs (38220..38315) —
+                               ## a hand-read of the neighbouring comment
+                               ## missed them. Never hand-verify a base; add
+                               ## the row and let the compiler check it.
   StainObjectBase = 38500      ## one object per stain: 38500..39699, between
                                ## the rig object pools (..38491) and the
                                ## paint-tile pool below. Moved off 33000: the
@@ -726,14 +746,6 @@ const
   ## Object pools sit clear of the tracer-dot pool (24000..35327) and the
   ## damage/kill pops (38000..38031); rig objects live at 38100+ (32 players
   ## each). Moved off 32000+: the widened tracer-dot pool swallowed that range.
-  DroppedItemObjectBase = 38200 ## GVNEXT(drop): ground drops made by the drop
-                               ## chord, MaxDroppedItems-wide:
-                               ## 38200..38263. Sits in the free gap between
-                               ## RigHead (ends 38131) and Debug (41000), so
-                               ## it collides with no existing pool. One pool
-                               ## for every KIND of drop: a drop is addressed
-                               ## by its slot in sim.droppedItems, not by its
-                               ## family, because the list is heterogeneous.
   RigHeadObjectBase* = 38100   ## 1 head object per player: 38100..38131.
                                ## Exported: the player-view rig now lands on
                                ## this same object id (see addCogRigObjects),
@@ -947,7 +959,7 @@ const
   ## index-bounded families (map bands, protocol text, map markers) are
   ## generous envelopes, not exact caps.
   U16ObjectIdCeiling = 65535
-  BoardObjectPools = [
+  BoardObjectPools* = [
     ("map bands", MapBandObjectBase, 960),
     ("players (POV view)", PlayerObjectBase, MaxPlayers),
     ("replay UI", ReplayTickObjectId, 5),
@@ -1006,6 +1018,7 @@ const
     ("rig wheels", RigWheelObjectBase, MaxPlayers * 3),
     ("rig guns", RigGunObjectBase, MaxPlayers),
     ("paint stains", StainObjectBase, StainMaxCount),
+    ("dropped items", DroppedItemObjectBase, MaxDroppedItems),
     ("paint tiles", PaintTileObjectBase, MaxPaintTiles),
     ("hill overlay", HillObjectId, 1),
     ("barrage marker", BarrageMarkerObjectId, 1),

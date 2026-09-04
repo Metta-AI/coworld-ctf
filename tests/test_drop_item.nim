@@ -19,7 +19,7 @@
 import
   helpers,
   std/[json, os, unittest],
-  ctf/[sim, events, roster]
+  ctf/[sim, events, roster, global]
 
 proc brConfig(): GameConfig =
   result = defaultGameConfig()
@@ -284,6 +284,30 @@ suite "armed: open pickup and the dropper's re-grab delay":
       sim.step(sim.none(), sim.none())
     check sim.players[0].hasSprayPaint
     check sim.droppedItems.len == 0
+
+# ─────────────────────────────────────────────────────────────────────────
+suite "the board object-id pool is registered, not hand-verified":
+  test "the dropped-item pool is in the compile-time collision table":
+    # The static block in global.nim proves every pair of pools disjoint at
+    # COMPILE time, so the real guarantee is that this module compiled at
+    # all. This test pins the REGISTRATION: an unregistered pool compiles
+    # fine and silently overlaps (the 38200-vs-rig-arms bug this replaced).
+    var found = false
+    for (name, base, width) in BoardObjectPools:
+      if name == "dropped items":
+        found = true
+        check base == DroppedItemObjectBase
+        check width == MaxDroppedItems
+    check found
+
+  test "it collides with no other registered pool":
+    # A second, explicit statement of what the static block asserts — so the
+    # intent survives even if the table is ever restructured.
+    for (aName, aBase, aWidth) in BoardObjectPools:
+      if aName == "dropped items":
+        continue
+      check DroppedItemObjectBase + MaxDroppedItems <= aBase or
+        aBase + aWidth <= DroppedItemObjectBase
 
 # ─────────────────────────────────────────────────────────────────────────
 suite "manifest wiring":

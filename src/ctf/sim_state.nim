@@ -466,6 +466,11 @@ proc gameHash*(sim: SimServer): uint64 =
       result.mixHashInt(item.dropTick)
     for player in sim.players:
       result.mixHashInt(player.dropChordTicks)
+      # The latch is as causal as the counter it guards — it decides whether
+      # the NEXT DropChordTicks spills a second item — so it is hashed beside
+      # it. Without this a desynced latch only surfaced a tick late, and
+      # indirectly, as a droppedItems diff.
+      result.mixHashBool(player.dropLatched)
 
 proc applyPolicyPage*(
   sim: var SimServer,
