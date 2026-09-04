@@ -3663,7 +3663,67 @@ proc firstLightPartner(sim: SimServer, playerIndex: int): Option[PartnerSample] 
         hasHopper: sim.config.frameLoadoutFlags and other.hasHopper))
   none(PartnerSample)
 
-proc firstLightBodyInputs(sim: var SimServer, playerIndex: int): BodyTickInputs =
+type
+  FirstLightConeObservation = object
+    eventId: uint64
+    attackerIndex: int
+    attackerSeat: int
+    origin: BodyPoint
+    aimBrads: int
+    victimSlots: uint32
+
+  FirstLightObservationFrame = object
+    cones: seq[FirstLightConeObservation]
+
+proc firstLightObservationFrame(sim: SimServer): FirstLightObservationFrame =
+  ## Compute the authoritative victim set once per active cone and body
+  ## boundary. Every seat projection below reuses this immutable frame.
+  for attackerIndex, attacker in sim.players:
+    if not attacker.alive or attacker.arcTicksLeft <= 0 or
+        attacker.joinOrder < 0 or attacker.joinOrder >= MaxPlayers:
+      continue
+    var victimSlots = 0'u32
+    for victimIndex in sim.selectArcVictims(attackerIndex):
+      let slot = sim.players[victimIndex].joinOrder
+      if slot >= 0 and slot < MaxPlayers:
+        victimSlots = victimSlots or (1'u32 shl slot)
+    let activationTick = sim.tickCount -
+      (SprayPaintActiveTicks - attacker.arcTicksLeft)
+    result.cones.add FirstLightConeObservation(
+      eventId: packedObservationEventId(
+        activationTick, SprayConeObservationKind, attacker.joinOrder, -1, 0),
+      attackerIndex: attackerIndex,
+      attackerSeat: attacker.joinOrder,
+      origin: attacker.bodyPoint,
+      aimBrads: attacker.arcAimBrads,
+      victimSlots: victimSlots)
+
+proc currentSeatInAudience(sim: SimServer, slot: int,
+                           audience: openArray[ObservationAudienceSeat]): bool =
+  if slot < 0 or slot >= MaxPlayers:
+    return false
+  for admitted in audience:
+    if admitted.slot.int == slot and
+        admitted.lifeGeneration == sim.seatLifeGenerations[slot]:
+      return true
+  false
+
+proc bodyShoutIdentityName(sim: SimServer,
+                           observation: ShoutObservation): string =
+  ## The body keeps the source slot stable but only names the original live
+  ## author. Sprite rendering continues to use roster.shoutIdentityName.
+  let slot = observation.sourceSlot
+  if slot < 0 or slot >= MaxPlayers or
+      sim.seatConnectionGenerations[slot] !=
+        observation.sourceConnectionGeneration:
+    return IdentityNameUnknown
+  for player in sim.players:
+    if player.joinOrder == slot and player.address == observation.address:
+      return IdentityNames[sim.slotIdentityIndex(slot)]
+  IdentityNameUnknown
+
+proc firstLightBodyInputs(sim: var SimServer, playerIndex: int,
+                          observations: FirstLightObservationFrame): BodyTickInputs =
   let player = sim.players[playerIndex]
   discard sim.refreshPlayerFov(playerIndex)
   result.self = sim.firstLightSelfState(playerIndex)
@@ -3738,6 +3798,105 @@ proc firstLightBodyInputs(sim: var SimServer, playerIndex: int): BodyTickInputs 
     result.sightedItems.add(ItemSighting(kind: sighted,
       pos: (item.x, item.y), present: true,
       tick: uint32(sim.tickCount + 1)))
+
+  let
+    viewerSlot = player.joinOrder
+    bodyTick = uint32(max(0, sim.tickCount + 1))
+  for observation in sim.publicKillObservations:
+    result.killFeed.add KillEvent(
+      eventId: observation.eventId,
+      tick: uint32(max(0, observation.tick)),
+      killerTeam: observation.killerTeam,
+      victimSeat: observation.victimSlot)
+  if viewerSlot >= 0 and viewerSlot < MaxPlayers:
+    for observation in sim.aggressorObservations:
+      if observation.victimSlot == viewerSlot and
+          observation.victimLifeGeneration ==
+            sim.seatLifeGenerations[viewerSlot]:
+        result.aggressorEvents.add AggressorEvent(
+          eventId: observation.eventId,
+          tick: uint32(max(0, observation.tick)),
+          dirBrads: observation.dirBrads,
+          seat: (if observation.attackerSlot >= 0:
+            some(observation.attackerSlot) else: none(int)))
+
+    for grenade in sim.airborneGrenades:
+      let position = grenade.grenadePosition(sim.tickCount)
+      if player.alive and sim.fovVisibleAt(playerIndex, position.x, position.y):
+        result.hazards.grenades.add BodyGrenadeHazard(
+          eventId: grenade.observationId,
+          coversSelf: sim.grenadeCoversPlayer(
+            playerIndex, grenade.tx, grenade.ty),
+          pos: position,
+          predictedBlastPos: (grenade.tx, grenade.ty),
+          ticksToBlast: max(0,
+            grenade.launchTick + grenade.flightTicks - sim.tickCount))
+      if grenade.throwerSlot == viewerSlot:
+        result.hazards.ownThrow = some(BodyOwnThrow(
+          eventId: grenade.observationId,
+          target: (grenade.tx, grenade.ty),
+          releaseTick: uint32(max(0, grenade.launchTick)),
+          blastRadius: GrenadeBlastRadius))
+
+    for observation in sim.blastObservations:
+      if sim.currentSeatInAudience(viewerSlot, observation.audience):
+        let (dx, dy) = blastOffset(
+          observation.tick, observation.x, observation.y)
+        result.hazards.blastCues.add BodyBlastCue(
+          eventId: observation.eventId,
+          coversSelf:
+            (observation.coveredSlots and (1'u32 shl viewerSlot)) != 0,
+          pos: (observation.x + dx, observation.y + dy),
+          tick: uint32(max(0, observation.tick)))
+
+    for observation in sim.sprayImpactObservations:
+      if sim.currentSeatInAudience(viewerSlot, observation.audience):
+        let (dx, dy) = shotImpactOffset(
+          observation.tick, observation.x, observation.y)
+        result.hazards.sprays.add BodySprayHazard(
+          eventId: observation.eventId,
+          coversSelf: true,
+          tick: uint32(max(0, observation.tick)),
+          kind: bshAnonymousImpact,
+          impactPos: (observation.x + dx, observation.y + dy),
+          incomingDirBrads: observation.incomingDirBrads)
+
+    if player.alive:
+      for cone in observations.cones:
+        if cone.attackerIndex < 0 or cone.attackerIndex >= sim.players.len:
+          continue
+        if cone.attackerIndex == playerIndex:
+          continue
+        if not sim.playerVisibleTo(playerIndex, cone.attackerIndex):
+          continue
+        result.hazards.sprays.add BodySprayHazard(
+          eventId: cone.eventId,
+          coversSelf: (cone.victimSlots and (1'u32 shl viewerSlot)) != 0,
+          tick: bodyTick,
+          kind: bshVisibleCone,
+          attackerSeat: cone.attackerSeat,
+          origin: cone.origin,
+          aimBrads: cone.aimBrads,
+          reachPx: SprayPaintReach,
+          maxWidthPx: SprayPaintMaxWidth)
+
+  for shout in sim.recentShouts:
+    if not sim.shoutAudibleTo(playerIndex, shout):
+      continue
+    for observation in sim.shoutObservations:
+      if observation.address == shout.address and observation.tick == shout.tick:
+        let (dx, dy) = shoutOffset(shout)
+        result.shouts.add ShoutEvent(
+          eventId: observation.eventId,
+          team: shout.team,
+          slotLetter: sim.bodyShoutIdentityName(observation),
+          text: shout.text,
+          pos: (shout.x + dx, shout.y + dy),
+          tick: uint32(max(0, shout.tick)))
+        break
+
+proc firstLightBodyInputs(sim: var SimServer, playerIndex: int): BodyTickInputs =
+  sim.firstLightBodyInputs(playerIndex, sim.firstLightObservationFrame())
 
 proc firstLightVelocity(sim: SimServer, playerIndex: int): int =
   let player = sim.players[playerIndex]
@@ -4973,6 +5132,7 @@ proc runServerLoop*(
         stepPrevInputs.clearPressedInputMasks(stepPressedInputMasks)
         if firstLightEpisode.enabled:
           var frames: seq[FirstLightSeatFrame]
+          let observationFrame = sim.firstLightObservationFrame()
           for playerIndex, player in sim.players:
             let slot = player.joinOrder
             if slot < 0 or slot >= config.slots.len or
@@ -4981,7 +5141,8 @@ proc runServerLoop*(
             if slot < appState.seatTombstones.len and
                 appState.seatTombstones[slot].presence == spTerminal:
               continue
-            let bodyInputs = sim.firstLightBodyInputs(playerIndex)
+            let bodyInputs = sim.firstLightBodyInputs(
+              playerIndex, observationFrame)
             frames.add(FirstLightSeatFrame(
               seat: uint8(slot),
               playerIndex: playerIndex,

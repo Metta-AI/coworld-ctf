@@ -2470,13 +2470,27 @@ proc fuzzedAimBrads(sim: SimServer, targetIndex: int): int =
   (sim.players[targetIndex].aimBrads + int(h mod span) - AimRenderFuzzBrads +
     AimBradsTurn) mod AimBradsTurn
 
-proc shotImpactOffset(shot: ShotFx): (int, int) =
+proc shotImpactOffset*(tick, x, y: int): (int, int) =
   ## A deterministic pseudo-random offset for one shot's impact ring: stable
   ## across frames, viewers, and replays, but never the exact landing spot.
   var h = 0x9E3779B9'u32 xor 0x5F356495'u32
-  h = (h xor uint32(shot.firedTick)) * 0x85EBCA6B'u32
-  h = (h xor uint32(shot.x1)) * 0xC2B2AE35'u32
-  h = (h xor uint32(shot.y1)) * 0x27D4EB2F'u32
+  h = (h xor uint32(tick)) * 0x85EBCA6B'u32
+  h = (h xor uint32(x)) * 0xC2B2AE35'u32
+  h = (h xor uint32(y)) * 0x27D4EB2F'u32
+  h = h xor (h shr 15)
+  let span = uint32(2 * SoundRingJitter + 1)
+  (int(h mod span) - SoundRingJitter,
+    int((h shr 16) mod span) - SoundRingJitter)
+
+proc shotImpactOffset(shot: ShotFx): (int, int) =
+  shotImpactOffset(shot.firedTick, shot.x1, shot.y1)
+
+proc blastOffset*(tick, x, y: int): (int, int) =
+  ## The exact deterministic offset used by the existing hidden-blast ring.
+  var h = 0x9E3779B9'u32
+  h = (h xor uint32(tick)) * 0x85EBCA6B'u32
+  h = (h xor uint32(x)) * 0xC2B2AE35'u32
+  h = (h xor uint32(y)) * 0x27D4EB2F'u32
   h = h xor (h shr 15)
   let span = uint32(2 * SoundRingJitter + 1)
   (int(h mod span) - SoundRingJitter,
@@ -6477,15 +6491,8 @@ proc addGrenades(
           spriteDefs, SoundRingSpriteId, SoundRingSize, SoundRingSize,
           buildSoundRingSprite(), LabelGrenadeSound
         )
-      var h = 0x9E3779B9'u32
-      h = (h xor uint32(blast.tick)) * 0x85EBCA6B'u32
-      h = (h xor uint32(blast.x)) * 0xC2B2AE35'u32
-      h = (h xor uint32(blast.y)) * 0x27D4EB2F'u32
-      h = h xor (h shr 15)
       let
-        span = uint32(2 * SoundRingJitter + 1)
-        dx = int(h mod span) - SoundRingJitter
-        dy = int((h shr 16) mod span) - SoundRingJitter
+        (dx, dy) = blastOffset(blast.tick, blast.x, blast.y)
         objectId = BlastObjectBase + i
       currentIds.add(objectId)
       packet.addBoardObject(
@@ -6765,7 +6772,7 @@ proc addDroppedItems(
       item.y, MapLayerId, spriteId
     )
 
-proc shoutOffset(shout: Shout): (int, int) =
+proc shoutOffset*(shout: Shout): (int, int) =
   ## The deterministic jitter for one shout's heard position, salted apart
   ## from the shot rings: nearby players learn the neighborhood the shout
   ## came from, never the exact spot.
