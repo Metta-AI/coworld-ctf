@@ -166,6 +166,29 @@ proc loadShieldSprite*(size: int): seq[uint8] =
   ## keeps the outline crisp on the floor.
   loadRgbaSprite("data/shield.png", size, alphaCutoff = 128'u8)
 
+proc loadBandageSprite*(size: int): seq[uint8] =
+  ## LOOT(s2) ground art (item-completeness epic 1ef4f9d6, T2): the carryable
+  ## +1hp pickup (config.bandagePickups), a rolled gauze bandage with a red
+  ## cross, in the same bold-outline painted style as the med kit it sits
+  ## beside on the map. Hard alpha edge keeps the outline crisp on the floor.
+  loadRgbaSprite("data/bandage.png", size, alphaCutoff = 128'u8)
+
+proc loadGunCrateSprite*(size: int): seq[uint8] =
+  ## LOOT(s2) ground art (item-completeness epic 1ef4f9d6, T2): the marker
+  ## (gun) crate (config.lootStart, sim.weaponSpawns) — a chunky wooden ammo
+  ## crate stenciled with the marker's silhouette, same bold-outline painted
+  ## style as every other neutral pickup. Hard alpha edge keeps the outline
+  ## crisp on the floor.
+  loadRgbaSprite("data/gun_crate.png", size, alphaCutoff = 128'u8)
+
+proc loadHopperCrateSprite*(size: int): seq[uint8] =
+  ## LOOT(s2) ground art (item-completeness epic 1ef4f9d6, T2): the ammo
+  ## hopper crate (config.lootStart, sim.hopperSpawns) — the same wooden
+  ## crate family as the gun crate, topped with a hopper overflowing with
+  ## rainbow paintballs so the two crates read as distinct at a glance. Hard
+  ## alpha edge keeps the outline crisp on the floor.
+  loadRgbaSprite("data/hopper_crate.png", size, alphaCutoff = 128'u8)
+
 proc loadPaintBombSprite*(size: int): seq[uint8] =
   ## The thrown grenade, a kid-friendly dungeon-crawler alchemical paint-bomb orb
   ## (cork-stopped rune bottle of swirling paint — NO fuse). Used for the corner
