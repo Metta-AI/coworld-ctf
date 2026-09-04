@@ -1325,6 +1325,62 @@ proc resetLootCrates*(sim: var SimServer) =
   sim.placeWalkablePickups(hopperSpawns, hopperTargets)
   sim.seedSpawnLoot()
 
+proc resetPerkPickups*(sim: var SimServer) =
+  ## PERKITEM(s2): places the perk-item crates -- the Season-2 rework that
+  ## turns perk buffs from a join-time team assignment (config.perks) into
+  ## power items EARNED on the board. The map's authored perkSpawns (tagged
+  ## PerkPoints) win when present; otherwise a deterministic fallback
+  ## scatters ONE crate PER perk kind across the map's interior pickup
+  ## candidates. RARITY/DEPTH: objbalance owns the real rarity + deep-in-
+  ## buildings gradient (perk items are power items) -- this one-of-each
+  ## interior scatter is the sensible default until a perk-item-aware
+  ## generator authors gradient points.
+  ##
+  ## Empty when perkItems is dark (the default) or under the paintball
+  ## loadout, so no dark surface ever sees a perk crate -- byte-identical to
+  ## a build without the feature. One-shot by construction: no code path
+  ## calls refillElapsedPickups on this family, so a taken crate stays taken
+  ## and the perk it granted (players[i].perks.incl) lasts the cog's life.
+  ## Never touches sim.rng: placement is a pure function of the map's
+  ## candidates, so arming this cannot perturb any other draw's sequence and
+  ## re-simulating one seed always seeds the same crates at the same pixels.
+  sim.perkSpawns.setLen(0)
+  if not sim.config.perkItems or sim.paintballLoadout():
+    return
+  if sim.gameMap.perkSpawns.len > 0:
+    ## Authored path: nudge each tagged point to the nearest walkable cell
+    ## (the same GUARANTEE every pickup family relies on) and keep its perk.
+    for pt in sim.gameMap.perkSpawns:
+      let spot = sim.nearestWalkable(pt.x, pt.y)
+      sim.perkSpawns.add PerkSpawn(
+        perk: pt.perk, x: spot.x, y: spot.y, present: true, respawnAt: 0)
+    return
+  ## Fallback scatter: one crate per perk kind on distinct interior sites,
+  ## reusing the med-kit candidate anchors + ringSite the bandage family
+  ## already uses, phase-shifted by PerkSiteDirOffset so a perk crate never
+  ## stacks on another family's pixel.
+  var base: seq[tuple[x, y: int]]
+  for point in sim.gameMap.medKitCandidates:
+    base.add((point.x, point.y))
+  base = distinctSites(base)
+  if base.len == 0:
+    base = @[
+      (MapWidth div 2, MapHeight div 3),
+      (MapWidth div 2, 2 * MapHeight div 3),
+    ]
+  var placed: seq[tuple[x, y: int]]
+  var k = 0
+  for perk in Perk:
+    let anchor = base[k mod base.len]
+    var clear = placed
+    clear.add sim.nearestWalkable(anchor.x, anchor.y)
+    let spot = sim.ringSite(anchor.x, anchor.y, k div base.len + 1,
+      PerkSiteDirOffset, LootSiteRingRadius, clear)
+    placed.add spot
+    sim.perkSpawns.add PerkSpawn(
+      perk: perk, x: spot.x, y: spot.y, present: true, respawnAt: 0)
+    inc k
+
 proc resetShields*(sim: var SimServer) =
   ## Places one shield deep in each team's endzone, in the same back column
   ## as the corner grenade pickups but in the BOTTOM half (three quarters of
@@ -1637,6 +1693,7 @@ proc startGame*(sim: var SimServer) =
   # resetSprayPaints: its fallback crates land on their resolved points.
   sim.resetBandages()
   sim.resetLootCrates()
+  sim.resetPerkPickups()
   sim.resetZone()
   # Paintball: the can is issued for good, the hearts leave play, and the
   # floor starts clean. Each GAME of the episode is an independent board.
@@ -4228,6 +4285,51 @@ proc tryPickupHoppers*(sim: var SimServer, playerIndex: int) =
         " looted a hopper"
     )
 
+proc tryPickupPerks*(sim: var SimServer, playerIndex: int) =
+  ## PERKITEM(s2): the GENERIC perk-item pickup -- a living cog grabs a perk
+  ## crate by touch and is GRANTED that crate's perk for the rest of its life
+  ## (players[i].perks.incl spawn.perk). Because it grants whatever perk the
+  ## crate carries, this ONE handler serves every perk kind, including the
+  ## optics lane's PerkSight/PerkBarrel, with zero per-perk code. The grant
+  ## fills the exact set the join path fills, so every built accessor
+  ## (maxHpFor/maxSpeedFor/grenadeRangeFor/aim/luck) and every perception
+  ## surface (the roster `pk` array) lights up automatically.
+  ##
+  ## Permanence: PERMANENT-until-death (BR is elimination -- brMode-gated --
+  ## so a death ends it; no duration timer). Stacking: different perks STACK
+  ## (each is its own set member; accessors read their own perk independently
+  ## -- no MAGNITUDE stacking, matching the built accessors). Idempotent: a
+  ## cog already holding a crate's perk walks over it UNTOUCHED (the perk is
+  ## a boolean, re-taking would waste the crate), leaving it for a teammate.
+  ## Config-fallback: composes ADDITIVELY with config.perks -- a join-buff
+  ## still applies -- but the S2 thesis is config.perks empty + perkItems on.
+  ## One-shot: a taken crate never refills. Dark-inert: returns at once when
+  ## perkItems is off (perkSpawns is empty then anyway).
+  if not sim.config.perkItems:
+    return
+  if not sim.players[playerIndex].alive or sim.players[playerIndex].downed:
+    return
+  let
+    px = sim.players[playerIndex].x + CollisionW div 2
+    py = sim.players[playerIndex].y + CollisionH div 2
+    rangeSq = PerkPickupRange * PerkPickupRange
+  for spawn in sim.perkSpawns.mitems:
+    if not spawn.present:
+      continue
+    if spawn.perk in sim.players[playerIndex].perks:
+      continue  # already holds this perk: walk over the crate untouched.
+    if distSq(px, py, spawn.x, spawn.y) <= rangeSq:
+      spawn.present = false
+      spawn.respawnAt = sim.tickCount   # inert: this family never refills.
+      sim.players[playerIndex].perks.incl spawn.perk
+      sim.emitPickup(playerIndex, "perk_" & perkText(spawn.perk),
+        spawn.x, spawn.y)
+      sim.logGameEvent(
+        playerColorText(sim.players[playerIndex].color) &
+          " grabbed the " & perkText(spawn.perk) & " perk"
+      )
+      return
+
 proc updateShields*(sim: var SimServer) =
   ## Refills endzone shields whose respawn timer elapsed.
   sim.refillElapsedPickups(shieldSpawns)
@@ -6464,6 +6566,7 @@ proc initSimServer*(config: GameConfig): SimServer =
   # sprays for the crate-fallback points.
   result.resetBandages()
   result.resetLootCrates()
+  result.resetPerkPickups()
   result.lastLobbyPlayersLogged = -1
   result.lastLobbyNeededLogged = -1
   result.lastLobbySecondsLogged = -1
@@ -6503,6 +6606,7 @@ proc resetToLobby*(sim: var SimServer) =
   # sprays for the crate-fallback points.
   sim.resetBandages()
   sim.resetLootCrates()
+  sim.resetPerkPickups()
   sim.recentBlasts = @[]
   sim.sprayPaintFlashes = @[]
   sim.recentShouts = @[]
@@ -6681,6 +6785,7 @@ proc applyVoteWinnerMap(sim: var SimServer) =
   sim.resetBarriers()
   sim.resetBandages()
   sim.resetLootCrates()
+  sim.resetPerkPickups()
   ## Players joined onto the OLD map's floor; nudge anyone the new walls
   ## swallowed onto walkable ground (startGame's arrangeHomePositions
   ## re-places every seat at match start regardless), and drop every fog
@@ -7427,6 +7532,8 @@ proc step*(
       sim.tryPickupBandages(playerIndex)
       sim.tryPickupWeapons(playerIndex)
       sim.tryPickupHoppers(playerIndex)
+      # PERKITEM(s2): config-gated at the proc head; no-op when dark.
+      sim.tryPickupPerks(playerIndex)
     sim.updateFlags()
     # LOOT(s2): bandage self-application, after pickups so a bandage
     # pocketed this tick still waits out its own calm window. Config-gated

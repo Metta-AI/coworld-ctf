@@ -107,6 +107,7 @@ proc defaultGameConfig*(): GameConfig =
     bandagePickups: 0,
     lootStart: false,
     downedMode: false,
+    perkItems: false,
     downedBleedOutTicks: DownedBleedOutTicksDefault,
     downedReviveTicks: DownedReviveTicksDefault,
     downedEscalation: true,
@@ -1116,6 +1117,8 @@ proc validate(config: GameConfig) =
     raise newException(CtfError, "Config field lootStart requires brMode.")
   if config.downedMode and not config.brMode:
     raise newException(CtfError, "Config field downedMode requires brMode.")
+  if config.perkItems and not config.brMode:
+    raise newException(CtfError, "Config field perkItems requires brMode.")
   if config.downedMode and config.downedBleedOutTicks < 1:
     raise newException(CtfError,
       "Config field downedBleedOutTicks must be at least 1 under downedMode.")
@@ -1353,6 +1356,10 @@ proc update*(config: var GameConfig, jsonText: string) =
   node.readConfigInt("downedBleedOutTicks", config.downedBleedOutTicks)
   node.readConfigInt("downedReviveTicks", config.downedReviveTicks)
   node.readConfigBool("downedEscalation", config.downedEscalation)
+  # PERKITEM(s2): appended read for the perks-as-items gate (sim_types.nim).
+  # Absent key leaves the dark default, so an existing config JSON parses
+  # to an unchanged (perk-item-free) config.
+  node.readConfigBool("perkItems", config.perkItems)
   # GIVE(s2): appended read for the appended giveItem field (sim_types.nim)
   # — same tail-append rule as everything above. An absent key leaves the
   # dark default, so an existing config JSON parses to an unchanged config.
@@ -1717,6 +1724,12 @@ proc echoLootStartKeys(config: GameConfig, node: JsonNode) =
   if config.lootStart:
     node["lootStart"] = %config.lootStart
 
+proc echoPerkItemsKeys(config: GameConfig, node: JsonNode) =
+  ## PERKITEM(s2): the perks-as-items gate, echoed only when on -- a
+  ## perk-item-free game's echo stays byte-identical.
+  if config.perkItems:
+    node["perkItems"] = %config.perkItems
+
 proc echoDownedKeys(config: GameConfig, node: JsonNode) =
   ## LOOT(s2): the downed-state gate and its timing knobs. The knobs ride
   ## the gate: a downedMode-off game echoes none of them (they are also only
@@ -1896,6 +1909,7 @@ proc configJson*(config: GameConfig): string =
   echoCosmeticFxKeys(config, node)
   echoHealingKeys(config, node)
   echoLootStartKeys(config, node)
+  echoPerkItemsKeys(config, node)
   echoDownedKeys(config, node)
   echoGiveItemKeys(config, node)
   echoRecutKeys(config, node)
@@ -1939,6 +1953,7 @@ proc realizedConfigStampJson*(config: GameConfig): string =
     "gloryMultiplierRecut=" & $config.gloryMultiplierRecut,
     "hopperSiteTrafficPermille=" & $config.hopperSiteTrafficPermille,
     "lootStart=" & $config.lootStart,
+    "perkItems=" & $config.perkItems,
     "winAsMultiplier=" & $config.winAsMultiplier,
     "medKitCount=" & $config.medKitCount,
     "stampRealizedConfig=" & $config.stampRealizedConfig,
