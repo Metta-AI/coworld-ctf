@@ -454,9 +454,14 @@
           "default": false
         },
         "zonePaintDownedBleedPermille": {
-          "description": "Bleed-out clock rate, permille, for a DOWNED ghost whose cell is painted (glory-2 amendment 1): 1000 = no acceleration; the default 2000 runs the clock 2x under paint, stacking with downedEscalation's halving. Acceleration only — a painted ghost still dies exclusively through the bleed-out window check, and the revive channel is untouched (revive under closing paint stays possible). Read only while zoneDamageByPaint is on; bounded [1000..5000] at config load (the never-instant-finalize spec floor stated as a bound).",
+          "description": "Bleed-out clock rate, permille, for a DOWNED ghost whose cell is painted (glory-2 amendment 1): 1000 = no acceleration; the default 2000 runs the clock 2x under paint, stacking with downedEscalation's halving. Acceleration only — a painted ghost still dies exclusively through the bleed-out window check, and the revive channel is untouched unless zoneBlocksRevive is also armed. Read only while zoneDamageByPaint is on; bounded [1000..5000] at config load (the never-instant-finalize spec floor stated as a bound).",
           "type": "integer",
           "default": 2000
+        },
+        "zoneBlocksRevive": {
+          "description": "No rescues on lethal ground (owner ruling 2026-09-03: \"how can you revive in paint? you should die if in paint\"): a DOWNED ghost whose own cell is PAINTED cannot be revived. The partner revive channel never accrues while the body lies in paint, and progress banked earlier on dry ground resets the tick the paint front reaches it — the same reset the channel already takes when the tag breaks — so the (zonePaintDownedBleedPermille-accelerated) bleed finishes the ghost. The verdict is the zone DAMAGE verdict: the same painted-cell test on the same arrival field, so if the ground would damage you it also blocks your rescue. Requires zoneDamageByPaint. Off by default (rescues under paint stay possible, byte-identical to the pre-flag engine). The battle-royale-s2 variant turns it on: it is the root fix for the revive-loop that let a duo mint tag-backs forever inside the closing ring.",
+          "type": "boolean",
+          "default": false
         },
         "allowSeatTakeover": {
           "description": "Allow a human client to take over a live bot-controlled seat mid-round.",
@@ -1300,6 +1305,7 @@
         "lootStart": true,
         "downedMode": true,
         "zoneDamageByPaint": true,
+        "zoneBlocksRevive": true,
         "zonePhases": [
           {
             "z": 0.75,

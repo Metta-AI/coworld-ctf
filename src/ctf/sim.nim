@@ -7080,7 +7080,9 @@ proc updateDowned(sim: var SimServer) =
   ##   3. REVIVE progress — any upright teammate inside DownedTagRange
   ##      advances the channel one tick (the first such teammate by index
   ##      is the tagger, a deterministic pick); the channel resets the tick
-  ##      the tag breaks; at downedReviveTicks the ghost stands back up at
+  ##      the tag breaks — or, under zoneBlocksRevive, the tick paint
+  ##      reaches the body, which is lethal ground and admits no rescue;
+  ##      at downedReviveTicks the ghost stands back up at
   ##      1 hp. The reviver's vulnerability IS the adjacency: DownedTagRange
   ##      sits far inside gun range and the channel costs real ticks.
   ## Tick-based throughout, RNG-free; a no-op unless downedMode armed.
@@ -7101,8 +7103,9 @@ proc updateDowned(sim: var SimServer) =
       continue
     # ZONEPAINT (glory-2 amendment 1): paint on a ghost's cell ACCELERATES
     # the bleed clock — it NEVER finalizes directly, and it never touches
-    # the revive channel below (a revive under closing paint stays possible
-    # by construction; Last Light's premium moment). Each painted tick
+    # the revive channel below on its own (with zoneBlocksRevive dark, a
+    # revive under closing paint stays possible; Last Light's premium
+    # moment, now flag-selectable). Each painted tick
     # banks (permille - 1000) extra clock permille; whole extra ticks are
     # applied by pulling downedTick further into the past, so the ONLY
     # death gate is still this proc's own windowed expiry check, floored by
@@ -7111,23 +7114,54 @@ proc updateDowned(sim: var SimServer) =
     # downedEscalation: the window halves per prior down AND the clock runs
     # faster under paint — two independent multipliers on the same check.
     # Dark (default): the branch never runs, byte-identical.
-    if sim.config.zoneDamageByPaint and
-        sim.config.zonePaintDownedBleedPermille > 1000 and
-        sim.config.zonePhases.len > 0:
+    #
+    # PAINTDEATH (owner ruling 2026-09-03) amends the parenthetical above:
+    # under zoneBlocksRevive the revive channel is NO LONGER untouched —
+    # see the gate below. Both rules read ONE verdict, computed here once
+    # per ghost per tick: is this body's own cell painted, by the SAME
+    # damage-surface test updateZone reads? The guard is the union of the
+    # two consumers, so with zoneBlocksRevive dark it reduces to exactly
+    # the pre-flag condition — same calls, same arguments, byte-identical.
+    var ghostInPaint = false
+    if sim.config.zoneDamageByPaint and sim.config.zonePhases.len > 0 and
+        (sim.config.zonePaintDownedBleedPermille > 1000 or
+          sim.config.zoneBlocksRevive):
       let
         zx = sim.players[i].x + CollisionW div 2
         zy = sim.players[i].y + CollisionH div 2
         q = sim.zonePaintedForDamageAt(
           zx, zy, sim.tickCount - sim.gameStartTick)
-      if q.onField and q.painted:
-        sim.players[i].zonePaintBleedBank +=
-          sim.config.zonePaintDownedBleedPermille - 1000
-        while sim.players[i].zonePaintBleedBank >= 1000:
-          sim.players[i].zonePaintBleedBank -= 1000
-          dec sim.players[i].downedTick
+      ghostInPaint = q.onField and q.painted
+    if ghostInPaint and sim.config.zonePaintDownedBleedPermille > 1000:
+      sim.players[i].zonePaintBleedBank +=
+        sim.config.zonePaintDownedBleedPermille - 1000
+      while sim.players[i].zonePaintBleedBank >= 1000:
+        sim.players[i].zonePaintBleedBank -= 1000
+        dec sim.players[i].downedTick
     if sim.tickCount - sim.players[i].downedTick >=
         sim.downedBleedOutWindow(sim.players[i].downedCount):
       sim.finalizeDowned(i, sim.players[i].downedBy, "bled out")
+      continue
+    # PAINTDEATH (owner ruling 2026-09-03: "how can you revive in paint?
+    # you should die if in paint"): the zone is LETHAL GROUND — no rescues
+    # inside it. A ghost lying on a painted cell cannot be revived at all:
+    # the channel below never starts, and progress banked earlier on dry
+    # ground RESETS the tick the paint arrives — the same statement the
+    # tag-broken branch makes, so the channel keeps ONE reset invariant
+    # rather than growing a second freeze semantics (the paint front only
+    # ever advances, so a frozen channel could never resume anyway).
+    # The already-2x-accelerated bleed then finishes the body.
+    # Consistency by construction: the verdict is the zone DAMAGE verdict
+    # (zonePaintedForDamageAt, computed above) — if the ground would damage
+    # you, it also blocks your rescue.
+    # This is the ROOT fix for the dTagBack revive-loop rolled back in
+    # #401: that metronome's revives all completed under closing paint, so
+    # with this armed no `Revived` event is emitted there and the loop
+    # cannot mint (see also the PR's defense-in-depth note on mint caps for
+    # FF-down loops OUTSIDE paint).
+    # Dark (default): never runs, byte-identical.
+    if sim.config.zoneBlocksRevive and ghostInPaint:
+      sim.players[i].reviveProgress = 0
       continue
     var tagger = -1
     let
