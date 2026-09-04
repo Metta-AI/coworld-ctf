@@ -541,10 +541,13 @@ PERSONA = Persona(
                   "-- it is 48 ticks of walking; go get them. Your gun "
                   "stays free while you stand the revive, so the only "
                   "real choices are the honest refusals: do not walk a "
-                  "nearly-dead body into a camped ghost, and do not chase "
-                  "one deep into the storm. Below ring_walker, above "
-                  "every fight rung: you cannot revive if the ring kills "
-                  "you, and no tag outranks the pickup."),
+                  "nearly-dead body into a camped ghost, and do not stand "
+                  "over one lying on ground the ring has already taken -- "
+                  "out there the pickup cannot land at all, however long "
+                  "you hold it, and nothing will tell you so. Below "
+                  "ring_walker, above every fight rung: you cannot revive "
+                  "if the ring kills you, and no tag outranks a pickup "
+                  "that can still land."),
         "jackal": ("jackal is your signature tag source: join after the "
                    "first tag lands and stay for TWO -- clustered tags in "
                    "one fight multiply the glory (x2, x4, x8 as the streak "
@@ -574,7 +577,10 @@ PERSONA = Persona(
                 {"play": "ring_walker", "entry_id": "ring",
                  "params": {"inset": 64, "leadTicks": 240}},
                 {"play": "medic", "entry_id": "pickup",
-                 "params": {"abortHpFloor": 1, "zoneReach": 220}},
+                 # zoneReach 220->0 (zoneBlocksRevive armed 0.7.323): the
+                 # dip this budget paid for walks into exactly the band
+                 # where the revive channel silently cannot advance.
+                 "params": {"abortHpFloor": 1, "zoneReach": 0}},
                 {"play": "hold_vs_gun", "entry_id": "holdgun",
                  "params": {"calmTicks": 48, "coverMax": 260,
                             "engageDist": 500}},
@@ -637,7 +643,10 @@ PERSONA = Persona(
                 {"play": "ring_walker", "entry_id": "ring",
                  "params": {"inset": 64, "leadTicks": 240}},
                 {"play": "medic", "entry_id": "pickup",
-                 "params": {"abortHpFloor": 1, "zoneReach": 220}},
+                 # zoneReach 220->0 (zoneBlocksRevive armed 0.7.323): the
+                 # dip this budget paid for walks into exactly the band
+                 # where the revive channel silently cannot advance.
+                 "params": {"abortHpFloor": 1, "zoneReach": 0}},
                 {"play": "fire_superiority", "entry_id": "pressbreak",
                  # v11 EARLY CREDIT STACK: same cautious params as the mid
                  # turn (see that entry's comment for the breakDeficit/
@@ -743,7 +752,10 @@ PERSONA = Persona(
                 {"play": "ring_walker", "entry_id": "ring",
                  "params": {"inset": 64, "leadTicks": 240}},
                 {"play": "medic", "entry_id": "pickup",
-                 "params": {"abortHpFloor": 1, "zoneReach": 220}},
+                 # zoneReach 220->0 (zoneBlocksRevive armed 0.7.323): the
+                 # dip this budget paid for walks into exactly the band
+                 # where the revive channel silently cannot advance.
+                 "params": {"abortHpFloor": 1, "zoneReach": 0}},
                 {"play": "fire_superiority", "entry_id": "pressbreak",
                  # v10: breakDeficit STAYS PARKED at 2 -- "keep fighting
                  # while outgunned" trades win probability for size, and a
@@ -810,13 +822,16 @@ PERSONA = Persona(
                 {"play": "ring_walker", "entry_id": "ring",
                  "params": {"inset": 64, "leadTicks": 240}},
                 {"play": "medic", "entry_id": "pickup",
-                 # zoneReach TIGHTENED (v10) 220->160 for the endgame turn
-                 # only: item-2 marquee chaining ranks "alive at Last Light"
-                 # ABOVE "partner down-then-revived" (a dead reviver forfeits
-                 # the win and every multiplier riding it, the revive
-                 # forfeits only itself) -- so the storm-dip budget shrinks
-                 # exactly where the ring bites hardest, never grows.
-                 "params": {"abortHpFloor": 1, "zoneReach": 160}},
+                 # zoneReach 160->0. The v10 note below is SUPERSEDED, not
+                 # deleted, because its conclusion still holds and its
+                 # reasoning no longer reaches it: v10 shrank the storm-dip
+                 # budget in the endgame only, ranking "alive at Last Light"
+                 # above "partner down-then-revived". zoneBlocksRevive
+                 # (armed 0.7.323, r3965) settles it in every phase -- a
+                 # ghost on ground the ring has taken cannot be revived at
+                 # all, so a dip buys nothing anywhere and the budget is 0
+                 # in all four turns. It is no longer a ranking call.
+                 "params": {"abortHpFloor": 1, "zoneReach": 0}},
                 {"play": "fire_superiority", "entry_id": "pressbreak",
                  # v10 AMENDMENT (owner field report 2026-09-02): woundedPct
                  # ZEROED 25->0 for the ENDGAME TURN ONLY -- kills the exact

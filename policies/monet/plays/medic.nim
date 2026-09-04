@@ -4,7 +4,8 @@
 ## origin/main 9511b240 "arm downedMode + lootStart, add downed to
 ## play_view"):
 ## - revive is PURE PROXIMITY: any upright teammate within DownedTagRange
-##   (40 px, sim_types.nim:814) advances the channel one tick; at
+##   (40 px, sim_types.nim:856 -- was :814, the line moved, the value
+##   did not) advances the channel one tick; at
 ##   downedReviveTicks the ghost stands at 1 hp; breaking range resets the
 ##   channel; bleed-out at downedBleedOutTicks, halving per successive down
 ##   (sim.nim:6627 updateDowned).
@@ -23,20 +24,47 @@
 ## - abortHpFloor: at-or-below this hp with a fresh enemy camped near the
 ##   ghost, do not suicide into the camp (a dead reviver revives nobody
 ##   and hands the enemy a double).
-## - zoneReach: if the ghost lies deeper than this outside the CURRENT
-##   safe rect, do not walk into the storm. The exact bleed-out-vs-dps
-##   ledger needs zone dps, travel time both ways and the revive channel;
-##   a fixed shallow-dip budget is honest where false precision is not.
+## - zoneReach: extra tolerance, in px, for how far outside the CURRENT
+##   safe rect the ghost may lie and still be worth walking to. It now
+##   ships at 0, and the reason is a mechanic, not a tuning taste.
+##
+## zoneBlocksRevive (engine 2d651034 / PR #402, armed on battle-royale-s2
+## at build 0.7.323 ~= round 3965) makes a revive on the ring's arrival
+## field IMPOSSIBLE: updateDowned tests the GHOST's own tile every tick
+## and resets reviveProgress to 0 while it is painted (sim.nim:7392). No
+## Revived event, no error, no observation flag -- a SILENT no-op, which
+## is exactly the shape a reviver stands in forever. The field is
+## monotonic and a ghost is frozen, so there is no waiting it out, no
+## repainting over it, and no dragging the body clear.
+## The paint field is NOT on the wire (SdkZone carries phase, current,
+## next, ticksToShrink -- play.nim:85-91 -- and no paint bit), so we test
+## the one containment property the engine builds its arrival field to
+## satisfy: painted(p) implies p is outside rect(p's tick), within
+## ZoneCornerRoundPx = 16 px slack (zone_field.nim:69). Its in-tree check
+## (zoneArrivalFieldContainmentCheck, zone_field.nim:1702-1737) is
+## DIAGNOSTIC-ONLY, compile-flag gated and not in production builds -- so
+## this is a property of how the field is constructed, not something the
+## live server re-asserts each tick. We lean on it accordingly: as the
+## safest available basis, not as a runtime guarantee. The converse does NOT hold -- paint
+## lags the rect by up to ZoneFlowDelayCapTicks -- so "inside the rect by
+## more than the slack" is a GUARANTEE the channel can advance, while
+## "outside it" is only a suspicion. We take the guarantee: this abandons
+## some still-dry bodies in the shallow dip and never stands a dead
+## channel. That direction is deliberate -- the old 220 px dip budget
+## bought a walk into precisely the band where the pickup cannot land.
 
 import ../../../play_sdk/play
 
 const
   ManifestBytes =
-    "{\"abi\":1,\"class\":\"controller\",\"doc\":\"a downed partner is 48 ticks of walking: go stand with them until they stand back up\",\"modes\":[\"br\"],\"name\":\"medic\",\"params\":{\"abortHpFloor\":{\"default\":1,\"integer\":true,\"kind\":\"number\",\"max\":6,\"min\":0},\"zoneReach\":{\"default\":220,\"integer\":true,\"kind\":\"number\",\"max\":600,\"min\":0}},\"retune\":true}"
+    "{\"abi\":1,\"class\":\"controller\",\"doc\":\"a downed partner is 48 ticks of walking: go stand with them until they stand back up\",\"modes\":[\"br\"],\"name\":\"medic\",\"params\":{\"abortHpFloor\":{\"default\":1,\"integer\":true,\"kind\":\"number\",\"max\":6,\"min\":0},\"zoneReach\":{\"default\":0,\"integer\":true,\"kind\":\"number\",\"max\":600,\"min\":0}},\"retune\":true}"
 
   ReviveRangePx = 40'i32   ## DownedTagRange (sim_types.nim:814)
   StandInPx = 26'i32       ## navigate until this close, then hold
   CampRadiusPx = 200'i32   ## an enemy this near the ghost = camped
+  ZonePaintSlackPx = 16'i32  ## ZoneCornerRoundPx (zone_field.nim:69):
+                             ## the only band where paint may sit inside
+                             ## the rect, so require clearance past it
   FreshEnemyTicks = 60'i32
 
 type
@@ -81,7 +109,7 @@ proc keyIs(buf: ptr UncheckedArray[byte]; start, length: int32;
   true
 
 proc readParams(dataPtr, dataLen: int32): MedicParams =
-  result = MedicParams(valid: true, abortHpFloor: 1, zoneReach: 220)
+  result = MedicParams(valid: true, abortHpFloor: 1, zoneReach: 0)
   if dataLen <= 0:
     return
   let buf = cast[ptr UncheckedArray[byte]](dataPtr)
@@ -164,6 +192,20 @@ proc outsideDepth(rect: SdkRect; p: SdkPoint): int32 =
   if p.y < loy: dy = loy - p.y elif p.y > hiy: dy = p.y - hiy
   maxI(dx, dy)
 
+proc edgeDepth(rect: SdkRect; p: SdkPoint): int32 =
+  ## Signed Chebyshev depth vs `rect`: > 0 means outside by that many px,
+  ## <= 0 means inside with that much clearance to the nearest edge.
+  ## Lets one comparison express both "already on ground the ring took"
+  ## and "not yet clear of the slack band where paint may reach inside".
+  let
+    lox = minI(rect.x1, rect.x2)
+    hix = maxI(rect.x1, rect.x2)
+    loy = minI(rect.y1, rect.y2)
+    hiy = maxI(rect.y1, rect.y2)
+  if p.x < lox or p.x > hix or p.y < loy or p.y > hiy:
+    return outsideDepth(rect, p)
+  -minI(minI(p.x - lox, hix - p.x), minI(p.y - loy, hiy - p.y))
+
 proc ghostCamped(decoded: SdkView; ghost: SdkPoint): bool =
   ## A fresh non-partner track within CampRadiusPx of the ghost.
   for index in 0 ..< decoded.trackCount:
@@ -234,12 +276,16 @@ proc play_step*(viewPtr, viewLen: int32): int32 {.exportc, cdecl.} =
       decoded.ghostCamped(ghost):
     return emitHoldIfChanged("medic:camped")
 
-  # Zone sanity: a shallow dip outside the current rect is worth a revive;
-  # a deep walk into the storm is not (see header for why a fixed budget
-  # beats false precision).
+  # Ring-dead ground: with zoneBlocksRevive armed, a ghost the ring's
+  # field has reached cannot be picked up AT ALL, and nothing says so out
+  # loud. Channel only where the engine's own invariant guarantees the
+  # tile is dry -- inside the current rect by more than the paint slack.
+  # zoneReach re-opens the old outward tolerance for a retune; it ships
+  # at 0 because no amount of that tolerance buys a revive any more.
   if decoded.world.zone.current.present and
-      outsideDepth(decoded.world.zone.current, ghost) > params.zoneReach:
-    return emitHoldIfChanged("medic:storm")
+      edgeDepth(decoded.world.zone.current, ghost) >
+        params.zoneReach - ZonePaintSlackPx:
+    return emitHoldIfChanged("medic:ringDead")
 
   # Inside the tag range: STAND STILL -- revive ticks by distance alone.
   # Hysteresis: navigate until StandInPx, then hold anywhere inside the

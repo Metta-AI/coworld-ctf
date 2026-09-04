@@ -907,8 +907,19 @@ zone_reaches = [
     for i, turn in enumerate(PERSONA.canned_turns, start=1)
     for e in turn["call"]["entries"] if e.get("play") == "medic"
 ]
-check("medic zoneReach tightens in the endgame turn (v10)",
-      bool(zone_reaches) and zone_reaches[-1][1] < zone_reaches[0][1],
+# SUPERSEDED by zoneBlocksRevive (armed 0.7.323, r3965). The v10 check
+# asserted zoneReach STRICTLY SHRINKS into the endgame -- a ranking call
+# between "alive at Last Light" and "partner down-then-revived". That
+# ranking is now moot: a ghost on ground the ring has taken cannot be
+# revived in ANY phase, so the dip budget is 0 in every turn and a
+# strictly-decreasing assertion can no longer be satisfied by a correct
+# policy. Replaced -- not dropped -- by the stronger flat invariant.
+check("medic zoneReach is 0 in EVERY turn (zoneBlocksRevive supersedes the "
+      "v10 endgame-only tightening)",
+      bool(zone_reaches) and all(z == 0 for _, z in zone_reaches),
+      str(zone_reaches))
+check("medic zoneReach never re-opens an outward dip budget in any turn",
+      all(z is not None and z <= 0 for _, z in zone_reaches),
       str(zone_reaches))
 
 # ── v11: the duo-partner grant row is LIVE, not dormant. Pins the exact
@@ -1330,3 +1341,106 @@ if failures:
     print(f"SELF-CHECK FAILED: {len(failures)} failing check(s)")
     sys.exit(1)
 print("SELF-CHECK PASSED")
+
+# ── zoneBlocksRevive ARMED (engine commit 2d651034 / PR #402, armed on the
+# battle-royale-s2 variant at build 0.7.323 ~= round 3965): once the closing
+# ring's damage/arrival field covers a DOWNED player's own tile, the revive
+# channel is reset to 0 every tick and no Revived event is ever emitted. The
+# guard tests the GHOST's tile (not the reviver's), re-runs continuously, and
+# the field is monotonic -- it never recedes, so there is no waiting it out,
+# no repainting over it, and no dragging the body clear (a ghost is frozen).
+# Nothing surfaces "this revive is impossible" to the policy: the failure is a
+# SILENT no-op, which is exactly the shape a reviver stands in forever.
+# Our revive doctrine predated this and said the pickup "outranks every tag"
+# unconditionally. These pin the correction, and the NEGATIVE pins that the
+# unconditional framing does not creep back. ───────────────────────────────
+check("prompt: revive doctrine names the ring's ground as the place a "
+      "pickup can NEVER land (zoneBlocksRevive, armed 0.7.323)",
+      "ground the ring has already taken" in prompt,
+      "ring-blocked-revive doctrine text not found")
+check("prompt: the blocked revive is stated as SILENT -- the policy is told "
+      "no signal marks it, because the engine emits none",
+      "no message tells you" in prompt,
+      "silent-failure framing not found in the revive doctrine")
+check("prompt: the block is stated as PERMANENT (the paint front is "
+      "monotonic; that ground never becomes good again)",
+      "never becomes good again" in prompt,
+      "monotonic/permanent framing not found in the revive doctrine")
+check("prompt: doctrine directs ABANDONING a body the ring owns rather than "
+      "holding a channel that cannot fill",
+      "hold a body the ring owns" in prompt,
+      "abandon-the-blocked-body directive not found")
+check("prompt: NEGATIVE -- the pickup is no longer framed as outranking "
+      "every tag WITHOUT the ring exception following it",
+      "EXCEPT on ground the ring has already taken" in prompt,
+      "unconditional pickup-outranks-every-tag framing has crept back")
+check("prompt: doctrine converts the mechanic into a POSITIONAL rule -- keep "
+      "the partner inward of the closing edge, not merely close",
+      "which side of the edge the fall happens on" in prompt,
+      "inward-of-the-edge positional doctrine not found")
+
+# ── medic's ring-dead guard, mirrored (the sqrt-free house pattern): the
+# engine exposes no paint bit to a play (SdkZone carries phase/current/
+# next/ticksToShrink only), so medic tests the one invariant the engine
+# DOES assert about its arrival field -- painted(p) implies p is outside
+# rect, within ZoneCornerRoundPx = 16px slack. Channel only where the tile
+# is guaranteed dry: inside the current rect by MORE than that slack.
+# Direction is deliberate and asymmetric -- paint lags the rect by up to
+# ZoneFlowDelayCapTicks, so this abandons some still-dry bodies and never
+# stands a channel that cannot advance. ─────────────────────────────────
+_ZONE_PAINT_SLACK_PX = 16  # ZoneCornerRoundPx (zone_field.nim:69)
+
+
+def _edge_depth(rect, p):
+    """Mirror of medic.nim edgeDepth: >0 outside by px, <=0 inside with
+    that much clearance. rect = (x1, y1, x2, y2)."""
+    x1, y1, x2, y2 = rect
+    lox, hix = min(x1, x2), max(x1, x2)
+    loy, hiy = min(y1, y2), max(y1, y2)
+    if p[0] < lox or p[0] > hix or p[1] < loy or p[1] > hiy:
+        dx = lox - p[0] if p[0] < lox else (p[0] - hix if p[0] > hix else 0)
+        dy = loy - p[1] if p[1] < loy else (p[1] - hiy if p[1] > hiy else 0)
+        return max(dx, dy)
+    return -min(min(p[0] - lox, hix - p[0]), min(p[1] - loy, hiy - p[1]))
+
+
+def _ring_dead(rect, ghost, zone_reach):
+    """Mirror of medic.nim's guard: True == refuse to channel."""
+    return _edge_depth(rect, ghost) > zone_reach - _ZONE_PAINT_SLACK_PX
+
+
+_RECT = (0, 0, 1000, 1000)
+check("medic guard: a ghost OUTSIDE the current rect is refused at the "
+      "shipped budget (that ground may already be painted)",
+      _ring_dead(_RECT, (1040, 500), 0), "outside ghost was accepted")
+check("medic guard: a ghost inside the rect but WITHIN the 16px paint "
+      "slack is refused (paint may reach that band)",
+      _ring_dead(_RECT, (990, 500), 0), "slack-band ghost was accepted")
+check("medic guard: a ghost comfortably inside the rect is accepted -- the "
+      "guard must not refuse every pickup",
+      not _ring_dead(_RECT, (500, 500), 0), "interior ghost was refused")
+check("medic guard: the accept/refuse boundary sits exactly at the paint "
+      "slack, not at the rect edge -- clearance of one px less is refused, "
+      "clearance equal to the slack is the first accepted tile",
+      _ring_dead(_RECT, (1000 - _ZONE_PAINT_SLACK_PX + 1, 500), 0)
+      and not _ring_dead(_RECT, (1000 - _ZONE_PAINT_SLACK_PX, 500), 0),
+      "boundary is not at ZoneCornerRoundPx")
+check("medic guard: REGRESSION -- the retired 220px dip budget would have "
+      "walked a reviver 200px onto ring-taken ground; the shipped budget "
+      "refuses it",
+      not _ring_dead(_RECT, (1200, 500), 220)
+      and _ring_dead(_RECT, (1200, 500), 0),
+      "the old dip budget no longer differs from the shipped one")
+
+_MEDIC_SRC = (_HERE / "plays" / "medic.nim").read_text(encoding="utf-8")
+check("medic.nim: the manifest ships zoneReach default 0, so a retune that "
+      "omits the param cannot resurrect the dip",
+      '\\"zoneReach\\":{\\"default\\":0' in _MEDIC_SRC,
+      "manifest zoneReach default is not 0")
+check("medic.nim: the refusal is emitted under its own reason so a blocked "
+      "pickup is distinguishable from a storm-depth abort in the logs",
+      '"medic:ringDead"' in _MEDIC_SRC, "medic:ringDead reason not emitted")
+check("medic.nim: NEGATIVE -- the old unsigned outsideDepth test no longer "
+      "gates the pickup (it cannot see the slack band)",
+      "outsideDepth(decoded.world.zone.current" not in _MEDIC_SRC,
+      "the superseded outsideDepth zone guard is still wired")

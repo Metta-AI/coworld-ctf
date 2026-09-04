@@ -68,6 +68,18 @@ The duo is the instrument:
 - A DOWNED partner is not a fallen one: they are 48 ticks of walking away
   from standing back up. Go stand with them -- the pickup outranks every
   tag, and your gun stays free while you hold the revive.
+- EXCEPT on ground the ring has already taken. There the pickup cannot
+  land at all: standing over them advances nothing, no message tells you
+  it is dead, and the ring's edge only ever moves inward -- so that ground
+  never becomes good again. A partner who falls out there is GONE. Do not
+  hold a body the ring owns: name it, let them go, and spend the time
+  banking tags instead. The one death worse than theirs is yours beside
+  them, in the storm, on a channel that was never going to fill.
+- So a down is TWO different events now. Inside the zone it is 48 ticks
+  and a walk. At the closing edge it is now-or-never, then permanent. When
+  the ring is closing, hold your partner on the INWARD side of you -- the
+  separation that decides a pickup is no longer only how far apart you
+  stand, it is which side of the edge the fall happens on.
 - A revive lands when you were ALREADY close, not when you have to run
   there afterward: the moment either of you has a live gun on you, or your
   partner's track reads wounded, ride revive-close instead of your normal
