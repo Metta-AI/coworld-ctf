@@ -746,6 +746,45 @@ check("prompt: partner doctrine states the partner is redrawn each episode "
 check("prompt: chat doctrine no longer treats partner lines as a lever",
       "not a lever" in prompt, "chat doctrine text not found")
 
+# ── medic-conversion audit: medic converted 0/96 revivable downs on live
+# replays (partner upright at down time) even though it is installed and
+# called every turn. Root cause measured from decoded frames, not sim:
+# ladder.nim's nativeBase branch runs the native zone-escape/default-
+# rotation reflex INSTEAD OF the whole controller loop whenever armed, so
+# no ladder position for medic can outrank it, and the reviver closed >20px
+# toward the ghost in only 11/96 cases. zoneReach/abortHpFloor are not the
+# binding gates (5-8/96 and 2/96 respectively). The lever that IS ours:
+# separation at down-time, which bodyguard's leash governs directly. These
+# pin the leashMax tightening (200->150, under the ~177px break-even
+# distance for the median 103-tick zone-bleedout window) in the two turns
+# covering 75% of revivable downs, and that it never loosens leashMin
+# (the anti-stack floor) or touches turns outside that window. ───────────
+BODYGUARD_TIGHTENED_TURNS = (2, 3)  # 1-indexed: consolidation, mid
+for i, turn in enumerate(PERSONA.canned_turns, start=1):
+    bg = next((e for e in turn["call"]["entries"]
+               if e.get("play") == "bodyguard"), None)
+    if bg is None:
+        continue
+    leash_min, leash_max = bg["params"]["leash"]
+    check(f"turn {i}: bodyguard leashMin never drops below the anti-stack "
+          "floor (medic-conversion audit)",
+          leash_min >= 100, str(bg["params"]))
+    if i in BODYGUARD_TIGHTENED_TURNS:
+        check(f"turn {i}: bodyguard leashMax tightened under the revive "
+              "break-even distance (medic-conversion audit)",
+              leash_max <= 150, str(bg["params"]))
+
+BREAK_EVEN_PX = 26 + (103 - 48) * (704 / 256)
+check("medic-conversion audit: break-even distance matches the measured "
+      "arithmetic (StandInPx + (window-channel) * MaxSpeed/MotionScale)",
+      abs(BREAK_EVEN_PX - 177.2) < 1.0, str(BREAK_EVEN_PX))
+check("medic-conversion audit: tightened leashMax sits under the "
+      "break-even distance with margin for pathing/latency",
+      150 < BREAK_EVEN_PX, str(BREAK_EVEN_PX))
+
+check("prompt: bodyguard doctrine names the tightened mid-phase leashMax",
+      "leashMax to 150" in prompt, "bodyguard leash tightening text not found")
+
 print()
 if failures:
     print(f"SELF-CHECK FAILED: {len(failures)} failing check(s)")

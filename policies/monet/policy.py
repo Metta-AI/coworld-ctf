@@ -382,7 +382,12 @@ PERSONA = Persona(
                       "leash). But your partner alive is worth more than "
                       "any tag -- when their track reads wounded or under "
                       "fire, shield them: interpose true, tight leash, one "
-                      "gun always up while they recover."),
+                      "gun always up while they recover. Consolidation and "
+                      "mid tighten leashMax to 150 (medic-conversion audit): "
+                      "a downed partner's revive is only reachable in the "
+                      "time zone-bleedout allows if you were already close "
+                      "when they went down -- medic itself cannot outrun a "
+                      "chase, the native reflex owns the walk there."),
         "crossfire": ("crossfire is the duo's fighting shape: a spacing "
                       "band wide enough that no line crosses your partner, "
                       "minAngle real. You see your partner only through "
@@ -502,7 +507,43 @@ PERSONA = Persona(
                  "params": {"calmTicks": 48, "coverMax": 260,
                             "engageDist": 500}},
                 {"play": "bodyguard", "entry_id": "shield",
-                 "params": {"leash": [100, 200], "interpose": True,
+                 # leashMax TIGHTENED (medic-conversion audit) 200->150:
+                 # medic converted 0/96 revivable downs (partner upright at
+                 # down) despite being installed+called every turn below
+                 # ring_walker -- ladder.nim's nativeBase branch (line ~600)
+                 # runs the native zone-escape/default-rotation reflex
+                 # INSTEAD OF the whole controller loop whenever it is
+                 # armed, so medic's own priority cannot outrank it (this
+                 # matches the edge_ride doctrine note above: the native
+                 # reflex "outranks every play at the wall"). Direct replay
+                 # evidence: the reviver closed >20px toward the ghost in
+                 # only 11/96 cases and never got within 60px in 86/96 --
+                 # medic's navigate intent is essentially never executed as
+                 # movement once a partner is down. zoneReach (only 5-8/96
+                 # over-budget) and abortHpFloor (2/96) are NOT the binding
+                 # gates. The lever that IS ours to pull: separation AT
+                 # down-time. Break-even distance to still land a revive in
+                 # the dominant zone-bleedout window (median 103 ticks,
+                 # 74/96 of revivable downs) is StandInPx(26) + (103-48
+                 # channel ticks) * MaxSpeed/MotionScale (704/256 px/tick)
+                 # = ~177px -- but measured separation at down-time medians
+                 # 210-217px, ABOVE break-even, with only 52/96 geometrically
+                 # reachable even under a zero-latency straight-line walk.
+                 # leashMax 150 (< 177px, with margin for pathing/latency)
+                 # keeps steady-state duo separation under the break-even
+                 # line during the two turns covering 75% of revivable
+                 # downs (zone phase z=0.55/0.35), so a down more often
+                 # starts inside medic's reach instead of requiring a
+                 # cross-zone chase. leashMin held at 100 (selfcheck floors
+                 # it) -- tightening the floor risks the friendly-fire loss
+                 # mode, a documented worse failure than an unrevived down.
+                 # This never fights zone routing: bodyguard's own call
+                 # guard already refuses to run outside the safe rect (the
+                 # anchored-outside-the-rect disaster, 48% early-mid deaths
+                 # in the v8 miner), so tightening the leash only changes
+                 # in-zone spacing, never asks anyone to chase into the
+                 # storm.
+                 "params": {"leash": [100, 150], "interpose": True,
                             "peelHp": 3}},
                 {"play": "supply_run", "entry_id": "bank",
                  "params": {"whenHpBelow": 3, "detourMax": 350,
@@ -544,7 +585,12 @@ PERSONA = Persona(
                  "params": {"calmTicks": 48, "coverMax": 260,
                             "engageDist": 500}},
                 {"play": "bodyguard", "entry_id": "shield",
-                 "params": {"leash": [100, 200], "interpose": True,
+                 # leashMax TIGHTENED (medic-conversion audit) 200->150: same
+                 # break-even rationale as the consolidation turn's shield
+                 # entry above -- this is the OTHER turn covering the
+                 # dominant zone-bleedout phase (z=0.55/0.35, 75% of
+                 # revivable downs).
+                 "params": {"leash": [100, 150], "interpose": True,
                             "peelHp": 3}},
                 {"play": "jackal", "entry_id": "third",
                  # earshot RE-ARMED (v10) 450->550: a wider loiter net joins
