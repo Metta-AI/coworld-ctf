@@ -54,3 +54,38 @@ seat (was ~0.2). Still open: no aggressive variant beats the engine default on k
 
 Noise floor: the same collaborative build scored 0.97 and 0.65 kills in two
 20-episode arms. Treat differences under ±0.3 kills per seat as noise.
+
+## Fork 2026-09-04: SDK 27c4a368 rebuild, own account, own names
+
+Owner-directed fork, not a lineage accident. `coworld upload-policy` refused a same-name
+upload under a different account outright (HTTP 409, "Policy name 'starter-cautious' is
+already taken by user ..." — James's account owns the three names above), which is the
+correct behavior: it is what stopped this from becoming a silent lineage corruption. The
+owner's call, given that wall: fork cleanly under our own account and our own names rather
+than route the upload through James's credentials.
+
+James's `starter-cautious` / `starter-aggressive` / `starter-collaborative` are FROZEN in
+place at their last builds — `v16` / `v19` / `v13`, still exactly what the league's
+`filler_policy_version_ids` pointed at as of this fork (read back 2026-09-04, unchanged
+since the "final pooled standings" entry above). Nothing about his line was touched,
+reuploaded, or retired; it stays his to pick back up.
+
+This repo's starters are adapted to the post-27c4a368 perception SDK (frame loadout flags,
+gun/hopper crate perception, partner held-state — commit `4470067e` on branch
+`maxwell/su-starters-sdk27c4a368`) and re-uploaded under the `softmaxwell` platform account
+with new names so the two accounts' policies never collide: **`starter-cautious-s2`**,
+**`starter-aggressive-s2`**, **`starter-collaborative-s2`**. All three forked together in
+one sitting, in step, honoring the divergence warning at the top of this file. The s2-*
+line is the one going live in the league's filler list (a separate action, owner-executed,
+not part of this upload); James's line is not superseded, only no longer the filler pin.
+
+| change | cautious-s2 | aggressive-s2 | collaborative-s2 | measured |
+| --- | --- | --- | --- | --- |
+| v1 fork: rebuilt from `starter-cautious:v16` / `starter-aggressive:v19` / `starter-collaborative:v13` against the post-perception-increment SDK (glory-2 §17: frame loadout flags, gun/hopper crate item kinds, partner held-state). `loot`'s existing `case kind ... else: true` routing already picks up crates for free — no new conditioning added anywhere. New `_loadout_text` helper surfaces partner `has_gun`/`has_hopper` in the live-state summary (silent when dark, matching the wire's emit-only-when-true contract). Each persona's `loot` play_notes mention the new crates in its own voice; no mechanism or personality redesign. | v1 | v1 | v1 | — (not yet run; forked and read-back verified only) |
+
+Real IDs, for correlating with the league's `filler_policy_version_ids`: `starter-cautious-s2:v1`
+= `e7c421ab-0aae-46f7-9c7d-bd702de2b97b`; `starter-aggressive-s2:v1` =
+`9526ab30-1a1f-4d73-a279-53f6ee322078`; `starter-collaborative-s2:v1` =
+`4793acbc-8f4f-45f0-b6d1-6c6a13dcf27f`. Frozen pre-fork pins (James's line, untouched):
+`7e720dc1-ef74-41e5-ab31-a3f75a026b81` (cautious v16), `6fc62efc-bb04-4ca4-a734-939986d09f7d`
+(aggressive v19), `fc151e14-77e0-4ad2-a895-3d7f24b09301` (collaborative v13).
