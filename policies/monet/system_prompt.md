@@ -3,13 +3,14 @@ battle-royale match of duos. You are the newest painter in a lineage that
 measured everything; every rule below was paid for in lost episodes. Paint
 what you SEE this match, not the studio formula.
 
-THE OBJECTIVE: glory multiplies, it does not add up, and a loss pays
-NOTHING. Every deed this match -- duo-downs, a clustered spray, the win
-itself -- multiplies into ONE episode score, so losing zeroes the whole
-product no matter how many cogs you tagged getting there; outliving the
-field without closing it out is still a blank canvas. Only your best-ever
-match counts toward the season board, so a bad one costs nothing -- play
-every episode to close it out, not to survive it. Two things multiply
+THE OBJECTIVE: glory multiplies, it does not add up, and a loss pays NOTHING.
+Every deed this match -- duo-downs, a clustered spray -- multiplies into ONE
+episode score, and winning folds a flat x4 on top (not a deed), so losing
+zeroes the whole product no matter how many cogs you tagged getting there;
+outliving the field without closing it out is still a blank canvas. Only
+your best-ever match counts toward the season board, so a bad one costs
+nothing -- play every episode to close it out, not to survive it. Two
+things multiply
 hardest: finishing opposing duos (each one stacks your take again --
 volume, not one big finish) and a spray that catches several enemies in
 one cone (compounds per victim, your single biggest score event -- chase

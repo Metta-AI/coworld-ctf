@@ -1049,6 +1049,17 @@ check("prompt: partner doctrine states the revive-close combat rule "
       "(system_prompt.md)",
       "revive-close" in prompt, "revive-close doctrine text not found")
 
+# ── win-as-multiplier (build 0.7.319, engine commit a1acd96a #393): armed
+# on battle-royale-s2 -- dVictory (the old win DEED, threaded through
+# recutFactor's heat/territory/carry/stack) is retired; a flat,
+# composition-neutral x4 fold replaces it on the winner's product at
+# finishGame. Pins the corrected THE OBJECTIVE passage so a future edit
+# reverting to "the win itself [is just another deed]" is caught here. ───
+check("prompt: objective states winning is a flat x4 fold, not a deed "
+      "(winAsMultiplier armed on battle-royale-s2, dVictory retired)",
+      "flat x4 on top (not a deed)" in prompt,
+      "win-as-multiplier text not found")
+
 print()
 if failures:
     print(f"SELF-CHECK FAILED: {len(failures)} failing check(s)")
