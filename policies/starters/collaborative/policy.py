@@ -63,7 +63,8 @@ def adjust_entries(entries, context, view):
         entries.append({"play": "edge_ride", "entry_id": "together",
                         "params": dict(TOGETHER_DEFAULTS)})
     if not any(e.get("play") == "loot" for e in entries):
-        # Kit up while the duo is unbothered; never fight over a pickup.
+        # Kit up while the duo is unbothered -- guns and hoppers included
+        # (PERCEPTION glory-2 §17); never fight over a pickup.
         entries.append({"play": "loot", "entry_id": "loot",
                         "params": {"detourMax": 400, "contested": "avoid"}})
     return entries
@@ -86,8 +87,9 @@ PERSONA = Persona(
     name="collaborative",
     prompt_intro=(_HERE / "system_prompt.md").read_text(encoding="utf-8"),
     play_notes={
-        "loot": ("loot: kit up while the duo is unbothered; never fight over a "
-                 "pickup. The harness gates it."),
+        "loot": ("loot: kit up while the duo is unbothered -- a gun or "
+                 "hopper crate is worth the same short detour as any other "
+                 "pickup; never fight over one. The harness gates it."),
         "pact": ("pact is your first entry in EVERY call: your duo partner "
                  "in partners, protect true, disengage on betrayal."),
         "edge_ride": ("edge_ride steady and readable (margin ~260) so your "

@@ -135,10 +135,13 @@ PLAYS = {
         },
         "brief": (
             '"loot" (class: controller). Fetches the nearest reachable '
-            "pickup of any kind -- grenade, shield, spray can, barrier -- "
-            "when it is safe to. The harness gates it so it only runs while "
-            "no fresh enemy track is within 500 px and an item is within "
-            "reach; otherwise your base play keeps driving. Params:\n"
+            "pickup of any kind -- grenade, shield, spray can, barrier, and "
+            "(PERCEPTION glory-2 §17) the gun and hopper weapon crates now "
+            "visible on the ground -- when it is safe to. Fetching is "
+            "unconditional on kind (a crate is a crate); only medkits are "
+            "special-cased below. The harness gates it so it only runs "
+            "while no fresh enemy track is within 500 px and an item is "
+            "within reach; otherwise your base play keeps driving. Params:\n"
             "     - detourMax: integer 0..4096, default 400. Maximum detour "
             "in px to reach an item.\n"
             '     - contested: one of "avoid" or "race", default "avoid". '

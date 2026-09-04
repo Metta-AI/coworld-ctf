@@ -50,7 +50,8 @@ def adjust_entries(entries, context, view):
         elif entry.get("play") == "loot":
             params["contested"] = "race"
     if not any(e.get("play") == "loot" for e in entries):
-        # Grenades and spray cans are the hunter's tools; race for them.
+        # Grenades, spray cans, and (PERCEPTION glory-2 §17) gun/hopper
+        # crates are the hunter's tools; race for them.
         entries.append({"play": "loot", "entry_id": "loot",
                         "params": {"detourMax": 500, "contested": "race"}})
     return entries
@@ -60,8 +61,9 @@ PERSONA = Persona(
     name="aggressive",
     prompt_intro=(_HERE / "system_prompt.md").read_text(encoding="utf-8"),
     play_notes={
-        "loot": ("loot: grenades and spray cans are your tools -- race for "
-                 "them when nobody is tracked; the harness gates it."),
+        "loot": ("loot: grenades, spray cans, and a visible gun or hopper "
+                 "crate are all your tools -- race for any of it when "
+                 "nobody is tracked; the harness gates it."),
         "edge_ride": ("edge_ride is your hunting lane: margin 140-260, "
                       "enterLead up to 200, coverBias up to 0.8. The edge is "
                       "where the rotations funnel -- meet them there, from "

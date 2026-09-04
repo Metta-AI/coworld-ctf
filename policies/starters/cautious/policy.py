@@ -84,9 +84,10 @@ def adjust_entries(entries, context, view):
             params["contested"] = "avoid"
             params["detourMax"] = min(int(params.get("detourMax", 300)), 300)
     if not any(e.get("play") == "loot" for e in entries):
-        # Short, safe detours only: a shield or a grenade within 300 px when
-        # nobody is tracked. The harness guard keeps it off the ladder top
-        # the moment an enemy appears.
+        # Short, safe detours only: a shield, a grenade, or (PERCEPTION
+        # glory-2 §17) a gun/hopper crate within 300 px when nobody is
+        # tracked. The harness guard keeps it off the ladder the moment an
+        # enemy appears.
         entries.append({"play": "loot", "entry_id": "loot",
                         "params": {"detourMax": 300, "contested": "avoid"}})
     return entries
@@ -96,9 +97,10 @@ PERSONA = Persona(
     name="cautious",
     prompt_intro=(_HERE / "system_prompt.md").read_text(encoding="utf-8"),
     play_notes={
-        "loot": ("loot: short, safe detours only -- a shield or a grenade within "
-                 "300 px while nobody is tracked; the harness keeps it off the "
-                 "ladder the moment an enemy appears."),
+        "loot": ("loot: short, safe detours only -- a shield, a grenade, or "
+                 "a gun/hopper crate within 300 px while nobody is tracked; "
+                 "the harness keeps it off the ladder the moment an enemy "
+                 "appears."),
         "edge_ride": ("edge_ride is your whole game: margin 280 or wider, "
                       "enterLead 220 or more, coverBias 0.8+. Rotate early, "
                       "arrive first, sit in cover."),

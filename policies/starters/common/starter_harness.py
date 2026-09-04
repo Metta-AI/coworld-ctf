@@ -214,6 +214,22 @@ class StarterSeat(poc_policy.PlaySeat):
 # ── Persona-aware summaries ───────────────────────────────────────────────
 
 
+def _loadout_text(track: dict) -> str:
+    """PERCEPTION(glory-2 §17): ``has_gun``/``has_hopper`` ride ONLY the
+    duo-partner grant row (unreachable-by-construction on any other track,
+    src/shell/view.nim playViewSourceFromBody) and, like ``downed``/
+    ``bounty`` on the same row, are emitted in the wire JSON only when true.
+    So false and "flag is dark" look identical here -- honest silence
+    ("") rather than a claimed "unarmed", matching that emit-only-when-true
+    contract."""
+    parts = []
+    if track.get("has_gun"):
+        parts.append("gun")
+    if track.get("has_hopper"):
+        parts.append("hopper")
+    return "carrying " + "+".join(parts) if parts else ""
+
+
 def _partner_lines(seat: StarterSeat, partner: int) -> list[str]:
     label = poc_policy.seat_label(seat.context, partner)
     lines = [f"PARTNER STATUS FIRST -- your duo partner is {label}."]
@@ -227,9 +243,11 @@ def _partner_lines(seat: StarterSeat, partner: int) -> list[str]:
         lines.append(f"No fresh track on {label} -- close the distance "
                      "until you can see each other.")
     else:
+        loadout = _loadout_text(track)
         lines.append(f"{label} last seen at {track.get('pos')} "
                      f"(tick {track.get('fresh_tick')}"
                      + (f", hp {track['hp']}" if "hp" in track else "")
+                     + (f", {loadout}" if loadout else "")
                      + ").")
     return lines
 
@@ -365,9 +383,11 @@ def _state_lines(seat: StarterSeat) -> list[str]:
         lines.append("  Enemies tracked: none in view.")
     if partner is not None:
         if partner_track is not None and pos is not None:
+            loadout = _loadout_text(partner_track)
             lines.append(f"  Partner {poc_policy.seat_label(context, partner)}: "
                          f"{int(_dist(pos, partner_track['pos']))} px "
-                         f"{_bearing(pos, partner_track['pos'])}, hp {partner_track.get('hp', '?')}.")
+                         f"{_bearing(pos, partner_track['pos'])}, hp {partner_track.get('hp', '?')}"
+                         + (f", {loadout}" if loadout else "") + ".")
     items = [i for i in view.get("items", [])
              if isinstance(i, dict) and i.get("present", True) and _is_pos(i.get("pos"))]
     if pos is not None:
@@ -689,6 +709,12 @@ def gate_open(entry: dict, facts: dict) -> bool:
         exclude = () if params.get("medkits") else ("medkit",)
         # "No enemy tracked at all" almost never holds in a 16-seat match, so
         # the gate is distance-based: nobody fresh within LOOT_CLEAR_PX.
+        # No kind filter beyond `exclude`: PERCEPTION(glory-2 §17) gun/hopper
+        # ground crates ride the same view["items"] list as every other
+        # pickup (src/ctf/server.nim firstLightBodyInputs sight() calls) and
+        # the wasm's own itemUsable is `case kind ... else: true` -- crate
+        # routing is FREE behavior by construction, not something this gate
+        # has to special-case in.
         return (facts["nearest_enemy"] is None or facts["nearest_enemy"] > LOOT_CLEAR_PX) \
             and _item_within(facts, detour, exclude=exclude)
     if play == "bodyguard":
