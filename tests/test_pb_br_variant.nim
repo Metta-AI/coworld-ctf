@@ -106,6 +106,12 @@ suite "paintbot manifest, battle-royale-s2 variant":
     # economy is live again via this switch, exactly as designed.
     check config.gloryMultiplierRecut
     check not config.winAsMultiplier
+    # PAINTDEATH (owner ruling 2026-09-03): the flagship ships the zone as
+    # LETHAL GROUND -- paint damages you AND admits no rescue. Armed here,
+    # not dark: it is the root fix for the revive-loop above, and the
+    # precondition this variant's winAsMultiplier re-arm rides on.
+    check config.zoneDamageByPaint
+    check config.zoneBlocksRevive
     var sim = initCtfForTest(config)
     ## The variant's own "players" list binds each slot's NAME (see
     ## roster.nim's slotRestricted/matchingConfiguredSlot): a real join

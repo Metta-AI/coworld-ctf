@@ -2974,34 +2974,36 @@ suite "zone damage by paint: determinism":
       b.stepTicks(1)
       check a.gameHash() == b.gameHash()
 
+# dps 0 throughout: the arrival field is dps-independent, and a zero
+# rate keeps standing damage out of the bleed-clock arithmetic. Shared by
+# the two downed-under-paint suites below (bleed acceleration, and the
+# PAINTDEATH no-rescue gate).
+proc downedPaintGame(extraJson = ""): SimServer =
+  var config = defaultGameConfig()
+  var extra = """, "brMode": true, "downedMode": true, """ &
+    """"downedBleedOutTicks": 200, "zoneDamageByPaint": true"""
+  if extraJson.len > 0:
+    extra &= ", " & extraJson
+  config.update(
+    """{"zonePhases": [{"z": 0.1, "waitTicks": 0, "shrinkTicks": 0, """ &
+    """"dps": 0}]""" & extra & "}")
+  result = initCtfForTest(config)
+  for i in 0 ..< 4:
+    discard result.addPlayer("p" & $i)
+  result.startGame()
+  result.collectEvents = true
+
+proc ghostAt(sim: var SimServer, playerIndex, px, py: int) =
+  ## Downs one seat in place — the same fields downPlayer sets, minus the
+  ## event ceremony these suites don't assert on.
+  sim.placeAt(playerIndex, px, py)
+  sim.players[playerIndex].downed = true
+  sim.players[playerIndex].downedTick = sim.tickCount
+  sim.players[playerIndex].downedCount = 1
+  sim.players[playerIndex].downedBy = -1
+  sim.players[playerIndex].hp = 0
+
 suite "zone damage by paint: downed under paint (glory-2 amendment 1)":
-  # dps 0 throughout: the arrival field is dps-independent, and a zero
-  # rate keeps standing damage out of the bleed-clock arithmetic.
-  proc downedPaintGame(extraJson = ""): SimServer =
-    var config = defaultGameConfig()
-    var extra = """, "brMode": true, "downedMode": true, """ &
-      """"downedBleedOutTicks": 200, "zoneDamageByPaint": true"""
-    if extraJson.len > 0:
-      extra &= ", " & extraJson
-    config.update(
-      """{"zonePhases": [{"z": 0.1, "waitTicks": 0, "shrinkTicks": 0, """ &
-      """"dps": 0}]""" & extra & "}")
-    result = initCtfForTest(config)
-    for i in 0 ..< 4:
-      discard result.addPlayer("p" & $i)
-    result.startGame()
-    result.collectEvents = true
-
-  proc ghostAt(sim: var SimServer, playerIndex, px, py: int) =
-    ## Downs one seat in place — the same fields downPlayer sets, minus the
-    ## event ceremony this suite doesn't assert on.
-    sim.placeAt(playerIndex, px, py)
-    sim.players[playerIndex].downed = true
-    sim.players[playerIndex].downedTick = sim.tickCount
-    sim.players[playerIndex].downedCount = 1
-    sim.players[playerIndex].downedBy = -1
-    sim.players[playerIndex].hp = 0
-
   test "paint accelerates the bleed clock 2x at the default permille":
     var sim = downedPaintGame()
     sim.stepTicks(ZoneDamageRollTicks)      # let the snap-schedule paint.
@@ -3060,7 +3062,10 @@ suite "zone damage by paint: downed under paint (glory-2 amendment 1)":
     sim.stepTicks(10)
     check not sim.players[0].alive
 
-  test "a revive under closing paint stays possible":
+  test "a revive under closing paint stays possible (zoneBlocksRevive dark)":
+    ## The pre-PAINTDEATH contract, kept green as the dark half of the new
+    ## flag: with zoneBlocksRevive off, paint only accelerates the clock and
+    ## the rescue still lands. The armed half is the suite below.
     var sim = downedPaintGame()
     sim.stepTicks(ZoneDamageRollTicks)
     let
@@ -3115,3 +3120,141 @@ suite "zone damage by paint: downed under paint (glory-2 amendment 1)":
     # (Neither sim steps on: deserializeReplaySim grafts service state
     # from the live sim — the 673-line suite's round-trip contract. The
     # accelerated death itself is the 2x test above.)
+
+
+suite "paintdeath: the zone is lethal ground, no rescues inside it":
+  ## Owner ruling 2026-09-03 -- "how can you revive in paint? you should die
+  ## if in paint". zoneBlocksRevive: a ghost whose own cell is PAINTED cannot
+  ## be revived; the accelerated bleed finishes it. Root fix for the dTagBack
+  ## revive-loop rolled back in #401 (a 57-tick metronome inside the closing
+  ## ring, minting x2 per Revived forever).
+  const Armed = """"zoneBlocksRevive": true"""
+
+  proc paintedGhostWithPartner(
+    sim: var SimServer
+  ): tuple[x, y: int] =
+    ## Seats the standard scenario: every seat parked on never-painted
+    ## ground far from the body, then Blue's seat 1 downed ON the paint with
+    ## its upright partner (seat 3) standing on the same painted cell --
+    ## adjacency satisfied, so ONLY the paint verdict can stop the channel.
+    let
+      elapsed = sim.tickCount - sim.gameStartTick
+      wet = sim.findPaintCell(elapsed, wantPainted = true)
+    doAssert wet.x >= 0        # doAssert, not check: unittest's `check`
+                               # only expands inside a `test` block.
+    let park = sim.findPaintCellAway(100000, wantPainted = false,
+      wet.x, wet.y, DownedTagRange * 2)
+    doAssert park.x >= 0
+    doAssert distSq(park.x, park.y, wet.x, wet.y) >
+      DownedTagRange * DownedTagRange
+    for i in 0 ..< sim.players.len:
+      sim.placeAt(i, park.x, park.y)
+    sim.ghostAt(1, wet.x, wet.y)
+    sim.placeAt(3, wet.x, wet.y)
+    wet
+
+  test "the r3894 metronome cannot mint: a ghost in paint is never revived":
+    ## THE exploit scenario, armed: partner glued to the body for far longer
+    ## than downedReviveTicks. The channel never accrues a single tick, no
+    ## Revived event is ever emitted (so there is nothing for dTagBack to
+    ## mint off), and the 2x bleed finishes the body on schedule.
+    var sim = downedPaintGame(Armed)
+    sim.stepTicks(ZoneDamageRollTicks)
+    discard sim.paintedGhostWithPartner()
+    check sim.config.downedReviveTicks * 2 < 100
+    for _ in 0 ..< 90:                      # >>> downedReviveTicks (48).
+      sim.stepTicks(1)
+      check sim.players[1].reviveProgress == 0   # never accrues, ever.
+    check sim.players[1].downed                  # still a ghost at t+90.
+    check sim.paintEventsOf(Revived).len == 0
+    sim.stepTicks(20)
+    check not sim.players[1].alive               # ~t+100: the 2x bleed wins.
+    check sim.paintEventsOf(Revived).len == 0    # nothing to mint, ever.
+    for player in sim.players:
+      check player.kills == 0                    # environmental, uncredited.
+
+  test "a nearly-complete channel RESETS the tick the body lies in paint":
+    ## The freeze-vs-reset choice, pinned: progress banked on dry ground is
+    ## zeroed, not held -- the same statement the tag-broken branch makes.
+    var sim = downedPaintGame(Armed)
+    sim.stepTicks(ZoneDamageRollTicks)
+    discard sim.paintedGhostWithPartner()
+    sim.players[1].reviveProgress = sim.config.downedReviveTicks - 1
+    sim.stepTicks(1)
+    check sim.players[1].reviveProgress == 0
+    check sim.players[1].downed
+    check sim.paintEventsOf(Revived).len == 0
+
+  test "a revive OUTSIDE the paint still works with the gate armed":
+    ## The gate is about the GROUND, not about downedMode: on dry ground the
+    ## rescue lands exactly as it always did.
+    var sim = downedPaintGame(Armed)
+    sim.stepTicks(ZoneDamageRollTicks)
+    let dry = sim.findPaintCell(100000, wantPainted = false)
+    check dry.x >= 0
+    let park = sim.findPaintCellAway(100000, wantPainted = false,
+      dry.x, dry.y, DownedTagRange * 2)
+    check park.x >= 0
+    for i in 0 ..< sim.players.len:
+      sim.placeAt(i, park.x, park.y)
+    sim.ghostAt(1, dry.x, dry.y)
+    sim.placeAt(3, dry.x, dry.y)
+    sim.stepTicks(sim.config.downedReviveTicks)
+    check not sim.players[1].downed
+    check sim.players[1].alive
+    check sim.players[1].hp == 1
+    check sim.paintEventsOf(Revived).len == 1
+
+  test "armed and dark DIVERGE on the same scenario -- the gate is live":
+    var
+      dark = downedPaintGame()
+      lit = downedPaintGame(Armed)
+    dark.stepTicks(ZoneDamageRollTicks)
+    lit.stepTicks(ZoneDamageRollTicks)
+    discard dark.paintedGhostWithPartner()
+    discard lit.paintedGhostWithPartner()
+    dark.stepTicks(dark.config.downedReviveTicks)
+    lit.stepTicks(lit.config.downedReviveTicks)
+    check dark.paintEventsOf(Revived).len == 1   # rescued under paint.
+    check lit.paintEventsOf(Revived).len == 0    # lethal ground.
+    check dark.gameHash() != lit.gameHash()
+
+  test "absent == false: the dark path is byte-identical over a real game":
+    ## Hash identity, the dark contract: an explicit false and an absent key
+    ## walk the SAME chain tick for tick through the exact scenario the gate
+    ## would otherwise change (ghost in paint, partner in tag range).
+    var
+      a = downedPaintGame()
+      b = downedPaintGame(""""zoneBlocksRevive": false""")
+    a.stepTicks(ZoneDamageRollTicks)
+    b.stepTicks(ZoneDamageRollTicks)
+    discard a.paintedGhostWithPartner()
+    discard b.paintedGhostWithPartner()
+    check a.gameHash() == b.gameHash()
+    for _ in 0 ..< 200:
+      a.stepTicks(1)
+      b.stepTicks(1)
+      check a.gameHash() == b.gameHash()
+    check a.paintEventsOf(Revived).len == b.paintEventsOf(Revived).len
+
+  test "config surface: dark default, loud fence, armed echo and stamp":
+    let base = defaultGameConfig()
+    check base.zoneBlocksRevive == false
+    check not parseJson(base.configJson()).hasKey("zoneBlocksRevive")
+    var stampFound = false
+    for f in parseJson(base.realizedConfigStampJson())["flagSet"]:
+      if f.getStr() == "zoneBlocksRevive=false":
+        stampFound = true
+    check stampFound                      # dark is positively recorded.
+    # It reads the paint DAMAGE surface, so it cannot be armed alone.
+    var lone = defaultGameConfig()
+    expect CtfError:
+      lone.update("""{"zoneBlocksRevive": true, "zonePhases": [{"z": 0.5}]}""")
+    let sim = downedPaintGame(Armed)
+    check sim.config.zoneBlocksRevive
+    check parseJson(sim.config.configJson())["zoneBlocksRevive"].getBool()
+    stampFound = false
+    for f in parseJson(sim.config.realizedConfigStampJson())["flagSet"]:
+      if f.getStr() == "zoneBlocksRevive=true":
+        stampFound = true
+    check stampFound

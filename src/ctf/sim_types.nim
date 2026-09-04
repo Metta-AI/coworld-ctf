@@ -2610,6 +2610,20 @@ type
                         ## amendment 1's spec floor) — a ghost still dies
                         ## only through updateDowned's windowed check, and
                         ## the revive channel is untouched.
+    zoneBlocksRevive*: bool ## PAINTDEATH (owner ruling 2026-09-03: "how
+                        ## can you revive in paint? you should die if in
+                        ## paint"): the zone is LETHAL GROUND — a ghost
+                        ## whose own cell is painted CANNOT be revived.
+                        ## The revive channel never accrues while the body
+                        ## lies in paint and any progress banked on dry
+                        ## ground resets, exactly as it does when the tag
+                        ## breaks; the (accelerated) bleed finishes it.
+                        ## Reads the SAME painted-cell test the zone
+                        ## DAMAGE reads (zonePaintedForDamageAt), so
+                        ## requires zoneDamageByPaint: if the ground would
+                        ## damage you, it also blocks your rescue.
+                        ## false = default = rescues under paint stay
+                        ## possible (byte-identical pre-flag behaviour).
 
   Player* = object
     x*, y*: int

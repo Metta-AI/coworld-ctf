@@ -139,7 +139,10 @@ proc defaultGameConfig*(): GameConfig =
     # damage test byte-identical; the bleed knob is only READ under the
     # flag (echoed only when armed, echoZonePaintKeys).
     zoneDamageByPaint: false,
-    zonePaintDownedBleedPermille: ZonePaintDownedBleedPermilleDefault
+    zonePaintDownedBleedPermille: ZonePaintDownedBleedPermilleDefault,
+    # PAINTDEATH: dark by default — a rescue under paint stays possible,
+    # exactly as it was before the flag existed.
+    zoneBlocksRevive: false
   )
 
 proc squadModeConfigured*(config: GameConfig): bool =
@@ -1158,6 +1161,15 @@ proc validate(config: GameConfig) =
     raise newException(CtfError,
       "Config field zonePaintDownedBleedPermille must be in [1000.." &
       $ZonePaintDownedBleedPermilleMax & "].")
+  # PAINTDEATH: the no-rescue-in-paint gate reads the paint DAMAGE surface
+  # (zonePaintedForDamageAt), which only defines "painted ground" while
+  # zoneDamageByPaint is armed — arming it alone would be a silent no-op,
+  # so it is refused loudly, the same "requires X" shape as every fence
+  # above. (zoneDamageByPaint already requires zonePhases, so this
+  # transitively requires a schedule too.)
+  if config.zoneBlocksRevive and not config.zoneDamageByPaint:
+    raise newException(CtfError,
+      "Config field zoneBlocksRevive requires zoneDamageByPaint.")
   # SITECLASS: a per-mille, and only meaningful while there are fallback
   # hopper crates to re-site — so it rides lootStart the same way the seed
   # counts do, refused loudly instead of parsing into a silent no-op.
@@ -1390,6 +1402,7 @@ proc update*(config: var GameConfig, jsonText: string) =
   node.readConfigBool("zoneDamageByPaint", config.zoneDamageByPaint)
   node.readConfigInt("zonePaintDownedBleedPermille",
     config.zonePaintDownedBleedPermille)
+  node.readConfigBool("zoneBlocksRevive", config.zoneBlocksRevive)
   config.validate()
 
 proc slotTeamText(slot: PlayerSlotConfig): string =
@@ -1794,6 +1807,11 @@ proc echoZonePaintKeys(config: GameConfig, node: JsonNode) =
     node["zoneDamageByPaint"] = %config.zoneDamageByPaint
     node["zonePaintDownedBleedPermille"] =
       %config.zonePaintDownedBleedPermille
+  # PAINTDEATH: echoed only when armed (it rides zoneDamageByPaint by
+  # validation, but the echo names it on its own so a replay pins WHICH of
+  # the two paint-on-ghost rules it played under).
+  if config.zoneBlocksRevive:
+    node["zoneBlocksRevive"] = %config.zoneBlocksRevive
 
 proc configJson*(config: GameConfig): string =
   ## Returns the complete replay JSON for a gameplay config: the always-
@@ -1942,6 +1960,7 @@ proc realizedConfigStampJson*(config: GameConfig): string =
     "winAsMultiplier=" & $config.winAsMultiplier,
     "medKitCount=" & $config.medKitCount,
     "stampRealizedConfig=" & $config.stampRealizedConfig,
+    "zoneBlocksRevive=" & $config.zoneBlocksRevive,
     "zoneDamageByPaint=" & $config.zoneDamageByPaint,
   ]
   flags.sort()
