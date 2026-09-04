@@ -150,7 +150,10 @@ proc defaultGameConfig*(): GameConfig =
     # PATHING: dark by default — the shell planner keeps its enemies-only
     # cost function, allocates no path-length column, and mints no world
     # fields, so a dark episode is byte-identical to the pre-flag engine.
-    hazardAwarePlanner: false
+    hazardAwarePlanner: false,
+    # NAVHINTS: dark by default — the play view carries no nav section, so
+    # both the binary frame and the JSON copy are byte-identical.
+    navHints: false
   )
 
 proc squadModeConfigured*(config: GameConfig): bool =
@@ -1198,6 +1201,11 @@ proc validate(config: GameConfig) =
   if config.hazardAwarePlanner and not config.zoneDamageByPaint:
     raise newException(CtfError,
       "Config field hazardAwarePlanner requires zoneDamageByPaint.")
+  # NAVHINTS reports what hazardAwarePlanner computes. Arming it alone would
+  # publish a section of -1s — a silent no-op dressed as a feature.
+  if config.navHints and not config.hazardAwarePlanner:
+    raise newException(CtfError,
+      "Config field navHints requires hazardAwarePlanner.")
   # SITECLASS: a per-mille, and only meaningful while there are fallback
   # hopper crates to re-site — so it rides lootStart the same way the seed
   # counts do, refused loudly instead of parsing into a silent no-op.
@@ -1436,6 +1444,7 @@ proc update*(config: var GameConfig, jsonText: string) =
   # (sim_types.nim) — same tail-append rule as everything above. An absent key
   # leaves the dark default, so an existing config JSON parses unchanged.
   node.readConfigBool("hazardAwarePlanner", config.hazardAwarePlanner)
+  node.readConfigBool("navHints", config.navHints)
   config.validate()
 
 proc slotTeamText(slot: PlayerSlotConfig): string =
@@ -1857,6 +1866,11 @@ proc echoZonePaintKeys(config: GameConfig, node: JsonNode) =
   # the movement it produced is what the recorded masks are.
   if config.hazardAwarePlanner:
     node["hazardAwarePlanner"] = %config.hazardAwarePlanner
+  # NAVHINTS: echoed only when armed. It rides hazardAwarePlanner by
+  # validation but names itself, so a replay pins whether the plays that
+  # produced these masks could SEE the engine's zone answers.
+  if config.navHints:
+    node["navHints"] = %config.navHints
 
 proc configJson*(config: GameConfig): string =
   ## Returns the complete replay JSON for a gameplay config: the always-
@@ -2009,6 +2023,7 @@ proc realizedConfigStampJson*(config: GameConfig): string =
     "zoneBlocksRevive=" & $config.zoneBlocksRevive,
     "zoneDamageByPaint=" & $config.zoneDamageByPaint,
     "hazardAwarePlanner=" & $config.hazardAwarePlanner,
+    "navHints=" & $config.navHints,
   ]
   flags.sort()
   var flagSet = newJArray()

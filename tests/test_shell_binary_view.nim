@@ -701,6 +701,54 @@ suite "shell binary play view":
     check bytes.readU32(items.offset + items.recordStride + 4) == 6'u32
     check bytes.readU32(items.offset + items.recordStride * 2 + 4) == 4'u32 # barrier unmoved
 
+  test "NAVHINTS: the nav section is emitted only when armed, and is all i32":
+    ## Dark-identity: a source without nav produces the SAME frame bytes and
+    ## the SAME JSON as before the section existed, so an unarmed episode
+    ## cannot be told apart from the pre-flag engine by any consumer.
+    let darkSource = baseSource()
+    let darkBytes = buildBinaryPlayView(selectPlayView(darkSource,
+      MaxViewFrameBytes))
+    check darkBytes.section(BvNav).isNone
+    check "nav" notin buildPlayView(darkSource)
+
+    var armed = baseSource()
+    armed.nav = some(PlayNav(ticksUntilPaintHere: 240, ticksToSafety: 31,
+      safeDistPx: 64, zoneSafeDirBrads: 192))
+    let bytes = buildBinaryPlayView(selectPlayView(armed, MaxViewFrameBytes))
+    let nav = bytes.section(BvNav).get
+    check nav.recordCount == 1
+    check nav.recordStride == 32
+    check bytes.readI32(nav.offset) == 240
+    check bytes.readI32(nav.offset + 4) == 31
+    check bytes.readI32(nav.offset + 8) == 64
+    check bytes.readI32(nav.offset + 12) == 192
+    for reserved in countup(16, 28, 4):
+      check bytes.readI32(nav.offset + reserved) == 0
+    # Arming adds the section and NOTHING else: every other section keeps its
+    # kind, count and stride, so an old-compiled play decodes it unchanged.
+    for kind in [BvSelf, BvWorld, BvZone]:
+      let before = darkBytes.section(kind).get
+      let after = bytes.section(kind).get
+      check before.recordCount == after.recordCount
+      check before.recordStride == after.recordStride
+
+    # "Not available" is -1 in every field, and survives the round trip.
+    var absent = baseSource()
+    absent.nav = some(PlayNav(ticksUntilPaintHere: -1, ticksToSafety: -1,
+      safeDistPx: -1, zoneSafeDirBrads: -1))
+    let absentBytes = buildBinaryPlayView(selectPlayView(absent,
+      MaxViewFrameBytes))
+    let absentNav = absentBytes.section(BvNav).get
+    for field in countup(0, 12, 4):
+      check absentBytes.readI32(absentNav.offset + field) == -1
+
+    # The JSON copy carries the same four integers under canonical key order.
+    let json = parseJson(buildPlayView(armed))
+    check json["nav"]["ticks_until_paint_here"].getInt == 240
+    check json["nav"]["ticks_to_safety"].getInt == 31
+    check json["nav"]["safe_dist_px"].getInt == 64
+    check json["nav"]["zone_safe_dir_brads"].getInt == 192
+
 suite "shell binary play context":
   test "context header sections and fields":
     let context = PlayContextSource(mode: gmBr, mapName: "gen:14005",

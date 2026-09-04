@@ -170,6 +170,35 @@
         }
       }
     },
+    "nav": {
+      "$comment": "NAVHINTS (hazardAwarePlanner + navHints): the engine's own zone answers for THIS seat's own cell, as precomputed integers. Emitted ONLY while the flag is armed, so a dark frame omits the key entirely and its bytes are unchanged. Every value is an integer in engine units (ticks, map pixels, brads) \u2014 a play never computes a gradient, which is what keeps float math (and a native-vs-emscripten divergence surface) out of every play's wasm. Prefer these over world.zone's rectangles for survival decisions: under zoneDamageByPaint the rects say where the RING is, while these say where the PAINT is and where dry ground actually is, around walls.",
+      "type": "object",
+      "required": [
+        "ticks_until_paint_here",
+        "ticks_to_safety",
+        "safe_dist_px",
+        "zone_safe_dir_brads"
+      ],
+      "additionalProperties": true,
+      "properties": {
+        "ticks_until_paint_here": {
+          "type": "integer",
+          "$comment": "ticks until paint reaches my own cell; -1 = this cell never paints (a wall cell, or the schedule's final safe rect)"
+        },
+        "ticks_to_safety": {
+          "type": "integer",
+          "$comment": "ticks to reach the nearest ground that stays dry through the engine's forward horizon, at planning speed; 0 = I am standing on such ground; -1 = nothing survivable is reachable from here"
+        },
+        "safe_dist_px": {
+          "type": "integer",
+          "$comment": "the same answer as a GEODESIC distance in map pixels, around walls rather than through them; 0 / -1 mean what they mean above"
+        },
+        "zone_safe_dir_brads": {
+          "type": "integer",
+          "$comment": "flow-field direction toward that ground, 0..255 brads (0 = east, counter-clockwise, 64 = north); -1 = already safe, or nothing reachable"
+        }
+      }
+    },
     "tracks": {
       "$comment": "tracked allies and enemies under the seat's own fog; \u2264 32 (the roster, never truncated). The duo partner's row is a DELIBERATE GRANT (\u00a75.2): live position+aim, always fresh while both live \u2014 and it ends exactly at the partner's death (stale-track handling thereafter).",
       "type": "array",

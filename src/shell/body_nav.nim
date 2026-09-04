@@ -805,6 +805,59 @@ proc zoneSafeStep*(system: BodyNavSystem,
   let delta = Neighbors[hop - 1]
   some(cellCenter((cell.x + delta[0], cell.y + delta[1])))
 
+proc zoneSafeDirBrads*(system: BodyNavSystem,
+                       point: BodyPoint): Option[int] =
+  ## The retreat flow direction at `point`, in brads (0..255, 0 = east,
+  ## counter-clockwise), or `none` when this cell is already safe / no field.
+  ##
+  ## The brads are computed from the FLOW FIELD's own 8-neighbour step, not
+  ## from a bearing to some rect edge — so it points down the corridor rather
+  ## than into the wall the corridor runs beside. Eight exact octants, no
+  ## trigonometry, no float: a flow step is one of eight deltas, and each maps
+  ## to an exact multiple of 32 brads.
+  let step = system.zoneSafeStep(point)
+  if step.isNone:
+    return none(int)
+  let
+    cell = system.map.nearestWalkable(system.map.cellOf(point))
+    target = system.map.cellOf(step.get)
+    dx = target.x - cell.x
+    dy = target.y - cell.y
+  if dx == 0 and dy == 0:
+    return none(int)
+  # The engine's brad convention (sim_types.Player.aimBrads): 0 = east (+x),
+  # counter-clockwise on screen, 64 = north — and screen +y points DOWN, so
+  # south is 192. Indexed [dx + 1][dy + 1]; the centre entry is unreachable
+  # (dx == dy == 0 returned above).
+  const OctantBrads = [
+    [96'i32, 128, 160],   ## dx = -1: NW,  W,  SW
+    [64,       0, 192],   ## dx =  0:  N,  --,  S
+    [32,       0, 224]]   ## dx = +1: NE,  E,  SE
+  some(OctantBrads[dx + 1][dy + 1].int)
+
+proc navHintsFor*(system: BodyNavSystem, point: BodyPoint, tick: int):
+    tuple[ticksUntilPaintHere, ticksToSafety, safeDistPx,
+          zoneSafeDirBrads: int] =
+  ## The four integers the play view's nav section carries, all in the
+  ## engine's own units and all spelling "not available" as -1.
+  result = (-1, -1, -1, -1)
+  if system == nil or not system.hazard.hasField:
+    return
+  let
+    zoneTick = system.zoneClockTick(tick)
+    cell = system.map.cellOf(point)
+    arrival = system.hazard.arrivalAt(cell.x, cell.y)
+  if arrival < HazardNeverArrives.int:
+    result.ticksUntilPaintHere = max(0, arrival - zoneTick)
+  let distance = system.zoneSafeDistancePx(point)
+  if distance.isSome:
+    result.safeDistPx = int(distance.get)
+    result.ticksToSafety =
+      estimatedArrivalTicks(0, distance.get)
+  let brads = system.zoneSafeDirBrads(point)
+  if brads.isSome:
+    result.zoneSafeDirBrads = brads.get
+
 proc recordWorldBudget(system: BodyNavSystem, tick, units: int,
                        outcome: PlanBudgetOutcome) =
   if tick < 0 or units == 0:

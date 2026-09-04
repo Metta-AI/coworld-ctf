@@ -50,11 +50,44 @@ type
       ## cannot fire/loot/shout right now.
 
   PlayZone* = object
+    ## LEGACY SURFACE under zoneDamageByPaint. These rects describe where the
+    ## ring IS, not where the DAMAGE is: paint enters rooms door-first, fingers
+    ## into open field, and the final safe rect never floods at all. A play
+    ## that reasons about survival from these rects is reasoning about a proxy
+    ## that is wrong exactly where it matters. Prefer PlayNav below.
     phase*: int
     current*: PlayRect
     next*: Option[PlayRect]
     ticksToShrink*: int
     dps*: int
+
+  PlayNav* = object
+    ## NAVHINTS: the engine's own zone answers, as PRECOMPUTED INTEGERS.
+    ##
+    ## Integers are the contract, not a convenience. If the engine shipped a
+    ## raw field and asked the guest to compute a gradient, every play's wasm
+    ## would import float math and open a native/emscripten divergence surface
+    ## where none exists today. Ticks, pixels and brads only.
+    ##
+    ## Every field is fog-honest: the zone schedule and the paint front are
+    ## public facts (the client draws them), so nothing here tells a play
+    ## anything its own eyes could not already infer — it just stops the play
+    ## being WRONG about it.
+    ticksUntilPaintHere*: int
+      ## Ticks until paint reaches my own cell; -1 = never (a wall cell, or
+      ## the schedule's final safe rect).
+    ticksToSafety*: int
+      ## Ticks to reach the nearest ground that stays dry through the engine's
+      ## forward horizon, at planning speed. 0 = I am standing on such ground
+      ## already; -1 = no field published, or nothing survivable is reachable
+      ## from here.
+    safeDistPx*: int
+      ## The same answer as a GEODESIC distance in px (around walls, not
+      ## through them); 0 / -1 mean what they mean above.
+    zoneSafeDirBrads*: int
+      ## Flow-field direction toward that ground, 0..255 brads; -1 when I am
+      ## already safe or nothing is reachable. This is the engine's own
+      ## retreat field, not a bearing to a rect edge.
 
   ObjectiveState* = enum
     osHome
@@ -176,6 +209,7 @@ type
     self*: PlaySelf
     aliveTeams*: int
     zone*: Option[PlayZone]
+    nav*: Option[PlayNav]   ## NAVHINTS: present only while the flag is armed
     objectives*: seq[PlayObjective]
     intent*: Option[Intent]
     tracks*: seq[PlayTrack]
@@ -192,6 +226,7 @@ type
     self*: PlaySelf
     aliveTeams*: int
     zone*: Option[PlayZone]
+    nav*: Option[PlayNav]   ## NAVHINTS: present only while the flag is armed
     objectives*: seq[PlayObjective]
     intent*: Option[Intent]
     tracks*: seq[PlayTrack]
@@ -626,6 +661,17 @@ proc writeJson*(w: var CanonicalWriter, model: PlayViewModel) =
     for row in model.killFeed:
       w.writeJson(row)
     w.endArray()
+  if model.nav.isSome:
+    # Canonical key order puts "nav" between "kill_feed" and "schema"; a dark
+    # frame omits the key entirely, so dark bytes are unchanged.
+    let nav = model.nav.get
+    w.key("nav")
+    w.beginObject()
+    w.field("safe_dist_px", int64(nav.safeDistPx))
+    w.field("ticks_to_safety", int64(nav.ticksToSafety))
+    w.field("ticks_until_paint_here", int64(nav.ticksUntilPaintHere))
+    w.field("zone_safe_dir_brads", int64(nav.zoneSafeDirBrads))
+    w.endObject()
   w.field("schema", "play_view")
   w.key("self")
   w.writeJson(model.self, model.mode)
@@ -731,7 +777,7 @@ proc jsonEncodedSize*(model: PlayViewModel): int =
 proc selectedBase(source: PlayViewSource): PlayViewModel =
   PlayViewModel(tick: source.tick, mode: source.mode, epoch: source.epoch,
     self: source.self, aliveTeams: source.aliveTeams, zone: source.zone,
-    objectives: source.objectives)
+    nav: source.nav, objectives: source.objectives)
 
 proc keyColonSize(key: string): int {.inline.} =
   ## All play_view keys are fixed ASCII literals, so the canonical JSON key
@@ -1003,6 +1049,7 @@ proc toPlaySprayHazard(hazard: BodySprayHazard): PlaySprayHazard =
 
 proc playViewSourceFromBody*(body: SeatBody, tick: uint32, mode: GameMode,
                              aliveTeams: int, zone = none(PlayZone),
+                             nav = none(PlayNav),
                              objectives: openArray[PlayObjective] = [],
                              includeStandingIntent = true): PlayViewSource =
   ## Convenience adapter from body-retained belief to the frozen view row
@@ -1018,6 +1065,7 @@ proc playViewSourceFromBody*(body: SeatBody, tick: uint32, mode: GameMode,
     lives: body.selfState.lives, downed: body.selfState.downed)
   result.aliveTeams = aliveTeams
   result.zone = zone
+  result.nav = nav
   result.objectives = @objectives
   if includeStandingIntent:
     result.intent = some(body.standingIntent)

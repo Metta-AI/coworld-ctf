@@ -527,6 +527,78 @@ suite "the shared zone-safe field":
     system.installZoneHazard(arrival, map.width div 4, map.height div 4, 4)
     check not system.zoneSafeReady
 
+  test "NAVHINTS: the engine's four answers are honest integers":
+    let map = openMap(256, 128)
+    let system = newBodyNavSystem(map, 1, GunRangePx, hazardAware = true)
+    # Dark: every answer is "not available", never a fabricated zero.
+    block:
+      let hints = system.navHintsFor((64, 64), 0)
+      check hints == (-1, -1, -1, -1)
+
+    var hazard = neverField(map)
+    # The left half floods inside the engine's own forward horizon, so it is
+    # NOT seed ground; the right half never floods, so it is.
+    for cellY in 0 ..< map.gridHeight:
+      for cellX in 0 ..< map.gridWidth div 2:
+        hazard.values[cellY * map.gridWidth + cellX] = 100'u16
+    system.hazard = hazard
+    system.hazardTickOffset = 1000    ## a lobby, then the schedule's own clock
+    var tick = 1000
+    while not system.zoneSafeReady:
+      discard system.runPlanningTick(tick)
+      inc tick
+      doAssert tick < 20_000
+
+    # Standing in the flooding half at zone-elapsed tick 0: paint arrives at
+    # 100, so 100 ticks of warning -- measured on the ZONE clock, not the sim's
+    # (absolute tick 1000 is zone-elapsed 0 here).
+    let inPaint = system.navHintsFor((24, 64), 1000)
+    check inPaint.ticksUntilPaintHere == 100
+    check inPaint.safeDistPx > 0
+    check inPaint.ticksToSafety > 0
+    check inPaint.zoneSafeDirBrads in 0 .. 255
+    # The retreat direction points EAST, toward the dry half.
+    check inPaint.zoneSafeDirBrads in [0, 32, 224]
+
+    # Standing on dry ground: never paints, zero distance, no direction needed.
+    let onDry = system.navHintsFor((240, 64), 1000)
+    check onDry.ticksUntilPaintHere == -1
+    check onDry.safeDistPx == 0
+    check onDry.ticksToSafety == 0
+    check onDry.zoneSafeDirBrads == -1
+
+    # Past the arrival tick the warning saturates at 0 rather than going
+    # negative -- a play testing `<= n` must never see a wraparound.
+    check system.navHintsFor((24, 64), 1000 + 900).ticksUntilPaintHere == 0
+
+  test "NAVHINTS: the retreat brads are exact octants, never trigonometry":
+    ## Eight deltas, eight exact multiples of 32 brads, in the engine's own
+    ## convention (0 = east, counter-clockwise, 64 = north, screen +y = down).
+    ## An approximate bearing here would be a float in the observation path.
+    let map = openMap(256, 128)
+    let system = newBodyNavSystem(map, 1, GunRangePx, hazardAware = true)
+    var hazard = neverField(map)
+    for value in hazard.values.mitems:
+      value = 10'u16
+    # Exactly one dry cell: every other cell's flow points toward it, so each
+    # of the eight neighbours exercises one octant.
+    const SafeCell = (16, 8)
+    hazard.values[SafeCell[1] * map.gridWidth + SafeCell[0]] =
+      HazardNeverArrives
+    system.hazard = hazard
+    var tick = 0
+    while not system.zoneSafeReady:
+      discard system.runPlanningTick(tick)
+      inc tick
+      doAssert tick < 20_000
+    check system.navHintsFor(cellCenter(SafeCell), 0).zoneSafeDirBrads == -1
+    const Expected = {
+      (1, 0): 128, (-1, 0): 0, (0, 1): 64, (0, -1): 192,
+      (1, 1): 96, (-1, -1): 224, (1, -1): 160, (-1, 1): 32}
+    for (delta, brads) in Expected.items:
+      let here = cellCenter((SafeCell[0] + delta[0], SafeCell[1] + delta[1]))
+      check system.navHintsFor(here, 0).zoneSafeDirBrads == brads
+
   test "world budget stalls reach the operator channel":
     let map = openMap(512, 256)
     let system = newBodyNavSystem(map, 1, GunRangePx, hazardAware = true)

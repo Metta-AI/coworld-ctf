@@ -90,10 +90,26 @@ type
     ticksToShrinkPresent*: bool
     ticksToShrink*: int32
 
+  SdkNav* = object
+    ## NAVHINTS: the engine's own zone answers for this seat's own cell, as
+    ## precomputed integers. `present` is false on any build where the host
+    ## does not ship the section (dark flag, or a non-zone mode) — a play must
+    ## test it, exactly like every other optional row here.
+    ##
+    ## Prefer these over `world.zone`'s rectangles for survival decisions: the
+    ## rects say where the RING is, these say where the PAINT is and where dry
+    ## ground actually is, around walls.
+    present*: bool
+    ticksUntilPaintHere*: int32  ## -1 = this cell never paints
+    ticksToSafety*: int32        ## 0 = already safe; -1 = unreachable/no field
+    safeDistPx*: int32           ## geodesic px, same 0 / -1 meanings
+    zoneSafeDirBrads*: int32     ## 0..255; -1 = already safe / no field
+
   SdkWorld* = object
     aliveTeamsPresent*: bool
     aliveTeams*: int32
     zone*: SdkZone
+    nav*: SdkNav
 
   SdkTrack* = object
     seatPresent*: bool
@@ -383,6 +399,7 @@ const
   BvAggressors = 5'i32
   BvKillFeed = 6'i32
   BvItems = 7'i32
+  BvNav = 14'i32
   BvContextSelf = 102'i32
 
   SelfRecordNeed = 28'i32
@@ -390,6 +407,7 @@ const
   ZoneRecordNeed = 48'i32
   TrackRecordNeed = 32'i32
   ItemRecordNeed = 24'i32
+  NavRecordNeed = 16'i32
   AggressorRecordNeed = 16'i32
   KillFeedRecordNeed = 12'i32
   ContextSelfRecordNeed = 16'i32
@@ -988,6 +1006,16 @@ proc readZone(frame: BinaryFrame; section: BinarySection): SdkZone =
   if (flags and ZoneNextPresentFlag) != 0:
     result.next = frame.rectAt(offset + 32)
 
+proc readNav(frame: BinaryFrame; section: BinarySection): SdkNav =
+  let offset = frame.recordOffset(section, 0, NavRecordNeed)
+  if offset < 0:
+    return
+  result.present =
+    frame.i32At(offset, result.ticksUntilPaintHere) and
+    frame.i32At(offset + 4, result.ticksToSafety) and
+    frame.i32At(offset + 8, result.safeDistPx) and
+    frame.i32At(offset + 12, result.zoneSafeDirBrads)
+
 proc readTrack(frame: BinaryFrame; section: BinarySection;
                index: int32): SdkTrack =
   let offset = frame.recordOffset(section, index, TrackRecordNeed)
@@ -1091,6 +1119,9 @@ proc readBinaryViewInto*(view: PlayView; outView: var SdkView): bool =
   let zoneSection = frame.findSection(BvZone)
   if frame.ok and zoneSection.present and zoneSection.count == 1:
     outView.world.zone = frame.readZone(zoneSection)
+  let navSection = frame.findSection(BvNav)
+  if frame.ok and navSection.present and navSection.count == 1:
+    outView.world.nav = frame.readNav(navSection)
   let tracks = frame.findSection(BvTracks)
   if frame.ok and tracks.present:
     let count = min(tracks.count, MaxViewTracks)

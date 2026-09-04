@@ -468,6 +468,11 @@
           "type": "boolean",
           "default": false
         },
+        "navHints": {
+          "description": "Zone answers in the play view (engine-pathing phase 3): adds one small section to each seat's view frame carrying, as PRECOMPUTED INTEGERS, the engine's own answers about the zone for that seat's own cell \u2014 ticks until paint reaches me, geodesic distance and ticks to ground that survives the engine's forward horizon, and the retreat flow direction in brads. Integers are the contract: shipping a raw field and asking the guest to compute a gradient would import float math into every play's wasm and open a native-vs-emscripten divergence surface where none exists today. Fog-honest \u2014 the paint front is a public, drawn fact, so this tells a play nothing its own eyes could not infer; it stops the play being WRONG about it, because under zoneDamageByPaint the zone RECTANGLE a play can see is not the surface that damages it. Observation-only: no intent, no mask, no hashed state, and archived replays (which re-drive recorded input masks) are unaffected. Requires hazardAwarePlanner, which is what computes the answers. Off by default \u2014 a dark episode's view frames, both the guest's binary copy and the socket/replay JSON copy, are byte-identical.",
+          "type": "boolean",
+          "default": false
+        },
         "allowSeatTakeover": {
           "description": "Allow a human client to take over a live bot-controlled seat mid-round.",
           "type": "boolean",
