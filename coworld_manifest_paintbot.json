@@ -220,6 +220,29 @@
           "minimum": 0,
           "default": 90
         },
+        "barrelRederiveJitter": {
+          "description": "OPTICS(s2) barrel-extender calibration. false (default) HOLDS aim-jitter sigma at the base gun range, so the barrel's extra reach lands at a falling hit-rate (the risky long shot); true RE-DERIVES sigma from the extended range so ~80% hit at the new max is preserved (and the gun is tighter at every closer range).",
+          "type": "boolean",
+          "default": false
+        },
+        "plantAimBarrelOnly": {
+          "description": "OPTICS(s2) plant-to-aim scope. false (default) = the plant bonus narrows the aim cone on ALL gun shots; true = only seats carrying the barrel perk get it. Inert unless plantAimSigmaPermille < 1000.",
+          "type": "boolean",
+          "default": false
+        },
+        "plantAimSigmaPermille": {
+          "description": "OPTICS(s2) plant-to-aim narrowing factor, per-mille. 1000 (default) = off (byte-identical); values below 1000 scale a planted shooter's aim-jitter sigma down (e.g. 700 = x0.70, a tighter cone at range). A shooter is planted after holding still for plantSettleTicks.",
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 1000,
+          "default": 1000
+        },
+        "plantSettleTicks": {
+          "description": "OPTICS(s2) plant-to-aim settle window: ticks a shooter must be fully stopped (velocity zero) before the plant bonus applies (24 ticks = 1 second). Only read when plantAimSigmaPermille < 1000.",
+          "type": "integer",
+          "minimum": 1,
+          "default": 12
+        },
         "startWaitTicks": {
           "description": "Lobby countdown ticks after enough players join.",
           "type": "integer",
@@ -499,9 +522,17 @@
             {
               "id": "luck",
               "effect": "10% of landed gun shots deal 2 damage"
+            },
+            {
+              "id": "sight",
+              "effect": "+50% sight distance and a wider 80-degree vision cone"
+            },
+            {
+              "id": "barrel",
+              "effect": "+30% gun range"
             }
           ],
-          "description": "Per-team perk buffs, keyed by team name. Vocabulary: armor (+1 max hp), scope (50% tighter gun aim), grenade (+25% throw range), thruster (+10% max speed), luck (10% of landed gun shots deal 2 damage) — magnitudes tunable via perkMods. A team's value is a flat array of perk names (the whole team shares them), an array of such arrays (per-policy groups for 2v2 seats, dealt to the team's distinct policies in join order), or an object keyed by policy name pinning each group to exactly that policy (unmatched policies get nothing). Omitted teams have no perks.",
+          "description": "Per-team perk buffs, keyed by team name. Vocabulary: armor (+1 max hp), scope (50% tighter gun aim), grenade (+25% throw range), thruster (+10% max speed), luck (10% of landed gun shots deal 2 damage), sight (+50% sight distance and a wider 80-degree vision cone), barrel (+30% gun range) — magnitudes tunable via perkMods. A team's value is a flat array of perk names (the whole team shares them), an array of such arrays (per-policy groups for 2v2 seats, dealt to the team's distinct policies in join order), or an object keyed by policy name pinning each group to exactly that policy (unmatched policies get nothing). Omitted teams have no perks.",
           "type": "object",
           "additionalProperties": false,
           "properties": {
@@ -532,7 +563,7 @@
           }
         },
         "perkMods": {
-          "description": "Perk magnitude overrides. Fractions are 0..1: scopeAim = fraction of aim deviation removed, grenadeRange/thrusterSpeed = extra range/speed, luckChance = chance a landed shot is lucky; armorHp/luckDamage are hit-point counts (0..100).",
+          "description": "Perk magnitude overrides. Fractions are 0..1: scopeAim = fraction of aim deviation removed, grenadeRange/thrusterSpeed = extra range/speed, luckChance = chance a landed shot is lucky; armorHp/luckDamage are hit-point counts (0..100). sightVision/barrelRange = extra sight distance / gun range (0..1); sightConeDeg = extra vision-cone half-angle in degrees (0..100).",
           "type": "object",
           "additionalProperties": false,
           "properties": {
@@ -565,6 +596,21 @@
               "type": "integer",
               "minimum": 1,
               "maximum": 100
+            },
+            "sightVision": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 1
+            },
+            "sightConeDeg": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 100
+            },
+            "barrelRange": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 1
             }
           }
         },
