@@ -455,33 +455,104 @@ starter_harness.repair_call(
         {"play": "crossfire", "entry_id": "shape",
          "params": {"spacing": [20, 200], "minAngle": 36}},
     ]}}, PERSONA, stack_seat, AVAILABLE)
-bg = next(e for e in stack_seat.wanted_entries if e["play"] == "bodyguard")
+stack_bg = [e for e in stack_seat.wanted_entries if e["play"] == "bodyguard"]
 cf = next(e for e in stack_seat.wanted_entries if e["play"] == "crossfire")
-check("anti-stack: bodyguard leash floored", bg["params"]["leash"][0] >= 100,
-      str(bg["params"]["leash"]))
+# v15: a self-named, stacked bodyguard leash ([10,60], entry_id "spring")
+# no longer just floors -- policy._normalize_bodyguard replaces it outright
+# with the canonical pair, which clears the stack floor on both rungs by
+# construction. Full bodyguard-normalize coverage is the next section.
+check("anti-stack: self-named stacked bodyguard normalizes to the "
+      "canonical pair, clear of the stack floor",
+      [e["entry_id"] for e in stack_bg] == ["shield-close", "shield"]
+      and all(e["params"]["leash"][0] >= policy.MIN_LEASH_COMBAT
+              for e in stack_bg),
+      str(stack_bg))
 check("anti-stack: crossfire spacing floored", cf["params"]["spacing"][0] >= 120,
       str(cf["params"]["spacing"]))
 
-# The combat-close rung (entry_id "shield-close") gets its OWN, lower floor
-# (MIN_LEASH_COMBAT=40) -- this is the generic-sorter trap the task called
-# out: applying the quiet MIN_LEASH=100 floor to a deliberately tighter
-# band would drag leash[0] up to 100 and then leash[1]=max(leash[1], 100)
-# along with it, inverting/erasing the whole band. Proves both the lower
-# floor applies AND an unrelated "spring" entry (no pairing) still gets the
-# ordinary 100px floor untouched.
-close_seat = fake_seat()
+# ── bodyguard-normalize: the two-entry split is MECHANICAL now, not prose
+# (v15). v14's prompt DIRECTED the model to submit two literal entries
+# ("shield-close"/"shield") and measured only ~25% compliance across 52
+# real bodyguard call-entries from 15 agents (qualification episode
+# b6798f78, 2026-09-04) -- the self-named majority's leash even drifted
+# WIDER, away from combat-close. adjust_entries now enforces the split
+# structurally via policy._normalize_bodyguard, the same pattern as pact
+# re-aiming (truce honor) and the retune:true injection: whatever the
+# model calls bodyguard, however it names it, it always reaches the wire
+# as exactly these two entries. See BODYGUARD_LEASH's comment in
+# policy.py for the full measurement. ─────────────────────────────────────
+def _bg_wanted(raw_entries):
+    seat = fake_seat()
+    starter_harness.repair_call(
+        {"call": {"entries": raw_entries}}, PERSONA, seat, AVAILABLE)
+    return [e for e in seat.wanted_entries if e["play"] == "bodyguard"]
+
+
+for alias in ("ride", "spring", "duo_hold"):
+    normalized = _bg_wanted([{"play": "bodyguard", "entry_id": alias,
+                              "params": {"leash": [110, 280],
+                                         "interpose": False}}])
+    check(f"bodyguard-normalize: self-named entry_id {alias!r} never "
+          "reaches the wire -- only the canonical ids exist after "
+          "normalization",
+          sorted(e["entry_id"] for e in normalized)
+          == ["shield", "shield-close"],
+          str([e["entry_id"] for e in normalized]))
+
+exact = _bg_wanted([{"play": "bodyguard", "entry_id": "ride",
+                     "params": {"leash": [110, 280], "interpose": False}}])
+bands = {e["entry_id"]: e["params"]["leash"] for e in exact}
+check("bodyguard-normalize: emitted leash bands are exactly [40,120] and "
+      "[100,150] (policy.BODYGUARD_LEASH), never the self-named "
+      "submission it replaced",
+      bands == policy.BODYGUARD_LEASH, str(bands))
+check("bodyguard-normalize: interpose forced true on both rungs",
+      all(e["params"]["interpose"] is True for e in exact), str(exact))
+
+# Idempotence: re-normalizing an already-canonical pair must yield the
+# same pair -- never four entries (two duplicated).
+already_canonical = [
+    {"play": "bodyguard", "entry_id": "shield-close",
+     "params": {"leash": [40, 120], "interpose": True, "ward": "seat:9"}},
+    {"play": "bodyguard", "entry_id": "shield",
+     "params": {"leash": [100, 150], "interpose": True, "ward": "seat:9"}},
+]
+idempotent = policy._normalize_bodyguard(
+    policy._normalize_bodyguard([dict(e) for e in already_canonical]))
+check("bodyguard-normalize: idempotent -- normalizing an already-"
+      "canonical pair yields the same pair, not four entries",
+      len(idempotent) == 2
+      and sorted(e["entry_id"] for e in idempotent)
+      == ["shield", "shield-close"],
+      str(idempotent))
+
+# The model keeps the WHOM (ward) and its priority/ordering intent; code
+# owns only the mechanical id + leash-band split.
+targeted = _bg_wanted([{"play": "bodyguard", "entry_id": "ride",
+                        "params": {"leash": [110, 280], "interpose": False,
+                                   "ward": "seat:9", "peelHp": 5}}])
+check("bodyguard-normalize: the model's target (ward) survives onto both "
+      "canonical entries",
+      all(e["params"].get("ward") == "seat:9" for e in targeted),
+      str(targeted))
+check("bodyguard-normalize: the model's peelHp survives normalization",
+      all(e["params"].get("peelHp") == 5 for e in targeted), str(targeted))
+
+order_seat = fake_seat()
 starter_harness.repair_call(
     {"call": {"entries": [
-        {"play": "bodyguard", "entry_id": "shield-close",
-         "params": {"leash": [5, 30], "interpose": True}},
-    ]}}, PERSONA, close_seat, AVAILABLE)
-close_bg = next(e for e in close_seat.wanted_entries if e["play"] == "bodyguard")
-check("combat-close floor: shield-close leash floors to MIN_LEASH_COMBAT "
-      "(40), not the quiet MIN_LEASH (100)",
-      close_bg["params"]["leash"][0] == 40, str(close_bg["params"]["leash"]))
-check("combat-close floor: shield-close leashMax stays coupled to ITS OWN "
-      "min, never inverted/pinned up to the quiet floor",
-      close_bg["params"]["leash"] == [40, 40], str(close_bg["params"]["leash"]))
+        {"play": "target_law", "entry_id": "law", "params": {}},
+        {"play": "bodyguard", "entry_id": "ride",
+         "params": {"leash": [110, 280], "interpose": False}},
+        {"play": "jackal", "entry_id": "third", "params": {}},
+    ]}}, PERSONA, order_seat, AVAILABLE)
+order_plays = [e["play"] for e in order_seat.wanted_entries]
+check("bodyguard-normalize: priority/ordering intent survives -- the "
+      "split pair lands where the single entry was called, not shuffled "
+      "to the front or back",
+      order_plays.index("target_law") < order_plays.index("bodyguard")
+      < order_plays.index("jackal"),
+      str(order_plays))
 
 # canned turns cover the arc; extra model turns clamp to the last (endgame)
 # entry by harness design, so the budget may exceed the scripted count.

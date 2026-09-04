@@ -82,6 +82,22 @@ MIN_SPACING = 120
 # would also support.
 MIN_LEASH_COMBAT = 40
 
+# The bodyguard two-entry split, MECHANICAL now, not prose (v15). v14's
+# prompt DIRECTED the model to submit two literal entries -- "shield-close"
+# (leash [40,120]) and "shield" (leash [100,150]). Measured on the v14
+# qualification episode (b6798f78, 2026-09-04): across 52 bodyguard
+# call-entries from 15 agents, entry ids were `ride` 37, `shield-close` 10,
+# `shield` 3, `spring` 2 -- the directed pair landed barely a quarter of the
+# time, and where the model self-named instead (`ride` dominant), the band
+# it chose WIDENED to [110,280] (v13 was [110,150]) -- drifting away from
+# combat-close, not converging on it. Prompt escalation is diminishing
+# returns; adjust_entries below (see _normalize_bodyguard) now enforces the
+# split structurally, the same way it already enforces truce honor and fire
+# discipline: whatever the model calls bodyguard, however it names it,
+# however many entries it sends, the wire only ever carries these two.
+BODYGUARD_LEASH = {"shield-close": [MIN_LEASH_COMBAT, 120],
+                    "shield": [MIN_LEASH, 150]}
+
 # Jackal doctrine: leave with the profit. A second tag is allowed, a third
 # is greed the attrition ledger punishes.
 JACKAL_MAX_KILLS = 2
@@ -91,6 +107,49 @@ JACKAL_MAX_KILLS = 2
 # NEAR_ITEM_PX is a detour, not "near".
 FRESH_TICKS = 240
 NEAR_ITEM_PX = 500
+
+
+def _normalize_bodyguard(entries):
+    """Collapse every bodyguard entry the model submitted -- one, several,
+    self-named or canonical -- into exactly the canonical pair from
+    BODYGUARD_LEASH, interpose true, at the position of the first one.
+
+    The model keeps the WHEN (whether it calls bodyguard at all this turn)
+    and the WHOM (ward): the first entry that set `ward` or `peelHp` wins,
+    since "shield-close" and "shield" are the SAME protection intent split
+    across two range bands, never two different targets. Code owns only
+    the mechanical id + leash-band split -- entry_id, leash and interpose
+    are always overwritten, never trusted from the wire.
+
+    Idempotent by construction: run this again on an already-canonical
+    pair and it extracts the same ward/peelHp from those same two entries
+    and re-emits the same two entries at the same position -- never a
+    third, never a duplicate.
+    """
+    positions = [i for i, e in enumerate(entries) if e.get("play") == "bodyguard"]
+    if not positions:
+        return entries
+    ward = peel_hp = None
+    for i in positions:
+        params = entries[i].get("params") or {}
+        if ward is None and params.get("ward") is not None:
+            ward = params["ward"]
+        if peel_hp is None and params.get("peelHp") is not None:
+            peel_hp = params["peelHp"]
+    canonical = []
+    for entry_id, leash in BODYGUARD_LEASH.items():
+        params = {"leash": list(leash), "interpose": True}
+        if ward is not None:
+            params["ward"] = ward
+        if peel_hp is not None:
+            params["peelHp"] = peel_hp
+        canonical.append({"play": "bodyguard", "entry_id": entry_id,
+                          "params": params})
+    result = list(entries)
+    for i in reversed(positions):
+        del result[i]
+    result[positions[0]:positions[0]] = canonical
+    return result
 
 
 def _neighbor_duo(context):
@@ -152,6 +211,12 @@ def adjust_entries(entries, context, view):
                 never.append(seat)
         if never:
             params["never"] = never
+
+    # BODYGUARD SPLIT: mechanical, not prose -- see BODYGUARD_LEASH and
+    # _normalize_bodyguard above. Runs before the anti-stack floor below so
+    # that loop only ever sees the two canonical entries (whose bands
+    # already clear their own floors -- a harmless no-op there).
+    entries = _normalize_bodyguard(entries)
 
     for entry in entries:
         if entry.get("play") == "jackal":
