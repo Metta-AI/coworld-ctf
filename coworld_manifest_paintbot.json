@@ -448,6 +448,16 @@
           "type": "boolean",
           "default": false
         },
+        "zoneDamageByPaint": {
+          "description": "Zone damage = painted cells (owner order 2026-09-03): the closing ring damages a seat IFF the seat's cell is PAINTED — the shared zone-paint arrival field has reached it — replacing the invisible rectangle-membership test, so the visual and the mechanic are one surface. Cadence, dps, environment attribution (source -1, weapon zone) and the kill cause are byte-identical to rect semantics; only the membership verdict changes. Requires zonePhases. Off by default (rect semantics); arming is a SEMANTICS ERA boundary — zone-down counts never pool across the flip. The battle-royale-s2 variant turns it on.",
+          "type": "boolean",
+          "default": false
+        },
+        "zonePaintDownedBleedPermille": {
+          "description": "Bleed-out clock rate, permille, for a DOWNED ghost whose cell is painted (glory-2 amendment 1): 1000 = no acceleration; the default 2000 runs the clock 2x under paint, stacking with downedEscalation's halving. Acceleration only — a painted ghost still dies exclusively through the bleed-out window check, and the revive channel is untouched (revive under closing paint stays possible). Read only while zoneDamageByPaint is on; bounded [1000..5000] at config load (the never-instant-finalize spec floor stated as a bound).",
+          "type": "integer",
+          "default": 2000
+        },
         "allowSeatTakeover": {
           "description": "Allow a human client to take over a live bot-controlled seat mid-round.",
           "type": "boolean",
@@ -1269,6 +1279,7 @@
         "brMode": true,
         "lootStart": true,
         "downedMode": true,
+        "zoneDamageByPaint": true,
         "zonePhases": [
           {
             "z": 0.75,

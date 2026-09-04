@@ -128,7 +128,12 @@ proc defaultGameConfig*(): GameConfig =
     # PERCEPTION(glory-2 §17): the frame loadout-flag exposure, dark by
     # default — no hasGun/hasHopper key ever appears on the replay frame
     # or the duo-partner grant until armed.
-    frameLoadoutFlags: false
+    frameLoadoutFlags: false,
+    # ZONEPAINT: dark by default — the ring keeps its rect-membership
+    # damage test byte-identical; the bleed knob is only READ under the
+    # flag (echoed only when armed, echoZonePaintKeys).
+    zoneDamageByPaint: false,
+    zonePaintDownedBleedPermille: ZonePaintDownedBleedPermilleDefault
   )
 
 proc squadModeConfigured*(config: GameConfig): bool =
@@ -1126,6 +1131,20 @@ proc validate(config: GameConfig) =
       not config.lootStart:
     raise newException(CtfError,
       "Config fields lootSpawnSeedGuns/lootSpawnSeedHoppers require lootStart.")
+  # ZONEPAINT: the flag on a schedule-less config would be a silent no-op
+  # (updateZone already returns on empty zonePhases) — refuse loudly
+  # instead, same "requires X" shape as every fence above. The bleed knob
+  # is bounds-checked UNCONDITIONALLY (not just under the flag) so a typo'd
+  # value never sits latent waiting for the flag: the ceiling is glory-2
+  # amendment 1's never-instant-finalize spec floor stated as a bound.
+  if config.zoneDamageByPaint and config.zonePhases.len == 0:
+    raise newException(CtfError,
+      "Config field zoneDamageByPaint requires zonePhases.")
+  if config.zonePaintDownedBleedPermille < 1000 or
+      config.zonePaintDownedBleedPermille > ZonePaintDownedBleedPermilleMax:
+    raise newException(CtfError,
+      "Config field zonePaintDownedBleedPermille must be in [1000.." &
+      $ZonePaintDownedBleedPermilleMax & "].")
 
 proc update*(config: var GameConfig, jsonText: string) =
   ## Updates a gameplay config from a JSON object.
@@ -1336,6 +1355,13 @@ proc update*(config: var GameConfig, jsonText: string) =
   # everything above. An absent key leaves the dark default, so an
   # existing config JSON parses to an unchanged config.
   node.readConfigBool("frameLoadoutFlags", config.frameLoadoutFlags)
+  # ZONEPAINT: appended reads for the appended zone-paint-damage fields
+  # (sim_types.nim) — same tail-append rule as everything above. Absent
+  # keys leave the dark defaults, so an existing config JSON parses to an
+  # unchanged config.
+  node.readConfigBool("zoneDamageByPaint", config.zoneDamageByPaint)
+  node.readConfigInt("zonePaintDownedBleedPermille",
+    config.zonePaintDownedBleedPermille)
   config.validate()
 
 proc slotTeamText(slot: PlayerSlotConfig): string =
@@ -1719,6 +1745,16 @@ proc echoFrameLoadoutKeys(config: GameConfig, node: JsonNode) =
   ## only when armed — same byte-identity rule as every echo above.
   if config.frameLoadoutFlags:
     node["frameLoadoutFlags"] = %config.frameLoadoutFlags
+proc echoZonePaintKeys(config: GameConfig, node: JsonNode) =
+  ## ZONEPAINT: the paint-damage gate and its downed-bleed knob. The knob
+  ## rides the gate (echoDownedKeys' idiom — it is also only READ under the
+  ## gate): a flag-off game echoes neither key, so the dark echo stays
+  ## byte-identical while an armed replay pins the exact acceleration it
+  ## played under.
+  if config.zoneDamageByPaint:
+    node["zoneDamageByPaint"] = %config.zoneDamageByPaint
+    node["zonePaintDownedBleedPermille"] =
+      %config.zonePaintDownedBleedPermille
 
 proc configJson*(config: GameConfig): string =
   ## Returns the complete replay JSON for a gameplay config: the always-
@@ -1827,6 +1863,7 @@ proc configJson*(config: GameConfig): string =
   echoStampKeys(config, node)
   echoSpawnLootSeedKeys(config, node)
   echoFrameLoadoutKeys(config, node)
+  echoZonePaintKeys(config, node)
   result = $node
 
 proc realizedConfigStampJson*(config: GameConfig): string =
@@ -1863,6 +1900,7 @@ proc realizedConfigStampJson*(config: GameConfig): string =
     "lootStart=" & $config.lootStart,
     "medKitCount=" & $config.medKitCount,
     "stampRealizedConfig=" & $config.stampRealizedConfig,
+    "zoneDamageByPaint=" & $config.zoneDamageByPaint,
   ]
   flags.sort()
   var flagSet = newJArray()

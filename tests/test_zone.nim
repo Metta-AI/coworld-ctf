@@ -2712,3 +2712,406 @@ suite "shrink zone paint arrival: fingering and front-propagation causality":
       " corrViolations=", corrViolations
     check roomsChecked > 0
     check corrViolations == 0
+
+# ─────────────────────────────────────────────────────────────────────────
+# ZONE DAMAGE BY PAINT (owner order 2026-09-03): the ring damages a seat
+# IFF the seat's cell is PAINTED on the shared arrival field, replacing the
+# invisible rect-membership verdict. Everything else — cadence, dps, the
+# source=-1 environment attribution, the kill cause — is byte-identical to
+# rect semantics, and the OFF path never touches the field at all.
+# ─────────────────────────────────────────────────────────────────────────
+
+proc paintEventsOf(sim: SimServer, kind: SimEventKind): seq[SimEvent] =
+  for event in sim.events:
+    if event.kind == kind:
+      result.add event
+
+proc paintZoneGame(zonePhasesJson: string, extraJson = ""): SimServer =
+  ## zoneGame with zoneDamageByPaint armed (and tier-2 events on).
+  var extra = """"zoneDamageByPaint": true"""
+  if extraJson.len > 0:
+    extra &= ", " & extraJson
+  result = zoneGame(zonePhasesJson, extra)
+  result.collectEvents = true
+
+proc scheduleTotalTicks(sim: SimServer): int =
+  for phase in sim.config.zonePhases:
+    result += phase.waitTicks + phase.shrinkTicks
+
+proc findPaintCell(sim: SimServer, elapsed: int, wantPainted: bool):
+    tuple[x, y: int] =
+  ## First WALKABLE grid-cell center whose damage-surface verdict at
+  ## `elapsed` matches `wantPainted` — (-1, -1) if none. Walkable matters:
+  ## a wall cell reports onField=false (the rect fallback) and must never
+  ## stand in for a painted/dry reading.
+  for gy in 0 ..< sim.gameMap.height div ZoneFieldCellPx:
+    for gx in 0 ..< sim.gameMap.width div ZoneFieldCellPx:
+      let
+        px = gx * ZoneFieldCellPx + ZoneFieldCellPx div 2
+        py = gy * ZoneFieldCellPx + ZoneFieldCellPx div 2
+      if not sim.zoneD4MaskAt(px, py).walkable:
+        continue
+      let q = sim.zonePaintedForDamageAt(px, py, elapsed)
+      if q.onField and q.painted == wantPainted:
+        return (px, py)
+  (-1, -1)
+
+proc findPaintCellAway(sim: SimServer, elapsed: int, wantPainted: bool,
+    awayX, awayY, minDist: int): tuple[x, y: int] =
+  ## findPaintCell, but at least `minDist` px from (awayX, awayY) — for
+  ## parking upright seats outside DownedTagRange of a measured ghost.
+  for gy in 0 ..< sim.gameMap.height div ZoneFieldCellPx:
+    for gx in 0 ..< sim.gameMap.width div ZoneFieldCellPx:
+      let
+        px = gx * ZoneFieldCellPx + ZoneFieldCellPx div 2
+        py = gy * ZoneFieldCellPx + ZoneFieldCellPx div 2
+      if distSq(px, py, awayX, awayY) < minDist * minDist:
+        continue
+      if not sim.zoneD4MaskAt(px, py).walkable:
+        continue
+      let q = sim.zonePaintedForDamageAt(px, py, elapsed)
+      if q.onField and q.painted == wantPainted:
+        return (px, py)
+  (-1, -1)
+
+suite "zone damage by paint: config surface":
+  test "defaults are dark and the default echo carries neither key":
+    let config = defaultGameConfig()
+    check config.zoneDamageByPaint == false
+    check config.zonePaintDownedBleedPermille ==
+      ZonePaintDownedBleedPermilleDefault
+    let echoed = parseJson(config.configJson())
+    check not echoed.hasKey("zoneDamageByPaint")
+    check not echoed.hasKey("zonePaintDownedBleedPermille")
+    # Amendment 4: the dark stamp still positively records the darkness.
+    let stamp = parseJson(config.realizedConfigStampJson())
+    var found = false
+    for f in stamp["flagSet"]:
+      if f.getStr() == "zoneDamageByPaint=false":
+        found = true
+    check found
+
+  test "the flag requires zonePhases and the bleed knob is bounds-checked":
+    var config = defaultGameConfig()
+    expect CtfError:
+      config.update("""{"zoneDamageByPaint": true}""")
+    for bad in ["""{"zonePaintDownedBleedPermille": 999}""",
+        """{"zonePaintDownedBleedPermille": 5001}"""]:
+      var c2 = defaultGameConfig()
+      expect CtfError:
+        c2.update(bad)
+
+  test "an armed config echoes both keys and stamps the flag true":
+    let sim = paintZoneGame(ToyPhases)
+    let echoed = parseJson(sim.config.configJson())
+    check echoed["zoneDamageByPaint"].getBool()
+    check echoed["zonePaintDownedBleedPermille"].getInt() ==
+      ZonePaintDownedBleedPermilleDefault
+    let stamp = parseJson(sim.config.realizedConfigStampJson())
+    var found = false
+    for f in stamp["flagSet"]:
+      if f.getStr() == "zoneDamageByPaint=true":
+        found = true
+    check found
+
+  test "an explicit false parses byte-identically to an absent key":
+    # "Absent == false" is the whole dark contract: the two configs must
+    # produce identical hash trajectories over a real shrink.
+    var a = zoneGame(ToyPhases)
+    var b = zoneGame(ToyPhases, """"zoneDamageByPaint": false""")
+    for tick in 0 ..< 200:
+      a.stepTicks(1)
+      b.stepTicks(1)
+      check a.gameHash() == b.gameHash()
+
+suite "zone damage by paint: the painted surface IS the damage test":
+  test "flow-lagged dry ground outside the rect is SAFE until painted":
+    # A real shrink (not an instant snap), so the flow field has actual
+    # lag to express: somewhere outside the rect the paint arrives late,
+    # and under the flag that ground must be safe while dry — the exact
+    # room-filling-slowly moment the owner watched a unit die in.
+    var sim = paintZoneGame(
+      """[{"z": 0.3, "waitTicks": 30, "shrinkTicks": 400, "dps": 3}]""")
+    # Park both seats on never-painted (final-safe) ground first: the
+    # closing front must not kill anyone before the measurement starts.
+    discard sim.ensureZoneArrivalField()
+    let park = sim.findPaintCell(100000, wantPainted = false)
+    check park.x >= 0
+    sim.placeAt(0, park.x, park.y)
+    sim.placeAt(1, park.x, park.y)
+    sim.stepTicks(30 + 300)                      # deep mid-shrink.
+    let
+      elapsed = sim.tickCount - sim.gameStartTick
+      rect = sim.zoneRectAndDps(elapsed).cur
+    # Find dry-but-rect-outside ground that STAYS dry for a full damage
+    # window; track the latest-painting such cell for the second half.
+    var foundX, foundY = -1
+    var bestArrivalGap = -1
+    for gy in 0 ..< sim.gameMap.height div ZoneFieldCellPx:
+      for gx in 0 ..< sim.gameMap.width div ZoneFieldCellPx:
+        let
+          px = gx * ZoneFieldCellPx + ZoneFieldCellPx div 2
+          py = gy * ZoneFieldCellPx + ZoneFieldCellPx div 2
+        if rect.insideRect(px, py):
+          continue
+        let masks = sim.zoneD4MaskAt(px, py)
+        if not masks.walkable:
+          continue
+        let q = sim.zonePaintedForDamageAt(px, py, elapsed)
+        if not q.onField or q.painted:
+          continue
+        let stillDry = sim.zonePaintedForDamageAt(
+          px, py, elapsed + ZoneDamageRollTicks + 1)
+        if stillDry.painted:
+          continue
+        # Painted eventually (never-cells are the final safe rect, which
+        # is rect-INSIDE, so they never reach here).
+        var gap = 0
+        while gap < ZoneFlowDelayCapTicks * 2 and
+            not sim.zonePaintedForDamageAt(px, py, elapsed + gap).painted:
+          gap += ZoneDamageRollTicks
+        if gap > bestArrivalGap:
+          bestArrivalGap = gap
+          foundX = px
+          foundY = py
+    check foundX >= 0                # the lag is real, or this gate is dead.
+    sim.placeAt(0, foundX, foundY)
+    let hpBefore = sim.players[0].hp
+    sim.stepTicks(ZoneDamageRollTicks)
+    # Rect semantics would have charged this cog a full window ago; the
+    # painted surface says the ground is still dry.
+    check sim.players[0].hp == hpBefore
+    check sim.players[0].zoneOutsideTicks == 0
+    # Paint arrives; the SAME ground now damages on the SAME cadence.
+    sim.stepTicks(bestArrivalGap + ZoneDamageRollTicks)
+    check sim.players[0].hp < hpBefore
+
+  test "painted-cell damage keeps the environment attribution byte-identical":
+    # glory-2 amendment 2 (hard, tested): source=-1, weapon "zone", the
+    # phase dps, and an environmental death with nobody credited — the
+    # exact event family the rect path emits.
+    var sim = paintZoneGame(
+      """[{"z": 0.1, "waitTicks": 0, "shrinkTicks": 0, "dps": 2}]""")
+    # An instant z=0.1 snap paints the open field almost at once. Stand
+    # seat 0 on a cell the damage surface CONFIRMS painted (never the
+    # wall-cell rect fallback) and park seat 1 on final-safe ground so
+    # the only Damage event in the log is the one under test.
+    discard sim.ensureZoneArrivalField()
+    sim.stepTicks(ZoneDamageRollTicks)
+    let
+      spot = sim.findPaintCell(
+        sim.tickCount - sim.gameStartTick, wantPainted = true)
+      park = sim.findPaintCell(100000, wantPainted = false)
+    check spot.x >= 0
+    check park.x >= 0
+    sim.placeAt(1, park.x, park.y)
+    sim.placeAt(0, spot.x, spot.y)
+    sim.players[0].hp = 1
+    sim.players[0].zoneOutsideTicks = 0
+    sim.stepTicks(ZoneDamageRollTicks)
+    # Checked AT the death tick, exactly like the rect-mode sibling test
+    # ("a lethal zone tick is an environmental death") — classic lives
+    # respawn the seat a few ticks later.
+    check not sim.players[0].alive
+    check sim.players[0].deaths == 1
+    for player in sim.players:
+      check player.kills == 0
+    let hits = sim.paintEventsOf(Damage)
+    check hits.len == 1
+    check hits[0].source == -1
+    check hits[0].target == 0
+    check hits[0].weapon == "zone"
+    check hits[0].amount == 2
+
+  test "the dead center of the final rect never paints and never damages":
+    var sim = paintZoneGame(
+      """[{"z": 0.1, "waitTicks": 0, "shrinkTicks": 0, "dps": 5}]""")
+    # A walkable cell that never paints even at absurd elapsed = the final
+    # safe rect's interior (walls report onField=false and can't match).
+    let spot = sim.findPaintCell(100000, wantPainted = false)
+    check spot.x >= 0
+    let finalRect = sim.zoneRectAndDps(sim.scheduleTotalTicks()).cur
+    check finalRect.insideRect(spot.x, spot.y)
+    sim.placeAt(0, spot.x, spot.y)
+    sim.stepTicks(ZoneDamageRollTicks * 4)
+    check sim.players[0].hp == sim.config.hitPoints
+
+  test "a walkable cell the render mask skips still floods for damage":
+    # The D4a paintable mask is a RENDER skip (wall art hides the pixel);
+    # the damage surface must not inherit it — no 8px wall-hug immunity
+    # lanes. Every walkable, art-overhung cell outside the final rect
+    # must read painted once the schedule + flow-delay cap have elapsed.
+    var sim = paintZoneGame(
+      """[{"z": 0.2, "waitTicks": 0, "shrinkTicks": 100, "dps": 1}]""")
+    discard sim.ensureZoneArrivalField()
+    let
+      total = sim.scheduleTotalTicks()
+      finalRect = sim.zoneRectAndDps(total).cur
+      lateTick = total + ZoneFlowDelayCapTicks + ZoneDamageRollTicks
+    var lanes = 0
+    for gy in 0 ..< sim.gameMap.height div ZoneFieldCellPx:
+      for gx in 0 ..< sim.gameMap.width div ZoneFieldCellPx:
+        let
+          px = gx * ZoneFieldCellPx + ZoneFieldCellPx div 2
+          py = gy * ZoneFieldCellPx + ZoneFieldCellPx div 2
+        if finalRect.insideRect(px, py):
+          continue
+        let masks = sim.zoneD4MaskAt(px, py)
+        if not masks.walkable or masks.paintable:
+          continue
+        inc lanes
+        let q = sim.zonePaintedForDamageAt(px, py, lateTick)
+        check q.onField
+        check q.painted
+    check lanes > 0                # the mask split is real on this map.
+
+suite "zone damage by paint: determinism":
+  test "an armed game runs the same trajectory twice":
+    var a = paintZoneGame(ToyPhases)
+    var b = paintZoneGame(ToyPhases)
+    for tick in 0 ..< 300:
+      a.stepTicks(1)
+      b.stepTicks(1)
+      check a.gameHash() == b.gameHash()
+
+suite "zone damage by paint: downed under paint (glory-2 amendment 1)":
+  # dps 0 throughout: the arrival field is dps-independent, and a zero
+  # rate keeps standing damage out of the bleed-clock arithmetic.
+  proc downedPaintGame(extraJson = ""): SimServer =
+    var config = defaultGameConfig()
+    var extra = """, "brMode": true, "downedMode": true, """ &
+      """"downedBleedOutTicks": 200, "zoneDamageByPaint": true"""
+    if extraJson.len > 0:
+      extra &= ", " & extraJson
+    config.update(
+      """{"zonePhases": [{"z": 0.1, "waitTicks": 0, "shrinkTicks": 0, """ &
+      """"dps": 0}]""" & extra & "}")
+    result = initCtfForTest(config)
+    for i in 0 ..< 4:
+      discard result.addPlayer("p" & $i)
+    result.startGame()
+    result.collectEvents = true
+
+  proc ghostAt(sim: var SimServer, playerIndex, px, py: int) =
+    ## Downs one seat in place — the same fields downPlayer sets, minus the
+    ## event ceremony this suite doesn't assert on.
+    sim.placeAt(playerIndex, px, py)
+    sim.players[playerIndex].downed = true
+    sim.players[playerIndex].downedTick = sim.tickCount
+    sim.players[playerIndex].downedCount = 1
+    sim.players[playerIndex].downedBy = -1
+    sim.players[playerIndex].hp = 0
+
+  test "paint accelerates the bleed clock 2x at the default permille":
+    var sim = downedPaintGame()
+    sim.stepTicks(ZoneDamageRollTicks)      # let the snap-schedule paint.
+    let
+      elapsed = sim.tickCount - sim.gameStartTick
+      wet = sim.findPaintCell(elapsed, wantPainted = true)
+      dry = sim.findPaintCell(100000, wantPainted = false)
+    check wet.x >= 0
+    check dry.x >= 0
+    # Upright seats park on never-painted ground OUTSIDE DownedTagRange of
+    # both ghosts: close enough to keep the team-wipe census honest, far
+    # enough that nobody starts an accidental revive channel.
+    let park = sim.findPaintCellAway(100000, wantPainted = false,
+      dry.x, dry.y, DownedTagRange * 2)
+    check park.x >= 0
+    check distSq(park.x, park.y, wet.x, wet.y) >
+      DownedTagRange * DownedTagRange
+    for i in 0 ..< sim.players.len:
+      sim.placeAt(i, park.x, park.y)
+    sim.ghostAt(0, wet.x, wet.y)            # painted ghost (Red).
+    sim.ghostAt(1, dry.x, dry.y)            # dry control ghost (Blue).
+    # 2000 permille = the clock runs double: a 200-tick window expires in
+    # ~100 real ticks (a tick or two of band for the bank/window fence).
+    sim.stepTicks(95)
+    check sim.players[0].alive
+    check sim.players[1].alive
+    sim.stepTicks(10)
+    check not sim.players[0].alive          # ~tick 100: bled out.
+    check sim.players[1].alive              # dry clock untouched...
+    sim.stepTicks(105)
+    check not sim.players[1].alive          # ...expires on its own 200.
+    # Both bled out environmentally: nobody was credited a kill.
+    for player in sim.players:
+      check player.kills == 0
+
+  test "acceleration never instant-finalizes, even at the ceiling":
+    var sim = downedPaintGame(
+      """"zonePaintDownedBleedPermille": """ &
+      $ZonePaintDownedBleedPermilleMax)
+    sim.stepTicks(ZoneDamageRollTicks)
+    let
+      elapsed = sim.tickCount - sim.gameStartTick
+      wet = sim.findPaintCell(elapsed, wantPainted = true)
+      dry = sim.findPaintCell(100000, wantPainted = false)
+    check wet.x >= 0
+    let park = sim.findPaintCellAway(100000, wantPainted = false,
+      wet.x, wet.y, DownedTagRange * 2)
+    check park.x >= 0
+    for i in 0 ..< sim.players.len:
+      sim.placeAt(i, park.x, park.y)
+    sim.ghostAt(0, wet.x, wet.y)
+    # Max rate = 5x: the 200-tick window still buys ~40 real ticks — the
+    # spec floor "accelerates, NEVER instant-finalizes" as arithmetic.
+    sim.stepTicks(35)
+    check sim.players[0].alive
+    sim.stepTicks(10)
+    check not sim.players[0].alive
+
+  test "a revive under closing paint stays possible":
+    var sim = downedPaintGame()
+    sim.stepTicks(ZoneDamageRollTicks)
+    let
+      elapsed = sim.tickCount - sim.gameStartTick
+      wet = sim.findPaintCell(elapsed, wantPainted = true)
+      dry = sim.findPaintCell(100000, wantPainted = false)
+    check wet.x >= 0
+    let park = sim.findPaintCellAway(100000, wantPainted = false,
+      wet.x, wet.y, DownedTagRange * 2)
+    check park.x >= 0
+    for i in 0 ..< sim.players.len:
+      sim.placeAt(i, park.x, park.y)
+    sim.ghostAt(1, wet.x, wet.y)            # painted ghost (Blue, seat 1).
+    sim.placeAt(3, wet.x, wet.y)            # upright partner (Blue, seat 3)
+                                            # in tag range ON the paint.
+    sim.stepTicks(sim.config.downedReviveTicks)
+    check sim.players[1].downed == false
+    check sim.players[1].alive
+    check sim.players[1].hp == 1
+    check sim.players[1].zonePaintBleedBank == 0
+    check sim.paintEventsOf(Revived).len == 1
+
+  test "the acceleration bank state survives a keyframe round-trip":
+    var sim = downedPaintGame()
+    sim.stepTicks(ZoneDamageRollTicks)
+    let
+      elapsed = sim.tickCount - sim.gameStartTick
+      wet = sim.findPaintCell(elapsed, wantPainted = true)
+      dry = sim.findPaintCell(100000, wantPainted = false)
+    check wet.x >= 0
+    for i in 0 ..< sim.players.len:
+      sim.placeAt(i, dry.x, dry.y)
+    let park = sim.findPaintCellAway(100000, wantPainted = false,
+      wet.x, wet.y, DownedTagRange * 2)
+    check park.x >= 0
+    for i in 0 ..< sim.players.len:
+      sim.placeAt(i, park.x, park.y)
+    sim.ghostAt(0, wet.x, wet.y)
+    sim.stepTicks(30)                       # mid-acceleration.
+    # The snapshot carries the bank (the 673-line suite's round-trip
+    # idiom: the restored sim is a state check, not a steppable game —
+    # the replay runtime grafts the service state back separately).
+    let bytes = serializeReplaySim(sim)
+    var restored = deserializeReplaySim(bytes, sim)
+    check restored.gameHash() == sim.gameHash()
+    check restored.players[0].zonePaintBleedBank ==
+      sim.players[0].zonePaintBleedBank
+    check restored.players[0].zonePaintBleedBank == 0  # 2000 permille banks
+                                                       # whole ticks only.
+    check restored.players[0].downedTick == sim.players[0].downedTick
+    check sim.players[0].downedTick < sim.tickCount - 30  # clock pulled back.
+    # (Neither sim steps on: deserializeReplaySim grafts service state
+    # from the live sim — the 673-line suite's round-trip contract. The
+    # accelerated death itself is the 2x test above.)

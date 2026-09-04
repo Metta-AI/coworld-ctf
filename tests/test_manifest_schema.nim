@@ -132,6 +132,8 @@ const SampleJson = """{
   "lootSpawnSeedGuns": {"lootSpawnSeedGuns": 3, "lootStart": true, "brMode": true},
   "lootSpawnSeedHoppers": {"lootSpawnSeedHoppers": 3, "lootStart": true, "brMode": true},
   "lootSpawnSeedRadius": {"lootSpawnSeedRadius": 48, "lootStart": true, "brMode": true},
+  "zoneDamageByPaint": {"zoneDamageByPaint": true, "zonePhases": [{"z": 0.5}]},
+  "zonePaintDownedBleedPermille": {"zonePaintDownedBleedPermille": 3000, "zoneDamageByPaint": true, "zonePhases": [{"z": 0.5}]},
   "gloryMultiplierRecut": {"gloryMultiplierRecut": true},
   "stampRealizedConfig": {"stampRealizedConfig": true},
   "frameLoadoutFlags": {"frameLoadoutFlags": true},

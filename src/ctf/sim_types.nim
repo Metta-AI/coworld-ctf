@@ -839,6 +839,20 @@ const
   DownedReviveTicksDefault* = 2 * ReplayFps    ## revive channel length.
   DownedMinBleedOutTicks* = 2 * ReplayFps      ## escalation floor: however
                               ## many downs, a ghost always gets this long.
+  ZonePaintDownedBleedPermilleDefault* = 2000 ## ZONEPAINT: bleed clock 2x
+                              ## under paint — one escalation-halving-
+                              ## equivalent (the same power-of-2 family as
+                              ## downedEscalation's div 2): a fresh down
+                              ## under paint bleeds in 7.5s, not 15s, so the
+                              ## 2s revive channel stays ~3.7x reachable
+                              ## (Last Light's premium revive-under-paint
+                              ## moment survives by construction).
+  ZonePaintDownedBleedPermilleMax* = 5000 ## ZONEPAINT: validation ceiling —
+                              ## the never-instant-finalize floor (glory-2
+                              ## amendment 1) stated as a bound: even at
+                              ## max, a fresh ghost's 15s window still runs
+                              ## 3s, and DownedMinBleedOutTicks still holds
+                              ## on the escalated path.
   # ── S2 GIVE-ITEM (exchange) tunables ── read ONLY while config.giveItem
   # is armed. Both DERIVE from the revive channel's own constants (owner
   # spec 2026-09-02: mirror the revive channel; same source, never a
@@ -2516,6 +2530,33 @@ type
                         ## armed = hasGun AND hasHopper; no third field is
                         ## ever emitted.
 
+    # ── ZONE DAMAGE BY PAINT (owner order, 2026-09-03) ── appended fields,
+    # same append-safety reasoning as every block above. The flag replaces
+    # the ring's invisible rect-membership damage test with "is this cog's
+    # cell PAINTED" against the SAME arrival field the viewer draws
+    # (zone_field.nim) — the visual and the mechanic become one surface.
+    # Dark = false: the rect path runs byte-identical, no field is built
+    # sim-side, and the config echo carries neither key (echoZonePaintKeys,
+    # sim_config.nim).
+    zoneDamageByPaint*: bool ## ZONEPAINT: ring/zone damage applies IFF the
+                        ## seat's cell is painted (arrival(cell) <= elapsed
+                        ## on the shared arrival field) instead of the
+                        ## rect test. Requires zonePhases (refused loudly
+                        ## otherwise, the downedMode-requires-brMode
+                        ## shape). false = default = rect semantics.
+    zonePaintDownedBleedPermille*: int ## ZONEPAINT: bleed-out clock rate,
+                        ## permille, for a DOWNED ghost whose own cell is
+                        ## painted — 1000 = no acceleration; the default
+                        ## ZonePaintDownedBleedPermilleDefault (2000) runs
+                        ## the clock 2x under paint, STACKING with
+                        ## downedEscalation's halving. Read only while
+                        ## zoneDamageByPaint is on. Bounded at config load
+                        ## to [1000..ZonePaintDownedBleedPermilleMax]:
+                        ## acceleration NEVER instant-finalizes (glory-2
+                        ## amendment 1's spec floor) — a ghost still dies
+                        ## only through updateDowned's windowed check, and
+                        ## the revive channel is untouched.
+
   Player* = object
     x*, y*: int
     homeX*, homeY*: int
@@ -2933,6 +2974,18 @@ type
                         ## by this cog this episode (analysis counter —
                         ## the deed lane's mint feed is the ItemGive event
                         ## stream, never this counter).
+
+    zonePaintBleedBank*: int ## ZONEPAINT: permille remainder bank for the
+                        ## downed-under-paint bleed acceleration — extra
+                        ## clock permille accrued but not yet applied as
+                        ## whole ticks to downedTick. Non-zero only while
+                        ## config.zoneDamageByPaint is on, a ghost, and
+                        ## painted; reset on down/revive. NOT mixed into
+                        ## gameHash (the zoneOutsideTicks rule: hashing a
+                        ## new always-zero field would shift every existing
+                        ## replay's chain; the acceleration reaches the
+                        ## hash through hp/alive and the Death event when
+                        ## it actually bites).
 
   PlayerFov* = object
     ## One player's cached fog-of-war visibility grid (FovGridW x FovGridH
