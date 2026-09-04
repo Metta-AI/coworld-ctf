@@ -370,6 +370,30 @@ proc waitReadyMany(episode: var FirstLightEpisode;
   fail()
 
 suite "shell episode ladder":
+  test "alive default-only seats do not build guest views":
+    when ShellRuntimeAvailable:
+      let map = testMap()
+      var episode = initFirstLightEpisode(true, true, controls(Seats), map, 331)
+      defer:
+        episode.closeFirstLightEpisode()
+
+      var viewBuilds = 0
+      episode.viewSource = proc(seatIndex: int; tick: uint32): string =
+        discard seatIndex
+        discard tick
+        inc viewBuilds
+        "{}"
+
+      var batch: seq[FirstLightSeatFrame]
+      for seat in 0 ..< Seats:
+        batch.add frame(seat, (20 + seat, 128), 1)
+      let output = episode.step(batch, 1)
+
+      check output.masks.len == Seats
+      check viewBuilds == 0
+      echo &"LAZY_VIEW_DEFAULT_ONLY alive_seats={Seats} " &
+        &"guest_view_producer_calls={viewBuilds} masks={output.masks.len}"
+
   test "final zone phase sentinel is representable in episode binary view":
     when ShellRuntimeAvailable:
       let map = testMap()

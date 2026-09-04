@@ -85,10 +85,18 @@ proc fakeBinding(): LadderBinding =
 proc registry(): PathRegistry =
   newPathRegistry(@[])
 
-proc ladderInput(base: Option[LadderNativeBase]): LadderSeatInput =
-  LadderSeatInput(alive: true, contextBytes: "{}", viewBytes: "{}",
+proc ladderInput(base: Option[LadderNativeBase];
+                 viewSource: LadderViewSource = nil): LadderSeatInput =
+  result = LadderSeatInput(alive: true, contextBytes: "{}",
     guardContext: IntentContext(), defaultIntent: holdIntent("default"),
     nativeBase: base)
+  if viewSource == nil:
+    result.viewSource = proc(seatIndex: int; tick: uint32): string =
+      discard seatIndex
+      discard tick
+      "{}"
+  else:
+    result.viewSource = viewSource
 
 proc stageLabel(stage: PlanEscapeProfileStage): string =
   case stage
@@ -581,7 +589,14 @@ suite "shell reflexes":
       {"plays":[{"entry_id":"controller","params":{},"play":"controller"}]}
     """), [binding], IntentContext()).accepted
     discard driver.tick([ladderInput(none(LadderNativeBase))], 1, [binding])
-    let tick = driver.tick([ladderInput(some(decision.native))], 2, [binding])
+    var viewBuilds = 0
+    let tick = driver.tick([ladderInput(some(decision.native),
+      proc(seatIndex: int; tick: uint32): string =
+        discard seatIndex
+        discard tick
+        inc viewBuilds
+        "{}")], 2, [binding])
+    check viewBuilds == 0
     check tick.seats[0].provenance.base.kind == pbReflex
     check tick.seats[0].provenance.base.reflexName == ReflexZoneEscapeName
     check tick.seats[0].contributingEpoch == 42

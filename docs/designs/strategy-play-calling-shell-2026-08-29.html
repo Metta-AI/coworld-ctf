@@ -1386,9 +1386,10 @@
       <li>The <code>PlayView</code> is a compact, serialized, per-seat, per-tick snapshot of everything a
       play may know. It is the entire observation space of the play layer, for plays and for the LLM
       alike.</li>
-      <li>The game builds it every tick and hands the same gameplay bytes to two readers: the seat's play
-      instances, in-process, every tick; and the policy's LLM, over the socket, at view cadence, where a
-      separate control envelope travels beside them.</li>
+      <li>The game maintains the per-seat observation every tick. It materializes the play-facing PV1
+      bytes lazily when the first guest instance actually steps for that seat and tick, then shares that
+      one frame across the seat's other guest steps. Separately, it builds the socket/replay JSON for the
+      policy's LLM at view cadence, with a control envelope beside it.</li>
       <li>The view names the game mode explicitly. Players extend its vocabulary by pull request to this
       repository.</li>
     </ul>
@@ -2302,7 +2303,9 @@
     standing order's, install the new standing order and write the annotation. All of it runs on the tick
     thread, sequentially per seat in seat order, under fuel. The only asynchrony in the design is the
     compile pool of <a href="#s6-2">section 6.2</a>, which hands finished modules to the tick thread through a queue drained
-    at the tick boundary.</p>
+    at the tick boundary. At the first actual guest step, the ladder materializes the play-facing PV1
+    frame and memoizes it for that seat/tick. A seat with no guest step builds no PV1 frame; the
+    socket/replay JSON cadence remains separate.</p>
     <p>Because plays now run in-process, the earlier boundary's client-side frame loop has no counterpart
     here. What fell away with it: the dirty-state transitions, the semantic-rejection suppression set, the
     idempotent Intent retry, the per-bump send-state matrix, the Intent-lane status list, the
@@ -3051,6 +3054,10 @@
       and landed on game-side ("all that stuff should be game side, I think").</li>
       <li>The view stays a wire message, at LLM cadence, for the policy's LLM; its content, fog matrix,
       and deliberate grants are unchanged.</li>
+      <li>The guest-facing PV1 build charges to the runtime share only when a guest actually steps. The
+      ladder materializes it at the first <code>play_step</code> for a seat and tick and reuses it for
+      later steps; a default-only seat builds no PV1 frame. The separately cadence-built
+      <code>view.json_batch32_build_encode</code> row is socket/replay JSON and is unaffected.</li>
       <li>Compute moves onto the server's bill, with fuel as the enforcement mechanism. Accepted
       explicitly.</li>
       <li>Attribution is real: the server runs the bytes it received, so the call record proves the

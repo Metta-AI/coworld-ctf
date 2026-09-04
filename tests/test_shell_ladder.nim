@@ -112,10 +112,18 @@ proc ctx(a = true; b = true; c = true): IntentContext =
     resolveNumber: proc(path: string): float = 0.0,
     resolveBool: proc(path: string): bool = bools.getOrDefault(path, false))
 
-proc input(a = true; b = true; c = true; alive = true): LadderSeatInput =
-  LadderSeatInput(alive: alive, contextBytes: "{}", viewBytes: "{}",
+proc input(a = true; b = true; c = true; alive = true;
+           viewSource: LadderViewSource = nil): LadderSeatInput =
+  result = LadderSeatInput(alive: alive, contextBytes: "{}",
     guardContext: ctx(a, b, c),
     defaultIntent: Intent(kind: ikHold, arriveRadius: 0.0, reason: "default"))
+  if viewSource == nil:
+    result.viewSource = proc(seatIndex: int; tick: uint32): string =
+      discard seatIndex
+      discard tick
+      "{}"
+  else:
+    result.viewSource = viewSource
 
 proc accept(driver: LadderDriver; bytes: string;
             bindings: openArray[LadderBinding];
@@ -207,8 +215,15 @@ suite "shell ladder":
     discard driver.tick([input()], 1, bindings)
     discard driver.tick([input(a = false)], 2, bindings)
     book.faultControllers.add "alpha"
-    let output = driver.tick([input()], 3, bindings)
+    var viewBuilds = 0
+    let output = driver.tick([input(viewSource =
+      proc(seatIndex: int; tick: uint32): string =
+        discard seatIndex
+        discard tick
+        inc viewBuilds
+        "{}")], 3, bindings)
     check output.seats[0].stepped == @["alpha", "beta"]
+    check viewBuilds == 1
     check output.seats[0].statuses.len == 1
     check output.seats[0].statuses[0].status.kind == skPlayFaulted
     check output.seats[0].selectedEntryId == "beta"
@@ -249,16 +264,34 @@ suite "shell ladder":
             {"entry_id":"pact","play":"pact"},
             {"entry_id":"base","play":"base"}]}
         """), bindings, ctx()).accepted
-    let first = driver.tick(newSeqWith(32, input()), 1, bindings)
-    check first.initCount == MaxInitsPerTick
-    for seat in 0 ..< 32:
-      check first.seats[seat].initialized ==
-        (if seat < MaxInitsPerTick: @["law"] else: newSeq[string]())
-    let second = driver.tick(newSeqWith(32, input()), 2, bindings)
-    check second.initCount == MaxInitsPerTick
-    for seat in 0 ..< 32:
-      check second.seats[seat].initialized ==
-        (if seat < MaxInitsPerTick: newSeq[string]() else: @["law"])
+    var
+      buildCounts: seq[int]
+      totalBuilds = 0
+    for tick in 1'u32 .. 2'u32:
+      var tickBuilds = 0
+      let source: LadderViewSource =
+        proc(seatIndex: int; viewTick: uint32): string =
+          discard seatIndex
+          discard viewTick
+          inc tickBuilds
+          "{}"
+      let output = driver.tick(newSeqWith(32, input(viewSource = source)),
+        tick, bindings)
+      check output.initCount == MaxInitsPerTick
+      buildCounts.add tickBuilds
+      totalBuilds += tickBuilds
+      for seat in 0 ..< 32:
+        let expected =
+          if (tick == 1 and seat < MaxInitsPerTick) or
+              (tick == 2 and seat >= MaxInitsPerTick):
+            @["law"]
+          else:
+            newSeq[string]()
+        check output.seats[seat].initialized == expected
+    check buildCounts == @[16, 32]
+    check totalBuilds == 48
+    echo "LAZY_VIEW_INIT_RAMP build_counts=", buildCounts,
+      " total_builds=", totalBuilds
     let third = driver.tick(newSeqWith(32, input()), 3, bindings)
     for seat in 0 ..< 32:
       check third.seats[seat].initialized ==
@@ -352,10 +385,22 @@ suite "shell ladder":
             {"entry_id":"pact","play":"pact"},
             {"entry_id":"base","play":"base"}]}
         """), bindings, ctx()).accepted
-    var full: LadderTickResult
     for tick in 1'u32 .. 6'u32:
-      full = driver.tick(newSeqWith(32, input()), tick, bindings)
-      check full.initCount == MaxInitsPerTick
+      let output = driver.tick(newSeqWith(32, input()), tick, bindings)
+      check output.initCount == MaxInitsPerTick
+    var viewBuilds = 0
+    let source: LadderViewSource =
+      proc(seatIndex: int; tick: uint32): string =
+        discard seatIndex
+        discard tick
+        inc viewBuilds
+        "{}"
+    let full = driver.tick(newSeqWith(32, input(viewSource = source)), 7,
+      bindings)
+    check full.initCount == 0
     check full.stepCount == MaxPlayers * MaxStepsPerSeatPerTick
+    check viewBuilds == MaxPlayers
+    echo "LAZY_VIEW_FULL_SHAPE builds=", viewBuilds,
+      " steps=", full.stepCount
     for seat in full.seats:
       check seat.stepCount == MaxStepsPerSeatPerTick
