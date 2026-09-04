@@ -263,7 +263,7 @@ const
                                  ## is covered by the ramp's own gated sends
                                  ## (EndzoneRampBandsPerFrame).
   GlowFadeStages* = 8          ## crossfade steps; 0 = full glow, 7 = fully cold.
-  NeutralItemPoolWidth* = 64
+  NeutralItemPoolWidth* = NeutralPickupPoolWidth
     ## Shared object-id pool width for the four NEUTRAL pickup families
     ## (grenades/shields/med kits/spray cans): the render loop below indexes
     ## each one Base + i for every point the MAP authors, and BR authors
@@ -419,6 +419,36 @@ const
                                  ## 36620..36651.
   BarrierUpObjectBase = 36660    ## standing barriers: 36660..36675
                                  ## (MaxBarriersPlaced).
+  ## LOOT(s2) ground art (item-completeness epic 1ef4f9d6, T2): the three
+  ## sim-side pickup families that had touch/pickup logic (sim.nim
+  ## pickupByTouch) and wire item_pickup/map_item tokens (broadcast.nim) but
+  ## NO board presence at all — a cog could walk straight through a pickup
+  ## it could not see. Same "neutral pickup" shape as med kits/shields
+  ## above: fog-gated by map position, sprite defined lazily on first need.
+  ## The marker half (owner ruling 2026-09-03: tagging language, never
+  ## shooter — "marker half"/"hopper", NOT "gun crate"/"hopper crate") and
+  ## the hopper are each the ITEM ITSELF lying on the ground (a top-down
+  ## marker body with its empty feed-neck port, a standalone paintball
+  ## hopper), not a container art asset around it — the two-touch pickup
+  ## literally assembles a working marker out of its two halves. Statics
+  ## land in the free run right after the barrier carry marker (1491) and
+  ## well clear of the corpses at 2900; objects land in the free run right
+  ## after the spray can pickups (35522..35585) and well clear of the
+  ## barrier pickups at 36600 — see PaintBombPickupObjectBase's comment for
+  ## why that post-tracer-dot gap is where every NeutralItemPoolWidth pool
+  ## lives now.
+  BandageSpriteId = 1495       ## carryable +1hp pickup (bandagePickups).
+  MarkerHalfSpriteId = 1496    ## the ground marker half, lootStart only.
+  HopperSpriteId = 1497        ## the ground hopper, lootStart only.
+  BandageSize = 20             ## px footprint of a bandage pickup.
+  MarkerHalfSize = 26          ## px footprint of a marker half pickup.
+  HopperSize = 26              ## px footprint of a hopper pickup.
+  BandageObjectBase = 35586    ## bandages, NeutralItemPoolWidth-wide:
+                               ## 35586..35649.
+  MarkerHalfObjectBase = 35650 ## marker halves, NeutralItemPoolWidth-wide:
+                               ## 35650..35713.
+  HopperObjectBase = 35714     ## hoppers, NeutralItemPoolWidth-wide:
+                               ## 35714..35777.
   RotDiamondSpriteBase = 1401    ## spinning diamond frames: 1401..1416;
                                  ## 850 collided with CorpseSpriteBase.
   RotDiamondObjectBase = 19610   ## spinning center diamonds: 19610..19617;
@@ -943,6 +973,9 @@ const
     ("endzone fades", EndzoneFadeObjectBase, TeamPoolWidth * MaxEndzoneFadeBands),
     ("endzone shields", ShieldObjectBase, NeutralItemPoolWidth),
     ("med kits", MedKitObjectBase, NeutralItemPoolWidth),
+    ("bandages", BandageObjectBase, NeutralItemPoolWidth),
+    ("marker halves", MarkerHalfObjectBase, NeutralItemPoolWidth),
+    ("hoppers", HopperObjectBase, NeutralItemPoolWidth),
     ("rot diamonds", RotDiamondObjectBase, 8),
     ("spray can pickups", SprayPaintPickupObjectBase, NeutralItemPoolWidth),
     ("spray can carry markers", SprayPaintCarryObjectBase, MaxPlayers),
@@ -1044,6 +1077,9 @@ const
     ("hit flashes", HitFlashSpriteBase, 4),
     ("tracer heads", TracerHeadSpriteBase, 64),
     ("med kit", MedKitSpriteId, 1),
+    ("bandage", BandageSpriteId, 1),
+    ("marker half", MarkerHalfSpriteId, 1),
+    ("hopper", HopperSpriteId, 1),
     ("rot diamonds", RotDiamondSpriteBase, 16),
     ("shield statics", ShieldSpriteId, 3),
     ("corpses", CorpseSpriteBase, 2 * TeamPoolWidth * SoldierRotations),
@@ -6022,6 +6058,128 @@ proc addMedKits(
       spawn.y, MapLayerId, MedKitSpriteId
     )
 
+proc addBandages(
+  sim: SimServer,
+  spriteDefs: var seq[SpriteDefinition],
+  currentIds: var seq[int],
+  packet: var seq[uint8],
+  viewerIndex = -1
+) {.measure.} =
+  ## LOOT(s2) ground art (item-completeness epic 1ef4f9d6, T2): places the
+  ## bandage pickups (config.bandagePickups, sim.bandageSpawns), fog-gated by
+  ## map position exactly like the med kits above -- same "neutral pickup,
+  ## refills on the med-kit cadence" shape, just a smaller carryable +1hp
+  ## instead of a full heal. Empty (bandagePickups=0, the default) is
+  ## byte-identical to an engine without this proc: the loop below never
+  ## runs. The map/replay view passes no viewer and shows all.
+  doAssert sim.bandageSpawns.len <= NeutralItemPoolWidth,
+    "map authors " & $sim.bandageSpawns.len & " bandages, more than the " &
+    $NeutralItemPoolWidth & "-wide BandageObjectBase pool can address " &
+    "without colliding with the next pool."
+  for i in 0 ..< min(sim.bandageSpawns.len, NeutralItemPoolWidth):
+    let spawn = sim.bandageSpawns[i]
+    if not spawn.present:
+      continue
+    if viewerIndex >= 0 and not sim.fovVisibleAt(viewerIndex, spawn.x, spawn.y):
+      continue
+    if spriteDefs.spriteDefinitionIndex(BandageSpriteId) < 0:
+      packet.addBoardSpriteChanged(
+        spriteDefs, BandageSpriteId,
+        BandageSize, BandageSize,
+        loadBandageSprite(BandageSize * boardScale), LabelBandage,
+        native = boardScale
+      )
+    let objectId = BandageObjectBase + i
+    currentIds.add(objectId)
+    packet.addBoardObject(
+      objectId,
+      spawn.x - BandageSize div 2,
+      spawn.y - BandageSize div 2,
+      spawn.y, MapLayerId, BandageSpriteId
+    )
+
+proc addMarkerHalves(
+  sim: SimServer,
+  spriteDefs: var seq[SpriteDefinition],
+  currentIds: var seq[int],
+  packet: var seq[uint8],
+  viewerIndex = -1
+) {.measure.} =
+  ## LOOT(s2) ground art (item-completeness epic 1ef4f9d6, T2): places the
+  ## marker-half pickups (config.lootStart, sim.weaponSpawns) -- the marker
+  ## body itself, top-down, its feed-neck port empty until a hopper is
+  ## loaded onto it -- fog-gated by map position like every other neutral
+  ## pickup. These one-shot pickups (taken ones never respawn -- see
+  ## weaponSpawns' own comment) had touch/pickup logic and wire
+  ## item_pickup tokens with NO board presence before this: a cog walked
+  ## straight through a marker half it could not see. Empty
+  ## (lootStart=false, the default) is byte-identical to an engine without
+  ## this proc.
+  doAssert sim.weaponSpawns.len <= NeutralItemPoolWidth,
+    "map authors " & $sim.weaponSpawns.len & " marker halves, more than the " &
+    $NeutralItemPoolWidth & "-wide MarkerHalfObjectBase pool can address " &
+    "without colliding with the next pool."
+  for i in 0 ..< min(sim.weaponSpawns.len, NeutralItemPoolWidth):
+    let spawn = sim.weaponSpawns[i]
+    if not spawn.present:
+      continue
+    if viewerIndex >= 0 and not sim.fovVisibleAt(viewerIndex, spawn.x, spawn.y):
+      continue
+    if spriteDefs.spriteDefinitionIndex(MarkerHalfSpriteId) < 0:
+      packet.addBoardSpriteChanged(
+        spriteDefs, MarkerHalfSpriteId,
+        MarkerHalfSize, MarkerHalfSize,
+        loadMarkerHalfSprite(MarkerHalfSize * boardScale), LabelMarkerHalf,
+        native = boardScale
+      )
+    let objectId = MarkerHalfObjectBase + i
+    currentIds.add(objectId)
+    packet.addBoardObject(
+      objectId,
+      spawn.x - MarkerHalfSize div 2,
+      spawn.y - MarkerHalfSize div 2,
+      spawn.y, MapLayerId, MarkerHalfSpriteId
+    )
+
+proc addHoppers(
+  sim: SimServer,
+  spriteDefs: var seq[SpriteDefinition],
+  currentIds: var seq[int],
+  packet: var seq[uint8],
+  viewerIndex = -1
+) {.measure.} =
+  ## LOOT(s2) ground art (item-completeness epic 1ef4f9d6, T2): places the
+  ## hopper pickups (config.lootStart, sim.hopperSpawns) -- the standalone
+  ## paintball hopper itself, overflowing with rainbow paintballs, the twin
+  ## of addMarkerHalves above (same one-shot/fog-gated shape, its own
+  ## sprite so the marker half and the hopper read as distinct on the
+  ## floor).
+  doAssert sim.hopperSpawns.len <= NeutralItemPoolWidth,
+    "map authors " & $sim.hopperSpawns.len & " hoppers, more than " &
+    "the " & $NeutralItemPoolWidth & "-wide HopperObjectBase pool " &
+    "can address without colliding with the next pool."
+  for i in 0 ..< min(sim.hopperSpawns.len, NeutralItemPoolWidth):
+    let spawn = sim.hopperSpawns[i]
+    if not spawn.present:
+      continue
+    if viewerIndex >= 0 and not sim.fovVisibleAt(viewerIndex, spawn.x, spawn.y):
+      continue
+    if spriteDefs.spriteDefinitionIndex(HopperSpriteId) < 0:
+      packet.addBoardSpriteChanged(
+        spriteDefs, HopperSpriteId,
+        HopperSize, HopperSize,
+        loadHopperSprite(HopperSize * boardScale), LabelHopper,
+        native = boardScale
+      )
+    let objectId = HopperObjectBase + i
+    currentIds.add(objectId)
+    packet.addBoardObject(
+      objectId,
+      spawn.x - HopperSize div 2,
+      spawn.y - HopperSize div 2,
+      spawn.y, MapLayerId, HopperSpriteId
+    )
+
 proc addShields(
   sim: SimServer,
   spriteDefs: var seq[SpriteDefinition],
@@ -7627,6 +7785,24 @@ proc buildSpriteProtocolPlayerUpdates*(
       result,
       viewerIndex = playerIndex
     )
+    sim.addBandages(
+      nextState.spriteDefs,
+      currentIds,
+      result,
+      viewerIndex = playerIndex
+    )
+    sim.addMarkerHalves(
+      nextState.spriteDefs,
+      currentIds,
+      result,
+      viewerIndex = playerIndex
+    )
+    sim.addHoppers(
+      nextState.spriteDefs,
+      currentIds,
+      result,
+      viewerIndex = playerIndex
+    )
     sim.addShields(
       nextState.spriteDefs,
       currentIds,
@@ -8685,6 +8861,9 @@ proc buildSpriteProtocolUpdates*(
   sim.addHitFlashes(nextState.spriteDefs, currentIds, result)
   sim.addRotatingDiamonds(nextState.spriteDefs, currentIds, result)
   sim.addMedKits(nextState.spriteDefs, currentIds, result)
+  sim.addBandages(nextState.spriteDefs, currentIds, result)
+  sim.addMarkerHalves(nextState.spriteDefs, currentIds, result)
+  sim.addHoppers(nextState.spriteDefs, currentIds, result)
   sim.addShields(nextState.spriteDefs, currentIds, result)
   sim.addGrenades(nextState.spriteDefs, currentIds, result)
   sim.addBarriers(nextState.spriteDefs, currentIds, result)
