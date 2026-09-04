@@ -97,12 +97,15 @@ suite "paintbot manifest, battle-royale-s2 variant":
     # owner's doctrine call. Frame loadout flags and duo held-state are
     # live on the flagship variant from day one.
     check config.frameLoadoutFlags
-    # WIN-AS-MULTIPLIER (glory-2 A6/Amendment 7): this variant ships the
-    # win factor ARMED too -- the flagship BR economy is the even-maximums
-    # one from day one, and this key is the rollback switch (flip it false
-    # here and the v13 dVictory economy returns with no code change).
+    # WIN-AS-MULTIPLIER (glory-2 A6/Amendment 7): ROLLED BACK 2026-09-04.
+    # The dTagBack revive-loop (zone bleed re-downs partner ~every 9 ticks,
+    # revive at 48 -> a 57-tick metronome minting x2 per Revived, 24-27x per
+    # episode = 2^24+ overshoot; see glorybug 09:2x in the tg5 ledger) blew
+    # the 28,311,552 ceiling by ~10^6. Flag stays false until repeatable
+    # deeds get per-episode mint caps / diminishing rungs. v13 dVictory
+    # economy is live again via this switch, exactly as designed.
     check config.gloryMultiplierRecut
-    check config.winAsMultiplier
+    check not config.winAsMultiplier
     var sim = initCtfForTest(config)
     ## The variant's own "players" list binds each slot's NAME (see
     ## roster.nim's slotRestricted/matchingConfiguredSlot): a real join
