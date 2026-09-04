@@ -2157,12 +2157,20 @@ proc recutJointActOnDamage(sim: var SimServer,
   let
     vx = sim.players[victimIndex].x + CollisionW div 2
     vy = sim.players[victimIndex].y + CollisionH div 2
+  # ALIASING HARDENING: `entry` is a var-ref INTO `recutJointSeats`, and
+  # `awardDeed` reaches deep into sim state -- holding that reference live
+  # across the call is the classic dangling-alias hazard (any growth or
+  # reassignment of the seq would invalidate it mid-loop). Mark every
+  # pending contributor and SNAPSHOT its seat first; mint from the local
+  # copy, which owns its own memory.
+  var minting: seq[int] = @[]
   for entry in sim.recutJointSeats[victimIndex].mitems:
     if entry.minted:
       continue
     entry.minted = true
-    sim.awardDeed(sim.players[entry.seat].team, dJointAct, vx, vy,
-                  byIndex = entry.seat)
+    minting.add entry.seat
+  for seat in minting:
+    sim.awardDeed(sim.players[seat].team, dJointAct, vx, vy, byIndex = seat)
 
 proc killPlayer*(
   sim: var SimServer,
