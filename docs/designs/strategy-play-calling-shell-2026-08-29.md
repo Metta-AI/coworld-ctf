@@ -1183,10 +1183,11 @@ dropped or altered contributor as well as dropped bytes.
 - The `PlayView` is a compact, serialized, per-seat, per-tick snapshot of
   everything a play may know. It is the entire observation space of the
   play layer, for plays and for the LLM alike.
-- The game builds it every tick and hands the same gameplay bytes to two
-  readers: the seat's play instances, in-process, every tick; and the
-  policy's LLM, over the socket, at view cadence, where a separate
-  control envelope travels beside them.
+- The game maintains the per-seat observation every tick. It materializes
+  the play-facing PV1 bytes lazily when the first guest instance actually
+  steps for that seat and tick, then shares that one frame across the seat's
+  other guest steps. Separately, it builds the socket/replay JSON for the
+  policy's LLM at view cadence, with a control envelope beside it.
 - The view names the game mode explicitly. Players extend its vocabulary
   by pull request to this repository.
 
@@ -2330,7 +2331,9 @@ annotation. All of it runs on the
 tick thread, sequentially per seat in seat order, under fuel. The only
 asynchrony in the design is the compile pool of section 6.2, which
 hands finished modules to the tick thread through a queue drained at the
-tick boundary.
+tick boundary. At the first actual guest step, the ladder materializes the
+play-facing PV1 frame and memoizes it for that seat/tick. A seat with no guest
+step builds no PV1 frame; the socket/replay JSON cadence remains separate.
 
 Because plays now run in-process, the earlier boundary's client-side
 frame loop has no counterpart here. What fell away with it: the dirty-state
@@ -3331,11 +3334,12 @@ evidence needed to maintain and verify historical replays.
   its source; §3.3 ruling seven (8-source danger-rebuild cap) folded in;
   sub-allocations of
   the quarter tick fixed at body ≤5.0 ms / runtime ≤4.0 ms / control
-  plane ≤1.4 ms. The view build+encode row charges to the runtime share,
-  because the ladder/guest-invocation caller now invokes it immediately
-  before `play_step`; budgets must mirror the call graph. The measured
-  32-seat binary view encode row is 217 µs/tick, so it fits comfortably
-  inside runtime's 4.0 ms share. Body's 5.0 ms share keeps only genuine
+  plane ≤1.4 ms. The guest PV1 build+encode row charges to the runtime share
+  only when a guest actually steps: the ladder materializes it at the first
+  `play_step` for a seat and tick and reuses it for later steps. The measured
+  32-seat binary view encode row is 217 µs/tick, so a fully live tick fits
+  comfortably inside runtime's 4.0 ms share, while a default-only seat pays
+  none of that row. Body's 5.0 ms share keeps only genuine
   body work. P3 still carries the ≤15 µs per-emit validation acceptance
   beside this row. All provisional until the freeze: the native gen-5+ x86
   run and the quiet-window body pass, after which the frozen values
@@ -3427,7 +3431,9 @@ evidence needed to maintain and verify historical replays.
   `tick mod viewIntervalTicks == s mod viewIntervalTicks`, the same
   deterministic stagger as ruling five's danger rebuilds. At the default
   interval of 6 that is about six frames per tick, roughly 0.6-0.7 ms of
-  the measured 32-seat 3.51 ms under the current composition. Producing
+  the measured 32-seat 3.51 ms `view.json_batch32_build_encode` row. That
+  row is the socket/replay JSON build, not the guest-facing PV1 build changed
+  by lazy materialization. Producing
   all 32 frames on one tick is a config-floor case only, reachable solely
   by setting `viewIntervalTicks = 1` explicitly. Whoever builds the
   per-tick view caller owns implementing this stagger; it is not optional.

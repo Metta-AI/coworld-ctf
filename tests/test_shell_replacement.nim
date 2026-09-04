@@ -120,7 +120,11 @@ proc ctx(a = true): IntentContext =
     resolveBool: proc(path: string): bool = bools.getOrDefault(path, false))
 
 proc input(alive = true; a = true): LadderSeatInput =
-  LadderSeatInput(alive: alive, contextBytes: "{}", viewBytes: "{}",
+  LadderSeatInput(alive: alive, contextBytes: "{}",
+    viewSource: proc(seatIndex: int; tick: uint32): string =
+      discard seatIndex
+      discard tick
+      "{}",
     guardContext: ctx(a),
     defaultIntent: Intent(kind: ikHold, arriveRadius: 0.0,
       reason: "default"))

@@ -96,7 +96,11 @@ proc ctx(a = true; b = true; pactOn = true; targetOn = true):
 
 proc input(a = true; b = true; pactOn = true; targetOn = true):
     LadderSeatInput =
-  LadderSeatInput(alive: true, contextBytes: "{}", viewBytes: "{}",
+  LadderSeatInput(alive: true, contextBytes: "{}",
+    viewSource: proc(seatIndex: int; tick: uint32): string =
+      discard seatIndex
+      discard tick
+      "{}",
     guardContext: ctx(a, b, pactOn, targetOn),
     defaultIntent: holdIntent("default"))
 

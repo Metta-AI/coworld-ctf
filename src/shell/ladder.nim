@@ -53,11 +53,13 @@ type
     provenance*: Provenance
     contributingEpoch*: uint64
 
+  LadderViewSource* = proc(seatIndex: int; tick: uint32): string {.closure.}
+
   LadderSeatInput* = object
     alive*: bool
     selfPos*: BodyPoint
     contextBytes*: string
-    viewBytes*: string
+    viewSource*: LadderViewSource
     guardContext*: IntentContext
     defaultIntent*: Intent
     defaultGoal*: Option[ValidatedGoal]
@@ -537,12 +539,15 @@ proc sameEmission(a, b: LadderEmission): bool =
 
 proc stepEntry(driver: LadderDriver; seatIndex, entryIndex: int;
                input: LadderSeatInput; tick: uint32;
+               viewBytes: var Option[string];
                output: var LadderSeatTick) =
   var seat = addr driver.seats[seatIndex]
   var entry = addr seat[].entries[entryIndex]
   if entry[].guest == nil or entry[].state != pisLive:
     return
-  let stepResult = entry[].guest.runStep(input.viewBytes, tick, input.selfPos)
+  if viewBytes.isNone:
+    viewBytes = some(input.viewSource(seatIndex, tick))
+  let stepResult = entry[].guest.runStep(viewBytes.get, tick, input.selfPos)
   inc output.stepCount
   output.stepped.add entry[].call.entryId
   if stepResult.faulted:
@@ -591,6 +596,7 @@ proc stepSeat(driver: LadderDriver; seatIndex: int; input: LadderSeatInput;
     output.provenance = Provenance(base: ProvenanceBase(kind: pbDefault))
     return
 
+  var viewBytes = none(string)
   for entry in driver.seats[seatIndex].entries.mitems:
     if entry.state == pisParked:
       entry.clearCache()
@@ -600,7 +606,7 @@ proc stepSeat(driver: LadderDriver; seatIndex: int; input: LadderSeatInput;
     let entry = driver.seats[seatIndex].entries[index]
     if entry.call.playClass == mcOverlay and entry.state == pisLive and
         entry.guardPasses(input.guardContext):
-      driver.stepEntry(seatIndex, index, input, tick, output)
+      driver.stepEntry(seatIndex, index, input, tick, viewBytes, output)
 
   var base = input.defaultIntent
   output.goal = input.defaultGoal
@@ -620,7 +626,8 @@ proc stepSeat(driver: LadderDriver; seatIndex: int; input: LadderSeatInput;
       while controllerIndex >= 0:
         output.selectedEntryId =
           driver.seats[seatIndex].entries[controllerIndex].call.entryId
-        driver.stepEntry(seatIndex, controllerIndex, input, tick, output)
+        driver.stepEntry(seatIndex, controllerIndex, input, tick, viewBytes,
+          output)
         let controller = driver.seats[seatIndex].entries[controllerIndex]
         if controller.state == pisLive and controller.cachedIntent.isSome:
           base = controller.cachedIntent.get.intent.get

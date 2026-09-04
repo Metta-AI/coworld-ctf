@@ -1127,12 +1127,18 @@ proc step*(episode: var FirstLightEpisode,
       episode.ensureLadder()
     if episode.ladder != nil:
       let runtimeStarted = getMonoTime()
+      let episodePtr = addr episode
+      let viewSource: LadderViewSource =
+        if episode.viewSource == nil:
+          proc(seatIndex: int; viewTick: uint32): string =
+            episodePtr[].firstLightViewBytes(seatIndex, viewTick)
+        else:
+          episode.viewSource
       var inputs = newSeq[LadderSeatInput](episode.runtimeState.frames.len)
       for seat in 0 ..< inputs.len:
         inputs[seat] = LadderSeatInput(
           alive: false,
           contextBytes: "{}",
-          viewBytes: "{}",
           guardContext: noGuardContext(),
           defaultIntent: Intent(kind: ikHold, arriveRadius: 0.0,
             reason: "default:hold"),
@@ -1161,10 +1167,7 @@ proc step*(episode: var FirstLightEpisode,
           alive: true,
           selfPos: slot.frame.bodyInputs.self.pos,
           contextBytes: episode.firstLightContextBytes(seat, slot.frame),
-          viewBytes: (if episode.viewSource == nil:
-            episode.firstLightViewBytes(seat, tick)
-          else:
-            episode.viewSource(seat, tick)),
+          viewSource: viewSource,
           guardContext: playGuardContext(state.body, facts),
           defaultIntent: finished.intent,
           defaultGoal: decision.goal,
