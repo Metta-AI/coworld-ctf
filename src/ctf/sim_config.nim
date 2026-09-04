@@ -146,7 +146,11 @@ proc defaultGameConfig*(): GameConfig =
     zonePaintDownedBleedPermille: ZonePaintDownedBleedPermilleDefault,
     # PAINTDEATH: dark by default — a rescue under paint stays possible,
     # exactly as it was before the flag existed.
-    zoneBlocksRevive: false
+    zoneBlocksRevive: false,
+    # PATHING: dark by default — the shell planner keeps its enemies-only
+    # cost function, allocates no path-length column, and mints no world
+    # fields, so a dark episode is byte-identical to the pre-flag engine.
+    hazardAwarePlanner: false
   )
 
 proc squadModeConfigured*(config: GameConfig): bool =
@@ -1174,6 +1178,17 @@ proc validate(config: GameConfig) =
   if config.zoneBlocksRevive and not config.zoneDamageByPaint:
     raise newException(CtfError,
       "Config field zoneBlocksRevive requires zoneDamageByPaint.")
+  # PATHING: the hazard term prices the paint-arrival field, which only
+  # exists when there is a shrink schedule, and it lives entirely inside the
+  # Season 2 play-calling shell's planner, which only runs on a season2Shell
+  # episode. Arming it without either would be a silent no-op, so both are
+  # refused loudly — the same "requires X" shape as every fence above.
+  if config.hazardAwarePlanner and config.zonePhases.len == 0:
+    raise newException(CtfError,
+      "Config field hazardAwarePlanner requires zonePhases.")
+  if config.hazardAwarePlanner and not config.season2Shell:
+    raise newException(CtfError,
+      "Config field hazardAwarePlanner requires season2Shell.")
   # SITECLASS: a per-mille, and only meaningful while there are fallback
   # hopper crates to re-site — so it rides lootStart the same way the seed
   # counts do, refused loudly instead of parsing into a silent no-op.
@@ -1408,6 +1423,10 @@ proc update*(config: var GameConfig, jsonText: string) =
   node.readConfigInt("zonePaintDownedBleedPermille",
     config.zonePaintDownedBleedPermille)
   node.readConfigBool("zoneBlocksRevive", config.zoneBlocksRevive)
+  # GVNEXT(pathing): appended read for the appended hazardAwarePlanner field
+  # (sim_types.nim) — same tail-append rule as everything above. An absent key
+  # leaves the dark default, so an existing config JSON parses unchanged.
+  node.readConfigBool("hazardAwarePlanner", config.hazardAwarePlanner)
   config.validate()
 
 proc slotTeamText(slot: PlayerSlotConfig): string =
@@ -1822,6 +1841,13 @@ proc echoZonePaintKeys(config: GameConfig, node: JsonNode) =
   # the two paint-on-ghost rules it played under).
   if config.zoneBlocksRevive:
     node["zoneBlocksRevive"] = %config.zoneBlocksRevive
+  # PATHING: echoed only when armed. The flag changes no hashed state (the
+  # mask compiler is documented as a pure function outside the determinism
+  # boundary and the nav layer's outputs never enter gameHash), but a replay
+  # should still pin WHICH routing regime the episode played under, because
+  # the movement it produced is what the recorded masks are.
+  if config.hazardAwarePlanner:
+    node["hazardAwarePlanner"] = %config.hazardAwarePlanner
 
 proc configJson*(config: GameConfig): string =
   ## Returns the complete replay JSON for a gameplay config: the always-
@@ -1973,6 +1999,7 @@ proc realizedConfigStampJson*(config: GameConfig): string =
     "stampRealizedConfig=" & $config.stampRealizedConfig,
     "zoneBlocksRevive=" & $config.zoneBlocksRevive,
     "zoneDamageByPaint=" & $config.zoneDamageByPaint,
+    "hazardAwarePlanner=" & $config.hazardAwarePlanner,
   ]
   flags.sort()
   var flagSet = newJArray()

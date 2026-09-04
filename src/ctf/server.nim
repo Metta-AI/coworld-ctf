@@ -6,16 +6,23 @@ import
   bitworld/runtime,
   curly, mummy,
   sim, global, glory, replays, replay_codec as ctfReplayCodec, broadcast,
-  replay_runtime, events, wire_constants,
+  replay_runtime, events, wire_constants, zone_field,
   control, directives, baselines, decide, mux,
   ../shell/[body, body_map, episode, ingress, outbound,
     standing_order, transport, view],
   ../shell/dispatch, ../shell/packets, ../shell/replay_records, ../shell/seats,
+  ../shell/body_hazard,
   ../shell/types,
   ../shell/vote_packets as votePackets
 
 when defined(posix):
   from std/posix import SHUT_RDWR, shutdown
+
+static:
+  # PATHING: the nav layer mirrors the zone module's "never arrives" sentinel
+  # rather than importing zone types into src/shell. This is the seam that
+  # carries values across, so this is where the two spellings are pinned equal.
+  doAssert HazardNeverArrives == ZoneNeverArrives
 
 type
   PlayModuleUploadConsumer* = proc(
@@ -3843,7 +3850,8 @@ proc resetFirstLightForSim(episode: var FirstLightEpisode,
     episode.resetFirstLightEpisode(
       config.season2Shell, config.brMode, controlSet.controls,
       newBodyMap(sim.gameMap), config.gunRange, controlSet.teams,
-      mapName, config.viewIntervalTicks, controlSet.names)
+      mapName, config.viewIntervalTicks, controlSet.names,
+      config.hazardAwarePlanner)
     echo "FIRST_LIGHT enabled play_seats=", episode.seats.len,
       " executor=lane-a-fl-b reset=", reason
     let configured =
@@ -4969,6 +4977,25 @@ proc runServerLoop*(
               velocity: sim.firstLightVelocity(playerIndex),
               bodyInputs: bodyInputs,
               defaultFallbacks: sim.firstLightFallbacks(bodyInputs.self.pos)))
+          # PATHING: carry the zone's paint DAMAGE surface into the nav
+          # layer, exactly once per actual field build.
+          #
+          # This is the ONLY place the two modules meet, and it is a
+          # one-directional READ: ensureZoneArrivalField returns true only on
+          # the tick it (re)built, and the zone center it keys on is drawn at
+          # game start, so this seam catches the real field without the shell
+          # ever importing zone types or guessing at episode lifetime. The
+          # projection is a one-time O(nav cells) integer pass; the field
+          # build it rides behind is orders of magnitude more expensive.
+          if firstLightEpisode.hazardAwarePlanner and
+              config.zonePhases.len > 0:
+            let zoneFieldRebuilt = ensureZoneArrivalField(sim)
+            if zoneFieldRebuilt or not firstLightEpisode.hasZoneHazard or
+                firstLightEpisode.zoneHazardClockOffset != sim.gameStartTick:
+              firstLightEpisode.installZoneHazard(
+                ZoneArrivalFieldValue.damage,
+                ZoneArrivalFieldValue.gridW, ZoneArrivalFieldValue.gridH,
+                ZoneFieldCellPx, sim.gameStartTick)
           let firstLight = firstLightEpisode.step(
             frames, uint32(sim.tickCount + 1))
           retainProductionModuleStatuses(firstLight.moduleStatuses)

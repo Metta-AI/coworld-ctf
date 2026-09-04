@@ -112,6 +112,13 @@ suite "paintbot manifest, battle-royale-s2 variant":
     # precondition this variant's winAsMultiplier re-arm rides on.
     check config.zoneDamageByPaint
     check config.zoneBlocksRevive
+    # PATHING: the flagship ships zone-AWARE routing armed, not dark. It is a
+    # behaviour FIX, not a new mechanic -- without it a cog plans straight
+    # through ground the paint reaches first, on the one variant where painted
+    # ground is what kills you (zoneDamageByPaint above). Arming it here is the
+    # ship-armed doctrine: the flag exists as a rollback switch, not as a
+    # staging gate.
+    check config.hazardAwarePlanner
     # MINTCAP: the OTHER half of the same re-arm gate. zoneBlocksRevive
     # above kills the revive loop MECHANICALLY on painted ground; the
     # caps bound any repeatable-deed composition, including the dry-ground

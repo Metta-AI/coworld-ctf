@@ -2646,6 +2646,26 @@ type
                         ## damage you, it also blocks your rescue.
                         ## false = default = rescues under paint stay
                         ## possible (byte-identical pre-flag behaviour).
+    # GVNEXT(pathing): appended field, same append-safety reasoning as every
+    # block above. Reachable from SimServer (sim.config); a dark config leaves
+    # it false and the shell's planner runs the shipped, zone-blind cost
+    # function byte-identically.
+    hazardAwarePlanner*: bool ## PATHING: the Season 2 shell's route planner
+                        ## prices the ZONE, not only enemies. The engine
+                        ## projects the paint-arrival damage surface onto
+                        ## the nav grid and adds one cost term, so a cog
+                        ## stops settling routes through ground that
+                        ## paints before it can arrive, and mints one
+                        ## shared "ground that stays dry" flow field.
+                        ## Requires zonePhases (there is no paint to price
+                        ## without a schedule) and season2Shell (the
+                        ## planner only exists on the play-calling shell).
+                        ## OBSERVATION-NEUTRAL: it changes no wire field
+                        ## and no view frame, so it cannot invalidate an
+                        ## archived replay — replays re-drive recorded
+                        ## input masks, and the nav layer is regenerated
+                        ## only in live play. false = default = the
+                        ## shipped enemies-only cost function.
 
   Player* = object
     x*, y*: int
