@@ -121,6 +121,10 @@ proc defaultGameConfig*(): GameConfig =
     # §A6/AMENDMENT 7: win-as-multiplier, dark by default — its OWN key
     # (per-flag activation), reads only under an armed recut.
     winAsMultiplier: false,
+    # MINTCAP: per-episode deed mint budgets + the meaningful product
+    # backstop, dark by default — its OWN key (per-flag activation),
+    # reads only under an armed recut.
+    deedMintCaps: false,
     stampRealizedConfig: false,
     variantId: "",
     # SPAWNLOOT: dark by default (see sim_types.nim's own field comments) —
@@ -1377,6 +1381,7 @@ proc update*(config: var GameConfig, jsonText: string) =
   # label stage independently — of each other AND of lootStart/downedMode.
   node.readConfigBool("gloryMultiplierRecut", config.gloryMultiplierRecut)
   node.readConfigBool("winAsMultiplier", config.winAsMultiplier)
+  node.readConfigBool("deedMintCaps", config.deedMintCaps)
   node.readConfigBool("stampRealizedConfig", config.stampRealizedConfig)
   node.readConfigString("variantId", config.variantId)
   # SPAWNLOOT: appended reads for the appended spawn-loot-seeding fields
@@ -1760,6 +1765,11 @@ proc echoRecutKeys(config: GameConfig, node: JsonNode) =
   # carries nothing; an armed replay's header pins the win-factor world.
   if config.winAsMultiplier:
     node["winAsMultiplier"] = %config.winAsMultiplier
+  # MINTCAP: same armed-only echo rule — an armed replay's header pins
+  # whether the episode played under bounded mints, which is the one fact
+  # an offline audit of a suspicious score needs first.
+  if config.deedMintCaps:
+    node["deedMintCaps"] = %config.deedMintCaps
 
 proc echoStampKeys(config: GameConfig, node: JsonNode) =
   ## STAMP(recut contract Amendment 2 §2): the stamp gate and the variant
@@ -1951,6 +1961,7 @@ proc realizedConfigStampJson*(config: GameConfig): string =
   var flags: seq[string] = @[
     "bandagePickups=" & $config.bandagePickups,
     "brMode=" & $config.brMode,
+    "deedMintCaps=" & $config.deedMintCaps,
     "downedEscalation=" & $config.downedEscalation,
     "downedMode=" & $config.downedMode,
     "frameLoadoutFlags=" & $config.frameLoadoutFlags,

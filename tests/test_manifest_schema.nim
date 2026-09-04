@@ -140,6 +140,7 @@ const SampleJson = """{
   "medKitCount": {"medKitCount": 0, "brMode": true},
   "gloryMultiplierRecut": {"gloryMultiplierRecut": true},
   "winAsMultiplier": {"winAsMultiplier": true},
+  "deedMintCaps": {"deedMintCaps": true},
   "stampRealizedConfig": {"stampRealizedConfig": true},
   "frameLoadoutFlags": {"frameLoadoutFlags": true},
   "variantId": {"variantId": "battle-royale-s2"},

@@ -728,6 +728,11 @@
           "type": "boolean",
           "default": false
         },
+        "deedMintCaps": {
+          "description": "Per-episode deed MINT CAPS (mintcap, 2026-09-04 \u2014 the durable fix behind winAsMultiplier's re-arm; incident rollback d595f300). Gives every REPEATABLE deed \u2014 one whose per-duo mint count is not bounded by a scarce contested resource \u2014 a per-episode, per-duo mint budget: dTagBack 3, dJointAct 6, dDuoDown 4, dShieldSoak 3. The first cap mints fold their factor into the duo's product normally; every occurrence after that folds 1 and scores NOTHING (a flat budget, not diminishing rungs \u2014 a flat one is a hard bound and is auditable by counting wire events). Only the SCORE is bounded: the deed still mints, pops, counts, climbs heat and reaches the wire, so no achievement gate or analysis counter moves. Also drops the product saturation bound from the 2^62 int64 overflow guard (which sat ~2^38 above the design ceiling and so never fired when the dTagBack revive-loop printed 9.15e15) to 2^26 = 67,108,864, ~2.37x the 28,311,552 design ceiling \u2014 defense-in-depth layer 2, which should never bind if the caps hold. Every cap sits strictly above the frozen A6 ceiling recipe's own multiplicity for that deed, so the ruled superb episode (7,077,888) stays exactly reachable. Reads only while gloryMultiplierRecut is armed. Off by default everywhere: with it off both the v12 additive world and the live v13-armed world are byte-identical.",
+          "type": "boolean",
+          "default": false
+        },
         "stampRealizedConfig": {
           "description": "Realized-config stamp (recut contract Amendment 2): when true the engine emits, at episode finalize, a stamp of the build and flag set that ACTUALLY ran — {stampVersion, realizedBuild {gameVersion, gloryVersion, engineStamp}, variantId, flagSet as sorted key=value pairs} — into the events summary row and the episode log. Observability only; independent of every other flag. Off by default.",
           "type": "boolean",
@@ -1358,7 +1363,8 @@
         "hopperSiteTrafficPermille": 750,
         "bandagePickups": 12,
         "frameLoadoutFlags": true,
-        "winAsMultiplier": false
+        "winAsMultiplier": false,
+        "deedMintCaps": false
       }
     },
     {

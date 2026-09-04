@@ -2509,6 +2509,28 @@ type
                         ## byte-identical (dVictory still mints ×8, no
                         ## new deeds, old rungs). Its OWN manifest key
                         ## (per-flag activation, Amendment 2 §1).
+    deedMintCaps*: bool ## MINTCAP (2026-09-04, the durable fix behind
+                        ## winAsMultiplier's re-arm — incident d595f300):
+                        ## per-episode, per-duo MINT BUDGETS on the
+                        ## repeatable deeds (glory.nim `RecutMintCapTable`
+                        ## — dTagBack 3, dJointAct 6, dDuoDown 4,
+                        ## dShieldSoak 3), past which further occurrences
+                        ## fold factor 1 and score NOTHING; plus the
+                        ## companion drop of the product saturation bound
+                        ## from the useless 2^62 overflow guard to
+                        ## `RecutProductCapArmed` (2^26 ≈ 2.37× the design
+                        ## ceiling), so any composition bug still unknown
+                        ## clamps instead of exploding. The deed still
+                        ## mints/pops/counts/climbs heat — only its SCORE
+                        ## contribution is bounded. Read only while
+                        ## `gloryMultiplierRecut` is armed. Dark = false:
+                        ## both the v12 additive world and the LIVE
+                        ## v13-armed world are byte-identical. Its OWN
+                        ## manifest key (per-flag activation, Amendment 2
+                        ## §1) — with `winAsMultiplier` it forms the
+                        ## two-part re-arm gate (the other part, the
+                        ## mechanical no-revive-in-paint fix, rides the
+                        ## paintdeath lane).
     stampRealizedConfig*: bool ## STAMP(amendment 2 §2): emit the
                         ## realized-config stamp {realizedBuild, flagSet,
                         ## variantId, stampVersion} at finalize — into the
@@ -3884,6 +3906,23 @@ type
                                ## this game; halvings derive per mode via
                                ## `recutFfHalvings` (BR ÷2/incident, CTF
                                ## ÷2 per two).
+    recutMintCounts*: array[Team, array[Deed, int]]
+                               ## MINTCAP: per-DUO, per-deed mints banked
+                               ## this episode — the budget ledger
+                               ## `RecutMintCapTable` is spent against.
+                               ## Per TEAM, not per seat, for the same
+                               ## reason the product is (§7a: one
+                               ## de-duplicated product per duo) — a
+                               ## seat-keyed deed like dJointAct therefore
+                               ## spends a SHARED duo budget, which is why
+                               ## its cap is doubled. Maintained ONLY
+                               ## while `deedMintCaps` is armed, and
+                               ## derived deterministically from the mint
+                               ## stream (it re-simulates identically), so
+                               ## it stays OUT of gameHash exactly like
+                               ## `recutDamageMarks` — the product it
+                               ## bounds is hashed, which is the causal
+                               ## surface.
     recutDamageMarks*: seq[seq[tuple[attacker: int, tick: int]]]
                                ## RECUT: per-VICTIM damager history (the
                                ## dJointAct incident window, 120t) feeding
