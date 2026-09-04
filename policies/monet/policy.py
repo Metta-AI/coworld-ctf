@@ -488,10 +488,39 @@ PERSONA = Persona(
             ]},
         },
         {
-            # Consolidation: same minimal posture -- stay out of trouble,
-            # let the reflex own the wall, bank any wounds.
-            "chat": "Holding the truce. We rotate with cover and bank "
-                    "every life.",
+            # Consolidation: NO LONGER minimal -- v11 adds a press-capable
+            # controller here (leader-template finding, 9/3: the top two
+            # standings' entire edge over ours is an EARLY credit stack --
+            # dFirstBlood + 2 early dClosingTime hits landing ~ticks
+            # 2098-2458 (8-19% into the match) -- a 27x head-multiplier on
+            # their chain vs our 3x. dFirstBlood is the episode's single
+            # first kill: jackal cannot claim it (it only JOINS a fight
+            # after someone else's tag already landed), so the fix is not
+            # "join more fights", it is "stop being structurally unable to
+            # FINISH one" -- fire_superiority (press-vs-break) was installed
+            # starting at the mid turn only; opening/consolidation ran
+            # hold_vs_gun alone, which holds against a gun on us but never
+            # presses to close one out. That gap sits exactly across the
+            # leader's observed window (turn 2 fires ~30-60s+ under the
+            # normal recall cadence, extending into the 87-102s window
+            # above). Same structural shape as the endgame standoff bug
+            # (75ccf920): a controller that would convert a winnable
+            # encounter simply was not on the ladder yet, not a
+            # threshold mistuned. Fix: install fire_superiority one turn
+            # early, with mid's OWN already-vetted cautious parameters
+            # (breakDeficit 2 PARKED, woundedPct 50 -- NOT the endgame's
+            # zeroed 0, since a full field of undamaged duos is a genuinely
+            # riskier bar to press than a thinned endgame) -- this is
+            # widening WHEN the proven mid posture is available, never
+            # making it more aggressive than mid already is. jackal rides
+            # along for the same reason it rides at mid: it cannot win
+            # dFirstBlood, but an early second/third tag in a fight fire_
+            # superiority (or the enemy) already opened is still an early
+            # dClosingTime candidate, and jackal never initiates on its
+            # own (afterKill-only trigger) so it adds no early-game risk of
+            # its own beyond what a fight already in progress carries.
+            "chat": "Holding the truce. We rotate with cover, press what "
+                    "we can finish, and bank every life.",
             "call": {"entries": [
                 {"play": "pact", "entry_id": "truce",
                  "params": {"partners": ["seat:0", "seat:16"],
@@ -503,6 +532,16 @@ PERSONA = Persona(
                  "params": {"inset": 64, "leadTicks": 240}},
                 {"play": "medic", "entry_id": "pickup",
                  "params": {"abortHpFloor": 1, "zoneReach": 220}},
+                {"play": "fire_superiority", "entry_id": "pressbreak",
+                 # v11 EARLY CREDIT STACK: same cautious params as the mid
+                 # turn (see that entry's comment for the breakDeficit/
+                 # woundedPct rationale) -- deliberately NOT copying
+                 # endgame's woundedPct=0, because the field is still near
+                 # full strength here and a parity fight is a genuinely
+                 # different bet than the endgame's thinned field.
+                 "params": {"breakDeficit": 2, "coverMax": 260,
+                            "engageDist": 600, "finishRange": 140,
+                            "pressRange": 400, "woundedPct": 50}},
                 {"play": "hold_vs_gun", "entry_id": "holdgun",
                  "params": {"calmTicks": 48, "coverMax": 260,
                             "engageDist": 500}},
@@ -545,15 +584,22 @@ PERSONA = Persona(
                  # storm.
                  "params": {"leash": [100, 150], "interpose": True,
                             "peelHp": 3}},
+                {"play": "jackal", "entry_id": "third",
+                 # v11 EARLY CREDIT STACK: rides with fire_superiority above
+                 # (see that entry's comment) -- same mid-turn params, no
+                 # earlier license to hunt alone (joinWhen stays afterKill).
+                 "params": {"earshot": 550, "joinWhen": "afterKill",
+                            "exitAfter": {"kills": 2}}},
                 {"play": "supply_run", "entry_id": "bank",
                  "params": {"whenHpBelow": 3, "detourMax": 350,
                             "contested": "avoid"}},
             ]},
         },
         {
-            # Mid: jackal is the ONE controller rung -- kill conversion is
-            # where monet already led the field; everything else stays with
-            # the reflex/default movement.
+            # Mid: same fire_superiority + jackal ladder the consolidation
+            # turn now also carries (v11) -- kill conversion is where monet
+            # already led the field; everything else stays with the
+            # reflex/default movement.
             "chat": "Feed is ticking. We arrive third, tag the weakened, "
                     "leave paid.",
             "call": {"entries": [

@@ -600,6 +600,53 @@ check("prompt: endgame doctrine says parity is enough late (matches the "
 check("prompt: endgame doctrine names the standoff being killed",
       "paint can in hand" in prompt, "endgame prompt text not found")
 
+# ── v11 EARLY CREDIT STACK (leader-template finding, 9/3): the
+# consolidation turn (index 1, "turn 2") gains fire_superiority + jackal --
+# structurally, dFirstBlood (the episode's single first kill) and the early
+# dClosingTime hits observed in the leader's 27x head-stack can ONLY be
+# claimed if a press-capable controller exists before the mid turn; there
+# was none. Pinned two ways: presence (a future edit cannot silently drop
+# the entries) and posture (consolidation must stay at mid's cautious bar,
+# never drift to endgame's zeroed one -- the field is still near full
+# strength this early). ───────────────────────────────────────────────────
+consolidation_fs = next((e for e in PERSONA.canned_turns[1]["call"]["entries"]
+                         if e["play"] == "fire_superiority"), None)
+consolidation_jk = next((e for e in PERSONA.canned_turns[1]["call"]["entries"]
+                         if e["play"] == "jackal"), None)
+check("turn 2 (consolidation): fire_superiority is now on the ladder "
+      "(v11 early credit stack -- was mid-turn-only)",
+      consolidation_fs is not None)
+check("turn 2 (consolidation): jackal is now on the ladder (v11 early "
+      "credit stack -- was mid-turn-only)",
+      consolidation_jk is not None)
+if consolidation_fs is not None:
+    _cons_wp = consolidation_fs["params"].get("woundedPct")
+    check("turn 2: fire_superiority matches MID's cautious woundedPct "
+          "(50), not endgame's zeroed 0 -- widening WHEN it presses, "
+          "never making it MORE aggressive than the already-vetted turn",
+          _cons_wp == _mid_wp == 50, f"turn2={_cons_wp} mid={_mid_wp}")
+    check("turn 2: a tied, fully-healthy fight still HOLDS here too (same "
+          "bar as mid -- consolidation is not a second endgame)",
+          not fs_superior(1, 1, 0, _cons_wp)
+          and not fs_superior(2, 2, 0, _cons_wp),
+          f"turn2 woundedPct={_cons_wp}")
+    check("turn 2: breakDeficit stays PARKED at 2 (same as every other "
+          "turn -- this build never trades away win probability)",
+          consolidation_fs["params"].get("breakDeficit") == 2,
+          str(consolidation_fs["params"]))
+if consolidation_jk is not None:
+    check("turn 2: jackal keeps joinWhen=afterKill (it still cannot claim "
+          "dFirstBlood -- it only cleans up a fight fire_superiority or "
+          "the enemy already opened, so it adds no early solo-hunt risk)",
+          consolidation_jk["params"].get("joinWhen") == "afterKill",
+          str(consolidation_jk["params"]))
+check("turn 1 (opening): still NO press-capable controller (deliberately "
+      "scoped -- the very first window is politics + loot only; the "
+      "leader-template window measures ~87-102s in, which the "
+      "consolidation turn already covers)",
+      not any(e["play"] in ("fire_superiority", "jackal")
+              for e in PERSONA.canned_turns[0]["call"]["entries"]))
+
 # ── v10: partner-enabling -- bodyguard shields at half health, not a
 # quarter (peelHp 2->3), since the duo-shared OR-gate mints for both of us
 # every episode now, win or lose. ─────────────────────────────────────────
