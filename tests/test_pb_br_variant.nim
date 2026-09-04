@@ -115,13 +115,15 @@ suite "paintbot manifest, battle-royale-s2 variant":
     # MINTCAP: the OTHER half of the same re-arm gate. zoneBlocksRevive
     # above kills the revive loop MECHANICALLY on painted ground; the
     # caps bound any repeatable-deed composition, including the dry-ground
-    # down/revive cycle that gate does not touch. The variant records its
-    # darkness positively (like winAsMultiplier below) so the pair reads
-    # as one decision -- and unlike zoneBlocksRevive, arming the caps
-    # changes ARMED-recut scoring today (dDuoDown/dShieldSoak are priced
-    # under the live gloryMultiplierRecut variant), so it is STAGED for a
-    # separate arming decision, not incomplete.
-    check not config.deedMintCaps
+    # down/revive cycle that gate does not touch. ARMED 2026-09-04 (owner
+    # ruling, tg5 18:2x): #402 (zoneBlocksRevive) + this cap table are both
+    # landed, so the first half of the two-part re-arm gate is complete --
+    # arming the caps DOES change ARMED-recut scoring from here on
+    # (dDuoDown/dShieldSoak are priced under the live gloryMultiplierRecut
+    # variant), which is the point: bound the composition before more
+    # rounds bank under it. winAsMultiplier itself stays a SEPARATE owner
+    # beat, staged until N>=3 caps-era rounds verify sane tops.
+    check config.deedMintCaps
     var sim = initCtfForTest(config)
     ## The variant's own "players" list binds each slot's NAME (see
     ## roster.nim's slotRestricted/matchingConfiguredSlot): a real join
