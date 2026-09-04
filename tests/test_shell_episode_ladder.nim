@@ -148,6 +148,36 @@ proc writeStepTrapWasm(path: string) =
       "i32.const 0))"
   writeFile(path, wat.watBytes)
 
+proc writeLogProbeWasm(path: string) =
+  const Payload = "A\n\"\\\0\e\x80"
+  let manifest =
+    "{\"abi\":1,\"class\":\"controller\",\"modes\":[\"br\"]," &
+    "\"name\":\"log_probe\",\"params\":{},\"retune\":true}"
+  let logCall = "i32.const 1 i32.const 512 i32.const " & $Payload.len &
+    " call $log "
+  let wat = "(module\n" &
+    "  (import \"play\" \"emit\" (func $emit (param i32 i32) (result i32)))\n" &
+    "  (import \"play\" \"log\" (func $log (param i32 i32 i32)))\n" &
+    "  (memory (export \"memory\") 1 16)\n" &
+    "  (data (i32.const 256) \"" & manifest.watEscape & "\")\n" &
+    "  (data (i32.const 512) \"" & Payload.watEscape & "\")\n" &
+    "  (global $heap (mut i32) (i32.const 4096))\n" &
+    "  (func (export \"play_alloc\") (param $len i32) (result i32) " &
+      "global.get $heap global.get $heap local.get $len i32.add " &
+      "global.set $heap)\n" &
+    "  (func (export \"play_manifest\") i32.const 256 i32.const " &
+      $manifest.len & " call $emit drop)\n" &
+    "  (func (export \"play_init\") (param i32 i32 i32 i32) (result i32) " &
+      "i32.const -1 i32.const 512 i32.const " & $Payload.len &
+      " call $log i32.const 0)\n" &
+    "  (func (export \"play_step\") (param i32 i32) (result i32) " &
+      logCall & logCall.replace("i32.const 1", "i32.const 2") &
+      logCall.replace("i32.const 1", "i32.const 3") &
+      logCall.replace("i32.const 1", "i32.const 4") & "i32.const 0)\n" &
+    "  (func (export \"play_retune\") (param i32 i32 i32 i32) (result i32) " &
+      "i32.const 0))"
+  writeFile(path, wat.watBytes)
+
 proc writeRetuneRefuseWasm(path: string) =
   let manifest =
     "{\"abi\":1,\"class\":\"controller\",\"modes\":[\"br\"]," &
@@ -519,6 +549,7 @@ suite "shell episode ladder":
       playPos: BodyPoint = (20, 128)
       sawEntryInstall = false
       sawDifferentMask = false
+      sawReferenceLog = false
     for tick in 1 .. 40:
       let defaultOutput = defaultEpisode.step([frame(0, defaultPos, tick)],
         uint32(tick))
@@ -529,6 +560,9 @@ suite "shell episode ladder":
       sawEntryInstall = sawEntryInstall or
         playOutput.installs.anyIt(it.provenance == "entry:edge_ride" and
           it.bytes.contains("edge_ride:margin"))
+      sawReferenceLog = sawReferenceLog or playOutput.playLogLines.anyIt(
+        it == "FIRST_LIGHT_PLAY_LOG tick=1 seat=0 entry=edge_ride " &
+          "phase=init level=1 message=\"edge_ride initialized\"")
       if defaultOutput.masks[0].input.encodeInputMask() !=
           playOutput.masks[0].input.encodeInputMask():
         sawDifferentMask = true
@@ -536,6 +570,57 @@ suite "shell episode ladder":
       playPos.applyMask(playOutput.masks[0].input)
     check sawEntryInstall
     check sawDifferentMask
+    check sawReferenceLog
+
+  test "play logs are escaped and limited per seat without changing output":
+    when ShellRuntimeAvailable:
+      let modulePath = getTempDir() / "play-log-probe-" &
+        $getCurrentProcessId() & ".wasm"
+      writeLogProbeWasm(modulePath)
+      defer:
+        if fileExists(modulePath):
+          removeFile(modulePath)
+
+      let map = testMap()
+      var defaultEpisode = initFirstLightEpisode(true, true, controls(1), map, 331)
+      var logEpisode = initFirstLightEpisode(true, true, controls(1), map, 331)
+      defer:
+        defaultEpisode.closeFirstLightEpisode()
+        logEpisode.closeFirstLightEpisode()
+      let configured = logEpisode.configureFirstLightPlay(
+        namedNoopConfig(modulePath, "log_probe", @[0]))
+      check configured.anyIt(it.contains("FIRST_LIGHT_PLAY_CALL seat=0") and
+        it.contains("accepted=true"))
+
+      for tick in 1 .. 25:
+        let defaultOutput = defaultEpisode.step([frame(0, (20, 128), tick)],
+          uint32(tick))
+        let logOutput = logEpisode.step([frame(0, (20, 128), tick)],
+          uint32(tick))
+        check logOutput.masks[0].input.encodeInputMask() ==
+          defaultOutput.masks[0].input.encodeInputMask()
+        check logOutput.ladderStatuses.len == 0
+        check logOutput.annotations.allIt(it.kind != akPlayFault)
+        if tick == 1:
+          check logOutput.playLogLines.len == 4
+          check logOutput.playLogLines[0] ==
+            "FIRST_LIGHT_PLAY_LOG tick=1 seat=0 entry=log_probe " &
+            "phase=init level=-1 message=\"A\\x0A\\\"\\\\\\x00\\x1B\\x80\""
+          check logOutput.playLogLines[0].splitLines.len == 1
+          check '\n' notin logOutput.playLogLines[0]
+          check '\e' notin logOutput.playLogLines[0]
+          check logOutput.playLogLines[1].contains("phase=step level=1")
+          check logOutput.playLogLines[2].contains("phase=step level=2")
+          check logOutput.playLogLines[3].contains("phase=step level=3")
+        elif tick < 25:
+          check logOutput.playLogLines.len == 0
+        else:
+          check logOutput.playLogLines.len == 4
+          check logOutput.playLogLines[0].contains(
+            "phase=step level=1 message=")
+          check logOutput.playLogLines[0].endsWith(" dropped_previous=93")
+          check logOutput.playLogLines[1 .. ^1].allIt(
+            "dropped_previous=" notin it)
 
   test "one-seat truthful roster degrades to empty context and still runs":
     when ShellRuntimeAvailable:

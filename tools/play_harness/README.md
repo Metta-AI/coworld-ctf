@@ -38,7 +38,27 @@ frame also carries `code`: the stable engine `FaultCode` (`outOfFuel`,
 `epochDeadline`, `unreachable`, `memoryOutOfBounds`, `returnedNonzero`,
 `refused`, `abiViolation`, ...), the same value the live server reports in the
 seat's `play_faulted` / `retune_refused` status, so a play author can match
-what they see locally against the league log.
+what they see locally against the league log. Every frame also carries ordered
+`logs`; each admitted log has the exact opaque signed `level` and raw guest
+bytes encoded reversibly as lowercase, two-digits-per-byte `bytes_hex`; no UTF-8
+decoding is attempted. For example:
+
+```json
+{"logs":[{"bytes_hex":"001b7f80ff","level":-2147483648}]}
+```
+
+The harness exposes logs from all four legal phases: `manifest`, `init`, `step`,
+and `retune`. It keeps every call admitted by the ABI's per-invocation limit
+(currently four calls of at most 256 bytes each). Unlike the live server sink,
+the finite, explicitly author-run harness has no additional per-seat window.
+
+Live server diagnostics are a different sink: `init`, `step`, and `retune`
+records are escaped onto synchronous, public/operator-visible stdout, capped at
+four lines per seat per 24 ticks with `dropped_previous=N` reported in the next
+window. They are best effort, not private or durable, and never enter status,
+replay, game state, or `gameHash`; a blocked stdout collector may delay the
+server loop. The upload-time manifest probe has no seat/entry identity and is
+therefore intentionally absent from live stdout.
 
 Authoring envelope: the spatial-call budget is two spatial calls
 per step. A play comparing more than two cover candidates per step is doing the

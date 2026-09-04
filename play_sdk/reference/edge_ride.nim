@@ -11,6 +11,7 @@ const
   ManifestBytes =
     "{\"abi\":1,\"class\":\"controller\",\"doc\":\"ride safe-zone edges early and bias toward nearby cover\",\"modes\":[\"br\"],\"name\":\"edge_ride\",\"params\":{\"coverBias\":{\"default\":0.8,\"kind\":\"number\",\"max\":1.0,\"min\":0.0},\"enterLead\":{\"default\":120,\"integer\":true,\"kind\":\"number\",\"max\":600,\"min\":0},\"margin\":{\"default\":220,\"integer\":true,\"kind\":\"number\",\"max\":600,\"min\":40}},\"retune\":true}"
   CoverRadiusMaxPx = 331'i32
+  InitLog = "edge_ride initialized"
 
 type
   DecisionKind = enum
@@ -138,7 +139,9 @@ proc play_init*(paramsPtr, paramsLen, ctxPtr, ctxLen: int32): int32 {.
   discard ctxPtr
   discard ctxLen
   resetArena()
-  loadParams(paramsPtr, paramsLen, true)
+  result = loadParams(paramsPtr, paramsLen, true)
+  if result == 0:
+    log(1, InitLog.toOpenArrayByte(0, InitLog.high))
 
 proc play_step*(viewPtr, viewLen: int32): int32 {.exportc, cdecl.} =
   var decoded: EdgeRideView

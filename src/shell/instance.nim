@@ -25,6 +25,10 @@ type
     goal*: Option[ValidatedGoal]
     policy*: CombatPolicy
 
+  ShellLogRecord* = object
+    level*: int32
+    bytes*: string
+
   ShellInvocationResult* = object
     kind*: InvocationKind
     returned*: int32
@@ -34,6 +38,7 @@ type
     code*: FaultCode           ## meaningful when faulted or refused
     counters*: AbiCounters
     emitCodes*: seq[int32]
+    logs*: seq[ShellLogRecord]
     lastAccepted*: Option[ShellEmission]
     manifestBytes*: string
     fuelRemaining*: uint64
@@ -51,6 +56,7 @@ type
     pendingAccepted: Option[ShellEmission]
     manifestBytes: string
     emitCodes: seq[int32]
+    logs: seq[ShellLogRecord]
 
   ShellInstance* = ref object
     module: RuntimeModule
@@ -243,9 +249,11 @@ proc logCallback(env: pointer; caller: ptr WasmtimeCaller;
     return nil
   if host.invocation.noteLog():
     try:
-      discard checkedGuestBytes(caller,
+      let bytes = checkedGuestBytes(caller,
         shellWasmtimeValI32Get(addr values[1]),
         shellWasmtimeValI32Get(addr values[2]), MaxLogBytesPerCall)
+      host.logs.add ShellLogRecord(
+        level: shellWasmtimeValI32Get(addr values[0]), bytes: bytes)
     except CatchableError as error:
       host.invocation.fault(error.msg)
 
@@ -492,6 +500,7 @@ proc prepareInvocation(instance: ShellInstance, phase: AbiPhase,
   instance.host.pendingAccepted = none(ShellEmission)
   instance.host.manifestBytes.setLen(0)
   instance.host.emitCodes.setLen(0)
+  instance.host.logs.setLen(0)
   instance.setMetering(fuel)
 
 proc finishResult(instance: ShellInstance, kind: InvocationKind,
@@ -514,6 +523,7 @@ proc finishResult(instance: ShellInstance, kind: InvocationKind,
            else: instance.host.invocation.faultCode),
     counters: instance.host.invocation.counters,
     emitCodes: instance.host.emitCodes,
+    logs: instance.host.logs,
     lastAccepted: instance.lastAccepted,
     manifestBytes: instance.host.manifestBytes,
     fuelRemaining: fuelRemaining,

@@ -69,6 +69,16 @@ and the replay), so any two streams join on it. Seat lists are printed as
   `FIRST_LIGHT_INSTALL` line that follows on that tick and seat shows what
   the standing order fell back to, so a provenance switch with a fault line
   beside it was a fault, and one without was a guard, reflex, or call.
+- `FIRST_LIGHT_PLAY_LOG tick=T seat=S entry=ID phase=P level=N
+  message="..."` — a play's accepted `log` call from `init`, `step`, or
+  `retune`, with opaque signed level and raw bytes encoded by
+  `strutils.escape` so the record stays on one physical line. The synchronous
+  stdout sink admits four lines per seat per 24 ticks; later records are
+  suppressed and the next window's first admitted line adds
+  `dropped_previous=N`. These operator-visible diagnostics are best effort,
+  not private or durable, and do not enter status, replay, game state, or
+  `gameHash`. A slow stdout collector can delay the server loop. Upload-time
+  manifest-probe logs have no seat/entry identity and are not printed here.
 - `FIRST_LIGHT_PLAN_BUDGET tick=T seat=S revision=R visits=V units=U
   outcome=suspended|completed|failed` — the seat's cold route plan ran out
   of the pooled per-tick budget (`suspended`, once per starved visit), or a
