@@ -2666,6 +2666,17 @@ type
                         ## input masks, and the nav layer is regenerated
                         ## only in live play. false = default = the
                         ## shipped enemies-only cost function.
+    navHints*: bool     ## NAVHINTS: adds one small, PRECOMPUTED-INTEGER
+                        ## section to the play view carrying the engine's
+                        ## own zone answers for the seat's own cell —
+                        ## ticks until paint reaches me, geodesic distance
+                        ## and ticks to ground that survives the horizon,
+                        ## and the retreat flow direction. Fog-honest (the
+                        ## paint front is a public, drawn fact) and
+                        ## observation-only: no intent, no mask, no hashed
+                        ## state. Requires hazardAwarePlanner, which is
+                        ## what computes the answers. Off by default; a
+                        ## dark episode's view frames are byte-identical.
 
   Player* = object
     x*, y*: int

@@ -3851,7 +3851,7 @@ proc resetFirstLightForSim(episode: var FirstLightEpisode,
       config.season2Shell, config.brMode, controlSet.controls,
       newBodyMap(sim.gameMap), config.gunRange, controlSet.teams,
       mapName, config.viewIntervalTicks, controlSet.names,
-      config.hazardAwarePlanner)
+      config.hazardAwarePlanner, config.navHints)
     echo "FIRST_LIGHT enabled play_seats=", episode.seats.len,
       " executor=lane-a-fl-b reset=", reason
     let configured =

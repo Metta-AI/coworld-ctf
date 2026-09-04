@@ -187,6 +187,11 @@ type
   FirstLightEpisode* = object
     enabled*: bool
     brMode*: bool
+    navHints*: bool
+      ## NAVHINTS: whether the play view carries the engine's zone answers.
+      ## Separate from the planner's own arming so the two halves stage
+      ## independently — the planner can be armed and MEASURED before any
+      ## policy is allowed to see what it knows.
     rosterSize*: int
     map*: BodyMap
     nav*: BodyNavSystem
@@ -241,6 +246,24 @@ proc playZoneTicksToShrink(value: int): int =
   else:
     value
 
+proc navHints(episode: FirstLightEpisode; seatIndex: int;
+              selfPos: BodyPoint; tick: uint32): Option[PlayNav] =
+  ## NAVHINTS: the engine's own zone answers for THIS seat's own cell.
+  ##
+  ## Emitted only while the flag is armed, so a dark episode's frames — both
+  ## the guest's binary copy and the socket/replay JSON copy — are unchanged
+  ## byte for byte. Every value is a precomputed integer: a play never
+  ## computes a gradient, so no float math enters any play's wasm.
+  if not episode.navHints or episode.nav == nil or
+      not episode.nav.hazard.hasField:
+    return none(PlayNav)
+  let hints = episode.nav.navHintsFor(selfPos, tick.int)
+  some(PlayNav(
+    ticksUntilPaintHere: hints.ticksUntilPaintHere,
+    ticksToSafety: hints.ticksToSafety,
+    safeDistPx: hints.safeDistPx,
+    zoneSafeDirBrads: hints.zoneSafeDirBrads))
+
 when ShellRuntimeAvailable:
   proc firstLightPlayViewSource(episode: FirstLightEpisode; seatIndex: int;
                                 tick: uint32): Option[PlayViewSource] =
@@ -268,7 +291,8 @@ when ShellRuntimeAvailable:
               h: fallbacks.nextZone.h)),
             ticksToShrink:
               playZoneTicksToShrink(fallbacks.ticksToNextShrink),
-            dps: fallbacks.zoneDps))))
+            dps: fallbacks.zoneDps)),
+          navHints(episode, seatIndex, state.body.selfState.pos, tick)))
     none(PlayViewSource)
 
 proc firstLightViewBytes*(episode: FirstLightEpisode; seatIndex: int;
@@ -315,7 +339,8 @@ proc initFirstLightEpisode*(season2Shell, brMode: bool,
     mapName = "",
     viewInterval = ViewIntervalTicksDefault,
     names: openArray[string] = [],
-    hazardAwarePlanner = false): FirstLightEpisode =
+    hazardAwarePlanner = false,
+    navHints = false): FirstLightEpisode =
   ## `names` are the seats' display names in seat order (the closed
   ## roster's players[].name); empty means the context carries none.
   if teams.len > 0 and teams.len != controls.len:
@@ -334,6 +359,7 @@ proc initFirstLightEpisode*(season2Shell, brMode: bool,
   # neither and runs the shipped arithmetic byte for byte.
   result.nav = newBodyNavSystem(map, controls.len, liveGunRangePx,
     hazardAware = hazardAwarePlanner)
+  result.navHints = navHints
   when ShellRuntimeAvailable:
     result.mapName = mapName
     result.gunRange = liveGunRangePx
@@ -396,13 +422,15 @@ proc resetFirstLightEpisode*(episode: var FirstLightEpisode,
     mapName = "",
     viewInterval = ViewIntervalTicksDefault,
     names: openArray[string] = [],
-    hazardAwarePlanner = false) =
+    hazardAwarePlanner = false,
+    navHints = false) =
   ## Full episode replacement boundary for any server-side sim/config
   ## replacement. Fresh bodies re-run the activation safe install instead of
   ## carrying standing orders, nav state, or map-owned goals across matches.
   episode.closeFirstLightEpisode()
   episode = initFirstLightEpisode(season2Shell, brMode, controls, map,
-    liveGunRangePx, teams, mapName, viewInterval, names, hazardAwarePlanner)
+    liveGunRangePx, teams, mapName, viewInterval, names, hazardAwarePlanner,
+    navHints)
 
 proc installZoneHazard*(episode: var FirstLightEpisode,
     arrival: openArray[uint16], sourceW, sourceH, sourceCellPx: int,

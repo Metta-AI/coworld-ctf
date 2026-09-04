@@ -119,6 +119,14 @@ suite "paintbot manifest, battle-royale-s2 variant":
     # ship-armed doctrine: the flag exists as a rollback switch, not as a
     # staging gate.
     check config.hazardAwarePlanner
+    # NAVHINTS: the OBSERVATION half of the same lane, recorded DARK on
+    # purpose (the winAsMultiplier idiom -- darkness stated positively so the
+    # pair reads as one staged decision, not as an oversight). The planner
+    # fix is a behaviour correction that needs no policy change; publishing
+    # the engine's zone answers into the view is a new perception surface, and
+    # it arms only once the reference plays are retuned to read it and the
+    # planner's own effect has been measured on its own.
+    check not config.navHints
     # MINTCAP: the OTHER half of the same re-arm gate. zoneBlocksRevive
     # above kills the revive loop MECHANICALLY on painted ground; the
     # caps bound any repeatable-deed composition, including the dry-ground

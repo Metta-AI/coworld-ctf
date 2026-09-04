@@ -1028,6 +1028,30 @@ was, until this flag, a route the engine considered optimal.
   - The published `battle-royale-s2` variant arms it: on the one variant where
     painted ground is what kills you, routing into paint is a defect, and the
     flag is a rollback switch rather than a staging gate.
+- **`navHints`** (bool, default off, requires `hazardAwarePlanner`): publishes
+  the engine's zone answers into each seat's play view, as one small section
+  of PRECOMPUTED INTEGERS for that seat's own cell — ticks until paint reaches
+  me, the geodesic distance and the ticks to ground that survives the forward
+  horizon, and the retreat flow direction in brads.
+  - **Integers are the contract, not a convenience.** Shipping a raw field and
+    asking the guest to compute a gradient would import float math into every
+    play's wasm and open a native-vs-emscripten divergence surface where none
+    exists today. The play view is all-integer; it stays that way.
+  - **Fog-honest.** The paint front is a public, drawn fact, so this tells a
+    play nothing its own eyes could not infer. What it removes is the play
+    being WRONG: under `zoneDamageByPaint` the zone RECTANGLE a play can see
+    is not the surface that damages it, and a Euclidean bearing to a rect edge
+    is not a route around a wall.
+  - `world.zone`'s rects remain, as a LEGACY surface — removing them would
+    break every existing play. Prefer `nav`.
+  - Observation-only: no intent, no mask, no hashed state. Dark = both the
+    guest's binary frame and the socket/replay JSON copy are byte-identical
+    (the section is absent; the JSON key is absent).
+  - Ships DARK, including on `battle-royale-s2`. The planner fix above is a
+    behaviour correction that needs no policy change; publishing a new
+    perception surface is a separate decision, and it arms once the reference
+    plays are retuned to read it and the planner's own effect has been
+    measured on its own.
 
 ## Season 2 glory multiplier recut (GLORY v13 — dark)
 

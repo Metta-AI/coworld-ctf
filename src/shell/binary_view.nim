@@ -44,6 +44,10 @@ const
   BvHazardSprays* = 11'u16
   BvOwnThrow* = 12'u16
   BvStandingIntent* = 13'u16
+  BvNav* = 14'u16
+    ## NAVHINTS: appended section id. Emitted ONLY while the flag is armed, so
+    ## a dark build's frame bytes are unchanged and an old-compiled play that
+    ## never looks for section 14 is unaffected either way.
   BvContextRoster* = 101'u16
   BvContextSelf* = 102'u16
   BvContextModeMap* = 103'u16
@@ -61,6 +65,7 @@ const
   SprayRecordStride* = 48'u16
   OwnThrowRecordStride* = 16'u16
   StandingIntentRecordStride* = 200'u16
+  NavRecordStride* = 32'u16
   ContextRosterRecordStride* = 12'u16
   ContextSelfRecordStride* = 16'u16
   ContextModeMapRecordStride* = 24'u16
@@ -253,6 +258,16 @@ proc zonePayload(zone: PlayZone): string =
   result.putI32(next.y)
   result.putI32(next.w)
   result.putI32(next.h)
+
+proc navPayload(nav: PlayNav): string =
+  ## Fixed stride, all i32, "not available" spelled -1 in every field so a
+  ## guest needs no flags word to read it.
+  result.putI32(nav.ticksUntilPaintHere)
+  result.putI32(nav.ticksToSafety)
+  result.putI32(nav.safeDistPx)
+  result.putI32(nav.zoneSafeDirBrads)
+  for _ in 0 ..< 4:
+    result.putI32(0)   ## reserved: room to append without a stride change
 
 proc tracksPayload(rows: openArray[PlayTrack]): string =
   for row in rows:
@@ -457,6 +472,9 @@ proc playViewSections(model: PlayViewModel): seq[BinarySection] =
   if model.zone.isSome:
     result.add(payloadSection(BvZone, 1, ZoneRecordStride,
       model.zone.get.zonePayload))
+  if model.nav.isSome:
+    result.add(payloadSection(BvNav, 1, NavRecordStride,
+      model.nav.get.navPayload))
   if model.tracks.len > 0:
     result.add(payloadSection(BvTracks, uint16(model.tracks.len),
       TrackRecordStride, model.tracks.tracksPayload))
