@@ -1223,6 +1223,81 @@ check("Dockerfile: arms POC_LLM_PROTOCOL=bedrock (the sanctioned escape "
       "POC_LLM_PROTOCOL=bedrock" in DOCKERFILE_TEXT,
       "POC_LLM_PROTOCOL=bedrock not found in Dockerfile ENV block")
 
+
+# ── truncated-reply repair (live incident 2026-09-04): in BOTH the v14 and
+# v15 qualification matches, 2 of 16 seats hit
+# `model did not return JSON` where the payload was neither prose nor a
+# fenced block -- it was well-formed JSON cut off mid-token, on the first
+# attempt AND on the corrective retry. Because ResilientBrain latches its
+# error on first failure, one truncated reply turned that seat canned for
+# every remaining tick of the match. parse_model_json now salvages the
+# complete prefix. These checks pin BOTH halves of the contract: what the
+# repair must recover, and what it must still refuse. ───────────────────────
+sys.path.insert(0, str(_HERE.parent / "poc_llm_policy"))
+import brain  # noqa: E402
+
+check("brain: a plain JSON object still parses unchanged",
+      brain.parse_model_json('{"a": 1}') == {"a": 1})
+check("brain: a ```-fenced object still parses unchanged",
+      brain.parse_model_json('```json\n{"b": 2}\n```') == {"b": 2})
+check("brain: an object embedded in prose still parses unchanged",
+      brain.parse_model_json('sure thing {"c": 3} hope that helps') == {"c": 3})
+
+_TRUNC_MID_KEY = (
+    '{"chat": "ride tight", "call": {"entries": ['
+    '{"play": "scatter", "entry_id": "s"}, '
+    '{"play": "medic", "entry_id": "m", "params": {"abortHpF')
+_repaired = brain.parse_model_json(_TRUNC_MID_KEY)
+check("brain: a reply cut mid-key salvages every complete entry",
+      [e["play"] for e in _repaired["call"]["entries"]] == ["scatter", "medic"],
+      str(_repaired))
+check("brain: the entry whose params were cut keeps its play, drops the "
+      "half-written params (the harness repair path defaults them)",
+      "params" not in _repaired["call"]["entries"][-1],
+      str(_repaired["call"]["entries"][-1]))
+check("brain: the chat line survives the repair",
+      _repaired.get("chat") == "ride tight", str(_repaired.get("chat")))
+
+_TRUNC_MID_ARRAY = (
+    '{"chat": "zone closing", "call": {"entries": ['
+    '{"play": "pact", "entry_id": "clones"}, {')
+check("brain: a reply cut mid-array keeps the entries that did close",
+      [e["play"] for e in
+       brain.parse_model_json(_TRUNC_MID_ARRAY)["call"]["entries"]] == ["pact"])
+
+
+def _still_raises(text: str) -> bool:
+    try:
+        brain.parse_model_json(text)
+    except ValueError:
+        return True
+    return False
+
+
+check("brain: NEGATIVE -- a salvage with no complete entry is REFUSED, so a "
+      "seat cannot quietly no-op every tick while reporting a healthy model",
+      _still_raises('{"chat": "hold the line", "call": {"entries": [{"play": "sca'))
+check("brain: NEGATIVE -- the bare `{` prefill (the exact live failure "
+      "signature) still raises",
+      _still_raises("{"))
+check("brain: NEGATIVE -- prose still raises, degrade path intact",
+      _still_raises("I do not think I should answer that"))
+check("brain: NEGATIVE -- a top-level array still raises",
+      _still_raises("[1, 2, 3]"))
+check("brain: NEGATIVE -- structurally broken JSON is not 'repaired'",
+      _still_raises('{"a": 1}}} trailing'))
+check("brain: NEGATIVE -- empty output still raises",
+      _still_raises(""))
+
+# The salvaged plan must survive the SAME repair path a canned turn takes --
+# a recovered reply is worthless if the harness then rejects it.
+_salvaged_payload, _salvaged_wire = starter_harness.repair_call(
+    brain.parse_model_json(_TRUNC_MID_KEY), PERSONA, fake_seat(), AVAILABLE)
+check("brain: a repaired reply survives the harness repair path and reaches "
+      "the wire",
+      bool(_salvaged_wire) and all("play" in e for e in _salvaged_wire),
+      str(_salvaged_wire)[:200])
+
 print()
 if failures:
     print(f"SELF-CHECK FAILED: {len(failures)} failing check(s)")

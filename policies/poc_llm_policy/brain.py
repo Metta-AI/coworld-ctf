@@ -314,8 +314,13 @@ def parse_model_json(text: str) -> dict:
     ``json.loads`` died with "model did not return JSON" and lost its seat.
     Accepted shapes, in order: the bare object; the object inside the first
     ```…``` fence (with or without a language tag); the outermost ``{…}`` span
-    in surrounding prose. Anything else, including a top-level array, raises
-    ``ValueError`` so the caller's degrade path still fires for real garbage.
+    in surrounding prose; and LAST, a repair of an object the model started but
+    never finished (see :func:`_repair_truncated_json`). Anything else,
+    including a top-level array, raises ``ValueError`` so the caller's degrade
+    path still fires for real garbage.
+
+    Order matters: the repair is tried only after every exact shape has failed,
+    so nothing that parses today can change meaning tomorrow.
     """
     candidates = [text.strip()]
     fence = re.search(r"```[A-Za-z0-9_-]*\s*\n?(.*?)```", text, re.DOTALL)
@@ -331,7 +336,100 @@ def parse_model_json(text: str) -> dict:
             continue
         if isinstance(parsed, dict):
             return parsed
+    repaired = _repair_truncated_json(text)
+    if repaired is not None:
+        print(f"[poc] model reply was cut off mid-object; repaired it and kept "
+              f"{_salvaged_entry_count(repaired)} complete entr(y/ies)",
+              flush=True)
+        return repaired
     raise ValueError("no JSON object in model output")
+
+
+def _salvaged_entry_count(plan: dict) -> int:
+    call = plan.get("call")
+    entries = call.get("entries") if isinstance(call, dict) else None
+    return len(entries) if isinstance(entries, list) else 0
+
+
+def _repair_truncated_json(text: str) -> dict | None:
+    """Salvage the complete prefix of a JSON object that stops mid-token.
+
+    Why this exists: on the Paintbot ladder (Monet v14 and v15 qualification,
+    2026-09-04) 2 of 16 seats per match lost their brain to
+    ``model did not return JSON`` where the payload was neither prose nor
+    fenced -- it was well-formed JSON cut mid-token, on the first attempt AND
+    on the corrective retry. The first attempt stopped after ~172 characters,
+    far short of any display cap, so the reply itself was incomplete.
+
+    That cost far more than one decision: :class:`ResilientBrain` latches its
+    error on the first failure, so a single truncated reply used to turn the
+    seat canned for EVERY remaining tick of the match.
+
+    Strategy: walk the text once to learn where we are inside strings, then
+    retry progressively shorter prefixes cut at structural boundaries
+    (``,`` / ``}`` / ``]`` outside a string), closing the open containers.
+    The newest cut wins, so we keep as many complete entries as survived.
+    Returns ``None`` when there is nothing recoverable -- real garbage still
+    reaches the caller's degrade path.
+    """
+    start = text.find("{")
+    if start == -1:
+        return None
+    body = text[start:]
+
+    # One pass: record the bracket stack and string state before each index.
+    states, stack, in_string, escaped = [], [], False, False
+    for ch in body:
+        states.append((tuple(stack), in_string))
+        if in_string:
+            if escaped:
+                escaped = False
+            elif ch == "\\":
+                escaped = True
+            elif ch == '"':
+                in_string = False
+            continue
+        if ch == '"':
+            in_string = True
+        elif ch == "{":
+            stack.append("}")
+        elif ch == "[":
+            stack.append("]")
+        elif ch in "}]":
+            if not stack or stack[-1] != ch:
+                return None          # structurally broken, not merely cut short
+            stack.pop()
+
+    # Cut points, newest first: after a closer, or before a separating comma.
+    cuts = []
+    for i, ch in enumerate(body):
+        _, inside = states[i]
+        if inside:
+            continue
+        if ch in "}]":
+            cuts.append(i + 1)
+        elif ch == ",":
+            cuts.append(i)
+    for end in sorted(set(cuts), reverse=True)[:60]:
+        prefix_stack, prefix_in_string = states[end] if end < len(states) else (
+            tuple(stack), in_string)
+        if prefix_in_string:
+            continue
+        head = body[:end].rstrip().rstrip(",:").rstrip()
+        candidate = head + "".join(reversed(prefix_stack))
+        try:
+            parsed = json.loads(candidate)
+        except json.JSONDecodeError:
+            continue
+        # Only an ACTIONABLE salvage counts. A repair that recovers the chat
+        # line but no complete entry would have the seat quietly no-op every
+        # tick while still reporting a healthy model -- silent degradation is
+        # the failure class that hid canned play on the ladder for 23 hours.
+        # Returning None here keeps the loud path: corrective retry, then the
+        # visible degrade.
+        if isinstance(parsed, dict) and _salvaged_entry_count(parsed) > 0:
+            return parsed
+    return None
 
 
 class BedrockInvokeBrain:
