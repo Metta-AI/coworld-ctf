@@ -525,6 +525,8 @@ proc addPlayer*(
   sim.rewardAccounts[accountIndex].hasTeam = false
   sim.rewardAccounts[accountIndex].won = false
   sim.rewardAccounts[accountIndex].abandoned = false
+  inc sim.seatLifeGenerations[order]
+  inc sim.seatConnectionGenerations[order]
   sim.players.add Player(
     x: spawn.x,
     y: spawn.y,

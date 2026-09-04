@@ -4,7 +4,7 @@
 ## modules this file imports and re-exports (see
 ## docs/plans/2026-08-01-sim-split.md).
 import
-  std/[algorithm, json, math, os, random, strutils],
+  std/[algorithm, json, math, os, random, sequtils, strutils],
   bitworld/pixelfonts, bitworld/profile, bitworld/spriteprotocol,
   bitworld/server,
   pixie
@@ -13,6 +13,172 @@ import sim_types, rig_art, arena, map_art, sim_config, sim_state, roster,
   paint, ballot, zone_field
 export sim_types, rig_art, arena, map_art, sim_config, sim_state, roster,
   paint, ballot, zone_field
+
+const
+  GrenadeFlightObservationKind* = 1'u8
+  BlastObservationKind* = 2'u8
+  SprayConeObservationKind* = 3'u8
+  SprayImpactObservationKind* = 4'u8
+  GunAggressorObservationKind* = 5'u8
+  SprayAggressorObservationKind* = 6'u8
+  GrenadeAggressorObservationKind* = 7'u8
+  GunKillObservationKind* = 8'u8
+  SprayKillObservationKind* = 9'u8
+  GrenadeKillObservationKind* = 10'u8
+  ShoutObservationKind* = 11'u8
+  BlastObservationTicks* = 24
+  SprayImpactObservationTicks* = 48
+  PublicKillObservationTicks* = 240
+
+proc refreshPlayerFov*(sim: var SimServer, playerIndex: int): bool
+proc playerVisibleTo*(sim: SimServer, viewerIndex, targetIndex: int): bool
+
+proc observationSeatCode(slot: int): uint8 {.inline.} =
+  if slot >= 0 and slot < MaxPlayers: uint8(slot + 1) else: 0'u8
+
+proc packedObservationEventId*(tick: int, kindCode: uint8,
+                               sourceSlot, targetSlot: int,
+                               ordinal: uint32): uint64 {.inline.} =
+  ## Stable body-only identity. Seats are encoded as 1..32; zero is the
+  ## environment/no-seat sentinel.
+  (uint64(uint32(max(0, tick))) shl 32) or
+    (uint64(kindCode) shl 28) or
+    (uint64(observationSeatCode(sourceSlot)) shl 22) or
+    (uint64(observationSeatCode(targetSlot)) shl 16) or
+    uint64(ordinal)
+
+proc nextObservationEventId*(sim: var SimServer, kindCode: uint8,
+                             sourceSlot = -1, targetSlot = -1): uint64 =
+  if sim.observationOrdinalTick != sim.tickCount:
+    sim.observationOrdinalTick = sim.tickCount
+    sim.observationOrdinals.setLen(0)
+  let sourceCode = observationSeatCode(sourceSlot)
+  let targetCode = observationSeatCode(targetSlot)
+  for ordinal in sim.observationOrdinals.mitems:
+    if ordinal.kindCode == kindCode and ordinal.sourceCode == sourceCode and
+        ordinal.targetCode == targetCode:
+      let next = ordinal.next
+      inc ordinal.next
+      return packedObservationEventId(
+        sim.tickCount, kindCode, sourceSlot, targetSlot, next)
+  sim.observationOrdinals.add ObservationOrdinal(
+    kindCode: kindCode, sourceCode: sourceCode, targetCode: targetCode,
+    next: 1)
+  packedObservationEventId(sim.tickCount, kindCode, sourceSlot, targetSlot, 0)
+
+proc observationAudience(sim: SimServer): seq[ObservationAudienceSeat] =
+  for player in sim.players:
+    if player.alive and player.joinOrder >= 0 and player.joinOrder < MaxPlayers:
+      result.add ObservationAudienceSeat(
+        slot: uint8(player.joinOrder),
+        lifeGeneration: sim.seatLifeGenerations[player.joinOrder])
+
+proc observationAudience(sim: SimServer,
+                         playerIndex: int): seq[ObservationAudienceSeat] =
+  if playerIndex < 0 or playerIndex >= sim.players.len:
+    return
+  let slot = sim.players[playerIndex].joinOrder
+  if sim.players[playerIndex].alive and slot >= 0 and slot < MaxPlayers:
+    result.add ObservationAudienceSeat(
+      slot: uint8(slot), lifeGeneration: sim.seatLifeGenerations[slot])
+
+proc grenadeCoversPlayer*(sim: SimServer, playerIndex, x, y: int): bool =
+  ## Tests the nearest point of the cog's solid body box (plus or minus
+  ## PlayerHalf) against the blast circle, rather than testing only its center.
+  ## A cog touching the circle is caught, so on-axis reach is
+  ## GrenadeBlastRadius + PlayerHalf.
+  if playerIndex < 0 or playerIndex >= sim.players.len or
+      not sim.players[playerIndex].alive or sim.players[playerIndex].downed:
+    return false
+  let
+    playerX = sim.players[playerIndex].x + CollisionW div 2
+    playerY = sim.players[playerIndex].y + CollisionH div 2
+    nearX = max(0, abs(playerX - x) - PlayerHalf)
+    nearY = max(0, abs(playerY - y) - PlayerHalf)
+  nearX * nearX + nearY * nearY <= GrenadeBlastRadius * GrenadeBlastRadius
+
+proc recordAggressorObservation(sim: var SimServer, victimIndex,
+                                 attackerIndex: int, kindCode: uint8,
+                                 sourceX, sourceY: int): bool =
+  if victimIndex < 0 or victimIndex >= sim.players.len or
+      attackerIndex < 0 or attackerIndex >= sim.players.len or
+      victimIndex == attackerIndex:
+    return false
+  let
+    victimSlot = sim.players[victimIndex].joinOrder
+    attackerSlot = sim.players[attackerIndex].joinOrder
+  if victimSlot < 0 or victimSlot >= MaxPlayers or
+      attackerSlot < 0 or attackerSlot >= MaxPlayers:
+    return false
+  discard sim.refreshPlayerFov(victimIndex)
+  let visibleAttacker = sim.playerVisibleTo(victimIndex, attackerIndex)
+  sim.aggressorObservations.add AggressorObservation(
+    eventId: sim.nextObservationEventId(
+      kindCode, attackerSlot, victimSlot),
+    tick: sim.tickCount,
+    victimSlot: victimSlot,
+    victimLifeGeneration: sim.seatLifeGenerations[victimSlot],
+    dirBrads: bradsOfVector(
+      sourceX - (sim.players[victimIndex].x + CollisionW div 2),
+      sourceY - (sim.players[victimIndex].y + CollisionH div 2)),
+    attackerSlot: (if visibleAttacker: attackerSlot else: -1))
+  visibleAttacker
+
+proc recordSprayImpactObservation(sim: var SimServer, victimIndex,
+                                  attackerIndex, sourceX, sourceY: int) =
+  if victimIndex < 0 or victimIndex >= sim.players.len:
+    return
+  let
+    victimSlot = sim.players[victimIndex].joinOrder
+    attackerSlot =
+      if attackerIndex >= 0 and attackerIndex < sim.players.len:
+        sim.players[attackerIndex].joinOrder
+      else:
+        -1
+  if victimSlot < 0 or victimSlot >= MaxPlayers:
+    return
+  sim.sprayImpactObservations.add SprayImpactObservation(
+    eventId: sim.nextObservationEventId(
+      SprayImpactObservationKind, attackerSlot, victimSlot),
+    tick: sim.tickCount,
+    x: sim.players[victimIndex].x + CollisionW div 2,
+    y: sim.players[victimIndex].y + CollisionH div 2,
+    incomingDirBrads: bradsOfVector(
+      sourceX - (sim.players[victimIndex].x + CollisionW div 2),
+      sourceY - (sim.players[victimIndex].y + CollisionH div 2)),
+    audience: sim.observationAudience(victimIndex))
+
+proc recordBlastObservation(sim: var SimServer, x, y, sourceSlot: int) =
+  var coveredSlots = 0'u32
+  for playerIndex, player in sim.players:
+    if player.joinOrder >= 0 and player.joinOrder < MaxPlayers and
+        sim.grenadeCoversPlayer(playerIndex, x, y):
+      coveredSlots = coveredSlots or (1'u32 shl player.joinOrder)
+  sim.blastObservations.add BlastObservation(
+    eventId: sim.nextObservationEventId(BlastObservationKind, sourceSlot),
+    tick: sim.tickCount,
+    x: x,
+    y: y,
+    audience: sim.observationAudience(),
+    coveredSlots: coveredSlots)
+
+proc recordKillObservation(sim: var SimServer, sourceSlot, victimSlot: int,
+                           killerTeam: Team, kindCode: uint8) =
+  if victimSlot < 0 or victimSlot >= MaxPlayers:
+    return
+  sim.publicKillObservations.add KillObservation(
+    eventId: sim.nextObservationEventId(kindCode, sourceSlot, victimSlot),
+    tick: sim.tickCount,
+    killerTeam: killerTeam,
+    victimSlot: victimSlot)
+
+proc pruneBodyObservations(sim: var SimServer) =
+  sim.publicKillObservations.keepItIf(
+    sim.tickCount - it.tick < PublicKillObservationTicks)
+  sim.blastObservations.keepItIf(
+    sim.tickCount - it.tick < BlastObservationTicks)
+  sim.sprayImpactObservations.keepItIf(
+    sim.tickCount - it.tick < SprayImpactObservationTicks)
 
 # ─────────────────────────────────────────────────────────────────────────
 # GLORY PORT, increment 2/3 — the team ledger, the per-life ladder,
@@ -1557,6 +1723,13 @@ proc startGame*(sim: var SimServer) =
   sim.shotFeedback = @[]
   sim.gloryDeeds = @[]
   sim.recentShouts = @[]
+  sim.aggressorObservations = @[]
+  sim.publicKillObservations = @[]
+  sim.blastObservations = @[]
+  sim.sprayImpactObservations = @[]
+  sim.shoutObservations = @[]
+  sim.observationOrdinalTick = -1
+  sim.observationOrdinals = @[]
   sim.arrangeHomePositions()
   # GLORY: every ledger, multiplier and one-shot achievement gate resets at
   # the game boundary -- a per-episode economy that leaked across games
@@ -1567,6 +1740,9 @@ proc startGame*(sim: var SimServer) =
     ## function of the config seed) — spawnAimBrads' BR path needs it too, so
     ## a rotated team's facing matches the point it actually spawned at.
   for i in 0 ..< sim.players.len:
+    let slot = sim.players[i].joinOrder
+    if slot >= 0 and slot < MaxPlayers:
+      inc sim.seatLifeGenerations[slot]
     sim.players[i].lastShoutTick = -1
     sim.players[i].alive = true
     ## seatLivesFor, not livesFor: this reset runs at MATCH START and used
@@ -2913,7 +3089,7 @@ proc canFireArc*(sim: SimServer, attackerIndex: int): bool =
   attacker.alive and not attacker.downed and
     attacker.hasSprayPaint and attacker.fireCooldown <= 0
 
-proc selectArcVictims(
+proc selectArcVictims*(
   sim: SimServer,
   attackerIndex: int
 ): seq[int] =
@@ -3058,6 +3234,15 @@ proc resolveActiveArcCones*(sim: var SimServer) =
       let bubbleUp = sim.players[victimIndex].hasShield and
         sim.players[victimIndex].shieldHp > 0
       let sprayDamage = max(1, sim.config.sprayDamage)
+      let attackerVisible = sim.recordAggressorObservation(
+        victimIndex, arcFire.attacker, SprayAggressorObservationKind,
+        attacker.x + CollisionW div 2, attacker.y + CollisionH div 2)
+      if not attackerVisible:
+        sim.recordSprayImpactObservation(
+          victimIndex,
+          arcFire.attacker,
+          attacker.x + CollisionW div 2,
+          attacker.y + CollisionH div 2)
       let blocked = sim.absorbDamage(
         victimIndex, sprayDamage, arcFire.attacker, "spray"
       )
@@ -3148,6 +3333,11 @@ proc resolveActiveArcCones*(sim: var SimServer) =
             Kill, source = arcFire.attacker, target = victimIndex,
             weapon = "spray", amount = sprayDamage, x = vx, y = vy
           )
+          sim.recordKillObservation(
+            attacker.joinOrder,
+            sim.players[victimIndex].joinOrder,
+            attacker.team,
+            SprayKillObservationKind)
           # Multi-kill accounting per ACTIVATION (not per tick): the second
           # kill of one firing mints a double, the third upgrades it to a
           # triple; a fourth+ stays inside the already-counted triple.
@@ -3449,6 +3639,8 @@ proc applyFire(sim: var SimServer, shot: PendingGunShot) =
     if PerkLuck in shooter.perks and
         sim.rng.rand(999) < sim.config.perkMods.luckChance:
       damage = sim.config.perkMods.luckDamage
+    discard sim.recordAggressorObservation(
+      targetIndex, shooterIndex, GunAggressorObservationKind, sx, sy)
     let blocked = sim.absorbDamage(targetIndex, damage, shooterIndex, "gun")
     # Paintball paint marks the body only when the shield bubble ISN'T eating it
     # (a bubble dent draws no body paint). Stamp so the EYES-PiP visor splat
@@ -3552,6 +3744,11 @@ proc applyFire(sim: var SimServer, shot: PendingGunShot) =
         x = float(sim.players[targetIndex].x + CollisionW div 2),
         y = float(sim.players[targetIndex].y + CollisionH div 2)
       )
+      sim.recordKillObservation(
+        shooter.joinOrder,
+        sim.players[targetIndex].joinOrder,
+        shooter.team,
+        GunKillObservationKind)
     else:
       if not bubbleUp:
         # A non-fatal hit leaves a small, short-lived paint spark in the
@@ -3731,7 +3928,9 @@ proc throwGrenade(sim: var SimServer, playerIndex: int) =
     flightTicks: flight,
     thrower: playerIndex,
     throwerSlot: player.joinOrder,
-    throwerAccount: sim.rewardAccountIndexForSlot(player.joinOrder)
+    throwerAccount: sim.rewardAccountIndexForSlot(player.joinOrder),
+    observationId: sim.nextObservationEventId(
+      GrenadeFlightObservationKind, player.joinOrder)
   )
   sim.emitEvent(
     GrenadeThrow,
@@ -3964,6 +4163,7 @@ proc explodeGrenade(sim: var SimServer, grenade: AirborneGrenade) =
     x: grenade.tx, y: grenade.ty, tick: sim.tickCount, color: throwerColor,
     trenchLanding: landingTrench >= 0
   )
+  sim.recordBlastObservation(grenade.tx, grenade.ty, throwerSlot)
   # A paint bomb repaints the ground it lands on permanently: a cluster of
   # dried stains across the blast footprint, so a contested chokepoint that
   # eats grenades ends the match visibly coated. Offsets are fixed (and each
@@ -3982,7 +4182,6 @@ proc explodeGrenade(sim: var SimServer, grenade: AirborneGrenade) =
       continue
     sim.addPaintStain(bx, by, throwerColor)
   sim.logGameEvent("grenade landed")
-  let radiusSq = GrenadeBlastRadius * GrenadeBlastRadius
   var
     blastKills = 0
     damages: seq[EventDamage]
@@ -3994,15 +4193,8 @@ proc explodeGrenade(sim: var SimServer, grenade: AirborneGrenade) =
     let
       px = sim.players[i].x + CollisionW div 2
       py = sim.players[i].y + CollisionH div 2
-      # GV30: the blast tests the SOLID BODY BOX (±PlayerHalf), not the bare
-      # position point — a cog whose footprint touches the circle is caught,
-      # the same rule the gun's bullet corridor already uses (BulletHalfWidth
-      # sampled across ±PlayerHalf). Circle-vs-box is the distance from the
-      # burst to the NEAREST point of the box, so on-axis reach becomes
-      # GrenadeBlastRadius + PlayerHalf.
-      nearX = max(0, abs(px - grenade.tx) - PlayerHalf)
-      nearY = max(0, abs(py - grenade.ty) - PlayerHalf)
-    if nearX * nearX + nearY * nearY > radiusSq:
+    # GV30: the blast tests the solid body box, not the bare position point.
+    if not sim.grenadeCoversPlayer(i, grenade.tx, grenade.ty):
       continue
     # A trench traps or shields a blast: a victim caught in the SAME trench
     # the grenade landed in takes amplified damage (nowhere to duck), a
@@ -4018,7 +4210,11 @@ proc explodeGrenade(sim: var SimServer, grenade: AirborneGrenade) =
       # the blast keeps the body clean, exactly as with a paintball (see the
       # gun's damage site).
       bubbleUp = sim.players[i].hasShield and sim.players[i].shieldHp > 0
-      blocked = sim.absorbDamage(i, dmg, throwerIndex, "grenade")
+    if throwerIndex >= 0:
+      discard sim.recordAggressorObservation(
+        i, throwerIndex, GrenadeAggressorObservationKind,
+        grenade.tx, grenade.ty)
+    let blocked = sim.absorbDamage(i, dmg, throwerIndex, "grenade")
     if sim.config.allowShotFeedback and throwerIndex >= 0 and i != throwerIndex:
       # Same private hit-confirm the gun's damage site pushes (applyFire) —
       # area weapons are cheap to cover here too. Excludes self-splash
@@ -4123,6 +4319,11 @@ proc explodeGrenade(sim: var SimServer, grenade: AirborneGrenade) =
           amount = dmg, x = float(px), y = float(py),
           sourceSlot = throwerSlot
         )
+        sim.recordKillObservation(
+          throwerSlot,
+          sim.players[i].joinOrder,
+          throwerTeam,
+          GrenadeKillObservationKind)
         # Cluster (multi-kill) honors count enemy kills only.
         if throwerIndex >= 0 and throwerIndex != i and not teamKill:
           inc blastKills
@@ -4613,6 +4814,19 @@ proc applyShout*(sim: var SimServer, playerIndex: int, text: string): bool {.dis
     shout.calloutCell = parsed.cell
   kept.add shout
   sim.recentShouts = kept
+  var keptObservations: seq[ShoutObservation]
+  for observation in sim.shoutObservations:
+    if observation.address != address:
+      keptObservations.add observation
+  keptObservations.add ShoutObservation(
+    eventId: sim.nextObservationEventId(
+      ShoutObservationKind, sim.players[playerIndex].joinOrder),
+    tick: sim.tickCount,
+    sourceSlot: sim.players[playerIndex].joinOrder,
+    sourceConnectionGeneration:
+      sim.seatConnectionGenerations[sim.players[playerIndex].joinOrder],
+    address: address)
+  sim.shoutObservations = keptObservations
   sim.emitEvent(
     ShoutEvent,
     source = playerIndex,
@@ -5880,7 +6094,8 @@ proc launchBarrageShell(sim: var SimServer) =
     flightTicks: max(1, GrenadeFlightMultiple * sim.config.fireWindupTicks),
     thrower: -1,
     throwerSlot: -1,
-    throwerAccount: -1
+    throwerAccount: -1,
+    observationId: sim.nextObservationEventId(GrenadeFlightObservationKind)
   )
 
 proc updateBarrage*(sim: var SimServer) =
@@ -6735,6 +6950,13 @@ proc resetToLobby*(sim: var SimServer) =
   sim.recentBlasts = @[]
   sim.sprayPaintFlashes = @[]
   sim.recentShouts = @[]
+  sim.aggressorObservations = @[]
+  sim.publicKillObservations = @[]
+  sim.blastObservations = @[]
+  sim.sprayImpactObservations = @[]
+  sim.shoutObservations = @[]
+  sim.observationOrdinalTick = -1
+  sim.observationOrdinals = @[]
   sim.recentShots = @[]
   sim.hitFlashes = @[]
   sim.bubbleImpacts = @[]
@@ -7273,6 +7495,9 @@ proc respawnPlayers(sim: var SimServer) =
         let spawn = sim.randomEndzonePosition(sim.players[i].team)
         sim.placePlayer(i, spawn.x, spawn.y)
         sim.players[i].alive = true
+        let slot = sim.players[i].joinOrder
+        if slot >= 0 and slot < MaxPlayers:
+          inc sim.seatLifeGenerations[slot]
         sim.players[i].hp =
           sim.config.maxHpFor(sim.players[i].team, sim.players[i].perks)
         sim.players[i].aimBrads =
@@ -7579,7 +7804,12 @@ proc step*(
   inputs: openArray[InputState],
   prevInputs: openArray[InputState]
 ) {.measure.} =
+  # The server samples the previous tick's private damage records before
+  # entering this step. Clear once here, after every eligible seat had the
+  # same chance to receive them; never drain per seat.
+  sim.aggressorObservations.setLen(0)
   inc sim.tickCount
+  sim.pruneBodyObservations()
 
   # GLORY: the heat ladder cools on a stalled streak -- called unconditionally
   # every tick (same as main), same reasoning as evalAchievementsAllTeams
@@ -7751,6 +7981,7 @@ proc step*(
   # observable gameplay state (bots hear them), so expiry is part of the
   # deterministic sim and the hash.
   sim.pruneAgedFx(recentShouts, tick, ShoutTicks)
+  sim.pruneAgedFx(shoutObservations, tick, ShoutTicks)
   sim.pruneAgedFx(splatters, tick,
     (if fx.hit: HitFxTicks else: SplatterFxTicks))
   sim.pruneAgedFx(damagePops, tick,

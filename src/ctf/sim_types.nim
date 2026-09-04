@@ -3684,6 +3684,59 @@ type
                                ## (e.g. "F9"), "" when absent or not a
                                ## callout.
 
+  ObservationAudienceSeat* = object
+    ## One seat admitted to a private observation at event time. The life
+    ## generation prevents a later respawn or reconnect in the same stable
+    ## slot from inheriting the old fact.
+    slot*: uint8
+    lifeGeneration*: uint32
+
+  AggressorObservation* = object
+    ## One private damage source delivered at the next body boundary only.
+    eventId*: uint64
+    tick*: int
+    victimSlot*: int
+    victimLifeGeneration*: uint32
+    dirBrads*: int
+    attackerSlot*: int         ## -1 when the attacker was hidden.
+
+  KillObservation* = object
+    ## Public, attribution-safe kill row. No killer seat or location.
+    eventId*: uint64
+    tick*: int
+    killerTeam*: Team
+    victimSlot*: int
+
+  BlastObservation* = object
+    ## Anonymous grenade landing retained independently of cosmetic blast FX.
+    eventId*: uint64
+    tick*: int
+    x*, y*: int
+    audience*: seq[ObservationAudienceSeat]
+    coveredSlots*: uint32
+
+  SprayImpactObservation* = object
+    ## A victim-private hidden-attacker impact. The body receives a jittered
+    ## position and incoming direction, never the attacker's identity.
+    eventId*: uint64
+    tick*: int
+    x*, y*: int
+    incomingDirBrads*: int
+    audience*: seq[ObservationAudienceSeat]
+
+  ShoutObservation* = object
+    ## Stable body identity for an existing live Shout. Shout remains the
+    ## authoritative display/hash object and keeps its existing semantics.
+    eventId*: uint64
+    tick*: int
+    sourceSlot*: int
+    sourceConnectionGeneration*: uint32
+    address*: string
+
+  ObservationOrdinal* = object
+    kindCode*, sourceCode*, targetCode*: uint8
+    next*: uint32
+
   PickupSpawn* = object
     ## One fixed pickup point: corner grenades and center med kits.
     x*, y*: int
@@ -3773,6 +3826,7 @@ type
     thrower*: int              ## live index retained for replay-hash compatibility.
     throwerSlot*: int          ## immutable analysis identity; never hashed.
     throwerAccount*: int       ## stable results account; never hashed.
+    observationId*: uint64     ## body-only flight identity; never hashed.
 
   FlagState* = object
     ## One team's flag: provably sitting on its home pedestal (carrier == -1),
@@ -4167,6 +4221,17 @@ type
                             ## only. One-shot like weaponSpawns.
     bandageSpawns*: seq[PickupSpawn] ## LOOT(s2): bandage pickups,
                             ## bandagePickups only. Refills like med kits.
+    # S2 body observations. Appended for the flatty keyframe rule; all are
+    # internal, non-entrant, and deliberately absent from gameHash.
+    seatLifeGenerations*: array[MaxPlayers, uint32]
+    seatConnectionGenerations*: array[MaxPlayers, uint32]
+    observationOrdinalTick*: int
+    observationOrdinals*: seq[ObservationOrdinal]
+    aggressorObservations*: seq[AggressorObservation]
+    publicKillObservations*: seq[KillObservation]
+    blastObservations*: seq[BlastObservation]
+    sprayImpactObservations*: seq[SprayImpactObservation]
+    shoutObservations*: seq[ShoutObservation]
 
 # Team endzone display colors (shared by the map bake and the paint FX).
 const

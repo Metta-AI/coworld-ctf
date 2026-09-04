@@ -22,6 +22,12 @@ const
   ItemMemoryCap = 32
   AggressorWindowTicks = 120'u32
   KillFeedWindowTicks = 240'u32
+  AggressorMemoryCap = 16
+  KillFeedMemoryCap = 32
+  ShoutMemoryCap = 32
+  GrenadeHazardCap = 8
+  BlastCueCap = 4
+  SprayHazardCap = 8
   MovementMask = ButtonUp or ButtonDown or ButtonLeft or ButtonRight
   # PORTED from the pinned lab — parity-bound, do NOT tune. Changing one of
   # these changes the gate-1 differential, not just behaviour.
@@ -626,6 +632,8 @@ proc updateBelief*(body: SeatBody, inputs: BodyTickInputs, tick: uint32) =
     validateSeat(event.victimSeat, "kill feed victim")
     body.killFeed.upsertKill(event)
   body.killFeed.normalizeKillFeed(tick)
+  if body.killFeed.len > KillFeedMemoryCap:
+    body.killFeed.setLen(KillFeedMemoryCap)
 
   for event in inputs.aggressorEvents:
     validateTick(event.tick, tick, "aggressor event")
@@ -634,6 +642,8 @@ proc updateBelief*(body: SeatBody, inputs: BodyTickInputs, tick: uint32) =
       validateSeat(event.seat.get, "aggressor")
     body.aggressorEvents.upsertAggressor(event)
   body.aggressorEvents.normalizeAggressors(tick)
+  if body.aggressorEvents.len > AggressorMemoryCap:
+    body.aggressorEvents.setLen(AggressorMemoryCap)
 
   var shouts: seq[ShoutEvent]
   for event in inputs.shouts:
@@ -647,6 +657,8 @@ proc updateBelief*(body: SeatBody, inputs: BodyTickInputs, tick: uint32) =
     shouts.add(event)
   body.shouts = shouts
   body.shouts.normalizeShouts(body.selfState.pos)
+  if body.shouts.len > ShoutMemoryCap:
+    body.shouts.setLen(ShoutMemoryCap)
 
   var hazards = inputs.hazards
   for hazard in hazards.grenades:
@@ -663,6 +675,12 @@ proc updateBelief*(body: SeatBody, inputs: BodyTickInputs, tick: uint32) =
     of bshAnonymousImpact:
       validateAim(some(hazard.incomingDirBrads), "spray hazard")
   hazards.normalizeHazards(body.selfState.pos)
+  if hazards.grenades.len > GrenadeHazardCap:
+    hazards.grenades.setLen(GrenadeHazardCap)
+  if hazards.blastCues.len > BlastCueCap:
+    hazards.blastCues.setLen(BlastCueCap)
+  if hazards.sprays.len > SprayHazardCap:
+    hazards.sprays.setLen(SprayHazardCap)
   body.hazards = hazards
 
   body.partnerGrant = none(PartnerTelemetry)
