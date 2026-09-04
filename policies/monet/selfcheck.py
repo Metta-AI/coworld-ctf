@@ -538,6 +538,39 @@ check("bodyguard-normalize: the model's target (ward) survives onto both "
 check("bodyguard-normalize: the model's peelHp survives normalization",
       all(e["params"].get("peelHp") == 5 for e in targeted), str(targeted))
 
+# A ward the model actually asked for, in the wrong shape, must not vanish
+# indistinguishably from ward simply being omitted -- CLEAN_DROPS
+# (starter_harness.py's generic param cleaner) is the counter that tells
+# the two apart. "9" is the realistic miss: the brief demands the exact
+# form "seat:<N>", and a bare seat number is the most likely way a model
+# drifts off it.
+_ward_key = "bodyguard.ward"
+_drops_before = dict(getattr(starter_harness, "CLEAN_DROPS", {}))
+starter_harness.repair_call(
+    {"call": {"entries": [
+        {"play": "bodyguard", "entry_id": "ride",
+         "params": {"leash": [110, 280], "interpose": False,
+                    "ward": "9"}},
+    ]}}, PERSONA, fake_seat(), AVAILABLE)
+_drops_after = getattr(starter_harness, "CLEAN_DROPS", {})
+check("bodyguard-normalize: a malformed ward (\"9\", missing the "
+      "\"seat:\" prefix) the model actually supplied is COUNTED in "
+      "CLEAN_DROPS, not silently indistinguishable from ward being "
+      "omitted",
+      _drops_after.get(_ward_key, 0) > _drops_before.get(_ward_key, 0),
+      f"before {_drops_before.get(_ward_key, 0)} after "
+      f"{_drops_after.get(_ward_key, 0)}")
+
+_drops_before2 = dict(getattr(starter_harness, "CLEAN_DROPS", {}))
+_bg_wanted([{"play": "bodyguard", "entry_id": "ride",
+            "params": {"leash": [110, 280], "interpose": False,
+                       "ward": "seat:9"}}])
+_drops_now = getattr(starter_harness, "CLEAN_DROPS", {})
+check("bodyguard-normalize: a well-formed ward never counts as a drop "
+      "(CLEAN_DROPS only fires on values that actually fail cleaning)",
+      _drops_now.get(_ward_key, 0) == _drops_before2.get(_ward_key, 0),
+      str(_drops_now))
+
 order_seat = fake_seat()
 starter_harness.repair_call(
     {"call": {"entries": [

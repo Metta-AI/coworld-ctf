@@ -505,6 +505,17 @@ def _clean_enum_list(value, spec):
     return seen[:spec["max_items"]] or None
 
 
+# A param the model actually supplied a value for, but whose value failed
+# its kind's cleaning (bad seat_ref format, out-of-range pair, ...), is
+# indistinguishable downstream from a param the model never mentioned --
+# both end up simply absent from `cleaned`. CLEAN_DROPS is the counter that
+# tells the two apart, keyed "play.key", so a persona whose model keeps
+# asking for something that never reaches the wire (e.g. bodyguard's ward
+# sent in the wrong shape) shows up in the starter summary instead of
+# vanishing silently.
+CLEAN_DROPS: dict[str, int] = {}
+
+
 def _clean_params(play: str, params) -> dict | None:
     """Clean one entry's params against the manifest; None drops the entry
     (a required param did not survive)."""
@@ -515,6 +526,7 @@ def _clean_params(play: str, params) -> dict | None:
             spec = specs.get(key)
             if spec is None:
                 continue  # unknown params are rejected by name; drop here
+            raw = value
             kind = spec["kind"]
             if kind in ("int", "float"):
                 value = poc_policy._clamp_number(value, spec)
@@ -536,6 +548,9 @@ def _clean_params(play: str, params) -> dict | None:
                 value = None
             if value is not None:
                 cleaned[key] = value
+            elif raw is not None:
+                tag = f"{play}.{key}"
+                CLEAN_DROPS[tag] = CLEAN_DROPS.get(tag, 0) + 1
     for key, spec in specs.items():
         if spec.get("required") and key not in cleaned:
             return None
@@ -1220,6 +1235,9 @@ def run(persona: Persona, args) -> int:
     _log(persona, f"real model calls: {getattr(engine, 'calls', 0)}")
     _log(persona, f"statuses received: {len(seat.statuses)}")
     _log(persona, f"chat broadcasts received: {len(seat.chat)}")
+    if CLEAN_DROPS:
+        _log(persona, f"params the model asked for that never reached the "
+                      f"wire (failed cleaning): {CLEAN_DROPS}")
     if failures:
         for failure in failures:
             _log(persona, f"FAILURE: {failure}")

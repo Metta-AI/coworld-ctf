@@ -94,7 +94,11 @@ MIN_LEASH_COMBAT = 40
 # returns; adjust_entries below (see _normalize_bodyguard) now enforces the
 # split structurally, the same way it already enforces truce honor and fire
 # discipline: whatever the model calls bodyguard, however it names it,
-# however many entries it sends, the wire only ever carries these two.
+# however many entries it sends, only these two canonical ids ever exist
+# from here on -- never a third, never a self-named survivor. That pair is
+# the WANTED ladder, not the wire: gate_open (starter_harness.py) keeps
+# "shield-close" and "shield" mutually exclusive by construction, so a
+# single call carries at most one live band, never both at once.
 BODYGUARD_LEASH = {"shield-close": [MIN_LEASH_COMBAT, 120],
                     "shield": [MIN_LEASH, 150]}
 
