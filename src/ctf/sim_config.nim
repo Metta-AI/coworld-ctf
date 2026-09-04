@@ -125,6 +125,9 @@ proc defaultGameConfig*(): GameConfig =
     lootSpawnSeedGuns: 0,
     lootSpawnSeedHoppers: 0,
     lootSpawnSeedRadius: 0,
+    # SITECLASS: dark by default — every fallback hopper crate keeps the
+    # inherited med-kit (retreat-class) siting, byte-identical.
+    hopperSiteTrafficPermille: 0,
     # PERCEPTION(glory-2 §17): the frame loadout-flag exposure, dark by
     # default — no hasGun/hasHopper key ever appears on the replay frame
     # or the duo-partner grant until armed.
@@ -1094,6 +1097,13 @@ proc validate(config: GameConfig) =
   if config.bandagePickups < 0:
     raise newException(CtfError,
       "Config field bandagePickups must not be negative.")
+  if config.bandagePickups > NeutralPickupPoolWidth:
+    # PLACEMENT CAP: the board addresses one object id per bandage out of a
+    # NeutralPickupPoolWidth-wide pool; past that the render loop clamps and
+    # the extra pickups exist in the sim but not on any screen. Refuse the
+    # knob loudly rather than ship invisible pickups.
+    raise newException(CtfError,
+      "Config field bandagePickups must be 0.." & $NeutralPickupPoolWidth & ".")
   if config.lootStart and not config.brMode:
     raise newException(CtfError, "Config field lootStart requires brMode.")
   if config.downedMode and not config.brMode:
@@ -1126,6 +1136,16 @@ proc validate(config: GameConfig) =
       not config.lootStart:
     raise newException(CtfError,
       "Config fields lootSpawnSeedGuns/lootSpawnSeedHoppers require lootStart.")
+  # SITECLASS: a per-mille, and only meaningful while there are fallback
+  # hopper crates to re-site — so it rides lootStart the same way the seed
+  # counts do, refused loudly instead of parsing into a silent no-op.
+  if config.hopperSiteTrafficPermille < 0 or
+      config.hopperSiteTrafficPermille > 1000:
+    raise newException(CtfError,
+      "Config field hopperSiteTrafficPermille must be 0..1000.")
+  if config.hopperSiteTrafficPermille > 0 and not config.lootStart:
+    raise newException(CtfError,
+      "Config field hopperSiteTrafficPermille requires lootStart.")
 
 proc update*(config: var GameConfig, jsonText: string) =
   ## Updates a gameplay config from a JSON object.
@@ -1331,6 +1351,10 @@ proc update*(config: var GameConfig, jsonText: string) =
   node.readConfigInt("lootSpawnSeedGuns", config.lootSpawnSeedGuns)
   node.readConfigInt("lootSpawnSeedHoppers", config.lootSpawnSeedHoppers)
   node.readConfigInt("lootSpawnSeedRadius", config.lootSpawnSeedRadius)
+  # SITECLASS: appended read for the appended hopper site-class field —
+  # same tail-append rule; absent leaves the dark default.
+  node.readConfigInt(
+    "hopperSiteTrafficPermille", config.hopperSiteTrafficPermille)
   # PERCEPTION(glory-2 §17): appended read for the appended
   # frameLoadoutFlags field (sim_types.nim) — same tail-append rule as
   # everything above. An absent key leaves the dark default, so an
@@ -1714,6 +1738,13 @@ proc echoSpawnLootSeedKeys(config: GameConfig, node: JsonNode) =
     node["lootSpawnSeedHoppers"] = %config.lootSpawnSeedHoppers
     node["lootSpawnSeedRadius"] = %config.lootSpawnSeedRadius
 
+proc echoHopperSiteKeys(config: GameConfig, node: JsonNode) =
+  ## SITECLASS: the hopper fallback's site-class weighting, echoed only when
+  ## it departs from the dark default — same byte-identity rule as every
+  ## echo above, so a dark config's JSON is unchanged.
+  if config.hopperSiteTrafficPermille > 0:
+    node["hopperSiteTrafficPermille"] = %config.hopperSiteTrafficPermille
+
 proc echoFrameLoadoutKeys(config: GameConfig, node: JsonNode) =
   ## PERCEPTION(glory-2 §17): the frame loadout-flag exposure gate, echoed
   ## only when armed — same byte-identity rule as every echo above.
@@ -1826,6 +1857,7 @@ proc configJson*(config: GameConfig): string =
   echoRecutKeys(config, node)
   echoStampKeys(config, node)
   echoSpawnLootSeedKeys(config, node)
+  echoHopperSiteKeys(config, node)
   echoFrameLoadoutKeys(config, node)
   result = $node
 
@@ -1860,6 +1892,7 @@ proc realizedConfigStampJson*(config: GameConfig): string =
     "downedMode=" & $config.downedMode,
     "frameLoadoutFlags=" & $config.frameLoadoutFlags,
     "gloryMultiplierRecut=" & $config.gloryMultiplierRecut,
+    "hopperSiteTrafficPermille=" & $config.hopperSiteTrafficPermille,
     "lootStart=" & $config.lootStart,
     "medKitCount=" & $config.medKitCount,
     "stampRealizedConfig=" & $config.stampRealizedConfig,

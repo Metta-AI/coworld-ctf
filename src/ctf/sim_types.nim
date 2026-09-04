@@ -830,6 +830,29 @@ const
                               ## carried bandage self-applies +1 hp.
   BandagePickupRange* = MedKitPickupRange ## same touch radius as med kits.
   WeaponPickupRange* = MedKitPickupRange  ## marker/hopper crate touch radius.
+  NeutralPickupPoolWidth* = 64 ## PLACEMENT CAP: board-object ids are handed
+                              ## out in fixed-width per-family pools (see
+                              ## global.nim's NeutralItemPoolWidth, which is
+                              ## THIS number), and the render procs assert on
+                              ## a family wider than its pool. So placement
+                              ## itself caps every neutral family here: a
+                              ## crate the board cannot address is a crate a
+                              ## cog cannot see, which is exactly the bug the
+                              ## ground-art slice just fixed. Placement is a
+                              ## GUARANTEE, not a filter.
+  LootSiteRingRadius* = 24    ## SITECLASS px a re-sited/lapped pickup is
+                              ## ringed off its anchor point: 2x the 12px
+                              ## item touch radius, so two crates sharing one
+                              ## anchor are two separate walk-overs and never
+                              ## one pickup that arms both halves at once,
+                              ## while staying inside the anchor's own room /
+                              ## alley (its site class).
+  BandageSiteDirOffset* = 2   ## SITECLASS ring phase for bandages, and
+  HopperSiteDirOffset* = 4    ## for traffic-sited hoppers -- distinct
+                              ## compass phases (and distinct from the
+                              ## spawn-seed rings' 0/4) so families sharing
+                              ## an anchor lap away from each other rather
+                              ## than restacking on the same pixels.
   DownedTagRange* = 40        ## px center-to-center: teammate adjacency that
                               ## counts as the revive tag. Deliberately looser
                               ## than the 12px item touch — a tag is a hug,
@@ -2498,6 +2521,22 @@ type
                         ## other pickup family uses), so an oversized
                         ## radius degrades to "somewhere reachable," never
                         ## a wall/void placement.
+    hopperSiteTrafficPermille*: int ## SITECLASS: per-mille of the FALLBACK
+                        ## hopper crates re-sited from the RETREAT class
+                        ## (the map's med-kit points -- rooms and corners,
+                        ## where fights are not) onto the TRAFFIC class
+                        ## (the resolved grenade points the marker crates
+                        ## already fall back to -- alleys and hotspots),
+                        ## ring-offset off the marker so the gun's two
+                        ## halves stay two distinct touches. The COUNT is
+                        ## unchanged: this moves crates, never adds or
+                        ## removes one, so the hopper:marker PER-CRATE
+                        ## pickup ratio isolates the site class. 0 = dark,
+                        ## every fallback hopper keeps the inherited
+                        ## med-kit siting (default, byte-identical). Read
+                        ## only while lootStart is armed and the map
+                        ## authors no hopperSpawns of its own; requires
+                        ## lootStart (validate).
     # ── PERCEPTION (glory-2 §17) ── appended field, same append-safety
     # reasoning as everything above. Default false = the exposure does not
     # exist: rosterJson/firstPersonJson's self+map objects and the

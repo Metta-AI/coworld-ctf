@@ -115,6 +115,63 @@ suite "paintbot manifest, battle-royale-s2 variant":
     for team, count in perTeam:
       check count == SeatsPerTeam   ## every team fields exactly its duo.
 
+  test "the variant's items actually LAND: bandages placed, hoppers traffic-sited, every family inside the board's pool":
+    ## ITEM COMPLETENESS (epic 1ef4f9d6 T3 + the hopper site-class spec):
+    ## `bandagePickups` was absent from config_schema entirely, so a fully
+    ## built item — placement path, touch pickup, +1 hp calm-clock apply,
+    ## wire token, exchange whitelist, ground sprite — could not be reached
+    ## from the platform at all (the #389 class of gap: armed in a variant,
+    ## undeclared in the schema, except here it was armed nowhere either).
+    ## The hopper fallback meanwhile inherited the med kits' RETREAT siting.
+    ## Both are asserted on the REAL sim built from the variant's own
+    ## game_config, not on the manifest's prose.
+    check gc["bandagePickups"].getInt > 0
+    check gc["hopperSiteTrafficPermille"].getInt > 0
+    var config = defaultGameConfig()
+    config.update($gc)
+    var sim = initCtfForTest(config)
+    for i in 0 ..< Seats:
+      discard sim.addPlayer("Player" & $(i + 1))
+    sim.startGame()
+    check sim.bandageSpawns.len == gc["bandagePickups"].getInt
+    check sim.weaponSpawns.len > 0
+    check sim.hopperSpawns.len > 0
+    ## Every neutral family must fit its object-id pool: a BR-pool map sizes
+    ## its med-kit/spray pools at runtime, and the un-deduped hopper fallback
+    ## used to place ~80 crates into a 64-wide pool — past the width the
+    ## render loop clamps and its own doAssert fires, so this is the guard
+    ## that keeps a live episode off that assert.
+    for family in [sim.weaponSpawns, sim.hopperSpawns, sim.bandageSpawns,
+                   sim.medKitSpawns, sim.sprayPaintSpawns, sim.shieldSpawns,
+                   sim.grenadeSpawns]:
+      check family.len <= NeutralPickupPoolWidth
+    ## No family stacks two crates on one pixel (the taker's own carry gate
+    ## walks it straight over the twin), and the gun's two halves never
+    ## share one walk-over.
+    proc distinctPixels(spawns: seq[PickupSpawn]): int =
+      var seen: seq[tuple[x, y: int]]
+      for spawn in spawns:
+        if (spawn.x, spawn.y) notin seen:
+          seen.add (spawn.x, spawn.y)
+      seen.len
+    check distinctPixels(sim.hopperSpawns) == sim.hopperSpawns.len
+    check distinctPixels(sim.weaponSpawns) == sim.weaponSpawns.len
+    check distinctPixels(sim.bandageSpawns) == sim.bandageSpawns.len
+    ## The measurable: a MAJORITY of the fallback hoppers now sit on the
+    ## traffic class. Counted as "not on any med-kit point's own walkable
+    ## cell" — the retreat sites are exactly the points the fallback used to
+    ## use for all of them.
+    var kitPixels: seq[tuple[x, y: int]]
+    for point in sim.gameMap.medKitSpawns & sim.gameMap.medKitCandidates:
+      let spot = sim.nearestWalkable(point.x, point.y)
+      if spot notin kitPixels:
+        kitPixels.add spot
+    var offRetreat = 0
+    for spawn in sim.hopperSpawns:
+      if (spawn.x, spawn.y) notin kitPixels:
+        inc offRetreat
+    check offRetreat * 2 > sim.hopperSpawns.len
+
   test "wiping 7 of 8 duo teams ends the round with ONE winning team and exactly 16 score entries":
     var config = defaultGameConfig()
     config.update($gc)

@@ -51,6 +51,33 @@ proc pointBlank(sim: var SimServer, shooter, target: int) =
   sim.players[target].x = 300 + 30
   sim.players[target].y = 300
 
+proc distinctMapPoints(points: seq[MapPoint]): seq[MapPoint] =
+  ## Test-side mirror of the engine's own `distinctSites` dedup (private to
+  ## sim.nim), so these assertions state the deduped count rather than
+  ## restating the engine's arithmetic.
+  for point in points:
+    if point notin result:
+      result.add point
+
+proc pixelCensus(spawns: seq[PickupSpawn]): tuple[n, distinctN: int] =
+  ## Crate count vs DISTINCT pixel count. Two crates on one pixel are not
+  ## two pickups (pickupByTouch takes the first present spawn in range and
+  ## returns, and the taker's own carry gate walks it over the twin), so the
+  ## gap between these two numbers is dead supply.
+  var seen: seq[tuple[x, y: int]]
+  for spawn in spawns:
+    if (spawn.x, spawn.y) notin seen:
+      seen.add (spawn.x, spawn.y)
+  (spawns.len, seen.len)
+
+proc sharedPixels(a, b: seq[PickupSpawn]): int =
+  var bs: seq[tuple[x, y: int]]
+  for spawn in b:
+    bs.add (spawn.x, spawn.y)
+  for spawn in a:
+    if (spawn.x, spawn.y) in bs:
+      inc result
+
 proc eventsOf(sim: SimServer, kind: SimEventKind): seq[SimEvent] =
   for event in sim.events:
     if event.kind == kind:
@@ -543,8 +570,13 @@ suite "row 5 — spawn loot seeding: additive crates near spawn clusters (dark b
     # Same fallback pools row 3's own dark-lootStart test asserts on
     # (grenade points for guns, med-kit points for hoppers) — untouched.
     check sim.weaponSpawns.len == sim.grenadeSpawns.len
-    check sim.hopperSpawns.len ==
-      sim.gameMap.medKitSpawns.len + sim.gameMap.medKitCandidates.len
+    # DEDUPED med-kit points, not spawns + candidates concatenated. This
+    # assertion used to read `medKitSpawns.len + medKitCandidates.len` and so
+    # PINNED the placement bug: the two lists are the same points on every
+    # map that matters (arena.nim assigns `medKitCandidates = medKitSpawns`
+    # outright), so the old sum counted a doubled crate per site.
+    check sim.hopperSpawns.len == distinctMapPoints(
+      sim.gameMap.medKitSpawns & sim.gameMap.medKitCandidates).len
 
   test "validation: negative counts/radius, and seeding without lootStart, all refuse":
     for badJson in [
@@ -666,3 +698,154 @@ suite "row 5 — spawn loot seeding: additive crates near spawn clusters (dark b
     for i in 0 ..< simA.players.len:
       check simA.players[i].homeX == simB.players[i].homeX
       check simA.players[i].homeY == simB.players[i].homeY
+
+## row 6 — PLACEMENT (item-completeness epic 1ef4f9d6 T3 + the hopper
+## site-class spec, 2026-09-03). Three defects, all in where items LAND:
+##   * the med-kit-derived fallbacks concatenated `medKitSpawns` and
+##     `medKitCandidates`, which are the SAME points on every map that
+##     matters, so every hopper site carried a stacked, uncollectable twin;
+##   * the hopper fallback inherited the med kits' RETREAT site class
+##     (rooms/corners) while markers fall back onto the grenade points'
+##     TRAFFIC class (alleys/hotspots) — the gun's ammo half sited where
+##     fights are not, measured at 0.47x the marker's per-crate pickup rate;
+##   * nothing capped a family to the board's per-family object-id pool, so
+##     a BR map's runtime-sized pools placed crates no client could address.
+## Every assertion below is on the REAL placement path (a started game's own
+## spawn seqs), never on config prose.
+suite "row 6 — placement: dedup, site class, and the renderable pool cap":
+  proc lootSim(permille = 0, bandages = 0, seats = 4): SimServer =
+    var config = brConfig()
+    config.lootStart = true
+    config.hopperSiteTrafficPermille = permille
+    config.bandagePickups = bandages
+    startedGame(config, seats)
+
+  test "no crate family ever stacks two crates on one pixel":
+    for permille in [0, 500, 1000]:
+      let sim = lootSim(permille = permille, bandages = 6)
+      let guns = pixelCensus(sim.weaponSpawns)
+      let hoppers = pixelCensus(sim.hopperSpawns)
+      let bandages = pixelCensus(sim.bandageSpawns)
+      check guns.n == guns.distinctN
+      check hoppers.n == hoppers.distinctN
+      check bandages.n == bandages.distinctN
+
+  test "the site class MOVES hoppers without changing how many there are":
+    ## The acceptance criterion is a RATIO (hopper per-crate pickup over
+    ## marker per-crate pickup), which is only attributable to the site
+    ## class if supply is held fixed — so assert exactly that: same count,
+    ## different pixels, marker family untouched.
+    let dark = lootSim(permille = 0)
+    let armed = lootSim(permille = 1000)
+    check armed.hopperSpawns.len == dark.hopperSpawns.len
+    check armed.weaponSpawns == dark.weaponSpawns   ## denominator untouched
+    check armed.hopperSpawns != dark.hopperSpawns   ## numerator re-sited
+
+  test "0 per-mille is the inherited med-kit siting, 1000 is all traffic":
+    let dark = lootSim(permille = 0)
+    var kitPoints = distinctMapPoints(
+      dark.gameMap.medKitSpawns & dark.gameMap.medKitCandidates)
+    ## Dark: every fallback hopper sits on a (walkable-nudged) med-kit point.
+    check dark.hopperSpawns.len == kitPoints.len
+    for i in 0 ..< dark.hopperSpawns.len:
+      let want = dark.nearestWalkable(kitPoints[i].x, kitPoints[i].y)
+      check (dark.hopperSpawns[i].x, dark.hopperSpawns[i].y) == want
+    ## Full traffic: no fallback hopper is left on a med-kit pixel, and none
+    ## shares a pixel with the marker crate at its own traffic anchor.
+    let armed = lootSim(permille = 1000)
+    var onKitPixel = 0
+    for spawn in armed.hopperSpawns:
+      for point in kitPoints:
+        if (spawn.x, spawn.y) ==
+            armed.nearestWalkable(point.x, point.y):
+          inc onKitPixel
+    check onKitPixel == 0
+    check sharedPixels(armed.hopperSpawns, armed.weaponSpawns) == 0
+
+  test "a partial per-mille splits the SAME crates between the two classes":
+    let armed = lootSim(permille = 500)
+    let dark = lootSim(permille = 0)
+    check armed.hopperSpawns.len == dark.hopperSpawns.len
+    var moved = 0
+    for i in 0 ..< armed.hopperSpawns.len:
+      if armed.hopperSpawns[i] != dark.hopperSpawns[i]:
+        inc moved
+    ## Half the list re-sited (integer dither, floor(n * 500 / 1000)); the
+    ## rest still stands on its inherited retreat point.
+    check moved == armed.hopperSpawns.len div 2
+    check moved > 0 and moved < armed.hopperSpawns.len
+
+  test "bandages lap their anchors instead of restacking, and clear the kits":
+    ## The knob may exceed the map's med-kit points — the old cycling
+    ## `base[k mod base.len]` then put two bandages on one pixel. And a
+    ## bandage ON a still-standing kit is invisible economics: the kit's
+    ## full heal wins the walk-over.
+    let sim = lootSim(bandages = 9)
+    check sim.bandageSpawns.len == 9
+    let census = pixelCensus(sim.bandageSpawns)
+    check census.n == census.distinctN
+    check sharedPixels(sim.bandageSpawns, sim.medKitSpawns) == 0
+
+  test "every placed family fits the board's per-family object-id pool":
+    ## A crate past NeutralPickupPoolWidth cannot be addressed by the render
+    ## loop — it exists in the sim and on no screen, which is the ground-art
+    ## gap this epic just closed, re-opened by placement.
+    let sim = lootSim(permille = 750, bandages = 12)
+    check sim.weaponSpawns.len <= NeutralPickupPoolWidth
+    check sim.hopperSpawns.len <= NeutralPickupPoolWidth
+    check sim.bandageSpawns.len <= NeutralPickupPoolWidth
+    check sim.medKitSpawns.len <= NeutralPickupPoolWidth
+    check sim.sprayPaintSpawns.len <= NeutralPickupPoolWidth
+
+  test "a map-authored hopper pool still wins over the whole fallback":
+    var config = brConfig()
+    config.lootStart = true
+    config.hopperSiteTrafficPermille = 1000
+    var sim = startedGame(config, 4)
+    sim.gameMap.hopperSpawns = @[
+      MapPoint(x: 300, y: 300), MapPoint(x: 300, y: 300),
+      MapPoint(x: 420, y: 380)]
+    sim.resetLootCrates()
+    ## Authored points are taken verbatim — but still deduped, because a
+    ## doubled authored point is the same dead crate, and the traffic knob
+    ## never touches a map that made its own siting decision.
+    check sim.hopperSpawns.len == 2
+
+  test "the site-class knob is dark by default and echoes only when armed":
+    check defaultGameConfig().hopperSiteTrafficPermille == 0
+    check not parseJson(defaultGameConfig().configJson())
+      .hasKey("hopperSiteTrafficPermille")
+    var armed = brConfig()
+    armed.lootStart = true
+    armed.hopperSiteTrafficPermille = 750
+    check parseJson(armed.configJson())["hopperSiteTrafficPermille"]
+      .getInt == 750
+
+  test "validation refuses an out-of-range per-mille, a dark-lootStart one, and an unrenderable bandage count":
+    for badJson in [
+        """{"brMode": true, "lootStart": true, "hopperSiteTrafficPermille": -1}""",
+        """{"brMode": true, "lootStart": true, "hopperSiteTrafficPermille": 1001}""",
+        """{"brMode": true, "hopperSiteTrafficPermille": 500}""",
+        """{"brMode": true, "bandagePickups": 65}"""]:
+      var config = defaultGameConfig()
+      expect CtfError:
+        config.update(badJson)
+    var ok = defaultGameConfig()
+    ok.update("""{"brMode": true, "lootStart": true,
+                  "hopperSiteTrafficPermille": 1000, "bandagePickups": 64}""")
+    check ok.hopperSiteTrafficPermille == 1000
+    check ok.bandagePickups == 64
+
+  test "determinism: the same seed re-sites and laps to the same pixels":
+    proc build(): SimServer =
+      var config = brConfig()
+      config.lootStart = true
+      config.hopperSiteTrafficPermille = 750
+      config.bandagePickups = 9
+      config.seed = 777001
+      startedGame(config, 4)
+    let a = build()
+    let b = build()
+    check a.hopperSpawns == b.hopperSpawns
+    check a.weaponSpawns == b.weaponSpawns
+    check a.bandageSpawns == b.bandageSpawns
