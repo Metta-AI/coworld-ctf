@@ -38,6 +38,7 @@ type
     buffers*: seq[AbiBuffer]
     fuelInstalledBeforeAlloc*: bool
     faultReason*: string
+    faultCode*: FaultCode
 
 const
   AbiOk* = int32(0)
@@ -56,9 +57,16 @@ proc beginInvocation*(phase: AbiPhase): AbiInvocation =
 proc installFuelAndDeadline*(invocation: var AbiInvocation) =
   invocation.fuelInstalledBeforeAlloc = true
 
-proc fault*(invocation: var AbiInvocation; reason: string) =
+proc fault*(invocation: var AbiInvocation; code: FaultCode;
+            reason: string) =
+  ## The first fault wins; later ones in the same invocation are noise.
   if invocation.faultReason.len == 0:
     invocation.faultReason = reason
+    invocation.faultCode = code
+
+proc fault*(invocation: var AbiInvocation; reason: string) =
+  ## Host-side ABI verdicts (import misuse, emit flood, bad allocations).
+  invocation.fault(fcAbiViolation, reason)
 
 proc faulted*(invocation: AbiInvocation): bool {.inline.} =
   invocation.faultReason.len > 0

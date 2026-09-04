@@ -25,6 +25,7 @@ type
     faulted*: bool
     refused*: bool
     reason*: string
+    code*: FaultCode   ## the status `code`; test guests leave it fcUnknown
     emission*: LadderEmission
 
   LadderGuest* = ref object
@@ -145,6 +146,7 @@ proc toLadder(invocation: ShellInvocationResult,
   result.faulted = invocation.faulted
   result.refused = invocation.refused
   result.reason = invocation.reason
+  result.code = invocation.code
   if invocation.lastAccepted.isSome:
     let accepted = invocation.lastAccepted.get
     result.emission.canonicalBytes = accepted.bytes
@@ -230,17 +232,19 @@ proc callRejectedStatus(seat: var LadderSeat; proposalId, generation: uint64;
   result.fitStatus()
 
 proc playFaultStatus(seat: var LadderSeat; epoch, generation: uint64;
-                     entryId, reason: string): StatusEntry =
+                     entryId: string; code: FaultCode;
+                     reason: string): StatusEntry =
   result = StatusEntry(kind: skPlayFaulted, ordinal: seat.newStatusOrdinal(),
     originGeneration: generation, faultEpoch: epoch, entryId: entryId,
-    faultReason: reason)
+    faultCode: code, faultReason: reason)
   result.fitStatus()
 
 proc retuneRefusedStatus(seat: var LadderSeat; epoch, generation: uint64;
-                         entryId, reason: string): StatusEntry =
+                         entryId: string; code: FaultCode;
+                         reason: string): StatusEntry =
   result = StatusEntry(kind: skRetuneRefused, ordinal: seat.newStatusOrdinal(),
     originGeneration: generation, faultEpoch: epoch, entryId: entryId,
-    faultReason: reason)
+    faultCode: code, faultReason: reason)
   result.fitStatus()
 
 proc boundFor(bindings: openArray[LadderBinding],
@@ -413,7 +417,7 @@ proc initializeEntry(driver: LadderDriver; seatIndex, entryIndex: int;
   if entry[].guest == nil:
     entry[].state = pisFaulted
     let status = seat[].playFaultStatus(seat[].epoch, entry[].originGeneration,
-      entry[].call.entryId, "instantiate returned nil")
+      entry[].call.entryId, fcInstantiateFailed, "instantiate returned nil")
     output.appendStatus(seatIndex, entry[].call.entryId, status)
     return false
   let initResult = entry[].guest.runInit(entry[].call.paramsBytes,
@@ -422,7 +426,7 @@ proc initializeEntry(driver: LadderDriver; seatIndex, entryIndex: int;
     entry[].state = pisFaulted
     entry[].close()
     let status = seat[].playFaultStatus(seat[].epoch, entry[].originGeneration,
-      entry[].call.entryId, initResult.reason)
+      entry[].call.entryId, initResult.code, initResult.reason)
     output.appendStatus(seatIndex, entry[].call.entryId, status)
     return false
   entry[].state = pisLive
@@ -445,7 +449,7 @@ proc retuneEntry(driver: LadderDriver; seatIndex, entryIndex: int;
     entry[].close()
     let status = seat[].retuneRefusedStatus(seat[].epoch,
       entry[].originGeneration,
-      entry[].call.entryId, retuneResult.reason)
+      entry[].call.entryId, retuneResult.code, retuneResult.reason)
     output.appendStatus(seatIndex, entry[].call.entryId, status)
     return false
   entry[].state = pisLive
@@ -543,7 +547,7 @@ proc stepEntry(driver: LadderDriver; seatIndex, entryIndex: int;
     entry[].cachedPolicy = none(LadderEmission)
     entry[].close()
     let status = seat[].playFaultStatus(seat[].epoch, entry[].originGeneration,
-      entry[].call.entryId, stepResult.reason)
+      entry[].call.entryId, stepResult.code, stepResult.reason)
     output.appendStatus(seatIndex, entry[].call.entryId, status)
     return
   if stepResult.emission.intent.isSome:

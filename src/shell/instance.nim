@@ -31,6 +31,7 @@ type
     faulted*: bool
     refused*: bool
     reason*: string
+    code*: FaultCode           ## meaningful when faulted or refused
     counters*: AbiCounters
     emitCodes*: seq[int32]
     lastAccepted*: Option[ShellEmission]
@@ -106,6 +107,26 @@ proc consumeError(error: ptr WasmtimeError): string =
   result = byteVecString(message).strip(chars = {'\0', '\n'})
   wasmByteVecDelete(addr message)
   wasmtimeErrorDelete(error)
+
+proc faultCodeFromTrap(trap: ptr WasmTrap): FaultCode =
+  ## Maps wasmtime_trap_code_enum (wasmtime/trap.h) onto the wire code.
+  var code = 0'u8
+  if not wasmtimeTrapCode(trap, addr code):
+    return fcTrap
+  case code
+  of 0: fcStackOverflow
+  of 1: fcMemoryOutOfBounds
+  of 2: fcHeapMisaligned
+  of 3: fcTableOutOfBounds
+  of 4: fcIndirectCallToNull
+  of 5: fcBadSignature
+  of 6: fcIntegerOverflow
+  of 7: fcIntegerDivisionByZero
+  of 8: fcBadConversionToInteger
+  of 9: fcUnreachable
+  of 10: fcEpochDeadline
+  of 11: fcOutOfFuel
+  else: fcTrap
 
 proc consumeTrap(trap: ptr WasmTrap): string =
   if trap == nil:
@@ -424,10 +445,12 @@ proc callFunc(instance: ShellInstance, callee: var WasmtimeFunc,
     argsPtr, args.len.csize_t, resultsPtr, results.len.csize_t, addr trap)
   if error != nil:
     if trap != nil: discard consumeTrap(trap)
-    instance.host.invocation.fault(compactRuntimeFault(consumeError(error)))
+    instance.host.invocation.fault(fcHostError,
+      compactRuntimeFault(consumeError(error)))
     return -1
   if trap != nil:
-    instance.host.invocation.fault(compactRuntimeFault(consumeTrap(trap)))
+    let code = faultCodeFromTrap(trap)
+    instance.host.invocation.fault(code, compactRuntimeFault(consumeTrap(trap)))
     return -1
   if results.len == 0:
     0
@@ -483,6 +506,7 @@ proc finishResult(instance: ShellInstance, kind: InvocationKind,
     faulted: instance.host.invocation.faulted,
     refused: refused,
     reason: instance.host.invocation.faultReason,
+    code: (if refused: fcRefused else: instance.host.invocation.faultCode),
     counters: instance.host.invocation.counters,
     emitCodes: instance.host.emitCodes,
     lastAccepted: instance.lastAccepted,
@@ -519,7 +543,8 @@ proc invokeInit*(instance: ShellInstance, paramsBytes,
     shellWasmtimeValI32Set(addr args[3], context.get.length)
     let returned = instance.callFunc(instance.playInit, args, results)
     if returned != 0 and not instance.host.invocation.faulted:
-      instance.host.invocation.fault("play_init returned nonzero")
+      instance.host.invocation.fault(fcReturnedNonzero,
+        "play_init returned nonzero")
     return instance.finishResult(ivInit, returned)
   instance.finishResult(ivInit, -1)
 
@@ -538,7 +563,8 @@ proc invokeStep*(instance: ShellInstance, viewBytes: string,
     shellWasmtimeValI32Set(addr args[1], view.get.length)
     let returned = instance.callFunc(instance.playStep, args, results)
     if returned != 0 and not instance.host.invocation.faulted:
-      instance.host.invocation.fault("play_step returned nonzero")
+      instance.host.invocation.fault(fcReturnedNonzero,
+        "play_step returned nonzero")
     if not instance.host.invocation.faulted and
         instance.host.pendingAccepted.isSome:
       instance.lastAccepted = instance.host.pendingAccepted
@@ -552,7 +578,8 @@ proc invokeRetune*(instance: ShellInstance, oldParams,
                    newParams: string): ShellInvocationResult =
   if not instance.hasRetune:
     result = ShellInvocationResult(kind: ivRetune, returned: 1, refused: true,
-      reason: "play_retune export absent", lastAccepted: instance.lastAccepted)
+      reason: "play_retune export absent", code: fcRetuneAbsent,
+      lastAccepted: instance.lastAccepted)
     instance.close()
     return
   instance.prepareInvocation(apRetune, ivRetune, InitFuel.uint64)

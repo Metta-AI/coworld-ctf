@@ -633,7 +633,11 @@ rejection, and reconnect are where implicit contracts rot:
 - **Play faults.** A play that traps, exhausts its budget, or breaks the
   ABI's per-step rules (section 6.1) is faulted for the life of the
   ladder instance (section 7.2), reported as
-  `playFaulted(epoch, entryId, reason)`, and the standing order continues
+  `playFaulted(epoch, entryId, code, reason)`, and the standing order continues
+  (`code` is the stable cause, the engine `FaultCode`: wasmtime's own trap
+  kinds such as `outOfFuel`, `epochDeadline`, `unreachable`, plus the
+  engine's ABI verdicts such as `returnedNonzero` and `abiViolation`;
+  `reason` is the human text, cause first, trimmed to the entry cap)
   under the remaining entries or the default play. Recovery is the LLM's
   business: a new call re-instantiates.
 - **Bounded ingress.** Arbitrary player code feeds these queues, so
@@ -695,7 +699,7 @@ rejection, and reconnect are where implicit contracts rot:
   are regular slots, never the fault reserve. The status union is
   therefore: `moduleAccepted`, `moduleReady`, `moduleRejected`,
   `callAccepted`, `callRejected`, `retuneRefused(epoch, entryId,
-  reason)`, and `playFaulted`, every one carrying its ordinal and origin
+  code, reason)`, and `playFaulted`, every one carrying its ordinal and origin
   generation inside the 256-byte encoding rule. Autonomous outcomes, which no admission gates, have their own
   reserved capacity: 16 of the 64 entries are held for `playFaulted`
   records (one per possible instance), and if a seat somehow exhausts
@@ -1117,7 +1121,7 @@ activation`) and again at each respawn (`reason: respawn`), recording the
 exact bytes that became standing, always at the reserved epoch zero
 because a server-synthesized order is by definition undeclared (the
 accepted call epoch, if any, remains current for the seat's next play
-emission); and `playFault(tick, seat, epoch, entryId, reason)`, which is
+emission); and `playFault(tick, seat, epoch, entryId, code, reason)`, which is
 metadata and never changes the standing order. The unconditional
 activation record is what makes the array complete: a seat whose plays
 never emit still has an annotation stating exactly what stood from
@@ -2199,7 +2203,7 @@ new call, matched against the outgoing ladder by `entryId` and play name
 
 | Outgoing entry | New entry has `retune: true` and params identical | `retune: true` and params differ | no `retune` or no match |
 |---|---|---|---|
-| `live` or `parked` | adopted silently, same state, cached output kept (it was produced under these same parameters) | adopted as `pendingRetune`, its cached output cleared on entry (section 7.4); at its quota turn `play_retune` runs under `InitFuel`: 0 restores `live` (or `parked` if the seat is dead) with the new params and no cached output until a fresh step accepts one; nonzero, a trap, or a missing export drops it, mints `retuneRefused(epoch, entryId, reason)`, and the entry becomes `absent` | dropped; entry `absent` |
+| `live` or `parked` | adopted silently, same state, cached output kept (it was produced under these same parameters) | adopted as `pendingRetune`, its cached output cleared on entry (section 7.4); at its quota turn `play_retune` runs under `InitFuel`: 0 restores `live` (or `parked` if the seat is dead) with the new params and no cached output until a fresh step accepts one; nonzero, a trap, or a missing export drops it, mints `retuneRefused(epoch, entryId, code, reason)`, and the entry becomes `absent` | dropped; entry `absent` |
 | `pendingRetune` | dropped; entry `absent` (a retune that never ran is not adoptable) | dropped; entry `absent` | dropped; entry `absent` |
 | `absent` or `faulted` | entry `absent` | entry `absent` | entry `absent` |
 

@@ -98,7 +98,7 @@ proc sampleAnnotations(): seq[ShellAnnotation] =
       safeBytes: "{\"kind\":\"hold\"}"),
     ShellAnnotation(tick: 21, seat: 0, kind: akPlayFault,
       faultAtEpoch: 9, faultEntryId: "controller",
-      annotationFaultReason: "fuel")]
+      faultCode: fcOutOfFuel, annotationFaultReason: "fuel")]
 
 proc sampleTranscript(): seq[LobbyChatRecord] =
   @[
@@ -216,8 +216,9 @@ proc annotationGolden(annotation: ShellAnnotation): string =
     result.addString16(annotation.installReason)
     result.addString16(annotation.safeBytes)
   of akPlayFault:
-    result.addU8(3)
+    result.addU8(4)  # the coded layout; 3 is the legacy pre-code layout
     result.addU64(annotation.faultAtEpoch)
+    result.addU8(uint8(annotation.faultCode.ord))
     result.addString16(annotation.faultEntryId)
     result.addString16(annotation.annotationFaultReason)
 

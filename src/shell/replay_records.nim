@@ -170,6 +170,7 @@ proc `==`*(a, b: ShellAnnotation): bool =
   of akPlayFault:
     a.faultAtEpoch == b.faultAtEpoch and
       a.faultEntryId == b.faultEntryId and
+      a.faultCode == b.faultCode and
       a.annotationFaultReason == b.annotationFaultReason
 
 proc `==`*(a, b: BallotRecord): bool =
@@ -492,11 +493,22 @@ proc readProvenance(bytes: string, offset: var int): Provenance =
       acceptedTick: bytes.readU32(offset),
       policySha256: bytes.rawHash(offset)))
 
+const
+  AnnotationKindPlayFaultLegacy = uint8(akPlayFault.ord)
+    ## Kind byte 3: the pre-code layout (epoch, entryId, reason), written by
+    ## paintbot 0.7.311 and 0.7.312. Still decoded (code = fcUnknown); never
+    ## written again.
+  AnnotationKindPlayFaultCoded = 4'u8
+    ## Kind byte 4: epoch, code byte, entryId, reason. Annotation records
+    ## carry no length prefix, so a new layout needs a new kind byte for
+    ## older replays to stay decodable.
+
 proc encodeAnnotationRecord*(annotation: ShellAnnotation): string =
   result.addU8(RecBehaviorAnnotation)
   result.addU32(annotation.tick)
   result.addU8(annotation.seat)
-  result.addU8(uint8(annotation.kind.ord))
+  result.addU8(if annotation.kind == akPlayFault: AnnotationKindPlayFaultCoded
+               else: uint8(annotation.kind.ord))
   case annotation.kind
   of akAcceptedIntentChange:
     result.addU64(annotation.effectiveEpoch)
@@ -512,6 +524,7 @@ proc encodeAnnotationRecord*(annotation: ShellAnnotation): string =
     result.addString16(annotation.safeBytes)
   of akPlayFault:
     result.addU64(annotation.faultAtEpoch)
+    result.addU8(uint8(annotation.faultCode.ord))
     result.addString16(annotation.faultEntryId)
     result.addString16(annotation.annotationFaultReason)
 
@@ -553,13 +566,27 @@ proc decodeAnnotationRecord*(bytes: string,
       installGeneration: generation,
       installReason: reason,
       safeBytes: safeBytes)
-  of uint8(akPlayFault.ord):
+  of AnnotationKindPlayFaultLegacy:
     result = ShellAnnotation(
       tick: result.tick,
       seat: result.seat,
       kind: akPlayFault,
       faultAtEpoch: bytes.readU64(offset),
       faultEntryId: bytes.readString16(offset),
+      faultCode: fcUnknown,
+      annotationFaultReason: bytes.readString16(offset))
+  of AnnotationKindPlayFaultCoded:
+    let epoch = bytes.readU64(offset)
+    let codeByte = bytes.readU8(offset)
+    if codeByte > uint8(high(FaultCode).ord):
+      recordError("unknown annotation fault code")
+    result = ShellAnnotation(
+      tick: result.tick,
+      seat: result.seat,
+      kind: akPlayFault,
+      faultAtEpoch: epoch,
+      faultEntryId: bytes.readString16(offset),
+      faultCode: FaultCode(codeByte),
       annotationFaultReason: bytes.readString16(offset))
   else:
     recordError("unknown annotation kind")

@@ -959,6 +959,10 @@ suite "shell episode ladder":
       # The cause leads so the capped status keeps it: "wasm trap: ..." first,
       # frames after.
       check faults[0].annotationFaultReason.startsWith("wasm trap:")
+      check faults[0].faultCode == fcUnreachable
+      check fault.ladderStatuses.anyIt(it.status.kind == skPlayFaulted and
+        it.status.faultCode == fcUnreachable and
+        "\"code\":\"unreachable\"" in it.statusBytes)
       check faults[0].annotationFaultReason.len <= 200
       check compactRuntimeFault("error while executing at wasm backtrace:\n" &
         "    0:   0x3708 - <unknown>!<wasm function 25>\n" &
@@ -975,6 +979,7 @@ suite "shell episode ladder":
       check "kind=play_fault" in line
       check "entry=step_trap" in line
       check "reason=\"" in line
+      check "code=unreachable" in line
       check episode.seatDisplayName(0) == ""
 
   test "pending retunes report identities and complete exactly once":
