@@ -74,10 +74,18 @@ COPY policies/monet/policy.py \
      ./policies/monet/
 COPY --from=playbook /playbook /app/playbook
 
+# POC_LLM_PROTOCOL=bedrock: the sanctioned escape hatch (brain.py
+# SIDECAR_PROTOCOL_ENV) off the OpenAI-compatible sidecar lane, whose pooled
+# OpenRouter key has gone unfunded/broken (episodePercent: 100, live
+# incident) and silently degraded v10/v11 to canned play (0 real model
+# calls). Routes through BedrockInvokeBrain's legacy InvokeModel path
+# instead, which is not subject to that OpenRouter routing. Do not remove
+# without confirming the OpenRouter lane is healthy again.
 ENV POC_PLAYBOOK=/app/playbook \
     POC_HOST=127.0.0.1 \
     POC_PORT=21815 \
     POC_SLOT=0 \
+    POC_LLM_PROTOCOL=bedrock \
     PYTHONUNBUFFERED=1
 
 ENTRYPOINT ["python", "/app/policies/monet/policy.py"]

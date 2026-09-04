@@ -1060,6 +1060,48 @@ check("prompt: objective states winning is a flat x4 fold, not a deed "
       "flat x4 on top (not a deed)" in prompt,
       "win-as-multiplier text not found")
 
+# ── loss/placement economics (glory.nim: recutFold folds the x4 ONLY onto
+# the winner's own gloryProduct at finishGame; a losing team's product is
+# never touched, so every deed minted before the loss is still banked and
+# reported through recutScore). What actually reads zero is an UNMINTED
+# episode -- no deed landed -- not the act of losing. Self-contradiction
+# fix (this commit): THE OBJECTIVE used to claim "a loss pays NOTHING",
+# directly contradicting the endgame doctrine's own "losses now bank what
+# you minted" a few lines down. Pins the corrected, single position and
+# guards against the stale win-gate claim creeping back in. ───────────────
+check("prompt: objective states deeds mint win or lose",
+      "win or lose" in prompt, "win-or-lose text not found")
+check("prompt: objective states idle (not losing) is what banks nothing",
+      "idle pays NOTHING" in prompt, "idle-pays-nothing text not found")
+check("prompt: partner doctrine states idle placement banks zero, not "
+      "a loss",
+      "idle placement\n  banks zero" in prompt
+      or "idle placement banks zero" in prompt,
+      "idle-placement text not found")
+check("prompt: endgame doctrine still states losses bank what you minted",
+      "losses now bank what you minted" in prompt,
+      "losses-bank text not found")
+check("prompt: NEGATIVE -- does not claim a loss pays nothing "
+      "(the self-contradiction this commit fixes)",
+      "a loss pays NOTHING" not in prompt
+      and "banks the same as a loss" not in prompt
+      and "nothing but the win pays" not in prompt
+      and "zeroes the whole product" not in prompt,
+      "stale win-gate loss-pays-nothing text found in prompt")
+
+# ── bedrock escape hatch (live incident 2026-09-03): the sidecar's
+# OpenAI-compatible / OpenRouter lane returned pooled-key 503s and both v10
+# and v11 qualified as league champion on canned play (0 real model calls)
+# with no visible failure short of grepping "real model calls: 0" out of
+# the ladder log. Pins that the Dockerfile arms the sanctioned escape hatch
+# (brain.py SIDECAR_PROTOCOL_ENV) so a future rebuild can't silently drop
+# back onto the broken lane. ───────────────────────────────────────────────
+DOCKERFILE_TEXT = (_HERE / "Dockerfile").read_text()
+check("Dockerfile: arms POC_LLM_PROTOCOL=bedrock (the sanctioned escape "
+      "hatch off the broken OpenRouter sidecar lane)",
+      "POC_LLM_PROTOCOL=bedrock" in DOCKERFILE_TEXT,
+      "POC_LLM_PROTOCOL=bedrock not found in Dockerfile ENV block")
+
 print()
 if failures:
     print(f"SELF-CHECK FAILED: {len(failures)} failing check(s)")
