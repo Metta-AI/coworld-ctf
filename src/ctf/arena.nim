@@ -3699,6 +3699,25 @@ proc pointsFromNode(node: JsonNode): seq[MapPoint] =
   for item in node:
     result.add MapPoint(x: item[0].getInt(), y: item[1].getInt())
 
+proc perkPointsNode(points: seq[PerkPoint]): JsonNode =
+  ## PERKITEM(s2): serialize authored perk crate points as tagged objects
+  ## ({"perk": name, "x": .., "y": ..}) -- the perk tag makes a flat [x, y]
+  ## pair insufficient, so this family uses an object shape, not pointsNode.
+  result = newJArray()
+  for p in points:
+    result.add %*{"perk": perkText(p.perk), "x": p.x, "y": p.y}
+
+proc perkPointsFromNode(node: JsonNode): seq[PerkPoint] =
+  ## PERKITEM(s2): parse tagged perk crate points; absent/non-array -> empty
+  ## (every existing pinned spec), so a perk-item-free map round-trips
+  ## byte-identically. Raises via parsePerk on an unknown perk name.
+  if node.isNil or node.kind != JArray:
+    return
+  for item in node:
+    result.add PerkPoint(
+      perk: parsePerk(item["perk"].getStr()),
+      x: item["x"].getInt(), y: item["y"].getInt())
+
 proc rectsNode(rects: seq[MapRect]): JsonNode =
   result = newJArray()
   for r in rects:
@@ -3822,6 +3841,13 @@ proc mapSpecJson*(gameMap: CtfMap): string =
     spec["weaponSpawns"] = pointsNode(gameMap.weaponSpawns)
   if gameMap.hopperSpawns.len > 0:
     spec["hopperSpawns"] = pointsNode(gameMap.hopperSpawns)
+  ## PERKITEM(s2): authored perk-item crate points pin only when present,
+  ## same idiom as the loot pools above. Empty on every existing map (only
+  ## a perk-item-aware generator authors them), in which case
+  ## resetPerkPickups (sim.nim) seeds a fallback scatter while
+  ## config.perkItems is armed -- and places nothing when it is not.
+  if gameMap.perkSpawns.len > 0:
+    spec["perkSpawns"] = perkPointsNode(gameMap.perkSpawns)
   $spec
 
 proc mapFromSpecJson*(text: string): CtfMap =
@@ -3939,6 +3965,10 @@ proc mapFromSpecJson*(text: string): CtfMap =
   ## while lootStart is armed.
   result.weaponSpawns = pointsFromNode(node{"weaponSpawns"})
   result.hopperSpawns = pointsFromNode(node{"hopperSpawns"})
+  ## PERKITEM(s2): optional authored perk-item crate points (tagged
+  ## objects). Absent -> empty (every existing pinned spec); resetPerkPickups
+  ## (sim.nim) seeds a fallback scatter while perkItems is armed.
+  result.perkSpawns = perkPointsFromNode(node{"perkSpawns"})
   result.rooms = result.defaultCtfRooms()
   result.validateMap()
   result.validateMapWalkability()   # symNone explicit-pickup wall-overlap check (#280)
