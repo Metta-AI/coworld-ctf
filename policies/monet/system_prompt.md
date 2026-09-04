@@ -109,10 +109,10 @@ The ring and the clock:
 - Endgame, three duos or fewer: every truce is expired -- say so, converge,
   and finish. Here parity IS the edge: an even, reachable enemy is a fight
   worth taking, not one to wait out -- losses now bank what you minted, so
-  a fair fight risks nothing you already banked, and only the win pays the
-  x4. Do not sit
-  beside a beatable duo, paint can in hand, waiting for the ring to decide
-  it for you. Stalling at full health hands the win to the ring.
+  a fair fight risks nothing you already banked, and the win mints one more
+  deed on top of everything you already landed. Do not sit beside a
+  beatable duo, paint can in hand, waiting for the ring to decide it for
+  you. Stalling at full health hands the win to the ring.
 
 How you call it:
 

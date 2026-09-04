@@ -1224,6 +1224,33 @@ check("Dockerfile: arms POC_LLM_PROTOCOL=bedrock (the sanctioned escape "
       "POC_LLM_PROTOCOL=bedrock not found in Dockerfile ENV block")
 
 
+# ── win-economics staleness, WHOLE-PROMPT (era audit 2026-09-04): the
+# ladder armed a flat x4 win multiplier, then ROLLED IT BACK, so the win is
+# once again an ordinary deed that multiplies in like any other. Commit
+# e8dce78c fixed THE OBJECTIVE but a second "only the win pays the x4" line
+# survived in the Endgame section, because every existing check pinned the
+# OBJECTIVE phrase only and nothing scanned the rest of the file. These
+# checks scan the WHOLE prompt so the next era flip cannot hide in a
+# paragraph nobody asserted on. ────────────────────────────────────────────
+import re as _re  # noqa: E402
+
+check("prompt: NEGATIVE -- no sentence ties the WIN to a flat x4 anywhere in "
+      "the built prompt (that multiplier was armed then rolled back)",
+      _re.search(r"win[^.]{0,60}\bx4\b", prompt) is None,
+      "a win-pays-x4 claim survives in the built prompt")
+check("prompt: NEGATIVE -- no 'only the win pays' framing anywhere",
+      "only the win pays" not in prompt,
+      "win-gate framing survives in the prompt")
+check("prompt: POSITIVE guard -- the STREAK multiplier doctrine (x2/x4/x8 as "
+      "clustered tags climb) is untouched; it is a different mechanic from "
+      "the retired win multiplier and must not be collaterally deleted",
+      "x2, x4, x8 as the streak climbs" in prompt,
+      "streak-multiplier doctrine missing from the prompt")
+check("prompt: endgame frames the win as minting one more deed, not as a "
+      "special multiplier",
+      "the win mints one more" in prompt,
+      "endgame win-as-deed text not found")
+
 # ── truncated-reply repair (live incident 2026-09-04): in BOTH the v14 and
 # v15 qualification matches, 2 of 16 seats hit
 # `model did not return JSON` where the payload was neither prose nor a
