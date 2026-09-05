@@ -7747,10 +7747,25 @@ proc declareHandoff*(
   ##
   ## This proc is the engine seam for the play-calling shell's HANDOFF
   ## play (the 0x10-recorded play call is the matching intent record).
-  ## NOTHING in the engine calls it yet — the shell-side Intent vocabulary
-  ## and the replay-side declaration record are the arming lane's work
-  ## (see the PR's activation section). Returns true when the declaration
-  ## was accepted. Re-declaring a different item restarts the channel.
+  ## It is ARMED and CALLED — one call on each side of THE SWAP, and they
+  ## are deliberately the same call:
+  ##   - live: server.nim's give-item HANDOFF drain, in the pre-step shell
+  ##     hook that hands the play seats their masks. It walks the standing
+  ##     `handoffs` orders the episode emitted (shell/episode.nim), skips
+  ##     any seat already declaring that item, and records ONLY what this
+  ##     proc accepted via replays.writeHandoffDeclaration — the 0xc0 CHAT
+  ##     declaration record.
+  ##   - playback: replays.nim's applyReplayEvents re-declares from that
+  ##     0xc0 record at the identical tick boundary, so the declaration is
+  ##     live for the same first channel tick on both sides. A refusal
+  ##     there is a fatal ReplayError on purpose — this proc's acceptance
+  ##     rule is the single predicate both sides consult, so a `false`
+  ##     means the file and the build disagree about the channel itself.
+  ## Live since the exchange armed at canonical 0.7.314, first dispatch
+  ## round 3843 (2026-09-03). The shell-side vocabulary is this seam's own
+  ## closed set (shell/types.nim, shell/schemas/intent.schema.json).
+  ## Returns true when the declaration was accepted. Re-declaring a
+  ## different item restarts the channel.
   if not sim.config.giveItem or sim.phase != Playing:
     return false
   if playerIndex < 0 or playerIndex >= sim.players.len:

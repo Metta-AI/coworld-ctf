@@ -2523,7 +2523,7 @@ type
     # cannot arm it.
     giveItem*: bool     ## GIVE(s2): the play-called item-exchange gate. A
                         ## DECLARED handoff (declareHandoff — the consent
-                        ## record; the play-calling shell is its intended
+                        ## record; the play-calling shell is its live
                         ## caller) plus GiveItemRange adjacency HELD for
                         ## GiveChannelTicks transfers the declared item
                         ## ("gun" | "hopper" | "bandage") to the duo
