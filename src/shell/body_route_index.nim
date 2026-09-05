@@ -58,6 +58,7 @@ type
 
   BodyRouteCoverageStats* = object
     standablePixels*, coveredPixels*, uncoveredPixels*: int
+    unreachableComponents*, unreachablePixels*: int
     firstUncovered*: BodyPoint
     componentHash*: uint64
 
@@ -1062,6 +1063,9 @@ proc buildGraphComponents(index: BodyRouteIndex) =
           index.cellComponent[cell] = component
 
 proc seedUnrepresentedPixelComponents(index: BodyRouteIndex) =
+  var validatorComponent = newSeq[bool](index.map.componentCount + 1)
+  for validator in 0 ..< index.map.validatorTableCount:
+    validatorComponent[index.map.validatorComponentAt(validator)] = true
   var graphForPixel = newSeq[uint16](index.map.componentCount + 1)
   for cellIndex, graph in index.cellComponent:
     if graph == 0:
@@ -1077,7 +1081,8 @@ proc seedUnrepresentedPixelComponents(index: BodyRouteIndex) =
     if not index.map.cellWalkable(startCell):
       continue
     let pixel = index.map.componentOf(cellCenter(startCell))
-    if pixel <= 0 or graphForPixel[pixel] != 0:
+    if pixel <= 0 or not validatorComponent[pixel] or
+        graphForPixel[pixel] != 0:
       continue
     if index.stats.graphComponents == high(uint16).int:
       raise newException(BodyMapError,
@@ -1105,6 +1110,32 @@ proc seedUnrepresentedPixelComponents(index: BodyRouteIndex) =
           index.cellComponent[next] = graph
           queue[tail] = int32(next)
           inc tail
+
+proc validateValidatorAnchors(index: BodyRouteIndex) =
+  var anchored = newSeq[bool](index.map.componentCount + 1)
+  for cellIndex, graph in index.cellComponent:
+    if graph == 0:
+      continue
+    let component = index.map.componentOf(cellCenter(index.cellPoint(cellIndex)))
+    if component > 0:
+      anchored[component] = true
+  for validator in 0 ..< index.map.validatorTableCount:
+    let component = index.map.validatorComponentAt(validator)
+    if not anchored[component]:
+      raise newException(BodyMapError,
+        &"body route index map '{index.map.mapLabel}' validator component " &
+        &"{component} has no anchored coarse cell")
+  for spawnIndex in 0 ..< index.map.spawnPointCount:
+    let
+      spawn = index.map.spawnPointAt(spawnIndex)
+      component = index.map.componentOf(spawn)
+      cell = index.map.cellOf(spawn)
+      cellIndex = index.cellIndex(cell)
+    if component <= 0 or not index.map.hasValidatorComponent(component) or
+        index.cellComponent[cellIndex] == 0:
+      raise newException(BodyMapError,
+        &"body route index map '{index.map.mapLabel}' validator component " &
+        &"{component} spawn {spawnIndex} cell {cell} is not anchored")
 
 proc coarseConnectorGraphComponent(index: BodyRouteIndex,
     point: BodyPoint): int =
@@ -1189,6 +1220,9 @@ proc anchorPocketCells(index: BodyRouteIndex, path: CrossingPath) =
 proc buildPocketConnectors(index: BodyRouteIndex) =
   if index.stats.graphComponents == 0:
     return
+  var validatorComponent = newSeq[bool](index.map.componentCount + 1)
+  for validator in 0 ..< index.map.validatorTableCount:
+    validatorComponent[index.map.validatorComponentAt(validator)] = true
   var paths: seq[CrossingPath]
   while true:
     var
@@ -1199,7 +1233,10 @@ proc buildPocketConnectors(index: BodyRouteIndex) =
       for x in 0 ..< index.map.width:
         let point: BodyPoint = (x, y)
         let coarseCell = index.map.cellOf(point)
-        if not index.map.canStand(point) or
+        if not index.map.canStand(point):
+          continue
+        let pixelComponent = index.map.componentOf(point)
+        if not validatorComponent[pixelComponent] or
             index.cellComponent[index.cellIndex(coarseCell)] != 0 or
             index.coarseConnectorGraphComponent(point) != 0:
           continue
@@ -1283,6 +1320,7 @@ proc newBodyRouteIndex*(map: BodyMap): BodyRouteIndex =
   result.fillSegmentsAndArcs(crossings, counted.intraCount, counted.intraCells)
   result.buildGraphComponents()
   result.seedUnrepresentedPixelComponents()
+  result.validateValidatorAnchors()
   result.buildPocketConnectors()
   result.stats.segments = result.segments.len
   result.stats.segmentCells = result.cells.len
@@ -1387,12 +1425,25 @@ proc connectorGraphComponent*(index: BodyRouteIndex, point: BodyPoint): int =
 
 proc routeIndexCoverage*(index: BodyRouteIndex): BodyRouteCoverageStats =
   var hash = 1469598103934665603'u64
+  var
+    validatorComponent = newSeq[bool](index.map.componentCount + 1)
+    unreachableSeen = newSeq[bool](index.map.componentCount + 1)
+  for validator in 0 ..< index.map.validatorTableCount:
+    validatorComponent[index.map.validatorComponentAt(validator)] = true
   for y in 0 ..< index.map.height:
     for x in 0 ..< index.map.width:
       let point = (x, y)
       if not index.map.canStand(point):
         continue
       inc result.standablePixels
+      let pixelComponent = index.map.componentOf(point)
+      if not validatorComponent[pixelComponent]:
+        inc result.unreachablePixels
+        if not unreachableSeen[pixelComponent]:
+          unreachableSeen[pixelComponent] = true
+          inc result.unreachableComponents
+        hash = hash * 1099511628211'u64
+        continue
       let component = index.connectorGraphComponent(point)
       if component == 0:
         if result.uncoveredPixels == 0:

@@ -39,6 +39,7 @@ proc qualify(label: string, gameMap: CtfMap, colossal = false) =
     stats.segmentCells, '\t', stats.arcs, '\t',
     stats.graphComponents, '\t', coverage.standablePixels, '\t',
     coverage.coveredPixels, '\t', coverage.uncoveredPixels, '\t',
+    coverage.unreachableComponents, '\t', coverage.unreachablePixels, '\t',
     &"0x{coverage.componentHash:016x}", '\t', stats.retainedBytes, '\t',
     stats.transientPeakBytes, '\t', &"{mapMs:.3f}", '\t',
     &"{indexMs:.3f}", '\t', &"{activationRatio:.4f}"
@@ -69,6 +70,7 @@ when isMainModule:
     "pocket_connectors\tfine_points\t" &
     "fine_point_bytes\tsegment_cells\tarcs\t" &
     "graph_components\tstandable_px\tcovered_px\tuncovered_px\t" &
+    "unreachable_components\tunreachable_px\t" &
     "component_hash\tretained_bytes\ttransient_bytes\tbody_map_ms\t" &
     "index_ms\tactivation_ratio"
   let pool = loadBrS2PoolRaw()

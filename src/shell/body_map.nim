@@ -80,6 +80,7 @@ type
     atlasBuckets: seq[seq[int]]
     atlasBucketW, atlasBucketH, maxAtlasDensity: int
     validatorTables: seq[DistanceTable]
+    spawnPoints: seq[BodyPoint]
     homeFields: seq[HomeField]
 
   ValidatedGoal* {.requiresInit.} = object
@@ -125,6 +126,19 @@ proc chokeCount*(map: BodyMap): int = map.chokes.len
 proc atlasPostCount*(map: BodyMap): int = map.atlas.len
 proc maxAtlasPostsInRadius*(map: BodyMap): int = map.maxAtlasDensity
 proc validatorTableCount*(map: BodyMap): int = map.validatorTables.len
+proc validatorComponentAt*(map: BodyMap, index: int): int =
+  if index < 0 or index >= map.validatorTables.len:
+    raise newException(IndexDefect, "validator table is out of bounds")
+  map.validatorTables[index].component.int
+proc hasValidatorComponent*(map: BodyMap, component: int): bool =
+  for table in map.validatorTables:
+    if table.component.int == component:
+      return true
+proc spawnPointCount*(map: BodyMap): int = map.spawnPoints.len
+proc spawnPointAt*(map: BodyMap, index: int): BodyPoint =
+  if index < 0 or index >= map.spawnPoints.len:
+    raise newException(IndexDefect, "spawn point is out of bounds")
+  map.spawnPoints[index]
 proc validatorBytesFor*(width, height, distinctComponents: int): int64 =
   if width < 0 or height < 0 or distinctComponents < 0:
     raise newException(ValueError, "validator byte dimensions must be non-negative")
@@ -923,6 +937,8 @@ proc newBodyMap*(pixelWalkable: openArray[bool], width, height,
   result.buildPostAtlas()
   result.validateAtlasDensity()
   result.buildValidatorTables(spawnPoints)
+  for point in spawnPoints:
+    result.spawnPoints.add point
   var seenHomes: seq[int]
   for home in homes:
     if home.group < 0 or home.group >= groupCount:

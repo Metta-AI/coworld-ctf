@@ -223,6 +223,12 @@ suite "shell body immutable episode map":
   test "exact validator covers sites, walls, edges, radius and components":
     let map = openRoomsMap()
     let origin = (x: 30, y: 30)
+    check map.validatorTableCount == 2
+    check map.spawnPointCount == 2
+    for validator in 0 ..< map.validatorTableCount:
+      check map.hasValidatorComponent(map.validatorComponentAt(validator))
+    for spawn in 0 ..< map.spawnPointCount:
+      check map.hasValidatorComponent(map.componentOf(map.spawnPointAt(spawn)))
     check map.validateGoal(origin, origin).get.goalPoint == origin
     check map.validateGoal((0, 0), origin).get.goalPoint == (7, 7)
     check map.validateGoal((350, 30), origin).get.goalPoint == (94, 30)

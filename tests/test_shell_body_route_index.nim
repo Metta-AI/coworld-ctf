@@ -14,6 +14,19 @@ proc openMap(): BodyMap =
   newBodyMap(walkable, Side, Side, 2, @[(16, 16), (80, 80)],
     mapName = "open-test")
 
+proc validatorScopedMap(): BodyMap =
+  const
+    Width = 128
+    Height = 96
+  var walkable = newSeq[bool](Width * Height)
+  for y in 1 ..< Height - 1:
+    for x in 1 .. 79:
+      walkable[y * Width + x] = true
+    for x in 96 ..< Width - 1:
+      walkable[y * Width + x] = true
+  newBodyMap(walkable, Width, Height, 1, @[(32, 32)],
+    mapName = "validator-scope-test")
+
 proc referenceSegmentClear(map: BodyMap, start, goal: BodyPoint): bool =
   if not map.canStand(start):
     return false
@@ -153,3 +166,27 @@ suite "immutable shared body route index":
       check sideA.room != sideB.room
       check crossing[0] == sideA.anchorCell
       check crossing[^1] == sideB.anchorCell
+
+  test "coverage excludes islands that cannot contain a validated endpoint":
+    let map = validatorScopedMap()
+    var
+      expectedComponents = newSeq[bool](map.componentCount + 1)
+      expectedComponentCount = 0
+      expectedPixels = 0
+    for y in 0 ..< map.height:
+      for x in 0 ..< map.width:
+        let component = map.componentOf((x, y))
+        if component > 0 and not map.hasValidatorComponent(component):
+          if not expectedComponents[component]:
+            expectedComponents[component] = true
+            inc expectedComponentCount
+          inc expectedPixels
+    let index = newBodyRouteIndex(map)
+    let coverage = index.routeIndexCoverage()
+    check coverage.uncoveredPixels == 0
+    check coverage.unreachableComponents == expectedComponentCount
+    check coverage.unreachableComponents == 1
+    check coverage.unreachablePixels == expectedPixels
+    check coverage.unreachablePixels > 0
+    check coverage.standablePixels == coverage.coveredPixels +
+      coverage.uncoveredPixels + coverage.unreachablePixels
