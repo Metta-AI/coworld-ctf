@@ -13,7 +13,7 @@ different things in the same match.
 | --- | --- | --- | --- | --- |
 | `aggressive/` | hunts; tight zone margins; re-calls eagerly | up to 8, min 6 s apart | `edge_ride` (tight); `jackal` gated above it while an enemy is tracked | kill-feed lines in the summary; margins capped at 260 (close but covered); pacts always `returnFire`; races pickups |
 | `cautious/` | survives; wide margins; calls rarely | up to 4, min 15 s apart | `edge_ride` | margins floored wide; omitted params filled with safe defaults; pacts always `disengage`; `target_law holdTrigger {zonePhase: 1}`, which releases at the drop (the zone reports phase 1 from the first tick) — so no hold in practice; the phase-2 hold it replaced cost 26 gun deaths in 30 competitive episodes; short safe detours for pickups |
-| `collaborative/` | duo-first; pact with protect always; talks | up to 6, min 10 s apart | `edge_ride` | partner state leads the summary; a coordination chat line every turn; duo pact injected with `protect: true`; `bodyguard` only when the ward drifts past its leash |
+| `collaborative/` | social-alliance seat; 16-solo field, no duo, no wire-level teamwork — proposes/honors pacts entirely through conduct (lobby chat, never enforced), solo survival otherwise | up to 6, min 10 s apart | `edge_ride` | opens with a public truce line instead of a directed one; `pact` seats are never hardcoded, only generically repaired; moderate solo-survival clamps between the cautious and aggressive starters' |
 
 Every persona also carries the shared live loop, live-state summary, and
 harness-side ladder gating described below; the rows above are only what

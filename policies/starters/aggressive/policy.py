@@ -50,8 +50,7 @@ def adjust_entries(entries, context, view):
         elif entry.get("play") == "loot":
             params["contested"] = "race"
     if not any(e.get("play") == "loot" for e in entries):
-        # Grenades, spray cans, and (PERCEPTION glory-2 §17) gun/hopper
-        # crates are the hunter's tools; race for them.
+        # Grenades and spray cans are the hunter's tools; race for them.
         entries.append({"play": "loot", "entry_id": "loot",
                         "params": {"detourMax": 500, "contested": "race"}})
     return entries
@@ -61,9 +60,8 @@ PERSONA = Persona(
     name="aggressive",
     prompt_intro=(_HERE / "system_prompt.md").read_text(encoding="utf-8"),
     play_notes={
-        "loot": ("loot: grenades, spray cans, and a visible gun or hopper "
-                 "crate are all your tools -- race for any of it when "
-                 "nobody is tracked; the harness gates it."),
+        "loot": ("loot: grenades and spray cans are your tools -- race for "
+                 "any of it when nobody is tracked; the harness gates it."),
         "edge_ride": ("edge_ride is your hunting lane: margin 140-260, "
                       "enterLead up to 200, coverBias up to 0.8. The edge is "
                       "where the rotations funnel -- meet them there, from "
@@ -81,9 +79,11 @@ PERSONA = Persona(
                    "honest with yourself: the kill feed only tells you a "
                    "fight HAPPENED -- you can only move on fights your own "
                    "fog tracks can see."),
-        "crossfire": ("crossfire: tight spacing band, wide angles -- "
-                      "concentrate the opening volley. Your partner is only "
-                      "where your own tracks last saw them."),
+        "crossfire": ("crossfire needs an ally standing with you -- rare "
+                      "solo. Only call it if you struck a chat pact and are "
+                      "actually fighting alongside them: tight spacing "
+                      "band, wide angles, and know you see them only "
+                      "through your own tracks, never live telemetry."),
         "target_law": ("target_law: prefer weakened and isolated targets; "
                        "keep the never-list empty unless a pact demands it, "
                        "and NEVER set a holdTrigger -- you fire at will."),

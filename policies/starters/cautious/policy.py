@@ -84,10 +84,9 @@ def adjust_entries(entries, context, view):
             params["contested"] = "avoid"
             params["detourMax"] = min(int(params.get("detourMax", 300)), 300)
     if not any(e.get("play") == "loot" for e in entries):
-        # Short, safe detours only: a shield, a grenade, or (PERCEPTION
-        # glory-2 §17) a gun/hopper crate within 300 px when nobody is
-        # tracked. The harness guard keeps it off the ladder the moment an
-        # enemy appears.
+        # Short, safe detours only: a shield or a grenade within 300 px
+        # when nobody is tracked. The harness guard keeps it off the
+        # ladder the moment an enemy appears.
         entries.append({"play": "loot", "entry_id": "loot",
                         "params": {"detourMax": 300, "contested": "avoid"}})
     return entries
@@ -97,10 +96,9 @@ PERSONA = Persona(
     name="cautious",
     prompt_intro=(_HERE / "system_prompt.md").read_text(encoding="utf-8"),
     play_notes={
-        "loot": ("loot: short, safe detours only -- a shield, a grenade, or "
-                 "a gun/hopper crate within 300 px while nobody is tracked; "
-                 "the harness keeps it off the ladder the moment an enemy "
-                 "appears."),
+        "loot": ("loot: short, safe detours only -- a shield or a grenade "
+                 "within 300 px while nobody is tracked; the harness keeps "
+                 "it off the ladder the moment an enemy appears."),
         "edge_ride": ("edge_ride is your whole game: margin 280 or wider, "
                       "enterLead 220 or more, coverBias 0.8+. Rotate early, "
                       "arrive first, sit in cover."),
@@ -110,8 +108,10 @@ PERSONA = Persona(
                        "once you have taken ANY damage: whenHpBelow 4+ (hp "
                        "is a small absolute number -- a full seat is only a "
                        "few units), wide detourMax, contested always avoid."),
-        "bodyguard": ("bodyguard only for a partner already in a pact, and "
-                      "with a wide leash -- never interpose."),
+        "bodyguard": ("bodyguard only for an ally already in a pact, and "
+                      "with a wide leash -- never interpose. Solo is the "
+                      "default; this is for the rare in-match ally, not a "
+                      "duo you start with."),
         "target_law": ("target_law: always carry a holdTrigger, but one "
                        "that actually releases while you are alive -- "
                        '{"zonePhase": 1} releases at the drop (the zone '

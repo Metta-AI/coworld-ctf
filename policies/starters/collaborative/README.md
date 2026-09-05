@@ -1,28 +1,31 @@
 # starter: collaborative ("ANCHOR")
 
-Duo-first. The persona prompt tells the model its partner is the win
-condition: protect always, talk constantly, decide from the partner's state.
+The social-alliance seat. 16-solo pivot: S2 is now 16 solo entrants, one
+policy/bot/team each -- there is no duo partner and nothing in the sim
+enforces an alliance between any two seats. The persona prompt makes this
+seat play the social game anyway: it opens with a public truce offer,
+honors any pact it strikes through conduct alone (never targeting a named
+ally, breaking off the moment they shoot first), and plays straight solo
+survival the rest of the time.
 
 What this harness does differently from the other two starters:
 
-- **Partner state leads the summary** — before the seat's own facts, the
-  model is told where its duo partner was last seen, their hp, and whether
-  they are still alive (from the 0xB1 view's tracks and kill feed).
-- **A coordination line every turn** — on top of the model's own chat, the
-  harness sends a deliberate partner-directed lobby line each model turn
-  ("seat N: pact is live and protect is on...").
-- **The pact is guaranteed** (`adjust_entries` in `policy.py`) — every call
-  gets a `pact` entry naming the actual duo partner (read from the seat's
-  own `play_context`, never hardcoded), with `protect: true` forced and
-  disengage on betrayal; a steady `edge_ride` base is appended if the model
-  forgot one, any `bodyguard` is forced to ward the partner with
-  `interpose: true`, and a `loot` rung (detour 400 px, never contested) is
-  added. The harness puts `bodyguard` on the ladder only while the partner
-  is alive and has drifted past its leash, and `crossfire` only while the
-  partner is alive and an enemy is tracked — an idle guard would otherwise
-  pin the seat in place.
-- **Canned turns** open with pact + edge_ride and add `bodyguard` (leash
-  [60, 180], peel early) and `crossfire` mid-match — even offline, this is
-  the only starter whose ladder contains a pact from the opening call and a
-  guard on its partner mid-match.
+- **A public truce line, not a directed one** — the harness's per-turn
+  chat addition (`extra_chat` in `policy.py`) proposes or reaffirms an
+  open no-fight offer instead of addressing a fixed partner; there is no
+  seat number to address.
+- **`pact` is never hardcoded** — `adjust_entries` applies only generic
+  repair (a sane `onBetrayal` default) to whatever seat references the
+  MODEL proposes after reading the roster and lobby chat. There is no
+  ground-truth ally to inject, so the alliance is entirely the model's own
+  judgment call, turn by turn.
+- **Solo-survival base** — a moderate `edge_ride` (margin ~260, between
+  the cautious and aggressive starters' clamps) plus a gated `loot` rung,
+  same shape as the other two starters' base ladders.
 - **Up to 6 model calls a match**, at least 10 s apart.
+
+The shared harness (`common/starter_harness.py`) still carries all of its
+duo-partner plumbing (`context.self.duo_partner`, `partner_focus`,
+`bodyguard`/`crossfire`'s ward-defaults-to-partner) unchanged; this persona
+simply never exercises it, because a solo match's context carries no
+`duo_partner` to find.
