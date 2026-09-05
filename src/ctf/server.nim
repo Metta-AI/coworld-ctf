@@ -1660,7 +1660,12 @@ proc drainProductionBallotCasts(sim: var SimServer) =
             tieBreakDrawn: (if sim.voteTieBreakDrawn: 1'u8 else: 0'u8),
             finalOption: sim.voteFinalOption))
 
-proc playContextBytes(sim: SimServer; config: GameConfig; seat: int): string =
+proc playContextBytes*(sim: SimServer; config: GameConfig; seat: int): string =
+  ## Exported 2026-09-05 so tools/verify_br_solo16.nim can exercise the exact
+  ## call this proc's own callsite (pumpPlayOutbound) makes when a play seat
+  ## connects live -- the path that raised ValueError for solo BR seats
+  ## before the duo_partner invariant was relaxed (src/shell/view.nim,
+  ## src/shell/binary_view.nim). No behavior change.
   var source = PlayContextSource(
     mode: if config.brMode: gmBr else: gmCtf,
     mapName: if sim.gameMap.name.len > 0: sim.gameMap.name else: config.mapPath,

@@ -546,9 +546,14 @@ proc contextModeMapPayload(source: PlayContextSource, sectionOffset: int): strin
 proc validateContextSource(source: PlayContextSource) =
   if source.roster.len < 2 or source.roster.len > MaxPlayers:
     raise newException(ValueError, "binary play_context roster must have 2..32 rows")
-  if (source.mode == gmBr) != source.duoPartner.isSome:
+  # 2026-09-05 solo-BR (16x1) support: duo_partner is optional in br mode now
+  # (solo BR seats have no partner); duo behavior unchanged. The old invariant
+  # required duo_partner whenever mode == br, which was duo-era and does not
+  # hold for one-seat BR teams. contextSelfPayload above already tolerates
+  # duoPartner.isNone (flag 0, partner value 0), so no change needed there.
+  if source.duoPartner.isSome and source.mode != gmBr:
     raise newException(ValueError,
-      "binary play_context duo_partner is present exactly in br mode")
+      "binary play_context duo_partner is only valid in br mode")
 
 proc contextSections(source: PlayContextSource): seq[BinarySection] =
   source.validateContextSource()

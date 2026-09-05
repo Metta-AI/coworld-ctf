@@ -35,7 +35,7 @@
 
 import
   std/[algorithm, json, os, sets, strutils],
-  ../src/ctf/[sim, arena],
+  ../src/ctf/[sim, arena, server],
   toolutil
 
 const
@@ -101,6 +101,30 @@ proc main() =
   for i in 0 ..< seats:
     discard sim.addPlayer("Player" & $(i + 1))
   sim.startGame()
+
+  # 0. Play-seat connect: every configured "play" control seat must receive
+  #    its play_context bytes without the server raising. This is the exact
+  #    call pumpPlayOutbound (server.nim) makes the moment a play seat's
+  #    websocket connects live -- and every seat on this manifest variant
+  #    IS a play seat (coworld_manifest_paintbot.json's battle-royale-s2
+  #    slots are all `"control": "play"`, one seat per team, so none of them
+  #    has a duo partner). Before the 2026-09-05 fix, buildPlayContext's
+  #    invariant required duo_partner whenever mode == br, so this call
+  #    raised ValueError for every one of these 16 seats -- the crash that
+  #    took the live league down. The prior version of this gate exercised
+  #    kill/deed bookkeeping only and never touched the play-context wire
+  #    path, so it passed straight through the outage; this is the cheapest
+  #    assertion that would have caught it.
+  for seat in 0 ..< seats:
+    if config.slots[seat].control != scPlay:
+      continue
+    try:
+      let contextBytes = sim.playContextBytes(config, seat)
+      if contextBytes.len == 0:
+        failures.add "seat " & $seat & ": playContextBytes returned empty bytes"
+    except CatchableError as e:
+      failures.add "seat " & $seat & ": playContextBytes raised " &
+        $e.name & ": " & e.msg
 
   # 1. Arena teamCount agrees with the manifest's teams knob. (If it did
   #    not, config.update above would already have raised -- this is the
