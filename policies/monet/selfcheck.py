@@ -2014,6 +2014,53 @@ finally:
     if _saved_force_fail is not None:
         _os.environ["MONET_FORCE_UPLOAD_FAIL"] = _saved_force_fail
 
+# ── upload-burst order: value-ranked, not alphabetical (T18) ──────────────
+# _load_playbook now orders the fixed 13-module burst by observed play
+# VALUE (proposal frequency) instead of alphabetically, so the highest-value
+# plays land in the safe head/tail slots and the lowest-value plays absorb
+# the risky upload_id 4-10 mid-band where the manifestProbe flake clusters
+# (see that function's docstring for the pooled-failure evidence). These
+# checks pin the ACTUAL resulting order -- a test that would still pass with
+# the reorder reverted (e.g. only checking membership, not sequence) is
+# worthless here, since the sequence IS the change.
+import tempfile as _tempfile
+
+with _tempfile.TemporaryDirectory() as _pb_dir:
+    _pb_path = pathlib.Path(_pb_dir)
+    for _name in AVAILABLE:
+        (_pb_path / f"{_name}.wasm").write_bytes(b"x")
+    _order_a = [n for n, _ in starter_harness._load_playbook(_pb_path, AVAILABLE)]
+    _order_b = [n for n, _ in starter_harness._load_playbook(_pb_path,
+                                                              list(reversed(AVAILABLE)))]
+
+_EXPECTED_UPLOAD_ORDER = [
+    "jackal", "supply_run", "fire_superiority", "loot", "ring_walker",
+    "edge_ride", "hold_vs_gun", "bodyguard", "crossfire", "medic",
+    "scatter", "target_law", "pact",
+]
+check("playbook order: matches the pre-registered value-ranked sequence "
+      "exactly (upload_id 1..13)",
+      _order_a == _EXPECTED_UPLOAD_ORDER, str(_order_a))
+check("playbook order: all 11 controllers precede both overlays "
+      "(the truncated-run ladder-driver invariant, unchanged)",
+      all(plays.PLAYS[n]["class"] == "controller" for n in _order_a[:11])
+      and all(plays.PLAYS[n]["class"] != "controller" for n in _order_a[11:]),
+      str(_order_a))
+check("playbook order: the 4 highest-value controllers occupy the safe "
+      "head (slots 1-3) and the single controller tail slot (11), never "
+      "the risky mid-band 4-10",
+      set(_order_a[0:3] + [_order_a[10]])
+      == {"jackal", "supply_run", "fire_superiority", "scatter"},
+      str(_order_a))
+check("playbook order: deterministic -- independent of the incoming "
+      "`available` list's order (reversed input gives the identical "
+      "output sequence)",
+      _order_a == _order_b, f"{_order_a} vs {_order_b}")
+check("playbook order: total -- every one of the 13 baked plays appears "
+      "exactly once (no ties resolved by dict/set iteration order)",
+      sorted(_order_a) == sorted(AVAILABLE) and len(set(_order_a)) == 13,
+      str(_order_a))
+
 print()
 if failures:
     print(f"SELF-CHECK FAILED: {len(failures)} failing check(s)")
