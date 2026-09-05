@@ -31,8 +31,9 @@ proc qualify(label: string, gameMap: CtfMap, colossal = false) =
     retainedLimit = if colossal: ColossalRetainedLimit else: PoolRetainedLimit
     ratioLimit = if colossal: 3.0 else: 2.0
   echo label, '\t', map.width, 'x', map.height, '\t', stats.navCells, '\t',
-    stats.walkableCells, '\t', stats.rooms, '\t', stats.portals, '\t',
-    stats.sides, '\t', stats.portalFieldCells, '\t', stats.segments, '\t',
+    stats.walkableCells, '\t', stats.rooms, '\t', map.chokeCount, '\t',
+    stats.portals, '\t', stats.sides, '\t', stats.droppedChokes, '\t',
+    stats.maxRoomDegree, '\t', stats.portalFieldCells, '\t', stats.segments, '\t',
     stats.crossings, '\t', stats.fineCrossings, '\t', stats.pocketConnectors,
     '\t', stats.finePoints, '\t', stats.finePointBytes, '\t',
     stats.segmentCells, '\t', stats.arcs, '\t',
@@ -62,7 +63,8 @@ proc colossalMap(): CtfMap =
   result.name = "size:colossal"
 
 when isMainModule:
-  echo "map\tsize_px\tnav_cells\twalkable\trooms\tportals\tsides\t" &
+  echo "map\tsize_px\tnav_cells\twalkable\trooms\tchokes\tportals\tsides\t" &
+    "dropped_chokes\tmax_room_degree\t" &
     "portal_field_cells\tsegments\tcrossings\tfine_crossings\t" &
     "pocket_connectors\tfine_points\t" &
     "fine_point_bytes\tsegment_cells\tarcs\t" &

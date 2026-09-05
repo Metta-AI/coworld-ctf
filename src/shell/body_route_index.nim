@@ -11,6 +11,7 @@ const
   PortalAnchorRingCells* = 4
   PortalCrossingBoxCells* = 4
   PortalCrossingMaxPops* = 64
+  PortalClusterSeparationPx* = 64
   FineNavCell* = 4
   FineCrossingMaxPops* = 256
   ConnectorMaxDistancePx* = 32
@@ -23,6 +24,7 @@ const
 static:
   doAssert FineNavCell == NavCell div 2
   doAssert FineCrossingMaxPops == 256
+  doAssert PortalClusterSeparationPx mod NavCell == 0
 
 type
   BodyPortalSide* = object
@@ -51,7 +53,7 @@ type
     navCells*, walkableCells*, rooms*, portals*, sides*: int
     portalFieldCells*, segments*, crossings*, segmentCells*, arcs*: int
     fineCrossings*, pocketConnectors*, finePoints*, finePointBytes*: int
-    graphComponents*: int
+    droppedChokes*, maxRoomDegree*, graphComponents*: int
     retainedBytes*, transientPeakBytes*: int64
 
   BodyRouteCoverageStats* = object
@@ -92,6 +94,17 @@ type
   CrossingPath = object
     cells: seq[int32]
     fine: bool
+
+  PortalBuild = object
+    roomA, roomB: uint16
+    anchorA, anchorB: int32
+    crossing: CrossingPath
+
+  BoundaryCluster = object
+    roomA, roomB: uint16
+    anchorA, anchorB, representativeCell: int32
+    neighborOrder: uint8
+    clearance: int
 
 proc cellIndex(index: BodyRouteIndex, cell: BodyPoint): int {.inline.} =
   cell.y * index.map.gridWidth + cell.x
@@ -203,8 +216,8 @@ iterator ringCells(center: BodyPoint, ring: int): BodyPoint =
     for y in countdown(center.y + ring - 1, center.y - ring + 1):
       yield (center.x - ring, y)
 
-proc sideAnchorCandidates(index: BodyRouteIndex,
-    chokeIndex, room: int): seq[int32] =
+proc nearestChokeAnchor(index: BodyRouteIndex,
+    chokeIndex: int): int32 =
   let center = index.map.cellOf(index.map.chokeAt(chokeIndex).pos)
   for ring in 0 .. PortalAnchorRingCells:
     for cell in ringCells(center, ring):
@@ -212,7 +225,23 @@ proc sideAnchorCandidates(index: BodyRouteIndex,
           cell.y < 0 or cell.y >= index.map.gridHeight:
         continue
       let candidate = index.cellIndex(cell)
-      if index.map.cellWalkable(cell) and index.roomOf[candidate].int == room:
+      if index.map.cellWalkable(cell):
+        return int32(candidate)
+  -1'i32
+
+proc differentRoomGoals(index: BodyRouteIndex, chokeIndex,
+    room: int): seq[int32] =
+  let
+    center = index.map.cellOf(index.map.chokeAt(chokeIndex).pos)
+    x0 = max(0, center.x - PortalCrossingBoxCells)
+    x1 = min(index.map.gridWidth - 1, center.x + PortalCrossingBoxCells)
+    y0 = max(0, center.y - PortalCrossingBoxCells)
+    y1 = min(index.map.gridHeight - 1, center.y + PortalCrossingBoxCells)
+  for y in y0 .. y1:
+    for x in x0 .. x1:
+      let candidate = index.cellIndex((x, y))
+      if index.map.cellWalkable((x, y)) and
+          index.roomOf[candidate].int != room:
         result.add int32(candidate)
 
 proc fineGridWidth(index: BodyRouteIndex): int {.inline.} =
@@ -593,83 +622,165 @@ proc buildLegalMoves(index: BodyRouteIndex) =
         mask = mask or uint8(1 shl neighborIndex)
     index.legalMoves[cellIndex] = mask
 
+proc chebyshevCells(a, b: BodyPoint): int {.inline.} =
+  max(abs(a.x - b.x), abs(a.y - b.y))
+
+proc betterRepresentative(candidate: BoundaryCluster,
+    current: BoundaryCluster): bool {.inline.} =
+  candidate.clearance > current.clearance or
+    (candidate.clearance == current.clearance and
+      (candidate.representativeCell < current.representativeCell or
+       (candidate.representativeCell == current.representativeCell and
+        candidate.neighborOrder < current.neighborOrder)))
+
+proc boundaryClusters(index: BodyRouteIndex): seq[BoundaryCluster] =
+  let separationCells = PortalClusterSeparationPx div NavCell
+  for cellIndex in 0 ..< index.stats.navCells:
+    let
+      cell = index.cellPoint(cellIndex)
+      room = index.roomOf[cellIndex]
+    if room == NoRoom:
+      continue
+    for neighborOrder, delta in NavNeighbors:
+      if (index.legalMoves[cellIndex] and
+          uint8(1 shl neighborOrder)) == 0:
+        continue
+      let
+        next = (cell.x + delta.x, cell.y + delta.y)
+        nextIndex = index.cellIndex(next)
+        nextRoom = index.roomOf[nextIndex]
+      if nextRoom == NoRoom or nextRoom == room:
+        continue
+      var candidate = BoundaryCluster(
+        roomA: room, roomB: nextRoom,
+        anchorA: int32(cellIndex), anchorB: int32(nextIndex),
+        representativeCell: int32(cellIndex),
+        neighborOrder: uint8(neighborOrder),
+        clearance: min(index.map.clearanceAt(cellCenter(cell)),
+          index.map.clearanceAt(cellCenter(next))))
+      if candidate.roomB < candidate.roomA:
+        swap(candidate.roomA, candidate.roomB)
+        swap(candidate.anchorA, candidate.anchorB)
+      var joined = false
+      for clusterIndex in 0 ..< result.len:
+        if result[clusterIndex].roomA != candidate.roomA or
+            result[clusterIndex].roomB != candidate.roomB or
+            index.cellPoint(result[clusterIndex].representativeCell.int).
+              chebyshevCells(cell) > separationCells:
+          continue
+        joined = true
+        if candidate.betterRepresentative(result[clusterIndex]):
+          result[clusterIndex] = candidate
+        break
+      if not joined:
+        result.add candidate
+
+proc passAPortalCovers(index: BodyRouteIndex,
+    portals: openArray[PortalBuild], passACount, chokeIndex: int): bool =
+  let center = index.map.cellOf(index.map.chokeAt(chokeIndex).pos)
+  for portalIndex in 0 ..< passACount:
+    let portal = portals[portalIndex]
+    for anchor in [portal.anchorA, portal.anchorB]:
+      if index.cellPoint(anchor.int).chebyshevCells(center) <=
+          PortalAnchorRingCells:
+        return true
+
+proc canonicalize(portal: var PortalBuild) =
+  if portal.roomB < portal.roomA:
+    swap(portal.roomA, portal.roomB)
+    swap(portal.anchorA, portal.anchorB)
+    portal.crossing.cells.reverse()
+
+proc duplicatePassB(portals: openArray[PortalBuild], passA: int,
+    candidate: PortalBuild): bool =
+  for portalIndex in passA ..< portals.len:
+    let portal = portals[portalIndex]
+    if portal.roomA == candidate.roomA and portal.roomB == candidate.roomB and
+        portal.anchorA == candidate.anchorA and
+        portal.anchorB == candidate.anchorB:
+      return true
+
 proc buildSides(index: BodyRouteIndex): seq[CrossingPath] =
-  let
-    roomCount = index.map.roomCount
-    chokeCount = index.map.chokeCount
-  index.sides = newSeq[BodyPortalSide](chokeCount * 2)
-  result = newSeq[CrossingPath](chokeCount)
+  let roomCount = index.map.roomCount
+  var portals: seq[PortalBuild]
+  for cluster in index.boundaryClusters():
+    portals.add PortalBuild(
+      roomA: cluster.roomA, roomB: cluster.roomB,
+      anchorA: cluster.anchorA, anchorB: cluster.anchorB,
+      crossing: CrossingPath(cells: @[cluster.anchorA, cluster.anchorB]))
+  let passACount = portals.len
+  for chokeIndex in 0 ..< index.map.chokeCount:
+    if index.passAPortalCovers(portals, passACount, chokeIndex):
+      continue
+    let anchorA = index.nearestChokeAnchor(chokeIndex)
+    if anchorA < 0:
+      inc index.stats.droppedChokes
+      continue
+    let roomA = index.roomOf[anchorA.int]
+    let goals = index.differentRoomGoals(chokeIndex, roomA.int)
+    if goals.len == 0:
+      inc index.stats.droppedChokes
+      continue
+    var crossing: CrossingPath
+    let anchorCell = index.cellPoint(anchorA.int)
+    for neighborOrder, delta in NavNeighbors:
+      if (index.legalMoves[anchorA.int] and
+          uint8(1 shl neighborOrder)) == 0:
+        continue
+      let neighbor = index.cellIndex(
+        (anchorCell.x + delta.x, anchorCell.y + delta.y))
+      if index.roomOf[neighbor] != roomA:
+        crossing.cells = @[anchorA, int32(neighbor)]
+        break
+    if crossing.cells.len == 0:
+      crossing = index.coarseCrossingPath(chokeIndex, [anchorA], goals)
+    if crossing.cells.len == 0:
+      crossing = index.fineCrossingPath(chokeIndex, [anchorA], goals)
+    if crossing.cells.len < 2 or crossing.cells[0] < 0 or
+        crossing.cells[^1] < 0:
+      inc index.stats.droppedChokes
+      continue
+    let roomB = index.roomOf[crossing.cells[^1].int]
+    if roomB == NoRoom or roomB == roomA:
+      inc index.stats.droppedChokes
+      continue
+    var portal = PortalBuild(roomA: roomA, roomB: roomB,
+      anchorA: crossing.cells[0], anchorB: crossing.cells[^1],
+      crossing: crossing)
+    portal.canonicalize()
+    if not portals.duplicatePassB(passACount, portal):
+      portals.add portal
+
+  if portals.len > high(uint16).int or
+      portals.len * 2 > high(uint16).int + 1:
+    raise newException(BodyMapError,
+      &"body route index map '{index.map.mapLabel}' has {portals.len} " &
+      "portals; portal and side IDs do not fit uint16")
+  index.stats.portals = portals.len
+  index.stats.sides = portals.len * 2
+  index.stats.crossings = portals.len
+  index.sides = newSeq[BodyPortalSide](portals.len * 2)
   index.roomSideStart = newSeq[int32](roomCount + 1)
   var sideCounts = newSeq[int](roomCount)
-  for chokeIndex in 0 ..< chokeCount:
-    let choke = index.map.chokeAt(chokeIndex)
-    if choke.roomA < 0 or choke.roomA >= roomCount or
-        choke.roomB < 0 or choke.roomB >= roomCount or
-        choke.roomA == choke.roomB:
-      raise newException(BodyMapError,
-        &"body route index map '{index.map.mapLabel}' choke {chokeIndex} " &
-        "has invalid incident rooms")
-    inc sideCounts[choke.roomA]
-    inc sideCounts[choke.roomB]
-    let
-      candidatesA = index.sideAnchorCandidates(chokeIndex, choke.roomA)
-      candidatesB = index.sideAnchorCandidates(chokeIndex, choke.roomB)
-    if candidatesA.len == 0 or candidatesB.len == 0:
-      let missingRoom = if candidatesA.len == 0: choke.roomA else: choke.roomB
-      raise newException(BodyMapError,
-        &"body route index map '{index.map.mapLabel}' choke {chokeIndex} " &
-        &"has no side anchor for room {missingRoom} within " &
-        &"{PortalAnchorRingCells} cells")
-    var
-      anchorA = candidatesA[0]
-      anchorB = candidatesB[0]
-      crossing: CrossingPath
-      found = false
-    block directPair:
-      for candidateA in candidatesA:
-        for candidateB in candidatesB:
-          if index.map.legalNavMove(index.cellPoint(candidateA.int),
-              index.cellPoint(candidateB.int)):
-            anchorA = candidateA
-            anchorB = candidateB
-            crossing.cells = @[candidateA, candidateB]
-            found = true
-            break directPair
-    if not found:
-      crossing = index.coarseCrossingPath(chokeIndex,
-        candidatesA, candidatesB)
-      found = crossing.cells.len > 0
-    if not found:
-      crossing = index.fineCrossingPath(chokeIndex,
-        candidatesA, candidatesB)
-      found = crossing.cells.len > 0
-    if not found:
-      raise newException(BodyMapError,
-        &"body route index map '{index.map.mapLabel}' choke {chokeIndex} " &
-        &"has no crossing within +-{PortalCrossingBoxCells} cells: " &
-        &"8 px search exhausted {PortalCrossingMaxPops} pops and " &
-        &"4 px search exhausted {FineCrossingMaxPops} pops")
-    anchorA = crossing.cells[0]
-    anchorB = crossing.cells[^1]
-    if anchorA < 0 or anchorB < 0:
-      raise newException(BodyMapError,
-        &"body route index map '{index.map.mapLabel}' choke {chokeIndex} " &
-        "crossing does not end at coarse anchors")
-    if crossing.fine:
+  for portalIndex, portal in portals:
+    inc sideCounts[portal.roomA.int]
+    inc sideCounts[portal.roomB.int]
+    if portal.crossing.fine:
       inc index.stats.fineCrossings
-      for pointRef in crossing.cells:
+      for pointRef in portal.crossing.cells:
         if pointRef < 0:
           inc index.stats.finePoints
-    index.sides[chokeIndex * 2] = BodyPortalSide(
-      portal: uint16(chokeIndex), room: uint16(choke.roomA),
-      anchorCell: anchorA)
-    index.sides[chokeIndex * 2 + 1] = BodyPortalSide(
-      portal: uint16(chokeIndex), room: uint16(choke.roomB),
-      anchorCell: anchorB)
-    result[chokeIndex] = crossing
+    index.sides[portalIndex * 2] = BodyPortalSide(
+      portal: uint16(portalIndex), room: portal.roomA,
+      anchorCell: portal.anchorA)
+    index.sides[portalIndex * 2 + 1] = BodyPortalSide(
+      portal: uint16(portalIndex), room: portal.roomB,
+      anchorCell: portal.anchorB)
+    result.add portal.crossing
   index.stats.finePointBytes = index.stats.finePoints * sizeof(int32)
   var cursor = 0
   for room, count in sideCounts:
+    index.stats.maxRoomDegree = max(index.stats.maxRoomDegree, count)
     index.roomSideStart[room] = int32(cursor)
     cursor += count
   index.roomSideStart[^1] = int32(cursor)
@@ -677,8 +788,8 @@ proc buildSides(index: BodyRouteIndex): seq[CrossingPath] =
   var write = newSeq[int](roomCount)
   for room in 0 ..< roomCount:
     write[room] = index.roomSideStart[room].int
-  for chokeIndex in 0 ..< chokeCount:
-    for side in [chokeIndex * 2, chokeIndex * 2 + 1]:
+  for portalIndex in 0 ..< portals.len:
+    for side in [portalIndex * 2, portalIndex * 2 + 1]:
       let room = index.sides[side].room.int
       index.roomSides[write[room]] = uint16(side)
       inc write[room]
@@ -693,7 +804,7 @@ proc runSideField(index: BodyRouteIndex, sideIndex: int,
     sourceLocal = index.localIndex[side.anchorCell.int].int
   if sourceLocal < 0 or sourceLocal >= roomLen:
     raise newException(BodyMapError,
-      &"body route index map '{index.map.mapLabel}' choke {side.portal} " &
+      &"body route index map '{index.map.mapLabel}' portal {side.portal} " &
       &"anchor is outside room {room}")
   for local in 0 ..< roomLen:
     distance[local] = high(uint32)
@@ -1164,9 +1275,7 @@ proc newBodyRouteIndex*(map: BodyMap): BodyRouteIndex =
   new(result)
   result.map = map
   result.stats = BodyRouteIndexStats(
-    navCells: map.gridWidth * map.gridHeight,
-    rooms: map.roomCount, portals: map.chokeCount, sides: map.chokeCount * 2,
-    crossings: map.chokeCount)
+    navCells: map.gridWidth * map.gridHeight, rooms: map.roomCount)
   result.buildLegalMoves()
   let maxRoomCells = result.buildRoomLayout()
   let crossings = result.buildSides()
@@ -1337,6 +1446,11 @@ proc validateRouteIndex*(index: BodyRouteIndex) =
       index.cellComponent.len != index.stats.navCells:
     raise newException(BodyMapError,
       &"body route index map '{index.map.mapLabel}' has inconsistent cell arrays")
+  if index.sides.len != index.stats.sides or
+      index.stats.sides != index.stats.portals * 2 or
+      index.stats.crossings != index.stats.portals:
+    raise newException(BodyMapError,
+      &"body route index map '{index.map.mapLabel}' has inconsistent portal stats")
   for cellIndex in 0 ..< index.stats.navCells:
     let cell = index.cellPoint(cellIndex)
     if index.map.cellWalkable(cell) and index.roomOf[cellIndex] == NoRoom:
@@ -1454,14 +1568,18 @@ proc validateRouteIndex*(index: BodyRouteIndex) =
       point = cellCenter(index.cellPoint(side.anchorCell.int))
       pixel = index.map.componentOf(point)
       graph = index.sideComponent[sideIndex].int
+    if side.room.int != index.roomForCell(side.anchorCell.int):
+      raise newException(BodyMapError,
+        &"body route index map '{index.map.mapLabel}' portal {side.portal} " &
+        "side room disagrees with its coarse anchor")
     if pixel <= 0 or graph <= 0:
       raise newException(BodyMapError,
-        &"body route index map '{index.map.mapLabel}' choke {side.portal} " &
+        &"body route index map '{index.map.mapLabel}' portal {side.portal} " &
         "has an unconnected side anchor")
     if pixelForGraph[graph] notin [0, pixel] or
         graphForPixel[pixel] notin [0, graph]:
       raise newException(BodyMapError,
-        &"body route index map '{index.map.mapLabel}' choke {side.portal} " &
+        &"body route index map '{index.map.mapLabel}' portal {side.portal} " &
         "graph connectivity disagrees with pixel components")
     pixelForGraph[graph] = pixel
     graphForPixel[pixel] = graph

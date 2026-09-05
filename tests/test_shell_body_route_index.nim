@@ -135,3 +135,21 @@ suite "immutable shared body route index":
           check index.map.segmentClear(index.routePoint(points[offset - 1]),
             index.routePoint(pointRef))
     check countedFinePoints == stats.finePoints
+
+  test "portal sides come from their own coarse room anchors":
+    let index = newBodyRouteIndex(newBodyMap(loadCtfMapMetadata("arena")))
+    let stats = index.routeIndexStats()
+    check stats.portals > 0
+    check stats.sides == stats.portals * 2
+    check stats.maxRoomDegree > 0
+    check stats.droppedChokes >= 0
+    for portal in 0 ..< stats.portals:
+      let
+        sideA = index.portalSideAt(portal * 2)
+        sideB = index.portalSideAt(portal * 2 + 1)
+        crossing = index.segmentCells(portal)
+      check sideA.room.int == index.roomForCell(sideA.anchorCell.int)
+      check sideB.room.int == index.roomForCell(sideB.anchorCell.int)
+      check sideA.room != sideB.room
+      check crossing[0] == sideA.anchorCell
+      check crossing[^1] == sideB.anchorCell
