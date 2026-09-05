@@ -35,12 +35,10 @@ sys.path.insert(0, str(_HERE.parent / "starters" / "common"))
 import starter_harness  # noqa: E402
 from starter_harness import Persona  # noqa: E402
 
-# Duo fields pair seat k with k+teamCount and team is k % teamCount; the
-# team count is DERIVED from the roster (the hosted field is flipping to 8
-# duos, so 16 must not be assumed). The "neighboring" duo is the next team
-# number -- arbitrary but computable from lobby context alone, which is all
-# a canned opener has to aim politics at. 16 is only the no-roster fallback.
-TEAM_COUNT = 16
+# Duo fields pair seat k with k+teamCount and team is k % teamCount; see
+# _neighbor_duo below for how teamCount is now derived (OBSERVED per call,
+# never a fixed divisor -- the field has flipped shape seven times in 72
+# hours and 16 was never safe to assume even before that).
 
 # The guaranteed conversion rung. hp is a small absolute number on this
 # engine (a bodyguard peels at 2-3); below 2 means genuinely wounded.
@@ -157,13 +155,33 @@ def _normalize_bodyguard(entries):
 
 
 def _neighbor_duo(context):
-    seat = (context.get("self") or {}).get("seat")
+    """The next team's duo seats -- team size DERIVED from OBSERVED state
+    at THIS call, never a fixed divisor off a seat/roster count. Under the
+    2-per-team layout (seat k pairs with k+teamCount) the offset between
+    our own seat and our own duo_partner IS teamCount, read straight off
+    the same self-facts the SOLO GUARD above already keys on, not guessed
+    from len(roster) // 2 -- that guess is exactly what silently treated
+    two unrelated SOLO seats as one team once the field reshaped to 16
+    solo entrants (confirmed realized 2026-09-05: 36/36 episodes across
+    r4003-4005 read 16 distinct teams, zero repeats).
+
+    SOLO (duo_partner missing or equal to our own seat) is the DEFAULT
+    branch here too -- there is no coherent "neighboring duo" to name when
+    there is no duo, so this returns None and callers fall through to
+    their own no-neighbor path. DUO is retained as an explicit, labeled
+    FALLBACK: the instant a real, distinct duo_partner reappears (this
+    reshape has already flipped seven times in ~72 hours) the
+    offset-derived team size resumes exactly as before, no code change
+    required.
+    """
+    self_facts = context.get("self") or {}
+    seat = self_facts.get("seat")
+    partner = self_facts.get("duo_partner")
     if not isinstance(seat, int):
         return None
-    roster = context.get("roster")
-    seats = (len(roster) if isinstance(roster, list) and roster
-             else 2 * TEAM_COUNT)
-    team_count = max(1, seats // 2)
+    if not isinstance(partner, int) or partner == seat:
+        return None  # SOLO: no genuine partner observed, no duo to name.
+    team_count = abs(partner - seat)
     team = seat % team_count
     nt = (team + 1) % team_count
     return (nt, nt + team_count)

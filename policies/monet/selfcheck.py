@@ -773,6 +773,44 @@ check("team-0 seat re-aims the placeholder pact off its own duo",
       and set(pact0["params"]["partners"]) == {"seat:1", "seat:17"},
       str(pact0))
 
+# ── _neighbor_duo: team size is OBSERVED per call (self/duo_partner
+# offset), never a fixed divisor off seat or roster count. A 16-seat SOLO
+# roster (2026-09-05 era, confirmed realized: 16 distinct teams, zero
+# repeats, one seat each) must not be read as 8 duos just because it
+# happens to carry 16 seats -- that misreading is exactly the retired
+# `seats // 2` bug (it directed pact/truce politics at two unrelated solo
+# seats as if they shared a team). ─────────────────────────────────────────
+SOLO16_ROSTER = [{"seat": i} for i in range(16)]
+check("_neighbor_duo: solo (duo_partner missing) is None at 1 seat/team, "
+      "even with a 16-seat roster present -- no fixed divisor substitutes "
+      "for the missing partner",
+      policy._neighbor_duo({"self": {"seat": 3, "duo_partner": None},
+                            "roster": SOLO16_ROSTER}) is None,
+      str(policy._neighbor_duo({"self": {"seat": 3, "duo_partner": None},
+                                "roster": SOLO16_ROSTER})))
+check("_neighbor_duo: solo (duo_partner == own seat) is None at 1 "
+      "seat/team",
+      policy._neighbor_duo({"self": {"seat": 3, "duo_partner": 3},
+                            "roster": SOLO16_ROSTER}) is None,
+      str(policy._neighbor_duo({"self": {"seat": 3, "duo_partner": 3},
+                                "roster": SOLO16_ROSTER})))
+check("_neighbor_duo: duo fallback still derives correctly at 2 "
+      "seats/team -- the self/duo_partner offset IS the team size, "
+      "independent of roster length (8-seat offset on a 16-seat roster)",
+      policy._neighbor_duo({"self": {"seat": 3, "duo_partner": 11},
+                            "roster": SOLO16_ROSTER}) == (4, 12),
+      str(policy._neighbor_duo({"self": {"seat": 3, "duo_partner": 11},
+                                "roster": SOLO16_ROSTER})))
+check("_neighbor_duo: NEGATIVE -- a fixed `seats // 2` divisor has not "
+      "returned. This 16-seat roster's real duo offset is 5 (seat 0 / "
+      "partner 5); the retired formula would derive team_count=8 from "
+      "roster length alone and answer (1, 9) -- the observed offset must "
+      "win and answer (1, 6) instead",
+      policy._neighbor_duo({"self": {"seat": 0, "duo_partner": 5},
+                            "roster": SOLO16_ROSTER}) == (1, 6),
+      str(policy._neighbor_duo({"self": {"seat": 0, "duo_partner": 5},
+                                "roster": SOLO16_ROSTER})))
+
 # ── awareness digest (the extra_summary seam) ─────────────────────────────
 check("persona wires the awareness digest",
       PERSONA.extra_summary is policy.awareness_lines)
