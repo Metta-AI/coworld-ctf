@@ -550,12 +550,58 @@ def _clean_enum_list(value, spec):
 # A param the model actually supplied a value for, but whose value failed
 # its kind's cleaning (bad seat_ref format, out-of-range pair, ...), is
 # indistinguishable downstream from a param the model never mentioned --
-# both end up simply absent from `cleaned`. CLEAN_DROPS is the counter that
-# tells the two apart, keyed "play.key", so a persona whose model keeps
-# asking for something that never reaches the wire (e.g. bodyguard's ward
-# sent in the wrong shape) shows up in the starter summary instead of
-# vanishing silently.
-CLEAN_DROPS: dict[str, int] = {}
+# both end up simply absent from `cleaned`. But that failure has TWO very
+# different causes, and collapsing them into one counter was itself a bug:
+# a collection-kind param (seat_set / seat_or_duo_set / enum_list) whose
+# raw value was an empty list `[]` is not garbage -- an empty list is the
+# only way the wire lets the model say "clear this param" -- yet
+# `poc_policy._clean_partners` / `_clean_seat_or_duo_set` / `_clean_enum_list`
+# all clean a deliberate empty send to the exact same None a malformed send
+# cleans to (see `if not seats: return None` in `_clean_seat_or_duo_set`
+# above). CLEAN_CLEARED counts the former (keyed "play.key"); CLEAN_REJECTED
+# counts the latter, which is the one that means the model is actually
+# misfiring. They are never summed back into one number -- a persona that
+# calmly clears a param every turn must not look like one whose model is
+# spraying unparseable JSON.
+CLEAN_CLEARED: dict[str, int] = {}
+CLEAN_REJECTED: dict[str, int] = {}
+
+# For CLEAN_REJECTED only: capture a sanitised sample of what the raw value
+# actually was, so a persona whose model keeps missing a shape (e.g.
+# bodyguard's ward sent as a bare int) is diagnosable from the summary
+# instead of just a number. Capped hard on both axes -- chars per sample and
+# samples per key -- so a model that free-associates JSON garbage cannot
+# blow up the log; this is a debugging aid, not a transcript.
+_REJECTED_SAMPLE_CHAR_CAP = 200
+_REJECTED_SAMPLE_COUNT_CAP = 5
+REJECTED_SAMPLES: dict[str, list[str]] = {}
+
+# Collection-kind params where the wire lets the model send `[]` to mean
+# "clear this" -- the only kinds whose cleaners fold "well-formed but empty"
+# into the same None as "malformed" (see _clean_seat_or_duo_set,
+# poc_policy._clean_partners, _clean_enum_list).
+_CLEARABLE_KINDS = frozenset({"seat_set", "seat_or_duo_set", "enum_list"})
+
+
+def _sanitize_rejected_sample(raw) -> str:
+    """A truncated, printable repr of a value that failed cleaning. Play
+    params are seats/enums/numbers/leash bands, never secrets, but the cap
+    still applies so a deeply-nested or absurdly long value can't blow up
+    the log."""
+    try:
+        text = repr(raw)
+    except Exception:
+        text = f"<unreprable {type(raw).__name__}>"
+    if len(text) > _REJECTED_SAMPLE_CHAR_CAP:
+        text = text[:_REJECTED_SAMPLE_CHAR_CAP] + "...<truncated>"
+    return text
+
+
+def _record_rejected(tag: str, raw) -> None:
+    CLEAN_REJECTED[tag] = CLEAN_REJECTED.get(tag, 0) + 1
+    samples = REJECTED_SAMPLES.setdefault(tag, [])
+    if len(samples) < _REJECTED_SAMPLE_COUNT_CAP:
+        samples.append(_sanitize_rejected_sample(raw))
 
 
 def _clean_params(play: str, params) -> dict | None:
@@ -594,7 +640,11 @@ def _clean_params(play: str, params) -> dict | None:
                 cleaned[key] = value
             elif raw is not None:
                 tag = f"{play}.{key}"
-                CLEAN_DROPS[tag] = CLEAN_DROPS.get(tag, 0) + 1
+                if (kind in _CLEARABLE_KINDS and isinstance(raw, list)
+                        and not raw):
+                    CLEAN_CLEARED[tag] = CLEAN_CLEARED.get(tag, 0) + 1
+                else:
+                    _record_rejected(tag, raw)
     for key, spec in specs.items():
         if spec.get("required") and key not in cleaned:
             return None
@@ -1279,9 +1329,15 @@ def run(persona: Persona, args) -> int:
     _log(persona, f"real model calls: {getattr(engine, 'calls', 0)}")
     _log(persona, f"statuses received: {len(seat.statuses)}")
     _log(persona, f"chat broadcasts received: {len(seat.chat)}")
-    if CLEAN_DROPS:
+    if CLEAN_CLEARED:
+        _log(persona, f"params the model asked to CLEAR (well-formed empty "
+                      f"collection, by design -- not a failure): "
+                      f"{CLEAN_CLEARED}")
+    if CLEAN_REJECTED:
         _log(persona, f"params the model asked for that never reached the "
-                      f"wire (failed cleaning): {CLEAN_DROPS}")
+                      f"wire (malformed, failed cleaning): {CLEAN_REJECTED}")
+        _log(persona, f"rejected value samples (truncated): "
+                      f"{REJECTED_SAMPLES}")
     if failures:
         for failure in failures:
             _log(persona, f"FAILURE: {failure}")
