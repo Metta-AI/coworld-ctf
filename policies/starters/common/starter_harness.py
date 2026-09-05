@@ -1353,7 +1353,17 @@ def run(persona: Persona, args) -> int:
     _log(persona, "playbook: "
          + ", ".join(f"{n} ({len(b)}B)" for n, b in playbook))
 
-    prompt = build_system_prompt(persona, available)
+    # The system prompt is rebuilt fresh from `available` at each model call
+    # site (see the `build_system_prompt(persona, available)` calls below),
+    # NOT snapshotted once here. `available` is mutated in place by
+    # `_drop_failed_module` after an upload never reaches module_ready; a
+    # prompt built once, before that mutation lands, keeps listing (and
+    # inviting the model to call) a play the wire can no longer carry --
+    # measured live: the model re-proposed a dropped play in ~half of its
+    # post-drop calls (T19 fix; see the drop-set prompt-freshness checks in
+    # selfcheck.py for the counts). `available` is already threaded through
+    # to both call sites below, so no new plumbing is needed.
+    #
     # The persona's canned turns are BOTH the offline/CI engine and the live
     # engine's degrade target: if the sidecar rejects the model (allowlist
     # 403) or any completions call fails, brain.ResilientBrain logs once and
@@ -1410,7 +1420,7 @@ def run(persona: Persona, args) -> int:
         # Turn 1: opening decision, chat (echo required), call.
         summary = summarize(seat, "lobby, before the drop", persona)
         _log(persona, "model input:\n" + summary)
-        with _persona_prompt(prompt):
+        with _persona_prompt(build_system_prompt(persona, available)):
             decision = engine.decide(summary)
         _log(persona, f"model output: {json.dumps(decision, sort_keys=True)}")
 
@@ -1437,7 +1447,7 @@ def run(persona: Persona, args) -> int:
             failures.append("opening call was not accepted")
 
         try:
-            _live_loop(persona, seat, engine, prompt, available, payload,
+            _live_loop(persona, seat, engine, available, payload,
                        args, failures)
         except ConnectionClosed as closed:
             # The server closes every play socket when the match ends; that
@@ -1580,7 +1590,7 @@ def _entries_of(payload: bytes) -> list:
         return []
 
 
-def _live_loop(persona: Persona, seat: StarterSeat, engine, prompt: str,
+def _live_loop(persona: Persona, seat: StarterSeat, engine,
                available: list[str], payload: bytes, args,
                failures: list[str]) -> None:
     """Stay in the match. Pump the socket, watch the view, and re-call the
@@ -1591,6 +1601,12 @@ def _live_loop(persona: Persona, seat: StarterSeat, engine, prompt: str,
     Returns when the seat is dead (nothing left to decide) or the budget is
     spent AND the socket closes; raises ConnectionClosed when the server ends
     the match, which the caller treats as the normal exit.
+
+    The system prompt is rebuilt from the live ``available`` set on every
+    re-call (not passed in once) so a module dropped mid-match by
+    ``_drop_failed_module`` also drops out of the menu the model sees --
+    the wire-side gate (``build_call``) and the model's own prompt now
+    agree on what this session can still propose.
     """
     partner = (seat.context or {}).get("self", {}).get("duo_partner")
     min_gap = max(1.0, float(args.recall_seconds))
@@ -1654,7 +1670,7 @@ def _live_loop(persona: Persona, seat: StarterSeat, engine, prompt: str,
                             notes=reasons)
         _log(persona, f"re-call {turn - 1} trigger: {'; '.join(reasons)}")
         _log(persona, "model input:\n" + summary)
-        with _persona_prompt(prompt):
+        with _persona_prompt(build_system_prompt(persona, available)):
             decision = engine.decide(summary)
         _log(persona, f"model output: {json.dumps(decision, sort_keys=True)}")
         # The lobby-chat window is closed once the match is playing, so a
