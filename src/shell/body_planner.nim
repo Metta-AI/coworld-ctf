@@ -17,9 +17,6 @@ const
   PlanWeight = 1.0
   FollowBlockFactor = 8.0
   Sqrt2 = sqrt(2.0)
-  Neighbors = [
-    (-1, 0), (1, 0), (0, -1), (0, 1),
-    (-1, -1), (-1, 1), (1, -1), (1, 1)]
 
 type
   PlanCostProfile* = object
@@ -295,39 +292,6 @@ proc pyRound(value: float): int =
   elif (lower and 1) == 0: lower
   else: lower + 1
 
-proc segmentClear(map: BodyMap, start, goal: BodyPoint): bool =
-  if not map.canStand(start):
-    return false
-  let dx = goal.x - start.x
-  let dy = goal.y - start.y
-  let nx = abs(dx)
-  let ny = abs(dy)
-  let stepX = cmp(dx, 0)
-  let stepY = cmp(dy, 0)
-  var x = start.x
-  var y = start.y
-  var ix = 0
-  var iy = 0
-  while ix < nx or iy < ny:
-    let decision = (1 + 2 * ix) * ny - (1 + 2 * iy) * nx
-    if decision == 0:
-      if not map.canStand((x + stepX, y)) or
-          not map.canStand((x, y + stepY)):
-        return false
-      x += stepX
-      y += stepY
-      inc ix
-      inc iy
-    elif decision < 0:
-      x += stepX
-      inc ix
-    else:
-      y += stepY
-      inc iy
-    if not map.canStand((x, y)):
-      return false
-  true
-
 proc latticePoint(job: BodyPlanJob, index: int): BodyPoint =
   ((index mod job.latticeW) * job.step,
    (index div job.latticeW) * job.step)
@@ -436,7 +400,7 @@ proc advanceConnector(scan: var ConnectorScan, planner: BodyPlanner,
   true
 
 proc reverseNeighborIndex(dx, dy: int): int =
-  for index, delta in Neighbors:
+  for index, delta in NavNeighbors:
     if delta[0] == -dx and delta[1] == -dy:
       return index
 
@@ -466,7 +430,7 @@ proc advanceMintSearch(minter: BodyFieldMinter, cache: BodySeatCache,
     return
   let x = current.item mod minter.map.gridWidth
   let y = current.item div minter.map.gridWidth
-  for _, delta in Neighbors:
+  for _, delta in NavNeighbors:
     let nx = x + delta[0]
     let ny = y + delta[1]
     let nextCell = (nx, ny)
@@ -605,7 +569,7 @@ proc advanceAstar(planner: BodyPlanner, cache: BodySeatCache,
     return
   let currentPoint = job.latticePoint(currentIndex)
   let targetPoint = job.latticePoint(job.targetIndex)
-  for delta in Neighbors:
+  for delta in NavNeighbors:
     let nextPoint: BodyPoint = (currentPoint.x + delta[0] * job.step,
                                 currentPoint.y + delta[1] * job.step)
     if nextPoint.x < 0 or nextPoint.x >= planner.map.width or

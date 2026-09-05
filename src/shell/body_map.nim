@@ -22,9 +22,6 @@ const
   AtlasBucketCells = 8
   EdtInfinity = uint32.high div 4
   Orth = [(-1, 0), (1, 0), (0, -1), (0, 1)]
-  Neighbors = [
-    (-1, 0), (1, 0), (0, -1), (0, 1),
-    (-1, -1), (-1, 1), (1, -1), (1, 1)]
   Sqrt2 = sqrt(2.0)
 
 type
@@ -68,6 +65,7 @@ type
     hops: seq[uint8]
 
   BodyMap* = ref object
+    mapName: string
     mapWidth, mapHeight, navWidth, navHeight, groups: int
     wall: seq[bool]
     clearance: seq[uint8]
@@ -93,6 +91,10 @@ type
 
   QueueNode = tuple[distance: float, x, y: int]
 
+const NavNeighbors*: array[8, BodyPoint] = [
+  (x: -1, y: 0), (x: 1, y: 0), (x: 0, y: -1), (x: 0, y: 1),
+  (x: -1, y: -1), (x: -1, y: 1), (x: 1, y: -1), (x: 1, y: 1)]
+
 template pixelIndex(map: BodyMap, x, y: int): int = y * map.mapWidth + x
 template gridIndex(map: BodyMap, x, y: int): int = y * map.navWidth + x
 template standableAt(map: BodyMap, index: int): bool =
@@ -113,6 +115,7 @@ proc pyRound(value: float): int =
 
 proc width*(map: BodyMap): int = map.mapWidth
 proc height*(map: BodyMap): int = map.mapHeight
+proc name*(map: BodyMap): string = map.mapName
 proc gridWidth*(map: BodyMap): int = map.navWidth
 proc gridHeight*(map: BodyMap): int = map.navHeight
 proc groupCount*(map: BodyMap): int = map.groups
@@ -179,6 +182,53 @@ proc cellWalkable*(map: BodyMap, cell: BodyPoint): bool =
   cell.x >= 0 and cell.x < map.navWidth and
     cell.y >= 0 and cell.y < map.navHeight and
     map.walkable[map.gridIndex(cell.x, cell.y)]
+
+proc segmentClear*(map: BodyMap, start, goal: BodyPoint): bool =
+  ## Exact pixel collision predicate shared by index construction, queries,
+  ## smoothing, steering, and the legacy planner during the staged cutover.
+  if not map.canStand(start):
+    return false
+  let
+    dx = goal.x - start.x
+    dy = goal.y - start.y
+    nx = abs(dx)
+    ny = abs(dy)
+    stepX = cmp(dx, 0)
+    stepY = cmp(dy, 0)
+  var x = start.x
+  var y = start.y
+  var ix = 0
+  var iy = 0
+  while ix < nx or iy < ny:
+    let decision = (1 + 2 * ix) * ny - (1 + 2 * iy) * nx
+    if decision == 0:
+      if not map.canStand((x + stepX, y)) or
+          not map.canStand((x, y + stepY)):
+        return false
+      x += stepX
+      y += stepY
+      inc ix
+      inc iy
+    elif decision < 0:
+      x += stepX
+      inc ix
+    else:
+      y += stepY
+      inc iy
+    if not map.canStand((x, y)):
+      return false
+  true
+
+proc legalNavMove*(map: BodyMap, fromCell, toCell: BodyPoint): bool =
+  let delta = (x: toCell.x - fromCell.x, y: toCell.y - fromCell.y)
+  if delta notin NavNeighbors or not map.cellWalkable(fromCell) or
+      not map.cellWalkable(toCell):
+    return false
+  if delta.x != 0 and delta.y != 0 and
+      (not map.cellWalkable((toCell.x, fromCell.y)) or
+       not map.cellWalkable((fromCell.x, toCell.y))):
+    return false
+  map.segmentClear(cellCenter(fromCell), cellCenter(toCell))
 
 proc coverDirections*(map: BodyMap, cell: BodyPoint): uint16 =
   if cell.x >= 0 and cell.x < map.navWidth and
@@ -427,7 +477,7 @@ proc nearestWalkable*(map: BodyMap, cell: BodyPoint): BodyPoint =
   cell
 
 proc reverseNeighborIndex(dx, dy: int): int =
-  for index, delta in Neighbors:
+  for index, delta in NavNeighbors:
     if delta[0] == -dx and delta[1] == -dy:
       return index
 
@@ -449,7 +499,7 @@ proc buildHomeField(map: BodyMap, home: BodyHome): HomeField =
     let current = queue.pop()
     if current.distance > result.distances[map.gridIndex(current.x, current.y)]:
       continue
-    for _, delta in Neighbors:
+    for _, delta in NavNeighbors:
       let nx = current.x + delta[0]
       let ny = current.y + delta[1]
       if nx < 0 or nx >= map.navWidth or ny < 0 or ny >= map.navHeight:
@@ -850,7 +900,7 @@ proc buildValidatorTables(map: BodyMap, spawnPoints: openArray[BodyPoint]) =
 
 proc newBodyMap*(pixelWalkable: openArray[bool], width, height,
                  groupCount: int, spawnPoints: openArray[BodyPoint],
-                 homes: openArray[BodyHome] = []): BodyMap =
+                 homes: openArray[BodyHome] = [], mapName = "unnamed"): BodyMap =
   ## Build the complete immutable episode layer. Inputs are copied/derived;
   ## retaining and mutating the caller's sequences cannot change the map.
   if width < NavCell or height < NavCell or pixelWalkable.len != width * height:
@@ -860,7 +910,7 @@ proc newBodyMap*(pixelWalkable: openArray[bool], width, height,
     raise newException(BodyMapError, "body map group count must be positive")
   if spawnPoints.len == 0:
     raise newException(BodyMapError, "body map needs at least one spawn point")
-  result = BodyMap(mapWidth: width, mapHeight: height,
+  result = BodyMap(mapName: mapName, mapWidth: width, mapHeight: height,
     navWidth: max(1, width div NavCell), navHeight: max(1, height div NavCell),
     groups: groupCount, wall: newSeq[bool](pixelWalkable.len))
   for index, walkable in pixelWalkable:
@@ -913,4 +963,4 @@ proc newBodyMap*(gameMap: ctfTypes.CtfMap): BodyMap =
       homes.add(BodyHome(group: index,
         point: ((zone.xLo + zone.xHi) div 2, (zone.yLo + zone.yHi) div 2)))
   newBodyMap(pixelWalkable, gameMap.width, gameMap.height, groups,
-    spawnPoints, homes)
+    spawnPoints, homes, gameMap.name)
