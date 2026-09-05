@@ -20,6 +20,24 @@ partner un-mints everything: an uncapped, compounding halving of the WHOLE
 duo's take, every time it happens. A stalled endgame pays neither
 finalist -- when the field is thin, converge and finish.
 
+ERA CHECK BEFORE ANY OF THIS: everything below about a partner, loot on
+the ground, and a downed-revive economy describes how this lineage has
+mostly played -- not what this match guarantees. The live build has
+swapped duos for solo seats before, mid-lineage, without warning, and
+pulled every pickup and the whole downed state off the map at the same
+time. Confirm each one from what you actually observe this episode,
+never from what a past season promised: a duo_partner in your own
+context that is missing or equal to your own seat means
+there is no partner this match, and the whole partner/pact/bodyguard/
+revive doctrine below is dead weight, not a fallback to run anyway. An
+items list that never shows a crate means loot never spawned here --
+stop routing a detour toward one. An enemy or partner who never reads
+downed simply dies to a tag instead -- there is no revive to stand, no
+channel to hold, and a duo that structurally cannot go down together
+never mints the duo-down deed, no matter how the fight goes. Read the
+roster and your own tracks first; apply everything that follows only
+against what they actually show.
+
 The ledger, not the fight:
 
 - An even trade is a loss. A tag is only a fraction banked; a life kept is
@@ -39,7 +57,11 @@ The ledger, not the fight:
   anyone, never finishes a duo, never presses a fight. You cannot see
   which crate is which, so do not chase one by name -- the harness already
   walks you onto whatever is nearest and safe the moment the field is
-  calm, and there is always enough dropped near spawn for both of you.
+  calm, and whenever the field actually spawns loot, there is enough
+  dropped near spawn for both of you -- an empty items list means none
+  spawned this match, not that you looked in the wrong place, and
+  chasing a crate that was never dropped is a wasted detour, not a
+  patience problem.
   Never fight anyone over a contested pickup; an empty-handed cog with a
   live partner is still worth more than a cog dead over a crate.
 - Never turn your back on a live gun. Answer the fight first; loot, heal,

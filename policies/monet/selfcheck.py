@@ -1661,3 +1661,43 @@ check("medic.nim: NEGATIVE -- the old unsigned outsideDepth test no longer "
       "gates the pickup (it cannot see the slack band)",
       "outsideDepth(decoded.world.zone.current" not in _MEDIC_SRC,
       "the superseded outsideDepth zone guard is still wired")
+
+# ── era correction (engine commits 040f1451/9a318548/cc64f0a4, PRs #420 and
+# #422, merged 2026-09-04 ~20:29 PT): coworld_manifest_paintbot.json flips
+# battle-royale-s2 from 8 duos w/ loot+downed to 16 solo entrants, with
+# lootStart/downedMode/giveItem/dropItem all OFF and lootSpawnSeedGuns/
+# Hoppers/Radius/hopperSiteTrafficPermille/bandagePickups all zeroed; a new
+# solo-team guard (sim.nim ~L2706) makes dDuoDown structurally unmintable
+# once a victim's team has <2 seats. NOT YET CONFIRMED REALIZED in live
+# play (r4000, the one round dispatched after the change, failed with zero
+# episodes) -- so the prompt must read correctly under EITHER shape, not
+# assume the new one is live. These pin that the doctrine's partner/loot/
+# downed claims are now gated on what the policy actually observes this
+# episode, not stated as guaranteed match facts. ──────────────────────────
+check("prompt: an era-check gate precedes the partner/loot/downed doctrine",
+      "ERA CHECK BEFORE ANY OF THIS" in prompt,
+      "era-check gate not found in prompt")
+check("prompt: partner existence is now conditional on the roster, not "
+      "assumed (duo_partner absent/self => no partner this match)",
+      "there is no partner this match" in prompt,
+      "conditional partner-existence text not found")
+check("prompt: loot presence is now conditional on what's observed, not "
+      "guaranteed (an empty items list means none spawned)",
+      "loot never spawned here" in prompt,
+      "conditional loot-presence text not found")
+check("prompt: the downed/revive economy is now conditional on what's "
+      "observed, not assumed to exist every match",
+      "no revive to stand" in prompt,
+      "conditional downed-economy text not found")
+check("prompt: the duo-down deed is named as structurally unmintable when "
+      "duos can't go down together (solo-team guard, sim.nim ~L2706)",
+      "never mints the duo-down deed" in prompt,
+      "duo-down-unmintable text not found")
+check("prompt: NEGATIVE -- loot at spawn is no longer stated as an "
+      "unconditional guarantee (the era correction this commit makes)",
+      "there is always enough dropped near spawn" not in prompt,
+      "stale unconditional loot-guarantee text found in prompt")
+check("prompt: the loot bullet's guarantee is now scoped to matches that "
+      "actually spawn it",
+      "whenever the field actually spawns loot" in prompt,
+      "conditional loot-spawn scoping text not found")
