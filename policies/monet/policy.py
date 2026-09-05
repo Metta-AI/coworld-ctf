@@ -175,6 +175,24 @@ def adjust_entries(entries, context, view):
     seat = self_facts.get("seat")
     own_duo = {f"seat:{s}" for s in (seat, partner) if isinstance(s, int)}
 
+    # SOLO GUARD (16-solo BR reshape, confirmed realized on the field
+    # 2026-09-05 -- 36/36 episodes across r4003-4005 read 16 distinct
+    # teams, zero repeats): a missing or self-referential duo_partner means
+    # this seat has no partner this match. gate_open already refuses to
+    # open bodyguard or medic when partner is None (selfcheck's "gate
+    # medic CLOSED: no partner" pins this), so neither rung can ever
+    # actually fire -- but leaving them on the WANTED ladder still spends
+    # two of wire.MAX_LADDER_ENTRIES' limited slots (bodyguard normalizes
+    # to a canonical PAIR, see BODYGUARD_LEASH) on rungs that can only ever
+    # sit gated shut. Strip them here instead of trusting the gate alone
+    # to make them inert. FALLBACK, not deletion: the instant a live
+    # duo_partner reappears (this reshape has already flipped seven times
+    # in 72 hours) this block is a no-op and every duo rung below installs
+    # exactly as before, no code change required to restore it.
+    if partner is None or partner == seat:
+        entries = [e for e in entries
+                   if e.get("play") not in ("bodyguard", "medic")]
+
     # Re-aim placeholder or self-referential pacts at the neighboring duo;
     # keep a model's real choice of partners. Betrayal is answered in kind.
     pact_seats = []

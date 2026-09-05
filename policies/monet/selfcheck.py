@@ -1553,11 +1553,11 @@ check("brain: a repaired reply survives the harness repair path and reaches "
       bool(_salvaged_wire) and all("play" in e for e in _salvaged_wire),
       str(_salvaged_wire)[:200])
 
-print()
-if failures:
-    print(f"SELF-CHECK FAILED: {len(failures)} failing check(s)")
-    sys.exit(1)
-print("SELF-CHECK PASSED")
+# NOTE: the final `if failures: ... sys.exit(1)` gate lives at the true end
+# of this file, past every section below -- see the tombstone comment there
+# for why (a stray mid-file gate silently let ~20+ later checks run DARK:
+# they printed PASS/FAIL but never touched the exit code, so a real
+# regression there would never have failed CI or a local run).
 
 # ── zoneBlocksRevive ARMED (engine commit 2d651034 / PR #402, armed on the
 # battle-royale-s2 variant at build 0.7.323 ~= round 3965): once the closing
@@ -1701,3 +1701,119 @@ check("prompt: the loot bullet's guarantee is now scoped to matches that "
       "actually spawn it",
       "whenever the field actually spawns loot" in prompt,
       "conditional loot-spawn scoping text not found")
+
+# ── era correction, round 2 (measured 2026-09-05: 36/36 completed episodes
+# across r4003/4004/4005 read 16 DISTINCT team colors per episode, zero
+# repeats -- the direct signature of 16 solo entrants, not 8 duos; deaths
+# are binary with no revive/down counts; the results schema carries no
+# loot field at all). The prior era-correction (above) only made the
+# doctrine's claims CONDITIONAL; the reshape is now CONFIRMED REALIZED, so
+# solo becomes the DEFAULT/PRIMARY branch the prompt leads with, and the
+# partner/downed/loot doctrine becomes an explicitly-labeled FALLBACK --
+# not deleted, because this variant's rules have flipped seven times in
+# about 72 hours and the fallback must stay correct with no code change if
+# it flips back. These pin: (1) the prompt states solo as the lead/default
+# BEFORE any duo-specific claim, (2) the duo doctrine carries an explicit
+# FALLBACK label, (3) the stale unconditional duo-only phrasing this
+# correction retired can never silently return, and (4) in CODE --
+# policy.adjust_entries' new solo guard -- bodyguard/medic are mechanically
+# dropped from the wanted ladder when there is no partner this match, while
+# the fallback (a real duo_partner) still installs them exactly as before,
+# so a future edit cannot silently delete either branch. ──────────────────
+check("prompt: SOLO is stated as the observed default in the very first "
+      "paragraph, not buried after the duo doctrine",
+      "SOLO IS THE OBSERVED DEFAULT THIS ERA" in prompt,
+      "solo-default lead sentence not found in prompt")
+check("prompt: the era-check gate (solo-primary) precedes THE OBJECTIVE's "
+      "duo-down/duo's-take scoring claims, so the hedge is read BEFORE any "
+      "duo-specific mechanic, not after",
+      "ERA CHECK BEFORE ANY OF THIS" in prompt and "THE OBJECTIVE" in prompt
+      and prompt.index("ERA CHECK BEFORE ANY OF THIS") < prompt.index("THE OBJECTIVE"),
+      "era-check gate does not precede THE OBJECTIVE")
+check("prompt: the duo/partner/downed/revive doctrine carries an explicit "
+      "FALLBACK -- DUO ERA label, not silent unlabeled prose",
+      "FALLBACK -- DUO ERA" in prompt,
+      "explicit duo-era fallback label not found")
+check("prompt: the FALLBACK label sits AFTER the solo-default lead "
+      "sentence -- solo is the branch the prompt leads with, duo is what "
+      "follows it",
+      prompt.index("SOLO IS THE OBSERVED DEFAULT THIS ERA")
+      < prompt.index("FALLBACK -- DUO ERA"),
+      "fallback label does not follow the solo-default lead")
+check("prompt: NEGATIVE -- the old unconditional 'battle-royale match of "
+      "duos' persona framing (stated as guaranteed fact, no era hedge) "
+      "cannot silently return",
+      "battle-royale match of duos." not in prompt,
+      "stale unconditional duo-match framing found in prompt")
+check("prompt: NEGATIVE -- the loot-at-spawn guarantee no longer implies "
+      "exactly two beneficiaries ('for both of you'), which reads wrong "
+      "under the solo default",
+      "dropped near spawn for both of you" not in prompt,
+      "stale duo-only loot-guarantee phrasing found in prompt")
+check("prompt: NEGATIVE -- the endgame threshold is no longer phrased in "
+      "duo-only units ('three duos or fewer'); 'teams' reads correctly "
+      "under either era",
+      "three duos or fewer" not in prompt,
+      "stale duo-only endgame threshold phrasing found in prompt")
+
+# ── code: adjust_entries' solo guard actually gates the ladder, not just
+# the prompt's prose. A confirmed-solo context (duo_partner missing or
+# equal to the seat's own number) must mechanically drop bodyguard and
+# medic from the WANTED ladder on every canned turn that submits them --
+# gate_open already refuses both when partner is None (see the "gate
+# medic CLOSED: no partner" check above), so this closes the matching gap
+# on the wanted-ladder side (fewer of wire.MAX_LADDER_ENTRIES' limited
+# slots spent on a rung that can only ever sit gated shut). ───────────────
+SOLO_CONTEXT = {"self": {"seat": 3, "duo_partner": None}}
+SOLO_SELF_CONTEXT = {"self": {"seat": 3, "duo_partner": 3}}
+for _label, _ctx in (("duo_partner missing", SOLO_CONTEXT),
+                      ("duo_partner == own seat", SOLO_SELF_CONTEXT)):
+    for _i, _turn in enumerate(PERSONA.canned_turns, start=1):
+        _submitted = [e["play"] for e in _turn["call"]["entries"]]
+        if not ({"bodyguard", "medic"} & set(_submitted)):
+            continue
+        _solo_seat = fake_seat(context=_ctx)
+        starter_harness.repair_call(_turn, PERSONA, _solo_seat, AVAILABLE)
+        _solo_wanted = [e["play"] for e in _solo_seat.wanted_entries]
+        check(f"solo guard ({_label}), turn {_i}: bodyguard dropped from "
+              "the wanted ladder (dead weight -- no partner to shield)",
+              "bodyguard" not in _solo_wanted, str(_solo_wanted))
+        check(f"solo guard ({_label}), turn {_i}: medic dropped from the "
+              "wanted ladder (dead weight -- no partner to revive)",
+              "medic" not in _solo_wanted, str(_solo_wanted))
+        _other_submitted = [p for p in _submitted
+                            if p not in ("bodyguard", "medic")]
+        check(f"solo guard ({_label}), turn {_i}: every OTHER submitted "
+              "rung still reaches the wanted ladder (the guard is scoped "
+              "to bodyguard/medic only, not a blanket strip)",
+              all(p in _solo_wanted for p in _other_submitted),
+              f"submitted {_other_submitted} wanted {_solo_wanted}")
+
+# FALLBACK PIN: under a real duo_partner (the existing FAKE_CONTEXT, seat 3
+# / partner 19), bodyguard and medic must still reach the wanted ladder
+# exactly as before -- the solo guard's condition must stay scoped to the
+# no-partner case, never widen to swallow the duo path it is explicitly
+# forbidden from deleting.
+for _i, _turn in enumerate(PERSONA.canned_turns, start=1):
+    _submitted = [e["play"] for e in _turn["call"]["entries"]]
+    if "medic" not in _submitted and "bodyguard" not in _submitted:
+        continue
+    _duo_seat = fake_seat()  # defaults to FAKE_CONTEXT: duo_partner 19
+    starter_harness.repair_call(_turn, PERSONA, _duo_seat, AVAILABLE)
+    _duo_wanted = [e["play"] for e in _duo_seat.wanted_entries]
+    if "medic" in _submitted:
+        check(f"fallback pin, turn {_i}: medic still reaches the wanted "
+              "ladder under a real duo_partner (the fallback is retained, "
+              "not deleted)",
+              "medic" in _duo_wanted, str(_duo_wanted))
+    if "bodyguard" in _submitted:
+        check(f"fallback pin, turn {_i}: bodyguard still reaches the "
+              "wanted ladder under a real duo_partner (the fallback is "
+              "retained, not deleted)",
+              "bodyguard" in _duo_wanted, str(_duo_wanted))
+
+print()
+if failures:
+    print(f"SELF-CHECK FAILED: {len(failures)} failing check(s)")
+    sys.exit(1)
+print("SELF-CHECK PASSED")
