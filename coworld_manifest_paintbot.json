@@ -1318,7 +1318,7 @@
         "teams": 16,
         "fireWindupTicks": 5,
         "barrageMaxPerSec": 0,
-        "mapPath": "TODO-PKGB-POOL-NAME-16SOLO",
+        "mapPath": "brpool16",
         "brMode": true,
         "lootStart": false,
         "downedMode": false,
