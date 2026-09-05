@@ -73,6 +73,22 @@ def log(message: str) -> None:
     print(f"[poc] {message}", flush=True)
 
 
+def _forced_upload_failure(name: str) -> bool:
+    """Local-only test hook (T17): off unless ``MONET_FORCE_UPLOAD_FAIL``
+    names this exact module.
+
+    The engine-side manifestProbe rejection this exists to test against
+    (src/shell/module_validation.nim:58, ShellRuntimeError) cannot be
+    induced from the client, and a real hosted round only hits it on a
+    scattered ~22% of modules -- there is no way to make a local smoke run
+    exercise starter_harness._drop_failed_module without this. Zero effect
+    unless the var is set AND exact-matches the module being uploaded, so
+    it is inert in every real deploy (no Dockerfile or launch config sets
+    it); see selfcheck's "off by default" pin.
+    """
+    return os.environ.get("MONET_FORCE_UPLOAD_FAIL") == name
+
+
 # ── Turning a model reply into bytes the validator will accept ────────────
 
 
@@ -306,6 +322,10 @@ class PlaySeat:
         return None
 
     def upload(self, name: str, blob: bytes) -> bool:
+        if _forced_upload_failure(name):
+            log(f"upload {name}: FORCED FAILURE via MONET_FORCE_UPLOAD_FAIL "
+                "(local fault injection -- no wire traffic sent)")
+            return False
         upload_id = self.next_upload_id
         self.next_upload_id += 1
         log(f"0xA0 upload {name}: upload_id={upload_id} bytes={len(blob)}")

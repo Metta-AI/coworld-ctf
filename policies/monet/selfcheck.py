@@ -1986,6 +1986,34 @@ check("drop-set: after a drop-logic error, the module is still in the set "
       "(explicit degrade-to-today's-behavior, not a half mutation)",
       "hold_vs_gun" in _exploding, str(list(_exploding)))
 
+# ── MONET_FORCE_UPLOAD_FAIL: the local-only fault-injection hook used to ──
+# make the T17 drop-set fix EVALUABLE in smoke (the real engine-side
+# manifestProbe rejection can't be induced from the client and only hits
+# ~22% of modules on a live round). A test hook that can fire in
+# production is a liability, so this pins it OFF unless explicitly armed,
+# and scoped to exactly the module named when it is.
+import os as _os
+_saved_force_fail = _os.environ.pop("MONET_FORCE_UPLOAD_FAIL", None)
+try:
+    check("upload fault-injection hook is OFF by default (no env var set)",
+          not starter_harness.poc_policy._forced_upload_failure(
+              "hold_vs_gun"))
+    check("upload fault-injection hook stays off for every real module "
+          "when unset (not just the one probed above)",
+          all(not starter_harness.poc_policy._forced_upload_failure(n)
+              for n in AVAILABLE))
+    _os.environ["MONET_FORCE_UPLOAD_FAIL"] = "hold_vs_gun"
+    check("upload fault-injection hook fires for the exact named module "
+          "when armed",
+          starter_harness.poc_policy._forced_upload_failure("hold_vs_gun"))
+    check("upload fault-injection hook is scoped to the named module only "
+          "(arming one module does not blanket-fail the others)",
+          not starter_harness.poc_policy._forced_upload_failure("scatter"))
+finally:
+    _os.environ.pop("MONET_FORCE_UPLOAD_FAIL", None)
+    if _saved_force_fail is not None:
+        _os.environ["MONET_FORCE_UPLOAD_FAIL"] = _saved_force_fail
+
 print()
 if failures:
     print(f"SELF-CHECK FAILED: {len(failures)} failing check(s)")
