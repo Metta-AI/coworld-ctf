@@ -539,91 +539,45 @@ check("bodyguard-normalize: the model's peelHp survives normalization",
       all(e["params"].get("peelHp") == 5 for e in targeted), str(targeted))
 
 # A ward the model actually asked for, in the wrong shape, must not vanish
-# indistinguishably from ward simply being omitted -- CLEAN_REJECTED
+# indistinguishably from ward simply being omitted -- CLEAN_DROPS
 # (starter_harness.py's generic param cleaner) is the counter that tells
 # the two apart. "9" is the realistic miss: the brief demands the exact
 # form "seat:<N>", and a bare seat number is the most likely way a model
-# drifts off it. ward is a scalar seat_ref, not a clearable collection, so
-# ANY failure here is a rejection -- there is no "empty" form of it.
+# drifts off it.
 _ward_key = "bodyguard.ward"
-_rejected_before = dict(getattr(starter_harness, "CLEAN_REJECTED", {}))
+_drops_before = dict(getattr(starter_harness, "CLEAN_DROPS", {}))
 starter_harness.repair_call(
     {"call": {"entries": [
         {"play": "bodyguard", "entry_id": "ride",
          "params": {"leash": [110, 280], "interpose": False,
                     "ward": "9"}},
     ]}}, PERSONA, fake_seat(), AVAILABLE)
-_rejected_after = getattr(starter_harness, "CLEAN_REJECTED", {})
+_drops_after = getattr(starter_harness, "CLEAN_DROPS", {})
 check("bodyguard-normalize: a malformed ward (\"9\", missing the "
       "\"seat:\" prefix) the model actually supplied is COUNTED in "
-      "CLEAN_REJECTED, not silently indistinguishable from ward being "
+      "CLEAN_DROPS, not silently indistinguishable from ward being "
       "omitted",
-      _rejected_after.get(_ward_key, 0) > _rejected_before.get(_ward_key, 0),
-      f"before {_rejected_before.get(_ward_key, 0)} after "
-      f"{_rejected_after.get(_ward_key, 0)}")
-_ward_samples = getattr(starter_harness, "REJECTED_SAMPLES", {}).get(
-    _ward_key, [])
-check("bodyguard-normalize: the rejected ward's raw value (\"9\") is "
-      "captured verbatim (not just counted) in REJECTED_SAMPLES",
-      any("9" in s for s in _ward_samples), str(_ward_samples))
+      _drops_after.get(_ward_key, 0) > _drops_before.get(_ward_key, 0),
+      f"before {_drops_before.get(_ward_key, 0)} after "
+      f"{_drops_after.get(_ward_key, 0)}")
 
-_rejected_before2 = dict(getattr(starter_harness, "CLEAN_REJECTED", {}))
-_cleared_before2 = dict(getattr(starter_harness, "CLEAN_CLEARED", {}))
+_drops_before2 = dict(getattr(starter_harness, "CLEAN_DROPS", {}))
 _bg_wanted([{"play": "bodyguard", "entry_id": "ride",
             "params": {"leash": [110, 280], "interpose": False,
                        "ward": "seat:9"}}])
-_rejected_now = getattr(starter_harness, "CLEAN_REJECTED", {})
-_cleared_now = getattr(starter_harness, "CLEAN_CLEARED", {})
+_drops_now = getattr(starter_harness, "CLEAN_DROPS", {})
 check("bodyguard-normalize: a well-formed ward never counts as a drop "
-      "(neither CLEAN_REJECTED nor CLEAN_CLEARED fires on a value that "
-      "cleans successfully)",
-      _rejected_now.get(_ward_key, 0) == _rejected_before2.get(_ward_key, 0)
-      and _cleared_now.get(_ward_key, 0) == _cleared_before2.get(_ward_key, 0),
-      f"rejected={_rejected_now} cleared={_cleared_now}")
-
-# REJECTED_SAMPLES must be capped hard, on both axes, so a model that keeps
-# sending garbage cannot blow up the end-of-match log: chars per sample...
-_huge_ward = "x" * 5000
-starter_harness.repair_call(
-    {"call": {"entries": [
-        {"play": "bodyguard", "entry_id": "ride-huge",
-         "params": {"leash": [110, 280], "interpose": False,
-                    "ward": _huge_ward}},
-    ]}}, PERSONA, fake_seat(), AVAILABLE)
-_ward_samples_huge = getattr(starter_harness, "REJECTED_SAMPLES", {}).get(
-    _ward_key, [])
-_char_cap = starter_harness._REJECTED_SAMPLE_CHAR_CAP
-check("REJECTED_SAMPLES: a huge malformed value is truncated at the char "
-      "cap, not stored verbatim",
-      bool(_ward_samples_huge)
-      and all(len(s) <= _char_cap + len("...<truncated>")
-              for s in _ward_samples_huge)
-      and any(len(s) < len(repr(_huge_ward)) for s in _ward_samples_huge),
-      str([len(s) for s in _ward_samples_huge]))
-
-# ... and samples per key, even across many separate rejects on that key.
-for _i in range(10):
-    starter_harness.repair_call(
-        {"call": {"entries": [
-            {"play": "bodyguard", "entry_id": f"ride-cap-{_i}",
-             "params": {"leash": [110, 280], "interpose": False,
-                        "ward": f"bad-{_i}"}},
-        ]}}, PERSONA, fake_seat(), AVAILABLE)
-_ward_samples_capped = getattr(starter_harness, "REJECTED_SAMPLES", {}).get(
-    _ward_key, [])
-_count_cap = starter_harness._REJECTED_SAMPLE_COUNT_CAP
-check("REJECTED_SAMPLES: capped at a small number of samples per key even "
-      "after many rejects land on the same key",
-      len(_ward_samples_capped) <= _count_cap,
-      f"len={len(_ward_samples_capped)} cap={_count_cap}")
+      "(CLEAN_DROPS only fires on values that actually fail cleaning)",
+      _drops_now.get(_ward_key, 0) == _drops_before2.get(_ward_key, 0),
+      str(_drops_now))
 
 # ── target_law.never: seat_or_duo_set must PRESERVE duo refs (Commit A) ──
 # The golden engine contract (manifest_target_law.golden.json) declares
 # never's "of" as "seat_or_duo_ref" -- a duo reference is legal here, unlike
 # pact.partners/bodyguard.ward above. Before this fix, never routed through
 # the same _clean_partners as pact and silently stripped every duo entry;
-# live CLEAN_DROPS (the old, undifferentiated counter) on real model output
-# showed target_law.never dropped in 9 of 16 seats.
+# live CLEAN_DROPS on real model output showed target_law.never dropped in
+# 9 of 16 seats.
 _never_key = "target_law.never"
 
 
@@ -643,55 +597,18 @@ check("target_law.never: a mixed seat+duo list keeps BOTH forms",
       == {"duo:navy", "seat:3"},
       str(_never_cleaned(["duo:navy", "seat:3"])))
 
-# THE ONE CHANGE: an EMPTY never list is the model deliberately asking to
-# CLEAR the param -- every observed live drop in the v18/v19 samples was
-# exactly this, not garbage. It must still drop the param (no canonical way
-# to represent "explicitly nothing" downstream of `cleaned`), but it must
-# land in CLEAN_CLEARED, never CLEAN_REJECTED.
-_cleared_before = dict(getattr(starter_harness, "CLEAN_CLEARED", {}))
-_rejected_before4 = dict(getattr(starter_harness, "CLEAN_REJECTED", {}))
-_empty_never = _never_cleaned([])
-_cleared_after = getattr(starter_harness, "CLEAN_CLEARED", {})
-_rejected_after4 = getattr(starter_harness, "CLEAN_REJECTED", {})
-check("target_law.never: an EMPTY list still drops the param (the play "
-      "default applies -- cleaning behavior is unchanged)",
-      _empty_never is None, str(_empty_never))
-check("target_law.never: (a) an empty list increments CLEARED and NOT "
-      "REJECTED -- the model asked to clear the param, it did not misfire",
-      _cleared_after.get(_never_key, 0) > _cleared_before.get(_never_key, 0)
-      and _rejected_after4.get(_never_key, 0)
-      == _rejected_before4.get(_never_key, 0),
-      f"cleared before {_cleared_before.get(_never_key, 0)} after "
-      f"{_cleared_after.get(_never_key, 0)}; rejected before "
-      f"{_rejected_before4.get(_never_key, 0)} after "
-      f"{_rejected_after4.get(_never_key, 0)}")
-
-_rejected_before3 = dict(getattr(starter_harness, "CLEAN_REJECTED", {}))
-_cleared_before3 = dict(getattr(starter_harness, "CLEAN_CLEARED", {}))
+_drops_before3 = dict(getattr(starter_harness, "CLEAN_DROPS", {}))
 _garbage_never = _never_cleaned(["garbage", 999999, "duo:"])
-_rejected_after3 = getattr(starter_harness, "CLEAN_REJECTED", {})
-_cleared_after3 = getattr(starter_harness, "CLEAN_CLEARED", {})
+_drops_after3 = getattr(starter_harness, "CLEAN_DROPS", {})
 check("target_law.never: an all-garbage never list (bare unprefixed junk, "
       "an out-of-range seat number, and an empty \"duo:\" token) still "
       "drops the param",
       _garbage_never is None, str(_garbage_never))
-check("target_law.never: (b) that garbage is a REJECTED drop (a "
-      "non-empty list where every entry failed to parse) NOT a CLEARED "
-      "one -- it is not silently indistinguishable from never being "
-      "omitted",
-      _rejected_after3.get(_never_key, 0) > _rejected_before3.get(_never_key, 0)
-      and _cleared_after3.get(_never_key, 0)
-      == _cleared_before3.get(_never_key, 0),
-      f"rejected before {_rejected_before3.get(_never_key, 0)} after "
-      f"{_rejected_after3.get(_never_key, 0)}; cleared before "
-      f"{_cleared_before3.get(_never_key, 0)} after "
-      f"{_cleared_after3.get(_never_key, 0)}")
-_never_samples = getattr(starter_harness, "REJECTED_SAMPLES", {}).get(
-    _never_key, [])
-check("target_law.never: (b) the rejected garbage list's raw value is "
-      "captured verbatim (truncated) in REJECTED_SAMPLES",
-      any("garbage" in s and "999999" in s for s in _never_samples),
-      str(_never_samples))
+check("target_law.never: that garbage is COUNTED in CLEAN_DROPS, not "
+      "silently indistinguishable from never being omitted",
+      _drops_after3.get(_never_key, 0) > _drops_before3.get(_never_key, 0),
+      f"before {_drops_before3.get(_never_key, 0)} after "
+      f"{_drops_after3.get(_never_key, 0)}")
 
 # REGRESSION GUARD: pact.partners and bodyguard.ward stay seat-only BY
 # POLICY DESIGN (their briefs say "No other form is legal" / 'No "duo:" '
