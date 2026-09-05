@@ -486,10 +486,12 @@
       <li><span class="toc-num">W</span><a href="#appendix-w">The runtime comparison</a></li>
       <li><span class="toc-num">H</span><a href="#appendix-h">Decision record and history</a>
         <ol>
-          <li><span class="toc-num">H.1</span><a href="#h-1">Ratified decisions</a></li>
-          <li><span class="toc-num">H.2</span><a href="#h-2">Superseded architectures</a></li>
-          <li><span class="toc-num">H.3</span><a href="#h-3">Questions asked and answered</a></li>
-          <li><span class="toc-num">H.4</span><a href="#h-4">Provenance</a></li>
+          <li><span class="toc-num">H.0</span><a href="#h-0">Season 2 becomes the only supported live mode</a></li>
+          <li><span class="toc-num">H.1</span><a href="#h-1">Module uploads close at Playing</a></li>
+          <li><span class="toc-num">H.2</span><a href="#h-2">Ratified decisions</a></li>
+          <li><span class="toc-num">H.3</span><a href="#h-3">Superseded architectures</a></li>
+          <li><span class="toc-num">H.4</span><a href="#h-4">Questions asked and answered</a></li>
+          <li><span class="toc-num">H.5</span><a href="#h-5">Provenance</a></li>
         </ol></li>
       <li><span class="toc-num">S</span><a href="#sources">Sources</a></li>
     </ol>
@@ -934,20 +936,29 @@
       binds to exactly one content hash: a second module whose manifest claims a bound name is rejected
       (<code>nameBound</code>) unless its bytes are identical, in which case the upload is a no-op
       acceptance (<code>moduleReady</code> again, same hash). Said plainly: <strong>a bound name is never
-      replaced within an episode.</strong> A policy that wants a revised play mid-match uploads the new
-      bytes under a new name (<code>pact_v2</code>) and calls that; the per-episode module and byte
-      budgets bound how often it can, and nothing a running ladder holds is ever swapped underneath it.
+      replaced within an episode.</strong> A policy that wants a revised play uploads the new bytes under
+      a new name (<code>pact_v2</code>) before play begins and may call that name mid-match; nothing a
+      running ladder holds is ever swapped underneath it.
       Terminal outcomes and bindings are committed in <code>uploadId</code> order within a seat, whatever
       order the compile pool finishes in, so a same-name race is decided by the protocol's admitted order
-      and never by worker timing. Uploads are allowed at any time in the episode under one per-episode
-      budget (modules and bytes, limits table below) that is <strong>charged at admission and never
+      and never by worker timing. New unique uploads are admitted only while the pre-step phase is earlier
+      than <code>Playing</code>. The window closes at the first tick boundary whose phase is
+      <code>Playing</code> and stays closed in every later phase. Malformed packets and the per-tick cap
+      keep their earlier outcomes; after closure, a known <code>uploadId</code> with identical bytes is
+      still a silent no-op and one with different bytes is still <code>upload_id_conflict</code>. Only a
+      new unique otherwise-valid upload is <code>moduleRejected(uploadWindowClosed)</code>. That refusal
+      changes no upload floor, budget, retained payload, ordinary status reservation, cache/worker queue,
+      compile state, or binding; it adds one bounded spontaneous status. The per-episode budget (modules
+      and bytes, limits table below) is <strong>charged at admission and never
       refunded</strong>, with one exception: a byte-identical re-upload of a hash this episode has already
       seen (or is still compiling) is refunded and never compiled or probed again; it joins the hash's
       content outcome and then commits through this seat's own name map (<a href="#s6-2">section 6.2</a>), so a hash that
       is ready in one seat can still be <code>nameBound</code> in another. A content-rejected module
       therefore costs its budget, and the same bad bytes can never be compiled twice, so a hostile client's
-      total compile work per episode is bounded by its byte budget. There is no separate pre-match phase,
-      and nothing is evicted before the episode ends. The reference client uploads its playbook during the
+      total compile work per episode is bounded by its byte budget. Work admitted before closure continues
+      through validation, compile, probe, deterministic commit, and terminal status after
+      <code>Playing</code> begins; the server never delays game start for it. Ready bindings remain callable
+      and retunable for the episode. The reference client uploads its playbook during the
       pre-game wait, before the first call, and P0 measures how long a reference playbook takes to become
       ready under 32 seats uploading at once, so the opening-call latency is a number rather than a
       hope.</li>
@@ -1143,7 +1154,8 @@
       inventory (every bound name with its hash and ready state, and the remaining upload budget), the
       next expected <code>uploadId</code> and <code>proposalId</code> floors, and the status-ordinal
       high-water mark: enough to resume without guessing and without re-uploading. It has nothing to
-      reinstantiate; the ladder never left the server.</li>
+      reinstantiate; the ladder never left the server. Replacement changes the connection generation and
+      evicts stale queued payloads, but does not reopen module admission.</li>
       <li><strong>The socket lifecycle behind a play seat.</strong> "Only the socket changes" is a server
       transaction the current code does not have, so it is specified here and named as P2 work. Today a
       closed player socket is recorded as a leave and handed to <code>sim.removePlayer</code>, which
@@ -2377,14 +2389,15 @@
       <li><strong>Runtime containment.</strong> Under all 32 seats at once, each of the hostile modules of
       <a href="#s6-1">section 6.1</a> (trap, infinite loop, memory growth, recursion bomb, emit flood, validator flood,
       hostile pointers) faults its own instance and nothing else, the tick's play step stays within its
-      measured budget while the control plane runs at its maximum at the same time (64 call validations
-      and 32 upload admissions per tick, sustained, with retunes pending, the compile pool saturated,
+      measured budget while the control plane runs at its maximum at the same time during the open startup
+      window (64 call validations and 32 upload admissions per tick, sustained, with retunes pending, the compile pool saturated,
       commits at <code>MaxCompileCommitsPerTick</code>, and the compiled cache at its cap), and the seat
       continues under the remaining entries or the default play.</li>
       <li><strong>End to end, local.</strong> In the match app: a full Battle Royale episode with policies
       negotiating in the engine's lobby chat phase, uploading the reference playbook and running its
-      ladders, at least one mid-match re-call, one mid-match upload, and in-match shouts heard through the
-      view, and the replay viewer displaying the lobby transcript and the executed plays: the shape of
+      ladders, at least one mid-match re-call, a new unique mid-match upload refused without disturbing the
+      standing ladder, a replacement recovering without re-upload, and in-match shouts heard through the
+      view, with the replay viewer displaying the lobby transcript and the executed plays: the shape of
       Maxwell's verified 32-seat episodes<sup class="ref"><a href="#src-90" title="origin/maxwell/br-season2-complete:rt_episode/">90</a></sup>, upgraded to the play boundary.</li>
       <li><strong>End to end, hosted.</strong> A skeleton-image policy on the platform's default resource
       envelope receives its context, talks in the lobby chat phase with the other seats, uploads a
@@ -3036,7 +3049,30 @@
     <p>This appendix is the design's memory. The body above describes only the current design; everything
     decided, superseded, or answered lives here.</p>
 
-    <h3 id="h-1">H.1 Ratified decisions (James, 2026-08-29 and 2026-08-30)</h3>
+    <h3 id="h-0">H.0 Season 2 becomes the only supported live mode (James, 2026-09-01)</h3>
+    <p><strong>Ruling.</strong> <code>season2Shell</code> defaults to <code>true</code>. Live boot refuses
+    every pre-Season-2 mode — classic CTF, the first-generation battle-royale variants, and paintball —
+    unless the configuration explicitly sets <code>allowDeprecatedModes: true</code>. The published
+    paintbot manifest offers only <code>battle-royale-s2</code>; the nine removed variant configurations
+    remain preserved verbatim in-repo for archaeology, replay work, and deliberate migration use. The
+    override is one seam for the retained classic test surface, not a second supported product mode.
+    Existing replay fixtures stay byte-stable by the inversion's echo rules (verified at train end), and
+    GV50 names the rule boundary. This makes the product truth unambiguous while preserving the evidence
+    needed to maintain and verify historical replays.</p>
+
+    <h3 id="h-1">H.1 Module uploads close at Playing (James, 2026-09-04)</h3>
+    <p><strong>Ruling.</strong> A new unique module is accepted only before the pre-step phase is
+    <code>Playing</code>; admission closes at the first <code>Playing</code> boundary and remains closed in
+    later phases. There is no timer, configuration knob, per-seat grace period, or reconnect exception.
+    Earlier malformed/cap/ID outcomes retain precedence, and the late-upload outcome is existing
+    <code>moduleRejected(uploadWindowClosed)</code> without admission-state mutation. Work admitted before
+    closure may finish, ready bindings remain callable and retunable, and game start never waits for
+    compilation. A replacement receives the existing optional v1 recovery fields: the accepted
+    call/proposal, ready bound modules, budgets, floors, retained statuses, generation, acknowledgement,
+    and transcript marks. This uses no new wire field or schema/GameVersion bump and supersedes H.2's
+    earlier allowance for mid-match uploads.</p>
+
+    <h3 id="h-2">H.2 Ratified decisions (James, 2026-08-29 and 2026-08-30)</h3>
     <ul>
       <li>Plays are WebAssembly modules sent over the websocket and executed game-side in an
       engine-embedded runtime. The "compiled Nim" requirement is dropped: what matters is a module
@@ -3048,7 +3084,8 @@
       <li>Playbook upload once, then call by reference: every call, the first included, is a separate
       message naming plays and carrying their parameters; parameters reach an instance through its
       <code>init</code> export (chosen over compile-time parameterization). Mid-match calls are firmly in
-      scope; mid-match uploads are allowed under the episode budget.</li>
+      scope. The original decision also allowed mid-match uploads under the episode budget; H.1
+      supersedes that clause.</li>
       <li>The game side owns the orchestration: the ladder driver, reflexes, the finisher, and the default
       play are engine subsystems. James wobbled once on whether these belong inside the player's module
       and landed on game-side ("all that stuff should be game side, I think").</li>
@@ -3103,7 +3140,7 @@
       controller. Grants remain shared by init and retune and proceed in one-grant-per-seat rounds.</li>
     </ul>
 
-    <h3 id="h-2">H.2 Superseded architectures</h3>
+    <h3 id="h-3">H.3 Superseded architectures</h3>
     <p><strong>Revisions 1 through 10 (2026-08-29): the client-side shell.</strong> Stencil adapted as a
     per-seat bot process, pages delivered by environment variable, a catalog probe so the lobby could
     learn a binary's playbook, an app-side LLM helper generating pages, and a byte-parity requirement
@@ -3129,7 +3166,7 @@
     along: "we've been struggling to figure out that boundary... this is the boundary." The present
     design is a rewrite, not a staging of that one.</p>
 
-    <h3 id="h-3">H.3 Questions asked and answered</h3>
+    <h3 id="h-4">H.4 Questions asked and answered</h3>
     <ul>
       <li>Why an environment variable for the startup call? An artifact of the client-side model, where
       the bot was a spawned process with no LLM; superseded.</li>
@@ -3159,13 +3196,13 @@
       desirable and out of scope.</li>
     </ul>
 
-    <h3 id="h-4">H.4 Provenance</h3>
+    <h3 id="h-5">H.5 Provenance</h3>
     <p>Drafted 2026-08-29 from the session's recon and research report; adversarially cross-reviewed by
     Codex over nine round-gated iterations to an explicit converged verdict; prose-rewritten for plain
     language at James's direction. Re-architected 2026-08-30 per James's comment batch (38 comments) into
     the socket-Intent boundary, which a second Codex collaboration took through seventeen round-gated
     iterations to VERDICT: SATISFIED, followed by a humanizer pass. Re-architected again on 2026-08-30
-    (evening) to the WebAssembly-over-the-wire boundary of H.1, by James's ratification, with a
+    (evening) to the WebAssembly-over-the-wire boundary of H.2, by James's ratification, with a
     runtime-embedding research spike (<a href="#appendix-w">Appendix W</a>) feeding the runtime choice. A third Codex
     collaboration then ran nineteen round-gated iterations to VERDICT: SATISFIED. Its findings, in order
     of weight, reshaped: the play ABI (allocation batches and metered invocations, the import phase

@@ -1,6 +1,6 @@
 ## Server-level proof that the play leading-byte switch precedes Sprite parsing.
 
-import std/[atomics, os, unittest]
+import std/[atomics, os, sequtils, unittest]
 import ../src/ctf/labels
 import ../src/ctf/sim_types as ctfTypes
 import ../src/shell/episode
@@ -209,6 +209,106 @@ suite "server play receive arm":
     websocketHandler(ws, MessageEvent, binaryMessage("\x80"))
     check appState.playProtocolRejected == rejectedBefore + 2
 
+  test "upload window follows the pre-step Playing-or-later boundary":
+    appState.config = playConfig(scPlay)
+    let ws = cast[WebSocket](2)
+    check ws.registerPlayerWebSocket("play", 0, "")
+
+    check not (Lobby >= Playing)
+    check Playing >= Playing
+    check GameOver >= Playing
+
+    websocketHandler(ws, MessageEvent, binaryMessage(
+      ModuleUploadPacket(uploadId: 1, wasm: "lobby").encodePacket()))
+    drainPlayIngressAtTickBoundary(uploadWindowClosed = Lobby >= Playing)
+    check uploadDeliveries.load == 1
+
+    # This packet was queued before the transition fact was sampled. The
+    # authoritative phase at its drain boundary decides its outcome.
+    websocketHandler(ws, MessageEvent, binaryMessage(
+      ModuleUploadPacket(uploadId: 2, wasm: "first-playing").encodePacket()))
+    drainPlayIngressAtTickBoundary(uploadWindowClosed = Playing >= Playing)
+
+    websocketHandler(ws, MessageEvent, binaryMessage(
+      ModuleUploadPacket(uploadId: 3, wasm: "later-playing").encodePacket()))
+    drainPlayIngressAtTickBoundary(uploadWindowClosed = Playing >= Playing)
+
+    websocketHandler(ws, MessageEvent, binaryMessage(
+      ModuleUploadPacket(uploadId: 4, wasm: "game-over").encodePacket()))
+    drainPlayIngressAtTickBoundary(uploadWindowClosed = GameOver >= Playing)
+
+    check uploadDeliveries.load == 1
+    let snapshot = appState.playIngress[0].snapshot
+    check snapshot.admittedModules == 1
+    check snapshot.admittedUploadBytes == 5
+    check snapshot.reservedStatusSlots == 2
+    check snapshot.uploadIdFloor == 1
+    check appState.playOutbound[0].statusBytes.len == 3
+    for status in appState.playOutbound[0].statusBytes:
+      check "\"kind\":\"module_rejected\"" in status
+      check "\"reason\":\"uploadWindowClosed\"" in status
+
+  test "closed-window ID precedence and admission state are unchanged":
+    appState.config = playConfig(scPlay)
+    let ws = cast[WebSocket](3)
+    check ws.registerPlayerWebSocket("play", 0, "")
+    websocketHandler(ws, MessageEvent, binaryMessage(
+      ModuleUploadPacket(uploadId: 2, wasm: "same").encodePacket()))
+    drainPlayIngressAtTickBoundary()
+    let
+      before = appState.playIngress[0].snapshot
+      generation = appState.playIngress[0].binding.generation
+      statusesBefore = appState.playOutbound[0].retainedStatusCount
+
+    websocketHandler(ws, MessageEvent, binaryMessage(
+      ModuleUploadPacket(uploadId: 2, wasm: "same").encodePacket()))
+    drainPlayIngressAtTickBoundary(uploadWindowClosed = true)
+    check appState.playOutbound[0].retainedStatusCount == statusesBefore
+    check uploadDeliveries.load == 1
+
+    websocketHandler(ws, MessageEvent, binaryMessage(
+      ModuleUploadPacket(uploadId: 2, wasm: "different").encodePacket()))
+    drainPlayIngressAtTickBoundary(uploadWindowClosed = true)
+    check "\"reason\":\"upload_id_conflict\"" in
+      appState.playOutbound[0].statusBytes[^1]
+
+    websocketHandler(ws, MessageEvent, binaryMessage(
+      ModuleUploadPacket(uploadId: 1, wasm: "stale").encodePacket()))
+    drainPlayIngressAtTickBoundary(uploadWindowClosed = true)
+    check "\"reason\":\"upload_id_stale\"" in
+      appState.playOutbound[0].statusBytes[^1]
+
+    websocketHandler(ws, MessageEvent, binaryMessage(
+      ModuleUploadPacket(uploadId: 3, wasm: "new").encodePacket()))
+    drainPlayIngressAtTickBoundary(uploadWindowClosed = true)
+    check "\"reason\":\"uploadWindowClosed\"" in
+      appState.playOutbound[0].statusBytes[^1]
+    check appState.playIngress[0].snapshot == before
+    check appState.playIngress[0].binding.generation == generation
+    check uploadDeliveries.load == 1
+
+  test "malformed and per-tick cap refusals precede window closure":
+    appState.config = playConfig(scPlay)
+    let ws = cast[WebSocket](4)
+    check ws.registerPlayerWebSocket("play", 0, "")
+
+    websocketHandler(ws, MessageEvent, binaryMessage("\xA0\x02"))
+    websocketHandler(ws, MessageEvent, binaryMessage(
+      ModuleUploadPacket(uploadId: 1, wasm: "first").encodePacket()))
+    websocketHandler(ws, MessageEvent, binaryMessage(
+      ModuleUploadPacket(uploadId: 2, wasm: "second").encodePacket()))
+    check appState.playOutbound[0].statusBytes.len == 2
+    check "\"reason\":\"malformed_packet\"" in
+      appState.playOutbound[0].statusBytes[0]
+    check "\"reason\":\"per_tick_upload_cap\"" in
+      appState.playOutbound[0].statusBytes[1]
+
+    drainPlayIngressAtTickBoundary(uploadWindowClosed = true)
+    check appState.playOutbound[0].statusBytes.len == 3
+    check "\"reason\":\"uploadWindowClosed\"" in
+      appState.playOutbound[0].statusBytes[2]
+    check uploadDeliveries.load == 0
+
   test "newest authenticated socket invalidates queued work from its predecessor":
     appState.config = playConfig(scPlay)
     let
@@ -239,6 +339,14 @@ suite "server play receive arm":
     check uploadDeliveries.load == 1
     check seenUpload.load == 2
     check appState.playIngress[0].binding.state == pssBound
+
+    websocketHandler(newSocket, MessageEvent, binaryMessage(
+      ModuleUploadPacket(uploadId: 3, wasm: "late").encodePacket()))
+    drainPlayIngressAtTickBoundary(uploadWindowClosed = true)
+    check uploadDeliveries.load == 1
+    check appState.playIngress[0].binding.generation == 2
+    check "\"reason\":\"uploadWindowClosed\"" in
+      appState.playOutbound[0].statusBytes[^1]
 
     websocketHandler(oldSocket, CloseEvent, Message())
     check appState.playIngress[0].binding.state == pssBound
@@ -810,6 +918,21 @@ suite "server play outbound arm":
       "\"proposal_id\":\"8\",\"upload_id\":\"7\"},\"gen\":\"5\"," &
       "\"lobby_transcript_mark\":\"9\",\"schema\":\"control_context\"," &
       "\"v\":1}"
+    check controlContextEnvelope(PlayContextRecovery(
+      generation: 3, epoch: 4, uploadIdFloor: 3, proposalIdFloor: 7,
+      modulesLeft: 14, uploadBytesLeft: 1_572_864, ackMark: 4,
+      lobbyTranscriptMark: 37,
+      call: some(PlayContextAcceptedCall(
+        proposalId: 6,
+        bytes: "{\"plays\":[{\"play\":\"edge_ride\"}]}")),
+      playbook: @[
+        PlayContextReadyModule(
+          name: "edge_ride",
+          sha256: "9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08"),
+        PlayContextReadyModule(
+          name: "pact_v2",
+          sha256: "60303ae22b998861bce3b28f33eec1be758a213c86c93c076dbe9f558c11c752")])) ==
+      readFile("tests/fixtures/shell/control_context.golden.json")
 
     check not seat.acknowledge(3).valid
     check seat.retainedStatusCount == 2
@@ -934,6 +1057,77 @@ suite "server play outbound arm":
       check appState.playIngress[0].snapshot.reservedStatusSlots ==
         (1 + MaxLadderEntries) - MaxLadderEntries
       check appState.playIngress[0].hasCallPayload(10)
+
+  test "pre-cutoff work completes and ready calls stay open after closure":
+    when DispatchRuntimeAvailable:
+      let config = playConfig(scPlay)
+      appState.config = config
+      configurePlayIngress(config)
+      installProductionPlayConsumers(config)
+      let websocket = cast[WebSocket](811)
+      check websocket.registerPlayerWebSocket("play", 0, "")
+      var simServer = initSimServer(config)
+      var episode: FirstLightEpisode
+      episode.resetFirstLightForSim(false, config, simServer, "test")
+      defer:
+        episode.closeFirstLightEpisode()
+      let moduleBytes = retunePlayModuleBytes("late_call", false)
+
+      websocketHandler(websocket, MessageEvent, binaryMessage(
+        ModuleUploadPacket(
+          uploadId: 1, wasm: moduleBytes).encodePacket()))
+      drainPlayIngressAtTickBoundary(episode, 1,
+        uploadWindowClosed = false)
+      let admitted = appState.playIngress[0].snapshot
+
+      websocketHandler(websocket, MessageEvent, binaryMessage(
+        ModuleUploadPacket(
+          uploadId: 2, wasm: moduleBytes).encodePacket()))
+      drainPlayIngressAtTickBoundary(episode, 2,
+        uploadWindowClosed = true)
+      check appState.playIngress[0].snapshot == admitted
+      check "\"reason\":\"uploadWindowClosed\"" in
+        appState.playOutbound[0].statusBytes[^1]
+
+      var tick = 2'u32
+      var ready = false
+      while not ready and tick < 5000:
+        let output = episode.step([], tick)
+        retainProductionModuleStatuses(output.moduleStatuses)
+        ready = output.moduleStatuses.anyIt(
+          it.uploadId == 1 and it.status.kind == skModuleReady)
+        if not ready:
+          sleep(1)
+        inc tick
+      check ready
+      let beforeCall = episode.firstLightRecovery(0)
+      check beforeCall.playbook.len == 1
+      check beforeCall.playbook[0].name == "late_call"
+
+      websocketHandler(websocket, MessageEvent, binaryMessage(
+        PlayCallPacket(
+          proposalId: 3,
+          callBytes: retuneCallBytes("late_call", 0)
+        ).encodePacket()))
+      drainPlayIngressAtTickBoundary(episode, tick,
+        uploadWindowClosed = true)
+      let recovery = episode.firstLightRecovery(0)
+      check recovery.epoch == 1
+      check recovery.call.isSome
+      check recovery.call.get.proposalId == 3
+      check "call_accepted" in appState.playOutbound[0].statusBytes.join("\n")
+
+      websocketHandler(websocket, MessageEvent, binaryMessage(
+        PlayCallPacket(
+          proposalId: 4,
+          callBytes: retuneCallBytes("late_call", 1, retune = true)
+        ).encodePacket()))
+      drainPlayIngressAtTickBoundary(episode, tick + 1,
+        uploadWindowClosed = true)
+      let retuned = episode.firstLightRecovery(0)
+      check retuned.epoch == 2
+      check retuned.call.isSome
+      check retuned.call.get.proposalId == 4
 
   test "wire accepted calls reach a verified replay exactly once":
     when DispatchRuntimeAvailable:
@@ -1503,6 +1697,9 @@ suite "server play outbound arm":
     discard simServer.addPlayer("input", 1, "input", trusted = true)
     let noInputs: seq[InputState] = @[]
     simServer.step(noInputs, noInputs)
+    var episode: FirstLightEpisode
+    defer:
+      episode.closeFirstLightEpisode()
     var firstSocket: WebSocket
     withLock appState.lock:
       for socket, slot in appState.playerSlots.pairs:
@@ -1511,11 +1708,71 @@ suite "server play outbound arm":
       appState.playerIndices[firstSocket] = 0
       appState.seatPlayerIndices[0] = 0
       appState.playIngress[0].playerIndex = 0
-    simServer.pumpPlayOutbound(config, FirstLightEpisode())
-    check decodeServerPacket(first.recvBinary()).kind == spkPlayContext
+    when DispatchRuntimeAvailable:
+      episode.resetFirstLightForSim(false, config, simServer, "test")
+      first.sendBinary(ModuleUploadPacket(
+        uploadId: 1, wasm: validPlayModuleBytes()).encodePacket())
+      let uploadDeadline = epochTime() + 5.0
+      while epochTime() < uploadDeadline:
+        var uploadPending = false
+        withLock appState.lock:
+          uploadPending = appState.playIngress[0].pendingCount > 0
+        if uploadPending:
+          break
+        sleep(5)
+      drainPlayIngressAtTickBoundary(episode, 1)
+      var tick = 1'u32
+      while episode.firstLightRecovery(0).playbook.len == 0 and tick < 5000:
+        let output = episode.step([], tick)
+        retainProductionModuleStatuses(output.moduleStatuses)
+        if output.moduleStatuses.len == 0:
+          sleep(1)
+        inc tick
+      check episode.firstLightRecovery(0).playbook.len == 1
+
+      first.sendBinary(PlayCallPacket(
+        proposalId: 2,
+        callBytes: "{\"plays\":[{\"entry_id\":\"alpha\"," &
+          "\"params\":{},\"play\":\"alpha\"}]}"
+        ).encodePacket())
+      let callDeadline = epochTime() + 5.0
+      while epochTime() < callDeadline:
+        var callPending = false
+        withLock appState.lock:
+          callPending = appState.playIngress[0].pendingCount > 0
+        if callPending:
+          break
+        sleep(5)
+      drainPlayIngressAtTickBoundary(episode, tick,
+        uploadWindowClosed = true)
+      check episode.firstLightRecovery(0).epoch == 1
+
+    simServer.pumpPlayOutbound(config, episode)
+    let firstContext = decodeServerPacket(first.recvBinary())
+    check firstContext.kind == spkPlayContext
+    when DispatchRuntimeAvailable:
+      let control = parseJson(firstContext.playContext.control)
+      check control["gen"].getStr == "1"
+      check control["epoch"].getStr == "1"
+      check control["floors"]["upload_id"].getStr == "1"
+      check control["floors"]["proposal_id"].getStr == "2"
+      check control["call"]["proposal_id"].getStr == "2"
+      check control["call"]["bytes"].getStr ==
+        "{\"plays\":[{\"entry_id\":\"alpha\",\"params\":{}," &
+          "\"play\":\"alpha\"}]}"
+      check control["playbook"].len == 1
+      check control["playbook"][0]["name"].getStr == "alpha"
+      check control["playbook"][0]["sha256"].getStr.len == 64
+      check control["playbook"][0]["state"].getStr == "ready"
+      check control["budgets"]["modules_left"].getInt ==
+        MaxModulesPerSeatPerEpisode - 1
+      check control["budgets"]["upload_bytes_left"].getInt ==
+        MaxUploadBytesPerSeatPerEpisode - validPlayModuleBytes().len
     let firstView = decodeServerPacket(first.recvBinary())
     check firstView.kind == spkPlayView
     check firstView.playView.view.len == 0
+    when DispatchRuntimeAvailable:
+      check parseJson(firstView.playView.control)["statuses"].len == 3
 
     first.sendBinary(LobbyChatSendPacket(text: "e\u0301 pact").encodePacket())
     let chatDeadline = epochTime() + 5.0
@@ -1529,7 +1786,7 @@ suite "server play outbound arm":
     simServer.drainProductionLobbyChats()
     check appState.lobbyTranscript.len == 1
     check appState.lobbyTranscript[0].text == "e\u0301 pact"
-    simServer.pumpPlayOutbound(config, FirstLightEpisode())
+    simServer.pumpPlayOutbound(config, episode)
     let liveChat = decodeServerPacket(first.recvBinary())
     check liveChat.kind == spkLobbyChatBroadcast
     check liveChat.lobbyChatBroadcast.ordinal == 1
@@ -1546,13 +1803,46 @@ suite "server play outbound arm":
       if rebound:
         break
       sleep(5)
-    simServer.pumpPlayOutbound(config, FirstLightEpisode())
-    check decodeServerPacket(replacement.recvBinary()).kind == spkPlayContext
+    simServer.pumpPlayOutbound(config, episode)
+    let replacementContext = decodeServerPacket(replacement.recvBinary())
+    check replacementContext.kind == spkPlayContext
+    when DispatchRuntimeAvailable:
+      let replacementControl = parseJson(replacementContext.playContext.control)
+      check replacementControl["gen"].getStr == "2"
+      check replacementControl["epoch"].getStr == "1"
+      check replacementControl["call"]["proposal_id"].getStr == "2"
+      check replacementControl["playbook"].len == 1
+      check replacementControl["playbook"][0]["name"].getStr == "alpha"
     let replayed = decodeServerPacket(replacement.recvBinary())
     check replayed.kind == spkLobbyChatBroadcast
     check replayed.lobbyChatBroadcast.ordinal == 1
     check replayed.lobbyChatBroadcast.text == "e\u0301 pact"
-    check decodeServerPacket(replacement.recvBinary()).kind == spkPlayView
+    let replacementView = decodeServerPacket(replacement.recvBinary())
+    check replacementView.kind == spkPlayView
+    when DispatchRuntimeAvailable:
+      check parseJson(replacementView.playView.control)["statuses"].len == 3
+
+      replacement.sendBinary(ModuleUploadPacket(
+        uploadId: 3, wasm: validPlayModuleBytes()).encodePacket())
+      let lateDeadline = epochTime() + 5.0
+      while epochTime() < lateDeadline:
+        var latePending = false
+        withLock appState.lock:
+          latePending = appState.playIngress[0].pendingCount > 0
+        if latePending:
+          break
+        sleep(5)
+      let beforeLate = appState.playIngress[0].snapshot
+      drainPlayIngressAtTickBoundary(episode, 3,
+        uploadWindowClosed = true)
+      check appState.playIngress[0].snapshot == beforeLate
+      simServer.pumpPlayOutbound(config, episode)
+      let lateView = decodeServerPacket(replacement.recvBinary())
+      check lateView.kind == spkPlayView
+      let lateControl = parseJson(lateView.playView.control)
+      check lateControl["statuses"].len == 4
+      check lateControl["statuses"][3]["reason"].getStr ==
+        "uploadWindowClosed"
 
     first.close()
     replacement.close()

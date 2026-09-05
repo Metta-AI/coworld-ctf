@@ -47,7 +47,7 @@
       }
     },
     "playbook": {
-      "$comment": "every bound name with its hash and state; \u2264 16 entries, each \u2264 128 canonical bytes (2048 in all); omit when empty",
+      "$comment": "every ready bound name with its hash and state; \u2264 16 entries, each \u2264 128 canonical bytes (2048 in all); omit when empty",
       "type": "array",
       "maxItems": 16,
       "items": {

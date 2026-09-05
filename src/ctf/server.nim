@@ -1427,7 +1427,7 @@ proc dispatchPlaySeatMessage(
     retainWireRefusal(seat, generation, opcode, data.packetIdIfPresent,
       "malformed_packet")
 
-proc drainPlayIngressAtTickBoundary*() =
+proc drainPlayIngressAtTickBoundary*(uploadWindowClosed = false) =
   ## Moves the bounded socket queues onto the game thread. Generation checks
   ## happen inside the drain, so a replaced socket can never hand work across
   ## the lane-C seam even if its message was queued first.
@@ -1457,7 +1457,8 @@ proc drainPlayIngressAtTickBoundary*() =
   {.gcsafe.}:
     withLock appState.lock:
       for seat in 0 ..< appState.playIngress.len:
-        var drained = appState.playIngress[seat].drainPlayIngress()
+        var drained = appState.playIngress[seat].drainPlayIngress(
+          uploadWindowClosed)
         rejected += drained.rejected
         for refusal in drained.refusals:
           let opcode =
@@ -1488,7 +1489,8 @@ proc drainPlayIngressAtTickBoundary*() =
         appState.playProtocolRejected += rejected
 
 proc drainPlayIngressAtTickBoundary*(episode: var FirstLightEpisode;
-                                     tick: uint32) =
+                                     tick: uint32;
+                                     uploadWindowClosed = false) =
   ## Production-only scoped ownership bridge. Registered consumers run
   ## synchronously inside this drain; the pointer is never visible to the
   ## socket threads and never survives the call.
@@ -1496,7 +1498,7 @@ proc drainPlayIngressAtTickBoundary*(episode: var FirstLightEpisode;
   activeFirstLightEpisode = episode.addr
   activeFirstLightTick = tick
   try:
-    drainPlayIngressAtTickBoundary()
+    drainPlayIngressAtTickBoundary(uploadWindowClosed)
   finally:
     activeFirstLightEpisode = nil
     activeFirstLightTick = 0
@@ -1723,8 +1725,9 @@ proc pumpPlayOutbound(sim: SimServer; config: GameConfig;
     let generation = outbound.generation
 
     if outbound.contextPending:
+      let episodeRecovery = episode.firstLightRecovery(seat)
       let recovery = PlayContextRecovery(
-        generation: generation, epoch: 0,
+        generation: generation, epoch: episodeRecovery.epoch,
         uploadIdFloor: ingress.uploadIdFloor,
         proposalIdFloor: ingress.proposalIdFloor,
         modulesLeft: max(0,
@@ -1732,7 +1735,9 @@ proc pumpPlayOutbound(sim: SimServer; config: GameConfig;
         uploadBytesLeft: max(0,
           MaxUploadBytesPerSeatPerEpisode - int(ingress.admittedUploadBytes)),
         ackMark: outbound.ackMark,
-        lobbyTranscriptMark: outbound.lobbyTranscriptMark)
+        lobbyTranscriptMark: outbound.lobbyTranscriptMark,
+        call: episodeRecovery.call,
+        playbook: episodeRecovery.playbook)
       let payload = encodePacket(PlayContextPacket(
         control: controlContextEnvelope(recovery),
         context: sim.playContextBytes(config, seat)))
@@ -5123,7 +5128,8 @@ proc runServerLoop*(
       for _ in 0 ..< playbackSpeed(liveSpeedIndex):
         if config.isPlaySeatEpisode():
           drainPlayIngressAtTickBoundary(
-            firstLightEpisode, uint32(sim.tickCount + 1))
+            firstLightEpisode, uint32(sim.tickCount + 1),
+            uploadWindowClosed = sim.phase >= Playing)
           sim.drainProductionLobbyChats()
           sim.drainProductionBallotCasts()
           replayWriter.drainShellReplayRecords(

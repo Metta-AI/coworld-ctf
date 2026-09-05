@@ -685,6 +685,14 @@ suite "shell episode ladder":
       check accepted.epoch == 1
       check accepted.status.kind == skCallAccepted
       check accepted.statusBytes.len > 0
+      let recovery = episode.firstLightRecovery(0)
+      check recovery.epoch == 1
+      check recovery.call.isSome
+      check recovery.call.get.proposalId == 121_000
+      check recovery.call.get.bytes == edgeRideCallBytes()
+      check recovery.playbook.len == 1
+      check recovery.playbook[0].name == "edge_ride"
+      check recovery.playbook[0].sha256.len == 64
 
       var sawEntryInstall = false
       for offset in 0 .. 20:

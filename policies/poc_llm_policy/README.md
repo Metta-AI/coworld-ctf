@@ -40,8 +40,11 @@ layouts alone, can drive the protocol.
   built to that contract, which cannot catch a code-versus-behaviour mismatch.
   Nothing here has run in a hosted tournament.
 - **One seat.** A real policy image would drive all 32.
-- **No reconnect handling.** The protocol's rebind, transcript replay, and
-  generation-stamping rules (§4.3/§9.2) are read but not exercised.
+- **No reconnect handling in this PoC.** The protocol supports replacement,
+  but this client does not exercise it. A production client resumes from the
+  replacement `control_context`: accepted call, ready playbook, budgets,
+  floors, generation, acknowledgement, and transcript marks. It does not
+  re-upload or regain module admission after `Playing` has begun.
 - ~~**The status-ack mark is used as a tick pump.**~~ Fixed: the harness now
   acks the highest status ordinal it has actually received, and only when it
   advances. The production server settled this — it refuses a mark beyond what
