@@ -626,11 +626,13 @@ when ShellRuntimeAvailable:
     # that context legally, so give guests the empty context instead.
     if episode.contextRoster.len < 2:
       return "{}"
-    # The binary play_context contract carries duo_partner exactly in BR.
-    # If the body has not observed a real partner yet, omit the context rather
-    # than fabricating one.
-    if episode.brMode and frame.bodyInputs.partner.isNone:
-      return "{}"
+    # 2026-09-05 solo-BR (16x1) support: BR no longer requires a duo partner
+    # to exist (the play_context invariant in view.nim/binary_view.nim was
+    # relaxed the same day). Solo BR seats now get a real play context with
+    # duo_partner omitted, matching what buildPlayContext already tolerates.
+    # Duo behavior (partner present) is unchanged. The old bail here
+    # unconditionally returned "{}" for any partnerless BR seat -- duo-era
+    # code that predates one-seat BR teams.
     var source = PlayContextSource(
       mode: if episode.brMode: gmBr else: gmCtf,
       mapName: episode.mapName,
@@ -639,7 +641,7 @@ when ShellRuntimeAvailable:
       selfSeat: seatIndex,
       selfTeam: episode.contextRoster[seatIndex].team,
       duoPartner:
-        if episode.brMode:
+        if episode.brMode and frame.bodyInputs.partner.isSome:
           some(frame.bodyInputs.partner.get.seat.int)
         else:
           none(int),

@@ -650,9 +650,13 @@ proc writeJson*(w: var CanonicalWriter, model: PlayViewModel) =
 proc writeJson*(w: var CanonicalWriter, source: PlayContextSource) =
   if source.roster.len < 2 or source.roster.len > MaxPlayers:
     raise newException(ValueError, "play_context roster must have 2..32 rows")
-  if (source.mode == gmBr) != source.duoPartner.isSome:
+  # 2026-09-05 solo-BR (16x1) support: duo_partner is optional in br mode now
+  # (solo BR seats have no partner); duo behavior unchanged. The old invariant
+  # required duo_partner whenever mode == br, which was duo-era and does not
+  # hold for one-seat BR teams.
+  if source.duoPartner.isSome and source.mode != gmBr:
     raise newException(ValueError,
-      "play_context duo_partner is present exactly in br mode")
+      "play_context duo_partner is only valid in br mode")
   w.beginObject()
   w.field("gun_range", int64(source.gunRange))
   w.key("map")
@@ -677,7 +681,9 @@ proc writeJson*(w: var CanonicalWriter, source: PlayContextSource) =
   w.field("schema", "play_context")
   w.key("self")
   w.beginObject()
-  if source.mode == gmBr:
+  # 2026-09-05 solo-BR (16x1) support: solo BR seats have no duo_partner, so
+  # only emit the field when one is actually present; duo behavior unchanged.
+  if source.mode == gmBr and source.duoPartner.isSome:
     w.field("duo_partner", int64(source.duoPartner.get))
   w.field("seat", int64(source.selfSeat))
   w.field("team", teamText(source.selfTeam))
