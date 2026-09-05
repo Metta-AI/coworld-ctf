@@ -1456,19 +1456,47 @@ check("prompt: partner doctrine states the revive-close combat rule "
 #     repeatable deeds get per-episode mint caps / diminishing rungs").
 # This is the SECOND flip on this key in <36h (dark -> armed a1acd96a
 # #393 2026-09-03 ~21:xx -> dark d595f300 #401 2026-09-04 10:34), so the
-# pinned phrase below deliberately names the DOCTRINE ("the win itself is
+# pinned phrase below deliberately named the DOCTRINE ("the win itself is
 # a deed that multiplies like everything else") rather than the specific
-# fold arithmetic (no "x4"/"x8" in the prose) -- a future recut-class
-# repricing of dVictory does not need to touch this passage; only another
-# winAsMultiplier flip does, and this comment block is where to update it
-# when that happens. ─────────────────────────────────────────────────────
+# fold arithmetic -- a future recut-class repricing of dVictory does not
+# need to touch this passage; only another winAsMultiplier flip does.
+# ── SCORING-SOLVE (ground truth verified origin/main @ 3eed397f, landed
+# this driver run 2026-09-05): the doctrine above is now the FULL solve,
+# not a partial reading -- score = 1 x PI(recutFactor per minted deed) /
+# 2^(friendly-fire incidents), floored. Commons (tag/sprayed/bombed/
+# point-blank) are factor 1, EXEMPT from every multiplier. THE OBJECTIVE
+# rewrite drops the old duo-only "duo-downs, a clustered spray, the win
+# itself" framing (SOLO is the confirmed era; there is no duo-down deed
+# to name) and replaces it with the named-class table (FIRST!/LONGSHOT/
+# MULTI!/PAYBACK/CHASE/ACETAG/ClosingTime/LastLight/Victory) plus the
+# three stacking multipliers (enemy-ground rung, heat ladder, Fibonacci
+# co-engagement). The win-itself-is-a-deed-that-multiplies DOCTRINE this
+# check pins survives intact -- Victory=8 rides the SAME heat ladder as
+# every other deed (8 cold, up to 64 hot) -- so the pinned substring
+# moves to that clause rather than retiring. ──────────────────────────────
 check("prompt: objective lists the win itself as a deed that multiplies "
-      "(winAsMultiplier DARK again on battle-royale-s2 as of d595f300 "
-      "#401 2026-09-04T10:34:18-07:00 -- dVictory is back, x8, "
-      "recutFactor-routed; dTagBack/dJointAct are dark, gated on "
-      "winAsMultiplier too)",
-      "duo-downs, a clustered spray, the win itself" in prompt,
-      "win-as-deed text not found")
+      "and rides the same heat ladder as every other deed (SCORING-SOLVE, "
+      "origin/main @ 3eed397f, 2026-09-05 -- Victory=8 cold up to 64 hot, "
+      "never stack-scaled)",
+      "Victory=8 for the win itself" in prompt
+      and "Victory alone rides the heat ladder too" in prompt
+      and "cold 8 into a hot 16-64" in prompt,
+      "win-as-heat-scaled-deed text not found")
+check("prompt: objective states commons (plain tag/spray/bomb/point-blank) "
+      "price at factor 1, EXEMPT from every multiplier (SCORING-SOLVE "
+      "commons-worthless finding)",
+      "factor 1 -- EXEMPT from every multiplier" in prompt,
+      "commons-exempt text not found")
+check("prompt: objective names the enemy-ground class rung as one of the "
+      "three stacking multipliers (SCORING-SOLVE)",
+      "+1 class rung for" in prompt
+      and "fighting on ground you took off the enemy" in prompt,
+      "enemy-ground rung text not found")
+check("prompt: objective states one own-side hit halves the WHOLE episode "
+      "product, uncapped and compounding (SCORING-SOLVE FF halving)",
+      "One hit on your own side halves" in prompt
+      and "uncapped, compounding, every single time" in prompt,
+      "FF-halving text not found")
 
 # ── loss/placement economics (glory.nim: recutFold folds the x4 ONLY onto
 # the winner's own gloryProduct at finishGame; a losing team's product is
@@ -1521,17 +1549,25 @@ check("prompt: NEGATIVE -- does not claim a loss pays nothing "
 # confident textual anchor in this prompt (the "clustered spray" line
 # reads as dSplashMultiKill, a different, uncapped-by-this-change deed),
 # so it is also left untouched rather than guessed at. ────────────────────
-check("prompt: objective states the duo-finish cap (dDuoDown, 4 per "
-      "episode per duo) and that a mint past it still fires but scores "
-      "nothing",
-      "up to\n4 per episode per duo" in prompt
-      and "mints nothing" in prompt,
-      "duo-finish cap text not found")
-check("prompt: jackal doctrine repeats the same duo-finish cap rather "
-      "than the old unlimited-volume framing",
-      "up to 4 per episode per duo" in prompt
-      and "mints nothing" in prompt,
-      "jackal duo-finish cap text not found")
+# ── SCORING-SOLVE retires this pin's anchor text (2026-09-05): dDuoDown
+# is duo-only and structurally unmintable this SOLO era (see the
+# duo-down-unmintable check below), so THE OBJECTIVE no longer frames the
+# jackal/politics economy around a per-duo finish cap -- there is no duo
+# to cap. The real solo-era pay for a third-partying jackal is the
+# Fibonacci co-engagement stack (chip the SAME target a truced seat is
+# already fighting, inside 120 ticks): the two checks below replace the
+# retired duo-finish-cap pins with that mechanism instead. ────────────────
+check("prompt: objective names the Fibonacci co-engagement stack as the "
+      "multiplier for chipping a truced seat's target within 120 ticks "
+      "(SCORING-SOLVE stack-via-co-engagement, replaces the retired "
+      "duo-finish-cap framing)",
+      "Fibonacci co-engagement stack {1,2,3,5,8,13}" in prompt,
+      "co-engagement stack text not found")
+check("prompt: jackal/politics doctrine pays third-partying through the "
+      "SAME Fibonacci co-engagement stack, not a per-duo finish cap",
+      "co-engagement" in prompt
+      and "climbs Fibonacci (x1, x2, x3, x5, x8, x13)" in prompt,
+      "jackal co-engagement text not found")
 check("prompt: NEGATIVE -- does not claim finishing duos is unlimited "
       "volume (the deedMintCaps era correction this commit makes)",
       "volume, not one big finish" not in prompt

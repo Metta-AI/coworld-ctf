@@ -24,25 +24,40 @@ downed simply dies to a tag instead -- there is no revive to stand, no
 channel to hold, and a duo that structurally cannot go down together
 never mints the duo-down deed, no matter how the fight goes.
 
-THE OBJECTIVE: glory multiplies, it does not add up, and idle pays NOTHING.
-Every deed this match -- duo-downs, a clustered spray, the win itself --
-multiplies into ONE episode score as you land it, win or lose; outliving the
-field with nothing minted is still
-a blank canvas. Only
+THE OBJECTIVE: score multiplies, it does not add up, and a PLAIN tag pays
+NOTHING. Every ordinary tag, spray, bomb, or point-blank finish prices at
+factor 1 -- EXEMPT from every multiplier, worth zero to the product no
+matter how many you land. Only a NAMED call moves the number: FIRST!=2 for
+the earliest blood, LONGSHOT=3 for a long-range tag, MULTI!=3 for several
+tags inside one window, PAYBACK=2 for finishing whoever hit you, CHASE=2
+for closing out a fleeing wounded target, ACETAG=4 for an ace run,
+ClosingTime=2 and LastLight=4 for a named tag landed deep in the endgame,
+and Victory=8 for the win itself. Shape every fight toward one of those --
+a trade of plain hits, however many, is still a blank canvas.
+Three multipliers stack on top of a named class: +1 class rung for
+fighting on ground you took off the enemy; a heat ladder {1,2,4,8} that
+lights on a drama deed and climbs at ember rungs 2, 5, 10 named deeds into
+the match; and a Fibonacci co-engagement stack {1,2,3,5,8,13} for chipping
+the SAME target a truced seat is already fighting, inside a 120-tick
+window -- TRUCE POLITICS pays through this stack now, there is no partner
+to split it with. Victory alone rides the heat ladder too -- 8 cold, up to
+64 hot -- but never the stack, so a win landed with the drama chain still
+lit banks many times a win landed cold. One hit on your own side halves
+the WHOLE episode product, uncapped, compounding, every single time --
+never risk it chasing a contested target. Every one of those still mints
+win or lose; idle pays NOTHING -- only Victory itself needs the win. Only
 your best-ever match counts toward the season board, so a bad one costs
-nothing -- play every episode to close it out, not to survive it. Two
-things multiply
-hardest: finishing opposing duos (each one stacks your take again, up to
-4 per episode per duo -- past that a finish still lands and still shows
-in the feed, but mints nothing) and a spray that catches several enemies
-in one cone (compounds per victim, your single biggest score event -- chase
-that shot mid-fight, never hold out for a cleaner one). Tagging your own
-partner un-mints everything: an uncapped, compounding halving of the WHOLE
-duo's take, every time it happens. A stalled endgame pays neither
-finalist -- when the field is thin, converge and finish.
+nothing -- play every episode to close it out, not to survive it.
 
 The ledger, not the fight:
 
+- A plain tag banks nothing on its own -- name it something. Press
+  pressbreak at range so the hit lands as a LONGSHOT, keep the pressure on
+  inside one window for a MULTI, and put your next call on whoever tagged
+  YOU first, not just whoever is nearest, for a PAYBACK; a target already
+  running down is a CHASE, not a trade. Ground you already took off the
+  enemy pays a free class rung on top of whichever of those you land
+  there, at no extra risk.
 - An even trade is a loss. A tag is only a fraction banked; a life kept is
   worth several tags taken. Commit to a fight only when you hold at least
   two of: numbers, health, surprise (arriving third).
@@ -128,10 +143,12 @@ Politics is the third lever:
   every pact seat. Ending a truce is a decision, said out loud in chat, not
   an accident of aim.
 - The jackal is the best fight: arrive AFTER a fight starts, tag the
-  weakened, leave with the profit -- each duo you help finish multiplies
-  your take again, up to 4 per episode per duo. Past that budget a finish
-  still fires but mints nothing, so work through fights within it rather
-  than holding out for one perfect finish.
+  weakened, leave with the profit -- a clean finish is still only one
+  named call. The real pay is co-engagement: chip the SAME target a
+  truced seat is already fighting, inside the same 120-tick window, and
+  the stack climbs Fibonacci (x1, x2, x3, x5, x8, x13) on top of whatever
+  class you land -- work every fight a truce opens rather than holding
+  out for a solo one.
 
 The ring and the clock:
 
@@ -154,7 +171,12 @@ The ring and the clock:
   a fair fight risks nothing you already banked, and the win mints one more
   deed on top of everything you already landed. Do not sit beside a
   beatable duo, paint can in hand, waiting for the ring to decide it for
-  you. Stalling at full health hands the win to the ring.
+  you. Stalling at full health hands the win to the ring. Keep a drama
+  deed landing into this window, not just alive to it -- ClosingTime and
+  LastLight both pay a named call landed this late, and the heat you
+  carry in is what turns the win itself from a cold 8 into a hot 16-64.
+  A stall that lets the heat cool banks the SAME win at a fraction of the
+  number.
 
 How you call it:
 
