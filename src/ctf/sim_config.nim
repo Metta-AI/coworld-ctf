@@ -105,6 +105,11 @@ proc defaultGameConfig*(): GameConfig =
     # config echo carries none of them.
     medKitCount: -1,
     bandagePickups: 0,
+    # OBJBALANCE(s2, owner directive 2026-09-05): both -1 (unchanged) by
+    # default -- see the field comments (sim_types.nim) for the cap vs
+    # injection split.
+    sprayCount: -1,
+    grenadeCount: -1,
     lootStart: false,
     downedMode: false,
     downedBleedOutTicks: DownedBleedOutTicksDefault,
@@ -1114,6 +1119,19 @@ proc validate(config: GameConfig) =
   if config.medKitCount < -1:
     raise newException(CtfError,
       "Config field medKitCount must be -1 (map default) or >= 0.")
+  # OBJBALANCE(s2, owner directive 2026-09-05): sprayCount is cap-only, same
+  # bound as medKitCount. grenadeCount can INJECT past the authored count
+  # (unlike a cap), but still must fit the board's per-family object-id
+  # pool -- same upper bound bandagePickups already enforces below.
+  if config.sprayCount < -1:
+    raise newException(CtfError,
+      "Config field sprayCount must be -1 (map default) or >= 0.")
+  if config.grenadeCount < -1:
+    raise newException(CtfError,
+      "Config field grenadeCount must be -1 (map default) or >= 0.")
+  if config.grenadeCount > NeutralPickupPoolWidth:
+    raise newException(CtfError,
+      "Config field grenadeCount must be -1 or 0.." & $NeutralPickupPoolWidth & ".")
   if config.bandagePickups < 0:
     raise newException(CtfError,
       "Config field bandagePickups must not be negative.")
@@ -1378,6 +1396,8 @@ proc update*(config: var GameConfig, jsonText: string) =
   # dark defaults, so an existing config JSON parses to an unchanged config.
   node.readConfigInt("medKitCount", config.medKitCount)
   node.readConfigInt("bandagePickups", config.bandagePickups)
+  node.readConfigInt("sprayCount", config.sprayCount)
+  node.readConfigInt("grenadeCount", config.grenadeCount)
   node.readConfigBool("lootStart", config.lootStart)
   node.readConfigBool("downedMode", config.downedMode)
   node.readConfigInt("downedBleedOutTicks", config.downedBleedOutTicks)
@@ -1748,6 +1768,15 @@ proc echoHealingKeys(config: GameConfig, node: JsonNode) =
   if config.bandagePickups > 0:
     node["bandagePickups"] = %config.bandagePickups
 
+proc echoObjBalanceKeys(config: GameConfig, node: JsonNode) =
+  ## OBJBALANCE(s2, owner directive 2026-09-05): the spray-can cap and
+  ## grenade-count injection knobs, echoed only when they depart from their
+  ## dark (-1) defaults — same byte-identity rule as every echo above.
+  if config.sprayCount != -1:
+    node["sprayCount"] = %config.sprayCount
+  if config.grenadeCount != -1:
+    node["grenadeCount"] = %config.grenadeCount
+
 proc echoLootStartKeys(config: GameConfig, node: JsonNode) =
   ## LOOT(s2): the unarmed-spawn gate, echoed only when on.
   if config.lootStart:
@@ -1950,6 +1979,7 @@ proc configJson*(config: GameConfig): string =
   echoShotFeedbackKeys(config, node)
   echoCosmeticFxKeys(config, node)
   echoHealingKeys(config, node)
+  echoObjBalanceKeys(config, node)
   echoLootStartKeys(config, node)
   echoDownedKeys(config, node)
   echoGiveItemKeys(config, node)
@@ -1998,6 +2028,8 @@ proc realizedConfigStampJson*(config: GameConfig): string =
     "lootStart=" & $config.lootStart,
     "winAsMultiplier=" & $config.winAsMultiplier,
     "medKitCount=" & $config.medKitCount,
+    "sprayCount=" & $config.sprayCount,
+    "grenadeCount=" & $config.grenadeCount,
     "stampRealizedConfig=" & $config.stampRealizedConfig,
     "zoneBlocksRevive=" & $config.zoneBlocksRevive,
     "zoneDamageByPaint=" & $config.zoneDamageByPaint,

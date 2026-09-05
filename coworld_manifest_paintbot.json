@@ -782,6 +782,16 @@
           "description": "Cap on placed med kits. -1 (default) keeps the map's own full set \u2014 a BR-pool map authors 29-49 of them; 0 places none (the ruled bandages-instead-of-kits arm); N keeps the map's first N points. Independent of bandagePickups: the two together set the healing economy's split between full-heal-on-touch and carryable +1 hp.",
           "type": "integer",
           "default": -1
+        },
+        "sprayCount": {
+          "description": "Cap on placed spray cans (owner directive 2026-09-05, \"far fewer paint cans\"; pre-pivot objbalance analysis rec B). -1 (default) keeps the map's own full set \u2014 the 11-map BR pool authors 34-58 of them; N keeps the map's first N points, same rule medKitCount already uses (deterministic, not reseeded per episode). A cap can only shrink the placed set.",
+          "type": "integer",
+          "default": -1
+        },
+        "grenadeCount": {
+          "description": "Target count of placed grenades (owner directive 2026-09-05, same rec-B analysis: grenades were the scarcest disposable \u2014 13-29 authored across the 11-map pool \u2014 and sprays the most common, the inversion of their intended rarity). -1 (default) keeps the map's own authored/formula set, byte-identical. 0..N (an authored count) keeps the map's first N points. Past the authored count this INJECTS extra copies, cycling back through the same authored sites ring-offset off their anchor (the same overflow idiom bandagePickups uses against its own RETREAT anchors) \u2014 a cap can only reduce, so raising supply needs this injection path. Capped at 64, the board's per-family object-id pool width.",
+          "type": "integer",
+          "default": -1
         }
       }
     },
@@ -1378,7 +1388,9 @@
         "bandagePickups": 0,
         "frameLoadoutFlags": true,
         "winAsMultiplier": false,
-        "deedMintCaps": true
+        "deedMintCaps": true,
+        "sprayCount": 6,
+        "grenadeCount": 22
       }
     },
     {

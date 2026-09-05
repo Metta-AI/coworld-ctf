@@ -881,6 +881,21 @@ see the flag's own bullet).
   Taken bandage spawns refill on the med-kit cadence. Analysis stream:
   `item_pickup` with item `bandage`; `heal` with weapon `bandage`,
   amount 1.
+- **`sprayCount`** (int, default `-1`, owner directive 2026-09-05): caps the
+  placed spray cans, the same "-1 = the map's own full set, N = the map's
+  first N points" rule `medKitCount` uses (deterministic, not reseeded per
+  episode). A cap can only shrink the placed set. The published Season 2
+  variant pins `6` (pre-pivot objbalance analysis, rec B: sprays were the
+  map's 2nd-most-common item and the intended rarest).
+- **`grenadeCount`** (int, default `-1`, owner directive 2026-09-05): a
+  TARGET count, not a cap. `-1` keeps the map's own authored/formula set,
+  byte-identical; `0..N` (an authored count) caps down like `sprayCount`;
+  past the authored count it INJECTS extra copies, cycling back through the
+  same authored sites ring-offset off their anchor (the overflow idiom
+  `bandagePickups` already uses against its own RETREAT anchors). The
+  published Season 2 variant pins `22` (same rec-B analysis: grenades were
+  the map's scarcest disposable and the intended most common). BR-only —
+  the classic 2/4-team per-team formula ignores the knob.
 - **`lootStart`** (bool, default off, brMode only): everyone spawns
   UNARMED. The gun is two lootable halves — the **marker** (`hasGun`) and
   the **hopper**, its ammo (`hasHopper`) — placed as one-shot crates (a

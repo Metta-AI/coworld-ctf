@@ -853,6 +853,13 @@ const
                               ## spawn-seed rings' 0/4) so families sharing
                               ## an anchor lap away from each other rather
                               ## than restacking on the same pixels.
+  GrenadeSiteDirOffset* = 6   ## OBJBALANCE(s2, owner directive 2026-09-05):
+                              ## ring phase for grenadeCount's overflow
+                              ## copies (the count-spawner INJECTING more
+                              ## than the map authored, past its own anchor
+                              ## set) -- a fourth distinct compass phase, the
+                              ## same "own phase per family" rule as the two
+                              ## above.
   DownedTagRange* = 40        ## px center-to-center: teammate adjacency that
                               ## counts as the revive tag. Deliberately looser
                               ## than the 12px item touch — a tag is a hug,
@@ -2439,6 +2446,26 @@ type
                         ## own full set (default — the pre-existing path,
                         ## byte-identical), 0 = none (the bandage-vs-medkit
                         ## test arm), N = the first N of the map's points.
+    # ── OBJBALANCE(s2, owner directive 2026-09-05) ── "far fewer paint cans"
+    # + the rarity-inversion fix the same pre-pivot analysis flagged (rec B):
+    # grenades were the scarcest disposable and should be the most common,
+    # sprays the most common and should be the rarest. Both -1 by default
+    # (unchanged everywhere), so a dark game's placement/replay stays
+    # byte-identical to a build without these fields.
+    sprayCount*: int    ## OBJBALANCE(s2): cap on placed spray cans, same
+                        ## "-1 = map's own full set, N = the map's first N
+                        ## points" rule medKitCount already uses (see
+                        ## resetSprayPaints). A cap can only SHRINK a list.
+    grenadeCount*: int  ## OBJBALANCE(s2): TARGET count of placed grenades,
+                        ## -1 = the map's own authored/formula set
+                        ## (default, byte-identical). 0..base.len keeps the
+                        ## map's first N points (medKitCount's cap rule);
+                        ## past base.len this INJECTS extra copies, cycling
+                        ## back through the same authored anchors ring-offset
+                        ## via GrenadeSiteDirOffset (the same overflow idiom
+                        ## resetBandages already uses) -- a cap can only
+                        ## reduce, so raising the count needs this injection
+                        ## path. See resetGrenades / grenadeCountTargets.
     bandagePickups*: int ## LOOT(s2): bandage pickups placed at the map's
                         ## med-kit points (first N, cycling). 0 = dark. A
                         ## bandage is CARRIED (up to BandageCarryCap) and

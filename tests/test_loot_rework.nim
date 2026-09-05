@@ -22,7 +22,7 @@ import
   helpers,
   std/[json, unittest],
   bitworld/spriteprotocol,
-  ctf/[sim, events, arena, broadcast]
+  ctf/[sim, events, arena, broadcast, global]
 
 proc brConfig(): GameConfig =
   result = defaultGameConfig()
@@ -253,6 +253,146 @@ suite "row 2 — med-kit cap and carryable bandages":
     sim.stepIdle(1)
     check sim.players[0].hp == 3          # untouched: already at max
     check sim.players[0].bandages == 1    # not consumed
+
+suite "OBJBALANCE (owner directive 2026-09-05) — spray-can cap and grenade injection":
+  ## `brConfig()` alone (brMode: true, no map override) generates an
+  ## ordinary FLAGGED 2-team map -- resetSprayPaints/resetGrenades fall
+  ## through to the classic per-team formula there (2 spray points, 4
+  ## grenade corners), never the authored BR pool. These tests need a
+  ## genuine flagless, multi-spawn-group BR map (the shape battle-royale-s2
+  ## actually plays) so the authored `gameMap.spraySpawns`/`grenadeSpawns`
+  ## branches are the ones under test -- same minimal-BR-mapSpec pattern
+  ## test_br_team_bridge.nim's `brSpec` already uses.
+  const
+    ObjBalanceGroups = 8
+    ObjBalanceW = 1235
+    ObjBalanceH = 659
+
+  proc gridPointsNode(count: int): JsonNode =
+    result = newJArray()
+    for i in 0 ..< count:
+      let
+        col = i mod 4
+        row = i div 4
+      result.add %*[154 + 308 * col, 82 + 165 * row]
+
+  proc objBalanceMapSpec(sprayN, grenadeN: int): string =
+    var node = %*{
+      "name": "objbalance-demo",
+      "width": ObjBalanceW, "height": ObjBalanceH,
+      "flagRing": 70, "captureClear": 210,
+      "spawnClearW": 40, "spawnClearH": 40,
+      "gunRange": 331,
+      "symmetry": "none",
+      "layout": "sides",
+      "endzone": "column", "endzoneRadius": 0, "homeDepth": 0,
+      "medKitSpawns": [[ObjBalanceW div 2, ObjBalanceH div 3],
+                        [ObjBalanceW div 2, 2 * ObjBalanceH div 3]],
+      "medKitCandidates": [[ObjBalanceW div 2, ObjBalanceH div 3],
+                            [ObjBalanceW div 2, 2 * ObjBalanceH div 3]],
+      "leftObstacles": newJArray(),
+      "flagless": true,
+      "spawnGroups": ObjBalanceGroups,
+    }
+    node["spawnPoints"] = gridPointsNode(ObjBalanceGroups)
+    node["shieldSpawns"] = gridPointsNode(ObjBalanceGroups)
+    node["spraySpawns"] = gridPointsNode(sprayN)
+    node["grenadeSpawns"] = gridPointsNode(grenadeN)
+    $node
+
+  proc objBalanceGame(
+    config: GameConfig, sprayN = 8, grenadeN = 8
+  ): SimServer =
+    var c = config
+    c.teams = ObjBalanceGroups
+    c.mapSpec = objBalanceMapSpec(sprayN, grenadeN)
+    result = initCtfForTest(c)
+    for i in 0 ..< 2:
+      discard result.addPlayer("p" & $i)
+    result.startGame()
+    invalidateBoardMapCaches()
+
+  test "sprayCount caps the spray-can family; -1 keeps the map's own set":
+    let dark = objBalanceGame(brConfig(), sprayN = 8)
+    check dark.sprayPaintSpawns.len == 8
+    var config = brConfig()
+    config.sprayCount = 3
+    let capped = objBalanceGame(config, sprayN = 8)
+    check capped.sprayPaintSpawns.len == 3
+
+  test "a cap can only shrink: sprayCount past the map's own count is a no-op above it":
+    var config = brConfig()
+    config.sprayCount = 1000
+    let capped = objBalanceGame(config, sprayN = 8)
+    check capped.sprayPaintSpawns.len == 8
+
+  test "the spray cap keeps the map's FIRST N authored points, same rule medKitCount uses":
+    let dark = objBalanceGame(brConfig(), sprayN = 8)
+    var config = brConfig()
+    config.sprayCount = 3
+    let capped = objBalanceGame(config, sprayN = 8)
+    require capped.sprayPaintSpawns.len == 3
+    for i in 0 ..< 3:
+      check capped.sprayPaintSpawns[i].x == dark.sprayPaintSpawns[i].x
+      check capped.sprayPaintSpawns[i].y == dark.sprayPaintSpawns[i].y
+
+  test "grenadeCount -1 keeps the map's own set; N caps down like sprayCount/medKitCount":
+    let dark = objBalanceGame(brConfig(), grenadeN = 8)
+    check dark.grenadeSpawns.len == 8
+    var config = brConfig()
+    config.grenadeCount = 2
+    let capped = objBalanceGame(config, grenadeN = 8)
+    require capped.grenadeSpawns.len == 2
+    for i in 0 ..< 2:
+      check capped.grenadeSpawns[i].x == dark.grenadeSpawns[i].x
+      check capped.grenadeSpawns[i].y == dark.grenadeSpawns[i].y
+
+  test "grenadeCount past the authored set INJECTS extra copies instead of stalling at a cap":
+    let dark = objBalanceGame(brConfig(), grenadeN = 8)
+    let base = dark.grenadeSpawns.len
+    var config = brConfig()
+    config.grenadeCount = base + 5
+    let injected = objBalanceGame(config, grenadeN = 8)
+    require injected.grenadeSpawns.len == base + 5
+    ## The first `base` copies are the map's own points, byte-identical to
+    ## the dark placement -- the injection only appends past them.
+    for i in 0 ..< base:
+      check injected.grenadeSpawns[i].x == dark.grenadeSpawns[i].x
+      check injected.grenadeSpawns[i].y == dark.grenadeSpawns[i].y
+    ## No two grenades stack on the same pixel: the ring-offset dedup
+    ## (GrenadeSiteDirOffset/ringSite's `clear` list) holds even once the
+    ## overflow laps the anchor set more than once.
+    var seen: seq[tuple[x, y: int]]
+    for spawn in injected.grenadeSpawns:
+      check (spawn.x, spawn.y) notin seen
+      seen.add (spawn.x, spawn.y)
+
+  test "defaults are dark and the default echo carries neither key":
+    let config = defaultGameConfig()
+    check config.sprayCount == -1
+    check config.grenadeCount == -1
+    let echoed = parseJson(config.configJson())
+    check not echoed.hasKey("sprayCount")
+    check not echoed.hasKey("grenadeCount")
+
+  test "armed keys round-trip through config JSON":
+    var config = defaultGameConfig()
+    config.update("""{"sprayCount": 6, "grenadeCount": 22}""")
+    check config.sprayCount == 6
+    check config.grenadeCount == 22
+    let echoed = parseJson(config.configJson())
+    check echoed["sprayCount"].getInt == 6
+    check echoed["grenadeCount"].getInt == 22
+
+  test "the classic (non-flagless) formula path ignores grenadeCount -- BR-only lever":
+    ## CTF's default config is neither brMode nor flagless-multi-group, so
+    ## resetGrenades takes the untouched classic-formula `else` branch --
+    ## grenadeCount must not perturb it even when armed.
+    var config = defaultGameConfig()
+    config.grenadeCount = 1
+    let sim = startedGame(config, 2)
+    let plain = startedGame(defaultGameConfig(), 2)
+    check sim.grenadeSpawns.len == plain.grenadeSpawns.len
 
 suite "row 3 — loot-start: unarmed spawn, marker+hopper BOTH to shoot":
   test "dark BR seats spawn armed and fire exactly as before":

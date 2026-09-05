@@ -178,6 +178,57 @@ suite "paintbot manifest, battle-royale-s2 variant":
     ## restored pre-S2 healing path now that bandages are off.
     check sim.medKitSpawns.len > 0
 
+  test "OBJBALANCE (owner directive 2026-09-05): fewer spray cans, more grenades, on the REAL sim":
+    ## Pre-pivot objbalance analysis, rec B: spray cans were the map's most
+    ## plentiful pickup and grenades its scarcest disposable, the inversion
+    ## of their intended rarity. The flagship variant ships both fixes at
+    ## once -- sprayCount caps the cans, grenadeCount injects supply -- and
+    ## this proves the manifest values AND the mechanism they drive on a
+    ## real sim built from the variant's own game_config, not restated prose.
+    check gc["sprayCount"].getInt == 6
+    check gc["grenadeCount"].getInt == 22
+    var config = defaultGameConfig()
+    config.update($gc)
+    check config.sprayCount == 6
+    check config.grenadeCount == 22
+    var sim = initCtfForTest(config)
+    for i in 0 ..< Seats:
+      discard sim.addPlayer("Player" & $(i + 1))
+    sim.startGame()
+    ## A cap can only shrink: the map's own BR-pool geometry authors far
+    ## more than 6 spray sites, so this is the binding case, not a no-op.
+    check sim.sprayPaintSpawns.len <= 6
+    check sim.sprayPaintSpawns.len > 0
+    ## grenadeCount is a TARGET, not a cap -- exactly 22 regardless of
+    ## whether the generated map authored more or fewer than that.
+    check sim.grenadeSpawns.len == 22
+    for family in [sim.sprayPaintSpawns, sim.grenadeSpawns]:
+      check family.len <= NeutralPickupPoolWidth
+
+  test "OBJBALANCE is a per-variant knob: the plain battle-royale variant stays unchanged (-1 default)":
+    ## Same rule medKitCount already proved (row above): a variant that
+    ## never sets sprayCount/grenadeCount inherits the engine's -1 default,
+    ## byte-identical to the pre-objbalance placement path.
+    var otherVariant: JsonNode
+    for variant in manifest["variants"]:
+      if variant["id"].getStr() == "battle-royale":
+        otherVariant = variant
+    doAssert otherVariant != nil, "manifest has no battle-royale variant"
+    let otherGc = otherVariant["game_config"]
+    check not otherGc.hasKey("sprayCount")
+    check not otherGc.hasKey("grenadeCount")
+    var config = defaultGameConfig()
+    config.update($otherGc)
+    check config.sprayCount == -1
+    check config.grenadeCount == -1
+    var sim = initCtfForTest(config)
+    for i in 0 ..< Teams:
+      discard sim.addPlayer("Player" & $(i + 1))
+    sim.startGame()
+    ## Unbounded (-1): the map's own authored spray-can count, whatever it
+    ## is, is never truncated to 6 on this variant.
+    check sim.sprayPaintSpawns.len > 6
+
   test "wiping 15 of 16 solo teams ends the round with ONE winning team and exactly 16 score entries":
     var config = defaultGameConfig()
     config.update($gc)

@@ -1194,6 +1194,44 @@ func cappedForPool(
   let cap = max(0, NeutralPickupPoolWidth - reserve)
   if targets.len <= cap: targets else: targets[0 ..< cap]
 
+proc grenadeCountTargets(
+  sim: var SimServer, base: seq[tuple[x, y: int]]
+): seq[tuple[x, y: int]] =
+  ## OBJBALANCE(s2, owner directive 2026-09-05): resizes an authored/formula
+  ## grenade-anchor list to exactly `config.grenadeCount` points.
+  ##   * -1 (the default): a no-op, returns `base` unchanged — byte-identical
+  ##     to every map that never set the knob.
+  ##   * 0..base.len: keeps the map's first N points, the same "map's first N
+  ##     points" cap rule `medKitCount` already uses.
+  ##   * past base.len: a cap can only SHRINK a list, so raising the count
+  ##     needs an INJECTION — this cycles back through the same authored
+  ##     anchors (`k mod base.len`), ring-offset via `ringSite` once a lap
+  ##     completes (the same overflow idiom `resetBandages` already uses
+  ##     against its own RETREAT anchors), so extra copies land beside their
+  ##     anchor rather than stacked on top of it. `ringSite`'s own `lap <= 0`
+  ##     branch keeps the FIRST pass through `base` an exact, unring-offset
+  ##     `nearestWalkable(anchor)` — identical to the pre-existing placement
+  ##     for a count that lands at or under `base.len`.
+  ##
+  ## Provenance: the pre-pivot objbalance analysis (rec B) found grenades the
+  ## scarcest disposable (~13-29 authored across the 11-map pool) and sprays
+  ## the most common (~34-58) — the inversion of their intended rarity. This
+  ## is how battle-royale-s2 raises grenades toward ~22/map without touching
+  ## any of the 11 pool maps' own authored geometry (arena.nim/brmapkit.nim
+  ## never run again; only this runtime placement step changes).
+  let count = sim.config.grenadeCount
+  if count < 0 or base.len == 0:
+    return base
+  if count <= base.len:
+    result = base
+    result.setLen(count)
+    return result
+  for k in 0 ..< count:
+    let anchor = base[k mod base.len]
+    let clear = result
+    result.add sim.ringSite(anchor.x, anchor.y, k div base.len,
+      GrenadeSiteDirOffset, LootSiteRingRadius, clear)
+
 proc resetGrenades*(sim: var SimServer) =
   ## Refills every grenade pickup and clears carried and airborne grenades.
   ##
@@ -1227,16 +1265,23 @@ proc resetGrenades*(sim: var SimServer) =
   ## smaller flagless-but-not-BR-scale maps validateMap still allows to skip
   ## the neutral pools, never take this branch — they keep the exact
   ## unnudged `else` below.
+  ##
+  ## OBJBALANCE(s2, owner directive 2026-09-05): `config.grenadeCount`
+  ## resizes the anchor list in these first two (BR) branches only — see
+  ## `grenadeCountTargets`. -1 (default) is a no-op on both. The classic
+  ## `else` formula below is deliberately untouched: grenades-as-supply is a
+  ## BR-only lever, and that branch's byte-identical-replay guarantee above
+  ## must hold regardless.
   if sim.gameMap.grenadeSpawns.len > 0:
     var targets: seq[tuple[x, y: int]]
     for point in sim.gameMap.grenadeSpawns:
       targets.add((point.x, point.y))
-    sim.placeWalkablePickups(grenadeSpawns, targets)
+    sim.placeWalkablePickups(grenadeSpawns, sim.grenadeCountTargets(targets))
   elif sim.gameMap.flagless and sim.gameMap.spawnGroups > 1:
     var targets: seq[tuple[x, y: int]]
     for point in sim.gameMap.grenadeSpawnPoints():
       targets.add(point)
-    sim.placeWalkablePickups(grenadeSpawns, targets)
+    sim.placeWalkablePickups(grenadeSpawns, sim.grenadeCountTargets(targets))
   else:
     let
       points = sim.gameMap.grenadeSpawnPoints()
@@ -1559,12 +1604,20 @@ proc resetSprayPaints*(sim: var SimServer) =
   ## Refills every team's spray can pickup and clears carried cans. Same
   ## "map's own neutral pool first, per-team formula fallback" rule as
   ## resetShields just above (gameMap.spraySpawns — brmapkit round 13).
+  ##
+  ## OBJBALANCE(s2, owner directive 2026-09-05): `config.sprayCount` caps the
+  ## placed cans to the map's first N authored/formula points — the same
+  ## "-1 default (map's own full set) / N = first N points" rule
+  ## `resetMedKits`' medKitCount already uses, deterministic and NOT
+  ## reseeded per episode (the same map always keeps the same N cans).
   var targets: seq[tuple[x, y: int]]
   if sim.gameMap.spraySpawns.len > 0:
     for point in sim.gameMap.spraySpawns:
       targets.add((point.x, point.y))
   else:
     targets = sim.gameMap.sprayPaintSpawnPoints()
+  if sim.config.sprayCount >= 0 and targets.len > sim.config.sprayCount:
+    targets.setLen(sim.config.sprayCount)
   sim.placeWalkablePickups(sprayPaintSpawns, targets)
   sim.sprayPaintFlashes = @[]
   for i in 0 ..< sim.players.len:
