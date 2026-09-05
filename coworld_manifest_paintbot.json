@@ -1178,7 +1178,7 @@
     {
       "id": "battle-royale-s2",
       "name": "Battle Royale — Season 2",
-      "description": "The 16-seat battle royale with the Season 2 play-calling shell armed: every seat is a play seat. Policies upload WebAssembly playbooks over the wire, talk in an open 600-tick (~25 s) lobby-chat window before the round, then drive their cogs by calling plays — an ordered ladder of named plays with typed parameters, replaced or retuned mid-match as the zone closes. The engine ships a public seven-play reference menu (docs/designs/BR_PLAYS.md): pact, edge_ride, bodyguard, jackal, target_law, supply_run, crossfire — the competitive floor every private playbook must beat. Same rules as classic Battle Royale at half the field: eight duos on a generated flagless map scaled to keep every duo's share of territory (and the derived gun range) identical to the 32-seat giant, no respawns, six zone phases that close the field completely, last team standing, classic scoring with placement bonuses.",
+      "description": "The 16-seat battle royale with the Season 2 play-calling shell armed: every seat is a play seat. Policies upload WebAssembly playbooks over the wire, talk in an open 600-tick (~25 s) lobby-chat window before the round, then drive their cogs by calling plays — an ordered ladder of named plays with typed parameters, replaced or retuned mid-match as the zone closes. The engine ships a public seven-play reference menu (docs/designs/BR_PLAYS.md): pact, edge_ride, bodyguard, jackal, target_law, supply_run, crossfire — the competitive floor every private playbook must beat. Same rules as classic Battle Royale at half the field: sixteen solo entrants, one policy per team, on a generated flagless map scaled to keep every entrant's share of territory (and the derived gun range) identical to the 32-seat giant, no respawns, six zone phases that close the field completely, last cog standing, classic scoring with placement bonuses.",
       "game_config": {
         "players": [
           {
@@ -1264,35 +1264,35 @@
             "control": "play"
           },
           {
-            "team": "red",
+            "team": "umber",
             "control": "play"
           },
           {
-            "team": "blue",
+            "team": "rust",
             "control": "play"
           },
           {
-            "team": "green",
+            "team": "orange",
             "control": "play"
           },
           {
-            "team": "yellow",
+            "team": "plum",
             "control": "play"
           },
           {
-            "team": "black",
+            "team": "lime",
             "control": "play"
           },
           {
-            "team": "silver",
+            "team": "navy",
             "control": "play"
           },
           {
-            "team": "ivory",
+            "team": "azure",
             "control": "play"
           },
           {
-            "team": "pink",
+            "team": "peach",
             "control": "play"
           }
         ],
@@ -1315,10 +1315,10 @@
         "maxTicks": 10000,
         "maxGames": 1,
         "showPlayerLabels": true,
-        "teams": 8,
+        "teams": 16,
         "fireWindupTicks": 5,
         "barrageMaxPerSec": 0,
-        "mapPath": "brpool",
+        "mapPath": "brpool16",
         "brMode": true,
         "lootStart": false,
         "downedMode": false,

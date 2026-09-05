@@ -1314,12 +1314,21 @@ proc update*(config: var GameConfig, jsonText: string) =
           CtfError, "Config field voteMapSpecs must be an array of objects.")
       config.voteMapSpecs.add $item
   node.readConfigInt("voteTicks", config.voteTicks)
+  ## S2 simplification, 16-solo-team shape (PKG-B, elif below): mapPath
+  ## "brpool16" mirrors the "brpool" branch's single-pick path, but draws
+  ## from the 16-group pool (data/br_map_pool.json, the pre-#355 classic
+  ## pool — see br_map_pool.nim's "solo pool" doc comment) instead of the
+  ## 8-duo s2 pool. No vote-ballot support yet (pickBrS2VoteBallotSpecJsons
+  ## is s2-pool-specific) — single-pick only, additive alongside the
+  ## branch above it.
   if config.mapSpec.len == 0 and config.mapPath == BrPoolMapName:
     if config.voteTicks > 0 and config.voteMapSpecs.len == 0:
       config.voteMapSpecs = pickBrS2VoteBallotSpecJsons(config.seed)
       config.mapSpec = config.voteMapSpecs[0]
     else:
       config.mapSpec = pickBrS2SpecJson(config.seed)
+  elif config.mapSpec.len == 0 and config.mapPath == BrPoolMapName16:
+    config.mapSpec = pickBrPoolSpecJson(config.seed)
   ## Resolve the effective map ONCE: a generated map is expanded and pinned
   ## as mapSpec here, so the replay carries the exact geometry and playback
   ## never re-runs the generator. The gun range follows the selected map

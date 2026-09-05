@@ -398,6 +398,63 @@ suite "recut armed sim: per-duo single walk, seed, FF, dark parity":
     check sim.recutContextK(0, victim) == 1
 
 # ─────────────────────────────────────────────────────────────────────────
+# PKG-C (16-solo BR) SOLO-TEAM GUARD: dDuoDown's marquee (§1b, this file's
+# own suite above) reads "no living teammate" as its finish signal. A
+# 1-seat team has no teammate BY DEFINITION, so the pre-guard code (`not
+# partnerAlive`, unconditionally true when the loop finds nobody else on
+# the team at all) would mint dDuoDown as the marquee on every single solo
+# kill — the marquee band is meant to name a DUO's last member falling, not
+# an ordinary solo elimination. sim.nim's killPlayer now also requires the
+# victim's team to seat >= 2 before dDuoDown is even considered. Proven
+# here on the smallest real repro of each shape (no BR map pool needed —
+# `recutConfig`/`startedGame` already build brMode+gloryMultiplierRecut
+# games on the plain 2-team default map, which is exactly what makes a
+# 2-solo-team and a 2-duo-team game differ ONLY in seats-per-team).
+# ─────────────────────────────────────────────────────────────────────────
+suite "dDuoDown solo-team guard (PKG-C 16-solo)":
+  proc soloConfig(): GameConfig =
+    ## Two SOLO teams, one seat each -- the smallest shape with no partner
+    ## to ever finish off.
+    result = defaultGameConfig()
+    result.brMode = true
+    result.gloryMultiplierRecut = true
+    result.teams = 2
+
+  proc sameSpot(sim: var SimServer, a, b: int) =
+    ## Collapses `b` onto `a`'s position, zeroing `rangePx` -- otherwise the
+    ## default map's spawn-to-spawn distance resolves every kill below as
+    ## `dLongshotKill` (RecutClassTable 3), which OUTRANKS dDuoDown (2) and
+    ## masks it under the one-deed-per-kill precedence rule (killDeed's own
+    ## "more specific, rarer feat wins" law) -- a test artifact of the
+    ## fixture, not a marquee-gating question. A 0px kill instead resolves
+    ## to `dHonorableKill`/`dPointBlankKill` (both class 1), letting the
+    ## marquee override exactly as a real close-range BR finish would.
+    sim.players[b].x = sim.players[a].x
+    sim.players[b].y = sim.players[a].y
+
+  test "a solo team's only seat dying never mints dDuoDown":
+    var sim = startedGame(soloConfig(), 2)
+    sim.sameSpot(0, 1)
+    check sim.deedCounts[dDuoDown] == 0
+    sim.killPlayer(1, 0)   # team1's ONLY seat dies -- no partner exists, ever
+    check sim.deedCounts[dDuoDown] == 0
+    check not sim.players[1].alive
+
+  test "a duo team's finishing kill still mints dDuoDown (byte-identical to pre-guard)":
+    # recutConfig defaults to 2 teams; startedGame seats round-robin, so 4
+    # seats pairs 0,2 on team0 and 1,3 on team1 -- a genuine 2-seat duo.
+    var sim = startedGame(recutConfig(br = true), 4)
+    let victimTeam = sim.players[1].team
+    check sim.players[3].team == victimTeam
+    check sim.deedCounts[dDuoDown] == 0
+    sim.sameSpot(0, 1)
+    sim.killPlayer(1, 0)   # first half of the duo dies -- partner (3) still alive
+    check sim.deedCounts[dDuoDown] == 0
+    sim.sameSpot(0, 3)
+    sim.killPlayer(3, 0)   # the duo's LAST living member dies -- fires, unchanged
+    check sim.deedCounts[dDuoDown] == 1
+
+# ─────────────────────────────────────────────────────────────────────────
 # §A6 EVEN MAXIMUMS + AMENDMENT 7 (winAsMultiplier) — the win factor, the
 # two new deeds, the ClosingTime rung bump, and BASE EQUALITY. Everything
 # below is behind `GameConfig.winAsMultiplier` (its own flag, dark by
