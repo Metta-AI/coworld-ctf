@@ -434,12 +434,12 @@
           }
         },
         "lootStart": {
-          "description": "Battle-royale loot-start: every seat spawns unarmed (no gun, no hopper). The gun's two lootable halves — the marker (hasGun) and the hopper, its ammo (hasHopper) — wait as one-shot crates on the map's authored weaponSpawns/hopperSpawns (or the grenade/med-kit points when absent); a cog needs both to fire. Requires brMode: true. Off by default; the battle-royale-s2 variant turns it on.",
+          "description": "Battle-royale loot-start: every seat spawns unarmed (no gun, no hopper). The gun's two lootable halves — the marker (hasGun) and the hopper, its ammo (hasHopper) — wait as one-shot crates on the map's authored weaponSpawns/hopperSpawns (or the grenade/med-kit points when absent); a cog needs both to fire. Requires brMode: true. Off by default. DELIBERATE OFF-SWITCH (2026-09-04 owner simplification, PKG-A): the battle-royale-s2 variant previously turned this on and now matches the default, alongside downedMode/giveItem/dropItem/the loot-seed knobs/bandagePickups — every key stays present at its explicit off value (one-token rollback), not deleted. Flip true to re-arm.",
           "type": "boolean",
           "default": false
         },
         "downedMode": {
-          "description": "Battle-royale ghost-tag-revive: a lethal hit downs a cog into a frozen, non-colliding ghost instead of killing it outright. The ghost stays alive on the wire (that is what makes it revivable) — an upright teammate within DownedTagRange for downedReviveTicks tags it back in at 1 hp; an enemy gun hit splats it for an immediate confirmed elimination; an untagged ghost bleeds out after downedBleedOutTicks (halved per successive down while downedEscalation holds). Requires brMode: true. Off by default; the battle-royale-s2 variant turns it on at the ruled default timing (downedBleedOutTicks 360, downedReviveTicks 48, downedEscalation on).",
+          "description": "Battle-royale ghost-tag-revive: a lethal hit downs a cog into a frozen, non-colliding ghost instead of killing it outright. The ghost stays alive on the wire (that is what makes it revivable) — an upright teammate within DownedTagRange for downedReviveTicks tags it back in at 1 hp; an enemy gun hit splats it for an immediate confirmed elimination; an untagged ghost bleeds out after downedBleedOutTicks (halved per successive down while downedEscalation holds). Requires brMode: true. Off by default. DELIBERATE OFF-SWITCH (2026-09-04 owner simplification, PKG-A): the battle-royale-s2 variant previously turned this on at the ruled default timing (downedBleedOutTicks 360, downedReviveTicks 48, downedEscalation on — those defaults still apply if re-armed) and now matches the default. Flip true to re-arm.",
           "type": "boolean",
           "default": false
         },
@@ -449,7 +449,7 @@
           "default": false
         },
         "dropItem": {
-          "description": "Button-chord item drop (owner ruling 2026-09-03): holding the aim-pair chord — ButtonB and ButtonSelect together, a dead no-op the engine ignores for aim (applyInput turns only on b != select), so no existing replay ever used it — for DropChordTicks (~10, ~0.4s) WHILE carrying a droppable spills the highest-priority carried item (spray can first, then marker, hopper, grenade, barrier, bandage) to the ground as a no-respawn item, emitting the item_drop wire row {dropper, item, tick, x, y}. Dropping a spray can clears hasSprayPaint, handing the gun back (canFire's not-hasSprayPaint guard) — the only exit from the spray lock. Anyone in range may then walk it up: OPEN steal, no team gate (Minecraft-style), the dropper alone waiting DropperRegrabTicks (~1s) before re-grabbing its own drop. Coexists with giveItem — drop is the free/flexible path, handoff still guarantees partner delivery. Human seat binds it to Q; a policy emits it via its Act (both rotate bits). Off by default; the battle-royale-s2 variant turns it on. Rollback = flip false, no code change.",
+          "description": "Button-chord item drop (owner ruling 2026-09-03): holding the aim-pair chord — ButtonB and ButtonSelect together, a dead no-op the engine ignores for aim (applyInput turns only on b != select), so no existing replay ever used it — for DropChordTicks (~10, ~0.4s) WHILE carrying a droppable spills the highest-priority carried item (spray can first, then marker, hopper, grenade, barrier, bandage) to the ground as a no-respawn item, emitting the item_drop wire row {dropper, item, tick, x, y}. Dropping a spray can clears hasSprayPaint, handing the gun back (canFire's not-hasSprayPaint guard) — the only exit from the spray lock. Anyone in range may then walk it up: OPEN steal, no team gate (Minecraft-style), the dropper alone waiting DropperRegrabTicks (~1s) before re-grabbing its own drop. Coexists with giveItem — drop is the free/flexible path, handoff still guarantees partner delivery. Human seat binds it to Q; a policy emits it via its Act (both rotate bits). Off by default. DELIBERATE OFF-SWITCH (2026-09-04 owner simplification, PKG-A): the battle-royale-s2 variant previously turned this on and now matches the default. Rollback = flip true, no code change, to re-arm.",
           "type": "boolean",
           "default": false
         },
@@ -769,7 +769,7 @@
           "default": 0
         },
         "hopperSiteTrafficPermille": {
-          "description": "Hopper crate SITE CLASS (per-mille, 0-1000). Marker crates fall back onto the map's grenade points (alleys and hotspots \u2014 the traffic class); hopper crates inherited the med-kit points (rooms and corners \u2014 the retreat class), which put the gun's ammo half where fights are not. Measured over 75 live episodes: hoppers were the most plentiful crate and the worst collected, 0.47x the marker's per-crate pickup rate, and no live map authors hopperSpawns of its own (0/75) so the fallback IS the live placement. This re-sites that share of the fallback hopper crates onto the traffic points, ring-offset off the marker so the gun's two halves stay two separate touches. Count is unchanged \u2014 crates move, none are added \u2014 so the hopper:marker per-crate pickup ratio isolates the site class. Requires lootStart: true. 0 = off (default, the inherited med-kit siting); the battle-royale-s2 variant runs 750.",
+          "description": "Hopper crate SITE CLASS (per-mille, 0-1000). Marker crates fall back onto the map's grenade points (alleys and hotspots \u2014 the traffic class); hopper crates inherited the med-kit points (rooms and corners \u2014 the retreat class), which put the gun's ammo half where fights are not. Measured over 75 live episodes: hoppers were the most plentiful crate and the worst collected, 0.47x the marker's per-crate pickup rate, and no live map authors hopperSpawns of its own (0/75) so the fallback IS the live placement. This re-sites that share of the fallback hopper crates onto the traffic points, ring-offset off the marker so the gun's two halves stay two separate touches. Count is unchanged \u2014 crates move, none are added \u2014 so the hopper:marker per-crate pickup ratio isolates the site class. Requires lootStart: true. 0 = off (default, the inherited med-kit siting). DELIBERATE OFF-SWITCH (2026-09-04 owner simplification, PKG-A): the battle-royale-s2 variant previously ran 750 and now matches the default (moot anyway with lootStart off in the same variant). Set back to 750 (with lootStart: true) to re-arm.",
           "type": "integer",
           "default": 0
         },
@@ -1320,8 +1320,8 @@
         "barrageMaxPerSec": 0,
         "mapPath": "brpool",
         "brMode": true,
-        "lootStart": true,
-        "downedMode": true,
+        "lootStart": false,
+        "downedMode": false,
         "zoneDamageByPaint": true,
         "zoneBlocksRevive": true,
         "zonePhases": [
@@ -1369,13 +1369,13 @@
         "variantId": "battle-royale-s2",
         "gloryMultiplierRecut": true,
         "stampRealizedConfig": true,
-        "giveItem": true,
-        "dropItem": true,
-        "lootSpawnSeedGuns": 3,
-        "lootSpawnSeedHoppers": 3,
-        "lootSpawnSeedRadius": 48,
-        "hopperSiteTrafficPermille": 750,
-        "bandagePickups": 12,
+        "giveItem": false,
+        "dropItem": false,
+        "lootSpawnSeedGuns": 0,
+        "lootSpawnSeedHoppers": 0,
+        "lootSpawnSeedRadius": 0,
+        "hopperSiteTrafficPermille": 0,
+        "bandagePickups": 0,
         "frameLoadoutFlags": true,
         "winAsMultiplier": false,
         "deedMintCaps": true

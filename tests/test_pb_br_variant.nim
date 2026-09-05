@@ -142,62 +142,38 @@ suite "paintbot manifest, battle-royale-s2 variant":
     for team, count in perTeam:
       check count == SeatsPerTeam   ## every team fields exactly its duo.
 
-  test "the variant's items actually LAND: bandages placed, hoppers traffic-sited, every family inside the board's pool":
-    ## ITEM COMPLETENESS (epic 1ef4f9d6 T3 + the hopper site-class spec):
-    ## `bandagePickups` was absent from config_schema entirely, so a fully
-    ## built item — placement path, touch pickup, +1 hp calm-clock apply,
-    ## wire token, exchange whitelist, ground sprite — could not be reached
-    ## from the platform at all (the #389 class of gap: armed in a variant,
-    ## undeclared in the schema, except here it was armed nowhere either).
-    ## The hopper fallback meanwhile inherited the med kits' RETREAT siting.
-    ## Both are asserted on the REAL sim built from the variant's own
-    ## game_config, not on the manifest's prose.
-    check gc["bandagePickups"].getInt > 0
-    check gc["hopperSiteTrafficPermille"].getInt > 0
+  test "the variant's loot economy ships DARK (2026-09-04 owner simplification): bandages, hopper crates, gun crates all off":
+    ## Owner simplification, 2026-09-04 (PKG-A, flags-off): battle-royale-s2
+    ## went back to explicit bandagePickups: 0 / hopperSiteTrafficPermille: 0
+    ## / lootStart: false. This test used to assert the loot economy (epic
+    ## 1ef4f9d6 T3 + the hopper site-class spec) actually LANDED; it now
+    ## asserts the opposite on purpose — that flipping the flags off really
+    ## produces an empty item economy on the REAL sim built from the
+    ## variant's own game_config, not a half-armed one. Every key stays
+    ## PRESENT in the manifest at 0/false (one-token rollback) — see the PR
+    ## body for the re-arm path (PR-body-half-life: this comment is the one
+    ## that survives, not the PR description).
+    check gc["bandagePickups"].getInt == 0
+    check gc["hopperSiteTrafficPermille"].getInt == 0
     var config = defaultGameConfig()
     config.update($gc)
     var sim = initCtfForTest(config)
     for i in 0 ..< Seats:
       discard sim.addPlayer("Player" & $(i + 1))
     sim.startGame()
-    check sim.bandageSpawns.len == gc["bandagePickups"].getInt
-    check sim.weaponSpawns.len > 0
-    check sim.hopperSpawns.len > 0
-    ## Every neutral family must fit its object-id pool: a BR-pool map sizes
-    ## its med-kit/spray pools at runtime, and the un-deduped hopper fallback
-    ## used to place ~80 crates into a 64-wide pool — past the width the
-    ## render loop clamps and its own doAssert fires, so this is the guard
-    ## that keeps a live episode off that assert.
+    check sim.bandageSpawns.len == 0    ## resetBandages no-ops at count <= 0.
+    check sim.weaponSpawns.len == 0     ## resetLootCrates no-ops when lootStart is dark.
+    check sim.hopperSpawns.len == 0
+    ## Every neutral family (even empty ones) must still fit its object-id
+    ## pool — a cheap regression guard against a future re-arm overshooting
+    ## the board's 64-wide per-family pool.
     for family in [sim.weaponSpawns, sim.hopperSpawns, sim.bandageSpawns,
                    sim.medKitSpawns, sim.sprayPaintSpawns, sim.shieldSpawns,
                    sim.grenadeSpawns]:
       check family.len <= NeutralPickupPoolWidth
-    ## No family stacks two crates on one pixel (the taker's own carry gate
-    ## walks it straight over the twin), and the gun's two halves never
-    ## share one walk-over.
-    proc distinctPixels(spawns: seq[PickupSpawn]): int =
-      var seen: seq[tuple[x, y: int]]
-      for spawn in spawns:
-        if (spawn.x, spawn.y) notin seen:
-          seen.add (spawn.x, spawn.y)
-      seen.len
-    check distinctPixels(sim.hopperSpawns) == sim.hopperSpawns.len
-    check distinctPixels(sim.weaponSpawns) == sim.weaponSpawns.len
-    check distinctPixels(sim.bandageSpawns) == sim.bandageSpawns.len
-    ## The measurable: a MAJORITY of the fallback hoppers now sit on the
-    ## traffic class. Counted as "not on any med-kit point's own walkable
-    ## cell" — the retreat sites are exactly the points the fallback used to
-    ## use for all of them.
-    var kitPixels: seq[tuple[x, y: int]]
-    for point in sim.gameMap.medKitSpawns & sim.gameMap.medKitCandidates:
-      let spot = sim.nearestWalkable(point.x, point.y)
-      if spot notin kitPixels:
-        kitPixels.add spot
-    var offRetreat = 0
-    for spawn in sim.hopperSpawns:
-      if (spawn.x, spawn.y) notin kitPixels:
-        inc offRetreat
-    check offRetreat * 2 > sim.hopperSpawns.len
+    ## medKitCount stays unset (-1): the map's own full med-kit set is the
+    ## restored pre-S2 healing path now that bandages are off.
+    check sim.medKitSpawns.len > 0
 
   test "wiping 7 of 8 duo teams ends the round with ONE winning team and exactly 16 score entries":
     var config = defaultGameConfig()
@@ -210,20 +186,16 @@ suite "paintbot manifest, battle-royale-s2 variant":
     check sim.players[Teams].team == survivorTeam  ## slot 0's duo partner is slot 8.
     ## Wipe every OTHER team's both seats (slots 1..7 and their partners
     ## 9..15), leaving team 0's duo (slots 0 and 8) as the sole survivor.
-    ## This variant now arms downedMode (LOOT(s2)), so killPlayer's first
-    ## call on an upright cog DOWNS it (a frozen, still-`alive` ghost) --
-    ## src/ctf/sim.nim's killPlayer interception, `sim.downPlayer`. A second
-    ## killPlayer call on that same (now downed) victim carries it past the
-    ## interception guard (`not sim.players[targetIndex].downed` is false)
-    ## and completes the permanent death, the same path a real splat or
-    ## bleed-out finalization (`finalizeDowned`) takes. Two calls per
-    ## victim is this test's from-outside-the-module equivalent of "down,
-    ## then finish" -- the whole team must be genuinely dead, not merely
-    ## downed, before checkWinCondition can end the round.
+    ## Owner simplification, 2026-09-04 (PKG-A): this variant no longer
+    ## arms downedMode, so killPlayer's first call on an upright cog is a
+    ## genuine, permanent kill straight away -- no downed-ghost
+    ## interception (`sim.downPlayer`) sits in front of it. One call per
+    ## victim wipes the team, matching the pre-S2 (dark) killPlayer path.
+    ## (Previously this needed two calls per victim to walk past the
+    ## downed-ghost interception guard; re-arming downedMode would need
+    ## that back — see the PR body for the re-arm path.)
     for i in 1 ..< Teams:
       sim.killPlayer(i, 0)
-      sim.killPlayer(i, 0)
-      sim.killPlayer(i + Teams, 0)
       sim.killPlayer(i + Teams, 0)
     sim.checkWinCondition()
     check sim.phase == GameOver
