@@ -1316,6 +1316,45 @@ check("prompt: NEGATIVE -- does not claim a loss pays nothing "
       and "zeroes the whole product" not in prompt,
       "stale win-gate loss-pays-nothing text found in prompt")
 
+# ── deedMintCaps ARMED (coworld-ctf origin/main ba6ae904, PR #417,
+# 2026-09-04 16:19): coworld_manifest_paintbot.json flips deedMintCaps
+# false -> true on battle-royale-s2. This repo's own engine checkout
+# (src/ctf/glory.nim, src/ctf/sim.nim) predates the BR deed vocabulary
+# entirely (dDuoDown/dJointAct/dTagBack/winAsMultiplier/deedMintCaps do
+# not exist there yet -- glory.nim's Deed enum ends at dAchievement), so
+# this cannot be re-derived from local source; taken as given per the
+# hourly verification. What changes for the model: per-episode, per-duo
+# mint BUDGETS now cap dTagBack 3, dJointAct 6, dDuoDown 4, dShieldSoak 3
+# -- a mint past its cap still FIRES the event (kill feed, counters) but
+# folds a factor of 1, i.e. scores zero, indistinguishable from a success
+# in every count except the payout. THE OBJECTIVE used to frame finishing
+# opposing duos as unlimited volume ("each one stacks your take again --
+# volume, not one big finish") and the jackal doctrine echoed the same
+# unlimited framing ("working through fights beats holding out for one
+# perfect finish") -- both are now false for dDuoDown past its 4-per-
+# episode-per-duo budget. dTagBack (revive) and dShieldSoak (ambient
+# absorb) carry no comparable volume claim in this prompt today, so they
+# are left untouched -- nothing to correct there. dJointAct has no
+# confident textual anchor in this prompt (the "clustered spray" line
+# reads as dSplashMultiKill, a different, uncapped-by-this-change deed),
+# so it is also left untouched rather than guessed at. ────────────────────
+check("prompt: objective states the duo-finish cap (dDuoDown, 4 per "
+      "episode per duo) and that a mint past it still fires but scores "
+      "nothing",
+      "up to\n4 per episode per duo" in prompt
+      and "mints nothing" in prompt,
+      "duo-finish cap text not found")
+check("prompt: jackal doctrine repeats the same duo-finish cap rather "
+      "than the old unlimited-volume framing",
+      "up to 4 per episode per duo" in prompt
+      and "mints nothing" in prompt,
+      "jackal duo-finish cap text not found")
+check("prompt: NEGATIVE -- does not claim finishing duos is unlimited "
+      "volume (the deedMintCaps era correction this commit makes)",
+      "volume, not one big finish" not in prompt
+      and "working through fights beats holding out" not in prompt,
+      "stale unlimited-duo-finish text found in prompt")
+
 # ── bedrock escape hatch (live incident 2026-09-03): the sidecar's
 # OpenAI-compatible / OpenRouter lane returned pooled-key 503s and both v10
 # and v11 qualified as league champion on canned play (0 real model calls)

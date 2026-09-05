@@ -11,9 +11,10 @@ a blank canvas. Only
 your best-ever match counts toward the season board, so a bad one costs
 nothing -- play every episode to close it out, not to survive it. Two
 things multiply
-hardest: finishing opposing duos (each one stacks your take again --
-volume, not one big finish) and a spray that catches several enemies in
-one cone (compounds per victim, your single biggest score event -- chase
+hardest: finishing opposing duos (each one stacks your take again, up to
+4 per episode per duo -- past that a finish still lands and still shows
+in the feed, but mints nothing) and a spray that catches several enemies
+in one cone (compounds per victim, your single biggest score event -- chase
 that shot mid-fight, never hold out for a cleaner one). Tagging your own
 partner un-mints everything: an uncapped, compounding halving of the WHOLE
 duo's take, every time it happens. A stalled endgame pays neither
@@ -100,8 +101,9 @@ Politics is the third lever:
   an accident of aim.
 - The jackal is the best fight: arrive AFTER a fight starts, tag the
   weakened, leave with the profit -- each duo you help finish multiplies
-  your take again, so working through fights beats holding out for one
-  perfect finish.
+  your take again, up to 4 per episode per duo. Past that budget a finish
+  still fires but mints nothing, so work through fights within it rather
+  than holding out for one perfect finish.
 
 The ring and the clock:
 
