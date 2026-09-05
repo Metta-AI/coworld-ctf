@@ -2210,6 +2210,122 @@ check("positional theory: _load_playbook's docstring names ring_walker's "
       and "NOT known" in _load_playbook_doc,
       _load_playbook_doc)
 
+# ── T21: PLAN_WASTE -- the real instrument v27's tautological metric left
+# missing (see the module comment above PLAN_WASTE in starter_harness.py).
+# `available` here simulates a live drop: hold_vs_gun is a real baked play
+# _drop_failed_module would have removed; totally_bogus_play never existed
+# in the manifest at all -- the two not-in-available sub-cases the audit
+# needs told apart. One raw entry list is built to hit every existing
+# strip/skip reason in build_call's repair loop exactly once (twice for
+# ladder-cap, whose size is asserted below), in an order that does not let
+# one bucket mask another (the overlay-cap check runs BEFORE the required-
+# param check, so the missing-partners pact entry is placed before the
+# overlay slots fill up, or it would count as overlay-cap instead).
+_WASTE_AVAILABLE = [p for p in plays.PLAYS if p != "hold_vs_gun"]
+_waste_raw_entries = [
+    "not-a-dict",                                                  # malformed-entry
+    {"play": "hold_vs_gun", "entry_id": "a"},                      # not-in-available (dropped)
+    {"play": "totally_bogus_play", "entry_id": "b"},               # not-in-available (hallucinated)
+    {"play": "pact", "entry_id": "z", "params": {}},               # missing-required-param
+    {"play": "pact", "entry_id": "c",
+     "params": {"partners": ["seat:19"]}},                         # overlay 1/2, valid
+    {"play": "target_law", "entry_id": "d", "params": {}},         # overlay 2/2, valid
+    {"play": "pact", "entry_id": "e",
+     "params": {"partners": ["seat:19"]}},                         # overlay-cap
+] + [{"play": "edge_ride", "entry_id": f"ride{i}"} for i in range(20)]
+_waste_decision = {"call": {"entries": _waste_raw_entries}}
+
+_pw_before = dict(starter_harness.PLAN_WASTE)
+_waste_payload, _waste_entries = starter_harness.build_call(
+    _waste_decision, _WASTE_AVAILABLE)
+_pw_after = dict(starter_harness.PLAN_WASTE)
+_pw_delta = {k: _pw_after.get(k, 0) - _pw_before.get(k, 0)
+             for k in set(_pw_after) | set(_pw_before)}
+
+check("PLAN_WASTE: a malformed (non-dict) raw entry is counted as "
+      "malformed-entry",
+      _pw_delta.get("malformed-entry", 0) == 1, str(_pw_delta))
+check("PLAN_WASTE: a play the drop-set removed and a play name the model "
+      "invented are BOTH counted under not-in-available, exactly once each",
+      _pw_delta.get("not-in-available", 0) == 2, str(_pw_delta))
+check("PLAN_WASTE: an overlay entry sent without its required param is "
+      "counted as missing-required-param",
+      _pw_delta.get("missing-required-param", 0) == 1, str(_pw_delta))
+check("PLAN_WASTE: a THIRD overlay entry (MAX_ACTIVE_OVERLAYS=2) is "
+      "counted as overlay-cap",
+      _pw_delta.get("overlay-cap", 0) == 1, str(_pw_delta))
+check("PLAN_WASTE: raw entries beyond MAX_LADDER_ENTRIES that the loop's "
+      "break never even reaches are still counted, as ladder-cap",
+      _pw_delta.get("ladder-cap", 0) == 6, str(_pw_delta))
+check("PLAN_WASTE: the five reasons are never collapsed into one number "
+      "(CLEAN_DROPS' original sin) -- exactly five distinct keys fired",
+      len(_pw_delta) == 5, str(_pw_delta))
+
+_waste_samples = starter_harness.WASTE_SAMPLES.get("not-in-available", [])
+check("WASTE_SAMPLES: captures the DROPPED play's own name, tagged as a "
+      "known play since dropped (not confused with a hallucinated name)",
+      any("hold_vs_gun" in s and "known play, since dropped" in s
+          for s in _waste_samples),
+      str(_waste_samples))
+check("WASTE_SAMPLES: captures a hallucinated play name, tagged as not a "
+      "play name in this manifest (not confused with a real dropped play)",
+      any("totally_bogus_play" in s
+          and "not a play name in this manifest" in s
+          for s in _waste_samples),
+      str(_waste_samples))
+
+# Surgical, not just membership: the counter firing must not be a
+# substitute for the actual strip. Pin the EXACT surviving (play, entry_id)
+# sequence, so a bug that counts "overlay-cap" or "missing-required-param"
+# correctly while forgetting the `continue` that makes it real (the
+# counter-without-the-strip failure mode this task's gate calls out) is
+# caught here even though it would not move any PLAN_WASTE number.
+_expected_waste_entries = (
+    [("pact", "c"), ("target_law", "d")]
+    + [("edge_ride", f"ride{i}") for i in range(14)])
+check("PLAN_WASTE: the exact surviving entries match -- entry 'z' (missing "
+      "partners) and 'e' (3rd overlay) are gone, 'a'/'b' (not-in-available) "
+      "are gone, and the ladder cap holds at 16",
+      [(e["play"], e["entry_id"]) for e in _waste_entries]
+      == _expected_waste_entries,
+      str([(e["play"], e["entry_id"]) for e in _waste_entries]))
+
+# WASTE_SAMPLES cap: a model that spams distinct hallucinated names must not
+# blow up the log (same guarantee REJECTED_SAMPLES gives above).
+for _i in range(10):
+    starter_harness.build_call(
+        {"call": {"entries": [
+            {"play": f"never-seen-{_i}", "entry_id": f"x{_i}"}]}},
+        _WASTE_AVAILABLE)
+_waste_samples_capped = starter_harness.WASTE_SAMPLES.get(
+    "not-in-available", [])
+check("WASTE_SAMPLES: capped at a small number of distinct samples even "
+      "after many distinct not-in-available plays are proposed",
+      len(_waste_samples_capped) <= starter_harness._WASTE_SAMPLE_COUNT_CAP,
+      f"len={len(_waste_samples_capped)} "
+      f"cap={starter_harness._WASTE_SAMPLE_COUNT_CAP}")
+
+# ── PLAN_WASTE must be BEHAVIOUR-NEUTRAL on the play path (T21 gate): the
+# counter increments only in branches that previously did nothing (a bare
+# `continue`/`break`). Prove it directly rather than merely asserting it:
+# silence _record_waste into a no-op and confirm the wire payload for the
+# exact same input is byte-identical to the instrumented run above.
+_real_record_waste = starter_harness._record_waste
+starter_harness._record_waste = lambda *a, **k: None
+try:
+    _silent_payload, _silent_entries = starter_harness.build_call(
+        _waste_decision, _WASTE_AVAILABLE)
+finally:
+    starter_harness._record_waste = _real_record_waste
+check("PLAN_WASTE is behaviour-neutral: the wire payload is byte-identical "
+      "whether or not the counter fires",
+      _silent_payload == _waste_payload,
+      f"instrumented={_waste_payload!r} silent={_silent_payload!r}")
+check("PLAN_WASTE is behaviour-neutral: the returned entries list is "
+      "identical too, not just the encoded bytes",
+      _silent_entries == _waste_entries,
+      str((_silent_entries, _waste_entries)))
+
 print()
 if failures:
     print(f"SELF-CHECK FAILED: {len(failures)} failing check(s)")

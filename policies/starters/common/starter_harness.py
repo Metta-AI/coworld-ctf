@@ -946,6 +946,44 @@ def layer_ladder(entries: list, view: dict, context: dict | None = None,
     return overlays + gated + base
 
 
+# v27's pre-registered metric ("of post-drop model calls, what fraction
+# re-propose a dropped play") turned out to be tautological: `available` is
+# mutated by `_drop_failed_module` inside the upload loop, BEFORE the first
+# model call, so there is no call N/N+1 transition to observe -- the model
+# is simply never offered the dropped name again. That left NO instrument
+# on the thing that actually costs something: plan capacity the model
+# spends on entries `build_call`'s repair loop below strips before they
+# reach the wire. PLAN_WASTE is that counter, bucketed by WHY the entry
+# was stripped -- CLEAN_DROPS' original sin (v18) was collapsing distinct
+# causes into one number; this does not repeat it.
+PLAN_WASTE: dict[str, int] = {}
+
+# For the "not-in-available" bucket only: capture which play names the
+# model proposed that were not usable, distinguishing a real play the
+# drop-set removed (the case the audit cared about) from a name the model
+# simply invented (never in the manifest at all) -- cheap to tell apart
+# (one `in plays.PLAYS` check) and diagnostically different: the former
+# means the model is still trying a play the prompt told it about; the
+# latter means it is hallucinating. Capped like REJECTED_SAMPLES so a
+# model spamming garbage play names cannot blow up the log.
+_WASTE_SAMPLE_COUNT_CAP = 5
+WASTE_SAMPLES: dict[str, list[str]] = {}
+
+
+def _record_waste(reason: str, play=None) -> None:
+    PLAN_WASTE[reason] = PLAN_WASTE.get(reason, 0) + 1
+    if reason != "not-in-available" or play is None:
+        return
+    samples = WASTE_SAMPLES.setdefault(reason, [])
+    if len(samples) >= _WASTE_SAMPLE_COUNT_CAP:
+        return
+    known = isinstance(play, str) and play in plays.PLAYS
+    detail = "known play, since dropped" if known else "not a play name in this manifest"
+    tag = f"{_sanitize_rejected_sample(play)} ({detail})"
+    if tag not in samples:
+        samples.append(tag)
+
+
 def build_call(decision: dict, available: list[str]) -> tuple[bytes, list]:
     """Repair a model reply into a canonical ladder call over the BAKED plays.
 
@@ -965,15 +1003,19 @@ def build_call(decision: dict, available: list[str]) -> tuple[bytes, list]:
     overlays = 0
     for index, raw in enumerate(raw_entries):
         if not isinstance(raw, dict):
+            _record_waste("malformed-entry")
             continue
         play = raw.get("play")
         if play not in available:
+            _record_waste("not-in-available", play)
             continue
         is_overlay = plays.PLAYS[play]["class"] == "overlay"
         if is_overlay and overlays >= wire.MAX_ACTIVE_OVERLAYS:
+            _record_waste("overlay-cap")
             continue
         params = _clean_params(play, raw.get("params"))
         if params is None:
+            _record_waste("missing-required-param")
             continue
         if is_overlay:
             overlays += 1
@@ -1014,6 +1056,10 @@ def build_call(decision: dict, available: list[str]) -> tuple[bytes, list]:
         # cannot regress.
         entries.append(entry)
         if len(entries) >= wire.MAX_LADDER_ENTRIES:
+            truncated = len(raw_entries) - (index + 1)
+            if truncated > 0:
+                PLAN_WASTE["ladder-cap"] = (
+                    PLAN_WASTE.get("ladder-cap", 0) + truncated)
             break
 
     if not entries:
@@ -1419,6 +1465,13 @@ def run(persona: Persona, args) -> int:
                       f"wire (malformed, failed cleaning): {CLEAN_REJECTED}")
         _log(persona, f"rejected value samples (truncated): "
                       f"{REJECTED_SAMPLES}")
+    if PLAN_WASTE:
+        _log(persona, f"raw entries the model proposed that never reached "
+                      f"the wire (plan capacity spent, bucketed by why): "
+                      f"{PLAN_WASTE}")
+        if WASTE_SAMPLES:
+            _log(persona, f"not-in-available play name samples (truncated): "
+                          f"{WASTE_SAMPLES}")
     if failures:
         for failure in failures:
             _log(persona, f"FAILURE: {failure}")
