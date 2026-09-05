@@ -1919,6 +1919,73 @@ for _i, _turn in enumerate(PERSONA.canned_turns, start=1):
               "retained, not deleted)",
               "bodyguard" in _duo_wanted, str(_duo_wanted))
 
+# ── module drop-set: an upload that never reaches module_ready must not ──
+# poison the rest of the session (T17 fix). ``available`` is the SAME list
+# ``build_call`` gates against (``if play not in available: continue``), so
+# ``_drop_failed_module`` mutates it in place; these checks pin that a
+# failed module disappears from later proposals, a succeeded module is
+# untouched (negative control), and the drop can never empty the set into
+# a no-op turn -- the amplifier was one dead play id voiding a WHOLE call
+# (``call_rejected reason=playUnknown``), not just the one entry.
+_drop_available = list(AVAILABLE)
+starter_harness._drop_failed_module(_drop_available, "hold_vs_gun", PERSONA)
+check("drop-set: a module whose upload failed leaves the proposable set",
+      "hold_vs_gun" not in _drop_available, str(_drop_available))
+check("drop-set: an untouched module stays in the proposable set "
+      "(negative control)",
+      "scatter" in _drop_available, str(_drop_available))
+
+_drop_decision = {"call": {"entries": [
+    {"play": "hold_vs_gun", "entry_id": "dead"},
+    {"play": "scatter", "entry_id": "alive"},
+]}}
+_, _drop_entries = starter_harness.build_call(_drop_decision, _drop_available)
+_drop_plays = [e["play"] for e in _drop_entries]
+check("drop-set: build_call never proposes the play id an upload failure "
+      "removed (the actual defect -- a dead id in a call reads back "
+      "call_rejected reason=playUnknown and voids the WHOLE call)",
+      "hold_vs_gun" not in _drop_plays, str(_drop_plays))
+check("drop-set: build_call still proposes the surviving play (negative "
+      "control -- the drop is scoped to the one failed module)",
+      "scatter" in _drop_plays, str(_drop_plays))
+
+# Degenerate case: the LAST play in the set must never be dropped -- an
+# empty ``available`` would starve build_call's own fallback
+# (``next(..., available[0])``), turning "one module failed" into
+# "propose nothing", which is worse than today's behavior.
+_last_one = ["scatter"]
+starter_harness._drop_failed_module(_last_one, "scatter", PERSONA)
+check("drop-set: the last remaining play is never dropped (would empty "
+      "the proposable set into a no-op turn)",
+      _last_one == ["scatter"], str(_last_one))
+_, _last_entries = starter_harness.build_call(
+    {"call": {"entries": [{"play": "scatter", "entry_id": "only"}]}},
+    _last_one)
+check("drop-set: the degenerate single-module set still yields a "
+      "non-empty proposal",
+      len(_last_entries) > 0, str(_last_entries))
+
+# Fail-safe: if the drop-set mutation itself errors (e.g. a future caller
+# passes something that isn't a plain list), the seat must degrade to
+# today's behavior -- the module stays proposable -- not raise and not
+# silently corrupt the set.
+class _ExplodingList(list):
+    def remove(self, item):
+        raise RuntimeError("boom")
+
+_exploding = _ExplodingList(["scatter", "hold_vs_gun"])
+try:
+    starter_harness._drop_failed_module(_exploding, "hold_vs_gun", PERSONA)
+    _raised = False
+except Exception:
+    _raised = True
+check("drop-set: an internal error in the drop logic never raises out of "
+      "the upload loop (degrades to today's behavior instead)",
+      not _raised)
+check("drop-set: after a drop-logic error, the module is still in the set "
+      "(explicit degrade-to-today's-behavior, not a half mutation)",
+      "hold_vs_gun" in _exploding, str(list(_exploding)))
+
 print()
 if failures:
     print(f"SELF-CHECK FAILED: {len(failures)} failing check(s)")

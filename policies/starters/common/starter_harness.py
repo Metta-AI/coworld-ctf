@@ -1225,6 +1225,45 @@ def _connect_with_retry(persona: Persona, url: str, args):
             time.sleep(min(2.0, max(0.1, remaining)))
 
 
+def _drop_failed_module(available: list[str], name: str, persona: Persona) -> None:
+    """Remove a module whose upload never reached ``module_ready`` from the
+    set of plays this session is willing to propose.
+
+    ``available`` is the SAME list object threaded through the rest of the
+    run (``build_call``'s ``if play not in available: continue`` gate,
+    ``gate_and_build``, every later ``repair_call``), so mutating it here
+    once, right after the failed upload, is visible everywhere downstream --
+    no other call site needs to change. Without this, a module the engine
+    never admitted stays in ``available`` for the rest of the session; the
+    first proposal naming it comes back ``call_rejected reason=playUnknown``,
+    which voids the WHOLE call, not just the one dead entry.
+
+    Fails safe two ways: a module is never dropped if it is the last entry
+    left (an empty ``available`` would starve ``build_call``'s fallback,
+    which reads ``available[0]``, turning "one bad module" into "propose
+    nothing"), and any unexpected error here is caught and logged rather
+    than allowed to take the seat down -- worst case we degrade to today's
+    behavior (the module stays proposable and risks the same rejection this
+    change exists to prevent).
+    """
+    try:
+        if name not in available:
+            return
+        if len(available) <= 1:
+            _log(persona, f"upload failure for {name} noted, but it is the "
+                          "last play left in this session's set -- keeping "
+                          "it rather than proposing nothing")
+            return
+        available.remove(name)
+        _log(persona, f"dropped {name} from this session's proposable set "
+                      "(upload never reached module_ready) -- later calls "
+                      "will not reference it")
+    except Exception as error:  # fail safe: never let this take the seat
+        # down or block the upload loop; degrade to today's behavior.
+        _log(persona, f"drop-set update for {name} failed ({error}); "
+                      "leaving it in the proposable set (today's behavior)")
+
+
 def run(persona: Persona, args) -> int:
     playbook_dir = pathlib.Path(args.playbook)
     available = plays.scan_playbook(playbook_dir)
@@ -1267,6 +1306,7 @@ def run(persona: Persona, args) -> int:
         for name, blob in playbook:
             if not seat.upload(name, blob):
                 failures.append(f"module {name} never reached module_ready")
+                _drop_failed_module(available, name, persona)
             seat.pump()
             seat.drain(0.3)
 
