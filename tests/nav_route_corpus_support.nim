@@ -15,6 +15,7 @@ const
   NavCorpusSchema* = "coworld_nav_route_corpus"
   NavCorpusVersion* = 1
   NavCorpusCaseCount* = 3_072
+  NavCorpusSourceCommit* = "52103b107832e12f30a719dd299bc7636c3dd12f"
   NavCorpusGunRangePx* = 331
   OracleRuleId* = "weighted_astar_4px_float32_danger_midpoint_block_x8_v1"
   OracleNeighbors = [
@@ -108,7 +109,7 @@ proc loadNavRouteCorpus*(path: string): NavCorpus =
   result.sourceCommit = root{"source_commit"}.getStr()
   result.poolSha256 = root{"pool_sha256"}.getStr()
   result.oracleRules = root{"oracle_rules"}.getStr()
-  if result.sourceCommit.len != 40 or result.poolSha256.len != 64 or
+  if result.sourceCommit != NavCorpusSourceCommit or result.poolSha256.len != 64 or
       result.oracleRules != OracleRuleId:
     raise newException(ValueError, "navigation corpus provenance is malformed")
   let todo = root{"todos"}{"cover_hold_cold_transition"}

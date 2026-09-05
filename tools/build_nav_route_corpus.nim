@@ -3,7 +3,7 @@
 ## Ordinary tests only read the literal fixture. Run this tool deliberately
 ## from the repository root when the approved corpus itself changes.
 
-import std/[algorithm, json, math, options, os, osproc, strformat, strutils]
+import std/[algorithm, json, math, options, os, strformat]
 import ../src/ctf/[arena, br_map_pool]
 import ../src/shell/body_cache
 import ../src/shell/body_map
@@ -147,12 +147,28 @@ proc caseNode(item: NavCorpusCase): JsonNode =
   result["oracle_cost"] = %item.oracleCost
   result["oracle_route_hash"] = %item.oracleRouteHash
 
+proc compactCorpus(root: JsonNode): string =
+  ## Keep provenance readable while making every literal case one compact
+  ## line. This preserves useful line attribution without spending ~50 lines
+  ## of pretty-printing on each mechanical row.
+  result = "{\n"
+  for key in ["schema", "v", "source_commit", "pool_sha256", "oracle_rules"]:
+    result.add "  " & escapeJson(key) & ": " & $root[key] & ",\n"
+  result.add "  \"todos\": " & $root["todos"] & ",\n"
+  result.add "  \"cases\": [\n"
+  for index in 0 ..< root["cases"].len:
+    let item = root["cases"][index]
+    result.add "    " & $item
+    if index < root["cases"].len - 1:
+      result.add ','
+    result.add '\n'
+  result.add "  ]\n}\n"
+
 proc writeCorpus(outputPath: string) =
   let
     poolText = readFile(BrS2MapPoolPath)
     pool = parseJson(poolText)
-    sourceCommit = execProcess("git", args = ["rev-parse", "HEAD"],
-      options = {poUsePath, poStdErrToStdOut}).strip()
+    sourceCommit = NavCorpusSourceCommit
   if pool.kind != JArray or pool.len != 64:
     raise newException(ValueError, "published Season 2 pool must contain 64 maps")
   if sourceCommit.len != 40:
@@ -212,7 +228,7 @@ proc writeCorpus(outputPath: string) =
 
   if root["cases"].len != NavCorpusCaseCount:
     raise newException(ValueError, "writer produced wrong case count")
-  writeFile(outputPath, root.pretty(2) & "\n")
+  writeFile(outputPath, compactCorpus(root))
   discard loadNavRouteCorpus(outputPath)
   echo &"wrote {root[\"cases\"].len} cases to {outputPath}"
 
