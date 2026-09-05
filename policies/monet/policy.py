@@ -154,6 +154,45 @@ def _normalize_bodyguard(entries):
     return result
 
 
+# Per-play entry_id memoization (generalizes the trick above to every OTHER
+# play). The engine only warm-reconfigures a live rung when the new call
+# matches it on entry_id + play + module hash (src/shell/replacement.nim
+# replacementKeyMatches); anything else reads as a brand-new entry and
+# cold-restarts it (raStartAbsent), and MaxInitsPerTick=2 means that can
+# strand the ladder on the engine default for several ticks right after a
+# kill or taking fire -- exactly when the named-deed press matters most. The
+# model renames a play's entry_id turn over turn (loot "arm" -> "loot",
+# supply_run "bank" -> "heal", ...); bodyguard alone is immune, because
+# _normalize_bodyguard above always overwrites its entry_id to one of the
+# two fixed BODYGUARD_LEASH ids regardless of what the model called it.
+# This is the same fix for every other play: whichever entry_id a play
+# first ships with THIS match is the one every later call is forced back
+# onto, however the model renames it. Module-level and keyed by play name
+# -- one process drives exactly one seat for exactly one match (see
+# starter_harness.run's single `with _connect_with_retry(...)` seat loop),
+# so this never leaks across matches or seats.
+_ENTRY_ID_MEMO: dict = {}
+
+
+def _stabilize_entry_ids(entries):
+    """Force every non-bodyguard play's entry_id to the id it first shipped
+    with this match. WHICH plays are called and their params are untouched
+    -- only entry_id. Bodyguard is exempt: it already gets a fixed id from
+    _normalize_bodyguard, and memoizing it here by play name alone would
+    collapse its two distinct bands ("shield-close" / "shield") onto
+    whichever one is seen first."""
+    for entry in entries:
+        play = entry.get("play")
+        entry_id = entry.get("entry_id")
+        if play == "bodyguard" or not isinstance(play, str) \
+                or not isinstance(entry_id, str):
+            continue
+        remembered = _ENTRY_ID_MEMO.setdefault(play, entry_id)
+        if entry_id != remembered:
+            entry["entry_id"] = remembered
+    return entries
+
+
 def _neighbor_duo(context):
     """The next team's duo seats -- team size DERIVED from OBSERVED state
     at THIS call, never a fixed divisor off a seat/roster count. Under the
@@ -343,6 +382,12 @@ def adjust_entries(entries, context, view):
                 break
         else:
             entries.append(rung)
+
+    # Stabilize entry_id LAST, after every insert above (CONVERSION,
+    # ARMAMENT, the pact/law rewrites) so whatever plays actually make it
+    # onto this turn's ladder -- model-named or code-inserted -- all lock
+    # onto their match-first id. See _stabilize_entry_ids.
+    entries = _stabilize_entry_ids(entries)
     return entries
 
 

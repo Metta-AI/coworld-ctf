@@ -893,6 +893,12 @@ def gate_open(entry: dict, facts: dict) -> bool:
 GATED_PLAYS = ("supply_run", "loot", "bodyguard", "jackal", "crossfire",
                "hold_vs_gun", "fire_superiority", "ring_walker", "medic")
 
+# Of GATED_PLAYS, only these two hold the seat still when their gate is open
+# (jackal parks on a tracked enemy, bodyguard anchors on a partner) -- the
+# spawn-phase strip below exists to keep a held seat off the spawn point, not
+# to discard every gated controller the model asked for. See gate_and_build.
+SPAWN_HOLD_PLAYS = ("jackal", "bodyguard")
+
 
 def layer_ladder(entries: list, view: dict, context: dict | None = None,
                  kill_feed: list | None = None,
@@ -1164,14 +1170,17 @@ def gate_and_build(seat: StarterSeat, available: list[str]) -> tuple[bytes, list
                          seat.context or {}, seat.kill_feed,
                          base_play=base_play)
     if _in_spawn_phase(seat):
-        # Nothing rides above scatter in the spawn phase. Gated controllers
-        # sort above the base, and a jackal whose gate opens the moment an
-        # enemy is in view holds the seat ON the spawn point -- on top of
-        # its duo partner, since the engine drops both on one point -- where
-        # the two shoot each other. Measured over 928 duo pairs: 32% of
+        # Nothing rides above scatter in the spawn phase, but only the two
+        # idle-holding controllers need to come off: a jackal whose gate
+        # opens the moment an enemy is in view (or a bodyguard anchored on
+        # its partner) holds the seat ON the spawn point -- on top of its
+        # duo partner, since the engine drops both on one point -- where the
+        # two shoot each other. Measured over 928 duo pairs: 32% of
         # aggressive seats were still on the spawn point 150 ticks in, 0% of
-        # cautious and collaborative (no jackal).
-        gated = [e for e in gated if e.get("play") not in GATED_PLAYS]
+        # cautious and collaborative (no jackal). The rest of GATED_PLAYS
+        # (loot, supply_run, ring_walker, fire_superiority, ...) don't hold
+        # the seat in place, so the model's opening call keeps them.
+        gated = [e for e in gated if e.get("play") not in SPAWN_HOLD_PLAYS]
     gated = ally_clones(gated, seat.context or {})
     return build_call({"call": {"entries": gated}}, available)
 

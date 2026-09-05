@@ -146,6 +146,65 @@ check("fire_superiority keeps one entry_id everywhere it appears "
       "(retune-eligible turn over turn)",
       len(set(fs_ids)) <= 1, str(fs_ids))
 
+# ── BUG #2 pin: opening call preserves non-idle gated plays ───────────────
+# gate_and_build's spawn-phase strip exists to keep an IDLE-HOLDING
+# controller (jackal parked on a tracked enemy, bodyguard anchored on a
+# partner) off the spawn point -- not to discard every GATED_PLAYS entry.
+# A tick-0 view already carrying a fresh enemy track opens fire_superiority's
+# gate too; the opening call must keep it (it used to collapse to bare
+# target_law+edge_ride) while jackal still comes off the spawn point.
+_OPENING_VIEW = {
+    "tick": 0,
+    "self": {"pos": [100, 100], "hp_frac": 1.0},
+    "tracks": [{"seat": 99, "team": 9, "pos": [110, 100], "fresh_tick": 0}],
+}
+_opening_seat = fake_seat(context=FAKE_CONTEXT, view=dict(_OPENING_VIEW))
+_opening_seat.wanted_entries = [
+    {"play": "jackal", "entry_id": "third", "params": {}},
+    {"play": "fire_superiority", "entry_id": "pressbreak", "params": {}},
+    {"play": "edge_ride", "entry_id": "ride"},
+]
+_, _opening_wire = starter_harness.gate_and_build(_opening_seat, AVAILABLE)
+_opening_plays = [e["play"] for e in _opening_wire]
+check("opening call (spawn phase) keeps a non-idle gated play whose gate "
+      "is open (fire_superiority) while still holding jackal off the spawn "
+      "point -- only jackal/bodyguard are spawn-phase idle-holders, not "
+      "every GATED_PLAYS entry",
+      "fire_superiority" in _opening_plays and "jackal" not in _opening_plays,
+      str(_opening_plays))
+
+# ── BUG #3 pin: per-play entry_id is stable across re-calls ───────────────
+# The model renames a play's entry_id call over call (loot "arm" -> "loot",
+# supply_run "bank" -> "heal", ...) and the engine's replacementKeyMatches
+# (replacement.nim) requires an EXACT entry_id match to warm-reconfigure a
+# live rung -- a renamed id reads as a brand-new entry and cold-restarts it.
+# policy._stabilize_entry_ids generalizes bodyguard's fixed-id trick to
+# every other play: whichever entry_id a play first ships with THIS match
+# is the one every later call is forced back onto. Simulate a model that
+# renames "loot" on every call and confirm the wanted ladder (what
+# _stabilize_entry_ids writes) keeps one id throughout.
+def _renamed_loot_decision(entry_id):
+    return {"chat": "", "call": {"entries": [
+        {"play": "loot", "entry_id": entry_id, "params": dict(policy.LOOT_DEFAULTS)},
+        {"play": "edge_ride", "entry_id": "ride"},
+    ]}}
+
+
+_rename_ids = []
+for _candidate in ("arm", "loot", "grab", "arm"):
+    _seat = fake_seat()
+    starter_harness.repair_call(_renamed_loot_decision(_candidate), PERSONA,
+                                _seat, AVAILABLE)
+    _loot_entry = next((e for e in _seat.wanted_entries if e["play"] == "loot"),
+                       None)
+    _rename_ids.append(_loot_entry.get("entry_id") if _loot_entry else None)
+check("per-play entry_id is stable across re-calls even when the model "
+      "renames it (loot 'arm'->'loot'->'grab'->'arm' all resolve to the "
+      "SAME wanted-ladder entry_id, so replacement.nim warm-reconfigures "
+      "instead of cold-restarting)",
+      len(set(_rename_ids)) == 1 and None not in _rename_ids,
+      str(_rename_ids))
+
 # ── gate_open unit checks: monet's two custom plays ───────────────────────
 def facts(**kw):
     base = dict(pos=[500, 500], hp_frac=1.0, enemies=[], items=[],
