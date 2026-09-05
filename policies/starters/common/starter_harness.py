@@ -444,9 +444,10 @@ def summarize(seat: StarterSeat, phase: str, persona: Persona,
 # ── Repair: the PoC's cleaning, extended with the wave-A param kinds ──────
 # poc_policy.build_call hardcodes its two-play world (and pact's required
 # partners), so the starters carry their own manifest-driven copy of the same
-# flow. The scalar/seat-set cleaning is still the PoC's -- only the two kinds
-# its vocabulary lacks (bodyguard's `seat_ref` ward and `int_pair` leash) and
-# the generic required-param rule are new.
+# flow. The scalar/seat-set cleaning is still the PoC's -- only the kinds its
+# vocabulary lacks (bodyguard's `seat_ref` ward, `int_pair` leash, and
+# target_law's `seat_or_duo_set` never-list) and the generic required-param
+# rule are new.
 
 
 def _clean_seat_ref(value):
@@ -460,6 +461,47 @@ def _clean_seat_ref(value):
     if not digits.isdigit() or int(digits) > poc_policy.MAX_SEAT:
         return None
     return f"seat:{int(digits)}"
+
+
+def _clean_seat_or_duo_set(value):
+    """Like `poc_policy._clean_partners`, but PRESERVES "duo:<team>" items.
+
+    target_law.never is the one seat_set param whose engine contract
+    (tests/fixtures/shell/manifest_target_law.golden.json) declares
+    `"of": "seat_or_duo_ref"` -- unlike pact.partners and bodyguard.ward,
+    which stay seat-only by policy design (their briefs say so explicitly;
+    see `_clean_partners` and `_clean_seat_ref`). Do NOT route those two
+    through this function.
+
+    No canonical team roster is in scope at clean time, so a "duo:" entry
+    only gets a strict FORM check (prefix + non-empty token after it) --
+    the engine still owns validating that the team actually exists.
+    """
+    if not isinstance(value, list):
+        return None
+    seats = []
+    for item in value:
+        if isinstance(item, int) and not isinstance(item, bool):
+            item = f"seat:{item}"
+        if not isinstance(item, str):
+            continue
+        if item.startswith("duo:"):
+            team = item[len("duo:"):]
+            if team:
+                seats.append(f"duo:{team}")
+            continue
+        if not item.startswith("seat:"):
+            continue
+        digits = item[len("seat:"):]
+        if not digits.isdigit() or int(digits) > poc_policy.MAX_SEAT:
+            continue
+        seats.append(f"seat:{int(digits)}")
+    # A "set" param must be sorted and unique by its CANONICAL encoding, so
+    # sort the encoded strings, not the raw values ("seat:10" < "seat:2").
+    seats = sorted(set(seats), key=wire.canonical_json)
+    if not seats:
+        return None
+    return seats[:8]
 
 
 def _clean_int_pair(value, spec):
@@ -536,6 +578,8 @@ def _clean_params(play: str, params) -> dict | None:
                 value = value if value in spec["of"] else None
             elif kind == "seat_set":
                 value = poc_policy._clean_partners(value)
+            elif kind == "seat_or_duo_set":
+                value = _clean_seat_or_duo_set(value)
             elif kind == "seat_ref":
                 value = _clean_seat_ref(value)
             elif kind == "int_pair":

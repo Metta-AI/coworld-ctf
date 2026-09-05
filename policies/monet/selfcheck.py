@@ -571,6 +571,68 @@ check("bodyguard-normalize: a well-formed ward never counts as a drop "
       _drops_now.get(_ward_key, 0) == _drops_before2.get(_ward_key, 0),
       str(_drops_now))
 
+# ── target_law.never: seat_or_duo_set must PRESERVE duo refs (Commit A) ──
+# The golden engine contract (manifest_target_law.golden.json) declares
+# never's "of" as "seat_or_duo_ref" -- a duo reference is legal here, unlike
+# pact.partners/bodyguard.ward above. Before this fix, never routed through
+# the same _clean_partners as pact and silently stripped every duo entry;
+# live CLEAN_DROPS on real model output showed target_law.never dropped in
+# 9 of 16 seats.
+_never_key = "target_law.never"
+
+
+def _never_cleaned(value):
+    _, entries = starter_harness.build_call(
+        {"call": {"entries": [
+            {"play": "target_law", "entry_id": "law",
+             "params": {"never": value}}]}}, AVAILABLE)
+    return entries[0].get("params", {}).get("never")
+
+
+check("target_law.never: a duo-only never list SURVIVES cleaning",
+      _never_cleaned(["duo:navy"]) == ["duo:navy"],
+      str(_never_cleaned(["duo:navy"])))
+check("target_law.never: a mixed seat+duo list keeps BOTH forms",
+      set(_never_cleaned(["duo:navy", "seat:3"]) or [])
+      == {"duo:navy", "seat:3"},
+      str(_never_cleaned(["duo:navy", "seat:3"])))
+
+_drops_before3 = dict(getattr(starter_harness, "CLEAN_DROPS", {}))
+_garbage_never = _never_cleaned(["garbage", 999999, "duo:"])
+_drops_after3 = getattr(starter_harness, "CLEAN_DROPS", {})
+check("target_law.never: an all-garbage never list (bare unprefixed junk, "
+      "an out-of-range seat number, and an empty \"duo:\" token) still "
+      "drops the param",
+      _garbage_never is None, str(_garbage_never))
+check("target_law.never: that garbage is COUNTED in CLEAN_DROPS, not "
+      "silently indistinguishable from never being omitted",
+      _drops_after3.get(_never_key, 0) > _drops_before3.get(_never_key, 0),
+      f"before {_drops_before3.get(_never_key, 0)} after "
+      f"{_drops_after3.get(_never_key, 0)}")
+
+# REGRESSION GUARD: pact.partners and bodyguard.ward stay seat-only BY
+# POLICY DESIGN (their briefs say "No other form is legal" / 'No "duo:" '
+# 'form') even though the engine's own contract allows seat_or_duo_ref for
+# both -- a future refactor must not route them through the new
+# duo-preserving cleaner instead of _clean_partners/_clean_seat_ref.
+_, _pact_entries = starter_harness.build_call(
+    {"call": {"entries": [
+        {"play": "pact", "entry_id": "p",
+         "params": {"partners": ["duo:navy", "seat:2"]}}]}}, AVAILABLE)
+check("REGRESSION: pact.partners still strips duo refs (seat-only by "
+      "design -- must not be swapped onto the new seat_or_duo_set cleaner)",
+      _pact_entries[0].get("params", {}).get("partners") == ["seat:2"],
+      str(_pact_entries[0].get("params")))
+
+_, _bg_entries = starter_harness.build_call(
+    {"call": {"entries": [
+        {"play": "bodyguard", "entry_id": "b",
+         "params": {"ward": "duo:navy"}}]}}, AVAILABLE)
+check("REGRESSION: bodyguard.ward still rejects a duo ref outright "
+      "(seat_ref, never routed through the new seat_or_duo_set cleaner)",
+      "ward" not in _bg_entries[0].get("params", {}),
+      str(_bg_entries[0].get("params")))
+
 order_seat = fake_seat()
 starter_harness.repair_call(
     {"call": {"entries": [

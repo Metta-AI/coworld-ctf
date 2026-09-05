@@ -35,6 +35,11 @@ import pathlib
 #                (jackal's exitAfter, target_law's holdTrigger)
 #   enum_list -- an ORDERED list of enum tags, deduplicated, capped at
 #                "max_items" (target_law's prefer)
+#   seat_or_duo_set -- like seat_set, but a "duo:<team>" item SURVIVES
+#                cleaning (target_law's never; the golden manifest declares
+#                its "of" as "seat_or_duo_ref"). pact.partners and
+#                bodyguard.ward stay on seat_set/seat_ref -- duo is not
+#                legal for either, per their own briefs below.
 # "required": True marks a param whose absence drops the whole entry.
 PLAYS = {
     "edge_ride": {
@@ -235,7 +240,8 @@ PLAYS = {
     "target_law": {
         "class": "overlay",
         "params": {
-            "never": {"kind": "seat_set", "min_items": 0, "max_items": 8},
+            "never": {"kind": "seat_or_duo_set", "min_items": 0,
+                      "max_items": 8},
             "prefer": {"kind": "enum_list", "max_items": 4,
                        "of": ["bounty", "isolated", "revenge", "weakened"]},
             "holdTrigger": {"kind": "union",
@@ -247,8 +253,8 @@ PLAYS = {
             '"target_law" (class: overlay). The standing targeting filter '
             "under every other play: who never to shoot, who to prefer, and "
             "when to hold first fire. Params:\n"
-            '     - never: list of 0..8 seat references ("seat:<N>"), '
-            "default []. Do-not-shoot list.\n"
+            '     - never: list of 0..8 references, each "seat:<N>" or '
+            '"duo:<team>", default []. Do-not-shoot list.\n'
             '     - prefer: ordered list of up to 4 of "weakened", '
             '"isolated", "revenge", "bounty", default []. LIVE target '
             "scoring bias, applied engine-side.\n"
