@@ -1,8 +1,10 @@
-## The "battle-royale-s2" variant paintbot now ships: 8 duo teams, 2 agents
-## each, 16 seats total -- the half-field rescale of the original
-## 32-seat/16-duo shape (owner capacity ruling: we don't field 32 players),
-## same rules and zone pacing on a half-area map. This is the manifest-plus-sim companion to
-## two things that already exist and stay untouched:
+## The "battle-royale-s2" variant paintbot now ships: 16 SOLO teams, 1 agent
+## each, 16 seats total (PKG-C, 2026-09-04 rework) -- superseding the prior
+## 8-duo/2-agent shape. Owner capacity ruling stands unchanged (we don't
+## field the classic 32-seat giant), but the seat/team ratio inside that
+## 16-seat field flipped from 2 to 1: every policy now enters as its own
+## team, no partner. This is the manifest-plus-sim companion to two things
+## that already exist and stay untouched:
 ##   - test_br_elim.nim, which already proves BR's elimination/tiebreak/zone
 ##     machinery is generic over team count and over seats-per-team (its
 ##     own `brGame`/`brDuoGame` builders cover both 1- and 2-per-team
@@ -12,29 +14,27 @@
 ##     results_schema covers everything either results document writes.
 ##
 ## What neither of those pins is the property specific to THIS variant:
-## that the shipped 16-seat roster pairs slot k with slot k+8 on the SAME
-## team (the duo shape -- BR_MAPGEN.md's duo pocket, see arena.nim's
-## spawnPosition/spawnGroupOffset; the duo offset is DERIVED, seats/teams,
-## never a constant), across all 8 teams -- and that the results payload
-## built from that 16-seat roster carries exactly one score entry per SEAT
-## (16, not 8): the score-arity property a hosted recertify actually
-## enforces. A paintbot recertify failed earlier the
-## same day with "game returned 32 scores for 16 seats" on a CLASSIC
+## that the shipped 16-seat roster now seats 16 DISTINCT teams (slot i IS
+## team i, no k/k+8 duo pairing left to assert) -- and that the results
+## payload built from that 16-seat roster carries exactly one score entry
+## per SEAT (16, not fewer): the score-arity property a hosted recertify
+## actually enforces. A paintbot recertify failed earlier the same day
+## (pre-rework) with "game returned 32 scores for 16 seats" on a CLASSIC
 ## config where one seat commands a squad of cogs (loadout: paintball,
-## cogsPerTeam > 1) -- squadResultsJson's per-SEAT count there is 16.  BR
-## is a different shape: each of the 32 duo SEATS is its own independent
-## join (loadout stays the "ctf" default, never paintball), so
-## ctfPlayerResultsJson's per-slot count is 32 -- this suite asserts that
-## number directly rather than assuming it matches the other bug's shape
-## just because 32 appears in both stories.
+## cogsPerTeam > 1) -- squadResultsJson's per-SEAT count there is 16. BR
+## is a different shape: each seat is its own independent join (loadout
+## stays the "ctf" default, never paintball), so ctfPlayerResultsJson's
+## per-slot count matches the seat count directly -- this suite asserts
+## that number directly rather than assuming it matches the other bug's
+## shape just because a seat count appears in both stories.
 ##
-## A real bot-driven 32-seat (16-duo) episode -- baseline vs baseline, this
+## A real bot-driven 16-seat (16-solo) episode -- baseline vs baseline, this
 ## exact variant's game_config and mapSpec -- was separately run end to end
-## outside this suite and reached a real winner with this same 32-entry
-## results shape; see the PR description for the observed numbers. The
-## tests below are the fast, deterministic CI guard for that shape, in the
-## same direct-kill style test_br_elim.nim already uses (no scripted
-## combat needed to prove the win/results contract).
+## outside this suite and reached a real winner with this same results
+## shape; see the PR description for the observed numbers. The tests below
+## are the fast, deterministic CI guard for that shape, in the same
+## direct-kill style test_br_elim.nim already uses (no scripted combat
+## needed to prove the win/results contract).
 
 import
   helpers,
@@ -43,8 +43,8 @@ import
 
 const
   ManifestPath = "coworld_manifest_paintbot.json"
-  Teams = 8
-  SeatsPerTeam = 2
+  Teams = 16
+  SeatsPerTeam = 1
   Seats = Teams * SeatsPerTeam
   VariantId = "battle-royale-s2"
 
@@ -60,7 +60,7 @@ suite "paintbot manifest, battle-royale-s2 variant":
     variant = manifest.findVariant()
     gc = variant["game_config"]
 
-  test "16 seats, 8 teams x 2 -- slot k paired with slot k+8 (the duo shape)":
+  test "16 seats, 16 solo teams -- every slot is its own distinct team":
     check gc["players"].len == Seats
     check gc["slots"].len == Seats
     check gc["num_agents"].getInt() == Seats
@@ -71,16 +71,19 @@ suite "paintbot manifest, battle-royale-s2 variant":
     check gc["brMode"].getBool()
     check gc["season2Shell"].getBool()
     check gc["zonePhases"].len > 0
+    ## No duo pairing left to pin: all 16 slots are 16 DISTINCT teams, one
+    ## seat each. The engine's 16-color enum prefix, in the same order the
+    ## classic 32-seat "battle-royale" variant uses for its own 16 teams.
+    const ExpectedColors = ["red", "blue", "green", "yellow", "black",
+      "silver", "ivory", "pink", "umber", "rust", "orange", "plum", "lime",
+      "navy", "azure", "peach"]
+    check ExpectedColors.len == Teams
     var seen: seq[string]
     for i in 0 ..< Teams:
       let team = gc["slots"][i]["team"].getStr()
-      check team notin seen        ## the first 8 slots are 8 DISTINCT teams.
+      check team notin seen
+      check team == ExpectedColors[i]
       seen.add team
-      ## slot k and slot k+8 are the SAME team -- the duo pairing this
-      ## variant is now pinned to. The offset is seats/teams by derivation
-      ## (teamForSlot deals order mod teamCount), so the 16-seat shape
-      ## pairs at +8 exactly where the 32-seat one paired at +16.
-      check gc["slots"][i + Teams]["team"].getStr() == team
     check seen.len == Teams
 
   test "every key this variant sets is declared in config_schema":
@@ -88,7 +91,7 @@ suite "paintbot manifest, battle-royale-s2 variant":
     for key, _ in gc:
       check props.hasKey(key)
 
-  test "a REAL sim built from the variant's own game_config seats 16 duo seats across 8 teams":
+  test "a REAL sim built from the variant's own game_config seats 16 solo seats across 16 teams":
     var config = defaultGameConfig()
     config.update($gc)
     check config.brMode
@@ -140,7 +143,7 @@ suite "paintbot manifest, battle-royale-s2 variant":
       check sim.config.seatLivesFor(player.team) == 0  ## brMode: no spares.
     check perTeam.len == Teams
     for team, count in perTeam:
-      check count == SeatsPerTeam   ## every team fields exactly its duo.
+      check count == SeatsPerTeam   ## every team fields exactly its one solo seat.
 
   test "the variant's loot economy ships DARK (2026-09-04 owner simplification): bandages, hopper crates, gun crates all off":
     ## Owner simplification, 2026-09-04 (PKG-A, flags-off): battle-royale-s2
@@ -175,7 +178,7 @@ suite "paintbot manifest, battle-royale-s2 variant":
     ## restored pre-S2 healing path now that bandages are off.
     check sim.medKitSpawns.len > 0
 
-  test "wiping 7 of 8 duo teams ends the round with ONE winning team and exactly 16 score entries":
+  test "wiping 15 of 16 solo teams ends the round with ONE winning team and exactly 16 score entries":
     var config = defaultGameConfig()
     config.update($gc)
     var sim = initCtfForTest(config)
@@ -183,28 +186,26 @@ suite "paintbot manifest, battle-royale-s2 variant":
       discard sim.addPlayer("Player" & $(i + 1))
     sim.startGame()
     let survivorTeam = sim.players[0].team
-    check sim.players[Teams].team == survivorTeam  ## slot 0's duo partner is slot 8.
-    ## Wipe every OTHER team's both seats (slots 1..7 and their partners
-    ## 9..15), leaving team 0's duo (slots 0 and 8) as the sole survivor.
-    ## Owner simplification, 2026-09-04 (PKG-A): this variant no longer
-    ## arms downedMode, so killPlayer's first call on an upright cog is a
-    ## genuine, permanent kill straight away -- no downed-ghost
+    ## Wipe every OTHER team (slots 1..15 -- each its own solo team, no
+    ## partner to also kill), leaving team 0's lone seat as the sole
+    ## survivor. Owner simplification, 2026-09-04 (PKG-A): this variant no
+    ## longer arms downedMode, so killPlayer's first call on an upright cog
+    ## is a genuine, permanent kill straight away -- no downed-ghost
     ## interception (`sim.downPlayer`) sits in front of it. One call per
     ## victim wipes the team, matching the pre-S2 (dark) killPlayer path.
-    ## (Previously this needed two calls per victim to walk past the
-    ## downed-ghost interception guard; re-arming downedMode would need
-    ## that back — see the PR body for the re-arm path.)
+    ## (Re-arming downedMode would need the old two-calls-per-victim
+    ## down-then-finish sequence back -- see the PR body for the re-arm
+    ## path.)
     for i in 1 ..< Teams:
       sim.killPlayer(i, 0)
-      sim.killPlayer(i + Teams, 0)
     sim.checkWinCondition()
     check sim.phase == GameOver
     check not sim.isDraw
     check sim.winner == survivorTeam
 
     ## The score-arity property a hosted recertify actually enforces: BR's
-    ## 16-SEAT roster (8 duo teams) must carry exactly 16 score entries --
-    ## one per seat, never 8 (one per team/squad).
+    ## 16-SEAT roster (16 solo teams) must carry exactly 16 score entries --
+    ## one per seat, same as one per team now that every team is one seat.
     let results = parseJson(sim.playerResultsJson())
     check results["scores"].len == Seats
     check results["names"].len == Seats
@@ -216,4 +217,4 @@ suite "paintbot manifest, battle-royale-s2 variant":
     for w in results["win"]:
       if w.getBool():
         inc winners
-    check winners == SeatsPerTeam   ## both seats of the winning duo score a win.
+    check winners == SeatsPerTeam   ## the winning solo team's one seat scores a win.

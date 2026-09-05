@@ -2706,14 +2706,20 @@ proc killPlayer*(
             # victim's team alive. Under armed downedMode a downed-but-
             # unfinalized partner still reads `alive`, so the duo-down
             # fires at the FINALIZE that truly empties the duo — the same
-            # once-at-finalize timing the FF ruling recorded.
+            # once-at-finalize timing the FF ruling recorded. SOLO-TEAM
+            # GUARD (16-solo BR): a 1-seat team has no partner to finish
+            # off by definition — `partnerAlive` would stay permanently
+            # false and mint this as the marquee on every kill, so this
+            # is gated on the victim's team actually seating ≥2.
             var partnerAlive = false
+            var victimTeamSeats = 0
             for i, p in sim.players:
-              if i != targetIndex and p.team == victim.team and p.alive:
-                partnerAlive = true
-                break
-            if not partnerAlive and RecutClassTable[dDuoDown] >=
-                RecutClassTable[marquee]:
+              if p.team == victim.team:
+                inc victimTeamSeats
+                if i != targetIndex and p.alive:
+                  partnerAlive = true
+            if victimTeamSeats >= 2 and not partnerAlive and
+                RecutClassTable[dDuoDown] >= RecutClassTable[marquee]:
               marquee = dDuoDown
           if marquee != dNone and
               RecutClassTable[marquee] > RecutClassTable[deed]:
