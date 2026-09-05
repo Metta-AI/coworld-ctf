@@ -2129,14 +2129,12 @@ finally:
     if _saved_force_fail is not None:
         _os.environ["MONET_FORCE_UPLOAD_FAIL"] = _saved_force_fail
 
-# ── upload-burst order: value-ranked, not alphabetical (T18) ──────────────
-# _load_playbook now orders the fixed 13-module burst by observed play
-# VALUE (proposal frequency) instead of alphabetically, so the highest-value
-# plays land in the safe head/tail slots and the lowest-value plays absorb
-# the risky upload_id 4-10 mid-band where the manifestProbe flake clusters
-# (see that function's docstring for the pooled-failure evidence). These
+# ── upload-burst order: restored controllers-first, alphabetical (T20) ───
+# REVERTS cc07e054's value-ranked reorder, per that commit's own
+# pre-registered revert clause. See _load_playbook's docstring for the full
+# refutation writeup and era stamp (league_b8fa9b35, r4034-4043, n=33). These
 # checks pin the ACTUAL resulting order -- a test that would still pass with
-# the reorder reverted (e.g. only checking membership, not sequence) is
+# the revert undone (e.g. only checking membership, not sequence) is
 # worthless here, since the sequence IS the change.
 import tempfile as _tempfile
 
@@ -2148,24 +2146,26 @@ with _tempfile.TemporaryDirectory() as _pb_dir:
     _order_b = [n for n, _ in starter_harness._load_playbook(_pb_path,
                                                               list(reversed(AVAILABLE)))]
 
-_EXPECTED_UPLOAD_ORDER = [
-    "jackal", "supply_run", "fire_superiority", "loot", "ring_walker",
-    "edge_ride", "hold_vs_gun", "bodyguard", "crossfire", "medic",
-    "scatter", "target_law", "pact",
+_RESTORED_UPLOAD_ORDER = [
+    "bodyguard", "crossfire", "edge_ride", "fire_superiority", "hold_vs_gun",
+    "jackal", "loot", "medic", "ring_walker", "scatter", "supply_run",
+    "pact", "target_law",
 ]
-check("playbook order: matches the pre-registered value-ranked sequence "
-      "exactly (upload_id 1..13)",
-      _order_a == _EXPECTED_UPLOAD_ORDER, str(_order_a))
+check("playbook order: matches the restored controllers-first, "
+      "alphabetical sequence exactly (upload_id 1..13) -- the pre-cc07e054 "
+      "order",
+      _order_a == _RESTORED_UPLOAD_ORDER, str(_order_a))
 check("playbook order: all 11 controllers precede both overlays "
-      "(the truncated-run ladder-driver invariant, unchanged)",
+      "(the truncated-run ladder-driver invariant -- predates cc07e054, "
+      "not part of what was reverted)",
       all(plays.PLAYS[n]["class"] == "controller" for n in _order_a[:11])
       and all(plays.PLAYS[n]["class"] != "controller" for n in _order_a[11:]),
       str(_order_a))
-check("playbook order: the 4 highest-value controllers occupy the safe "
-      "head (slots 1-3) and the single controller tail slot (11), never "
-      "the risky mid-band 4-10",
-      set(_order_a[0:3] + [_order_a[10]])
-      == {"jackal", "supply_run", "fire_superiority", "scatter"},
+check("playbook order: each class block is independently alphabetical "
+      "(the value-ranking apparatus is gone -- no head/tail edge "
+      "protection, no controller/overlay value tables)",
+      _order_a[:11] == sorted(_order_a[:11])
+      and _order_a[11:] == sorted(_order_a[11:]),
       str(_order_a))
 check("playbook order: deterministic -- independent of the incoming "
       "`available` list's order (reversed input gives the identical "
@@ -2175,6 +2175,40 @@ check("playbook order: total -- every one of the 13 baked plays appears "
       "exactly once (no ties resolved by dict/set iteration order)",
       sorted(_order_a) == sorted(AVAILABLE) and len(set(_order_a)) == 13,
       str(_order_a))
+
+# ── positional-flake theory: TESTED AT POWER AND REFUTED (T20) ────────────
+# cc07e054 pre-registered a revert clause: if manifestProbe failures turned
+# out content-bound rather than positional, the value-ranked reorder above
+# must come back out, at a threshold of ~28 failure events. At n=33 (era:
+# league_b8fa9b35 Paintbot Season 2, rounds r4034-4043, build 0.7.334
+# throughout, 120 seat-logs, read 2026-09-05T15:06-15:35Z) that clause
+# fired. These checks pin the refutation itself so the positional theory,
+# and its value-ranking apparatus, cannot be silently re-introduced without
+# a new falsifier being written down first.
+check("positional theory: the value-rank tables that backed the reverted "
+      "reorder are gone from starter_harness, not just unused",
+      not hasattr(starter_harness, "_CONTROLLER_VALUE_RANK")
+      and not hasattr(starter_harness, "_OVERLAY_VALUE_RANK")
+      and not hasattr(starter_harness, "_protect_edges"),
+      "one or more value-ranking symbols still present on starter_harness")
+_load_playbook_doc = starter_harness._load_playbook.__doc__ or ""
+check("positional theory: _load_playbook's docstring records the "
+      "refutation's era stamp (league_b8fa9b35, r4034-4043, n=33)",
+      "r4034-4043" in _load_playbook_doc
+      and "league_b8fa9b35" in _load_playbook_doc
+      and "n=33" in _load_playbook_doc,
+      _load_playbook_doc)
+check("positional theory: _load_playbook's docstring records the "
+      "deterministic out-of-band refutation (15/33 failures outside the "
+      "old risky band) and the inner-quartet discriminator (p=5.1e-5)",
+      "15/33" in _load_playbook_doc and "5.1e-5" in _load_playbook_doc,
+      _load_playbook_doc)
+check("positional theory: _load_playbook's docstring names ring_walker's "
+      "36.4% concentration and states its mechanism is NOT known (an open "
+      "lead, not a claim)",
+      "36.4%" in _load_playbook_doc and "ring_walker" in _load_playbook_doc
+      and "NOT known" in _load_playbook_doc,
+      _load_playbook_doc)
 
 print()
 if failures:

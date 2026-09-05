@@ -1182,96 +1182,45 @@ def _send_coordination(persona: Persona, seat: StarterSeat, turn: int,
             _log(persona, f"coordination echoed at ordinal {echo['ordinal']}")
 
 
-# Play VALUE ranking (highest first) used by _load_playbook to seed the
-# upload-burst order below. Source: proposal frequency counted across 78
-# live seat-logs (v24 r4021-4026 + v25 r4027-4029, build 0.7.334; 2569 total
-# `call.plays[].play` proposals) -- a play the model actually calls often is
-# worth protecting from the manifestProbe flake described in that
-# function's docstring. bodyguard, crossfire and medic were never proposed
-# once across any of the 78 logs.
-_CONTROLLER_VALUE_RANK = [
-    "jackal",            # 423 proposals / 66 of 78 seat-logs
-    "supply_run",        # 310 / 64
-    "fire_superiority",  # 254 / 63
-    "scatter",           # 240 / 75
-    "loot",              # 217 / 62
-    "ring_walker",       # 167 / 49
-    "edge_ride",         # 145 / 30
-    "hold_vs_gun",       # 128 / 46
-    "bodyguard",         #   0 / 0
-    "crossfire",         #   0 / 0
-    "medic",             #   0 / 0
-]
-_OVERLAY_VALUE_RANK = [
-    "target_law",  # 636 proposals / 78 of 78 seat-logs -- every session
-    "pact",         #  49 / 10
-]
-
-
-def _protect_edges(ranked: list[str], head: int, tail: int) -> list[str]:
-    """Reorder a value-ranked list (highest value first) so the ``head``
-    highest-value entries keep the first slots, the NEXT ``tail`` highest
-    keep the last slots, and everything left over -- the lowest-value
-    entries, in descending order -- absorbs the middle.
-
-    Used by _load_playbook to keep the plays we rely on most out of the
-    risky mid-band of the fixed 13-module upload burst."""
-    if head + tail >= len(ranked):
-        return list(ranked)
-    return ranked[:head] + ranked[head + tail:] + ranked[head:head + tail]
-
-
 def _load_playbook(directory: pathlib.Path,
                    available: list[str]) -> list[tuple[str, bytes]]:
     """Read the baked wasm blobs, controllers first (uploads are one per seat
     per tick, so a truncated run still has a usable ladder driver).
 
-    Within each class the burst order is NOT alphabetical. A persistent
-    engine-side flake (`module <name> never reached module_ready`, reason
-    100% ``manifestProbe``) refuses some module on ~20-33% of live seat
-    sessions -- proven not our content (the accepted module's sha256 is
-    byte-identical across episodes where it succeeded). Pooled across
-    r4021-4029 (28 failures, 3 rounds windows, both v24 and v25), every
-    single failure landed at upload_id 4-10 of the fixed 13-module burst --
-    NEVER the first 3 or the last 3 (p=3e-8 vs a uniform-over-13 null). So
-    the highest-VALUE plays (by observed proposal frequency -- see
-    _CONTROLLER_VALUE_RANK / _OVERLAY_VALUE_RANK above) are placed in the
-    safe head and tail slots, and the lowest-value plays absorb the risky
-    middle instead.
+    Within each class the burst order is plain alphabetical.
 
-    PRE-REGISTERED PREDICTION: if the flake is truly positional, the set of
-    FAILING MODULE NAMES should shift to whatever this reorder now puts in
-    slots 4-10 (loot, ring_walker, edge_ride, hold_vs_gun, bodyguard,
-    crossfire, medic) -- and scatter/jackal/supply_run/fire_superiority,
-    which absorbed most of the 28 pooled failures under the old alphabetical
-    order, should go quiet now that they sit in the safe slots. If the SAME
-    module names keep failing after this ships, position is refuted, the
-    effect is content-bound to those specific modules, and this reorder
-    should be reverted.
+    HISTORY: cc07e054 replaced this alphabetical order with a value-ranked
+    one (highest-proposal-frequency plays parked in upload_id slots 1-3/11,
+    lowest-value plays absorbing the "risky" mid-band 4-10) on the theory
+    that a manifestProbe engine flake was POSITIONAL -- it had struck
+    28/28 times in slots 4-10 at n=8. That commit pre-registered its own
+    revert clause: if failures turned out to be CONTENT-bound (tied to
+    module identity, not slot) rather than positional, the reorder must be
+    reverted, at a threshold of ~28 failure events.
+
+    That clause has now FIRED. Era stamp: league_b8fa9b35 Paintbot Season 2,
+    rounds r4034-4043, build 0.7.334 throughout (no era flip), 120 seat-logs,
+    read 2026-09-05T15:06-15:35Z. Cohorts: v26 2dc77b13 = r4034-4040, v27
+    78dad32f = r4041-4043, partitioned at observed occupant changes. At
+    n=33 failures the positional model is REFUTED, not marginally --
+    deterministically: strict positional predicts zero failures outside
+    slots 4-10, and 15/33 (45.5%) landed outside the band. The sharpest
+    discriminator: the four modules value-reorder had placed INSIDE the
+    supposedly-risky 4-10 band (hold_vs_gun, bodyguard, crossfire, medic)
+    logged 0/33 failures between them, while the two placed outside it
+    (supply_run, scatter) carried 9/33 -- two-sided exact binomial
+    p=5.1e-5. Failures are content-bound: they track module NAME regardless
+    of slot. ring_walker alone accounts for 12/33 = 36.4% of all failures
+    (exact binomial P(X>=12) under a uniform-over-13 null = 3.3e-6). The
+    MECHANISM behind ring_walker's concentration is NOT known -- this is an
+    open lead, not a claim, and is not addressed by this change. Per
+    cc07e054's own pre-registration, the reorder is reverted below; do not
+    re-land a positional reorder of this burst without a new falsifier.
     """
     modules = [(name, (directory / f"{name}.wasm").read_bytes())
                for name in available]
-
-    def value_index(name: str, ranked: list[str]) -> int:
-        # A play missing from the hand-derived ranking (e.g. added to the
-        # manifest without updating this table) sorts after every ranked
-        # entry, alphabetically among itself -- deterministic, never
-        # silently dropped from the upload burst.
-        return ranked.index(name) if name in ranked else len(ranked)
-
-    controllers = sorted(
-        (n for n, _ in modules if plays.PLAYS[n]["class"] == "controller"),
-        key=lambda n: (value_index(n, _CONTROLLER_VALUE_RANK), n))
-    overlays = sorted(
-        (n for n, _ in modules if plays.PLAYS[n]["class"] != "controller"),
-        key=lambda n: (value_index(n, _OVERLAY_VALUE_RANK), n))
-
-    # Controllers as a whole block always precede overlays as a whole block
-    # (the invariant above); each block is independently edge-protected.
-    order = (_protect_edges(controllers, head=3, tail=1)
-             + _protect_edges(overlays, head=0, tail=len(overlays)))
-    order_index = {name: i for i, name in enumerate(order)}
-    modules.sort(key=lambda item: order_index[item[0]])
+    modules.sort(key=lambda item: (plays.PLAYS[item[0]]["class"] != "controller",
+                                   item[0]))
     return modules
 
 
