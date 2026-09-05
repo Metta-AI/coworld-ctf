@@ -99,6 +99,15 @@ proc shoutIdentityName*(sim: SimServer, shout: Shout): string =
   ## can disconnect inside that window (`removePlayerAt` drops the row) — so an
   ## unresolvable author falls back to IdentityNameUnknown rather than dropping
   ## the bubble, which is observable state.
+  ##
+  ## SUBSTRATE NOTE (solo comms, 2026-09-05): the `player.address == shout.
+  ## address` lookup this proc runs IS the load-bearing identity resolution a
+  ## future alliance/pact system would reuse server-side to attribute a
+  ## mutual ALLY declaration to its speaker (see the SUBSTRATE NOTE on
+  ## `Shout.address`, sim_types.nim). That system must still resolve the
+  ## SAME way this proc does — never expose the raw address to a rival's
+  ## perception — it would just resolve to a pact record instead of a
+  ## rendered slot letter.
   for player in sim.players:
     if player.address == shout.address:
       return IdentityNames[sim.slotIdentityIndex(player.joinOrder)]
