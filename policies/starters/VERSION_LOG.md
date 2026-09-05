@@ -89,3 +89,33 @@ Real IDs, for correlating with the league's `filler_policy_version_ids`: `starte
 `4793acbc-8f4f-45f0-b6d1-6c6a13dcf27f`. Frozen pre-fork pins (James's line, untouched):
 `7e720dc1-ef74-41e5-ab31-a3f75a026b81` (cautious v16), `6fc62efc-bb04-4ca4-a734-939986d09f7d`
 (aggressive v19), `fc151e14-77e0-4ad2-a895-3d7f24b09301` (collaborative v13).
+
+## v2 2026-09-05: 16-solo pivot rebuild, same fork lineage
+
+S2 moved from duo teams to 16 solo entrants (one policy/bot/team each, engine
+canonical 0.7.332/`cow_35465cd1`: `teams:16`, `brpool16`, every item-economy
+flag off) — no shared team, no wire-level alliance mechanic, no crates/
+split-gun/bandages/loot-start/drop/give. Built from branch
+`maxwell/su-starters-solo-v2` (`2af29433`, forked off this file's v1 fork
+commit `8312819b`/`4470067e` — same lineage, no new fork). Retired whatever
+each persona's v1 depended on that no longer exists in this ruleset:
+`cautious`/`aggressive` scrubbed their one or two hardcoded-partner
+references and the gun/hopper-crate mentions v1 added; `collaborative` is a
+full rewrite, from the old forced-duo-pact persona to the pivot's
+social-alliance showcase (opens with a public lobby-chat truce offer,
+`pact` seats are never hardcoded — only whatever ally the model itself
+proposes from reading the roster/chat gets generic repair — honoring or
+breaking it is the model's own conduct, since nothing mechanical enforces
+an alliance between two solo seats). `common/starter_harness.py`'s duo
+plumbing is untouched by design (kept code, degrades cleanly with no
+`duo_partner` in context).
+
+| change | cautious-s2 | aggressive-s2 | collaborative-s2 | measured |
+| --- | --- | --- | --- | --- |
+| v2 solo pivot: partner/item-economy doctrine retired per persona (see commit message on `2af29433` for the full per-file breakdown); `collaborative` rewritten end to end. | v2 | v2 | v2 | — (not yet run; uploaded and read-back verified only, ahead of the league's solo-scheduler window) |
+
+Real IDs: `starter-cautious-s2:v2` = `b4b66094-318a-426e-b03e-fadc7e625b05`;
+`starter-aggressive-s2:v2` = `65f8aba7-e4ce-4be6-830d-f8314eded38e`;
+`starter-collaborative-s2:v2` = `b7a9300f-ab39-4336-af9a-ff1c31cbff78`. v1
+IDs above stay valid and unpointed-at (the league repoint to v2 is a
+separate, owner-executed action, not part of this upload).
