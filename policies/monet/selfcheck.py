@@ -1986,6 +1986,121 @@ check("drop-set: after a drop-logic error, the module is still in the set "
       "(explicit degrade-to-today's-behavior, not a half mutation)",
       "hold_vs_gun" in _exploding, str(list(_exploding)))
 
+# ── prompt freshness after a drop (T19 fix) ───────────────────────────────
+# T17 fixed the WIRE side: a dropped module can no longer be sent in a call.
+# But `run()` built the model's system prompt ONCE, from `available` before
+# the upload loop that can mutate it -- so the model kept being TOLD about,
+# and kept proposing, a play the wire could no longer carry (live evidence:
+# 32 affected seat-logs, 105 model calls after a drop, 52 (49.5%) still
+# named the dropped play -- see the commit message). The fix: both model-call
+# sites in `run()`/`_live_loop()` now call
+# ``build_system_prompt(persona, available)`` fresh, at call time, instead
+# of reusing a snapshot taken before any drop could happen.
+#
+# Group 1: build_system_prompt itself, given a post-drop `available`, must
+# scrub the dropped play out of every CALLABLE-menu section (the numbered
+# playbook list, the play count, format_rules' legal-name list, persona
+# play_notes). Scoped to `plays.playbook_brief` / `plays.format_rules`
+# rather than the whole assembled prompt: the persona's own doctrine prose
+# (``prompt_intro``) legitimately names a play as a general concept
+# ("when a live gun is near, hold_vs_gun is the stance") independent of
+# whether THIS session can still call it -- only the menu sections are
+# actually offering it.
+_full_brief = plays.playbook_brief(list(AVAILABLE))
+check("prompt freshness: the full-playbook menu names the play before "
+      "any drop (positive control)",
+      "hold_vs_gun" in _full_brief)
+
+_dropped_available = list(AVAILABLE)
+starter_harness._drop_failed_module(_dropped_available, "hold_vs_gun", PERSONA)
+_post_drop_brief = plays.playbook_brief(_dropped_available)
+_post_drop_rules = plays.format_rules(_dropped_available)
+_post_drop_prompt = starter_harness.build_system_prompt(PERSONA, _dropped_available)
+check("prompt freshness: rebuilding the numbered playbook menu from the "
+      "post-drop `available` no longer names the dropped play",
+      "hold_vs_gun" not in _post_drop_brief, _post_drop_brief[:300])
+check("prompt freshness: rebuilding the legal-play-name list "
+      "(format_rules) from the post-drop `available` no longer offers "
+      "the dropped play as a callable option",
+      '"hold_vs_gun"' not in _post_drop_rules, _post_drop_rules)
+check("prompt freshness: the post-drop menu still names a surviving "
+      "play (negative control -- not a blanket wipe)",
+      "scatter" in _post_drop_brief and '"scatter"' in _post_drop_rules)
+check("prompt freshness: the play count line drops by exactly one "
+      f"after the drop ({len(AVAILABLE)} -> {len(AVAILABLE) - 1})",
+      f"exactly {len(AVAILABLE) - 1} plays" in _post_drop_brief,
+      _post_drop_brief.splitlines()[0] if _post_drop_brief else "")
+_note_head = PERSONA.play_notes["hold_vs_gun"][:30]
+check("prompt freshness: the dropped play's persona note disappears from "
+      "the assembled prompt too (a note for an unbaked play was always "
+      "dropped; this pins that post-drop counts the same way)",
+      _note_head not in _post_drop_prompt, _note_head)
+
+# Break-and-restore for Group 1: temporarily disable the actual removal in
+# `_drop_failed_module` (the mutation these checks depend on) and confirm
+# the drop-dependent checks above go red, then restore.
+_real_drop_failed_module = starter_harness._drop_failed_module
+
+
+def _inert_drop_failed_module(available, name, persona):
+    return None  # the removal never happens -- simulates the pre-T17 bug
+
+
+starter_harness._drop_failed_module = _inert_drop_failed_module
+_broken_available = list(AVAILABLE)
+starter_harness._drop_failed_module(_broken_available, "hold_vs_gun", PERSONA)
+_broken_brief = plays.playbook_brief(_broken_available)
+_broken_rules = plays.format_rules(_broken_available)
+_broken_prompt = starter_harness.build_system_prompt(PERSONA, _broken_available)
+_break_ok = (
+    "hold_vs_gun" in _broken_brief          # would have PASSED as "not in" -> now fails
+    and '"hold_vs_gun"' in _broken_rules    # ditto
+    and f"exactly {len(AVAILABLE) - 1} plays" not in _broken_brief
+    and _note_head in _broken_prompt
+)
+starter_harness._drop_failed_module = _real_drop_failed_module
+check("prompt freshness self-test: breaking `_drop_failed_module` (no-op "
+      "removal) flips the 4 drop-dependent checks above to FAIL, proving "
+      "they discriminate rather than passing unconditionally",
+      _break_ok, f"broken_brief names dropped play={'hold_vs_gun' in _broken_brief}")
+
+# Group 2: the WIRING -- assert against the source, not the prose. `run()`
+# and `_live_loop()` must call `build_system_prompt(persona, available)`
+# fresh at the model-call site, never through a variable snapshotted
+# earlier (the exact shape of the T19 bug: a `prompt` local computed once
+# and threaded, unchanged, into every later call).
+import inspect as _inspect
+
+_run_src = _inspect.getsource(starter_harness.run)
+_loop_src = _inspect.getsource(starter_harness._live_loop)
+check("prompt wiring: run()'s opening-call site builds the prompt fresh "
+      "from `available` (not a pre-drop snapshot)",
+      "_persona_prompt(build_system_prompt(persona, available))" in _run_src,
+      "call site not found in run()'s source")
+check("prompt wiring: run() never threads a stale cached `prompt` variable "
+      "into `_persona_prompt` (the T19 bug's exact shape)",
+      "_persona_prompt(prompt)" not in _run_src, "stale pattern present")
+check("prompt wiring: _live_loop()'s re-call site builds the prompt fresh "
+      "from `available` on every re-call",
+      "_persona_prompt(build_system_prompt(persona, available))" in _loop_src,
+      "call site not found in _live_loop()'s source")
+check("prompt wiring: _live_loop() never threads a stale cached `prompt` "
+      "variable into `_persona_prompt` (the T19 bug's exact shape)",
+      "_persona_prompt(prompt)" not in _loop_src, "stale pattern present")
+check("prompt wiring: _live_loop()'s signature no longer accepts a "
+      "`prompt` parameter at all (regression guard -- a reintroduced "
+      "cached prompt would have to be threaded back in as a parameter)",
+      "prompt" not in _inspect.signature(starter_harness._live_loop).parameters,
+      str(list(_inspect.signature(starter_harness._live_loop).parameters)))
+
+# Break-and-restore for Group 2: this is done OUT-OF-PROCESS against the
+# real file (not simulated here) because the checks above assert against
+# `inspect.getsource`, which reads the actual function bodies -- see the
+# lane report for the sed-revert / rerun / restore transcript. Reverting
+# `run()`'s and `_live_loop()`'s call sites to `with _persona_prompt(prompt):`
+# (the pre-fix text) and rerunning this file flips all 4 wiring checks
+# above to FAIL; restoring the fix flips them back to PASS.
+
 # ── MONET_FORCE_UPLOAD_FAIL: the local-only fault-injection hook used to ──
 # make the T17 drop-set fix EVALUABLE in smoke (the real engine-side
 # manifestProbe rejection can't be induced from the client and only hits
