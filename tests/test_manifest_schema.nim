@@ -139,6 +139,8 @@ const SampleJson = """{
   "hopperSiteTrafficPermille": {"hopperSiteTrafficPermille": 750, "lootStart": true, "brMode": true},
   "bandagePickups": {"bandagePickups": 12, "brMode": true},
   "medKitCount": {"medKitCount": 0, "brMode": true},
+  "sprayCount": {"sprayCount": 6, "brMode": true},
+  "grenadeCount": {"grenadeCount": 22, "brMode": true},
   "gloryMultiplierRecut": {"gloryMultiplierRecut": true},
   "winAsMultiplier": {"winAsMultiplier": true},
   "deedMintCaps": {"deedMintCaps": true},
