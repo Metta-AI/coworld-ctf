@@ -773,6 +773,68 @@ check("team-0 seat re-aims the placeholder pact off its own duo",
       and set(pact0["params"]["partners"]) == {"seat:1", "seat:17"},
       str(pact0))
 
+# ── UNAIMABLE pact (IMPROVE queue #1, tick 15; fixed 2026-09-05): a SOLO
+# seat (duo_partner missing or == own seat) has no neighboring duo
+# (_neighbor_duo returns None) and no genuine partner to fall back on, so
+# a placeholder/self-referential pact cannot be re-aimed at anything
+# real. It must be DROPPED -- the same release mechanic as an ended
+# truce -- rather than let the placeholder seats ride onto the wire and
+# poison target_law's never-list with two arbitrary, unrelated solo
+# opponents we hold no truce with. ─────────────────────────────────────────
+solo_seat = fake_seat(context={"self": {"seat": 3, "duo_partner": None}})
+_, entries_solo = starter_harness.repair_call(
+    PERSONA.canned_turns[0], PERSONA, solo_seat, AVAILABLE)
+pact_solo = next((e for e in entries_solo if e["play"] == "pact"), None)
+law_solo = next((e for e in entries_solo if e["play"] == "target_law"), None)
+check("SOLO + placeholder pact: the unaimable pact is DROPPED entirely, "
+      "not re-aimed and not left carrying the placeholder",
+      pact_solo is None, str(pact_solo))
+check("SOLO + placeholder pact: the dropped pact's placeholder seats "
+      "never reach target_law's never-list",
+      law_solo is not None
+      and not ({"seat:0", "seat:16"}
+               & set(law_solo["params"].get("never", []))),
+      str(law_solo))
+
+# ── SOLO + a model's genuine, real, distinct pact choice: left untouched.
+# Only an UNAIMED pact (placeholder / self-referential / empty) with no
+# real target is dropped -- a model that names two real, non-own seats
+# gets exactly what it asked for, same as today.
+solo_real_seat = fake_seat(context={"self": {"seat": 3, "duo_partner": None}})
+_, entries_solo_real = starter_harness.repair_call(
+    {"call": {"entries": [
+        {"play": "pact", "entry_id": "truce",
+         "params": {"partners": ["seat:7", "seat:8"], "protect": False,
+                    "onBetrayal": "returnFire"}},
+        {"play": "target_law", "entry_id": "law",
+         "params": {"prefer": ["revenge", "bounty", "weakened",
+                                "isolated"]}},
+    ]}}, PERSONA, solo_real_seat, AVAILABLE)
+pact_solo_real = next((e for e in entries_solo_real if e["play"] == "pact"),
+                      None)
+check("SOLO + a real, distinct pact choice: kept exactly as submitted, "
+      "not re-aimed and not dropped",
+      pact_solo_real is not None
+      and set(pact_solo_real["params"]["partners"]) == {"seat:7", "seat:8"},
+      str(pact_solo_real))
+
+# ── NEGATIVE CONTROL: a genuine DUO seat with the same placeholder pact
+# must still re-aim at the neighboring duo exactly as before -- the
+# UNAIMABLE drop above is scoped to the no-neighbor/no-partner case only,
+# never widened to swallow the working duo fallback (the variant has
+# flipped seven times in ~72h; reversibility beats commitment).
+duo_control_seat = fake_seat()  # FAKE_CONTEXT: seat 3, duo_partner 19 (real)
+_, entries_duo_control = starter_harness.repair_call(
+    PERSONA.canned_turns[0], PERSONA, duo_control_seat, AVAILABLE)
+pact_duo_control = next(
+    (e for e in entries_duo_control if e["play"] == "pact"), None)
+check("NEGATIVE CONTROL: a real DUO seat's placeholder pact is still "
+      "re-aimed at the neighboring duo, not dropped (the fallback path "
+      "is untouched by the SOLO-only drop)",
+      pact_duo_control is not None
+      and set(pact_duo_control["params"]["partners"]) == NEIGHBOR_REFS,
+      str(pact_duo_control))
+
 # ── _neighbor_duo: team size is OBSERVED per call (self/duo_partner
 # offset), never a fixed divisor off seat or roster count. A 16-seat SOLO
 # roster (2026-09-05 era, confirmed realized: 16 distinct teams, zero
@@ -1819,11 +1881,18 @@ for _label, _ctx in (("duo_partner missing", SOLO_CONTEXT),
         check(f"solo guard ({_label}), turn {_i}: medic dropped from the "
               "wanted ladder (dead weight -- no partner to revive)",
               "medic" not in _solo_wanted, str(_solo_wanted))
+        # "pact" is excluded here too: every canned turn submits it with
+        # PACT_PLACEHOLDER partners, and under this SOLO context
+        # _neighbor_duo has no duo to name and there is no genuine partner
+        # to fall back on either -- adjust_entries drops that unaimable
+        # pact outright (see the UNAIMABLE branch and its own pinned
+        # checks below), a SEPARATE mechanism from the bodyguard/medic
+        # solo guard asserted above.
         _other_submitted = [p for p in _submitted
-                            if p not in ("bodyguard", "medic")]
+                            if p not in ("bodyguard", "medic", "pact")]
         check(f"solo guard ({_label}), turn {_i}: every OTHER submitted "
               "rung still reaches the wanted ladder (the guard is scoped "
-              "to bodyguard/medic only, not a blanket strip)",
+              "to bodyguard/medic/pact only, not a blanket strip)",
               all(p in _solo_wanted for p in _other_submitted),
               f"submitted {_other_submitted} wanted {_solo_wanted}")
 

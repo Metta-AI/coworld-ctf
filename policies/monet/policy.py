@@ -214,7 +214,7 @@ def adjust_entries(entries, context, view):
     # Re-aim placeholder or self-referential pacts at the neighboring duo;
     # keep a model's real choice of partners. Betrayal is answered in kind.
     pact_seats = []
-    for entry in entries:
+    for entry in list(entries):
         if entry.get("play") != "pact":
             continue
         params = entry.setdefault("params", {})
@@ -227,6 +227,24 @@ def adjust_entries(entries, context, view):
                 partners = [f"seat:{n}" for n in neighbors]
             elif not partners and partner is not None:
                 partners = [f"seat:{partner}"]
+            else:
+                # UNAIMABLE (16-solo BR reshape, confirmed realized on the
+                # field 2026-09-05, 108/108 episodes r4003-4011, coworld
+                # 0.7.334): _neighbor_duo now correctly answers None (no
+                # duo this match) and there is no genuine duo_partner to
+                # fall back on either, so a placeholder or self-referential
+                # pact has nothing real left to name. Previously NEITHER
+                # branch above fired here and the placeholder partners rode
+                # onto the wire unchanged (IMPROVE queue #1, tick 15) --
+                # they then fed pact_seats below into target_law's
+                # never-list, making us refuse to tag two arbitrary,
+                # unrelated solo seats we hold no truce with. Drop the
+                # entry instead: dropping IS the documented release
+                # mechanic (see TRUCE HONOR below), so an unaimable pact is
+                # handled exactly like an ended truce -- it contributes
+                # nothing to pact_seats and the never-list stays clean.
+                entries = [e for e in entries if e is not entry]
+                continue
         params["partners"] = partners
         params["onBetrayal"] = "returnFire"
         pact_seats.extend(partners)
