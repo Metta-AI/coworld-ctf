@@ -29,12 +29,15 @@ export glory
 
 const
   GameName* = "ctf"
-  ReplayCompatibleGameVersions* = ["54"]
+  ReplayCompatibleGameVersions* = ["55"]
     ## The replay-load allowlist (play-calling design §4.3): versions whose
     ## recorded files still play back correctly under THIS engine. The
     ## criterion is the GameVersion changelog below, not chronology — a
     ## version is listed only when nothing since changed the gameHash
-    ## schema, the hash trajectory, or a flatty keyframe layout. GV51 is
+    ## schema, the hash trajectory, or a flatty keyframe layout. GV54 drops
+    ## out because GV55 appends `pactOfferTeam`/`pactOfferTick`/
+    ## `pactCooldownUntil` to `SimServer`, a flatty keyframe layout change —
+    ## same rule that dropped GV53 the bump before it, not a new one. GV51 is
     ## excluded because GV52 moved every re-shared spawn seat (each BR duo's
     ## second member) SpawnShareStagger px off the authored point, a hash
     ## TRAJECTORY change from tick 0 of every 16-team BR recording. GV50 is
@@ -55,17 +58,48 @@ const
     ## RewardAccount on the wire. Widening requires a real archived fixture
     ## that survives initialization and stepping (PM ruling, 2026-08-30),
     ## never a header rewrite.
-  GameVersion* = "54"
-    ## GV54 (ALLIANCE: PACT REGISTRY, P1): `pactMask` appended to `SimServer`
-    ## (a flatty keyframe layout change) and enters `gameHash` beside
-    ## `gloryProduct` (formal-alliances design, 2026-09-02/03: pact state is
-    ## CAUSAL from GV54 on, even though nothing in scoring reads it yet —
-    ## P1 is a dark REGISTRY, not dark STATE). A companion per-(i,j)
+  GameVersion* = "55"
+    ## GV55 (ALLIANCE: DECLARATION PROTOCOL, P2): the "+X"/"-X" shout
+    ## grammar (formal-alliances design, 2026-09-02/03) that lets two teams
+    ## register or dissolve a `pactMask` pact IN-MATCH, not just from
+    ## pre-match config: `+<teamname>` proposes, mutual within
+    ## `PactMutualWindowTicks` (10s) registers the pact, `-<teamname>`
+    ## unilaterally withdraws an offer or dissolves an active pact (no
+    ## mutuality needed to break one — betrayal is an ordinary act, never
+    ## gated). Every declaration with a REAL effect on `pactMask` — a
+    ## propose (whether it lands as a fresh offer or completes a mutual
+    ## pact) or a dissolve of an ACTIVE pact — arms a `PactCooldownTicks`
+    ## (30s) per-team throttle, which is what keeps pact-cycling
+    ## structurally impossible rather than merely discouraged. Withdrawing
+    ## a still-pending, never-completed offer is deliberately free: it
+    ## never touched `pactMask`, so there is nothing to throttle, and the
+    ## cooldown its own original propose already armed is untouched either
+    ## way. The proximity gate the owner ruled KEPT (face-
+    ## to-face in-match pacts; huddle/forum remain the pre-match primary
+    ## channel) is enforced at the completing shout: the reciprocator must
+    ## currently stand within `ShoutRange` of a live teammate of the team
+    ## it is pacting with. Still NEVER enforced — attacking a pact partner
+    ## remains a legal, ordinary kill (P1's ruling, unchanged); this bump
+    ## only widens who can flip `pactMask` and when. Adds
+    ## `pactOfferTeam`/`pactOfferTick`/`pactCooldownUntil` to `SimServer` (a
+    ## flatty keyframe layout change) — see those fields' own comment for
+    ## why this table is safe where P1's dropped draft was not (O(teamCount)
+    ## not O(teamCount^2), `int32` ticks, 144 bytes total, confirmed against
+    ## a real `static-replay-viewer` rebuild rather than argued from size
+    ## alone). Kept OUT of `gameHash` (derived deterministically from the
+    ## already-hashed shout stream); `pactMask` itself was already hashed by
+    ## P1 and needs no further change here.
+    ##
+    ## Previously GV54 (ALLIANCE: PACT REGISTRY, P1): `pactMask` appended to
+    ## `SimServer` (a flatty keyframe layout change) and enters `gameHash`
+    ## beside `gloryProduct` (formal-alliances design, 2026-09-02/03: pact
+    ## state is CAUSAL from GV54 on, even though nothing in scoring reads it
+    ## yet — P1 is a dark REGISTRY, not dark STATE). A companion per-(i,j)
     ## offer-tick table was drafted alongside it for P2's future use and
     ## dropped before landing: it tipped `SimServer` over the wasm32 static
     ## viewer's stack budget and crashed replay loading outright (see
     ## `pactMask`'s own field comment) -- P2 pays its own GV bump to add it
-    ## back once it is actually needed. The
+    ## back once it is actually needed (done above). The
     ## allowlist drops GV53 because it never shipped on `main` (claimed by
     ## an open, unmerged PR at the time this landed -- AGENTS.md's
     ## cross-branch GameVersion-claim rule: `main` had only spent through
@@ -1072,6 +1106,21 @@ const
   ShoutMaxChars* = 10         ## a shout is at most this many characters.
   ShoutTicks* = 3 * ReplayFps ## a shout stays observable this long.
   ShoutCooldownTicks* = ReplayFps  ## at most one shout per second.
+
+  # ALLIANCE P2 (formal-alliances design, 2026-09-02/03, GameVersion 55):
+  # the declaration protocol's two timing constants. Every team name from
+  # `teamText` is at most 6 characters ("yellow"/"silver"/"orange"), so
+  # "+<team>"/"-<team>" always fits ShoutMaxChars (10) with room to spare.
+  PactMutualWindowTicks* = 10 * ReplayFps  ## a "+X" proposal must be
+                              ## reciprocated within this many ticks of
+                              ## being shouted, or it lapses (the
+                              ## "mutual-10s" rule -- see `pactOfferTick`
+                              ## on SimServer).
+  PactCooldownTicks* = 30 * ReplayFps  ## a team cannot consume another
+                              ## "+X"/"-X" declaration until this many
+                              ## ticks after its last one -- what keeps
+                              ## pact-cycling structurally dead (see
+                              ## `pactCooldownUntil` on SimServer).
 
   # Season 2 play-calling shell config defaults and ranges (§4.3/§9.2 of
   # docs/designs/strategy-play-calling-shell-2026-08-29.md; the shell's
@@ -4217,6 +4266,67 @@ type
                                ## either damages the other (absorbDamage) or
                                ## either seat dies (killPlayer) — P1 has no
                                ## other writer.
+    # ── ALLIANCE P2: the DECLARATION protocol's offer/cooldown bookkeeping
+    # (formal-alliances design, 2026-09-02/03, GameVersion 55) ── the table
+    # P1 explicitly deferred (see the NOTE above pactMask). Sized to dodge
+    # the exact trap that killed the earlier draft: that table was PER-PAIR
+    # (`array[Team, array[Team, int]]`, O(teamCount^2) = 256 native ints),
+    # because it tried to remember every team's offer to every OTHER team
+    # at once. A team only ever has ONE outstanding declaration at a time —
+    # the 30s cooldown below guarantees that by construction, since a team
+    # cannot issue a second "+X"/"-X" until the first's cooldown has
+    # expired — so these three fields are PER-TEAM (O(teamCount), 16
+    # entries each) and the tick fields are `int32` rather than the
+    # native-width `int` every other tick field on this object uses,
+    # halving their footprint again on native (a fixed 4 bytes on either
+    # target, unlike `int` which is 8 bytes native / 4 wasm32). Total
+    # added: 16*(1+4+4) = 144 bytes on every target — roughly a seventh of
+    # the 1024 wasm32 bytes the dropped O(T^2) table would have cost, and
+    # independently confirmed to fit by rebuilding `static-replay-viewer`
+    # and loading a real replay (see this GameVersion's changelog entry).
+    # Deliberately kept OUT of gameHash: the "+X"/"-X" shout text itself is
+    # already hashed (recentShouts, unconditionally, since before this
+    # design existed), so a replay that lost this bookkeeping would
+    # re-derive the identical `pactMask` transition from the identical
+    # recorded chat and never diverge — the same "derived deterministically
+    # from an already-hashed stream, so the DERIVED fact stays out"
+    # reasoning `recutDamageMarks` documents on its own field, not a new
+    # rule.
+    pactOfferTeam*: array[Team, Team] ## The OTHER team this team's most
+                               ## recent unconsumed "+X" shout named.
+                               ## Meaningful only while the matching
+                               ## `pactOfferTick` entry is >= 0 — read the
+                               ## two fields together, never this one alone
+                               ## (Team has no "none" value, so a stale
+                               ## `Red` here is indistinguishable from a
+                               ## real proposal to Red without the tick
+                               ## guard).
+    pactOfferTick*: array[Team, int32] ## Tick this team's outstanding "+X"
+                               ## proposal was shouted, or -1 when there is
+                               ## none pending. Cleared back to -1 the
+                               ## instant it either completes a mutual pact
+                               ## or ages out past `PactMutualWindowTicks`
+                               ## (checked lazily at the next shout that
+                               ## reads it — an expired-but-unread entry is
+                               ## harmless, since every reader re-checks the
+                               ## window before trusting it).
+    pactCooldownUntil*: array[Team, int32] ## This team may not consume
+                               ## another "+X" proposal, or dissolve an
+                               ## ACTIVE pact via "-X", before this tick (0
+                               ## = never throttled yet). Set to
+                               ## `tick + PactCooldownTicks` by every
+                               ## declaration that actually touches
+                               ## `pactMask` (a propose, whether it lands as
+                               ## a fresh offer or completes a mutual pact,
+                               ## or a dissolve of an active pact) — what
+                               ## makes pact-cycling (declare, exploit,
+                               ## dissolve, immediately re-declare) and
+                               ## rapid-fire spam both structurally
+                               ## impossible rather than merely discouraged.
+                               ## NOT armed by withdrawing a still-pending,
+                               ## never-completed offer: that path never
+                               ## touches `pactMask`, so there is nothing to
+                               ## throttle (see `consumePactShout`, sim.nim).
     heatEmbers*: array[Team, int]     ## GLORY: rampage embers -> the heat
                                       ## multiplier.
     heatLastDeed*: array[Team, int]   ## GLORY: tick of the team's latest

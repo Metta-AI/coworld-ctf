@@ -6,6 +6,14 @@
 ## `pactMask`/`allies` field comments and sim_state.nim's
 ## registerPact/dissolvePact/clearPactsFor for the contracts this suite
 ## exercises.
+##
+## ALLIANCE P2 (below, GameVersion 55): the "+X"/"-X" shout DECLARATION
+## protocol on top of the same registry -- parsePactShout/
+## teamHasLiveMemberNear/consumePactShout in sim.nim. Still never enforced
+## (P1's ruling stands): these tests pin the grammar, the mutual-10s window,
+## the 30s per-team cooldown, the face-to-face proximity gate, and that the
+## bookkeeping behind all of it stays out of `gameHash` -- never a glory
+## number, same discipline as the P1 suite above.
 import
   helpers,
   std/[json, unittest],
@@ -225,3 +233,187 @@ suite "alliance pact registry -- P1 is dark (no behavior may change)":
       check withPact.tickCount == noPact.tickCount
     # The hash is the one thing allowed -- and expected -- to disagree.
     check withPact.gameHash() != noPact.gameHash()
+
+suite "alliance pact declaration -- shout grammar (parsePactShout)":
+  test "a plus sign followed by a known team name proposes a pact":
+    let parsed = parsePactShout("+blue")
+    check parsed.isPact
+    check parsed.propose
+    check parsed.team == Blue
+
+  test "a minus sign followed by a known team name withdraws or dissolves":
+    let parsed = parsePactShout("-green")
+    check parsed.isPact
+    check not parsed.propose
+    check parsed.team == Green
+
+  test "team names match teamText case-insensitively":
+    check parsePactShout("+BLUE").team == Blue
+    check parsePactShout("+Blue").team == Blue
+    check parsePactShout("-Ivory").isPact
+
+  test "every signed team name fits ShoutMaxChars":
+    for t in Team:
+      check ("+" & teamText(t)).len <= ShoutMaxChars
+      check ("-" & teamText(t)).len <= ShoutMaxChars
+
+  test "ordinary chat is never mistaken for a declaration":
+    check not parsePactShout("gg").isPact
+    check not parsePactShout("").isPact
+    check not parsePactShout("+").isPact
+    check not parsePactShout("+notateam").isPact
+    check not parsePactShout("blue+red").isPact
+
+suite "alliance pact declaration -- mutual-10s formation":
+  test "a lone proposal does not register a pact by itself":
+    var game = fourTeamPactGame()
+    check game.applyShout(0, "+blue")   # seat 0 is Red
+    check not game.pactActive(Red, Blue)
+    check game.pactOfferTeam[Red] == Blue
+    check game.pactOfferTick[Red] == 0'i32
+
+  test "reciprocating within the window registers the pact":
+    var game = fourTeamPactGame()
+    game.placeStill(0, 500, 300)
+    game.placeStill(1, 500, 300)  # co-located: clears the proximity gate too
+    discard game.applyShout(0, "+blue")     # Red -> Blue at tick 0
+    game.tickCount += 100                    # well inside the 240-tick window
+    discard game.applyShout(1, "+red")      # Blue -> Red completes it
+    check game.pactActive(Red, Blue)
+
+  test "reciprocating after the window lapses does not register":
+    var game = fourTeamPactGame()
+    game.placeStill(0, 500, 300)
+    game.placeStill(1, 500, 300)
+    discard game.applyShout(0, "+blue")
+    game.tickCount += PactMutualWindowTicks + 1
+    discard game.applyShout(1, "+red")
+    check not game.pactActive(Red, Blue)
+
+  test "an unrelated pair of proposals never cross-completes":
+    var game = fourTeamPactGame()
+    discard game.applyShout(0, "+blue")     # Red -> Blue
+    game.tickCount += 10
+    discard game.applyShout(2, "+yellow")   # Green -> Yellow, unrelated
+    check not game.pactActive(Red, Blue)
+    check not game.pactActive(Green, Yellow)
+
+suite "alliance pact declaration -- the proximity gate (face-to-face)":
+  test "reciprocating from across the map does not complete the pact":
+    var game = fourTeamPactGame()
+    game.placeStill(0, 0, 0)
+    game.placeStill(1, MapWidth - 1, MapHeight - 1)  # far past ShoutRange
+    discard game.applyShout(0, "+blue")
+    game.tickCount += 10
+    discard game.applyShout(1, "+red")
+    check not game.pactActive(Red, Blue)
+    # The offer itself is untouched by the failed attempt -- only consumed
+    # if it actually completes or the reciprocator's own cooldown starts.
+    check game.pactOfferTeam[Red] == Blue
+
+  test "reciprocating while standing together completes the pact":
+    var game = fourTeamPactGame()
+    game.placeStill(0, 500, 300)
+    game.placeStill(1, 500, 300)
+    discard game.applyShout(0, "+blue")
+    game.tickCount += 10
+    discard game.applyShout(1, "+red")
+    check game.pactActive(Red, Blue)
+
+suite "alliance pact declaration -- 30s cooldown":
+  test "a second declaration inside the cooldown window is ignored":
+    var game = fourTeamPactGame()
+    discard game.applyShout(0, "+blue")     # Red's cooldown arms at tick 0
+    game.tickCount += 30 # past the ordinary 1s (24-tick) shout spacing --
+                         # isolates the PACT cooldown, not applyShout's own
+    discard game.applyShout(0, "+green")    # still throttled -- ignored
+    check game.pactOfferTeam[Red] == Blue   # unchanged from the first shout
+
+  test "a declaration is accepted again once the cooldown expires":
+    var game = fourTeamPactGame()
+    discard game.applyShout(0, "+blue")
+    game.tickCount += PactCooldownTicks + 1
+    discard game.applyShout(0, "+green")
+    check game.pactOfferTeam[Red] == Green
+
+  test "forming a pact arms the cooldown on both teams, not just the proposer":
+    var game = fourTeamPactGame()
+    game.placeStill(0, 500, 300)
+    game.placeStill(1, 500, 300)
+    discard game.applyShout(0, "+blue")
+    game.tickCount += 5
+    discard game.applyShout(1, "+red")
+    check game.pactActive(Red, Blue)
+    check game.pactCooldownUntil[Red] > 0'i32
+    check game.pactCooldownUntil[Blue] > 0'i32
+
+suite "alliance pact declaration -- voluntary dissolution (-X)":
+  test "dissolves an active pact unilaterally, no reciprocation required":
+    var game = namedPactGame(@["bob"], @["alice"])  # Red<->Blue via P1 seed
+    check game.pactActive(Red, Blue)
+    discard game.applyShout(0, "-blue")   # seat 0 = alice = Red
+    check not game.pactActive(Red, Blue)
+
+  test "withdraws a pending, unconsummated offer":
+    var game = fourTeamPactGame()
+    discard game.applyShout(0, "+blue")
+    check game.pactOfferTick[Red] >= 0'i32
+    game.tickCount += 30 # past the ordinary 1s shout-spacing gate
+    discard game.applyShout(0, "-blue")
+    check game.pactOfferTick[Red] == -1'i32
+
+  test "dissolving is throttled by the same 30s cooldown as proposing":
+    var game = namedPactGame(@["bob"], @["alice"])
+    discard game.applyShout(0, "-blue")
+    check not game.pactActive(Red, Blue)
+    game.tickCount += 30 # past the ordinary 1s shout-spacing gate
+    discard game.applyShout(0, "+green")   # still on cooldown -- ignored
+    check game.pactOfferTick[Red] == -1'i32
+
+  test "a dissolved pact can be attacked freely -- betrayal is an ordinary kill":
+    ## Documents the ruling directly: voluntary dissolution reaches the SAME
+    ## dissolvePact absorbDamage already calls on ally-damage -- no separate
+    ## "shout-dissolved" state exists, and nothing about a shout-formed pact
+    ## makes attacking its (former) partner special once it is gone.
+    var game = namedPactGame(@["bob"], @["alice"])
+    discard game.applyShout(0, "-blue")
+    check not game.pactActive(Red, Blue)
+    let hpBefore = game.players[1].hp
+    discard game.absorbDamage(1, 1, 0)
+    check game.players[1].hp < hpBefore
+
+suite "alliance pact declaration -- the consumer ALLY-gate":
+  test "a team cannot propose or complete a pact with itself":
+    var game = fourTeamPactGame()
+    discard game.applyShout(0, "+red")   # seat 0 is already Red
+    check game.pactOfferTick[Red] == -1'i32
+    check game.pactMask[Red] == 0'u16
+
+  test "a target team that is not active in this game is ignored":
+    var game = fourTeamPactGame()  # 4-team game -- Black is not active
+    discard game.applyShout(0, "+black")
+    check game.pactOfferTick[Red] == -1'i32
+
+suite "alliance pact declaration -- resets clean between games":
+  test "a fresh game starts with no pending offer and no cooldown":
+    var game = fourTeamPactGame()
+    for team in game.teams():
+      check game.pactOfferTick[team] == -1'i32
+      check game.pactCooldownUntil[team] == 0'i32
+
+  test "an in-progress offer never survives into the next game":
+    var game = fourTeamPactGame()
+    discard game.applyShout(0, "+blue")
+    check game.pactOfferTick[Red] >= 0'i32
+    game.startGame()
+    check game.pactOfferTick[Red] == -1'i32
+    check game.pactCooldownUntil[Red] == 0'i32
+
+suite "alliance pact declaration -- offer/cooldown bookkeeping stays out of gameHash":
+  test "pactOfferTick/pactOfferTeam/pactCooldownUntil never move gameHash":
+    var game = fourTeamPactGame()
+    let before = game.gameHash()
+    game.pactOfferTick[Red] = 12345'i32
+    game.pactOfferTeam[Red] = Blue
+    game.pactCooldownUntil[Red] = 99999'i32
+    check game.gameHash() == before
