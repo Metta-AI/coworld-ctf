@@ -547,6 +547,7 @@ def _clean_params(play: str, params) -> dict | None:
 MAX_HP_FALLBACK = 6  # a full seat; refined from the live view when we have one
 TRACK_FRESH_TICKS = 240  # a track older than this no longer counts as "seen"
 LOOT_CLEAR_PX = 500      # loot only with no fresh enemy track closer than this
+UPLOAD_RETRIES = 2       # extra module uploads after a rejection (16 admitted/seat)
 
 
 def _max_hp(view: dict) -> float:
@@ -989,11 +990,28 @@ def run(persona: Persona, args) -> int:
             return 1
 
         # Playbook first: nothing can be called until the modules are READY.
+        # The server's manifest probe runs under an epoch deadline and fails
+        # transiently under load (`manifestProbe` on ~1 in 5 hosted seats),
+        # so a rejected upload is retried; a play that still never becomes
+        # READY is dropped from ``available`` so no later call names it (one
+        # unknown play rejects the WHOLE call, and a seat whose scatter or
+        # edge_ride never landed otherwise plays the match with no ladder).
         for name, blob in playbook:
-            if not seat.upload(name, blob):
+            ready = False
+            for attempt in range(1 + UPLOAD_RETRIES):
+                if attempt:
+                    _log(persona, f"upload {name}: retry {attempt}")
+                ready = seat.upload(name, blob)
+                seat.pump()
+                seat.drain(0.3)
+                if ready:
+                    break
+            if not ready:
                 failures.append(f"module {name} never reached module_ready")
-            seat.pump()
-            seat.drain(0.3)
+                if name in available:
+                    available.remove(name)
+                _log(persona, f"upload {name}: dropped from the ladder; "
+                              f"available: {', '.join(available)}")
 
         # Pre-call: a model-free opening ladder from the persona's own rules
         # (clone pact + never-list, spawn-phase scatter base, the persona's
