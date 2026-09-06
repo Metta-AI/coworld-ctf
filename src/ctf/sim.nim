@@ -2533,6 +2533,25 @@ proc downPlayer(
     targetSlot = killerSlot
   )
   sim.logGameEvent(playerColorText(victim.color) & " is down")
+  # AMENDMENT 5 (glory-2, spec owner override): price the FRIENDLY-FIRE
+  # incident HERE, at the down, exactly once. `killPlayer` intercepts a
+  # lethal hit under armed `downedMode` and returns here BEFORE its
+  # `priceTheKill` block, so before this the only way a friendly down ever
+  # minted `dTeamKill`/`gloryFfIncidents` was `finalizeDowned` re-entering
+  # `killPlayer` after an actual bleed-out — a partner who got tagged back
+  # up cost the team nothing ("spray your partner, tag them back up"; the
+  # field probe saw dTeamKill fire 4x across 72 wins where every incident
+  # should have paid). The ruled unit is the INCIDENT, and the incident is
+  # the down. `killPlayer`'s own re-mint for this same incident is guarded
+  # off (see the `victim.downed and ctx.friendly` check there), so a ghost
+  # that later bleeds out or folds in a team wipe still pays exactly once,
+  # just earlier. `killDeed` resolves ANY friendly hit to `dTeamKill`
+  # unconditionally — its first, highest-precedence check — so no kill
+  # context is needed to know the deed here.
+  if killerIndex >= 0 and killerIndex < sim.players.len and
+      sim.players[killerIndex].team == victim.team:
+    sim.awardDeed(victim.team, dTeamKill, victim.x, victim.y,
+                  byIndex = killerIndex, fxActor = killerIndex)
 
 proc recutZonePhase*(sim: SimServer, elapsedTicks: int):
     tuple[closing, final: bool] =
@@ -2830,17 +2849,30 @@ proc killPlayer*(
           if marquee != dNone and
               RecutClassTable[marquee] > RecutClassTable[deed]:
             deed = marquee
-      # Glory-toast channel source (GameConfig.allowCosmeticFx): `fxActor`
-      # is -1 for a grenade-caused kill regardless of which deed `killDeed`
-      # resolved to -- the swap9-era wire never wired the grenade blast-kill
-      # site (fragile GV24-hash attribution branch); this keeps the same
-      # class of kill silent on the toast wire even now that every weapon
-      # funnels through this one chokepoint. See `awardDeed`'s own doc
-      # comment on `fxActor` for the full rationale.
-      sim.awardDeed(killer.team, deed, victim.x, victim.y,
-                    byIndex = killerIndex,
-                    fxActor = (if ctx.weaponGrenade: -1 else: killerIndex),
-                    stackK = stackK)
+      # AMENDMENT 5 (glory-2, spec owner override): a friendly hit under
+      # armed `downedMode` never reaches here UNDOWNED -- the interception
+      # at the top of this proc routes it to `downPlayer`, which now mints
+      # this incident's `dTeamKill`/`gloryFfIncidents` itself, at the down.
+      # The only way `ctx.friendly` is true HERE with `victim.downed` also
+      # true is `finalizeDowned` re-entering for that SAME incident's
+      # deferred bookkeeping (bleed-out, or a team wipe -- a splat confirm
+      # can never be friendly, `applyFire`'s own guard requires an enemy
+      # shooter), and re-minting would double-charge one incident. Every
+      # other path is untouched and mints exactly where it always did:
+      # downedMode dark, a downedMode `elimination` fold (never downed),
+      # and every non-friendly kill.
+      if not (sim.config.downedMode and victim.downed and ctx.friendly):
+        # Glory-toast channel source (GameConfig.allowCosmeticFx): `fxActor`
+        # is -1 for a grenade-caused kill regardless of which deed `killDeed`
+        # resolved to -- the swap9-era wire never wired the grenade blast-kill
+        # site (fragile GV24-hash attribution branch); this keeps the same
+        # class of kill silent on the toast wire even now that every weapon
+        # funnels through this one chokepoint. See `awardDeed`'s own doc
+        # comment on `fxActor` for the full rationale.
+        sim.awardDeed(killer.team, deed, victim.x, victim.y,
+                      byIndex = killerIndex,
+                      fxActor = (if ctx.weaponGrenade: -1 else: killerIndex),
+                      stackK = stackK)
       # The taper only latches once the payback ACTUALLY minted: a kill
       # that also satisfies a higher-precedence descriptor (an ace tag, a
       # denial, ...) resolves to that deed instead, same as `avengesKiller`

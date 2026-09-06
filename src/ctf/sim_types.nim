@@ -29,12 +29,17 @@ export glory
 
 const
   GameName* = "ctf"
-  ReplayCompatibleGameVersions* = ["54"]
+  ReplayCompatibleGameVersions* = ["55"]
     ## The replay-load allowlist (play-calling design §4.3): versions whose
     ## recorded files still play back correctly under THIS engine. The
     ## criterion is the GameVersion changelog below, not chronology — a
     ## version is listed only when nothing since changed the gameHash
-    ## schema, the hash trajectory, or a flatty keyframe layout. GV51 is
+    ## schema, the hash trajectory, or a flatty keyframe layout. GV54 is
+    ## excluded because GV55 moved WHEN a friendly-fire down under armed
+    ## downedMode prices its dTeamKill/gloryFfIncidents (at the down, not
+    ## the eventual bleed-out) — gloryFfIncidents is hashed, so a GV54
+    ## recording that contains one re-simulates to a different hash
+    ## trajectory from the down tick onward. GV51 is
     ## excluded because GV52 moved every re-shared spawn seat (each BR duo's
     ## second member) SpawnShareStagger px off the authored point, a hash
     ## TRAJECTORY change from tick 0 of every 16-team BR recording. GV50 is
@@ -55,8 +60,33 @@ const
     ## RewardAccount on the wire. Widening requires a real archived fixture
     ## that survives initialization and stepping (PM ruling, 2026-08-30),
     ## never a header rewrite.
-  GameVersion* = "54"
-    ## GV54 (ALLIANCE: PACT REGISTRY, P1): `pactMask` appended to `SimServer`
+  GameVersion* = "55"
+    ## GV55 (GLORY: FRIENDLY FIRE PRICES AT THE DOWN, Amendment 5): under
+    ## armed `downedMode` a lethal friendly hit reached `downPlayer` and
+    ## RETURNED before `killPlayer`'s `priceTheKill` block ever ran, so the
+    ## incident's `dTeamKill`/`gloryFfIncidents` (both hashed) minted only
+    ## if the downed partner actually BLED OUT — `finalizeDowned`
+    ## re-entering `killPlayer` was the sole path to the penalty. A revived
+    ## friendly-fire down was therefore free: spray your partner, tag them
+    ## back up, pay nothing. Measured in the field, `dTeamKill` fired 4x
+    ## across 72 wins where every incident should have paid. The mint now
+    ## happens in `downPlayer` itself, once per incident, at the down; that
+    ## same incident's later re-entry through `killPlayer` is guarded off,
+    ## so a bled-out or team-wiped friendly down pays exactly once, just
+    ## earlier. The ruled unit is the INCIDENT and the incident is the down
+    ## (Amendment 5, glory-2 spec owner override). Nothing here touches the
+    ## hash SCHEMA or the flatty layout: a GV54 recording with `downedMode`
+    ## dark, or armed with no friendly-fire down, re-simulates
+    ## byte-identically. One that contains such a down moves trajectory
+    ## from the down tick onward — which the `gameversion-tripwire` job
+    ## cannot see (it guards headline collisions on `main`, not conditional
+    ## trajectory moves), so this bump is claimed on the rule rather than
+    ## on a red job. GV55 also skips over GV53, which this work originally
+    ## claimed on an unmerged branch and never shipped: `main` spent 54 in
+    ## the meantime (#428), and a replay stamped BELOW `main`'s spend would
+    ## misidentify the rules that produced it.
+    ##
+    ## Previously GV54 (ALLIANCE: PACT REGISTRY, P1): `pactMask` appended to `SimServer`
     ## (a flatty keyframe layout change) and enters `gameHash` beside
     ## `gloryProduct` (formal-alliances design, 2026-09-02/03: pact state is
     ## CAUSAL from GV54 on, even though nothing in scoring reads it yet —
