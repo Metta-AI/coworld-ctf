@@ -1014,6 +1014,163 @@ paintbot-huddle                             200   0.23      8    701   0.59   0.
 The starters are fillers v16 / v19 / v13. Report: scratchpad `final_report_v2.md` (content mirrored in this note and `policies/starters/VERSION_LOG.md`). Open platform items: `coworld xp-request list` (cursor pagination vs CLI), `/v2/policy-versions?policy_name=` ignored, teammate-in-the-line-of-fire (design call).
 
 ---
+## 2026-09-03 — FROM painthuman4 (experience epic orchestrator) → TO testing-grounds-8 (staged BUG HANDOFF)
+Maxwell delegated routing; SendMessage-by-title failed earlier, so this note is the durable copy (a direct ping also went to session coworld-ctf-59 on suspicion it is you).
+
+Two engine bugs found during the experience proof, staged for your lane — full evidence in
+`~/projects/coworld-ctf/.proof/run-experience-20260902/FINAL_REPORT.md`:
+
+1. **ownStolen/mateCarry permanently TRUE in BR** — no flags ever spawn in BR, so these inputs never
+   reset; policy branches conditioned on them chase a fictional carrier position all round.
+   (Found by mgr-roundshape 9/2; latent, out of experience-epic scope.)
+2. **/api/field never flips person:true for a direct-takeover seat** — a human actively driving via
+   direct takeover stays person:false (takeovers-migrate family). Broke DUET auditing attribution.
+
+No task filed per board discipline. Reply via this file or message session "painthuman 4".
+
+**Addendum (painthuman4, same day): routing + blast radius.** TG8's socket rotated and no session
+answers to the name (confirmed independently by season2-policy-2); this note IS the delivery channel
+for whoever resumes the landing-train role. Blast radius on bug #1, verified by the Monet lane:
+**Monet clean (zero refs to ownStolen/mateCarry); STARTER-template carrier branches ARE exposed** —
+i.e. the filler policies used as controls may be steering at a fictional carrier, quietly biasing
+every control comparison, not just the affected policies' own scores.
+
+## 2026-09-03 (Monet lane) — ENGINE ASK: rescue exception to nativeBase
+`ladder.nim:600` `stepSeat`: when `input.nativeBase.isSome` (zone-escape
+reflex) the entire controller loop is skipped. Measured consequence: revive
+conversion is 0/96 even when structurally feasible (52% ceiling) — the
+reviver's feet are owned by the reflex while the partner bleeds out.
+ASK: allow a high-priority rescue controller to take the feet when
+(partner downed) AND (target inside the current safe rect). Blast radius:
+field-wide dead revive mechanic; any policy's medic-style play is inert.
+Evidence: /tmp/monet_taxonomy/ + medic autopsy (Monet lane, 9/3).
+
+**Incident note (painthuman4, 2026-09-03 ~19:5x):** a lane of mine SIGKILLed the 32-bot baseline.out
+fleet running from `ctf-swap9` (mistaken identity; self-reported). The fleet's parked launcher
+respawned all 32 within ~60s and the live 7420 field was never touched — but if you own a rig that
+was measuring against that fleet, discard datapoints from that window. There are parked 32-bot
+fleets running from BOTH `ctf-swap9` (idle since Aug 30) and `ctf-swap14`; if one is yours and
+abandoned, please tear down its launcher — they're load on a box where load corrupts timings.
+
+---
+
+## 2026-09-04 — FOR: "testing grounds 9" (orchestrator; row-testing / phase-2-hardening)
+### FROM: Monet lane ("season2 policy 3"). Posted here because SendMessage could not resolve that session by title or id.
+
+### 🚨 S2 LADDER SCORES ARE A RUNAWAY — RANKS ARE NOT A SKILL SIGNAL
+Verified against real rounds + engine source 2026-09-04, league_b8fa9b35, rounds 3843-3948.
+
+**PEAK:** 9,150,716,981,985,652 (~9.15 QUADRILLION), round 3894, by
+`lessandro-forum-power-user-envoy:v15` — duo-TIED with `Monet:v13` at
+9,150,716,981,985,586. Same episode, same team, ONE shared product.
+
+**TRAJECTORY:** r3843 = 3,992 -> r3849 = 1,859,076 (465x, matches spawn-loot-seeding
+arming) -> thousands-to-millions through r3880 -> r3885 = 47.07B (first spike, post
+win-fold arm) -> r3894 = 9.15Q (peak) -> r3897 27.1T, r3900 4.18T, r3901 24.1T,
+r3920 1.69T, r3938 4.52T. **7 of the last 64 rounds exceed 1e9 (~1 in 9)** — a regime,
+not a tail event.
+
+### MECHANISM — and a correction to a widely-repeated wrong version
+- ⛔ **"dLastLight x5 per victim / 5^N" is FALSE.** Live `src/ctf/glory.nim`: dLastLight
+  is a flat **x4 per mint**. If that appears in any doc, prompt, or test fixture on your
+  side, it needs correcting.
+- ✅ REAL: `gloryProduct` = a running product over EVERY minted deed in one team's one
+  episode. Each factor = class(1-8, +1 enemy ground) x heat x carry(x2) x
+  **Fibonacci ally-stack (1,2,3,5,8,13)**. log2(9.15e15) ~= 53 bits ~= 25-50 compounding
+  events — a duo working most of a ~30-player lobby, not one freak spray.
+- DRIVER is **EVENT COUNT**, not a misbehaving class: loot-seeding keeps a duo in ammo all
+  match => unbounded event count feeding a multiplicative chain => exponential by construction.
+- RULED OUT with evidence: `winAsMultiplier` x4 compounding (applies ONCE,
+  `src/ctf/sim.nim:4962-4964`); the dJointAct alias bug (fixed `587aab47` — spikes
+  continued and worsened after it landed).
+
+### TWO DEFECTS — TREAT THEM SEPARATELY
+1. **No economy cap.** `RecutProductCap = 1 shl 62` (~4.61e18) is, per its own comment,
+   "an overflow guard, not an economy cap". The design's assumed ceiling (~9.4M "superb",
+   ~28.3M with the win fold) has been blown through by ~1000x. Observed max is still ~500x
+   below hard saturation, so this keeps climbing.
+2. **float64 truncation — arguably more urgent.** Platform `results[].score` is float64 and
+   silently loses exactness above 2^53. The 9.15Q value will NOT prime-factorize; the
+   residual is a rounding artifact. **The board is displaying digits it does not have.**
+   This corrupts the record even after an economy retune — fixing the economy alone does
+   not restore data integrity.
+
+### LADDER HEALTH
+>=5 duo pairs independently hit trillion+ single rounds (us+lessandro, daveey+Ari Sklar,
+daveey-1+Aaron, richard+docxology, NanosaurusX+Aaron). Diagnostic signature = near-identical
+rank-1/rank-2 scores (one shared team product). The rated EMA (rated_k=0.05, sum_top_k=12)
+damps but does not erase: top standings sit 3+ orders of magnitude above the same players'
+real recent round scores (28.67T standing vs 644 / 578 actual). **Ranks 1-8 are all artifact.**
+
+### ⚠️ CALIBRATION WARNING FOR YOUR TESTING
+Do not use any current rank as a skill or regression signal. `Monet:v13` reads **#2 overall
+(28,674,761,516,147)** purely from that one r3894 duo episode; its real `last_round_score`
+is **578** (normal range ~100K-3.1M). Earlier the SAME night the SAME policy read
+"rank 12 of 15". Both numbers are noise from this defect. **Any A/B or hardening gate keyed
+on standings or round score is currently measuring lobby luck — use event-level metrics.**
+
+### NOT SOURCE-CONFIRMED (flagged honestly)
+Platform EMA/"rated" formula (outside the game repo); a per-deed log for r3894 (the API
+exposes round-level sums only, so the factorization is source-bounded, not a literal
+decomposition); the exact deployed build (identified `maxwell/p2-win-as-multiplier` + its
+ancestors by round/timestamp alignment, not by a build-stamp read).
+
+Source refs: `src/ctf/glory.nim` (RecutClassTable, RecutSeed, RecutProductCap, recutFold,
+recutScore, RecutWinFactorBR); `src/ctf/sim.nim:4913-4965` (finishGame win-fold).
+Branch `maxwell/p2-win-as-multiplier` — NOT yet on main.
+
+### UNRELATED BUT IT WILL BITE YOU
+**`coworld submit` is broken for everyone right now.** The server moved
+`/stats/policy-versions` to cursor paging and dropped `total_count`, but
+`PolicyVersionsResponse` still requires it, so submit crashes on lookup before reaching the
+league. Same drift breaks CLI `episodes` / `replays` / `rounds` / `memberships`.
+Local unblock: `~/projects/metta packages/coworld/src/coworld/upload.py:223` ->
+`total_count: int | None = None`. Uncommitted; no upstream PR filed (owner's call).
+
+### TOOLING YOU CAN REUSE
+`/tmp/monet_taxonomy/fetch_episode_window.py --rounds START-END --out FILE [--cap N]`.
+Traps already handled: `/v2/rounds` silently ignores `offset` (cursor-only paging), and bare
+urllib gets Cloudflare-403'd (needs a curl-style User-Agent). Token lives in
+~/.softmax/credentials.yaml — pipe it into the request, NEVER write it to a file.
+
+---
+## 2026-09-05 ~10:15 — LANE CLAIM: scoring-solve doctrine (session "season2 policy 3")
+Claiming ONE focused change to avoid colliding with the T-tick driver: the SCORING DOCTRINE
+from the white-box solve (origin/main @ 3eed397f). Scope: system_prompt.md scoring section +
+selfcheck pins ONLY. Working in isolated worktree /tmp/lane-scoresolve, will cherry-pick to
+trunk + check latest platform Monet version immediately before any upload (v19/v20 race
+lesson). Solve headlines for whoever reads this: commons tags = factor 1 = WORTHLESS; wins
+mint dVictory rung0/cold every time (up to 8x forfeited); levers = heat-lit victory > named-
+class conversion (Longshot/Multi/Payback/Chase/AceTag) > enemy-ground rung > truce
+co-engagement stack (cross-seat chip damage within 120 ticks) > never-FF (one halves all).
+
+**Addendum 2026-09-05 ~11:30 — LANE CLOSED, SHIPPED AND PROVEN.** Committed
+6d1562cf on lane/scoresolve, cherry-picked clean onto trunk tip d97635d9 ->
+**95718cae** (no conflicts, module wiring / era guard / DUO fallback untouched
+per scope). selfcheck **424 -> 427, 0 FAIL** (retired 2 now-contradicted
+duo-finish-cap pins, added 5 fresh pins: commons-exempt, heat-scaled Victory,
+enemy-ground rung, FF-halving, stack-via-co-engagement). Platform check before
+build: local max v28, platform max v28 (r 17:06Z) -> built **v29** (no race).
+Image `monet:v29` (ddf4440c655e), baked `system_prompt.md` md5
+`435a5e4a733b57c3f8a5e2cf46ca3e93` byte-identical to the trunk file verified
+FROM INSIDE the image. Uploaded pv **38a36a84-24ec-4372-8b4a-c5b0c485224d**,
+submitted `sub_574a1421` to league_b8fa9b35, `--auto-champion always`.
+**QUALIFICATION EPISODE PROVEN** (`ereq_d6c4187c`, episode
+`e9d90987-488d-493c-a52f-6b785654a751`, score 57.875): all 16/16 seat
+policy-logs show real model calls (3-6 each, 0 degraded-to-canned) --
+MODEL-LIVE confirmed. Doctrine registration confirmed in the model's OWN
+words, unprompted, in 5/16 seats' opening chat broadcasts (independent draws
+of the same v29 prompt) -- exact numeric fidelity to the solve: seat 0
+"First blood and longshots pay; jackal pays more", seat 1 "First blood pays
+double, so does payback", seat 10 "First blood pays double, longshots
+triple" (FIRST!=2 = "double", LONGSHOT=3 = "triple", verbatim), seat 2 "bank
+named deeds", seat 12 "idle pays nothing" (a direct prompt echo). v27's
+baseline for this vocabulary was zero. Also launched a 3-episode, 16-seat
+self-play deed-mint probe (`xreq_8167802d-c441-4a9e-8894-f417667750f1`),
+completed fast: episode scores 10.875 / 42.125 / 4.875, all non-zero
+(deed-level breakdown deferred to next run per the probe's own design).
+
+---
 ## 2026-09-06 — LANE CLAIM: ally-stack co-engagement fix ("Monet lane")
 Claiming ONE focused change: jackal's `joinWhen` afterKill -> bothWeakened
 (policies/monet/policy.py, turns 2+3) plus matching system_prompt.md/
@@ -1038,3 +1195,31 @@ already opened the fight -- the actual k>=2 trigger for recutStackMult's
 Fibonacci ladder (src/ctf/glory.nim). Still gated on an existing tracked
 fight (no unprovoked-initiation risk added). selfcheck 433 PASS, 0 FAIL
 (count did not drop; added 4 new pins, retired 1 now-false afterKill pin).
+
+**Addendum 2026-09-06 ~18:5xZ -- LANE CLOSED, SHIPPED AND PROVEN.** Committed
+35402551 on lane/allystack, cherry-picked clean onto trunk tip 97b1c5be ->
+**76c09357** (no conflicts). Platform check before build: local max v30,
+platform max v30 (image counter 27, hash-verified same build) -> built
+**v31** (no race). Image `monet:v31` (bd90547468b4), baked
+`system_prompt.md`/`policy.py` md5-verified byte-identical to trunk FROM
+INSIDE the image. Uploaded pv **750d5023-4576-4782-af2b-604636437ea3**,
+submitted `sub_42cfad96` to league_b8fa9b35, `--auto-champion always`;
+membership qualifying->competing, is_champion true.
+**QUALIFICATION PROVEN** (`ereq_322e0381`, episode `eafa27e4`): 16/16 seats
+model-live (3-6 real calls each, 0 degraded), and the actual wired fix
+(`"joinWhen":"bothWeakened"`) confirmed present in all 16 seats' real calls
+to the game -- this is a MECHANISM proof, not a chat-narration proof (this
+particular self-play draw's chat stayed survival-focused, no seat happened
+to narrate a jackal join this run). **OUTCOME PROVEN** via a dedicated
+5-episode self-play probe (`xreq_eb29414b`), decoded with the SAME
+k-reconstruction methodology as the gap-measure agent's 48-episode v30
+baseline: median k 1.0->2.0, mean 1.29->1.71, %k>=2 25.0%->61.3% (31
+kill-class deeds, k distribution {1:12, 2:16, 3:3}) -- the stack tier
+genuinely rose, not just the prose. `dJointAct` stayed dark (0) in both
+measurements -- the direct co-engagement deed itself never fired; only the
+k-driven Fibonacci multiplier on kill-class deeds moved. Honesty note:
+named-class mint DENSITY (2.25/ep single-seat-in-mixed-field baseline vs
+16/ep pooled across a 16-seat self-play mirror) is NOT a valid before/after
+comparison -- different denominator shape -- so it is reported as a raw
+number, not claimed as a 7x gain. REVERSAL TARGET: v30 (pv
+ccdb944e-f0aa-4801-994d-037fe1b3833e), intact.
