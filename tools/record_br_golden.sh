@@ -36,7 +36,12 @@ uptime || true
 
 echo "== building bin/ctf-server + players/baseline/baseline.out from HEAD =="
 mkdir -p bin
-nim c -d:release -d:useMalloc --opt:speed --stackTrace:on --hints:off \
+# -d:noSignalHandler --threads:on: src/shell/runtime.nim {.error.}s at
+# compile time without BOTH -- server.nim reaches it through shell/episode
+# and sits inside src/ctf.nim's import graph. Same stale-flag fix as
+# record_all_fixtures.sh; see its comment and build.yml.
+nim c -d:release -d:useMalloc -d:noSignalHandler --threads:on \
+  --opt:speed --stackTrace:on --hints:off \
   --out:bin/ctf-server src/ctf.nim
 nim c -d:release -d:useMalloc -d:buildDefines="-d:release -d:useMalloc" \
   --opt:speed --stackTrace:on --hints:off \
@@ -48,7 +53,8 @@ LOG="$LOG" BOTLOG="$BOTLOG" PORT="$PORT" \
   tools/record_br_match.sh "$OUT" "$MAPSPEC" "$SEED" "$MAXTICKS"
 
 echo "== verifying the recorded properties (compiles + runs the real suite) =="
-nim c -d:release --hints:off -o:/tmp/br_golden_verify_$$ tests/test_br_golden_e2e.nim
+nim c -d:release --hints:off -d:noSignalHandler --threads:on \
+  -o:/tmp/br_golden_verify_$$ tests/test_br_golden_e2e.nim
 VERIFY_STATUS=0
 /tmp/br_golden_verify_$$ || VERIFY_STATUS=$?
 rm -f "/tmp/br_golden_verify_$$"

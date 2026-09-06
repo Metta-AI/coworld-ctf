@@ -37,7 +37,16 @@ uptime || true
 
 echo "== building bin/ctf-server + players/baseline/baseline.out from HEAD =="
 mkdir -p bin
-nim c -d:release -d:useMalloc --opt:speed --stackTrace:on --hints:off \
+# -d:noSignalHandler --threads:on: src/shell/runtime.nim {.error.}s at
+# compile time without BOTH (the epoch ticker needs threads; noSignalHandler
+# is a hard production requirement, not a CI nicety -- runtime.nim's own
+# comment). server.nim reaches shell/runtime through shell/episode since
+# af8158f5, and server.nim is inside src/ctf.nim's import graph, so this
+# build has needed the pair ever since -- see .github/workflows/build.yml,
+# which already carries it. This script did not, and failed outright on the
+# first GameVersion bump that tried to use it (GV55).
+nim c -d:release -d:useMalloc -d:noSignalHandler --threads:on \
+  --opt:speed --stackTrace:on --hints:off \
   --out:bin/ctf-server src/ctf.nim
 nim c -d:release -d:useMalloc -d:buildDefines="-d:release -d:useMalloc" \
   --opt:speed --stackTrace:on --hints:off \
