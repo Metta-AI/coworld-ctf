@@ -3690,7 +3690,22 @@ type
     ## One short player message, audible within ShoutRange of where it was
     ## made. Bots observe shouts, so they are gameplay state (in gameHash)
     ## and replays re-apply the recorded chat records that produced them.
-    address*: string           ## the shouter, by player address.
+    address*: string           ## the shouter, by player address. SUBSTRATE
+                               ## NOTE (solo comms, 2026-09-05): this is the
+                               ## one field the server can resolve to a
+                               ## SPECIFIC live player unambiguously in every
+                               ## roster shape, including 16-solo BR where
+                               ## `team` alone already carries full per-seat
+                               ## identity (16 distinct colors, one seat
+                               ## each — see verify_br_solo16.nim) and does
+                               ## NOT need address for that. A future
+                               ## alliance/pact system attributing a mutual
+                               ## ALLY declaration to its speaker should key
+                               ## off THIS field server-side, the same way
+                               ## `shoutIdentityName` (roster.nim) already
+                               ## does — never off anything surfaced to a
+                               ## rival's perception (labelShout deliberately
+                               ## strips it; see that proc's own doc).
     team*: Team
     text*: string              ## sanitized, at most ShoutMaxChars.
     tick*: int                 ## when it was shouted.
