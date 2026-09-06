@@ -56,11 +56,16 @@ const
     ## that survives initialization and stepping (PM ruling, 2026-08-30),
     ## never a header rewrite.
   GameVersion* = "54"
-    ## GV54 (ALLIANCE: PACT REGISTRY, P1): `pactMask`/`pactOfferTick` appended
-    ## to `SimServer` (a flatty keyframe layout change) and both enter
-    ## `gameHash` beside `gloryProduct` (formal-alliances design,
-    ## 2026-09-02/03: pact state is CAUSAL from GV54 on, even though nothing
-    ## in scoring reads it yet — P1 is a dark REGISTRY, not dark STATE). The
+    ## GV54 (ALLIANCE: PACT REGISTRY, P1): `pactMask` appended to `SimServer`
+    ## (a flatty keyframe layout change) and enters `gameHash` beside
+    ## `gloryProduct` (formal-alliances design, 2026-09-02/03: pact state is
+    ## CAUSAL from GV54 on, even though nothing in scoring reads it yet —
+    ## P1 is a dark REGISTRY, not dark STATE). A companion per-(i,j)
+    ## offer-tick table was drafted alongside it for P2's future use and
+    ## dropped before landing: it tipped `SimServer` over the wasm32 static
+    ## viewer's stack budget and crashed replay loading outright (see
+    ## `pactMask`'s own field comment) -- P2 pays its own GV bump to add it
+    ## back once it is actually needed. The
     ## allowlist drops GV53 because it never shipped on `main` (claimed by
     ## an open, unmerged PR at the time this landed -- AGENTS.md's
     ## cross-branch GameVersion-claim rule: `main` had only spent through
@@ -1952,7 +1957,7 @@ type
     # flatty-positional, so appending here needs no GameVersion bump on its
     # own (see `control`'s own comment just above for the same reasoning).
     # The GV54 bump this arc DOES carry is entirely for the DERIVED
-    # `pactMask`/`pactOfferTick` state on `SimServer`, not for this list.
+    # `pactMask` state on `SimServer`, not for this list.
     allies*: seq[string]      ## Other seats' `name` this seat proposes a
                                ## pact with pre-match. Resolved and
                                ## MUTUALITY-checked once at game start
@@ -4180,13 +4185,25 @@ type
     # ── ALLIANCE P1: the pact REGISTRY (formal-alliances design,
     # 2026-09-02/03) ── appended at the END of the ledger block per this
     # file's own flatty-positional rule (GameVersion 54 bump covers the
-    # layout move). DARK: nothing in scoring reads either field yet -- no
+    # layout move). DARK: nothing in scoring reads this field yet -- no
     # glory pricing, no perception change, no behavior branches on a pact.
-    # Both are still CAUSAL (hashed, beside gloryProduct — sim_state.nim)
-    # because a pact's existence is a fact about the match, not a cosmetic:
-    # a replay that silently dropped a mutual pact mid-game would re-play a
+    # Still CAUSAL (hashed, beside gloryProduct — sim_state.nim) because a
+    # pact's existence is a fact about the match, not a cosmetic: a replay
+    # that silently dropped a mutual pact mid-game would re-play a
     # DIFFERENT episode of P2's future declaration/dissolution surface
     # without the hash ever objecting.
+    #
+    # NOTE: an earlier draft of this field also carried a per-(i,j) offer-
+    # tick table (`pactOfferTick: array[Team, array[Team, int]]`, 512 bytes
+    # native / 256 wasm32) reserved for P2's shout-based declaration
+    # protocol. Dropped before landing: it tipped `SimServer` (already one
+    # of the largest objects in the engine) over the wasm32 build's fixed
+    # stack budget, and every replay -- including ones with no alliance
+    # config at all -- crashed the STATIC VIEWER with a raw wasm trap
+    # ("memory access out of bounds") at load, before a single Nim
+    # exception handler ever ran. P2 pays its own GameVersion bump to add
+    # it back once the declaration protocol actually needs it; P1 needing
+    # none is not worth this class of failure.
     pactMask*: array[Team, uint16]    ## ALLIANCE: bit j of row i set means
                                ## team i and team j hold a mutual pact.
                                ## SYMMETRIC by construction — every mutation
@@ -4200,18 +4217,6 @@ type
                                ## either damages the other (absorbDamage) or
                                ## either seat dies (killPlayer) — P1 has no
                                ## other writer.
-    pactOfferTick*: array[Team, array[Team, int]]  ## ALLIANCE: tick team i
-                               ## last proposed a pact to team j, -1 = never
-                               ## offered. UNUSED in P1 (no declaration
-                               ## protocol exists yet — the config seed
-                               ## below registers a pact directly, never
-                               ## through an "offer"); reserved now so the
-                               ## P2 shout-based ALLY/dissolve protocol
-                               ## (the same ledger's 25:3x design) adds no
-                               ## further GameVersion-bumping layout move.
-                               ## Reset to -1 for every (i, j) each game,
-                               ## same as every other per-game ledger field
-                               ## above.
     heatEmbers*: array[Team, int]     ## GLORY: rampage embers -> the heat
                                       ## multiplier.
     heatLastDeed*: array[Team, int]   ## GLORY: tick of the team's latest

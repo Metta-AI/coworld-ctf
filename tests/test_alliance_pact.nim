@@ -1,6 +1,6 @@
 ## ALLIANCE P1: the pact REGISTRY (formal-alliances design, 2026-09-02/03,
-## GameVersion 54). Dark by design -- nothing in scoring reads `pactMask`/
-## `pactOfferTick` yet, so these tests pin STATE/PLUMBING correctness
+## GameVersion 54). Dark by design -- nothing in scoring reads `pactMask`
+## yet, so these tests pin STATE/PLUMBING correctness
 ## (symmetry, config seeding + mutuality, dissolution, hash inclusion, and
 ## zero behavioral drift), never a glory number. See sim_types.nim's
 ## `pactMask`/`allies` field comments and sim_state.nim's

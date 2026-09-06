@@ -926,15 +926,13 @@ proc resetGloryLedger*(sim: var SimServer) =
     sim.teamKillRing[team] = @[]
     for key in 0 ..< sim.claimed[team].len:
       sim.claimed[team][key] = false
-    # ALLIANCE P1: a new game never inherits a pact (or an in-flight offer)
-    # a previous game's damage/death dissolved — or one it never had. Direct
-    # zero-write here is fine (not through dissolvePact): both sides of
-    # every mirrored bit are zeroed in this same team-indexed loop, so the
-    # symmetry invariant holds once the whole loop finishes, same as
-    # `teamKillRing`/`claimed` above zeroing straight into the array.
+    # ALLIANCE P1: a new game never inherits a pact a previous game's
+    # damage/death dissolved — or one it never had. Direct zero-write here
+    # is fine (not through dissolvePact): both sides of every mirrored bit
+    # are zeroed in this same team-indexed loop, so the symmetry invariant
+    # holds once the whole loop finishes, same as `teamKillRing`/`claimed`
+    # above zeroing straight into the array.
     sim.pactMask[team] = 0
-    for other in sim.teams():
-      sim.pactOfferTick[team][other] = -1
   for key in 0 ..< sim.claimedFirst.len:
     sim.claimedFirst[key] = false
   for deed in Deed:

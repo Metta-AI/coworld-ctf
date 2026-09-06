@@ -491,15 +491,13 @@ proc gameHash*(sim: SimServer): uint64 =
   # ALLIANCE P1 (formal-alliances design, 2026-09-02/03, GameVersion 54):
   # the pact registry. Unconditional (not flag-gated) — unlike the recut
   # pair above, there is no "armed" switch for the registry itself, only
-  # whether any config seeds a pact; an all-zero mask/offer table hashes to
-  # the same bytes on every config, seeded or not, so this costs nothing on
-  # a game that never configures `allies`. Dark for SCORING (nothing reads
-  # these to price anything yet) but CAUSAL for REPLAY (a pact forming or
-  # dissolving is a fact about the match a recording must reproduce).
+  # whether any config seeds a pact; an all-zero mask hashes to the same
+  # bytes on every config, seeded or not, so this costs nothing on a game
+  # that never configures `allies`. Dark for SCORING (nothing reads this to
+  # price anything yet) but CAUSAL for REPLAY (a pact forming or dissolving
+  # is a fact about the match a recording must reproduce).
   for team in sim.teams():
     result.mixHashInt(int(sim.pactMask[team]))
-    for other in sim.teams():
-      result.mixHashInt(sim.pactOfferTick[team][other])
   # DROP(s2): the ground-drop state and the per-cog chord counter. Mixed ONLY
   # when the mechanic is armed, so a dropItem-off replay's hash schema and
   # trajectory are byte-identical to a build without these fields — the same
