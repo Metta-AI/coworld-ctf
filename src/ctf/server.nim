@@ -5242,6 +5242,28 @@ proc runServerLoop*(
             if sim.declareHandoff(declared.playerIndex, declared.item):
               replayWriter.writeHandoffDeclaration(
                 tickTime(sim.tickCount), declared.playerIndex, declared.item)
+          # ALLIANCE (engine registration rewire, GameVersion 56): the
+          # `pact` play's own declaration drain, same shape as the handoff
+          # drain just above and for the same reason — the sim's own
+          # currently-declared partner mask IS the dedupe (a standing
+          # `pact` call restates its partners every tick; only a CHANGE is
+          # worth a record), so an accepted declaration writes ONE replay
+          # record and a refused one (wrong phase, dead/downed seat) writes
+          # nothing and retries while the call stands. declarePactPartners
+          # is the single predicate this path and playback consult, so the
+          # file can never claim a declaration the sim refused, nor omit
+          # one it took.
+          for declared in firstLight.pactDeclarations:
+            if declared.playerIndex < 0 or
+                declared.playerIndex >= sim.players.len:
+              continue
+            if sim.pactDeclaredPartners[declared.playerIndex] ==
+                pactPartnersMask(declared.partners):
+              continue
+            if sim.declarePactPartners(declared.playerIndex, declared.partners):
+              replayWriter.writePactDeclaration(
+                tickTime(sim.tickCount), declared.playerIndex,
+                declared.partners)
         # ---- direct aim: point the turret, THEN run the tick ------------
         # The one write that makes a human's aim absolute instead of a
         # traverse. Re-derived per STEP, not per frame: at >1x the frame runs

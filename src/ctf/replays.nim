@@ -346,6 +346,28 @@ const
     ## (flag or cogIndex) and `message` is the declared item — "gun",
     ## "hopper", "bandage", or "" for an explicit clear.
 
+  # --- The PACT DECLARATION record (ALLIANCE, engine registration
+  # rewire, GameVersion 56, the `pact` WASM play's own registration seam).
+  # Same road as the handoff record above, and for the same reason: like a
+  # handoff declaration, this is an out-of-band input the WASM ladder
+  # never re-runs on playback (initFirstLightPlaybackEpisode keeps no
+  # ladder, no SeatBody, no guest wasm — see that proc's own comment), so
+  # an accepted declaration must be RECORDED and re-applied directly
+  # rather than re-derived from replaying the call. It moves state
+  # `pactMask` reads (though `pactDeclaredPartners` itself stays out of
+  # `gameHash` — see that field's own comment), so a replay that dropped
+  # this record would re-simulate a match where a (dis)pact never
+  # happened. The player byte's two "record kind" bits (reflash 0x80 =
+  # 10, handoff 0xc0 = 11, plain chat = 00) leave exactly one combination
+  # unused — 0x40 = 01 — which this record claims, so all four tenants of
+  # the stream (plain chat, reflash, handoff, pact declaration) coexist
+  # without collision.
+  ReplayPactDeclarationRecordFlag* = 0x40'u8
+    ## Marks a CHAT record as a `pact` play partner declaration: `player`
+    ## is (flag or cogIndex) and `message` is the declared partner TEAMS,
+    ## comma-joined lowercase team names in enum order (e.g. "blue,green"),
+    ## or "" for an explicit clear (no active `pact` entry this tick).
+
 proc isPolicyPageRecord*(chat: ReplayChat): bool =
   ## True when a chat record carries a flashed policy page, not a shout.
   ## Checked on BOTH high bits: a handoff declaration record (0xc0) also
@@ -372,6 +394,34 @@ proc decodeHandoffDeclarationRecord*(chat: ReplayChat): string =
   if result.len > 0 and result != "gun" and result != "hopper" and
       result != "bandage":
     raise newException(ReplayError, "Replay handoff record item is unknown")
+
+proc isPactDeclarationRecord*(chat: ReplayChat): bool =
+  ## True when a chat record carries a `pact` play partner declaration.
+  (chat.player and ReplayHandoffRecordFlag) == ReplayPactDeclarationRecordFlag
+
+proc pactDeclarationRecordPlayer*(chat: ReplayChat): int =
+  ## The cog index a pact declaration record addresses.
+  int(chat.player and ReplayReflashPlayerMask)
+
+proc decodePactDeclarationRecord*(chat: ReplayChat): seq[Team] =
+  ## The declared partner teams a pact record carries — a comma-joined
+  ## lowercase team-name list, or "" for an explicit clear (empty result).
+  ## Raises ReplayError on any name outside `teamText`'s closed vocabulary:
+  ## an unknown team would re-simulate to a refused declaration and let the
+  ## hash chain report the divergence at a tick that explains nothing —
+  ## failing HERE names the bad record instead.
+  if chat.message.len == 0:
+    return
+  for part in chat.message.split(','):
+    var found = false
+    for team in Team:
+      if teamText(team) == part:
+        result.add team
+        found = true
+        break
+    if not found:
+      raise newException(ReplayError,
+        "Replay pact declaration record names an unknown team")
 
 proc policyPageRecordPlayer*(chat: ReplayChat): int =
   ## The cog index a reflash record addresses.
@@ -466,6 +516,33 @@ proc writeHandoffDeclaration*(
     time,
     int(uint8(playerIndex) or ReplayHandoffRecordFlag),
     item
+  )
+
+proc writePactDeclaration*(
+  replayWriter: var CtfReplayWriter,
+  time: uint32,
+  playerIndex: int,
+  partners: openArray[Team]
+) =
+  ## Writes one replay event for a `pact` play partner declaration the sim
+  ## JUST accepted (sim.declarePactPartners returned true) — an empty
+  ## `partners` is an accepted explicit clear. Same home and same
+  ## discipline as writeHandoffDeclaration above: callers record ONLY what
+  ## the consent seam accepted, stamped with the tick it was accepted on,
+  ## so the file can never claim a declaration the sim refused nor omit
+  ## one it took. The unaddressable-cog doAssert carries
+  ## writeHandoffDeclaration's argument verbatim: the declaration is
+  ## already applied, so returning quietly here would leave an
+  ## applied-but-unrecorded input.
+  doAssert playerIndex >= 0 and playerIndex <= int(ReplayReflashPlayerMask),
+    "Cog index " & $playerIndex & " cannot be addressed by a pact record"
+  var names: seq[string]
+  for team in partners:
+    names.add teamText(team)
+  replayWriter.writeChat(
+    time,
+    int(uint8(playerIndex) or ReplayPactDeclarationRecordFlag),
+    names.join(",")
   )
 
 proc openReplayWriter*(
@@ -912,6 +989,31 @@ proc applyReplayEvents(replay: var ReplayPlayer, sim: var SimServer) =
         raise newException(
           ReplayError,
           "Replay policy page flash was refused at tick " & $sim.tickCount
+        )
+    elif chat.isPactDeclarationRecord():
+      # THE SWAP, pact-declaration edition, at the identical tick boundary
+      # the live server made it: the server's shell hook declares (and
+      # records) in the same pre-step block that hands the play seats'
+      # masks over, so the declaration is live for exactly the same first
+      # channel tick on both sides. Checked BEFORE the reflash/handoff
+      # predicates would even matter here: a pact record carries neither
+      # of their bit patterns, so ordering against them is not load-
+      # bearing, only against the plain-shout fallthrough below.
+      #
+      # A refusal here is fatal on purpose, on writeHandoffDeclaration's
+      # own argument: declarePactPartners's acceptance rule reads only the
+      # phase and the seat's upright life — both of which the recording
+      # already satisfied — so a `false` means the replay and the build
+      # disagree about what the channel even is. Swallowing it would
+      # resume the match without the declaration and let the hash chain
+      # report the divergence at the mutuality tick, a place that explains
+      # nothing.
+      let partners = chat.decodePactDeclarationRecord()
+      if not sim.declarePactPartners(chat.pactDeclarationRecordPlayer(),
+          partners):
+        raise newException(
+          ReplayError,
+          "Replay pact declaration was refused at tick " & $sim.tickCount
         )
     # Paintball CONTROL records (register / directive / fallback /
     # budget_guard / result) ride the chat stream as JSON objects and are
