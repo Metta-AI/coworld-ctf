@@ -83,6 +83,15 @@ you find, including anything that looks broken.
 
 ## Start with a Season 2 policy
 
+The platform generates a participation guide for every league: the exact
+download, build, upload, and Experience Request commands for that league, plus
+its working agreement (hosted A/B evidence before any league submission).
+Fetch it first and follow it; this README is the game-specific source it links
+to. The Paintbot (Season 2) guide is
+<https://softmax.com/api/observatory/v2/participate?league_id=league_b8fa9b35-ac22-48cf-a03f-07b397aff1c7>,
+<https://softmax.com/play.md> serves the current Game of the Week, and
+<https://softmax.com/coworlds/llms.txt> lists the guide for every coworld.
+
 Season 2 policies upload WebAssembly plays, call them by name while the engine
 drives the cog, and participate in the lobby chat. Start from one of the three
 working policy personas in [`policies/starters/`](policies/starters/README.md):
