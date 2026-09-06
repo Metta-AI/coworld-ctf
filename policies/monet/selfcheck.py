@@ -1150,9 +1150,22 @@ def fs_inferior(our_guns: int, their_guns: int, break_deficit: int) -> bool:
 
 mid_fs = next(e for e in PERSONA.canned_turns[2]["call"]["entries"]
               if e["play"] == "fire_superiority")
+mid_jk = next((e for e in PERSONA.canned_turns[2]["call"]["entries"]
+               if e["play"] == "jackal"), None)
 _endgame_wp = endgame_fs["params"]["woundedPct"]
 _endgame_bd = endgame_fs["params"]["breakDeficit"]
 _mid_wp = mid_fs["params"]["woundedPct"]
+
+# v16 ALLY-STACK FIX, mid-turn half of the pair (consolidation's pin sits
+# above, with the full measured rationale) -- mid carries the widest
+# earshot window (v10, re-armed 450->550) so it gets the most fight-loiter
+# time of any turn; the same afterKill->bothWeakened join-timing fix
+# applies here.
+if mid_jk is not None:
+    check("turn 3 (mid): jackal ARMED to joinWhen=bothWeakened (v16 "
+          "ally-stack fix, same as consolidation)",
+          mid_jk["params"].get("joinWhen") == "bothWeakened",
+          str(mid_jk["params"]))
 
 check("endgame: a tied, fully-healthy 1v1 now PRESSES (was: hold at cover)",
       fs_superior(1, 1, 0, _endgame_wp), f"woundedPct={_endgame_wp}")
@@ -1215,10 +1228,22 @@ if consolidation_fs is not None:
           consolidation_fs["params"].get("breakDeficit") == 2,
           str(consolidation_fs["params"]))
 if consolidation_jk is not None:
-    check("turn 2: jackal keeps joinWhen=afterKill (it still cannot claim "
-          "dFirstBlood -- it only cleans up a fight fire_superiority or "
-          "the enemy already opened, so it adds no early solo-hunt risk)",
-          consolidation_jk["params"].get("joinWhen") == "afterKill",
+    # v16 ALLY-STACK FIX RETIRES this pin's afterKill claim (2026-09-06,
+    # measured): a 6-episode decode of the live v30 build showed named-deed
+    # mints flat at 0-2/episode -- the v29 co-engagement prose registered
+    # in the model's own reasoning but never moved a mint, because
+    # afterKill (per play_sdk/reference/jackal.nim) only joins once the
+    # ORIGINAL fight's kill has already landed, so our tag falls on a
+    # fresh, uncontested survivor (k=1, stack x1) every time. The
+    # dFirstBlood/solo-hunt-risk rationale below still holds -- bothWeakened
+    # is equally gated on an existing tracked fight -- but the join TIMING
+    # changes from after-the-kill to during-the-exchange, which is the
+    # actual k>=2 co-engagement trigger.
+    check("turn 2: jackal ARMED to joinWhen=bothWeakened (v16 ally-stack "
+          "fix -- joins WHILE the target still reads weakened by someone "
+          "else's fire, landing inside the SAME 120-tick window, instead "
+          "of after the fight is already decided)",
+          consolidation_jk["params"].get("joinWhen") == "bothWeakened",
           str(consolidation_jk["params"]))
 check("turn 1 (opening): still NO press-capable controller (deliberately "
       "scoped -- the very first window is politics + loot only; the "
@@ -1632,6 +1657,31 @@ check("prompt: NEGATIVE -- does not claim finishing duos is unlimited "
       "volume, not one big finish" not in prompt
       and "working through fights beats holding out" not in prompt,
       "stale unlimited-duo-finish text found in prompt")
+
+# ── v16 ALLY-STACK FIX (2026-09-06): the SCORING-SOLVE prose above already
+# claimed the co-engagement mechanism but was WIRED WRONG (jackal's
+# joinWhen sat at afterKill, see the consolidation/mid pins above) -- a
+# 6-episode decode of the live v30 build showed named-deed mints flat at
+# 0-2/episode, proving the prose alone never moved behavior. This pin
+# checks that the prompt's join-timing claim now matches the ACTUAL wired
+# param (bothWeakened), not just the stack-payout claim already pinned
+# above -- "assert against the source, not the prose".
+check("prompt: jackal doctrine states the join-TIMING mechanism (join "
+      "while still weakened/live, not after the kill) -- matches the "
+      "joinWhen=bothWeakened param pinned above, not the retired "
+      "afterKill wiring",
+      "fresh, uncontested survivor" in prompt
+      and "join WHILE the target still reads weakened" in prompt,
+      "jackal join-timing text not found")
+for _i, _turn in enumerate(PERSONA.canned_turns, start=1):
+    _jk = next((e for e in _turn["call"]["entries"] if e["play"] == "jackal"),
+               None)
+    if _jk is not None:
+        check(f"turn {_i}: jackal doctrine/param AGREE -- prompt claims "
+              "bothWeakened-style co-engagement and the wired entry is "
+              "not left on the retired afterKill value",
+              _jk["params"].get("joinWhen") != "afterKill",
+              str(_jk["params"]))
 
 # ── bedrock escape hatch (live incident 2026-09-03): the sidecar's
 # OpenAI-compatible / OpenRouter lane returned pooled-key 503s and both v10

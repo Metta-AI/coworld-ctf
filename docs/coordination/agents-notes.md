@@ -1012,3 +1012,29 @@ paintbot-huddle                             200   0.23      8    701   0.59   0.
 ```
 
 The starters are fillers v16 / v19 / v13. Report: scratchpad `final_report_v2.md` (content mirrored in this note and `policies/starters/VERSION_LOG.md`). Open platform items: `coworld xp-request list` (cursor pagination vs CLI), `/v2/policy-versions?policy_name=` ignored, teammate-in-the-line-of-fire (design call).
+
+---
+## 2026-09-06 — LANE CLAIM: ally-stack co-engagement fix ("Monet lane")
+Claiming ONE focused change: jackal's `joinWhen` afterKill -> bothWeakened
+(policies/monet/policy.py, turns 2+3) plus matching system_prompt.md/
+selfcheck.py updates. Working in isolated worktree /tmp/lane-allystack off
+maxwell/s2-monet @ 97b1c5be (branch lane/allystack), hourly loop paused so
+no collision expected; will cherry-pick to trunk and check platform max
+version immediately before any build/upload.
+
+**Why**: measured (6-episode decode of the live v30 build) named-deed
+mints flat at 0-2/episode, same as the pre-solve v27 baseline -- v29's
+co-engagement PROSE registered in the model's own reasoning (chat lines
+echoed it verbatim) but never moved a mint, because a deed's class is
+engine-determined by the kill's circumstances, not declarable in chat.
+Root cause, verified against play_sdk/reference/jackal.nim source:
+joinWhen=afterKill only joins once the ORIGINAL fight's kill has already
+landed, so our tag falls on a fresh, uncontested survivor (k=1, stack x1)
+every time -- the prose said "arrive after a fight starts, tag the
+weakened" but the wired param said the opposite. Switched to bothWeakened:
+joins WHILE every tracked seat near the candidate still reads weakened,
+landing our hit inside the SAME 120-tick incident window as whoever
+already opened the fight -- the actual k>=2 trigger for recutStackMult's
+Fibonacci ladder (src/ctf/glory.nim). Still gated on an existing tracked
+fight (no unprovoked-initiation risk added). selfcheck 433 PASS, 0 FAIL
+(count did not drop; added 4 new pins, retired 1 now-false afterKill pin).

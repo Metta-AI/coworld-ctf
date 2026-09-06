@@ -651,13 +651,19 @@ PERSONA = Persona(
                   "ring_walker, above every fight rung: you cannot revive "
                   "if the ring kills you, and no tag outranks a pickup "
                   "that can still land."),
-        "jackal": ("jackal is your signature tag source: join after the "
-                   "first tag lands and stay for TWO -- clustered tags in "
-                   "one fight multiply the glory (x2, x4, x8 as the streak "
-                   "climbs); scattered pokes never do. Leave when the "
-                   "second tag banks or your hp says the streak is over. "
-                   "The feed only says a fight HAPPENED, not where; move "
-                   "on fights your own tracks can place."),
+        "jackal": ("jackal is your signature tag source, wired to join "
+                   "WHILE the fight is still live (joinWhen bothWeakened): "
+                   "it loiters at earshot until every tracked seat near "
+                   "the target reads weakened, then joins -- your hit "
+                   "lands inside the SAME 120-tick window as whoever "
+                   "already opened the fight, which is the actual "
+                   "co-engagement trigger for the Fibonacci stack, not "
+                   "just a chat line about it. Stay for TWO -- clustered "
+                   "tags in one fight multiply the glory (x2, x4, x8 as "
+                   "the streak climbs); scattered pokes never do. Leave "
+                   "when the second tag banks or your hp says the streak "
+                   "is over. The feed only says a fight HAPPENED, not "
+                   "where; move on fights your own tracks can place."),
     },
     canned_turns=[
         {
@@ -732,7 +738,8 @@ PERSONA = Persona(
             # dFirstBlood, but an early second/third tag in a fight fire_
             # superiority (or the enemy) already opened is still an early
             # dClosingTime candidate, and jackal never initiates on its
-            # own (afterKill-only trigger) so it adds no early-game risk of
+            # own -- both its afterKill and bothWeakened triggers require
+            # an existing tracked fight, so it adds no early-game risk of
             # its own beyond what a fight already in progress carries.
             "chat": "Holding the truce. We rotate with cover, press what "
                     "we can finish, and bank every life.",
@@ -829,9 +836,32 @@ PERSONA = Persona(
                             "peelHp": 3}},
                 {"play": "jackal", "entry_id": "third",
                  # v11 EARLY CREDIT STACK: rides with fire_superiority above
-                 # (see that entry's comment) -- same mid-turn params, no
-                 # earlier license to hunt alone (joinWhen stays afterKill).
-                 "params": {"earshot": 550, "joinWhen": "afterKill",
+                 # (see that entry's comment) -- same mid-turn params.
+                 # v16 ALLY-STACK FIX (measured 2026-09-06, 6-episode v30
+                 # decode): named-deed mints sat at 0-2/episode, flat vs the
+                 # v27 baseline -- v29's prose doctrine (co-engagement,
+                 # Fibonacci stack) registered in the model's OWN reasoning
+                 # but never moved a mint, because a deed's class is
+                 # ENGINE-DETERMINED by the circumstances of the kill, not
+                 # declarable in chat. joinWhen=afterKill is the actual
+                 # culprit: per play_sdk/reference/jackal.nim's jwAfterKill
+                 # branch, it only joins once `freshKill` fires nearby --
+                 # by then the original damager's target is dead and the
+                 # survivor is a FRESH, uncontested seat, so our tag lands
+                 # solo (k=1, stack x1) no matter how the prompt narrates
+                 # "arrive after a fight starts, tag the weakened". Switched
+                 # to bothWeakened (jwBothWeakened branch): joins the moment
+                 # every known-hp track near the candidate reads weakened,
+                 # i.e. WHILE the fight is still trading damage -- our hit
+                 # lands inside the SAME 120-tick incident window as
+                 # whoever already opened it, which is the literal k>=2
+                 # co-engagement trigger for the Fibonacci stack
+                 # (recutStackMult, src/ctf/glory.nim). Still gated on an
+                 # existing fight in progress (candidate.found required),
+                 # so this adds no unprovoked-initiation risk beyond what
+                 # afterKill already carried -- it only moves WHEN inside
+                 # that fight we join, not whether we hunt alone.
+                 "params": {"earshot": 550, "joinWhen": "bothWeakened",
                             "exitAfter": {"kills": 2}}},
                 {"play": "supply_run", "entry_id": "bank",
                  "params": {"whenHpBelow": 3, "detourMax": 350,
@@ -902,7 +932,11 @@ PERSONA = Persona(
                  # loiter, it does not touch exitAfter's 2-kill leash or ask
                  # us to fight outgunned, so unlike breakDeficit it does not
                  # trade away win probability to get there.
-                 "params": {"earshot": 550, "joinWhen": "afterKill",
+                 # v16 ALLY-STACK FIX: joinWhen afterKill->bothWeakened,
+                 # same measured rationale as the consolidation turn's
+                 # jackal entry above -- this is the OTHER turn that gets
+                 # the most fight-loiter time, so it carries the same fix.
+                 "params": {"earshot": 550, "joinWhen": "bothWeakened",
                             "exitAfter": {"kills": 2}}},
                 {"play": "supply_run", "entry_id": "bank",
                  "params": {"whenHpBelow": 3, "detourMax": 250,

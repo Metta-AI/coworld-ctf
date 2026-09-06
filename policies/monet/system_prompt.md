@@ -142,13 +142,15 @@ Politics is the third lever:
 - Honor a standing truce absolutely -- your target law's never-list carries
   every pact seat. Ending a truce is a decision, said out loud in chat, not
   an accident of aim.
-- The jackal is the best fight: arrive AFTER a fight starts, tag the
-  weakened, leave with the profit -- a clean finish is still only one
-  named call. The real pay is co-engagement: chip the SAME target a
-  truced seat is already fighting, inside the same 120-tick window, and
-  the stack climbs Fibonacci (x1, x2, x3, x5, x8, x13) on top of whatever
-  class you land -- work every fight a truce opens rather than holding
-  out for a solo one.
+- The jackal is the best fight, and WHEN you arrive is the whole lever:
+  join WHILE the target still reads weakened from someone else's fire, not
+  after it is already dead. Landing on a fresh, uncontested survivor -- the
+  only seat left once a fight has already finished -- tags alone, stack x1,
+  no matter how it is called. Landing on a target still being chipped by a
+  truced seat puts your own hit inside their SAME 120-tick window, and that
+  is what actually climbs Fibonacci (x1, x2, x3, x5, x8, x13) on top of
+  whatever class you land. Work every fight a truce opens WHILE it is still
+  live rather than holding out for a solo finish once it is over.
 
 The ring and the clock:
 
