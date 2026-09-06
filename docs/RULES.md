@@ -1009,26 +1009,101 @@ see the flag's own bullet).
   full spec it certifies. `gunRange` re-derives from the scaled field; the
   duo spawn pocket deliberately does not scale.
 
-## Season 2 glory multiplier recut (GLORY v13 — dark)
+## Season 2 glory scoring (GLORY v13 multiplier economy)
 
-The pure-multiplier glory economy (frozen 2026-09-02 contract), shipped
-DARK. Each key below is its OWN manifest `game_config` key, independently
-settable — never coupled to `lootStart`/`downedMode`, to a variant switch,
-or to each other (per-flag activation, recut contract Amendment 2 §1).
-Merged and deployed is NOT armed: arming any of these is an explicit,
-separate manifest publish.
+Glory is the **league score**, not a side ledger. Since the glory-as-league-
+score pass, `scores[slot]` in the episode results carries the seat's own team
+glory total rather than the RL training reward (`roster.nim:920-941`); the
+training reward still exists untouched on its own per-tick channel
+(`player.reward`), and "Engine reward scoring" below describes that channel,
+not this one.
 
-- **`gloryMultiplierRecut`** (bool, default off, BOTH modes): no base
-  points — episode glory = seed(1) × the product of integer act
-  multipliers (`RecutClassTable`/`RecutTierClass`, glory.nim §6b), with
-  the territory rung shift (+1 on enemy ground, above-×1 classes only),
-  heat/carry folded per event under their existing gates, the Fibonacci
-  teammates-in-context stack (×1,2,3,5,8,13), and friendly fire as an
-  uncapped compounding DIVISION (BR ÷2 per incident, CTF ÷2 per two).
-  ×1 commons still mint, pop and count — they carry no score weight.
-  BR-only marquee deeds (`dDuoDown` ×2, `dClosingTime` ×2, `dLastLight`
-  ×4, `dVictory` ×8) mint only under this flag. Off: every number prices
-  exactly as GLORY v12, fixtures byte-identical.
+**The win gate is gone.** `playerWon` no longer gates the banked score
+(`roster.nim:1028-1048`): every seat reports its own team's ledger — win, lose
+or draw — including a negative total for a friendly-fire-heavy duo. The one
+gate left is `sim.phase == GameOver`, so an episode that never concludes still
+banks 0 for everyone. `win[]` is still gated on `playerWon`, unchanged. Nothing
+gates the drop behind a config flag, so it holds on every variant, armed or
+dark.
+
+The pure-multiplier economy itself (frozen 2026-09-02 contract) is per-flag.
+Each key below is its OWN manifest `game_config` key, independently settable —
+never coupled to `lootStart`/`downedMode`, to a variant switch, or to each
+other (per-flag activation, recut contract Amendment 2 §1). All three recut
+flags default off (`sim_config.nim:130`, `:133`, `:137`), so merging is not
+arming: arming is an explicit, separate manifest publish. **What `coworld_manifest_paintbot.json`
+publishes on `main` today:**
+
+| variant | `gloryMultiplierRecut` | `deedMintCaps` | `winAsMultiplier` |
+| --- | --- | --- | --- |
+| `battle-royale-s2` (the S2 flagship) | on | on | off |
+| every other variant | off | off | off |
+
+- **`gloryMultiplierRecut`** (bool, default off, BOTH modes; ARMED on
+  `battle-royale-s2`): no base points — episode glory = seed(1)
+  (`glory.nim:2330`) × the product of integer act multipliers
+  (`RecutClassTable` `glory.nim:2335-2384`, `RecutTierClass` `:2386` = tiers
+  I–V at ×1/×1/×2/×2/×4), the whole product then divided per friendly-fire
+  step. One event contributes exactly one integer factor, composed in
+  `recutFactor` (`glory.nim:2592-2613`) as class × heat × carry × ally-stack:
+  - **Territory shifts the RUNG, not the score**: a deed on enemy ground climbs
+    one integer rung, ×2→×3 … ×8→×9 (`glory.nim:2572-2591`). Only classes
+    already at 2 or above shift (`:2589-2590`); ×1 commons never shift on any
+    ground. Ground ownership is nearest-home-pedestal Voronoi
+    (`sim.nim:239-242`), and `SiteMultNeutralPct` (`glory.nim:954`) is
+    unreachable — `deedSitePct` passes `ownerIsNone = false` unconditionally.
+  - **Fibonacci teammates-in-context stack** ×1,2,3,5,8,13 for k = 1…6, clamped
+    both ends (`glory.nim:2393`, applied `:2564-2570`). `k` counts distinct cogs
+    on the victim's open damage incident within `AssistWindowTicks` = 120
+    (`glory.nim:1520`, counted in `sim.nim:2564-2607`); in BR that includes cogs
+    of OTHER duos co-engaged on the same victim, never the victim's own duo.
+    **Kill sites only** — `awardDeed` defaults `stackK` to 1 (`sim.nim:330`) and
+    `sim.nim:2790-2792` is the sole call site passing a real one, so captures,
+    steals, wipes and achievement claims take no stack.
+  - **Heat and carry** fold per event under their existing gates: heat
+    ×1/×2/×4/×8 by rung (`glory.nim:855`) at 2/5/10 embers (`:866`), never for
+    achievements (`:2135-2138`); carry ×2 on drama deeds while holding an enemy
+    heart (`glory.nim:976`), which never lights on a flagless BR map — the
+    carrier scan finds nobody (`sim.nim:368-373`).
+  - **Friendly fire is an uncapped compounding DIVISION**, not a class: BR ÷2
+    per incident, CTF ÷2 per two incidents (`glory.nim:2629-2637`), applied at
+    `:2654-2663` with the int report flooring the division.
+  - **First-claim ×3 on the top tier only**: `AchievementFirstMultPct`
+    (`glory.nim:1658`) survives as an integer factor, but `sim.nim:520` gates it
+    on `tier == AchievementTiers - 1`.
+  - ×1 commons still mint, pop and count toward K/D, Elo and the achievement
+    gates — they carry no score weight, and no live-state multiplier can attach
+    to them (`glory.nim:2606-2607`).
+  - BR-only marquee deeds mint only under this flag: `dDuoDown` ×2
+    (`glory.nim:2368`), `dClosingTime` ×2 (`:2369`), `dLastLight` ×4 (`:2373`),
+    `dVictory` ×8 (`:2374`).
+  - Off: every number prices exactly as GLORY v12, fixtures byte-identical.
+- **`winAsMultiplier`** (bool, default off; **off on `battle-royale-s2`
+  today** — reads only under an armed recut): retires the `dVictory` deed for a
+  deterministic, composition-neutral BR win factor of ×4
+  (`glory.nim:2666` `RecutWinFactorBR`, applied `:2677-2683`) folded into the
+  canonical product at finalize — it pays no heat, no territory, no carry, no
+  stack, and never routes through `recutFactor`. Also bumps the `dClosingTime`
+  base rung 2→3 (`glory.nim:2583-2588`) and prices two further deeds,
+  `dTagBack` ×2 and `dJointAct` ×2 (`glory.nim:2382-2383`), which mint only
+  under this flag (`sim.nim:7790-7792`). The CTF win factor is deferred to
+  CTF-arming; `recutWinFactor` returns ×1 there. **With the flag off, as it is
+  today, the win pays as the `dVictory` ×8 deed** (`sim.nim:5683-5686`) and
+  `dTagBack`/`dJointAct` are not priced at all.
+- **`deedMintCaps`** (bool, default off; **ARMED on `battle-royale-s2`** —
+  reads only under an armed recut): a per-episode, per-duo mint budget for
+  every deed whose repeat count is not bounded by a scarce contested resource
+  (`RecutMintCapTable`, `glory.nim:2436-2539`; applied `sim.nim:411-441`). The
+  first `cap` mints fold their factor normally; every occurrence after that
+  folds 1 and scores nothing — a flat budget, not diminishing rungs. Only the
+  SCORE is bounded: the deed still mints, pops, counts, climbs heat and reaches
+  the wire, so no achievement gate or analysis counter moves. Budgets:
+  `dTagBack` 3 (`glory.nim:2522`), `dJointAct` 6 (`:2530`), `dDuoDown` 4
+  (`:2510`), `dShieldSoak` 3 (`:2500`); every other row is 0 = uncapped. The
+  flag also drops the product saturation bound from the 2^62 int64 overflow
+  guard (`glory.nim:2404`) to 2^26 = 67,108,864 (`:2420`) — a defense-in-depth
+  backstop that should never bind, and an episode reporting exactly that number
+  is a clamped one.
 - **`stampRealizedConfig`** (bool, default off): at episode finalize the
   engine emits the realized-config stamp — `{stampVersion, realizedBuild
   {gameVersion, gloryVersion, engineStamp}, variantId, flagSet}` (flagSet
@@ -1039,6 +1114,11 @@ separate manifest publish.
   stamp and the replay header so replay-only audits can name the
   publishing variant without platform access.
 
+The economy version is `GloryVersion = 13` (`glory.nim:273`). It bumps on any
+pricing change, and a score compared across versions is not a comparison.
+Entrant-facing guidance on what to do differently under this economy is in
+[`players/baseline/README.md`](../players/baseline/README.md).
+
 Staging variants `battle-royale-s2-lootstart` and `battle-royale-s2-downed`
 (published behind the flagship in `coworld_manifest_paintbot.json`) carry
 exactly one of the two loot flags each, so the S2 flag family can be staged
@@ -1048,8 +1128,12 @@ or bisected per-flag instead of riding one coupled variant switch.
 
 The published Season 2 variant uses `scoring: "classic"`, with the BR placement
 bonus and engagement gate described in [`ENV_VARIATION.md`](ENV_VARIATION.md).
-That end-of-game reward is separate from the live Glory deed ledger. The
-deprecated classic modes use the following sparse, win-only base rule:
+This is the RL training reward on `player.reward`, delivered per tick over
+`buildRewardPacket` — a **different channel** from the banked league score,
+which carries glory (see "Season 2 glory scoring" above, and
+`roster.nim:920-941`). The rule below is sparse and win-only; the league score
+is not, and has not been since the win gate was dropped. The deprecated classic
+modes use:
 
 - **Decisive round** (capture or wipe): every winner scores **+1**, every
   loser scores **-1**. (Four-team free-for-all generalizes this zero-sum:
