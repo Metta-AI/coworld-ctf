@@ -224,6 +224,44 @@ the only detection is reconstructing round scores from raw episode scores.
 episode-scheduling process. It is not doing cap duty on purpose, and it has
 already proven it fails silently when tripped.
 
+### Where these settings actually live
+
+`GET /v2/leagues/{id}/settings` (with `X-Use-Elevated-Privileges: true`) is the
+authoritative source, and it makes the shape of the problem explicit. As served
+on 2026-09-06:
+
+```json
+"ranking": {
+  "algorithm": "score",
+  "round_scoring_rule": "sum",
+  "sum_top_k": 12,
+  "standing_aggregation": "rated",
+  "rated_k": 0.05,
+  "direction": "maximize"
+},
+"scheduler": {
+  "strategy": "team_n",
+  "team_count": 16,
+  "min_episodes_per_entrant": 12,
+  "episodes_per_entrant": null,
+  "episodes_per_round": null,
+  "variant_rotation": ["battle-royale-s2"]
+}
+```
+
+**`12` is a scheduler *minimum*, not a maximum.** `min_episodes_per_entrant` is
+12 and both `episodes_per_entrant` and `episodes_per_round` are `null` — there
+is no ceiling anywhere on the scheduling side. The field sits at exactly 12
+today because 12 is the floor it is being held to, not because anything stops it
+going higher; it ran 20–23 for most of eras D through G. `sum_top_k = 12` then
+trims whatever the scheduler produced above that number, silently. The guard and
+the floor are the same number, which is exactly why there is no headroom.
+
+A real cap belongs on the scheduling side, at the value the league intends, with
+`sum_top_k` kept only as a backstop. Until then, **read this section together
+with a live settings fetch** — every value above is live config that can change
+between two rounds with no build bump and no record on the round.
+
 ## What `result_metadata` can and cannot tell you
 
 `result_metadata` on a round result row carries `wins`, `scoring_rule`,
@@ -265,11 +303,27 @@ analytics — has to exclude that list by hand.
 
 ## The leaderboard pools every era
 
-`GET /v2/divisions/{div}/leaderboard` returns one accumulated rating per entrant
-with `rounds_played` running as high as 567 — a single number spanning all eight
-eras above. It is not wrong, but it is not an era-scoped result either, and it
-cannot be quoted as evidence that anything changed for the better between two
-rounds. For that, compare inside one era.
+`GET /v2/divisions/{div}/leaderboard` returns one accumulated standing per
+entrant with `rounds_played` running as high as 567 — a single number spanning
+all eight eras above.
+
+The standing is not a sum of round scores. `ranking.standing_aggregation` is
+`"rated"` with `rated_k` `0.05`: a live-decaying weighted average over the
+entrant's round scores. That makes the pooling worse rather than better, because
+the round scores being averaged differ by about **10¹¹** between eras — a single
+era-G round in the trillions does not average against an era-H round in the
+thousands, it drowns it.
+
+The standing aggregation is itself an era boundary: it was `"max"` (an entrant's
+single best round, ever) before changing to `"rated"` at round 3856, with the
+full round history replayed through the new formula. That change is recorded on
+the league's own patch notes; the settings endpoint serves only the current
+value, so unlike everything else on this page it is **not** independently
+re-derived here.
+
+The leaderboard is not wrong. It is just not an era-scoped result, and it cannot
+be quoted as evidence that anything changed for the better between two rounds.
+For that, compare inside one era.
 
 ## Reproducing this table
 
@@ -323,6 +377,15 @@ than twelve episodes, so counting non-zero episodes per policy is both sound and
 complete as a screen, and costs one `/episodes` call per round. The whole-range
 claims above were established that way over r3789–r4208 (420 rounds), with full
 reconstruction run on the boundary rounds r3848, r3849, r3960, r4003 and r4208.
+
+The scoring settings themselves are one authenticated read — token from
+`~/.softmax/credentials.yaml` under `tokens['https://softmax.com/api']`, and use
+`curl`, not python `urllib`, which is blocked at the edge:
+
+```sh
+curl -s -H "Authorization: Bearer $TOK" -H "X-Use-Elevated-Privileges: true" \
+  "https://softmax.com/api/observatory/v2/leagues/$LEAGUE/settings"
+```
 
 To resolve a build to a commit, `GET /v2/coworlds` carries
 `manifest.game.runnable.source_url`. Its `canonical: true` flag marks the
