@@ -223,9 +223,11 @@ proc pactActive*(sim: SimServer, a, b: Team): bool =
   (sim.pactMask[a] and (1'u16 shl ord(b))) != 0
 
 proc registerPact*(sim: var SimServer, a, b: Team) =
-  ## Sets the mutual bit for `a`/`b`. The ONLY two callers in P1 are
-  ## resolveConfiguredPacts (sim.nim, pre-match config seed) — P2's shout
-  ## declaration protocol is the next writer, not yet built.
+  ## Sets the mutual bit for `a`/`b`. P1's only caller was
+  ## resolveConfiguredPacts (sim.nim, pre-match config seed); P2 (formal-
+  ## alliances design, GameVersion 55) adds the second: consumePactShout
+  ## (sim.nim), once a mutual "+X"/"-X" exchange clears the proximity gate
+  ## and the mutual-10s window.
   doAssert a != b, "a team cannot pact with itself"
   sim.pactMask[a] = sim.pactMask[a] or (1'u16 shl ord(b))
   sim.pactMask[b] = sim.pactMask[b] or (1'u16 shl ord(a))
