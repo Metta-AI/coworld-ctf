@@ -548,6 +548,7 @@ MAX_HP_FALLBACK = 6  # a full seat; refined from the live view when we have one
 TRACK_FRESH_TICKS = 240  # a track older than this no longer counts as "seen"
 LOOT_CLEAR_PX = 500      # loot only with no fresh enemy track closer than this
 UPLOAD_RETRIES = 2       # extra module uploads after a rejection (16 admitted/seat)
+UPLOAD_BACKOFF_S = 1.5   # wait before retry N is N * this (the failure is a load burst)
 
 
 def _max_hp(view: dict) -> float:
@@ -991,8 +992,9 @@ def run(persona: Persona, args) -> int:
 
         # Playbook first: nothing can be called until the modules are READY.
         # The server's manifest probe runs under an epoch deadline and fails
-        # transiently under load (`manifestProbe` on ~1 in 5 hosted seats),
-        # so a rejected upload is retried; a play that still never becomes
+        # under load (`manifestProbe` on ~1 in 5 hosted seats, in bursts that
+        # take out neighbouring seats too), so a rejected upload is retried
+        # after a growing pause; a play that still never becomes
         # READY is dropped from ``available`` so no later call names it (one
         # unknown play rejects the WHOLE call, and a seat whose scatter or
         # edge_ride never landed otherwise plays the match with no ladder).
@@ -1000,6 +1002,7 @@ def run(persona: Persona, args) -> int:
             ready = False
             for attempt in range(1 + UPLOAD_RETRIES):
                 if attempt:
+                    seat.drain(UPLOAD_BACKOFF_S * attempt)
                     _log(persona, f"upload {name}: retry {attempt}")
                 ready = seat.upload(name, blob)
                 seat.pump()
