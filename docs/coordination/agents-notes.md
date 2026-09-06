@@ -1238,3 +1238,13 @@ policies/monet/system_prompt.md, policies/monet/policy.py (if weapon/pickup
 logic exists), policies/monet/plays/*.nim (if weapon logic exists),
 policies/monet/selfcheck.py. Implementation + selfcheck only -- no
 build/upload/ship (owner handling ship separately).
+
+**Addendum 2026-09-06 -- LANE CLOSED, IMPLEMENTATION ONLY (owner handles ship).**
+Committed 64c248d7 on maxwell/s2-monet-gunrange (off maxwell/s2-monet @
+690e148e), NOT cherry-picked to trunk -- this was an implementation-only
+job per the owner's directive, no build/upload/league touch. selfcheck
+446 -> 479 PASS, 0 FAIL (33 new pins: range-discipline floor/ceiling
+plumbing across policy.py + fire_superiority.nim + starters/common/
+plays.py, gun-default spray-guard, AWARENESS gun-range banding, prompt
+text checks). Owner reviews the exact system_prompt.md wording and picks
+the build/ship path separately.
