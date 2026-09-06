@@ -158,7 +158,10 @@ slot pins a team. **There is no "players-per-team" knob** — it emerges from
 `minPlayers`/joins split across `teams`.
 
 Per-slot config `PlayerSlotConfig` [sim_types.nim:787](../src/ctf/sim_types.nim#L787):
-`name`, `token`, `team`, `color` (16-color palette), `skin` (`DefaultSkin`/`CrownSkin`).
+`name`, `token`, `team`, `color` (16-color palette), `skin` (`DefaultSkin`/`CrownSkin`),
+`allies` (ALLIANCE P1, GV54: other slots' `name`s this seat proposes a pre-match
+pact with — mutuality-checked and registered into `SimServer.pactMask` at game
+start, GV-free since it is parsed by name, not flatty position).
 
 ---
 

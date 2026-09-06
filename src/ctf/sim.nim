@@ -851,6 +851,46 @@ proc resetLadder*(sim: var SimServer, playerIndex: int) =
   sim.players[playerIndex].level = 0
   sim.players[playerIndex].stealTickThisLife = -1
 
+proc resolveConfiguredPacts*(sim: var SimServer) =
+  ## ALLIANCE P1 (formal-alliances design, 2026-09-02/03): reads each
+  ## configured slot's `allies` (by the OTHER slot's `name`, sim_config.nim's
+  ## readConfigSlots) and registers a pact ONLY when both sides name each
+  ## other — a unilateral seed is dropped and logged, never mutating
+  ## `pactMask`. Pure function of `sim.config.slots`: unlike the runtime
+  ## declaration protocol P2 will add, this needs no seat to have actually
+  ## joined — a named slot always resolves to a team via `teamForSlot`
+  ## (round-robin default when unconfigured), same as every other
+  ## slot-indexed lookup in this file.
+  for i, slot in sim.config.slots:
+    if slot.allies.len == 0:
+      continue
+    let teamI = sim.teamForSlot(i)
+    for allyName in slot.allies:
+      if allyName.len == 0:
+        continue
+      var resolvedJ = -1
+      for j, other in sim.config.slots:
+        if j != i and other.name == allyName:
+          resolvedJ = j
+          break
+      if resolvedJ < 0:
+        sim.logGameEvent(
+          "pact seed dropped (unknown ally name): slot " & $i & " (" &
+          slot.name & ") -> \"" & allyName & "\""
+        )
+        continue
+      let teamJ = sim.teamForSlot(resolvedJ)
+      if teamJ == teamI:
+        continue  # already the same team/duo -- nothing to register
+      if slot.name notin sim.config.slots[resolvedJ].allies:
+        sim.logGameEvent(
+          "pact seed dropped (unilateral): slot " & $i & " (" & slot.name &
+          ") -> \"" & allyName & "\" not reciprocated"
+        )
+        continue
+      if not sim.pactActive(teamI, teamJ):
+        sim.registerPact(teamI, teamJ)
+
 proc resetGloryLedger*(sim: var SimServer) =
   ## Zeroes every TEAM/GAME-level glory field: the ledger, its rampage
   ## state, the one-shot claim gates, the fire-counter audit and the
@@ -886,6 +926,13 @@ proc resetGloryLedger*(sim: var SimServer) =
     sim.teamKillRing[team] = @[]
     for key in 0 ..< sim.claimed[team].len:
       sim.claimed[team][key] = false
+    # ALLIANCE P1: a new game never inherits a pact a previous game's
+    # damage/death dissolved — or one it never had. Direct zero-write here
+    # is fine (not through dissolvePact): both sides of every mirrored bit
+    # are zeroed in this same team-indexed loop, so the symmetry invariant
+    # holds once the whole loop finishes, same as `teamKillRing`/`claimed`
+    # above zeroing straight into the array.
+    sim.pactMask[team] = 0
   for key in 0 ..< sim.claimedFirst.len:
     sim.claimedFirst[key] = false
   for deed in Deed:
@@ -901,6 +948,12 @@ proc resetGloryLedger*(sim: var SimServer) =
   # flags. Inert on battle-royale-s2 (maxGames 1), load-bearing for
   # every multi-game config.
   sim.recutJointSeats = @[]
+  # ALLIANCE P1: reseed from the config's declared `allies` AFTER the zero
+  # pass above, so every game of a multi-game episode starts from the same
+  # configured mutual set — exactly like every other config-derived ledger
+  # field this proc resets (e.g. the RecutSeed re-write above), never an
+  # accumulation across games.
+  sim.resolveConfiguredPacts()
 
 proc stealIsContested(sim: SimServer, playerIndex: int): bool =
   ## True when a LIVE enemy stands within `ContestedStealPx` of the stealer
@@ -2943,6 +2996,12 @@ proc killPlayer*(
     kill: true
   )
   sim.players[targetIndex].alive = false
+  # ALLIANCE P1: a dead seat can no longer honor a truce -- clear its whole
+  # pact row/column together (clearPactsFor, sim_state.nim). Unconditional
+  # on `elimination` too: a captured-team fold is still a real death of
+  # this seat, same as the deaths-stat guard above treats it for stats but
+  # NOT for state that must reflect who is actually still standing.
+  sim.clearPactsFor(sim.players[targetIndex].team)
   # GLORY: THE ANTI-SNOWBALL RULE -- a cog's whole per-life ladder dies with
   # it. This is the price of granting real power at all, and on BR (one
   # life = the episode) it is what still bounds a levelled cog to one life
@@ -3078,6 +3137,18 @@ proc absorbDamage*(
       sim.recutJointActOnDamage(targetIndex, attackerIndex, freshIncident)
   var firstTouch = false
   if attackerIndex >= 0 and attackerIndex != targetIndex:
+    # ALLIANCE P1: any damage between two currently-allied teams dissolves
+    # the pact immediately — no grace, no partial credit, minimal on
+    # purpose (no event, no glory price; P2 owns drama/pricing). This is
+    # the ONE subtraction point (absorbDamage's own header comment), so it
+    # is also the one dissolution chokepoint: every damage source (gun,
+    # spray, grenade, environmental-with-an-attacker) routes through here.
+    let
+      attackerTeam = sim.players[attackerIndex].team
+      targetTeam = sim.players[targetIndex].team
+    if amount > 0 and attackerTeam != targetTeam and
+        sim.pactActive(attackerTeam, targetTeam):
+      sim.dissolvePact(attackerTeam, targetTeam)
     if attackerIndex < 32:
       let bit = 1'u32 shl attackerIndex
       firstTouch = (sim.players[targetIndex].hurtByMask and bit) == 0

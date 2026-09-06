@@ -368,6 +368,27 @@ proc readConfigSlots(node: JsonNode, slots: var seq[PlayerSlotConfig]) =
         )
       slot.control =
         if control.getStr() == "play": scPlay else: scInput
+    if item.hasKey("allies"):
+      # ALLIANCE P1: pre-match pact seed, by ally NAME (resolved against
+      # other slots' `name` — see `players[]`/readConfigPlayers, which fills
+      # `slot.name` from a separate top-level key) at game start, not here —
+      # this reader only has to validate SHAPE, never cross-reference other
+      # slots (the mutuality check needs every slot's name resolved first,
+      # so it lives in resolveConfiguredPacts, sim.nim).
+      let allies = item["allies"]
+      if allies.kind != JArray:
+        raise newException(
+          CtfError,
+          "Config field slots[" & $i & "].allies must be an array."
+        )
+      for j, allyName in allies.elems:
+        if allyName.kind != JString:
+          raise newException(
+            CtfError,
+            "Config field slots[" & $i & "].allies[" & $j &
+              "] must be a string."
+          )
+        slot.allies.add(allyName.getStr())
     slots.add(slot)
 
 proc readConfigPlayers(node: JsonNode, slots: var seq[PlayerSlotConfig]) =
@@ -1907,6 +1928,8 @@ proc configJson*(config: GameConfig): string =
       item["skin"] = %slot.skin.skinText()
     if slot.control == scPlay:
       item["control"] = %"play"
+    if slot.allies.len > 0:
+      item["allies"] = %slot.allies
     slots.add(item)
   var node = %*{
     "motionScale": config.motionScale,
