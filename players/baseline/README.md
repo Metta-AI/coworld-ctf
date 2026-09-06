@@ -3,6 +3,216 @@
 > **Deprecated since 0.7.253.** This Sprite v1 policy is retained for deprecated
 > modes, which run only with `allowDeprecatedModes: true`; it cannot drive a
 > Season 2 play seat. Start at [`policies/starters/`](../../policies/starters/README.md).
+> **The scoring section directly below is not deprecated** — the Season 2
+> multiplier economy is engine-side, so it applies to whatever shell you write.
+
+## What the server actually scores (Season 2 multiplier economy)
+
+**Read this before you tune anything.** The scoring rule changed several times
+in one week and everything below is checked against `src/ctf/glory.nim`,
+`src/ctf/sim.nim`, `src/ctf/roster.nim` and `coworld_manifest_paintbot.json` on
+`main`, not against an announcement. Every number carries a source line; a
+number with no citation is not in this document on purpose. This section is
+about the **engine's** economy, so it applies to any policy on any shell —
+the deprecation notice above is about the Sprite v1 protocol client below it,
+not about this.
+
+### Losing no longer zeroes your score
+
+This is the change that most needs a policy rewritten around it. The banked
+league score used to be gated on winning. It is not any more: `playerWon` was
+dropped from the score path in `src/ctf/roster.nim:1028-1048`, and every seat
+now reports its own team's glory ledger — win, lose, or draw. The one gate left
+is `sim.phase == GameOver`: an episode that never concludes still banks 0 for
+everyone. That ledger is not a side channel; it **is** the `scores` field the
+platform ranks you on (`src/ctf/roster.nim:920-941`, "GLORY-AS-LEAGUE-SCORE"),
+and it can go negative.
+
+Nothing gates this behind a config flag, so it is true on every variant.
+
+What to do differently:
+
+- **Stop treating a lost position as a scoreless one.** A duo that is going to
+  die in ninety seconds still banks everything it earns in those ninety
+  seconds. Play the ledger to the last tick.
+- **Stop paying for win probability with certain score.** Winning is now a
+  multiplier stacked on top of what you already banked, not the price of
+  entry, so a trade that burns a banked factor for a small win-probability
+  gain is a losing trade. Today the win pays as the `dVictory` deed at ×8
+  (`glory.nim:2374`); under `winAsMultiplier` it becomes a flat ×4 fold
+  instead (`glory.nim:2666`, `RecutWinFactorBR`) — see "What is armed today".
+- **Survival is now instrumental, not terminal.** You stay alive because a
+  dead cog mints nothing, not because placement is the score.
+
+### Your score is a product, so deed *count* is the wrong objective
+
+There are no base points. An episode's score is
+`seed × Π(per-event factor) ÷ 2^(friendly-fire halvings)`, with the seed at 1
+(`glory.nim:2330`) and every factor an integer (`glory.nim:2592-2613`,
+`recutFactor`). Multiplying by 1 does nothing, so a deed priced ×1 moves your
+score **exactly not at all** — `recutFactor` returns 1 for it before any
+live-state multiplier can attach (`glory.nim:2606-2607`). It still mints, still
+pops, still counts toward K/D and the achievement gates. It just is not worth
+points.
+
+The priced rungs, from `RecutClassTable` (`glory.nim:2335-2384`):
+
+| factor | deeds | line |
+| ---: | --- | --- |
+| ×1 | plain gun kill, spray kill, grenade kill, point-blank kill, shield soak, level-up | `:2342-2345`, `:2363`, `:2365` |
+| ×2 | first blood, revenge kill, run-down, escort kill, assist, rescue, duo-down, closing-time kill | `:2341`, `:2348-2349`, `:2359-2361`, `:2368-2369` |
+| ×3 | longshot kill, splash multi-kill | `:2346-2347` |
+| ×4 | ace tag, flag steal, carrier kill, last-light kill | `:2350`, `:2355`, `:2357`, `:2373` |
+| ×6 | denial | `:2358` |
+| ×8 | capture, wipeout, victory | `:2356`, `:2364`, `:2374` |
+
+Achievement claims are priced by tier instead: ×1/×1/×2/×2/×4 for tiers I–V
+(`glory.nim:2386`, `RecutTierClass`). The first-claim ×3 (`glory.nim:1658`)
+fires on the **top tier only** — `sim.nim:520` gates it with
+`tier == AchievementTiers - 1`, which `recutAchievementFactor` on its own does
+not tell you.
+
+What to do differently:
+
+- **Stop optimising kill count.** Four plain gun kills are ×1×1×1×1 = no score.
+  One ace tag on enemy ground is ×5. The kill *classifier* is the objective,
+  not the kill.
+- **Chase the composition, not the deed.** Two ×2 deeds and one ×4 are ×16;
+  eight ×1 deeds are ×1. Ask what a deed composes *with*, not what it is worth.
+- **On battle-royale maps the flag band is dead.** `dFlagSteal`/`dCapture` are
+  inert without a heart to carry (`glory.nim:2492`), and the carry multiplier
+  never lights either — `awardDeed`'s carrier scan never finds one on a
+  flagless BR map, so `carrying` is always false (`sim.nim:368-373`). Do not
+  budget for ×8 captures in Season 2 BR.
+
+### Team context stacks on an accelerating curve — on kills only
+
+`k` teammates-in-context multiplies the whole factor on a Fibonacci ladder:
+×1, ×2, ×3, ×5, ×8, ×13 for k = 1…6, clamped at both ends
+(`glory.nim:2393` `RecutStackLadder`, applied at `glory.nim:2564-2570`). Acting
+alone is the k=1 column, which is neutral.
+
+`k` is the number of distinct cogs participating in the victim's open damage
+incident — the killer plus everyone with a qualifying hit on that victim inside
+the last 120 ticks (`glory.nim:1520` `AssistWindowTicks`, counted in
+`sim.nim:2564-2607` `recutContextK`). In CTF that means same-team players; in BR
+it also counts cogs from **other duos** co-engaged on the same victim, so a
+truce that focuses one target pays both duos. The victim's own duo never counts.
+
+The trap: this is computed at the kill site and nowhere else. `awardDeed`
+defaults `stackK` to 1 (`sim.nim:330`) and `sim.nim:2790-2792` is the only call
+site that passes a real one. Captures, steals, wipes and achievement claims take
+**no stack at all**, whatever your team is doing at the time.
+
+What to do differently:
+
+- **Converge damage onto one victim inside the 120-tick window** rather than
+  spreading it. Going from solo to three participants is a ×3 on that entire
+  kill's factor, on top of its class.
+- **Do not detour to a teammate for a capture or a steal.** Objective deeds
+  cannot take the stack. Bring the team to the *kill*, not to the objective.
+- **In BR, co-engaging a neutral duo's target is worth real score** — it widens
+  `k` without spending any of your own resources.
+
+### Territory shifts the rung; it does not scale the score
+
+A deed minted on enemy ground climbs **one integer rung** — ×2→×3, ×3→×4,
+×4→×5, ×6→×7, ×8→×9 (`glory.nim:2572-2591`, `recutShiftedClass`). It is not a
+percentage on the score any more. Two consequences that matter:
+
+- A ×1 common **never** shifts, on any ground: `glory.nim:2589-2590` only
+  shifts a class already at 2 or above, and `glory.nim:2606-2607` returns 1 for
+  the rest before anything else can attach. Dragging plain gun kills onto enemy
+  ground buys you nothing.
+- The shift is worth proportionally the most on the *cheap* priced rungs: ×2→×3
+  is +50%, ×8→×9 is +12.5%. Enemy ground is where your ×2 assists and rescues
+  should happen, not where your ×8s should.
+
+Ground is owned by nearest home pedestal, a Voronoi cell over the real pedestal
+positions, never an x-midline (`sim.nim:239-242` `deedSitePct`,
+`glory.nim:2276-2282` `siteMultPct`). "Neutral" ground is unreachable in this
+engine — `deedSitePct` hardcodes `ownerIsNone = false`, so `SiteMultNeutralPct`
+(`glory.nim:954`) can never fire. Every point on the map is home or enemy.
+
+### Friendly fire divides, per mode, and is uncapped
+
+A team kill is not a subtraction you can out-earn. It halves the whole episode
+product, compounding, with no floor: BR halves once per incident, CTF once per
+*two* incidents (`glory.nim:2629-2637`, `recutFfHalvings`; the fold is
+`glory.nim:2654-2663`, `recutScore`, which floors the division). Three friendly
+kills in a BR episode is ÷8 on everything you earn all game, including deeds
+you have not minted yet.
+
+What to do differently:
+
+- **Treat the FF check as the highest-value gate in your fire discipline**, above
+  target selection. There is no score you can earn that outruns a compounding
+  halving, and the penalty is uncapped by owner ruling.
+- **A blocked shot costs you one ×1 common; a friendly kill costs you half of
+  everything.** When those trade off, they are not close.
+- Note the mode asymmetry: the same FF discipline is literally twice as valuable
+  in BR as in CTF.
+
+### The live-state multipliers your factor composes with
+
+Each applies only under its own gate, inside `recutFactor` (`glory.nim:2592-2613`):
+
+- **Heat** — a streak multiplier of ×1/×2/×4/×8 by rung (`glory.nim:855`
+  `HeatLadder`), reached at 2/5/10 cumulative embers (`glory.nim:866`
+  `HeatThresholds`), capped at 11 embers (`:871`), shedding 2 per quiet window
+  (`:875`) with a window closing after 45 quiet ticks (`:880`, ~1.9s at 24
+  ticks/s). Only deeds with drama climb it, and achievements never do
+  (`glory.nim:2135-2138`, `paysHeat`). **Cadence is a lever**: back-to-back
+  drama inside 45-tick gaps is worth up to ×8 on every factor in the streak.
+- **Carry** — ×2 on drama deeds while your team holds an enemy heart
+  (`glory.nim:976` `CarrierHoldMultPct`). Dead on flagless BR maps, per above.
+
+### Per-episode mint caps (armed on the Season 2 flagship)
+
+Repeatable deeds have a per-episode, per-duo budget. Past it the deed folds
+factor 1 and scores nothing, while still minting, popping, counting and
+climbing heat (`glory.nim:2436-2539` `RecutMintCapTable`, applied at
+`sim.nim:411-441`):
+
+| deed | budget | line |
+| --- | ---: | --- |
+| `dTagBack` (revive a downed partner) | 3 | `glory.nim:2522` |
+| `dJointAct` (cross-duo damage window) | 6 | `glory.nim:2530` |
+| `dDuoDown` (finish an enemy duo) | 4 | `glory.nim:2510` |
+| `dShieldSoak` | 3 | `glory.nim:2500` |
+
+Everything else is uncapped (`0` rows). There is also a hard saturation bound
+on the product at 2^26 = 67,108,864 while caps are armed (`glory.nim:2420`
+`RecutProductCapArmed`) — it should never bind, and if your episode reports
+exactly that number, it did.
+
+What to do differently: **do not build a loop around a capped deed.** A revive
+metronome pays three times and then pays nothing at all, forever, for the rest
+of the episode.
+
+### What is armed today
+
+All three keys default to **off** (`sim_config.nim:130`, `:133`, `:137`).
+Arming is a per-variant manifest publish, so "merged" and "armed" are different
+things. On `main`, `coworld_manifest_paintbot.json` publishes:
+
+| variant | `gloryMultiplierRecut` | `deedMintCaps` | `winAsMultiplier` |
+| --- | --- | --- | --- |
+| `battle-royale-s2` (the flagship you play) | **on** | **on** | off |
+| every other variant | off | off | off |
+
+With `gloryMultiplierRecut` off, the pre-v13 additive economy runs and none of
+this section applies. With `winAsMultiplier` off — which is the state today —
+the win pays as the `dVictory` ×8 deed rather than a flat ×4 fold, and
+`dTagBack`/`dJointAct` are **not priced at all**: they mint nothing, because
+those two rows only fire under that flag (`sim.nim:7790-7792`,
+`glory.nim:2382-2383`). Their mint caps above are pre-armed for the day it
+flips. Check the variant before you tune to any of it.
+
+The economy version is `GloryVersion = 13` (`glory.nim:273`); it bumps on any
+pricing change, and a score compared across versions is not a comparison.
+
+---
 
 A capture-the-flag reference bot that speaks the Bitworld Sprite v1 protocol.
 Its WebSocket disables Nagle buffering so separate input and chat messages
