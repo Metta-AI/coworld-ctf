@@ -9,19 +9,24 @@ whole research program, translated to the play-calling layer:
   observables the doctrine actually keys on),
 * four model turns spread across the match arc (opening / consolidation /
   mid / endgame) instead of a burst of early re-calls,
-* ``adjust_entries`` enforces the three non-negotiables structurally:
-  TRUCE HONOR -- every pact's partners are mirrored into every target_law
+* ``adjust_entries`` enforces the non-negotiables structurally: TRUCE
+  HONOR -- every pact's partners are mirrored into every target_law
   never-list, so betrayal requires explicitly dropping the pact and can
   never be an accident of aim; FIRE DISCIPLINE -- the duo partner is on the
   never-list whether or not the model remembered (a partner tag is -60g);
   CONVERSION -- a supply_run rung is guaranteed in every ladder, because the
   lineage's oldest measured failure is winning the fight and never banking
-  the life,
+  the life; GUN DEFAULT -- the guaranteed loot rung never auto-aims at a
+  spray can, only at whatever else is nearest; RANGE DISCIPLINE --
+  fire_superiority's press band floors at two-thirds of the live gun
+  range, never a fixed pixel guess, because LONGSHOT is priced as a ratio
+  of that same range on every map,
 * ``extra_summary`` appends a one-line AWARENESS digest to every model turn:
   ring in/out + shrink clock, partner state (hp TREND across turns, falling
   hp attributed UNDER FIRE vs zone-burning by rect), fresh-vs-stale threat
-  census with nearest bearing, incoming fire, near items -- numbers, not
-  prose, because summary tokens are sidecar cost.
+  census with nearest bearing and LONGSHOT/point-blank banding, incoming
+  fire, near items -- numbers, not prose, because summary tokens are
+  sidecar cost.
 """
 
 from __future__ import annotations
@@ -103,6 +108,38 @@ BODYGUARD_LEASH = {"shield-close": [MIN_LEASH_COMBAT, 120],
 # Jackal doctrine: leave with the profit. A second tag is allowed, a third
 # is greed the attrition ledger punishes.
 JACKAL_MAX_KILLS = 2
+
+# RANGE DISCIPLINE (owner directive 2026-09-06, source-verified against
+# src/ctf/glory.nim): LONGSHOT (class 3, +1 rung on enemy ground) prices
+# past LongshotPx=700 at CtfReferenceGunRange=1050 -- exactly two-thirds of
+# gun range -- and point-blank (accuracy-inverted, only worth it against a
+# CONFIRMED-wounded target) sits inside PointBlankPx=110, ~a tenth. Both
+# are RATIOS the engine rescales by the live map's own gunRange
+# (`scaledByGunRange`), never a fixed pixel count -- BR's pool has measured
+# anywhere from ~330px to 1300+px, so one hardcoded press band is wrong
+# somewhere in it by construction. PRESS_RANGE_CAP mirrors the raised
+# ceiling on fire_superiority.nim's own pressRange param (must move
+# together with that manifest and its transcribed copy in
+# policies/starters/common/plays.py); ENGAGE_DIST_CAP is that play's
+# UNCHANGED engageDist ceiling, reused so a wider press band never outruns
+# the tracking radius that justified pressing in the first place.
+_REF_GUN_RANGE = 1050
+_REF_LONGSHOT_PX = 700
+_REF_POINT_BLANK_PX = 110
+PRESS_RANGE_CAP = 900
+ENGAGE_DIST_CAP = 1200
+
+
+def _range_bands(gun_range):
+    """(longshot_px, point_blank_px) for THIS episode's live gun range
+    (context["gun_range"], the one PlayContext field the field's own
+    poc_policy.py already reads the same way), or (None, None) when the
+    context never carried one -- never guess a map's gun range."""
+    if not isinstance(gun_range, int) or gun_range <= 0:
+        return None, None
+    return (_REF_LONGSHOT_PX * gun_range // _REF_GUN_RANGE,
+            _REF_POINT_BLANK_PX * gun_range // _REF_GUN_RANGE)
+
 
 # Awareness digest: a track older than this is a memory, not a threat (the
 # harness's own 10-s freshness/aggressor window). An item further than
@@ -405,6 +442,32 @@ def adjust_entries(entries, context, view):
             if entry.get("play") == "fire_superiority":
                 entry.setdefault("params", {})["woundedPct"] = 0
 
+    # RANGE DISCIPLINE: floor -- never lower -- fire_superiority's
+    # pressRange (the band it holds off a fresh/full-health target; the
+    # finishRange exception for a CONFIRMED-wounded target is untouched) at
+    # two-thirds of this episode's own gun range. A close tag prices as
+    # commons class 1 no matter how many land; only a LONGSHOT (class 3, 4
+    # on enemy ground) pays -- so this is the same "press a winning fight"
+    # doctrine as before, just fought from the range that actually banks
+    # something. Never invents a fire_superiority entry on a turn that did
+    # not call one (same non-invention rule as the marquee band above).
+    # engageDist widens alongside it: pressing to a band OUTSIDE the radius
+    # that counts a track as a live gun would drop that same target from
+    # next tick's count and flap superior/inferior for no reason.
+    longshot_px, _ = _range_bands(context.get("gun_range"))
+    if longshot_px is not None:
+        floor = min(longshot_px, PRESS_RANGE_CAP)
+        for entry in entries:
+            if entry.get("play") == "fire_superiority":
+                params = entry.setdefault("params", {})
+                press = params.get("pressRange")
+                if not isinstance(press, int) or press < floor:
+                    params["pressRange"] = floor
+                engage = params.get("engageDist")
+                target_engage = min(floor + 100, ENGAGE_DIST_CAP)
+                if not isinstance(engage, int) or engage < target_engage:
+                    params["engageDist"] = target_engage
+
     # CONVERSION: every ladder banks the life. The rung sits above the
     # rotation controller (wounded beats rotating) and below any fight
     # controller already chosen (never turn your back on a live gun).
@@ -433,7 +496,31 @@ def adjust_entries(entries, context, view):
     # guarantee this rung already; MONET never did. Sits below the
     # conversion rung (recovery is still the first call) and above
     # rotation, same slot as supply_run.
-    if not any(e.get("play") == "loot" for e in entries):
+    #
+    # GUN DEFAULT (owner directive): a spray can spawns at its OWN separate
+    # point on every live BR map, distinct from the marker/hopper crates
+    # (sim.nim tryPickupSprayPaints vs resetLootCrates), and
+    # play_sdk/reference/loot.nim fetches the NEAREST reachable pickup of
+    # ANY kind -- there is no per-kind filter to ask it for "grenade only".
+    # Left alone this auto-insert can walk us onto a spray just as readily
+    # as the gun, which is the opposite of "gun for the whole episode,
+    # spray only on an explicit call" -- so skip the auto-insert on any
+    # turn where the view's own nearest in-reach item already reads as a
+    # spray; a model that actually WANTS one can still call "loot" itself
+    # (see system_prompt.md), untouched by this guard.
+    me_pos = (view.get("self") or {}).get("pos")
+    nearest_kind = None
+    nearest_d = None
+    if starter_harness._is_pos(me_pos):
+        for item in view.get("items", []):
+            if not (isinstance(item, dict) and item.get("present", True)
+                    and starter_harness._is_pos(item.get("pos"))):
+                continue
+            d = starter_harness._dist(me_pos, item["pos"])
+            if nearest_d is None or d < nearest_d:
+                nearest_d, nearest_kind = d, item.get("kind")
+    if (nearest_kind != "spray"
+            and not any(e.get("play") == "loot" for e in entries)):
         rung = {"play": "loot", "entry_id": "arm",
                 "params": dict(LOOT_DEFAULTS)}
         for i, entry in enumerate(entries):
@@ -482,6 +569,7 @@ def awareness_lines(seat):
     partner = self_facts.get("duo_partner")
     tick = view.get("tick", 0)
     parts = []
+    longshot_px, pb_px = _range_bands(context.get("gun_range"))
 
     zone = (view.get("world") or {}).get("zone") or {}
     cur, nxt = zone.get("current"), zone.get("next")
@@ -543,11 +631,21 @@ def awareness_lines(seat):
     if fresh:
         fresh.sort(key=lambda t: _dist(pos, t["pos"]))
         near = fresh[0]
+        near_d = int(_dist(pos, near["pos"]))
+        band = ""
+        if longshot_px is not None:
+            if near_d >= longshot_px:
+                band = " LONGSHOT band"
+            elif near_d <= pb_px:
+                band = " POINT-BLANK -- back off unless it reads wounded"
         parts.append(f"threats {len(fresh)} fresh{stale_note}, nearest "
-                     f"{int(_dist(pos, near['pos']))}px "
-                     f"{_bearing(pos, near['pos'])} hp {near.get('hp', '?')}")
+                     f"{near_d}px {_bearing(pos, near['pos'])} "
+                     f"hp {near.get('hp', '?')}{band}")
     else:
         parts.append("threats 0 fresh" + stale_note)
+    if longshot_px is not None:
+        parts.append(f"gun {context['gun_range']}px "
+                     f"(longshot {longshot_px}px+, point-blank <{pb_px}px)")
 
     shots = sum(1 for a in view.get("aggressors", [])
                 if isinstance(a, dict) and isinstance(a.get("tick"), int)

@@ -2559,6 +2559,221 @@ check("PLAN_WASTE is behaviour-neutral: the returned entries list is "
       _silent_entries == _waste_entries,
       str((_silent_entries, _waste_entries)))
 
+# ── RANGE DISCIPLINE (owner directive 2026-09-06, source-verified against
+# src/ctf/glory.nim): LONGSHOT (class 3, +1 rung on enemy ground) prices
+# past two-thirds of the LIVE map's gun range -- LongshotPx=700 at
+# CtfReferenceGunRange=1050 is exactly 2/3, not a fixed pixel count, and
+# the field's own gun range has measured anywhere from ~330px to 1300+px
+# across the BR map pool. adjust_entries floors fire_superiority's
+# pressRange at that same ratio every episode from context["gun_range"],
+# widening engageDist alongside it so the press band never outruns the
+# radius that counts a track as a live gun. Prove the ratio helper's own
+# arithmetic first, then prove the floor reaches the ACTUAL WIRE payload
+# through repair_call's full two-pass repair (build_call -> adjust_entries
+# -> gate_and_build's second build_call), not just the wanted ladder. ────
+check("_range_bands: None when the context never carried a gun_range "
+      "(never guess a map's scale)",
+      policy._range_bands(None) == (None, None))
+check("_range_bands: exact engine ratio AT the reference gun range itself "
+      "-- 1050 -> 700 longshot / 110 point-blank, matching LongshotPx/"
+      "PointBlankPx/CtfReferenceGunRange verbatim (src/ctf/glory.nim)",
+      policy._range_bands(1050) == (700, 110), str(policy._range_bands(1050)))
+check("_range_bands: RESCALES proportionally for a non-reference gun range "
+      "(the field's own measured 1300px map), never reuses the reference "
+      "figure outright",
+      policy._range_bands(1300) == (866, 136), str(policy._range_bands(1300)))
+check("_range_bands: a small map's gun range (331px, the historical "
+      "br-golden-map figure) reproduces the OLD hardcoded pressRange "
+      "default (220) almost exactly -- proof that default was implicitly "
+      "tuned to one small map, never a universal figure",
+      policy._range_bands(331)[0] == 220, str(policy._range_bands(331)))
+
+_RANGE_CTX_BIG = {"self": {"seat": 3, "duo_partner": 19}, "gun_range": 1300}
+for _idx, _label in ((1, "consolidation"), (2, "mid"), (3, "endgame")):
+    _seat = fake_seat(context=_RANGE_CTX_BIG)
+    starter_harness.repair_call(PERSONA.canned_turns[_idx], PERSONA, _seat,
+                                AVAILABLE)
+    _fs = next((e for e in _seat.wanted_entries
+                if e["play"] == "fire_superiority"), None)
+    check(f"turn {_idx + 1} ({_label}): pressRange FLOORED to two-thirds "
+          "of a 1300px gun range (866px), not left at the canned "
+          "template's own small-map figure",
+          _fs is not None and _fs["params"].get("pressRange") == 866,
+          str(_fs["params"] if _fs else None))
+    check(f"turn {_idx + 1} ({_label}): engageDist widened alongside it "
+          "(866 + 100 margin) so pressing to the new band does not drop "
+          "the very track that justified pressing",
+          _fs is not None and _fs["params"].get("engageDist") == 966,
+          str(_fs["params"] if _fs else None))
+
+_seat = fake_seat(context={"self": {"seat": 3, "duo_partner": 19}})
+starter_harness.repair_call(PERSONA.canned_turns[2], PERSONA, _seat,
+                            AVAILABLE)
+_fs = next(e for e in _seat.wanted_entries if e["play"] == "fire_superiority")
+check("range discipline is a no-op when the PlayContext never carried a "
+      "gun_range (never guess a map's scale)",
+      _fs["params"].get("pressRange") == 400, str(_fs["params"]))
+
+_seat = fake_seat(context={"self": {"seat": 3, "duo_partner": 19},
+                           "gun_range": 331})
+starter_harness.repair_call(PERSONA.canned_turns[2], PERSONA, _seat,
+                            AVAILABLE)
+_fs = next(e for e in _seat.wanted_entries if e["play"] == "fire_superiority")
+check("range discipline FLOORS, never LOWERS: a small map's two-thirds "
+      "figure (220px) sits well under mid's own 400px canned band, so "
+      "the canned value survives untouched",
+      _fs["params"].get("pressRange") == 400, str(_fs["params"]))
+
+_seat = fake_seat(context=_RANGE_CTX_BIG)
+starter_harness.repair_call(PERSONA.canned_turns[0], PERSONA, _seat,
+                            AVAILABLE)
+check("range discipline never INVENTS a fire_superiority entry on a turn "
+      "that did not call one (opening turn, same non-invention rule as "
+      "the marquee zone band)",
+      not any(e["play"] == "fire_superiority" for e in _seat.wanted_entries),
+      str([e["play"] for e in _seat.wanted_entries]))
+
+_seat = fake_seat(context=_RANGE_CTX_BIG, view=dict(_OPENING_VIEW))
+_wire_payload, _wire_entries = starter_harness.repair_call(
+    PERSONA.canned_turns[2], PERSONA, _seat, AVAILABLE)
+_fs_wire = next((e for e in _wire_entries if e["play"] == "fire_superiority"),
+                None)
+check("range discipline reaches the ACTUAL WIRE payload (not just the "
+      "wanted ladder): pressRange 866 survives repair_call's SECOND clamp "
+      "pass, proving plays.py's raised ceiling and fire_superiority.nim's "
+      "manifest bound were both moved together, not just the Python floor",
+      _fs_wire is not None and _fs_wire["params"].get("pressRange") == 866,
+      str(_fs_wire["params"] if _fs_wire else None))
+check("plays registry's pressRange ceiling RAISED 500->900 to hold the "
+      "two-thirds figure on the field's largest measured gun range",
+      plays.PLAYS["fire_superiority"]["params"]["pressRange"]["max"] == 900,
+      str(plays.PLAYS["fire_superiority"]["params"]["pressRange"]))
+
+# ── GUN DEFAULT (owner directive): a spray can spawns at its OWN point on
+# every live BR map, separate from the marker/hopper crates, and
+# play_sdk/reference/loot.nim fetches the NEAREST reachable pickup of ANY
+# kind -- no per-kind filter exists. Skip the guaranteed ARMAMENT rung's
+# auto-insert on any turn where the view's own nearest in-reach item
+# already reads as a spray, so the auto-insert cannot walk us onto one by
+# accident; a model that explicitly calls "loot" itself is untouched. ────
+_spray_view = {"self": {"pos": [100, 100]}, "items": [
+    {"kind": "spray", "pos": [110, 100], "present": True},
+    {"kind": "grenade", "pos": [400, 100], "present": True}]}
+_seat = fake_seat(view=_spray_view)
+starter_harness.repair_call(PERSONA.canned_turns[0], PERSONA, _seat,
+                            AVAILABLE)
+check("GUN DEFAULT: the guaranteed loot rung does NOT auto-insert when "
+      "the nearest reachable item already reads as a spray can",
+      not any(e["play"] == "loot" for e in _seat.wanted_entries),
+      str([e["play"] for e in _seat.wanted_entries]))
+
+_gun_view = {"self": {"pos": [100, 100]}, "items": [
+    {"kind": "grenade", "pos": [110, 100], "present": True},
+    {"kind": "spray", "pos": [400, 100], "present": True}]}
+_seat = fake_seat(view=_gun_view)
+starter_harness.repair_call(PERSONA.canned_turns[0], PERSONA, _seat,
+                            AVAILABLE)
+check("GUN DEFAULT: the guaranteed loot rung still auto-inserts when the "
+      "nearest reachable item is NOT a spray (arming stays unconditional "
+      "whenever a spray is not the risk)",
+      any(e["play"] == "loot" for e in _seat.wanted_entries),
+      str([e["play"] for e in _seat.wanted_entries]))
+
+_seat = fake_seat(view={})
+starter_harness.repair_call(PERSONA.canned_turns[0], PERSONA, _seat,
+                            AVAILABLE)
+check("GUN DEFAULT: an empty/no-items view still auto-inserts the "
+      "armament rung (the spray guard only ever WITHHOLDS, never REQUIRES "
+      "an item to already be visible first)",
+      any(e["play"] == "loot" for e in _seat.wanted_entries),
+      str([e["play"] for e in _seat.wanted_entries]))
+
+# ── AWARENESS digest: live gun-range/LONGSHOT/point-blank banding ────────
+_aware_context = {"self": {"seat": 3}, "gun_range": 1300}
+_aware_mid_view = {"tick": 100, "self": {"pos": [500, 500]},
+                   "tracks": [{"seat": 9, "team": 9, "pos": [500, 700],
+                               "fresh_tick": 90, "hp": 4}]}
+_lines = policy.awareness_lines(fake_seat(context=_aware_context,
+                                          view=_aware_mid_view))
+check("AWARENESS states the live gun-range/longshot/point-blank figures "
+      "for this map when the context carries a gun_range",
+      _lines is not None
+      and "gun 1300px (longshot 866px+, point-blank <136px)" in _lines[0],
+      str(_lines))
+check("AWARENESS: a mid-range threat (200px, neither band) carries no "
+      "LONGSHOT/POINT-BLANK tag",
+      _lines is not None and "LONGSHOT band" not in _lines[0]
+      and "POINT-BLANK" not in _lines[0], str(_lines))
+
+_aware_pb_view = {"tick": 100, "self": {"pos": [500, 500]},
+                  "tracks": [{"seat": 9, "team": 9, "pos": [520, 500],
+                              "fresh_tick": 90, "hp": 4}]}
+_lines = policy.awareness_lines(fake_seat(context=_aware_context,
+                                          view=_aware_pb_view))
+check("AWARENESS flags a nearest threat inside point-blank (20px < 136px)",
+      _lines is not None and "POINT-BLANK" in _lines[0], str(_lines))
+
+_aware_ls_view = {"tick": 100, "self": {"pos": [500, 500]},
+                  "tracks": [{"seat": 9, "team": 9, "pos": [500, 1400],
+                              "fresh_tick": 90, "hp": 4}]}
+_lines = policy.awareness_lines(fake_seat(context=_aware_context,
+                                          view=_aware_ls_view))
+check("AWARENESS flags a nearest threat at/beyond LONGSHOT (900px >= "
+      "866px)",
+      _lines is not None and "LONGSHOT band" in _lines[0], str(_lines))
+
+_lines = policy.awareness_lines(fake_seat(context={"self": {"seat": 3}},
+                                          view=_aware_mid_view))
+check("AWARENESS never guesses a gun-range figure when the context does "
+      "not carry one",
+      _lines is not None and "gun " not in _lines[0], str(_lines))
+
+# ── prompt text: range discipline + heat chaining + gun default (owner
+# directive 2026-09-06) -- literal wording review lands with the owner. ──
+check("prompt: range discipline states the fraction, not a fixed px "
+      "figure (the previous 220px-hardcode mistake this directive names)",
+      "beyond two-thirds of your gun's reach" in prompt,
+      "range-discipline fraction text not found")
+check("prompt: range discipline names AWARENESS as where the live number "
+      "for THIS map lands",
+      "AWARENESS states the live number for this map" in prompt,
+      "range-discipline awareness-pointer text not found")
+check("prompt: range discipline frames staying beyond a spray's own "
+      "bite, not just an enemy gun's",
+      "of a spray's own short bite" in prompt,
+      "spray-bite text not found")
+check("prompt: heat doctrine states EVERY tag (commons included) stokes "
+      "the ember ladder, correcting the old drama-deed-only phrasing",
+      "commons ones fuel it too, free" in prompt,
+      "heat-commons-fuel text not found")
+check("prompt: heat doctrine states the chain decays 2 embers per 1.875s "
+      "of silence and only pays from the THIRD tag on",
+      "decaying 2 embers every 1.875s" in prompt
+      and "paying only from the THIRD tag of an unbroken chain on" in prompt,
+      "heat-decay/third-tag text not found")
+check("prompt: the ledger bullet repeats the chain-fast call to action "
+      "with the same third-tag figure",
+      "only starts PAYING on the third tag" in prompt,
+      "heat-chain call-to-action text not found")
+check("prompt: gun is the STANDING default for the whole match, not just "
+      "the opening loot",
+      "your weapon for the WHOLE match by default" in prompt,
+      "gun-default text not found")
+check("prompt: the spray exception is reachable only by an explicit, "
+      "named model call -- never a default habit",
+      "a deliberate, named exception, never a habit" in prompt,
+      "spray-exception text not found")
+check("prompt: jackal co-engagement doctrine reconciled with range "
+      "discipline -- press a joined fight from range too, never by "
+      "closing into it",
+      "closing into the scrum to join it" in prompt,
+      "jackal-range-reconciliation text not found")
+check("prompt: NEGATIVE -- does not still frame heat as lighting only on "
+      "a 'drama deed' (the old, misleading commons-excluded phrasing this "
+      "directive corrects)",
+      "lights on a drama deed" not in prompt,
+      "stale drama-deed-only heat text still in prompt")
+
 print()
 if failures:
     print(f"SELF-CHECK FAILED: {len(failures)} failing check(s)")

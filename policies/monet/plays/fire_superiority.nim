@@ -78,8 +78,17 @@
 import ../../../play_sdk/play
 
 const
+  # pressRange max RAISED 500->900 (owner range-discipline directive,
+  # 2026-09-06): LONGSHOT prices past two-thirds of the LIVE map's gun
+  # range (src/ctf/glory.nim scaledByGunRange), and the field's gun range
+  # has measured as high as ~1300px -- two-thirds of that is ~866px, which
+  # 500 could never reach. policy.py's adjust_entries floors pressRange at
+  # that same two-thirds figure every episode; this ceiling only has to be
+  # able to hold the number it computes. Move together with the
+  # `value > 500` bound in readParams below and the transcribed copy in
+  # policies/starters/common/plays.py -- three places, one number.
   ManifestBytes =
-    "{\"abi\":1,\"class\":\"controller\",\"doc\":\"press-vs-break: count the guns you can see -- press a winning fight to a range band, break off only when truly outgunned\",\"modes\":[\"br\"],\"name\":\"fire_superiority\",\"params\":{\"breakDeficit\":{\"default\":2,\"integer\":true,\"kind\":\"number\",\"max\":8,\"min\":1},\"coverMax\":{\"default\":260,\"integer\":true,\"kind\":\"number\",\"max\":600,\"min\":0},\"engageDist\":{\"default\":600,\"integer\":true,\"kind\":\"number\",\"max\":1200,\"min\":100},\"finishRange\":{\"default\":140,\"integer\":true,\"kind\":\"number\",\"max\":260,\"min\":40},\"pressRange\":{\"default\":220,\"integer\":true,\"kind\":\"number\",\"max\":500,\"min\":60},\"woundedPct\":{\"default\":50,\"integer\":true,\"kind\":\"number\",\"max\":100,\"min\":0}},\"retune\":true}"
+    "{\"abi\":1,\"class\":\"controller\",\"doc\":\"press-vs-break: count the guns you can see -- press a winning fight to a range band, break off only when truly outgunned\",\"modes\":[\"br\"],\"name\":\"fire_superiority\",\"params\":{\"breakDeficit\":{\"default\":2,\"integer\":true,\"kind\":\"number\",\"max\":8,\"min\":1},\"coverMax\":{\"default\":260,\"integer\":true,\"kind\":\"number\",\"max\":600,\"min\":0},\"engageDist\":{\"default\":600,\"integer\":true,\"kind\":\"number\",\"max\":1200,\"min\":100},\"finishRange\":{\"default\":140,\"integer\":true,\"kind\":\"number\",\"max\":260,\"min\":40},\"pressRange\":{\"default\":220,\"integer\":true,\"kind\":\"number\",\"max\":900,\"min\":60},\"woundedPct\":{\"default\":50,\"integer\":true,\"kind\":\"number\",\"max\":100,\"min\":0}},\"retune\":true}"
 
   # src/shell/cover_scorer.nim's half-sector slope thresholds (16 sectors).
   SlopeScale = 1_000_000'i64
@@ -274,7 +283,7 @@ proc readParams(dataPtr, dataLen: int32): FsParams =
       if value < 40 or value > 260: result.valid = false
     elif buf.keyIs(keyStart, keyLen, "pressRange"):
       result.pressRange = value
-      if value < 60 or value > 500: result.valid = false
+      if value < 60 or value > 900: result.valid = false  # see ManifestBytes
     elif buf.keyIs(keyStart, keyLen, "woundedPct"):
       result.woundedPct = value
       if value > 100: result.valid = false

@@ -40,8 +40,10 @@ and Victory=8 for the win itself. Shape every fight toward one of those --
 a trade of plain hits, however many, is still a blank canvas.
 Three multipliers stack on top of a named class: +1 class rung for
 fighting on ground you took off the enemy; a heat ladder {1,2,4,8} that
-lights on a drama deed and climbs at ember rungs 2, 5, 10 named deeds into
-the match; and a Fibonacci co-engagement stack {1,2,3,5,8,13} for chipping
+climbs one ember per tag -- commons ones fuel it too, free, even though
+they price at 1 alone -- at rungs 2, 5, 10, decaying 2 embers every 1.875s
+you go quiet, and paying only from the THIRD tag of an unbroken chain on;
+and a Fibonacci co-engagement stack {1,2,3,5,8,13} for chipping
 the SAME target a truced seat is already fighting, inside a 120-tick
 window -- TRUCE POLITICS pays through this stack now, there is no partner
 to split it with. Victory alone rides the heat ladder too -- 8 cold, up to
@@ -62,7 +64,11 @@ The ledger, not the fight:
   chasing whoever last hit you, that avenge-yourself shape is dead code
   under the one-life rule. Ground you already took off the enemy pays a
   free class rung on top of whichever of those you land there, at no
-  extra risk.
+  extra risk. When targets are open, land tags FAST: even a worthless
+  plain one stokes the heat ladder, a chain under 1.875s between hits
+  keeps it climbing, and it only starts PAYING on the third tag -- so a
+  cheap opener is free fuel for the named hit right behind it, never
+  wasted motion.
 - An even trade is a loss. A tag is only a fraction banked; a life kept is
   worth several tags taken. Commit to a fight only when you hold at least
   two of: numbers, health, surprise (arriving third).
@@ -70,11 +76,15 @@ The ledger, not the fight:
   health are invisible -- never reason about them. Judge fire superiority by
   what your own fog tracks show: how many live guns bear on how many of
   yours. Break off when genuinely outgunned, never on raw nerves. When the
-  count says the fight is yours, TAKE it: press to range against a fresh or
-  full-health target, but close all the way on one you already know is
-  wounded -- the accuracy penalty up close is a risk against a live gun,
-  not against a finishing tag on someone this close to done. A superiority left
-  unspent is a draw, and a draw banks nobody anything.
+  count says the fight is yours, TAKE it: press to LONGSHOT range against a
+  fresh or full-health target -- beyond two-thirds of your gun's reach
+  (AWARENESS states the live number for this map) -- so the tag actually
+  prices instead of landing as a worthless close-in commons hit, well clear
+  of a spray's own short bite; only close all the way on one you already
+  know is wounded, where the accuracy penalty is a risk against a live gun,
+  not against a finishing tag on someone this close to done. Nobody in the
+  field spends that outer range today. A superiority left unspent is a
+  draw, and a draw banks nobody anything.
 - You spawn with empty hands: the marker and its hopper are two separate
   crates on the ground, and a cog that never picks either up never tags
   anyone, never finishes a duo, never presses a fight. You cannot see
@@ -87,7 +97,11 @@ The ledger, not the fight:
   chasing a crate that was never dropped is a wasted detour, not a
   patience problem.
   Never fight anyone over a contested pickup; an empty-handed cog with a
-  live partner is still worth more than a cog dead over a crate.
+  live partner is still worth more than a cog dead over a crate. The gun
+  you loot there is your weapon for the WHOLE match by default -- never
+  detour toward a spray can on your own initiative. Only if you judge late
+  that a spray earns more (a tight last-stand cluster) call loot yourself
+  and say why in chat: a deliberate, named exception, never a habit.
 - Never turn your back on a live gun. Answer the fight first; loot, heal,
   and rotate only when no gun is on you. After a fight, bank the life:
   recovery is the first call, not the afterthought.
@@ -155,7 +169,9 @@ Politics is the third lever:
   truced seat puts your own hit inside their SAME 120-tick window, and that
   is what actually climbs Fibonacci (x1, x2, x3, x5, x8, x13) on top of
   whatever class you land. Work every fight a truce opens WHILE it is still
-  live rather than holding out for a solo finish once it is over.
+  live rather than holding out for a solo finish once it is over -- press
+  it the same way as any fight you take alone, from LONGSHOT range with
+  the gun, never by closing into the scrum to join it.
 
 The ring and the clock:
 

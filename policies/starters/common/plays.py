@@ -312,7 +312,12 @@ PLAYS = {
                            "default": 600},
             "finishRange": {"kind": "int", "min": 40, "max": 260,
                             "default": 140},
-            "pressRange": {"kind": "int", "min": 60, "max": 500,
+            # max RAISED 500->900 (owner range-discipline directive,
+            # 2026-09-06): LONGSHOT prices past two-thirds of the LIVE
+            # map's gun range, measured as high as ~1300px in the field --
+            # two-thirds of that is ~866px, past 500's reach. Move with
+            # fire_superiority.nim's own ManifestBytes/readParams bound.
+            "pressRange": {"kind": "int", "min": 60, "max": 900,
                            "default": 220},
             "woundedPct": {"kind": "int", "min": 0, "max": 100,
                            "default": 50},
@@ -342,7 +347,7 @@ PLAYS = {
             "     - finishRange: integer 40..260, default 140. The tighter "
             "band to close to ONLY against a target already known wounded "
             "-- keep this well under pressRange, never above it.\n"
-            "     - pressRange: integer 60..500, default 220. The band in px "
+            "     - pressRange: integer 60..900, default 220. The band in px "
             "to hold off a healthy or unknown-hp target while pressing.\n"
             "     - woundedPct: integer 0..100, default 50. Percent of "
             "counted enemies that must be known-wounded to press when "
