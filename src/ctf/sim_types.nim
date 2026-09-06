@@ -29,7 +29,7 @@ export glory
 
 const
   GameName* = "ctf"
-  ReplayCompatibleGameVersions* = ["52"]
+  ReplayCompatibleGameVersions* = ["54"]
     ## The replay-load allowlist (play-calling design §4.3): versions whose
     ## recorded files still play back correctly under THIS engine. The
     ## criterion is the GameVersion changelog below, not chronology — a
@@ -55,7 +55,19 @@ const
     ## RewardAccount on the wire. Widening requires a real archived fixture
     ## that survives initialization and stepping (PM ruling, 2026-08-30),
     ## never a header rewrite.
-  GameVersion* = "52"
+  GameVersion* = "54"
+    ## GV54 (ALLIANCE: PACT REGISTRY, P1): `pactMask`/`pactOfferTick` appended
+    ## to `SimServer` (a flatty keyframe layout change) and both enter
+    ## `gameHash` beside `gloryProduct` (formal-alliances design,
+    ## 2026-09-02/03: pact state is CAUSAL from GV54 on, even though nothing
+    ## in scoring reads it yet — P1 is a dark REGISTRY, not dark STATE). The
+    ## allowlist drops GV53 because it never shipped on `main` (claimed by
+    ## an open, unmerged PR at the time this landed -- AGENTS.md's
+    ## cross-branch GameVersion-claim rule: `main` had only spent through
+    ## GV52, so GV53 stayed free for whichever branch merged first; this one
+    ## renumbered to GV54 rather than collide). GV52 is excluded for its own
+    ## reason, unchanged by this bump: it moved every re-shared spawn seat's
+    ## SpawnShareStagger, a hash TRAJECTORY change (see its own entry below).
     ## GV52 (SPAWN: RE-SHARED POINTS STAGGER): seats that re-share one
     ## authored spawn point (order >= perTeam -- every duo on the 16-point,
     ## 16-team BR generator) are seated SpawnShareStagger px apart along y
@@ -1935,6 +1947,19 @@ type
     # by name). scInput is the zero value, so a parsed legacy config is
     # bit-identical in memory too.
     control*: SlotControl     ## "input" (default) or "play" in config JSON
+    # ALLIANCE P1 (formal-alliances design, 2026-09-02/03): GV-FREE config
+    # surface — `PlayerSlotConfig` is parsed by name (readConfigSlots), not
+    # flatty-positional, so appending here needs no GameVersion bump on its
+    # own (see `control`'s own comment just above for the same reasoning).
+    # The GV54 bump this arc DOES carry is entirely for the DERIVED
+    # `pactMask`/`pactOfferTick` state on `SimServer`, not for this list.
+    allies*: seq[string]      ## Other seats' `name` this seat proposes a
+                               ## pact with pre-match. Resolved and
+                               ## MUTUALITY-checked once at game start
+                               ## (resolveConfiguredPacts, sim.nim): a
+                               ## unilateral entry (this seat names another
+                               ## that does not name it back) is dropped and
+                               ## logged, never registered into pactMask.
 
   MapGenOverrides* = object
     ## Per-parameter locks for the terrain generator. Zero-value ("" / 0,
@@ -4137,6 +4162,41 @@ type
                                ## from the damage stream like the marks,
                                ## so OUT of gameHash for the same reason
                                ## (the product it mints into is hashed).
+    # ── ALLIANCE P1: the pact REGISTRY (formal-alliances design,
+    # 2026-09-02/03) ── appended at the END of the ledger block per this
+    # file's own flatty-positional rule (GameVersion 54 bump covers the
+    # layout move). DARK: nothing in scoring reads either field yet -- no
+    # glory pricing, no perception change, no behavior branches on a pact.
+    # Both are still CAUSAL (hashed, beside gloryProduct — sim_state.nim)
+    # because a pact's existence is a fact about the match, not a cosmetic:
+    # a replay that silently dropped a mutual pact mid-game would re-play a
+    # DIFFERENT episode of P2's future declaration/dissolution surface
+    # without the hash ever objecting.
+    pactMask*: array[Team, uint16]    ## ALLIANCE: bit j of row i set means
+                               ## team i and team j hold a mutual pact.
+                               ## SYMMETRIC by construction — every mutation
+                               ## goes through registerPact/dissolvePact
+                               ## (sim_state.nim), which assert the mirror
+                               ## bit together; never write this field any
+                               ## other way. Seeded once per game (from
+                               ## config.slots[].allies, mutuality-checked)
+                               ## in resetGloryLedger's reseedPacts call;
+                               ## cleared for a pact's two teams the instant
+                               ## either damages the other (absorbDamage) or
+                               ## either seat dies (killPlayer) — P1 has no
+                               ## other writer.
+    pactOfferTick*: array[Team, array[Team, int]]  ## ALLIANCE: tick team i
+                               ## last proposed a pact to team j, -1 = never
+                               ## offered. UNUSED in P1 (no declaration
+                               ## protocol exists yet — the config seed
+                               ## below registers a pact directly, never
+                               ## through an "offer"); reserved now so the
+                               ## P2 shout-based ALLY/dissolve protocol
+                               ## (the same ledger's 25:3x design) adds no
+                               ## further GameVersion-bumping layout move.
+                               ## Reset to -1 for every (i, j) each game,
+                               ## same as every other per-game ledger field
+                               ## above.
     heatEmbers*: array[Team, int]     ## GLORY: rampage embers -> the heat
                                       ## multiplier.
     heatLastDeed*: array[Team, int]   ## GLORY: tick of the team's latest
