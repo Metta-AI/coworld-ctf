@@ -211,6 +211,46 @@ proc policyPageHash*(page: string): uint64 =
   for c in page:
     result.mixHashInt(ord(c))
 
+# ── ALLIANCE P1: pact registry mutators (formal-alliances design,
+# 2026-09-02/03, GameVersion 54) ── `pactMask` is symmetric by CONTRACT (bit
+# j of row i set iff bit i of row j is set); every writer in the engine goes
+# through registerPact/dissolvePact so that invariant can never drift, and
+# each asserts its own mirror bit immediately after writing it.
+proc pactActive*(sim: SimServer, a, b: Team): bool =
+  ## Whether teams `a` and `b` currently hold a mutual pact. Reads row `a`
+  ## only — the symmetry invariant is what makes that safe; a caller never
+  ## needs to check both rows.
+  (sim.pactMask[a] and (1'u16 shl ord(b))) != 0
+
+proc registerPact*(sim: var SimServer, a, b: Team) =
+  ## Sets the mutual bit for `a`/`b`. The ONLY two callers in P1 are
+  ## resolveConfiguredPacts (sim.nim, pre-match config seed) — P2's shout
+  ## declaration protocol is the next writer, not yet built.
+  doAssert a != b, "a team cannot pact with itself"
+  sim.pactMask[a] = sim.pactMask[a] or (1'u16 shl ord(b))
+  sim.pactMask[b] = sim.pactMask[b] or (1'u16 shl ord(a))
+  doAssert sim.pactActive(a, b) and sim.pactActive(b, a),
+    "pactMask symmetry invariant violated on register"
+
+proc dissolvePact*(sim: var SimServer, a, b: Team) =
+  ## Clears the mutual bit for `a`/`b`. Idempotent: dissolving an inactive
+  ## pact is a no-op, not an error (a died seat's row/column clear and an
+  ## ally-damage clear can both legally target the same already-cleared
+  ## pair in one tick).
+  sim.pactMask[a] = sim.pactMask[a] and not (1'u16 shl ord(b))
+  sim.pactMask[b] = sim.pactMask[b] and not (1'u16 shl ord(a))
+  doAssert not sim.pactActive(a, b) and not sim.pactActive(b, a),
+    "pactMask symmetry invariant violated on dissolve"
+
+proc clearPactsFor*(sim: var SimServer, team: Team) =
+  ## Dissolves every pact `team` holds, in both directions — the death hook
+  ## (killPlayer, sim.nim): a dead seat can no longer honor a truce, so its
+  ## whole row AND every partner's mirrored column bit clear together.
+  for other in sim.teams():
+    if other != team and sim.pactActive(team, other):
+      sim.dissolvePact(team, other)
+  doAssert sim.pactMask[team] == 0
+
 proc gameHash*(sim: SimServer): uint64 =
   ## Returns a deterministic hash of gameplay state.
   result = 14695981039346656037'u64
@@ -448,6 +488,16 @@ proc gameHash*(sim: SimServer): uint64 =
     for team in sim.teams():
       result.mixHashInt(int(sim.gloryProduct[team]))
       result.mixHashInt(sim.gloryFfIncidents[team])
+  # ALLIANCE P1 (formal-alliances design, 2026-09-02/03, GameVersion 54):
+  # the pact registry. Unconditional (not flag-gated) — unlike the recut
+  # pair above, there is no "armed" switch for the registry itself, only
+  # whether any config seeds a pact; an all-zero mask hashes to the same
+  # bytes on every config, seeded or not, so this costs nothing on a game
+  # that never configures `allies`. Dark for SCORING (nothing reads this to
+  # price anything yet) but CAUSAL for REPLAY (a pact forming or dissolving
+  # is a fact about the match a recording must reproduce).
+  for team in sim.teams():
+    result.mixHashInt(int(sim.pactMask[team]))
   # DROP(s2): the ground-drop state and the per-cog chord counter. Mixed ONLY
   # when the mechanic is armed, so a dropItem-off replay's hash schema and
   # trajectory are byte-identical to a build without these fields — the same
