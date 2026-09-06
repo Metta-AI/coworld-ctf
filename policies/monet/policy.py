@@ -110,6 +110,49 @@ JACKAL_MAX_KILLS = 2
 FRESH_TICKS = 240
 NEAR_ITEM_PX = 500
 
+# T22 (IMPROVE-QUEUE #3, SOURCE-VERIFIED against origin/main ac1d5f91,
+# coworld 0.7.337): the exact clock band the ENGINE mints ClosingTime/
+# LastLight on -- not "the endgame canned turn", a ~30s-cadence GUESS at
+# when the ring gets there. `killDeed`'s marquee band (src/ctf/sim.nim
+# ~2751-2779, GLORY v13, armed by `gloryMultiplierRecut` -- ARMED on the
+# live battle-royale-s2 flagship, coworld_manifest_paintbot.json) reads
+# `recutZonePhase` (src/ctf/glory.nim ~2484): `final` is true for the
+# WHOLE last authored zone phase -- its wait, its shrink, and the
+# hold-forever after -- which prices dLastLight x4 and always outranks
+# dClosingTime when both would apply (same one-deed-per-kill law
+# `killDeed` uses everywhere else); `closing` is true while any EARLIER
+# phase is actively shrinking, which prices dClosingTime x2.
+#
+# The wire mirrors both facts directly, no reconstruction needed:
+# `world.zone.phase` IS the engine's own 1-indexed `firstLightZonePhase`
+# (src/ctf/server.nim) -- it climbs 1..N over the match and then holds at
+# N forever, so `phase >= N` is exactly `final`, no separate flag to miss.
+# `world.zone.ticks_to_shrink` is `ticksToNextZoneShrink` (same file): 0
+# exactly while a shrink is actively running, a positive countdown during
+# a wait. N = 6 for the live battle-royale-s2 zonePhases schedule (z
+# 0.75/0.55/0.35/0.2/0.08/0.001) -- re-count this if that schedule is ever
+# retuned, the same care every other manifest-fit constant here already
+# gets (ArcFireRangePx, MIN_LEASH, ...).
+TOTAL_ZONE_PHASES = 6
+
+
+def _in_marquee_zone_window(view):
+    """True the instant the REAL zone clock is inside the window that
+    prices ClosingTime or LastLight (see TOTAL_ZONE_PHASES's own comment
+    for the exact source predicate this mirrors). Missing or malformed
+    zone data -- a pre-BR fixture, an early tick before the first view
+    lands, a stripped test view -- reads False, never a guess."""
+    zone = (view.get("world") or {}).get("zone")
+    if not isinstance(zone, dict):
+        return False
+    phase = zone.get("phase")
+    if not isinstance(phase, int):
+        return False
+    if phase >= TOTAL_ZONE_PHASES:
+        return True
+    ticks = zone.get("ticks_to_shrink")
+    return isinstance(ticks, (int, float)) and ticks <= 0
+
 
 def _normalize_bodyguard(entries):
     """Collapse every bodyguard entry the model submitted -- one, several,
@@ -344,6 +387,23 @@ def adjust_entries(entries, context, view):
                     and isinstance(spacing[0], int)):
                 spacing[0] = max(spacing[0], MIN_SPACING)
                 spacing[1] = max(spacing[1], spacing[0])
+
+    # MARQUEE CLOCK BAND (T22): the v10 fix -- woundedPct zeroed so "ANY
+    # numeric parity or better now PRESSES instead of holding" -- was
+    # scoped to the endgame CANNED TURN, a fixed guess at when the ring
+    # gets there. The window that actually prices ClosingTime/LastLight is
+    # a fact of the live zone clock, not the recall schedule: a
+    # slow-opening match can reach it while still on the mid turn's
+    # woundedPct=50 (which stalls an even fight at cover -- the exact
+    # standoff v10 killed, just on a different turn), and a fast one can
+    # still be running consolidation. Force the proven never-stall posture
+    # onto whichever fire_superiority entry THIS turn already called the
+    # instant the real clock says we are in the window, never inventing a
+    # press controller on a turn that did not call one.
+    if _in_marquee_zone_window(view):
+        for entry in entries:
+            if entry.get("play") == "fire_superiority":
+                entry.setdefault("params", {})["woundedPct"] = 0
 
     # CONVERSION: every ladder banks the life. The rung sits above the
     # rotation controller (wounded beats rotating) and below any fight

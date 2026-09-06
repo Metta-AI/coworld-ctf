@@ -1193,6 +1193,94 @@ check("prompt: endgame doctrine says parity is enough late (matches the "
 check("prompt: endgame doctrine names the standoff being killed",
       "paint can in hand" in prompt, "endgame prompt text not found")
 
+# ── T22 (IMPROVE-QUEUE #3): ClosingTime/LastLight are the engine's own
+# ZONE CLOCK (src/ctf/glory.nim recutZonePhase, mirrored by
+# src/ctf/server.nim firstLightZonePhase/ticksToNextZoneShrink -- see
+# policy.py's TOTAL_ZONE_PHASES/_in_marquee_zone_window for the full
+# citation), not the endgame canned turn's ~30s-cadence guess at when the
+# ring gets there. Prove the helper's own boundary cases first, then prove
+# the override actually reaches the wire through repair_call -- a helper
+# that answers correctly in isolation but is never wired into
+# adjust_entries would pass the first block and fail every check below. ──
+_final_view = {"world": {"zone": {"phase": policy.TOTAL_ZONE_PHASES,
+                                   "ticks_to_shrink": 900}}}
+_closing_view = {"world": {"zone": {"phase": 2, "ticks_to_shrink": 0}}}
+_wait_view = {"world": {"zone": {"phase": 2, "ticks_to_shrink": 150}}}
+
+check("_in_marquee_zone_window: phase >= N is LastLight's whole window "
+      "(final), even mid-shrink",
+      policy._in_marquee_zone_window(_final_view))
+check("_in_marquee_zone_window: an EARLIER phase actively shrinking "
+      "(ticks_to_shrink == 0) is ClosingTime's window",
+      policy._in_marquee_zone_window(_closing_view))
+check("_in_marquee_zone_window: an earlier phase still WAITING "
+      "(ticks_to_shrink > 0) is neither window",
+      not policy._in_marquee_zone_window(_wait_view))
+check("_in_marquee_zone_window: missing/malformed zone data reads False, "
+      "never a guess (pre-BR fixture, empty view, stripped self-check "
+      "view)",
+      not policy._in_marquee_zone_window({"world": {}})
+      and not policy._in_marquee_zone_window({})
+      and not policy._in_marquee_zone_window(
+          {"world": {"zone": {"phase": "two"}}}))
+
+_mid_idx, _endgame_idx = 2, 3  # canned_turns is 0-indexed; "turn 3"/"turn 4"
+for _view, _expect, _label in (
+        (_wait_view, 50, "still WAITING -- untouched (mid-turn's own v10 "
+                          "posture holds)"),
+        (_closing_view, 0, "an earlier phase CLOSING"),
+        (_final_view, 0, "phase >= N, LAST LIGHT")):
+    _seat = fake_seat(view=_view)
+    starter_harness.repair_call(PERSONA.canned_turns[_mid_idx], PERSONA,
+                                 _seat, AVAILABLE)
+    _fs = next((e for e in _seat.wanted_entries
+                if e["play"] == "fire_superiority"), None)
+    check(f"marquee zone gate reaches mid-turn's wanted ladder -- {_label}",
+          _fs is not None and _fs["params"].get("woundedPct") == _expect,
+          str(_fs["params"] if _fs else None))
+
+_seat = fake_seat(view=_closing_view)
+starter_harness.repair_call(PERSONA.canned_turns[_endgame_idx], PERSONA,
+                             _seat, AVAILABLE)
+_fs = next(e for e in _seat.wanted_entries
+           if e["play"] == "fire_superiority")
+check("marquee zone gate is a no-op on the endgame turn (already 0 by "
+      "the v10 amendment -- proves the new override never conflicts with "
+      "the existing endgame fix)",
+      _fs["params"].get("woundedPct") == 0, str(_fs["params"]))
+
+_seat = fake_seat(view=_final_view)
+starter_harness.repair_call(PERSONA.canned_turns[0], PERSONA, _seat,
+                             AVAILABLE)
+check("marquee zone gate never INVENTS a fire_superiority entry on a turn "
+      "that did not call one (opening turn)",
+      not any(e["play"] == "fire_superiority"
+              for e in _seat.wanted_entries),
+      str([e["play"] for e in _seat.wanted_entries]))
+
+# ── T22 era-gate catch: PAYBACK's self-avenge framing ("whoever tagged
+# YOU") describes `avengesKiller` (src/ctf/glory.nim killDeed), which the
+# engine's own one-life BR rule makes structurally dead code (a killer who
+# ever died is already permanently eliminated -- see glory.nim's
+# KillContext.avengesPartner doc comment). The ONLY BR-reachable path is
+# `avengesPartner`: killing whoever killed your DUO PARTNER, which needs a
+# partner and so never mints solo either. The prompt must name the real
+# path, not the dead one, and must not spend a solo-applicable bullet
+# telling the model to chase the dead one. ────────────────────────────────
+check("prompt: PAYBACK is tied to the DUO PARTNER's tagger, the only "
+      "BR-reachable path",
+      "killing your fallen DUO PARTNER's" in prompt, "wording not found")
+check("prompt: PAYBACK is explicitly marked duo-only / never mints solo",
+      "never mints solo" in prompt, "wording not found")
+check("prompt: the solo-applicable ledger no longer tells the model to "
+      "chase whoever tagged IT (the dead avengesKiller shape)",
+      "whoever tagged\n  YOU first" not in prompt
+      and "whoever tagged YOU first" not in prompt,
+      "dead self-avenge phrasing still present")
+check("prompt: the duo fallback names PAYBACK at its one real trigger "
+      "(the fallen partner's tagger), not left anonymous",
+      "PAYBACK's ONLY reachable path" in prompt, "wording not found")
+
 # ── v11 EARLY CREDIT STACK (leader-template finding, 9/3): the
 # consolidation turn (index 1, "turn 2") gains fire_superiority + jackal --
 # structurally, dFirstBlood (the episode's single first kill) and the early

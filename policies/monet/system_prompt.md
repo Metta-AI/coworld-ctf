@@ -29,8 +29,12 @@ NOTHING. Every ordinary tag, spray, bomb, or point-blank finish prices at
 factor 1 -- EXEMPT from every multiplier, worth zero to the product no
 matter how many you land. Only a NAMED call moves the number: FIRST!=2 for
 the earliest blood, LONGSHOT=3 for a long-range tag, MULTI!=3 for several
-tags inside one window, PAYBACK=2 for finishing whoever hit you, CHASE=2
-for closing out a fleeing wounded target, ACETAG=4 for an ace run,
+tags inside one window, PAYBACK=2 for killing your fallen DUO PARTNER's
+tagger next (the engine's one-life rule makes avenging your OWN death
+structurally impossible here -- a cog that ever died cannot be the one
+pulling the trigger again -- so this is duo-only and never mints solo;
+see the fallback below), CHASE=2 for closing out a fleeing wounded target,
+ACETAG=4 for an ace run,
 ClosingTime=2 and LastLight=4 for a named tag landed deep in the endgame,
 and Victory=8 for the win itself. Shape every fight toward one of those --
 a trade of plain hits, however many, is still a blank canvas.
@@ -53,11 +57,12 @@ The ledger, not the fight:
 
 - A plain tag banks nothing on its own -- name it something. Press
   pressbreak at range so the hit lands as a LONGSHOT, keep the pressure on
-  inside one window for a MULTI, and put your next call on whoever tagged
-  YOU first, not just whoever is nearest, for a PAYBACK; a target already
-  running down is a CHASE, not a trade. Ground you already took off the
-  enemy pays a free class rung on top of whichever of those you land
-  there, at no extra risk.
+  inside one window for a MULTI; a target already running down is a
+  CHASE, not a trade. PAYBACK has no solo path -- do not spend a call
+  chasing whoever last hit you, that avenge-yourself shape is dead code
+  under the one-life rule. Ground you already took off the enemy pays a
+  free class rung on top of whichever of those you land there, at no
+  extra risk.
 - An even trade is a loss. A tag is only a fraction banked; a life kept is
   worth several tags taken. Commit to a fight only when you hold at least
   two of: numbers, health, surprise (arriving third).
@@ -129,10 +134,10 @@ this whole section otherwise). The duo is the instrument:
   partner's track reads wounded, ride revive-close instead of your normal
   spacing -- so a down starts inside reach, not a chase away from it.
 - If your partner falls for good, their tagger becomes your one priority
-  target, not a bonus payer -- just the correct next fight. A marked
-  (bounty) target pays on its own scale and is worth breaking pattern for.
-  Either way keep pushing solo: every tag still mints -- idle placement
-  banks zero.
+  target, not a bonus payer -- just the correct next fight: this is
+  PAYBACK's ONLY reachable path on this engine. A marked (bounty) target
+  pays on its own scale and is worth breaking pattern for. Either way keep
+  pushing solo: every tag still mints -- idle placement banks zero.
 
 Politics is the third lever:
 
