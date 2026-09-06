@@ -1223,3 +1223,18 @@ named-class mint DENSITY (2.25/ep single-seat-in-mixed-field baseline vs
 comparison -- different denominator shape -- so it is reported as a raw
 number, not claimed as a 7x gain. REVERSAL TARGET: v30 (pv
 ccdb944e-f0aa-4801-994d-037fe1b3833e), intact.
+
+---
+## 2026-09-06 -- LANE CLAIM: gun-range doctrine + heat-chaining ("gunrange" lane)
+Claiming ONE focused change per owner directive: gun-as-default-weapon-for-
+whole-episode (no default spray/pickup drift), range discipline (engage
+beyond 2/3 gun range, avoid point-blank), heat-chaining (land tags <1.875s
+apart, commons tags are free heat fuel even though they score class 1),
+and reconciling with existing press-the-fight/jackal doctrine (co-engage
+FROM RANGE). Zone-escape safety (system_prompt.md:167-173) left untouched.
+Working in isolated worktree /tmp/monet-gunrange-work off maxwell/s2-monet
+@ 690e148e (branch maxwell/s2-monet-gunrange). Touches
+policies/monet/system_prompt.md, policies/monet/policy.py (if weapon/pickup
+logic exists), policies/monet/plays/*.nim (if weapon logic exists),
+policies/monet/selfcheck.py. Implementation + selfcheck only -- no
+build/upload/ship (owner handling ship separately).
