@@ -1781,14 +1781,104 @@ check("prompt: co-engagement doctrine requires a REGISTERED, MUTUAL pact "
       prompt.count("REGISTERED, MUTUAL pact") >= 2,
       f"found {prompt.count('REGISTERED, MUTUAL pact')} occurrences, "
       "want >= 2")
-check("prompt: objective states co-engagement no longer pays on its own",
-      "co-engagement no longer pays on its own" in prompt,
-      "co-engagement-gated text not found")
-check("prompt: jackal doctrine states landing on a random, untruced "
-      "seat's target still only pays stack x1 (no incidental "
-      "co-engagement credit)",
-      "is still chipping tags alone too, stack x1" in prompt,
-      "untruced-co-engagement-x1 text not found")
+# ── JOINT ACTION RE-ARMED (t27, 2026-09-07; live build 0.7.344, engine
+# source 2b66cec4, verified by GET /v2/coworlds/{id} ->
+# manifest.game.runnable.source_url, NOT from a version string). The two
+# pins that used to live here asserted "co-engagement no longer pays on
+# its own" and "is still chipping tags alone too, stack x1". BOTH ARE NOW
+# FALSE AGAINST SOURCE, and they were the load-bearing text telling the
+# model to decline untruced third-party fights.
+# What actually changed: `winAsMultiplier` flipped false -> TRUE on the
+# battle-royale-s2 variant (coworld_manifest_paintbot.json:1390, PR #436),
+# which re-arms dJointAct. Read at that commit:
+#   - trigger (sim.nim:2734-2794, called from absorbDamage:3277-3278):
+#     within a 120-tick rolling per-victim chain, once >=2 DISTINCT teams
+#     have landed a hit on one victim, every recorded contributing seat
+#     mints once. Guard verbatim (sim.nim:3277):
+#       `if sim.config.winAsMultiplier and sim.config.brMode:`
+#     nested in `if sim.config.gloryMultiplierRecut and attackerIndex >= 0`
+#     (sim.nim:3262). All three true on the live variant -> LIVE, not dark.
+#   - fold: each mint is a separate sequential multiplication of the team
+#     product (sim.nim:438-439 -> recutFold, glory.nim:2791,2804), factor 2
+#     (glory.nim:2496), or 3 via recutShiftedClass on enemy ground.
+#     N mints therefore compound, not sum.
+#   - cap: RecutMintCapTable dJointAct = 6 (glory.nim:2661), enforced
+#     per-episode per-TEAM by recutCappedFolds (glory.nim:2705-2712); the
+#     7th+ mint still fires the event but folds factor 1.
+#   - eligibility: no damage floor beyond `amount > 0` (sim.nim:3262-3263),
+#     victim need not die (hooked on absorbDamage, not killPlayer), no
+#     first/last-hit requirement, mints retroactively once the 2nd team
+#     joins (sim.nim:2787-2794), and NO pact requirement -- dJointAct
+#     never passes stackK, so recutStackMult stays 1 (glory.nim:2765).
+#   - SEPARATE from the Fibonacci k-stack, which keeps its pact gate:
+#     recutContextK has exactly one call site, the kill-deed mint
+#     (sim.nim:2917), gated on pactActive (sim.nim:2729-2730). So the two
+#     multipliers key on the same 120-tick window and are independent --
+#     that distinction is the whole doctrine change.
+#   - reachable on THIS ladder: 16-solo means team == seat (verified on
+#     r4273 and r4333 results.team: 16 single-seat teams), so our seat plus
+#     any one other seat inside 5s satisfies it. Unlike the abandoned
+#     866px range lever, this situation is ordinary, not geometric.
+# dTagBack did NOT come back with it: downedMode = false
+# (coworld_manifest_paintbot.json:1334) no-ops the whole downed/revive
+# machinery at sim.nim:7868, so its mint site is unreachable regardless of
+# the flag. The revive-farming path stays closed -- do not re-open it here.
+# ⚠️ This is a FLAG. Rollback is a flip with no code change. Re-verify
+# winAsMultiplier on the live manifest before extending any of this. ──────
+check("prompt: objective states the Fibonacci co-engagement STACK is the "
+      "pact-gated half and reads x1 without a pact (t27: the stack keeps "
+      "its gate; joint action does not share it)",
+      "that STACK is pact-gated and reads x1 without" in prompt,
+      "pact-gated-stack text not found")
+check("prompt: objective states JOINT ACTION is NOT pact-gated "
+      "(t27 re-arm, sim.nim:2793-2794 passes no stackK)",
+      "But JOINT ACTION itself is not pact-gated" in prompt,
+      "joint-action-ungated text not found")
+check("prompt: objective states ONE point of damage qualifies "
+      "(no damage floor beyond amount > 0, sim.nim:3262-3263)",
+      "ONE point of damage is" in prompt and "enough" in prompt,
+      "one-damage-qualifies text not found")
+check("prompt: objective states a second seat hitting inside the same "
+      "120-tick (5s) window DOUBLES the whole episode product "
+      "(glory.nim:2496 factor 2, AssistWindowTicks=120 @ 24 ticks/s)",
+      "120-tick (5s) window DOUBLES your whole episode product" in prompt,
+      "joint-action-doubles text not found")
+check("prompt: objective states joint action triples on enemy ground "
+      "(recutShiftedClass, glory.nim:2724,2742)",
+      "triples it" in prompt
+      and "on ground you took off the enemy. The target need not die"
+      in prompt,
+      "joint-action-enemy-ground text not found")
+check("prompt: objective states the target need not die and the kill need "
+      "not be ours (hooked on absorbDamage, not killPlayer)",
+      "The target need not die, the kill need" in prompt
+      and "not be yours, no truce is required" in prompt,
+      "joint-action-no-kill-needed text not found")
+check("prompt: objective states joint action pays RETROACTIVELY when we "
+      "hit first and another seat joins inside the window "
+      "(sim.nim:2787-2794 mints already-recorded seats)",
+      "it pays RETROACTIVELY when you" in prompt,
+      "joint-action-retroactive text not found")
+check("prompt: objective states the SIX-mint per-episode budget and the "
+      "x64 ceiling, and directs spending it on SEPARATE targets "
+      "(RecutMintCapTable dJointAct=6, glory.nim:2661)",
+      "It banks SIX times per" in prompt
+      and "six SEPARATE" in prompt
+      and "between a x1 and a x64 episode" in prompt,
+      "joint-action-six-cap text not found")
+check("prompt: jackal doctrine now DIRECTS taking the untruced "
+      "third-party fight rather than declining it (t27 correction)",
+      "is already chipping is NOT tags alone" in prompt
+      and "so TAKE that fight" in prompt
+      and "untruced third-partying is the most available" in prompt,
+      "jackal-take-untruced-fight text not found")
+check("prompt: NEGATIVE -- the retired FALSE claims that untruced "
+      "co-engagement pays nothing are gone (they were the text that "
+      "suppressed a live x2-per-incident multiplier)",
+      "co-engagement no longer pays on its own" not in prompt
+      and "is still chipping tags alone too, stack x1" not in prompt
+      and "only\na standing, two-way pact does" not in prompt,
+      "stale co-engagement-is-dead text still present in prompt")
 
 # ── idle-placement doctrine correction: GV57's placement trio makes the
 # old "idle placement banks zero" claim FALSE (lasting to 8/4/2 teams now

@@ -53,8 +53,17 @@ strung together, already tops the ladder at x8, so chain your next named
 call inside that window instead of treating heat as unreachable; and a
 Fibonacci co-engagement stack {1,2,3,5,8,13} for chipping the SAME target
 a seat you hold a REGISTERED, MUTUAL pact with is already fighting,
-inside a 120-tick window -- co-engagement no longer pays on its own, only
-a standing, two-way pact does, there is no partner to split it with.
+inside a 120-tick window -- that STACK is pact-gated and reads x1 without
+one. But JOINT ACTION itself is not pact-gated, and it is the cheapest
+multiplier on this board: any hit you land -- ONE point of damage is
+enough -- on a target that a second seat also hits inside that same
+120-tick (5s) window DOUBLES your whole episode product, and triples it
+on ground you took off the enemy. The target need not die, the kill need
+not be yours, no truce is required, and it pays RETROACTIVELY when you
+hit first and anyone else joins inside the window. It banks SIX times per
+episode and nothing after that, so spend those six on six SEPARATE
+targets or separate moments instead of emptying into one -- six of them
+is the difference between a x1 and a x64 episode.
 Victory alone rides the heat ladder too -- 8 cold, up to
 64 hot -- but never the stack, so a win landed with the drama chain still
 lit banks many times a win landed cold. One hit on your own side halves
@@ -169,8 +178,10 @@ Politics is the third lever:
   after it is already dead. Landing on a fresh, uncontested survivor -- the
   only seat left once a fight has already finished -- tags alone, stack x1,
   no matter how it is called. Landing on a target a random, untruced seat
-  is still chipping tags alone too, stack x1 -- co-engagement no longer
-  pays on its own. Landing on a target still being chipped by a seat you
+  is already chipping is NOT tags alone: the Fibonacci stack reads x1
+  without a pact, but JOINT ACTION still doubles the whole product for one
+  hit, so TAKE that fight -- untruced third-partying is the most available
+  multiplier you have. Landing on a target still being chipped by a seat you
   hold a REGISTERED, MUTUAL pact with puts your own hit inside their SAME
   120-tick window, and that is what actually climbs Fibonacci (x1, x2, x3, x5, x8, x13) on top of
   whatever class you land. Work every truce-opened
