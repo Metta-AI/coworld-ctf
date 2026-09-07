@@ -2649,6 +2649,60 @@ check("plays registry's pressRange ceiling RAISED 500->900 to hold the "
       plays.PLAYS["fire_superiority"]["params"]["pressRange"]["max"] == 900,
       str(plays.PLAYS["fire_superiority"]["params"]["pressRange"]))
 
+# ── RANGE DISCIPLINE, part 2: the band made TWO-SIDED (owner directive
+# 2026-09-06, measured no-op fix). The floor above only ever raised the
+# CEILING fire_superiority.nim would approach to -- but the Nim PRESS
+# branch used to just HOLD once inside pressRange, never open the range
+# back up, so median tag distance measured at 339px against an 866-900px
+# floored ceiling: the raise alone changed nothing because we are
+# essentially always already inside the band. This has no equivalent in
+# adjust_entries (that function only ever sets the pressRange NUMBER; the
+# two-sidedness lives entirely in fire_superiority.nim's play_step), so it
+# cannot be pinned through repair_call/wanted-entries the way the floor
+# above is. Mirrored instead against the SOURCE formula, same pattern as
+# the v10 fs_superior/fs_inferior mirror above: fs_press_action reproduces
+# play_step's PRESS branch (including PressBackoffPct's hysteresis
+# deadband) so a future edit that keeps the param names but changes the
+# arithmetic is still caught here, not just in the .nim file nobody reruns
+# by hand. ──────────────────────────────────────────────────────────────
+FS_BACKOFF_PCT = 85  # mirrors fire_superiority.nim's PressBackoffPct
+
+
+def fs_press_action(dist_sq: int, band: int, target_wounded: bool) -> str:
+    """"press" (close in), "hold" (deadband, or a wounded target already
+    inside finishRange), or "backoff" (healthy target, meaningfully inside
+    pressRange) -- mirrors fire_superiority.nim play_step's PRESS branch
+    exactly. `band` is whichever of finishRange/pressRange the caller
+    already selected for target_wounded, same as the Nim source does."""
+    if dist_sq > band * band:
+        return "press"
+    if target_wounded:
+        return "hold"
+    if dist_sq >= (band * FS_BACKOFF_PCT // 100) ** 2:
+        return "hold"
+    return "backoff"
+
+
+check("fs_press_action: beyond the band presses in, healthy or wounded "
+      "target alike (unchanged by this fix)",
+      fs_press_action((900 + 50) ** 2, 900, False) == "press"
+      and fs_press_action((140 + 50) ** 2, 140, True) == "press")
+check("fs_press_action: a HEALTHY target deep inside pressRange gets a "
+      "BACK-OFF, not a hold -- this is the fix itself: pressRange is a "
+      "standoff to HOLD, not just a ceiling to approach",
+      fs_press_action((900 // 2) ** 2, 900, False) == "backoff")
+check("fs_press_action: a WOUNDED target deep inside finishRange still "
+      "HOLDS (closes and finishes) -- the finisher stays ONE-SIDED, v10's "
+      "point-blank exception untouched by this fix",
+      fs_press_action((140 // 2) ** 2, 140, True) == "hold")
+check("fs_press_action: the hysteresis deadband (85%-100% of pressRange) "
+      "HOLDS rather than oscillating between press and backoff",
+      fs_press_action(int((900 * 0.90) ** 2), 900, False) == "hold"
+      and fs_press_action(int((900 * 1.00) ** 2), 900, False) == "hold")
+check("fs_press_action: just inside the deadband floor backs off, proving "
+      "the boundary sits at FS_BACKOFF_PCT and not just 'somewhere'",
+      fs_press_action(int((900 * 0.80) ** 2), 900, False) == "backoff")
+
 # ── GUN DEFAULT (owner directive): a spray can spawns at its OWN point on
 # every live BR map, separate from the marker/hopper crates, and
 # play_sdk/reference/loot.nim fetches the NEAREST reachable pickup of ANY

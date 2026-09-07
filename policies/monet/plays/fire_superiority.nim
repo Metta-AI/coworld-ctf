@@ -40,6 +40,23 @@
 ## see glory.nim PointBlankPx/scaledByGunRange). Unknown-hp and full-health
 ## targets keep the wider pressRange band.
 ##
+## PRESS band is now TWO-SIDED for a healthy target (v-next, owner
+## range-discipline directive 2026-09-06, measured no-op fix): pressRange
+## used to be a ceiling only -- close to it, then HOLD once inside, no
+## matter how much closer than that we ended up. Measured median tag
+## distance came back at 339px against an 866-900px pressRange, so in
+## practice we were essentially always already inside the band and the
+## same directive's ceiling raise (500->900) changed nothing on its own. A
+## tag inside the band prices as commons class 1 no matter how many land; a
+## LONGSHOT tag beyond two-thirds of gun range prices class 3 (4 on enemy
+## ground) -- 3-4x the payout for the SAME kill. Below PressBackoffPct (85)
+## of the band we now back a healthy target off instead of holding; a
+## deadband between PressBackoffPct and the band itself still just holds,
+## so a target drifting on the edge of the band cannot flip the decision
+## every tick. The finisher's finishRange stays exactly as one-sided as
+## before (see the EXCEPTION above) -- a target this close to done is worth
+## closing on, never backing off.
+##
 ## Press-target choice among several live enemies (v11, the duo-partner
 ## grant closing a real safety gap): a wide spray that catches N enemies at
 ## once mints per-victim, compounding (our biggest single scoring events are
@@ -99,6 +116,21 @@ const
 
   FreshGunTicks = 60'i32   ## a track older than this is not a live gun
   WoundedHpMax = 2'i32     ## known hp+shield at or below this = wounded
+
+  # Two-sided pressRange hysteresis (owner range-discipline directive,
+  # 2026-09-06, measured no-op fix -- see the file header's "PRESS band is
+  # now TWO-SIDED" paragraph). Below PressBackoffPct of the band a healthy
+  # target is "meaningfully" inside it and gets backed off; between that
+  # and the band itself is a deliberate deadband where we just hold.
+  # Without a deadband, a target sitting exactly on the band edge would
+  # flip the decision every tick (advance past it, retreat back out,
+  # repeat) -- that thrash (wasted travel, a broken firing solution) would
+  # cost more than the one-sided hold this replaces, which never
+  # oscillated because it never moved once inside. 85 leaves a real
+  # deadband (15% of pressRange, ~135px at the 900px ceiling) without so
+  # much slack that a target can sit deep inside the nominal band
+  # uncontested.
+  PressBackoffPct = 85'i32
 
   # src/shell/body.nim: ArcFireRangePx (spray reach) / ArcMaxWidthPx (full
   # cone width AT that reach; width scales linearly with distance from 0 at
@@ -220,6 +252,28 @@ proc projectFrom(origin, toward: SdkPoint; distance: int32): SdkPoint =
     return
   result.x = origin.x + int32((int64(dx) * int64(distance)) div int64(ax + ay))
   result.y = origin.y + int32((int64(dy) * int64(distance)) div int64(ax + ay))
+
+proc clampToZone(point: SdkPoint; zone: SdkRect): SdkPoint =
+  ## Soft zone preference for a computed stand point (used by the PRESS
+  ## branch's back-off case below): `nearestReachable` only ever resolves
+  ## WALLS, never the storm (same fact `zoneTargets` below already leans
+  ## on), so a stand point built purely from the target's bearing can land
+  ## outside the current safe rect even while we are retreating FROM a
+  ## fight, not into one. Clamp first, same as `zoneTargets` does for the
+  ## outside-zone case, and still route the clamped point through
+  ## `nearestReachable` afterward rather than trusting a bare clamp alone
+  ## -- that combination is exactly what keeps `zoneTargets`'s own clamp
+  ## from beelining into a building pocket (owner field report
+  ## 2026-09-02), and the same protection applies here. This is a
+  ## preference, not the safety net: if we are ever actually caught outside
+  ## the zone, `zoneTargets`'s HARD OVERRIDE at the top of play_step (and
+  ## the matching "outside the zone you are ESCAPING" lines in
+  ## system_prompt.md) still owns getting back in, unchanged by this.
+  result = point
+  if not zone.present:
+    return
+  result.x = clampI(point.x, minI(zone.x1, zone.x2), maxI(zone.x1, zone.x2))
+  result.y = clampI(point.y, minI(zone.y1, zone.y2), maxI(zone.y1, zone.y2))
 
 proc keyIs(buf: ptr UncheckedArray[byte]; start, length: int32;
            expected: static[string]): bool =
@@ -521,22 +575,51 @@ proc play_step*(viewPtr, viewLen: int32): int32 {.exportc, cdecl.} =
         bestHp = candHp[i]
         bestDistSq = d
 
-    # PRESS to the range band; inside it the body finishes the work. A
-    # target we KNOW is wounded (hp <= WoundedHpMax) is worth closing to
-    # finishRange for -- the inverted-accuracy risk is against a live gun
-    # that can still out-trade us, not one already this close to done.
-    # Unknown-hp and healthy targets keep the wider pressRange band.
+    # PRESS to the range band. A target we KNOW is wounded (hp <=
+    # WoundedHpMax) is worth closing to finishRange for -- the
+    # inverted-accuracy risk is against a live gun that can still out-trade
+    # us, not one already this close to done -- and that band stays
+    # ONE-SIDED: once inside it, hold and finish the work, never back off a
+    # target this close to done. Unknown-hp and healthy targets keep the
+    # wider pressRange band, but pressRange itself is now TWO-SIDED (see
+    # the file header's "PRESS band is now TWO-SIDED" paragraph and
+    # PressBackoffPct above): it is a standoff to HOLD, not just a ceiling
+    # to approach.
     let target = candPos[bestIdx]
     let targetHp = candHp[bestIdx]
-    let band = if targetHp <= WoundedHpMax: params.finishRange
-               else: params.pressRange
-    if bestDistSq <= sq(band):
+    let targetWounded = targetHp <= WoundedHpMax
+    let band = if targetWounded: params.finishRange else: params.pressRange
+    if bestDistSq > sq(band):
+      # Beyond the band either way: close in. Unchanged from before this
+      # fix for both the finisher and the (now two-sided) press band.
+      let stand = projectFrom(target, decoded.self.pos, band)
+      let goal = nearestReachable(stand.x, stand.y)
+      if not goal.ok:
+        return emitHoldIfChanged()
+      return emitGoal(dkPress, goal, "fire_superiority:press")
+    if targetWounded:
+      return emitHoldIfChanged()   # finisher: one-sided, close and hold
+    # Healthy and already inside pressRange: back off, but only once
+    # MEANINGFULLY inside it (below PressBackoffPct of the band) -- the
+    # deadband between that and the band itself holds instead, so a target
+    # sitting right on the edge doesn't flip us between advancing and
+    # retreating every tick (see PressBackoffPct's own comment).
+    if bestDistSq >= sq(band * PressBackoffPct div 100):
       return emitHoldIfChanged()
-    let stand = projectFrom(target, decoded.self.pos, band)
+    # projectFrom(target, self, band) already does the right thing
+    # unchanged: called with self CLOSER than `band`, it extrapolates PAST
+    # self's own current position along the target->self bearing out to
+    # `band` px -- i.e. AWAY from the target. The same call that pulls us
+    # IN when far now pushes us OUT when near; no separate "opening"
+    # formula needed. clampToZone keeps that push from walking us into the
+    # storm while we retreat (see its own comment) -- nearestReachable
+    # still owns walls, same as every other goal this play emits.
+    let stand = clampToZone(projectFrom(target, decoded.self.pos, band),
+                             decoded.world.zone.current)
     let goal = nearestReachable(stand.x, stand.y)
     if not goal.ok:
       return emitHoldIfChanged()
-    return emitGoal(dkPress, goal, "fire_superiority:press")
+    return emitGoal(dkPress, goal, "fire_superiority:backoff")
 
   if inferior:
     # BREAK to facing cover; never navigate through the enemy bearing.
