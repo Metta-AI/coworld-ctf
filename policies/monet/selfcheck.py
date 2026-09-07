@@ -64,6 +64,7 @@ check("all play notes reach the full-playbook prompt", not missing_notes,
 
 # ── canned turns: guards are dead, the wanted ladder is the contract ──────
 entry_ids_by_play: dict = {}
+all_target_laws: list = []
 for i, turn in enumerate(PERSONA.canned_turns, start=1):
     label = f"turn {i}"
     chat = turn.get("chat", "")
@@ -116,6 +117,7 @@ for i, turn in enumerate(PERSONA.canned_turns, start=1):
     # Overlays fold through gating untouched: politics reach the wire.
     pacts = [e for e in wire_entries if e["play"] == "pact"]
     laws = [e for e in wire_entries if e["play"] == "target_law"]
+    all_target_laws.extend(laws)
     pact_partners = {p for e in pacts for p in e["params"]["partners"]}
 
     if pacts:
@@ -145,6 +147,57 @@ fs_ids = entry_ids_by_play.get("fire_superiority", [])
 check("fire_superiority keeps one entry_id everywhere it appears "
       "(retune-eligible turn over turn)",
       len(set(fs_ids)) <= 1, str(fs_ids))
+
+# ── HEAT-CHAIN COMBAT_POLICY (owner directive 2026-09-06): target_law's
+# `prefer` is the only combat_policy field the closed schema
+# (src/shell/schemas/combat_policy.schema.json) gives us over WHICH live
+# candidate we shoot next, and src/shell/body.nim's compareScoredCombat
+# sorts by this tuple BEFORE base engagement score -- so its ORDER decides
+# who we reacquire right after a kill, which is exactly when a heat chain
+# lives or dies. "weakened" is the only one of the four tags that is
+# itself a proxy for "fastest to finish"; it must lead every wire law. ──
+check("every wire target_law entry leads `prefer` with weakened (heat-chain "
+      "doctrine: close an already-damaged candidate before pivoting to a "
+      "fresher revenge/bounty mark, or the chain's gap is lost)",
+      all_target_laws
+      and all((law["params"].get("prefer") or [None])[0] == "weakened"
+              for law in all_target_laws),
+      str([law["params"].get("prefer") for law in all_target_laws]))
+check("every wire target_law entry's `prefer` is IDENTICAL to "
+      "policy.TARGET_LAW_PREFER (single source of truth, no turn drifts "
+      "from the others)",
+      all(law["params"].get("prefer") == list(policy.TARGET_LAW_PREFER)
+          for law in all_target_laws),
+      str([law["params"].get("prefer") for law in all_target_laws]))
+check("TARGET_LAW_PREFER stays SCHEMA-VALID for combat_policy.prefer: "
+      "exactly the closed 4-tag vocabulary (weakened/isolated/revenge/"
+      "bounty), no duplicates, no unknown tag that would be rejected by "
+      "name on the wire",
+      set(policy.TARGET_LAW_PREFER) == {"weakened", "isolated", "revenge",
+                                        "bounty"}
+      and len(policy.TARGET_LAW_PREFER) == 4,
+      str(policy.TARGET_LAW_PREFER))
+
+# ── adjust_entries' OWN synthetic target_law (fired when a model's call
+# carries a pact but no law of its own -- previously untested branch,
+# policy.py's `if law is None and law_never:`) must carry the SAME
+# heat-chain order as every scripted turn, not a stale literal. ──────────
+_law_synth_seat = fake_seat()  # FAKE_CONTEXT: seat 3, duo_partner 19
+_, _law_synth_entries = starter_harness.repair_call(
+    {"call": {"entries": [
+        {"play": "pact", "entry_id": "truce",
+         "params": {"partners": ["seat:7", "seat:8"], "protect": False,
+                    "onBetrayal": "returnFire"}},
+    ]}}, PERSONA, _law_synth_seat, AVAILABLE)
+_law_synth = next((e for e in _law_synth_entries if e["play"] == "target_law"),
+                  None)
+check("adjust_entries synthesizes a target_law rung when the model's call "
+      "carries a pact but no law of its own, and the synthesized default "
+      "carries the SAME heat-chain prefer order (weakened first) as every "
+      "scripted turn -- not a stale hardcoded literal",
+      _law_synth is not None
+      and _law_synth["params"].get("prefer") == list(policy.TARGET_LAW_PREFER),
+      str(_law_synth))
 
 # ── BUG #2 pin: opening call preserves non-idle gated plays ───────────────
 # gate_and_build's spawn-phase strip exists to keep an IDLE-HOLDING
@@ -2757,6 +2810,80 @@ check("PLAN_WASTE is behaviour-neutral: the returned entries list is "
       "identical too, not just the encoded bytes",
       _silent_entries == _waste_entries,
       str((_silent_entries, _waste_entries)))
+
+# ── HEAT-CHAIN / target_law prompt text (owner directive 2026-09-07,
+# cherry-picked from the closed-out "gunrange" lane's bb247a4e, target_law
+# half only -- that lane's range-discipline pressRange/AWARENESS-gun-range
+# content is a DIFFERENT, abandoned lever and is not ported here). Trunk's
+# GV57 retune (b31751b8) already rewrote the heat-ladder prose with the
+# live [1,2,4] thresholds before this lane started, so these pins check
+# THIS wording, not bb247a4e's original GV56-era phrasing (which claimed
+# commons tags fuel heat and paid from a fixed "third tag" -- both stale
+# against the current named-deed-only ladder and dropped rather than
+# carried forward as false doctrine). ────────────────────────────────────
+check("prompt: NEGATIVE -- the stale GV56 heat-decay figure (1.875s) "
+      "never reappears now that GV57's own 11.25s is the live constant",
+      "1.875s" not in prompt,
+      "a stale GV56 decay figure leaked into the prompt")
+check("prompt: the ledger bullet calls for landing the next tag while a "
+      "chain is still hot, era-neutral wording tied to the actual gap "
+      "between hits, not a hardcoded seconds figure",
+      "land the next tag while the streak is still hot" in prompt,
+      "heat-chain call-to-action text not found")
+check("prompt: the ledger bullet names sequencing-beats-selection "
+      "explicitly and ties it to the actual mechanism -- target_law "
+      "leading with weakened, not a vaguer 'take any tag' platitude",
+      "Sequencing beats selection" in prompt
+      and "target_law leads with weakened" in prompt,
+      "sequencing-beats-selection / prefer-weakened tie-in text not found")
+check("prompt: the joint-action paragraph states the weakened-first "
+      "target_law order and the dJointAct co-engagement stack are "
+      "synergistic, not two independent asks",
+      "The two levers feed" in prompt and "already hitting" in prompt,
+      "target_law/dJointAct synergy clause not found")
+check("prompt: self-frag discipline ties the halving explicitly to "
+      "losing a hot chain's embers, not just a flat penalty statement",
+      "wiping out every ember of a hot chain" in prompt,
+      "self-frag/chain tie-in text not found")
+check("prompt: the target_law play_note itself leads with weakened FIRST "
+      "(the model's own play-note reference, not just the ledger prose) "
+      "-- this is the note read whenever the model calls target_law live, "
+      "past the pre-call turn policy.py's canned defaults cover",
+      "target_law: prefer weakened, revenge, bounty, "
+      "isolated -- all four, weakened FIRST" in prompt,
+      "target_law play_note does not lead with weakened")
+check("prompt: NEGATIVE -- the target_law play_note no longer tells the "
+      "model to lead with revenge/bounty (the pre-heat-doctrine order "
+      "this directive replaces)",
+      "prefer revenge, bounty, weakened" not in prompt,
+      "stale revenge-first target_law note text still in prompt")
+
+# ── SEASON-BOARD DOCTRINE FIX (loop queue #1, owner directive 2026-09-07):
+# round_score sums ALL 12 episodes (sum_top_k:12 + min_episodes_per_
+# entrant:12 -- sum-all, not a top-N filter) and the standing itself is an
+# EMA of round_score at a ~13.5-round half-life -- every episode and every
+# round counts, and a spike decays. The prior prompt claimed "only your
+# best-ever match counts... a bad one costs nothing", which is the
+# opposite of both facts. ────────────────────────────────────────────────
+check("prompt: NEGATIVE -- no longer claims only the best-ever match "
+      "counts toward the season board",
+      "your best-ever match counts" not in prompt,
+      "stale best-match-only season-board claim still in prompt")
+check("prompt: NEGATIVE -- no longer tells the model a bad episode costs "
+      "nothing",
+      "a bad one costs nothing" not in prompt,
+      "stale costs-nothing season-board claim still in prompt")
+check("prompt: season-board doctrine now states every episode sums into "
+      "the board and that total decays over time (consistency, not a "
+      "single spike)",
+      "sums" in prompt and "decays that running total" in prompt,
+      "corrected season-board sum/decay text not found")
+check("prompt: NEGATIVE -- the corrected season-board text no longer "
+      "sets up 'close it out' against 'survive it' as an opposition (the "
+      "live placement ladder pays up to 24x for reaching 8/4/2 teams "
+      "alive, so telling the model survival is worthless is now false)",
+      "not to survive it" not in prompt,
+      "stale survival-is-worthless framing still in prompt")
 
 print()
 if failures:
