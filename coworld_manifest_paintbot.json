@@ -1331,7 +1331,7 @@
         "mapPath": "brpool16",
         "brMode": true,
         "lootStart": false,
-        "downedMode": false,
+        "downedMode": true,
         "zoneDamageByPaint": true,
         "zoneBlocksRevive": true,
         "zonePhases": [
