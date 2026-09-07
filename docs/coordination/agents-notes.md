@@ -1223,3 +1223,27 @@ named-class mint DENSITY (2.25/ep single-seat-in-mixed-field baseline vs
 comparison -- different denominator shape -- so it is reported as a raw
 number, not claimed as a 7x gain. REVERSAL TARGET: v30 (pv
 ccdb944e-f0aa-4801-994d-037fe1b3833e), intact.
+
+---
+## 2026-09-07 -- LANE CLAIM: heat-chain target_law prefer + season-board doctrine fix ("heat" lane)
+Claiming TWO focused changes, implementation only (no upload/submit/league touch):
+1. Cherry-pick `bb247a4e` (branch `maxwell/s2-monet-gunrange`, merge-base with
+   trunk 690e148e) onto trunk tip 0e852dc7 -- the `TARGET_LAW_PREFER =
+   ("weakened","revenge","bounty","isolated")` single source of truth (was
+   revenge/bounty/weakened/isolated at 5 emission sites) plus matching
+   system_prompt.md sequencing-doctrine text and selfcheck.py pins.
+   Deliberately dropping that branch's range-lever commits (`d8844189`
+   two-sided pressRange band, `64c248d7` pressRange ceiling+`_range_bands`) --
+   range is an abandoned lever (2/3 gun range geometrically unreachable,
+   0.89% of firings) and the band cost co-engagement 28.2%->20.4%, which now
+   pays via dJointAct. Cherry-picking the leaf commit alone; expect zero Nim
+   diff.
+2. Doctrine correction: the season-board clause claiming "only your
+   best-ever match counts" is false (round_score sums all 12 episodes,
+   standing EMAs round_score at half-life ~13.5 rounds) -- rewriting for
+   consistency-over-spikes and checking for any risk-posture line that tells
+   the model dying is free (now stale vs the live placement ladder
+   dFinal8/4/2 = x2/x3/x4).
+Working in isolated worktree /tmp/monet-heat-work off maxwell/s2-monet @
+0e852dc7, branch maxwell/s2-monet-heat. Will NOT merge to trunk, upload, or
+touch the league -- report sha only.
