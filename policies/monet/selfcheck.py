@@ -1819,10 +1819,21 @@ check("prompt: co-engagement doctrine requires a REGISTERED, MUTUAL pact "
 #     r4273 and r4333 results.team: 16 single-seat teams), so our seat plus
 #     any one other seat inside 5s satisfies it. Unlike the abandoned
 #     866px range lever, this situation is ordinary, not geometric.
-# dTagBack did NOT come back with it: downedMode = false
-# (coworld_manifest_paintbot.json:1334) no-ops the whole downed/revive
-# machinery at sim.nim:7868, so its mint site is unreachable regardless of
-# the flag. The revive-farming path stays closed -- do not re-open it here.
+# dTagBack did NOT come back with it AT THE SHIPPED COMMIT: downedMode =
+# false (coworld_manifest_paintbot.json:1334) no-ops the whole downed/
+# revive machinery at sim.nim:7868, so its mint site was unreachable
+# regardless of the flag.
+# ⚠️ SUPERSEDED WITHIN THE HOUR (t27 post-ship, build 0.7.345, source
+# 1f8d9e99): commit 1991f684 "arm downedMode on live battle-royale-s2"
+# flipped downedMode false -> TRUE in a ONE-LINE manifest change, so the
+# revive economy and dTagBack are LIVE again -- bounded this time by
+# zoneBlocksRevive = true (:1336) and a deedMintCaps cap of 3 mints per
+# episode (glory.nim:2653). v35's joint-action doctrine is UNAFFECTED:
+# sim.nim and glory.nim are byte-identical across 2b66cec4..1f8d9e99 and
+# winAsMultiplier is still true (:1390), both re-verified. dTagBack uptake
+# is UNMEASURED -- do not write doctrine for it until it is measured.
+# 🔑 The lesson this block now demonstrates twice: a claim about a flag is
+# only true at the commit you read it on. Era-stamp it or it rots.
 # ⚠️ This is a FLAG. Rollback is a flip with no code change. Re-verify
 # winAsMultiplier on the live manifest before extending any of this. ──────
 check("prompt: objective states the Fibonacci co-engagement STACK is the "
