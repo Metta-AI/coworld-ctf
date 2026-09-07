@@ -142,9 +142,28 @@ type
     playerIndex*: int
     item*: string
 
+  FirstLightPactDeclaration* = object
+    ## ALLIANCE (engine registration rewire, GameVersion 56): one seat's
+    ## CURRENT `pact` play declaration this tick — the partner TEAMS its
+    ## currently active `pact` overlay call names, empty when no `pact`
+    ## entry is active for this seat this tick (an explicit clear). Lifted
+    ## off the call's own static `partners` param
+    ## (resolvePactPartnerTeams, emit_validator.nim) via the ladder's
+    ## entrySnapshots, never off the emitted combat_policy — betrayal-
+    ## driven noShoot/protect narrowing is the play's own body-level
+    ## business and must not feed the registry (owner ruling: never
+    ## enforced). Same division of labor as FirstLightHandoff above: the
+    ## episode never touches the sim, the server hook compares this
+    ## against the sim's own declared state and calls the
+    ## sim.declarePactPartners consent seam.
+    seat*: uint8
+    playerIndex*: int
+    partners*: seq[Team]
+
   FirstLightTickResult* = object
     masks*: seq[FirstLightMask]
     handoffs*: seq[FirstLightHandoff]
+    pactDeclarations*: seq[FirstLightPactDeclaration]
     annotations*: seq[ShellAnnotation]
     installs*: seq[FirstLightInstall]
     moduleStatuses*: seq[FirstLightModuleStatus]
@@ -1283,6 +1302,19 @@ proc step*(episode: var FirstLightEpisode,
       result.runtimeNanoseconds +=
         (getMonoTime() - runtimeStarted).inNanoseconds
 
+  var seatTeams: seq[Team]
+  when ShellRuntimeAvailable:
+    # ALLIANCE (engine registration rewire, GameVersion 56): the roster's
+    # seat -> Team table, built once per tick for resolvePactPartnerTeams
+    # below — the same seat_or_duo_ref resolution `body.nim`/emit_validator
+    # already use, reused rather than reinvented (16-solo: seat N is Team
+    # N; duo: two seats share one Team, per contextRoster's own rows).
+    if episode.ladder != nil:
+      seatTeams = newSeq[Team](episode.contextRoster.len)
+      for row in episode.contextRoster:
+        if row.seat >= 0 and row.seat < seatTeams.len:
+          seatTeams[row.seat] = row.team
+
   for state in episode.seats.mitems:
     var frameIndex = -1
     for index, frame in frames:
@@ -1309,6 +1341,22 @@ proc step*(episode: var FirstLightEpisode,
           seat: state.seat,
           playerIndex: frame.playerIndex,
           item: state.standing.intent.handoff))
+      # ALLIANCE (engine registration rewire, GameVersion 56): surface the
+      # `pact` play's own CURRENT `partners` param beside the mask, same
+      # division of labor as the handoff declaration just above — read
+      # straight off the ladder's entry snapshot (the call's own static
+      # params), NEVER off the emitted combat_policy (the play's own
+      # betrayal-narrowed body behavior, out of scope for the registry).
+      when ShellRuntimeAvailable:
+        if episode.ladder != nil:
+          var partners: seq[Team] = @[]
+          for snap in episode.ladder.entrySnapshots(frame.seat.int):
+            if snap.play == "pact":
+              partners = resolvePactPartnerTeams(snap.paramsBytes, seatTeams)
+              break
+          result.pactDeclarations.add(FirstLightPactDeclaration(
+            seat: state.seat, playerIndex: frame.playerIndex,
+            partners: partners))
     result.masks.add(FirstLightMask(
       seat: state.seat, playerIndex: frame.playerIndex, input: input))
   episode.nav.rebuildScheduledDanger(tick.int, episode.dangerInputs(tick))

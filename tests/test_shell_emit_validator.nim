@@ -1,9 +1,9 @@
 ## Typed hot-path validation for guest emissions.
 
-import std/[monotimes, options, strutils, times, unittest]
+import std/[json, monotimes, options, strutils, times, unittest]
 
 import ../src/ctf/sim_types
-import ../src/shell/[abi, body_map, emit_validator, finisher, types]
+import ../src/shell/[abi, body_map, canonical, emit_validator, finisher, types]
 
 proc openRoomsMap(): BodyMap =
   const Width = 720
@@ -227,3 +227,29 @@ suite "shell emit validator":
         check maxNs <= 15_000
     else:
       check maxNs > 0
+
+suite "resolvePactPartnerTeams":
+  ## ALLIANCE (engine registration rewire, GameVersion 56): the decode leg
+  ## of the `pact` play's registration seam -- declarePactPartners (sim.nim)
+  ## and the sim-level suite (test_alliance_pact.nim) exercise it only via
+  ## already-resolved `seq[Team]`, so these tests are the only ones that
+  ## drive the actual canonical-bytes decode this proc performs.
+  test "resolves seat: refs via the seat->team table and duo: refs directly":
+    let bytes = canonicalJson(%*{"partners": ["seat:1", "duo:green"]})
+    check resolvePactPartnerTeams(bytes, [Red, Blue, Green, Yellow]) ==
+      @[Blue, Green]
+
+  test "a params blob with no partners field resolves to no partners":
+    let bytes = canonicalJson(%*{"holdFire": %*{"aliveTeams": 2}})
+    check resolvePactPartnerTeams(bytes, [Red, Blue]).len == 0
+
+  test "empty params bytes resolve to no partners":
+    check resolvePactPartnerTeams("", [Red, Blue]).len == 0
+
+  test "an out-of-range seat reference is skipped, never raised":
+    let bytes = canonicalJson(%*{"partners": ["seat:99"]})
+    check resolvePactPartnerTeams(bytes, [Red, Blue]).len == 0
+
+  test "an empty partners list resolves to no partners":
+    let bytes = canonicalJson(%*{"partners": newJArray()})
+    check resolvePactPartnerTeams(bytes, [Red, Blue]).len == 0
