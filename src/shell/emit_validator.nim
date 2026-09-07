@@ -113,6 +113,59 @@ proc addSeatRef(result: var ProtectedSet, value: string,
   else:
     unknown("unknown seat reference")
 
+proc resolvePactPartnerTeams*(paramsBytes: string;
+                              seatTeam: openArray[Team]): seq[Team] =
+  ## ALLIANCE (engine registration rewire, formal-alliances design,
+  ## GameVersion 56): decodes the `pact` play's own `partners` param — the
+  ## identical seat_or_duo_ref vocabulary call_validation.
+  ## validateSeatOrDuoRef already accepted at call time — into the TEAMS
+  ## it names, reusing the SAME "seat:N"/"duo:X" resolution `addSeatRef`
+  ## above uses for `no_shoot`/`protect`, just resolving to a Team instead
+  ## of a seat. `seatTeam` is the roster's seat -> Team table (16-solo:
+  ## seat N is Team N; duo: two seats share one Team) — the caller's own
+  ## contextRoster, never re-derived here (map declaration identity to
+  ## Team the same way body.nim resolves partners, don't reinvent it).
+  ##
+  ## Tolerant, not validating: `paramsBytes` is a call this shell already
+  ## accepted (call_validation.validateCall ran the real schema check at
+  ## call time), so a decode miss here skips the one bad entry rather than
+  ## raising and faulting the tick — this reads an ALREADY-ACCEPTED call,
+  ## not a fresh one.
+  if paramsBytes.len == 0:
+    return
+  try:
+    var reader = initCanonicalReader(paramsBytes)
+    reader.enterObject()
+    var key: string
+    while reader.nextKey(key):
+      if key != "partners":
+        reader.skipValue()
+        continue
+      reader.enterArray()
+      while reader.nextElement():
+        if reader.peekKind() != cvString:
+          reader.skipValue()
+          continue
+        let value = reader.readString()
+        try:
+          if value.startsWith("duo:") and value.len > 4:
+            result.add parseTeam(value[4 .. ^1])
+          elif value.startsWith("seat:"):
+            let digits = value[5 .. ^1]
+            var parsed = 0
+            var ok = digits.len > 0
+            for ch in digits:
+              if ch notin {'0' .. '9'}:
+                ok = false
+                break
+              parsed = parsed * 10 + ord(ch) - ord('0')
+            if ok and parsed < seatTeam.len:
+              result.add seatTeam[parsed]
+        except EmitValidationError:
+          discard
+  except CatchableError:
+    discard
+
 proc parsePoint(r: var CanonicalReader, map: BodyMap): MapPoint =
   r.enterArray()
   if not r.nextElement(): schema("point needs x")

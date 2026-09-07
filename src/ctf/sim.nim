@@ -856,11 +856,11 @@ proc resolveConfiguredPacts*(sim: var SimServer) =
   ## configured slot's `allies` (by the OTHER slot's `name`, sim_config.nim's
   ## readConfigSlots) and registers a pact ONLY when both sides name each
   ## other — a unilateral seed is dropped and logged, never mutating
-  ## `pactMask`. Pure function of `sim.config.slots`: unlike the runtime
-  ## declaration protocol P2 will add, this needs no seat to have actually
-  ## joined — a named slot always resolves to a team via `teamForSlot`
-  ## (round-robin default when unconfigured), same as every other
-  ## slot-indexed lookup in this file.
+  ## `pactMask`. Pure function of `sim.config.slots`: unlike the live
+  ## `pact` play declaration seam (declarePactPartners, GameVersion 56),
+  ## this needs no seat to have actually joined — a named slot always
+  ## resolves to a team via `teamForSlot` (round-robin default when
+  ## unconfigured), same as every other slot-indexed lookup in this file.
   for i, slot in sim.config.slots:
     if slot.allies.len == 0:
       continue
@@ -890,6 +890,83 @@ proc resolveConfiguredPacts*(sim: var SimServer) =
         continue
       if not sim.pactActive(teamI, teamJ):
         sim.registerPact(teamI, teamJ)
+
+proc pactPartnersMask*(partners: openArray[Team]): uint16 =
+  ## `partners` as a bitmask over `Team` — bit j set means `Team(j)` is
+  ## named. Shared by declarePactPartners (the writer) and its replay
+  ## record's own encode/decode (replays.nim), so the two can never
+  ## disagree about what a given partner set means as bits.
+  for team in partners:
+    result = result or (1'u16 shl ord(team))
+
+proc teamDeclaresPartner(sim: SimServer, team, other: Team): bool =
+  ## True when some LIVE seat of `team` currently declares `other` as a
+  ## pact partner via its own active `pact` play call. A dead seat's stale
+  ## declaration never counts — the same "a dead seat cannot honor a
+  ## truce" rule clearPactsFor already enforces on the REGISTRY, applied
+  ## here to the registry's SOURCE so a partner team's own later retune
+  ## cannot resurrect a pact through a corpse.
+  for i, player in sim.players:
+    if player.team == team and player.alive and
+        (sim.pactDeclaredPartners[i] and (1'u16 shl ord(other))) != 0:
+      return true
+  false
+
+proc declarePactPartners*(sim: var SimServer, playerIndex: int,
+                          partners: openArray[Team]): bool {.discardable.} =
+  ## ALLIANCE (engine registration rewire, formal-alliances design,
+  ## GameVersion 56): the `pact` WASM play's own registration seam —
+  ## P1's registry (pactMask, registerPact/dissolvePact, sim_state.nim)
+  ## gets its LIVE writes from here instead of a shout grammar. `partners`
+  ## is the CURRENT set of teams this seat's active `pact` call names this
+  ## tick (empty = no active `pact` entry — an explicit withdrawal of
+  ## every partner this seat ever named), lifted off the call's own
+  ## static params (resolvePactPartnerTeams, emit_validator.nim) at the
+  ## shell ladder's per-tick drain (server.nim) — NEVER off the emitted
+  ## combat_policy, which is the play's own betrayal-narrowed body
+  ## behavior and stays out of the registry entirely (P1's ruling: never
+  ## enforced, unchanged). A bit-pair SETS only when both sides currently
+  ## declare each other (mirrors resolveConfiguredPacts' mutual-only
+  ## rule); a bit-pair this seat's own retune just DROPPED clears
+  ## unconditionally — betrayal, like every other dissolution path here,
+  ## needs no partner's consent. A pre-existing config-seeded pact
+  ## (resolveConfiguredPacts) that neither side ever names via `pact` is
+  ## untouched either way: nothing here fires unless THIS seat's own
+  ## declaration actually changes.
+  if sim.phase != Playing:
+    return false
+  if playerIndex < 0 or playerIndex >= sim.players.len:
+    return false
+  if not sim.players[playerIndex].alive or sim.players[playerIndex].downed:
+    return false
+  let
+    newMask = pactPartnersMask(partners)
+    oldMask = sim.pactDeclaredPartners[playerIndex]
+  if newMask == oldMask:
+    return true
+  let
+    myTeam = sim.players[playerIndex].team
+    dropped = oldMask and not newMask
+    added = newMask and not oldMask
+  sim.pactDeclaredPartners[playerIndex] = newMask
+  for other in sim.teams():
+    if other == myTeam:
+      continue
+    let bit = 1'u16 shl ord(other)
+    if (dropped and bit) != 0:
+      if sim.pactActive(myTeam, other):
+        sim.dissolvePact(myTeam, other)
+        sim.logGameEvent(
+          "pact dissolved (declaration dropped): " & teamText(myTeam) &
+          " -x- " & teamText(other))
+    elif (added and bit) != 0:
+      if not sim.pactActive(myTeam, other) and
+          sim.teamDeclaresPartner(other, myTeam):
+        sim.registerPact(myTeam, other)
+        sim.logGameEvent(
+          "pact formed (declared): " & teamText(myTeam) & " <-> " &
+          teamText(other))
+  true
 
 proc resetGloryLedger*(sim: var SimServer) =
   ## Zeroes every TEAM/GAME-level glory field: the ledger, its rampage
@@ -933,12 +1010,12 @@ proc resetGloryLedger*(sim: var SimServer) =
     # holds once the whole loop finishes, same as `teamKillRing`/`claimed`
     # above zeroing straight into the array.
     sim.pactMask[team] = 0
-    # ALLIANCE P2: same reasoning, for the declaration protocol's own
-    # bookkeeping — a new game starts with no outstanding "+X" offer and no
-    # cooldown in effect, never a leftover from the previous game in a
-    # multi-game episode.
-    sim.pactOfferTick[team] = -1
-    sim.pactCooldownUntil[team] = 0
+  # ALLIANCE (engine registration rewire): a new game never inherits a
+  # previous game's `pact` play declarations either -- per-PLAYER, so a
+  # plain zero-fill (not a team-indexed loop) covers every seat in one
+  # pass, same discipline as pactMask's own reset just above.
+  for i in 0 ..< sim.pactDeclaredPartners.len:
+    sim.pactDeclaredPartners[i] = 0
   for key in 0 ..< sim.claimedFirst.len:
     sim.claimedFirst[key] = false
   for deed in Deed:
@@ -2608,6 +2685,15 @@ proc recutContextK*(sim: SimServer, killerIndex, victimIndex: int): int =
       let attackerTeam = sim.players[mark.attacker].team
       if attackerTeam == victimTeam:
         continue
+      # FOLLOW-UP (P3, keying/recut, tracked separately from this PR's
+      # registry rewire): `sim.config.brMode` here pays ally-stack k to
+      # ANY co-engaged seat in BR, not just an actually-allied one --
+      # the live mispricing this PR's registry rewire exists to feed a
+      # real fix for. A follow-up PR reads `sim.pactActive(attackerTeam,
+      # killerTeam)` (an `isAllied` predicate over the registry this file
+      # now keeps registered from the `pact` play, not the retired shout
+      # grammar) at this exact chokepoint instead of the blanket brMode
+      # check. Deliberately NOT done here: this PR is keying-free.
       if attackerTeam == killerTeam or sim.config.brMode:
         participants.add mark.attacker
   participants.len
@@ -3145,7 +3231,8 @@ proc absorbDamage*(
   if attackerIndex >= 0 and attackerIndex != targetIndex:
     # ALLIANCE P1: any damage between two currently-allied teams dissolves
     # the pact immediately — no grace, no partial credit, minimal on
-    # purpose (no event, no glory price; P2 owns drama/pricing). This is
+    # purpose (no event, no glory price; scoring owns drama/pricing, if
+    # any ever lands). This is
     # the ONE subtraction point (absorbDamage's own header comment), so it
     # is also the one dissolution chokepoint: every damage source (gun,
     # spray, grenade, environmental-with-an-attacker) routes through here.
@@ -4908,134 +4995,6 @@ proc parseCallout*(
     return
   return (true, ord(text[1]) - ord('0'), cell)
 
-# ── ALLIANCE P2: the DECLARATION protocol (formal-alliances design,
-# 2026-09-02/03, GameVersion 55) ── `+X`/`-X` shout grammar on top of the
-# P1 registry (registerPact/dissolvePact/pactActive, sim_state.nim). Never
-# enforced (P1's ruling, unchanged): a declared pact never stops a shot, it
-# only flips `pactMask`. Every mutation still goes through
-# registerPact/dissolvePact, so the symmetry invariant they assert can
-# never drift here either.
-proc parsePactShout*(text: string): tuple[isPact: bool, propose: bool, team: Team] =
-  ## Parses an already-sanitized shout as the alliance declaration grammar:
-  ## `+<teamname>` proposes a pact with that team, `-<teamname>` withdraws
-  ## an outstanding offer or dissolves an active one. `<teamname>` matches
-  ## `teamText` case-insensitively -- every team name is at most 6
-  ## characters ("yellow"/"silver"/"orange"), so both forms always fit
-  ## ShoutMaxChars (10) with room to spare. Anything else -- no sign
-  ## prefix, an unrecognized name -- is NOT a pact shout and returns
-  ## `(false, false, Red)`, so the caller falls through and treats the
-  ## message as ordinary chat, exactly like an invalid `!<id>` callout
-  ## does. No config dependency, same as `parseCallout`, so it stays
-  ## trivially unit-testable.
-  result = (false, false, Red)
-  if text.len < 2:
-    return
-  var propose: bool
-  case text[0]
-  of '+': propose = true
-  of '-': propose = false
-  else: return
-  let nameLower = text[1 .. ^1].toLowerAscii
-  for t in Team:
-    if teamText(t) == nameLower:
-      return (true, propose, t)
-
-proc teamHasLiveMemberNear*(sim: SimServer, aroundPlayerIndex: int,
-                            team: Team): bool =
-  ## THE PROXIMITY GATE the owner ruled KEPT for in-match declarations
-  ## (huddle/forum stay the primary pre-match channel; P1's config-seeded
-  ## `allies` is unaffected by this — it needs no seat to have even
-  ## joined). True when some LIVE player on `team` currently stands within
-  ## `ShoutRange` of `aroundPlayerIndex` — the same radius and "carries
-  ## through walls like gunfire" semantics `shoutAudibleTo` already uses
-  ## for ordinary chat, reused rather than reinvented: "close enough to
-  ## shout a pact into being" means exactly what "close enough to be
-  ## heard" already means everywhere else in this file.
-  if aroundPlayerIndex < 0 or aroundPlayerIndex >= sim.players.len:
-    return false
-  let
-    px = sim.players[aroundPlayerIndex].x + CollisionW div 2
-    py = sim.players[aroundPlayerIndex].y + CollisionH div 2
-  for p in sim.players:
-    if p.team == team and p.alive and
-        distSq(px, py, p.x + CollisionW div 2, p.y + CollisionH div 2) <=
-          ShoutRange * ShoutRange:
-      return true
-  false
-
-proc consumePactShout*(sim: var SimServer, playerIndex: int, shoutText: string) =
-  ## THE CONSUMER ALLY-GATE: `applyShout` already recorded `shoutText` as
-  ## ordinary chat (audible only within ShoutRange -- the shout itself
-  ## stays proximity-limited exactly as before); this is the SEPARATE step
-  ## that consumes that same text as a possible alliance declaration and
-  ## decides whether it is legal to act on. Every guard below is what
-  ## stands between "a player typed +blue" and "a pact bit flips": self-
-  ## pact, an inactive/unknown target team, the 30s per-team cooldown, the
-  ## mutual-10s window, and the face-to-face proximity check all gate HERE,
-  ## never in the parser. Called unconditionally from `applyShout` (not
-  ## config-gated, same as the registry itself) — a game where nobody ever
-  ## shouts "+X" pays nothing beyond the one parse attempt per shout.
-  let parsed = parsePactShout(shoutText)
-  if not parsed.isPact:
-    return
-  let
-    me = sim.players[playerIndex].team
-    other = parsed.team
-  if other == me:
-    return  # a team cannot pact with itself
-  if other notin sim.teams():
-    return  # target team does not exist in this game
-  let tick = sim.tickCount
-  if not parsed.propose:
-    # "-X": unilateral, no mutuality required -- withdraws a pending offer
-    # of mine and/or dissolves an active pact, either or both or neither.
-    # Betrayal needs no partner's consent (P1's ruling: attacking an ally
-    # is already legal; ending the truce first is strictly gentler).
-    #
-    # Withdrawing a still-PENDING offer is deliberately NOT cooldown-gated:
-    # it never flipped `pactMask` (nothing was ever registered), so there
-    # is no state change to throttle, and the cooldown the original "+X"
-    # already armed is untouched either way -- letting a team change its
-    # mind for free costs nothing and closes no exploit. Dissolving an
-    # ACTIVE pact is the one branch here with a real effect, so it goes
-    # through the SAME cooldown gate proposing does.
-    if sim.pactOfferTick[me] >= 0 and sim.pactOfferTeam[me] == other:
-      sim.pactOfferTick[me] = -1
-    if sim.pactActive(me, other):
-      if tick < sim.pactCooldownUntil[me]:
-        return  # this team is still throttled from its last declaration
-      sim.dissolvePact(me, other)
-      sim.pactCooldownUntil[me] = int32(tick + PactCooldownTicks)
-      sim.logGameEvent(
-        "pact dissolved (voluntary): " & teamText(me) & " -x- " & teamText(other))
-    return
-  # "+X": always cooldown-gated, whether it ends up completing a mutual
-  # pact or merely recording a fresh outstanding offer.
-  if tick < sim.pactCooldownUntil[me]:
-    return  # this team is still throttled from its last declaration
-  # Does `other` currently hold an outstanding offer aimed back at `me`,
-  # inside its mutual-10s window? If so, THIS shout is the reciprocation
-  # that completes it -- but only once the completer is actually
-  # standing with a live `other` teammate (the proximity gate).
-  if sim.pactOfferTick[other] >= 0 and
-      sim.pactOfferTeam[other] == me and
-      tick - sim.pactOfferTick[other] <= PactMutualWindowTicks and
-      sim.teamHasLiveMemberNear(playerIndex, other):
-    if not sim.pactActive(me, other):
-      sim.registerPact(me, other)
-    sim.pactOfferTick[me] = -1
-    sim.pactOfferTick[other] = -1
-    sim.pactCooldownUntil[other] = int32(tick + PactCooldownTicks)
-    sim.logGameEvent(
-      "pact formed: " & teamText(me) & " <-> " & teamText(other))
-  else:
-    # No matching offer yet (or proximity isn't met this instant): this
-    # shout becomes `me`'s own outstanding offer, waiting for `other` to
-    # reciprocate within the window.
-    sim.pactOfferTeam[me] = other
-    sim.pactOfferTick[me] = int32(tick)
-  sim.pactCooldownUntil[me] = int32(tick + PactCooldownTicks)
-
 proc applyShout*(sim: var SimServer, playerIndex: int, text: string): bool {.discardable.} =
   ## Applies one player chat message as a shout: a short message audible to
   ## anyone within ShoutRange of the shouter. Living players only, at most
@@ -5098,13 +5057,6 @@ proc applyShout*(sim: var SimServer, playerIndex: int, text: string): bool {.dis
     y = float(shout.y),
     content = shoutText
   )
-  # ALLIANCE P2: every successfully-recorded shout is also offered to the
-  # declaration-protocol consumer -- ordinary chat is unaffected either way
-  # (consumePactShout returns immediately for anything that doesn't parse
-  # as "+X"/"-X"), and routing through THIS one chokepoint (not the
-  # server/replay callers) means live play and replay re-simulation can
-  # never disagree about when a pact shout was consumed.
-  sim.consumePactShout(playerIndex, shoutText)
   true
 
 proc shoutAudibleTo*(sim: SimServer, viewerIndex: int, shout: Shout): bool =
