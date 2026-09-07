@@ -1,8 +1,12 @@
 # Season 2 scoring eras
 
-Paintbot (Season 2) has changed how a round score is computed **seven times**
-since 2026-09-02. Every change was silent: no announcement, no version flag on
-the round, and two of the seven did not move a build number either. A
+Paintbot (Season 2) has changed how a round score is computed **ten times**
+since 2026-09-02 — seven inside the verified window the era table below covers
+(through r4208), and three more that merged after it — the GV58 friendly-fire
+change (#384) and the winAsMultiplier arming (#436) both went live at r4257
+(build 0.7.344), while the GV57 recut's (#435) first-served round is still
+pending — all documented below. Every change was silent: no announcement, no version flag on
+the round, and two of the first seven did not move a build number either. A
 standings or Glory number that spans two of these eras is not a result — it is
 an artifact of where its window happened to start.
 
@@ -19,7 +23,11 @@ was read from `/v2/rounds/{id}` (`result_metadata`) and `/v2/rounds/{id}/episode
 (`coworld_version`) — see [Reproducing this table](#reproducing-this-table).
 
 Verified through **r4208** (2026-09-06T18:57:21Z), the latest completed round at
-the time of writing.
+the time of writing. Three further scoring-era boundaries (PRs #435, #384, #436)
+merged after r4208 and are documented in [The boundaries, one at a
+time](#the-boundaries-one-at-a-time); #384 and #436 went live together at r4257
+(build 0.7.344), while #435's first-served round is still pending. They are not
+yet folded into the era table above.
 
 ## The eras
 
@@ -172,6 +180,84 @@ r3930–r3952 and `430,390` over r3953–r3975 (both excluding the excluded roun
 below): a ratio of 0.8×, inside the era's own round-to-round noise, which spans
 `19,014` to `19,950,982`. Treat r3953 as a build boundary to *name* when quoting
 a window, not as an era split.
+
+### The GV57 glory recut (#435)
+
+Commit `82e4f547` (PR #435, "glory(s2): solo recut + alliance keying + heat
+retune [GV57]", `softmaxwell`) merged **2026-09-07T02:03:46Z** and bumps
+`GameVersion` **56 → 57** — a glory-economy recut (solo-seat scoring recut,
+alliance keying, heat retune). It changes how per-episode score is earned, and
+replay hashes move with the `GameVersion` bump.
+
+Its headline lever shipped **dark**: per the arming commit (#436, below), GV57's
+Part A — the placement ladder (`dFinal` 8/4/2, ×24 cumulative) and the
+team-size-keyed win factor `M` — was
+gated behind `winAsMultiplier`, off since the 2026-09-04 rollback (incident
+`d595f300`). So the GV57 code boundary and the round its win factor starts
+scoring are different events; the win factor went live only at **r4257** with
+#436 (below).
+
+*What a cross-boundary read gets wrong:* the merge is not the era boundary — the
+first production round on the GV57 build is. **TODO (orchestrator):** pin the
+first `coworld_version`/round carrying `82e4f547` from a live `/v2/coworlds`
+read-back (it is after r4208); whether the non-gated recut/heat-retune parts
+reached an earlier build than 0.7.344 is not yet established, but the win factor
+itself first scored at r4257.
+
+### The GV58 friendly-fire pricing change (#384)
+
+Commit `1f63673a` (PR #384, "sim: price friendly-fire at the DOWN, not the
+finalize (Amendment 5)", `softmaxwell`) merged **2026-09-07T03:17:32Z** and
+bumps `GameVersion` **57 → 58**. It prices friendly-fire at the down rather than
+at finalize — a scoring-behaviour change, so per-episode scores **and replay
+hashes both change** across it; any replay compared or re-verified across the
+GV57/GV58 line mismatches by design.
+
+It reached the live field in canonical build **0.7.344**, first served at
+**r4257** (see #436) — **not** at the merge. Build 0.7.344 also carries the
+winAsMultiplier arming, so on the live field the GV58 friendly-fire price and the
+team-size-keyed win factor (solo ×8) arrived **together** at r4257, even though
+they were separate merges an hour apart.
+
+*What a cross-boundary read gets wrong:* a standings or Glory window spanning
+r4257 pools episode scores computed under two different friendly-fire prices —
+and, because the win factor arms in the same build, also across the win-factor
+magnitude step (×8 on the all-solo field). Neither effect is a strength signal.
+
+### winAsMultiplier armed — the GV57 win factor goes live (#436)
+
+Commit `2b66cec4` (PR #436, "manifest(s2): arm winAsMultiplier — the GV57 recut
+goes live [flag-flip]", `softmaxwell`) merged **2026-09-07T03:37:41Z**. It is a
+**one-line manifest flip** — `winAsMultiplier: false → true` in
+`coworld_manifest_paintbot.json` — with **no code change and no `GameVersion`
+bump** (stays 58). This is the boundary the r3830 / r3843 pattern warns about:
+pure scorer/economy config, invisible in `GameVersion` and in `result_metadata`
+shape. Arming it turns on GV57's Part A live: a composition-neutral placement
+ladder (`dFinal` 8/4/2, **×24** cumulative) that folds first, then a
+**team-size-keyed win factor `M`** on winner round score — **solo ×8, duo ×4**.
+The live `battle-royale-s2` field is 100% solo (16 one-seat teams per episode,
+zero duos), so the live win factor is **×8**. The armed product is capped at
+**16,777,216 (2^24)**.
+
+**The production boundary is r4257 / build 0.7.344, not the merge.** The
+canonical build carrying this flip (0.7.344) did not deploy until
+**2026-09-07T03:50Z**; the first round completed with the flag armed is **r4257**
+(`completed_at` 2026-09-07T04:01:47Z), and it is still armed at r4326. Merge date
+≠ live date: #436 merged on the 2026-09-06 (PT) calendar day but reached
+production on 2026-09-07 (UTC) — dating this boundary from the merge, or from the
+PT day, misplaces it across the day line and ahead of its real deploy. Build
+0.7.344 carries #384 as well, so the GV58 friendly-fire price and the
+team-size-keyed win factor share this one live boundary.
+
+*What a cross-boundary read gets wrong:* the win factor multiplies winner round
+score (solo ×8 on today's all-solo field, after the ×24 placement ladder), so
+magnitudes jump across r4257 with no strength change — exactly
+the artifact this page exists to stop. The arming is recorded **nowhere on the
+round**: not in `result_metadata`, not in any per-round ruleset flag. The only
+way to date it is `coworld_version` on the round's episodes, resolved to a commit
+via `GET /v2/coworlds` (`manifest.game.runnable.source_url` → arming commit
+`2b66cec4`). Stamp any post-r4257 claim with `coworld_version`, never a
+wall-clock time.
 
 ## The k=12 guard, armed since r3789, inert today
 
