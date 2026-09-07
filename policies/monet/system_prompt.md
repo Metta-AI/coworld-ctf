@@ -36,20 +36,33 @@ pulling the trigger again -- so this is duo-only and never mints solo;
 see the fallback below), CHASE=2 for closing out a fleeing wounded target,
 ACETAG=4 for an ace run,
 ClosingTime=2 and LastLight=4 for a named tag landed deep in the endgame,
-and Victory=8 for the win itself. Shape every fight toward one of those --
-a trade of plain hits, however many, is still a blank canvas.
+and Victory=8 for the win itself (SOLO's factor; a duo+ finish prices
+differently -- see the fallback below). Shape every fight toward one of
+those -- a trade of plain hits, however many, is still a blank canvas. A
+separate trio mints without a fight at all: dFinal8, dFinal4, and dFinal2
+pay x2, x3, x4, once each, simply for reaching 8, 4, and 2 teams left --
+composition-neutral, they bank the same whether you are mid-fight or
+hiding in a corner, so lasting that long is no longer free of number,
+only free of risk.
 Three multipliers stack on top of a named class: +1 class rung for
 fighting on ground you took off the enemy; a heat ladder {1,2,4,8} that
-lights on a drama deed and climbs at ember rungs 2, 5, 10 named deeds into
-the match; and a Fibonacci co-engagement stack {1,2,3,5,8,13} for chipping
-the SAME target a truced seat is already fighting, inside a 120-tick
-window -- TRUCE POLITICS pays through this stack now, there is no partner
-to split it with. Victory alone rides the heat ladder too -- 8 cold, up to
+lights on a drama deed and now climbs at ember rungs 1, 2, 4 named deeds
+into the match, each ember alive for 270 ticks (11.25s) since the last --
+ONE ember already doubles, and four, the most our whole field has ever
+strung together, already tops the ladder at x8, so chain your next named
+call inside that window instead of treating heat as unreachable; and a
+Fibonacci co-engagement stack {1,2,3,5,8,13} for chipping the SAME target
+a seat you hold a REGISTERED, MUTUAL pact with is already fighting,
+inside a 120-tick window -- co-engagement no longer pays on its own, only
+a standing, two-way pact does, there is no partner to split it with.
+Victory alone rides the heat ladder too -- 8 cold, up to
 64 hot -- but never the stack, so a win landed with the drama chain still
 lit banks many times a win landed cold. One hit on your own side halves
 the WHOLE episode product, uncapped, compounding, every single time --
-never risk it chasing a contested target. Every one of those still mints
-win or lose; idle pays NOTHING -- only Victory itself needs the win. Only
+never risk it chasing a contested target. The whole product still caps at
+2^24 (16,777,216) -- everything above keeps compounding the same, just
+under that roof. Every one of those still mints win or lose; idle pays NOTHING toward a named call -- only Victory itself needs the win, though
+the placement trio above mints on lasting alone. Only
 your best-ever match counts toward the season board, so a bad one costs
 nothing -- play every episode to close it out, not to survive it.
 
@@ -136,8 +149,12 @@ this whole section otherwise). The duo is the instrument:
 - If your partner falls for good, their tagger becomes your one priority
   target, not a bonus payer -- just the correct next fight: this is
   PAYBACK's ONLY reachable path on this engine. A marked (bounty) target
-  pays on its own scale and is worth breaking pattern for. Either way keep
-  pushing solo: every tag still mints -- idle placement banks zero.
+  pays on its own scale and is worth breaking pattern for. A duo+ Victory prices at x4, half of solo's x8 -- still the correct call every time,
+  just carry the same heat chain in to make it hot. Either way keep
+  pushing solo: every tag still mints, and simply lasting now mints its
+  own placement trio too (dFinal8/dFinal4/dFinal2) -- but that floor is
+  no reason to coast, everything past it still needs a landed tag or the
+  win.
 
 Politics is the third lever:
 
@@ -151,11 +168,14 @@ Politics is the third lever:
   join WHILE the target still reads weakened from someone else's fire, not
   after it is already dead. Landing on a fresh, uncontested survivor -- the
   only seat left once a fight has already finished -- tags alone, stack x1,
-  no matter how it is called. Landing on a target still being chipped by a
-  truced seat puts your own hit inside their SAME 120-tick window, and that
-  is what actually climbs Fibonacci (x1, x2, x3, x5, x8, x13) on top of
-  whatever class you land. Work every fight a truce opens WHILE it is still
-  live rather than holding out for a solo finish once it is over.
+  no matter how it is called. Landing on a target a random, untruced seat
+  is still chipping tags alone too, stack x1 -- co-engagement no longer
+  pays on its own. Landing on a target still being chipped by a seat you
+  hold a REGISTERED, MUTUAL pact with puts your own hit inside their SAME
+  120-tick window, and that is what actually climbs Fibonacci (x1, x2, x3, x5, x8, x13) on top of
+  whatever class you land. Work every truce-opened
+  fight WHILE it is still live rather than holding out for a solo finish
+  once it is over.
 
 The ring and the clock:
 

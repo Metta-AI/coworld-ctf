@@ -1683,11 +1683,12 @@ check("prompt: objective states deeds mint win or lose",
       "win or lose" in prompt, "win-or-lose text not found")
 check("prompt: objective states idle (not losing) is what banks nothing",
       "idle pays NOTHING" in prompt, "idle-pays-nothing text not found")
-check("prompt: partner doctrine states idle placement banks zero, not "
-      "a loss",
-      "idle placement\n  banks zero" in prompt
-      or "idle placement banks zero" in prompt,
-      "idle-placement text not found")
+check("prompt: partner doctrine states what lasting alone now mints "
+      "(GV57 placement trio superseded the old 'idle placement banks "
+      "zero' claim -- see the GV57 ECONOMY RETUNE block below)",
+      "simply lasting now mints its" in prompt
+      and "own placement trio too" in prompt,
+      "updated placement text not found")
 check("prompt: endgame doctrine still states losses bank what you minted",
       "losses now bank what you minted" in prompt,
       "losses-bank text not found")
@@ -1698,6 +1699,114 @@ check("prompt: NEGATIVE -- does not claim a loss pays nothing "
       and "nothing but the win pays" not in prompt
       and "zeroes the whole product" not in prompt,
       "stale win-gate loss-pays-nothing text found in prompt")
+
+# ── GV57 ECONOMY RETUNE (origin/main 82e4f547, "glory(s2): solo recut +
+# alliance keying + heat retune", GameVersion 57 / GloryVersion 14):
+# merged today (2026-09-06), held off the ladder pending observation --
+# the ladder was last observed at coworld_version 0.7.341 / GV56 through
+# round 4251. Five independent constant changes, pinned here so a future
+# edit cannot drift the doctrine back onto the retired GV56 numbers
+# without failing loud.
+# ── heat retune (glory.nim:964,990): ember thresholds [2,5,10]->[1,2,4],
+# decay window 45->270 ticks (11.25s). Ladder values {1,2,4,8} and cap 11
+# are UNCHANGED (glory.nim:977,985) -- only the reachability claim moves:
+# one ember now doubles, and four (the field's observed ceiling) now tops
+# the ladder at x8 instead of needing ten embers inside a 1.875s window.
+check("prompt: heat doctrine states the NEW ember thresholds (1, 2, 4 "
+      "named deeds, GV57) not the retired GV56 thresholds",
+      "ember rungs 1, 2, 4 named deeds" in prompt,
+      "GV57 ember-threshold text not found")
+check("prompt: NEGATIVE -- the retired GV56 ember thresholds (2, 5, 10) "
+      "are gone from the prompt",
+      "ember rungs 2, 5, 10" not in prompt,
+      "stale GV56 ember thresholds (2, 5, 10) still in prompt")
+check("prompt: heat doctrine states the new 270-tick (11.25s) decay "
+      "window, not the retired 45-tick (1.875s) one",
+      "270 ticks (11.25s)" in prompt,
+      "GV57 decay-window text not found")
+check("prompt: heat doctrine tells the model to chain inside the new "
+      "window instead of treating heat as unreachable",
+      "instead of treating heat as unreachable" in prompt,
+      "heat-reachability directive not found")
+check("prompt: heat doctrine names four embers (the field's observed "
+      "ceiling) as already topping the ladder at x8 under the new table",
+      "already tops the ladder at x8" in prompt,
+      "four-embers-is-x8 text not found")
+
+# ── placement ladder (NEW scoring surface, glory.nim RecutClassTable
+# ~2500-2502 / RecutFinalThresholds:2679): dFinal8/dFinal4/dFinal2 mint
+# x2/x3/x4 once each at 8/4/2 teams alive, composition-neutral. This class
+# did not exist before GV57 and costs nothing but not dying.
+check("prompt: objective names the new placement trio (dFinal8/dFinal4/"
+      "dFinal2) and its x2/x3/x4 payout",
+      "dFinal8, dFinal4, and dFinal2" in prompt
+      and "pay x2, x3, x4, once each" in prompt,
+      "placement-trio text not found")
+check("prompt: placement trio is tied to the 8/4/2-teams-left thresholds",
+      "8, 4, and 2 teams left" in prompt,
+      "placement-threshold text not found")
+
+# ── solo recut (glory.nim:2818,2829,2839 recutWinFactor): the win factor
+# is now team-size-keyed -- solo (our 16-seat ladder) pays x8, duo+ pays
+# half that, x4. Victory=8 was already correct for solo before this
+# change landed (it used to be a flat, non-team-keyed number); what's new
+# is that the fallback DUO ERA section now needs its OWN, lower number
+# instead of silently inheriting solo's x8.
+check("prompt: objective marks Victory=8 as SOLO's team-keyed factor and "
+      "forward-references the duo+ number in the fallback",
+      "SOLO's factor; a duo+ finish prices" in prompt,
+      "solo-keyed Victory text not found")
+check("prompt: duo fallback states its OWN Victory factor (x4, half of "
+      "solo's x8) instead of silently reusing the solo number",
+      "A duo+ Victory prices at x4, half of solo's x8" in prompt,
+      "duo+ Victory factor text not found")
+
+# ── product cap (glory.nim:2540): 2^26 -> 2^24 (16,777,216).
+check("prompt: objective states the new product cap, 2^24 (16,777,216)",
+      "2^24 (16,777,216)" in prompt,
+      "product-cap text not found")
+check("prompt: NEGATIVE -- the retired 2^26 cap is not quoted anywhere "
+      "in the prompt",
+      "67,108,864" not in prompt and "2^26" not in prompt,
+      "stale 2^26 product cap text found in prompt")
+
+# ── alliance keying (sim.nim:2654-2713): blanket co-engagement scoring is
+# REMOVED -- the BR ally-stack only counts a co-engaged attacker when a
+# REGISTERED, MUTUAL pact is active between the two teams (pacts register
+# only when both sides declare each other). We already emit the pact play
+# on the correct seam (policy.py declarePactPartners call sites) -- this
+# is a doctrine-only tightening, no code path changes.
+check("prompt: co-engagement doctrine requires a REGISTERED, MUTUAL pact "
+      "(stated in both THE OBJECTIVE and the jackal bullet)",
+      prompt.count("REGISTERED, MUTUAL pact") >= 2,
+      f"found {prompt.count('REGISTERED, MUTUAL pact')} occurrences, "
+      "want >= 2")
+check("prompt: objective states co-engagement no longer pays on its own",
+      "co-engagement no longer pays on its own" in prompt,
+      "co-engagement-gated text not found")
+check("prompt: jackal doctrine states landing on a random, untruced "
+      "seat's target still only pays stack x1 (no incidental "
+      "co-engagement credit)",
+      "is still chipping tags alone too, stack x1" in prompt,
+      "untruced-co-engagement-x1 text not found")
+
+# ── idle-placement doctrine correction: GV57's placement trio makes the
+# old "idle placement banks zero" claim FALSE (lasting to 8/4/2 teams now
+# mints x2/x3/x4 on its own) -- the SAME kind of self-contradiction fix
+# as the loss/placement economics block above, just triggered by a new
+# engine constant landing rather than a prose bug. The general "idle pays
+# NOTHING" claim (THE OBJECTIVE) is narrowed to "toward a named call" so
+# it stays true alongside the new placement trio, which is deliberately
+# the one thing that still mints on lasting alone.
+check("prompt: objective narrows the idle-pays-nothing claim to named "
+      "calls specifically, now that placement mints on lasting alone",
+      "idle pays NOTHING toward a named call" in prompt,
+      "narrowed idle-pays-nothing text not found")
+check("prompt: NEGATIVE -- the retired, now-false 'idle placement banks "
+      "zero' claim is gone (GV57's placement trio mints on lasting alone)",
+      "idle placement\n  banks zero" not in prompt
+      and "idle placement banks zero" not in prompt,
+      "stale idle-placement-banks-zero text still in prompt")
 
 # ── deedMintCaps ARMED (coworld-ctf origin/main ba6ae904, PR #417,
 # 2026-09-04 16:19): coworld_manifest_paintbot.json flips deedMintCaps
