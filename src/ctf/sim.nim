@@ -1016,6 +1016,13 @@ proc resetGloryLedger*(sim: var SimServer) =
   # pass, same discipline as pactMask's own reset just above.
   for i in 0 ..< sim.pactDeclaredPartners.len:
     sim.pactDeclaredPartners[i] = 0
+  # GV14: the placement-ladder latch re-opens with the ledger it mints
+  # into — unconditional for the same reason the seed/product resets are
+  # (writing false into a dark game's latch is unobservable, and an armed
+  # game can never inherit a previous game's fired milestones through any
+  # reset path).
+  for i in 0 ..< sim.recutFinalFired.len:
+    sim.recutFinalFired[i] = false
   for key in 0 ..< sim.claimedFirst.len:
     sim.claimedFirst[key] = false
   for deed in Deed:
@@ -2654,11 +2661,15 @@ proc recutContextK*(sim: SimServer, killerIndex, victimIndex: int): int =
   ##
   ##   - CTF: literal same-team players (§2) — the killer plus every
   ##     teammate with a qualifying hit on this victim inside the window.
-  ##   - BR: allies-in-context (§2's ruled widening) — the killer's own
-  ##     duo PLUS cogs of OTHER duos co-engaged on the same victim in the
-  ##     window (a truce/joint-act moment, the dJointAct predicate). The
-  ##     victim's own duo never counts (friendly fire is never an
-  ##     alliance — the spec's own exclusion).
+  ##   - BR (v14 KEYING FIX, brMode -> isAllied): the killer's own duo
+  ##     PLUS cogs of other duos co-engaged on the same victim in the
+  ##     window ONLY when a registered pact links them to the killer
+  ##     (`pactActive` — the GV56 registry the `pact` play feeds). The
+  ##     pre-v14 blanket brMode test paid ally-stack k to ANY co-engaged
+  ##     seat — the measured jackal contamination (×1.03-1.18 gm/seat,
+  ##     single mints to ×3, 3-10% of top-seat log-mass; sizing package
+  ##     §1) — which exits here. The victim's own duo never counts
+  ##     (friendly fire is never an alliance — the spec's own exclusion).
   ##
   ## Exact ally-counting refinement (who counts, how a window closes) is
   ## PARKED BEHIND T5 by the table itself; this is the minimal
@@ -2685,16 +2696,21 @@ proc recutContextK*(sim: SimServer, killerIndex, victimIndex: int): int =
       let attackerTeam = sim.players[mark.attacker].team
       if attackerTeam == victimTeam:
         continue
-      # FOLLOW-UP (P3, keying/recut, tracked separately from this PR's
-      # registry rewire): `sim.config.brMode` here pays ally-stack k to
-      # ANY co-engaged seat in BR, not just an actually-allied one --
-      # the live mispricing this PR's registry rewire exists to feed a
-      # real fix for. A follow-up PR reads `sim.pactActive(attackerTeam,
-      # killerTeam)` (an `isAllied` predicate over the registry this file
-      # now keeps registered from the `pact` play, not the retired shout
-      # grammar) at this exact chokepoint instead of the blanket brMode
-      # check. Deliberately NOT done here: this PR is keying-free.
-      if attackerTeam == killerTeam or sim.config.brMode:
+      # v14 KEYING FIX (P3 — the fix GV56's registry rewire existed to
+      # feed): the ally-stack is an ALLIANCE read, not a co-engagement
+      # read. `sim.pactActive(attackerTeam, killerTeam)` is the isAllied
+      # predicate over the pact registry (registered from the `pact`
+      # play, GV56); the pre-v14 blanket `sim.config.brMode` check here
+      # paid stack k to ANY co-engaged seat in BR — the measured jackal
+      # mispricing (sizing package §1) — and is gone. With pacts
+      # unadopted the BR stack reads ≡ ×1 by construction; the Fibonacci
+      # values are deliberately unchanged (the 10M anchor is
+      # alliance-gated: the stack IS the sized pact-era headroom, §5).
+      # Same-team participation (the CTF/duo-partner read) is unchanged,
+      # and `pactActive` is structurally false outside BR (pacts only
+      # register there), so CTF prices exactly as before.
+      if attackerTeam == killerTeam or
+          sim.pactActive(attackerTeam, killerTeam):
         participants.add mark.attacker
   participants.len
 
@@ -5783,15 +5799,25 @@ proc finishGame*(sim: var SimServer, winner: Team, isDraw = false, timeLimitReac
   # COMPOSITION-NEUTRAL ×M fold on the canonical product at finalize — it
   # pays no heat, no territory, no carry, no stack, and never routes
   # through `recutFactor` (it is not a deed; the wire dVictory it replaces
-  # was stochastic ×16-64 with folded heat). Mode-keyed via
-  # `recutWinFactor`: BR ×4 now, M_CTF deferred to CTF-arming (that func
-  # is the whole seam). Applied AFTER the conclusion sweep so the ledger
+  # was stochastic ×16-64 with folded heat). Mode- AND TEAM-SIZE-keyed via
+  # `recutWinFactor` (v14 sizing package §2, ruled): a 1-seat winning
+  # team folds M_solo=×8, a duo folds the ruled ×4, M_CTF stays deferred
+  # to CTF-arming (that func is the whole seam). Applied AFTER the
+  # conclusion sweep so the ledger
   # is final-correct the moment it folds (products commute — the ceiling
   # arithmetic is identical either side of the sweep). Decisive games
   # only — a draw crowns nobody, exactly like the deed it replaces.
   if sim.config.gloryMultiplierRecut and sim.config.winAsMultiplier and
       sim.config.brMode and not isDraw:
-    let winFactor = recutWinFactor(sim.config.brMode)
+    # v14 TEAM-SIZE SEAM: seats on the winning team, dead or alive — the
+    # dDuoDown solo-team guard's own counting convention (a duo whose
+    # partner already fell still won as a duo, and a 16-solo winner is
+    # solo however many rivals remain).
+    var winnerSeats = 0
+    for p in sim.players:
+      if p.team == winner:
+        inc winnerSeats
+    let winFactor = recutWinFactor(sim.config.brMode, winnerSeats)
     # Once per episode by construction (one finalize, one winner) — no
     # MINT cap applies; the armed PRODUCT bound does, so the backstop
     # covers the last fold of the episode too.
@@ -6499,6 +6525,44 @@ proc hillLeader*(sim: SimServer): tuple[team: Team, draw: bool] =
   elif sim.hillTicks[Blue] > sim.hillTicks[Red]: (Blue, false)
   else: (Red, true)
 
+proc recutMintPlacementMilestones(sim: var SimServer, aliveCount: int) =
+  ## GV14 PLACEMENT LADDER (solo recut, sizing package §2) — THE RAISED
+  ## BASES: dFinal8/dFinal4/dFinal2 (×2/×3/×4) mint once each, for every
+  ## team still alive when the living-team count first crosses down to a
+  ## milestone (both finalists earn dFinal2; the win factor alone
+  ## separates 1st from 2nd). Called from checkWinCondition with the
+  ## alive count it just derived from the SAME `teamHasLivePlayers` read
+  ## that decides the game's end — one liveness signal, so the milestone
+  ## set can never disagree with the elimination order. A milestone ARMS
+  ## only when the game seats MORE teams than it names (`seatedTeams >
+  ## threshold`: a 2-team BR test shape mints nothing; the 16-team field
+  ## mints all three), and a multi-elimination tick that skips a count
+  ## still fires every crossed milestone for its survivors — they were
+  ## "among the last N" for every N their elimination survived past,
+  ## while the teams that fell on that tick were not. Priced at each
+  ## team's own pedestal (the dVictory/achievement site: home ground, so
+  ## the territory shift is a structural no-op); with 0 drama (never
+  ## heat/carry) and the default stackK 1, the folded factor IS the
+  ## class, which keeps the ladder's ×2×3×4 exact.
+  ## armed+winAsMultiplier+brMode only — the §A6-band gate: a dark,
+  ## classic, or v13-armed game never mints these (byte-identity for
+  ## those worlds), and `resetGloryLedger` re-opens the latch with the
+  ## ledger it mints into.
+  if not (sim.config.gloryMultiplierRecut and sim.config.winAsMultiplier and
+      sim.config.brMode):
+    return
+  let seatedTeams = sim.gameMap.teamCount()
+  for i in 0 ..< RecutFinalThresholds.len:
+    let (threshold, deed) = RecutFinalThresholds[i]
+    if sim.recutFinalFired[i] or seatedTeams <= threshold or
+        aliveCount > threshold:
+      continue
+    sim.recutFinalFired[i] = true
+    for team in sim.teams():
+      if sim.teamHasLivePlayers(team):
+        let home = sim.gameMap.flagHome(team)
+        sim.awardDeed(team, deed, home.x, home.y)
+
 proc checkWinCondition*(sim: var SimServer) {.measure.} =
   ## Resolves capture and wipe win conditions.
   if sim.phase != Playing or sim.players.len == 0:
@@ -6611,6 +6675,11 @@ proc checkWinCondition*(sim: var SimServer) {.measure.} =
     if sim.teamHasLivePlayers(team):
       inc aliveCount
       lastAlive = team
+  # GV14: the placement ladder reads the count this loop just derived —
+  # and must land BEFORE the finish below, so the winner's dFinal2 (and
+  # any milestone a skip-ending crosses on this same tick) is already in
+  # the product the win factor folds onto at finalize.
+  sim.recutMintPlacementMilestones(aliveCount)
   if aliveCount == 1:
     # GLORY: `dWipe` -- fire only for a team that crossed from alive to
     # dead on THIS exact tick, never for one eliminated earlier in the
