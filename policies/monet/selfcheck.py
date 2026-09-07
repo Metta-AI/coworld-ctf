@@ -1184,6 +1184,71 @@ endgame_fs = next(e for e in PERSONA.canned_turns[-1]["call"]["entries"]
 check("endgame woundedPct ZEROED to 0 (v10 amendment: kill the standoff)",
       endgame_fs["params"].get("woundedPct") == 0, str(endgame_fs["params"]))
 
+# ── JOINACT WIRE FIX (measured 2026-09-07): the pin above only checks the
+# CANNED PROPOSAL dict -- exactly the "prose, not wire" gap that let earshot
+# commit live as 500 in 44/46 real F4-crossing samples despite reading 550
+# right here in source. Assert the ACTUAL post-adjust_entries wanted ladder
+# instead, through the same repair_call path the live seat runs. ──────────
+_endgame_turn = PERSONA.canned_turns[-1]
+check("endgame CANNED turn omits jackal entirely (the gap this fix closes "
+      "-- if this ever stops being true the auto-insert below becomes a "
+      "no-op, which is fine, but the assumption should be re-verified)",
+      not any(e.get("play") == "jackal"
+              for e in _endgame_turn["call"]["entries"]))
+
+_seat = fake_seat()
+starter_harness.repair_call(_endgame_turn, PERSONA, _seat, AVAILABLE)
+_endgame_jk = next((e for e in _seat.wanted_entries
+                     if e["play"] == "jackal"), None)
+check("endgame turn's WANTED ladder gets a jackal entry even though the "
+      "canned call omits one (adjust_entries auto-insert, mirrors "
+      "supply_run/loot)",
+      _endgame_jk is not None, str(_seat.wanted_entries))
+check("... with earshot at the v10 RE-ARM floor (550), not the manifest "
+      "default (500) layer_ladder's own base_play fallback would have "
+      "used",
+      _endgame_jk is not None
+      and _endgame_jk["params"].get("earshot") == policy.JACKAL_MIN_EARSHOT,
+      str(_endgame_jk["params"] if _endgame_jk else None))
+check("... with joinWhen=bothWeakened, not the manifest default afterKill",
+      _endgame_jk is not None
+      and _endgame_jk["params"].get("joinWhen") == "bothWeakened",
+      str(_endgame_jk["params"] if _endgame_jk else None))
+
+# A model call that DOES name jackal but under-shoots earshot or leaves
+# joinWhen at the manifest default must still be corrected, not merely
+# left alone because "something was submitted" -- the raised floor from a
+# model choice, never lowered; joinWhen force-pinned outright (see the
+# comment on JACKAL_JOIN_WHEN above for why there is no honest wider value
+# to preserve there the way earshot has one).
+_weak_call = {"call": {"entries": [
+    {"play": "jackal", "entry_id": "third",
+     "params": {"earshot": 120, "joinWhen": "afterKill",
+                "exitAfter": {"kills": 1}}},
+]}}
+_seat = fake_seat()
+starter_harness.repair_call(_weak_call, PERSONA, _seat, AVAILABLE)
+_weak_jk = next(e for e in _seat.wanted_entries if e["play"] == "jackal")
+check("a model call naming jackal with a weak earshot is RAISED to the "
+      "550 floor, not left at its own low value",
+      _weak_jk["params"].get("earshot") == 550, str(_weak_jk["params"]))
+check("a model call naming jackal with joinWhen=afterKill is force-pinned "
+      "to bothWeakened",
+      _weak_jk["params"].get("joinWhen") == "bothWeakened",
+      str(_weak_jk["params"]))
+
+_wide_call = {"call": {"entries": [
+    {"play": "jackal", "entry_id": "third",
+     "params": {"earshot": 900, "joinWhen": "bothWeakened",
+                "exitAfter": {"kills": 1}}},
+]}}
+_seat = fake_seat()
+starter_harness.repair_call(_wide_call, PERSONA, _seat, AVAILABLE)
+_wide_jk = next(e for e in _seat.wanted_entries if e["play"] == "jackal")
+check("a model call naming jackal with a WIDER earshot than the floor is "
+      "honored, never clamped back down to 550",
+      _wide_jk["params"].get("earshot") == 900, str(_wide_jk["params"]))
+
 
 # ── v10 amendment: the endgame standoff fix, pinned against the SOURCE
 # formula (fire_superiority.nim play_step), not just the raw param value --

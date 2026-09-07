@@ -104,6 +104,26 @@ BODYGUARD_LEASH = {"shield-close": [MIN_LEASH_COMBAT, 120],
 # is greed the attrition ledger punishes.
 JACKAL_MAX_KILLS = 2
 
+# JOINACT WIRE FIX (measured 2026-09-07, ladder rounds 4344-4362, wire_commit
+# read of the COMMITTED 0xA1 line, n=46 non-truncated F4-crossing finalist
+# samples): joinWhen=bothWeakened IS live (39/46 at crossing, 41/46 ever in
+# the F4 window) because play_notes["jackal"] below names it explicitly by
+# value ("joinWhen bothWeakened") -- the model reliably reproduces a value
+# it is actually told. earshot's v10 RE-ARM (450->550, see the consolidation/
+# mid canned_turns entries and their comments) was NEVER stated in
+# play_notes/system_prompt.md, only in this file's canned_turns dict and
+# code comments -- pure prose the live (non-canned) bedrock-backed policy
+# never reads. Measured result: earshot committed live reads exactly 500
+# (the jackal manifest's own schema default) in 44/46 samples, 550 in
+# 0/46. adjust_entries below now ENFORCES the floor and the join-timing
+# value on every jackal entry the model submits, and installs one with
+# these values when the model/turn omits jackal entirely (mirroring the
+# supply_run/loot auto-insert pattern and the marquee-window
+# fire_superiority override already in this function) -- a wire mechanism,
+# not a prompt hint that can silently go unread.
+JACKAL_MIN_EARSHOT = 550
+JACKAL_JOIN_WHEN = "bothWeakened"
+
 # HEAT-CHAIN TARGET PRIORITY (owner directive 2026-09-06, source-verified
 # against src/ctf/glory.nim + play_sdk/reference/target_law.nim): heat is
 # the one scaling axis still unexploited by the whole field. +1 ember per
@@ -396,11 +416,25 @@ def adjust_entries(entries, context, view):
 
     for entry in entries:
         if entry.get("play") == "jackal":
-            exit_after = entry.setdefault("params", {}).get("exitAfter")
+            params = entry.setdefault("params", {})
+            exit_after = params.get("exitAfter")
             if (isinstance(exit_after, dict)
                     and isinstance(exit_after.get("kills"), int)):
                 exit_after["kills"] = min(exit_after["kills"],
                                           JACKAL_MAX_KILLS)
+            # JOINACT WIRE FIX (see JACKAL_MIN_EARSHOT/JACKAL_JOIN_WHEN
+            # above): a submitted earshot below the v10 re-arm is raised to
+            # it, never lowered (a model-chosen WIDER loiter net is still
+            # honored); joinWhen is pinned to bothWeakened outright -- the
+            # afterKill branch's "arrive after a fight starts, tag a fresh
+            # uncontested seat" behavior is never what this persona wants,
+            # so there is no honest wider value to preserve the way earshot
+            # has one.
+            current_earshot = params.get("earshot")
+            floor = (current_earshot if isinstance(current_earshot, int)
+                     else 0)
+            params["earshot"] = max(floor, JACKAL_MIN_EARSHOT)
+            params["joinWhen"] = JACKAL_JOIN_WHEN
         elif entry.get("play") == "bodyguard":
             # ANTI-STACK: a leash floor keeps the duo off each other's
             # pixel -- stacked duos tag each other by accident. The
@@ -440,6 +474,23 @@ def adjust_entries(entries, context, view):
         for entry in entries:
             if entry.get("play") == "fire_superiority":
                 entry.setdefault("params", {})["woundedPct"] = 0
+
+    # JOINACT PATIENCE: jackal is this persona's base_play (see PERSONA
+    # below), so starter_harness.layer_ladder ALWAYS puts a jackal entry on
+    # the wire -- but if THIS turn's entries omit jackal entirely (the
+    # canned endgame turn does; a live model call can too), layer_ladder's
+    # own fallback fills it from the play's bare manifest DEFAULTS
+    # (earshot 500, joinWhen afterKill, exitAfter {"kills":1}), silently
+    # discarding this persona's join-window tuning for exactly the
+    # recall(s) that omitted it -- the same class of gap the loop above
+    # fixes when jackal IS present. Install the tuned entry here instead of
+    # trusting every future turn/model call to keep naming it (mirrors the
+    # supply_run/loot auto-insert immediately below).
+    if not any(e.get("play") == "jackal" for e in entries):
+        entries.append({"play": "jackal", "entry_id": "third",
+                         "params": {"earshot": JACKAL_MIN_EARSHOT,
+                                    "joinWhen": JACKAL_JOIN_WHEN,
+                                    "exitAfter": {"kills": JACKAL_MAX_KILLS}}})
 
     # CONVERSION: every ladder banks the life. The rung sits above the
     # rotation controller (wounded beats rotating) and below any fight
