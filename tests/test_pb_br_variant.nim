@@ -100,32 +100,32 @@ suite "paintbot manifest, battle-royale-s2 variant":
     # owner's doctrine call. Frame loadout flags and duo held-state are
     # live on the flagship variant from day one.
     check config.frameLoadoutFlags
-    # WIN-AS-MULTIPLIER (glory-2 A6/Amendment 7): ROLLED BACK 2026-09-04.
-    # The dTagBack revive-loop (zone bleed re-downs partner ~every 9 ticks,
-    # revive at 48 -> a 57-tick metronome minting x2 per Revived, 24-27x per
-    # episode = 2^24+ overshoot; see glorybug 09:2x in the tg5 ledger) blew
-    # the 28,311,552 ceiling by ~10^6. Flag stays false until repeatable
-    # deeds get per-episode mint caps / diminishing rungs. v13 dVictory
-    # economy is live again via this switch, exactly as designed.
+    # WIN-AS-MULTIPLIER (glory-2 A6/Amendment 7): ROLLED BACK 2026-09-04
+    # after the dTagBack revive-loop (zone bleed re-downs partner ~every 9
+    # ticks, revive at 48 -> a 57-tick metronome minting x2 per Revived,
+    # 24-27x per episode = 2^24+ overshoot; see glorybug 09:2x in the tg5
+    # ledger) blew the 28,311,552 ceiling by ~10^6. RE-ARMED 2026-09-06 (the
+    # GV57 recut's Part A -- placement ladder dFinal8/4/2 + flat win factor
+    # M) now that both preconditions below are live on this variant:
+    # zoneBlocksRevive kills the revive loop mechanically, and deedMintCaps
+    # bounds every repeatable deed's per-episode mint count. Rollback is a
+    # flag flip, no code change.
     check config.gloryMultiplierRecut
-    check not config.winAsMultiplier
+    check config.winAsMultiplier
     # PAINTDEATH (owner ruling 2026-09-03): the flagship ships the zone as
     # LETHAL GROUND -- paint damages you AND admits no rescue. Armed here,
     # not dark: it is the root fix for the revive-loop above, and the
-    # precondition this variant's winAsMultiplier re-arm rides on.
+    # first of the two preconditions this variant's winAsMultiplier re-arm
+    # rode on.
     check config.zoneDamageByPaint
     check config.zoneBlocksRevive
     # MINTCAP: the OTHER half of the same re-arm gate. zoneBlocksRevive
     # above kills the revive loop MECHANICALLY on painted ground; the
     # caps bound any repeatable-deed composition, including the dry-ground
     # down/revive cycle that gate does not touch. ARMED 2026-09-04 (owner
-    # ruling, tg5 18:2x): #402 (zoneBlocksRevive) + this cap table are both
-    # landed, so the first half of the two-part re-arm gate is complete --
-    # arming the caps DOES change ARMED-recut scoring from here on
-    # (dDuoDown/dShieldSoak are priced under the live gloryMultiplierRecut
-    # variant), which is the point: bound the composition before more
-    # rounds bank under it. winAsMultiplier itself stays a SEPARATE owner
-    # beat, staged until N>=3 caps-era rounds verify sane tops.
+    # ruling, tg5 18:2x): #402 (zoneBlocksRevive) + this cap table landed
+    # first, completing the two-part re-arm gate that winAsMultiplier above
+    # now rides on.
     check config.deedMintCaps
     var sim = initCtfForTest(config)
     ## The variant's own "players" list binds each slot's NAME (see
