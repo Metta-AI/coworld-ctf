@@ -3940,7 +3940,16 @@ proc applyFire(sim: var SimServer, shot: PendingGunShot) =
     # (the weapon site credited the kill at the DOWN), just the deferred
     # real death. A teammate's stray paint never confirms — the ghost soaks
     # it without effect.
-    if shooter.team != sim.players[targetIndex].team:
+    #
+    # ALLIANCE P2b (ally-revive design, lane-lead decision 2026-09-07): a
+    # PACT ally's paint mirrors a teammate's -- it never confirms either.
+    # Read `pactActive` LIVE (not the `lastHitWasPactAlly` snapshot P3
+    # uses): this splat never routes through `absorbDamage` ("no damage
+    # accounting" above), so there is no dissolve-before-price race to
+    # guard against here -- the pact, if any, is still exactly as active
+    # as it was the tick before.
+    if shooter.team != sim.players[targetIndex].team and
+        not sim.pactActive(shooter.team, sim.players[targetIndex].team):
       sim.finalizeDowned(targetIndex, shooterIndex, "was splatted out")
   elif targetIndex >= 0 and sim.players[targetIndex].alive:
     # A carrier whose shield layer is still up at impact absorbs the hit

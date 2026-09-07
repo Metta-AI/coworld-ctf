@@ -1276,3 +1276,46 @@ suite "ALLY REVIVE — fail-first guards (owner design 2026-09-07, unimplemented
     check sim.players[0].downed
     check sim.players[0].reviveProgress == 0
     check sim.eventsOf(Revived).len == 0
+
+  test "T6 (P2b) a pact ally's paint does NOT confirm a downed partner; a non-pact rival's still does":
+    ## Mirrors P1's revive rule into applyFire's OTHER downed-ghost gate,
+    ## the splat-confirm (sim.nim ~3897): that gate already spares a
+    ## TEAMMATE's stray paint from finalizing a ghost; a PACT ally's paint
+    ## must be spared the identical way, or "down your ally, have someone
+    ## else finish them off with paint" reopens the exact revive-farm P3
+    ## closed at the pricing layer -- just one hop later, at confirm
+    ## instead of at the down. `rival` (Green, no pact) downs `victim`
+    ## first; `ally` (Blue, registered pact) then paints the ghost and
+    ## must NOT finalize it -- no deed, no FF incident, no Death; only
+    ## afterward does `rival`'s own paint confirm it, proving the gate
+    ## still binds for a genuine enemy (this splat path never routes
+    ## through `absorbDamage`, so the pact is never at risk of an
+    ## incidental dissolve from either shot -- see `downFriendly`'s own
+    ## comment on why P3 needed a snapshot but this gate does not).
+    var sim = allyReviveGame()
+    sim.registerPact(Red, Blue)
+    sim.centerOn(3, -2000, -2000)   # spare, inert
+    sim.centerOn(2, -3000, -3000)   # rival, parked clear of the first shot
+    sim.killPlayer(0, 2)            # rival downs victim (position-free)
+    check sim.players[0].downed
+    sim.pointBlank(1, 0)            # ally aims at the downed victim
+    sim.armToFire(1)
+    sim.tryFire(1)                  # ally's paint -- must NOT confirm
+    check sim.players[0].downed
+    check sim.players[0].alive
+    check sim.deedCounts[dTeamKill] == 0
+    check sim.gloryFfIncidents[Red] == 0
+    check sim.eventsOf(Death).len == 0
+    sim.centerOn(1, -4000, -4000)   # ally, parked clear of the second shot
+                                     # (pointBlank alone only repositions the
+                                     # shooter/target pair -- a bystander left
+                                     # sitting on the shooter's spot would eat
+                                     # the raycast meant for the ghost)
+    sim.pointBlank(2, 0)            # rival aims at the still-downed victim
+    sim.armToFire(2)
+    sim.tryFire(2)                  # rival's paint -- DOES confirm (anti-
+                                     # regression: the pact gate is scoped
+                                     # to pact allies only)
+    check not sim.players[0].downed
+    check not sim.players[0].alive
+    check sim.eventsOf(Death).len == 1
