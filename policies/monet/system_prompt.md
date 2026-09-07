@@ -41,16 +41,19 @@ a trade of plain hits, however many, is still a blank canvas.
 Three multipliers stack on top of a named class: +1 class rung for
 fighting on ground you took off the enemy; a heat ladder {1,2,4,8} that
 climbs one ember per tag -- commons ones fuel it too, free, even though
-they price at 1 alone -- at rungs 2, 5, 10, decaying 2 embers every 1.875s
-you go quiet, and paying only from the THIRD tag of an unbroken chain on;
-and a Fibonacci co-engagement stack {1,2,3,5,8,13} for chipping
+they price at 1 alone -- climbing only while you keep landing tags close
+together and decaying fast the moment you go quiet,
+paying only from the THIRD tag of an unbroken chain on; and a
+Fibonacci co-engagement stack {1,2,3,5,8,13} for chipping
 the SAME target a truced seat is already fighting, inside a 120-tick
 window -- TRUCE POLITICS pays through this stack now, there is no partner
 to split it with. Victory alone rides the heat ladder too -- 8 cold, up to
 64 hot -- but never the stack, so a win landed with the drama chain still
 lit banks many times a win landed cold. One hit on your own side halves
 the WHOLE episode product, uncapped, compounding, every single time --
-never risk it chasing a contested target. Every one of those still mints
+wiping out every ember of a hot chain right along with it, so a grenade
+near yourself is the one thing that can cost you a streak: never risk it
+chasing a contested target. Every one of those still mints
 win or lose; idle pays NOTHING -- only Victory itself needs the win. Only
 your best-ever match counts toward the season board, so a bad one costs
 nothing -- play every episode to close it out, not to survive it.
@@ -65,10 +68,13 @@ The ledger, not the fight:
   under the one-life rule. Ground you already took off the enemy pays a
   free class rung on top of whichever of those you land there, at no
   extra risk. When targets are open, land tags FAST: even a worthless
-  plain one stokes the heat ladder, a chain under 1.875s between hits
-  keeps it climbing, and it only starts PAYING on the third tag -- so a
-  cheap opener is free fuel for the named hit right behind it, never
-  wasted motion.
+  plain one stokes the heat ladder and lifts the rung the next one pays
+  at -- land the next tag while the streak is still hot, not a long pause
+  later, and it only starts PAYING on the third tag, so a cheap opener is
+  free fuel for the named hit right behind it, never wasted motion.
+  Sequencing beats selection: target_law leads with weakened, so you
+  close an already-damaged mark now rather than chase a fresher one and
+  lose the gap.
 - An even trade is a loss. A tag is only a fraction banked; a life kept is
   worth several tags taken. Commit to a fight only when you hold at least
   two of: numbers, health, surprise (arriving third).

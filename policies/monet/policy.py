@@ -109,6 +109,43 @@ BODYGUARD_LEASH = {"shield-close": [MIN_LEASH_COMBAT, 120],
 # is greed the attrition ledger punishes.
 JACKAL_MAX_KILLS = 2
 
+# HEAT-CHAIN TARGET PRIORITY (owner directive 2026-09-06, source-verified
+# against src/ctf/glory.nim + play_sdk/reference/target_law.nim): heat is
+# the one scaling axis still unexploited by the whole field. +1 ember per
+# heat-paying deed (ALL FOUR commons tag types pay heat even though they
+# price at class 1 alone), ladder [1,2,4,8], multiplier SAMPLED BEFORE the
+# deed's own increment, so a chain only starts paying from its 3rd tag.
+#   LIVE (GV56, coworld 0.7.341): thresholds [2,5,10], decay -2 embers per
+#   45 ticks = 1.875s -- effectively unreachable, 99.5% of mints land 1x.
+#   MAIN, not yet deployed (GV57): thresholds [1,2,4], decay -2 per 270
+#   ticks = 11.25s -- a 5-tag chain inside 11.25s gaps pays
+#   1x2x4x4x8 = 256x. Ticks run 24/s in both eras.
+# These figures live HERE, not in system_prompt.md: no PlayContext/PlayView
+# field surfaces a game/coworld version to a policy (checked every wire
+# schema under src/shell/schemas/ -- none carries one), so a policy cannot
+# detect the cutover and a prompt sentence naming "1.875s" goes silently
+# wrong the moment GV57 ships. The prompt says "land the next tag while the
+# streak is still hot" instead -- true under either constant set.
+#
+# combat_policy's closed schema (src/shell/schemas/combat_policy.schema.json)
+# has no field for timing, chains, or heat at all. The only lever it gives
+# over target CHOICE is target_law's `prefer`: an ORDERED tie-break among
+# currently-tracked candidates (weakened/isolated/revenge/bounty), compared
+# index-by-index BEFORE base engagement score
+# (src/shell/body.nim:compareScoredCombat) -- so whichever tag ranks first
+# decides who we shoot whenever more than one candidate is live, including
+# the reacquisition moment right after a kill, which is exactly when chain
+# speed is decided. "weakened" (lowest known hp) is the only one of the
+# four tags that is itself a proxy for "fastest to finish"; ranking it
+# first means we close out an already-damaged target NOW instead of
+# pivoting onto a full-health "better" (revenge/bounty) one and losing the
+# gap. This is the closest the closed vocabulary can express "sequencing
+# beats selection" -- it cannot say "chain" or "heat" or a tick figure at
+# all, and reordering it does not touch WHEN we fire (hold_fire is never
+# set here, so target_law never withholds a shot waiting for a preferred
+# tag either).
+TARGET_LAW_PREFER = ("weakened", "revenge", "bounty", "isolated")
+
 # RANGE DISCIPLINE (owner directive 2026-09-06, source-verified against
 # src/ctf/glory.nim): LONGSHOT (class 3, +1 rung on enemy ground) prices
 # past LongshotPx=700 at CtfReferenceGunRange=1050 -- exactly two-thirds of
@@ -377,8 +414,7 @@ def adjust_entries(entries, context, view):
     law = next((e for e in entries if e.get("play") == "target_law"), None)
     if law is None and law_never:
         law = {"play": "target_law", "entry_id": "law",
-               "params": {"prefer": ["revenge", "bounty", "weakened",
-                            "isolated"]}}
+               "params": {"prefer": list(TARGET_LAW_PREFER)}}
         entries.insert(0, law)
     if law is not None:
         params = law.setdefault("params", {})
@@ -695,11 +731,17 @@ PERSONA = Persona(
                  "seats (seat:N form only). A pact nobody heard is not a "
                  "truce. Keep it in every call while it stands -- dropping "
                  "it IS the betrayal, so say so when you do."),
-        "target_law": ("target_law: prefer revenge, bounty, weakened, "
-                       "isolated -- all four. Your fallen partner's tagger "
-                       "pays once (revenge leads); bounty marks pay extra; "
-                       "weakened+isolated is the proven greatest-threat "
-                       "lever. The harness mirrors your partner and every "
+        "target_law": ("target_law: prefer weakened, revenge, bounty, "
+                       "isolated -- all four, weakened FIRST. This is your "
+                       "only lever over WHO you shoot next among live "
+                       "candidates, and it decides the instant right after "
+                       "a kill -- exactly when a heat chain lives or dies: "
+                       "closing an already-damaged target keeps the next "
+                       "tag landing NOW, where chasing a fresher revenge or "
+                       "bounty mark instead costs the gap a chain cannot "
+                       "survive. Sequencing beats selection -- any tag open "
+                       "to you now usually outscores waiting for a better "
+                       "one. The harness mirrors your partner and every "
                        "pact seat into never; you release seats by dropping "
                        "the pact, never by editing the list. Set a "
                        "holdTrigger only for a planned endgame release: a "
@@ -839,8 +881,7 @@ PERSONA = Persona(
                  "params": {"partners": ["seat:0", "seat:16"],
                             "protect": False, "onBetrayal": "returnFire"}},
                 {"play": "target_law", "entry_id": "law",
-                 "params": {"prefer": ["revenge", "bounty", "weakened",
-                            "isolated"]}},
+                 "params": {"prefer": list(TARGET_LAW_PREFER)}},
                 {"play": "ring_walker", "entry_id": "ring",
                  "params": {"inset": 64, "leadTicks": 240}},
                 {"play": "medic", "entry_id": "pickup",
@@ -906,8 +947,7 @@ PERSONA = Persona(
                  "params": {"partners": ["seat:0", "seat:16"],
                             "protect": False, "onBetrayal": "returnFire"}},
                 {"play": "target_law", "entry_id": "law",
-                 "params": {"prefer": ["revenge", "bounty", "weakened",
-                            "isolated"]}},
+                 "params": {"prefer": list(TARGET_LAW_PREFER)}},
                 {"play": "ring_walker", "entry_id": "ring",
                  "params": {"inset": 64, "leadTicks": 240}},
                 {"play": "medic", "entry_id": "pickup",
@@ -1038,8 +1078,7 @@ PERSONA = Persona(
                  "params": {"partners": ["seat:0", "seat:16"],
                             "protect": False, "onBetrayal": "returnFire"}},
                 {"play": "target_law", "entry_id": "law",
-                 "params": {"prefer": ["revenge", "bounty", "weakened",
-                            "isolated"]}},
+                 "params": {"prefer": list(TARGET_LAW_PREFER)}},
                 {"play": "ring_walker", "entry_id": "ring",
                  "params": {"inset": 64, "leadTicks": 240}},
                 {"play": "medic", "entry_id": "pickup",
@@ -1112,8 +1151,7 @@ PERSONA = Persona(
                     "Partner, on me -- we finish.",
             "call": {"entries": [
                 {"play": "target_law", "entry_id": "law",
-                 "params": {"prefer": ["revenge", "bounty", "weakened",
-                            "isolated"]}},
+                 "params": {"prefer": list(TARGET_LAW_PREFER)}},
                 {"play": "ring_walker", "entry_id": "ring",
                  "params": {"inset": 64, "leadTicks": 240}},
                 {"play": "medic", "entry_id": "pickup",

@@ -1248,3 +1248,90 @@ plumbing across policy.py + fire_superiority.nim + starters/common/
 plays.py, gun-default spray-guard, AWARENESS gun-range banding, prompt
 text checks). Owner reviews the exact system_prompt.md wording and picks
 the build/ship path separately.
+
+(Untracked intermediate commit on this same branch, 0754bb38 + d8844189:
+pressRange made TWO-SIDED with hysteresis, measured harmless -- mints/ep
+and win rate both rose. Not this lane's subject; left untouched below.)
+
+---
+## 2026-09-06 -- LANE RE-CLAIM: combat_policy heat doctrine ("gunrange" lane, continued -- owner directive, tip d8844189)
+Re-opening the SAME lane for a narrower follow-up: put the heat-chain
+doctrine INTO combat_policy itself, not only prose. Reasoning (source-
+verified against src/ctf/glory.nim + play_sdk/reference/target_law.nim
+this session): our WASM plays own ~9% of ticks and are hard-overridden by
+the server zone reflex; combat_policy (target_law's `prefer`/`hold_fire`,
+carried in the reflex's own intent) is live ~87% of the time. Achievements,
+LONGSHOT, and the co-engagement stack are all CLOSED per today's SOLVED
+reference (`~/.ctf/knowledge/reference/paintbot-s2-scoring-SOLVED.md`);
+heat is the one unexploited scaling axis left, live on GV56 (thresholds
+[2,5,10], decay 45 ticks=1.875s -- effectively unreachable) and about to
+widen hugely on GV57 (not yet deployed: thresholds [1,2,4], decay 270
+ticks=11.25s -- a 5-tag chain then pays up to 256x).
+
+Implementation + selfcheck only, same as before -- no build/upload/league
+touch, owner ships separately. Working on the SAME worktree/branch
+(/tmp/monet-gunrange-work, maxwell/s2-monet-gunrange), continuing from tip
+d8844189.
+
+**Addendum -- LANE CLOSED.** Findings and changes:
+- `combat_policy`'s closed schema (no_shoot/protect/prefer/hold_fire,
+  `PreferTag` enum weakened/isolated/revenge/bounty) has NO field for
+  timing, chains, or heat at all -- confirmed by reading
+  `src/shell/emit_validator.nim` and `src/shell/body.nim` directly, not
+  assumed. The only lever it gives over target CHOICE is target_law's
+  `prefer`, an ORDERED tie-break compared index-by-index BEFORE base
+  engagement score (`compareScoredCombat`, body.nim:906) -- so whichever
+  tag ranks first decides who we reacquire right after a kill, exactly the
+  moment chain speed is decided. Promoted "weakened" to lead the order
+  (was `[revenge, bounty, weakened, isolated]`, now
+  `[weakened, revenge, bounty, isolated]`, single source of truth
+  `policy.TARGET_LAW_PREFER`, used at all 5 call sites incl. the
+  adjust_entries pact-fallback synthesis) -- this is the closest the
+  closed vocabulary can express "close what's already hurt before it goes
+  quiet" rather than inventing a field the wire would reject.
+- Also fixed a real, pre-existing model-facing bug: the `target_law`
+  play_note in `PERSONA.play_notes` (read by the model on every live turn
+  it calls target_law itself, past the one guaranteed pre-call) was still
+  telling the model to lead with revenge/bounty -- directly contradicting
+  the new doctrine. Rewritten to lead with weakened and state the
+  sequencing-beats-selection reasoning.
+- `system_prompt.md`: dropped the hardcoded "1.875s" (both occurrences)
+  and "rungs 2, 5, 10" -- these are GV56-only and go silently wrong on
+  GV57 cutover; no PlayContext/PlayView field surfaces a game/coworld
+  version to a policy (checked every schema under src/shell/schemas/),
+  so this cannot be runtime-derived. Replaced with era-neutral wording
+  ("land the next tag while the streak is still hot, not a long pause
+  later"); exact constants for both eras now live in a policy.py code
+  comment only. Added explicit "Sequencing beats selection" text and tied
+  the existing self-frag halving sentence to losing a hot chain's embers.
+- Audited `fire_superiority.nim` doctrine comments in full (all ~655
+  lines) for anything that now contradicts the above: found NONE -- its
+  own press-target tie-break already falls back to lowest-hp/nearest and
+  its finishRange/woundedPct split already favors closing wounded targets
+  fast, both already aligned. Left the file untouched (did not touch the
+  two-sided press band from d8844189, per the directive).
+- Schema validity proof: read `src/shell/emit_validator.nim:146-184`
+  directly -- acceptance depends only on (a) each tag being a legal
+  `PreferTag` enum member, (b) no duplicates (`seen: set[PreferTag]`),
+  (c) count <= 4 -- NEVER on order. `TARGET_LAW_PREFER` satisfies all
+  three trivially (same 4 values as before, reordered). Also cite
+  `tests/test_play_target_law.nim`'s existing "realistic BR target-law
+  view..." test (line ~298), which already exercises a full 4-tag prefer
+  array through the real WASM/binary-view pipeline and asserts
+  `not step.faulted`. Nim compilation was NOT run in this worktree --
+  its vendored deps (bitworld/pixie/mummy/etc, per nim.cfg) are not
+  present offline and fetching them needs network access this lane did
+  not use -- so this proof is source-reading + citing the existing
+  passing test, not a fresh compile. On the Python side, added new
+  selfcheck pins that push our literal `TARGET_LAW_PREFER` value through
+  `repair_call`'s existing generic-clean (which validates against the
+  same manifest ParamSpec used everywhere else in this file) across all
+  4 canned turns AND the previously-untested adjust_entries
+  fallback-synthesis branch -- all green.
+- selfcheck 484 -> 493 PASS, 0 FAIL (9 new pins: prefer-order-leads-
+  weakened across all wire turns, prefer-matches-single-source-of-truth,
+  TARGET_LAW_PREFER schema-legality, adjust_entries fallback-synthesis
+  order, era-neutral prompt wording + NEGATIVE no-hardcoded-seconds,
+  sequencing-beats-selection text, self-frag/chain tie-in text,
+  target_law play_note leads-with-weakened + NEGATIVE stale-revenge-first).
+Owner reviews the exact wording and picks the build/ship path separately.
