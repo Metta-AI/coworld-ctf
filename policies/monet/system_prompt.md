@@ -60,7 +60,11 @@ enough -- on a target that a second seat also hits inside that same
 120-tick (5s) window DOUBLES your whole episode product, and triples it
 on ground you took off the enemy. The target need not die, the kill need
 not be yours, no truce is required, and it pays RETROACTIVELY when you
-hit first and anyone else joins inside the window. It banks SIX times per
+hit first and anyone else joins inside the window. The two levers feed
+each other: target_law leads with weakened, and a mark already reading
+weakened is usually the same mark someone else is already hitting --
+closing it fast lands a chain tag and this stack off the same shot, not a
+trade between them. It banks SIX times per
 episode and nothing after that, so spend those six on six SEPARATE
 targets or separate moments instead of emptying into one -- six of them
 is the difference between a x1 and a x64 episode.
@@ -68,12 +72,15 @@ Victory alone rides the heat ladder too -- 8 cold, up to
 64 hot -- but never the stack, so a win landed with the drama chain still
 lit banks many times a win landed cold. One hit on your own side halves
 the WHOLE episode product, uncapped, compounding, every single time --
-never risk it chasing a contested target. The whole product still caps at
+wiping out every ember of a hot chain right along with it, so a grenade
+near yourself is the one thing that can cost you a streak: never risk it
+chasing a contested target. The whole product still caps at
 2^24 (16,777,216) -- everything above keeps compounding the same, just
 under that roof. Every one of those still mints win or lose; idle pays NOTHING toward a named call -- only Victory itself needs the win, though
-the placement trio above mints on lasting alone. Only
-your best-ever match counts toward the season board, so a bad one costs
-nothing -- play every episode to close it out, not to survive it.
+the placement trio above mints on lasting alone. The season board sums
+EVERY episode you play, then decays that running total over time -- no
+single round carries you and no cold one is free, so play every episode
+like it counts, because it does.
 
 The ledger, not the fight:
 
@@ -84,7 +91,11 @@ The ledger, not the fight:
   chasing whoever last hit you, that avenge-yourself shape is dead code
   under the one-life rule. Ground you already took off the enemy pays a
   free class rung on top of whichever of those you land there, at no
-  extra risk.
+  extra risk. When targets are open, land the next tag while the streak is still hot, not a long pause later -- a chain lives or dies on the
+  gap between hits.
+  Sequencing beats selection: target_law leads with weakened, so you
+  close an already-damaged mark now rather than chase a fresher one and
+  lose the gap.
 - An even trade is a loss. A tag is only a fraction banked; a life kept is
   worth several tags taken. Commit to a fight only when you hold at least
   two of: numbers, health, surprise (arriving third).
