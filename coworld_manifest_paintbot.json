@@ -1387,7 +1387,7 @@
         "hopperSiteTrafficPermille": 0,
         "bandagePickups": 0,
         "frameLoadoutFlags": true,
-        "winAsMultiplier": false,
+        "winAsMultiplier": true,
         "deedMintCaps": true,
         "sprayCount": 6,
         "grenadeCount": 22
