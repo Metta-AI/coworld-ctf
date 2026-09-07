@@ -190,7 +190,8 @@ alliance keying, heat retune). It changes how per-episode score is earned, and
 replay hashes move with the `GameVersion` bump.
 
 Its headline lever shipped **dark**: per the arming commit (#436, below), GV57's
-Part A — the placement ladder (`dFinal` 8/4/2) and the flat win factor `M` — was
+Part A — the placement ladder (`dFinal` 8/4/2, ×24 cumulative) and the
+team-size-keyed win factor `M` — was
 gated behind `winAsMultiplier`, off since the 2026-09-04 rollback (incident
 `d595f300`). So the GV57 code boundary and the round its win factor starts
 scoring are different events; the win factor went live only at **r4257** with
@@ -215,13 +216,13 @@ GV57/GV58 line mismatches by design.
 It reached the live field in canonical build **0.7.344**, first served at
 **r4257** (see #436) — **not** at the merge. Build 0.7.344 also carries the
 winAsMultiplier arming, so on the live field the GV58 friendly-fire price and the
-×4 win factor arrived **together** at r4257, even though they were separate
-merges an hour apart.
+team-size-keyed win factor (solo ×8) arrived **together** at r4257, even though
+they were separate merges an hour apart.
 
 *What a cross-boundary read gets wrong:* a standings or Glory window spanning
 r4257 pools episode scores computed under two different friendly-fire prices —
-and, because the win factor arms in the same build, also across the ×4 magnitude
-step. Neither effect is a strength signal.
+and, because the win factor arms in the same build, also across the win-factor
+magnitude step (×8 on the all-solo field). Neither effect is a strength signal.
 
 ### winAsMultiplier armed — the GV57 win factor goes live (#436)
 
@@ -231,8 +232,12 @@ goes live [flag-flip]", `softmaxwell`) merged **2026-09-07T03:37:41Z**. It is a
 `coworld_manifest_paintbot.json` — with **no code change and no `GameVersion`
 bump** (stays 58). This is the boundary the r3830 / r3843 pattern warns about:
 pure scorer/economy config, invisible in `GameVersion` and in `result_metadata`
-shape. Arming it turns on GV57's Part A live — the placement ladder (`dFinal`
-8/4/2) and the flat win factor `M`, **BR ×4** on winner round score.
+shape. Arming it turns on GV57's Part A live: a composition-neutral placement
+ladder (`dFinal` 8/4/2, **×24** cumulative) that folds first, then a
+**team-size-keyed win factor `M`** on winner round score — **solo ×8, duo ×4**.
+The live `battle-royale-s2` field is 100% solo (16 one-seat teams per episode,
+zero duos), so the live win factor is **×8**. The armed product is capped at
+**16,777,216 (2^24)**.
 
 **The production boundary is r4257 / build 0.7.344, not the merge.** The
 canonical build carrying this flip (0.7.344) did not deploy until
@@ -241,11 +246,12 @@ canonical build carrying this flip (0.7.344) did not deploy until
 ≠ live date: #436 merged on the 2026-09-06 (PT) calendar day but reached
 production on 2026-09-07 (UTC) — dating this boundary from the merge, or from the
 PT day, misplaces it across the day line and ahead of its real deploy. Build
-0.7.344 carries #384 as well, so the GV58 friendly-fire price and the ×4 win
-factor share this one live boundary.
+0.7.344 carries #384 as well, so the GV58 friendly-fire price and the
+team-size-keyed win factor share this one live boundary.
 
 *What a cross-boundary read gets wrong:* the win factor multiplies winner round
-score (BR ×4), so magnitudes jump across r4257 with no strength change — exactly
+score (solo ×8 on today's all-solo field, after the ×24 placement ladder), so
+magnitudes jump across r4257 with no strength change — exactly
 the artifact this page exists to stop. The arming is recorded **nowhere on the
 round**: not in `result_metadata`, not in any per-round ruleset flag. The only
 way to date it is `coworld_version` on the round's episodes, resolved to a commit
