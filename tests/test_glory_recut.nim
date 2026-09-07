@@ -17,7 +17,7 @@
 import
   helpers,
   std/[json, math, unittest],
-  ctf/[sim, events, arena]
+  ctf/[global, sim, events, arena]
 
 proc recutConfig(br: bool): GameConfig =
   result = defaultGameConfig()
@@ -111,6 +111,15 @@ suite "recut integer map (table §1, verbatim)":
     # ×2 rows; the frozen v13 rows above are untouched by the flag.
     check RecutClassTable[dTagBack] == 2
     check RecutClassTable[dJointAct] == 2
+    # GV14 placement ladder (armed+winAsMultiplier+brMode mints only) —
+    # THE RAISED BASES (sizing package §2, ruled), and the milestone map
+    # itself, against the source.
+    check RecutClassTable[dFinal8] == 2
+    check RecutClassTable[dFinal4] == 3
+    check RecutClassTable[dFinal2] == 4
+    check RecutFinalThresholds == [(threshold: 8, deed: dFinal8),
+                                   (threshold: 4, deed: dFinal4),
+                                   (threshold: 2, deed: dFinal2)]
 
   test "tier conversion I/II ×1, III/IV ×2, V ×4; FIRST ×3 survives":
     check RecutTierClass == [1, 1, 2, 2, 4]
@@ -374,7 +383,7 @@ suite "recut armed sim: per-duo single walk, seed, FF, dark parity":
     check sim.recutZonePhase(260) == (closing: true, final: true)   # last shrink
     check sim.recutZonePhase(10_000) == (closing: false, final: true) # hold
 
-  test "recutContextK: CTF counts same-team participants; BR adds allied duos":
+  test "recutContextK: CTF counts same-team participants (v14-invariant)":
     var sim = startedGame(recutConfig(br = false), 8)
     # Seats deal round-robin on two teams: 0,2,4,6 vs 1,3,5,7.
     let victim = 1
@@ -507,12 +516,20 @@ suite "§A6 even maximums: rungs, composition, the mode-keyed win factor":
     check recutFactor(dClosingTime, 0, SiteMultHomePct, false) == 2
     check recutShiftedClass(dClosingTime, SiteMultEnemyPct) == 3   # 2 + shift
 
-  test "the win factor is mode-keyed: BR ×4 ruled; CTF deferred (the seam)":
+  test "the win factor is mode- AND team-size-keyed (the v14 seam)":
     check RecutWinFactorBR == 4
-    check recutWinFactor(true) == 4
+    check RecutWinFactorBRSolo == 8
+    check recutWinFactor(true) == 4        # default = the duo shape: every
+                                           # pre-v14 call site prices ×4
+    check recutWinFactor(true, 2) == 4     # M_duo, ruled (23.2% upset)
+    check recutWinFactor(true, 1) == 8     # M_solo, ruled (sizing §2:
+                                           # 35/41/49% upset per era at M8)
+    check recutWinFactor(true, 0) == 8     # degenerate count reads solo
+    check recutWinFactor(true, 3) == 4     # any 2+ seat team is duo-priced
     # M_CTF is DEFERRED to CTF-arming: ×1 (a no-op fold) until it is
     # ruled — recutWinFactor is the seam where it lands, nothing else.
     check recutWinFactor(false) == 1
+    check recutWinFactor(false, 1) == 1    # the size key is BR-only
 
 suite "§A6 BASE EQUALITY: BR base == CTF base == 7,077,888; ceiling 28,311,552":
   test "the §A6 BR base recipe derives to exactly 7,077,888 (no dVictory)":
@@ -837,18 +854,25 @@ suite "mintcap: the repeatable-deed enumeration and its budgets":
     check recutCappedFolds(0, 2, 3) == 2
 
 suite "mintcap: the product backstop (defense-in-depth layer 2)":
-  test "the bound drops from the useless 2^62 guard to ~2× the ceiling":
+  test "the bound drops from the useless 2^62 guard to the measured-tail cap":
     check RecutProductCap == int64(1) shl 62
-    check RecutProductCapArmed == 67108864          # 2^26
+    check RecutProductCapArmed == 16777216          # 2^24 (v14, ruled 25:1x)
     check recutProductCap(false) == RecutProductCap  # dark: unchanged
     check recutProductCap(true) == RecutProductCapArmed
-    # THE INCIDENT, as arithmetic: the design ceiling is 28,311,552 and
-    # the blown episode reported 9.15e15. The old guard sat above BOTH.
+    # THE INCIDENT, as arithmetic: the blown episode reported 9.15e15;
+    # the old guard sat far above it, the armed cap clamps it to one
+    # greppable constant.
     check RecutProductCap > int64(9_150_000_000_000_000)
-    check RecutProductCapArmed > int64(28_311_552)   # ceiling stays payable
-    check RecutProductCapArmed < int64(28_311_552) * 3
-    # and 19.9× the legit all-time high the ladder has actually paid.
-    check RecutProductCapArmed > int64(3_375_440) * 19
+    # v14 re-sites the cap on MEASURED tails (sizing package: binds on
+    # 1/12,048 live solo seat-scores), deliberately BELOW the old §A6
+    # adversarial design ceiling (28,311,552 = max heat AND a 5-ally
+    # stack riding one longshot — not a measured episode shape)...
+    check RecutProductCapArmed < int64(28_311_552)
+    # ...and comfortably above real play: 4.97× the legit all-time high
+    # the ladder has actually paid (3,375,440 @ r3860) and 3-8× the
+    # implied legit superb band (~2-5M from solo play).
+    check RecutProductCapArmed > int64(3_375_440) * 4
+    check RecutProductCapArmed > int64(5_000_000) * 3
 
   test "armed: a runaway composition CLAMPS at the backstop, it does not print":
     var product = int64(RecutSeed)
@@ -867,8 +891,11 @@ suite "mintcap: the product backstop (defense-in-depth layer 2)":
     for _ in 0 ..< 64:
       product = recutFold(product, 13)
     check product == RecutProductCap
-    check recutFold(7077888, 4) == 28311552          # the ceiling still pays
-    check recutFold(7077888, 4, capsArmed = true) == 28311552
+    check recutFold(7077888, 4) == 28311552   # dark: the §A6 ceiling still pays
+    # armed (v14): the ADVERSARIAL ceiling clamps at the measured-tail
+    # cap — by ruling, not by accident (the sizing package prices the
+    # legit superb at ~2-5M; 28.3M is the max-heat+5-ally-stack recipe).
+    check recutFold(7077888, 4, capsArmed = true) == RecutProductCapArmed
 
 suite "mintcap: THE METRONOME — 24 revives score as 3":
   test "armed: 24 metronome revives mint 24 dTagBacks and fold exactly 3":
@@ -1047,3 +1074,268 @@ suite "mintcap: every repeatable deed is bounded at its own budget":
     # a fresh episode gets a fresh budget (load-bearing for maxGames > 1)
     sim.awardDeed(a, dTagBack, 0, 0)
     check sim.gloryProduct[a] == factorA
+
+
+# ─────────────────────────────────────────────────────────────────────────
+# GV14 — THE SOLO RECUT (sized VERBATIM from the 2026-09-06 sizing package
+# + heat menu; GloryVersion 13 -> 14 on the GV57 cutover). Everything below
+# proves the four engine deltas: the isAllied ally-stack keying
+# (recutContextK), the placement ladder (dFinal8/dFinal4/dFinal2 at the
+# alive-count crossings), the win-factor team-size seam (M_solo=×8 /
+# M_duo=×4), and the measured-tail product cap (2^24, pinned in the
+# mintcap suite above).
+# ─────────────────────────────────────────────────────────────────────────
+
+const
+  Br16Groups = 16
+  Br16W = 1235
+  Br16H = 659
+
+proc br16SpawnPointsNode(count = Br16Groups): JsonNode =
+  ## 16 fixed points on a 4x4 grid across the board — the same minimal
+  ## 16-group shape test_br_placement.nim builds (this suite pokes
+  ## elimination state directly; it never needs real navigation).
+  result = newJArray()
+  for i in 0 ..< count:
+    let
+      col = i mod 4
+      row = i div 4
+    result.add %*[154 + 308 * col, 82 + 165 * row]
+
+proc br16Spec(): string =
+  ## A minimal 16-group BR-shaped map spec (symNone, flagless, all four
+  ## neutral item pools authored so validateMap accepts it).
+  var node = %*{
+    "name": "br-recut-ladder-demo",
+    "width": Br16W, "height": Br16H,
+    "flagRing": 70, "captureClear": 210,
+    "spawnClearW": 40, "spawnClearH": 40,
+    "gunRange": 331,
+    "symmetry": "none",
+    "layout": "sides",
+    "endzone": "column", "endzoneRadius": 0, "homeDepth": 0,
+    "medKitSpawns": [[Br16W div 2, Br16H div 3],
+                     [Br16W div 2, 2 * Br16H div 3]],
+    "medKitCandidates": [[Br16W div 2, Br16H div 3],
+                         [Br16W div 2, 2 * Br16H div 3]],
+    "leftObstacles": newJArray(),
+    "flagless": true,
+  }
+  node["spawnPoints"] = br16SpawnPointsNode()
+  node["shieldSpawns"] = br16SpawnPointsNode()
+  node["spraySpawns"] = br16SpawnPointsNode()
+  node["grenadeSpawns"] = br16SpawnPointsNode()
+  node["spawnGroups"] = %Br16Groups
+  $node
+
+proc br16SoloGame(armed: bool): SimServer =
+  ## A started 16-team SOLO BR game (one seat per team, round-robin deals
+  ## player i to Team(i)) — the real field shape the sizing package priced.
+  ## `armed` = the full GV57 economy (recut + winAsMultiplier); false = the
+  ## v13-armed world, the byte-identity reference.
+  var config = defaultGameConfig()
+  config.teams = Br16Groups
+  config.mapSpec = br16Spec()
+  config.brMode = true
+  config.gloryMultiplierRecut = true
+  if armed:
+    config.winAsMultiplier = true
+  result = initCtfForTest(config)
+  for i in 0 ..< Br16Groups:
+    discard result.addPlayer("p" & $i)
+  result.startGame()
+  ## Process-global board/endzone bakes are keyed on byte size alone —
+  ## defend against a same-sized sibling test's cached map (see
+  ## test_br_placement.nim, which does the same for the same reason).
+  invalidateBoardMapCaches()
+
+suite "GV14 keying fix: the ally-stack is an isAllied read (recutContextK)":
+  test "a co-engaged NON-ally does not stack; a registered pact does":
+    # THE LIVE MISPRICING, as a test: pre-v14, brMode alone made ANY
+    # co-engaged seat a stack participant (the measured jackal mass —
+    # ×1.03-1.18 gm/seat, 3-10% of top-seat log-mass). Post-fix the same
+    # co-engagement reads k=1 until a pact registers.
+    var sim = br16SoloGame(armed = true)
+    let
+      killer = 0    # Team(0)
+      victim = 1    # Team(1)
+      jackal = 2    # Team(2): co-engaged on the victim, NOT allied
+    discard sim.absorbDamage(victim, 1, attackerIndex = jackal, weapon = "gun")
+    check sim.recutContextK(killer, victim) == 1   # v14: no pact, no stack
+    sim.registerPact(Team(killer), Team(jackal))
+    check sim.recutContextK(killer, victim) == 2   # the isAllied read
+    sim.dissolvePact(Team(killer), Team(jackal))
+    check sim.recutContextK(killer, victim) == 1   # dissolution unwinds it
+
+  test "pacts stack per-ally inside the window; the victim's team never counts":
+    var sim = br16SoloGame(armed = true)
+    let victim = 1
+    for jackal in [2, 3, 4]:
+      discard sim.absorbDamage(victim, 1, attackerIndex = jackal,
+                               weapon = "gun")
+    check sim.recutContextK(0, victim) == 1        # three co-engaged, zero allied
+    sim.registerPact(Team(0), Team(2))
+    sim.registerPact(Team(0), Team(3))
+    check sim.recutContextK(0, victim) == 3        # killer + two REGISTERED allies
+    # Fibonacci values unchanged (deliberate: the stack is the sized
+    # pact-era headroom; the 10M anchor is alliance-gated).
+    check recutStackMult(3) == 3
+    check RecutStackLadder == [1, 2, 3, 5, 8, 13]
+
+  test "the expiry and friendly-fire exclusions survive the keying fix":
+    var sim = br16SoloGame(armed = true)
+    let victim = 1
+    discard sim.absorbDamage(victim, 1, attackerIndex = 2, weapon = "gun")
+    sim.registerPact(Team(0), Team(2))
+    check sim.recutContextK(0, victim) == 2
+    sim.tickCount += AssistWindowTicks + 1
+    check sim.recutContextK(0, victim) == 1        # the window still expires
+    check sim.recutContextK(victim, victim) == 1   # friendly kill: no stack
+
+suite "GV14 placement ladder: milestones at the alive-count crossings":
+  test "the ladder mints at 8/4/2, once each, to every survivor":
+    var sim = br16SoloGame(armed = true)
+    # Eliminate teams 15..9 one at a time: 9 alive — above every milestone.
+    for k in countdown(15, 9):
+      sim.killPlayer(k, -1)
+      sim.checkWinCondition()
+    check sim.deedCounts[dFinal8] == 0
+    # The 8-crossing: every one of the 8 survivors mints ×2, exactly once.
+    sim.killPlayer(8, -1)
+    sim.checkWinCondition()
+    check sim.deedCounts[dFinal8] == 8
+    check sim.deedCounts[dFinal4] == 0
+    for k in 0 .. 7:
+      check sim.gloryProduct[Team(k)] == 2 * RecutSeed
+    check sim.gloryProduct[Team(9)] == RecutSeed   # fell BEFORE the crossing
+    # A later tick with no crossing re-fires nothing (the latch).
+    sim.checkWinCondition()
+    check sim.deedCounts[dFinal8] == 8
+    # The 4-crossing (×3) …
+    for k in countdown(7, 4):
+      sim.killPlayer(k, -1)
+      sim.checkWinCondition()
+    check sim.deedCounts[dFinal4] == 4
+    for k in 0 .. 3:
+      check sim.gloryProduct[Team(k)] == 2 * 3 * RecutSeed
+    # … and the 2-crossing (×4): BOTH finalists carry ×24; only the win
+    # factor separates 1st from 2nd.
+    sim.killPlayer(3, -1)
+    sim.checkWinCondition()
+    sim.killPlayer(2, -1)
+    sim.checkWinCondition()
+    check sim.deedCounts[dFinal2] == 2
+    check sim.gloryProduct[Team(0)] == 24 * RecutSeed
+    check sim.gloryProduct[Team(1)] == 24 * RecutSeed
+    # rank 3 kept exactly its 8- and 4-milestones — the survival gradient
+    # the sizing package priced (runner-up median 6 -> ~194).
+    check sim.gloryProduct[Team(2)] == 6 * RecutSeed
+
+  test "a skip crossing still fires every crossed milestone for its survivors":
+    var sim = br16SoloGame(armed = true)
+    # 14 eliminations land in ONE tick (16 -> 2): the survivors were
+    # "among the last N" for every N — all three milestones fire at once;
+    # the teams that fell on the tick were not, and mint nothing.
+    for k in 2 .. 15:
+      sim.killPlayer(k, -1)
+    sim.checkWinCondition()
+    check sim.deedCounts[dFinal8] == 2
+    check sim.deedCounts[dFinal4] == 2
+    check sim.deedCounts[dFinal2] == 2
+    check sim.gloryProduct[Team(0)] == 24 * RecutSeed
+    check sim.gloryProduct[Team(1)] == 24 * RecutSeed
+    check sim.gloryProduct[Team(5)] == RecutSeed
+
+  test "milestones are composition-neutral: lit heat changes nothing":
+    var sim = br16SoloGame(armed = true)
+    for k in 0 .. 15:
+      sim.heatEmbers[Team(k)] = HeatEmberCap   # every team on a rampage
+    for k in 2 .. 15:
+      sim.killPlayer(k, -1)
+    sim.checkWinCondition()
+    # 0 drama = never heat, never carry; own-pedestal site = no territory
+    # shift; stackK 1 — the folded factor IS the class, so the audit
+    # accumulator carries exactly class × mints.
+    check sim.gloryProduct[Team(0)] == 24 * RecutSeed
+    check sim.deedGloryMass[dFinal8] == 2 * 2
+    check sim.deedGloryMass[dFinal4] == 3 * 2
+    check sim.deedGloryMass[dFinal2] == 4 * 2
+
+  test "the ladder never arms when the field does not outsize the milestone":
+    # A 2-team BR shape (the whole pre-16 test corpus) mints NOTHING:
+    # being among the last 2 of 2 is not a feat — byte-identity for every
+    # small-shape armed test above.
+    var sim = startedGame(winMultConfig(br = true), 4)
+    sim.checkWinCondition()
+    check sim.deedCounts[dFinal8] == 0
+    check sim.deedCounts[dFinal4] == 0
+    check sim.deedCounts[dFinal2] == 0
+
+  test "dark parity: the v13-armed world never mints the ladder":
+    var sim = br16SoloGame(armed = false)   # winAsMultiplier OFF
+    for k in 2 .. 15:
+      sim.killPlayer(k, -1)
+    sim.checkWinCondition()
+    check sim.deedCounts[dFinal8] == 0
+    check sim.deedCounts[dFinal4] == 0
+    check sim.deedCounts[dFinal2] == 0
+
+  test "the latch re-opens with the ledger (maxGames > 1)":
+    var sim = br16SoloGame(armed = true)
+    for k in 2 .. 15:
+      sim.killPlayer(k, -1)
+    sim.checkWinCondition()
+    check sim.deedCounts[dFinal2] == 2
+    check sim.recutFinalFired == [true, true, true]
+    sim.resetGloryLedger()
+    check sim.recutFinalFired == [false, false, false]
+    check sim.gloryProduct[Team(0)] == RecutSeed
+
+suite "GV14 win factor: the M_solo/M_duo seam, end to end":
+  test "a SOLO winner folds ×8 — numerically the retired deed's own flat 8":
+    # Identical 2-solo-team games, only the flag differs: the OFF path
+    # mints the dVictory DEED (×8 class at cold heat = factor 8), the ON
+    # path folds M_solo=×8 — so at zero embers the two products are EQUAL,
+    # which is the cleanest proof the seam picked 8, not 4.
+    var offS = startedGame(recutConfig(br = true), 2)
+    var onS = startedGame(winMultConfig(br = true), 2)
+    let winner = offS.players[0].team
+    offS.finishGame(winner)
+    onS.finishGame(winner)
+    check offS.deedCounts[dVictory] == 1
+    check onS.deedCounts[dVictory] == 0            # deed stays retired
+    check offS.gloryProduct[winner] == onS.gloryProduct[winner]
+
+  test "a DUO winner still folds the ruled ×4 (pre-v14 pricing unchanged)":
+    # Same construction at the duo shape: OFF mints ×8, ON folds M_duo=×4
+    # — the OFF product is exactly 2× the ON product.
+    var offD = startedGame(recutConfig(br = true), 4)
+    var onD = startedGame(winMultConfig(br = true), 4)
+    let winner = offD.players[0].team
+    offD.finishGame(winner)
+    onD.finishGame(winner)
+    check offD.gloryProduct[winner] == onD.gloryProduct[winner] * 2
+
+  test "16-solo, the whole arc: ladder ×24 then M_solo ×8 at finalize":
+    var sim = br16SoloGame(armed = true)
+    for k in countdown(15, 2):
+      sim.killPlayer(k, -1)
+      sim.checkWinCondition()
+    check sim.gloryProduct[Team(0)] == 24 * RecutSeed
+    let beforeFinish = sim.gloryProduct[Team(0)]
+    # The last elimination: checkWinCondition crowns Team(0) inside the
+    # same call — milestone (already latched), then finishGame, which
+    # folds the conclusion sweep and then M_solo=×8.
+    sim.killPlayer(1, -1)
+    sim.checkWinCondition()
+    check sim.phase == GameOver
+    check sim.winner == Team(0)
+    check sim.deedCounts[dVictory] == 0
+    # the sweep may fold its own achievement factors on top (it runs for
+    # every team, unchanged by this increment), so isolate the win
+    # factor's ×8 with the same mod discipline the dVictory test used.
+    check sim.gloryProduct[Team(0)] mod (beforeFinish * 8) == 0
+    # the runner-up banked its full ladder and NO win factor: the win
+    # gate is now the only 1st-vs-2nd separator (sizing package §2).
+    check sim.gloryProduct[Team(1)] mod 24 == 0
+    check sim.gloryProduct[Team(1)] < sim.gloryProduct[Team(0)]

@@ -166,23 +166,50 @@ suite "glory: one kill, one deed":
 
 suite "glory: the heat ladder":
 
-  test "flames cost a streak, not a kill apiece":
-    # Muster's scar: +1 rung per deed pinned the WHOLE server at max flames
-    # (measured heat_sum 14.7 = everyone maxed) because three kills bought x8.
+  test "flames still cost a growing streak (ARM E thresholds)":
+    # ARM E (GLORY v14, ruled 2026-09-06 heat menu): thresholds [1,2,4] —
+    # BR heat was measured DEAD under v5's [2,5,10] (x4/x8 never fired in
+    # 54 decoded episodes). Each rung still costs more embers than the
+    # last (1, then +1, then +2), so Muster's +1-rung-per-deed scar stays
+    # structurally impossible; the difference is that one deed now lights
+    # rung 1 — at an 11.25s decay window a deed IS the start of a streak
+    # (v5's two-ember anti-flicker gate was tuned on the 1.9s window).
+    check HeatThresholds == [1, 2, 4]   # the ruled arm, against the source
     check heatMult(0) == 1
-    check heatMult(1) == 1      # ONE deed is an incident, not a streak (v5)
-    check heatMult(2) == 2
-    check heatMult(4) == 2      # still climbing, not yet x4
-    check heatMult(5) == 4
+    check heatMult(1) == 2
+    check heatMult(2) == 4
+    check heatMult(3) == 4      # still climbing, not yet x8
+    check heatMult(4) == 8
     check heatMult(10) == 8
 
   test "the ember cap bounds the multiplier":
     check heatMult(HeatEmberCap) == HeatLadder[^1]
     check heatMult(HeatEmberCap * 100) == HeatLadder[^1]
 
-  test "heat cannot be hoarded past the cap":
-    # No streak may bank a multiplier it has stopped earning.
-    check HeatEmberCap <= HeatThresholds[^1] + HeatEmberDecay
+  test "heat decays through the rungs (ARM E retires the one-window demote)":
+    # v5 sized the cap so ONE quiet window always demoted the top rung
+    # (11-2=9 < 10 under [2,5,10]). ARM E deliberately RETIRES that law —
+    # streak persistence across quiet windows is now the mechanic's point
+    # (window 270t = 11.25s, decay -2/window, both against the source
+    # here). Pin the new descent shape instead: from the cap, a fully
+    # quiet team stays x8 for three more windows, drops off x8 on the
+    # 4th (~45s), and is fully cool after the 6th (~68s).
+    check HeatDecayTicks == 270         # the ruled arm, against the source
+    check HeatEmberDecay == 2           # decay amount unchanged by ARM E
+    check HeatLadder == [1, 2, 4, 8]    # ladder unchanged by ARM E
+    var
+      embers = HeatEmberCap
+      windows = 0
+    while heatMult(embers) == HeatLadder[^1]:
+      embers = max(0, embers - HeatEmberDecay)
+      inc windows
+    check windows == 4                  # 11 -> 9 -> 7 -> 5 -> 3
+    check heatMult(embers) == 4
+    while embers > 0:
+      embers = max(0, embers - HeatEmberDecay)
+      inc windows
+    check windows == 6
+    check heatMult(embers) == 1
 
 suite "glory: the mint":
 

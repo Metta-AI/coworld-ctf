@@ -29,12 +29,21 @@ export glory
 
 const
   GameName* = "ctf"
-  ReplayCompatibleGameVersions* = ["56"]
+  ReplayCompatibleGameVersions* = ["57"]
     ## The replay-load allowlist (play-calling design §4.3): versions whose
     ## recorded files still play back correctly under THIS engine. The
     ## criterion is the GameVersion changelog below, not chronology — a
     ## version is listed only when nothing since changed the gameHash
-    ## schema, the hash trajectory, or a flatty keyframe layout. GV55 drops
+    ## schema, the hash trajectory, or a flatty keyframe layout. GV56
+    ## drops out because GV57 both appends `recutFinalFired` to
+    ## `SimServer` (a flatty keyframe layout change) AND moves the hash
+    ## TRAJECTORY three independent ways — the heat cadence (heatEmbers,
+    ## hashed since GV48, now decays on a 6× longer window and rungs on
+    ## [1,2,4], so EVERY recording with drama re-times, classic modes
+    ## included), the ally-stack keying (a GV56 BR recording's co-engaged
+    ## kills re-price through `gloryProduct`, hashed), and the placement
+    ## ladder (new mints fold into `gloryProduct` at alive-count crossings
+    ## a GV56 engine never priced). GV55 drops
     ## out because GV56 both removes `pactOfferTeam`/`pactOfferTick`/
     ## `pactCooldownUntil` from `SimServer` AND adds `pactDeclaredPartners`
     ## in their place — two flatty keyframe layout changes in one bump —
@@ -65,8 +74,41 @@ const
     ## RewardAccount on the wire. Widening requires a real archived fixture
     ## that survives initialization and stepping (PM ruling, 2026-08-30),
     ## never a header rewrite.
-  GameVersion* = "56"
-    ## GV56 (ALLIANCE: REGISTER FROM THE `pact` PLAY, RETIRE THE SHOUT
+  GameVersion* = "57"
+    ## GV57 (GLORY: SOLO RECUT + ALLIANCE KEYING + HEAT ARM E):
+    ## GloryVersion 13 -> 14 rides this bump — one PR, one cutover (the
+    ## 28:0x ship-shape ruling; the full sized economics live in
+    ## glory.nim's own v14 changelog, authoritative inputs
+    ## `~/.ctf/handoff/2026-09-06-recut-sizing.md` +
+    ## `2026-09-06-heat-menu.md`). Three rule changes and one layout
+    ## change:
+    ##   1. PLACEMENT LADDER — new deeds dFinal8/dFinal4/dFinal2
+    ##      (×2/×3/×4, armed+winAsMultiplier+brMode only) mint at the
+    ##      alive-team-count crossings for every surviving team
+    ##      (recutMintPlacementMilestones, sim.nim), and the win factor
+    ##      is now team-size-keyed: M_solo=×8 for a 1-seat winning team,
+    ##      M_duo=×4 unchanged (`recutWinFactor`'s new winnerSeats
+    ##      param). `RecutProductCapArmed` drops 2^26 -> 2^24. These fold
+    ##      into `gloryProduct` (hashed), a trajectory change for armed
+    ##      BR recordings.
+    ##   2. ALLY-STACK KEYING brMode -> isAllied — `recutContextK`
+    ##      (sim.nim) now counts a co-engaged BR seat only when
+    ##      `pactActive(attackerTeam, killerTeam)` holds (the GV56 pact
+    ##      registry), never on blanket co-engagement; a GV56 BR
+    ##      recording's jackal-stacked kills re-price, a trajectory
+    ##      change.
+    ##   3. HEAT ARM E — `HeatDecayTicks` 45 -> 270 and `HeatThresholds`
+    ##      [2,5,10] -> [1,2,4] (glory.nim; ladder and decay amount
+    ##      unchanged). `heatEmbers` is hashed and every mode accrues
+    ##      drama, so this re-times EVERY recording's hash trajectory,
+    ##      classic 2-/4-team included — the reason this bump is not
+    ##      BR-scoped.
+    ##   4. LAYOUT — `recutFinalFired` (3 bools, the milestone latch)
+    ##      appended to `SimServer` inside the recut ledger block: a
+    ##      flatty keyframe layout change (kept OUT of gameHash — see the
+    ##      field's own comment). The allowlist above drops GV56.
+    ##
+    ## Previously GV56 (ALLIANCE: REGISTER FROM THE `pact` PLAY, RETIRE THE SHOUT
     ## GRAMMAR): a layer-correction ruling on top of GV55 -- seats do not
     ## think, they run scripts the LLM flashes/retunes via the WASM play
     ## ladder, and NOTHING on a seat's fixed Intent menu could ever emit a
@@ -4244,6 +4286,23 @@ type
                                ## from the damage stream like the marks,
                                ## so OUT of gameHash for the same reason
                                ## (the product it mints into is hashed).
+    recutFinalFired*: array[3, bool]
+                               ## GV14 PLACEMENT LADDER (GV57): which of
+                               ## the dFinal8/dFinal4/dFinal2 alive-count
+                               ## milestones have fired this episode —
+                               ## index-aligned with glory.nim's
+                               ## `RecutFinalThresholds`. Maintained ONLY
+                               ## armed+winAsMultiplier+brMode
+                               ## (recutMintPlacementMilestones, sim.nim)
+                               ## and re-opened by resetGloryLedger.
+                               ## Derived deterministically from the
+                               ## already-hashed alive/lives stream (it
+                               ## re-simulates identically), so it stays
+                               ## OUT of gameHash exactly like
+                               ## `recutMintCounts` — the product the
+                               ## mints move IS hashed, which is the
+                               ## causal surface. The GV57 bump covers
+                               ## the flatty keyframe layout change.
     # ── ALLIANCE P1: the pact REGISTRY (formal-alliances design,
     # 2026-09-02/03) ── appended at the END of the ledger block per this
     # file's own flatty-positional rule (GameVersion 54 bump covers the
