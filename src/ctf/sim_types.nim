@@ -3282,6 +3282,22 @@ type
     reviveProgress*: int ## LOOT(s2): consecutive adjacent-teammate ticks
                         ## toward downedReviveTicks; resets to 0 the tick
                         ## the tag breaks.
+    lastHitWasPactAlly*: bool ## ALLIANCE P3 (ally-revive design
+                        ## 2026-09-07): snapshot of "was the team that just
+                        ## damaged ME a pact ally, at the instant of the
+                        ## hit" -- written by every damaging `absorbDamage`
+                        ## call (sim.nim), overwritten on EVERY hit so it
+                        ## always reflects only the most recent one. Exists
+                        ## because `absorbDamage`'s own ALLIANCE P1 dissolve
+                        ## clears the pact bit in the SAME call, before
+                        ## `downPlayer`/`killPlayer` ever price the hit --
+                        ## by the time pricing runs, a live `pactActive`
+                        ## check would already read false. NOT mixed into
+                        ## gameHash (the pactMask rule, sim_types.nim's own
+                        ## field comment): purely derived from
+                        ## already-hashed-adjacent state (attacker/target
+                        ## teams, tick position) and the pact registry,
+                        ## which itself stays out for the same reason.
     # GIVE(s2): none of the three fields below enters gameHash (the
     # puddleTicks/hasBarrier rule) — the transfer the channel completes
     # moves already-hashed state (hasGun/hasHopper/bandages drive hashed

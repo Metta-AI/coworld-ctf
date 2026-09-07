@@ -1068,8 +1068,11 @@ proc allyReviveConfig(): GameConfig =
   ## (a fully inert spare -- `arena.nim`'s map generator only accepts
   ## `teams in [2, 4, 16]`, so a genuine 3-team draw isn't a shape this
   ## engine can generate; Yellow exists purely to satisfy that constraint
-  ## and never appears in any assertion below).
-  result = downedConfig()
+  ## and never appears in any assertion below). Built on `ffRecutConfig`
+  ## (not plain `downedConfig`) so T3's `gloryFfIncidents` read is even
+  ## capable of moving -- see that proc's own comment: dark, it is
+  ## permanently 0 regardless of what `awardDeed` mints.
+  result = ffRecutConfig()
   result.teams = 4
   result.mapPath = "gen"
   result.mapGen.layout = "corners"
@@ -1221,4 +1224,55 @@ suite "ALLY REVIVE — fail-first guards (owner design 2026-09-07, unimplemented
                                                        # bleed-out window
     check sim.players[0].downed        # keeper keeps the team alive: no wipe
     check sim.players[0].reviveProgress == 0  # rival never becomes tagger
+    check sim.eventsOf(Revived).len == 0
+
+  test "T5 (step 6) zoneBlocksRevive still blocks a PACT ally's revive":
+    ## Design step 6: "confirm zoneBlocksRevive + deedMintCaps still bind
+    ## for ALLY revives." T4 covers deedMintCaps; nothing above exercises
+    ## zoneBlocksRevive on an ally revive (allyReviveGame's own map carries
+    ## no zone schedule at all). PAINTDEATH's own end-to-end binding is
+    ## already owned by test_zone.nim's "paintdeath" suite -- this is only
+    ## enough to confirm the SAME gate still reaches a pact ally, not a
+    ## re-derivation of the zone geometry: an instant-snap shrink zone (the
+    ## same trick test_zone.nim's `downedPaintGame` uses) so most of a
+    ## 2-team default map is painted after one roll, a downed Red victim
+    ## placed directly on a painted cell, and its registered Blue pact
+    ## ally sitting right on top of it -- adjacency satisfied, so only the
+    ## paint verdict can stop the channel.
+    var config = downedConfig()
+    config.update(
+      """{"zonePhases": [{"z": 0.1, "waitTicks": 0, "shrinkTicks": 0, """ &
+      """"dps": 0}], "zoneDamageByPaint": true, "zoneBlocksRevive": true}""")
+    var sim = initCtfForTest(config)
+    discard sim.addPlayer("victim")   # -> players[0], Red
+    discard sim.addPlayer("ally")     # -> players[1], Blue
+    sim.startGame()
+    sim.collectEvents = true
+    sim.registerPact(Red, Blue)
+    sim.stepIdle(ZoneDamageRollTicks)   # let the snap-schedule paint.
+    let elapsed = sim.tickCount - sim.gameStartTick
+    var wet = (x: -1, y: -1)
+    for gy in 0 ..< sim.gameMap.height div ZoneFieldCellPx:
+      for gx in 0 ..< sim.gameMap.width div ZoneFieldCellPx:
+        let
+          px = gx * ZoneFieldCellPx + ZoneFieldCellPx div 2
+          py = gy * ZoneFieldCellPx + ZoneFieldCellPx div 2
+        if not sim.zoneD4MaskAt(px, py).walkable:
+          continue
+        let q = sim.zonePaintedForDamageAt(px, py, elapsed)
+        if q.onField and q.painted:
+          wet = (px, py)
+      if wet.x >= 0: break
+    doAssert wet.x >= 0, "T5 fixture: no painted walkable cell found"
+    sim.centerOn(0, wet.x, wet.y)   # victim, on painted ground
+    sim.centerOn(1, wet.x, wet.y)   # ally, adjacent (same cell) -- eligible
+                                     # under P1, blocked by PAINTDEATH
+    sim.players[0].downed = true
+    sim.players[0].downedTick = sim.tickCount
+    sim.players[0].downedCount = 1
+    sim.players[0].downedBy = -1
+    sim.players[0].hp = 0
+    sim.stepIdle(sim.config.downedReviveTicks + 5)
+    check sim.players[0].downed
+    check sim.players[0].reviveProgress == 0
     check sim.eventsOf(Revived).len == 0
