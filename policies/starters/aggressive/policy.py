@@ -7,10 +7,12 @@ Harness deltas (the code that makes this seat behave unlike the other two):
   6 s apart); a tight edge_ride is the always-on base rung, and jackal rides
   above it whenever an enemy is tracked,
 * the match summary carries kill-feed lines, so the model reacts to fights,
-* ``adjust_entries`` caps every edge_ride at a close-but-covered ride (margin
-  capped at 260, enterLead at 200, coverBias at 0.8) and forces any pact to
-  ``onBetrayal: returnFire`` -- whatever the model asked for, this seat plays
-  forward.
+* ``adjust_entries`` pins the wire ladder to one lane ride -- ``target_law``
+  (prefer weakened, isolated; empty never-list) over ``edge_ride`` at margin
+  240 / enterLead 260 / coverBias 0.8 -- whatever the model asked for. The
+  model still talks and re-calls, but it no longer drives the seat off the
+  rotation lane. ``HUNTER_RIDE=free`` restores the model-driven ladder (the
+  v5 behaviour: clamped edge_ride, jackal/loot/supply_run rungs).
 """
 
 from __future__ import annotations
@@ -34,14 +36,29 @@ MAX_COVER_BIAS = 0.8
 # HUNTER_RIDE=wide rides the margins the two canned policies that out-tag
 # this seat use (edge_ride defaults / margin 300, cover 0.9): the tight ride
 # spent 3x the field's ticks in reflex_zone_escape.
-WIDE_RIDE = os.environ.get("HUNTER_RIDE", "").lower() == "wide"
+RIDE_MODE = os.environ.get("HUNTER_RIDE", "lane").lower()
+WIDE_RIDE = RIDE_MODE == "wide"
 WIDE_MIN_MARGIN = 220
 WIDE_MAX_MARGIN = 320
 WIDE_MIN_ENTER_LEAD = 120
 WIDE_MIN_COVER_BIAS = 0.8
 
+# The lane ride: the one ladder the pure edge_ride seats in the S2 league
+# (docxology, relh, richard) call all game, and every one of them out-tags
+# the model-driven ladder. The harness still puts scatter on top during the
+# spawn phase and the zone reflex still fires; nothing else rides.
+LANE_LADDER = [
+    {"play": "target_law", "entry_id": "law",
+     "params": {"prefer": ["weakened", "isolated"], "never": []}},
+    {"play": "edge_ride", "entry_id": "lane",
+     "params": {"margin": 240, "enterLead": 260, "coverBias": 0.8}},
+]
+
 
 def adjust_entries(entries, context, view):
+    if RIDE_MODE != "free" and not WIDE_RIDE:
+        entries[:] = [dict(e, params=dict(e["params"])) for e in LANE_LADDER]
+        return entries
     # Season 2 seats are solo: a pact is a no-shoot list handed to an
     # opponent who owes nothing back, and a never-list is the same thing by
     # another name (the model was putting the nearest 1-hp target on it).
