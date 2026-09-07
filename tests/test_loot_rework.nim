@@ -1059,3 +1059,166 @@ suite "Amendment 5 (glory-2, spec owner override) — FF prices at the DOWN, not
     check not sim.players[1].alive
     check sim.gloryFfIncidents[team] == 1
     check sim.deedCounts[dTeamKill] == 1
+
+proc allyReviveConfig(): GameConfig =
+  ## Four one-seat teams -- the 16-solo field's own shape (every team is
+  ## exactly one seat), reproduced at the smallest size that still tells
+  ## "teammate" apart from "registered pact ally" apart from "plain rival":
+  ## Red (victim), Blue (the pact partner), Green (uninvolved rival), Yellow
+  ## (a fully inert spare -- `arena.nim`'s map generator only accepts
+  ## `teams in [2, 4, 16]`, so a genuine 3-team draw isn't a shape this
+  ## engine can generate; Yellow exists purely to satisfy that constraint
+  ## and never appears in any assertion below).
+  result = downedConfig()
+  result.teams = 4
+  result.mapPath = "gen"
+  result.mapGen.layout = "corners"
+  result.mapSeed = 42
+  result.slots = @[
+    PlayerSlotConfig(name: "victim", team: Red, hasTeam: true),
+    PlayerSlotConfig(name: "ally", team: Blue, hasTeam: true),
+    PlayerSlotConfig(name: "rival", team: Green, hasTeam: true),
+    PlayerSlotConfig(name: "spare", team: Yellow, hasTeam: true),
+  ]
+
+proc allyReviveGame(): SimServer =
+  result = initCtfForTest(allyReviveConfig())
+  discard result.addPlayer("victim")   # -> players[0], Red
+  discard result.addPlayer("ally")     # -> players[1], Blue
+  discard result.addPlayer("rival")    # -> players[2], Green
+  discard result.addPlayer("spare")    # -> players[3], Yellow (inert)
+  result.startGame()
+  result.collectEvents = true
+
+suite "ALLY REVIVE — fail-first guards (owner design 2026-09-07, unimplemented)":
+  ## Asana 1218246921137284: a formal alliance (mutual pact) should be able
+  ## to revive a downed solo partner on the 16-solo field. Three parts, all
+  ## required together:
+  ##   P1. revive eligibility: tagger qualifies if same team OR
+  ##       pactActive(tagger.team, victim.team) -- today's gate
+  ##       (sim.nim's updateDowned tagger scan) is same-team only.
+  ##   P2. THE CRUX: a downed solo whose pact ally is alive+upright must
+  ##       NOT be insta-finalized. Today `updateDowned`'s per-team upright
+  ##       census sees a 1-seat team's own down as a team-wipe and calls
+  ##       `finalizeDowned` in the SAME tick -- no bleed-out window ever
+  ##       opens for an ally to revive into, so P1 alone is dead on
+  ##       arrival.
+  ##   P3. ally-fire prices as FRIENDLY (the existing dTeamKill/
+  ##       gloryFfIncidents down-priced halving), not a kill deed --
+  ##       otherwise "down ally, revive, repeat" is a free kill farm.
+  ## T1-T3 assert the POST-FIX behavior and are expected to FAIL against
+  ## unfixed main. T4 is the anti-regression/anti-farm guard: it must PASS
+  ## both before and after the fix.
+
+  test "T1 (P1) a pact ally CAN revive a downed solo partner":
+    ## Isolated from the P2 wipe-timing bug on purpose: this scenario does
+    ## not depend on P2 at all (the down here is a plain enemy kill by
+    ## `rival`, and only victim/ally matter to the assertion) EXCEPT that
+    ## P2's bug means the victim is finalized before any revive tick can
+    ## land regardless of who is tagging -- so today this fails for the
+    ## compounded reason the design calls out ("without P2, P1 is dead on
+    ## arrival"). Fixing P1 alone without P2 cannot make this pass.
+    var sim = allyReviveGame()
+    sim.registerPact(Red, Blue)                       # victim <-> ally
+    sim.centerOn(0, 400, 300)                          # victim
+    sim.centerOn(1, 400 + DownedTagRange - 10, 300)    # ally, in tag range
+    sim.centerOn(2, 2000, 2000)                        # rival, out of the way
+    sim.centerOn(3, -2000, -2000)                      # spare, inert
+    sim.killPlayer(0, 2)                               # rival downs the victim
+    check sim.players[0].downed
+    sim.stepIdle(sim.config.downedReviveTicks + 5)     # well inside the
+                                                        # 144-tick bleed-out
+                                                        # window downedConfig
+                                                        # sets
+    check not sim.players[0].downed
+    check sim.players[0].alive
+    check sim.eventsOf(Revived).len == 1
+
+  test "T2 (P2, THE CRUX) a downed solo with a living pact ally is NOT finalized on the same tick":
+    ## `updateDowned`'s team-wipe census (sim.nim, `var upright: array[Team,
+    ## int]` / `if upright[sim.players[i].team] == 0`) is PER-TEAM only:
+    ## `victim` is Red's one and only seat, so the instant it goes down
+    ## `upright[Red] == 0` and `finalizeDowned` fires in that SAME
+    ## `updateDowned` tick -- before a single revive tick, and regardless of
+    ## whether a pact ally stands right next to the body. `ally` is placed
+    ## far away here on purpose: this test is about the FINALIZE timing,
+    ## not the tag-range adjacency T1 covers.
+    var sim = allyReviveGame()
+    sim.registerPact(Red, Blue)
+    sim.centerOn(0, 400, 300)      # victim
+    sim.centerOn(1, 2000, 2000)    # ally: alive + upright, just not adjacent
+    sim.centerOn(2, 900, 900)      # rival, the one who fires the down
+    sim.centerOn(3, -2000, -2000)  # spare, inert
+    sim.killPlayer(0, 2)
+    check sim.players[0].downed
+    sim.stepIdle(1)                # one tick: updateDowned's own census runs
+    check sim.players[0].downed    # the bleed-out window should still be open
+    check sim.players[0].alive
+    check sim.eventsOf(Death).len == 0
+
+  test "T3 (P3) downing a pact ally is priced as FRIENDLY, not an enemy kill":
+    ## `killDeed`'s `ctx.friendly` (glory.nim) and `downPlayer`'s own
+    ## Amendment-5 at-the-down mint (sim.nim's `sim.players[killerIndex]
+    ## .team == victim.team` check) both key off literal team equality -- a
+    ## pact ally is a DIFFERENT team, so today's pricing falls through
+    ## `killDeed`'s hierarchy past `ctx.friendly` (false) to a plain
+    ## `dHonorableKill`. That is exactly the "down ally, revive, repeat"
+    ## farm the design exists to close.
+    var sim = allyReviveGame()
+    sim.registerPact(Red, Blue)
+    sim.centerOn(0, 400, 300)      # victim
+    sim.centerOn(1, 2000, 2000)    # ally -- the one who fires the down
+    sim.centerOn(2, 900, 900)      # rival, uninvolved
+    sim.centerOn(3, -2000, -2000)  # spare, inert
+    check sim.gloryFfIncidents[Red] == 0
+    check sim.deedCounts[dTeamKill] == 0
+    sim.killPlayer(0, 1)           # the pact ally downs its own partner
+    sim.stepIdle(1)                # today: the solo wipe finalizes and
+                                    # re-enters killPlayer's pricing this
+                                    # same tick (see T2) -- enough to observe
+                                    # the mis-price without waiting out a
+                                    # full bleed-out window
+    check sim.gloryFfIncidents[Red] == 1
+    check sim.deedCounts[dTeamKill] == 1
+    check sim.deedCounts[dHonorableKill] == 0
+
+  test "T4 (anti-regression) a non-pact rival still cannot revive; deedMintCaps stays armed":
+    ## No pact registered anywhere in this scenario. `keeper` is a genuine
+    ## Red teammate parked away from the body, kept alive+upright purely so
+    ## Red's own per-team census never wipes -- isolating this check from
+    ## the P2 timing bug entirely, so it stands on its own both today and
+    ## after the P1-P3 fix lands. `rival` sits inside DownedTagRange the
+    ## whole test, exactly where an eligible reviver would stand, with
+    ## `deedMintCaps` armed alongside (the design's own "unchanged guards
+    ## that must still bind" list). Must PASS today (nothing but a teammate
+    ## can revive) and must keep passing post-fix (pactActive gates it, and
+    ## no pact exists between Red and Blue here). zoneBlocksRevive's own
+    ## binding is exercised end-to-end by test_zone.nim's "paintdeath"
+    ## suite already, and this design touches none of that gate's code, so
+    ## it is not re-derived here.
+    var config = downedConfig()
+    config.teams = 2
+    config.deedMintCaps = true
+    config.slots = @[
+      PlayerSlotConfig(name: "victim", team: Red, hasTeam: true),
+      PlayerSlotConfig(name: "keeper", team: Red, hasTeam: true),
+      PlayerSlotConfig(name: "rival", team: Blue, hasTeam: true),
+    ]
+    var sim = initCtfForTest(config)
+    discard sim.addPlayer("victim")   # -> players[0], Red
+    discard sim.addPlayer("keeper")   # -> players[1], Red
+    discard sim.addPlayer("rival")    # -> players[2], Blue
+    sim.startGame()
+    sim.collectEvents = true
+    sim.centerOn(0, 400, 300)                        # victim
+    sim.centerOn(1, 2000, 2000)                       # keeper: keeps Red's
+                                                       # census upright
+    sim.centerOn(2, 400 + DownedTagRange - 10, 300)   # rival, in tag range
+    sim.killPlayer(0, 2)                              # rival (enemy) downs it
+    check sim.players[0].downed
+    sim.stepIdle(50)                                  # >> downedReviveTicks,
+                                                       # well inside the
+                                                       # bleed-out window
+    check sim.players[0].downed        # keeper keeps the team alive: no wipe
+    check sim.players[0].reviveProgress == 0  # rival never becomes tagger
+    check sim.eventsOf(Revived).len == 0
