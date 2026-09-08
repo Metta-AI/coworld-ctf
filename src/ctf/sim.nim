@@ -2038,6 +2038,7 @@ proc startGame*(sim: var SimServer) =
     sim.players[i].downedBy = -1
     sim.players[i].reviveProgress = 0
     sim.players[i].zonePaintBleedBank = 0
+    sim.players[i].lastHitWasPactAlly = false
     sim.recordGameTeamAssigned(i)
   sim.resetFlags()
   sim.lastCaptureTick = -1
@@ -2576,6 +2577,29 @@ proc barrageRatePermille*(sim: SimServer): int =
     (sim.config.barrageMaxPerSec - sim.config.barrageStartPerSec) *
       sim.barrageProgressPermille()
 
+proc downFriendly(sim: SimServer, victimIndex, killerIndex: int): bool =
+  ## ALLIANCE P3 (ally-revive design 2026-09-07): true when a hit on
+  ## `victimIndex` by `killerIndex` prices as FRIENDLY -- same team, OR a
+  ## pact ally. Three checks, ORed, because no single one covers both call
+  ## shapes this engine has:
+  ##   * literal team equality -- the pre-existing same-team case.
+  ##   * a LIVE `pactActive` read -- covers a caller that reaches
+  ##     `downPlayer`/`killPlayer` without ever routing through
+  ##     `absorbDamage` (a direct `killPlayer` call), where the pact was
+  ##     never touched and so is still active.
+  ##   * `victim.lastHitWasPactAlly` -- the snapshot `absorbDamage` leaves
+  ##     BEFORE its own ALLIANCE P1 dissolve, for the real weapon-fire path
+  ##     where the pact is already gone by the time pricing runs here.
+  ## Shared by `downPlayer`'s Amendment-5 at-the-down mint and
+  ## `killPlayer`'s `KillContext.friendly` -- one predicate, one place a
+  ## pact-ally incident can be mis-priced.
+  if killerIndex < 0 or killerIndex >= sim.players.len:
+    return false
+  let killerTeam = sim.players[killerIndex].team
+  result = sim.players[victimIndex].team == killerTeam or
+    sim.pactActive(sim.players[victimIndex].team, killerTeam) or
+    sim.players[victimIndex].lastHitWasPactAlly
+
 proc downPlayer(
   sim: var SimServer,
   targetIndex, killerIndex: int,
@@ -2636,8 +2660,12 @@ proc downPlayer(
   # mints only once, just earlier. `killDeed` resolves ANY friendly hit to
   # `dTeamKill` unconditionally (its first, highest-precedence check), so
   # no other kill context is needed to know the deed here.
-  if killerIndex >= 0 and killerIndex < sim.players.len and
-      sim.players[killerIndex].team == victim.team:
+  #
+  # ALLIANCE P3 (ally-revive design 2026-09-07): "friendly" now also
+  # covers downing a PACT ally -- `downFriendly` (this proc's own sibling,
+  # just above) is the shared same-team-or-pact predicate; see its own
+  # comment for why it needs all three of its checks.
+  if sim.downFriendly(targetIndex, killerIndex):
     sim.awardDeed(victim.team, dTeamKill, victim.x, victim.y,
                   byIndex = killerIndex, fxActor = killerIndex)
 
@@ -2890,7 +2918,14 @@ proc killPlayer*(
               avengesPartner = true
             break
       let ctx = KillContext(
-        friendly: victim.team == killer.team,
+        # ALLIANCE P3 (ally-revive design 2026-09-07): `downFriendly`
+        # (this file, just above `downPlayer`) is same-team-or-pact-ally --
+        # see its own comment. Reached here (rather than only inside
+        # `downPlayer`) by `finalizeDowned` re-entering for a downed
+        # ghost's deferred death (bleed-out, team-wipe, splat-confirm) and
+        # by every NON-downedMode kill, both of which need the identical
+        # pact verdict `downPlayer`'s own at-the-down mint already used.
+        friendly: sim.downFriendly(targetIndex, killerIndex),
         victimCarrying: victim.carryingFlag,
         nearVictimHome: dxHome * dxHome + dyHome * dyHome <=
                         denialPxNow * denialPxNow,
@@ -3288,6 +3323,17 @@ proc absorbDamage*(
     let
       attackerTeam = sim.players[attackerIndex].team
       targetTeam = sim.players[targetIndex].team
+    # ALLIANCE P3 (ally-revive design 2026-09-07): snapshot the pact
+    # verdict BEFORE the dissolve two lines down -- `downPlayer`/
+    # `killPlayer` (sim.nim) price this same hit AFTER this proc returns,
+    # by which time the dissolve below (if it fires) has already cleared
+    # the bit. Overwritten on every damaging hit with an attacker, so it
+    # never carries a stale verdict from an earlier, unrelated hit. See
+    # `lastHitWasPactAlly`'s own field comment (sim_types.nim) and
+    # `downFriendly`'s (just above `downPlayer`, this file).
+    sim.players[targetIndex].lastHitWasPactAlly =
+      amount > 0 and attackerTeam != targetTeam and
+      sim.pactActive(attackerTeam, targetTeam)
     if amount > 0 and attackerTeam != targetTeam and
         sim.pactActive(attackerTeam, targetTeam):
       sim.dissolvePact(attackerTeam, targetTeam)
@@ -3894,7 +3940,16 @@ proc applyFire(sim: var SimServer, shot: PendingGunShot) =
     # (the weapon site credited the kill at the DOWN), just the deferred
     # real death. A teammate's stray paint never confirms — the ghost soaks
     # it without effect.
-    if shooter.team != sim.players[targetIndex].team:
+    #
+    # ALLIANCE P2b (ally-revive design, lane-lead decision 2026-09-07): a
+    # PACT ally's paint mirrors a teammate's -- it never confirms either.
+    # Read `pactActive` LIVE (not the `lastHitWasPactAlly` snapshot P3
+    # uses): this splat never routes through `absorbDamage` ("no damage
+    # accounting" above), so there is no dissolve-before-price race to
+    # guard against here -- the pact, if any, is still exactly as active
+    # as it was the tick before.
+    if shooter.team != sim.players[targetIndex].team and
+        not sim.pactActive(shooter.team, sim.players[targetIndex].team):
       sim.finalizeDowned(targetIndex, shooterIndex, "was splatted out")
   elif targetIndex >= 0 and sim.players[targetIndex].alive:
     # A carrier whose shield layer is still up at impact absorbs the hit
@@ -7847,6 +7902,23 @@ proc downedBleedOutWindow(sim: SimServer, downedCount: int): int =
       result = result div 2
   result = max(result, DownedMinBleedOutTicks)
 
+proc teamHasUprightPactAlly(
+  sim: SimServer, upright: array[Team, int], team: Team
+): bool =
+  ## ALLIANCE P2 (ally-revive design 2026-09-07, THE CRUX): true when some
+  ## OTHER team currently pact-allied with `team` still has an upright
+  ## (alive, not downed) member. `updateDowned`'s team-wipe finalize reads
+  ## this alongside its own per-team `upright` census -- the alliance, not
+  ## the lone team, is now the survival unit: a 1-seat team's own down is
+  ## no longer an automatic wipe if a living pact ally still stands. A
+  ## non-pact team's own census is untouched (every `pactActive` check
+  ## below reads false, so this always returns false and the caller's
+  ## byte-identical fallback is the pre-existing team-wipe rule).
+  for other in Team:
+    if other != team and upright[other] > 0 and sim.pactActive(team, other):
+      return true
+  result = false
+
 proc updateDowned(sim: var SimServer) =
   ## LOOT(s2): one tick of the downed-state machine, per ghost and in this
   ## order:
@@ -7876,7 +7948,20 @@ proc updateDowned(sim: var SimServer) =
   for i in 0 ..< sim.players.len:
     if not sim.players[i].downed:
       continue
-    if upright[sim.players[i].team] == 0:
+    # ALLIANCE P2 (ally-revive design 2026-09-07, THE CRUX): the alliance,
+    # not the lone team, is the survival unit -- a 1-seat team's own down
+    # is a team-wipe (finalize now) ONLY if no pact ally has a living
+    # upright member either. When one does, fall through to the normal
+    # bleed-out/tag-revive machinery below; that window is what a pact
+    # ally revives into. The instant the last upright pact ally goes down
+    # or dies, THIS team's own upright[] stays 0, that ally's team's
+    # upright[] reads 0 too (dead: not `alive`; downed: not counted), so
+    # `teamHasUprightPactAlly` returns false and finalize fires here on
+    # the very next tick -- the existing rule, just no longer bypassed by
+    # a pact. Non-pact teams: `teamHasUprightPactAlly` always reads false
+    # (no bit ever set), so this is byte-identical to the old check.
+    if upright[sim.players[i].team] == 0 and
+        not sim.teamHasUprightPactAlly(upright, sim.players[i].team):
       sim.finalizeDowned(i, sim.players[i].downedBy,
         "faded out with their team")
       continue
@@ -7947,7 +8032,15 @@ proc updateDowned(sim: var SimServer) =
       gx = sim.players[i].x + CollisionW div 2
       gy = sim.players[i].y + CollisionH div 2
     for j in 0 ..< sim.players.len:
-      if j == i or sim.players[j].team != sim.players[i].team:
+      if j == i:
+        continue
+      # ALLIANCE P1 (ally-revive design 2026-09-07): a tagger qualifies on
+      # the SAME team as the (unchanged, below) OR on a team currently
+      # pact-allied with the victim's -- zoneBlocksRevive above and the
+      # reviver's own DownedTagRange exposure below are untouched, so a
+      # pact ally revives exactly the way a teammate always has.
+      if sim.players[j].team != sim.players[i].team and
+          not sim.pactActive(sim.players[i].team, sim.players[j].team):
         continue
       if not sim.players[j].alive or sim.players[j].downed:
         continue

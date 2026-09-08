@@ -163,6 +163,21 @@ Per-slot config `PlayerSlotConfig` [sim_types.nim:787](../src/ctf/sim_types.nim#
 pact with — mutuality-checked and registered into `SimServer.pactMask` at game
 start, GV-free since it is parsed by name, not flatty position).
 
+**ALLY REVIVE (GV59):** under `downedMode`, `pactMask` now also gates the
+downed-ghost state machine, not just scoring — a registered/declared pact
+turns "alliance" into a second, alongside-teammate SURVIVAL unit. A pact
+ally qualifies as a revive tagger (`updateDowned`'s tagger scan) exactly
+like a teammate; a downed 1-seat team is not insta-finalized as a team-wipe
+while a pact-allied team still has a living upright member (the normal
+bleed-out window opens instead); a hit that downs or splat-confirms a pact
+ally prices/behaves as FRIENDLY (Amendment-5 `dTeamKill`/`gloryFfIncidents`
+mint, no confirm), closing the "down ally, revive/paint, repeat" farm.
+`zoneBlocksRevive` and `deedMintCaps` bind identically for a pact-ally
+revive. No new `GameConfig` field — the surface is entirely `pactMask`
+(already documented above), reachable via pre-match `allies` or the
+in-match `pact` play; a game with `downedMode` on and no pact ever
+registered is byte-identical to pre-GV59.
+
 ---
 
 ## Items & pickups

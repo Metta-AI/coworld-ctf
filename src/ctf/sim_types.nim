@@ -29,13 +29,22 @@ export glory
 
 const
   GameName* = "ctf"
-  ReplayCompatibleGameVersions* = ["58"]
+  ReplayCompatibleGameVersions* = ["59"]
     ## The replay-load allowlist (play-calling design §4.3): versions whose
     ## recorded files still play back correctly under THIS engine. The
     ## criterion is the GameVersion changelog below, not chronology — a
     ## version is listed only when nothing since changed the gameHash
-    ## schema, the hash trajectory, or a flatty keyframe layout. GV57 drops
-    ## out because GV58 moves when a friendly-fire down under armed
+    ## schema, the hash trajectory, or a flatty keyframe layout. GV58 drops
+    ## out because GV59 moves when a downed cog's own team AND a currently
+    ## pact-allied team both go upright-empty at different ticks, or a
+    ## pact-ally hit downs/confirms a partner: `downed`/`alive`/`hp`
+    ## (already hashed) diverge in TIMING from the finalize-immediately-on-
+    ## team-wipe engine, and `dTeamKill`/`gloryFfIncidents` (hashed) mint
+    ## where a GV58 engine minted a plain kill deed instead — a hash
+    ## TRAJECTORY change for any GV58 recording that ever had an active
+    ## pact under armed downedMode (measured: none has, yet, but the path
+    ## is reachable). GV57 drops out because GV58 moves when a friendly-fire
+    ## down under armed
     ## downedMode prices its dTeamKill/gloryFfIncidents (at the down, not
     ## the eventual bleed-out/finalize), a hash TRAJECTORY change from the
     ## down tick onward for any GV57 recording that contains one. GV56
@@ -78,8 +87,51 @@ const
     ## RewardAccount on the wire. Widening requires a real archived fixture
     ## that survives initialization and stepping (PM ruling, 2026-08-30),
     ## never a header rewrite.
-  GameVersion* = "58"
-    ## GV58 (GLORY: FRIENDLY-FIRE PRICES AT THE DOWN, Amendment 5): under
+  GameVersion* = "59"
+    ## GV59 (ALLY REVIVE: PACT ALLIES REVIVE, ALLIANCE IS THE SURVIVAL UNIT,
+    ## ALLY-FIRE PRICES FRIENDLY): a registered pact (`pactMask`) previously
+    ## did nothing for a downed cog -- `updateDowned`'s tagger scan and
+    ## team-wipe census were both same-team-literal, so on the 16-solo
+    ## field (every team exactly one seat) a pact ally could never revive
+    ## its partner: the 1-seat team-wipe finalized the SAME tick the down
+    ## landed, before any tag could ever land, and applyFire's
+    ## splat-confirm let the ally's own stray paint finish the body off
+    ## anyway. Three rule changes plus one confirm-gate mirror, all
+    ## required together (Asana 1218246921137284):
+    ##   1. REVIVE ELIGIBILITY -- updateDowned's tagger scan (sim.nim)
+    ##      qualifies a tagger on same team OR
+    ##      pactActive(victim.team, tagger.team); zoneBlocksRevive and the
+    ##      reviver's own DownedTagRange exposure are unchanged.
+    ##   2. SURVIVAL UNIT -- updateDowned's team-wipe finalize
+    ##      (teamHasUprightPactAlly) no longer fires when a PACT-ALLIED
+    ##      team still has a living upright member; the existing bleed-out
+    ##      timer runs instead, and finalize still lands via that timer (or
+    ##      a later team-wipe check) once the last upright ally is gone.
+    ##      Non-pact teams: byte-identical, the helper always reads false.
+    ##   3. ALLY-FIRE PRICES FRIENDLY -- downPlayer's Amendment-5 mint and
+    ##      killPlayer's KillContext.friendly both route through a new
+    ##      downFriendly predicate: same team, OR a live pactActive read,
+    ##      OR a `lastHitWasPactAlly` snapshot absorbDamage takes BEFORE
+    ##      its own ALLIANCE P1 dissolve (the pact clears on the same hit
+    ##      that downs the ally, before the down is priced a few lines
+    ##      later in the caller -- the snapshot is what survives that
+    ##      race). `dTeamKill`/`gloryFfIncidents` (both hashed) now mint
+    ##      once at the down for a pact-ally hit, same as a teammate's.
+    ##   4. SPLAT-CONFIRM MIRROR (P2b) -- applyFire's downed-ghost confirm
+    ##      gate now also spares a pact ally's stray paint (live
+    ##      `pactActive`, not the snapshot: this hit never routes through
+    ##      absorbDamage, so there is no dissolve-before-price race here).
+    ## Trajectory-scoped to downedMode armed AND at least one active pact:
+    ## every other recording (downedMode off, or on with no pact ever
+    ## registered/declared) is byte-identical. Measured before this
+    ## change: 0 pacts formed in 1,600 seat-episodes on the live ladder --
+    ## this bump has likely never fired on a real recording yet, but the
+    ## behavior is reachable the instant one forms, so it takes the bump
+    ## on the same doctrine GV58's own paragraph states below (a
+    ## behavior-changing fix on a measured/reachable path bumps on its
+    ## own, tripwire result notwithstanding).
+    ##
+    ## Previously GV58 (GLORY: FRIENDLY-FIRE PRICES AT THE DOWN, Amendment 5): under
     ## armed downedMode, a lethal friendly hit reached downPlayer and
     ## returned before killPlayer's priceTheKill block ever ran, so
     ## dTeamKill/gloryFfIncidents (both hashed state) minted only if the
@@ -3282,6 +3334,22 @@ type
     reviveProgress*: int ## LOOT(s2): consecutive adjacent-teammate ticks
                         ## toward downedReviveTicks; resets to 0 the tick
                         ## the tag breaks.
+    lastHitWasPactAlly*: bool ## ALLIANCE P3 (ally-revive design
+                        ## 2026-09-07): snapshot of "was the team that just
+                        ## damaged ME a pact ally, at the instant of the
+                        ## hit" -- written by every damaging `absorbDamage`
+                        ## call (sim.nim), overwritten on EVERY hit so it
+                        ## always reflects only the most recent one. Exists
+                        ## because `absorbDamage`'s own ALLIANCE P1 dissolve
+                        ## clears the pact bit in the SAME call, before
+                        ## `downPlayer`/`killPlayer` ever price the hit --
+                        ## by the time pricing runs, a live `pactActive`
+                        ## check would already read false. NOT mixed into
+                        ## gameHash (the pactMask rule, sim_types.nim's own
+                        ## field comment): purely derived from
+                        ## already-hashed-adjacent state (attacker/target
+                        ## teams, tick position) and the pact registry,
+                        ## which itself stays out for the same reason.
     # GIVE(s2): none of the three fields below enters gameHash (the
     # puddleTicks/hasBarrier rule) — the transfer the channel completes
     # moves already-hashed state (hasGun/hasHopper/bandages drive hashed
