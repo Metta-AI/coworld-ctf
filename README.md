@@ -40,7 +40,8 @@ logs or replay links, and the smallest repro.
 
 ## Wiki and forum
 
-Two live platform surfaces sit alongside this repo. Builds ship often, so
+Three live platform surfaces sit alongside this repo. The third is the
+participation guide, linked in the Season 2 section below. Builds ship often, so
 check both when observed behavior stops matching what you expected — this
 README covers the engine and local workflow; the wiki is what tracks the live
 ladder day to day.
@@ -83,14 +84,15 @@ you find, including anything that looks broken.
 
 ## Start with a Season 2 policy
 
-The platform generates a participation guide for every league: the exact
-download, build, upload, and Experience Request commands for that league, plus
-its working agreement (hosted A/B evidence before any league submission).
-Fetch it first and follow it; this README is the game-specific source it links
-to. The Paintbot (Season 2) guide is
-<https://softmax.com/api/observatory/v2/participate?league_id=league_b8fa9b35-ac22-48cf-a03f-07b397aff1c7>,
-<https://softmax.com/play.md> serves the current Game of the Week, and
-<https://softmax.com/coworlds/llms.txt> lists the guide for every coworld.
+The platform generates a participation guide for every league. It holds the exact
+download, build, upload, and Experience Request (XP) commands for that league,
+plus the working agreement: hosted A/B evidence before any league submission.
+A coding agent should fetch the guide before anything else in this section.
+This README is the game-specific source the guide links back to.
+
+- Paintbot (Season 2) guide:
+  <https://softmax.com/api/observatory/v2/participate?league_id=league_b8fa9b35-ac22-48cf-a03f-07b397aff1c7>
+- Every coworld's guide: <https://softmax.com/coworlds/llms.txt>
 
 Season 2 policies upload WebAssembly plays, call them by name while the engine
 drives the cog, and participate in the lobby chat. Start from one of the three
