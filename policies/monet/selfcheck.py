@@ -1285,7 +1285,19 @@ check("a model call naming jackal with a WIDER earshot than the floor is "
 # raw manifest default -- for each phase adjust_entries can actually tell
 # apart (_in_marquee_zone_window only distinguishes endgame from
 # everything else; there is no separate opening signal), and assert the
-# COMMITTED wanted ladder carries doctrine, not the schema default. ──────
+# COMMITTED wanted ladder carries doctrine, not the schema default.
+#
+# v44 UPDATE: a ladder read rolled back v42's 400/340 pressRange doctrine
+# (score-ratio 1.20->0.67, trade rate 18->30%) and repointed doctrine at
+# 220 flat, the value that was already living on the wire -- so for
+# pressRange specifically, schema default and doctrine are now the SAME
+# number by design. The bare-schema call below still submits the raw
+# 220/140 a compliant-but-unread model produces; the pressRange check no
+# longer distinguishes "clamped" from "coincidentally already correct",
+# but the clamp still unconditionally overwrites the field (see the
+# negative "owns exactly" check below, and the finishRange/whenHpBelow
+# checks in this same loop, which still submit values that DIFFER from
+# doctrine and so still exercise the clamp for real). ──────────────────
 _PRESS_PHASE_VIEWS = {
     "default": {},
     "endgame": {"world": {"zone": {"phase": policy.TOTAL_ZONE_PHASES,
@@ -1311,9 +1323,12 @@ for _phase, _view in _PRESS_PHASE_VIEWS.items():
     _sr = next(e for e in _seat.wanted_entries if e["play"] == "supply_run")
     _jk = next(e for e in _seat.wanted_entries if e["play"] == "jackal")
     check(f"bare-schema submission (phase={_phase}): fire_superiority."
-          "pressRange clamps 220 -> doctrine, not the schema default",
+          "pressRange is pinned at doctrine 220 (v44: doctrine now equals "
+          "the schema default on purpose, so the wire cannot drift off "
+          "220 in either direction)",
           _fs["params"].get("pressRange")
-          == policy.FIRE_SUPERIORITY_PRESS_RANGE[_phase],
+          == policy.FIRE_SUPERIORITY_PRESS_RANGE[_phase]
+          == 220,
           str(_fs["params"]))
     check(f"bare-schema submission (phase={_phase}): fire_superiority."
           "finishRange clamps 140 -> doctrine, not the schema default",

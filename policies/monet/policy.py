@@ -145,23 +145,29 @@ JACKAL_JOIN_WHEN = "bothWeakened"
 
 # FIRE_SUPERIORITY WIRE FIX (bug hunt 2026-09-08, ladder round 4457, 30
 # fresh policy logs decoded on the server-COMMITTED 0xA1 line, n=102
-# installs/22 episodes): pressRange NEVER reached the wire at its doctrine
-# value -- 220 (the raw plays.py schema default) landed 102/102 -- and
-# finishRange's endgame tightening (140->120) was 0/102. Same root cause as
-# JACKAL_MIN_EARSHOT above: plays.py's playbook_brief states the schema
-# default in the model's own system prompt and the model reliably
-# reproduces it; nothing in adjust_entries clamped fire_superiority the way
-# jackal's earshot/joinWhen already were. Doctrine is phase-shaped (see the
-# consolidation/mid and endgame canned_turns entries below); the live zone
-# clock, not a turn index, is the only phase signal adjust_entries can read
-# (_in_marquee_zone_window, the same predicate the MARQUEE CLOCK BAND block
-# below already uses for woundedPct), so the clamp collapses to two
-# buckets: endgame, and everything else. The opening canned turn never
-# calls fire_superiority and there is no separate opening literal to
-# enforce, so a live model call naming this play during the opening window
-# gets the same "default" bucket as consolidation/mid -- there is no third
-# bucket to put it in.
-FIRE_SUPERIORITY_PRESS_RANGE = {"default": 400, "endgame": 340}
+# installs/22 episodes): pressRange never reached the wire at ITS DOCTRINE
+# AT THE TIME -- 220 (the raw plays.py schema default) landed 102/102
+# instead of the then-doctrine 400/340 -- and finishRange's endgame
+# tightening (140->120) was 0/102. Same root cause as JACKAL_MIN_EARSHOT
+# above: plays.py's playbook_brief states the schema default in the
+# model's own system prompt and the model reliably reproduces it; nothing
+# in adjust_entries clamped fire_superiority the way jackal's
+# earshot/joinWhen already were. v42 shipped a clamp enforcing 400/340 and
+# was rolled back after a ladder read: score-ratio 1.20->0.67 (p=.0009),
+# trade rate 18->30% -- the wider press band bought more exposure to
+# third seats, not more finishes. v44 keeps the clamp mechanism (never
+# trust the model to reproduce a value correctly) but repoints pressRange
+# doctrine at the value that was already living on the wire, 220, in
+# every phase: the accidental default becomes the deliberate, pinned
+# doctrine, so it cannot drift upward again either. finishRange doctrine
+# is unchanged (140 default, 120 endgame) -- that lever's ladder read was
+# never implicated. Phase is read from the live zone clock, not a turn
+# index (_in_marquee_zone_window, the same predicate the MARQUEE CLOCK
+# BAND block below already uses for woundedPct); the clamp still
+# collapses to two buckets, endgame and everything else, even though
+# pressRange no longer differs between them, so a future doctrine split
+# only needs a constant change, not a new branch.
+FIRE_SUPERIORITY_PRESS_RANGE = {"default": 220, "endgame": 220}
 FIRE_SUPERIORITY_FINISH_RANGE = {"default": 140, "endgame": 120}
 
 # HEAT-CHAIN TARGET PRIORITY (owner directive 2026-09-06, source-verified
@@ -860,13 +866,18 @@ PERSONA = Persona(
                              "nothing on a quiet field and is already armed "
                              "the instant a fight starts; do not wait for "
                              "consolidation to call it the first time. "
-                             "Doctrine pressRange is 400 and finishRange is "
-                             "140, NOT the playbook's stated defaults of "
-                             "220/140 -- press from twice the raw default "
-                             "band, every phase before the endgame. In the "
-                             "endgame window, pressRange tightens to 340 "
-                             "and finishRange to 120: closer on both ends "
-                             "once the field is small."),
+                             "Doctrine pressRange is 220 in every phase, "
+                             "same as the playbook's stated default -- a "
+                             "2026-09-08 ladder read showed a wider "
+                             "400/340 band traded away score-ratio (1.20 "
+                             "-> 0.67) and raised the trade rate (18% -> "
+                             "30%) by buying more exposure to third seats, "
+                             "so 220 is now the deliberate floor-and-"
+                             "ceiling, not schema-default drift: the clamp "
+                             "pins it so it cannot creep in either "
+                             "direction. finishRange stays 140, tightening "
+                             "to 120 in the endgame window: closer to the "
+                             "target once the field is small."),
         "ring_walker": ("ring_walker is survival rule zero: the ring is "
                         "a schedule, not a surprise -- leave the building "
                         "BEFORE the walk turns into an escape, and only "
@@ -999,7 +1010,7 @@ PERSONA = Persona(
                  # different bet than the endgame's thinned field.
                  "params": {"breakDeficit": 2, "coverMax": 260,
                             "engageDist": 600, "finishRange": 140,
-                            "pressRange": 400, "woundedPct": 50}},
+                            "pressRange": 220, "woundedPct": 50}},
                 {"play": "hold_vs_gun", "entry_id": "holdgun",
                  "params": {"calmTicks": 48, "coverMax": 260,
                             "engageDist": 500}},
@@ -1134,7 +1145,7 @@ PERSONA = Persona(
                  # dPointBlankKill gap without breakDeficit's downside.
                  "params": {"breakDeficit": 2, "coverMax": 260,
                             "engageDist": 600, "finishRange": 140,
-                            "pressRange": 400, "woundedPct": 50}},
+                            "pressRange": 220, "woundedPct": 50}},
                 {"play": "hold_vs_gun", "entry_id": "holdgun",
                  "params": {"calmTicks": 48, "coverMax": 260,
                             "engageDist": 500}},
@@ -1232,7 +1243,7 @@ PERSONA = Persona(
                  # risk while closing on a target already known wounded.
                  "params": {"breakDeficit": 2, "coverMax": 200,
                             "engageDist": 600, "finishRange": 120,
-                            "pressRange": 340, "woundedPct": 0}},
+                            "pressRange": 220, "woundedPct": 0}},
                 {"play": "crossfire", "entry_id": "shape",
                  "params": {"spacing": [120, 280], "minAngle": 36}},
                 {"play": "supply_run", "entry_id": "bank",
