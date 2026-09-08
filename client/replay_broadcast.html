@@ -1851,6 +1851,15 @@ body.sidelanes-both #killfeed {
   z-index: 30;
   padding: calc(20 * var(--u));
   text-align: center;
+  /* Local text-only lightening of --blue: the token itself stays untouched
+     (it paints pips/scorebug/board tints file-wide, out of scope here) but
+     as small BODY TEXT (.ec-tname/.fl-num at 13-22u, not large-text) raw
+     --blue only clears ~4.4:1 against this stage's own gradient two lines
+     up, under the 4.5:1 AA text floor. This scoped var clears >=5:1 against
+     both the lightest and darkest stop of that gradient, staying paired
+     with --red (which already clears ~5:1 here) rather than reading louder
+     than it. */
+  --blue-text: #4a86ca;
 }
 #endcard.on { display: flex; animation: ec-shake 160ms ease-out; }
 @keyframes cardfade { from { opacity: 0; } to { opacity: 1; } }
@@ -2171,6 +2180,11 @@ body.sidelanes-both #killfeed {
   text-overflow: ellipsis;
 }
 #endcard .ec-tname { color: var(--tc, var(--paper)); }
+/* Overrides the generic .blue{--tc:var(--blue)} utility for these two
+   elements only (higher specificity: #endcard + two classes beats one) --
+   see --blue-text above for why. Every other file-wide use of --tc/.blue
+   (scorebug, pips, board) is unaffected. */
+#endcard .ec-tname.blue, #endcard .fl-num.blue { --tc: var(--blue-text); }
 #endcard .ec-lives { display: flex; align-items: baseline; gap: calc(6 * var(--u)); font-family: var(--pixfont); }
 #endcard .fl-num { font-size: calc(22 * var(--u)); color: var(--tc, var(--paper)); }
 /* SEASON 2: per-team GLORY total + the achievements ledger line, riding
@@ -2511,6 +2525,16 @@ body.sidelanes-both #killfeed {
   .plate.leader .glory-num,
   .heat-flame.heat-blazing { animation: none; }
   .banner-chip, .feed-row { animation-duration: 1ms; }
+  /* End-card reveal (ec-shake / ec-flash-fade / ec-headline-pop) collapses
+     to its end state instantly instead of playing out. Each selector below
+     matches the SAME specificity as the rule that actually starts the
+     animation (id/class/pseudo-element and all) -- a lower-specificity
+     neutralizer here loses the cascade to the higher-specificity animating
+     rule regardless of media-query order, and the animation keeps playing
+     at full length under reduced motion. */
+  #endcard.on, #endcard.on::before, #endcard.on .headline {
+    animation-duration: 1ms; animation-delay: 0ms;
+  }
 }
 
 /* ============================================================
@@ -5804,8 +5828,11 @@ body[data-noviewpanel] #viewpanel { display: none !important; }
 
   function endcardBadge(cls, count, title) {
     // One honor icon; repeat events fold into a ·N suffix instead of stacking.
+    // The icon itself is a CSS ::before glyph with no text content of its
+    // own -- role="img" + aria-label carries the same fact the hover-only
+    // title gives sighted mouse users to AT users too.
     if (!count) return '';
-    return '<span class="ec-badge ' + cls + '" title="' + title + '">' +
+    return '<span class="ec-badge ' + cls + '" role="img" aria-label="' + title + '" title="' + title + '">' +
       (count > 1 ? '·' + count : '') + '</span>';
   }
 
@@ -5836,9 +5863,9 @@ body[data-noviewpanel] #viewpanel { display: none !important; }
     // baked pixel art); a team without baked art gets a tinted glyph.
     if (heartTeam === 'red' || heartTeam === 'blue' ||
         heartTeam === 'green' || heartTeam === 'yellow') {
-      return '<span class="ec-heart ' + heartTeam + '" title="Captured the ' + heartTeam + ' heart"></span>';
+      return '<span class="ec-heart ' + heartTeam + '" role="img" aria-label="Captured the ' + heartTeam + ' heart" title="Captured the ' + heartTeam + ' heart"></span>';
     }
-    return '<span class="ec-heart-glyph" title="Captured an enemy heart">♥</span>';
+    return '<span class="ec-heart-glyph" role="img" aria-label="Captured an enemy heart" title="Captured an enemy heart">♥</span>';
   }
 
   function capturedHeartsHtml(s, p) {
@@ -5900,7 +5927,9 @@ body[data-noviewpanel] #viewpanel { display: none !important; }
         '<span class="n">' + (p.k || 0) + '</span>' +
         '<span class="n">' + (p.d || 0) + '</span>' +
         '<span class="n tk" title="Team kills — killed a teammate">' + (p.tk > 0 ? p.tk : '') + '</span>' +
-        '<span class="n clstr">' + (cluster > 0 ? cluster : '') + '</span>' +
+        '<span class="n clstr"' + (cluster > 0
+          ? ' aria-label="Multi-kill cluster: ' + cluster + '" title="Multi-kill cluster: ' + cluster + '"'
+          : '') + '>' + (cluster > 0 ? cluster : '') + '</span>' +
         '<span class="n cap">' + capturedHeartsHtml(s, p) + '</span>' +
         '</div>';
     }
