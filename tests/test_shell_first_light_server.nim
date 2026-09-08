@@ -142,6 +142,31 @@ suite "shell FIRST LIGHT server seam":
       else:
         check sighting.present
 
+  test "zone fallbacks read the schedule's elapsed clock, which is zero in the lobby":
+    var config = defaultGameConfig()
+    config.update("""{"zonePhases": [
+      {"z": 0.6, "waitTicks": 10, "shrinkTicks": 20, "dps": 0},
+      {"z": 0.35, "waitTicks": 6, "shrinkTicks": 12, "dps": 2},
+      {"z": 0.15, "waitTicks": 4, "shrinkTicks": 8, "dps": 3}
+    ]}""")
+    var sim = initSimServer(config)
+    let playerIndex = sim.addPlayer("red0")
+    sim.tickCount = 50
+
+    let lobby = sim.firstLightFallbacks(sim.players[playerIndex].bodyPoint)
+    check lobby.zonePhase == 1
+    check lobby.ticksToNextShrink == 10
+    check lobby.currentZone == MapRect(
+      x: 0, y: 0, w: sim.gameMap.width, h: sim.gameMap.height)
+    check lobby.zoneDps == 0
+    check sim.firstLightZoneLogLine().contains("elapsed=0")
+
+    sim.startGame()
+    sim.tickCount += 12
+    let playing = sim.firstLightFallbacks(sim.players[playerIndex].bodyPoint)
+    check playing.ticksToNextShrink == 0
+    check playing.zonePhase == 1
+
   test "event ids are deterministic and unique within one tick":
     var sim = startedObservationSim(2)
     sim.tickCount = 41
