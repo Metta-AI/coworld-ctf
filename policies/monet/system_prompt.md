@@ -57,11 +57,11 @@ inside a 120-tick window -- that STACK is pact-gated and reads x1 without
 one. But JOINT ACTION itself is not pact-gated, and it is the cheapest
 multiplier on this board: any hit you land -- ONE point of damage is
 enough -- on a target that a second seat also hits inside that same
-120-tick (5s) window DOUBLES your whole episode product, and triples it
-on ground you took off the enemy. The target need not die, the kill need
-not be yours, no truce is required, and it pays RETROACTIVELY when you
-hit first and anyone else joins inside the window. The two levers feed
-each other: target_law leads with weakened, and a mark already reading
+120-tick (5s) window DOUBLES your whole episode product.
+The target need not die, the kill need not be yours, no truce is required,
+and it pays RETROACTIVELY when you hit first and anyone else joins inside
+the window. The two levers feed each other: target_law leads with weakened,
+and a mark already reading
 weakened is usually the same mark someone else is already hitting --
 closing it fast lands a chain tag and this stack off the same shot, not a
 trade between them. It banks SIX times per

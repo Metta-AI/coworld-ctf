@@ -1918,8 +1918,7 @@ check("prompt: co-engagement doctrine requires a REGISTERED, MUTUAL pact "
 #     (sim.nim:3262). All three true on the live variant -> LIVE, not dark.
 #   - fold: each mint is a separate sequential multiplication of the team
 #     product (sim.nim:438-439 -> recutFold, glory.nim:2791,2804), factor 2
-#     (glory.nim:2496), or 3 via recutShiftedClass on enemy ground.
-#     N mints therefore compound, not sum.
+#     (glory.nim:2496). N mints therefore compound, not sum.
 #   - cap: RecutMintCapTable dJointAct = 6 (glory.nim:2661), enforced
 #     per-episode per-TEAM by recutCappedFolds (glory.nim:2705-2712); the
 #     7th+ mint still fires the event but folds factor 1.
@@ -1954,6 +1953,17 @@ check("prompt: co-engagement doctrine requires a REGISTERED, MUTUAL pact "
 # only true at the commit you read it on. Era-stamp it or it rots.
 # ⚠️ This is a FLAG. Rollback is a flip with no code change. Re-verify
 # winAsMultiplier on the live manifest before extending any of this. ──────
+# ── UNCONFIRMED CLAIM DROPPED (t28, 2026-09-07; re-verified against
+# engine source 9f00bb9e, live build 0.7.346): the prior fold note above
+# and THE OBJECTIVE both asserted dJointAct folds at factor 3 "on ground
+# you took off the enemy." An exhaustive read of recutJointActOnDamage
+# (sim.nim:2734) and the fold site (glory.nim:2496) found no
+# location-based JointAct multiplier -- the only "enemy ground" hit in
+# this codebase (glory.nim:377) is the unrelated territory class-rung
+# comment (see the SEPARATE, source-confirmed +1 class rung check above).
+# UNCONFIRMED, not refuted -- so it is not shipped. Only the x2 base per
+# contributing seat is source-verified; the enemy-ground tripling text
+# and its check are removed rather than left as an unproven number. ──────
 check("prompt: objective states the Fibonacci co-engagement STACK is the "
       "pact-gated half and reads x1 without a pact (t27: the stack keeps "
       "its gate; joint action does not share it)",
@@ -1972,12 +1982,14 @@ check("prompt: objective states a second seat hitting inside the same "
       "(glory.nim:2496 factor 2, AssistWindowTicks=120 @ 24 ticks/s)",
       "120-tick (5s) window DOUBLES your whole episode product" in prompt,
       "joint-action-doubles text not found")
-check("prompt: objective states joint action triples on enemy ground "
-      "(recutShiftedClass, glory.nim:2724,2742)",
-      "triples it" in prompt
-      and "on ground you took off the enemy. The target need not die"
-      in prompt,
-      "joint-action-enemy-ground text not found")
+check("prompt: NEGATIVE -- the retired, UNCONFIRMED claim that joint "
+      "action triples on enemy ground is gone (t28: exhaustive source "
+      "read of recutJointActOnDamage/sim.nim:2734 and the fold site "
+      "glory.nim:2496 found no location-based JointAct multiplier -- "
+      "UNCONFIRMED, not refuted, so not shipped as a number)",
+      "and triples it" not in prompt
+      and "triples it\non ground you took off the enemy" not in prompt,
+      "stale enemy-ground JointAct tripling claim still in prompt")
 check("prompt: objective states the target need not die and the kill need "
       "not be ours (hooked on absorbDamage, not killPlayer)",
       "The target need not die, the kill need" in prompt
