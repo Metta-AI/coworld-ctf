@@ -13,7 +13,7 @@ const
   ## latch in the shared chrome closure (beat timeline, verdict chip,
   ## momentum series, lull spans, placed scrubber markers) now has one reset
   ## entry point the pages call from their reconnect hook.
-  ChromeCommonFingerprint = "5f840c5d1a882e1b"
+  ChromeCommonFingerprint = "a5b2e8fc4a36f5c8"
     ## chrome_common.js pinned: everything paintball adds lives in the
     ## appended game block, so an edit to the shared chrome fails a test
     ## instead of silently drifting. Re-pinned during the season2 main
@@ -33,6 +33,10 @@ const
     ## when a team is knocked out, so a dead team's line read exactly like a
     ## live team that simply was not scoring — and a high flat line from an
     ## early exit read as the leader, which is backwards.
+    ## Re-pinned again for the LOG scale: glory is heavy-tailed and
+    ## multiplicative (a live episode had a top seat on 16,588 against a
+    ## median of 6), so a linear axis put every other team under 1% of the
+    ## band and the lane read as one flat line.
   Page = "client/replay_broadcast.html"
   Chrome = "client/chrome_common.js"
   Core = "client/broadcast_core.js"

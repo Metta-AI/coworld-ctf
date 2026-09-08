@@ -858,6 +858,25 @@ window.ChromeCommon = function (ctx) {
       pts.forEach(function (m) {
         m.vals.forEach(function (v) { if (v > peak) peak = v; });
       });
+      // LOGARITHMIC, because glory is heavy-tailed and MULTIPLICATIVE.
+      // Achievements multiply and heat chains multiply, so totals spread over
+      // orders of magnitude: a live 16-duo episode had a top seat on 16,588
+      // against a median of 6, ~2700x. Scaled linearly to the peak that puts
+      // every other team under 1% of the band -- the whole lane is a flat
+      // line with one riser, which is exactly how it read in the field.
+      //
+      // Measured across the same live totals, band height per team:
+      //          16,588   864     96     12      1
+      //   linear   100%   5.2%   0.6%   0.1%   0.0%   <- unreadable
+      //   share     94%   4.9%   0.5%   0.1%   0.0%   <- leader eats the pot
+      //   rank     100%  93.3%  86.7%  60.0%  33.3%   <- magnitude thrown away
+      //   log      100%  69.6%  47.1%  26.4%   7.1%   <- every tier separated
+      //
+      // On this axis equal vertical distance is equal MULTIPLE, which is the
+      // honest reading of a quantity built by multiplication. log1p keeps
+      // zero at the floor (log1p(0) = 0) and, with the >= 0 clamp above, a
+      // negative ledger lands there too instead of off the bottom of the band.
+      var logPeak = Math.log1p(peak);
       var base = document.createElementNS(MOM_SVGNS, 'line');
       base.setAttribute('x1', 0); base.setAttribute('y1', VBH - 2);
       base.setAttribute('x2', VBW); base.setAttribute('y2', VBH - 2);
@@ -868,7 +887,8 @@ window.ChromeCommon = function (ctx) {
       norm.teams.forEach(function (team, ti) {
         var col = teamCol(team) || PAPER;
         var yOfTeam = function (m) {
-          return (VBH - 2) - (Math.max(0, m.vals[ti] || 0) / peak) * (VBH - 4);
+          return (VBH - 2) -
+            (Math.log1p(Math.max(0, m.vals[ti] || 0)) / logPeak) * (VBH - 4);
         };
         var outTick = typeof outTicks[ti] === 'number' ? outTicks[ti] : -1;
         if (outTick < 0) {                       // survived: one solid line

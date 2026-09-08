@@ -5753,7 +5753,7 @@ body[data-noviewpanel] #viewpanel { display: none !important; }
     return !!elim && teams.every(function (t) { return overLives(o, t) <= 0; });
   }
 
-  function endcardWinCondition(o, teams, elim) {
+  function endcardWinCondition(o, teams, elim, solo) {
     // The condition CHIP: how the match ended, in two or three words.
     // (A time-limit ending is always a draw in classic rules — the sim's
     // checkMaxTicks path never crowns a winner there — so timeLimit only
@@ -5789,7 +5789,7 @@ body[data-noviewpanel] #viewpanel { display: none !important; }
       return o.timeLimit ? 'TIME LIMIT — DRAW' : 'DRAW';
     }
     if (elim && o.timeLimit) return 'TIME LIMIT — TIEBREAK';
-    if (elim) return 'LAST TEAM STANDING';
+    if (elim) return solo ? 'LAST COG STANDING' : 'LAST TEAM STANDING';
     var losers = teams.filter(function (t) { return t !== o.winner; });
     var bestLoser = 0;
     losers.forEach(function (t) { bestLoser = Math.max(bestLoser, overLives(o, t)); });
@@ -6005,6 +6005,45 @@ body[data-noviewpanel] #viewpanel { display: none !important; }
     (s.roster || []).forEach(function (p) { if (p.team === team && p.alive) n++; });
     return n;
   }
+  // Glory totals run to five and six figures (a live episode had a seat on
+  // 16,588), and a wall of digits is not a score anyone can read at a glance
+  // on a card that holds for ten seconds. Abbreviate above 10k, keep one
+  // decimal so 16.6k and 16.1k stay distinguishable, and leave everything
+  // below 10,000 exact -- a four-digit total is still scannable and rounding
+  // it would lose real placement detail (2304 vs 2.3k).
+  var GLORY_UNITS = ['k', 'M', 'B', 'T', 'Q'];
+  function gloryText(v) {
+    if (typeof v !== 'number' || !isFinite(v)) return '—';
+    var a = Math.abs(v), sign = v < 0 ? '-' : '';
+    if (a < 10000) return String(v);   // four digits still scan; keep them exact
+    // The ladder runs to Q on purpose: S2 glory is a RUNAWAY with no cap and
+    // has been measured at 9.15 QUADRILLION, so stopping at M would print
+    // "9150000000M" on the very card that is supposed to be readable.
+    var n = a, u = -1;
+    while (n >= 1000 && u < GLORY_UNITS.length - 1) { n /= 1000; u++; }
+    var t = trimTenth(n);
+    // Rounding can push a value up into the next unit (999,999 -> "1000k").
+    if (t === '1000' && u < GLORY_UNITS.length - 1) { t = '1'; u++; }
+    return sign + t + GLORY_UNITS[u];
+  }
+  function trimTenth(n) {
+    // 16.6 keeps its tenth; 20.0 renders as 20, not "20.0".
+    var r = n.toFixed(1);
+    return r.slice(-2) === '.0' ? r.slice(0, -2) : r;
+  }
+
+  // Season 2 runs ONE COG PER TEAM, so the endcard's inherited squad
+  // vocabulary ("last team standing", "rival teams", "1 of 1 cog standing")
+  // describes a format that is not being played. Read the roster instead of
+  // assuming: duos and squads still exist elsewhere.
+  function rosterIsSolo(s) {
+    var seats = {};
+    (s.roster || []).forEach(function (p) { seats[p.team] = (seats[p.team] || 0) + 1; });
+    var teams = Object.keys(seats);
+    if (!teams.length) return false;
+    return teams.every(function (t) { return seats[t] === 1; });
+  }
+
   function teamSeatCount(s, team) {
     var n = 0;
     (s.roster || []).forEach(function (p) { if (p.team === team) n++; });
@@ -6134,16 +6173,27 @@ body[data-noviewpanel] #viewpanel { display: none !important; }
       heroName.style.setProperty('--tc', teamCol(winner) || AMBER);
       heroName.innerHTML = labelHtml(winner);
       if (heroDuo) heroDuo.textContent = namesFor(winner);
-      if (heroGlory !== null && heroGloryNum) heroGloryNum.textContent = heroGlory;
-      var rivals = teams.length - 1;
+      if (heroGlory !== null && heroGloryNum) {
+        heroGloryNum.textContent = gloryText(heroGlory);
+        heroGloryNum.title = heroGlory + ' glory';   // exact figure on hover
+      }
       var heroAlive = teamAliveCount(s, winner), heroSeats = teamSeatCount(s, winner);
       var heroKills = teamKillTotal(s, winner);
       // Context only — the glory total is the numeral above, never
       // repeated down here; kills and the achievements ledger read as the
       // small print they now are.
-      var heroLineText = 'Outlasted ' + rivals + (rivals === 1 ? ' rival team' : ' rival teams') +
-        ' — ' + heroAlive + ' of ' + heroSeats + (heroSeats === 1 ? ' cog' : ' cogs') +
-        ' standing · ' + heroKills + (heroKills === 1 ? ' kill' : ' kills');
+      // Small print only. It used to open with "Outlasted N rival teams",
+      // restating the chip and the headline a third time, and then report
+      // "1 of 1 cog standing" -- which on a one-cog-per-team season is a
+      // tautology, not a stat. How many rivals there were is legible from
+      // the placement board below.
+      var heroSolo = rosterIsSolo(s);
+      var heroLineText = '';
+      if (!heroSolo) {
+        heroLineText += heroAlive + ' of ' + heroSeats +
+          (heroSeats === 1 ? ' cog' : ' cogs') + ' standing · ';
+      }
+      heroLineText += heroKills + (heroKills === 1 ? ' kill' : ' kills');
       if (heroGlory !== null) {
         var heroClaims = (o.achievements || []).filter(function (c) { return c.team === winner; });
         if (heroClaims.length) heroLineText += ' · ' + heroClaims.length + '/' + ACH_TOTAL + ' achievements';
@@ -6164,7 +6214,7 @@ body[data-noviewpanel] #viewpanel { display: none !important; }
           // too — carry the duo's names, dim, when the label alone doesn't.
           (namesForShort(gloryLeader)
             ? ' <span class="ec-mvp-dim">' + esc(namesForShort(gloryLeader)) + '</span>' : '') +
-          ' ' + leaderGlory + 'G <span class="ec-mvp-dim">(' +
+          ' ' + gloryText(leaderGlory) + 'G <span class="ec-mvp-dim">(' +
           ordinal(placeOf[gloryLeader]) + ')</span>'
         : '';
     }
@@ -6199,7 +6249,7 @@ body[data-noviewpanel] #viewpanel { display: none !important; }
           ? '<span class="ec-fduo">' + esc(namesForShort(team)) + '</span>' : '') +
         '</span>' +
         (anyGlory
-          ? '<span class="ec-fglory">' + (fg !== null ? fg + 'G' : '—') + '</span>' : '') +
+          ? '<span class="ec-fglory">' + (fg !== null ? gloryText(fg) + 'G' : '—') + '</span>' : '') +
         '<span class="ec-fstat">' + teamKillTotal(s, team) + ' K</span>' +
         '<span class="ec-fstat">' + lv + (lv === 1 ? ' life' : ' lives') + '</span>' +
         '</div>';
@@ -6265,7 +6315,8 @@ body[data-noviewpanel] #viewpanel { display: none !important; }
     card._key = key;
 
     var head = $('ec-headline'), how = $('ec-how');
-    $('ec-wincond').textContent = endcardWinCondition(o, teams, elim);
+    $('ec-wincond').textContent =
+      endcardWinCondition(o, teams, elim, rosterIsSolo(s));
 
     // MVP: the winning team's best final line (kills > fewer deaths >
     // captures — the capturer keeps their ⚑ mark, the star follows the guns).
@@ -6394,12 +6445,17 @@ body[data-noviewpanel] #viewpanel { display: none !important; }
           ? winName + ' WIPES OUT ' +
             (elim ? brTeamLabel(s, losers[0]) : teamName(s, losers[0], String(losers[0]).toUpperCase()))
           : winName + ' WIPES THE FIELD';
-        how.textContent = elim
-          ? winName + ' outlasted every rival team.'
-          : winName + ' eliminated every opposing life.';
+        // ONE STATEMENT ONLY. The headline above says who won, and the
+        // chip beside it says HOW ("LAST COG STANDING"). This sentence used
+        // to say the same thing a third time -- "DAVEEY WIPES THE FIELD" /
+        // "LAST TEAM STANDING" / "DAVEEY outlasted every rival team." -- and
+        // the hero stat line then opened with "Outlasted 15 rival teams" for
+        // a fourth. On elimination it now says nothing rather than repeat
+        // the chip; the capture case still carries a fact the chip does not.
+        how.textContent = elim ? '' : winName + ' eliminated every opposing life.';
       } else {
         // BR is flagless (isFlagless) — there is no heart to capture.
-        how.textContent = elim ? winName + ' outlasted the field.' : winName + ' captured the enemy heart.';
+        how.textContent = elim ? '' : winName + ' captured the enemy heart.';
       }
     }
   }
