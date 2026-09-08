@@ -33,7 +33,6 @@ proc fallback(map: BodyMap): BrDefaultFallbacks =
     nextZone: MapRect(x: 50, y: 50, w: 200, h: 200),
     ticksToNextShrink: BrRotateLeadTicks + 1,
     zoneDps: 1,
-    idleAimCenterBrads: 64,
     coverGoal: none(ValidatedGoal))
 
 proc bodyFixture(): SeatBody =
@@ -83,19 +82,19 @@ suite "shell standing order":
         annotation.intentBytes))
 
     check standing.annotations[0].intentBytes ==
-      "{\"arrive_radius\":0.0,\"idle_aim_center_brads\":64," &
+      "{\"arrive_radius\":0.0,\"idle_aim_center_brads\":0," &
       "\"kind\":\"hold\",\"reason\":\"default:hold\"," &
       "\"schema\":\"intent\",\"v\":1}"
     check standing.annotations[1].intentBytes ==
-      "{\"arrive_radius\":48.0,\"idle_aim_center_brads\":64," &
+      "{\"arrive_radius\":48.0,\"idle_aim_center_brads\":0," &
       "\"kind\":\"navigate_to\",\"point\":[200,200]," &
       "\"reason\":\"default:rotate\",\"schema\":\"intent\",\"v\":1}"
     check standing.annotations[2].intentBytes ==
-      "{\"arrive_radius\":24.0,\"idle_aim_center_brads\":64," &
+      "{\"arrive_radius\":24.0,\"idle_aim_center_brads\":0," &
       "\"kind\":\"navigate_to\",\"point\":[40,40]," &
       "\"reason\":\"default:cover\",\"schema\":\"intent\",\"v\":1}"
     check standing.annotations[3].intentBytes ==
-      "{\"arrive_radius\":64.0,\"idle_aim_center_brads\":64," &
+      "{\"arrive_radius\":64.0,\"idle_aim_center_brads\":0," &
       "\"kind\":\"navigate_to\",\"moving_goal\":true," &
       "\"point\":[399,399],\"reason\":\"default:partner\"," &
       "\"schema\":\"intent\",\"v\":1}"
@@ -120,4 +119,4 @@ suite "shell standing order":
     let input = body.seatTick(BodyTickInputs(
       self: BodySelfState(pos: (10, 10), hp: 4, hpFrac: 1.0, aimBrads: 0,
         alive: true, carrying: false)), 11)
-    check input.encodeInputMask() == 0
+    check input.encodeInputMask() == ButtonB

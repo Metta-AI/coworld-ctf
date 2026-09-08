@@ -3,7 +3,8 @@
 import std/[json, monotimes, options, strutils, times, unittest]
 
 import ../src/ctf/sim_types
-import ../src/shell/[abi, body_map, canonical, emit_validator, finisher, types]
+import ../src/shell/[abi, body_map, canonical, emit_validator, policy_encoding,
+  types]
 
 proc openRoomsMap(): BodyMap =
   const Width = 720
@@ -27,11 +28,32 @@ proc withDuo(ctx: var EmitValidationContext, team: Team, a, b: int) =
     seats: [SeatRef(uint8(a)), SeatRef(uint8(b))])
 
 proc intentBytes(kind = ikNavigateTo; point = some(MapPoint(x: 30, y: 30));
-                 reason = ""; idleAim = none(int)): string =
+                 reason = ""; idleAim = 0): string =
   canonicalIntent(Intent(kind: kind, point: point, arriveRadius: 24.0,
     idleAimCenterBrads: idleAim, reason: reason))
 
 suite "shell emit validator":
+  test "controller idle aim defaults to zero and explicit values round trip":
+    let map = openRoomsMap()
+    let omitted = validateEmit(
+      "{\"arrive_radius\":0.0,\"kind\":\"hold\",\"schema\":\"intent\",\"v\":1}",
+      map.controllerContext)
+    check omitted.accepted
+    check omitted.intent.idleAimCenterBrads == 0
+    check omitted.canonicalBytes ==
+      "{\"arrive_radius\":0.0,\"idle_aim_center_brads\":0," &
+      "\"kind\":\"hold\",\"schema\":\"intent\",\"v\":1}"
+
+    let explicit = validateEmit(
+      "{\"arrive_radius\":0.0,\"idle_aim_center_brads\":200," &
+      "\"kind\":\"hold\",\"schema\":\"intent\",\"v\":1}",
+      map.controllerContext)
+    check explicit.accepted
+    check explicit.intent.idleAimCenterBrads == 200
+    check explicit.canonicalBytes ==
+      "{\"arrive_radius\":0.0,\"idle_aim_center_brads\":200," &
+      "\"kind\":\"hold\",\"schema\":\"intent\",\"v\":1}"
+
   test "controller intent accepts exact goals and normalizes blocked goals":
     let map = openRoomsMap()
     var outcome = validateEmit(intentBytes(), map.controllerContext)
@@ -136,9 +158,12 @@ suite "shell emit validator":
     check accepted.code == AbiOk
     check accepted.accepted
     check accepted.intent.handoff == "gun"
-    # The canonical re-encoding keeps the field in sorted position, and a
-    # typed round trip reproduces the emission byte-for-byte.
-    check accepted.canonicalBytes == declared
+    # The canonical re-encoding supplies Intent's zero idle-aim default and
+    # keeps both fields in sorted position.
+    check accepted.canonicalBytes ==
+      "{\"arrive_radius\":0.0,\"handoff\":\"gun\"," &
+      "\"idle_aim_center_brads\":0,\"kind\":\"hold\"," &
+      "\"schema\":\"intent\",\"v\":1}"
     check accepted.canonicalBytes == canonicalIntent(accepted.intent)
 
     # Every item of the seam's vocabulary is accepted; anything else is an
@@ -167,20 +192,21 @@ suite "shell emit validator":
     check "handoff" notin canonicalIntent(Intent(kind: ikHold,
       arriveRadius: 0.0))
 
-  test "protected set writer is shared across finisher and emit validation":
+  test "protected set writer is shared across Intent and emit validation":
     let map = openRoomsMap()
     let protectedSet = ProtectedSet(seats: @[
       SeatRef(2), SeatRef(10), SeatRef(30), SeatRef(2)])
     let policy = CombatPolicy(noShoot: protectedSet)
     let protectedBytes = "{\"seats\":[\"seat:10\",\"seat:2\",\"seat:30\"]}"
     let emitBytes = canonicalCombatPolicy(policy)
-    let finishBytes = canonicalIntent(Intent(kind: ikHold, arriveRadius: 0.0,
+    let intentBytes = canonicalIntent(Intent(kind: ikHold, arriveRadius: 0.0,
       combat: policy))
     check emitBytes == "{\"no_shoot\":" & protectedBytes &
       ",\"schema\":\"combat_policy\",\"v\":1}"
-    check finishBytes == "{\"arrive_radius\":0.0,\"combat\":{\"no_shoot\":" &
+    check intentBytes == "{\"arrive_radius\":0.0,\"combat\":{\"no_shoot\":" &
       protectedBytes & ",\"schema\":\"combat_policy\",\"v\":1}," &
-      "\"kind\":\"hold\",\"schema\":\"intent\",\"v\":1}"
+      "\"idle_aim_center_brads\":0,\"kind\":\"hold\"," &
+      "\"schema\":\"intent\",\"v\":1}"
     check validateEmit(emitBytes, map.overlayContext).canonicalBytes ==
       emitBytes
 

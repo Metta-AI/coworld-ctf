@@ -94,7 +94,7 @@ proc richSource(): PlayViewSource =
     movingGoal: true,
     profile: cpCarrier,
     micro: {mfPeekDuck, mfFormationBias},
-    idleAimCenterBrads: some(128),
+    idleAimCenterBrads: 128,
     combat: CombatPolicy(
       noShoot: ProtectedSet(teams: {Blue, Red},
         seats: @[SeatRef(4'u8), SeatRef(12'u8), SeatRef(10'u8),
@@ -547,8 +547,7 @@ proc assertBinaryMatchesModel(model: PlayViewModel, bytes: string) =
   var intentFlags = 0'u32
   if standing.point.isSome: intentFlags = intentFlags or IntentPointPresentFlag
   if standing.movingGoal: intentFlags = intentFlags or IntentMovingGoalFlag
-  if standing.idleAimCenterBrads.isSome:
-    intentFlags = intentFlags or IntentIdleAimPresentFlag
+  intentFlags = intentFlags or IntentIdleAimPresentFlag
   if standing.clampToEndzone: intentFlags = intentFlags or IntentClampToEndzoneFlag
   if standing.suppressFireFreeze:
     intentFlags = intentFlags or IntentSuppressFireFreezeFlag
@@ -559,7 +558,7 @@ proc assertBinaryMatchesModel(model: PlayViewModel, bytes: string) =
   let point = standing.point.get
   check bytes.readI32(intent.offset + 24) == point.x
   check bytes.readI32(intent.offset + 28) == point.y
-  check bytes.readI32(intent.offset + 32) == standing.idleAimCenterBrads.get
+  check bytes.readI32(intent.offset + 32) == standing.idleAimCenterBrads
   check bytes.readU32(intent.offset + 36) != 0'u32
   check bytes.readU32(intent.offset + 40) != 0'u32
   check bytes.readU32(intent.offset + 48) == 3'u32
@@ -620,7 +619,7 @@ suite "shell binary play view":
       PlayAggressor(eventId: 1, tick: 0, dirBrads: 0, seat: some(0)),
       PlayAggressor(eventId: 2, tick: 0, dirBrads: 0)]
     source.intent = some(Intent(kind: ikNavigateTo, point: some(MapPoint(x: 0, y: 0)),
-      arriveRadius: 0.0, idleAimCenterBrads: some(0)))
+      arriveRadius: 0.0, idleAimCenterBrads: 0))
     let bytes = buildBinaryPlayView(selectPlayView(source, MaxViewFrameBytes))
 
     let self = bytes.section(BvSelf).get

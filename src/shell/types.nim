@@ -89,7 +89,7 @@ type
     movingGoal*: bool
     profile*: CostProfile
     micro*: set[MicroFlag]
-    idleAimCenterBrads*: Option[int]  ## 0..255
+    idleAimCenterBrads*: int  ## 0..255; 0 unless the play sets it
     clampToEndzone*: bool      ## meaningful in gmCtf, ignored elsewhere
     suppressFireFreeze*: bool
     reason*: string            ## telemetry only, at most IntentReasonMaxBytes

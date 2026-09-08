@@ -24,7 +24,6 @@ type
     nextZone*: MapRect
     ticksToNextShrink*: int
     zoneDps*: int
-    idleAimCenterBrads*: int
     threatPositions*: seq[BodyPoint]
     partner*: Option[PartnerTelemetry]
     rotateTarget*: BodyPoint
@@ -34,6 +33,7 @@ type
     rule*: BrDefaultRule
     intent*: Intent
     goal*: Option[ValidatedGoal]
+    provenance*: Provenance
 
 const
   ## PROPOSED BR BEHAVIOR — James ratification pending. Keep every tunable
@@ -61,6 +61,7 @@ proc navigate(goal: ValidatedGoal, arriveRadius: float, reason: string,
     movingGoal: movingGoal,
     reason: reason)
   result.goal = some(goal)
+  result.provenance = Provenance(base: ProvenanceBase(kind: pbDefault))
 
 proc partnerOutsideLeash(facts: BrDefaultFacts): bool =
   if facts.partner.isNone or not facts.partner.get.alive:
@@ -108,5 +109,6 @@ proc computeBrDefault*(facts: BrDefaultFacts): DefaultDecision =
         rule: rule,
         intent: Intent(kind: ikHold, arriveRadius: 0.0,
           reason: "default:hold"),
-        goal: none(ValidatedGoal))
+        goal: none(ValidatedGoal),
+        provenance: Provenance(base: ProvenanceBase(kind: pbDefault)))
       return

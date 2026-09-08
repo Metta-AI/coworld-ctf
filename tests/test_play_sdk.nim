@@ -4,7 +4,7 @@
 import std/[options, os, osproc, sequtils, strutils, unittest]
 
 import ../src/ctf/sim_types
-import ../src/shell/[abi, body_map, finisher, instance, manifest,
+import ../src/shell/[abi, body_map, instance, manifest, policy_encoding,
   module_validation, runtime, types]
 
 const

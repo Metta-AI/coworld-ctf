@@ -1,9 +1,9 @@
-## Phase P3-1: the engine-native Battle Royale fallback and finisher.
+## Phase P3-1: the engine-native Battle Royale fallback and Intent encoder.
 
 import std/[algorithm, json, options, os, random, strutils, unittest]
 import ../src/ctf/sim_types
 import ../src/shell/[body_map, canonical, canonical_fast, default_play,
-  finisher, types]
+  policy_encoding, types]
 
 proc testBodyMap(): BodyMap =
   const Side = 512
@@ -25,7 +25,6 @@ proc baseFacts(): BrDefaultFacts =
     nextZone: MapRect(x: 50, y: 50, w: 200, h: 200),
     ticksToNextShrink: BrRotateLeadTicks + 1,
     zoneDps: 1,
-    idleAimCenterBrads: 64,
     partner: some((seat: 1'u8, team: Red, pos: (20, 20), aimBrads: 32,
       alive: true, downed: false, hasGun: false, hasHopper: false)),
     rotateTarget: (150, 150))
@@ -100,8 +99,7 @@ proc intentNode(intent: Intent): JsonNode =
     result["clamp_to_endzone"] = %true
   if not intent.combat.combatEmpty:
     result["combat"] = combatNode(intent.combat)
-  if intent.idleAimCenterBrads.isSome:
-    result["idle_aim_center_brads"] = %intent.idleAimCenterBrads.get
+  result["idle_aim_center_brads"] = %intent.idleAimCenterBrads
   result["kind"] = %intent.kind.wireName
   if intent.micro.card > 0:
     var micro = newJArray()
@@ -141,8 +139,10 @@ proc randomizedIntent(rng: var Rand, index: int): Intent =
   for flag in MicroFlag:
     if (index and (1 shl (ord(flag) + 1))) != 0:
       result.micro.incl(flag)
-  if index mod 3 != 0:
-    result.idleAimCenterBrads = some(if index mod 7 == 0: 255 else: rng.rand(255))
+  result.idleAimCenterBrads =
+    if index mod 3 == 0: 0
+    elif index mod 7 == 0: 255
+    else: rng.rand(255)
   result.clampToEndzone = rng.rand(1) == 1
   result.suppressFireFreeze = rng.rand(1) == 1
   let reasonLength = [0, 1, IntentReasonMaxBytes][index mod 3]
@@ -203,21 +203,19 @@ suite "shell default play":
     check hold.intent.point.isNone
     check hold.goal.isNone
 
-  test "finisher stamps idle aim and stable pbDefault provenance":
-    let finished = finishDefault(computeBrDefault(baseFacts()).intent, 64)
-    check finished.intent.idleAimCenterBrads == some(64)
-    check finished.provenance.base.kind == pbDefault
-    check finished.provenance.overlays.len == 0
-
-    var alreadyStamped = finished.intent
-    alreadyStamped.idleAimCenterBrads = some(7)
-    check finishDefault(alreadyStamped, 64).intent.idleAimCenterBrads == some(7)
+  test "default decision owns idle aim and stable pbDefault provenance":
+    let decision = computeBrDefault(baseFacts())
+    check decision.provenance.base.kind == pbDefault
+    check decision.provenance.overlays.len == 0
+    check canonicalIntent(decision.intent) ==
+      "{\"arrive_radius\":0.0,\"idle_aim_center_brads\":0," &
+      "\"kind\":\"hold\",\"reason\":\"default:hold\"," &
+      "\"schema\":\"intent\",\"v\":1}"
 
   test "CanonicalWriter default bytes are exact and match canonical.nim":
-    let finished = finishDefault(computeBrDefault(baseFacts()).intent, 64)
-    let fast = canonicalIntent(finished.intent)
+    let fast = canonicalIntent(computeBrDefault(baseFacts()).intent)
     const Golden =
-      "{\"arrive_radius\":0.0,\"idle_aim_center_brads\":64," &
+      "{\"arrive_radius\":0.0,\"idle_aim_center_brads\":0," &
       "\"kind\":\"hold\",\"reason\":\"default:hold\"," &
       "\"schema\":\"intent\",\"v\":1}"
     check fast == Golden
@@ -231,7 +229,7 @@ suite "shell default play":
       movingGoal: true,
       profile: cpHunter,
       micro: {mfPeekDuck, mfSeparation},
-      idleAimCenterBrads: some(128),
+      idleAimCenterBrads: 128,
       reason: "edge_ride:margin",
       combat: CombatPolicy(
         noShoot: ProtectedSet(
@@ -255,7 +253,6 @@ suite "shell default play":
       seenReasonLengths: array[IntentReasonMaxBytes + 1, bool]
       seenTeams: set[Team]
       seenPrefer: set[PreferTag]
-      sawIdleAbsent, sawIdlePresent: bool
       sawCombatEmpty, sawCombatNonEmpty: bool
     for index in 0 ..< 1024:
       let intent = rng.randomizedIntent(index)
@@ -266,8 +263,6 @@ suite "shell default play":
         microMask = microMask or (1 shl ord(flag))
       seenMicro[microMask] = true
       seenReasonLengths[intent.reason.len] = true
-      sawIdleAbsent = sawIdleAbsent or intent.idleAimCenterBrads.isNone
-      sawIdlePresent = sawIdlePresent or intent.idleAimCenterBrads.isSome
       sawCombatEmpty = sawCombatEmpty or intent.combat.combatEmpty
       sawCombatNonEmpty = sawCombatNonEmpty or not intent.combat.combatEmpty
       seenTeams = seenTeams + intent.combat.noShoot.teams +
@@ -286,7 +281,6 @@ suite "shell default play":
     check seenReasonLengths[0]
     check seenReasonLengths[1]
     check seenReasonLengths[IntentReasonMaxBytes]
-    check sawIdleAbsent and sawIdlePresent
     check sawCombatEmpty and sawCombatNonEmpty
     check seenTeams == {low(Team) .. high(Team)}
     check seenPrefer == {ptWeakened, ptIsolated, ptRevenge, ptBounty}

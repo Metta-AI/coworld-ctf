@@ -3982,7 +3982,6 @@ proc firstLightFallbacks(sim: SimServer,
     ticksToNextShrink: sim.ticksToNextZoneShrink(elapsed),
     zonePhase: sim.firstLightZonePhase(elapsed),
     zoneDps: zone.dps,
-    idleAimCenterBrads: 0,
     rotateTarget: some(firstLightRotateTarget(selfPos, zone.next)),
     coverGoal: none(ValidatedGoal))
 

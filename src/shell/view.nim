@@ -26,7 +26,7 @@ import ../ctf/sim_types
 import body
 import body_map
 import canonical_fast
-import finisher
+import policy_encoding
 import types
 
 type

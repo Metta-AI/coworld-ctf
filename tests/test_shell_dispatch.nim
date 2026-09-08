@@ -161,7 +161,7 @@ when DispatchRuntimeAvailable:
         currentZone: MapRect(x: 0, y: 0, w: 4096, h: 4096),
         nextZone: MapRect(x: 100, y: 50, w: 200, h: 100),
         ticksToNextShrink: BrRotateLeadTicks + 1, zoneDps: 1,
-        idleAimCenterBrads: 32, coverGoal: none(ValidatedGoal)))
+        coverGoal: none(ValidatedGoal)))
 
 suite "server play receive arm":
   setup:

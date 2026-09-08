@@ -144,7 +144,6 @@ proc liveFrame(pos: BodyPoint; tick: int): FirstLightSeatFrame =
       ticksToNextShrink: BrRotateLeadTicks + 1,
       zonePhase: 1,
       zoneDps: 1,
-      idleAimCenterBrads: 32,
       coverGoal: none(ValidatedGoal)))
 
 suite "target_law reference play":

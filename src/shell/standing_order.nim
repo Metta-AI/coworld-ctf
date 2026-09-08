@@ -5,9 +5,9 @@ import ../ctf/sim_types
 import body, body_map
 import types
 import default_play
-import finisher
+import policy_encoding
 
-export body, default_play, finisher
+export body, default_play, policy_encoding
 
 type
   StandingOrderState* = object
@@ -30,7 +30,6 @@ type
     ticksToNextShrink*: int
     zonePhase*: int
     zoneDps*: int
-    idleAimCenterBrads*: int
     rotateTarget*: Option[BodyPoint]
     coverGoal*: Option[ValidatedGoal]
 
@@ -70,7 +69,6 @@ proc brDefaultFacts*(body: SeatBody, tick: uint32,
     nextZone: fallback.nextZone,
     ticksToNextShrink: fallback.ticksToNextShrink,
     zoneDps: fallback.zoneDps,
-    idleAimCenterBrads: fallback.idleAimCenterBrads,
     threatPositions: threats,
     partner: partnerTelemetry(body),
     rotateTarget: if fallback.rotateTarget.isSome:
@@ -92,71 +90,58 @@ proc sameProvenance(a, b: Provenance): bool =
 
 proc stepFirstLightDefault*(state: var StandingOrderState,
     body: SeatBody, tick: uint32, fallback: BrDefaultFallbacks) =
-  ## Recomputes the default every fallback tick, folds zero overlays, finishes,
-  ## and installs only on bytes/provenance/epoch difference. FIRST LIGHT reads
+  ## Recomputes the default every fallback tick, folds zero overlays, and
+  ## installs only on bytes/provenance/epoch difference. FIRST LIGHT reads
   ## the state's initialized epoch zero and never advances it.
   let facts = brDefaultFacts(body, tick, fallback)
   let decision = computeBrDefault(facts)
   state.lastDefaultRule = decision.rule
-  let finished = finishDefault(decision.intent, facts.idleAimCenterBrads)
-  let bytes = canonicalIntent(finished.intent)
+  let bytes = canonicalIntent(decision.intent)
   let effectiveEpoch = state.effectiveEpoch
   let changed = not state.hasStanding or state.intentBytes != bytes or
-    not sameProvenance(state.provenance, finished.provenance) or
+    not sameProvenance(state.provenance, decision.provenance) or
     state.installedEffectiveEpoch != effectiveEpoch
 
   if changed:
-    setStandingIntent(body, finished.intent, decision.goal, effectiveEpoch)
+    setStandingIntent(body, decision.intent, decision.goal, effectiveEpoch)
     state.hasStanding = true
-    state.intent = finished.intent
+    state.intent = decision.intent
     state.intentBytes = bytes
-    state.provenance = finished.provenance
+    state.provenance = decision.provenance
     state.installedEffectiveEpoch = effectiveEpoch
     state.annotations.add(ShellAnnotation(
       tick: tick,
       seat: uint8(body.seatIndex),
       kind: akAcceptedIntentChange,
       effectiveEpoch: effectiveEpoch,
-      provenance: finished.provenance,
+      provenance: decision.provenance,
       intentBytes: bytes))
 
-proc installFinishedOrder(state: var StandingOrderState; body: SeatBody;
-                          tick: uint32; finished: FinishedOrder;
-                          effectiveEpoch: uint64;
-                          goal: Option[ValidatedGoal]) =
-  let bytes = canonicalIntent(finished.intent)
+proc installOrder(state: var StandingOrderState; body: SeatBody; tick: uint32;
+                  intent: Intent; provenance: Provenance;
+                  effectiveEpoch: uint64; goal: Option[ValidatedGoal]) =
+  let bytes = canonicalIntent(intent)
   let changed = not state.hasStanding or state.intentBytes != bytes or
-    not sameProvenance(state.provenance, finished.provenance) or
+    not sameProvenance(state.provenance, provenance) or
     state.installedEffectiveEpoch != effectiveEpoch
 
   if changed:
-    setStandingIntent(body, finished.intent, goal, effectiveEpoch)
+    setStandingIntent(body, intent, goal, effectiveEpoch)
     state.hasStanding = true
-    state.intent = finished.intent
+    state.intent = intent
     state.intentBytes = bytes
-    state.provenance = finished.provenance
+    state.provenance = provenance
     state.installedEffectiveEpoch = effectiveEpoch
     state.annotations.add(ShellAnnotation(
       tick: tick,
       seat: uint8(body.seatIndex),
       kind: akAcceptedIntentChange,
       effectiveEpoch: effectiveEpoch,
-      provenance: finished.provenance,
+      provenance: provenance,
       intentBytes: bytes))
-
-proc finishResolvedOrder(intent: Intent; provenance: Provenance;
-                         idleAimCenterBrads: int): FinishedOrder =
-  ## Applies the same native final shaping as the zero-guest default path after
-  ## the full §7.4 fold has already selected a base and merged active overlays.
-  assert idleAimCenterBrads in 0 .. 255
-  result.intent = intent
-  if result.intent.idleAimCenterBrads.isNone:
-    result.intent.idleAimCenterBrads = some(idleAimCenterBrads)
-  result.provenance = provenance
 
 proc stepResolvedOrder*(state: var StandingOrderState; body: SeatBody;
-                        tick: uint32; resolved: ResolvedStandingOrder;
-                        idleAimCenterBrads: int) =
+                        tick: uint32; resolved: ResolvedStandingOrder) =
   ## Installs the full §7.4 resolved standing order. The ladder output has
   ## already selected the base, stepped active guests, removed inactive /
   ## pending / faulted overlays, and folded active policies from scratch.
@@ -171,10 +156,8 @@ proc stepResolvedOrder*(state: var StandingOrderState; body: SeatBody;
       state.effectiveEpoch
   if resolved.contributingEpoch != 0:
     state.effectiveEpoch = resolved.contributingEpoch
-  let finished = finishResolvedOrder(resolved.intent, resolved.provenance,
-    idleAimCenterBrads)
-  state.installFinishedOrder(body, tick, finished, effectiveEpoch,
-    resolved.goal)
+  state.installOrder(body, tick, resolved.intent, resolved.provenance,
+    effectiveEpoch, resolved.goal)
 
 proc reconstructStandingOrders*(annotations: openArray[ShellAnnotation]):
     seq[ReconstructedStandingOrder] =

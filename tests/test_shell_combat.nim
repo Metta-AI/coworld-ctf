@@ -60,7 +60,7 @@ proc candidate(seat: int, score: float, shootable = true,
 
 proc combatHold(policy: CombatPolicy): shellTypes.Intent =
   shellTypes.Intent(kind: shellTypes.ikHold, point: none(MapPoint),
-    idleAimCenterBrads: none(int), profile: shellTypes.cpDefault,
+    profile: shellTypes.cpDefault,
     combat: policy)
 
 proc selectedSeat(decision: Option[CombatDecision]): int =

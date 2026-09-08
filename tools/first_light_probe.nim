@@ -80,7 +80,6 @@ proc frame(tick, seat: int, map: BodyMap,
     nextZone: MapRect(x: 100, y: 100, w: 600, h: 600),
     ticksToNextShrink: BrRotateLeadTicks + 1,
     zoneDps: 2,
-    idleAimCenterBrads: seat * 7 mod 256,
     coverGoal: none(ValidatedGoal))
   if tick <= 100:
     input.partner = some(PartnerSample(seat: uint8(seat xor 1),
@@ -131,7 +130,6 @@ proc movementFrame(map: BodyMap, seat: int,
       nextZone: MapRect(x: 50, y: 50, w: 200, h: 200),
       ticksToNextShrink: BrRotateLeadTicks,
       zoneDps: 1,
-      idleAimCenterBrads: seat mod 256,
       rotateTarget: some((100, 100)),
       coverGoal: none(ValidatedGoal)))
 
@@ -173,7 +171,6 @@ proc dangerFrame(map: BodyMap, self, target: BodyPoint, tick: int,
       nextZone: MapRect(x: 0, y: 0, w: 384, h: 160),
       ticksToNextShrink: BrRotateLeadTicks,
       zoneDps: 1,
-      idleAimCenterBrads: 0,
       rotateTarget: some(target),
       coverGoal: none(ValidatedGoal)))
   if withThreat:

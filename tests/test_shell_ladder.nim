@@ -4,7 +4,7 @@ import std/[json, options, sequtils, strutils, tables, unittest]
 
 import ../src/ctf/sim_types
 import ../src/shell/[body_map, call_validation, canonical, emit_validator,
-  finisher, guards, instance, ladder, manifest, types]
+  guards, instance, ladder, manifest, policy_encoding, types]
 
 type
   FakeBook = ref object

@@ -3,7 +3,7 @@
 import std/[options, unittest]
 
 import ../src/ctf/sim_types
-import ../src/shell/[abi, body_map, emit_validator, finisher, instance,
+import ../src/shell/[abi, body_map, emit_validator, instance, policy_encoding,
   runtime, types, wasmtime_c]
 
 proc watBytes(text: string): seq[byte] =

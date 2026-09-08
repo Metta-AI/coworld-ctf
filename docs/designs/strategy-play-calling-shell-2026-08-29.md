@@ -43,8 +43,8 @@ new one arrives.
 (section 7) and runs every seat's plays inside it, at tick rate, under
 memory caps and per-step instruction budgets. Around the plays, the engine
 owns all the orchestration: the ladder driver that decides which plays are
-active, the guard evaluator, the emergency reflexes, the finisher, and the
-default play. The engine also defines everything a play may see and say:
+active, the guard evaluator, the emergency reflexes, and the default play.
+The engine also defines everything a play may see and say:
 the per-seat, fog-filtered `PlayView` (section 5), the play ABI (section
 6), and the seat protocol that carries playbooks and calls (section 4.3).
 All of it lives in this repository and is versioned with the game.
@@ -74,7 +74,7 @@ flowchart LR
     end
     subgraph GAME["GAME (coworld-ctf engine)"]
         VF["per-seat PlayView<br/>(fogged)"]
-        RT["play runtime: embedded WASM,<br/>ladder driver · guards · reflexes ·<br/>finisher · default play"]
+        RT["play runtime: embedded WASM,<br/>ladder driver · guards · reflexes ·<br/>default play"]
         BODY["game-side body:<br/>belief · nav · combat · action"]
         REC["replay: masks (hashed) ·<br/>calls + module hashes (hashed) ·<br/>Intent annotations"]
         SIM["authoritative sim"]
@@ -108,8 +108,7 @@ Goals:
    parameters, the durable status list and its acknowledgment, with named
    limits and deterministic overflow.
 4. Specify the engine's play runtime: the embedded WebAssembly runtime and
-   its choice, the ladder driver, guards, reflexes, the finisher, and the
-   default play.
+   its choice, the ladder driver, guards, reflexes, and the default play.
 5. Adopt Maxwell's ladder-of-plays call format and his seven-play reference
    menu, and make sure the parameter system covers what those plays need.
 6. Keep replays deterministic under the new boundary, reusing the recording
@@ -379,7 +378,7 @@ retained, replaced, or deleted:
 | `movingGoal: bool` | retained |
 | `profile` (default, carrier, hunter) | retained as an enum |
 | `micro` (permission set) | retained as a set of named flags, minus the pursuit flag (deleted with the override) |
-| `idleAimCenterBrads: Option[int]` | retained; 0..255 |
+| `idleAimCenterBrads: int` | retained; 0..255; 0 when the play omits it |
 | `clampToEndzone: bool` | retained; meaningful in CTF, ignored where no endzones exist |
 | `suppressFireFreeze: bool` | retained |
 | `reason: string` | retained; telemetry only, capped at 64 bytes |
@@ -2030,8 +2029,8 @@ guards can select by mode.
 ## 7. The play runtime and the call format
 
 - The engine embeds a WebAssembly runtime and owns everything around the
-  player's plays: the ladder driver, the guard evaluator, reflexes, the
-  finisher, and the default play.
+  player's plays: the ladder driver, the guard evaluator, reflexes, and the
+  default play.
 - A call is Maxwell's ladder-of-plays: an ordered list of play names with
   parameters and optional guards. One active ladder stands per seat; the
   LLM replaces it whenever it likes, including mid-match.
@@ -2126,7 +2125,7 @@ Every *overlay* entry whose guard passes is active, and their combat
 policies fold in order (union of bans and wards, preferences concatenated,
 `holdFire` if any). The first *controller* entry whose guard passes is the
 active controller: its instance steps, the folded combat policy is stamped
-onto its emitted `Intent`, and the result goes to the finisher. In the
+onto its emitted `Intent`, and the result becomes the base order. In the
 example, `target_law` and `pact` stand under whichever of `supply_run` or
 `edge_ride` is moving the cog, which is exactly the layering Maxwell's
 menu requires. A guardless controller always passes, so the last entry is
@@ -2240,9 +2239,9 @@ quota needs and asserts that no old-parameter emission is attributed to
 the new epoch, alongside goldens for death and respawn during a pending
 retune and for a second replacement arriving while one is pending.
 
-### 7.3 Reflexes, the finisher, and the default play
+### 7.3 Reflexes and the default play
 
-Three fixed pieces sit above and below the player's plays. All three are
+Two fixed pieces sit above and below the player's plays. Both are
 engine-native Nim in `src/shell/`, not WASM modules: they need no
 sandbox, they read the engine's hazard bookkeeping directly, and a
 player cannot replace them, only position them.
@@ -2259,12 +2258,9 @@ observers run every tick regardless of subscription, so a mid-emergency
 call change never blinds the new ladder to an emergency already in
 progress. Their semantics are normative in Appendix R.
 
-**The finisher** stamps what every `Intent` must carry and no play should
-have to remember: the idle-aim center (where the cog scans when it has no
-target; the body requires it) and the provenance (the base entry's
-`entryId` and module hash, `reflex:<name>`, or `default`, plus the
-contributing overlays), which is what the annotation record's
-`provenance` field carries.
+The idle-aim center is an `Intent` field with a built-in default of 0.
+Provenance is written by whichever subsystem chooses the order: the ladder
+driver for entries and overlays, the default play, or the reflex selector.
 
 **The default play** is the ladder's implicit final controller, always
 present: a competent, parameterless survival controller per mode (in
@@ -2313,8 +2309,8 @@ guest last said does not, because that output was produced under the
 old parameters.
 
 The **standing order** is what the body executes, and it is
-**recomputed from scratch every tick** as the finisher applied to the
-fold of the base order with the cached policies of the overlays active
+**recomputed from scratch every tick** as the fold of the base order with
+the cached policies of the overlays active
 *this tick*; the previous standing order is never an input to the fold.
 An overlay that is active and emitted nothing this tick contributes its
 cached policy; an overlay whose guard is false, that is
@@ -2866,7 +2862,7 @@ dark since it landed).
   park, fault, drop, retune), the ABI host functions with their budgets,
   and the containment tests of gate 3. Around it: the ladder driver
   (guards via the expression API carved out of the page VM, overlay
-  fold, first-eligible controller), reflexes, the finisher, the per-mode
+  fold, first-eligible controller), reflexes, the per-mode
   default play, and the annotation writer. Alongside: the play SDK and
   its `play.nims`, the play harness, and the Docker and Nix build changes
   that link the runtime library. Acceptance: a hello play built with the
@@ -3323,8 +3319,9 @@ wire layout or canonical bytes, so it does not bump GameVersion.
   (chosen over compile-time parameterization). Mid-match calls are firmly
   in scope. The original decision also allowed mid-match uploads under the
   episode budget; H.1 supersedes that clause.
-- The game side owns the orchestration: the ladder driver, reflexes, the
-  finisher, and the default play are engine subsystems. James wobbled once
+- The game side owns the orchestration: the ladder driver, reflexes, and the
+  default play are engine subsystems. The finisher step was removed
+  2026-09-04; see H.7. James wobbled once
   on whether these belong inside the player's module and landed on
   game-side ("all that stuff should be game side, I think").
 - The view stays a wire message, at LLM cadence, for the policy's LLM;
@@ -3626,3 +3623,12 @@ the players. Maxwell's parallel
 player-visible plays with typed parameters and a ladder-shaped call, and
 supplies the reference menu. Full earlier revisions are in the git
 history of this file and of its prior home in James's lab.
+
+### H.7 The finisher is removed (James, 2026-09-04)
+
+**Ruling.** The finisher post-pass is removed. The idle-aim center is a plain
+`Intent` field with a built-in default of 0, and the canonical writer always
+encodes it because every standing order already carried the key and replay
+annotation goldens pin those bytes. Authorship now stays where the order is
+chosen: the ladder driver records entries and overlays, the default play records
+`default`, and the reflex selector records its reflex.

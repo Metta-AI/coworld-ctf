@@ -24,7 +24,7 @@
       "type": "array",
       "items": {"enum": ["formation_bias", "peek_duck", "separation", "steal_rush_exempt"]}
     },
-    "idle_aim_center_brads": {"type": "integer", "minimum": 0, "maximum": 255, "$comment": "omit when unset; the finisher stamps it if absent (§7.3)"},
+    "idle_aim_center_brads": {"type": "integer", "minimum": 0, "maximum": 255, "$comment": "omit to accept the default 0; the engine always encodes it"},
     "clamp_to_endzone": {"type": "boolean", "$comment": "omit when false; meaningful in ctf only, ignored elsewhere"},
     "suppress_fire_freeze": {"type": "boolean", "$comment": "omit when false"},
     "handoff": {"enum": ["gun", "hopper", "bandage"], "$comment": "omit when absent (neutral). §4.1 amendment (owner spec 2026-09-02): the STANDING give-item declaration; valid only in mode br (a duo fact, rejected elsewhere exactly like duo: references). The target is deliberately NOT a field — it is always the duo partner, resolved by the engine at execution through the sim.declareHandoff consent seam. The vocabulary is that seam's own."},
