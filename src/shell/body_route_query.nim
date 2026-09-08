@@ -5,6 +5,8 @@
 ## publish it only after success, so a typed failure cannot damage a live route.
 
 import std/[hashes, math, options, tables]
+when defined(navQueryProfile):
+  import std/[monotimes, times]
 import body_hazard, body_map, body_planner, body_route_index
 import types as shellTypes
 
@@ -60,6 +62,21 @@ type
     sideCapHits*, localCapHits*: int
     earliestAlternativePops*: int
     selectedEarliestAlternative*: bool
+    when defined(navQueryProfile):
+      endpointAttachNanoseconds*: int64
+      sameRoomNanoseconds*: int64
+      sideGraphNanoseconds*: int64
+      hazardPricingNanoseconds*: int64
+      descriptorAssemblyValidateNanoseconds*: int64
+      segmentClearCalls*: int
+      localPopsTotal*: int
+      arcsRelaxed*: int
+      memoFills*: int
+      memoCellReads*: int
+      chainCellReads*: int
+      hazardSteps*: int
+      overflowKind*: string
+      overflowActualLength*: int
 
   EndpointAttach = object
     pointStart: int32
@@ -157,6 +174,16 @@ proc routeOctileQ4*(a, b: BodyPoint): int64 =
     dy = abs(a.y - b.y)
     diagonal = min(dx, dy)
   int64(181 * diagonal + 128 * (max(dx, dy) - diagonal))
+
+when defined(navQueryProfile):
+  proc profileElapsed(started: MonoTime): int64 {.inline.} =
+    (getMonoTime() - started).inNanoseconds
+
+proc querySegmentClear(index: BodyRouteIndex,
+    scratch: BodyRouteQueryScratch, a, b: BodyPoint): bool {.inline.} =
+  when defined(navQueryProfile):
+    inc scratch.resultStats.segmentClearCalls
+  index.map.segmentClear(a, b)
 
 proc validateRouteQueryCapacity*(mapName: string, sideCount: int) =
   if sideCount < 0 or sideCount > RouteEdgeCap + 1:
@@ -300,8 +327,10 @@ proc appendRef(index: BodyRouteIndex,
   inc count
   true
 
-proc addAttach(index: BodyRouteIndex, workspace: var EndpointWorkspace,
+proc addAttach(scratch: BodyRouteQueryScratch,
+    workspace: var EndpointWorkspace,
     refs: openArray[int32]): bool =
+  let index = scratch.index
   if refs.len == 0 or refs[^1] < 0 or refs.len > RouteLocalLegCap:
     return false
   let
@@ -311,8 +340,8 @@ proc addAttach(index: BodyRouteIndex, workspace: var EndpointWorkspace,
   if room < 0 or graph <= 0:
     return false
   for offset in 1 ..< refs.len:
-    if not index.map.segmentClear(index.routePoint(refs[offset - 1]),
-        index.routePoint(refs[offset])):
+    if not index.querySegmentClear(scratch,
+        index.routePoint(refs[offset - 1]), index.routePoint(refs[offset])):
       return false
   for attachIndex in 0 ..< workspace.attachCount:
     let existing = workspace.attaches[attachIndex]
@@ -339,10 +368,11 @@ proc addAttach(index: BodyRouteIndex, workspace: var EndpointWorkspace,
   inc workspace.attachCount
   true
 
-proc addCrossingAttachments(index: BodyRouteIndex,
+proc addCrossingAttachments(scratch: BodyRouteQueryScratch,
     workspace: var EndpointWorkspace, endpointRef, fineRef: int32,
     segment, offset: int,
     refs: var array[RouteLocalLegCap, int32]) =
+  let index = scratch.index
   let metadata = index.routeSegmentAt(segment)
   var count = 0
   if not index.appendRef(refs, count, endpointRef) or
@@ -352,7 +382,7 @@ proc addCrossingAttachments(index: BodyRouteIndex,
     if not index.appendRef(refs, count, index.segmentCellAt(segment, cursor)):
       break
   if count > 0 and refs[count - 1] >= 0:
-    discard index.addAttach(workspace, refs.toOpenArray(0, count - 1))
+    discard scratch.addAttach(workspace, refs.toOpenArray(0, count - 1))
   count = 0
   if not index.appendRef(refs, count, endpointRef) or
       not index.appendRef(refs, count, fineRef):
@@ -361,12 +391,13 @@ proc addCrossingAttachments(index: BodyRouteIndex,
     if not index.appendRef(refs, count, index.segmentCellAt(segment, cursor)):
       break
   if count > 0 and refs[count - 1] >= 0:
-    discard index.addAttach(workspace, refs.toOpenArray(0, count - 1))
+    discard scratch.addAttach(workspace, refs.toOpenArray(0, count - 1))
 
-proc addPocketAttachments(index: BodyRouteIndex,
+proc addPocketAttachments(scratch: BodyRouteQueryScratch,
     workspace: var EndpointWorkspace, endpointRef, fineRef: int32,
     pocket, offset: int,
     refs: var array[RouteLocalLegCap, int32]) =
+  let index = scratch.index
   let metadata = index.pocketConnectorAt(pocket)
   var count = 0
   if not index.appendRef(refs, count, endpointRef) or
@@ -377,7 +408,7 @@ proc addPocketAttachments(index: BodyRouteIndex,
         index.pocketConnectorPointAt(pocket, cursor)):
       break
   if count > 0 and refs[count - 1] >= 0:
-    discard index.addAttach(workspace, refs.toOpenArray(0, count - 1))
+    discard scratch.addAttach(workspace, refs.toOpenArray(0, count - 1))
 
 proc collectAttachments(index: BodyRouteIndex, scratch: BodyRouteQueryScratch,
     endpoint: BodyPoint,
@@ -399,23 +430,24 @@ proc collectAttachments(index: BodyRouteIndex, scratch: BodyRouteQueryScratch,
       if index.graphComponentForCell(coarseRef.int) != 0:
         let coarsePoint = index.routePoint(coarseRef)
         if index.map.componentOf(coarsePoint) == component and
-            index.map.segmentClear(endpoint, coarsePoint):
+            index.querySegmentClear(scratch, endpoint, coarsePoint):
           var count = 0
           discard index.appendRef(refs, count, endpointRef)
           discard index.appendRef(refs, count, coarseRef)
-          if not index.addAttach(workspace, refs.toOpenArray(0, count - 1)):
+          if not scratch.addAttach(workspace, refs.toOpenArray(0, count - 1)):
             return brfDescriptorOverflow
       for anchorOffset in index.fineAnchorRangeForCell(coarseRef.int):
         let fineRef = index.fineAnchorAt(anchorOffset)
         if index.map.componentOf(index.routePoint(fineRef)) == component and
-            index.map.segmentClear(endpoint, index.routePoint(fineRef)):
+            index.querySegmentClear(scratch, endpoint,
+              index.routePoint(fineRef)):
           case scratch.fineProvenanceKind[anchorOffset]
           of 1:
-            index.addCrossingAttachments(workspace, endpointRef, fineRef,
+            scratch.addCrossingAttachments(workspace, endpointRef, fineRef,
               scratch.fineProvenanceIndex[anchorOffset].int,
               scratch.fineProvenanceOffset[anchorOffset].int, refs)
           of 2:
-            index.addPocketAttachments(workspace, endpointRef, fineRef,
+            scratch.addPocketAttachments(workspace, endpointRef, fineRef,
               scratch.fineProvenanceIndex[anchorOffset].int,
               scratch.fineProvenanceOffset[anchorOffset].int, refs)
           else:
@@ -635,8 +667,15 @@ proc profileWeightQ8(profile: shellTypes.CostProfile): int64 {.inline.} =
   of shellTypes.cpCarrier: 640
   of shellTypes.cpHunter: 64
 
-proc edgeBaseCost(index: BodyRouteIndex, request: BodyRouteRequest,
+proc edgeBaseCost(scratch: BodyRouteQueryScratch,
+    request: BodyRouteRequest,
     aRef, bRef: int32): int64 =
+  let index = scratch.index
+  when defined(navQueryProfile):
+    let profileStarted = getMonoTime()
+    defer:
+      scratch.resultStats.hazardPricingNanoseconds +=
+        profileElapsed(profileStarted)
   let
     a = index.routePoint(aRef)
     b = index.routePoint(bRef)
@@ -660,10 +699,18 @@ proc edgeBaseCost(index: BodyRouteIndex, request: BodyRouteRequest,
       return InfiniteCost
     result *= 8
 
-proc hazardEdgeCost(index: BodyRouteIndex, request: BodyRouteRequest,
+proc hazardEdgeCost(scratch: BodyRouteQueryScratch,
+    request: BodyRouteRequest,
     bRef: int32, entryPhysicalQ4, stepPhysicalQ4: int64): int64 =
+  let index = scratch.index
   if request.hazard == nil or request.hazard.state == bhsDark:
     return 0
+  when defined(navQueryProfile):
+    let profileStarted = getMonoTime()
+    defer:
+      inc scratch.resultStats.hazardSteps
+      scratch.resultStats.hazardPricingNanoseconds +=
+        profileElapsed(profileStarted)
   let cumulative = checkedAdd(entryPhysicalQ4, stepPhysicalQ4)
   if cumulative == InfiniteCost:
     return InfiniteCost
@@ -672,11 +719,12 @@ proc hazardEdgeCost(index: BodyRouteIndex, request: BodyRouteRequest,
   request.hazard.hazardStepCostQ4(index.routeNavCell(bRef).int,
     eta, uint32(stepPhysicalQ4))
 
-proc edgeCost(index: BodyRouteIndex, request: BodyRouteRequest,
+proc edgeCost(scratch: BodyRouteQueryScratch, request: BodyRouteRequest,
     aRef, bRef: int32, entryPhysicalQ4: int64): int64 =
-  let physical = distanceQ4(index.routePoint(aRef), index.routePoint(bRef))
-  checkedAdd(index.edgeBaseCost(request, aRef, bRef),
-    index.hazardEdgeCost(request, bRef, entryPhysicalQ4, physical))
+  let physical = distanceQ4(scratch.index.routePoint(aRef),
+    scratch.index.routePoint(bRef))
+  checkedAdd(scratch.edgeBaseCost(request, aRef, bRef),
+    scratch.hazardEdgeCost(request, bRef, entryPhysicalQ4, physical))
 
 type LocalSearchState = enum
   lssFound
@@ -808,6 +856,8 @@ proc runLocalPath(scratch: BodyRouteQueryScratch, request: BodyRouteRequest,
   while scratch.heap.len > 0:
     if pops >= RouteLocalPopCap:
       scratch.resultStats.localPops = max(scratch.resultStats.localPops, pops)
+      when defined(navQueryProfile):
+        scratch.resultStats.localPopsTotal += pops
       return lssCap
     let node = scratch.heap.pop()
     let record = node.item.int
@@ -835,9 +885,11 @@ proc runLocalPath(scratch: BodyRouteQueryScratch, request: BodyRouteRequest,
       let nextRecord = scratch.localRecord(nextCell, true)
       if nextRecord < 0:
         scratch.resultStats.localPops = max(scratch.resultStats.localPops, pops)
+        when defined(navQueryProfile):
+          scratch.resultStats.localPopsTotal += pops
         return lssCap
       let candidate = checkedAdd(node.cost,
-        index.edgeCost(request, currentCell, nextCell, node.physical))
+        scratch.edgeCost(request, currentCell, nextCell, node.physical))
       let previousParent = scratch.localParent[nextRecord].int
       if candidate < scratch.localCost[nextRecord] or
           (candidate < InfiniteCost and
@@ -855,8 +907,12 @@ proc runLocalPath(scratch: BodyRouteQueryScratch, request: BodyRouteRequest,
                 index.routePoint(nextCell))),
             item: int32(nextRecord), tie: nextCell)):
           scratch.resultStats.localPops = max(scratch.resultStats.localPops, pops)
+          when defined(navQueryProfile):
+            scratch.resultStats.localPopsTotal += pops
           return lssCap
   scratch.resultStats.localPops = max(scratch.resultStats.localPops, pops)
+  when defined(navQueryProfile):
+    scratch.resultStats.localPopsTotal += pops
   if targetRecord < 0:
     return lssDisconnected
   cost = scratch.localCost[targetRecord]
@@ -872,9 +928,10 @@ proc runLocalPath(scratch: BodyRouteQueryScratch, request: BodyRouteRequest,
     swap(destination[left], destination[length - 1 - left])
   lssFound
 
-proc pathCost(index: BodyRouteIndex, request: BodyRouteRequest,
+proc pathCost(scratch: BodyRouteQueryScratch, request: BodyRouteRequest,
     points: openArray[int32], entryPhysicalQ4 = 0'i64,
     reversed = false): int64 =
+  let index = scratch.index
   var physical = entryPhysicalQ4
   for offset in 1 ..< points.len:
     let
@@ -883,7 +940,7 @@ proc pathCost(index: BodyRouteIndex, request: BodyRouteRequest,
       step = distanceQ4(index.routePoint(points[source]),
         index.routePoint(points[target]))
     result = checkedAdd(result,
-      index.edgeCost(request, points[source], points[target], physical))
+      scratch.edgeCost(request, points[source], points[target], physical))
     physical = checkedAdd(physical, step)
 
 proc pathPhysical(index: BodyRouteIndex, points: openArray[int32]): int64 =
@@ -895,30 +952,37 @@ proc attachPoints(workspace: EndpointWorkspace,
     attach: EndpointAttach): Slice[int] =
   attach.pointStart.int .. attach.pointStart.int + attach.pointLen.int - 1
 
-proc attachCost(index: BodyRouteIndex, request: BodyRouteRequest,
+proc attachCost(scratch: BodyRouteQueryScratch, request: BodyRouteRequest,
     workspace: EndpointWorkspace, attach: EndpointAttach,
     entryPhysicalQ4 = 0'i64, reversed = false): int64 =
-  index.pathCost(request, workspace.points.toOpenArray(
+  scratch.pathCost(request, workspace.points.toOpenArray(
     attach.pointStart.int, attach.pointStart.int + attach.pointLen.int - 1),
     entryPhysicalQ4, reversed)
 
-proc chainCost(index: BodyRouteIndex, request: BodyRouteRequest,
+proc chainCost(scratch: BodyRouteQueryScratch, request: BodyRouteRequest,
     fromCell, side: int, entryPhysicalQ4 = 0'i64): int64 =
+  let index = scratch.index
   var cursor = fromCell
   var physical = entryPhysicalQ4
   while cursor != index.portalSideAt(side).anchorCell.int:
+    when defined(navQueryProfile):
+      inc scratch.resultStats.chainCellReads
     let next = index.nextCellTowardSide(side, cursor)
     if next < 0 or next.int == cursor:
       return InfiniteCost
     let step = distanceQ4(index.routePoint(int32(cursor)), index.routePoint(next))
     result = checkedAdd(result,
-      index.edgeCost(request, int32(cursor), next, physical))
+      scratch.edgeCost(request, int32(cursor), next, physical))
     physical = checkedAdd(physical, step)
     cursor = next.int
 
-proc chainPhysical(index: BodyRouteIndex, fromCell, side: int): int64 =
+proc chainPhysical(scratch: BodyRouteQueryScratch,
+    fromCell, side: int): int64 =
+  let index = scratch.index
   var cursor = fromCell
   while cursor != index.portalSideAt(side).anchorCell.int:
+    when defined(navQueryProfile):
+      inc scratch.resultStats.chainCellReads
     let next = index.nextCellTowardSide(side, cursor)
     if next < 0 or next.int == cursor:
       return InfiniteCost
@@ -938,16 +1002,16 @@ proc buildConnections(scratch: BodyRouteQueryScratch,
     scoring.hazard = nil
   for attachIndex in 0 ..< workspace.attachCount:
     let attach = workspace.attaches[attachIndex]
-    let base = index.attachCost(scoring, workspace, attach)
+    let base = scratch.attachCost(scoring, workspace, attach)
     let basePhysical = index.pathPhysical(workspace.points.toOpenArray(
       attach.pointStart.int, attach.pointStart.int + attach.pointLen.int - 1))
     for roomOffset in index.roomSideRange(attach.room.int):
       let
         side = index.roomSideAt(roomOffset)
-        chain = index.chainCost(scoring, attach.coarseCell.int, side,
+        chain = scratch.chainCost(scoring, attach.coarseCell.int, side,
           basePhysical)
         physical = checkedAdd(basePhysical,
-          index.chainPhysical(attach.coarseCell.int, side))
+          scratch.chainPhysical(attach.coarseCell.int, side))
       if index.graphComponentForSide(side) != attach.graph.int or
           chain == InfiniteCost:
         continue
@@ -991,9 +1055,13 @@ proc segmentBaseCost(scratch: BodyRouteQueryScratch,
   if scratch.arcCostGeneration[arcOffset] == scratch.arcMemoGeneration:
     return if scratch.arcCost[arcOffset] == ArcCostInfinite:
       InfiniteCost else: scratch.arcCost[arcOffset].int64
+  when defined(navQueryProfile):
+    inc scratch.resultStats.memoFills
   let
     arc = scratch.index.routeArcAt(arcOffset)
     metadata = scratch.index.routeSegmentAt(arc.segment.int)
+  when defined(navQueryProfile):
+    scratch.resultStats.memoCellReads += max(0, metadata.cellLen.int - 1)
   for offset in 1 ..< metadata.cellLen.int:
     let
       previous = scratch.index.segmentCellAt(
@@ -1001,7 +1069,7 @@ proc segmentBaseCost(scratch: BodyRouteQueryScratch,
       current = scratch.index.segmentCellAt(
         arc.segment.int, offset, arc.reversed)
     result = checkedAdd(result,
-      scratch.index.edgeBaseCost(request, previous, current))
+      scratch.edgeBaseCost(request, previous, current))
   if result >= ArcCostInfinite.int64:
     result = InfiniteCost
     scratch.arcCost[arcOffset] = ArcCostInfinite
@@ -1012,10 +1080,15 @@ proc segmentBaseCost(scratch: BodyRouteQueryScratch,
 proc segmentHazardCost(scratch: BodyRouteQueryScratch,
     request: BodyRouteRequest, arcOffset: int,
     entryPhysicalQ4: int64): int64 =
-  let
-    arc = scratch.index.routeArcAt(arcOffset)
-  request.hazard.hazardSegmentCostQ4(scratch.index, arc.segment.int,
+  let arc = scratch.index.routeArcAt(arcOffset)
+  when defined(navQueryProfile):
+    let profileStarted = getMonoTime()
+  result = request.hazard.hazardSegmentCostQ4(scratch.index, arc.segment.int,
     arc.reversed, request.elapsedZoneTick, entryPhysicalQ4)
+  when defined(navQueryProfile):
+    inc scratch.resultStats.hazardSteps
+    scratch.resultStats.hazardPricingNanoseconds +=
+      profileElapsed(profileStarted)
 
 proc segmentCost(scratch: BodyRouteQueryScratch,
     request: BodyRouteRequest, arcOffset: int,
@@ -1036,20 +1109,22 @@ proc reverseChainHazard(scratch: BodyRouteQueryScratch,
     entryPhysicalQ4: int64): int64 =
   if request.hazard == nil or request.hazard.state == bhsDark:
     return 0
-  let total = scratch.index.chainPhysical(fromCell, side)
+  let total = scratch.chainPhysical(fromCell, side)
   if total == InfiniteCost:
     return InfiniteCost
   var
     cursor = fromCell
     prefix = 0'i64
   while cursor != scratch.index.portalSideAt(side).anchorCell.int:
+    when defined(navQueryProfile):
+      inc scratch.resultStats.chainCellReads
     let next = scratch.index.nextCellTowardSide(side, cursor)
     if next < 0 or next.int == cursor:
       return InfiniteCost
     let step = distanceQ4(scratch.index.routePoint(int32(cursor)),
       scratch.index.routePoint(next))
     prefix = checkedAdd(prefix, step)
-    result = checkedAdd(result, scratch.index.hazardEdgeCost(
+    result = checkedAdd(result, scratch.hazardEdgeCost(
       request, int32(cursor), entryPhysicalQ4 + total - prefix, step))
     cursor = next.int
 
@@ -1066,7 +1141,7 @@ proc reverseAttachHazard(scratch: BodyRouteQueryScratch,
       target = scratch.goalAttach.points[first + offset - 1]
       step = distanceQ4(scratch.index.routePoint(source),
         scratch.index.routePoint(target))
-    result = checkedAdd(result, scratch.index.hazardEdgeCost(
+    result = checkedAdd(result, scratch.hazardEdgeCost(
       request, target, physical, step))
     physical = checkedAdd(physical, step)
 
@@ -1075,7 +1150,7 @@ proc goalConnectionHazard(scratch: BodyRouteQueryScratch,
     entryPhysicalQ4: int64): int64 =
   let
     attach = scratch.goalAttach.attaches[attachIndex]
-    chainPhysical = scratch.index.chainPhysical(attach.coarseCell.int, side)
+    chainPhysical = scratch.chainPhysical(attach.coarseCell.int, side)
   result = scratch.reverseChainHazard(request, attach.coarseCell.int,
     side, entryPhysicalQ4)
   result = checkedAdd(result, scratch.reverseAttachHazard(request, attach,
@@ -1215,6 +1290,8 @@ proc runSideSearch(scratch: BodyRouteQueryScratch,
     if result.found and current.priority > result.cost:
       break
     for arcOffset in scratch.index.arcRangeForSide(side):
+      when defined(navQueryProfile):
+        inc scratch.resultStats.arcsRelaxed
       let
         arc = scratch.index.routeArcAt(arcOffset)
         next = arc.toSide.int
@@ -1254,11 +1331,11 @@ proc tryDirectLocal(scratch: BodyRouteQueryScratch,
       if startAttach.room != goalAttach.room:
         continue
       let estimate = checkedAdd(
-        scratch.index.attachCost(request, scratch.startAttach, startAttach),
+        scratch.attachCost(request, scratch.startAttach, startAttach),
         checkedAdd(routeOctileQ4(
           scratch.index.map.cellOf(scratch.index.routePoint(startAttach.coarseCell)),
           scratch.index.map.cellOf(scratch.index.routePoint(goalAttach.coarseCell))),
-          scratch.index.attachCost(request, scratch.goalAttach, goalAttach)))
+          scratch.attachCost(request, scratch.goalAttach, goalAttach)))
       if estimate < bestEstimate or
           (estimate == bestEstimate and
            (startIndex < bestStart or
@@ -1298,7 +1375,7 @@ proc tryDirectLocal(scratch: BodyRouteQueryScratch,
   scratch.resultDescriptor = BodyRouteDescriptor(
     startLegLen: uint16(outputLen), exactStart: request.start,
     exactGoal: request.goal.goalPoint)
-  result.cost = scratch.index.pathCost(request,
+  result.cost = scratch.pathCost(request,
     scratch.resultStartLeg.toOpenArray(0, outputLen - 1))
 
 proc appendChain(scratch: BodyRouteQueryScratch, fromCell, side: int,
@@ -1311,6 +1388,17 @@ proc appendChain(scratch: BodyRouteQueryScratch, fromCell, side: int,
     cursor = next.int
   true
 
+when defined(navQueryProfile):
+  proc chainStepCount(scratch: BodyRouteQueryScratch,
+      fromCell, side: int): int =
+    var cursor = fromCell
+    while cursor != scratch.index.portalSideAt(side).anchorCell.int:
+      let next = scratch.index.nextCellTowardSide(side, cursor)
+      if next < 0 or next.int == cursor:
+        return high(int)
+      inc result
+      cursor = next.int
+
 proc assembleSideRoute(scratch: BodyRouteQueryScratch,
     search: tuple[found, capHit: bool, goalSide, goalLabel,
       sourceAttach, goalAttach: int, cost, physical: int64]): LocalSearchState =
@@ -1321,6 +1409,21 @@ proc assembleSideRoute(scratch: BodyRouteQueryScratch,
     slot = cursor * 2 + label
   while scratch.sideParentArc[slot] >= 0:
     if reverseCount >= RouteEdgeCap:
+      when defined(navQueryProfile):
+        var
+          overflowCursor = cursor
+          overflowLabel = label
+          overflowCount = reverseCount
+          overflowSlot = slot
+        while scratch.sideParentArc[overflowSlot] >= 0:
+          let overflowArc = scratch.index.routeArcAt(
+            scratch.sideParentArc[overflowSlot].int)
+          inc overflowCount
+          overflowCursor = overflowArc.fromSide.int
+          overflowLabel = scratch.sideParentLabel[overflowSlot].int
+          overflowSlot = overflowCursor * 2 + overflowLabel
+        scratch.resultStats.overflowKind = "edge_count"
+        scratch.resultStats.overflowActualLength = overflowCount
       return lssOverflow
     let
       arcOffset = scratch.sideParentArc[slot].int
@@ -1336,12 +1439,26 @@ proc assembleSideRoute(scratch: BodyRouteQueryScratch,
     swap(scratch.resultEdges[left], scratch.resultEdges[reverseCount - 1 - left])
   var startLen = 0
   let startAttach = scratch.startAttach.attaches[search.sourceAttach]
+  when defined(navQueryProfile):
+    let requiredStartLen = startAttach.pointLen.int +
+      scratch.chainStepCount(startAttach.coarseCell.int, cursor)
+    if requiredStartLen > RouteLocalLegCap:
+      scratch.resultStats.overflowKind = "start_leg"
+      scratch.resultStats.overflowActualLength = requiredStartLen
+      return lssOverflow
   if not scratch.copyAttach(scratch.startAttach, search.sourceAttach,
       scratch.resultStartLeg, startLen) or
       not scratch.appendChain(startAttach.coarseCell.int, cursor,
         scratch.resultStartLeg, startLen):
     return lssOverflow
   let goalAttach = scratch.goalAttach.attaches[search.goalAttach]
+  when defined(navQueryProfile):
+    let requiredGoalLen = goalAttach.pointLen.int +
+      scratch.chainStepCount(goalAttach.coarseCell.int, search.goalSide)
+    if requiredGoalLen > RouteLocalLegCap:
+      scratch.resultStats.overflowKind = "goal_leg"
+      scratch.resultStats.overflowActualLength = requiredGoalLen
+      return lssOverflow
   var goalForwardLen = 0
   if not scratch.index.appendRef(scratch.tempRefs, goalForwardLen,
       goalAttach.coarseCell) or
@@ -1381,7 +1498,7 @@ proc installStraight(scratch: BodyRouteQueryScratch,
   scratch.resultDescriptor = BodyRouteDescriptor(
     startLegLen: uint16(count), exactStart: request.start,
     exactGoal: request.goal.goalPoint)
-  scratch.index.pathCost(request,
+  scratch.pathCost(request,
     scratch.resultStartLeg.toOpenArray(0, count - 1))
 
 proc validateBodyRoute*(index: BodyRouteIndex, request: BodyRouteRequest,
@@ -1403,16 +1520,30 @@ proc queryBodyRoute*(index: BodyRouteIndex, scratch: BodyRouteQueryScratch,
     return BodyRouteQueryResult(failure: brfStartAttach)
   if index.map.componentOf(request.start) != request.goal.goalComponent:
     return BodyRouteQueryResult(failure: brfDisconnected)
+  when defined(navQueryProfile):
+    let endpointStarted = getMonoTime()
   var failure = index.collectAttachments(scratch, request.start,
     scratch.startAttach, scratch.tempRefs)
   if failure != brfNone:
-    return BodyRouteQueryResult(failure: failure)
+    when defined(navQueryProfile):
+      scratch.resultStats.endpointAttachNanoseconds +=
+        profileElapsed(endpointStarted)
+    return BodyRouteQueryResult(failure: failure,
+      stats: scratch.resultStats)
   failure = index.collectAttachments(scratch, request.goal.goalPoint,
     scratch.goalAttach, scratch.tempRefs)
   if failure != brfNone:
+    when defined(navQueryProfile):
+      scratch.resultStats.endpointAttachNanoseconds +=
+        profileElapsed(endpointStarted)
     return BodyRouteQueryResult(failure:
-      if failure == brfStartAttach: brfGoalAttach else: failure)
-  let straightClear = index.map.segmentClear(request.start,
+      if failure == brfStartAttach: brfGoalAttach else: failure,
+      stats: scratch.resultStats)
+  when defined(navQueryProfile):
+    scratch.resultStats.endpointAttachNanoseconds +=
+      profileElapsed(endpointStarted)
+    let sameRoomStarted = getMonoTime()
+  let straightClear = index.querySegmentClear(scratch, request.start,
     request.goal.goalPoint)
   if straightClear and request.danger == nil and request.blockedCell.isNone and
       (request.hazard == nil or request.hazard.state == bhsDark):
@@ -1427,20 +1558,33 @@ proc queryBodyRoute*(index: BodyRouteIndex, scratch: BodyRouteQueryScratch,
       return BodyRouteQueryResult(failure: brfDescriptorOverflow,
         stats: scratch.resultStats)
     if straightClear:
-      let straightCost = scratch.index.edgeCost(request,
+      let straightCost = scratch.edgeCost(request,
         scratch.index.routeRefForPoint(request.start),
         scratch.index.routeRefForPoint(request.goal.goalPoint), 0)
       if straightCost <= scratch.bestCost:
         scratch.bestCost = scratch.installStraight(request)
   discard scratch.buildConnections(request, scratch.startAttach, true)
   discard scratch.buildConnections(request, scratch.goalAttach, false)
+  when defined(navQueryProfile):
+    scratch.resultStats.sameRoomNanoseconds +=
+      profileElapsed(sameRoomStarted)
+    let sideGraphStarted = getMonoTime()
   let sideSearch = scratch.runSideSearch(request)
+  when defined(navQueryProfile):
+    scratch.resultStats.sideGraphNanoseconds +=
+      profileElapsed(sideGraphStarted)
   if sideSearch.capHit:
     inc scratch.resultStats.sideCapHits
   if sideSearch.found and sideSearch.cost < scratch.bestCost:
+    when defined(navQueryProfile):
+      let assemblyStarted = getMonoTime()
     let assembled = scratch.assembleSideRoute(sideSearch)
+    when defined(navQueryProfile):
+      scratch.resultStats.descriptorAssemblyValidateNanoseconds +=
+        profileElapsed(assemblyStarted)
     if assembled == lssOverflow:
-      return BodyRouteQueryResult(failure: brfDescriptorOverflow)
+      return BodyRouteQueryResult(failure: brfDescriptorOverflow,
+        stats: scratch.resultStats)
     if assembled == lssCap:
       inc scratch.resultStats.localCapHits
       if scratch.bestCost == InfiniteCost:
@@ -1457,9 +1601,15 @@ proc queryBodyRoute*(index: BodyRouteIndex, scratch: BodyRouteQueryScratch,
   result = BodyRouteQueryResult(ok: true, failure: brfNone,
     descriptor: scratch.resultDescriptor, stats: scratch.resultStats,
     owner: scratch, generation: scratch.generation)
+  when defined(navQueryProfile):
+    let validationStarted = getMonoTime()
   if not index.validateBodyRoute(request, result):
     result = BodyRouteQueryResult(failure: brfValidation,
       stats: scratch.resultStats)
+  when defined(navQueryProfile):
+    scratch.resultStats.descriptorAssemblyValidateNanoseconds +=
+      profileElapsed(validationStarted)
+    result.stats = scratch.resultStats
 
 proc resultCurrent(route: BodyRouteQueryResult): bool {.inline.} =
   route.ok and route.owner != nil and
@@ -1520,11 +1670,13 @@ proc validateBodyRoute*(index: BodyRouteIndex, request: BodyRouteRequest,
       route.descriptor.goalLegLen.int > RouteLocalLegCap:
     return false
   for offset in 1 ..< route.descriptor.startLegLen.int:
-    if not index.map.segmentClear(index.routePoint(route.startLegRef(offset - 1)),
+    if not index.querySegmentClear(route.owner,
+        index.routePoint(route.startLegRef(offset - 1)),
         index.routePoint(route.startLegRef(offset))):
       return false
   for offset in 1 ..< route.descriptor.goalLegLen.int:
-    if not index.map.segmentClear(index.routePoint(route.goalLegRef(offset - 1)),
+    if not index.querySegmentClear(route.owner,
+        index.routePoint(route.goalLegRef(offset - 1)),
         index.routePoint(route.goalLegRef(offset))):
       return false
   if route.startLegPoint(0) != request.start:
@@ -1554,8 +1706,8 @@ proc validateBodyRoute*(index: BodyRouteIndex, request: BodyRouteRequest,
           pointOffset - 1, edge.routeEdgeReversed)
         current = index.segmentCellAt(edge.routeEdgeSegment,
           pointOffset, edge.routeEdgeReversed)
-      if not index.map.segmentClear(index.routePoint(previous),
-          index.routePoint(current)):
+      if not index.querySegmentClear(route.owner,
+          index.routePoint(previous), index.routePoint(current)):
         return false
     lastRef = index.segmentCellAt(edge.routeEdgeSegment,
       metadata.cellLen.int - 1, edge.routeEdgeReversed)
