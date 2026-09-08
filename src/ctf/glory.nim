@@ -269,10 +269,94 @@ type
                        ## incident); the victim's own duo never counts.
                        ## Recut class x2 (§A6 Candidate 1: 14g band).
 
+    # ── GV14 PLACEMENT LADDER (solo recut, 2026-09-06 sizing package §2) ─
+    #
+    # APPENDED members, same append-only rule as both bands above. All
+    # three mint ONLY when `GameConfig.gloryMultiplierRecut` AND
+    # `GameConfig.winAsMultiplier` are armed AND `brMode` is on AND the
+    # game seats MORE teams than the milestone names (being among the last
+    # 8 of 8 is not a feat) -- a dark, classic, or CTF ledger never sees
+    # them. THE RAISED BASES (sizing package, measured on 1,494 hosted
+    # episode scores): the placement cliff was real -- runner-up median
+    # episode score 6 vs winner 240-4,224 -- and these three milestones
+    # are the sized fix (runner-up median -> ~194; survival<->score
+    # Spearman +0.43 -> +0.70, exact counterfactual n=544). Bounded by
+    # construction: exactly <=8/<=4/<=2 claimants per episode, scarcer
+    # than any kill deed, so they need NO mint cap (`recutFinalFired`,
+    # sim_types.nim, is the once-per-episode latch). Additive rows are 0
+    # and drama rows are 0 BY DESIGN: armed they price via
+    # `RecutClassTable` alone -- a milestone is composition-neutral (no
+    # heat, no carry, no stack; minted at the team's own pedestal so the
+    # territory shift is a structural no-op), which keeps the ladder's
+    # x2/x3/x4 exact.
+    dFinal8            ## among the last 8 teams alive (a field of >8
+                       ## teams only: the milestone requires a field
+                       ## bigger than itself). Recut class x2.
+    dFinal4            ## among the last 4 teams alive. Recut class x3.
+    dFinal2            ## among the last 2 teams alive -- BOTH finalists
+                       ## earn it; the win factor alone separates 1st
+                       ## from 2nd. Recut class x4.
+
 const
-  GloryVersion* = 13
+  GloryVersion* = 14
     ## Bumped on any pricing change, so a ledger can be attributed to the
     ## table that produced it. A cross-version comparison is invalid.
+    ##
+    ## v14 (2026-09-06, THE SOLO RECUT + HEAT ARM E -- sized VERBATIM from
+    ## `~/.ctf/handoff/2026-09-06-recut-sizing.md` (1,494 hosted episode
+    ## scores across eras r4003/r4066/r4226, scoring-chain decode validated
+    ## 544/544 vs API) + `~/.ctf/handoff/2026-09-06-heat-menu.md` (54
+    ## decoded live episodes replayed through the arm reconstruction);
+    ## rides the GV57 cutover in the same commit -- one PR, one
+    ## GloryVersion, per the 28:0x ship-shape ruling):
+    ##   - PLACEMENT LADDER (the raised bases): NEW deeds dFinal8/dFinal4/
+    ##     dFinal2 = x2/x3/x4, minted once each at the alive-team-count
+    ##     crossings (recutMintPlacementMilestones via checkWinCondition,
+    ##     sim.nim) for every team still alive -- both finalists earn
+    ##     dFinal2; the win factor alone separates 1st from 2nd.
+    ##     Composition-neutral milestones: 0 drama (never heat/carry),
+    ##     own-pedestal pricing (no territory shift), no stack -- the
+    ##     ladder's x2 x3 x4 (winner cumulative x24) is exact. Fixes the
+    ##     measured placement cliff: runner-up median 6 -> ~194,
+    ##     survival<->score Spearman +0.43 -> +0.70 (exact counterfactual,
+    ##     n=544 seats).
+    ##   - WIN FACTOR TEAM-SIZE SEAM: `recutWinFactor` is now (mode,
+    ##     winner-team-size)-keyed -- M_solo = x8 for a 1-seat winning
+    ##     team (RULED on the measured upset curve: 35/41/49% per era at
+    ##     M8; x4 makes winning feel optional at 45-59%, x16 buries upsets
+    ##     toward duo-era staleness at 27-32%), M_duo stays the ruled x4,
+    ##     M_CTF still deferred. The dVictory DEED stays retired under
+    ##     winAsMultiplier exactly as Amendment 7 §3 left it.
+    ##   - CAP 2^26 -> 2^24 (`RecutProductCapArmed` = 16,777,216, ruled
+    ##     25:1x): re-sited on MEASURED tails -- binds on 1/12,048 live
+    ##     solo seat-scores; 3-8x headroom over the implied legit superb
+    ##     (~2-5M). Deliberately BELOW the old §A6 adversarial design
+    ##     ceiling (28,311,552) -- see the constant's own comment.
+    ##   - dClosingTime x3: NO new mechanism -- the §A6 winAsMultiplier
+    ##     base bump (`recutShiftedClass`) already prices it; recorded
+    ##     here because the sizing package's table names x3 as the ruled
+    ##     row (A6, ties LONGSHOT; the #1 volume class>=2 deed in solo BR,
+    ##     4.5-5.8/ep, concentrated on finalists).
+    ##   - HEAT ARM E (heat menu, ruled): `HeatDecayTicks` 45 -> 270
+    ##     (11.25s windows) + `HeatThresholds` [2,5,10] -> [1,2,4]; the
+    ##     [1,2,4,8] ladder and the -2 decay amount unchanged; the
+    ##     dClosingTime/dLastLight zero-drama carve-out untouched (Arm D
+    ##     excluded by ruling). Measured on the 54 replayed episodes: x4
+    ##     becomes a real event (sustained >5s in 43/54) and x8
+    ##     near-mythic (0.078% seat-time) while x1 keeps 96% of seat-time
+    ##     -- a streak bonus, not a floor. Baseline was x2 at 0.153% with
+    ##     x4/x8 literally never firing. Retires v5's
+    ##     one-quiet-window-demotes-the-top-rung sizing law (see
+    ##     `HeatEmberCap`).
+    ##   - ALLY-STACK KEYING brMode -> isAllied (recutContextK, sim.nim):
+    ##     BR stack k now counts a co-engaged seat ONLY when
+    ##     `pactActive(attackerTeam, killerTeam)` (the GV56 pact registry)
+    ##     holds, never blanket co-engagement -- the measured jackal
+    ##     contamination (x1.03-1.18 gm/seat, single mints to x3, 3-10% of
+    ##     top-seat log-mass) exits. `RecutStackLadder`'s Fibonacci values
+    ##     are deliberately UNCHANGED: the stack IS the sized pact-era
+    ##     headroom (solo great 1-3.5M -> 7-10M+ with allies; the 10M
+    ##     anchor is alliance-gated by design).
     ##
     ## v13 (2026-09-02, MULTIPLIER RECUT -- built VERBATIM from the frozen
     ## contract `~/.ctf/handoff/2026-09-02-multiplier-recut-table.md` +
@@ -755,6 +839,12 @@ const
     # `RecutClassTable`, dark they never mint.
     0,      # dTagBack
     0,      # dJointAct
+    # GV14 placement ladder: additive prices 0 BY DESIGN, same rule as
+    # both bands above -- armed they price via `RecutClassTable`, dark
+    # they never mint.
+    0,      # dFinal8
+    0,      # dFinal4
+    0,      # dFinal2
   ]
 
   DeedDramaTable: array[Deed, int] = [
@@ -809,6 +899,14 @@ const
     # climbs heat nor takes carry (`paysHeat`/`isDrama` read this table).
     0,      # dTagBack  (OPEN: no specced drama -- see block comment)
     0,      # dJointAct (OPEN: no specced drama -- see block comment)
+    # GV14 placement ladder: 0 drama BY DESIGN (a CLOSED decision, not an
+    # open item) -- a placement milestone is composition-neutral (sizing
+    # package §6 lists the ladder IMMUNE to any heat arm); the 0 here is
+    # what enforces "never climbs heat, never takes carry"
+    # (`paysHeat`/`isDrama` read this table).
+    0,      # dFinal8
+    0,      # dFinal4
+    0,      # dFinal2
   ]
 
   # ───────────────────────────────────────────────────────────────────────
@@ -863,23 +961,38 @@ const
     ## to e.g. 1/2/3/5) were never independently measured against how much a
     ## rampage should actually be worth -- only how OFTEN a team should
     ## reach one.
-  HeatThresholds* = [2, 5, 10]
-    ## Cumulative embers to reach each rung above x1. The first rung costs
-    ## TWO embers (v5): one deed is an incident, not a streak -- at
-    ## threshold 1 the field showed ~12 lightings/team/episode with a 2.5s
-    ## mean lit spell, pure flicker.
+  HeatThresholds* = [1, 2, 4]
+    ## Cumulative embers to reach each rung above x1. HEAT ARM E (v14,
+    ## ruled from the 2026-09-06 heat menu): [2,5,10] -> [1,2,4], paired
+    ## with the `HeatDecayTicks` 45 -> 270 window below. BR heat was
+    ## measured DEAD (>x1 only 0.08-0.26% of seat-time; x4/x8 NEVER fired
+    ## across 54 decoded episodes) and neither lever alone revives it (the
+    ## menu's single-lever arms A and B each leave x4 a coin-flip fluke);
+    ## together, x4 becomes a genuine event (sustained >5s in 43/54
+    ## episodes) and x8 near-mythic (0.078% seat-time) while x1 still owns
+    ## 96% of seat-time -- a streak bonus, not a floor. v5's two-ember
+    ## first rung (anti-flicker, tuned under the 1.9s window) is
+    ## deliberately reversed: at an 11.25s window one deed IS the start of
+    ## a streak.
   HeatEmberCap* = 11
-    ## Just above the x8 floor: a tear maxes the ladder, but no streak can
-    ## HOARD heat that survives going quiet. Sized so ONE quiet window
-    ## always demotes the top rung (cap - decay < x8 floor: 11-2=9 < 10).
+    ## A tear maxes the ladder, but no streak can HOARD unbounded heat.
+    ## Unchanged by ARM E (v14), which RETIRES v5's companion sizing law
+    ## ("one quiet window always demotes the top rung": 11-2=9 < 10 held
+    ## under [2,5,10]; under [1,2,4] it does not, 9 >= 4) -- persistence
+    ## of a maxed streak across a few quiet windows is now the point of
+    ## the mechanic, not a scar: from the cap a fully quiet team drops off
+    ## x8 after 4 windows (~45s) and cools to x1 in 6 (~68s).
   HeatEmberDecay* = 2
     ## Embers shed per quiet window (v5: was 4 -- a whole rung per window,
     ## which read as a light switch). At 2, a maxed streak cools through
     ## the rungs over ~6 windows (~11s): a visible descent with a story,
     ## still nowhere near Muster's pinned-at-max scar.
-  HeatDecayTicks* = 45
-    ## Ticks of no drama before a window closes. ~1.9s at 24fps: react within
-    ## a decision and a half.
+  HeatDecayTicks* = 270
+    ## Ticks of no drama before a window closes. ARM E (v14): 45 -> 270 =
+    ## 11.25s at 24fps -- a real BR rotation (loot, reposition, re-engage)
+    ## now fits inside one streak window, where the ~1.9s v5 window
+    ## ("react within a decision and a half", tuned on 8v8 CTF contact
+    ## cadence) cooled BR heat to statistical zero between engagements.
 
   # ───────────────────────────────────────────────────────────────────────
   # §3  THE SITE GRADIENT — where the deed happened
@@ -2381,6 +2494,13 @@ const
     # pen-picked 09-03; the ruled table).
     2,      # dTagBack         ×2 (18g, dRescue parity)
     2,      # dJointAct        ×2 (14g band)
+    # GV14 placement ladder (armed+winAsMultiplier+brMode mints only): THE
+    # RAISED BASES -- see the Deed enum block comment. Winner cumulative
+    # ×2×3×4 = ×24; both finalists carry dFinal2 and the win factor alone
+    # separates them.
+    2,      # dFinal8          ×2 (sizing package §2, ruled)
+    3,      # dFinal4          ×3
+    4,      # dFinal2          ×4
   ]
 
   RecutTierClass*: array[AchievementTiers, int] = [1, 1, 2, 2, 4]
@@ -2417,21 +2537,32 @@ const
     ## bound, so the guard never fired. A backstop sited 2^38 above the
     ## thing it guards is not a backstop. See `RecutProductCapArmed`.
 
-  RecutProductCapArmed* = int64(1) shl 26
-    ## 67,108,864 — the MEANINGFUL backstop (defense-in-depth layer 2),
-    ## live only when `GameConfig.deedMintCaps` is armed. 2.37× the §A6
-    ## BR design ceiling (28,311,552 = base 7,077,888 × M_BR 4), 7.1×
-    ## today's live v13-armed ceiling (9,437,184), and 19.9× the legit
-    ## all-time high the ladder has actually paid (3,375,440 @ r3860).
+  RecutProductCapArmed* = int64(1) shl 24
+    ## 16,777,216 — the MEANINGFUL backstop (defense-in-depth layer 2),
+    ## live only when `GameConfig.deedMintCaps` is armed. v14 (ruled
+    ## 25:1x, sized in the 2026-09-06 sizing package): 2^26 -> 2^24,
+    ## re-sited on MEASURED tails instead of the adversarial §A6 recipe —
+    ## it binds on exactly 1 of 12,048 live solo seat-scores (the r4039
+    ## 44.79M base-outlier), sits 3-8× above the implied legit superb
+    ## (~2-5M from solo play; 7-10M+ only WITH the pact-era ally stack,
+    ## which is the sized headroom the cap still clears as a backstop),
+    ## and 4.97× the legit all-time high the ladder has actually paid
+    ## (3,375,440 @ r3860). Deliberately BELOW the old §A6 adversarial
+    ## design ceiling (28,311,552): that recipe rides max heat AND a
+    ## 5-ally Fibonacci on one longshot — not a measured episode shape —
+    ## and every implied post-recut cap hit (6/747 solo, 3/560 balance,
+    ## 0/71 current episodes) is the base-outlier/stack-contaminated
+    ## tail, none the clean cluster.
     ##
-    ## It should NEVER bind: `RecutMintCapTable` below bounds every deed
+    ## It should RARELY bind (implied post-recut rate <=1.5% of episodes,
+    ## each auditable): `RecutMintCapTable` below still bounds every deed
     ## whose repeat count is not itself bounded by a scarce contested
-    ## resource, so a capped episode cannot compose past the ceiling in
-    ## the first place. This is the layer that catches the composition
-    ## bug nobody has thought of yet — the NEXT dTagBack — and clamps it
-    ## to ~2× the ceiling instead of letting it print 10^6× and poison a
-    ## season of records. A clamped episode reports one KNOWN constant,
-    ## which is exactly the point: an audit greps for it.
+    ## resource. This is the layer that catches the composition bug
+    ## nobody has thought of yet — the NEXT dTagBack — and clamps it
+    ## instead of letting it print 10^6× and poison a season of records.
+    ## A clamped episode reports one KNOWN constant, which is exactly the
+    ## point: an audit greps for 16,777,216 (verification plan N=1: no
+    ## seat at the constant; N=20: hits <=1.5%, each audited).
 
   RecutMintCapTable*: array[Deed, int] = [
     ## PER-EPISODE, PER-DUO MINT BUDGET (mintcap increment, 2026-09-04) —
@@ -2535,7 +2666,28 @@ const
             #                  Ceiling-recipe multiplicity is 1; measured
             #                  live rate 0.035/ep. Same §A6 band, same
             #                  unboundedness, no enemy spend required.
+    0,      # dFinal8          once per episode by construction: the
+            #                  `recutFinalFired` latch (sim.nim) fires
+            #                  each milestone at most once, for exactly
+            #                  the <=8/<=4/<=2 teams alive at the
+            #                  crossing — scarcer than any kill deed, so
+            #                  no budget is needed (GV14).
+    0,      # dFinal4          same latch
+    0,      # dFinal2          same latch
   ]
+
+  RecutFinalThresholds* = [(threshold: 8, deed: dFinal8),
+                           (threshold: 4, deed: dFinal4),
+                           (threshold: 2, deed: dFinal2)]
+    ## GV14 placement ladder: alive-team-count milestone -> deed, checked
+    ## descending at the one site that already counts living teams
+    ## (checkWinCondition -> recutMintPlacementMilestones, sim.nim). A
+    ## milestone ARMS only when the game seats MORE teams than it names
+    ## (being among the last 8 of 8 is not a feat -- a 2-team BR test
+    ## shape mints nothing, the 16-team field mints all three) and FIRES
+    ## once, for every team still alive at the crossing; a
+    ## multi-elimination tick that skips a count still fires every crossed
+    ## milestone for its survivors.
 
 func recutMintCap*(deed: Deed): int {.inline.} =
   ## This deed's per-episode, per-duo mint budget; 0 = uncapped. Read only
@@ -2664,22 +2816,41 @@ func recutScore*(product: int64, halvings: int): int64 {.inline.} =
 
 const
   RecutWinFactorBR* = 4
-    ## §A6/AMENDMENT 7 §3 (winAsMultiplier): the BR WIN FACTOR — the
+    ## §A6/AMENDMENT 7 §3 (winAsMultiplier): the BR DUO win factor — the
     ## deterministic ×M folded into the canonical product at finalize when
-    ## the flag is armed, REPLACING the retired dVictory deed. M=×4 ruled
-    ## on the upset curve (23.2% upset rate). NOT a deed and
+    ## the flag is armed, REPLACING the retired dVictory deed. M_duo=×4
+    ## ruled on the duo-era upset curve (23.2% upset rate, owner
+    ## feel-pick: "form rivals outcome"). NOT a deed and
     ## COMPOSITION-NEUTRAL BY LAW: it pays no heat, no territory, no
-    ## carry, no stack, and never routes through `recutFactor` (today's
+    ## carry, no stack, and never routes through `recutFactor` (the old
     ## wire dVictory was stochastic ×16-64 with folded heat; this is the
-    ## flat ×4 that replaces it). BR total ceiling = the even-maximums
-    ## base 7,077,888 × 4 = 28,311,552.
+    ## flat fold that replaces it).
 
-func recutWinFactor*(brMode: bool): int {.inline.} =
-  ## The MODE-KEYED win factor (Amendment 6 ruling: win factors are
-  ## mode-keyed). BR = ×4, ruled. CTF = ×1 here DELIBERATELY: M_CTF is
-  ## DEFERRED to CTF-arming (TBD, expected < 4) — this func is the seam
-  ## where it lands; nothing else is built for the CTF side yet.
-  if brMode: RecutWinFactorBR else: 1
+  RecutWinFactorBRSolo* = 8
+    ## v14 (sizing package §2, RULED decide-by-default 27:4x): the SOLO
+    ## win factor — a 1-seat winning team folds ×8 where a duo folds ×4.
+    ## Sized on the measured upset curve under the new placement ladder:
+    ## P(any of 15 losers out-banks the winner) = 35/41/49% per era at
+    ## M8. M4 (45-59%) makes winning feel optional; M16 (27-32%) buries
+    ## upsets toward duo-era staleness. One rung over the ruled duo ×4:
+    ## 16-solo lobbies run structurally higher upset rates than 8-duo
+    ## ones, so the seam is a real pricing difference, not a style choice.
+
+func recutWinFactor*(brMode: bool, winnerSeats: int = 2): int {.inline.} =
+  ## The MODE- and TEAM-SIZE-keyed win factor (Amendment 6: win factors
+  ## are mode-keyed; v14 sizing package: M_solo != M_duo needs a
+  ## team-size key — THIS parameter is that seam, built rather than the
+  ## flagged M=4 fallback). `winnerSeats` = seats on the WINNING team,
+  ## dead or alive (the dDuoDown solo-team guard's own counting
+  ## convention: a duo whose partner already fell still won as a duo);
+  ## defaults to the duo shape so every pre-v14 call site prices ×4
+  ## unchanged. BR solo (1 seat) = ×8, BR duo+ = ×4, both ruled. CTF = ×1
+  ## here DELIBERATELY: M_CTF is DEFERRED to CTF-arming (TBD, expected
+  ## < 4) — this func is the seam where it lands; nothing else is built
+  ## for the CTF side yet.
+  if not brMode: 1
+  elif winnerSeats <= 1: RecutWinFactorBRSolo
+  else: RecutWinFactorBR
 
 # ───────────────────────────────────────────────────────────────────────────
 # §7  ONE KILL, ONE DEED — the anti-stacking rule
@@ -2858,6 +3029,9 @@ func deedName*(deed: Deed): string =
   of dVictory: "victory"
   of dTagBack: "tag back"
   of dJointAct: "joint act"
+  of dFinal8: "final 8"
+  of dFinal4: "final 4"
+  of dFinal2: "final 2"
 
 func deedPopWord*(deed: Deed): string =
   ## 🎖 (VOCABULARY wave, V4, Maxwell's ruling: "instead of splat appearing on
@@ -2929,3 +3103,7 @@ func deedPopWord*(deed: Deed): string =
   of dVictory: "VICTORY"
   of dTagBack: "TAG BACK"    ## §A6 band (armed+winAsMultiplier mints only).
   of dJointAct: "JOINT ACT"
+  of dFinal8: "FINAL 8"      ## GV14 placement ladder (armed+
+                             ## winAsMultiplier+brMode mints only).
+  of dFinal4: "FINAL 4"
+  of dFinal2: "FINAL 2"

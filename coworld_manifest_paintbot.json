@@ -434,12 +434,12 @@
           }
         },
         "lootStart": {
-          "description": "Battle-royale loot-start: every seat spawns unarmed (no gun, no hopper). The gun's two lootable halves — the marker (hasGun) and the hopper, its ammo (hasHopper) — wait as one-shot crates on the map's authored weaponSpawns/hopperSpawns (or the grenade/med-kit points when absent); a cog needs both to fire. Requires brMode: true. Off by default; the battle-royale-s2 variant turns it on.",
+          "description": "Battle-royale loot-start: every seat spawns unarmed (no gun, no hopper). The gun's two lootable halves — the marker (hasGun) and the hopper, its ammo (hasHopper) — wait as one-shot crates on the map's authored weaponSpawns/hopperSpawns (or the grenade/med-kit points when absent); a cog needs both to fire. Requires brMode: true. Off by default. DELIBERATE OFF-SWITCH (2026-09-04 owner simplification, PKG-A): the battle-royale-s2 variant previously turned this on and now matches the default, alongside downedMode/giveItem/dropItem/the loot-seed knobs/bandagePickups — every key stays present at its explicit off value (one-token rollback), not deleted. Flip true to re-arm.",
           "type": "boolean",
           "default": false
         },
         "downedMode": {
-          "description": "Battle-royale ghost-tag-revive: a lethal hit downs a cog into a frozen, non-colliding ghost instead of killing it outright. The ghost stays alive on the wire (that is what makes it revivable) — an upright teammate within DownedTagRange for downedReviveTicks tags it back in at 1 hp; an enemy gun hit splats it for an immediate confirmed elimination; an untagged ghost bleeds out after downedBleedOutTicks (halved per successive down while downedEscalation holds). Requires brMode: true. Off by default; the battle-royale-s2 variant turns it on at the ruled default timing (downedBleedOutTicks 360, downedReviveTicks 48, downedEscalation on).",
+          "description": "Battle-royale ghost-tag-revive: a lethal hit downs a cog into a frozen, non-colliding ghost instead of killing it outright. The ghost stays alive on the wire (that is what makes it revivable) — an upright teammate within DownedTagRange for downedReviveTicks tags it back in at 1 hp; an enemy gun hit splats it for an immediate confirmed elimination; an untagged ghost bleeds out after downedBleedOutTicks (halved per successive down while downedEscalation holds). Requires brMode: true. Off by default. DELIBERATE OFF-SWITCH (2026-09-04 owner simplification, PKG-A): the battle-royale-s2 variant previously turned this on at the ruled default timing (downedBleedOutTicks 360, downedReviveTicks 48, downedEscalation on — those defaults still apply if re-armed) and now matches the default. Flip true to re-arm.",
           "type": "boolean",
           "default": false
         },
@@ -449,7 +449,7 @@
           "default": false
         },
         "dropItem": {
-          "description": "Button-chord item drop (owner ruling 2026-09-03): holding the aim-pair chord — ButtonB and ButtonSelect together, a dead no-op the engine ignores for aim (applyInput turns only on b != select), so no existing replay ever used it — for DropChordTicks (~10, ~0.4s) WHILE carrying a droppable spills the highest-priority carried item (spray can first, then marker, hopper, grenade, barrier, bandage) to the ground as a no-respawn item, emitting the item_drop wire row {dropper, item, tick, x, y}. Dropping a spray can clears hasSprayPaint, handing the gun back (canFire's not-hasSprayPaint guard) — the only exit from the spray lock. Anyone in range may then walk it up: OPEN steal, no team gate (Minecraft-style), the dropper alone waiting DropperRegrabTicks (~1s) before re-grabbing its own drop. Coexists with giveItem — drop is the free/flexible path, handoff still guarantees partner delivery. Human seat binds it to Q; a policy emits it via its Act (both rotate bits). Off by default; the battle-royale-s2 variant turns it on. Rollback = flip false, no code change.",
+          "description": "Button-chord item drop (owner ruling 2026-09-03): holding the aim-pair chord — ButtonB and ButtonSelect together, a dead no-op the engine ignores for aim (applyInput turns only on b != select), so no existing replay ever used it — for DropChordTicks (~10, ~0.4s) WHILE carrying a droppable spills the highest-priority carried item (spray can first, then marker, hopper, grenade, barrier, bandage) to the ground as a no-respawn item, emitting the item_drop wire row {dropper, item, tick, x, y}. Dropping a spray can clears hasSprayPaint, handing the gun back (canFire's not-hasSprayPaint guard) — the only exit from the spray lock. Anyone in range may then walk it up: OPEN steal, no team gate (Minecraft-style), the dropper alone waiting DropperRegrabTicks (~1s) before re-grabbing its own drop. Coexists with giveItem — drop is the free/flexible path, handoff still guarantees partner delivery. Human seat binds it to Q; a policy emits it via its Act (both rotate bits). Off by default. DELIBERATE OFF-SWITCH (2026-09-04 owner simplification, PKG-A): the battle-royale-s2 variant previously turned this on and now matches the default. Rollback = flip true, no code change, to re-arm.",
           "type": "boolean",
           "default": false
         },
@@ -769,7 +769,7 @@
           "default": 0
         },
         "hopperSiteTrafficPermille": {
-          "description": "Hopper crate SITE CLASS (per-mille, 0-1000). Marker crates fall back onto the map's grenade points (alleys and hotspots \u2014 the traffic class); hopper crates inherited the med-kit points (rooms and corners \u2014 the retreat class), which put the gun's ammo half where fights are not. Measured over 75 live episodes: hoppers were the most plentiful crate and the worst collected, 0.47x the marker's per-crate pickup rate, and no live map authors hopperSpawns of its own (0/75) so the fallback IS the live placement. This re-sites that share of the fallback hopper crates onto the traffic points, ring-offset off the marker so the gun's two halves stay two separate touches. Count is unchanged \u2014 crates move, none are added \u2014 so the hopper:marker per-crate pickup ratio isolates the site class. Requires lootStart: true. 0 = off (default, the inherited med-kit siting); the battle-royale-s2 variant runs 750.",
+          "description": "Hopper crate SITE CLASS (per-mille, 0-1000). Marker crates fall back onto the map's grenade points (alleys and hotspots \u2014 the traffic class); hopper crates inherited the med-kit points (rooms and corners \u2014 the retreat class), which put the gun's ammo half where fights are not. Measured over 75 live episodes: hoppers were the most plentiful crate and the worst collected, 0.47x the marker's per-crate pickup rate, and no live map authors hopperSpawns of its own (0/75) so the fallback IS the live placement. This re-sites that share of the fallback hopper crates onto the traffic points, ring-offset off the marker so the gun's two halves stay two separate touches. Count is unchanged \u2014 crates move, none are added \u2014 so the hopper:marker per-crate pickup ratio isolates the site class. Requires lootStart: true. 0 = off (default, the inherited med-kit siting). DELIBERATE OFF-SWITCH (2026-09-04 owner simplification, PKG-A): the battle-royale-s2 variant previously ran 750 and now matches the default (moot anyway with lootStart off in the same variant). Set back to 750 (with lootStart: true) to re-arm.",
           "type": "integer",
           "default": 0
         },
@@ -780,6 +780,16 @@
         },
         "medKitCount": {
           "description": "Cap on placed med kits. -1 (default) keeps the map's own full set \u2014 a BR-pool map authors 29-49 of them; 0 places none (the ruled bandages-instead-of-kits arm); N keeps the map's first N points. Independent of bandagePickups: the two together set the healing economy's split between full-heal-on-touch and carryable +1 hp.",
+          "type": "integer",
+          "default": -1
+        },
+        "sprayCount": {
+          "description": "Cap on placed spray cans (owner directive 2026-09-05, \"far fewer paint cans\"; pre-pivot objbalance analysis rec B). -1 (default) keeps the map's own full set \u2014 the 11-map BR pool authors 34-58 of them; N keeps the map's first N points, same rule medKitCount already uses (deterministic, not reseeded per episode). A cap can only shrink the placed set.",
+          "type": "integer",
+          "default": -1
+        },
+        "grenadeCount": {
+          "description": "Target count of placed grenades (owner directive 2026-09-05, same rec-B analysis: grenades were the scarcest disposable \u2014 13-29 authored across the 11-map pool \u2014 and sprays the most common, the inversion of their intended rarity). -1 (default) keeps the map's own authored/formula set, byte-identical. 0..N (an authored count) keeps the map's first N points. Past the authored count this INJECTS extra copies, cycling back through the same authored sites ring-offset off their anchor (the same overflow idiom bandagePickups uses against its own RETREAT anchors) \u2014 a cap can only reduce, so raising supply needs this injection path. Capped at 64, the board's per-family object-id pool width.",
           "type": "integer",
           "default": -1
         }
@@ -1178,7 +1188,7 @@
     {
       "id": "battle-royale-s2",
       "name": "Battle Royale — Season 2",
-      "description": "The 16-seat battle royale with the Season 2 play-calling shell armed: every seat is a play seat. Policies upload WebAssembly playbooks over the wire, talk in an open 600-tick (~25 s) lobby-chat window before the round, then drive their cogs by calling plays — an ordered ladder of named plays with typed parameters, replaced or retuned mid-match as the zone closes. The engine ships a public seven-play reference menu (docs/designs/BR_PLAYS.md): pact, edge_ride, bodyguard, jackal, target_law, supply_run, crossfire — the competitive floor every private playbook must beat. Same rules as classic Battle Royale at half the field: eight duos on a generated flagless map scaled to keep every duo's share of territory (and the derived gun range) identical to the 32-seat giant, no respawns, six zone phases that close the field completely, last team standing, classic scoring with placement bonuses.",
+      "description": "The 16-seat battle royale with the Season 2 play-calling shell armed: every seat is a play seat. Policies upload WebAssembly playbooks over the wire, talk in an open 600-tick (~25 s) lobby-chat window before the round, then drive their cogs by calling plays — an ordered ladder of named plays with typed parameters, replaced or retuned mid-match as the zone closes. The engine ships a public seven-play reference menu (docs/designs/BR_PLAYS.md): pact, edge_ride, bodyguard, jackal, target_law, supply_run, crossfire — the competitive floor every private playbook must beat. Same rules as classic Battle Royale at half the field: sixteen solo entrants, one policy per team, on a generated flagless map scaled to keep every entrant's share of territory (and the derived gun range) identical to the 32-seat giant, no respawns, six zone phases that close the field completely, last cog standing, classic scoring with placement bonuses.",
       "game_config": {
         "players": [
           {
@@ -1264,35 +1274,35 @@
             "control": "play"
           },
           {
-            "team": "red",
+            "team": "umber",
             "control": "play"
           },
           {
-            "team": "blue",
+            "team": "rust",
             "control": "play"
           },
           {
-            "team": "green",
+            "team": "orange",
             "control": "play"
           },
           {
-            "team": "yellow",
+            "team": "plum",
             "control": "play"
           },
           {
-            "team": "black",
+            "team": "lime",
             "control": "play"
           },
           {
-            "team": "silver",
+            "team": "navy",
             "control": "play"
           },
           {
-            "team": "ivory",
+            "team": "azure",
             "control": "play"
           },
           {
-            "team": "pink",
+            "team": "peach",
             "control": "play"
           }
         ],
@@ -1300,7 +1310,7 @@
         "num_agents": 16,
         "minPlayers": 16,
         "lives": 1,
-        "hitPoints": 3,
+        "hitPoints": 4,
         "respawnTicks": 72,
         "gunRange": 1300,
         "fireCooldownTicks": 12,
@@ -1315,50 +1325,50 @@
         "maxTicks": 10000,
         "maxGames": 1,
         "showPlayerLabels": true,
-        "teams": 8,
+        "teams": 16,
         "fireWindupTicks": 5,
         "barrageMaxPerSec": 0,
-        "mapPath": "brpool",
+        "mapPath": "brpool16",
         "brMode": true,
-        "lootStart": true,
+        "lootStart": false,
         "downedMode": true,
         "zoneDamageByPaint": true,
         "zoneBlocksRevive": true,
         "zonePhases": [
           {
             "z": 0.75,
-            "waitTicks": 345,
-            "shrinkTicks": 213,
+            "waitTicks": 259,
+            "shrinkTicks": 160,
             "dps": 0
           },
           {
             "z": 0.55,
             "waitTicks": 0,
-            "shrinkTicks": 244,
+            "shrinkTicks": 183,
             "dps": 3
           },
           {
             "z": 0.35,
             "waitTicks": 0,
-            "shrinkTicks": 348,
+            "shrinkTicks": 261,
             "dps": 6
           },
           {
             "z": 0.2,
             "waitTicks": 0,
-            "shrinkTicks": 600,
+            "shrinkTicks": 450,
             "dps": 10
           },
           {
             "z": 0.08,
             "waitTicks": 0,
-            "shrinkTicks": 1550,
+            "shrinkTicks": 1163,
             "dps": 15
           },
           {
             "z": 0.001,
             "waitTicks": 0,
-            "shrinkTicks": 1700,
+            "shrinkTicks": 1275,
             "dps": 20
           }
         ],
@@ -1369,16 +1379,18 @@
         "variantId": "battle-royale-s2",
         "gloryMultiplierRecut": true,
         "stampRealizedConfig": true,
-        "giveItem": true,
-        "dropItem": true,
-        "lootSpawnSeedGuns": 3,
-        "lootSpawnSeedHoppers": 3,
-        "lootSpawnSeedRadius": 48,
-        "hopperSiteTrafficPermille": 750,
-        "bandagePickups": 12,
+        "giveItem": false,
+        "dropItem": false,
+        "lootSpawnSeedGuns": 0,
+        "lootSpawnSeedHoppers": 0,
+        "lootSpawnSeedRadius": 0,
+        "hopperSiteTrafficPermille": 0,
+        "bandagePickups": 0,
         "frameLoadoutFlags": true,
-        "winAsMultiplier": false,
-        "deedMintCaps": true
+        "winAsMultiplier": true,
+        "deedMintCaps": true,
+        "sprayCount": 6,
+        "grenadeCount": 22
       }
     },
     {

@@ -102,7 +102,7 @@
         },
         "duo_partner": {
           "type": "integer",
-          "$comment": "the partner seat; present exactly in mode br, where a duo IS the two configured seats of one team (\u00a75.1)"
+          "$comment": "the partner seat, when one exists. Only ever present in mode br (a duo is two configured seats of one team, \u00a75.1); omitted in ctf/koth and in solo BR (one-seat) teams, 2026-09-05. Consumers must check for its presence, not infer it from mode == br."
         }
       }
     },

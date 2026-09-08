@@ -166,3 +166,48 @@ proc pickBrS2VoteBallotSpecJsons*(
       raise newException(ValueError,
         &"br s2 map pool at '{path}' entry {index} has no \"spec\"")
     result.add $entry["spec"]
+
+## --- Season 2 solo pool (16 groups) -----------------------------------
+##
+## The S2 simplification's 16-solo-team shape (one entrant per group,
+## instead of the 8-duo pool's two-per-group) needs a 16-`spawnGroups` map
+## source. Rather than certifying a fresh pool at giant scale, this reuses
+## the ORIGINAL certified 16-group pool (`data/br_map_pool.json`, commit
+## 6d14563c, "a certified BR map pool -- 11 candidates, every one allPass
+## on tools/brmapkit") that predates the 8-duo switch (#355, 283dd429) —
+## the exact geometry the live classic `battle-royale` variant's single
+## pinned map (`br-gen-1339`) was itself drawn from. 11 members, all
+## giant-scale 3211x1713, spawnGroups 16, gunRange 331 (derived at
+## GiantScale=2.6, groups=16 — see brmapkit's `deriveGunRange`); NOT the
+## same field scale as the 8-duo S2 pool (2271x1212 at
+## GiantScale/sqrt(2)), which is a real geometry delta worth flagging at
+## the point this actually seats a live variant: zone pacing / item
+## density were tuned against the 8-duo pool's smaller field.
+##
+## `BrS2SoloMapPoolPath` is a distinct name for `BrMapPoolPath` (same
+## file) so callers that care about the solo shape don't need to know
+## that today it happens to be backed by the pre-existing classic pool.
+const
+  BrS2SoloMapPoolPath* = BrMapPoolPath
+    ## Same file as the classic BR pool's `BrMapPoolPath` — see the doc
+    ## comment above for why this reuses it instead of a fresh pool.
+  BrPoolMapName16* = "brpool16"
+    ## The mapPath value that selects from the 16-group pool ("mapPath":
+    ## "brpool16" in a variant's game_config) — parallel to `BrPoolMapName`
+    ## ("brpool") for the 8-duo pool. Not referenced by any shipped
+    ## variant yet; wiring a variant to it is a mapPath-only manifest
+    ## change once the 16-solo-team variant itself lands.
+
+proc pickBrPoolSpecJson*(seed: int, path: string = BrS2SoloMapPoolPath): string =
+  ## The mapSpec JSON (as a string, ready for `config.mapSpec`) of the
+  ## 16-group pool member this episode seed selects — the same
+  ## seed-deterministic `brPoolIndex` spread `pickBrS2SpecJson` uses, over
+  ## `data/br_map_pool.json`'s entries. Those entries are bare full specs
+  ## (no ledger wrapper — see `loadBrMapPoolRaw`'s doc comment), unlike the
+  ## s2 pool's `{"spec": ...}` envelopes, so the picked entry itself IS the
+  ## spec. Raises on a missing/empty/misshapen pool — a config that asked
+  ## for "brpool16" must never silently fall back.
+  let pool = loadBrMapPoolRaw(path)
+  if pool.len == 0:
+    raise newException(ValueError, &"br pool at '{path}' is empty")
+  result = $pool[brPoolIndex(seed, pool.len)]

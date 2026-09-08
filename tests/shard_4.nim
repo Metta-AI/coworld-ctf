@@ -2,6 +2,7 @@
 {.warning[UnusedImport]: off.}
 import
   test_agent_skins,
+  test_alliance_pact,
   test_barrage,
   test_br_golden_e2e,
   test_broadcast_state,

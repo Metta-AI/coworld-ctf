@@ -105,6 +105,11 @@ proc defaultGameConfig*(): GameConfig =
     # config echo carries none of them.
     medKitCount: -1,
     bandagePickups: 0,
+    # OBJBALANCE(s2, owner directive 2026-09-05): both -1 (unchanged) by
+    # default -- see the field comments (sim_types.nim) for the cap vs
+    # injection split.
+    sprayCount: -1,
+    grenadeCount: -1,
     lootStart: false,
     downedMode: false,
     downedBleedOutTicks: DownedBleedOutTicksDefault,
@@ -363,6 +368,27 @@ proc readConfigSlots(node: JsonNode, slots: var seq[PlayerSlotConfig]) =
         )
       slot.control =
         if control.getStr() == "play": scPlay else: scInput
+    if item.hasKey("allies"):
+      # ALLIANCE P1: pre-match pact seed, by ally NAME (resolved against
+      # other slots' `name` — see `players[]`/readConfigPlayers, which fills
+      # `slot.name` from a separate top-level key) at game start, not here —
+      # this reader only has to validate SHAPE, never cross-reference other
+      # slots (the mutuality check needs every slot's name resolved first,
+      # so it lives in resolveConfiguredPacts, sim.nim).
+      let allies = item["allies"]
+      if allies.kind != JArray:
+        raise newException(
+          CtfError,
+          "Config field slots[" & $i & "].allies must be an array."
+        )
+      for j, allyName in allies.elems:
+        if allyName.kind != JString:
+          raise newException(
+            CtfError,
+            "Config field slots[" & $i & "].allies[" & $j &
+              "] must be a string."
+          )
+        slot.allies.add(allyName.getStr())
     slots.add(slot)
 
 proc readConfigPlayers(node: JsonNode, slots: var seq[PlayerSlotConfig]) =
@@ -1114,6 +1140,19 @@ proc validate(config: GameConfig) =
   if config.medKitCount < -1:
     raise newException(CtfError,
       "Config field medKitCount must be -1 (map default) or >= 0.")
+  # OBJBALANCE(s2, owner directive 2026-09-05): sprayCount is cap-only, same
+  # bound as medKitCount. grenadeCount can INJECT past the authored count
+  # (unlike a cap), but still must fit the board's per-family object-id
+  # pool -- same upper bound bandagePickups already enforces below.
+  if config.sprayCount < -1:
+    raise newException(CtfError,
+      "Config field sprayCount must be -1 (map default) or >= 0.")
+  if config.grenadeCount < -1:
+    raise newException(CtfError,
+      "Config field grenadeCount must be -1 (map default) or >= 0.")
+  if config.grenadeCount > NeutralPickupPoolWidth:
+    raise newException(CtfError,
+      "Config field grenadeCount must be -1 or 0.." & $NeutralPickupPoolWidth & ".")
   if config.bandagePickups < 0:
     raise newException(CtfError,
       "Config field bandagePickups must not be negative.")
@@ -1314,12 +1353,21 @@ proc update*(config: var GameConfig, jsonText: string) =
           CtfError, "Config field voteMapSpecs must be an array of objects.")
       config.voteMapSpecs.add $item
   node.readConfigInt("voteTicks", config.voteTicks)
+  ## S2 simplification, 16-solo-team shape (PKG-B, elif below): mapPath
+  ## "brpool16" mirrors the "brpool" branch's single-pick path, but draws
+  ## from the 16-group pool (data/br_map_pool.json, the pre-#355 classic
+  ## pool — see br_map_pool.nim's "solo pool" doc comment) instead of the
+  ## 8-duo s2 pool. No vote-ballot support yet (pickBrS2VoteBallotSpecJsons
+  ## is s2-pool-specific) — single-pick only, additive alongside the
+  ## branch above it.
   if config.mapSpec.len == 0 and config.mapPath == BrPoolMapName:
     if config.voteTicks > 0 and config.voteMapSpecs.len == 0:
       config.voteMapSpecs = pickBrS2VoteBallotSpecJsons(config.seed)
       config.mapSpec = config.voteMapSpecs[0]
     else:
       config.mapSpec = pickBrS2SpecJson(config.seed)
+  elif config.mapSpec.len == 0 and config.mapPath == BrPoolMapName16:
+    config.mapSpec = pickBrPoolSpecJson(config.seed)
   ## Resolve the effective map ONCE: a generated map is expanded and pinned
   ## as mapSpec here, so the replay carries the exact geometry and playback
   ## never re-runs the generator. The gun range follows the selected map
@@ -1369,6 +1417,8 @@ proc update*(config: var GameConfig, jsonText: string) =
   # dark defaults, so an existing config JSON parses to an unchanged config.
   node.readConfigInt("medKitCount", config.medKitCount)
   node.readConfigInt("bandagePickups", config.bandagePickups)
+  node.readConfigInt("sprayCount", config.sprayCount)
+  node.readConfigInt("grenadeCount", config.grenadeCount)
   node.readConfigBool("lootStart", config.lootStart)
   node.readConfigBool("downedMode", config.downedMode)
   node.readConfigInt("downedBleedOutTicks", config.downedBleedOutTicks)
@@ -1739,6 +1789,15 @@ proc echoHealingKeys(config: GameConfig, node: JsonNode) =
   if config.bandagePickups > 0:
     node["bandagePickups"] = %config.bandagePickups
 
+proc echoObjBalanceKeys(config: GameConfig, node: JsonNode) =
+  ## OBJBALANCE(s2, owner directive 2026-09-05): the spray-can cap and
+  ## grenade-count injection knobs, echoed only when they depart from their
+  ## dark (-1) defaults — same byte-identity rule as every echo above.
+  if config.sprayCount != -1:
+    node["sprayCount"] = %config.sprayCount
+  if config.grenadeCount != -1:
+    node["grenadeCount"] = %config.grenadeCount
+
 proc echoLootStartKeys(config: GameConfig, node: JsonNode) =
   ## LOOT(s2): the unarmed-spawn gate, echoed only when on.
   if config.lootStart:
@@ -1869,6 +1928,8 @@ proc configJson*(config: GameConfig): string =
       item["skin"] = %slot.skin.skinText()
     if slot.control == scPlay:
       item["control"] = %"play"
+    if slot.allies.len > 0:
+      item["allies"] = %slot.allies
     slots.add(item)
   var node = %*{
     "motionScale": config.motionScale,
@@ -1941,6 +2002,7 @@ proc configJson*(config: GameConfig): string =
   echoShotFeedbackKeys(config, node)
   echoCosmeticFxKeys(config, node)
   echoHealingKeys(config, node)
+  echoObjBalanceKeys(config, node)
   echoLootStartKeys(config, node)
   echoDownedKeys(config, node)
   echoGiveItemKeys(config, node)
@@ -1989,6 +2051,8 @@ proc realizedConfigStampJson*(config: GameConfig): string =
     "lootStart=" & $config.lootStart,
     "winAsMultiplier=" & $config.winAsMultiplier,
     "medKitCount=" & $config.medKitCount,
+    "sprayCount=" & $config.sprayCount,
+    "grenadeCount=" & $config.grenadeCount,
     "stampRealizedConfig=" & $config.stampRealizedConfig,
     "zoneBlocksRevive=" & $config.zoneBlocksRevive,
     "zoneDamageByPaint=" & $config.zoneDamageByPaint,

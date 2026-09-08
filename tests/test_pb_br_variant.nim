@@ -1,8 +1,10 @@
-## The "battle-royale-s2" variant paintbot now ships: 8 duo teams, 2 agents
-## each, 16 seats total -- the half-field rescale of the original
-## 32-seat/16-duo shape (owner capacity ruling: we don't field 32 players),
-## same rules and zone pacing on a half-area map. This is the manifest-plus-sim companion to
-## two things that already exist and stay untouched:
+## The "battle-royale-s2" variant paintbot now ships: 16 SOLO teams, 1 agent
+## each, 16 seats total (PKG-C, 2026-09-04 rework) -- superseding the prior
+## 8-duo/2-agent shape. Owner capacity ruling stands unchanged (we don't
+## field the classic 32-seat giant), but the seat/team ratio inside that
+## 16-seat field flipped from 2 to 1: every policy now enters as its own
+## team, no partner. This is the manifest-plus-sim companion to two things
+## that already exist and stay untouched:
 ##   - test_br_elim.nim, which already proves BR's elimination/tiebreak/zone
 ##     machinery is generic over team count and over seats-per-team (its
 ##     own `brGame`/`brDuoGame` builders cover both 1- and 2-per-team
@@ -12,39 +14,38 @@
 ##     results_schema covers everything either results document writes.
 ##
 ## What neither of those pins is the property specific to THIS variant:
-## that the shipped 16-seat roster pairs slot k with slot k+8 on the SAME
-## team (the duo shape -- BR_MAPGEN.md's duo pocket, see arena.nim's
-## spawnPosition/spawnGroupOffset; the duo offset is DERIVED, seats/teams,
-## never a constant), across all 8 teams -- and that the results payload
-## built from that 16-seat roster carries exactly one score entry per SEAT
-## (16, not 8): the score-arity property a hosted recertify actually
-## enforces. A paintbot recertify failed earlier the
-## same day with "game returned 32 scores for 16 seats" on a CLASSIC
+## that the shipped 16-seat roster now seats 16 DISTINCT teams (slot i IS
+## team i, no k/k+8 duo pairing left to assert) -- and that the results
+## payload built from that 16-seat roster carries exactly one score entry
+## per SEAT (16, not fewer): the score-arity property a hosted recertify
+## actually enforces. A paintbot recertify failed earlier the same day
+## (pre-rework) with "game returned 32 scores for 16 seats" on a CLASSIC
 ## config where one seat commands a squad of cogs (loadout: paintball,
-## cogsPerTeam > 1) -- squadResultsJson's per-SEAT count there is 16.  BR
-## is a different shape: each of the 32 duo SEATS is its own independent
-## join (loadout stays the "ctf" default, never paintball), so
-## ctfPlayerResultsJson's per-slot count is 32 -- this suite asserts that
-## number directly rather than assuming it matches the other bug's shape
-## just because 32 appears in both stories.
+## cogsPerTeam > 1) -- squadResultsJson's per-SEAT count there is 16. BR
+## is a different shape: each seat is its own independent join (loadout
+## stays the "ctf" default, never paintball), so ctfPlayerResultsJson's
+## per-slot count matches the seat count directly -- this suite asserts
+## that number directly rather than assuming it matches the other bug's
+## shape just because a seat count appears in both stories.
 ##
-## A real bot-driven 32-seat (16-duo) episode -- baseline vs baseline, this
+## A real bot-driven 16-seat (16-solo) episode -- baseline vs baseline, this
 ## exact variant's game_config and mapSpec -- was separately run end to end
-## outside this suite and reached a real winner with this same 32-entry
-## results shape; see the PR description for the observed numbers. The
-## tests below are the fast, deterministic CI guard for that shape, in the
-## same direct-kill style test_br_elim.nim already uses (no scripted
-## combat needed to prove the win/results contract).
+## outside this suite and reached a real winner with this same results
+## shape; see the PR description for the observed numbers. The tests below
+## are the fast, deterministic CI guard for that shape, in the same
+## direct-kill style test_br_elim.nim already uses (no scripted combat
+## needed to prove the win/results contract).
 
 import
   helpers,
   std/[json, tables, unittest],
+  bitworld/spriteprotocol,
   ctf/sim
 
 const
   ManifestPath = "coworld_manifest_paintbot.json"
-  Teams = 8
-  SeatsPerTeam = 2
+  Teams = 16
+  SeatsPerTeam = 1
   Seats = Teams * SeatsPerTeam
   VariantId = "battle-royale-s2"
 
@@ -60,7 +61,7 @@ suite "paintbot manifest, battle-royale-s2 variant":
     variant = manifest.findVariant()
     gc = variant["game_config"]
 
-  test "16 seats, 8 teams x 2 -- slot k paired with slot k+8 (the duo shape)":
+  test "16 seats, 16 solo teams -- every slot is its own distinct team":
     check gc["players"].len == Seats
     check gc["slots"].len == Seats
     check gc["num_agents"].getInt() == Seats
@@ -71,16 +72,19 @@ suite "paintbot manifest, battle-royale-s2 variant":
     check gc["brMode"].getBool()
     check gc["season2Shell"].getBool()
     check gc["zonePhases"].len > 0
+    ## No duo pairing left to pin: all 16 slots are 16 DISTINCT teams, one
+    ## seat each. The engine's 16-color enum prefix, in the same order the
+    ## classic 32-seat "battle-royale" variant uses for its own 16 teams.
+    const ExpectedColors = ["red", "blue", "green", "yellow", "black",
+      "silver", "ivory", "pink", "umber", "rust", "orange", "plum", "lime",
+      "navy", "azure", "peach"]
+    check ExpectedColors.len == Teams
     var seen: seq[string]
     for i in 0 ..< Teams:
       let team = gc["slots"][i]["team"].getStr()
-      check team notin seen        ## the first 8 slots are 8 DISTINCT teams.
+      check team notin seen
+      check team == ExpectedColors[i]
       seen.add team
-      ## slot k and slot k+8 are the SAME team -- the duo pairing this
-      ## variant is now pinned to. The offset is seats/teams by derivation
-      ## (teamForSlot deals order mod teamCount), so the 16-seat shape
-      ## pairs at +8 exactly where the 32-seat one paired at +16.
-      check gc["slots"][i + Teams]["team"].getStr() == team
     check seen.len == Teams
 
   test "every key this variant sets is declared in config_schema":
@@ -88,7 +92,7 @@ suite "paintbot manifest, battle-royale-s2 variant":
     for key, _ in gc:
       check props.hasKey(key)
 
-  test "a REAL sim built from the variant's own game_config seats 16 duo seats across 8 teams":
+  test "a REAL sim built from the variant's own game_config seats 16 solo seats across 16 teams":
     var config = defaultGameConfig()
     config.update($gc)
     check config.brMode
@@ -97,32 +101,32 @@ suite "paintbot manifest, battle-royale-s2 variant":
     # owner's doctrine call. Frame loadout flags and duo held-state are
     # live on the flagship variant from day one.
     check config.frameLoadoutFlags
-    # WIN-AS-MULTIPLIER (glory-2 A6/Amendment 7): ROLLED BACK 2026-09-04.
-    # The dTagBack revive-loop (zone bleed re-downs partner ~every 9 ticks,
-    # revive at 48 -> a 57-tick metronome minting x2 per Revived, 24-27x per
-    # episode = 2^24+ overshoot; see glorybug 09:2x in the tg5 ledger) blew
-    # the 28,311,552 ceiling by ~10^6. Flag stays false until repeatable
-    # deeds get per-episode mint caps / diminishing rungs. v13 dVictory
-    # economy is live again via this switch, exactly as designed.
+    # WIN-AS-MULTIPLIER (glory-2 A6/Amendment 7): ROLLED BACK 2026-09-04
+    # after the dTagBack revive-loop (zone bleed re-downs partner ~every 9
+    # ticks, revive at 48 -> a 57-tick metronome minting x2 per Revived,
+    # 24-27x per episode = 2^24+ overshoot; see glorybug 09:2x in the tg5
+    # ledger) blew the 28,311,552 ceiling by ~10^6. RE-ARMED 2026-09-06 (the
+    # GV57 recut's Part A -- placement ladder dFinal8/4/2 + flat win factor
+    # M) now that both preconditions below are live on this variant:
+    # zoneBlocksRevive kills the revive loop mechanically, and deedMintCaps
+    # bounds every repeatable deed's per-episode mint count. Rollback is a
+    # flag flip, no code change.
     check config.gloryMultiplierRecut
-    check not config.winAsMultiplier
+    check config.winAsMultiplier
     # PAINTDEATH (owner ruling 2026-09-03): the flagship ships the zone as
     # LETHAL GROUND -- paint damages you AND admits no rescue. Armed here,
     # not dark: it is the root fix for the revive-loop above, and the
-    # precondition this variant's winAsMultiplier re-arm rides on.
+    # first of the two preconditions this variant's winAsMultiplier re-arm
+    # rode on.
     check config.zoneDamageByPaint
     check config.zoneBlocksRevive
     # MINTCAP: the OTHER half of the same re-arm gate. zoneBlocksRevive
     # above kills the revive loop MECHANICALLY on painted ground; the
     # caps bound any repeatable-deed composition, including the dry-ground
     # down/revive cycle that gate does not touch. ARMED 2026-09-04 (owner
-    # ruling, tg5 18:2x): #402 (zoneBlocksRevive) + this cap table are both
-    # landed, so the first half of the two-part re-arm gate is complete --
-    # arming the caps DOES change ARMED-recut scoring from here on
-    # (dDuoDown/dShieldSoak are priced under the live gloryMultiplierRecut
-    # variant), which is the point: bound the composition before more
-    # rounds bank under it. winAsMultiplier itself stays a SEPARATE owner
-    # beat, staged until N>=3 caps-era rounds verify sane tops.
+    # ruling, tg5 18:2x): #402 (zoneBlocksRevive) + this cap table landed
+    # first, completing the two-part re-arm gate that winAsMultiplier above
+    # now rides on.
     check config.deedMintCaps
     var sim = initCtfForTest(config)
     ## The variant's own "players" list binds each slot's NAME (see
@@ -140,66 +144,93 @@ suite "paintbot manifest, battle-royale-s2 variant":
       check sim.config.seatLivesFor(player.team) == 0  ## brMode: no spares.
     check perTeam.len == Teams
     for team, count in perTeam:
-      check count == SeatsPerTeam   ## every team fields exactly its duo.
+      check count == SeatsPerTeam   ## every team fields exactly its one solo seat.
 
-  test "the variant's items actually LAND: bandages placed, hoppers traffic-sited, every family inside the board's pool":
-    ## ITEM COMPLETENESS (epic 1ef4f9d6 T3 + the hopper site-class spec):
-    ## `bandagePickups` was absent from config_schema entirely, so a fully
-    ## built item — placement path, touch pickup, +1 hp calm-clock apply,
-    ## wire token, exchange whitelist, ground sprite — could not be reached
-    ## from the platform at all (the #389 class of gap: armed in a variant,
-    ## undeclared in the schema, except here it was armed nowhere either).
-    ## The hopper fallback meanwhile inherited the med kits' RETREAT siting.
-    ## Both are asserted on the REAL sim built from the variant's own
-    ## game_config, not on the manifest's prose.
-    check gc["bandagePickups"].getInt > 0
-    check gc["hopperSiteTrafficPermille"].getInt > 0
+  test "the variant's loot economy ships DARK (2026-09-04 owner simplification): bandages, hopper crates, gun crates all off":
+    ## Owner simplification, 2026-09-04 (PKG-A, flags-off): battle-royale-s2
+    ## went back to explicit bandagePickups: 0 / hopperSiteTrafficPermille: 0
+    ## / lootStart: false. This test used to assert the loot economy (epic
+    ## 1ef4f9d6 T3 + the hopper site-class spec) actually LANDED; it now
+    ## asserts the opposite on purpose — that flipping the flags off really
+    ## produces an empty item economy on the REAL sim built from the
+    ## variant's own game_config, not a half-armed one. Every key stays
+    ## PRESENT in the manifest at 0/false (one-token rollback) — see the PR
+    ## body for the re-arm path (PR-body-half-life: this comment is the one
+    ## that survives, not the PR description).
+    check gc["bandagePickups"].getInt == 0
+    check gc["hopperSiteTrafficPermille"].getInt == 0
     var config = defaultGameConfig()
     config.update($gc)
     var sim = initCtfForTest(config)
     for i in 0 ..< Seats:
       discard sim.addPlayer("Player" & $(i + 1))
     sim.startGame()
-    check sim.bandageSpawns.len == gc["bandagePickups"].getInt
-    check sim.weaponSpawns.len > 0
-    check sim.hopperSpawns.len > 0
-    ## Every neutral family must fit its object-id pool: a BR-pool map sizes
-    ## its med-kit/spray pools at runtime, and the un-deduped hopper fallback
-    ## used to place ~80 crates into a 64-wide pool — past the width the
-    ## render loop clamps and its own doAssert fires, so this is the guard
-    ## that keeps a live episode off that assert.
+    check sim.bandageSpawns.len == 0    ## resetBandages no-ops at count <= 0.
+    check sim.weaponSpawns.len == 0     ## resetLootCrates no-ops when lootStart is dark.
+    check sim.hopperSpawns.len == 0
+    ## Every neutral family (even empty ones) must still fit its object-id
+    ## pool — a cheap regression guard against a future re-arm overshooting
+    ## the board's 64-wide per-family pool.
     for family in [sim.weaponSpawns, sim.hopperSpawns, sim.bandageSpawns,
                    sim.medKitSpawns, sim.sprayPaintSpawns, sim.shieldSpawns,
                    sim.grenadeSpawns]:
       check family.len <= NeutralPickupPoolWidth
-    ## No family stacks two crates on one pixel (the taker's own carry gate
-    ## walks it straight over the twin), and the gun's two halves never
-    ## share one walk-over.
-    proc distinctPixels(spawns: seq[PickupSpawn]): int =
-      var seen: seq[tuple[x, y: int]]
-      for spawn in spawns:
-        if (spawn.x, spawn.y) notin seen:
-          seen.add (spawn.x, spawn.y)
-      seen.len
-    check distinctPixels(sim.hopperSpawns) == sim.hopperSpawns.len
-    check distinctPixels(sim.weaponSpawns) == sim.weaponSpawns.len
-    check distinctPixels(sim.bandageSpawns) == sim.bandageSpawns.len
-    ## The measurable: a MAJORITY of the fallback hoppers now sit on the
-    ## traffic class. Counted as "not on any med-kit point's own walkable
-    ## cell" — the retreat sites are exactly the points the fallback used to
-    ## use for all of them.
-    var kitPixels: seq[tuple[x, y: int]]
-    for point in sim.gameMap.medKitSpawns & sim.gameMap.medKitCandidates:
-      let spot = sim.nearestWalkable(point.x, point.y)
-      if spot notin kitPixels:
-        kitPixels.add spot
-    var offRetreat = 0
-    for spawn in sim.hopperSpawns:
-      if (spawn.x, spawn.y) notin kitPixels:
-        inc offRetreat
-    check offRetreat * 2 > sim.hopperSpawns.len
+    ## medKitCount stays unset (-1): the map's own full med-kit set is the
+    ## restored pre-S2 healing path now that bandages are off.
+    check sim.medKitSpawns.len > 0
 
-  test "wiping 7 of 8 duo teams ends the round with ONE winning team and exactly 16 score entries":
+  test "OBJBALANCE (owner directive 2026-09-05): fewer spray cans, more grenades, on the REAL sim":
+    ## Pre-pivot objbalance analysis, rec B: spray cans were the map's most
+    ## plentiful pickup and grenades its scarcest disposable, the inversion
+    ## of their intended rarity. The flagship variant ships both fixes at
+    ## once -- sprayCount caps the cans, grenadeCount injects supply -- and
+    ## this proves the manifest values AND the mechanism they drive on a
+    ## real sim built from the variant's own game_config, not restated prose.
+    check gc["sprayCount"].getInt == 6
+    check gc["grenadeCount"].getInt == 22
+    var config = defaultGameConfig()
+    config.update($gc)
+    check config.sprayCount == 6
+    check config.grenadeCount == 22
+    var sim = initCtfForTest(config)
+    for i in 0 ..< Seats:
+      discard sim.addPlayer("Player" & $(i + 1))
+    sim.startGame()
+    ## A cap can only shrink: the map's own BR-pool geometry authors far
+    ## more than 6 spray sites, so this is the binding case, not a no-op.
+    check sim.sprayPaintSpawns.len <= 6
+    check sim.sprayPaintSpawns.len > 0
+    ## grenadeCount is a TARGET, not a cap -- exactly 22 regardless of
+    ## whether the generated map authored more or fewer than that.
+    check sim.grenadeSpawns.len == 22
+    for family in [sim.sprayPaintSpawns, sim.grenadeSpawns]:
+      check family.len <= NeutralPickupPoolWidth
+
+  test "OBJBALANCE is a per-variant knob: the plain battle-royale variant stays unchanged (-1 default)":
+    ## Same rule medKitCount already proved (row above): a variant that
+    ## never sets sprayCount/grenadeCount inherits the engine's -1 default,
+    ## byte-identical to the pre-objbalance placement path.
+    var otherVariant: JsonNode
+    for variant in manifest["variants"]:
+      if variant["id"].getStr() == "battle-royale":
+        otherVariant = variant
+    doAssert otherVariant != nil, "manifest has no battle-royale variant"
+    let otherGc = otherVariant["game_config"]
+    check not otherGc.hasKey("sprayCount")
+    check not otherGc.hasKey("grenadeCount")
+    var config = defaultGameConfig()
+    config.update($otherGc)
+    check config.sprayCount == -1
+    check config.grenadeCount == -1
+    var sim = initCtfForTest(config)
+    for i in 0 ..< Teams:
+      discard sim.addPlayer("Player" & $(i + 1))
+    sim.startGame()
+    ## Unbounded (-1): the map's own authored spray-can count, whatever it
+    ## is, is never truncated to 6 on this variant.
+    check sim.sprayPaintSpawns.len > 6
+
+  test "wiping 15 of 16 solo teams ends the round with ONE winning team and exactly 16 score entries":
     var config = defaultGameConfig()
     config.update($gc)
     var sim = initCtfForTest(config)
@@ -207,32 +238,33 @@ suite "paintbot manifest, battle-royale-s2 variant":
       discard sim.addPlayer("Player" & $(i + 1))
     sim.startGame()
     let survivorTeam = sim.players[0].team
-    check sim.players[Teams].team == survivorTeam  ## slot 0's duo partner is slot 8.
-    ## Wipe every OTHER team's both seats (slots 1..7 and their partners
-    ## 9..15), leaving team 0's duo (slots 0 and 8) as the sole survivor.
-    ## This variant now arms downedMode (LOOT(s2)), so killPlayer's first
-    ## call on an upright cog DOWNS it (a frozen, still-`alive` ghost) --
-    ## src/ctf/sim.nim's killPlayer interception, `sim.downPlayer`. A second
-    ## killPlayer call on that same (now downed) victim carries it past the
-    ## interception guard (`not sim.players[targetIndex].downed` is false)
-    ## and completes the permanent death, the same path a real splat or
-    ## bleed-out finalization (`finalizeDowned`) takes. Two calls per
-    ## victim is this test's from-outside-the-module equivalent of "down,
-    ## then finish" -- the whole team must be genuinely dead, not merely
-    ## downed, before checkWinCondition can end the round.
+    ## Wipe every OTHER team (slots 1..15 -- each its own solo team, no
+    ## partner to also kill), leaving team 0's lone seat as the sole
+    ## survivor. #438 (2026-09-06) re-armed downedMode on this LIVE variant,
+    ## so killPlayer's first call on an upright cog no longer kills outright
+    ## -- it DOWNS (sim.downPlayer), leaving the victim `alive` with a ghost
+    ## body. Because every team here is a single seat, a downed player's
+    ## team has zero upright members the instant it happens, which is
+    ## updateDowned's team-wipe fast path (finalizeDowned fires the SAME
+    ## tick it runs, no bleed-out wait) -- but that path only runs inside
+    ## `sim.step`, not inside `killPlayer` itself. One un-stepped
+    ## `sim.killPlayer` call per victim only downs them; `checkWinCondition`
+    ## still sees all 16 teams with a live/lives>0 seat until a step ticks
+    ## `updateDowned` to finalize the wipe. Step once, real kill-path style
+    ## (test_br_elim.nim's own `none`-input pattern), so the downed ghosts
+    ## finalize and the same tick's `checkWinCondition` (already wired at
+    ## the end of `step`) sees the real elimination.
     for i in 1 ..< Teams:
       sim.killPlayer(i, 0)
-      sim.killPlayer(i, 0)
-      sim.killPlayer(i + Teams, 0)
-      sim.killPlayer(i + Teams, 0)
-    sim.checkWinCondition()
+    let none = newSeq[InputState](sim.players.len)
+    sim.step(none, none)
     check sim.phase == GameOver
     check not sim.isDraw
     check sim.winner == survivorTeam
 
     ## The score-arity property a hosted recertify actually enforces: BR's
-    ## 16-SEAT roster (8 duo teams) must carry exactly 16 score entries --
-    ## one per seat, never 8 (one per team/squad).
+    ## 16-SEAT roster (16 solo teams) must carry exactly 16 score entries --
+    ## one per seat, same as one per team now that every team is one seat.
     let results = parseJson(sim.playerResultsJson())
     check results["scores"].len == Seats
     check results["names"].len == Seats
@@ -244,4 +276,4 @@ suite "paintbot manifest, battle-royale-s2 variant":
     for w in results["win"]:
       if w.getBool():
         inc winners
-    check winners == SeatsPerTeam   ## both seats of the winning duo score a win.
+    check winners == SeatsPerTeam   ## the winning solo team's one seat scores a win.

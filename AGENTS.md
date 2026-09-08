@@ -455,6 +455,12 @@ records what it cost to guess. The short version:
   `PATCH /v2/coworld-league-seeds/{lseed_...} {"enabled": ...}`, not a DB write.
 - Disabled and private leagues 404 everywhere by design. `GET /v2/rounds` takes
   `league_id`; unknown query parameters are dropped silently.
+- Season 2's round scoring rule has changed seven times, four of them with no
+  build bump; a standings or Glory number quoted across one of those boundaries
+  is an artifact, not a result. [docs/SCORING_ERAS.md](docs/SCORING_ERAS.md) is
+  the era table — round, timestamp, canonical build, and what a cross-boundary
+  read gets wrong. Stamp every scoring claim with a round range and a
+  `coworld_version`.
 
 ## Debugging prod league replays (don't drive the Observatory UI)
 

@@ -456,6 +456,18 @@ type
     salvoUntil: int           # force-lob window after the charge order
     sweepFlip: bool           # -d:centerScan: which vertical arc is swept
     lastEnemyShout: string    # last enemy shout label already responded to
+    everSawMate: bool         # SOLO(s2): latches true the first time a live
+                              # same-color OTHER player is tracked in
+                              # `mates` this life. `mates` itself is a
+                              # ~5s-memory live snapshot (empties out any
+                              # time a real duo partner is just fogged), so
+                              # it cannot tell "no partner exists" (1-seat
+                              # BR team) from "partner is out of sight right
+                              # now" — this latch can, because a solo seat's
+                              # wire color is never shared by construction
+                              # and so can never set it even once. See the
+                              # `-d:shoutCoord` consumer below, the one
+                              # reader that needs the distinction.
     lastComebackReq: int      # rate limit on comeback generation requests
     wasMateCarry: bool        # edge detector: a fresh steal opens a taunt window
     tripping: bool            # mid-errand to a gear spot: sprint, no fights
@@ -1432,6 +1444,7 @@ proc resetTransient(bot: Bot) =
   ## Drops per-game memory between rounds (lobby / game-over interstitials).
   bot.enemies.setLen(0)
   bot.mates.setLen(0)
+  bot.everSawMate = false
   bot.nadeCharge = 0
   bot.mateFixTick = 0
   bot.hp = MaxHp
@@ -1848,6 +1861,10 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 {.measure.} =
       seenEnemies.add(client.actorsFor(c))
   bot.updateTracks(bot.enemies, seenEnemies)
   bot.updateTracks(bot.mates, seenMates)
+  if bot.mates.len > 0:
+    bot.everSawMate = true   # SOLO(s2): a real duo mate confirmed at least
+                             # once this life; a 1-seat team can never reach
+                             # this line (nobody else ever wears our color).
   if seenEnemies.len > 0:
     bot.lastEnemySeen = bot.tick
 
@@ -1972,8 +1989,21 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 {.measure.} =
     # shouts — "C<cx> <cy>" is our carrier's own position, "T<cx> <cy>" a
     # fresh fix on the enemy thief running OUR heart. The payload carries the
     # exact quantized position; the bubble's jittered coordinates are ignored.
+    #
+    # SOLO(s2): a 1-seat BR team has no teammate to coordinate with BY
+    # CONSTRUCTION — nobody else ever wires up our color, so `everSawMate`
+    # can never latch there. Gating on `myColor` alone (the pre-fix
+    # behavior) meant every shout in a solo match failed this prefix test,
+    # so the whole intel channel read as permanently empty — ALL shouts
+    # discarded, not just enemy ones. Once no mate has ever been confirmed
+    # this life, widen the scan to any seat's shout: cross-seat is the only
+    # "teammate" a solo seat can ever have. A confirmed real duo mate keeps
+    # the strict same-color gate, byte-identical to before this fix.
     for o in client.spriteObjects():
-      if not o.label.startsWith(labelShoutPrefix(myColor)):
+      if bot.everSawMate:
+        if not o.label.startsWith(labelShoutPrefix(myColor)):
+          continue
+      elif " shout " notin o.label:
         continue
       bot.lastTeamShoutSeen = bot.tick      # spacing signal for peace lines
       let sep = o.label.rfind(": ")

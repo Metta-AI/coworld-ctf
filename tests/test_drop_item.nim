@@ -347,8 +347,16 @@ suite "manifest wiring":
     check props["dropItem"]["type"].getStr() == "boolean"
     check props["dropItem"]["default"].getBool() == false
 
-  test "the battle-royale-s2 variant ships dropItem armed, beside giveItem":
+  test "the battle-royale-s2 variant ships dropItem and giveItem dark (2026-09-04 flags-off simplification)":
+    # Owner simplification, 2026-09-04 (PKG-A): the loot-economy flags
+    # (lootStart/downedMode/giveItem/dropItem/bandagePickups/loot-seeding)
+    # went back to explicit-false on battle-royale-s2. This is a DELIBERATE
+    # off-switch, not a removal — every key stays present in the manifest
+    # (one-token rollback) and this test's job is to assert the CURRENT
+    # ruled state, not the mechanism's default. See PR body for the
+    # re-arm path; do not "fix" this back to true without a fresh ruling
+    # (PR-body-half-life: the body that explains this will not survive).
     let gc = brS2Config(parseFile(GameDir / ManifestName))
     check gc != nil
-    check gc["dropItem"].getBool() == true
-    check gc["giveItem"].getBool() == true   # drop COEXISTS with handoff
+    check gc["dropItem"].getBool() == false
+    check gc["giveItem"].getBool() == false

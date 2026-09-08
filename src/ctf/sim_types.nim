@@ -29,12 +29,44 @@ export glory
 
 const
   GameName* = "ctf"
-  ReplayCompatibleGameVersions* = ["52"]
+  ReplayCompatibleGameVersions* = ["59"]
     ## The replay-load allowlist (play-calling design §4.3): versions whose
     ## recorded files still play back correctly under THIS engine. The
     ## criterion is the GameVersion changelog below, not chronology — a
     ## version is listed only when nothing since changed the gameHash
-    ## schema, the hash trajectory, or a flatty keyframe layout. GV51 is
+    ## schema, the hash trajectory, or a flatty keyframe layout. GV58 drops
+    ## out because GV59 moves when a downed cog's own team AND a currently
+    ## pact-allied team both go upright-empty at different ticks, or a
+    ## pact-ally hit downs/confirms a partner: `downed`/`alive`/`hp`
+    ## (already hashed) diverge in TIMING from the finalize-immediately-on-
+    ## team-wipe engine, and `dTeamKill`/`gloryFfIncidents` (hashed) mint
+    ## where a GV58 engine minted a plain kill deed instead — a hash
+    ## TRAJECTORY change for any GV58 recording that ever had an active
+    ## pact under armed downedMode (measured: none has, yet, but the path
+    ## is reachable). GV57 drops out because GV58 moves when a friendly-fire
+    ## down under armed
+    ## downedMode prices its dTeamKill/gloryFfIncidents (at the down, not
+    ## the eventual bleed-out/finalize), a hash TRAJECTORY change from the
+    ## down tick onward for any GV57 recording that contains one. GV56
+    ## drops out because GV57 both appends `recutFinalFired` to
+    ## `SimServer` (a flatty keyframe layout change) AND moves the hash
+    ## TRAJECTORY three independent ways — the heat cadence (heatEmbers,
+    ## hashed since GV48, now decays on a 6× longer window and rungs on
+    ## [1,2,4], so EVERY recording with drama re-times, classic modes
+    ## included), the ally-stack keying (a GV56 BR recording's co-engaged
+    ## kills re-price through `gloryProduct`, hashed), and the placement
+    ## ladder (new mints fold into `gloryProduct` at alive-count crossings
+    ## a GV56 engine never priced). GV55 drops
+    ## out because GV56 both removes `pactOfferTeam`/`pactOfferTick`/
+    ## `pactCooldownUntil` from `SimServer` AND adds `pactDeclaredPartners`
+    ## in their place — two flatty keyframe layout changes in one bump —
+    ## and moves WHEN `pactMask` bits set (a hash TRAJECTORY change: a GV55
+    ## recording's shout stream can no longer register or dissolve a pact
+    ## at all under this engine, since the shout grammar that consumed it
+    ## is gone). GV54 drops
+    ## out because GV55 appended `pactOfferTeam`/`pactOfferTick`/
+    ## `pactCooldownUntil` to `SimServer`, a flatty keyframe layout change —
+    ## same rule that dropped GV53 the bump before it, not a new one. GV51 is
     ## excluded because GV52 moved every re-shared spawn seat (each BR duo's
     ## second member) SpawnShareStagger px off the authored point, a hash
     ## TRAJECTORY change from tick 0 of every 16-team BR recording. GV50 is
@@ -55,7 +87,184 @@ const
     ## RewardAccount on the wire. Widening requires a real archived fixture
     ## that survives initialization and stepping (PM ruling, 2026-08-30),
     ## never a header rewrite.
-  GameVersion* = "52"
+  GameVersion* = "59"
+    ## GV59 (ALLY REVIVE: PACT ALLIES REVIVE, ALLIANCE IS THE SURVIVAL UNIT,
+    ## ALLY-FIRE PRICES FRIENDLY): a registered pact (`pactMask`) previously
+    ## did nothing for a downed cog -- `updateDowned`'s tagger scan and
+    ## team-wipe census were both same-team-literal, so on the 16-solo
+    ## field (every team exactly one seat) a pact ally could never revive
+    ## its partner: the 1-seat team-wipe finalized the SAME tick the down
+    ## landed, before any tag could ever land, and applyFire's
+    ## splat-confirm let the ally's own stray paint finish the body off
+    ## anyway. Three rule changes plus one confirm-gate mirror, all
+    ## required together (Asana 1218246921137284):
+    ##   1. REVIVE ELIGIBILITY -- updateDowned's tagger scan (sim.nim)
+    ##      qualifies a tagger on same team OR
+    ##      pactActive(victim.team, tagger.team); zoneBlocksRevive and the
+    ##      reviver's own DownedTagRange exposure are unchanged.
+    ##   2. SURVIVAL UNIT -- updateDowned's team-wipe finalize
+    ##      (teamHasUprightPactAlly) no longer fires when a PACT-ALLIED
+    ##      team still has a living upright member; the existing bleed-out
+    ##      timer runs instead, and finalize still lands via that timer (or
+    ##      a later team-wipe check) once the last upright ally is gone.
+    ##      Non-pact teams: byte-identical, the helper always reads false.
+    ##   3. ALLY-FIRE PRICES FRIENDLY -- downPlayer's Amendment-5 mint and
+    ##      killPlayer's KillContext.friendly both route through a new
+    ##      downFriendly predicate: same team, OR a live pactActive read,
+    ##      OR a `lastHitWasPactAlly` snapshot absorbDamage takes BEFORE
+    ##      its own ALLIANCE P1 dissolve (the pact clears on the same hit
+    ##      that downs the ally, before the down is priced a few lines
+    ##      later in the caller -- the snapshot is what survives that
+    ##      race). `dTeamKill`/`gloryFfIncidents` (both hashed) now mint
+    ##      once at the down for a pact-ally hit, same as a teammate's.
+    ##   4. SPLAT-CONFIRM MIRROR (P2b) -- applyFire's downed-ghost confirm
+    ##      gate now also spares a pact ally's stray paint (live
+    ##      `pactActive`, not the snapshot: this hit never routes through
+    ##      absorbDamage, so there is no dissolve-before-price race here).
+    ## Trajectory-scoped to downedMode armed AND at least one active pact:
+    ## every other recording (downedMode off, or on with no pact ever
+    ## registered/declared) is byte-identical. Measured before this
+    ## change: 0 pacts formed in 1,600 seat-episodes on the live ladder --
+    ## this bump has likely never fired on a real recording yet, but the
+    ## behavior is reachable the instant one forms, so it takes the bump
+    ## on the same doctrine GV58's own paragraph states below (a
+    ## behavior-changing fix on a measured/reachable path bumps on its
+    ## own, tripwire result notwithstanding).
+    ##
+    ## Previously GV58 (GLORY: FRIENDLY-FIRE PRICES AT THE DOWN, Amendment 5): under
+    ## armed downedMode, a lethal friendly hit reached downPlayer and
+    ## returned before killPlayer's priceTheKill block ever ran, so
+    ## dTeamKill/gloryFfIncidents (both hashed state) minted only if the
+    ## downed partner actually bled out (finalizeDowned re-entering
+    ## killPlayer) -- a revived friendly-fire down was free: measured,
+    ## dTeamKill fired 4x in 72 wins where it should have fired every
+    ## incident. The mint now happens in downPlayer itself, once per
+    ## incident, at the down; finalizeDowned's later re-entry for that
+    ## same incident is guarded off so a bled-out/team-wiped friendly down
+    ## never double-mints. A GV57 recording that contains a friendly-fire
+    ## down under downedMode re-simulates to a different hash trajectory
+    ## from the down tick onward under this engine -- every other
+    ## recording (downedMode off, or on with no friendly-fire down) is
+    ## byte-identical, but the gameversion-tripwire job cannot see a
+    ## conditional trajectory move, only a headline collision, and stays
+    ## green on a same-number reuse either way. Ruled (spec owner, glory-2,
+    ## 2026-09-03): a behavior-changing fix that moves a MEASURED
+    ## distribution takes a GameVersion bump on its own, even when the
+    ## tripwire passes untouched -- GameVersion is the only reliable
+    ## IN-BAND era marker a replay header carries; build-to-commit
+    ## provenance is not derivable after the fact. Renumbered THREE TIMES
+    ## from this fix's original GV53 claim (PR #384): first to GV56 when
+    ## main had spent GV53-55 on the alliance declaration protocol while
+    ## this PR sat open, then to GV57 when a second alliance PR (#434)
+    ## claimed GV56 out from under that renumbering, then to GV58 when the
+    ## solo-recut/heat-arm PR (#435) claimed GV57 out from under that
+    ## renumbering in turn before this one could merge -- AGENTS.md's
+    ## cross-branch claim rule (take the next number no open branch has
+    ## claimed; the second to merge always renumbers, however many times
+    ## that takes).
+    ##
+    ## Previously GV57 (GLORY: SOLO RECUT + ALLIANCE KEYING + HEAT ARM E):
+    ## GloryVersion 13 -> 14 rides this bump — one PR, one cutover (the
+    ## 28:0x ship-shape ruling; the full sized economics live in
+    ## glory.nim's own v14 changelog, authoritative inputs
+    ## `~/.ctf/handoff/2026-09-06-recut-sizing.md` +
+    ## `2026-09-06-heat-menu.md`). Three rule changes and one layout
+    ## change:
+    ##   1. PLACEMENT LADDER — new deeds dFinal8/dFinal4/dFinal2
+    ##      (×2/×3/×4, armed+winAsMultiplier+brMode only) mint at the
+    ##      alive-team-count crossings for every surviving team
+    ##      (recutMintPlacementMilestones, sim.nim), and the win factor
+    ##      is now team-size-keyed: M_solo=×8 for a 1-seat winning team,
+    ##      M_duo=×4 unchanged (`recutWinFactor`'s new winnerSeats
+    ##      param). `RecutProductCapArmed` drops 2^26 -> 2^24. These fold
+    ##      into `gloryProduct` (hashed), a trajectory change for armed
+    ##      BR recordings.
+    ##   2. ALLY-STACK KEYING brMode -> isAllied — `recutContextK`
+    ##      (sim.nim) now counts a co-engaged BR seat only when
+    ##      `pactActive(attackerTeam, killerTeam)` holds (the GV56 pact
+    ##      registry), never on blanket co-engagement; a GV56 BR
+    ##      recording's jackal-stacked kills re-price, a trajectory
+    ##      change.
+    ##   3. HEAT ARM E — `HeatDecayTicks` 45 -> 270 and `HeatThresholds`
+    ##      [2,5,10] -> [1,2,4] (glory.nim; ladder and decay amount
+    ##      unchanged). `heatEmbers` is hashed and every mode accrues
+    ##      drama, so this re-times EVERY recording's hash trajectory,
+    ##      classic 2-/4-team included — the reason this bump is not
+    ##      BR-scoped.
+    ##   4. LAYOUT — `recutFinalFired` (3 bools, the milestone latch)
+    ##      appended to `SimServer` inside the recut ledger block: a
+    ##      flatty keyframe layout change (kept OUT of gameHash — see the
+    ##      field's own comment). The allowlist above drops GV56.
+    ##
+    ## Previously GV56 (ALLIANCE: REGISTER FROM THE `pact` PLAY, RETIRE THE SHOUT
+    ## GRAMMAR): a layer-correction ruling on top of GV55 -- seats do not
+    ## think, they run scripts the LLM flashes/retunes via the WASM play
+    ## ladder, and NOTHING on a seat's fixed Intent menu could ever emit a
+    ## "+X"/"-X" shout, so GV55's declaration protocol was a category error
+    ## from the start. The ratified alliance surface is the `pact` overlay
+    ## play (play_sdk/reference/pact.nim, already shipped): the LLM names
+    ## partners in its opening `pact` call and can retune them mid-match.
+    ## This bump makes THAT the engine's registration source instead:
+    ## `declarePactPartners` (sim.nim) records each seat's currently
+    ## declared partner TEAMS into `pactDeclaredPartners`, lifted off the
+    ## call's own static `partners` param (resolvePactPartnerTeams,
+    ## emit_validator.nim) at the shell ladder's per-tick drain
+    ## (episode.step's `pactDeclarations`, server.nim) -- never off the
+    ## emitted combat_policy, which is the play's own betrayal-narrowed
+    ## body behavior and stays out of the registry entirely. A `pactMask`
+    ## bit-pair SETS only when both sides currently declare each other
+    ## (mirrors resolveConfiguredPacts' mutual-only rule, unchanged); it
+    ## CLEARS the instant a retune drops a previously-named partner, no
+    ## consent needed, on top of the existing damage/death dissolution
+    ## (absorbDamage/killPlayer, unchanged). Still NEVER enforced —
+    ## attacking a pact partner remains a legal, ordinary kill (P1's
+    ## ruling, unchanged). REMOVES GV55's `pactOfferTeam`/`pactOfferTick`/
+    ## `pactCooldownUntil` fields and their shout-grammar consumer
+    ## (parsePactShout/teamHasLiveMemberNear/consumePactShout, sim.nim) —
+    ## the general shout/chat channel itself is untouched, only the
+    ## pact-grammar consumption of it is gone. ADDS `pactDeclaredPartners`
+    ## (SimServer, 64 bytes: `array[MaxPlayers, uint16]`, smaller than
+    ## either the field it replaces or the O(teamCount^2) table that once
+    ## crashed the wasm32 viewer — see the field's own comment) and a new
+    ## OUT-OF-BAND replay record (`writePactDeclaration`/
+    ## `isPactDeclarationRecord`, replays.nim, riding the chat stream under
+    ## the one remaining unused player-byte bit pair) — required because,
+    ## like a give-item handoff declaration, the WASM ladder never re-runs
+    ## on playback, so an accepted declaration must be recorded and
+    ## re-applied directly rather than re-derived. Both changes are flatty
+    ## keyframe layout changes and the registration timing is a hash
+    ## TRAJECTORY change (a GV55 shout can no longer flip `pactMask` under
+    ## this engine), so the allowlist drops GV55 above. `pactDeclaredPartners`
+    ## itself is kept OUT of `gameHash`, same reasoning GV55's dropped
+    ## fields documented: it re-derives deterministically from the
+    ## already-recorded declaration event stream, so the DERIVED
+    ## bookkeeping stays out; `pactMask` itself was already hashed by P1
+    ## and needs no further change here.
+    ##
+    ## Previously GV55 (ALLIANCE: DECLARATION PROTOCOL, P2, RETIRED above):
+    ## the "+X"/"-X" shout grammar that let two teams register or dissolve
+    ## a `pactMask` pact in-match via ordinary chat, with a mutual-10s
+    ## window, a 30s per-team cooldown, and a face-to-face proximity gate.
+    ## Retired whole-cloth by GV56 above; kept here only as the historical
+    ## record of what GV55 shipped and why the allowlist excludes it.
+    ##
+    ## Previously GV54 (ALLIANCE: PACT REGISTRY, P1): `pactMask` appended to
+    ## `SimServer` (a flatty keyframe layout change) and enters `gameHash`
+    ## beside `gloryProduct` (formal-alliances design, 2026-09-02/03: pact
+    ## state is CAUSAL from GV54 on, even though nothing in scoring reads it
+    ## yet — P1 is a dark REGISTRY, not dark STATE). A companion per-(i,j)
+    ## offer-tick table was drafted alongside it for P2's future use and
+    ## dropped before landing: it tipped `SimServer` over the wasm32 static
+    ## viewer's stack budget and crashed replay loading outright (see
+    ## `pactMask`'s own field comment) -- P2 pays its own GV bump to add it
+    ## back once it is actually needed (done above). The
+    ## allowlist drops GV53 because it never shipped on `main` (claimed by
+    ## an open, unmerged PR at the time this landed -- AGENTS.md's
+    ## cross-branch GameVersion-claim rule: `main` had only spent through
+    ## GV52, so GV53 stayed free for whichever branch merged first; this one
+    ## renumbered to GV54 rather than collide). GV52 is excluded for its own
+    ## reason, unchanged by this bump: it moved every re-shared spawn seat's
+    ## SpawnShareStagger, a hash TRAJECTORY change (see its own entry below).
     ## GV52 (SPAWN: RE-SHARED POINTS STAGGER): seats that re-share one
     ## authored spawn point (order >= perTeam -- every duo on the 16-point,
     ## 16-team BR generator) are seated SpawnShareStagger px apart along y
@@ -853,6 +1062,13 @@ const
                               ## spawn-seed rings' 0/4) so families sharing
                               ## an anchor lap away from each other rather
                               ## than restacking on the same pixels.
+  GrenadeSiteDirOffset* = 6   ## OBJBALANCE(s2, owner directive 2026-09-05):
+                              ## ring phase for grenadeCount's overflow
+                              ## copies (the count-spawner INJECTING more
+                              ## than the map authored, past its own anchor
+                              ## set) -- a fourth distinct compass phase, the
+                              ## same "own phase per family" rule as the two
+                              ## above.
   DownedTagRange* = 40        ## px center-to-center: teammate adjacency that
                               ## counts as the revive tag. Deliberately looser
                               ## than the 12px item touch — a tag is a hug,
@@ -1928,6 +2144,19 @@ type
     # by name). scInput is the zero value, so a parsed legacy config is
     # bit-identical in memory too.
     control*: SlotControl     ## "input" (default) or "play" in config JSON
+    # ALLIANCE P1 (formal-alliances design, 2026-09-02/03): GV-FREE config
+    # surface — `PlayerSlotConfig` is parsed by name (readConfigSlots), not
+    # flatty-positional, so appending here needs no GameVersion bump on its
+    # own (see `control`'s own comment just above for the same reasoning).
+    # The GV54 bump this arc DOES carry is entirely for the DERIVED
+    # `pactMask` state on `SimServer`, not for this list.
+    allies*: seq[string]      ## Other seats' `name` this seat proposes a
+                               ## pact with pre-match. Resolved and
+                               ## MUTUALITY-checked once at game start
+                               ## (resolveConfiguredPacts, sim.nim): a
+                               ## unilateral entry (this seat names another
+                               ## that does not name it back) is dropped and
+                               ## logged, never registered into pactMask.
 
   MapGenOverrides* = object
     ## Per-parameter locks for the terrain generator. Zero-value ("" / 0,
@@ -2439,6 +2668,26 @@ type
                         ## own full set (default — the pre-existing path,
                         ## byte-identical), 0 = none (the bandage-vs-medkit
                         ## test arm), N = the first N of the map's points.
+    # ── OBJBALANCE(s2, owner directive 2026-09-05) ── "far fewer paint cans"
+    # + the rarity-inversion fix the same pre-pivot analysis flagged (rec B):
+    # grenades were the scarcest disposable and should be the most common,
+    # sprays the most common and should be the rarest. Both -1 by default
+    # (unchanged everywhere), so a dark game's placement/replay stays
+    # byte-identical to a build without these fields.
+    sprayCount*: int    ## OBJBALANCE(s2): cap on placed spray cans, same
+                        ## "-1 = map's own full set, N = the map's first N
+                        ## points" rule medKitCount already uses (see
+                        ## resetSprayPaints). A cap can only SHRINK a list.
+    grenadeCount*: int  ## OBJBALANCE(s2): TARGET count of placed grenades,
+                        ## -1 = the map's own authored/formula set
+                        ## (default, byte-identical). 0..base.len keeps the
+                        ## map's first N points (medKitCount's cap rule);
+                        ## past base.len this INJECTS extra copies, cycling
+                        ## back through the same authored anchors ring-offset
+                        ## via GrenadeSiteDirOffset (the same overflow idiom
+                        ## resetBandages already uses) -- a cap can only
+                        ## reduce, so raising the count needs this injection
+                        ## path. See resetGrenades / grenadeCountTargets.
     bandagePickups*: int ## LOOT(s2): bandage pickups placed at the map's
                         ## med-kit points (first N, cycling). 0 = dark. A
                         ## bandage is CARRIED (up to BandageCarryCap) and
@@ -3085,6 +3334,22 @@ type
     reviveProgress*: int ## LOOT(s2): consecutive adjacent-teammate ticks
                         ## toward downedReviveTicks; resets to 0 the tick
                         ## the tag breaks.
+    lastHitWasPactAlly*: bool ## ALLIANCE P3 (ally-revive design
+                        ## 2026-09-07): snapshot of "was the team that just
+                        ## damaged ME a pact ally, at the instant of the
+                        ## hit" -- written by every damaging `absorbDamage`
+                        ## call (sim.nim), overwritten on EVERY hit so it
+                        ## always reflects only the most recent one. Exists
+                        ## because `absorbDamage`'s own ALLIANCE P1 dissolve
+                        ## clears the pact bit in the SAME call, before
+                        ## `downPlayer`/`killPlayer` ever price the hit --
+                        ## by the time pricing runs, a live `pactActive`
+                        ## check would already read false. NOT mixed into
+                        ## gameHash (the pactMask rule, sim_types.nim's own
+                        ## field comment): purely derived from
+                        ## already-hashed-adjacent state (attacker/target
+                        ## teams, tick position) and the pact registry,
+                        ## which itself stays out for the same reason.
     # GIVE(s2): none of the three fields below enters gameHash (the
     # puddleTicks/hasBarrier rule) — the transfer the channel completes
     # moves already-hashed state (hasGun/hasHopper/bandages drive hashed
@@ -3663,7 +3928,22 @@ type
     ## One short player message, audible within ShoutRange of where it was
     ## made. Bots observe shouts, so they are gameplay state (in gameHash)
     ## and replays re-apply the recorded chat records that produced them.
-    address*: string           ## the shouter, by player address.
+    address*: string           ## the shouter, by player address. SUBSTRATE
+                               ## NOTE (solo comms, 2026-09-05): this is the
+                               ## one field the server can resolve to a
+                               ## SPECIFIC live player unambiguously in every
+                               ## roster shape, including 16-solo BR where
+                               ## `team` alone already carries full per-seat
+                               ## identity (16 distinct colors, one seat
+                               ## each — see verify_br_solo16.nim) and does
+                               ## NOT need address for that. A future
+                               ## alliance/pact system attributing a mutual
+                               ## ALLY declaration to its speaker should key
+                               ## off THIS field server-side, the same way
+                               ## `shoutIdentityName` (roster.nim) already
+                               ## does — never off anything surfaced to a
+                               ## rival's perception (labelShout deliberately
+                               ## strips it; see that proc's own doc).
     team*: Team
     text*: string              ## sanitized, at most ShoutMaxChars.
     tick*: int                 ## when it was shouted.
@@ -4110,6 +4390,90 @@ type
                                ## from the damage stream like the marks,
                                ## so OUT of gameHash for the same reason
                                ## (the product it mints into is hashed).
+    recutFinalFired*: array[3, bool]
+                               ## GV14 PLACEMENT LADDER (GV57): which of
+                               ## the dFinal8/dFinal4/dFinal2 alive-count
+                               ## milestones have fired this episode —
+                               ## index-aligned with glory.nim's
+                               ## `RecutFinalThresholds`. Maintained ONLY
+                               ## armed+winAsMultiplier+brMode
+                               ## (recutMintPlacementMilestones, sim.nim)
+                               ## and re-opened by resetGloryLedger.
+                               ## Derived deterministically from the
+                               ## already-hashed alive/lives stream (it
+                               ## re-simulates identically), so it stays
+                               ## OUT of gameHash exactly like
+                               ## `recutMintCounts` — the product the
+                               ## mints move IS hashed, which is the
+                               ## causal surface. The GV57 bump covers
+                               ## the flatty keyframe layout change.
+    # ── ALLIANCE P1: the pact REGISTRY (formal-alliances design,
+    # 2026-09-02/03) ── appended at the END of the ledger block per this
+    # file's own flatty-positional rule (GameVersion 54 bump covers the
+    # layout move). DARK: nothing in scoring reads this field yet -- no
+    # glory pricing, no perception change, no behavior branches on a pact.
+    # Still CAUSAL (hashed, beside gloryProduct — sim_state.nim) because a
+    # pact's existence is a fact about the match, not a cosmetic: a replay
+    # that silently dropped a mutual pact mid-game would re-play a
+    # DIFFERENT episode of the match without the hash ever objecting.
+    #
+    # NOTE: an earlier draft of this field also carried a per-(i,j) offer-
+    # tick table (`pactOfferTick: array[Team, array[Team, int]]`, 512 bytes
+    # native / 256 wasm32) reserved for a shout-based declaration protocol.
+    # Dropped before landing: it tipped `SimServer` (already one of the
+    # largest objects in the engine) over the wasm32 build's fixed stack
+    # budget, and every replay -- including ones with no alliance config at
+    # all -- crashed the STATIC VIEWER with a raw wasm trap ("memory access
+    # out of bounds") at load, before a single Nim exception handler ever
+    # ran. GameVersion 55 shipped that shout grammar anyway (its own
+    # per-team `pactOfferTeam`/`pactOfferTick`/`pactCooldownUntil` fields,
+    # sized to dodge the exact trap above) and GameVersion 56 retired it
+    # again (below) -- a layer-correction ruling found the seat's Intent
+    # menu can never emit a `+X`/`-X` shout in the first place (nothing on
+    # the fixed action space), so registration moves to the ALREADY-SHIPPED
+    # `pact` WASM play instead. P1 needing none of that bookkeeping is not
+    # worth either failure mode.
+    pactMask*: array[Team, uint16]    ## ALLIANCE: bit j of row i set means
+                               ## team i and team j hold a mutual pact.
+                               ## SYMMETRIC by construction — every mutation
+                               ## goes through registerPact/dissolvePact
+                               ## (sim_state.nim), which assert the mirror
+                               ## bit together; never write this field any
+                               ## other way. Seeded once per game (from
+                               ## config.slots[].allies, mutuality-checked)
+                               ## in resetGloryLedger's reseedPacts call;
+                               ## registered live from mutual `pact` play
+                               ## declarations (declarePactPartners, sim.nim,
+                               ## GameVersion 56); cleared for a pact's two
+                               ## teams the instant either damages the other
+                               ## (absorbDamage), either seat dies
+                               ## (killPlayer), or either side's own retune
+                               ## drops the declaration that named the other
+                               ## (declarePactPartners) — pactMask itself has
+                               ## no other writer.
+    # ── ALLIANCE (engine registration rewire, formal-alliances design,
+    # GameVersion 56) ── the `pact` WASM play's own registration seam:
+    # per-SEAT (not per-team, so a duo's two members can each carry their
+    # own declaration -- teamDeclaresPartner, sim.nim, unions a team's live
+    # seats), one uint16 bitmask of the TEAMS this seat's currently active
+    # `pact` call names as a partner (bit j set = names team j; all-zero =
+    # no active declaration). Lifted off the call's own static `partners`
+    # param (resolvePactPartnerTeams, emit_validator.nim), never off the
+    # emitted combat_policy -- betrayal-driven noShoot/protect narrowing is
+    # the play's own body-level business and must not feed the registry.
+    # Sized at MaxPlayers (32) entries of 2 bytes each -- 64 bytes total,
+    # smaller than the O(teamCount) table GV55 shipped for the shout
+    # grammar (144 bytes) and smaller still than the O(teamCount^2) table
+    # that crashed the wasm32 viewer before either landed (see the NOTE
+    # above pactMask). Deliberately kept OUT of gameHash: every accepted
+    # declaration change rides its own replay record
+    # (writePactDeclaration/isPactDeclarationRecord, replays.nim) exactly
+    # the way a give-item handoff declaration does, so a replay re-derives
+    # the identical `pactMask` transition from that already-recorded event
+    # stream and never diverges -- the same "derived deterministically from
+    # an already-hashed-adjacent stream, so the DERIVED fact stays out"
+    # reasoning GV55's dropped fields documented, not a new rule.
+    pactDeclaredPartners*: array[MaxPlayers, uint16]
     heatEmbers*: array[Team, int]     ## GLORY: rampage embers -> the heat
                                       ## multiplier.
     heatLastDeed*: array[Team, int]   ## GLORY: tick of the team's latest

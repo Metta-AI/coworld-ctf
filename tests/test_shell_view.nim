@@ -4,11 +4,13 @@
 ## canonical JSON bytes. This keeps the future binary play-view encoder from
 ## inheriting JSON-specific row selection behavior.
 
-import std/[strutils, algorithm, json, options, sequtils, unittest]
+import std/[strutils, algorithm, json, options, os, sequtils, unittest]
 
 import ../src/ctf/sim_types
 import ../src/shell/[binary_view, body, body_map, canonical, canonical_fast,
   types, view]
+
+const FixtureDir = currentSourcePath.parentDir / "fixtures" / "shell"
 
 proc p(x, y: int): PlayPoint = (x, y)
 
@@ -477,3 +479,37 @@ suite "shell play context producer":
       discard buildPlayContext(bad)
     expect ValueError:
       discard buildPlayContext(context, 8)
+
+  test "context supports solo BR seats with no duo partner":
+    ## 2026-09-05: solo BR (16 one-seat teams) has nobody to pair with. The
+    ## old invariant required duo_partner whenever mode == br unconditionally
+    ## -- this raised ValueError for every seat of a config exactly like this
+    ## one, which took the live solo-BR league down. duo_partner is now only
+    ## required to be ABSENT outside br mode; a br context may omit it, and
+    ## when it does the field is dropped from the wire entirely (not null).
+    let context = PlayContextSource(mode: gmBr, mapName: "gen:14005",
+      mapWidth: 3200, mapHeight: 1800,
+      roster: @[
+        PlayContextRosterRow(seat: 0, team: Red, control: pccPlay),
+        PlayContextRosterRow(seat: 1, team: Blue, control: pccPlay)],
+      selfSeat: 0, selfTeam: Red, duoPartner: none(int),
+      gunRange: 331, viewInterval: 6)
+    let bytes = buildPlayContext(context)
+    validateCanonical("" & bytes)
+    check canonicalJson(parseJson(bytes)) == bytes
+    let node = parseJson(bytes)
+    check node["mode"].getStr() == "br"
+    check not node["self"].hasKey("duo_partner")
+    check bytes == readFile(FixtureDir / "play_context.golden.json")
+
+    # Byte-identity check for DUO configs: the same construction with a
+    # partner present takes the unchanged path (duo_partner still emitted,
+    # matching pre-fix behavior exactly).
+    var duo = context
+    duo.roster = @[
+      PlayContextRosterRow(seat: 0, team: Red, control: pccPlay),
+      PlayContextRosterRow(seat: 1, team: Red, control: pccPlay)]
+    duo.duoPartner = some(1)
+    let duoBytes = buildPlayContext(duo)
+    let duoNode = parseJson(duoBytes)
+    check duoNode["self"]["duo_partner"].getInt() == 1

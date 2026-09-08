@@ -22,7 +22,7 @@ import
   helpers,
   std/[json, unittest],
   bitworld/spriteprotocol,
-  ctf/[sim, events, arena, broadcast]
+  ctf/[sim, events, arena, broadcast, global]
 
 proc brConfig(): GameConfig =
   result = defaultGameConfig()
@@ -253,6 +253,146 @@ suite "row 2 — med-kit cap and carryable bandages":
     sim.stepIdle(1)
     check sim.players[0].hp == 3          # untouched: already at max
     check sim.players[0].bandages == 1    # not consumed
+
+suite "OBJBALANCE (owner directive 2026-09-05) — spray-can cap and grenade injection":
+  ## `brConfig()` alone (brMode: true, no map override) generates an
+  ## ordinary FLAGGED 2-team map -- resetSprayPaints/resetGrenades fall
+  ## through to the classic per-team formula there (2 spray points, 4
+  ## grenade corners), never the authored BR pool. These tests need a
+  ## genuine flagless, multi-spawn-group BR map (the shape battle-royale-s2
+  ## actually plays) so the authored `gameMap.spraySpawns`/`grenadeSpawns`
+  ## branches are the ones under test -- same minimal-BR-mapSpec pattern
+  ## test_br_team_bridge.nim's `brSpec` already uses.
+  const
+    ObjBalanceGroups = 8
+    ObjBalanceW = 1235
+    ObjBalanceH = 659
+
+  proc gridPointsNode(count: int): JsonNode =
+    result = newJArray()
+    for i in 0 ..< count:
+      let
+        col = i mod 4
+        row = i div 4
+      result.add %*[154 + 308 * col, 82 + 165 * row]
+
+  proc objBalanceMapSpec(sprayN, grenadeN: int): string =
+    var node = %*{
+      "name": "objbalance-demo",
+      "width": ObjBalanceW, "height": ObjBalanceH,
+      "flagRing": 70, "captureClear": 210,
+      "spawnClearW": 40, "spawnClearH": 40,
+      "gunRange": 331,
+      "symmetry": "none",
+      "layout": "sides",
+      "endzone": "column", "endzoneRadius": 0, "homeDepth": 0,
+      "medKitSpawns": [[ObjBalanceW div 2, ObjBalanceH div 3],
+                        [ObjBalanceW div 2, 2 * ObjBalanceH div 3]],
+      "medKitCandidates": [[ObjBalanceW div 2, ObjBalanceH div 3],
+                            [ObjBalanceW div 2, 2 * ObjBalanceH div 3]],
+      "leftObstacles": newJArray(),
+      "flagless": true,
+      "spawnGroups": ObjBalanceGroups,
+    }
+    node["spawnPoints"] = gridPointsNode(ObjBalanceGroups)
+    node["shieldSpawns"] = gridPointsNode(ObjBalanceGroups)
+    node["spraySpawns"] = gridPointsNode(sprayN)
+    node["grenadeSpawns"] = gridPointsNode(grenadeN)
+    $node
+
+  proc objBalanceGame(
+    config: GameConfig, sprayN = 8, grenadeN = 8
+  ): SimServer =
+    var c = config
+    c.teams = ObjBalanceGroups
+    c.mapSpec = objBalanceMapSpec(sprayN, grenadeN)
+    result = initCtfForTest(c)
+    for i in 0 ..< 2:
+      discard result.addPlayer("p" & $i)
+    result.startGame()
+    invalidateBoardMapCaches()
+
+  test "sprayCount caps the spray-can family; -1 keeps the map's own set":
+    let dark = objBalanceGame(brConfig(), sprayN = 8)
+    check dark.sprayPaintSpawns.len == 8
+    var config = brConfig()
+    config.sprayCount = 3
+    let capped = objBalanceGame(config, sprayN = 8)
+    check capped.sprayPaintSpawns.len == 3
+
+  test "a cap can only shrink: sprayCount past the map's own count is a no-op above it":
+    var config = brConfig()
+    config.sprayCount = 1000
+    let capped = objBalanceGame(config, sprayN = 8)
+    check capped.sprayPaintSpawns.len == 8
+
+  test "the spray cap keeps the map's FIRST N authored points, same rule medKitCount uses":
+    let dark = objBalanceGame(brConfig(), sprayN = 8)
+    var config = brConfig()
+    config.sprayCount = 3
+    let capped = objBalanceGame(config, sprayN = 8)
+    require capped.sprayPaintSpawns.len == 3
+    for i in 0 ..< 3:
+      check capped.sprayPaintSpawns[i].x == dark.sprayPaintSpawns[i].x
+      check capped.sprayPaintSpawns[i].y == dark.sprayPaintSpawns[i].y
+
+  test "grenadeCount -1 keeps the map's own set; N caps down like sprayCount/medKitCount":
+    let dark = objBalanceGame(brConfig(), grenadeN = 8)
+    check dark.grenadeSpawns.len == 8
+    var config = brConfig()
+    config.grenadeCount = 2
+    let capped = objBalanceGame(config, grenadeN = 8)
+    require capped.grenadeSpawns.len == 2
+    for i in 0 ..< 2:
+      check capped.grenadeSpawns[i].x == dark.grenadeSpawns[i].x
+      check capped.grenadeSpawns[i].y == dark.grenadeSpawns[i].y
+
+  test "grenadeCount past the authored set INJECTS extra copies instead of stalling at a cap":
+    let dark = objBalanceGame(brConfig(), grenadeN = 8)
+    let base = dark.grenadeSpawns.len
+    var config = brConfig()
+    config.grenadeCount = base + 5
+    let injected = objBalanceGame(config, grenadeN = 8)
+    require injected.grenadeSpawns.len == base + 5
+    ## The first `base` copies are the map's own points, byte-identical to
+    ## the dark placement -- the injection only appends past them.
+    for i in 0 ..< base:
+      check injected.grenadeSpawns[i].x == dark.grenadeSpawns[i].x
+      check injected.grenadeSpawns[i].y == dark.grenadeSpawns[i].y
+    ## No two grenades stack on the same pixel: the ring-offset dedup
+    ## (GrenadeSiteDirOffset/ringSite's `clear` list) holds even once the
+    ## overflow laps the anchor set more than once.
+    var seen: seq[tuple[x, y: int]]
+    for spawn in injected.grenadeSpawns:
+      check (spawn.x, spawn.y) notin seen
+      seen.add (spawn.x, spawn.y)
+
+  test "defaults are dark and the default echo carries neither key":
+    let config = defaultGameConfig()
+    check config.sprayCount == -1
+    check config.grenadeCount == -1
+    let echoed = parseJson(config.configJson())
+    check not echoed.hasKey("sprayCount")
+    check not echoed.hasKey("grenadeCount")
+
+  test "armed keys round-trip through config JSON":
+    var config = defaultGameConfig()
+    config.update("""{"sprayCount": 6, "grenadeCount": 22}""")
+    check config.sprayCount == 6
+    check config.grenadeCount == 22
+    let echoed = parseJson(config.configJson())
+    check echoed["sprayCount"].getInt == 6
+    check echoed["grenadeCount"].getInt == 22
+
+  test "the classic (non-flagless) formula path ignores grenadeCount -- BR-only lever":
+    ## CTF's default config is neither brMode nor flagless-multi-group, so
+    ## resetGrenades takes the untouched classic-formula `else` branch --
+    ## grenadeCount must not perturb it even when armed.
+    var config = defaultGameConfig()
+    config.grenadeCount = 1
+    let sim = startedGame(config, 2)
+    let plain = startedGame(defaultGameConfig(), 2)
+    check sim.grenadeSpawns.len == plain.grenadeSpawns.len
 
 suite "row 3 — loot-start: unarmed spawn, marker+hopper BOTH to shoot":
   test "dark BR seats spawn armed and fire exactly as before":
@@ -849,3 +989,333 @@ suite "row 6 — placement: dedup, site class, and the renderable pool cap":
     check a.hopperSpawns == b.hopperSpawns
     check a.weaponSpawns == b.weaponSpawns
     check a.bandageSpawns == b.bandageSpawns
+
+proc ffRecutConfig(): GameConfig =
+  ## `downedConfig` (armed downedMode) plus the v13 multiplier recut, so
+  ## `gloryFfIncidents` -- otherwise permanently 0, see `awardDeed`'s own
+  ## dark/armed split -- actually moves and is observable.
+  result = downedConfig()
+  result.gloryMultiplierRecut = true
+
+suite "Amendment 5 (glory-2, spec owner override) — FF prices at the DOWN, not the finalize":
+  ## The confirmed hole: a lethal friendly hit under downedMode reaches
+  ## `downPlayer` and returns before `killPlayer`'s priceTheKill block ever
+  ## runs -- so `dTeamKill`/`gloryFfIncidents` minted only if the downed
+  ## partner actually bled out. A revived FF was free: "spray your partner,
+  ## tag them back up" cost nothing. The fix moves the mint to the down
+  ## itself, once per incident, and guards `finalizeDowned`'s later
+  ## re-entry into `killPlayer` off so the same incident never mints twice.
+  test "armed: a friendly down mints once immediately, even if revived (the hole)":
+    var sim = startedGame(ffRecutConfig(), 4)
+    sim.centerOn(1, 400, 300)
+    sim.centerOn(3, 400 + DownedTagRange - 10, 300)   # teammate: downer + reviver
+    sim.centerOn(0, 900, 300)
+    sim.centerOn(2, 900, 340)
+    let team = sim.players[1].team
+    check sim.players[1].team == sim.players[3].team  # 1, 3 are teammates
+    check sim.gloryFfIncidents[team] == 0
+    check sim.deedCounts[dTeamKill] == 0
+    sim.killPlayer(1, 3)                              # 3 downs its own teammate
+    check sim.players[1].downed
+    check sim.players[1].alive
+    check sim.gloryFfIncidents[team] == 1              # minted AT THE DOWN
+    check sim.deedCounts[dTeamKill] == 1
+    # Revived before any bleed-out -- pre-fix this incident never re-entered
+    # killPlayer's pricing at all, so it minted NOTHING. Post-fix: unchanged
+    # from the down, no second mint from the revive either.
+    sim.stepIdle(5)                                    # downedReviveTicks
+    check not sim.players[1].downed
+    check sim.players[1].alive
+    check sim.gloryFfIncidents[team] == 1
+    check sim.deedCounts[dTeamKill] == 1
+
+  test "armed: a friendly down that bleeds out still mints exactly once (no double-mint)":
+    var sim = startedGame(ffRecutConfig(), 4)
+    sim.centerOn(1, 400, 300)
+    sim.centerOn(3, 900, 500)                          # teammate out of tag range
+    sim.centerOn(0, 900, 300)
+    sim.centerOn(2, 900, 340)
+    let team = sim.players[1].team
+    sim.killPlayer(1, 3)                               # friendly down
+    check sim.gloryFfIncidents[team] == 1
+    check sim.deedCounts[dTeamKill] == 1
+    let window = 3 * DownedMinBleedOutTicks
+    sim.stepIdle(window + 1)                           # bleeds out -> finalizeDowned
+    check not sim.players[1].downed
+    check not sim.players[1].alive
+    check sim.players[1].deaths == 1
+    check sim.gloryFfIncidents[team] == 1               # NOT re-minted at finalize
+    check sim.deedCounts[dTeamKill] == 1
+
+  test "dark (non-downedMode) friendly kill mints dTeamKill exactly as before (regression)":
+    var config = brConfig()
+    config.gloryMultiplierRecut = true
+    check config.downedMode == false
+    var sim = startedGame(config, 4)
+    let team = sim.players[1].team
+    check sim.players[1].team == sim.players[3].team
+    sim.killPlayer(1, 3)                                # friendly kill, no down state
+    check not sim.players[1].downed
+    check not sim.players[1].alive
+    check sim.gloryFfIncidents[team] == 1
+    check sim.deedCounts[dTeamKill] == 1
+
+proc allyReviveConfig(): GameConfig =
+  ## Four one-seat teams -- the 16-solo field's own shape (every team is
+  ## exactly one seat), reproduced at the smallest size that still tells
+  ## "teammate" apart from "registered pact ally" apart from "plain rival":
+  ## Red (victim), Blue (the pact partner), Green (uninvolved rival), Yellow
+  ## (a fully inert spare -- `arena.nim`'s map generator only accepts
+  ## `teams in [2, 4, 16]`, so a genuine 3-team draw isn't a shape this
+  ## engine can generate; Yellow exists purely to satisfy that constraint
+  ## and never appears in any assertion below). Built on `ffRecutConfig`
+  ## (not plain `downedConfig`) so T3's `gloryFfIncidents` read is even
+  ## capable of moving -- see that proc's own comment: dark, it is
+  ## permanently 0 regardless of what `awardDeed` mints.
+  result = ffRecutConfig()
+  result.teams = 4
+  result.mapPath = "gen"
+  result.mapGen.layout = "corners"
+  result.mapSeed = 42
+  result.slots = @[
+    PlayerSlotConfig(name: "victim", team: Red, hasTeam: true),
+    PlayerSlotConfig(name: "ally", team: Blue, hasTeam: true),
+    PlayerSlotConfig(name: "rival", team: Green, hasTeam: true),
+    PlayerSlotConfig(name: "spare", team: Yellow, hasTeam: true),
+  ]
+
+proc allyReviveGame(): SimServer =
+  result = initCtfForTest(allyReviveConfig())
+  discard result.addPlayer("victim")   # -> players[0], Red
+  discard result.addPlayer("ally")     # -> players[1], Blue
+  discard result.addPlayer("rival")    # -> players[2], Green
+  discard result.addPlayer("spare")    # -> players[3], Yellow (inert)
+  result.startGame()
+  result.collectEvents = true
+
+suite "ALLY REVIVE — fail-first guards (owner design 2026-09-07, unimplemented)":
+  ## Asana 1218246921137284: a formal alliance (mutual pact) should be able
+  ## to revive a downed solo partner on the 16-solo field. Three parts, all
+  ## required together:
+  ##   P1. revive eligibility: tagger qualifies if same team OR
+  ##       pactActive(tagger.team, victim.team) -- today's gate
+  ##       (sim.nim's updateDowned tagger scan) is same-team only.
+  ##   P2. THE CRUX: a downed solo whose pact ally is alive+upright must
+  ##       NOT be insta-finalized. Today `updateDowned`'s per-team upright
+  ##       census sees a 1-seat team's own down as a team-wipe and calls
+  ##       `finalizeDowned` in the SAME tick -- no bleed-out window ever
+  ##       opens for an ally to revive into, so P1 alone is dead on
+  ##       arrival.
+  ##   P3. ally-fire prices as FRIENDLY (the existing dTeamKill/
+  ##       gloryFfIncidents down-priced halving), not a kill deed --
+  ##       otherwise "down ally, revive, repeat" is a free kill farm.
+  ## T1-T3 assert the POST-FIX behavior and are expected to FAIL against
+  ## unfixed main. T4 is the anti-regression/anti-farm guard: it must PASS
+  ## both before and after the fix.
+
+  test "T1 (P1) a pact ally CAN revive a downed solo partner":
+    ## Isolated from the P2 wipe-timing bug on purpose: this scenario does
+    ## not depend on P2 at all (the down here is a plain enemy kill by
+    ## `rival`, and only victim/ally matter to the assertion) EXCEPT that
+    ## P2's bug means the victim is finalized before any revive tick can
+    ## land regardless of who is tagging -- so today this fails for the
+    ## compounded reason the design calls out ("without P2, P1 is dead on
+    ## arrival"). Fixing P1 alone without P2 cannot make this pass.
+    var sim = allyReviveGame()
+    sim.registerPact(Red, Blue)                       # victim <-> ally
+    sim.centerOn(0, 400, 300)                          # victim
+    sim.centerOn(1, 400 + DownedTagRange - 10, 300)    # ally, in tag range
+    sim.centerOn(2, 2000, 2000)                        # rival, out of the way
+    sim.centerOn(3, -2000, -2000)                      # spare, inert
+    sim.killPlayer(0, 2)                               # rival downs the victim
+    check sim.players[0].downed
+    sim.stepIdle(sim.config.downedReviveTicks + 5)     # well inside the
+                                                        # 144-tick bleed-out
+                                                        # window downedConfig
+                                                        # sets
+    check not sim.players[0].downed
+    check sim.players[0].alive
+    check sim.eventsOf(Revived).len == 1
+
+  test "T2 (P2, THE CRUX) a downed solo with a living pact ally is NOT finalized on the same tick":
+    ## `updateDowned`'s team-wipe census (sim.nim, `var upright: array[Team,
+    ## int]` / `if upright[sim.players[i].team] == 0`) is PER-TEAM only:
+    ## `victim` is Red's one and only seat, so the instant it goes down
+    ## `upright[Red] == 0` and `finalizeDowned` fires in that SAME
+    ## `updateDowned` tick -- before a single revive tick, and regardless of
+    ## whether a pact ally stands right next to the body. `ally` is placed
+    ## far away here on purpose: this test is about the FINALIZE timing,
+    ## not the tag-range adjacency T1 covers.
+    var sim = allyReviveGame()
+    sim.registerPact(Red, Blue)
+    sim.centerOn(0, 400, 300)      # victim
+    sim.centerOn(1, 2000, 2000)    # ally: alive + upright, just not adjacent
+    sim.centerOn(2, 900, 900)      # rival, the one who fires the down
+    sim.centerOn(3, -2000, -2000)  # spare, inert
+    sim.killPlayer(0, 2)
+    check sim.players[0].downed
+    sim.stepIdle(1)                # one tick: updateDowned's own census runs
+    check sim.players[0].downed    # the bleed-out window should still be open
+    check sim.players[0].alive
+    check sim.eventsOf(Death).len == 0
+
+  test "T3 (P3) downing a pact ally is priced as FRIENDLY, not an enemy kill":
+    ## `killDeed`'s `ctx.friendly` (glory.nim) and `downPlayer`'s own
+    ## Amendment-5 at-the-down mint (sim.nim's `sim.players[killerIndex]
+    ## .team == victim.team` check) both key off literal team equality -- a
+    ## pact ally is a DIFFERENT team, so today's pricing falls through
+    ## `killDeed`'s hierarchy past `ctx.friendly` (false) to a plain
+    ## `dHonorableKill`. That is exactly the "down ally, revive, repeat"
+    ## farm the design exists to close.
+    var sim = allyReviveGame()
+    sim.registerPact(Red, Blue)
+    sim.centerOn(0, 400, 300)      # victim
+    sim.centerOn(1, 2000, 2000)    # ally -- the one who fires the down
+    sim.centerOn(2, 900, 900)      # rival, uninvolved
+    sim.centerOn(3, -2000, -2000)  # spare, inert
+    check sim.gloryFfIncidents[Red] == 0
+    check sim.deedCounts[dTeamKill] == 0
+    sim.killPlayer(0, 1)           # the pact ally downs its own partner
+    sim.stepIdle(1)                # today: the solo wipe finalizes and
+                                    # re-enters killPlayer's pricing this
+                                    # same tick (see T2) -- enough to observe
+                                    # the mis-price without waiting out a
+                                    # full bleed-out window
+    check sim.gloryFfIncidents[Red] == 1
+    check sim.deedCounts[dTeamKill] == 1
+    check sim.deedCounts[dHonorableKill] == 0
+
+  test "T4 (anti-regression) a non-pact rival still cannot revive; deedMintCaps stays armed":
+    ## No pact registered anywhere in this scenario. `keeper` is a genuine
+    ## Red teammate parked away from the body, kept alive+upright purely so
+    ## Red's own per-team census never wipes -- isolating this check from
+    ## the P2 timing bug entirely, so it stands on its own both today and
+    ## after the P1-P3 fix lands. `rival` sits inside DownedTagRange the
+    ## whole test, exactly where an eligible reviver would stand, with
+    ## `deedMintCaps` armed alongside (the design's own "unchanged guards
+    ## that must still bind" list). Must PASS today (nothing but a teammate
+    ## can revive) and must keep passing post-fix (pactActive gates it, and
+    ## no pact exists between Red and Blue here). zoneBlocksRevive's own
+    ## binding is exercised end-to-end by test_zone.nim's "paintdeath"
+    ## suite already, and this design touches none of that gate's code, so
+    ## it is not re-derived here.
+    var config = downedConfig()
+    config.teams = 2
+    config.deedMintCaps = true
+    config.slots = @[
+      PlayerSlotConfig(name: "victim", team: Red, hasTeam: true),
+      PlayerSlotConfig(name: "keeper", team: Red, hasTeam: true),
+      PlayerSlotConfig(name: "rival", team: Blue, hasTeam: true),
+    ]
+    var sim = initCtfForTest(config)
+    discard sim.addPlayer("victim")   # -> players[0], Red
+    discard sim.addPlayer("keeper")   # -> players[1], Red
+    discard sim.addPlayer("rival")    # -> players[2], Blue
+    sim.startGame()
+    sim.collectEvents = true
+    sim.centerOn(0, 400, 300)                        # victim
+    sim.centerOn(1, 2000, 2000)                       # keeper: keeps Red's
+                                                       # census upright
+    sim.centerOn(2, 400 + DownedTagRange - 10, 300)   # rival, in tag range
+    sim.killPlayer(0, 2)                              # rival (enemy) downs it
+    check sim.players[0].downed
+    sim.stepIdle(50)                                  # >> downedReviveTicks,
+                                                       # well inside the
+                                                       # bleed-out window
+    check sim.players[0].downed        # keeper keeps the team alive: no wipe
+    check sim.players[0].reviveProgress == 0  # rival never becomes tagger
+    check sim.eventsOf(Revived).len == 0
+
+  test "T5 (step 6) zoneBlocksRevive still blocks a PACT ally's revive":
+    ## Design step 6: "confirm zoneBlocksRevive + deedMintCaps still bind
+    ## for ALLY revives." T4 covers deedMintCaps; nothing above exercises
+    ## zoneBlocksRevive on an ally revive (allyReviveGame's own map carries
+    ## no zone schedule at all). PAINTDEATH's own end-to-end binding is
+    ## already owned by test_zone.nim's "paintdeath" suite -- this is only
+    ## enough to confirm the SAME gate still reaches a pact ally, not a
+    ## re-derivation of the zone geometry: an instant-snap shrink zone (the
+    ## same trick test_zone.nim's `downedPaintGame` uses) so most of a
+    ## 2-team default map is painted after one roll, a downed Red victim
+    ## placed directly on a painted cell, and its registered Blue pact
+    ## ally sitting right on top of it -- adjacency satisfied, so only the
+    ## paint verdict can stop the channel.
+    var config = downedConfig()
+    config.update(
+      """{"zonePhases": [{"z": 0.1, "waitTicks": 0, "shrinkTicks": 0, """ &
+      """"dps": 0}], "zoneDamageByPaint": true, "zoneBlocksRevive": true}""")
+    var sim = initCtfForTest(config)
+    discard sim.addPlayer("victim")   # -> players[0], Red
+    discard sim.addPlayer("ally")     # -> players[1], Blue
+    sim.startGame()
+    sim.collectEvents = true
+    sim.registerPact(Red, Blue)
+    sim.stepIdle(ZoneDamageRollTicks)   # let the snap-schedule paint.
+    let elapsed = sim.tickCount - sim.gameStartTick
+    var wet = (x: -1, y: -1)
+    for gy in 0 ..< sim.gameMap.height div ZoneFieldCellPx:
+      for gx in 0 ..< sim.gameMap.width div ZoneFieldCellPx:
+        let
+          px = gx * ZoneFieldCellPx + ZoneFieldCellPx div 2
+          py = gy * ZoneFieldCellPx + ZoneFieldCellPx div 2
+        if not sim.zoneD4MaskAt(px, py).walkable:
+          continue
+        let q = sim.zonePaintedForDamageAt(px, py, elapsed)
+        if q.onField and q.painted:
+          wet = (px, py)
+      if wet.x >= 0: break
+    doAssert wet.x >= 0, "T5 fixture: no painted walkable cell found"
+    sim.centerOn(0, wet.x, wet.y)   # victim, on painted ground
+    sim.centerOn(1, wet.x, wet.y)   # ally, adjacent (same cell) -- eligible
+                                     # under P1, blocked by PAINTDEATH
+    sim.players[0].downed = true
+    sim.players[0].downedTick = sim.tickCount
+    sim.players[0].downedCount = 1
+    sim.players[0].downedBy = -1
+    sim.players[0].hp = 0
+    sim.stepIdle(sim.config.downedReviveTicks + 5)
+    check sim.players[0].downed
+    check sim.players[0].reviveProgress == 0
+    check sim.eventsOf(Revived).len == 0
+
+  test "T6 (P2b) a pact ally's paint does NOT confirm a downed partner; a non-pact rival's still does":
+    ## Mirrors P1's revive rule into applyFire's OTHER downed-ghost gate,
+    ## the splat-confirm (sim.nim ~3897): that gate already spares a
+    ## TEAMMATE's stray paint from finalizing a ghost; a PACT ally's paint
+    ## must be spared the identical way, or "down your ally, have someone
+    ## else finish them off with paint" reopens the exact revive-farm P3
+    ## closed at the pricing layer -- just one hop later, at confirm
+    ## instead of at the down. `rival` (Green, no pact) downs `victim`
+    ## first; `ally` (Blue, registered pact) then paints the ghost and
+    ## must NOT finalize it -- no deed, no FF incident, no Death; only
+    ## afterward does `rival`'s own paint confirm it, proving the gate
+    ## still binds for a genuine enemy (this splat path never routes
+    ## through `absorbDamage`, so the pact is never at risk of an
+    ## incidental dissolve from either shot -- see `downFriendly`'s own
+    ## comment on why P3 needed a snapshot but this gate does not).
+    var sim = allyReviveGame()
+    sim.registerPact(Red, Blue)
+    sim.centerOn(3, -2000, -2000)   # spare, inert
+    sim.centerOn(2, -3000, -3000)   # rival, parked clear of the first shot
+    sim.killPlayer(0, 2)            # rival downs victim (position-free)
+    check sim.players[0].downed
+    sim.pointBlank(1, 0)            # ally aims at the downed victim
+    sim.armToFire(1)
+    sim.tryFire(1)                  # ally's paint -- must NOT confirm
+    check sim.players[0].downed
+    check sim.players[0].alive
+    check sim.deedCounts[dTeamKill] == 0
+    check sim.gloryFfIncidents[Red] == 0
+    check sim.eventsOf(Death).len == 0
+    sim.centerOn(1, -4000, -4000)   # ally, parked clear of the second shot
+                                     # (pointBlank alone only repositions the
+                                     # shooter/target pair -- a bystander left
+                                     # sitting on the shooter's spot would eat
+                                     # the raycast meant for the ghost)
+    sim.pointBlank(2, 0)            # rival aims at the still-downed victim
+    sim.armToFire(2)
+    sim.tryFire(2)                  # rival's paint -- DOES confirm (anti-
+                                     # regression: the pact gate is scoped
+                                     # to pact allies only)
+    check not sim.players[0].downed
+    check not sim.players[0].alive
+    check sim.eventsOf(Death).len == 1

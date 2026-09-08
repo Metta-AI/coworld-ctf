@@ -4,8 +4,13 @@
 ##   - every ledger entry is certified (gates.all — the full brmapkit
 ##     validateBr allPass — recorded true at generation time) and its
 ##     embedded spec loads through arena.mapFromSpecJson as the exact
-##     8-duo shape the battle-royale-s2 variant seats (spawnGroups 8,
-##     teamCount 8, half-area 2271x1212 field, derived gunRange 331);
+##     8-duo shape the battle-royale-s2-lootstart/-downed staging variants
+##     seat (spawnGroups 8, teamCount 8, half-area 2271x1212 field, derived
+##     gunRange 331) — the S2 simplification (PKG-A/PKG-C, 2026-09-04)
+##     flipped the flagship battle-royale-s2 to 16 SOLO teams on the
+##     original 16-group pool (mapPath "brpool16", br_map_pool.nim), so
+##     this suite now hooks the still-untouched bisection staging variants
+##     to keep pinning the 8-duo pool's own mechanism;
 ##   - selection is DETERMINISTIC per episode seed (same seed, same map;
 ##     brPoolIndex is pure integer math) and COVERS the whole pool across
 ##     episode seeds (no unreachable member, no hot slot);
@@ -30,7 +35,13 @@ import
 const
   PoolPath = GameDir / "data" / "br_s2_map_pool.json"
   ManifestPath = GameDir / "coworld_manifest_paintbot.json"
-  VariantId = "battle-royale-s2"
+  VariantId = "battle-royale-s2-lootstart"
+    ## NOT "battle-royale-s2": the S2 simplification (PKG-A/PKG-C,
+    ## 2026-09-04) moved the flagship to 16 solo teams on the original
+    ## 16-group pool (mapPath "brpool16"). This staging variant (still
+    ## brMode teams:8, mapPath "brpool", untouched by that landing) is the
+    ## live hook this suite pins instead — same 8-duo S2 pool mechanism,
+    ## just not on the variant that ships to players today.
   ExpectedWidth = 2271
   ExpectedHeight = 1212
   ExpectedGunRange = 331
@@ -120,15 +131,16 @@ suite "br s2 map pool: deterministic per-episode selection":
       discard pickBrS2SpecJson(1, GameDir / "data" / "no-such-pool.json")
 
 suite "br s2 map pool: the variant hook and replay validity":
-  ## These run through the REAL config path (sim_config.update on the
-  ## shipped variant's game_config), from the repo root like a real
+  ## These run through the REAL config path (sim_config.update on a real
+  ## variant's game_config -- battle-royale-s2-lootstart, see VariantId's
+  ## own comment for why not the flagship), from the repo root like a real
   ## process, because BrS2MapPoolPath is repo-root-relative.
   let previousDir = getCurrentDir()
   setCurrentDir(GameDir)
 
   let gc = variantGameConfig()
 
-  test "the shipped variant selects a pool member and pins it as mapSpec":
+  test "the staging variant selects a pool member and pins it as mapSpec":
     check gc["mapPath"].getStr() == BrPoolMapName
     check not gc.hasKey("mapSpec")
     var config = defaultGameConfig()

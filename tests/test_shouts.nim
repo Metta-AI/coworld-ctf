@@ -525,3 +525,81 @@ suite "board bubbles hold their on-screen size on oversize maps":
       check zoomed.pixels.len == zoomed.width * zoomed.height * 4
     finally:
       setCurrentDir(previousDir)
+
+# ─────────────────────────────────────────────────────────────────────────
+# SOLO COMMS (alliance-substrate repair, 2026-09-05): `shoutAudibleTo`
+# (sim.nim) and `addShouts`/`addBoardShouts` (global.nim) gate on range and
+# aliveness only — there is no team check anywhere in the emission path, so
+# the engine side of solo comms was never broken. A 1-seat BR team is the
+# smallest real repro: every pairing is cross-team BY CONSTRUCTION, which is
+# exactly the shape a shipped consumer's `myColor`-only self-gate discards
+# 100% of (see players/baseline/baseline.nim's `-d:shoutCoord` fix, same
+# commit). `brMode + teams=2` on the plain default map is the identical
+# smallest-repro recipe test_glory_recut.nim's PKG-C solo-team guard suite
+# already uses — no BR map pool needed to prove either side of this.
+# ─────────────────────────────────────────────────────────────────────────
+suite "solo (1-seat-team) shout round trip":
+  proc soloShoutGame(): SimServer =
+    ## Two solo (1-seat) BR teams — the smallest shape where every OTHER
+    ## seat is, by construction, on a different team.
+    var config = defaultGameConfig()
+    config.brMode = true
+    config.teams = 2
+    result = initCtfForTest(config)
+    discard result.addPlayer("p0")
+    discard result.addPlayer("p1")
+    result.startGame()
+
+  test "a solo seat's shout reaches the other solo seat despite being cross-team":
+    var sim = soloShoutGame()
+    check sim.players[0].team != sim.players[1].team  # 1-seat teams: always true
+    sim.players[1].x = sim.players[0].x
+    sim.players[1].y = sim.players[0].y
+    check sim.applyShout(0, "help")
+    check sim.shoutLabels(viewerIndex = 1) ==
+      @[labelShout(teamText(sim.players[0].team), "alpha", "help")]
+
+  test "16-solo identity rides the team/color axis, not the slot letter":
+    # Every solo seat is its own team's rank-0 member (verify_br_solo16.nim's
+    # own finding: `IdentityNames[0]`, "alpha", is the only identity a solo
+    # team can ever produce), so the Greek-letter half of the label
+    # collapses to "alpha" for EVERY solo shouter — color is what still
+    # disambiguates who spoke. Proven on both directions of the smallest
+    # (2-seat) repro; a real 16-solo match is the same fact 16 ways.
+    var sim = soloShoutGame()
+    sim.players[0].x = sim.players[1].x
+    sim.players[0].y = sim.players[1].y
+    check sim.applyShout(0, "A")
+    let fromZero = sim.shoutLabels(viewerIndex = 1)
+    check fromZero == @[labelShout(teamText(sim.players[0].team), "alpha", "A")]
+    check "alpha" in fromZero[0]
+    check teamText(sim.players[0].team) in fromZero[0]
+    # Cross-check against the OTHER solo seat's own (also "alpha") identity:
+    # same slot letter, different color, so the two are never confusable.
+    check sim.recentShouts.len == 1
+    check sim.shoutIdentityName(sim.recentShouts[0]) == "alpha"
+
+  test "NEGATIVE CONTROL: the pre-fix myColor-only consumer gate drops a solo shout":
+    # This mirrors, byte-for-byte, the predicate players/baseline/baseline.nim
+    # used before the solo-comms fix (`o.label.startsWith(labelShoutPrefix(
+    # myColor))`, unconditional) against the label the ENGINE actually put on
+    # the wire for a real cross-seat solo shout. It fails: a 1-seat team's
+    # own color never prefixes anyone else's bubble, so the old gate is
+    # provably a 100%-discard for every shout in a solo match — exactly the
+    # bug this package fixes. The post-fix gate (any color, when no mate has
+    # ever been confirmed — `not bot.everSawMate`) accepts the same label.
+    var sim = soloShoutGame()
+    sim.players[1].x = sim.players[0].x
+    sim.players[1].y = sim.players[0].y
+    check sim.applyShout(0, "help")
+    let heard = sim.shoutLabels(viewerIndex = 1)
+    check heard.len == 1
+    let label = heard[0]
+    let myColor = teamText(sim.players[1].team)  # seat 1's OWN color
+    # Pre-fix gate: reject unless the label is prefixed by OUR OWN color.
+    let preFixAccepted = label.startsWith(labelShoutPrefix(myColor))
+    check not preFixAccepted   # dropped: seat 1 never shares seat 0's color
+    # Post-fix gate: a 1-seat team never sees a same-color mate, so
+    # `everSawMate` is always false there — accept any color's shout.
+    let postFixAccepted = " shout " in label
+    check postFixAccepted

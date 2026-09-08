@@ -1012,3 +1012,6 @@ paintbot-huddle                             200   0.23      8    701   0.59   0.
 ```
 
 The starters are fillers v16 / v19 / v13. Report: scratchpad `final_report_v2.md` (content mirrored in this note and `policies/starters/VERSION_LOG.md`). Open platform items: `coworld xp-request list` (cursor pagination vs CLI), `/v2/policy-versions?policy_name=` ignored, teammate-in-the-line-of-fire (design call).
+
+## 2026-09-05 ~03:3xZ — ANNOUNCE-BEFORE-WRITE: league_b8fa9b35 scheduler team_count 8 → 16 (S2 orchestrator)
+Owner-directed S2 simplification (solo pivot). The battle-royale-s2 variant is now 16 solo teams on canonical 0.7.332/cow_35465cd1 (merges 040f1451 flags-off + 9a318548 16-solo, both landed during the budget-envelope stall — league frozen since r3999, self-heals 07:00Z). Writing ladder.scheduler.team_count 16 to /v2/leagues/league_b8fa9b35/settings immediately after this note lands, so the league resumes directly into the solo era with zero mismatch rounds. Rotation/default_variant untouched (the 409 class stays clear). Rollback = team_count back to 8 + manifest reverts per PR bodies. Filler math pre-verified headcount-neutral (15 stable entrants, 1 filler seat either way).

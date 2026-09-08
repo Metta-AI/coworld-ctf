@@ -851,6 +851,123 @@ proc resetLadder*(sim: var SimServer, playerIndex: int) =
   sim.players[playerIndex].level = 0
   sim.players[playerIndex].stealTickThisLife = -1
 
+proc resolveConfiguredPacts*(sim: var SimServer) =
+  ## ALLIANCE P1 (formal-alliances design, 2026-09-02/03): reads each
+  ## configured slot's `allies` (by the OTHER slot's `name`, sim_config.nim's
+  ## readConfigSlots) and registers a pact ONLY when both sides name each
+  ## other — a unilateral seed is dropped and logged, never mutating
+  ## `pactMask`. Pure function of `sim.config.slots`: unlike the live
+  ## `pact` play declaration seam (declarePactPartners, GameVersion 56),
+  ## this needs no seat to have actually joined — a named slot always
+  ## resolves to a team via `teamForSlot` (round-robin default when
+  ## unconfigured), same as every other slot-indexed lookup in this file.
+  for i, slot in sim.config.slots:
+    if slot.allies.len == 0:
+      continue
+    let teamI = sim.teamForSlot(i)
+    for allyName in slot.allies:
+      if allyName.len == 0:
+        continue
+      var resolvedJ = -1
+      for j, other in sim.config.slots:
+        if j != i and other.name == allyName:
+          resolvedJ = j
+          break
+      if resolvedJ < 0:
+        sim.logGameEvent(
+          "pact seed dropped (unknown ally name): slot " & $i & " (" &
+          slot.name & ") -> \"" & allyName & "\""
+        )
+        continue
+      let teamJ = sim.teamForSlot(resolvedJ)
+      if teamJ == teamI:
+        continue  # already the same team/duo -- nothing to register
+      if slot.name notin sim.config.slots[resolvedJ].allies:
+        sim.logGameEvent(
+          "pact seed dropped (unilateral): slot " & $i & " (" & slot.name &
+          ") -> \"" & allyName & "\" not reciprocated"
+        )
+        continue
+      if not sim.pactActive(teamI, teamJ):
+        sim.registerPact(teamI, teamJ)
+
+proc pactPartnersMask*(partners: openArray[Team]): uint16 =
+  ## `partners` as a bitmask over `Team` — bit j set means `Team(j)` is
+  ## named. Shared by declarePactPartners (the writer) and its replay
+  ## record's own encode/decode (replays.nim), so the two can never
+  ## disagree about what a given partner set means as bits.
+  for team in partners:
+    result = result or (1'u16 shl ord(team))
+
+proc teamDeclaresPartner(sim: SimServer, team, other: Team): bool =
+  ## True when some LIVE seat of `team` currently declares `other` as a
+  ## pact partner via its own active `pact` play call. A dead seat's stale
+  ## declaration never counts — the same "a dead seat cannot honor a
+  ## truce" rule clearPactsFor already enforces on the REGISTRY, applied
+  ## here to the registry's SOURCE so a partner team's own later retune
+  ## cannot resurrect a pact through a corpse.
+  for i, player in sim.players:
+    if player.team == team and player.alive and
+        (sim.pactDeclaredPartners[i] and (1'u16 shl ord(other))) != 0:
+      return true
+  false
+
+proc declarePactPartners*(sim: var SimServer, playerIndex: int,
+                          partners: openArray[Team]): bool {.discardable.} =
+  ## ALLIANCE (engine registration rewire, formal-alliances design,
+  ## GameVersion 56): the `pact` WASM play's own registration seam —
+  ## P1's registry (pactMask, registerPact/dissolvePact, sim_state.nim)
+  ## gets its LIVE writes from here instead of a shout grammar. `partners`
+  ## is the CURRENT set of teams this seat's active `pact` call names this
+  ## tick (empty = no active `pact` entry — an explicit withdrawal of
+  ## every partner this seat ever named), lifted off the call's own
+  ## static params (resolvePactPartnerTeams, emit_validator.nim) at the
+  ## shell ladder's per-tick drain (server.nim) — NEVER off the emitted
+  ## combat_policy, which is the play's own betrayal-narrowed body
+  ## behavior and stays out of the registry entirely (P1's ruling: never
+  ## enforced, unchanged). A bit-pair SETS only when both sides currently
+  ## declare each other (mirrors resolveConfiguredPacts' mutual-only
+  ## rule); a bit-pair this seat's own retune just DROPPED clears
+  ## unconditionally — betrayal, like every other dissolution path here,
+  ## needs no partner's consent. A pre-existing config-seeded pact
+  ## (resolveConfiguredPacts) that neither side ever names via `pact` is
+  ## untouched either way: nothing here fires unless THIS seat's own
+  ## declaration actually changes.
+  if sim.phase != Playing:
+    return false
+  if playerIndex < 0 or playerIndex >= sim.players.len:
+    return false
+  if not sim.players[playerIndex].alive or sim.players[playerIndex].downed:
+    return false
+  let
+    newMask = pactPartnersMask(partners)
+    oldMask = sim.pactDeclaredPartners[playerIndex]
+  if newMask == oldMask:
+    return true
+  let
+    myTeam = sim.players[playerIndex].team
+    dropped = oldMask and not newMask
+    added = newMask and not oldMask
+  sim.pactDeclaredPartners[playerIndex] = newMask
+  for other in sim.teams():
+    if other == myTeam:
+      continue
+    let bit = 1'u16 shl ord(other)
+    if (dropped and bit) != 0:
+      if sim.pactActive(myTeam, other):
+        sim.dissolvePact(myTeam, other)
+        sim.logGameEvent(
+          "pact dissolved (declaration dropped): " & teamText(myTeam) &
+          " -x- " & teamText(other))
+    elif (added and bit) != 0:
+      if not sim.pactActive(myTeam, other) and
+          sim.teamDeclaresPartner(other, myTeam):
+        sim.registerPact(myTeam, other)
+        sim.logGameEvent(
+          "pact formed (declared): " & teamText(myTeam) & " <-> " &
+          teamText(other))
+  true
+
 proc resetGloryLedger*(sim: var SimServer) =
   ## Zeroes every TEAM/GAME-level glory field: the ledger, its rampage
   ## state, the one-shot claim gates, the fire-counter audit and the
@@ -886,6 +1003,26 @@ proc resetGloryLedger*(sim: var SimServer) =
     sim.teamKillRing[team] = @[]
     for key in 0 ..< sim.claimed[team].len:
       sim.claimed[team][key] = false
+    # ALLIANCE P1: a new game never inherits a pact a previous game's
+    # damage/death dissolved — or one it never had. Direct zero-write here
+    # is fine (not through dissolvePact): both sides of every mirrored bit
+    # are zeroed in this same team-indexed loop, so the symmetry invariant
+    # holds once the whole loop finishes, same as `teamKillRing`/`claimed`
+    # above zeroing straight into the array.
+    sim.pactMask[team] = 0
+  # ALLIANCE (engine registration rewire): a new game never inherits a
+  # previous game's `pact` play declarations either -- per-PLAYER, so a
+  # plain zero-fill (not a team-indexed loop) covers every seat in one
+  # pass, same discipline as pactMask's own reset just above.
+  for i in 0 ..< sim.pactDeclaredPartners.len:
+    sim.pactDeclaredPartners[i] = 0
+  # GV14: the placement-ladder latch re-opens with the ledger it mints
+  # into — unconditional for the same reason the seed/product resets are
+  # (writing false into a dark game's latch is unobservable, and an armed
+  # game can never inherit a previous game's fired milestones through any
+  # reset path).
+  for i in 0 ..< sim.recutFinalFired.len:
+    sim.recutFinalFired[i] = false
   for key in 0 ..< sim.claimedFirst.len:
     sim.claimedFirst[key] = false
   for deed in Deed:
@@ -901,6 +1038,12 @@ proc resetGloryLedger*(sim: var SimServer) =
   # flags. Inert on battle-royale-s2 (maxGames 1), load-bearing for
   # every multi-game config.
   sim.recutJointSeats = @[]
+  # ALLIANCE P1: reseed from the config's declared `allies` AFTER the zero
+  # pass above, so every game of a multi-game episode starts from the same
+  # configured mutual set — exactly like every other config-derived ledger
+  # field this proc resets (e.g. the RecutSeed re-write above), never an
+  # accumulation across games.
+  sim.resolveConfiguredPacts()
 
 proc stealIsContested(sim: SimServer, playerIndex: int): bool =
   ## True when a LIVE enemy stands within `ContestedStealPx` of the stealer
@@ -1194,6 +1337,44 @@ func cappedForPool(
   let cap = max(0, NeutralPickupPoolWidth - reserve)
   if targets.len <= cap: targets else: targets[0 ..< cap]
 
+proc grenadeCountTargets(
+  sim: var SimServer, base: seq[tuple[x, y: int]]
+): seq[tuple[x, y: int]] =
+  ## OBJBALANCE(s2, owner directive 2026-09-05): resizes an authored/formula
+  ## grenade-anchor list to exactly `config.grenadeCount` points.
+  ##   * -1 (the default): a no-op, returns `base` unchanged — byte-identical
+  ##     to every map that never set the knob.
+  ##   * 0..base.len: keeps the map's first N points, the same "map's first N
+  ##     points" cap rule `medKitCount` already uses.
+  ##   * past base.len: a cap can only SHRINK a list, so raising the count
+  ##     needs an INJECTION — this cycles back through the same authored
+  ##     anchors (`k mod base.len`), ring-offset via `ringSite` once a lap
+  ##     completes (the same overflow idiom `resetBandages` already uses
+  ##     against its own RETREAT anchors), so extra copies land beside their
+  ##     anchor rather than stacked on top of it. `ringSite`'s own `lap <= 0`
+  ##     branch keeps the FIRST pass through `base` an exact, unring-offset
+  ##     `nearestWalkable(anchor)` — identical to the pre-existing placement
+  ##     for a count that lands at or under `base.len`.
+  ##
+  ## Provenance: the pre-pivot objbalance analysis (rec B) found grenades the
+  ## scarcest disposable (~13-29 authored across the 11-map pool) and sprays
+  ## the most common (~34-58) — the inversion of their intended rarity. This
+  ## is how battle-royale-s2 raises grenades toward ~22/map without touching
+  ## any of the 11 pool maps' own authored geometry (arena.nim/brmapkit.nim
+  ## never run again; only this runtime placement step changes).
+  let count = sim.config.grenadeCount
+  if count < 0 or base.len == 0:
+    return base
+  if count <= base.len:
+    result = base
+    result.setLen(count)
+    return result
+  for k in 0 ..< count:
+    let anchor = base[k mod base.len]
+    let clear = result
+    result.add sim.ringSite(anchor.x, anchor.y, k div base.len,
+      GrenadeSiteDirOffset, LootSiteRingRadius, clear)
+
 proc resetGrenades*(sim: var SimServer) =
   ## Refills every grenade pickup and clears carried and airborne grenades.
   ##
@@ -1227,16 +1408,23 @@ proc resetGrenades*(sim: var SimServer) =
   ## smaller flagless-but-not-BR-scale maps validateMap still allows to skip
   ## the neutral pools, never take this branch — they keep the exact
   ## unnudged `else` below.
+  ##
+  ## OBJBALANCE(s2, owner directive 2026-09-05): `config.grenadeCount`
+  ## resizes the anchor list in these first two (BR) branches only — see
+  ## `grenadeCountTargets`. -1 (default) is a no-op on both. The classic
+  ## `else` formula below is deliberately untouched: grenades-as-supply is a
+  ## BR-only lever, and that branch's byte-identical-replay guarantee above
+  ## must hold regardless.
   if sim.gameMap.grenadeSpawns.len > 0:
     var targets: seq[tuple[x, y: int]]
     for point in sim.gameMap.grenadeSpawns:
       targets.add((point.x, point.y))
-    sim.placeWalkablePickups(grenadeSpawns, targets)
+    sim.placeWalkablePickups(grenadeSpawns, sim.grenadeCountTargets(targets))
   elif sim.gameMap.flagless and sim.gameMap.spawnGroups > 1:
     var targets: seq[tuple[x, y: int]]
     for point in sim.gameMap.grenadeSpawnPoints():
       targets.add(point)
-    sim.placeWalkablePickups(grenadeSpawns, targets)
+    sim.placeWalkablePickups(grenadeSpawns, sim.grenadeCountTargets(targets))
   else:
     let
       points = sim.gameMap.grenadeSpawnPoints()
@@ -1559,12 +1747,20 @@ proc resetSprayPaints*(sim: var SimServer) =
   ## Refills every team's spray can pickup and clears carried cans. Same
   ## "map's own neutral pool first, per-team formula fallback" rule as
   ## resetShields just above (gameMap.spraySpawns — brmapkit round 13).
+  ##
+  ## OBJBALANCE(s2, owner directive 2026-09-05): `config.sprayCount` caps the
+  ## placed cans to the map's first N authored/formula points — the same
+  ## "-1 default (map's own full set) / N = first N points" rule
+  ## `resetMedKits`' medKitCount already uses, deterministic and NOT
+  ## reseeded per episode (the same map always keeps the same N cans).
   var targets: seq[tuple[x, y: int]]
   if sim.gameMap.spraySpawns.len > 0:
     for point in sim.gameMap.spraySpawns:
       targets.add((point.x, point.y))
   else:
     targets = sim.gameMap.sprayPaintSpawnPoints()
+  if sim.config.sprayCount >= 0 and targets.len > sim.config.sprayCount:
+    targets.setLen(sim.config.sprayCount)
   sim.placeWalkablePickups(sprayPaintSpawns, targets)
   sim.sprayPaintFlashes = @[]
   for i in 0 ..< sim.players.len:
@@ -1842,6 +2038,7 @@ proc startGame*(sim: var SimServer) =
     sim.players[i].downedBy = -1
     sim.players[i].reviveProgress = 0
     sim.players[i].zonePaintBleedBank = 0
+    sim.players[i].lastHitWasPactAlly = false
     sim.recordGameTeamAssigned(i)
   sim.resetFlags()
   sim.lastCaptureTick = -1
@@ -2380,6 +2577,29 @@ proc barrageRatePermille*(sim: SimServer): int =
     (sim.config.barrageMaxPerSec - sim.config.barrageStartPerSec) *
       sim.barrageProgressPermille()
 
+proc downFriendly(sim: SimServer, victimIndex, killerIndex: int): bool =
+  ## ALLIANCE P3 (ally-revive design 2026-09-07): true when a hit on
+  ## `victimIndex` by `killerIndex` prices as FRIENDLY -- same team, OR a
+  ## pact ally. Three checks, ORed, because no single one covers both call
+  ## shapes this engine has:
+  ##   * literal team equality -- the pre-existing same-team case.
+  ##   * a LIVE `pactActive` read -- covers a caller that reaches
+  ##     `downPlayer`/`killPlayer` without ever routing through
+  ##     `absorbDamage` (a direct `killPlayer` call), where the pact was
+  ##     never touched and so is still active.
+  ##   * `victim.lastHitWasPactAlly` -- the snapshot `absorbDamage` leaves
+  ##     BEFORE its own ALLIANCE P1 dissolve, for the real weapon-fire path
+  ##     where the pact is already gone by the time pricing runs here.
+  ## Shared by `downPlayer`'s Amendment-5 at-the-down mint and
+  ## `killPlayer`'s `KillContext.friendly` -- one predicate, one place a
+  ## pact-ally incident can be mis-priced.
+  if killerIndex < 0 or killerIndex >= sim.players.len:
+    return false
+  let killerTeam = sim.players[killerIndex].team
+  result = sim.players[victimIndex].team == killerTeam or
+    sim.pactActive(sim.players[victimIndex].team, killerTeam) or
+    sim.players[victimIndex].lastHitWasPactAlly
+
 proc downPlayer(
   sim: var SimServer,
   targetIndex, killerIndex: int,
@@ -2427,6 +2647,27 @@ proc downPlayer(
     targetSlot = killerSlot
   )
   sim.logGameEvent(playerColorText(victim.color) & " is down")
+  # AMENDMENT 5 (glory-2, spec owner override, recut contract): a downed
+  # victim never reaches `killPlayer`'s priceTheKill block until
+  # `finalizeDowned` re-enters it -- revived (updateDowned's tag-back-up
+  # path), that block never runs at all, so a friendly down that gets
+  # tagged back up minted ZERO `dTeamKill`/`gloryFfIncidents` (a free FF:
+  # "spray your partner, tag them back up"). Detect + price the friendly
+  # incident HERE, at the down itself, exactly once per incident --
+  # `killPlayer`'s own re-mint at `finalizeDowned` time is guarded off for
+  # this same incident (see the `victim.downed and ctx.friendly` check
+  # there), so a bled-out/splat-confirmed/team-wiped friendly down still
+  # mints only once, just earlier. `killDeed` resolves ANY friendly hit to
+  # `dTeamKill` unconditionally (its first, highest-precedence check), so
+  # no other kill context is needed to know the deed here.
+  #
+  # ALLIANCE P3 (ally-revive design 2026-09-07): "friendly" now also
+  # covers downing a PACT ally -- `downFriendly` (this proc's own sibling,
+  # just above) is the shared same-team-or-pact predicate; see its own
+  # comment for why it needs all three of its checks.
+  if sim.downFriendly(targetIndex, killerIndex):
+    sim.awardDeed(victim.team, dTeamKill, victim.x, victim.y,
+                  byIndex = killerIndex, fxActor = killerIndex)
 
 proc recutZonePhase*(sim: SimServer, elapsedTicks: int):
     tuple[closing, final: bool] =
@@ -2465,11 +2706,15 @@ proc recutContextK*(sim: SimServer, killerIndex, victimIndex: int): int =
   ##
   ##   - CTF: literal same-team players (§2) — the killer plus every
   ##     teammate with a qualifying hit on this victim inside the window.
-  ##   - BR: allies-in-context (§2's ruled widening) — the killer's own
-  ##     duo PLUS cogs of OTHER duos co-engaged on the same victim in the
-  ##     window (a truce/joint-act moment, the dJointAct predicate). The
-  ##     victim's own duo never counts (friendly fire is never an
-  ##     alliance — the spec's own exclusion).
+  ##   - BR (v14 KEYING FIX, brMode -> isAllied): the killer's own duo
+  ##     PLUS cogs of other duos co-engaged on the same victim in the
+  ##     window ONLY when a registered pact links them to the killer
+  ##     (`pactActive` — the GV56 registry the `pact` play feeds). The
+  ##     pre-v14 blanket brMode test paid ally-stack k to ANY co-engaged
+  ##     seat — the measured jackal contamination (×1.03-1.18 gm/seat,
+  ##     single mints to ×3, 3-10% of top-seat log-mass; sizing package
+  ##     §1) — which exits here. The victim's own duo never counts
+  ##     (friendly fire is never an alliance — the spec's own exclusion).
   ##
   ## Exact ally-counting refinement (who counts, how a window closes) is
   ## PARKED BEHIND T5 by the table itself; this is the minimal
@@ -2496,7 +2741,21 @@ proc recutContextK*(sim: SimServer, killerIndex, victimIndex: int): int =
       let attackerTeam = sim.players[mark.attacker].team
       if attackerTeam == victimTeam:
         continue
-      if attackerTeam == killerTeam or sim.config.brMode:
+      # v14 KEYING FIX (P3 — the fix GV56's registry rewire existed to
+      # feed): the ally-stack is an ALLIANCE read, not a co-engagement
+      # read. `sim.pactActive(attackerTeam, killerTeam)` is the isAllied
+      # predicate over the pact registry (registered from the `pact`
+      # play, GV56); the pre-v14 blanket `sim.config.brMode` check here
+      # paid stack k to ANY co-engaged seat in BR — the measured jackal
+      # mispricing (sizing package §1) — and is gone. With pacts
+      # unadopted the BR stack reads ≡ ×1 by construction; the Fibonacci
+      # values are deliberately unchanged (the 10M anchor is
+      # alliance-gated: the stack IS the sized pact-era headroom, §5).
+      # Same-team participation (the CTF/duo-partner read) is unchanged,
+      # and `pactActive` is structurally false outside BR (pacts only
+      # register there), so CTF prices exactly as before.
+      if attackerTeam == killerTeam or
+          sim.pactActive(attackerTeam, killerTeam):
         participants.add mark.attacker
   participants.len
 
@@ -2659,7 +2918,14 @@ proc killPlayer*(
               avengesPartner = true
             break
       let ctx = KillContext(
-        friendly: victim.team == killer.team,
+        # ALLIANCE P3 (ally-revive design 2026-09-07): `downFriendly`
+        # (this file, just above `downPlayer`) is same-team-or-pact-ally --
+        # see its own comment. Reached here (rather than only inside
+        # `downPlayer`) by `finalizeDowned` re-entering for a downed
+        # ghost's deferred death (bleed-out, team-wipe, splat-confirm) and
+        # by every NON-downedMode kill, both of which need the identical
+        # pact verdict `downPlayer`'s own at-the-down mint already used.
+        friendly: sim.downFriendly(targetIndex, killerIndex),
         victimCarrying: victim.carryingFlag,
         nearVictimHome: dxHome * dxHome + dyHome * dyHome <=
                         denialPxNow * denialPxNow,
@@ -2706,29 +2972,51 @@ proc killPlayer*(
             # victim's team alive. Under armed downedMode a downed-but-
             # unfinalized partner still reads `alive`, so the duo-down
             # fires at the FINALIZE that truly empties the duo — the same
-            # once-at-finalize timing the FF ruling recorded.
+            # once-at-finalize timing the FF ruling recorded; an enemy
+            # kill has no earlier "down" moment of its own to price at
+            # (that is the FF-specific timing Amendment 5 moved -- see
+            # `downPlayer`'s own comment). SOLO-TEAM GUARD (16-solo BR):
+            # a 1-seat team has no partner to finish off by definition —
+            # `partnerAlive` would stay permanently false and mint this
+            # as the marquee on every kill, so this is gated on the
+            # victim's team actually seating ≥2.
             var partnerAlive = false
+            var victimTeamSeats = 0
             for i, p in sim.players:
-              if i != targetIndex and p.team == victim.team and p.alive:
-                partnerAlive = true
-                break
-            if not partnerAlive and RecutClassTable[dDuoDown] >=
-                RecutClassTable[marquee]:
+              if p.team == victim.team:
+                inc victimTeamSeats
+                if i != targetIndex and p.alive:
+                  partnerAlive = true
+            if victimTeamSeats >= 2 and not partnerAlive and
+                RecutClassTable[dDuoDown] >= RecutClassTable[marquee]:
               marquee = dDuoDown
           if marquee != dNone and
               RecutClassTable[marquee] > RecutClassTable[deed]:
             deed = marquee
-      # Glory-toast channel source (GameConfig.allowCosmeticFx): `fxActor`
-      # is -1 for a grenade-caused kill regardless of which deed `killDeed`
-      # resolved to -- the swap9-era wire never wired the grenade blast-kill
-      # site (fragile GV24-hash attribution branch); this keeps the same
-      # class of kill silent on the toast wire even now that every weapon
-      # funnels through this one chokepoint. See `awardDeed`'s own doc
-      # comment on `fxActor` for the full rationale.
-      sim.awardDeed(killer.team, deed, victim.x, victim.y,
-                    byIndex = killerIndex,
-                    fxActor = (if ctx.weaponGrenade: -1 else: killerIndex),
-                    stackK = stackK)
+      # AMENDMENT 5 (glory-2, spec owner override, recut contract): a
+      # friendly hit under armed downedMode never reaches here undowned --
+      # `killPlayer`'s own down-intercept routes it to `downPlayer` first,
+      # which now mints this incident's `dTeamKill`/`gloryFfIncidents`
+      # itself, at the down. The only way `ctx.friendly` is true HERE, with
+      # `victim.downed` also true, is `finalizeDowned` re-entering for that
+      # SAME incident's deferred death bookkeeping (bleed-out, team-wipe --
+      # a splat-confirm can never be friendly, applyFire's own guard
+      # requires an enemy shooter) -- re-minting would double-charge one
+      # incident. Every other path (non-downedMode; a downedMode
+      # elimination fold, never downed; any non-friendly kill) is
+      # unaffected and mints exactly where it always did.
+      if not (sim.config.downedMode and victim.downed and ctx.friendly):
+        # Glory-toast channel source (GameConfig.allowCosmeticFx): `fxActor`
+        # is -1 for a grenade-caused kill regardless of which deed `killDeed`
+        # resolved to -- the swap9-era wire never wired the grenade blast-kill
+        # site (fragile GV24-hash attribution branch); this keeps the same
+        # class of kill silent on the toast wire even now that every weapon
+        # funnels through this one chokepoint. See `awardDeed`'s own doc
+        # comment on `fxActor` for the full rationale.
+        sim.awardDeed(killer.team, deed, victim.x, victim.y,
+                      byIndex = killerIndex,
+                      fxActor = (if ctx.weaponGrenade: -1 else: killerIndex),
+                      stackK = stackK)
       # The taper only latches once the payback ACTUALLY minted: a kill
       # that also satisfies a higher-precedence descriptor (an ace tag, a
       # denial, ...) resolves to that deed instead, same as `avengesKiller`
@@ -2884,6 +3172,12 @@ proc killPlayer*(
     kill: true
   )
   sim.players[targetIndex].alive = false
+  # ALLIANCE P1: a dead seat can no longer honor a truce -- clear its whole
+  # pact row/column together (clearPactsFor, sim_state.nim). Unconditional
+  # on `elimination` too: a captured-team fold is still a real death of
+  # this seat, same as the deaths-stat guard above treats it for stats but
+  # NOT for state that must reflect who is actually still standing.
+  sim.clearPactsFor(sim.players[targetIndex].team)
   # GLORY: THE ANTI-SNOWBALL RULE -- a cog's whole per-life ladder dies with
   # it. This is the price of granting real power at all, and on BR (one
   # life = the episode) it is what still bounds a levelled cog to one life
@@ -3019,6 +3313,30 @@ proc absorbDamage*(
       sim.recutJointActOnDamage(targetIndex, attackerIndex, freshIncident)
   var firstTouch = false
   if attackerIndex >= 0 and attackerIndex != targetIndex:
+    # ALLIANCE P1: any damage between two currently-allied teams dissolves
+    # the pact immediately — no grace, no partial credit, minimal on
+    # purpose (no event, no glory price; scoring owns drama/pricing, if
+    # any ever lands). This is
+    # the ONE subtraction point (absorbDamage's own header comment), so it
+    # is also the one dissolution chokepoint: every damage source (gun,
+    # spray, grenade, environmental-with-an-attacker) routes through here.
+    let
+      attackerTeam = sim.players[attackerIndex].team
+      targetTeam = sim.players[targetIndex].team
+    # ALLIANCE P3 (ally-revive design 2026-09-07): snapshot the pact
+    # verdict BEFORE the dissolve two lines down -- `downPlayer`/
+    # `killPlayer` (sim.nim) price this same hit AFTER this proc returns,
+    # by which time the dissolve below (if it fires) has already cleared
+    # the bit. Overwritten on every damaging hit with an attacker, so it
+    # never carries a stale verdict from an earlier, unrelated hit. See
+    # `lastHitWasPactAlly`'s own field comment (sim_types.nim) and
+    # `downFriendly`'s (just above `downPlayer`, this file).
+    sim.players[targetIndex].lastHitWasPactAlly =
+      amount > 0 and attackerTeam != targetTeam and
+      sim.pactActive(attackerTeam, targetTeam)
+    if amount > 0 and attackerTeam != targetTeam and
+        sim.pactActive(attackerTeam, targetTeam):
+      sim.dissolvePact(attackerTeam, targetTeam)
     if attackerIndex < 32:
       let bit = 1'u32 shl attackerIndex
       firstTouch = (sim.players[targetIndex].hurtByMask and bit) == 0
@@ -3622,7 +3940,16 @@ proc applyFire(sim: var SimServer, shot: PendingGunShot) =
     # (the weapon site credited the kill at the DOWN), just the deferred
     # real death. A teammate's stray paint never confirms — the ghost soaks
     # it without effect.
-    if shooter.team != sim.players[targetIndex].team:
+    #
+    # ALLIANCE P2b (ally-revive design, lane-lead decision 2026-09-07): a
+    # PACT ally's paint mirrors a teammate's -- it never confirms either.
+    # Read `pactActive` LIVE (not the `lastHitWasPactAlly` snapshot P3
+    # uses): this splat never routes through `absorbDamage` ("no damage
+    # accounting" above), so there is no dissolve-before-price race to
+    # guard against here -- the pact, if any, is still exactly as active
+    # as it was the tick before.
+    if shooter.team != sim.players[targetIndex].team and
+        not sim.pactActive(shooter.team, sim.players[targetIndex].team):
       sim.finalizeDowned(targetIndex, shooterIndex, "was splatted out")
   elif targetIndex >= 0 and sim.players[targetIndex].alive:
     # A carrier whose shield layer is still up at impact absorbs the hit
@@ -5560,15 +5887,25 @@ proc finishGame*(sim: var SimServer, winner: Team, isDraw = false, timeLimitReac
   # COMPOSITION-NEUTRAL ×M fold on the canonical product at finalize — it
   # pays no heat, no territory, no carry, no stack, and never routes
   # through `recutFactor` (it is not a deed; the wire dVictory it replaces
-  # was stochastic ×16-64 with folded heat). Mode-keyed via
-  # `recutWinFactor`: BR ×4 now, M_CTF deferred to CTF-arming (that func
-  # is the whole seam). Applied AFTER the conclusion sweep so the ledger
+  # was stochastic ×16-64 with folded heat). Mode- AND TEAM-SIZE-keyed via
+  # `recutWinFactor` (v14 sizing package §2, ruled): a 1-seat winning
+  # team folds M_solo=×8, a duo folds the ruled ×4, M_CTF stays deferred
+  # to CTF-arming (that func is the whole seam). Applied AFTER the
+  # conclusion sweep so the ledger
   # is final-correct the moment it folds (products commute — the ceiling
   # arithmetic is identical either side of the sweep). Decisive games
   # only — a draw crowns nobody, exactly like the deed it replaces.
   if sim.config.gloryMultiplierRecut and sim.config.winAsMultiplier and
       sim.config.brMode and not isDraw:
-    let winFactor = recutWinFactor(sim.config.brMode)
+    # v14 TEAM-SIZE SEAM: seats on the winning team, dead or alive — the
+    # dDuoDown solo-team guard's own counting convention (a duo whose
+    # partner already fell still won as a duo, and a 16-solo winner is
+    # solo however many rivals remain).
+    var winnerSeats = 0
+    for p in sim.players:
+      if p.team == winner:
+        inc winnerSeats
+    let winFactor = recutWinFactor(sim.config.brMode, winnerSeats)
     # Once per episode by construction (one finalize, one winner) — no
     # MINT cap applies; the armed PRODUCT bound does, so the backstop
     # covers the last fold of the episode too.
@@ -6276,6 +6613,44 @@ proc hillLeader*(sim: SimServer): tuple[team: Team, draw: bool] =
   elif sim.hillTicks[Blue] > sim.hillTicks[Red]: (Blue, false)
   else: (Red, true)
 
+proc recutMintPlacementMilestones(sim: var SimServer, aliveCount: int) =
+  ## GV14 PLACEMENT LADDER (solo recut, sizing package §2) — THE RAISED
+  ## BASES: dFinal8/dFinal4/dFinal2 (×2/×3/×4) mint once each, for every
+  ## team still alive when the living-team count first crosses down to a
+  ## milestone (both finalists earn dFinal2; the win factor alone
+  ## separates 1st from 2nd). Called from checkWinCondition with the
+  ## alive count it just derived from the SAME `teamHasLivePlayers` read
+  ## that decides the game's end — one liveness signal, so the milestone
+  ## set can never disagree with the elimination order. A milestone ARMS
+  ## only when the game seats MORE teams than it names (`seatedTeams >
+  ## threshold`: a 2-team BR test shape mints nothing; the 16-team field
+  ## mints all three), and a multi-elimination tick that skips a count
+  ## still fires every crossed milestone for its survivors — they were
+  ## "among the last N" for every N their elimination survived past,
+  ## while the teams that fell on that tick were not. Priced at each
+  ## team's own pedestal (the dVictory/achievement site: home ground, so
+  ## the territory shift is a structural no-op); with 0 drama (never
+  ## heat/carry) and the default stackK 1, the folded factor IS the
+  ## class, which keeps the ladder's ×2×3×4 exact.
+  ## armed+winAsMultiplier+brMode only — the §A6-band gate: a dark,
+  ## classic, or v13-armed game never mints these (byte-identity for
+  ## those worlds), and `resetGloryLedger` re-opens the latch with the
+  ## ledger it mints into.
+  if not (sim.config.gloryMultiplierRecut and sim.config.winAsMultiplier and
+      sim.config.brMode):
+    return
+  let seatedTeams = sim.gameMap.teamCount()
+  for i in 0 ..< RecutFinalThresholds.len:
+    let (threshold, deed) = RecutFinalThresholds[i]
+    if sim.recutFinalFired[i] or seatedTeams <= threshold or
+        aliveCount > threshold:
+      continue
+    sim.recutFinalFired[i] = true
+    for team in sim.teams():
+      if sim.teamHasLivePlayers(team):
+        let home = sim.gameMap.flagHome(team)
+        sim.awardDeed(team, deed, home.x, home.y)
+
 proc checkWinCondition*(sim: var SimServer) {.measure.} =
   ## Resolves capture and wipe win conditions.
   if sim.phase != Playing or sim.players.len == 0:
@@ -6388,6 +6763,11 @@ proc checkWinCondition*(sim: var SimServer) {.measure.} =
     if sim.teamHasLivePlayers(team):
       inc aliveCount
       lastAlive = team
+  # GV14: the placement ladder reads the count this loop just derived —
+  # and must land BEFORE the finish below, so the winner's dFinal2 (and
+  # any milestone a skip-ending crosses on this same tick) is already in
+  # the product the win factor folds onto at finalize.
+  sim.recutMintPlacementMilestones(aliveCount)
   if aliveCount == 1:
     # GLORY: `dWipe` -- fire only for a team that crossed from alive to
     # dead on THIS exact tick, never for one eliminated earlier in the
@@ -7522,6 +7902,23 @@ proc downedBleedOutWindow(sim: SimServer, downedCount: int): int =
       result = result div 2
   result = max(result, DownedMinBleedOutTicks)
 
+proc teamHasUprightPactAlly(
+  sim: SimServer, upright: array[Team, int], team: Team
+): bool =
+  ## ALLIANCE P2 (ally-revive design 2026-09-07, THE CRUX): true when some
+  ## OTHER team currently pact-allied with `team` still has an upright
+  ## (alive, not downed) member. `updateDowned`'s team-wipe finalize reads
+  ## this alongside its own per-team `upright` census -- the alliance, not
+  ## the lone team, is now the survival unit: a 1-seat team's own down is
+  ## no longer an automatic wipe if a living pact ally still stands. A
+  ## non-pact team's own census is untouched (every `pactActive` check
+  ## below reads false, so this always returns false and the caller's
+  ## byte-identical fallback is the pre-existing team-wipe rule).
+  for other in Team:
+    if other != team and upright[other] > 0 and sim.pactActive(team, other):
+      return true
+  result = false
+
 proc updateDowned(sim: var SimServer) =
   ## LOOT(s2): one tick of the downed-state machine, per ghost and in this
   ## order:
@@ -7551,7 +7948,20 @@ proc updateDowned(sim: var SimServer) =
   for i in 0 ..< sim.players.len:
     if not sim.players[i].downed:
       continue
-    if upright[sim.players[i].team] == 0:
+    # ALLIANCE P2 (ally-revive design 2026-09-07, THE CRUX): the alliance,
+    # not the lone team, is the survival unit -- a 1-seat team's own down
+    # is a team-wipe (finalize now) ONLY if no pact ally has a living
+    # upright member either. When one does, fall through to the normal
+    # bleed-out/tag-revive machinery below; that window is what a pact
+    # ally revives into. The instant the last upright pact ally goes down
+    # or dies, THIS team's own upright[] stays 0, that ally's team's
+    # upright[] reads 0 too (dead: not `alive`; downed: not counted), so
+    # `teamHasUprightPactAlly` returns false and finalize fires here on
+    # the very next tick -- the existing rule, just no longer bypassed by
+    # a pact. Non-pact teams: `teamHasUprightPactAlly` always reads false
+    # (no bit ever set), so this is byte-identical to the old check.
+    if upright[sim.players[i].team] == 0 and
+        not sim.teamHasUprightPactAlly(upright, sim.players[i].team):
       sim.finalizeDowned(i, sim.players[i].downedBy,
         "faded out with their team")
       continue
@@ -7622,7 +8032,15 @@ proc updateDowned(sim: var SimServer) =
       gx = sim.players[i].x + CollisionW div 2
       gy = sim.players[i].y + CollisionH div 2
     for j in 0 ..< sim.players.len:
-      if j == i or sim.players[j].team != sim.players[i].team:
+      if j == i:
+        continue
+      # ALLIANCE P1 (ally-revive design 2026-09-07): a tagger qualifies on
+      # the SAME team as the (unchanged, below) OR on a team currently
+      # pact-allied with the victim's -- zoneBlocksRevive above and the
+      # reviver's own DownedTagRange exposure below are untouched, so a
+      # pact ally revives exactly the way a teammate always has.
+      if sim.players[j].team != sim.players[i].team and
+          not sim.pactActive(sim.players[i].team, sim.players[j].team):
         continue
       if not sim.players[j].alive or sim.players[j].downed:
         continue
