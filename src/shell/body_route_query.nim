@@ -54,6 +54,7 @@ type
 
   BodyRouteQueryStats* = object
     sidePops*, localPops*: int
+    sideCapHits*, localCapHits*: int
 
   EndpointAttach = object
     pointStart: int32
@@ -1031,6 +1032,8 @@ proc queryBodyRoute*(index: BodyRouteIndex, scratch: BodyRouteQueryScratch,
     let direct = scratch.tryDirectLocal(request)
     if direct.state == lssFound:
       scratch.bestCost = direct.cost
+    elif direct.state == lssCap:
+      inc scratch.resultStats.localCapHits
     elif direct.state == lssOverflow:
       return BodyRouteQueryResult(failure: brfDescriptorOverflow,
         stats: scratch.resultStats)
@@ -1043,11 +1046,14 @@ proc queryBodyRoute*(index: BodyRouteIndex, scratch: BodyRouteQueryScratch,
   discard scratch.buildConnections(request, scratch.startAttach, true)
   discard scratch.buildConnections(request, scratch.goalAttach, false)
   let sideSearch = scratch.runSideSearch(request)
+  if sideSearch.capHit:
+    inc scratch.resultStats.sideCapHits
   if sideSearch.found and sideSearch.cost < scratch.bestCost:
     let assembled = scratch.assembleSideRoute(sideSearch)
     if assembled == lssOverflow:
       return BodyRouteQueryResult(failure: brfDescriptorOverflow)
     if assembled == lssCap:
+      inc scratch.resultStats.localCapHits
       if scratch.bestCost == InfiniteCost:
         return BodyRouteQueryResult(failure: brfLocalCap,
           stats: scratch.resultStats)

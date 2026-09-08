@@ -2,7 +2,8 @@
 
 import std/[json, options, unittest]
 import ../src/ctf/[arena, br_map_pool]
-import ../src/shell/[body_map, body_nav, body_route_index, body_route_query]
+import ../src/shell/[body_map, body_nav, body_planner, body_route_index,
+  body_route_query]
 
 proc openMap(): BodyMap =
   const Side = 96
@@ -25,6 +26,18 @@ proc twoIslandMap(): BodyMap =
       walkable[y * Width + x] = true
   newBodyMap(walkable, Width, Height, 2, @[(24, 48), (104, 48)],
     mapName = "route-query-islands")
+
+proc capFallbackMap(): BodyMap =
+  const
+    Width = 4000
+    Height = 160
+  var walkable = newSeq[bool](Width * Height)
+  for y in 1 ..< Height - 1:
+    for x in 1 ..< Width - 1:
+      if x < 3800 or x > 3815 or y in 64 .. 95:
+        walkable[y * Width + x] = true
+  newBodyMap(walkable, Width, Height, 2, @[(80, 80), (3920, 80)],
+    mapName = "route-query-cap-fallback")
 
 proc goalAt(map: BodyMap, requested, fromPoint: BodyPoint): ValidatedGoal =
   let goal = map.validateGoal(requested, fromPoint)
@@ -154,6 +167,33 @@ suite "bounded hierarchical body route query":
         b = route.startLegPoint(offset)
         midpoint: BodyPoint = ((a.x + b.x) div 2, (a.y + b.y) div 2)
       check map.cellOf(midpoint) != map.cellOf(blocked)
+
+  test "a capped same-room candidate leaves bounded fallbacks alive":
+    let
+      map = capFallbackMap()
+      index = newBodyRouteIndex(map)
+      scratch = newBodyRouteQueryScratch(index)
+      pair = index.sameRoomHorizontalPair()
+    var danger = BodyDangerField(
+      values: newSeq[float32](map.gridWidth * map.gridHeight),
+      gridW: map.gridWidth, gridH: map.gridHeight)
+    let
+      goal = map.goalAt(pair.b, pair.a)
+      blocked: BodyPoint = ((pair.a.x + pair.b.x) div 2, pair.a.y)
+      goalCell = map.cellOf(goal.goalPoint)
+    for y in 0 ..< map.gridHeight:
+      for x in max(0, goalCell.x - 16) ..< map.gridWidth:
+        danger.values[y * map.gridWidth + x] = 1_000_000.0
+    let
+      request = BodyRouteRequest(start: pair.a, goal: goal,
+        danger: addr danger, blockedCell: some(blocked))
+      route = index.queryBodyRoute(scratch, request)
+    check route.ok
+    check route.stats.localCapHits > 0
+    check route.stats.localPops <= RouteLocalPopCap
+    check route.stats.sidePops > 0
+    check route.stats.sidePops <= RouteSidePopCap
+    check index.validateBodyRoute(request, route)
 
   test "side graph routes deterministically through multiple rooms":
     let
