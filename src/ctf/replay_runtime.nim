@@ -199,6 +199,7 @@ proc buildReplayViewerPacket*(
       nextState.selectedJoinOrder,
       if sendLead: replay.leadSeries else: @[],
       if sendLead: replay.leadMetric else: "",
+      if sendLead: replay.leadOutTicks else: @[],
       replay.replayStartTick(),
       replay.endHoldSecondsLeft(),
       sendFpMap,

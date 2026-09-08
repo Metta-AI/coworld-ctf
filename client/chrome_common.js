@@ -670,10 +670,11 @@ window.ChromeCommon = function (ctx) {
         pts: s.lead.map(function (p) { return { t: p[0], vals: [p[1]] }; })
       };
     } else {
-      // Team-keyed shape: {metric, teams: [name…], pts: [[tick, value…], …]}.
+      // Team-keyed shape: {metric, teams, out: [tick|-1…], pts: [[tick, value…]…]}.
       fullLeadSeries = {
         teams: s.lead.teams || ['red', 'blue'],
         metric: s.lead.metric || 'glory',
+        out: s.lead.out || [],
         isDiff: false,
         pts: (s.lead.pts || []).map(function (p) {
           return { t: p[0], vals: p.slice(1) };
@@ -751,11 +752,15 @@ window.ChromeCommon = function (ctx) {
     layer.setAttribute('clip-path', 'url(#momclip)');
     el.appendChild(layer);
 
-    function stepPath(valueOf) {
-      // A step series across the full [0, mx] axis: hold, then step.
+    function stepPath(valueOf, subset) {
+      // A step series across the full [0, mx] axis: hold, then step. `subset`
+      // narrows it to one team's alive stretch; it defaults to the whole
+      // series (note: do NOT shadow `pts` here, the outer series is the
+      // default and the closure is the only thing holding it).
       var d = '';
-      for (var k = 0; k < pts.length; k++) {
-        var x = xOf(pts[k].t), y = valueOf(pts[k]);
+      var series = subset || pts;
+      for (var k = 0; k < series.length; k++) {
+        var x = xOf(series[k].t), y = valueOf(series[k]);
         if (k === 0) d += 'M ' + x.toFixed(1) + ' ' + y.toFixed(1);
         else d += ' H ' + x.toFixed(1) + ' V ' + y.toFixed(1);
       }
@@ -832,6 +837,23 @@ window.ChromeCommon = function (ctx) {
       // for two teams as for sixteen. Scaling on the running peak rather than
       // the final value keeps a curve on-scale even where the ledger dips
       // (penalties), instead of clipping it against the top of the band.
+      //
+      // ELIMINATED TEAMS STOP LOOKING LIKE COMPETITORS. The metric only ever
+      // climbs, so a team that is out goes FLAT — pixel-identical to a live
+      // team that just is not scoring. A high flat line from a team knocked
+      // out early therefore reads as the leader, which is exactly backwards,
+      // and it misread that way in practice. So each line is drawn solid only
+      // while its team is alive, ends in a filled cap at the elimination
+      // tick, and continues to the right edge as a faint dashed hold. The
+      // final total stays readable — often the biggest number on the board —
+      // while "still in this" is legible at a glance.
+      // The GLORY LEDGER CAN GO NEGATIVE -- penalties outrun earnings on a
+      // team that does little else (measured on the 16-team golden fixture:
+      // a final total of -60). Displayed values clamp at >= 0 so such a line
+      // rides the axis instead of being drawn below the lane and clipped
+      // away by the viewBox; the scorebug numeral remains the authoritative
+      // figure. Lives and hill ticks cannot go negative, so this only ever
+      // bites glory.
       var peak = 1;
       pts.forEach(function (m) {
         m.vals.forEach(function (v) { if (v > peak) peak = v; });
@@ -842,11 +864,54 @@ window.ChromeCommon = function (ctx) {
       base.setAttribute('stroke', 'rgba(242,232,216,0.22)');
       base.setAttribute('stroke-width', '0.8');
       layer.appendChild(base);
+      var outTicks = norm.out || [];
       norm.teams.forEach(function (team, ti) {
-        var line = stepPath(function (m) {
-          return (VBH - 2) - ((m.vals[ti] || 0) / peak) * (VBH - 4);
-        });
-        addPath(line, teamCol(team) || PAPER, '1.5', '0.9');
+        var col = teamCol(team) || PAPER;
+        var yOfTeam = function (m) {
+          return (VBH - 2) - (Math.max(0, m.vals[ti] || 0) / peak) * (VBH - 4);
+        };
+        var outTick = typeof outTicks[ti] === 'number' ? outTicks[ti] : -1;
+        if (outTick < 0) {                       // survived: one solid line
+          addPath(stepPath(yOfTeam), col, '1.5', '0.9');
+          return;
+        }
+        // Alive stretch: every change-point up to elimination, plus the value
+        // it held AT that tick so the line reaches its true end, not the last
+        // point before it.
+        var alive = pts.filter(function (m) { return m.t <= outTick; });
+        if (!alive.length) alive = [pts[0]];
+        var endY = yOfTeam(alive[alive.length - 1]);
+        var endX = xOf(outTick);
+        addPath(stepPath(yOfTeam, alive) +
+          ' H ' + endX.toFixed(1), col, '1.5', '0.9');
+        // The stop itself. A VERTICAL TICK, not a dot: this lane is drawn
+        // with preserveAspectRatio="none", so the viewBox is scaled
+        // differently in x and y and a circle comes out as a squashed,
+        // near-invisible ellipse. A tick's height is viewBox units and its
+        // width is a non-scaling stroke, so it reads the same at any lane
+        // size -- and it matches the beat-marker language on the seek track
+        // right above it.
+        var cap = document.createElementNS(MOM_SVGNS, 'line');
+        cap.setAttribute('x1', endX.toFixed(1));
+        cap.setAttribute('x2', endX.toFixed(1));
+        cap.setAttribute('y1', Math.max(0, endY - 4).toFixed(1));
+        cap.setAttribute('y2', Math.min(VBH, endY + 4).toFixed(1));
+        cap.setAttribute('stroke', col);
+        cap.setAttribute('stroke-width', '1.5');
+        cap.setAttribute('stroke-opacity', '0.9');
+        cap.setAttribute('vector-effect', 'non-scaling-stroke');
+        layer.appendChild(cap);
+        // Dead hold: the total stays legible, the line stops competing.
+        var hold = document.createElementNS(MOM_SVGNS, 'path');
+        hold.setAttribute('d', 'M ' + endX.toFixed(1) + ' ' + endY.toFixed(1) +
+          ' H ' + VBW);
+        hold.setAttribute('fill', 'none');
+        hold.setAttribute('stroke', col);
+        hold.setAttribute('stroke-width', '1.5');
+        hold.setAttribute('stroke-opacity', '0.3');
+        hold.setAttribute('stroke-dasharray', '3 4');
+        hold.setAttribute('vector-effect', 'non-scaling-stroke');
+        layer.appendChild(hold);
       });
     }
   }

@@ -1018,6 +1018,7 @@ proc buildStateJson*(
   povSlot: int,
   leadSeries: seq[seq[int]] = @[],
   leadMetric: string = "",
+  leadOutTicks: seq[int] = @[],
   startTick: int = 0,
   endHoldSeconds: int = 0,
   includeFpMap: bool = false,
@@ -1158,6 +1159,10 @@ proc buildStateJson*(
   # `teams` order, and the lane draws one climbing line per team. "metric"
   # names what those values ARE ("glory" for classic games, "hill" for KotH)
   # so the band can caption itself rather than hardcode one of the two.
+  # "out" is the tick each team was eliminated on (-1 = survived), so the lane
+  # can stop drawing a dead team as a live competitor: these metrics only
+  # climb, so an eliminated team goes FLAT rather than falling, which reads
+  # identically to a live team that is merely not scoring.
   # Absent on every later frame — the client caches it.
   if leadSeries.len > 0:
     var teamNames = newJArray()
@@ -1169,9 +1174,12 @@ proc buildStateJson*(
       for value in point:
         row.add(%value)
       pts.add(row)
+    var outTicks = newJArray()
+    for i in 0 ..< teamNames.len:
+      outTicks.add(%(if i < leadOutTicks.len: leadOutTicks[i] else: -1))
     state["lead"] = %*{
       "metric": (if leadMetric.len > 0: leadMetric else: "glory"),
-      "teams": teamNames, "pts": pts
+      "teams": teamNames, "pts": pts, "out": outTicks
     }
 
   # Static minimap wall silhouette for the EYES tactical inset, sent ONCE per
