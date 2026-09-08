@@ -44,6 +44,7 @@ const
   BvHazardSprays* = 11'u16
   BvOwnThrow* = 12'u16
   BvStandingIntent* = 13'u16
+  BvNav* = 14'u16
   BvContextRoster* = 101'u16
   BvContextSelf* = 102'u16
   BvContextModeMap* = 103'u16
@@ -61,6 +62,7 @@ const
   SprayRecordStride* = 48'u16
   OwnThrowRecordStride* = 16'u16
   StandingIntentRecordStride* = 200'u16
+  NavRecordStride* = 32'u16
   ContextRosterRecordStride* = 12'u16
   ContextSelfRecordStride* = 16'u16
   ContextModeMapRecordStride* = 24'u16
@@ -253,6 +255,14 @@ proc zonePayload(zone: PlayZone): string =
   result.putI32(next.y)
   result.putI32(next.w)
   result.putI32(next.h)
+
+proc navPayload(nav: PlayNav): string =
+  result.putI32(nav.ticksUntilPaintHere)
+  result.putI32(nav.ticksToSafety)
+  result.putI32(nav.safeDistPx)
+  result.putI32(nav.zoneSafeDirBrads)
+  for _ in 0 ..< 4:
+    result.putI32(0)
 
 proc tracksPayload(rows: openArray[PlayTrack]): string =
   for row in rows:
@@ -490,6 +500,9 @@ proc playViewSections(model: PlayViewModel): seq[BinarySection] =
   if model.intent.isSome:
     result.add(payloadSection(BvStandingIntent, 1, StandingIntentRecordStride,
       model.intent.get.intentPayload))
+  if model.nav.isSome:
+    result.add(payloadSection(BvNav, 1, NavRecordStride,
+      model.nav.get.navPayload))
 
   result.layoutSections(BinaryFrameHeaderBytes)
   for section in result.mitems:

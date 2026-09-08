@@ -23,7 +23,8 @@
 import std/[hashes, math, options]
 import bitworld/spriteprotocol
 import ../ctf/sim_types
-import body_cache, body_map, body_planner, body_route_index, body_route_query
+import body_cache, body_hazard, body_map, body_planner, body_route_index,
+  body_route_query
 import types as shellTypes
 
 const
@@ -42,11 +43,30 @@ const
   FollowStuckWindowTicks = 48
   FollowBlockTtlTicks = 96
   MaxDangerSources* = 8
+  SafetySearchPopCap* = 512
+  SafetySearchNodeCap = SafetySearchPopCap * NavNeighbors.len + 1
+  SafetySearchHashCap = 8192
+
+static:
+  doAssert (SafetySearchHashCap and (SafetySearchHashCap - 1)) == 0
+  doAssert SafetySearchNodeCap <= high(int16).int
 
 type
   DangerWorkspace = object
     visited: seq[uint32]
     visitGeneration: uint32
+
+  BodySafetyScratch = object
+    generation: uint32
+    nodeCount, heapLen: int
+    cells: array[SafetySearchNodeCap, int32]
+    distances: array[SafetySearchNodeCap, uint32]
+    firstSteps: array[SafetySearchNodeCap, int32]
+    heap: array[SafetySearchNodeCap, int16]
+    heapPositions: array[SafetySearchNodeCap, int16]
+    hashGeneration: array[SafetySearchHashCap, uint32]
+    hashCells: array[SafetySearchHashCap, int32]
+    hashRecords: array[SafetySearchHashCap, int16]
 
   DangerCandidate* = object
     seatIndex*: int
@@ -141,6 +161,9 @@ type
     seats*: seq[BodyNavSeat]
     routeIndex*: BodyRouteIndex
     routeScratch*: BodyRouteQueryScratch
+    hazard*: BodyHazardOverlay
+    safeCache*: BodySafeCache
+    safetyScratch: BodySafetyScratch
     minter*: BodyFieldMinter
     dangerK*: int
     lastPlanSeat*: int
@@ -207,7 +230,9 @@ proc newBodyNavSystem*(map: BodyMap, seatCount, liveGunRangePx: int,
                        dangerK = DangerCadenceK,
                        traceCapacity = 0,
                        prepareRouteQueries = false,
-                       preparedRouteIndex: BodyRouteIndex = nil): BodyNavSystem =
+                       preparedRouteIndex: BodyRouteIndex = nil,
+                       hazard: BodyHazardOverlay = nil,
+                       safeCache: BodySafeCache = nil): BodyNavSystem =
   ## Activation-barrier constructor. The hierarchical query index is built
   ## only for an episode that can issue those queries; direct-input and legacy
   ## body ticks must not pay for an unused route path.
@@ -228,6 +253,8 @@ proc newBodyNavSystem*(map: BodyMap, seatCount, liveGunRangePx: int,
     result.routeIndex = if preparedRouteIndex == nil:
       newBodyRouteIndex(map) else: preparedRouteIndex
     result.routeScratch = newBodyRouteQueryScratch(result.routeIndex)
+  result.hazard = hazard
+  result.safeCache = safeCache
   result.minter = newBodyFieldMinter(map)
   result.dangerK = dangerK
   result.lastPlanSeat = -1
@@ -252,6 +279,310 @@ proc newBodyNavSystem*(map: BodyMap, seatCount, liveGunRangePx: int,
       path: newSeq[BodyPoint](planner.workspaceCapacity + 2))
 
 proc seatCount*(system: BodyNavSystem): int = system.seats.len
+
+proc beginSafetySearch(scratch: var BodySafetyScratch) =
+  inc scratch.generation
+  if scratch.generation == 0:
+    for value in scratch.hashGeneration.mitems:
+      value = 0
+    scratch.generation = 1
+  scratch.nodeCount = 0
+  scratch.heapLen = 0
+
+proc safetyHashSlot(scratch: var BodySafetyScratch; cell: int32;
+    create: bool): int =
+  var slot = int((cast[uint32](cell) * 2_654_435_761'u32) and
+    uint32(SafetySearchHashCap - 1))
+  while scratch.hashGeneration[slot] == scratch.generation:
+    if scratch.hashCells[slot] == cell:
+      return slot
+    slot = (slot + 1) and (SafetySearchHashCap - 1)
+  if not create:
+    return -1
+  scratch.hashGeneration[slot] = scratch.generation
+  scratch.hashCells[slot] = cell
+  scratch.hashRecords[slot] = -1
+  slot
+
+proc safetyRecord(scratch: var BodySafetyScratch; cell: int32;
+    create: bool): int =
+  let slot = scratch.safetyHashSlot(cell, create)
+  if slot < 0:
+    return -1
+  if scratch.hashRecords[slot] >= 0:
+    return scratch.hashRecords[slot].int
+  if not create or scratch.nodeCount >= SafetySearchNodeCap:
+    return -1
+  result = scratch.nodeCount
+  inc scratch.nodeCount
+  scratch.hashRecords[slot] = int16(result)
+  scratch.cells[result] = cell
+  scratch.distances[result] = high(uint32)
+  scratch.firstSteps[result] = -1
+  scratch.heapPositions[result] = -1
+
+proc safetyLess(scratch: BodySafetyScratch; left, right: int): bool {.inline.} =
+  scratch.distances[left] < scratch.distances[right] or
+    (scratch.distances[left] == scratch.distances[right] and
+     scratch.cells[left] < scratch.cells[right])
+
+proc swapSafetyHeap(scratch: var BodySafetyScratch; left, right: int) =
+  swap(scratch.heap[left], scratch.heap[right])
+  scratch.heapPositions[scratch.heap[left].int] = int16(left)
+  scratch.heapPositions[scratch.heap[right].int] = int16(right)
+
+proc siftSafetyUp(scratch: var BodySafetyScratch; start: int) =
+  var current = start
+  while current > 0:
+    let parent = (current - 1) div 2
+    if not scratch.safetyLess(scratch.heap[current].int,
+        scratch.heap[parent].int):
+      break
+    scratch.swapSafetyHeap(current, parent)
+    current = parent
+
+proc siftSafetyDown(scratch: var BodySafetyScratch; start: int) =
+  var current = start
+  while true:
+    let left = current * 2 + 1
+    if left >= scratch.heapLen:
+      break
+    let
+      right = left + 1
+      child = if right < scratch.heapLen and
+          scratch.safetyLess(scratch.heap[right].int,
+            scratch.heap[left].int): right else: left
+    if not scratch.safetyLess(scratch.heap[child].int,
+        scratch.heap[current].int):
+      break
+    scratch.swapSafetyHeap(current, child)
+    current = child
+
+proc pushOrDecreaseSafety(scratch: var BodySafetyScratch; record: int) =
+  let position = scratch.heapPositions[record].int
+  if position >= 0:
+    scratch.siftSafetyUp(position)
+    return
+  doAssert scratch.heapLen < SafetySearchNodeCap
+  let insert = scratch.heapLen
+  inc scratch.heapLen
+  scratch.heap[insert] = int16(record)
+  scratch.heapPositions[record] = int16(insert)
+  scratch.siftSafetyUp(insert)
+
+proc popSafety(scratch: var BodySafetyScratch): int =
+  result = scratch.heap[0].int
+  scratch.heapPositions[result] = -1
+  dec scratch.heapLen
+  if scratch.heapLen > 0:
+    scratch.heap[0] = scratch.heap[scratch.heapLen]
+    scratch.heapPositions[scratch.heap[0].int] = 0
+    scratch.siftSafetyDown(0)
+
+proc safetyStepQ4(direction: int): uint32 {.inline.} =
+  if direction < 4: uint32(NavCell * 16) else: 181'u32
+
+proc cellPoint(system: BodyNavSystem; cellIndex: int): BodyPoint {.inline.} =
+  (cellIndex mod system.map.gridWidth, cellIndex div system.map.gridWidth)
+
+proc localDryCell(system: BodyNavSystem; startCell, room: int): tuple[
+    found: bool, sourceCell, firstStep: int32, distanceQ4: uint32] =
+  var scratch = addr system.safetyScratch
+  scratch[].beginSafetySearch()
+  let startRecord = scratch[].safetyRecord(int32(startCell), true)
+  scratch[].distances[startRecord] = 0
+  scratch[].pushOrDecreaseSafety(startRecord)
+  var pops = 0
+  while scratch[].heapLen > 0 and pops < SafetySearchPopCap:
+    let record = scratch[].popSafety()
+    inc pops
+    let current = scratch[].cells[record].int
+    if system.safeCache.cellDryAt(system.hazard, current):
+      return (true, int32(current), scratch[].firstSteps[record],
+        scratch[].distances[record])
+    let
+      currentPoint = system.cellPoint(current)
+      legal = system.routeIndex.legalMovesAt(current)
+    for direction, delta in NavNeighbors:
+      if (legal and (1'u8 shl direction)) == 0:
+        continue
+      let
+        nextPoint = (x: currentPoint.x + delta.x,
+          y: currentPoint.y + delta.y)
+        next = nextPoint.y * system.map.gridWidth + nextPoint.x
+      if system.routeIndex.roomForCell(next) != room:
+        continue
+      let nextRecord = scratch[].safetyRecord(int32(next), true)
+      if nextRecord < 0:
+        continue
+      let candidate = scratch[].distances[record] + safetyStepQ4(direction)
+      if candidate < scratch[].distances[nextRecord]:
+        scratch[].distances[nextRecord] = candidate
+        scratch[].firstSteps[nextRecord] =
+          if current == startCell: int32(next)
+          else: scratch[].firstSteps[record]
+        scratch[].pushOrDecreaseSafety(nextRecord)
+
+proc chainToSide(system: BodyNavSystem; startCell, side: int): tuple[
+    found: bool, firstStep: int32, distanceQ4: uint32] =
+  var current = startCell
+  let target = system.routeIndex.portalSideAt(side).anchorCell.int
+  var visits = 0
+  while current != target:
+    if visits >= system.routeIndex.routeIndexStats.navCells:
+      return
+    let next = system.routeIndex.nextCellTowardSide(side, current)
+    if next < 0 or next.int == current:
+      return
+    if result.firstStep < 0:
+      result.firstStep = next
+    let
+      a = system.cellPoint(current)
+      b = system.cellPoint(next.int)
+      diagonal = a.x != b.x and a.y != b.y
+      step = if diagonal: 181'u32 else: uint32(NavCell * 16)
+    if result.distanceQ4 > high(uint32) - step:
+      return
+    result.distanceQ4 += step
+    current = next.int
+    inc visits
+  result.found = true
+
+proc safeSourceSide(system: BodyNavSystem; startSide: int): int =
+  var current = startSide
+  let sideCount = system.routeIndex.routeIndexStats.sides
+  for _ in 0 ..< sideCount:
+    let next = system.safeCache.nextSafeSideAt(system.hazard, current)
+    if next.isNone:
+      return -1
+    if next.get == current:
+      return current
+    current = next.get
+  -1
+
+proc graphFirstPoint(system: BodyNavSystem; side: int): Option[BodyPoint] =
+  let next = system.safeCache.nextSafeSideAt(system.hazard, side)
+  if next.isNone or next.get == side:
+    return none(BodyPoint)
+  for arcOffset in system.routeIndex.arcRangeForSide(side):
+    let arc = system.routeIndex.routeArcAt(arcOffset)
+    if arc.toSide.int != next.get:
+      continue
+    let segment = system.routeIndex.routeSegmentAt(arc.segment.int)
+    if segment.cellLen.int < 2:
+      return none(BodyPoint)
+    let origin = system.routeIndex.routePoint(
+      system.routeIndex.segmentCellAt(arc.segment.int, 0, arc.reversed))
+    for offset in 1 ..< segment.cellLen.int:
+      let point = system.routeIndex.routePoint(
+        system.routeIndex.segmentCellAt(arc.segment.int, offset, arc.reversed))
+      if point != origin:
+        return some(point)
+    return none(BodyPoint)
+  none(BodyPoint)
+
+proc octantToward(origin, target: BodyPoint): int8 =
+  let
+    dx = cmp(target.x, origin.x)
+    dy = cmp(target.y, origin.y)
+  case (dy + 1) * 3 + dx + 1
+  of 5: 0
+  of 2: 1
+  of 1: 2
+  of 0: 3
+  of 3: 4
+  of 6: 5
+  of 7: 6
+  of 8: 7
+  else: -1
+
+proc ceilSafetyMetric(value: uint64; denominator: uint64): int32 =
+  min(uint64(high(int32)), (value + denominator - 1) div denominator).int32
+
+proc safetyHintsFor*(system: BodyNavSystem; selfPos: BodyPoint;
+    elapsedTick: int; gameGeneration: uint64): BodySafetyHints =
+  result = BodySafetyHints(ticksUntilPaintHere: -1, ticksToSafety: -1,
+    safeDistPx: -1, retreatOctant: -1, sourceCell: none(int32))
+  if system == nil or system.routeIndex == nil or system.hazard == nil or
+      system.hazard.state == bhsDark or system.safeCache == nil:
+    return
+  system.safeCache.refreshSafeCache(system.routeIndex, system.hazard,
+    elapsedTick, gameGeneration)
+  let
+    start = system.map.cellOf(selfPos)
+    startCell = start.y * system.map.gridWidth + start.x
+    arrival = system.hazard.arrivalAt(startCell)
+  if arrival != HazardNeverArrives:
+    result.ticksUntilPaintHere = int32(max(0, arrival.int - elapsedTick))
+  if not system.map.cellWalkable(start):
+    return
+  if system.safeCache.cellDryAt(system.hazard, startCell):
+    result.ticksToSafety = 0
+    result.safeDistPx = 0
+    result.sourceCell = some(int32(startCell))
+    return
+  let room = system.routeIndex.roomForCell(startCell)
+  if room < 0:
+    return
+
+  var
+    found = false
+    sourceCell = -1'i32
+    firstPoint = none(BodyPoint)
+    distanceQ4 = high(uint64)
+  if system.safeCache.roomHasDryAt(system.hazard, room):
+    let local = system.localDryCell(startCell, room)
+    if local.found and system.safeCache.cellDryAt(system.hazard,
+        local.sourceCell.int):
+      found = true
+      sourceCell = local.sourceCell
+      distanceQ4 = local.distanceQ4.uint64
+      if local.firstStep >= 0:
+        firstPoint = some(cellCenter(system.cellPoint(local.firstStep.int)))
+  else:
+    for sideOffset in system.routeIndex.roomSideRange(room):
+      let side = system.routeIndex.roomSideAt(sideOffset)
+      let safeDistance = system.safeCache.safeDistanceQ4At(system.hazard, side)
+      if safeDistance == high(uint32):
+        continue
+      let chain = system.chainToSide(startCell, side)
+      if not chain.found:
+        continue
+      let sourceSide = system.safeSourceSide(side)
+      if sourceSide < 0:
+        continue
+      let candidateSource =
+        system.routeIndex.portalSideAt(sourceSide).anchorCell
+      if not system.safeCache.cellDryAt(system.hazard, candidateSource.int):
+        continue
+      let candidate = chain.distanceQ4.uint64 + safeDistance.uint64
+      if not found or candidate < distanceQ4 or
+          (candidate == distanceQ4 and candidateSource < sourceCell):
+        found = true
+        sourceCell = candidateSource
+        distanceQ4 = candidate
+        if chain.firstStep >= 0:
+          firstPoint = some(cellCenter(system.cellPoint(chain.firstStep.int)))
+        else:
+          firstPoint = system.graphFirstPoint(side)
+
+  if not found or sourceCell < 0 or
+      not system.safeCache.cellDryAt(system.hazard, sourceCell.int):
+    return
+  result.sourceCell = some(sourceCell)
+  result.safeDistPx = ceilSafetyMetric(distanceQ4, 16)
+  result.ticksToSafety = ceilSafetyMetric(distanceQ4,
+    HazardEtaSpeedQ4.uint64)
+  if firstPoint.isSome:
+    result.retreatOctant = octantToward(cellCenter(start), firstPoint.get)
+
+proc zoneSafeTarget*(system: BodyNavSystem; selfPos: BodyPoint;
+    elapsedTick: int; gameGeneration: uint64): Option[BodyPoint] =
+  let hints = system.safetyHintsFor(selfPos, elapsedTick, gameGeneration)
+  if hints.sourceCell.isNone:
+    none(BodyPoint)
+  else:
+    some(system.routeIndex.routePoint(hints.sourceCell.get))
 
 proc installRoute*(seat: BodyNavSeat, scratch: BodyRouteQueryScratch,
     route: BodyRouteQueryResult, revision: uint64): bool =

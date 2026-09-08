@@ -277,6 +277,22 @@ suite "shell play view producer":
     check present["aggressors"][0]["seat"].getInt() == 8
     check present["world"]["objectives"][0]["state"].getStr() == "taken"
 
+  test "nav is additive canonical integer-only and dark omission is exact":
+    let dark = buildPlayView(baseSource())
+    check not parseJson(dark).hasKey("nav")
+    var source = baseSource()
+    source.nav = some(PlayNav(ticksUntilPaintHere: -1, ticksToSafety: 7,
+      safeDistPx: 15, zoneSafeDirBrads: 224))
+    let bytes = buildPlayView(source)
+    let node = assertViewConformant(bytes)
+    check node["nav"] == %*{
+      "safe_dist_px": 15,
+      "ticks_to_safety": 7,
+      "ticks_until_paint_here": -1,
+      "zone_safe_dir_brads": 224
+    }
+    check bytes.find("\"nav\"") < bytes.find("\"schema\"")
+
   test "spray hazard variant emits only the selected arm's fields":
     let node = assertViewConformant(buildPlayView(richSource()))
     let anonymous = node["hazards"]["sprays"][0]

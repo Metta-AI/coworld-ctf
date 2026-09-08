@@ -170,6 +170,37 @@
         }
       }
     },
+    "nav": {
+      "$comment": "Optional precomputed zone-safety answers for this seat's own cell. Omitted when the damage overlay is dark. All values are integers so plays never reconstruct the paint field or a floating-point gradient.",
+      "type": "object",
+      "required": [
+        "ticks_until_paint_here",
+        "ticks_to_safety",
+        "safe_dist_px",
+        "zone_safe_dir_brads"
+      ],
+      "additionalProperties": true,
+      "properties": {
+        "ticks_until_paint_here": {
+          "type": "integer",
+          "$comment": "Ticks until paint reaches the current cell; -1 means never."
+        },
+        "ticks_to_safety": {
+          "type": "integer",
+          "$comment": "Estimated ticks along the geodesic route to dry ground; 0 means already dry and -1 means unreachable."
+        },
+        "safe_dist_px": {
+          "type": "integer",
+          "$comment": "Ceiling geodesic distance in map pixels; 0 means already dry and -1 means unreachable."
+        },
+        "zone_safe_dir_brads": {
+          "type": "integer",
+          "minimum": -1,
+          "maximum": 255,
+          "$comment": "First route octant in engine brads; -1 means already dry or unreachable."
+        }
+      }
+    },
     "tracks": {
       "$comment": "tracked allies and enemies under the seat's own fog; \u2264 32 (the roster, never truncated). The duo partner's row is a DELIBERATE GRANT (\u00a75.2): live position+aim, always fresh while both live \u2014 and it ends exactly at the partner's death (stale-track handling thereafter).",
       "type": "array",

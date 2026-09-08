@@ -56,6 +56,13 @@ type
     ticksToShrink*: int
     dps*: int
 
+  PlayNav* = object
+    ## Fog-honest, precomputed integer answers for the seat's own cell.
+    ticksUntilPaintHere*: int
+    ticksToSafety*: int
+    safeDistPx*: int
+    zoneSafeDirBrads*: int
+
   ObjectiveState* = enum
     osHome
     osTaken
@@ -176,6 +183,7 @@ type
     self*: PlaySelf
     aliveTeams*: int
     zone*: Option[PlayZone]
+    nav*: Option[PlayNav]
     objectives*: seq[PlayObjective]
     intent*: Option[Intent]
     tracks*: seq[PlayTrack]
@@ -192,6 +200,7 @@ type
     self*: PlaySelf
     aliveTeams*: int
     zone*: Option[PlayZone]
+    nav*: Option[PlayNav]
     objectives*: seq[PlayObjective]
     intent*: Option[Intent]
     tracks*: seq[PlayTrack]
@@ -626,6 +635,15 @@ proc writeJson*(w: var CanonicalWriter, model: PlayViewModel) =
     for row in model.killFeed:
       w.writeJson(row)
     w.endArray()
+  if model.nav.isSome:
+    let nav = model.nav.get
+    w.key("nav")
+    w.beginObject()
+    w.field("safe_dist_px", int64(nav.safeDistPx))
+    w.field("ticks_to_safety", int64(nav.ticksToSafety))
+    w.field("ticks_until_paint_here", int64(nav.ticksUntilPaintHere))
+    w.field("zone_safe_dir_brads", int64(nav.zoneSafeDirBrads))
+    w.endObject()
   w.field("schema", "play_view")
   w.key("self")
   w.writeJson(model.self, model.mode)
@@ -737,7 +755,7 @@ proc jsonEncodedSize*(model: PlayViewModel): int =
 proc selectedBase(source: PlayViewSource): PlayViewModel =
   PlayViewModel(tick: source.tick, mode: source.mode, epoch: source.epoch,
     self: source.self, aliveTeams: source.aliveTeams, zone: source.zone,
-    objectives: source.objectives)
+    nav: source.nav, objectives: source.objectives)
 
 proc keyColonSize(key: string): int {.inline.} =
   ## All play_view keys are fixed ASCII literals, so the canonical JSON key
@@ -1010,7 +1028,8 @@ proc toPlaySprayHazard(hazard: BodySprayHazard): PlaySprayHazard =
 proc playViewSourceFromBody*(body: SeatBody, tick: uint32, mode: GameMode,
                              aliveTeams: int, zone = none(PlayZone),
                              objectives: openArray[PlayObjective] = [],
-                             includeStandingIntent = true): PlayViewSource =
+                             includeStandingIntent = true,
+                             nav = none(PlayNav)): PlayViewSource =
   ## Convenience adapter from body-retained belief to the frozen view row
   ## shapes. Callers decide whether the standing order has been installed;
   ## before the first standing order, pass `includeStandingIntent = false` so
@@ -1024,6 +1043,7 @@ proc playViewSourceFromBody*(body: SeatBody, tick: uint32, mode: GameMode,
     lives: body.selfState.lives, downed: body.selfState.downed)
   result.aliveTeams = aliveTeams
   result.zone = zone
+  result.nav = nav
   result.objectives = @objectives
   if includeStandingIntent:
     result.intent = some(body.standingIntent)

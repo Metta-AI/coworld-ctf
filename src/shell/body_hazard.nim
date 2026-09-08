@@ -4,7 +4,7 @@
 ## crosses this boundary. Projection and segment summaries happen once during
 ## episode activation; live route queries only read these retained arrays.
 
-import std/[heapqueue, math]
+import std/[heapqueue, math, options]
 import ../ctf/zone_field
 import body_map, body_route_index
 
@@ -38,6 +38,13 @@ type
     roomHasDry*: seq[bool]
     lastElapsedTick: int
     revision*: uint64
+
+  BodySafetyHints* = object
+    ticksUntilPaintHere*: int32
+    ticksToSafety*: int32
+    safeDistPx*: int32
+    retreatOctant*: int8
+    sourceCell*: Option[int32]
 
 proc mixFingerprint(value: var uint64, word: uint64) {.inline.} =
   value = (value xor word) * 1_099_511_628_211'u64
@@ -245,3 +252,33 @@ proc roomHasDryAt*(cache: BodySafeCache; overlay: BodyHazardOverlay;
   if room < 0 or room >= cache.roomHasDry.len:
     raise newException(IndexDefect, "body hazard room is out of bounds")
   cache.roomHasDry[room]
+
+proc cellDryAt*(cache: BodySafeCache; overlay: BodyHazardOverlay;
+    cellIndex: int): bool =
+  doAssert cache != nil and overlay != nil and
+    cache.overlayFingerprint == overlay.fingerprint,
+    "body safe cache does not match the hazard overlay"
+  let arrival = overlay.arrivalAt(cellIndex)
+  arrival == HazardNeverArrives or
+    arrival.int > (cache.bucket + 1) * SafeBucketTicks - 1 + SafeHorizonTicks
+
+proc safeDistanceQ4At*(cache: BodySafeCache; overlay: BodyHazardOverlay;
+    side: int): uint32 =
+  doAssert cache != nil and overlay != nil and
+    cache.overlayFingerprint == overlay.fingerprint,
+    "body safe cache does not match the hazard overlay"
+  if side < 0 or side >= cache.safeDistQ4.len:
+    raise newException(IndexDefect, "body safe-cache side is out of bounds")
+  cache.safeDistQ4[side]
+
+proc nextSafeSideAt*(cache: BodySafeCache; overlay: BodyHazardOverlay;
+    side: int): Option[int] =
+  doAssert cache != nil and overlay != nil and
+    cache.overlayFingerprint == overlay.fingerprint,
+    "body safe cache does not match the hazard overlay"
+  if side < 0 or side >= cache.safeNext.len:
+    raise newException(IndexDefect, "body safe-cache side is out of bounds")
+  if cache.safeNext[side] == NoSafeSide:
+    none(int)
+  else:
+    some(cache.safeNext[side].int)

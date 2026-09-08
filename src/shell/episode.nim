@@ -274,6 +274,20 @@ proc playZoneTicksToShrink(value: int): int =
   else:
     value
 
+proc navHints*(episode: FirstLightEpisode; seatIndex: int;
+    selfPos: BodyPoint; elapsedTick: int): Option[PlayNav] =
+  if seatIndex < 0 or seatIndex >= episode.rosterSize or episode.nav == nil or
+      episode.nav.hazard == nil or episode.nav.hazard.state != bhsReady:
+    return none(PlayNav)
+  let hints = episode.nav.safetyHintsFor(selfPos, elapsedTick,
+    episode.gameGeneration)
+  some(PlayNav(
+    ticksUntilPaintHere: hints.ticksUntilPaintHere.int,
+    ticksToSafety: hints.ticksToSafety.int,
+    safeDistPx: hints.safeDistPx.int,
+    zoneSafeDirBrads: if hints.retreatOctant < 0: -1
+      else: hints.retreatOctant.int * 32))
+
 when ShellRuntimeAvailable:
   proc firstLightPlayViewSource(episode: FirstLightEpisode; seatIndex: int;
                                 tick: uint32): Option[PlayViewSource] =
@@ -301,7 +315,9 @@ when ShellRuntimeAvailable:
               h: fallbacks.nextZone.h)),
             ticksToShrink:
               playZoneTicksToShrink(fallbacks.ticksToNextShrink),
-            dps: fallbacks.zoneDps))))
+            dps: fallbacks.zoneDps)),
+          nav = episode.navHints(seatIndex, state.body.selfState.pos,
+            episode.elapsedZoneTick)))
     none(PlayViewSource)
 
 proc firstLightViewBytes*(episode: FirstLightEpisode; seatIndex: int;
@@ -366,7 +382,8 @@ proc initFirstLightEpisode*(season2Shell, brMode: bool,
     raise newException(ValueError, "FIRST LIGHT requires a BodyMap")
   result.nav = newBodyNavSystem(map, controls.len, liveGunRangePx,
     prepareRouteQueries = controls.anyIt(it == scPlay),
-    preparedRouteIndex = preparedRouteIndex)
+    preparedRouteIndex = preparedRouteIndex, hazard = result.hazard,
+    safeCache = result.safeCache)
   when ShellRuntimeAvailable:
     result.mapName = mapName
     result.gunRange = liveGunRangePx

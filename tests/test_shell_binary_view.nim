@@ -207,6 +207,8 @@ proc assertRowsEquivalent(jsonBytes, binaryBytes: string) =
   check binaryBytes.section(BvHazardSprays).get.recordCount ==
     node["hazards"]["sprays"].len
 
+  check binaryBytes.section(BvNav).isSome == node.hasKey("nav")
+
 proc checkPoint(bytes: string, offset: int, node: JsonNode) =
   check bytes.readI32(offset) == node[0].getInt
   check bytes.readI32(offset + 4) == node[1].getInt
@@ -659,6 +661,33 @@ suite "shell binary play view":
   test "deterministic bytes across repeats":
     let model = selectPlayView(maxSource(), MaxViewFrameBytes)
     check buildBinaryPlayView(model) == buildBinaryPlayView(model)
+
+  test "nav is appended as section 14 with the reference 32-byte stride":
+    let darkSource = baseSource()
+    let darkJson = buildPlayView(darkSource)
+    let darkBytes = buildBinaryPlayView(selectPlayView(darkSource,
+      MaxViewFrameBytes))
+    check darkBytes.section(BvNav).isNone
+    check not parseJson(darkJson).hasKey("nav")
+    check darkBytes.hex == fixtureHex("tests/fixtures/shell/binary-view/thin.hex")
+
+    var source = richSource()
+    source.nav = some(PlayNav(ticksUntilPaintHere: -1, ticksToSafety: 31,
+      safeDistPx: 64, zoneSafeDirBrads: 192))
+    let
+      jsonBytes = buildPlayView(source)
+      bytes = buildBinaryPlayView(selectPlayView(source, MaxViewFrameBytes))
+      nav = bytes.section(BvNav).get
+    check bytes.sections[^1].kind == int(BvNav)
+    check nav.recordCount == 1
+    check nav.recordStride == 32
+    check bytes.readI32(nav.offset) == -1
+    check bytes.readI32(nav.offset + 4) == 31
+    check bytes.readI32(nav.offset + 8) == 64
+    check bytes.readI32(nav.offset + 12) == 192
+    for reserved in countup(16, 28, 4):
+      check bytes.readI32(nav.offset + reserved) == 0
+    assertRowsEquivalent(jsonBytes, bytes)
 
   test "PERCEPTION (glory-2 §17): track hasGun/hasHopper ride the SAME reserved flags word":
     # ABI-additive proof: the two new bits sit inside the existing 4-byte

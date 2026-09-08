@@ -63,7 +63,8 @@ of 12 bytes — `kind: u16`, `record_count: u16`, `record_stride: u16`,
 `pad: u16` (zero), `offset: u32` (from frame start). Kinds are a closed
 enum: self, world, zone, tracks, aggressors, kill_feed, items, shouts,
 hazard_grenades, hazard_blast_cues, hazard_sprays, own_throw,
-standing_intent.
+standing_intent, nav. The optional nav section is kind 14 with one 32-byte
+record: four leading `i32` safety hints followed by four reserved zero `i32`s.
 
 `record_stride` is what makes the compatibility promise below
 structurally true rather than merely asserted: a guest indexes record `i`

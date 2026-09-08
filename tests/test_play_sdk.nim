@@ -6,6 +6,7 @@ import std/[options, os, osproc, sequtils, strutils, unittest]
 import ../src/ctf/sim_types
 import ../src/shell/[abi, body_map, finisher, instance, manifest,
   module_validation, runtime, types]
+import ../play_sdk/play as sdk
 
 const
   HelloSource = "play_sdk" / "examples" / "hello_play.nim"
@@ -48,6 +49,15 @@ proc openRoomsMap(): BodyMap =
   newBodyMap(walkable, Width, Height, 2, @[(30, 30), (650, 30)])
 
 suite "play SDK":
+  test "optional nav surface has an explicit presence flag":
+    let dark = sdk.SdkNav()
+    check not dark.present
+    let ready = sdk.SdkNav(present: true, ticksUntilPaintHere: -1,
+      ticksToSafety: 12, safeDistPx: 25, zoneSafeDirBrads: 32)
+    check ready.present
+    check ready.ticksUntilPaintHere == -1
+    check ready.zoneSafeDirBrads == 32
+
   test "hello play builds as core wasm and passes the production pipeline":
     let bytes = buildHelloWasm()
     check bytes.len <= MaxModuleBytes

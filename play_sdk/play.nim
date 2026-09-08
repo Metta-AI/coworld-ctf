@@ -90,10 +90,18 @@ type
     ticksToShrinkPresent*: bool
     ticksToShrink*: int32
 
+  SdkNav* = object
+    present*: bool
+    ticksUntilPaintHere*: int32
+    ticksToSafety*: int32
+    safeDistPx*: int32
+    zoneSafeDirBrads*: int32
+
   SdkWorld* = object
     aliveTeamsPresent*: bool
     aliveTeams*: int32
     zone*: SdkZone
+    nav*: SdkNav
 
   SdkTrack* = object
     seatPresent*: bool
@@ -383,6 +391,7 @@ const
   BvAggressors = 5'i32
   BvKillFeed = 6'i32
   BvItems = 7'i32
+  BvNav = 14'i32
   BvContextSelf = 102'i32
 
   SelfRecordNeed = 28'i32
@@ -390,6 +399,7 @@ const
   ZoneRecordNeed = 48'i32
   TrackRecordNeed = 32'i32
   ItemRecordNeed = 24'i32
+  NavRecordNeed = 16'i32
   AggressorRecordNeed = 16'i32
   KillFeedRecordNeed = 12'i32
   ContextSelfRecordNeed = 16'i32
@@ -988,6 +998,16 @@ proc readZone(frame: BinaryFrame; section: BinarySection): SdkZone =
   if (flags and ZoneNextPresentFlag) != 0:
     result.next = frame.rectAt(offset + 32)
 
+proc readNav(frame: BinaryFrame; section: BinarySection): SdkNav =
+  let offset = frame.recordOffset(section, 0, NavRecordNeed)
+  if offset < 0:
+    return
+  result.present =
+    frame.i32At(offset, result.ticksUntilPaintHere) and
+    frame.i32At(offset + 4, result.ticksToSafety) and
+    frame.i32At(offset + 8, result.safeDistPx) and
+    frame.i32At(offset + 12, result.zoneSafeDirBrads)
+
 proc readTrack(frame: BinaryFrame; section: BinarySection;
                index: int32): SdkTrack =
   let offset = frame.recordOffset(section, index, TrackRecordNeed)
@@ -1091,6 +1111,9 @@ proc readBinaryViewInto*(view: PlayView; outView: var SdkView): bool =
   let zoneSection = frame.findSection(BvZone)
   if frame.ok and zoneSection.present and zoneSection.count == 1:
     outView.world.zone = frame.readZone(zoneSection)
+  let navSection = frame.findSection(BvNav)
+  if frame.ok and navSection.present and navSection.count == 1:
+    outView.world.nav = frame.readNav(navSection)
   let tracks = frame.findSection(BvTracks)
   if frame.ok and tracks.present:
     let count = min(tracks.count, MaxViewTracks)

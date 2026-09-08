@@ -1,8 +1,8 @@
 ## Phase-4 laws for the immutable zone-hazard overlay and bounded safe cache.
 
-import std/[math, strutils, unittest]
+import std/[math, options, strutils, unittest]
 import ../src/ctf/[sim, zone_field]
-import ../src/shell/[body_hazard, body_map, body_route_index]
+import ../src/shell/[body_hazard, body_map, body_nav, body_route_index]
 
 proc openMap(): BodyMap =
   const Side = 96
@@ -22,6 +22,18 @@ proc uniformSnapshot(map: BodyMap, arrival: uint16,
   result.damage = newSeq[uint16](result.gridW * result.gridH)
   for value in result.damage.mitems:
     value = arrival
+
+proc snapshotFromNav(map: BodyMap; arrivals: openArray[uint16]):
+    ZoneDamageSnapshot =
+  require arrivals.len == map.gridWidth * map.gridHeight
+  result = map.uniformSnapshot(0)
+  for cellIndex, arrival in arrivals:
+    let
+      navX = cellIndex mod map.gridWidth
+      navY = cellIndex div map.gridWidth
+    for sourceY in navY * 2 .. navY * 2 + 1:
+      for sourceX in navX * 2 .. navX * 2 + 1:
+        result.damage[sourceY * result.gridW + sourceX] = arrival
 
 proc manualSegmentHazard(overlay: BodyHazardOverlay, index: BodyRouteIndex,
     segment: int, reversed: bool, elapsed: int,
@@ -204,3 +216,144 @@ suite "body hazard overlay":
     cache.refreshSafeCache(index, first, 0, 1)
     expect AssertionDefect:
       discard cache.roomHasDryAt(second, 0)
+
+suite "bounded body safety hints":
+  test "dark state omits every hint and semantic target":
+    let system = newBodyNavSystem(openMap(), 1, 331,
+      prepareRouteQueries = true, hazard = newDarkBodyHazardOverlay(),
+      safeCache = newBodySafeCache())
+    let hints = system.safetyHintsFor((48, 48), 0, 1)
+    check hints.ticksUntilPaintHere == -1
+    check hints.ticksToSafety == -1
+    check hints.safeDistPx == -1
+    check hints.retreatOctant == -1
+    check hints.sourceCell.isNone
+    check system.zoneSafeTarget((48, 48), 0, 1).isNone
+
+  test "dry own cell is zero distance with no direction beyond uint16 time":
+    let
+      map = openMap()
+      index = newBodyRouteIndex(map)
+      overlay = newBodyHazardOverlay(index,
+        map.uniformSnapshot(HazardNeverArrives))
+      system = newBodyNavSystem(map, 1, 331,
+        prepareRouteQueries = true, preparedRouteIndex = index,
+        hazard = overlay, safeCache = newBodySafeCache())
+      point = (48, 48)
+      hints = system.safetyHintsFor(point, 100_000, 7)
+    check hints.ticksUntilPaintHere == -1
+    check hints.ticksToSafety == 0
+    check hints.safeDistPx == 0
+    check hints.retreatOctant == -1
+    check hints.sourceCell.isSome
+    check system.zoneSafeTarget(point, 100_000, 7) ==
+      some(cellCenter(map.cellOf(point)))
+
+  test "same-room search is legal bounded and row-major deterministic":
+    let
+      map = openMap()
+      index = newBodyRouteIndex(map)
+      startCell: BodyPoint = (6, 6)
+      westCell: BodyPoint = (4, 6)
+      eastCell: BodyPoint = (8, 6)
+    var arrivals = newSeq[uint16](map.gridWidth * map.gridHeight)
+    for value in arrivals.mitems: value = 0
+    arrivals[startCell.y * map.gridWidth + startCell.x] = 100
+    arrivals[westCell.y * map.gridWidth + westCell.x] = HazardNeverArrives
+    arrivals[eastCell.y * map.gridWidth + eastCell.x] = HazardNeverArrives
+    let
+      overlay = newBodyHazardOverlay(index, map.snapshotFromNav(arrivals))
+      cache = newBodySafeCache()
+      system = newBodyNavSystem(map, 1, 331,
+        prepareRouteQueries = true, preparedRouteIndex = index,
+        hazard = overlay, safeCache = cache)
+      hints = system.safetyHintsFor(cellCenter(startCell), 80, 4)
+    check hints.ticksUntilPaintHere == 20
+    check hints.safeDistPx == 16
+    check hints.ticksToSafety == 8
+    check hints.retreatOctant == 4 # west = 128 brads
+    check hints.sourceCell == some(int32(westCell.y * map.gridWidth + westCell.x))
+    check system.zoneSafeTarget(cellCenter(startCell), 80, 4) ==
+      some(cellCenter(westCell))
+    let revision = cache.revision
+    let nextTick = system.safetyHintsFor(cellCenter(startCell), 81, 4)
+    check nextTick.ticksUntilPaintHere == 19
+    check nextTick.ticksToSafety == hints.ticksToSafety
+    check nextTick.safeDistPx == hints.safeDistPx
+    check nextTick.retreatOctant == hints.retreatOctant
+    check nextTick.sourceCell == hints.sourceCell
+    check cache.revision == revision
+
+  test "retreat directions are all eight exact integer octants":
+    let
+      map = openMap()
+      index = newBodyRouteIndex(map)
+      safeCell: BodyPoint = (6, 6)
+    var arrivals = newSeq[uint16](map.gridWidth * map.gridHeight)
+    for value in arrivals.mitems: value = 0
+    arrivals[safeCell.y * map.gridWidth + safeCell.x] = HazardNeverArrives
+    let
+      overlay = newBodyHazardOverlay(index, map.snapshotFromNav(arrivals))
+      system = newBodyNavSystem(map, 1, 331,
+        prepareRouteQueries = true, preparedRouteIndex = index,
+        hazard = overlay, safeCache = newBodySafeCache())
+    const ExpectedOctants = [0'i8, 4, 6, 2, 7, 1, 5, 3]
+    for direction, delta in NavNeighbors:
+      let start = (x: safeCell.x + delta.x, y: safeCell.y + delta.y)
+      let hints = system.safetyHintsFor(cellCenter(start), 0, 1)
+      check hints.sourceCell == some(int32(
+        safeCell.y * map.gridWidth + safeCell.x))
+      check hints.retreatOctant == ExpectedOctants[direction]
+
+  test "portal fallback walks the shared safe-distance chain":
+    let
+      map = newBodyMap(loadCtfMapMetadata("arena"))
+      index = newBodyRouteIndex(map)
+      fromSide = 0
+      safeSide = 1
+      fromPoint = index.sideAnchor(fromSide)
+      safePoint = index.sideAnchor(safeSide)
+      safeCell = map.cellOf(safePoint)
+    require index.portalSideAt(fromSide).room != index.portalSideAt(safeSide).room
+    var arrivals = newSeq[uint16](map.gridWidth * map.gridHeight)
+    for value in arrivals.mitems: value = 0
+    arrivals[safeCell.y * map.gridWidth + safeCell.x] = HazardNeverArrives
+    let
+      overlay = newBodyHazardOverlay(index, map.snapshotFromNav(arrivals))
+      system = newBodyNavSystem(map, 1, 331,
+        prepareRouteQueries = true, preparedRouteIndex = index,
+        hazard = overlay, safeCache = newBodySafeCache())
+      hints = system.safetyHintsFor(fromPoint, 0, 2)
+      target = system.zoneSafeTarget(fromPoint, 0, 2)
+    check hints.ticksToSafety > 0
+    check hints.safeDistPx > 0
+    check hints.retreatOctant in 0'i8 .. 7'i8
+    check hints.sourceCell == some(int32(safeCell.y * map.gridWidth + safeCell.x))
+    check target == some(cellCenter(safeCell))
+    check overlay.arrivalAt(hints.sourceCell.get.int) == HazardNeverArrives
+
+  test "512-pop local cap reports unreachable instead of scanning the room":
+    const Side = 512
+    var walkable = newSeq[bool](Side * Side)
+    for y in 1 ..< Side - 1:
+      for x in 1 ..< Side - 1:
+        walkable[y * Side + x] = true
+    let
+      map = newBodyMap(walkable, Side, Side, 2, @[(24, 24), (480, 480)],
+        mapName = "safety-cap")
+      index = newBodyRouteIndex(map)
+      dryCell = map.cellOf((480, 480))
+    var arrivals = newSeq[uint16](map.gridWidth * map.gridHeight)
+    for value in arrivals.mitems: value = 0
+    arrivals[dryCell.y * map.gridWidth + dryCell.x] = HazardNeverArrives
+    let
+      overlay = newBodyHazardOverlay(index, map.snapshotFromNav(arrivals))
+      system = newBodyNavSystem(map, 1, 331,
+        prepareRouteQueries = true, preparedRouteIndex = index,
+        hazard = overlay, safeCache = newBodySafeCache())
+      hints = system.safetyHintsFor((24, 24), 0, 1)
+    check hints.ticksUntilPaintHere == 0
+    check hints.ticksToSafety == -1
+    check hints.safeDistPx == -1
+    check hints.retreatOctant == -1
+    check hints.sourceCell.isNone

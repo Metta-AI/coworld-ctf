@@ -19,6 +19,7 @@ typed binary accessors (`readBinaryViewInto` or the narrower
 `readEdgeRideBinaryViewInto`) instead of parsing JSON. `play_init` and
 `play_retune` params are still canonical JSON today; the SDK keeps a small
 params-only reader for that path until a binary params encoding exists.
+When present, the zone-safety hints are available through `SdkView.world.nav`.
 
 Reference plays live in `play_sdk/reference/` (edge_ride, pact, supply_run,
 bodyguard, jackal, crossfire, target_law, and `loot` — the general pickup

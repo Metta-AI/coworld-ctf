@@ -29,6 +29,7 @@ suite "shell FIRST LIGHT server seam":
     episode.resetFirstLightForSim(false, config, sim, "hazard-dark")
     check episode.hazard.state == bhsDark
     check episode.nav.routeIndex != nil
+    check episode.navHints(0, (32, 32), 0).isNone
 
     config.zoneDamageByPaint = true
     config.zonePhases = @[ZonePhase(zPermille: 500, waitTicks: 10,
@@ -37,6 +38,25 @@ suite "shell FIRST LIGHT server seam":
     episode.resetFirstLightForSim(false, config, sim, "hazard-ready")
     check episode.hazard.state == bhsReady
     check episode.hazard.arrival.len == episode.nav.routeIndex.routeIndexStats.navCells
+    var dryPoint = none(BodyPoint)
+    for cellIndex, arrival in episode.hazard.arrival:
+      let cell = (x: cellIndex mod episode.map.gridWidth,
+        y: cellIndex div episode.map.gridWidth)
+      if arrival == HazardNeverArrives and episode.map.cellWalkable(cell):
+        dryPoint = some(cellCenter(cell))
+        break
+    require dryPoint.isSome
+    let nav = episode.navHints(0, dryPoint.get, 37)
+    require nav.isSome
+    check nav.get.ticksUntilPaintHere == -1
+    check nav.get.ticksToSafety == 0
+    check nav.get.safeDistPx == 0
+    check nav.get.zoneSafeDirBrads == -1
+    let unresolvedNav = episode.navHints(0, (0, 0), 37)
+    require unresolvedNav.isSome
+    check unresolvedNav.get.ticksToSafety == -1
+    check unresolvedNav.get.safeDistPx == -1
+    check unresolvedNav.get.zoneSafeDirBrads == -1
     discard episode.step(@[], 1'u32, 37)
     check episode.elapsedZoneTick == 37
 
