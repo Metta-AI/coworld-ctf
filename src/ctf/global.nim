@@ -4765,8 +4765,23 @@ proc addTeamScoreboard(
   for team in sim.teams():
     let text = teamText(team).toUpperAscii() & " " &
       $kills[team] & "/" & $deaths[team]
-    let sprite = sim.buildSpriteProtocolTextSprite(
-      [text], teamColor(team), spritesOff = spritesOff)
+    # OPT-09 text-sprite guard: a chip whose k/d hasn't moved since last
+    # tick reuses the cached def's dims instead of re-rasterizing the text
+    # (addSpriteChanged below would drop an unchanged rebuild on the floor
+    # anyway — this just skips paying for it first).
+    let
+      spriteId = TeamScoreSpriteBase + ord(team)
+      label = "team score " & text
+      defIndex = spriteDefs.spriteDefinitionIndex(spriteId)
+      cached = defIndex >= 0 and spriteDefs[defIndex].label == label
+      sprite =
+        if cached:
+          (width: spriteDefs[defIndex].width,
+           height: spriteDefs[defIndex].height,
+           pixels: newSeq[uint8](0))
+        else:
+          sim.buildSpriteProtocolTextSprite(
+            [text], teamColor(team), spritesOff = spritesOff)
     totalWidth += sprite.width + TeamScoreGap
     chips.add((team: team, text: text, sprite: sprite))
   var x = max(0, (TeamScoreWidth - totalWidth) div 2)
@@ -7235,20 +7250,27 @@ proc addHpPips(
     let shieldHp = max(0, player.shieldHp)
     let width = hpBarWidth(maxHp + shieldHp)
     let spriteId = HpPipSpriteBase + i
-    # OPT-09/SV-6: a Sprites Off (0x87) bot viewer's pixels are stripped by
-    # `stripSpritePixels` right before the socket write — building the pip
-    # raster (a small per-pip nested loop, every living visible player,
-    # every tick) just to throw it away is pure waste for that viewer.
+    let label = labelHp(hp, maxHp, shieldHp)
+    # OPT-09/SV-6 + text-sprite guard: a Sprites Off (0x87) bot viewer's
+    # pixels are stripped by `stripSpritePixels` right before the socket
+    # write, so it never needs the raster at all. A human viewer whose bar
+    # is UNCHANGED since last tick (same label — addBoardSpriteChanged's
+    # own dedup would drop it anyway) doesn't need it rebuilt either — same
+    # "check the cached def BEFORE rasterising" pattern addIdentityBadges
+    # already used below.
+    let defIndex = spriteDefs.spriteDefinitionIndex(spriteId)
+    let needsRaster = not spritesOff and
+      (defIndex < 0 or spriteDefs[defIndex].label != label)
     let hpBarPixels =
-      if spritesOff: newSeq[uint8](0)
-      else: buildHpBarSprite(hp, maxHp, shieldHp)
+      if needsRaster: buildHpBarSprite(hp, maxHp, shieldHp)
+      else: newSeq[uint8](0)
     packet.addBoardSpriteChanged(
       spriteDefs,
       spriteId,
       width,
       HpBarH,
       hpBarPixels,
-      labelHp(hp, maxHp, shieldHp),
+      label,
       spritesOff = spritesOff
     )
     let objectId = HpPipObjectBase + i
@@ -8325,8 +8347,23 @@ proc buildSpriteProtocolPlayerUpdates*(
           $(player.hp + player.shieldHp) & "hp"
         else:
           $(player.hp + player.shieldHp) & "hp x" & $player.lives
-      lives = sim.buildSpriteProtocolTextSprite(
-        [livesText], 2'u8, spritesOff = spritesOff)
+      livesLabel = LabelPrefixLives & livesText
+      # OPT-09 text-sprite guard: hp/lives changes far less often than every
+      # tick — reuse the cached def's dims when the label (which carries
+      # every digit this text shows) hasn't moved, same as the hp-bar and
+      # team-score chip guards above.
+      livesDefIndex = nextState.spriteDefs.spriteDefinitionIndex(
+        SpritePlayerRemainingSpriteId)
+      livesCached = livesDefIndex >= 0 and
+        nextState.spriteDefs[livesDefIndex].label == livesLabel
+      lives =
+        if livesCached:
+          (width: nextState.spriteDefs[livesDefIndex].width,
+           height: nextState.spriteDefs[livesDefIndex].height,
+           pixels: newSeq[uint8](0))
+        else:
+          sim.buildSpriteProtocolTextSprite(
+            [livesText], 2'u8, spritesOff = spritesOff)
     currentIds.add(SelectedTextObjectId)
     result.addSpriteChanged(
       nextState.spriteDefs,
@@ -8334,7 +8371,7 @@ proc buildSpriteProtocolPlayerUpdates*(
       lives.width,
       lives.height,
       lives.pixels,
-      LabelPrefixLives & livesText
+      livesLabel
     )
     result.addBoardObject(
       SelectedTextObjectId,
@@ -8351,8 +8388,21 @@ proc buildSpriteProtocolPlayerUpdates*(
     # label is the machine contract ("weapon gun" | "weapon spray").
     let
       weaponText = if player.hasSprayPaint: LabelWeaponSpray else: LabelWeaponGun
-      weapon = sim.buildSpriteProtocolTextSprite(
-        [weaponText], 2'u8, spritesOff = spritesOff)
+      weaponLabel = labelWeapon(weaponText)
+      # OPT-09 text-sprite guard: same cached-label reuse as lives above —
+      # the weapon readout only actually changes on a spray-can pickup/drop.
+      weaponDefIndex = nextState.spriteDefs.spriteDefinitionIndex(
+        SpritePlayerWeaponSpriteId)
+      weaponCached = weaponDefIndex >= 0 and
+        nextState.spriteDefs[weaponDefIndex].label == weaponLabel
+      weapon =
+        if weaponCached:
+          (width: nextState.spriteDefs[weaponDefIndex].width,
+           height: nextState.spriteDefs[weaponDefIndex].height,
+           pixels: newSeq[uint8](0))
+        else:
+          sim.buildSpriteProtocolTextSprite(
+            [weaponText], 2'u8, spritesOff = spritesOff)
     currentIds.add(SpritePlayerWeaponObjectId)
     result.addSpriteChanged(
       nextState.spriteDefs,
@@ -8360,7 +8410,7 @@ proc buildSpriteProtocolPlayerUpdates*(
       weapon.width,
       weapon.height,
       weapon.pixels,
-      labelWeapon(weaponText)
+      weaponLabel
     )
     result.addBoardObject(
       SpritePlayerWeaponObjectId,
