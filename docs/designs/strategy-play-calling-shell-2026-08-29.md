@@ -2976,7 +2976,7 @@ declare at most 16 parameters.
 | `SeatOrDuoRef` | `"seat:12"` or `"duo:navy"` | prefix-tagged string; the referent exists in the configured roster; `duo:` names a Battle Royale team and is rejected (`noDuosInMode`) outside `gmBr` (section 5.1) |
 | tuple | `[a, b]` | fixed arity, per-position kinds (e.g. `leash: [minPx, maxPx]` with `min <= max`) |
 | tagged union | `{"aliveTeams": 2}` | exactly one key, drawn from the declared arms, arm-schema validation |
-| `ConditionSpec` | `["<", ["get", "self.hp_frac"], 0.4]` | the guard expression API: closed operators, registered paths, depth cap 4, node cap 64, no non-finite literals; delivered to the play as its canonical JSON, which the SDK evaluates with the same closed evaluator compiled into the module |
+| `ConditionSpec` | `["<", ["get", "self.hp_frac"], 0.4]` | the guard expression API: closed operators, registered paths, depth cap 4, node cap 64, no non-finite literals; ladder `when` guards evaluate engine-side against the live body. ShellPathRegistry extends DefaultPaths with `world.grenade_threat` (covering airborne grenade), `world.grenade_ticks_to_blast` (minimum nonnegative fuse; -1 when none [SENTINEL]), `world.spray_threat` (covering visible cone or at least two anonymous impacts aged 0–48 ticks), `world.spray_impact_count` (that count; 0 when none), and `world.zone_ticks_until_outside` (0 outside the current rect, otherwise saturated ticks to shrink; -1 in CTF/no schedule [SENTINEL]). Threat booleans default false; grenade coverage is the plain 52 px blast radius |
 
 ### P.2 The seven reference play schemas
 

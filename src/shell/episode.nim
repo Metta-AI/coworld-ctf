@@ -581,8 +581,9 @@ when ShellRuntimeAvailable:
     let dy = max(max(rect.y - point.y, 0), point.y - (rect.y + rect.h - 1))
     sqrt(float(dx * dx + dy * dy))
 
-  proc playGuardContext*(body: SeatBody, facts: BrDefaultFacts): IntentContext =
-    ## The registered guard paths (src/ctf/policy_page.nim DefaultPaths)
+  proc playGuardContext*(body: SeatBody, facts: BrDefaultFacts;
+                         brMode, hasZoneSchedule: bool): IntentContext =
+    ## The registered guard paths (guards.nim ShellPathRegistry)
     ## resolved from this seat's own fogged body state -- the same facts the
     ## plays read -- so a call's `when` guard evaluates over the live view as
     ## the design promises. Before this, every play seat got noGuardContext()
@@ -628,6 +629,31 @@ when ShellRuntimeAvailable:
     let zoneDist = if hasZone: rectEdgeDistancePx(selfPos, facts.currentZone)
       else: 0.0
     let inZone = (not hasZone) or zoneDist <= 0.0
+    var grenadeTicks = -1
+    for hazard in body.hazards.grenades:
+      if hazard.coversSelf and hazard.ticksToBlast >= 0:
+        if grenadeTicks < 0 or hazard.ticksToBlast < grenadeTicks:
+          grenadeTicks = hazard.ticksToBlast
+    # Mirror reflexes.nim triggeringSpray / activeImpactCount using the
+    # normalized body hazards, including the inclusive impact window.
+    var sprayCone = false
+    var sprayImpacts = 0
+    for hazard in body.hazards.sprays:
+      case hazard.kind
+      of bshVisibleCone:
+        sprayCone = sprayCone or hazard.coversSelf
+      of bshAnonymousImpact:
+        if facts.tick >= hazard.tick and
+            facts.tick - hazard.tick <= ReflexSprayImpactWindowTicks.uint32:
+          inc sprayImpacts
+    # Mirror reflexes.nim zoneActive's mode gate and episode.nim
+    # zoneTicksUntilOutside's half-open rect and saturated shrink delta.
+    # Absent schedule/CTF is -1 [SENTINEL], not an imminent escape.
+    let zoneTicks = if not brMode or not hasZoneSchedule: -1
+      elif selfPos.x < facts.currentZone.x or selfPos.y < facts.currentZone.y or
+          selfPos.x >= facts.currentZone.x + facts.currentZone.w or
+          selfPos.y >= facts.currentZone.y + facts.currentZone.h: 0
+      else: playZoneTicksToShrink(facts.ticksToNextShrink)
     let hpFrac = body.selfState.hpFrac
     let partnerAlive = partner.isSome and partner.get.alive
     let partnerDist = if partner.isSome: pointDistancePx(selfPos, partner.get.pos)
@@ -643,6 +669,9 @@ when ShellRuntimeAvailable:
         of "world.zone_dist": zoneDist
         of "world.medkit_dist": medkitDist
         of "world.item_dist": itemDist
+        of "world.grenade_ticks_to_blast": float(grenadeTicks)
+        of "world.spray_impact_count": float(sprayImpacts)
+        of "world.zone_ticks_until_outside": float(zoneTicks)
         of "intent.target_hp", "intent.target_dist": -1.0
         else: 0.0,
       resolveBool: proc(path: string): bool =
@@ -650,6 +679,8 @@ when ShellRuntimeAvailable:
         of "partner.alive": partnerAlive
         of "partner.in_combat": partnerInCombat
         of "world.in_zone": inZone
+        of "world.grenade_threat": grenadeTicks >= 0
+        of "world.spray_threat": sprayCone or sprayImpacts >= 2
         else: false)
 
   proc shellContextBytes(episode: ShellEpisode; seatIndex: int;
@@ -688,7 +719,7 @@ when ShellRuntimeAvailable:
   proc ensureLadder(episode: var ShellEpisode) =
     if episode.ladder == nil:
       episode.ladder = newLadderDriver(episode.runtimeState.frames.len,
-        DefaultPathRegistry, if episode.brMode: gmBr else: gmCtf,
+        ShellPathRegistry, if episode.brMode: gmBr else: gmCtf,
         episode.map)
 
   proc ensureRuntime(episode: var ShellEpisode) =
@@ -1296,7 +1327,8 @@ proc step*(episode: var ShellEpisode,
         stageBlock(result.stageNanoseconds, ssContext, "shell.context"):
           contextBytes = episode.shellContextBytes(seat, slot.frame)
         stageBlock(result.stageNanoseconds, ssGuard, "shell.guard"):
-          guardContext = playGuardContext(state.body, facts)
+          guardContext = playGuardContext(state.body, facts,
+            episode.brMode, slot.frame.defaultFallbacks.zonePhase > 0)
         inputs[seat] = LadderSeatInput(
           alive: true,
           selfPos: slot.frame.bodyInputs.self.pos,

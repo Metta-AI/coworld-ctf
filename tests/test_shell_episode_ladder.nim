@@ -1408,7 +1408,7 @@ suite "shell episode ladder":
       currentZone: MapRect(x: 0, y: 0, w: 256, h: 256),
       nextZone: MapRect(x: 64, y: 64, w: 128, h: 128),
       ticksToNextShrink: 100, zonePhase: 1))
-    let ctx = playGuardContext(body, facts)
+    let ctx = playGuardContext(body, facts, true, true)
     check abs(ctx.resolveNumber("self.hp_frac") - 2.0 / 3.0) < 1e-6
     check ctx.resolveNumber("world.enemy_count") == 1.0
     check abs(ctx.resolveNumber("world.nearest_enemy_dist") - 300.0) < 1e-6
@@ -1433,7 +1433,7 @@ suite "shell episode ladder":
       currentZone: MapRect(x: 0, y: 0, w: 256, h: 256),
       nextZone: MapRect(x: 0, y: 0, w: 128, h: 128),
       ticksToNextShrink: 100, zonePhase: 1))
-    let ctx = playGuardContext(body, facts)
+    let ctx = playGuardContext(body, facts, true, true)
     check ctx.resolveNumber("world.enemy_count") == 0.0
     check ctx.resolveNumber("world.nearest_enemy_dist") == -1.0
     check ctx.resolveNumber("world.weakest_enemy_hp") == -1.0
@@ -1443,3 +1443,73 @@ suite "shell episode ladder":
     check not ctx.resolveBool("partner.alive")
     check not ctx.resolveBool("world.in_zone")   # (300, 300) is outside 0..255
     check ctx.resolveNumber("world.zone_dist") > 0.0
+
+  test "hazard guards reduce live normalized hazards and absence sentinels":
+    let body = activateSeatBody(testMap(), 0, 331)
+    var inputs = BodyTickInputs(self: BodySelfState(pos: (100, 100), alive: true))
+    body.updateBelief(inputs, 100)
+    let facts = brDefaultFacts(body, 100, BrDefaultFallbacks())
+    var context = playGuardContext(body, facts, true, false)
+    check not context.resolveBool("world.grenade_threat")
+    check context.resolveNumber("world.grenade_ticks_to_blast") == -1
+    check not context.resolveBool("world.spray_threat")
+    check context.resolveNumber("world.spray_impact_count") == 0
+    inputs.hazards.grenades = @[
+      BodyGrenadeHazard(eventId: 1, coversSelf: false, ticksToBlast: 0),
+      BodyGrenadeHazard(eventId: 2, coversSelf: true, ticksToBlast: 9),
+      BodyGrenadeHazard(eventId: 3, coversSelf: true, ticksToBlast: 2)]
+    body.updateBelief(inputs, 100)
+    context = playGuardContext(body, facts, true, false)
+    check context.resolveBool("world.grenade_threat")
+    check context.resolveNumber("world.grenade_ticks_to_blast") == 2
+    inputs.hazards.grenades = @[BodyGrenadeHazard(eventId: 1,
+      coversSelf: false, ticksToBlast: 0)]
+    body.updateBelief(inputs, 100)
+    context = playGuardContext(body, facts, true, false)
+    check not context.resolveBool("world.grenade_threat")
+    check context.resolveNumber("world.grenade_ticks_to_blast") == -1
+    # updateBelief rejects negative fuses and future hazard timestamps.
+    inputs.hazards.grenades[0].ticksToBlast = -1
+    expect ValueError:
+      body.updateBelief(inputs, 100)
+    inputs.hazards.grenades = @[]
+    for count in 0 .. 2:
+      inputs.hazards.sprays = @[]
+      for i in 0 ..< count:
+        inputs.hazards.sprays.add BodySprayHazard(kind: bshAnonymousImpact,
+          eventId: uint64(i), tick: 52)
+      inputs.hazards.sprays.add BodySprayHazard(kind: bshAnonymousImpact,
+        eventId: 3, tick: 51)
+      body.updateBelief(inputs, 100)
+      context = playGuardContext(body, facts, true, false)
+      check context.resolveNumber("world.spray_impact_count") == float(count)
+      check context.resolveBool("world.spray_threat") == (count >= 2)
+    for covers in [false, true]:
+      inputs.hazards.sprays = @[BodySprayHazard(kind: bshVisibleCone,
+        eventId: 1, tick: 1, coversSelf: covers)]
+      body.updateBelief(inputs, 100)
+      context = playGuardContext(body, facts, true, false)
+      check context.resolveBool("world.spray_threat") == covers
+      check context.resolveNumber("world.spray_impact_count") == 0
+    inputs.hazards.sprays = @[BodySprayHazard(kind: bshAnonymousImpact,
+      eventId: 1, tick: 101)]
+    expect ValueError:
+      body.updateBelief(inputs, 100)
+
+  test "zone guard distinguishes mode schedule edges and exhausted schedule":
+    let body = activateSeatBody(testMap(), 0, 331)
+    for pos in [(10, 20), (39, 59), (9, 20), (10, 19), (40, 20), (10, 60)]:
+      body.updateBelief(BodyTickInputs(self: BodySelfState(pos: pos,
+        alive: true)), 100)
+      for ticks in [0, 12, high(int) div 4]:
+        let facts = brDefaultFacts(body, 100, BrDefaultFallbacks(
+          currentZone: MapRect(x: 10, y: 20, w: 30, h: 40),
+          ticksToNextShrink: ticks))
+        for brMode in [false, true]:
+          for scheduled in [false, true]:
+            let context = playGuardContext(body, facts, brMode, scheduled)
+            let expected = if not brMode or not scheduled: -1
+              elif pos in [(10, 20), (39, 59)]: min(ticks, high(int32).int)
+              else: 0
+            check context.resolveNumber("world.zone_ticks_until_outside") ==
+              float(expected)

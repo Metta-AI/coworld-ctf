@@ -97,15 +97,10 @@ starters now stay connected until the server closes the socket:
    roster's de-duplicated names and, on every ladder, pacts with them and
    keeps them on `target_law`'s never-list.
 
-Why the harness gates rather than relying on the wire's `when` guards: until
-2026-09-02 the engine evaluated play-seat guards against `noGuardContext()`
-(every path `0.0`/`false`), so `self.hp_frac < 0.8` was always true and
-`partner.alive` always false. The engine now builds a real context from the
-seat's own body (`src/shell/episode.nim playGuardContext`), so `when` guards
-work — but the harness keeps gating in Python too, because a gate that flips
-is also the trigger for re-sending the ladder, and because a starter that
-still runs against an older hosted image must not regress. The harness
-never forwards `when`.
+The engine evaluates wire `when` guards against the seat's live body
+(`src/shell/episode.nim playGuardContext`), including grenade, spray and zone
+hazards. The harness also gates in Python because a gate change triggers a
+ladder re-send without a model call. It never forwards `when`.
 
 Robustness, both learned the hard way on hosted rounds: the play socket is
 opened with retries inside the lobby join allowance (`--connect-deadline`,
