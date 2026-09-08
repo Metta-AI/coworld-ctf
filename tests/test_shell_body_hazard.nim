@@ -220,8 +220,8 @@ suite "body hazard overlay":
 suite "bounded body safety hints":
   test "dark state omits every hint and semantic target":
     let system = newBodyNavSystem(openMap(), 1, 331,
-      prepareRouteQueries = true, hazard = newDarkBodyHazardOverlay(),
-      safeCache = newBodySafeCache())
+      prepareRouteQueries = true)
+    system.installSafetyContext(newDarkBodyHazardOverlay(), newBodySafeCache())
     let hints = system.safetyHintsFor((48, 48), 0, 1)
     check hints.ticksUntilPaintHere == -1
     check hints.ticksToSafety == -1
@@ -237,9 +237,10 @@ suite "bounded body safety hints":
       overlay = newBodyHazardOverlay(index,
         map.uniformSnapshot(HazardNeverArrives))
       system = newBodyNavSystem(map, 1, 331,
-        prepareRouteQueries = true, preparedRouteIndex = index,
-        hazard = overlay, safeCache = newBodySafeCache())
+        prepareRouteQueries = true, preparedRouteIndex = index)
       point = (48, 48)
+    system.installSafetyContext(overlay, newBodySafeCache())
+    let
       hints = system.safetyHintsFor(point, 100_000, 7)
     check hints.ticksUntilPaintHere == -1
     check hints.ticksToSafety == 0
@@ -265,8 +266,9 @@ suite "bounded body safety hints":
       overlay = newBodyHazardOverlay(index, map.snapshotFromNav(arrivals))
       cache = newBodySafeCache()
       system = newBodyNavSystem(map, 1, 331,
-        prepareRouteQueries = true, preparedRouteIndex = index,
-        hazard = overlay, safeCache = cache)
+        prepareRouteQueries = true, preparedRouteIndex = index)
+    system.installSafetyContext(overlay, cache)
+    let
       hints = system.safetyHintsFor(cellCenter(startCell), 80, 4)
     check hints.ticksUntilPaintHere == 20
     check hints.safeDistPx == 16
@@ -295,8 +297,8 @@ suite "bounded body safety hints":
     let
       overlay = newBodyHazardOverlay(index, map.snapshotFromNav(arrivals))
       system = newBodyNavSystem(map, 1, 331,
-        prepareRouteQueries = true, preparedRouteIndex = index,
-        hazard = overlay, safeCache = newBodySafeCache())
+        prepareRouteQueries = true, preparedRouteIndex = index)
+    system.installSafetyContext(overlay, newBodySafeCache())
     const ExpectedOctants = [0'i8, 4, 6, 2, 7, 1, 5, 3]
     for direction, delta in NavNeighbors:
       let start = (x: safeCell.x + delta.x, y: safeCell.y + delta.y)
@@ -321,8 +323,9 @@ suite "bounded body safety hints":
     let
       overlay = newBodyHazardOverlay(index, map.snapshotFromNav(arrivals))
       system = newBodyNavSystem(map, 1, 331,
-        prepareRouteQueries = true, preparedRouteIndex = index,
-        hazard = overlay, safeCache = newBodySafeCache())
+        prepareRouteQueries = true, preparedRouteIndex = index)
+    system.installSafetyContext(overlay, newBodySafeCache())
+    let
       hints = system.safetyHintsFor(fromPoint, 0, 2)
       target = system.zoneSafeTarget(fromPoint, 0, 2)
     check hints.ticksToSafety > 0
@@ -349,8 +352,9 @@ suite "bounded body safety hints":
     let
       overlay = newBodyHazardOverlay(index, map.snapshotFromNav(arrivals))
       system = newBodyNavSystem(map, 1, 331,
-        prepareRouteQueries = true, preparedRouteIndex = index,
-        hazard = overlay, safeCache = newBodySafeCache())
+        prepareRouteQueries = true, preparedRouteIndex = index)
+    system.installSafetyContext(overlay, newBodySafeCache())
+    let
       hints = system.safetyHintsFor((24, 24), 0, 1)
     check hints.ticksUntilPaintHere == 0
     check hints.ticksToSafety == -1

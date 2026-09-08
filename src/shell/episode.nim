@@ -277,7 +277,7 @@ proc playZoneTicksToShrink(value: int): int =
 proc navHints*(episode: FirstLightEpisode; seatIndex: int;
     selfPos: BodyPoint; elapsedTick: int): Option[PlayNav] =
   if seatIndex < 0 or seatIndex >= episode.rosterSize or episode.nav == nil or
-      episode.nav.hazard == nil or episode.nav.hazard.state != bhsReady:
+      not episode.nav.safetyHintsReady:
     return none(PlayNav)
   let hints = episode.nav.safetyHintsFor(selfPos, elapsedTick,
     episode.gameGeneration)
@@ -382,8 +382,9 @@ proc initFirstLightEpisode*(season2Shell, brMode: bool,
     raise newException(ValueError, "FIRST LIGHT requires a BodyMap")
   result.nav = newBodyNavSystem(map, controls.len, liveGunRangePx,
     prepareRouteQueries = controls.anyIt(it == scPlay),
-    preparedRouteIndex = preparedRouteIndex, hazard = result.hazard,
-    safeCache = result.safeCache)
+    preparedRouteIndex = preparedRouteIndex)
+  if result.nav.routeScratch != nil:
+    result.nav.installSafetyContext(result.hazard, result.safeCache)
   when ShellRuntimeAvailable:
     result.mapName = mapName
     result.gunRange = liveGunRangePx

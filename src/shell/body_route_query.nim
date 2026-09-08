@@ -14,6 +14,7 @@ const
   RouteLocalLegCap* = 512
   RouteEdgeCap* = 4096
   RouteSmoothLookahead* = 6
+  SafetySearchPopCap* = 512
   EndpointAttachCap = 512
   EndpointPointCap = 8192
   LocalHashCap = 8192
@@ -86,6 +87,8 @@ type
 
   BodyRouteQueryScratch* = ref object
     index: BodyRouteIndex
+    safetyHazard: BodyHazardOverlay
+    safetyCache: BodySafeCache
     generation: uint32
     arcMemoGeneration: uint16
     localGeneration: uint32
@@ -129,6 +132,11 @@ type
     stats*: BodyRouteQueryStats
     owner: BodyRouteQueryScratch
     generation: uint32
+
+  BodyNearestDryResult* = object
+    found*: bool
+    sourceCell*, firstStep*: int32
+    distanceQ4*: uint32
 
 iterator ringCells(center: BodyPoint, ring: int): BodyPoint =
   if ring == 0:
@@ -485,6 +493,47 @@ proc newBodyRouteQueryScratch*(index: BodyRouteIndex): BodyRouteQueryScratch =
         "body route query map '" & index.map.name &
         "' has a retained fine anchor with no coarse route")
 
+proc installSafetyContext*(scratch: BodyRouteQueryScratch;
+    hazard: BodyHazardOverlay; cache: BodySafeCache) =
+  if scratch == nil or hazard == nil or cache == nil:
+    raise newException(ValueError,
+      "body route safety context requires scratch, hazard, and cache")
+  scratch.safetyHazard = hazard
+  scratch.safetyCache = cache
+
+proc safetyReady*(scratch: BodyRouteQueryScratch): bool =
+  scratch != nil and scratch.safetyHazard != nil and
+    scratch.safetyHazard.state == bhsReady and scratch.safetyCache != nil
+
+proc refreshSafety*(scratch: BodyRouteQueryScratch; elapsedTick: int;
+    gameGeneration: uint64) =
+  doAssert scratch.safetyReady, "body route safety context is not ready"
+  scratch.safetyCache.refreshSafeCache(scratch.index, scratch.safetyHazard,
+    elapsedTick, gameGeneration)
+
+proc safetyArrivalAt*(scratch: BodyRouteQueryScratch;
+    cellIndex: int): uint16 =
+  doAssert scratch.safetyReady, "body route safety context is not ready"
+  scratch.safetyHazard.arrivalAt(cellIndex)
+
+proc safetyCellDryAt*(scratch: BodyRouteQueryScratch;
+    cellIndex: int): bool =
+  doAssert scratch.safetyReady, "body route safety context is not ready"
+  scratch.safetyCache.cellDryAt(scratch.safetyHazard, cellIndex)
+
+proc safetyRoomHasDryAt*(scratch: BodyRouteQueryScratch; room: int): bool =
+  doAssert scratch.safetyReady, "body route safety context is not ready"
+  scratch.safetyCache.roomHasDryAt(scratch.safetyHazard, room)
+
+proc safetyDistanceQ4At*(scratch: BodyRouteQueryScratch; side: int): uint32 =
+  doAssert scratch.safetyReady, "body route safety context is not ready"
+  scratch.safetyCache.safeDistanceQ4At(scratch.safetyHazard, side)
+
+proc safetyNextSideAt*(scratch: BodyRouteQueryScratch;
+    side: int): Option[int] =
+  doAssert scratch.safetyReady, "body route safety context is not ready"
+  scratch.safetyCache.nextSafeSideAt(scratch.safetyHazard, side)
+
 proc checkedAdd(a, b: int64): int64 {.inline.} =
   if b > 0 and a > InfiniteCost - b:
     return InfiniteCost
@@ -607,6 +656,71 @@ proc localRecord(scratch: BodyRouteQueryScratch, cell: int32,
   scratch.localCost[result] = InfiniteCost
   scratch.localParent[result] = NoRecord
   scratch.localClosedGeneration[result] = 0
+
+proc nearestDryCell*(scratch: BodyRouteQueryScratch; startCell, room: int):
+    BodyNearestDryResult =
+  ## Reuse the activation-allocated route workspace for the bounded safety
+  ## query. Safety views and route planning run serially on the game thread.
+  doAssert scratch.safetyReady, "body route safety context is not ready"
+  scratch.nextLocalGeneration()
+  scratch.heap.begin()
+  let startRecord = scratch.localRecord(int32(startCell), true)
+  scratch.localCost[startRecord] = 0
+  if not scratch.heap.pushOrDecrease(QueryHeapNode(priority: 0, cost: 0,
+      physical: 0, item: int32(startRecord), tie: int32(startCell))):
+    return
+  var pops = 0
+  while scratch.heap.len > 0 and pops < SafetySearchPopCap:
+    let node = scratch.heap.pop()
+    let record = node.item.int
+    if scratch.localClosedGeneration[record] == scratch.localGeneration or
+        node.cost != scratch.localCost[record]:
+      continue
+    scratch.localClosedGeneration[record] = scratch.localGeneration
+    inc pops
+    let currentCell = scratch.localCell[record]
+    if scratch.safetyCellDryAt(currentCell.int):
+      result.found = true
+      result.sourceCell = currentCell
+      result.firstStep = -1
+      result.distanceQ4 = uint32(node.cost)
+      var firstRecord = record
+      while scratch.localParent[firstRecord] >= 0 and
+          scratch.localParent[firstRecord] != startRecord.int32:
+        firstRecord = scratch.localParent[firstRecord].int
+      if firstRecord != startRecord:
+        result.firstStep = scratch.localCell[firstRecord]
+      return
+    let
+      currentPoint = scratch.index.map.cellOf(
+        scratch.index.routePoint(currentCell))
+      legal = scratch.index.legalMovesAt(currentCell.int)
+    for direction, delta in NavNeighbors:
+      if (legal and (1'u8 shl direction)) == 0:
+        continue
+      let
+        nextPoint = (x: currentPoint.x + delta.x,
+          y: currentPoint.y + delta.y)
+        nextCell = int32(nextPoint.y * scratch.index.map.gridWidth +
+          nextPoint.x)
+      if scratch.index.roomForCell(nextCell.int) != room:
+        continue
+      let nextRecord = scratch.localRecord(nextCell, true)
+      if nextRecord < 0:
+        continue
+      let
+        step = if direction < 4: int64(NavCell * 16) else: 181'i64
+        candidate = node.cost + step
+        previousParent = scratch.localParent[nextRecord].int
+      if candidate < scratch.localCost[nextRecord] or
+          (candidate == scratch.localCost[nextRecord] and
+           (previousParent < 0 or
+            currentCell < scratch.localCell[previousParent])):
+        scratch.localCost[nextRecord] = candidate
+        scratch.localParent[nextRecord] = int32(record)
+        discard scratch.heap.pushOrDecrease(QueryHeapNode(
+          priority: candidate, cost: candidate, physical: 0,
+          item: int32(nextRecord), tie: nextCell))
 
 proc runLocalPath(scratch: BodyRouteQueryScratch, request: BodyRouteRequest,
     fromCell, toCell: int32,
