@@ -243,6 +243,59 @@ SHELL_EXTRA_NIM_FLAGS="-d:ProfileTracePath=$TMPDIR/ctf-trace.json -d:ProfileTick
   tools/run_shell_demo.sh
 ```
 
+For Observatory profiling, build the separate `paintbot-profiling` Coworld.
+Its manifest is catalog-visible; keep the experience requests private. Never
+upload these flags under `paintbot` or change a league's version lock.
+The script generates `build/profiling-coworld/template.json` from the current
+`coworld_manifest_paintbot.json`, changing the game name and environment.
+It omits the game-side LLM credential used by deprecated squad variants;
+those variants are not intended to run on this Coworld.
+Season 2 player policy credentials are unaffected.
+
+```sh
+uv venv .venv
+uv pip install --python .venv/bin/python 'coworld[auth]' softmax-cli
+# Check installed versions against current releases before each run.
+uv pip list --python .venv/bin/python --outdated
+PROFILE_TICKS=2400 tools/build_profiling_coworld.sh
+```
+
+The script forwards `GAME_NIM_FLAGS` through Compose, preserving the normal
+Dockerfile flags, and uses `tools/ci/next_coworld_version.py` for the separate
+version sequence (a new name starts at `0.1.0`). It waits for hosted smoke and
+certification and prints the Coworld ID. It registers the existing
+`static-replay-viewer` files through Coworld's upload helper and uses their
+digest, avoiding the CLI's automatic viewer build hook. The viewer files must
+match the checkout's sources, as required by the normal viewer-stamp workflow.
+The template explicitly sets `COWORLD_WORKDIR=/coworld` for the game container;
+the hosted runner only sets it automatically for its own worker and init
+container. The trace starts at `/tmp/profile-trace.json` and the server copies
+it into the debug logs directory;
+writing directly to the copy destination would truncate the trace on Linux.
+
+Before uploading, record the canonical `paintbot` ID/version and read the
+league's `/v2/leagues/{id}/locks` with the elevated header; read them again
+afterward. Snapshot the competition division's standings and active champion
+memberships, joining by player ID to pin the top 16 policy-version UUIDs.
+Use one explicit roster entry per seat: `{"player":{"policy_ref":"<uuid>"},
+"slot":0}` (slots 0–15). Direct Coworld targets cannot use league `top_n`.
+Save an experience-request JSON body with `coworld_id` set to the printed ID,
+`variant_id: "battle-royale-s2"`, `private: true`, `num_episodes: 3`, and that
+`roster`, then run:
+
+```sh
+uv run --python .venv/bin/python coworld --elevated xp-request create request.json --json
+```
+
+Runs bill the signed-in user's credits. After completion, download each
+`GET /api/observatory/v2/episode-requests/{id}/artifacts/debug` with the user's
+Bearer token and `X-Use-Elevated-Privileges: true`. If access is refused, report
+the request and response; do not bypass the route. The ZIP must contain
+`profile-trace.json` with `shell.*`, `body.*`, and `invokeStep` events. Report
+per-name count, p50, p95, and total `dur` (Chrome trace microseconds), separately
+for each episode. Durations include nested stages, so totals overlap; record
+actual tick coverage if an episode ends before the configured profile limit.
+
 Open question, routed to the PM rather than for local implementation: should a
 live play-seat config on a runtime-stub binary refuse at boot, like the
 deprecated-mode gate, instead of serving default-fallback episodes? Today a

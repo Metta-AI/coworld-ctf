@@ -28,10 +28,10 @@ normative protocol, runtime, and lifecycle sections of
 The summary below is just an orientation; [`docs/RULES.md`](docs/RULES.md) is
 the retained rules reference for deprecated classic modes.
 
-This repo publishes one `paintbot` Coworld manifest. Its sole published variant
-is `battle-royale-s2`, the Season 2 play-calling game; the former classic, CTF,
-paintball, and first-generation battle-royale variants are archived as described
-below.
+The normal publishing workflow uses the `paintbot` Coworld manifest. Its sole
+published variant is `battle-royale-s2`, the Season 2 play-calling game; the former
+classic, CTF, paintball, and first-generation battle-royale variants are archived
+as described below.
 
 If docs, commands, runtime behavior, logs, or replays disagree while you are
 building or submitting a Paintbot policy, preserve the evidence and file a GitHub issue
