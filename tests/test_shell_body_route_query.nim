@@ -231,6 +231,16 @@ suite "bounded hierarchical body route query":
         reverse.resultEdgeAt(offset).routeEdgeReversed
     check sawReverseTraversal
 
+    let
+      permutedScratch = newBodyRouteQueryScratch(index)
+      reverseFirst = index.queryBodyRoute(permutedScratch, reverseRequest)
+      reverseFirstFingerprint = reverseFirst.routeFingerprint
+      forwardSecond = index.queryBodyRoute(permutedScratch, request)
+    check reverseFirst.ok
+    check forwardSecond.ok
+    check reverseFirstFingerprint == reverse.routeFingerprint
+    check forwardSecond.routeFingerprint == forward.routeFingerprint
+
   test "typed disconnection and validation failures return no descriptor":
     let
       map = twoIslandMap()
