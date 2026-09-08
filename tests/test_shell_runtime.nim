@@ -1,8 +1,8 @@
 ## Production Wasmtime binding, ownership, and pooling tests.
 
-import std/[os, strutils, times, unittest]
+import std/[options, os, strutils, times, unittest]
 
-import ../src/shell/[body_map, instance, runtime, wasmtime_c]
+import ../src/shell/[abi, body_map, instance, runtime, wasmtime_c]
 
 const
   EmptyModule = [
@@ -27,13 +27,15 @@ proc watBytes(text: string): seq[byte] =
 
 proc openRoomsMap(): BodyMap =
   const
-    Width = 64
-    Height = 64
+    Width = 720
+    Height = 96
   var walkable = newSeq[bool](Width * Height)
   for y in 1 ..< Height - 1:
-    for x in 1 ..< Width - 1:
+    for x in 1 .. 100:
       walkable[y * Width + x] = true
-  newBodyMap(walkable, Width, Height, 2, @[(16, 16), (48, 48)])
+    for x in 600 ..< Width - 1:
+      walkable[y * Width + x] = true
+  newBodyMap(walkable, Width, Height, 2, @[(30, 30), (650, 30)])
 
 type ShellFixture = object
   engine: RuntimeEngine
@@ -70,6 +72,22 @@ proc loggingModule(manifestBody, initBody, stepBody, retuneBody: string): string
       stepBody & ")\n" &
     "  (func (export \"play_retune\") (param i32 i32 i32 i32) (result i32) " &
       retuneBody & "))"
+
+proc emittingModule(stepBody: string; globals = ""): string =
+  const Manifest = "{\"abi\":1}"
+  "(module\n" &
+    "  (import \"play\" \"emit\" (func $emit (param i32 i32) (result i32)))\n" &
+    "  (memory (export \"memory\") 1 16)\n" &
+    "  (data (i32.const 256) \"{\\22abi\\22:1}\")\n" &
+    "  (data (i32.const 512) \"{\\22arrive_radius\\22:24.0,\\22kind\\22:\\22navigate_to\\22,\\22point\\22:[650,30],\\22schema\\22:\\22intent\\22,\\22v\\22:1}\")\n" &
+    "  (data (i32.const 1024) \"{\\22arrive_radius\\22:24.0,\\22kind\\22:\\22navigate_to\\22,\\22point\\22:[30,30],\\22schema\\22:\\22intent\\22,\\22v\\22:1}\")\n" &
+    globals &
+    "  (func (export \"play_alloc\") (param i32) (result i32) i32.const 4096)\n" &
+    "  (func (export \"play_manifest\") i32.const 256 i32.const " &
+      $Manifest.len & " call $emit drop)\n" &
+    "  (func (export \"play_init\") (param i32 i32 i32 i32) (result i32) i32.const 0)\n" &
+    "  (func (export \"play_step\") (param i32 i32) (result i32) " & stepBody & ")\n" &
+    "  (func (export \"play_retune\") (param i32 i32 i32 i32) (result i32) i32.const 0))"
 
 suite "shell Wasmtime runtime":
   test "C ABI and pinned runtime manifest match Wasmtime 48.0.1":
@@ -174,10 +192,7 @@ suite "shell Wasmtime runtime":
       "i32.const -2147483648 i32.const 512 i32.const 5 call $log",
       "i32.const -7 i32.const 517 i32.const 4 call $log i32.const 0",
       "i32.const 1 i32.const 521 i32.const 1 call $log " &
-        "i32.const 2 i32.const 522 i32.const 1 call $log " &
-        "i32.const 3 i32.const 523 i32.const 1 call $log " &
-        "i32.const 4 i32.const 524 i32.const 1 call $log " &
-        "i32.const 5 i32.const 525 i32.const 1 call $log i32.const 0",
+        "i32.const 2 i32.const 522 i32.const 1 call $log i32.const 0",
       "i32.const 9 i32.const 525 i32.const 6 call $log i32.const 0"))
     defer: fixture.close()
 
@@ -187,24 +202,52 @@ suite "shell Wasmtime runtime":
     let init = fixture.instance.invokeInit("{}", "{}")
     check init.logs == @[ShellLogRecord(level: -7, bytes: "init")]
     let step = fixture.instance.invokeStep("{}", 1, (16, 16))
-    check step.counters.logs == 5
+    check step.counters.logs == 2
     check step.logs == @[
-      ShellLogRecord(level: 1, bytes: "s"),
-      ShellLogRecord(level: 2, bytes: "t"),
-      ShellLogRecord(level: 3, bytes: "e"),
-      ShellLogRecord(level: 4, bytes: "p")]
+      ShellLogRecord(level: 1, bytes: "s")]
     let retune = fixture.instance.invokeRetune("{}", "{}")
     check retune.logs == @[ShellLogRecord(level: 9, bytes: "retune")]
 
-  test "invalid ranges are not captured and accepted pre-fault logs survive":
+  test "emit budget permits one rejected retry and restores on a third call":
+    const Accepted =
+      "{\"arrive_radius\":24.0,\"kind\":\"navigate_to\",\"point\":[30,30]," &
+      "\"schema\":\"intent\",\"v\":1}"
+    var retry = compileFixture(emittingModule(
+      "i32.const 512 i32.const 84 call $emit drop " &
+      "i32.const 1024 i32.const 83 call $emit drop i32.const 0"))
+    let retried = retry.instance.invokeStep("{}", 1, (30, 30))
+    check not retried.faulted
+    check retried.emitCodes == @[AbiUnreachableGoal, AbiOk]
+    require retried.lastAccepted.isSome
+    check retried.lastAccepted.get.bytes == Accepted
+    retry.close()
+
+    var quota = compileFixture(emittingModule(
+      "global.get $calls i32.eqz if " &
+      "i32.const 1 global.set $calls " &
+      "i32.const 1024 i32.const 83 call $emit drop " &
+      "else " &
+      "i32.const 1024 i32.const 83 call $emit drop " &
+      "i32.const 1024 i32.const 83 call $emit drop " &
+      "i32.const 1024 i32.const 83 call $emit drop end i32.const 0",
+      globals = "  (global $calls (mut i32) (i32.const 0))\n"))
+    let standing = quota.instance.invokeStep("{}", 1, (30, 30))
+    let faulted = quota.instance.invokeStep("{}", 2, (30, 30))
+    check faulted.faulted
+    check faulted.reason == "emit call limit exceeded"
+    require faulted.lastAccepted.isSome
+    require standing.lastAccepted.isSome
+    check faulted.lastAccepted.get.bytes == standing.lastAccepted.get.bytes
+    quota.close()
+
+  test "invalid accepted ranges fault and pre-fault logs survive":
     var invalid = compileFixture(loggingModule("",
-      "i32.const 1 i32.const 512 i32.const 5 call $log " &
-        "i32.const 2 i32.const 65535 i32.const 2 call $log i32.const 0",
+      "i32.const 2 i32.const 65535 i32.const 2 call $log " &
+        "i32.const 1 i32.const 512 i32.const 5 call $log i32.const 0",
       "i32.const 0", "i32.const 0"))
     let invalidResult = invalid.instance.invokeInit("{}", "{}")
     check invalidResult.faulted
-    check invalidResult.logs == @[
-      ShellLogRecord(level: 1, bytes: "\0\e\x7f\x80\xff")]
+    check invalidResult.logs.len == 0
     invalid.close()
 
     var nonzero = compileFixture(loggingModule("", "i32.const 0",

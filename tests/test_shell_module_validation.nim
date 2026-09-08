@@ -162,6 +162,20 @@ suite "shell module content validation":
     check secondOob.detail.contains("play_manifest emitted more than once")
     check not secondOob.detail.contains("byte range")
 
+  test "manifest probe silently drops log calls past the invocation cap":
+    let engine = newRuntimeEngine()
+    defer: engine.close()
+    let logImport =
+      "(import \"play\" \"log\" (func $log (param i32 i32 i32)))\n"
+    let emitManifest = "i32.const 0 i32.const 87 call $emit drop "
+    let logCall = "i32.const 1 i32.const 0 i32.const 1 call $log "
+    var outcome = engine.validateUploadedModule(watBytes(validManifestModule(
+      prefix = logImport,
+      manifestBody = emitManifest & logCall.repeat(2))))
+    defer: outcome.close()
+    require outcome.accepted
+    check outcome.module.probeManifestBytes().len == 87
+
   test "manifest probe owns traps and enforces fuel and epoch backstop":
     let engine = newRuntimeEngine()
     defer: engine.close()
@@ -169,10 +183,10 @@ suite "shell module content validation":
       var outcome = engine.validateUploadedModule(fixture(name))
       check outcome.reason == "manifestProbe"
 
-  test "manifest probe rejects OOB, spatial calls, and log flooding":
+  test "manifest probe rejects OOB and spatial calls":
     let engine = newRuntimeEngine()
     defer: engine.close()
-    for name in ["manifest_oob", "manifest_spatial", "manifest_log_flood"]:
+    for name in ["manifest_oob", "manifest_spatial"]:
       var outcome = engine.validateUploadedModule(fixture(name))
       check outcome.reason == "manifestProbe"
 

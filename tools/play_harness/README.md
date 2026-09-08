@@ -49,7 +49,7 @@ decoding is attempted. For example:
 
 The harness exposes logs from all four legal phases: `manifest`, `init`, `step`,
 and `retune`. It keeps every call admitted by the ABI's per-invocation limit
-(currently four calls of at most 256 bytes each). Unlike the live server sink,
+(one call of at most 256 bytes). Unlike the live server sink,
 the finite, explicitly author-run harness has no additional per-seat window.
 
 Live server diagnostics are a different sink: `init`, `step`, and `retune`

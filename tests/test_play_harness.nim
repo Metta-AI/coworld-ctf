@@ -267,13 +267,11 @@ suite "play harness":
     check logOutput == readFile(FixtureDir / "logs.golden.json").strip
     let logTrace = parseJson(logOutput)
     let records = logTrace["frames"][2]["logs"]
-    check records.len == 2
+    check logTrace["frames"][2]["counters"]["logs"].getInt == 2
+    check records.len == 1
     check records[0]["level"].getBiggestInt == low(int32).int64
     check records[0]["bytes_hex"].getStr.decodeHex ==
       @[0'u8, 0x1b, 0x7f, 0x80, 0xff]
-    check records[1]["level"].getInt == 17
-    check records[1]["bytes_hex"].getStr.decodeHex ==
-      @[0x1b'u8, 0x7f, 0x80]
 
   test "manifest class is enforced even without a manifest frame":
     ensureHarnessBuilt()
