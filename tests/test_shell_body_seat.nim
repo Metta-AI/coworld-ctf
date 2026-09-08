@@ -36,13 +36,13 @@ proc selfState(pos: BodyPoint = (16, 48), alive = true,
     hpFrac: (if alive: 2.0 / 3.0 else: 0.0), aimBrads: aimBrads,
     alive: alive, carrying: false)
 
-proc holdIntent(idleAim = none(int)): shellTypes.Intent =
+proc holdIntent(idleAim = 0): shellTypes.Intent =
   shellTypes.Intent(kind: shellTypes.ikHold, point: none(MapPoint),
     idleAimCenterBrads: idleAim, profile: shellTypes.cpDefault,
     combat: shellTypes.CombatPolicy())
 
 proc navigateIntent(point: BodyPoint, arriveRadius = 0.0,
-                    movingGoal = false, idleAim = none(int)): shellTypes.Intent =
+                    movingGoal = false, idleAim = 0): shellTypes.Intent =
   shellTypes.Intent(kind: shellTypes.ikNavigateTo,
     point: some(MapPoint(x: point.x, y: point.y)),
     arriveRadius: arriveRadius, movingGoal: movingGoal,
@@ -215,7 +215,7 @@ suite "shell body seat belief-lite seam":
     check body.nav.seats[body.seatIndex].cache.pinnedRouteKey.isNone
 
     let input = body.seatTick(BodyTickInputs(self: selfState(start)), 10)
-    check input.mask == 0
+    check input.mask == ButtonSelect
 
   test "seatTick matches explicit belief fold then action":
     let
@@ -226,8 +226,8 @@ suite "shell body seat belief-lite seam":
         visibleTracks: @[
           BodyTrackUpdate(seat: 1, pos: (80, 48), team: Blue,
             aimBrads: some(128), hpKnown: some(2), tick: 10)])
-    wrapped.setStandingIntent(holdIntent(some(64)), none(ValidatedGoal), 1)
-    split.setStandingIntent(holdIntent(some(64)), none(ValidatedGoal), 1)
+    wrapped.setStandingIntent(holdIntent(64), none(ValidatedGoal), 1)
+    split.setStandingIntent(holdIntent(64), none(ValidatedGoal), 1)
 
     let wrappedInput = wrapped.seatTick(inputs, 10)
     split.updateBelief(inputs, 10)
@@ -559,7 +559,7 @@ suite "shell body seat belief-lite seam":
 
   test "seatTick hold emits no movement and honors idle aim":
     let body = activateSeatBody(openMap(), 0, 331)
-    body.setStandingIntent(holdIntent(some(64)), none(ValidatedGoal), 1)
+    body.setStandingIntent(holdIntent(64), none(ValidatedGoal), 1)
 
     let rotating = body.seatTick(BodyTickInputs(
       self: selfState(aimBrads = 0)), 0)
@@ -588,7 +588,7 @@ suite "shell body seat belief-lite seam":
 
     let input = body.seatTick(BodyTickInputs(
       self: selfState(start, aimBrads = 32)), 0)
-    check input.mask == 0
+    check input.mask == ButtonSelect
     check not body.nav.seats[body.seatIndex].job.planPending
     check body.nav.planningTraceSnapshot.len == 0
 
@@ -617,7 +617,7 @@ suite "shell body seat belief-lite seam":
     let target: BodyPoint = (160, 48)
     let goal = map.validateGoal(target, start).get
     body.setStandingIntent(navigateIntent(target, arriveRadius = 10.0,
-      movingGoal = true, idleAim = some(64)), some(goal), 1)
+      movingGoal = true, idleAim = 64), some(goal), 1)
 
     var
       pos = start

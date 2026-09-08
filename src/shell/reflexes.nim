@@ -131,7 +131,6 @@ proc reflexIntent(kind: ReflexKind; point: BodyPoint): Intent =
     arriveRadius: ReflexArriveRadiusPx,
     movingGoal: false,
     profile: cpDefault,
-    idleAimCenterBrads: none(int),
     reason: kind.reflexName,
     combat: CombatPolicy())
 

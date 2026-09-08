@@ -47,7 +47,6 @@ proc main() =
         nextZone: MapRect(x: 100, y: 100, w: 600, h: 600),
         ticksToNextShrink: BrRotateLeadTicks + 1,
         zoneDps: 2,
-        idleAimCenterBrads: seat * 7 mod 256,
         coverGoal: none(ValidatedGoal))
       case tick mod 3
       of 0:

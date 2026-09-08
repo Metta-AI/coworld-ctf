@@ -485,7 +485,7 @@ proc viewSource(seat: int): PlayViewSource =
       movingGoal: true,
       profile: cpCarrier,
       micro: {mfFormationBias, mfPeekDuck},
-      idleAimCenterBrads: some(128),
+      idleAimCenterBrads: 128,
       clampToEndzone: true,
       suppressFireFreeze: true,
       reason: "benchmark")))

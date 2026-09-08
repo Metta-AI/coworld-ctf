@@ -210,7 +210,7 @@ suite "shell Wasmtime runtime":
 
   test "emit budget permits one rejected retry and restores on a third call":
     const Accepted =
-      "{\"arrive_radius\":24.0,\"kind\":\"navigate_to\",\"point\":[30,30]," &
+      "{\"arrive_radius\":24.0,\"idle_aim_center_brads\":0,\"kind\":\"navigate_to\",\"point\":[30,30]," &
       "\"schema\":\"intent\",\"v\":1}"
     var retry = compileFixture(emittingModule(
       "i32.const 512 i32.const 84 call $emit drop " &

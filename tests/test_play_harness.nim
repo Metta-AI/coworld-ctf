@@ -199,8 +199,9 @@ suite "play harness":
     check trace["manifest_name"].getStr == "hello"
     check trace["frames"].len == 4
     check trace["frames"][2]["last_accepted"].getStr ==
-      "{\"arrive_radius\":24.0,\"kind\":\"navigate_to\",\"point\":[30,30]," &
-      "\"reason\":\"hello\",\"schema\":\"intent\",\"v\":1}"
+      "{\"arrive_radius\":24.0,\"idle_aim_center_brads\":0," &
+      "\"kind\":\"navigate_to\",\"point\":[30,30],\"reason\":\"hello\"," &
+      "\"schema\":\"intent\",\"v\":1}"
 
   test "CLI golden fixtures cover success, normalization, rejection, fault, and retune":
     ensureHarnessBuilt()

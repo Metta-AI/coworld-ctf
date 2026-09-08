@@ -17,7 +17,7 @@ import outbound
 import standing_order
 import body
 # `view` needs no runtime (std, sim_types, body, body_map, canonical_fast,
-# finisher, types only) and server.nim imports it unconditionally; keeping
+# policy_encoding, types only) and server.nim imports it unconditionally; keeping
 # it under the runtime guard once hid PlayContextRosterRow from the stub
 # shape (CI run 33597295995).
 import view
@@ -424,11 +424,11 @@ proc resetFirstLightEpisode*(episode: var FirstLightEpisode,
   episode = initFirstLightEpisode(season2Shell, brMode, controls, map,
     liveGunRangePx, teams, mapName, viewInterval, names)
 
-proc safeIntent(reason: string, idleAimCenterBrads: int): FinishedOrder =
-  finishDefault(Intent(
+proc safeIntent(reason: string): Intent =
+  Intent(
     kind: ikHold,
     arriveRadius: 0.0,
-    reason: "first_light:safe_" & reason), idleAimCenterBrads)
+    reason: "first_light:safe_" & reason)
 
 proc provenanceText(provenance: Provenance): string =
   case provenance.base.kind
@@ -1046,19 +1046,21 @@ proc resetAfterDeath(state: var FirstLightSeatState, tick: uint32,
   state.body = nil
   nav.setSeatActive(state.seat.int, false)
 
-proc activate(state: var FirstLightSeatState, frame: FirstLightSeatFrame,
-    tick: uint32, reason: string, nav: BodyNavSystem,
+proc activate(state: var FirstLightSeatState, tick: uint32, reason: string,
+    nav: BodyNavSystem,
     output: var FirstLightTickResult) =
   state.body = activateSeatBody(nav, state.seat.int)
   nav.setSeatActive(state.seat.int, true)
-  let safe = safeIntent(reason, frame.defaultFallbacks.idleAimCenterBrads)
-  let safeBytes = canonicalIntent(safe.intent)
-  setStandingIntent(state.body, safe.intent, none(ValidatedGoal), 0)
+  let
+    safe = safeIntent(reason)
+    provenance = Provenance(base: ProvenanceBase(kind: pbDefault))
+    safeBytes = canonicalIntent(safe)
+  setStandingIntent(state.body, safe, none(ValidatedGoal), 0)
   state.standing = StandingOrderState(
     hasStanding: true,
-    intent: safe.intent,
+    intent: safe,
     intentBytes: safeBytes,
-    provenance: safe.provenance,
+    provenance: provenance,
     effectiveEpoch: 0,
     installedEffectiveEpoch: 0,
     lastDefaultRule: brHold)
@@ -1192,7 +1194,7 @@ proc step*(episode: var FirstLightEpisode,
         state.eliminated = true
     if frame.playing and frame.alive and not state.active and
         not state.eliminated:
-      state.activate(frame, tick,
+      state.activate(tick,
         if state.everActivated: "respawn" else: "activation",
         episode.nav, result)
       inc episode.bodyActivations
@@ -1243,8 +1245,6 @@ proc step*(episode: var FirstLightEpisode,
           slot.frame.defaultFallbacks)
         let decision = computeBrDefault(facts)
         state.standing.lastDefaultRule = decision.rule
-        let finished = finishDefault(decision.intent,
-          facts.idleAimCenterBrads)
         let reflexDecision =
           episode.runtimeState.reflexStates[seat].selectReflex(
             state.reflexInput(slot.frame, tick,
@@ -1256,7 +1256,7 @@ proc step*(episode: var FirstLightEpisode,
           contextBytes: episode.firstLightContextBytes(seat, slot.frame),
           viewSource: viewSource,
           guardContext: playGuardContext(state.body, facts),
-          defaultIntent: finished.intent,
+          defaultIntent: decision.intent,
           defaultGoal: decision.goal,
           nativeBase: reflexDecision.nativeBase)
 
@@ -1294,8 +1294,7 @@ proc step*(episode: var FirstLightEpisode,
             intent: row.intent,
             goal: row.goal,
             provenance: row.provenance,
-            contributingEpoch: row.contributingEpoch),
-          slot.frame.defaultFallbacks.idleAimCenterBrads)
+            contributingEpoch: row.contributingEpoch))
         state.appendStandingChanges(result)
       result.runtimeNanoseconds +=
         (getMonoTime() - runtimeStarted).inNanoseconds

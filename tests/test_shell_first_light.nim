@@ -43,7 +43,6 @@ proc fallback(map: BodyMap, seat: int): BrDefaultFallbacks =
     ticksToNextShrink: BrRotateLeadTicks + 1,
     zonePhase: 2,
     zoneDps: 1,
-    idleAimCenterBrads: seat mod 256,
     coverGoal: none(ValidatedGoal))
 
 proc frame(map: BodyMap, seat: int, pos: BodyPoint = (0, 0), alive = true,

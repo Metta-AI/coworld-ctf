@@ -333,7 +333,6 @@ proc frame(seat: int; pos: BodyPoint; tick: int): FirstLightSeatFrame =
       nextZone: MapRect(x: 100, y: 50, w: 200, h: 100),
       ticksToNextShrink: BrRotateLeadTicks + 1,
       zoneDps: 1,
-      idleAimCenterBrads: 32,
       coverGoal: none(ValidatedGoal)))
 
 proc floodFrame(seat: int; pos: BodyPoint; tick: int): FirstLightSeatFrame =

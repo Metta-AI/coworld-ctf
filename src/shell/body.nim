@@ -1141,9 +1141,7 @@ proc idleSweepAim*(body: SeatBody, center: int): int =
   normalAimBrads(center + body.sweepOffset)
 
 proc idleAimMask(body: SeatBody): uint8 =
-  if body.standingIntent.idleAimCenterBrads.isNone:
-    return 0'u8
-  aimRotationMask(body.idleSweepAim(body.standingIntent.idleAimCenterBrads.get),
+  aimRotationMask(body.idleSweepAim(body.standingIntent.idleAimCenterBrads),
     body.selfState.aimBrads)
 
 proc sprayContains(fromPos: BodyPoint, aimBrads: int,

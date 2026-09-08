@@ -6,7 +6,7 @@
 import std/[math, options, strutils]
 
 import ../ctf/sim_types
-import abi, body_map, canonical_fast, finisher, policy_encoding, types
+import abi, body_map, canonical_fast, policy_encoding, types
 
 type
   EmitClass* = enum
@@ -299,7 +299,7 @@ proc parseIntent(r: var CanonicalReader, ctx: EmitValidationContext): Intent =
       let value = r.readRequiredInt()
       if value < 0 or value > 255:
         rangeViolation("idle aim outside 0..255")
-      result.idleAimCenterBrads = some(int(value))
+      result.idleAimCenterBrads = int(value)
     of "kind":
       result.kind = parseKind(r.readRequiredString())
       hasKind = true

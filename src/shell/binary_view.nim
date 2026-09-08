@@ -89,7 +89,7 @@ const
   ContextDuoPresentFlag* = 1'u32
   IntentPointPresentFlag* = 1'u32
   IntentMovingGoalFlag* = 2'u32
-  IntentIdleAimPresentFlag* = 4'u32
+  IntentIdleAimPresentFlag* = 4'u32  ## Always set; retained to preserve PV1 layout.
   IntentClampToEndzoneFlag* = 8'u32
   IntentSuppressFireFreezeFlag* = 16'u32
   IntentHoldFireFlag* = 32'u32
@@ -372,10 +372,9 @@ proc intentPayload(intent: Intent): string =
     raise newException(ValueError, "binary standing intent has too many seats")
   if intent.combat.prefer.len > 4:
     raise newException(ValueError, "binary standing intent has too many prefer tags")
-  var flags = 0'u32
+  var flags = IntentIdleAimPresentFlag
   if intent.point.isSome: flags = flags or IntentPointPresentFlag
   if intent.movingGoal: flags = flags or IntentMovingGoalFlag
-  if intent.idleAimCenterBrads.isSome: flags = flags or IntentIdleAimPresentFlag
   if intent.clampToEndzone: flags = flags or IntentClampToEndzoneFlag
   if intent.suppressFireFreeze: flags = flags or IntentSuppressFireFreezeFlag
   if intent.combat.holdFire: flags = flags or IntentHoldFireFlag
@@ -387,8 +386,7 @@ proc intentPayload(intent: Intent): string =
   let point = if intent.point.isSome: intent.point.get else: MapPoint()
   result.putI32(point.x)
   result.putI32(point.y)
-  result.putI32(if intent.idleAimCenterBrads.isSome:
-    intent.idleAimCenterBrads.get else: 0)
+  result.putI32(intent.idleAimCenterBrads)
   result.putU32(intent.micro.microMask)
   result.putU32(intent.combat.noShoot.teams.teamMask)
   result.putU32(intent.combat.protect.teams.teamMask)
