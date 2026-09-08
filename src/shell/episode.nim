@@ -6,7 +6,7 @@
 ## default-order installation, mask handoff, annotations, and timing split.
 
 import std/[json, math, monotimes, options, os, sequtils, strformat, strutils, times]
-import bitworld/spriteprotocol
+import bitworld/[profile, spriteprotocol]
 import ../ctf/sim_types
 import body_map
 import body_nav
@@ -159,6 +159,22 @@ type
     playerIndex*: int
     partners*: seq[Team]
 
+  ShellStage* = enum
+    ssCompilePlane
+    ssLifecycle
+    ssDefault
+    ssReflex
+    ssContext
+    ssView
+    ssGuard
+    ssLadder
+    ssStanding
+    ssBelief
+    ssFollower
+    ssWeapon
+    ssDanger
+    ssPlanning
+
   FirstLightTickResult* = object
     masks*: seq[FirstLightMask]
     handoffs*: seq[FirstLightHandoff]
@@ -174,6 +190,7 @@ type
     combat*: FirstLightCombatSummary
     bodyNanoseconds*: int64
     runtimeNanoseconds*: int64
+    stageNanoseconds*: array[ShellStage, int64]
 
   ViewSource* = proc(seatIndex: int; tick: uint32): string {.closure.}
 
@@ -1156,6 +1173,16 @@ when ShellRuntimeAvailable:
       else:
         inc state[].dropped
 
+template stageBlock(sums: var array[ShellStage, int64], stage: ShellStage,
+                    name: string, body: untyped) =
+  block:
+    let stageStarted = getMonoTime()
+    profileBlock(name):
+      try:
+        body
+      finally:
+        sums[stage] += (getMonoTime() - stageStarted).inNanoseconds
+
 proc step*(episode: var FirstLightEpisode,
     frames: openArray[FirstLightSeatFrame], tick: uint32): FirstLightTickResult =
   ## Runs configured play seats in configured-seat order. Disabled episodes
@@ -1174,8 +1201,9 @@ proc step*(episode: var FirstLightEpisode,
           episode.runtimeState.frames[seat] =
             FirstLightViewFrameSlot(present: frame.present, frame: frame)
           episode.runtimeState.selfPositions[seat] = frame.bodyInputs.self.pos
-    episode.beginCompileTick(tick)
-    result.moduleStatuses = episode.progressCompilePlane()
+    stageBlock(result.stageNanoseconds, ssCompilePlane, "shell.compile"):
+      episode.beginCompileTick(tick)
+      result.moduleStatuses = episode.progressCompilePlane()
 
   for state in episode.seats.mitems:
     var frameIndex = -1
@@ -1188,27 +1216,31 @@ proc step*(episode: var FirstLightEpisode,
     let frame = frames[frameIndex]
 
     let runtimeStarted = getMonoTime()
-    if state.active and not frame.alive:
-      state.resetAfterDeath(tick, episode.nav, result.annotations)
-      if episode.brMode:
-        state.eliminated = true
-    if frame.playing and frame.alive and not state.active and
-        not state.eliminated:
-      state.activate(tick,
-        if state.everActivated: "respawn" else: "activation",
-        episode.nav, result)
-      inc episode.bodyActivations
+    stageBlock(result.stageNanoseconds, ssLifecycle, "shell.lifecycle"):
+      if state.active and not frame.alive:
+        state.resetAfterDeath(tick, episode.nav, result.annotations)
+        if episode.brMode:
+          state.eliminated = true
+      if frame.playing and frame.alive and not state.active and
+          not state.eliminated:
+        state.activate(tick,
+          if state.everActivated: "respawn" else: "activation",
+          episode.nav, result)
+        inc episode.bodyActivations
+      if state.active and frame.playing and frame.alive:
+        stageBlock(result.stageNanoseconds, ssBelief, "body.belief"):
+          state.body.updateBelief(frame.bodyInputs, tick)
     if state.active and frame.playing and frame.alive:
-      state.body.updateBelief(frame.bodyInputs, tick)
-      when ShellRuntimeAvailable:
-        if episode.ladder == nil:
+      stageBlock(result.stageNanoseconds, ssDefault, "shell.default"):
+        when ShellRuntimeAvailable:
+          if episode.ladder == nil:
+            state.standing.stepFirstLightDefault(state.body, tick,
+              frame.defaultFallbacks)
+            state.appendStandingChanges(result)
+        else:
           state.standing.stepFirstLightDefault(state.body, tick,
             frame.defaultFallbacks)
           state.appendStandingChanges(result)
-      else:
-        state.standing.stepFirstLightDefault(state.body, tick,
-          frame.defaultFallbacks)
-        state.appendStandingChanges(result)
     result.runtimeNanoseconds += (getMonoTime() - runtimeStarted).inNanoseconds
 
   when ShellRuntimeAvailable:
@@ -1217,12 +1249,17 @@ proc step*(episode: var FirstLightEpisode,
     if episode.ladder != nil:
       let runtimeStarted = getMonoTime()
       let episodePtr = addr episode
+      let stageSumsPtr = addr result.stageNanoseconds
       let viewSource: LadderViewSource =
         if episode.viewSource == nil:
           proc(seatIndex: int; viewTick: uint32): string =
-            episodePtr[].firstLightViewBytes(seatIndex, viewTick)
+            stageBlock(stageSumsPtr[], ssView, "shell.view"):
+              result = episodePtr[].firstLightViewBytes(seatIndex, viewTick)
         else:
-          episode.viewSource
+          let customSource = episode.viewSource
+          proc(seatIndex: int; viewTick: uint32): string =
+            stageBlock(stageSumsPtr[], ssView, "shell.view"):
+              result = customSource(seatIndex, viewTick)
       var inputs = newSeq[LadderSeatInput](episode.runtimeState.frames.len)
       for seat in 0 ..< inputs.len:
         inputs[seat] = LadderSeatInput(
@@ -1241,26 +1278,39 @@ proc step*(episode: var FirstLightEpisode,
         if not slot.present or not state.active or not slot.frame.playing or
             not slot.frame.alive:
           continue
-        let facts = brDefaultFacts(state.body, tick,
-          slot.frame.defaultFallbacks)
-        let decision = computeBrDefault(facts)
-        state.standing.lastDefaultRule = decision.rule
-        let reflexDecision =
-          episode.runtimeState.reflexStates[seat].selectReflex(
-            state.reflexInput(slot.frame, tick,
-              if episode.brMode: gmBr else: gmCtf),
-            NativeReflexSubscriptions)
+        var
+          facts: BrDefaultFacts
+          decision: DefaultDecision
+          reflexDecision: ReflexDecision
+          contextBytes: string
+          guardContext: IntentContext
+        stageBlock(result.stageNanoseconds, ssDefault, "shell.default"):
+          facts = brDefaultFacts(state.body, tick, slot.frame.defaultFallbacks)
+          decision = computeBrDefault(facts)
+          state.standing.lastDefaultRule = decision.rule
+        stageBlock(result.stageNanoseconds, ssReflex, "shell.reflex"):
+          reflexDecision =
+            episode.runtimeState.reflexStates[seat].selectReflex(
+              state.reflexInput(slot.frame, tick,
+                if episode.brMode: gmBr else: gmCtf),
+              NativeReflexSubscriptions)
+        stageBlock(result.stageNanoseconds, ssContext, "shell.context"):
+          contextBytes = episode.firstLightContextBytes(seat, slot.frame)
+        stageBlock(result.stageNanoseconds, ssGuard, "shell.guard"):
+          guardContext = playGuardContext(state.body, facts)
         inputs[seat] = LadderSeatInput(
           alive: true,
           selfPos: slot.frame.bodyInputs.self.pos,
-          contextBytes: episode.firstLightContextBytes(seat, slot.frame),
+          contextBytes: contextBytes,
           viewSource: viewSource,
-          guardContext: playGuardContext(state.body, facts),
+          guardContext: guardContext,
           defaultIntent: decision.intent,
           defaultGoal: decision.goal,
           nativeBase: reflexDecision.nativeBase)
 
-      let ladderOutput = episode.ladder.tick(inputs, tick, episode.bindings)
+      var ladderOutput: LadderTickResult
+      stageBlock(result.stageNanoseconds, ssLadder, "shell.ladder"):
+        ladderOutput = episode.ladder.tick(inputs, tick, episode.bindings)
       for row in ladderOutput.seats:
         episode.appendPlayLogs(tick, row.logs, result.playLogLines)
         for status in row.statuses:
@@ -1279,23 +1329,24 @@ proc step*(episode: var FirstLightEpisode,
               annotationFaultReason: status.status.faultReason))
         for identity in row.retuned:
           result.retuned.add entryIdentity(row.seat, identity)
-      for state in episode.seats.mitems:
-        let seat = state.seat.int
-        if seat < 0 or seat >= ladderOutput.seats.len or
-            seat >= episode.runtimeState.frames.len:
-          continue
-        let slot = episode.runtimeState.frames[seat]
-        if not slot.present or not state.active or not slot.frame.playing or
-            not slot.frame.alive:
-          continue
-        let row = ladderOutput.seats[seat]
-        state.standing.stepResolvedOrder(state.body, tick,
-          ResolvedStandingOrder(
-            intent: row.intent,
-            goal: row.goal,
-            provenance: row.provenance,
-            contributingEpoch: row.contributingEpoch))
-        state.appendStandingChanges(result)
+      stageBlock(result.stageNanoseconds, ssStanding, "shell.standing"):
+        for state in episode.seats.mitems:
+          let seat = state.seat.int
+          if seat < 0 or seat >= ladderOutput.seats.len or
+              seat >= episode.runtimeState.frames.len:
+            continue
+          let slot = episode.runtimeState.frames[seat]
+          if not slot.present or not state.active or not slot.frame.playing or
+              not slot.frame.alive:
+            continue
+          let row = ladderOutput.seats[seat]
+          state.standing.stepResolvedOrder(state.body, tick,
+            ResolvedStandingOrder(
+              intent: row.intent,
+              goal: row.goal,
+              provenance: row.provenance,
+              contributingEpoch: row.contributingEpoch))
+          state.appendStandingChanges(result)
       result.runtimeNanoseconds +=
         (getMonoTime() - runtimeStarted).inNanoseconds
 
@@ -1328,6 +1379,8 @@ proc step*(episode: var FirstLightEpisode,
       let bodyStarted = getMonoTime()
       input = actFromBelief(state.body, tick)
       result.bodyNanoseconds += (getMonoTime() - bodyStarted).inNanoseconds
+      result.stageNanoseconds[ssFollower] += state.body.followerNanoseconds
+      result.stageNanoseconds[ssWeapon] += state.body.weaponNanoseconds
       summarizeSeatTick(state.body, result)
       # §4.1 amendment: surface the standing order's give-item declaration
       # beside the mask it was resolved with. Upright seats only — a dead
@@ -1356,8 +1409,10 @@ proc step*(episode: var FirstLightEpisode,
             partners: partners))
     result.masks.add(FirstLightMask(
       seat: state.seat, playerIndex: frame.playerIndex, input: input))
-  episode.nav.rebuildScheduledDanger(tick.int, episode.dangerInputs(tick))
-  discard episode.nav.runPlanningTick(tick.int)
+  stageBlock(result.stageNanoseconds, ssDanger, "shell.danger"):
+    episode.nav.rebuildScheduledDanger(tick.int, episode.dangerInputs(tick))
+  stageBlock(result.stageNanoseconds, ssPlanning, "shell.planning"):
+    discard episode.nav.runPlanningTick(tick.int)
   result.planBudget = episode.nav.drainPlanBudgetEvents()
   result.nav.pendingPlans = episode.nav.pendingPlanCount()
 
@@ -1416,6 +1471,29 @@ proc formatCombatSummary*(tick: uint32,
     &"vetoed={combat.counts[coVetoed]} no_enemy={combat.counts[coNoEnemy]} " &
     &"none_shootable_seats={combat.noneShootableSeats.seatList} " &
     &"aligning_seats={combat.aligningSeats.seatList}"
+
+proc shellNanoseconds*(sums: array[ShellStage, int64]): int64 =
+  ## Belief is contained by lifecycle, and the lazy view is contained by the
+  ## ladder call. Every other row is an exclusive step segment.
+  for stage in ShellStage:
+    if stage notin {ssBelief, ssView}:
+      result += sums[stage]
+
+proc formatTimingSummary*(tick: uint32, seats, windowTicks: int,
+                          sums: array[ShellStage, int64], maxTickNs,
+                          simNs: int64): string =
+  template micros(stage: ShellStage): int64 =
+    sums[stage] div 1_000
+  &"FIRST_LIGHT_TIMING tick={tick} seats={seats} window_ticks={windowTicks} " &
+    &"shell_us={sums.shellNanoseconds div 1_000} " &
+    &"max_tick_us={maxTickNs div 1_000} sim_us={simNs div 1_000} " &
+    &"lifecycle_us={micros(ssLifecycle)} default_us={micros(ssDefault)} " &
+    &"reflex_us={micros(ssReflex)} context_us={micros(ssContext)} " &
+    &"view_us={micros(ssView)} guard_us={micros(ssGuard)} " &
+    &"ladder_us={micros(ssLadder)} standing_us={micros(ssStanding)} " &
+    &"belief_us={micros(ssBelief)} follower_us={micros(ssFollower)} " &
+    &"weapon_us={micros(ssWeapon)} danger_us={micros(ssDanger)} " &
+    &"planning_us={micros(ssPlanning)} compile_us={micros(ssCompilePlane)}"
 
 proc formatLifecycleAnnotation*(annotation: ShellAnnotation,
                                 player = ""): string =

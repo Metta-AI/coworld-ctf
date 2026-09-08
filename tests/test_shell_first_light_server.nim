@@ -18,6 +18,27 @@ proc admitted(sim: SimServer, playerIndices: openArray[int]):
       slot: uint8(slot), lifeGeneration: sim.seatLifeGenerations[slot])
 
 suite "shell FIRST LIGHT server seam":
+  test "timing window emits once per 24 active ticks and never without seats":
+    var
+      activeWindow: FirstLightTimingWindow
+      active = FirstLightTickResult(masks: @[FirstLightMask()])
+    active.stageNanoseconds[ssLifecycle] = 1_000
+    for tick in 1 .. 23:
+      activeWindow.addFirstLightTiming(active)
+      check activeWindow.finishFirstLightTimingTick(
+        uint32(tick), active.masks.len, 2_000).len == 0
+    activeWindow.addFirstLightTiming(active)
+    let line = activeWindow.finishFirstLightTimingTick(24, active.masks.len, 2_000)
+    check line.startsWith("FIRST_LIGHT_TIMING tick=24 seats=1 window_ticks=24 ")
+    check "sim_us=48" in line
+
+    var emptyWindow: FirstLightTimingWindow
+    let empty = FirstLightTickResult()
+    for tick in 1 .. 24:
+      emptyWindow.addFirstLightTiming(empty)
+      check emptyWindow.finishFirstLightTimingTick(
+        uint32(tick), empty.masks.len, 2_000).len == 0
+
   test "self hp count and fraction are populated from sim truth":
     var sim = initSimServer(defaultGameConfig())
     let playerIndex = sim.addPlayer("red0")

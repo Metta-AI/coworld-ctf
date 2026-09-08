@@ -3132,6 +3132,35 @@ type
     ## outside every pool (map, flags, players, HUD) land in "core".
     objectPools: Table[string, int64]
 
+  FirstLightTimingWindow = object
+    stageNanoseconds: array[ShellStage, int64]
+    maxTickNanoseconds: int64
+    simNanoseconds: int64
+    ticks: int
+
+proc addFirstLightTiming(window: var FirstLightTimingWindow,
+                         tick: FirstLightTickResult) =
+  if tick.masks.len == 0:
+    return
+  for stage in ShellStage:
+    window.stageNanoseconds[stage] += tick.stageNanoseconds[stage]
+  window.maxTickNanoseconds = max(
+    window.maxTickNanoseconds, tick.stageNanoseconds.shellNanoseconds)
+  inc window.ticks
+
+proc finishFirstLightTimingTick(window: var FirstLightTimingWindow,
+                                tick: uint32, seats: int,
+                                simNanoseconds: int64): string =
+  if seats > 0:
+    window.simNanoseconds += simNanoseconds
+  if tick mod uint32(TargetFps) != 0:
+    return
+  if seats > 0:
+    result = formatTimingSummary(tick, seats, window.ticks,
+      window.stageNanoseconds, window.maxTickNanoseconds,
+      window.simNanoseconds)
+  window = FirstLightTimingWindow()
+
 proc runFrameLimiter(
   previousTick: var MonoTime,
   fastMode: bool,
@@ -4051,6 +4080,18 @@ proc resetFirstLightForSim(episode: var FirstLightEpisode,
     episode.closeFirstLightEpisode()
     episode = FirstLightEpisode()
 
+proc finishAndCopyProfileTrace(done: var bool) =
+  if done or not profileEnabled():
+    return
+  done = true
+  finishProfileTrace()
+  let workDir = getEnv("COWORLD_WORKDIR")
+  if workDir.len > 0 and fileExists(ProfileTracePath):
+    let destination = workDir / "logs" / "profile-trace.json"
+    createDir(destination.parentDir)
+    copyFile(ProfileTracePath, destination)
+    echo "Profile trace copied: ", destination
+
 proc runServerLoop*(
   host = DefaultHost,
   port = DefaultPort,
@@ -4102,9 +4143,10 @@ proc runServerLoop*(
         move(initializedReplay.player)
       else:
         ReplayPlayer()
+  var profileTraceFinished = false
   startProfileTrace()
   defer:
-    finishProfileTrace()
+    finishAndCopyProfileTrace(profileTraceFinished)
     replayWriter.closeReplayWriter()
     {.gcsafe.}:
       withLock appState.lock:
@@ -4223,6 +4265,7 @@ proc runServerLoop*(
       if replayLoaded: move(initializedReplay.tracker)
       else: initBroadcastTracker()
     firstLightEpisode: FirstLightEpisode
+    firstLightTiming: FirstLightTimingWindow
 
   # FIRST LIGHT is reachable only in a play-seat episode. The default-true
   # shell with an all-input roster leaves the zero value untouched and never
@@ -5132,6 +5175,7 @@ proc runServerLoop*(
         stepPressedInputMasks = pressedInputMasks
         lastStepInputs = prevInputs
       for _ in 0 ..< playbackSpeed(liveSpeedIndex):
+        var firstLightSeatsThisTick = 0
         if config.isPlaySeatEpisode():
           drainPlayIngressAtTickBoundary(
             firstLightEpisode, uint32(sim.tickCount + 1),
@@ -5168,6 +5212,8 @@ proc runServerLoop*(
               defaultFallbacks: sim.firstLightFallbacks(bodyInputs.self.pos)))
           let firstLight = firstLightEpisode.step(
             frames, uint32(sim.tickCount + 1))
+          firstLightSeatsThisTick = firstLight.masks.len
+          firstLightTiming.addFirstLightTiming(firstLight)
           retainProductionModuleStatuses(firstLight.moduleStatuses)
           retainProductionLadderOutcomes(
             firstLight.ladderStatuses, firstLight.retuned)
@@ -5299,6 +5345,7 @@ proc runServerLoop*(
         # historical behavior: an exception out of step() propagates and the
         # runner sees the crash, exactly as it did before this merge.
         var faultRule = ""
+        let simStarted = getMonoTime()
         try:
           sim.step(stepInputs, stepPrevInputs)
         except SimGuardError as guard:
@@ -5313,12 +5360,17 @@ proc runServerLoop*(
           echo "paintball: HOST ERROR at tick ", sim.tickCount, ": ",
             error.msg
           faultRule = EndRuleHostError
+        let simNanoseconds = (getMonoTime() - simStarted).inNanoseconds
         if faultRule.len > 0:
           sim.endReason = ReasonFault
           sim.endRule = faultRule
           sim.phase = GameOver
           quitAfterFrame = true
           break
+        let timingLine = firstLightTiming.finishFirstLightTimingTick(
+          uint32(sim.tickCount), firstLightSeatsThisTick, simNanoseconds)
+        if timingLine.len > 0:
+          echo timingLine
         if firstLightEpisode.enabled:
           # Death is observed immediately after the sim step that caused it,
           # so clear-on-death carries that completed tick rather than waiting
@@ -5694,7 +5746,7 @@ proc runServerLoop*(
             discard markSocketClosed(globalViewers[i])
 
     if profileShouldDump(sim.gameTicksElapsed()):
-      finishProfileTrace()
+      finishAndCopyProfileTrace(profileTraceFinished)
 
     if quitAfterFrame:
       if squadMode:

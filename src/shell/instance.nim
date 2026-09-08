@@ -6,6 +6,7 @@
 
 import std/[options, strutils]
 
+import bitworld/profile
 import ../ctf/sim_types
 import abi, body_cache, body_map, cover_scorer, emit_validator, module_cache,
   runtime, types, wasmtime_c
@@ -544,6 +545,9 @@ proc invokeManifest*(instance: ShellInstance): ShellInvocationResult =
 
 proc invokeInit*(instance: ShellInstance, paramsBytes,
                  contextBytes: string): ShellInvocationResult =
+  when ProfileTracePath.len > 0:
+    measurePush("invokeInit")
+    defer: measurePop()
   instance.prepareInvocation(apInit, ivInit, InitFuel.uint64)
   let params = instance.allocate(paramsBytes.len)
   let context = instance.allocate(contextBytes.len)
@@ -565,6 +569,9 @@ proc invokeInit*(instance: ShellInstance, paramsBytes,
 
 proc invokeStep*(instance: ShellInstance, viewBytes: string,
                  tick: uint32, selfPos: BodyPoint): ShellInvocationResult =
+  when ProfileTracePath.len > 0:
+    measurePush("invokeStep")
+    defer: measurePop()
   discard tick
   instance.host.selfPos = selfPos
   let previous = instance.lastAccepted
@@ -591,6 +598,9 @@ proc invokeStep*(instance: ShellInstance, viewBytes: string,
 
 proc invokeRetune*(instance: ShellInstance, oldParams,
                    newParams: string): ShellInvocationResult =
+  when ProfileTracePath.len > 0:
+    measurePush("invokeRetune")
+    defer: measurePop()
   if not instance.hasRetune:
     result = ShellInvocationResult(kind: ivRetune, returned: 1, refused: true,
       reason: "play_retune export absent", code: fcRetuneAbsent,

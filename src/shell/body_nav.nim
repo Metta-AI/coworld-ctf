@@ -21,7 +21,7 @@
 ## tick, and the planning pass is outside the containment body-tick gate.
 
 import std/[hashes, math, options]
-import bitworld/spriteprotocol
+import bitworld/[profile, spriteprotocol]
 import ../ctf/sim_types
 import body_cache, body_map, body_planner
 import types as shellTypes
@@ -473,6 +473,9 @@ proc dangerSeatDue*(tick, seat, cadenceK: int): bool =
 proc rebuildScheduledDanger*(system: BodyNavSystem, tick: int,
     sourcesBySeat: openArray[DangerInput],
     evaluationOrder: openArray[int] = []) =
+  when ProfileTracePath.len > 0:
+    measurePush("rebuildScheduledDanger")
+    defer: measurePop()
   ## evaluationOrder is deliberately irrelevant: schedule and mutation are by
   ## stable seat index. It exists so permutation goldens exercise that law.
   discard evaluationOrder
@@ -625,6 +628,9 @@ proc planBudgetPerTick*(system: BodyNavSystem): int =
 
 proc runPlanningTick*(system: BodyNavSystem, tick: int,
     evaluationOrder: openArray[int] = []): int =
+  when ProfileTracePath.len > 0:
+    measurePush("runPlanningTick")
+    defer: measurePop()
   system.runPlanningWork(tick, system.planBudgetPerTick, evaluationOrder)
 
 proc prewarmColdPlans*(system: BodyNavSystem) =

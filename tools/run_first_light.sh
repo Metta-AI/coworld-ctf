@@ -75,6 +75,7 @@ fi
 
 WASMTIME_C_API="$WASMTIME_C_API" nim c --threads:on -d:release \
   -d:noSignalHandler \
+  ${FIRST_LIGHT_EXTRA_NIM_FLAGS:-} \
   --hints:off --path:src -o:"$SERVER_BIN" src/ctf.nim
 nim c -d:release --hints:off --path:src -o:"$PRESENCE_BIN" \
   tools/first_light_presence.nim

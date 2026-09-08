@@ -11,8 +11,8 @@
 ## including a later respawn in the same cell. No counter, clock, or address
 ## identity participates in belief ids.
 
-import std/[algorithm, hashes, math, options, sequtils]
-import bitworld/spriteprotocol
+import std/[algorithm, hashes, math, monotimes, options, sequtils, times]
+import bitworld/[profile, spriteprotocol]
 import ../ctf/sim_types
 import body_cache, body_map, body_nav, body_planner
 import types as shellTypes
@@ -350,6 +350,8 @@ type
     throwTarget: Option[CombatTarget]
     navState*: BodyNavState        ## last seat tick's follower outcome
     combatOutcome*: CombatOutcome  ## last seat tick's weapon-path outcome
+    followerNanoseconds*: int64
+    weaponNanoseconds*: int64
 
 proc tickInsideWindow(eventTick, now, window: uint32): bool =
   eventTick <= now and uint64(now - eventTick) < uint64(window)
@@ -1279,6 +1281,8 @@ proc actFromBelief*(body: SeatBody, tick: uint32): InputState =
   ##
   ## Cold plan work and danger rebuild cadence stay episode-owned; callers run
   ## `runPlanningTick` and `rebuildScheduledDanger` on the shared BodyNavSystem.
+  body.followerNanoseconds = 0
+  body.weaponNanoseconds = 0
   body.navState = bnsIdle
   body.combatOutcome = coNoEnemy
   if not body.selfState.alive:
@@ -1287,6 +1291,9 @@ proc actFromBelief*(body: SeatBody, tick: uint32): InputState =
 
   var mask = 0'u8
   var needsIdleAim = false
+  let followerStarted = getMonoTime()
+  when ProfileTracePath.len > 0:
+    measurePush("body.follower")
   let fireFreeze = body.fireHoldTicks > 0 and not body.selfState.carrying and
     not body.standingIntent.suppressFireFreeze
   if body.fireHoldTicks > 0:
@@ -1319,7 +1326,14 @@ proc actFromBelief*(body: SeatBody, tick: uint32): InputState =
           seat.noteProgress(body.selfState.pos)
         else:
           needsIdleAim = true
+  when ProfileTracePath.len > 0:
+    measurePop()
+  body.followerNanoseconds =
+    (getMonoTime() - followerStarted).inNanoseconds
 
+  let weaponStarted = getMonoTime()
+  when ProfileTracePath.len > 0:
+    measurePush("body.weapon")
   let
     liveRange = body.nav.liveWeaponRangePx(body.seatIndex)
     maxHp = body.targetMaxHpEstimate()
@@ -1357,12 +1371,16 @@ proc actFromBelief*(body: SeatBody, tick: uint32): InputState =
   # it emitted before, bit for bit.
   if body.standingIntent.drop:
     mask = mask or ButtonB or ButtonSelect
+  when ProfileTracePath.len > 0:
+    measurePop()
+  body.weaponNanoseconds = (getMonoTime() - weaponStarted).inNanoseconds
   decodeInputMask(mask)
 
 proc seatTick*(body: SeatBody, inputs: BodyTickInputs,
                tick: uint32): InputState =
   ## Folds one seat's current inputs, then executes its action phase.
-  body.updateBelief(inputs, tick)
+  profileBlock("body.belief"):
+    body.updateBelief(inputs, tick)
   body.actFromBelief(tick)
 
 proc dangerInputFromTracks*(body: SeatBody, tick: uint32,
