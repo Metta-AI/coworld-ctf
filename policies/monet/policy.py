@@ -54,6 +54,14 @@ from starter_harness import Persona  # noqa: E402
 # self-hp resupply gate -- re-anchored 3->4 here so a seat still detours
 # to supply after ONE marker under the new max, not two.
 SUPPLY_DEFAULTS = {"whenHpBelow": 4, "detourMax": 300, "contested": "avoid"}
+# NOTE: SUPPLY_DEFAULTS only feeds the "insert if the model omitted
+# supply_run entirely" rung below and the offline canned turns -- it never
+# touched a supply_run entry the model DID submit. Measured 2026-09-08:
+# whenHpBelow read 4 in only 12/55 (21.8%) live installs, because plays.py's
+# manifest still states "default 3" (the pre-0.7.348, hp-max-3 value) to the
+# model. adjust_entries below now actively clamps whenHpBelow on every
+# submitted supply_run entry to this same 4, same fix class as
+# FIRE_SUPERIORITY_PRESS_RANGE/FIRE_SUPERIORITY_FINISH_RANGE above.
 
 # The guaranteed armament rung. self.hasGun/hasHopper are never exposed to
 # a policy (only the human broadcast HUD sees them), so this cannot gate on
@@ -134,6 +142,27 @@ JACKAL_MAX_KILLS = 2
 # not a prompt hint that can silently go unread.
 JACKAL_MIN_EARSHOT = 550
 JACKAL_JOIN_WHEN = "bothWeakened"
+
+# FIRE_SUPERIORITY WIRE FIX (bug hunt 2026-09-08, ladder round 4457, 30
+# fresh policy logs decoded on the server-COMMITTED 0xA1 line, n=102
+# installs/22 episodes): pressRange NEVER reached the wire at its doctrine
+# value -- 220 (the raw plays.py schema default) landed 102/102 -- and
+# finishRange's endgame tightening (140->120) was 0/102. Same root cause as
+# JACKAL_MIN_EARSHOT above: plays.py's playbook_brief states the schema
+# default in the model's own system prompt and the model reliably
+# reproduces it; nothing in adjust_entries clamped fire_superiority the way
+# jackal's earshot/joinWhen already were. Doctrine is phase-shaped (see the
+# consolidation/mid and endgame canned_turns entries below); the live zone
+# clock, not a turn index, is the only phase signal adjust_entries can read
+# (_in_marquee_zone_window, the same predicate the MARQUEE CLOCK BAND block
+# below already uses for woundedPct), so the clamp collapses to two
+# buckets: endgame, and everything else. The opening canned turn never
+# calls fire_superiority and there is no separate opening literal to
+# enforce, so a live model call naming this play during the opening window
+# gets the same "default" bucket as consolidation/mid -- there is no third
+# bucket to put it in.
+FIRE_SUPERIORITY_PRESS_RANGE = {"default": 400, "endgame": 340}
+FIRE_SUPERIORITY_FINISH_RANGE = {"default": 140, "endgame": 120}
 
 # HEAT-CHAIN TARGET PRIORITY (owner directive 2026-09-06, source-verified
 # against src/ctf/glory.nim + play_sdk/reference/target_law.nim): heat is
@@ -468,6 +497,38 @@ def adjust_entries(entries, context, view):
                     and isinstance(spacing[0], int)):
                 spacing[0] = max(spacing[0], MIN_SPACING)
                 spacing[1] = max(spacing[1], spacing[0])
+        elif entry.get("play") == "fire_superiority":
+            # WIRE FIX (see FIRE_SUPERIORITY_PRESS_RANGE/
+            # FIRE_SUPERIORITY_FINISH_RANGE above): pin both levers to the
+            # doctrine value for the current phase on every submitted
+            # entry, mirroring the jackal earshot/joinWhen clamp above --
+            # never trust the model to have reproduced a value plays.py's
+            # own brief states incorrectly.
+            params = entry.setdefault("params", {})
+            phase = "endgame" if _in_marquee_zone_window(view) else "default"
+            for field, doctrine_by_phase in (
+                    ("pressRange", FIRE_SUPERIORITY_PRESS_RANGE),
+                    ("finishRange", FIRE_SUPERIORITY_FINISH_RANGE)):
+                doctrine = doctrine_by_phase[phase]
+                old = params.get(field)
+                if old != doctrine:
+                    starter_harness._log(
+                        PERSONA,
+                        f"clamp fire_superiority.{field} {old!r}->{doctrine} "
+                        f"phase={phase}")
+                params[field] = doctrine
+        elif entry.get("play") == "supply_run":
+            # WIRE FIX (see SUPPLY_DEFAULTS's note above): pin whenHpBelow
+            # to doctrine on every submitted entry, not just the
+            # insert-if-missing rung below.
+            params = entry.setdefault("params", {})
+            doctrine = SUPPLY_DEFAULTS["whenHpBelow"]
+            old = params.get("whenHpBelow")
+            if old != doctrine:
+                starter_harness._log(
+                    PERSONA,
+                    f"clamp supply_run.whenHpBelow {old!r}->{doctrine}")
+            params["whenHpBelow"] = doctrine
 
     # MARQUEE CLOCK BAND (T22): the v10 fix -- woundedPct zeroed so "ANY
     # numeric parity or better now PRESSES instead of holding" -- was
@@ -720,9 +781,12 @@ PERSONA = Persona(
                       "uncontested wall."),
         "supply_run": ("supply_run is the conversion play this lineage "
                        "always skipped: after a fight, bank the life. The "
-                       "harness guarantees the rung; you tune it. Avoid "
-                       "contested kits unless your pact gives you the "
-                       "numbers to race."),
+                       "harness guarantees the rung; you tune it. Doctrine "
+                       "whenHpBelow is 4, NOT the playbook's stated default "
+                       "of 3 -- this hp era's max is 4, and detouring only "
+                       "after a SECOND marker wastes the resupply window a "
+                       "single marker already opens. Avoid contested kits "
+                       "unless your pact gives you the numbers to race."),
         "loot": ("loot is how you get a gun in your hands at all: you "
                  "spawn empty-handed, the marker and its hopper are two "
                  "separate pickups, and a paint can none of us ever finds "
@@ -795,7 +859,14 @@ PERSONA = Persona(
                              "enemy -- naming it in your OPENING call costs "
                              "nothing on a quiet field and is already armed "
                              "the instant a fight starts; do not wait for "
-                             "consolidation to call it the first time."),
+                             "consolidation to call it the first time. "
+                             "Doctrine pressRange is 400 and finishRange is "
+                             "140, NOT the playbook's stated defaults of "
+                             "220/140 -- press from twice the raw default "
+                             "band, every phase before the endgame. In the "
+                             "endgame window, pressRange tightens to 340 "
+                             "and finishRange to 120: closer on both ends "
+                             "once the field is small."),
         "ring_walker": ("ring_walker is survival rule zero: the ring is "
                         "a schedule, not a surprise -- leave the building "
                         "BEFORE the walk turns into an escape, and only "

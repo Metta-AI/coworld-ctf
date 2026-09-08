@@ -1272,6 +1272,93 @@ check("a model call naming jackal with a WIDER earshot than the floor is "
       "honored, never clamped back down to 550",
       _wide_jk["params"].get("earshot") == 900, str(_wide_jk["params"]))
 
+# ── PRESS WIRE FIX (bug hunt 2026-09-08): the same "prose, not wire" gap
+# JOINACT closed for jackal existed, uncaught, for fire_superiority and
+# supply_run -- selfcheck's OWN pins (the whenHpBelow re-anchor pin above,
+# the finishRange<pressRange pin further down) only ever asserted against
+# policy.SUPPLY_DEFAULTS / PERSONA.canned_turns, our own literals, never
+# against a model-submitted entry run through adjust_entries. Measured
+# live (round 4457, n=102/55): pressRange 220 in 102/102 installs,
+# finishRange's endgame tighten (140->120) 0/102, whenHpBelow 4 in only
+# 12/55. Build the exact bare-schema submission a compliant-but-unread
+# model produces -- every value plays.py's playbook_brief states as the
+# raw manifest default -- for each phase adjust_entries can actually tell
+# apart (_in_marquee_zone_window only distinguishes endgame from
+# everything else; there is no separate opening signal), and assert the
+# COMMITTED wanted ladder carries doctrine, not the schema default. ──────
+_PRESS_PHASE_VIEWS = {
+    "default": {},
+    "endgame": {"world": {"zone": {"phase": policy.TOTAL_ZONE_PHASES,
+                                    "ticks_to_shrink": 0}}},
+}
+
+
+def _bare_schema_call():
+    return {"call": {"entries": [
+        {"play": "fire_superiority", "entry_id": "pressbreak",
+         "params": {"pressRange": 220, "finishRange": 140}},
+        {"play": "supply_run", "entry_id": "bank",
+         "params": {"whenHpBelow": 3}},
+        {"play": "jackal", "entry_id": "third",
+         "params": {"earshot": 500, "joinWhen": "afterKill"}},
+    ]}}
+
+
+for _phase, _view in _PRESS_PHASE_VIEWS.items():
+    _seat = fake_seat(view=_view)
+    starter_harness.repair_call(_bare_schema_call(), PERSONA, _seat, AVAILABLE)
+    _fs = next(e for e in _seat.wanted_entries if e["play"] == "fire_superiority")
+    _sr = next(e for e in _seat.wanted_entries if e["play"] == "supply_run")
+    _jk = next(e for e in _seat.wanted_entries if e["play"] == "jackal")
+    check(f"bare-schema submission (phase={_phase}): fire_superiority."
+          "pressRange clamps 220 -> doctrine, not the schema default",
+          _fs["params"].get("pressRange")
+          == policy.FIRE_SUPERIORITY_PRESS_RANGE[_phase],
+          str(_fs["params"]))
+    check(f"bare-schema submission (phase={_phase}): fire_superiority."
+          "finishRange clamps 140 -> doctrine, not the schema default",
+          _fs["params"].get("finishRange")
+          == policy.FIRE_SUPERIORITY_FINISH_RANGE[_phase],
+          str(_fs["params"]))
+    check(f"bare-schema submission (phase={_phase}): supply_run."
+          "whenHpBelow clamps 3 -> 4 (manifest max hp), not the stale "
+          "schema default",
+          _sr["params"].get("whenHpBelow") == policy.SUPPLY_DEFAULTS["whenHpBelow"],
+          str(_sr["params"]))
+    check(f"bare-schema submission (phase={_phase}): jackal earshot/"
+          "joinWhen still clamp (regression guard on the pre-existing fix)",
+          _jk["params"].get("earshot") == policy.JACKAL_MIN_EARSHOT
+          and _jk["params"].get("joinWhen") == policy.JACKAL_JOIN_WHEN,
+          str(_jk["params"]))
+
+# Negative: the new clamp owns exactly pressRange/finishRange/whenHpBelow
+# and must never touch a sibling field on the same entry, the same way the
+# jackal clamp above never touches exitAfter.
+_owned_call = {"call": {"entries": [
+    {"play": "fire_superiority", "entry_id": "pressbreak",
+     "params": {"pressRange": 220, "finishRange": 140, "woundedPct": 77,
+                "breakDeficit": 6, "engageDist": 512, "coverMax": 111}},
+    {"play": "supply_run", "entry_id": "bank",
+     "params": {"whenHpBelow": 3, "detourMax": 222, "contested": "race"}},
+]}}
+_seat = fake_seat()
+starter_harness.repair_call(_owned_call, PERSONA, _seat, AVAILABLE)
+_owned_fs = next(e for e in _seat.wanted_entries if e["play"] == "fire_superiority")
+_owned_sr = next(e for e in _seat.wanted_entries if e["play"] == "supply_run")
+check("fire_superiority clamp leaves woundedPct/breakDeficit/engageDist/"
+      "coverMax exactly as submitted -- it owns pressRange/finishRange "
+      "only",
+      _owned_fs["params"].get("woundedPct") == 77
+      and _owned_fs["params"].get("breakDeficit") == 6
+      and _owned_fs["params"].get("engageDist") == 512
+      and _owned_fs["params"].get("coverMax") == 111,
+      str(_owned_fs["params"]))
+check("supply_run clamp leaves detourMax/contested exactly as submitted "
+      "-- it owns whenHpBelow only",
+      _owned_sr["params"].get("detourMax") == 222
+      and _owned_sr["params"].get("contested") == "race",
+      str(_owned_sr["params"]))
+
 
 # ── v10 amendment: the endgame standoff fix, pinned against the SOURCE
 # formula (fire_superiority.nim play_step), not just the raw param value --
