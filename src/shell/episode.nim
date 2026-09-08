@@ -416,6 +416,8 @@ proc initShellEpisode*(season2Shell, brMode: bool,
     if control == scPlay:
       result.enabled = true
       result.seats.add(ShellSeatState(seat: uint8(index)))
+    else:
+      result.nav.setSeatActive(index, false)
 
 proc playContextRoster*(episode: ShellEpisode): seq[PlayContextRosterRow] =
   ## The roster every seat's PlayContext carries (seat order), for tests and
@@ -1093,6 +1095,9 @@ proc resetAfterDeath(state: var ShellSeatState, tick: uint32,
     seat: state.seat,
     kind: akClearOnDeath,
     clearGeneration: 0))
+  nav.resetNavigationLife(state.seat.int)
+  if state.body != nil:
+    state.body.navState = bnsIdle
   state.active = false
   state.standing = StandingOrderState()
   state.body = nil
@@ -1161,9 +1166,8 @@ proc summarizeSeatTick(body: SeatBody, result: var ShellTickResult) =
   ## Folds one seat's follower and weapon-path outcomes into the tick census.
   let seat = uint8(body.seatIndex)
   case body.navState
-  of bnsStalePath: result.nav.stalePathSeats.add seat
-  of bnsNoPath: result.nav.noPathSeats.add seat
-  of bnsIdle, bnsFollowing: discard
+  of bnsNoProgress: result.nav.noPathSeats.add seat
+  of bnsIdle, bnsFollowing, bnsSteering, bnsArrived: discard
   inc result.combat.counts[body.combatOutcome]
   case body.combatOutcome
   of coNoneShootable: result.combat.noneShootableSeats.add seat

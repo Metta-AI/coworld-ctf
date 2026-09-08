@@ -504,6 +504,29 @@ suite "shell episode ladder":
       it.bytes.contains("\"point\":[650,30]") and
       it.bytes.contains("\"reason\":\"current_self_probe\""))
 
+  test "a play navigate moves on its first accepted shell tick":
+    let modulePath = getTempDir() / "first-navigate-probe-" &
+      $getCurrentProcessId() & ".wasm"
+    writeCurrentSelfProbeWasm(modulePath)
+    defer:
+      if fileExists(modulePath):
+        removeFile(modulePath)
+
+    let map = splitRoomsMap()
+    var episode = initShellEpisode(true, true, controls(1), map, 331)
+    defer:
+      episode.closeShellEpisode()
+    let configLines = episode.configureDemoPlay(probeConfig(modulePath))
+    check configLines.anyIt(it.contains("SHELL_PLAY_CALL seat=0") and
+      it.contains("accepted=true"))
+
+    let output = episode.step([frame(0, (620, 30), 1)], 1)
+    check output.installs.anyIt(it.provenance == "entry:current_self_probe")
+    check output.masks.len == 1
+    check (output.masks[0].input.encodeInputMask() and
+      (ButtonUp or ButtonDown or ButtonLeft or ButtonRight)) != 0
+    check episode.seats[0].body.navState in {bnsFollowing, bnsSteering}
+
   test "handoff intent rides the standing order into the tick result rows":
     # §4.1 amendment wiring, shell side: a play that declares "handoff" in
     # its emitted Intent must surface that declaration in the step result's

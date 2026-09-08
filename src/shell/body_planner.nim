@@ -267,7 +267,8 @@ proc newBodyPlanner*(map: BodyMap): BodyPlanner =
   result.search.cameFrom = newSeq[int](result.capacity)
   result.resultPath = newSeq[BodyPoint](result.capacity + 2)
 
-proc workspaceCapacity*(planner: BodyPlanner): int = planner.capacity
+proc workspaceCapacity*(planner: BodyPlanner): int =
+  if planner == nil: 0 else: planner.capacity
 
 proc newBodyFieldMinter*(map: BodyMap): BodyFieldMinter =
   ## Activation-barrier constructor. The route-field Dijkstra runs on the

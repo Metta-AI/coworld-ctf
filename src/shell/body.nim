@@ -311,10 +311,11 @@ type
   BodyNavState* = enum
     ## What the follower did on the last seat tick; read by the episode's
     ## per-tick navigation summary (SHELL_NAV).
-    bnsIdle        ## no navigate order drove movement (hold, arrived, no goal, fire freeze)
-    bnsFollowing   ## walking the route planned for the current request
-    bnsStalePath   ## walking an older route while the current request's plan computes
-    bnsNoPath      ## navigate order, not arrived, but no route loaded yet: standing still
+    bnsIdle
+    bnsFollowing
+    bnsSteering
+    bnsNoProgress
+    bnsArrived
 
   CombatOutcome* = enum
     ## Why the weapon path did or did not fire on the last seat tick; read by
@@ -1347,17 +1348,28 @@ proc actFromBelief*(body: SeatBody, tick: uint32; elapsedTick = 0;
       if arrived(body.selfState.pos, goal.goalPoint,
           body.standingIntent.arriveRadius):
         seat.resetProgress(body.selfState.pos)
+        body.navState = bnsArrived
         needsIdleAim = true
       else:
         let waypoint = body.nav.navigationWaypoint(body.seatIndex,
           body.selfState.pos, goal, tick.int,
           body.standingIntent.movingGoal, body.standingIntent.profile,
-          effective.identity)
-        mask = octantToward(body.selfState.pos, waypoint)
-        body.navState =
-          if seat.hasNoPath: bnsNoPath
-          elif seat.followingStalePath: bnsStalePath
-          else: bnsFollowing
+          effective.identity, elapsedTick)
+        if body.nav.routeIndex == nil:
+          mask = octantToward(body.selfState.pos, waypoint)
+          body.navState =
+            if mask == 0'u8: bnsNoProgress else: bnsFollowing
+        elif seat.routeAdvancing(body.selfState.pos,
+            body.standingIntent.arriveRadius):
+          mask = octantToward(body.selfState.pos, waypoint)
+          body.navState = bnsFollowing
+        else:
+          let steeringTarget =
+            if waypoint != body.selfState.pos: waypoint else: goal.goalPoint
+          mask = body.nav.steeringMask(body.seatIndex, body.selfState.pos,
+            steeringTarget, body.standingIntent.profile, elapsedTick)
+          body.navState =
+            if mask == 0'u8: bnsNoProgress else: bnsSteering
         if mask != 0'u8:
           seat.noteProgress(body.selfState.pos)
         else:

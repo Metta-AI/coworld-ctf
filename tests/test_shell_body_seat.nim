@@ -186,6 +186,22 @@ suite "shell body seat belief-lite seam":
     check sawFirst
     check sawSecond
 
+  test "inactive navigation seats are skipped and cannot be queried":
+    let
+      map = openMap()
+      nav = newBodyNavSystem(map, 2, 331, traceCapacity = 8,
+        prepareRouteQueries = true)
+      start: BodyPoint = (16, 48)
+      goal = map.validateGoal((160, 48), start).get
+    nav.setSeatActive(1, false)
+    nav.rebuildScheduledDanger(1, [DangerInput(), DangerInput()])
+    check nav.dangerTraceSnapshot.len == 0
+    expect AssertionDefect:
+      discard nav.navigationWaypoint(1, start, goal, 1)
+    expect AssertionDefect:
+      discard nav.steeringMask(1, start, goal.goalPoint,
+        shellTypes.cpDefault, 0)
+
   test "standing intent validates goals without mutating navigation work":
     let map = openMap()
     let body = activateSeatBody(map, 3, 331)

@@ -43,6 +43,12 @@ const
   FollowStuckWindowTicks = 48
   FollowBlockTtlTicks = 96
   MaxDangerSources* = 8
+  FollowLookaheadK* = 6
+  RoutePhaseStart = 0'u8
+  RoutePhaseEdges = 1'u8
+  RoutePhaseGoal = 2'u8
+  RoutePhaseEndpoint = 3'u8
+  RoutePhaseDone = 4'u8
 
 type
   DangerWorkspace = object
@@ -70,6 +76,10 @@ type
     identity*: NavTargetIdentity
     profile*: shellTypes.CostProfile
     moving*: bool
+
+  BodyRouteCursor* = object
+    phase*: uint8
+    edgeIndex*, cellOffset*: uint16
 
   BodyNavSeat* = ref object
     index*: int
@@ -112,8 +122,10 @@ type
     installedStartLeg: array[RouteLocalLegCap, int32]
     installedGoalLeg: array[RouteLocalLegCap, int32]
     installedRevision: uint64
-    installedCursor: uint16
+    routeCursor*: BodyRouteCursor
     installedAnchor: BodyPoint
+    lastQuerySucceeded*: bool
+    lastQueryFailure*: BodyRouteFailure
 
   PlanningVisit* = object
     tick*: int
@@ -157,6 +169,7 @@ type
     seats*: seq[BodyNavSeat]
     routeIndex*: BodyRouteIndex
     routeScratch*: BodyRouteQueryScratch
+    hazard: BodyHazardOverlay
     minter*: BodyFieldMinter
     dangerK*: int
     lastPlanSeat*: int
@@ -255,7 +268,7 @@ proc newBodyNavSystem*(map: BodyMap, seatCount, liveGunRangePx: int,
   let dangerGeometry = initDangerGeometry(liveGunRangePx)
   for index in 0 ..< seatCount:
     let cache = newBodySeatCache(map)
-    let planner = newBodyPlanner(map)
+    let planner = if prepareRouteQueries: nil else: newBodyPlanner(map)
     let danger = initDanger(map)
     result.seats[index] = BodyNavSeat(index: index, cache: cache,
       planner: planner, danger: danger.field,
@@ -287,7 +300,7 @@ proc installRoute*(seat: BodyNavSeat, scratch: BodyRouteQueryScratch,
   seat.installedStartLeg = startLeg
   seat.installedGoalLeg = goalLeg
   seat.installedDescriptor = route.descriptor
-  seat.installedCursor = 0
+  seat.routeCursor = BodyRouteCursor(phase: RoutePhaseStart)
   seat.installedAnchor = route.descriptor.exactStart
   seat.installedRevision = revision
   true
@@ -296,7 +309,7 @@ proc installedRouteRevision*(seat: BodyNavSeat): uint64 =
   if seat == nil: 0 else: seat.installedRevision
 
 proc installedRouteCursor*(seat: BodyNavSeat): int =
-  if seat == nil: 0 else: seat.installedCursor.int
+  if seat == nil: 0 else: seat.routeCursor.cellOffset.int
 
 proc installedRouteAnchor*(seat: BodyNavSeat): BodyPoint =
   if seat == nil: (0, 0) else: seat.installedAnchor
@@ -309,7 +322,8 @@ proc installedRouteFingerprint*(seat: BodyNavSeat): Hash =
     hash(seat.installedDescriptor.goalLegLen) !&
     hash(seat.installedDescriptor.exactStart) !&
     hash(seat.installedDescriptor.exactGoal) !&
-    hash(seat.installedCursor) !& hash(seat.installedAnchor)
+    hash(seat.routeCursor.phase) !& hash(seat.routeCursor.edgeIndex) !&
+    hash(seat.routeCursor.cellOffset) !& hash(seat.installedAnchor)
   for offset in 0 ..< seat.installedDescriptor.edgeCount.int:
     value = value !& hash(uint16(seat.installedEdges[offset]))
   for offset in 0 ..< seat.installedDescriptor.startLegLen.int:
@@ -388,6 +402,45 @@ proc dangerTraceSnapshot*(system: BodyNavSystem): seq[DangerRebuild] =
 
 proc setSeatActive*(system: BodyNavSystem, seat: int, active: bool) =
   system.seats[seat].active = active
+
+proc resetNavigationLife*(system: BodyNavSystem, seatIndex: int) =
+  if system == nil or seatIndex < 0 or seatIndex >= system.seats.len:
+    raise newException(ValueError, "body navigation seat index is out of range")
+  let seat = system.seats[seatIndex]
+  doAssert seat.active,
+    "navigation life must be cleared before the seat becomes inactive"
+
+  seat.installedDescriptor = BodyRouteDescriptor()
+  seat.installedEdges = default(array[RouteEdgeCap, RouteEdgeRef])
+  seat.installedStartLeg = default(array[RouteLocalLegCap, int32])
+  seat.installedGoalLeg = default(array[RouteLocalLegCap, int32])
+  seat.routeCursor = BodyRouteCursor(phase: RoutePhaseDone)
+  seat.installedAnchor = (0, 0)
+  seat.installedRevision = 0
+
+  seat.acceptedAnchor = none(NavRequestAnchor)
+  seat.desiredGoal = none(BodyPoint)
+  seat.revision = 0
+  seat.lastXy = none(BodyPoint)
+  seat.stuckTicks = 0
+  seat.blockedPenalty = none(tuple[pos: BodyPoint, untilTick: int])
+  seat.lastPlanTick = 0
+  seat.lastFollowReplanTick = none(int)
+  seat.followReplans = 0
+  seat.followStuckEvents = 0
+  seat.desiredProfile = shellTypes.cpDefault
+  seat.desiredMoving = false
+  seat.lastQuerySucceeded = false
+  seat.lastQueryFailure = brfNone
+
+  seat.pathLen = 0
+  seat.pathRevision = 0
+  seat.cursor = 0
+  seat.job = BodyPlanJob()
+  seat.mintJob = BodyMintJob()
+  seat.mintGoal = none(BodyPoint)
+  seat.mintRevision = 0
+  seat.planVisits = 0
 
 proc nextVisitGeneration(seat: BodyNavSeat) =
   if seat.dangerWorkspace.visitGeneration == high(uint32):
@@ -810,6 +863,13 @@ proc shouldQueryRoute*(seat: BodyNavSeat; anchor: NavRequestAnchor;
     return true
   if anchor.profile != accepted.profile:
     return true
+  if seat.planner == nil:
+    if seat.installedRevision == 0 or
+        seat.routeCursor.phase >= RoutePhaseDone:
+      return true
+    if seat.stuckTicks >= StuckTicks:
+      return true
+    return anchor.moving and tick - seat.lastPlanTick >= PlanMovingReplanTicks
   if seat.job.planPending:
     return false
   if seat.pathLen == 0 or seat.cursor >= seat.pathLen:
@@ -825,6 +885,176 @@ proc acceptRequestAnchor*(seat: BodyNavSeat; anchor: NavRequestAnchor;
   seat.acceptedAnchor = some(anchor)
   seat.desiredMoving = anchor.moving
   seat.lastPlanTick = tick
+
+proc normalizeRouteCursor(seat: BodyNavSeat; index: BodyRouteIndex) =
+  while seat.routeCursor.phase < RoutePhaseDone:
+    case seat.routeCursor.phase
+    of RoutePhaseStart:
+      if seat.routeCursor.cellOffset < seat.installedDescriptor.startLegLen:
+        return
+      seat.routeCursor = BodyRouteCursor(phase: RoutePhaseEdges)
+    of RoutePhaseEdges:
+      if seat.routeCursor.edgeIndex >= seat.installedDescriptor.edgeCount:
+        seat.routeCursor = BodyRouteCursor(phase: RoutePhaseGoal)
+        continue
+      let edge = seat.installedEdges[seat.routeCursor.edgeIndex]
+      let length = index.routeSegmentAt(edge.routeEdgeSegment).cellLen
+      if seat.routeCursor.cellOffset < length:
+        return
+      inc seat.routeCursor.edgeIndex
+      seat.routeCursor.cellOffset = 0
+    of RoutePhaseGoal:
+      if seat.routeCursor.cellOffset < seat.installedDescriptor.goalLegLen:
+        return
+      seat.routeCursor = BodyRouteCursor(phase: RoutePhaseEndpoint)
+    of RoutePhaseEndpoint:
+      if seat.routeCursor.cellOffset == 0:
+        return
+      seat.routeCursor = BodyRouteCursor(phase: RoutePhaseDone)
+    else:
+      seat.routeCursor.phase = RoutePhaseDone
+
+proc routeCursorPoint(seat: BodyNavSeat; index: BodyRouteIndex;
+    offset = 0): Option[BodyPoint] =
+  let targetOffset = seat.routeCursor.cellOffset.int + offset
+  case seat.routeCursor.phase
+  of RoutePhaseStart:
+    if targetOffset < seat.installedDescriptor.startLegLen.int:
+      return some(index.routePoint(seat.installedStartLeg[targetOffset]))
+  of RoutePhaseEdges:
+    if seat.routeCursor.edgeIndex < seat.installedDescriptor.edgeCount:
+      let edge = seat.installedEdges[seat.routeCursor.edgeIndex]
+      let segment = index.routeSegmentAt(edge.routeEdgeSegment)
+      if targetOffset < segment.cellLen.int:
+        return some(index.routePoint(index.segmentCellAt(
+          edge.routeEdgeSegment, targetOffset, edge.routeEdgeReversed)))
+  of RoutePhaseGoal:
+    if targetOffset < seat.installedDescriptor.goalLegLen.int:
+      return some(index.routePoint(seat.installedGoalLeg[targetOffset]))
+  of RoutePhaseEndpoint:
+    if targetOffset == 0:
+      return some(seat.installedDescriptor.exactGoal)
+  else:
+    discard
+  none(BodyPoint)
+
+proc advanceRouteCursor(seat: BodyNavSeat; index: BodyRouteIndex) =
+  inc seat.routeCursor.cellOffset
+  seat.normalizeRouteCursor(index)
+
+proc routeWaypoint*(seat: BodyNavSeat; index: BodyRouteIndex;
+    selfPos: BodyPoint): Option[BodyPoint] =
+  if seat == nil or index == nil or seat.installedRevision == 0:
+    return none(BodyPoint)
+  seat.normalizeRouteCursor(index)
+  while seat.routeCursor.phase < RoutePhaseDone:
+    var
+      found = false
+      best = selfPos
+      bestOffset = 0
+    for offset in 0 .. FollowLookaheadK:
+      let candidate = seat.routeCursorPoint(index, offset)
+      if candidate.isNone:
+        break
+      if index.map.segmentClear(selfPos, candidate.get):
+        found = true
+        best = candidate.get
+        bestOffset = offset
+    if not found:
+      seat.installedAnchor = selfPos
+      return seat.routeCursorPoint(index)
+    seat.routeCursor.cellOffset = uint16(
+      seat.routeCursor.cellOffset.int + bestOffset)
+    if distance(selfPos, best) >= 1.0:
+      seat.installedAnchor = best
+      return some(best)
+    seat.advanceRouteCursor(index)
+  seat.installedAnchor = seat.installedDescriptor.exactGoal
+  none(BodyPoint)
+
+proc routeAdvancing*(seat: BodyNavSeat; selfPos: BodyPoint;
+    arriveRadius: float): bool =
+  seat != nil and seat.installedRevision != 0 and
+    seat.routeCursor.phase < RoutePhaseDone and
+    distance(selfPos, seat.installedAnchor) > arriveRadius
+
+proc profileWeightQ8(profile: shellTypes.CostProfile): int64 {.inline.} =
+  case profile
+  of shellTypes.cpDefault: 256
+  of shellTypes.cpCarrier: 640
+  of shellTypes.cpHunter: 64
+
+proc divideRoundTiesEven(numerator, denominator: int64): int64 {.inline.} =
+  let
+    quotient = numerator div denominator
+    remainder = numerator mod denominator
+    doubled = remainder * 2
+  if doubled > denominator or
+      (doubled == denominator and (quotient and 1) != 0):
+    quotient + 1
+  else:
+    quotient
+
+proc pixelDistanceQ4(a, b: BodyPoint): int64 {.inline.} =
+  let
+    dx = a.x - b.x
+    dy = a.y - b.y
+  int64(round(sqrt(float(dx * dx + dy * dy)) * 16.0))
+
+proc steeringDangerCost(seat: BodyNavSeat; map: BodyMap;
+    candidate: BodyPoint; profile: shellTypes.CostProfile;
+    stepQ4: int64): int64 =
+  let sampled = max(0.0, seat.danger.sample(map, candidate))
+  let dangerQ8 = int64(pyRound(sampled * 256.0))
+  divideRoundTiesEven(
+    stepQ4 * profile.profileWeightQ8 * dangerQ8, 65_536)
+
+proc neighborMask(delta: BodyPoint): uint8 {.inline.} =
+  if delta.x < 0: result = result or ButtonLeft
+  elif delta.x > 0: result = result or ButtonRight
+  if delta.y < 0: result = result or ButtonUp
+  elif delta.y > 0: result = result or ButtonDown
+
+proc steeringMask*(system: BodyNavSystem; seatIndex: int;
+    selfPos, target: BodyPoint; profile: shellTypes.CostProfile;
+    elapsedTick: int): uint8 =
+  if system == nil or seatIndex < 0 or seatIndex >= system.seats.len:
+    raise newException(ValueError, "body navigation seat index is out of range")
+  let seat = system.seats[seatIndex]
+  doAssert seat.active, "inactive navigation seat queried"
+  let currentDistance = pixelDistanceQ4(selfPos, target)
+  var
+    found = false
+    bestScore = low(int64)
+  for delta in NavNeighbors:
+    let candidate = (selfPos.x + delta.x * NavCell,
+      selfPos.y + delta.y * NavCell)
+    if not system.map.canStand(candidate) or
+        not system.map.segmentClear(selfPos, candidate):
+      continue
+    if seat.blockedPenalty.isSome and
+        system.map.cellOf(candidate) ==
+          system.map.cellOf(seat.blockedPenalty.get.pos):
+      continue
+    let progress = currentDistance - pixelDistanceQ4(candidate, target)
+    if progress <= 0:
+      continue
+    let stepQ4 = if delta.x != 0 and delta.y != 0: 181'i64 else: 128'i64
+    var hazardCost = 0'i64
+    if system.hazard != nil:
+      let cell = system.map.cellOf(candidate)
+      hazardCost = system.hazard.hazardStepCostQ4(
+        cell.y * system.map.gridWidth + cell.x,
+        elapsedTick + (stepQ4.int + HazardEtaSpeedQ4 - 1) div
+          HazardEtaSpeedQ4,
+        uint32(stepQ4))
+    let score = progress -
+      seat.steeringDangerCost(system.map, candidate, profile, stepQ4) -
+      hazardCost
+    if not found or score > bestScore:
+      found = true
+      bestScore = score
+      result = neighborMask(delta)
 
 proc octantToward*(selfXy, waypoint: BodyPoint): uint8 =
   let dx = waypoint.x - selfXy.x
@@ -843,8 +1073,9 @@ proc navigationWaypoint*(system: BodyNavSystem, seatIndex: int,
     selfXy: BodyPoint, goal: ValidatedGoal, tick: int,
     movingTarget = false, profile = shellTypes.cpDefault,
     targetIdentity = NavTargetIdentity(kind: ntiLiteral,
-      sourceCell: -1)): BodyPoint =
+      sourceCell: -1), elapsedZoneTick = 0): BodyPoint =
   let seat = system.seats[seatIndex]
+  doAssert seat.active, "inactive navigation seat queried"
   if seat.blockedPenalty.isSome and
       tick >= seat.blockedPenalty.get.untilTick:
     seat.blockedPenalty = none(tuple[pos: BodyPoint, untilTick: int])
@@ -866,6 +1097,25 @@ proc navigationWaypoint*(system: BodyNavSystem, seatIndex: int,
     seat.lastFollowReplanTick = some(tick)
     seat.blockedPenalty = some((selfXy, tick + FollowBlockTtlTicks))
     inc seat.followReplans
+  if system.routeIndex != nil:
+    if seat.shouldQueryRoute(anchor, tick):
+      inc seat.revision
+      seat.desiredGoal = some(goal.goalPoint)
+      seat.desiredProfile = profile
+      let request = BodyRouteRequest(start: selfXy, goal: goal,
+        profile: profile, danger: addr seat.danger,
+        blockedCell: if seat.blockedPenalty.isSome:
+          some(seat.blockedPenalty.get.pos) else: none(BodyPoint),
+        hazard: system.hazard, elapsedZoneTick: elapsedZoneTick)
+      let route = system.routeIndex.queryBodyRoute(system.routeScratch, request)
+      seat.acceptRequestAnchor(anchor, tick)
+      seat.lastQuerySucceeded = route.ok
+      seat.lastQueryFailure = route.failure
+      if route.ok:
+        doAssert seat.installRoute(system.routeScratch, route, seat.revision)
+      seat.stuckTicks = 0
+    let waypoint = seat.routeWaypoint(system.routeIndex, selfXy)
+    return if waypoint.isSome: waypoint.get else: selfXy
   if seat.shouldQueryRoute(anchor, tick):
     inc seat.revision
     let avoid = if seat.blockedPenalty.isSome:
@@ -884,6 +1134,7 @@ proc installSafetyContext*(system: BodyNavSystem; hazard: BodyHazardOverlay;
   if system == nil or system.routeScratch == nil:
     raise newException(ValueError,
       "body navigation safety context requires route query scratch")
+  system.hazard = hazard
   system.routeScratch.installSafetyContext(hazard, cache)
 
 proc safetyHintsReady*(system: BodyNavSystem): bool =

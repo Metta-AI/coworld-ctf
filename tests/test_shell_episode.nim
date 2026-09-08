@@ -4,7 +4,7 @@ import std/[json, os, options, sequtils, strutils, unittest]
 import bitworld/spriteprotocol
 import ../src/ctf/[replays, sim_config, sim_types]
 import ../src/shell/[binary_view, body, body_map, body_nav, body_planner,
-  default_play, episode, standing_order, types]
+  body_route_query, default_play, episode, standing_order, types]
 
 proc controls(kind: SlotControl, count: int): seq[SlotControl] =
   result = newSeq[SlotControl](count)
@@ -278,6 +278,53 @@ suite "shell episode":
       "\"schema\":\"intent\",\"v\":1}"
     check respawn.installs[^1].bytes == firstDefault
 
+  test "death clears bounded route life before inactive and respawn starts empty":
+    let
+      map = testBodyMap()
+      start: BodyPoint = (10, 10)
+      target: BodyPoint = (100, 10)
+      goal = map.validateGoal(target, start).get
+      intent = Intent(kind: ikNavigateTo,
+        point: some(MapPoint(x: target.x, y: target.y)),
+        profile: cpDefault, combat: CombatPolicy())
+    var episode = initShellEpisode(true, false, controls(scPlay, 1),
+      map, 331)
+    discard episode.step([frame(map, 0, start)], 1)
+    let body = episode.seats[0].body
+    body.setStandingIntent(intent, some(goal), 1)
+    body.updateBelief(frame(map, 0, start).bodyInputs, 1)
+    check body.actFromBelief(1).encodeInputMask() != 0
+    let seat = episode.nav.seats[0]
+    check seat.acceptedAnchor.isSome
+    check seat.installedRouteRevision > 0
+
+    discard episode.observeDeaths([frame(map, 0, alive = false)], 2)
+    check not episode.seats[0].active
+    check body.navState == bnsIdle
+    check not seat.active
+    check seat.acceptedAnchor.isNone
+    check seat.installedRouteRevision == 0
+    check seat.revision == 0
+    check seat.lastXy.isNone
+    check seat.blockedPenalty.isNone
+    check seat.desiredGoal.isNone
+    check not seat.lastQuerySucceeded
+    check seat.lastQueryFailure == brfNone
+    expect AssertionDefect:
+      discard episode.nav.navigationWaypoint(0, start, goal, 2)
+
+    discard episode.step([frame(map, 0, start)], 3)
+    check episode.seats[0].active
+    check seat.active
+    check seat.acceptedAnchor.isNone
+    check seat.installedRouteRevision == 0
+    let respawned = episode.seats[0].body
+    respawned.setStandingIntent(intent, some(goal), 1)
+    respawned.updateBelief(frame(map, 0, start).bodyInputs, 3)
+    check respawned.actFromBelief(3).encodeInputMask() != 0
+    check seat.acceptedAnchor.isSome
+    check seat.installedRouteRevision > 0
+
   test "32 real bodies hand movement masks through the ordinary replay path":
     let map = testBodyMap()
     var episode = initShellEpisode(true, true, controls(scPlay, 32),
@@ -403,6 +450,7 @@ suite "shell episode":
       var episode = initShellEpisode(true, true, controls(scPlay, 1),
         map, 32)
       var pos = start
+      result.path = @[start]
       for tick in 1 .. 160:
         let threat =
           if threats: some((192, 80)) else: none(BodyPoint)
@@ -410,7 +458,7 @@ suite "shell episode":
           rotateFrame(map, 0, pos, target, tick, threat)], uint32(tick))
         for mask in output.masks:
           pos.applyMask(mask.input)
-      result.path = episode.nav.seats[0].activePath
+          result.path.add(pos)
       result.dangerMaximum = episode.nav.seats[0].danger.maximum
       result.pathDanger = pathDanger(map, episode.nav.seats[0].danger,
         result.path)

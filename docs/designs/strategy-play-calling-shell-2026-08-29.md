@@ -170,20 +170,20 @@ Per Season 2 seat, the game maintains and runs:
   before any seat activates (section 10's barrier), is immutable
   afterward, and is shared by every seat: the clearance field, the
   walkable grid, connected components, rooms and chokepoints, cover
-  sectors, and the firing-position atlas. The **seat layer** is each
-  seat's own bounded caches over that shared layer: at most
-  `MaxRouteFieldsPerSeat` (4) route fields and `MaxDuckEntriesPerSeat`
-  (256) duck results, least-recently-used eviction, memory counted in
-  the per-seat budget, and cold-query cost counted in the tick budget.
-  The body and both spatial imports read the shared layer and the
-  seat's own caches, never another seat's, so query order across seats
-  cannot change any result, latency class, or retained memory; a
-  32-seat test permutes seat order and asserts exactly that.
+  sectors, firing-position atlas, and `BodyRouteIndex`. Active play-seat route
+  queries use one shared bounded workspace and run sequentially. The **seat
+  layer** retains its own danger raster, bounded duck cache, and fixed route
+  descriptor buffers, but no map-sized route-search workspace. The body and
+  both spatial imports read the shared layer and the seat's own state, never
+  another seat's, so query order across seats cannot change any result,
+  latency class, or retained memory. The older route-field planner remains
+  compiled only through the navigation cutover and no longer produces
+  play-seat masks (Appendix H.3, ruling twelve).
 - **The executor.** Stencil's action resolution (`LAB:action.nim:402-551`),
-  navigation follower with its corridor rule (`LAB:nav.nim`), pure weighted
-  A* planner (`LAB:planner.nim`), and combat layer (`LAB:fight.nim`),
-  executing the seat's current `Intent` every tick: plan and follow a route
-  to the intent's goal, manage micro-movement within the allowed set, pick
+  navigation follower with its corridor rule (`LAB:nav.nim`), and combat layer
+  (`LAB:fight.nim`), executing the seat's current `Intent` every tick: query
+  and follow a bounded hierarchical route to the intent's goal, steer locally
+  when no route advances, manage micro-movement within the allowed set, pick
   and engage targets under the intent's combat policy, and emit the seat's
   button mask into the sim.
 
@@ -269,6 +269,9 @@ ruling, and a fixed CTF golden cycles a seat through more than
 `MaxRouteFieldsPerSeat` goals, evicts the original field, and compares
 the next plan against stencil with the difference attributed.
 
+This ruling describes the legacy planner retained for differential coverage.
+Ruling twelve supersedes it for active play-seat movement.
+
 **Staggered danger-field rebuilds.** A fifth ruling, forced by P0's
 body measurement (2026-08-30): thirty-two seats rebuilding their
 multi-source danger fields on the same tick cost ~109 ms on a fast
@@ -297,6 +300,9 @@ differential allowlist covers the delay; a golden pins the queue order
 under a mass retarget. Whether the cold plan itself is reducible (a
 warm oracle, coarse-first planning) is a named P1 investigation, not a
 gate: the queue makes the tick safe either way.
+
+This ruling likewise remains as legacy-planner history. Active play-seat
+movement uses ruling twelve's synchronous bounded query and same-tick steering.
 
 **Capped danger-rebuild sources.** A seventh ruling, from the same
 measurement's sharpest edge: one seat rebuilding its danger field
@@ -3323,8 +3329,20 @@ its existing targeting, corridor, and threat-score effects; ward-relative
 movement remains play territory. This changes live play-seat masks but no
 wire layout or canonical bytes, so it does not bump GameVersion.
 
-### H.3 Ratified decisions (James, 2026-08-29 and 2026-08-30)
+### H.3 Ratified decisions (James, 2026-08-29 through 2026-09-08)
 
+- Ruling twelve (2026-09-08) replaces live full-grid planning for active play
+  seats with synchronous bounded queries over one immutable episode route
+  index. A seat copies only the bounded endpoint legs and edge descriptors;
+  the follower reads middle segments and crossings from the shared index,
+  smooths at most six cells using the exact pixel-clear predicate from the
+  cog's real position, and retains a failed query's old route only while it
+  advances. When no route advances, deterministic eight-octant steering emits
+  a progressing mask on the same tick or reports no progress; arrival is a
+  separate state. Death clears every per-life descriptor, cursor, request,
+  revision, progress, block, and query result before the seat becomes inactive.
+  The legacy planner stays compiled and tested through the cutover cleanup, but
+  does not produce production play-seat masks.
 - Plays are WebAssembly modules sent over the websocket and executed
   game-side in an engine-embedded runtime. The "compiled Nim" requirement
   is dropped: what matters is a module implementing the play ABI. Nim is
