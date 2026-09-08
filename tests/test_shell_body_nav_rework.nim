@@ -132,6 +132,23 @@ suite "shared navigation rework Phase 1 contract":
       seat.mintJob.workUnits == mintBefore and
       seat.planner.workspaceCapacity notin mapSizedCapacities
 
+  test "route query workspace is shared and per-seat route storage is fixed":
+    let
+      small = newBodyNavSystem(openMap(), 1, 331,
+        prepareRouteQueries = true)
+      arenaMap = newBodyMap(loadCtfMapMetadata("arena"))
+      large = newBodyNavSystem(arenaMap, 32, 331,
+        prepareRouteQueries = true)
+    check small.routeIndex.routeIndexStats.navCells !=
+      large.routeIndex.routeIndexStats.navCells
+    check small.routeIndex.fineAnchorCount != large.routeIndex.fineAnchorCount
+    check small.routeScratch != nil
+    check large.routeScratch != nil
+    check sizeof(small.seats[0][]) == sizeof(large.seats[0][])
+    for seat in large.seats:
+      check seat.planner == nil
+      check seat.path.len == 2
+
   test "steering is deterministic when a bounded query has no route":
     let
       map = openMap()

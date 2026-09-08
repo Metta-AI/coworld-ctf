@@ -89,11 +89,14 @@ and the replay), so any two streams join on it. Seat lists are printed as
   edge_band_shipped=B` — the zone schedule and arrival-field state, printed
   when `SHELL_ZONE_LOG=1` for ticks 0–4 and every 60th tick. `elapsed`
   is the zone schedule's clock and remains 0 until the round starts.
-- `SHELL_NAV tick=T pending_plans=N stale_path=[...] no_path=[...]` —
-  follower census: seats walking a route planned for an earlier request
-  while the current one computes, and seats with a navigate order and no
-  route at all (standing still). Printed once a second and on every tick
-  with a plan-budget event, so the two join.
+- `SHELL_NAV tick=T idle=N following=N steering=N no_progress=N arrived=N
+  steering_seats=[...] no_progress_seats=[...]` — bounded-follower census
+  over active, alive play seats. `following` means a precomputed route is
+  advancing; `steering` means deterministic local steering is advancing
+  without a route; `no_progress` means neither path can make physical
+  progress; and `arrived` means the validated endpoint is reached. The two
+  seat lists identify the states most useful for diagnosis. Printed once a
+  second and on every tick with a plan-budget event.
 - `SHELL_COMBAT tick=T fired= aligning= none_shootable= vetoed=
   no_enemy= none_shootable_seats=[...] aligning_seats=[...]` — weapon-path
   census, once a second. `aligning` is a shootable target held but not yet

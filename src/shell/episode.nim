@@ -117,11 +117,11 @@ type
 
   ShellNavSummary* = object
     ## Per-tick follower census over active, alive play seats; the server
-    ## prints it as SHELL_NAV so plan-budget events can be joined by
-    ## tick to what the followers were doing.
-    pendingPlans*: int            ## seats whose cold plan is still computing
-    stalePathSeats*: seq[uint8]   ## walking an older route while a plan computes
-    noPathSeats*: seq[uint8]      ## navigate order, not arrived, no route loaded
+    ## prints it as SHELL_NAV so route-query outcomes can be joined by tick to
+    ## what the bounded followers were doing.
+    counts*: array[BodyNavState, int]
+    steeringSeats*: seq[uint8]
+    noProgressSeats*: seq[uint8]
 
   ShellCombatSummary* = object
     ## Per-tick weapon-path census over active, alive play seats; the server
@@ -1165,9 +1165,11 @@ proc dangerInputs(episode: ShellEpisode,
 proc summarizeSeatTick(body: SeatBody, result: var ShellTickResult) =
   ## Folds one seat's follower and weapon-path outcomes into the tick census.
   let seat = uint8(body.seatIndex)
+  inc result.nav.counts[body.navState]
   case body.navState
-  of bnsNoProgress: result.nav.noPathSeats.add seat
-  of bnsIdle, bnsFollowing, bnsSteering, bnsArrived: discard
+  of bnsSteering: result.nav.steeringSeats.add seat
+  of bnsNoProgress: result.nav.noProgressSeats.add seat
+  of bnsIdle, bnsFollowing, bnsArrived: discard
   inc result.combat.counts[body.combatOutcome]
   case body.combatOutcome
   of coNoneShootable: result.combat.noneShootableSeats.add seat
@@ -1458,7 +1460,6 @@ proc step*(episode: var ShellEpisode,
   stageBlock(result.stageNanoseconds, ssPlanning, "shell.planning"):
     discard episode.nav.runPlanningTick(tick.int)
   result.planBudget = episode.nav.drainPlanBudgetEvents()
-  result.nav.pendingPlans = episode.nav.pendingPlanCount()
 
 proc observeDeaths*(episode: var ShellEpisode,
     frames: openArray[ShellSeatFrame], tick: uint32): seq[ShellAnnotation] =
@@ -1503,9 +1504,13 @@ proc formatPlanBudgetEvent*(event: PlanBudgetEvent): string =
     &"outcome={outcome}"
 
 proc formatNavSummary*(tick: uint32, nav: ShellNavSummary): string =
-  &"SHELL_NAV tick={tick} pending_plans={nav.pendingPlans} " &
-    &"stale_path={nav.stalePathSeats.seatList} " &
-    &"no_path={nav.noPathSeats.seatList}"
+  &"SHELL_NAV tick={tick} idle={nav.counts[bnsIdle]} " &
+    &"following={nav.counts[bnsFollowing]} " &
+    &"steering={nav.counts[bnsSteering]} " &
+    &"no_progress={nav.counts[bnsNoProgress]} " &
+    &"arrived={nav.counts[bnsArrived]} " &
+    &"steering_seats={nav.steeringSeats.seatList} " &
+    &"no_progress_seats={nav.noProgressSeats.seatList}"
 
 proc formatCombatSummary*(tick: uint32,
                           combat: ShellCombatSummary): string =

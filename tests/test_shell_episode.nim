@@ -239,6 +239,20 @@ suite "shell episode":
       "\"kind\":\"hold\",\"reason\":\"default:hold\"," &
       "\"schema\":\"intent\",\"v\":1}"
     check output.masks.len == 1
+    check output.nav.counts[bnsIdle] == 1
+
+  test "navigation summary reports every bounded follower state":
+    var nav: ShellNavSummary
+    nav.counts[bnsIdle] = 1
+    nav.counts[bnsFollowing] = 2
+    nav.counts[bnsSteering] = 3
+    nav.counts[bnsNoProgress] = 4
+    nav.counts[bnsArrived] = 5
+    nav.steeringSeats = @[2'u8, 7'u8]
+    nav.noProgressSeats = @[9'u8]
+    check formatNavSummary(37, nav) ==
+      "SHELL_NAV tick=37 idle=1 following=2 steering=3 no_progress=4 " &
+      "arrived=5 steering_seats=[2,7] no_progress_seats=[9]"
 
   test "death clears cache and BR never respawns":
     let map = testBodyMap()

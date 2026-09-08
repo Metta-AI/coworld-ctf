@@ -318,6 +318,63 @@ suite "bounded hierarchical body route query":
       profile: shellTypes.cpCarrier, danger: addr danger,
       hazard: overlay, elapsedZoneTick: 120), route)
 
+  test "danger blocked-cell and zone hazard costs compose in one query":
+    let
+      map = openMap()
+      index = newBodyRouteIndex(map)
+      scratch = newBodyRouteQueryScratch(index)
+      pair = index.sameRoomHorizontalPair()
+      blocked: BodyPoint = ((pair.a.x + pair.b.x) div 2, pair.a.y)
+      goal = map.goalAt(pair.b, pair.a)
+      stats = index.routeIndexStats()
+    var
+      danger = BodyDangerField(values: newSeq[float32](stats.navCells),
+        gridW: map.gridWidth, gridH: map.gridHeight)
+      overlay = BodyHazardOverlay(state: bhsReady, fingerprint: 77,
+        arrival: newSeq[uint16](stats.navCells),
+        roomMaxArrival: newSeq[uint16](stats.rooms))
+    for cell in 0 ..< stats.navCells:
+      let point = index.routePoint(int32(cell))
+      danger.values[cell] = float32((point.x * 3 + point.y * 5) mod 7)
+      overlay.arrival[cell] = uint16(40 + (point.x + point.y) mod 80)
+      let room = index.roomForCell(cell)
+      if room >= 0:
+        overlay.roomMaxArrival[room] = max(overlay.roomMaxArrival[room],
+          overlay.arrival[cell])
+    let extrema = index.segmentArrivalExtrema(overlay.arrival,
+      HazardNeverArrives)
+    overlay.segmentArrivalMin = extrema.minimum
+    overlay.segmentArrivalMax = extrema.maximum
+    let request = BodyRouteRequest(start: pair.a, goal: goal,
+      profile: shellTypes.cpCarrier, danger: addr danger,
+      blockedCell: some(blocked), hazard: overlay, elapsedZoneTick: 24)
+    let route = index.queryBodyRoute(scratch, request)
+    check route.ok
+    check route.failure == brfNone
+    check route.stats.localPops > 0
+    check route.stats.localPops <= RouteLocalPopCap
+    check index.validateBodyRoute(request, route)
+    for offset in 1 ..< route.descriptor.startLegLen.int:
+      let
+        a = route.startLegPoint(offset - 1)
+        b = route.startLegPoint(offset)
+        midpoint: BodyPoint = ((a.x + b.x) div 2, (a.y + b.y) div 2)
+      check map.cellOf(midpoint) != map.cellOf(blocked)
+
+  test "typed failure vocabulary is exhaustive and exposes no descriptor":
+    var failures: seq[BodyRouteFailure]
+    for failure in BodyRouteFailure:
+      failures.add failure
+    check failures == @[brfNone, brfStartAttach, brfGoalAttach,
+      brfDisconnected, brfLocalCap, brfSideCap, brfDescriptorOverflow,
+      brfValidation]
+    for failure in failures[1 .. ^1]:
+      let result = BodyRouteQueryResult(failure: failure)
+      check not result.ok
+      check result.descriptor.edgeCount == 0
+      check result.descriptor.startLegLen == 0
+      check result.descriptor.goalLegLen == 0
+
   test "typed disconnection and validation failures return no descriptor":
     let
       map = twoIslandMap()
@@ -334,6 +391,18 @@ suite "bounded hierarchical body route query":
       start: (0, 0), goal: map.goalAt((24, 48), (24, 48))))
     check not noStart.ok
     check noStart.failure == brfStartAttach
+
+    let
+      foreignMap = openMap()
+      foreignIndex = newBodyRouteIndex(foreignMap)
+      foreignGoal = foreignMap.goalAt((80, 80), (16, 16))
+      wrongScratch = index.queryBodyRoute(
+        newBodyRouteQueryScratch(foreignIndex), BodyRouteRequest(
+          start: (24, 48), goal: disconnectedGoal))
+      wrongGoal = index.queryBodyRoute(scratch, BodyRouteRequest(
+        start: (24, 48), goal: foreignGoal))
+    check wrongScratch.failure == brfValidation
+    check wrongGoal.failure == brfValidation
 
   test "install is atomic and a failed query leaves the previous route intact":
     let

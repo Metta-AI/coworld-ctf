@@ -310,6 +310,19 @@ suite "shell body seat belief-lite seam":
     check body.standingGoal.isNone
     check body.nav.seats[body.seatIndex].cache.pinnedRouteKey == existingPin
 
+    let payload = shellTypes.Intent(kind: shellTypes.ikNavigateTo,
+      point: some(MapPoint(x: point.x, y: point.y)),
+      profile: shellTypes.cpCarrier,
+      combat: shellTypes.CombatPolicy(holdFire: true),
+      drop: true, handoff: "gun")
+    body.setStandingIntent(payload, some(goal), 7)
+    check body.standingIntent.profile == shellTypes.cpCarrier
+    check body.standingIntent.combat.holdFire
+    check body.standingIntent.drop
+    check body.standingIntent.handoff == "gun"
+    check body.nav.seats[body.seatIndex].job.planPending
+    check body.nav.seats[body.seatIndex].cache.pinnedRouteKey == existingPin
+
   test "safe call number zero intent leaves navigation work untouched":
     let map = openMap()
     let body = activateSeatBody(map, 3, 331)

@@ -5265,10 +5265,7 @@ proc runServerLoop*(
             echo event.formatPlanBudgetEvent()
           let secondBoundary = (sim.tickCount mod 24) == 0
           if shellTick.masks.len > 0:
-            if (secondBoundary or shellTick.planBudget.len > 0) and
-                (shellTick.nav.pendingPlans > 0 or
-                 shellTick.nav.stalePathSeats.len > 0 or
-                 shellTick.nav.noPathSeats.len > 0):
+            if secondBoundary or shellTick.planBudget.len > 0:
               echo formatNavSummary(uint32(sim.tickCount + 1), shellTick.nav)
             if secondBoundary:
               echo formatCombatSummary(uint32(sim.tickCount + 1),
