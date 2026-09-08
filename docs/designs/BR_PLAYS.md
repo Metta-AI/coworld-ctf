@@ -93,11 +93,12 @@ with the profit.
   `exitAfter: {kills: n} | {hpFloor: h}`
 - The old third-party-jackal page became this tunable play.
 
-### 5. `target_law` — who to shoot, who never to shoot, when to start
-The standing targeting filter under every other play.
-- `never: [duoId|seatRef]` · `prefer: ["weakened","isolated","revenge","bounty"]` ·
-  `holdTrigger: condition` — BR's engagement gate is ONE team-summed
-  trigger pull, so the first shot is a strategic commitment, not a tactic
+### 5. `target_law` — narrow who to shoot and when to start
+The body shoots visible enemies by default; this standing overlay modifies
+that baseline under every other play.
+- `never: [duoId|seatRef]` is a blacklist ·
+  `prefer: ["weakened","isolated","revenge","bounty"]` reorders targets ·
+  `holdTrigger: condition` withholds initiation until the trigger first passes
 - Evidence: friendly fire was the single biggest S1 loss (63% of the
   death gap); dTeamKill is priced NEGATIVE; the engagement gate makes
   hold-fire discipline the cheapest big lever in BR.
@@ -122,7 +123,7 @@ bear without friendly-fire geometry.
 | primitive | status |
 |---|---|
 | seven core-WASM reference plays | SHIPPED in `play_sdk/reference/`; each has a manifest and focused shard-2 tests |
-| body-side never/prefer targeting and pact protection | SHIPPED through the combat-policy overlay and body weapon path |
+| body-side shoot-all-enemies baseline plus never/prefer targeting and pact protection | SHIPPED through the body weapon path and combat-policy overlays |
 | attacker-of-ward detection and ward-relative routing | SHIPPED for `bodyguard` |
 | zone rect/phase, alive-team count, cover navigation | SHIPPED through the binary play view and body map |
 | upload, compile, bind, call, retune, and durable status lifecycle | SHIPPED through the episode's compile plane and ladder |

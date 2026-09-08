@@ -319,9 +319,7 @@ type
   CombatOutcome* = enum
     ## Why the weapon path did or did not fire on the last seat tick; read by
     ## the episode's per-tick combat summary (FIRST_LIGHT_COMBAT).
-    coNoPolicy              ## combat policy neutral: the weapon path never ran
-    coNoPolicyEnemyInRange  ## neutral policy while a non-partner track was shootable
-    coNoEnemy               ## policy active, no fresh track this tick
+    coNoEnemy               ## no fresh track this tick
     coNoneShootable         ## fresh tracks (possibly a held target), none in range with a clear line of sight
     coVetoed                ## shootable tracks, all excluded by noShoot, protect, or holdFire
     coAligning              ## shootable target held; rotating, cooling down, or winding up
@@ -791,11 +789,6 @@ proc protectedPolicySeat*(policy: shellTypes.CombatPolicy, seat: int): bool =
   ## current policy names a seat, even if no current track exists for it.
   validateSeat(seat, "combat target")
   policy.noShoot.containsSeat(seat) or policy.protect.containsSeat(seat)
-
-proc combatPolicyActive(policy: shellTypes.CombatPolicy): bool =
-  policy.holdFire or policy.prefer.len > 0 or card(policy.noShoot.teams) > 0 or
-    policy.noShoot.seats.len > 0 or card(policy.protect.teams) > 0 or
-    policy.protect.seats.len > 0
 
 proc targetMaxHpEstimate(body: SeatBody): int =
   ## The body seam has no config object. In ordinary CTF all cogs share max hp,
@@ -1283,29 +1276,13 @@ proc weaponActuationMask*(body: SeatBody, policy: shellTypes.CombatPolicy,
       return mask
   mask or body.gunActuationMask(policy, decision.get, tick)
 
-proc enemyShootableWithoutPolicy(body: SeatBody, tick: uint32): bool =
-  ## Diagnostic only: would the weapon path have had a shootable target this
-  ## tick if the combat policy were active? "Enemy" is any fresh track that
-  ## is not the granted duo partner; the body has no own-team fact beyond
-  ## that grant. Used to flag seats whose neutral policy is the only reason
-  ## they are not shooting (coNoPolicyEnemyInRange).
-  let liveRange = body.nav.liveWeaponRangePx(body.seatIndex)
-  let partnerSeat =
-    if body.partnerGrant.isSome: body.partnerGrant.get.seat.int else: -1
-  for seat in 0 ..< MaxPlayers:
-    if seat == body.seatIndex or seat == partnerSeat:
-      continue
-    if body.trackShootable(shellTypes.CombatPolicy(), seat, tick, liveRange):
-      return true
-  false
-
 proc actFromBelief*(body: SeatBody, tick: uint32): InputState =
   ## Executes one seat's action phase from its current belief.
   ##
   ## Cold plan work and danger rebuild cadence stay episode-owned; callers run
   ## `runPlanningTick` and `rebuildScheduledDanger` on the shared BodyNavSystem.
   body.navState = bnsIdle
-  body.combatOutcome = coNoPolicy
+  body.combatOutcome = coNoEnemy
   if not body.selfState.alive:
     body.resetWeaponState()
     return InputState()
@@ -1345,36 +1322,31 @@ proc actFromBelief*(body: SeatBody, tick: uint32): InputState =
         else:
           needsIdleAim = true
 
-  if combatPolicyActive(body.standingIntent.combat):
-    let
-      liveRange = body.nav.liveWeaponRangePx(body.seatIndex)
-      maxHp = body.targetMaxHpEstimate()
-      candidates = body.combatCandidates(body.standingIntent.combat, tick,
-        liveRange, maxHp)
-      decision = body.selectCombatTarget(body.standingIntent.combat,
-        candidates, tick, liveRange, maxHp)
-      weaponMask = body.weaponActuationMask(body.standingIntent.combat,
-        decision, tick)
-    if decision.isSome:
-      needsIdleAim = false
-    if (weaponMask and ButtonA) != 0 and not body.selfState.hasSprayPaint and
-        not body.selfState.carrying and
-        not body.standingIntent.suppressFireFreeze:
-      mask = mask and not uint8(MovementMask)
-    mask = mask or weaponMask
-    body.combatOutcome =
-      if (weaponMask and (ButtonA or ButtonC)) != 0: coFired
-      elif decision.isSome:
-        # The selector may hold an unshootable target (out of range or
-        # behind a wall) to keep aiming at it; that is not "aligning".
-        if decision.get.combatShootable: coAligning else: coNoneShootable
-      elif candidates.len == 0: coNoEnemy
-      elif candidates.anyIt(it.shootable): coVetoed
-      else: coNoneShootable
-  else:
-    body.resetWeaponState()
-    if body.enemyShootableWithoutPolicy(tick):
-      body.combatOutcome = coNoPolicyEnemyInRange
+  let
+    liveRange = body.nav.liveWeaponRangePx(body.seatIndex)
+    maxHp = body.targetMaxHpEstimate()
+    candidates = body.combatCandidates(body.standingIntent.combat, tick,
+      liveRange, maxHp)
+    decision = body.selectCombatTarget(body.standingIntent.combat,
+      candidates, tick, liveRange, maxHp)
+    weaponMask = body.weaponActuationMask(body.standingIntent.combat,
+      decision, tick)
+  if decision.isSome:
+    needsIdleAim = false
+  if (weaponMask and ButtonA) != 0 and not body.selfState.hasSprayPaint and
+      not body.selfState.carrying and
+      not body.standingIntent.suppressFireFreeze:
+    mask = mask and not uint8(MovementMask)
+  mask = mask or weaponMask
+  body.combatOutcome =
+    if (weaponMask and (ButtonA or ButtonC)) != 0: coFired
+    elif decision.isSome:
+      # The selector may hold an unshootable target (out of range or
+      # behind a wall) to keep aiming at it; that is not "aligning".
+      if decision.get.combatShootable: coAligning else: coNoneShootable
+    elif candidates.len == 0: coNoEnemy
+    elif candidates.anyIt(it.shootable): coVetoed
+    else: coNoneShootable
 
   if needsIdleAim and (mask and (ButtonB or ButtonSelect)) == 0:
     mask = mask or body.idleAimMask()

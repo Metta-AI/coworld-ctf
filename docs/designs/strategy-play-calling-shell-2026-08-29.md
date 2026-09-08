@@ -405,7 +405,7 @@ One field is added, the combat policy:
 type
   CombatPolicy* = object
     noShoot*: ProtectedSet       # teams and seats never fired on
-    protect*: ProtectedSet       # wards: bias position + targeting to defend
+    protect*: ProtectedSet       # wards: targeting/corridor protection + threat boost
     prefer*: seq[PreferTag]      # target preference tags, in priority order
     holdFire*: bool              # do not initiate fire (return fire allowed)
   ProtectedSet* = object
@@ -413,12 +413,14 @@ type
     seats*: seq[SeatRef]         # cross-team, per-seat references
 ```
 
-Everything empty or false is the neutral value and the default. Seat-level
-references exist because Maxwell's `pact` negotiates alliances with
-specific duos, not only whole teams; `prefer` and `holdFire` exist because
-his `target_law` is a standing filter over who to shoot and when to start
-shooting. Betrayal responses and pact end conditions are play logic, not
-policy fields: the overlay play that owns the pact watches the view every
+Everything empty or false is the baseline and the default: engage every
+fog-visible non-team track in the existing score/identity/cell/seat order,
+with no bans, no wards, and initiation allowed. Overlay policies modify that
+baseline. Seat-level references exist because Maxwell's `pact` negotiates
+alliances with specific duos, not only whole teams; `prefer` and `holdFire`
+exist because his `target_law` is a standing filter over who to shoot and when
+to start shooting. Betrayal responses and pact end conditions are play logic,
+not policy fields: the overlay play that owns the pact watches the view every
 tick and changes the policy it emits.
 
 The encoding a play emits is versioned, schema-tagged JSON with declared
@@ -448,12 +450,12 @@ rather than force-released if it now violates the set. A final veto before
 each weapon's fire decision refuses a `noShoot` endpoint however it was
 acquired.
 
-Protecting a ward means two things the body does and one thing plays do.
-The body biases positioning toward a threatened ward when the intent's goal
-allows it, and it up-weights threats-to-wards in target scoring, so the cog
-prefers shooting whoever endangers its ward. Interposition (physically
-blocking the line of fire) is play territory, expressed through movement
-goals, as Maxwell's `bodyguard` play does with its `interpose` parameter.
+Protecting a ward has three body effects: the ward is excluded from target
+and splash-victim consideration in every weapon path, a fresh visible ward
+blocks the gun corridor, and threats-to-wards receive
+`WardThreatScoreBoost` in target scoring. The body does not bias positioning
+toward a ward. Ward-relative movement and interposition are play territory,
+expressed through movement goals by Maxwell's `bodyguard` play.
 
 A *threat to a ward* is detected with aim bearing, not proximity alone. An
 enemy is threatening a ward when it is within the live weapon range of the
@@ -3290,10 +3292,21 @@ ready bindings remain callable and retunable, and game start never waits for
 compilation. A replacement receives the existing optional v1 recovery fields:
 the accepted call/proposal, ready bound modules, budgets, floors, retained
 statuses, generation, acknowledgement, and transcript marks. This uses no new
-wire field or schema/GameVersion bump and supersedes H.2's earlier allowance
+wire field or schema/GameVersion bump and supersedes H.3's earlier allowance
 for mid-match uploads.
 
-### H.2 Ratified decisions (James, 2026-08-29 and 2026-08-30)
+### H.2 Empty combat policy is the firing baseline (James, 2026-09-04)
+
+**Ruling.** An all-empty `CombatPolicy` engages every fog-visible non-team
+track in the body's existing score order. `noShoot` is an optional blacklist,
+`protect` adds wards, `prefer` reorders candidates, and `holdFire` withholds
+initiation; all are overlays on the baseline. The phase-5 neutral-policy gate
+and its no-policy census outcomes are removed. Ward protection retains only
+its existing targeting, corridor, and threat-score effects; ward-relative
+movement remains play territory. This changes live play-seat masks but no
+wire layout or canonical bytes, so it does not bump GameVersion.
+
+### H.3 Ratified decisions (James, 2026-08-29 and 2026-08-30)
 
 - Plays are WebAssembly modules sent over the websocket and executed
   game-side in an engine-embedded runtime. The "compiled Nim" requirement
@@ -3490,7 +3503,7 @@ for mid-match uploads.
   really what we want"); in-match chat is the existing shout.
 - Playback never re-executes plays; masks stay the determinism artifact.
 
-### H.3 Superseded architectures
+### H.4 Superseded architectures
 
 **Revisions 1 through 10 (2026-08-29): the client-side shell.** Stencil
 adapted as a per-seat bot process, pages delivered by environment
@@ -3525,7 +3538,7 @@ replacement as the boundary he and Maxwell had been circling all along:
 "we've been struggling to figure out that boundary... this is the
 boundary." The present design is a rewrite, not a staging of that one.
 
-### H.4 Questions asked and answered
+### H.5 Questions asked and answered
 
 - Why an environment variable for the startup call? An artifact of the
   client-side model, where the bot was a spawned process with no LLM;
@@ -3560,7 +3573,7 @@ boundary." The present design is a rewrite, not a staging of that one.
   engine-wide lobby/interstitial mode marker remains desirable and out of
   scope.
 
-### H.5 Provenance
+### H.6 Provenance
 
 Drafted 2026-08-29 from the session's recon and research report;
 adversarially cross-reviewed by Codex over nine round-gated iterations to
@@ -3569,7 +3582,7 @@ James's direction. Re-architected 2026-08-30 per James's comment batch
 (38 comments) into the socket-Intent boundary, which a second Codex
 collaboration took through seventeen round-gated iterations to VERDICT:
 SATISFIED, followed by a humanizer pass. Re-architected again on
-2026-08-30 (evening) to the WebAssembly-over-the-wire boundary of H.2,
+2026-08-30 (evening) to the WebAssembly-over-the-wire boundary of H.3,
 by James's ratification, with a runtime-embedding research spike
 (Appendix W) feeding the runtime choice. A third Codex collaboration
 then ran nineteen round-gated iterations to VERDICT: SATISFIED. Its

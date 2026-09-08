@@ -124,10 +124,9 @@ type
   FirstLightCombatSummary* = object
     ## Per-tick weapon-path census over active, alive play seats; the server
     ## prints it as FIRST_LIGHT_COMBAT. The seat lists name the outcomes an
-    ## operator most needs to chase: a neutral policy with an enemy in range,
-    ## fresh tracks with nothing shootable, and a held target not yet fired on.
+    ## operator most needs to chase: fresh tracks with nothing shootable and a
+    ## held target not yet fired on.
     counts*: array[CombatOutcome, int]
-    noPolicyEnemyInRangeSeats*: seq[uint8]
     noneShootableSeats*: seq[uint8]
     aligningSeats*: seq[uint8]
 
@@ -1113,10 +1112,9 @@ proc summarizeSeatTick(body: SeatBody, result: var FirstLightTickResult) =
   of bnsIdle, bnsFollowing: discard
   inc result.combat.counts[body.combatOutcome]
   case body.combatOutcome
-  of coNoPolicyEnemyInRange: result.combat.noPolicyEnemyInRangeSeats.add seat
   of coNoneShootable: result.combat.noneShootableSeats.add seat
   of coAligning: result.combat.aligningSeats.add seat
-  of coNoPolicy, coNoEnemy, coVetoed, coFired: discard
+  of coNoEnemy, coVetoed, coFired: discard
 
 when ShellRuntimeAvailable:
   const
@@ -1417,9 +1415,6 @@ proc formatCombatSummary*(tick: uint32,
     &"aligning={combat.counts[coAligning]} " &
     &"none_shootable={combat.counts[coNoneShootable]} " &
     &"vetoed={combat.counts[coVetoed]} no_enemy={combat.counts[coNoEnemy]} " &
-    &"no_policy={combat.counts[coNoPolicy]} " &
-    &"no_policy_enemy_in_range={combat.counts[coNoPolicyEnemyInRange]} " &
-    &"no_policy_enemy_in_range_seats={combat.noPolicyEnemyInRangeSeats.seatList} " &
     &"none_shootable_seats={combat.noneShootableSeats.seatList} " &
     &"aligning_seats={combat.aligningSeats.seatList}"
 

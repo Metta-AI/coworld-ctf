@@ -296,11 +296,11 @@ suite "shell FIRST LIGHT":
         let encoded = mask.input.encodeInputMask()
         # Phase 5 replaces the idle-aim placeholder with Stencil's sweep, so
         # aim bytes may move. The first-light invariant is byte preservation
-        # for actuator weapon bits: attack and C stay zero for every seat/tick
-        # under the default demo config.
+        # for actuator weapon bits: attack and C stay zero because this frame
+        # helper supplies no visible tracks to any seat.
         weaponBitProjection.add(char(encoded and (ButtonA or ButtonC)))
         # Phase 5 also inserted a fire-freeze branch AHEAD of the movement
-        # path in seatTick. It cannot trigger under the demo config, because
+        # path in seatTick. It cannot trigger in these frames, because
         # fireHoldTicks is assigned only on the same branch that emits
         # ButtonA and weapon bits are zero above — but that is a coupling
         # between two facts, so pin the movement bits directly rather than
