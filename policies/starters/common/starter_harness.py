@@ -990,6 +990,40 @@ def _record_waste(reason: str, play=None) -> None:
         samples.append(tag)
 
 
+# GATE SILENCE: layer_ladder's GATED_PLAYS filter (jackal, supply_run, ...;
+# see gate_open) is a SEPARATE, EARLIER drop point than PLAN_WASTE above. An
+# entry that survives build_call's repair -- so it is not malformed, not
+# missing from `available`, not over a cap -- can still never reach an
+# accepted wire call if its gate never opens for the rest of the match, or
+# if a later turn's wanted ladder drops it before the gate opens. Both are
+# legitimate outcomes of the mechanism (_live_loop's maintenance tick below
+# exists to re-send the instant a gate opens) -- but neither is currently
+# observable, and "the model asked for this play, it never appeared on the
+# wire" reads identically to a genuine drop from outside the process. This
+# is a counter, not a coercion: recording THAT a play never landed, and
+# WHAT its name was, changes nothing about which plays actually get sent.
+EVER_WANTED: set[str] = set()
+EVER_COMMITTED: set[str] = set()
+
+
+def _record_wanted(entries: list) -> None:
+    try:
+        for e in entries:
+            if isinstance(e, dict) and isinstance(e.get("play"), str):
+                EVER_WANTED.add(e["play"])
+    except Exception:
+        pass  # observability only -- never let this path touch what gets sent
+
+
+def _record_committed(entries: list) -> None:
+    try:
+        for e in entries:
+            if isinstance(e, dict) and isinstance(e.get("play"), str):
+                EVER_COMMITTED.add(e["play"])
+    except Exception:
+        pass  # observability only -- never let this path touch what gets sent
+
+
 def build_call(decision: dict, available: list[str]) -> tuple[bytes, list]:
     """Repair a model reply into a canonical ladder call over the BAKED plays.
 
@@ -1091,6 +1125,7 @@ def repair_call(decision: dict, persona: Persona, seat: StarterSeat,
     # The full wanted ladder (before gating) is what maintenance re-derives
     # from as the view changes; the gated ladder is what goes on the wire.
     seat.wanted_entries = json.loads(json.dumps(adjusted))
+    _record_wanted(adjusted)
     return gate_and_build(seat, available)
 
 
@@ -1420,6 +1455,8 @@ def run(persona: Persona, args) -> int:
         opening = seat.call(payload, "pre-call")
         if opening is None or opening["kind"] != "call_accepted":
             failures.append("pre-call was not accepted")
+        else:
+            _record_committed(pre_entries)
 
         # Turn 1: opening decision, chat (echo required), call.
         summary = summarize(seat, "lobby, before the drop", persona)
@@ -1445,10 +1482,12 @@ def run(persona: Persona, args) -> int:
             _log(persona, f"chat echoed at ordinal {echo['ordinal']}")
         _send_coordination(persona, seat, turn=1, await_echo=True)
 
-        payload, _ = repair_call(decision, persona, seat, available)
+        payload, opening_entries = repair_call(decision, persona, seat, available)
         opening = seat.call(payload, "opening call")
         if opening is None or opening["kind"] != "call_accepted":
             failures.append("opening call was not accepted")
+        else:
+            _record_committed(opening_entries)
 
         try:
             _live_loop(persona, seat, engine, available, payload,
@@ -1481,6 +1520,14 @@ def run(persona: Persona, args) -> int:
         if WASTE_SAMPLES:
             _log(persona, f"not-in-available play name samples (truncated): "
                           f"{WASTE_SAMPLES}")
+    never_committed = sorted(EVER_WANTED - EVER_COMMITTED)
+    if never_committed:
+        _log(persona, f"plays this seat wanted at least once but that never "
+                      f"appeared in any accepted wire call this match (name, "
+                      f"not just a count -- this is NOT by itself evidence of "
+                      f"a bug: the play's gate may simply never have opened, "
+                      f"or a later turn may have legitimately dropped it "
+                      f"first): {never_committed}")
     if failures:
         for failure in failures:
             _log(persona, f"FAILURE: {failure}")
@@ -1659,6 +1706,7 @@ def _live_loop(persona: Persona, seat: StarterSeat, engine,
                     payload = gated_payload
                     maintained += 1
                     before = _snapshot(seat, partner)
+                    _record_committed(gated_entries)
             last_maintenance_at = time.monotonic()
         if calls >= budget:
             continue
@@ -1691,10 +1739,12 @@ def _live_loop(persona: Persona, seat: StarterSeat, engine,
         if chat:
             _log(persona, f"(mid-match, not sent) chat: {chat!r}")
 
-        payload, _ = repair_call(decision, persona, seat, available)
+        payload, recall_entries = repair_call(decision, persona, seat, available)
         recall = seat.call(payload, f"re-call {turn - 1}")
         if recall is None or recall["kind"] != "call_accepted":
             failures.append(f"re-call {turn - 1} was not accepted")
+        else:
+            _record_committed(recall_entries)
         calls += 1
         last_call_at = time.monotonic()
         before = _snapshot(seat, partner)

@@ -2922,6 +2922,143 @@ check("PLAN_WASTE is behaviour-neutral: the returned entries list is "
       _silent_entries == _waste_entries,
       str((_silent_entries, _waste_entries)))
 
+# ── T-GATE-SILENCE: EVER_WANTED / EVER_COMMITTED -- the wire-drop that
+# PLAN_WASTE above does NOT cover. PLAN_WASTE is scoped (by its own module
+# comment in starter_harness.py) to build_call's repair loop; a well-formed
+# entry that survives repair can still miss the wire via layer_ladder's
+# GATED_PLAYS filter (gate_open) or gate_and_build's spawn-phase strip, and
+# neither is counted anywhere. This block proves the new counter records
+# THAT a play never landed AND its NAME, and that the counter itself never
+# changes what gets built or sent (fail-safe, behaviour-neutral).
+_gs_committed_before = set(starter_harness.EVER_COMMITTED)
+
+_gs_decision = {"call": {"entries": [
+    {"play": "hold_vs_gun", "entry_id": "a", "params": {}},
+    {"play": "edge_ride", "entry_id": "b", "params": {}},
+]}}
+
+
+def _gs_seat_past_spawn(view):
+    # fake_seat()'s FIRST view is always spawn phase by _in_spawn_phase's own
+    # construction (first_view_tick gets initialized to that view's tick on
+    # first use) -- pin first_view_tick far enough back that this fixture
+    # exercises the POST-spawn GATED_PLAYS path this test is actually about,
+    # not gate_and_build's separate spawn-phase override (see the dedicated
+    # spawn-phase proof below for that one).
+    seat = fake_seat(view=view)
+    seat.base_play = PERSONA.base_play  # "jackal", same as main() sets it
+    seat.first_view_tick = view["tick"] - starter_harness.SPAWN_PHASE_TICKS - 1000
+    return seat
+
+
+_gs_payload, _gs_wire = starter_harness.repair_call(
+    _gs_decision, PERSONA, _gs_seat_past_spawn(CALM_VIEW), AVAILABLE)
+_gs_wire_plays = [e["play"] for e in _gs_wire]
+
+# EVER_WANTED is a set accumulated over this whole process's lifetime (same
+# design as PLAN_WASTE), so most plays are already in it by this point in
+# the file -- assert membership plus this turn's own wire exclusion, not a
+# same-name "was it newly added" delta (which a set can't express once a
+# name has ever been seen).
+check("EVER_WANTED: hold_vs_gun is recorded as wanted (repair_call mirrors "
+      "seat.wanted_entries into EVER_WANTED) even on a turn whose closed "
+      "gate (no enemy, CALM_VIEW) keeps it off THIS turn's wire",
+      "hold_vs_gun" in starter_harness.EVER_WANTED
+      and "hold_vs_gun" not in _gs_wire_plays,
+      f"EVER_WANTED has hold_vs_gun={'hold_vs_gun' in starter_harness.EVER_WANTED} "
+      f"wire={_gs_wire_plays}")
+check("EVER_WANTED/wire agree monet's base_play (jackal) is NOT gated: it "
+      "rides the wire on the same CALM_VIEW turn that drops hold_vs_gun",
+      "jackal" in _gs_wire_plays, str(_gs_wire_plays))
+
+starter_harness._record_committed(_gs_wire)
+_gs_committed_added = starter_harness.EVER_COMMITTED - _gs_committed_before
+check("EVER_COMMITTED: recording an accepted call's actual entries adds "
+      "only the plays that made the wire, never the gated-out one",
+      "jackal" in _gs_committed_added and "hold_vs_gun" not in _gs_committed_added,
+      str(_gs_committed_added))
+
+_gs_never_committed = sorted(starter_harness.EVER_WANTED - starter_harness.EVER_COMMITTED)
+check("gate-silence diff (EVER_WANTED - EVER_COMMITTED) names hold_vs_gun "
+      "by NAME after one wanted-and-gated turn -- a bare count could not "
+      "distinguish this play from any other gated-out play",
+      "hold_vs_gun" in _gs_never_committed, str(_gs_never_committed))
+
+# Fail-safe: a malformed argument must degrade silently, never raise and
+# never propagate into the returned payload/entries.
+try:
+    starter_harness._record_wanted(12345)  # not iterable: would raise if unguarded
+    _gs_wanted_failsafe = True
+except Exception as exc:
+    _gs_wanted_failsafe = False
+    _gs_wanted_failsafe_detail = repr(exc)
+check("GATE SILENCE fail-safe: a malformed _record_wanted input degrades "
+      "silently instead of raising",
+      _gs_wanted_failsafe,
+      "" if _gs_wanted_failsafe else _gs_wanted_failsafe_detail)
+try:
+    starter_harness._record_committed(None)  # not iterable either
+    _gs_committed_failsafe = True
+except Exception as exc:
+    _gs_committed_failsafe = False
+    _gs_committed_failsafe_detail = repr(exc)
+check("GATE SILENCE fail-safe: a malformed _record_committed input degrades "
+      "silently the same way",
+      _gs_committed_failsafe,
+      "" if _gs_committed_failsafe else _gs_committed_failsafe_detail)
+
+# Behaviour-neutral: silence both recorders and confirm the exact same
+# decision produces a byte-identical wire payload and entries list.
+_real_record_wanted = starter_harness._record_wanted
+_real_record_committed = starter_harness._record_committed
+starter_harness._record_wanted = lambda *a, **k: None
+starter_harness._record_committed = lambda *a, **k: None
+try:
+    _gs_silent_payload, _gs_silent_wire = starter_harness.repair_call(
+        _gs_decision, PERSONA, _gs_seat_past_spawn(CALM_VIEW), AVAILABLE)
+finally:
+    starter_harness._record_wanted = _real_record_wanted
+    starter_harness._record_committed = _real_record_committed
+check("GATE SILENCE counters are behaviour-neutral: the wire payload is "
+      "byte-identical whether or not they fire",
+      _gs_silent_payload == _gs_payload,
+      f"instrumented={_gs_payload!r} silent={_gs_silent_payload!r}")
+check("GATE SILENCE counters are behaviour-neutral: the returned entries "
+      "list is identical too",
+      _gs_silent_wire == _gs_wire, str((_gs_silent_wire, _gs_wire)))
+
+# SPAWN-PHASE PROOF (this task's step-1 verdict, made executable rather than
+# left as prose): jackal is monet's base_play, so layer_ladder's own `elif
+# play == base_play` branch never even calls gate_open on it (see that
+# function's "never gated" comment) -- outside spawn phase it is on the wire
+# unconditionally. The ONLY place it still comes off is gate_and_build's
+# explicit SPAWN_HOLD_PLAYS strip during the seat's first spawn_phase_ticks,
+# which fires regardless of whether an enemy is in view. Pin both halves so
+# a regression in either direction is caught.
+_gs_spawn_seat = fake_seat(view=dict(NEAR_VIEW, tick=50))
+_gs_spawn_seat.wanted_entries = [
+    {"play": "jackal", "entry_id": "third", "params": {}}]
+_gs_spawn_seat.base_play = "jackal"
+_, _gs_spawn_wire = starter_harness.gate_and_build(_gs_spawn_seat, AVAILABLE)
+check("spawn-phase proof: jackal is stripped from the wire during "
+      "spawn_phase_ticks even with a live enemy in view (NEAR_VIEW) -- this "
+      "is SPAWN_HOLD_PLAYS, not the enemies gate, since the enemies gate "
+      "would have let it through",
+      "jackal" not in [e["play"] for e in _gs_spawn_wire], str(_gs_spawn_wire))
+
+_gs_post_spawn_seat = fake_seat(view=dict(NEAR_VIEW, tick=50))
+_gs_post_spawn_seat.wanted_entries = [
+    {"play": "jackal", "entry_id": "third", "params": {}}]
+_gs_post_spawn_seat.base_play = "jackal"
+_gs_post_spawn_seat.first_view_tick = 50 - starter_harness.SPAWN_PHASE_TICKS - 1000
+_, _gs_post_spawn_wire = starter_harness.gate_and_build(
+    _gs_post_spawn_seat, AVAILABLE)
+check("spawn-phase proof: past spawn_phase_ticks, jackal (the base_play) "
+      "reaches the wire unconditionally -- proving it is never subject to "
+      "facts['enemies'] once the spawn window has closed",
+      "jackal" in [e["play"] for e in _gs_post_spawn_wire],
+      str(_gs_post_spawn_wire))
+
 # ── HEAT-CHAIN / target_law prompt text (owner directive 2026-09-07,
 # cherry-picked from the closed-out "gunrange" lane's bb247a4e, target_law
 # half only -- that lane's range-discipline pressRange/AWARENESS-gun-range
