@@ -254,178 +254,6 @@ proc newBodyNavSystem*(map: BodyMap, seatCount, liveGunRangePx: int,
 
 proc seatCount*(system: BodyNavSystem): int = system.seats.len
 
-proc cellPoint(system: BodyNavSystem; cellIndex: int): BodyPoint {.inline.} =
-  (cellIndex mod system.map.gridWidth, cellIndex div system.map.gridWidth)
-
-proc installSafetyContext*(system: BodyNavSystem; hazard: BodyHazardOverlay;
-    cache: BodySafeCache) =
-  if system == nil or system.routeScratch == nil:
-    raise newException(ValueError,
-      "body navigation safety context requires route query scratch")
-  system.routeScratch.installSafetyContext(hazard, cache)
-
-proc safetyHintsReady*(system: BodyNavSystem): bool =
-  system != nil and system.routeScratch.safetyReady
-
-proc chainToSide(system: BodyNavSystem; startCell, side: int): tuple[
-    found: bool, firstStep: int32, distanceQ4: uint32] =
-  var current = startCell
-  let target = system.routeIndex.portalSideAt(side).anchorCell.int
-  var visits = 0
-  while current != target:
-    if visits >= system.routeIndex.routeIndexStats.navCells:
-      return
-    let next = system.routeIndex.nextCellTowardSide(side, current)
-    if next < 0 or next.int == current:
-      return
-    if result.firstStep < 0:
-      result.firstStep = next
-    let
-      a = system.cellPoint(current)
-      b = system.cellPoint(next.int)
-      diagonal = a.x != b.x and a.y != b.y
-      step = if diagonal: 181'u32 else: uint32(NavCell * 16)
-    if result.distanceQ4 > high(uint32) - step:
-      return
-    result.distanceQ4 += step
-    current = next.int
-    inc visits
-  result.found = true
-
-proc safeSourceSide(system: BodyNavSystem; startSide: int): int =
-  var current = startSide
-  let sideCount = system.routeIndex.routeIndexStats.sides
-  for _ in 0 ..< sideCount:
-    let next = system.routeScratch.safetyNextSideAt(current)
-    if next.isNone:
-      return -1
-    if next.get == current:
-      return current
-    current = next.get
-  -1
-
-proc graphFirstPoint(system: BodyNavSystem; side: int): Option[BodyPoint] =
-  let next = system.routeScratch.safetyNextSideAt(side)
-  if next.isNone or next.get == side:
-    return none(BodyPoint)
-  for arcOffset in system.routeIndex.arcRangeForSide(side):
-    let arc = system.routeIndex.routeArcAt(arcOffset)
-    if arc.toSide.int != next.get:
-      continue
-    let segment = system.routeIndex.routeSegmentAt(arc.segment.int)
-    if segment.cellLen.int < 2:
-      return none(BodyPoint)
-    let origin = system.routeIndex.routePoint(
-      system.routeIndex.segmentCellAt(arc.segment.int, 0, arc.reversed))
-    for offset in 1 ..< segment.cellLen.int:
-      let point = system.routeIndex.routePoint(
-        system.routeIndex.segmentCellAt(arc.segment.int, offset, arc.reversed))
-      if point != origin:
-        return some(point)
-    return none(BodyPoint)
-  none(BodyPoint)
-
-proc octantToward(origin, target: BodyPoint): int8 =
-  let
-    dx = cmp(target.x, origin.x)
-    dy = cmp(target.y, origin.y)
-  case (dy + 1) * 3 + dx + 1
-  of 5: 0
-  of 2: 1
-  of 1: 2
-  of 0: 3
-  of 3: 4
-  of 6: 5
-  of 7: 6
-  of 8: 7
-  else: -1
-
-proc ceilSafetyMetric(value: uint64; denominator: uint64): int32 =
-  min(uint64(high(int32)), (value + denominator - 1) div denominator).int32
-
-proc safetyHintsFor*(system: BodyNavSystem; selfPos: BodyPoint;
-    elapsedTick: int; gameGeneration: uint64): BodySafetyHints =
-  result = BodySafetyHints(ticksUntilPaintHere: -1, ticksToSafety: -1,
-    safeDistPx: -1, retreatOctant: -1, sourceCell: none(int32))
-  if not system.safetyHintsReady:
-    return
-  system.routeScratch.refreshSafety(elapsedTick, gameGeneration)
-  let
-    start = system.map.cellOf(selfPos)
-    startCell = start.y * system.map.gridWidth + start.x
-    arrival = system.routeScratch.safetyArrivalAt(startCell)
-  if arrival != HazardNeverArrives:
-    result.ticksUntilPaintHere = int32(max(0, arrival.int - elapsedTick))
-  if not system.map.cellWalkable(start):
-    return
-  if system.routeScratch.safetyCellDryAt(startCell):
-    result.ticksToSafety = 0
-    result.safeDistPx = 0
-    result.sourceCell = some(int32(startCell))
-    return
-  let room = system.routeIndex.roomForCell(startCell)
-  if room < 0:
-    return
-
-  var
-    found = false
-    sourceCell = -1'i32
-    firstPoint = none(BodyPoint)
-    distanceQ4 = high(uint64)
-  if system.routeScratch.safetyRoomHasDryAt(room):
-    let local = system.routeScratch.nearestDryCell(startCell, room)
-    if local.found and system.routeScratch.safetyCellDryAt(
-        local.sourceCell.int):
-      found = true
-      sourceCell = local.sourceCell
-      distanceQ4 = local.distanceQ4.uint64
-      if local.firstStep >= 0:
-        firstPoint = some(cellCenter(system.cellPoint(local.firstStep.int)))
-  else:
-    for sideOffset in system.routeIndex.roomSideRange(room):
-      let side = system.routeIndex.roomSideAt(sideOffset)
-      let safeDistance = system.routeScratch.safetyDistanceQ4At(side)
-      if safeDistance == high(uint32):
-        continue
-      let chain = system.chainToSide(startCell, side)
-      if not chain.found:
-        continue
-      let sourceSide = system.safeSourceSide(side)
-      if sourceSide < 0:
-        continue
-      let candidateSource =
-        system.routeIndex.portalSideAt(sourceSide).anchorCell
-      if not system.routeScratch.safetyCellDryAt(candidateSource.int):
-        continue
-      let candidate = chain.distanceQ4.uint64 + safeDistance.uint64
-      if not found or candidate < distanceQ4 or
-          (candidate == distanceQ4 and candidateSource < sourceCell):
-        found = true
-        sourceCell = candidateSource
-        distanceQ4 = candidate
-        if chain.firstStep >= 0:
-          firstPoint = some(cellCenter(system.cellPoint(chain.firstStep.int)))
-        else:
-          firstPoint = system.graphFirstPoint(side)
-
-  if not found or sourceCell < 0 or
-      not system.routeScratch.safetyCellDryAt(sourceCell.int):
-    return
-  result.sourceCell = some(sourceCell)
-  result.safeDistPx = ceilSafetyMetric(distanceQ4, 16)
-  result.ticksToSafety = ceilSafetyMetric(distanceQ4,
-    HazardEtaSpeedQ4.uint64)
-  if firstPoint.isSome:
-    result.retreatOctant = octantToward(cellCenter(start), firstPoint.get)
-
-proc zoneSafeTarget*(system: BodyNavSystem; selfPos: BodyPoint;
-    elapsedTick: int; gameGeneration: uint64): Option[BodyPoint] =
-  let hints = system.safetyHintsFor(selfPos, elapsedTick, gameGeneration)
-  if hints.sourceCell.isNone:
-    none(BodyPoint)
-  else:
-    some(system.routeIndex.routePoint(hints.sourceCell.get))
-
 proc installRoute*(seat: BodyNavSeat, scratch: BodyRouteQueryScratch,
     route: BodyRouteQueryResult, revision: uint64): bool =
   ## Publish only after every bounded array has copied successfully. The local
@@ -1001,3 +829,178 @@ proc navigationWaypoint*(system: BodyNavSystem, seatIndex: int,
     seat.lastPlanTick = tick
     seat.stuckTicks = 0
   seat.followerWaypoint(selfXy)
+
+proc safetyCellPoint(system: BodyNavSystem;
+    cellIndex: int): BodyPoint {.inline.} =
+  (cellIndex mod system.map.gridWidth, cellIndex div system.map.gridWidth)
+
+proc installSafetyContext*(system: BodyNavSystem; hazard: BodyHazardOverlay;
+    cache: BodySafeCache) =
+  if system == nil or system.routeScratch == nil:
+    raise newException(ValueError,
+      "body navigation safety context requires route query scratch")
+  system.routeScratch.installSafetyContext(hazard, cache)
+
+proc safetyHintsReady*(system: BodyNavSystem): bool =
+  system != nil and system.routeScratch.safetyReady
+
+proc chainToSide(system: BodyNavSystem; startCell, side: int): tuple[
+    found: bool, firstStep: int32, distanceQ4: uint32] =
+  var current = startCell
+  let target = system.routeIndex.portalSideAt(side).anchorCell.int
+  var visits = 0
+  while current != target:
+    if visits >= system.routeIndex.routeIndexStats.navCells:
+      return
+    let next = system.routeIndex.nextCellTowardSide(side, current)
+    if next < 0 or next.int == current:
+      return
+    if result.firstStep < 0:
+      result.firstStep = next
+    let
+      a = system.safetyCellPoint(current)
+      b = system.safetyCellPoint(next.int)
+      diagonal = a.x != b.x and a.y != b.y
+      step = if diagonal: 181'u32 else: uint32(NavCell * 16)
+    if result.distanceQ4 > high(uint32) - step:
+      return
+    result.distanceQ4 += step
+    current = next.int
+    inc visits
+  result.found = true
+
+proc safeSourceSide(system: BodyNavSystem; startSide: int): int =
+  var current = startSide
+  let sideCount = system.routeIndex.routeIndexStats.sides
+  for _ in 0 ..< sideCount:
+    let next = system.routeScratch.safetyNextSideAt(current)
+    if next.isNone:
+      return -1
+    if next.get == current:
+      return current
+    current = next.get
+  -1
+
+proc graphFirstPoint(system: BodyNavSystem; side: int): Option[BodyPoint] =
+  let next = system.routeScratch.safetyNextSideAt(side)
+  if next.isNone or next.get == side:
+    return none(BodyPoint)
+  for arcOffset in system.routeIndex.arcRangeForSide(side):
+    let arc = system.routeIndex.routeArcAt(arcOffset)
+    if arc.toSide.int != next.get:
+      continue
+    let segment = system.routeIndex.routeSegmentAt(arc.segment.int)
+    if segment.cellLen.int < 2:
+      return none(BodyPoint)
+    let origin = system.routeIndex.routePoint(
+      system.routeIndex.segmentCellAt(arc.segment.int, 0, arc.reversed))
+    for offset in 1 ..< segment.cellLen.int:
+      let point = system.routeIndex.routePoint(
+        system.routeIndex.segmentCellAt(arc.segment.int, offset, arc.reversed))
+      if point != origin:
+        return some(point)
+    return none(BodyPoint)
+  none(BodyPoint)
+
+proc safetyOctantToward(origin, target: BodyPoint): int8 =
+  let
+    dx = cmp(target.x, origin.x)
+    dy = cmp(target.y, origin.y)
+  case (dy + 1) * 3 + dx + 1
+  of 5: 0
+  of 2: 1
+  of 1: 2
+  of 0: 3
+  of 3: 4
+  of 6: 5
+  of 7: 6
+  of 8: 7
+  else: -1
+
+proc ceilSafetyMetric(value: uint64; denominator: uint64): int32 =
+  min(uint64(high(int32)), (value + denominator - 1) div denominator).int32
+
+proc safetyHintsFor*(system: BodyNavSystem; selfPos: BodyPoint;
+    elapsedTick: int; gameGeneration: uint64): BodySafetyHints =
+  result = BodySafetyHints(ticksUntilPaintHere: -1, ticksToSafety: -1,
+    safeDistPx: -1, retreatOctant: -1, sourceCell: none(int32))
+  if not system.safetyHintsReady:
+    return
+  system.routeScratch.refreshSafety(elapsedTick, gameGeneration)
+  let
+    start = system.map.cellOf(selfPos)
+    startCell = start.y * system.map.gridWidth + start.x
+    arrival = system.routeScratch.safetyArrivalAt(startCell)
+  if arrival != HazardNeverArrives:
+    result.ticksUntilPaintHere = int32(max(0, arrival.int - elapsedTick))
+  if not system.map.cellWalkable(start):
+    return
+  if system.routeScratch.safetyCellDryAt(startCell):
+    result.ticksToSafety = 0
+    result.safeDistPx = 0
+    result.sourceCell = some(int32(startCell))
+    return
+  let room = system.routeIndex.roomForCell(startCell)
+  if room < 0:
+    return
+
+  var
+    found = false
+    sourceCell = -1'i32
+    firstPoint = none(BodyPoint)
+    distanceQ4 = high(uint64)
+  if system.routeScratch.safetyRoomHasDryAt(room):
+    let local = system.routeScratch.nearestDryCell(startCell, room)
+    if local.found and system.routeScratch.safetyCellDryAt(
+        local.sourceCell.int):
+      found = true
+      sourceCell = local.sourceCell
+      distanceQ4 = local.distanceQ4.uint64
+      if local.firstStep >= 0:
+        firstPoint = some(cellCenter(
+          system.safetyCellPoint(local.firstStep.int)))
+  else:
+    for sideOffset in system.routeIndex.roomSideRange(room):
+      let side = system.routeIndex.roomSideAt(sideOffset)
+      let safeDistance = system.routeScratch.safetyDistanceQ4At(side)
+      if safeDistance == high(uint32):
+        continue
+      let chain = system.chainToSide(startCell, side)
+      if not chain.found:
+        continue
+      let sourceSide = system.safeSourceSide(side)
+      if sourceSide < 0:
+        continue
+      let candidateSource =
+        system.routeIndex.portalSideAt(sourceSide).anchorCell
+      if not system.routeScratch.safetyCellDryAt(candidateSource.int):
+        continue
+      let candidate = chain.distanceQ4.uint64 + safeDistance.uint64
+      if not found or candidate < distanceQ4 or
+          (candidate == distanceQ4 and candidateSource < sourceCell):
+        found = true
+        sourceCell = candidateSource
+        distanceQ4 = candidate
+        if chain.firstStep >= 0:
+          firstPoint = some(cellCenter(
+            system.safetyCellPoint(chain.firstStep.int)))
+        else:
+          firstPoint = system.graphFirstPoint(side)
+
+  if not found or sourceCell < 0 or
+      not system.routeScratch.safetyCellDryAt(sourceCell.int):
+    return
+  result.sourceCell = some(sourceCell)
+  result.safeDistPx = ceilSafetyMetric(distanceQ4, 16)
+  result.ticksToSafety = ceilSafetyMetric(distanceQ4,
+    HazardEtaSpeedQ4.uint64)
+  if firstPoint.isSome:
+    result.retreatOctant = safetyOctantToward(cellCenter(start), firstPoint.get)
+
+proc zoneSafeTarget*(system: BodyNavSystem; selfPos: BodyPoint;
+    elapsedTick: int; gameGeneration: uint64): Option[BodyPoint] =
+  let hints = system.safetyHintsFor(selfPos, elapsedTick, gameGeneration)
+  if hints.sourceCell.isNone:
+    none(BodyPoint)
+  else:
+    some(system.routeIndex.routePoint(hints.sourceCell.get))
