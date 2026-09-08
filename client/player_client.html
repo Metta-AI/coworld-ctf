@@ -743,9 +743,30 @@ function buildZoneTrim(fineW,fineH){
   }
   return {leash:trim,gloss};
 }
-function decodeZoneField(width,height,pixels){
+/* OPT-07: the wire texture packs 2 field cells/pixel (R/G=cell 2x's tick,
+   B/A=cell 2x+1's -- see zoneArrivalFieldBytes in global.nim), so `width`
+   here is the PACKED pixel width, not the logical grid width used for the
+   supersample math below. Both the logical width and the field's build
+   serial ride past the opaque "fx 9c41 field " label prefix (addZoneEdgeBand)
+   as trailing tokens -- bots keying only on that prefix are unaffected.
+   Keyed on the serial: a re-sent def for a field this tab already decoded
+   (e.g. a takeover reconnect resuming its held cache, OPT-06) is a no-op
+   instead of rebuilding the whole supersampled canvas from scratch. */
+let zoneFieldSerial=-1;
+function decodeZoneField(packedWidth,height,pixels,label){
+  const tokens=(label||"").split(" "),serial=tokens.length>3?parseInt(tokens[3],10):-1,
+    width=tokens.length>4?parseInt(tokens[4],10):packedWidth*2;
+  if(serial>=0&&serial===zoneFieldSerial)return;
+  zoneFieldSerial=serial;
   const coarse=new Uint16Array(width*height);
-  for(let i=0;i<coarse.length;i++){const o=i*4;coarse[i]=pixels[o]|(pixels[o+1]<<8)}
+  for(let y=0;y<height;y++){
+    const rowBase=y*width,packedRowBase=y*packedWidth;
+    for(let px=0;px<packedWidth;px++){
+      const o=(packedRowBase+px)*4,x0=px*2,x1=x0+1;
+      coarse[rowBase+x0]=pixels[o]|(pixels[o+1]<<8);
+      if(x1<width)coarse[rowBase+x1]=pixels[o+2]|(pixels[o+3]<<8);
+    }
+  }
   const fineW=width*ZONE_RENDER_SUPERSAMPLE,fineH=height*ZONE_RENDER_SUPERSAMPLE;
   const fine=buildFineField(coarse,width,height,fineW,fineH);
   let finalTick=-1,finalIdx=-1;
@@ -945,7 +966,7 @@ function parseSprite(bytes){
              = the solver's arrival tick), never a drawable image. Decode into
              typed arrays once; every later frame is a pure readout of them
              (renderZonePaint). Kept OUT of the sprites map so it never draws. */
-          decodeZoneField(width,height,snappy.pixels);
+          decodeZoneField(width,height,snappy.pixels,snappy.label);
         }else sprites.set(id,{width,height,pixels:snappy.pixels,label:snappy.label});
       }
       // else: decode failed but the envelope was well-formed, so `offset`

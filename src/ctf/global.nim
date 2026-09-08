@@ -7529,18 +7529,40 @@ const
                                ## texture stamped over it.
 
 
+proc zoneArrivalFieldPackedWidth*(gridW: int): int =
+  ## OPT-07: the wire texture's width in PIXELS once two field cells share
+  ## one RGBA pixel (see zoneArrivalFieldBytes). Exported so the packing
+  ## width used to build the bytes and the one folded into the label (see
+  ## addZoneEdgeBand) can never drift apart.
+  (gridW + 1) div 2
+
 proc zoneArrivalFieldBytes(field: ZoneArrivalField): seq[uint8] =
   ## Packs the field into an RGBA texture the existing sprite protocol can
-  ## carry unmodified: R/G = the 16-bit arrival tick (low/high byte), B/A
-  ## reserved (a later decoration pass uses them for tone/contact data).
-  ## gridW x gridH — a coarse grid, not the map's own resolution — so this
-  ## is a few hundred KB before snappy even on the largest boards, shipped
-  ## exactly ONCE per episode (see addZoneEdgeBand), never per tick.
-  result = newRgbaPixels(field.gridW, field.gridH)
-  for i in 0 ..< field.arrival.len:
-    let a = field.arrival[i]
-    result.putRawRgbaPixel(i, uint8(a and 0xFF), uint8((a shr 8) and 0xFF),
-      0'u8, 255'u8)
+  ## carry unmodified, at 2 REAL bytes/cell instead of 4 (OPT-07): two
+  ## horizontally-adjacent field cells share one RGBA pixel -- R/G = the
+  ## first cell's 16-bit arrival tick (low/high byte, as before), B/A = the
+  ## SECOND cell's, rather than the old constant (0, 255) pair that only
+  ## ever existed to fill out the RGBA shape. This halves the packed width
+  ## (and so the raw + compressed byte count) for the same cell resolution;
+  ## an odd gridW's last pixel pads its B/A half with ZoneNeverArrives,
+  ## which the client discards using the logical gridW folded into the
+  ## sprite's label (see addZoneEdgeBand) since the wire header only carries
+  ## the PACKED width. gridW x gridH is a coarse grid, not the map's own
+  ## resolution, so this is shipped exactly ONCE per (episode, viewer) --
+  ## see addZoneEdgeBand -- never per tick.
+  let packedW = zoneArrivalFieldPackedWidth(field.gridW)
+  result = newRgbaPixels(packedW, field.gridH)
+  for y in 0 ..< field.gridH:
+    let rowBase = y * field.gridW
+    for x in 0 ..< packedW:
+      let
+        i0 = rowBase + x * 2
+        a0 = field.arrival[i0]
+        a1 = if x * 2 + 1 < field.gridW: field.arrival[i0 + 1]
+             else: ZoneNeverArrives
+        outIdx = y * packedW + x
+      result.putRawRgbaPixel(outIdx, uint8(a0 and 0xFF), uint8((a0 shr 8) and 0xFF),
+        uint8(a1 and 0xFF), uint8((a1 shr 8) and 0xFF))
 
 const
   ZoneArrivalFieldSpriteId* = ZoneMarkerBase + 2
@@ -7601,13 +7623,22 @@ proc addZoneEdgeBand(
   ## tick and never re-sends. The client keys the field off the sprite ID,
   ## not the label (broadcast_core.js ZONE_ARRIVAL_FIELD_SPRITE_ID), and the
   ## "fx 9c41" opaque prefix is preserved for bot readers.
+  ##
+  ## OPT-07: the wire texture is packed 2 cells/pixel (zoneArrivalFieldBytes),
+  ## so its PACKED width is not the LOGICAL grid width a client needs for
+  ## unpacking (buildFineField's cell math). The label -- already carrying
+  ## the build serial past the "fx 9c41 field " opaque prefix bots key off
+  ## of -- gets one more trailing token for the logical width; a bot reader
+  ## checking only the documented prefix is unaffected.
   let
-    fieldLabel = ZoneArrivalFieldLabel & " " & $ZoneArrivalFieldSerial
+    fieldLabel = ZoneArrivalFieldLabel & " " & $ZoneArrivalFieldSerial &
+      " " & $ZoneArrivalFieldValue.gridW
     fieldIndex = spriteDefs.spriteDefinitionIndex(ZoneArrivalFieldSpriteId)
   if fieldIndex < 0 or spriteDefs[fieldIndex].label != fieldLabel:
     packet.addSpriteChanged(
       spriteDefs, ZoneArrivalFieldSpriteId,
-      ZoneArrivalFieldValue.gridW, ZoneArrivalFieldValue.gridH,
+      zoneArrivalFieldPackedWidth(ZoneArrivalFieldValue.gridW),
+      ZoneArrivalFieldValue.gridH,
       zoneArrivalFieldBytes(ZoneArrivalFieldValue),
       fieldLabel, changed = true)
     ZoneArrivalFieldShipped = true

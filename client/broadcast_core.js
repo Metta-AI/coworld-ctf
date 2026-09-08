@@ -1098,11 +1098,31 @@
     // upsamples it to render resolution (buildFineField) and buckets the
     // result by tick (buildZoneBuckets) so every later frame is O(newly-
     // arrived render cells), never a rescan of the whole grid.
-    function decodeZoneField(width, height, pixels) {
+    // OPT-07: `width` here is the PACKED pixel width -- two field cells
+    // share one RGBA pixel (R/G = cell 2x's tick, B/A = cell 2x+1's; see
+    // zoneArrivalFieldBytes in global.nim), not the logical grid width the
+    // supersample math below needs. Both the logical width and the field's
+    // build serial ride past the opaque "fx 9c41 field " label prefix
+    // (addZoneEdgeBand) as trailing tokens; a bot keying only on that
+    // prefix is unaffected. Keyed on the serial: a re-sent def for a field
+    // this viewer already decoded (e.g. a takeover reconnect resuming its
+    // held cache, OPT-06) is a no-op instead of rebuilding the whole
+    // supersampled canvas from scratch.
+    let zoneFieldSerial = -1;
+    function decodeZoneField(packedWidth, height, pixels, label) {
+      const tokens = (label || '').split(' ');
+      const serial = tokens.length > 3 ? parseInt(tokens[3], 10) : -1;
+      const width = tokens.length > 4 ? parseInt(tokens[4], 10) : packedWidth * 2;
+      if (serial >= 0 && serial === zoneFieldSerial) return;
+      zoneFieldSerial = serial;
       const coarse = new Uint16Array(width * height);
-      for (let i = 0; i < coarse.length; i++) {
-        const o = i * 4;
-        coarse[i] = pixels[o] | (pixels[o + 1] << 8);
+      for (let y = 0; y < height; y++) {
+        const rowBase = y * width, packedRowBase = y * packedWidth;
+        for (let px = 0; px < packedWidth; px++) {
+          const o = (packedRowBase + px) * 4, x0 = px * 2, x1 = x0 + 1;
+          coarse[rowBase + x0] = pixels[o] | (pixels[o + 1] << 8);
+          if (x1 < width) coarse[rowBase + x1] = pixels[o + 2] | (pixels[o + 3] << 8);
+        }
       }
       const fineW = width * ZONE_RENDER_SUPERSAMPLE;
       const fineH = height * ZONE_RENDER_SUPERSAMPLE;
@@ -1648,7 +1668,7 @@
             // the zone clock object's glide. Sent exactly once per episode
             // and paints no board pixels itself, so — like chrome — not a
             // `changed` event.
-            if (pixels) decodeZoneField(width, height, pixels);
+            if (pixels) decodeZoneField(width, height, pixels, label);
           } else {
             if (spriteAwaitsRetry(sprites.get(id))) pendingDecodes--;
             sprites.set(id, {
