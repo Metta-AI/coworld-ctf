@@ -1426,6 +1426,27 @@ var rigPoseDefBudget = 0
   ## spectator board section alongside boardScale; module state for the same
   ## reason boardScale is.
 
+var
+  rigPoseLeakTotalDefs = 0       ## WI-6 measurement: count of every NEW
+                                 ## (first-time-for-that-viewer) rig segment
+                                 ## def sent by addCogRigObjects, canonical
+                                 ## fallback included, process-wide across
+                                 ## every connected viewer, since the last
+                                 ## reportAndResetRigPoseLeak call.
+  rigPoseLeakNonCanonicalDefs = 0  ## the combinatorial-leak subset of the
+                                 ## above: a genuinely POSED (non-canonical)
+                                 ## rig sprite a viewer did not already hold
+                                 ## — the cost WI-6 flagged as unmeasured.
+
+proc reportAndResetRigPoseLeak*(): tuple[total, nonCanonical: int] =
+  ## WI-6 (OPT-06): reads and zeroes the rig-pose-def counters. Called from
+  ## the round-transition point in server.nim so a caller can log "this many
+  ## new rig-pose defs leaked out across all viewers this round" without the
+  ## measurement itself costing anything on the hot per-tick path.
+  result = (rigPoseLeakTotalDefs, rigPoseLeakNonCanonicalDefs)
+  rigPoseLeakTotalDefs = 0
+  rigPoseLeakNonCanonicalDefs = 0
+
 proc boardRenderScale(sim: SimServer): int =
   ## The supersample factor this sim's board actually emits at.
   boardRenderScaleFor(sim.gameMap.width, sim.gameMap.height)
@@ -7717,6 +7738,10 @@ proc buildSpriteProtocolPlayerUpdates*(
     else:
       state
   if not nextState.initialized:
+    when defined(wireResendProbe):
+      stderr.writeLine("WIRE_RESEND_PROBE full-init tick=" & $sim.tickCount &
+        " playerIndex=" & $playerIndex & " spritesOff=" & $spritesOff &
+        " defsHeld=" & $nextState.spriteDefs.len)
     result = sim.buildSpriteProtocolPlayerInit(nextState.spriteDefs, spritesOff)
     nextState.initialized = true
 
@@ -8830,6 +8855,7 @@ proc addCogRigObjects(
           rigPoseDefBudget <= 0:
         spriteId = canonicalSprite(s.seg)
         if spriteDefs.spriteDefinitionIndex(spriteId) < 0:
+          inc rigPoseLeakTotalDefs
           packet.addBoardSpriteChanged(
             spriteDefs, spriteId, RigCanvas, RigCanvas,
             rigSegPixels(player.team, s.seg, headStep, 0, 0, boardScale),
@@ -8837,6 +8863,8 @@ proc addCogRigObjects(
       else:
         if articulated and spriteId != canonicalSprite(s.seg):
           dec rigPoseDefBudget
+          inc rigPoseLeakNonCanonicalDefs
+        inc rigPoseLeakTotalDefs
         packet.addBoardSpriteChanged(
           spriteDefs, spriteId, RigCanvas, RigCanvas,
           bakePixels(s.seg), segLabel(s.seg), native = boardScale)

@@ -186,6 +186,19 @@ type
     ## record. Empty on every config that leaves allowSeatTakeover off, which
     ## is what makes a league build byte-identical to a pre-takeover build.
     takeovers: Table[WebSocket, SeatTakeover]
+    ## Retained per-SEAT (never per-socket) viewer state across a takeover
+    ## socket's reload/reconnect (see registerTakeoverWebSocket / OPT-06).
+    ## The client's own socket-liveness watchdog (player_client.html,
+    ## SOCKET_STALE_MS) force-reconnects on any >9s frame gap — including
+    ## the gap a round-transition tick spike can produce (profile-2acfb5d3.md:
+    ## a single 4.1s tick observed at a round boundary) — which hands the new
+    ## websocket a BLANK PlayerViewerState and forces the ~850KB one-time
+    ## per-viewer init (map bands, walkability, rig defs) to resend even
+    ## though the browser tab never reloaded and still holds every sprite def
+    ## the old socket already sent it. Bounded by construction: keyed by
+    ## `seat` (0..<config.slots.len), never by an unbounded identity, so this
+    ## can hold at most one entry per configured seat.
+    takeoverViewerCache: Table[int, PlayerViewerState]
     ## Per-seat liveness as of the last frame. Written only on a config that
     ## arms takeover, so it stays an empty seq for a league build's whole run.
     seatBoard: seq[SeatSnapshot]
@@ -606,6 +619,7 @@ proc initAppState() =
   appState.playerViewers = initTable[WebSocket, PlayerViewerState]()
   appState.rewardViewers = initTable[WebSocket, bool]()
   appState.takeovers = initTable[WebSocket, SeatTakeover]()
+  appState.takeoverViewerCache = initTable[int, PlayerViewerState]()
   appState.seatBoard = @[]
   appState.closedSockets = @[]
   appState.nextAnonymousPlayer = 1
@@ -659,6 +673,15 @@ proc removePlayerWebSocketState(websocket: WebSocket): int =
   ## Removes player-owned websocket state and returns its former index.
   result = -1
   if websocket in appState.playerViewers:
+    # A takeover socket about to be dropped stashes its def cache (spriteDefs
+    # + initialized) into the per-seat reconnect cache FIRST (see
+    # takeoverViewerCache / OPT-06): whether this call came from a genuine
+    # close or from evictSeatTakeover's reload race, the seat's replacement
+    # socket (registerTakeoverWebSocket) checks this cache before falling
+    # back to a blank state.
+    if websocket in appState.takeovers:
+      appState.takeoverViewerCache[appState.takeovers[websocket].seat] =
+        appState.playerViewers[websocket]
     appState.playerViewers.del(websocket)
   if websocket in appState.playerIndices:
     result = appState.playerIndices[websocket]
@@ -1116,7 +1139,31 @@ proc registerTakeoverWebSocket(
   appState.globalViewers.del(websocket)
   appState.rewardViewers.del(websocket)
   discard removePlayerWebSocketState(websocket)
-  appState.playerViewers[websocket] = initPlayerViewerState()
+  if seat in appState.takeoverViewerCache:
+    # A reconnect for a seat this process already fully initialized once —
+    # either a page reload or the client's own socket-liveness watchdog
+    # (player_client.html SOCKET_STALE_MS) firing on a frame-delivery gap,
+    # including the gap a round-transition tick spike can produce (see
+    # takeoverViewerCache's own doc comment / OPT-06). Resume with the held
+    # def cache instead of paying the ~850KB map-bands/walkability/rig-def
+    # resend again: an in-page WS reconnect never clears the browser tab's
+    # own `sprites` cache (only a full page navigation does), so the client
+    # already holds every def this would otherwise re-send.
+    # resetPlayerViewerStateForRound clears exactly the per-CONNECTION
+    # dynamic bookkeeping (objectIds/sentPlacements/shout slots/mouse
+    # state) a brand-new websocket has not populated yet — the same soft
+    # reset a same-socket round transition already relies on.
+    var resumed = appState.takeoverViewerCache[seat]
+    appState.takeoverViewerCache.del(seat)
+    resumed.resetPlayerViewerStateForRound()
+    appState.playerViewers[websocket] = resumed
+    when defined(wireResendProbe):
+      stderr.writeLine("WIRE_RESEND_PROBE takeover-resume seat=" & $seat &
+        " initialized=" & $resumed.initialized)
+  else:
+    appState.playerViewers[websocket] = initPlayerViewerState()
+    when defined(wireResendProbe):
+      stderr.writeLine("WIRE_RESEND_PROBE takeover-fresh seat=" & $seat)
   appState.inputMasks[websocket] = 0
   appState.inputPressedMasks[websocket] = 0
   appState.lastAppliedMasks[websocket] = 0
@@ -4922,6 +4969,13 @@ proc runServerLoop*(
         withLock appState.lock:
           appState.kickedIdentities.clear()
           landSeatTakeoversOnNewMatch()
+          # A brand-new match can carry a different map/config (unlike a
+          # same-match round transition, which resetPlayerViewerStateForRound
+          # already proves shares one map) -- drop any takeover reconnect
+          # cache so a seat that reconnects after this point pays the full
+          # init again instead of resuming stale defs from the match that
+          # just ended. See takeoverViewerCache's own doc comment.
+          appState.takeoverViewerCache.clear()
           var reconnectSockets: seq[WebSocket] = @[]
           for websocket in appState.playerIndices.keys:
             if websocket.isPlayerWebSocket():
@@ -5429,6 +5483,18 @@ proc runServerLoop*(
 
     if not replayLoaded and sim.needsReregister:
       sim.needsReregister = false
+      when defined(wireResendProbe):
+        stderr.writeLine("WIRE_RESEND_PROBE needsReregister tick=" &
+          $sim.tickCount & " phase=" & $sim.phase)
+      if getEnv("FIRST_LIGHT_ZONE_LOG") == "1":
+        # WI-6 (OPT-06): report the rig-pose combinatorial-leak counters for
+        # the round that just ended, then zero them for the next one. Reuses
+        # the epic's existing env-gated diagnostic-log convention rather than
+        # adding a second flag.
+        let leak = reportAndResetRigPoseLeak()
+        stderr.writeLine("RIG_POSE_LEAK tick=" & $sim.tickCount &
+          " totalNewDefs=" & $leak.total &
+          " nonCanonicalDefs=" & $leak.nonCanonical)
       firstLightEpisode.resetFirstLightForSim(
         replayLoaded, config, sim, "reregister", runtimeConfig.config)
       liveOverlays = @[]
@@ -5530,6 +5596,11 @@ proc runServerLoop*(
         framePacket,
         nextState.sentPlacements
       )
+      when defined(wireResendProbe):
+        if wirePacket.len > 50_000:
+          stderr.writeLine("WIRE_RESEND_PROBE large-takeover-send tick=" &
+            $sim.tickCount & " cog=" & $takeoverCogs[i] &
+            " bytes=" & $wirePacket.len & " phase=" & $sim.phase)
       try:
         if wirePacket.len == 0:
           takeoverSockets[i].send("", BinaryMessage)
