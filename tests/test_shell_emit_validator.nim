@@ -197,7 +197,8 @@ suite "shell emit validator":
     var br = map.controllerContext
     br.mode = gmBr
     let declared = "{\"arrive_radius\":0.0,\"drop\":true," &
-      "\"kind\":\"navigate_to\",\"point\":[40,30]," &
+      "\"idle_aim_center_brads\":0,\"kind\":\"navigate_to\"," &
+      "\"point\":[40,30]," &
       "\"schema\":\"intent\",\"suppress_fire_freeze\":true," &
       "\"target_class\":\"zone_safe_ground\",\"v\":1}"
     let accepted = validateEmit(declared, br)
