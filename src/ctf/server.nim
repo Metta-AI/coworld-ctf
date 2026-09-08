@@ -5218,7 +5218,7 @@ proc runServerLoop*(
               defaultFallbacks: sim.shellFallbacks(bodyInputs.self.pos)))
           let shellTick = shellEpisode.step(
             frames, uint32(sim.tickCount + 1),
-            sim.tickCount - sim.gameStartTick)
+            sim.gameTicksElapsed())
           shellSeatsThisTick = shellTick.masks.len
           shellTiming.addShellTiming(shellTick)
           retainProductionModuleStatuses(shellTick.moduleStatuses)

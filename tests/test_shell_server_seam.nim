@@ -60,6 +60,39 @@ suite "shell server seam":
     discard episode.step(@[], 1'u32, 37)
     check episode.elapsedZoneTick == 37
 
+  test "shell elapsed zone clock stays zero across the lobby start boundary":
+    var config = defaultGameConfig()
+    config.season2Shell = true
+    config.zoneDamageByPaint = true
+    config.zonePhases = @[ZonePhase(zPermille: 500, waitTicks: 10,
+      shrinkTicks: 40, dps: 2)]
+    config.slots = @[PlayerSlotConfig(name: "play", team: Red,
+      hasTeam: true, control: scPlay)]
+    var sim = initSimServer(config)
+    let playerIndex = sim.addPlayer("play")
+    var episode: ShellEpisode
+    episode.resetShellForSim(false, config, sim, "elapsed-clock")
+
+    sim.tickCount = 50
+    check sim.gameStartTick == -1
+    discard episode.step(@[], uint32(sim.tickCount + 1),
+      sim.gameTicksElapsed())
+    check episode.elapsedZoneTick == 0
+    require episode.navHints(0, sim.players[playerIndex].bodyPoint,
+      episode.elapsedZoneTick).isSome
+    let cacheRevision = episode.safeCache.revision
+    check episode.safeCache.bucket == 0
+
+    sim.startGame()
+    check sim.gameTicksElapsed() == 0
+    discard episode.step(@[], uint32(sim.tickCount + 1),
+      sim.gameTicksElapsed())
+    check episode.elapsedZoneTick == 0
+    require episode.navHints(0, sim.players[playerIndex].bodyPoint,
+      episode.elapsedZoneTick).isSome
+    check episode.safeCache.bucket == 0
+    check episode.safeCache.revision == cacheRevision
+
   test "timing window emits once per 24 active ticks and never without seats":
     var
       activeWindow: ShellTimingWindow
