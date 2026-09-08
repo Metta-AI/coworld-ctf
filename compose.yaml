@@ -10,6 +10,7 @@ services:
       dockerfile: Dockerfile
       network: host
       args:
+        NimFlags: ${GAME_NIM_FLAGS:--d:release -d:useMalloc --threads:on --opt:speed --stackTrace:on}
         # Engine build stamp for replay headers (see Dockerfile); empty when
         # the caller does not export it, which leaves recordings unstamped.
         SIM_SOURCES_STAMP: ${SIM_SOURCES_STAMP:-}

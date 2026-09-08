@@ -56,8 +56,10 @@ assert compute_next(mixed, "ctf") == "0.7.129"
 # Under-read guards: a fetch that misses the canonical row must hard-fail,
 # never emit a number that can re-collide.
 expect_exit(lambda: compute_next([row("ctf", "0.7.5")], "ctf"), "no canonical row")
-expect_exit(lambda: compute_next([], "ctf"), "no rows for coworld")
-expect_exit(lambda: compute_next(orphan_rows, "nosuch"), "no rows for coworld")
+
+# A fully fetched registry with no rows for a new name starts its own sequence.
+assert compute_next([], "paintbot-profiling") == "0.1.0"
+assert compute_next(orphan_rows, "paintbot-profiling") == "0.1.0"
 
 # Unparseable version for our name is a hard failure, not a silent skip —
 # a skipped max row would re-collide.
