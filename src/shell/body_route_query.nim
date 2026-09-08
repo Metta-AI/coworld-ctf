@@ -493,6 +493,58 @@ proc newBodyRouteQueryScratch*(index: BodyRouteIndex): BodyRouteQueryScratch =
         "body route query map '" & index.map.name &
         "' has a retained fine anchor with no coarse route")
 
+proc retainedBytes*(scratch: BodyRouteQueryScratch): int64 =
+  ## Exact retained owner plus every variable-length workspace payload. Fixed
+  ## route/leg buffers and all sequence headers are in sizeof(scratch[]).
+  if scratch == nil:
+    return 0
+  result = int64(sizeof(scratch[]))
+  template addPayload(values: untyped) =
+    result += int64(values.len * sizeof(values[0]))
+  addPayload(scratch.heap.nodes)
+  addPayload(scratch.heap.positions)
+  addPayload(scratch.heap.positionGeneration)
+  addPayload(scratch.startAttach.attaches)
+  addPayload(scratch.startAttach.points)
+  addPayload(scratch.goalAttach.attaches)
+  addPayload(scratch.goalAttach.points)
+  addPayload(scratch.startCost)
+  addPayload(scratch.goalCost)
+  addPayload(scratch.startPhysical)
+  addPayload(scratch.goalPhysical)
+  addPayload(scratch.startAttachForSide)
+  addPayload(scratch.goalAttachForSide)
+  addPayload(scratch.sideCost)
+  addPayload(scratch.sidePhysical)
+  addPayload(scratch.sideParentArc)
+  addPayload(scratch.sideParentLabel)
+  addPayload(scratch.sideSourceAttach)
+  addPayload(scratch.startGeneration)
+  addPayload(scratch.goalGeneration)
+  addPayload(scratch.sideGeneration)
+  addPayload(scratch.sideClosedGeneration)
+  addPayload(scratch.arcCost)
+  addPayload(scratch.arcCostGeneration)
+  addPayload(scratch.localHashKey)
+  addPayload(scratch.localHashRecord)
+  addPayload(scratch.localHashGeneration)
+  addPayload(scratch.localCell)
+  addPayload(scratch.localCost)
+  addPayload(scratch.localParent)
+  addPayload(scratch.localClosedGeneration)
+  addPayload(scratch.fineProvenanceKind)
+  addPayload(scratch.fineProvenanceIndex)
+  addPayload(scratch.fineProvenanceOffset)
+
+proc invalidateArcMemo*(scratch: BodyRouteQueryScratch) =
+  ## Benchmark seam for the literal cold-memo scenario. Ordinary queries use
+  ## generation stamps and never need to clear this retained array.
+  if scratch == nil:
+    return
+  for stamp in scratch.arcCostGeneration.mitems:
+    stamp = 0
+  scratch.arcMemoGeneration = 1
+
 proc installSafetyContext*(scratch: BodyRouteQueryScratch;
     hazard: BodyHazardOverlay; cache: BodySafeCache) =
   if scratch == nil or hazard == nil or cache == nil:

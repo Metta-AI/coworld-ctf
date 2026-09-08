@@ -83,6 +83,15 @@ suite "bounded hierarchical body route query":
     expect BodyMapError:
       validateRouteQueryCapacity("too-many-sides", RouteEdgeCap + 2)
 
+  test "retained byte counters include fixed owners and payloads":
+    let
+      index = newBodyRouteIndex(openMap())
+      scratch = newBodyRouteQueryScratch(index)
+      stats = index.routeIndexStats()
+    check index.retainedIndexBytes ==
+      int64(sizeof(index[])) + stats.retainedBytes
+    check scratch.retainedBytes > int64(sizeof(scratch[]))
+
   test "straight same-room route retains both exact endpoints":
     let
       map = openMap()

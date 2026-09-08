@@ -103,6 +103,17 @@ suite "body hazard overlay":
     check overlay.fingerprint != 0
     check overlay.arrivalAt(navY * map.gridWidth + navX) == 73
 
+    let stats = index.routeIndexStats()
+    check overlay.retainedBytes == int64(sizeof(overlay[])) +
+      int64(stats.navCells * sizeof(uint16)) +
+      int64(stats.segments * 2 * sizeof(uint16)) +
+      int64(stats.rooms * sizeof(uint16))
+    let cache = newBodySafeCache()
+    cache.refreshSafeCache(index, overlay, 0, 1)
+    check cache.retainedBytes == int64(sizeof(cache[])) +
+      int64(stats.sides * (sizeof(uint32) + sizeof(uint16))) +
+      int64(stats.rooms * sizeof(bool))
+
   test "never-arrives is infinity for projection and room maxima":
     let
       map = openMap()

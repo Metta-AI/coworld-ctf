@@ -52,6 +52,26 @@ proc mixFingerprint(value: var uint64, word: uint64) {.inline.} =
 proc newDarkBodyHazardOverlay*(): BodyHazardOverlay =
   BodyHazardOverlay(state: bhsDark)
 
+proc retainedBytes*(overlay: BodyHazardOverlay): int64 =
+  ## Exact retained owner plus sequence payload bytes. The sequence headers
+  ## themselves live in the fixed owner object counted by sizeof.
+  if overlay == nil:
+    return 0
+  int64(sizeof(overlay[]) +
+    overlay.arrival.len * sizeof(uint16) +
+    overlay.segmentArrivalMin.len * sizeof(uint16) +
+    overlay.segmentArrivalMax.len * sizeof(uint16) +
+    overlay.roomMaxArrival.len * sizeof(uint16))
+
+proc retainedBytes*(cache: BodySafeCache): int64 =
+  ## Exact retained owner plus sequence payload bytes.
+  if cache == nil:
+    return 0
+  int64(sizeof(cache[]) +
+    cache.safeDistQ4.len * sizeof(uint32) +
+    cache.safeNext.len * sizeof(uint16) +
+    cache.roomHasDry.len * sizeof(bool))
+
 proc projectedArrival(index: BodyRouteIndex,
     source: ZoneDamageSnapshot, navCell: int): uint16 =
   let

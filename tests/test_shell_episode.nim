@@ -241,6 +241,15 @@ suite "shell episode":
     check output.masks.len == 1
     check output.nav.counts[bnsIdle] == 1
 
+  test "body slice timing encloses actions danger and planning":
+    let map = testBodyMap()
+    var episode = initShellEpisode(true, true, controls(scPlay, 1), map, 331)
+    let output = episode.step([frame(map, 0)], 7)
+    check output.bodySliceNanoseconds > 0
+    check output.bodySliceNanoseconds >= output.bodyNanoseconds
+    check output.bodySliceNanoseconds >=
+      output.stageNanoseconds[ssDanger] + output.stageNanoseconds[ssPlanning]
+
   test "navigation summary reports every bounded follower state":
     var nav: ShellNavSummary
     nav.counts[bnsIdle] = 1

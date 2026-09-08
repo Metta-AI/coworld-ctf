@@ -1742,6 +1742,13 @@ proc retainedBytes(index: BodyRouteIndex): int64 =
     index.fineAnchorStart.len * sizeof(int32) +
     index.fineAnchors.len * sizeof(int32))
 
+proc retainedIndexBytes*(index: BodyRouteIndex): int64 =
+  ## Exact retained owner plus sequence payload bytes. The sequence headers
+  ## themselves live in the fixed owner object counted by sizeof.
+  if index == nil:
+    return 0
+  int64(sizeof(index[])) + index.retainedBytes
+
 proc validateRouteIndex*(index: BodyRouteIndex)
 
 proc newBodyRouteIndex*(map: BodyMap): BodyRouteIndex =

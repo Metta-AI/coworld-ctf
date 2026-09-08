@@ -191,6 +191,11 @@ type
     nav*: ShellNavSummary
     combat*: ShellCombatSummary
     bodyNanoseconds*: int64
+    bodySliceNanoseconds*: int64
+      ## Wall time for the complete server-side body slice: action/follower/
+      ## weapon work for every active play seat, followed by scheduled danger
+      ## rebuilds and bounded planning. Guest runtime, views, compilation,
+      ## lifecycle, and belief ingestion are outside this interval.
     runtimeNanoseconds*: int64
     stageNanoseconds*: array[ShellStage, int64]
 
@@ -1440,6 +1445,7 @@ proc step*(episode: var ShellEpisode,
         if row.seat >= 0 and row.seat < seatTeams.len:
           seatTeams[row.seat] = row.team
 
+  let bodySliceStarted = getMonoTime()
   for state in episode.seats.mitems:
     var frameIndex = -1
     for index, frame in frames:
@@ -1491,6 +1497,8 @@ proc step*(episode: var ShellEpisode,
     episode.nav.rebuildScheduledDanger(tick.int, episode.dangerInputs(tick))
   stageBlock(result.stageNanoseconds, ssPlanning, "shell.planning"):
     discard episode.nav.runPlanningTick(tick.int)
+  result.bodySliceNanoseconds =
+    (getMonoTime() - bodySliceStarted).inNanoseconds
   result.planBudget = episode.nav.drainPlanBudgetEvents()
 
 proc observeDeaths*(episode: var ShellEpisode,
