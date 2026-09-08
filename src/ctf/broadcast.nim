@@ -1017,6 +1017,7 @@ proc buildStateJson*(
   mismatchTick: int,
   povSlot: int,
   leadSeries: seq[seq[int]] = @[],
+  leadMetric: string = "",
   startTick: int = 0,
   endHoldSeconds: int = 0,
   includeFpMap: bool = false,
@@ -1152,10 +1153,12 @@ proc buildStateJson*(
   # Full-timeline lead series (sent ONCE per HUD viewer): change-points across
   # the WHOLE episode so the momentum graph draws its full width immediately
   # instead of accumulating to the playhead. Team-keyed so any number of teams
-  # graphs: {"teams": [name, …], "pts": [[tick, hillTicks, …], …]} — each point
-  # is the tick followed by one CUMULATIVE hill-tick count per team, in `teams`
-  # order, and the two-team renderer plots their difference: the hill-tick
-  # momentum of the episode. Absent on every later frame — the client caches it.
+  # graphs: {"metric": name, "teams": [name, …], "pts": [[tick, value, …], …]}
+  # — each point is the tick followed by one CUMULATIVE value per team, in
+  # `teams` order, and the lane draws one climbing line per team. "metric"
+  # names what those values ARE ("glory" for classic games, "hill" for KotH)
+  # so the band can caption itself rather than hardcode one of the two.
+  # Absent on every later frame — the client caches it.
   if leadSeries.len > 0:
     var teamNames = newJArray()
     for team in sim.teams():
@@ -1166,7 +1169,10 @@ proc buildStateJson*(
       for value in point:
         row.add(%value)
       pts.add(row)
-    state["lead"] = %*{"teams": teamNames, "pts": pts}
+    state["lead"] = %*{
+      "metric": (if leadMetric.len > 0: leadMetric else: "glory"),
+      "teams": teamNames, "pts": pts
+    }
 
   # Static minimap wall silhouette for the EYES tactical inset, sent ONCE per
   # viewer (like the lead series). Absent on every later frame — the client

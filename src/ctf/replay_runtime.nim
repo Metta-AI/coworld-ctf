@@ -198,6 +198,7 @@ proc buildReplayViewerPacket*(
       replay.hashMismatchTick,
       nextState.selectedJoinOrder,
       if sendLead: replay.leadSeries else: @[],
+      if sendLead: replay.leadMetric else: "",
       replay.replayStartTick(),
       replay.endHoldSecondsLeft(),
       sendFpMap,

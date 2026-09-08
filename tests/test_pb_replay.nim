@@ -380,6 +380,10 @@ suite "replay":
     while not player.scanComplete:
       player.advanceReplayScan(4000)
     check player.leadSeries.len >= 2
+    ## …and the series SAYS it is hill ticks, so the band captions itself
+    ## "HILL TICKS" instead of naming the classic metric (glory) or the
+    ## metric this mode stopped plotting years ago (lives).
+    check player.leadMetric == "hill"
     for point in player.leadSeries:
       check point.len == 3               ## [tick, red, blue]
       ## Cumulative: a hill count never goes down inside an episode.

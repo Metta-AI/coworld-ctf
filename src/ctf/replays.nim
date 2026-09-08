@@ -88,13 +88,17 @@ type
       ## tick clock are offset by it so the shown timeline is 0 = first action.
     leadSeries*: seq[seq[int]]
       ## [tick, leadPerTeam…] change-points across the WHOLE match/episode
-      ## (one value per team, in Team order): remaining LIVES for classic
-      ## games, CUMULATIVE HILL TICKS for KotH games (scanTeamLead).
+      ## (one value per team, in Team order): GLORY for classic games,
+      ## CUMULATIVE HILL TICKS for KotH games (scanTeamLead). Both are
+      ## cumulative and never negative, so the lane draws either as a climb.
       ## Precomputed on the deterministic keyframe walk so the momentum graph
       ## can draw its full-timeline shape all at once (not accumulate as it
       ## plays). Only points where some team's value CHANGES are stored
       ## (compact step series); the client holds each value to the next point
       ## and to maxTick.
+    leadMetric*: string
+      ## Which of those two `leadSeries` holds ("glory" / "hill"), so the lane
+      ## can caption itself truthfully instead of hardcoding one of them.
     endHoldFrames*: int
       ## Real-time frames left to HOLD on the final game-over frame before a
       ## looping replay restarts, so the end segment (winner, win condition,
@@ -147,7 +151,7 @@ type
 
   ReplayScan* = ref object
     ## Working state of the incremental precompute walk: a second sim +
-    ## player stepped from tick 0 that derives keyframes, the lives-lead
+    ## player stepped from tick 0 that derives keyframes, the glory momentum
     ## series, story beats and lull spans without touching the on-screen
     ## playback state.
     sim: SimServer
@@ -1162,17 +1166,31 @@ proc buildLullSpans*(
     if i < beatTicks.len:
       prevBeat = nextBeat
 
+proc scanLeadMetric*(sim: SimServer): string =
+  ## What `scanTeamLead` is counting, so the lane can NAME itself instead of
+  ## wearing a hardcoded caption. Both metrics are cumulative and never
+  ## negative, so one renderer draws both — but they are not the same number
+  ## and the band must not claim otherwise. (Before this existed the KotH lane
+  ## plotted hill ticks under a caption reading "LIVES LEAD".)
+  if sim.config.hill: "hill" else: "glory"
+
 proc scanTeamLead(sim: SimServer): seq[int] =
-  ## One lead value per team, in Team order — the metric the momentum graph
-  ## plots the difference of.
+  ## One momentum value per team, in Team order — the metric the scrubber's
+  ## lane plots. Cumulative in both modes: a climb, never a tug of war.
   ##
-  ## Classic: the team's remaining lives, as always.
+  ## Classic: the team's GLORY. Glory is the score, so glory is the momentum
+  ## read. This used to be remaining lives, which is a resource the scorebug
+  ## already prints in its own right — a lane of it answers "who still has an
+  ## army", not "who is winning". `sim.teamGlory` accumulates across the games
+  ## of an episode (roster.nim), so the curve spans the whole watch.
   ##
   ## KotH (hill on): the CUMULATIVE hill-tick count — the archived totals of
   ## the games already finished plus this game's running count. With
   ## `lives: 12` a paintball series of lives is near-flat and shows tag
   ## attrition, not hill momentum, and the hill-tick difference over the
-  ## whole episode is the thing a KotH spectator is watching.
+  ## whole episode is the thing a KotH spectator is watching. Kept as-is:
+  ## that is a deliberate mode ruling with its own fixture test
+  ## (tests/test_pb_replay.nim), not a leftover of the lives era.
   if sim.config.hill:
     for team in sim.teams():
       var total = sim.hillTicks[team]
@@ -1181,7 +1199,7 @@ proc scanTeamLead(sim: SimServer): seq[int] =
       result.add(total)
   else:
     for team in sim.teams():
-      result.add(sim.teamLivesRemaining(team))
+      result.add(sim.teamGlory[team])
 
 proc scanSeriesPoint(tick: int, lead: seq[int]): seq[int] =
   ## One [tick, leadPerTeam…] change-point of the momentum series.
@@ -1227,6 +1245,7 @@ proc initReplayScan*(
   scan.maxTick = scan.builder.replayMaxTick()
   replay.keyframes.add(scan.builder.saveReplayKeyframe(scan.sim))
   scan.lastLead = scanTeamLead(scan.sim)
+  replay.leadMetric = scanLeadMetric(scan.sim)
   replay.leadSeries.add(scanSeriesPoint(scan.sim.tickCount, scan.lastLead))
   # Beat ticks for the lull map are derived by the SAME tracker the broadcast
   # channel uses, so "nothing happens here" agrees with the story the kill
