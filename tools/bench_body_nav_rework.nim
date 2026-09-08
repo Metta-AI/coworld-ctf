@@ -75,7 +75,7 @@ proc rssBytes(): int64 =
     if fields.len >= 2:
       return parseBiggestInt(fields[1]) * 4096
   let value = execProcess("ps", args = ["-o", "rss=", "-p",
-    $getCurrentProcessId()]).strip
+    $getCurrentProcessId()], options = {poUsePath}).strip
   if value.len > 0:
     return parseBiggestInt(value) * 1024
   -1
