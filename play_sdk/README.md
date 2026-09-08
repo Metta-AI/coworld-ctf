@@ -31,7 +31,7 @@ fetcher the starters gate on "no enemy tracked, item within reach").
 does not define an enum or filter by it. The `edge_ride` reference play uses
 level `1` for its one-time successful-init message.
 
-Each invocation admits at most four calls of 256 bytes and silently ignores
+Each invocation admits one call of 256 bytes and silently ignores
 later calls. The local play harness retains every admitted call as ordered,
 reversible `{"level":N,"bytes_hex":"..."}` records. For live ladder entries,
 server stdout receives at most four escaped lines per seat per 24 ticks;

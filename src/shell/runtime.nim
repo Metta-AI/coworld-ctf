@@ -328,9 +328,9 @@ proc manifestLogCallback(env: pointer; caller: ptr WasmtimeCaller;
     return nil
   let values = cast[ptr UncheckedArray[WasmtimeVal]](args)
   inc state.logs
+  if state.logs > MaxLogCallsPerInvocation:
+    return nil
   try:
-    if state.logs > MaxLogCallsPerInvocation:
-      raise newException(ShellRuntimeError, "manifest log call limit exceeded")
     discard callerBytes(caller, shellWasmtimeValI32Get(addr values[1]),
       shellWasmtimeValI32Get(addr values[2]), MaxLogBytesPerCall.int32)
   except CatchableError as error:

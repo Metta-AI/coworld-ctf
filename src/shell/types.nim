@@ -443,7 +443,9 @@ const
   ReflexCandidateSpacingPx* = 16      ## Appendix R.2 planEscape lattice
   ReflexCandidateRadiusPx* = 256
   MaxReflexCandidates* = 1089         ## (2·16+1)²
-  MaxLogCallsPerInvocation* = 4
+  MaxLogCallsPerInvocation* = 1
+    ## James, 2026-09-04: one diagnostic line per invocation. Over-cap calls
+    ## are dropped silently, never faulted, so lowering the cap breaks no uploaded play.
   MaxLogBytesPerCall* = 256
   MaxBinaryViewFrameBytes* = 8192
     ## PM-ratified binary view split (2026-08-31): the play-readable

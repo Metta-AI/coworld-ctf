@@ -602,7 +602,7 @@ suite "shell episode ladder":
         check logOutput.ladderStatuses.len == 0
         check logOutput.annotations.allIt(it.kind != akPlayFault)
         if tick == 1:
-          check logOutput.playLogLines.len == 4
+          check logOutput.playLogLines.len == 2
           check logOutput.playLogLines[0] ==
             "FIRST_LIGHT_PLAY_LOG tick=1 seat=0 entry=log_probe " &
             "phase=init level=-1 message=\"A\\x0A\\\"\\\\\\x00\\x1B\\x80\""
@@ -610,17 +610,16 @@ suite "shell episode ladder":
           check '\n' notin logOutput.playLogLines[0]
           check '\e' notin logOutput.playLogLines[0]
           check logOutput.playLogLines[1].contains("phase=step level=1")
-          check logOutput.playLogLines[2].contains("phase=step level=2")
-          check logOutput.playLogLines[3].contains("phase=step level=3")
+        elif tick <= 3:
+          check logOutput.playLogLines.len == 1
+          check logOutput.playLogLines[0].contains("phase=step level=1")
         elif tick < 25:
           check logOutput.playLogLines.len == 0
         else:
-          check logOutput.playLogLines.len == 4
+          check logOutput.playLogLines.len == 1
           check logOutput.playLogLines[0].contains(
             "phase=step level=1 message=")
-          check logOutput.playLogLines[0].endsWith(" dropped_previous=93")
-          check logOutput.playLogLines[1 .. ^1].allIt(
-            "dropped_previous=" notin it)
+          check logOutput.playLogLines[0].endsWith(" dropped_previous=21")
 
   test "one-seat truthful roster degrades to empty context and still runs":
     when ShellRuntimeAvailable:

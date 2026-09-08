@@ -126,6 +126,8 @@ suite "shell ABI":
     check not hostCallAllowed(apRetune, false, ahEmit)
     check hostCallAllowed(apRetune, false, ahLog)
 
+    # James's 2026-09-04 ruling: two emits permit one retry, and two spatial
+    # calls permit one nearest_cover plus one nearest_reachable query.
     var invocation = beginInvocation(apStep)
     check invocation.noteEmit()
     check invocation.noteEmit()
@@ -135,11 +137,12 @@ suite "shell ABI":
     for _ in 0 ..< MaxSpatialCallsPerStep:
       check invocation.noteSpatial() == AbiOk
     check invocation.noteSpatial() == AbiRangeViolation
-    invocation = beginInvocation(apManifest)
-    for _ in 0 ..< MaxLogCallsPerInvocation:
+    for phase in [apManifest, apStep]:
+      invocation = beginInvocation(phase)
       check invocation.noteLog()
-    check not invocation.noteLog()
-    check not invocation.faulted
+      check not invocation.noteLog()
+      check invocation.counters.logs == 2
+      check not invocation.faulted
 
   test "invocation batches install metering before allocation and preserve outputs atomically":
     let acceptedStep = "i32.const 512 i32.const " & $intentBytes().len &
