@@ -7,7 +7,7 @@ import
   curly, mummy,
   sim, global, glory, replays, replay_codec as ctfReplayCodec, broadcast,
   replay_runtime, events, wire_constants,
-  control, directives, baselines, decide, mux,
+  control, directives, baselines, decide, mux, client_strip,
   ../shell/[body, body_map, episode, ingress, outbound,
     standing_order, transport, view],
   ../shell/dispatch, ../shell/packets, ../shell/replay_records, ../shell/seats,
@@ -341,6 +341,18 @@ const
   ControlKickPath = "/control/kick"
   ## Cap on player debug-sprite bytes accepted per player per tick.
   MaxDebugSpriteBytesPerTick* = 32 * 1024
+  # OPT-13 half A: chrome_common.js and broadcast_core.js are spliced into
+  # THREE different embedded pages below via HTML-COMMENT markers
+  # (`<!-- CHROME_COMMON -->` / `<!-- BROADCAST_CORE -->`), so the comment
+  # strip on their content has to happen HERE, on the raw staticRead'd JS,
+  # BEFORE it is wrapped in a <script> tag and substituted in -- running a
+  # generic HTML-comment stripper over the OUTER shell HTML instead (as
+  # EmbeddedPlayerClientHtml does below) would delete those very splice
+  # markers before the `.replace()` calls ever see them. Computed once here
+  # (rather than inline at each of the 3-4 use sites) so the strip's O(n)
+  # scan runs a single time per file at compile time, not per splice site.
+  StrippedChromeCommonJs = stripJsComments(staticRead("../../client/chrome_common.js"))
+  StrippedBroadcastCoreJs = stripJsComments(staticRead("../../client/broadcast_core.js"))
   # The designed broadcast replay client, embedded at compile time. Served for
   # the replay routes in place of bitworld's generic global client; a single
   # self-contained file (shared chrome + core JS inlined). Live/player/global
@@ -349,10 +361,10 @@ const
   # (marker positions in the HTML fix that; the replace order here is free).
   EmbeddedBroadcastReplayHtml = staticRead("../../client/replay_broadcast.html").replace(
     "<!-- CHROME_COMMON -->",
-    "<script>" & staticRead("../../client/chrome_common.js") & "</script>"
+    "<script>" & StrippedChromeCommonJs & "</script>"
   ).replace(
     "<!-- BROADCAST_CORE -->",
-    "<script>" & staticRead("../../client/broadcast_core.js") & "</script>"
+    "<script>" & StrippedBroadcastCoreJs & "</script>"
   ).spliceWireConstants()
   # global_plus_pov: forked from the broadcast replay client above (same
   # splice contract) rather than sharing its markup/script -- the fork adds
@@ -363,10 +375,10 @@ const
   # touches sim state or gameHash.
   EmbeddedGlobalPlusPovHtml = staticRead("../../client/global_plus_pov.html").replace(
     "<!-- CHROME_COMMON -->",
-    "<script>" & staticRead("../../client/chrome_common.js") & "</script>"
+    "<script>" & StrippedChromeCommonJs & "</script>"
   ).replace(
     "<!-- BROADCAST_CORE -->",
-    "<script>" & staticRead("../../client/broadcast_core.js") & "</script>"
+    "<script>" & StrippedBroadcastCoreJs & "</script>"
   ).spliceWireConstants()
   # The League Replayer shell: a walled stone-pit viewer that EMBEDS the broadcast
   # client (via ?embed=1) as the lit pit floor and mounts the scorebug, KDA tables,
@@ -375,7 +387,7 @@ const
   # Shares the same chrome_common.js splice as the broadcast client.
   EmbeddedLeagueReplayerHtml = staticRead("../../client/league_replayer.html").replace(
     "<!-- CHROME_COMMON -->",
-    "<script>" & staticRead("../../client/chrome_common.js") & "</script>"
+    "<script>" & StrippedChromeCommonJs & "</script>"
   ).spliceWireConstants()
   # SEASON 2 HUMAN SEAT, ported from maxwell/s2-controls-on-seat (byte-matched
   # source, GameVersion 44 origin; this tree sits on main's GV47 after the
@@ -410,13 +422,22 @@ const
   # snappy sprite decode, desync mid-packet, and have its websocket closed
   # -- bots keep playing, humans go dark. Changing this route is a decision
   # for whoever owns that risk, not a drive-by tidy-up.
-  EmbeddedPlayerClientHtml = staticRead("../../client/player_client.html").replace(
+  # OPT-13 half A: player_client.html is 52% JS comments by byte count
+  # (loadpath audit, 2026-09-08). stripHtmlComments runs on the raw shell
+  # FIRST -- it only matches literal `<script ...>`/`<style ...>` tags, not
+  # HTML-comment splice markers (there are none in this file, unlike the
+  # broadcast/global_plus_pov/league_replayer shells above), so it is safe
+  # to run before the `.replace()` calls that swap the two script-src
+  # placeholders for real inlined content. player_controls.js and
+  # player_hud.js are stripped independently (stripJsComments) before
+  # defuseScriptClose runs on them, same as before.
+  EmbeddedPlayerClientHtml = stripHtmlComments(staticRead("../../client/player_client.html")).replace(
     "<script src=\"player_controls.js\"></script>",
-    "<script>" & defuseScriptClose(staticRead("../../client/player_controls.js")) &
+    "<script>" & defuseScriptClose(stripJsComments(staticRead("../../client/player_controls.js"))) &
       "</script>"
   ).replace(
     "<script src=\"player_hud.js\"></script>",
-    "<script>" & defuseScriptClose(staticRead("../../client/player_hud.js")) &
+    "<script>" & defuseScriptClose(stripJsComments(staticRead("../../client/player_hud.js"))) &
       "</script>"
   )
   # Dungeon-wall textures (nanobanana generations) served as static assets so the
