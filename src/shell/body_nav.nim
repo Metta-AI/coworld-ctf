@@ -163,7 +163,7 @@ type
     routeScratch*: BodyRouteQueryScratch
     hazard*: BodyHazardOverlay
     safeCache*: BodySafeCache
-    safetyScratch: BodySafetyScratch
+    safetyScratch: ref BodySafetyScratch
     minter*: BodyFieldMinter
     dangerK*: int
     lastPlanSeat*: int
@@ -255,6 +255,8 @@ proc newBodyNavSystem*(map: BodyMap, seatCount, liveGunRangePx: int,
     result.routeScratch = newBodyRouteQueryScratch(result.routeIndex)
   result.hazard = hazard
   result.safeCache = safeCache
+  if hazard != nil and hazard.state == bhsReady and safeCache != nil:
+    new(result.safetyScratch)
   result.minter = newBodyFieldMinter(map)
   result.dangerK = dangerK
   result.lastPlanSeat = -1
@@ -387,7 +389,7 @@ proc cellPoint(system: BodyNavSystem; cellIndex: int): BodyPoint {.inline.} =
 
 proc localDryCell(system: BodyNavSystem; startCell, room: int): tuple[
     found: bool, sourceCell, firstStep: int32, distanceQ4: uint32] =
-  var scratch = addr system.safetyScratch
+  let scratch = system.safetyScratch
   scratch[].beginSafetySearch()
   let startRecord = scratch[].safetyRecord(int32(startCell), true)
   scratch[].distances[startRecord] = 0
@@ -504,7 +506,8 @@ proc safetyHintsFor*(system: BodyNavSystem; selfPos: BodyPoint;
   result = BodySafetyHints(ticksUntilPaintHere: -1, ticksToSafety: -1,
     safeDistPx: -1, retreatOctant: -1, sourceCell: none(int32))
   if system == nil or system.routeIndex == nil or system.hazard == nil or
-      system.hazard.state == bhsDark or system.safeCache == nil:
+      system.hazard.state == bhsDark or system.safeCache == nil or
+      system.safetyScratch == nil:
     return
   system.safeCache.refreshSafeCache(system.routeIndex, system.hazard,
     elapsedTick, gameGeneration)
