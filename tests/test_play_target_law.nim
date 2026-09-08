@@ -119,8 +119,8 @@ proc controls(count: int): seq[SlotControl] =
   for _ in 0 ..< count:
     result.add scPlay
 
-proc liveFrame(pos: BodyPoint; tick: int): FirstLightSeatFrame =
-  FirstLightSeatFrame(
+proc liveFrame(pos: BodyPoint; tick: int): ShellSeatFrame =
+  ShellSeatFrame(
     seat: 0,
     playerIndex: 0,
     present: true,
@@ -268,10 +268,10 @@ suite "target_law reference play":
     when ShellRuntimeAvailable:
       discard buildTargetLawWasm()
       let map = openMap()
-      var episode = initFirstLightEpisode(true, true, controls(3), map, 331,
+      var episode = initShellEpisode(true, true, controls(3), map, 331,
         [Navy, Navy, Rust], "target-law-live", 6)
-      defer: episode.closeFirstLightEpisode()
-      let lines = episode.configureFirstLightPlay(FirstLightPlayConfig(
+      defer: episode.closeShellEpisode()
+      let lines = episode.configureDemoPlay(DemoPlayConfig(
         modulePath: TargetLawWasm,
         playName: "target_law",
         paramsBytes: "{\"holdTrigger\":{\"tick\":99},\"never\":[\"seat:2\"]," &
@@ -280,7 +280,7 @@ suite "target_law reference play":
         uploadIdBase: 240_000,
         proposalIdBase: 241_000,
         originGeneration: 1))
-      check lines.anyIt(it.contains("FIRST_LIGHT_PLAY_CALL") and
+      check lines.anyIt(it.contains("SHELL_PLAY_CALL") and
         it.contains("accepted=true"))
       let output = episode.step([liveFrame((100, 80), 1)], 1)
       check output.installs.anyIt(it.bytes.contains("\"hold_fire\":true") and

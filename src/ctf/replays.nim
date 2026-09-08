@@ -350,7 +350,7 @@ const
   # rewire, GameVersion 56, the `pact` WASM play's own registration seam).
   # Same road as the handoff record above, and for the same reason: like a
   # handoff declaration, this is an out-of-band input the WASM ladder
-  # never re-runs on playback (initFirstLightPlaybackEpisode keeps no
+  # never re-runs on playback (initShellPlaybackEpisode keeps no
   # ladder, no SeatBody, no guest wasm — see that proc's own comment), so
   # an accepted declaration must be RECORDED and re-applied directly
   # rather than re-derived from replaying the call. It moves state

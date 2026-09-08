@@ -170,7 +170,7 @@ proc cleanDefaultBodyTick(map: BodyMap, seatCount: int, tick: uint32): bool =
       nextZone: MapRect(x: 0, y: 0, w: map.width, h: map.height),
       ticksToNextShrink: BrRotateLeadTicks + 1)
     var state: StandingOrderState
-    state.stepFirstLightDefault(body, tick, fallback)
+    state.stepShellDefault(body, tick, fallback)
     let mask = body.actFromBelief(tick)
     let unsafeBits = mask.encodeInputMask() and
       (ButtonUp or ButtonDown or ButtonLeft or ButtonRight or ButtonA or

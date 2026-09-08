@@ -110,8 +110,8 @@ proc newBodyguardInstance(engine: RuntimeEngine; module: RuntimeModule;
                           pos: BodyPoint): ShellInstance =
   newShellInstance(module, openMap(), pos, ecController, gmBr)
 
-proc liveFrame(pos: BodyPoint; tick: int): FirstLightSeatFrame =
-  FirstLightSeatFrame(
+proc liveFrame(pos: BodyPoint; tick: int): ShellSeatFrame =
+  ShellSeatFrame(
     seat: 0,
     playerIndex: 0,
     present: true,
@@ -241,10 +241,10 @@ suite "bodyguard reference play":
     when ShellRuntimeAvailable:
       discard buildBodyguardWasm()
       let map = openMap()
-      var episode = initFirstLightEpisode(true, true, [scPlay, scPlay], map,
+      var episode = initShellEpisode(true, true, [scPlay, scPlay], map,
         331, [Navy, Navy], "bodyguard-live", 6)
-      defer: episode.closeFirstLightEpisode()
-      let lines = episode.configureFirstLightPlay(FirstLightPlayConfig(
+      defer: episode.closeShellEpisode()
+      let lines = episode.configureDemoPlay(DemoPlayConfig(
         modulePath: BodyguardWasm,
         playName: "bodyguard",
         paramsBytes: "{}",
@@ -252,7 +252,7 @@ suite "bodyguard reference play":
         uploadIdBase: 210_000,
         proposalIdBase: 211_000,
         originGeneration: 1))
-      check lines.anyIt(it.contains("FIRST_LIGHT_PLAY_CALL") and
+      check lines.anyIt(it.contains("SHELL_PLAY_CALL") and
         it.contains("accepted=true"))
       let output = episode.step([liveFrame((260, 80), 1)], 1)
       check output.installs.anyIt(it.provenance == "entry:bodyguard" and

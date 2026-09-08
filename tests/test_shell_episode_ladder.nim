@@ -1,4 +1,4 @@
-## Phase P3-19: FIRST LIGHT episode owns the optional ladder path.
+## The shell episode owns the optional ladder path.
 
 import std/[algorithm, json, options, os, osproc, sequtils, strformat,
   strutils, times, unittest]
@@ -224,8 +224,8 @@ proc writeNamedNoopWasm(path, playName, salt: string) =
       "i32.const 0))"
   writeFile(path, wat.watBytes)
 
-proc playConfig(seats: seq[int]; coverBias = "0.0"): FirstLightPlayConfig =
-  FirstLightPlayConfig(
+proc playConfig(seats: seq[int]; coverBias = "0.0"): DemoPlayConfig =
+  DemoPlayConfig(
     modulePath: EdgeRideWasm,
     playName: "edge_ride",
     paramsBytes: "{\"coverBias\":" & coverBias &
@@ -261,8 +261,8 @@ proc bytesOf(text: string): seq[byte] =
   if text.len > 0:
     copyMem(addr result[0], unsafeAddr text[0], text.len)
 
-proc probeConfig(modulePath: string): FirstLightPlayConfig =
-  FirstLightPlayConfig(
+proc probeConfig(modulePath: string): DemoPlayConfig =
+  DemoPlayConfig(
     modulePath: modulePath,
     playName: "current_self_probe",
     paramsBytes: "{}",
@@ -271,8 +271,8 @@ proc probeConfig(modulePath: string): FirstLightPlayConfig =
     proposalIdBase: 91_000,
     originGeneration: 1)
 
-proc retuneRefuseConfig(modulePath: string): FirstLightPlayConfig =
-  FirstLightPlayConfig(
+proc retuneRefuseConfig(modulePath: string): DemoPlayConfig =
+  DemoPlayConfig(
     modulePath: modulePath,
     playName: "retune_refuse",
     paramsBytes: "{\"bias\":0}",
@@ -282,8 +282,8 @@ proc retuneRefuseConfig(modulePath: string): FirstLightPlayConfig =
     originGeneration: 1)
 
 proc namedNoopConfig(modulePath, playName: string; seats: seq[int]):
-    FirstLightPlayConfig =
-  FirstLightPlayConfig(
+    DemoPlayConfig =
+  DemoPlayConfig(
     modulePath: modulePath,
     playName: playName,
     paramsBytes: "{}",
@@ -318,8 +318,8 @@ proc splitRoomsMap(): BodyMap =
       walkable[y * Width + x] = true
   newBodyMap(walkable, Width, Height, 2, @[(30, 30), (650, 30)])
 
-proc frame(seat: int; pos: BodyPoint; tick: int): FirstLightSeatFrame =
-  FirstLightSeatFrame(
+proc frame(seat: int; pos: BodyPoint; tick: int): ShellSeatFrame =
+  ShellSeatFrame(
     seat: uint8(seat),
     playerIndex: seat,
     present: true,
@@ -335,7 +335,7 @@ proc frame(seat: int; pos: BodyPoint; tick: int): FirstLightSeatFrame =
       zoneDps: 1,
       coverGoal: none(ValidatedGoal)))
 
-proc floodFrame(seat: int; pos: BodyPoint; tick: int): FirstLightSeatFrame =
+proc floodFrame(seat: int; pos: BodyPoint; tick: int): ShellSeatFrame =
   result = frame(seat, pos, tick)
   result.defaultFallbacks.currentZone = MapRect(x: 100, y: 50, w: 200, h: 100)
   result.defaultFallbacks.nextZone = MapRect(x: 160, y: 70, w: 120, h: 80)
@@ -354,7 +354,7 @@ proc applyMask(pos: var BodyPoint; input: InputState) =
   if (bits and ButtonDown) != 0:
     inc pos.y, 4
 
-proc waitReady(episode: var FirstLightEpisode; seat: int; uploadId: uint64;
+proc waitReady(episode: var ShellEpisode; seat: int; uploadId: uint64;
                startTick: var int; pos: var BodyPoint): StatusEntry =
   while startTick <= 5000:
     let output = episode.step([frame(seat, pos, startTick)], uint32(startTick))
@@ -370,14 +370,14 @@ proc waitReady(episode: var FirstLightEpisode; seat: int; uploadId: uint64;
     inc startTick
   fail()
 
-proc waitReadyMany(episode: var FirstLightEpisode;
+proc waitReadyMany(episode: var ShellEpisode;
                    expected: openArray[tuple[seat: int, uploadId: uint64]];
                    startTick: var int;
                    positions: var seq[BodyPoint]): seq[StatusEntry] =
   var seen = newSeq[bool](expected.len)
   result = newSeq[StatusEntry](expected.len)
   while startTick <= 5000:
-    var batch: seq[FirstLightSeatFrame]
+    var batch: seq[ShellSeatFrame]
     for seat in 0 ..< positions.len:
       batch.add frame(seat, positions[seat], startTick)
     let output = episode.step(batch, uint32(startTick))
@@ -400,7 +400,7 @@ proc waitReadyMany(episode: var FirstLightEpisode;
 
 suite "shell episode ladder":
   test "disabled episode has no stage timing":
-    var episode: FirstLightEpisode
+    var episode: ShellEpisode
     let output = episode.step([], 1)
     for stage in ShellStage:
       check output.stageNanoseconds[stage] == 0
@@ -410,7 +410,7 @@ suite "shell episode ladder":
     for stage in ShellStage:
       sums[stage] = int64(ord(stage) + 1) * 1_000
     let line = formatTimingSummary(24, 16, 24, sums, 99_000, 101_000)
-    check line.startsWith("FIRST_LIGHT_TIMING tick=24 seats=16 window_ticks=24 ")
+    check line.startsWith("SHELL_TIMING tick=24 seats=16 window_ticks=24 ")
     let keys = ["shell_us", "max_tick_us", "sim_us", "lifecycle_us",
       "default_us", "reflex_us", "context_us", "view_us", "guard_us",
       "ladder_us", "standing_us", "belief_us", "follower_us", "weapon_us",
@@ -425,9 +425,9 @@ suite "shell episode ladder":
   test "alive default-only seats do not build guest views":
     when ShellRuntimeAvailable:
       let map = testMap()
-      var episode = initFirstLightEpisode(true, true, controls(Seats), map, 331)
+      var episode = initShellEpisode(true, true, controls(Seats), map, 331)
       defer:
-        episode.closeFirstLightEpisode()
+        episode.closeShellEpisode()
 
       var viewBuilds = 0
       episode.viewSource = proc(seatIndex: int; tick: uint32): string =
@@ -436,7 +436,7 @@ suite "shell episode ladder":
         inc viewBuilds
         "{}"
 
-      var batch: seq[FirstLightSeatFrame]
+      var batch: seq[ShellSeatFrame]
       for seat in 0 ..< Seats:
         batch.add frame(seat, (20 + seat, 128), 1)
       let output = episode.step(batch, 1)
@@ -449,9 +449,9 @@ suite "shell episode ladder":
   test "final zone phase sentinel is representable in episode binary view":
     when ShellRuntimeAvailable:
       let map = testMap()
-      var episode = initFirstLightEpisode(true, true, controls(1), map, 331)
+      var episode = initShellEpisode(true, true, controls(1), map, 331)
       defer:
-        episode.closeFirstLightEpisode()
+        episode.closeShellEpisode()
 
       var row = frame(0, (128, 128), 3361)
       row.defaultFallbacks.zonePhase = 5
@@ -462,15 +462,15 @@ suite "shell episode ladder":
 
       let output = episode.step([row], 3361)
       check output.masks.len == 1
-      let bytes = episode.firstLightViewBytes(0, 3361)
+      let bytes = episode.shellViewBytes(0, 3361)
       check bytes.len > 0
       check bytes != "{}"
 
   test "live episode arms zone reflex above the default":
     let map = testMap()
-    var episode = initFirstLightEpisode(true, true, controls(1), map, 331)
+    var episode = initShellEpisode(true, true, controls(1), map, 331)
     defer:
-      episode.closeFirstLightEpisode()
+      episode.closeShellEpisode()
 
     let output = episode.step([floodFrame(0, (20, 128), 1)], 1)
     check output.masks.len == 1
@@ -488,11 +488,11 @@ suite "shell episode ladder":
         removeFile(modulePath)
 
     let map = splitRoomsMap()
-    var episode = initFirstLightEpisode(true, true, controls(1), map, 331)
+    var episode = initShellEpisode(true, true, controls(1), map, 331)
     defer:
-      episode.closeFirstLightEpisode()
-    let configLines = episode.configureFirstLightPlay(probeConfig(modulePath))
-    check configLines.anyIt(it.contains("FIRST_LIGHT_PLAY_CALL seat=0") and
+      episode.closeShellEpisode()
+    let configLines = episode.configureDemoPlay(probeConfig(modulePath))
+    check configLines.anyIt(it.contains("SHELL_PLAY_CALL seat=0") and
       it.contains("accepted=true"))
 
     let oldRoom = episode.step([frame(0, (30, 30), 1)], 1)
@@ -517,10 +517,10 @@ suite "shell episode ladder":
         removeFile(modulePath)
 
     let map = splitRoomsMap()
-    var episode = initFirstLightEpisode(true, true, controls(1), map, 331)
+    var episode = initShellEpisode(true, true, controls(1), map, 331)
     defer:
-      episode.closeFirstLightEpisode()
-    let configLines = episode.configureFirstLightPlay(FirstLightPlayConfig(
+      episode.closeShellEpisode()
+    let configLines = episode.configureDemoPlay(DemoPlayConfig(
       modulePath: modulePath,
       playName: "handoff_probe",
       paramsBytes: "{}",
@@ -528,7 +528,7 @@ suite "shell episode ladder":
       uploadIdBase: 95_000,
       proposalIdBase: 96_000,
       originGeneration: 1))
-    check configLines.anyIt(it.contains("FIRST_LIGHT_PLAY_CALL seat=0") and
+    check configLines.anyIt(it.contains("SHELL_PLAY_CALL seat=0") and
       it.contains("accepted=true"))
 
     var
@@ -556,14 +556,14 @@ suite "shell episode ladder":
   test "real edge_ride wasm drives a real episode tick and differs from default":
     buildEdgeRideWasm()
     let map = testMap()
-    var defaultEpisode = initFirstLightEpisode(true, true, controls(1), map, 331)
-    var playEpisode = initFirstLightEpisode(true, true, controls(1), map, 331)
+    var defaultEpisode = initShellEpisode(true, true, controls(1), map, 331)
+    var playEpisode = initShellEpisode(true, true, controls(1), map, 331)
     defer:
-      defaultEpisode.closeFirstLightEpisode()
-      playEpisode.closeFirstLightEpisode()
+      defaultEpisode.closeShellEpisode()
+      playEpisode.closeShellEpisode()
 
-    let configLines = playEpisode.configureFirstLightPlay(playConfig(@[0]))
-    check configLines.anyIt(it.contains("FIRST_LIGHT_PLAY_CALL seat=0") and
+    let configLines = playEpisode.configureDemoPlay(playConfig(@[0]))
+    check configLines.anyIt(it.contains("SHELL_PLAY_CALL seat=0") and
       it.contains("accepted=true"))
 
     var
@@ -590,7 +590,7 @@ suite "shell episode ladder":
       sawStageTiming = sawStageTiming or
         playOutput.stageNanoseconds[ssLadder] > 0
       sawReferenceLog = sawReferenceLog or playOutput.playLogLines.anyIt(
-        it == "FIRST_LIGHT_PLAY_LOG tick=1 seat=0 entry=edge_ride " &
+        it == "SHELL_PLAY_LOG tick=1 seat=0 entry=edge_ride " &
           "phase=init level=1 message=\"edge_ride initialized\"")
       if defaultOutput.masks[0].input.encodeInputMask() !=
           playOutput.masks[0].input.encodeInputMask():
@@ -612,14 +612,14 @@ suite "shell episode ladder":
           removeFile(modulePath)
 
       let map = testMap()
-      var defaultEpisode = initFirstLightEpisode(true, true, controls(1), map, 331)
-      var logEpisode = initFirstLightEpisode(true, true, controls(1), map, 331)
+      var defaultEpisode = initShellEpisode(true, true, controls(1), map, 331)
+      var logEpisode = initShellEpisode(true, true, controls(1), map, 331)
       defer:
-        defaultEpisode.closeFirstLightEpisode()
-        logEpisode.closeFirstLightEpisode()
-      let configured = logEpisode.configureFirstLightPlay(
+        defaultEpisode.closeShellEpisode()
+        logEpisode.closeShellEpisode()
+      let configured = logEpisode.configureDemoPlay(
         namedNoopConfig(modulePath, "log_probe", @[0]))
-      check configured.anyIt(it.contains("FIRST_LIGHT_PLAY_CALL seat=0") and
+      check configured.anyIt(it.contains("SHELL_PLAY_CALL seat=0") and
         it.contains("accepted=true"))
 
       for tick in 1 .. 25:
@@ -634,7 +634,7 @@ suite "shell episode ladder":
         if tick == 1:
           check logOutput.playLogLines.len == 2
           check logOutput.playLogLines[0] ==
-            "FIRST_LIGHT_PLAY_LOG tick=1 seat=0 entry=log_probe " &
+            "SHELL_PLAY_LOG tick=1 seat=0 entry=log_probe " &
             "phase=init level=-1 message=\"A\\x0A\\\"\\\\\\x00\\x1B\\x80\""
           check logOutput.playLogLines[0].splitLines.len == 1
           check '\n' notin logOutput.playLogLines[0]
@@ -655,13 +655,13 @@ suite "shell episode ladder":
     when ShellRuntimeAvailable:
       buildEdgeRideWasm()
       let map = testMap()
-      var episode = initFirstLightEpisode(true, true, controls(1), map, 331,
+      var episode = initShellEpisode(true, true, controls(1), map, 331,
         [Navy], "one-seat-context-floor", 6)
       defer:
-        episode.closeFirstLightEpisode()
+        episode.closeShellEpisode()
 
-      let configLines = episode.configureFirstLightPlay(playConfig(@[0]))
-      check configLines.anyIt(it.contains("FIRST_LIGHT_PLAY_CALL seat=0") and
+      let configLines = episode.configureDemoPlay(playConfig(@[0]))
+      check configLines.anyIt(it.contains("SHELL_PLAY_CALL seat=0") and
         it.contains("accepted=true"))
 
       var oneSeatFrame = frame(0, (20, 128), 1)
@@ -676,9 +676,9 @@ suite "shell episode ladder":
     when ShellRuntimeAvailable:
       buildEdgeRideWasm()
       let map = testMap()
-      var episode = initFirstLightEpisode(true, true, controls(1), map, 331)
+      var episode = initShellEpisode(true, true, controls(1), map, 331)
       defer:
-        episode.closeFirstLightEpisode()
+        episode.closeShellEpisode()
 
       let admitted = episode.admitPlayModule(0, 120_000, 1,
         readFile(EdgeRideWasm).bytesOf)
@@ -714,7 +714,7 @@ suite "shell episode ladder":
       check accepted.epoch == 1
       check accepted.status.kind == skCallAccepted
       check accepted.statusBytes.len > 0
-      let recovery = episode.firstLightRecovery(0)
+      let recovery = episode.shellRecovery(0)
       check recovery.epoch == 1
       check recovery.call.isSome
       check recovery.call.get.proposalId == 121_000
@@ -735,17 +735,17 @@ suite "shell episode ladder":
 
   test "episode roster carries the configured display names":
     when ShellRuntimeAvailable:
-      var episode = initFirstLightEpisode(true, true, controls(2), testMap(),
+      var episode = initShellEpisode(true, true, controls(2), testMap(),
         331, [Red, Blue], "arena", ViewIntervalTicksDefault,
         ["daveey", "Starter: Cautious (2)"])
       defer:
-        episode.closeFirstLightEpisode()
+        episode.closeShellEpisode()
       let roster = episode.playContextRoster
       check roster.len == 2
       check roster[0].name == "daveey"
       check roster[1].name == "Starter: Cautious (2)"
       expect ValueError:
-        discard initFirstLightEpisode(true, true, controls(2), testMap(),
+        discard initShellEpisode(true, true, controls(2), testMap(),
           331, [Red, Blue], "arena", ViewIntervalTicksDefault, ["only-one"])
 
   test "sixteen play seats all escape a far next zone on a field-sized board":
@@ -753,7 +753,7 @@ suite "shell episode ladder":
     ## lattice, sixteen seats sharing one flat planning budget, and every
     ## re-installed goal cancelling the plan in flight, cogs stood outside
     ## the closing zone until it killed them. This pins the whole chain at
-    ## the mask level FIRST_LIGHT_MOVEMENT counts: every seat must move and
+    ## the mask level SHELL_MOVEMENT counts: every seat must move and
     ## end the window nearer the next rect than it started.
     when ShellRuntimeAvailable:
       const
@@ -767,10 +767,10 @@ suite "shell episode ladder":
         value = true
       let map = newBodyMap(walkable, Width, Height, 1,
         @[(64, 64), (1984, 960)])
-      var episode = initFirstLightEpisode(true, true, controls(Seats), map,
+      var episode = initShellEpisode(true, true, controls(Seats), map,
         1300)
       defer:
-        episode.closeFirstLightEpisode()
+        episode.closeShellEpisode()
       let nextZone = MapRect(x: 960, y: 448, w: 128, h: 128)
       var pos = newSeq[BodyPoint](Seats)
       for seat in 0 ..< Seats:
@@ -779,7 +779,7 @@ suite "shell episode ladder":
       var movementTicks = newSeq[int](Seats)
       var tick = 1
       for _ in 0 ..< WindowTicks:
-        var frames: seq[FirstLightSeatFrame]
+        var frames: seq[ShellSeatFrame]
         for seat in 0 ..< Seats:
           var seatFrame = frame(seat, pos[seat], tick)
           seatFrame.defaultFallbacks.currentZone =
@@ -804,8 +804,8 @@ suite "shell episode ladder":
   test "accepted mid-episode play call drives movement within the window":
     ## Live-round regression pin (r3626 / ereq_e33bbe4a, 0.7.281): a starter
     ## seat's 0xB1 call_accepted landed mid-episode (tick 768) while
-    ## FIRST_LIGHT_MOVEMENT stayed moving=0 for the whole episode. This test
-    ## asserts the executor contract at the mask level FIRST_LIGHT_MOVEMENT
+    ## SHELL_MOVEMENT stayed moving=0 for the whole episode. This test
+    ## asserts the executor contract at the mask level SHELL_MOVEMENT
     ## counts: before the call the default holds (zero movement bits), and
     ## within a bounded window after acceptance the play's masks move the
     ## seat. Discriminating on both halves keeps a future wiring drop (an
@@ -817,9 +817,9 @@ suite "shell episode ladder":
         DriveWindowTicks = 120
       buildEdgeRideWasm()
       let map = testMap()
-      var episode = initFirstLightEpisode(true, true, controls(1), map, 331)
+      var episode = initShellEpisode(true, true, controls(1), map, 331)
       defer:
-        episode.closeFirstLightEpisode()
+        episode.closeShellEpisode()
 
       let admitted = episode.admitPlayModule(0, 190_000, 1,
         readFile(EdgeRideWasm).bytesOf)
@@ -872,9 +872,9 @@ suite "shell episode ladder":
     when ShellRuntimeAvailable:
       buildEdgeRideWasm()
       let map = testMap()
-      var episode = initFirstLightEpisode(true, true, controls(1), map, 331)
+      var episode = initShellEpisode(true, true, controls(1), map, 331)
       defer:
-        episode.closeFirstLightEpisode()
+        episode.closeShellEpisode()
 
       let wasmBytes = readFile(EdgeRideWasm).bytesOf
       let first = episode.admitPlayModule(0, 130_000, 1, wasmBytes)
@@ -894,9 +894,9 @@ suite "shell episode ladder":
     when ShellRuntimeAvailable:
       buildEdgeRideWasm()
       let map = testMap()
-      var episode = initFirstLightEpisode(true, true, controls(1), map, 331)
+      var episode = initShellEpisode(true, true, controls(1), map, 331)
       defer:
-        episode.closeFirstLightEpisode()
+        episode.closeShellEpisode()
 
       let admitted = episode.admitPlayModule(0, 180_000, 1,
         readFile(EdgeRideWasm).bytesOf)
@@ -935,21 +935,21 @@ suite "shell episode ladder":
     when ShellRuntimeAvailable:
       buildEdgeRideWasm()
       let map = testMap()
-      var configEpisode = initFirstLightEpisode(true, true, controls(1),
+      var configEpisode = initShellEpisode(true, true, controls(1),
         map, 331)
-      var wireEpisode = initFirstLightEpisode(true, true, controls(1),
+      var wireEpisode = initShellEpisode(true, true, controls(1),
         map, 331)
       defer:
-        configEpisode.closeFirstLightEpisode()
-        wireEpisode.closeFirstLightEpisode()
+        configEpisode.closeShellEpisode()
+        wireEpisode.closeShellEpisode()
 
       let config = playConfig(@[0])
-      let legacyLines = configEpisode.configureFirstLightPlay(config)
-      var richEpisode = initFirstLightEpisode(true, true, controls(1),
+      let legacyLines = configEpisode.configureDemoPlay(config)
+      var richEpisode = initShellEpisode(true, true, controls(1),
         map, 331)
       defer:
-        richEpisode.closeFirstLightEpisode()
-      let rich = richEpisode.configureFirstLightPlayWithReplayIdentities(config)
+        richEpisode.closeShellEpisode()
+      let rich = richEpisode.configureDemoPlayWithReplayIdentities(config)
       check rich.lines == legacyLines
       check rich.callIdentities.len == 1
 
@@ -983,9 +983,9 @@ suite "shell episode ladder":
           removeFile(moduleB)
 
       let map = testMap()
-      var episode = initFirstLightEpisode(true, true, controls(2), map, 331)
+      var episode = initShellEpisode(true, true, controls(2), map, 331)
       defer:
-        episode.closeFirstLightEpisode()
+        episode.closeShellEpisode()
       check episode.admitPlayModule(0, 182_000, 1,
         readFile(moduleA).bytesOf).accepted
       check episode.admitPlayModule(1, 182_001, 1,
@@ -1018,10 +1018,10 @@ suite "shell episode ladder":
     when ShellRuntimeAvailable:
       buildEdgeRideWasm()
       let map = testMap()
-      var episode = initFirstLightEpisode(true, true, controls(1), map, 331)
+      var episode = initShellEpisode(true, true, controls(1), map, 331)
       defer:
-        episode.closeFirstLightEpisode()
-      let rich = episode.configureFirstLightPlayWithReplayIdentities(
+        episode.closeShellEpisode()
+      let rich = episode.configureDemoPlayWithReplayIdentities(
         playConfig(@[0]))
       check rich.callIdentities.len == 1
       let rejected = episode.acceptPlayCall(0, 183_000, 1, 0,
@@ -1034,15 +1034,15 @@ suite "shell episode ladder":
     when ShellRuntimeAvailable:
       buildEdgeRideWasm()
       let map = testMap()
-      var episode = initFirstLightEpisode(true, true, controls(2), map, 331)
+      var episode = initShellEpisode(true, true, controls(2), map, 331)
       defer:
-        episode.closeFirstLightEpisode()
+        episode.closeShellEpisode()
 
       let config = playConfig(@[0, 1])
-      let rich = episode.configureFirstLightPlayWithReplayIdentities(config)
-      check rich.lines.countIt(it.contains("FIRST_LIGHT_PLAY_UPLOAD")) == 2
-      check rich.lines.countIt(it.contains("FIRST_LIGHT_PLAY_COMMIT")) == 2
-      check rich.lines.countIt(it.contains("FIRST_LIGHT_PLAY_CALL") and
+      let rich = episode.configureDemoPlayWithReplayIdentities(config)
+      check rich.lines.countIt(it.contains("SHELL_PLAY_UPLOAD")) == 2
+      check rich.lines.countIt(it.contains("SHELL_PLAY_COMMIT")) == 2
+      check rich.lines.countIt(it.contains("SHELL_PLAY_CALL") and
         it.contains("accepted=true")) == 2
       check rich.callIdentities.len == 2
       check rich.callIdentities[0].seat == 0
@@ -1062,9 +1062,9 @@ suite "shell episode ladder":
           removeFile(modulePath)
 
       let map = testMap()
-      var episode = initFirstLightEpisode(true, true, controls(1), map, 331)
+      var episode = initShellEpisode(true, true, controls(1), map, 331)
       defer:
-        episode.closeFirstLightEpisode()
+        episode.closeShellEpisode()
 
       let admitted = episode.admitPlayModule(0, 140_000, 1,
         readFile(modulePath).bytesOf)
@@ -1120,7 +1120,7 @@ suite "shell episode ladder":
       check compactRuntimeFault("play_step returned nonzero") ==
         "play_step returned nonzero"
       let line = faults[0].formatLifecycleAnnotation("Botts")
-      check line.startsWith(&"FIRST_LIGHT_ANNOTATION tick={tick} seat=0 ")
+      check line.startsWith(&"SHELL_ANNOTATION tick={tick} seat=0 ")
       check "player=\"Botts\"" in line
       check "kind=play_fault" in line
       check "entry=step_trap" in line
@@ -1132,12 +1132,12 @@ suite "shell episode ladder":
     when ShellRuntimeAvailable:
       buildEdgeRideWasm()
       let map = testMap()
-      var episode = initFirstLightEpisode(true, true, controls(1), map, 331)
+      var episode = initShellEpisode(true, true, controls(1), map, 331)
       defer:
-        episode.closeFirstLightEpisode()
+        episode.closeShellEpisode()
 
-      let configLines = episode.configureFirstLightPlay(playConfig(@[0]))
-      check configLines.anyIt(it.contains("FIRST_LIGHT_PLAY_CALL seat=0") and
+      let configLines = episode.configureDemoPlay(playConfig(@[0]))
+      check configLines.anyIt(it.contains("SHELL_PLAY_CALL seat=0") and
         it.contains("accepted=true"))
 
       var pos: BodyPoint = (20, 128)
@@ -1149,10 +1149,10 @@ suite "shell episode ladder":
         edgeRideCallBytes("0.5", retune = true))
       check changed.accepted
       check changed.pendingRetunes == @[
-        FirstLightEntryIdentity(seat: 0, entryId: "edge_ride",
+        ShellEntryIdentity(seat: 0, entryId: "edge_ride",
           play: "edge_ride")]
 
-      var completions: seq[FirstLightEntryIdentity]
+      var completions: seq[ShellEntryIdentity]
       for tick in 2 .. 10:
         let output = episode.step([frame(0, pos, tick)], uint32(tick))
         check output.ladderStatuses.allIt(it.status.kind != skRetuneRefused)
@@ -1171,13 +1171,13 @@ suite "shell episode ladder":
           removeFile(modulePath)
 
       let map = testMap()
-      var episode = initFirstLightEpisode(true, true, controls(1), map, 331)
+      var episode = initShellEpisode(true, true, controls(1), map, 331)
       defer:
-        episode.closeFirstLightEpisode()
+        episode.closeShellEpisode()
 
-      let configLines = episode.configureFirstLightPlay(
+      let configLines = episode.configureDemoPlay(
         retuneRefuseConfig(modulePath))
-      check configLines.anyIt(it.contains("FIRST_LIGHT_PLAY_CALL seat=0") and
+      check configLines.anyIt(it.contains("SHELL_PLAY_CALL seat=0") and
         it.contains("accepted=true"))
 
       var pos: BodyPoint = (20, 128)
@@ -1189,12 +1189,12 @@ suite "shell episode ladder":
         retuneRefuseCallBytes(1, retune = true))
       check changed.accepted
       check changed.pendingRetunes == @[
-        FirstLightEntryIdentity(seat: 0, entryId: "retune_refuse",
+        ShellEntryIdentity(seat: 0, entryId: "retune_refuse",
           play: "retune_refuse")]
 
       var
-        refusals: seq[FirstLightLadderStatus]
-        successes: seq[FirstLightEntryIdentity]
+        refusals: seq[ShellLadderStatus]
+        successes: seq[ShellEntryIdentity]
       for tick in 2 .. 10:
         let output = episode.step([frame(0, pos, tick)], uint32(tick))
         for status in output.ladderStatuses:
@@ -1214,21 +1214,21 @@ suite "shell episode ladder":
   test "32 configured play seats stay inside the runtime sub-allocation":
     buildEdgeRideWasm()
     let map = testMap()
-    var episode = initFirstLightEpisode(true, true, controls(Seats), map, 331)
+    var episode = initShellEpisode(true, true, controls(Seats), map, 331)
     defer:
-      episode.closeFirstLightEpisode()
+      episode.closeShellEpisode()
     var seats: seq[int]
     for seat in 0 ..< Seats:
       seats.add seat
-    let configLines = episode.configureFirstLightPlay(playConfig(seats))
-    check configLines.countIt(it.contains("FIRST_LIGHT_PLAY_CALL") and
+    let configLines = episode.configureDemoPlay(playConfig(seats))
+    check configLines.countIt(it.contains("SHELL_PLAY_CALL") and
       it.contains("accepted=true")) == Seats
 
     var positions: array[Seats, BodyPoint]
     for seat in 0 ..< Seats:
       positions[seat] = (20 + seat, 128)
     for tick in 1 .. WarmTicks:
-      var batch: seq[FirstLightSeatFrame]
+      var batch: seq[ShellSeatFrame]
       for seat in 0 ..< Seats:
         batch.add frame(seat, positions[seat], tick)
       let output = episode.step(batch, uint32(tick))
@@ -1254,7 +1254,7 @@ suite "shell episode ladder":
     # of an arbitrary tighter test-only number.
     var runtimeSamplesUs: seq[float]
     for tick in WarmTicks + 1 .. WarmTicks + Samples:
-      var batch: seq[FirstLightSeatFrame]
+      var batch: seq[ShellSeatFrame]
       for seat in 0 ..< Seats:
         batch.add frame(seat, positions[seat], tick)
       let cpuStart = cpuTime()
@@ -1275,16 +1275,16 @@ suite "shell episode ladder":
 
   test "32 flood-zone seats with reflexes armed stay inside runtime share":
     let map = testMap()
-    var episode = initFirstLightEpisode(true, true, controls(Seats), map, 331)
+    var episode = initShellEpisode(true, true, controls(Seats), map, 331)
     defer:
-      episode.closeFirstLightEpisode()
+      episode.closeShellEpisode()
 
     var positions: array[Seats, BodyPoint]
     for seat in 0 ..< Seats:
       positions[seat] = (20 + seat, 128)
     var sawReflexInstall = false
     for tick in 1 .. WarmTicks:
-      var batch: seq[FirstLightSeatFrame]
+      var batch: seq[ShellSeatFrame]
       for seat in 0 ..< Seats:
         batch.add floodFrame(seat, positions[seat], tick)
       let output = episode.step(batch, uint32(tick))
@@ -1318,7 +1318,7 @@ suite "shell episode ladder":
     # production constant this path's cost is meant to respect.
     var runtimeSamplesUs: seq[float]
     for tick in WarmTicks + 1 .. WarmTicks + Samples:
-      var batch: seq[FirstLightSeatFrame]
+      var batch: seq[ShellSeatFrame]
       for seat in 0 ..< Seats:
         batch.add floodFrame(seat, positions[seat], tick)
       let cpuStart = cpuTime()

@@ -1,4 +1,4 @@
-## Phase P3-2/P3-FL: FIRST LIGHT lifecycle, gate, annotation, and mask handoff.
+## Shell lifecycle, gate, annotation, and mask handoff.
 
 import std/[json, os, options, sequtils, strutils, unittest]
 import bitworld/spriteprotocol
@@ -46,11 +46,11 @@ proc fallback(map: BodyMap, seat: int): BrDefaultFallbacks =
     coverGoal: none(ValidatedGoal))
 
 proc frame(map: BodyMap, seat: int, pos: BodyPoint = (0, 0), alive = true,
-           playing = true): FirstLightSeatFrame =
+           playing = true): ShellSeatFrame =
   let selfPos = if pos == (0, 0): (10 + seat, 10) else: pos
   let hp = if alive: 4 else: 0
   let hpFrac = if alive: 1.0 else: 0.0
-  FirstLightSeatFrame(
+  ShellSeatFrame(
     seat: uint8(seat),
     playerIndex: seat,
     present: true,
@@ -68,7 +68,7 @@ proc frame(map: BodyMap, seat: int, pos: BodyPoint = (0, 0), alive = true,
     defaultFallbacks: fallback(map, seat))
 
 proc rotateFrame(map: BodyMap, seat: int, self, target: BodyPoint,
-                 tick: int, threat = none(BodyPoint)): FirstLightSeatFrame =
+                 tick: int, threat = none(BodyPoint)): ShellSeatFrame =
   result = frame(map, seat, self)
   result.bodyInputs.partner = none(PartnerSample)
   result.bodyInputs.visibleTracks.setLen(0)
@@ -113,13 +113,13 @@ proc recordMasks(path: string, masks: openArray[InputState],
     writer.writeInputMaskChange(0, index, input.encodeInputMask())
   writer.closeReplayWriter()
 
-suite "shell FIRST LIGHT":
+suite "shell episode":
   test "checked-in fixture is a 32-seat BR play episode":
     let testsDir = currentSourcePath.parentDir
     var merged = parseFile(testsDir.parentDir / "config.practice.json")
-    let firstLight = parseFile(testsDir /
-      "fixtures/shell/first_light_config.json")
-    for key, value in firstLight.pairs:
+    let shell = parseFile(testsDir /
+      "fixtures/shell/shell_demo_config.json")
+    for key, value in shell.pairs:
       if value.kind == JNull:
         merged.delete(key)
       else:
@@ -148,15 +148,15 @@ suite "shell FIRST LIGHT":
     let map = testBodyMap()
     for spec in [
         ("[\"oops\"]", "parse_error",
-          "firstLightPlay.seats entries must be integers"),
-        ("[-1]", "parse_error", "firstLightPlay.seats entry out of range"),
-        ("[32]", "parse_error", "firstLightPlay.seats entry out of range"),
-        ("[1]", "parse_error", "firstLightPlay.seats entry outside roster"),
-        ("[0,0]", "parse_error", "firstLightPlay.seats entry duplicated")]:
-      var episode = initFirstLightEpisode(true, true, controls(scPlay, 1),
+          "demoPlay.seats entries must be integers"),
+        ("[-1]", "parse_error", "demoPlay.seats entry out of range"),
+        ("[32]", "parse_error", "demoPlay.seats entry out of range"),
+        ("[1]", "parse_error", "demoPlay.seats entry outside roster"),
+        ("[0,0]", "parse_error", "demoPlay.seats entry duplicated")]:
+      var episode = initShellEpisode(true, true, controls(scPlay, 1),
         map, 331)
-      let lines = episode.configureFirstLightDemoPlayFromJson(
-        "{\"firstLightPlay\":{\"modulePath\":\"missing.wasm\"," &
+      let lines = episode.configureDemoPlayFromJson(
+        "{\"demoPlay\":{\"modulePath\":\"missing.wasm\"," &
         "\"playName\":\"missing\",\"params\":{},\"seats\":" & spec[0] & "}}")
       check lines.len == 1
       check ("reason=" & spec[1]) in lines[0]
@@ -165,10 +165,10 @@ suite "shell FIRST LIGHT":
 
   test "valid configured play reaches runtime gate after config validation":
     let map = testBodyMap()
-    var episode = initFirstLightEpisode(true, true, controls(scPlay, 1),
+    var episode = initShellEpisode(true, true, controls(scPlay, 1),
       map, 331)
-    let lines = episode.configureFirstLightDemoPlayFromJson(
-      "{\"firstLightPlay\":{\"modulePath\":\"missing.wasm\"," &
+    let lines = episode.configureDemoPlayFromJson(
+      "{\"demoPlay\":{\"modulePath\":\"missing.wasm\"," &
       "\"playName\":\"missing\",\"params\":{},\"seats\":[0]}}")
     check lines.len == 1
     when ShellRuntimeAvailable:
@@ -176,7 +176,7 @@ suite "shell FIRST LIGHT":
     else:
       check "reason=runtime_unavailable" in lines[0]
 
-  test "first-light binary view carries truthful hp count and fraction":
+  test "shell binary view carries truthful hp count and fraction":
     let map = testBodyMap()
     let liveFrame = frame(map, 0, alive = true)
     let deadFrame = frame(map, 0, alive = false)
@@ -185,10 +185,10 @@ suite "shell FIRST LIGHT":
     check (deadFrame.bodyInputs.self.hp > 0) ==
       (deadFrame.bodyInputs.self.hpFrac > 0.0)
     when ShellRuntimeAvailable:
-      var episode = initFirstLightEpisode(true, true, controls(scPlay, 1),
+      var episode = initShellEpisode(true, true, controls(scPlay, 1),
         map, 331)
       discard episode.step([liveFrame], 12)
-      let bytes = episode.firstLightViewBytes(0, 12)
+      let bytes = episode.shellViewBytes(0, 12)
       check bytes[0 .. 3] == "PV1\0"
       let sectionCount = ord(bytes[7])
       var selfOffset = -1
@@ -209,7 +209,7 @@ suite "shell FIRST LIGHT":
 
   test "activation installs safe hold then the epoch-zero default same tick":
     let map = testBodyMap()
-    var episode = initFirstLightEpisode(true, true, controls(scPlay, 1),
+    var episode = initShellEpisode(true, true, controls(scPlay, 1),
       map, 331)
     let output = episode.step([frame(map, 0)], 7)
     check output.annotations.len == 2
@@ -224,7 +224,7 @@ suite "shell FIRST LIGHT":
     check output.installs[1].rule == "brHold"
     check output.installs[0].bytes ==
       "{\"arrive_radius\":0.0,\"idle_aim_center_brads\":0," &
-      "\"kind\":\"hold\",\"reason\":\"first_light:safe_activation\"," &
+      "\"kind\":\"hold\",\"reason\":\"shell:safe_activation\"," &
       "\"schema\":\"intent\",\"v\":1}"
     check output.installs[1].bytes ==
       "{\"arrive_radius\":0.0,\"idle_aim_center_brads\":0," &
@@ -234,7 +234,7 @@ suite "shell FIRST LIGHT":
 
   test "death clears cache and BR never respawns":
     let map = testBodyMap()
-    var episode = initFirstLightEpisode(true, true, controls(scPlay, 1),
+    var episode = initShellEpisode(true, true, controls(scPlay, 1),
       map, 331)
     discard episode.step([frame(map, 0)], 1)
     let death = episode.observeDeaths([frame(map, 0, alive = false)], 2)
@@ -252,7 +252,7 @@ suite "shell FIRST LIGHT":
 
   test "shared respawn installs fresh safe and default bytes":
     let map = testBodyMap()
-    var episode = initFirstLightEpisode(true, false, controls(scPlay, 1),
+    var episode = initShellEpisode(true, false, controls(scPlay, 1),
       map, 331)
     let first = episode.step([frame(map, 0)], 1)
     let firstDefault = first.installs[^1].bytes
@@ -265,23 +265,23 @@ suite "shell FIRST LIGHT":
     check respawn.annotations[1].effectiveEpoch == 0
     check respawn.installs[0].bytes ==
       "{\"arrive_radius\":0.0,\"idle_aim_center_brads\":0," &
-      "\"kind\":\"hold\",\"reason\":\"first_light:safe_respawn\"," &
+      "\"kind\":\"hold\",\"reason\":\"shell:safe_respawn\"," &
       "\"schema\":\"intent\",\"v\":1}"
     check respawn.installs[^1].bytes == firstDefault
 
   test "32 real bodies hand movement masks through the ordinary replay path":
     let map = testBodyMap()
-    var episode = initFirstLightEpisode(true, true, controls(scPlay, 32),
+    var episode = initShellEpisode(true, true, controls(scPlay, 32),
       map, 331)
     var positions: array[32, BodyPoint]
     for seat in 0 ..< 32:
       positions[seat] = (10 + seat, 10)
-    var output: FirstLightTickResult
+    var output: ShellTickResult
     var sawMovement = false
     var weaponBitProjection = ""
     var movementBitProjection = ""
     for tick in 1 .. 400:
-      var frames: seq[FirstLightSeatFrame]
+      var frames: seq[ShellSeatFrame]
       for seat in 0 ..< 32:
         var row = frame(map, seat, positions[seat])
         row.defaultFallbacks.ticksToNextShrink = BrRotateLeadTicks
@@ -294,7 +294,7 @@ suite "shell FIRST LIGHT":
       for mask in output.masks:
         let encoded = mask.input.encodeInputMask()
         # Phase 5 replaces the idle-aim placeholder with Stencil's sweep, so
-        # aim bytes may move. The first-light invariant is byte preservation
+        # aim bytes may move. The shell invariant is byte preservation
         # for actuator weapon bits: attack and C stay zero because this frame
         # helper supplies no visible tracks to any seat.
         weaponBitProjection.add(char(encoded and (ButtonA or ButtonC)))
@@ -312,7 +312,7 @@ suite "shell FIRST LIGHT":
     check weaponBitProjection == newString(32 * 400)
     check movementBitProjection != newString(32 * 400)
 
-    let path = getTempDir() / "shell-first-light-masks.bitreplay"
+    let path = getTempDir() / "shell-demo-masks.bitreplay"
     defer:
       if fileExists(path):
         removeFile(path)
@@ -338,7 +338,7 @@ suite "shell FIRST LIGHT":
     check replayConfig.season2Shell
 
     let map = testBodyMap()
-    var playback = initFirstLightPlaybackEpisode(true, true,
+    var playback = initShellPlaybackEpisode(true, true,
       controls(scPlay, 1), map, 331)
     check not playback.enabled
     check playback.nav == nil
@@ -348,7 +348,7 @@ suite "shell FIRST LIGHT":
     check playback.bodyActivationCount == 0
 
   test "gate-off hook is byte-identical and runtime inventory is compile-time":
-    var episode = initFirstLightEpisode(false, true, controls(scInput, 2))
+    var episode = initShellEpisode(false, true, controls(scInput, 2))
     let before = @[InputState(up: true, attack: true), InputState(left: true)]
     let map = testBodyMap()
     let output = episode.step([frame(map, 0), frame(map, 1)], 1)
@@ -368,7 +368,7 @@ suite "shell FIRST LIGHT":
     check beforeBytes == "\x21\x04"
     check afterBytes == beforeBytes
 
-    let inventory = firstLightInventory()
+    let inventory = shellInventory()
     when ShellRuntimeAvailable:
       check inventory.wasmtime
       check inventory.uploads
@@ -391,7 +391,7 @@ suite "shell FIRST LIGHT":
                                    dangerMaximum: float32,
                                    pathDanger: float,
                                    dangerSources: seq[int]] =
-      var episode = initFirstLightEpisode(true, true, controls(scPlay, 1),
+      var episode = initShellEpisode(true, true, controls(scPlay, 1),
         map, 32)
       var pos = start
       for tick in 1 .. 160:
@@ -420,13 +420,13 @@ suite "shell FIRST LIGHT":
   test "episode reset after sim replacement reruns safe activation boundary":
     let oldMap = openBodyMap()
     let newMap = openBodyMap(512, 192)
-    var episode = initFirstLightEpisode(true, true, controls(scPlay, 1),
+    var episode = initShellEpisode(true, true, controls(scPlay, 1),
       oldMap, 331)
     let oldOutput = episode.step([
       rotateFrame(oldMap, 0, (32, 80), (300, 80), 1)], 1)
     let oldStandingBytes = oldOutput.installs[^1].bytes
 
-    episode.resetFirstLightEpisode(true, true, controls(scPlay, 1), newMap, 331)
+    episode.resetShellEpisode(true, true, controls(scPlay, 1), newMap, 331)
     let resetOutput = episode.step([
       rotateFrame(newMap, 0, (40, 96), (420, 96), 2)], 2)
 
@@ -436,7 +436,7 @@ suite "shell FIRST LIGHT":
     check resetOutput.installs[0].rule == "safe_hold"
     check resetOutput.installs[0].bytes ==
       "{\"arrive_radius\":0.0,\"idle_aim_center_brads\":0," &
-      "\"kind\":\"hold\",\"reason\":\"first_light:safe_activation\"," &
+      "\"kind\":\"hold\",\"reason\":\"shell:safe_activation\"," &
       "\"schema\":\"intent\",\"v\":1}"
     check resetOutput.installs.allIt(it.bytes != oldStandingBytes)
     check episode.seats[0].body.map == newMap
@@ -454,12 +454,12 @@ suite "shell FIRST LIGHT":
     ## view, one pod charged per episode.
     let map = testBodyMap()
     when ShellRuntimeAvailable:
-      var episode = initFirstLightEpisode(true, true, controls(scPlay, 1),
+      var episode = initShellEpisode(true, true, controls(scPlay, 1),
         map, 331)
       discard episode.step([frame(map, 0, alive = true)], 12)
-      let guestBytes = episode.firstLightViewBytes(0, 12)
+      let guestBytes = episode.shellViewBytes(0, 12)
       check guestBytes[0 .. 3] == "PV1\0"
-      let socketBytes = episode.firstLightSocketViewBytes(0, 12)
+      let socketBytes = episode.shellSocketViewBytes(0, 12)
       check not socketBytes.startsWith("PV1")
       let parsed = parseJson(socketBytes)  # must not raise
       check parsed["tick"].getInt == 12
@@ -469,7 +469,7 @@ suite "shell FIRST LIGHT":
         (ord(guestBytes[10]) shl 16) or (ord(guestBytes[11]) shl 24)
       check guestTick == 12
       # An absent seat answers the historical "{}" sentinel on both copies.
-      check episode.firstLightSocketViewBytes(1, 12) == "{}"
-      check episode.firstLightViewBytes(1, 12) == "{}"
+      check episode.shellSocketViewBytes(1, 12) == "{}"
+      check episode.shellViewBytes(1, 12) == "{}"
     else:
       skip()

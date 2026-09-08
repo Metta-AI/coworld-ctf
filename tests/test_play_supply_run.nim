@@ -120,8 +120,8 @@ proc newSupplyInstance(engine: RuntimeEngine; module: RuntimeModule;
   newShellInstance(module, openMap(), pos, ecController, gmBr)
 
 proc liveFrame(pos: BodyPoint; tick: int;
-               tracks: seq[BodyTrackUpdate] = @[]): FirstLightSeatFrame =
-  FirstLightSeatFrame(
+               tracks: seq[BodyTrackUpdate] = @[]): ShellSeatFrame =
+  ShellSeatFrame(
     seat: 0,
     playerIndex: 0,
     present: true,
@@ -245,10 +245,10 @@ suite "supply_run reference play":
     when ShellRuntimeAvailable:
       discard buildSupplyRunWasm()
       let map = openMap()
-      var episode = initFirstLightEpisode(true, true, [scPlay, scPlay], map,
+      var episode = initShellEpisode(true, true, [scPlay, scPlay], map,
         331, [Navy, Navy], "supply-live", 6)
-      defer: episode.closeFirstLightEpisode()
-      let lines = episode.configureFirstLightPlay(FirstLightPlayConfig(
+      defer: episode.closeShellEpisode()
+      let lines = episode.configureDemoPlay(DemoPlayConfig(
         modulePath: SupplyRunWasm,
         playName: "supply_run",
         paramsBytes: "{\"contested\":\"avoid\",\"detourMax\":200,\"whenHpBelow\":3}",
@@ -256,7 +256,7 @@ suite "supply_run reference play":
         uploadIdBase: 200_000,
         proposalIdBase: 201_000,
         originGeneration: 1))
-      check lines.anyIt(it.contains("FIRST_LIGHT_PLAY_CALL") and
+      check lines.anyIt(it.contains("SHELL_PLAY_CALL") and
         it.contains("accepted=true"))
       let output = episode.step([liveFrame((40, 80), 1)], 1)
       check output.installs.anyIt(it.provenance == "entry:supply_run" and
@@ -266,11 +266,11 @@ suite "supply_run reference play":
     when ShellRuntimeAvailable:
       discard buildSupplyRunWasm()
       let map = openMap()
-      var episode = initFirstLightEpisode(true, true,
+      var episode = initShellEpisode(true, true,
         [scPlay, scPlay, scInput], map, 331, [Rust, Rust, Navy],
         "supply-live", 6)
-      defer: episode.closeFirstLightEpisode()
-      let lines = episode.configureFirstLightPlay(FirstLightPlayConfig(
+      defer: episode.closeShellEpisode()
+      let lines = episode.configureDemoPlay(DemoPlayConfig(
         modulePath: SupplyRunWasm,
         playName: "supply_run",
         paramsBytes: "{\"contested\":\"avoid\",\"detourMax\":200,\"whenHpBelow\":3}",
@@ -278,7 +278,7 @@ suite "supply_run reference play":
         uploadIdBase: 202_000,
         proposalIdBase: 203_000,
         originGeneration: 1))
-      check lines.anyIt(it.contains("FIRST_LIGHT_PLAY_CALL") and
+      check lines.anyIt(it.contains("SHELL_PLAY_CALL") and
         it.contains("accepted=true"))
       let output = episode.step([liveFrame((40, 80), 1, @[
         BodyTrackUpdate(seat: 2, pos: (145, 80), team: Navy,

@@ -3,7 +3,7 @@
 # image and uploaded over the wire at match start.
 #
 # Both modules come from the repo's reference plays under play_sdk/reference/,
-# built with the same wasi-sdk recipe the engine's own first-light demo uses
+# built with the same wasi-sdk recipe the engine's own shell demo uses
 # (play_sdk/play.nims). Nothing here is PoC-specific: these are the shipped
 # reference plays, compiled unchanged.
 #
