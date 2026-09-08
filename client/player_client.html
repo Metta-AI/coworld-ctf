@@ -1124,6 +1124,13 @@ function updateInterpolation(now){
 }
 function frameTick(now){
   rafHandle=0;
+  /* OPT-11 hook (CR-5): a backgrounded tab still gets throttled-but-nonzero
+     rAF ticks from the browser -- stop the self-sustaining chain here
+     entirely instead of paying even that reduced rate for a full drawSprite()
+     nobody can see. The visibilitychange listener down by the `ui`/drawHud
+     loop calls scheduleDraw() the instant the tab is visible again, so
+     resuming costs at most one skipped frame, never a stuck/frozen canvas. */
+  if(document.hidden)return;
   if(now<hitstopUntil){
     /* Freeze the interpolation clock too, not just the paint -- a hitstop
        that keeps gliding objects underneath would just be a skipped frame,
@@ -2173,12 +2180,18 @@ function drawKillcamMarker(){
   sceneCtx.fillText(label,info.killerX,ty);
   sceneCtx.restore();
 }
+/* OPT-11 hook: debugHud's value is fixed for the whole page life (it only
+   ever reads the URL's own query string), so writing hud.style.display
+   every single rAF tick was a pure no-op DOM write after the first call --
+   same write-dedup idiom already used for the camera transform
+   (lastTransformX/Y/Scale) and sendMask (mask===l). */
+let lastDebugHudShown=null;
 function drawHud(){
   /* Raw telemetry (move/aim/fire/item state), developer chrome that used to
      render on every seat unconditionally. Off by default now -- a game, not
      a debugger -- and revealed only by an explicit ?debug or ?probe param. */
   const debugHud=u.searchParams.has("debug")||u.searchParams.has("probe");
-  hud.style.display=debugHud?"block":"none";
+  if(debugHud!==lastDebugHudShown){hud.style.display=debugHud?"block":"none";lastDebugHudShown=debugHud}
   if(!debugHud)return;
   const keys=readKeys(),on=v=>v?"on":"..";
   hud.innerHTML=
@@ -2852,7 +2865,21 @@ if(SEAMPROBE){
   }
   requestAnimationFrame(seamTick);
 }
-requestAnimationFrame(function ui(){drawHud();requestAnimationFrame(ui)});
+/* OPT-11 hook (CR-5): this loop used to run forever, unconditionally, even
+   in a backgrounded tab (drawHud() itself is cheap once debugHud is false,
+   but the requestAnimationFrame scheduling churn wasn't free either).
+   Stops entirely while document.hidden and resumes on the same
+   visibilitychange edge that already resumes frameTick below -- one
+   listener drives both loops back to life the instant the tab is visible
+   again. */
+let uiRafHandle=0;
+function uiTick(){uiRafHandle=0;if(document.hidden)return;drawHud();uiRafHandle=requestAnimationFrame(uiTick)}
+uiRafHandle=requestAnimationFrame(uiTick);
+document.addEventListener("visibilitychange",()=>{
+  if(document.hidden)return;
+  scheduleDraw();
+  if(!uiRafHandle)uiRafHandle=requestAnimationFrame(uiTick);
+});
 </script>
 <script src="player_hud.js"></script>
 </body>
