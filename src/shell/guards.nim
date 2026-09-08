@@ -13,6 +13,14 @@ export policy_page.IntentContext, policy_page.PathKind, policy_page.PathRegistry
   policy_page.newPathRegistry, policy_page.DefaultPathRegistry,
   policy_page.parseGuardExpression, policy_page.validateBooleanExpression
 
+let ShellPathRegistry* = newPathRegistry(@DefaultPaths & @[
+  ("world.grenade_threat", pkBool), # false when no covering grenade
+  ("world.grenade_ticks_to_blast", pkNumber), # -1 when none [SENTINEL]
+  ("world.spray_threat", pkBool), # false when no cone or impact trigger
+  ("world.spray_impact_count", pkNumber), # 0 when no recent impacts
+  ("world.zone_ticks_until_outside", pkNumber), # -1 in CTF/no schedule [SENTINEL]
+])
+
 type
   GuardError* = object of CatchableError
 

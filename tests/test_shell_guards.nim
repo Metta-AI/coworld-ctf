@@ -68,3 +68,24 @@ suite "shell guards":
     let errors = validateBooleanExpression(guard, DefaultPathRegistry,
       GuardDepthMax, GuardNodeMax)
     check errors.anyIt("finite" in it)
+
+  test "shell hazard paths have fixed types without extending one-page paths":
+    for path in ["world.grenade_threat", "world.spray_threat"]:
+      let bytes = "[\"get\",\"" & path & "\"]"
+      let guard = compileGuard(bytes, ShellPathRegistry)
+      check not guard.evaluate(ctx(initTable[string, float](),
+        {path: false}.toTable))
+      check guard.evaluate(ctx(initTable[string, float](), {path: true}.toTable))
+      expect GuardError:
+        discard compileGuard(bytes, DefaultPathRegistry)
+    for path in ["world.grenade_ticks_to_blast", "world.spray_impact_count",
+                 "world.zone_ticks_until_outside"]:
+      expect GuardError:
+        discard compileGuard("[\"get\",\"" & path & "\"]", ShellPathRegistry)
+      let absent = if path == "world.spray_impact_count": 0.0 else: -1.0
+      let bytes = "[\"==\",[\"get\",\"" & path & "\"]," & $absent & "]"
+      let guard = compileGuard(bytes, ShellPathRegistry)
+      check guard.evaluate(ctx({path: absent}.toTable,
+        initTable[string, bool]()))
+      expect GuardError:
+        discard compileGuard(bytes, DefaultPathRegistry)
