@@ -1182,6 +1182,21 @@ type
     label: string
     compressedPixels: seq[uint8]
 
+  SpriteDefRegistry = object
+    ## OPT-09/SV-2: a `seq[SpriteDefinition]` plus a parallel spriteId->index
+    ## Table, maintained on append/replace, so `spriteDefinitionIndex`
+    ## (called from ~48 sites on the per-tick, per-viewer hot path) is O(1)
+    ## instead of an O(n) linear scan. The seq itself is UNCHANGED — still
+    ## append-only, still iterable, still the thing that gets `.setLen(0)`'d
+    ## on a POV/board mode switch (see GlobalViewerState.spriteDefs) — this
+    ## only adds a side index. Deliberately a Table[int, int] (hashing a
+    ## single small int), NOT the pattern PlayerViewerState.sentPlacements'
+    ## comment warns against (hashing a 12-byte composite key per object
+    ## placement, every object, every tick) — that prior incident is about
+    ## the KEY shape, not Tables in general.
+    items: seq[SpriteDefinition]
+    indexById: Table[int, int]
+
   DebugOverlay* = object
     sprites*: Table[int, SpritePacketSpriteDef]
     objects*: Table[int, SpritePacketObject]
@@ -1255,7 +1270,7 @@ type
                                  ## the dwell clock ticks only when playback
                                  ## advanced, and a backward jump (scrub
                                  ## restore) snaps linger state clean.
-    spriteDefs: seq[SpriteDefinition]
+    spriteDefs: SpriteDefRegistry
 
   PlayerViewerState* = ref object
     initialized*: bool
@@ -1282,7 +1297,7 @@ type
                                  ## behaviour: only a human-taken seat on an
                                  ## allowDirectAim config ever reads it, so a
                                  ## league game is untouched.
-    spriteDefs: seq[SpriteDefinition]
+    spriteDefs: SpriteDefRegistry
     cogDrive*: array[MaxPlayers, CogDriveState]  ## per-player segmented-trike
                                  ## animation state for THIS viewer's rig
                                  ## render — the player-view twin of
@@ -1981,19 +1996,49 @@ proc soldierFacingRight(rot: int): bool =
   let brad = rot * (AimBradsTurn div SoldierRotations)
   not (brad > AimBradsTurn div 4 and brad < AimBradsTurn * 3 div 4)
 
+proc len(r: SpriteDefRegistry): int {.inline.} =
+  r.items.len
+
+proc `[]`(r: SpriteDefRegistry, i: int): SpriteDefinition {.inline.} =
+  r.items[i]
+
+proc `[]=`(r: var SpriteDefRegistry, i: int, d: SpriteDefinition) =
+  ## Element replacement (map-band cache splice: same spriteId at the same
+  ## index) — updates the index defensively so it stays correct even if a
+  ## future caller ever replaces an entry's spriteId at a fixed slot.
+  r.items[i] = d
+  r.indexById[d.spriteId] = i
+
+proc add(r: var SpriteDefRegistry, d: SpriteDefinition) =
+  r.indexById[d.spriteId] = r.items.len
+  r.items.add(d)
+
+proc setLen(r: var SpriteDefRegistry, n: int) =
+  ## Only ever called with n=0 today (a full reset on POV/board mode
+  ## switch — see GlobalViewerState.spriteDefs.setLen(0)) but implemented
+  ## generically: rebuilds the index for whatever prefix survives.
+  if n < r.items.len:
+    r.indexById.clear()
+    for i in 0 ..< n:
+      r.indexById[r.items[i].spriteId] = i
+  r.items.setLen(n)
+
+iterator items(r: SpriteDefRegistry): SpriteDefinition =
+  for d in r.items:
+    yield d
+
 proc spriteDefinitionIndex(
-  defs: openArray[SpriteDefinition],
+  defs: SpriteDefRegistry,
   spriteId: int
-): int =
-  ## Returns the cache index for one sprite definition.
-  for i in 0 ..< defs.len:
-    if defs[i].spriteId == spriteId:
-      return i
-  -1
+): int {.inline.} =
+  ## Returns the cache index for one sprite definition — O(1) via the
+  ## registry's parallel Table instead of the O(n) linear scan this used to
+  ## be (SV-2: called from ~48 sites on the per-tick, per-viewer hot path).
+  defs.indexById.getOrDefault(spriteId, -1)
 
 proc addSpriteChanged(
   packet: var seq[uint8],
-  defs: var seq[SpriteDefinition],
+  defs: var SpriteDefRegistry,
   spriteId, width, height: int,
   pixels: openArray[uint8],
   label: string,
@@ -2044,18 +2089,27 @@ proc addBoardObject(
 
 proc addBoardSpriteChanged(
   packet: var seq[uint8],
-  defs: var seq[SpriteDefinition],
+  defs: var SpriteDefRegistry,
   spriteId, width, height: int,
   pixels: openArray[uint8],
   label: string,
   changed = false,
-  native = 1
+  native = 1,
+  spritesOff = false
 ) {.measure.} =
   ## addSpriteChanged for BOARD sprites: `width`/`height` stay in logical map
   ## pixels; the wire sprite ships at boardScale× those dims. `native` is the
   ## scale `pixels` was rasterized at — 1 (upscaled here on emission) or
   ## boardScale (already high-res; passed through). The dedup check runs
   ## before any upscale so per-frame callers pay nothing when unchanged.
+  ##
+  ## OPT-09/SV-6: `spritesOff` marks `pixels` as an intentional empty
+  ## placeholder (the caller skipped rasterizing for a bot whose bytes
+  ## `stripSpritePixels` throws away anyway) — route it straight to
+  ## `addSpriteChanged` at the OUTPUT dims with no upscale, same as the
+  ## `native == boardScale` branch. `scaleSpritePixels` validates its input
+  ## is exactly width*height*{1,4} bytes and raises otherwise, so it must
+  ## never see an empty buffer here.
   doAssert label.len > 0, "sprite " & $spriteId & " needs a non-empty label"
   let
     outW = width * boardScale
@@ -2066,7 +2120,7 @@ proc addBoardSpriteChanged(
       defs[index].label == label and
       not changed:
     return
-  if native == boardScale:
+  if spritesOff or native == boardScale:
     packet.addSpriteChanged(defs, spriteId, outW, outH, pixels, label, changed)
   else:
     packet.addSpriteChanged(
@@ -2075,7 +2129,7 @@ proc addBoardSpriteChanged(
 
 proc addDebugOverlay(
   packet: var seq[uint8],
-  spriteDefs: var seq[SpriteDefinition],
+  spriteDefs: var SpriteDefRegistry,
   currentIds: var seq[int],
   overlay: DebugOverlay,
   playerIndex: int
@@ -2943,7 +2997,7 @@ proc buildHitFlashSprite(stage: int): seq[uint8] {.measure.} =
 
 proc addHitFlashes(
   sim: SimServer,
-  spriteDefs: var seq[SpriteDefinition],
+  spriteDefs: var SpriteDefRegistry,
   currentIds: var seq[int],
   packet: var seq[uint8]
 ) {.measure.} =
@@ -3588,7 +3642,7 @@ proc boardMapPixels(sim: SimServer): seq[uint8] {.measure.} =
 
 var
   boardMapBandsCache: Table[int, seq[uint8]]
-  boardMapBandsDefs: Table[int, seq[SpriteDefinition]]
+  boardMapBandsDefs: Table[int, SpriteDefRegistry]
     ## Process-wide cache of the map band sprite+object wire messages and the
     ## sprite defs they imply, keyed by boardScale (a map only ever renders at
     ## one or two distinct scales in a process's lifetime — the 1× player/POV
@@ -3660,7 +3714,7 @@ proc blockAverageRgba(
 
 proc addMapBands(
   sim: SimServer,
-  spriteDefs: var seq[SpriteDefinition],
+  spriteDefs: var SpriteDefRegistry,
   packet: var seq[uint8]
 ) {.measure.} =
   ## Emits the static arena map as a stack of horizontal bands instead of one
@@ -3699,7 +3753,7 @@ proc addMapBands(
   let mapPixels = sim.boardMapPixels()
   var
     encoded: seq[uint8]
-    encodedDefs: seq[SpriteDefinition]
+    encodedDefs: SpriteDefRegistry
     band = 0
     y0 = 0
   while y0 < h:
@@ -3960,7 +4014,7 @@ proc buildWalkabilitySpritePixels(sim: SimServer): seq[uint8] {.measure.} =
 
 proc addWalkabilitySprite(
   sim: SimServer,
-  spriteDefs: var seq[SpriteDefinition],
+  spriteDefs: var SpriteDefRegistry,
   packet: var seq[uint8]
 ) {.measure.} =
   ## Emits the walkability mask sprite for a spritesOff (bot) viewer. Human
@@ -3973,7 +4027,7 @@ proc addWalkabilitySprite(
   if not walkabilitySpriteCached:
     var
       encoded: seq[uint8]
-      encodedDefs: seq[SpriteDefinition]
+      encodedDefs: SpriteDefRegistry
     encoded.addSpriteChanged(
       encodedDefs,
       SpritePlayerWalkabilitySpriteId,
@@ -4002,7 +4056,7 @@ proc mapMarkerObjectId(index: int): int =
 
 proc addMapMarker(
   packet: var seq[uint8],
-  spriteDefs: var seq[SpriteDefinition],
+  spriteDefs: var SpriteDefRegistry,
   index, x, y, width, height: int,
   label: string
 ) {.measure.} =
@@ -4030,7 +4084,7 @@ proc trenchMarkerObjectId(index: int): int =
 
 proc addTrenchMarker(
   packet: var seq[uint8],
-  spriteDefs: var seq[SpriteDefinition],
+  spriteDefs: var SpriteDefRegistry,
   index, x, y: int,
   label: string
 ) {.measure.} =
@@ -4060,7 +4114,7 @@ proc puddleMarkerObjectId(index: int): int =
 
 proc addPuddleMarker(
   packet: var seq[uint8],
-  spriteDefs: var seq[SpriteDefinition],
+  spriteDefs: var SpriteDefRegistry,
   index, x, y: int,
   label: string
 ) {.measure.} =
@@ -4099,7 +4153,7 @@ proc endzoneShapeToken(gameMap: CtfMap, zone: CaptureZone): string =
 
 proc addMapMarkers(
   sim: SimServer,
-  spriteDefs: var seq[SpriteDefinition],
+  spriteDefs: var SpriteDefRegistry,
   packet: var seq[uint8]
 ) {.measure.} =
   ## Adds invisible room markers for sprite agents, plus the episode-parameter
@@ -4271,7 +4325,7 @@ proc fogRunSpriteId(widthCells: int): int =
 proc addFogRuns(
   sim: SimServer,
   playerIndex: int,
-  spriteDefs: var seq[SpriteDefinition],
+  spriteDefs: var SpriteDefRegistry,
   currentIds: var seq[int],
   packet: var seq[uint8]
 ) {.measure.} =
@@ -4388,11 +4442,21 @@ proc buildSpriteProtocolTextSprite(
   lines: openArray[string],
   color: uint8,
   struck = false,
-  smooth = false
+  smooth = false,
+  spritesOff = false
 ): tuple[width, height: int, pixels: seq[uint8]] {.measure.} =
   ## Builds a transparent multi-line text sprite. With `smooth` (and a
   ## supersampled board), the vector face at boardScale× — LOGICAL dims,
   ## native pixels; callers emit with native = boardScale.
+  ##
+  ## OPT-09/SV-6: a Sprites Off (0x87) viewer's pixels are thrown away by
+  ## `stripSpritePixels` right before the socket write (server.nim) — every
+  ## text sprite built for a bot paid the full glyph-blit cost for bytes
+  ## that never leave the process. `spritesOff` skips exactly that blit
+  ## loop; width/height are still computed (object placement math reads
+  ## them, e.g. right-aligning the lives/weapon HUD readouts) so the
+  ## resulting defs/objects are identical to the non-strip path, only the
+  ## pixel payload is empty going in instead of stripped coming out.
   if smooth and boardScale > 1:
     let c = Palette[color and 0x0f]
     return smoothTextSprite(lines, c.r, c.g, c.b, boardScale, TextLineHeight,
@@ -4401,6 +4465,9 @@ proc buildSpriteProtocolTextSprite(
   for line in lines:
     result.width = max(result.width, game.asciiSprites.textWidth(line))
   result.height = max(1, lines.len * TextLineHeight)
+  if spritesOff:
+    result.pixels = @[]
+    return
   result.pixels = newRgbaPixels(result.width, result.height)
   for lineIndex, line in lines:
     let baseY = lineIndex * TextLineHeight
@@ -4628,9 +4695,10 @@ proc centeredTextX(sim: SimServer, text: string): int =
 
 proc addTeamScoreboard(
   sim: SimServer,
-  spriteDefs: var seq[SpriteDefinition],
+  spriteDefs: var SpriteDefRegistry,
   currentIds: var seq[int],
-  packet: var seq[uint8]
+  packet: var seq[uint8],
+  spritesOff = false
 ) {.measure.} =
   ## Adds the team kills/deaths scoreboard above the field: red on the left,
   ## blue on the right, each in its team color. Playing only — interstitial
@@ -4661,7 +4729,23 @@ proc addTeamScoreboard(
   for team in sim.teams():
     let text = teamText(team).toUpperAscii() & " " &
       $kills[team] & "/" & $deaths[team]
-    let sprite = sim.buildSpriteProtocolTextSprite([text], teamColor(team))
+    # OPT-09 text-sprite guard: a chip whose k/d hasn't moved since last
+    # tick reuses the cached def's dims instead of re-rasterizing the text
+    # (addSpriteChanged below would drop an unchanged rebuild on the floor
+    # anyway — this just skips paying for it first).
+    let
+      spriteId = TeamScoreSpriteBase + ord(team)
+      label = "team score " & text
+      defIndex = spriteDefs.spriteDefinitionIndex(spriteId)
+      cached = defIndex >= 0 and spriteDefs[defIndex].label == label
+      sprite =
+        if cached:
+          (width: spriteDefs[defIndex].width,
+           height: spriteDefs[defIndex].height,
+           pixels: newSeq[uint8](0))
+        else:
+          sim.buildSpriteProtocolTextSprite(
+            [text], teamColor(team), spritesOff = spritesOff)
     totalWidth += sprite.width + TeamScoreGap
     chips.add((team: team, text: text, sprite: sprite))
   var x = max(0, (TeamScoreWidth - totalWidth) div 2)
@@ -4777,7 +4861,7 @@ proc interstitialTextItems(
 
 proc addProtocolTextSprites(
   sim: SimServer,
-  spriteDefs: var seq[SpriteDefinition],
+  spriteDefs: var SpriteDefRegistry,
   currentIds: var seq[int],
   packet: var seq[uint8],
   layer: int,
@@ -4816,7 +4900,7 @@ proc gameOverIconSpriteId(team: Team): int =
 
 proc addProtocolGameOverActorSprites(
   sim: SimServer,
-  spriteDefs: var seq[SpriteDefinition],
+  spriteDefs: var SpriteDefRegistry,
   currentIds: var seq[int],
   packet: var seq[uint8],
   layer: int
@@ -4861,7 +4945,7 @@ proc addProtocolGameOverActorSprites(
 
 proc addProtocolInterstitialActorSprites(
   sim: SimServer,
-  spriteDefs: var seq[SpriteDefinition],
+  spriteDefs: var SpriteDefRegistry,
   currentIds: var seq[int],
   packet: var seq[uint8],
   layer, playerIndex: int
@@ -4875,7 +4959,7 @@ proc addProtocolInterstitialActorSprites(
 
 proc addWinnerMarker(
   sim: SimServer,
-  spriteDefs: var seq[SpriteDefinition],
+  spriteDefs: var SpriteDefRegistry,
   currentIds: var seq[int],
   packet: var seq[uint8]
 ) {.measure.} =
@@ -4922,7 +5006,7 @@ proc hasInterstitialFrame(sim: SimServer): bool =
 
 proc addSpriteProtocolInterstitialSprites(
   sim: SimServer,
-  spriteDefs: var seq[SpriteDefinition],
+  spriteDefs: var SpriteDefRegistry,
   packet: var seq[uint8]
 ) {.measure.} =
   ## Adds reusable sprites for non-playing screens.
@@ -5028,7 +5112,7 @@ proc carryHeartSpriteId(team: Team, aimStep: int): int =
 
 proc addFlagSprites(
   sim: SimServer,
-  spriteDefs: var seq[SpriteDefinition],
+  spriteDefs: var SpriteDefRegistry,
   packet: var seq[uint8]
 ) {.measure.} =
   ## Adds every active team's banner sprites (carried + big planted) plus
@@ -5133,7 +5217,7 @@ proc soldierCorpse(pixels: seq[uint8]): seq[uint8] =
 
 proc addPlayerActorSprites(
   sim: SimServer,
-  spriteDefs: var seq[SpriteDefinition],
+  spriteDefs: var SpriteDefRegistry,
   packet: var seq[uint8],
   selected: bool
 ) {.measure.} =
@@ -5187,7 +5271,7 @@ proc addPlayerActorSprites(
 
 proc buildSpriteProtocolInit(
   sim: SimServer,
-  spriteDefs: var seq[SpriteDefinition]
+  spriteDefs: var SpriteDefRegistry
 ): seq[uint8] {.measure.} =
   ## Builds the initial global viewer snapshot.
   result = @[]
@@ -5220,7 +5304,7 @@ proc buildSpriteProtocolInit(
 
 proc buildSpriteProtocolPlayerInit(
   sim: SimServer,
-  spriteDefs: var seq[SpriteDefinition],
+  spriteDefs: var SpriteDefRegistry,
   spritesOff = false
 ): seq[uint8] {.measure.} =
   ## Builds the initial sprite player snapshot: the full-map view (the client
@@ -5400,7 +5484,7 @@ proc toggleSelectedJoinOrder(
 
 proc addScoreboard(
   sim: SimServer,
-  spriteDefs: var seq[SpriteDefinition],
+  spriteDefs: var SpriteDefRegistry,
   currentIds: var seq[int],
   packet: var seq[uint8],
   selectedJoinOrder: int
@@ -5679,7 +5763,7 @@ proc tracerHeadSpriteId(colorIndex, stage: int): int =
 
 proc addShotTracers(
   sim: SimServer,
-  spriteDefs: var seq[SpriteDefinition],
+  spriteDefs: var SpriteDefRegistry,
   currentIds: var seq[int],
   packet: var seq[uint8]
 ) {.measure.} =
@@ -5794,7 +5878,7 @@ proc addShotTracers(
 
 proc addAimIndicators(
   sim: SimServer,
-  spriteDefs: var seq[SpriteDefinition],
+  spriteDefs: var SpriteDefRegistry,
   currentIds: var seq[int],
   packet: var seq[uint8],
   viewerIndex = -1
@@ -5808,7 +5892,7 @@ proc addAimIndicators(
 
 proc addShotImpactRings(
   sim: SimServer,
-  spriteDefs: var seq[SpriteDefinition],
+  spriteDefs: var SpriteDefRegistry,
   currentIds: var seq[int],
   packet: var seq[uint8],
   viewerIndex: int
@@ -5912,7 +5996,7 @@ proc buildPaintedDiamondPixels(
 
 proc addRotatingDiamonds(
   sim: SimServer,
-  spriteDefs: var seq[SpriteDefinition],
+  spriteDefs: var SpriteDefRegistry,
   currentIds: var seq[int],
   packet: var seq[uint8]
 ) {.measure.} =
@@ -5973,7 +6057,7 @@ proc addRotatingDiamonds(
 
 proc addSprayPaints(
   sim: SimServer,
-  spriteDefs: var seq[SpriteDefinition],
+  spriteDefs: var SpriteDefRegistry,
   currentIds: var seq[int],
   packet: var seq[uint8],
   viewerIndex = -1
@@ -6064,7 +6148,7 @@ proc sprayPaintRenderPose*(
 
 proc addSprayPaintFlashes(
   sim: SimServer,
-  spriteDefs: var seq[SpriteDefinition],
+  spriteDefs: var SpriteDefRegistry,
   currentIds: var seq[int],
   packet: var seq[uint8],
   viewerIndex = -1
@@ -6131,7 +6215,7 @@ proc addSprayPaintFlashes(
 
 proc addMedKits(
   sim: SimServer,
-  spriteDefs: var seq[SpriteDefinition],
+  spriteDefs: var SpriteDefRegistry,
   currentIds: var seq[int],
   packet: var seq[uint8],
   viewerIndex = -1
@@ -6169,7 +6253,7 @@ proc addMedKits(
 
 proc addBandages(
   sim: SimServer,
-  spriteDefs: var seq[SpriteDefinition],
+  spriteDefs: var SpriteDefRegistry,
   currentIds: var seq[int],
   packet: var seq[uint8],
   viewerIndex = -1
@@ -6209,7 +6293,7 @@ proc addBandages(
 
 proc addMarkerHalves(
   sim: SimServer,
-  spriteDefs: var seq[SpriteDefinition],
+  spriteDefs: var SpriteDefRegistry,
   currentIds: var seq[int],
   packet: var seq[uint8],
   viewerIndex = -1
@@ -6252,7 +6336,7 @@ proc addMarkerHalves(
 
 proc addHoppers(
   sim: SimServer,
-  spriteDefs: var seq[SpriteDefinition],
+  spriteDefs: var SpriteDefRegistry,
   currentIds: var seq[int],
   packet: var seq[uint8],
   viewerIndex = -1
@@ -6291,7 +6375,7 @@ proc addHoppers(
 
 proc addShields(
   sim: SimServer,
-  spriteDefs: var seq[SpriteDefinition],
+  spriteDefs: var SpriteDefRegistry,
   currentIds: var seq[int],
   packet: var seq[uint8],
   viewerIndex = -1
@@ -6413,7 +6497,7 @@ proc addShields(
 
 proc addGrenades(
   sim: SimServer,
-  spriteDefs: var seq[SpriteDefinition],
+  spriteDefs: var SpriteDefRegistry,
   currentIds: var seq[int],
   packet: var seq[uint8],
   viewerIndex = -1
@@ -6677,7 +6761,7 @@ proc buildBarrierUpSprite(barrier: PlacedBarrier): (int, int, seq[uint8]) =
 
 proc addBarriers(
   sim: SimServer,
-  spriteDefs: var seq[SpriteDefinition],
+  spriteDefs: var SpriteDefRegistry,
   currentIds: var seq[int],
   packet: var seq[uint8],
   viewerIndex = -1
@@ -6764,7 +6848,7 @@ proc addBarriers(
 
 proc addDroppedItems(
   sim: SimServer,
-  spriteDefs: var seq[SpriteDefinition],
+  spriteDefs: var SpriteDefRegistry,
   currentIds: var seq[int],
   packet: var seq[uint8],
   viewerIndex = -1
@@ -6861,7 +6945,7 @@ proc shoutOffset*(shout: Shout): (int, int) =
 
 proc addShouts(
   sim: SimServer,
-  spriteDefs: var seq[SpriteDefinition],
+  spriteDefs: var SpriteDefRegistry,
   currentIds: var seq[int],
   packet: var seq[uint8],
   shoutSlots: var array[ShoutMaxCount, string],
@@ -7102,10 +7186,11 @@ proc addBoardShouts(
 
 proc addHpPips(
   sim: SimServer,
-  spriteDefs: var seq[SpriteDefinition],
+  spriteDefs: var SpriteDefRegistry,
   currentIds: var seq[int],
   packet: var seq[uint8],
-  viewerIndex = -1
+  viewerIndex = -1,
+  spritesOff = false
 ) {.measure.} =
   ## Places a true-hit-point health bar above each living player's head:
   ## green pips for remaining base hp out of the seat's OWN max (the
@@ -7129,13 +7214,28 @@ proc addHpPips(
     let shieldHp = max(0, player.shieldHp)
     let width = hpBarWidth(maxHp + shieldHp)
     let spriteId = HpPipSpriteBase + i
+    let label = labelHp(hp, maxHp, shieldHp)
+    # OPT-09/SV-6 + text-sprite guard: a Sprites Off (0x87) bot viewer's
+    # pixels are stripped by `stripSpritePixels` right before the socket
+    # write, so it never needs the raster at all. A human viewer whose bar
+    # is UNCHANGED since last tick (same label — addBoardSpriteChanged's
+    # own dedup would drop it anyway) doesn't need it rebuilt either — same
+    # "check the cached def BEFORE rasterising" pattern addIdentityBadges
+    # already used below.
+    let defIndex = spriteDefs.spriteDefinitionIndex(spriteId)
+    let needsRaster = not spritesOff and
+      (defIndex < 0 or spriteDefs[defIndex].label != label)
+    let hpBarPixels =
+      if needsRaster: buildHpBarSprite(hp, maxHp, shieldHp)
+      else: newSeq[uint8](0)
     packet.addBoardSpriteChanged(
       spriteDefs,
       spriteId,
       width,
       HpBarH,
-      buildHpBarSprite(hp, maxHp, shieldHp),
-      labelHp(hp, maxHp, shieldHp)
+      hpBarPixels,
+      label,
+      spritesOff = spritesOff
     )
     let objectId = HpPipObjectBase + i
     currentIds.add(objectId)
@@ -7150,10 +7250,11 @@ proc addHpPips(
 
 proc addIdentityBadges(
   sim: SimServer,
-  spriteDefs: var seq[SpriteDefinition],
+  spriteDefs: var SpriteDefRegistry,
   currentIds: var seq[int],
   packet: var seq[uint8],
-  viewerIndex = -1
+  viewerIndex = -1,
+  spritesOff = false
 ) {.measure.} =
   ## Places each living player's identity badge (a Greek letter, alpha..theta
   ## by slot order within the team) on the soldier body.
@@ -7205,14 +7306,21 @@ proc addIdentityBadges(
     # drop a rebuilt-but-identical sprite on the floor after paying for it.
     let defIndex = spriteDefs.spriteDefinitionIndex(spriteId)
     if defIndex < 0 or spriteDefs[defIndex].label != label:
+      # OPT-09/SV-6: a spritesOff (bot) viewer never keeps these pixels
+      # past `stripSpritePixels` — skip the raster, keep the same
+      # id/dims/label the strip path would have left behind.
+      let badgePixels =
+        if spritesOff: newSeq[uint8](0)
+        else: buildIdentityBadgeSprite(player.team, identityIndex, rot, boardScale)
       packet.addBoardSpriteChanged(
         spriteDefs,
         spriteId,
         IdentityBadgeSize,
         IdentityBadgeSize,
-        buildIdentityBadgeSprite(player.team, identityIndex, rot, boardScale),
+        badgePixels,
         label,
-        native = boardScale
+        native = boardScale,
+        spritesOff = spritesOff
       )
     # On the board, step BACK along the aim onto the bare plate behind the
     # visor; a player view keeps the badge dead-centered on the body.
@@ -7242,7 +7350,7 @@ proc splatterSpriteId(colorIndex, stage: int, hit: bool): int =
 
 proc addSplatters(
   sim: SimServer,
-  spriteDefs: var seq[SpriteDefinition],
+  spriteDefs: var SpriteDefRegistry,
   currentIds: var seq[int],
   packet: var seq[uint8],
   viewerIndex = -1
@@ -7444,7 +7552,7 @@ proc addHillOverlay(
 
 proc addBarrageMarker(
   sim: SimServer,
-  spriteDefs: var seq[SpriteDefinition],
+  spriteDefs: var SpriteDefRegistry,
   currentIds: var seq[int],
   packet: var seq[uint8]
 ) {.measure.} =
@@ -7476,7 +7584,7 @@ proc addBarrageMarker(
 
 proc addZoneMarkers(
   sim: SimServer,
-  spriteDefs: var seq[SpriteDefinition],
+  spriteDefs: var SpriteDefRegistry,
   currentIds: var seq[int],
   packet: var seq[uint8]
 ) {.measure.} =
@@ -7578,7 +7686,7 @@ const
 
 proc addZoneEdgeBand(
   sim: SimServer,
-  spriteDefs: var seq[SpriteDefinition],
+  spriteDefs: var SpriteDefRegistry,
   currentIds: var seq[int],
   packet: var seq[uint8]
 ) {.measure.} =
@@ -7679,7 +7787,7 @@ proc damagePopBucket(amount: int): int =
 
 proc addDamagePops(
   sim: SimServer,
-  spriteDefs: var seq[SpriteDefinition],
+  spriteDefs: var SpriteDefRegistry,
   currentIds: var seq[int],
   packet: var seq[uint8],
   viewerIndex = -1
@@ -7739,7 +7847,7 @@ proc addDamagePops(
 # bakePixels/canonicalSprite locals with.
 proc addCogRigObjects(
   sim: SimServer,
-  spriteDefs: var seq[SpriteDefinition],
+  spriteDefs: var SpriteDefRegistry,
   currentIds: var seq[int],
   packet: var seq[uint8],
   player: Player,
@@ -8010,13 +8118,15 @@ proc buildSpriteProtocolPlayerUpdates*(
       nextState.spriteDefs,
       currentIds,
       result,
-      viewerIndex = playerIndex
+      viewerIndex = playerIndex,
+      spritesOff = spritesOff
     )
     sim.addIdentityBadges(
       nextState.spriteDefs,
       currentIds,
       result,
-      viewerIndex = playerIndex
+      viewerIndex = playerIndex,
+      spritesOff = spritesOff
     )
     if not spritesOff:
       sim.addSplatters(
@@ -8147,7 +8257,23 @@ proc buildSpriteProtocolPlayerUpdates*(
           $(player.hp + player.shieldHp) & "hp"
         else:
           $(player.hp + player.shieldHp) & "hp x" & $player.lives
-      lives = sim.buildSpriteProtocolTextSprite([livesText], 2'u8)
+      livesLabel = LabelPrefixLives & livesText
+      # OPT-09 text-sprite guard: hp/lives changes far less often than every
+      # tick — reuse the cached def's dims when the label (which carries
+      # every digit this text shows) hasn't moved, same as the hp-bar and
+      # team-score chip guards above.
+      livesDefIndex = nextState.spriteDefs.spriteDefinitionIndex(
+        SpritePlayerRemainingSpriteId)
+      livesCached = livesDefIndex >= 0 and
+        nextState.spriteDefs[livesDefIndex].label == livesLabel
+      lives =
+        if livesCached:
+          (width: nextState.spriteDefs[livesDefIndex].width,
+           height: nextState.spriteDefs[livesDefIndex].height,
+           pixels: newSeq[uint8](0))
+        else:
+          sim.buildSpriteProtocolTextSprite(
+            [livesText], 2'u8, spritesOff = spritesOff)
     currentIds.add(SelectedTextObjectId)
     result.addSpriteChanged(
       nextState.spriteDefs,
@@ -8155,7 +8281,7 @@ proc buildSpriteProtocolPlayerUpdates*(
       lives.width,
       lives.height,
       lives.pixels,
-      LabelPrefixLives & livesText
+      livesLabel
     )
     result.addBoardObject(
       SelectedTextObjectId,
@@ -8172,7 +8298,21 @@ proc buildSpriteProtocolPlayerUpdates*(
     # label is the machine contract ("weapon gun" | "weapon spray").
     let
       weaponText = if player.hasSprayPaint: LabelWeaponSpray else: LabelWeaponGun
-      weapon = sim.buildSpriteProtocolTextSprite([weaponText], 2'u8)
+      weaponLabel = labelWeapon(weaponText)
+      # OPT-09 text-sprite guard: same cached-label reuse as lives above —
+      # the weapon readout only actually changes on a spray-can pickup/drop.
+      weaponDefIndex = nextState.spriteDefs.spriteDefinitionIndex(
+        SpritePlayerWeaponSpriteId)
+      weaponCached = weaponDefIndex >= 0 and
+        nextState.spriteDefs[weaponDefIndex].label == weaponLabel
+      weapon =
+        if weaponCached:
+          (width: nextState.spriteDefs[weaponDefIndex].width,
+           height: nextState.spriteDefs[weaponDefIndex].height,
+           pixels: newSeq[uint8](0))
+        else:
+          sim.buildSpriteProtocolTextSprite(
+            [weaponText], 2'u8, spritesOff = spritesOff)
     currentIds.add(SpritePlayerWeaponObjectId)
     result.addSpriteChanged(
       nextState.spriteDefs,
@@ -8180,7 +8320,7 @@ proc buildSpriteProtocolPlayerUpdates*(
       weapon.width,
       weapon.height,
       weapon.pixels,
-      labelWeapon(weaponText)
+      weaponLabel
     )
     result.addBoardObject(
       SpritePlayerWeaponObjectId,
@@ -8308,7 +8448,8 @@ proc buildSpriteProtocolPlayerUpdates*(
       SpritePlayerOwnAimSpriteId
     )
 
-  sim.addTeamScoreboard(nextState.spriteDefs, currentIds, result)
+  sim.addTeamScoreboard(
+    nextState.spriteDefs, currentIds, result, spritesOff = spritesOff)
 
   if not state.isNil:
     for objectId in state.objectIds:
@@ -8542,7 +8683,7 @@ proc buildReplayMismatchSprite(
 
 proc addReplayMismatchWarning(
   sim: SimServer,
-  spriteDefs: var seq[SpriteDefinition],
+  spriteDefs: var SpriteDefRegistry,
   currentIds: var seq[int],
   packet: var seq[uint8],
   tick: int,
@@ -8754,7 +8895,7 @@ proc rigSegLabel(seg: RigSeg, color: string): string =
 
 proc addCogRigObjects(
   sim: SimServer,
-  spriteDefs: var seq[SpriteDefinition],
+  spriteDefs: var SpriteDefRegistry,
   currentIds: var seq[int],
   packet: var seq[uint8],
   player: Player,
@@ -9463,6 +9604,6 @@ proc warmBoardRenderCaches*(sim: SimServer) =
     # every viewer, and the 13 MB copy + snappy pass per connection was the
     # other second on the certifier's first-message clock.
     var
-      defs: seq[SpriteDefinition]
+      defs: SpriteDefRegistry
       packet: seq[uint8]
     sim.addMapBands(defs, packet)
