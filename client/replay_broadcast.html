@@ -3332,6 +3332,15 @@ body[data-noviewpanel] #viewpanel { display: none !important; }
     ecTeams = null;
     sbTeams = null;
     resetZoneEndcard();
+    // STALE BODIES FIX: a new episode's tick clock starts back at (near)
+    // zero, so a previous episode's final-frame pops — otherwise only
+    // reaped by the `jumped` detector's own clearGloryPops() call, which a
+    // plain episode boundary is not guaranteed to trip — would otherwise
+    // still read as "recent" against the new episode's low tick count and
+    // paint over its opening ticks. Reconciled fresh from the new
+    // connection's own first frame either way (renderGloryPops keys off
+    // `s.pops`), so this only removes the one-frame flash.
+    clearGloryPops();
     C.resetEpisode();
     if (window.PaintballChrome && window.PaintballChrome.reset) {
       window.PaintballChrome.reset();
@@ -5515,6 +5524,26 @@ body[data-noviewpanel] #viewpanel { display: none !important; }
     }
     core.setDownedSeats(downed);
   }
+  // STALE BODIES FIX: `alive` (unlike `downed`) rides every roster entry on
+  // every mode, never gated on downedMode, so this works the same for a
+  // classic multi-life match and a one-life BR episode alike. In BR a
+  // seat's `alive` goes false only once the seat is genuinely gone (lives
+  // hits 0 the same tick — src/ctf/sim.nim's killPlayer, brMode branch); in
+  // downedMode it stays true through a down (the `downed` flag above is
+  // what fades a ghost), so the two sets are always disjoint. Same array-
+  // position-as-seat-id convention as pushDownedSeatsToCore, so no seatInfo
+  // lookup is needed here either.
+  function pushEliminatedSeatsToCore(s) {
+    if (!core || !core.setEliminatedSeats) return;
+    var r = s.roster;
+    var eliminated = [];
+    if (r && r.length) {
+      for (var i = 0; i < r.length; i++) {
+        if (r[i] && r[i].alive === false) eliminated.push(i);
+      }
+    }
+    core.setEliminatedSeats(eliminated);
+  }
   function seatName(seat) {
     var info = seatInfo[seat];
     return (info && info.name && info.name !== '?') ? info.name : ('SEAT ' + seat);
@@ -5707,6 +5736,7 @@ body[data-noviewpanel] #viewpanel { display: none !important; }
     if (s.vote && !voteCache) voteCache = s.vote.slice().sort(byOrd);
     learnSeats(s);
     pushDownedSeatsToCore(s);
+    pushEliminatedSeatsToCore(s);
 
     var inLobby = s.ph === 'lobby';
     var nowMs = (s.t || 0) * 1000 / FPS;
