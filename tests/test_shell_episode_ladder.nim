@@ -399,6 +399,29 @@ proc waitReadyMany(episode: var FirstLightEpisode;
   fail()
 
 suite "shell episode ladder":
+  test "disabled episode has no stage timing":
+    var episode: FirstLightEpisode
+    let output = episode.step([], 1)
+    for stage in ShellStage:
+      check output.stageNanoseconds[stage] == 0
+
+  test "timing summary has the documented fields in order":
+    var sums: array[ShellStage, int64]
+    for stage in ShellStage:
+      sums[stage] = int64(ord(stage) + 1) * 1_000
+    let line = formatTimingSummary(24, 16, 24, sums, 99_000, 101_000)
+    check line.startsWith("FIRST_LIGHT_TIMING tick=24 seats=16 window_ticks=24 ")
+    let keys = ["shell_us", "max_tick_us", "sim_us", "lifecycle_us",
+      "default_us", "reflex_us", "context_us", "view_us", "guard_us",
+      "ladder_us", "standing_us", "belief_us", "follower_us", "weapon_us",
+      "danger_us", "planning_us", "compile_us"]
+    var previous = -1
+    for key in keys:
+      check line.count(key & "=") == 1
+      let position = line.find(key & "=")
+      check position > previous
+      previous = position
+
   test "alive default-only seats do not build guest views":
     when ShellRuntimeAvailable:
       let map = testMap()
@@ -549,6 +572,7 @@ suite "shell episode ladder":
       sawEntryInstall = false
       sawDifferentMask = false
       sawReferenceLog = false
+      sawStageTiming = false
     for tick in 1 .. 40:
       let defaultOutput = defaultEpisode.step([frame(0, defaultPos, tick)],
         uint32(tick))
@@ -556,9 +580,15 @@ suite "shell episode ladder":
         uint32(tick))
       check defaultOutput.masks.len == 1
       check playOutput.masks.len == 1
+      check playOutput.stageNanoseconds[ssBelief] <=
+        playOutput.stageNanoseconds[ssLifecycle]
+      check playOutput.stageNanoseconds[ssFollower] +
+        playOutput.stageNanoseconds[ssWeapon] <= playOutput.bodyNanoseconds
       sawEntryInstall = sawEntryInstall or
         playOutput.installs.anyIt(it.provenance == "entry:edge_ride" and
           it.bytes.contains("edge_ride:margin"))
+      sawStageTiming = sawStageTiming or
+        playOutput.stageNanoseconds[ssLadder] > 0
       sawReferenceLog = sawReferenceLog or playOutput.playLogLines.anyIt(
         it == "FIRST_LIGHT_PLAY_LOG tick=1 seat=0 entry=edge_ride " &
           "phase=init level=1 message=\"edge_ride initialized\"")
@@ -570,6 +600,7 @@ suite "shell episode ladder":
     check sawEntryInstall
     check sawDifferentMask
     check sawReferenceLog
+    check sawStageTiming
 
   test "play logs are escaped and limited per seat without changing output":
     when ShellRuntimeAvailable:

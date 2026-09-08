@@ -100,6 +100,14 @@ and the replay), so any two streams join on it. Seat lists are printed as
   fired on (rotating, cooldown, windup); `none_shootable` is fresh tracks with
   none in range and line of sight; `vetoed` is shootable tracks excluded by
   noShoot, protect, or holdFire.
+- `FIRST_LIGHT_TIMING tick=T seats=N window_ticks=24 shell_us=...
+  max_tick_us=... sim_us=... lifecycle_us=... default_us=... reflex_us=...
+  context_us=... view_us=... guard_us=... ladder_us=... standing_us=...
+  belief_us=... follower_us=... weapon_us=... danger_us=... planning_us=...
+  compile_us=...` — wall-clock totals in integer microseconds for the latest
+  window of play-seat ticks, printed once a second only while play seats
+  exist. `max_tick_us` is the worst single shell-step total in the window;
+  divide the other totals by `window_ticks` for per-tick means.
 
 ## Gating
 

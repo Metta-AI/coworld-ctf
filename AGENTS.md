@@ -221,6 +221,24 @@ nim check -d:noSignalHandler --threads:on src/ctf.nim
 env -u WASMTIME_C_API nim check -d:noSignalHandler --threads:on src/ctf.nim
 ```
 
+### Profiling build
+
+Set `-d:ProfileTracePath=<path>` to enable Fluffy tracing and optionally set
+`-d:ProfileTicks=N` (default 100) to dump after N post-lobby ticks. The trace
+is buffered in memory until it is dumped. Markers cover `shell.*` stages,
+`body.*` work, guest `invoke*` calls, danger/planning work, and `sim.step`.
+Fluffy's state is not thread-safe, so markers must stay on the game thread;
+never add them to compile-plane worker paths. When `COWORLD_WORKDIR` is set,
+the completed trace is copied to
+`$COWORLD_WORKDIR/logs/profile-trace.json` for the debug artifact.
+
+Exercise a local profiled server with:
+
+```sh
+FIRST_LIGHT_EXTRA_NIM_FLAGS="-d:ProfileTracePath=$TMPDIR/ctf-trace.json -d:ProfileTicks=240" \
+  tools/run_first_light.sh
+```
+
 Open question, routed to the PM rather than for local implementation: should a
 live play-seat config on a runtime-stub binary refuse at boot, like the
 deprecated-mode gate, instead of serving default-fallback episodes? Today a
