@@ -1,7 +1,5 @@
-## Phase P3-1 release microbenchmark: 32 lane-C default/finish/fold/install
-## paths against the 4.0 ms runtime sub-allocation. Rotate and partner legs use
-## lane A's concrete validateGoal proof path; nearest-cover query cost remains
-## outside this measurement until the atlas scorer is relayed.
+## Release microbenchmark: 32 default/fold/install paths against the 4.0 ms
+## runtime sub-allocation, including body-owned cover queries and validation.
 
 import std/[algorithm, monotimes, options, strformat, times]
 import ../src/ctf/sim_types
@@ -18,6 +16,9 @@ proc benchmarkMap(): BodyMap =
   var walkable = newSeq[bool](Side * Side)
   for value in walkable.mitems:
     value = true
+  for y in 160 .. 320:
+    for x in 240 .. 256:
+      walkable[y * Side + x] = false
   newBodyMap(walkable, Side, Side, 1, @[(100, 100)])
 
 proc percentile(sorted: seq[float], numerator, denominator: int): float =
@@ -46,8 +47,7 @@ proc main() =
         currentZone: MapRect(x: 0, y: 0, w: 800, h: 800),
         nextZone: MapRect(x: 100, y: 100, w: 600, h: 600),
         ticksToNextShrink: BrRotateLeadTicks + 1,
-        zoneDps: 2,
-        coverGoal: none(ValidatedGoal))
+        zoneDps: 2)
       case tick mod 3
       of 0:
         fallback.ticksToNextShrink = BrRotateLeadTicks
@@ -56,8 +56,6 @@ proc main() =
         input.partner = some(PartnerSample(seat: uint8(seat xor 1),
           pos: point.toBodyPoint, aimBrads: seat * 11 mod 256, alive: true))
       else:
-        fallback.coverGoal = some(map.validateGoal(point.toBodyPoint,
-          input.self.pos).get)
         input.visibleTracks = @[BodyTrackUpdate(seat: 31 - seat,
           pos: (500, 500), team: Blue, aimBrads: some(0), hpKnown: some(3),
           tick: uint32(tick))]

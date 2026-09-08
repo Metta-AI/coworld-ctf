@@ -7,7 +7,7 @@ import bitworld/spriteprotocol
 
 import ../src/ctf/sim_types
 import ../src/shell/[body, body_map, canonical, default_play, episode,
-  replay_records, standing_order, reflexes, types, wasmtime_c]
+  replay_records, standing_order, reflexes, types, wasmtime_c, body_cache]
 when ShellRuntimeAvailable:
   import ../src/shell/instance
 
@@ -332,8 +332,7 @@ proc frame(seat: int; pos: BodyPoint; tick: int): ShellSeatFrame =
       currentZone: MapRect(x: 0, y: 0, w: 4096, h: 4096),
       nextZone: MapRect(x: 100, y: 50, w: 200, h: 100),
       ticksToNextShrink: BrRotateLeadTicks + 1,
-      zoneDps: 1,
-      coverGoal: none(ValidatedGoal)))
+      zoneDps: 1))
 
 proc floodFrame(seat: int; pos: BodyPoint; tick: int): ShellSeatFrame =
   result = frame(seat, pos, tick)
@@ -399,6 +398,44 @@ proc waitReadyMany(episode: var ShellEpisode;
   fail()
 
 suite "shell episode ladder":
+  test "native base does not evaluate default rules":
+    var episode = initShellEpisode(true, true, controls(1), testMap(), 331)
+    defer: episode.closeShellEpisode()
+    let output = episode.step([floodFrame(0, (20, 128), 1)], 1)
+    check output.installs.anyIt(it.provenance == "reflex:zone_escape")
+    check episode.seats[0].standing.lastDefaultRule == brHold
+    echo "LAZY_DEFAULT_NATIVE last_evaluated_rule=",
+      episode.seats[0].standing.lastDefaultRule
+
+  test "lazy defaults bind each seat and preserve native-base precedence":
+    const Side = 384
+    var walkable = newSeqWith(Side * Side, true)
+    for y in 128 .. 256:
+      for x in 192 .. 208:
+        walkable[y * Side + x] = false
+    let map = newBodyMap(walkable, Side, Side, 1, @[(32, 80)])
+    var episode = initShellEpisode(true, true, controls(2), map, 331)
+    defer: episode.closeShellEpisode()
+    var rows = @[frame(0, (32, 80), 1), frame(1, (32, 80), 1)]
+    rows[0].bodyInputs.visibleTracks = @[BodyTrackUpdate(seat: 2,
+      team: Blue, pos: (320, 160), tick: 1)]
+    let output = episode.step(rows, 1)
+    check output.installs.anyIt(it.seat == 0 and it.rule == "brCoverHold")
+    check output.installs.anyIt(it.seat == 1 and it.rule == "brHold")
+    check episode.seats[0].body.nav.seats[0].cache.duckEntryCount > 0
+    check episode.seats[1].body.nav.seats[1].cache.duckEntryCount == 0
+    check output.stageNanoseconds[ssDefault] > 0
+    check output.stageNanoseconds[ssLadder] >= 0
+
+    var nativeEpisode = initShellEpisode(true, true, controls(1), map, 331)
+    defer: nativeEpisode.closeShellEpisode()
+    var native = floodFrame(0, (32, 80), 1)
+    native.bodyInputs.visibleTracks = rows[0].bodyInputs.visibleTracks
+    let nativeOutput = nativeEpisode.step([native], 1)
+    check nativeOutput.installs.anyIt(it.provenance == "reflex:zone_escape")
+    check nativeEpisode.seats[0].body.nav.seats[0].cache.duckEntryCount == 0
+    echo "LAZY_DEFAULT_EPISODE seats_independent=true native_cover_cache_entries=0"
+
   test "disabled episode has no stage timing":
     var episode: ShellEpisode
     let output = episode.step([], 1)

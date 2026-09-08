@@ -2264,14 +2264,19 @@ The idle-aim center is an `Intent` field with a built-in default of 0.
 Provenance is written by whichever subsystem chooses the order: the ladder
 driver for entries and overlays, the default play, or the reflex selector.
 
-**The default play** is the ladder's implicit final controller, always
-present: a competent, parameterless survival controller per mode (in
-Battle Royale: rotate ahead of the zone, hold cover, stay near the
-partner). It steps whenever no controller entry passes, whether because
-every guard failed, every controller faulted, the call was rejected, or
-no call was ever accepted (epoch zero). If the policy process dies
-outright, nothing changes on the server: the ladder keeps running and the
-default play keeps backing it.
+**The default play** is the ladder's implicit final controller. Once per
+seat/tick, after belief folding, it runs only when no higher-priority source
+produced a usable base order, including absent, ineligible, silent, and
+faulted controllers. Active overlays still fold onto that base. In Battle
+Royale its priority is rotate, partner leash, cover hold, then hold (James,
+2026-09-04). Rotate and partner leash skip the cover query when they win.
+Otherwise, fresh fog-visible enemy tracks trigger the body's existing
+`nearestCoverPoint` scorer and per-seat cache: self-position anchor,
+`MaxCoverRadiusPx` (331), no preferred bearing (-1), and the nearest
+`MaxCoverThreats` (8) current-tick tracks by squared distance, with seat-number
+ties. A point validated by the active `BodyMap` installs cover with arrival
+radius 24; no cover or failed validation falls through to hold. Cover selection
+owns the validated destination; navigation owns its route and local motion.
 
 ### 7.4 The per-tick play step, and what died with the wire
 
@@ -2335,7 +2340,7 @@ step each active overlay and cache any accepted `CombatPolicy`; select
 the base controller and step it, then compute the default play if it
 still has no cached output (the two-stage rule above), caching any
 accepted `Intent`; fold the active overlays' cached policies onto the
-base order; finish; and, if the resulting canonical bytes, their
+base order; and, if the resulting canonical bytes, their
 provenance, or the **effective order epoch** (section 4.3) differ from
 the standing order's, install the new standing order and write the
 annotation. All of it runs on the

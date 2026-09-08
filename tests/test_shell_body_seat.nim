@@ -2,8 +2,9 @@
 
 import std/[options, sequtils, unittest]
 import bitworld/spriteprotocol
-import ../src/ctf/sim_types
+import ../src/ctf/[arena, sim_types]
 import ../src/shell/body
+import ../src/shell/cover_scorer
 import ../src/shell/body_cache
 import ../src/shell/body_map
 import ../src/shell/body_nav
@@ -96,6 +97,84 @@ proc settlePlans(nav: BodyNavSystem, tick: var int, limit = 400) =
   raise newException(ValueError, "planning did not settle")
 
 suite "shell body seat belief-lite seam":
+  test "cover goal uses fresh nearest-eight tracks and the existing cache":
+    let map = newBodyMap(mapFromSpecJson(
+      readFile("tests/fixtures/br-golden-map.json")))
+    let body = activateSeatBody(map, 0, 331)
+    let cache = body.nav.seats[0].cache
+    var inputs = BodyTickInputs(self: selfState((516, 356)))
+    for seat in countdown(10, 1):
+      inputs.visibleTracks.add BodyTrackUpdate(seat: seat, team: Blue,
+        pos: (516 + seat * 10, 356), tick: 10)
+    body.updateBelief(inputs, 10)
+    check cache.duckEntryCount == 0
+    let goal = body.defaultCoverGoal(10)
+    require goal.isSome
+    check goal.get.belongsTo(map)
+    check not goal.get.belongsTo(openMap())
+    check body.nav.seats[0].cache == cache
+    check cache.duckEntryCount > 0
+    let keys = cache.duckKeys
+    var expectedThreats: array[8, BodyPoint]
+    for i in 0 ..< 8:
+      expectedThreats[i] = (516 + (i + 1) * 10, 356)
+    let expectedPoint = cache.nearestCoverPoint(inputs.self.pos,
+      shellTypes.MaxCoverRadiusPx, -1, expectedThreats)
+    require expectedPoint.isSome
+    check goal == map.validateGoal(expectedPoint.get, inputs.self.pos)
+    check body.defaultCoverGoal(10) == goal
+    check cache.duckKeys == keys
+    body.updateBelief(BodyTickInputs(self: inputs.self), 11)
+    check body.defaultCoverGoal(11).isNone
+    check cache.duckKeys == keys
+    echo "COVER_BODY cache_reused=true fresh_goal=", goal.get.goalPoint,
+      " stale_goal=none threats=8"
+
+  test "cover rejects invalid self and returns none when the atlas is empty":
+    let map = newBodyMap(mapFromSpecJson(
+      readFile("tests/fixtures/br-golden-map.json")))
+    let body = activateSeatBody(map, 0, 331)
+    body.updateBelief(BodyTickInputs(self: selfState((550, 300)),
+      visibleTracks: @[BodyTrackUpdate(seat: 1, team: Blue,
+        pos: (2060, 820), tick: 1)]), 1)
+    check body.nav.seats[0].cache.nearestCoverPoint((550, 300),
+      shellTypes.MaxCoverRadiusPx, -1, [(2060, 820)]).isSome
+    check body.defaultCoverGoal(1).isNone
+    let empty = newBodyMap(newSeqWith(512 * 512, true), 512, 512,
+      1, @[(100, 100)])
+    let emptyBody = activateSeatBody(empty, 0, 331)
+    check emptyBody.defaultCoverGoal(1).isNone
+    emptyBody.updateBelief(BodyTickInputs(self: selfState((100, 100)),
+      visibleTracks: @[BodyTrackUpdate(seat: 1, team: Blue,
+        pos: (200, 200), tick: 1)]), 1)
+    check emptyBody.defaultCoverGoal(1).isNone
+
+  test "cover destination hands off to cold navigation on the active map":
+    const Side = 384
+    var walkable = newSeqWith(Side * Side, true)
+    for y in 128 .. 256:
+      for x in 192 .. 208:
+        walkable[y * Side + x] = false
+    let map = newBodyMap(walkable, Side, Side, 1, @[(32, 80)])
+    let body = activateSeatBody(map, 0, 331)
+    body.updateBelief(BodyTickInputs(self: selfState((32, 80)),
+      visibleTracks: @[BodyTrackUpdate(seat: 1, team: Blue,
+        pos: (320, 160), tick: 1)]), 1)
+    let goal = body.defaultCoverGoal(1)
+    require goal.isSome
+    check body.nav.seats[0].cache.readyRouteFieldCount == 0
+    body.setStandingIntent(navigateIntent(goal.get.goalPoint,
+      arriveRadius = 24), goal, 0)
+    discard body.actFromBelief(1)
+    check body.standingGoal == goal
+    check body.nav.seats[0].desiredGoal == some(goal.get.goalPoint)
+    for tick in 1 .. 256:
+      discard body.nav.runPlanningTick(tick)
+      if body.nav.seats[0].pathLen > 0:
+        break
+    check body.nav.seats[0].pathLen > 0
+    check body.standingGoal.get.belongsTo(map)
+
   test "activation installs the safe standing order":
     let body = activateSeatBody(openMap(), 7, 331)
     check body.seatIndex == 7

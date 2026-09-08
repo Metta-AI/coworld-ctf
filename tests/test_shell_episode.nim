@@ -42,8 +42,7 @@ proc fallback(map: BodyMap, seat: int): BrDefaultFallbacks =
     nextZone: MapRect(x: 50, y: 50, w: 200, h: 200),
     ticksToNextShrink: BrRotateLeadTicks + 1,
     zonePhase: 2,
-    zoneDps: 1,
-    coverGoal: none(ValidatedGoal))
+    zoneDps: 1)
 
 proc frame(map: BodyMap, seat: int, pos: BodyPoint = (0, 0), alive = true,
            playing = true): ShellSeatFrame =

@@ -126,8 +126,9 @@ proc input(alive = true; a = true): LadderSeatInput =
       discard tick
       "{}",
     guardContext: ctx(a),
-    defaultIntent: Intent(kind: ikHold, arriveRadius: 0.0,
-      reason: "default"))
+    defaultSource: proc(seatIndex: int; tick: uint32):
+        tuple[intent: Intent, goal: Option[ValidatedGoal]] =
+      (Intent(kind: ikHold, arriveRadius: 0.0, reason: "default"), none(ValidatedGoal)))
 
 proc call(entryId = "base"; play = "base"; n = 1; retune = false): string =
   let retuneField = if retune: ""","retune":true""" else: ""
