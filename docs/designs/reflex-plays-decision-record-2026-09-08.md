@@ -3,7 +3,7 @@
 Evidence commit: `dbd80a3473fc876e028cde2557af0442a70ef6a4` (`origin/main`).
 All repository `path:line` citations below refer to that commit. This is a
 proposal for implementation after ratification; no reflex behavior changes here.
-James can ratify the PROPOSED rulings together or reply with numbered amendments.
+All ten rulings were ratified by James on 2026-09-08; rulings 6, 7 and 8 carry amendments recorded under their headings.
 
 Source: [decision umbrella](https://app.asana.com/0/0/1218165831099140/f).
 The September 4 correction (comment `1218197624790523`) supersedes the first
@@ -85,7 +85,9 @@ Remove the prefix rejection and constant (`src/shell/manifest.nim:327`,
 (`src/shell/schemas/manifest.schema.json:2`,
 `src/shell/schemas/ladder_call.schema.json:15`).
 
-## 5. PROPOSED — behavior-level equivalence within two spatial calls
+## 5. RATIFIED (James, 2026-09-08) — behavior-level equivalence within two spatial calls
+
+Ratified as recommended below.
 
 Recommend preserving emergency triggers, release, deterministic choices and
 policy priority, while allowing different destinations from Appendix R's
@@ -147,7 +149,13 @@ current hazards on every actual step. Stable module identity and unchanged param
 retain other instance state across call replacement (`src/shell/ladder.nim:370`);
 new instances start clean.
 
-## 6. PROPOSED — retain three steps, with explicit exhaustion behavior
+## 6. RATIFIED (James, 2026-09-08) — retain three steps, with explicit exhaustion behavior
+
+Ratified with one amendment. Guarding escape plays well, so that they neither consume
+attempts nor yield out, is the policy's and playbook's responsibility, not the engine's.
+Amendment: add tracing so the number of seats that fall through to the engine default
+because their attempts ran out is visible on the existing `SHELL_*` once-a-second
+diagnostic line (and a Fluffy marker if useful). No new metrics surface.
 
 Keep `MaxStepsPerSeatPerTick = 3`, `MaxInitsPerSeatPerTick = 3`, and
 `MaxInitsPerTick = 16` (`src/shell/types.nim:410`). The old 1/2 init proposal is
@@ -183,7 +191,15 @@ raise quotas silently. Use disposable probes and existing trace markers, not a
 committed benchmark framework, RSS gate or new metrics. No measurement runs in
 this docs-only task, and no passing result is claimed.
 
-## 7. PROPOSED — declare ABI 2 through the existing manifest field
+## 7. RATIFIED (James, 2026-09-08) — declare ABI 2 through the existing manifest field
+
+Ratified with one amendment. **ABI v1 is deprecated as of this change and will not be
+supported after the next ABI version (v3).** Do not write extensive back-compat shims.
+The deprecation notice must appear where players see it when they upload policies and
+plays (the upload/validation result for an `abi: 1` module and the SDK docs) and in many
+noticeable places in the codebase (the `ShellAbiVersion` constant and its comment, the
+manifest validator, `abi.nim`, the manifest schema comment, the design's ABI section), so
+that v1 support is dropped when v3 is built.
 
 A module declares `"abi": 2` in its `play_manifest` JSON. Accept exactly integer
 1 or 2; reject missing, unsupported and malformed values. Preserve existing
@@ -205,7 +221,18 @@ the instance nor consumes an init slot. These details are proposals refining
 ruling 1. Tests pin v1 nonzero fault and silent-cache behavior, mixed dispatch,
 same-tick withdrawal, overlay folding, fault continuation and all-yield default.
 
-## 8. PROPOSED — ordinary live provenance, legacy decoding, no automatic GV bump
+## 8. RATIFIED AS AMENDED (James, 2026-09-08) — ordinary live provenance, no backward compatibility
+
+**Amendment overriding the proposal below:** there is no backward compatibility. Old
+replays that contain native reflex labels may break. Do not keep a legacy decode path, do
+not add shims, and do not add back-compat tests. The proposal's archived-playback gate
+and legacy-decoding preservation are withdrawn. Implementation note: because replays
+recorded at GV59 before the change will no longer decode, the Replay & Viewer task makes
+the break explicit by claiming the next GameVersion and re-recording the eight fixtures
+(a version refusal rather than a decode error) unless James rules otherwise there. The
+direct-input parity check below still applies.
+
+Original proposal, for the record:
 
 New executions use ordinary `pbEntry` provenance: entry ID, module hash and
 accepted emission tick. Live accepted calls already write only `cikModule`
@@ -249,7 +276,11 @@ Reason: establish one current navigation/guard contract before removing the
 native selector. After both land, refresh all citations and acceptance baselines;
 do not carry this commit's source assumptions into the implementation unchanged.
 
-## 10. PROPOSED — exactly four Layer-owned implementation tasks
+## 10. RATIFIED (James, 2026-09-08) — exactly four Layer-owned implementation tasks
+
+Ratified as recommended; filed 2026-09-08 as Asana tasks 1218293193121666 (Shell & Plays),
+1218306338645470 (Bots & Policies), 1218304490341496 (Replay & Viewer) and
+1218301431393211 (Docs & Comms) with the dependency edges below.
 
 These are scopes to create **after ratification**, not Asana tasks created here.
 Use Shell & Plays in place of the correction's old Sim & Rules ownership.
