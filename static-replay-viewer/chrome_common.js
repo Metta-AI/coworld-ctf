@@ -636,10 +636,13 @@ window.ChromeCommon = function (ctx) {
     chip.className = 'win-chip ' + (show ? 'show ' : '') + verdict.cls;
   }
 
-  // ---- momentum graph (lives-lead over the WHOLE timeline) ----------------
-  // A step line + difference shading on the SAME 0→maxTicks x-axis as the seek
-  // track, so a point's x IS its tick. Positive = Red leads (red shading above
-  // the even-lives midline), negative = Blue leads (blue below). Samples are
+  // ---- momentum graph (GLORY over the WHOLE timeline) ---------------------
+  // One team-colored step line per team on the SAME 0→maxTicks x-axis as the
+  // seek track, so a point's x IS its tick. The metric is GLORY: it is the
+  // score, and unlike lives it only ever climbs, so the lane reads as a RACE
+  // off a shared floor — the leader is simply the taller line — rather than a
+  // two-sided tug of war around a midline. (A signed differential would make
+  // the trailing team read as NEGATIVE, which glory never is.) Samples are
   // keyed by tick (dedup) and accumulate for the whole replay — NOT a scrolling
   // window — so the curve stays put while only the playhead moves across it.
   var VBW = 1000, VBH = 100, MID = 50; // SVG viewBox (preserveAspectRatio:none)
@@ -651,35 +654,49 @@ window.ChromeCommon = function (ctx) {
   var momentumTeams = null;         // team list backing the accumulated samples
   var momClipRect = null;           // spoiler clip: curve visible up to this width
 
-  // The server ships the full-match lives-lead change-point series ONCE (on the
+  // The server ships the full-match glory change-point series ONCE (on the
   // first HUD frame). Cache it so the momentum graph draws its whole-timeline
   // shape immediately, with the playhead riding across a curve that's already
   // there — a broadcast win-probability graph, not a line that grows as it plays.
   function ingestLeadSeries(s) {
     if (!s.lead || fullLeadSeries) return;
     if (Array.isArray(s.lead)) {
-      // Legacy shape: [[tick, redLives - blueLives], …] — a two-team diff.
+      // Legacy shape: [[tick, redVal - blueVal], …] — a two-team signed diff,
+      // from bundles that predate the team-keyed series. Only this shape still
+      // draws the old midline graph; see the isDiff branch in renderMomentum.
       fullLeadSeries = {
         teams: ['red', 'blue'],
         isDiff: true,
         pts: s.lead.map(function (p) { return { t: p[0], vals: [p[1]] }; })
       };
     } else {
-      // Team-keyed shape: {teams: [name…], pts: [[tick, lives…], …]}.
+      // Team-keyed shape: {metric, teams: [name…], pts: [[tick, value…], …]}.
       fullLeadSeries = {
         teams: s.lead.teams || ['red', 'blue'],
+        metric: s.lead.metric || 'glory',
         isDiff: false,
         pts: (s.lead.pts || []).map(function (p) {
           return { t: p[0], vals: p.slice(1) };
         })
       };
     }
+    labelMomentum(fullLeadSeries.metric);
     momentumDirty = true;
+  }
+  // The band names what it is plotting. The server says which metric the
+  // series carries; a bundle too old to say is glory, the classic default.
+  // (This used to be hardcoded "LIVES LEAD" in each viewer's markup, which
+  // went stale the moment KotH started shipping hill ticks through the same
+  // field.)
+  var MOMENTUM_LABELS = { glory: 'GLORY', hill: 'HILL TICKS' };
+  function labelMomentum(metric) {
+    var el = document.querySelector('.momentum-label');
+    if (el) el.textContent = MOMENTUM_LABELS[metric] || MOMENTUM_LABELS.glory;
   }
   function recordMomentum(s) {
     if (fullLeadSeries) return;     // full curve already known; nothing to accumulate
     if (s.ph !== 'playing' && s.ph !== 'gameover') return;
-    if (momentumSeen[s.t]) return;  // deterministic replay: a tick's lives are fixed
+    if (momentumSeen[s.t]) return;  // deterministic replay: a tick's glory is fixed
     momentumSeen[s.t] = true;
     var teams = activeTeams(s);
     var tr = s.teams || {};
@@ -687,7 +704,7 @@ window.ChromeCommon = function (ctx) {
     momentumSamples.push({
       t: s.t,
       vals: teams.map(function (team) {
-        return (tr[team] && tr[team].lives) || 0;
+        return (tr[team] && tr[team].glory) || 0;
       })
     });
     momentumDirty = true;
@@ -759,9 +776,10 @@ window.ChromeCommon = function (ctx) {
       layer.appendChild(p);
     }
 
-    if (norm.teams.length === 2) {
-      // TWO teams: the classic lead diff — a single step line around an
-      // even-lives midline, shaded in the leading team's color above/below.
+    if (norm.isDiff) {
+      // LEGACY bundles only: a pre-computed two-team signed difference is all
+      // we have, so it can only be drawn the old way — a single step line
+      // around a midline, shaded in the leading team's color above/below.
       var colTop = teamCol(norm.teams[0]) || RED;
       var colBot = teamCol(norm.teams[1]) || BLUE;
       var diffOf = function (m) { return norm.isDiff ? m.vals[0] : m.vals[0] - m.vals[1]; };
@@ -808,9 +826,12 @@ window.ChromeCommon = function (ctx) {
       addPath(area, null, 0, 0, 'url(#momfill)');
       addPath(line, PAPER, '1.5', '0.95');
     } else {
-      // THREE-FOUR teams: no scalar lead exists, so draw one team-colored
-      // lives line per team on a shared 0..peak scale — the graph reads as
-      // "who still has an army" instead of a two-sided tug of war.
+      // THE LANE: one team-colored glory line per team on a shared 0..peak
+      // scale with zero pinned to the lane bottom — every team climbing from
+      // the same floor, so the leader is just the taller line. Works the same
+      // for two teams as for sixteen. Scaling on the running peak rather than
+      // the final value keeps a curve on-scale even where the ledger dips
+      // (penalties), instead of clipping it against the top of the band.
       var peak = 1;
       pts.forEach(function (m) {
         m.vals.forEach(function (v) { if (v > peak) peak = v; });
