@@ -2973,6 +2973,115 @@ check("prompt: NEGATIVE -- the corrected season-board text no longer "
       "not to survive it" not in prompt,
       "stale survival-is-worthless framing still in prompt")
 
+# ── ALLY-REVIVE / GV59 (t30, 2026-09-07; single commit decb97fd
+# "sim(ally-revive): pact allies revive; alliance is the survival unit;
+# ally-fire priced friendly (GV59) (#441)" went live at round 4374,
+# coworld 0.7.347, engine tree decb97fdf8ab6e3cbb92b6634983fd3e76d4ae68.
+# Re-verified at the CURRENT live tree, coworld 0.7.348, engine tree
+# ef3b180eda096190b44d104f8c906506b948b8a6 (rounds 4375-4377): sim.nim,
+# sim_types.nim and glory.nim are BYTE-IDENTICAL decb97fd..ef3b180e, so
+# 0.7.348 is a no-op for this mechanic and every line number below holds
+# at both trees. Three mechanics, all gated on `sim.pactActive(a,b)`
+# (the GV56 pact registry, fed by the `pact` play; structurally false
+# outside BR -- sim.nim:2755):
+#   P1 REVIVE (sim.nim:8034-8044): the tagger scan in `updateDowned` now
+#     qualifies on `same team OR sim.pactActive(victim.team, j.team)`
+#     (:8042-8043) -- same DownedTagRange (:8050), same downedReviveTicks,
+#     no new cost or timer. Gated on `sim.config.downedMode` (the proc's
+#     own top-of-body guard, sim.nim:7940).
+#   P2 SURVIVAL (sim.nim:7905-7920 `teamHasUprightPactAlly`, read at
+#     :7963-7964 inside `updateDowned`'s team-wipe finalize): a downed
+#     seat's own team-wipe finalize (`upright[team] == 0`) is now
+#     SUPPRESSED while any pact-allied team still has a living upright
+#     member -- the seat runs the normal bleed-out + tag-revive window
+#     instead of fading the same tick. Also gated on downedMode (same
+#     top-of-body guard as P1 -- `updateDowned` is a single proc).
+#   P3 FIRE DISCIPLINE (sim.nim:2580-2601 `downFriendly`, wired into
+#     `downPlayer` at :2668-2670 and into `killPlayer`'s
+#     `KillContext.friendly` at :2928; `glory.nim:2949`
+#     `if ctx.friendly: return dTeamKill` -- first, highest-precedence
+#     check, so a friendly hit can never resolve to `dHonorableKill`):
+#     tagging a pact ally now mints dTeamKill (-60g, glory.nim:807)
+#     instead of dHonorableKill (+10g, glory.nim:797) -- previously a
+#     pact ally was just a different team and priced as a real fight.
+#     `lastHitWasPactAlly` (sim_types.nim:3337) snapshots the verdict
+#     because `absorbDamage` dissolves the pact in the same call, before
+#     downPlayer/killPlayer price the hit. UNLIKE P1/P2, P3 is NOT
+#     downedMode-gated: `downFriendly` fires on every kill path,
+#     downedMode on or off (sim.nim:2926-2927's own comment: "every
+#     NON-downedMode kill" needs the identical verdict) -- pactActive's
+#     BR-only registration is the only gate that matters here.
+# glory.nim confirmed BYTE-IDENTICAL to the pre-GV59 read (md5 match
+# against tree 9f00bb9e, the 0.7.346 tree this lane last verified) --
+# joint-action doctrine (the REGISTERED-MUTUAL-pact checks above) is
+# untouched, consistent with the single-commit diff.
+# What changed here: TRUCE HONOR (policy.py, pact partners mirrored into
+# every target_law never-list) is PRE-EXISTING code, built for politics
+# before GV59 existed -- it already keeps target_law off every pact
+# seat, so it is ALSO, with no code change, the correct fire-discipline
+# mechanism for P3's repricing. This is why the fix below is prose, not
+# a new wire field: the wire's only lever over targeting (target_law's
+# never-list) already carries pact seats; P1 (revive) and P2 (survival)
+# are pure engine physics with no play or field the policy could call to
+# change them -- there is nothing left to wire, only doctrine to state
+# correctly. Do not claim this prose will move a metric: it corrects a
+# now-false claim and lets the model exploit a real revive window it
+# previously did not know existed; neither has been measured yet. ──────
+check("prompt: GV59 downed-state exception is stated right where the old "
+      "unconditional 'no downed state' claim lives, not as a stray "
+      "footnote elsewhere",
+      "GV59 EXCEPTION" in prompt and
+      "no downed state" in prompt[:prompt.index("GV59 EXCEPTION")],
+      "GV59 EXCEPTION block not found immediately after the era-check "
+      "paragraph")
+check("prompt: GV59 exception states BOTH halves -- pact-active gets the "
+      "bleed-out/tag-revive window, same tag range, no extra cost",
+      "bleed-out +" in prompt and "tag-revive window" in prompt and
+      "same tag range, no extra cost" in prompt,
+      "GV59 revive/survival mechanic text not found")
+check("prompt: NEGATIVE (pin) -- the unpaired-seat (no-pact) instant-"
+      "finalize clause from the original era-check paragraph is still "
+      "present, VERBATIM, not overwritten by the GV59 exception -- it "
+      "remains true whenever no pact is active",
+      "downed simply dies to a tag instead -- there is no revive to "
+      "stand, no\nchannel to hold, and a duo that structurally cannot "
+      "go down together\nnever mints the duo-down deed, no matter how "
+      "the fight goes." in prompt,
+      "original unpaired-seat instant-finalize sentence is gone or "
+      "altered")
+check("prompt: fire-discipline bullet in the politics section states the "
+      "GV59 repricing (pact-ally tag = dTeamKill, same class as a "
+      "partner tag)",
+      "dTeamKill, a" in prompt and "NEGATIVE deed) exactly like tagging "
+      "your own duo partner" in prompt,
+      "GV59 fire-discipline repricing text not found in politics bullet")
+check("prompt: fire-discipline bullet names the no-free-first-shot "
+      "consequence (the first hit that breaks a pact still charges "
+      "friendly before the pact dissolves)",
+      "no free first shot" in prompt,
+      "no-free-first-shot consequence not found")
+check("prompt: pact-ally revive bullet exists in the politics section, "
+      "distinct from the era-check's revive-window sentence (checked as "
+      "two separate anchors since the source markdown wraps mid-phrase)",
+      "no extra cost, no new timer" in prompt and
+      "tag range as a duo partner, no extra cost" in prompt,
+      "one or both revive-window anchors (era-check / politics-section) "
+      "not found")
+check("prompt: NEGATIVE -- joint-action doctrine's REGISTERED-MUTUAL-pact "
+      "co-engagement text is untouched by this GV59 land (glory.nim is "
+      "byte-identical across the build boundary; this lane must not "
+      "touch it)",
+      prompt.count("REGISTERED, MUTUAL pact") >= 2,
+      f"found {prompt.count('REGISTERED, MUTUAL pact')} occurrences, "
+      "want >= 2 (unchanged from the pre-GV59 count)")
+check("policy.py: TRUCE HONOR docstring names GV59 and the exact "
+      "sim.nim anchor it re-verified (downFriendly ~2580-2601), pinning "
+      "the mechanism-over-prose finding against silent drift",
+      "GV59 (engine tree decb97fd" in policy.__doc__ and
+      "downFriendly ~2580-2601" in policy.__doc__,
+      "GV59/downFriendly citation not found in policy.py module "
+      "docstring")
+
 print()
 if failures:
     print(f"SELF-CHECK FAILED: {len(failures)} failing check(s)")

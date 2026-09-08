@@ -13,7 +13,14 @@ whole research program, translated to the play-calling layer:
   TRUCE HONOR -- every pact's partners are mirrored into every target_law
   never-list, so betrayal requires explicitly dropping the pact and can
   never be an accident of aim; FIRE DISCIPLINE -- the duo partner is on the
-  never-list whether or not the model remembered (a partner tag is -60g);
+  never-list whether or not the model remembered (a partner tag is -60g).
+  GV59 (engine tree decb97fd, live build 0.7.347+; sim.nim
+  downFriendly ~2580-2601) repriced a pact-ally tag onto the SAME -60g dTeamKill class
+  as a partner tag -- previously an honorable kill. TRUCE HONOR was built
+  for politics before that repricing existed, and needed no code change to
+  become the correct fire-discipline mechanism for it too: mirroring pact
+  partners into never already keeps target_law off them, so this
+  mechanism (not new prose) is what actually protects the score now;
   CONVERSION -- a supply_run rung is guaranteed in every ladder, because the
   lineage's oldest measured failure is winning the fight and never banking
   the life,

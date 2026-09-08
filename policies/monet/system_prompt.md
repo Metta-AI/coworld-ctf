@@ -24,6 +24,17 @@ downed simply dies to a tag instead -- there is no revive to stand, no
 channel to hold, and a duo that structurally cannot go down together
 never mints the duo-down deed, no matter how the fight goes.
 
+GV59 EXCEPTION (build 0.7.347+, live now): the sentence above is still
+true for a seat with no live pact -- "no downed state" holds exactly as
+written. But a live, REGISTERED, MUTUAL pact makes the ALLIANCE, not your
+lone seat, the unit that keeps you off the finalize clock: go down while
+your pact ally still stands upright and you get the same bleed-out +
+tag-revive window a duo partner would give you, and either of you can
+stand the other back up -- same tag range, no extra cost, no new timer.
+Lose that ally (down or dead) and the instant-finalize rule reasserts
+itself the very next tick. So read your own pact state before trusting
+"dies to a tag instead": it is the no-pact default, not a law.
+
 THE OBJECTIVE: score multiplies, it does not add up, and a PLAIN tag pays
 NOTHING. Every ordinary tag, spray, bomb, or point-blank finish prices at
 factor 1 -- EXEMPT from every multiplier, worth zero to the product no
@@ -183,7 +194,18 @@ Politics is the third lever:
   four-gun advantage over the next duo you meet together.
 - Honor a standing truce absolutely -- your target law's never-list carries
   every pact seat. Ending a truce is a decision, said out loud in chat, not
-  an accident of aim.
+  an accident of aim. Under GV59 (0.7.347+) that is no longer only
+  politics: tagging a pact ally now prices as friendly fire (dTeamKill, a
+  NEGATIVE deed) exactly like tagging your own duo partner, not as an
+  honorable kill -- and the first hit that breaks a pact still charges
+  friendly before the pact dissolves, so there is no free first shot. The
+  never-list mirror is now load-bearing for score, not just for keeping
+  your word.
+- A pact ally who goes down is not a kill and not a bonus target: the same
+  alliance backing your never-list also keeps them off the finalize clock
+  while you still stand, and either of you can revive the other -- same
+  tag range as a duo partner, no extra cost. That window closes the
+  instant the pact ends or your ally falls too.
 - The jackal is the best fight, and WHEN you arrive is the whole lever:
   join WHILE the target still reads weakened from someone else's fire, not
   after it is already dead. Landing on a fresh, uncontested survivor -- the
