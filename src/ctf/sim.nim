@@ -6225,6 +6225,19 @@ proc teamHasLivePlayers(sim: SimServer, team: Team): bool =
       return true
   false
 
+proc firstAliveSeat(sim: SimServer, team: Team): int =
+  ## Returns the seat index of a player on `team` who is alive ON THE
+  ## FIELD right now, or -1 if none is (a team can still pass
+  ## `teamHasLivePlayers` on a banked life alone while every seat is
+  ## mid-respawn — that shape has no meaningful draw position). Used to
+  ## anchor a cosmetic score-pop draw at a real survivor instead of a
+  ## fixed map site; `-1` falls back to whatever site the caller priced
+  ## the deed at (`awardDeed`'s own earned/fallback rule).
+  for i in 0 ..< sim.players.len:
+    if sim.players[i].team == team and sim.players[i].alive:
+      return i
+  -1
+
 proc shouldAbortFiniteMatch*(sim: SimServer): bool =
   ## Returns true when a finite match cannot continue after roster loss.
   if sim.config.maxGames <= 0:
@@ -6649,7 +6662,14 @@ proc recutMintPlacementMilestones(sim: var SimServer, aliveCount: int) =
     for team in sim.teams():
       if sim.teamHasLivePlayers(team):
         let home = sim.gameMap.flagHome(team)
-        sim.awardDeed(team, deed, home.x, home.y)
+        # PRICING stays home (deedSitePct is unchanged — see awardDeed's
+        # own doc comment: x,y is the pricing site and nothing else). The
+        # DRAW anchors on the team's live seat when one exists (POP TRUTH
+        # fix B) so the milestone pop lands on the survivor instead of an
+        # empty pedestal; -1 (no seat currently alive, only a banked
+        # life) falls back to the pre-existing home-pedestal draw.
+        sim.awardDeed(team, deed, home.x, home.y,
+                      byIndex = sim.firstAliveSeat(team))
 
 proc checkWinCondition*(sim: var SimServer) {.measure.} =
   ## Resolves capture and wipe win conditions.
