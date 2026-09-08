@@ -294,12 +294,13 @@ proc dangerProof() =
     defer:
       episode.closeShellEpisode()
     var pos = start
+    result.path = @[start]
     for tick in 1 .. 160:
       let output = episode.step([
         dangerFrame(map, pos, target, tick, withThreat)], uint32(tick))
       for mask in output.masks:
         pos.applyMask(mask.input)
-    result.path = episode.nav.seats[0].activePath
+        result.path.add(pos)
     result.maximum = episode.nav.seats[0].danger.maximum
     result.pathDanger = pathDanger(map, episode.nav.seats[0].danger,
       result.path)
