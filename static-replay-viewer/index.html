@@ -5740,6 +5740,19 @@ body[data-noviewpanel] #viewpanel { display: none !important; }
     return team === 'red' ? (o.redLives || 0) : team === 'blue' ? (o.blueLives || 0) : 0;
   }
 
+  function elimDrawIsWipe(o, teams, elim) {
+    // A BR/elim draw's REAL reason, read off survivor lives rather than the
+    // wire's `timeLimit` flag: the sim's generic aliveCount==0 check and its
+    // maxTicks tiebreak both funnel through finishGame(isDraw=true), and a
+    // same-tick race between the two can leave timeLimit=true on a draw that
+    // was actually a mutual wipe. Lives at 0 for every team is the one fact
+    // that can't be lost in that race, so callers (the wincond chip below
+    // AND the how-line) branch on it instead of trusting the flag alone.
+    // Classic (non-elim) draws only ever have one reason — time expired
+    // before a capture — so they keep reading the flag alone, unchanged.
+    return !!elim && teams.every(function (t) { return overLives(o, t) <= 0; });
+  }
+
   function endcardWinCondition(o, teams, elim) {
     // The condition CHIP: how the match ended, in two or three words.
     // (A time-limit ending is always a draw in classic rules — the sim's
@@ -5771,7 +5784,10 @@ body[data-noviewpanel] #viewpanel { display: none !important; }
         default: return o.draw ? 'FULL TIME — DEAD EVEN' : 'FULL TIME ON THE HILL';
       }
     }
-    if (o.draw) return o.timeLimit ? 'TIME LIMIT — DRAW' : 'DRAW';
+    if (o.draw) {
+      if (elimDrawIsWipe(o, teams, elim)) return 'NO SURVIVORS';
+      return o.timeLimit ? 'TIME LIMIT — DRAW' : 'DRAW';
+    }
     if (elim && o.timeLimit) return 'TIME LIMIT — TIEBREAK';
     if (elim) return 'LAST TEAM STANDING';
     var losers = teams.filter(function (t) { return t !== o.winner; });
@@ -6337,9 +6353,11 @@ body[data-noviewpanel] #viewpanel { display: none !important; }
       card.style.setProperty('--tc', PAPER);
       head.className = 'headline draw';
       head.textContent = 'DRAW — NO SCORE';
-      how.textContent = o.timeLimit
-        ? 'Time expired before a capture or a wipe — a scoreless draw, with no tiebreak on lives.'
-        : 'The match ended with neither side scoring — no winner.';
+      how.textContent = elimDrawIsWipe(o, teams, elim)
+        ? 'Every team was eliminated at the same time — a mutual wipe, with no side left to credit.'
+        : o.timeLimit
+          ? 'Time expired before a capture or a wipe — a scoreless draw, with no tiebreak on lives.'
+          : 'The match ended with neither side scoring — no winner.';
       return;
     }
 
