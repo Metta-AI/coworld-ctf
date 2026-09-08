@@ -372,6 +372,15 @@ suite "shell canonical encoding":
       "arrive_radius": 0.0, "point": [1, 2]}, "intent.schema.json")
     check bad(%*{"schema": "intent", "v": 1, "kind": "navigate_to",
       "arrive_radius": 0.0}, "intent.schema.json")
+    check bad(%*{"schema": "intent", "v": 1, "kind": "hold",
+      "arrive_radius": 0.0, "target_class": "zone_safe_ground"},
+      "intent.schema.json")
+    check bad(%*{"schema": "intent", "v": 1, "kind": "navigate_to",
+      "arrive_radius": 0.0, "point": [1, 2], "target_class": "zone_safe"},
+      "intent.schema.json")
+    check not bad(%*{"schema": "intent", "v": 1,
+      "kind": "navigate_to", "arrive_radius": 0.0, "point": [1, 2],
+      "target_class": "zone_safe_ground"}, "intent.schema.json")
     check bad(%*{"kind": "module_ready", "ordinal": "1", "gen": "1",
       "upload_id": "1", "name": "pact"}, "status_entry.schema.json")
     check bad(%*{"kind": "module_accepted", "ordinal": "07", "gen": "1",

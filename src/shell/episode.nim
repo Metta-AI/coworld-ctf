@@ -1366,7 +1366,8 @@ proc step*(episode: var FirstLightEpisode,
     var input = InputState()
     if state.active and frame.playing and frame.alive:
       let bodyStarted = getMonoTime()
-      input = actFromBelief(state.body, tick)
+      input = actFromBelief(state.body, tick, episode.elapsedZoneTick,
+        episode.gameGeneration)
       result.bodyNanoseconds += (getMonoTime() - bodyStarted).inNanoseconds
       summarizeSeatTick(state.body, result)
       # §4.1 amendment: surface the standing order's give-item declaration

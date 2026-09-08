@@ -75,6 +75,8 @@ proc writeIntent*(w: var CanonicalWriter, intent: Intent) =
   assert intent.arriveRadius >= 0.0
   assert intent.reason.len <= IntentReasonMaxBytes
   assert (intent.kind == ikNavigateTo) == intent.point.isSome
+  assert intent.targetClass.len == 0 or intent.targetClass in NavTargetClasses
+  assert intent.targetClass.len == 0 or intent.kind == ikNavigateTo
   assert intent.handoff.len == 0 or intent.handoff in HandoffItems
   if intent.idleAimCenterBrads.isSome:
     assert intent.idleAimCenterBrads.get in 0 .. 255
@@ -121,6 +123,8 @@ proc writeIntent*(w: var CanonicalWriter, intent: Intent) =
   w.field("schema", "intent")
   if intent.suppressFireFreeze:
     w.field("suppress_fire_freeze", true)
+  if intent.targetClass.len > 0:
+    w.field("target_class", intent.targetClass)
   w.field("v", 1'i64)
   w.endObject()
 

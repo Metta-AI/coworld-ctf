@@ -14,7 +14,7 @@
 import std/[algorithm, hashes, math, options, sequtils]
 import bitworld/spriteprotocol
 import ../ctf/sim_types
-import body_cache, body_map, body_nav, body_planner
+import body_map, body_nav, body_route_index
 import types as shellTypes
 
 const
@@ -584,16 +584,9 @@ proc setStandingIntent*(body: SeatBody, intent: shellTypes.Intent,
       raise newException(ValueError,
         "Hold standing intent must not carry a ValidatedGoal")
 
-  let seat = body.nav.seats[body.seatIndex]
-  if seat.job.planPending:
-    seat.cache.cancelPlan(seat.job)
   body.standingIntent = intent
   body.effectiveEpoch = effectiveEpoch
   body.standingGoal = goal
-  if goal.isSome:
-    seat.cache.pinStandingGoal(goal.get.goalPoint)
-  else:
-    seat.cache.clearStandingGoalPin()
 
 proc updateBelief*(body: SeatBody, inputs: BodyTickInputs, tick: uint32) =
   body.selfState = inputs.self
@@ -1299,7 +1292,32 @@ proc enemyShootableWithoutPolicy(body: SeatBody, tick: uint32): bool =
       return true
   false
 
-proc actFromBelief*(body: SeatBody, tick: uint32): InputState =
+proc resolveEffectiveGoal*(body: SeatBody; elapsedTick: int;
+    gameGeneration: uint64): tuple[goal: ValidatedGoal,
+    identity: NavTargetIdentity] =
+  if body.standingGoal.isNone:
+    raise newException(ValueError,
+      "effective navigation goal requires a standing validated goal")
+  result.goal = body.standingGoal.get
+  let fallbackCell = body.map.cellOf(result.goal.goalPoint)
+  result.identity = NavTargetIdentity(kind: ntiLiteral,
+    sourceCell: int32(fallbackCell.y * body.map.gridWidth + fallbackCell.x))
+  if body.standingIntent.targetClass != NavTargetClassZoneSafeGround:
+    return
+  let hints = body.nav.safetyHintsFor(body.selfState.pos, elapsedTick,
+    gameGeneration)
+  if hints.sourceCell.isNone:
+    return
+  let resolvedPoint = body.nav.routeIndex.routePoint(hints.sourceCell.get)
+  let validated = body.map.validateGoal(resolvedPoint, body.selfState.pos)
+  if validated.isNone:
+    return
+  result.goal = validated.get
+  result.identity = NavTargetIdentity(kind: ntiZoneSafeGround,
+    sourceCell: hints.sourceCell.get)
+
+proc actFromBelief*(body: SeatBody, tick: uint32; elapsedTick = 0;
+                    gameGeneration = 0'u64): InputState =
   ## Executes one seat's action phase from its current belief.
   ##
   ## Cold plan work and danger rebuild cadence stay episode-owned; callers run
@@ -1325,7 +1343,8 @@ proc actFromBelief*(body: SeatBody, tick: uint32): InputState =
     elif fireFreeze:
       discard
     else:
-      let goal = body.standingGoal.get
+      let effective = body.resolveEffectiveGoal(elapsedTick, gameGeneration)
+      let goal = effective.goal
       let seat = body.nav.seats[body.seatIndex]
       if arrived(body.selfState.pos, goal.goalPoint,
           body.standingIntent.arriveRadius):
@@ -1334,7 +1353,8 @@ proc actFromBelief*(body: SeatBody, tick: uint32): InputState =
       else:
         let waypoint = body.nav.navigationWaypoint(body.seatIndex,
           body.selfState.pos, goal, tick.int,
-          body.standingIntent.movingGoal, body.standingIntent.profile)
+          body.standingIntent.movingGoal, body.standingIntent.profile,
+          effective.identity)
         mask = octantToward(body.selfState.pos, waypoint)
         body.navState =
           if seat.hasNoPath: bnsNoPath
@@ -1390,10 +1410,11 @@ proc actFromBelief*(body: SeatBody, tick: uint32): InputState =
   decodeInputMask(mask)
 
 proc seatTick*(body: SeatBody, inputs: BodyTickInputs,
-               tick: uint32): InputState =
+               tick: uint32; elapsedTick = 0;
+               gameGeneration = 0'u64): InputState =
   ## Folds one seat's current inputs, then executes its action phase.
   body.updateBelief(inputs, tick)
-  body.actFromBelief(tick)
+  body.actFromBelief(tick, elapsedTick, gameGeneration)
 
 proc dangerInputFromTracks*(body: SeatBody, tick: uint32,
                             predicate: TrackPredicate): DangerInput =

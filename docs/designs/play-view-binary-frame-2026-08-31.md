@@ -65,6 +65,9 @@ enum: self, world, zone, tracks, aggressors, kill_feed, items, shouts,
 hazard_grenades, hazard_blast_cues, hazard_sprays, own_throw,
 standing_intent, nav. The optional nav section is kind 14 with one 32-byte
 record: four leading `i32` safety hints followed by four reserved zero `i32`s.
+The standing-intent record remains 200 bytes; its word at offset 12 is now the
+navigation target-class ID (`0` none, `1` zone-safe ground), consuming reserved
+space without changing the stride.
 
 `record_stride` is what makes the compatibility promise below
 structurally true rather than merely asserted: a guest indexes record `i`

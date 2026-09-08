@@ -167,6 +167,46 @@ suite "shell emit validator":
     check "handoff" notin canonicalIntent(Intent(kind: ikHold,
       arriveRadius: 0.0))
 
+  test "target_class is closed, navigate-only, canonical, and optional":
+    let map = openRoomsMap()
+    var br = map.controllerContext
+    br.mode = gmBr
+    let declared = "{\"arrive_radius\":0.0,\"drop\":true," &
+      "\"kind\":\"navigate_to\",\"point\":[40,30]," &
+      "\"schema\":\"intent\",\"suppress_fire_freeze\":true," &
+      "\"target_class\":\"zone_safe_ground\",\"v\":1}"
+    let accepted = validateEmit(declared, br)
+    check accepted.code == AbiOk
+    check accepted.accepted
+    check accepted.intent.targetClass == NavTargetClassZoneSafeGround
+    check accepted.intent.point == some(MapPoint(x: 40, y: 30))
+    check accepted.intent.drop
+    check accepted.canonicalBytes == declared
+    check canonicalIntent(accepted.intent) == declared
+
+    for bogus in ["nearest_hopper", "zone_safe", "", "duo_partner"]:
+      check validateEmit("{\"arrive_radius\":0.0," &
+        "\"kind\":\"navigate_to\",\"point\":[40,30]," &
+        "\"schema\":\"intent\",\"target_class\":\"" & bogus &
+        "\",\"v\":1}", map.controllerContext).code ==
+        AbiUnknownReference
+    check validateEmit("{\"arrive_radius\":0.0," &
+      "\"kind\":\"navigate_to\",\"point\":[40,30]," &
+      "\"schema\":\"intent\",\"target_class\":true,\"v\":1}",
+      map.controllerContext).code == AbiSchemaViolation
+    check validateEmit("{\"arrive_radius\":0.0,\"kind\":\"hold\"," &
+      "\"schema\":\"intent\",\"target_class\":\"zone_safe_ground\"," &
+      "\"v\":1}", map.controllerContext).code == AbiSchemaViolation
+    check validateEmit("{\"arrive_radius\":0.0," &
+      "\"kind\":\"navigate_to\",\"schema\":\"intent\"," &
+      "\"target_class\":\"zone_safe_ground\",\"v\":1}",
+      map.controllerContext).code == AbiSchemaViolation
+
+    check "target_class" notin canonicalIntent(Intent(kind: ikHold,
+      arriveRadius: 0.0))
+    check "target_class" notin canonicalIntent(Intent(kind: ikNavigateTo,
+      point: some(MapPoint(x: 40, y: 30)), arriveRadius: 0.0))
+
   test "protected set writer is shared across finisher and emit validation":
     let map = openRoomsMap()
     let protectedSet = ProtectedSet(seats: @[

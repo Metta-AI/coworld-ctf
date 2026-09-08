@@ -399,6 +399,18 @@ pre-amendment engine rejects a non-neutral `handoff` loudly by name.
 Movement semantics are untouched — the declaration rides the standing
 order and the body's mask stream stays the determinism artifact.
 
+**Navigation amendment (2026-09-08):** `NavigateTo` may also carry the
+optional `target_class: "zone_safe_ground"`. The vocabulary is closed and the
+field is forbidden on `Hold`. The literal `point` remains required, validated,
+and recorded as the fallback. On every body tick the engine resolves the class
+from the public zone-damage safety field before checking arrival; failure to
+resolve uses the fallback. Route request identity is the class plus its resolved
+source cell, so cache buckets, call epochs, and provenance cannot churn a stable
+route. Neutral omission preserves all earlier canonical Intent bytes. In the
+binary standing-Intent record, class IDs 0 (none) and 1 (zone-safe ground) use
+the existing reserved `u32`; the record stride remains 200 bytes and shell ABI
+version remains 1.
+
 One field is added, the combat policy:
 
 ```nim
@@ -1711,6 +1723,13 @@ the two are the same code. Goldens: an exact point, a blocked point
 normalized, a nearer pixel in another component losing to the cog's
 component, no result, the quota already exhausted, and a raw non-SDK
 module exercising each case.
+
+After that validation, an optional `target_class` changes execution rather
+than emission validation: the accepted literal point stays in the canonical
+Intent as a guaranteed fallback, while the body re-resolves the class on each
+tick. For `zone_safe_ground`, the resolved source cell and its class form the
+stable route identity. Resolution precedes the arrival-radius check, so being
+at the fallback cannot suppress movement toward currently safe ground.
 
 **Return codes of `emit`**, fixed for ABI version 1, so a play in any
 language implements the same contract as the Nim SDK:

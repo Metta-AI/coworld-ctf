@@ -49,6 +49,15 @@ proc openRoomsMap(): BodyMap =
   newBodyMap(walkable, Width, Height, 2, @[(30, 30), (650, 30)])
 
 suite "play SDK":
+  test "navigate target class vocabulary is checked at build time":
+    static:
+      doAssert compiles(sdk.emitNavigateController(
+        sdk.ValidatedGoal(ok: true, x: 1, y: 2), "0.0",
+        targetClass = "zone_safe_ground"))
+      doAssert not compiles(sdk.emitNavigateController(
+        sdk.ValidatedGoal(ok: true, x: 1, y: 2), "0.0",
+        targetClass = "zone_safe"))
+
   test "optional nav surface has an explicit presence flag":
     let dark = sdk.SdkNav()
     check not dark.present

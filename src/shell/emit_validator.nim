@@ -321,6 +321,10 @@ proc parseIntent(r: var CanonicalReader, ctx: EmitValidationContext): Intent =
       schemaName = r.readRequiredString()
     of "suppress_fire_freeze":
       result.suppressFireFreeze = r.readRequiredBool()
+    of "target_class":
+      result.targetClass = r.readRequiredString()
+      if result.targetClass notin NavTargetClasses:
+        unknown("unknown navigation target class")
     of "v":
       version = r.readRequiredInt()
     else:
@@ -338,6 +342,8 @@ proc parseIntent(r: var CanonicalReader, ctx: EmitValidationContext): Intent =
       rangeViolation("arrival radius exceeds map diagonal")
   if (result.kind == ikNavigateTo) != result.point.isSome:
     schema("point presence does not match intent kind")
+  if result.targetClass.len > 0 and result.kind != ikNavigateTo:
+    schema("target class requires navigate_to intent")
 
 proc writeCombatPolicy(w: var CanonicalWriter, value: CombatPolicy) =
   w.beginObject()

@@ -57,6 +57,20 @@ type
     selfXy*: BodyPoint
     candidates*: seq[DangerCandidate]
 
+  NavTargetIdentityKind* = enum
+    ntiLiteral
+    ntiZoneSafeGround
+
+  NavTargetIdentity* = object
+    kind*: NavTargetIdentityKind
+    sourceCell*: int32
+
+  NavRequestAnchor* = object
+    goalCell*: BodyPoint
+    identity*: NavTargetIdentity
+    profile*: shellTypes.CostProfile
+    moving*: bool
+
   BodyNavSeat* = ref object
     index*: int
     cache*: BodySeatCache
@@ -79,6 +93,7 @@ type
     desiredGoal*: Option[BodyPoint]
     desiredProfile*: shellTypes.CostProfile
     desiredMoving*: bool
+    acceptedAnchor*: Option[NavRequestAnchor]
     revision*: uint64
     path*: seq[BodyPoint]
     pathLen*: int
@@ -772,6 +787,39 @@ proc resetProgress*(seat: BodyNavSeat, selfXy: BodyPoint) =
   seat.stuckTicks = 0
   seat.lastXy = some(selfXy)
 
+proc shouldQueryRoute*(seat: BodyNavSeat; anchor: NavRequestAnchor;
+                       tick: int): bool =
+  if seat == nil:
+    raise newException(ValueError, "body navigation seat is nil")
+  if seat.acceptedAnchor.isNone:
+    return true
+  let accepted = seat.acceptedAnchor.get
+  if anchor.identity.kind != accepted.identity.kind:
+    return true
+  if anchor.identity.kind == ntiZoneSafeGround and
+      anchor.identity.sourceCell != accepted.identity.sourceCell:
+    return true
+  if abs(anchor.goalCell.x - accepted.goalCell.x) > ReplanGoalCells or
+      abs(anchor.goalCell.y - accepted.goalCell.y) > ReplanGoalCells:
+    return true
+  if anchor.profile != accepted.profile:
+    return true
+  if seat.job.planPending:
+    return false
+  if seat.pathLen == 0 or seat.cursor >= seat.pathLen:
+    return true
+  if seat.stuckTicks >= StuckTicks:
+    return true
+  anchor.moving and tick - seat.lastPlanTick >= PlanMovingReplanTicks
+
+proc acceptRequestAnchor*(seat: BodyNavSeat; anchor: NavRequestAnchor;
+                          tick: int) =
+  if seat == nil:
+    raise newException(ValueError, "body navigation seat is nil")
+  seat.acceptedAnchor = some(anchor)
+  seat.desiredMoving = anchor.moving
+  seat.lastPlanTick = tick
+
 proc octantToward*(selfXy, waypoint: BodyPoint): uint8 =
   let dx = waypoint.x - selfXy.x
   let dy = waypoint.y - selfXy.y
@@ -787,30 +835,24 @@ proc octantToward*(selfXy, waypoint: BodyPoint): uint8 =
 
 proc navigationWaypoint*(system: BodyNavSystem, seatIndex: int,
     selfXy: BodyPoint, goal: ValidatedGoal, tick: int,
-    movingTarget = false, profile = shellTypes.cpDefault): BodyPoint =
+    movingTarget = false, profile = shellTypes.cpDefault,
+    targetIdentity = NavTargetIdentity(kind: ntiLiteral,
+      sourceCell: -1)): BodyPoint =
   let seat = system.seats[seatIndex]
   if seat.blockedPenalty.isSome and
       tick >= seat.blockedPenalty.get.untilTick:
     seat.blockedPenalty = none(tuple[pos: BodyPoint, untilTick: int])
   let desired = goal.goalPoint
   let goalCell = system.map.cellOf(desired)
-  let previousCell = if seat.desiredGoal.isSome:
-    some(system.map.cellOf(seat.desiredGoal.get)) else: none(BodyPoint)
-  let goalMoved = previousCell.isNone or
-    abs(goalCell.x - previousCell.get.x) > ReplanGoalCells or
-    abs(goalCell.y - previousCell.get.y) > ReplanGoalCells
-  let movingReplan = movingTarget and not seat.job.planPending and
-    tick - seat.lastPlanTick >= PlanMovingReplanTicks
-  let profileChanged = seat.desiredProfile != profile
-  let forcedReplan = not seat.job.planPending and seat.stuckTicks >= StuckTicks
-  # The last requested plan was cancelled before it landed (setStandingIntent
-  # drops the plan in flight on every new order) and the loaded path
-  # predates that request: ask again rather than follow the stale route.
-  # Idle only — a FAILED plan keeps the historical retry rules (empty path
-  # or a stuck follower), because re-requesting a doomed plan every tick
-  # for every seat is real body-tick time on a 32-seat board.
-  let planLost = seat.job.stage == pjsIdle and
-    seat.pathRevision != seat.revision
+  let identity = if targetIdentity.sourceCell >= 0:
+    targetIdentity
+  else:
+    NavTargetIdentity(kind: ntiLiteral,
+      sourceCell: int32(goalCell.y * system.map.gridWidth + goalCell.x))
+  let anchor = NavRequestAnchor(goalCell: goalCell, identity: identity,
+    profile: profile, moving: movingTarget)
+  let forcedReplan = not seat.job.planPending and
+    seat.stuckTicks >= StuckTicks
   if forcedReplan:
     if seat.lastFollowReplanTick.isSome and
         tick - seat.lastFollowReplanTick.get <= FollowStuckWindowTicks:
@@ -818,15 +860,12 @@ proc navigationWaypoint*(system: BodyNavSystem, seatIndex: int,
     seat.lastFollowReplanTick = some(tick)
     seat.blockedPenalty = some((selfXy, tick + FollowBlockTtlTicks))
     inc seat.followReplans
-  if goalMoved or profileChanged or
-      (seat.pathLen == 0 and not seat.job.planPending) or
-      forcedReplan or movingReplan or planLost:
+  if seat.shouldQueryRoute(anchor, tick):
     inc seat.revision
     let avoid = if seat.blockedPenalty.isSome:
       some(seat.blockedPenalty.get.pos) else: none(BodyPoint)
     system.replacePlan(seatIndex, seat.revision, selfXy, goal, profile, avoid)
-    seat.desiredMoving = movingTarget
-    seat.lastPlanTick = tick
+    seat.acceptRequestAnchor(anchor, tick)
     seat.stuckTicks = 0
   seat.followerWaypoint(selfXy)
 

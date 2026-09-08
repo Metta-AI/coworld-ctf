@@ -2,12 +2,14 @@
 
 import std/[options, sequtils, unittest]
 import bitworld/spriteprotocol
-import ../src/ctf/sim_types
+import ../src/ctf/[sim_types, zone_field]
 import ../src/shell/body
 import ../src/shell/body_cache
+import ../src/shell/body_hazard
 import ../src/shell/body_map
 import ../src/shell/body_nav
 import ../src/shell/body_planner
+import ../src/shell/body_route_index
 import ../src/shell/types as shellTypes
 
 proc openMap(): BodyMap =
@@ -42,12 +44,29 @@ proc holdIntent(idleAim = none(int)): shellTypes.Intent =
     combat: shellTypes.CombatPolicy())
 
 proc navigateIntent(point: BodyPoint, arriveRadius = 0.0,
-                    movingGoal = false, idleAim = none(int)): shellTypes.Intent =
+                    movingGoal = false, idleAim = none(int),
+                    targetClass = ""): shellTypes.Intent =
   shellTypes.Intent(kind: shellTypes.ikNavigateTo,
     point: some(MapPoint(x: point.x, y: point.y)),
     arriveRadius: arriveRadius, movingGoal: movingGoal,
     idleAimCenterBrads: idleAim, profile: shellTypes.cpDefault,
-    combat: shellTypes.CombatPolicy())
+    combat: shellTypes.CombatPolicy(), targetClass: targetClass)
+
+proc snapshotFromNav(map: BodyMap; arrivals: openArray[uint16]):
+    ZoneDamageSnapshot =
+  require arrivals.len == map.gridWidth * map.gridHeight
+  result.gridW = (map.width + 3) div 4
+  result.gridH = (map.height + 3) div 4
+  result.cellPx = 4
+  result.fingerprint = 71
+  result.damage = newSeq[uint16](result.gridW * result.gridH)
+  for cellIndex, arrival in arrivals:
+    let
+      navX = cellIndex mod map.gridWidth
+      navY = cellIndex div map.gridWidth
+    for sourceY in navY * 2 .. navY * 2 + 1:
+      for sourceX in navX * 2 .. navX * 2 + 1:
+        result.damage[sourceY * result.gridW + sourceX] = arrival
 
 proc hasMovement(input: InputState): bool =
   input.up or input.down or input.left or input.right
@@ -167,7 +186,7 @@ suite "shell body seat belief-lite seam":
     check sawFirst
     check sawSecond
 
-  test "standing intent enforces validated goals and supersedes old work":
+  test "standing intent validates goals without mutating navigation work":
     let map = openMap()
     let body = activateSeatBody(map, 3, 331)
     let point: BodyPoint = (160, 48)
@@ -179,23 +198,24 @@ suite "shell body seat belief-lite seam":
 
     body.nav.replacePlan(0, 1, (16, 48), goal)
     body.nav.replacePlan(body.seatIndex, 1, (16, 48), goal)
+    body.nav.seats[body.seatIndex].cache.pinStandingGoal((80, 48))
+    let existingPin = body.nav.seats[body.seatIndex].cache.pinnedRouteKey
     check body.nav.seats[0].job.planPending
     check body.nav.seats[body.seatIndex].job.planPending
     body.setStandingIntent(navigateIntent(point), some(goal), 5)
     check body.nav.seats[0].job.planPending
-    check not body.nav.seats[body.seatIndex].job.planPending
+    check body.nav.seats[body.seatIndex].job.planPending
     check body.standingIntent.kind == shellTypes.ikNavigateTo
     check body.effectiveEpoch == 5
     check body.standingGoal.get.goalPoint == goal.goalPoint
-    check body.nav.seats[body.seatIndex].cache.pinnedRouteKey ==
-      some(body.nav.seats[body.seatIndex].cache.routeKey(goal.goalPoint))
+    check body.nav.seats[body.seatIndex].cache.pinnedRouteKey == existingPin
 
     body.setStandingIntent(holdIntent(), none(ValidatedGoal), 6)
     check body.effectiveEpoch == 6
     check body.standingGoal.isNone
-    check body.nav.seats[body.seatIndex].cache.pinnedRouteKey.isNone
+    check body.nav.seats[body.seatIndex].cache.pinnedRouteKey == existingPin
 
-  test "safe epoch zero intent clears stale navigation work":
+  test "safe epoch zero intent leaves navigation work untouched":
     let map = openMap()
     let body = activateSeatBody(map, 3, 331)
     let start: BodyPoint = (16, 48)
@@ -205,17 +225,138 @@ suite "shell body seat belief-lite seam":
     body.setStandingIntent(navigateIntent(point), some(goal), 9)
     body.nav.replacePlan(body.seatIndex, 9, start, goal)
     check body.nav.seats[body.seatIndex].job.planPending
-    check body.nav.seats[body.seatIndex].cache.pinnedRouteKey.isSome
+    check body.nav.seats[body.seatIndex].cache.pinnedRouteKey.isNone
 
     body.setStandingIntent(holdIntent(), none(ValidatedGoal), 0)
     check body.effectiveEpoch == 0
     check body.standingIntent.kind == shellTypes.ikHold
     check body.standingGoal.isNone
-    check not body.nav.seats[body.seatIndex].job.planPending
+    check body.nav.seats[body.seatIndex].job.planPending
     check body.nav.seats[body.seatIndex].cache.pinnedRouteKey.isNone
 
     let input = body.seatTick(BodyTickInputs(self: selfState(start)), 10)
     check input.mask == 0
+
+  test "request anchors coalesce drift, cadence, profile, and semantic identity":
+    let
+      map = openMap()
+      nav = newBodyNavSystem(map, 1, 331)
+      seat = nav.seats[0]
+      literal = NavRequestAnchor(goalCell: (10, 6),
+        identity: NavTargetIdentity(kind: ntiLiteral, sourceCell: 154),
+        profile: shellTypes.cpDefault)
+    seat.setActivePathForTest([(16, 48), (160, 48)], 1)
+    check seat.shouldQueryRoute(literal, 0)
+    seat.acceptRequestAnchor(literal, 0)
+    check not seat.shouldQueryRoute(NavRequestAnchor(goalCell: (11, 6),
+      identity: NavTargetIdentity(kind: ntiLiteral, sourceCell: 155),
+      profile: shellTypes.cpDefault), 1)
+    check not seat.shouldQueryRoute(NavRequestAnchor(goalCell: (12, 6),
+      identity: NavTargetIdentity(kind: ntiLiteral, sourceCell: 156),
+      profile: shellTypes.cpDefault), 2)
+    check seat.shouldQueryRoute(NavRequestAnchor(goalCell: (13, 6),
+      identity: NavTargetIdentity(kind: ntiLiteral, sourceCell: 157),
+      profile: shellTypes.cpDefault), 3)
+    check seat.acceptedAnchor.get == literal
+
+    var moving = literal
+    moving.moving = true
+    check not seat.shouldQueryRoute(moving, 11)
+    check seat.shouldQueryRoute(moving, 12)
+
+    var carrier = literal
+    carrier.profile = shellTypes.cpCarrier
+    check seat.shouldQueryRoute(carrier, 1)
+
+    let semantic = NavRequestAnchor(goalCell: (10, 6),
+      identity: NavTargetIdentity(kind: ntiZoneSafeGround, sourceCell: 154),
+      profile: shellTypes.cpDefault)
+    seat.acceptRequestAnchor(semantic, 20)
+    var changedSource = semantic
+    changedSource.identity.sourceCell = 155
+    check seat.shouldQueryRoute(changedSource, 21)
+
+    seat.stuckTicks = 7
+    check not seat.shouldQueryRoute(semantic, 21)
+    seat.stuckTicks = 8
+    check seat.shouldQueryRoute(semantic, 21)
+
+    let emptySeat = newBodyNavSystem(map, 1, 331).seats[0]
+    emptySeat.acceptRequestAnchor(literal, 0)
+    check emptySeat.shouldQueryRoute(literal, 1)
+
+  test "a requested anchor survives failure while an old route advances":
+    let
+      map = openMap()
+      nav = newBodyNavSystem(map, 1, 331)
+      seat = nav.seats[0]
+      start: BodyPoint = (16, 48)
+      oldPath = [start, (80, 48)]
+      goal = map.validateGoal((160, 48), start).get
+      goalCell = map.cellOf(goal.goalPoint)
+      anchor = NavRequestAnchor(goalCell: goalCell,
+        identity: NavTargetIdentity(kind: ntiLiteral,
+          sourceCell: int32(goalCell.y * map.gridWidth + goalCell.x)),
+        profile: shellTypes.cpDefault)
+    seat.setActivePathForTest(oldPath, 1)
+    discard nav.navigationWaypoint(0, start, goal, 7)
+    check seat.job.planPending
+    check seat.acceptedAnchor == some(anchor)
+    check seat.activePath == @oldPath
+
+    seat.cache.cancelPlan(seat.job)
+    check not seat.job.planPending
+    check not seat.shouldQueryRoute(anchor, 8)
+    seat.cursor = seat.pathLen
+    check seat.shouldQueryRoute(anchor, 8)
+
+  test "semantic goal resolves before arrival and dark context uses fallback":
+    let
+      map = openMap()
+      start: BodyPoint = (16, 48)
+      fallback = map.validateGoal(start, start).get
+      intent = navigateIntent(start, arriveRadius = 4.0,
+        targetClass = NavTargetClassZoneSafeGround)
+
+    block dark:
+      let body = activateSeatBody(map, 0, 331)
+      body.setStandingIntent(intent, some(fallback), 1)
+      body.updateBelief(BodyTickInputs(self: selfState(start)), 1)
+      let resolved = body.resolveEffectiveGoal(0, 1)
+      check resolved.goal.goalPoint == start
+      check resolved.identity.kind == ntiLiteral
+
+    block ready:
+      let
+        index = newBodyRouteIndex(map)
+        nav = newBodyNavSystem(map, 1, 331, prepareRouteQueries = true,
+          preparedRouteIndex = index)
+        safeCell: BodyPoint = (map.gridWidth - 3, map.gridHeight div 2)
+        safeIndex = safeCell.y * map.gridWidth + safeCell.x
+      var arrivals = newSeq[uint16](map.gridWidth * map.gridHeight)
+      for value in arrivals.mitems:
+        value = 0
+      arrivals[safeIndex] = HazardNeverArrives
+      nav.installSafetyContext(newBodyHazardOverlay(index,
+        map.snapshotFromNav(arrivals)), newBodySafeCache())
+
+      let body = activateSeatBody(nav, 0)
+      body.setStandingIntent(intent, some(fallback), 4)
+      body.updateBelief(BodyTickInputs(self: selfState(start)), 1)
+      let resolved = body.resolveEffectiveGoal(0, 77)
+      check resolved.goal.goalPoint != start
+      check resolved.identity == NavTargetIdentity(kind: ntiZoneSafeGround,
+        sourceCell: int32(safeIndex))
+
+      discard body.actFromBelief(1, elapsedTick = 0, gameGeneration = 77)
+      check nav.seats[0].desiredGoal == some(resolved.goal.goalPoint)
+      check nav.seats[0].acceptedAnchor.get.identity == resolved.identity
+
+      let revision = nav.seats[0].revision
+      body.setStandingIntent(intent, some(fallback), 99)
+      discard body.actFromBelief(2, elapsedTick = SafeBucketTicks,
+        gameGeneration = 78)
+      check nav.seats[0].revision == revision
 
   test "seatTick matches explicit belief fold then action":
     let

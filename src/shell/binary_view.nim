@@ -374,6 +374,13 @@ proc ownThrowPayload(row: PlayOwnThrow): string =
   result.putU32(row.releaseTick)
   result.putI32(row.blastRadius)
 
+proc targetClassId(targetClass: string): uint32 =
+  case targetClass
+  of "": 0'u32
+  of NavTargetClassZoneSafeGround: 1'u32
+  else:
+    raise newException(ValueError, "unknown binary standing intent target class")
+
 proc intentPayload(intent: Intent): string =
   if intent.reason.len > IntentReasonMaxBytes:
     raise newException(ValueError, "binary standing intent reason exceeds cap")
@@ -392,7 +399,7 @@ proc intentPayload(intent: Intent): string =
   result.putU32(flags)
   result.putU32(uint32(intent.kind.intentKindId))
   result.putU32(uint32(intent.profile.profileId))
-  result.putU32(0)
+  result.putU32(intent.targetClass.targetClassId)
   result.putF64(intent.arriveRadius)
   let point = if intent.point.isSome: intent.point.get else: MapPoint()
   result.putI32(point.x)

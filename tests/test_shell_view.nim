@@ -237,6 +237,24 @@ suite "shell play view producer":
     expect ValueError:
       discard buildPlayView(bad)
 
+  test "standing semantic target is canonical and neutral stays byte-identical":
+    let neutral = buildPlayView(richSource(), MaxViewFrameBytes)
+    var semantic = richSource()
+    semantic.intent.get.suppressFireFreeze = true
+    semantic.intent.get.targetClass = NavTargetClassZoneSafeGround
+    let encoded = buildPlayView(semantic, MaxViewFrameBytes)
+    let intent = parseJson(encoded)["intent"]
+    check intent["target_class"].getStr == NavTargetClassZoneSafeGround
+    check encoded.find("\"suppress_fire_freeze\":true") <
+      encoded.find("\"target_class\":\"zone_safe_ground\"")
+    let targetClassOffset = encoded.find(
+      "\"target_class\":\"zone_safe_ground\"")
+    check targetClassOffset < encoded.find("\"v\":1", targetClassOffset)
+
+    var explicitNeutral = richSource()
+    explicitNeutral.intent.get.targetClass = ""
+    check buildPlayView(explicitNeutral, MaxViewFrameBytes) == neutral
+
   test "omit-when rules are honored and present forms encode":
     var source = baseSource()
     source.zone.get.next = none(PlayRect)

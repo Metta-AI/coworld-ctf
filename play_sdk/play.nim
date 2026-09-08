@@ -2124,8 +2124,12 @@ proc emitHoldController*(reason: static[string] = "";
 
 proc emitNavigateController*(goal: ValidatedGoal; arriveRadius: static[string];
                              reason: static[string] = "";
-                             handoff: static[string] = ""): int32 =
+                             handoff: static[string] = "";
+                             targetClass: static[string] = ""): int32 =
   checkHandoffItem(handoff)
+  static:
+    doAssert targetClass.len == 0 or targetClass == "zone_safe_ground",
+      "target_class must be \"zone_safe_ground\""
   if not goal.ok:
     return -3
   clearEmitBuffer()
@@ -2141,7 +2145,12 @@ proc emitNavigateController*(goal: ValidatedGoal; arriveRadius: static[string];
     appendLiteral(",\"reason\":\"")
     appendLiteral(reason)
     appendLiteral("\"")
-  appendLiteral(",\"schema\":\"intent\",\"v\":1}")
+  appendLiteral(",\"schema\":\"intent\"")
+  when targetClass.len > 0:
+    appendLiteral(",\"target_class\":\"")
+    appendLiteral(targetClass)
+    appendLiteral("\"")
+  appendLiteral(",\"v\":1}")
   playEmit(cast[int32](addr emitBuffer[0]), emitLen)
 
 proc emitHoldFireOverlay*(): int32 =

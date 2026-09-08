@@ -125,7 +125,7 @@ bear without friendly-fire geometry.
 | body-side never/prefer targeting and pact protection | SHIPPED through the combat-policy overlay and body weapon path |
 | attacker-of-ward detection and ward-relative routing | SHIPPED for `bodyguard` |
 | zone rect/phase, alive-team count, cover navigation | SHIPPED through the binary play view and body map |
-| fog-safe zone navigation answers | SHIPPED as optional integer `nav` hints (`ticks_until_paint_here`, `ticks_to_safety`, `safe_dist_px`, and `zone_safe_dir_brads`) in JSON and binary section 14; `zone_safe_ground` intent resolution is PENDING |
+| fog-safe zone navigation answers | SHIPPED as optional integer `nav` hints (`ticks_until_paint_here`, `ticks_to_safety`, `safe_dist_px`, and `zone_safe_dir_brads`) in JSON and binary section 14; `navigate_to` may name `target_class: "zone_safe_ground"` while retaining its required validated point as fallback |
 | upload, compile, bind, call, retune, and durable status lifecycle | SHIPPED through the episode's compile plane and ladder |
 | replay identity and accepted-call records | SHIPPED in format 2; playback uses recorded masks and records rather than re-running WASM |
 

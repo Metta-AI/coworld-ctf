@@ -208,6 +208,12 @@ proc assertRowsEquivalent(jsonBytes, binaryBytes: string) =
     node["hazards"]["sprays"].len
 
   check binaryBytes.section(BvNav).isSome == node.hasKey("nav")
+  check binaryBytes.section(BvStandingIntent).isSome == node.hasKey("intent")
+  if node.hasKey("intent"):
+    let intent = binaryBytes.section(BvStandingIntent).get
+    let expectedClassId =
+      if node["intent"].hasKey("target_class"): 1'u32 else: 0'u32
+    check binaryBytes.readU32(intent.offset + 12) == expectedClassId
 
 proc checkPoint(bytes: string, offset: int, node: JsonNode) =
   check bytes.readI32(offset) == node[0].getInt
@@ -558,6 +564,8 @@ proc assertBinaryMatchesModel(model: PlayViewModel, bytes: string) =
   check bytes.readU32(intent.offset) == intentFlags
   check bytes.readU32(intent.offset + 4) == uint32(ord(standing.kind))
   check bytes.readU32(intent.offset + 8) == uint32(ord(standing.profile))
+  check bytes.readU32(intent.offset + 12) ==
+    (if standing.targetClass == NavTargetClassZoneSafeGround: 1'u32 else: 0'u32)
   let point = standing.point.get
   check bytes.readI32(intent.offset + 24) == point.x
   check bytes.readI32(intent.offset + 28) == point.y
@@ -657,6 +665,28 @@ suite "shell binary play view":
     check bytes.readI32(intent.offset + 24) == 0
     check bytes.readI32(intent.offset + 28) == 0
     check bytes.readI32(intent.offset + 32) == 0
+
+  test "standing target class uses the reserved word without changing stride":
+    var neutral = richSource()
+    let neutralBytes = buildBinaryPlayView(selectPlayView(neutral,
+      MaxBinaryViewFrameBytes))
+    let neutralIntent = neutralBytes.section(BvStandingIntent).get
+    check neutralIntent.recordStride == 200
+    check neutralBytes.readU32(neutralIntent.offset + 12) == 0'u32
+    check not parseJson(buildPlayView(neutral))["intent"].hasKey("target_class")
+
+    var semantic = neutral
+    semantic.intent.get.targetClass = NavTargetClassZoneSafeGround
+    let
+      jsonBytes = buildPlayView(semantic)
+      binaryBytes = buildBinaryPlayView(selectPlayView(semantic,
+        MaxBinaryViewFrameBytes))
+      intent = binaryBytes.section(BvStandingIntent).get
+    check intent.recordStride == 200
+    check binaryBytes.readU32(intent.offset + 12) == 1'u32
+    check parseJson(jsonBytes)["intent"]["target_class"].getStr ==
+      NavTargetClassZoneSafeGround
+    assertBinaryRowsMatchJson(jsonBytes, binaryBytes)
 
   test "deterministic bytes across repeats":
     let model = selectPlayView(maxSource(), MaxViewFrameBytes)

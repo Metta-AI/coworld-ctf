@@ -91,6 +91,8 @@ type
     idleAimCenterBrads*: Option[int]  ## 0..255
     clampToEndzone*: bool      ## meaningful in gmCtf, ignored elsewhere
     suppressFireFreeze*: bool
+    targetClass*: string       ## optional engine-resolved navigation class;
+                               ## point remains the validated fallback
     reason*: string            ## telemetry only, at most IntentReasonMaxBytes
     combat*: CombatPolicy
     drop*: bool                ## GVNEXT(drop): the STANDING drop order. While
@@ -374,6 +376,8 @@ const
   LobbyChatMaxPerSeatPerPhase* = 16
   LobbyChatMinSpacingTicks* = 24
   IntentReasonMaxBytes* = 64
+  NavTargetClassZoneSafeGround* = "zone_safe_ground"
+  NavTargetClasses* = [NavTargetClassZoneSafeGround]
   HandoffItems* = ["bandage", "gun", "hopper"]
     ## §4.1 amendment: the closed give-item vocabulary of the Intent's
     ## `handoff` field — the exact strings sim.declareHandoff accepts (the
