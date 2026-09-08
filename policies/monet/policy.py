@@ -48,8 +48,12 @@ from starter_harness import Persona  # noqa: E402
 # hours and 16 was never safe to assume even before that).
 
 # The guaranteed conversion rung. hp is a small absolute number on this
-# engine (a bodyguard peels at 2-3); below 2 means genuinely wounded.
-SUPPLY_DEFAULTS = {"whenHpBelow": 3, "detourMax": 300, "contested": "avoid"}
+# engine (a bodyguard peels at 2-3). Manifest max hp moved 3->4 at build
+# 0.7.348 (PR #439, "TTK arm E"); whenHpBelow is view.self.hp <
+# params.whenHpBelow (play_sdk/reference/supply_run.nim:50), a pure
+# self-hp resupply gate -- re-anchored 3->4 here so a seat still detours
+# to supply after ONE marker under the new max, not two.
+SUPPLY_DEFAULTS = {"whenHpBelow": 4, "detourMax": 300, "contested": "avoid"}
 
 # The guaranteed armament rung. self.hasGun/hasHopper are never exposed to
 # a policy (only the human broadcast HUD sees them), so this cannot gate on
@@ -863,7 +867,7 @@ PERSONA = Persona(
                  "params": {"leash": [110, 280], "interpose": False,
                             "peelHp": 3}},
                 {"play": "supply_run", "entry_id": "bank",
-                 "params": {"whenHpBelow": 3, "detourMax": 350,
+                 "params": {"whenHpBelow": 4, "detourMax": 350,
                             "contested": "avoid"}},
             ]},
         },
@@ -1022,7 +1026,7 @@ PERSONA = Persona(
                  "params": {"earshot": 550, "joinWhen": "bothWeakened",
                             "exitAfter": {"kills": 2}}},
                 {"play": "supply_run", "entry_id": "bank",
-                 "params": {"whenHpBelow": 3, "detourMax": 350,
+                 "params": {"whenHpBelow": 4, "detourMax": 350,
                             "contested": "avoid"}},
             ]},
         },
@@ -1096,7 +1100,7 @@ PERSONA = Persona(
                  "params": {"earshot": 550, "joinWhen": "bothWeakened",
                             "exitAfter": {"kills": 2}}},
                 {"play": "supply_run", "entry_id": "bank",
-                 "params": {"whenHpBelow": 3, "detourMax": 250,
+                 "params": {"whenHpBelow": 4, "detourMax": 250,
                             "contested": "avoid"}},
             ]},
         },
@@ -1161,7 +1165,7 @@ PERSONA = Persona(
                 {"play": "crossfire", "entry_id": "shape",
                  "params": {"spacing": [120, 280], "minAngle": 36}},
                 {"play": "supply_run", "entry_id": "bank",
-                 "params": {"whenHpBelow": 3, "detourMax": 150,
+                 "params": {"whenHpBelow": 4, "detourMax": 150,
                             "contested": "avoid"}},
             ]},
         },

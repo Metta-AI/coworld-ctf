@@ -135,6 +135,29 @@ for i, turn in enumerate(PERSONA.canned_turns, start=1):
             check(f"{label}: truce-break releases the neighbors",
                   never == {PARTNER_REF}, str(never))
 
+# ── whenHpBelow re-anchor pin (engine manifest hitPoints 3->4 at build
+# 0.7.348, PR #439 "TTK arm E", dps unchanged). supply_run's whenHpBelow
+# is view.self.hp < params.whenHpBelow (play_sdk/reference/
+# supply_run.nim:50) -- a pure SELF-hp resupply gate, NOT the peel/weak-
+# target trigger (that's bodyguard's peelHp, pinned separately above and
+# untouched here). Under the old max hp 3, hp<3 fired after ONE marker;
+# left at 3 under the new max hp 4 it silently waits for a SECOND
+# (4->3 is 3<3 = false). Field-measured over 108 episodes/9 rounds
+# (r4375-4383, the pooled hp=4 physics era): 17% of damage events
+# (12/70) land exactly at self.hp==3, a wounded state the stale gate
+# would ignore. This must always equal the manifest max hp, so a future
+# max-hp move can never silently re-open this hole.
+MANIFEST_MAX_HP = 4
+_supply_run_params = [policy.SUPPLY_DEFAULTS] + [
+    e["params"] for turn in PERSONA.canned_turns
+    for e in turn["call"]["entries"] if e["play"] == "supply_run"]
+check("supply_run whenHpBelow re-anchored to the manifest max hp "
+      "(resupply after ONE marker, not two)",
+      len(_supply_run_params) >= 5
+      and all(p.get("whenHpBelow") == MANIFEST_MAX_HP
+              for p in _supply_run_params),
+      str(_supply_run_params))
+
 # ── entry_id stability across turns: the retune fix only pays off when a
 # rung keeps calling itself by the same name turn over turn (§7.2 matches
 # on entry_id + play + module hash). Pin the two rungs the canned script
