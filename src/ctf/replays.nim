@@ -106,6 +106,18 @@ type
       ## not fall — it goes FLAT and runs on to the right edge looking exactly
       ## like a live team that stopped scoring. The lane needs to know where
       ## each line stops being a competitor so it can say so.
+    heatSeries*: seq[seq[int]]
+      ## [tick, heatMultPerTeam…] change-points across the WHOLE match,
+      ## PARALLEL to `leadSeries` (same shape, same Team order, same
+      ## change-point compaction, same one-shot send) but never merged into
+      ## it — `leadSeries` is the momentum lane's own metric (glory/hill)
+      ## and must keep meaning only that. Each value is the team's HEAT
+      ## MULTIPLIER (`heatMult` of `sim.heatEmbers[team]`, glory.nim — 1, 2,
+      ## 4 or 8, matching `HeatLadder`), the same number `mintGlory` is
+      ## already applying to every deed that team scores. Built by
+      ## `scanTeamHeat` on the same deterministic keyframe walk as
+      ## `scanTeamLead`, so a full-timeline heat graph is available the
+      ## instant the lead chrome ships, not just live.
     endHoldFrames*: int
       ## Real-time frames left to HOLD on the final game-over frame before a
       ## looping replay restarts, so the end segment (winner, win condition,
@@ -166,6 +178,7 @@ type
     beatTracker: BroadcastTracker
     beatTicks: seq[int]
     lastLead: seq[int]
+    lastHeat: seq[int]
     leadSeenAlive: seq[bool]
       ## Per team: has it ever had a life or a body on the field? Gates the
       ## elimination latch so the lobby's universal zero is not read as a
@@ -1223,6 +1236,16 @@ proc scanTeamLead(sim: SimServer): seq[int] =
     for team in sim.teams():
       result.add(sim.teamGlory[team])
 
+proc scanTeamHeat(sim: SimServer): seq[int] =
+  ## One HEAT MULTIPLIER value per team, in Team order — PARALLEL to
+  ## `scanTeamLead` (feeds `heatSeries`, never `leadSeries`; see that
+  ## field's own doc comment). This is the exact `heatMult(embers)` value
+  ## `mintGlory` (glory.nim) is already multiplying every deed by — 1, 2, 4
+  ## or 8 — read straight off `sim.heatEmbers`, the same live state the
+  ## scorebug's per-team "heat" key exposes (broadcast.nim's teamStateJson).
+  for team in sim.teams():
+    result.add(heatMult(sim.heatEmbers[team]))
+
 proc scanSeriesPoint(tick: int, lead: seq[int]): seq[int] =
   ## One [tick, leadPerTeam…] change-point of the momentum series.
   result = @[tick]
@@ -1250,6 +1273,7 @@ proc initReplayScan*(
   ## hosted viewer, or all at once via buildReplayKeyframes.
   replay.keyframes = @[]
   replay.leadSeries = @[]
+  replay.heatSeries = @[]
   replay.leadOutTicks = @[]
   replay.lullSpans = @[]
   replay.beatEvents = newJArray()
@@ -1269,12 +1293,14 @@ proc initReplayScan*(
   replay.keyframes.add(scan.builder.saveReplayKeyframe(scan.sim))
   scan.lastLead = scanTeamLead(scan.sim)
   replay.leadMetric = scanLeadMetric(scan.sim)
+  scan.lastHeat = scanTeamHeat(scan.sim)
   # -1 until seen out; the lobby has everyone alive, so this starts all -1
   # even on a recording that opens mid-carnage.
   for _ in scan.sim.teams():
     replay.leadOutTicks.add(-1)
     scan.leadSeenAlive.add(false)
   replay.leadSeries.add(scanSeriesPoint(scan.sim.tickCount, scan.lastLead))
+  replay.heatSeries.add(scanSeriesPoint(scan.sim.tickCount, scan.lastHeat))
   # Beat ticks for the lull map are derived by the SAME tracker the broadcast
   # channel uses, so "nothing happens here" agrees with the story the kill
   # feed and banners tell. Respawns are excluded: they trail kills on a fixed
@@ -1328,6 +1354,12 @@ proc advanceReplayScan*(replay: var ReplayPlayer, maxTicks: int) =
     if lead != scan.lastLead:
       replay.leadSeries.add(scanSeriesPoint(scan.sim.tickCount, lead))
       scan.lastLead = lead
+    # HEAT ON THE WIRE: same change-point compaction, PARALLEL series (see
+    # `heatSeries`'s own doc comment) -- never merged into `leadSeries`.
+    let heat = scanTeamHeat(scan.sim)
+    if heat != scan.lastHeat:
+      replay.heatSeries.add(scanSeriesPoint(scan.sim.tickCount, heat))
+      scan.lastHeat = heat
     # FIRST tick out, latched -- but only for a team that has actually been
     # alive. "No lives and nobody up" is equally true of the lobby, before
     # anyone spawns, so an ungated latch marks every team eliminated on tick 1
@@ -1367,6 +1399,10 @@ proc advanceReplayScan*(replay: var ReplayPlayer, maxTicks: int) =
       replay.leadSeries[^1][0] != scan.sim.tickCount:
     replay.leadSeries.add(
       scanSeriesPoint(scan.sim.tickCount, scan.lastLead))
+  if replay.heatSeries.len == 0 or
+      replay.heatSeries[^1][0] != scan.sim.tickCount:
+    replay.heatSeries.add(
+      scanSeriesPoint(scan.sim.tickCount, scan.lastHeat))
   replay.lullSpans = buildLullSpans(
     scan.beatTicks,
     replay.replayStartTick(),
