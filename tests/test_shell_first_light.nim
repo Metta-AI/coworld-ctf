@@ -168,6 +168,8 @@ suite "shell FIRST LIGHT":
     let map = testBodyMap()
     var episode = initFirstLightEpisode(true, true, controls(scPlay, 1),
       map, 331)
+    check episode.nav.routeIndex != nil
+    check episode.nav.routeScratch != nil
     let lines = episode.configureFirstLightDemoPlayFromJson(
       "{\"firstLightPlay\":{\"modulePath\":\"missing.wasm\"," &
       "\"playName\":\"missing\",\"params\":{},\"seats\":[0]}}")
@@ -176,6 +178,13 @@ suite "shell FIRST LIGHT":
       check "reason=module_missing" in lines[0]
     else:
       check "reason=runtime_unavailable" in lines[0]
+
+  test "an all-input episode does not prepare the unused route query path":
+    let map = testBodyMap()
+    let episode = initFirstLightEpisode(true, true, controls(scInput, 2),
+      map, 331)
+    check episode.nav.routeIndex == nil
+    check episode.nav.routeScratch == nil
 
   test "first-light binary view carries truthful hp count and fraction":
     let map = testBodyMap()

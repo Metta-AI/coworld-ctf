@@ -354,7 +354,8 @@ proc initFirstLightEpisode*(season2Shell, brMode: bool,
     return
   if map == nil:
     raise newException(ValueError, "FIRST LIGHT requires a BodyMap")
-  result.nav = newBodyNavSystem(map, controls.len, liveGunRangePx)
+  result.nav = newBodyNavSystem(map, controls.len, liveGunRangePx,
+    prepareRouteQueries = controls.anyIt(it == scPlay))
   when ShellRuntimeAvailable:
     result.mapName = mapName
     result.gunRange = liveGunRangePx

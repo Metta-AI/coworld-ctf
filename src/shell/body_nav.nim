@@ -205,9 +205,11 @@ proc initDangerGeometry(liveGunRangePx: int): tuple[kernel: seq[float32],
 
 proc newBodyNavSystem*(map: BodyMap, seatCount, liveGunRangePx: int,
                        dangerK = DangerCadenceK,
-                       traceCapacity = 0): BodyNavSystem =
-  ## Activation-barrier constructor: route rasters, planner workspaces,
-  ## follower path buffers, and danger buffers are all allocated here.
+                       traceCapacity = 0,
+                       prepareRouteQueries = false): BodyNavSystem =
+  ## Activation-barrier constructor. The hierarchical query index is built
+  ## only for an episode that can issue those queries; direct-input and legacy
+  ## body ticks must not pay for an unused route path.
   if seatCount <= 0 or seatCount > MaxPlayers:
     raise newException(ValueError, "body navigation seat count is out of range")
   if dangerK <= 0:
@@ -218,8 +220,9 @@ proc newBodyNavSystem*(map: BodyMap, seatCount, liveGunRangePx: int,
     raise newException(ValueError, "trace capacity must not be negative")
   new(result)
   result.map = map
-  result.routeIndex = newBodyRouteIndex(map)
-  result.routeScratch = newBodyRouteQueryScratch(result.routeIndex)
+  if prepareRouteQueries:
+    result.routeIndex = newBodyRouteIndex(map)
+    result.routeScratch = newBodyRouteQueryScratch(result.routeIndex)
   result.minter = newBodyFieldMinter(map)
   result.dangerK = dangerK
   result.lastPlanSeat = -1

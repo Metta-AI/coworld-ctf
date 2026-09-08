@@ -261,11 +261,16 @@ suite "bounded hierarchical body route query":
   test "install is atomic and a failed query leaves the previous route intact":
     let
       map = openMap()
-      system = newBodyNavSystem(map, 1, 1050)
+      idleSystem = newBodyNavSystem(map, 1, 1050)
+      system = newBodyNavSystem(map, 1, 1050, prepareRouteQueries = true)
       start: BodyPoint = (16, 16)
       goodRequest = BodyRouteRequest(start: start,
         goal: map.goalAt((80, 80), start))
       good = system.routeIndex.queryBodyRoute(system.routeScratch, goodRequest)
+    check idleSystem.routeIndex == nil
+    check idleSystem.routeScratch == nil
+    check system.routeIndex != nil
+    check system.routeScratch != nil
     check system.seats[0].installRoute(system.routeScratch, good, 17)
     let installed = system.seats[0].installedRouteFingerprint
     check system.seats[0].installedRouteRevision == 17
