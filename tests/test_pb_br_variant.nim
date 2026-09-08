@@ -39,6 +39,7 @@
 import
   helpers,
   std/[json, tables, unittest],
+  bitworld/spriteprotocol,
   ctf/sim
 
 const
@@ -239,17 +240,24 @@ suite "paintbot manifest, battle-royale-s2 variant":
     let survivorTeam = sim.players[0].team
     ## Wipe every OTHER team (slots 1..15 -- each its own solo team, no
     ## partner to also kill), leaving team 0's lone seat as the sole
-    ## survivor. Owner simplification, 2026-09-04 (PKG-A): this variant no
-    ## longer arms downedMode, so killPlayer's first call on an upright cog
-    ## is a genuine, permanent kill straight away -- no downed-ghost
-    ## interception (`sim.downPlayer`) sits in front of it. One call per
-    ## victim wipes the team, matching the pre-S2 (dark) killPlayer path.
-    ## (Re-arming downedMode would need the old two-calls-per-victim
-    ## down-then-finish sequence back -- see the PR body for the re-arm
-    ## path.)
+    ## survivor. #438 (2026-09-06) re-armed downedMode on this LIVE variant,
+    ## so killPlayer's first call on an upright cog no longer kills outright
+    ## -- it DOWNS (sim.downPlayer), leaving the victim `alive` with a ghost
+    ## body. Because every team here is a single seat, a downed player's
+    ## team has zero upright members the instant it happens, which is
+    ## updateDowned's team-wipe fast path (finalizeDowned fires the SAME
+    ## tick it runs, no bleed-out wait) -- but that path only runs inside
+    ## `sim.step`, not inside `killPlayer` itself. One un-stepped
+    ## `sim.killPlayer` call per victim only downs them; `checkWinCondition`
+    ## still sees all 16 teams with a live/lives>0 seat until a step ticks
+    ## `updateDowned` to finalize the wipe. Step once, real kill-path style
+    ## (test_br_elim.nim's own `none`-input pattern), so the downed ghosts
+    ## finalize and the same tick's `checkWinCondition` (already wired at
+    ## the end of `step`) sees the real elimination.
     for i in 1 ..< Teams:
       sim.killPlayer(i, 0)
-    sim.checkWinCondition()
+    let none = newSeq[InputState](sim.players.len)
+    sim.step(none, none)
     check sim.phase == GameOver
     check not sim.isDraw
     check sim.winner == survivorTeam
