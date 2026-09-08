@@ -93,7 +93,9 @@ proc statsJson(stats: BodyRouteQueryStats): JsonNode =
     "chain_cell_reads": stats.chainCellReads,
     "hazard_steps": stats.hazardSteps,
     "overflow_kind": stats.overflowKind,
-    "overflow_actual_length": stats.overflowActualLength
+    "overflow_actual_length": stats.overflowActualLength,
+    "overflow_cycle_prefix": stats.overflowCyclePrefix,
+    "overflow_cycle_length": stats.overflowCycleLength
   }
 
 proc profileCase(pool: JsonNode, corpus: NavCorpus, id: string): JsonNode =
@@ -231,6 +233,7 @@ proc overflowCases(pool: JsonNode, corpus: NavCorpus,
   for row in artifact["quality"]["cases"]:
     if row["status"].getStr() != "brfDescriptorOverflow":
       continue
+    stderr.writeLine "overflow " & row["id"].getStr()
     let
       item = corpus.findCase(row["id"].getStr())
       map = pool.loadMap(item.poolIndex)
@@ -242,6 +245,10 @@ proc overflowCases(pool: JsonNode, corpus: NavCorpus,
     var output = statsJson(route.stats)
     output["id"] = %item.id
     output["failure"] = %($route.failure)
+    if route.ok:
+      output["edge_count"] = %route.descriptor.edgeCount.int
+      output["start_leg_len"] = %route.descriptor.startLegLen.int
+      output["goal_leg_len"] = %route.descriptor.goalLegLen.int
     result.add output
 
 when isMainModule:
@@ -259,15 +266,21 @@ when isMainModule:
     stderr.writeLine &"attribution {offset + 1}/30 {ranked[offset].id}"
     attribution.add pool.attributeCase(corpus, ranked[offset])
   let median = ranked[ranked.len div 2]
+  stderr.writeLine "profile far route"
+  let farProfile = pool.profileCase(corpus,
+    "m15-br-gen-22010-r16-s15-default-danger-far")
+  stderr.writeLine "profile median route"
+  let medianProfile = pool.profileCase(corpus, median.id)
+  stderr.writeLine "diagnose overflows"
+  let overflows = pool.overflowCases(corpus, artifact)
   echo pretty(%*{
     "schema": "coworld_body_nav_p9_investigation",
     "v": 1,
     "profiles": [
-      pool.profileCase(corpus,
-        "m15-br-gen-22010-r16-s15-default-danger-far"),
-      pool.profileCase(corpus, median.id)
+      farProfile,
+      medianProfile
     ],
     "median_case": {"id": median.id, "inflation_pct": median.inflation},
     "worst_30": attribution,
-    "overflows": pool.overflowCases(corpus, artifact)
+    "overflows": overflows
   })

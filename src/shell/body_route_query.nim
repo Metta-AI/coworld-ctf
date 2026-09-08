@@ -77,6 +77,8 @@ type
       hazardSteps*: int
       overflowKind*: string
       overflowActualLength*: int
+      overflowCyclePrefix*: int
+      overflowCycleLength*: int
 
   EndpointAttach = object
     pointStart: int32
@@ -117,10 +119,14 @@ type
     sideCost: seq[int64]
     sidePhysical: seq[int64]
     sideParentArc: seq[int32]
+    sideParentNode: seq[int32]
     sideParentLabel: seq[uint8]
     sideSourceAttach: seq[int16]
     startGeneration, goalGeneration, sideGeneration: seq[uint32]
     sideClosedGeneration: seq[uint32]
+    nodeParentArc: array[RouteSidePopCap, int32]
+    nodeParentNode: array[RouteSidePopCap, int32]
+    nodeCount: int
     arcCost: seq[uint32]
     arcCostGeneration: seq[uint16]
     localHashKey: seq[int32]
@@ -478,6 +484,7 @@ proc newBodyRouteQueryScratch*(index: BodyRouteIndex): BodyRouteQueryScratch =
   result.sideCost = newSeq[int64](stats.sides * 2)
   result.sidePhysical = newSeq[int64](stats.sides * 2)
   result.sideParentArc = newSeq[int32](stats.sides * 2)
+  result.sideParentNode = newSeq[int32](stats.sides * 2)
   result.sideParentLabel = newSeq[uint8](stats.sides * 2)
   result.sideSourceAttach = newSeq[int16](stats.sides * 2)
   result.startGeneration = newSeq[uint32](stats.sides)
@@ -549,6 +556,7 @@ proc retainedBytes*(scratch: BodyRouteQueryScratch): int64 =
   addPayload(scratch.sideCost)
   addPayload(scratch.sidePhysical)
   addPayload(scratch.sideParentArc)
+  addPayload(scratch.sideParentNode)
   addPayload(scratch.sideParentLabel)
   addPayload(scratch.sideSourceAttach)
   addPayload(scratch.startGeneration)
@@ -1160,13 +1168,15 @@ type SideLabel = object
   valid: bool
   cost, physical: int64
   parentArc: int32
+  parentNode: int32
   parentLabel: uint8
   sourceAttach: int16
 
 proc sameLabel(a, b: SideLabel): bool {.inline.} =
   a.valid == b.valid and (not a.valid or
     (a.cost == b.cost and a.physical == b.physical and
-     a.parentArc == b.parentArc and a.parentLabel == b.parentLabel and
+     a.parentArc == b.parentArc and a.parentNode == b.parentNode and
+     a.parentLabel == b.parentLabel and
      a.sourceAttach == b.sourceAttach))
 
 proc costLess(a, b: SideLabel): bool {.inline.} =
@@ -1185,6 +1195,7 @@ proc storedLabel(scratch: BodyRouteQueryScratch, slot: int): SideLabel =
   SideLabel(valid: true, cost: scratch.sideCost[slot],
     physical: scratch.sidePhysical[slot],
     parentArc: scratch.sideParentArc[slot],
+    parentNode: scratch.sideParentNode[slot],
     parentLabel: scratch.sideParentLabel[slot],
     sourceAttach: scratch.sideSourceAttach[slot])
 
@@ -1203,6 +1214,7 @@ proc writeLabel(scratch: BodyRouteQueryScratch, side, label: int,
   scratch.sideCost[slot] = value.cost
   scratch.sidePhysical[slot] = value.physical
   scratch.sideParentArc[slot] = value.parentArc
+  scratch.sideParentNode[slot] = value.parentNode
   scratch.sideParentLabel[slot] = value.parentLabel
   scratch.sideSourceAttach[slot] = value.sourceAttach
   scratch.heap.pushOrDecrease(QueryHeapNode(
@@ -1232,22 +1244,24 @@ proc considerSideLabel(scratch: BodyRouteQueryScratch, side: int,
 
 proc runSideSearch(scratch: BodyRouteQueryScratch,
     request: BodyRouteRequest): tuple[found, capHit: bool,
-    goalSide, goalLabel, sourceAttach, goalAttach: int,
+    goalSide, goalNode, sourceAttach, goalAttach: int,
     cost, physical: int64] =
   let sideCount = scratch.index.routeIndexStats.sides
   scratch.heap.begin()
+  scratch.nodeCount = 0
   for side in 0 ..< sideCount:
     if scratch.startGeneration[side] != scratch.generation:
       continue
     if not scratch.considerSideLabel(side, SideLabel(valid: true,
         cost: scratch.startCost[side], physical: scratch.startPhysical[side],
-        parentArc: -1, sourceAttach: scratch.startAttachForSide[side])):
+        parentArc: -1, parentNode: -1,
+        sourceAttach: scratch.startAttachForSide[side])):
       return (false, true, -1, -1, -1, -1,
         InfiniteCost, InfiniteCost)
   result.cost = InfiniteCost
   result.physical = InfiniteCost
   result.goalSide = -1
-  result.goalLabel = -1
+  result.goalNode = -1
   while scratch.heap.len > 0:
     if scratch.resultStats.sidePops >= RouteSidePopCap:
       result.capHit = true
@@ -1263,6 +1277,10 @@ proc runSideSearch(scratch: BodyRouteQueryScratch,
         current.physical != scratch.sidePhysical[slot]:
       continue
     scratch.sideClosedGeneration[slot] = scratch.generation
+    let currentNode = scratch.nodeCount
+    scratch.nodeParentArc[currentNode] = scratch.sideParentArc[slot]
+    scratch.nodeParentNode[currentNode] = scratch.sideParentNode[slot]
+    inc scratch.nodeCount
     inc scratch.resultStats.sidePops
     if label == 1:
       inc scratch.resultStats.earliestAlternativePops
@@ -1283,7 +1301,7 @@ proc runSideSearch(scratch: BodyRouteQueryScratch,
         result.cost = total
         result.physical = totalPhysical
         result.goalSide = side
-        result.goalLabel = label
+        result.goalNode = currentNode
         scratch.resultStats.selectedEarliestAlternative = label == 1
         result.sourceAttach = scratch.sideSourceAttach[slot].int
         result.goalAttach = goalAttach
@@ -1302,7 +1320,8 @@ proc runSideSearch(scratch: BodyRouteQueryScratch,
         scratch.index.routeSegmentAt(arc.segment.int).staticLengthQ4.int64)
       if not scratch.considerSideLabel(next, SideLabel(valid: true,
           cost: candidate, physical: candidatePhysical,
-          parentArc: int32(arcOffset), parentLabel: uint8(label),
+          parentArc: int32(arcOffset), parentNode: int32(currentNode),
+          parentLabel: uint8(label),
           sourceAttach: scratch.sideSourceAttach[slot])):
         result.capHit = true
         return
@@ -1392,57 +1411,45 @@ when defined(navQueryProfile):
   proc chainStepCount(scratch: BodyRouteQueryScratch,
       fromCell, side: int): int =
     var cursor = fromCell
-    while cursor != scratch.index.portalSideAt(side).anchorCell.int:
+    for step in 0 .. scratch.index.routeIndexStats.navCells:
+      if cursor == scratch.index.portalSideAt(side).anchorCell.int:
+        return step
       let next = scratch.index.nextCellTowardSide(side, cursor)
       if next < 0 or next.int == cursor:
-        return high(int)
-      inc result
+        return -1
       cursor = next.int
+    -1
 
 proc assembleSideRoute(scratch: BodyRouteQueryScratch,
-    search: tuple[found, capHit: bool, goalSide, goalLabel,
+    search: tuple[found, capHit: bool, goalSide, goalNode,
       sourceAttach, goalAttach: int, cost, physical: int64]): LocalSearchState =
   var reverseCount = 0
   var
     cursor = search.goalSide
-    label = search.goalLabel
-    slot = cursor * 2 + label
-  while scratch.sideParentArc[slot] >= 0:
+    node = search.goalNode
+  while scratch.nodeParentArc[node] >= 0:
     if reverseCount >= RouteEdgeCap:
       when defined(navQueryProfile):
-        var
-          overflowCursor = cursor
-          overflowLabel = label
-          overflowCount = reverseCount
-          overflowSlot = slot
-        while scratch.sideParentArc[overflowSlot] >= 0:
-          let overflowArc = scratch.index.routeArcAt(
-            scratch.sideParentArc[overflowSlot].int)
-          inc overflowCount
-          overflowCursor = overflowArc.fromSide.int
-          overflowLabel = scratch.sideParentLabel[overflowSlot].int
-          overflowSlot = overflowCursor * 2 + overflowLabel
         scratch.resultStats.overflowKind = "edge_count"
-        scratch.resultStats.overflowActualLength = overflowCount
+        scratch.resultStats.overflowActualLength = reverseCount + 1
       return lssOverflow
     let
-      arcOffset = scratch.sideParentArc[slot].int
-      parentLabel = scratch.sideParentLabel[slot].int
+      arcOffset = scratch.nodeParentArc[node].int
     let arc = scratch.index.routeArcAt(arcOffset)
     scratch.resultEdges[reverseCount] = routeEdgeRef(
       arc.segment.int, arc.reversed)
     inc reverseCount
     cursor = arc.fromSide.int
-    label = parentLabel
-    slot = cursor * 2 + label
+    node = scratch.nodeParentNode[node].int
   for left in 0 ..< reverseCount div 2:
     swap(scratch.resultEdges[left], scratch.resultEdges[reverseCount - 1 - left])
   var startLen = 0
   let startAttach = scratch.startAttach.attaches[search.sourceAttach]
   when defined(navQueryProfile):
-    let requiredStartLen = startAttach.pointLen.int +
+    let startChainSteps =
       scratch.chainStepCount(startAttach.coarseCell.int, cursor)
-    if requiredStartLen > RouteLocalLegCap:
+    let requiredStartLen = startAttach.pointLen.int + max(0, startChainSteps)
+    if startChainSteps < 0 or requiredStartLen > RouteLocalLegCap:
       scratch.resultStats.overflowKind = "start_leg"
       scratch.resultStats.overflowActualLength = requiredStartLen
       return lssOverflow
@@ -1453,9 +1460,10 @@ proc assembleSideRoute(scratch: BodyRouteQueryScratch,
     return lssOverflow
   let goalAttach = scratch.goalAttach.attaches[search.goalAttach]
   when defined(navQueryProfile):
-    let requiredGoalLen = goalAttach.pointLen.int +
-      scratch.chainStepCount(goalAttach.coarseCell.int, search.goalSide)
-    if requiredGoalLen > RouteLocalLegCap:
+    let goalChainSteps = scratch.chainStepCount(goalAttach.coarseCell.int,
+      search.goalSide)
+    let requiredGoalLen = goalAttach.pointLen.int + max(0, goalChainSteps)
+    if goalChainSteps < 0 or requiredGoalLen > RouteLocalLegCap:
       scratch.resultStats.overflowKind = "goal_leg"
       scratch.resultStats.overflowActualLength = requiredGoalLen
       return lssOverflow

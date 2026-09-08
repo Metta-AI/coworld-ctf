@@ -5,6 +5,7 @@ import ../src/ctf/[arena, br_map_pool]
 import ../src/shell/[body_hazard, body_map, body_nav, body_planner, body_route_index,
   body_route_query]
 import ../src/shell/types as shellTypes
+import ./nav_route_corpus_support
 
 proc openMap(): BodyMap =
   const Side = 96
@@ -326,6 +327,35 @@ suite "bounded hierarchical body route query":
     check index.validateBodyRoute(BodyRouteRequest(start: start, goal: goal,
       profile: shellTypes.cpCarrier, danger: addr danger,
       hazard: overlay, elapsedZoneTick: 120), route)
+
+  test "rewritten side labels retain an acyclic predecessor route":
+    let
+      pool = loadBrS2PoolRaw()
+      corpus = loadNavRouteCorpus(
+        "tests/fixtures/shell/nav_route_corpus.json")
+    var item: NavCorpusCase
+    for candidate in corpus.cases:
+      if candidate.id ==
+          "m32-br-gen-23457-r16-s0-carrier-danger-far":
+        item = candidate
+        break
+    var gameMap = mapFromSpecJson($pool[item.poolIndex]["spec"])
+    gameMap.name = pool[item.poolIndex]["name"].getStr()
+    let
+      map = newBodyMap(gameMap)
+      index = newBodyRouteIndex(map)
+      scratch = newBodyRouteQueryScratch(index)
+      goal = map.goalAt(item.validatedGoal, item.start)
+    var danger = map.buildOracleDanger(item)
+    let
+      request = BodyRouteRequest(start: item.start, goal: goal,
+        profile: item.profile.corpusProfile, danger: addr danger,
+        hazard: newDarkBodyHazardOverlay())
+      route = index.queryBodyRoute(scratch, request)
+    check route.ok
+    check route.failure == brfNone
+    check route.descriptor.edgeCount <= RouteEdgeCap
+    check index.validateBodyRoute(request, route)
 
   test "danger blocked-cell and zone hazard costs compose in one query":
     let
