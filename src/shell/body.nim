@@ -243,7 +243,7 @@ type
       ## PERCEPTION(glory-2 §17): the partner's own loadout flags --
       ## granted alongside downed above (same duo-telemetry trust
       ## boundary), gated by config.frameLoadoutFlags at the seam that
-      ## builds this sample (src/ctf/server.nim's firstLightPartner), never
+      ## builds this sample (src/ctf/server.nim's shellPartner), never
       ## by config.lootStart -- the flags are the sim TRUTH regardless of
       ## mode; this gate controls only whether a play may SEE them.
       ## Required for an intelligent HANDOFF call: a play needs to see the
@@ -310,7 +310,7 @@ type
 
   BodyNavState* = enum
     ## What the follower did on the last seat tick; read by the episode's
-    ## per-tick navigation summary (FIRST_LIGHT_NAV).
+    ## per-tick navigation summary (SHELL_NAV).
     bnsIdle        ## no navigate order drove movement (hold, arrived, no goal, fire freeze)
     bnsFollowing   ## walking the route planned for the current request
     bnsStalePath   ## walking an older route while the current request's plan computes
@@ -318,7 +318,7 @@ type
 
   CombatOutcome* = enum
     ## Why the weapon path did or did not fire on the last seat tick; read by
-    ## the episode's per-tick combat summary (FIRST_LIGHT_COMBAT).
+    ## the episode's per-tick combat summary (SHELL_COMBAT).
     coNoEnemy               ## no fresh track this tick
     coNoneShootable         ## fresh tracks (possibly a held target), none in range with a clear line of sight
     coVetoed                ## shootable tracks, all excluded by noShoot, protect, or holdFire

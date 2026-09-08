@@ -1,25 +1,25 @@
 #!/bin/bash
-# FIRST LIGHT wiring proof. The release probe prints the annotation and split
-# timing gates first. Unless FIRST_LIGHT_MEASURE_ONLY=1, the script then runs
+# Shell demo wiring proof. The release probe prints the annotation and split
+# timing gates first. Unless SHELL_DEMO_MEASURE_ONLY=1, the script then runs
 # the real BR server with 32 presence-only play seats and tails its install
 # telemetry beside the spectator URL. Ctrl-C stops every child.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
 REPO_ROOT="$PWD"
-PORT="${FIRST_LIGHT_PORT:-21814}"
-MEASURE_ONLY="${FIRST_LIGHT_MEASURE_ONLY:-0}"
-RUN_DIR="${TMPDIR:-/tmp}/coworld-ctf-first-light-$$"
+PORT="${SHELL_DEMO_PORT:-21814}"
+MEASURE_ONLY="${SHELL_DEMO_MEASURE_ONLY:-0}"
+RUN_DIR="${TMPDIR:-/tmp}/coworld-ctf-shell-demo-$$"
 CONFIG_PATH="$RUN_DIR/config.json"
-SERVER_BIN="$RUN_DIR/ctf-first-light"
-PRESENCE_BIN="$RUN_DIR/first-light-presence"
-PROBE_BIN="$RUN_DIR/first-light-probe"
+SERVER_BIN="$RUN_DIR/ctf-shell-demo"
+PRESENCE_BIN="$RUN_DIR/shell-presence"
+PROBE_BIN="$RUN_DIR/shell-probe"
 SERVER_LOG="$RUN_DIR/server.log"
 FETCH_LOG="$RUN_DIR/fetch_deps.log"
 mkdir -p "$RUN_DIR"
 
 if nc -z 127.0.0.1 "$PORT" 2>/dev/null; then
-  echo "port $PORT in use — another first-light server is running; kill it or set FIRST_LIGHT_PORT" >&2
+  echo "port $PORT in use — another shell demo server is running; kill it or set SHELL_DEMO_PORT" >&2
   exit 1
 fi
 
@@ -33,7 +33,7 @@ cleanup() {
 trap cleanup EXIT INT TERM
 
 python3 - "$REPO_ROOT/config.practice.json" \
-  "$REPO_ROOT/tests/fixtures/shell/first_light_config.json" \
+  "$REPO_ROOT/tests/fixtures/shell/shell_demo_config.json" \
   "$CONFIG_PATH" <<'PY'
 import json
 import sys
@@ -56,7 +56,7 @@ WASMTIME_C_API="$(awk -F= '$1=="WASMTIME_C_API"{print substr($0, index($0, "=") 
 WASI_SDK_PATH="$(awk -F= '$1=="WASI_SDK_PATH"{print substr($0, index($0, "=") + 1)}' "$FETCH_LOG")"
 if [ -z "$WASMTIME_C_API" ] || [ -z "$WASI_SDK_PATH" ]; then
   cat "$FETCH_LOG" >&2
-  echo "FIRST LIGHT dependency discovery failed" >&2
+  echo "shell demo dependency discovery failed" >&2
   exit 1
 fi
 
@@ -67,22 +67,22 @@ WASI_SDK_PATH="$WASI_SDK_PATH" nim c -f --hints:off \
 
 WASMTIME_C_API="$WASMTIME_C_API" nim c --threads:on -d:release \
   -d:noSignalHandler \
-  --hints:off --path:src -o:"$PROBE_BIN" tools/first_light_probe.nim
-FIRST_LIGHT_CONFIG_PATH="$CONFIG_PATH" "$PROBE_BIN"
+  --hints:off --path:src -o:"$PROBE_BIN" tools/shell_probe.nim
+SHELL_DEMO_CONFIG_PATH="$CONFIG_PATH" "$PROBE_BIN"
 if [ "$MEASURE_ONLY" = "1" ]; then
   exit 0
 fi
 
 WASMTIME_C_API="$WASMTIME_C_API" nim c --threads:on -d:release \
   -d:noSignalHandler \
-  ${FIRST_LIGHT_EXTRA_NIM_FLAGS:-} \
+  ${SHELL_EXTRA_NIM_FLAGS:-} \
   --hints:off --path:src -o:"$SERVER_BIN" src/ctf.nim
 nim c -d:release --hints:off --path:src -o:"$PRESENCE_BIN" \
-  tools/first_light_presence.nim
+  tools/shell_presence.nim
 
 COGAME_HOST=0.0.0.0 \
 COGAME_PORT="$PORT" \
-FIRST_LIGHT_ZONE_LOG=1 \
+SHELL_ZONE_LOG=1 \
 COGAME_CONFIG_URI="file://$CONFIG_PATH" \
   "$SERVER_BIN" >"$SERVER_LOG" 2>&1 &
 PIDS+=("$!")
@@ -113,8 +113,7 @@ PY
   PIDS+=("$!")
 done
 
-echo "FIRST LIGHT server is live; these are presence clients, not policies."
+echo "SHELL demo server is live; these are presence clients, not policies."
 echo "Viewer: http://localhost:$PORT/client/global"
-echo "Lane A FL-B is bound: movement comes from the real body seatTick."
 echo "Install telemetry follows (tick, seat, rule, provenance, bytes hash):"
 tail -n +1 -f "$SERVER_LOG"

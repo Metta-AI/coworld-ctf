@@ -186,9 +186,9 @@ inventory (`docs/recon/paintbot-s2-policy-shell-2026-08-29.md`). New policy
 authors should start in `policies/starters/`; `policies/poc_llm_policy/` is the
 lower-level wire reference. The original dark-landing history is preserved in
 `docs/reports/br-season2-landing-notes-2026-08-30.md`. The server's per-tick
-diagnostic log lines for play seats (`FIRST_LIGHT_INSTALL`, play faults,
-`FIRST_LIGHT_PLAN_BUDGET`, `FIRST_LIGHT_NAV`, `FIRST_LIGHT_COMBAT`) are
-described in `docs/designs/FIRST_LIGHT_DEMO.md` under "Diagnostic log lines".
+diagnostic log lines for play seats (`SHELL_INSTALL`, play faults,
+`SHELL_PLAN_BUDGET`, `SHELL_NAV`, `SHELL_COMBAT`) are
+described in `docs/designs/SHELL_DEMO.md` under "Diagnostic log lines".
 
 ## Build shapes
 
@@ -235,8 +235,8 @@ the completed trace is copied to
 Exercise a local profiled server with:
 
 ```sh
-FIRST_LIGHT_EXTRA_NIM_FLAGS="-d:ProfileTracePath=$TMPDIR/ctf-trace.json -d:ProfileTicks=240" \
-  tools/run_first_light.sh
+SHELL_EXTRA_NIM_FLAGS="-d:ProfileTracePath=$TMPDIR/ctf-trace.json -d:ProfileTicks=240" \
+  tools/run_shell_demo.sh
 ```
 
 Open question, routed to the PM rather than for local implementation: should a

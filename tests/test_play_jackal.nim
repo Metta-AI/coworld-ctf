@@ -119,8 +119,8 @@ proc newJackalInstance(engine: RuntimeEngine; module: RuntimeModule;
                        pos: BodyPoint): ShellInstance =
   newShellInstance(module, openMap(), pos, ecController, gmBr)
 
-proc liveFrame(pos: BodyPoint; tick: int): FirstLightSeatFrame =
-  FirstLightSeatFrame(
+proc liveFrame(pos: BodyPoint; tick: int): ShellSeatFrame =
+  ShellSeatFrame(
     seat: 0,
     playerIndex: 0,
     present: true,
@@ -289,11 +289,11 @@ suite "jackal reference play":
     when ShellRuntimeAvailable:
       discard buildJackalWasm()
       let map = openMap()
-      var episode = initFirstLightEpisode(true, true,
+      var episode = initShellEpisode(true, true,
         [scPlay, scInput, scInput], map, 331, [Navy, Rust, Rust],
         "jackal-live", 6)
-      defer: episode.closeFirstLightEpisode()
-      let lines = episode.configureFirstLightPlay(FirstLightPlayConfig(
+      defer: episode.closeShellEpisode()
+      let lines = episode.configureDemoPlay(DemoPlayConfig(
         modulePath: JackalWasm,
         playName: "jackal",
         paramsBytes: "{\"earshot\":300,\"exitAfter\":{\"kills\":1},\"joinWhen\":\"afterKill\"}",
@@ -301,7 +301,7 @@ suite "jackal reference play":
         uploadIdBase: 230_000,
         proposalIdBase: 231_000,
         originGeneration: 1))
-      check lines.anyIt(it.contains("FIRST_LIGHT_PLAY_CALL") and
+      check lines.anyIt(it.contains("SHELL_PLAY_CALL") and
         it.contains("accepted=true"))
       let output = episode.step([liveFrame((100, 80), 10)], 10)
       check output.installs.anyIt(it.provenance == "entry:jackal" and

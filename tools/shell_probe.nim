@@ -1,5 +1,5 @@
-## Deterministic FIRST LIGHT wiring/timing probe. It drives the concrete lane A
-## FL-B body through hold/rotate/cover/partner changes, prints install telemetry
+## Deterministic shell wiring/timing probe. It drives the concrete body through
+## hold/rotate/cover/partner changes, prints install telemetry
 ## and movement summaries, then measures 32 seats after 30 warm ticks.
 
 import std/[algorithm, options, os, strformat, strutils]
@@ -30,7 +30,7 @@ proc probeMap(): BodyMap =
     value = true
   newBodyMap(walkable, Side, Side, 1, @[(100, 100)])
 
-proc firstLightFixedMap(): BodyMap =
+proc shellFixedMap(): BodyMap =
   const
     Width = 512
     Height = 256
@@ -64,7 +64,7 @@ proc controls(): seq[SlotControl] =
     control = scPlay
 
 proc frame(tick, seat: int, map: BodyMap,
-           positions: array[Seats, BodyPoint]): FirstLightSeatFrame =
+           positions: array[Seats, BodyPoint]): ShellSeatFrame =
   let self = positions[seat]
   var input = BodyTickInputs(
     self: BodySelfState(pos: self, hp: 4, hpFrac: 1.0,
@@ -94,7 +94,7 @@ proc frame(tick, seat: int, map: BodyMap,
   else:
     fallback.ticksToNextShrink = BrRotateLeadTicks
     fallback.rotateTarget = some((400 + seat, 400))
-  FirstLightSeatFrame(
+  ShellSeatFrame(
     seat: uint8(seat),
     playerIndex: seat,
     present: true,
@@ -104,14 +104,14 @@ proc frame(tick, seat: int, map: BodyMap,
     defaultFallbacks: fallback)
 
 proc frames(tick: int, map: BodyMap,
-            positions: array[Seats, BodyPoint]): seq[FirstLightSeatFrame] =
+            positions: array[Seats, BodyPoint]): seq[ShellSeatFrame] =
   for seat in 0 ..< Seats:
     result.add(frame(tick, seat, map, positions))
 
 proc movementFrame(map: BodyMap, seat: int,
-                   positions: array[Seats, BodyPoint]): FirstLightSeatFrame =
+                   positions: array[Seats, BodyPoint]): ShellSeatFrame =
   let self = positions[seat]
-  FirstLightSeatFrame(
+  ShellSeatFrame(
     seat: uint8(seat),
     playerIndex: seat,
     present: true,
@@ -134,12 +134,12 @@ proc movementFrame(map: BodyMap, seat: int,
       coverGoal: none(ValidatedGoal)))
 
 proc movementFrames(map: BodyMap,
-                    positions: array[Seats, BodyPoint]): seq[FirstLightSeatFrame] =
+                    positions: array[Seats, BodyPoint]): seq[ShellSeatFrame] =
   for seat in 0 ..< Seats:
     result.add(movementFrame(map, seat, positions))
 
 proc floodReflexFrame(tick, seat: int, map: BodyMap,
-                      positions: array[Seats, BodyPoint]): FirstLightSeatFrame =
+                      positions: array[Seats, BodyPoint]): ShellSeatFrame =
   result = frame(tick, seat, map, positions)
   result.defaultFallbacks.currentZone = MapRect(x: 0, y: 0, w: 80, h: 80)
   result.defaultFallbacks.nextZone = MapRect(x: 160, y: 120, w: 160, h: 160)
@@ -148,13 +148,13 @@ proc floodReflexFrame(tick, seat: int, map: BodyMap,
   result.velocity = MaxSpeed
 
 proc floodReflexFrames(tick: int, map: BodyMap,
-                       positions: array[Seats, BodyPoint]): seq[FirstLightSeatFrame] =
+                       positions: array[Seats, BodyPoint]): seq[ShellSeatFrame] =
   for seat in 0 ..< Seats:
     result.add(floodReflexFrame(tick, seat, map, positions))
 
 proc dangerFrame(map: BodyMap, self, target: BodyPoint, tick: int,
-                 withThreat: bool): FirstLightSeatFrame =
-  result = FirstLightSeatFrame(
+                 withThreat: bool): ShellSeatFrame =
+  result = ShellSeatFrame(
     seat: 0,
     playerIndex: 0,
     present: true,
@@ -202,7 +202,7 @@ proc pathDanger(map: BodyMap, danger: BodyDangerField,
   for point in path:
     result += danger.sample(map, point)
 
-proc movementSummary(tick: int, masks: openArray[FirstLightMask]): string =
+proc movementSummary(tick: int, masks: openArray[ShellMask]): string =
   var moving, aiming = 0
   for mask in masks:
     let bits = mask.input.encodeInputMask()
@@ -210,22 +210,22 @@ proc movementSummary(tick: int, masks: openArray[FirstLightMask]): string =
       inc moving
     if (bits and (ButtonB or ButtonSelect)) != 0:
       inc aiming
-  &"FIRST_LIGHT_MASK_SUMMARY tick={tick} seats={masks.len} " &
+  &"SHELL_MASK_SUMMARY tick={tick} seats={masks.len} " &
     &"moving={moving} aiming={aiming}"
 
-proc configureDemoPlay(episode: var FirstLightEpisode) =
-  let path = getEnv("FIRST_LIGHT_CONFIG_PATH")
+proc configureDemoPlay(episode: var ShellEpisode) =
+  let path = getEnv("SHELL_DEMO_CONFIG_PATH")
   if path.len == 0 or not fileExists(path):
     return
-  for line in episode.configureFirstLightDemoPlayFromJson(readFile(path),
+  for line in episode.configureDemoPlayFromJson(readFile(path),
       repoRoot()):
     echo line
 
-proc configureAllSeatEdgeRide(episode: var FirstLightEpisode) =
+proc configureAllSeatEdgeRide(episode: var ShellEpisode) =
   var seats: seq[int]
   for seat in 0 ..< Seats:
     seats.add seat
-  for line in episode.configureFirstLightPlay(FirstLightPlayConfig(
+  for line in episode.configureDemoPlay(DemoPlayConfig(
       modulePath: repoRoot() / "play_sdk" / ".build" / "edge_ride.wasm",
       playName: "edge_ride",
       paramsBytes: "{\"coverBias\":0.8,\"enterLead\":120,\"margin\":220}",
@@ -290,9 +290,9 @@ proc dangerProof() =
                                    maximum: float32,
                                    pathDanger: float,
                                    sources: seq[int]] =
-    var episode = initFirstLightEpisode(true, true, @[scPlay], map, 32)
+    var episode = initShellEpisode(true, true, @[scPlay], map, 32)
     defer:
-      episode.closeFirstLightEpisode()
+      episode.closeShellEpisode()
     var pos = start
     for tick in 1 .. 160:
       let output = episode.step([
@@ -312,7 +312,7 @@ proc dangerProof() =
   let sourced = threatened.sources == @[8, 9, 10, 11, 12, 13, 14, 15]
   let dangerPass = threatened.maximum > 0.0'f32 and sourced and repriced
   let verdict = if dangerPass: "PASS" else: "FAIL"
-  echo &"FIRST_LIGHT_DANGER tick=160 seat=0 baseline_max={baseline.maximum:.3f} " &
+  echo &"SHELL_DANGER tick=160 seat=0 baseline_max={baseline.maximum:.3f} " &
     &"threat_max={threatened.maximum:.3f} sources={threatened.sources.len} " &
     &"baseline_path_danger={baseline.pathDanger:.3f} " &
     &"threat_path_danger={threatened.pathDanger:.3f} " &
@@ -321,10 +321,10 @@ proc dangerProof() =
     quit(1)
 
 proc reflexProofAndTiming() =
-  let map = firstLightFixedMap()
-  var episode = initFirstLightEpisode(true, true, controls(), map, 331)
+  let map = shellFixedMap()
+  var episode = initShellEpisode(true, true, controls(), map, 331)
   defer:
-    episode.closeFirstLightEpisode()
+    episode.closeShellEpisode()
   episode.configureAllSeatEdgeRide()
   var positions: array[Seats, BodyPoint]
   for seat in 0 ..< Seats:
@@ -357,7 +357,7 @@ proc reflexProofAndTiming() =
   runtime.sort()
 
   let pass = runtime[^1] <= RuntimeGateNs
-  echo &"FIRST_LIGHT_REFLEX_RUNTIME seats={Seats} warm_ticks={WarmTicks} " &
+  echo &"SHELL_REFLEX_RUNTIME seats={Seats} warm_ticks={WarmTicks} " &
     &"samples={Samples} median_us={runtime.percentile(50, 100).float / 1000.0:.3f} " &
     &"p95_us={runtime.percentile(95, 100).float / 1000.0:.3f} " &
     &"max_us={runtime[^1].float / 1000.0:.3f} gate_us=4000.000 " &
@@ -367,16 +367,16 @@ proc reflexProofAndTiming() =
 
 proc main() =
   let map = probeMap()
-  let inventory = firstLightInventory()
-  echo &"FIRST_LIGHT_INVENTORY wasmtime={inventory.wasmtime} " &
+  let inventory = shellInventory()
+  echo &"SHELL_INVENTORY wasmtime={inventory.wasmtime} " &
     &"uploads={inventory.uploads} calls={inventory.calls} " &
     &"stores={inventory.stores} ladder={inventory.ladder} " &
     "executor=lane-a-fl-b"
   let moduleSizePass = moduleSizeProof()
 
-  var telemetry = initFirstLightEpisode(true, true, controls(), map, 331)
+  var telemetry = initShellEpisode(true, true, controls(), map, 331)
   defer:
-    telemetry.closeFirstLightEpisode()
+    telemetry.closeShellEpisode()
   telemetry.configureDemoPlay()
   var telemetryPositions: array[Seats, BodyPoint]
   for seat in 0 ..< Seats:
@@ -393,9 +393,9 @@ proc main() =
       telemetryPositions[mask.seat.int].applyMask(mask.input)
 
   let moveMap = movementProbeMap()
-  var movement = initFirstLightEpisode(true, true, controls(), moveMap, 331)
+  var movement = initShellEpisode(true, true, controls(), moveMap, 331)
   defer:
-    movement.closeFirstLightEpisode()
+    movement.closeShellEpisode()
   var movementPositions: array[Seats, BodyPoint]
   for seat in 0 ..< Seats:
     movementPositions[seat] = (10 + seat, 10)
@@ -411,9 +411,9 @@ proc main() =
   dangerProof()
   reflexProofAndTiming()
 
-  var measured = initFirstLightEpisode(true, true, controls(), moveMap, 331)
+  var measured = initShellEpisode(true, true, controls(), moveMap, 331)
   defer:
-    measured.closeFirstLightEpisode()
+    measured.closeShellEpisode()
   measured.configureAllSeatEdgeRide()
   var measuredPositions: array[Seats, BodyPoint]
   for seat in 0 ..< Seats:
@@ -438,12 +438,12 @@ proc main() =
 
   let bodyPass = body[^1] <= BodyGateNs
   let runtimePass = runtime[^1] <= RuntimeGateNs
-  echo &"FIRST_LIGHT_BODY seats={Seats} warm_ticks={WarmTicks} " &
+  echo &"SHELL_BODY seats={Seats} warm_ticks={WarmTicks} " &
     &"samples={Samples} median_us={body.percentile(50, 100).float / 1000.0:.3f} " &
     &"p95_us={body.percentile(95, 100).float / 1000.0:.3f} " &
     &"max_us={body[^1].float / 1000.0:.3f} gate_us=5000.000 " &
     (if bodyPass: "verdict=PASS" else: "verdict=FAIL")
-  echo &"FIRST_LIGHT_RUNTIME seats={Seats} warm_ticks={WarmTicks} " &
+  echo &"SHELL_RUNTIME seats={Seats} warm_ticks={WarmTicks} " &
     &"samples={Samples} median_us={runtime.percentile(50, 100).float / 1000.0:.3f} " &
     &"p95_us={runtime.percentile(95, 100).float / 1000.0:.3f} " &
     &"max_us={runtime[^1].float / 1000.0:.3f} gate_us=4000.000 " &

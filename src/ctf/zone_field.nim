@@ -1631,7 +1631,7 @@ type ZoneArrivalFieldDebugState* = object
   cells*: int
 
 proc zoneArrivalFieldDebugState*(): ZoneArrivalFieldDebugState =
-  ## Read-only live diagnostic for first-light launcher traces. It reports the
+  ## Read-only live diagnostic for shell demo traces. It reports the
   ## exact cached field/shipping state owned by addZoneEdgeBand without causing
   ## the field to build.
   ZoneArrivalFieldDebugState(

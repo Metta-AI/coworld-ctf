@@ -113,8 +113,8 @@ proc newCrossfireInstance(engine: RuntimeEngine; module: RuntimeModule;
                           pos: BodyPoint): ShellInstance =
   newShellInstance(module, openMap(), pos, ecController, gmBr)
 
-proc liveFrame(pos: BodyPoint; tick: int): FirstLightSeatFrame =
-  FirstLightSeatFrame(
+proc liveFrame(pos: BodyPoint; tick: int): ShellSeatFrame =
+  ShellSeatFrame(
     seat: 0,
     playerIndex: 0,
     present: true,
@@ -128,7 +128,7 @@ proc liveFrame(pos: BodyPoint; tick: int): FirstLightSeatFrame =
         hasSprayPaint: false, arcTicksLeft: 0, alive: true,
         carrying: false),
       # The duo partner (seat 1, same team) is granted through `partner`
-      # only -- production (src/ctf/server.nim firstLightBodyInputs) never
+      # only -- production (src/ctf/server.nim shellBodyInputs) never
       # puts a same-team seat in visibleTracks, and playViewSourceFromBody
       # now injects the partner grant as its own tracks row (LOOT(s2)
       # downed visibility, view.nim). Seeding seat 1 into visibleTracks
@@ -250,11 +250,11 @@ suite "crossfire reference play":
     when ShellRuntimeAvailable:
       discard buildCrossfireWasm()
       let map = openMap()
-      var episode = initFirstLightEpisode(true, true,
+      var episode = initShellEpisode(true, true,
         [scPlay, scPlay, scInput], map, 331, [Navy, Navy, Rust],
         "crossfire-live", 6)
-      defer: episode.closeFirstLightEpisode()
-      let lines = episode.configureFirstLightPlay(FirstLightPlayConfig(
+      defer: episode.closeShellEpisode()
+      let lines = episode.configureDemoPlay(DemoPlayConfig(
         modulePath: CrossfireWasm,
         playName: "crossfire",
         paramsBytes: "{\"minAngle\":32,\"spacing\":[80,320]}",
@@ -262,7 +262,7 @@ suite "crossfire reference play":
         uploadIdBase: 220_000,
         proposalIdBase: 221_000,
         originGeneration: 1))
-      check lines.anyIt(it.contains("FIRST_LIGHT_PLAY_CALL") and
+      check lines.anyIt(it.contains("SHELL_PLAY_CALL") and
         it.contains("accepted=true"))
       let output = episode.step([liveFrame((220, 80), 1)], 1)
       check output.installs.anyIt(it.provenance == "entry:crossfire" and

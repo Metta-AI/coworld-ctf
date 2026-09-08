@@ -1,4 +1,4 @@
-## Phase P3-1/P3-FL: standing-order default install bound to lane A FL-B body.
+## Standing-order default install bound to the shell body.
 
 import std/[json, options, unittest]
 import bitworld/spriteprotocol
@@ -45,30 +45,30 @@ suite "shell standing order":
     var standing: StandingOrderState
     var facts = fallback(body.map)
 
-    standing.stepFirstLightDefault(body, 1, facts)
+    standing.stepShellDefault(body, 1, facts)
     check standing.annotations.len == 1
 
     # An identical consecutive default is still recomputed but writes no
     # annotation and performs no body install.
-    standing.stepFirstLightDefault(body, 2, facts)
+    standing.stepShellDefault(body, 2, facts)
     check standing.annotations.len == 1
 
     # Zone change: rotate on the same tick.
     facts.ticksToNextShrink = BrRotateLeadTicks
     facts.rotateTarget = some((200, 200))
-    standing.stepFirstLightDefault(body, 3, facts)
+    standing.stepShellDefault(body, 3, facts)
 
     # Threat change: hold cover on the same tick.
     facts.ticksToNextShrink = BrRotateLeadTicks + 1
     facts.rotateTarget = none(BodyPoint)
     facts.coverGoal = some(body.map.goal(40, 40))
     body.updateBelief(inputs(tick = 4'u32, threats = @[(300, 300)]), 4)
-    standing.stepFirstLightDefault(body, 4, facts)
+    standing.stepShellDefault(body, 4, facts)
 
     # Partner change: leash on the same tick.
     facts.coverGoal = none(ValidatedGoal)
     body.updateBelief(inputs(partner = (399, 399)), 5)
-    standing.stepFirstLightDefault(body, 5, facts)
+    standing.stepShellDefault(body, 5, facts)
 
     check standing.annotations.len == 4
     check standing.effectiveEpoch == 0

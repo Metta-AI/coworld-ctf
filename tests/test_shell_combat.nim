@@ -450,7 +450,7 @@ suite "shell combat policy":
       60, 331, 3).selectedSeat == a.selectedSeat
 
   test "seat tick records why the weapon path did or did not fire":
-    ## Feeds the server's FIRST_LIGHT_COMBAT census. The all-empty policy is
+    ## Feeds the server's SHELL_COMBAT census. The all-empty policy is
     ## the baseline: it engages visible enemy tracks through the same selector
     ## and actuation path that overlays modify.
     let active = CombatPolicy(prefer: @[ptWeakened])

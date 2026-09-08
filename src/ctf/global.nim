@@ -7518,8 +7518,8 @@ proc addZoneEdgeBand(
       zoneArrivalFieldBytes(ZoneArrivalFieldValue),
       ZoneArrivalFieldLabel, changed = true)
     ZoneArrivalFieldShipped = true
-    if getEnv("FIRST_LIGHT_ZONE_LOG") == "1":
-      stderr.writeLine("FIRST_LIGHT_ZONE_PAINT shipped=true grid=" &
+    if getEnv("SHELL_ZONE_LOG") == "1":
+      stderr.writeLine("SHELL_ZONE_PAINT shipped=true grid=" &
         $ZoneArrivalFieldValue.gridW & "x" & $ZoneArrivalFieldValue.gridH &
         " cells=" & $ZoneArrivalFieldValue.arrival.len)
   packet.addSpriteChanged(

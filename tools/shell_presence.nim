@@ -1,4 +1,4 @@
-## Presence-only FIRST LIGHT seat client: connects, receives views, and sends
+## Presence-only shell demo seat client: connects, receives views, and sends
 ## readiness. It sends no input, policy, upload, call, or chat bytes.
 
 import std/[options, os]
@@ -20,7 +20,7 @@ when isMainModule:
     except CatchableError:
       sleep(500)
   if socket == nil:
-    quit("FIRST LIGHT presence client could not connect", 1)
+    quit("shell demo presence client could not connect", 1)
   try:
     while true:
       let message = socket.receiveMessage()

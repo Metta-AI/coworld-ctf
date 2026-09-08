@@ -62,7 +62,7 @@ proc main() =
           pos: (500, 500), team: Blue, aimBrads: some(0), hpKnown: some(3),
           tick: uint32(tick))]
       bodies[seat].updateBelief(input, uint32(tick))
-      states[seat].stepFirstLightDefault(bodies[seat], uint32(tick),
+      states[seat].stepShellDefault(bodies[seat], uint32(tick),
         fallback)
 
   for tick in 1 .. WarmupBatches:

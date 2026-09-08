@@ -1,4 +1,4 @@
-## The zero-guest §7.4 standing-order path used by FIRST LIGHT.
+## The zero-guest §7.4 standing-order path used by the shell.
 
 import std/options
 import ../ctf/sim_types
@@ -21,8 +21,8 @@ type
     annotations*: seq[ShellAnnotation]
 
   BrDefaultFallbacks* = object
-    ## Lane-C first-light fallbacks for facts lane A FL-B does not expose yet.
-    ## Self and partner come from lane A's body accessors after updateBelief.
+    ## Shell fallbacks for facts the body does not expose yet. Self and partner
+    ## come from the body's accessors after updateBelief.
     ## Zone timing/rects are public server facts, and nearest-cover scoring is
     ## represented by an already validated goal until lane A relays that scorer.
     currentZone*: MapRect
@@ -43,7 +43,7 @@ type
   ResolvedStandingOrder* = object
     ## Minimal §7.4 handoff from the ladder/reflex/default selection pipeline
     ## into the standing-order installer. Keeping this value type here avoids
-    ## importing the runtime-backed ladder into FIRST LIGHT's zero-entry path.
+    ## importing the runtime-backed ladder into the shell's zero-entry path.
     intent*: Intent
     goal*: Option[ValidatedGoal]
     provenance*: Provenance
@@ -88,10 +88,10 @@ proc sameProvenance(a, b: Provenance): bool =
   of pbReflex:
     a.base.reflexName == b.base.reflexName
 
-proc stepFirstLightDefault*(state: var StandingOrderState,
+proc stepShellDefault*(state: var StandingOrderState,
     body: SeatBody, tick: uint32, fallback: BrDefaultFallbacks) =
   ## Recomputes the default every fallback tick, folds zero overlays, and
-  ## installs only on bytes/provenance/epoch difference. FIRST LIGHT reads
+  ## installs only on bytes/provenance/epoch difference. The shell reads
   ## the state's initialized epoch zero and never advances it.
   let facts = brDefaultFacts(body, tick, fallback)
   let decision = computeBrDefault(facts)
@@ -148,7 +148,7 @@ proc stepResolvedOrder*(state: var StandingOrderState; body: SeatBody;
   ##
   ## Effective order epoch advances only when a call entry contributes on this
   ## tick. Default-only ticks keep the prior effective epoch, preserving epoch
-  ## zero while FIRST LIGHT or an uninitialized/silent call is standing.
+  ## zero while the shell or an uninitialized/silent call is standing.
   let effectiveEpoch =
     if resolved.contributingEpoch != 0:
       resolved.contributingEpoch

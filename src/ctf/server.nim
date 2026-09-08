@@ -144,7 +144,7 @@ type
   OutstandingPlayCall = object
     proposalId: uint64
     acceptAcked: bool
-    pendingRetunes: seq[FirstLightEntryIdentity]
+    pendingRetunes: seq[ShellEntryIdentity]
 
   WebSocketAppState = object
     lock: Lock
@@ -229,8 +229,8 @@ type
 
 var
   playReceiveConsumers: PlayReceiveConsumers
-  activeFirstLightEpisode {.threadvar.}: ptr FirstLightEpisode
-  activeFirstLightTick {.threadvar.}: uint32
+  activeShellEpisode {.threadvar.}: ptr ShellEpisode
+  activeShellTick {.threadvar.}: uint32
 
 proc saturatingAdd(value: var uint32, amount: int) =
   if amount <= 0:
@@ -747,7 +747,7 @@ proc packetIdIfPresent(data: string): uint64 =
 
 proc applyPlayIngressFeedback*(seat: int; feedback: PlayIngressFeedback)
 proc queueAcceptedPlayCallIdentity(expectedSeat: int;
-    identity: Option[FirstLightCallReplayIdentity];
+    identity: Option[ShellCallReplayIdentity];
     replayTimeMs: uint32): bool {.gcsafe.}
 
 proc packetModuleBytes(packet: ModuleUploadPacket): seq[byte] =
@@ -764,8 +764,8 @@ proc handleProductionModuleUpload(
   ## Runs synchronously on the game thread while the tick drain scopes the
   ## live episode. Compilation itself remains non-blocking in lane A's plane.
   discard websocket
-  let episode = activeFirstLightEpisode
-  var admitted: FirstLightAdmissionResult
+  let episode = activeShellEpisode
+  var admitted: ShellAdmissionResult
   if episode == nil:
     admitted.reason = "runtimeUnavailable"
   else:
@@ -801,15 +801,15 @@ proc handleProductionPlayCall(
   ## its verdict, releases unused reservations, and queues only the surfaced
   ## accepted-call replay identity.
   discard websocket
-  let episode = activeFirstLightEpisode
-  var accepted: FirstLightCallResult
+  let episode = activeShellEpisode
+  var accepted: ShellCallResult
   if episode == nil:
     accepted.reason = "runtimeUnavailable"
     accepted.path = "runtime"
   else:
     {.cast(gcsafe).}:
       accepted = episode[].acceptPlayCall(
-        seat, packet.proposalId, generation, activeFirstLightTick,
+        seat, packet.proposalId, generation, activeShellTick,
         packet.callBytes)
   {.gcsafe.}:
     withLock appState.lock:
@@ -847,12 +847,12 @@ proc handleProductionPlayCall(
     # Subtracting one therefore stamps the same tickTime(sim.tickCount) used
     # by the replay batch and lobby-chat records from this drain.
     let replayTick =
-      if activeFirstLightTick > 0: activeFirstLightTick - 1 else: 0'u32
+      if activeShellTick > 0: activeShellTick - 1 else: 0'u32
     discard queueAcceptedPlayCallIdentity(
       seat, accepted.replayIdentity, tickTime(replayTick.int))
 
 proc retainProductionModuleStatuses(
-    statuses: openArray[FirstLightModuleStatus]) =
+    statuses: openArray[ShellModuleStatus]) =
   ## Async compile terminals consume the second slot reserved at upload
   ## admission. Client acknowledgment later retires that delivered slot.
   {.gcsafe.}:
@@ -889,8 +889,8 @@ proc completeOutstandingRetune(seat, callIndex, entryIndex: int;
     appState.outstandingPlayCalls[seat].delete(callIndex)
 
 proc retainProductionLadderOutcomes(
-    ladderStatuses: openArray[FirstLightLadderStatus];
-    retuned: openArray[FirstLightEntryIdentity]) =
+    ladderStatuses: openArray[ShellLadderStatus];
+    retuned: openArray[ShellEntryIdentity]) =
   ## Converts lane C's exactly-once completion channel into reservation
   ## retirement. Calls are kept in admission order, so repeated entry
   ## identities across successive proposals retire the oldest outstanding
@@ -1488,20 +1488,20 @@ proc drainPlayIngressAtTickBoundary*(uploadWindowClosed = false) =
       withLock appState.lock:
         appState.playProtocolRejected += rejected
 
-proc drainPlayIngressAtTickBoundary*(episode: var FirstLightEpisode;
+proc drainPlayIngressAtTickBoundary*(episode: var ShellEpisode;
                                      tick: uint32;
                                      uploadWindowClosed = false) =
   ## Production-only scoped ownership bridge. Registered consumers run
   ## synchronously inside this drain; the pointer is never visible to the
   ## socket threads and never survives the call.
-  doAssert activeFirstLightEpisode == nil
-  activeFirstLightEpisode = episode.addr
-  activeFirstLightTick = tick
+  doAssert activeShellEpisode == nil
+  activeShellEpisode = episode.addr
+  activeShellTick = tick
   try:
     drainPlayIngressAtTickBoundary(uploadWindowClosed)
   finally:
-    activeFirstLightEpisode = nil
-    activeFirstLightTick = 0
+    activeShellEpisode = nil
+    activeShellTick = 0
 
 proc applyPlayIngressFeedback*(seat: int, feedback: PlayIngressFeedback) =
   ## Reverse half of the registered lane-B/lane-C seam. Async compile/runtime
@@ -1531,7 +1531,7 @@ proc notePlayCallReplayIdentityError(seat: int) {.gcsafe.} =
         appState.playIngress[seat].notePlayIngressFeedbackError()
 
 proc queueAcceptedPlayCallIdentity(expectedSeat: int;
-    identity: Option[FirstLightCallReplayIdentity];
+    identity: Option[ShellCallReplayIdentity];
     replayTimeMs: uint32): bool {.gcsafe.} =
   ## Lane C owns accepted-call identity; lane B owns time and file order.
   ## Never reconstruct canonical bytes, hashes, or entry identities here.
@@ -1706,7 +1706,7 @@ proc sendCurrentPlayPacket(seat: int; websocket: WebSocket;
         appState.playOutbound[seat].noteSendRefused()
 
 proc pumpPlayOutbound(sim: SimServer; config: GameConfig;
-                      episode: FirstLightEpisode) =
+                      episode: ShellEpisode) =
   ## Sends context, transcript replay/live chat, then at most one view per
   ## seat. Transcript cursors advance only after transport admission.
   if not config.isPlaySeatEpisode():
@@ -1730,7 +1730,7 @@ proc pumpPlayOutbound(sim: SimServer; config: GameConfig;
     let generation = outbound.generation
 
     if outbound.contextPending:
-      let episodeRecovery = episode.firstLightRecovery(seat)
+      let episodeRecovery = episode.shellRecovery(seat)
       let recovery = PlayContextRecovery(
         generation: generation, epoch: episodeRecovery.epoch,
         uploadIdFloor: ingress.uploadIdFloor,
@@ -1806,8 +1806,8 @@ proc pumpPlayOutbound(sim: SimServer; config: GameConfig;
       if playerIndex >= 0 and playerIndex < sim.players.len and
           sim.players[playerIndex].alive:
         # Socket copy = JSON (0xB1 wire contract); the guest's PV1 binary
-        # frame never crosses the websocket (see firstLightSocketViewBytes).
-        viewBytes = episode.firstLightSocketViewBytes(seat, tick)
+        # frame never crosses the websocket (see shellSocketViewBytes).
+        viewBytes = episode.shellSocketViewBytes(seat, tick)
     let payload = encodePacket(PlayViewPacket(
       tick: tick, control: current.controlViewEnvelope(ingressCounters),
       view: viewBytes))
@@ -3132,14 +3132,14 @@ type
     ## outside every pool (map, flags, players, HUD) land in "core".
     objectPools: Table[string, int64]
 
-  FirstLightTimingWindow = object
+  ShellTimingWindow = object
     stageNanoseconds: array[ShellStage, int64]
     maxTickNanoseconds: int64
     simNanoseconds: int64
     ticks: int
 
-proc addFirstLightTiming(window: var FirstLightTimingWindow,
-                         tick: FirstLightTickResult) =
+proc addShellTiming(window: var ShellTimingWindow,
+                         tick: ShellTickResult) =
   if tick.masks.len == 0:
     return
   for stage in ShellStage:
@@ -3148,7 +3148,7 @@ proc addFirstLightTiming(window: var FirstLightTimingWindow,
     window.maxTickNanoseconds, tick.stageNanoseconds.shellNanoseconds)
   inc window.ticks
 
-proc finishFirstLightTimingTick(window: var FirstLightTimingWindow,
+proc finishShellTimingTick(window: var ShellTimingWindow,
                                 tick: uint32, seats: int,
                                 simNanoseconds: int64): string =
   if seats > 0:
@@ -3159,7 +3159,7 @@ proc finishFirstLightTimingTick(window: var FirstLightTimingWindow,
     result = formatTimingSummary(tick, seats, window.ticks,
       window.stageNanoseconds, window.maxTickNanoseconds,
       window.simNanoseconds)
-  window = FirstLightTimingWindow()
+  window = ShellTimingWindow()
 
 proc runFrameLimiter(
   previousTick: var MonoTime,
@@ -3658,7 +3658,7 @@ proc bodyVisibleWeapon(player: Player): Option[BodyWeapon] =
   else:
     some(bwGun)
 
-proc firstLightSelfState(sim: SimServer, playerIndex: int): BodySelfState =
+proc shellSelfState(sim: SimServer, playerIndex: int): BodySelfState =
   let player = sim.players[playerIndex]
   let maxHp = max(1, sim.config.maxHpFor(player.team, player.perks))
   let hp = player.hp + player.shieldHp
@@ -3680,7 +3680,7 @@ proc firstLightSelfState(sim: SimServer, playerIndex: int): BodySelfState =
     carrying: player.carryingFlag,
     downed: player.downed)
 
-proc firstLightPartner(sim: SimServer, playerIndex: int): Option[PartnerSample] =
+proc shellPartner(sim: SimServer, playerIndex: int): Option[PartnerSample] =
   let player = sim.players[playerIndex]
   for otherIndex, other in sim.players:
     if otherIndex != playerIndex and other.team == player.team and
@@ -3703,7 +3703,7 @@ proc firstLightPartner(sim: SimServer, playerIndex: int): Option[PartnerSample] 
   none(PartnerSample)
 
 type
-  FirstLightConeObservation = object
+  ShellConeObservation = object
     eventId: uint64
     attackerIndex: int
     attackerSeat: int
@@ -3711,10 +3711,10 @@ type
     aimBrads: int
     victimSlots: uint32
 
-  FirstLightObservationFrame = object
-    cones: seq[FirstLightConeObservation]
+  ShellObservationFrame = object
+    cones: seq[ShellConeObservation]
 
-proc firstLightObservationFrame(sim: SimServer): FirstLightObservationFrame =
+proc shellObservationFrame(sim: SimServer): ShellObservationFrame =
   ## Compute the authoritative victim set once per active cone and body
   ## boundary. Every seat projection below reuses this immutable frame.
   for attackerIndex, attacker in sim.players:
@@ -3728,7 +3728,7 @@ proc firstLightObservationFrame(sim: SimServer): FirstLightObservationFrame =
         victimSlots = victimSlots or (1'u32 shl slot)
     let activationTick = sim.tickCount -
       (SprayPaintActiveTicks - attacker.arcTicksLeft)
-    result.cones.add FirstLightConeObservation(
+    result.cones.add ShellConeObservation(
       eventId: packedObservationEventId(
         activationTick, SprayConeObservationKind, attacker.joinOrder, -1, 0),
       attackerIndex: attackerIndex,
@@ -3761,12 +3761,12 @@ proc bodyShoutIdentityName(sim: SimServer,
       return IdentityNames[sim.slotIdentityIndex(slot)]
   IdentityNameUnknown
 
-proc firstLightBodyInputs(sim: var SimServer, playerIndex: int,
-                          observations: FirstLightObservationFrame): BodyTickInputs =
+proc shellBodyInputs(sim: var SimServer, playerIndex: int,
+                          observations: ShellObservationFrame): BodyTickInputs =
   let player = sim.players[playerIndex]
   discard sim.refreshPlayerFov(playerIndex)
-  result.self = sim.firstLightSelfState(playerIndex)
-  result.partner = sim.firstLightPartner(playerIndex)
+  result.self = sim.shellSelfState(playerIndex)
+  result.partner = sim.shellPartner(playerIndex)
   for targetIndex, target in sim.players:
     if targetIndex == playerIndex or not target.alive:
       continue
@@ -3934,10 +3934,10 @@ proc firstLightBodyInputs(sim: var SimServer, playerIndex: int,
           tick: uint32(max(0, shout.tick)))
         break
 
-proc firstLightBodyInputs(sim: var SimServer, playerIndex: int): BodyTickInputs =
-  sim.firstLightBodyInputs(playerIndex, sim.firstLightObservationFrame())
+proc shellBodyInputs(sim: var SimServer, playerIndex: int): BodyTickInputs =
+  sim.shellBodyInputs(playerIndex, sim.shellObservationFrame())
 
-proc firstLightVelocity(sim: SimServer, playerIndex: int): int =
+proc shellVelocity(sim: SimServer, playerIndex: int): int =
   let player = sim.players[playerIndex]
   let speedScale = if player.carryingFlag: sim.config.carrierSpeedPct else: 100
   (sim.config.maxSpeedFor(player.team, player.perks) * speedScale div 100) *
@@ -3956,7 +3956,7 @@ proc ticksToNextZoneShrink(sim: SimServer, elapsedTicks: int): int =
     remaining -= phase.shrinkTicks
   high(int) div 4
 
-proc firstLightZonePhase(sim: SimServer, elapsedTicks: int): int =
+proc shellZonePhase(sim: SimServer, elapsedTicks: int): int =
   if sim.config.zonePhases.len == 0:
     return 0
   var remaining = max(0, elapsedTicks)
@@ -3969,7 +3969,7 @@ proc firstLightZonePhase(sim: SimServer, elapsedTicks: int): int =
     remaining -= phase.shrinkTicks
   sim.config.zonePhases.len
 
-proc firstLightAliveTeams(sim: SimServer): int =
+proc shellAliveTeams(sim: SimServer): int =
   var seen: set[Team]
   for player in sim.players:
     if player.alive and player.team notin seen:
@@ -3979,9 +3979,9 @@ proc firstLightAliveTeams(sim: SimServer): int =
 proc rectCenter(rect: MapRect): BodyPoint =
   (rect.x + rect.w div 2, rect.y + rect.h div 2)
 
-proc firstLightRotateTarget(selfPos: BodyPoint, zone: MapRect): BodyPoint =
-  ## FIRST LIGHT fallback fact: pick a short validated goal in the direction of
-  ## the next zone. Lane A still owns path planning and the final movement mask.
+proc shellRotateTarget(selfPos: BodyPoint, zone: MapRect): BodyPoint =
+  ## Shell fallback fact: pick a short validated goal in the direction of the
+  ## next zone. The body still owns path planning and the final movement mask.
   const MaxRotateStepPx = 192
   let target = zone.rectCenter
   let dx = target.x - selfPos.x
@@ -3993,7 +3993,7 @@ proc firstLightRotateTarget(selfPos: BodyPoint, zone: MapRect): BodyPoint =
     (selfPos.x + dx * MaxRotateStepPx div distance,
      selfPos.y + dy * MaxRotateStepPx div distance)
 
-proc firstLightFallbacks(sim: SimServer,
+proc shellFallbacks(sim: SimServer,
                          selfPos: BodyPoint): BrDefaultFallbacks =
   # Zone facts cross into the shell as rects and tick deltas on the schedule's
   # elapsed clock, which is 0 until startGame.
@@ -4009,12 +4009,12 @@ proc firstLightFallbacks(sim: SimServer,
     currentZone: zone.cur,
     nextZone: zone.next,
     ticksToNextShrink: sim.ticksToNextZoneShrink(elapsed),
-    zonePhase: sim.firstLightZonePhase(elapsed),
+    zonePhase: sim.shellZonePhase(elapsed),
     zoneDps: zone.dps,
-    rotateTarget: some(firstLightRotateTarget(selfPos, zone.next)),
+    rotateTarget: some(shellRotateTarget(selfPos, zone.next)),
     coverGoal: none(ValidatedGoal))
 
-proc firstLightZoneLogLine(sim: SimServer): string =
+proc shellZoneLogLine(sim: SimServer): string =
   let
     elapsed = sim.gameTicksElapsed()
     zone = if sim.config.zonePhases.len == 0:
@@ -4024,10 +4024,10 @@ proc firstLightZoneLogLine(sim: SimServer): string =
     else:
       sim.zoneRectAndDps(elapsed)
     field = zoneArrivalFieldDebugState()
-  "FIRST_LIGHT_ZONE tick=" & $(sim.tickCount + 1) &
+  "SHELL_ZONE tick=" & $(sim.tickCount + 1) &
     " elapsed=" & $elapsed &
     " phases=" & $sim.config.zonePhases.len &
-    " phase=" & $sim.firstLightZonePhase(elapsed) &
+    " phase=" & $sim.shellZonePhase(elapsed) &
     " current=[" & $zone.cur.x & "," & $zone.cur.y & "," &
       $zone.cur.w & "," & $zone.cur.h & "]" &
     " next=[" & $zone.next.x & "," & $zone.next.y & "," &
@@ -4038,14 +4038,14 @@ proc firstLightZoneLogLine(sim: SimServer): string =
     " arrival_cells=" & $field.cells &
     " edge_band_shipped=" & $field.shipped
 
-type FirstLightControlSet = tuple[
+type ShellControlSet = tuple[
   controls: seq[SlotControl],
   teams: seq[Team],
   names: seq[string],
   hasPlaySeat: bool
 ]
 
-proc firstLightControlSet(config: GameConfig): FirstLightControlSet =
+proc shellControlSet(config: GameConfig): ShellControlSet =
   for slot in config.slots:
     result.controls.add(slot.control)
     result.teams.add(slot.team)
@@ -4053,32 +4053,31 @@ proc firstLightControlSet(config: GameConfig): FirstLightControlSet =
     if slot.control == scPlay:
       result.hasPlaySeat = true
 
-proc resetFirstLightForSim(episode: var FirstLightEpisode,
+proc resetShellForSim(episode: var ShellEpisode,
                            replayLoaded: bool,
                            config: GameConfig,
                            sim: SimServer,
                            reason: string,
                            configJson = "") =
-  let controlSet = config.firstLightControlSet()
+  let controlSet = config.shellControlSet()
   if not replayLoaded and config.season2Shell and controlSet.hasPlaySeat:
     let mapName =
       if sim.gameMap.name.len > 0: sim.gameMap.name else: config.mapPath
-    episode.resetFirstLightEpisode(
+    episode.resetShellEpisode(
       config.season2Shell, config.brMode, controlSet.controls,
       newBodyMap(sim.gameMap), config.gunRange, controlSet.teams,
       mapName, config.viewIntervalTicks, controlSet.names)
-    echo "FIRST_LIGHT enabled play_seats=", episode.seats.len,
-      " executor=lane-a-fl-b reset=", reason
+    echo "SHELL enabled play_seats=", episode.seats.len, " reset=", reason
     let configured =
-      episode.configureFirstLightDemoPlayFromJsonWithReplayIdentities(configJson)
+      episode.configureDemoPlayFromJsonWithReplayIdentities(configJson)
     for line in configured.lines:
       echo line
     for identity in configured.callIdentities:
       discard queueAcceptedPlayCallIdentity(
         int(identity.seat), some(identity), tickTime(sim.tickCount))
   else:
-    episode.closeFirstLightEpisode()
-    episode = FirstLightEpisode()
+    episode.closeShellEpisode()
+    episode = ShellEpisode()
 
 proc finishAndCopyProfileTrace(done: var bool) =
   if done or not profileEnabled():
@@ -4264,16 +4263,16 @@ proc runServerLoop*(
     broadcastTracker =
       if replayLoaded: move(initializedReplay.tracker)
       else: initBroadcastTracker()
-    firstLightEpisode: FirstLightEpisode
-    firstLightTiming: FirstLightTimingWindow
+    shellEpisode: ShellEpisode
+    shellTiming: ShellTimingWindow
 
-  # FIRST LIGHT is reachable only in a play-seat episode. The default-true
+  # The shell is reachable only in a play-seat episode. The default-true
   # shell with an all-input roster leaves the zero value untouched and never
   # calls into the episode owner.
-  firstLightEpisode.resetFirstLightForSim(replayLoaded, config, sim, "startup",
+  shellEpisode.resetShellForSim(replayLoaded, config, sim, "startup",
     runtimeConfig.config)
   defer:
-    firstLightEpisode.closeFirstLightEpisode()
+    shellEpisode.closeShellEpisode()
 
   while true:
     var
@@ -4355,7 +4354,7 @@ proc runServerLoop*(
         replayPlayer = move(initializedReplay.player)
         broadcastTracker = move(initializedReplay.tracker)
         replayLoaded = true
-        firstLightEpisode.resetFirstLightForSim(
+        shellEpisode.resetShellForSim(
           replayLoaded, config, sim, "replay_switch")
         # The switched-in sim carries a new map, but the board render caches
         # are process-wide — without this, addMapBands keeps splicing the OLD
@@ -4734,13 +4733,13 @@ proc runServerLoop*(
             # would write a second, conflicting mask record per tick.
             appState.inputPressedMasks[websocket] = 0
             continue
-          if firstLightEpisode.enabled and playerIndex >= 0 and
+          if shellEpisode.enabled and playerIndex >= 0 and
               playerIndex < sim.players.len:
             let slot = sim.players[playerIndex].joinOrder
             if slot >= 0 and slot < config.slots.len and
                 config.slots[slot].control == scPlay:
               # A play socket supplies presence and receives its view; it can
-              # never supply an actuator mask. FIRST LIGHT's lane-A seatTick
+              # never supply an actuator mask. The shell's body seatTick
               # handoff below is the sole source for this configured seat.
               appState.inputMasks[websocket] = 0
               appState.inputPressedMasks[websocket] = 0
@@ -4801,7 +4800,7 @@ proc runServerLoop*(
               let playerIndex = muxState.seats[slot].playerIndex
               if playerIndex < 0 or playerIndex >= inputs.len:
                 continue
-              if firstLightEpisode.enabled and
+              if shellEpisode.enabled and
                   playerIndex < sim.players.len:
                 let playerSlot = sim.players[playerIndex].joinOrder
                 if playerSlot >= 0 and playerSlot < config.slots.len and
@@ -4934,7 +4933,7 @@ proc runServerLoop*(
       inc config.seed
       sim = initSimServer(config)
       sim.collectEvents = eventsPath.len > 0
-      firstLightEpisode.resetFirstLightForSim(replayLoaded, config, sim, "reset",
+      shellEpisode.resetShellForSim(replayLoaded, config, sim, "reset",
         runtimeConfig.config)
       # One file describes ONE match. A reset that kept the previous match's
       # events would concatenate two games under a single episode id.
@@ -5001,7 +5000,7 @@ proc runServerLoop*(
 
       let rewardPacket = sim.buildRewardPacket()
       if not replayLoaded and config.isPlaySeatEpisode():
-        sim.pumpPlayOutbound(config, firstLightEpisode)
+        sim.pumpPlayOutbound(config, shellEpisode)
       var
         spritesOffFlags = newSeq[bool](sockets.len)
         playSocketFlags = newSeq[bool](sockets.len)
@@ -5175,10 +5174,10 @@ proc runServerLoop*(
         stepPressedInputMasks = pressedInputMasks
         lastStepInputs = prevInputs
       for _ in 0 ..< playbackSpeed(liveSpeedIndex):
-        var firstLightSeatsThisTick = 0
+        var shellSeatsThisTick = 0
         if config.isPlaySeatEpisode():
           drainPlayIngressAtTickBoundary(
-            firstLightEpisode, uint32(sim.tickCount + 1),
+            shellEpisode, uint32(sim.tickCount + 1),
             uploadWindowClosed = sim.phase >= Playing)
           sim.drainProductionLobbyChats()
           sim.drainProductionBallotCasts()
@@ -5186,9 +5185,9 @@ proc runServerLoop*(
             sim, tickTime(sim.tickCount))
         let phaseBeforeStep = sim.phase
         stepPrevInputs.clearPressedInputMasks(stepPressedInputMasks)
-        if firstLightEpisode.enabled:
-          var frames: seq[FirstLightSeatFrame]
-          let observationFrame = sim.firstLightObservationFrame()
+        if shellEpisode.enabled:
+          var frames: seq[ShellSeatFrame]
+          let observationFrame = sim.shellObservationFrame()
           for playerIndex, player in sim.players:
             let slot = player.joinOrder
             if slot < 0 or slot >= config.slots.len or
@@ -5197,36 +5196,36 @@ proc runServerLoop*(
             if slot < appState.seatTombstones.len and
                 appState.seatTombstones[slot].presence == spTerminal:
               continue
-            let bodyInputs = sim.firstLightBodyInputs(
+            let bodyInputs = sim.shellBodyInputs(
               playerIndex, observationFrame)
-            frames.add(FirstLightSeatFrame(
+            frames.add(ShellSeatFrame(
               seat: uint8(slot),
               playerIndex: playerIndex,
               present: true,
               playing: sim.phase == Playing,
               alive: player.alive,
-              aliveTeams: sim.firstLightAliveTeams(),
+              aliveTeams: sim.shellAliveTeams(),
               motionScale: sim.config.motionScale,
-              velocity: sim.firstLightVelocity(playerIndex),
+              velocity: sim.shellVelocity(playerIndex),
               bodyInputs: bodyInputs,
-              defaultFallbacks: sim.firstLightFallbacks(bodyInputs.self.pos)))
-          let firstLight = firstLightEpisode.step(
+              defaultFallbacks: sim.shellFallbacks(bodyInputs.self.pos)))
+          let shellTick = shellEpisode.step(
             frames, uint32(sim.tickCount + 1))
-          firstLightSeatsThisTick = firstLight.masks.len
-          firstLightTiming.addFirstLightTiming(firstLight)
-          retainProductionModuleStatuses(firstLight.moduleStatuses)
+          shellSeatsThisTick = shellTick.masks.len
+          shellTiming.addShellTiming(shellTick)
+          retainProductionModuleStatuses(shellTick.moduleStatuses)
           retainProductionLadderOutcomes(
-            firstLight.ladderStatuses, firstLight.retuned)
-          for line in firstLight.playLogLines:
+            shellTick.ladderStatuses, shellTick.retuned)
+          for line in shellTick.playLogLines:
             echo line
-          var firstLightMoving, firstLightAiming = 0
-          for mask in firstLight.masks:
+          var shellMoving, shellAiming = 0
+          for mask in shellTick.masks:
             let encoded = mask.input.encodeInputMask()
             if (encoded and (ButtonUp or ButtonDown or
                 ButtonLeft or ButtonRight)) != 0:
-              inc firstLightMoving
+              inc shellMoving
             if (encoded and (ButtonB or ButtonSelect)) != 0:
-              inc firstLightAiming
+              inc shellAiming
             if mask.playerIndex < 0 or mask.playerIndex >= stepInputs.len:
               continue
             stepInputs[mask.playerIndex] = mask.input
@@ -5235,37 +5234,37 @@ proc runServerLoop*(
             replayWriter.writeInputMaskChange(
               tickTime(sim.tickCount), mask.playerIndex,
               encoded)
-          if firstLight.masks.len > 0 and (firstLightMoving > 0 or
-              firstLightAiming > 0 or (sim.tickCount mod 24) == 0):
-            echo "FIRST_LIGHT_MOVEMENT tick=", sim.tickCount + 1,
-              " seats=", firstLight.masks.len,
-              " moving=", firstLightMoving,
-              " aiming=", firstLightAiming
-          if getEnv("FIRST_LIGHT_ZONE_LOG") == "1" and
+          if shellTick.masks.len > 0 and (shellMoving > 0 or
+              shellAiming > 0 or (sim.tickCount mod 24) == 0):
+            echo "SHELL_MOVEMENT tick=", sim.tickCount + 1,
+              " seats=", shellTick.masks.len,
+              " moving=", shellMoving,
+              " aiming=", shellAiming
+          if getEnv("SHELL_ZONE_LOG") == "1" and
               (sim.tickCount < 5 or (sim.tickCount mod 60) == 0):
-            echo sim.firstLightZoneLogLine()
-          for install in firstLight.installs:
+            echo sim.shellZoneLogLine()
+          for install in shellTick.installs:
             echo install.formatInstall()
-          for annotation in firstLight.annotations:
+          for annotation in shellTick.annotations:
             if annotation.kind == akPlayFault:
               echo annotation.formatLifecycleAnnotation(
-                firstLightEpisode.seatDisplayName(annotation.seat.int))
+                shellEpisode.seatDisplayName(annotation.seat.int))
             replayWriter.writeAnnotation(annotation)
           # Cold-planning budget events print on the tick they happen; the
           # follower census prints once a second and on every event tick so
           # the two join by tick. The weapon-path census prints once a second.
-          for event in firstLight.planBudget:
+          for event in shellTick.planBudget:
             echo event.formatPlanBudgetEvent()
           let secondBoundary = (sim.tickCount mod 24) == 0
-          if firstLight.masks.len > 0:
-            if (secondBoundary or firstLight.planBudget.len > 0) and
-                (firstLight.nav.pendingPlans > 0 or
-                 firstLight.nav.stalePathSeats.len > 0 or
-                 firstLight.nav.noPathSeats.len > 0):
-              echo formatNavSummary(uint32(sim.tickCount + 1), firstLight.nav)
+          if shellTick.masks.len > 0:
+            if (secondBoundary or shellTick.planBudget.len > 0) and
+                (shellTick.nav.pendingPlans > 0 or
+                 shellTick.nav.stalePathSeats.len > 0 or
+                 shellTick.nav.noPathSeats.len > 0):
+              echo formatNavSummary(uint32(sim.tickCount + 1), shellTick.nav)
             if secondBoundary:
               echo formatCombatSummary(uint32(sim.tickCount + 1),
-                firstLight.combat)
+                shellTick.combat)
           # The give-item HANDOFF drain, written in the reflash drain's
           # shape on purpose (see the policy-page drain above): declare at
           # this tick boundary, and record EXACTLY what the consent seam
@@ -5279,7 +5278,7 @@ proc runServerLoop*(
           # standing order. declareHandoff is the single predicate this
           # path and playback consult, so the file can never claim a
           # declaration the sim refused, nor omit one it took.
-          for declared in firstLight.handoffs:
+          for declared in shellTick.handoffs:
             if declared.playerIndex < 0 or
                 declared.playerIndex >= sim.players.len:
               continue
@@ -5300,7 +5299,7 @@ proc runServerLoop*(
           # is the single predicate this path and playback consult, so the
           # file can never claim a declaration the sim refused, nor omit
           # one it took.
-          for declared in firstLight.pactDeclarations:
+          for declared in shellTick.pactDeclarations:
             if declared.playerIndex < 0 or
                 declared.playerIndex >= sim.players.len:
               continue
@@ -5367,16 +5366,16 @@ proc runServerLoop*(
           sim.phase = GameOver
           quitAfterFrame = true
           break
-        let timingLine = firstLightTiming.finishFirstLightTimingTick(
-          uint32(sim.tickCount), firstLightSeatsThisTick, simNanoseconds)
+        let timingLine = shellTiming.finishShellTimingTick(
+          uint32(sim.tickCount), shellSeatsThisTick, simNanoseconds)
         if timingLine.len > 0:
           echo timingLine
-        if firstLightEpisode.enabled:
+        if shellEpisode.enabled:
           # Death is observed immediately after the sim step that caused it,
           # so clear-on-death carries that completed tick rather than waiting
           # for the next actuator pass. This hook performs no second default,
           # body call, or mask handoff.
-          var lifecycleFrames: seq[FirstLightSeatFrame]
+          var lifecycleFrames: seq[ShellSeatFrame]
           for playerIndex, player in sim.players:
             let slot = player.joinOrder
             if slot < 0 or slot >= config.slots.len or
@@ -5385,19 +5384,19 @@ proc runServerLoop*(
             if slot < appState.seatTombstones.len and
                 appState.seatTombstones[slot].presence == spTerminal:
               continue
-            let selfState = sim.firstLightSelfState(playerIndex)
-            lifecycleFrames.add(FirstLightSeatFrame(
+            let selfState = sim.shellSelfState(playerIndex)
+            lifecycleFrames.add(ShellSeatFrame(
               seat: uint8(slot),
               playerIndex: playerIndex,
               present: true,
               playing: false,
               alive: player.alive,
-              aliveTeams: sim.firstLightAliveTeams(),
+              aliveTeams: sim.shellAliveTeams(),
               motionScale: sim.config.motionScale,
-              velocity: sim.firstLightVelocity(playerIndex),
+              velocity: sim.shellVelocity(playerIndex),
               bodyInputs: BodyTickInputs(self: selfState),
-              defaultFallbacks: sim.firstLightFallbacks(selfState.pos)))
-          for annotation in firstLightEpisode.observeDeaths(
+              defaultFallbacks: sim.shellFallbacks(selfState.pos)))
+          for annotation in shellEpisode.observeDeaths(
               lifecycleFrames, uint32(sim.tickCount)):
             echo annotation.formatLifecycleAnnotation()
             replayWriter.writeAnnotation(annotation)
@@ -5470,11 +5469,11 @@ proc runServerLoop*(
     let rewardPacket = sim.buildRewardPacket()
 
     if not replayLoaded and config.isPlaySeatEpisode():
-      sim.pumpPlayOutbound(config, firstLightEpisode)
+      sim.pumpPlayOutbound(config, shellEpisode)
 
     if not replayLoaded and sim.needsReregister:
       sim.needsReregister = false
-      firstLightEpisode.resetFirstLightForSim(
+      shellEpisode.resetShellForSim(
         replayLoaded, config, sim, "reregister", runtimeConfig.config)
       liveOverlays = @[]
       # A round transition WITHIN the same match (roster/tick count both

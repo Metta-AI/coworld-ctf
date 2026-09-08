@@ -1039,11 +1039,11 @@ proc playViewSourceFromBody*(body: SeatBody, tick: uint32, mode: GameMode,
   # tracks comment, §5.2): full trust, not fog-limited like the loop above.
   # `body.tracks[]` never carries the partner (same-team seats are excluded
   # from `visibleTracks` at the seam, src/ctf/server.nim
-  # firstLightBodyInputs), so this is the only place a partner row can come
+  # shellBodyInputs), so this is the only place a partner row can come
   # from. `downed` is why this row exists for LOOT(s2): a policy cannot
   # revive a partner it cannot see is down. `hasGun`/`hasHopper` ride the
   # same grant (PERCEPTION, glory-2 §17) -- already gated to false at the
-  # source (src/ctf/server.nim firstLightPartner) whenever
+  # source (src/ctf/server.nim shellPartner) whenever
   # frameLoadoutFlags is dark, so this row needs no gate of its own.
   let partner = body.partnerTelemetry()
   if partner.isSome:

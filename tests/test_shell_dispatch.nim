@@ -151,8 +151,8 @@ when DispatchRuntimeAvailable:
       "\",\"params\":{\"bias\":" & $bias &
       "},\"play\":\"" & name & "\"" & retuneField & "}]}"
 
-  proc liveSeatFrame(tick: int): FirstLightSeatFrame =
-    FirstLightSeatFrame(
+  proc liveSeatFrame(tick: int): ShellSeatFrame =
+    ShellSeatFrame(
       seat: 0, playerIndex: 0, present: true, playing: true, alive: true,
       bodyInputs: BodyTickInputs(
         self: BodySelfState(pos: (20, 128), hp: 4, hpFrac: 1.0,
@@ -979,10 +979,10 @@ suite "server play outbound arm":
       let websocket = cast[WebSocket](801)
       check websocket.registerPlayerWebSocket("play", 0, "")
       var simServer = initSimServer(config)
-      var episode: FirstLightEpisode
-      episode.resetFirstLightForSim(false, config, simServer, "test")
+      var episode: ShellEpisode
+      episode.resetShellForSim(false, config, simServer, "test")
       defer:
-        episode.closeFirstLightEpisode()
+        episode.closeShellEpisode()
 
       websocketHandler(websocket, MessageEvent, binaryMessage(
         ModuleUploadPacket(
@@ -1067,10 +1067,10 @@ suite "server play outbound arm":
       let websocket = cast[WebSocket](811)
       check websocket.registerPlayerWebSocket("play", 0, "")
       var simServer = initSimServer(config)
-      var episode: FirstLightEpisode
-      episode.resetFirstLightForSim(false, config, simServer, "test")
+      var episode: ShellEpisode
+      episode.resetShellForSim(false, config, simServer, "test")
       defer:
-        episode.closeFirstLightEpisode()
+        episode.closeShellEpisode()
       let moduleBytes = retunePlayModuleBytes("late_call", false)
 
       websocketHandler(websocket, MessageEvent, binaryMessage(
@@ -1100,7 +1100,7 @@ suite "server play outbound arm":
           sleep(1)
         inc tick
       check ready
-      let beforeCall = episode.firstLightRecovery(0)
+      let beforeCall = episode.shellRecovery(0)
       check beforeCall.playbook.len == 1
       check beforeCall.playbook[0].name == "late_call"
 
@@ -1111,7 +1111,7 @@ suite "server play outbound arm":
         ).encodePacket()))
       drainPlayIngressAtTickBoundary(episode, tick,
         uploadWindowClosed = true)
-      let recovery = episode.firstLightRecovery(0)
+      let recovery = episode.shellRecovery(0)
       check recovery.epoch == 1
       check recovery.call.isSome
       check recovery.call.get.proposalId == 3
@@ -1124,7 +1124,7 @@ suite "server play outbound arm":
         ).encodePacket()))
       drainPlayIngressAtTickBoundary(episode, tick + 1,
         uploadWindowClosed = true)
-      let retuned = episode.firstLightRecovery(0)
+      let retuned = episode.shellRecovery(0)
       check retuned.epoch == 2
       check retuned.call.isSome
       check retuned.call.get.proposalId == 4
@@ -1146,10 +1146,10 @@ suite "server play outbound arm":
       let websocket = cast[WebSocket](811)
       check websocket.registerPlayerWebSocket("play", 0, "")
       var simServer = initSimServer(config)
-      var episode: FirstLightEpisode
-      episode.resetFirstLightForSim(false, config, simServer, "wire-replay")
+      var episode: ShellEpisode
+      episode.resetShellForSim(false, config, simServer, "wire-replay")
       defer:
-        episode.closeFirstLightEpisode()
+        episode.closeShellEpisode()
         if fileExists(path):
           removeFile(path)
 
@@ -1222,7 +1222,7 @@ suite "server play outbound arm":
         moduleBytes = retunePlayModuleBytes(playName, false)
         expectedCall = retuneCallBytes(playName, 0)
         configJson = $(%*{
-          "firstLightPlay": {
+          "demoPlay": {
             "modulePath": modulePath,
             "playName": playName,
             "params": {"bias": 0},
@@ -1234,15 +1234,15 @@ suite "server play outbound arm":
       appState.config = config
       configurePlayIngress(config)
       var simServer = initSimServer(config)
-      var episode: FirstLightEpisode
+      var episode: ShellEpisode
       defer:
-        episode.closeFirstLightEpisode()
+        episode.closeShellEpisode()
         if fileExists(path):
           removeFile(path)
         if fileExists(modulePath):
           removeFile(modulePath)
 
-      episode.resetFirstLightForSim(
+      episode.resetShellForSim(
         false, config, simServer, "config-replay", configJson)
       check appState.pendingPlayCallRecords.len == 1
       let queued = appState.pendingPlayCallRecords[0]
@@ -1272,9 +1272,9 @@ suite "server play outbound arm":
     appState.config = config
     configurePlayIngress(config)
     check not queueAcceptedPlayCallIdentity(
-      0, none(FirstLightCallReplayIdentity), 0)
+      0, none(ShellCallReplayIdentity), 0)
     check not queueAcceptedPlayCallIdentity(
-      0, some(FirstLightCallReplayIdentity(seat: 9)), 0)
+      0, some(ShellCallReplayIdentity(seat: 9)), 0)
     check appState.pendingPlayCallRecords.len == 0
     check appState.playIngressFeedbackErrors == 2
     check appState.playIngress[0].counters.feedbackErrors == 2
@@ -1288,9 +1288,9 @@ suite "server play outbound arm":
       let websocket = cast[WebSocket](806)
       check websocket.registerPlayerWebSocket("play", 0, "")
       var simServer = initSimServer(config)
-      var episode: FirstLightEpisode
-      episode.resetFirstLightForSim(false, config, simServer, "retune-success")
-      defer: episode.closeFirstLightEpisode()
+      var episode: ShellEpisode
+      episode.resetShellForSim(false, config, simServer, "retune-success")
+      defer: episode.closeShellEpisode()
 
       websocketHandler(websocket, MessageEvent, binaryMessage(
         ModuleUploadPacket(uploadId: 1,
@@ -1382,9 +1382,9 @@ suite "server play outbound arm":
       let websocket = cast[WebSocket](807)
       check websocket.registerPlayerWebSocket("play", 0, "")
       var simServer = initSimServer(config)
-      var episode: FirstLightEpisode
-      episode.resetFirstLightForSim(false, config, simServer, "retune-refusal")
-      defer: episode.closeFirstLightEpisode()
+      var episode: ShellEpisode
+      episode.resetShellForSim(false, config, simServer, "retune-refusal")
+      defer: episode.closeShellEpisode()
 
       websocketHandler(websocket, MessageEvent, binaryMessage(
         ModuleUploadPacket(uploadId: 1,
@@ -1452,7 +1452,7 @@ suite "server play outbound arm":
     let config = playConfig(scPlay)
     appState.config = config
     configurePlayIngress(config)
-    let spontaneous = FirstLightLadderStatus(
+    let spontaneous = ShellLadderStatus(
       seat: 0, entryId: "spontaneous",
       status: StatusEntry(kind: skPlayFaulted, ordinal: 1,
         originGeneration: 1, faultEpoch: 1, entryId: "spontaneous",
@@ -1464,9 +1464,9 @@ suite "server play outbound arm":
     check appState.playIngress[0].snapshot.reservedStatusSlots == 0
     check appState.playIngressFeedbackErrors == 0
 
-    retainProductionLadderOutcomes([], [FirstLightEntryIdentity(
+    retainProductionLadderOutcomes([], [ShellEntryIdentity(
       seat: 0, entryId: "unknown", play: "unknown")])
-    retainProductionLadderOutcomes([], [FirstLightEntryIdentity(
+    retainProductionLadderOutcomes([], [ShellEntryIdentity(
       seat: 99, entryId: "bad-seat", play: "bad-seat")])
     check appState.playIngressFeedbackErrors == 2
     check appState.playIngress[0].counters.feedbackErrors == 1
@@ -1481,7 +1481,7 @@ suite "server play outbound arm":
     check oldSocket.registerPlayerWebSocket("play", 0, "token")
     appState.outstandingPlayCalls[0].add(OutstandingPlayCall(
       proposalId: 7,
-      pendingRetunes: @[FirstLightEntryIdentity(
+      pendingRetunes: @[ShellEntryIdentity(
         seat: 0, entryId: "held", play: "held")]))
     check newSocket.registerPlayerWebSocket("play", 0, "token")
     check appState.outstandingPlayCalls[0].len == 1
@@ -1500,10 +1500,10 @@ suite "server play outbound arm":
       let websocket = cast[WebSocket](804)
       check websocket.registerPlayerWebSocket("play", 0, "")
       var simServer = initSimServer(config)
-      var episode: FirstLightEpisode
-      episode.resetFirstLightForSim(false, config, simServer, "load-test")
+      var episode: ShellEpisode
+      episode.resetShellForSim(false, config, simServer, "load-test")
       defer:
-        episode.closeFirstLightEpisode()
+        episode.closeShellEpisode()
 
       let started = epochTime()
       for uploadId in 1'u64 .. 10_000'u64:
@@ -1538,10 +1538,10 @@ suite "server play outbound arm":
       let websocket = cast[WebSocket](808)
       check websocket.registerPlayerWebSocket("play", 0, "")
       var simServer = initSimServer(config)
-      var episode: FirstLightEpisode
-      episode.resetFirstLightForSim(false, config, simServer, "call-load")
+      var episode: ShellEpisode
+      episode.resetShellForSim(false, config, simServer, "call-load")
       defer:
-        episode.closeFirstLightEpisode()
+        episode.closeShellEpisode()
         if fileExists(path):
           removeFile(path)
 
@@ -1619,7 +1619,7 @@ suite "server play outbound arm":
       installProductionPlayConsumers(config)
       let websocket = cast[WebSocket](805)
       check websocket.registerPlayerWebSocket("play", 0, "")
-      var episode = FirstLightEpisode(enabled: true, rosterSize: 1)
+      var episode = ShellEpisode(enabled: true, rosterSize: 1)
       websocketHandler(websocket, MessageEvent, binaryMessage(
         ModuleUploadPacket(uploadId: 7, wasm: "wasm").encodePacket()))
       websocketHandler(websocket, MessageEvent, binaryMessage(
@@ -1697,9 +1697,9 @@ suite "server play outbound arm":
     discard simServer.addPlayer("input", 1, "input", trusted = true)
     let noInputs: seq[InputState] = @[]
     simServer.step(noInputs, noInputs)
-    var episode: FirstLightEpisode
+    var episode: ShellEpisode
     defer:
-      episode.closeFirstLightEpisode()
+      episode.closeShellEpisode()
     var firstSocket: WebSocket
     withLock appState.lock:
       for socket, slot in appState.playerSlots.pairs:
@@ -1709,7 +1709,7 @@ suite "server play outbound arm":
       appState.seatPlayerIndices[0] = 0
       appState.playIngress[0].playerIndex = 0
     when DispatchRuntimeAvailable:
-      episode.resetFirstLightForSim(false, config, simServer, "test")
+      episode.resetShellForSim(false, config, simServer, "test")
       first.sendBinary(ModuleUploadPacket(
         uploadId: 1, wasm: validPlayModuleBytes()).encodePacket())
       let uploadDeadline = epochTime() + 5.0
@@ -1722,13 +1722,13 @@ suite "server play outbound arm":
         sleep(5)
       drainPlayIngressAtTickBoundary(episode, 1)
       var tick = 1'u32
-      while episode.firstLightRecovery(0).playbook.len == 0 and tick < 5000:
+      while episode.shellRecovery(0).playbook.len == 0 and tick < 5000:
         let output = episode.step([], tick)
         retainProductionModuleStatuses(output.moduleStatuses)
         if output.moduleStatuses.len == 0:
           sleep(1)
         inc tick
-      check episode.firstLightRecovery(0).playbook.len == 1
+      check episode.shellRecovery(0).playbook.len == 1
 
       first.sendBinary(PlayCallPacket(
         proposalId: 2,
@@ -1745,7 +1745,7 @@ suite "server play outbound arm":
         sleep(5)
       drainPlayIngressAtTickBoundary(episode, tick,
         uploadWindowClosed = true)
-      check episode.firstLightRecovery(0).epoch == 1
+      check episode.shellRecovery(0).epoch == 1
 
     simServer.pumpPlayOutbound(config, episode)
     let firstContext = decodeServerPacket(first.recvBinary())
