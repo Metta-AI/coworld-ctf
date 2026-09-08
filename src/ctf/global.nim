@@ -2063,13 +2063,22 @@ proc addBoardSpriteChanged(
   pixels: openArray[uint8],
   label: string,
   changed = false,
-  native = 1
+  native = 1,
+  spritesOff = false
 ) {.measure.} =
   ## addSpriteChanged for BOARD sprites: `width`/`height` stay in logical map
   ## pixels; the wire sprite ships at boardScale× those dims. `native` is the
   ## scale `pixels` was rasterized at — 1 (upscaled here on emission) or
   ## boardScale (already high-res; passed through). The dedup check runs
   ## before any upscale so per-frame callers pay nothing when unchanged.
+  ##
+  ## OPT-09/SV-6: `spritesOff` marks `pixels` as an intentional empty
+  ## placeholder (the caller skipped rasterizing for a bot whose bytes
+  ## `stripSpritePixels` throws away anyway) — route it straight to
+  ## `addSpriteChanged` at the OUTPUT dims with no upscale, same as the
+  ## `native == boardScale` branch. `scaleSpritePixels` validates its input
+  ## is exactly width*height*{1,4} bytes and raises otherwise, so it must
+  ## never see an empty buffer here.
   doAssert label.len > 0, "sprite " & $spriteId & " needs a non-empty label"
   let
     outW = width * boardScale
@@ -2080,7 +2089,7 @@ proc addBoardSpriteChanged(
       defs[index].label == label and
       not changed:
     return
-  if native == boardScale:
+  if spritesOff or native == boardScale:
     packet.addSpriteChanged(defs, spriteId, outW, outH, pixels, label, changed)
   else:
     packet.addSpriteChanged(
@@ -4424,11 +4433,21 @@ proc buildSpriteProtocolTextSprite(
   lines: openArray[string],
   color: uint8,
   struck = false,
-  smooth = false
+  smooth = false,
+  spritesOff = false
 ): tuple[width, height: int, pixels: seq[uint8]] {.measure.} =
   ## Builds a transparent multi-line text sprite. With `smooth` (and a
   ## supersampled board), the vector face at boardScale× — LOGICAL dims,
   ## native pixels; callers emit with native = boardScale.
+  ##
+  ## OPT-09/SV-6: a Sprites Off (0x87) viewer's pixels are thrown away by
+  ## `stripSpritePixels` right before the socket write (server.nim) — every
+  ## text sprite built for a bot paid the full glyph-blit cost for bytes
+  ## that never leave the process. `spritesOff` skips exactly that blit
+  ## loop; width/height are still computed (object placement math reads
+  ## them, e.g. right-aligning the lives/weapon HUD readouts) so the
+  ## resulting defs/objects are identical to the non-strip path, only the
+  ## pixel payload is empty going in instead of stripped coming out.
   if smooth and boardScale > 1:
     let c = Palette[color and 0x0f]
     return smoothTextSprite(lines, c.r, c.g, c.b, boardScale, TextLineHeight,
@@ -4437,6 +4456,9 @@ proc buildSpriteProtocolTextSprite(
   for line in lines:
     result.width = max(result.width, game.asciiSprites.textWidth(line))
   result.height = max(1, lines.len * TextLineHeight)
+  if spritesOff:
+    result.pixels = @[]
+    return
   result.pixels = newRgbaPixels(result.width, result.height)
   for lineIndex, line in lines:
     let baseY = lineIndex * TextLineHeight
@@ -4666,7 +4688,8 @@ proc addTeamScoreboard(
   sim: SimServer,
   spriteDefs: var seq[SpriteDefinition],
   currentIds: var seq[int],
-  packet: var seq[uint8]
+  packet: var seq[uint8],
+  spritesOff = false
 ) {.measure.} =
   ## Adds the team kills/deaths scoreboard above the field: red on the left,
   ## blue on the right, each in its team color. Playing only — interstitial
@@ -4697,7 +4720,8 @@ proc addTeamScoreboard(
   for team in sim.teams():
     let text = teamText(team).toUpperAscii() & " " &
       $kills[team] & "/" & $deaths[team]
-    let sprite = sim.buildSpriteProtocolTextSprite([text], teamColor(team))
+    let sprite = sim.buildSpriteProtocolTextSprite(
+      [text], teamColor(team), spritesOff = spritesOff)
     totalWidth += sprite.width + TeamScoreGap
     chips.add((team: team, text: text, sprite: sprite))
   var x = max(0, (TeamScoreWidth - totalWidth) div 2)
@@ -7141,7 +7165,8 @@ proc addHpPips(
   spriteDefs: var seq[SpriteDefinition],
   currentIds: var seq[int],
   packet: var seq[uint8],
-  viewerIndex = -1
+  viewerIndex = -1,
+  spritesOff = false
 ) {.measure.} =
   ## Places a true-hit-point health bar above each living player's head:
   ## green pips for remaining base hp out of the seat's OWN max (the
@@ -7165,13 +7190,21 @@ proc addHpPips(
     let shieldHp = max(0, player.shieldHp)
     let width = hpBarWidth(maxHp + shieldHp)
     let spriteId = HpPipSpriteBase + i
+    # OPT-09/SV-6: a Sprites Off (0x87) bot viewer's pixels are stripped by
+    # `stripSpritePixels` right before the socket write — building the pip
+    # raster (a small per-pip nested loop, every living visible player,
+    # every tick) just to throw it away is pure waste for that viewer.
+    let hpBarPixels =
+      if spritesOff: newSeq[uint8](0)
+      else: buildHpBarSprite(hp, maxHp, shieldHp)
     packet.addBoardSpriteChanged(
       spriteDefs,
       spriteId,
       width,
       HpBarH,
-      buildHpBarSprite(hp, maxHp, shieldHp),
-      labelHp(hp, maxHp, shieldHp)
+      hpBarPixels,
+      labelHp(hp, maxHp, shieldHp),
+      spritesOff = spritesOff
     )
     let objectId = HpPipObjectBase + i
     currentIds.add(objectId)
@@ -7237,7 +7270,8 @@ proc addIdentityBadges(
   spriteDefs: var seq[SpriteDefinition],
   currentIds: var seq[int],
   packet: var seq[uint8],
-  viewerIndex = -1
+  viewerIndex = -1,
+  spritesOff = false
 ) {.measure.} =
   ## Places each living player's identity badge (a Greek letter, alpha..theta
   ## by slot order within the team) on the soldier body.
@@ -7289,14 +7323,21 @@ proc addIdentityBadges(
     # drop a rebuilt-but-identical sprite on the floor after paying for it.
     let defIndex = spriteDefs.spriteDefinitionIndex(spriteId)
     if defIndex < 0 or spriteDefs[defIndex].label != label:
+      # OPT-09/SV-6: a spritesOff (bot) viewer never keeps these pixels
+      # past `stripSpritePixels` — skip the raster, keep the same
+      # id/dims/label the strip path would have left behind.
+      let badgePixels =
+        if spritesOff: newSeq[uint8](0)
+        else: buildIdentityBadgeSprite(player.team, identityIndex, rot, boardScale)
       packet.addBoardSpriteChanged(
         spriteDefs,
         spriteId,
         IdentityBadgeSize,
         IdentityBadgeSize,
-        buildIdentityBadgeSprite(player.team, identityIndex, rot, boardScale),
+        badgePixels,
         label,
-        native = boardScale
+        native = boardScale,
+        spritesOff = spritesOff
       )
     # On the board, step BACK along the aim onto the bare plate behind the
     # visor; a player view keeps the badge dead-centered on the body.
@@ -8094,7 +8135,8 @@ proc buildSpriteProtocolPlayerUpdates*(
       nextState.spriteDefs,
       currentIds,
       result,
-      viewerIndex = playerIndex
+      viewerIndex = playerIndex,
+      spritesOff = spritesOff
     )
     sim.addVeteranMarks(
       nextState.spriteDefs,
@@ -8106,7 +8148,8 @@ proc buildSpriteProtocolPlayerUpdates*(
       nextState.spriteDefs,
       currentIds,
       result,
-      viewerIndex = playerIndex
+      viewerIndex = playerIndex,
+      spritesOff = spritesOff
     )
     if not spritesOff:
       sim.addSplatters(
@@ -8237,7 +8280,8 @@ proc buildSpriteProtocolPlayerUpdates*(
           $(player.hp + player.shieldHp) & "hp"
         else:
           $(player.hp + player.shieldHp) & "hp x" & $player.lives
-      lives = sim.buildSpriteProtocolTextSprite([livesText], 2'u8)
+      lives = sim.buildSpriteProtocolTextSprite(
+        [livesText], 2'u8, spritesOff = spritesOff)
     currentIds.add(SelectedTextObjectId)
     result.addSpriteChanged(
       nextState.spriteDefs,
@@ -8262,7 +8306,8 @@ proc buildSpriteProtocolPlayerUpdates*(
     # label is the machine contract ("weapon gun" | "weapon spray").
     let
       weaponText = if player.hasSprayPaint: LabelWeaponSpray else: LabelWeaponGun
-      weapon = sim.buildSpriteProtocolTextSprite([weaponText], 2'u8)
+      weapon = sim.buildSpriteProtocolTextSprite(
+        [weaponText], 2'u8, spritesOff = spritesOff)
     currentIds.add(SpritePlayerWeaponObjectId)
     result.addSpriteChanged(
       nextState.spriteDefs,
@@ -8398,7 +8443,8 @@ proc buildSpriteProtocolPlayerUpdates*(
       SpritePlayerOwnAimSpriteId
     )
 
-  sim.addTeamScoreboard(nextState.spriteDefs, currentIds, result)
+  sim.addTeamScoreboard(
+    nextState.spriteDefs, currentIds, result, spritesOff = spritesOff)
 
   if not state.isNil:
     for objectId in state.objectIds:
