@@ -2777,6 +2777,24 @@ proc recutJointActOnDamage(sim: var SimServer,
   ## never reaches here. Priced at the VICTIM's site, like every
   ## victim-site deed (Amendment 7 §1's territory precedent).
   ##
+  ## ALLIANCE GATE (owner ruling 2026-09-08, task f3fe0b4f, GloryVersion
+  ## 15): JOINT ACT is an ALLIANCE deed, not a co-fire deed — a
+  ## contributing seat mints ONLY if it shares an ACTIVE formal pact
+  ## (`pactActive`, the GV56 mutual-pact registry) with at least one
+  ## OTHER contributing team on this same incident. Two-plus unallied
+  ## teams jackaling the same victim (the pre-gate behaviour) now mints
+  ## NOTHING for anyone — the ≥2-duos test below stays as the cheap
+  ## necessary-but-not-sufficient early-out (a pact needs a second team
+  ## to exist at all), and the real gate is the per-seat pact check in
+  ## the mint loop. Own-team contributors are unaffected: a duo was never
+  ## required to hold a pact with itself, so a duo's second seat still
+  ## rides in once ANY of its teammates clears the cross-team pact check
+  ## against another contributing team. A seat with no pact partner yet
+  ## simply stays pending (not marked minted) and gets re-evaluated on
+  ## the incident's next qualifying hit — mirroring the pre-existing
+  ## retroactive-mint behaviour for seats that arrived before the
+  ## ≥2-duos threshold was met.
+  ##
   ## Called ONLY armed+winAsMultiplier+brMode — a dark or v13-armed game
   ## never touches `recutJointSeats`, which is the byte-identity guard.
   while sim.recutJointSeats.len < sim.players.len:
@@ -2815,6 +2833,14 @@ proc recutJointActOnDamage(sim: var SimServer,
   var minting: seq[int] = @[]
   for entry in sim.recutJointSeats[victimIndex].mitems:
     if entry.minted:
+      continue
+    let selfTeam = sim.players[entry.seat].team
+    var pactPartner = false
+    for t in duos:
+      if t != selfTeam and sim.pactActive(selfTeam, t):
+        pactPartner = true
+        break
+    if not pactPartner:
       continue
     entry.minted = true
     minting.add entry.seat

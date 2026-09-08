@@ -298,9 +298,31 @@ type
                        ## from 2nd. Recut class x4.
 
 const
-  GloryVersion* = 14
+  GloryVersion* = 15
     ## Bumped on any pricing change, so a ledger can be attributed to the
     ## table that produced it. A cross-version comparison is invalid.
+    ##
+    ## v15 (2026-09-08, dJointAct pact-gated: alliance-only -- owner ruling
+    ## 2026-09-08, S2 lead session, task f3fe0b4f): JOINT ACT pays ONLY
+    ## contributors that share an ACTIVE formal pact (`pactActive`, the
+    ## GV56 mutual-pact registry) with at least one OTHER contributing
+    ## team on the same 120-tick damage incident
+    ## (`recutJointActOnDamage`, sim.nim). Previously ANY >=2 distinct
+    ## teams that co-damaged one victim minted the deed for every
+    ## contributor regardless of alliance -- unallied third-party co-fire
+    ## ("jackal" damage) minted for free. A seat with no pact partner on
+    ## the incident now mints NOTHING; it stays pending and mints later
+    ## if a pact forms (or another pact-linked team joins) before the
+    ## incident chain breaks. Same-team contributions are unaffected -- a
+    ## duo was never required to pact with itself. Sibling deed dTagBack
+    ## checked and left alone: its cross-team tagger qualification
+    ## already requires `pactActive` as a PRECONDITION of the revive
+    ## itself (ALLIANCE P1, 2026-09-07, sim.nim ~8068), so a non-pact
+    ## cross-team revive cannot occur and dTagBack cannot mint without a
+    ## pact today -- no code change needed there. Wire types unchanged
+    ## (deed enum, `awardDeed` signature, `RecutClassTable` row all
+    ## untouched): GameVersion NOT bumped, this is a GloryVersion-only
+    ## pricing change.
     ##
     ## v14 (2026-09-06, THE SOLO RECUT + HEAT ARM E -- sized VERBATIM from
     ## `~/.ctf/handoff/2026-09-06-recut-sizing.md` (1,494 hosted episode
