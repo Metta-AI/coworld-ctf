@@ -357,6 +357,9 @@ suite "shell reflexes":
     check decision.order.provenance.base.kind == pbReflex
     check decision.order.provenance.base.reflexName == ReflexClearGrenadeName
     check decision.order.contributingEpoch == 7
+    check decision.order.intent.idleAimCenterBrads == 0
+    check "\"idle_aim_center_brads\":0" in
+      canonicalIntent(decision.order.intent)
     check state.telemetry[^1].kind == rtTriggered
 
     let boundary = VisibleGrenade(predictedBlastPos: (100, 100),

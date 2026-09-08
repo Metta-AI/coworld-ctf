@@ -1,4 +1,4 @@
-## Phase P3-1/P3-FL: standing-order default install bound to lane A FL-B body.
+## Standing-order default install bound to the shell body.
 
 import std/[json, options, unittest]
 import bitworld/spriteprotocol
@@ -33,7 +33,6 @@ proc fallback(map: BodyMap): BrDefaultFallbacks =
     nextZone: MapRect(x: 50, y: 50, w: 200, h: 200),
     ticksToNextShrink: BrRotateLeadTicks + 1,
     zoneDps: 1,
-    idleAimCenterBrads: 64,
     coverGoal: none(ValidatedGoal))
 
 proc bodyFixture(): SeatBody =
@@ -46,30 +45,30 @@ suite "shell standing order":
     var standing: StandingOrderState
     var facts = fallback(body.map)
 
-    standing.stepFirstLightDefault(body, 1, facts)
+    standing.stepShellDefault(body, 1, facts)
     check standing.annotations.len == 1
 
     # An identical consecutive default is still recomputed but writes no
     # annotation and performs no body install.
-    standing.stepFirstLightDefault(body, 2, facts)
+    standing.stepShellDefault(body, 2, facts)
     check standing.annotations.len == 1
 
     # Zone change: rotate on the same tick.
     facts.ticksToNextShrink = BrRotateLeadTicks
     facts.rotateTarget = some((200, 200))
-    standing.stepFirstLightDefault(body, 3, facts)
+    standing.stepShellDefault(body, 3, facts)
 
     # Threat change: hold cover on the same tick.
     facts.ticksToNextShrink = BrRotateLeadTicks + 1
     facts.rotateTarget = none(BodyPoint)
     facts.coverGoal = some(body.map.goal(40, 40))
     body.updateBelief(inputs(tick = 4'u32, threats = @[(300, 300)]), 4)
-    standing.stepFirstLightDefault(body, 4, facts)
+    standing.stepShellDefault(body, 4, facts)
 
     # Partner change: leash on the same tick.
     facts.coverGoal = none(ValidatedGoal)
     body.updateBelief(inputs(partner = (399, 399)), 5)
-    standing.stepFirstLightDefault(body, 5, facts)
+    standing.stepShellDefault(body, 5, facts)
 
     check standing.annotations.len == 4
     check standing.effectiveEpoch == 0
@@ -83,19 +82,19 @@ suite "shell standing order":
         annotation.intentBytes))
 
     check standing.annotations[0].intentBytes ==
-      "{\"arrive_radius\":0.0,\"idle_aim_center_brads\":64," &
+      "{\"arrive_radius\":0.0,\"idle_aim_center_brads\":0," &
       "\"kind\":\"hold\",\"reason\":\"default:hold\"," &
       "\"schema\":\"intent\",\"v\":1}"
     check standing.annotations[1].intentBytes ==
-      "{\"arrive_radius\":48.0,\"idle_aim_center_brads\":64," &
+      "{\"arrive_radius\":48.0,\"idle_aim_center_brads\":0," &
       "\"kind\":\"navigate_to\",\"point\":[200,200]," &
       "\"reason\":\"default:rotate\",\"schema\":\"intent\",\"v\":1}"
     check standing.annotations[2].intentBytes ==
-      "{\"arrive_radius\":24.0,\"idle_aim_center_brads\":64," &
+      "{\"arrive_radius\":24.0,\"idle_aim_center_brads\":0," &
       "\"kind\":\"navigate_to\",\"point\":[40,40]," &
       "\"reason\":\"default:cover\",\"schema\":\"intent\",\"v\":1}"
     check standing.annotations[3].intentBytes ==
-      "{\"arrive_radius\":64.0,\"idle_aim_center_brads\":64," &
+      "{\"arrive_radius\":64.0,\"idle_aim_center_brads\":0," &
       "\"kind\":\"navigate_to\",\"moving_goal\":true," &
       "\"point\":[399,399],\"reason\":\"default:partner\"," &
       "\"schema\":\"intent\",\"v\":1}"
@@ -120,4 +119,4 @@ suite "shell standing order":
     let input = body.seatTick(BodyTickInputs(
       self: BodySelfState(pos: (10, 10), hp: 4, hpFrac: 1.0, aimBrads: 0,
         alive: true, carrying: false)), 11)
-    check input.encodeInputMask() == 0
+    check input.encodeInputMask() == ButtonB

@@ -78,11 +78,11 @@ RUN wasmtime_root="$(sed -n 's/^WASMTIME_C_API=//p' /tmp/runtime_deps.env)" && \
     play_sdk/reference/edge_ride.nim && \
   WASMTIME_C_API="$wasmtime_root" nim c --threads:on -d:release \
     -d:noSignalHandler -d:shellStaticWasmtime \
-    --hints:off --path:src --nimcache:/tmp/first-light-probe-nimcache \
-    --out:first-light-probe \
-    tools/first_light_probe.nim
+    --hints:off --path:src --nimcache:/tmp/shell-probe-nimcache \
+    --out:shell-probe \
+    tools/shell_probe.nim
 
-CMD ["./first-light-probe"]
+CMD ["./shell-probe"]
 
 # Run Docker.
 FROM debian:bookworm-slim

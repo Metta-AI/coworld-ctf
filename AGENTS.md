@@ -168,7 +168,9 @@ The authoritative design for Season 2 (language-model policies that upload
 WebAssembly "plays", a game-side body ported from stencil, an embedded
 wasmtime runtime, the play-seat protocol, and the engine-native lobby chat
 phase) is `docs/designs/strategy-play-calling-shell-2026-08-29.md`, with a
-commentable HTML twin beside it. The body, runtime, play-seat protocol,
+commentable HTML twin beside it. The unratified spatial-knowledge proposal is
+`docs/designs/play-spatial-knowledge-2026-09-08.md`. The body, runtime,
+play-seat protocol,
 durable status path, lobby chat, and format-2 replay records are implemented
 under `src/shell/` and their `src/ctf/` integration points. `season2Shell`
 defaults true; an all-input roster still takes the direct-input path, while an
@@ -186,9 +188,11 @@ inventory (`docs/recon/paintbot-s2-policy-shell-2026-08-29.md`). New policy
 authors should start in `policies/starters/`; `policies/poc_llm_policy/` is the
 lower-level wire reference. The original dark-landing history is preserved in
 `docs/reports/br-season2-landing-notes-2026-08-30.md`. The server's per-tick
-diagnostic log lines for play seats (`FIRST_LIGHT_INSTALL`, play faults,
-`FIRST_LIGHT_PLAN_BUDGET`, `FIRST_LIGHT_NAV`, `FIRST_LIGHT_COMBAT`) are
-described in `docs/designs/FIRST_LIGHT_DEMO.md` under "Diagnostic log lines".
+diagnostic log lines for play seats (`SHELL_INSTALL`, play faults,
+`SHELL_PLAN_BUDGET`, `SHELL_NAV`, `SHELL_COMBAT`) are
+described in `docs/designs/SHELL_DEMO.md` under "Diagnostic log lines".
+The proposed deterministic per-seat worker boundary, rollout gates, and CPU
+envelope are in `docs/designs/shell-step-parallelism-2026-09-07.md`.
 
 ## Build shapes
 
@@ -219,6 +223,24 @@ nim check -d:noSignalHandler --threads:on src/ctf.nim
 
 # Runtime-stub: explicitly remove WASMTIME_C_API.
 env -u WASMTIME_C_API nim check -d:noSignalHandler --threads:on src/ctf.nim
+```
+
+### Profiling build
+
+Set `-d:ProfileTracePath=<path>` to enable Fluffy tracing and optionally set
+`-d:ProfileTicks=N` (default 100) to dump after N post-lobby ticks. The trace
+is buffered in memory until it is dumped. Markers cover `shell.*` stages,
+`body.*` work, guest `invoke*` calls, danger/planning work, and `sim.step`.
+Fluffy's state is not thread-safe, so markers must stay on the game thread;
+never add them to compile-plane worker paths. When `COWORLD_WORKDIR` is set,
+the completed trace is copied to
+`$COWORLD_WORKDIR/logs/profile-trace.json` for the debug artifact.
+
+Exercise a local profiled server with:
+
+```sh
+SHELL_EXTRA_NIM_FLAGS="-d:ProfileTracePath=$TMPDIR/ctf-trace.json -d:ProfileTicks=240" \
+  tools/run_shell_demo.sh
 ```
 
 Open question, routed to the PM rather than for local implementation: should a

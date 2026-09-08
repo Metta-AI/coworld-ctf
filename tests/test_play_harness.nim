@@ -199,8 +199,9 @@ suite "play harness":
     check trace["manifest_name"].getStr == "hello"
     check trace["frames"].len == 4
     check trace["frames"][2]["last_accepted"].getStr ==
-      "{\"arrive_radius\":24.0,\"kind\":\"navigate_to\",\"point\":[30,30]," &
-      "\"reason\":\"hello\",\"schema\":\"intent\",\"v\":1}"
+      "{\"arrive_radius\":24.0,\"idle_aim_center_brads\":0," &
+      "\"kind\":\"navigate_to\",\"point\":[30,30],\"reason\":\"hello\"," &
+      "\"schema\":\"intent\",\"v\":1}"
 
   test "CLI golden fixtures cover success, normalization, rejection, fault, and retune":
     ensureHarnessBuilt()
@@ -267,13 +268,11 @@ suite "play harness":
     check logOutput == readFile(FixtureDir / "logs.golden.json").strip
     let logTrace = parseJson(logOutput)
     let records = logTrace["frames"][2]["logs"]
-    check records.len == 2
+    check logTrace["frames"][2]["counters"]["logs"].getInt == 2
+    check records.len == 1
     check records[0]["level"].getBiggestInt == low(int32).int64
     check records[0]["bytes_hex"].getStr.decodeHex ==
       @[0'u8, 0x1b, 0x7f, 0x80, 0xff]
-    check records[1]["level"].getInt == 17
-    check records[1]["bytes_hex"].getStr.decodeHex ==
-      @[0x1b'u8, 0x7f, 0x80]
 
   test "manifest class is enforced even without a manifest frame":
     ensureHarnessBuilt()

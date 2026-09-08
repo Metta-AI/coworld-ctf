@@ -156,7 +156,6 @@ proc defaultDecision(map: BodyMap; pos: BodyPoint; ticksToShrink: int;
     nextZone: MapRect(x: 900, y: 450, w: 350, h: 300),
     ticksToNextShrink: ticksToShrink,
     zoneDps: 1,
-    idleAimCenterBrads: 32,
     partner: none(PartnerTelemetry),
     rotateTarget: rotateTarget,
     coverGoal: none(ValidatedGoal)))

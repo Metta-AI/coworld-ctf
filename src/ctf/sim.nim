@@ -8221,7 +8221,10 @@ proc step*(
   sim: var SimServer,
   inputs: openArray[InputState],
   prevInputs: openArray[InputState]
-) {.measure.} =
+) =
+  when ProfileTracePath.len > 0:
+    measurePush("step")
+    defer: measurePop()
   # The server samples the previous tick's private damage records before
   # entering this step. Clear once here, after every eligible seat had the
   # same chance to receive them; never drain per seat.

@@ -1,4 +1,4 @@
-## Server-owned FIRST LIGHT belief-lite handoff checks.
+## Server-owned shell belief handoff checks.
 
 import std/[math, unittest]
 
@@ -17,7 +17,7 @@ proc admitted(sim: SimServer, playerIndices: openArray[int]):
     result.add ObservationAudienceSeat(
       slot: uint8(slot), lifeGeneration: sim.seatLifeGenerations[slot])
 
-suite "shell FIRST LIGHT server seam":
+suite "shell server seam":
   test "hazard overlay follows the exact shell paint gate at activation":
     var config = defaultGameConfig()
     config.season2Shell = true
@@ -25,8 +25,8 @@ suite "shell FIRST LIGHT server seam":
       hasTeam: true, control: scPlay)]
     var
       sim = initSimServer(config)
-      episode: FirstLightEpisode
-    episode.resetFirstLightForSim(false, config, sim, "hazard-dark")
+      episode: ShellEpisode
+    episode.resetShellForSim(false, config, sim, "hazard-dark")
     check episode.hazard.state == bhsDark
     check episode.nav.routeIndex != nil
     check episode.navHints(0, (32, 32), 0).isNone
@@ -35,7 +35,7 @@ suite "shell FIRST LIGHT server seam":
     config.zonePhases = @[ZonePhase(zPermille: 500, waitTicks: 10,
       shrinkTicks: 40, dps: 2)]
     sim = initSimServer(config)
-    episode.resetFirstLightForSim(false, config, sim, "hazard-ready")
+    episode.resetShellForSim(false, config, sim, "hazard-ready")
     check episode.hazard.state == bhsReady
     check episode.hazard.arrival.len == episode.nav.routeIndex.routeIndexStats.navCells
     var dryPoint = none(BodyPoint)
@@ -60,19 +60,40 @@ suite "shell FIRST LIGHT server seam":
     discard episode.step(@[], 1'u32, 37)
     check episode.elapsedZoneTick == 37
 
+  test "timing window emits once per 24 active ticks and never without seats":
+    var
+      activeWindow: ShellTimingWindow
+      active = ShellTickResult(masks: @[ShellMask()])
+    active.stageNanoseconds[ssLifecycle] = 1_000
+    for tick in 1 .. 23:
+      activeWindow.addShellTiming(active)
+      check activeWindow.finishShellTimingTick(
+        uint32(tick), active.masks.len, 2_000).len == 0
+    activeWindow.addShellTiming(active)
+    let line = activeWindow.finishShellTimingTick(24, active.masks.len, 2_000)
+    check line.startsWith("SHELL_TIMING tick=24 seats=1 window_ticks=24 ")
+    check "sim_us=48" in line
+
+    var emptyWindow: ShellTimingWindow
+    let empty = ShellTickResult()
+    for tick in 1 .. 24:
+      emptyWindow.addShellTiming(empty)
+      check emptyWindow.finishShellTimingTick(
+        uint32(tick), empty.masks.len, 2_000).len == 0
+
   test "self hp count and fraction are populated from sim truth":
     var sim = initSimServer(defaultGameConfig())
     let playerIndex = sim.addPlayer("red0")
     sim.players[playerIndex].hp = 3
     sim.players[playerIndex].shieldHp = 2
 
-    let live = sim.firstLightSelfState(playerIndex)
+    let live = sim.shellSelfState(playerIndex)
     check live.hp == 5
     check (live.hp > 0) == (live.hpFrac > 0.0)
 
     sim.players[playerIndex].hp = 0
     sim.players[playerIndex].shieldHp = 0
-    let depleted = sim.firstLightSelfState(playerIndex)
+    let depleted = sim.shellSelfState(playerIndex)
     check depleted.hp == 0
     check (depleted.hp > 0) == (depleted.hpFrac > 0.0)
 
@@ -92,7 +113,7 @@ suite "shell FIRST LIGHT server seam":
     sim.players[playerIndex].hasSprayPaint = true
     sim.players[playerIndex].arcTicksLeft = 5
 
-    let live = sim.firstLightSelfState(playerIndex)
+    let live = sim.shellSelfState(playerIndex)
     check live.lives == some(2)
     check live.aimBrads == 37
     check live.fireCooldown == 11
@@ -107,7 +128,7 @@ suite "shell FIRST LIGHT server seam":
     sim.players[playerIndex].windupBrads = -1
     sim.players[playerIndex].hasShield = false
     sim.players[playerIndex].shieldHp = 0
-    let idle = sim.firstLightSelfState(playerIndex)
+    let idle = sim.shellSelfState(playerIndex)
     check idle.windup.isNone
     check not idle.hasShield
     check idle.shieldHp == 0
@@ -119,7 +140,7 @@ suite "shell FIRST LIGHT server seam":
     let playerIndex = sim.addPlayer("red0")
     sim.players[playerIndex].lives = 1
 
-    let live = sim.firstLightSelfState(playerIndex)
+    let live = sim.shellSelfState(playerIndex)
     check live.lives.isNone
 
   test "visible track combat facts are populated from sim truth":
@@ -136,7 +157,7 @@ suite "shell FIRST LIGHT server seam":
     sim.players[targetIndex].arcTicksLeft = 4
     sim.players[targetIndex].level = AceLevel
 
-    let inputs = sim.firstLightBodyInputs(viewerIndex)
+    let inputs = sim.shellBodyInputs(viewerIndex)
     check inputs.visibleTracks.len == 1
     let track = inputs.visibleTracks[0]
     check track.seat == sim.players[targetIndex].joinOrder
@@ -150,8 +171,26 @@ suite "shell FIRST LIGHT server seam":
     sim.players[targetIndex].arcTicksLeft = 0
     sim.players[targetIndex].hasGrenade = true
     sim.fovCaches.setLen(0)
-    let grenadeInputs = sim.firstLightBodyInputs(viewerIndex)
+    let grenadeInputs = sim.shellBodyInputs(viewerIndex)
     check grenadeInputs.visibleTracks[0].weapon == some(bwGrenade)
+
+  test "visible tracks exclude teammates and retain enemies":
+    var sim = initSimServer(defaultGameConfig())
+    let
+      viewerIndex = sim.addPlayer("red0")
+      teammateIndex = sim.addPlayer("red1")
+      enemyIndex = sim.addPlayer("blue0")
+    sim.players[viewerIndex].team = Red
+    sim.players[teammateIndex].team = Red
+    sim.players[enemyIndex].team = Blue
+    for playerIndex in [teammateIndex, enemyIndex]:
+      sim.players[playerIndex].x = sim.players[viewerIndex].x
+      sim.players[playerIndex].y = sim.players[viewerIndex].y
+    sim.fovCaches.setLen(0)
+
+    let inputs = sim.shellBodyInputs(viewerIndex)
+    check inputs.visibleTracks.len == 1
+    check inputs.visibleTracks[0].seat == sim.players[enemyIndex].joinOrder
 
   test "item sightings are populated from the fixed pickup spawns":
     # Before this pass nothing fed BodyTickInputs.sightedItems outside the
@@ -168,7 +207,7 @@ suite "shell FIRST LIGHT server seam":
     sim.sprayPaintSpawns.setLen(0)
     sim.barrierSpawns.setLen(0)
 
-    let inputs = sim.firstLightBodyInputs(viewerIndex)
+    let inputs = sim.shellBodyInputs(viewerIndex)
     check inputs.sightedItems.len == 3
     var kinds: seq[BodyItemKind]
     for sighting in inputs.sightedItems:
@@ -183,6 +222,31 @@ suite "shell FIRST LIGHT server seam":
         check sighting.pos == (viewer.x + 1, viewer.y)
       else:
         check sighting.present
+
+  test "zone fallbacks read the schedule's elapsed clock, which is zero in the lobby":
+    var config = defaultGameConfig()
+    config.update("""{"zonePhases": [
+      {"z": 0.6, "waitTicks": 10, "shrinkTicks": 20, "dps": 0},
+      {"z": 0.35, "waitTicks": 6, "shrinkTicks": 12, "dps": 2},
+      {"z": 0.15, "waitTicks": 4, "shrinkTicks": 8, "dps": 3}
+    ]}""")
+    var sim = initSimServer(config)
+    let playerIndex = sim.addPlayer("red0")
+    sim.tickCount = 50
+
+    let lobby = sim.shellFallbacks(sim.players[playerIndex].bodyPoint)
+    check lobby.zonePhase == 1
+    check lobby.ticksToNextShrink == 10
+    check lobby.currentZone == MapRect(
+      x: 0, y: 0, w: sim.gameMap.width, h: sim.gameMap.height)
+    check lobby.zoneDps == 0
+    check sim.shellZoneLogLine().contains("elapsed=0")
+
+    sim.startGame()
+    sim.tickCount += 12
+    let playing = sim.shellFallbacks(sim.players[playerIndex].bodyPoint)
+    check playing.ticksToNextShrink == 0
+    check playing.zonePhase == 1
 
   test "event ids are deterministic and unique within one tick":
     var sim = startedObservationSim(2)
@@ -222,9 +286,9 @@ suite "shell FIRST LIGHT server seam":
       incomingDirBrads: 128, audience: sim.admitted([0]))
 
     let
-      first = sim.firstLightBodyInputs(0)
-      second = sim.firstLightBodyInputs(1)
-      excluded = sim.firstLightBodyInputs(2)
+      first = sim.shellBodyInputs(0)
+      second = sim.shellBodyInputs(1)
+      excluded = sim.shellBodyInputs(2)
     check first.killFeed.len == 1
     check second.killFeed.len == 1
     check excluded.killFeed.len == 1
@@ -243,7 +307,7 @@ suite "shell FIRST LIGHT server seam":
     check excluded.hazards.sprays.len == 0
 
     inc sim.seatLifeGenerations[seat0]
-    let nextLife = sim.firstLightBodyInputs(0)
+    let nextLife = sim.shellBodyInputs(0)
     check nextLife.killFeed.len == 1
     check nextLife.aggressorEvents.len == 0
     check nextLife.hazards.blastCues.len == 0
@@ -260,8 +324,8 @@ suite "shell FIRST LIGHT server seam":
     check sim.applyShout(0, "push left")
 
     let
-      heard = sim.firstLightBodyInputs(1)
-      unheard = sim.firstLightBodyInputs(2)
+      heard = sim.shellBodyInputs(1)
+      unheard = sim.shellBodyInputs(2)
     check heard.shouts.len == 1
     check heard.shouts[0].eventId == sim.shoutObservations[0].eventId
     check heard.shouts[0].slotLetter ==
@@ -271,13 +335,13 @@ suite "shell FIRST LIGHT server seam":
     check sim.shoutObservations[0].sourceSlot == sim.players[0].joinOrder
 
     inc sim.seatLifeGenerations[sim.players[0].joinOrder]
-    check sim.firstLightBodyInputs(1).shouts[0].slotLetter ==
+    check sim.shellBodyInputs(1).shouts[0].slotLetter ==
       heard.shouts[0].slotLetter
 
     let listenerSlot = sim.players[1].joinOrder
     sim.removePlayerAt(0)
     let listenerIndex = sim.playerIndexForSlot(listenerSlot)
-    let departed = sim.firstLightBodyInputs(listenerIndex)
+    let departed = sim.shellBodyInputs(listenerIndex)
     check departed.shouts.len == 1
     check departed.shouts[0].eventId == heard.shouts[0].eventId
     check departed.shouts[0].slotLetter == IdentityNameUnknown
@@ -285,7 +349,7 @@ suite "shell FIRST LIGHT server seam":
     let reusedListenerIndex = sim.playerIndexForSlot(listenerSlot)
     sim.players[reusedListenerIndex].x = sim.recentShouts[0].x
     sim.players[reusedListenerIndex].y = sim.recentShouts[0].y
-    let reused = sim.firstLightBodyInputs(reusedListenerIndex)
+    let reused = sim.shellBodyInputs(reusedListenerIndex)
     check reused.shouts.len == 1
     check reused.shouts[0].slotLetter == IdentityNameUnknown
 
@@ -307,7 +371,7 @@ suite "shell FIRST LIGHT server seam":
     sim.players[attacker].arcAimBrads = bradsOfVector(-40, 0)
     sim.fovCaches.setLen(0)
 
-    let visible = sim.firstLightBodyInputs(viewer)
+    let visible = sim.shellBodyInputs(viewer)
     check visible.hazards.grenades.len == 1
     check visible.hazards.grenades[0].eventId == 201
     check visible.hazards.ownThrow.isSome
@@ -322,7 +386,7 @@ suite "shell FIRST LIGHT server seam":
 
     sim.players[viewer].alive = false
     sim.fovCaches.setLen(0)
-    let dead = sim.firstLightBodyInputs(viewer)
+    let dead = sim.shellBodyInputs(viewer)
     check dead.hazards.grenades.len == 0
     for spray in dead.hazards.sprays:
       check spray.kind != bshVisibleCone
@@ -335,16 +399,16 @@ suite "shell FIRST LIGHT server seam":
         launchTick: sim.tickCount, flightTicks: 1,
         thrower: -1, throwerSlot: -1, throwerAccount: -1,
         observationId: 301)
-      check sim.firstLightBodyInputs(0).hazards.blastCues.len == 0
-      check sim.firstLightBodyInputs(1).hazards.blastCues.len == 0
+      check sim.shellBodyInputs(0).hazards.blastCues.len == 0
+      check sim.shellBodyInputs(1).hazards.blastCues.len == 0
       let idle = newSeq[InputState](sim.players.len)
       for substep in 0 ..< playbackSpeed:
         if substep > 0:
-          check sim.firstLightBodyInputs(0).hazards.blastCues.len == 1
-          check sim.firstLightBodyInputs(1).hazards.blastCues.len == 1
+          check sim.shellBodyInputs(0).hazards.blastCues.len == 1
+          check sim.shellBodyInputs(1).hazards.blastCues.len == 1
         sim.step(idle, idle)
-      check sim.firstLightBodyInputs(0).hazards.blastCues.len == 1
-      check sim.firstLightBodyInputs(1).hazards.blastCues.len == 1
+      check sim.shellBodyInputs(0).hazards.blastCues.len == 1
+      check sim.shellBodyInputs(1).hazards.blastCues.len == 1
       check sim.blastObservations.len == 1
 
   test "gun damage and credited kills populate the authoritative records":
@@ -391,7 +455,7 @@ suite "shell FIRST LIGHT server seam":
     check sim.aggressorObservations.len == 1
     check sim.aggressorObservations[0].attackerSlot == -1
     check sim.sprayImpactObservations.len == 1
-    let inputs = sim.firstLightBodyInputs(victim)
+    let inputs = sim.shellBodyInputs(victim)
     check inputs.aggressorEvents.len == 1
     check inputs.aggressorEvents[0].seat.isNone
     check inputs.hazards.sprays.len >= 1
@@ -434,7 +498,7 @@ suite "shell FIRST LIGHT server seam":
   test "body state caps observations after priority sorting":
     var sim = startedObservationSim(1)
     let body = activateSeatBody(newBodyMap(sim.gameMap), 0, sim.config.gunRange)
-    var inputs = sim.firstLightBodyInputs(0)
+    var inputs = sim.shellBodyInputs(0)
     for index in 0 ..< 40:
       let tick = uint32(index)
       inputs.killFeed.add KillEvent(

@@ -43,7 +43,7 @@ proc richSource(): PlayViewSource =
     movingGoal: true,
     profile: cpCarrier,
     micro: {mfPeekDuck, mfFormationBias},
-    idleAimCenterBrads: some(128),
+    idleAimCenterBrads: 128,
     combat: CombatPolicy(
       noShoot: ProtectedSet(teams: {Blue, Red},
         seats: @[SeatRef(4'u8), SeatRef(12'u8), SeatRef(10'u8),

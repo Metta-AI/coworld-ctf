@@ -4,7 +4,7 @@ import std/[json, options, sequtils, strutils, tables, unittest]
 
 import ../src/ctf/sim_types
 import ../src/shell/[body_map, call_validation, canonical, emit_validator,
-  finisher, guards, instance, ladder, manifest, types]
+  guards, instance, ladder, manifest, policy_encoding, types]
 
 type
   FakeBook = ref object
@@ -145,7 +145,7 @@ proc accept(driver: LadderDriver; bytes: string;
   driver.acceptCall(0, proposalId, 7, 10, canonical(bytes), bindings, ctx())
 
 suite "shell ladder":
-  test "FIRST LIGHT is the zero-entry default case of the ladder driver":
+  test "the shell is the zero-entry default case of the ladder driver":
     let book = newBook()
     let driver = newLadderDriver(1, registry())
     defer: driver.close()

@@ -5,7 +5,8 @@ import std/[json, options, strutils, tables, unittest]
 
 import ../src/ctf/sim_types
 import ../src/shell/[body, body_map, body_nav, call_validation, canonical,
-  emit_validator, finisher, guards, ladder, manifest, standing_order, types]
+  emit_validator, guards, ladder, manifest, policy_encoding, standing_order,
+  types]
 
 type
   FakeBook = ref object
@@ -118,14 +119,14 @@ proc toResolved(tick: LadderSeatTick): ResolvedStandingOrder =
     contributingEpoch: tick.contributingEpoch)
 
 proc install(standing: var StandingOrderState; body: SeatBody;
-             output: LadderSeatTick; tick: uint32; idleAim = 64) =
-  standing.stepResolvedOrder(body, tick, output.toResolved, idleAim)
+             output: LadderSeatTick; tick: uint32) =
+  standing.stepResolvedOrder(body, tick, output.toResolved)
 
 proc installRecorded(standing: var StandingOrderState; body: SeatBody;
                      output: LadderSeatTick; tick: uint32;
-                     installedBytes: var seq[string]; idleAim = 64) =
+                     installedBytes: var seq[string]) =
   let before = standing.annotations.len
-  standing.install(body, output, tick, idleAim)
+  standing.install(body, output, tick)
   if standing.annotations.len > before:
     installedBytes.add standing.intentBytes
 
@@ -254,7 +255,7 @@ suite "shell effective order":
     standing.stepResolvedOrder(seatBody, 1, ResolvedStandingOrder(
       intent: holdIntent("reflex"),
       provenance: Provenance(base: ProvenanceBase(kind: pbReflex,
-        reflexName: "reflex_zone_escape"))), 64)
+        reflexName: "reflex_zone_escape"))))
     check standing.provenance.base.kind == pbReflex
     check standing.installedEffectiveEpoch == 0
 
@@ -270,6 +271,19 @@ suite "shell effective order":
     check standing.provenance.base.kind == pbEntry
     check standing.provenance.base.entryId == "a"
     check standing.installedEffectiveEpoch == 1
+
+  test "resolved entry without explicit idle aim installs encoded zero":
+    var standing: StandingOrderState
+    let seatBody = body()
+    standing.stepResolvedOrder(seatBody, 1, ResolvedStandingOrder(
+      intent: holdIntent("entry"),
+      provenance: Provenance(base: ProvenanceBase(kind: pbEntry,
+        entryId: "entry", moduleSha256: repeat('e', 64), emitTick: 1)),
+      contributingEpoch: 1))
+    check standing.intentBytes ==
+      "{\"arrive_radius\":0.0,\"idle_aim_center_brads\":0," &
+      "\"kind\":\"hold\",\"reason\":\"entry\"," &
+      "\"schema\":\"intent\",\"v\":1}"
 
   test "retune success with silent post-retune steps never attributes old output to the new epoch":
     let book = FakeBook(paramsByEntry: initTable[string, string](),

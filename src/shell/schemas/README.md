@@ -25,7 +25,8 @@ Canonical encoding (Appendix P.1, binding for every producer):
   range. A numeric or malformed spelling is a schema rejection.
 - Neutral/absent optional fields are omitted, so two semantically equal
   values encode byte-identically. "Neutral" is empty/false/the declared
-  default.
+  default. The retained-layout exception is `intent.idle_aim_center_brads`:
+  omission means 0, and canonical encoding still writes the key.
 - Direction rule: engine→play and engine→client payloads (`play_view`,
   `play_context`, both control envelopes) declare
   `additionalProperties: true` — decoders IGNORE unknown fields, which is

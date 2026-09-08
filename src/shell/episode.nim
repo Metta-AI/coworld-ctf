@@ -1,12 +1,12 @@
-## FIRST LIGHT's play-seat episode owner: lifecycle, standing-order handoff,
+## The shell's play-seat episode owner: lifecycle, standing-order handoff,
 ## ordinary InputState masks, annotations, and split body/runtime timings.
 ##
-## Lane A supplies the concrete body, belief-lite, navigation, and action
+## The body layer supplies belief, navigation, and action
 ## execution. This module owns only the server-side lifecycle,
 ## default-order installation, mask handoff, annotations, and timing split.
 
 import std/[json, math, monotimes, options, os, sequtils, strformat, strutils, times]
-import bitworld/spriteprotocol
+import bitworld/[profile, spriteprotocol]
 import ../ctf/sim_types
 import body_map
 import body_hazard
@@ -19,7 +19,7 @@ import outbound
 import standing_order
 import body
 # `view` needs no runtime (std, sim_types, body, body_map, canonical_fast,
-# finisher, types only) and server.nim imports it unconditionally; keeping
+# policy_encoding, types only) and server.nim imports it unconditionally; keeping
 # it under the runtime guard once hid PlayContextRosterRow from the stub
 # shape (CI run 33597295995).
 import view
@@ -32,17 +32,17 @@ when ShellRuntimeAvailable:
     guards, instance, ladder, runtime
 
 type
-  FirstLightInventory* = object
+  ShellInventory* = object
     wasmtime*: bool
     uploads*: bool
     calls*: bool
     stores*: bool
     ladder*: bool
 
-  FirstLightSeatFrame* = object
-    ## One coherent tick-boundary handoff. bodyInputs is lane A's real
-    ## belief-lite surface; defaultFallbacks carries only the first-light
-    ## facts not yet exposed by lane A accessors.
+  ShellSeatFrame* = object
+    ## One coherent tick-boundary handoff. bodyInputs is the body's real
+    ## belief surface; defaultFallbacks carries only the shell facts not yet
+    ## exposed by body accessors.
     seat*: uint8
     playerIndex*: int
     present*: bool
@@ -54,12 +54,12 @@ type
     bodyInputs*: BodyTickInputs
     defaultFallbacks*: BrDefaultFallbacks
 
-  FirstLightMask* = object
+  ShellMask* = object
     seat*: uint8
     playerIndex*: int
     input*: InputState
 
-  FirstLightInstall* = object
+  ShellInstall* = object
     tick*: uint32
     seat*: uint8
     rule*: string
@@ -67,25 +67,25 @@ type
     bytesHash*: string
     bytes*: string
 
-  FirstLightModuleStatus* = object
+  ShellModuleStatus* = object
     seat*: int
     uploadId*: uint64
     terminal*: string
     status*: StatusEntry
     statusBytes*: string
 
-  FirstLightEntryIdentity* = object
+  ShellEntryIdentity* = object
     seat*: int
     entryId*: string
     play*: string
 
-  FirstLightLadderStatus* = object
+  ShellLadderStatus* = object
     seat*: int
     entryId*: string
     status*: StatusEntry
     statusBytes*: string
 
-  FirstLightCallReplayIdentity* = object
+  ShellCallReplayIdentity* = object
     seat*: uint8
     epoch*: uint64
     ladderBytes*: string
@@ -95,45 +95,44 @@ type
       ## replay time and must call toPlayCallRecord(identity, replayTimeMs)
       ## for the queued record's time-stamped content hash.
 
-  FirstLightAdmissionResult* = object
+  ShellAdmissionResult* = object
     accepted*: bool
     reason*: string
     status*: StatusEntry
     statusBytes*: string
 
-  FirstLightCallResult* = object
+  ShellCallResult* = object
     accepted*: bool
     reason*: string
     path*: string
     epoch*: uint64
     status*: StatusEntry
     statusBytes*: string
-    pendingRetunes*: seq[FirstLightEntryIdentity]
-    replayIdentity*: Option[FirstLightCallReplayIdentity]
+    pendingRetunes*: seq[ShellEntryIdentity]
+    replayIdentity*: Option[ShellCallReplayIdentity]
 
-  FirstLightPlayConfigResult* = object
+  DemoPlayConfigResult* = object
     lines*: seq[string]
-    callIdentities*: seq[FirstLightCallReplayIdentity]
+    callIdentities*: seq[ShellCallReplayIdentity]
 
-  FirstLightNavSummary* = object
+  ShellNavSummary* = object
     ## Per-tick follower census over active, alive play seats; the server
-    ## prints it as FIRST_LIGHT_NAV so plan-budget events can be joined by
+    ## prints it as SHELL_NAV so plan-budget events can be joined by
     ## tick to what the followers were doing.
     pendingPlans*: int            ## seats whose cold plan is still computing
     stalePathSeats*: seq[uint8]   ## walking an older route while a plan computes
     noPathSeats*: seq[uint8]      ## navigate order, not arrived, no route loaded
 
-  FirstLightCombatSummary* = object
+  ShellCombatSummary* = object
     ## Per-tick weapon-path census over active, alive play seats; the server
-    ## prints it as FIRST_LIGHT_COMBAT. The seat lists name the outcomes an
-    ## operator most needs to chase: a neutral policy with an enemy in range,
-    ## fresh tracks with nothing shootable, and a held target not yet fired on.
+    ## prints it as SHELL_COMBAT. The seat lists name the outcomes an
+    ## operator most needs to chase: fresh tracks with nothing shootable and a
+    ## held target not yet fired on.
     counts*: array[CombatOutcome, int]
-    noPolicyEnemyInRangeSeats*: seq[uint8]
     noneShootableSeats*: seq[uint8]
     aligningSeats*: seq[uint8]
 
-  FirstLightHandoff* = object
+  ShellHandoff* = object
     ## §4.1 amendment: one seat's STANDING give-item declaration this tick —
     ## the Intent's `handoff` field lifted off the installed standing order
     ## ("" = no declaration wanted). The episode never touches the sim: the
@@ -144,7 +143,7 @@ type
     playerIndex*: int
     item*: string
 
-  FirstLightPactDeclaration* = object
+  ShellPactDeclaration* = object
     ## ALLIANCE (engine registration rewire, GameVersion 56): one seat's
     ## CURRENT `pact` play declaration this tick — the partner TEAMS its
     ## currently active `pact` overlay call names, empty when no `pact`
@@ -154,7 +153,7 @@ type
     ## entrySnapshots, never off the emitted combat_policy — betrayal-
     ## driven noShoot/protect narrowing is the play's own body-level
     ## business and must not feed the registry (owner ruling: never
-    ## enforced). Same division of labor as FirstLightHandoff above: the
+    ## enforced). Same division of labor as ShellHandoff above: the
     ## episode never touches the sim, the server hook compares this
     ## against the sim's own declared state and calls the
     ## sim.declarePactPartners consent seam.
@@ -162,25 +161,42 @@ type
     playerIndex*: int
     partners*: seq[Team]
 
-  FirstLightTickResult* = object
-    masks*: seq[FirstLightMask]
-    handoffs*: seq[FirstLightHandoff]
-    pactDeclarations*: seq[FirstLightPactDeclaration]
+  ShellStage* = enum
+    ssCompilePlane
+    ssLifecycle
+    ssDefault
+    ssReflex
+    ssContext
+    ssView
+    ssGuard
+    ssLadder
+    ssStanding
+    ssBelief
+    ssFollower
+    ssWeapon
+    ssDanger
+    ssPlanning
+
+  ShellTickResult* = object
+    masks*: seq[ShellMask]
+    handoffs*: seq[ShellHandoff]
+    pactDeclarations*: seq[ShellPactDeclaration]
     annotations*: seq[ShellAnnotation]
-    installs*: seq[FirstLightInstall]
-    moduleStatuses*: seq[FirstLightModuleStatus]
-    ladderStatuses*: seq[FirstLightLadderStatus]
+    installs*: seq[ShellInstall]
+    moduleStatuses*: seq[ShellModuleStatus]
+    ladderStatuses*: seq[ShellLadderStatus]
     playLogLines*: seq[string]
-    retuned*: seq[FirstLightEntryIdentity]
+    retuned*: seq[ShellEntryIdentity]
     planBudget*: seq[PlanBudgetEvent]
-    nav*: FirstLightNavSummary
-    combat*: FirstLightCombatSummary
+    nav*: ShellNavSummary
+    combat*: ShellCombatSummary
     bodyNanoseconds*: int64
     runtimeNanoseconds*: int64
+    stageNanoseconds*: array[ShellStage, int64]
 
   ViewSource* = proc(seatIndex: int; tick: uint32): string {.closure.}
 
-  FirstLightPlayConfig* = object
+  DemoPlayConfig* = object
     modulePath*: string
     playName*: string
     paramsBytes*: string
@@ -189,23 +205,23 @@ type
     proposalIdBase*: uint64
     originGeneration*: uint64
 
-  FirstLightViewFrameSlot = object
+  ShellViewFrameSlot = object
     present: bool
-    frame: FirstLightSeatFrame
+    frame: ShellSeatFrame
 
   PlayLogWindowState = object
     window: uint32
     admitted: int
     dropped: int
 
-  FirstLightRuntimeState = ref object
-    frames: seq[FirstLightViewFrameSlot]
+  ShellRuntimeState = ref object
+    frames: seq[ShellViewFrameSlot]
     selfPositions: seq[BodyPoint]
     reflexStates: seq[ReflexSeatState]
     playLogWindows: seq[PlayLogWindowState]
     lastCompileTick: Option[uint32]
 
-  FirstLightSeatState* = object
+  ShellSeatState* = object
     seat*: uint8
     active*: bool
     eliminated*: bool
@@ -213,7 +229,7 @@ type
     body*: SeatBody
     standing*: StandingOrderState
 
-  FirstLightEpisode* = object
+  ShellEpisode* = object
     enabled*: bool
     brMode*: bool
     rosterSize*: int
@@ -223,7 +239,7 @@ type
     safeCache*: BodySafeCache
     elapsedZoneTick*: int
     gameGeneration*: uint64
-    seats*: seq[FirstLightSeatState]
+    seats*: seq[ShellSeatState]
     bodyActivations: int
     viewSource*: ViewSource
     when ShellRuntimeAvailable:
@@ -231,34 +247,34 @@ type
       gunRange: int
       viewInterval: int
       contextRoster: seq[PlayContextRosterRow]
-      runtimeState: FirstLightRuntimeState
+      runtimeState: ShellRuntimeState
       engine: RuntimeEngine
       compilePlane: CompilePlane
       ladder: LadderDriver
       bindings: seq[LadderBinding]
 
-proc firstLightInventory*(): FirstLightInventory =
+proc shellInventory*(): ShellInventory =
   ## Runtime inventory is compile-time visible so ordinary server builds that
-  ## lack the Wasmtime C API remain the zero-guest first-light path.
+  ## lack the Wasmtime C API remain on the zero-guest shell path.
   when ShellRuntimeAvailable:
-    FirstLightInventory(wasmtime: true, uploads: true, calls: true,
+    ShellInventory(wasmtime: true, uploads: true, calls: true,
       stores: true, ladder: true)
   else:
-    FirstLightInventory()
+    ShellInventory()
 
-proc bodyActivationCount*(episode: FirstLightEpisode): int =
+proc bodyActivationCount*(episode: ShellEpisode): int =
   ## Test/readback surface for the server invariant that playback consumes
   ## recorded masks and never constructs SeatBody instances.
   episode.bodyActivations
 
-proc frameForSeat(episode: FirstLightEpisode; seatIndex: int):
-    Option[FirstLightSeatFrame] =
+proc frameForSeat(episode: ShellEpisode; seatIndex: int):
+    Option[ShellSeatFrame] =
   when ShellRuntimeAvailable:
     if episode.runtimeState != nil and seatIndex >= 0 and
         seatIndex < episode.runtimeState.frames.len and
         episode.runtimeState.frames[seatIndex].present:
       return some(episode.runtimeState.frames[seatIndex].frame)
-  none(FirstLightSeatFrame)
+  none(ShellSeatFrame)
 
 const MaxPlayZoneTicksToShrink = high(int32).int
 
@@ -274,7 +290,7 @@ proc playZoneTicksToShrink(value: int): int =
   else:
     value
 
-proc navHints*(episode: FirstLightEpisode; seatIndex: int;
+proc navHints*(episode: ShellEpisode; seatIndex: int;
     selfPos: BodyPoint; elapsedTick: int): Option[PlayNav] =
   if seatIndex < 0 or seatIndex >= episode.rosterSize or episode.nav == nil or
       not episode.nav.safetyHintsReady:
@@ -289,7 +305,7 @@ proc navHints*(episode: FirstLightEpisode; seatIndex: int;
       else: hints.retreatOctant.int * 32))
 
 when ShellRuntimeAvailable:
-  proc firstLightPlayViewSource(episode: FirstLightEpisode; seatIndex: int;
+  proc shellPlayViewSource(episode: ShellEpisode; seatIndex: int;
                                 tick: uint32): Option[PlayViewSource] =
     ## The one fogged per-seat view source. Both encoders below MUST feed
     ## from here so the guest and the socket can never observe different
@@ -320,12 +336,12 @@ when ShellRuntimeAvailable:
             episode.elapsedZoneTick)))
     none(PlayViewSource)
 
-proc firstLightViewBytes*(episode: FirstLightEpisode; seatIndex: int;
+proc shellViewBytes*(episode: ShellEpisode; seatIndex: int;
                           tick: uint32): string =
   ## The GUEST's copy: the fixed-layout PV1 binary frame (the 2026-08-31
   ## lane-C ruling — a wasm play reads fields as aligned loads, not JSON).
   when ShellRuntimeAvailable:
-    let source = episode.firstLightPlayViewSource(seatIndex, tick)
+    let source = episode.shellPlayViewSource(seatIndex, tick)
     if source.isNone:
       return "{}"
     buildBinaryPlayView(source.get)
@@ -335,7 +351,7 @@ proc firstLightViewBytes*(episode: FirstLightEpisode; seatIndex: int;
     discard tick
     "{}"
 
-proc firstLightSocketViewBytes*(episode: FirstLightEpisode; seatIndex: int;
+proc shellSocketViewBytes*(episode: ShellEpisode; seatIndex: int;
                                 tick: uint32): string =
   ## The SOCKET's copy of the same view: JSON, per the ratified 0xB1 wire
   ## contract ("u8[viewLen] view JSON" — play-calling shell design §3.2 wire
@@ -346,7 +362,7 @@ proc firstLightSocketViewBytes*(episode: FirstLightEpisode; seatIndex: int;
   ## conforming policy client (starter_harness/wire.py: json.loads on the
   ## view payload) crashes on at the round's first live view.
   when ShellRuntimeAvailable:
-    let source = episode.firstLightPlayViewSource(seatIndex, tick)
+    let source = episode.shellPlayViewSource(seatIndex, tick)
     if source.isNone:
       return "{}"
     buildPlayView(source.get)
@@ -356,7 +372,7 @@ proc firstLightSocketViewBytes*(episode: FirstLightEpisode; seatIndex: int;
     discard tick
     "{}"
 
-proc initFirstLightEpisode*(season2Shell, brMode: bool,
+proc initShellEpisode*(season2Shell, brMode: bool,
     controls: openArray[SlotControl],
     map: BodyMap = nil,
     liveGunRangePx: int = GunRange,
@@ -365,12 +381,12 @@ proc initFirstLightEpisode*(season2Shell, brMode: bool,
     viewInterval = ViewIntervalTicksDefault,
     names: openArray[string] = [],
     hazard: BodyHazardOverlay = nil,
-    preparedRouteIndex: BodyRouteIndex = nil): FirstLightEpisode =
+    preparedRouteIndex: BodyRouteIndex = nil): ShellEpisode =
   ## `names` are the seats' display names in seat order (the closed
   ## roster's players[].name); empty means the context carries none.
   if teams.len > 0 and teams.len != controls.len:
     raise newException(ValueError,
-      "FIRST LIGHT team/control facts must have the same length")
+      "shell team/control facts must have the same length")
   result.brMode = brMode
   result.rosterSize = controls.len
   result.map = map
@@ -379,7 +395,7 @@ proc initFirstLightEpisode*(season2Shell, brMode: bool,
   if not season2Shell:
     return
   if map == nil:
-    raise newException(ValueError, "FIRST LIGHT requires a BodyMap")
+    raise newException(ValueError, "the shell episode requires a BodyMap")
   result.nav = newBodyNavSystem(map, controls.len, liveGunRangePx,
     prepareRouteQueries = controls.anyIt(it == scPlay),
     preparedRouteIndex = preparedRouteIndex)
@@ -391,17 +407,17 @@ proc initFirstLightEpisode*(season2Shell, brMode: bool,
     result.viewInterval = viewInterval
     if teams.len > 0:
       result.contextRoster = playContextRosterRows(controls, teams, names)
-    result.runtimeState = FirstLightRuntimeState(
-      frames: newSeq[FirstLightViewFrameSlot](controls.len),
+    result.runtimeState = ShellRuntimeState(
+      frames: newSeq[ShellViewFrameSlot](controls.len),
       selfPositions: newSeq[BodyPoint](controls.len),
       reflexStates: newSeq[ReflexSeatState](controls.len),
       playLogWindows: newSeq[PlayLogWindowState](controls.len))
   for index, control in controls:
     if control == scPlay:
       result.enabled = true
-      result.seats.add(FirstLightSeatState(seat: uint8(index)))
+      result.seats.add(ShellSeatState(seat: uint8(index)))
 
-proc playContextRoster*(episode: FirstLightEpisode): seq[PlayContextRosterRow] =
+proc playContextRoster*(episode: ShellEpisode): seq[PlayContextRosterRow] =
   ## The roster every seat's PlayContext carries (seat order), for tests and
   ## diagnostics; empty in the stub shape and until a Season 2 episode with
   ## team facts exists.
@@ -410,10 +426,10 @@ proc playContextRoster*(episode: FirstLightEpisode): seq[PlayContextRosterRow] =
   else:
     @[]
 
-proc initFirstLightPlaybackEpisode*(season2Shell, brMode: bool,
+proc initShellPlaybackEpisode*(season2Shell, brMode: bool,
     controls: openArray[SlotControl],
     map: BodyMap = nil,
-    liveGunRangePx: int = GunRange): FirstLightEpisode =
+    liveGunRangePx: int = GunRange): ShellEpisode =
   ## Playback consumes recorded InputState masks; the body path is a live-server
   ## producer only. Even for a shell-on recording, this owner keeps no nav,
   ## seats, or SeatBody instances.
@@ -424,8 +440,8 @@ proc initFirstLightPlaybackEpisode*(season2Shell, brMode: bool,
   result.rosterSize = controls.len
   result.map = map
 
-proc closeFirstLightEpisode*(episode: var FirstLightEpisode) =
-  ## Drops per-episode runtime ownership. The first-light body/nav state is
+proc closeShellEpisode*(episode: var ShellEpisode) =
+  ## Drops per-episode runtime ownership. The shell body/nav state is
   ## owned by ordinary object replacement; runtime handles need explicit close.
   when ShellRuntimeAvailable:
     if episode.ladder != nil:
@@ -440,7 +456,7 @@ proc closeFirstLightEpisode*(episode: var FirstLightEpisode) =
     episode.bindings.setLen(0)
     episode.runtimeState = nil
 
-proc resetFirstLightEpisode*(episode: var FirstLightEpisode,
+proc resetShellEpisode*(episode: var ShellEpisode,
     season2Shell, brMode: bool, controls: openArray[SlotControl],
     map: BodyMap = nil,
     liveGunRangePx: int = GunRange,
@@ -454,17 +470,17 @@ proc resetFirstLightEpisode*(episode: var FirstLightEpisode,
   ## replacement. Fresh bodies re-run the activation safe install instead of
   ## carrying standing orders, nav state, or map-owned goals across matches.
   let nextGeneration = episode.gameGeneration + 1
-  episode.closeFirstLightEpisode()
-  episode = initFirstLightEpisode(season2Shell, brMode, controls, map,
+  episode.closeShellEpisode()
+  episode = initShellEpisode(season2Shell, brMode, controls, map,
     liveGunRangePx, teams, mapName, viewInterval, names, hazard,
     preparedRouteIndex)
   episode.gameGeneration = nextGeneration
 
-proc safeIntent(reason: string, idleAimCenterBrads: int): FinishedOrder =
-  finishDefault(Intent(
+proc safeIntent(reason: string): Intent =
+  Intent(
     kind: ikHold,
     arriveRadius: 0.0,
-    reason: "first_light:safe_" & reason), idleAimCenterBrads)
+    reason: "shell:safe_" & reason)
 
 proc provenanceText(provenance: Provenance): string =
   case provenance.base.kind
@@ -483,8 +499,8 @@ proc bytesHash(bytes: string): string =
   hash.toHex(16).toLowerAscii
 
 proc installRecord(annotation: ShellAnnotation,
-    rule, provenance, bytes: string): FirstLightInstall =
-  FirstLightInstall(
+    rule, provenance, bytes: string): ShellInstall =
+  ShellInstall(
     tick: annotation.tick,
     seat: annotation.seat,
     rule: rule,
@@ -506,55 +522,55 @@ proc canonicalParams(node: JsonNode): string =
     $node
 
 proc playConfigFromNode(node: JsonNode; repoRoot: string):
-    FirstLightPlayConfig =
+    DemoPlayConfig =
   if node == nil or node.kind != JObject:
-    raise newException(ValueError, "firstLightPlay must be an object")
+    raise newException(ValueError, "demoPlay must be an object")
   result.modulePath = node{"modulePath"}.getStr("")
   if result.modulePath.len == 0:
-    raise newException(ValueError, "firstLightPlay.modulePath is required")
+    raise newException(ValueError, "demoPlay.modulePath is required")
   if not result.modulePath.isAbsolute:
     result.modulePath = repoRoot / result.modulePath
   result.playName = node{"playName"}.getStr(node{"play"}.getStr(""))
   if result.playName.len == 0:
-    raise newException(ValueError, "firstLightPlay.playName is required")
+    raise newException(ValueError, "demoPlay.playName is required")
   result.paramsBytes = canonicalParams(node{"params"})
   result.uploadIdBase = uint64(node{"uploadIdBase"}.getInt(10_000))
   result.proposalIdBase = uint64(node{"proposalIdBase"}.getInt(20_000))
   result.originGeneration = uint64(node{"originGeneration"}.getInt(1))
   let seats = node{"seats"}
   if seats == nil or seats.kind != JArray:
-    raise newException(ValueError, "firstLightPlay.seats must be an array")
+    raise newException(ValueError, "demoPlay.seats must be an array")
   for item in seats:
     if item.kind != JInt:
-      raise newException(ValueError, "firstLightPlay.seats entries must be integers")
+      raise newException(ValueError, "demoPlay.seats entries must be integers")
     let seat = item.getInt()
     if seat < 0 or seat >= MaxPlayers:
-      raise newException(ValueError, "firstLightPlay.seats entry out of range")
+      raise newException(ValueError, "demoPlay.seats entry out of range")
     if seat in result.seats:
-      raise newException(ValueError, "firstLightPlay.seats entry duplicated")
+      raise newException(ValueError, "demoPlay.seats entry duplicated")
     result.seats.add seat
 
-proc firstLightPlayNode(configJson: string): JsonNode =
+proc demoPlayNode(configJson: string): JsonNode =
   if configJson.len == 0:
     return nil
   let root = parseJson(configJson)
-  root{"firstLightPlay"}
+  root{"demoPlay"}
 
-proc firstLightPlayConfigRefusal(episode: FirstLightEpisode;
-    config: FirstLightPlayConfig): Option[string] =
+proc demoPlayConfigRefusal(episode: ShellEpisode;
+    config: DemoPlayConfig): Option[string] =
   ## Config validity is independent of whether the Wasmtime runtime was linked.
   ## The compile-time runtime gate decides only whether a valid play can run.
   if not episode.enabled:
-    return some("FIRST_LIGHT_PLAY configured=false reason=episode_disabled")
+    return some("SHELL_PLAY configured=false reason=episode_disabled")
   if config.seats.len == 0:
-    return some("FIRST_LIGHT_PLAY configured=false reason=no_seats")
+    return some("SHELL_PLAY configured=false reason=no_seats")
   for seat in config.seats:
     if seat < 0 or seat >= episode.rosterSize:
       raise newException(ValueError,
-        "firstLightPlay.seats entry outside roster")
+        "demoPlay.seats entry outside roster")
   none(string)
 
-proc toPlayCallRecord*(identity: FirstLightCallReplayIdentity;
+proc toPlayCallRecord*(identity: ShellCallReplayIdentity;
     replayTimeMs: uint32): PlayCallRecord =
   ## Builds the landed replay record shape from the lane-C accepted-call
   ## identity. The decoder owns `contentSha256`; keep this helper on the codec
@@ -567,8 +583,8 @@ proc toPlayCallRecord*(identity: FirstLightCallReplayIdentity;
     entries: identity.entries).encodePlayCallRecord()
   bytes.decodePlayCallRecord()
 
-proc withContentSha(identity: FirstLightCallReplayIdentity):
-    FirstLightCallReplayIdentity =
+proc withContentSha(identity: ShellCallReplayIdentity):
+    ShellCallReplayIdentity =
   result = identity
   result.contentSha256 = identity.toPlayCallRecord(0).contentSha256
 
@@ -671,8 +687,8 @@ when ShellRuntimeAvailable:
         of "world.in_zone": inZone
         else: false)
 
-  proc firstLightContextBytes(episode: FirstLightEpisode; seatIndex: int;
-                              frame: FirstLightSeatFrame): string =
+  proc shellContextBytes(episode: ShellEpisode; seatIndex: int;
+                              frame: ShellSeatFrame): string =
     if seatIndex < 0 or seatIndex >= episode.contextRoster.len:
       return "{}"
     # binary_view.validateContextSource enforces the binary play_context
@@ -704,13 +720,13 @@ when ShellRuntimeAvailable:
     source.roster = episode.contextRoster
     buildBinaryPlayContext(source)
 
-  proc ensureLadder(episode: var FirstLightEpisode) =
+  proc ensureLadder(episode: var ShellEpisode) =
     if episode.ladder == nil:
       episode.ladder = newLadderDriver(episode.runtimeState.frames.len,
         DefaultPathRegistry, if episode.brMode: gmBr else: gmCtf,
         episode.map)
 
-  proc ensureRuntime(episode: var FirstLightEpisode) =
+  proc ensureRuntime(episode: var ShellEpisode) =
     if episode.engine == nil:
       episode.engine = newRuntimeEngine()
     if episode.compilePlane == nil:
@@ -718,7 +734,7 @@ when ShellRuntimeAvailable:
         episode.runtimeState.frames.len)
     episode.ensureLadder()
 
-  proc addBindingFor(episode: var FirstLightEpisode; bound: BoundModule) =
+  proc addBindingFor(episode: var ShellEpisode; bound: BoundModule) =
     for binding in episode.bindings.mitems:
       if binding.manifest.name == bound.manifest.name and
           binding.hash == bound.hash:
@@ -744,35 +760,35 @@ when ShellRuntimeAvailable:
         except ShellRuntimeError:
           nil)
 
-  proc seatIsConfiguredPlay(episode: FirstLightEpisode; seatIndex: int): bool =
+  proc seatIsConfiguredPlay(episode: ShellEpisode; seatIndex: int): bool =
     for state in episode.seats:
       if state.seat.int == seatIndex:
         return true
 
-  proc moduleStatus(commit: CompileCommit): FirstLightModuleStatus =
-    FirstLightModuleStatus(seat: commit.seat, uploadId: commit.uploadId,
+  proc moduleStatus(commit: CompileCommit): ShellModuleStatus =
+    ShellModuleStatus(seat: commit.seat, uploadId: commit.uploadId,
       terminal: $commit.terminal, status: commit.status,
       statusBytes: commit.statusBytes)
 
   proc entryIdentity(seat: int; identity: LadderEntryIdentity):
-      FirstLightEntryIdentity =
-    FirstLightEntryIdentity(seat: seat, entryId: identity.entryId,
+      ShellEntryIdentity =
+    ShellEntryIdentity(seat: seat, entryId: identity.entryId,
       play: identity.play)
 
-  proc ladderStatus(status: LadderStatus): FirstLightLadderStatus =
-    FirstLightLadderStatus(seat: status.seat, entryId: status.entryId,
+  proc ladderStatus(status: LadderStatus): ShellLadderStatus =
+    ShellLadderStatus(seat: status.seat, entryId: status.entryId,
       status: status.status, statusBytes: status.statusBytes)
 
   proc callReplayIdentity(seatIndex: int; accepted: LadderCallResult):
-      FirstLightCallReplayIdentity =
-    FirstLightCallReplayIdentity(
+      ShellCallReplayIdentity =
+    ShellCallReplayIdentity(
       seat: uint8(seatIndex),
       epoch: accepted.epoch,
       ladderBytes: accepted.ladderBytes,
       entries: accepted.entries).withContentSha()
 
-  proc commitReadyModules(episode: var FirstLightEpisode;
-      maxCommits = MaxCompileCommitsPerTick): seq[FirstLightModuleStatus] =
+  proc commitReadyModules(episode: var ShellEpisode;
+      maxCommits = MaxCompileCommitsPerTick): seq[ShellModuleStatus] =
     if episode.compilePlane == nil:
       return
     for commit in episode.compilePlane.commitCompileResults(maxCommits):
@@ -782,8 +798,8 @@ when ShellRuntimeAvailable:
           episode.addBindingFor(bound.get)
       result.add commit.moduleStatus
 
-  proc progressCompilePlane(episode: var FirstLightEpisode):
-      seq[FirstLightModuleStatus] =
+  proc progressCompilePlane(episode: var ShellEpisode):
+      seq[ShellModuleStatus] =
     if episode.compilePlane == nil:
       return
     for commit in episode.compilePlane.progressCompileWorkers():
@@ -793,7 +809,7 @@ when ShellRuntimeAvailable:
           episode.addBindingFor(bound.get)
       result.add commit.moduleStatus
 
-  proc beginCompileTick(episode: var FirstLightEpisode; tick: uint32) =
+  proc beginCompileTick(episode: var ShellEpisode; tick: uint32) =
     if episode.compilePlane == nil or episode.runtimeState == nil:
       return
     if episode.runtimeState.lastCompileTick.isSome and
@@ -802,7 +818,7 @@ when ShellRuntimeAvailable:
     episode.compilePlane.beginTick()
     episode.runtimeState.lastCompileTick = some(tick)
 
-  proc seatBindings(episode: var FirstLightEpisode;
+  proc seatBindings(episode: var ShellEpisode;
       seatIndex: int): seq[LadderBinding] =
     if episode.compilePlane == nil:
       return
@@ -814,9 +830,9 @@ when ShellRuntimeAvailable:
           result.add binding
           break
 
-  proc admitPlayModule*(episode: var FirstLightEpisode; seatIndex: int;
+  proc admitPlayModule*(episode: var ShellEpisode; seatIndex: int;
       uploadId, originGeneration: uint64; bytes: openArray[byte]):
-      FirstLightAdmissionResult =
+      ShellAdmissionResult =
     if not episode.enabled:
       result.reason = "episodeDisabled"
       return
@@ -837,9 +853,9 @@ when ShellRuntimeAvailable:
     else:
       result.reason = admitted.refusal.refusalReason
 
-  proc acceptPlayCall*(episode: var FirstLightEpisode; seatIndex: int;
+  proc acceptPlayCall*(episode: var ShellEpisode; seatIndex: int;
       proposalId, originGeneration: uint64; tick: uint32; callBytes: string):
-      FirstLightCallResult =
+      ShellCallResult =
     if not episode.enabled:
       result.reason = "episodeDisabled"
       result.path = "episode"
@@ -867,7 +883,7 @@ when ShellRuntimeAvailable:
     if accepted.accepted:
       result.replayIdentity = some(callReplayIdentity(seatIndex, accepted))
 
-  proc firstLightRecovery*(episode: FirstLightEpisode; seatIndex: int):
+  proc shellRecovery*(episode: ShellEpisode; seatIndex: int):
       tuple[epoch: uint64, call: Option[PlayContextAcceptedCall],
             playbook: seq[PlayContextReadyModule]] =
     if episode.ladder != nil:
@@ -882,22 +898,22 @@ when ShellRuntimeAvailable:
         result.playbook.add PlayContextReadyModule(
           name: bound.name, sha256: bound.hash)
 
-  proc callBytes(config: FirstLightPlayConfig): string =
+  proc callBytes(config: DemoPlayConfig): string =
     canonicalJson(parseJson("{\"plays\":[{\"entry_id\":\"" &
       config.playName & "\",\"params\":" & config.paramsBytes &
       ",\"play\":\"" & config.playName & "\"}]}"))
 
-  proc configureFirstLightPlayWithReplayIdentities*(
-      episode: var FirstLightEpisode;
-      config: FirstLightPlayConfig): FirstLightPlayConfigResult =
-    ## Binds a configured first-light play through the production admission,
+  proc configureDemoPlayWithReplayIdentities*(
+      episode: var ShellEpisode;
+      config: DemoPlayConfig): DemoPlayConfigResult =
+    ## Binds a configured demo play through the production admission,
     ## compile, cache, instance, and call-validation seams.
-    let refusal = episode.firstLightPlayConfigRefusal(config)
+    let refusal = episode.demoPlayConfigRefusal(config)
     if refusal.isSome:
       result.lines.add refusal.get
       return
     if not fileExists(config.modulePath):
-      result.lines.add "FIRST_LIGHT_PLAY configured=false reason=module_missing path=" &
+      result.lines.add "SHELL_PLAY configured=false reason=module_missing path=" &
         config.modulePath
       return
 
@@ -907,10 +923,10 @@ when ShellRuntimeAvailable:
       let uploadId = config.uploadIdBase + uint64(index)
       let admitted = episode.admitPlayModule(seat, uploadId,
         config.originGeneration, moduleBytes.rawBytes)
-      result.lines.add(&"FIRST_LIGHT_PLAY_UPLOAD seat={seat} upload_id={uploadId} " &
+      result.lines.add(&"SHELL_PLAY_UPLOAD seat={seat} upload_id={uploadId} " &
         &"accepted={admitted.accepted} status={admitted.statusBytes}")
     if not episode.compilePlane.drainCompileWorkers():
-      result.lines.add("FIRST_LIGHT_PLAY_COMPILE drained=false")
+      result.lines.add("SHELL_PLAY_COMPILE drained=false")
       return
     var commits = 0
     while commits < config.seats.len:
@@ -919,7 +935,7 @@ when ShellRuntimeAvailable:
         break
       for commit in batch:
         inc commits
-        result.lines.add(&"FIRST_LIGHT_PLAY_COMMIT seat={commit.seat} " &
+        result.lines.add(&"SHELL_PLAY_COMMIT seat={commit.seat} " &
           &"upload_id={commit.uploadId} terminal={commit.terminal} " &
           &"status={commit.statusBytes}")
 
@@ -927,26 +943,26 @@ when ShellRuntimeAvailable:
       let accepted = episode.acceptPlayCall(seat,
         config.proposalIdBase + uint64(seat), config.originGeneration, 0,
         config.callBytes)
-      result.lines.add(&"FIRST_LIGHT_PLAY_CALL seat={seat} accepted={accepted.accepted} " &
+      result.lines.add(&"SHELL_PLAY_CALL seat={seat} accepted={accepted.accepted} " &
         &"epoch={accepted.epoch} reason={accepted.reason} " &
         &"status={accepted.statusBytes}")
       if accepted.replayIdentity.isSome:
         result.callIdentities.add accepted.replayIdentity.get
 
-  proc configureFirstLightPlay*(episode: var FirstLightEpisode;
-      config: FirstLightPlayConfig): seq[string] =
-    episode.configureFirstLightPlayWithReplayIdentities(config).lines
+  proc configureDemoPlay*(episode: var ShellEpisode;
+      config: DemoPlayConfig): seq[string] =
+    episode.configureDemoPlayWithReplayIdentities(config).lines
 
 else:
-  proc firstLightRecovery*(episode: FirstLightEpisode; seatIndex: int):
+  proc shellRecovery*(episode: ShellEpisode; seatIndex: int):
       tuple[epoch: uint64, call: Option[PlayContextAcceptedCall],
             playbook: seq[PlayContextReadyModule]] =
     discard episode
     discard seatIndex
 
-  proc admitPlayModule*(episode: var FirstLightEpisode; seatIndex: int;
+  proc admitPlayModule*(episode: var ShellEpisode; seatIndex: int;
       uploadId, originGeneration: uint64; bytes: openArray[byte]):
-      FirstLightAdmissionResult =
+      ShellAdmissionResult =
     discard seatIndex
     discard uploadId
     discard originGeneration
@@ -956,9 +972,9 @@ else:
     else:
       result.reason = "runtimeUnavailable"
 
-  proc acceptPlayCall*(episode: var FirstLightEpisode; seatIndex: int;
+  proc acceptPlayCall*(episode: var ShellEpisode; seatIndex: int;
       proposalId, originGeneration: uint64; tick: uint32; callBytes: string):
-      FirstLightCallResult =
+      ShellCallResult =
     discard seatIndex
     discard proposalId
     discard originGeneration
@@ -971,35 +987,35 @@ else:
       result.reason = "runtimeUnavailable"
       result.path = "runtime"
 
-  proc configureFirstLightPlay*(episode: var FirstLightEpisode;
-      config: FirstLightPlayConfig): seq[string] =
-    let refusal = episode.firstLightPlayConfigRefusal(config)
+  proc configureDemoPlay*(episode: var ShellEpisode;
+      config: DemoPlayConfig): seq[string] =
+    let refusal = episode.demoPlayConfigRefusal(config)
     if refusal.isSome:
       return @[refusal.get]
-    @["FIRST_LIGHT_PLAY configured=false reason=runtime_unavailable " &
+    @["SHELL_PLAY configured=false reason=runtime_unavailable " &
       "hint=compile with --threads:on and WASMTIME_C_API"]
 
-  proc configureFirstLightPlayWithReplayIdentities*(
-      episode: var FirstLightEpisode;
-      config: FirstLightPlayConfig): FirstLightPlayConfigResult =
-    result.lines = episode.configureFirstLightPlay(config)
+  proc configureDemoPlayWithReplayIdentities*(
+      episode: var ShellEpisode;
+      config: DemoPlayConfig): DemoPlayConfigResult =
+    result.lines = episode.configureDemoPlay(config)
 
-proc configureFirstLightDemoPlayFromJsonWithReplayIdentities*(
-    episode: var FirstLightEpisode; configJson: string;
-    repoRoot = getCurrentDir()): FirstLightPlayConfigResult =
-  let node = firstLightPlayNode(configJson)
+proc configureDemoPlayFromJsonWithReplayIdentities*(
+    episode: var ShellEpisode; configJson: string;
+    repoRoot = getCurrentDir()): DemoPlayConfigResult =
+  let node = demoPlayNode(configJson)
   if node == nil:
     return
   try:
-    result = episode.configureFirstLightPlayWithReplayIdentities(
+    result = episode.configureDemoPlayWithReplayIdentities(
       node.playConfigFromNode(repoRoot))
   except CatchableError as error:
-    result.lines = @["FIRST_LIGHT_PLAY configured=false reason=parse_error detail=" &
+    result.lines = @["SHELL_PLAY configured=false reason=parse_error detail=" &
       error.msg]
 
-proc configureFirstLightDemoPlayFromJson*(episode: var FirstLightEpisode;
+proc configureDemoPlayFromJson*(episode: var ShellEpisode;
     configJson: string; repoRoot = getCurrentDir()): seq[string] =
-  episode.configureFirstLightDemoPlayFromJsonWithReplayIdentities(
+  episode.configureDemoPlayFromJsonWithReplayIdentities(
     configJson, repoRoot).lines
 
 when ShellRuntimeAvailable:
@@ -1020,7 +1036,7 @@ when ShellRuntimeAvailable:
       else:
         ticksToShrink
 
-  proc reflexInput(state: FirstLightSeatState; frame: FirstLightSeatFrame;
+  proc reflexInput(state: ShellSeatState; frame: ShellSeatFrame;
                    tick: uint32; mode: GameMode): ReflexTickInput =
     result = ReflexTickInput(
       tick: tick,
@@ -1070,7 +1086,7 @@ when ShellRuntimeAvailable:
       provenance: decision.order.provenance,
       contributingEpoch: decision.order.contributingEpoch))
 
-proc resetAfterDeath(state: var FirstLightSeatState, tick: uint32,
+proc resetAfterDeath(state: var ShellSeatState, tick: uint32,
     nav: BodyNavSystem, annotations: var seq[ShellAnnotation]) =
   annotations.add(ShellAnnotation(
     tick: tick,
@@ -1082,19 +1098,21 @@ proc resetAfterDeath(state: var FirstLightSeatState, tick: uint32,
   state.body = nil
   nav.setSeatActive(state.seat.int, false)
 
-proc activate(state: var FirstLightSeatState, frame: FirstLightSeatFrame,
-    tick: uint32, reason: string, nav: BodyNavSystem,
-    output: var FirstLightTickResult) =
+proc activate(state: var ShellSeatState, tick: uint32, reason: string,
+    nav: BodyNavSystem,
+    output: var ShellTickResult) =
   state.body = activateSeatBody(nav, state.seat.int)
   nav.setSeatActive(state.seat.int, true)
-  let safe = safeIntent(reason, frame.defaultFallbacks.idleAimCenterBrads)
-  let safeBytes = canonicalIntent(safe.intent)
-  setStandingIntent(state.body, safe.intent, none(ValidatedGoal), 0)
+  let
+    safe = safeIntent(reason)
+    provenance = Provenance(base: ProvenanceBase(kind: pbDefault))
+    safeBytes = canonicalIntent(safe)
+  setStandingIntent(state.body, safe, none(ValidatedGoal), 0)
   state.standing = StandingOrderState(
     hasStanding: true,
-    intent: safe.intent,
+    intent: safe,
     intentBytes: safeBytes,
-    provenance: safe.provenance,
+    provenance: provenance,
     effectiveEpoch: 0,
     installedEffectiveEpoch: 0,
     lastDefaultRule: brHold)
@@ -1111,8 +1129,8 @@ proc activate(state: var FirstLightSeatState, frame: FirstLightSeatFrame,
   state.active = true
   state.everActivated = true
 
-proc appendStandingChanges(state: var FirstLightSeatState,
-    output: var FirstLightTickResult) =
+proc appendStandingChanges(state: var ShellSeatState,
+    output: var ShellTickResult) =
   for annotation in state.standing.annotations:
     output.annotations.add(annotation)
     if annotation.kind == akAcceptedIntentChange:
@@ -1131,7 +1149,7 @@ proc acceptDangerTrack(track: BodyTrack): bool =
   discard track
   true
 
-proc dangerInputs(episode: FirstLightEpisode,
+proc dangerInputs(episode: ShellEpisode,
                   tick: uint32): seq[DangerInput] =
   result = newSeq[DangerInput](episode.nav.seats.len)
   for state in episode.seats:
@@ -1139,7 +1157,7 @@ proc dangerInputs(episode: FirstLightEpisode,
       result[state.seat.int] =
         state.body.dangerInputFromTracks(tick, acceptDangerTrack)
 
-proc summarizeSeatTick(body: SeatBody, result: var FirstLightTickResult) =
+proc summarizeSeatTick(body: SeatBody, result: var ShellTickResult) =
   ## Folds one seat's follower and weapon-path outcomes into the tick census.
   let seat = uint8(body.seatIndex)
   case body.navState
@@ -1148,10 +1166,9 @@ proc summarizeSeatTick(body: SeatBody, result: var FirstLightTickResult) =
   of bnsIdle, bnsFollowing: discard
   inc result.combat.counts[body.combatOutcome]
   case body.combatOutcome
-  of coNoPolicyEnemyInRange: result.combat.noPolicyEnemyInRangeSeats.add seat
   of coNoneShootable: result.combat.noneShootableSeats.add seat
   of coAligning: result.combat.aligningSeats.add seat
-  of coNoPolicy, coNoEnemy, coVetoed, coFired: discard
+  of coNoEnemy, coVetoed, coFired: discard
 
 when ShellRuntimeAvailable:
   const
@@ -1167,13 +1184,13 @@ when ShellRuntimeAvailable:
 
   proc formatPlayLog(tick: uint32; log: LadderLogRecord;
                      droppedPrevious: int): string =
-    result = &"FIRST_LIGHT_PLAY_LOG tick={tick} seat={log.seat} " &
+    result = &"SHELL_PLAY_LOG tick={tick} seat={log.seat} " &
       &"entry={log.entryId} phase={log.phase.playLogPhase} " &
       &"level={log.level} message={log.bytes.escape}"
     if droppedPrevious > 0:
       result.add &" dropped_previous={droppedPrevious}"
 
-  proc appendPlayLogs(episode: var FirstLightEpisode; tick: uint32;
+  proc appendPlayLogs(episode: var ShellEpisode; tick: uint32;
                       logs: openArray[LadderLogRecord];
                       lines: var seq[string]) =
     let window = (tick - 1) div PlayLogWindowTicks
@@ -1191,9 +1208,19 @@ when ShellRuntimeAvailable:
       else:
         inc state[].dropped
 
-proc step*(episode: var FirstLightEpisode,
-    frames: openArray[FirstLightSeatFrame], tick: uint32,
-    elapsedZoneTick = 0): FirstLightTickResult =
+template stageBlock(sums: var array[ShellStage, int64], stage: ShellStage,
+                    name: string, body: untyped) =
+  block:
+    let stageStarted = getMonoTime()
+    profileBlock(name):
+      try:
+        body
+      finally:
+        sums[stage] += (getMonoTime() - stageStarted).inNanoseconds
+
+proc step*(episode: var ShellEpisode,
+    frames: openArray[ShellSeatFrame], tick: uint32,
+    elapsedZoneTick = 0): ShellTickResult =
   ## Runs configured play seats in configured-seat order. Disabled episodes
   ## return an empty result, so the server hook cannot touch legacy inputs or
   ## replay bytes on gate-off or gate-on/all-input configurations.
@@ -1209,10 +1236,11 @@ proc step*(episode: var FirstLightEpisode,
         let seat = frame.seat.int
         if seat >= 0 and seat < episode.runtimeState.frames.len:
           episode.runtimeState.frames[seat] =
-            FirstLightViewFrameSlot(present: frame.present, frame: frame)
+            ShellViewFrameSlot(present: frame.present, frame: frame)
           episode.runtimeState.selfPositions[seat] = frame.bodyInputs.self.pos
-    episode.beginCompileTick(tick)
-    result.moduleStatuses = episode.progressCompilePlane()
+    stageBlock(result.stageNanoseconds, ssCompilePlane, "shell.compile"):
+      episode.beginCompileTick(tick)
+      result.moduleStatuses = episode.progressCompilePlane()
 
   for state in episode.seats.mitems:
     var frameIndex = -1
@@ -1225,27 +1253,31 @@ proc step*(episode: var FirstLightEpisode,
     let frame = frames[frameIndex]
 
     let runtimeStarted = getMonoTime()
-    if state.active and not frame.alive:
-      state.resetAfterDeath(tick, episode.nav, result.annotations)
-      if episode.brMode:
-        state.eliminated = true
-    if frame.playing and frame.alive and not state.active and
-        not state.eliminated:
-      state.activate(frame, tick,
-        if state.everActivated: "respawn" else: "activation",
-        episode.nav, result)
-      inc episode.bodyActivations
+    stageBlock(result.stageNanoseconds, ssLifecycle, "shell.lifecycle"):
+      if state.active and not frame.alive:
+        state.resetAfterDeath(tick, episode.nav, result.annotations)
+        if episode.brMode:
+          state.eliminated = true
+      if frame.playing and frame.alive and not state.active and
+          not state.eliminated:
+        state.activate(tick,
+          if state.everActivated: "respawn" else: "activation",
+          episode.nav, result)
+        inc episode.bodyActivations
+      if state.active and frame.playing and frame.alive:
+        stageBlock(result.stageNanoseconds, ssBelief, "body.belief"):
+          state.body.updateBelief(frame.bodyInputs, tick)
     if state.active and frame.playing and frame.alive:
-      state.body.updateBelief(frame.bodyInputs, tick)
-      when ShellRuntimeAvailable:
-        if episode.ladder == nil:
-          state.standing.stepFirstLightDefault(state.body, tick,
+      stageBlock(result.stageNanoseconds, ssDefault, "shell.default"):
+        when ShellRuntimeAvailable:
+          if episode.ladder == nil:
+            state.standing.stepShellDefault(state.body, tick,
+              frame.defaultFallbacks)
+            state.appendStandingChanges(result)
+        else:
+          state.standing.stepShellDefault(state.body, tick,
             frame.defaultFallbacks)
           state.appendStandingChanges(result)
-      else:
-        state.standing.stepFirstLightDefault(state.body, tick,
-          frame.defaultFallbacks)
-        state.appendStandingChanges(result)
     result.runtimeNanoseconds += (getMonoTime() - runtimeStarted).inNanoseconds
 
   when ShellRuntimeAvailable:
@@ -1254,12 +1286,17 @@ proc step*(episode: var FirstLightEpisode,
     if episode.ladder != nil:
       let runtimeStarted = getMonoTime()
       let episodePtr = addr episode
+      let stageSumsPtr = addr result.stageNanoseconds
       let viewSource: LadderViewSource =
         if episode.viewSource == nil:
           proc(seatIndex: int; viewTick: uint32): string =
-            episodePtr[].firstLightViewBytes(seatIndex, viewTick)
+            stageBlock(stageSumsPtr[], ssView, "shell.view"):
+              result = episodePtr[].shellViewBytes(seatIndex, viewTick)
         else:
-          episode.viewSource
+          let customSource = episode.viewSource
+          proc(seatIndex: int; viewTick: uint32): string =
+            stageBlock(stageSumsPtr[], ssView, "shell.view"):
+              result = customSource(seatIndex, viewTick)
       var inputs = newSeq[LadderSeatInput](episode.runtimeState.frames.len)
       for seat in 0 ..< inputs.len:
         inputs[seat] = LadderSeatInput(
@@ -1278,28 +1315,39 @@ proc step*(episode: var FirstLightEpisode,
         if not slot.present or not state.active or not slot.frame.playing or
             not slot.frame.alive:
           continue
-        let facts = brDefaultFacts(state.body, tick,
-          slot.frame.defaultFallbacks)
-        let decision = computeBrDefault(facts)
-        state.standing.lastDefaultRule = decision.rule
-        let finished = finishDefault(decision.intent,
-          facts.idleAimCenterBrads)
-        let reflexDecision =
-          episode.runtimeState.reflexStates[seat].selectReflex(
-            state.reflexInput(slot.frame, tick,
-              if episode.brMode: gmBr else: gmCtf),
-            NativeReflexSubscriptions)
+        var
+          facts: BrDefaultFacts
+          decision: DefaultDecision
+          reflexDecision: ReflexDecision
+          contextBytes: string
+          guardContext: IntentContext
+        stageBlock(result.stageNanoseconds, ssDefault, "shell.default"):
+          facts = brDefaultFacts(state.body, tick, slot.frame.defaultFallbacks)
+          decision = computeBrDefault(facts)
+          state.standing.lastDefaultRule = decision.rule
+        stageBlock(result.stageNanoseconds, ssReflex, "shell.reflex"):
+          reflexDecision =
+            episode.runtimeState.reflexStates[seat].selectReflex(
+              state.reflexInput(slot.frame, tick,
+                if episode.brMode: gmBr else: gmCtf),
+              NativeReflexSubscriptions)
+        stageBlock(result.stageNanoseconds, ssContext, "shell.context"):
+          contextBytes = episode.shellContextBytes(seat, slot.frame)
+        stageBlock(result.stageNanoseconds, ssGuard, "shell.guard"):
+          guardContext = playGuardContext(state.body, facts)
         inputs[seat] = LadderSeatInput(
           alive: true,
           selfPos: slot.frame.bodyInputs.self.pos,
-          contextBytes: episode.firstLightContextBytes(seat, slot.frame),
+          contextBytes: contextBytes,
           viewSource: viewSource,
-          guardContext: playGuardContext(state.body, facts),
-          defaultIntent: finished.intent,
+          guardContext: guardContext,
+          defaultIntent: decision.intent,
           defaultGoal: decision.goal,
           nativeBase: reflexDecision.nativeBase)
 
-      let ladderOutput = episode.ladder.tick(inputs, tick, episode.bindings)
+      var ladderOutput: LadderTickResult
+      stageBlock(result.stageNanoseconds, ssLadder, "shell.ladder"):
+        ladderOutput = episode.ladder.tick(inputs, tick, episode.bindings)
       for row in ladderOutput.seats:
         episode.appendPlayLogs(tick, row.logs, result.playLogLines)
         for status in row.statuses:
@@ -1318,24 +1366,24 @@ proc step*(episode: var FirstLightEpisode,
               annotationFaultReason: status.status.faultReason))
         for identity in row.retuned:
           result.retuned.add entryIdentity(row.seat, identity)
-      for state in episode.seats.mitems:
-        let seat = state.seat.int
-        if seat < 0 or seat >= ladderOutput.seats.len or
-            seat >= episode.runtimeState.frames.len:
-          continue
-        let slot = episode.runtimeState.frames[seat]
-        if not slot.present or not state.active or not slot.frame.playing or
-            not slot.frame.alive:
-          continue
-        let row = ladderOutput.seats[seat]
-        state.standing.stepResolvedOrder(state.body, tick,
-          ResolvedStandingOrder(
-            intent: row.intent,
-            goal: row.goal,
-            provenance: row.provenance,
-            contributingEpoch: row.contributingEpoch),
-          slot.frame.defaultFallbacks.idleAimCenterBrads)
-        state.appendStandingChanges(result)
+      stageBlock(result.stageNanoseconds, ssStanding, "shell.standing"):
+        for state in episode.seats.mitems:
+          let seat = state.seat.int
+          if seat < 0 or seat >= ladderOutput.seats.len or
+              seat >= episode.runtimeState.frames.len:
+            continue
+          let slot = episode.runtimeState.frames[seat]
+          if not slot.present or not state.active or not slot.frame.playing or
+              not slot.frame.alive:
+            continue
+          let row = ladderOutput.seats[seat]
+          state.standing.stepResolvedOrder(state.body, tick,
+            ResolvedStandingOrder(
+              intent: row.intent,
+              goal: row.goal,
+              provenance: row.provenance,
+              contributingEpoch: row.contributingEpoch))
+          state.appendStandingChanges(result)
       result.runtimeNanoseconds +=
         (getMonoTime() - runtimeStarted).inNanoseconds
 
@@ -1369,13 +1417,15 @@ proc step*(episode: var FirstLightEpisode,
       input = actFromBelief(state.body, tick, episode.elapsedZoneTick,
         episode.gameGeneration)
       result.bodyNanoseconds += (getMonoTime() - bodyStarted).inNanoseconds
+      result.stageNanoseconds[ssFollower] += state.body.followerNanoseconds
+      result.stageNanoseconds[ssWeapon] += state.body.weaponNanoseconds
       summarizeSeatTick(state.body, result)
       # §4.1 amendment: surface the standing order's give-item declaration
       # beside the mask it was resolved with. Upright seats only — a dead
       # seat's declaration dies sim-side with the life that made it, and
       # the consent seam refuses dead/downed seats anyway.
       if state.standing.hasStanding:
-        result.handoffs.add(FirstLightHandoff(
+        result.handoffs.add(ShellHandoff(
           seat: state.seat,
           playerIndex: frame.playerIndex,
           item: state.standing.intent.handoff))
@@ -1392,18 +1442,20 @@ proc step*(episode: var FirstLightEpisode,
             if snap.play == "pact":
               partners = resolvePactPartnerTeams(snap.paramsBytes, seatTeams)
               break
-          result.pactDeclarations.add(FirstLightPactDeclaration(
+          result.pactDeclarations.add(ShellPactDeclaration(
             seat: state.seat, playerIndex: frame.playerIndex,
             partners: partners))
-    result.masks.add(FirstLightMask(
+    result.masks.add(ShellMask(
       seat: state.seat, playerIndex: frame.playerIndex, input: input))
-  episode.nav.rebuildScheduledDanger(tick.int, episode.dangerInputs(tick))
-  discard episode.nav.runPlanningTick(tick.int)
+  stageBlock(result.stageNanoseconds, ssDanger, "shell.danger"):
+    episode.nav.rebuildScheduledDanger(tick.int, episode.dangerInputs(tick))
+  stageBlock(result.stageNanoseconds, ssPlanning, "shell.planning"):
+    discard episode.nav.runPlanningTick(tick.int)
   result.planBudget = episode.nav.drainPlanBudgetEvents()
   result.nav.pendingPlans = episode.nav.pendingPlanCount()
 
-proc observeDeaths*(episode: var FirstLightEpisode,
-    frames: openArray[FirstLightSeatFrame], tick: uint32): seq[ShellAnnotation] =
+proc observeDeaths*(episode: var ShellEpisode,
+    frames: openArray[ShellSeatFrame], tick: uint32): seq[ShellAnnotation] =
   ## Post-sim lifecycle hook: clear a seat on the exact tick whose sim step
   ## killed it, without running a default, a body, or a mask handoff twice.
   if not episode.enabled:
@@ -1418,12 +1470,12 @@ proc observeDeaths*(episode: var FirstLightEpisode,
           state.eliminated = true
         break
 
-proc formatInstall*(install: FirstLightInstall): string =
-  &"FIRST_LIGHT_INSTALL tick={install.tick} seat={install.seat} " &
+proc formatInstall*(install: ShellInstall): string =
+  &"SHELL_INSTALL tick={install.tick} seat={install.seat} " &
     &"rule={install.rule} provenance={install.provenance} " &
     &"bytes_fnv1a64={install.bytesHash} bytes={install.bytes}"
 
-proc seatDisplayName*(episode: FirstLightEpisode, seat: int): string =
+proc seatDisplayName*(episode: ShellEpisode, seat: int): string =
   ## The seat's roster display name, or "" when the episode has none.
   when ShellRuntimeAvailable:
     for row in episode.contextRoster:
@@ -1440,26 +1492,46 @@ proc formatPlanBudgetEvent*(event: PlanBudgetEvent): string =
     of pboSuspended: "suspended"
     of pboCompleted: "completed"
     of pboFailed: "failed"
-  &"FIRST_LIGHT_PLAN_BUDGET tick={event.tick} seat={event.seat} " &
+  &"SHELL_PLAN_BUDGET tick={event.tick} seat={event.seat} " &
     &"revision={event.revision} visits={event.visits} units={event.units} " &
     &"outcome={outcome}"
 
-proc formatNavSummary*(tick: uint32, nav: FirstLightNavSummary): string =
-  &"FIRST_LIGHT_NAV tick={tick} pending_plans={nav.pendingPlans} " &
+proc formatNavSummary*(tick: uint32, nav: ShellNavSummary): string =
+  &"SHELL_NAV tick={tick} pending_plans={nav.pendingPlans} " &
     &"stale_path={nav.stalePathSeats.seatList} " &
     &"no_path={nav.noPathSeats.seatList}"
 
 proc formatCombatSummary*(tick: uint32,
-                          combat: FirstLightCombatSummary): string =
-  &"FIRST_LIGHT_COMBAT tick={tick} fired={combat.counts[coFired]} " &
+                          combat: ShellCombatSummary): string =
+  &"SHELL_COMBAT tick={tick} fired={combat.counts[coFired]} " &
     &"aligning={combat.counts[coAligning]} " &
     &"none_shootable={combat.counts[coNoneShootable]} " &
     &"vetoed={combat.counts[coVetoed]} no_enemy={combat.counts[coNoEnemy]} " &
-    &"no_policy={combat.counts[coNoPolicy]} " &
-    &"no_policy_enemy_in_range={combat.counts[coNoPolicyEnemyInRange]} " &
-    &"no_policy_enemy_in_range_seats={combat.noPolicyEnemyInRangeSeats.seatList} " &
     &"none_shootable_seats={combat.noneShootableSeats.seatList} " &
     &"aligning_seats={combat.aligningSeats.seatList}"
+
+proc shellNanoseconds*(sums: array[ShellStage, int64]): int64 =
+  ## Belief is contained by lifecycle, and the lazy view is contained by the
+  ## ladder call. Every other row is an exclusive step segment.
+  for stage in ShellStage:
+    if stage notin {ssBelief, ssView}:
+      result += sums[stage]
+
+proc formatTimingSummary*(tick: uint32, seats, windowTicks: int,
+                          sums: array[ShellStage, int64], maxTickNs,
+                          simNs: int64): string =
+  template micros(stage: ShellStage): int64 =
+    sums[stage] div 1_000
+  &"SHELL_TIMING tick={tick} seats={seats} window_ticks={windowTicks} " &
+    &"shell_us={sums.shellNanoseconds div 1_000} " &
+    &"max_tick_us={maxTickNs div 1_000} sim_us={simNs div 1_000} " &
+    &"lifecycle_us={micros(ssLifecycle)} default_us={micros(ssDefault)} " &
+    &"reflex_us={micros(ssReflex)} context_us={micros(ssContext)} " &
+    &"view_us={micros(ssView)} guard_us={micros(ssGuard)} " &
+    &"ladder_us={micros(ssLadder)} standing_us={micros(ssStanding)} " &
+    &"belief_us={micros(ssBelief)} follower_us={micros(ssFollower)} " &
+    &"weapon_us={micros(ssWeapon)} danger_us={micros(ssDanger)} " &
+    &"planning_us={micros(ssPlanning)} compile_us={micros(ssCompilePlane)}"
 
 proc formatLifecycleAnnotation*(annotation: ShellAnnotation,
                                 player = ""): string =
@@ -1467,16 +1539,16 @@ proc formatLifecycleAnnotation*(annotation: ShellAnnotation,
   let playerField = if player.len > 0: &" player={player.escape}" else: ""
   case annotation.kind
   of akClearOnDeath:
-    &"FIRST_LIGHT_ANNOTATION tick={annotation.tick} seat={annotation.seat} " &
+    &"SHELL_ANNOTATION tick={annotation.tick} seat={annotation.seat} " &
       &"kind=clear_on_death generation={annotation.clearGeneration}"
   of akInstallSafeIntent:
-    &"FIRST_LIGHT_ANNOTATION tick={annotation.tick} seat={annotation.seat} " &
+    &"SHELL_ANNOTATION tick={annotation.tick} seat={annotation.seat} " &
       &"kind=install_safe reason={annotation.installReason}"
   of akAcceptedIntentChange:
-    &"FIRST_LIGHT_ANNOTATION tick={annotation.tick} seat={annotation.seat} " &
+    &"SHELL_ANNOTATION tick={annotation.tick} seat={annotation.seat} " &
       &"kind=accepted_intent epoch={annotation.effectiveEpoch}"
   of akPlayFault:
-    &"FIRST_LIGHT_ANNOTATION tick={annotation.tick} seat={annotation.seat}" &
+    &"SHELL_ANNOTATION tick={annotation.tick} seat={annotation.seat}" &
       &"{playerField} kind=play_fault epoch={annotation.faultAtEpoch} " &
       &"entry={annotation.faultEntryId} code={annotation.faultCode} " &
       &"reason={annotation.annotationFaultReason.escape}"

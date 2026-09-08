@@ -11,8 +11,8 @@
 ## including a later respawn in the same cell. No counter, clock, or address
 ## identity participates in belief ids.
 
-import std/[algorithm, hashes, math, options, sequtils]
-import bitworld/spriteprotocol
+import std/[algorithm, hashes, math, monotimes, options, sequtils, times]
+import bitworld/[profile, spriteprotocol]
 import ../ctf/sim_types
 import body_map, body_nav, body_route_index
 import types as shellTypes
@@ -243,7 +243,7 @@ type
       ## PERCEPTION(glory-2 §17): the partner's own loadout flags --
       ## granted alongside downed above (same duo-telemetry trust
       ## boundary), gated by config.frameLoadoutFlags at the seam that
-      ## builds this sample (src/ctf/server.nim's firstLightPartner), never
+      ## builds this sample (src/ctf/server.nim's shellPartner), never
       ## by config.lootStart -- the flags are the sim TRUTH regardless of
       ## mode; this gate controls only whether a play may SEE them.
       ## Required for an intelligent HANDOFF call: a play needs to see the
@@ -310,7 +310,7 @@ type
 
   BodyNavState* = enum
     ## What the follower did on the last seat tick; read by the episode's
-    ## per-tick navigation summary (FIRST_LIGHT_NAV).
+    ## per-tick navigation summary (SHELL_NAV).
     bnsIdle        ## no navigate order drove movement (hold, arrived, no goal, fire freeze)
     bnsFollowing   ## walking the route planned for the current request
     bnsStalePath   ## walking an older route while the current request's plan computes
@@ -318,10 +318,8 @@ type
 
   CombatOutcome* = enum
     ## Why the weapon path did or did not fire on the last seat tick; read by
-    ## the episode's per-tick combat summary (FIRST_LIGHT_COMBAT).
-    coNoPolicy              ## combat policy neutral: the weapon path never ran
-    coNoPolicyEnemyInRange  ## neutral policy while a non-partner track was shootable
-    coNoEnemy               ## policy active, no fresh track this tick
+    ## the episode's per-tick combat summary (SHELL_COMBAT).
+    coNoEnemy               ## no fresh track this tick
     coNoneShootable         ## fresh tracks (possibly a held target), none in range with a clear line of sight
     coVetoed                ## shootable tracks, all excluded by noShoot, protect, or holdFire
     coAligning              ## shootable target held; rotating, cooling down, or winding up
@@ -352,6 +350,8 @@ type
     throwTarget: Option[CombatTarget]
     navState*: BodyNavState        ## last seat tick's follower outcome
     combatOutcome*: CombatOutcome  ## last seat tick's weapon-path outcome
+    followerNanoseconds*: int64
+    weaponNanoseconds*: int64
 
 proc tickInsideWindow(eventTick, now, window: uint32): bool =
   eventTick <= now and uint64(now - eventTick) < uint64(window)
@@ -785,11 +785,6 @@ proc protectedPolicySeat*(policy: shellTypes.CombatPolicy, seat: int): bool =
   validateSeat(seat, "combat target")
   policy.noShoot.containsSeat(seat) or policy.protect.containsSeat(seat)
 
-proc combatPolicyActive(policy: shellTypes.CombatPolicy): bool =
-  policy.holdFire or policy.prefer.len > 0 or card(policy.noShoot.teams) > 0 or
-    policy.noShoot.seats.len > 0 or card(policy.protect.teams) > 0 or
-    policy.protect.seats.len > 0
-
 proc targetMaxHpEstimate(body: SeatBody): int =
   ## The body seam has no config object. In ordinary CTF all cogs share max hp,
   ## so self `hp / hpFrac` recovers the live value when readable; fall back to
@@ -1141,9 +1136,7 @@ proc idleSweepAim*(body: SeatBody, center: int): int =
   normalAimBrads(center + body.sweepOffset)
 
 proc idleAimMask(body: SeatBody): uint8 =
-  if body.standingIntent.idleAimCenterBrads.isNone:
-    return 0'u8
-  aimRotationMask(body.idleSweepAim(body.standingIntent.idleAimCenterBrads.get),
+  aimRotationMask(body.idleSweepAim(body.standingIntent.idleAimCenterBrads),
     body.selfState.aimBrads)
 
 proc sprayContains(fromPos: BodyPoint, aimBrads: int,
@@ -1322,14 +1315,19 @@ proc actFromBelief*(body: SeatBody, tick: uint32; elapsedTick = 0;
   ##
   ## Cold plan work and danger rebuild cadence stay episode-owned; callers run
   ## `runPlanningTick` and `rebuildScheduledDanger` on the shared BodyNavSystem.
+  body.followerNanoseconds = 0
+  body.weaponNanoseconds = 0
   body.navState = bnsIdle
-  body.combatOutcome = coNoPolicy
+  body.combatOutcome = coNoEnemy
   if not body.selfState.alive:
     body.resetWeaponState()
     return InputState()
 
   var mask = 0'u8
   var needsIdleAim = false
+  let followerStarted = getMonoTime()
+  when ProfileTracePath.len > 0:
+    measurePush("body.follower")
   let fireFreeze = body.fireHoldTicks > 0 and not body.selfState.carrying and
     not body.standingIntent.suppressFireFreeze
   if body.fireHoldTicks > 0:
@@ -1364,37 +1362,39 @@ proc actFromBelief*(body: SeatBody, tick: uint32; elapsedTick = 0;
           seat.noteProgress(body.selfState.pos)
         else:
           needsIdleAim = true
+  when ProfileTracePath.len > 0:
+    measurePop()
+  body.followerNanoseconds =
+    (getMonoTime() - followerStarted).inNanoseconds
 
-  if combatPolicyActive(body.standingIntent.combat):
-    let
-      liveRange = body.nav.liveWeaponRangePx(body.seatIndex)
-      maxHp = body.targetMaxHpEstimate()
-      candidates = body.combatCandidates(body.standingIntent.combat, tick,
-        liveRange, maxHp)
-      decision = body.selectCombatTarget(body.standingIntent.combat,
-        candidates, tick, liveRange, maxHp)
-      weaponMask = body.weaponActuationMask(body.standingIntent.combat,
-        decision, tick)
-    if decision.isSome:
-      needsIdleAim = false
-    if (weaponMask and ButtonA) != 0 and not body.selfState.hasSprayPaint and
-        not body.selfState.carrying and
-        not body.standingIntent.suppressFireFreeze:
-      mask = mask and not uint8(MovementMask)
-    mask = mask or weaponMask
-    body.combatOutcome =
-      if (weaponMask and (ButtonA or ButtonC)) != 0: coFired
-      elif decision.isSome:
-        # The selector may hold an unshootable target (out of range or
-        # behind a wall) to keep aiming at it; that is not "aligning".
-        if decision.get.combatShootable: coAligning else: coNoneShootable
-      elif candidates.len == 0: coNoEnemy
-      elif candidates.anyIt(it.shootable): coVetoed
-      else: coNoneShootable
-  else:
-    body.resetWeaponState()
-    if body.enemyShootableWithoutPolicy(tick):
-      body.combatOutcome = coNoPolicyEnemyInRange
+  let weaponStarted = getMonoTime()
+  when ProfileTracePath.len > 0:
+    measurePush("body.weapon")
+  let
+    liveRange = body.nav.liveWeaponRangePx(body.seatIndex)
+    maxHp = body.targetMaxHpEstimate()
+    candidates = body.combatCandidates(body.standingIntent.combat, tick,
+      liveRange, maxHp)
+    decision = body.selectCombatTarget(body.standingIntent.combat,
+      candidates, tick, liveRange, maxHp)
+    weaponMask = body.weaponActuationMask(body.standingIntent.combat,
+      decision, tick)
+  if decision.isSome:
+    needsIdleAim = false
+  if (weaponMask and ButtonA) != 0 and not body.selfState.hasSprayPaint and
+      not body.selfState.carrying and
+      not body.standingIntent.suppressFireFreeze:
+    mask = mask and not uint8(MovementMask)
+  mask = mask or weaponMask
+  body.combatOutcome =
+    if (weaponMask and (ButtonA or ButtonC)) != 0: coFired
+    elif decision.isSome:
+      # The selector may hold an unshootable target (out of range or
+      # behind a wall) to keep aiming at it; that is not "aligning".
+      if decision.get.combatShootable: coAligning else: coNoneShootable
+    elif candidates.len == 0: coNoEnemy
+    elif candidates.anyIt(it.shootable): coVetoed
+    else: coNoneShootable
 
   if needsIdleAim and (mask and (ButtonB or ButtonSelect)) == 0:
     mask = mask or body.idleAimMask()
@@ -1407,13 +1407,17 @@ proc actFromBelief*(body: SeatBody, tick: uint32; elapsedTick = 0;
   # it emitted before, bit for bit.
   if body.standingIntent.drop:
     mask = mask or ButtonB or ButtonSelect
+  when ProfileTracePath.len > 0:
+    measurePop()
+  body.weaponNanoseconds = (getMonoTime() - weaponStarted).inNanoseconds
   decodeInputMask(mask)
 
 proc seatTick*(body: SeatBody, inputs: BodyTickInputs,
                tick: uint32; elapsedTick = 0;
                gameGeneration = 0'u64): InputState =
   ## Folds one seat's current inputs, then executes its action phase.
-  body.updateBelief(inputs, tick)
+  profileBlock("body.belief"):
+    body.updateBelief(inputs, tick)
   body.actFromBelief(tick, elapsedTick, gameGeneration)
 
 proc dangerInputFromTracks*(body: SeatBody, tick: uint32,

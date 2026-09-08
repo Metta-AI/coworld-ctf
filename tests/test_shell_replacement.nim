@@ -3,7 +3,7 @@
 import std/[json, options, sequtils, strutils, tables, unittest]
 
 import ../src/shell/[body_map, call_validation, canonical, emit_validator,
-  finisher, guards, ladder, manifest, module_cache, replacement, types]
+  guards, ladder, manifest, module_cache, policy_encoding, replacement, types]
 
 type
   RetuneMode = enum

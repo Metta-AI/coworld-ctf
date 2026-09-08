@@ -1,5 +1,5 @@
 {
-  "_comment": "FIRST LIGHT demo timings: zonePhases deliberately compress practice's match-length BR schedule so the flood is visible during a watched demo.",
+  "_comment": "Shell demo timings: zonePhases deliberately compress practice's match-length BR schedule so the flood is visible during a watched demo.",
   "season2Shell": true,
   "viewIntervalTicks": 6,
   "lobbyChatTicks": 0,
@@ -9,7 +9,7 @@
   "startWaitTicks": 0,
   "speed": 1,
   "fastMode": false,
-  "firstLightPlay": {
+  "demoPlay": {
     "modulePath": "play_sdk/.build/edge_ride.wasm",
     "playName": "edge_ride",
     "params": {"coverBias": 0.8, "enterLead": 120, "margin": 220},

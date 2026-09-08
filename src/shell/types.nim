@@ -70,10 +70,11 @@ type
     seats*: seq[SeatRef]
 
   CombatPolicy* = object
-    ## §4.1/§4.2. Everything empty or false is the neutral value and the
-    ## default.
+    ## §4.1/§4.2. Everything empty or false is the baseline: engage every
+    ## fog-visible non-team track in score order, with initiation allowed.
+    ## Overlay policies add bans, wards, preference tags, or hold-fire.
     noShoot*: ProtectedSet     ## never fired on, in every weapon path
-    protect*: ProtectedSet     ## wards: bias position + targeting to defend
+    protect*: ProtectedSet     ## wards: target/corridor exclusion + threat boost
     prefer*: seq[PreferTag]    ## priority order; at most the 4 distinct tags
     holdFire*: bool            ## do not initiate (return fire allowed, §5.2)
 
@@ -88,7 +89,7 @@ type
     movingGoal*: bool
     profile*: CostProfile
     micro*: set[MicroFlag]
-    idleAimCenterBrads*: Option[int]  ## 0..255
+    idleAimCenterBrads*: int  ## 0..255; 0 unless the play sets it
     clampToEndzone*: bool      ## meaningful in gmCtf, ignored elsewhere
     suppressFireFreeze*: bool
     targetClass*: string       ## optional engine-resolved navigation class;
@@ -447,7 +448,9 @@ const
   ReflexCandidateSpacingPx* = 16      ## Appendix R.2 planEscape lattice
   ReflexCandidateRadiusPx* = 256
   MaxReflexCandidates* = 1089         ## (2·16+1)²
-  MaxLogCallsPerInvocation* = 4
+  MaxLogCallsPerInvocation* = 1
+    ## James, 2026-09-04: one diagnostic line per invocation. Over-cap calls
+    ## are dropped silently, never faulted, so lowering the cap breaks no uploaded play.
   MaxLogBytesPerCall* = 256
   MaxBinaryViewFrameBytes* = 8192
     ## PM-ratified binary view split (2026-08-31): the play-readable

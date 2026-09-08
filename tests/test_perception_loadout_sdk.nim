@@ -37,7 +37,7 @@ suite "PERCEPTION (glory-2 §17) part 2/3 -- ground gun/hopper crate visibility"
     sim.hopperSpawns = @[PickupSpawn(x: viewer.x + 1, y: viewer.y,
       present: false, respawnAt: 999)]
 
-    let inputs = sim.firstLightBodyInputs(viewerIndex)
+    let inputs = sim.shellBodyInputs(viewerIndex)
     check inputs.sightedItems.len == 2
     var kinds: seq[BodyItemKind]
     for sighting in inputs.sightedItems:
@@ -57,7 +57,7 @@ suite "PERCEPTION (glory-2 §17) part 2/3 -- ground gun/hopper crate visibility"
     let viewerIndex = sim.addPlayer("red0")
     check sim.weaponSpawns.len == 0
     check sim.hopperSpawns.len == 0
-    let inputs = sim.firstLightBodyInputs(viewerIndex)
+    let inputs = sim.shellBodyInputs(viewerIndex)
     for sighting in inputs.sightedItems:
       check sighting.kind notin [bikGun, bikHopper]
 
@@ -71,13 +71,13 @@ suite "PERCEPTION (glory-2 §17) part 3/3 -- own-duo held-state, gated":
     sim.players[partnerIndex].hasGun = true
     sim.players[partnerIndex].hasHopper = true
 
-    let dark = sim.firstLightPartner(viewerIndex)
+    let dark = sim.shellPartner(viewerIndex)
     check dark.isSome
     check not dark.get.hasGun
     check not dark.get.hasHopper
 
     sim.config.frameLoadoutFlags = true
-    let armed = sim.firstLightPartner(viewerIndex)
+    let armed = sim.shellPartner(viewerIndex)
     check armed.isSome
     check armed.get.hasGun
     check armed.get.hasHopper
@@ -93,8 +93,8 @@ suite "PERCEPTION (glory-2 §17) part 3/3 -- own-duo held-state, gated":
     sim.players[enemyIndex].hasGun = true
     sim.players[enemyIndex].hasHopper = true
     # duoPartnerIndex only ever considers a SAME-team seat; a cross-team
-    # pair has no path into firstLightPartner at all.
-    check sim.firstLightPartner(viewerIndex).isNone
+    # pair has no path into shellPartner at all.
+    check sim.shellPartner(viewerIndex).isNone
 
 proc openBodyMap(): BodyMap =
   const Width = 128

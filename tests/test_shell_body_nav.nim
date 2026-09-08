@@ -625,7 +625,7 @@ suite "shell body seat navigation":
       16 * ColdPlanBudgetPerTick
 
   test "plan budget events report suspensions and the visits to clear them":
-    ## Operator logging (FIRST_LIGHT_PLAN_BUDGET): a plan that needs more
+    ## Operator logging (SHELL_PLAN_BUDGET): a plan that needs more
     ## than one visit produces one suspended event per starved visit and a
     ## final completed event carrying the total visit count. Nothing is
     ## recorded for a plan that fits its first visit, and nothing for a

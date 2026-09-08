@@ -7,6 +7,8 @@ revision history; gate/default state updated 2026-09-01) · **Author:** James's 
 `BR_PLAYS.md` supplies the reference play menu) · **Canonical home:** this
 file, in `coworld-ctf`.
 
+Unratified spatial-context, host-query, and semantic-goal changes are proposed in [`play-spatial-knowledge-2026-09-08.md`](play-spatial-knowledge-2026-09-08.md); the rulings here remain authoritative until James ratifies that proposal.
+
 Companion reading: `docs/reports/maxwell-s2-paradigms-2026-08-29.md` (the
 research report on Maxwell's Season 2 substrate, with a plain-language primer
 in its section 0) and `docs/recon/paintbot-s2-policy-shell-2026-08-29.md`
@@ -43,8 +45,8 @@ new one arrives.
 (section 7) and runs every seat's plays inside it, at tick rate, under
 memory caps and per-step instruction budgets. Around the plays, the engine
 owns all the orchestration: the ladder driver that decides which plays are
-active, the guard evaluator, the emergency reflexes, the finisher, and the
-default play. The engine also defines everything a play may see and say:
+active, the guard evaluator, the emergency reflexes, and the default play.
+The engine also defines everything a play may see and say:
 the per-seat, fog-filtered `PlayView` (section 5), the play ABI (section
 6), and the seat protocol that carries playbooks and calls (section 4.3).
 All of it lives in this repository and is versioned with the game.
@@ -74,7 +76,7 @@ flowchart LR
     end
     subgraph GAME["GAME (coworld-ctf engine)"]
         VF["per-seat PlayView<br/>(fogged)"]
-        RT["play runtime: embedded WASM,<br/>ladder driver · guards · reflexes ·<br/>finisher · default play"]
+        RT["play runtime: embedded WASM,<br/>ladder driver · guards · reflexes ·<br/>default play"]
         BODY["game-side body:<br/>belief · nav · combat · action"]
         REC["replay: masks (hashed) ·<br/>calls + module hashes (hashed) ·<br/>Intent annotations"]
         SIM["authoritative sim"]
@@ -108,8 +110,7 @@ Goals:
    parameters, the durable status list and its acknowledgment, with named
    limits and deterministic overflow.
 4. Specify the engine's play runtime: the embedded WebAssembly runtime and
-   its choice, the ladder driver, guards, reflexes, the finisher, and the
-   default play.
+   its choice, the ladder driver, guards, reflexes, and the default play.
 5. Adopt Maxwell's ladder-of-plays call format and his seven-play reference
    menu, and make sure the parameter system covers what those plays need.
 6. Keep replays deterministic under the new boundary, reusing the recording
@@ -379,7 +380,7 @@ retained, replaced, or deleted:
 | `movingGoal: bool` | retained |
 | `profile` (default, carrier, hunter) | retained as an enum |
 | `micro` (permission set) | retained as a set of named flags, minus the pursuit flag (deleted with the override) |
-| `idleAimCenterBrads: Option[int]` | retained; 0..255 |
+| `idleAimCenterBrads: int` | retained; 0..255; 0 when the play omits it |
 | `clampToEndzone: bool` | retained; meaningful in CTF, ignored where no endzones exist |
 | `suppressFireFreeze: bool` | retained |
 | `reason: string` | retained; telemetry only, capped at 64 bytes |
@@ -417,7 +418,7 @@ One field is added, the combat policy:
 type
   CombatPolicy* = object
     noShoot*: ProtectedSet       # teams and seats never fired on
-    protect*: ProtectedSet       # wards: bias position + targeting to defend
+    protect*: ProtectedSet       # wards: targeting/corridor protection + threat boost
     prefer*: seq[PreferTag]      # target preference tags, in priority order
     holdFire*: bool              # do not initiate fire (return fire allowed)
   ProtectedSet* = object
@@ -425,12 +426,14 @@ type
     seats*: seq[SeatRef]         # cross-team, per-seat references
 ```
 
-Everything empty or false is the neutral value and the default. Seat-level
-references exist because Maxwell's `pact` negotiates alliances with
-specific duos, not only whole teams; `prefer` and `holdFire` exist because
-his `target_law` is a standing filter over who to shoot and when to start
-shooting. Betrayal responses and pact end conditions are play logic, not
-policy fields: the overlay play that owns the pact watches the view every
+Everything empty or false is the baseline and the default: engage every
+fog-visible non-team track in the existing score/identity/cell/seat order,
+with no bans, no wards, and initiation allowed. Overlay policies modify that
+baseline. Seat-level references exist because Maxwell's `pact` negotiates
+alliances with specific duos, not only whole teams; `prefer` and `holdFire`
+exist because his `target_law` is a standing filter over who to shoot and when
+to start shooting. Betrayal responses and pact end conditions are play logic,
+not policy fields: the overlay play that owns the pact watches the view every
 tick and changes the policy it emits.
 
 The encoding a play emits is versioned, schema-tagged JSON with declared
@@ -460,12 +463,12 @@ rather than force-released if it now violates the set. A final veto before
 each weapon's fire decision refuses a `noShoot` endpoint however it was
 acquired.
 
-Protecting a ward means two things the body does and one thing plays do.
-The body biases positioning toward a threatened ward when the intent's goal
-allows it, and it up-weights threats-to-wards in target scoring, so the cog
-prefers shooting whoever endangers its ward. Interposition (physically
-blocking the line of fire) is play territory, expressed through movement
-goals, as Maxwell's `bodyguard` play does with its `interpose` parameter.
+Protecting a ward has three body effects: the ward is excluded from target
+and splash-victim consideration in every weapon path, a fresh visible ward
+blocks the gun corridor, and threats-to-wards receive
+`WardThreatScoreBoost` in target scoring. The body does not bias positioning
+toward a ward. Ward-relative movement and interposition are play territory,
+expressed through movement goals by Maxwell's `bodyguard` play.
 
 A *threat to a ward* is detected with aim bearing, not proximity alone. An
 enemy is threatening a ward when it is within the live weapon range of the
@@ -1579,7 +1582,7 @@ not give it, and no engine internals.
 | Import | Signature | Contract |
 |---|---|---|
 | `emit` | `(ptr: i32, len: i32) -> i32` | hands bytes to the engine. During `play_manifest`: the manifest. During `play_step`: an `Intent` (controller) or `CombatPolicy` (overlay) in canonical JSON. Validated synchronously; returns a fixed ABI code (table below): `0` accepted, `1` accepted with the goal normalized, or a negative rejection. Within one step the **last accepted** emission stands. Calls outside those two exports fault the instance. |
-| `log` | `(level: i32, ptr: i32, len: i32) -> ()` | best-effort diagnostics, legal during `play_manifest`, `play_init`, `play_step`, and `play_retune`. `level` is an opaque signed `i32`; the host preserves it without filtering or assigning an enum. Accepted raw bytes appear in the local play harness as ordered lowercase `bytes_hex`. For live ladder entries (`init`, `step`, and `retune`), the server synchronously writes `FIRST_LIGHT_PLAY_LOG tick=T seat=S entry=ID phase=P level=N message="..."` to public/operator-visible stdout, with the message encoded by Nim `strutils.escape`; upload-time manifest-probe logs have no seat/entry identity and are not written there. The ABI admits at most `MaxLogCallsPerInvocation` calls of `MaxLogBytesPerCall` bytes per guest invocation and silently ignores later calls. The live sink separately admits four lines per seat per 24 ticks, suppresses the rest, and adds `dropped_previous=N` to the first admitted line of the next window. These diagnostics are not private or durable, never enter status, replay, game state, or `gameHash`, and synchronous stdout backpressure may delay the server loop. |
+| `log` | `(level: i32, ptr: i32, len: i32) -> ()` | best-effort diagnostics, legal during `play_manifest`, `play_init`, `play_step`, and `play_retune`. `level` is an opaque signed `i32`; the host preserves it without filtering or assigning an enum. Accepted raw bytes appear in the local play harness as ordered lowercase `bytes_hex`. For live ladder entries (`init`, `step`, and `retune`), the server synchronously writes `SHELL_PLAY_LOG tick=T seat=S entry=ID phase=P level=N message="..."` to public/operator-visible stdout, with the message encoded by Nim `strutils.escape`; upload-time manifest-probe logs have no seat/entry identity and are not written there. The ABI admits one call of `MaxLogBytesPerCall` bytes per guest invocation and silently ignores later calls in every phase, including the upload-time manifest probe. The live sink separately admits four lines per seat per 24 ticks, suppresses the rest, and adds `dropped_previous=N` to the first admitted line of the next window. These diagnostics are not private or durable, never enter status, replay, game state, or `gameHash`, and synchronous stdout backpressure may delay the server loop. |
 | `nearest_reachable` | `(x: i32, y: i32) -> i64` | the engine's goal validator (section 3.3), legal only during `play_step`: the packed `(x << 32) \| y` of the nearest reachable point for this seat (both coordinates are non-negative and below 2³¹, so the packed value is never negative), −1 if the validator's definition yields no point, −2 once the step has used its `MaxSpatialCallsPerStep`, or −3 for an invalid argument (below) |
 | `nearest_cover` | `(x: i32, y: i32, radius: i32, bearingBrads: i32, threatsPtr: i32, threatsLen: i32) -> i64` | the engine's cover query over the thinned static atlas (section 5.2 and ruling nine): the packed point of the best retained cover post within `radius` pixels of `(x, y)`, ranked by the ported atlas scorer exactly as the lab defines it, with `bearingBrads` as its optional bearing (−1 means none, which selects each post's maximum-reach sector as the lab's `none` does; 0..255 selects the sector the lab's `some(bearing)` would) and the threat positions as its threat list for the facing term, then phase-one truncation, the duck-contrast phase, and the lab's tie order (`LAB:worldmap.nim:766-839`), so lab parity is testable in both bearing forms after filtering stencil's atlas to the same 16 px candidate grid; −1 if none, −2 past the shared `MaxSpatialCallsPerStep`, −3 for an invalid argument; `radius` is clamped to `MaxCoverRadiusPx`, and every supported map is validated at load so that no disc of that radius contains more than `MaxCoverPostsExamined` posts (below), which is what makes "best over the retained atlas within the radius" and "bounded work per call" the same statement |
 
@@ -1777,7 +1780,7 @@ not the mechanism.
 | `MaxCoverPostsExamined` (retained atlas posts any `MaxCoverRadiusPx` disc may contain after ruling-nine 16 px atlas thinning; asserted for every map at load in play-seat configurations, which reject a denser map; frozen from 1536→1024 by the 2026-08-31 generator census under thinning, see section 10) | 1024 |
 | `MaxRouteFieldsPerSeat` / `MaxDuckEntriesPerSeat` (seat-layer caches, section 3.1) | 4 / 256 |
 | `ReflexCandidateSpacingPx` / `ReflexCandidateRadiusPx` / `MaxReflexCandidates` (Appendix R.2's planning primitive) | 16 / 256 / 1089 |
-| `MaxLogCallsPerInvocation` / `MaxLogBytesPerCall` | 4 / 256 |
+| `MaxLogCallsPerInvocation` / `MaxLogBytesPerCall` | 1 / 256 |
 | `MaxBinaryViewFrameBytes` (play-facing fixed-layout binary play-view frame; ruled at 8192 after measurement corrected the original full-scan assumption: reference plays must read only needed sections and retain at least 50% of `StepFuel` on populated maximum frames; `edge_ride` measured 3,508 fuel and `pact` 20,117) | 8192 |
 | `MaxBinaryContextBytes` (play-facing fixed-layout binary play-context frame; the 60% rule would allow ~150 KB, the actual context frame is ~140 B, and 8192 is chosen for symmetry with the view cap and bounded-allocation hygiene, not derived) | 8192 |
 | `MaxViewFrameBytes` (JSON socket/replay play-view payload; retained for the canonical JSON copy while the play's fixed-layout binary view frame has its own cap) | 32768 |
@@ -2047,8 +2050,8 @@ guards can select by mode.
 ## 7. The play runtime and the call format
 
 - The engine embeds a WebAssembly runtime and owns everything around the
-  player's plays: the ladder driver, the guard evaluator, reflexes, the
-  finisher, and the default play.
+  player's plays: the ladder driver, the guard evaluator, reflexes, and the
+  default play.
 - A call is Maxwell's ladder-of-plays: an ordered list of play names with
   parameters and optional guards. One active ladder stands per seat; the
   LLM replaces it whenever it likes, including mid-match.
@@ -2143,7 +2146,7 @@ Every *overlay* entry whose guard passes is active, and their combat
 policies fold in order (union of bans and wards, preferences concatenated,
 `holdFire` if any). The first *controller* entry whose guard passes is the
 active controller: its instance steps, the folded combat policy is stamped
-onto its emitted `Intent`, and the result goes to the finisher. In the
+onto its emitted `Intent`, and the result becomes the base order. In the
 example, `target_law` and `pact` stand under whichever of `supply_run` or
 `edge_ride` is moving the cog, which is exactly the layering Maxwell's
 menu requires. A guardless controller always passes, so the last entry is
@@ -2257,9 +2260,9 @@ quota needs and asserts that no old-parameter emission is attributed to
 the new epoch, alongside goldens for death and respawn during a pending
 retune and for a second replacement arriving while one is pending.
 
-### 7.3 Reflexes, the finisher, and the default play
+### 7.3 Reflexes and the default play
 
-Three fixed pieces sit above and below the player's plays. All three are
+Two fixed pieces sit above and below the player's plays. Both are
 engine-native Nim in `src/shell/`, not WASM modules: they need no
 sandbox, they read the engine's hazard bookkeeping directly, and a
 player cannot replace them, only position them.
@@ -2276,12 +2279,9 @@ observers run every tick regardless of subscription, so a mid-emergency
 call change never blinds the new ladder to an emergency already in
 progress. Their semantics are normative in Appendix R.
 
-**The finisher** stamps what every `Intent` must carry and no play should
-have to remember: the idle-aim center (where the cog scans when it has no
-target; the body requires it) and the provenance (the base entry's
-`entryId` and module hash, `reflex:<name>`, or `default`, plus the
-contributing overlays), which is what the annotation record's
-`provenance` field carries.
+The idle-aim center is an `Intent` field with a built-in default of 0.
+Provenance is written by whichever subsystem chooses the order: the ladder
+driver for entries and overlays, the default play, or the reflex selector.
 
 **The default play** is the ladder's implicit final controller, always
 present: a competent, parameterless survival controller per mode (in
@@ -2330,8 +2330,8 @@ guest last said does not, because that output was produced under the
 old parameters.
 
 The **standing order** is what the body executes, and it is
-**recomputed from scratch every tick** as the finisher applied to the
-fold of the base order with the cached policies of the overlays active
+**recomputed from scratch every tick** as the fold of the base order with
+the cached policies of the overlays active
 *this tick*; the previous standing order is never an input to the fold.
 An overlay that is active and emitted nothing this tick contributes its
 cached policy; an overlay whose guard is false, that is
@@ -2883,7 +2883,7 @@ dark since it landed).
   park, fault, drop, retune), the ABI host functions with their budgets,
   and the containment tests of gate 3. Around it: the ladder driver
   (guards via the expression API carved out of the page VM, overlay
-  fold, first-eligible controller), reflexes, the finisher, the per-mode
+  fold, first-eligible controller), reflexes, the per-mode
   default play, and the annotation writer. Alongside: the play SDK and
   its `play.nims`, the play harness, and the Docker and Nix build changes
   that link the runtime library. Acceptance: a hello play built with the
@@ -3309,10 +3309,21 @@ ready bindings remain callable and retunable, and game start never waits for
 compilation. A replacement receives the existing optional v1 recovery fields:
 the accepted call/proposal, ready bound modules, budgets, floors, retained
 statuses, generation, acknowledgement, and transcript marks. This uses no new
-wire field or schema/GameVersion bump and supersedes H.2's earlier allowance
+wire field or schema/GameVersion bump and supersedes H.3's earlier allowance
 for mid-match uploads.
 
-### H.2 Ratified decisions (James, 2026-08-29 and 2026-08-30)
+### H.2 Empty combat policy is the firing baseline (James, 2026-09-04)
+
+**Ruling.** An all-empty `CombatPolicy` engages every fog-visible non-team
+track in the body's existing score order. `noShoot` is an optional blacklist,
+`protect` adds wards, `prefer` reorders candidates, and `holdFire` withholds
+initiation; all are overlays on the baseline. The phase-5 neutral-policy gate
+and its no-policy census outcomes are removed. Ward protection retains only
+its existing targeting, corridor, and threat-score effects; ward-relative
+movement remains play territory. This changes live play-seat masks but no
+wire layout or canonical bytes, so it does not bump GameVersion.
+
+### H.3 Ratified decisions (James, 2026-08-29 and 2026-08-30)
 
 - Plays are WebAssembly modules sent over the websocket and executed
   game-side in an engine-embedded runtime. The "compiled Nim" requirement
@@ -3329,8 +3340,9 @@ for mid-match uploads.
   (chosen over compile-time parameterization). Mid-match calls are firmly
   in scope. The original decision also allowed mid-match uploads under the
   episode budget; H.1 supersedes that clause.
-- The game side owns the orchestration: the ladder driver, reflexes, the
-  finisher, and the default play are engine subsystems. James wobbled once
+- The game side owns the orchestration: the ladder driver, reflexes, and the
+  default play are engine subsystems. The finisher step was removed
+  2026-09-04; see H.7. James wobbled once
   on whether these belong inside the player's module and landed on
   game-side ("all that stuff should be game side, I think").
 - The view stays a wire message, at LLM cadence, for the policy's LLM;
@@ -3391,6 +3403,12 @@ for mid-match uploads.
   beside this row. All provisional until the freeze: the native gen-5+ x86
   run and the quiet-window body pass, after which the frozen values
   get the full cold review and the measured-values write-back.
+- Host-call budgets ruling (James, 2026-09-04):
+  `MaxLogCallsPerInvocation` 4→1; `MaxEmitsPerStep` stays 2 so a play can retry
+  once after a rejected emit, with the last accepted emission standing;
+  `MaxSpatialCallsPerStep` stays 2 (one `nearest_cover` plus one
+  `nearest_reachable`). The manifest probe now drops over-cap logs silently
+  instead of rejecting the upload.
 - Production-shaped instantiation measurements (2026-09-04) raised
   `MaxInitsPerTick` 2→16 and `MaxInitsPerSeatPerTick` 1→3. On the hosted
   one-vCPU x86 floor, sixteen sequential cache-hit, map-backed instance-plus-init
@@ -3503,7 +3521,7 @@ for mid-match uploads.
   really what we want"); in-match chat is the existing shout.
 - Playback never re-executes plays; masks stay the determinism artifact.
 
-### H.3 Superseded architectures
+### H.4 Superseded architectures
 
 **Revisions 1 through 10 (2026-08-29): the client-side shell.** Stencil
 adapted as a per-seat bot process, pages delivered by environment
@@ -3538,7 +3556,7 @@ replacement as the boundary he and Maxwell had been circling all along:
 "we've been struggling to figure out that boundary... this is the
 boundary." The present design is a rewrite, not a staging of that one.
 
-### H.4 Questions asked and answered
+### H.5 Questions asked and answered
 
 - Why an environment variable for the startup call? An artifact of the
   client-side model, where the bot was a spawned process with no LLM;
@@ -3573,7 +3591,7 @@ boundary." The present design is a rewrite, not a staging of that one.
   engine-wide lobby/interstitial mode marker remains desirable and out of
   scope.
 
-### H.5 Provenance
+### H.6 Provenance
 
 Drafted 2026-08-29 from the session's recon and research report;
 adversarially cross-reviewed by Codex over nine round-gated iterations to
@@ -3582,7 +3600,7 @@ James's direction. Re-architected 2026-08-30 per James's comment batch
 (38 comments) into the socket-Intent boundary, which a second Codex
 collaboration took through seventeen round-gated iterations to VERDICT:
 SATISFIED, followed by a humanizer pass. Re-architected again on
-2026-08-30 (evening) to the WebAssembly-over-the-wire boundary of H.2,
+2026-08-30 (evening) to the WebAssembly-over-the-wire boundary of H.3,
 by James's ratification, with a runtime-embedding research spike
 (Appendix W) feeding the runtime choice. A third Codex collaboration
 then ran nineteen round-gated iterations to VERDICT: SATISFIED. Its
@@ -3626,3 +3644,12 @@ the players. Maxwell's parallel
 player-visible plays with typed parameters and a ladder-shaped call, and
 supplies the reference menu. Full earlier revisions are in the git
 history of this file and of its prior home in James's lab.
+
+### H.7 The finisher is removed (James, 2026-09-04)
+
+**Ruling.** The finisher post-pass is removed. The idle-aim center is a plain
+`Intent` field with a built-in default of 0, and the canonical writer always
+encodes it because every standing order already carried the key and replay
+annotation goldens pin those bytes. Authorship now stays where the order is
+chosen: the ladder driver records entries and overlays, the default play records
+`default`, and the reflex selector records its reflex.

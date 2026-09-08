@@ -75,9 +75,9 @@ of that works. What is missing is the two ends it hands off to:
    0xB0 PlayContext, 0xB1 PlayView, and 0xB2 LobbyChatBroadcast are never
    emitted by a running server.
 
-The first-light demo (`tools/run_first_light.sh`) does not hit this, because it
+The shell demo (`tools/run_shell_demo.sh`) does not hit this, because it
 never goes over the wire: `src/shell/episode.nim`'s
-`configureFirstLightPlay` reads a `.wasm` off local disk and calls
+`configureDemoPlay` reads a `.wasm` off local disk and calls
 `compilePlane.admitModule` / `ladder.acceptCall` **in process**, from a config
 file. That is a real exercise of the compile and call path, but it is not the
 protocol.
@@ -91,8 +91,8 @@ directory. Its own limits are listed in its file header.
 ### Update, after `78e05b06` ("a live admission seam on the episode")
 
 Main has since added the seam this PoC should eventually sit on:
-`admitPlayModule` and `acceptPlayCall` (`src/shell/episode.nim:468,491`) plus
-`FirstLightTickResult.moduleStatuses` (`:85`) give a consumer the episode's
+`admitPlayModule` and `acceptPlayCall` (`src/shell/episode.nim:798,821`) plus
+`ShellTickResult.moduleStatuses` (`:178`) give a consumer the episode's
 *own* compile plane and ladder, non-blocking, with accepted calls actually
 stepped into seat bodies. That commit's message calls out standing up parallel
 plane and ladder instances as the shortcut lane B declined to copy — and
@@ -132,7 +132,7 @@ actually executing the called play (the server's install telemetry flips seat
 combat policy for the exact partner seat the model named). Two rig notes for
 anyone repeating that run: the lobby-chat window must be open
 (`lobbyChatTicks > 0`) or 0xA3 is refused with `lobby_chat:lcrClosed`, and
-unfilled slots need presence connections (see `tools/run_first_light.sh`) or
+unfilled slots need presence connections (see `tools/run_shell_demo.sh`) or
 the match never starts / ends instantly. Deleting `poc_shell_server.nim` and
 pointing `run_poc.sh` at the stock server is now the standing follow-up.
 
@@ -376,7 +376,7 @@ a gap between what the spec says and what the validator checks.
    `config["tokens"][slot]` appears in a recon note
    (`docs/recon/paintbot-s2-policy-shell-2026-08-29.md:631`) and in the
    paintball design's file inventory, but nowhere in the Season 2 material.
-   In practice I read it out of `tools/run_first_light.sh`.
+   In practice I read it out of `tools/run_shell_demo.sh`.
 
 3. **Nothing warns that a play socket also carries the legacy Sprite stream.**
    The design doc explains the *inbound* leading-byte split (§4.3's Sprite
