@@ -25,7 +25,6 @@ import
   bitworld/profile
 
 import sim_types, arena
-import ../shell/body_hazard as bodyHazard
 
 ## ============================================================================
 ## BR ZONE PAINT — round 3: ARRIVAL-TIME FIELD + INCREMENTAL ACCUMULATION.
@@ -1616,6 +1615,14 @@ type
                            ## delay only ever add): arrival ticks never
                            ## produce receding paint.
 
+  ZoneDamageSnapshot* = object
+    ## Activation-only copy of the gameplay damage surface. Shell consumers
+    ## may depend on this CTF-owned value type; the simulation layer never
+    ## imports the shell implementation that consumes it.
+    gridW*, gridH*, cellPx*: int
+    fingerprint*: uint64
+    damage*: seq[uint16]
+
 var
   ZoneArrivalFieldKey: tuple[w, h, cx, cy, zcx, zcy, scheduleFp: int] =
     (-1, -1, -1, -1, -1, -1, -1)
@@ -1743,7 +1750,7 @@ proc ensureZoneArrivalField*(sim: SimServer): bool {.discardable, measure.} =
         " worstOverdue=" & $worstOverdue)
   true
 
-proc zoneDamageSnapshot*(sim: SimServer): bodyHazard.ZoneDamageSnapshot =
+proc zoneDamageSnapshot*(sim: SimServer): ZoneDamageSnapshot =
   ## Activation-only, read-only handoff to the Season 2 body. The caller must
   ## first run ensureZoneArrivalField for this sim; keeping that build outside
   ## the accessor prevents an accidental full-field build on a live query.

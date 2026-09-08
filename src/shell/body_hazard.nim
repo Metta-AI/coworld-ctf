@@ -5,6 +5,7 @@
 ## episode activation; live route queries only read these retained arrays.
 
 import std/[heapqueue, math]
+import ../ctf/zone_field
 import body_map, body_route_index
 
 const
@@ -17,11 +18,6 @@ const
   NoSafeSide = high(uint16)
 
 type
-  ZoneDamageSnapshot* = object
-    gridW*, gridH*, cellPx*: int
-    fingerprint*: uint64
-    damage*: seq[uint16]
-
   BodyHazardState* = enum
     bhsDark
     bhsReady

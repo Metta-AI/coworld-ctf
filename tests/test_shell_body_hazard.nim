@@ -1,6 +1,6 @@
 ## Phase-4 laws for the immutable zone-hazard overlay and bounded safe cache.
 
-import std/[math, unittest]
+import std/[math, strutils, unittest]
 import ../src/ctf/[sim, zone_field]
 import ../src/shell/[body_hazard, body_map, body_route_index]
 
@@ -44,6 +44,9 @@ proc manualSegmentHazard(overlay: BodyHazardOverlay, index: BodyRouteIndex,
     physical += step.int64
 
 suite "body hazard overlay":
+  test "zone field does not import the shell layer":
+    check not readFile("src/ctf/zone_field.nim").contains("../shell/")
+
   test "zone snapshot copies damage and never reads render arrival":
     var config = defaultGameConfig()
     config.update(
