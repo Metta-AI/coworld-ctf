@@ -193,6 +193,7 @@ diagnostic log lines for play seats (`SHELL_INSTALL`, play faults,
 described in `docs/designs/SHELL_DEMO.md` under "Diagnostic log lines".
 The proposed deterministic per-seat worker boundary, rollout gates, and CPU
 envelope are in `docs/designs/shell-step-parallelism-2026-09-07.md`.
+Ratified and proposed decisions for replacing native reflexes with ordinary plays are in [the reflex decision record](docs/designs/reflex-plays-decision-record-2026-09-08.md).
 
 ## Build shapes
 
