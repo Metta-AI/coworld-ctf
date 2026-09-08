@@ -53,7 +53,7 @@ type
   PlayCallRecord* = object
     replayTimeMs*: uint32
     seat*: uint8
-    epoch*: uint64
+    callNumber*: uint64
     ladderBytes*: string
     entries*: seq[PlayCallEntryIdentity]
     contentSha256*: string
@@ -160,7 +160,7 @@ proc `==`*(a, b: ShellAnnotation): bool =
     return false
   case a.kind
   of akAcceptedIntentChange:
-    a.effectiveEpoch == b.effectiveEpoch and
+    a.effectiveCallNumber == b.effectiveCallNumber and
       a.provenance == b.provenance and a.intentBytes == b.intentBytes
   of akClearOnDeath:
     a.clearGeneration == b.clearGeneration
@@ -168,7 +168,7 @@ proc `==`*(a, b: ShellAnnotation): bool =
     a.installGeneration == b.installGeneration and
       a.installReason == b.installReason and a.safeBytes == b.safeBytes
   of akPlayFault:
-    a.faultAtEpoch == b.faultAtEpoch and
+    a.faultAtCallNumber == b.faultAtCallNumber and
       a.faultEntryId == b.faultEntryId and
       a.faultCode == b.faultCode and
       a.annotationFaultReason == b.annotationFaultReason
@@ -408,7 +408,7 @@ proc encodePlayCallRecord*(record: PlayCallRecord): string =
   result.addU8(RecPlayCall)
   result.addU32(record.replayTimeMs)
   result.addU8(record.seat)
-  result.addU64(record.epoch)
+  result.addU64(record.callNumber)
   result.addString16(record.ladderBytes)
   result.addU8(uint8(record.entries.len))
   for entry in record.entries:
@@ -423,7 +423,7 @@ proc decodePlayCallRecord*(bytes: string, offset: var int): PlayCallRecord =
     recordError("wrong play-call record type")
   result.replayTimeMs = bytes.readU32(offset)
   result.seat = bytes.readU8(offset)
-  result.epoch = bytes.readU64(offset)
+  result.callNumber = bytes.readU64(offset)
   result.ladderBytes = bytes.readString16(offset)
   if result.ladderBytes.len > MaxCallBytes:
     recordError("play-call ladder exceeds MaxCallBytes")
@@ -501,11 +501,11 @@ const
   WireClearOnDeath = 1'u8
   WireInstallSafeIntent = 2'u8
   WirePlayFaultLegacy = 3'u8
-    ## The pre-code play-fault layout (epoch, entryId, reason), written by
+    ## The pre-code play-fault layout (call number, entryId, reason), written by
     ## paintbot 0.7.311 and 0.7.312. Still decoded (code = fcUnknown); never
     ## written again.
   WirePlayFaultCoded = 4'u8
-    ## epoch, code byte, entryId, reason.
+    ## call number, code byte, entryId, reason.
 
 proc wireKind(kind: AnnotationKind): uint8 =
   case kind
@@ -521,7 +521,7 @@ proc encodeAnnotationRecord*(annotation: ShellAnnotation): string =
   result.addU8(annotation.kind.wireKind)
   case annotation.kind
   of akAcceptedIntentChange:
-    result.addU64(annotation.effectiveEpoch)
+    result.addU64(annotation.effectiveCallNumber)
     result.addProvenance(annotation.provenance)
     result.addString16(annotation.intentBytes)
   of akClearOnDeath:
@@ -533,7 +533,7 @@ proc encodeAnnotationRecord*(annotation: ShellAnnotation): string =
     result.addString16(annotation.installReason)
     result.addString16(annotation.safeBytes)
   of akPlayFault:
-    result.addU64(annotation.faultAtEpoch)
+    result.addU64(annotation.faultAtCallNumber)
     result.addU8(uint8(annotation.faultCode.ord))
     result.addString16(annotation.faultEntryId)
     result.addString16(annotation.annotationFaultReason)
@@ -553,7 +553,7 @@ proc decodeAnnotationRecord*(bytes: string,
       tick: result.tick,
       seat: result.seat,
       kind: akAcceptedIntentChange,
-      effectiveEpoch: bytes.readU64(offset),
+      effectiveCallNumber: bytes.readU64(offset),
       provenance: bytes.readProvenance(offset),
       intentBytes: bytes.readString16(offset))
   of WireClearOnDeath:
@@ -581,12 +581,12 @@ proc decodeAnnotationRecord*(bytes: string,
       tick: result.tick,
       seat: result.seat,
       kind: akPlayFault,
-      faultAtEpoch: bytes.readU64(offset),
+      faultAtCallNumber: bytes.readU64(offset),
       faultEntryId: bytes.readString16(offset),
       faultCode: fcUnknown,
       annotationFaultReason: bytes.readString16(offset))
   of WirePlayFaultCoded:
-    let epoch = bytes.readU64(offset)
+    let callNumber = bytes.readU64(offset)
     let codeByte = bytes.readU8(offset)
     if codeByte > uint8(high(FaultCode).ord):
       recordError("unknown annotation fault code")
@@ -594,7 +594,7 @@ proc decodeAnnotationRecord*(bytes: string,
       tick: result.tick,
       seat: result.seat,
       kind: akPlayFault,
-      faultAtEpoch: epoch,
+      faultAtCallNumber: callNumber,
       faultEntryId: bytes.readString16(offset),
       faultCode: FaultCode(codeByte),
       annotationFaultReason: bytes.readString16(offset))

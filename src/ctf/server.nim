@@ -1732,7 +1732,7 @@ proc pumpPlayOutbound(sim: SimServer; config: GameConfig;
     if outbound.contextPending:
       let episodeRecovery = episode.shellRecovery(seat)
       let recovery = PlayContextRecovery(
-        generation: generation, epoch: episodeRecovery.epoch,
+        generation: generation, callNumber: episodeRecovery.callNumber,
         uploadIdFloor: ingress.uploadIdFloor,
         proposalIdFloor: ingress.proposalIdFloor,
         modulesLeft: max(0,

@@ -15,8 +15,8 @@ type
     intent*: Intent
     intentBytes*: string
     provenance*: Provenance
-    effectiveEpoch*: uint64
-    installedEffectiveEpoch*: uint64
+    effectiveCallNumber*: uint64
+    installedEffectiveCallNumber*: uint64
     lastDefaultRule*: BrDefaultRule
     annotations*: seq[ShellAnnotation]
 
@@ -35,7 +35,7 @@ type
   ReconstructedStandingOrder* = object
     tick*: uint32
     seat*: uint8
-    effectiveEpoch*: uint64
+    effectiveCallNumber*: uint64
     provenance*: Provenance
     intentBytes*: string
 
@@ -46,7 +46,7 @@ type
     intent*: Intent
     goal*: Option[ValidatedGoal]
     provenance*: Provenance
-    contributingEpoch*: uint64
+    contributingCallNumber*: uint64
 
 proc center(rect: MapRect): BodyPoint =
   (rect.x + rect.w div 2, rect.y + rect.h div 2)
@@ -94,52 +94,52 @@ proc sameProvenance(a, b: Provenance): bool =
 proc stepShellDefault*(state: var StandingOrderState,
     body: SeatBody, tick: uint32, fallback: BrDefaultFallbacks) =
   ## Recomputes the default every fallback tick, folds zero overlays, and
-  ## installs only on bytes/provenance/epoch difference. The shell reads
-  ## the state's initialized epoch zero and never advances it.
+  ## installs only on bytes/provenance/call number difference. The shell reads
+  ## the state's initialized call number zero (no declaration) and never advances it.
   let facts = brDefaultFacts(body, tick, fallback)
   let decision = body.computeBodyDefault(facts)
   state.lastDefaultRule = decision.rule
   let bytes = canonicalIntent(decision.intent)
-  let effectiveEpoch = state.effectiveEpoch
+  let effectiveCallNumber = state.effectiveCallNumber
   let changed = not state.hasStanding or state.intentBytes != bytes or
     not sameProvenance(state.provenance, decision.provenance) or
-    state.installedEffectiveEpoch != effectiveEpoch
+    state.installedEffectiveCallNumber != effectiveCallNumber
 
   if changed:
-    setStandingIntent(body, decision.intent, decision.goal, effectiveEpoch)
+    setStandingIntent(body, decision.intent, decision.goal, effectiveCallNumber)
     state.hasStanding = true
     state.intent = decision.intent
     state.intentBytes = bytes
     state.provenance = decision.provenance
-    state.installedEffectiveEpoch = effectiveEpoch
+    state.installedEffectiveCallNumber = effectiveCallNumber
     state.annotations.add(ShellAnnotation(
       tick: tick,
       seat: uint8(body.seatIndex),
       kind: akAcceptedIntentChange,
-      effectiveEpoch: effectiveEpoch,
+      effectiveCallNumber: effectiveCallNumber,
       provenance: decision.provenance,
       intentBytes: bytes))
 
 proc installOrder(state: var StandingOrderState; body: SeatBody; tick: uint32;
                   intent: Intent; provenance: Provenance;
-                  effectiveEpoch: uint64; goal: Option[ValidatedGoal]) =
+                  effectiveCallNumber: uint64; goal: Option[ValidatedGoal]) =
   let bytes = canonicalIntent(intent)
   let changed = not state.hasStanding or state.intentBytes != bytes or
     not sameProvenance(state.provenance, provenance) or
-    state.installedEffectiveEpoch != effectiveEpoch
+    state.installedEffectiveCallNumber != effectiveCallNumber
 
   if changed:
-    setStandingIntent(body, intent, goal, effectiveEpoch)
+    setStandingIntent(body, intent, goal, effectiveCallNumber)
     state.hasStanding = true
     state.intent = intent
     state.intentBytes = bytes
     state.provenance = provenance
-    state.installedEffectiveEpoch = effectiveEpoch
+    state.installedEffectiveCallNumber = effectiveCallNumber
     state.annotations.add(ShellAnnotation(
       tick: tick,
       seat: uint8(body.seatIndex),
       kind: akAcceptedIntentChange,
-      effectiveEpoch: effectiveEpoch,
+      effectiveCallNumber: effectiveCallNumber,
       provenance: provenance,
       intentBytes: bytes))
 
@@ -149,18 +149,18 @@ proc stepResolvedOrder*(state: var StandingOrderState; body: SeatBody;
   ## already selected the base, stepped active guests, removed inactive /
   ## pending / faulted overlays, and folded active policies from scratch.
   ##
-  ## Effective order epoch advances only when a call entry contributes on this
-  ## tick. Default-only ticks keep the prior effective epoch, preserving epoch
-  ## zero while the shell or an uninitialized/silent call is standing.
-  let effectiveEpoch =
-    if resolved.contributingEpoch != 0:
-      resolved.contributingEpoch
+  ## Effective call number advances only when a call entry contributes on this
+  ## tick. Default-only ticks keep the prior effective call number, preserving
+  ## call number zero (no declaration) while the shell or an uninitialized/silent call stands.
+  let effectiveCallNumber =
+    if resolved.contributingCallNumber != 0:
+      resolved.contributingCallNumber
     else:
-      state.effectiveEpoch
-  if resolved.contributingEpoch != 0:
-    state.effectiveEpoch = resolved.contributingEpoch
+      state.effectiveCallNumber
+  if resolved.contributingCallNumber != 0:
+    state.effectiveCallNumber = resolved.contributingCallNumber
   state.installOrder(body, tick, resolved.intent, resolved.provenance,
-    effectiveEpoch, resolved.goal)
+    effectiveCallNumber, resolved.goal)
 
 proc reconstructStandingOrders*(annotations: openArray[ShellAnnotation]):
     seq[ReconstructedStandingOrder] =
@@ -171,6 +171,6 @@ proc reconstructStandingOrders*(annotations: openArray[ShellAnnotation]):
     if annotation.kind == akAcceptedIntentChange:
       result.add ReconstructedStandingOrder(tick: annotation.tick,
         seat: annotation.seat,
-        effectiveEpoch: annotation.effectiveEpoch,
+        effectiveCallNumber: annotation.effectiveCallNumber,
         provenance: annotation.provenance,
         intentBytes: annotation.intentBytes)

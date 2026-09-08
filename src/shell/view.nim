@@ -172,7 +172,7 @@ type
   PlayViewSource* = object
     tick*: uint32
     mode*: GameMode
-    epoch*: uint64
+    callNumber*: uint64
     self*: PlaySelf
     aliveTeams*: int
     zone*: Option[PlayZone]
@@ -188,7 +188,7 @@ type
   PlayViewModel* = object
     tick*: uint32
     mode*: GameMode
-    epoch*: uint64
+    callNumber*: uint64
     self*: PlaySelf
     aliveTeams*: int
     zone*: Option[PlayZone]
@@ -607,7 +607,8 @@ proc writeJson*(w: var CanonicalWriter, model: PlayViewModel) =
     for row in model.aggressors:
       w.writeJson(row)
     w.endArray()
-  w.fieldUint64("epoch", model.epoch)
+  # wire key kept as epoch; the value is the call number.
+  w.fieldUint64("epoch", model.callNumber)
   if model.hazards.hasHazards:
     w.key("hazards")
     w.writeHazards(model.hazards)
@@ -735,7 +736,7 @@ proc jsonEncodedSize*(model: PlayViewModel): int =
     sizeWriter.writeJson(model)
 
 proc selectedBase(source: PlayViewSource): PlayViewModel =
-  PlayViewModel(tick: source.tick, mode: source.mode, epoch: source.epoch,
+  PlayViewModel(tick: source.tick, mode: source.mode, callNumber: source.callNumber,
     self: source.self, aliveTeams: source.aliveTeams, zone: source.zone,
     objectives: source.objectives)
 
@@ -1017,7 +1018,7 @@ proc playViewSourceFromBody*(body: SeatBody, tick: uint32, mode: GameMode,
   ## `intent` is omitted.
   result.tick = tick
   result.mode = mode
-  result.epoch = body.effectiveEpoch
+  result.callNumber = body.effectiveCallNumber
   result.self = PlaySelf(pos: body.selfState.pos, hp: body.selfState.hp,
     hpFrac: body.selfState.hpFrac, aimBrads: body.selfState.aimBrads,
     alive: body.selfState.alive, carrying: body.selfState.carrying,

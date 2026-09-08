@@ -1,4 +1,4 @@
-## Phase P3-12: full §7.4 standing-order cache, provenance, epoch, and
+## Phase P3-12: full §7.4 standing-order cache, provenance, call number, and
 ## annotation behavior over ladder outputs.
 
 import std/[json, options, strutils, tables, unittest]
@@ -118,7 +118,7 @@ proc body(): SeatBody =
 proc toResolved(tick: LadderSeatTick): ResolvedStandingOrder =
   ResolvedStandingOrder(intent: tick.intent, goal: tick.goal,
     provenance: tick.provenance,
-    contributingEpoch: tick.contributingEpoch)
+    contributingCallNumber: tick.contributingCallNumber)
 
 proc install(standing: var StandingOrderState; body: SeatBody;
              output: LadderSeatTick; tick: uint32) =
@@ -168,7 +168,7 @@ suite "shell effective order":
     check standing.intent.combat.noShoot.seats == @[SeatRef(9)]
     check standing.intent.combat.holdFire
     check standing.provenance.overlays.len == 2
-    check standing.installedEffectiveEpoch == 1
+    check standing.installedEffectiveCallNumber == 1
 
     let targetOff = driver.tick([input(targetOn = false)], 4, bindings).seats[0]
     standing.installRecorded(seatBody, targetOff, 4, installedBytes)
@@ -229,12 +229,12 @@ suite "shell effective order":
       bindings).seats[0], 1)
     check standing.provenance.base.kind == pbEntry
     check standing.provenance.base.entryId == "a"
-    check standing.installedEffectiveEpoch == 1
+    check standing.installedEffectiveCallNumber == 1
 
     standing.install(seatBody, driver.tick([input(a = false, b = true)], 2,
       bindings).seats[0], 2)
     check standing.provenance.base.kind == pbDefault
-    check standing.installedEffectiveEpoch == 1
+    check standing.installedEffectiveCallNumber == 1
     check standing.intent.reason == "default"
 
     book.controllerSilent.setLen(0)
@@ -243,9 +243,9 @@ suite "shell effective order":
     check standing.provenance.base.kind == pbEntry
     check standing.provenance.base.entryId == "b"
     check standing.provenance.base.emitTick == 3
-    check standing.installedEffectiveEpoch == 1
+    check standing.installedEffectiveCallNumber == 1
 
-  test "reflex base can be replaced by a silent controller without advancing epoch until the controller contributes":
+  test "reflex base can be replaced by a silent controller without advancing call number until the controller contributes":
     let book = FakeBook(paramsByEntry: initTable[string, string](),
       faultAt: initTable[string, uint32](), controllerSilent: @["a"])
     let bindings = @[binding(book, "a")]
@@ -259,20 +259,20 @@ suite "shell effective order":
       provenance: Provenance(base: ProvenanceBase(kind: pbReflex,
         reflexName: "reflex_zone_escape"))))
     check standing.provenance.base.kind == pbReflex
-    check standing.installedEffectiveEpoch == 0
+    check standing.installedEffectiveCallNumber == 0
 
     check driver.accept("""
       {"plays":[{"entry_id":"a","params":{"n":1},"play":"a"}]}
     """, bindings).accepted
     standing.install(seatBody, driver.tick([input()], 2, bindings).seats[0], 2)
     check standing.provenance.base.kind == pbDefault
-    check standing.installedEffectiveEpoch == 0
+    check standing.installedEffectiveCallNumber == 0
 
     book.controllerSilent.setLen(0)
     standing.install(seatBody, driver.tick([input()], 3, bindings).seats[0], 3)
     check standing.provenance.base.kind == pbEntry
     check standing.provenance.base.entryId == "a"
-    check standing.installedEffectiveEpoch == 1
+    check standing.installedEffectiveCallNumber == 1
 
   test "resolved entry without explicit idle aim installs encoded zero":
     var standing: StandingOrderState
@@ -281,13 +281,13 @@ suite "shell effective order":
       intent: holdIntent("entry"),
       provenance: Provenance(base: ProvenanceBase(kind: pbEntry,
         entryId: "entry", moduleSha256: repeat('e', 64), emitTick: 1)),
-      contributingEpoch: 1))
+      contributingCallNumber: 1))
     check standing.intentBytes ==
       "{\"arrive_radius\":0.0,\"idle_aim_center_brads\":0," &
       "\"kind\":\"hold\",\"reason\":\"entry\"," &
       "\"schema\":\"intent\",\"v\":1}"
 
-  test "retune success with silent post-retune steps never attributes old output to the new epoch":
+  test "retune success with silent post-retune steps never attributes old output to the new call number":
     let book = FakeBook(paramsByEntry: initTable[string, string](),
       faultAt: initTable[string, uint32]())
     let bindings = @[binding(book, "base")]
@@ -300,7 +300,7 @@ suite "shell effective order":
     """, bindings).accepted
     standing.install(seatBody, driver.tick([input()], 1, bindings).seats[0], 1)
     check standing.intent.reason.contains("\"n\":1")
-    check standing.installedEffectiveEpoch == 1
+    check standing.installedEffectiveCallNumber == 1
 
     book.controllerSilent.add "base"
     check driver.accept("""
@@ -311,14 +311,14 @@ suite "shell effective order":
         tick)
       check not standing.intent.reason.contains("\"n\":1")
       check standing.provenance.base.kind == pbDefault
-      check standing.installedEffectiveEpoch == 1
+      check standing.installedEffectiveCallNumber == 1
 
     book.controllerSilent.setLen(0)
     standing.install(seatBody, driver.tick([input()], 5, bindings).seats[0], 5)
     check standing.intent.reason.contains("\"n\":2")
     check standing.provenance.base.kind == pbEntry
     check standing.provenance.base.emitTick == 5
-    check standing.installedEffectiveEpoch == 2
+    check standing.installedEffectiveCallNumber == 2
 
   test "long identical-emission run preserves accepted tick and emits one annotation":
     let book = FakeBook(paramsByEntry: initTable[string, string](),

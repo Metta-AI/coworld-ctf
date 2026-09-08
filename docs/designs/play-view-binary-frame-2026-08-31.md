@@ -51,7 +51,7 @@ ever needs an unaligned or byte-assembled read.
 | 7 | 1 | `section_count` |
 | 8 | 4 | `tick` |
 | 12 | 4 | pad, zero — so `epoch` lands on its natural 8-byte boundary |
-| 16 | 8 | `epoch` (u64; JSON carried this as a string to survive JS) |
+| 16 | 8 | `epoch` (u64 call number; wire spelling kept for compatibility; JSON carries it as a string) |
 | 24 | 4 | `frame_bytes` (total, so a guest can bound every offset it computes) |
 | 28 | 4 | reserved, zero |
 

@@ -142,10 +142,10 @@ type
     skModuleAccepted   ## at admission (uploadId)
     skModuleReady      ## terminal: name bound (uploadId, name, sha256)
     skModuleRejected   ## terminal: named reason (uploadId, reason)
-    skCallAccepted     ## proposalId, epoch, tick
+    skCallAccepted     ## proposalId, callNumber, tick
     skCallRejected     ## proposalId, reason (with the parameter path)
-    skRetuneRefused    ## epoch, entryId, code, reason
-    skPlayFaulted      ## epoch, entryId, code, reason (autonomous; reserved slots)
+    skRetuneRefused    ## callNumber, entryId, code, reason
+    skPlayFaulted      ## callNumber, entryId, code, reason (autonomous; reserved slots)
 
   FaultCode* = enum
     ## The stable, policy-facing cause of a play fault or retune refusal.
@@ -193,13 +193,13 @@ type
       moduleReason*: string
     of skCallAccepted:
       acceptedProposalId*: uint64
-      epoch*: uint64
+      callNumber*: uint64
       tick*: uint32
     of skCallRejected:
       rejectedProposalId*: uint64
       callReason*: string      ## named error carrying the parameter path
     of skRetuneRefused, skPlayFaulted:
-      faultEpoch*: uint64
+      faultCallNumber*: uint64
       entryId*: string
       faultCode*: FaultCode
       faultReason*: string
@@ -244,7 +244,7 @@ type
 
   ShellAnnotation* = object
     ## §4.3: a new annotation is written whenever the standing order's
-    ## canonical bytes, its provenance, OR its effective order epoch
+    ## canonical bytes, its provenance, OR its effective call number
     ## changes. Same-tick ordering is the exact order the server made the
     ## transitions, keyed by (tick, phase, ordinal); no sort is imposed
     ## over the truth.
@@ -252,8 +252,8 @@ type
     seat*: uint8
     case kind*: AnnotationKind
     of akAcceptedIntentChange:
-      effectiveEpoch*: uint64  ## the EFFECTIVE order epoch (§4.3), distinct
-                               ## from the seat's current declared epoch
+      effectiveCallNumber*: uint64  ## the EFFECTIVE call number (§4.3), distinct
+                                    ## from the seat's current declared call number
       provenance*: Provenance
       intentBytes*: string     ## the canonical Intent encoding that stands
     of akClearOnDeath:
@@ -261,9 +261,9 @@ type
     of akInstallSafeIntent:
       installGeneration*: uint64
       installReason*: string   ## "activation" | "respawn" | "kicked"
-      safeBytes*: string       ## always at the reserved epoch zero
+      safeBytes*: string       ## always at call number zero (no declaration)
     of akPlayFault:
-      faultAtEpoch*: uint64
+      faultAtCallNumber*: uint64
       faultEntryId*: string
       faultCode*: FaultCode
       annotationFaultReason*: string

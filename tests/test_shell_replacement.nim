@@ -218,7 +218,7 @@ suite "shell replacement":
     check not noMatch.matched
     check noMatch.action == raStartAbsent
 
-  test "driver replacement cells assert state, Store count, status, cache, provenance, and epoch":
+  test "driver replacement cells assert state, Store count, status, cache, provenance, and call number":
     type IncomingKind = enum ikIdenticalRetune, ikChangedRetune, ikNoRetune
     for state in PlayInstanceState:
       for incoming in IncomingKind:
@@ -235,7 +235,7 @@ suite "shell replacement":
         let accepted = driver.accept(0, bytes, bindings, 100 + ord(incoming).uint64)
         check accepted.accepted
         check accepted.status.kind == skCallAccepted
-        check driver.seatEpoch(0) == accepted.epoch
+        check driver.seatCallNumber(0) == accepted.callNumber
         let entry = driver.first()
 
         if state in {pisLive, pisParked} and incoming == ikIdenticalRetune:
@@ -261,7 +261,7 @@ suite "shell replacement":
         if entry.state == pisPendingRetune:
           book.silentEntries.add "base"
         let tick = driver.tick([input()], 20, bindings)
-        check tick.seats[0].epoch == accepted.epoch
+        check tick.seats[0].callNumber == accepted.callNumber
         if entry.state == pisPendingRetune:
           check tick.seats[0].provenance.base.kind == pbDefault
 
@@ -293,7 +293,7 @@ suite "shell replacement":
             LadderEntryIdentity(entryId: "base", play: "base")]
           check driver.first(seatIndex).state == pisLive
           check not driver.first(seatIndex).hasCachedIntent
-          check seat.epoch == 2
+          check seat.callNumber == 2
     check retunedSeats == toSeq(0 .. 31)
     check book.retuneCounts["base"] == 32
     check book.storeCount == 32
@@ -367,7 +367,7 @@ suite "shell replacement":
       check output.seats[0].retuned.len == 0
       check output.seats[0].statuses.len == 1
       check output.seats[0].statuses[0].status.kind == skRetuneRefused
-      check output.seats[0].statuses[0].status.faultEpoch == 2
+      check output.seats[0].statuses[0].status.faultCallNumber == 2
       check output.seats[0].statuses[0].status.entryId == "base"
       check output.seats[0].statuses[0].status.faultReason == refusal.reason
       check output.seats[0].statuses[0].statusBytes ==

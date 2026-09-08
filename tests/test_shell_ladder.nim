@@ -206,7 +206,7 @@ suite "shell ladder":
     let tick = driver.tick([input()], 1, @[binding(book, "base")])
     check tick.initCount == 0
     check tick.stepCount == 0
-    check tick.seats[0].epoch == 0
+    check tick.seats[0].callNumber == 0
     check tick.seats[0].usedDefault
     check tick.seats[0].intent.reason == "default"
 

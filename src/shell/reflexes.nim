@@ -83,7 +83,7 @@ type
 
   ReflexSubscription* = object
     kind*: ReflexKind
-    epoch*: uint64
+    callNumber*: uint64
 
   ReflexTelemetry* = object
     tick*: uint32
@@ -721,5 +721,5 @@ proc selectReflex*(state: var ReflexSeatState; input: ReflexTickInput;
       intent: reflexIntent(subscription.kind, planned.point),
       goal: planned.goal,
       provenance: subscription.kind.reflexProvenance,
-      contributingEpoch: subscription.epoch)
+      contributingCallNumber: subscription.callNumber)
     return

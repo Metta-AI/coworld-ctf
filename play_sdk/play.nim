@@ -161,6 +161,7 @@ type
     tickPresent*: bool
     tick*: int32
     epochPresent*: bool
+    ## Call number from the byte-16 u64; wire spelling `epoch` kept for compatibility.
     epoch*: int32
     self*: SdkSelf
     world*: SdkWorld

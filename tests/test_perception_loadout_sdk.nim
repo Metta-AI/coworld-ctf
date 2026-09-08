@@ -151,7 +151,7 @@ suite "PERCEPTION (glory-2 §17) part 3/3 -- the partner row on the play's own v
 
   test "hasGun/hasHopper are omitted from the wire when false":
     var source = PlayViewSource(
-      tick: 1'u32, mode: gmBr, epoch: 1'u64,
+      tick: 1'u32, mode: gmBr, callNumber: 1'u64,
       self: PlaySelf(pos: p(0, 0), hp: 1, hpFrac: 1.0, aimBrads: 0,
         alive: true),
       aliveTeams: 2)

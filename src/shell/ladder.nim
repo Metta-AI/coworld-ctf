@@ -59,7 +59,7 @@ type
     intent*: Intent
     goal*: Option[ValidatedGoal]
     provenance*: Provenance
-    contributingEpoch*: uint64
+    contributingCallNumber*: uint64
 
   LadderViewSource* = proc(seatIndex: int; tick: uint32): string {.closure.}
 
@@ -87,7 +87,7 @@ type
 
   LadderSeatTick* = object
     seat*: int
-    epoch*: uint64
+    callNumber*: uint64
     initialized*: seq[string]
     retuned*: seq[LadderEntryIdentity]
     stepped*: seq[string]
@@ -99,7 +99,7 @@ type
     intent*: Intent
     goal*: Option[ValidatedGoal]
     provenance*: Provenance
-    contributingEpoch*: uint64
+    contributingCallNumber*: uint64
 
   LadderTickResult* = object
     seats*: seq[LadderSeatTick]
@@ -110,7 +110,7 @@ type
     accepted*: bool
     reason*: string
     path*: string
-    epoch*: uint64
+    callNumber*: uint64
     ladderBytes*: string
     entries*: seq[PlayCallEntryIdentity]
     status*: StatusEntry
@@ -130,7 +130,7 @@ type
     hasCachedPolicy*: bool
 
   LadderCallSnapshot* = object
-    epoch*: uint64
+    callNumber*: uint64
     proposalId*: uint64
     bytes*: string
 
@@ -144,11 +144,11 @@ type
     cachedIntent: Option[LadderEmission]
     cachedPolicy: Option[LadderEmission]
     oldParamsBytes: string
-    callEpoch: uint64
+    callNumber: uint64
 
   LadderSeat = object
     entries: seq[LadderEntry]
-    epoch: uint64
+    callNumber: uint64
     acceptedProposalId: uint64
     callBytes: string
     nextStatusOrdinal: uint64
@@ -240,10 +240,10 @@ proc fitStatus(entry: var StatusEntry) =
       break
 
 proc callAcceptedStatus(seat: var LadderSeat; proposalId, generation: uint64;
-                        epoch: uint64; tick: uint32): StatusEntry =
+                        callNumber: uint64; tick: uint32): StatusEntry =
   StatusEntry(kind: skCallAccepted, ordinal: seat.newStatusOrdinal(),
     originGeneration: generation, acceptedProposalId: proposalId,
-    epoch: epoch, tick: tick)
+    callNumber: callNumber, tick: tick)
 
 proc callRejectedStatus(seat: var LadderSeat; proposalId, generation: uint64;
                         reason, path: string): StatusEntry =
@@ -252,19 +252,19 @@ proc callRejectedStatus(seat: var LadderSeat; proposalId, generation: uint64;
     callReason: reason & ":" & path)
   result.fitStatus()
 
-proc playFaultStatus(seat: var LadderSeat; epoch, generation: uint64;
+proc playFaultStatus(seat: var LadderSeat; callNumber, generation: uint64;
                      entryId: string; code: FaultCode;
                      reason: string): StatusEntry =
   result = StatusEntry(kind: skPlayFaulted, ordinal: seat.newStatusOrdinal(),
-    originGeneration: generation, faultEpoch: epoch, entryId: entryId,
+    originGeneration: generation, faultCallNumber: callNumber, entryId: entryId,
     faultCode: code, faultReason: reason)
   result.fitStatus()
 
-proc retuneRefusedStatus(seat: var LadderSeat; epoch, generation: uint64;
+proc retuneRefusedStatus(seat: var LadderSeat; callNumber, generation: uint64;
                          entryId: string; code: FaultCode;
                          reason: string): StatusEntry =
   result = StatusEntry(kind: skRetuneRefused, ordinal: seat.newStatusOrdinal(),
-    originGeneration: generation, faultEpoch: epoch, entryId: entryId,
+    originGeneration: generation, faultCallNumber: callNumber, entryId: entryId,
     faultCode: code, faultReason: reason)
   result.fitStatus()
 
@@ -314,18 +314,18 @@ proc entrySnapshots*(driver: LadderDriver; seatIndex: int):
       hasCachedIntent: entry.cachedIntent.isSome,
       hasCachedPolicy: entry.cachedPolicy.isSome)
 
-proc seatEpoch*(driver: LadderDriver; seatIndex: int): uint64 =
+proc seatCallNumber*(driver: LadderDriver; seatIndex: int): uint64 =
   if driver == nil or seatIndex < 0 or seatIndex >= driver.seats.len:
     return 0
-  driver.seats[seatIndex].epoch
+  driver.seats[seatIndex].callNumber
 
 proc callSnapshot*(driver: LadderDriver; seatIndex: int):
     Option[LadderCallSnapshot] =
   if driver == nil or seatIndex < 0 or seatIndex >= driver.seats.len or
-      driver.seats[seatIndex].epoch == 0:
+      driver.seats[seatIndex].callNumber == 0:
     return none(LadderCallSnapshot)
   let seat = driver.seats[seatIndex]
-  some(LadderCallSnapshot(epoch: seat.epoch,
+  some(LadderCallSnapshot(callNumber: seat.callNumber,
     proposalId: seat.acceptedProposalId, bytes: seat.callBytes))
 
 proc acceptCall*(driver: LadderDriver; seatIndex: int; proposalId,
@@ -350,7 +350,7 @@ proc acceptCall*(driver: LadderDriver; seatIndex: int; proposalId,
     result.path = validated.path
     return
 
-  let nextEpoch = seat[].epoch + 1
+  let nextCallNumber = seat[].callNumber + 1
   var oldEntries = move(seat[].entries)
   var newEntries: seq[LadderEntry]
   for call in validated.entries:
@@ -361,7 +361,7 @@ proc acceptCall*(driver: LadderDriver; seatIndex: int; proposalId,
     var entry = LadderEntry(call: call, hash: binding.hash,
       originGeneration: originGeneration,
       guard: compiledGuard(call.guardBytes, driver.registry),
-      callEpoch: nextEpoch)
+      callNumber: nextCallNumber)
     let oldIndex = oldEntries.matchingEntry(call, binding.hash)
     if oldIndex >= 0:
       var old = addr oldEntries[oldIndex]
@@ -378,7 +378,7 @@ proc acceptCall*(driver: LadderDriver; seatIndex: int; proposalId,
         entry.state = pisPendingRetune
         entry.guest = old[].guest
         entry.oldParamsBytes = replacement.oldParamsBytes
-        entry.callEpoch = nextEpoch
+        entry.callNumber = nextCallNumber
         old[].guest = nil
         result.pendingRetunes.add LadderEntryIdentity(entryId: call.entryId,
           play: call.play)
@@ -390,14 +390,14 @@ proc acceptCall*(driver: LadderDriver; seatIndex: int; proposalId,
     old.close()
 
   seat[].entries = move(newEntries)
-  seat[].epoch = nextEpoch
+  seat[].callNumber = nextCallNumber
   seat[].acceptedProposalId = proposalId
   seat[].callBytes = validated.canonicalBytes
   result.accepted = true
-  result.epoch = nextEpoch
+  result.callNumber = nextCallNumber
   result.ladderBytes = seat[].callBytes
   result.status = seat[].callAcceptedStatus(proposalId, originGeneration,
-    nextEpoch, tick)
+    nextCallNumber, tick)
   result.statusBytes = encodeStatusEntry(result.status)
 
 proc guardPasses(entry: LadderEntry, ctx: IntentContext): bool =
@@ -455,7 +455,7 @@ proc initializeEntry(driver: LadderDriver; seatIndex, entryIndex: int;
   entry[].guest = factory(seatIndex, entry[].call, entry[].emitClass)
   if entry[].guest == nil:
     entry[].state = pisFaulted
-    let status = seat[].playFaultStatus(seat[].epoch, entry[].originGeneration,
+    let status = seat[].playFaultStatus(seat[].callNumber, entry[].originGeneration,
       entry[].call.entryId, fcInstantiateFailed, "instantiate returned nil")
     output.appendStatus(seatIndex, entry[].call.entryId, status)
     return false
@@ -465,7 +465,7 @@ proc initializeEntry(driver: LadderDriver; seatIndex, entryIndex: int;
   if initResult.faulted:
     entry[].state = pisFaulted
     entry[].close()
-    let status = seat[].playFaultStatus(seat[].epoch, entry[].originGeneration,
+    let status = seat[].playFaultStatus(seat[].callNumber, entry[].originGeneration,
       entry[].call.entryId, initResult.code, initResult.reason)
     output.appendStatus(seatIndex, entry[].call.entryId, status)
     return false
@@ -489,7 +489,7 @@ proc retuneEntry(driver: LadderDriver; seatIndex, entryIndex: int;
   if retuneResult.refused or retuneResult.faulted:
     entry[].state = pisAbsent
     entry[].close()
-    let status = seat[].retuneRefusedStatus(seat[].epoch,
+    let status = seat[].retuneRefusedStatus(seat[].callNumber,
       entry[].originGeneration,
       entry[].call.entryId, retuneResult.code, retuneResult.reason)
     output.appendStatus(seatIndex, entry[].call.entryId, status)
@@ -596,7 +596,7 @@ proc stepEntry(driver: LadderDriver; seatIndex, entryIndex: int;
     entry[].cachedIntent = none(LadderEmission)
     entry[].cachedPolicy = none(LadderEmission)
     entry[].close()
-    let status = seat[].playFaultStatus(seat[].epoch, entry[].originGeneration,
+    let status = seat[].playFaultStatus(seat[].callNumber, entry[].originGeneration,
       entry[].call.entryId, stepResult.code, stepResult.reason)
     output.appendStatus(seatIndex, entry[].call.entryId, status)
     return
@@ -625,7 +625,7 @@ proc livePassingController(seat: LadderSeat, ctx: IntentContext;
 proc stepSeat(driver: LadderDriver; seatIndex: int; input: LadderSeatInput;
               tick: uint32; output: var LadderSeatTick) =
   output.seat = seatIndex
-  output.epoch = driver.seats[seatIndex].epoch
+  output.callNumber = driver.seats[seatIndex].callNumber
   if not input.alive:
     for entry in driver.seats[seatIndex].entries.mitems:
       if entry.state == pisLive:
@@ -656,8 +656,8 @@ proc stepSeat(driver: LadderDriver; seatIndex: int; input: LadderSeatInput;
     base = native.intent
     output.goal = native.goal
     provenance = native.provenance
-    output.contributingEpoch = max(output.contributingEpoch,
-      native.contributingEpoch)
+    output.contributingCallNumber = max(output.contributingCallNumber,
+      native.contributingCallNumber)
     output.usedDefault = false
   else:
     var controllerIndex = driver.seats[seatIndex].livePassingController(
@@ -673,8 +673,8 @@ proc stepSeat(driver: LadderDriver; seatIndex: int; input: LadderSeatInput;
           base = controller.cachedIntent.get.intent.get
           output.goal = controller.cachedIntent.get.goal
           provenance.base = controller.provenanceFor(tick)
-          output.contributingEpoch = max(output.contributingEpoch,
-            controller.callEpoch)
+          output.contributingCallNumber = max(output.contributingCallNumber,
+            controller.callNumber)
           break
         if controller.state == pisFaulted:
           controllerIndex = driver.seats[seatIndex].livePassingController(
@@ -701,7 +701,7 @@ proc stepSeat(driver: LadderDriver; seatIndex: int; input: LadderSeatInput;
         entry.guardPasses(input.guardContext) and entry.cachedPolicy.isSome:
       base.combat.foldOverlay(entry.cachedPolicy.get.policy.get)
       provenance.overlays.add entry.overlayContribution(tick)
-      output.contributingEpoch = max(output.contributingEpoch, entry.callEpoch)
+      output.contributingCallNumber = max(output.contributingCallNumber, entry.callNumber)
 
   output.intent = base
   output.provenance = provenance

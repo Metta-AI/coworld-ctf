@@ -71,7 +71,7 @@ proc viewFor(tick, aliveTeams, zonePhase: int;
   buildBinaryPlayView(PlayViewSource(
     tick: uint32(tick),
     mode: gmBr,
-    epoch: 0,
+    callNumber: 0,
     self: PlaySelf(pos: (100, 80), hp: 3, hpFrac: 0.75,
       aimBrads: 32, alive: true),
     aliveTeams: aliveTeams,

@@ -85,7 +85,7 @@ type
 
   ShellCallReplayIdentity* = object
     seat*: uint8
-    epoch*: uint64
+    callNumber*: uint64
     ladderBytes*: string
     entries*: seq[PlayCallEntryIdentity]
     contentSha256*: string
@@ -103,7 +103,7 @@ type
     accepted*: bool
     reason*: string
     path*: string
-    epoch*: uint64
+    callNumber*: uint64
     status*: StatusEntry
     statusBytes*: string
     pendingRetunes*: seq[ShellEntryIdentity]
@@ -543,7 +543,7 @@ proc toPlayCallRecord*(identity: ShellCallReplayIdentity;
   let bytes = PlayCallRecord(
     replayTimeMs: replayTimeMs,
     seat: identity.seat,
-    epoch: identity.epoch,
+    callNumber: identity.callNumber,
     ladderBytes: identity.ladderBytes,
     entries: identity.entries).encodePlayCallRecord()
   bytes.decodePlayCallRecord()
@@ -555,9 +555,9 @@ proc withContentSha(identity: ShellCallReplayIdentity):
 
 when ShellRuntimeAvailable:
   const NativeReflexSubscriptions = [
-    ReflexSubscription(kind: rkClearGrenade, epoch: 0),
-    ReflexSubscription(kind: rkClearSpray, epoch: 0),
-    ReflexSubscription(kind: rkZoneEscape, epoch: 0)]
+    ReflexSubscription(kind: rkClearGrenade, callNumber: 0),
+    ReflexSubscription(kind: rkClearSpray, callNumber: 0),
+    ReflexSubscription(kind: rkZoneEscape, callNumber: 0)]
 
   proc noGuardContext(): IntentContext =
     ## For seats with no body this tick (absent, dead, not playing). Every
@@ -748,7 +748,7 @@ when ShellRuntimeAvailable:
       ShellCallReplayIdentity =
     ShellCallReplayIdentity(
       seat: uint8(seatIndex),
-      epoch: accepted.epoch,
+      callNumber: accepted.callNumber,
       ladderBytes: accepted.ladderBytes,
       entries: accepted.entries).withContentSha()
 
@@ -840,7 +840,7 @@ when ShellRuntimeAvailable:
     result.accepted = accepted.accepted
     result.reason = accepted.reason
     result.path = accepted.path
-    result.epoch = accepted.epoch
+    result.callNumber = accepted.callNumber
     result.status = accepted.status
     result.statusBytes = accepted.statusBytes
     for identity in accepted.pendingRetunes:
@@ -849,13 +849,13 @@ when ShellRuntimeAvailable:
       result.replayIdentity = some(callReplayIdentity(seatIndex, accepted))
 
   proc shellRecovery*(episode: ShellEpisode; seatIndex: int):
-      tuple[epoch: uint64, call: Option[PlayContextAcceptedCall],
+      tuple[callNumber: uint64, call: Option[PlayContextAcceptedCall],
             playbook: seq[PlayContextReadyModule]] =
     if episode.ladder != nil:
       let call = episode.ladder.callSnapshot(seatIndex)
       if call.isSome:
         let current = call.get
-        result.epoch = current.epoch
+        result.callNumber = current.callNumber
         result.call = some(PlayContextAcceptedCall(
           proposalId: current.proposalId, bytes: current.bytes))
     if episode.compilePlane != nil:
@@ -909,7 +909,7 @@ when ShellRuntimeAvailable:
         config.proposalIdBase + uint64(seat), config.originGeneration, 0,
         config.callBytes)
       result.lines.add(&"SHELL_PLAY_CALL seat={seat} accepted={accepted.accepted} " &
-        &"epoch={accepted.epoch} reason={accepted.reason} " &
+        &"call_number={accepted.callNumber} reason={accepted.reason} " &
         &"status={accepted.statusBytes}")
       if accepted.replayIdentity.isSome:
         result.callIdentities.add accepted.replayIdentity.get
@@ -920,7 +920,7 @@ when ShellRuntimeAvailable:
 
 else:
   proc shellRecovery*(episode: ShellEpisode; seatIndex: int):
-      tuple[epoch: uint64, call: Option[PlayContextAcceptedCall],
+      tuple[callNumber: uint64, call: Option[PlayContextAcceptedCall],
             playbook: seq[PlayContextReadyModule]] =
     discard episode
     discard seatIndex
@@ -1049,7 +1049,7 @@ when ShellRuntimeAvailable:
       intent: decision.order.intent,
       goal: decision.order.goal,
       provenance: decision.order.provenance,
-      contributingEpoch: decision.order.contributingEpoch))
+      contributingCallNumber: decision.order.contributingCallNumber))
 
 proc resetAfterDeath(state: var ShellSeatState, tick: uint32,
     nav: BodyNavSystem, annotations: var seq[ShellAnnotation]) =
@@ -1078,8 +1078,8 @@ proc activate(state: var ShellSeatState, tick: uint32, reason: string,
     intent: safe,
     intentBytes: safeBytes,
     provenance: provenance,
-    effectiveEpoch: 0,
-    installedEffectiveEpoch: 0,
+    effectiveCallNumber: 0,
+    installedEffectiveCallNumber: 0,
     lastDefaultRule: brHold)
   let annotation = ShellAnnotation(
     tick: tick,
@@ -1325,7 +1325,7 @@ proc step*(episode: var ShellEpisode,
               tick: tick,
               seat: uint8(row.seat),
               kind: akPlayFault,
-              faultAtEpoch: status.status.faultEpoch,
+              faultAtCallNumber: status.status.faultCallNumber,
               faultEntryId: status.entryId,
               faultCode: status.status.faultCode,
               annotationFaultReason: status.status.faultReason))
@@ -1347,7 +1347,7 @@ proc step*(episode: var ShellEpisode,
               intent: row.intent,
               goal: row.goal,
               provenance: row.provenance,
-              contributingEpoch: row.contributingEpoch))
+              contributingCallNumber: row.contributingCallNumber))
           state.appendStandingChanges(result)
       result.runtimeNanoseconds +=
         (getMonoTime() - runtimeStarted).inNanoseconds
@@ -1510,9 +1510,9 @@ proc formatLifecycleAnnotation*(annotation: ShellAnnotation,
       &"kind=install_safe reason={annotation.installReason}"
   of akAcceptedIntentChange:
     &"SHELL_ANNOTATION tick={annotation.tick} seat={annotation.seat} " &
-      &"kind=accepted_intent epoch={annotation.effectiveEpoch}"
+      &"kind=accepted_intent call_number={annotation.effectiveCallNumber}"
   of akPlayFault:
     &"SHELL_ANNOTATION tick={annotation.tick} seat={annotation.seat}" &
-      &"{playerField} kind=play_fault epoch={annotation.faultAtEpoch} " &
+      &"{playerField} kind=play_fault call_number={annotation.faultAtCallNumber} " &
       &"entry={annotation.faultEntryId} code={annotation.faultCode} " &
       &"reason={annotation.annotationFaultReason.escape}"
