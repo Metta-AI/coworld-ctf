@@ -220,8 +220,9 @@ proc corridorRoute(map: BodyMap, index: BodyRouteIndex,
     goalIndex = goalCell.y * map.gridWidth + goalCell.x
     startCenter = cellCenter(startCell)
     goalCenter = cellCenter(goalCell)
-  if index.roomForCell(startIndex) notin allowedRooms or
-      index.roomForCell(goalIndex) notin allowedRooms or
+  if (allowedRooms.len > 0 and
+      (index.roomForCell(startIndex) notin allowedRooms or
+       index.roomForCell(goalIndex) notin allowedRooms)) or
       not map.segmentClear(item.start, startCenter) or
       not map.segmentClear(goalCenter, item.validatedGoal):
     return
@@ -263,7 +264,8 @@ proc corridorRoute(map: BodyMap, index: BodyRouteIndex,
       let
         nextCell: BodyPoint = (x: cell.x + delta.x, y: cell.y + delta.y)
         nextIndex = nextCell.y * map.gridWidth + nextCell.x
-      if index.roomForCell(nextIndex) notin allowedRooms or
+      if (allowedRooms.len > 0 and
+          index.roomForCell(nextIndex) notin allowedRooms) or
           scratch.closedGeneration[nextIndex] == scratch.generation:
         continue
       let candidate = current.cost + map.edgeCost(danger, item,
@@ -358,6 +360,7 @@ type ExperimentAccum = object
   allInflation: seq[float64]
   strata: Table[string, seq[float64]]
   reached, fallback, illegal: int
+  longestPath: int
   pops, nanoseconds: seq[float64]
 
 proc experimentRow(name: string,
@@ -383,6 +386,7 @@ proc experimentJson(accum: ExperimentAccum, popCap: int): JsonNode =
     "reached": accum.reached,
     "fallback": accum.fallback,
     "illegal": accum.illegal,
+    "longest_path_cells": accum.longestPath,
     "pops_p95": percentile(accum.pops, 0.95),
     "pops_max": if accum.pops.len == 0: 0.0 else: max(accum.pops),
     "query_ns_p50": percentile(accum.nanoseconds, 0.50),
@@ -431,6 +435,8 @@ proc corridorExperiments(pool: JsonNode,
         if corridor.reached and map.routeLegal(item, corridor.route):
           selected = corridor.route
           inc accum[capOffset].reached
+          accum[capOffset].longestPath = max(
+            accum[capOffset].longestPath, corridor.route.len)
         else:
           inc accum[capOffset].fallback
           if corridor.reached:
@@ -441,6 +447,61 @@ proc corridorExperiments(pool: JsonNode,
         accum[capOffset].allInflation.add inflation
         accum[capOffset].strata.mgetOrPut(key, @[]).add inflation
         accum[capOffset].pops.add corridor.pops.float
+        accum[capOffset].nanoseconds.add elapsed.float
+  result = newJArray()
+  for offset, cap in Caps:
+    result.add experimentJson(accum[offset], cap)
+
+proc globalExperiments(pool: JsonNode,
+    corpus: NavCorpus): JsonNode =
+  const Caps = [16_384, 32_768, 65_536]
+  var accum: array[Caps.len, ExperimentAccum]
+  let unrestricted = initHashSet[int]()
+  for poolIndex in 0 ..< pool.len:
+    stderr.writeLine &"global map {poolIndex + 1}/{pool.len}"
+    let
+      map = pool.loadMap(poolIndex)
+      index = newBodyRouteIndex(map)
+      queryScratch = newBodyRouteQueryScratch(index)
+    var
+      globalScratch = initCorridorScratch(map.gridWidth * map.gridHeight)
+      dangerByHash = initTable[string, BodyDangerField]()
+    for item in corpus.cases:
+      if item.poolIndex != poolIndex:
+        continue
+      if item.dangerHash notin dangerByHash:
+        dangerByHash[item.dangerHash] = map.buildOracleDanger(item)
+      var danger = dangerByHash[item.dangerHash]
+      var request = map.queryRequest(item, danger)
+      let base = index.queryBodyRoute(queryScratch, request)
+      if not base.ok:
+        raise newException(ValueError,
+          "fixed base route missing during global experiment: " & item.id)
+      let
+        baseRoute = index.executedRoute(queryScratch, base)
+        key = &"r{item.rosterSize}/{item.profile}/{item.dynamic}/" &
+          &"{item.distance}"
+      for capOffset, cap in Caps:
+        let started = getMonoTime()
+        let global = map.corridorRoute(index, danger, item, unrestricted,
+          cap, globalScratch)
+        let elapsed = (getMonoTime() - started).inNanoseconds
+        var selected = baseRoute
+        if global.reached and map.routeLegal(item, global.route):
+          selected = global.route
+          inc accum[capOffset].reached
+          accum[capOffset].longestPath = max(
+            accum[capOffset].longestPath, global.route.len)
+        else:
+          inc accum[capOffset].fallback
+          if global.reached:
+            inc accum[capOffset].illegal
+        let inflation = routeInflationPct(
+          oracleFloatCost(resampleRoute4px(selected), map, danger,
+            item.profile.corpusProfile, item.blockedCell), item.oracleCost)
+        accum[capOffset].allInflation.add inflation
+        accum[capOffset].strata.mgetOrPut(key, @[]).add inflation
+        accum[capOffset].pops.add global.pops.float
         accum[capOffset].nanoseconds.add elapsed.float
   result = newJArray()
   for offset, cap in Caps:
@@ -475,6 +536,37 @@ proc profileCorridorCase(pool: JsonNode, corpus: NavCorpus,
     row["corridor_pops"] = %corridor.pops
     row["corridor_reached"] = %corridor.reached
     samples.add row
+  %*{"id": id, "pop_cap": popCap, "samples": samples}
+
+proc profileGlobalCase(pool: JsonNode, corpus: NavCorpus,
+    id: string, popCap: int): JsonNode =
+  let
+    item = corpus.findCase(id)
+    map = pool.loadMap(item.poolIndex)
+    index = newBodyRouteIndex(map)
+    queryScratch = newBodyRouteQueryScratch(index)
+    unrestricted = initHashSet[int]()
+  var
+    danger = map.buildOracleDanger(item)
+    request = map.queryRequest(item, danger)
+    globalScratch = initCorridorScratch(map.gridWidth * map.gridHeight)
+    samples = newJArray()
+  for _ in 0 ..< ProfileSamples:
+    let baseStarted = getMonoTime()
+    let route = index.queryBodyRoute(queryScratch, request)
+    let baseNs = (getMonoTime() - baseStarted).inNanoseconds
+    let globalStarted = getMonoTime()
+    let global = map.corridorRoute(index, danger, item, unrestricted,
+      popCap, globalScratch)
+    let globalNs = (getMonoTime() - globalStarted).inNanoseconds
+    samples.add %*{
+      "hierarchical_fallback_ns": baseNs,
+      "global_query_ns": globalNs,
+      "combined_ns": baseNs + globalNs,
+      "global_pops": global.pops,
+      "global_reached": global.reached,
+      "global_path_cells": global.route.len
+    }
   %*{"id": id, "pop_cap": popCap, "samples": samples}
 
 proc rankedCases(artifact: JsonNode): seq[RankedCase] =
@@ -537,6 +629,13 @@ when isMainModule:
     corridorProfiles.add pool.profileCorridorCase(corpus,
       "m15-br-gen-22010-r16-s15-default-danger-far", cap)
     corridorProfiles.add pool.profileCorridorCase(corpus, median.id, cap)
+  stderr.writeLine "run global experiments"
+  let global = pool.globalExperiments(corpus)
+  var globalProfiles = newJArray()
+  for cap in [16_384, 32_768, 65_536]:
+    globalProfiles.add pool.profileGlobalCase(corpus,
+      "m15-br-gen-22010-r16-s15-default-danger-far", cap)
+    globalProfiles.add pool.profileGlobalCase(corpus, median.id, cap)
   echo pretty(%*{
     "schema": "coworld_body_nav_p9_investigation",
     "v": 1,
@@ -548,5 +647,7 @@ when isMainModule:
     "worst_30": attribution,
     "overflows": overflows,
     "corridor_experiments": corridor,
-    "corridor_profiles": corridorProfiles
+    "corridor_profiles": corridorProfiles,
+    "global_experiments": global,
+    "global_profiles": globalProfiles
   })
