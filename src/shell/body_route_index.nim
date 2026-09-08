@@ -15,6 +15,8 @@ const
   FineNavCell* = 4
   FineCrossingMaxPops* = 256
   ConnectorMaxDistancePx* = 32
+  PixelConnectorMaxCells* =
+    (ConnectorMaxDistancePx * 2 + 1) * (ConnectorMaxDistancePx * 2 + 1)
   RouteEdgeIdCapacity* = 32_767
   NoRoom = high(uint16)
   NoHop = high(uint8)
@@ -25,6 +27,7 @@ static:
   doAssert FineNavCell == NavCell div 2
   doAssert FineCrossingMaxPops == 256
   doAssert PortalClusterSeparationPx mod NavCell == 0
+  doAssert PixelConnectorMaxCells == 4_225
 
 type
   BodyPortalSide* = object
@@ -81,6 +84,8 @@ type
     cellComponent: seq[uint16]
     pockets: seq[BodyPocketConnector]
     pocketCells: seq[int32]
+    fineAnchorStart: seq[int32]
+    fineAnchors: seq[int32]
     stats: BodyRouteIndexStats
 
   BuildHeapNode = object
@@ -106,6 +111,42 @@ type
     anchorA, anchorB, representativeCell: int32
     neighborOrder: uint8
     clearance: int
+
+  FineTargetKind = enum
+    ftkCrossing
+    ftkPocket
+
+  PocketSeedResult = enum
+    psCovered
+    psAdded
+    psUnresolved
+
+  PendingPocketPoint = object
+    point: BodyPoint
+    nextPath: int32
+
+  FineTarget = object
+    pointRef: int32
+    pathIndex: int32
+    pointOffset: uint16
+    kind: FineTargetKind
+
+  FineAnchorPair = object
+    cellIndex, pointRef: int32
+
+  PixelPath = object
+    points: seq[BodyPoint]
+    targetRef: int32
+    reachedTarget: bool
+
+  PixelSearchScratch = object
+    parent: seq[int32]
+    visitedGeneration: seq[uint32]
+    standable: seq[bool]
+    targetGeneration: seq[uint32]
+    targetRef: seq[int32]
+    queue: seq[int32]
+    generation: uint32
 
 proc cellIndex(index: BodyRouteIndex, cell: BodyPoint): int {.inline.} =
   cell.y * index.map.gridWidth + cell.x
@@ -272,8 +313,8 @@ proc finePoint(index: BodyRouteIndex, fineIndex: int): BodyPoint {.inline.} =
    y: (local div index.fineGridWidth) * FineNavCell + offsetY)
 
 proc routePoint*(index: BodyRouteIndex, pointRef: int32): BodyPoint =
-  ## Decode a retained route point. Negative references are the sparse 4 px
-  ## lattice used only inside crossing segments.
+  ## Decode a retained route point. Negative references use a self-decoding
+  ## 16-phase 4 px lattice, so every map pixel has one canonical reference.
   if pointRef >= 0:
     if pointRef.int >= index.stats.navCells:
       raise newException(IndexDefect, "coarse route point is out of bounds")
@@ -476,97 +517,157 @@ proc pixelStepQ4(a, b: BodyPoint): uint32 {.inline.} =
     dy = a.y - b.y
   uint32(round(sqrt(float(dx * dx + dy * dy)) * 16.0))
 
-proc finePocketPath(index: BodyRouteIndex, point: BodyPoint,
-    goals: openArray[int32]): CrossingPath =
+proc initPixelSearchScratch(index: BodyRouteIndex): PixelSearchScratch =
+  result.parent = newSeq[int32](PixelConnectorMaxCells)
+  result.visitedGeneration = newSeq[uint32](PixelConnectorMaxCells)
+  result.standable = newSeq[bool](PixelConnectorMaxCells)
+  result.targetGeneration = newSeq[uint32](PixelConnectorMaxCells)
+  result.targetRef = newSeq[int32](PixelConnectorMaxCells)
+  result.queue = newSeq[int32](PixelConnectorMaxCells)
+  index.stats.transientPeakBytes = max(index.stats.transientPeakBytes,
+    int64(PixelConnectorMaxCells) *
+      int64(sizeof(int32) * 3 + sizeof(uint32) * 2 + sizeof(bool)))
+
+proc beginSearch(scratch: var PixelSearchScratch) =
+  inc scratch.generation
+  if scratch.generation == 0:
+    for marker in scratch.visitedGeneration.mitems:
+      marker = 0
+    for marker in scratch.targetGeneration.mitems:
+      marker = 0
+    scratch.generation = 1
+
+proc pixelPathInBox(index: BodyRouteIndex, start, center: BodyPoint,
+    targets: openArray[int32], scratch: var PixelSearchScratch,
+    exactEdges = false): PixelPath =
   let
-    centerCell = index.map.cellOf(point)
-    coarseX0 = max(0, centerCell.x - PortalCrossingBoxCells)
-    coarseX1 = min(index.map.gridWidth - 1,
-      centerCell.x + PortalCrossingBoxCells)
-    coarseY0 = max(0, centerCell.y - PortalCrossingBoxCells)
-    coarseY1 = min(index.map.gridHeight - 1,
-      centerCell.y + PortalCrossingBoxCells)
-    coarsePixelX0 = cellCenter((coarseX0, coarseY0)).x
-    coarsePixelX1 = cellCenter((coarseX1, coarseY1)).x
-    coarsePixelY0 = cellCenter((coarseX0, coarseY0)).y
-    coarsePixelY1 = cellCenter((coarseX1, coarseY1)).y
-    phaseX = point.x mod FineNavCell
-    phaseY = point.y mod FineNavCell
-    x0 = coarsePixelX0 +
-      ((phaseX - coarsePixelX0 mod FineNavCell + FineNavCell) mod FineNavCell)
-    x1 = coarsePixelX1 -
-      ((coarsePixelX1 mod FineNavCell - phaseX + FineNavCell) mod FineNavCell)
-    y0 = coarsePixelY0 +
-      ((phaseY - coarsePixelY0 mod FineNavCell + FineNavCell) mod FineNavCell)
-    y1 = coarsePixelY1 -
-      ((coarsePixelY1 mod FineNavCell - phaseY + FineNavCell) mod FineNavCell)
-    boxW = (x1 - x0) div FineNavCell + 1
-    boxH = (y1 - y0) div FineNavCell + 1
-  template local(candidate: BodyPoint): int =
-    ((candidate.y - y0) div FineNavCell) * boxW +
-      (candidate.x - x0) div FineNavCell
-  var
-    distance = newSeq[uint32](boxW * boxH)
-    parent = newSeq[int32](boxW * boxH)
-    heap = BuildHeap(nodes: newSeq[BuildHeapNode](boxW * boxH),
-      positions: newSeq[int](boxW * boxH))
-  for offset in 0 ..< parent.len:
-    distance[offset] = high(uint32)
-    parent[offset] = -1
-  heap.reset(distance.len)
-  distance[local(point)] = 0
-  heap.pushOrDecrease(BuildHeapNode(distance: 0,
-    cellIndex: index.fineIndex(point).int, localIndex: local(point)))
-  index.noteCrossingScratch(distance.len)
-  var
-    reached = -1'i32
-    reachedGoal = -1'i32
-  var pops = 0
-  while heap.len > 0 and pops < FineCrossingMaxPops:
-    let currentNode = heap.pop()
-    if currentNode.distance != distance[currentNode.localIndex]:
+    x0 = max(0, center.x - ConnectorMaxDistancePx)
+    x1 = min(index.map.width - 1, center.x + ConnectorMaxDistancePx)
+    y0 = max(0, center.y - ConnectorMaxDistancePx)
+    y1 = min(index.map.height - 1, center.y + ConnectorMaxDistancePx)
+    boxW = x1 - x0 + 1
+    boxH = y1 - y0 + 1
+  if boxW * boxH > PixelConnectorMaxCells:
+    raise newException(BodyMapError,
+      &"body route index map '{index.map.mapLabel}' pixel connector exceeds " &
+      &"the {PixelConnectorMaxCells}-pixel search cap")
+  if start.x < x0 or start.x > x1 or start.y < y0 or start.y > y1 or
+      not index.map.canStand(start):
+    return
+  template local(point: BodyPoint): int =
+    (point.y - y0) * boxW + point.x - x0
+  template pointAt(offset: int): BodyPoint =
+    (x: offset mod boxW + x0, y: offset div boxW + y0)
+  scratch.beginSearch()
+  for y in y0 .. y1:
+    for x in x0 .. x1:
+      let point: BodyPoint = (x, y)
+      scratch.standable[local(point)] = index.map.canStand(point)
+  for target in targets:
+    let point = index.routePoint(target)
+    if point.x < x0 or point.x > x1 or point.y < y0 or point.y > y1:
       continue
-    inc pops
-    let current = index.finePoint(currentNode.cellIndex)
-    for goalCell in goals:
-      let goal = cellCenter(index.cellPoint(goalCell.int))
-      if index.map.segmentClear(current, goal):
-        reached = int32(currentNode.cellIndex)
-        reachedGoal = goalCell
-        break
+    let offset = local(point)
+    if scratch.targetGeneration[offset] != scratch.generation:
+      scratch.targetGeneration[offset] = scratch.generation
+      scratch.targetRef[offset] = target
+  var
+    head = 0
+    tail = 1
+    reached = -1
+  let
+    startLocal = local(start)
+  scratch.visitedGeneration[startLocal] = scratch.generation
+  scratch.parent[startLocal] = -1
+  scratch.queue[0] = int32(startLocal)
+  while head < tail:
+    let
+      currentLocal = scratch.queue[head].int
+      current = pointAt(currentLocal)
+    inc head
+    if scratch.targetGeneration[currentLocal] == scratch.generation:
+      reached = currentLocal
+      result.targetRef = scratch.targetRef[currentLocal]
+      result.reachedTarget = true
     if reached >= 0:
       break
     for delta in NavNeighbors:
-      let next: BodyPoint = (current.x + delta.x * FineNavCell,
-                             current.y + delta.y * FineNavCell)
-      if next.x < x0 or next.x > x1 or next.y < y0 or next.y > y1 or
-          not index.map.canStand(next) or
-          not index.map.segmentClear(current, next):
+      let next: BodyPoint = (current.x + delta.x, current.y + delta.y)
+      if next.x < x0 or next.x > x1 or next.y < y0 or next.y > y1:
         continue
-      let
-        nextLocal = local(next)
-        candidate = currentNode.distance + pixelStepQ4(current, next)
-      if candidate < distance[nextLocal]:
-        distance[nextLocal] = candidate
-        parent[nextLocal] = int32(currentNode.cellIndex)
-        heap.pushOrDecrease(BuildHeapNode(distance: candidate,
-          cellIndex: index.fineIndex(next).int, localIndex: nextLocal))
-  if reached < 0 or reachedGoal < 0:
+      let nextLocal = local(next)
+      if not scratch.standable[nextLocal]:
+        continue
+      if exactEdges and delta.x != 0 and delta.y != 0:
+        let
+          sideX: BodyPoint = (current.x + delta.x, current.y)
+          sideY: BodyPoint = (current.x, current.y + delta.y)
+        if not scratch.standable[local(sideX)] or
+            not scratch.standable[local(sideY)]:
+          continue
+      if scratch.visitedGeneration[nextLocal] == scratch.generation:
+        continue
+      scratch.visitedGeneration[nextLocal] = scratch.generation
+      scratch.parent[nextLocal] = int32(currentLocal)
+      scratch.queue[tail] = int32(nextLocal)
+      inc tail
+  if reached < 0:
     return
-  var finePath: seq[int32]
+  var reversed: seq[BodyPoint]
   var cursor = reached
   while true:
-    finePath.add cursor
-    let previous = parent[local(index.finePoint(cursor.int))]
+    reversed.add pointAt(cursor)
+    let previous = scratch.parent[cursor]
     if previous < 0:
       break
-    cursor = previous
-  finePath.reverse()
-  result.fine = true
-  result.cells = newSeq[int32](finePath.len + 1)
-  for offset in 0 ..< finePath.len:
-    result.cells[offset] = -1'i32 - finePath[offset]
-  result.cells[^1] = reachedGoal
+    cursor = previous.int
+  reversed.reverse()
+  result.points.add reversed[0]
+  var source = 0
+  while source < reversed.high:
+    var target = reversed.high
+    while target > source + 1 and
+        not index.map.segmentClear(reversed[source], reversed[target]):
+      dec target
+    if not index.map.segmentClear(reversed[source], reversed[target]):
+      result.points.setLen(0)
+      return
+    result.points.add reversed[target]
+    source = target
+
+proc exactPixelPathInBox(index: BodyRouteIndex, start, center: BodyPoint,
+    targets: openArray[int32], scratch: var PixelSearchScratch): PixelPath =
+  result = index.pixelPathInBox(start, center, targets, scratch)
+  if result.points.len == 0 and result.reachedTarget:
+    result = index.pixelPathInBox(start, center, targets, scratch,
+      exactEdges = true)
+
+proc encodedPixelPath(index: BodyRouteIndex, path: PixelPath,
+    startRef: int32): CrossingPath =
+  if path.points.len == 0:
+    return
+  if path.points.len == 1:
+    result.cells = if startRef == path.targetRef:
+      @[startRef]
+    else:
+      @[startRef, path.targetRef]
+    result.fine = startRef < 0 or path.targetRef < 0
+    return
+  result.cells = newSeq[int32](path.points.len)
+  result.cells[0] = startRef
+  result.cells[^1] = path.targetRef
+  result.fine = startRef < 0 or path.targetRef < 0
+  for offset in 1 ..< path.points.high:
+    result.cells[offset] = -1'i32 - index.fineIndex(path.points[offset])
+    result.fine = true
+
+proc pixelCrossingPath(index: BodyRouteIndex, chokeIndex: int,
+    startCell: int32, goals: openArray[int32],
+    scratch: var PixelSearchScratch): CrossingPath =
+  let center = cellCenter(index.map.cellOf(index.map.chokeAt(chokeIndex).pos))
+  let path = index.exactPixelPathInBox(
+    cellCenter(index.cellPoint(startCell.int)), center, goals, scratch)
+  result = index.encodedPixelPath(path, startCell)
 
 proc buildRoomLayout(index: BodyRouteIndex): int =
   let roomCount = index.map.roomCount
@@ -703,7 +804,9 @@ proc duplicatePassB(portals: openArray[PortalBuild], passA: int,
 
 proc buildSides(index: BodyRouteIndex): seq[CrossingPath] =
   let roomCount = index.map.roomCount
-  var portals: seq[PortalBuild]
+  var
+    portals: seq[PortalBuild]
+    pixelScratch = index.initPixelSearchScratch()
   for cluster in index.boundaryClusters():
     portals.add PortalBuild(
       roomA: cluster.roomA, roomB: cluster.roomB,
@@ -737,6 +840,9 @@ proc buildSides(index: BodyRouteIndex): seq[CrossingPath] =
       crossing = index.coarseCrossingPath(chokeIndex, [anchorA], goals)
     if crossing.cells.len == 0:
       crossing = index.fineCrossingPath(chokeIndex, [anchorA], goals)
+    if crossing.cells.len == 0:
+      crossing = index.pixelCrossingPath(chokeIndex, anchorA, goals,
+        pixelScratch)
     if crossing.cells.len < 2 or crossing.cells[0] < 0 or
         crossing.cells[^1] < 0:
       inc index.stats.droppedChokes
@@ -1137,8 +1243,54 @@ proc validateValidatorAnchors(index: BodyRouteIndex) =
         &"body route index map '{index.map.mapLabel}' validator component " &
         &"{component} spawn {spawnIndex} cell {cell} is not anchored")
 
+proc canonicalGraphMapping(index: BodyRouteIndex): tuple[
+    byPixel, byGraph: seq[uint16]] =
+  ## A coarse raster can split one connected pixel component at a narrow gap.
+  ## Keep its first graph as the deterministic representative; a later exact
+  ## pixel connector is required before the other graph labels are collapsed.
+  result.byPixel = newSeq[uint16](index.map.componentCount + 1)
+  result.byGraph = newSeq[uint16](index.stats.graphComponents + 1)
+  var graphPixel = newSeq[uint16](index.stats.graphComponents + 1)
+  for cellIndex, graph in index.cellComponent:
+    if graph == 0:
+      continue
+    let pixel = index.map.componentOf(cellCenter(index.cellPoint(cellIndex)))
+    if pixel <= 0:
+      continue
+    if graphPixel[graph] notin [0'u16, uint16(pixel)]:
+      raise newException(BodyMapError,
+        &"body route index map '{index.map.mapLabel}' graph {graph} spans " &
+        "multiple pixel components")
+    graphPixel[graph] = uint16(pixel)
+    if result.byPixel[pixel] == 0 or graph < result.byPixel[pixel]:
+      result.byPixel[pixel] = graph
+  for graph in 1 .. index.stats.graphComponents:
+    let pixel = graphPixel[graph].int
+    if pixel <= 0 or result.byPixel[pixel] == 0:
+      raise newException(BodyMapError,
+        &"body route index map '{index.map.mapLabel}' graph {graph} has no " &
+        "pixel component")
+    result.byGraph[graph] = result.byPixel[pixel]
+
+proc collapseGraphComponents(index: BodyRouteIndex,
+    canonical: openArray[uint16]) =
+  var compact = newSeq[uint16](canonical.len)
+  index.stats.graphComponents = 0
+  for graph in 1 ..< canonical.len:
+    let root = canonical[graph]
+    if compact[root] == 0:
+      inc index.stats.graphComponents
+      compact[root] = uint16(index.stats.graphComponents)
+  for graph in index.sideComponent.mitems:
+    graph = compact[canonical[graph]]
+  for graph in index.cellComponent.mitems:
+    if graph != 0:
+      graph = compact[canonical[graph]]
+
 proc coarseConnectorGraphComponent(index: BodyRouteIndex,
-    point: BodyPoint): int =
+    point: BodyPoint, maxDistanceSquared =
+      ConnectorMaxDistancePx * ConnectorMaxDistancePx,
+    requiredGraph = 0): int =
   let
     center = index.map.cellOf(point)
     pixelComponent = index.map.componentOf(point)
@@ -1150,14 +1302,16 @@ proc coarseConnectorGraphComponent(index: BodyRouteIndex,
       let
         candidate = index.cellIndex(cell)
         anchor = cellCenter(cell)
-      if point.distanceSquared(anchor) <=
-          ConnectorMaxDistancePx * ConnectorMaxDistancePx and
+      if point.distanceSquared(anchor) <= maxDistanceSquared and
           index.cellComponent[candidate] != 0 and
+          (requiredGraph == 0 or
+           index.cellComponent[candidate].int == requiredGraph) and
           index.map.componentOf(anchor) == pixelComponent and
           index.map.segmentClear(point, anchor):
         return index.cellComponent[candidate].int
 
-proc pocketGoals(index: BodyRouteIndex, point: BodyPoint): seq[int32] =
+proc pocketGoals(index: BodyRouteIndex, point: BodyPoint,
+    targetGraph: uint16): seq[int32] =
   let
     center = index.map.cellOf(point)
     pixelComponent = index.map.componentOf(point)
@@ -1169,9 +1323,61 @@ proc pocketGoals(index: BodyRouteIndex, point: BodyPoint): seq[int32] =
       let
         candidate = index.cellIndex(cell)
         anchor = cellCenter(cell)
-      if index.cellComponent[candidate] != 0 and
+      if index.cellComponent[candidate] == targetGraph and
           index.map.componentOf(anchor) == pixelComponent:
         result.add int32(candidate)
+
+proc initialFineTargets(index: BodyRouteIndex,
+    canonical: openArray[uint16]): seq[FineTarget] =
+  for segmentIndex in 0 ..< index.stats.crossings:
+    let graph = index.sideComponent[segmentIndex * 2]
+    if canonical[graph] != graph:
+      continue
+    let segment = index.segments[segmentIndex]
+    for offset in 0 ..< segment.cellLen.int:
+      let pointRef = index.cells[segment.cellStart.int + offset]
+      if pointRef < 0:
+        result.add FineTarget(pointRef: pointRef,
+          pathIndex: int32(segmentIndex), pointOffset: uint16(offset),
+          kind: ftkCrossing)
+
+proc appendFineTargetSuffix(index: BodyRouteIndex, target: FineTarget,
+    paths: openArray[CrossingPath], path: var CrossingPath) =
+  case target.kind
+  of ftkCrossing:
+    let segment = index.segments[target.pathIndex.int]
+    for offset in target.pointOffset.int + 1 ..< segment.cellLen.int:
+      path.cells.add index.cells[segment.cellStart.int + offset]
+  of ftkPocket:
+    let source = paths[target.pathIndex.int]
+    for offset in target.pointOffset.int + 1 ..< source.cells.len:
+      path.cells.add source.cells[offset]
+
+proc pixelPocketPath(index: BodyRouteIndex, point: BodyPoint,
+    paths: openArray[CrossingPath], fineTargets: openArray[FineTarget],
+    targetGraph: uint16, scratch: var PixelSearchScratch):
+    CrossingPath =
+  var targets = index.pocketGoals(point, targetGraph)
+  let pixelComponent = index.map.componentOf(point)
+  for target in fineTargets:
+    let targetPoint = index.routePoint(target.pointRef)
+    if abs(targetPoint.x - point.x) <= ConnectorMaxDistancePx and
+        abs(targetPoint.y - point.y) <= ConnectorMaxDistancePx and
+        index.map.componentOf(targetPoint) == pixelComponent:
+      targets.add target.pointRef
+  if targets.len == 0:
+    return
+  let pixelPath = index.exactPixelPathInBox(point, point, targets, scratch)
+  result = index.encodedPixelPath(pixelPath,
+    -1'i32 - index.fineIndex(point))
+  if result.cells.len == 0 or result.cells[^1] >= 0:
+    return
+  for target in fineTargets:
+    if target.pointRef == result.cells[^1]:
+      index.appendFineTargetSuffix(target, paths, result)
+      break
+  if result.cells[^1] < 0:
+    result.cells.setLen(0)
 
 proc pathLengthQ4(index: BodyRouteIndex,
     cells: openArray[int32]): uint32 =
@@ -1180,7 +1386,8 @@ proc pathLengthQ4(index: BodyRouteIndex,
       index.routePoint(cells[offset]))
 
 proc pocketPathComponent(index: BodyRouteIndex, point: BodyPoint,
-    path: CrossingPath): int =
+    path: CrossingPath, maxDistanceSquared =
+      ConnectorMaxDistancePx * ConnectorMaxDistancePx): int =
   if path.cells.len < 2:
     return 0
   let
@@ -1191,80 +1398,271 @@ proc pocketPathComponent(index: BodyRouteIndex, point: BodyPoint,
     return 0
   for pointRef in path.cells:
     let attach = index.routePoint(pointRef)
-    if point.distanceSquared(attach) <=
-        ConnectorMaxDistancePx * ConnectorMaxDistancePx and
+    if point.distanceSquared(attach) <= maxDistanceSquared and
         index.map.componentOf(attach) == pixelComponent and
         index.map.segmentClear(point, attach):
       return index.cellComponent[targetCell].int
 
-proc anchorPocketCells(index: BodyRouteIndex, path: CrossingPath) =
+proc anchorPocketCells(index: BodyRouteIndex, path: CrossingPath,
+    canonical: openArray[uint16]) =
   let
     targetCell = index.routeNavCell(path.cells[^1]).int
     graph = index.cellComponent[targetCell]
     pixelComponent = index.map.componentOf(index.routePoint(path.cells[^1]))
+  for pointRef in path.cells:
+    let
+      attach = index.routePoint(pointRef)
+      center = index.map.cellOf(attach)
+    for ring in 0 .. PortalAnchorRingCells:
+      for cell in ringCells(center, ring):
+        if cell.x < 0 or cell.x >= index.map.gridWidth or
+            cell.y < 0 or cell.y >= index.map.gridHeight:
+          continue
+        let
+          cellIndex = index.cellIndex(cell)
+          anchor = cellCenter(cell)
+        let currentGraph = index.cellComponent[cellIndex]
+        if (currentGraph != 0 and canonical[currentGraph] != graph) or
+            not index.map.cellWalkable(cell) or
+            index.map.componentOf(anchor) != pixelComponent:
+          continue
+        if anchor.distanceSquared(attach) <=
+            ConnectorMaxDistancePx * ConnectorMaxDistancePx and
+            index.map.segmentClear(anchor, attach):
+          index.cellComponent[cellIndex] = graph
+
+proc joinPocketGraph(index: BodyRouteIndex, sourceGraph,
+    targetGraph: uint16) =
+  for graph in index.sideComponent.mitems:
+    if graph == sourceGraph:
+      graph = targetGraph
+  for graph in index.cellComponent.mitems:
+    if graph == sourceGraph:
+      graph = targetGraph
+
+proc resolvePocketSeed(index: BodyRouteIndex, point: BodyPoint,
+    validatorComponent: openArray[bool], canonicalByPixel: openArray[uint16],
+    canonicalByGraph: openArray[uint16], paths: var seq[CrossingPath],
+    fineTargets: var seq[FineTarget], pathStart: int,
+    scratch: var PixelSearchScratch): PocketSeedResult =
+  let pixelComponent = index.map.componentOf(point)
+  if pixelComponent == 0 or not validatorComponent[pixelComponent]:
+    return psCovered
+  let targetGraph = canonicalByPixel[pixelComponent]
+  if targetGraph == 0:
+    raise newException(BodyMapError,
+      &"body route index map '{index.map.mapLabel}' validator component " &
+      &"{pixelComponent} has no canonical route graph")
+  let
+    coarseCell = index.map.cellOf(point)
+    coarseIndex = index.cellIndex(coarseCell)
+    sourceGraph = index.cellComponent[coarseIndex]
+  if index.cellComponent[coarseIndex] == targetGraph:
+    let coarseCenter = cellCenter(coarseCell)
+    if index.map.componentOf(coarseCenter) == pixelComponent and
+        index.map.segmentClear(point, coarseCenter):
+      return psCovered
+  const InteriorDistanceSquared =
+    ConnectorMaxDistancePx * ConnectorMaxDistancePx - 1
+  if index.coarseConnectorGraphComponent(point, InteriorDistanceSquared,
+      targetGraph.int) != 0:
+    return psCovered
+  for pathIndex in pathStart ..< paths.len:
+    if index.pocketPathComponent(point, paths[pathIndex],
+        InteriorDistanceSquared) != 0:
+      return psCovered
+  let path = index.pixelPocketPath(point, paths, fineTargets, targetGraph,
+    scratch)
+  if path.cells.len == 0:
+    return psUnresolved
+  if path.cells.len > high(uint16).int:
+    raise newException(BodyMapError,
+      &"body route index map '{index.map.mapLabel}' pocket connector " &
+      &"has {path.cells.len} points")
+  let pathIndex = paths.len
+  let joinsSourceGraph = sourceGraph != 0 and sourceGraph != targetGraph and
+    canonicalByGraph[sourceGraph] == targetGraph and
+    index.coarseConnectorGraphComponent(point,
+      ConnectorMaxDistancePx * ConnectorMaxDistancePx,
+      sourceGraph.int) == sourceGraph.int
+  paths.add path
+  for offset, pointRef in path.cells:
+    if pointRef < 0:
+      fineTargets.add FineTarget(pointRef: pointRef,
+        pathIndex: int32(pathIndex), pointOffset: uint16(offset),
+        kind: ftkPocket)
+  index.anchorPocketCells(path, canonicalByGraph)
+  if joinsSourceGraph:
+    index.joinPocketGraph(sourceGraph, targetGraph)
+  psAdded
+
+proc resolvePocketPending(index: BodyRouteIndex,
+    pending: sink seq[PendingPocketPoint],
+    validatorComponent: openArray[bool], canonicalByPixel,
+    canonicalByGraph: openArray[uint16], failOnStall: bool,
+    paths: var seq[CrossingPath], fineTargets: var seq[FineTarget],
+    pixelScratch: var PixelSearchScratch): seq[PendingPocketPoint] =
+  var unresolved = move(pending)
+  while unresolved.len > 0:
+    var
+      nextUnresolved = newSeqOfCap[PendingPocketPoint](unresolved.len)
+      passAdded = 0
+    for pendingPoint in unresolved:
+      case index.resolvePocketSeed(pendingPoint.point, validatorComponent,
+          canonicalByPixel, canonicalByGraph, paths, fineTargets,
+          pendingPoint.nextPath.int, pixelScratch)
+      of psCovered: discard
+      of psAdded: inc passAdded
+      of psUnresolved:
+        nextUnresolved.add PendingPocketPoint(point: pendingPoint.point,
+          nextPath: int32(paths.len))
+    index.stats.transientPeakBytes = max(index.stats.transientPeakBytes,
+      int64((unresolved.len + nextUnresolved.len) *
+        sizeof(PendingPocketPoint)))
+    if nextUnresolved.len == 0:
+      return
+    if passAdded == 0:
+      if not failOnStall:
+        return nextUnresolved
+      let firstUnresolved = nextUnresolved[0].point
+      raise newException(BodyMapError,
+        &"body route index map '{index.map.mapLabel}' validator component " &
+        &"{index.map.componentOf(firstUnresolved)} leaves " &
+        &"{nextUnresolved.len} standable pocket " &
+        &"pixels unresolved; first={firstUnresolved}; no pixel connector " &
+        &"inside +-{ConnectorMaxDistancePx} px box")
+    unresolved = move(nextUnresolved)
+
+proc buildPocketCoverage(index: BodyRouteIndex,
+    validatorComponent: openArray[bool], canonicalByPixel,
+    canonicalByGraph: openArray[uint16], includeSecondary,
+    failOnStall: bool,
+    paths: var seq[CrossingPath], fineTargets: var seq[FineTarget],
+    pixelScratch: var PixelSearchScratch): seq[PendingPocketPoint] =
+  var
+    needsPixelScan = newSeq[bool](index.stats.navCells)
+    secondaryCell = newSeq[bool](index.stats.navCells)
+    deferredSecondary: seq[PendingPocketPoint]
+    unresolved: seq[PendingPocketPoint]
   for cellIndex in 0 ..< index.stats.navCells:
-    if index.cellComponent[cellIndex] != 0:
-      continue
-    let anchor = cellCenter(index.cellPoint(cellIndex))
-    if not index.map.cellWalkable(index.cellPoint(cellIndex)) or
-        index.map.componentOf(anchor) != pixelComponent:
-      continue
-    for pointRef in path.cells:
-      let attach = index.routePoint(pointRef)
-      if anchor.distanceSquared(attach) <=
-          ConnectorMaxDistancePx * ConnectorMaxDistancePx and
-          index.map.segmentClear(anchor, attach):
-        index.cellComponent[cellIndex] = graph
-        break
+    let
+      cell = index.cellPoint(cellIndex)
+      center = cellCenter(cell)
+      xAfter = if cell.x == index.map.gridWidth - 1:
+        index.map.width
+      else:
+        (cell.x + 1) * NavCell
+      yAfter = if cell.y == index.map.gridHeight - 1:
+        index.map.height
+      else:
+        (cell.y + 1) * NavCell
+      radius = max(
+        max(center.x - cell.x * NavCell, xAfter - 1 - center.x),
+        max(center.y - cell.y * NavCell, yAfter - 1 - center.y))
+      pixelComponent = index.map.componentOf(center)
+      targetGraph = if pixelComponent > 0:
+        canonicalByPixel[pixelComponent]
+      else:
+        0'u16
+      sourceGraph = index.cellComponent[cellIndex]
+      # Clearance at the center proves every pixel in an interior cell has an
+      # exact segment to that center. Only boundary cells need a pixel census.
+      needsBoundaryProof =
+        index.map.clearanceAt(center) <= PlayerHalf + radius
+    secondaryCell[cellIndex] = sourceGraph != 0 and
+      sourceGraph != targetGraph and needsBoundaryProof
+    needsPixelScan[cellIndex] =
+      (includeSecondary or sourceGraph == 0 or sourceGraph == targetGraph) and
+      (sourceGraph != targetGraph or needsBoundaryProof)
+  index.stats.transientPeakBytes = max(index.stats.transientPeakBytes,
+    int64(needsPixelScan.len * sizeof(bool)))
+  for coarseY in 0 ..< index.map.gridHeight:
+    let
+      y0 = coarseY * NavCell
+      y1 = min(index.map.height, y0 + NavCell) - 1
+    for y in y0 .. y1:
+      for coarseX in 0 ..< index.map.gridWidth:
+        let coarseIndex = coarseY * index.map.gridWidth + coarseX
+        if not needsPixelScan[coarseIndex] and
+            not secondaryCell[coarseIndex]:
+          continue
+        let
+          x0 = coarseX * NavCell
+          x1 = min(index.map.width, x0 + NavCell) - 1
+        for x in x0 .. x1:
+          let point: BodyPoint = (x, y)
+          if not needsPixelScan[coarseIndex]:
+            if index.map.canStand(point):
+              deferredSecondary.add PendingPocketPoint(
+                point: point, nextPath: 0)
+            continue
+          case index.resolvePocketSeed(point, validatorComponent,
+              canonicalByPixel, canonicalByGraph, paths, fineTargets, 0,
+              pixelScratch)
+          of psCovered: discard
+          of psAdded: discard
+          of psUnresolved:
+            unresolved.add PendingPocketPoint(point: point,
+              nextPath: int32(paths.len))
+  unresolved = index.resolvePocketPending(move(unresolved),
+    validatorComponent, canonicalByPixel, canonicalByGraph, failOnStall,
+    paths, fineTargets, pixelScratch)
+  result = move(deferredSecondary)
+  result.add unresolved
+  result.sort(proc(a, b: PendingPocketPoint): int =
+    result = cmp(a.point.y, b.point.y)
+    if result == 0:
+      result = cmp(a.point.x, b.point.x))
 
 proc buildPocketConnectors(index: BodyRouteIndex) =
   if index.stats.graphComponents == 0:
     return
+  let canonical = index.canonicalGraphMapping()
   var validatorComponent = newSeq[bool](index.map.componentCount + 1)
   for validator in 0 ..< index.map.validatorTableCount:
     validatorComponent[index.map.validatorComponentAt(validator)] = true
-  var paths: seq[CrossingPath]
-  while true:
-    var
-      unresolved = 0
-      firstUnresolved: BodyPoint
-      added = 0
-    for y in 0 ..< index.map.height:
-      for x in 0 ..< index.map.width:
-        let point: BodyPoint = (x, y)
-        let coarseCell = index.map.cellOf(point)
-        if not index.map.canStand(point):
-          continue
-        let pixelComponent = index.map.componentOf(point)
-        if not validatorComponent[pixelComponent] or
-            index.cellComponent[index.cellIndex(coarseCell)] != 0 or
-            index.coarseConnectorGraphComponent(point) != 0:
-          continue
-        var covered = false
-        for path in paths:
-          if index.pocketPathComponent(point, path) != 0:
-            covered = true
-            break
-        if covered:
-          continue
-        let goals = index.pocketGoals(point)
-        let path = index.finePocketPath(point, goals)
-        if path.cells.len == 0:
-          if unresolved == 0:
-            firstUnresolved = point
-          inc unresolved
-          continue
-        paths.add path
-        index.anchorPocketCells(path)
-        inc added
-    if unresolved == 0:
+  var
+    paths: seq[CrossingPath]
+    fineTargets = index.initialFineTargets(canonical.byGraph)
+    pixelScratch = index.initPixelSearchScratch()
+    pending = index.buildPocketCoverage(validatorComponent, canonical.byPixel,
+      canonical.byGraph, false, false, paths, fineTargets, pixelScratch)
+  for sourceGraphIndex in 1 ..< canonical.byGraph.len:
+    let
+      sourceGraph = uint16(sourceGraphIndex)
+      targetGraph = canonical.byGraph[sourceGraphIndex]
+    if sourceGraph == targetGraph:
+      continue
+    for candidate in pending:
+      let
+        point = candidate.point
+        cell = index.map.cellOf(point)
+      if index.cellComponent[index.cellIndex(cell)] != sourceGraph:
+        continue
+      let path = index.pixelPocketPath(point, paths, fineTargets,
+        targetGraph, pixelScratch)
+      if path.cells.len == 0 or
+          index.coarseConnectorGraphComponent(point,
+            ConnectorMaxDistancePx * ConnectorMaxDistancePx,
+            sourceGraph.int) != sourceGraph.int:
+        continue
+      if path.cells.len > high(uint16).int:
+        raise newException(BodyMapError,
+          &"body route index map '{index.map.mapLabel}' pocket connector " &
+          &"has {path.cells.len} points")
+      let pathIndex = paths.len
+      paths.add path
+      for offset, pointRef in path.cells:
+        if pointRef < 0:
+          fineTargets.add FineTarget(pointRef: pointRef,
+            pathIndex: int32(pathIndex), pointOffset: uint16(offset),
+            kind: ftkPocket)
+      index.anchorPocketCells(path, canonical.byGraph)
+      index.joinPocketGraph(sourceGraph, targetGraph)
       break
-    if added == 0:
-      raise newException(BodyMapError,
-        &"body route index map '{index.map.mapLabel}' leaves {unresolved} " &
-        &"standable pocket pixels unresolved; first={firstUnresolved}; " &
-        &"no 4 px connector within {ConnectorMaxDistancePx} px and " &
-        &"{FineCrossingMaxPops} pops")
+  discard index.resolvePocketPending(move(pending), validatorComponent,
+    canonical.byPixel, canonical.byGraph, true, paths, fineTargets,
+    pixelScratch)
   var pointCount = 0
   for path in paths:
     pointCount += path.cells.len
@@ -1284,6 +1682,37 @@ proc buildPocketConnectors(index: BodyRouteIndex) =
       staticLengthQ4: index.pathLengthQ4(path.cells))
   index.stats.pocketConnectors = paths.len
   index.stats.finePointBytes = index.stats.finePoints * sizeof(int32)
+  index.collapseGraphComponents(canonical.byGraph)
+
+proc buildFineAnchorIndex(index: BodyRouteIndex) =
+  var pairs: seq[FineAnchorPair]
+  for pointRef in index.cells:
+    if pointRef < 0:
+      pairs.add FineAnchorPair(cellIndex: index.routeNavCell(pointRef),
+        pointRef: pointRef)
+  for pointRef in index.pocketCells:
+    if pointRef < 0:
+      pairs.add FineAnchorPair(cellIndex: index.routeNavCell(pointRef),
+        pointRef: pointRef)
+  pairs.sort(proc(a, b: FineAnchorPair): int =
+    result = cmp(a.cellIndex, b.cellIndex)
+    if result == 0:
+      result = cmp(a.pointRef, b.pointRef))
+  var unique: seq[FineAnchorPair]
+  for pair in pairs:
+    if unique.len == 0 or unique[^1].cellIndex != pair.cellIndex or
+        unique[^1].pointRef != pair.pointRef:
+      unique.add pair
+  index.stats.transientPeakBytes = max(index.stats.transientPeakBytes,
+    int64((pairs.len + unique.len) * sizeof(FineAnchorPair)))
+  index.fineAnchorStart = newSeq[int32](index.stats.navCells + 1)
+  for pair in unique:
+    inc index.fineAnchorStart[pair.cellIndex.int + 1]
+  for cellIndex in 0 ..< index.stats.navCells:
+    index.fineAnchorStart[cellIndex + 1] += index.fineAnchorStart[cellIndex]
+  index.fineAnchors = newSeq[int32](unique.len)
+  for offset, pair in unique:
+    index.fineAnchors[offset] = pair.pointRef
 
 proc retainedBytes(index: BodyRouteIndex): int64 =
   int64(index.legalMoves.len * sizeof(uint8) +
@@ -1302,7 +1731,9 @@ proc retainedBytes(index: BodyRouteIndex): int64 =
     index.sideComponent.len * sizeof(uint16) +
     index.cellComponent.len * sizeof(uint16) +
     index.pockets.len * sizeof(BodyPocketConnector) +
-    index.pocketCells.len * sizeof(int32))
+    index.pocketCells.len * sizeof(int32) +
+    index.fineAnchorStart.len * sizeof(int32) +
+    index.fineAnchors.len * sizeof(int32))
 
 proc validateRouteIndex*(index: BodyRouteIndex)
 
@@ -1322,6 +1753,7 @@ proc newBodyRouteIndex*(map: BodyMap): BodyRouteIndex =
   result.seedUnrepresentedPixelComponents()
   result.validateValidatorAnchors()
   result.buildPocketConnectors()
+  result.buildFineAnchorIndex()
   result.stats.segments = result.segments.len
   result.stats.segmentCells = result.cells.len
   result.stats.arcs = result.arcs.len
@@ -1392,6 +1824,20 @@ proc pocketConnectorPoints*(index: BodyRouteIndex, pocket: int): seq[int32] =
   result = newSeq[int32](metadata.pointLen.int)
   for offset in 0 ..< result.len:
     result[offset] = index.pocketCells[metadata.pointStart.int + offset]
+
+proc fineAnchorRangeForCell*(index: BodyRouteIndex,
+    cellIndex: int): Slice[int] =
+  ## Allocation-free range into the retained fine-anchor table for one coarse
+  ## navigation cell. Empty cells return an empty slice.
+  if cellIndex < 0 or cellIndex >= index.stats.navCells:
+    raise newException(IndexDefect, "route-index cell is out of bounds")
+  index.fineAnchorStart[cellIndex].int ..
+    index.fineAnchorStart[cellIndex + 1].int - 1
+
+proc fineAnchorAt*(index: BodyRouteIndex, offset: int): int32 =
+  if offset < 0 or offset >= index.fineAnchors.len:
+    raise newException(IndexDefect, "route-index fine anchor is out of bounds")
+  index.fineAnchors[offset]
 
 proc routeIndexStats*(index: BodyRouteIndex): BodyRouteIndexStats = index.stats
 
@@ -1486,6 +1932,8 @@ proc routeIndexFingerprint*(index: BodyRouteIndex): uint64 =
     mix(pocket.pointLen)
     mix(pocket.staticLengthQ4)
   for item in index.pocketCells: mix(cast[uint32](item))
+  for item in index.fineAnchorStart: mix(cast[uint32](item))
+  for item in index.fineAnchors: mix(cast[uint32](item))
   value
 
 proc validateRouteIndex*(index: BodyRouteIndex) =
@@ -1494,7 +1942,8 @@ proc validateRouteIndex*(index: BodyRouteIndex) =
   if index.legalMoves.len != index.stats.navCells or
       index.roomOf.len != index.stats.navCells or
       index.localIndex.len != index.stats.navCells or
-      index.cellComponent.len != index.stats.navCells:
+      index.cellComponent.len != index.stats.navCells or
+      index.fineAnchorStart.len != index.stats.navCells + 1:
     raise newException(BodyMapError,
       &"body route index map '{index.map.mapLabel}' has inconsistent cell arrays")
   if index.sides.len != index.stats.sides or
@@ -1502,6 +1951,21 @@ proc validateRouteIndex*(index: BodyRouteIndex) =
       index.stats.crossings != index.stats.portals:
     raise newException(BodyMapError,
       &"body route index map '{index.map.mapLabel}' has inconsistent portal stats")
+  if index.fineAnchorStart[0] != 0 or
+      index.fineAnchorStart[^1].int != index.fineAnchors.len:
+    raise newException(BodyMapError,
+      &"body route index map '{index.map.mapLabel}' has inconsistent fine-anchor bounds")
+  for cellIndex in 0 ..< index.stats.navCells:
+    var previous = low(int32)
+    for offset in index.fineAnchorRangeForCell(cellIndex):
+      let pointRef = index.fineAnchorAt(offset)
+      if pointRef >= 0 or pointRef <= previous or
+          index.routeNavCell(pointRef).int != cellIndex or
+          not index.map.canStand(index.routePoint(pointRef)):
+        raise newException(BodyMapError,
+          &"body route index map '{index.map.mapLabel}' has invalid fine anchor " &
+          &"{pointRef} for cell {cellIndex}")
+      previous = pointRef
   for cellIndex in 0 ..< index.stats.navCells:
     let cell = index.cellPoint(cellIndex)
     if index.map.cellWalkable(cell) and index.roomOf[cellIndex] == NoRoom:
@@ -1612,6 +2076,30 @@ proc validateRouteIndex*(index: BodyRouteIndex) =
       index.stats.finePointBytes != finePoints * sizeof(int32):
     raise newException(BodyMapError,
       &"body route index map '{index.map.mapLabel}' has inconsistent fine-point stats")
+  for pointRef in index.cells:
+    if pointRef < 0:
+      let cellIndex = index.routeNavCell(pointRef).int
+      var found = false
+      for offset in index.fineAnchorRangeForCell(cellIndex):
+        if index.fineAnchorAt(offset) == pointRef:
+          found = true
+          break
+      if not found:
+        raise newException(BodyMapError,
+          &"body route index map '{index.map.mapLabel}' omits retained fine " &
+          &"point {pointRef} from its cell index")
+  for pointRef in index.pocketCells:
+    if pointRef < 0:
+      let cellIndex = index.routeNavCell(pointRef).int
+      var found = false
+      for offset in index.fineAnchorRangeForCell(cellIndex):
+        if index.fineAnchorAt(offset) == pointRef:
+          found = true
+          break
+      if not found:
+        raise newException(BodyMapError,
+          &"body route index map '{index.map.mapLabel}' omits retained fine " &
+          &"point {pointRef} from its cell index")
   var pixelForGraph = newSeq[int](index.stats.graphComponents + 1)
   var graphForPixel = newSeq[int](index.map.componentCount + 1)
   for sideIndex, side in index.sides:
@@ -1631,7 +2119,9 @@ proc validateRouteIndex*(index: BodyRouteIndex) =
         graphForPixel[pixel] notin [0, graph]:
       raise newException(BodyMapError,
         &"body route index map '{index.map.mapLabel}' portal {side.portal} " &
-        "graph connectivity disagrees with pixel components")
+        &"side {sideIndex} graph {graph} pixel {pixel} disagrees with " &
+        &"graph pixel {pixelForGraph[graph]} and pixel graph " &
+        &"{graphForPixel[pixel]}")
     pixelForGraph[graph] = pixel
     graphForPixel[pixel] = graph
   for cellIndex, graphValue in index.cellComponent:

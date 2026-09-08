@@ -1,6 +1,6 @@
 ## Phase-2 laws for the immutable episode-shared navigation index.
 
-import std/[json, strutils, unittest]
+import std/[json, sets, strutils, unittest]
 import ../src/ctf/[arena, br_map_pool]
 import ../src/shell/body_map
 import ../src/shell/body_route_index
@@ -117,11 +117,13 @@ suite "immutable shared body route index":
     check stats.finePoints > 0
     check stats.finePointBytes == stats.finePoints * sizeof(int32)
     var countedFinePoints = 0
+    var expectedFineAnchors: HashSet[int32]
     for segment in 0 ..< stats.segments:
       for pointRef in index.segmentCells(segment):
         if pointRef >= 0:
           continue
         inc countedFinePoints
+        expectedFineAnchors.incl pointRef
         check segment < stats.crossings
         let point = index.routePoint(pointRef)
         check point.x mod FineNavCell == 0
@@ -135,19 +137,22 @@ suite "immutable shared body route index":
       check points.len >= 2
       check points[0] < 0
       check points[^1] >= 0
-      let
-        phaseX = index.routePoint(points[0]).x mod FineNavCell
-        phaseY = index.routePoint(points[0]).y mod FineNavCell
       for offset, pointRef in points:
         if pointRef < 0:
           inc countedFinePoints
-          let point = index.routePoint(pointRef)
-          check point.x mod FineNavCell == phaseX
-          check point.y mod FineNavCell == phaseY
+          expectedFineAnchors.incl pointRef
         if offset > 0:
           check index.map.segmentClear(index.routePoint(points[offset - 1]),
             index.routePoint(pointRef))
     check countedFinePoints == stats.finePoints
+    var indexedFineAnchors: HashSet[int32]
+    for cellIndex in 0 ..< stats.navCells:
+      for offset in index.fineAnchorRangeForCell(cellIndex):
+        let pointRef = index.fineAnchorAt(offset)
+        check pointRef < 0
+        check index.routeNavCell(pointRef).int == cellIndex
+        indexedFineAnchors.incl pointRef
+    check indexedFineAnchors == expectedFineAnchors
 
   test "portal sides come from their own coarse room anchors":
     let index = newBodyRouteIndex(newBodyMap(loadCtfMapMetadata("arena")))
@@ -190,3 +195,13 @@ suite "immutable shared body route index":
     check coverage.unreachablePixels > 0
     check coverage.standablePixels == coverage.coveredPixels +
       coverage.uncoveredPixels + coverage.unreachablePixels
+
+  test "pixel pocket connectors cover every validator endpoint":
+    let published = loadBrS2PoolRaw()
+    var gameMap = mapFromSpecJson($published[1]["spec"])
+    gameMap.name = published[1]["name"].getStr()
+    let index = newBodyRouteIndex(newBodyMap(gameMap))
+    let coverage = index.routeIndexCoverage()
+    check coverage.uncoveredPixels == 0
+    check coverage.unreachableComponents == 2
+    check coverage.unreachablePixels == 79
