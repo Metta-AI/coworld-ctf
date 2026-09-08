@@ -27,6 +27,9 @@ suite "shard wiring":
         if line.startsWith("test_"):
           imported.incl(line)
     check imported.len > 0
+    # Phase 1 deliberately froze these assertions red. Phase 7 removes this
+    # exception when the new follower makes them green and joins a shard.
+    let intentionallyStandalone = ["test_shell_body_nav_rework"].toHashSet
     var dark: seq[string] = @[]
     for kind, path in walkDir(testsDir):
       if kind != pcFile:
@@ -35,7 +38,8 @@ suite "shard wiring":
       if not (name.startsWith("test_") and name.endsWith(".nim")):
         continue
       let module = name[0 ..< name.len - 4]
-      if module notin imported and module != "test_shard_wiring":
+      if module notin imported and module != "test_shard_wiring" and
+          module notin intentionallyStandalone:
         dark.add(module)
     checkpoint("dark (unwired) test files: " & $dark)
     check dark.len == 0
