@@ -450,36 +450,63 @@ suite "shell combat policy":
       60, 331, 3).selectedSeat == a.selectedSeat
 
   test "seat tick records why the weapon path did or did not fire":
-    ## Feeds the server's FIRST_LIGHT_COMBAT census. The neutral policy is
-    ## the case that matters most: the weapon path never runs under it, so a
-    ## cog can stare at an enemy in range and only idle-aim. The outcome
-    ## names that explicitly instead of leaving it indistinguishable from
-    ## "nobody was there".
+    ## Feeds the server's FIRST_LIGHT_COMBAT census. The all-empty policy is
+    ## the baseline: it engages visible enemy tracks through the same selector
+    ## and actuation path that overlays modify.
     let active = CombatPolicy(prefer: @[ptWeakened])
     let enemy = track(1, p(136, 80), Blue, 80, hp = 1)
 
-    block neutralPolicyWithEnemyInRange:
+    block baselinePolicyFiresAtEnemyInRange:
       let body = activateSeatBody(openMap(), 0, 331)
       body.setStandingIntent(combatHold(CombatPolicy()), none(ValidatedGoal), 1)
       let input = body.seatTick(BodyTickInputs(self: selfState(),
         visibleTracks: @[enemy]), 80)
-      check not input.attack
-      check body.combatOutcome == coNoPolicyEnemyInRange
+      check input.attack
+      check body.combatOutcome == coFired
 
-    block neutralPolicyPartnerIsNotAnEnemy:
+    block baselinePolicyPartnerIsNotAnEnemy:
       let body = activateSeatBody(openMap(), 0, 331)
       body.setStandingIntent(combatHold(CombatPolicy()), none(ValidatedGoal), 1)
       discard body.seatTick(BodyTickInputs(self: selfState(),
-        visibleTracks: @[enemy],
         partner: some(PartnerSample(seat: 1'u8, pos: p(136, 80),
           aimBrads: 0, alive: true))), 80)
-      check body.combatOutcome == coNoPolicy
+      check body.combatOutcome == coNoEnemy
 
-    block neutralPolicyNobodyThere:
+    block baselinePolicyNobodyThere:
       let body = activateSeatBody(openMap(), 0, 331)
       body.setStandingIntent(combatHold(CombatPolicy()), none(ValidatedGoal), 1)
       discard body.seatTick(BodyTickInputs(self: selfState()), 80)
-      check body.combatOutcome == coNoPolicy
+      check body.combatOutcome == coNoEnemy
+
+    block noShootOnlyFiresAtAnUnlistedEnemy:
+      let policy = CombatPolicy(
+        noShoot: ProtectedSet(seats: @[SeatRef(1'u8)]))
+      let body = activateSeatBody(openMap(), 0, 331)
+      body.setStandingIntent(combatHold(policy), none(ValidatedGoal), 1)
+      let input = body.seatTick(BodyTickInputs(self: selfState(),
+        visibleTracks: @[
+          enemy,
+          track(2, p(120, 80), Green, 80, hp = 1)]), 80)
+      check input.attack
+      check body.combatOutcome == coFired
+      check body.selectCombatTarget(policy,
+        body.combatCandidates(policy, 80, 331, 3), 80, 331, 3).selectedSeat == 2
+
+    block protectOnlyFiresAtTheWardThreat:
+      let policy = CombatPolicy(
+        protect: ProtectedSet(seats: @[SeatRef(5'u8)]))
+      let body = activateSeatBody(openMap(), 0, 331)
+      body.setStandingIntent(combatHold(policy), none(ValidatedGoal), 1)
+      let input = body.seatTick(BodyTickInputs(self: selfState(),
+        visibleTracks: @[
+          track(2, p(100, 80), Blue, 80, hp = 3, aim = some(0)),
+          track(3, p(64, 120), Green, 80, hp = 3),
+          track(5, p(150, 80), Red, 80, hp = 3)]), 80)
+      check body.threatensProtectedWard(policy, 2, 80, 331)
+      check body.selectCombatTarget(policy,
+        body.combatCandidates(policy, 80, 331, 3), 80, 331, 3).selectedSeat == 2
+      check input.attack
+      check body.combatOutcome == coFired
 
     block activePolicyFires:
       let body = activateSeatBody(openMap(), 0, 331)
@@ -504,8 +531,8 @@ suite "shell combat policy":
 
     block holdFireVetoesAShootableEnemy:
       let body = activateSeatBody(openMap(), 0, 331)
-      body.setStandingIntent(combatHold(CombatPolicy(holdFire: true,
-        prefer: @[ptWeakened])), none(ValidatedGoal), 1)
+      body.setStandingIntent(combatHold(CombatPolicy(holdFire: true)),
+        none(ValidatedGoal), 1)
       let input = body.seatTick(BodyTickInputs(self: selfState(),
         visibleTracks: @[enemy]), 80)
       check not input.attack

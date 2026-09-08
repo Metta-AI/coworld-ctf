@@ -1,5 +1,5 @@
 {
-  "$comment": "§4.1/§4.2 — the alliance semantics: never-shoot, wards, preferences, hold-fire. Emitted alone by overlay-class plays; folded across active overlays in ladder order (union of bans and wards, preferences concatenated then deduplicated keeping first occurrence, hold_fire disjunction, §7.1). Caps are roster sizes, so any fold fits by construction.",
+  "$comment": "§4.1/§4.2 — all fields omitted is the baseline: engage every fog-visible non-team track in score order, with no bans, no wards, and initiation allowed. Overlay-class plays modify that baseline with never-shoot, wards, preferences, and hold-fire; active overlays fold in ladder order (union of bans and wards, preferences concatenated then deduplicated keeping first occurrence, hold_fire disjunction, §7.1). Caps are roster sizes, so any fold fits by construction.",
   "title": "combat_policy",
   "type": "object",
   "required": ["schema", "v"],

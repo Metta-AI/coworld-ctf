@@ -5,7 +5,7 @@ episode driven by the shell's body layer. It predates the complete Season 2
 surface, but the script still exercises the production upload, compile, call,
 ladder, body, and mask path. The full body weapon path is compiled; this demo
 installs only `edge_ride` controllers and no combat-policy overlay, so its seats
-do not choose weapon targets and eliminations normally come from zone damage.
+use the body's baseline policy and fire at fog-visible enemies.
 
 **The demo now runs mixed seats**: seats 0–7 are driven by `edge_ride`, a
 real uploaded WASM play that travels the full production path (upload →
@@ -45,9 +45,8 @@ Knobs (environment variables):
 - `FIRST_LIGHT_MOVEMENT tick=... moving=N aiming=M` telemetry windows.
 - The diagnostic lines below, all keyed by `tick=` so they join against each
   other, the `FIRST_LIGHT_INSTALL` stream, and the replay's per-tick masks.
-- Zone-damage eliminations ("caught outside the zone") and a normal BR
-  ending. This scenario should emit no policy-selected fire because it installs
-  no combat-policy overlay; that is a scenario choice, not a missing body path.
+- Baseline weapon fire, zone-damage eliminations ("caught outside the zone"),
+  and a normal BR ending. No combat-policy overlay is needed for seats to fire.
 
 ## Diagnostic log lines
 
@@ -96,15 +95,10 @@ and the replay), so any two streams join on it. Seat lists are printed as
   route at all (standing still). Printed once a second and on every tick
   with a plan-budget event, so the two join.
 - `FIRST_LIGHT_COMBAT tick=T fired= aligning= none_shootable= vetoed=
-  no_enemy= no_policy= no_policy_enemy_in_range= ..._seats=[...]` — weapon
-  path census, once a second. `no_policy` means the seat's folded combat
-  policy is the neutral value, under which the body never runs the weapon
-  path (the default play and the safe hold both produce it);
-  `no_policy_enemy_in_range` is the subset that had a shootable non-partner
-  track at the time, which is the "facing each other and never shooting"
-  signature. `aligning` is a shootable target held but not yet fired on
-  (rotating, cooldown, windup); `none_shootable` is fresh tracks with none
-  in range and line of sight; `vetoed` is shootable tracks excluded by
+  no_enemy= none_shootable_seats=[...] aligning_seats=[...]` — weapon-path
+  census, once a second. `aligning` is a shootable target held but not yet
+  fired on (rotating, cooldown, windup); `none_shootable` is fresh tracks with
+  none in range and line of sight; `vetoed` is shootable tracks excluded by
   noShoot, protect, or holdFire.
 
 ## Gating

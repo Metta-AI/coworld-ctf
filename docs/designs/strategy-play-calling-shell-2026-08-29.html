@@ -488,10 +488,11 @@
         <ol>
           <li><span class="toc-num">H.0</span><a href="#h-0">Season 2 becomes the only supported live mode</a></li>
           <li><span class="toc-num">H.1</span><a href="#h-1">Module uploads close at Playing</a></li>
-          <li><span class="toc-num">H.2</span><a href="#h-2">Ratified decisions</a></li>
-          <li><span class="toc-num">H.3</span><a href="#h-3">Superseded architectures</a></li>
-          <li><span class="toc-num">H.4</span><a href="#h-4">Questions asked and answered</a></li>
-          <li><span class="toc-num">H.5</span><a href="#h-5">Provenance</a></li>
+          <li><span class="toc-num">H.2</span><a href="#h-2">Empty combat policy is the firing baseline</a></li>
+          <li><span class="toc-num">H.3</span><a href="#h-3">Ratified decisions</a></li>
+          <li><span class="toc-num">H.4</span><a href="#h-4">Superseded architectures</a></li>
+          <li><span class="toc-num">H.5</span><a href="#h-5">Questions asked and answered</a></li>
+          <li><span class="toc-num">H.6</span><a href="#h-6">Provenance</a></li>
         </ol></li>
       <li><span class="toc-num">S</span><a href="#sources">Sources</a></li>
     </ol>
@@ -796,18 +797,19 @@
 <pre><code>type
   CombatPolicy* = object
     noShoot*: ProtectedSet       # teams and seats never fired on
-    protect*: ProtectedSet       # wards: bias position + targeting to defend
+    protect*: ProtectedSet       # wards: targeting/corridor protection + threat boost
     prefer*: seq[PreferTag]      # target preference tags, in priority order
     holdFire*: bool              # do not initiate fire (return fire allowed)
   ProtectedSet* = object
     teams*: set[Team]
     seats*: seq[SeatRef]         # cross-team, per-seat references</code></pre>
-    <p>Everything empty or false is the neutral value and the default. Seat-level references exist because
-    Maxwell's <code>pact</code> negotiates alliances with specific duos, not only whole teams;
-    <code>prefer</code> and <code>holdFire</code> exist because his <code>target_law</code> is a standing
-    filter over who to shoot and when to start shooting. Betrayal responses and pact end conditions are play
-    logic, not policy fields: the overlay play that owns the pact watches the view every tick and changes
-    the policy it emits.</p>
+    <p>Everything empty or false is the baseline and the default: engage every fog-visible non-team track in
+    the existing score/identity/cell/seat order, with no bans, no wards, and initiation allowed. Overlay
+    policies modify that baseline. Seat-level references exist because Maxwell's <code>pact</code> negotiates
+    alliances with specific duos, not only whole teams; <code>prefer</code> and <code>holdFire</code> exist
+    because his <code>target_law</code> is a standing filter over who to shoot and when to start shooting.
+    Betrayal responses and pact end conditions are play logic, not policy fields: the overlay play that owns
+    the pact watches the view every tick and changes the policy it emits.</p>
     <p>The encoding a play emits is versioned, schema-tagged JSON with declared units (pixels, brads,
     ticks), explicit optional fields, canonical ordering and deduplication for the protected sets, and hard
     caps on list lengths and string sizes. The caps are the roster's own sizes, so that folding any number
@@ -828,11 +830,11 @@
     the tick the policy changes, cancelled rather than force-released if it now violates the set. A final
     veto before each weapon's fire decision refuses a <code>noShoot</code> endpoint however it was
     acquired.</p>
-    <p>Protecting a ward means two things the body does and one thing plays do. The body biases
-    positioning toward a threatened ward when the intent's goal allows it, and it up-weights
-    threats-to-wards in target scoring, so the cog prefers shooting whoever endangers its ward.
-    Interposition (physically blocking the line of fire) is play territory, expressed through movement
-    goals, as Maxwell's <code>bodyguard</code> play does with its <code>interpose</code> parameter.</p>
+    <p>Protecting a ward has three body effects: the ward is excluded from target and splash-victim
+    consideration in every weapon path, a fresh visible ward blocks the gun corridor, and threats-to-wards
+    receive <code>WardThreatScoreBoost</code> in target scoring. The body does not bias positioning toward a
+    ward. Ward-relative movement and interposition are play territory, expressed through movement goals by
+    Maxwell's <code>bodyguard</code> play.</p>
     <p>A <em>threat to a ward</em> is detected with aim bearing, not proximity alone. An enemy is
     threatening a ward when it is within the live weapon range of the current map and its aim bears on the
     ward within an angular tolerance; the same test against the seat's own cog gives
@@ -3069,10 +3071,19 @@
     closure may finish, ready bindings remain callable and retunable, and game start never waits for
     compilation. A replacement receives the existing optional v1 recovery fields: the accepted
     call/proposal, ready bound modules, budgets, floors, retained statuses, generation, acknowledgement,
-    and transcript marks. This uses no new wire field or schema/GameVersion bump and supersedes H.2's
+    and transcript marks. This uses no new wire field or schema/GameVersion bump and supersedes H.3's
     earlier allowance for mid-match uploads.</p>
 
-    <h3 id="h-2">H.2 Ratified decisions (James, 2026-08-29 and 2026-08-30)</h3>
+    <h3 id="h-2">H.2 Empty combat policy is the firing baseline (James, 2026-09-04)</h3>
+    <p><strong>Ruling.</strong> An all-empty <code>CombatPolicy</code> engages every fog-visible non-team
+    track in the body's existing score order. <code>noShoot</code> is an optional blacklist,
+    <code>protect</code> adds wards, <code>prefer</code> reorders candidates, and <code>holdFire</code>
+    withholds initiation; all are overlays on the baseline. The phase-5 neutral-policy gate and its
+    no-policy census outcomes are removed. Ward protection retains only its existing targeting, corridor,
+    and threat-score effects; ward-relative movement remains play territory. This changes live play-seat
+    masks but no wire layout or canonical bytes, so it does not bump GameVersion.</p>
+
+    <h3 id="h-3">H.3 Ratified decisions (James, 2026-08-29 and 2026-08-30)</h3>
     <ul>
       <li>Plays are WebAssembly modules sent over the websocket and executed game-side in an
       engine-embedded runtime. The "compiled Nim" requirement is dropped: what matters is a module
@@ -3146,7 +3157,7 @@
       instead of rejecting the upload.</li>
     </ul>
 
-    <h3 id="h-3">H.3 Superseded architectures</h3>
+    <h3 id="h-4">H.4 Superseded architectures</h3>
     <p><strong>Revisions 1 through 10 (2026-08-29): the client-side shell.</strong> Stencil adapted as a
     per-seat bot process, pages delivered by environment variable, a catalog probe so the lobby could
     learn a binary's playbook, an app-side LLM helper generating pages, and a byte-parity requirement
@@ -3172,7 +3183,7 @@
     along: "we've been struggling to figure out that boundary... this is the boundary." The present
     design is a rewrite, not a staging of that one.</p>
 
-    <h3 id="h-4">H.4 Questions asked and answered</h3>
+    <h3 id="h-5">H.5 Questions asked and answered</h3>
     <ul>
       <li>Why an environment variable for the startup call? An artifact of the client-side model, where
       the bot was a spawned process with no LLM; superseded.</li>
@@ -3202,13 +3213,13 @@
       desirable and out of scope.</li>
     </ul>
 
-    <h3 id="h-5">H.5 Provenance</h3>
+    <h3 id="h-6">H.6 Provenance</h3>
     <p>Drafted 2026-08-29 from the session's recon and research report; adversarially cross-reviewed by
     Codex over nine round-gated iterations to an explicit converged verdict; prose-rewritten for plain
     language at James's direction. Re-architected 2026-08-30 per James's comment batch (38 comments) into
     the socket-Intent boundary, which a second Codex collaboration took through seventeen round-gated
     iterations to VERDICT: SATISFIED, followed by a humanizer pass. Re-architected again on 2026-08-30
-    (evening) to the WebAssembly-over-the-wire boundary of H.2, by James's ratification, with a
+    (evening) to the WebAssembly-over-the-wire boundary of H.3, by James's ratification, with a
     runtime-embedding research spike (<a href="#appendix-w">Appendix W</a>) feeding the runtime choice. A third Codex
     collaboration then ran nineteen round-gated iterations to VERDICT: SATISFIED. Its findings, in order
     of weight, reshaped: the play ABI (allocation batches and metered invocations, the import phase

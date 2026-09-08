@@ -148,7 +148,7 @@ proc randomizedIntent(rng: var Rand, index: int): Intent =
   let reasonLength = [0, 1, IntentReasonMaxBytes][index mod 3]
   result.reason = rng.randomReason(reasonLength)
 
-  # Every fourth row is the exact neutral policy; the others cover all
+  # Every fourth row is the exact all-empty baseline policy; the others cover all
   # policy options, enum values, set shapes, order preservation, and duplicate
   # seat references (which canonical set encoding removes).
   if index mod 4 != 0:

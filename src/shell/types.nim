@@ -70,10 +70,11 @@ type
     seats*: seq[SeatRef]
 
   CombatPolicy* = object
-    ## §4.1/§4.2. Everything empty or false is the neutral value and the
-    ## default.
+    ## §4.1/§4.2. Everything empty or false is the baseline: engage every
+    ## fog-visible non-team track in score order, with initiation allowed.
+    ## Overlay policies add bans, wards, preference tags, or hold-fire.
     noShoot*: ProtectedSet     ## never fired on, in every weapon path
-    protect*: ProtectedSet     ## wards: bias position + targeting to defend
+    protect*: ProtectedSet     ## wards: target/corridor exclusion + threat boost
     prefer*: seq[PreferTag]    ## priority order; at most the 4 distinct tags
     holdFire*: bool            ## do not initiate (return fire allowed, §5.2)
 

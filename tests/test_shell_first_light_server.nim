@@ -111,6 +111,24 @@ suite "shell FIRST LIGHT server seam":
     let grenadeInputs = sim.firstLightBodyInputs(viewerIndex)
     check grenadeInputs.visibleTracks[0].weapon == some(bwGrenade)
 
+  test "visible tracks exclude teammates and retain enemies":
+    var sim = initSimServer(defaultGameConfig())
+    let
+      viewerIndex = sim.addPlayer("red0")
+      teammateIndex = sim.addPlayer("red1")
+      enemyIndex = sim.addPlayer("blue0")
+    sim.players[viewerIndex].team = Red
+    sim.players[teammateIndex].team = Red
+    sim.players[enemyIndex].team = Blue
+    for playerIndex in [teammateIndex, enemyIndex]:
+      sim.players[playerIndex].x = sim.players[viewerIndex].x
+      sim.players[playerIndex].y = sim.players[viewerIndex].y
+    sim.fovCaches.setLen(0)
+
+    let inputs = sim.firstLightBodyInputs(viewerIndex)
+    check inputs.visibleTracks.len == 1
+    check inputs.visibleTracks[0].seat == sim.players[enemyIndex].joinOrder
+
   test "item sightings are populated from the fixed pickup spawns":
     # Before this pass nothing fed BodyTickInputs.sightedItems outside the
     # tests, so body.items -- and the play view's items array -- stayed empty
