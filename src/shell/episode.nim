@@ -1256,7 +1256,7 @@ proc step*(episode: var ShellEpisode,
             stageBlock(stageSumsPtr[], ssView, "shell.view"):
               result = customSource(seatIndex, viewTick)
       proc defaultSource(state: ptr ShellSeatState;
-                         facts: BrDefaultFacts): LadderDefaultSource =
+                         facts: sink BrDefaultFacts): LadderDefaultSource =
         # Bind each seat independently; the synchronous ladder call below
         # finishes before these state/timing pointers can go out of scope.
         result = proc(seatIndex: int; defaultTick: uint32):
@@ -1303,7 +1303,7 @@ proc step*(episode: var ShellEpisode,
           contextBytes: contextBytes,
           viewSource: viewSource,
           guardContext: guardContext,
-          defaultSource: defaultSource(addr state, facts),
+          defaultSource: defaultSource(addr state, move(facts)),
           nativeBase: reflexDecision.nativeBase)
 
       var ladderOutput: LadderTickResult
