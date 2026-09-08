@@ -1820,6 +1820,28 @@ proc segmentCellAt*(index: BodyRouteIndex, segment, offset: int,
   let source = if reversed: metadata.cellLen.int - 1 - offset else: offset
   index.cells[metadata.cellStart.int + source]
 
+proc segmentArrivalExtrema*(index: BodyRouteIndex,
+    arrival: openArray[uint16], neverArrives: uint16): tuple[
+      minimum, maximum: seq[uint16]] =
+  ## Activation-only summary over episode-projected nav-cell arrivals. Fine
+  ## crossing points deliberately sample their containing 8 px nav cell.
+  if arrival.len != index.stats.navCells:
+    raise newException(ValueError,
+      "segment arrival surface does not match the route index")
+  result.minimum = newSeq[uint16](index.segments.len)
+  result.maximum = newSeq[uint16](index.segments.len)
+  for segmentIndex, segment in index.segments:
+    var
+      minimum = neverArrives
+      maximum = 0'u16
+    for offset in 0 ..< segment.cellLen.int:
+      let value = arrival[index.routeNavCell(
+        index.segmentCellAt(segmentIndex, offset)).int]
+      minimum = min(minimum, value)
+      maximum = max(maximum, value)
+    result.minimum[segmentIndex] = minimum
+    result.maximum[segmentIndex] = maximum
+
 proc pocketConnectorAt*(index: BodyRouteIndex,
     pocket: int): BodyPocketConnector =
   if pocket < 0 or pocket >= index.pockets.len:

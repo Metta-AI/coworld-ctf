@@ -18,6 +18,28 @@ proc admitted(sim: SimServer, playerIndices: openArray[int]):
       slot: uint8(slot), lifeGeneration: sim.seatLifeGenerations[slot])
 
 suite "shell FIRST LIGHT server seam":
+  test "hazard overlay follows the exact shell paint gate at activation":
+    var config = defaultGameConfig()
+    config.season2Shell = true
+    config.slots = @[PlayerSlotConfig(name: "play", team: Red,
+      hasTeam: true, control: scPlay)]
+    var
+      sim = initSimServer(config)
+      episode: FirstLightEpisode
+    episode.resetFirstLightForSim(false, config, sim, "hazard-dark")
+    check episode.hazard.state == bhsDark
+    check episode.nav.routeIndex != nil
+
+    config.zoneDamageByPaint = true
+    config.zonePhases = @[ZonePhase(zPermille: 500, waitTicks: 10,
+      shrinkTicks: 40, dps: 2)]
+    sim = initSimServer(config)
+    episode.resetFirstLightForSim(false, config, sim, "hazard-ready")
+    check episode.hazard.state == bhsReady
+    check episode.hazard.arrival.len == episode.nav.routeIndex.routeIndexStats.navCells
+    discard episode.step(@[], 1'u32, 37)
+    check episode.elapsedZoneTick == 37
+
   test "self hp count and fraction are populated from sim truth":
     var sim = initSimServer(defaultGameConfig())
     let playerIndex = sim.addPlayer("red0")

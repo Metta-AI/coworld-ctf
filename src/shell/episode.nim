@@ -9,7 +9,9 @@ import std/[json, math, monotimes, options, os, sequtils, strformat, strutils, t
 import bitworld/spriteprotocol
 import ../ctf/sim_types
 import body_map
+import body_hazard
 import body_nav
+import body_route_index
 import reflexes
 import replay_records
 import types
@@ -217,6 +219,10 @@ type
     rosterSize*: int
     map*: BodyMap
     nav*: BodyNavSystem
+    hazard*: BodyHazardOverlay
+    safeCache*: BodySafeCache
+    elapsedZoneTick*: int
+    gameGeneration*: uint64
     seats*: seq[FirstLightSeatState]
     bodyActivations: int
     viewSource*: ViewSource
@@ -341,7 +347,9 @@ proc initFirstLightEpisode*(season2Shell, brMode: bool,
     teams: openArray[Team] = [],
     mapName = "",
     viewInterval = ViewIntervalTicksDefault,
-    names: openArray[string] = []): FirstLightEpisode =
+    names: openArray[string] = [],
+    hazard: BodyHazardOverlay = nil,
+    preparedRouteIndex: BodyRouteIndex = nil): FirstLightEpisode =
   ## `names` are the seats' display names in seat order (the closed
   ## roster's players[].name); empty means the context carries none.
   if teams.len > 0 and teams.len != controls.len:
@@ -350,12 +358,15 @@ proc initFirstLightEpisode*(season2Shell, brMode: bool,
   result.brMode = brMode
   result.rosterSize = controls.len
   result.map = map
+  result.hazard = if hazard == nil: newDarkBodyHazardOverlay() else: hazard
+  result.safeCache = newBodySafeCache()
   if not season2Shell:
     return
   if map == nil:
     raise newException(ValueError, "FIRST LIGHT requires a BodyMap")
   result.nav = newBodyNavSystem(map, controls.len, liveGunRangePx,
-    prepareRouteQueries = controls.anyIt(it == scPlay))
+    prepareRouteQueries = controls.anyIt(it == scPlay),
+    preparedRouteIndex = preparedRouteIndex)
   when ShellRuntimeAvailable:
     result.mapName = mapName
     result.gunRange = liveGunRangePx
@@ -418,13 +429,18 @@ proc resetFirstLightEpisode*(episode: var FirstLightEpisode,
     teams: openArray[Team] = [],
     mapName = "",
     viewInterval = ViewIntervalTicksDefault,
-    names: openArray[string] = []) =
+    names: openArray[string] = [],
+    hazard: BodyHazardOverlay = nil,
+    preparedRouteIndex: BodyRouteIndex = nil) =
   ## Full episode replacement boundary for any server-side sim/config
   ## replacement. Fresh bodies re-run the activation safe install instead of
   ## carrying standing orders, nav state, or map-owned goals across matches.
+  let nextGeneration = episode.gameGeneration + 1
   episode.closeFirstLightEpisode()
   episode = initFirstLightEpisode(season2Shell, brMode, controls, map,
-    liveGunRangePx, teams, mapName, viewInterval, names)
+    liveGunRangePx, teams, mapName, viewInterval, names, hazard,
+    preparedRouteIndex)
+  episode.gameGeneration = nextGeneration
 
 proc safeIntent(reason: string, idleAimCenterBrads: int): FinishedOrder =
   finishDefault(Intent(
@@ -1158,10 +1174,12 @@ when ShellRuntimeAvailable:
         inc state[].dropped
 
 proc step*(episode: var FirstLightEpisode,
-    frames: openArray[FirstLightSeatFrame], tick: uint32): FirstLightTickResult =
+    frames: openArray[FirstLightSeatFrame], tick: uint32,
+    elapsedZoneTick = 0): FirstLightTickResult =
   ## Runs configured play seats in configured-seat order. Disabled episodes
   ## return an empty result, so the server hook cannot touch legacy inputs or
   ## replay bytes on gate-off or gate-on/all-input configurations.
+  episode.elapsedZoneTick = elapsedZoneTick
   if not episode.enabled:
     return
 

@@ -25,6 +25,7 @@ import
   bitworld/profile
 
 import sim_types, arena
+import ../shell/body_hazard as bodyHazard
 
 ## ============================================================================
 ## BR ZONE PAINT — round 3: ARRIVAL-TIME FIELD + INCREMENTAL ACCUMULATION.
@@ -1741,6 +1742,33 @@ proc ensureZoneArrivalField*(sim: SimServer): bool {.discardable, measure.} =
         " worstInsideSd=" & $worstInsideSd & " overdueViol=" & $overdueViol &
         " worstOverdue=" & $worstOverdue)
   true
+
+proc zoneDamageSnapshot*(sim: SimServer): bodyHazard.ZoneDamageSnapshot =
+  ## Activation-only, read-only handoff to the Season 2 body. The caller must
+  ## first run ensureZoneArrivalField for this sim; keeping that build outside
+  ## the accessor prevents an accidental full-field build on a live query.
+  if ZoneArrivalFieldValue.damage.len == 0:
+    raise newException(ValueError,
+      "zone damage snapshot requested before the arrival field was built")
+  result.gridW = ZoneArrivalFieldValue.gridW
+  result.gridH = ZoneArrivalFieldValue.gridH
+  result.cellPx = ZoneFieldCellPx
+  result.damage = newSeq[uint16](ZoneArrivalFieldValue.damage.len)
+  var fingerprint = 14_695_981_039_346_656_037'u64
+  template mix(word: uint64) =
+    fingerprint = (fingerprint xor word) * 1_099_511_628_211'u64
+  mix(uint64(result.gridW))
+  mix(uint64(result.gridH))
+  mix(uint64(result.cellPx))
+  mix(uint64(sim.gameMap.center.x))
+  mix(uint64(sim.gameMap.center.y))
+  mix(uint64(sim.zoneCenter.x))
+  mix(uint64(sim.zoneCenter.y))
+  mix(uint64(sim.zoneScheduleFingerprint()))
+  for index, arrival in ZoneArrivalFieldValue.damage:
+    result.damage[index] = arrival
+    mix(uint64(arrival))
+  result.fingerprint = fingerprint
 
 proc zoneArrivalFieldCellAt*(px, py: int): tuple[has: bool, arrival: int] =
   ## TEST/DIAGNOSTIC accessor: the arrival tick for the coarse cell covering

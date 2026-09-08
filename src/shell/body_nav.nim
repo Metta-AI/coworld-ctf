@@ -206,7 +206,8 @@ proc initDangerGeometry(liveGunRangePx: int): tuple[kernel: seq[float32],
 proc newBodyNavSystem*(map: BodyMap, seatCount, liveGunRangePx: int,
                        dangerK = DangerCadenceK,
                        traceCapacity = 0,
-                       prepareRouteQueries = false): BodyNavSystem =
+                       prepareRouteQueries = false,
+                       preparedRouteIndex: BodyRouteIndex = nil): BodyNavSystem =
   ## Activation-barrier constructor. The hierarchical query index is built
   ## only for an episode that can issue those queries; direct-input and legacy
   ## body ticks must not pay for an unused route path.
@@ -221,7 +222,11 @@ proc newBodyNavSystem*(map: BodyMap, seatCount, liveGunRangePx: int,
   new(result)
   result.map = map
   if prepareRouteQueries:
-    result.routeIndex = newBodyRouteIndex(map)
+    if preparedRouteIndex != nil and preparedRouteIndex.map != map:
+      raise newException(ValueError,
+        "prepared route index belongs to another body map")
+    result.routeIndex = if preparedRouteIndex == nil:
+      newBodyRouteIndex(map) else: preparedRouteIndex
     result.routeScratch = newBodyRouteQueryScratch(result.routeIndex)
   result.minter = newBodyFieldMinter(map)
   result.dangerK = dangerK

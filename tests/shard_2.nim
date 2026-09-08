@@ -47,6 +47,7 @@ import
   test_shard_wiring,
   test_shell_binary_view,
   test_shell_body_map,
+  test_shell_body_hazard,
   test_shell_body_nav,
   test_shell_body_route_index,
   test_shell_body_route_query,

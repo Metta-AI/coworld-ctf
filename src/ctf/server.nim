@@ -8,7 +8,7 @@ import
   sim, global, glory, replays, replay_codec as ctfReplayCodec, broadcast,
   replay_runtime, events, wire_constants,
   control, directives, baselines, decide, mux,
-  ../shell/[body, body_map, episode, ingress, outbound,
+  ../shell/[body, body_hazard, body_map, body_route_index, episode, ingress, outbound,
     standing_order, transport, view],
   ../shell/dispatch, ../shell/packets, ../shell/replay_records, ../shell/seats,
   ../shell/types,
@@ -4033,10 +4033,18 @@ proc resetFirstLightForSim(episode: var FirstLightEpisode,
   if not replayLoaded and config.season2Shell and controlSet.hasPlaySeat:
     let mapName =
       if sim.gameMap.name.len > 0: sim.gameMap.name else: config.mapPath
+    let
+      bodyMap = newBodyMap(sim.gameMap)
+      routeIndex = newBodyRouteIndex(bodyMap)
+    var hazard = newDarkBodyHazardOverlay()
+    if config.season2Shell and config.zoneDamageByPaint and
+        config.zonePhases.len > 0:
+      sim.ensureZoneArrivalField()
+      hazard = newBodyHazardOverlay(routeIndex, sim.zoneDamageSnapshot())
     episode.resetFirstLightEpisode(
       config.season2Shell, config.brMode, controlSet.controls,
-      newBodyMap(sim.gameMap), config.gunRange, controlSet.teams,
-      mapName, config.viewIntervalTicks, controlSet.names)
+      bodyMap, config.gunRange, controlSet.teams,
+      mapName, config.viewIntervalTicks, controlSet.names, hazard, routeIndex)
     echo "FIRST_LIGHT enabled play_seats=", episode.seats.len,
       " executor=lane-a-fl-b reset=", reason
     let configured =
@@ -5166,7 +5174,8 @@ proc runServerLoop*(
               bodyInputs: bodyInputs,
               defaultFallbacks: sim.firstLightFallbacks(bodyInputs.self.pos)))
           let firstLight = firstLightEpisode.step(
-            frames, uint32(sim.tickCount + 1))
+            frames, uint32(sim.tickCount + 1),
+            sim.tickCount - sim.gameStartTick)
           retainProductionModuleStatuses(firstLight.moduleStatuses)
           retainProductionLadderOutcomes(
             firstLight.ladderStatuses, firstLight.retuned)
