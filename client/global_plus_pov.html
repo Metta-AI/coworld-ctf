@@ -4405,7 +4405,7 @@ body[data-noviewpanel] #viewpanel { display: none !important; }
     return team === 'red' ? (o.redLives || 0) : team === 'blue' ? (o.blueLives || 0) : 0;
   }
 
-  function endcardWinCondition(o, teams, elim) {
+  function endcardWinCondition(o, teams, elim, solo) {
     // The condition CHIP: how the match ended, in two or three words.
     // (A time-limit ending is always a draw in classic rules — the sim's
     // checkMaxTicks path never crowns a winner there — so timeLimit only
@@ -4430,7 +4430,7 @@ body[data-noviewpanel] #viewpanel { display: none !important; }
     }
     if (o.draw) return o.timeLimit ? 'TIME LIMIT — DRAW' : 'DRAW';
     if (elim && o.timeLimit) return 'TIME LIMIT — TIEBREAK';
-    if (elim) return 'LAST TEAM STANDING';
+    if (elim) return solo ? 'LAST COG STANDING' : 'LAST TEAM STANDING';
     var losers = teams.filter(function (t) { return t !== o.winner; });
     var bestLoser = 0;
     losers.forEach(function (t) { bestLoser = Math.max(bestLoser, overLives(o, t)); });
@@ -4626,6 +4626,18 @@ body[data-noviewpanel] #viewpanel { display: none !important; }
     (s.roster || []).forEach(function (p) { if (p.team === team && p.alive) n++; });
     return n;
   }
+  // Season 2 runs ONE COG PER TEAM, so the endcard's inherited squad
+  // vocabulary describes a format that is not being played. Read the roster
+  // rather than assume: duos and Campaign squads still exist elsewhere.
+  // Kept byte-identical to the copy in replay_broadcast.html.
+  function rosterIsSolo(s) {
+    var seats = {};
+    (s.roster || []).forEach(function (p) { seats[p.team] = (seats[p.team] || 0) + 1; });
+    var teams = Object.keys(seats);
+    if (!teams.length) return false;
+    return teams.every(function (t) { return seats[t] === 1; });
+  }
+
   function teamSeatCount(s, team) {
     var n = 0;
     (s.roster || []).forEach(function (p) { if (p.team === team) n++; });
@@ -4655,12 +4667,18 @@ body[data-noviewpanel] #viewpanel { display: none !important; }
     if (winner) {
       heroName.style.setProperty('--tc', teamCol(winner) || AMBER);
       heroName.textContent = teamName(s, winner, String(winner).toUpperCase());
-      var rivals = teams.length - 1;
       var heroAlive = teamAliveCount(s, winner), heroSeats = teamSeatCount(s, winner);
       var heroKills = teamKillTotal(s, winner);
-      heroLine.textContent = 'Outlasted ' + rivals + (rivals === 1 ? ' rival team' : ' rival teams') +
-        ' — ' + heroAlive + ' of ' + heroSeats + (heroSeats === 1 ? ' cog' : ' cogs') +
-        ' standing · ' + heroKills + (heroKills === 1 ? ' kill' : ' kills');
+      // Small print only -- the headline and the chip already state the
+      // verdict, and "1 of 1 cog standing" is a tautology on a one-cog
+      // season rather than a stat.
+      var heroLineText = '';
+      if (!rosterIsSolo(s)) {
+        heroLineText += heroAlive + ' of ' + heroSeats +
+          (heroSeats === 1 ? ' cog' : ' cogs') + ' standing · ';
+      }
+      heroLine.textContent = heroLineText + heroKills +
+        (heroKills === 1 ? ' kill' : ' kills');
     } else {
       heroName.style.removeProperty('--tc');
       heroName.textContent = 'NO SURVIVORS';
@@ -4711,7 +4729,8 @@ body[data-noviewpanel] #viewpanel { display: none !important; }
     card._key = key;
 
     var head = $('ec-headline'), how = $('ec-how');
-    $('ec-wincond').textContent = endcardWinCondition(o, teams, elim);
+    $('ec-wincond').textContent =
+      endcardWinCondition(o, teams, elim, rosterIsSolo(s));
 
     // MVP: the winning team's best final line (kills > fewer deaths >
     // captures — the capturer keeps their ⚑ mark, the star follows the guns).

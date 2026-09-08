@@ -170,7 +170,11 @@ suite "global_plus_pov's bundle carries the composited control path":
     check "if (!PB_MODE && isPaintballMode(s) && !isElim(s)) PB_MODE = true;" in bundle
     check "s.regime !== undefined) PB_MODE = true" notin bundle
     check "if (o.endRule !== undefined && PB_MODE) {" in bundle
-    check "if (elim) return 'LAST TEAM STANDING';" in bundle
+    # Season 2 is one cog per team, so the chip reads the roster instead of
+    # asserting squads: "LAST COG STANDING" when every team holds one seat,
+    # the squad wording otherwise (duos and Campaign still exist).
+    check "if (elim) return solo ? 'LAST COG STANDING' : 'LAST TEAM STANDING';" in bundle
+    check "function rosterIsSolo(s)" in bundle
     check "if ((e.k === 'steal' || e.k === 'return' || e.k === 'capture') &&" in bundle
     check "(isElim(s) || isFlagless(s) || PB_MODE)) return;" in bundle
     check "if (self.carry && !isElim(lastState) && !isFlagless(lastState) && !PB_MODE)" in bundle
