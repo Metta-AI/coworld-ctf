@@ -351,6 +351,33 @@ proc runPrewarmMassPlan(map: BodyMap, start: BodyPoint,
   result = collectMassPlan(system)
 
 suite "shell body seat navigation":
+  test "fresh cover selector caps eight by distance and stable seat":
+    let candidates = @[
+      DangerCandidate(seatIndex: 3, pos: (20, 0)),
+      DangerCandidate(seatIndex: 8, pos: (2, 0)),
+      DangerCandidate(seatIndex: 2, pos: (0, 20)),
+      DangerCandidate(seatIndex: 5, pos: (5, 0)),
+      DangerCandidate(seatIndex: 0, pos: (-20, 0)),
+      DangerCandidate(seatIndex: 7, pos: (3, 0)),
+      DangerCandidate(seatIndex: 1, pos: (0, -20)),
+      DangerCandidate(seatIndex: 4, pos: (6, 0)),
+      DangerCandidate(seatIndex: 9, pos: (1, 0)),
+      DangerCandidate(seatIndex: 6, pos: (4, 0))]
+    var seats: array[8, int]
+    var points: array[8, BodyPoint]
+    check selectNearestSources((0, 0), candidates, seats, points) == 8
+    check seats == [9, 8, 7, 6, 5, 4, 0, 1]
+    var reversed: seq[DangerCandidate]
+    for index in countdown(candidates.high, 0):
+      reversed.add candidates[index]
+    var reversedSeats: array[8, int]
+    var reversedPoints: array[8, BodyPoint]
+    check selectNearestSources((0, 0), reversed, reversedSeats,
+      reversedPoints) == 8
+    check reversedSeats == seats
+    check reversedPoints == points
+    echo "COVER_THREAT_CAP count=8 seats=", seats, " permuted_equal=true"
+
   test "route and duck caches are bounded, pinned, LRU, and non-minting":
     let map = openMap()
     let cache = newBodySeatCache(map)

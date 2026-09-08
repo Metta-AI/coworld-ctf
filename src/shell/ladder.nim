@@ -63,14 +63,16 @@ type
 
   LadderViewSource* = proc(seatIndex: int; tick: uint32): string {.closure.}
 
+  LadderDefaultSource* = proc(seatIndex: int; tick: uint32):
+    tuple[intent: Intent, goal: Option[ValidatedGoal]] {.closure.}
+
   LadderSeatInput* = object
     alive*: bool
     selfPos*: BodyPoint
     contextBytes*: string
     viewSource*: LadderViewSource
     guardContext*: IntentContext
-    defaultIntent*: Intent
-    defaultGoal*: Option[ValidatedGoal]
+    defaultSource*: LadderDefaultSource
     nativeBase*: Option[LadderNativeBase]
 
   LadderStatus* = object
@@ -630,8 +632,8 @@ proc stepSeat(driver: LadderDriver; seatIndex: int; input: LadderSeatInput;
         entry.clearCache()
         entry.state = pisParked
     output.usedDefault = true
-    output.intent = input.defaultIntent
-    output.goal = input.defaultGoal
+    output.intent = Intent(kind: ikHold, arriveRadius: 0.0,
+      reason: "default:hold")
     output.provenance = Provenance(base: ProvenanceBase(kind: pbDefault))
     return
 
@@ -647,8 +649,7 @@ proc stepSeat(driver: LadderDriver; seatIndex: int; input: LadderSeatInput;
         entry.guardPasses(input.guardContext):
       driver.stepEntry(seatIndex, index, input, tick, viewBytes, output)
 
-  var base = input.defaultIntent
-  output.goal = input.defaultGoal
+  var base: Intent
   var provenance = Provenance(base: ProvenanceBase(kind: pbDefault))
   if input.nativeBase.isSome:
     let native = input.nativeBase.get
@@ -687,6 +688,13 @@ proc stepSeat(driver: LadderDriver; seatIndex: int; input: LadderSeatInput;
         output.usedDefault = false
     else:
       output.usedDefault = true
+
+  if output.usedDefault:
+    # Resolve once per seat/tick, only after all usable higher bases lose.
+    # Keep this result through the overlay fold; never reuse a prior tick.
+    let defaultOrder = input.defaultSource(seatIndex, tick)
+    base = defaultOrder.intent
+    output.goal = defaultOrder.goal
 
   for entry in driver.seats[seatIndex].entries:
     if entry.call.playClass == mcOverlay and entry.state == pisLive and

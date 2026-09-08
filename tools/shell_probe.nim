@@ -28,6 +28,9 @@ proc probeMap(): BodyMap =
   var walkable = newSeq[bool](Side * Side)
   for value in walkable.mitems:
     value = true
+  for y in 160 .. 320:
+    for x in 240 .. 256:
+      walkable[y * Side + x] = false
   newBodyMap(walkable, Side, Side, 1, @[(100, 100)])
 
 proc shellFixedMap(): BodyMap =
@@ -79,8 +82,7 @@ proc frame(tick, seat: int, map: BodyMap,
     currentZone: MapRect(x: 0, y: 0, w: 800, h: 800),
     nextZone: MapRect(x: 100, y: 100, w: 600, h: 600),
     ticksToNextShrink: BrRotateLeadTicks + 1,
-    zoneDps: 2,
-    coverGoal: none(ValidatedGoal))
+    zoneDps: 2)
   if tick <= 100:
     input.partner = some(PartnerSample(seat: uint8(seat xor 1),
       pos: (300 + seat, 300), aimBrads: seat * 11 mod 256,
@@ -90,7 +92,6 @@ proc frame(tick, seat: int, map: BodyMap,
       pos: (500, 500), team: Blue, aimBrads: some(0), hpKnown: some(3),
       shielded: false, weapon: some(bwGun), veteranMarker: false,
       tick: uint32(tick))]
-    fallback.coverGoal = some(map.validateGoal((200 + seat, 250), self).get)
   else:
     fallback.ticksToNextShrink = BrRotateLeadTicks
     fallback.rotateTarget = some((400 + seat, 400))
@@ -130,8 +131,7 @@ proc movementFrame(map: BodyMap, seat: int,
       nextZone: MapRect(x: 50, y: 50, w: 200, h: 200),
       ticksToNextShrink: BrRotateLeadTicks,
       zoneDps: 1,
-      rotateTarget: some((100, 100)),
-      coverGoal: none(ValidatedGoal)))
+      rotateTarget: some((100, 100))))
 
 proc movementFrames(map: BodyMap,
                     positions: array[Seats, BodyPoint]): seq[ShellSeatFrame] =
@@ -171,8 +171,7 @@ proc dangerFrame(map: BodyMap, self, target: BodyPoint, tick: int,
       nextZone: MapRect(x: 0, y: 0, w: 384, h: 160),
       ticksToNextShrink: BrRotateLeadTicks,
       zoneDps: 1,
-      rotateTarget: some(target),
-      coverGoal: none(ValidatedGoal)))
+      rotateTarget: some(target)))
   if withThreat:
     for seat in 8 .. 15:
       result.bodyInputs.visibleTracks.add(BodyTrackUpdate(

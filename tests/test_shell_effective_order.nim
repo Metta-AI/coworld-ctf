@@ -103,7 +103,9 @@ proc input(a = true; b = true; pactOn = true; targetOn = true):
       discard tick
       "{}",
     guardContext: ctx(a, b, pactOn, targetOn),
-    defaultIntent: holdIntent("default"))
+    defaultSource: proc(seatIndex: int; tick: uint32):
+        tuple[intent: Intent, goal: Option[ValidatedGoal]] =
+      (holdIntent("default"), none(ValidatedGoal)))
 
 proc body(): SeatBody =
   const Side = 96

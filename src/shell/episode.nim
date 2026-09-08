@@ -1230,14 +1230,9 @@ proc step*(episode: var ShellEpisode,
       if state.active and frame.playing and frame.alive:
         stageBlock(result.stageNanoseconds, ssBelief, "body.belief"):
           state.body.updateBelief(frame.bodyInputs, tick)
-    if state.active and frame.playing and frame.alive:
-      stageBlock(result.stageNanoseconds, ssDefault, "shell.default"):
-        when ShellRuntimeAvailable:
-          if episode.ladder == nil:
-            state.standing.stepShellDefault(state.body, tick,
-              frame.defaultFallbacks)
-            state.appendStandingChanges(result)
-        else:
+    when not ShellRuntimeAvailable:
+      if state.active and frame.playing and frame.alive:
+        stageBlock(result.stageNanoseconds, ssDefault, "shell.default"):
           state.standing.stepShellDefault(state.body, tick,
             frame.defaultFallbacks)
           state.appendStandingChanges(result)
@@ -1260,15 +1255,22 @@ proc step*(episode: var ShellEpisode,
           proc(seatIndex: int; viewTick: uint32): string =
             stageBlock(stageSumsPtr[], ssView, "shell.view"):
               result = customSource(seatIndex, viewTick)
+      proc defaultSource(state: ptr ShellSeatState;
+                         facts: sink BrDefaultFacts): LadderDefaultSource =
+        # Bind each seat independently; the synchronous ladder call below
+        # finishes before these state/timing pointers can go out of scope.
+        result = proc(seatIndex: int; defaultTick: uint32):
+            tuple[intent: Intent, goal: Option[ValidatedGoal]] =
+          stageBlock(stageSumsPtr[], ssDefault, "shell.default"):
+            let decision = state[].body.computeBodyDefault(facts)
+            state[].standing.lastDefaultRule = decision.rule
+            result = (decision.intent, decision.goal)
       var inputs = newSeq[LadderSeatInput](episode.runtimeState.frames.len)
       for seat in 0 ..< inputs.len:
         inputs[seat] = LadderSeatInput(
           alive: false,
           contextBytes: "{}",
-          guardContext: noGuardContext(),
-          defaultIntent: Intent(kind: ikHold, arriveRadius: 0.0,
-            reason: "default:hold"),
-          defaultGoal: none(ValidatedGoal))
+          guardContext: noGuardContext())
 
       for state in episode.seats.mitems:
         let seat = state.seat.int
@@ -1280,14 +1282,11 @@ proc step*(episode: var ShellEpisode,
           continue
         var
           facts: BrDefaultFacts
-          decision: DefaultDecision
           reflexDecision: ReflexDecision
           contextBytes: string
           guardContext: IntentContext
         stageBlock(result.stageNanoseconds, ssDefault, "shell.default"):
           facts = brDefaultFacts(state.body, tick, slot.frame.defaultFallbacks)
-          decision = computeBrDefault(facts)
-          state.standing.lastDefaultRule = decision.rule
         stageBlock(result.stageNanoseconds, ssReflex, "shell.reflex"):
           reflexDecision =
             episode.runtimeState.reflexStates[seat].selectReflex(
@@ -1304,13 +1303,16 @@ proc step*(episode: var ShellEpisode,
           contextBytes: contextBytes,
           viewSource: viewSource,
           guardContext: guardContext,
-          defaultIntent: decision.intent,
-          defaultGoal: decision.goal,
+          defaultSource: defaultSource(addr state, move(facts)),
           nativeBase: reflexDecision.nativeBase)
 
       var ladderOutput: LadderTickResult
+      let defaultBeforeLadder = result.stageNanoseconds[ssDefault]
       stageBlock(result.stageNanoseconds, ssLadder, "shell.ladder"):
         ladderOutput = episode.ladder.tick(inputs, tick, episode.bindings)
+      # Default work now runs inside ladder selection, but keeps its own row.
+      result.stageNanoseconds[ssLadder] -=
+        result.stageNanoseconds[ssDefault] - defaultBeforeLadder
       for row in ladderOutput.seats:
         episode.appendPlayLogs(tick, row.logs, result.playLogLines)
         for status in row.statuses:

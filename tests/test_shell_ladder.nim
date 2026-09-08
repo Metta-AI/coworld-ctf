@@ -3,7 +3,7 @@
 import std/[json, options, sequtils, strutils, tables, unittest]
 
 import ../src/ctf/sim_types
-import ../src/shell/[body_map, call_validation, canonical, emit_validator,
+import ../src/shell/[body, body_map, default_play, standing_order, call_validation, canonical, emit_validator,
   guards, instance, ladder, manifest, policy_encoding, types]
 
 type
@@ -130,7 +130,9 @@ proc input(a = true; b = true; c = true; alive = true;
            viewSource: LadderViewSource = nil): LadderSeatInput =
   result = LadderSeatInput(alive: alive, contextBytes: "{}",
     guardContext: ctx(a, b, c),
-    defaultIntent: Intent(kind: ikHold, arriveRadius: 0.0, reason: "default"))
+    defaultSource: proc(seatIndex: int; tick: uint32):
+        tuple[intent: Intent, goal: Option[ValidatedGoal]] =
+      (Intent(kind: ikHold, arriveRadius: 0.0, reason: "default"), none(ValidatedGoal)))
   if viewSource == nil:
     result.viewSource = proc(seatIndex: int; tick: uint32): string =
       discard seatIndex
@@ -145,6 +147,58 @@ proc accept(driver: LadderDriver; bytes: string;
   driver.acceptCall(0, proposalId, 7, 10, canonical(bytes), bindings, ctx())
 
 suite "shell ladder":
+  test "default producer runs once only after usable base selection":
+    for mode in ["native", "controller", "absent", "ineligible", "silent", "faulted", "dead"]:
+      let book = newBook(
+        silentControllers = if mode == "silent": @["base"] else: @[],
+        faultControllers = if mode == "faulted": @["base"] else: @[])
+      let bindings = @[binding(book, "law", "overlay"), binding(book, "base")]
+      let driver = newLadderDriver(1, registry())
+      defer: driver.close()
+      if mode != "absent":
+        check driver.accept("""{"plays":[
+          {"entry_id":"law","play":"law"},
+          {"entry_id":"base","play":"base","when":["get","a"]}]}""",
+          bindings).accepted
+      var row = input(a = mode != "ineligible", alive = mode != "dead")
+      let body = activateSeatBody(newBodyMap(newSeqWith(96 * 96, true),
+        96, 96, 1, @[(32, 32)]), 0, 331)
+      var defaultCalls = 0
+      var coverCalls = 0
+      row.defaultSource = proc(seatIndex: int; tick: uint32):
+          tuple[intent: Intent, goal: Option[ValidatedGoal]] =
+        check seatIndex == 0
+        check tick in 1'u32 .. 2'u32
+        inc defaultCalls
+        let facts = brDefaultFacts(body, tick, BrDefaultFallbacks(
+          ticksToNextShrink: BrRotateLeadTicks + 1))
+        let decision = computeBrDefault(facts, proc(): Option[ValidatedGoal] =
+          inc coverCalls
+          body.defaultCoverGoal(tick))
+        (decision.intent, decision.goal)
+      if mode == "native":
+        row.nativeBase = some(LadderNativeBase(intent: controllerIntent("reflex"),
+          provenance: Provenance(base: ProvenanceBase(kind: pbReflex,
+            reflexName: "reflex"))))
+      for tick in 1'u32 .. 2'u32:
+        defaultCalls = 0
+        coverCalls = 0
+        body.updateBelief(BodyTickInputs(self: BodySelfState(pos: (32, 32),
+          alive: true), visibleTracks: @[BodyTrackUpdate(seat: 1,
+            team: Blue, pos: (64, 32), tick: tick)]), tick)
+        let output = driver.tick([row], tick, bindings).seats[0]
+        let expected = if mode in ["native", "controller", "dead"]: 0 else: 1
+        check defaultCalls == expected
+        check coverCalls == expected
+        if expected == 1:
+          check output.usedDefault
+          check output.intent.reason == "default:hold"
+          if mode != "absent":
+            check output.intent.combat.holdFire
+            check output.provenance.overlays.len == 1
+        echo "LAZY_DEFAULT mode=", mode, " tick=", tick,
+          " producer_calls=", defaultCalls, " scorer_calls=", coverCalls
+
   test "the shell is the zero-entry default case of the ladder driver":
     let book = newBook()
     let driver = newLadderDriver(1, registry())

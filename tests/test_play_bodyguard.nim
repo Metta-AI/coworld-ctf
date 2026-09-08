@@ -136,8 +136,7 @@ proc liveFrame(pos: BodyPoint; tick: int): ShellSeatFrame =
       nextZone: MapRect(x: 0, y: 0, w: 720, h: 240),
       ticksToNextShrink: BrRotateLeadTicks + 1,
       zonePhase: 1,
-      zoneDps: 1,
-      coverGoal: none(ValidatedGoal)))
+      zoneDps: 1))
 
 suite "bodyguard reference play":
   test "manifest bytes match the golden and parse in production":

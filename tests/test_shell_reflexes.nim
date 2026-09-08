@@ -88,7 +88,9 @@ proc registry(): PathRegistry =
 proc ladderInput(base: Option[LadderNativeBase];
                  viewSource: LadderViewSource = nil): LadderSeatInput =
   result = LadderSeatInput(alive: true, contextBytes: "{}",
-    guardContext: IntentContext(), defaultIntent: holdIntent("default"),
+    guardContext: IntentContext(), defaultSource: proc(seatIndex: int; tick: uint32):
+        tuple[intent: Intent, goal: Option[ValidatedGoal]] =
+      (holdIntent("default"), none(ValidatedGoal)),
     nativeBase: base)
   if viewSource == nil:
     result.viewSource = proc(seatIndex: int; tick: uint32): string =

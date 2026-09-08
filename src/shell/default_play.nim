@@ -1,5 +1,5 @@
 ## The engine-native fallback controller (§7.3), initially for Battle Royale.
-## It is recomputed every tick that no guest controller has a cached output.
+## It is recomputed only when no higher-priority source supplies a usable base.
 
 import std/options
 import ../ctf/sim_types
@@ -27,7 +27,6 @@ type
     threatPositions*: seq[BodyPoint]
     partner*: Option[PartnerTelemetry]
     rotateTarget*: BodyPoint
-    coverGoal*: Option[ValidatedGoal]
 
   DefaultDecision* = object
     rule*: BrDefaultRule
@@ -36,9 +35,8 @@ type
     provenance*: Provenance
 
 const
-  ## PROPOSED BR BEHAVIOR — James ratification pending. Keep every tunable
-  ## rule and the deterministic tie order in this one block until ratified;
-  ## changing one is a gameplay decision, not an implementation cleanup.
+  ## Ratified by James, 2026-09-04. Rule order and tunables are gameplay
+  ## decisions, not implementation cleanup.
   BrRotateLeadTicks* = 120
   BrRotateArriveRadiusPx* = 48.0
   BrCoverArriveRadiusPx* = 24.0
@@ -75,8 +73,9 @@ proc partnerOutsideLeash(facts: BrDefaultFacts): bool =
 proc validatedTarget(facts: BrDefaultFacts, target: BodyPoint): Option[ValidatedGoal] =
   facts.map.validateGoal(target, facts.selfPos)
 
-proc computeBrDefault*(facts: BrDefaultFacts): DefaultDecision =
-  ## Implements the single proposed priority block above. Raw rotate/partner
+proc computeBrDefault*(facts: BrDefaultFacts;
+    coverGoal: proc(): Option[ValidatedGoal] {.closure.}): DefaultDecision =
+  ## Implements the ratified priority block above. Raw rotate/partner
   ## targets are converted to lane-A ValidatedGoal proofs here; a missing or
   ## invalid proof makes that rule ineligible and falls through instead of
   ## installing a raw point.
@@ -99,11 +98,12 @@ proc computeBrDefault*(facts: BrDefaultFacts): DefaultDecision =
           result.rule = rule
           return
     of brCoverHold:
-      if facts.threatPositions.len > 0 and facts.coverGoal.isSome:
-        result = navigate(facts.coverGoal.get, BrCoverArriveRadiusPx,
-          "default:cover")
-        result.rule = rule
-        return
+      if facts.threatPositions.len > 0:
+        let goal = coverGoal()
+        if goal.isSome:
+          result = navigate(goal.get, BrCoverArriveRadiusPx, "default:cover")
+          result.rule = rule
+          return
     of brHold:
       result = DefaultDecision(
         rule: rule,

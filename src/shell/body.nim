@@ -14,7 +14,7 @@
 import std/[algorithm, hashes, math, monotimes, options, sequtils, times]
 import bitworld/[profile, spriteprotocol]
 import ../ctf/sim_types
-import body_cache, body_map, body_nav, body_planner
+import body_cache, body_map, body_nav, body_planner, cover_scorer
 import types as shellTypes
 
 const
@@ -693,6 +693,32 @@ proc updateBelief*(body: SeatBody, inputs: BodyTickInputs, tick: uint32) =
         pos: partner.pos, aimBrads: partner.aimBrads, alive: true,
         downed: partner.downed, hasGun: partner.hasGun,
         hasHopper: partner.hasHopper))
+
+proc defaultCoverGoal*(body: SeatBody; tick: uint32): Option[ValidatedGoal] =
+  ## Cover chooses a validated destination; navigation owns execution afterward.
+  ## Tracks are server-fogged enemies. Do not reuse staggered danger sources:
+  ## cover must use this tick's sightings, without combat-policy filtering.
+  var
+    candidates: array[MaxPlayers, DangerCandidate]
+    candidateCount = 0
+    seats: array[shellTypes.MaxCoverThreats, int]
+    points: array[shellTypes.MaxCoverThreats, BodyPoint]
+  for seat, track in body.tracks:
+    if track.isSome and track.get.freshTick == tick:
+      candidates[candidateCount] = DangerCandidate(seatIndex: seat,
+        pos: track.get.pos)
+      inc candidateCount
+  if candidateCount == 0:
+    return none(ValidatedGoal)
+  let count = selectNearestSources(body.selfState.pos,
+    candidates.toOpenArray(0, candidateCount - 1), seats, points)
+  let point = body.nav.seats[body.seatIndex].cache.nearestCoverPoint(
+    body.selfState.pos, shellTypes.MaxCoverRadiusPx, -1,
+    points.toOpenArray(0, count - 1))
+  if point.isSome:
+    body.map.validateGoal(point.get, body.selfState.pos)
+  else:
+    none(ValidatedGoal)
 
 proc partnerTelemetry*(body: SeatBody): Option[PartnerTelemetry] =
   ## Sim-truth position and aim grant for a live duo partner. HP deliberately

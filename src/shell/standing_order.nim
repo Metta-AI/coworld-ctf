@@ -23,15 +23,14 @@ type
   BrDefaultFallbacks* = object
     ## Shell fallbacks for facts the body does not expose yet. Self and partner
     ## come from the body's accessors after updateBelief.
-    ## Zone timing/rects are public server facts, and nearest-cover scoring is
-    ## represented by an already validated goal until lane A relays that scorer.
+    ## Zone timing/rects are public server facts. Cover is selected lazily
+    ## through the body-owned cache after higher-priority rules lose.
     currentZone*: MapRect
     nextZone*: MapRect
     ticksToNextShrink*: int
     zonePhase*: int
     zoneDps*: int
     rotateTarget*: Option[BodyPoint]
-    coverGoal*: Option[ValidatedGoal]
 
   ReconstructedStandingOrder* = object
     tick*: uint32
@@ -72,8 +71,12 @@ proc brDefaultFacts*(body: SeatBody, tick: uint32,
     threatPositions: threats,
     partner: partnerTelemetry(body),
     rotateTarget: if fallback.rotateTarget.isSome:
-      fallback.rotateTarget.get else: fallback.nextZone.center,
-    coverGoal: fallback.coverGoal)
+      fallback.rotateTarget.get else: fallback.nextZone.center)
+
+proc computeBodyDefault*(body: SeatBody; facts: BrDefaultFacts): DefaultDecision =
+  let tick = facts.tick
+  computeBrDefault(facts, proc(): Option[ValidatedGoal] =
+    body.defaultCoverGoal(tick))
 
 proc sameProvenance(a, b: Provenance): bool =
   if a.base.kind != b.base.kind or a.overlays != b.overlays:
@@ -94,7 +97,7 @@ proc stepShellDefault*(state: var StandingOrderState,
   ## installs only on bytes/provenance/epoch difference. The shell reads
   ## the state's initialized epoch zero and never advances it.
   let facts = brDefaultFacts(body, tick, fallback)
-  let decision = computeBrDefault(facts)
+  let decision = body.computeBodyDefault(facts)
   state.lastDefaultRule = decision.rule
   let bytes = canonicalIntent(decision.intent)
   let effectiveEpoch = state.effectiveEpoch

@@ -409,33 +409,39 @@ proc dangerCandidateLess(aDistance: int64, aSeat: int,
                          bDistance: int64, bSeat: int): bool {.inline.} =
   aDistance < bDistance or (aDistance == bDistance and aSeat < bSeat)
 
-proc selectDangerSources(seat: BodyNavSeat, input: DangerInput) =
-  ## Fixed-size insertion selection of the nearest eight. The caller has
-  ## already applied fog, team, noShoot, protect, and liveness filtering.
-  var distances: array[MaxDangerSources, int64]
-  seat.selectedDangerCount = 0
-  for candidate in input.candidates:
-    let dx = int64(candidate.pos.x - input.selfXy.x)
-    let dy = int64(candidate.pos.y - input.selfXy.y)
+proc selectNearestSources*[N: static int](anchor: BodyPoint;
+    candidates: openArray[DangerCandidate]; selectedSeats: var array[N, int];
+    selectedPoints: var array[N, BodyPoint]): int =
+  ## Fixed-size distance/seat ordering shared by danger and fresh cover queries.
+  ## Each caller supplies its own filtered current inputs and output storage.
+  var distances: array[N, int64]
+  for candidate in candidates:
+    let dx = int64(candidate.pos.x - anchor.x)
+    let dy = int64(candidate.pos.y - anchor.y)
     let distance = dx * dx + dy * dy
-    var insertion = seat.selectedDangerCount
+    var insertion = result
     while insertion > 0 and dangerCandidateLess(distance,
         candidate.seatIndex, distances[insertion - 1],
-        seat.selectedDangerSeats[insertion - 1]):
+        selectedSeats[insertion - 1]):
       dec insertion
-    if insertion >= MaxDangerSources:
+    if insertion >= N:
       continue
-    let newCount = min(MaxDangerSources, seat.selectedDangerCount + 1)
+    let newCount = min(N, result + 1)
     var cursor = newCount - 1
     while cursor > insertion:
       distances[cursor] = distances[cursor - 1]
-      seat.selectedDangerSeats[cursor] = seat.selectedDangerSeats[cursor - 1]
-      seat.selectedDangerPoints[cursor] = seat.selectedDangerPoints[cursor - 1]
+      selectedSeats[cursor] = selectedSeats[cursor - 1]
+      selectedPoints[cursor] = selectedPoints[cursor - 1]
       dec cursor
     distances[insertion] = distance
-    seat.selectedDangerSeats[insertion] = candidate.seatIndex
-    seat.selectedDangerPoints[insertion] = candidate.pos
-    seat.selectedDangerCount = newCount
+    selectedSeats[insertion] = candidate.seatIndex
+    selectedPoints[insertion] = candidate.pos
+    result = newCount
+
+proc selectDangerSources(seat: BodyNavSeat, input: DangerInput) =
+  # The caller already applied fog, team, noShoot, protect and liveness filters.
+  seat.selectedDangerCount = selectNearestSources(input.selfXy,
+    input.candidates, seat.selectedDangerSeats, seat.selectedDangerPoints)
 
 proc rebuildDanger*(seat: BodyNavSeat, map: BodyMap,
                     input: DangerInput, tick: int) =

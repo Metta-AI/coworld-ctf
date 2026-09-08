@@ -157,8 +157,7 @@ proc defaultDecision(map: BodyMap; pos: BodyPoint; ticksToShrink: int;
     ticksToNextShrink: ticksToShrink,
     zoneDps: 1,
     partner: none(PartnerTelemetry),
-    rotateTarget: rotateTarget,
-    coverGoal: none(ValidatedGoal)))
+    rotateTarget: rotateTarget), proc(): Option[ValidatedGoal] = none(ValidatedGoal))
 
 suite "edge_ride reference play":
   test "manifest bytes match the golden and parse in production":

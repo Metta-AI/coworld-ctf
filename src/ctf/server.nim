@@ -4011,8 +4011,7 @@ proc shellFallbacks(sim: SimServer,
     ticksToNextShrink: sim.ticksToNextZoneShrink(elapsed),
     zonePhase: sim.shellZonePhase(elapsed),
     zoneDps: zone.dps,
-    rotateTarget: some(shellRotateTarget(selfPos, zone.next)),
-    coverGoal: none(ValidatedGoal))
+    rotateTarget: some(shellRotateTarget(selfPos, zone.next)))
 
 proc shellZoneLogLine(sim: SimServer): string =
   let

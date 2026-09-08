@@ -160,8 +160,7 @@ when DispatchRuntimeAvailable:
       defaultFallbacks: BrDefaultFallbacks(
         currentZone: MapRect(x: 0, y: 0, w: 4096, h: 4096),
         nextZone: MapRect(x: 100, y: 50, w: 200, h: 100),
-        ticksToNextShrink: BrRotateLeadTicks + 1, zoneDps: 1,
-        coverGoal: none(ValidatedGoal)))
+        ticksToNextShrink: BrRotateLeadTicks + 1, zoneDps: 1))
 
 suite "server play receive arm":
   setup:

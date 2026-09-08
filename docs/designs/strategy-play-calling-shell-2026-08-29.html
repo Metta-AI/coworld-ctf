@@ -2261,12 +2261,17 @@
     <p>The idle-aim center is an <code>Intent</code> field with a built-in default of 0. Provenance is
     written by whichever subsystem chooses the order: the ladder driver for entries and overlays, the
     default play, or the reflex selector.</p>
-    <p><strong>The default play</strong> is the ladder's implicit final controller, always present: a
-    competent, parameterless survival controller per mode (in Battle Royale: rotate ahead of the zone,
-    hold cover, stay near the partner). It steps whenever no controller entry passes, whether because
-    every guard failed, every controller faulted, the call was rejected, or no call was ever accepted
-    (epoch zero). If the policy process dies outright, nothing changes on the server: the ladder keeps
-    running and the default play keeps backing it.</p>
+    <p><strong>The default play</strong> is the ladder's implicit final controller. Once per
+    seat/tick, after belief folding, it runs only when no higher-priority source produced a usable
+    base order, including absent, ineligible, silent, and faulted controllers. Active overlays
+    still fold onto that base. In Battle Royale its priority is rotate, partner leash, cover hold,
+    then hold (James, 2026-09-04). Rotate and partner leash skip the cover query when they win.
+    Otherwise, fresh fog-visible enemy tracks trigger the body's existing <code>nearestCoverPoint</code>
+    scorer and per-seat cache: self-position anchor, <code>MaxCoverRadiusPx</code> (331), no preferred
+    bearing (-1), and the nearest <code>MaxCoverThreats</code> (8) current-tick tracks by squared
+    distance, with seat-number ties. A point validated by the active <code>BodyMap</code> installs
+    cover with arrival radius 24; no cover or failed validation falls through to hold. Cover selection
+    owns the validated destination; navigation owns its route and local motion.</p>
 
     <h3 id="s7-4">7.4 The per-tick play step, and what died with the wire</h3>
     <p>The engine keeps every instance's <strong>last accepted output</strong> as host-side state beside
@@ -2312,7 +2317,7 @@
     observers; evaluate guards over the view; step each active overlay and cache any accepted
     <code>CombatPolicy</code>; select the base controller and step it, then compute the default play if it
     still has no cached output (the two-stage rule above), caching any accepted <code>Intent</code>; fold
-    the active overlays' cached policies onto the base order; finish; and, if the resulting canonical
+    the active overlays' cached policies onto the base order; and, if the resulting canonical
     bytes, their provenance, or the <strong>effective order epoch</strong> (<a href="#s4-3">section 4.3</a>) differ from the
     standing order's, install the new standing order and write the annotation. All of it runs on the tick
     thread, sequentially per seat in seat order, under fuel. The only asynchrony in the design is the
