@@ -13,7 +13,7 @@ const
   ## latch in the shared chrome closure (beat timeline, verdict chip,
   ## momentum series, lull spans, placed scrubber markers) now has one reset
   ## entry point the pages call from their reconnect hook.
-  ChromeCommonFingerprint = "f99ef73a84c5f67d"
+  ChromeCommonFingerprint = "e1ec1af7ba5a2eb1"
     ## chrome_common.js pinned: everything paintball adds lives in the
     ## appended game block, so an edit to the shared chrome fails a test
     ## instead of silently drifting. Re-pinned during the season2 main
@@ -22,6 +22,11 @@ const
     ## that commit predates this merge and legitimately changed the file
     ## by deriving TEAM_ORDER/TEAM_COLOR from window.CTF_WIRE; the
     ## appended-paintball-block guarantee this test exists for is untouched).
+    ## Re-pinned again for the glory momentum lane: the shared lane now reads
+    ## its metric off the wire (lead.metric) and captions itself, and draws
+    ## every series as a per-team climb instead of a two-team signed
+    ## difference. Shared-chrome change on purpose — all three viewers are
+    ## meant to move together — and the paintball block is again untouched.
   Page = "client/replay_broadcast.html"
   Chrome = "client/chrome_common.js"
   Core = "client/broadcast_core.js"

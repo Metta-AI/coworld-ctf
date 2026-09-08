@@ -1207,7 +1207,7 @@ type
     scrubbingReplay*: bool
     replaySeekTick*: int
     replayCommands*: seq[char]
-    momentumSent*: bool          ## full lives-lead series already sent to this viewer.
+    momentumSent*: bool          ## full glory momentum series already sent to this viewer.
     fpMapSent*: bool             ## static minimap wall silhouette already sent (EYES PiP tactical map).
     povSelectPending*: int       ## POV slot requested by a `v:<slot>` command.
     endzoneFade*: array[Team, int]  ## per-team endzone glow crossfade stage (0
