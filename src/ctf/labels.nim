@@ -343,6 +343,28 @@ const
     ## Once every configured phase has resolved, this equals the current
     ## rect (nothing left to move toward). Absent under the same conditions
     ## as `LabelPrefixZone`. See `labelZoneNext` for the tail arity.
+  LabelPrefixWinner* = "winner "
+    ## The round-result marker, `winner <color>` or `winner draw`: an
+    ## invisible 1x1 object on the PLAYER stream, present ONLY while
+    ## `sim.phase == GameOver` (the game-over interstitial frames between
+    ## finishGame and the next lobby) and reaped by the per-frame delete
+    ## diff the moment the phase moves on. `<color>` is `teamText(sim.winner)`
+    ## — the same single-word team token the `self `/`player `/`roster `
+    ## labels carry, so a consumer compares it against its own
+    ## `self <color> <side>` colour with plain string equality. The tail is
+    ## `draw` (LabelWinnerDraw) when the game concluded with no winner
+    ## (sim.isDraw). Before this marker the player wire named no winner at
+    ## all: the interstitial's title sprite is labelled with its own rendered
+    ## text (`RED WINS` / `DRAW`, textLabel), spectator chrome the broadcast
+    ## is free to re-cut, so a live client could only say "round over".
+    ##
+    ## HUMAN-WIRE ONLY, same gating and same reasoning as `LabelPrefixKd`/
+    ## `LabelPrefixRoster`: emitted under `not spritesOff`, so a Sprites Off
+    ## (0x87) policy stream is byte-identical to before this marker existed.
+    ## NOT in tests/label_manifest.txt: that golden is swept from
+    ## Playing-phase frames only (collectLabels re-pins the phase after every
+    ## step), so a GameOver-only label is invisible to it — exactly like the
+    ## game-over interstitial's own `roster <color>` icon labels.
 
   # ---------------------------------------------------------------------------
   # Tokens that fill the interpolated slots above.
@@ -360,6 +382,10 @@ const
     ## Optional identity-badge suffix: the wearer carries a shield.
   LabelTokenNade* = "nade"
     ## Optional identity-badge suffix: the wearer carries a grenade.
+  LabelWinnerDraw* = "draw"
+    ## The `winner ` marker's no-winner tail, `winner draw`. Never a team
+    ## colour (teamText's vocabulary has no such word), so a consumer tests
+    ## `== LabelWinnerDraw` before treating the tail as a colour token.
   LabelEndzoneShapeColumn* = "column"
     ## Classic sides zone: the full box between the stated corners.
   LabelEndzoneShapeSquare* = "square"
@@ -568,6 +594,14 @@ proc labelKd*(kills, deaths: int): string =
   ## The own kill/death HUD label, `kd <kills>/<deaths>`. See
   ## LabelPrefixKd for the human-only wire gating.
   LabelPrefixKd & $kills & "/" & $deaths
+
+proc labelWinner*(color: string): string =
+  ## The round-result marker label, `winner <color>` — or `winner draw`
+  ## when `color` is LabelWinnerDraw. `color` MUST be the teamText token
+  ## (single word), never `playerColorName`/the render-palette name (five
+  ## of those are two words). See LabelPrefixWinner for the human-only wire
+  ## gating and the GameOver-only lifetime.
+  LabelPrefixWinner & color
 
 proc labelRoster*(team, name: string; lives, kills, deaths: int): string =
   ## One roster row on the player stream,

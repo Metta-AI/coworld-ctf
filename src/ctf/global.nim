@@ -820,6 +820,14 @@ const
     ## keyed by row (join order) 0..MaxPlayers-1: 5026..5057. Player stream
     ## only, human-wire only — see LabelPrefixRoster.
   RosterObjectBase = 5058  ## Object twin of RosterSpriteBase: 5058..5089.
+  SpritePlayerWinnerSpriteId = 5090  ## invisible 1x1 round-result marker
+  SpritePlayerWinnerObjectId = 5090  ## ("winner <color>" | "winner draw"),
+    ## player stream, GameOver frames only, human-wire only — see
+    ## labels.nim LabelPrefixWinner / addWinnerMarker. 5090 is the first id
+    ## past the roster-row OBJECT pool (5058..5089; the next object pool is
+    ## the flags at 6500); on the SPRITE side the roster pool ends at 5057
+    ## and the self-soldier pool starts at 5100, so the same value is free
+    ## in both namespaces — both compile-time audits below prove it.
   SpritePlayerSelfSpriteBase = 5100  ## white-outlined self soldiers, keyed by
                                      ## skin×rotation: default 5100..5115,
                                      ## crown 5116..5131.
@@ -968,6 +976,7 @@ const
     # weapon/own-aim.
     ("player HUD", SpritePlayerInterstitialObjectId, 20),
     ("roster rows (player stream)", RosterObjectBase, MaxPlayers),
+    ("winner marker (player stream)", SpritePlayerWinnerObjectId, 1),
     ("flags", FlagObjectBase, TeamPoolWidth),
     ("own-view flag markers", SpritePlayerFlagObjectBase, TeamPoolWidth),
     ("player names", PlayerNameObjectBase, MaxPlayers),
@@ -1122,6 +1131,7 @@ const
     # kd-readout sprite (SpritePlayerKdSpriteId, 5024).
     ("player HUD", SpritePlayerFireSpriteId, 25),
     ("roster rows (player stream)", RosterSpriteBase, MaxPlayers),
+    ("winner marker (player stream)", SpritePlayerWinnerSpriteId, 1),
     ("self soldiers", SpritePlayerSelfSpriteBase, 2 * SoldierRotations),
     ("selected soldiers", int(SelectedPlayerSpriteBase),
       2 * TeamPoolWidth * SoldierRotations),
@@ -4842,6 +4852,49 @@ proc addProtocolInterstitialActorSprites(
   else:
     discard
 
+proc addWinnerMarker(
+  sim: SimServer,
+  spriteDefs: var seq[SpriteDefinition],
+  currentIds: var seq[int],
+  packet: var seq[uint8]
+) {.measure.} =
+  ## Emits the round-result marker on a HUMAN player stream while the game
+  ## is over: an invisible 1x1 object whose label states the winner outright
+  ## — `winner <color>`, teamText's single-word token (the same one the
+  ## viewer's own `self <color> <side>` label carries), or `winner draw`
+  ## when finishGame concluded with no winner (labels.nim
+  ## LabelPrefixWinner / LabelWinnerDraw). Only ever reached from the
+  ## interstitial branch of buildSpriteProtocolPlayerUpdates: the Playing
+  ## branch (where the kd/roster markers live) never runs once finishGame
+  ## has flipped the phase, so a GameOver-frame label is emitted here or
+  ## nowhere. Never added to currentIds outside GameOver, so the per-frame
+  ## delete diff reaps it the moment the phase moves on. Label-carried like
+  ## the own-aim readback: addSpriteChanged re-sends the 1x1 definition
+  ## only when the stated verdict changes (a different winner next round).
+  ## The caller gates on `not spritesOff` — a bot stream never sees it.
+  if sim.phase != GameOver:
+    return
+  let verdict =
+    if sim.isDraw: LabelWinnerDraw
+    else: teamText(sim.winner)
+  currentIds.add(SpritePlayerWinnerObjectId)
+  packet.addSpriteChanged(
+    spriteDefs,
+    SpritePlayerWinnerSpriteId,
+    1,
+    1,
+    newRgbaPixels(1, 1),
+    labelWinner(verdict)
+  )
+  packet.addBoardObject(
+    SpritePlayerWinnerObjectId,
+    0,
+    0,
+    0,
+    HudTopRightLayerId,
+    SpritePlayerWinnerSpriteId
+  )
+
 proc hasInterstitialFrame(sim: SimServer): bool =
   ## Returns true when the global viewer should show a neutral game screen.
   sim.phase in {Lobby, GameOver}
@@ -7511,17 +7564,41 @@ proc addZoneEdgeBand(
       stderr.writeLine(zoneArrivalFieldProbeReport())
   if ZoneArrivalFieldValue.gridW <= 0 or ZoneArrivalFieldValue.gridH <= 0:
     return
-  if not ZoneArrivalFieldShipped:
+  ## PER-VIEWER delivery. `spriteDefs` is THIS connection's own def cache
+  ## (PlayerViewerState / GlobalViewerState.spriteDefs), so "already
+  ## shipped" is a question about the viewer, never about the process. The
+  ## old gate here was the process-global ZoneArrivalFieldShipped: the FIRST
+  ## viewer rendered after a rebuild — on any 16-bot pool match, a bot —
+  ## consumed the single emission, and every connection rendered after it
+  ## (the human, who joins once the bots are seated) never received sprite
+  ## 39962 at all: no field on the client, no in-world zone paint, while the
+  ## clock/marker sprites below still shipped normally. The field's build
+  ## serial (zone_field.nim) rides in the label so addSpriteChanged's own
+  ## per-viewer dedupe (id + dims + label) decides who still needs the
+  ## bytes: a viewer without the def, or holding a def from an older build,
+  ## gets it once; everyone else pays one spriteDefinitionIndex scan per
+  ## tick and never re-sends. The client keys the field off the sprite ID,
+  ## not the label (broadcast_core.js ZONE_ARRIVAL_FIELD_SPRITE_ID), and the
+  ## "fx 9c41" opaque prefix is preserved for bot readers.
+  let
+    fieldLabel = ZoneArrivalFieldLabel & " " & $ZoneArrivalFieldSerial
+    fieldIndex = spriteDefs.spriteDefinitionIndex(ZoneArrivalFieldSpriteId)
+  if fieldIndex < 0 or spriteDefs[fieldIndex].label != fieldLabel:
     packet.addSpriteChanged(
       spriteDefs, ZoneArrivalFieldSpriteId,
       ZoneArrivalFieldValue.gridW, ZoneArrivalFieldValue.gridH,
       zoneArrivalFieldBytes(ZoneArrivalFieldValue),
-      ZoneArrivalFieldLabel, changed = true)
+      fieldLabel, changed = true)
     ZoneArrivalFieldShipped = true
     if getEnv("FIRST_LIGHT_ZONE_LOG") == "1":
+      ## One line PER VIEWER emission (env-gated diagnostic): the line count
+      ## in a match's sim.log is the number of connections that hold the
+      ## field, which is exactly the fact the old global gate hid.
       stderr.writeLine("FIRST_LIGHT_ZONE_PAINT shipped=true grid=" &
         $ZoneArrivalFieldValue.gridW & "x" & $ZoneArrivalFieldValue.gridH &
-        " cells=" & $ZoneArrivalFieldValue.arrival.len)
+        " cells=" & $ZoneArrivalFieldValue.arrival.len &
+        " serial=" & $ZoneArrivalFieldSerial &
+        " viewerDefs=" & $spriteDefs.len)
   packet.addSpriteChanged(
     spriteDefs, ZoneClockSpriteId, 1, 1, newRgbaPixels(1, 1),
     ZoneEdgeFxLabelTag & " clock")
@@ -7669,6 +7746,14 @@ proc buildSpriteProtocolPlayerUpdates*(
       PlayerInterstitialLayerId,
       playerIndex
     )
+    # The round-result marker (`winner <color>` | `winner draw`), human
+    # viewers only — the same `not spritesOff` gate the kd/roster markers
+    # use. These interstitial frames are the ONLY frames whose phase is
+    # GameOver (the Playing branch below is never entered after finishGame),
+    # so the winner is stated here or nowhere; addWinnerMarker itself
+    # no-ops for the Lobby and the unseated-spectator case.
+    if not spritesOff:
+      sim.addWinnerMarker(nextState.spriteDefs, currentIds, result)
   else:
     let
       player = sim.players[playerIndex]
@@ -8068,7 +8153,8 @@ proc buildSpriteProtocolPlayerUpdates*(
     # labels.nim LabelPrefixKd for why the bot side was left alone.
     if not spritesOff:
       let
-        kdTally = sim.matchKillsDeaths(playerIndex)
+        kdTally = (kills: sim.players[playerIndex].kills,
+                   deaths: sim.players[playerIndex].deaths)
         kd = sim.buildSpriteProtocolTextSprite(
           [labelKd(kdTally.kills, kdTally.deaths)], 2'u8
         )
@@ -8117,7 +8203,7 @@ proc buildSpriteProtocolPlayerUpdates*(
         let
           rowPlayer = sim.players[i]
           rowIdentity = IdentityNames[sim.slotIdentityIndex(rowPlayer.joinOrder)]
-          rowKd = sim.matchKillsDeaths(i)
+          rowKd = (kills: sim.players[i].kills, deaths: sim.players[i].deaths)
             ## Match-scoped, same as the own-kd label above — NOT
             ## rowPlayer.kills/deaths, which reset every round. rowPlayer.lives
             ## stays round-scoped on purpose: lives ARE a per-round resource.

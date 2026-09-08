@@ -30,7 +30,13 @@ input{position:fixed;left:50%;bottom:18px;transform:translateX(-50%);width:min(8
    connecting/reconnecting/disconnected states (nothing meaningful behind
    them -- opaque black is correct there), the match keeps visibly playing
    out while we're dead, so this variant tints instead of hiding it. */
-#s.dead{background:#000a;align-items:flex-start;padding-top:20px;font-weight:600;text-shadow:0 1px 3px #000}
+#s.dead{background:#000a;align-items:flex-start;padding-top:50px;font-weight:600;text-shadow:0 1px 3px #000}
+/* Small-HUD step (<=900px, player_hud.js's own breakpoint): the death line
+   goes near-full-width there and its 50px top offset lands it straight
+   across the top-left #phud-rail (KILLS box; rail bottom edge 62px at that
+   step -- seen live on a 375px phone after rebuild-1). Push it under the
+   rail at that width only; desktop keeps the 50px above. */
+@media (max-width:900px){#s.dead{padding-top:72px}}
 /* Damage-taken edge vignette (Maxwell, live 8/29: "i need damage effect,
    when i get damaged"). Deliberately the OPPOSITE shape of #splat below:
    edges only, center left clear so it never blinds the player mid-fight,
@@ -94,11 +100,7 @@ input{position:fixed;left:50%;bottom:18px;transform:translateX(-50%);width:min(8
    overlay renders exactly the plain text it always has. Hierarchy is
    typography/weight only -- the killer NAME is the headline, everything
    else steps down; no accent bars, no borders. */
-#s .dcard{display:flex;flex-direction:column;align-items:center;gap:7px;text-align:center;
-  /* clears the HUD's top-center score strip (player_hud.js mounts above
-     this overlay in DOM order) -- margin on the CARD only, so the plain
-     channel-silent line keeps its exact historical position. */
-  margin-top:30px}
+#s .dcard{display:flex;flex-direction:column;align-items:center;gap:7px;text-align:center}
 /* Headline only ("splatted by BLUE") joins the event-face system -- same
    var(--eventfont) stack #splat/.rfWho already use, Maxwell's own call
    under delegation: this is the death card's one big beat, same register
@@ -168,10 +170,14 @@ input{position:fixed;left:50%;bottom:18px;transform:translateX(-50%);width:min(8
    the round/match itself just ended, never a death, so neither SPLAT nor
    "wiped out"/"you're out" (a win must not say what a death says) -- this
    calm card instead, honestly scoped to the one fact available (a boundary
-   happened), same discipline as the round-flip card below and never a
-   claim of WHO won, since that signal does not exist on this wire (a
-   server/wire change, out of scope for this client-only lane -- see the
-   report). Same shared .rfCard/.rfWho/.rfSub treatment as #roundFlip: both
+   happened), same discipline as the round-flip card below. WHO won now
+   rides the wire too: the `winner <color>` / `winner draw` marker
+   (labels.nim LabelPrefixWinner; global.nim addWinnerMarker -- GameOver
+   frames only, human wire only), scanned by findSelfAndAim into
+   winnerToken and read by matchOverCopy, so the headline names the winner
+   ("RED WINS THE ROUND" / "DRAW") and only falls back to the old
+   outcome-agnostic "round over" against an engine that predates the
+   marker. Same shared .rfCard/.rfWho/.rfSub treatment as #roundFlip: both
    are "boundary notice" beats (calm, centered, non-blocking), the one tier
    below #splat's "hit reaction" (full-bleed, urgent) -- they are siblings,
    not two systems. */
@@ -658,6 +664,166 @@ function ringToneFor(label){
   if(selfTeam&&label.startsWith("player "+selfTeam+" "))return "mate";
   return null;
 }
+/* ===== BR shrinking-zone paint (ported from broadcast_core.js) ===========
+   The server ships the zone's paint-arrival field ONCE as a data sprite
+   (ZONE_ARRIVAL_FIELD_SPRITE_ID) plus a 1x1 "clock" object whose glided X IS
+   the elapsed tick (ZONE_CLOCK_OBJECT_ID). This player client never consumed
+   either. decodeZoneField() unpacks the field once; renderZonePaint() paints
+   a pure per-cell READOUT of it against the clock's already-interpolated
+   dispX every frame -- over the floor, under the soldiers. Client-render
+   only: nothing here ever touches the wire or gameHash. The endcard/splat
+   completion beat stays inert here (zoneEndcardAtMs is never armed) -- this
+   is a LIVE client, the match is not over, exactly as broadcast_core
+   documents; renderZonePaint/drawZoneSplat are ported whole for fidelity. */
+const ZONE_ARRIVAL_FIELD_SPRITE_ID=(window.CTF_WIRE&&window.CTF_WIRE.zoneArrivalFieldSpriteId)||39962;
+const ZONE_CLOCK_OBJECT_ID=(window.CTF_WIRE&&window.CTF_WIRE.zoneClockObjectId)||39963;
+const ZONE_PAINT_BODY_HEX=(window.CTF_WIRE&&window.CTF_WIRE.zonePaintBody)||'#d63eb2';
+const ZONE_PAINT_BODY=[parseInt(ZONE_PAINT_BODY_HEX.slice(1,3),16),parseInt(ZONE_PAINT_BODY_HEX.slice(3,5),16),parseInt(ZONE_PAINT_BODY_HEX.slice(5,7),16)];
+const ZONE_SNAP_REBUILD_GAP_TICKS=48;
+const ZONE_BEAD_TICKS=10,ZONE_WET_TICKS=34,ZONE_SET_TICKS=110,ZONE_DRIP_TICKS=14;
+const ZONE_ENDCARD_MS=2400,ZONE_SPLAT_TICKS=42,ZONE_SPLAT_RADIUS_CELLS=26;
+const ZONE_SHEEN_AMPLITUDE=9,ZONE_SHEEN_PERIOD_PX=190;
+function mixRgb(a,b,t){return [Math.round(a[0]+(b[0]-a[0])*t),Math.round(a[1]+(b[1]-a[1])*t),Math.round(a[2]+(b[2]-a[2])*t)]}
+const ZONE_PAINT_BEAD=mixRgb(ZONE_PAINT_BODY,[255,244,252],0.62);
+const ZONE_PAINT_WET=mixRgb(ZONE_PAINT_BODY,[255,236,250],0.24);
+const ZONE_PAINT_AGED=mixRgb(ZONE_PAINT_BODY,[92,34,74],0.34);
+const ZONE_BANDS=[{age:ZONE_BEAD_TICKS,rgb:ZONE_PAINT_BEAD,gloss:1.0},{age:ZONE_WET_TICKS,rgb:ZONE_PAINT_WET,gloss:0.55},{age:ZONE_SET_TICKS,rgb:ZONE_PAINT_BODY,gloss:0.12}];
+const ZONE_AGED_GLOSS=0.0;
+const ZONE_FIELD_CELL_PX=(window.CTF_WIRE&&window.CTF_WIRE.zoneFieldCellPx)||4;
+const ZONE_NEVER_ARRIVES=0xFFFF;
+const ZONE_RENDER_SUPERSAMPLE=ZONE_FIELD_CELL_PX;
+const ZONE_MAX_TICK_BUCKET=8192;
+let zoneField=null,zoneCanvas=null,zoneCtx=null,zoneImage=null,zoneLastAppliedTick=-1,zoneLastTouchedCells=0;
+let zoneEndcardAtMs=null,zoneEndcardStartTick=null,zoneLastRawTick=-1;
+function buildFineField(coarse,gridW,gridH,fineW,fineH){
+  const fine=new Uint16Array(fineW*fineH);
+  for(let fy=0;fy<fineH;fy++){
+    const cy=(fy-ZONE_FIELD_CELL_PX/2)/ZONE_FIELD_CELL_PX;
+    const gy0=Math.floor(cy),ty=cy-gy0;
+    const gy0c=Math.max(0,Math.min(gridH-1,gy0)),gy1c=Math.max(0,Math.min(gridH-1,gy0+1));
+    const rowBase=fy*fineW;
+    for(let fx=0;fx<fineW;fx++){
+      const cx=(fx-ZONE_FIELD_CELL_PX/2)/ZONE_FIELD_CELL_PX;
+      const gx0=Math.floor(cx),tx=cx-gx0;
+      const gx0c=Math.max(0,Math.min(gridW-1,gx0)),gx1c=Math.max(0,Math.min(gridW-1,gx0+1));
+      const v00=coarse[gy0c*gridW+gx0c],v10=coarse[gy0c*gridW+gx1c],v01=coarse[gy1c*gridW+gx0c],v11=coarse[gy1c*gridW+gx1c];
+      const w00=(1-tx)*(1-ty),w10=tx*(1-ty),w01=(1-tx)*ty,w11=tx*ty;
+      let acc=0,wsum=0;
+      if(v00!==ZONE_NEVER_ARRIVES){acc+=v00*w00;wsum+=w00}
+      if(v10!==ZONE_NEVER_ARRIVES){acc+=v10*w10;wsum+=w10}
+      if(v01!==ZONE_NEVER_ARRIVES){acc+=v01*w01;wsum+=w01}
+      if(v11!==ZONE_NEVER_ARRIVES){acc+=v11*w11;wsum+=w11}
+      fine[rowBase+fx]=wsum>0?Math.round(acc/wsum):ZONE_NEVER_ARRIVES;
+    }
+  }
+  return fine;
+}
+function buildZoneBuckets(fine){
+  const n=fine.length,bucketCount=ZONE_MAX_TICK_BUCKET+2,counts=new Uint32Array(bucketCount);
+  for(let i=0;i<n;i++){const t=fine[i];counts[t>ZONE_MAX_TICK_BUCKET?bucketCount-1:t]++}
+  const bucketStart=new Uint32Array(bucketCount+1);
+  for(let b=0;b<bucketCount;b++)bucketStart[b+1]=bucketStart[b]+counts[b];
+  const cursor=bucketStart.slice(0,bucketCount),bucketed=new Uint32Array(n);
+  for(let i=0;i<n;i++){const t=fine[i],b=t>ZONE_MAX_TICK_BUCKET?bucketCount-1:t;bucketed[cursor[b]++]=i}
+  return {bucketStart,bucketed};
+}
+function buildZoneTrim(fineW,fineH){
+  const trim=new Uint8Array(fineW*fineH),gloss=new Int8Array(fineW*fineH);
+  for(let fy=0;fy<fineH;fy++){
+    const rowBase=fy*fineW;
+    for(let fx=0;fx<fineW;fx++){
+      let h=((fx>>3)*73856093)^((fy>>5)*19349663);
+      h=(h^(h>>>13))>>>0;
+      const r=h%16,leash=r<10?0:r<13?1:r<15?2:3;
+      const sheen=Math.sin((fx+fy)*(2*Math.PI/ZONE_SHEEN_PERIOD_PX))*ZONE_SHEEN_AMPLITUDE;
+      let d=Math.round(sheen);
+      if(d>127)d=127;if(d<-128)d=-128;
+      trim[rowBase+fx]=leash;gloss[rowBase+fx]=d;
+    }
+  }
+  return {leash:trim,gloss};
+}
+function decodeZoneField(width,height,pixels){
+  const coarse=new Uint16Array(width*height);
+  for(let i=0;i<coarse.length;i++){const o=i*4;coarse[i]=pixels[o]|(pixels[o+1]<<8)}
+  const fineW=width*ZONE_RENDER_SUPERSAMPLE,fineH=height*ZONE_RENDER_SUPERSAMPLE;
+  const fine=buildFineField(coarse,width,height,fineW,fineH);
+  let finalTick=-1,finalIdx=-1;
+  for(let i=0;i<fine.length;i++){const a=fine[i];if(a>=ZONE_NEVER_ARRIVES)continue;if(a>finalTick){finalTick=a;finalIdx=i}}
+  zoneField={gridW:fineW,gridH:fineH,arrival:fine,buckets:buildZoneBuckets(fine),trim:buildZoneTrim(fineW,fineH),finalTick,finalX:finalIdx>=0?finalIdx%fineW:0,finalY:finalIdx>=0?Math.floor(finalIdx/fineW):0};
+  zoneCanvas=document.createElement("canvas");zoneCanvas.width=fineW;zoneCanvas.height=fineH;
+  zoneCtx=zoneCanvas.getContext("2d");zoneImage=zoneCtx.createImageData(fineW,fineH);
+  zoneLastAppliedTick=-1;
+}
+function clamp255(v){return v<0?0:v>255?255:v}
+function paintZoneCell(data,idx,rgb,glossMul){
+  const o=idx*4,g=zoneField.trim.gloss[idx]*glossMul;
+  data[o]=clamp255(rgb[0]+g);data[o+1]=clamp255(rgb[1]+g);data[o+2]=clamp255(rgb[2]+g);data[o+3]=255;
+}
+function zoneBandOf(age,leash){
+  const slack=leash*ZONE_DRIP_TICKS;
+  for(const band of ZONE_BANDS){if(age<band.age+slack)return band}
+  return {rgb:ZONE_PAINT_AGED,gloss:ZONE_AGED_GLOSS};
+}
+function resetZoneEndcard(){zoneEndcardAtMs=null;zoneEndcardStartTick=null}
+function zoneEffectiveTick(dispTick){
+  if(zoneEndcardAtMs===null||!zoneField)return dispTick;
+  if(zoneEndcardStartTick===null)zoneEndcardStartTick=dispTick;
+  const target=zoneField.finalTick+ZONE_SPLAT_TICKS;
+  const complete=zoneEndcardStartTick>=zoneField.finalTick;
+  if(!complete&&!(target>dispTick))return dispTick;
+  const from=complete?zoneField.finalTick:dispTick;
+  const p=Math.min(1,(performance.now()-zoneEndcardAtMs)/ZONE_ENDCARD_MS);
+  const eased=p<0.5?4*p*p*p:1-Math.pow(-2*p+2,3)/2;
+  return from+(target-from)*eased;
+}
+function renderZonePaint(targetCtx,dispTick0){
+  if(!zoneField)return;
+  if(zoneLastRawTick>=0&&dispTick0<zoneLastRawTick){resetZoneEndcard();zoneLastAppliedTick=-1}
+  zoneLastRawTick=dispTick0;
+  const dispTick=zoneEffectiveTick(dispTick0),nowInt=Math.floor(dispTick);
+  const needFull=zoneLastAppliedTick<0||nowInt<zoneLastAppliedTick||(nowInt-zoneLastAppliedTick)>ZONE_SNAP_REBUILD_GAP_TICKS;
+  const data=zoneImage.data,leashOf=zoneField.trim.leash;
+  let touched=0;
+  if(needFull){
+    const arrival=zoneField.arrival,n=arrival.length;
+    data.fill(0);
+    for(let i=0;i<n;i++){const a=arrival[i];if(a<=nowInt){const band=zoneBandOf(nowInt-a,leashOf[i]);paintZoneCell(data,i,band.rgb,band.gloss);touched++}}
+  }else if(nowInt>zoneLastAppliedTick){
+    const {bucketStart,bucketed}=zoneField.buckets;
+    const lo=Math.max(0,zoneLastAppliedTick+1),hi=Math.min(nowInt,ZONE_MAX_TICK_BUCKET);
+    for(let t=lo;t<=hi;t++){
+      const s0=bucketStart[t],e0=bucketStart[t+1];
+      for(let k=s0;k<e0;k++){paintZoneCell(data,bucketed[k],ZONE_PAINT_BEAD,1.0);touched++}
+      for(let b=0;b<ZONE_BANDS.length;b++){
+        const nextBand=b+1<ZONE_BANDS.length?ZONE_BANDS[b+1]:{rgb:ZONE_PAINT_AGED,gloss:ZONE_AGED_GLOSS};
+        for(let l=0;l<=3;l++){
+          const src=t-(ZONE_BANDS[b].age+l*ZONE_DRIP_TICKS);
+          if(src<0||src>ZONE_MAX_TICK_BUCKET)continue;
+          const s1=bucketStart[src],e1=bucketStart[src+1];
+          for(let k=s1;k<e1;k++){const idx=bucketed[k];if(leashOf[idx]!==l)continue;paintZoneCell(data,idx,nextBand.rgb,nextBand.gloss);touched++}
+        }
+      }
+    }
+  }
+  zoneLastTouchedCells=touched;
+  if(touched>0||needFull)zoneCtx.putImageData(zoneImage,0,0);
+  zoneLastAppliedTick=nowInt;
+  targetCtx.drawImage(zoneCanvas,0,0,zoneField.gridW,zoneField.gridH,0,0,targetCtx.canvas.width,targetCtx.canvas.height);
+  drawZoneSplat(targetCtx,nowInt);
+}
+function drawZoneSplat(ctx,nowInt){
+  if(!zoneField||zoneField.finalTick<0)return;
+  const age=nowInt-zoneField.finalTick;
+  if(age<0||age>ZONE_SPLAT_TICKS)return;
+  const p=age/ZONE_SPLAT_TICKS,sx=ctx.canvas.width/zoneField.gridW,sy=ctx.canvas.height/zoneField.gridH;
+  const grow=1-Math.pow(1-p,3),r=ZONE_SPLAT_RADIUS_CELLS*grow*Math.max(sx,sy);
+  if(!(r>0))return;
+  const fade=(1-p)*(1-p),c=ZONE_PAINT_BEAD;
+  ctx.save();ctx.globalAlpha=fade;ctx.strokeStyle='rgb('+c[0]+','+c[1]+','+c[2]+')';
+  ctx.lineWidth=Math.max(1,(1-p)*3*Math.max(sx,sy));
+  ctx.beginPath();ctx.arc((zoneField.finalX+0.5)*sx,(zoneField.finalY+0.5)*sy,r,0,Math.PI*2);ctx.stroke();ctx.restore();
+}
 function drawSprite(){
   const nowT=performance.now();
   /* Hitstop: freeze the last composed frame for a handful of ms on landing
@@ -678,6 +844,23 @@ function drawSprite(){
     layer.image.data.fill(0);
     const ordered=[...objects.values()].filter(o=>o.layer===layer.id).sort((a,b)=>a.z-b.z||a.dispY-b.dispY||a.id-b.id);
     for(const object of ordered){
+      if(object.id===ZONE_CLOCK_OBJECT_ID){
+        /* The zone clock object carries a smoothly-glided tick in dispX (the
+           motion-glide system above); reaching its z-slot in the composite
+           order is exactly where the paint layer belongs -- over the floor,
+           under the soldiers. This client accumulates a layer's pixels into
+           layer.image and blits ONCE at the end, so to interleave the zone at
+           this z we flush the pixels drawn so far, blit the zone onto the main
+           ctx, then clear the buffer and keep drawing the rest of this layer
+           (higher z) so those objects composite ON TOP of the zone. */
+        if(zoneField){
+          layer.ctx.putImageData(layer.image,0,0);
+          x.drawImage(layer.canvas,0,0);
+          renderZonePaint(x,object.dispX);
+          layer.image.data.fill(0);
+        }
+        continue;
+      }
       const sprite=sprites.get(object.spriteId);
       if(!sprite)continue;
       const ox=object.dispX,oy=object.dispY;
@@ -756,7 +939,15 @@ function parseSprite(bytes){
         console.error("sprite packet: unrecoverable envelope for sprite "+id+", abandoning this message ("+(bytes.length-offset)+" bytes unparsed)");
         return;
       }
-      if(snappy.pixels)sprites.set(id,{width,height,pixels:snappy.pixels,label:snappy.label});
+      if(snappy.pixels){
+        if(id===ZONE_ARRIVAL_FIELD_SPRITE_ID){
+          /* The static BR zone paint-arrival field: raw per-cell DATA (R|G<<8
+             = the solver's arrival tick), never a drawable image. Decode into
+             typed arrays once; every later frame is a pure readout of them
+             (renderZonePaint). Kept OUT of the sprites map so it never draws. */
+          decodeZoneField(width,height,snappy.pixels);
+        }else sprites.set(id,{width,height,pixels:snappy.pixels,label:snappy.label});
+      }
       // else: decode failed but the envelope was well-formed, so `offset`
       // (below) is still correct -- just skip storing this one sprite and
       // keep parsing the rest of the message in sync. A missing sprite id
@@ -793,7 +984,8 @@ function parseSprite(bytes){
       if(gone)movingObjects.delete(gone);
       objects.delete(id)
     }
-    else if(type===0x04){objects.clear();movingObjects.clear()}
+    else if(type===0x04){objects.clear();movingObjects.clear();/* new episode/round board reset: drop the zone field so a stale one never
+       paints over the new match; the new episode re-ships its own field sprite. */zoneField=null;zoneCanvas=null;zoneCtx=null;zoneImage=null;zoneLastAppliedTick=-1;zoneLastTouchedCells=0;resetZoneEndcard();zoneLastRawTick=-1}
     else if(type===0x05){viewport(bytes[offset],readU16(bytes,offset+1),readU16(bytes,offset+3));offset+=5}
     else if(type===0x06){const layer=ensureLayer(bytes[offset]);layer.type=bytes[offset+1];layer.flags=bytes[offset+2];offset+=3}
     else if(type===0x07){offset+=2}
@@ -1059,6 +1251,13 @@ let committedRotate=null,emittedAttack=false,tickMask=0,wasSeated=false,isDead=f
    just "either of the two just happened", read once on re-seat to decide
    whether the round-flip card is owed. */
 let roundEndedAlive=false,roundBoundaryPending=false;
+/* winnerToken: the tail of the wire's `winner <color>` / `winner draw`
+   marker (labels.nim LabelPrefixWinner) -- the single-word team token
+   (same vocabulary as selfTeam) or "draw"; null for the whole Playing
+   phase and against any engine that predates the marker. Re-derived from
+   the live object set every controlsTick (findSelfAndAim), never latched,
+   so it clears itself when the next lobby reaps the marker. */
+let winnerToken=null;
 let mapW=0,mapH=0,tickCount=0,lastPingTick=-999,pingNote="";
 
 /* The ping wheel is a SEPARATE lane. We own only the seam: swallow the
@@ -1089,7 +1288,14 @@ const CALLOUTS=[
   {digit:5,label:"NICE ONE!",sub:"",accent:"#00e436"},
   {digit:6,label:"RESERVED",sub:"no vocab yet",accent:"#5f574f",dim:true},
 ];
-const TEAM_TINT={red:"#e0523a",blue:"#3f7cc4",green:"#45a85e",yellow:"#ddc531"};
+/* All SIXTEEN BR solo teams in the engine's LOCKED enum order (server
+   lobby.mjs BR_TEAMS / the Team enum). Keyed on the team COLOUR NAME because
+   selfTeam is label.split(" ")[1] (the "self <colour> <side>" colour token,
+   findSelfAndAim) and the tint lookup below keys TEAM_TINT[selfTeam] on it.
+   Hexes are the stack's canonical paint map (web/app.js TEAM_PAINT) so the
+   self tint matches the colour every other surface paints for that team; the
+   neutral amber (#e8a33d) stays the code-side fallback for an unknown name. */
+const TEAM_TINT={red:"#e0523a",blue:"#3f7cc4",green:"#45a85e",yellow:"#ddc531",black:"#4a4a52",silver:"#b6bcc4",ivory:"#e8e2d0",pink:"#e58ab5",umber:"#7a5a3c",rust:"#b05a2a",orange:"#e8873d",plum:"#8a5aa8",lime:"#9ad235",navy:"#2f4a86",azure:"#3fb6d8",peach:"#f0a882"};
 const WHEEL_CHIP_R=92, WHEEL_DEADZONE=30;
 let wheelOpen=false,wheelHover=-1,wheelCX=0,wheelCY=0;
 const wheelEl=document.getElementById("wheel"),
@@ -1160,7 +1366,7 @@ addEventListener("mousemove",e=>{
    value actually changed, but the cached `sprites` map always holds the
    latest one, so reading it here is current even on an unchanged tick. */
 function findSelfAndAim(){
-  let pos=null,ownAim=null;
+  let pos=null,ownAim=null,winner=null;
   for(const o of objects.values()){
     const sp=sprites.get(o.spriteId);
     if(!sp||!sp.label)continue;
@@ -1170,9 +1376,16 @@ function findSelfAndAim(){
     }else if(sp.label.startsWith("own aim ")){
       const v=parseInt(sp.label.slice(8),10);
       if(!isNaN(v))ownAim=v;
+    }else if(sp.label.startsWith("winner ")){
+      /* `winner <color>` | `winner draw` (labels.nim LabelPrefixWinner,
+         global.nim addWinnerMarker): an invisible 1x1 HUD marker present on
+         GameOver frames only, so this reads null for the whole Playing
+         phase and the object's own per-frame delete reaps it at the next
+         lobby -- no client-side reset needed. The tail is one token. */
+      winner=sp.label.slice(7)||null;
     }
   }
-  return {pos,ownAim};
+  return {pos,ownAim,winner};
 }
 /* ---- Seated follow camera (legibility audit #1) ----------------------
    The pixel buffer stays the whole map at native scale -- that invariant
@@ -1598,6 +1811,13 @@ function controlsTick(){
   tickCount++;
   const found=findSelfAndAim();
   selfPos=found.pos;
+  /* Winner marker: edge-detect its ARRIVAL (null -> value, or a changed
+     verdict) and commit it BEFORE the death-edge block below, so a
+     same-packet "the round just ended" edge already sees the verdict when
+     it builds the #matchOver card (the server emits the marker in the very
+     first GameOver frame, the same one that deletes the map object). */
+  const winnerArrived=found.winner!==null&&found.winner!==winnerToken;
+  winnerToken=found.winner;
   /* Resync FIRST, before this tick's rotate decision reads estAim below:
      found.ownAim is exact for this tick straight off the wire, so prefer it
      outright over the integrated guess. CC.stepAim only fills a tick where
@@ -1664,6 +1884,21 @@ function controlsTick(){
     }
     isDead=false;roundEndedAlive=false;roundBoundaryPending=false;
   }
+  /* Winner announcement for a seat that was ALREADY down when the round
+     ended: its seated->unseated edge above fired at the death, long before
+     the boundary, so the #matchOver card never played for it and the only
+     signal that the round just ended is the `winner ` marker arriving.
+     Fire the card off that arrival (once -- winnerArrived is edge-
+     triggered), headline only (matchOverCopy blanks the sub line while
+     isDead: the #s.dead death copy underneath is untouched and already
+     owns "next round starts soon"). If the card is ALREADY up -- the alive
+     path just triggered it in the edge block, same packet -- only refresh
+     its text. A never-seated spectator (isDead false, card not up) gets
+     nothing, same as before. */
+  if(winnerArrived){
+    if(matchOverEl&&matchOverEl.classList.contains("show"))refreshMatchOverCopy();
+    else if(isDead)triggerMatchOver();
+  }
   wasSeated=seatedNow;
   let rot=null;
   /* directAimActive: the cursor already drives the turret directly (see the
@@ -1717,8 +1952,6 @@ function drawReticle(){
 function drawSelfTag(){
   if(!selfPos)return;
   x.save();
-  x.beginPath();x.arc(selfPos.x,selfPos.y,13,0,Math.PI*2);
-  x.strokeStyle="rgba(255,255,255,.9)";x.lineWidth=1.5;x.stroke();
   x.font="10px ui-monospace,SFMono-Regular,Menlo,monospace";
   x.textAlign="center";x.lineWidth=2.5;
   x.strokeStyle="rgba(0,0,0,.85)";x.fillStyle="#fff";
@@ -1907,24 +2140,51 @@ function triggerRoundFlip(){
    HTML, because it is the one piece of this file that is genuinely
    mode-aware content rather than mode-aware styling: BR calls its cycle a
    "round", classic calls the whole thing a "match" (same split
-   deathStatusLine already makes). Never claims a winner -- see this
-   element's CSS comment for why that signal does not exist on this wire. */
+   deathStatusLine already makes). Names the winner off the wire's
+   `winner ` marker (winnerLine below) -- see this element's CSS comment. */
 const MATCH_OVER_HOLD_MS=1500;
 let matchOverHideTimer=0;
+function winnerLine(){
+  /* The `winner <color>` / `winner draw` marker (labels.nim
+     LabelPrefixWinner; global.nim addWinnerMarker -- GameOver frames only,
+     human wire only), scanned by findSelfAndAim into winnerToken. null
+     until it has arrived, so the caller degrades to the old
+     outcome-agnostic headline against an engine that predates the marker
+     rather than guessing. <color> is the same single-word team token the
+     "self <colour> <side>" label carries (teamText), printed as-is -- the
+     .rfWho rule uppercases it. Quiet register on purpose: no exclamation,
+     no icon; the fact is the whole message. */
+  if(winnerToken===null)return null;
+  if(winnerToken==="draw")return "draw";
+  return winnerToken+" wins the "+(isBrMap()?"round":"match");
+}
 function matchOverCopy(){
   /* isBrMap(), not cameraContext -- same reasoning as the roundBoundaryPending
      check above: this fires off the network tick, not the draw tick that
-     resolves cameraContext, so it reads mapW directly. */
-  return isBrMap()?
-    {who:"round over",sub:"you made it through — next round starts soon..."}:
-    {who:"match over",sub:"you made it to the end — next match starts soon..."};
+     resolves cameraContext, so it reads mapW directly.
+     Sub line: UNCHANGED for the alive path ("you made it through"); EMPTY
+     for a seat that was already down (isDead) -- the death card beneath
+     already owns that seat's status line, and "you made it through" would
+     be a lie there. */
+  const br=isBrMap();
+  const sub=isDead?"":(br?
+    "you made it through — next round starts soon...":
+    "you made it to the end — next match starts soon...");
+  const line=winnerLine();
+  return {who:line!==null?line:(br?"round over":"match over"),sub:sub};
 }
-function triggerMatchOver(){
+function refreshMatchOverCopy(){
+  /* Text only, no show/hide -- called on a fresh trigger AND when the
+     winner marker lands a packet after the card is already up. */
   if(!matchOverEl)return;
   const copy=matchOverCopy();
   const whoEl=matchOverEl.querySelector(".rfWho"),subEl=matchOverEl.querySelector(".rfSub");
   if(whoEl)whoEl.textContent=copy.who;
   if(subEl)subEl.textContent=copy.sub;
+}
+function triggerMatchOver(){
+  if(!matchOverEl)return;
+  refreshMatchOverCopy();
   clearTimeout(matchOverHideTimer);
   matchOverEl.classList.remove("show");
   void matchOverEl.offsetWidth; // force reflow so a rapid re-trigger restarts the fade cleanly

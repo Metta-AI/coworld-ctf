@@ -2406,6 +2406,13 @@ proc calloutsEnabled(): bool =
     withLock appState.lock:
       result = appState.config.allowCallouts
 
+proc shotFeedbackEnabled(): bool =
+  ## Returns true when this config arms the private shot-feedback channel
+  ## (GameConfig.allowShotFeedback) — mirrored here like the other gates.
+  {.gcsafe.}:
+    withLock appState.lock:
+      result = appState.config.allowShotFeedback
+
 proc capabilitiesJson(): string =
   ## What this server will GRANT a human connection. The same client bundle is
   ## served to league and play servers, so the client feature-DETECTS here
@@ -2422,7 +2429,8 @@ proc capabilitiesJson(): string =
     "directAim": directAimEnabled(),
     "allowAimAssist": aimAssistEnabled(),
     "allowCallouts": calloutsEnabled(),
-    "allowCosmeticFx": cosmeticFxEnabled()
+    "allowCosmeticFx": cosmeticFxEnabled(),
+    "allowShotFeedback": shotFeedbackEnabled()
   })
 
 proc pickFreeplaySeat*(
@@ -4625,7 +4633,7 @@ proc runServerLoop*(
               alive: sim.players[i].alive,
               respawnTimer: sim.players[i].respawnTimer))
           appState.seatBoard = board
-          migratePendingTakeovers(appState.seatBoard, appState.config.brMode)
+          migratePendingTakeovers(appState.seatBoard, (appState.config.brMode or appState.config.instantTakeover))
         # ---- seat takeover: resolve each seat, land pending swaps --------
         # A pending takeover goes live on its cog's next false -> true `alive`
         # edge. That is the ONE clean moment: the human always starts a life
@@ -4650,7 +4658,7 @@ proc runServerLoop*(
             if cog >= 0:
               takeover.cogX = sim.players[cog].x
               takeover.cogY = sim.players[cog].y
-            if takeover.advanceSeatTakeover(cog, nowAlive, appState.config.brMode):
+            if takeover.advanceSeatTakeover(cog, nowAlive, (appState.config.brMode or appState.config.instantTakeover)):
               echo "seat takeover live: ", takeover.name, " drives seat ",
                 takeover.seat, " (cog ", takeover.cog, ")"
             if takeover.active and takeover.cog >= 0:

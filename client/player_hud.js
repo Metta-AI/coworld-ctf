@@ -75,12 +75,20 @@
                                                 the identity/shout labels use
                                                 (alpha..theta, ranked within team,
                                                 wraps) — NEVER a connection
-                                                address; rendered as-is. Every
-                                                field a fixed token; no greedy
-                                                matching needed. Absent on engines
-                                                before 8ad1c420 — rows then fall
-                                                back to "score " rows / the HTTP
-                                                roster, same as ever.
+                                                address; NOT rendered as-is (in
+                                                16-solo BR every seat is its
+                                                team's slot 0, so that read
+                                                "alpha" x16 on prod) — see
+                                                seatDisplayName. Every field a
+                                                fixed token; no greedy matching
+                                                needed. Absent on engines before
+                                                8ad1c420 — rows then fall back to
+                                                "score " rows / the HTTP roster,
+                                                same as ever.
+     "winner <color>" / "winner draw"         — LabelPrefixWinner: GameOver frames
+                                                only, human wire only. NOT read by
+                                                this module — player_client.html's
+                                                own #matchOver card consumes it.
      "team score <NAME> <kills>/<deaths>"     — addTeamScoreboard, per team, always sent
      "score <name> <lives> <kills>/<deaths> color <n>" — addScoreboard, per player
                                                 (50a13efc). OLDER ENGINES: the row is
@@ -306,6 +314,41 @@
   function parseRosterLabel(label) {
     const m = /^roster (\S+) (\S+) (\d+) (\d+)\/(\d+)$/.exec(label);
     return m ? { team: m[1], name: m[2], lives: +m[3], kills: +m[4], deaths: +m[5] } : null;
+  }
+  // NAME column for a "roster " row. The marker's <name> is the anonymous
+  // PER-TEAM slot letter — global.nim emits
+  // IdentityNames[sim.slotIdentityIndex(joinOrder)], the seat's rank WITHIN
+  // ITS TEAM — by design: labels.nim LabelPrefixRoster withholds the
+  // connection address on purpose and tests/test_identity_privacy.nim fails
+  // any player-frame label that carries one. So in 16-solo BR every team has
+  // exactly one seat, every seat is slot 0, and the column read "alpha"
+  // sixteen times (seen live on prod), the human included. The wire carries
+  // NO per-seat display name to this panel; resolve without inventing one:
+  //   1. self: the ?name= this page itself forwarded onto the socket
+  //      (myIdentity) — the one seat whose real name the client holds.
+  //   2. the HTTP roster (/api/field, the Node proxy's endpoint, shape
+  //      unconfirmed) when it names exactly one seat on this row's team AND
+  //      the wire shows exactly one seat on it (solo BR): an unambiguous
+  //      join by team. Duos stay anonymous (no rank-order assumption).
+  //   3. otherwise the seat's own public identity on THIS wire — the team
+  //      word alone for a one-seat team (that word IS what the seat's
+  //      `self`/`player` labels call it), "<team> <letter>" when the team
+  //      has several seats. Never a bare letter again.
+  // Returns {name, human}: `human` is the HTTP roster's person flag when the
+  // join in (2) landed, else null (renders the honest "—").
+  function seatDisplayName(row, isSelf, rows) {
+    if (isSelf && myIdentity.name) return { name: myIdentity.name, human: true };
+    let teamSeats = 0;
+    for (let i = 0; i < rows.length; i++) if (rows[i].team === row.team) teamSeats++;
+    if (teamSeats === 1 && roster.resolved) {
+      let hit = null, hits = 0;
+      const want = String(row.team).toLowerCase();
+      roster.byName.forEach(function (e) {
+        if (e.team && e.name && String(e.team).toLowerCase() === want) { hit = e; hits++; }
+      });
+      if (hits === 1) return { name: hit.name, human: hit.person };
+    }
+    return { name: teamSeats === 1 ? row.team : row.team + ' ' + row.name, human: null };
   }
   // Per-player scoreboard row (addScoreboard), BOTH deployed shapes:
   //   NEW (50a13efc):  "score <name> <lives> <kills>/<deaths> color <n>"
@@ -607,11 +650,16 @@
         }
       }
       playerRows = raw.rosterRows.map(function (row) {
+        const isSelf = row.team === raw.selfTeam && row.name === selfName;
+        // NAME: never the bare slot letter — see seatDisplayName (the
+        // 16-solo "alpha" x16 wall). `human` is null unless that resolver
+        // actually joined the row to a named seat — honest "—" otherwise.
+        const seat = seatDisplayName(row, isSelf, raw.rosterRows);
         return {
-          name: row.name, team: row.team, lives: row.lives,
+          name: seat.name, team: row.team, lives: row.lives,
           kills: row.kills, deaths: row.deaths,
-          human: null, // anonymous rows never join the HTTP roster — honest "—"
-          self: row.team === raw.selfTeam && row.name === selfName,
+          human: seat.human,
+          self: isSelf,
         };
       });
     } else if (raw.scoreRows.length) {
@@ -1264,6 +1312,18 @@
   // NOT change the reserved state.teamsAlive contract field, which stays
   // whatever buildState() set it to (null today; real feed once realcog
   // routes teamLivesRemaining() onto the wire).
+  // Round-boundary guard: BR's own win condition ends a round at exactly
+  // ONE team remaining — the sim never lets play continue to zero, so a
+  // computed 0 here is never a real reading (confirmed live: the SAME
+  // roster read "1 / 16" one tick and "0 / 16" the next, ~450ms later,
+  // with every seat's deaths flipping to >0 in that single tick — the
+  // concluding round's teardown and the next round's fresh roster
+  // crossing on the wire, not an actual all-dead match). Rather than flash
+  // a number the mode cannot produce, hold the last real (non-zero)
+  // reading through that one seam tick; the very next tick's real roster
+  // (this round's last survivor, or the new round's fresh N) overwrites
+  // it immediately, so a hold never goes stale for more than a frame.
+  let lastGoodAlive = null, lastGoodChipsHtml = '';
   function teamAliveChips(state) {
     const status = teamAliveStatus(state);
     const teams = state.teamScores.map(function (t) { return t.team; });
@@ -1278,6 +1338,18 @@
         (wiped ? '' : ' style="background:' + teamColor(key) + '"') +
         ' title="' + escapeHtml(team) + (wiped ? ' — eliminated' : '') + '"></i>';
     });
+    if (aliveCount === 0) {
+      // Hold the last real reading through the seam tick when we have one.
+      // No held reading yet (e.g. this client attached mid-match right on
+      // a boundary tick, before ever seeing a real count) is the SAME
+      // "don't know yet" case buildState() already renders honestly as a
+      // dash elsewhere — never invent 0 there either, so drop the
+      // all-wiped chip row along with it rather than show hollow chips
+      // next to a dash.
+      if (lastGoodAlive !== null) return { html: lastGoodChipsHtml, aliveCount: lastGoodAlive, held: true };
+      return { html: '', aliveCount: null };
+    }
+    lastGoodAlive = aliveCount; lastGoodChipsHtml = html;
     return { html: html, aliveCount: aliveCount };
   }
   function whoText(human) { return human === true ? 'HUMAN' : human === false ? 'BOT' : '—'; }
