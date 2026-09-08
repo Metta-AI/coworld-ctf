@@ -389,7 +389,16 @@ proc teamStateJson(sim: SimServer, team: Team): JsonNode =
     # exposure for this pass: the raw ledger total. The full floating
     # "+Ng"/RANK UP pop rendering (`gloryPops`/`achievementFeed`) is NOT
     # wired to the client yet.
-    "glory": sim.teamGlory[team]
+    "glory": sim.teamGlory[team],
+    # HEAT ON THE WIRE: the live multiplier (`heatMult` of `heatEmbers`,
+    # glory.nim -- 1/2/4/8, matching `HeatLadder`) `mintGlory` is already
+    # applying to this team's deeds. Unconditional beside "glory" for the
+    # same reason "glory" is unconditional: it is core game logic, not a
+    # mode-gated feature. Measured: 0 of 512 seat-episodes ever reached the
+    # top rung and the x1 floor holds 99.7%+ of BR seat-time -- a chain this
+    # unexploited was never on the wire for a spectator (or a policy author
+    # reading a replay) to even SEE, let alone play toward.
+    "heat": heatMult(sim.heatEmbers[team])
   }
   if not sim.gameMap.flagless:
     let
@@ -1029,7 +1038,16 @@ proc buildStateJson*(
   achievementBadges: JsonNode = nil,
   lobbyChat: JsonNode = nil,
   ballots: JsonNode = nil,
-  mismatchSameBuild: bool = false
+  mismatchSameBuild: bool = false,
+  # HEAT ON THE WIRE: parallel to `leadSeries` -- same [tick,
+  # valuePerTeam…] change-point shape, same Team order, same one-shot
+  # "sent once, client caches it" contract -- but appended as its own
+  # trailing param (not inserted beside `leadSeries` above) so every
+  # existing POSITIONAL call site of this proc keeps compiling unchanged.
+  # Never merged into `leadSeries` itself: that series is the momentum
+  # lane's own metric (glory for classic, hill for KotH) and must keep
+  # meaning only that.
+  heatSeries: seq[seq[int]] = @[]
 ): string =
   ## Assembles the broadcast chrome frame from the current board state plus the
   ## events accumulated across this playback frame. Board-derived STATE (lives,
@@ -1181,6 +1199,26 @@ proc buildStateJson*(
       "metric": (if leadMetric.len > 0: leadMetric else: "glory"),
       "teams": teamNames, "pts": pts, "out": outTicks
     }
+
+  # HEAT ON THE WIRE: the full-timeline heat-multiplier series, shipped on
+  # the SAME one-shot frame as `lead` above (same team order, same
+  # change-point compaction) but under its own key -- a PARALLEL series, not
+  # a field bolted onto `lead`, so `lead`'s own metric (glory/hill) never
+  # has to share its shape with a second, unrelated number. Self-contained
+  # ({"teams", "pts"}, no "metric"/"out": there is only one heat metric and
+  # elimination timing already rides `lead.out`) so a consumer that only
+  # wants heat need not also parse `lead`.
+  if heatSeries.len > 0:
+    var heatTeamNames = newJArray()
+    for team in sim.teams():
+      heatTeamNames.add(%teamText(team))
+    var heatPts = newJArray()
+    for point in heatSeries:
+      var row = newJArray()
+      for value in point:
+        row.add(%value)
+      heatPts.add(row)
+    state["heat"] = %*{"teams": heatTeamNames, "pts": heatPts}
 
   # Static minimap wall silhouette for the EYES tactical inset, sent ONCE per
   # viewer (like the lead series). Absent on every later frame — the client

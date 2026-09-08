@@ -43,6 +43,10 @@ suite "incremental replay scan":
         inc guard
         doAssert guard < 100_000, "scan never completed"
       check sliced.leadSeries == reference.leadSeries
+      # HEAT ON THE WIRE: heatSeries is scanned on the exact same walk as
+      # leadSeries (replays.nim's advanceReplayScan), so slicing must be
+      # just as observationally transparent for it.
+      check sliced.heatSeries == reference.heatSeries
       check $sliced.beatEvents == $reference.beatEvents
       check sliced.lullSpans == reference.lullSpans
       check sliced.keyframeTicks() == reference.keyframeTicks()
@@ -78,6 +82,9 @@ suite "incremental replay scan":
     let earlyChrome = early.chromeOf()
     check not earlyChrome.isNil
     check not earlyChrome.hasKey("lead")
+    # HEAT ON THE WIRE: heatSeries rides the exact same one-shot as lead
+    # (sendLead), so it must be equally absent mid-scan.
+    check not earlyChrome.hasKey("heat")
     check not earlyChrome.hasKey("lulls")
     check not earlyChrome.hasKey("beats")
     check not nextViewer.momentumSent
@@ -89,6 +96,7 @@ suite "incremental replay scan":
       runtime.player, viewer, nextViewer, newJArray())
     let lateChrome = late.chromeOf()
     check lateChrome.hasKey("lead")
+    check lateChrome.hasKey("heat")
     check nextViewer.momentumSent
 
   test "seeking past the scanned prefix lands exactly and survives the scan":

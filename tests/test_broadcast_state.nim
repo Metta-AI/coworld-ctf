@@ -326,6 +326,57 @@ suite "broadcast state channel":
     finally:
       setCurrentDir(previousDir)
 
+  test "heat rides the wire beside glory: live per-team key + its own parallel series":
+    # HEAT ON THE WIRE: heatMult/heatEmbers exist sim-side (glory.nim/
+    # sim.nim) but were never broadcast -- 0 of 512 seat-episodes ever
+    # reached the top rung and the x1 floor holds 99.7%+ of BR seat-time,
+    # which an invisible mechanic will do. This proves the plumbing: the
+    # live per-team key, and the full-match series parallel to `leadSeries`.
+    let previousDir = getCurrentDir()
+    setCurrentDir(GameDir)
+    try:
+      let data = loadReplay(CaptureFixture)
+      var
+        sim = initFixtureSim(data)
+        replay = initReplayPlayer(data)
+      replay.mismatchQuit = true
+      replay.buildReplayKeyframes(sim)
+      # Same [tick, valuePerTeam…] change-point shape as leadSeries, same
+      # team order -- but its OWN series (heatSeries), never folded into
+      # leadSeries itself.
+      check replay.heatSeries.len >= 1
+      var lastTick = -1
+      for point in replay.heatSeries:
+        check point.len == 1 + 2  # tick + one heat value per team
+        check point[0] >= lastTick
+        lastTick = point[0]
+        for value in point[1 .. ^1]:
+          # HeatLadder = [1, 2, 4, 8]: the multiplier's floor is x1, never
+          # zero -- "no heat" reads as the resting rung, not an absent key.
+          check value in [1, 2, 4, 8]
+      # The chrome frame publishes it as its own {teams, pts} key, parallel
+      # to "lead" -- not merged into it (a hard constraint of this port: the
+      # momentum lane's metric must keep meaning only glory/hill).
+      let state = parseJson(sim.buildStateJson(
+        newJArray(), false, 1, replay.replayMaxTick(), false, true, -1, -1,
+        replay.leadSeries, replay.leadMetric, replay.leadOutTicks,
+        heatSeries = replay.heatSeries
+      ))
+      check state["heat"]["teams"].len == 2
+      check state["heat"]["teams"][0].getStr == "red"
+      check state["heat"]["teams"][1].getStr == "blue"
+      check state["heat"]["pts"].len == replay.heatSeries.len
+      for row in state["heat"]["pts"]:
+        check row.len == 3
+      # Live per-team key: unconditional beside "glory" on EVERY frame (not
+      # gated behind the once-per-viewer lead/heat series above), and its
+      # value is exactly heatMult of the sim's own heatEmbers -- the same
+      # formula mintGlory (glory.nim) already applies to every deed.
+      check state["teams"]["red"]["heat"].getInt == heatMult(sim.heatEmbers[Red])
+      check state["teams"]["blue"]["heat"].getInt == heatMult(sim.heatEmbers[Blue])
+    finally:
+      setCurrentDir(previousDir)
+
   test "keyframe walk precomputes the flag beats + verdict timeline":
     let previousDir = getCurrentDir()
     setCurrentDir(GameDir)
