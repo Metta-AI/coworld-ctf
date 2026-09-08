@@ -136,6 +136,55 @@
     return m;
   }
 
+  // ---- movement prediction (OPT-12, client-side, OWN cog only) ----
+  // Mirrors sim.nim applyInput's velocity/position update EXACTLY for the
+  // UNBUFFED case (sim_types.nim:636-640): Accel=76, FrictionNum/Den=144/256,
+  // MaxSpeed=704, StopThreshold=8, MotionScale=256 (velX/velY are fixed-point,
+  // MotionScale units per tick -- same convention applyMomentumAxis's `carry`
+  // accumulates and resolveAimAssist's lead calc divides back out,
+  // sim.nim:4071-4077). "Unbuffed" because the three server-only speed
+  // multipliers -- trench slow zone (sim.playerTrench), floor-paint speedPct
+  // (sim.paintSpeedPct), carrier 70% penalty (player.carryingFlag) -- never
+  // reach the player wire, so a client integrating this formula alone WILL
+  // drift under any of them. That is by design, not a bug to fix here: the
+  // caller (player_client.html predictReconcile) resyncs its position
+  // baseline to the authoritative server x/y every single received tick
+  // regardless, so the drift this formula can accumulate is bounded before
+  // the next correction, never compounding indefinitely across a whole
+  // buffed traversal.
+  const ACCEL = 76;          // sim_types.nim:636
+  const FRICTION_NUM = 144;  // sim_types.nim:637
+  const FRICTION_DEN = 256;  // sim_types.nim:638
+  const MAX_SPEED = 704;     // sim_types.nim:639
+  const STOP_THRESHOLD = 8;  // sim_types.nim:640
+  const MOTION_SCALE = 256;  // sim_types.nim MotionScale
+
+  // One discrete tick of one axis's velocity: accelerate toward MAX_SPEED
+  // when an input bit is held, else apply friction and floor to 0 below
+  // STOP_THRESHOLD -- the exact two branches of sim.nim applyInput's
+  // per-axis block (5304-5321 / 5323-5340), same clamp order. `axis` is
+  // -1/0/1 (inputX or inputY, i.e. left-right or up-down summed).
+  function stepVelocityAxis(vel, axis) {
+    if (axis !== 0) {
+      return Math.max(-MAX_SPEED, Math.min(MAX_SPEED, vel + axis * ACCEL));
+    }
+    let v = Math.trunc((vel * FRICTION_NUM) / FRICTION_DEN); // Nim `div` truncates toward 0, same as Math.trunc
+    if (Math.abs(v) < STOP_THRESHOLD) v = 0;
+    return v;
+  }
+
+  // Advances a position by `ticks` worth of a fixed-point velocity, WALL-
+  // BLIND -- the real per-tick move is pixel-stepped with wall/player
+  // collision (sim.nim applyMomentumAxis, unreachable client-side with no
+  // wallMask on the player wire), so this uses the same simplified
+  // extrapolation the engine's OWN aim-assist lead already uses server-side
+  // when it needs a wall-blind guess (sim.nim:4076-4077, "ignores walls,
+  // collisions and the carry remainder on purpose -- an approximate lead").
+  // A sanctioned shortcut, not a new one.
+  function stepPositionAxis(pos, vel, ticks) {
+    return pos + Math.trunc((vel * ticks) / MOTION_SCALE);
+  }
+
   // ---- fire ----
   // The engine fires on a RISING edge and the shot auto-releases after the
   // windup; holding the button does NOT keep firing. To auto-repeat while the
@@ -258,8 +307,9 @@
   return {
     BUTTON, KEYMAP, AIM_BRADS_TURN, AIM_TURN_RATE, TICK_HZ, AIM_DEADZONE,
     SHOUT_MAX_CHARS, SHOUT_COOLDOWN_TICKS,
+    ACCEL, FRICTION_NUM, FRICTION_DEN, MAX_SPEED, STOP_THRESHOLD, MOTION_SCALE,
     wrapBrads, shortestDelta, bradsOfVector, rotateButton, stepAim,
     spawnAimBrads, reseedAim, moveMask, fireBit, itemBit, pingText, chessCell,
-    buildMask, maskToButtons,
+    buildMask, maskToButtons, stepVelocityAxis, stepPositionAxis,
   };
 });

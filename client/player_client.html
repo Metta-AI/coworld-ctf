@@ -925,8 +925,38 @@ function frameTick(now){
     return;
   }
   const animating=updateInterpolation(now);
+  /* OPT-12: advance the local wall-clock prediction ticker FIRST (fires zero
+     or more predictAdvance() calls depending on elapsed real time, entirely
+     independent of whether a server packet has arrived this frame), THEN
+     override the self object's dispX/dispY with the resulting sub-tick
+     position, AFTER updateInterpolation's generic glide has had its turn --
+     our value always wins for self while predicting, and drawSprite() below
+     reads dispX/dispY exactly like it does for every other object (OPT-10
+     compositor untouched: same draw path, not bypassed). */
+  if(PREDICT_ENABLED)predictLocalTick(now);
+  const predicting=PREDICT_ENABLED&&predX!==null&&selfObjectId!==null;
+  if(predicting){
+    const obj=objects.get(selfObjectId);
+    if(obj){
+      const p=predictRenderPos(now);
+      obj.dispX=p.x;obj.dispY=p.y;
+    }
+  }
+  /* Measurement-only diagnostic (both predict=0 and predict=1, always
+     cheap): the OWN cog's current rendered pixel position, for an outside
+     harness to sample "time from a synthetic keydown to the first frame the
+     own cog's rendered position moves" without reaching into this script's
+     top-level (non-window) `objects`/`selfObjectId` scope. */
+  {
+    const selfObj=selfObjectId!==null?objects.get(selfObjectId):null;
+    window.__selfRenderPos=selfObj?{x:selfObj.dispX,y:selfObj.dispY,t:now}:null;
+  }
   drawSprite();
-  if(animating||now<shakeEndAt||now<hitmarkerUntil)rafHandle=requestAnimationFrame(frameTick);
+  /* Keep the rAF chain alive on its own while predicting+seated, even if
+     nothing else on the board is mid-glide this frame -- sub-tick
+     extrapolation needs a paint every frame to be visible, not just the
+     ticks where a packet actually arrived. */
+  if(animating||predicting||now<shakeEndAt||now<hitmarkerUntil)rafHandle=requestAnimationFrame(frameTick);
 }
 function scheduleDraw(){
   if(rafHandle)return;
@@ -1064,6 +1094,13 @@ const directAimActive=(()=>{
     return !!flag&&["1","true","yes"].includes(flag);
   }catch(e){return false}
 })();
+/* OPT-12: client-side prediction for the OWN cog, off by default. `?predict=1`
+   only -- see the predictReconcile/predictAdvance/predictLocalTick block
+   below (declared near controlsTick/frameTick, where selfObjectId/selfPos
+   already live) for the full design writeup. Zero cost when absent: every
+   predict* variable stays at its inert default and every predict* function
+   is simply never called. */
+const PREDICT_ENABLED=u.searchParams.get("predict")==="1";
 /* Aim deadzone (jitter fix -- see the discrimination writeup in the fix commit):
    the OLD rotate-button aim had two built-in dampers -- AIM_DEADZONE (3 brads,
    player_controls.js) and a hard 5-brads/tick turn rate -- so mouse sensor
@@ -1145,7 +1182,207 @@ let mouseX=0,mouseY=0,haveMouse=false,lmb=false;
    fire edge even if the mouse was already released by then; cleared once a
    tick has consumed it (see controlsTick below) so it never re-fires stale. */
 let firePendingEdge=false;
-let estAim=0,aimSeeded=false,selfPos=null,selfTeam=null;
+let estAim=0,aimSeeded=false,selfPos=null,selfTeam=null,selfObjectId=null;
+/* ---- OPT-12: client-side prediction for the OWN cog (?predict=1) --------
+   GOAL (latency.md LT-1): the self sprite's DRAWN position currently glides
+   like every other object -- from where it was to the server's new x/y over
+   one learned packetInterval (~42-108ms measured live) -- purely cosmetic
+   lag behind a keypress the server already accepted. This predicts the OWN
+   cog's rendered position locally instead, and reconciles against the
+   authoritative x/y every tick.
+
+   COORDINATE SPACE: operates on the wire object's own raw x/y (top-left of
+   the collision box -- the SAME convention sim.nim's player.x/y and this
+   file's `objects` map already use), never on `selfPos` (which is
+   center-offset, for camera/aim math only). Predicted values are written
+   straight into that object's dispX/dispY -- the exact field drawSprite()
+   already reads for every object (OPT-10's compositor is untouched: this
+   feeds the same draw path, it does not bypass it).
+
+   MODEL: TWO CLOCKS, deliberately decoupled --
+   1. A LOCAL wall-clock ticker (predictLocalTick, driven from frameTick's
+      own rAF, i.e. every PAINT, not every packet) accumulates elapsed real
+      time and fires predictAdvance() -- one UNBUFFED tick of
+      velocity/position integration (CC.stepVelocityAxis/stepPositionAxis,
+      mirroring sim.nim applyInput; see player_controls.js for why
+      "unbuffed" and the exact source lines) -- every time predictTickMs()
+      (the live-learned packetInterval, nominally 41.67ms/24Hz -- see the
+      TICK CADENCE comment below for why this tracks the box's real sustained
+      rate rather than a hardcoded nominal one) of wall time has elapsed,
+      using WHATEVER input is held at that instant. This is what actually
+      removes the visible lag: a keypress is reflected on the very next
+      LOCAL tick boundary (worst case one tick interval), never waiting on a
+      network round trip to the server. An earlier version of this code mistakenly
+      drove the integration from controlsTick (once per RECEIVED server
+      frame) instead -- that reintroduced exactly the ~1-packet-interval
+      lag this whole feature exists to remove, just renamed; measured live,
+      it capped keydown-to-visible-motion at ~90-160ms, barely better than
+      the un-predicted baseline. Fixed by moving the integration to its own
+      wall-clock ticker, independent of packet arrival.
+   2. Reconciliation (predictReconcile, called from controlsTick -- once per
+      RECEIVED server frame, i.e. once per applied sim tick, this file's own
+      header comment above controlsTick) compares the LOCAL clock's current
+      guess (predX/predY, which may by now be several local ticks ahead of
+      what this packet confirms) against the just-arrived authoritative
+      obj.x/obj.y. Error is tracked (predMaxError) and a large miss
+      increments predCorrections -- exposed on window.__predict for
+      measurement and as the signal that a hard visual snap (not a smooth
+      continuation) is warranted. Baseline ALWAYS resyncs to the
+      authoritative position afterward (predX=obj.x), so error can never
+      compound call over call -- the counters are a diagnostic of how often/
+      how far local-vs-server diverged, not a running drift. Blocked-axis
+      lock: if the local clock predicted real motion on an axis since the
+      last reconcile but the server's actual delta over that same span was
+      ~0, that axis is locked (future accel into the same held direction is
+      suppressed) until the input direction changes or a fresh delta proves
+      it clear -- the "no wallMask -> never predict through the last known
+      blocked cell" guard: this client cannot see walls, but it CAN see when
+      its wall-blind guess was wrong, and stops repeating that guess.
+
+   Sub-tick rendering (predictRenderPos, near frameTick) extrapolates a
+   fraction of the CURRENT local tick's velocity by elapsed wall-clock time
+   since that tick started -- the same idea as the generic dispX/dispY glide
+   every other object already uses, just fed by our own physics guess
+   instead of a lerp toward an unknown future server value.
+
+   STALENESS GUARD: predictLocalTick refuses to advance (freezes the guess)
+   once PREDICT_MAX_TICKS ticks of wall-clock time have passed since the
+   LAST REAL reconciliation (predLastReconcileAt) -- a genuinely late/lost
+   packet stops the local clock from sliding a wall-blind guess further
+   across the map with no correction in sight, rather than free-running
+   forever. PREDICT_MAX_TICKS=8 (333ms), not the literal 3 ticks (125ms) the
+   task brief's "predict at most 3 ticks ahead" line first suggested:
+   latency.md's own live measurement of THIS server's raw onmessage gaps put
+   p95/max at 74.9/108.4ms (bimodal intra-tick-burst vs inter-tick, this
+   file's own `packetInterval` EMA above tracks the same signal), and a
+   3-tick/125ms freeze threshold sits close enough to that p95 that ordinary
+   box-load jitter tripped it constantly in testing -- measured live, it cut
+   the predicted keydown-to-visible-motion time roughly in half instead of
+   to ~1 frame, because the local ticker kept re-freezing on completely
+   normal packet gaps. 8 ticks gives real margin above the measured jitter
+   ceiling while remaining a genuine, finite bound (not "predict forever") --
+   the reconciliation snap (PREDICT_SNAP_PX) is what actually protects
+   against a truly stale guess, at whatever tick count it is caught at.
+   Per-frame catch-up (after a backgrounded-tab resume or a long stall) is
+   separately capped at PREDICT_MAX_TICKS_PER_FRAME so one huge frame gap
+   cannot replay a large backlog of ticks in a single paint.
+
+   TICK CADENCE: predictTickMs() returns the LIVE `packetInterval` EMA
+   (declared far above, near movingObjects -- the same signal the generic
+   glide system already learns from real inter-tick gaps), not a hardcoded
+   1000/24. On an UNLOADED box these are the same number; discriminated live
+   on a heavily contended test box (measured here: sim delivering ticks at
+   ~19.5/s, 81% of nominal 24Hz per baselines.md -- this box was running a
+   concurrent nim build + another agent's verification at the time) a fixed
+   41.67ms local cadence runs the local clock FASTER than the box can
+   actually simulate, so predX keeps running ahead of the real obj.x and
+   every reconcile's hard-snap fires -- measured 576 corrections/min holding
+   ONE key steady with a fixed cadence, vs 0-2/min target. Ticking off the
+   live-learned interval instead means the local clock tracks whatever rate
+   this box is ACTUALLY able to sustain, not the nominal spec rate -- the
+   predictAdvance() formula itself is unaffected either way (one call still
+   applies exactly one server tick's worth of accel/friction, regardless of
+   how many wall-clock ms that tick took). */
+function predictTickMs(){return packetInterval}
+const PREDICT_MAX_TICKS=8;
+const PREDICT_MAX_TICKS_PER_FRAME=4;
+// 8, not the naive "one tick's max-speed displacement (704/256=2.75px) +
+// rounding slop" first estimate: measured live (window.__reconcileLog probe,
+// stripped before ship), completely open floor, no wall/buff anywhere near,
+// steady per-reconcile error already runs 0-4px even while genuinely
+// unblocked -- the accumulator-based local ticker doesn't fire
+// predictAdvance() at the exact same wall-clock phase the server's own tick
+// landed at (each call consumes however much of predAccumMs happens to be
+// queued that frame), so a few ms of PHASE offset alone costs a px or two
+// at max speed. That is normal quantization noise, not drift, and a
+// threshold set at the naive 2.75px estimate fires on almost every tick of
+// ordinary accelerating motion. 8px sits well above the observed 0-4px
+// noise floor while still catching a real block fast: pinned against a wall
+// while still predicting movement, error grows the FULL 2.75px/tick every
+// tick (nothing offsetting it), so it clears 8px within 3 ticks (~125ms).
+const PREDICT_SNAP_PX=8;
+const PREDICT_RING_SIZE=32;
+let predX=null,predY=null,predVelX=0,predVelY=0,
+    predBaseX=0,predBaseY=0,predBlockedX=0,predBlockedY=0,predAccumMs=0,
+    predLastTickAt=0,predLastReconcileAt=0,predPrevFrameAt=0,
+    predCorrections=0,predMaxError=0,predRing=[];
+window.__predict={enabled:PREDICT_ENABLED,corrections:0,maxError:0};
+function predictReset(x,y){
+  predX=x;predY=y;predBaseX=x;predBaseY=y;
+  predVelX=0;predVelY=0;predBlockedX=0;predBlockedY=0;predAccumMs=0;
+  const now=performance.now();
+  predLastTickAt=now;predLastReconcileAt=now;predPrevFrameAt=now;
+}
+/* Reconciliation only -- called once per received server frame
+   (controlsTick). Does NOT integrate a tick itself; predictAdvance (driven
+   by predictLocalTick's own wall-clock ticker, below) owns that. */
+function predictReconcile(){
+  const obj=selfObjectId!==null?objects.get(selfObjectId):null;
+  if(!obj){predX=null;return} // dead/unseated/round-reset -- re-baseline whenever a self object exists again
+  if(predX===null){predictReset(obj.x,obj.y);return}
+  const errX=obj.x-predX,errY=obj.y-predY,err=Math.hypot(errX,errY);
+  predMaxError=Math.max(predMaxError,err);
+  if(err>PREDICT_SNAP_PX)predCorrections++;
+  const predDX=predX-predBaseX,realDX=obj.x-predBaseX;
+  const predDY=predY-predBaseY,realDY=obj.y-predBaseY;
+  predBlockedX=(Math.abs(predDX)>=1&&Math.abs(realDX)<1)?Math.sign(predDX):0;
+  predBlockedY=(Math.abs(predDY)>=1&&Math.abs(realDY)<1)?Math.sign(predDY):0;
+  predX=obj.x;predY=obj.y;predBaseX=obj.x;predBaseY=obj.y;
+  if(err>PREDICT_SNAP_PX){predVelX=0;predVelY=0}
+  predLastReconcileAt=performance.now();
+  predRing.push({tick:tickCount,x:predX,y:predY});
+  if(predRing.length>PREDICT_RING_SIZE)predRing.shift();
+  window.__predict.corrections=predCorrections;
+  window.__predict.maxError=predMaxError;
+}
+/* One LOCAL tick of unbuffed velocity/position integration from whatever
+   input is held right now. Called only from predictLocalTick's fixed-
+   timestep loop -- never from controlsTick -- so this always reflects the
+   CURRENT key state, not the state as of the last server packet. */
+function predictAdvance(){
+  const keys=readKeys();
+  let inputX=(keys.left?-1:0)+(keys.right?1:0);
+  let inputY=(keys.up?-1:0)+(keys.down?1:0);
+  if(predBlockedX&&Math.sign(inputX)===predBlockedX)inputX=0;
+  if(predBlockedY&&Math.sign(inputY)===predBlockedY)inputY=0;
+  predVelX=CC.stepVelocityAxis(predVelX,inputX);
+  predVelY=CC.stepVelocityAxis(predVelY,inputY);
+  predX=CC.stepPositionAxis(predX,predVelX,1);
+  predY=CC.stepPositionAxis(predY,predVelY,1);
+  predLastTickAt=performance.now();
+}
+/* Live-cadence wall-clock ticker, called once per rAF from frameTick. Fires
+   predictAdvance() every predictTickMs() of real elapsed time -- decoupled
+   from server packet arrival entirely, which is the whole point (see the
+   MODEL header comment above for why an earlier packet-driven version
+   defeated the feature), and tracking the box's REAL sustained tick rate
+   (see the TICK CADENCE comment above) rather than the nominal spec rate. */
+function predictLocalTick(now){
+  if(predX===null){predPrevFrameAt=now;return}
+  const tickMs=predictTickMs();
+  const dt=now-predPrevFrameAt;
+  predPrevFrameAt=now;
+  if(now-predLastReconcileAt>=PREDICT_MAX_TICKS*tickMs){
+    predAccumMs=0; // frozen: no fresh truth in too long, stop extrapolating further
+    return;
+  }
+  predAccumMs=Math.min(predAccumMs+dt,PREDICT_MAX_TICKS_PER_FRAME*tickMs);
+  let steps=0;
+  while(predAccumMs>=tickMs&&steps<PREDICT_MAX_TICKS_PER_FRAME){
+    predAccumMs-=tickMs;
+    predictAdvance();
+    steps++;
+  }
+}
+function predictRenderPos(now){
+  const tickMs=predictTickMs();
+  const dt=Math.min(now-predLastTickAt,tickMs); // fraction of the CURRENT local tick only
+  const frac=dt/tickMs;
+  return {
+    x:predX+Math.round((predVelX*frac)/CC.MOTION_SCALE),
+    y:predY+Math.round((predVelY*frac)/CC.MOTION_SCALE)
+  };
+}
 let committedRotate=null,emittedAttack=false,tickMask=0,wasSeated=false,isDead=false;
 /* roundEndedAlive: the sibling of isDead for the OTHER way seatedNow can go
    false -- the round/match itself ending while this seat never took a fatal
@@ -1257,12 +1494,14 @@ addEventListener("mousemove",e=>{
    latest one, so reading it here is current even on an unchanged tick. */
 function findSelfAndAim(){
   let pos=null,ownAim=null;
+  selfObjectId=null; // OPT-12: reset each scan, set below when the self marker is found this tick (same side-effect idiom as selfTeam)
   for(const o of objects.values()){
     const sp=sprites.get(o.spriteId);
     if(!sp||!sp.label)continue;
     if(sp.label.startsWith("self ")){
       selfTeam=sp.label.split(" ")[1]||null;
       pos={x:o.x+sp.width/2,y:o.y+sp.height/2};
+      selfObjectId=o.id; // OPT-12: predictReconcile/frameTick read this object's raw x/y (top-left) directly
     }else if(sp.label.startsWith("own aim ")){
       const v=parseInt(sp.label.slice(8),10);
       if(!isNaN(v))ownAim=v;
@@ -1731,6 +1970,7 @@ function controlsTick(){
   tickCount++;
   const found=findSelfAndAim();
   selfPos=found.pos;
+  if(PREDICT_ENABLED)predictReconcile(); // OPT-12: reconcile the local clock's guess against this tick's authoritative position (integration itself runs on predictLocalTick's own wall-clock ticker, from frameTick)
   /* Resync FIRST, before this tick's rotate decision reads estAim below:
      found.ownAim is exact for this tick straight off the wire, so prefer it
      outright over the integrated guess. CC.stepAim only fills a tick where
@@ -2521,7 +2761,30 @@ function drawHitmarker(nowT){
    loop/timer here at all. A click that lands on cooldown is now silent
    rather than lying about it (no distinct "denied" cue yet -- silence was
    judged safer than inventing a new sound without direction). */
-addEventListener("mousemove",e=>{const m=toMap(e);mouseX=m.x;mouseY=m.y;haveMouse=true;sendDirectAim(mouseX,mouseY)});
+/* OPT-12 (LT-4): coalesce direct-aim sends to the tick rate instead of
+   firing sendDirectAim on every qualifying mousemove DOM EVENT. Lossless by
+   construction, not a tradeoff: the server only ever reads the latest cursor
+   position ONCE per applied tick (sim.applyDirectAim, driven by server.nim's
+   per-tick takeover loop -- "re-derived per STEP, not per frame"), so any
+   value this coalescer drops was never going to be seen server-side anyway
+   -- a high-poll-rate mouse can dispatch far more DOM events than 24/s, all
+   of which the server would have discarded past the last one before each
+   tick boundary. `mouseX/mouseY` still update on every raw event (unchanged)
+   -- the rotate-button aim path and cellUnderCursor()/pings read those
+   directly and want the freshest cursor, not a rate-limited one; only the
+   WIRE SEND is deferred. Runs unconditionally, no ?predict= gate: rate-
+   limiting a channel the receiver only ever samples once per tick cannot
+   change what the server sees, provably, so there is no feel cost to keeping
+   it always on. sendDirectAim() below still does its own exact-value dedupe
+   and DIRECT_AIM_DEADZONE_PX gating unchanged -- this only changes HOW OFTEN
+   it gets called, never what it decides once called. */
+let pendingAimX=0,pendingAimY=0,haveAimPending=false;
+addEventListener("mousemove",e=>{const m=toMap(e);mouseX=m.x;mouseY=m.y;haveMouse=true;pendingAimX=mouseX;pendingAimY=mouseY;haveAimPending=true});
+setInterval(()=>{
+  if(!haveAimPending)return;
+  haveAimPending=false; // last value wins: anything that arrived since the previous flush is already folded into pendingAimX/Y
+  sendDirectAim(pendingAimX,pendingAimY);
+},1000/CC.TICK_HZ);
 c.addEventListener("mousedown",e=>{
   if(e.button===0){
     lmb=true;firePendingEdge=true;e.preventDefault();
