@@ -3966,7 +3966,9 @@ proc firstLightRotateTarget(selfPos: BodyPoint, zone: MapRect): BodyPoint =
 
 proc firstLightFallbacks(sim: SimServer,
                          selfPos: BodyPoint): BrDefaultFallbacks =
-  let elapsed = sim.tickCount - sim.gameStartTick
+  # Zone facts cross into the shell as rects and tick deltas on the schedule's
+  # elapsed clock, which is 0 until startGame.
+  let elapsed = sim.gameTicksElapsed()
   let zone =
     if sim.config.zonePhases.len == 0:
       (cur: MapRect(x: 0, y: 0, w: sim.gameMap.width, h: sim.gameMap.height),
@@ -3986,7 +3988,7 @@ proc firstLightFallbacks(sim: SimServer,
 
 proc firstLightZoneLogLine(sim: SimServer): string =
   let
-    elapsed = sim.tickCount - sim.gameStartTick
+    elapsed = sim.gameTicksElapsed()
     zone = if sim.config.zonePhases.len == 0:
       (cur: MapRect(x: 0, y: 0, w: sim.gameMap.width, h: sim.gameMap.height),
        next: MapRect(x: 0, y: 0, w: sim.gameMap.width, h: sim.gameMap.height),

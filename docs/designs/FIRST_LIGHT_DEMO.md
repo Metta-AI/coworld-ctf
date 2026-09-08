@@ -85,6 +85,11 @@ and the replay), so any two streams join on it. Seat lists are printed as
   plan that had been suspended at least once finally resolved
   (`completed`/`failed`, with `visits` as the total retry count). A plan
   that fits its first visit prints nothing.
+- `FIRST_LIGHT_ZONE tick=T elapsed=E phases=N phase=P current=[x,y,w,h]
+  next=[x,y,w,h] dps=D arrival_built=B arrival_grid=WxH arrival_cells=N
+  edge_band_shipped=B` — the zone schedule and arrival-field state, printed
+  when `FIRST_LIGHT_ZONE_LOG=1` for ticks 0–4 and every 60th tick. `elapsed`
+  is the zone schedule's clock and remains 0 until the round starts.
 - `FIRST_LIGHT_NAV tick=T pending_plans=N stale_path=[...] no_path=[...]` —
   follower census: seats walking a route planned for an earlier request
   while the current one computes, and seats with a navigate order and no
