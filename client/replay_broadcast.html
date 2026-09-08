@@ -345,6 +345,19 @@ html, body {
 }
 .br-cell-member.dead .br-cell-life { opacity: 0.22; }
 .br-cell-member.dead .br-cell-mname { opacity: 0.45; }
+/* "This one is me" (?me=, chrome_common.js) — the SAME cream the board
+   marker draws in (--paper; never a team color, never the amber heat/leader
+   tint above) so board and scorebug read as one shared "you" language.
+   A ring on the life square (a small leading marker) + bolded name (a
+   weight): subtle, never the filled highlight bar the owner ruled out. */
+.br-cell-member.me .br-cell-life {
+  box-shadow: inset 0 0 0 calc(0.75 * var(--u)) rgba(0, 0, 0, 0.45),
+              0 0 0 calc(1 * var(--u)) var(--paper);
+}
+.br-cell-member.me .br-cell-mname {
+  color: var(--paper);
+  font-weight: 700;
+}
 /* The prominent figure in the cell — glory is still the score, just one
    per team now instead of one for the whole bar (Maxwell: show all 16). */
 .br-cell-glory {
@@ -2872,6 +2885,7 @@ body[data-noviewpanel] #viewpanel { display: none !important; }
   var ingestLeadSeries = C.ingestLeadSeries, recordMomentum = C.recordMomentum;
   var renderMomentum = C.renderMomentum;
   var getSpoilers = C.getSpoilers, setSpoilers = C.setSpoilers;
+  var isMe = C.isMe, meSeatIndices = C.meSeatIndices;
 
   // ---- eye-level cog art for the EYES PiP billboards ----
   // The PiP is an eye-level raycaster, so its billboards need art drawn from a
@@ -3976,7 +3990,13 @@ body[data-noviewpanel] #viewpanel { display: none !important; }
           }
           members.forEach(function (p, mi) {
             var row = membersEl.children[mi];
-            if (row) row.classList.toggle('dead', !p.alive);
+            if (row) {
+              row.classList.toggle('dead', !p.alive);
+              // "This one is me" — toggled per frame (not baked into the
+              // row at mkey-rebuild time) so the marker still lands on a
+              // page whose ?me= only resolves after the roster fills in.
+              row.classList.toggle('me', isMe(p.name));
+            }
           });
         }
         // Leader emphasis rides ONE flame (Maxwell: "no single-block
@@ -5730,6 +5750,15 @@ body[data-noviewpanel] #viewpanel { display: none !important; }
     }
     core.setEliminatedSeats(eliminated);
   }
+  // "This one is me" (chrome_common.js ?me=/localStorage): pushed every
+  // frame off the SAME roster-array-index keying as pushDownedSeatsToCore
+  // above, so a duo's two seats both mark — meSeatIndices returns every
+  // match, not just the first. No caching here to clear on resetEpisode:
+  // it's a pure function of the frame's own roster each call.
+  function pushMeSeatsToCore(s) {
+    if (!core || !core.setMeSeats) return;
+    core.setMeSeats(meSeatIndices(s));
+  }
   function seatName(seat) {
     var info = seatInfo[seat];
     return (info && info.name && info.name !== '?') ? info.name : ('SEAT ' + seat);
@@ -5923,6 +5952,7 @@ body[data-noviewpanel] #viewpanel { display: none !important; }
     learnSeats(s);
     pushDownedSeatsToCore(s);
     pushEliminatedSeatsToCore(s);
+    pushMeSeatsToCore(s);
 
     var inLobby = s.ph === 'lobby';
     var nowMs = (s.t || 0) * 1000 / FPS;

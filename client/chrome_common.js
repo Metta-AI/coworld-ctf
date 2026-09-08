@@ -150,6 +150,50 @@ window.ChromeCommon = function (ctx) {
     b.addEventListener('click', function () { setSpoilers(!spoilers); });
   })();
 
+  // ---- viewer identity ("this one is me") -----------------------------------
+  // The owner watches replays of a league he's IN and can't pick his own cog
+  // out of 16 — the scorebug prints SOFTMAXWELL same as everyone else, but
+  // nothing on the board says "that one's you." ?me=<name> names the viewer
+  // against roster[].name (case/whitespace-insensitive: names get typed by
+  // hand into a URL bar). Persisted to localStorage under a dedicated key so
+  // it survives clicking into the NEXT replay without retyping — ?me= with
+  // no value clears it, same as leaving the param off keeps whatever's
+  // stored. Unset or no roster match: callers below return nothing, so the
+  // whole feature costs zero on every replay that never asks for it.
+  var ME_STORAGE_KEY = 'ctf.chrome.me';
+  var meName = (function () {
+    var raw = null;
+    try { raw = new URLSearchParams(location.search).get('me'); } catch (e) {}
+    if (raw === null) {
+      try { return (localStorage.getItem(ME_STORAGE_KEY) || '').trim(); } catch (e) { return ''; }
+    }
+    var trimmed = raw.trim();
+    try {
+      if (trimmed) localStorage.setItem(ME_STORAGE_KEY, trimmed);
+      else localStorage.removeItem(ME_STORAGE_KEY);
+    } catch (e) {}
+    return trimmed;
+  })();
+  function getMe() { return meName; }
+  function isMe(name) {
+    return !!meName && String(name || '').trim().toLowerCase() === meName.toLowerCase();
+  }
+  // Roster array-INDEX positions (NOT join slot `.s`) matching the viewer —
+  // the same sim.players-INDEX keying pushDownedSeatsToCore/learnSeats
+  // already use for the rig object pool (RIG_HEAD_OBJECT_BASE + index), so
+  // a page can hand this straight to core.setMeSeats(...) with no extra
+  // lookup. Duos can seat the same name twice, so every match comes back,
+  // not just the first. Pure function of the frame's own roster — nothing
+  // cached, so resetEpisode has nothing to clear here.
+  function meSeatIndices(s) {
+    if (!meName || !s || !s.roster) return [];
+    var out = [];
+    for (var i = 0; i < s.roster.length; i++) {
+      if (s.roster[i] && isMe(s.roster[i].name)) out.push(i);
+    }
+    return out;
+  }
+
   // ---- names ---------------------------------------------------------------
   function stripSeatSuffix(name) {
     // Strip the per-seat " (N)" suffix the hosted runtime appends to the SAME
@@ -1019,6 +1063,8 @@ window.ChromeCommon = function (ctx) {
     ingestLeadSeries: ingestLeadSeries, recordMomentum: recordMomentum,
     renderMomentum: renderMomentum,
     // UI toggles ([spoilers] + the generic URL-param reader for future ones)
-    uiToggle: uiToggle, getSpoilers: getSpoilers, setSpoilers: setSpoilers
+    uiToggle: uiToggle, getSpoilers: getSpoilers, setSpoilers: setSpoilers,
+    // viewer identity ("this one is me")
+    getMe: getMe, isMe: isMe, meSeatIndices: meSeatIndices
   };
 };
