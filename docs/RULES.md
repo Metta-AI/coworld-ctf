@@ -1402,6 +1402,16 @@ a player frame is read by that policy's rivals, and this codebase's test
 suite polices exactly that leak (`tests/test_identity_privacy.nim`). Same
 human-only gating as `kd `.
 
+**The result is stated once the game is over.** While `phase == GameOver`
+(the interstitial frames between the final tick and the next lobby) a human
+player stream carries one more invisible 1x1 marker, `winner <color>` — the
+single-word team token, the same one your own `self <color> <side>` label
+carries, so compare with plain equality — or `winner draw` when the game
+concluded with no winner. It is absent for the whole Playing phase and gone
+again at the next lobby; before it existed the wire named no winner at all
+(the interstitial title is a rendered text sprite, chrome rather than
+contract). Same human-only gating as `kd ` and `roster `.
+
 The full wire
 contract, including the CTF input-protocol extensions, is in
 [`PROTOCOL.md`](PROTOCOL.md). Labels, sprite/object ids, and layers are
