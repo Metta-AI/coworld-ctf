@@ -348,6 +348,14 @@ A real cap belongs on the scheduling side, at the value the league intends, with
 with a live settings fetch** — every value above is live config that can change
 between two rounds with no build bump and no record on the round.
 
+### Decision (2026-09-08): k = 12 is the cap, and it is pinned to `min_episodes_per_entrant`
+
+- `settings.ladder.ranking.sum_top_k = 12` is set **explicitly** on the Season 2 league — it does not fall back to `min_episodes_per_entrant`, which is also 12; `round_scoring_rule = sum`.
+- The cap is deliberately equal to the scheduler's `min_episodes_per_entrant` (12): every episode an entrant plays in a normal round counts; the guard exists only as a backstop for over-scheduling.
+- **Invariant:** `sum_top_k` and `min_episodes_per_entrant` move together — any change to one must change the other in the same settings update. If entrants are ever scheduled more than `sum_top_k` episodes in a round, `_score_entries` silently keeps the top k and drops the rest with no round flag (`result_metadata.episodes_scored` still reports the full count), which is exactly what happened for 145 rounds in era G.
+- Observed field (Season 2, 16-solo): max episodes per policy per round = 8; no round has crossed 12 since the guard was armed.
+- Recorded from Asana task 1218199787552139 (League & Campaign Ops).
+
 ## What `result_metadata` can and cannot tell you
 
 `result_metadata` on a round result row carries `wins`, `scoring_rule`,
