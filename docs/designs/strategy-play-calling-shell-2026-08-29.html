@@ -918,7 +918,7 @@
       current declaration and its entries activate lazily once the seat does. The forced-build golden of
       <a href="#s10">section 10</a> pins this state.</li>
       <li><strong>Activation.</strong> When a play seat activates, the server bumps the generation,
-      installs a safe standing <code>Intent</code> (hold at spawn, empty combat policy) at call epoch zero,
+      installs a safe standing <code>Intent</code> (hold at spawn, empty combat policy) at call number zero (no declaration),
       and the engine's default play (<a href="#s7-3">section 7.3</a>) is the active controller. A policy that never sends
       anything, or that dies at startup, plays the default; there is no undefined window.</li>
       <li><strong>Module upload.</strong> A <code>ModuleUpload</code> message carries a client-chosen,
@@ -970,19 +970,19 @@
       numerically monotonic <code>proposalId</code> and the ladder JSON of <a href="#s7-1">section 7.1</a>, naming plays by
       their bound names. At the tick boundary the server validates the whole call (<a href="#s7-1">section 7.1</a>: names
       bound and ready, classes, parameters against each module's manifest schema, guards) and, on
-      acceptance, assigns the next call epoch, makes it the <strong>current declaration</strong>, drops the
+      acceptance, assigns the next call number, makes it the <strong>current declaration</strong>, drops the
       outgoing ladder's instances (except retune adoptions, <a href="#s7-2">section 7.2</a>), and reports
-      <code>callAccepted(proposalId, epoch, tick)</code>. The ladder driver evaluates the new ladder from
+      <code>callAccepted(proposalId, callNumber, tick)</code>. The ladder driver evaluates the new ladder from
       that tick's play step onward; its entries then <strong>activate</strong> individually and lazily,
       under the guards and the initialization quotas of <a href="#s7-2">section 7.2</a>, and an entry may never activate at
       all. "Activation" in this document always means an entry instance starting, never the call; there
       is no call-level activation event. A rejected call (<code>callRejected(proposalId, reason)</code>,
-      with the named error and parameter path) leaves the standing ladder untouched. Epoch zero is
+      with the named error and parameter path) leaves the standing ladder untouched. Call number zero is
       reserved and means "no declaration": the server's safe initial order and the default play run under
       it, and the record says so rather than pretending attribution.</li>
       <li><strong>Play faults.</strong> A play that traps, exhausts its budget, or breaks the ABI's
       per-step rules (<a href="#s6-1">section 6.1</a>) is faulted for the life of the ladder instance (<a href="#s7-2">section 7.2</a>),
-      reported as <code>playFaulted(epoch, entryId, code, reason)</code>, and the standing order continues under
+      reported as <code>playFaulted(callNumber, entryId, code, reason)</code>, and the standing order continues under
       the remaining entries or the default play (<code>code</code> is the stable cause, the engine
       <code>FaultCode</code>: wasmtime's own trap kinds such as <code>outOfFuel</code>,
       <code>epochDeadline</code>, <code>unreachable</code>, plus the engine's ABI verdicts such as
@@ -1020,7 +1020,7 @@
       saturated counters proves it fits by construction. The <code>PlayContext</code> envelope carries the
       recovery state and <strong>no status list</strong>: the accepted call's canonical bytes (at most
       4096), its proposal id, the sixteen-entry playbook inventory (name, hash, state: at most 128 bytes
-      each, 2048 in all), the budgets, floors, generation, epoch, and high-water mark, which a
+      each, 2048 in all), the budgets, floors, generation, call number, and high-water mark, which a
       maximum-recovery golden with worst-case escaping proves fits in the same 20480. After a reconnect the
       context packet is sent first and the first <code>PlayView</code> that follows carries the retained
       statuses. Capacity is <strong>reserved at admission</strong> for every outcome an admitted message
@@ -1033,7 +1033,7 @@
       list that could not hold its result. These are regular slots, never the fault reserve. The status
       union is therefore: <code>moduleAccepted</code>, <code>moduleReady</code>,
       <code>moduleRejected</code>, <code>callAccepted</code>, <code>callRejected</code>,
-      <code>retuneRefused(epoch, entryId, code, reason)</code>, and <code>playFaulted</code>, every one carrying
+      <code>retuneRefused(callNumber, entryId, code, reason)</code>, and <code>playFaulted</code>, every one carrying
       its ordinal and origin generation inside the 256-byte encoding rule. Autonomous outcomes, which no
       admission gates, have their own reserved capacity: 16 of the 64 entries are held for
       <code>playFaulted</code> records (one per possible instance), and if a seat somehow exhausts even
@@ -1089,9 +1089,9 @@
       until their entries are acknowledged, after which ids at or below the acknowledged floor are
       rejected as stale rather than being replayable forever. Re-sending an unacknowledged
       <code>uploadId</code> or <code>proposalId</code> with byte-identical content returns the original
-      outcome (and, for calls, the originally assigned epoch and tick) without re-applying or re-recording
+      outcome (and, for calls, the originally assigned call number and tick) without re-applying or re-recording
       anything; reusing an id with different bytes, or an id below the floor, is a named rejection.
-      Deduplication state survives reconnect. A retry can therefore never allocate a second epoch,
+      Deduplication state survives reconnect. A retry can therefore never allocate a second call number,
       double-count a module against the budget, or double-record a call. Tests cover lost frames,
       duplicate sends, duplicates across reconnect, and id reuse; a client that floods unique ids for many
       ticks without ever acknowledging (bounded memory, deterministic backpressure); a
@@ -1117,7 +1117,7 @@
         <tr><td>Status entry size (complete serialized value; reasons truncated to fit)</td><td>256 bytes</td></tr>
         <tr><td>Retained unacknowledged status bytes per seat (implied)</td><td>16384</td></tr>
         <tr><td>Control envelope (<code>controlLen</code>, either packet; view: entries plus 4096 for syntax and fields; context: the recovery state)</td><td>20480 bytes</td></tr>
-        <tr><td>64-bit identities in JSON (<code>uploadId</code>, <code>proposalId</code>, epoch, ordinals, generation)</td><td>decimal strings, no leading zeros, full <code>uint64</code> range</td></tr>
+        <tr><td>64-bit identities in JSON (<code>uploadId</code>, <code>proposalId</code>, <code>epoch</code> (the call number; wire spelling kept for compatibility), ordinals, generation)</td><td>decimal strings, no leading zeros, full <code>uint64</code> range</td></tr>
         <tr><td><code>StatusAck</code> packet size (fixed)</td><td>16 bytes</td></tr>
         <tr><td>Socket messages classified per seat per tick (all types; first over-budget message disconnects)</td><td>64</td></tr>
         <tr><td>Socket bytes classified per seat per tick (all types; same disconnect rule)</td><td>524288</td></tr>
@@ -1132,7 +1132,7 @@
         <tr><td>Play-seat bind deadline (<code>playSeatBindTicks</code>, per-episode config, shell-gated; <a href="#s9">section 9</a>)</td><td>default 7200 (300 s), range [1, 14400], required positive with any play seat</td></tr>
         <tr><td>Per-socket outbound queue (<code>MaxOutboundEvents</code> / <code>MaxOutboundBytes</code>; enqueued server-originated packets; <a href="#s9">section 9</a>)</td><td>256 / 2097152</td></tr>
         <tr><td>Transcript replay pump (<code>ReplayPumpBatch</code>, <code>0xB2</code> packets enqueued per tick from the socket's cursor; <a href="#s9">section 9</a>)</td><td>64</td></tr>
-        <tr><td><code>uploadId</code>, <code>proposalId</code>, epoch, status ordinals</td><td>uint64, monotonic, no wrap within an episode</td></tr>
+        <tr><td><code>uploadId</code>, <code>proposalId</code>, <code>epoch</code> (the call number; wire spelling kept for compatibility), status ordinals</td><td>uint64, monotonic, no wrap within an episode</td></tr>
         <tr><td>Backpressure and discard counters</td><td>uint32, saturating</td></tr>
       </tbody>
     </table>
@@ -1154,7 +1154,7 @@
       re-call is lost until it returns.</li>
       <li><strong>Process replacement.</strong> A reconnecting or replaced process receives, in its fresh
       <code>PlayContext</code>, the full recovery state: the current control generation, the current
-      epoch, the <strong>accepted call itself</strong> (canonical bytes and proposal id), the playbook
+      call number, the <strong>accepted call itself</strong> (canonical bytes and proposal id), the playbook
       inventory (every bound name with its hash and ready state, and the remaining upload budget), the
       next expected <code>uploadId</code> and <code>proposalId</code> floors, and the status-ordinal
       high-water mark: enough to resume without guessing and without re-uploading. It has nothing to
@@ -1262,7 +1262,7 @@
       type. For an input seat: socket closed, no rebind accepted, masks zero, row kept. For a play seat
       the runtime must stop too, or the ladder would emit again next tick and the body would overwrite the
       zero mask: the ladder is dropped (every instance and its Store released, no fault records), the
-      standing order is replaced by the safe hold at epoch zero with an
+      standing order is replaced by the safe hold at call number zero with an
       <code>installSafeIntent(reason: kicked)</code> annotation, the control generation bumps, and the
       seat's play step and body are <strong>disabled for the rest of the episode</strong>, so its masks
       are zero by construction on every later tick rather than by a one-time write; the
@@ -1285,7 +1285,7 @@
       the ladder's state, the replay records, the generation sequence, and the recovered context.</li>
       <li><strong>What attribution means, precisely.</strong> The server runs the bytes it received,
       under the call it accepted. Every order that stands was assembled from specific instances of
-      specific module hashes under a specific epoch (a controller's, the default play's, or a reflex's
+      specific module hashes under a specific call number (a controller's, the default play's, or a reflex's
       base order, plus the overlay policies active that tick), and the annotation record names each of
       them. So the record proves two different things and viewer copy must keep them apart: the call
       record proves what a seat <strong>declared</strong> (the accepted ladder, with the module hashes it
@@ -1303,7 +1303,7 @@
     recorded and played back through the existing machinery (<a href="#s3-2">section 3.2</a>), so replay correctness is
     inherited rather than built.</p>
     <p>The <strong>call records</strong> keep the semantics Maxwell's flash channel established: an
-    accepted call is written into sim bookkeeping fields, its content hash and the seat's epoch counter
+    accepted call is written into sim bookkeeping fields, its content hash and the seat's call counter
     are mixed into the game hash, and playback re-applies the record
     deterministically<sup class="ref"><a href="#src-51" title="origin/maxwell/br-season2-complete:src/ctf/sim_state.nim:288-306,347-385">51</a>,<a href="#src-52" title="origin/maxwell/br-season2-complete:src/ctf/replays.nim:579-605">52</a></sup>. Those semantics are kept on purpose: the apply function drives no gameplay, and
     the hash coupling is what makes a dropped or shifted record detectable, which is the negative-control
@@ -1327,7 +1327,7 @@
     as its own record type (<code>0x10</code>; no more chat-record flag), the per-seat behavior annotation
     array, and the end-of-episode manifest (per-seat record counts and ordered-chain hashes). An annotation
     is a tagged union with an explicit discriminant and byte-golden layouts:
-    <code>acceptedIntentChange(tick, seat, epoch, provenance, canonical Intent bytes)</code>, where
+    <code>acceptedIntentChange(tick, seat, effectiveCallNumber, provenance, canonical Intent bytes)</code>, where
     <code>provenance</code> is structured because a standing order is a composite: a <strong>base</strong>
     (the controller entry's <code>entryId</code> and module hash with the tick its order was emitted, or a
     reserved tag for the default play or a reflex) and the <strong>ordered list of overlay
@@ -1335,25 +1335,25 @@
     policy was accepted, and the canonical policy's hash), so a retained policy from an overlay that
     emitted nothing this tick is attributed to the tick it was accepted, and a byte-identical re-emission
     keeps its original accepted tick (<a href="#s7-4">section 7.4</a>), so provenance is stable while outputs are stable. The
-    <code>epoch</code> an annotation carries is the <strong>effective order epoch</strong>, which is
-    distinct from the seat's current declared epoch: it advances to a call's epoch only on the first tick
+    <code>effectiveCallNumber</code> an annotation carries is the <strong>effective call number</strong>, which is
+    distinct from the seat's current declared call number: it advances to the number of a call only on the first tick
     an entry of that call contributes to the standing order (fresh output, adopted output, an overlay
-    policy, or a listed reflex), and until then it keeps its prior value (epoch zero when only the default
+    policy, or a listed reflex), and until then it keeps its prior value (call number zero when only the default
     has ever stood). A new annotation is written whenever the standing order's canonical bytes,
-    <strong>its provenance, or its effective order epoch</strong> changes: a guard flip or contributor swap
+    <strong>its provenance, or its effective call number</strong> changes: a guard flip or contributor swap
     that happens to yield identical bytes still updates who is credited; a new call whose adopted entries
     keep standing with identical output gets one annotation saying the order now stands under the new
-    epoch; and a new call whose entries never activate, or are still waiting on the initialization quota,
+    call number; and a new call whose entries never activate, or are still waiting on the initialization quota,
     changes nothing and gets none, because the default order standing under it is not that call executing.
     Goldens pin the timeline for a never-activating call, a call delayed by the quota, an adopted
     controller, an overlay-only contribution over the default, and a triggered reflex;
     <code>clearOnDeath(tick, seat, generation)</code>;
-    <code>installSafeIntent(tick, seat, generation, epoch = 0, reason, canonical bytes)</code>, written
+    <code>installSafeIntent(tick, seat, generation, callNumber = 0, reason, canonical bytes)</code>, written
     unconditionally at seat activation (<code>reason: activation</code>) and again at each respawn
     (<code>reason: respawn</code>), recording the exact bytes that became standing, always at the reserved
-    epoch zero because a server-synthesized order is by definition undeclared (the accepted call epoch, if
+    call number zero because a server-synthesized order is by definition undeclared (the accepted call number, if
     any, remains current for the seat's next play emission); and
-    <code>playFault(tick, seat, epoch, entryId, code, reason)</code>, which is metadata and never changes the
+    <code>playFault(tick, seat, callNumber, entryId, code, reason)</code>, which is metadata and never changes the
     standing order. The unconditional activation record is what makes the array complete: a seat whose
     plays never emit still has an annotation stating exactly what stood from activation to death.
     Same-tick ordering records the transitions in the exact order the server made them, keyed by (tick,
@@ -1385,11 +1385,11 @@
     lives in telemetry. A strategy-aware viewer reconstructs the standing order at any seek point from the
     array's cursor: the most recent <code>acceptedIntentChange</code>, <code>clearOnDeath</code>, or
     <code>installSafeIntent</code> at or before the target tick (fault records annotate but never change
-    the reconstruction), with epoch zero rendering as "no declaration." Native and WASM viewer goldens
-    cover seeks landing on epoch zero, across a death and respawn, across a disconnect, across a fault,
+    the reconstruction), with call number zero rendering as "no declaration." Native and WASM viewer goldens
+    cover seeks landing on call number zero, across a death and respawn, across a disconnect, across a fault,
     onto a tick carrying multiple variants, onto provenance-only changes (an overlay guard turning off, a
     controller that did not emit while an overlay changed, a retune, a fault) with several overlays
-    contributing, and onto an epoch-only change (an identical call replacement, and an identical-parameter
+    contributing, and onto a change in call number (an identical call replacement, and an identical-parameter
     adoption); the manifest's ordered-chain hash covers provenance, so the negative controls detect a
     dropped or altered contributor as well as dropped bytes.</p>
   </section>
@@ -1433,7 +1433,7 @@
     <p><strong>The <code>PlayView</code>, every tick</strong>: the seat's current fogged knowledge in
     structured form. Gameplay payload: self state, tracked allies and enemies (position, team, health
     where known, aim, and freshness), item memory, zone rectangles and phase timing in Battle Royale,
-    capture objectives in CTF, the seat's own standing <code>Intent</code> and active call epoch, the
+    capture objectives in CTF, the seat's own standing <code>Intent</code> and active call number, the
     <strong>shouts the seat has heard</strong> (team color, the shouter's anonymous slot letter, the
     text, the jittered position, and the tick, exactly the facts a Sprite client's speech-bubble label
     carries), and the hazard fields of <a href="#appendix-r">Appendix R</a>. Control envelope: the unacknowledged statuses, the
@@ -1452,7 +1452,7 @@
     12-byte section table entry with <code>record_stride</code>, fixed-size records, explicit presence
     bits for optional fields, and shout text in one tail blob. Engine-to-play is binary, but
     play-to-engine emissions stay canonical JSON; the asymmetry is deliberate. One rule applies to every 64-bit identity wherever it appears in JSON
-    (status entries, recovery state, the call epoch in the gameplay view): it is encoded as a decimal
+    (status entries, recovery state, the call number in the gameplay view): it is encoded as a decimal
     string with no leading zeros, never a JSON number, because a JSON number cannot carry the full
     <code>uint64</code> range through common clients while the binary packet headers can; a numeric or
     malformed spelling is a schema rejection, and cross-language goldens cover <code>2^53 - 1</code>,
@@ -1588,7 +1588,7 @@
         <tr><td>partner's live position and aim</td><td>view (duo telemetry)</td><td><strong>deliberate grant</strong>: a duo shares live position+aim telemetry, always fresh while both live, documented and tested as a grant rather than fog-derived; no access to the partner's orders or targeting</td><td><code>crossfire</code>, <code>bodyguard</code></td></tr>
         <tr><td>bounty mark on a tracked enemy</td><td>view (track attribute)</td><td>fog-derived from the visible veteran marker (the ember plume<sup class="ref"><a href="#src-72" title="origin/maxwell/br-season2-complete:src/ctf/glory.nim:861-867">72</a></sup>), with track freshness; never the hidden level itself; an unseen or stale marker, or a mode without one, reads false</td><td><code>target_law</code> (<code>ptBounty</code>)</td></tr>
         <tr><td>cover: best atlas post against given threat positions</td><td>host query <code>nearest_cover</code> over the engine-side atlas (<a href="#s6-1">section 6.1</a>); the play supplies threat positions from its own fog-visible tracks</td><td>map-static, public (the query reveals only map facts)</td><td><code>edge_ride</code>, <code>bodyguard</code>, default</td></tr>
-        <tr><td>own standing <code>Intent</code>, call epoch</td><td>view</td><td>seat-private</td><td>all</td></tr>
+        <tr><td>own standing <code>Intent</code>, call number</td><td>view</td><td>seat-private</td><td>all</td></tr>
         <tr><td>heard shouts: team color, anonymous slot letter, text, jittered position, tick</td><td>view (event list)</td><td>the game's existing shout audibility, sampled by the same code path the Sprite frame uses: every live shout the seat can hear (<code>shoutAudibleTo</code>, within <code>ShoutRange</code>, a fifth of the map width, through walls and fog<sup class="ref"><a href="#src-73" title="src/ctf/sim.nim:2278">73</a>,<a href="#src-74" title="src/ctf/global.nim:6000-6022">74</a></sup>), one per shouter because a re-shout replaces the old one<sup class="ref"><a href="#src-75" title="src/ctf/sim.nim:2255-2268">75</a></sup>, the position jittered with the same helper as the bubble, the identity resolved at frame build with the same resolver so a departed shouter reads <code>?</code><sup class="ref"><a href="#src-76" title="src/ctf/roster.nim:82-105">76</a></sup>, expiring when the bubble does; a 32-audible-shout golden compares the field to the Sprite frame<sup class="ref"><a href="#src-25" title="docs/RULES.md:477-492">25</a></sup></td><td>the policy's LLM (in-match negotiation), any play</td></tr>
       </tbody>
     </table>
@@ -2220,7 +2220,7 @@
     fault every tick, and a faulted overlay contributes nothing. A <code>pendingRetune</code> entry is
     likewise treated as not passing and contributing nothing until its retune completes: its guest memory
     is retained but quarantined, its host-side cached output is cleared, and no output produced under the
-    old parameters is ever installed or attributed under the new epoch.</p>
+    old parameters is ever installed or attributed under the new call number.</p>
     <p>Replacing the ladder is governed by one table. For each entry of the new call, matched against the
     outgoing ladder by <code>entryId</code> and play name (and therefore, because names are bound per
     seat, by module hash):</p>
@@ -2228,7 +2228,7 @@
     <table>
       <thead><tr><th>Outgoing entry</th><th>New entry has <code>retune: true</code> and params identical</th><th><code>retune: true</code> and params differ</th><th>no <code>retune</code> or no match</th></tr></thead>
       <tbody>
-        <tr><td><code>live</code> or <code>parked</code></td><td>adopted silently, same state, cached output kept (it was produced under these same parameters)</td><td>adopted as <code>pendingRetune</code>, its cached output cleared on entry (<a href="#s7-4">section 7.4</a>); at its quota turn <code>play_retune</code> runs under <code>InitFuel</code>: 0 restores <code>live</code> (or <code>parked</code> if the seat is dead) with the new params and no cached output until a fresh step accepts one; nonzero, a trap, or a missing export drops it, mints <code>retuneRefused(epoch, entryId, code, reason)</code>, and the entry becomes <code>absent</code></td><td>dropped; entry <code>absent</code></td></tr>
+        <tr><td><code>live</code> or <code>parked</code></td><td>adopted silently, same state, cached output kept (it was produced under these same parameters)</td><td>adopted as <code>pendingRetune</code>, its cached output cleared on entry (<a href="#s7-4">section 7.4</a>); at its quota turn <code>play_retune</code> runs under <code>InitFuel</code>: 0 restores <code>live</code> (or <code>parked</code> if the seat is dead) with the new params and no cached output until a fresh step accepts one; nonzero, a trap, or a missing export drops it, mints <code>retuneRefused(callNumber, entryId, code, reason)</code>, and the entry becomes <code>absent</code></td><td>dropped; entry <code>absent</code></td></tr>
         <tr><td><code>pendingRetune</code></td><td>dropped; entry <code>absent</code> (a retune that never ran is not adoptable)</td><td>dropped; entry <code>absent</code></td><td>dropped; entry <code>absent</code></td></tr>
         <tr><td><code>absent</code> or <code>faulted</code></td><td>entry <code>absent</code></td><td>entry <code>absent</code></td><td>entry <code>absent</code></td></tr>
       </tbody>
@@ -2242,7 +2242,7 @@
     for "adjust the plan without forgetting," scoped so that a ladder with two entries of the same play
     can never mis-adopt the wrong one. A 32-seat golden with several changed adopted entries per seat
     spans the ticks the quota needs and asserts that no old-parameter emission is attributed to the new
-    epoch, alongside goldens for death and respawn during a pending retune and for a second replacement
+    call number, alongside goldens for death and respawn during a pending retune and for a second replacement
     arriving while one is pending.</p>
 
     <h3 id="s7-3">7.3 Reflexes and the default play</h3>
@@ -2318,7 +2318,7 @@
     <code>CombatPolicy</code>; select the base controller and step it, then compute the default play if it
     still has no cached output (the two-stage rule above), caching any accepted <code>Intent</code>; fold
     the active overlays' cached policies onto the base order; and, if the resulting canonical
-    bytes, their provenance, or the <strong>effective order epoch</strong> (<a href="#s4-3">section 4.3</a>) differ from the
+    bytes, their provenance, or the <strong>effective call number</strong> (<a href="#s4-3">section 4.3</a>) differ from the
     standing order's, install the new standing order and write the annotation. All of it runs on the tick
     thread, sequentially per seat in seat order, under fuel. The only asynchrony in the design is the
     compile pool of <a href="#s6-2">section 6.2</a>, which hands finished modules to the tick thread through a queue drained
@@ -2343,13 +2343,13 @@
     <h3 id="s7-5">7.5 The record of calls and modules</h3>
     <p>An accepted call is the literal fulfillment of Maxwell's flash channel: the script is flashed onto
     the bot, and the record says so. The channel keeps its established semantics (<a href="#s4-3">section 4.3</a>): the
-    accepted call is written into sim bookkeeping, its content hash and the seat's epoch counter are mixed
+    accepted call is written into sim bookkeeping, its content hash and the seat's call counter are mixed
     into the game hash under the Season 2 gate, and playback re-applies the record so a dropped or shifted
     call diverges the hash chain. The record is extended to carry each entry's code identity
     (<a href="#s4-3">section 4.3</a>: module hash, or native name plus GameVersion), so it pins the code, and it moves from
     the chat-record flag to its own record type in the bumped replay format. Analysis can associate every
-    recorded <code>Intent</code> annotation with its call epoch and with the entries and module hashes
-    that assembled it, or with the reserved epoch zero that explicitly means "no declaration."</p>
+    recorded <code>Intent</code> annotation with its call number and with the entries and module hashes
+    that assembled it, or with the reserved call number zero that explicitly means "no declaration."</p>
     <p>The same protocol work performs the agreed rename of the flash machinery's vocabulary from "page"
     to "play call" (procedure names, the replay decoder, config field names, and documentation),
     coordinated with Maxwell; the wire magic string is retired with the <code>0x86</code> ride, since
@@ -2364,7 +2364,7 @@
       machinery that already exists and already ships with negative controls. Playback never runs the
       body, any play, an LLM, or the network.</li>
       <li>Call records (with module hashes) are hash-coupled recorded inputs that carry no behavior; the
-      Intent stream is a genuinely non-hashed annotation array in the bumped replay format. The call epoch
+      Intent stream is a genuinely non-hashed annotation array in the bumped replay format. The call number
       ties the two together for analysis and broadcast.</li>
       <li>Everything above the masks (the body, the play runtime, the plays, the LLM) sits outside the
       determinism boundary, exactly where paintball puts its control layer and its LLM.</li>
@@ -2390,7 +2390,7 @@
       replays bit-identically off the mask stream, including seeking across call boundaries and
       native-to-WASM viewer playback; the call record's paired negative controls (drop the records; shift
       them one tick; alter a module hash) each diverge its verification; annotation records survive
-      round-tripping with their epochs and sources intact; the playbook archive verifies against the
+      round-tripping with their call numbers and sources intact; the playbook archive verifies against the
       recorded hashes; and the lobby transcript round-trips with its four negative controls (a record
       dropped, reordered, altered, and the array truncated) each failing manifest verification.</li>
       <li><strong>Runtime containment.</strong> Under all 32 seats at once, each of the hostile modules of
@@ -3139,6 +3139,7 @@
       <li>Ward-threat detection uses aim bearing plus live per-map weapon range, never a fixed radius;
       <code>aimedAtUs</code> and aimed-at-ward are both first-class.</li>
       <li>The page-to-play-call rename happens now, with Maxwell's agreement.</li>
+      <li>Call counter renamed to call number (James, 2026-09-04; Option A confirmed 2026-09-08); wire keys, replay layouts, and SDK field names stay unchanged.</li>
       <li>Maxwell's seven <code>BR_PLAYS.md</code> plays are the reference menu James intended;
       <code>avoid_conflict</code> is covered by <code>pact</code> plus <code>edge_ride</code>.</li>
       <li>The design is multi-mode from the start; Battle Royale is the first target, and the view names
@@ -3238,7 +3239,7 @@
     instance, the pooled probe slots, the compile plane's reservation accounting, and the removal of an
     unenforceable compile timeout and of any claim that epochs bound host functions); the ladder (the
     per-entry cached output and recomputed standing order, the <code>pendingRetune</code> state and
-    replacement table, the effective order epoch, structured provenance, and the four-overlay cap that
+    replacement table, the effective call number, structured provenance, and the four-overlay cap that
     fixes the worst tick at 160 guest steps); the map (the episode and seat layers, the bounded
     route-field cache as a fourth port ruling, the atlas moved behind <code>nearest_cover</code>, and the
     roster-shape and map-density validators); and the reflexes (the bounded <code>planEscape</code>
@@ -3326,7 +3327,7 @@
       <li id="src-48"><span class="cite">src/ctf/sim.nim:2801-2815</span> — the time-limit draw branch of <code>finishGame</code>, with the same fallback shape.</li>
       <li id="src-49"><span class="cite">src/ctf/sim.nim:3898-3901</span> — <code>resetGame</code> clears <code>abandoned</code> for every account today.</li>
       <li id="src-50"><span class="cite">src/ctf/replays.nim:353-381</span> — leave playback calls <code>removePlayerAt</code>, which deletes the row and, for non-squad games, its masks and overlays.</li>
-      <li id="src-51"><span class="cite">origin/maxwell/br-season2-complete:src/ctf/sim_state.nim:288-306,347-385</span> — flash-channel bookkeeping: an accepted call is written into sim fields and its content hash and epoch counter are mixed into the game hash.</li>
+      <li id="src-51"><span class="cite">origin/maxwell/br-season2-complete:src/ctf/sim_state.nim:288-306,347-385</span> — flash-channel bookkeeping: an accepted call is written into sim fields and its content hash and call counter are mixed into the game hash.</li>
       <li id="src-52"><span class="cite">origin/maxwell/br-season2-complete:src/ctf/replays.nim:579-605</span> — playback re-applies the flash-channel record deterministically.</li>
       <li id="src-53"><span class="cite">origin/maxwell/br-season2-complete:src/ctf/sim_types.nim:851-858</span> — the 16-bit length prefix on string-carrying records, the reason <code>MaxPolicyPageBytes</code> is 60000.</li>
       <li id="src-54"><span class="cite">origin/maxwell/br-season2-complete:src/ctf/replays.nim:253-270</span> — the reflash lane's player-byte flag inside the chat record, spent to avoid a replay version bump.</li>

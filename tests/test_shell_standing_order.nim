@@ -55,7 +55,7 @@ suite "shell standing order":
     echo "COVER_PRODUCTION_FACTS rule=", standing.lastDefaultRule,
       " goal=", body.standingGoal.get.goalPoint
 
-  test "default changes on current facts while effective epoch stays zero":
+  test "default changes on current facts while effective call number stays zero":
     let body = bodyFixture()
     var standing: StandingOrderState
     var facts = fallback(body.map)
@@ -86,11 +86,11 @@ suite "shell standing order":
     standing.stepShellDefault(body, 5, facts)
 
     check standing.annotations.len == 4
-    check standing.effectiveEpoch == 0
-    check body.effectiveEpoch == 0
+    check standing.effectiveCallNumber == 0
+    check body.effectiveCallNumber == 0
     for annotation in standing.annotations:
       check annotation.kind == akAcceptedIntentChange
-      check annotation.effectiveEpoch == 0
+      check annotation.effectiveCallNumber == 0
       check annotation.provenance.base.kind == pbDefault
       check annotation.provenance.overlays.len == 0
       check annotation.intentBytes == canonicalJson(parseJson(
@@ -115,7 +115,7 @@ suite "shell standing order":
       "\"point\":[399,399],\"reason\":\"default:partner\"," &
       "\"schema\":\"intent\",\"v\":1}"
 
-  test "frozen setter carries validated goal and effective epoch":
+  test "frozen setter carries validated goal and effective call number":
     let body = activateSeatBody(testBodyMap(), 7, 331)
     let validated = body.map.goal(12, 34)
     let intent = Intent(
@@ -124,7 +124,7 @@ suite "shell standing order":
       arriveRadius: 8.0)
     setStandingIntent(body, intent, some(validated), 0)
     check body.standingGoal == some(validated)
-    check body.effectiveEpoch == 0
+    check body.effectiveCallNumber == 0
 
     expect ValueError:
       setStandingIntent(body, intent, none(ValidatedGoal), 0)

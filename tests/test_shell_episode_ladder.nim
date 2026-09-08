@@ -398,6 +398,15 @@ proc waitReadyMany(episode: var ShellEpisode;
   fail()
 
 suite "shell episode ladder":
+  test "lifecycle annotation logs identify the call number":
+    for annotation in [
+        ShellAnnotation(kind: akAcceptedIntentChange, effectiveCallNumber: 7),
+        ShellAnnotation(kind: akPlayFault, faultAtCallNumber: 9)]:
+      let line = annotation.formatLifecycleAnnotation()
+      let expected = if annotation.kind == akAcceptedIntentChange: "7" else: "9"
+      check "call_number=" & expected in line
+      check "epoch=" notin line
+
   test "native base does not evaluate default rules":
     var episode = initShellEpisode(true, true, controls(1), testMap(), 331)
     defer: episode.closeShellEpisode()
@@ -530,7 +539,8 @@ suite "shell episode ladder":
       episode.closeShellEpisode()
     let configLines = episode.configureDemoPlay(probeConfig(modulePath))
     check configLines.anyIt(it.contains("SHELL_PLAY_CALL seat=0") and
-      it.contains("accepted=true"))
+      it.contains("accepted=true") and it.contains("call_number=1") and
+      not it.contains("epoch="))
 
     let oldRoom = episode.step([frame(0, (30, 30), 1)], 1)
     check oldRoom.installs.allIt(it.provenance !=
@@ -748,11 +758,11 @@ suite "shell episode ladder":
         edgeRideCallBytes())
       check accepted.accepted
       check accepted.reason == ""
-      check accepted.epoch == 1
+      check accepted.callNumber == 1
       check accepted.status.kind == skCallAccepted
       check accepted.statusBytes.len > 0
       let recovery = episode.shellRecovery(0)
-      check recovery.epoch == 1
+      check recovery.callNumber == 1
       check recovery.call.isSome
       check recovery.call.get.proposalId == 121_000
       check recovery.call.get.bytes == edgeRideCallBytes()
@@ -886,7 +896,7 @@ suite "shell episode ladder":
       let accepted = episode.acceptPlayCall(0, 190_100, 1,
         uint32(acceptedTick), edgeRideCallBytes())
       check accepted.accepted
-      check accepted.epoch == 1
+      check accepted.callNumber == 1
 
       var
         movementTicks = 0
@@ -949,7 +959,7 @@ suite "shell episode ladder":
       check accepted.replayIdentity.isSome
       let identity = accepted.replayIdentity.get
       check identity.seat == 0
-      check identity.epoch == accepted.epoch
+      check identity.callNumber == accepted.callNumber
       check identity.ladderBytes == edgeRideCallBytes()
       check identity.entries.len == 1
       check identity.entries[0].entryId == "edge_ride"
@@ -962,7 +972,7 @@ suite "shell episode ladder":
       check encoded[0].uint8 == readFile(
         "tests" / "fixtures" / "shell" / "replay" / "play-call.bin")[0].uint8
       check decoded.seat == identity.seat
-      check decoded.epoch == identity.epoch
+      check decoded.callNumber == identity.callNumber
       check decoded.ladderBytes == identity.ladderBytes
       check decoded.entries == identity.entries
       check decoded.contentSha256 == sha256Hex(encoded)

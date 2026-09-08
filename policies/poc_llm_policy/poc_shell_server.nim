@@ -21,7 +21,7 @@
 ## then hands off to the stock `runServerLoop`.
 ##
 ## DELIBERATE PoC LIMITS (see README.md):
-##   - Accepted calls are validated and epoch-advanced by the real
+##   - Accepted calls are validated and numbered by the real
 ##     `LadderDriver`, but the resulting ladder is NOT stepped into the
 ##     episode's seat bodies; `src/shell/episode.nim` owns that and binds its
 ##     own config-file play. The wire seat proves admission, not actuation.
@@ -159,12 +159,12 @@ proc playbookJson(seat: int): string =
 
 proc controlContextEnvelope(seat: int): string =
   ## `control_context.schema.json` in canonical key order: ack_mark, budgets,
-  ## epoch, floors, gen, lobby_transcript_mark, playbook, schema, v.
-  let epoch = ladderDriver.seatEpoch(seat)
+  ## epoch (the call number), floors, gen, lobby_transcript_mark, playbook, schema, v.
+  let callNumber = ladderDriver.seatCallNumber(seat)
   let playbook = playbookJson(seat)
   result = "{\"ack_mark\":\"0\",\"budgets\":{\"modules_left\":" &
     $MaxModulesPerSeatPerEpisode & ",\"upload_bytes_left\":" &
-    $MaxUploadBytesPerSeatPerEpisode & "},\"epoch\":\"" & $epoch &
+    $MaxUploadBytesPerSeatPerEpisode & "},\"epoch\":\"" & $callNumber &
     "\",\"floors\":{\"proposal_id\":\"0\",\"upload_id\":\"0\"},\"gen\":\"" &
     $PocGeneration & "\",\"lobby_transcript_mark\":\"" & $chatOrdinal & "\""
   if playbook.len > 0:
@@ -224,7 +224,7 @@ proc greet(seat: int) =
 proc bindReadyModule(seat: int, name: string) =
   ## Publishes a committed module as a ladder binding so `acceptCall` can
   ## resolve the play name to its manifest and content hash. `makeGuest` stays
-  ## nil: this server validates and epoch-advances calls, it does not step
+  ## nil: this server validates and numbers calls, it does not step
   ## them (see the file header).
   let bound = plane.boundModule(seat, name)
   if bound.isNone:
@@ -271,7 +271,7 @@ proc onPlayCall(socket: WebSocket, seat: int,
     let accepted = ladderDriver.acceptCall(seat, packet.proposalId,
       PocGeneration, pocTick, packet.callBytes, bindings, noGuardContext())
     echo "POC_WIRE_CALL seat=", seat, " proposal_id=", packet.proposalId,
-      " accepted=", accepted.accepted, " epoch=", accepted.epoch,
+      " accepted=", accepted.accepted, " call_number=", accepted.callNumber,
       " reason=", accepted.reason, " path=", accepted.path
     if accepted.statusBytes.len > 0:
       sendStatuses(seat, accepted.statusBytes)

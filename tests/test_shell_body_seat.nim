@@ -182,7 +182,7 @@ suite "shell body seat belief-lite seam":
     check body.standingIntent.kind == shellTypes.ikHold
     check body.standingIntent.point.isNone
     check body.standingIntent.combat == shellTypes.CombatPolicy()
-    check body.effectiveEpoch == 0
+    check body.effectiveCallNumber == 0
     check body.standingGoal.isNone
 
   test "activation references the shared episode navigation system":
@@ -264,17 +264,17 @@ suite "shell body seat belief-lite seam":
     check body.nav.seats[0].job.planPending
     check not body.nav.seats[body.seatIndex].job.planPending
     check body.standingIntent.kind == shellTypes.ikNavigateTo
-    check body.effectiveEpoch == 5
+    check body.effectiveCallNumber == 5
     check body.standingGoal.get.goalPoint == goal.goalPoint
     check body.nav.seats[body.seatIndex].cache.pinnedRouteKey ==
       some(body.nav.seats[body.seatIndex].cache.routeKey(goal.goalPoint))
 
     body.setStandingIntent(holdIntent(), none(ValidatedGoal), 6)
-    check body.effectiveEpoch == 6
+    check body.effectiveCallNumber == 6
     check body.standingGoal.isNone
     check body.nav.seats[body.seatIndex].cache.pinnedRouteKey.isNone
 
-  test "safe epoch zero intent clears stale navigation work":
+  test "safe call number zero intent clears stale navigation work":
     let map = openMap()
     let body = activateSeatBody(map, 3, 331)
     let start: BodyPoint = (16, 48)
@@ -287,7 +287,7 @@ suite "shell body seat belief-lite seam":
     check body.nav.seats[body.seatIndex].cache.pinnedRouteKey.isSome
 
     body.setStandingIntent(holdIntent(), none(ValidatedGoal), 0)
-    check body.effectiveEpoch == 0
+    check body.effectiveCallNumber == 0
     check body.standingIntent.kind == shellTypes.ikHold
     check body.standingGoal.isNone
     check not body.nav.seats[body.seatIndex].job.planPending

@@ -337,7 +337,7 @@ type
     shouts*: seq[ShoutEvent]
     hazards*: HazardInputs
     standingIntent*: shellTypes.Intent
-    effectiveEpoch*: uint64
+    effectiveCallNumber*: uint64
     standingGoal*: Option[ValidatedGoal]
     partnerGrant: Option[PartnerTelemetry]
     heldCombatTarget: Option[CombatTarget]
@@ -552,7 +552,7 @@ proc activateSeatBody*(nav: BodyNavSystem, seatIndex: int): SeatBody =
   result.seatIndex = seatIndex
   result.nav = nav
   result.standingIntent = safeIntent()
-  result.effectiveEpoch = 0
+  result.effectiveCallNumber = 0
   result.standingGoal = none(ValidatedGoal)
   result.sweepDir = 1
   result.throwTarget = none(CombatTarget)
@@ -570,7 +570,7 @@ proc activateSeatBody*(map: BodyMap, seatIndex: int,
 
 proc setStandingIntent*(body: SeatBody, intent: shellTypes.Intent,
                         goal: Option[ValidatedGoal],
-                        effectiveEpoch: uint64) =
+                        callNumber: uint64) =
   case intent.kind
   of shellTypes.ikNavigateTo:
     if goal.isNone:
@@ -588,7 +588,7 @@ proc setStandingIntent*(body: SeatBody, intent: shellTypes.Intent,
   if seat.job.planPending:
     seat.cache.cancelPlan(seat.job)
   body.standingIntent = intent
-  body.effectiveEpoch = effectiveEpoch
+  body.effectiveCallNumber = callNumber
   body.standingGoal = goal
   if goal.isSome:
     seat.cache.pinStandingGoal(goal.get.goalPoint)

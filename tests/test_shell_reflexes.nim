@@ -40,13 +40,13 @@ proc input(map: BodyMap; pos: BodyPoint = (384, 384);
     motionScale: motionScale, velocity: velocity,
     nextZone: MapRect(x: 320, y: 320, w: 128, h: 128))
 
-proc sub(kind: ReflexKind; epoch = 7'u64): ReflexSubscription =
-  ReflexSubscription(kind: kind, epoch: epoch)
+proc sub(kind: ReflexKind; callNumber = 7'u64): ReflexSubscription =
+  ReflexSubscription(kind: kind, callNumber: callNumber)
 
 proc native(decision: ReflexDecision): LadderNativeBase =
   LadderNativeBase(intent: decision.order.intent, goal: decision.order.goal,
     provenance: decision.order.provenance,
-    contributingEpoch: decision.order.contributingEpoch)
+    contributingCallNumber: decision.order.contributingCallNumber)
 
 proc holdIntent(name: string): Intent =
   Intent(kind: ikHold, arriveRadius: 0.0, reason: name)
@@ -358,7 +358,7 @@ suite "shell reflexes":
     check decision.fallbackUsed
     check decision.order.provenance.base.kind == pbReflex
     check decision.order.provenance.base.reflexName == ReflexClearGrenadeName
-    check decision.order.contributingEpoch == 7
+    check decision.order.contributingCallNumber == 7
     check decision.order.intent.idleAimCenterBrads == 0
     check "\"idle_aim_center_brads\":0" in
       canonicalIntent(decision.order.intent)
@@ -457,7 +457,7 @@ suite "shell reflexes":
 
     decision = state.selectReflex(facts, [sub(rkClearGrenade, 99)])
     check decision.selected
-    check decision.order.contributingEpoch == 99
+    check decision.order.contributingCallNumber == 99
 
   test "grenade reflex decisions stay equal to the pre-optimization scorer":
     let maps = @[openMap(), openMap(640, 704), pocketMap()]
@@ -604,7 +604,7 @@ suite "shell reflexes":
     check viewBuilds == 0
     check tick.seats[0].provenance.base.kind == pbReflex
     check tick.seats[0].provenance.base.reflexName == ReflexZoneEscapeName
-    check tick.seats[0].contributingEpoch == 42
+    check tick.seats[0].contributingCallNumber == 42
 
   test "32 seats can each run the worst max reflex plan inside the budget":
     let map = openMap()

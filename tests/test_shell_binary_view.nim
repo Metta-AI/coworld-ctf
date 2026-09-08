@@ -56,13 +56,13 @@ proc fixtureHex(path: string): string =
   readFile(path).splitWhitespace().join("")
 
 proc assertHeaderAndTable(bytes: string, mode: GameMode, tick: uint32,
-                          epoch: uint64) =
+                          callNumber: uint64) =
   check bytes[0 .. 3] == "PV1\0"
   check bytes.readU16(4) == 1
   check bytes.readU8(6) == ord(mode)
   check bytes.readU32(8) == tick
   check bytes.readU32(12) == 0'u32
-  check bytes.readU64(16) == epoch
+  check bytes.readU64(16) == callNumber
   check int(bytes.readU32(24)) == bytes.len
   check bytes.readU32(28) == 0'u32
   var previousOffset = BinaryFrameHeaderBytes + bytes.readU8(7) *
@@ -79,7 +79,7 @@ proc baseSource(): PlayViewSource =
   PlayViewSource(
     tick: 1441'u32,
     mode: gmBr,
-    epoch: 99'u64,
+    callNumber: 99'u64,
     self: PlaySelf(pos: p(100, 100), hp: 7, hpFrac: 0.7,
       aimBrads: 64, alive: true),
     aliveTeams: 5,
@@ -385,7 +385,7 @@ proc assertBinaryRowsMatchJson(jsonBytes, binaryBytes: string) =
     own["blast_radius"].getInt
 
 proc assertBinaryMatchesModel(model: PlayViewModel, bytes: string) =
-  assertHeaderAndTable(bytes, model.mode, model.tick, model.epoch)
+  assertHeaderAndTable(bytes, model.mode, model.tick, model.callNumber)
 
   let self = bytes.section(BvSelf).get
   var selfFlags = 0'u32
@@ -586,7 +586,7 @@ suite "shell binary play view":
   test "header section table alignment and cap":
     let model = selectPlayView(maxSource(), MaxViewFrameBytes)
     let bytes = buildBinaryPlayView(model)
-    assertHeaderAndTable(bytes, gmBr, model.tick, model.epoch)
+    assertHeaderAndTable(bytes, gmBr, model.tick, model.callNumber)
     check bytes.len <= MaxBinaryViewFrameBytes
     check bytes.len == 4964
     check MaxBinaryViewFrameBytes - bytes.len == 3228

@@ -54,7 +54,7 @@ Every line carries `tick=` (the same tick numbering as `SHELL_INSTALL`
 and the replay), so any two streams join on it. Seat lists are printed as
 `[0,5,17]`.
 
-- `SHELL_ANNOTATION ... kind=play_fault epoch=E entry=ID code=C
+- `SHELL_ANNOTATION ... kind=play_fault call_number=N entry=ID code=C
   reason="..."` — a play instance faulted. `code` is the stable cause
   (`outOfFuel`, `epochDeadline`, `unreachable`, `memoryOutOfBounds`,
   `returnedNonzero`, `abiViolation`, ... — the engine `FaultCode`, the same

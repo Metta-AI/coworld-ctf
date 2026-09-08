@@ -18,7 +18,7 @@ proc baseSource(): PlayViewSource =
   PlayViewSource(
     tick: 1441'u32,
     mode: gmBr,
-    epoch: 99'u64,
+    callNumber: 99'u64,
     self: PlaySelf(pos: p(100, 100), hp: 7, hpFrac: 0.7,
       aimBrads: 64, alive: true),
     aliveTeams: 5,
@@ -294,7 +294,7 @@ suite "shell play view producer":
 
   test "writer bytes equal canonicalJson of the equivalent tree":
     var source = baseSource()
-    source.epoch = high(uint64)
+    source.callNumber = high(uint64)
     source.zone = none(PlayZone)
     let bytes = buildPlayView(source)
     let expected = %*{
@@ -339,7 +339,7 @@ suite "shell play view producer":
     for bytes in second:
       discard assertViewConformant(bytes)
 
-  test "SeatBody adapter carries self hp, standing intent, epoch, and tracks":
+  test "SeatBody adapter carries self hp, standing intent, call number, and tracks":
     let map = smallBodyMap()
     let body = activateSeatBody(map, 0, 331)
     body.updateBelief(BodyTickInputs(

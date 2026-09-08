@@ -105,7 +105,7 @@ proc viewFor(self: BodyPoint; hp: int; items: seq[PlayItem] = @[];
   buildBinaryPlayView(PlayViewSource(
     tick: 1'u32,
     mode: gmBr,
-    epoch: 0,
+    callNumber: 0,
     self: PlaySelf(pos: self, hp: hp, hpFrac: hp.float / 3.0,
       aimBrads: 32, alive: true),
     aliveTeams: 9,

@@ -52,7 +52,7 @@ proc everyReflexCall(time = 10'u32): PlayCallRecord =
   PlayCallRecord(
     replayTimeMs: time,
     seat: 0,
-    epoch: 9,
+    callNumber: 9,
     ladderBytes: "{\"plays\":[" &
       "{\"entry_id\":\"controller\",\"play\":\"pact\"}," &
       "{\"entry_id\":\"grenade\",\"play\":\"reflex_clear_grenade\"}," &
@@ -73,7 +73,7 @@ proc acceptedAnnotation(tick = 20'u32): ShellAnnotation =
     tick: tick,
     seat: 0,
     kind: akAcceptedIntentChange,
-    effectiveEpoch: 9,
+    effectiveCallNumber: 9,
     provenance: Provenance(
       base: ProvenanceBase(
         kind: pbEntry,
@@ -97,7 +97,7 @@ proc sampleAnnotations(): seq[ShellAnnotation] =
       installGeneration: 5, installReason: "respawn",
       safeBytes: "{\"kind\":\"hold\"}"),
     ShellAnnotation(tick: 21, seat: 0, kind: akPlayFault,
-      faultAtEpoch: 9, faultEntryId: "controller",
+      faultAtCallNumber: 9, faultEntryId: "controller",
       faultCode: fcOutOfFuel, annotationFaultReason: "fuel")]
 
 proc sampleTranscript(): seq[LobbyChatRecord] =
@@ -166,7 +166,7 @@ proc playCallGolden(record: PlayCallRecord): string =
   result.addU8(0x10)
   result.addU32(record.replayTimeMs)
   result.addU8(record.seat)
-  result.addU64(record.epoch)
+  result.addU64(record.callNumber)
   result.addString16(record.ladderBytes)
   result.addU8(uint8(record.entries.len))
   for entry in record.entries:
@@ -188,7 +188,7 @@ proc annotationGolden(annotation: ShellAnnotation): string =
   case annotation.kind
   of akAcceptedIntentChange:
     result.addU8(0)
-    result.addU64(annotation.effectiveEpoch)
+    result.addU64(annotation.effectiveCallNumber)
     case annotation.provenance.base.kind
     of pbEntry:
       result.addU8(0)
@@ -217,7 +217,7 @@ proc annotationGolden(annotation: ShellAnnotation): string =
     result.addString16(annotation.safeBytes)
   of akPlayFault:
     result.addU8(4)  # the coded layout; 3 is the legacy pre-code layout
-    result.addU64(annotation.faultAtEpoch)
+    result.addU64(annotation.faultAtCallNumber)
     result.addU8(uint8(annotation.faultCode.ord))
     result.addString16(annotation.faultEntryId)
     result.addString16(annotation.annotationFaultReason)
@@ -379,7 +379,7 @@ suite "shell replay record bytes":
     check decoded.entries[3].code.nativeName == "reflex_zone_escape"
     check decoded.contentSha256 == sha256Hex(bytes)
 
-  test "annotation round trip preserves epochs provenance and exact order":
+  test "annotation round trip preserves call numbers provenance and exact order":
     for expected in sampleAnnotations():
       let bytes = expected.encodeAnnotationRecord()
       var offset = 0
@@ -404,7 +404,7 @@ suite "shell replay record bytes":
     let decoded = legacy.decodeAnnotationRecord(offset)
     check offset == legacy.len
     check decoded.kind == akPlayFault
-    check decoded.faultAtEpoch == 9
+    check decoded.faultAtCallNumber == 9
     check decoded.faultEntryId == "controller"
     check decoded.annotationFaultReason == "fuel"
     check decoded.faultCode == fcUnknown

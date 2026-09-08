@@ -471,7 +471,7 @@ proc viewSource(seat: int): PlayViewSource =
   result = PlayViewSource(
     tick: 12345'u32,
     mode: gmBr,
-    epoch: uint64(seat + 1),
+    callNumber: uint64(seat + 1),
     self: PlaySelf(pos: (1605 + seat, 856), hp: 9, hpFrac: 0.9,
       aimBrads: (seat * 17) mod 256, alive: true),
     aliveTeams: 16,

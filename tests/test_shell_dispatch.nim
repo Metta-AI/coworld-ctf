@@ -821,7 +821,7 @@ suite "server play receive arm":
     queueLobbyChatRecord(LobbyChatRecord(
       replayTimeMs: 7, ordinal: 1, seat: 0, team: 0, text: "ready"))
     queuePlayCallRecord(PlayCallRecord(
-      replayTimeMs: 7, seat: 0, epoch: 1,
+      replayTimeMs: 7, seat: 0, callNumber: 1,
       ladderBytes: "{\"plays\":[]}", entries: @[]))
     queueShellAnnotation(ShellAnnotation(
       tick: 1, seat: 0, kind: akInstallSafeIntent,
@@ -909,7 +909,7 @@ suite "server play outbound arm":
       "\"proposal_id\":\"8\",\"reason\":\"nope\"}],\"v\":1}"
     check seat.controlViewEnvelope() == expectedView
     check controlContextEnvelope(PlayContextRecovery(
-      generation: 5, epoch: 0, uploadIdFloor: 7, proposalIdFloor: 8,
+      generation: 5, callNumber: 0, uploadIdFloor: 7, proposalIdFloor: 8,
       modulesLeft: 15, uploadBytesLeft: 123, ackMark: 0,
       lobbyTranscriptMark: 9)) ==
       "{\"ack_mark\":\"0\",\"budgets\":{\"modules_left\":15," &
@@ -918,7 +918,7 @@ suite "server play outbound arm":
       "\"lobby_transcript_mark\":\"9\",\"schema\":\"control_context\"," &
       "\"v\":1}"
     check controlContextEnvelope(PlayContextRecovery(
-      generation: 3, epoch: 4, uploadIdFloor: 3, proposalIdFloor: 7,
+      generation: 3, callNumber: 4, uploadIdFloor: 3, proposalIdFloor: 7,
       modulesLeft: 14, uploadBytesLeft: 1_572_864, ackMark: 4,
       lobbyTranscriptMark: 37,
       call: some(PlayContextAcceptedCall(
@@ -1111,7 +1111,7 @@ suite "server play outbound arm":
       drainPlayIngressAtTickBoundary(episode, tick,
         uploadWindowClosed = true)
       let recovery = episode.shellRecovery(0)
-      check recovery.epoch == 1
+      check recovery.callNumber == 1
       check recovery.call.isSome
       check recovery.call.get.proposalId == 3
       check "call_accepted" in appState.playOutbound[0].statusBytes.join("\n")
@@ -1124,7 +1124,7 @@ suite "server play outbound arm":
       drainPlayIngressAtTickBoundary(episode, tick + 1,
         uploadWindowClosed = true)
       let retuned = episode.shellRecovery(0)
-      check retuned.epoch == 2
+      check retuned.callNumber == 2
       check retuned.call.isSome
       check retuned.call.get.proposalId == 4
 
@@ -1435,7 +1435,7 @@ suite "server play outbound arm":
       let durableNode = parseJson(durable)
       let seamStatus = refused.ladderStatuses[0].status
       check durableNode["gen"].getStr == $seamStatus.originGeneration
-      check durableNode["epoch"].getStr == $seamStatus.faultEpoch
+      check durableNode["epoch"].getStr == $seamStatus.faultCallNumber
       check durableNode["entry_id"].getStr == seamStatus.entryId
       check durableNode["kind"].getStr == "retune_refused"
       check durableNode["reason"].getStr == seamStatus.faultReason
@@ -1454,7 +1454,7 @@ suite "server play outbound arm":
     let spontaneous = ShellLadderStatus(
       seat: 0, entryId: "spontaneous",
       status: StatusEntry(kind: skPlayFaulted, ordinal: 1,
-        originGeneration: 1, faultEpoch: 1, entryId: "spontaneous",
+        originGeneration: 1, faultCallNumber: 1, entryId: "spontaneous",
         faultReason: "trap"))
     var canonical = spontaneous
     canonical.statusBytes = encodeStatusEntry(canonical.status)
@@ -1744,7 +1744,7 @@ suite "server play outbound arm":
         sleep(5)
       drainPlayIngressAtTickBoundary(episode, tick,
         uploadWindowClosed = true)
-      check episode.shellRecovery(0).epoch == 1
+      check episode.shellRecovery(0).callNumber == 1
 
     simServer.pumpPlayOutbound(config, episode)
     let firstContext = decodeServerPacket(first.recvBinary())

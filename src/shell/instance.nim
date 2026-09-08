@@ -83,8 +83,8 @@ proc compactRuntimeFault*(message: string): string =
   ## Puts the cause first. Wasmtime reports a guest trap as a backtrace
   ## followed by "Caused by:\n    wasm trap: <kind>"; the status entry that
   ## carries the reason is capped at StatusEntryMaxBytes and is trimmed from
-  ## the end, so the useful part (the trap kind, fuel exhaustion, the epoch
-  ## deadline) was the first thing lost. The frames follow the cause on one
+  ## the end, so the useful part (the trap kind, fuel exhaustion, the
+  ## epoch deadline) was the first thing lost. The frames follow the cause on one
   ## line, so the operator log and the policy both see "wasm trap: ..." even
   ## after trimming.
   if "Caused by:" notin message:
@@ -648,21 +648,21 @@ proc fitTerminalStatus(entry: var StatusEntry) =
     entry.setTerminalReason(reason)
 
 proc terminalStatus*(invocationResult: ShellInvocationResult; ordinal,
-                     originGeneration, epoch: uint64;
+                     originGeneration, callNumber: uint64;
                      entryId: string): Option[StatusEntry] =
   ## Maps autonomous runtime terminal results to durable shell status entries.
   ## Non-terminal success and negative emit rejections are not statuses here:
   ## ladder call acceptance/rejection is owned by the later guard/call phases.
   if invocationResult.kind == ivRetune and invocationResult.refused:
     var entry = StatusEntry(kind: skRetuneRefused, ordinal: ordinal,
-      originGeneration: originGeneration, faultEpoch: epoch,
+      originGeneration: originGeneration, faultCallNumber: callNumber,
       entryId: entryId, faultCode: invocationResult.code,
       faultReason: invocationResult.reason)
     entry.fitTerminalStatus()
     return some(entry)
   if invocationResult.faulted:
     var entry = StatusEntry(kind: skPlayFaulted, ordinal: ordinal,
-      originGeneration: originGeneration, faultEpoch: epoch,
+      originGeneration: originGeneration, faultCallNumber: callNumber,
       entryId: entryId, faultCode: invocationResult.code,
       faultReason: invocationResult.reason)
     entry.fitTerminalStatus()
@@ -670,10 +670,10 @@ proc terminalStatus*(invocationResult: ShellInvocationResult; ordinal,
   none(StatusEntry)
 
 proc terminalStatusBytes*(invocationResult: ShellInvocationResult; ordinal,
-                          originGeneration, epoch: uint64;
+                          originGeneration, callNumber: uint64;
                           entryId: string): string =
   let status = invocationResult.terminalStatus(ordinal, originGeneration,
-    epoch, entryId)
+    callNumber, entryId)
   if status.isSome:
     encodeStatusEntry(status.get)
   else:

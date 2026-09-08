@@ -93,7 +93,7 @@ proc viewFor(tick: int; self: BodyPoint; current: array[4, int];
   buildBinaryPlayView(PlayViewSource(
     tick: uint32(tick),
     mode: gmBr,
-    epoch: 0,
+    callNumber: 0,
     self: PlaySelf(pos: self, hp: 2, hpFrac: 1.0, aimBrads: 32,
       alive: true),
     aliveTeams: 9,
