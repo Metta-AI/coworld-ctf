@@ -292,10 +292,31 @@ suite "broadcast state channel":
       # The chrome frame publishes it as {teams, pts} in Team order.
       let state = parseJson(sim.buildStateJson(
         newJArray(), false, 1, replay.replayMaxTick(), false, true, -1, -1,
-        replay.leadSeries, replay.leadMetric
+        replay.leadSeries, replay.leadMetric, replay.leadOutTicks
       ))
+      # ELIMINATION TICKS, one per team in the same order. capture-seed1 ends
+      # on Blue capturing the red heart, which eliminates Red -- so Red has a
+      # real tick and Blue, still standing, has -1.
+      #
+      # The >0 matters. "No lives banked and nobody up" is also true of the
+      # LOBBY, before anyone has spawned, so latching it directly marks every
+      # team eliminated on tick 1 -- which is what the first cut of this did,
+      # measured as outTicks @[1, 1, 1, ...] across all sixteen teams of the
+      # BR fixture. The latch is gated on having been alive first; this is
+      # the assertion that would have caught it.
+      check replay.leadOutTicks.len == 2
+      let redOut = replay.leadOutTicks[0]
+      let blueOut = replay.leadOutTicks[1]
+      check redOut > 1
+      check redOut <= replay.leadSeries[^1][0]
+      check blueOut == -1
       # The band captions itself from this, rather than hardcoding a metric.
       check state["lead"]["metric"].getStr == "glory"
+      # …and the wire carries them, so the lane can stop drawing a dead team
+      # as a live competitor.
+      check state["lead"]["out"].len == 2
+      check state["lead"]["out"][0].getInt == redOut
+      check state["lead"]["out"][1].getInt == -1
       check state["lead"]["teams"].len == 2
       check state["lead"]["teams"][0].getStr == "red"
       check state["lead"]["teams"][1].getStr == "blue"

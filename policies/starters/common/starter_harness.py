@@ -537,12 +537,9 @@ def _clean_params(play: str, params) -> dict | None:
 # holding under supply_run, collaborative seats under bodyguard, while the
 # zone walked over them.
 #
-# The wire has `when` guards for this, but for play seats the engine
-# evaluates them against `noGuardContext()` (src/shell/episode.nim:484 --
-# every path reads 0.0 / false), so a guard like `self.hp_frac < 0.8` is
-# always true and `partner.alive` is always false. Until that is populated,
-# the harness evaluates the same conditions itself from the live 0xB1 view
-# and re-sends the ladder (no model call) whenever the gate state changes.
+# The engine evaluates wire `when` guards against the seat's live body via
+# playGuardContext. The harness also gates from the live 0xB1 view so gate
+# changes trigger ladder re-sends without a model call; it does not forward `when`.
 
 MAX_HP_FALLBACK = 6  # a full seat; refined from the live view when we have one
 TRACK_FRESH_TICKS = 240  # a track older than this no longer counts as "seen"

@@ -99,6 +99,13 @@ type
     leadMetric*: string
       ## Which of those two `leadSeries` holds ("glory" / "hill"), so the lane
       ## can caption itself truthfully instead of hardcoding one of them.
+    leadOutTicks*: seq[int]
+      ## The tick each team was ELIMINATED on (no lives left and nobody up),
+      ## in the same Team order as a leadSeries point; -1 for a team that
+      ## survived. Both metrics are cumulative, so a dead team's curve does
+      ## not fall — it goes FLAT and runs on to the right edge looking exactly
+      ## like a live team that stopped scoring. The lane needs to know where
+      ## each line stops being a competitor so it can say so.
     endHoldFrames*: int
       ## Real-time frames left to HOLD on the final game-over frame before a
       ## looping replay restarts, so the end segment (winner, win condition,
@@ -159,6 +166,10 @@ type
     beatTracker: BroadcastTracker
     beatTicks: seq[int]
     lastLead: seq[int]
+    leadSeenAlive: seq[bool]
+      ## Per team: has it ever had a life or a body on the field? Gates the
+      ## elimination latch so the lobby's universal zero is not read as a
+      ## sixteen-way wipe on tick 1.
     interval: int
     maxTick: int
 
@@ -1174,6 +1185,17 @@ proc scanLeadMetric*(sim: SimServer): string =
   ## plotted hill ticks under a caption reading "LIVES LEAD".)
   if sim.config.hill: "hill" else: "glory"
 
+proc scanTeamOut(sim: SimServer): seq[bool] =
+  ## Whether each team is out, in Team order: no lives banked and nobody
+  ## still standing. `teamLivesRemaining` counts an alive player's current
+  ## life, so zero here really is "cannot come back".
+  ##
+  ## NOT sufficient on its own: it is also 0 during the lobby, before anyone
+  ## has spawned. Latching on it directly marked all sixteen teams eliminated
+  ## at tick 1. The caller only latches for a team it has already seen alive.
+  for team in sim.teams():
+    result.add(sim.teamLivesRemaining(team) == 0)
+
 proc scanTeamLead(sim: SimServer): seq[int] =
   ## One momentum value per team, in Team order — the metric the scrubber's
   ## lane plots. Cumulative in both modes: a climb, never a tug of war.
@@ -1228,6 +1250,7 @@ proc initReplayScan*(
   ## hosted viewer, or all at once via buildReplayKeyframes.
   replay.keyframes = @[]
   replay.leadSeries = @[]
+  replay.leadOutTicks = @[]
   replay.lullSpans = @[]
   replay.beatEvents = newJArray()
   replay.achievementBadges = newJArray()
@@ -1246,6 +1269,11 @@ proc initReplayScan*(
   replay.keyframes.add(scan.builder.saveReplayKeyframe(scan.sim))
   scan.lastLead = scanTeamLead(scan.sim)
   replay.leadMetric = scanLeadMetric(scan.sim)
+  # -1 until seen out; the lobby has everyone alive, so this starts all -1
+  # even on a recording that opens mid-carnage.
+  for _ in scan.sim.teams():
+    replay.leadOutTicks.add(-1)
+    scan.leadSeenAlive.add(false)
   replay.leadSeries.add(scanSeriesPoint(scan.sim.tickCount, scan.lastLead))
   # Beat ticks for the lull map are derived by the SAME tracker the broadcast
   # channel uses, so "nothing happens here" agrees with the story the kill
@@ -1300,6 +1328,17 @@ proc advanceReplayScan*(replay: var ReplayPlayer, maxTicks: int) =
     if lead != scan.lastLead:
       replay.leadSeries.add(scanSeriesPoint(scan.sim.tickCount, lead))
       scan.lastLead = lead
+    # FIRST tick out, latched -- but only for a team that has actually been
+    # alive. "No lives and nobody up" is equally true of the lobby, before
+    # anyone spawns, so an ungated latch marks every team eliminated on tick 1
+    # (measured: outTicks @[1, 1, 1, …] across all sixteen).
+    for i, isOut in scanTeamOut(scan.sim):
+      if i >= replay.leadOutTicks.len:
+        continue
+      if not isOut:
+        scan.leadSeenAlive[i] = true
+      elif scan.leadSeenAlive[i] and replay.leadOutTicks[i] < 0:
+        replay.leadOutTicks[i] = scan.sim.tickCount
     var stepBeats = newJArray()
     scan.sim.stepEvents(scan.beatTracker, stepBeats)
     for event in stepBeats:

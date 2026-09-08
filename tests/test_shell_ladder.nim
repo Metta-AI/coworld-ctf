@@ -4,7 +4,7 @@ import std/[json, options, sequtils, strutils, tables, unittest]
 
 import ../src/ctf/sim_types
 import ../src/shell/[body, body_map, default_play, standing_order, call_validation, canonical, emit_validator,
-  guards, instance, ladder, manifest, policy_encoding, types]
+  guards, instance, ladder, manifest, policy_encoding, types, episode]
 
 type
   FakeBook = ref object
@@ -147,6 +147,35 @@ proc accept(driver: LadderDriver; bytes: string;
   driver.acceptCall(0, proposalId, 7, 10, canonical(bytes), bindings, ctx())
 
 suite "shell ladder":
+  test "grenade guard selects escape only while a covering grenade exists":
+    let book = newBook()
+    let bindings = @[binding(book, "escape"), binding(book, "base")]
+    let driver = newLadderDriver(1, ShellPathRegistry)
+    defer: driver.close()
+    check driver.accept("""{"plays":[
+      {"entry_id":"escape","play":"escape","when":["get","world.grenade_threat"]},
+      {"entry_id":"base","play":"base"}]}""", bindings).accepted
+    let body = activateSeatBody(newBodyMap(newSeqWith(96 * 96, true),
+      96, 96, 1, @[(32, 32)]), 0, 331)
+    var viewCalls = 0
+    for tick in 1'u32 .. 3'u32:
+      var inputs = BodyTickInputs(self: BodySelfState(pos: (32, 32), alive: true))
+      if tick == 2:
+        inputs.hazards.grenades.add BodyGrenadeHazard(eventId: 1,
+          coversSelf: true, ticksToBlast: 3)
+      body.updateBelief(inputs, tick)
+      var row = input(viewSource = proc(seatIndex: int; tick: uint32): string =
+        inc viewCalls
+        "{}")
+      row.guardContext = playGuardContext(body,
+        brDefaultFacts(body, tick, BrDefaultFallbacks()), true, false)
+      let output = driver.tick([row], tick, bindings)
+      check output.seats[0].intent.reason == (if tick == 2: "escape" else: "base")
+      check output.stepCount == 1
+      check book.stepCounts.getOrDefault("escape") == (if tick >= 2: 1 else: 0)
+      check book.stepCounts.getOrDefault("base") == (if tick == 3: 2 else: 1)
+      check viewCalls == tick.int
+
   test "default producer runs once only after usable base selection":
     for mode in ["native", "controller", "absent", "ineligible", "silent", "faulted", "dead"]:
       let book = newBook(

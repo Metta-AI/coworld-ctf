@@ -217,3 +217,17 @@ suite "shell call validation":
     check rejected.reason == "guardInvalid"
     check rejected.path == "call.plays[0].when"
     check "partner.alvie" in rejected.detail
+
+  test "all shell hazard paths validate in ladder calls":
+    var context = validationCtx()
+    context.registry = ShellPathRegistry
+    for expression in [
+      """["get","world.grenade_threat"]""",
+      """[">=",["get","world.grenade_ticks_to_blast"],0]""",
+      """["get","world.spray_threat"]""",
+      """[">=",["get","world.spray_impact_count"],2]""",
+      """[">=",["get","world.zone_ticks_until_outside"],0]"""]:
+      let validated = validateCall(call("""{"plays":[
+        {"play":"escape","when":$1},{"play":"base"}]}""" % [expression]),
+        @[bound("escape"), bound("base")], context)
+      check validated.accepted

@@ -13,7 +13,7 @@ const
   ## latch in the shared chrome closure (beat timeline, verdict chip,
   ## momentum series, lull spans, placed scrubber markers) now has one reset
   ## entry point the pages call from their reconnect hook.
-  ChromeCommonFingerprint = "e1ec1af7ba5a2eb1"
+  ChromeCommonFingerprint = "5f840c5d1a882e1b"
     ## chrome_common.js pinned: everything paintball adds lives in the
     ## appended game block, so an edit to the shared chrome fails a test
     ## instead of silently drifting. Re-pinned during the season2 main
@@ -27,6 +27,12 @@ const
     ## every series as a per-team climb instead of a two-team signed
     ## difference. Shared-chrome change on purpose — all three viewers are
     ## meant to move together — and the paintball block is again untouched.
+    ## Re-pinned once more: eliminated teams now stop drawing as live
+    ## competitors (solid while alive, a tick at the elimination point, then
+    ## a faint dashed hold). A cumulative metric goes FLAT rather than falling
+    ## when a team is knocked out, so a dead team's line read exactly like a
+    ## live team that simply was not scoring — and a high flat line from an
+    ## early exit read as the leader, which is backwards.
   Page = "client/replay_broadcast.html"
   Chrome = "client/chrome_common.js"
   Core = "client/broadcast_core.js"
