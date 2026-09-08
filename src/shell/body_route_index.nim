@@ -327,6 +327,13 @@ proc routePoint*(index: BodyRouteIndex, pointRef: int32): BodyPoint =
   if not index.map.inBounds(result):
     raise newException(IndexDefect, "fine route point is outside the map")
 
+proc routeRefForPoint*(index: BodyRouteIndex, point: BodyPoint): int32 =
+  ## Encode an exact map pixel in the same 16-phase representation used by
+  ## retained fine anchors and endpoint legs.
+  if not index.map.inBounds(point):
+    raise newException(IndexDefect, "route point is outside the map")
+  -1'i32 - index.fineIndex(point)
+
 proc routeNavCell*(index: BodyRouteIndex, pointRef: int32): int32 =
   ## Dynamic danger, blocked-cell, and hazard state for any route point is
   ## sampled from this containing 8 px navigation cell.
@@ -1773,7 +1780,7 @@ proc roomForCell*(index: BodyRouteIndex, cellIndex: int): int =
 proc sideAnchor*(index: BodyRouteIndex, side: int): BodyPoint =
   if side < 0 or side >= index.sides.len:
     raise newException(IndexDefect, "route-index side is out of bounds")
-  index.cellPoint(index.sides[side].anchorCell.int)
+  index.routePoint(index.sides[side].anchorCell)
 
 proc portalSideAt*(index: BodyRouteIndex, side: int): BodyPortalSide =
   if side < 0 or side >= index.sides.len:
@@ -1825,6 +1832,14 @@ proc pocketConnectorPoints*(index: BodyRouteIndex, pocket: int): seq[int32] =
   for offset in 0 ..< result.len:
     result[offset] = index.pocketCells[metadata.pointStart.int + offset]
 
+proc pocketConnectorPointAt*(index: BodyRouteIndex,
+    pocket, offset: int): int32 =
+  let metadata = index.pocketConnectorAt(pocket)
+  if offset < 0 or offset >= metadata.pointLen.int:
+    raise newException(IndexDefect,
+      "route-index pocket connector offset is out of bounds")
+  index.pocketCells[metadata.pointStart.int + offset]
+
 proc fineAnchorRangeForCell*(index: BodyRouteIndex,
     cellIndex: int): Slice[int] =
   ## Allocation-free range into the retained fine-anchor table for one coarse
@@ -1838,6 +1853,37 @@ proc fineAnchorAt*(index: BodyRouteIndex, offset: int): int32 =
   if offset < 0 or offset >= index.fineAnchors.len:
     raise newException(IndexDefect, "route-index fine anchor is out of bounds")
   index.fineAnchors[offset]
+
+proc fineAnchorCount*(index: BodyRouteIndex): int = index.fineAnchors.len
+
+proc roomSideRange*(index: BodyRouteIndex, room: int): Slice[int] =
+  if room < 0 or room >= index.map.roomCount:
+    raise newException(IndexDefect, "route-index room is out of bounds")
+  index.roomSideStart[room].int .. index.roomSideStart[room + 1].int - 1
+
+proc roomSideAt*(index: BodyRouteIndex, offset: int): int =
+  if offset < 0 or offset >= index.roomSides.len:
+    raise newException(IndexDefect, "route-index room-side offset is out of bounds")
+  index.roomSides[offset].int
+
+proc nextCellTowardSide*(index: BodyRouteIndex,
+    side, cellIndex: int): int32 =
+  if side < 0 or side >= index.sides.len or
+      cellIndex < 0 or cellIndex >= index.stats.navCells:
+    raise newException(IndexDefect, "route-index side field lookup is out of bounds")
+  let metadata = index.sides[side]
+  if cellIndex == metadata.anchorCell.int:
+    return int32(cellIndex)
+  if index.roomOf[cellIndex] != metadata.room or index.localIndex[cellIndex] < 0:
+    return -1
+  let direction = index.portalNext[
+    metadata.fieldStart.int + index.localIndex[cellIndex].int]
+  if direction == NoHop:
+    return -1
+  let
+    cell = index.cellPoint(cellIndex)
+    delta = NavNeighbors[direction.int]
+  int32(index.cellIndex((cell.x + delta.x, cell.y + delta.y)))
 
 proc routeIndexStats*(index: BodyRouteIndex): BodyRouteIndexStats = index.stats
 

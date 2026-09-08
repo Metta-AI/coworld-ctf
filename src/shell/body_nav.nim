@@ -23,7 +23,7 @@
 import std/[hashes, math, options]
 import bitworld/spriteprotocol
 import ../ctf/sim_types
-import body_cache, body_map, body_planner
+import body_cache, body_map, body_planner, body_route_index, body_route_query
 import types as shellTypes
 
 const
@@ -91,6 +91,13 @@ type
     followReplans*: int
     followStuckEvents*: int
     planVisits*: int   ## planning visits spent on the current revision
+    installedDescriptor: BodyRouteDescriptor
+    installedEdges: array[RouteEdgeCap, RouteEdgeRef]
+    installedStartLeg: array[RouteLocalLegCap, int32]
+    installedGoalLeg: array[RouteLocalLegCap, int32]
+    installedRevision: uint64
+    installedCursor: uint16
+    installedAnchor: BodyPoint
 
   PlanningVisit* = object
     tick*: int
@@ -132,6 +139,8 @@ type
   BodyNavSystem* = ref object
     map*: BodyMap
     seats*: seq[BodyNavSeat]
+    routeIndex*: BodyRouteIndex
+    routeScratch*: BodyRouteQueryScratch
     minter*: BodyFieldMinter
     dangerK*: int
     lastPlanSeat*: int
@@ -209,6 +218,8 @@ proc newBodyNavSystem*(map: BodyMap, seatCount, liveGunRangePx: int,
     raise newException(ValueError, "trace capacity must not be negative")
   new(result)
   result.map = map
+  result.routeIndex = newBodyRouteIndex(map)
+  result.routeScratch = newBodyRouteQueryScratch(result.routeIndex)
   result.minter = newBodyFieldMinter(map)
   result.dangerK = dangerK
   result.lastPlanSeat = -1
@@ -233,6 +244,55 @@ proc newBodyNavSystem*(map: BodyMap, seatCount, liveGunRangePx: int,
       path: newSeq[BodyPoint](planner.workspaceCapacity + 2))
 
 proc seatCount*(system: BodyNavSystem): int = system.seats.len
+
+proc installRoute*(seat: BodyNavSeat, scratch: BodyRouteQueryScratch,
+    route: BodyRouteQueryResult, revision: uint64): bool =
+  ## Publish only after every bounded array has copied successfully. The local
+  ## staging values keep a typed/stale failure from changing any live bytes.
+  if seat == nil or scratch == nil or not route.ok:
+    return false
+  var
+    edges: array[RouteEdgeCap, RouteEdgeRef]
+    startLeg: array[RouteLocalLegCap, int32]
+    goalLeg: array[RouteLocalLegCap, int32]
+  if not scratch.copyResultEdges(route, edges) or
+      not scratch.copyResultStartLeg(route, startLeg) or
+      not scratch.copyResultGoalLeg(route, goalLeg):
+    return false
+  seat.installedEdges = edges
+  seat.installedStartLeg = startLeg
+  seat.installedGoalLeg = goalLeg
+  seat.installedDescriptor = route.descriptor
+  seat.installedCursor = 0
+  seat.installedAnchor = route.descriptor.exactStart
+  seat.installedRevision = revision
+  true
+
+proc installedRouteRevision*(seat: BodyNavSeat): uint64 =
+  if seat == nil: 0 else: seat.installedRevision
+
+proc installedRouteCursor*(seat: BodyNavSeat): int =
+  if seat == nil: 0 else: seat.installedCursor.int
+
+proc installedRouteAnchor*(seat: BodyNavSeat): BodyPoint =
+  if seat == nil: (0, 0) else: seat.installedAnchor
+
+proc installedRouteFingerprint*(seat: BodyNavSeat): Hash =
+  if seat == nil:
+    return 0
+  var value = hash(seat.installedDescriptor.edgeCount) !&
+    hash(seat.installedDescriptor.startLegLen) !&
+    hash(seat.installedDescriptor.goalLegLen) !&
+    hash(seat.installedDescriptor.exactStart) !&
+    hash(seat.installedDescriptor.exactGoal) !&
+    hash(seat.installedCursor) !& hash(seat.installedAnchor)
+  for offset in 0 ..< seat.installedDescriptor.edgeCount.int:
+    value = value !& hash(uint16(seat.installedEdges[offset]))
+  for offset in 0 ..< seat.installedDescriptor.startLegLen.int:
+    value = value !& hash(seat.installedStartLeg[offset])
+  for offset in 0 ..< seat.installedDescriptor.goalLegLen.int:
+    value = value !& hash(seat.installedGoalLeg[offset])
+  !$value
 
 proc liveWeaponRangePx*(system: BodyNavSystem, seatIndex: int): int =
   ## The live gun range captured at activation. Body weapon scoring uses the
