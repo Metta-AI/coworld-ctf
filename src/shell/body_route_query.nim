@@ -5,7 +5,7 @@
 ## publish it only after success, so a typed failure cannot damage a live route.
 
 import std/[hashes, math, options, tables]
-import body_map, body_planner, body_route_index
+import body_hazard, body_map, body_planner, body_route_index
 import types as shellTypes
 
 const
@@ -21,6 +21,7 @@ const
   RouteSegmentMask = 0x7fff'u16
   NoRecord = -1'i32
   InfiniteCost = high(int64) div 4
+  ArcCostInfinite = high(uint32)
 
 static:
   doAssert (LocalHashCap and (LocalHashCap - 1)) == 0
@@ -46,6 +47,7 @@ type
     profile*: shellTypes.CostProfile
     danger*: ptr BodyDangerField
     blockedCell*: Option[BodyPoint]
+    hazard*: BodyHazardOverlay
     elapsedZoneTick*: int
 
   BodyRouteDescriptor* = object
@@ -55,6 +57,8 @@ type
   BodyRouteQueryStats* = object
     sidePops*, localPops*: int
     sideCapHits*, localCapHits*: int
+    earliestAlternativePops*: int
+    selectedEarliestAlternative*: bool
 
   EndpointAttach = object
     pointStart: int32
@@ -83,6 +87,7 @@ type
   BodyRouteQueryScratch* = ref object
     index: BodyRouteIndex
     generation: uint32
+    arcMemoGeneration: uint16
     localGeneration: uint32
     heap: QueryHeap
     startAttach, goalAttach: EndpointWorkspace
@@ -92,9 +97,12 @@ type
     sideCost: seq[int64]
     sidePhysical: seq[int64]
     sideParentArc: seq[int32]
+    sideParentLabel: seq[uint8]
     sideSourceAttach: seq[int16]
     startGeneration, goalGeneration, sideGeneration: seq[uint32]
     sideClosedGeneration: seq[uint32]
+    arcCost: seq[uint32]
+    arcCostGeneration: seq[uint16]
     localHashKey: seq[int32]
     localHashRecord: seq[int16]
     localHashGeneration: seq[uint32]
@@ -168,10 +176,16 @@ proc nextGeneration(scratch: BodyRouteQueryScratch) =
     for stamp in scratch.goalGeneration.mitems: stamp = 0
     for stamp in scratch.sideGeneration.mitems: stamp = 0
     for stamp in scratch.sideClosedGeneration.mitems: stamp = 0
+    for stamp in scratch.arcCostGeneration.mitems: stamp = 0
     for stamp in scratch.localHashGeneration.mitems: stamp = 0
     for stamp in scratch.localClosedGeneration.mitems: stamp = 0
     value = 1
   scratch.generation = value
+  inc scratch.arcMemoGeneration
+  if scratch.arcMemoGeneration == 0:
+    for stamp in scratch.arcCostGeneration.mitems:
+      stamp = 0
+    scratch.arcMemoGeneration = 1
 
 proc nextLocalGeneration(scratch: BodyRouteQueryScratch) =
   inc scratch.localGeneration
@@ -409,7 +423,7 @@ proc newBodyRouteQueryScratch*(index: BodyRouteIndex): BodyRouteQueryScratch =
   validateRouteQueryCapacity(index.map.name, stats.sides)
   new(result)
   result.index = index
-  let heapCapacity = max(RouteLocalPopCap, stats.sides)
+  let heapCapacity = max(RouteLocalPopCap, stats.sides * 2)
   result.heap.nodes = newSeq[QueryHeapNode](heapCapacity)
   result.heap.positions = newSeq[int32](heapCapacity)
   result.heap.positionGeneration = newSeq[uint32](heapCapacity)
@@ -421,14 +435,17 @@ proc newBodyRouteQueryScratch*(index: BodyRouteIndex): BodyRouteQueryScratch =
   result.goalPhysical = newSeq[int64](stats.sides)
   result.startAttachForSide = newSeq[int16](stats.sides)
   result.goalAttachForSide = newSeq[int16](stats.sides)
-  result.sideCost = newSeq[int64](stats.sides)
-  result.sidePhysical = newSeq[int64](stats.sides)
-  result.sideParentArc = newSeq[int32](stats.sides)
-  result.sideSourceAttach = newSeq[int16](stats.sides)
+  result.sideCost = newSeq[int64](stats.sides * 2)
+  result.sidePhysical = newSeq[int64](stats.sides * 2)
+  result.sideParentArc = newSeq[int32](stats.sides * 2)
+  result.sideParentLabel = newSeq[uint8](stats.sides * 2)
+  result.sideSourceAttach = newSeq[int16](stats.sides * 2)
   result.startGeneration = newSeq[uint32](stats.sides)
   result.goalGeneration = newSeq[uint32](stats.sides)
-  result.sideGeneration = newSeq[uint32](stats.sides)
-  result.sideClosedGeneration = newSeq[uint32](stats.sides)
+  result.sideGeneration = newSeq[uint32](stats.sides * 2)
+  result.sideClosedGeneration = newSeq[uint32](stats.sides * 2)
+  result.arcCost = newSeq[uint32](stats.arcs)
+  result.arcCostGeneration = newSeq[uint16](stats.arcs)
   result.localHashKey = newSeq[int32](LocalHashCap)
   result.localHashRecord = newSeq[int16](LocalHashCap)
   result.localHashGeneration = newSeq[uint32](LocalHashCap)
@@ -517,7 +534,7 @@ proc profileWeightQ8(profile: shellTypes.CostProfile): int64 {.inline.} =
   of shellTypes.cpCarrier: 640
   of shellTypes.cpHunter: 64
 
-proc edgeCost(index: BodyRouteIndex, request: BodyRouteRequest,
+proc edgeBaseCost(index: BodyRouteIndex, request: BodyRouteRequest,
     aRef, bRef: int32): int64 =
   let
     a = index.routePoint(aRef)
@@ -541,6 +558,24 @@ proc edgeCost(index: BodyRouteIndex, request: BodyRouteRequest,
     if result > InfiniteCost div 8:
       return InfiniteCost
     result *= 8
+
+proc hazardEdgeCost(index: BodyRouteIndex, request: BodyRouteRequest,
+    bRef: int32, entryPhysicalQ4, stepPhysicalQ4: int64): int64 =
+  if request.hazard == nil or request.hazard.state == bhsDark:
+    return 0
+  let cumulative = checkedAdd(entryPhysicalQ4, stepPhysicalQ4)
+  if cumulative == InfiniteCost:
+    return InfiniteCost
+  let eta = request.elapsedZoneTick +
+    int((cumulative + HazardEtaSpeedQ4 - 1) div HazardEtaSpeedQ4)
+  request.hazard.hazardStepCostQ4(index.routeNavCell(bRef).int,
+    eta, uint32(stepPhysicalQ4))
+
+proc edgeCost(index: BodyRouteIndex, request: BodyRouteRequest,
+    aRef, bRef: int32, entryPhysicalQ4: int64): int64 =
+  let physical = distanceQ4(index.routePoint(aRef), index.routePoint(bRef))
+  checkedAdd(index.edgeBaseCost(request, aRef, bRef),
+    index.hazardEdgeCost(request, bRef, entryPhysicalQ4, physical))
 
 type LocalSearchState = enum
   lssFound
@@ -576,7 +611,7 @@ proc localRecord(scratch: BodyRouteQueryScratch, cell: int32,
 proc runLocalPath(scratch: BodyRouteQueryScratch, request: BodyRouteRequest,
     fromCell, toCell: int32,
     destination: var array[RouteLocalLegCap, int32], length: var int,
-    cost: var int64): LocalSearchState =
+    cost: var int64, entryPhysicalQ4 = 0'i64): LocalSearchState =
   ## Weighted A* within one immutable room. This is the only live cell search;
   ## its records, hash table, and heap are fixed at activation.
   length = 0
@@ -598,7 +633,8 @@ proc runLocalPath(scratch: BodyRouteQueryScratch, request: BodyRouteRequest,
   if not scratch.heap.pushOrDecrease(QueryHeapNode(
       priority: routeOctileQ4(index.map.cellOf(index.routePoint(fromCell)),
         index.map.cellOf(index.routePoint(toCell))),
-      cost: 0, physical: 0, item: int32(startRecord), tie: fromCell)):
+      cost: 0, physical: entryPhysicalQ4,
+      item: int32(startRecord), tie: fromCell)):
     return lssCap
   var
     targetRecord = NoRecord.int
@@ -635,7 +671,7 @@ proc runLocalPath(scratch: BodyRouteQueryScratch, request: BodyRouteRequest,
         scratch.resultStats.localPops = max(scratch.resultStats.localPops, pops)
         return lssCap
       let candidate = checkedAdd(node.cost,
-        index.edgeCost(request, currentCell, nextCell))
+        index.edgeCost(request, currentCell, nextCell, node.physical))
       let previousParent = scratch.localParent[nextRecord].int
       if candidate < scratch.localCost[nextRecord] or
           (candidate < InfiniteCost and
@@ -671,10 +707,18 @@ proc runLocalPath(scratch: BodyRouteQueryScratch, request: BodyRouteRequest,
   lssFound
 
 proc pathCost(index: BodyRouteIndex, request: BodyRouteRequest,
-    points: openArray[int32]): int64 =
+    points: openArray[int32], entryPhysicalQ4 = 0'i64,
+    reversed = false): int64 =
+  var physical = entryPhysicalQ4
   for offset in 1 ..< points.len:
+    let
+      source = if reversed: points.len - offset else: offset - 1
+      target = if reversed: points.len - 1 - offset else: offset
+      step = distanceQ4(index.routePoint(points[source]),
+        index.routePoint(points[target]))
     result = checkedAdd(result,
-      index.edgeCost(request, points[offset - 1], points[offset]))
+      index.edgeCost(request, points[source], points[target], physical))
+    physical = checkedAdd(physical, step)
 
 proc pathPhysical(index: BodyRouteIndex, points: openArray[int32]): int64 =
   for offset in 1 ..< points.len:
@@ -686,19 +730,24 @@ proc attachPoints(workspace: EndpointWorkspace,
   attach.pointStart.int .. attach.pointStart.int + attach.pointLen.int - 1
 
 proc attachCost(index: BodyRouteIndex, request: BodyRouteRequest,
-    workspace: EndpointWorkspace, attach: EndpointAttach): int64 =
+    workspace: EndpointWorkspace, attach: EndpointAttach,
+    entryPhysicalQ4 = 0'i64, reversed = false): int64 =
   index.pathCost(request, workspace.points.toOpenArray(
-    attach.pointStart.int, attach.pointStart.int + attach.pointLen.int - 1))
+    attach.pointStart.int, attach.pointStart.int + attach.pointLen.int - 1),
+    entryPhysicalQ4, reversed)
 
 proc chainCost(index: BodyRouteIndex, request: BodyRouteRequest,
-    fromCell, side: int): int64 =
+    fromCell, side: int, entryPhysicalQ4 = 0'i64): int64 =
   var cursor = fromCell
+  var physical = entryPhysicalQ4
   while cursor != index.portalSideAt(side).anchorCell.int:
     let next = index.nextCellTowardSide(side, cursor)
     if next < 0 or next.int == cursor:
       return InfiniteCost
+    let step = distanceQ4(index.routePoint(int32(cursor)), index.routePoint(next))
     result = checkedAdd(result,
-      index.edgeCost(request, int32(cursor), next))
+      index.edgeCost(request, int32(cursor), next, physical))
+    physical = checkedAdd(physical, step)
     cursor = next.int
 
 proc chainPhysical(index: BodyRouteIndex, fromCell, side: int): int64 =
@@ -715,15 +764,22 @@ proc buildConnections(scratch: BodyRouteQueryScratch,
     request: BodyRouteRequest, workspace: EndpointWorkspace,
     start: bool): bool =
   let index = scratch.index
+  var scoring = request
+  if not start:
+    # Goal connections are traversed side -> endpoint, and their entry ETA is
+    # only known when A* reaches that side. Retain the ETA-independent part;
+    # runSideSearch adds directional hazard at goal evaluation.
+    scoring.hazard = nil
   for attachIndex in 0 ..< workspace.attachCount:
     let attach = workspace.attaches[attachIndex]
-    let base = index.attachCost(request, workspace, attach)
+    let base = index.attachCost(scoring, workspace, attach)
     let basePhysical = index.pathPhysical(workspace.points.toOpenArray(
       attach.pointStart.int, attach.pointStart.int + attach.pointLen.int - 1))
     for roomOffset in index.roomSideRange(attach.room.int):
       let
         side = index.roomSideAt(roomOffset)
-        chain = index.chainCost(request, attach.coarseCell.int, side)
+        chain = index.chainCost(scoring, attach.coarseCell.int, side,
+          basePhysical)
         physical = checkedAdd(basePhysical,
           index.chainPhysical(attach.coarseCell.int, side))
       if index.graphComponentForSide(side) != attach.graph.int or
@@ -764,51 +820,219 @@ proc sideHeuristic(scratch: BodyRouteQueryScratch, side: int): int64 =
   if result == InfiniteCost:
     result = 0
 
-proc segmentCost(index: BodyRouteIndex, request: BodyRouteRequest,
-    segment: int, reversed: bool): int64 =
-  let metadata = index.routeSegmentAt(segment)
+proc segmentBaseCost(scratch: BodyRouteQueryScratch,
+    request: BodyRouteRequest, arcOffset: int): int64 =
+  if scratch.arcCostGeneration[arcOffset] == scratch.arcMemoGeneration:
+    return if scratch.arcCost[arcOffset] == ArcCostInfinite:
+      InfiniteCost else: scratch.arcCost[arcOffset].int64
+  let
+    arc = scratch.index.routeArcAt(arcOffset)
+    metadata = scratch.index.routeSegmentAt(arc.segment.int)
   for offset in 1 ..< metadata.cellLen.int:
     let
-      previous = index.segmentCellAt(segment, offset - 1, reversed)
-      current = index.segmentCellAt(segment, offset, reversed)
-    result = checkedAdd(result, index.edgeCost(request, previous, current))
+      previous = scratch.index.segmentCellAt(
+        arc.segment.int, offset - 1, arc.reversed)
+      current = scratch.index.segmentCellAt(
+        arc.segment.int, offset, arc.reversed)
+    result = checkedAdd(result,
+      scratch.index.edgeBaseCost(request, previous, current))
+  if result >= ArcCostInfinite.int64:
+    result = InfiniteCost
+    scratch.arcCost[arcOffset] = ArcCostInfinite
+  else:
+    scratch.arcCost[arcOffset] = uint32(result)
+  scratch.arcCostGeneration[arcOffset] = scratch.arcMemoGeneration
+
+proc segmentHazardCost(scratch: BodyRouteQueryScratch,
+    request: BodyRouteRequest, arcOffset: int,
+    entryPhysicalQ4: int64): int64 =
+  let
+    arc = scratch.index.routeArcAt(arcOffset)
+  request.hazard.hazardSegmentCostQ4(scratch.index, arc.segment.int,
+    arc.reversed, request.elapsedZoneTick, entryPhysicalQ4)
+
+proc segmentCost(scratch: BodyRouteQueryScratch,
+    request: BodyRouteRequest, arcOffset: int,
+    entryPhysicalQ4: int64): int64 =
+  checkedAdd(scratch.segmentBaseCost(request, arcOffset),
+    scratch.segmentHazardCost(request, arcOffset, entryPhysicalQ4))
+
+proc dangerMemoDebug*(scratch: BodyRouteQueryScratch): tuple[
+    generation: uint16, capacity, filled: int] =
+  result.generation = scratch.arcMemoGeneration
+  result.capacity = scratch.arcCost.len
+  for stamp in scratch.arcCostGeneration:
+    if stamp == scratch.arcMemoGeneration:
+      inc result.filled
+
+proc reverseChainHazard(scratch: BodyRouteQueryScratch,
+    request: BodyRouteRequest, fromCell, side: int,
+    entryPhysicalQ4: int64): int64 =
+  if request.hazard == nil or request.hazard.state == bhsDark:
+    return 0
+  let total = scratch.index.chainPhysical(fromCell, side)
+  if total == InfiniteCost:
+    return InfiniteCost
+  var
+    cursor = fromCell
+    prefix = 0'i64
+  while cursor != scratch.index.portalSideAt(side).anchorCell.int:
+    let next = scratch.index.nextCellTowardSide(side, cursor)
+    if next < 0 or next.int == cursor:
+      return InfiniteCost
+    let step = distanceQ4(scratch.index.routePoint(int32(cursor)),
+      scratch.index.routePoint(next))
+    prefix = checkedAdd(prefix, step)
+    result = checkedAdd(result, scratch.index.hazardEdgeCost(
+      request, int32(cursor), entryPhysicalQ4 + total - prefix, step))
+    cursor = next.int
+
+proc reverseAttachHazard(scratch: BodyRouteQueryScratch,
+    request: BodyRouteRequest, attach: EndpointAttach,
+    entryPhysicalQ4: int64): int64 =
+  if request.hazard == nil or request.hazard.state == bhsDark:
+    return 0
+  let first = attach.pointStart.int
+  var physical = entryPhysicalQ4
+  for offset in countdown(attach.pointLen.int - 1, 1):
+    let
+      source = scratch.goalAttach.points[first + offset]
+      target = scratch.goalAttach.points[first + offset - 1]
+      step = distanceQ4(scratch.index.routePoint(source),
+        scratch.index.routePoint(target))
+    result = checkedAdd(result, scratch.index.hazardEdgeCost(
+      request, target, physical, step))
+    physical = checkedAdd(physical, step)
+
+proc goalConnectionHazard(scratch: BodyRouteQueryScratch,
+    request: BodyRouteRequest, side, attachIndex: int,
+    entryPhysicalQ4: int64): int64 =
+  let
+    attach = scratch.goalAttach.attaches[attachIndex]
+    chainPhysical = scratch.index.chainPhysical(attach.coarseCell.int, side)
+  result = scratch.reverseChainHazard(request, attach.coarseCell.int,
+    side, entryPhysicalQ4)
+  result = checkedAdd(result, scratch.reverseAttachHazard(request, attach,
+    checkedAdd(entryPhysicalQ4, chainPhysical)))
+
+type SideLabel = object
+  valid: bool
+  cost, physical: int64
+  parentArc: int32
+  parentLabel: uint8
+  sourceAttach: int16
+
+proc sameLabel(a, b: SideLabel): bool {.inline.} =
+  a.valid == b.valid and (not a.valid or
+    (a.cost == b.cost and a.physical == b.physical and
+     a.parentArc == b.parentArc and a.parentLabel == b.parentLabel and
+     a.sourceAttach == b.sourceAttach))
+
+proc costLess(a, b: SideLabel): bool {.inline.} =
+  a.cost < b.cost or (a.cost == b.cost and
+    (a.physical < b.physical or (a.physical == b.physical and
+     (a.parentArc < b.parentArc or (a.parentArc == b.parentArc and
+      (a.parentLabel < b.parentLabel or (a.parentLabel == b.parentLabel and
+       a.sourceAttach < b.sourceAttach)))))))
+
+proc physicalLess(a, b: SideLabel): bool {.inline.} =
+  a.physical < b.physical or (a.physical == b.physical and a.costLess(b))
+
+proc storedLabel(scratch: BodyRouteQueryScratch, slot: int): SideLabel =
+  if scratch.sideGeneration[slot] != scratch.generation:
+    return
+  SideLabel(valid: true, cost: scratch.sideCost[slot],
+    physical: scratch.sidePhysical[slot],
+    parentArc: scratch.sideParentArc[slot],
+    parentLabel: scratch.sideParentLabel[slot],
+    sourceAttach: scratch.sideSourceAttach[slot])
+
+proc writeLabel(scratch: BodyRouteQueryScratch, side, label: int,
+    value: SideLabel): bool =
+  let slot = side * 2 + label
+  let previous = scratch.storedLabel(slot)
+  if value.sameLabel(previous):
+    return true
+  if not value.valid:
+    scratch.sideGeneration[slot] = 0
+    scratch.sideClosedGeneration[slot] = 0
+    return true
+  scratch.sideGeneration[slot] = scratch.generation
+  scratch.sideClosedGeneration[slot] = 0
+  scratch.sideCost[slot] = value.cost
+  scratch.sidePhysical[slot] = value.physical
+  scratch.sideParentArc[slot] = value.parentArc
+  scratch.sideParentLabel[slot] = value.parentLabel
+  scratch.sideSourceAttach[slot] = value.sourceAttach
+  scratch.heap.pushOrDecrease(QueryHeapNode(
+    priority: checkedAdd(value.cost, scratch.sideHeuristic(side)),
+    cost: value.cost, physical: value.physical,
+    item: int32(slot), tie: int32(slot)))
+
+proc considerSideLabel(scratch: BodyRouteQueryScratch, side: int,
+    candidate: SideLabel): bool =
+  var choices = [scratch.storedLabel(side * 2),
+    scratch.storedLabel(side * 2 + 1), candidate]
+  var cheapest = -1
+  for index, choice in choices:
+    if choice.valid and (cheapest < 0 or choice.costLess(choices[cheapest])):
+      cheapest = index
+  var earliest = -1
+  for index, choice in choices:
+    if not choice.valid or index == cheapest or
+        choice.physical >= choices[cheapest].physical:
+      continue
+    if earliest < 0 or choice.physicalLess(choices[earliest]):
+      earliest = index
+  if not scratch.writeLabel(side, 0, choices[cheapest]):
+    return false
+  scratch.writeLabel(side, 1,
+    if earliest < 0: SideLabel() else: choices[earliest])
 
 proc runSideSearch(scratch: BodyRouteQueryScratch,
     request: BodyRouteRequest): tuple[found, capHit: bool,
-    goalSide, sourceAttach, goalAttach: int, cost, physical: int64] =
+    goalSide, goalLabel, sourceAttach, goalAttach: int,
+    cost, physical: int64] =
   let sideCount = scratch.index.routeIndexStats.sides
   scratch.heap.begin()
   for side in 0 ..< sideCount:
     if scratch.startGeneration[side] != scratch.generation:
       continue
-    scratch.sideGeneration[side] = scratch.generation
-    scratch.sideCost[side] = scratch.startCost[side]
-    scratch.sidePhysical[side] = scratch.startPhysical[side]
-    scratch.sideParentArc[side] = -1
-    scratch.sideSourceAttach[side] = scratch.startAttachForSide[side]
-    if not scratch.heap.pushOrDecrease(QueryHeapNode(
-        priority: checkedAdd(scratch.startCost[side],
-          scratch.sideHeuristic(side)), cost: scratch.startCost[side],
-        physical: scratch.startPhysical[side], item: int32(side),
-        tie: int32(side))):
-      return (false, true, -1, -1, -1, InfiniteCost, InfiniteCost)
+    if not scratch.considerSideLabel(side, SideLabel(valid: true,
+        cost: scratch.startCost[side], physical: scratch.startPhysical[side],
+        parentArc: -1, sourceAttach: scratch.startAttachForSide[side])):
+      return (false, true, -1, -1, -1, -1,
+        InfiniteCost, InfiniteCost)
   result.cost = InfiniteCost
   result.physical = InfiniteCost
   result.goalSide = -1
+  result.goalLabel = -1
   while scratch.heap.len > 0:
     if scratch.resultStats.sidePops >= RouteSidePopCap:
       result.capHit = true
       return
     let current = scratch.heap.pop()
-    let side = current.item.int
-    if scratch.sideClosedGeneration[side] == scratch.generation or
-        current.cost != scratch.sideCost[side]:
+    let
+      slot = current.item.int
+      side = slot div 2
+      label = slot mod 2
+    if scratch.sideClosedGeneration[slot] == scratch.generation or
+        scratch.sideGeneration[slot] != scratch.generation or
+        current.cost != scratch.sideCost[slot] or
+        current.physical != scratch.sidePhysical[slot]:
       continue
-    scratch.sideClosedGeneration[side] = scratch.generation
+    scratch.sideClosedGeneration[slot] = scratch.generation
     inc scratch.resultStats.sidePops
+    if label == 1:
+      inc scratch.resultStats.earliestAlternativePops
     if scratch.goalGeneration[side] == scratch.generation:
-      let total = checkedAdd(current.cost, scratch.goalCost[side])
-      let totalPhysical = checkedAdd(scratch.sidePhysical[side],
+      let
+        goalAttach = scratch.goalAttachForSide[side].int
+        goalHazard = scratch.goalConnectionHazard(request, side, goalAttach,
+          scratch.sidePhysical[slot])
+        total = checkedAdd(current.cost,
+          checkedAdd(scratch.goalCost[side], goalHazard))
+      let totalPhysical = checkedAdd(scratch.sidePhysical[slot],
         scratch.goalPhysical[side])
       if total < result.cost or
           (total == result.cost and
@@ -818,37 +1042,27 @@ proc runSideSearch(scratch: BodyRouteQueryScratch,
         result.cost = total
         result.physical = totalPhysical
         result.goalSide = side
-        result.sourceAttach = scratch.sideSourceAttach[side].int
-        result.goalAttach = scratch.goalAttachForSide[side].int
+        result.goalLabel = label
+        scratch.resultStats.selectedEarliestAlternative = label == 1
+        result.sourceAttach = scratch.sideSourceAttach[slot].int
+        result.goalAttach = goalAttach
     if result.found and current.priority > result.cost:
       break
     for arcOffset in scratch.index.arcRangeForSide(side):
       let
         arc = scratch.index.routeArcAt(arcOffset)
         next = arc.toSide.int
-      if scratch.sideClosedGeneration[next] == scratch.generation:
-        continue
       let candidate = checkedAdd(current.cost,
-        scratch.index.segmentCost(request, arc.segment.int, arc.reversed))
-      let candidatePhysical = checkedAdd(scratch.sidePhysical[side],
+        scratch.segmentCost(request, arcOffset,
+          scratch.sidePhysical[slot]))
+      let candidatePhysical = checkedAdd(scratch.sidePhysical[slot],
         scratch.index.routeSegmentAt(arc.segment.int).staticLengthQ4.int64)
-      if scratch.sideGeneration[next] != scratch.generation or
-          candidate < scratch.sideCost[next] or
-          (candidate == scratch.sideCost[next] and
-           (candidatePhysical < scratch.sidePhysical[next] or
-            (candidatePhysical == scratch.sidePhysical[next] and
-             arcOffset < scratch.sideParentArc[next]))):
-        scratch.sideGeneration[next] = scratch.generation
-        scratch.sideCost[next] = candidate
-        scratch.sidePhysical[next] = candidatePhysical
-        scratch.sideParentArc[next] = int32(arcOffset)
-        scratch.sideSourceAttach[next] = scratch.sideSourceAttach[side]
-        if not scratch.heap.pushOrDecrease(QueryHeapNode(
-            priority: checkedAdd(candidate, scratch.sideHeuristic(next)),
-            cost: candidate, physical: candidatePhysical,
-            item: int32(next), tie: int32(next))):
-          result.capHit = true
-          return
+      if not scratch.considerSideLabel(next, SideLabel(valid: true,
+          cost: candidate, physical: candidatePhysical,
+          parentArc: int32(arcOffset), parentLabel: uint8(label),
+          sourceAttach: scratch.sideSourceAttach[slot])):
+        result.capHit = true
+        return
 
 proc copyAttach(scratch: BodyRouteQueryScratch,
     workspace: EndpointWorkspace, attachIndex: int,
@@ -891,11 +1105,15 @@ proc tryDirectLocal(scratch: BodyRouteQueryScratch,
   let
     startAttach = scratch.startAttach.attaches[bestStart]
     goalAttach = scratch.goalAttach.attaches[bestGoal]
+    startPhysical = scratch.index.pathPhysical(
+      scratch.startAttach.points.toOpenArray(startAttach.pointStart.int,
+        startAttach.pointStart.int + startAttach.pointLen.int - 1))
   var
     localLen = 0
     localCost = InfiniteCost
   result.state = scratch.runLocalPath(request, startAttach.coarseCell,
-    goalAttach.coarseCell, scratch.tempRefs, localLen, localCost)
+    goalAttach.coarseCell, scratch.tempRefs, localLen, localCost,
+    startPhysical)
   if result.state != lssFound:
     result.cost = InfiniteCost
     return
@@ -914,10 +1132,8 @@ proc tryDirectLocal(scratch: BodyRouteQueryScratch,
   scratch.resultDescriptor = BodyRouteDescriptor(
     startLegLen: uint16(outputLen), exactStart: request.start,
     exactGoal: request.goal.goalPoint)
-  result.cost = checkedAdd(
-    scratch.index.attachCost(request, scratch.startAttach, startAttach),
-    checkedAdd(localCost,
-      scratch.index.attachCost(request, scratch.goalAttach, goalAttach)))
+  result.cost = scratch.index.pathCost(request,
+    scratch.resultStartLeg.toOpenArray(0, outputLen - 1))
 
 proc appendChain(scratch: BodyRouteQueryScratch, fromCell, side: int,
     destination: var array[RouteLocalLegCap, int32], count: var int): bool =
@@ -930,19 +1146,26 @@ proc appendChain(scratch: BodyRouteQueryScratch, fromCell, side: int,
   true
 
 proc assembleSideRoute(scratch: BodyRouteQueryScratch,
-    search: tuple[found, capHit: bool, goalSide, sourceAttach,
-      goalAttach: int, cost, physical: int64]): LocalSearchState =
+    search: tuple[found, capHit: bool, goalSide, goalLabel,
+      sourceAttach, goalAttach: int, cost, physical: int64]): LocalSearchState =
   var reverseCount = 0
-  var cursor = search.goalSide
-  while scratch.sideParentArc[cursor] >= 0:
+  var
+    cursor = search.goalSide
+    label = search.goalLabel
+    slot = cursor * 2 + label
+  while scratch.sideParentArc[slot] >= 0:
     if reverseCount >= RouteEdgeCap:
       return lssOverflow
-    let arcOffset = scratch.sideParentArc[cursor].int
+    let
+      arcOffset = scratch.sideParentArc[slot].int
+      parentLabel = scratch.sideParentLabel[slot].int
     let arc = scratch.index.routeArcAt(arcOffset)
     scratch.resultEdges[reverseCount] = routeEdgeRef(
       arc.segment.int, arc.reversed)
     inc reverseCount
     cursor = arc.fromSide.int
+    label = parentLabel
+    slot = cursor * 2 + label
   for left in 0 ..< reverseCount div 2:
     swap(scratch.resultEdges[left], scratch.resultEdges[reverseCount - 1 - left])
   var startLen = 0
@@ -1010,7 +1233,6 @@ proc queryBodyRoute*(index: BodyRouteIndex, scratch: BodyRouteQueryScratch,
   scratch.resultDescriptor = BodyRouteDescriptor(
     exactStart: request.start, exactGoal: request.goal.goalPoint)
   scratch.bestCost = InfiniteCost
-  discard request.elapsedZoneTick
   if not index.map.canStand(request.start):
     return BodyRouteQueryResult(failure: brfStartAttach)
   if index.map.componentOf(request.start) != request.goal.goalComponent:
@@ -1026,7 +1248,8 @@ proc queryBodyRoute*(index: BodyRouteIndex, scratch: BodyRouteQueryScratch,
       if failure == brfStartAttach: brfGoalAttach else: failure)
   let straightClear = index.map.segmentClear(request.start,
     request.goal.goalPoint)
-  if straightClear and request.danger == nil and request.blockedCell.isNone:
+  if straightClear and request.danger == nil and request.blockedCell.isNone and
+      (request.hazard == nil or request.hazard.state == bhsDark):
     scratch.bestCost = scratch.installStraight(request)
   else:
     let direct = scratch.tryDirectLocal(request)
@@ -1040,7 +1263,7 @@ proc queryBodyRoute*(index: BodyRouteIndex, scratch: BodyRouteQueryScratch,
     if straightClear:
       let straightCost = scratch.index.edgeCost(request,
         scratch.index.routeRefForPoint(request.start),
-        scratch.index.routeRefForPoint(request.goal.goalPoint))
+        scratch.index.routeRefForPoint(request.goal.goalPoint), 0)
       if straightCost <= scratch.bestCost:
         scratch.bestCost = scratch.installStraight(request)
   discard scratch.buildConnections(request, scratch.startAttach, true)

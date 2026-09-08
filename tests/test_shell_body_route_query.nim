@@ -2,8 +2,9 @@
 
 import std/[json, options, unittest]
 import ../src/ctf/[arena, br_map_pool]
-import ../src/shell/[body_map, body_nav, body_planner, body_route_index,
+import ../src/shell/[body_hazard, body_map, body_nav, body_planner, body_route_index,
   body_route_query]
+import ../src/shell/types as shellTypes
 
 proc openMap(): BodyMap =
   const Side = 96
@@ -240,6 +241,82 @@ suite "bounded hierarchical body route query":
     check forwardSecond.ok
     check reverseFirstFingerprint == reverse.routeFingerprint
     check forwardSecond.routeFingerprint == forward.routeFingerprint
+
+  test "directed-arc danger memo is shared generation-stamped and bounded":
+    let
+      map = newBodyMap(loadCtfMapMetadata("arena"))
+      index = newBodyRouteIndex(map)
+      pair = index.firstSeparatedSidePair()
+      start = index.sideAnchor(pair.a)
+      goal = map.goalAt(index.sideAnchor(pair.b), start)
+      scratch = newBodyRouteQueryScratch(index)
+    var danger = BodyDangerField(
+      values: newSeq[float32](map.gridWidth * map.gridHeight),
+      gridW: map.gridWidth, gridH: map.gridHeight)
+    let request = BodyRouteRequest(start: start, goal: goal,
+      danger: addr danger)
+    let first = index.queryBodyRoute(scratch, request)
+    let firstMemo = scratch.dangerMemoDebug()
+    let firstFingerprint = first.routeFingerprint
+    check first.ok
+    check firstMemo.capacity == index.routeIndexStats.arcs
+    check firstMemo.capacity == index.routeIndexStats.segments * 2
+    check firstMemo.filled > 0
+    check firstMemo.filled <= firstMemo.capacity
+
+    let repeated = index.queryBodyRoute(scratch, request)
+    let repeatedMemo = scratch.dangerMemoDebug()
+    check repeated.ok
+    check repeated.routeFingerprint == firstFingerprint
+    check repeatedMemo.generation == firstMemo.generation + 1
+    check repeatedMemo.filled == firstMemo.filled
+
+  test "earliest-arrival label preserves the safer two-prefix route":
+    let
+      map = newBodyMap(loadCtfMapMetadata("arena"))
+      index = newBodyRouteIndex(map)
+      stats = index.routeIndexStats()
+      scratch = newBodyRouteQueryScratch(index)
+    var
+      danger = BodyDangerField(values: newSeq[float32](stats.navCells),
+        gridW: map.gridWidth, gridH: map.gridHeight)
+      overlay = BodyHazardOverlay(state: bhsReady, fingerprint: 2,
+        arrival: newSeq[uint16](stats.navCells),
+        roomMaxArrival: newSeq[uint16](stats.rooms))
+    for cell in 0 ..< stats.navCells:
+      let
+        x = cell mod map.gridWidth
+        y = cell div map.gridWidth
+        dangerDraw = (x * 97 + y * 193 + 2 * 31) mod 100
+      danger.values[cell] =
+        if dangerDraw < 15: float32(3 + dangerDraw mod 5) else: 0'f32
+      overlay.arrival[cell] = uint16(
+        100 + ((x * 17 + y * 29 + 2 * 47) mod 240))
+      let room = index.roomForCell(cell)
+      if room >= 0:
+        overlay.roomMaxArrival[room] = max(overlay.roomMaxArrival[room],
+          overlay.arrival[cell])
+    let extrema = index.segmentArrivalExtrema(overlay.arrival,
+      HazardNeverArrives)
+    overlay.segmentArrivalMin = extrema.minimum
+    overlay.segmentArrivalMax = extrema.maximum
+
+    # This fixed field has two prefixes to the winning merge side: the
+    # minimum-cost prefix is physically later, while a dearer shorter prefix
+    # reaches the final painted arc soon enough to win after hazard pricing.
+    let
+      start = index.sideAnchor(0)
+      goal = map.goalAt(index.sideAnchor(65), start)
+      route = index.queryBodyRoute(scratch, BodyRouteRequest(start: start,
+        goal: goal, profile: shellTypes.cpCarrier, danger: addr danger,
+        hazard: overlay, elapsedZoneTick: 120))
+    check route.ok
+    check route.stats.selectedEarliestAlternative
+    check route.stats.earliestAlternativePops > 0
+    check route.stats.sidePops <= RouteSidePopCap
+    check index.validateBodyRoute(BodyRouteRequest(start: start, goal: goal,
+      profile: shellTypes.cpCarrier, danger: addr danger,
+      hazard: overlay, elapsedZoneTick: 120), route)
 
   test "typed disconnection and validation failures return no descriptor":
     let
