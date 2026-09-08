@@ -2036,6 +2036,23 @@ proc spriteDefinitionIndex(
   ## be (SV-2: called from ~48 sites on the per-tick, per-viewer hot path).
   defs.indexById.getOrDefault(spriteId, -1)
 
+let WireDeltaProbeEnabled* = getEnv("WIRE_DELTA_PROBE") == "1"
+  ## OPT-08 round-end-burst attribution: env-gated (no rebuild to toggle),
+  ## unlike the existing `wireResendProbe`/`zoneArrivalFieldProbe` compile-time
+  ## flags. Evaluated once at process start; the per-call check below is a
+  ## single bool read so it costs nothing when off.
+
+var
+  wireDeltaProbeTick: int
+  wireDeltaProbePlayerIndex: int = -1
+  wireDeltaProbeSpritesOff: bool
+  ## Set by buildSpriteProtocolPlayerUpdates around its whole build for one
+  ## viewer/tick; read by addSpriteChanged so every UN-DEDUPED (actually
+  ## re-sent) sprite def logs which viewer/tick it landed on. The build loop
+  ## in server.nim calls buildSpriteProtocolPlayerUpdates once per viewer,
+  ## sequentially, never re-entrantly, so a plain module var is safe here —
+  ## same assumption addDebugOverlay's per-call globals already rely on.
+
 proc addSpriteChanged(
   packet: var seq[uint8],
   defs: var SpriteDefRegistry,
@@ -2072,7 +2089,16 @@ proc addSpriteChanged(
       height: height,
       label: label
     )
-  packet.addSprite(spriteId, width, height, pixels, label)
+  if WireDeltaProbeEnabled:
+    let before = packet.len
+    packet.addSprite(spriteId, width, height, pixels, label)
+    stderr.writeLine("WIRE_DELTA_PROBE tick=" & $wireDeltaProbeTick &
+      " playerIndex=" & $wireDeltaProbePlayerIndex &
+      " spritesOff=" & $wireDeltaProbeSpritesOff &
+      " spriteId=" & $spriteId & " w=" & $width & " h=" & $height &
+      " bytes=" & $(packet.len - before) & " label=\"" & label & "\"")
+  else:
+    packet.addSprite(spriteId, width, height, pixels, label)
 
 proc addBoardObject(
   packet: var seq[uint8],
@@ -4857,7 +4883,20 @@ proc interstitialTextItems(
         textX = baseX + textOffsetX
         textY = startY + row * rowH + (rowH - 6) div 2
         tag = teamText(p.team).toUpperAscii()
-      result.addTextItem(textX, textY, [tag], struck = (p.lives <= 0 and not p.alive))
+        # OPT-08: fold the strikethrough state into the wire LABEL (never the
+        # rendered `lines` text, so the viewer sees no change) instead of
+        # forcing `changed=true` below for every tick a player stays dead.
+        # addSpriteChanged's own id+dims+LABEL cache then does the dedup
+        # work for free: one real resend the tick a player is first
+        # eliminated (the label flips "ORANGE" -> "ORANGE dead"), then a
+        # normal cache hit for the rest of the GameOver screen. Before this,
+        # every already-dead roster row resent its ~166-176B text sprite on
+        # EVERY tick of the ~15s interstitial (measured: 739KB/round across
+        # 15 of 16 rows in a 16-team BR match — the single largest
+        # identified piece of the round-transition wire burst).
+        dead = p.lives <= 0 and not p.alive
+        label = tag & (if dead: " dead" else: "")
+      result.addTextItem(textX, textY, [tag], label = label, struck = dead)
 
 proc addProtocolTextSprites(
   sim: SimServer,
@@ -4876,6 +4915,16 @@ proc addProtocolTextSprites(
       item.struck
     )
     currentIds.add(item.objectId)
+    # OPT-08: `item.struck` used to force `changed=true` unconditionally,
+    # which resent this sprite's bytes EVERY tick for as long as a player
+    # stayed struck (the whole GameOver interstitial) even though its pixels
+    # never change after the one real strikethrough redraw. The GameOver
+    # caller now folds struck-state into `item.label` (see
+    # interstitialTextItems), so addSpriteChanged's own id+dims+label cache
+    # already catches the one genuine change and dedupes every tick after —
+    # `item.struck` needs no special case here anymore. `item.color` stays:
+    # it is a real (if currently unused) per-item override no label-folding
+    # covers.
     packet.addSpriteChanged(
       spriteDefs,
       item.spriteId,
@@ -4883,7 +4932,7 @@ proc addProtocolTextSprites(
       text.height,
       text.pixels,
       item.label,
-      changed = item.struck or item.color != ProtocolTextColor
+      changed = item.color != ProtocolTextColor
     )
     packet.addBoardObject(
       item.objectId,
@@ -7870,6 +7919,10 @@ proc buildSpriteProtocolPlayerUpdates*(
   ## semantic stays: the map object (the "game is live" signal and camera
   ## anchor), hearts on pedestals, players, pickups, impact rings, shouts,
   ## HUD state.
+  if WireDeltaProbeEnabled:
+    wireDeltaProbeTick = sim.tickCount
+    wireDeltaProbePlayerIndex = playerIndex
+    wireDeltaProbeSpritesOff = spritesOff
   result = @[]
   nextState =
     if state.isNil:
