@@ -26,10 +26,10 @@
     },
     "epoch": {
       "$ref": "uint64.schema.json",
-      "$comment": "u64 current call epoch; \"0\" is reserved and means no declaration (\u00a74.3)"
+      "$comment": "u64 call number (the seat's accepted-call counter); the key is spelled epoch on the wire; \"0\" means no declaration"
     },
     "call": {
-      "$comment": "the accepted call itself; omit at epoch 0",
+      "$comment": "the accepted call itself; omit at call number 0 (no declaration)",
       "type": "object",
       "required": [
         "proposal_id",

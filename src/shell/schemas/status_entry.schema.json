@@ -47,7 +47,7 @@
     },
     "epoch": {
       "$ref": "uint64.schema.json",
-      "$comment": "u64; call_accepted / retune_refused / play_faulted"
+      "$comment": "u64 call number (the seat's accepted-call counter); the key is spelled epoch on the wire"
     },
     "tick": {
       "type": "integer",

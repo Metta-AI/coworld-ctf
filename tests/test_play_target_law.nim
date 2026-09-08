@@ -71,7 +71,7 @@ proc viewFor(tick, aliveTeams, zonePhase: int;
   buildBinaryPlayView(PlayViewSource(
     tick: uint32(tick),
     mode: gmBr,
-    epoch: 0,
+    callNumber: 0,
     self: PlaySelf(pos: (100, 80), hp: 3, hpFrac: 0.75,
       aimBrads: 32, alive: true),
     aliveTeams: aliveTeams,
@@ -143,8 +143,7 @@ proc liveFrame(pos: BodyPoint; tick: int): ShellSeatFrame =
       nextZone: MapRect(x: 0, y: 0, w: 720, h: 240),
       ticksToNextShrink: BrRotateLeadTicks + 1,
       zonePhase: 1,
-      zoneDps: 1,
-      coverGoal: none(ValidatedGoal)))
+      zoneDps: 1))
 
 suite "target_law reference play":
   test "manifest bytes match the golden and parse in production":

@@ -169,42 +169,62 @@ proc randomizedIntent(rng: var Rand, index: int): Intent =
         (firstTag + offset) mod (ord(high(PreferTag)) + 1)))
 
 suite "shell default play":
-  test "proposed BR rule priority is rotate, partner, cover, hold":
+  test "ratified BR rule priority is rotate, partner, cover, hold":
     var facts = baseFacts()
     facts.rotateTarget = (200, 200)
-    facts.coverGoal = some(facts.map.goal(40, 40))
+    var coverCalls = 0
+    let target = some(facts.map.goal(40, 40))
+    let coverSource = proc(): Option[ValidatedGoal] =
+      inc coverCalls
+      target
     facts.threatPositions = @[(300, 300)]
     facts.partner = some((seat: 1'u8, team: Red, pos: (399, 399),
       aimBrads: 32, alive: true, downed: false, hasGun: false,
       hasHopper: false))
     facts.ticksToNextShrink = BrRotateLeadTicks
 
-    let rotate = computeBrDefault(facts)
+    let rotate = computeBrDefault(facts, coverSource)
+    check coverCalls == 0
     check rotate.rule == brRotate
     check rotate.intent.point == some(MapPoint(x: 200, y: 200))
     check rotate.goal.isSome
 
     facts.ticksToNextShrink = BrRotateLeadTicks + 1
-    let partner = computeBrDefault(facts)
+    let partner = computeBrDefault(facts, coverSource)
+    check coverCalls == 0
     check partner.rule == brPartnerLeash
     check partner.intent.point == some(MapPoint(x: 399, y: 399))
 
     facts.partner = some((seat: 1'u8, team: Red, pos: (20, 20),
       aimBrads: 32, alive: true, downed: false, hasGun: false,
       hasHopper: false))
-    let cover = computeBrDefault(facts)
+    let cover = computeBrDefault(facts, coverSource)
+    check coverCalls == 1
     check cover.rule == brCoverHold
     check cover.intent.point == some(MapPoint(x: 40, y: 40))
 
     facts.threatPositions.setLen(0)
-    let hold = computeBrDefault(facts)
+    let hold = computeBrDefault(facts, coverSource)
+    check coverCalls == 1
     check hold.rule == brHold
     check hold.intent.kind == ikHold
     check hold.intent.point.isNone
     check hold.goal.isNone
 
+  test "failed cover validation returns hold after one query":
+    var facts = baseFacts()
+    facts.threatPositions = @[(300, 300)]
+    var calls = 0
+    let decision = computeBrDefault(facts, proc(): Option[ValidatedGoal] =
+      inc calls
+      none(ValidatedGoal))
+    check calls == 1
+    check decision.rule == brHold
+    check decision.goal.isNone
+
   test "default decision owns idle aim and stable pbDefault provenance":
-    let decision = computeBrDefault(baseFacts())
+    let decision = computeBrDefault(baseFacts(),
+      proc(): Option[ValidatedGoal] = none(ValidatedGoal))
     check decision.provenance.base.kind == pbDefault
     check decision.provenance.overlays.len == 0
     check canonicalIntent(decision.intent) ==
@@ -213,7 +233,8 @@ suite "shell default play":
       "\"schema\":\"intent\",\"v\":1}"
 
   test "CanonicalWriter default bytes are exact and match canonical.nim":
-    let fast = canonicalIntent(computeBrDefault(baseFacts()).intent)
+    let fast = canonicalIntent(computeBrDefault(baseFacts(),
+      proc(): Option[ValidatedGoal] = none(ValidatedGoal)).intent)
     const Golden =
       "{\"arrive_radius\":0.0,\"idle_aim_center_brads\":0," &
       "\"kind\":\"hold\",\"reason\":\"default:hold\"," &

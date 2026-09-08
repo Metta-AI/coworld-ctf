@@ -170,7 +170,7 @@ proc syntheticView(tracks = 0; items = 0; aggressors = 0; killFeed = 0;
   buildBinaryPlayView(PlayViewSource(
     tick: 1441'u32,
     mode: gmBr,
-    epoch: 99,
+    callNumber: 99,
     self: PlaySelf(pos: (512, 288), hp: 2, hpFrac: 0.666666,
       aimBrads: 32, alive: true),
     aliveTeams: 9,

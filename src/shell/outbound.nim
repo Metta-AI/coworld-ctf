@@ -27,7 +27,7 @@ type
 
   PlayContextRecovery* = object
     generation*: uint64
-    epoch*: uint64
+    callNumber*: uint64
     uploadIdFloor*: uint64
     proposalIdFloor*: uint64
     modulesLeft*: int
@@ -237,7 +237,8 @@ proc controlContextEnvelope*(recovery: PlayContextRecovery): string =
     writer.field("bytes", call.bytes)
     writer.fieldUint64("proposal_id", call.proposalId)
     writer.endObject()
-  writer.fieldUint64("epoch", recovery.epoch)
+  # wire key kept as epoch; the value is the call number.
+  writer.fieldUint64("epoch", recovery.callNumber)
   writer.key("floors")
   writer.beginObject()
   writer.fieldUint64("proposal_id", recovery.proposalIdFloor)

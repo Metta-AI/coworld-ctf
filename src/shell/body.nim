@@ -14,7 +14,7 @@
 import std/[algorithm, hashes, math, monotimes, options, sequtils, times]
 import bitworld/[profile, spriteprotocol]
 import ../ctf/sim_types
-import body_map, body_nav, body_route_index
+import body_map, body_nav, body_route_index, cover_scorer
 import types as shellTypes
 
 const
@@ -338,7 +338,7 @@ type
     shouts*: seq[ShoutEvent]
     hazards*: HazardInputs
     standingIntent*: shellTypes.Intent
-    effectiveEpoch*: uint64
+    effectiveCallNumber*: uint64
     standingGoal*: Option[ValidatedGoal]
     partnerGrant: Option[PartnerTelemetry]
     heldCombatTarget: Option[CombatTarget]
@@ -553,7 +553,7 @@ proc activateSeatBody*(nav: BodyNavSystem, seatIndex: int): SeatBody =
   result.seatIndex = seatIndex
   result.nav = nav
   result.standingIntent = safeIntent()
-  result.effectiveEpoch = 0
+  result.effectiveCallNumber = 0
   result.standingGoal = none(ValidatedGoal)
   result.sweepDir = 1
   result.throwTarget = none(CombatTarget)
@@ -571,7 +571,7 @@ proc activateSeatBody*(map: BodyMap, seatIndex: int,
 
 proc setStandingIntent*(body: SeatBody, intent: shellTypes.Intent,
                         goal: Option[ValidatedGoal],
-                        effectiveEpoch: uint64) =
+                        callNumber: uint64) =
   case intent.kind
   of shellTypes.ikNavigateTo:
     if goal.isNone:
@@ -586,7 +586,7 @@ proc setStandingIntent*(body: SeatBody, intent: shellTypes.Intent,
         "Hold standing intent must not carry a ValidatedGoal")
 
   body.standingIntent = intent
-  body.effectiveEpoch = effectiveEpoch
+  body.effectiveCallNumber = callNumber
   body.standingGoal = goal
 
 proc updateBelief*(body: SeatBody, inputs: BodyTickInputs, tick: uint32) =
@@ -687,6 +687,32 @@ proc updateBelief*(body: SeatBody, inputs: BodyTickInputs, tick: uint32) =
         pos: partner.pos, aimBrads: partner.aimBrads, alive: true,
         downed: partner.downed, hasGun: partner.hasGun,
         hasHopper: partner.hasHopper))
+
+proc defaultCoverGoal*(body: SeatBody; tick: uint32): Option[ValidatedGoal] =
+  ## Cover chooses a validated destination; navigation owns execution afterward.
+  ## Tracks are server-fogged enemies. Do not reuse staggered danger sources:
+  ## cover must use this tick's sightings, without combat-policy filtering.
+  var
+    candidates: array[MaxPlayers, DangerCandidate]
+    candidateCount = 0
+    seats: array[shellTypes.MaxCoverThreats, int]
+    points: array[shellTypes.MaxCoverThreats, BodyPoint]
+  for seat, track in body.tracks:
+    if track.isSome and track.get.freshTick == tick:
+      candidates[candidateCount] = DangerCandidate(seatIndex: seat,
+        pos: track.get.pos)
+      inc candidateCount
+  if candidateCount == 0:
+    return none(ValidatedGoal)
+  let count = selectNearestSources(body.selfState.pos,
+    candidates.toOpenArray(0, candidateCount - 1), seats, points)
+  let point = body.nav.seats[body.seatIndex].cache.nearestCoverPoint(
+    body.selfState.pos, shellTypes.MaxCoverRadiusPx, -1,
+    points.toOpenArray(0, count - 1))
+  if point.isSome:
+    body.map.validateGoal(point.get, body.selfState.pos)
+  else:
+    none(ValidatedGoal)
 
 proc partnerTelemetry*(body: SeatBody): Option[PartnerTelemetry] =
   ## Sim-truth position and aim grant for a live duo partner. HP deliberately

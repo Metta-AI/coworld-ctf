@@ -17,7 +17,7 @@ proc pointNode(x, y: int): JsonNode =
   result.add(%y)
 
 proc buildPlayView*(padding = false): JsonNode =
-  # play_view.schema.json top level: schema, v, tick, epoch, self, intent,
+  # play_view.schema.json top level: schema, v, tick, epoch (call number), self, intent,
   # world, tracks, items, aggressors, kill_feed, shouts, hazards.
   result = %*{
     "schema": "play_view", "v": 1, "tick": 12345, "epoch": "99",

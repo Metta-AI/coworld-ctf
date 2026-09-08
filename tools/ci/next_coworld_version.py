@@ -107,13 +107,13 @@ def parse_version(row):
 def compute_next(rows, name):
     """Return next version string for <name>: highest existing row, patch + 1.
 
-    Hard-fails unless the fetched set contains <name>'s canonical row and the
-    max row is >= it — the guard against a truncated/under-read fetch
-    re-colliding with an existing number.
+    A new name starts at 0.1.0 after the complete registry fetch. Existing names
+    require a canonical row and a max version >= it — the guard against a
+    truncated/under-read fetch re-colliding with an existing number.
     """
     mine = [r for r in rows if r.get("name") == name]
     if not mine:
-        raise SystemExit(f"no rows for coworld {name!r} in {len(rows)} fetched rows")
+        return "0.1.0"
     versions = [(parse_version(r), r) for r in mine]
     max_ver, max_row = max(versions, key=lambda vr: vr[0])
     canonical = [v for v, r in versions if r.get("canonical")]

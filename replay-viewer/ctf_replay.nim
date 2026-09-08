@@ -90,8 +90,8 @@ proc playCallRecordsJson(records: openArray[PlayCallRecord]): JsonNode =
   ## order -- when the caller flashed each seat, and the entry ids of the
   ## ladder it flashed (the readable play names). `ladderBytes` stays out on
   ## purpose: it is the opaque compiled ladder, useless to a viewer and by
-  ## far the heaviest field. `epoch` rides along so the feed can show "this
-  ## seat's Nth flash" without recounting.
+  ## far the heaviest field. The call number (wire key `epoch`) lets the feed
+  ## show "this seat's Nth flash" without recounting.
   result = newJArray()
   for rec in records:
     var plays = newJArray()
@@ -100,7 +100,7 @@ proc playCallRecordsJson(records: openArray[PlayCallRecord]): JsonNode =
     result.add(%*{
       "ms": rec.replayTimeMs,
       "seat": rec.seat,
-      "epoch": rec.epoch,
+      "epoch": rec.callNumber,
       "plays": plays
     })
 

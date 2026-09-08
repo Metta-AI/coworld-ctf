@@ -432,7 +432,7 @@ proc layoutSections(sections: var seq[BinarySection], headerBytes: int) =
     section.offset = uint32(offset)
     offset += section.payload.len
 
-proc buildFrame(mode: GameMode, tick: uint32, epoch: uint64,
+proc buildFrame(mode: GameMode, tick: uint32, callNumber: uint64,
                 sections: var seq[BinarySection], cap: int): string =
   if sections.len > 255:
     raise newException(ValueError, "binary frame has too many sections")
@@ -449,7 +449,8 @@ proc buildFrame(mode: GameMode, tick: uint32, epoch: uint64,
   result.putU8(sections.len)
   result.putU32(tick)
   result.putU32(0)
-  result.putU64(epoch)
+  # Byte 16 is the call number; wire spelling `epoch` kept for compatibility.
+  result.putU64(callNumber)
   result.putU32(uint32(frameBytes))
   result.putU32(0)
 
@@ -516,7 +517,7 @@ proc playViewSections(model: PlayViewModel): seq[BinarySection] =
 
 proc encodeBinaryPlayView*(model: PlayViewModel): string =
   var sections = model.playViewSections
-  buildFrame(model.mode, model.tick, model.epoch, sections,
+  buildFrame(model.mode, model.tick, model.callNumber, sections,
     MaxBinaryViewFrameBytes)
 
 proc encodeBinaryPlayView*(source: PlayViewSource): string =

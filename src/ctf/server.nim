@@ -1732,7 +1732,7 @@ proc pumpPlayOutbound(sim: SimServer; config: GameConfig;
     if outbound.contextPending:
       let episodeRecovery = episode.shellRecovery(seat)
       let recovery = PlayContextRecovery(
-        generation: generation, epoch: episodeRecovery.epoch,
+        generation: generation, callNumber: episodeRecovery.callNumber,
         uploadIdFloor: ingress.uploadIdFloor,
         proposalIdFloor: ingress.proposalIdFloor,
         modulesLeft: max(0,
@@ -4011,8 +4011,7 @@ proc shellFallbacks(sim: SimServer,
     ticksToNextShrink: sim.ticksToNextZoneShrink(elapsed),
     zonePhase: sim.shellZonePhase(elapsed),
     zoneDps: zone.dps,
-    rotateTarget: some(shellRotateTarget(selfPos, zone.next)),
-    coverGoal: none(ValidatedGoal))
+    rotateTarget: some(shellRotateTarget(selfPos, zone.next)))
 
 proc shellZoneLogLine(sim: SimServer): string =
   let

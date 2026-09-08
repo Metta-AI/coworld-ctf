@@ -139,7 +139,8 @@ proc writeStatusEntry*(w: var CanonicalWriter; entry: StatusEntry) =
   w.beginObject()
   case entry.kind
   of skCallAccepted:
-    w.key("epoch"); w.addUint64(entry.epoch)
+    # wire key kept as epoch; the value is the call number.
+    w.key("epoch"); w.addUint64(entry.callNumber)
     w.key("gen"); w.addUint64(entry.originGeneration)
     w.field("kind", "call_accepted")
     w.key("ordinal"); w.addUint64(entry.ordinal)
@@ -172,7 +173,8 @@ proc writeStatusEntry*(w: var CanonicalWriter; entry: StatusEntry) =
   of skPlayFaulted:
     w.field("code", $entry.faultCode)
     w.field("entry_id", entry.entryId)
-    w.key("epoch"); w.addUint64(entry.faultEpoch)
+    # wire key kept as epoch; the value is the call number.
+    w.key("epoch"); w.addUint64(entry.faultCallNumber)
     w.key("gen"); w.addUint64(entry.originGeneration)
     w.field("kind", "play_faulted")
     w.key("ordinal"); w.addUint64(entry.ordinal)
@@ -180,7 +182,8 @@ proc writeStatusEntry*(w: var CanonicalWriter; entry: StatusEntry) =
   of skRetuneRefused:
     w.field("code", $entry.faultCode)
     w.field("entry_id", entry.entryId)
-    w.key("epoch"); w.addUint64(entry.faultEpoch)
+    # wire key kept as epoch; the value is the call number.
+    w.key("epoch"); w.addUint64(entry.faultCallNumber)
     w.key("gen"); w.addUint64(entry.originGeneration)
     w.field("kind", "retune_refused")
     w.key("ordinal"); w.addUint64(entry.ordinal)

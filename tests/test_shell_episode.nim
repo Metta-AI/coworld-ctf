@@ -42,8 +42,7 @@ proc fallback(map: BodyMap, seat: int): BrDefaultFallbacks =
     nextZone: MapRect(x: 50, y: 50, w: 200, h: 200),
     ticksToNextShrink: BrRotateLeadTicks + 1,
     zonePhase: 2,
-    zoneDps: 1,
-    coverGoal: none(ValidatedGoal))
+    zoneDps: 1)
 
 proc frame(map: BodyMap, seat: int, pos: BodyPoint = (0, 0), alive = true,
            playing = true): ShellSeatFrame =
@@ -216,7 +215,7 @@ suite "shell episode":
         (ord(bytes[hpOffset + 3]) shl 24)
       check hp == liveFrame.bodyInputs.self.hp
 
-  test "activation installs safe hold then the epoch-zero default same tick":
+  test "activation installs safe hold then the default at call number zero same tick":
     let map = testBodyMap()
     var episode = initShellEpisode(true, true, controls(scPlay, 1),
       map, 331)
@@ -226,7 +225,7 @@ suite "shell episode":
     check output.annotations[0].installGeneration == 0
     check output.annotations[0].installReason == "activation"
     check output.annotations[1].kind == akAcceptedIntentChange
-    check output.annotations[1].effectiveEpoch == 0
+    check output.annotations[1].effectiveCallNumber == 0
     check output.annotations[1].provenance.base.kind == pbDefault
     check output.installs.len == 2
     check output.installs[0].rule == "safe_hold"
@@ -271,7 +270,7 @@ suite "shell episode":
     check respawn.annotations[0].kind == akInstallSafeIntent
     check respawn.annotations[0].installReason == "respawn"
     check respawn.annotations[1].kind == akAcceptedIntentChange
-    check respawn.annotations[1].effectiveEpoch == 0
+    check respawn.annotations[1].effectiveCallNumber == 0
     check respawn.installs[0].bytes ==
       "{\"arrive_radius\":0.0,\"idle_aim_center_brads\":0," &
       "\"kind\":\"hold\",\"reason\":\"shell:safe_respawn\"," &

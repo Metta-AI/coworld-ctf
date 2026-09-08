@@ -9,7 +9,7 @@
 ##   sorted + deduplicated BEFORE encoding by their producers).
 ## - Integers as plain JSON numbers; floats via Nim's shortest-round-trip
 ##   `$` (an integral float carries its ".0").
-## - Every 64-bit identity (uploadId, proposalId, epoch, ordinals,
+## - Every 64-bit identity (uploadId, proposalId, `epoch` (the call number), ordinals,
 ##   generations) is a decimal STRING with no leading zeros, never a JSON
 ##   number (§5: a JSON number cannot carry the full uint64 range through
 ##   common clients).

@@ -36,9 +36,9 @@ Knobs (environment variables):
 ## What you should see
 
 - 32 cogs activate under a safe-hold, then move under the default play's four
-  rules: rotation pulses ahead of each zone shrink, quiet cover-holds between
-  shrinks, partner leash keeping duos together (`SHELL_INSTALL` lines
-  name the rule per seat: `safe_hold`, `brPartnerLeash`, `brRotate`,
+  rules: rotation pulses ahead of each zone shrink, cover-holds when fresh
+  threats and valid cover remain after rotation and partner leash lose
+  (`SHELL_INSTALL` lines name the rule per seat: `safe_hold`, `brPartnerLeash`, `brRotate`,
   `brCoverHold`, `brHold`).
 - Seats 0-7 additionally run the `edge_ride` reference play (`rule=edge_ride`,
   `provenance=entry:edge_ride`); the other 24 stay on the default.
@@ -54,7 +54,7 @@ Every line carries `tick=` (the same tick numbering as `SHELL_INSTALL`
 and the replay), so any two streams join on it. Seat lists are printed as
 `[0,5,17]`.
 
-- `SHELL_ANNOTATION ... kind=play_fault epoch=E entry=ID code=C
+- `SHELL_ANNOTATION ... kind=play_fault call_number=N entry=ID code=C
   reason="..."` — a play instance faulted. `code` is the stable cause
   (`outOfFuel`, `epochDeadline`, `unreachable`, `memoryOutOfBounds`,
   `returnedNonzero`, `abiViolation`, ... — the engine `FaultCode`, the same
@@ -107,7 +107,8 @@ and the replay), so any two streams join on it. Seat lists are printed as
   compile_us=...` — wall-clock totals in integer microseconds for the latest
   window of play-seat ticks, printed once a second only while play seats
   exist. `max_tick_us` is the worst single shell-step total in the window;
-  divide the other totals by `window_ticks` for per-tick means.
+  divide the other totals by `window_ticks` for per-tick means. Lazy default
+  work stays in `default_us` and is excluded from `ladder_us`.
 
 ## Gating
 

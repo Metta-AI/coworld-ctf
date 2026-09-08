@@ -63,7 +63,7 @@ type
 
   PlayViewFix = object
     aggDir, aggTick: int64
-    epoch: uint64
+    callNumber: uint64
     grenPos, grenPred: Vec2
     grenTicks: int64
     throwRadius, throwRelease: int64
@@ -104,7 +104,7 @@ proc loadFix(node: JsonNode): PlayViewFix =
   let agg = node["aggressors"][0]
   result.aggDir = agg["dir_brads"].getInt()
   result.aggTick = agg["tick"].getInt()
-  result.epoch = parseUint64Key(node["epoch"])
+  result.callNumber = parseUint64Key(node["epoch"])
   let gren = node["hazards"]["grenades"][0]
   result.grenPos = vec2(gren["pos"])
   result.grenPred = vec2(gren["predicted_blast_pos"])
@@ -190,7 +190,7 @@ proc emitPlayView(w: var CanonicalWriter, f: PlayViewFix) =
   w.field("tick", f.aggTick)
   w.endObject()
   w.endArray()
-  w.fieldUint64("epoch", f.epoch)
+  w.fieldUint64("epoch", f.callNumber)
   w.key("hazards")
   w.beginObject()
   w.key("grenades")

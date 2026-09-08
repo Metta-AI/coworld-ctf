@@ -20,7 +20,7 @@ Canonical encoding (Appendix P.1, binding for every producer):
   `d[.ddd]e<sign><unpadded exponent>` outside that interval (`1e-7`,
   `1.5e-7`, `1e+21`); NaN/Inf refused. Any finite number is encodable
   (Appendix P.1 sets no magnitude bounds).
-- Every 64-bit identity (`upload_id`, `proposal_id`, `epoch`, ordinals,
+- Every 64-bit identity (`upload_id`, `proposal_id`, `epoch` (the call number), ordinals,
   generations, marks) is a decimal string, no leading zeros, full uint64
   range. A numeric or malformed spelling is a schema rejection.
 - Neutral/absent optional fields are omitted, so two semantically equal

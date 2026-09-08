@@ -198,6 +198,26 @@ proc conforms(value: JsonNode, rawSchema: JsonNode, root: JsonNode,
       elif not rule.hasKey("if"):
         result.add(conforms(value, rule, root, path))
 
+suite "shell counter naming":
+  test "epoch names are reserved for the runtime and wire spelling":
+    let allowed = re("EpochPeriodMs|EpochDeadlineTicks|EpochTickerMs|" &
+      "EpochTickerState|epochTickCount|EpochDeadline|epochDeadline|" &
+      "IncrementEpoch|EpochInterruption|epochs=5ms|epoch ticker|" &
+      "epoch deadline|epoch interruption|\"epoch\"|`epoch`|wire key|" &
+      "wire spelling|spelled epoch|wasmtime_config_epoch_interruption_set|" &
+      "wasmtime_context_set_epoch_deadline|wasmtime_engine_increment_epoch")
+    var paths = @["src/ctf/server.nim"]
+    for path in walkFiles("src/shell/*.nim"):
+      paths.add path
+    paths.sort()
+    for path in paths:
+      var lineNumber = 0
+      for line in lines(path):
+        inc lineNumber
+        if "epoch" in line.toLowerAscii:
+          checkpoint path & ":" & $lineNumber & ": " & line
+          check line.contains(allowed)
+
 suite "shell canonical encoding":
   test "every golden fixture is its own canonical re-encoding":
     ## Byte equality after a parse round trip is what makes the fixtures

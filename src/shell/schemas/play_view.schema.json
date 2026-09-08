@@ -23,7 +23,7 @@
     },
     "epoch": {
       "$ref": "uint64.schema.json",
-      "$comment": "u64: the seat's ACTIVE call epoch (\"0\" = no declaration)"
+      "$comment": "u64 call number (the seat's accepted-call counter); the key is spelled epoch on the wire; \"0\" means no declaration"
     },
     "self": {
       "type": "object",

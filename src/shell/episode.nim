@@ -87,7 +87,7 @@ type
 
   ShellCallReplayIdentity* = object
     seat*: uint8
-    epoch*: uint64
+    callNumber*: uint64
     ladderBytes*: string
     entries*: seq[PlayCallEntryIdentity]
     contentSha256*: string
@@ -105,7 +105,7 @@ type
     accepted*: bool
     reason*: string
     path*: string
-    epoch*: uint64
+    callNumber*: uint64
     status*: StatusEntry
     statusBytes*: string
     pendingRetunes*: seq[ShellEntryIdentity]
@@ -580,7 +580,7 @@ proc toPlayCallRecord*(identity: ShellCallReplayIdentity;
   let bytes = PlayCallRecord(
     replayTimeMs: replayTimeMs,
     seat: identity.seat,
-    epoch: identity.epoch,
+    callNumber: identity.callNumber,
     ladderBytes: identity.ladderBytes,
     entries: identity.entries).encodePlayCallRecord()
   bytes.decodePlayCallRecord()
@@ -592,9 +592,9 @@ proc withContentSha(identity: ShellCallReplayIdentity):
 
 when ShellRuntimeAvailable:
   const NativeReflexSubscriptions = [
-    ReflexSubscription(kind: rkClearGrenade, epoch: 0),
-    ReflexSubscription(kind: rkClearSpray, epoch: 0),
-    ReflexSubscription(kind: rkZoneEscape, epoch: 0)]
+    ReflexSubscription(kind: rkClearGrenade, callNumber: 0),
+    ReflexSubscription(kind: rkClearSpray, callNumber: 0),
+    ReflexSubscription(kind: rkZoneEscape, callNumber: 0)]
 
   proc noGuardContext(): IntentContext =
     ## For seats with no body this tick (absent, dead, not playing). Every
@@ -785,7 +785,7 @@ when ShellRuntimeAvailable:
       ShellCallReplayIdentity =
     ShellCallReplayIdentity(
       seat: uint8(seatIndex),
-      epoch: accepted.epoch,
+      callNumber: accepted.callNumber,
       ladderBytes: accepted.ladderBytes,
       entries: accepted.entries).withContentSha()
 
@@ -877,7 +877,7 @@ when ShellRuntimeAvailable:
     result.accepted = accepted.accepted
     result.reason = accepted.reason
     result.path = accepted.path
-    result.epoch = accepted.epoch
+    result.callNumber = accepted.callNumber
     result.status = accepted.status
     result.statusBytes = accepted.statusBytes
     for identity in accepted.pendingRetunes:
@@ -886,13 +886,13 @@ when ShellRuntimeAvailable:
       result.replayIdentity = some(callReplayIdentity(seatIndex, accepted))
 
   proc shellRecovery*(episode: ShellEpisode; seatIndex: int):
-      tuple[epoch: uint64, call: Option[PlayContextAcceptedCall],
+      tuple[callNumber: uint64, call: Option[PlayContextAcceptedCall],
             playbook: seq[PlayContextReadyModule]] =
     if episode.ladder != nil:
       let call = episode.ladder.callSnapshot(seatIndex)
       if call.isSome:
         let current = call.get
-        result.epoch = current.epoch
+        result.callNumber = current.callNumber
         result.call = some(PlayContextAcceptedCall(
           proposalId: current.proposalId, bytes: current.bytes))
     if episode.compilePlane != nil:
@@ -946,7 +946,7 @@ when ShellRuntimeAvailable:
         config.proposalIdBase + uint64(seat), config.originGeneration, 0,
         config.callBytes)
       result.lines.add(&"SHELL_PLAY_CALL seat={seat} accepted={accepted.accepted} " &
-        &"epoch={accepted.epoch} reason={accepted.reason} " &
+        &"call_number={accepted.callNumber} reason={accepted.reason} " &
         &"status={accepted.statusBytes}")
       if accepted.replayIdentity.isSome:
         result.callIdentities.add accepted.replayIdentity.get
@@ -957,7 +957,7 @@ when ShellRuntimeAvailable:
 
 else:
   proc shellRecovery*(episode: ShellEpisode; seatIndex: int):
-      tuple[epoch: uint64, call: Option[PlayContextAcceptedCall],
+      tuple[callNumber: uint64, call: Option[PlayContextAcceptedCall],
             playbook: seq[PlayContextReadyModule]] =
     discard episode
     discard seatIndex
@@ -1086,7 +1086,7 @@ when ShellRuntimeAvailable:
       intent: decision.order.intent,
       goal: decision.order.goal,
       provenance: decision.order.provenance,
-      contributingEpoch: decision.order.contributingEpoch))
+      contributingCallNumber: decision.order.contributingCallNumber))
 
 proc resetAfterDeath(state: var ShellSeatState, tick: uint32,
     nav: BodyNavSystem, annotations: var seq[ShellAnnotation]) =
@@ -1118,8 +1118,8 @@ proc activate(state: var ShellSeatState, tick: uint32, reason: string,
     intent: safe,
     intentBytes: safeBytes,
     provenance: provenance,
-    effectiveEpoch: 0,
-    installedEffectiveEpoch: 0,
+    effectiveCallNumber: 0,
+    installedEffectiveCallNumber: 0,
     lastDefaultRule: brHold)
   let annotation = ShellAnnotation(
     tick: tick,
@@ -1271,14 +1271,9 @@ proc step*(episode: var ShellEpisode,
       if state.active and frame.playing and frame.alive:
         stageBlock(result.stageNanoseconds, ssBelief, "body.belief"):
           state.body.updateBelief(frame.bodyInputs, tick)
-    if state.active and frame.playing and frame.alive:
-      stageBlock(result.stageNanoseconds, ssDefault, "shell.default"):
-        when ShellRuntimeAvailable:
-          if episode.ladder == nil:
-            state.standing.stepShellDefault(state.body, tick,
-              frame.defaultFallbacks)
-            state.appendStandingChanges(result)
-        else:
+    when not ShellRuntimeAvailable:
+      if state.active and frame.playing and frame.alive:
+        stageBlock(result.stageNanoseconds, ssDefault, "shell.default"):
           state.standing.stepShellDefault(state.body, tick,
             frame.defaultFallbacks)
           state.appendStandingChanges(result)
@@ -1301,15 +1296,22 @@ proc step*(episode: var ShellEpisode,
           proc(seatIndex: int; viewTick: uint32): string =
             stageBlock(stageSumsPtr[], ssView, "shell.view"):
               result = customSource(seatIndex, viewTick)
+      proc defaultSource(state: ptr ShellSeatState;
+                         facts: sink BrDefaultFacts): LadderDefaultSource =
+        # Bind each seat independently; the synchronous ladder call below
+        # finishes before these state/timing pointers can go out of scope.
+        result = proc(seatIndex: int; defaultTick: uint32):
+            tuple[intent: Intent, goal: Option[ValidatedGoal]] =
+          stageBlock(stageSumsPtr[], ssDefault, "shell.default"):
+            let decision = state[].body.computeBodyDefault(facts)
+            state[].standing.lastDefaultRule = decision.rule
+            result = (decision.intent, decision.goal)
       var inputs = newSeq[LadderSeatInput](episode.runtimeState.frames.len)
       for seat in 0 ..< inputs.len:
         inputs[seat] = LadderSeatInput(
           alive: false,
           contextBytes: "{}",
-          guardContext: noGuardContext(),
-          defaultIntent: Intent(kind: ikHold, arriveRadius: 0.0,
-            reason: "default:hold"),
-          defaultGoal: none(ValidatedGoal))
+          guardContext: noGuardContext())
 
       for state in episode.seats.mitems:
         let seat = state.seat.int
@@ -1321,14 +1323,11 @@ proc step*(episode: var ShellEpisode,
           continue
         var
           facts: BrDefaultFacts
-          decision: DefaultDecision
           reflexDecision: ReflexDecision
           contextBytes: string
           guardContext: IntentContext
         stageBlock(result.stageNanoseconds, ssDefault, "shell.default"):
           facts = brDefaultFacts(state.body, tick, slot.frame.defaultFallbacks)
-          decision = computeBrDefault(facts)
-          state.standing.lastDefaultRule = decision.rule
         stageBlock(result.stageNanoseconds, ssReflex, "shell.reflex"):
           reflexDecision =
             episode.runtimeState.reflexStates[seat].selectReflex(
@@ -1345,13 +1344,16 @@ proc step*(episode: var ShellEpisode,
           contextBytes: contextBytes,
           viewSource: viewSource,
           guardContext: guardContext,
-          defaultIntent: decision.intent,
-          defaultGoal: decision.goal,
+          defaultSource: defaultSource(addr state, move(facts)),
           nativeBase: reflexDecision.nativeBase)
 
       var ladderOutput: LadderTickResult
+      let defaultBeforeLadder = result.stageNanoseconds[ssDefault]
       stageBlock(result.stageNanoseconds, ssLadder, "shell.ladder"):
         ladderOutput = episode.ladder.tick(inputs, tick, episode.bindings)
+      # Default work now runs inside ladder selection, but keeps its own row.
+      result.stageNanoseconds[ssLadder] -=
+        result.stageNanoseconds[ssDefault] - defaultBeforeLadder
       for row in ladderOutput.seats:
         episode.appendPlayLogs(tick, row.logs, result.playLogLines)
         for status in row.statuses:
@@ -1364,7 +1366,7 @@ proc step*(episode: var ShellEpisode,
               tick: tick,
               seat: uint8(row.seat),
               kind: akPlayFault,
-              faultAtEpoch: status.status.faultEpoch,
+              faultAtCallNumber: status.status.faultCallNumber,
               faultEntryId: status.entryId,
               faultCode: status.status.faultCode,
               annotationFaultReason: status.status.faultReason))
@@ -1386,7 +1388,7 @@ proc step*(episode: var ShellEpisode,
               intent: row.intent,
               goal: row.goal,
               provenance: row.provenance,
-              contributingEpoch: row.contributingEpoch))
+              contributingCallNumber: row.contributingCallNumber))
           state.appendStandingChanges(result)
       result.runtimeNanoseconds +=
         (getMonoTime() - runtimeStarted).inNanoseconds
@@ -1550,9 +1552,9 @@ proc formatLifecycleAnnotation*(annotation: ShellAnnotation,
       &"kind=install_safe reason={annotation.installReason}"
   of akAcceptedIntentChange:
     &"SHELL_ANNOTATION tick={annotation.tick} seat={annotation.seat} " &
-      &"kind=accepted_intent epoch={annotation.effectiveEpoch}"
+      &"kind=accepted_intent call_number={annotation.effectiveCallNumber}"
   of akPlayFault:
     &"SHELL_ANNOTATION tick={annotation.tick} seat={annotation.seat}" &
-      &"{playerField} kind=play_fault epoch={annotation.faultAtEpoch} " &
+      &"{playerField} kind=play_fault call_number={annotation.faultAtCallNumber} " &
       &"entry={annotation.faultEntryId} code={annotation.faultCode} " &
       &"reason={annotation.annotationFaultReason.escape}"
