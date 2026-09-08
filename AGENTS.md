@@ -191,6 +191,8 @@ lower-level wire reference. The original dark-landing history is preserved in
 diagnostic log lines for play seats (`SHELL_INSTALL`, play faults,
 `SHELL_PLAN_BUDGET`, `SHELL_NAV`, `SHELL_COMBAT`) are
 described in `docs/designs/SHELL_DEMO.md` under "Diagnostic log lines".
+The proposed deterministic per-seat worker boundary, rollout gates, and CPU
+envelope are in `docs/designs/shell-step-parallelism-2026-09-07.md`.
 
 ## Build shapes
 
