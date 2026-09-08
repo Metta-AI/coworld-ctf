@@ -7,6 +7,8 @@ revision history; gate/default state updated 2026-09-01) · **Author:** James's 
 `BR_PLAYS.md` supplies the reference play menu) · **Canonical home:** this
 file, in `coworld-ctf`.
 
+Unratified spatial-context, host-query, and semantic-goal changes are proposed in [`play-spatial-knowledge-2026-09-08.md`](play-spatial-knowledge-2026-09-08.md); the rulings here remain authoritative until James ratifies that proposal.
+
 Companion reading: `docs/reports/maxwell-s2-paradigms-2026-08-29.md` (the
 research report on Maxwell's Season 2 substrate, with a plain-language primer
 in its section 0) and `docs/recon/paintbot-s2-policy-shell-2026-08-29.md`

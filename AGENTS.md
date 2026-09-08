@@ -168,7 +168,9 @@ The authoritative design for Season 2 (language-model policies that upload
 WebAssembly "plays", a game-side body ported from stencil, an embedded
 wasmtime runtime, the play-seat protocol, and the engine-native lobby chat
 phase) is `docs/designs/strategy-play-calling-shell-2026-08-29.md`, with a
-commentable HTML twin beside it. The body, runtime, play-seat protocol,
+commentable HTML twin beside it. The unratified spatial-knowledge proposal is
+`docs/designs/play-spatial-knowledge-2026-09-08.md`. The body, runtime,
+play-seat protocol,
 durable status path, lobby chat, and format-2 replay records are implemented
 under `src/shell/` and their `src/ctf/` integration points. `season2Shell`
 defaults true; an all-input roster still takes the direct-input path, while an
