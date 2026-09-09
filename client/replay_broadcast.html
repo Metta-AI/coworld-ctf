@@ -154,6 +154,11 @@ html, body {
 #scorebug {
   position: absolute;
   top: 0; left: 0; right: 0;
+  /* Above #endcard (z-index:30) on purpose: the reserved top band is never
+     supposed to overlap the card (see --topband below), but a stray reflow
+     that briefly mismeasures the band must never let the endcard -- or its
+     paint-splat canvas -- paint over the live scorebug cells. */
+  z-index: 31;
   display: grid;
   /* minmax(0,1fr), NOT 1fr: a bare 1fr track floors at its content's min-content
      width, so a long team name would blow the side track out and shove the center
@@ -345,6 +350,19 @@ html, body {
 }
 .br-cell-member.dead .br-cell-life { opacity: 0.22; }
 .br-cell-member.dead .br-cell-mname { opacity: 0.45; }
+/* "This one is me" (?me=, chrome_common.js) — the SAME cream the board
+   marker draws in (--paper; never a team color, never the amber heat/leader
+   tint above) so board and scorebug read as one shared "you" language.
+   A ring on the life square (a small leading marker) + bolded name (a
+   weight): subtle, never the filled highlight bar the owner ruled out. */
+.br-cell-member.me .br-cell-life {
+  box-shadow: inset 0 0 0 calc(0.75 * var(--u)) rgba(0, 0, 0, 0.45),
+              0 0 0 calc(1 * var(--u)) var(--paper);
+}
+.br-cell-member.me .br-cell-mname {
+  color: var(--paper);
+  font-weight: 700;
+}
 /* The prominent figure in the cell — glory is still the score, just one
    per team now instead of one for the whole bar (Maxwell: show all 16). */
 .br-cell-glory {
@@ -1971,8 +1989,22 @@ body.sidelanes-both #killfeed {
 }
 #endcard.on::before { animation: ec-flash-fade 220ms ease-out; }
 @keyframes ec-flash-fade { 0% { opacity: 0.5; } 100% { opacity: 0; } }
+/* Paint-splat canvas: the volley/settle/drip layer (JS: the "END-CARD
+   PAINT-SPLAT FINISH" section). Sits BEHIND the card's text via the SAME
+   local-stacking-context trick #endcard::before already uses (a negative
+   z-index inside #endcard's own explicit z-index never leaks below the
+   board underneath). */
+#endcard .ec-splat {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  z-index: -1;
+  pointer-events: none;
+}
 #endcard .headline { color: var(--tc, var(--ghost)); }
 #endcard .headline {
+  position: relative;
   font-family: var(--pixfont);
   font-size: calc(30 * var(--u));
   line-height: 1.05;
@@ -1984,12 +2016,33 @@ body.sidelanes-both #killfeed {
   overflow: hidden;
   text-overflow: ellipsis;
 }
+/* Headline reveal is a PAINT WIPE (a clip-path mask sweep), not a pop —
+   shut through the paint volley's own window (fill-mode both holds the
+   "from" keyframe), then wipes open left-to-right in ragged steps (a smooth
+   linear sweep reads too polished for this style). A blurred currentColor
+   bar rides the same window as the "wet roller" doing the uncovering —
+   currentColor so it's free team ink (picks up --tc), no extra class. */
 #endcard.on .headline {
-  animation: ec-headline-pop 220ms cubic-bezier(.2, 1.6, .4, 1) both;
+  animation: ec-headline-wipe 260ms steps(6, jump-end) 500ms both;
 }
-@keyframes ec-headline-pop {
-  from { transform: scale(0.85); opacity: 0; }
-  to { transform: scale(1); opacity: 1; }
+#endcard.on .headline::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: currentColor;
+  opacity: 0.55;
+  filter: blur(2px);
+  pointer-events: none;
+  animation: ec-headline-roller 260ms linear 500ms both;
+}
+@keyframes ec-headline-wipe {
+  from { clip-path: inset(0 100% 0 0); }
+  to { clip-path: inset(0 0 0 0); }
+}
+@keyframes ec-headline-roller {
+  from { transform: translateX(-100%); opacity: 0.55; }
+  85% { opacity: 0.55; }
+  to { transform: translateX(100%); opacity: 0; }
 }
 #endcard .how {
   font-family: var(--finefont);
@@ -2137,6 +2190,50 @@ body.sidelanes-both #killfeed {
 }
 #endcard .ec-mvp-line:empty { display: none; }
 #endcard .ec-mvp-line .ec-mvp-team { color: var(--tc, var(--amber)); }
+/* MATCH GLORY (owner 2026-09-08): the COMBINED total across every team,
+   win or draw — celebrates the MATCH's show, not just the winner's own
+   ledger (the dominant numeral above, .ec-glory-hero-num, stays that).
+   Typography carries the demotion: half the hero numeral's size, amber
+   like every other glory readout on this card, small-caps label inline
+   rather than a second stacked block — no new box, per house style. The
+   tier line beneath is the show review: quiet italic caps, never
+   competing with the verdict headline above it, no exclamation, no emoji.
+   Lands after the headline's own paint-wipe settles (JS: startEndcardSequence). */
+#endcard .mg-splash {
+  margin-top: calc(4 * var(--u));
+  padding-top: calc(4 * var(--u));
+  border-top: 1px solid rgba(232, 163, 61, 0.25);
+}
+#endcard.on .mg-splash { animation: cardfade 220ms ease-out 700ms both; }
+#endcard .mg-total {
+  font-family: var(--pixfont);
+  font-variant-numeric: tabular-nums;
+}
+#endcard .mg-total-label {
+  font-size: calc(9 * var(--u));
+  letter-spacing: 0.14em;
+  color: var(--paper-dim);
+  margin-right: calc(4 * var(--u));
+}
+#endcard .mg-total-num {
+  font-size: calc(20 * var(--u));
+  color: var(--amber);
+  text-shadow: 0 calc(1.5 * var(--u)) 0 var(--ink);
+}
+#endcard .mg-line {
+  margin-top: calc(2 * var(--u));
+  font-family: var(--finefont);
+  font-style: italic;
+  font-size: calc(9.5 * var(--u));
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--paper-dim);
+}
+/* mgRepaintTier leaves this empty rather than guess a tier when the
+   once-per-episode lead series hasn't arrived yet (or never will, on a
+   wire that predates it) -- collapse the reserved gap too, not just the
+   text, same idiom as .ec-mvp-line:empty above. */
+#endcard .mg-line:empty { display: none; margin-top: 0; }
 #endcard .ec-mvp-line .ec-mvp-dim { color: var(--paper-dim); }
 #endcard .ec-field {
   width: 100%;
@@ -2624,6 +2721,19 @@ body.sidelanes-both #killfeed {
     animation-duration: 1ms; animation-delay: 0ms;
   }
 }
+@media (prefers-reduced-motion: reduce) {
+  /* MATCH GLORY + paint-splat finish (2026-09-08): every timed CSS piece
+     here collapses to its end state instantly instead of playing out. The
+     canvas volley itself never animates under this query in the first
+     place — startEndcardSequence's reduced-motion branch draws the
+     settled blobs directly, no flight (see ecDrawSettledStatic) — so
+     #ec-splat needs no rule here; this is only the pieces that DO carry a
+     CSS animation-duration. Same specificity as the animating rules (a
+     lower-specificity neutralizer loses the cascade and keeps animating). */
+  #endcard.on .headline, #endcard.on .headline::after, #endcard.on .mg-splash {
+    animation-duration: 1ms; animation-delay: 0ms;
+  }
+}
 
 /* ============================================================
    EMBED MODE — inside the League Replayer shell (?embed=1)
@@ -2819,6 +2929,10 @@ body[data-noviewpanel] #viewpanel { display: none !important; }
     </div>
 
     <div id="endcard">
+      <!-- Paint-splat finish layer: the volley/settle/drip canvas sits behind
+           everything (.ec-splat, z-index:-1) — driven from JS, see the
+           "END-CARD PAINT-SPLAT FINISH" section. -->
+      <canvas class="ec-splat" id="ec-splat" aria-hidden="true"></canvas>
       <div class="headline" id="ec-headline">—</div>
       <div class="wincond" id="ec-wincond"></div>
       <div class="how" id="ec-how"></div>
@@ -2870,8 +2984,42 @@ body[data-noviewpanel] #viewpanel { display: none !important; }
   var markBeat = C.markBeat, killMarkerTeam = C.killMarkerTeam, renderBeatMarkers = C.renderBeatMarkers;
   var captureTeam = C.captureTeam, ingestBeats = C.ingestBeats, setVerdict = C.setVerdict;
   var ingestLeadSeries = C.ingestLeadSeries, recordMomentum = C.recordMomentum;
+  // MATCH GLORY lead-change tracking (see matchGloryLeadChanges below) needs
+  // the full-match {teams, pts} series chrome_common.js's ingestLeadSeries
+  // caches -- but that cache lives in chrome_common's own PRIVATE closure
+  // and isn't part of its returned surface, and chrome_common.js carries a
+  // byte-identical fingerprint pin (tests/test_pb_viewer.nim) that must stay
+  // untouched. So this re-parses the same once-per-episode wire field
+  // (`s.lead`) into its own local copy instead of reaching in. Only the
+  // team-keyed shape names a leader by IDENTITY across >2 BR teams; the
+  // legacy 2-team diff array predates BR/glory entirely and is read as "no
+  // series" -- matchGloryLeadChanges/mgRepaintTier then honestly omit the
+  // tier line rather than guess a 0-change count off data that never came.
+  var mgLeadFull = null;
+  // The MATCH GLORY totals from the endcard's most recent render (set by
+  // renderEndcardBR) -- cached here so mgRepaintTier (below matchGloryTier)
+  // can redraw the tier line the instant mgLeadFull actually arrives, even
+  // when renderEndcard's own content dedupe (card._key) never calls
+  // renderEndcardBR again for what is, correctly, the SAME verdict. Without
+  // this, a viewer whose first game-over frame lands before the one-shot
+  // `lead` field does (a straight seek-to-end on the native server: sendLead
+  // waits on a background scan that a fast seek can outrace) would freeze
+  // whatever tier the missing series produced FOREVER, while a play-through
+  // that happens to render a later frame gets the true tier -- the exact
+  // "same match, different tier depending on how you watched it" bug this
+  // cache exists to close.
+  var mgTotalsCache = null;
+  function mgIngestLead(s) {
+    if (mgLeadFull || !s.lead || Array.isArray(s.lead)) return;
+    mgLeadFull = {
+      teams: s.lead.teams || [],
+      pts: (s.lead.pts || []).map(function (p) { return { t: p[0], vals: p.slice(1) }; })
+    };
+    mgRepaintTier();
+  }
   var renderMomentum = C.renderMomentum;
   var getSpoilers = C.getSpoilers, setSpoilers = C.setSpoilers;
+  var isMe = C.isMe, meSeatIndices = C.meSeatIndices;
 
   // ---- eye-level cog art for the EYES PiP billboards ----
   // The PiP is an eye-level raycaster, so its billboards need art drawn from a
@@ -3476,6 +3624,18 @@ body[data-noviewpanel] #viewpanel { display: none !important; }
     // connection's own first frame either way (renderGloryPops keys off
     // `s.pops`), so this only removes the one-frame flash.
     clearGloryPops();
+    // MATCH GLORY + paint-splat finish: a new episode is a new match, so the
+    // once-per-episode lead series and the sequence's fresh-reveal edges
+    // must all re-derive from the incoming stream (same reasoning as every
+    // other latch this function already clears). mgTotalsCache resets too
+    // -- a stale prior match's totals must never let mgRepaintTier redraw a
+    // tier line for a match that already ended.
+    mgLeadFull = null;
+    mgTotalsCache = null;
+    gameoverEntered = false;
+    ecSequenceStarted = false;
+    ecTargets = null;
+    ecSeq.active = false;
     C.resetEpisode();
     if (window.PaintballChrome && window.PaintballChrome.reset) {
       window.PaintballChrome.reset();
@@ -3489,6 +3649,13 @@ body[data-noviewpanel] #viewpanel { display: none !important; }
   var lastFf = false;   // previous frame's fast-forward flag (jump detection)
   // (beat markers, lull spans, beats timeline and momentum state live in the
   // shared chrome closure — see chrome_common.js)
+  var gameoverEntered = false; // off→on edge for the gameover phase itself,
+  // decoupled from renderEndcard's own content dedupe (card._key): a loop's
+  // Nth pass ships the IDENTICAL verdict content, so that key never changes,
+  // but the paint-splat reveal (startEndcardSequence) still has to replay
+  // every time the card is freshly SHOWN.
+  var ecSequenceStarted = false; // separate from gameoverEntered: s.over can
+  // lag the phase flip by a frame or two, so the sequence waits for it.
 
   function onFrame(txt, hasZoneField) {
     var s;
@@ -3547,6 +3714,7 @@ body[data-noviewpanel] #viewpanel { display: none !important; }
     // come from events only; on a jump the tracker resync'd (no events), so we
     // keep whatever markers we already collected.
     ingestLeadSeries(s);
+    mgIngestLead(s);
     ingestFpMap(s);
     ingestLullSpans(s);
     // The up-front beat timeline is the OTHER path heart chrome rides
@@ -3559,9 +3727,25 @@ body[data-noviewpanel] #viewpanel { display: none !important; }
     recordMomentum(s);
 
     if (s.ph === 'gameover') {
+      // Fresh entry only: a mid-dwell banner (a kill/steal callout that was
+      // still sliding out when the match ended) must never sit over the
+      // endcard — clear it here, once, not every 24Hz frame of the hold.
+      if (!gameoverEntered) { gameoverEntered = true; clearBanners(); }
       armZoneEndcard(hasZoneField);
       if (zoneEndcardShown) renderEndcard(s);
-      if (s.over) setVerdict(s.over);
+      if (s.over) {
+        setVerdict(s.over);
+        // startEndcardSequence must run AFTER renderEndcard on this same
+        // tick (it reads ecTargets, which renderEndcard just populated, and
+        // reseeds the rolling numerals to 0 before the browser ever paints
+        // renderEndcard's synchronous final-value write) — and only once
+        // the card is actually showing (a zone-paint field can hold
+        // zoneEndcardShown false for a beat past gameover entry).
+        if (zoneEndcardShown && !ecSequenceStarted) {
+          ecSequenceStarted = true;
+          startEndcardSequence(s);
+        }
+      }
       // The zoom/minimap instrument has nothing left to do once the card is
       // up (there's no live position to track) and #endcard's own
       // background is a translucent wash, not opaque — a verification pass
@@ -3571,6 +3755,8 @@ body[data-noviewpanel] #viewpanel { display: none !important; }
       // #endcard's own CSS comment), not a bleed-through bug.
       $('viewpanel').classList.add('ended');
     } else {
+      gameoverEntered = false;
+      ecSequenceStarted = false;
       $('endcard').classList.remove('on');
       $('viewpanel').classList.remove('ended');
       resetZoneEndcard();
@@ -3976,7 +4162,13 @@ body[data-noviewpanel] #viewpanel { display: none !important; }
           }
           members.forEach(function (p, mi) {
             var row = membersEl.children[mi];
-            if (row) row.classList.toggle('dead', !p.alive);
+            if (row) {
+              row.classList.toggle('dead', !p.alive);
+              // "This one is me" — toggled per frame (not baked into the
+              // row at mkey-rebuild time) so the marker still lands on a
+              // page whose ?me= only resolves after the roster fills in.
+              row.classList.toggle('me', isMe(p.name));
+            }
           });
         }
         // Leader emphasis rides ONE flame (Maxwell: "no single-block
@@ -4538,6 +4730,271 @@ body[data-noviewpanel] #viewpanel { display: none !important; }
     var m = /^#?([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})$/i.exec(hex);
     if (!m) return hex;
     return 'rgba(' + parseInt(m[1], 16) + ',' + parseInt(m[2], 16) + ',' + parseInt(m[3], 16) + ',' + a + ')';
+  }
+
+  // ============================================================
+  //  END-CARD PAINT-SPLAT FINISH — an exciting paint-volley finish, not a
+  //  quiet text card. Flash+shake already exist on the endcard (#endcard::
+  //  before / .ec-shake); this adds the three missing pieces:
+  //    ~150ms+  8-14 paint blobs volley in from the screen edges and SPLAT
+  //             onto the card, winner-dominant, squash-then-settle (THIS
+  //             module, canvas-drawn onto #ec-splat, generalized to N BR
+  //             teams via teamCol() rather than a hardcoded red/blue split)
+  //    500ms    the headline reveals through a paint wipe (clip-path mask
+  //             sweep, see the CSS .headline / .headline::after rules)
+  //    750ms    MATCH GLORY (and the hero's own glory numeral) roll up
+  //             instead of snap-printing (THIS module's rollGloryNumber)
+  //  Deterministic per verdict (seeded off the same tuple renderEndcard
+  //  already hashes into its content key), so a loop replays the identical
+  //  volley, never a new roll of the dice. Reuses the FPV splat's technique
+  //  (a sine-hash deterministic rnd(), one main gob + satellite lobes,
+  //  radial-gradient body + quadratic drip -- see makeSplat/drawSplat
+  //  above) tuned bolder for a backdrop role. Respects prefers-reduced-
+  //  motion: the reduced path draws the settled volley + final numbers
+  //  directly, no flight, no roll -- a static, but still painted, card.
+  // ============================================================
+  var EC_REDUCED_MOTION = window.matchMedia ? window.matchMedia('(prefers-reduced-motion: reduce)') : null;
+  var ecRollGen = 0;   // bumped per fresh reveal; a stale RAF from a previous verdict no-ops
+  var ecTargets = null; // { hero: heroGlory|null, mg: matchGlorySum|null } -- stashed by
+  // renderEndcardBR (which always writes the FINAL text synchronously too, so the card is
+  // always correct even if the sequence below never fires), read by startEndcardSequence.
+  var ecCanvas = null, ecCtx = null;
+  var ecSeq = { blobs: [], t0: 0, active: false };
+  var EC_BLOB_START = 150, EC_FLIGHT_MS = 180, EC_SETTLE_MS = 120, EC_STAGGER_MAX = 40;
+  var EC_ROLL_MS = 520, EC_ROLL_DELAY = 750;
+  var EC_STOP_AT = EC_ROLL_DELAY + 1400;
+
+  // Rolls a glory numeral from 0 up to its target (gloryOdometerParts holds
+  // the sign+unit static; only the mantissa counts up), formatted through
+  // gloryText's OWN carry rule on the landed frame so the final text is
+  // byte-identical to a plain gloryText(target) call. `gen` is the reveal
+  // generation this call belongs to -- a superseded reveal's stale RAF
+  // no-ops instead of racing the new one.
+  function rollGloryNumber(el, target, delayMs, gen) {
+    if (!el) return;
+    if (typeof target !== 'number' || !isFinite(target)) { el.textContent = gloryText(target); return; }
+    if (EC_REDUCED_MOTION && EC_REDUCED_MOTION.matches) { el.textContent = gloryText(target); return; }
+    var parts = gloryOdometerParts(target);
+    el.textContent = parts.sign + (parts.unit ? '0.0' : '0') + parts.unit;
+    var start = null;
+    function frame(now) {
+      if (gen !== ecRollGen) return; // a newer reveal superseded this one
+      if (start === null) start = now;
+      var t = now - start - (delayMs || 0);
+      if (t <= 0) { requestAnimationFrame(frame); return; }
+      var p = Math.min(1, t / EC_ROLL_MS);
+      var eased = 1 - Math.pow(1 - p, 3);
+      var shown = parts.mantissa * eased;
+      el.textContent = parts.sign + (parts.unit ? trimTenth(shown) : String(Math.round(shown))) + parts.unit;
+      if (p < 1) requestAnimationFrame(frame);
+      else el.textContent = gloryText(target);
+    }
+    requestAnimationFrame(frame);
+  }
+
+  function ecHash(str) {
+    var h = 2166136261;
+    for (var i = 0; i < str.length; i++) { h ^= str.charCodeAt(i); h = (h * 16777619) >>> 0; }
+    return h;
+  }
+  // One cohesive gob + satellite lobes -- same shape technique as makeSplat,
+  // seeded off a stable per-blob id instead of a fire tick (there is no
+  // tick here, only a verdict).
+  function ecMakeGob(seed, cx, cy, mainR) {
+    function rnd(i) { var x = Math.sin(seed * 0.0001 + i * 7.77) * 43758.5453; return x - Math.floor(x); }
+    var blobs = [{ x: cx, y: cy, r: mainR, drip: 0.8 + rnd(0) * 0.6 }];
+    var count = 3 + Math.floor(rnd(1) * 2);
+    for (var i = 0; i < count; i++) {
+      var ang = rnd(i * 3 + 2) * Math.PI * 2;
+      blobs.push({
+        x: cx + Math.cos(ang) * mainR * (0.7 + rnd(i * 3 + 3) * 0.5),
+        y: cy + Math.sin(ang) * mainR * (0.6 + rnd(i * 3 + 4) * 0.5),
+        r: mainR * (0.3 + rnd(i * 3 + 5) * 0.32),
+        drip: rnd(i * 5 + 6) * 0.6
+      });
+    }
+    return blobs;
+  }
+  // Build the volley: 8-14 blobs. Generalized to N BR teams (not a hardcoded
+  // red/blue split): the winner (if any) dominates at ~65% of the blobs,
+  // the rest spread evenly across every OTHER team so an 8-team field still
+  // reads as "everyone else", not one arbitrary runner-up; a draw spreads
+  // evenly across every team. Landing anchors keep clear of the whole
+  // center copy column (x in [0.25, 0.75], the headline-to-rows band) --
+  // the splat canvas already paints behind the text (z-index:-1, see the
+  // CSS), but anchors that never land near the words in the first place
+  // means the settled volley frames the copy instead of merely hiding
+  // behind it. Ink & Print rule: decoration never touches the words.
+  function ecBuildBlobs(teams, winner, key) {
+    var seed = ecHash(key);
+    function rnd(i) { var x = Math.sin(seed * 0.0001 + i * 91.7) * 43758.5453; return x - Math.floor(x); }
+    var others = winner ? teams.filter(function (t) { return t !== winner; }) : teams;
+    var n = 8 + Math.floor(rnd(0) * 7); // 8..14
+    var stagger = Math.min(EC_STAGGER_MAX, 300 / Math.max(1, n - 1));
+    var anchors = [
+      { x: 0.08, y: 0.12 }, { x: 0.92, y: 0.12 },
+      { x: 0.06, y: 0.45 }, { x: 0.94, y: 0.45 },
+      { x: 0.12, y: 0.90 }, { x: 0.88, y: 0.90 },
+      { x: 0.18, y: 0.06 }, { x: 0.82, y: 0.06 }
+    ];
+    var blobs = [];
+    for (var i = 0; i < n; i++) {
+      var isWin = winner ? rnd(i * 5 + 1) < 0.65 : false;
+      var team = isWin ? winner
+        : (others.length ? others[Math.floor(rnd(i * 5 + 1.5) * others.length) % others.length]
+          : (winner || teams[0]));
+      var color = teamCol(team) || AMBER;
+      var a = anchors[Math.floor(rnd(i * 5 + 2) * anchors.length) % anchors.length];
+      var jx = (rnd(i * 5 + 3) - 0.5) * 0.08, jy = (rnd(i * 5 + 4) - 0.5) * 0.08;
+      var edge = Math.floor(rnd(i * 5 + 5) * 4);
+      var x0, y0;
+      if (edge === 0) { x0 = rnd(i * 5 + 6); y0 = -0.3; }
+      else if (edge === 1) { x0 = 1.3; y0 = rnd(i * 5 + 6); }
+      else if (edge === 2) { x0 = rnd(i * 5 + 6); y0 = 1.3; }
+      else { x0 = -0.3; y0 = rnd(i * 5 + 6); }
+      var big = isWin || !winner;
+      var r = (big ? 0.05 : 0.028) + rnd(i * 5 + 7) * (big ? 0.028 : 0.016);
+      blobs.push({
+        seed: seed + i * 101, color: color,
+        x0: x0, y0: y0, x1: a.x + jx, y1: a.y + jy, r: r,
+        delay: EC_BLOB_START + i * stagger,
+        isBig: false // set on the top-2-by-radius pass below
+      });
+    }
+    var byR = blobs.slice().sort(function (a, b) { return b.r - a.r; });
+    for (var k = 0; k < Math.min(2, byR.length); k++) byR[k].isBig = true;
+    return blobs;
+  }
+  // Squash-then-settle: a cheap hand-rolled damped spring (canvas has no CSS
+  // easing) -- a quick flatten rebounding past 1 before resting there, so a
+  // landed blob reads as an IMPACT, not a blob that just faded into place.
+  function ecSquash(p) {
+    if (p >= 1) return { sx: 1, sy: 1 };
+    var decay = Math.exp(-p * 5);
+    var wob = Math.sin(p * Math.PI * 2.4) * decay;
+    return { sx: 1 - wob * 0.28, sy: 1 + wob * 0.34 };
+  }
+  function ecDrawGob(ctx, W, H, gobBlobs, color, alpha, cx, cy, sx, sy) {
+    ctx.save();
+    ctx.globalAlpha = alpha;
+    ctx.translate(cx * W, cy * H);
+    ctx.scale(sx, sy);
+    ctx.translate(-cx * W, -cy * H);
+    for (var i = 0; i < gobBlobs.length; i++) {
+      var b = gobBlobs[i];
+      var bx = b.x * W, by = b.y * H, br = b.r * Math.min(W, H);
+      var g = ctx.createRadialGradient(bx, by, br * 0.1, bx, by, br);
+      g.addColorStop(0, color); g.addColorStop(0.78, color);
+      g.addColorStop(1, hexA(color, 0));
+      ctx.fillStyle = g;
+      ctx.beginPath(); ctx.arc(bx, by, br, 0, Math.PI * 2); ctx.fill();
+    }
+    ctx.restore();
+  }
+  // A slow ambient drip off the biggest landed blobs.
+  function ecDrawDrip(ctx, W, H, cx, cy, r, color, grow) {
+    var dl = r * Math.min(W, H) * (0.6 + grow * 1.1);
+    var dw = r * Math.min(W, H) * 0.3;
+    var bx = cx * W, by = cy * H;
+    var dg = ctx.createLinearGradient(bx, by, bx, by + dl);
+    dg.addColorStop(0, color); dg.addColorStop(1, hexA(color, 0));
+    ctx.fillStyle = dg;
+    ctx.beginPath();
+    ctx.moveTo(bx - dw, by);
+    ctx.quadraticCurveTo(bx - dw * 0.4, by + dl * 0.6, bx, by + dl);
+    ctx.quadraticCurveTo(bx + dw * 0.4, by + dl * 0.6, bx + dw, by);
+    ctx.closePath(); ctx.fill();
+  }
+  function ecResizeCanvas() {
+    var cv = ecCanvas;
+    if (!cv) return null;
+    var w = cv.clientWidth, h = cv.clientHeight;
+    if (!w || !h) return null;
+    var dpr = window.devicePixelRatio || 1;
+    var pw = Math.round(w * dpr), ph = Math.round(h * dpr);
+    if (cv.width !== pw || cv.height !== ph) { cv.width = pw; cv.height = ph; }
+    if (!ecCtx) ecCtx = cv.getContext('2d');
+    ecCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    return { w: w, h: h };
+  }
+  // Draw every blob at its FINAL landed state, no flight, no squash -- the
+  // reduced-motion path: "static, but still painted".
+  function ecDrawSettledStatic() {
+    var dim = ecResizeCanvas();
+    if (!dim) { requestAnimationFrame(ecDrawSettledStatic); return; }
+    var ctx = ecCtx, blobs = ecSeq.blobs;
+    ctx.clearRect(0, 0, dim.w, dim.h);
+    for (var i = 0; i < blobs.length; i++) {
+      var b = blobs[i];
+      if (!b.gob) b.gob = ecMakeGob(b.seed, b.x1, b.y1, b.r);
+      ecDrawGob(ctx, dim.w, dim.h, b.gob, b.color, 0.95, b.x1, b.y1, 1, 1);
+      if (b.isBig) ecDrawDrip(ctx, dim.w, dim.h, b.x1, b.y1, b.r, b.color, 0.9);
+    }
+  }
+  function ecFrame(now, gen) {
+    if (gen !== ecRollGen || !ecSeq.active) return;
+    var dim = ecResizeCanvas();
+    if (!dim) { requestAnimationFrame(function (n) { ecFrame(n, gen); }); return; }
+    var ctx = ecCtx, w = dim.w, h = dim.h;
+    ctx.clearRect(0, 0, w, h);
+    var elapsed = now - ecSeq.t0, blobs = ecSeq.blobs;
+    for (var i = 0; i < blobs.length; i++) {
+      var b = blobs[i];
+      var t = elapsed - b.delay;
+      if (t < 0) continue;
+      if (t < EC_FLIGHT_MS) {
+        var p = t / EC_FLIGHT_MS, ep = p * p; // ease-in: accelerating off the edge
+        var cx = b.x0 + (b.x1 - b.x0) * ep, cy = b.y0 + (b.y1 - b.y0) * ep;
+        var gob = ecMakeGob(b.seed, cx, cy, b.r * (0.55 + p * 0.45));
+        ecDrawGob(ctx, w, h, gob, b.color, 0.9, cx, cy, 1, 1);
+      } else {
+        var sp = (t - EC_FLIGHT_MS) / EC_SETTLE_MS;
+        var sq = ecSquash(Math.min(1, sp));
+        if (!b.gob) b.gob = ecMakeGob(b.seed, b.x1, b.y1, b.r);
+        ecDrawGob(ctx, w, h, b.gob, b.color, 0.95, b.x1, b.y1, sq.sx, sq.sy);
+        if (b.isBig && sp > 1) {
+          var grow = Math.min(1.6, (t - EC_FLIGHT_MS - EC_SETTLE_MS) / 1400);
+          ecDrawDrip(ctx, w, h, b.x1, b.y1, b.r, b.color, grow);
+        }
+      }
+    }
+    if (elapsed < EC_STOP_AT) requestAnimationFrame(function (n) { ecFrame(n, gen); });
+    else ecSeq.active = false; // settled -- the canvas holds its last drawn frame
+  }
+  // Fires exactly once per fresh reveal (see onFrame's gameoverEntered/
+  // ecSequenceStarted guards) -- never on a mid-hold re-render, so scrubbing
+  // around inside the hold can't replay the volley. A loop (or a seek
+  // straight back to the same verdict) DOES re-fire this, rebuilding the
+  // identical volley (seeded off the verdict, not wall-clock).
+  function startEndcardSequence(s) {
+    var o = s.over;
+    if (!o) return;
+    ecRollGen++;
+    var gen = ecRollGen;
+    if (!ecCanvas) ecCanvas = $('ec-splat');
+    var teams = activeTeams(s);
+    var winner = o.draw ? null : o.winner;
+    var key = [s.mx, o.winner, o.draw, o.timeLimit, (s.roster || []).length].join('|');
+    ecSeq.blobs = ecBuildBlobs(teams, winner, key);
+    var reduced = !!(EC_REDUCED_MOTION && EC_REDUCED_MOTION.matches);
+    if (reduced) {
+      ecSeq.active = false;
+      ecDrawSettledStatic();
+      // renderEndcardBR already wrote the final numbers directly -- nothing
+      // to roll, the static card is honest as-is.
+    } else {
+      ecSeq.t0 = 0;
+      ecSeq.active = true;
+      requestAnimationFrame(function (n) { ecSeq.t0 = n; ecFrame(n, gen); });
+      // renderEndcardBR (called just before this, same tick) already wrote
+      // the final numbers -- rollGloryNumber reseeds to 0 synchronously
+      // before rolling, so what the viewer sees is the roll landing at
+      // EC_ROLL_DELAY, not a flash of the final number then a jump to 0.
+      if (ecTargets) {
+        if (ecTargets.hero !== null) rollGloryNumber($('ec-glory-hero-num'), ecTargets.hero, EC_ROLL_DELAY, gen);
+        if (ecTargets.mg !== null) rollGloryNumber($('mg-num'), ecTargets.mg, EC_ROLL_DELAY, gen);
+      }
+    }
   }
 
   // A four-lobed heart glyph (two arcs + a point) — the flag/heart icon, matched
@@ -5730,6 +6187,15 @@ body[data-noviewpanel] #viewpanel { display: none !important; }
     }
     core.setEliminatedSeats(eliminated);
   }
+  // "This one is me" (chrome_common.js ?me=/localStorage): pushed every
+  // frame off the SAME roster-array-index keying as pushDownedSeatsToCore
+  // above, so a duo's two seats both mark — meSeatIndices returns every
+  // match, not just the first. No caching here to clear on resetEpisode:
+  // it's a pure function of the frame's own roster each call.
+  function pushMeSeatsToCore(s) {
+    if (!core || !core.setMeSeats) return;
+    core.setMeSeats(meSeatIndices(s));
+  }
   function seatName(seat) {
     var info = seatInfo[seat];
     return (info && info.name && info.name !== '?') ? info.name : ('SEAT ' + seat);
@@ -5923,6 +6389,7 @@ body[data-noviewpanel] #viewpanel { display: none !important; }
     learnSeats(s);
     pushDownedSeatsToCore(s);
     pushEliminatedSeatsToCore(s);
+    pushMeSeatsToCore(s);
 
     var inLobby = s.ph === 'lobby';
     var nowMs = (s.t || 0) * 1000 / FPS;
@@ -6221,7 +6688,18 @@ body[data-noviewpanel] #viewpanel { display: none !important; }
         '<div class="ec-glory-hero"><span class="ec-glory-hero-num" id="ec-glory-hero-num">0</span>' +
         '<span class="ec-glory-hero-label">GLORY</span></div>' +
         '<div class="ec-mvp-line" id="ec-mvp-line"></div>' +
-        '<div class="ec-hero-line" id="ec-hero-line"></div>';
+        '<div class="ec-hero-line" id="ec-hero-line"></div>' +
+        // MATCH GLORY (2026-09-08, owner): the COMBINED total across every
+        // team, win OR draw — the match is the show, so a draw reviews
+        // itself too (see matchGloryTier for the scale-free tiering law).
+        // Empty/hidden (CSS + JS display:none gate, same idiom as
+        // .ec-hero.has-glory above) on a replay whose wire carries no
+        // glory field at all.
+        '<div class="mg-splash" id="mg-splash">' +
+        '<div class="mg-total"><span class="mg-total-label">MATCH GLORY</span> ' +
+        '<span class="mg-total-num" id="mg-num">0</span></div>' +
+        '<div class="mg-line" id="mg-line"></div>' +
+        '</div>';
       wrap.appendChild(hero);
       var field = document.createElement('div');
       field.className = 'ec-field';
@@ -6300,6 +6778,122 @@ body[data-noviewpanel] #viewpanel { display: none !important; }
     // 16.6 keeps its tenth; 20.0 renders as 20, not "20.0".
     var r = n.toFixed(1);
     return r.slice(-2) === '.0' ? r.slice(0, -2) : r;
+  }
+
+  // ── MATCH GLORY: combined total + show-review tier ──────────────────────
+  // Owner design law: the MATCH is the show, so a draw earns this number
+  // too, not just a decided winner's own ledger. Tiering used to cut at
+  // absolute glory floors (2000/2300/2600/3100, lifted from one field
+  // snapshot) -- dead the moment the S2 economy retunes: glory today reaches
+  // 9.15 QUADRILLION with no cap and has measured NEGATIVE (-60). Every cut
+  // below is a RATIO or a COUNT instead, so neither moves if the units
+  // retune again.
+  //
+  // matchGloryMargin: 0 = the top two teams are dead even, 1 = a runaway.
+  // abs() on the numerator AND on each total means a field that runs
+  // entirely negative (or straddles zero) still produces a sane ratio, and
+  // scaling every total by the same positive constant never changes the
+  // result (see tests/test_match_glory.mjs's x1e6 case).
+  function matchGloryMargin(totals) {
+    var sorted = (totals || [])
+      .filter(function (v) { return typeof v === 'number' && isFinite(v); })
+      .sort(function (a, b) { return b - a; });
+    if (sorted.length < 2) return 1; // nothing to race against reads as a runaway
+    var top = sorted[0], second = sorted[1];
+    var spread = Math.abs(top) + Math.abs(second);
+    return spread > 0 ? Math.abs(top - second) / spread : 0;
+  }
+  // matchGloryLeadChanges: counts how many times the argmax team identity
+  // flips across a {teams, pts:[{t, vals[]}]} series -- the same shape
+  // chrome_common.js's ingestLeadSeries reads off the wire's `s.lead` field,
+  // re-parsed locally here by mgIngestLead rather than reaching into
+  // chrome_common's own private fullLeadSeries closure (chrome_common.js
+  // carries a byte-identical fingerprint pin and stays untouched). A tie
+  // keeps the previous leader -- a tie is not a change -- and the opening
+  // all-zero tick never crowns a "leader": kickoff itself is never change #1.
+  function matchGloryLeadChanges(series) {
+    if (!series || !series.pts || !series.pts.length) return 0;
+    var changes = 0, leader = null, seen = false;
+    for (var k = 0; k < series.pts.length; k++) {
+      var vals = series.pts[k].vals || [];
+      var top = null, topV = -Infinity;
+      for (var i = 0; i < vals.length; i++) {
+        if (typeof vals[i] === 'number' && vals[i] > topV) { topV = vals[i]; top = i; }
+      }
+      if (top === null) continue;
+      if (!seen) {
+        if (topV === 0) continue; // nobody has scored yet -- no leader to name
+        leader = top; seen = true; continue;
+      }
+      if (top !== leader) { changes++; leader = top; }
+    }
+    return changes;
+  }
+  // The show-review line. Priority-ordered (first match wins), same idiom
+  // as the absolute-floor table this replaces. Line choice inside a tier is
+  // itself scale-free (seeded off margin+changes, never off the raw
+  // totals), so a x1e6 scale test can assert the exact string, not just
+  // the tier id.
+  var MG_TIERS = [
+    { id: 'razor', test: function (m) { return m < 0.08; },
+      lines: ['RAZOR-CLOSE, START TO FINISH', 'DECIDED IN THE FINAL EXCHANGE',
+        'NEITHER SIDE EVER PULLED CLEAR'] },
+    { id: 'backforth', test: function (m, c) { return c >= 3 && m < 0.4; },
+      lines: ['THE LEAD CHANGED HANDS REPEATEDLY', 'NEITHER SIDE HELD IT FOR LONG',
+        'A MATCH THAT KEPT REVERSING'] },
+    { id: 'contested', test: function (m, c) { return c >= 1 && m < 0.65; },
+      lines: ['CONTESTED TO THE FINISH', 'THE LEAD HELD, BARELY', 'EARNED, NOT HANDED OVER'] },
+    { id: 'clear', test: function (m) { return m < 0.85; },
+      lines: ['A CLEAR RESULT, NO DRAMA', 'SETTLED EARLY, HELD LATE', 'STEADY FROM START TO FINISH'] },
+    { id: 'rout', test: function () { return true; },
+      lines: ['ONE-SIDED FROM THE START', 'NEVER IN DOUBT', 'A RESULT, NOT A CONTEST'] }
+  ];
+  function matchGloryTier(margin, changes) {
+    var m = typeof margin === 'number' && isFinite(margin) ? Math.max(0, Math.min(1, margin)) : 1;
+    var c = Math.max(0, changes || 0);
+    for (var i = 0; i < MG_TIERS.length; i++) {
+      if (MG_TIERS[i].test(m, c)) {
+        var pool = MG_TIERS[i].lines;
+        return { id: MG_TIERS[i].id, line: pool[(c + Math.round(m * 97)) % pool.length] };
+      }
+    }
+    return { id: 'rout', line: MG_TIERS[MG_TIERS.length - 1].lines[0] };
+  }
+  // The show-review tier is a property of the MATCH, never of the viewing
+  // path: this is the ONLY place that writes #mg-line's text, and it always
+  // derives the tier from the complete, one-shot `lead` series (mgLeadFull)
+  // plus the last-rendered totals (mgTotalsCache) -- never from how many
+  // frames the viewer happened to render on the way here. Called both from
+  // renderEndcardBR (the normal render path) and from mgIngestLead the
+  // moment the series lands late, so a straight seek-to-end that outraces
+  // the wire's background scan still lands on the SAME tier a play-through
+  // would compute, once the series arrives -- it just repaints a beat
+  // later instead of guessing wrong and freezing. No series yet (or ever,
+  // on a wire that predates lead tracking / carries the legacy 2-team diff
+  // array): omit the line rather than print a 0-change guess.
+  function mgRepaintTier() {
+    var mgLine = $('mg-line');
+    if (!mgLine || !mgTotalsCache) return;
+    if (!mgLeadFull) { mgLine.textContent = ''; return; }
+    var mgTier = matchGloryTier(matchGloryMargin(mgTotalsCache), matchGloryLeadChanges(mgLeadFull));
+    mgLine.textContent = mgTier.line;
+  }
+  // Odometer target parts: the sign and unit (k/M/B/T/Q) are decided ONCE,
+  // off the FINAL total, and held static for the whole roll -- only the
+  // mantissa counts up. A live unit flip mid-roll ("9000 ... 12000 ... 1.5M
+  // ... 16.6k") would read as a glitch, not a countup. A negative total
+  // rolls its MAGNITUDE up with the minus sign held static throughout --
+  // nobody expects a sign to animate. Mirrors gloryText's own carry rule
+  // (999,999 -> "1000k" bumps to "1M") so the LANDED frame can always be
+  // swapped for gloryText(v)'s own byte-exact output.
+  function gloryOdometerParts(v) {
+    if (typeof v !== 'number' || !isFinite(v)) return { sign: '', unit: '', mantissa: 0 };
+    var sign = v < 0 ? '-' : '', a = Math.abs(v);
+    if (a < 10000) return { sign: sign, unit: '', mantissa: a };
+    var n = a, u = -1;
+    while (n >= 1000 && u < GLORY_UNITS.length - 1) { n /= 1000; u++; }
+    if (trimTenth(n) === '1000' && u < GLORY_UNITS.length - 1) { n = 1; u++; }
+    return { sign: sign, unit: GLORY_UNITS[u], mantissa: n };
   }
 
   // Season 2 runs ONE COG PER TEAM, so the endcard's inherited squad
@@ -6487,6 +7081,43 @@ body[data-noviewpanel] #viewpanel { display: none !important; }
           ' ' + gloryText(leaderGlory) + 'G <span class="ec-mvp-dim">(' +
           ordinal(placeOf[gloryLeader]) + ')</span>'
         : '';
+    }
+
+    // MATCH GLORY: the COMBINED total across every team still in the
+    // episode's ledger — winner-agnostic on purpose, so a draw gets the
+    // same show-review treatment a decided match does (previously a draw
+    // got no glory language at all). Hidden only when the wire carries no
+    // glory field at all (!anyGlory): a real combined 0 is an honest dud,
+    // an absent field is not a dud. The tier line reads the CLOSENESS of
+    // the final standings plus how many times the lead actually changed
+    // hands (matchGloryLeadChanges, off the locally re-parsed s.lead
+    // series) — both scale-free, so a future economy retune never breaks
+    // the tiering the way the old absolute floors did.
+    var mgSplash = $('mg-splash');
+    if (mgSplash) {
+      mgSplash.style.display = anyGlory ? '' : 'none';
+      if (anyGlory) {
+        var mgTotals = teams.map(function (t) { return teamGloryOf(o, t); })
+          .filter(function (v) { return v !== null; });
+        var mgSum = mgTotals.reduce(function (a, b) { return a + b; }, 0);
+        $('mg-num').textContent = gloryText(mgSum);
+        $('mg-num').title = mgSum + ' combined glory';
+        // The tier line itself is NOT written here -- mgRepaintTier owns
+        // it exclusively, reading mgTotalsCache (set on the next line) and
+        // whatever mgLeadFull holds right now. This function can run once
+        // per distinct verdict (renderEndcard's card._key dedupe) on a
+        // frame where the once-per-episode lead series hasn't shown up on
+        // the wire yet; caching the totals lets mgIngestLead call
+        // mgRepaintTier again, later, off the SAME data, the moment the
+        // series actually lands -- instead of this tier freezing into
+        // whatever (possibly series-less) guess this one call produced.
+        mgTotalsCache = mgTotals;
+        mgRepaintTier();
+        ecTargets = { hero: heroGlory, mg: mgSum };
+      } else {
+        mgTotalsCache = null;
+        ecTargets = null;
+      }
     }
 
     var rest = winner ? ranked.filter(function (t) { return t !== winner; }) : ranked;

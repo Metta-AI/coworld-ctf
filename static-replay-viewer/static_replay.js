@@ -330,6 +330,16 @@
       setEliminatedSeats: function (seats) {
         if (worker) worker.postMessage({ type: 'eliminatedSeats', seats: seats });
       },
+      // "This one is me": same gap as setDownedSeats/setEliminatedSeats above
+      // — the page calls core.setMeSeats every frame (see
+      // client/replay_broadcast.html's pushMeSeatsToCore), and without a
+      // passthrough here the Worker's own BroadcastCore instance never learns
+      // which seats to ring, so the static bundle's board would silently
+      // never show the "this is you" marker no matter what ?me= resolved to.
+      // Same forward-to-Worker shape as setDownedSeats/setEliminatedSeats.
+      setMeSeats: function (seats) {
+        if (worker) worker.postMessage({ type: 'meSeats', seats: seats });
+      },
       // Zoom/pan forwarded to the worker that owns the OffscreenCanvas. Same
       // signatures as the in-process core, so the page drives one API whether
       // it renders here or in a worker.
