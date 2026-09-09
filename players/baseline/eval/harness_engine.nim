@@ -168,6 +168,31 @@ proc newEvalEngine*(numPlayers: int, seed: int, maxTicks: int): EvalEngine =
     config.mapSpec = readFile(getEnv("EVAL_MAPSPEC"))
   if getEnv("EVAL_TEAMS").len > 0:
     config.teams = parseInt(getEnv("EVAL_TEAMS"))
+  # ⭐⭐ EVAL_MAPSYM / EVAL_MAPSIZE (2026-08-18, RIG-FIDELITY AUDIT). `EVAL_MAP=gen`
+  # with teams=4 draws scaledGenShell4 — a SQUARE rot90 corner/plus board. The
+  # hosted 4-team league board measured off 155 v55 replays is a 1200x650
+  # RECTANGLE with corner bases (median inter-base 1023px, nearest pair 429px);
+  # the square rig board measures 545px median / 460px nearest, i.e. HALF the
+  # separation and aspect 1.0 against the field's 1.85. That is the rectangular
+  # `quadmirror` shell, which arena.nim documents as override-only — so the rig
+  # was never on the hosted map FAMILY, and the difference is not cosmetic: on
+  # the square board all 48 lives are gone by tick 1000 (field: 4.65 of 12),
+  # which pins every life-economy metric at its ceiling. There was no env
+  # passthrough for the mapGen overrides at all; EVAL_MAPSPEC (byte-exact
+  # recorded board) is the stronger instrument, this is the cheap one.
+  if getEnv("EVAL_MAPSYM").len > 0:
+    config.mapGen.symmetry = getEnv("EVAL_MAPSYM")
+  if getEnv("EVAL_MAPSIZE").len > 0:
+    config.mapGen.size = getEnv("EVAL_MAPSIZE")
+  # `quadmirror` alone still coin-flips corners vs plus, and the hosted board is
+  # CORNERS: measured base centroids sit at the four corners of the 1200x650
+  # rectangle (84,126)/(1098,93)/(179,537)/(1168,540), pair distances
+  # 421/453/989/1014/1021/1160 — one near neighbour and two far, which is the
+  # asymmetry the whole ffa4 territory model rests on. A `plus` draw on the same
+  # shell gives 497/536/542/575/579/1000: four near neighbours and a different
+  # game. EVAL_MAPSYM=quadmirror EVAL_MAPLAYOUT=corners is the pair.
+  if getEnv("EVAL_MAPLAYOUT").len > 0:
+    config.mapGen.layout = getEnv("EVAL_MAPLAYOUT")
   if getEnv("EVAL_SCORING").len > 0:
     config.scoring = getEnv("EVAL_SCORING")
   result = EvalEngine(sim: initSimServer(config))
@@ -187,6 +212,15 @@ proc newEvalEngine*(numPlayers: int, seed: int, maxTicks: int): EvalEngine =
     # attributed Kill events (weapon="gun"/"spray"/"grenade"). Off by default
     # (collectEvents costs real allocation), so every other probe build stays
     # exactly as fast.
+    result.sim.collectEvents = true
+  when defined(evdump):
+    # -d:evdump (2026-08-18, RIG-FIDELITY AUDIT): turn on the SAME tier-2 event
+    # sink the hosted extractor drains, so this rig can emit an event stream in
+    # the byte-identical wire format (ctf/events.eventsJsonl) that
+    # ~/.ctf/scout/events holds for the field. That is the only way to run ONE
+    # analyser over both populations: any hand-rolled rig counter is a second
+    # definition, and a definition mismatch is indistinguishable from a fidelity
+    # gap. Never compiled into the shipped player.
     result.sim.collectEvents = true
   when defined(ndprobe):
     # -d:ndprobe (2026-08-14, the v56 nade package): the tier-2 sink carries
@@ -652,3 +686,42 @@ proc result*(engine: EvalEngine): EpisodeResult =
       result.blueDeaths += p.deaths
       result.blueLives += livesNow
       result.blueCaptures += p.captures
+
+
+when defined(evdump):
+  # ⭐ RIG-FIDELITY AUDIT (2026-08-18). Emits this episode in the hosted
+  # replay-extraction wire format so ffa4_corpus.py's field analysers run over
+  # rig episodes unchanged. Seats are keyed by joinOrder exactly as
+  # tools/extract_events.nim does — `source`/`target` on a SimEvent are stable
+  # join slots, NOT raw player indices, and on a 16-slot deal they are only
+  # accidentally equal.
+  import std/json
+  import ctf/events as ctfevents
+
+  const EvColorName = ["red", "blue", "green", "yellow", "purple", "orange",
+                       "cyan", "pink"]
+
+  proc evTeamColor(t: int): string =
+    if t >= 0 and t < EvColorName.len: EvColorName[t] else: "team" & $t
+
+  proc evJsonl*(engine: EvalEngine, address: seq[string]): string =
+    ## The full JSON-lines stream for the episode just played, summary row
+    ## included, in the same shape ~/.ctf/scout/events files carry.
+    let n = engine.sim.players.len
+    var slotTeam = newSeq[string](n)
+    var slotAddr = newSeq[string](n)
+    for i in 0 ..< n:
+      let jo = engine.sim.players[i].joinOrder
+      if jo < 0 or jo >= n: continue
+      slotTeam[jo] = evTeamColor(ord(engine.sim.players[i].team))
+      slotAddr[jo] = (if i < address.len: address[i] else: "bot" & $i)
+    var roster = newJObject()
+    roster["finished"] = %(engine.sim.phase == GameOver)
+    roster["draw"] = %engine.sim.isDraw
+    roster["winner"] = %(if engine.sim.isDraw: ""
+                         else: evTeamColor(ord(engine.sim.winner)))
+    roster["slot_address"] = %slotAddr
+    roster["slot_team"] = %slotTeam
+    roster["slot_shots_fired"] = %newSeq[int](n)
+    roster["slot_shots_hit"] = %newSeq[int](n)
+    ctfevents.eventsJsonl(engine.sim.events, engine.sim.tickCount, roster)
