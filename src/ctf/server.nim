@@ -3660,7 +3660,10 @@ proc bodyVisibleWeapon(player: Player): Option[BodyWeapon] =
 
 proc shellSelfState(sim: SimServer, playerIndex: int): BodySelfState =
   let player = sim.players[playerIndex]
-  let maxHp = max(1, sim.config.maxHpFor(player.team, player.perks))
+  # GLORY L3+ (levelMaxHp): a leveled cog's own hpFrac must read against its
+  # real (buffed) ceiling, not the unleveled base -- otherwise its own
+  # perception of "how hurt am I" is wrong the moment it out-levels the base.
+  let maxHp = max(1, sim.config.maxHpFor(player.team, player.perks, player.level))
   let hp = player.hp + player.shieldHp
   BodySelfState(
     pos: player.bodyPoint,
