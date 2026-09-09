@@ -1,11 +1,14 @@
 # GLORY GRADIENT — Step 4: CATALOG v3 — S4 FREEZE
 
-**ERA STAMP: frozen 2026-09-09, coworld-ctf PR #491, branch `maxwell/glory-catalog-v3`, against
-`origin/main @ 62fa0146` (PR #477 merged, GLORYVERSION 16 / GameVersion 61, not yet published to any
-paintbot-v* build). Attribution evidence: PR #494 (`maxwell/glory-attribution`, commit `0fc7bba5`),
-same population as the census — GloryVersion 15, coworld_version 0.7.361-0.7.367, rounds
-r4515-r4539, 305 episodes, 4,880 seat-episodes.** The S2 lead merges this PR as the S4 freeze; S5
-opens on that merge sha. **This worker does not merge.**
+**ERA STAMP (re-stamped after rebase): frozen 2026-09-09, coworld-ctf PR #491, branch
+`maxwell/glory-catalog-v3`, rebased onto `origin/main @ 070d4805` ("docs: sign S3 target distribution
+for GLORY GRADIENT (#490)" — the true head at rebase time, superseding the earlier stamp's
+`62fa0146`; this range also picks up #482 sweep, #483 census, #485 pinball zipper, #487 Nim-2.2.10
+CI pin, and #490 target-distribution, all now merged to main). GLORYVERSION 16 / GameVersion 61
+(PR #477) still not published to any paintbot-v* build. Attribution evidence: PR #494
+(`maxwell/glory-attribution`, commit `0fc7bba5`), same population as the census — GloryVersion 15,
+coworld_version 0.7.361-0.7.367, rounds r4515-r4539, 305 episodes, 4,880 seat-episodes.** The S2
+lead merges this PR as the S4 freeze; S5 opens on that merge sha. **This worker does not merge.**
 
 ## DESIGN LAW (top of document, binding on every section below)
 
@@ -72,27 +75,49 @@ ACHIEVEMENTS, TERRITORY}` (the doc's own words — "closer to structural TIMING,
 ladder," "a map-geometry constant"); `CHOSEN = {OTHER_DEED_BASE, HEAT, ALLY_STACK, CARRY}` (the
 doc's own "genuinely graded, skill-driven, repeatable choice," ~11% today).
 
-**BASELINE (today's pricing, #494's own numbers, re-derived from the same doc)**: HANDED 43.30%
-(PLACEMENT 31.19 + WIN 12.11), CONSTANT 45.57% (RECIPE 20.12 + ACHIEVEMENTS 17.95 + TERRITORY 7.50),
-**CHOSEN 11.14%** (OTHER KILLS 8.74 + HEAT 2.29 + ALLY-STACK 0.11) — matches the freeze brief's own
-cited "11% today" exactly.
+### `dJointAct` RECLASSIFIED — era-split, lead ruling
 
-**Repriced (catalog v3, iteration 4 — the trial that clears the bar)**:
+The lead ruled on the tension this section originally flagged: since GV15 (ladder r4517), `dJointAct`
+fires only inside a declared, formed pact — pact formation is the hardest choice on the board
+(Monet's pact arc went 4.7%→29.7% formed across five versions) — so post-r4517 it is CHOSEN, not
+CONSTANT. Pre-r4517 rows were unconditional and **stay CONSTANT for those rows only**.
+
+**Boundary OBSERVED in this population, not assumed**: split by `round_number`, then independently
+cross-checked against `coworld_version` — **r4515/r4516 = coworld_version 0.7.361 (416 seat-episode
+rows); r4517 onward = coworld_version 0.7.362 and later (4,464 rows)**. This is a clean build-version
+boundary landing exactly at r4517, matching the ruling precisely — not forced. `dJointAct`'s own
+per-firing base class (2) is unchanged by this ruling; only its BUCKET changes, routed to a new,
+separately-reported `JOINTACT_CHOSEN` bucket for the 4,464 post-boundary rows, `RECIPE_BASE`
+(unchanged) for the 416 pre-boundary rows.
+
+**BASELINE, re-derived with the era-split applied (no other repricing — every other value matches
+#494's published table exactly, isolating just this one reclassification's effect)**: HANDED 43.30%
+(unchanged), CONSTANT 45.30% (was 45.57%), **CHOSEN 11.40%** (was 11.14%) — rose, as it must (a
+reclassification can only move magnitude toward CHOSEN, never away). `JOINTACT_CHOSEN` itself
+contributes 0.26% at baseline.
+
+**Repriced (catalog v3, iteration 4 + `dJointAct` era-split — the frozen table)**:
 
 | population | n | HANDED | CONSTANT | CHOSEN |
 |---|---:|---:|---:|---:|
-| TOP DECILE (p90 of catalog-v3's OWN resulting points, 4.48 pts) | 553 | 10.98% | 18.30% | **70.73%** |
-| MID BAND (S3 ladder's own 2–8 pts) | 755 | 27.10% | 18.92% | **53.98%** |
-| *[transparency check]* TOP DECILE by the OLD p90 threshold (score≥576), repriced | 509 | 40.10% | 28.99% | 30.91% |
+| TOP DECILE (p90 of catalog-v3's OWN resulting points, 4.48 pts) | 553 | 10.98% | 17.91% | **71.11%** |
+| MID BAND (S3 ladder's own 2–8 pts) | 755 | 27.10% | 18.28% | **54.61%** |
+| *[transparency check]* TOP DECILE by the OLD p90 threshold (score≥576), repriced | 509 | 40.10% | 28.26% | 31.65% |
 
-**FREEZE CRITERION MET**: CHOSEN = 70.73% at the top decile (≥50% required) and 53.98% at mid (a
+Every population's CHOSEN share rose versus the pre-reclassification table (70.73%→71.11% top,
+53.98%→54.61% mid, 30.91%→31.65% old-selection check) — confirms the reclassification is
+directionally correct (adding magnitude to CHOSEN, never removing it); had any of these FALLEN, that
+would have indicated a bug in the reclassification, not a valid result.
+
+**FREEZE CRITERION MET**: CHOSEN = 71.11% at the top decile (≥50% required) and 54.61% at mid (a
 majority, "mostly CHOSEN"). **The transparency-check row is reported, not hidden**: holding the
 *population selection* to the OLD scoreboard's top decile and only re-pricing the events, CHOSEN
-reaches only 30.91% — because repricing changes WHO ranks in the top decile (kill/heat-heavy seats
+reaches only 31.65% — because repricing changes WHO ranks in the top decile (kill/heat-heavy seats
 overtake the old placement/win-heavy leaders), and grading a repriced economy by the old scoreboard
 is not a meaningful test of it. **Top decile and mid band are therefore defined on catalog v3's own
 resulting point distribution**, per the S3 ladder's own units — this is a modeling choice, stated
-plainly, not a way of hiding a miss.
+plainly, not a way of hiding a miss. (See "What this does not prove" below for the plain-language
+version of this same caveat.)
 
 **What had to be repriced to get there** (direction, not final constants — S5/the rig picks exact
 numbers): PLACEMENT crushed hard (`dFinal8`→1.0, `dFinal4`→1.0, `dFinal2`→1.3, from 2/3/4);
@@ -102,30 +127,43 @@ from ×2 to ×1.05; `treeGun.V` Sharpshooter's magnitude scaled down (exponent 0
 **every kill deed's class raised** (`dHonorableKill` 1→2.2, `dShieldSoak` 1→1.6, `dClutchHeal`
 1→1.8, `dPointBlankKill` 1→2.5, plus the already-real classes `dFirstBlood`/`dLongshotKill`/
 `dAceTag`/`dLastLight`/`dRevengeKill`/`dRunDown`/`dSplashMultiKill` all raised further); HEAT's rung
-values re-spaced far higher (2/4/8 → 5/14/36); ALLY-STACK scaled ×2.5. **`WIN` was deliberately left
-untouched** at ×8 (the earlier ruling on the placement ramp: "the win multiplier stays the win").
-Mint-RATE and the gunRange sweep were explicitly NOT touched, per the freeze brief's own
-instruction — those are S5's problem.
+values re-spaced far higher (2/4/8 → 5/14/36); ALLY-STACK scaled ×2.5; **`dJointAct` reclassified
+era-split (this section)**. **`WIN` was deliberately left untouched** at ×8 (the earlier ruling on
+the placement ramp: "the win multiplier stays the win"). Mint-RATE and the gunRange sweep were
+explicitly NOT touched, per the freeze brief's own instruction — those are S5's problem.
 
-**Honest limits of this exercise, named plainly**:
+**Honest limits of this exercise — see the dedicated "What this does not prove" section below for
+the two load-bearing caveats (today's leaders vs. tomorrow's, and the unmeasurable rulings b/c).
+Additional, smaller limits**:
 - These are TRIAL constants proving the criterion is *reachable* by a static reprice, in the
   direction the design law names — **not a recommendation for S5's actual constants**. The rig
   (paired seeds, real policies) is where real numbers get picked; simulators pick constants, this
   freeze only proves the design has room to satisfy the owner's target.
-- Ruling (b) (`dAssist`/`dRescue` un-gated) and ruling (c) (pact-scoped `dDuoDown`/`dWipe`) **could
-  not be exercised by this static pass at all** — their events never fired in BR (code-gated), so
-  there is nothing recorded to reprice. Their real CHOSEN-magnitude contribution is unmeasured and
-  will only appear once S5 runs new episodes with the gates removed; the criterion was met WITHOUT
-  their help, which is a conservative (if anything understated) result.
-- `dJointAct` (the pact deed) is locked into `RECIPE_BASE` = CONSTANT by **#494's own
-  classification**, even though the design law names "pact deeds" as a magnitude target — flagged
-  as a tension for S5/the lead to resolve (either by #494 revising its own bucket schema or by
-  accepting `dJointAct` reads as CONSTANT under this framework), not silently reclassified here.
 - Boosting kill classes this far (e.g. `dHonorableKill` to ×2.2, heat's top rung to ×36) is
   numerically aggressive; whether it is *desirable* on FEEL grounds (not just on this attribution
   arithmetic) is explicitly an owner/simulator question for S5, not settled by clearing this bar.
 
-## FREEZE CONDITION 2 — HEADROOM VERDICT (recorded, Section 9/9a/9b below)
+## FREEZE CONDITION 2 — WHAT THIS DOES NOT PROVE
+
+Carried into the lead's morning report to the owner in these terms, not softened:
+
+1. **This redesign works by changing WHO is on top, not by making today's leaders more skilful.**
+   Today's actual top-decile seats, re-priced under catalog v3 but still graded as "top decile" by
+   the OLD scoreboard, are only **31.65% CHOSEN** (the transparency-check row above) — barely moved
+   from today's 11.40% baseline. The 71.11%/54.61% numbers describe a **different population**: the
+   seats that catalog v3's own pricing would rank at the top, who are disproportionately the
+   kill/heat-heavy seats, not the placement/win-heavy seats who rank at the top today. This is the
+   intended mechanism (reward what the owner wants graded), not a side effect, but it means the
+   freeze proves the CATALOG can produce a CHOSEN-dominated top, not that today's specific top
+   performers are secretly more skilful than they appeared.
+2. **Rulings (b) `dAssist`/`dRescue` un-gated and (c) pact-scoped `dDuoDown`/`dWipe` could not be
+   exercised statically** — zero recorded events in this population (code-gated in BR), so there is
+   nothing to reprice. Both are **S5 rig items**, and **each needs a fire counter** so their real
+   mint rate is observable the moment the gates are removed and new episodes are measured — this is
+   not optional instrumentation, it is how the program would know whether ruling (b)/(c) actually
+   moved anything once live, the same switch+counter law every other lever in this catalog follows.
+
+## FREEZE CONDITION 3 — HEADROOM VERDICT (recorded, Section 9/9a/9b below)
 
 The fixed-point accumulator (`SCALE=2^10`) is the adopted S4 representation; the batch-of-5
 mitigation and its fold-order constraint are DROPPED. Worst-case drift 0.131% across all tested
