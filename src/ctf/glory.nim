@@ -3072,17 +3072,33 @@ const
 # dJointAct's era-split is a BUCKET reclassification, not a class change).
 const
   RecutClassTableV3Pct*: array[Deed, int] = block:
+    ## RECOVERED (coordinator, 2026-09-09): the repricer was never lost, it
+    ## was ephemeral in /tmp and has now been preserved at
+    ## `~/.ctf/knowledge/glory-gradient/00s-s4-repricer-recovered/
+    ## reprice_v3.py` and landed verbatim at `tools/glory/reprice_v3.py`
+    ## (this PR). Every value below is copied from that file's own
+    ## `NEW_BASE_CLASS` dict, verbatim -- the earlier "(unchanged)"
+    ## placeholder for the seven previously-unspecified deeds is WRONG and
+    ## retracted; the tool's own comment on them: "Boost the ALREADY-real
+    ## kill classes too -- the design law says magnitude moves to 'kills'
+    ## broadly, not only the ex-commons."
     var pcts: array[Deed, int]
     for deed in Deed: pcts[deed] = RecutClassTable[deed] * 100
-    pcts[dHonorableKill] = 220     # x1 -> x2.2 (exact, doc-named)
-    pcts[dShieldSoak] = 160        # x1 -> x1.6 (exact, doc-named)
-    pcts[dClutchHeal] = 180        # x1 -> x1.8 (exact, doc-named)
-    pcts[dPointBlankKill] = 250    # x1 -> x2.5 (exact, doc-named)
-    # dFirstBlood/dLongshotKill/dSplashMultiKill/dRevengeKill/dRunDown/
-    # dAceTag/dLastLight: NOT overridden -- no exact doc value exists, and
-    # Section 2a's own table marks these "(unchanged)"; they fall through
-    # to the `for deed in Deed:` default (classic value x100) above.
-    pcts[dClosingTime] = 110       # x2 -> x1.1 (exact, doc-named, non-win base)
+    pcts[dHonorableKill] = 220     # x1 -> x2.2
+    pcts[dShieldSoak] = 160        # x1 -> x1.6
+    pcts[dClutchHeal] = 180        # x1 -> x1.8
+    pcts[dPointBlankKill] = 250    # x1 -> x2.5
+    pcts[dFirstBlood] = 400        # x2 -> x4
+    pcts[dLongshotKill] = 600      # x3 -> x6
+    pcts[dSplashMultiKill] = 600   # x3 -> x6
+    pcts[dRevengeKill] = 400       # x2 -> x4
+    pcts[dRunDown] = 400           # x2 -> x4
+    pcts[dAceTag] = 900            # x4 -> x9
+    pcts[dLastLight] = 800         # x4 -> x8
+    pcts[dClosingTime] = 110       # x2 -> x1.1 (non-win base)
+    # dJointAct (2) and dLevelUp (1.0) are in `NEW_BASE_CLASS` too but
+    # equal their classic values -- no override needed, the default above
+    # already matches verbatim.
     pcts
 
   RecutClosingTimeWinBumpV3Pct* = 120
@@ -3104,13 +3120,28 @@ const
     ## k=2..6 (classic ladder 2,3,5,8,13) scaled x2.5 (exact, doc-named:
     ## "ALLY-STACK scaled x2.5").
 
-  RecutTerritoryShiftPctV3* = 100
-    ## GATE RULING: NO-OP (was an invented +15% approximation, retracted).
-    ## "TERRITORY's rung-shift scaled to 15% of its current magnitude"
-    ## names a target FRACTION, not a formula -- applying it without one
-    ## would be inventing a mechanism, which this ruling forbids. v3
-    ## territory shift is therefore a documented GAP, not a guess: this
-    ## constant stays 100 (identity) until a verbatim formula exists.
+func recutTerritoryShiftPctV3*(oldBase: int): int {.inline.} =
+  ## RECOVERED verbatim formula (`reprice_v3.py`): `territory_log2 =
+  ## (log2(shifted) - log2(oldBase)) * TERRITORY_SCALE` where `shifted =
+  ## oldBase + 1` (the classic +1-rung territory shift) and
+  ## `TERRITORY_SCALE = 0.15`; the multiplicative bump is `2^territory_log2`.
+  ## `glory.nim` carries ZERO imports (this file's own law, see its
+  ## header), so `std/math`'s `log2`/`pow` are not available -- every
+  ## value RecutClassTable's own oldBase can actually be (2, 3, 4, 6, 8;
+  ## commons=1 never shifts, gated by the caller) is precomputed by hand
+  ## instead of at runtime:
+  ##   oldBase=2: (3/2)^0.15 = 1.0627 -> 106%
+  ##   oldBase=3: (4/3)^0.15 = 1.0441 -> 104%
+  ##   oldBase=4: (5/4)^0.15 = 1.0340 -> 103%
+  ##   oldBase=6: (7/6)^0.15 = 1.0234 -> 102%
+  ##   oldBase=8: (9/8)^0.15 = 1.0178 -> 102%
+  case oldBase
+  of 2: 106
+  of 3: 104
+  of 4: 103
+  of 6: 102
+  of 8: 102
+  else: 100
 
 func heatMultV3Pct*(embers: int): int {.inline.} =
   ## V3 sibling of `heatMult`, percent-scaled.
@@ -3132,7 +3163,9 @@ func recutShiftedClassV3Pct*(deed: Deed, sitePct: int,
       (if winAsMult: RecutClosingTimeWinBumpV3Pct else: RecutClassTableV3Pct[dClosingTime])
     else: RecutClassTableV3Pct[deed]
   if result > 100 and sitePct == SiteMultEnemyPct:
-    result = (result * RecutTerritoryShiftPctV3) div 100
+    let oldBase = RecutClassTable[deed]
+    if oldBase >= 2:
+      result = (result * recutTerritoryShiftPctV3(oldBase)) div 100
 
 func recutFactorV3Pct*(deed: Deed; embers, sitePct: int; carrying: bool;
                        stackK: int = 1; winAsMult: bool = false): int =
@@ -3155,11 +3188,23 @@ func recutFactorV3Pct*(deed: Deed; embers, sitePct: int; carrying: bool;
   result = int((num * 100) div den)
 
 func recutAchievementFactorV3Pct*(tier: int, isFirst: bool): int =
-  ## V3 sibling of `recutAchievementFactor`, percent-scaled.
+  ## V3 sibling of `recutAchievementFactor`, percent-scaled. Tier V
+  ## (Sharpshooter) uses the RECOVERED verbatim formula (`reprice_v3.py`):
+  ## `eff_amt = max(1.01, amt ** 0.5)`, where `amt` is the CLASSIC amount
+  ## INCLUDING the FIRST-claim x3 where it applies (`4*3=12` for FIRST,
+  ## `4` otherwise) -- NOT tier-scaled-then-separately-x3'd, which an
+  ## earlier draft of this function did (200% * 300% = 600%, wrong: the
+  ## tool applies the sqrt to the COMBINED amount, `sqrt(12)~=3.46`, not
+  ## `sqrt(4)*3=6`). Both sqrt results are compile-time-known constants
+  ## (tier V's classic amount is fixed), so no `std/math` import is needed
+  ## (this file's own zero-imports law): sqrt(4)=2.0 -> 200%,
+  ## sqrt(12)=3.4641016... -> 346% (rounded to the nearest percent).
   if tier < 0 or tier >= AchievementTiers: return 100
+  if tier == AchievementTiers - 2:   # Tier IV, treeSquad.IV Clean Sheet
+    return 105
+  if tier == AchievementTiers - 1:   # Tier V, treeGun.V Sharpshooter
+    return if isFirst: 346 else: 200
   result = RecutTierClassV3Pct[tier]
-  if isFirst and result > 100:
-    result = (result * AchievementFirstMultPct) div 100
 
 const
   RecutWinFactorBR* = 4
