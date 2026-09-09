@@ -7,14 +7,17 @@ Harness deltas (the code that makes this seat behave unlike the other two):
   6 s apart); a tight edge_ride is the always-on base rung, and jackal rides
   above it whenever an enemy is tracked,
 * the match summary carries kill-feed lines, so the model reacts to fights,
-* ``adjust_entries`` caps every edge_ride at a close-but-covered ride (margin
-  capped at 260, enterLead at 200, coverBias at 0.8) and forces any pact to
-  ``onBetrayal: returnFire`` -- whatever the model asked for, this seat plays
-  forward.
+* ``adjust_entries`` pins the wire ladder to one lane ride -- ``target_law``
+  (prefer weakened, isolated; empty never-list) over ``edge_ride`` at margin
+  240 / enterLead 260 / coverBias 0.8 -- whatever the model asked for. The
+  model still talks and re-calls, but it no longer drives the seat off the
+  rotation lane. ``HUNTER_RIDE=free`` restores the model-driven ladder (the
+  v5 behaviour: clamped edge_ride, jackal/loot/supply_run rungs).
 """
 
 from __future__ import annotations
 
+import os
 import pathlib
 import sys
 
@@ -30,20 +33,55 @@ MAX_MARGIN = 260
 MAX_ENTER_LEAD = 200
 MAX_COVER_BIAS = 0.8
 
+# HUNTER_RIDE=wide rides the margins the two canned policies that out-tag
+# this seat use (edge_ride defaults / margin 300, cover 0.9): the tight ride
+# spent 3x the field's ticks in reflex_zone_escape.
+RIDE_MODE = os.environ.get("HUNTER_RIDE", "lane").lower()
+WIDE_RIDE = RIDE_MODE == "wide"
+WIDE_MIN_MARGIN = 220
+WIDE_MAX_MARGIN = 320
+WIDE_MIN_ENTER_LEAD = 120
+WIDE_MIN_COVER_BIAS = 0.8
+
+# The lane ride: the one ladder the pure edge_ride seats in the S2 league
+# (docxology, relh, richard) call all game, and every one of them out-tags
+# the model-driven ladder. The harness still puts scatter on top during the
+# spawn phase and the zone reflex still fires; nothing else rides.
+LANE_LADDER = [
+    {"play": "target_law", "entry_id": "law",
+     "params": {"prefer": ["weakened", "isolated"], "never": []}},
+    {"play": "edge_ride", "entry_id": "lane",
+     "params": {"margin": 240, "enterLead": 260, "coverBias": 0.8}},
+]
+
 
 def adjust_entries(entries, context, view):
+    if RIDE_MODE != "free" and not WIDE_RIDE:
+        entries[:] = [dict(e, params=dict(e["params"])) for e in LANE_LADDER]
+        return entries
+    # Season 2 seats are solo: a pact is a no-shoot list handed to an
+    # opponent who owes nothing back, and a never-list is the same thing by
+    # another name (the model was putting the nearest 1-hp target on it).
+    entries[:] = [e for e in entries if e.get("play") != "pact"]
     for entry in entries:
         params = entry.setdefault("params", {})
         if entry.get("play") == "edge_ride":
-            params["margin"] = min(int(params.get("margin", 180)), MAX_MARGIN)
-            params["enterLead"] = min(int(params.get("enterLead", 120)),
-                                      MAX_ENTER_LEAD)
-            params["coverBias"] = min(float(params.get("coverBias", 0.5)),
-                                      MAX_COVER_BIAS)
-        elif entry.get("play") == "pact":
-            # An aggressive pact is a tool: any betrayal is answered.
-            params["onBetrayal"] = "returnFire"
-            params["protect"] = False
+            if WIDE_RIDE:
+                params["margin"] = max(WIDE_MIN_MARGIN, min(
+                    int(params.get("margin", 220)), WIDE_MAX_MARGIN))
+                params["enterLead"] = max(WIDE_MIN_ENTER_LEAD,
+                                          int(params.get("enterLead", 120)))
+                params["coverBias"] = max(WIDE_MIN_COVER_BIAS,
+                                          float(params.get("coverBias", 0.8)))
+            else:
+                params["margin"] = min(int(params.get("margin", 180)), MAX_MARGIN)
+                params["enterLead"] = min(int(params.get("enterLead", 120)),
+                                          MAX_ENTER_LEAD)
+                params["coverBias"] = min(float(params.get("coverBias", 0.5)),
+                                          MAX_COVER_BIAS)
+        elif entry.get("play") == "target_law":
+            params["never"] = []
+            params.pop("holdTrigger", None)
         elif entry.get("play") == "supply_run":
             # A contested medkit is a fight worth taking.
             params["contested"] = "race"
@@ -66,8 +104,9 @@ PERSONA = Persona(
                       "enterLead up to 200, coverBias up to 0.8. The edge is "
                       "where the rotations funnel -- meet them there, from "
                       "cover."),
-        "pact": ("pact only when it buys you a fight you would lose alone; "
-                 "never protect, always returnFire on betrayal."),
+        "pact": ("pact is not your play: every seat is solo, nobody owes "
+                 "you a truce back, and a pact only takes targets off your "
+                 "gun. Skip it."),
         "supply_run": ("supply_run only when a kit is on your path or "
                        "contested -- and a contested kit you RACE, never "
                        "avoid. Keep whenHpBelow low; healing is for after "
@@ -82,9 +121,11 @@ PERSONA = Persona(
         "crossfire": ("crossfire: tight spacing band, wide angles -- "
                       "concentrate the opening volley. Your partner is only "
                       "where your own tracks last saw them."),
-        "target_law": ("target_law: prefer weakened and isolated targets; "
-                       "keep the never-list empty unless a pact demands it, "
-                       "and NEVER set a holdTrigger -- you fire at will."),
+        "target_law": ("target_law: prefer weakened and isolated targets. "
+                       "The never-list is a DO-NOT-SHOOT list, not a target "
+                       "list: keep it EMPTY (never put a tracked enemy on "
+                       "it), and NEVER set a holdTrigger -- you fire at "
+                       "will."),
     },
     canned_turns=[
         {
