@@ -214,6 +214,27 @@ JACKAL_JOIN_WHEN = "bothWeakened"
 FIRE_SUPERIORITY_PRESS_RANGE = {"default": 220, "endgame": 220}
 FIRE_SUPERIORITY_FINISH_RANGE = {"default": 140, "endgame": 120}
 
+# FINAL FOUR (F4) DETOUR CEILING (F4 initiative, /tmp/monet_f4_0909/
+# F4_INITIATIVE.md, pooled v45+v46 n=202 GV15-era episodes): once caught
+# first at F4, Monet dies inside 5s 88.9% of the time vs 16.7% when it fires
+# first, and engaged-first share collapsed 54%->33% post-GV15. The
+# separator is play SELECTION, not fire_superiority's numbers (pressRange/
+# engageDist are flat between the two groups): the last-committed play was
+# `loot` in 53% of caught-first cases vs 28% of fired-first ones -- an
+# ambush-while-looting pattern. 150 is not a new number: it is the SAME
+# doctrine value the endgame canned turn's most-aggressive supply_run rung
+# already ships (see the "bank" rung's params a few hundred lines below,
+# `detourMax: 150`) -- reused here, not invented, so a wandering loot/
+# supply detour is capped the instant only 4 teams remain, on every
+# SUBMITTED entry (model or canned), not just the canned endgame turn.
+FINAL4_DETOUR_MAX = 150
+# The engine's own placement ladder prices dFinal4 at exactly this boundary
+# (glory.nim RecutClassTable's 8/4/2-teams-left trio; see system_prompt.md
+# and selfcheck.py's placement-trio checks) -- "final four" already means
+# "<=4 teams alive" to the engine, so this mirrors it rather than inventing
+# a new threshold.
+FINAL4_TEAM_THRESHOLD = 4
+
 # HEAT-CHAIN TARGET PRIORITY (owner directive 2026-09-06, source-verified
 # against src/ctf/glory.nim + play_sdk/reference/target_law.nim): heat is
 # the one scaling axis still unexploited by the whole field. +1 ember per
@@ -299,6 +320,47 @@ def _in_marquee_zone_window(view):
         return True
     ticks = zone.get("ticks_to_shrink")
     return isinstance(ticks, (int, float)) and ticks <= 0
+
+
+def _final4(view):
+    """True once alive rival teams + us <= FINAL4_TEAM_THRESHOLD (4).
+
+    SIGNAL: ``view["world"]["alive_teams"]`` -- the same raw, engine-owned
+    counter starter_harness.py already reads for its own awareness lines
+    and ``match_phase`` label (_vital_lines/summarize/match_phase all key
+    off this exact field; match_phase even calls <=3 "ENDGAME" in its own
+    label text). This is the explicit engine signal the F4 initiative asked
+    to prefer over reconstructing alive-count from the kill feed or the
+    0xB0 roster: it is already a total-teams-remaining count, not something
+    this policy has to infer. There is no separate "final four"/placement
+    LABEL on the view (only the achievement-side dFinal4/dFinal8/dFinal2
+    placement trio the engine mints internally, per glory.nim's
+    RecutClassTable and system_prompt.md's own citation of it) -- 4 is
+    reused here because it is that same engine boundary, not a new one.
+
+    FAILURE MODES (fails to False, never a guess, same convention as
+    _in_marquee_zone_window):
+    * missing/malformed ``world``/``alive_teams`` (pre-BR fixture, a tick
+      before the first real view lands, a stripped self-check view) reads
+      False -- never misread as "only 4 teams," which would wrongly clamp
+      a mid-match detour.
+    * ``alive_teams`` is the engine's own team-elimination counter, not an
+      independently derived one; if the engine's bookkeeping ever lags an
+      actual last-seat death by a tick, this reads exactly as stale as
+      every other consumer of the same field (match_phase, the awareness
+      lines) -- there is no independent kill-feed cross-check here, because
+      alive_teams is already authoritative, not inferred.
+    * it counts TEAMS, not "us plus rivals with a living seat" as a
+      duo-pair concept -- on a solo-reshaped field (SOLO GUARD above) a
+      "team" is one seat, so the boundary still lands on "4 entities left,"
+      which is what the F4 initiative measured against.
+    """
+    world = view.get("world")
+    if not isinstance(world, dict):
+        return False
+    alive_teams = world.get("alive_teams")
+    return (isinstance(alive_teams, (int, float))
+            and alive_teams <= FINAL4_TEAM_THRESHOLD)
 
 
 def _normalize_bodyguard(entries):
@@ -847,6 +909,27 @@ def adjust_entries(entries, context, view):
     # already clear their own floors -- a harmless no-op there).
     entries = _normalize_bodyguard(entries)
 
+    # FINAL FOUR (see FINAL4_DETOUR_MAX/_final4 above): evaluated only when
+    # the zone-timer endgame phase is NOT already active, so this never
+    # fights the existing _in_marquee_zone_window-gated clamps below (T22's
+    # MARQUEE CLOCK BAND, the fire_superiority phase pin) -- it fills the
+    # gap where F4 is reached before the ring gets there. If the ring DOES
+    # get there first, the pre-existing endgame branches own the ladder
+    # exactly as before this change, unmodified.
+    final4 = (not _in_marquee_zone_window(view)) and _final4(view)
+    if final4:
+        # "Once" needs a scratchpad that survives turn to turn -- `context`
+        # itself is a fresh dict rebuilt from seat.context every call (see
+        # starter_harness.repair_call), so only the SAME persistent object
+        # ``context["_pact_state"]`` (aliased to seat.pact_state) actually
+        # carries a flag forward; a plain context[...] write here would
+        # silently re-log every single turn instead of once per episode.
+        pstate = context.setdefault("_pact_state", {})
+        if not pstate.get("final4_logged"):
+            pstate["final4_logged"] = True
+            alive = (view.get("world") or {}).get("alive_teams")
+            starter_harness._log(PERSONA, f"final4: alive_teams={alive!r}")
+
     for entry in entries:
         if entry.get("play") == "jackal":
             params = entry.setdefault("params", {})
@@ -922,6 +1005,35 @@ def adjust_entries(entries, context, view):
                     PERSONA,
                     f"clamp supply_run.whenHpBelow {old!r}->{doctrine}")
             params["whenHpBelow"] = doctrine
+            if final4:
+                old_detour = params.get("detourMax")
+                new_detour = (min(old_detour, FINAL4_DETOUR_MAX)
+                              if isinstance(old_detour, (int, float))
+                              else FINAL4_DETOUR_MAX)
+                if old_detour != new_detour:
+                    starter_harness._log(
+                        PERSONA,
+                        f"final4 clamp: supply_run.detourMax {old_detour!r} "
+                        f"-> {FINAL4_DETOUR_MAX}")
+                params["detourMax"] = new_detour
+        elif entry.get("play") == "loot" and final4:
+            # FINAL4 (see FINAL4_DETOUR_MAX above): same clamp shape as
+            # supply_run's just above, on the play the F4 initiative's
+            # precursor data actually implicated (last-committed play was
+            # `loot` in 53% of caught-first cases vs 28% of fired-first
+            # ones) -- a ceiling (min), not a pin, so a model that already
+            # proposes something tighter than 150 is left alone.
+            params = entry.setdefault("params", {})
+            old_detour = params.get("detourMax")
+            new_detour = (min(old_detour, FINAL4_DETOUR_MAX)
+                          if isinstance(old_detour, (int, float))
+                          else FINAL4_DETOUR_MAX)
+            if old_detour != new_detour:
+                starter_harness._log(
+                    PERSONA,
+                    f"final4 clamp: loot.detourMax {old_detour!r} "
+                    f"-> {FINAL4_DETOUR_MAX}")
+            params["detourMax"] = new_detour
 
     # MARQUEE CLOCK BAND (T22): the v10 fix -- woundedPct zeroed so "ANY
     # numeric parity or better now PRESSES instead of holding" -- was

@@ -2178,6 +2178,169 @@ check("_in_marquee_zone_window: missing/malformed zone data reads False, "
       and not policy._in_marquee_zone_window(
           {"world": {"zone": {"phase": "two"}}}))
 
+# ── v49 FINAL FOUR (F4 initiative, /tmp/monet_f4_0909/F4_INITIATIVE.md,
+# pooled v45+v46 n=202): no loot/supply detours once <=4 teams remain --
+# see FINAL4_DETOUR_MAX/_final4's own citations in policy.py. First prove
+# the helper's own boundary cases (mirrors the _in_marquee_zone_window
+# block just above), then prove the clamp actually reaches the committed
+# wire through repair_call. ─────────────────────────────────────────────
+check("_final4: exactly 4 alive teams IS final four (the engine's own "
+      "dFinal4 boundary)",
+      policy._final4({"world": {"alive_teams": 4}}))
+check("_final4: 3 alive teams (past F4, into F2 territory) is still True",
+      policy._final4({"world": {"alive_teams": 3}}))
+check("_final4: 5 alive teams is NOT final four yet",
+      not policy._final4({"world": {"alive_teams": 5}}))
+check("_final4: missing/malformed alive_teams reads False, never a guess "
+      "(pre-BR fixture, empty view, non-numeric field)",
+      not policy._final4({"world": {}})
+      and not policy._final4({})
+      and not policy._final4({"world": {"alive_teams": "four"}}))
+
+
+def _f4_call():
+    return {"call": {"entries": [
+        {"play": "loot", "entry_id": "arm",
+         "params": {"detourMax": 400, "contested": "avoid"}},
+        {"play": "supply_run", "entry_id": "bank",
+         "params": {"whenHpBelow": 4, "detourMax": 400,
+                    "contested": "avoid"}},
+        {"play": "fire_superiority", "entry_id": "pressbreak",
+         "params": {"pressRange": 220, "finishRange": 140,
+                    "engageDist": 600}},
+    ]}}
+
+
+# (a) alive_teams=4, model-proposed loot/supply_run detourMax=400: both
+# clamp to FINAL4_DETOUR_MAX (150, the SAME number the endgame canned
+# turn's own supply_run "bank" rung already ships) and the override logs.
+_f4_seat_a = fake_seat(view={"world": {"alive_teams": 4}})
+_f4_log_a = _io.StringIO()
+with _contextlib.redirect_stdout(_f4_log_a):
+    starter_harness.repair_call(_f4_call(), PERSONA, _f4_seat_a, AVAILABLE)
+_f4a_loot = next(e for e in _f4_seat_a.wanted_entries if e["play"] == "loot")
+_f4a_supply = next(e for e in _f4_seat_a.wanted_entries
+                   if e["play"] == "supply_run")
+_f4a_fs = next(e for e in _f4_seat_a.wanted_entries
+               if e["play"] == "fire_superiority")
+check("(a) final4 (alive_teams=4): loot.detourMax clamps 400 -> "
+      "FINAL4_DETOUR_MAX (150)",
+      _f4a_loot["params"].get("detourMax") == policy.FINAL4_DETOUR_MAX == 150,
+      str(_f4a_loot["params"]))
+check("(a) final4 (alive_teams=4): supply_run.detourMax also clamps "
+      "400 -> 150 (whenHpBelow's own independent clamp is untouched by "
+      "this addition)",
+      _f4a_supply["params"].get("detourMax") == 150
+      and _f4a_supply["params"].get("whenHpBelow") == 4,
+      str(_f4a_supply["params"]))
+check("(a) final4: both overrides log the exact "
+      "'[monet] final4 clamp: <play>.detourMax <old> -> 150' line",
+      "[monet] final4 clamp: loot.detourMax 400 -> 150" in _f4_log_a.getvalue()
+      and "[monet] final4 clamp: supply_run.detourMax 400 -> 150"
+      in _f4_log_a.getvalue(),
+      repr(_f4_log_a.getvalue()))
+check("(a) final4: the phase-entry log fires once, "
+      "'[monet] final4: alive_teams=4'",
+      "[monet] final4: alive_teams=4" in _f4_log_a.getvalue(),
+      repr(_f4_log_a.getvalue()))
+check("(d) final4 (alive_teams=4): fire_superiority.engageDist is left "
+      "EXACTLY as submitted (600) -- this lane clamps play SELECTION "
+      "(loot/supply_run detourMax), never fire_superiority's numbers "
+      "(pressRange/engageDist were flat between caught-first and "
+      "fired-first in the F4 data, so they are not the lever)",
+      _f4a_fs["params"].get("engageDist") == 600, str(_f4a_fs["params"]))
+check("(d) final4 (alive_teams=4): fire_superiority.pressRange/finishRange "
+      "keep clamping to the ordinary default-phase doctrine, unaffected "
+      "by final4",
+      _f4a_fs["params"].get("pressRange") == 220
+      and _f4a_fs["params"].get("finishRange") == 140,
+      str(_f4a_fs["params"]))
+
+# Ceiling, not a forced pin: a model already under the cap is left alone.
+_f4_seat_a2 = fake_seat(view={"world": {"alive_teams": 4}})
+_f4_low_call = _f4_call()
+_f4_low_call["call"]["entries"][0]["params"]["detourMax"] = 90
+_f4_log_a2 = _io.StringIO()
+with _contextlib.redirect_stdout(_f4_log_a2):
+    starter_harness.repair_call(_f4_low_call, PERSONA, _f4_seat_a2, AVAILABLE)
+_f4a2_loot = next(e for e in _f4_seat_a2.wanted_entries if e["play"] == "loot")
+check("final4: a model-submitted loot.detourMax already <= 150 (90) is "
+      "left alone -- a ceiling, not a forced pin to exactly 150",
+      _f4a2_loot["params"].get("detourMax") == 90
+      and "final4 clamp: loot.detourMax" not in _f4_log_a2.getvalue(),
+      str(_f4a2_loot["params"]))
+
+# (b) alive_teams=8: untouched -- final4 is not active, so both plays keep
+# whatever the model proposed (supply_run's OWN whenHpBelow clamp is a
+# separate, unconditional mechanism and still fires regardless).
+_f4_seat_b = fake_seat(view={"world": {"alive_teams": 8}})
+starter_harness.repair_call(_f4_call(), PERSONA, _f4_seat_b, AVAILABLE)
+_f4b_loot = next(e for e in _f4_seat_b.wanted_entries if e["play"] == "loot")
+_f4b_supply = next(e for e in _f4_seat_b.wanted_entries
+                   if e["play"] == "supply_run")
+check("(b) 8 alive teams: loot.detourMax stays at the model's submitted "
+      "400 -- final4 not active",
+      _f4b_loot["params"].get("detourMax") == 400, str(_f4b_loot["params"]))
+check("(b) 8 alive teams: supply_run.detourMax stays at 400 too (only "
+      "whenHpBelow is clamped unconditionally, detourMax is final4-only)",
+      _f4b_supply["params"].get("detourMax") == 400,
+      str(_f4b_supply["params"]))
+
+# (c) the zone-timer endgame phase is ALREADY active (LastLight window) at
+# the same time alive_teams<=4: the pre-existing endgame clamps own the
+# ladder exactly as before this change, and final4 must never fire (no
+# double-log, no detourMax override) -- see the "evaluated only when NOT
+# already in the marquee window" rule in adjust_entries.
+_f4_endgame_view = {"world": {
+    "zone": {"phase": policy.TOTAL_ZONE_PHASES, "ticks_to_shrink": 0},
+    "alive_teams": 4}}
+_f4_seat_c = fake_seat(view=_f4_endgame_view)
+_f4_log_c = _io.StringIO()
+with _contextlib.redirect_stdout(_f4_log_c):
+    starter_harness.repair_call(_f4_call(), PERSONA, _f4_seat_c, AVAILABLE)
+_f4c_loot = next(e for e in _f4_seat_c.wanted_entries if e["play"] == "loot")
+_f4c_supply = next(e for e in _f4_seat_c.wanted_entries
+                   if e["play"] == "supply_run")
+_f4c_fs = next(e for e in _f4_seat_c.wanted_entries
+               if e["play"] == "fire_superiority")
+check("(c) endgame active + alive_teams<=4: final4 does NOT clamp -- "
+      "loot.detourMax stays at the model's submitted 400 (the zone-timer "
+      "endgame branch owns the ladder, unmodified by this change)",
+      _f4c_loot["params"].get("detourMax") == 400, str(_f4c_loot["params"]))
+check("(c) endgame active + alive_teams<=4: supply_run.detourMax also "
+      "stays at 400 -- same reason",
+      _f4c_supply["params"].get("detourMax") == 400,
+      str(_f4c_supply["params"]))
+check("(c) endgame active + alive_teams<=4: the pre-existing endgame "
+      "clamp still tightens fire_superiority.finishRange to 120, "
+      "untouched by this change",
+      _f4c_fs["params"].get("finishRange") == 120, str(_f4c_fs["params"]))
+check("(c) endgame active + alive_teams<=4: no final4 log line at all -- "
+      "it never double-logs alongside the pre-existing endgame clamp's "
+      "own 'phase=endgame' log lines",
+      "final4" not in _f4_log_c.getvalue(), repr(_f4_log_c.getvalue()))
+
+# Log-once, across turns on the SAME seat (mirrors the pact-aim "logs "
+# once" tests elsewhere in this file): a second call on a seat already in
+# final4 must not re-log the phase-entry line, even though the detourMax
+# clamp itself keeps firing every turn.
+_f4_seat_once = fake_seat(view={"world": {"alive_teams": 4}})
+_f4_log_once1 = _io.StringIO()
+with _contextlib.redirect_stdout(_f4_log_once1):
+    starter_harness.repair_call(_f4_call(), PERSONA, _f4_seat_once, AVAILABLE)
+_f4_log_once2 = _io.StringIO()
+with _contextlib.redirect_stdout(_f4_log_once2):
+    starter_harness.repair_call(_f4_call(), PERSONA, _f4_seat_once, AVAILABLE)
+check("final4: the 'alive_teams=<n>' phase-entry line logs on the FIRST "
+      "final4 turn only",
+      "final4: alive_teams=4" in _f4_log_once1.getvalue()
+      and "final4: alive_teams=4" not in _f4_log_once2.getvalue(),
+      repr(_f4_log_once1.getvalue()) + " | " + repr(_f4_log_once2.getvalue()))
+check("final4: the detourMax clamp itself keeps firing on the SECOND "
+      "final4 turn too (only the phase-entry announcement is one-shot)",
+      "final4 clamp: loot.detourMax 400 -> 150" in _f4_log_once2.getvalue(),
+      repr(_f4_log_once2.getvalue()))
+
 _mid_idx, _endgame_idx = 2, 3  # canned_turns is 0-indexed; "turn 3"/"turn 4"
 for _view, _expect, _label in (
         (_wait_view, 50, "still WAITING -- untouched (mid-turn's own v10 "
