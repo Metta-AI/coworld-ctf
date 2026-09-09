@@ -396,6 +396,26 @@ html, body {
   flex: none;
 }
 .br-cell-member.dead .br-cell-intent { display: none; }
+/* THE WHOLE epic, Stop 2 — Law 6 ("no bare numbers"): the BR cell's glory
+   figure had NO visible noun (unlike the classic .plate's own "Glory"/
+   "Alive" labels — see .glory-label/.lives-label). Stacked ABOVE the
+   numeral rather than beside it so the label costs zero extra width in
+   this width-tight 16-cell band (the wrap threshold at 1440px is real,
+   see .br-cellband's own comment). */
+.br-cell-glory-wrap {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  flex: none;
+}
+.br-cell-glory-label {
+  font-family: var(--finefont);
+  font-size: calc(5.5 * var(--u));
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--paper-dim);
+  line-height: 1;
+}
 /* The prominent figure in the cell — glory is still the score, just one
    per team now instead of one for the whole bar (Maxwell: show all 16). */
 .br-cell-glory {
@@ -1362,7 +1382,7 @@ body.sidelanes #scorebug .br-cell-name { max-width: none; }
    (order/direction only); what the cells render is untouched. The glory
    numeral rides the rail's right edge so the column reads as a ledger. */
 body.sidelanes #scorebug .br-cell-lives { order: -1; flex-direction: column; }
-body.sidelanes #scorebug .br-cell-glory { margin-left: auto; }
+body.sidelanes #scorebug .br-cell-glory-wrap { margin-left: auto; }
 /* In the top band the two plate tracks flank a center clock, so the right
    track mirrors (.side-r row-reverse). Stacked in one rail there is no
    center to flank: every plate reads in the LEFT track's direction. */
@@ -3512,7 +3532,15 @@ body[data-noviewpanel] #viewpanel { display: none !important; }
     'C10.8 19 13 16.4 13 12C13 9.2 11.3 7 10 5C10.3 7.5 9 8.7 8.3 8.9' +
     'C8.6 6.8 9 4 8 1Z"/>' +
     '</svg>';
-  function buildHeatFlame(el) { if (el) el.innerHTML = HEAT_FLAME_SVG; }
+  // Hover/tap text is always-on (Law 6, THE WHOLE Stop 2) — set once at
+  // build time, never re-written per frame (the flame's tier changes, the
+  // definition of "heat" does not).
+  function buildHeatFlame(el) {
+    if (!el) return;
+    el.innerHTML = HEAT_FLAME_SVG;
+    el.title = GLOSSARY.heat;
+    el.setAttribute('aria-label', GLOSSARY.heat);
+  }
 
   // Heat = how fast a team's glory total is climbing right now, bucketed off
   // a short trailing window so it reads as "on fire", not a running average.
@@ -3553,6 +3581,7 @@ body[data-noviewpanel] #viewpanel { display: none !important; }
     if (!el) return;
     var tier = heatTierFor(team);
     el.className = 'heat-flame' + (tier ? ' ' + tier : '');
+    if (tier) announceFirstAppearance('heat'); // first REAL heat, not the cold default
   }
 
   // ---- THE MIND ON THE STRIP: pact grouping + one-word intent ----
@@ -3651,11 +3680,25 @@ body[data-noviewpanel] #viewpanel { display: none !important; }
     if (!el || typeof gv !== 'number') return;
     if (recutArmed !== true) {
       el.textContent = gv; // dark economy: today's plain figure, unchanged
+      // Hover/tap text (Law 6): honest for THIS economy — a dark-economy
+      // figure is a plain Glory score, never call it "the multiplier"
+      // (see the mislabel note above renderGloryFigure).
+      if (el._glossKind !== 'glory') {
+        el.title = GLOSSARY.glory;
+        el.setAttribute('aria-label', GLOSSARY.glory);
+        el._glossKind = 'glory';
+      }
       return;
     }
     // Group thousands so an exponential product stays readable ("×2,304"),
     // not the fixed-precision ×N of a bounded combo ladder.
     el.textContent = '×' + gv.toLocaleString('en-US');
+    if (el._glossKind !== 'multiplier') {
+      el.title = GLOSSARY.multiplier;
+      el.setAttribute('aria-label', GLOSSARY.multiplier);
+      el._glossKind = 'multiplier';
+      announceFirstAppearance('multiplier');
+    }
     var prev = gloryFigurePrev[team];
     if (typeof prev === 'number' && prev !== gv) {
       // same remove/reflow/add idiom the flag-taken flip uses elsewhere in
@@ -3712,6 +3755,35 @@ body[data-noviewpanel] #viewpanel { display: none !important; }
   var zoneEndcardShown = false;
   var zoneEndcardTimer = null;
 
+  // ---- STORY LINE: one shared sentence-case toast, queued -----------------
+  // #kickoffLine is a single readable-sentence toast (unlike #bannerlane's
+  // short uppercase chips) shared by two callers: the once-per-episode
+  // kickoff line below, and the once-per-session first-appearance toasts
+  // (next section) that explain the pact ring / heat flame / multiplier
+  // figure / intent word / downed state the first time each is actually
+  // seen. A tiny FIFO queue (same shape as #bannerlane's own bannerQueue/
+  // bannerBusy) keeps two stories from ever overlapping if, say, a pact
+  // and the kickoff line both want the toast on the same early frame.
+  var storyQueue = [];
+  var storyBusy = false;
+  function enqueueStory(text) {
+    storyQueue.push(text);
+    pumpStory();
+  }
+  function pumpStory() {
+    if (storyBusy || !storyQueue.length) return;
+    var el = $('kickoffLine');
+    if (!el) { storyQueue.length = 0; return; }
+    storyBusy = true;
+    var text = storyQueue.shift();
+    el.textContent = text;
+    el.classList.add('show');
+    setTimeout(function () {
+      el.classList.remove('show');
+      setTimeout(function () { storyBusy = false; pumpStory(); }, 220); // matches the CSS fade-out
+    }, dwellFloor('kickoff'));
+  }
+
   // ---- KICKOFF LINE: "N seats drop in. Last one standing wins. The zone
   // closes." — THE WHOLE epic, Stop 2, moment 2 (docs/designs/
   // THE_GAME_EXPLAINS_ITSELF.md #2). Gated on hasZoneField (only a BR/zone
@@ -3724,29 +3796,48 @@ body[data-noviewpanel] #viewpanel { display: none !important; }
   // than a hard-coded 16, per the task's own instruction.
   var KICKOFF_TICKS = 3 * 24; // ~3s at 24 ticks/s baseline (matches the file's other *_TICKS windows)
   var kickoffAnnounced = false;
-  var kickoffHideTimer = null;
   function maybeAnnounceKickoff(s, hasZoneField) {
     if (!s || typeof s.t !== 'number') return;
     if (s.t <= 1) kickoffAnnounced = false; // fresh episode / loop / restart: re-arm
     if (!hasZoneField || kickoffAnnounced || s.t > KICKOFF_TICKS) return;
     kickoffAnnounced = true;
     var seats = (s.roster || []).length || 16;
-    var text = seats + ' seats drop in. Last one standing wins. The zone closes.';
-    var el = $('kickoffLine');
-    if (!el) return;
-    el.textContent = text;
-    el.classList.add('show');
-    if (kickoffHideTimer) clearTimeout(kickoffHideTimer);
-    kickoffHideTimer = setTimeout(function () {
-      kickoffHideTimer = null;
-      el.classList.remove('show');
-    }, dwellFloor('kickoff'));
+    enqueueStory(seats + ' seats drop in. Last one standing wins. The zone closes.');
   }
   function resetKickoffLine() {
     kickoffAnnounced = false;
-    if (kickoffHideTimer) { clearTimeout(kickoffHideTimer); kickoffHideTimer = null; }
-    var el = $('kickoffLine');
-    if (el) el.classList.remove('show');
+  }
+
+  // ---- FIRST-APPEARANCE TOASTS: the strip as legend of itself -------------
+  // THE WHOLE epic, Stop 2: "First appearance per session, one short line
+  // each ... the pact ring, the heat flame, the multiplier figure, the
+  // intent word, the downed state." Each term fires its GLOSSARY sentence
+  // through the shared story toast ONCE per browser tab session (sessionStorage
+  // survives a reload within the same tab, which is what "session" means
+  // here — it does not survive to a new tab/window, matching a beginner's
+  // single sitting). The hover/tap title/aria-label text (always-on, not
+  // once) is wired separately, at each element's own render site below.
+  var EXPLAIN_SESSION_KEY = 'ctfExplainSeen';
+  var explainSeen = null;
+  function loadExplainSeen() {
+    if (explainSeen) return explainSeen;
+    explainSeen = {};
+    try {
+      var raw = window.sessionStorage && window.sessionStorage.getItem(EXPLAIN_SESSION_KEY);
+      if (raw) explainSeen = JSON.parse(raw) || {};
+    } catch (e) { explainSeen = {}; }
+    return explainSeen;
+  }
+  function announceFirstAppearance(term) {
+    var sentence = GLOSSARY[term];
+    if (!sentence) return;
+    var seen = loadExplainSeen();
+    if (seen[term]) return;
+    seen[term] = true;
+    try {
+      window.sessionStorage && window.sessionStorage.setItem(EXPLAIN_SESSION_KEY, JSON.stringify(seen));
+    } catch (e) { /* private-browsing / storage disabled: still show it this load, just not durably remembered */ }
+    enqueueStory(sentence);
   }
 
   function resetZoneEndcard() {
@@ -4174,7 +4265,10 @@ body[data-noviewpanel] #viewpanel { display: none !important; }
             '" style="--cellcol:' + col + '">' +
             '<span class="br-cell-members" id="cell-members-' + team + '"></span>' +
             '<span class="heat-flame" id="cell-flame-' + team + '"></span>' +
+            '<span class="br-cell-glory-wrap">' +
+            '<span class="br-cell-glory-label">Glory</span>' +
             '<span class="br-cell-glory" id="cell-glory-' + team + '">0</span>' +
+            '</span>' +
             '</div>';
         });
         return html;
@@ -4355,7 +4449,17 @@ body[data-noviewpanel] #viewpanel { display: none !important; }
           // color read as one pair without a legend.
           var pact = (tr[team] && tr[team].pact) || [];
           cell.classList.toggle('pact', pact.length > 0);
-          if (pact.length > 0) cell.style.setProperty('--pactcol', teamCol(pact[0]) || AMBER);
+          if (pact.length > 0) {
+            cell.style.setProperty('--pactcol', teamCol(pact[0]) || AMBER);
+            // Hover/tap text is always-on (Law 6); the first REAL pact of
+            // the session also gets the once-only toast.
+            cell.title = GLOSSARY.pact;
+            cell.setAttribute('aria-label', GLOSSARY.pact);
+            announceFirstAppearance('pact');
+          } else if (cell.title === GLOSSARY.pact) {
+            cell.removeAttribute('title');
+            cell.removeAttribute('aria-label');
+          }
         }
         // PLAYER IDENTITY member rows (2026-09-02, owner: "the life
         // squares can stack vertically and have the name to the right"):
@@ -4413,10 +4517,37 @@ body[data-noviewpanel] #viewpanel { display: none !important; }
               var intentEl = row.querySelector('.br-cell-intent');
               if (intentEl) {
                 var word = intentWordFor(p, s, team, tr);
-                if (intentEl._word !== word) { intentEl.textContent = word; intentEl._word = word; }
+                if (intentEl._word !== word) {
+                  intentEl.textContent = word;
+                  intentEl._word = word;
+                  // Hover/tap text is always-on (Law 6): the downed state
+                  // gets its OWN, more specific sentence (it is one of the
+                  // intent-word branches, see intentWordFor); every other
+                  // word gets the generic "what is this field" sentence.
+                  var tip = (word === 'downed') ? GLOSSARY.downed : GLOSSARY.intent;
+                  intentEl.title = tip;
+                  intentEl.setAttribute('aria-label', word ? (word + ' — ' + tip) : tip);
+                  if (word === 'downed') announceFirstAppearance('downed');
+                  else if (word) announceFirstAppearance('intent');
+                }
               }
             }
           });
+          // THE WHOLE epic, Stop 2 — Law 6: the second bare "counter" in
+          // this cell is the member roster itself — deliberately drawn as
+          // life squares, not a numeral (see the PLAYER IDENTITY comment
+          // above: "the roster IS the counter, genre convention"). Give it
+          // a noun anyway, for hover/tap and assistive tech, without
+          // adding a visible digit that would fight that convention.
+          var aliveCount = 0;
+          members.forEach(function (p) { if (p && p.alive) aliveCount++; });
+          var rosterTip = aliveCount + ' of ' + members.length +
+            (members.length === 1 ? ' cog still up' : ' cogs still up');
+          if (membersEl._rosterTip !== rosterTip) {
+            membersEl.title = rosterTip;
+            membersEl.setAttribute('aria-label', rosterTip);
+            membersEl._rosterTip = rosterTip;
+          }
         }
         // Leader emphasis rides ONE flame (Maxwell: "no single-block
         // takeover") — every other cell's flame resets to cold.
@@ -6932,8 +7063,14 @@ body[data-noviewpanel] #viewpanel { display: none !important; }
         // above the demoted survival/kills summary — with the GLORY
         // LEADER callout line beneath it. Both stay empty/hidden (CSS
         // gates) on a replay whose wire carries no glory fields.
+        // THE WHOLE epic, Stop 2, Law 6: "GLORY" alone, on the endcard's
+        // biggest numeral, is exactly where a beginner conflates a single
+        // episode's score with their season standing (J31/opus-a's logged
+        // "standing = best round" belief) — name the scope, not just the
+        // term. title/aria-label carry the glossary sentence too.
         '<div class="ec-glory-hero"><span class="ec-glory-hero-num" id="ec-glory-hero-num">0</span>' +
-        '<span class="ec-glory-hero-label">GLORY</span></div>' +
+        '<span class="ec-glory-hero-label" title="' + esc(GLOSSARY.glory) +
+        '" aria-label="' + esc(GLOSSARY.glory) + '">GLORY THIS EPISODE</span></div>' +
         '<div class="ec-mvp-line" id="ec-mvp-line"></div>' +
         '<div class="ec-hero-line" id="ec-hero-line"></div>' +
         // MATCH GLORY (2026-09-08, owner): the COMBINED total across every
