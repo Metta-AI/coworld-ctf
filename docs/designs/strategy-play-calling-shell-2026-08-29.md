@@ -306,6 +306,13 @@ serves only safety hints, admission estimates, endpoint coverage, and activation
 proof; it is not a primary follower. Overflow and cap failures are visible and
 bounded rather than approximated.
 
+The linux/amd64 Docker qualification is canonical for route quality,
+cross-architecture route determinism, activation, and retained memory. Its
+wall-clock results are not a tick gate when Docker is emulated on an arm64
+host. The 16/32-seat first-goal, moving-goal, and stuck-replan tick rows gate
+only on a native host (or a future real amd64 CI runner), at p95 at most 4 ms
+and maximum at most 5 ms; emulated tick numbers are informational.
+
 **Capped danger-rebuild sources.** A seventh ruling, from the same
 measurement's sharpest edge: one seat rebuilding its danger field
 against all 31 other seats as sources measured ~13.1 ms — over the

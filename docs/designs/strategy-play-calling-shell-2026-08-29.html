@@ -728,6 +728,11 @@
     stale routes and requeues stale work before another pop. No query or tick path allocates or clears
     map-sized state. The hierarchy remains only for safety hints, estimates, coverage, and activation proof.
     Steering covers every wait, restart, and bounded failure tick.</p>
+    <p>The linux/amd64 Docker qualification is canonical for route quality, cross-architecture route
+    determinism, activation, and retained memory. Its wall-clock results are not a tick gate when Docker
+    is emulated on an arm64 host. The 16/32-seat first-goal, moving-goal, and stuck-replan tick rows gate
+    only on a native host (or a future real amd64 CI runner), at p95 at most 4 ms and maximum at most 5 ms;
+    emulated tick numbers are informational.</p>
     <p><strong>One target-acquisition route.</strong> The ported combat layer routes every target choice
     through the scored selector (<code>scoreTarget</code><sup class="ref"><a href="#src-15" title="LAB:fight.nim:162-283">15</a></sup>). The nearest-enemy fallback path that
     stencil's gun uses outside a firefight, and the spray selector's independent scan, both collapse into

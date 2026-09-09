@@ -14,6 +14,8 @@ docker buildx build --load --platform linux/amd64 --target build \
   --tag "$tag" .
 image_id=$(docker image inspect --format '{{.Id}}' "$tag")
 
+echo "canonical Docker gate: quality, activation, retained memory, and determinism"
+echo "tick timing is gated separately on native or real linux/amd64 hardware"
 docker run --rm --platform linux/amd64 --cpus=1 \
   -e NAV_GATE_COMMIT="$commit" \
   -e NAV_GATE_DIRTY=false \

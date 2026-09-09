@@ -2,6 +2,8 @@
 ## mixed-grid search, stable SJF admission, and atomic bounded routes.
 
 import std/[hashes, math, options]
+when defined(bodyNavBreakdown):
+  import std/[monotimes, times]
 import bitworld/[profile, spriteprotocol]
 import ../ctf/sim_types
 import body_cache, body_danger, body_hazard, body_map, body_route_index,
@@ -78,6 +80,15 @@ type
     packedWeights*, sharedDangerGeometry*, trace*, allocatorOverhead*: int64
     total*: int64
 
+  BodyNavTiming* = object
+    weightRefreshNanoseconds*, requestSubmitNanoseconds*: int64
+    schedulerRestartNanoseconds*, schedulerSelectNanoseconds*: int64
+    requestAttachNanoseconds*, routePopNanoseconds*: int64
+    routeFinishNanoseconds*, waypointNanoseconds*: int64
+    routeAdvanceNanoseconds*, steeringNanoseconds*: int64
+    requestSubmissions*, schedulerRestarts*, requestAdmissions*: int
+    routeCompletions*, weightRefreshes*: int
+
   BodyNavSeat* = ref object
     index*: int
     cache*: BodySeatCache
@@ -131,6 +142,15 @@ type
     routeJobSeat*: int
     routePopsLastTick*: int
     navigationBytes*: BodyNavigationBytes
+    when defined(bodyNavBreakdown):
+      timing*: BodyNavTiming
+
+when defined(bodyNavBreakdown):
+  proc timingElapsed(started: MonoTime): int64 {.inline.} =
+    (getMonoTime() - started).inNanoseconds
+
+  proc resetBodyNavTiming*(system: BodyNavSystem) {.inline.} =
+    system.timing = BodyNavTiming()
 
 proc retainedNavigationBytes*(system: BodyNavSystem): BodyNavigationBytes =
   if system == nil:
@@ -440,7 +460,12 @@ proc publishDangerGeneration(system: BodyNavSystem; seat: BodyNavSeat) =
   ## spends another pop.
   if system.mixedGraph == nil:
     return
+  when defined(bodyNavBreakdown):
+    let started = getMonoTime()
   system.mixedGraph.rebuildPackedWeights(seat.danger, seat.packedWeights)
+  when defined(bodyNavBreakdown):
+    system.timing.weightRefreshNanoseconds += timingElapsed(started)
+    inc system.timing.weightRefreshes
   inc seat.dangerGeneration
   if seat.dangerGeneration == 0:
     seat.dangerGeneration = 1
@@ -639,13 +664,12 @@ proc mixedRouteWaypoint(seat: BodyNavSeat; map: BodyMap;
   while seat.installedRoute.spanIndex < seat.installedRoute.spanCount:
     var best = none(BodyPoint)
     var bestOffset = 0
-    for offset in 0 .. FollowLookaheadK:
+    for offset in countdown(FollowLookaheadK, 0):
       let candidate = seat.installedLookaheadPoint(offset)
-      if candidate.isNone:
-        break
-      if map.segmentClear(selfPos, candidate.get):
+      if candidate.isSome and map.segmentClear(selfPos, candidate.get):
         best = candidate
         bestOffset = offset
+        break
     if best.isNone:
       return seat.installedLookaheadPoint(0)
     for _ in 0 ..< bestOffset:
@@ -667,17 +691,21 @@ proc routeAdvancing*(seat: BodyNavSeat; selfPos: BodyPoint;
 
 proc installMixedRoute(seat: BodyNavSeat; route: BodyRouteBuild;
     request: BodyRouteSearchRequest): bool =
-  ## Copy into a local fixed object first. No descriptor or cursor becomes
-  ## visible until reconstruction and every bounded copy have succeeded.
+  ## Revision is the publication marker. Copy only the live bounded spans,
+  ## then publish the new revision last; clearing/copying the full 4096-span
+  ## backing object would make every short route pay for unused capacity.
   if not route.ok or route.spanCount.int > BodyRouteSpanCap:
     return false
-  var installed = BodyInstalledRoute(spanCount: route.spanCount,
-    revision: request.requestGeneration,
-    dangerGeneration: request.dangerGeneration,
-    failure: route.failure, pointCount: route.pointCount)
+  seat.installedRoute.revision = 0
   for offset in 0 ..< route.spanCount.int:
-    installed.spans[offset] = route.spans[offset]
-  seat.installedRoute = installed
+    seat.installedRoute.spans[offset] = route.spans[offset]
+  seat.installedRoute.spanCount = route.spanCount
+  seat.installedRoute.spanIndex = 0
+  seat.installedRoute.stepIndex = 0
+  seat.installedRoute.dangerGeneration = request.dangerGeneration
+  seat.installedRoute.failure = route.failure
+  seat.installedRoute.pointCount = route.pointCount
+  seat.installedRoute.revision = request.requestGeneration
   true
 
 proc installedRoutePoints*(seat: BodyNavSeat): seq[BodyPoint] =
@@ -764,11 +792,22 @@ proc runRouteScheduler*(system: BodyNavSystem; tick: int;
     return
   if popBudget < 0:
     raise newException(ValueError, "body route pop budget must not be negative")
+  when defined(bodyNavBreakdown):
+    let restartStarted = getMonoTime()
+    let activeBeforeRestart = system.routeJob.active
   system.cancelStaleRouteJob()
+  when defined(bodyNavBreakdown):
+    system.timing.schedulerRestartNanoseconds += timingElapsed(restartStarted)
+    if activeBeforeRestart and not system.routeJob.active:
+      inc system.timing.schedulerRestarts
   var remaining = popBudget
   while remaining > 0:
     if not system.routeJob.active:
+      when defined(bodyNavBreakdown):
+        let selectStarted = getMonoTime()
       let seatIndex = system.nextPendingSeat()
+      when defined(bodyNavBreakdown):
+        system.timing.schedulerSelectNanoseconds += timingElapsed(selectStarted)
       if seatIndex < 0:
         break
       let seat = system.seats[seatIndex]
@@ -776,15 +815,26 @@ proc runRouteScheduler*(system: BodyNavSystem; tick: int;
         seat.pendingRoute.request.dangerGeneration = seat.dangerGeneration
       system.routeJobSeat = seatIndex
       seat.pendingRoute.lifecycle = brlInFlight
+      when defined(bodyNavBreakdown):
+        let attachStarted = getMonoTime()
       system.routeJob.beginBodyRouteSearch(system.mixedGraph,
         system.routeWorkspace, seat.packedWeights,
         seat.pendingRoute.request)
+      when defined(bodyNavBreakdown):
+        system.timing.requestAttachNanoseconds += timingElapsed(attachStarted)
+        inc system.timing.requestAdmissions
     let seat = system.seats[system.routeJobSeat]
+    when defined(bodyNavBreakdown):
+      let popStarted = getMonoTime()
     let spent = system.routeJob.spendBodyRoutePops(system.mixedGraph,
       system.routeWorkspace, seat.packedWeights, system.hazard, remaining)
+    when defined(bodyNavBreakdown):
+      system.timing.routePopNanoseconds += timingElapsed(popStarted)
     remaining -= spent
     result += spent
     if system.routeJob.complete:
+      when defined(bodyNavBreakdown):
+        let finishStarted = getMonoTime()
       let request = system.routeJob.request
       let route = system.routeJob.finishBodyRouteSearch(
         system.mixedGraph, system.routeWorkspace)
@@ -797,6 +847,9 @@ proc runRouteScheduler*(system: BodyNavSystem; tick: int;
         if route.ok:
           doAssert seat.installMixedRoute(route, request)
         seat.pendingRoute.lifecycle = brlIdle
+      when defined(bodyNavBreakdown):
+        system.timing.routeFinishNanoseconds += timingElapsed(finishStarted)
+        inc system.timing.routeCompletions
       system.routeJob = BodyRouteSearchJob()
       system.routeJobSeat = -1
       if spent == 0:
@@ -848,6 +901,10 @@ proc steeringMask*(system: BodyNavSystem; seatIndex: int;
     elapsedTick: int): uint8 =
   if system == nil or seatIndex < 0 or seatIndex >= system.seats.len:
     raise newException(ValueError, "body navigation seat index is out of range")
+  when defined(bodyNavBreakdown):
+    let started = getMonoTime()
+    defer:
+      system.timing.steeringNanoseconds += timingElapsed(started)
   let seat = system.seats[seatIndex]
   doAssert seat.active, "inactive navigation seat queried"
   let currentDistance = pixelDistanceQ4(selfPos, target)
@@ -927,6 +984,8 @@ proc navigationWaypoint*(system: BodyNavSystem, seatIndex: int,
     inc seat.followReplans
   if system.mixedGraph != nil:
     if seat.shouldQueryRoute(anchor, tick):
+      when defined(bodyNavBreakdown):
+        let requestStarted = getMonoTime()
       inc seat.revision
       seat.desiredGoal = some(goal.goalPoint)
       seat.desiredProfile = profile
@@ -934,7 +993,14 @@ proc navigationWaypoint*(system: BodyNavSystem, seatIndex: int,
         elapsedZoneTick, tick)
       seat.acceptRequestAnchor(anchor, tick)
       seat.stuckTicks = 0
+      when defined(bodyNavBreakdown):
+        system.timing.requestSubmitNanoseconds += timingElapsed(requestStarted)
+        inc system.timing.requestSubmissions
+    when defined(bodyNavBreakdown):
+      let waypointStarted = getMonoTime()
     let waypoint = seat.mixedRouteWaypoint(system.map, selfXy)
+    when defined(bodyNavBreakdown):
+      system.timing.waypointNanoseconds += timingElapsed(waypointStarted)
     return if waypoint.isSome: waypoint.get else: selfXy
   selfXy
 

@@ -1385,17 +1385,24 @@ proc actFromBelief*(body: SeatBody, tick: uint32; elapsedTick = 0;
           mask = octantToward(body.selfState.pos, waypoint)
           body.navState =
             if mask == 0'u8: bnsNoProgress else: bnsFollowing
-        elif seat.routeAdvancing(body.selfState.pos,
-            body.standingIntent.arriveRadius):
-          mask = octantToward(body.selfState.pos, waypoint)
-          body.navState = bnsFollowing
         else:
-          let steeringTarget =
-            if waypoint != body.selfState.pos: waypoint else: goal.goalPoint
-          mask = body.nav.steeringMask(body.seatIndex, body.selfState.pos,
-            steeringTarget, body.standingIntent.profile, elapsedTick)
-          body.navState =
-            if mask == 0'u8: bnsNoProgress else: bnsSteering
+          when defined(bodyNavBreakdown):
+            let advanceStarted = getMonoTime()
+          let advancing = seat.routeAdvancing(body.selfState.pos,
+            body.standingIntent.arriveRadius)
+          when defined(bodyNavBreakdown):
+            body.nav.timing.routeAdvanceNanoseconds +=
+              (getMonoTime() - advanceStarted).inNanoseconds
+          if advancing:
+            mask = octantToward(body.selfState.pos, waypoint)
+            body.navState = bnsFollowing
+          else:
+            let steeringTarget =
+              if waypoint != body.selfState.pos: waypoint else: goal.goalPoint
+            mask = body.nav.steeringMask(body.seatIndex, body.selfState.pos,
+              steeringTarget, body.standingIntent.profile, elapsedTick)
+            body.navState =
+              if mask == 0'u8: bnsNoProgress else: bnsSteering
         if mask != 0'u8:
           seat.noteProgress(body.selfState.pos)
         else:

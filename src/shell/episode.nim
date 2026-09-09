@@ -1444,6 +1444,8 @@ proc step*(episode: var ShellEpisode,
         if row.seat >= 0 and row.seat < seatTeams.len:
           seatTeams[row.seat] = row.team
 
+  when defined(bodyNavBreakdown):
+    episode.nav.resetBodyNavTiming()
   let bodySliceStarted = getMonoTime()
   for state in episode.seats.mitems:
     var frameIndex = -1

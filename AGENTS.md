@@ -226,6 +226,17 @@ nim check -d:noSignalHandler --threads:on src/ctf.nim
 env -u WASMTIME_C_API nim check -d:noSignalHandler --threads:on src/ctf.nim
 ```
 
+### Body-navigation qualification platforms
+
+`tools/run_body_nav_gate.sh` is the canonical linux/amd64 gate for route
+quality and cross-architecture determinism, activation time, and retained
+memory. On an arm64 development host its Docker process is emulated, so it
+does not gate wall-clock tick time. Run `tools/bench_body_nav_rework --tick`
+natively for the 16/32-seat first-goal, moving-goal, and stuck-replan timing
+gate (p95 at most 4 ms and maximum at most 5 ms). A future native amd64 CI
+runner may gate the same tick harness; emulated tick measurements are
+informational only.
+
 ### Profiling build
 
 Set `-d:ProfileTracePath=<path>` to enable Fluffy tracing and optionally set
