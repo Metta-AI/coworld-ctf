@@ -1,14 +1,136 @@
-# GLORY GRADIENT — Step 4: CATALOG v3 (DRAFT SKELETON — NOT FROZEN)
+# GLORY GRADIENT — Step 4: CATALOG v3 — S4 FREEZE
 
-Program 25d9108e, task 703813a4. Gate: the S2 lead reviews this before Step 5 (RIG SIMULATION).
-**This document decides nothing.** It restructures the deed/achievement catalog against the
-signed target and the tier-map/representation candidates, prices every lever's cost, and names
-every disposition still waiting on evidence. No `glory.nim`/`sim.nim`/`sim_types.nim` *behavior* was
-touched, no GLORYVERSION bump, no wire change, no settings POST, no deploy, no merge. **One
+**ERA STAMP: frozen 2026-09-09, coworld-ctf PR #491, branch `maxwell/glory-catalog-v3`, against
+`origin/main @ 62fa0146` (PR #477 merged, GLORYVERSION 16 / GameVersion 61, not yet published to any
+paintbot-v* build). Attribution evidence: PR #494 (`maxwell/glory-attribution`, commit `0fc7bba5`),
+same population as the census — GloryVersion 15, coworld_version 0.7.361-0.7.367, rounds
+r4515-r4539, 305 episodes, 4,880 seat-episodes.** The S2 lead merges this PR as the S4 freeze; S5
+opens on that merge sha. **This worker does not merge.**
+
+## DESIGN LAW (top of document, binding on every section below)
+
+**S4 converts HANDED and CONSTANT magnitude into CHOSEN magnitude; it does not re-tier what
+exists.** Consequently: the placement ramp and TERRITORY are re-priced so the home pedestal's
+automatic point and `dClosingTime`'s automatic timing carry CONSTANT-band weight only; the
+differentiating magnitude moves to kills / heat / stack / assists / pact deeds. **Heat stays a
+METER, never a pop** (Section 5, Section 9's own restated legibility law).
+
+## THREE ROOT-CAUSE RULINGS (ruled this session; the owner may override in the morning)
+
+These supersede the corresponding conditional dispositions in Sections 2b/3 below — those sections
+are left in place as the evidence trail, not rewritten, but the ruling here is what stands.
+
+**(a) Flagless BR.** The five flag deeds (`dFlagSteal`, `dCapture`, `dCarrierKill`, `dDenial`,
+`dEscortKill`) are **NOT dead — they are CTF-MODE deeds**. v3 lists deeds **PER MODE**; the BR
+catalog simply omits them (KEEP for CTF, OMITTED not CUT from BR). Retarget **one** to a BR
+analogue (zone/pedestal control) **only if that analogue is itself a CHOSEN deed** — not decided
+which one here, flagged for S5 design, not built.
+
+**(b) CTF-only gate on `dAssist`/`dRescue` — UN-GATE FOR BR.** These are the pact era's
+chosen-magnitude deeds and exactly what the owner wants graded. Remove the `if not
+sim.config.brMode` gate (`sim.nim:3117`, `sim.nim:3135`). **Cannot be exercised in this frozen
+population** — the gate means these events never fired in BR, so a static re-price of the recorded
+4,880 events cannot manufacture them; their real magnitude is an S5 rig question once the gate is
+removed and new episodes are measured.
+
+**(c) Solo-team / win-retirement.** `dDuoDown` and `dWipe` **RETARGET TO PACT SCOPE** — a pact
+downing/wiping an OPPOSING pact, consistent with GV15's pact-only joint-act law (matches
+`ctf-gv15-jointact-is-pact-only`). Memory `ctf-dwipe-is-dead-no-64x` **stays TRUE for solo** (no
+duo exists in 16-solo); the pact-scoped version is a new, reachable deed once pacts are active — not
+retroactively measurable from this population for the same reason as (b). **`dVictory` is a
+duplicate of WIN ×8 and is RETIRED, not revived** — this was already true by construction
+(gated `not winAsMultiplier`, Section 2b) and is now also the permanent design decision, not merely
+an observed side effect.
+
+Program 25d9108e, task 703813a4. Gate: the S2 lead reviews and merges this as the S4 freeze before
+Step 5 (RIG SIMULATION) opens. **This document freezes the MECHANISM and DIRECTION — the design
+law, the three root-cause rulings, the representation, and proof that the CHOSEN-magnitude target
+is reachable — it does NOT freeze final numeric constants**: deed classes, heat-ladder rungs, cap
+thresholds, and pact-decay durations remain the rig's (S5's) to pick. No `glory.nim`/`sim.nim`/
+`sim_types.nim` *behavior* was touched, no GLORYVERSION bump, no wire change, no settings POST, no
+deploy, no merge. **One
 explicit, authorized exception**: `tests/test_glory_percent_scale_headroom.nim` was added as
 additive-only test code (per the S4 gate's explicit instruction to prove, not assert, the
 representation option's integer headroom) — it defines its own local fold helpers, imports but does
 not modify any production proc, and is registered in `tests/shard_1.nim` so it does not run dark.
+
+## FREEZE CONDITION 1 — RE-ATTRIBUTION TABLE (the load-bearing one)
+
+**Method, STATIC PASS ONLY**: re-priced the SAME 4,880 census seat-episodes' recorded events using
+PR #494's own `attribution_decompose.py` method and bucket schema verbatim (same event-level
+`content` parsing, same `RECIPE_BASE`/`PLACEMENT_BASE`/`OTHER_DEED_BASE`/`HEAT`/`CARRY`/
+`ALLY_STACK`/`TERRITORY`/`ACHIEVEMENTS`/`WIN`/`FRIENDLY_FIRE` buckets), substituting catalog-v3
+base-class/heat-ladder/achievement-tier values where this catalog proposes a reprice. **No sim, no
+rig, no new episodes** — the same recorded events, re-priced. Script:
+`/tmp/glory-catalog/attribution-tool/reprice_v3.py` (not committed — ephemeral trial tooling; the
+numbers below are what it measured, run locally, four iterations).
+
+**HANDED/CONSTANT/CHOSEN mapping — #494's OWN classification, not redefined**: `HANDED =
+{PLACEMENT_BASE, WIN}` (#494's own set, verbatim). Of #494's own `CHOSEN` set, this catalog uses
+**TOP-ATTRIBUTION.md's own prose split** (not a new definition): `CONSTANT = {RECIPE_BASE,
+ACHIEVEMENTS, TERRITORY}` (the doc's own words — "closer to structural TIMING," "a second placement
+ladder," "a map-geometry constant"); `CHOSEN = {OTHER_DEED_BASE, HEAT, ALLY_STACK, CARRY}` (the
+doc's own "genuinely graded, skill-driven, repeatable choice," ~11% today).
+
+**BASELINE (today's pricing, #494's own numbers, re-derived from the same doc)**: HANDED 43.30%
+(PLACEMENT 31.19 + WIN 12.11), CONSTANT 45.57% (RECIPE 20.12 + ACHIEVEMENTS 17.95 + TERRITORY 7.50),
+**CHOSEN 11.14%** (OTHER KILLS 8.74 + HEAT 2.29 + ALLY-STACK 0.11) — matches the freeze brief's own
+cited "11% today" exactly.
+
+**Repriced (catalog v3, iteration 4 — the trial that clears the bar)**:
+
+| population | n | HANDED | CONSTANT | CHOSEN |
+|---|---:|---:|---:|---:|
+| TOP DECILE (p90 of catalog-v3's OWN resulting points, 4.48 pts) | 553 | 10.98% | 18.30% | **70.73%** |
+| MID BAND (S3 ladder's own 2–8 pts) | 755 | 27.10% | 18.92% | **53.98%** |
+| *[transparency check]* TOP DECILE by the OLD p90 threshold (score≥576), repriced | 509 | 40.10% | 28.99% | 30.91% |
+
+**FREEZE CRITERION MET**: CHOSEN = 70.73% at the top decile (≥50% required) and 53.98% at mid (a
+majority, "mostly CHOSEN"). **The transparency-check row is reported, not hidden**: holding the
+*population selection* to the OLD scoreboard's top decile and only re-pricing the events, CHOSEN
+reaches only 30.91% — because repricing changes WHO ranks in the top decile (kill/heat-heavy seats
+overtake the old placement/win-heavy leaders), and grading a repriced economy by the old scoreboard
+is not a meaningful test of it. **Top decile and mid band are therefore defined on catalog v3's own
+resulting point distribution**, per the S3 ladder's own units — this is a modeling choice, stated
+plainly, not a way of hiding a miss.
+
+**What had to be repriced to get there** (direction, not final constants — S5/the rig picks exact
+numbers): PLACEMENT crushed hard (`dFinal8`→1.0, `dFinal4`→1.0, `dFinal2`→1.3, from 2/3/4);
+`dClosingTime`'s base crushed toward CONSTANT-only weight (→1.1/1.2 win-bumped, from 2/3);
+TERRITORY's rung-shift scaled to 15% of its current magnitude; `treeSquad.IV` Clean Sheet crushed
+from ×2 to ×1.05; `treeGun.V` Sharpshooter's magnitude scaled down (exponent 0.5) but kept real;
+**every kill deed's class raised** (`dHonorableKill` 1→2.2, `dShieldSoak` 1→1.6, `dClutchHeal`
+1→1.8, `dPointBlankKill` 1→2.5, plus the already-real classes `dFirstBlood`/`dLongshotKill`/
+`dAceTag`/`dLastLight`/`dRevengeKill`/`dRunDown`/`dSplashMultiKill` all raised further); HEAT's rung
+values re-spaced far higher (2/4/8 → 5/14/36); ALLY-STACK scaled ×2.5. **`WIN` was deliberately left
+untouched** at ×8 (the earlier ruling on the placement ramp: "the win multiplier stays the win").
+Mint-RATE and the gunRange sweep were explicitly NOT touched, per the freeze brief's own
+instruction — those are S5's problem.
+
+**Honest limits of this exercise, named plainly**:
+- These are TRIAL constants proving the criterion is *reachable* by a static reprice, in the
+  direction the design law names — **not a recommendation for S5's actual constants**. The rig
+  (paired seeds, real policies) is where real numbers get picked; simulators pick constants, this
+  freeze only proves the design has room to satisfy the owner's target.
+- Ruling (b) (`dAssist`/`dRescue` un-gated) and ruling (c) (pact-scoped `dDuoDown`/`dWipe`) **could
+  not be exercised by this static pass at all** — their events never fired in BR (code-gated), so
+  there is nothing recorded to reprice. Their real CHOSEN-magnitude contribution is unmeasured and
+  will only appear once S5 runs new episodes with the gates removed; the criterion was met WITHOUT
+  their help, which is a conservative (if anything understated) result.
+- `dJointAct` (the pact deed) is locked into `RECIPE_BASE` = CONSTANT by **#494's own
+  classification**, even though the design law names "pact deeds" as a magnitude target — flagged
+  as a tension for S5/the lead to resolve (either by #494 revising its own bucket schema or by
+  accepting `dJointAct` reads as CONSTANT under this framework), not silently reclassified here.
+- Boosting kill classes this far (e.g. `dHonorableKill` to ×2.2, heat's top rung to ×36) is
+  numerically aggressive; whether it is *desirable* on FEEL grounds (not just on this attribution
+  arithmetic) is explicitly an owner/simulator question for S5, not settled by clearing this bar.
+
+## FREEZE CONDITION 2 — HEADROOM VERDICT (recorded, Section 9/9a/9b below)
+
+The fixed-point accumulator (`SCALE=2^10`) is the adopted S4 representation; the batch-of-5
+mitigation and its fold-order constraint are DROPPED. Worst-case drift 0.131% across all tested
+seeds, overflow margin ~7 million× below 2^62 including the FF-halving division path. See Section 9
+for the full record; not repeated here.
 
 ## 0. What this is designed against
 
@@ -25,26 +147,27 @@ not modify any production proc, and is registered in `tests/shard_1.nim` so it d
   combat buffs, a gameplay-power change that may shift *which* deeds fire and how often, not the
   pricing tables themselves. Treat every mint-rate number below as dated to GV15, not invalidated.
 
-## ▶ BLOCKING — this draft freezes nothing until top-attribution lands
+## ✅ UN-BLOCKED — top-attribution LANDED (PR #494, commit `0fc7bba5`)
 
-Worker `top-attribution` (branch `maxwell/glory-attribution`, no PR yet as of this draft) has two
-open jobs neither of which has landed:
-- **JOB 1**: attribute top-decile magnitude to <5% residual (recipe, achievements, heat, placement,
-  carry, ally-stack, territory shift, FF halvings). Today: recipe 42.2% + achievements 18.0% ≈ 60%
-  mean / 54% median — **40–46% of a top-decile score's magnitude is still unattributed**. Section 4
-  (mid-band width) and any claim about "what makes a top round" in this draft is provisional until
-  this residual closes.
-- **JOB 2**: classify every one of the 15 zero-mint deeds and 35 dead achievement slots as
-  STRUCTURAL (file:line) vs BEHAVIOURAL via a scripted reachability test. Section 2/3 below give a
-  **conditional** disposition for every dead slot (if-structural / if-behavioural) and mark which
-  ones already have strong prior code evidence vs which are genuinely open. **No disposition below
-  is final.**
+Both jobs that gated this freeze are DONE, superseding the "BLOCKING" framing this draft carried
+earlier in the session:
+- **JOB 1**: 0.000% residual (ground-truth instrumentation, not an estimate) — see
+  `docs/designs/glory/TOP-ATTRIBUTION.md`. The FREEZE CONDITION 1 section above uses this
+  attribution directly, re-priced under catalog v3.
+- **JOB 2**: all 15 zero-mint deeds and 35 dead achievement slots classified STRUCTURAL (file:line)
+  or BEHAVIOURAL — 10 STRUCTURAL deeds / 5 BEHAVIOURAL, 23 STRUCTURAL achievement slots / 12
+  BEHAVIOURAL, every STRUCTURAL verdict traced to exactly 3 root causes, which are now the THREE
+  ROOT-CAUSE RULINGS recorded at the top of this document. Sections 2b/3 below still show the
+  **conditional** framing this draft used before the rulings landed — left in place as the evidence
+  trail (their prior-evidence citations are still accurate), but the rulings at the top of the
+  document, not the conditionals below, are what's frozen.
 
-**FREEZE RULE, unchanged and restated**: several individual sub-questions in this draft have since
-been RULED (the representation option, the mid/top ladder, the placement-lump direction, the drain
-mechanism) — those rulings are recorded in place throughout and are not re-opened. **The document as
-a whole still does not freeze.** PR #491 stays marked DRAFT and does not merge until JOB1 and JOB2
-both land; at that point it merges with a "frozen at [commit/date]" stamp added, not silently.
+**FREEZE STATUS: FROZEN.** This document is no longer a draft. Individual sub-questions were RULED
+progressively through the session (the representation option, the mid/top ladder, the placement-ramp
+direction, the drain mechanism, the three root causes, the design law, and now the re-attribution
+freeze criterion) — every ruling is recorded in place, not re-argued here. PR #491 un-drafts with
+this commit; the S2 lead merges it as the S4 freeze, and S5 opens on that merge sha. This worker
+does not merge.
 
 ## ▶ THREE FRESH FACTS FROM THE LEAD, CARRIED FORWARD (2026-09-09, after this brief was issued)
 
@@ -722,35 +845,39 @@ the lead's gate to route:
   breakdown). The RULED requirement is that it exist and be legible, never silent; the exact surface
   is the journey lane's call, one bundle author at a time.
 
-## 12. What this draft does NOT decide
+## 12. What this document does NOT decide (even though it is now FROZEN on mechanism/direction)
 
-- No deed's final tier or class value. No GLORYVERSION. No wire shape. No representation choice
-  (Section 9 recommends against seeking WIRE-OK now, but does not foreclose it).
-- No final disposition for any of the 15 zero-mint deeds or 35 dead achievement slots — every one
-  is conditional pending JOB2.
+- **No deed's final numeric class value.** The re-attribution table's iteration-4 constants
+  (Section "FREEZE CONDITION 1") are a TRIAL proving the 50% bar is reachable in the design law's
+  direction — not a recommendation. S5's rig picks the real constants.
+- No GLORYVERSION, no wire shape. Representation choice IS frozen (fixed-point accumulator,
+  `SCALE=2^10`, Section 9) — that part is decided.
+- The three root-cause rulings ARE frozen (top of document) but their IMPLEMENTATION detail is not:
+  which BR analogue (if any) retargets a flag deed (ruling a), the exact un-gate mechanics for
+  `dAssist`/`dRescue` (ruling b), the exact pact-wipe/pact-down trigger shape (ruling c) — all S5.
 - No mid-band width constants — Section 4 applies the RULED ladder (low 1–2 · mid 2–8, shoulder
   7–8 · top ≈9+ · jackpot 13–15 · ceiling ≈16) and names a specific cliff risk (the placement
   ladder/win multiplier), but the actual constants that make the 6–9 population continuous are
   explicitly left to S5.
-- No heat rung/decay constants for a hit-based credit stream.
+- No heat rung/decay constants for a hit-based credit stream (the freeze table's heat multipliers
+  are trial values, same caveat as above).
 - No pact-expiry duration constant.
 - No cap-hit-share target beyond the already-existing ≤1.5% (this draft proposes only a counter,
   not a new target).
-- Season-display semantics ARE now settled (Section 0 fact 1) and used consistently in Sections 8
-  and 9 — what remains undecided is only whether the sim's own internal representation should
-  change to match that display, which Section 9 answers (not yet, revisit only if S5 needs it).
+- Season-display semantics ARE settled (Section 0 fact 1) and used consistently in Sections 8 and 9.
 
-## 13. Blocked on evidence — what must land before any of this freezes
+## 13. What was BLOCKED and has now landed, plus what still needs S5
 
-1. **top-attribution JOB 1** (residual <5% on top-decile magnitude) — until this lands, "what makes
-   a top round" (Section 4) is provisional; the 40–46% unexplained residual could reveal a mechanic
-   this catalog has not accounted for at all.
-2. **top-attribution JOB 2** (structural vs. behavioural, all 15 dead deeds + 35 dead achievement
-   slots, scripted reachability test, file:line cited) — every conditional disposition in Sections
-   2b and 3 resolves only once this lands.
-3. **S5's rig simulation** — needed before any constant in Sections 1, 4, 5, or 6 can be chosen,
-   including whether Section 4's proposed mitigation actually closes the 6–9 continuity requirement
-   or whether the placement-ladder cliff risk it names is real once simulated against policies.
+top-attribution JOB1 (0.000% residual) and JOB2 (all 15+35 dead slots classified) have LANDED (PR
+#494) — this is what un-blocked the freeze. What's left, all explicitly S5's:
+1. **The rig simulation** — needed before any trial constant above becomes a real one, including
+   whether the placement-ramp mitigation actually closes the 6–9 continuity requirement against
+   real policies (not just this static replay).
+2. **Ruling (b)/(c)'s real magnitude** — `dAssist`/`dRescue` un-gated and pact-scoped
+   `dDuoDown`/`dWipe` cannot be measured from this frozen population (their events never fired in
+   BR); S5 must run new episodes once the code changes land.
+3. **The `dJointAct`-is-CONSTANT tension** named in the re-attribution section — whether #494's own
+   bucket schema should be revisited for pact deeds specifically, or accepted as-is.
 
 ## 14. What is NOT verified (carried forward, not re-checked this draft)
 
