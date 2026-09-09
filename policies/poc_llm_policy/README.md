@@ -280,8 +280,9 @@ copy-pasteable command. See also the protocol quick reference in
 | `OPENROUTER_API_KEY` | you, for local dev | selects the OpenRouter backend when no sidecar is present |
 | `POC_MODEL` | you | OpenRouter model id (default `qwen/qwen3-30b-a3b-instruct-2507`); ignored on the sidecar path |
 | `POC_CANNED` | you | `1` (or `--canned`) forces the fixed response, overriding both |
-| `POC_HOST` / `POC_PORT` | you | the game server (default `127.0.0.1` / `21815`) |
-| `POC_SLOT` / `POC_TOKEN` | you | the play seat and its configured token |
+| `COWORLD_PLAYER_WS_URL` | `coworld run-episode`/`play`, the hosted runner | `ws://host:port/player?slot=N&token=T`, parsed first and preferred over the four `POC_*` vars below (same contract `policies/starters/common/starter_harness.py` already reads) |
+| `POC_HOST` / `POC_PORT` | you | the game server for a manual `docker run` (default `127.0.0.1` / `21815`); ignored when `COWORLD_PLAYER_WS_URL` is set |
+| `POC_SLOT` / `POC_TOKEN` | you | the play seat and its configured token for a manual `docker run`; ignored when `COWORLD_PLAYER_WS_URL` is set |
 | `POC_PLAYBOOK` | the image | directory of `.wasm` modules to upload |
 | `POC_RECALL_SECONDS` | you | how long to hold before the mid-match re-call (default 6) |
 
