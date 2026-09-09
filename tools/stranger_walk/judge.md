@@ -64,14 +64,24 @@ against the raw transcript:
   and the transcript shows the stranger driving it (inputs sent, a match outcome observed). If no
   such surface exists or is reachable from the public entry point, this milestone is UNREACHABLE
   for the run — record that explicitly, do not mark it "stuck."
-- **M5 (built a policy).** A real artifact must exist in the run directory (code, config, or a
-  fully specified spec) that the stranger believes implements a strategy, built from what it
-  actually learned in-session (not boilerplate copy-pasted without adaptation).
+- **M5 (built a policy).** Reached only when the transcript shows a **behaviour change authored by
+  the stranger**, relative to the starter or baseline it began from — a diff to policy code, or to
+  a named knob's value (e.g. `recall_seconds`), evidenced by a Write/Edit tool call (cite the
+  offset) or a file diff — **and** that changed artifact is the one the stranger later ran or
+  submitted. Configuration-only writes that don't change play (an XP-request JSON, a manifest, a
+  credentials file) do not count, no matter how the stranger narrates them. Shipping an unmodified
+  starter persona/policy is **M5-not-reached**, noted as "unmodified starter" — not "built." As
+  with every milestone here, a claim in the prose is not proof: find the artifact and the diff
+  yourself before crediting this one.
 - **M6 (submitted).** Only counts with real evidence of a successful submission call/response.
 - **M7 (saw it in standings).** Only counts if the stranger fetched the standings/leaderboard
   again after submitting and located its own entry.
 - **M8 (changed it, saw rank respond).** Requires a second submit + a second standings check
   showing a rank delta the stranger attributes to its change.
+
+  A rank that does not move while the cumulative score merely rises is **not** "rank responded" —
+  M8 requires an actual rank change (position in the standings) or a standing/tier change
+  attributable to the resubmitted version, not just a higher raw number next to the same rank.
 
 If the stranger never obtains usable credentials, M6–M8 are expected to be unreached. Judge
 whatever the stranger says about why it's stopping (there's no `READY-TO-SUBMIT:`/`BLOCKED-M6:`
@@ -91,6 +101,29 @@ scaffolding:
   follows `"owner_latency": true` and totals it separately
   (`owner_latency_minutes_total`). Report it in `STRANGER_WALK.md` as its own line, not folded
   into "stuck minutes."
+
+## Judge version
+
+This rubric changes over time (see M5's tightening above), so every `score.json` must record
+which version of it produced the judgment:
+
+- **`judge_version_blob_sha`** is `judge.md`'s own git blob sha (`git hash-object
+  tools/stranger_walk/judge.md`) as of the moment you judge — not a semantic version, so wording
+  edits count as a new version. **`judged_by`** identifies who did the hand-edit pass (agent/
+  session name or human). Hand-edit both into `score.json` in the same step-5 pass as
+  `milestones`/`beliefs`; `score.py` does not compute or overwrite either field (same
+  never-overwrite rule it already applies to those two keys — see its docstring). If score.py ever
+  grows the ability to stamp these automatically, keep these two field names so nothing downstream
+  has to change.
+- **A before/after comparison across runs is valid only when every compared run's `score.json`
+  carries the same `judge_version_blob_sha`.** If judge.md changes between two runs you want to
+  compare, you cannot silently reuse an older run's milestone/belief judgments under the new
+  rubric: re-judge that older run's *affected milestones only* (the ones whose criteria text
+  actually changed — not a full re-judge) against the new blob sha, and record **both** shas on
+  it — the new `judge_version_blob_sha` it was re-judged under, and the prior one it was
+  originally judged under (e.g. a `judge_version_blob_sha_prior` field) — so the comparison's
+  provenance is auditable. A comparison that mixes shas without this reconciliation isn't "before
+  vs after," it's noise.
 
 ## Scoring each BELIEF
 
