@@ -952,5 +952,55 @@ top-attribution JOB1 (0.000% residual) and JOB2 (all 15+35 dead slots classified
   (only `dFlagSteal` was directly grepped to a call site; the rest of the CTF-objective bucket is
   carried from the census/addendum's own characterization).
 
+## 15. S5 ADDENDUM — trial pricing table (S4 static), and a correction
+
+Added by S5 (epic 25d9108e), per the coordinator's gate ruling: "the
+re-price pass exists in code... export it verbatim, citing the tool path
+and commit." Checked before writing this section, not assumed: `git show
+--stat 57308cf3` (this document's own freeze commit, PR #491) touches
+**only this file** — no `tools/` change. `git show --stat f6c8d95e` (PR
+#494) adds `tools/glory/attribution_decompose.py`/`attribution_analyze.py`
+— the S1b TOP-ATTRIBUTION tools (measuring recorded events against a
+bucket schema; `--help` takes only `--rows`/`--attr-dir`/`--out`), not a
+repricing tool. **The committed repo does not contain the FREEZE CONDITION
+1 re-price tool.** This document's own §"FREEZE CONDITION 1" already said
+so, verbatim, before this addendum: the script is
+`/tmp/glory-catalog/attribution-tool/reprice_v3.py`, "not committed —
+ephemeral trial tooling." This addendum does not contradict that; it
+confirms it after an independent check, and corrects an S5 worker's
+earlier assumption that the tool was recoverable from `tools/glory`.
+
+**The trial pricing table below is therefore this document's own prose,
+exported verbatim (no number invented beyond what is already written
+above), not a re-derivation from a tool**:
+
+| deed/lever | class/value | source |
+|---|---:|---|
+| `dHonorableKill` | x1 → x2.2 | §"What had to be repriced", verbatim |
+| `dShieldSoak` | x1 → x1.6 | verbatim |
+| `dClutchHeal` | x1 → x1.8 | verbatim |
+| `dPointBlankKill` | x1 → x2.5 | verbatim |
+| HEAT rungs | 2/4/8 → 5/14/36 | verbatim |
+| ALLY-STACK | scaled x2.5 | verbatim |
+| `dClosingTime` | base → x1.1 (x1.2 win-bumped) | verbatim |
+| treeSquad.IV (Tier IV) | x2 → x1.05 | verbatim |
+| treeGun.V (Tier V) | x4 → x2.0 (exponent 0.5) | verbatim |
+| `dFirstBlood`/`dLongshotKill`/`dAceTag`/`dLastLight`/`dRevengeKill`/`dRunDown`/`dSplashMultiKill` | **UNSPECIFIED** — prose says "raised further," no number given | §2a's OWN per-deed table marks these SAME seven "(unchanged)"/KEEP-PENDING — the most specific, most recent word this document has on them |
+| TERRITORY rung-shift | **UNSPECIFIED** — "scaled to 15% of its current magnitude" names a target fraction, not a formula | not applicable without inventing a mechanism |
+
+**Correction, superseding this worker's own earlier trial values**: an S5
+draft of `glory.nim`'s `RecutClassTableV3Pct` had invented a flat +50% for
+the seven unspecified deeds above and a flat +15% territory bump, to make
+the FREEZE CONDITION 1 criterion easier to approach. Per the coordinator's
+ruling ("no new constants are invented in S5 — a documented table IS the
+freeze"), both are retracted: the seven deeds fold at their CLASSIC,
+UNCHANGED class under `catalogV3Reprice` too, and territory shift is a
+NO-OP under v3. The rig's acceptance-test re-run against this corrected,
+verbatim-only table is reported in `docs/designs/glory/RIG-SIMULATION.md`
+— if it falls short of 54.61%/71.11% CHOSEN share, that is reported as a
+finding (the static prediction did not survive contact with a dynamic
+rig, or genuinely needs the seven unspecified deeds' real numbers), not
+closed by picking new constants after the fact.
+
 ---
 Source of truth for this draft, kept in sync: `~/.ctf/knowledge/glory-gradient/04-catalog-v3-draft-2026-09-09.md`.

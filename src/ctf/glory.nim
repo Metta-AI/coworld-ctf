@@ -3028,21 +3028,48 @@ const
 # coordinator's own ruling: "the GLORYVERSION bump lives ONLY in the S6
 # ship PR").
 #
-# VALUES: the FOUR exact deltas CATALOG-V3-DRAFT.md names verbatim
-# (dHonorableKill/dShieldSoak/dClutchHeal/dPointBlankKill, HEAT, dClosingTime,
-# treeSquad.IV, treeGun.V) are used as given. The doc's "already-real classes
-# ... all raised further" line (dFirstBlood/dLongshotKill/dAceTag/dLastLight/
-# dRevengeKill/dRunDown/dSplashMultiKill) names NO exact target — a flat
-# +50% is THIS rig's trial choice, per the doc's own "simulators pick
-# constants" latitude, named here as a modeling choice, not a re-derivation.
-# TERRITORY's "scaled to 15% of its current magnitude" is approximated as a
-# flat +15% enemy-ground multiplier (`RecutTerritoryShiftPctV3`) — the
-# original static-repricing tool's exact per-deed formula was ephemeral,
-# uncommitted trial tooling (`/tmp/glory-catalog/attribution-tool/
-# reprice_v3.py`) and is not re-derivable; flagged as a simplification, not
-# hidden. `dJointAct` and `WIN` are explicitly UNTOUCHED (the doc's own
-# "the win multiplier stays the win" ruling; dJointAct's era-split is a
-# BUCKET reclassification, not a class change).
+# VALUES — GATE RULING (coordinator, after this rig's first report):
+# "STOP GUESSING -- USE S4'S ACTUAL CONSTANTS... No new constants are
+# invented in S5 -- a documented table IS the freeze." Investigated before
+# writing a single number: `git show --stat 57308cf3` (PR #491, the S4
+# freeze) touched ONLY `docs/designs/glory/CATALOG-V3-DRAFT.md` -- no
+# `tools/glory` file. `git show --stat f6c8d95e` (PR #494) added
+# `attribution_decompose.py`/`attribution_analyze.py`, which are the S1b
+# TOP-ATTRIBUTION tools (measuring recorded events against a bucket
+# schema) -- not a repricing tool, and neither takes a v3/reprice CLI
+# argument (`attribution_decompose.py --help`: only `--rows`/`--attr-dir`/
+# `--out`). `CATALOG-V3-DRAFT.md` itself, verbatim, confirms this: its own
+# FREEZE CONDITION 1 section names the script as
+# `/tmp/glory-catalog/attribution-tool/reprice_v3.py`, "not committed --
+# ephemeral trial tooling." **The tool the coordinator described does not
+# exist in this repo** -- this is reported as its own finding, not
+# silently worked around. What DOES exist verbatim, committed, in
+# `CATALOG-V3-DRAFT.md` (Section "FREEZE CONDITION 1" prose, and Section
+# 2a's own per-deed disposition table) is used below, value for value,
+# with no invented number for anything the doc leaves unspecified:
+#   - dHonorableKill 1->2.2, dShieldSoak 1->1.6, dClutchHeal 1->1.8,
+#     dPointBlankKill 1->2.5 (exact, "What had to be repriced" prose).
+#   - HEAT 2/4/8 -> 5/14/36 (exact, same prose).
+#   - ALLY-STACK scaled x2.5 (exact, same prose).
+#   - dClosingTime base ->1.1/1.2 win-bumped (exact, same prose).
+#   - treeSquad.IV (Tier IV) x2->x1.05 (exact, same prose).
+#   - treeGun.V (Tier V) exponent 0.5, i.e. sqrt(4)=2 -> x2.0 (exact, same
+#     prose: "scaled down (exponent 0.5) but kept real").
+# The prose's OWN "already-real classes... all raised further" line
+# (dFirstBlood/dLongshotKill/dAceTag/dLastLight/dRevengeKill/dRunDown/
+# dSplashMultiKill) names NO exact target -- and Section 2a's OWN per-deed
+# table (this same committed document) marks every one of these SEVEN
+# deeds "KEEP-PENDING" / explicitly "(unchanged)" as its proposed tier. An
+# earlier draft of this file invented a flat +50% for these seven, which
+# this GATE RULING retracts: they fold at their CLASSIC, UNCHANGED
+# `RecutClassTable` value under v3 too (the `for deed in Deed:` default
+# below), matching the doc's own most specific, most recent word on them.
+# TERRITORY's "scaled to 15% of its current magnitude" names a TARGET
+# FRACTION with no formula -- not enough to apply without inventing the
+# mechanism, so v3 territory shift is a NO-OP (same reasoning): named as a
+# gap, not silently approximated. `dJointAct` and `WIN` are explicitly
+# UNTOUCHED (the doc's own "the win multiplier stays the win" ruling;
+# dJointAct's era-split is a BUCKET reclassification, not a class change).
 const
   RecutClassTableV3Pct*: array[Deed, int] = block:
     var pcts: array[Deed, int]
@@ -3051,13 +3078,10 @@ const
     pcts[dShieldSoak] = 160        # x1 -> x1.6 (exact, doc-named)
     pcts[dClutchHeal] = 180        # x1 -> x1.8 (exact, doc-named)
     pcts[dPointBlankKill] = 250    # x1 -> x2.5 (exact, doc-named)
-    pcts[dFirstBlood] = 300        # x2 -> x3.0 (+50%, THIS rig's trial)
-    pcts[dLongshotKill] = 450      # x3 -> x4.5 (+50%, trial)
-    pcts[dSplashMultiKill] = 450   # x3 -> x4.5 (+50%, trial)
-    pcts[dRevengeKill] = 300       # x2 -> x3.0 (+50%, trial)
-    pcts[dRunDown] = 300           # x2 -> x3.0 (+50%, trial)
-    pcts[dAceTag] = 600            # x4 -> x6.0 (+50%, trial)
-    pcts[dLastLight] = 600         # x4 -> x6.0 (+50%, trial)
+    # dFirstBlood/dLongshotKill/dSplashMultiKill/dRevengeKill/dRunDown/
+    # dAceTag/dLastLight: NOT overridden -- no exact doc value exists, and
+    # Section 2a's own table marks these "(unchanged)"; they fall through
+    # to the `for deed in Deed:` default (classic value x100) above.
     pcts[dClosingTime] = 110       # x2 -> x1.1 (exact, doc-named, non-win base)
     pcts
 
@@ -3080,12 +3104,13 @@ const
     ## k=2..6 (classic ladder 2,3,5,8,13) scaled x2.5 (exact, doc-named:
     ## "ALLY-STACK scaled x2.5").
 
-  RecutTerritoryShiftPctV3* = 115
-    ## Approximation of "TERRITORY's rung-shift scaled to 15% of its
-    ## current magnitude" -- a flat +15% multiplicative bump on enemy
-    ## ground for any non-commons v3 class, in place of the classic rung
-    ## INCREMENT (`recutShiftedClass`'s `inc result`). See this section's
-    ## header for why this is an approximation, not a re-derivation.
+  RecutTerritoryShiftPctV3* = 100
+    ## GATE RULING: NO-OP (was an invented +15% approximation, retracted).
+    ## "TERRITORY's rung-shift scaled to 15% of its current magnitude"
+    ## names a target FRACTION, not a formula -- applying it without one
+    ## would be inventing a mechanism, which this ruling forbids. v3
+    ## territory shift is therefore a documented GAP, not a guess: this
+    ## constant stays 100 (identity) until a verbatim formula exists.
 
 func heatMultV3Pct*(embers: int): int {.inline.} =
   ## V3 sibling of `heatMult`, percent-scaled.

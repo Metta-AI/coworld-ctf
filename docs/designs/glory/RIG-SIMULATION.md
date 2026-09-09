@@ -218,6 +218,29 @@ superseded by this run in full, not just the catalogV3Reprice delta).
 | p90 | 9.58 | 6.27 |
 | p99 | 12.75 | 14.00 |
 
+**GATE RULING (coordinator): re-run again with the invented +50%/+15%
+constants RETRACTED** — `CATALOG-V3-DRAFT.md` §15 now documents that
+`tools/glory` does NOT contain the S4 static reprice tool (confirmed via
+`git show --stat` on both #491 and #494); only the doc's own prose values
+are used, and the seven deeds/territory the prose leaves unspecified now
+fold at their CLASSIC, UNCHANGED value (see that section for the full
+accounting). Corrected numbers, same rig, same seeds: p50/p75/p90/p99 =
+2.00/4.00/6.02/14.00 (barely moved from the pre-correction run above —
+the retracted constants were not the dominant contributor). ACCEPTANCE
+TEST 1: 158/3000 (5.3%) in [6,9]. TEST 2: baseline 1.59 vs skilled 4.04
+pts (armed), separation holds. TEST 3 (CHOSEN share): mid 33.06%/top
+46.75% — still below 54.61%/71.11%, and this IS the real finding per the
+ruling: the seven UNSPECIFIED deeds were not the reason the doc-only
+table falls short, so a genuinely different fix (real numbers for those
+seven, or a different lever entirely) is needed, not a bigger guess. TEST
+4 (cap-hit @ 2^24): 0.0000%, unchanged.
+
+**Cap-hit ceiling sensitivity (task 2, one row, owner picks)**: ceiling 16
+pts → 0.0000% (0/3000); ceiling 14 pts → 4.5333% (136/3000); ceiling 12
+pts → 4.5333% (136/3000, same population — nothing lands strictly between
+12 and 14 pts in this run). 16 is too loose to ever bind under this rig's
+per-seat volumes; 12 and 14 both land far above the 0.1–1% design band.
+
 ### Acceptance tests (re-run)
 
 1. **CONTINUOUS POPULATION THROUGH 6–9 PTS: PASS, improved.** 213 of 3,000
