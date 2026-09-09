@@ -1,0 +1,984 @@
+#0 building with "orbstack" instance using docker driver
+
+#1 [internal] load build definition from Dockerfile.replay-viewer
+#1 transferring dockerfile: 4.66kB done
+#1 DONE 0.0s
+
+#2 [internal] load metadata for docker.io/emscripten/emsdk:4.0.15
+#2 DONE 1.0s
+
+#3 [internal] load .dockerignore
+#3 transferring context: 117B done
+#3 DONE 0.1s
+
+#4 [internal] load build context
+#4 DONE 0.0s
+
+#5 [1/7] FROM docker.io/emscripten/emsdk:4.0.15@sha256:27bc6267cb285223b8aebb7627bfebae7cb3ad2aaa0d5923b8aa5321793033e8
+#5 resolve docker.io/emscripten/emsdk:4.0.15@sha256:27bc6267cb285223b8aebb7627bfebae7cb3ad2aaa0d5923b8aa5321793033e8 done
+#5 DONE 0.1s
+
+#4 [internal] load build context
+#4 transferring context: 217.68MB 0.6s done
+#4 DONE 0.6s
+
+#5 [1/7] FROM docker.io/emscripten/emsdk:4.0.15@sha256:27bc6267cb285223b8aebb7627bfebae7cb3ad2aaa0d5923b8aa5321793033e8
+#5 sha256:8a60e16b266c6688ea04e1e8bfaf35fb6bab206abef72680879ca7e58395e355 92B / 92B 0.5s done
+#5 sha256:5d4dec650cd1600283c34f9188aa94c6f710bbe9049cd569d57cd501b576914f 0B / 225.77MB 0.6s
+#5 sha256:5d4dec650cd1600283c34f9188aa94c6f710bbe9049cd569d57cd501b576914f 9.44MB / 225.77MB 5.7s
+#5 sha256:5d4dec650cd1600283c34f9188aa94c6f710bbe9049cd569d57cd501b576914f 19.92MB / 225.77MB 10.8s
+#5 sha256:5d4dec650cd1600283c34f9188aa94c6f710bbe9049cd569d57cd501b576914f 31.46MB / 225.77MB 14.0s
+#5 sha256:5d4dec650cd1600283c34f9188aa94c6f710bbe9049cd569d57cd501b576914f 42.99MB / 225.77MB 17.3s
+#5 sha256:5d4dec650cd1600283c34f9188aa94c6f710bbe9049cd569d57cd501b576914f 54.53MB / 225.77MB 20.4s
+#5 sha256:5d4dec650cd1600283c34f9188aa94c6f710bbe9049cd569d57cd501b576914f 66.06MB / 225.77MB 22.8s
+#5 sha256:5d4dec650cd1600283c34f9188aa94c6f710bbe9049cd569d57cd501b576914f 77.59MB / 225.77MB 26.1s
+#5 sha256:5d4dec650cd1600283c34f9188aa94c6f710bbe9049cd569d57cd501b576914f 89.13MB / 225.77MB 28.5s
+#5 sha256:5d4dec650cd1600283c34f9188aa94c6f710bbe9049cd569d57cd501b576914f 100.66MB / 225.77MB 30.9s
+#5 sha256:5d4dec650cd1600283c34f9188aa94c6f710bbe9049cd569d57cd501b576914f 112.20MB / 225.77MB 33.2s
+#5 sha256:5d4dec650cd1600283c34f9188aa94c6f710bbe9049cd569d57cd501b576914f 123.73MB / 225.77MB 35.1s
+#5 sha256:5d4dec650cd1600283c34f9188aa94c6f710bbe9049cd569d57cd501b576914f 135.27MB / 225.77MB 38.7s
+#5 sha256:5d4dec650cd1600283c34f9188aa94c6f710bbe9049cd569d57cd501b576914f 145.75MB / 225.77MB 43.8s
+#5 sha256:5d4dec650cd1600283c34f9188aa94c6f710bbe9049cd569d57cd501b576914f 157.29MB / 225.77MB 47.4s
+#5 sha256:5d4dec650cd1600283c34f9188aa94c6f710bbe9049cd569d57cd501b576914f 168.82MB / 225.77MB 50.3s
+#5 sha256:5d4dec650cd1600283c34f9188aa94c6f710bbe9049cd569d57cd501b576914f 180.36MB / 225.77MB 54.3s
+#5 sha256:5d4dec650cd1600283c34f9188aa94c6f710bbe9049cd569d57cd501b576914f 191.89MB / 225.77MB 58.5s
+#5 sha256:5d4dec650cd1600283c34f9188aa94c6f710bbe9049cd569d57cd501b576914f 203.42MB / 225.77MB 62.4s
+#5 sha256:5d4dec650cd1600283c34f9188aa94c6f710bbe9049cd569d57cd501b576914f 211.81MB / 225.77MB 67.5s
+#5 sha256:5d4dec650cd1600283c34f9188aa94c6f710bbe9049cd569d57cd501b576914f 223.35MB / 225.77MB 72.5s
+#5 sha256:5d4dec650cd1600283c34f9188aa94c6f710bbe9049cd569d57cd501b576914f 225.77MB / 225.77MB 73.6s done
+#5 extracting sha256:5d4dec650cd1600283c34f9188aa94c6f710bbe9049cd569d57cd501b576914f
+#5 extracting sha256:5d4dec650cd1600283c34f9188aa94c6f710bbe9049cd569d57cd501b576914f 4.0s done
+#5 DONE 77.8s
+
+#5 [1/7] FROM docker.io/emscripten/emsdk:4.0.15@sha256:27bc6267cb285223b8aebb7627bfebae7cb3ad2aaa0d5923b8aa5321793033e8
+#5 extracting sha256:8a60e16b266c6688ea04e1e8bfaf35fb6bab206abef72680879ca7e58395e355 0.1s done
+#5 DONE 77.9s
+
+#6 [2/7] RUN apt-get update &&   apt-get install -y --no-install-recommends ca-certificates curl git &&   rm -rf /var/lib/apt/lists/* &&   curl -fsSL     -o /usr/local/bin/nimby     https://github.com/treeform/nimby/releases/download/0.1.27/nimby-Linux-X64 &&   echo "3b3084394bd26b09f84a3f82389f075221c8784893238390939d71dd66ac9e8b  /usr/local/bin/nimby" | sha256sum -c - &&   chmod +x /usr/local/bin/nimby &&   nimby use 2.2.4
+#6 1.924 Get:1 http://security.ubuntu.com/ubuntu jammy-security InRelease [129 kB]
+#6 2.064 Get:2 http://archive.ubuntu.com/ubuntu jammy InRelease [270 kB]
+#6 3.156 Get:3 http://archive.ubuntu.com/ubuntu jammy-updates InRelease [128 kB]
+#6 3.592 Get:4 http://security.ubuntu.com/ubuntu jammy-security/multiverse amd64 Packages [84.1 kB]
+#6 3.797 Get:5 http://archive.ubuntu.com/ubuntu jammy-backports InRelease [127 kB]
+#6 3.930 Get:6 http://security.ubuntu.com/ubuntu jammy-security/main amd64 Packages [4289 kB]
+#6 4.151 Get:7 http://archive.ubuntu.com/ubuntu jammy/main amd64 Packages [1792 kB]
+#6 5.815 Get:8 http://archive.ubuntu.com/ubuntu jammy/restricted amd64 Packages [164 kB]
+#6 5.889 Get:9 http://archive.ubuntu.com/ubuntu jammy/universe amd64 Packages [17.5 MB]
+#6 7.132 Get:10 http://security.ubuntu.com/ubuntu jammy-security/restricted amd64 Packages [7714 kB]
+#6 12.32 Get:11 http://security.ubuntu.com/ubuntu jammy-security/universe amd64 Packages [1317 kB]
+#6 14.20 Get:12 http://archive.ubuntu.com/ubuntu jammy/multiverse amd64 Packages [266 kB]
+#6 14.23 Get:13 http://archive.ubuntu.com/ubuntu jammy-updates/main amd64 Packages [4623 kB]
+#6 16.31 Get:14 http://archive.ubuntu.com/ubuntu jammy-updates/universe amd64 Packages [1620 kB]
+#6 16.77 Get:15 http://archive.ubuntu.com/ubuntu jammy-updates/multiverse amd64 Packages [93.2 kB]
+#6 16.79 Get:16 http://archive.ubuntu.com/ubuntu jammy-updates/restricted amd64 Packages [8007 kB]
+#6 18.99 Get:17 http://archive.ubuntu.com/ubuntu jammy-backports/main amd64 Packages [82.8 kB]
+#6 19.00 Get:18 http://archive.ubuntu.com/ubuntu jammy-backports/universe amd64 Packages [35.6 kB]
+#6 19.39 Fetched 48.2 MB in 18s (2723 kB/s)
+#6 19.39 Reading package lists...
+#6 20.42 Reading package lists...
+#6 21.36 Building dependency tree...
+#6 21.61 Reading state information...
+#6 21.81 The following additional packages will be installed:
+#6 21.81   libcurl4
+#6 21.81 Suggested packages:
+#6 21.81   gettext-base git-daemon-run | git-daemon-sysvinit git-doc git-email git-gui
+#6 21.81   gitk gitweb git-cvs git-mediawiki git-svn
+#6 21.81 Recommended packages:
+#6 21.81   less
+#6 21.85 The following packages will be upgraded:
+#6 21.85   ca-certificates curl git libcurl4
+#6 22.28 4 upgraded, 0 newly installed, 0 to remove and 107 not upgraded.
+#6 22.28 Need to get 3800 kB of archives.
+#6 22.28 After this operation, 53.2 kB disk space will be freed.
+#6 22.28 Get:1 http://archive.ubuntu.com/ubuntu jammy-updates/main amd64 ca-certificates all 20260601~22.04.1 [141 kB]
+#6 23.07 Get:2 http://archive.ubuntu.com/ubuntu jammy-updates/main amd64 curl amd64 7.81.0-1ubuntu1.27 [194 kB]
+#6 23.30 Get:3 http://archive.ubuntu.com/ubuntu jammy-updates/main amd64 libcurl4 amd64 7.81.0-1ubuntu1.27 [292 kB]
+#6 23.52 Get:4 http://archive.ubuntu.com/ubuntu jammy-updates/main amd64 git amd64 1:2.34.1-1ubuntu1.17 [3174 kB]
+#6 25.37 debconf: delaying package configuration, since apt-utils is not installed
+#6 25.42 Fetched 3800 kB in 3s (1152 kB/s)
+#6 25.54 (Reading database ... (Reading database ... 5%(Reading database ... 10%(Reading database ... 15%(Reading database ... 20%(Reading database ... 25%(Reading database ... 30%(Reading database ... 35%(Reading database ... 40%(Reading database ... 45%(Reading database ... 50%(Reading database ... 55%(Reading database ... 60%(Reading database ... 65%(Reading database ... 70%(Reading database ... 75%(Reading database ... 80%(Reading database ... 85%(Reading database ... 90%(Reading database ... 95%(Reading database ... 100%(Reading database ... 17697 files and directories currently installed.)
+#6 25.57 Preparing to unpack .../ca-certificates_20260601~22.04.1_all.deb ...
+#6 25.62 Unpacking ca-certificates (20260601~22.04.1) over (20240203~22.04.1) ...
+#6 25.80 Preparing to unpack .../curl_7.81.0-1ubuntu1.27_amd64.deb ...
+#6 25.81 Unpacking curl (7.81.0-1ubuntu1.27) over (7.81.0-1ubuntu1.20) ...
+#6 25.91 Preparing to unpack .../libcurl4_7.81.0-1ubuntu1.27_amd64.deb ...
+#6 25.92 Unpacking libcurl4:amd64 (7.81.0-1ubuntu1.27) over (7.81.0-1ubuntu1.20) ...
+#6 26.02 Preparing to unpack .../git_1%3a2.34.1-1ubuntu1.17_amd64.deb ...
+#6 26.18 Unpacking git (1:2.34.1-1ubuntu1.17) over (1:2.34.1-1ubuntu1.15) ...
+#6 26.46 Setting up ca-certificates (20260601~22.04.1) ...
+#6 26.77 debconf: unable to initialize frontend: Dialog
+#6 26.77 debconf: (TERM is not set, so the dialog frontend is not usable.)
+#6 26.77 debconf: falling back to frontend: Readline
+#6 42.36 Updating certificates in /etc/ssl/certs...
+#6 50.37 rehash: warning: skipping ca-certificates.crt,it does not contain exactly one certificate or CRL
+#6 50.40 14 added, 39 removed; done.
+#6 50.47 Setting up git (1:2.34.1-1ubuntu1.17) ...
+#6 50.54 Setting up libcurl4:amd64 (7.81.0-1ubuntu1.27) ...
+#6 50.55 Setting up curl (7.81.0-1ubuntu1.27) ...
+#6 50.56 Processing triggers for libc-bin (2.35-0ubuntu3.10) ...
+#6 50.66 Processing triggers for ca-certificates (20260601~22.04.1) ...
+#6 50.70 Updating certificates in /etc/ssl/certs...
+#6 55.96 0 added, 0 removed; done.
+#6 55.96 Running hooks in /etc/ca-certificates/update.d...
+#6 56.01 
+#6 56.71 done.
+#6 56.71 done.
+#6 64.38 /usr/local/bin/nimby: OK
+#6 64.40 Nimby 0.1.27
+#6 64.40 Downloading: https://github.com/treeform/nimby-nim-builds/releases/download/2.2.4/nim-2.2.4-Linux-X64.tar.gz
+#6 78.08 Extracting the Nim compiler
+#6 78.58 Installed Nim 2.2.4 to: /root/.nimby/nim-2.2.4
+#6 78.66 Copied /root/.nimby/nim-2.2.4 to /root/.nimby/nim
+#6 78.67 Add Nim to your PATH for this session with one of:
+#6 78.67 export PATH="/root/.nimby/nim/bin:$PATH"      # bash/zsh
+#6 78.67 fish_add_path /root/.nimby/nim/bin              # fish
+#6 DONE 79.1s
+
+#7 [3/7] WORKDIR /workspace/ctf
+#7 DONE 0.0s
+
+#8 [4/7] COPY nimby.lock .
+#8 DONE 0.0s
+
+#9 [5/7] RUN nimby --global sync nimby.lock
+#9 0.112 Nimby 0.1.27
+#9 0.114 Using global packages directory.
+#9 1.883 Cloning into '/root/.nimby/pkgs/taggy'...
+#9 1.883 
+#9 3.334 Cloning into '/root/.nimby/pkgs/bitworld'...
+#9 3.334 
+#9 3.902 From https://github.com/treeform/taggy
+#9 3.902  * branch            0013a4bf921dc9fa735f81577518b2c1e155f062 -> FETCH_HEAD
+#9 3.902 
+#9 3.955 Note: switching to '0013a4bf921dc9fa735f81577518b2c1e155f062'.
+#9 3.955 
+#9 3.955 You are in 'detached HEAD' state. You can look around, make experimental
+#9 3.955 changes and commit them, and you can discard any commits you make in this
+#9 3.955 state without impacting any branches by switching back to a branch.
+#9 3.955 
+#9 3.955 If you want to create a new branch to retain commits you create, you may
+#9 3.955 do so (now or later) by using -c with the switch command. Example:
+#9 3.955 
+#9 3.955   git switch -c <new-branch-name>
+#9 3.955 
+#9 3.955 Or undo this operation with:
+#9 3.955 
+#9 3.955   git switch -
+#9 3.955 
+#9 3.955 Turn off this advice by setting config variable advice.detachedHead to false
+#9 3.955 
+#9 3.955 HEAD is now at 0013a4b 0.0.3
+#9 3.955 
+#9 3.955 Installed package: taggy
+#9 5.331 From https://github.com/Metta-AI/bitworld
+#9 5.331  * branch            9af28b41ba2c92081d49cb27f2421492b85ead8d -> FETCH_HEAD
+#9 5.331 
+#9 5.397 Note: switching to '9af28b41ba2c92081d49cb27f2421492b85ead8d'.
+#9 5.397 
+#9 5.397 You are in 'detached HEAD' state. You can look around, make experimental
+#9 5.397 changes and commit them, and you can discard any commits you make in this
+#9 5.397 state without impacting any branches by switching back to a branch.
+#9 5.397 
+#9 5.397 If you want to create a new branch to retain commits you create, you may
+#9 5.397 do so (now or later) by using -c with the switch command. Example:
+#9 5.397 
+#9 5.397   git switch -c <new-branch-name>
+#9 5.397 
+#9 5.397 Or undo this operation with:
+#9 5.397 
+#9 5.397   git switch -
+#9 5.397 
+#9 5.397 Turn off this advice by setting config variable advice.detachedHead to false
+#9 5.397 
+#9 5.397 HEAD is now at 9af28b4 Merge pull request #235 from Metta-AI/debug-sprite-hd-pin
+#9 5.397 
+#9 5.397 Installed package: bitworld
+#9 5.847 Cloning into '/root/.nimby/pkgs/silky'...
+#9 5.847 
+#9 6.435 Cloning into '/root/.nimby/pkgs/whisky'...
+#9 6.435 
+#9 7.061 From https://github.com/treeform/silky
+#9 7.061  * branch            d5225513d6496138d4e29b6930af22172c1fe75b -> FETCH_HEAD
+#9 7.061 
+#9 7.131 Note: switching to 'd5225513d6496138d4e29b6930af22172c1fe75b'.
+#9 7.131 
+#9 7.131 You are in 'detached HEAD' state. You can look around, make experimental
+#9 7.131 changes and commit them, and you can discard any commits you make in this
+#9 7.131 state without impacting any branches by switching back to a branch.
+#9 7.131 
+#9 7.131 If you want to create a new branch to retain commits you create, you may
+#9 7.131 do so (now or later) by using -c with the switch command. Example:
+#9 7.131 
+#9 7.131   git switch -c <new-branch-name>
+#9 7.131 
+#9 7.131 Or undo this operation with:
+#9 7.131 
+#9 7.131   git switch -
+#9 7.131 
+#9 7.131 Turn off this advice by setting config variable advice.detachedHead to false
+#9 7.131 
+#9 7.131 HEAD is now at d522551 Merge pull request #45 from treeform/heysokam/masking
+#9 7.131 
+#9 7.131 Installed package: silky
+#9 7.453 From https://github.com/guzba/whisky
+#9 7.453  * branch            494fb1046f5a563defc87ac36b8c62846ee7ea2c -> FETCH_HEAD
+#9 7.453 
+#9 7.504 Note: switching to '494fb1046f5a563defc87ac36b8c62846ee7ea2c'.
+#9 7.504 
+#9 7.504 You are in 'detached HEAD' state. You can look around, make experimental
+#9 7.504 changes and commit them, and you can discard any commits you make in this
+#9 7.504 state without impacting any branches by switching back to a branch.
+#9 7.504 
+#9 7.504 If you want to create a new branch to retain commits you create, you may
+#9 7.504 do so (now or later) by using -c with the switch command. Example:
+#9 7.504 
+#9 7.504   git switch -c <new-branch-name>
+#9 7.504 
+#9 7.504 Or undo this operation with:
+#9 7.504 
+#9 7.504   git switch -
+#9 7.504 
+#9 7.504 Turn off this advice by setting config variable advice.detachedHead to false
+#9 7.504 
+#9 7.504 HEAD is now at 494fb10 Merge pull request #8 from treeform/expose-socket-field
+#9 7.504 
+#9 7.505 Installed package: whisky
+#9 8.541 Cloning into '/root/.nimby/pkgs/windy'...
+#9 8.541 
+#9 8.753 Cloning into '/root/.nimby/pkgs/mummy'...
+#9 8.753 
+#9 9.847 From https://github.com/treeform/windy
+#9 9.847  * branch            1b5f60bbd2027729d661ccab2c19fcaec6ef9376 -> FETCH_HEAD
+#9 9.847 
+#9 9.901 Note: switching to '1b5f60bbd2027729d661ccab2c19fcaec6ef9376'.
+#9 9.901 
+#9 9.901 You are in 'detached HEAD' state. You can look around, make experimental
+#9 9.901 changes and commit them, and you can discard any commits you make in this
+#9 9.901 state without impacting any branches by switching back to a branch.
+#9 9.901 
+#9 9.901 If you want to create a new branch to retain commits you create, you may
+#9 9.901 do so (now or later) by using -c with the switch command. Example:
+#9 9.901 
+#9 9.901   git switch -c <new-branch-name>
+#9 9.901 
+#9 9.901 Or undo this operation with:
+#9 9.901 
+#9 9.901   git switch -
+#9 9.901 
+#9 9.901 Turn off this advice by setting config variable advice.detachedHead to false
+#9 9.901 
+#9 9.901 HEAD is now at 1b5f60b Add ws send.
+#9 9.901 
+#9 9.901 Installed package: windy
+#9 10.13 From https://github.com/Metta-AI/mummy
+#9 10.13  * branch            e26820e5f6efb578662ae268befd898115f7dc88 -> FETCH_HEAD
+#9 10.13 
+#9 10.19 Note: switching to 'e26820e5f6efb578662ae268befd898115f7dc88'.
+#9 10.19 
+#9 10.19 You are in 'detached HEAD' state. You can look around, make experimental
+#9 10.19 changes and commit them, and you can discard any commits you make in this
+#9 10.19 state without impacting any branches by switching back to a branch.
+#9 10.19 
+#9 10.19 If you want to create a new branch to retain commits you create, you may
+#9 10.19 do so (now or later) by using -c with the switch command. Example:
+#9 10.19 
+#9 10.19   git switch -c <new-branch-name>
+#9 10.19 
+#9 10.19 Or undo this operation with:
+#9 10.19 
+#9 10.19   git switch -
+#9 10.19 
+#9 10.19 Turn off this advice by setting config variable advice.detachedHead to false
+#9 10.19 
+#9 10.19 HEAD is now at e26820e Add real-socket tests for the per-WebSocket transport limits
+#9 10.19 
+#9 10.19 Installed package: mummy
+#9 15.64 Cloning into '/root/.nimby/pkgs/webby'...
+#9 15.64 
+#9 16.78 From https://github.com/treeform/webby
+#9 16.78  * branch            55a2c03abbd32abf4775712c1959d975dc982549 -> FETCH_HEAD
+#9 16.78 
+#9 16.83 Note: switching to '55a2c03abbd32abf4775712c1959d975dc982549'.
+#9 16.83 
+#9 16.83 You are in 'detached HEAD' state. You can look around, make experimental
+#9 16.83 changes and commit them, and you can discard any commits you make in this
+#9 16.83 state without impacting any branches by switching back to a branch.
+#9 16.83 
+#9 16.83 If you want to create a new branch to retain commits you create, you may
+#9 16.83 do so (now or later) by using -c with the switch command. Example:
+#9 16.83 
+#9 16.83   git switch -c <new-branch-name>
+#9 16.83 
+#9 16.83 Or undo this operation with:
+#9 16.83 
+#9 16.83   git switch -
+#9 16.83 
+#9 16.83 Turn off this advice by setting config variable advice.detachedHead to false
+#9 16.83 
+#9 16.83 HEAD is now at 55a2c03 Merge pull request #24 from guzba/master
+#9 16.83 
+#9 16.83 Installed package: webby
+#9 18.14 Cloning into '/root/.nimby/pkgs/curly'...
+#9 18.14 
+#9 18.81 Cloning into '/root/.nimby/pkgs/supersnappy'...
+#9 18.81 
+#9 19.31 From https://github.com/guzba/curly
+#9 19.31  * branch            a0f42baacbc48f4e5924b18854c0df9dcc251466 -> FETCH_HEAD
+#9 19.31 
+#9 19.36 Note: switching to 'a0f42baacbc48f4e5924b18854c0df9dcc251466'.
+#9 19.36 
+#9 19.36 You are in 'detached HEAD' state. You can look around, make experimental
+#9 19.36 changes and commit them, and you can discard any commits you make in this
+#9 19.36 state without impacting any branches by switching back to a branch.
+#9 19.36 
+#9 19.36 If you want to create a new branch to retain commits you create, you may
+#9 19.36 do so (now or later) by using -c with the switch command. Example:
+#9 19.36 
+#9 19.36   git switch -c <new-branch-name>
+#9 19.36 
+#9 19.36 Or undo this operation with:
+#9 19.36 
+#9 19.36   git switch -
+#9 19.36 
+#9 19.36 Turn off this advice by setting config variable advice.detachedHead to false
+#9 19.36 
+#9 19.36 HEAD is now at a0f42ba Merge pull request #22 from guzba/ryan2
+#9 19.36 
+#9 19.36 Installed package: curly
+#9 19.82 From https://github.com/guzba/supersnappy
+#9 19.82  * branch            ff8fe2bffefc1f4edc15deb20d921f600babb8c4 -> FETCH_HEAD
+#9 19.82 
+#9 19.95 Note: switching to 'ff8fe2bffefc1f4edc15deb20d921f600babb8c4'.
+#9 19.95 
+#9 19.95 You are in 'detached HEAD' state. You can look around, make experimental
+#9 19.95 changes and commit them, and you can discard any commits you make in this
+#9 19.95 state without impacting any branches by switching back to a branch.
+#9 19.95 
+#9 19.95 If you want to create a new branch to retain commits you create, you may
+#9 19.95 do so (now or later) by using -c with the switch command. Example:
+#9 19.95 
+#9 19.95   git switch -c <new-branch-name>
+#9 19.95 
+#9 19.95 Or undo this operation with:
+#9 19.95 
+#9 19.95   git switch -
+#9 19.95 
+#9 19.95 Turn off this advice by setting config variable advice.detachedHead to false
+#9 19.95 
+#9 19.95 HEAD is now at ff8fe2b update for 2.0
+#9 19.95 
+#9 19.95 Installed package: supersnappy
+#9 20.60 Cloning into '/root/.nimby/pkgs/libcurl'...
+#9 20.60 
+#9 21.72 From https://github.com/Araq/libcurl
+#9 21.72  * branch            7a420498f60a31d99fc8513886ce36c4e8c3a4ae -> FETCH_HEAD
+#9 21.72 
+#9 21.77 Note: switching to '7a420498f60a31d99fc8513886ce36c4e8c3a4ae'.
+#9 21.77 
+#9 21.77 You are in 'detached HEAD' state. You can look around, make experimental
+#9 21.77 changes and commit them, and you can discard any commits you make in this
+#9 21.77 state without impacting any branches by switching back to a branch.
+#9 21.77 
+#9 21.77 If you want to create a new branch to retain commits you create, you may
+#9 21.77 do so (now or later) by using -c with the switch command. Example:
+#9 21.77 
+#9 21.77   git switch -c <new-branch-name>
+#9 21.77 
+#9 21.77 Or undo this operation with:
+#9 21.77 
+#9 21.77   git switch -
+#9 21.77 
+#9 21.77 Turn off this advice by setting config variable advice.detachedHead to false
+#9 21.77 
+#9 21.77 HEAD is now at 7a42049 Merge pull request #8 from lantos-lgtm/patch-1
+#9 21.77 
+#9 21.77 Installed package: libcurl
+#9 21.95 Cloning into '/root/.nimby/pkgs/chroma'...
+#9 21.95 
+#9 22.53 Cloning into '/root/.nimby/pkgs/pixie'...
+#9 22.53 
+#9 22.53 Cloning into '/root/.nimby/pkgs/paddy'...
+#9 22.53 
+#9 22.96 From https://github.com/treeform/chroma
+#9 22.96  * branch            2381748f92e5ea16cb2403ff7e20c6dd5443a59d -> FETCH_HEAD
+#9 22.96 
+#9 22.98 Cloning into '/root/.nimby/pkgs/flatty'...
+#9 22.98 
+#9 23.01 Note: switching to '2381748f92e5ea16cb2403ff7e20c6dd5443a59d'.
+#9 23.01 
+#9 23.01 You are in 'detached HEAD' state. You can look around, make experimental
+#9 23.01 changes and commit them, and you can discard any commits you make in this
+#9 23.01 state without impacting any branches by switching back to a branch.
+#9 23.01 
+#9 23.01 If you want to create a new branch to retain commits you create, you may
+#9 23.01 do so (now or later) by using -c with the switch command. Example:
+#9 23.01 
+#9 23.01   git switch -c <new-branch-name>
+#9 23.01 
+#9 23.01 Or undo this operation with:
+#9 23.01 
+#9 23.01   git switch -
+#9 23.01 
+#9 23.01 Turn off this advice by setting config variable advice.detachedHead to false
+#9 23.01 
+#9 23.01 HEAD is now at 2381748 Use standard actions.
+#9 23.01 
+#9 23.01 Installed package: chroma
+#9 23.64 From https://github.com/treeform/paddy
+#9 23.64  * branch            3fcec08a559479cc8d2fd769f26c6d56bb27a1a1 -> FETCH_HEAD
+#9 23.64 
+#9 23.69 Note: switching to '3fcec08a559479cc8d2fd769f26c6d56bb27a1a1'.
+#9 23.69 
+#9 23.69 You are in 'detached HEAD' state. You can look around, make experimental
+#9 23.69 changes and commit them, and you can discard any commits you make in this
+#9 23.69 state without impacting any branches by switching back to a branch.
+#9 23.69 
+#9 23.69 If you want to create a new branch to retain commits you create, you may
+#9 23.69 do so (now or later) by using -c with the switch command. Example:
+#9 23.69 
+#9 23.69   git switch -c <new-branch-name>
+#9 23.69 
+#9 23.69 Or undo this operation with:
+#9 23.69 
+#9 23.69   git switch -
+#9 23.69 
+#9 23.69 Turn off this advice by setting config variable advice.detachedHead to false
+#9 23.69 
+#9 23.69 HEAD is now at 3fcec08 Send controllers to unfocused windows too.
+#9 23.69 
+#9 23.69 Installed package: paddy
+#9 23.96 From https://github.com/treeform/pixie
+#9 23.96  * branch            6d47166df0c89c91be4e712734f78af24c4d8361 -> FETCH_HEAD
+#9 23.96 
+#9 23.97 From https://github.com/treeform/flatty
+#9 23.97  * branch            05d878b397933331966a7f80dd0c55664559201f -> FETCH_HEAD
+#9 23.97 
+#9 24.03 Note: switching to '05d878b397933331966a7f80dd0c55664559201f'.
+#9 24.03 
+#9 24.03 You are in 'detached HEAD' state. You can look around, make experimental
+#9 24.03 changes and commit them, and you can discard any commits you make in this
+#9 24.03 state without impacting any branches by switching back to a branch.
+#9 24.03 
+#9 24.03 If you want to create a new branch to retain commits you create, you may
+#9 24.03 do so (now or later) by using -c with the switch command. Example:
+#9 24.03 
+#9 24.03   git switch -c <new-branch-name>
+#9 24.03 
+#9 24.03 Or undo this operation with:
+#9 24.03 
+#9 24.03   git switch -
+#9 24.03 
+#9 24.03 Turn off this advice by setting config variable advice.detachedHead to false
+#9 24.03 
+#9 24.03 HEAD is now at 05d878b Merge pull request #44 from treeform/fmt1
+#9 24.03 
+#9 24.03 Installed package: flatty
+#9 24.19 Note: switching to '6d47166df0c89c91be4e712734f78af24c4d8361'.
+#9 24.19 
+#9 24.19 You are in 'detached HEAD' state. You can look around, make experimental
+#9 24.19 changes and commit them, and you can discard any commits you make in this
+#9 24.19 state without impacting any branches by switching back to a branch.
+#9 24.19 
+#9 24.19 If you want to create a new branch to retain commits you create, you may
+#9 24.19 do so (now or later) by using -c with the switch command. Example:
+#9 24.19 
+#9 24.19   git switch -c <new-branch-name>
+#9 24.19 
+#9 24.19 Or undo this operation with:
+#9 24.19 
+#9 24.19   git switch -
+#9 24.19 
+#9 24.19 Turn off this advice by setting config variable advice.detachedHead to false
+#9 24.19 
+#9 24.19 HEAD is now at 6d47166 Merge pull request #568 from treeform/vmath_v3c
+#9 24.19 
+#9 24.19 Installed package: pixie
+#9 25.03 Cloning into '/root/.nimby/pkgs/bumpy'...
+#9 25.03 
+#9 25.54 Cloning into '/root/.nimby/pkgs/crunchy'...
+#9 25.54 
+#9 26.06 From https://github.com/treeform/bumpy
+#9 26.06  * branch            8f4d5ee2005af166b0a08e64e2035f8ff27f1531 -> FETCH_HEAD
+#9 26.06 
+#9 26.11 Note: switching to '8f4d5ee2005af166b0a08e64e2035f8ff27f1531'.
+#9 26.11 
+#9 26.11 You are in 'detached HEAD' state. You can look around, make experimental
+#9 26.11 changes and commit them, and you can discard any commits you make in this
+#9 26.11 state without impacting any branches by switching back to a branch.
+#9 26.11 
+#9 26.11 If you want to create a new branch to retain commits you create, you may
+#9 26.11 do so (now or later) by using -c with the switch command. Example:
+#9 26.11 
+#9 26.11   git switch -c <new-branch-name>
+#9 26.11 
+#9 26.11 Or undo this operation with:
+#9 26.11 
+#9 26.11   git switch -
+#9 26.11 
+#9 26.11 Turn off this advice by setting config variable advice.detachedHead to false
+#9 26.11 
+#9 26.11 HEAD is now at 8f4d5ee Merge pull request #30 from treeform/DocFix
+#9 26.11 
+#9 26.11 Installed package: bumpy
+#9 26.13 Cloning into '/root/.nimby/pkgs/vmath'...
+#9 26.13 
+#9 26.62 From https://github.com/guzba/crunchy
+#9 26.62  * branch            98eb6526982bb8aae8eec6e8781f4539fa19e049 -> FETCH_HEAD
+#9 26.62 
+#9 26.67 Note: switching to '98eb6526982bb8aae8eec6e8781f4539fa19e049'.
+#9 26.67 
+#9 26.67 You are in 'detached HEAD' state. You can look around, make experimental
+#9 26.67 changes and commit them, and you can discard any commits you make in this
+#9 26.67 state without impacting any branches by switching back to a branch.
+#9 26.67 
+#9 26.67 If you want to create a new branch to retain commits you create, you may
+#9 26.67 do so (now or later) by using -c with the switch command. Example:
+#9 26.67 
+#9 26.67   git switch -c <new-branch-name>
+#9 26.67 
+#9 26.67 Or undo this operation with:
+#9 26.67 
+#9 26.67   git switch -
+#9 26.67 
+#9 26.67 Turn off this advice by setting config variable advice.detachedHead to false
+#9 26.67 
+#9 26.67 HEAD is now at 98eb652 Merge pull request #25 from guzba/ryan
+#9 26.67 
+#9 26.67 Installed package: crunchy
+#9 27.03 Cloning into '/root/.nimby/pkgs/nimsimd'...
+#9 27.03 
+#9 27.20 From https://github.com/treeform/vmath
+#9 27.20  * branch            7bd9f6e6b23ca3b751be42f20c8025d320881a00 -> FETCH_HEAD
+#9 27.20 
+#9 27.26 Note: switching to '7bd9f6e6b23ca3b751be42f20c8025d320881a00'.
+#9 27.26 
+#9 27.26 You are in 'detached HEAD' state. You can look around, make experimental
+#9 27.26 changes and commit them, and you can discard any commits you make in this
+#9 27.26 state without impacting any branches by switching back to a branch.
+#9 27.26 
+#9 27.26 If you want to create a new branch to retain commits you create, you may
+#9 27.26 do so (now or later) by using -c with the switch command. Example:
+#9 27.26 
+#9 27.26   git switch -c <new-branch-name>
+#9 27.26 
+#9 27.26 Or undo this operation with:
+#9 27.26 
+#9 27.26   git switch -
+#9 27.26 
+#9 27.26 Turn off this advice by setting config variable advice.detachedHead to false
+#9 27.26 
+#9 27.26 HEAD is now at 7bd9f6e Merge pull request #82 from treeform/version_3
+#9 27.26 
+#9 27.26 Installed package: vmath
+#9 27.98 Cloning into '/root/.nimby/pkgs/jsony'...
+#9 27.98 
+#9 28.49 From https://github.com/guzba/nimsimd
+#9 28.49  * branch            3f6b2668ffb0867d0bf786a658b817763e611350 -> FETCH_HEAD
+#9 28.49 
+#9 28.53 Note: switching to '3f6b2668ffb0867d0bf786a658b817763e611350'.
+#9 28.53 
+#9 28.53 You are in 'detached HEAD' state. You can look around, make experimental
+#9 28.53 changes and commit them, and you can discard any commits you make in this
+#9 28.53 state without impacting any branches by switching back to a branch.
+#9 28.53 
+#9 28.53 If you want to create a new branch to retain commits you create, you may
+#9 28.53 do so (now or later) by using -c with the switch command. Example:
+#9 28.53 
+#9 28.53   git switch -c <new-branch-name>
+#9 28.53 
+#9 28.53 Or undo this operation with:
+#9 28.53 
+#9 28.53   git switch -
+#9 28.53 
+#9 28.53 Turn off this advice by setting config variable advice.detachedHead to false
+#9 28.53 
+#9 28.53 HEAD is now at 3f6b266 Merge pull request #32 from guzba/ryan
+#9 28.53 
+#9 28.53 Installed package: nimsimd
+#9 29.36 From https://github.com/treeform/jsony
+#9 29.36  * branch            fbbf55e94e204d7daf583813d79f7327c8001d17 -> FETCH_HEAD
+#9 29.36 
+#9 29.41 Note: switching to 'fbbf55e94e204d7daf583813d79f7327c8001d17'.
+#9 29.41 
+#9 29.41 You are in 'detached HEAD' state. You can look around, make experimental
+#9 29.41 changes and commit them, and you can discard any commits you make in this
+#9 29.41 state without impacting any branches by switching back to a branch.
+#9 29.41 
+#9 29.41 If you want to create a new branch to retain commits you create, you may
+#9 29.41 do so (now or later) by using -c with the switch command. Example:
+#9 29.41 
+#9 29.41   git switch -c <new-branch-name>
+#9 29.41 
+#9 29.41 Or undo this operation with:
+#9 29.41 
+#9 29.41   git switch -
+#9 29.41 
+#9 29.41 Turn off this advice by setting config variable advice.detachedHead to false
+#9 29.41 
+#9 29.41 HEAD is now at fbbf55e Merge pull request #110 from treeform/duplicate-discriminator
+#9 29.41 
+#9 29.41 Installed package: jsony
+#9 30.01 Cloning into '/root/.nimby/pkgs/urlly'...
+#9 30.01 
+#9 31.47 From https://github.com/treeform/urlly
+#9 31.47  * branch            99784779f05649df25fd9c33003d8ef6de027345 -> FETCH_HEAD
+#9 31.47 
+#9 31.52 Note: switching to '99784779f05649df25fd9c33003d8ef6de027345'.
+#9 31.52 
+#9 31.52 You are in 'detached HEAD' state. You can look around, make experimental
+#9 31.52 changes and commit them, and you can discard any commits you make in this
+#9 31.52 state without impacting any branches by switching back to a branch.
+#9 31.52 
+#9 31.52 If you want to create a new branch to retain commits you create, you may
+#9 31.52 do so (now or later) by using -c with the switch command. Example:
+#9 31.52 
+#9 31.52   git switch -c <new-branch-name>
+#9 31.52 
+#9 31.52 Or undo this operation with:
+#9 31.52 
+#9 31.52   git switch -
+#9 31.52 
+#9 31.52 Turn off this advice by setting config variable advice.detachedHead to false
+#9 31.52 
+#9 31.52 HEAD is now at 9978477 Switch to github action doc generator.
+#9 31.52 
+#9 31.52 Installed package: urlly
+#9 31.94 Cloning into '/root/.nimby/pkgs/shady'...
+#9 31.94 
+#9 32.98 Cloning into '/root/.nimby/pkgs/ws'...
+#9 32.98 
+#9 33.28 Cloning into '/root/.nimby/pkgs/opengl'...
+#9 33.28 
+#9 33.53 From https://github.com/treeform/shady
+#9 33.53  * branch            c89db58632c5442df16251b3e15cb43c5d52e2a6 -> FETCH_HEAD
+#9 33.53 
+#9 33.61 Note: switching to 'c89db58632c5442df16251b3e15cb43c5d52e2a6'.
+#9 33.61 
+#9 33.61 You are in 'detached HEAD' state. You can look around, make experimental
+#9 33.61 changes and commit them, and you can discard any commits you make in this
+#9 33.61 state without impacting any branches by switching back to a branch.
+#9 33.61 
+#9 33.61 If you want to create a new branch to retain commits you create, you may
+#9 33.61 do so (now or later) by using -c with the switch command. Example:
+#9 33.61 
+#9 33.61   git switch -c <new-branch-name>
+#9 33.61 
+#9 33.61 Or undo this operation with:
+#9 33.61 
+#9 33.61   git switch -
+#9 33.61 
+#9 33.61 Turn off this advice by setting config variable advice.detachedHead to false
+#9 33.61 
+#9 33.61 HEAD is now at c89db58 Update README shader examples. (#31)
+#9 33.61 
+#9 33.61 Installed package: shady
+#9 34.15 From https://github.com/nim-lang/opengl
+#9 34.15  * branch            8e2e098f82dc5eefd874488c37b5830233cd18f4 -> FETCH_HEAD
+#9 34.15 
+#9 34.20 Note: switching to '8e2e098f82dc5eefd874488c37b5830233cd18f4'.
+#9 34.20 
+#9 34.20 You are in 'detached HEAD' state. You can look around, make experimental
+#9 34.20 changes and commit them, and you can discard any commits you make in this
+#9 34.20 state without impacting any branches by switching back to a branch.
+#9 34.20 
+#9 34.20 If you want to create a new branch to retain commits you create, you may
+#9 34.20 do so (now or later) by using -c with the switch command. Example:
+#9 34.20 
+#9 34.20   git switch -c <new-branch-name>
+#9 34.20 
+#9 34.20 Or undo this operation with:
+#9 34.20 
+#9 34.20   git switch -
+#9 34.20 
+#9 34.20 Turn off this advice by setting config variable advice.detachedHead to false
+#9 34.20 
+#9 34.20 HEAD is now at 8e2e098 bump to 1.2.9 in order to fix the pre-existing wrong tag (#99)
+#9 34.20 
+#9 34.20 Installed package: opengl
+#9 34.23 From https://github.com/treeform/ws
+#9 34.23  * branch            cbb8f763b436669392d10baec2a45778395395cc -> FETCH_HEAD
+#9 34.23 
+#9 34.29 Note: switching to 'cbb8f763b436669392d10baec2a45778395395cc'.
+#9 34.29 
+#9 34.29 You are in 'detached HEAD' state. You can look around, make experimental
+#9 34.29 changes and commit them, and you can discard any commits you make in this
+#9 34.29 state without impacting any branches by switching back to a branch.
+#9 34.29 
+#9 34.29 If you want to create a new branch to retain commits you create, you may
+#9 34.29 do so (now or later) by using -c with the switch command. Example:
+#9 34.29 
+#9 34.29   git switch -c <new-branch-name>
+#9 34.29 
+#9 34.29 Or undo this operation with:
+#9 34.29 
+#9 34.29   git switch -
+#9 34.29 
+#9 34.29 Turn off this advice by setting config variable advice.detachedHead to false
+#9 34.29 
+#9 34.29 HEAD is now at cbb8f76 FIx {.gcsafe.} issue in test.
+#9 34.29 
+#9 34.29 Installed package: ws
+#9 34.39 Cloning into '/root/.nimby/pkgs/zippy'...
+#9 34.39 
+#9 35.76 From https://github.com/guzba/zippy
+#9 35.76  * branch            bcb8c1e1be6abb0a0e35a3c6040cdd9391cc993f -> FETCH_HEAD
+#9 35.76 
+#9 35.90 Note: switching to 'bcb8c1e1be6abb0a0e35a3c6040cdd9391cc993f'.
+#9 35.90 
+#9 35.90 You are in 'detached HEAD' state. You can look around, make experimental
+#9 35.90 changes and commit them, and you can discard any commits you make in this
+#9 35.90 state without impacting any branches by switching back to a branch.
+#9 35.90 
+#9 35.90 If you want to create a new branch to retain commits you create, you may
+#9 35.90 do so (now or later) by using -c with the switch command. Example:
+#9 35.90 
+#9 35.90   git switch -c <new-branch-name>
+#9 35.90 
+#9 35.90 Or undo this operation with:
+#9 35.90 
+#9 35.90   git switch -
+#9 35.90 
+#9 35.90 Turn off this advice by setting config variable advice.detachedHead to false
+#9 35.90 
+#9 35.90 HEAD is now at bcb8c1e Merge pull request #105 from guzba/ryan
+#9 35.90 
+#9 35.90 Installed package: zippy
+#9 35.98 Cloning into '/root/.nimby/pkgs/fluffy'...
+#9 35.98 
+#9 37.54 Cloning into '/root/.nimby/pkgs/metal4'...
+#9 37.54 
+#9 37.84 From https://github.com/treeform/fluffy
+#9 37.84  * branch            2012906732cc104dc08fb80a3cec976ddfd9a98a -> FETCH_HEAD
+#9 37.84 
+#9 37.94 Note: switching to '2012906732cc104dc08fb80a3cec976ddfd9a98a'.
+#9 37.94 
+#9 37.94 You are in 'detached HEAD' state. You can look around, make experimental
+#9 37.94 changes and commit them, and you can discard any commits you make in this
+#9 37.94 state without impacting any branches by switching back to a branch.
+#9 37.94 
+#9 37.94 If you want to create a new branch to retain commits you create, you may
+#9 37.94 do so (now or later) by using -c with the switch command. Example:
+#9 37.94 
+#9 37.94   git switch -c <new-branch-name>
+#9 37.94 
+#9 37.94 Or undo this operation with:
+#9 37.94 
+#9 37.94   git switch -
+#9 37.94 
+#9 37.94 Turn off this advice by setting config variable advice.detachedHead to false
+#9 37.94 
+#9 37.94 HEAD is now at 2012906 Use the new silky API.
+#9 37.94 
+#9 37.94 Installed package: fluffy
+#9 38.66 From https://github.com/treeform/metal4
+#9 38.66  * branch            46d0bc5afd65a563ecf9c5c93004b357733594c1 -> FETCH_HEAD
+#9 38.66 
+#9 38.72 Note: switching to '46d0bc5afd65a563ecf9c5c93004b357733594c1'.
+#9 38.72 
+#9 38.72 You are in 'detached HEAD' state. You can look around, make experimental
+#9 38.72 changes and commit them, and you can discard any commits you make in this
+#9 38.72 state without impacting any branches by switching back to a branch.
+#9 38.72 
+#9 38.72 If you want to create a new branch to retain commits you create, you may
+#9 38.72 do so (now or later) by using -c with the switch command. Example:
+#9 38.72 
+#9 38.72   git switch -c <new-branch-name>
+#9 38.72 
+#9 38.72 Or undo this operation with:
+#9 38.72 
+#9 38.72   git switch -
+#9 38.72 
+#9 38.72 Turn off this advice by setting config variable advice.detachedHead to false
+#9 38.72 
+#9 38.72 HEAD is now at 46d0bc5 Merge pull request #3 from treeform/Testing
+#9 38.72 
+#9 38.72 Installed package: metal4
+#9 39.20 Cloning into '/root/.nimby/pkgs/vk14'...
+#9 39.20 
+#9 39.28 Cloning into '/root/.nimby/pkgs/dx12'...
+#9 39.28 
+#9 40.15 From https://github.com/treeform/vk14
+#9 40.15  * branch            68841f5e1a13247e7a463bfe79beb27232cbd6c5 -> FETCH_HEAD
+#9 40.15 
+#9 40.22 Note: switching to '68841f5e1a13247e7a463bfe79beb27232cbd6c5'.
+#9 40.22 
+#9 40.22 You are in 'detached HEAD' state. You can look around, make experimental
+#9 40.22 changes and commit them, and you can discard any commits you make in this
+#9 40.22 state without impacting any branches by switching back to a branch.
+#9 40.22 
+#9 40.22 If you want to create a new branch to retain commits you create, you may
+#9 40.22 do so (now or later) by using -c with the switch command. Example:
+#9 40.22 
+#9 40.22   git switch -c <new-branch-name>
+#9 40.22 
+#9 40.22 Or undo this operation with:
+#9 40.22 
+#9 40.22   git switch -
+#9 40.22 
+#9 40.22 Turn off this advice by setting config variable advice.detachedHead to false
+#9 40.22 
+#9 40.22 HEAD is now at 68841f5 Merge pull request #4 from treeform/codex/vkpr
+#9 40.22 
+#9 40.22 Installed package: vk14
+#9 40.25 From https://github.com/treeform/dx12
+#9 40.25  * branch            11f7fd5a6223e71d52a360f701145e63f306559f -> FETCH_HEAD
+#9 40.25 
+#9 40.31 Note: switching to '11f7fd5a6223e71d52a360f701145e63f306559f'.
+#9 40.31 
+#9 40.31 You are in 'detached HEAD' state. You can look around, make experimental
+#9 40.31 changes and commit them, and you can discard any commits you make in this
+#9 40.31 state without impacting any branches by switching back to a branch.
+#9 40.31 
+#9 40.31 If you want to create a new branch to retain commits you create, you may
+#9 40.31 do so (now or later) by using -c with the switch command. Example:
+#9 40.31 
+#9 40.31   git switch -c <new-branch-name>
+#9 40.31 
+#9 40.31 Or undo this operation with:
+#9 40.31 
+#9 40.31   git switch -
+#9 40.31 
+#9 40.31 Turn off this advice by setting config variable advice.detachedHead to false
+#9 40.31 
+#9 40.31 HEAD is now at 11f7fd5 Merge pull request #3 from treeform/actions
+#9 40.31 
+#9 40.31 Installed package: dx12
+#9 40.32 Took: 40.20 seconds
+#9 DONE 40.8s
+
+#10 [6/7] COPY . .
+#10 DONE 0.7s
+
+#11 [7/7] RUN nim c -d:emscripten -d:ctfSimSourcesStamp="4767e23bd61ec4a620c86f64d410e9a409c571f1ec746cb79920ac17cd33f1f8"     replay-viewer/ctf_replay.nim &&   nim c -r --hints:off -o:/tmp/gen_wire_constants tools/gen_wire_constants.nim     > replay-viewer/dist/wire_constants.js &&   cp client/broadcast_core.js replay-viewer/dist/broadcast_core.js &&   cp client/chrome_common.js replay-viewer/dist/chrome_common.js &&   cp data/font.ttf replay-viewer/dist/font.ttf &&   cp replay-viewer/static_replay.js replay-viewer/dist/static_replay.js &&   cp replay-viewer/static_replay_worker.js replay-viewer/dist/static_replay_worker.js &&   sed -e 's|<!-- WIRE_CONSTANTS -->|<script src="./wire_constants.js"></script>|'       -e 's|<!-- CHROME_COMMON -->|<script src="./chrome_common.js"></script>|'       -e 's|<!-- BROADCAST_CORE -->|<script src="./static_replay.js"></script>|'     client/replay_broadcast.html > replay-viewer/dist/index.html &&   sed -e 's|<!-- WIRE_CONSTANTS -->|<script src="./wire_constants.js"></script>|'       -e 's|<!-- CHROME_COMMON -->|<script src="./chrome_common.js"></script>|'     client/league_replayer.html > replay-viewer/dist/league.html &&   cp data/soldier_*_front.png data/soldier_*_front_gun.png     replay-viewer/dist/ &&   cp replay-viewer/loop.html replay-viewer/dist/ &&   mkdir -p replay-viewer/dist/art/walls replay-viewer/dist/art/lockerroom &&   cp client/art/walls/wall_h.jpg client/art/walls/wall_v.jpg     replay-viewer/dist/art/walls/ &&   cp client/art/lockerroom/bg.jpg client/art/lockerroom/*.webp     replay-viewer/dist/art/lockerroom/ &&   rm -rf replay-viewer/dist/nimcache &&   test -f replay-viewer/dist/ctf_replay.wasm &&   test -f replay-viewer/dist/ctf_replay.data &&   test -f replay-viewer/dist/static_replay_worker.js &&   test -f replay-viewer/dist/index.html &&   test -f replay-viewer/dist/league.html &&   test -s replay-viewer/dist/wire_constants.js &&   grep -q '^window.CTF_WIRE={' replay-viewer/dist/wire_constants.js &&   grep -q 'wire_constants.js' replay-viewer/dist/index.html &&   grep -q 'wire_constants.js' replay-viewer/dist/league.html &&   test -s replay-viewer/dist/chrome_common.js &&   grep -q 'window.ChromeCommon' replay-viewer/dist/chrome_common.js &&   grep -q 'chrome_common.js' replay-viewer/dist/index.html &&   grep -q 'chrome_common.js' replay-viewer/dist/league.html &&   grep -q 'static_replay_worker.js' replay-viewer/dist/static_replay.js &&   ! grep -q '<script src="./broadcast_core.js"></script>' replay-viewer/dist/index.html &&   ! grep -q '<script src="./ctf_replay.js"></script>' replay-viewer/dist/index.html &&   test -f replay-viewer/dist/soldier_red_front.png &&   test -f replay-viewer/dist/soldier_blue_front.png &&   test -f replay-viewer/dist/soldier_green_front.png &&   test -f replay-viewer/dist/soldier_yellow_front.png &&   test -f replay-viewer/dist/soldier_plum_front.png &&   test -f replay-viewer/dist/soldier_azure_front_gun.png &&   test "$(ls replay-viewer/dist/soldier_*_front.png | wc -l)" = "$(ls data/soldier_*_front.png | wc -l)" &&   test "$(ls replay-viewer/dist/soldier_*_front_gun.png | wc -l)" = "$(ls data/soldier_*_front_gun.png | wc -l)" &&   test -f replay-viewer/dist/art/walls/wall_h.jpg &&   test -f replay-viewer/dist/art/lockerroom/bg.jpg &&   test -f replay-viewer/dist/art/lockerroom/green_1.webp &&   test -f replay-viewer/dist/art/lockerroom/red_6.webp
+#11 0.576 Hint: used config file '/root/.nimby/nim/config/nim.cfg' [Conf]
+#11 0.576 Hint: used config file '/root/.nimby/nim/config/config.nims' [Conf]
+#11 0.576 Hint: used config file '/workspace/ctf/nim.cfg' [Conf]
+#11 0.576 Hint: used config file '/workspace/ctf/replay-viewer/config.nims' [Conf]
+#11 0.577 .......................................................................................................................................................................................................
+#11 2.280 /workspace/ctf/src/ctf/rig_art.nim(552, 5) Hint: 'unitDeg' is declared but not used [XDeclaredButNotUsed]
+#11 2.303 .....
+#11 2.395 /workspace/ctf/src/ctf/arena.nim(1373, 5) Hint: 'inside' is declared but not used [XDeclaredButNotUsed]
+#11 2.534 /workspace/ctf/src/ctf/arena.nim(3702, 6) Hint: 'rectsNode' is declared but not used [XDeclaredButNotUsed]
+#11 2.534 /workspace/ctf/src/ctf/arena.nim(3707, 6) Hint: 'rectsFromNode' is declared but not used [XDeclaredButNotUsed]
+#11 2.534 ............
+#11 3.228 /workspace/ctf/src/ctf/global.nim(3242, 5) Hint: 'v' is declared but not used [XDeclaredButNotUsed]
+#11 3.401 /workspace/ctf/src/ctf/global.nim(7594, 7) Hint: 'rebuilt' is declared but not used [XDeclaredButNotUsed]
+#11 3.441 /workspace/ctf/src/ctf/global.nim(1499, 6) Hint: 'boardScaledColdMapPixels' is declared but not used [XDeclaredButNotUsed]
+#11 3.487 .........
+#11 4.302 CC: ../../../root/.nimby/nim/lib/system/exceptions.nim
+#11 4.307 CC: ../../../root/.nimby/nim/lib/std/private/digitsutils.nim
+#11 4.310 CC: ../../../root/.nimby/nim/lib/std/assertions.nim
+#11 4.313 CC: ../../../root/.nimby/nim/lib/std/private/dragonbox.nim
+#11 4.315 CC: ../../../root/.nimby/nim/lib/std/formatfloat.nim
+#11 4.318 CC: ../../../root/.nimby/nim/lib/system/dollars.nim
+#11 4.321 CC: ../../../root/.nimby/nim/lib/std/syncio.nim
+#11 4.326 CC: ../../../root/.nimby/nim/lib/system.nim
+#11 4.330 CC: ../../../root/.nimby/nim/lib/pure/hashes.nim
+#11 4.336 CC: ../../../root/.nimby/nim/lib/pure/math.nim
+#11 4.341 CC: ../../../root/.nimby/nim/lib/pure/algorithm.nim
+#11 4.348 CC: ../../../root/.nimby/nim/lib/pure/collections/tables.nim
+#11 4.356 CC: ../../../root/.nimby/nim/lib/pure/parseutils.nim
+#11 4.364 CC: ../../../root/.nimby/nim/lib/pure/unicode.nim
+#11 5.269 CC: ../../../root/.nimby/nim/lib/pure/strutils.nim
+#11 5.286 CC: ../../../root/.nimby/nim/lib/pure/streams.nim
+#11 5.408 CC: ../../../root/.nimby/nim/lib/pure/lexbase.nim
+#11 5.469 CC: ../../../root/.nimby/nim/lib/pure/parsejson.nim
+#11 5.489 CC: ../../../root/.nimby/nim/lib/pure/json.nim
+#11 5.591 CC: ../../../root/.nimby/nim/lib/pure/pathnorm.nim
+#11 5.600 CC: ../../../root/.nimby/nim/lib/std/oserrors.nim
+#11 5.653 CC: ../../../root/.nimby/nim/lib/std/private/oscommon.nim
+#11 5.719 CC: ../../../root/.nimby/nim/lib/std/private/ospaths2.nim
+#11 5.734 CC: ../../../root/.nimby/nim/lib/pure/times.nim
+#11 5.776 CC: ../../../root/.nimby/nim/lib/std/envvars.nim
+#11 6.005 CC: ../../../root/.nimby/nim/lib/std/cmdline.nim
+#11 6.365 CC: ../../../root/.nimby/nim/lib/pure/random.nim
+#11 6.469 CC: ../../../root/.nimby/pkgs/bumpy/src/bumpy.nim
+#11 6.509 CC: ../../../root/.nimby/pkgs/chroma/src/chroma/colortypes.nim
+#11 6.586 CC: ../../../root/.nimby/pkgs/chroma/src/chroma/blends.nim
+#11 6.623 CC: ../../../root/.nimby/pkgs/chroma/src/chroma/names.nim
+#11 6.686 CC: ../../../root/.nimby/pkgs/chroma/src/chroma.nim
+#11 6.732 CC: ../../../root/.nimby/pkgs/flatty/src/flatty/binny.nim
+#11 6.741 CC: ../../../root/.nimby/pkgs/pixie/src/pixie/common.nim
+#11 6.774 CC: ../../../root/.nimby/pkgs/flatty/src/flatty/encode.nim
+#11 6.839 CC: ../../../root/.nimby/pkgs/pixie/src/pixie/blends.nim
+#11 6.893 CC: ../../../root/.nimby/pkgs/pixie/src/pixie/internal.nim
+#11 6.903 CC: ../../../root/.nimby/pkgs/pixie/src/pixie/images.nim
+#11 7.010 CC: ../../../root/.nimby/pkgs/pixie/src/pixie/paints.nim
+#11 7.196 CC: ../../../root/.nimby/pkgs/pixie/src/pixie/paths.nim
+#11 7.360 CC: ../../../root/.nimby/nim/lib/pure/collections/sets.nim
+#11 7.381 CC: ../../../root/.nimby/pkgs/pixie/src/pixie/fontformats/opentype.nim
+#11 7.422 CC: ../../../root/.nimby/nim/lib/pure/parsexml.nim
+#11 7.581 CC: ../../../root/.nimby/nim/lib/pure/strtabs.nim
+#11 7.627 CC: ../../../root/.nimby/nim/lib/pure/xmltree.nim
+#11 7.637 CC: ../../../root/.nimby/nim/lib/pure/xmlparser.nim
+#11 7.856 CC: ../../../root/.nimby/pkgs/pixie/src/pixie/fontformats/svgfont.nim
+#11 7.889 CC: ../../../root/.nimby/pkgs/pixie/src/pixie/fonts.nim
+#11 7.914 CC: ../../../root/.nimby/pkgs/pixie/src/pixie/fileformats/bmp.nim
+#11 8.135 CC: ../../../root/.nimby/pkgs/zippy/src/zippy/common.nim
+#11 8.396 CC: ../../../root/.nimby/pkgs/zippy/src/zippy/internal.nim
+#11 8.579 CC: ../../../root/.nimby/pkgs/zippy/src/zippy/bitstreams.nim
+#11 8.599 CC: ../../../root/.nimby/pkgs/pixie/src/pixie/fileformats/gif.nim
+#11 8.677 CC: ../../../root/.nimby/pkgs/pixie/src/pixie/fileformats/jpeg.nim
+#11 8.742 CC: ../../../root/.nimby/pkgs/zippy/src/zippy/adler32.nim
+#11 8.795 CC: ../../../root/.nimby/pkgs/zippy/src/zippy/crc.nim
+#11 8.877 CC: ../../../root/.nimby/nim/lib/pure/collections/heapqueue.nim
+#11 9.052 CC: ../../../root/.nimby/pkgs/zippy/src/zippy/inflate.nim
+#11 9.063 CC: ../../../root/.nimby/pkgs/zippy/src/zippy/gzip.nim
+#11 9.081 CC: ../../../root/.nimby/pkgs/zippy/src/zippy.nim
+#11 9.220 CC: ../../../root/.nimby/pkgs/crunchy/src/crunchy/common.nim
+#11 9.277 CC: ../../../root/.nimby/pkgs/crunchy/src/crunchy/crc32.nim
+#11 9.338 CC: ../../../root/.nimby/pkgs/crunchy/src/crunchy/sha256.nim
+#11 9.351 CC: ../../../root/.nimby/pkgs/pixie/src/pixie/fileformats/png.nim
+#11 9.514 CC: ../../../root/.nimby/pkgs/pixie/src/pixie/fileformats/ppm.nim
+#11 9.676 CC: ../../../root/.nimby/pkgs/pixie/src/pixie/fileformats/qoi.nim
+#11 9.708 CC: ../../../root/.nimby/pkgs/pixie/src/pixie/fileformats/svg.nim
+#11 9.931 CC: ../../../root/.nimby/pkgs/pixie/src/pixie.nim
+#11 9.983 CC: ../../../root/.nimby/pkgs/supersnappy/src/supersnappy/internal.nim
+#11 10.09 CC: ../../../root/.nimby/pkgs/supersnappy/src/supersnappy.nim
+#11 10.14 CC: ../../../root/.nimby/pkgs/bitworld/src/bitworld/spriteprotocol.nim
+#11 10.22 CC: ../../../root/.nimby/pkgs/bitworld/src/bitworld/server.nim
+#11 10.28 CC: ../../../root/.nimby/pkgs/bitworld/src/bitworld/aseprite.nim
+#11 10.30 CC: ../../../root/.nimby/pkgs/bitworld/src/bitworld/pixelfonts.nim
+#11 10.42 CC: ../src/ctf/glory.nim
+#11 10.45 CC: ../src/ctf/sim_types.nim
+#11 10.77 CC: ../src/ctf/rig_art.nim
+#11 10.87 CC: ../../../root/.nimby/nim/lib/pure/collections/deques.nim
+#11 10.90 CC: ../../../root/.nimby/pkgs/jsony/src/jsony.nim
+#11 10.98 CC: ../src/ctf/map_pool.nim
+#11 11.06 CC: ../src/ctf/arena.nim
+#11 11.17 CC: ../src/ctf/map_art.nim
+#11 11.34 CC: ../../../root/.nimby/nim/lib/pure/strformat.nim
+#11 11.46 CC: ../src/ctf/br_map_pool.nim
+#11 11.54 CC: ../src/ctf/sim_config.nim
+#11 11.55 CC: ../src/ctf/sim_state.nim
+#11 11.64 CC: ../src/ctf/paint.nim
+#11 11.70 CC: ../src/ctf/roster.nim
+#11 11.71 CC: ../src/ctf/zone_field.nim
+#11 11.89 CC: ../src/ctf/sim.nim
+#11 12.02 CC: ../src/ctf/labels.nim
+#11 12.21 CC: ../src/ctf/global.nim
+#11 12.39 CC: ../src/ctf/broadcast.nim
+#11 12.41 CC: ../../../root/.nimby/pkgs/flatty/src/flatty.nim
+#11 12.55 CC: ../../../root/.nimby/pkgs/bitworld/src/bitworld/replays.nim
+#11 12.80 CC: ../src/shell/types.nim
+#11 12.89 CC: ../src/shell/seats.nim
+#11 13.01 CC: ../src/shell/replay_records.nim
+#11 13.17 CC: ../src/ctf/replay_codec.nim
+#11 13.19 CC: ../src/ctf/replays.nim
+#11 13.23 CC: ../src/ctf/replay_runtime.nim
+#11 13.43 CC: ctf_replay.nim
+#11 15.76 Hint:  [Link]
+#11 20.96 Hint: mm: arc; opt: speed; options: -d:release
+#11 20.96 169261 lines; 20.379s; 423.91MiB peakmem; proj: /workspace/ctf/replay-viewer/ctf_replay.nim; out: /workspace/ctf/replay-viewer/ctf_replay [SuccessX]
+#11 DONE 26.1s
+
+#12 exporting to image
+#12 exporting layers
+#12 exporting layers 6.5s done
+#12 exporting manifest sha256:8b28173161c04519a0c632434e7c5a5fda992ed3a3a72d900bf395028ed3d555
+#12 exporting manifest sha256:8b28173161c04519a0c632434e7c5a5fda992ed3a3a72d900bf395028ed3d555 done
+#12 exporting config sha256:ce2ea5e9b8eb7a2d7ce140e91db048c16e3ad2e9d6864d548338e1892ff210d7 done
+#12 exporting attestation manifest sha256:af6d289f28b871d809d35e6d034574e17a99b4eb216b1f942f85420f7e7dc542 0.0s done
+#12 exporting manifest list sha256:0187713e79aceaea2b27b5990c306594f45fade28e988655b63b3c2866609020 done
+#12 naming to docker.io/library/coworld-ctf-replay-viewer-build:98936 done
+#12 DONE 6.5s

@@ -17,3 +17,5 @@ Append results; do not erase negatives. All numbers are observed, not inferred p
 | L0 preregistered | Xeon, then production families | exact ordered source reuse, retain installed-route expiry | not implemented or measured | L0_PREREG.md | no claim of general moving-threat liveness |
 
 | L0 failed qualification | c6a and m5a CPU5 B1024 | reuse identical ordered sources | modest timing gain; m5a still fails; far waves publish only3seats then cap | L0_REPORT.md | not a complete liveness fix or throughput success |
+
+| L1 failed completion target | c6a CPU5 B1024 | exact packed identity with shared scratch | no false restarts; still3publishedseats/farwave; quality and memory pass | L1_REPORT.md | no doubling or general admission-liveness claim |

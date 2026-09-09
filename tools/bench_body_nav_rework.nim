@@ -194,6 +194,7 @@ proc bytesJson(bytes: BodyNavigationBytes): JsonNode =
     "danger_rasters": bytes.dangerRasters,
     "danger_workspaces": bytes.dangerWorkspaces,
     "packed_int16_weights": bytes.packedWeights,
+    "packed_weight_scratch": bytes.packedWeightScratch,
     "shared_danger_geometry": bytes.sharedDangerGeometry,
     "trace": bytes.trace, "allocator_overhead": bytes.allocatorOverhead,
     "total": bytes.total}
@@ -247,7 +248,8 @@ proc activationRow(gate: MapGate): JsonNode =
   # Include all allocator overhead as a conservative bound, even the seat
   # allocations, so shared storage cannot disappear into a reporting category.
   let sharedUpperBound = bytes.systemOwner + bytes.routeIndex +
-    bytes.safetyScratch + bytes.mixedGraph + bytes.sharedDangerGeometry +
+    bytes.safetyScratch + bytes.mixedGraph + bytes.packedWeightScratch +
+    bytes.sharedDangerGeometry +
     bytes.trace + bytes.allocatorOverhead
   const PoolSharedCap = 16'i64 * 1024 * 1024
   %*{"map": gate.label, "colossal": gate.colossal,

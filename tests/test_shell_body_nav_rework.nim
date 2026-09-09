@@ -248,7 +248,7 @@ suite "production mixed-grid body navigation":
     check nav.seats[0].dangerGeneration == generation
     check nav.seats[0].installedRoute.revision == 0
 
-  test "scheduled danger changes on removal return and source reordering":
+  test "scheduled danger reordering preserves exact packed costs":
     let
       map = openMap()
       nav = newBodyNavSystem(map, 1, 331)
@@ -256,9 +256,15 @@ suite "production mixed-grid body navigation":
         DangerCandidate(seatIndex: 2, pos: (128, 48))]
     nav.initializeDanger([DangerInput(selfXy: (16, 48), candidates: sources)])
     var generation = nav.seats[0].dangerGeneration
+    discard nav.navigationWaypoint(0, (16, 48),
+      map.validateGoal((160, 48), (16, 48)).get, 0)
+    discard nav.runRouteScheduler(0, 1)
+    let workspaceGeneration = nav.routeJob.workspaceGeneration
     nav.rebuildScheduledDanger(32, [DangerInput(selfXy: (160, 48),
       candidates: sources)])
-    check nav.seats[0].dangerGeneration == generation + 1
+    check nav.seats[0].dangerGeneration == generation
+    discard nav.runRouteScheduler(32, 1)
+    check nav.routeJob.workspaceGeneration == workspaceGeneration
     generation = nav.seats[0].dangerGeneration
     nav.rebuildScheduledDanger(64, [DangerInput(selfXy: (160, 48))])
     check nav.seats[0].dangerGeneration == generation + 1
@@ -268,6 +274,24 @@ suite "production mixed-grid body navigation":
     nav.rebuildScheduledDanger(128, [DangerInput(selfXy: (160, 48),
       candidates: sources)])
     check nav.seats[0].dangerGeneration == generation + 1
+
+  test "packed scratch swaps do not alias another seat":
+    let
+      map = openMap()
+      nav = newBodyNavSystem(map, 2, 331)
+      first = DangerInput(selfXy: (16, 48),
+        candidates: @[DangerCandidate(seatIndex: 4, pos: (64, 48))])
+      second = DangerInput(selfXy: (160, 48),
+        candidates: @[DangerCandidate(seatIndex: 5, pos: (128, 48))])
+    nav.initializeDanger([first, second])
+    var saved: seq[int16]
+    for value in nav.seats[1].packedWeights: saved.add value
+    nav.rebuildScheduledDanger(32, [second, second])
+    check nav.seats[1].packedWeights == saved
+    nav.rebuildScheduledDanger(64, [first, second])
+    check nav.seats[1].packedWeights == saved
+    check nav.retainedNavigationBytes.packedWeightScratch ==
+      int64(map.gridWidth * map.gridHeight * sizeof(int16))
 
   test "workspace is shared and per-seat route state has fixed layout":
     let nav = newBodyNavSystem(openMap(), 32, 331)

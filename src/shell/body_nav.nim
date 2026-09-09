@@ -77,7 +77,8 @@ type
   BodyNavigationBytes* = object
     systemOwner*, routeIndex*, safetyScratch*, mixedGraph*: int64
     seatOwners*, seatCaches*, dangerRasters*, dangerWorkspaces*: int64
-    packedWeights*, sharedDangerGeometry*, trace*, allocatorOverhead*: int64
+    packedWeights*, packedWeightScratch*, sharedDangerGeometry*: int64
+    trace*, allocatorOverhead*: int64
     total*: int64
 
   BodyNavTiming* = object
@@ -138,6 +139,7 @@ type
     dangerTraceLen: int
     mixedGraph*: BodyMixedGraph
     routeWorkspace*: BodyRouteWorkspace
+    packedWeightScratch: seq[int16]
     routeJob*: BodyRouteSearchJob
     routeJobSeat*: int
     routePopsLastTick*: int
@@ -167,6 +169,9 @@ proc retainedNavigationBytes*(system: BodyNavSystem): BodyNavigationBytes =
       sizeof(system.routeWorkspace[])) + graphBytes.total -
       graphBytes.allocatorOverhead
     result.allocatorOverhead += graphBytes.allocatorOverhead
+  result.packedWeightScratch = int64(system.packedWeightScratch.len * sizeof(int16))
+  if system.packedWeightScratch.len > 0:
+    result.allocatorOverhead += SequenceAllocationOverhead
   result.trace = int64(system.dangerTrace.len * sizeof(DangerRebuild))
   result.seatOwners = int64(system.seats.len * sizeof(BodyNavSeat))
   if system.seats.len > 0:
@@ -196,7 +201,8 @@ proc retainedNavigationBytes*(system: BodyNavSystem): BodyNavigationBytes =
   result.total = result.systemOwner + result.routeIndex +
     result.safetyScratch + result.mixedGraph + result.seatOwners +
     result.seatCaches + result.dangerRasters + result.dangerWorkspaces +
-    result.packedWeights + result.sharedDangerGeometry + result.trace +
+    result.packedWeights + result.packedWeightScratch +
+    result.sharedDangerGeometry + result.trace +
     result.allocatorOverhead
 
 proc pyRound(value: float): int =
@@ -276,6 +282,7 @@ proc newBodyNavSystem*(map: BodyMap, seatCount, liveGunRangePx: int,
     result.safetyScratch = newBodySafetyScratch(result.routeIndex)
     result.mixedGraph = newBodyMixedGraph(map)
     result.routeWorkspace = newBodyRouteWorkspace(result.mixedGraph)
+    result.packedWeightScratch = newSeq[int16](map.gridWidth * map.gridHeight)
     result.routeJobSeat = -1
     discard result.routeIndex.releaseFollowingPayload()
   result.dangerK = dangerK
@@ -454,7 +461,8 @@ proc rebuildDangerFromPoints(seat: BodyNavSeat, map: BodyMap,
     seat.danger.maximum = max(seat.danger.maximum, value)
   seat.dangerTick = tick
 
-proc publishDangerGeneration(system: BodyNavSystem; seat: BodyNavSeat) =
+proc publishDangerGeneration(system: BodyNavSystem; seat: BodyNavSeat;
+    force = false) =
   ## Publish only after the complete float raster and exact packed Q8 view are
   ## ready. A search can therefore compare one monotonic generation before it
   ## spends another pop.
@@ -462,15 +470,16 @@ proc publishDangerGeneration(system: BodyNavSystem; seat: BodyNavSeat) =
     return
   when defined(bodyNavBreakdown):
     let started = getMonoTime()
-  system.mixedGraph.rebuildPackedWeights(seat.danger, seat.packedWeights)
+  system.mixedGraph.rebuildPackedWeights(seat.danger, system.packedWeightScratch)
   when defined(bodyNavBreakdown):
     system.timing.weightRefreshNanoseconds += timingElapsed(started)
     inc system.timing.weightRefreshes
-  inc seat.dangerGeneration
-  if seat.dangerGeneration == 0:
-    seat.dangerGeneration = 1
-  if seat.installedRoute.revision != 0 and
-      seat.installedRoute.dangerGeneration != seat.dangerGeneration:
+  if force or system.packedWeightScratch != seat.packedWeights:
+    swap(system.packedWeightScratch, seat.packedWeights)
+    inc seat.dangerGeneration
+    if seat.dangerGeneration == 0:
+      seat.dangerGeneration = 1
+  if seat.installedRoute.revision != 0:
     seat.installedRoute = BodyInstalledRoute()
 
 proc dangerCandidateLess(aDistance: int64, aSeat: int,
@@ -543,7 +552,7 @@ proc initializeDanger*(system: BodyNavSystem,
     raise newException(ValueError, "danger source rows must match seat count")
   for index, seat in system.seats:
     seat.rebuildDanger(system.map, sourcesBySeat[index], activationTick)
-    system.publishDangerGeneration(seat)
+    system.publishDangerGeneration(seat, force = true)
 
 proc dangerSeatDue*(tick, seat, cadenceK: int): bool =
   cadenceK > 0 and floorMod(tick, cadenceK) == floorMod(seat, cadenceK)
@@ -576,7 +585,8 @@ proc rebuildScheduledDanger*(system: BodyNavSystem, tick: int,
         # same raster and weights. Keep unfinished search work, but retain the
         # cadence expiry of installed routes so zone prices still refresh.
         seat.dangerTick = tick
-        seat.installedRoute = BodyInstalledRoute()
+        if seat.installedRoute.revision != 0:
+          seat.installedRoute = BodyInstalledRoute()
       system.recordDanger(DangerRebuild(tick: tick, seat: index,
         sourceCount: seat.selectedDangerCount))
 

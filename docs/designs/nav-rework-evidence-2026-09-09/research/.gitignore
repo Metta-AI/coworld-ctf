@@ -16,3 +16,8 @@ L0-c6a/cache-*/
 L0-m5a/bench-*
 L0-m5a/cache-*/
 !*.log
+L1-c6a/bench-*
+L1-c6a/cache-*/
+PROFILE_SERVER/coworld-ctf-shell-demo-*/ctf-shell-demo
+PROFILE_SERVER/coworld-ctf-shell-demo-*/shell-presence
+PROFILE_SERVER/coworld-ctf-shell-demo-*/shell-probe
