@@ -34,6 +34,21 @@ disagree.
 
 ---
 
+## Decision (S2 lead, 2026-09-09, under the owner's delegation — owner may overrule)
+
+**CEILING = 2^21 reported points**, decided: `RecutProductCapArmed` →
+`int64(1) shl 31` internal (current is `2^14` reported = `2^24` internal).
+Per §3's sweep table: cap-hit 0.312% of seat-episodes, top-decile capped
+3.06%, top-decile CHOSEN ~83% (83.16–83.21%, S4b off/on), CONTINUITY and
+SEPARATION hold at every candidate tested — the only candidate that
+clears both the cap-hit band and the under-~5% top-decile-capped bound
+with margin (§5). This closes §6's primary recommendation as the ceiling
+for the arm bundle (§8); it is not left as a further-open candidate.
+S4b's own justification is corrected alongside this decision — see
+`LIGHTABLE-MODES-S4B.md`'s dated note and §4 below.
+
+---
+
 ## 1. Method
 
 ### Instrument A (primary): empirical re-fold
@@ -431,7 +446,7 @@ structural reason this step did not create and cannot fix:
 
 ## 8. Ship note
 
-**Arming = manifest flip + GLORYVERSION 17→18 + GameVersion bump +
+**Arming = manifest flip + GLORYVERSION 17→18 + GameVersion 63→64 +
 fixture re-record**, per this program's own precedent (PR #504's
 `catalogV3Reprice` et al. arming, GLORYVERSION 16→17/GameVersion 61→62):
 flip `achievementLightableModes` AND resize `RecutProductCapArmed` to
@@ -441,16 +456,17 @@ flip `achievementLightableModes` AND resize `RecutProductCapArmed` to
 arming note already names this exact non-default-arm discipline for S4b).
 
 **Sequencing** (per the lead's own recorded ship plan, not invented here):
-S4b-arm + ceiling-resize together = GLORYVERSION 17→18 + GameVersion bump,
-bundled with the game-side seat-identity consumer (metta #22382
+S4b-arm + ceiling-resize together = GLORYVERSION 17→18 + GameVersion
+63→64, bundled with the game-side seat-identity consumer (metta #22382
 `COWORLD_SEAT_IDENTITY` → `RuntimeConfig` → per-seat identity on `over`),
 **sequenced AFTER THE WHOLE's held GV63 wire batch (#525)** completes —
 full fixture re-record (nine-plus `.bitreplay` goldens, shell/replay
 goldens, static replay viewer rebuild — the same three-part cost #504
 itself paid), an era note documenting the GV62→GV6x boundary, and a
-24-round after-read on the newly-armed cohort (the same S6-style live
-re-measure this whole program runs at every arm) before calling this
-closed.
+24-round after-read on the newly-armed cohort with the same harness used
+here (`cap_sweep.py` / `census_decode.py --catalog v3`, the same S6-style
+live re-measure this whole program runs at every arm) before calling
+this closed.
 
 **Owner GO required** before merge, same as every prior GLORYVERSION bump
 in this program — this document sizes the ceiling; it does not arm it.
