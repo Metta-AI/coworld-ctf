@@ -916,16 +916,16 @@ function drawSprite(){
         /* The zone clock object carries a smoothly-glided tick in dispX (the
            motion-glide system above); reaching its z-slot in the composite
            order is exactly where the paint layer belongs -- over the floor,
-           under the soldiers. This client accumulates a layer's pixels into
-           layer.image and blits ONCE at the end, so to interleave the zone at
-           this z we flush the pixels drawn so far, blit the zone onto the main
-           ctx, then clear the buffer and keep drawing the rest of this layer
-           (higher z) so those objects composite ON TOP of the zone. */
+           under the soldiers. This client accumulates a layer's pixels onto
+           layer.canvas and blits ONCE at the end, so to interleave the zone
+           at this z we flush what's drawn so far onto the scene, blit the
+           zone onto the scene, then clear the layer canvas and keep drawing
+           the rest of this layer (higher z) so those objects composite ON
+           TOP of the zone. */
         if(zoneField){
-          layer.ctx.putImageData(layer.image,0,0);
-          x.drawImage(layer.canvas,0,0);
-          renderZonePaint(x,object.dispX);
-          layer.image.data.fill(0);
+          sceneCtx.drawImage(layer.canvas,0,0);
+          renderZonePaint(sceneCtx,object.dispX);
+          layer.ctx.clearRect(0,0,layer.canvas.width,layer.canvas.height);
         }
         continue;
       }
