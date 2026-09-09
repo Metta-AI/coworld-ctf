@@ -41,6 +41,14 @@ proc stepMask(sim: var SimServer, mask, prevMask: uint8) =
     prevs = @[decodeInputMask(prevMask), InputState()]
   sim.step(inputs, prevs)
 
+proc stepAimed(sim: var SimServer, mask, prevMask: uint8, aimTarget: int) =
+  ## One tick with the direct-aim channel carrying `aimTarget` for seat 0.
+  var
+    inputs = @[decodeInputMask(mask), InputState()]
+    prevs = @[decodeInputMask(prevMask), InputState()]
+    aims = @[aimTarget, -1]
+  sim.step(inputs, prevs, aims)
+
 proc holdMask(sim: var SimServer, mask: uint8, ticks: int) =
   var prev: uint8 = 0
   for _ in 0 ..< ticks:
@@ -271,6 +279,101 @@ suite "human-seat input -> engine action":
     sim.holdMask(MB or MRight, 10)
     check sim.players[0].aimBrads == 100     # no turn
     check sim.players[0].velX == 0           # no movement
+
+  test "DIRECT AIM: the turret adopts the bearing in ONE tick from anywhere":
+    # The acceptance criterion for the flick. The chase needs 26 ticks for a
+    # 180; direct aim must land in one, from any starting bearing to any target.
+    for start in [0, 40, 90, 128, 200, 250]:
+      for target in [0, 37, 64, 128, 191, 255]:
+        var sim = seatedGame()
+        sim.config.humanDirectAim = true
+        sim.players[0].aimBrads = start
+        sim.stepAimed(0, 0, target)
+        check sim.players[0].aimBrads == target
+
+  test "DIRECT AIM: a bearing past one full turn wraps, never clamps":
+    # Only NON-NEGATIVE values are bearings. Negative is the "no direct aim
+    # this tick" sentinel (see the -1 test below), so it must NOT be wrapped
+    # into a real bearing -- that would snap a seat nobody aimed.
+    var sim = seatedGame()
+    sim.config.humanDirectAim = true
+    sim.stepAimed(0, 0, 300)
+    check sim.players[0].aimBrads == 300 mod AimBradsTurn
+    sim.stepAimed(0, 0, AimBradsTurn)
+    check sim.players[0].aimBrads == 0
+    let parked = sim.players[0].aimBrads
+    sim.stepAimed(0, 0, -20)
+    check sim.players[0].aimBrads == parked
+
+  test "🚨 LEAGUE REFUSAL: with the gate OFF the aim channel is inert":
+    # The load-bearing safety test. A pointing seat has a strictly larger
+    # action space than any policy, so a league config must not merely decline
+    # to advertise it -- the engine itself must ignore the channel.
+    var sim = seatedGame()
+    sim.config.humanDirectAim = false
+    sim.players[0].aimBrads = 100
+    for _ in 0 ..< 20:
+      sim.stepAimed(0, 0, 200)
+    check sim.players[0].aimBrads == 100      # never moved
+    # and the buttons still work normally on that same config
+    sim.stepAimed(MB, 0, 200)
+    check sim.players[0].aimBrads == 100 + sim.config.aimTurnRate
+
+  test "DIRECT AIM: the pointer beats a rotate button on the same tick":
+    # A direct-aim client sends no rotate bits, but if one ever arrives it must
+    # not fight the pointer.
+    var sim = seatedGame()
+    sim.config.humanDirectAim = true
+    sim.players[0].aimBrads = 0
+    sim.stepAimed(MB, 0, 90)
+    check sim.players[0].aimBrads == 90
+    sim.stepAimed(MSelect, MB, 90)
+    check sim.players[0].aimBrads == 90
+
+  test "DIRECT AIM: a shot pulled on the flick tick leaves along the FLICK":
+    # startFireWindup locks windupBrads at the pull, so the ordering inside
+    # step decides whether a flick-and-click goes where the player flicked.
+    var sim = seatedGame()
+    sim.config.humanDirectAim = true
+    sim.players[0].aimBrads = 0
+    sim.stepAimed(MAttack, 0, 128)
+    check sim.players[0].aimBrads == 128
+    check sim.players[0].fireWindup > 0
+    check sim.players[0].windupBrads == 128     # NOT 0
+
+  test "DIRECT AIM: -1 means no direct aim, leaving the buttons in charge":
+    var sim = seatedGame()
+    sim.config.humanDirectAim = true
+    sim.players[0].aimBrads = 50
+    sim.stepAimed(0, 0, -1)
+    check sim.players[0].aimBrads == 50
+    sim.stepAimed(MB, 0, -1)
+    check sim.players[0].aimBrads == 50 + sim.config.aimTurnRate
+
+  test "DIRECT AIM: a dead seat is never snapped":
+    var sim = seatedGame()
+    sim.config.humanDirectAim = true
+    sim.players[0].aimBrads = 10
+    sim.players[0].alive = false
+    sim.stepAimed(0, 0, 200)
+    check sim.players[0].aimBrads == 10
+
+  test "DIRECT AIM: aim survives death and respawn without client help":
+    # On this path the SERVER owns the aim, so the client's respawn re-seed
+    # (which the chase path needs) is irrelevant -- the next pointer packet
+    # is authoritative regardless of what happened across the death.
+    var sim = seatedGame()
+    sim.config.humanDirectAim = true
+    sim.players[0].aimBrads = 200
+    sim.players[0].alive = false
+    sim.players[0].hp = 0
+    sim.players[0].respawnTimer = 2
+    for _ in 0 .. 4:
+      sim.stepAimed(0, 0, -1)
+    check sim.players[0].alive
+    check sim.players[0].aimBrads == spawnAimBrads(Red)   # engine re-seeded
+    sim.stepAimed(0, 0, 77)
+    check sim.players[0].aimBrads == 77                    # pointer wins again
 
   test "NO SPRINT EXISTS: no mask can exceed maxSpeed on either axis":
     # The executable form of the ruling. All eight bits are spoken for and none

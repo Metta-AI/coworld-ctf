@@ -1,6 +1,6 @@
 {
   "maxGames": 0,
-  "minPlayers": 2,
+  "minPlayers": 16,
   "lives": 3,
   "hitPoints": 3,
   "respawnTicks": 72,
@@ -150,5 +150,7 @@
   "barrageMaxPerSec": 15,
   "barrageStartPerSec": 4,
   "barrageStartSec": 30,
-  "barrageSaturateSec": 30
+  "barrageSaturateSec": 30,
+  "humanDirectAim": true,
+  "humanShotFeedback": true
 }

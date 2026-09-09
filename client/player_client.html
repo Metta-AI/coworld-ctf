@@ -213,12 +213,20 @@ const CC=CtfControls;
 let mouseX=0,mouseY=0,haveMouse=false,lmb=false;
 let estAim=0,aimSeeded=false,selfPos=null,selfTeam=null;
 let committedRotate=null,emittedAttack=false,tickMask=0,wasSeated=false;
+let directAim=false,shotFeedback=false,lastSentPx=null,lastSentPy=null;
 let mapW=0,mapH=0,tickCount=0,lastPingTick=-999,pingNote="";
 
 /* The ping wheel is a SEPARATE lane. We own only the seam: swallow the
    browser context menu, hand the wheel the map cell under the pointer, and
    let it commit any standard ping through sendPing(). Replace these two
    hooks; nothing else in this file needs to change. */
+/* Capability detection. One bundle serves league and play servers, so what
+   the seat can do is asked for at runtime, never compiled in. A league config
+   answers false and we stay on the rotate-button chase. */
+fetch("/humanplay").then(r=>r.json()).then(j=>{
+  directAim=!!j.humanDirectAim; shotFeedback=!!j.humanShotFeedback;
+}).catch(()=>{directAim=false;shotFeedback=false});
+
 window.onPingWheelOpen=window.onPingWheelOpen||function(cell,pos){};
 window.onPingWheelCommit=window.onPingWheelCommit||function(cell,pos){};
 
@@ -271,7 +279,7 @@ function emitNow(){
 /* One server frame == one applied sim tick. */
 function controlsTick(){
   tickCount++;
-  if(aimSeeded)estAim=CC.stepAim(estAim,committedRotate);
+  if(aimSeeded&&!directAim)estAim=CC.stepAim(estAim,committedRotate);
   selfPos=findSelf();
   /* Every fresh spawn re-seeds: the engine snaps aimBrads back to
      spawnAimBrads on EVERY respawn, so carrying the old estimate across a
@@ -280,7 +288,20 @@ function controlsTick(){
   if(seatedNow&&!wasSeated&&selfTeam){estAim=CC.reseedAim(estAim,true,false,selfTeam);aimSeeded=true}
   wasSeated=seatedNow;
   let rot=null;
-  if(aimSeeded&&selfPos&&haveMouse&&!z){
+  if(directAim){
+    /* DIRECT AIM: the server owns the bearing, so we send WHERE we are
+       pointing and emit no rotate bits at all. estAim stops being an
+       integrated belief and becomes a straight read of the cursor -- which
+       is why respawn re-seeding stops mattering on this path. Coalesced to
+       at most one packet per tick, and only when the pointer actually moved. */
+    if(selfPos&&haveMouse&&!z&&w&&w.readyState===1){
+      const px=Math.round(mouseX),py=Math.round(mouseY);
+      if(px!==lastSentPx||py!==lastSentPy){
+        w.send(CC.pointerPacket(px,py));lastSentPx=px;lastSentPy=py;
+      }
+      estAim=CC.bradsOfVector(px-selfPos.x,py-selfPos.y);
+    }
+  }else if(aimSeeded&&selfPos&&haveMouse&&!z){
     rot=CC.rotateButton(estAim,
       CC.bradsOfVector(Math.round(mouseX-selfPos.x),Math.round(mouseY-selfPos.y)));
   }
@@ -313,7 +334,7 @@ function drawHud(){
   const keys=readKeys(),on=v=>v?"on":"..";
   hud.innerHTML=
     '<b>move</b> '+on(keys.up)+'/'+on(keys.left)+'/'+on(keys.down)+'/'+on(keys.right)+
-    '  <b>aim</b> '+(aimSeeded?estAim+"b":"--")+' '+(committedRotate||"park")+
+    '  <b>aim</b> '+(aimSeeded?estAim+"b":"--")+' '+(directAim?"direct":(committedRotate||"park"))+
     '  <b>fire</b> '+(lmb?"held":"..")+
     '  <b>item</b> '+on(keys.item)+
     (pingNote?'  <b>ping</b> '+pingNote:'');

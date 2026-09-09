@@ -190,6 +190,30 @@
     b: !!(mask & BUTTON.b), c: !!(mask & BUTTON.c),
   });
 
+  // ---- direct aim (server-advertised) ----
+  // The turret adopts the cursor bearing OUTRIGHT instead of traversing at
+  // AIM_TURN_RATE. Rides SpriteClientMouseMove (0x82), which has always
+  // crossed this wire -- the server used to decode and discard it. The player
+  // POV draws the board at scale 1 from origin (0,0), so the cursor's canvas
+  // pixel IS a map pixel and needs no transform.
+  //
+  // Capability is DETECTED (GET /humanplay), never compiled in: one bundle is
+  // served to league and play servers alike, and a league config answers
+  // false, which drops us back to the rotate-button chase automatically.
+  const SPRITE_CLIENT_MOUSE_MOVE = 0x82;
+  const MAP_LAYER_ID = 0;
+
+  function pointerPacket(mapX, mapY) {
+    const x = Math.round(mapX) | 0, y = Math.round(mapY) | 0;
+    // signed 16-bit little-endian, matching readI16 on the server side
+    return new Uint8Array([
+      SPRITE_CLIENT_MOUSE_MOVE,
+      x & 0xff, (x >> 8) & 0xff,
+      y & 0xff, (y >> 8) & 0xff,
+      MAP_LAYER_ID,
+    ]);
+  }
+
   // ---- KEYMAP: the single source of truth for any on-screen controls panel ----
   // The app/product lane's re-vendor tripwire reads THIS, so a binding can
   // never drift from what the panel advertises. `bits` names the engine
@@ -201,7 +225,15 @@
       note: "accelerates; a one-tick tap is sub-pixel by design" },
     { id: "aim",    label: "Aim",           keys: ["Mouse"], alt: [],
       wire: "mask", bits: ["b", "select"], status: "live",
-      note: "cursor angle drives one rotate button per tick, shortest arc" },
+      note: "the turret points where you point",
+      // Two real modes, chosen per server, so the panel must not hard-code
+      // one: a direct-aim server snaps to the cursor, everything else swings.
+      modes: {
+        direct: { when: "humanDirectAim", wire: "pointer",
+                  note: "points at the cursor immediately" },
+        chase:  { when: "default", wire: "mask",
+                  note: "swings toward the cursor at a fixed turn rate" },
+      } },
     { id: "fire",   label: "Fire",          keys: ["Left click"], alt: [],
       wire: "mask", bits: ["attack"], status: "live",
       note: "press fires; the shot leaves after a short windup, aim locked at the pull" },
@@ -226,6 +258,7 @@
     SHOUT_MAX_CHARS, SHOUT_COOLDOWN_TICKS,
     wrapBrads, shortestDelta, bradsOfVector, rotateButton, stepAim,
     spawnAimBrads, reseedAim, moveMask, fireBit, itemBit, pingText, chessCell,
+    pointerPacket, SPRITE_CLIENT_MOUSE_MOVE, MAP_LAYER_ID,
     buildMask, maskToButtons,
   };
 });
