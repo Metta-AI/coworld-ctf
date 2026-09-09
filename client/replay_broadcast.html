@@ -1384,6 +1384,42 @@ body.sidelanes-both #killfeed {
   overflow: hidden;
 }
 
+/* BR RAIL FIT (owner follow-up, 2026-09-09 — 16-seat verification pass on
+   the left-rail-is-the-default change): two defects, fixed here rather
+   than in the sidelane block above (that block's .br-cell/.br-cellband
+   rules are owned by a concurrent edit).
+   1. Wide rail (tier 2, e.g. 3454x846): .br-cell is width:100% of the
+      rail and .br-cell-glory carries margin-left:auto (both in the block
+      above) — a deliberate "numbers form a right-aligned ledger column"
+      design, fine while the rail itself was narrow, but at an ~800px-wide
+      tier-2 rail it puts ~800px between a chip's name and its own glory
+      number, reading as two unrelated things. A higher-specificity
+      override (one more class in the selector) wins the cascade without
+      touching the existing declaration: pin the number a small fixed gap
+      after the name instead of auto-pushed to the row's far edge, and cap
+      the row's own width so it never re-stretches into a wide gap by
+      another route.
+   2. Very short rail (the kiosk/theater stage, e.g. the League Replayer's
+      540x300 iframe -> a ~240x128 embedded floor): even at the smallest
+      --hudscale floor (0.5), a full 16-cell single column measured 239px
+      of content in a 128px-tall lane -- real clipping (#lane-l is
+      overflow:hidden), not just a tight fit. Splitting the column into
+      two below the existing .tiny threshold (relayout() already toggles
+      this at boardW <= 620; extended here to <body> as well as <stage>)
+      roughly halves the needed height so all 16 cells fit (measured:
+      16-cell content now 123px, inside the 128px lane). */
+body.sidelanes #scorebug .br-cell { max-width: 340px; }
+body.sidelanes #scorebug .br-cell .br-cell-glory { margin-left: calc(10 * var(--u)); }
+body.sidelanes.tiny #scorebug .br-cellband {
+  flex-direction: row;
+  flex-wrap: wrap;
+  justify-content: flex-start;
+}
+body.sidelanes.tiny #scorebug .br-cell {
+  width: calc(50% - (2 * var(--u)));
+  max-width: none;
+}
+
 /* ---------- 2. KILL FEED ---------- */
 #killfeed {
   position: absolute;
@@ -7941,6 +7977,11 @@ body[data-noviewpanel] #viewpanel { display: none !important; }
       var scale = Math.max(0.5, Math.min(1.6, boardW / 760));
       root.style.setProperty('--hudscale', scale.toFixed(3));
       stage.classList.toggle('tiny', boardW <= 620);
+      // Mirrored onto <body> (not just #stage) so the rail CSS — a sibling
+      // of #stage, not a descendant — can key off the same threshold (BR
+      // RAIL FIT, owner follow-up 2026-09-09: splits the 16-cell roster
+      // column into two below this size, see the CSS comment).
+      document.body.classList.toggle('tiny', boardW <= 620);
       // The scorebug is always docked in the left rail now (sideLanes is
       // unconditional) — the top band never reserves space, so the board
       // gets the whole frame height back at every window shape.

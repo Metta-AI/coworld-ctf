@@ -284,3 +284,21 @@ suite "SEASON 2 replay viewer HUD: left rail is the default (owner 2026-09-09)":
       check "id=\"kda-r\"" in shell
       check "class=\"khead\"" in shell
       check "function renderStandings" in shell
+
+suite "SEASON 2 replay viewer HUD: BR rail fit at 16 seats (owner follow-up 2026-09-09)":
+  ## The 16-seat verification pass on the left-rail-is-the-default change
+  ## found two defects the 2-team fixture never exercised: at a wide tier-2
+  ## rail (e.g. 3454x846) .br-cell-glory's margin-left:auto (in the
+  ## sidelane block, ~1280-1410) put ~800px between a chip's name and its
+  ## own number; at a very short rail (the kiosk/theater stage) a single
+  ## 16-cell column measured 239px of content in a 128px-tall lane and
+  ## clipped (#lane-l is overflow:hidden). Both fixed by NEW rules outside
+  ## that block — this suite guards them without re-touching it.
+  test "the wide rail keeps a chip's name and number close together":
+    checkInBoth "body.sidelanes #scorebug .br-cell { max-width: 340px; }"
+    checkInBoth "body.sidelanes #scorebug .br-cell .br-cell-glory { margin-left: calc(10 * var(--u)); }"
+
+  test "the tiny rail splits the 16-cell roster into two columns instead of clipping":
+    checkInBoth "document.body.classList.toggle('tiny', boardW <= 620);"
+    checkInBoth "body.sidelanes.tiny #scorebug .br-cellband {"
+    checkInBoth "body.sidelanes.tiny #scorebug .br-cell {"
