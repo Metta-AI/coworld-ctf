@@ -396,6 +396,26 @@ html, body {
   flex: none;
 }
 .br-cell-member.dead .br-cell-intent { display: none; }
+/* THE WHOLE epic, Stop 2 — Law 6 ("no bare numbers"): the BR cell's glory
+   figure had NO visible noun (unlike the classic .plate's own "Glory"/
+   "Alive" labels — see .glory-label/.lives-label). Stacked ABOVE the
+   numeral rather than beside it so the label costs zero extra width in
+   this width-tight 16-cell band (the wrap threshold at 1440px is real,
+   see .br-cellband's own comment). */
+.br-cell-glory-wrap {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  flex: none;
+}
+.br-cell-glory-label {
+  font-family: var(--finefont);
+  font-size: calc(5.5 * var(--u));
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--paper-dim);
+  line-height: 1;
+}
 /* The prominent figure in the cell — glory is still the score, just one
    per team now instead of one for the whole bar (Maxwell: show all 16). */
 .br-cell-glory {
@@ -803,6 +823,35 @@ html, body {
 .banner-chip.leaving { animation: chipfade 260ms ease-in forwards; }
 @keyframes chippop { from { transform: translateY(calc(-8 * var(--u))) scale(0.9); opacity: 0; } to { transform: none; opacity: 1; } }
 @keyframes chipfade { to { opacity: 0; transform: translateY(calc(-4 * var(--u))); } }
+
+/* ---------- 3b. KICKOFF LINE: the first seconds of every episode ---------
+   THE WHOLE epic, Stop 2: "N seats drop in. Last one standing wins. The
+   zone closes." shown once per episode start (gated on hasZoneField + the
+   opening ~3s of tick time — see maybeAnnounceKickoff), held on the same
+   wall-clock dwell-floor pattern #bannerlane uses. A full sentence, so —
+   unlike .banner-chip's short uppercase callouts — this wraps and reads in
+   sentence case rather than being forced upper-case. */
+#kickoffLine {
+  position: absolute;
+  top: calc(30 * var(--u));
+  left: 50%;
+  transform: translateX(-50%) translateY(calc(-6 * var(--u)));
+  z-index: 13;
+  max-width: min(86%, calc(420 * var(--u)));
+  text-align: center;
+  font-family: var(--pixfont);
+  font-size: calc(12 * var(--u));
+  line-height: 1.4;
+  letter-spacing: 0.01em;
+  color: var(--paper);
+  background: var(--ink-soft);
+  border-bottom: calc(3 * var(--u)) solid var(--amber);
+  padding: calc(8 * var(--u)) calc(16 * var(--u));
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 220ms ease-out, transform 220ms ease-out;
+}
+#kickoffLine.show { opacity: 1; transform: translateX(-50%) translateY(0); }
 
 /* ---------- 1b. GLORY POPS ---------- */
 /* SEASON 2: world-anchored floating "+Ng"/named-claim pops, one per entry in
@@ -1333,7 +1382,7 @@ body.sidelanes #scorebug .br-cell-name { max-width: none; }
    (order/direction only); what the cells render is untouched. The glory
    numeral rides the rail's right edge so the column reads as a ledger. */
 body.sidelanes #scorebug .br-cell-lives { order: -1; flex-direction: column; }
-body.sidelanes #scorebug .br-cell-glory { margin-left: auto; }
+body.sidelanes #scorebug .br-cell-glory-wrap { margin-left: auto; }
 /* In the top band the two plate tracks flank a center clock, so the right
    track mirrors (.side-r row-reverse). Stacked in one rail there is no
    center to flank: every plate reads in the LEFT track's direction. */
@@ -1813,6 +1862,16 @@ body.sidelanes.tiny #scorebug .br-cell {
   position: relative;
   height: calc(34 * var(--u));
   cursor: pointer;
+}
+/* SEEK PERSISTENCE (Stop 2, moment 10 / J32): a click here during genuinely
+   live play (s.en false) used to be silently swallowed with no visible
+   sign — updateScrubLiveLock toggles this the moment that's true, so the
+   control looks (and, via title/aria-label, reads) locked instead of
+   pretending to work. Cursor only — pointer-events stay on so the
+   explanatory hover text is still reachable. */
+.scrub.live-locked {
+  opacity: 0.45;
+  cursor: not-allowed;
 }
 .scrub-track {
   position: absolute;
@@ -2938,6 +2997,7 @@ body[data-noviewpanel] #viewpanel { display: none !important; }
       <div class="fpv-grip" id="fpv-grip" title="Drag to resize"></div>
     </div>
     <div id="bannerlane"></div>
+    <div id="kickoffLine" role="status" aria-live="polite"></div>
     <div id="killfeed"></div>
     <div id="gloryPops"></div>
     <!-- SEASON 2 phase presentation: the MAP VOTE and HUDDLE acts, plus the
@@ -2980,10 +3040,11 @@ body[data-noviewpanel] #viewpanel { display: none !important; }
         <button class="tbtn" id="btn-back" title="Back one tick (b)">◂|</button>
         <button class="tbtn" id="btn-play" title="Play / pause (space)">▶</button>
         <button class="tbtn" id="btn-fwd" title="Skip +5s (.)">+5s</button>
-        <button class="tbtn" id="btn-end" title="Jump to end (e)">|▸</button>
+        <button class="tbtn" id="btn-end" title="Jump to end (e)" aria-label="Jump to the end of this episode">|▸</button>
         <button class="tbtn" id="btn-loop" title="Loop (r)">↻</button>
         <button class="tbtn" id="btn-skip" title="Auto-skip lulls (f)">▸▸</button>
         <button class="tbtn" id="btn-spoilers" title="Spoilers: kills / flag story / winner on the timeline ahead of the playhead (o)">spoilers</button>
+        <button class="tbtn" id="btn-share" title="Copy a link to this exact moment" aria-label="Copy a link to this exact moment">Share</button>
         <span class="ffwd-chip" id="ffwd-chip">▸▸ SKIPPING LULL</span>
         <span class="win-chip" id="win-chip"></span>
         <span class="tick-clock" id="tick-clock">0 / 0</span>
@@ -3099,6 +3160,26 @@ body[data-noviewpanel] #viewpanel { display: none !important; }
   var getSpoilers = C.getSpoilers, setSpoilers = C.setSpoilers;
   var isMe = C.isMe, meSeatIndices = C.meSeatIndices;
 
+  // ---- THE GLOSSARY: one term, one sentence, one source ------------------
+  // THE WHOLE epic, Law 1 ("one vocabulary, one glossary") and Law 6 ("no
+  // bare numbers"): every on-screen explanation this file renders for these
+  // eight terms — the strip's first-appearance toasts, its hover/tap
+  // title/aria-label text, and the kickoff line — reads from THIS object.
+  // No sentence below is ever retyped elsewhere in this file. The wiki
+  // glossary (Stop 3, docs/wiki) copies these same eight sentences verbatim
+  // rather than hand-maintaining a second copy — see
+  // docs/designs/THE_WHOLE.md §3 Law 1 and docs/designs/THE_GAME_EXPLAINS_ITSELF.md.
+  var GLOSSARY = {
+    glory: "Glory is what one policy earns in one episode: every deed mints some, and the multipliers stack the more it does before the end.",
+    deed: "A deed is one thing a cog did that the game pays for.",
+    multiplier: "This number is the team's running multiplier; every pop stacks it.",
+    pact: "These two share a pact: they won't fight each other.",
+    heat: "Scoring fast; keeps climbing while it's hot.",
+    intent: "What this cog is doing right now.",
+    downed: "Downed — can still be rescued.",
+    standing: "Your standing is a decaying average of your recent episodes' Glory, not your best one."
+  };
+
   // ---- eye-level cog art for the EYES PiP billboards ----
   // The PiP is an eye-level raycaster, so its billboards need art drawn from a
   // HORIZONTAL camera: soldier_{red,blue}_front.png is the real cog standing on
@@ -3180,7 +3261,7 @@ body[data-noviewpanel] #viewpanel { display: none !important; }
   //      (feed row / banner / curtain), collapsing only the dead time between
   //      contacts. These are NOT one speed knob — one caps motion, one floors dwell.
   var ANIM_MAX_FACTOR = 2;
-  var DWELL_FLOOR_MS = { feed: 2600, banner: 1900, curtain: 2400, read: 600 };
+  var DWELL_FLOOR_MS = { feed: 2600, banner: 1900, curtain: 2400, read: 600, kickoff: 3200 };
   function animFactor() {
     // Lever 1 — the chrome plays at min(replaySpeed, cap): at 16× the board flies
     // but a kill row still slides in at 2×-equivalent so a human can read it.
@@ -3462,7 +3543,15 @@ body[data-noviewpanel] #viewpanel { display: none !important; }
     'C10.8 19 13 16.4 13 12C13 9.2 11.3 7 10 5C10.3 7.5 9 8.7 8.3 8.9' +
     'C8.6 6.8 9 4 8 1Z"/>' +
     '</svg>';
-  function buildHeatFlame(el) { if (el) el.innerHTML = HEAT_FLAME_SVG; }
+  // Hover/tap text is always-on (Law 6, THE WHOLE Stop 2) — set once at
+  // build time, never re-written per frame (the flame's tier changes, the
+  // definition of "heat" does not).
+  function buildHeatFlame(el) {
+    if (!el) return;
+    el.innerHTML = HEAT_FLAME_SVG;
+    el.title = GLOSSARY.heat;
+    el.setAttribute('aria-label', GLOSSARY.heat);
+  }
 
   // Heat = how fast a team's glory total is climbing right now, bucketed off
   // a short trailing window so it reads as "on fire", not a running average.
@@ -3503,6 +3592,7 @@ body[data-noviewpanel] #viewpanel { display: none !important; }
     if (!el) return;
     var tier = heatTierFor(team);
     el.className = 'heat-flame' + (tier ? ' ' + tier : '');
+    if (tier) announceFirstAppearance('heat'); // first REAL heat, not the cold default
   }
 
   // ---- THE MIND ON THE STRIP: pact grouping + one-word intent ----
@@ -3601,11 +3691,25 @@ body[data-noviewpanel] #viewpanel { display: none !important; }
     if (!el || typeof gv !== 'number') return;
     if (recutArmed !== true) {
       el.textContent = gv; // dark economy: today's plain figure, unchanged
+      // Hover/tap text (Law 6): honest for THIS economy — a dark-economy
+      // figure is a plain Glory score, never call it "the multiplier"
+      // (see the mislabel note above renderGloryFigure).
+      if (el._glossKind !== 'glory') {
+        el.title = GLOSSARY.glory;
+        el.setAttribute('aria-label', GLOSSARY.glory);
+        el._glossKind = 'glory';
+      }
       return;
     }
     // Group thousands so an exponential product stays readable ("×2,304"),
     // not the fixed-precision ×N of a bounded combo ladder.
     el.textContent = '×' + gv.toLocaleString('en-US');
+    if (el._glossKind !== 'multiplier') {
+      el.title = GLOSSARY.multiplier;
+      el.setAttribute('aria-label', GLOSSARY.multiplier);
+      el._glossKind = 'multiplier';
+      announceFirstAppearance('multiplier');
+    }
     var prev = gloryFigurePrev[team];
     if (typeof prev === 'number' && prev !== gv) {
       // same remove/reflow/add idiom the flag-taken flip uses elsewhere in
@@ -3661,6 +3765,144 @@ body[data-noviewpanel] #viewpanel { display: none !important; }
   var zoneEndcardArmed = false;
   var zoneEndcardShown = false;
   var zoneEndcardTimer = null;
+
+  // ---- ENDCARD HOLD: the end is reachable ----------------------------------
+  // THE WHOLE epic, Stop 2, moment 10 (J32): on the LIVE stage a beginner
+  // never actually saw an endcard — the next episode's own stream reset
+  // (resetEpisodeChrome, below) used to yank the score screen away the
+  // instant a new websocket opened, with no floor on how long it had been
+  // visible. ENDCARD_HOLD_MS is a fixed wall-clock beat the card is
+  // guaranteed to stay up once shown, independent of the zone-paint
+  // completion beat above (which only gates WHEN it first appears).
+  var ENDCARD_HOLD_MS = 4000;
+  var endcardShownAtMs = 0;
+  var endcardHoldTimer = null;
+  // viewpanel (zoom/minimap) rides the SAME hold as the card — the comment
+  // at its own '.ended' toggle already explains why (nothing left to track
+  // once the card is up); letting it drop 'ended' early would re-enable
+  // zoom/minimap controls while the score screen is still visually held.
+  function hideEndcardHeld(card, viewpanel) {
+    if (endcardHoldTimer) { clearTimeout(endcardHoldTimer); endcardHoldTimer = null; }
+    var wasOn = card.classList.contains('on');
+    var elapsed = wasOn ? (performance.now() - endcardShownAtMs) : ENDCARD_HOLD_MS;
+    var remaining = Math.max(0, ENDCARD_HOLD_MS - elapsed);
+    if (!wasOn || remaining <= 0) {
+      card.classList.remove('on');
+      card.classList.remove('pb');
+      if (viewpanel) viewpanel.classList.remove('ended');
+      return;
+    }
+    endcardHoldTimer = setTimeout(function () {
+      endcardHoldTimer = null;
+      card.classList.remove('on');
+      card.classList.remove('pb');
+      if (viewpanel) viewpanel.classList.remove('ended');
+    }, remaining);
+  }
+
+  // ---- STORY LINE: one shared sentence-case toast, queued -----------------
+  // #kickoffLine is a single readable-sentence toast (unlike #bannerlane's
+  // short uppercase chips) shared by two callers: the once-per-episode
+  // kickoff line below, and the once-per-session first-appearance toasts
+  // (next section) that explain the pact ring / heat flame / multiplier
+  // figure / intent word / downed state the first time each is actually
+  // seen. A tiny FIFO queue (same shape as #bannerlane's own bannerQueue/
+  // bannerBusy) keeps two stories from ever overlapping if, say, a pact
+  // and the kickoff line both want the toast on the same early frame.
+  var storyQueue = [];
+  var storyBusy = false;
+  function enqueueStory(text) {
+    // De-duped: the replay runtime's own lead-in walk can re-present a
+    // near-start frame more than once while it settles onto the real
+    // spectator start tick (initReplayScan overshoots then rewinds — see
+    // the Nim comment on seekReplay(result.player.replayStartTick())) —
+    // caught live via playwright as a one-frame flicker of the kickoff
+    // toast. Never show/queue the exact same sentence twice in a row.
+    var el = $('kickoffLine');
+    if (el && el.classList.contains('show') && el.textContent === text) return;
+    if (storyQueue.indexOf(text) !== -1) return;
+    storyQueue.push(text);
+    pumpStory();
+  }
+  function pumpStory() {
+    if (storyBusy || !storyQueue.length) return;
+    var el = $('kickoffLine');
+    if (!el) { storyQueue.length = 0; return; }
+    storyBusy = true;
+    var text = storyQueue.shift();
+    el.textContent = text;
+    el.classList.add('show');
+    setTimeout(function () {
+      el.classList.remove('show');
+      setTimeout(function () { storyBusy = false; pumpStory(); }, 220); // matches the CSS fade-out
+    }, dwellFloor('kickoff'));
+  }
+
+  // ---- KICKOFF LINE: "N seats drop in. Last one standing wins. The zone
+  // closes." — THE WHOLE epic, Stop 2, moment 2 (docs/designs/
+  // THE_GAME_EXPLAINS_ITSELF.md #2). Gated on hasZoneField (only a BR/zone
+  // episode has an objective this sentence is true of — a classic CTF/
+  // territory episode has no shrinking zone) and the opening tick window,
+  // so it fires once near s.t===0 and again every time the tick clock
+  // restarts low (a fresh episode's stream, a loop, or a restart-to-start —
+  // all read the same "this round is beginning" signal, no separate latch
+  // needed). Seat count reads (s.roster || []).length off the wire rather
+  // than a hard-coded 16, per the task's own instruction.
+  var KICKOFF_TICKS = 3 * 24; // ~3s at 24 ticks/s baseline (matches the file's other *_TICKS windows)
+  var kickoffAnnounced = false;
+  function maybeAnnounceKickoff(s, hasZoneField) {
+    if (!s || typeof s.t !== 'number') return;
+    // BUG FOUND IN VERIFICATION: s.t is the sim's ABSOLUTE tick count, which
+    // keeps running through the lobby/huddle/vote phases BEFORE the match
+    // actually starts — s.t is already well past KICKOFF_TICKS by the time
+    // roster/zone are ready, so a raw `s.t <= N` gate never fires (caught
+    // live via playwright against tests/fixtures/br-zonepaint-smoke.
+    // bitreplay: hasZoneField only ever turned true long after s.t had
+    // already exceeded the window). s.st is the match's own start tick —
+    // same field seekToFraction already reads as "st" — so gate on ticks
+    // SINCE KICKOFF, not ticks since the sim epoch.
+    var sinceStart = s.t - (s.st || 0);
+    if (sinceStart <= 1) kickoffAnnounced = false; // fresh episode / loop / restart: re-arm
+    if (!hasZoneField || kickoffAnnounced || sinceStart < 0 || sinceStart > KICKOFF_TICKS) return;
+    kickoffAnnounced = true;
+    var seats = (s.roster || []).length || 16;
+    enqueueStory(seats + ' seats drop in. Last one standing wins. The zone closes.');
+  }
+  function resetKickoffLine() {
+    kickoffAnnounced = false;
+  }
+
+  // ---- FIRST-APPEARANCE TOASTS: the strip as legend of itself -------------
+  // THE WHOLE epic, Stop 2: "First appearance per session, one short line
+  // each ... the pact ring, the heat flame, the multiplier figure, the
+  // intent word, the downed state." Each term fires its GLOSSARY sentence
+  // through the shared story toast ONCE per browser tab session (sessionStorage
+  // survives a reload within the same tab, which is what "session" means
+  // here — it does not survive to a new tab/window, matching a beginner's
+  // single sitting). The hover/tap title/aria-label text (always-on, not
+  // once) is wired separately, at each element's own render site below.
+  var EXPLAIN_SESSION_KEY = 'ctfExplainSeen';
+  var explainSeen = null;
+  function loadExplainSeen() {
+    if (explainSeen) return explainSeen;
+    explainSeen = {};
+    try {
+      var raw = window.sessionStorage && window.sessionStorage.getItem(EXPLAIN_SESSION_KEY);
+      if (raw) explainSeen = JSON.parse(raw) || {};
+    } catch (e) { explainSeen = {}; }
+    return explainSeen;
+  }
+  function announceFirstAppearance(term) {
+    var sentence = GLOSSARY[term];
+    if (!sentence) return;
+    var seen = loadExplainSeen();
+    if (seen[term]) return;
+    seen[term] = true;
+    try {
+      window.sessionStorage && window.sessionStorage.setItem(EXPLAIN_SESSION_KEY, JSON.stringify(seen));
+    } catch (e) { /* private-browsing / storage disabled: still show it this load, just not durably remembered */ }
+    enqueueStory(sentence);
+  }
 
   function resetZoneEndcard() {
     zoneEndcardArmed = false;
@@ -3750,12 +3992,15 @@ body[data-noviewpanel] #viewpanel { display: none !important; }
     if (feedEl) feedEl.innerHTML = '';
     if (bannerEl) bannerEl.innerHTML = '';
     var card = $('endcard');
-    card.classList.remove('on');
-    card.classList.remove('pb');
+    // ENDCARD HOLD (Stop 2, moment 10 / J32): a fixed wall-clock beat, not
+    // an immediate yank, even though every OTHER latch in this function
+    // resets right now for correctness — see hideEndcardHeld's own comment.
+    hideEndcardHeld(card, $('viewpanel'));
     card._key = null;
     ecTeams = null;
     sbTeams = null;
     resetZoneEndcard();
+    resetKickoffLine();
     // STALE BODIES FIX: a new episode's tick clock starts back at (near)
     // zero, so a previous episode's final-frame pops — otherwise only
     // reaped by the `jumped` detector's own clearGloryPops() call, which a
@@ -3829,6 +4074,8 @@ body[data-noviewpanel] #viewpanel { display: none !important; }
     }
     syncBoardAspect(s);
     postToShell('frame', s);
+    maybeAnnounceKickoff(s, hasZoneField);
+    updateScrubLiveLock(s);
 
     // Detect a jump (seek/loop): clear transient beats so nothing phantoms.
     // A skip-lulls fast-forward frame legitimately advances up to 64 ticks
@@ -3898,8 +4145,12 @@ body[data-noviewpanel] #viewpanel { display: none !important; }
     } else {
       gameoverEntered = false;
       ecSequenceStarted = false;
-      $('endcard').classList.remove('on');
-      $('viewpanel').classList.remove('ended');
+      // ENDCARD HOLD: route through the SAME hold floor as
+      // resetEpisodeChrome — without this, the very next frame of a new
+      // episode arriving on the SAME stream (no socket reopen; e.g. a
+      // downloaded multi-episode replay or a loop) would call plain
+      // classList.remove('on') here and undo the hold instantly.
+      hideEndcardHeld($('endcard'), $('viewpanel'));
       resetZoneEndcard();
     }
 
@@ -4085,7 +4336,10 @@ body[data-noviewpanel] #viewpanel { display: none !important; }
             '" style="--cellcol:' + col + '">' +
             '<span class="br-cell-members" id="cell-members-' + team + '"></span>' +
             '<span class="heat-flame" id="cell-flame-' + team + '"></span>' +
+            '<span class="br-cell-glory-wrap">' +
+            '<span class="br-cell-glory-label">Glory</span>' +
             '<span class="br-cell-glory" id="cell-glory-' + team + '">0</span>' +
+            '</span>' +
             '</div>';
         });
         return html;
@@ -4266,7 +4520,17 @@ body[data-noviewpanel] #viewpanel { display: none !important; }
           // color read as one pair without a legend.
           var pact = (tr[team] && tr[team].pact) || [];
           cell.classList.toggle('pact', pact.length > 0);
-          if (pact.length > 0) cell.style.setProperty('--pactcol', teamCol(pact[0]) || AMBER);
+          if (pact.length > 0) {
+            cell.style.setProperty('--pactcol', teamCol(pact[0]) || AMBER);
+            // Hover/tap text is always-on (Law 6); the first REAL pact of
+            // the session also gets the once-only toast.
+            cell.title = GLOSSARY.pact;
+            cell.setAttribute('aria-label', GLOSSARY.pact);
+            announceFirstAppearance('pact');
+          } else if (cell.title === GLOSSARY.pact) {
+            cell.removeAttribute('title');
+            cell.removeAttribute('aria-label');
+          }
         }
         // PLAYER IDENTITY member rows (2026-09-02, owner: "the life
         // squares can stack vertically and have the name to the right"):
@@ -4324,10 +4588,37 @@ body[data-noviewpanel] #viewpanel { display: none !important; }
               var intentEl = row.querySelector('.br-cell-intent');
               if (intentEl) {
                 var word = intentWordFor(p, s, team, tr);
-                if (intentEl._word !== word) { intentEl.textContent = word; intentEl._word = word; }
+                if (intentEl._word !== word) {
+                  intentEl.textContent = word;
+                  intentEl._word = word;
+                  // Hover/tap text is always-on (Law 6): the downed state
+                  // gets its OWN, more specific sentence (it is one of the
+                  // intent-word branches, see intentWordFor); every other
+                  // word gets the generic "what is this field" sentence.
+                  var tip = (word === 'downed') ? GLOSSARY.downed : GLOSSARY.intent;
+                  intentEl.title = tip;
+                  intentEl.setAttribute('aria-label', word ? (word + ' — ' + tip) : tip);
+                  if (word === 'downed') announceFirstAppearance('downed');
+                  else if (word) announceFirstAppearance('intent');
+                }
               }
             }
           });
+          // THE WHOLE epic, Stop 2 — Law 6: the second bare "counter" in
+          // this cell is the member roster itself — deliberately drawn as
+          // life squares, not a numeral (see the PLAYER IDENTITY comment
+          // above: "the roster IS the counter, genre convention"). Give it
+          // a noun anyway, for hover/tap and assistive tech, without
+          // adding a visible digit that would fight that convention.
+          var aliveCount = 0;
+          members.forEach(function (p) { if (p && p.alive) aliveCount++; });
+          var rosterTip = aliveCount + ' of ' + members.length +
+            (members.length === 1 ? ' cog still up' : ' cogs still up');
+          if (membersEl._rosterTip !== rosterTip) {
+            membersEl.title = rosterTip;
+            membersEl.setAttribute('aria-label', rosterTip);
+            membersEl._rosterTip = rosterTip;
+          }
         }
         // Leader emphasis rides ONE flame (Maxwell: "no single-block
         // takeover") — every other cell's flame resets to cold.
@@ -6843,8 +7134,14 @@ body[data-noviewpanel] #viewpanel { display: none !important; }
         // above the demoted survival/kills summary — with the GLORY
         // LEADER callout line beneath it. Both stay empty/hidden (CSS
         // gates) on a replay whose wire carries no glory fields.
+        // THE WHOLE epic, Stop 2, Law 6: "GLORY" alone, on the endcard's
+        // biggest numeral, is exactly where a beginner conflates a single
+        // episode's score with their season standing (J31/opus-a's logged
+        // "standing = best round" belief) — name the scope, not just the
+        // term. title/aria-label carry the glossary sentence too.
         '<div class="ec-glory-hero"><span class="ec-glory-hero-num" id="ec-glory-hero-num">0</span>' +
-        '<span class="ec-glory-hero-label">GLORY</span></div>' +
+        '<span class="ec-glory-hero-label" title="' + esc(GLOSSARY.glory) +
+        '" aria-label="' + esc(GLOSSARY.glory) + '">GLORY THIS EPISODE</span></div>' +
         '<div class="ec-mvp-line" id="ec-mvp-line"></div>' +
         '<div class="ec-hero-line" id="ec-hero-line"></div>' +
         // MATCH GLORY (2026-09-08, owner): the COMBINED total across every
@@ -7344,6 +7641,11 @@ body[data-noviewpanel] #viewpanel { display: none !important; }
   function renderEndcard(s) {
     var card = $('endcard');
     if (!s.over) return;
+    // ENDCARD HOLD: stamp the moment it actually FIRST goes on-screen (the
+    // on→off transition only), so hideEndcardHeld can measure the real
+    // wall-clock dwell — restamping every frame while it stays shown would
+    // let a long-lingering game-over phase reset its own hold floor.
+    if (!card.classList.contains('on')) endcardShownAtMs = performance.now();
     card.classList.add('on'); // own the frame at GameOver (§8) — before either verdict branch
     var o = s.over;
     var teams = activeTeams(s);
@@ -7532,6 +7834,84 @@ body[data-noviewpanel] #viewpanel { display: none !important; }
   $('btn-end').addEventListener('click', function () { send('e'); });
   $('btn-loop').addEventListener('click', function () { send('r'); });
   $('btn-skip').addEventListener('click', function () { send('f'); });
+
+  // A STABLE PERMALINK, SHARED (Stop 2, moment 10 / J28): this file has no
+  // ?e=<episode-id> concept at all — grepped every URL param it reads
+  // (embed/viewpanel/speed/t/achievement, see EMBED/START_SPEED/SEEK_T/
+  // ACH_FOCUS above) and none of them is an episode id. That id is minted
+  // and resolved by the HOST page (metta/Observatory), not this client, so
+  // J28's reported instability is that host's concern — not reproducible
+  // here, and not fixed here. What THIS page already owns and CAN make
+  // genuinely shareable: its own ?t=<tick> deep-link (SEEK_T above) — a
+  // replay URL plus a tick is a fully deterministic moment (hash-verified
+  // playback, not a live guess). Share copies location.href with ?t= set
+  // to the CURRENT tick, so pasting it back in reopens on this exact
+  // moment — the client half of "a stable permalink," done honestly.
+  function currentShareUrl() {
+    try {
+      var url = new URL(location.href);
+      if (lastState && typeof lastState.t === 'number') {
+        url.searchParams.set('t', String(lastState.t));
+      }
+      return url.toString();
+    } catch (e) { return location.href; }
+  }
+  function copyText(text) {
+    try {
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(text);
+        return true;
+      }
+    } catch (e) { /* fall through to the legacy path below */ }
+    // Clipboard API unavailable (insecure context, denied permission, an
+    // older embed) — an offscreen textarea + execCommand is still a real
+    // copy and needs no dialog.
+    try {
+      var ta = document.createElement('textarea');
+      ta.value = text;
+      ta.style.position = 'fixed';
+      ta.style.opacity = '0';
+      document.body.appendChild(ta);
+      ta.select();
+      var ok = document.execCommand('copy');
+      document.body.removeChild(ta);
+      return ok;
+    } catch (e2) { return false; }
+  }
+  $('btn-share').addEventListener('click', function () {
+    var url = currentShareUrl();
+    var ok = copyText(url);
+    enqueueStory(ok ? 'Link copied — opens on this exact moment.' : url);
+  });
+
+  // SEEK PERSISTENCE ON THE LIVE STAGE (Stop 2, moment 10 / J32): the wire's
+  // own transportEnabled flag (`s.en`) is false for the WHOLE live-viewing
+  // window, kickoff through the post-gameover hold — see src/ctf/
+  // replay_runtime.nim's buildLiveViewerPacket, which hardcodes
+  // transportEnabled=false with the comment "a live stream has no
+  // scrubber to seek." A click during that window used to be silently
+  // swallowed (queued in SEEK_FRAC below, applied only if/when a later
+  // frame on the SAME stream ever carries s.en===true) with zero on-screen
+  // sign anything happened — which reads exactly like "I clicked and it
+  // snapped back". This is the CLIENT half only: make the state honest
+  // (dim the scrubber + say why) instead of leaving a live, clickable-
+  // looking control that quietly does nothing. Actually ENABLING seek
+  // during a match's post-gameover hold is server-side (that hardcoded
+  // false) and out of this file's scope — see the PR body.
+  function updateScrubLiveLock(s) {
+    var scrubEl = $('scrub');
+    if (!scrubEl || !s) return;
+    var live = !s.en;
+    scrubEl.classList.toggle('live-locked', live);
+    var tip = live
+      ? 'Seek unlocks once this episode ends — a live match has no scrubber yet.'
+      : 'Seek: click to jump to a moment in this episode.';
+    if (scrubEl._tip !== tip) {
+      scrubEl.title = tip;
+      scrubEl.setAttribute('aria-label', tip);
+      scrubEl._tip = tip;
+    }
+  }
 
   // click-to-seek: map x-fraction to a tick and send s:<tick>
   // Map an x-fraction of the scrubber onto the shown [startTick, maxTick] axis

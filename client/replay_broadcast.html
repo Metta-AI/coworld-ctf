@@ -3812,6 +3812,15 @@ body[data-noviewpanel] #viewpanel { display: none !important; }
   var storyQueue = [];
   var storyBusy = false;
   function enqueueStory(text) {
+    // De-duped: the replay runtime's own lead-in walk can re-present a
+    // near-start frame more than once while it settles onto the real
+    // spectator start tick (initReplayScan overshoots then rewinds — see
+    // the Nim comment on seekReplay(result.player.replayStartTick())) —
+    // caught live via playwright as a one-frame flicker of the kickoff
+    // toast. Never show/queue the exact same sentence twice in a row.
+    var el = $('kickoffLine');
+    if (el && el.classList.contains('show') && el.textContent === text) return;
+    if (storyQueue.indexOf(text) !== -1) return;
     storyQueue.push(text);
     pumpStory();
   }
@@ -3843,8 +3852,18 @@ body[data-noviewpanel] #viewpanel { display: none !important; }
   var kickoffAnnounced = false;
   function maybeAnnounceKickoff(s, hasZoneField) {
     if (!s || typeof s.t !== 'number') return;
-    if (s.t <= 1) kickoffAnnounced = false; // fresh episode / loop / restart: re-arm
-    if (!hasZoneField || kickoffAnnounced || s.t > KICKOFF_TICKS) return;
+    // BUG FOUND IN VERIFICATION: s.t is the sim's ABSOLUTE tick count, which
+    // keeps running through the lobby/huddle/vote phases BEFORE the match
+    // actually starts — s.t is already well past KICKOFF_TICKS by the time
+    // roster/zone are ready, so a raw `s.t <= N` gate never fires (caught
+    // live via playwright against tests/fixtures/br-zonepaint-smoke.
+    // bitreplay: hasZoneField only ever turned true long after s.t had
+    // already exceeded the window). s.st is the match's own start tick —
+    // same field seekToFraction already reads as "st" — so gate on ticks
+    // SINCE KICKOFF, not ticks since the sim epoch.
+    var sinceStart = s.t - (s.st || 0);
+    if (sinceStart <= 1) kickoffAnnounced = false; // fresh episode / loop / restart: re-arm
+    if (!hasZoneField || kickoffAnnounced || sinceStart < 0 || sinceStart > KICKOFF_TICKS) return;
     kickoffAnnounced = true;
     var seats = (s.roster || []).length || 16;
     enqueueStory(seats + ' seats drop in. Last one standing wins. The zone closes.');
