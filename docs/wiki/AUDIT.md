@@ -88,3 +88,24 @@ but worth flagging to whoever owns it.
   (`battle-royale-s2` returns HTTP 200) and no bare `[[battle-royale]]`
   occurrence remains on any of the seven pages (checked via the wiki API,
   post-publish).
+- **2026-09-09** — THE WHOLE Stop 3 ("the wiki is the book") pass: fetched
+  `main`, `modes`, `ranks`, `submitting-a-policy` read-only via the wiki API
+  (no writes to the live wiki — publish is held per `PUBLISH.md`), staged
+  local repo copies under `docs/wiki/`, and edited them: `main` rewritten
+  into the eight-chapter question ladder with the classic-CTF-default
+  framing removed from the top of the page (the old digest content is kept,
+  re-scoped, under a new `## Reference` heading); `modes` had its stale
+  duo-pairing and ground-items sections deleted (J12); `ranks` corrected its
+  "grenade charges is dead code" regression (J14); `submitting-a-policy`
+  split its unverified platform-push section out in favor of
+  `[[build-and-submit]]` (J13); `build-and-submit`'s misleading "no token
+  alternative" line was corrected to name `get-login-url`/`get-token`/
+  `set-token`/`exchange-code` without overclaiming they bypass GitHub OAuth
+  (J20), and the GitHub-account requirement moved to the first line of its
+  §4. New: `docs/wiki/glossary.md` (standings-label and term glossary,
+  Law 1), `docs/wiki/_era.md` (the one live-ruleset record, Law 2 — the
+  only file in this repo's `docs/wiki/` naming the standing decay
+  constant's exact live value), and `tools/wiki/render_era_banner.py` (stamps every page's stale
+  banner from `_era.md`; run over the 7 pages this repo mirrors locally —
+  the other 35 live-only pages are unaffected and remain the next audit's
+  scope). None of this is published; see this task's PR for the diff.
