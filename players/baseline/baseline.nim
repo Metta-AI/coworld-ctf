@@ -189,6 +189,76 @@ when defined(ffa4probe):
   var f4MedPickVisOff = 0 # ...and that kit is OFF both formula spots => an address
                           #    the pre-lever code could never have produced
 
+when defined(peeldiag):
+  # ⭐⭐ -d:peeldiag (2026-08-18, THE PLACEBO-CONTROLLED APPROACH TEST). The
+  # replay finding this exists to adjudicate: net distance CLOSED on the nearest
+  # STOCKED kit during an hp==1 segment is -0.2 +-4.1 px for us against +8.5
+  # +-5.1 on a LOCKED (on-cooldown) placebo spot — i.e. we appear to close more
+  # ground on EMPTY spots than on real ones, which would mean our kits are
+  # accidental walk-overs and every gate above them is decoration.
+  #
+  # Replays cannot separate the three causes; this can, because it reads the
+  # policy's OWN state at the decision:
+  #   (1) perception dead — bot.ownHp never reads below MaxHp (pdHpHist), or
+  #       LabelMedKit returns an empty seq (pdLabelFrames), the silent-rename
+  #       failure this project has hit three times;
+  #   (2) discovery dead — hp and label both fine but no candidate ever clears
+  #       the detour budget (the funnel below ends at pdScan with pdHaveKit 0);
+  #   (3) discovery FINE and the WALK is the failure — a target is committed
+  #       every frame and the bot still does not close on it (pdClosed ~ 0).
+  # Only (3) is a movement-arbitration bug; (1) and (2) are perception bugs and
+  # would make the peel gate irrelevant.
+  #
+  # ⚠️ THE PLACEBO IS THE POINT. "We closed 40px on a kit" means nothing if the
+  # fight happened to drift that way. pdPlacebo accumulates the identical sum
+  # against a candidate the bot did NOT choose, so ordinary drift cancels and
+  # only STEERING survives. Never shipped; never compiled into the player image.
+  const PdSlots = 64
+  var pdPrevTick: array[PdSlots, int]
+  var pdPrevKitX: array[PdSlots, float]
+  var pdPrevKitY: array[PdSlots, float]
+  var pdPrevDist: array[PdSlots, float]
+  var pdPrevPlac: array[PdSlots, float]
+  var pdPlacX: array[PdSlots, float]
+  var pdPlacY: array[PdSlots, float]
+  var pdPrevHave: array[PdSlots, bool]
+  # hp-bucketed approach accumulators (index = ownHp, 0..3)
+  var pdFrames: array[4, int]        # consecutive committed frames scored
+  var pdClosed: array[4, float]      # Σ (prevDist - curDist) toward the CHOSEN kit
+  var pdPlac: array[4, float]        # Σ the same toward a NOT-chosen candidate
+  var pdCommitDist: array[4, float]  # Σ distance to the chosen kit at commit
+  var pdCommits: array[4, int]
+  # perception
+  var pdDecide = 0
+  var pdHpHist: array[5, int]        # ownHp 0..4 (0 = unread)
+  var pdLabelFrames = 0              # frames the med-kit label returned >=1 real sprite
+  var pdLabelSprites = 0
+  # the medKitEcon FUNNEL: each counter = frames surviving one more gate
+  var pdEconOn = 0        # tune.medEcon on, hp read
+  var pdWounded = 0       # ...and hp in 1 ..< MaxHp (the wounded band)
+  var pdFree = 0          # ...and no higher objective owns the bot
+  var pdInContact = 0     # ...and engaged / near threat (the interesting half)
+  var pdHpGate = 0        # ...and hp <= lightContactHp (allowed to break contact)
+  var pdAimVeto = 0       # ...but a live gun inside FinishRange vetoed the walk
+  var pdScan = 0          # ...reached the candidate scan
+  var pdHaveKit = 0       # ...and a candidate cleared the detour budget
+
+when defined(feasdiag):
+  # ⭐ -d:feasdiag (2026-08-18): the medFeasGate FIRE counters, split by ARM so a
+  # per-team-armed run (MEDFEASTEAM=<n>, one engine team of four) can be read from
+  # a single process. Index 1 = this bot carries the gate, 0 = control. These are
+  # MECHANISM only — "the gate refused N errands" is not evidence it helped, and
+  # this project has shipped a lever that fired 19,439 times and moved nothing.
+  # The verdict lives in the rig-side per-segment rows (-d:feasprobe).
+  var fgScanHp1: array[2, int]      # hp1 frames that reached the candidate scan
+  var fgCommitHp1: array[2, int]    # ...and committed to a kit
+  var fgCommitDist: array[2, float] # Σ distance to that kit at commit
+  var fgNoErrandHp1: array[2, int]  # ...and took NO errand (the narrowing half)
+  var fgPickVisHp1: array[2, int]    # ...of the commits, how many were a SEEN kit
+                                    # (the rest are the two FORMULA SPOTS, which on a
+                                    # generated 4-team board need not hold a kit at all)
+  var fgDistHist: array[2, array[7, int]]  # hp1 commit distance, 50px buckets 0..300+
+
 when defined(commsprobe):
   # -d:commsprobe ONLY: prove the comms bus is LIVE — codewords emitted, heard,
   # and adopted. A 0-heard result vs a >0-emit result diagnoses a wire/range gap.
@@ -293,6 +363,20 @@ when defined(lifeprobe):
   var llOnLastLifeFrames = 0   # population: alive frames onLastLife read true
   var llWantSuppressed = 0     # ...and wantPocketRush WOULD have been true
                                 # (the veto was load-bearing, not a no-op)
+  # ⭐ ffaPeelWide FIRE DIAGNOSTICS (2026-08-18). Explicitly NOT evidence — see
+  # the ffaPeelWide field doc. pwWideOnly > 0 is the WIRING proof and nothing
+  # more; the outcome lives in -d:fpprobe (kits collected per 1e6 alive ticks).
+  # ⚠️ pwWideAvail IS NOT AN ARM-INDEPENDENT DENOMINATOR, and the first run of
+  # this probe proved it: one armed team of four produced 572 of 586 total
+  # avail frames. It counts FRAMES, and an armed bot that peels at 2 hp then
+  # SPENDS the whole walk sitting in the 2-hp-with-a-kit-committed state, while
+  # a control bot at 2 hp keeps shooting and leaves that state within a few
+  # ticks (usually by dropping to 1 hp — 80.4% of hp-2 spells end there). So
+  # `avail` measures dwell in the state, which the lever itself changes. Read it
+  # as "the lever is live and load-bearing", never as an opportunity rate.
+  var pwFeet = 0        # frames the med peel handed the feet over (any hp tier)
+  var pwWideOnly = 0    # ...of which came from the WIDENED 2-hp tier (new frames)
+  var pwWideAvail = 0   # ffa4 in-contact 2-hp frames with a kit committed (both arms)
   var ffaMedFireCount = 0      # frames ffaMedSee (not base medSee) supplied
                                 # the chosen medEcon target
 
@@ -872,6 +956,43 @@ const
                               # and a 1-hp bot is worth less than the detour.
   MedKitOnSpotPx = 26.0       # "we are standing on the spot": if this close and the
                               # kit sprite is NOT visible, it is taken - stop going.
+  # ⭐⭐ COMMIT-TIME FEASIBILITY (2026-08-18, medFeasGate). The reach a bot can
+  # actually cover before it dies, in px, at 1 hp — the one quantity the medkit
+  # errand's success depends on and the one term the detour budget above does not
+  # contain. Measured, not assumed:
+  #   * the engine touch radius is MedKitPickupRange = 12px (sim_types.nim), so
+  #     "close enough" is a pinpoint, not a neighbourhood;
+  #   * an hp==1 segment lasts a median ~95 ticks (engine-truth slotVitals);
+  #   * effective closing speed toward a committed kit is ~2.1 px/tick (top speed
+  #     is MaxSpeed/MotionScale = 704/256 = 2.75 and the walk is neither straight
+  #     nor uninterrupted).
+  # 95 x 2.1 = 199 => 200px. Against that, the MEASURED hp1 commit distance is
+  # 223px: the median errand is already longer than the median life, needing 476
+  # frames of travel against a runway that is 4-18x shorter. MedKitEconDetour
+  # (320px) is a DETOUR COST cap and that is the wrong SHAPE for an errand which
+  # is worth zero if you die en route — such an errand is not expensive, it is
+  # INFEASIBLE, and the gate must refuse it rather than price it.
+  MedFeasSpeedPx = 2.1        # px/tick actually closed on the way to a kit
+  MedFeasTtlHp1 = 95.0        # ticks: median hp==1 segment (engine truth)
+  MedFeasReachHp1 = MedFeasSpeedPx * MedFeasTtlHp1   # 199.5px of reachable errand
+  FfaPeelWideHp = 2           # ffaPeelWide: at or below this hp an ffa4 bot that has
+                              # already committed a kit target gets FEET (v48 `peeling`),
+                              # not just a target the act chain discards. 2 is the WIDEST
+                              # value this dimension has: medEcon breaks out at
+                              # `ownHp notin 1 ..< MaxHp` and MaxHp is 3, so hp 1 and 2 are
+                              # the entire wounded band — "arm it earlier" has no room left
+                              # above 2 that is not "peel at full health", which is not a
+                              # peel. That matters because the TIMING says even 2 is late:
+                              # an hp-1 spell has a median 26 ticks to live and our completed
+                              # heals take a median 71 (winners 121), so the 1-hp errand is
+                              # armed inside a window shorter than its own completion time.
+                              # hp 2 adds a median 28 ticks of dwell — a 54-tick runway
+                              # against a 71-tick median walk. Necessary, not obviously
+                              # sufficient; the remaining runway has to come from the
+                              # DISTANCE term (MedKitEconDetour is 320px ≈ 130 ticks of
+                              # walking), not from hp. Measured, not assumed: 80.4% of hp-2
+                              # spells end at hp 1 and only 2.8% end in a heal (winners 7.4%),
+                              # so the 2-hp tier is where the losing transition happens.
   MedKitLightContactHp = 1    # medEcon: at or below this hp a bot breaks LIGHT contact
                               # (a threat that is not aiming at us) to go heal. At 1 hp
                               # the next bullet is death, so healing outranks the duel.
@@ -2918,6 +3039,250 @@ type
                               # CORRELATE, not causation (the scripted filler shows the opposite
                               # slope). This ships as a repaired address, nothing more.
                               # Default ON; NOFFAMEDSEE=1 turns it off.
+    ffaPeelWide: bool         # ⭐⭐ FFA4 PEEL FEET (2026-08-18, the medkit-peel gate).
+                              # medEcon already COMMITS a kit target at 2 hp in contact
+                              # (medPeel raised lightContactHp 1 -> 2 and ships ON), but
+                              # only a 1-hp bot is handed FEET: v48's `peeling` — the flag
+                              # that puts the kit into the act-chain steer set so the walk
+                              # survives being engaged — is gated `bot.ownHp == 1`. At 2 hp
+                              # the target is written and the movement arbitration throws it
+                              # away, which is the exact no-op v48 was built to fix, still
+                              # live one hp tier up. So this widens FEET, not addressing, not
+                              # range, and not the disengage rule: every upstream veto
+                              # (objective yields, the ranged aimedAtUs hold-vs-gun test)
+                              # is untouched, and the only frames that change are
+                              # in-contact 2-hp frames that ALREADY chose a kit.
+                              # ⚠️ WHY THIS IS NOT A v55 REVERT. v55 narrowed the same gate
+                              # <=2hp -> ==1hp and its comment records the trade honestly:
+                              # kits/Ep 1.03 -> 0.57, bought with mid-game gun K-D +155 -> +41
+                              # and -24% gun damage. That trade was measured and correct FOR
+                              # 2-TEAM DEATHMATCH, where a lost duel concedes a respawn and
+                              # we run +34pp above field. ffa4 is ELIMINATION: a team that
+                              # reaches 12 deaths has won 0 of 3661 hosted episodes, and our
+                              # kills-paired vs the scripted control is +4.71 — ABOVE relh
+                              # (+4.03) and richard (+4.10), two policies that win twice as
+                              # often as we do. We paid lives for the one currency we were
+                              # already best at. So this is armed on GameTeams > 2 ONLY, at
+                              # the call site (same reasoning as ffaMedSee — GameTeams is
+                              # unknown at shippedCombatTune() time), and a 2-team game is
+                              # byte-identical regardless of this flag.
+                              # ⚠️ THE OUTCOME RULE. v57 shipped ffaMedSee (better kit
+                              # ADDRESSING) and 19,439 target-supplied firings produced FEWER
+                              # completed heals than 4,044 did. A fire counter is not evidence
+                              # here; only KITS COLLECTED per alive-tick is. See -d:lifeprobe
+                              # pwFeet/pwWideOnly for the diagnostic half, and -d:fpprobe's
+                              # heals per 1e6 ALIVE ticks for the half that decides.
+                              # Ships OFF: FFAPEEL=1 arms it, and the eval rig's
+                              # FFAPEELTEAM=<n> arms exactly one engine team so a bare arm
+                              # cannot become a mirror.
+                              # ⛔⛔ MEASURED AND NULL (2026-08-18), STAYS OFF. Built, wired,
+                              # proven live, and it moves NOTHING. Two independent local
+                              # designs on the corrected hosted board family
+                              # (quadmirror+corners, EVAL_TEAMS=4):
+                              #   seed-matched MIRROR, n=23 episodes / 176 team-episodes:
+                              #     kits collected per 1e6 ALIVE ticks 102.0 armed vs 97.6
+                              #     control, rate ratio 1.04x, 95% CI [0.71, 1.54] (51 vs 50
+                              #     kits). Episode-paired delta +2.9 per 1e6, CI [-18.1, +24.0].
+                              #   within-episode (one armed team of four, arm rotated over all
+                              #     four seats), n=12 episodes: 1.03x, CI [0.11, 9.86].
+                              #   the BEST-POWERED proxy — hp==1 ENTRIES per 1e6 alive ticks,
+                              #     n=799 vs 814 entries, 20x the kit count: 1.014x, CI
+                              #     [0.920, 1.118]. A tight null, not an underpowered one: if
+                              #     2-hp bots were healing before dropping to 1 hp, this is the
+                              #     number that would move first, and it does not.
+                              # ⭐ WHY IT IS NULL — -d:peeldiag, placebo-controlled, both arms
+                              # on the SAME boards (3 episodes, seeds 700-702). Perception is
+                              # FINE: ownHp reads 1hp on 13,200 frames and 2hp on 8,112, and the
+                              # med-kit label returns real sprites on 18,230 frames, so neither
+                              # the "hp never reads" nor the "LabelMedKit renamed" failure is
+                              # happening. medEcon COMMITS a kit on 6,961 frames.
+                              # STEERING IS REAL — the bot does walk at the kit it chose:
+                              #   hp1  chosen 0.443 px/frame vs a FROZEN not-chosen placebo
+                              #        0.232  =>  +0.210 steering (47% of raw), 39 errands
+                              #   hp2  chosen 1.283 vs placebo 0.635  =>  +0.649 (51%), 6 errands
+                              # ⛔ THE ERRAND IS SIMPLY NOT SURVIVABLE. Against a 12px engine
+                              # touch radius (MedKitPickupRange) and the measured runway:
+                              #   hp1  223px at commit, 476 frames of travel needed vs a ~26-tick
+                              #        life  =>  18.3x SHORT
+                              #   hp2  300px at commit, 224 frames needed vs a ~54-tick life
+                              #        =>  4.2x SHORT
+                              # A bot cannot reach a kit it commits to, at either hp tier, by a
+                              # factor of 4 to 18. Widening WHEN the feet are released cannot fix
+                              # a walk that needs 4-18x more life than the bot has left.
+                              # ⚠️ AND THE LEVER IS NEARLY INERT PER EPISODE: 2 of 3 diagnostic
+                              # episodes and 3 of 23 mirror episodes came out BYTE-IDENTICAL
+                              # armed vs control, and only 6-7 hp2 errands exist across 3
+                              # episodes. There is very little for it to act on.
+                              # ⇒ The binding constraint is REACHABILITY — distance to the kit
+                              # versus remaining life — not the hp threshold. The right fix is a
+                              # commit-time feasibility gate (only take the errand when the walk
+                              # FITS in the expected remaining life), which is a different change
+                              # from this one and would also NARROW today's hp1 behaviour, so it
+                              # needs its own A/B. Keep this OFF; re-measure the hp tier only
+                              # after reachability is fixed, because the tier cannot matter until
+                              # the walk can finish.
+                              # 🧾 CORRECTION (same day): an earlier single-episode read of this
+                              # same probe reported "hp1 has ZERO commits" and "only 15% of the
+                              # approach is steering". Both were n=1 artifacts and are RETRACTED
+                              # by the 3-episode numbers above. One episode is not a sample here
+                              # — the per-episode inert fraction alone guarantees it.
+                              # 🚨 NEVER QUOTE THESE ABSOLUTES AS A RIG BASELINE (2026-08-18,
+                              # caught by the woundedBank A/B session pooling these same logs).
+                              # kits/1e6 alive ticks and P(escape|hp==1) are properties of the
+                              # SEED BLOCK, not of the rig. Identical binary, identical env,
+                              # identical --ticks 5000:
+                              #     seeds 700-702   13.3 kits/1e6,  0.79% escape  (48 team-eps)
+                              #     seeds 800-837   97.6 kits/1e6,  1.93% escape  (92 team-eps)
+                              #     seeds 7100+     ~41 kits/1e6,   0.65% escape  (their block)
+                              # A 7.7x spread on kits and ~3x on escape between blocks of the
+                              # same rig. So "the rig reproduces the hosted 2.1%" is NOT a
+                              # calibration claim — the field value merely sits inside a wide
+                              # rig range. Report the RANGE, and only ever compare arms that are
+                              # SEED-MATCHED; every verdict above is paired within a block, which
+                              # is why the between-block spread does not touch it.
+                              # ⚠️ It does explain the useless CI on the within-episode wave: it
+                              # ran entirely on the 700s block (1 vs 3 kits, CI [0.11, 9.78]).
+                              # That design was not underpowered in principle, it was run on the
+                              # kit-poorest block. Put the next one on an 800-class block.
+                              # 📐 WHY THIS NULL IS READABLE AT ALL — the metric choice, which
+                              # was the load-bearing decision and is the transferable lesson
+                              # (earned jointly with the sibling woundedBank A/B, which died on
+                              # exactly this). The obvious outcome here is P(escape|hp==1), and
+                              # it is a RARE BINARY: ~1-2% base rate, so an arm lands 3-6 escape
+                              # events out of ~424 hp1 entries and a doubling would need
+                              # THOUSANDS of segments per arm. No n reachable on this rig
+                              # resolves it — the sibling's primary was arithmetically dead
+                              # before it ran. Kits per 1e6 ALIVE ticks is the CONTINUOUS
+                              # PRECURSOR of the same mechanism and it does resolve, which is
+                              # why the verdict above has a CI worth reading.
+                              # ⇒ RULE: when the outcome of interest is rare, pre-register the
+                              # continuous precursor and demote the rare event to DESCRIPTIVE.
+                              # P(escape|hp==1) appears above only as description; nothing is
+                              # concluded from it.
+                              # ✅ THIS NULL IS NOT THE 4-TEAM PARITY DEFECT, checked because
+                              # the sibling woundedBank A/B is contaminated by exactly that and
+                              # the same objection will be raised here. findBankCell — whose
+                              # `homeSign(bot.team) * (p.x - me.x) < -20.0` filter (L6158) is a
+                              # 2-team x-axis assumption that misroutes three of four teams on a
+                              # corner board — has exactly ONE call site (L7831), and it is on
+                              # the woundedBank path. The peel path never reaches it: `peeling`
+                              # steers to `target`, which medEcon set to chosenEcon, and the kit
+                              # ADDRESS is formula spots + visible sprites with no team-parity
+                              # term anywhere. The one homeSign site that sits between medEcon
+                              # and the act chain is the oneRunner hold-line clamp (L10502), and
+                              # oneRunner requires the SHAPE env var (L4581) which was unset in
+                              # every run above — so it never executed. Parity-clean.
+                              # 🔗 NON-OVERLAP WITH woundedBank, verified in code, not assumed:
+                              # bankHpThreshold = min(MaxHp-1, round(1/aggro)) (L7584) with the
+                              # shipped aggro = 1.0 (L4478) evaluates to 1, and that line's own
+                              # comment says it is byte-identical to the old `ownHp == 1`. So at
+                              # the shipped tune NOTHING serves the 2hp tier: `banking` stops at
+                              # 1hp and `peeling` was gated at 1hp. ffaPeelWide is the only path
+                              # that ever reaches 2hp — the behaviour is genuinely new, and it
+                              # still buys nothing, which is what makes the null informative
+                              # rather than a confound with a neighbouring lever.
+    medFeasGate: bool         # ⭐⭐ COMMIT-TIME FEASIBILITY GATE (2026-08-18). The one
+                              # surviving medkit lever after four nulls, and the direct
+                              # consequence of the ffaPeelWide diagnosis directly above:
+                              # steering is REAL (+0.210 px/frame chosen-vs-placebo at hp1,
+                              # +0.649 at hp2 — the bot genuinely walks at the kit it picked)
+                              # and the errand is still never completed, because at commit
+                              # the chosen kit is 223px away at hp1 against a 12px
+                              # MedKitPickupRange touch radius and a ~95-tick life: 4-18x
+                              # more travel than the bot has left to live.
+                              # ⚠️ THE DEFECT IS SELECTION, NOT SCARCITY. 28.9% ±2.4 of hp1
+                              # segments DO have a time-feasible reachable stocked kit, and on
+                              # those we convert 5.5% (n=399) against a scripted control's
+                              # 27.1% (n=582). So we commit to the 223px kit instead of the
+                              # reachable one, or commit at all where nothing is reachable.
+                              # WHAT IT CHANGES: at hp==1 the candidate budget stops being
+                              # MedKitEconDetour (320px, a detour COST cap) and becomes
+                              # MedFeasReachHp1 (200px, SPEED x expected-time-to-live) — a
+                              # kit inside it is a DESTINATION, and where nothing is inside
+                              # it the bot takes NO errand at all. So this NARROWS today's
+                              # behaviour as well as redirecting it, which is the point: an
+                              # infeasible errand is strictly worse than no errand (it spends
+                              # the last seconds of a life walking away from the fight).
+                              # Nothing else moves: same hp gate, same objective yields, same
+                              # in-contact/aimedAtUs vetoes, same feet rule — so it adds NO
+                              # new disengagement, and cannot reproduce the disengage-shaped
+                              # captures+steals cost (-0.477 [-0.795, -0.159] per team-Episode)
+                              # that `not banking`-style vetoes carry.
+                              # Call-site gated on GameTeams > 2 (a 2-team board is
+                              # byte-identical either way — hashes in the A/B write-up), and
+                              # ships OFF: MEDFEAS=1 arms it, MEDFEASTEAM=<n> arms exactly one
+                              # engine team in the eval rig so a bare arm cannot become a
+                              # MIRROR.
+                              # ⛔⛔ UNMEASURED AND NOT RECOMMENDED (2026-08-18). Built,
+                              # wired, proven live and 2-team-invariant — then STOOD DOWN
+                              # mid-sweep, because the number that justified the whole medkit
+                              # lane did not survive its own audit:
+                              #   * the "3.34 deaths behind" target was WINNER-RELATIVE, i.e.
+                              #     selection on the OUTCOME — every team in that row won, so
+                              #     the row is built out of the teams that stopped dying.
+                              #     Paired against REAL RIVALS inside the same Episode the gap
+                              #     is +1.624 ±0.590 deaths;
+                              #   * in an exact deaths = bouts x P(fatal|bout) decomposition the
+                              #     ENTRY-HP MIX — the entire medkit story, this lever included
+                              #     — carries +0.074 of +1.517 deaths. ~5% of the gap, not 17%.
+                              # ⇒ A PERFECT feasibility gate is worth at most ~0.07 deaths per
+                              # team-Episode. Nothing in this family is worth a ship slot, and
+                              # the next person to rediscover "our bots walk at kits they can
+                              # never reach" should read this CEILING first: the observation is
+                              # true, the mechanism is real, the prize is ~5%.
+                              # 📉 PARTIAL A/B, STOPPED EARLY — 45 of 108 planned runs, seeds
+                              # 800-804 only (ONE seed block, so NOT poolable and NOT a verdict).
+                              # Rig: EVAL_TEAMS=4 EVAL_MAP=gen EVAL_MAPSYM=quadmirror
+                              # EVAL_MAPLAYOUT=corners, ONE armed team of four, arm rotated over
+                              # all four colours, paired against the SAME team in the
+                              # seed-matched all-control run:
+                              #   divergent 13 of 20 armed team-episodes per arm — 7 came out
+                              #     BYTE-IDENTICAL, so the gate has nothing to act on in a third
+                              #     of episodes.
+                              #   PRIMARY (net px closed on the nearest STOCKED kit across an
+                              #     hp==1 segment, placebo-controlled), paired, divergent-only:
+                              #       MEDFEAS=1  +4.42 px  95% CI [-4.93, +13.78]  n=13
+                              #       MEDFEAS=2  +8.78 px  95% CI [-1.92, +19.48]  n=13
+                              #     Direction right, CI includes zero: NOT MET at this n.
+                              #   SECONDARY (conversion of time-feasible chances): armed 2/35
+                              #     (5.7%) vs control 3/40 (7.5%) — no improvement, on numerators
+                              #     of 2 and 3. A rare binary again; it could not have answered.
+                              #   GUARDRAILS, negative in DIRECTION, CIs spanning zero:
+                              #     captures+steals -0.385 [-1.070, +0.301] per team-Episode;
+                              #     deaths per 1e6 alive ticks +605 [-149, +1358]; alive ticks
+                              #     -704 [-1472, +65].
+                              # 🔧 THE MECHANISM FIRES HARD — the WORTH fails, not the wiring:
+                              # hp1 frames that commit to a kit fall 68.0% -> 32.1% (MEDFEAS=1)
+                              # and 59.2% -> 13.1% (MEDFEAS=2). What it removes is mostly long
+                              # -distance dwell, exactly the infeasible errand it targets.
+                              # 🗺️ THE ADDRESS IS A PHANTOM ON 4-TEAM BOARDS (engine truth, off
+                              # sim.medKitSpawns): on quadmirror+corners the two FORMULA spots
+                              # sit ~115px from the nearest REAL kit on every seed checked —
+                              # seed 800/801 map 1606x857, kits (691,316)/(914,316)/(691,540)/
+                              # (914,540) vs spots (803,285)/(803,571); seed 900 map 1235x659,
+                              # kits (503,215)/(731,215)/(503,443)/(731,443) vs spots (617,219)/
+                              # (617,439). Against a 12px MedKitPickupRange that is not a near
+                              # miss, it is EMPTY FLOOR — and 57% of control-arm hp1 commits go
+                              # to those spots. If this family is ever revisited, the ADDRESS is
+                              # the defect worth fixing, not the budget.
+    medFeasReachPx: float     # the feasibility reach itself, px. Defaults to
+                              # MedFeasReachHp1 (200px = 2.1 px/tick x a 95-tick hp1
+                              # life, the REPLAY-measured runway). MEDFEASPX=<n>
+                              # overrides it, because the runway is a property of the
+                              # POPULATION: the local 4-team rig's own median hp1
+                              # segment is far shorter than the field's, so a single
+                              # hard-coded reach would silently be a different lever on
+                              # each. A sensitivity arm on this number is a legitimate
+                              # cell; changing it after seeing the outcome is not.
+    medFeasStrict: bool       # medFeasGate level 2 (MEDFEAS=2): a feasible destination must
+                              # also be PROVEN STOCKED — i.e. a med-kit sprite we can SEE.
+                              # The two formula spots are a 2-TEAM arena truth (MapW div 2,
+                              # MapH div 3 / 2*MapH div 3) and on a 4-team generated board the
+                              # real kits are elsewhere, so a formula-spot commit inside 200px
+                              # can be a walk to empty floor — the extreme case of an errand
+                              # that cannot be completed. Separate flag, separate arm: this is
+                              # an ADDRESSING change and bundling it into the distance gate
+                              # would make a null unattributable.
     lastLifeGuard: bool       # ⭐⭐ LAST-LIFE GUARD (2026-08-17, ffa4 lives audit). Per-seat
                               # deaths-of-3 are flat (A 2.69 / B 2.59 / C 2.74 / D 2.79) — no
                               # seat currently protects its OWN last life, yet P(win) by our own
@@ -3742,6 +4107,10 @@ proc defaultCombatTune(): CombatTune =
     aggro: 1.0,               # control: today's shipped posture exactly (every multiply is a no-op).
     medPeel: false,           # control: medEcon's aimedAtUs veto is unranged, MedKitLightContactHp stays 1.
     ffaMedSee: false,         # control: medEcon's ffa4 candidates stay the two formula spots only.
+    ffaPeelWide: false,       # control: the ffa4 med peel gets FEET only at 1 hp (the v55 gate).
+    medFeasGate: false,       # control: the hp1 medkit errand keeps the 320px detour-cost budget.
+    medFeasReachPx: MedFeasReachHp1,
+    medFeasStrict: false,     # control: formula spots stay candidates alongside visible kits.
     lastLifeGuard: false,     # control: a last-life bot dives the pocket and heals like any other.
     tradeGate: false,         # control: fireSuperiority presses on "not badly outnumbered", not "hold an edge".
   )
@@ -4401,6 +4770,32 @@ proc shippedCombatTune(): CombatTune =
   # so a 2-team game is byte-identical regardless of these two flags. See the
   # ffaMedSee / lastLifeGuard field docs for the full measurement.
   result.ffaMedSee = getEnv("NOFFAMEDSEE").len == 0
+  # ⭐⭐ ffaPeelWide (2026-08-18): FEET for the ffa4 med peel at 2 hp, not just 1.
+  # DEFAULT OFF — this has local mechanism evidence only and no hosted read, and
+  # the file's own rule is that an unproven behaviour half ships dark (the
+  # lastLifeGuard precedent directly below). FFAPEEL=1 arms it; NOFFAPEEL=1
+  # force-offs on top so the documented revert name works whichever way the
+  # default is later flipped, and flipping the ship is this one line becoming
+  # `getEnv("NOFFAPEEL").len == 0`. Call-site gated on GameTeams > 2, so a
+  # 2-team board is byte-identical either way (proven: -d:fpprobe mask/traj
+  # fingerprints are equal on a 2-team run with the lever armed and disarmed).
+  result.ffaPeelWide = getEnv("FFAPEEL").len > 0 and getEnv("NOFFAPEEL").len == 0
+  # ⭐⭐ medFeasGate (2026-08-18): the hp1 medkit errand must FIT in the life that
+  # is left. DEFAULT OFF — local mechanism evidence only, no hosted read, and the
+  # house rule is that an unproven behaviour half ships dark (ffaPeelWide and
+  # lastLifeGuard precedents on either side of this line). MEDFEAS=1 arms the
+  # distance gate; MEDFEAS=2 additionally demands a PROVEN-STOCKED (visible)
+  # destination; NOMEDFEAS=1 force-offs on top so the documented revert name works
+  # whichever way the default is later flipped. Call-site gated on GameTeams > 2,
+  # so a 2-team board is byte-identical either way.
+  let medFeasLevel = (if getEnv("NOMEDFEAS").len > 0: 0
+                      elif getEnv("MEDFEAS").len > 0: parseInt(getEnv("MEDFEAS"))
+                      else: 0)
+  result.medFeasGate = medFeasLevel >= 1
+  result.medFeasStrict = medFeasLevel >= 2
+  result.medFeasReachPx = (if getEnv("MEDFEASPX").len > 0:
+                             parseFloat(getEnv("MEDFEASPX"))
+                           else: MedFeasReachHp1)
   # ⛔ lastLifeGuard DEFAULT OFF (2026-08-17 gate). The perception half — the
   # ownLives readback — is PROVEN LIVE (selfLives() parsed 204,566 of 204,566
   # decide frames on the gen 4-team rig, distribution x3/x2/x1 = 54591/66578/83397)
@@ -6874,6 +7269,20 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
   # regardless of ffaMedSee/lastLifeGuard. onLastLife is agent-local (this bot's
   # own remaining lives), never a team-wide posture change.
   let ffa4Board = GameTeams > 2
+  when defined(peeldiag):
+    if ffa4Board:
+      inc pdDecide
+      inc pdHpHist[clamp(bot.ownHp, 0, 4)]
+      var seen = 0
+      for o in client.spriteObjectsWithLabel(LabelMedKit):
+        let pp = client.mapPos(o)
+        if pp.x < 40.0 or pp.y < 40.0 or pp.x > float(MapW - 40) or
+            pp.y > float(MapH - 40):
+          continue                                   # HUD indicator shares the label
+        inc seen
+      if seen > 0:
+        inc pdLabelFrames
+        pdLabelSprites += seen
   let onLastLife = bot.tune.lastLifeGuard and ffa4Board and bot.ownLives == 1
   when defined(ffa4probe):
     if onLastLife: inc f4OnLastLife
@@ -9990,12 +10399,18 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
     if not bot.tune.medEcon: break medKitEcon
     when defined(meprobe):
       if bot.ownHp > 0: inc meOn
+    when defined(peeldiag):
+      if ffa4Board and bot.ownHp > 0: inc pdEconOn
     if bot.ownHp notin 1 ..< MaxHp: break medKitEcon    # unread(0) or full: no detour
     when defined(meprobe): inc meWounded
+    when defined(peeldiag):
+      if ffa4Board: inc pdWounded
     if iCarry or mateCarry or pocketRush or ownStolen or
         seekingPickup or iHaveShield or iHaveSword or iHavePlasma:
       break medKitEcon                                 # a higher objective owns this bot
     when defined(meprobe): inc meFree
+    when defined(peeldiag):
+      if ffa4Board: inc pdFree
     # ffa4Board / onLastLife: computed once, right after the lives readback
     # near the top of decide() — reused here unchanged.
 
@@ -10011,8 +10426,12 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
       #   (2) aimedAtUs is RANGE-GATED to FinishRange (~260px): 83% of shots
       #       land under 150px, so a gun aimed at us from well beyond effective
       #       range is a paper threat, not a real veto on the walk.
+      when defined(peeldiag):
+        if ffa4Board: inc pdInContact
       let lightContactHp = if bot.tune.medPeel: 2 else: MedKitLightContactHp
       if bot.ownHp > lightContactHp: break medKitEcon
+      when defined(peeldiag):
+        if ffa4Board: inc pdHpGate
       var aimedAtUs = false
       for i in 0 ..< bot.enemies.len:
         let t = bot.enemies[i]
@@ -10030,6 +10449,8 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
           continue                                     # no line: it cannot punish the walk
         aimedAtUs = true
         break
+      when defined(peeldiag):
+        if ffa4Board and aimedAtUs: inc pdAimVeto
       if aimedAtUs: break medKitEcon                   # a live gun on us: hold, don't flee
       when defined(meprobe): inc meLightBreak
     when defined(meprobe): inc meSafe
@@ -10039,7 +10460,21 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
     # are close enough that an absent sprite proves the kit is gone.
     # ⭐⭐ lastLifeGuard WIDER MEDKIT ERRAND: a bot on its last life gets a
     # bigger routing budget (both families below share this one cap).
-    var bestEcon = MedKitEconDetour
+    when defined(peeldiag):
+      if ffa4Board: inc pdScan
+    # ⭐⭐ COMMIT-TIME FEASIBILITY GATE (medFeasGate, 2026-08-18). ffa4 only, hp1
+    # only: the budget below stops being a detour COST cap and becomes the reach
+    # the bot can actually cover before it dies (MedFeasReachHp1 = SPEED x
+    # expected-time-to-live). A candidate inside it is a DESTINATION; if nothing
+    # is inside it, haveEconKit stays false, `target` is never overwritten and the
+    # bot takes NO errand — which is the correct answer for a walk it would die
+    # halfway through. Everything upstream (hp gate, objective yields, the
+    # in-contact aimedAtUs veto) and everything downstream (the feet rule) is
+    # untouched, so this adds no new disengagement in either direction.
+    let feasOn = bot.tune.medFeasGate and ffa4Board and bot.ownHp == 1
+    let econBudget = (if feasOn: min(MedKitEconDetour, bot.tune.medFeasReachPx)
+                      else: MedKitEconDetour)
+    var bestEcon = econBudget
     var haveEconKit = false
     var chosenEcon: Vec
     var pickedVisible = false      # which family supplied the target (probe/mechanism)
@@ -10070,8 +10505,9 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
           continue                                     # HUD indicator shares the label
         visAny = true
         let d = dist(p, me)
-        if d >= MedKitEconDetour:
-          continue                                     # outside the detour budget
+        if d >= econBudget:
+          continue                                     # outside the budget (feasibility
+                                                       # reach at hp1 when medFeasGate arms)
         visNear = true
         let offSpot = dist(p, vec(MedKitAX, MedKitAY)) > MedKitOnSpotPx and
                       dist(p, vec(MedKitBX, MedKitBY)) > MedKitOnSpotPx
@@ -10093,6 +10529,11 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
         if visOff: inc msVisOffSpot
 
     for spot in [vec(MedKitAX, MedKitAY), vec(MedKitBX, MedKitBY)]:
+      if feasOn and bot.tune.medFeasStrict:
+        break                                          # MEDFEAS=2: a destination must be a
+                                                       # kit we can SEE. The formula spots are
+                                                       # a 2-team arena truth and on a 4-team
+                                                       # generated board they can be empty floor.
       let d = dist(spot, me)
       if d >= bestEcon:
         continue
@@ -10115,12 +10556,58 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
       haveEconKit = true
       pickedVisible = false
       pickedVisOffSpot = false
+    when defined(feasdiag):
+      if ffa4Board and bot.ownHp == 1:
+        let fgArm = (if bot.tune.medFeasGate: 1 else: 0)
+        inc fgScanHp1[fgArm]
+        if haveEconKit:
+          inc fgCommitHp1[fgArm]
+          fgCommitDist[fgArm] += bestEcon
+          if pickedVisible: inc fgPickVisHp1[fgArm]
+          inc fgDistHist[fgArm][clamp(int(bestEcon / 50.0), 0, 6)]
+        else:
+          inc fgNoErrandHp1[fgArm]
     when defined(lifeprobe):
       if haveEconKit and pickedVisible and bot.tune.ffaMedSee and ffa4Board and
           not bot.tune.medSee:
         inc ffaMedFireCount   # ffaMedSee (not base medSee) supplied this target
     if haveEconKit:
       target = chosenEcon
+      when defined(peeldiag):
+        if ffa4Board:
+          inc pdHaveKit
+          # ⭐ THE APPROACH TEST, policy-side. Σ over CONSECUTIVE committed
+          # frames of (previous distance - current distance) to the chosen kit:
+          # positive means we actually walked at it. The placebo is a second
+          # kit-shaped destination we did NOT choose, FROZEN for the whole
+          # commit run — if the two sums match, the "approach" is just the fight
+          # drifting and there is no steering at all, which is exactly the
+          # replay finding this build exists to confirm or refute locally.
+          let sl = clamp(bot.slot, 0, PdSlots - 1)
+          let hpi = clamp(bot.ownHp, 0, 3)
+          let curD = dist(me, chosenEcon)
+          let cont = pdPrevHave[sl] and bot.tick - pdPrevTick[sl] <= 30 and
+                     dist(vec(pdPrevKitX[sl], pdPrevKitY[sl]), chosenEcon) <= 20.0
+          if cont:
+            let curP = dist(me, vec(pdPlacX[sl], pdPlacY[sl]))
+            pdClosed[hpi] += pdPrevDist[sl] - curD
+            pdPlac[hpi] += pdPrevPlac[sl] - curP
+            inc pdFrames[hpi]
+            pdPrevPlac[sl] = curP
+          else:
+            inc pdCommits[hpi]
+            pdCommitDist[hpi] += curD
+            let sA = vec(MedKitAX, MedKitAY)
+            let sB = vec(MedKitBX, MedKitBY)
+            let sP = (if dist(me, sA) >= dist(me, sB): sA else: sB)
+            pdPlacX[sl] = sP.x
+            pdPlacY[sl] = sP.y
+            pdPrevPlac[sl] = dist(me, sP)
+          pdPrevTick[sl] = bot.tick
+          pdPrevKitX[sl] = chosenEcon.x
+          pdPrevKitY[sl] = chosenEcon.y
+          pdPrevDist[sl] = curD
+          pdPrevHave[sl] = true
       # ⭐ v48: GIVE THE PEEL FEET. This assignment was DISCARDED whenever we
       # were engaged: the act chain only navSteers to `target` under fire for
       # retreating/banking/carrierFlee, and woundedBank (the intended owner of
@@ -10137,8 +10624,36 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
       # measured again. Peel feet ONLY at 1hp — one hit from deletion, where
       # leaving the fight is right; a 2hp bot keeps its gun in the line (the
       # out-of-contact medEcon walk is unaffected — it never had feet issues).
-      if getEnv("NOPEEL").len == 0 and bot.ownHp == 1:
+      # ⭐⭐ ffaPeelWide (2026-08-18, ffa4 medkit-peel fix). ffa4 ONLY, and only
+      # the FEET: everything above this line — which kit, whether we may
+      # disengage at all, the ranged aimedAtUs hold-vs-gun veto — is unchanged,
+      # so this adds no new disengagement, only movement for a walk medEcon has
+      # ALREADY decided to make. On GameTeams <= 2 the second disjunct is false
+      # by construction and the emitted button stream is identical, which is the
+      # whole point: v55's <=2hp -> ==1hp narrowing bought real 2-team K/D and
+      # is not being reverted, it is being scoped to the mode that pays for it.
+      let peelWide = ffa4Board and bot.tune.ffaPeelWide and
+                     bot.ownHp <= FfaPeelWideHp
+      if getEnv("NOPEEL").len == 0 and (bot.ownHp == 1 or peelWide):
         peeling = true
+        when defined(lifeprobe):
+          # DIAGNOSTIC ONLY — never evidence. A lever that "fired 19,439 times"
+          # and moved zero heals is exactly what v57 was; the number that decides
+          # this is kits COLLECTED per alive-tick (-d:fpprobe), not this counter.
+          # Split so a null can be diagnosed: pwFeet is every peel, pwWideOnly is
+          # the frames that are NEW (2 hp, which the v55 gate refused).
+          inc pwFeet
+          if bot.ownHp > 1: inc pwWideOnly
+      when defined(lifeprobe):
+        # ffa4 frames at 2 hp with a kit already committed — the state the lever
+        # acts in. ⚠️ NOT an arm-independent denominator: an armed bot spends the
+        # whole walk sitting in this state while a control bot leaves it within a
+        # few ticks, so the lever inflates its own denominator (measured: one
+        # armed team of four produced 572 of 586 such frames). Read it only as
+        # "the state is reachable on this board at all".
+        if ffa4Board and bot.ownHp > 1 and bot.ownHp <= FfaPeelWideHp and
+            getEnv("NOPEEL").len == 0:
+          inc pwWideAvail
       when defined(ffa4probe):
         inc f4MedFire
         if onLastLife: inc f4MedLastLife

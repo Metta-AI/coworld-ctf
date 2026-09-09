@@ -175,6 +175,41 @@ proc newDriver(slot, team, episodeSeed: int): Driver =
   let lastLifeTeam = getEnv("LASTLIFETEAM")
   if lastLifeTeam.len > 0:
     tune.lastLifeGuard = team == parseInt(lastLifeTeam)
+  # ⭐⭐ ffaPeelWide TEAM ISOLATION (2026-08-18, the medkit-peel fix). Same trap,
+  # same shape as FFAMEDTEAM directly above: shippedCombatTune() reads FFAPEEL
+  # from the PROCESS env and all numPlayers bots share ONE process, so a bare
+  # FFAPEEL=1 arms every team and the "A/B" is a MIRROR. FFAPEELTEAM=<n> arms
+  # ONLY engine team index n (0..3) and strips every other team, which is also
+  # the closest local analogue of the hosted field, where only we carry the
+  # lever and three rivals do not. Raw team INDEX, not red/blue: `t` above
+  # collapses every non-zero team to Blue on a >2-team board, so red/blue would
+  # arm two of four. FFAPEELTEAM=9 (any out-of-range index) is the all-control
+  # baseline and is how the control arm of this A/B is run.
+  # `when compiles` so this same file drops into a pre-lever tree.
+  when compiles(tune.ffaPeelWide):
+    let ffaPeelTeam = getEnv("FFAPEELTEAM")
+    if ffaPeelTeam.len > 0:
+      tune.ffaPeelWide = team == parseInt(ffaPeelTeam)
+  # ⭐⭐ medFeasGate TEAM ISOLATION (2026-08-18, the commit-time feasibility
+  # gate). Identical trap to FFAMEDTEAM/FFAPEELTEAM above: shippedCombatTune()
+  # reads MEDFEAS from the PROCESS env and all numPlayers bots share ONE
+  # process, so a bare MEDFEAS=1 arms every team and the "A/B" is a MIRROR.
+  # MEDFEASTEAM=<n> arms ONLY engine team index n (0..3) and strips every other
+  # team — the closest local analogue of the hosted field, where only we carry
+  # the lever. Raw team INDEX, not red/blue (`t` above collapses every non-zero
+  # team to Blue on a >2-team board, so red/blue would arm two of four).
+  # MEDFEASTEAM=9 (any out-of-range index) is the ALL-CONTROL baseline and is
+  # how the control arm of this A/B is run. The LEVEL still comes from MEDFEAS
+  # (1 = distance feasibility, 2 = + proven-stocked destination), so
+  # `MEDFEAS=2 MEDFEASTEAM=1` is "strict gate, team 1 only".
+  # `when compiles` so this same file drops into a pre-lever tree.
+  when compiles(tune.medFeasGate):
+    let medFeasTeam = getEnv("MEDFEASTEAM")
+    if medFeasTeam.len > 0:
+      let mine = team == parseInt(medFeasTeam)
+      let lvl = (if getEnv("MEDFEAS").len > 0: parseInt(getEnv("MEDFEAS")) else: 1)
+      tune.medFeasGate = mine and lvl >= 1
+      tune.medFeasStrict = mine and lvl >= 2
   result.bot = Bot(slot: slot, team: t, role: role, tune: tune)
   result.bot.resetTransient()
   result.client = initProtocolClient()
@@ -396,8 +431,49 @@ when defined(fpprobe):
     fpHp1Escape: array[4, int]     # ...and got back above 1 hp alive (a heal)
     fpHp1Death: array[4, int]      # ...and died at 1 hp
     fpHeals: array[4, int]         # any hp increase on a live body (kits taken)
+    # ⭐⭐ ALIVE TICKS (2026-08-18, the medkit-peel outcome metric). Kits per
+    # EPISODE is confounded by exactly the thing the lever changes: a lever that
+    # keeps bodies alive gives them more time to collect kits, and a lever that
+    # gets them killed reads as "fewer kits" for a reason that has nothing to do
+    # with peeling. The hosted field metric for this is kits per 1e6 ALIVE ticks
+    # (us 59.7, winner 212.1, the SCRIPTED FILLER 224.3), so the rig computes the
+    # same denominator: one tick, per live body, per team.
+    fpAliveTicks: array[4, int]
+    # Per-EPISODE mirrors of the counters above. The pooled sums give a point
+    # estimate and no error bar; a CI needs the per-episode series, so every
+    # episode emits one machine-readable FPEP row per team and the batch stats
+    # are computed downstream over episodes (the independent unit), never over
+    # ticks (which are massively autocorrelated and would fake the n).
+    fpEpHeals: array[4, int]
+    fpEpAlive: array[4, int]
+    fpEpHp1Enter: array[4, int]
+    fpEpHp1Escape: array[4, int]
+    fpEpHp1Death: array[4, int]
     fpTicksSum = 0
     fpGames = 0
+
+when defined(feasprobe):
+  # ⭐⭐ -d:feasprobe (2026-08-18): the PRE-REGISTERED measurement for the
+  # commit-time feasibility gate. Everything here is ENGINE GROUND TRUTH
+  # (slotVitals + medKitSpots), never wbprobe/msprobe-style bot belief, which
+  # samples the fogged HUD and undercounts hp events ~10x.
+  #
+  # PRIMARY — one row per hp==1 SEGMENT (`FSEG`): net approach displacement
+  # toward the nearest STOCKED kit over the segment, placebo-controlled against
+  # the nearest LOCKED (on-cooldown) spot, both FROZEN at segment open so
+  # ordinary fight drift cancels. This is deliberately measured over ALL hp1
+  # segments, not over frames where the policy happened to commit a kit: the
+  # lever CHANGES which frames commit, so a committed-frames denominator is
+  # selection on the treatment and cannot be compared across arms.
+  #
+  # SECONDARY — conversion of time-FEASIBLE chances: of the segments that had a
+  # reachable stocked kit at entry, the share that ended in a heal.
+  # GUARDRAILS — captures+steals per team-episode, deaths per 1e6 alive ticks.
+  var fsSpeedPx = 2.1        # px/tick, the same reach constant the lever uses
+  var fsReachPx = 200.0      # SPEED x expected-time-to-live at hp1
+  var fsNoStockSegs = 0     # hp1 entries with NO stocked kit on the board at all:
+                            # the primary is undefined there, so they are excluded
+                            # BY CONSTRUCTION and counted so the exclusion is visible.
 
 const FfaFixedWindow = 1500
   ## ⭐⭐ The arm-invariant life-spend window (2026-08-17). "By half-time" is a
@@ -473,6 +549,11 @@ proc main() =
       for t in 0 .. 3:
         fpDeathTL[t].setLen(0)
         fpCapTL[t].setLen(0)
+        fpEpHeals[t] = 0
+        fpEpAlive[t] = 0
+        fpEpHp1Enter[t] = 0
+        fpEpHp1Escape[t] = 0
+        fpEpHp1Death[t] = 0
       var fpWasHp1 = newSeq[bool](numPlayers)
       var fpLastHp = newSeq[int](numPlayers)
       var fpLastDeaths = newSeq[int](numPlayers)
@@ -482,6 +563,66 @@ proc main() =
         fpLastHp[s] = v.hp
         fpLastDeaths[s] = v.deaths
         fpWasAlive[s] = v.alive
+    when defined(feasprobe):
+      var fsOpen = newSeq[bool](numPlayers)
+      var fsT0 = newSeq[int](numPlayers)
+      var fsSx = newSeq[float](numPlayers)     # nearest STOCKED kit at segment open
+      var fsSy = newSeq[float](numPlayers)
+      var fsD0s = newSeq[float](numPlayers)
+      var fsMinS = newSeq[float](numPlayers)   # closest approach reached in-segment
+      var fsHasL = newSeq[bool](numPlayers)
+      var fsLx = newSeq[float](numPlayers)     # nearest LOCKED spot at segment open
+      var fsLy = newSeq[float](numPlayers)
+      var fsD0l = newSeq[float](numPlayers)
+      # ⚠️ PRE-REGISTRATION DEVIATION, DECLARED HERE: the pre-registered placebo is
+      # "the nearest LOCKED/on-cooldown spot", which exists in REPLAYS because kits
+      # are actually taken there. On this rig kits are almost never taken, so the
+      # locked placebo is undefined in nearly every segment (hasLock=0). A second,
+      # ALWAYS-DEFINED placebo is therefore carried in the same row: the nearest
+      # NOT-CHOSEN stocked spot, frozen identically. It controls the same confound
+      # (fight drift toward the kit cluster), it is arm-independent, and which one
+      # a number came from is on the row, never merged.
+      var fsHasP = newSeq[bool](numPlayers)
+      var fsPx2 = newSeq[float](numPlayers)
+      var fsPy2 = newSeq[float](numPlayers)
+      var fsD0p = newSeq[float](numPlayers)
+      var fsNStock = newSeq[int](numPlayers)
+      var fsPx = newSeq[float](numPlayers)     # last ALIVE position (a corpse can be moved)
+      var fsPy = newSeq[float](numPlayers)
+      var fsPrevDeaths = newSeq[int](numPlayers)
+      var fsSteals: array[4, int]
+      var fsCarrier: array[4, int]
+      var fsSegs: array[4, int]
+      var fsEpMask: uint64 = 0xcbf29ce484222325'u64
+      var fsEpTraj: uint64 = 0xcbf29ce484222325'u64
+      for t in 0 .. 3: fsCarrier[t] = -1
+      for sl in 0 ..< numPlayers:
+        fsPrevDeaths[sl] = engine.slotVitals(sl).deaths
+        fsPx[sl] = float(engine.slotVitals(sl).x)
+        fsPy[sl] = float(engine.slotVitals(sl).y)
+      let fsArmTeam = getEnv("MEDFEASTEAM")
+      proc fsMix(h: var uint64, v: int) =
+        var x = v
+        for i in 0 .. 3:
+          h = (h xor uint64(x and 0xff)) * 0x100000001b3'u64
+          x = x shr 8
+      proc fsD(ax, ay, bx, by: float): float =
+        sqrt((ax - bx) * (ax - bx) + (ay - by) * (ay - by))
+      proc fsEmit(sl, tm, tEnd: int, outcome: string) =
+        ## One FSEG row. Distances are to the FROZEN open-time targets, so
+        ## "approach" is d0 - d1 and the placebo subtracts fight drift.
+        let d1s = fsD(fsPx[sl], fsPy[sl], fsSx[sl], fsSy[sl])
+        let d1l = (if fsHasL[sl]: fsD(fsPx[sl], fsPy[sl], fsLx[sl], fsLy[sl]) else: 0.0)
+        let d1p = (if fsHasP[sl]: fsD(fsPx[sl], fsPy[sl], fsPx2[sl], fsPy2[sl]) else: 0.0)
+        let dur = tEnd - fsT0[sl]
+        echo &"FSEG seed={epSeed} team={tm} slot={sl} armTeam={fsArmTeam} " &
+          &"armed={(if fsArmTeam.len > 0 and tm == parseInt(fsArmTeam): 1 else: 0)} " &
+          &"t0={fsT0[sl]} dur={dur} d0s={fsD0s[sl]:.1f} d1s={d1s:.1f} " &
+          &"minS={fsMinS[sl]:.1f} nStock={fsNStock[sl]} " &
+          &"hasLock={(if fsHasL[sl]: 1 else: 0)} d0l={fsD0l[sl]:.1f} d1l={d1l:.1f} " &
+          &"hasAlt={(if fsHasP[sl]: 1 else: 0)} d0p={fsD0p[sl]:.1f} d1p={d1p:.1f} " &
+          &"out={outcome}"
+
     # tempo mandate: starting life pool per team (engine truth, before tick 0).
     var tmLivesStart: array[4, int]
     block:
@@ -514,6 +655,7 @@ proc main() =
         let mask = drivers[s].frame(packet)
         engine.setMask(s, mask)
         when defined(fpprobe): fpMix(fpMask, mask)
+        when defined(feasprobe): fsMix(fsEpMask, int(mask))
         # ⭐⭐ SHOUT-FORWARDING FIX (2026-08-17). This rig never forwarded a bot's
         # staged shout (bot.shoutWant) into the sim — harness.nim's runEpisode
         # does this every frame (engine.applyShout), grabprobe never did. The
@@ -535,6 +677,94 @@ proc main() =
         ndSpaceSum += sp.sumNearest
         for b in 0 ..< sp.hist.len: ndSpaceHist[b] += sp.hist[b]
       inc tick
+      when defined(feasprobe):
+        # ⭐ THE PRIMARY SAMPLER. Engine truth every tick: hp==1 SEGMENTS with a
+        # frozen stocked target and a frozen locked placebo, plus the two
+        # guardrails (steals by carrier transition — the engine's own
+        # redGrabs/blueGrabs misattribute on >2 teams — and deaths).
+        let fsSpots = engine.medKitSpots()
+        for ft in 0 ..< min(4, max(2, evalTeams)):
+          let c = engine.flagCarrierSlot(ft)
+          if c >= 0 and fsCarrier[ft] < 0:
+            let ct = engine.teamOfSlot(c)
+            if ct != ft and ct in 0 .. 3: inc fsSteals[ct]
+          fsCarrier[ft] = c
+        for sl in 0 ..< numPlayers:
+          let tm = engine.teamOfSlot(sl)
+          if tm notin 0 .. 3: continue
+          let v = engine.slotVitals(sl)
+          if fsOpen[sl]:
+            if (not v.alive) or v.deaths > fsPrevDeaths[sl]:
+              fsEmit(sl, tm, tick, "death")   # position = last ALIVE sample
+              fsOpen[sl] = false
+            elif v.hp > 1:
+              fsPx[sl] = float(v.x)
+              fsPy[sl] = float(v.y)
+              fsEmit(sl, tm, tick, "heal")
+              fsOpen[sl] = false
+          if v.alive:
+            fsPx[sl] = float(v.x)
+            fsPy[sl] = float(v.y)
+            if fsOpen[sl]:
+              let dNow = fsD(fsPx[sl], fsPy[sl], fsSx[sl], fsSy[sl])
+              if dNow < fsMinS[sl]: fsMinS[sl] = dNow
+            elif v.hp == 1:
+              # OPEN a segment: freeze the nearest STOCKED kit (the target of
+              # interest) and the nearest LOCKED spot (the placebo). A segment
+              # with no stocked kit anywhere has no defined primary and is not
+              # opened; it is counted so the exclusion is visible.
+              var bs = -1
+              var bd = 1e18
+              var bl = -1
+              var bld = 1e18
+              var b2 = -1
+              var b2d = 1e18
+              var nSt = 0
+              for i in 0 ..< fsSpots.len:
+                let d = fsD(fsPx[sl], fsPy[sl], float(fsSpots[i].x),
+                            float(fsSpots[i].y))
+                if fsSpots[i].present:
+                  inc nSt
+                  if d < bd:
+                    b2d = bd            # the old best becomes the ALT placebo
+                    b2 = bs
+                    bd = d
+                    bs = i
+                  elif d < b2d:
+                    b2d = d
+                    b2 = i
+                else:
+                  if d < bld:
+                    bld = d
+                    bl = i
+              if bs >= 0:
+                fsOpen[sl] = true
+                fsT0[sl] = tick
+                fsSx[sl] = float(fsSpots[bs].x)
+                fsSy[sl] = float(fsSpots[bs].y)
+                fsD0s[sl] = bd
+                fsMinS[sl] = bd
+                fsNStock[sl] = nSt
+                fsHasL[sl] = bl >= 0
+                if bl >= 0:
+                  fsLx[sl] = float(fsSpots[bl].x)
+                  fsLy[sl] = float(fsSpots[bl].y)
+                  fsD0l[sl] = bld
+                fsHasP[sl] = b2 >= 0
+                if b2 >= 0:
+                  fsPx2[sl] = float(fsSpots[b2].x)
+                  fsPy2[sl] = float(fsSpots[b2].y)
+                  fsD0p[sl] = b2d
+                inc fsSegs[tm]
+              else:
+                inc fsNoStockSegs
+          fsPrevDeaths[sl] = v.deaths
+        if tick mod 25 == 0:
+          for sl in 0 ..< numPlayers:
+            let v = engine.slotVitals(sl)
+            fsMix(fsEpTraj, v.x)
+            fsMix(fsEpTraj, v.y)
+            fsMix(fsEpTraj, v.hp)
       when defined(fpprobe):
         var dTot: array[4, int]
         var cTot: array[4, int]
@@ -546,22 +776,31 @@ proc main() =
             cTot[tm] += engine.slotCaptures(s)
             # hp == 1 episodes: entered, escaped (healed above 1 while alive),
             # or died there. GROUND TRUTH, never the bot's own belief.
+            # ⭐ ALIVE TICKS: the denominator of the outcome metric, GROUND
+            # TRUTH per live body per tick (slotVitals, off sim.players).
+            if v.alive:
+              inc fpAliveTicks[tm]
+              inc fpEpAlive[tm]
             if v.alive and v.hp == 1 and not fpWasHp1[s]:
               fpWasHp1[s] = true
               inc fpHp1Enter[tm]
+              inc fpEpHp1Enter[tm]
             elif fpWasHp1[s]:
               if v.deaths > fpLastDeaths[s] or not v.alive:
                 fpWasHp1[s] = false
                 inc fpHp1Death[tm]
+                inc fpEpHp1Death[tm]
               elif v.hp > 1:
                 fpWasHp1[s] = false
                 inc fpHp1Escape[tm]
+                inc fpEpHp1Escape[tm]
             # ⚠️ `alive last tick too`: a RESPAWN restores hp from 0 to full a few
             # ticks AFTER the death counter moved, so without this a respawn
             # reads as a medkit and heals/ep inflates ~10x.
             if v.alive and fpWasAlive[s] and v.hp > fpLastHp[s] and
                 v.deaths == fpLastDeaths[s]:
               inc fpHeals[tm]
+              inc fpEpHeals[tm]
           fpLastHp[s] = v.hp
           fpLastDeaths[s] = v.deaths
           fpWasAlive[s] = v.alive
@@ -611,6 +850,64 @@ proc main() =
         tmLastCapTotal = tmCapNow
       if r.phaseOver: break
     let r = engine.result()
+    when defined(evdump):
+      # ⭐ RIG-FIDELITY AUDIT (2026-08-18). Dump this episode in the HOSTED
+      # replay wire format so one analyser scores rig and field alike. Off
+      # unless EVDUMP_DIR is set, so an -d:evdump binary is still a normal probe
+      # binary. Every slot is our own policy here, so the addresses are named by
+      # engine team, not by entrant: a mirror rig has no rivals.
+      if getEnv("EVDUMP_DIR").len > 0:
+        var evAddr: seq[string] = @[]
+        for s in 0 ..< numPlayers:
+          evAddr.add "rigteam" & $engine.teamOfSlot(s)
+        createDir(getEnv("EVDUMP_DIR"))
+        writeFile(getEnv("EVDUMP_DIR") / ("ep" & $epSeed & ".jsonl"),
+                  engine.evJsonl(evAddr))
+    when defined(feasprobe):
+      # Close any segment still open when the episode ended: an unfinished
+      # segment is a CENSORED observation, tagged so it can be kept or dropped
+      # downstream rather than silently counted as a failure.
+      for sl in 0 ..< numPlayers:
+        if fsOpen[sl]:
+          fsEmit(sl, engine.teamOfSlot(sl), tick, "cut")
+          fsOpen[sl] = false
+      var fsDeaths: array[4, int]
+      var fsCaps: array[4, int]
+      var fsAlive: array[4, int]
+      for sl in 0 ..< numPlayers:
+        let tm = engine.teamOfSlot(sl)
+        if tm notin 0 .. 3: continue
+        let v = engine.slotVitals(sl)
+        fsDeaths[tm] += v.deaths
+        fsCaps[tm] += engine.slotCaptures(sl)
+      when defined(fpprobe):
+        for t in 0 .. 3: fsAlive[t] = fpEpAlive[t]
+      # ⭐ NON-VACUITY: read the tune field back off the seated drivers. The
+      # 2-team invariance claim is "byte-identical WITH the lever ON", and that
+      # is only a claim if the flag is provably SET — a lever that silently
+      # failed to arm is also byte-identical.
+      var fsTuneGate: array[4, int]
+      var fsTuneStrict: array[4, int]
+      var fsTuneReach: array[4, float]
+      for sl in 0 ..< numPlayers:
+        let tm = engine.teamOfSlot(sl)
+        if tm notin 0 .. 3: continue
+        when compiles(drivers[sl].bot.tune.medFeasGate):
+          if drivers[sl].bot.tune.medFeasGate: fsTuneGate[tm] = 1
+          if drivers[sl].bot.tune.medFeasStrict: fsTuneStrict[tm] = 1
+          fsTuneReach[tm] = drivers[sl].bot.tune.medFeasReachPx
+      for t in 0 ..< min(4, max(2, evalTeams)):
+        echo &"FTUNE seed={epSeed} team={t} gate={fsTuneGate[t]} " &
+          &"strict={fsTuneStrict[t]} reachPx={fsTuneReach[t]:.1f}"
+      for t in 0 ..< min(4, max(2, evalTeams)):
+        echo &"FEPT seed={epSeed} team={t} armTeam={fsArmTeam} " &
+          &"armed={(if fsArmTeam.len > 0 and t == parseInt(fsArmTeam): 1 else: 0)} " &
+          &"ticks={tick} aliveTicks={fsAlive[t]} deaths={fsDeaths[t]} " &
+          &"caps={fsCaps[t]} steals={fsSteals[t]} segs={fsSegs[t]}"
+      echo &"FEPF seed={epSeed} armTeam={fsArmTeam} ticks={tick} " &
+        &"mask=0x{fsEpMask:016x} traj=0x{fsEpTraj:016x} " &
+        &"kitSpots={engine.medKitSpots().len}"
+      flushFile(stdout)
     when defined(lifeprobe):
       # Episode ended before tick FfaFixedWindow (common in ffa4 — the mode ends
       # by ELIMINATION): no more lives can be spent after that, so the final
@@ -723,6 +1020,19 @@ proc main() =
             alive[sl.team] += sl.lives + (if sl.alive: 1 else: 0)
         for t in 0 ..< min(4, nTeams):
           if alive[t] == 0: inc fpWiped[t]
+        # ⭐⭐ ONE MACHINE-READABLE ROW PER (EPISODE, TEAM). Printed and flushed
+        # per episode for two reasons: this rig runs minutes per episode under
+        # fleet load so a killed run must still be a usable measurement, and a
+        # CI needs the per-episode series (the independent unit) rather than the
+        # pooled totals the summary block prints. `arm` records which team the
+        # lever was armed on so a downstream reader never has to be told.
+        for t in 0 ..< min(4, nTeams):
+          echo &"FPEP seed={epSeed} team={t} armTeam={getEnv(\"FFAPEELTEAM\")} " &
+            &"ticks={realTicks} aliveTicks={fpEpAlive[t]} heals={fpEpHeals[t]} " &
+            &"hp1Enter={fpEpHp1Enter[t]} hp1Escape={fpEpHp1Escape[t]} " &
+            &"hp1Death={fpEpHp1Death[t]} livesEnd={fpDeathTL[t][^1]} " &
+            &"wiped={(if alive[t] == 0: 1 else: 0)} caps={fpCapTL[t][^1]}"
+        flushFile(stdout)
     totRedGrab += r.redGrabs; totBlueGrab += r.blueGrabs
     totRedCap += r.redCaptures; totBlueCap += r.blueCaptures
     totRedShot += r.redShots; totBlueShot += r.blueShots
@@ -1175,6 +1485,27 @@ proc main() =
         &"{fpHp1Enter[t]:>5}  {(100.0 * fpHp1Escape[t].float / h1.float):>12.1f}%  " &
         &"{(100.0 * fpHp1Death[t].float / h1.float):>9.1f}%  " &
         &"{(fpHeals[t].float / e.float):>7.2f}"
+    echo "  --- ⭐ THE OUTCOME METRIC: KITS COLLECTED per 1e6 ALIVE ticks ---"
+    echo "  (the hosted comparator: us 59.7, league winner 212.1, the SCRIPTED"
+    echo "   FILLER 224.3. Alive ticks, not episodes, because a lever that keeps"
+    echo "   bodies alive buys them collecting TIME and would read as a win for"
+    echo "   free. A fire counter is NOT a substitute: v57 raised ffaMedSee"
+    echo "   firings 4,044 -> 19,439 and completed heals FELL 61 -> 54.)"
+    echo &"  team    eps   heals   aliveTicks    kits/1e6 aliveTicks   kits/ep"
+    for t in 0 ..< min(4, max(2, evalTeams)):
+      let e = max(1, fpEps[t])
+      let at = max(1, fpAliveTicks[t])
+      echo &"  {TeamName[t]} {fpEps[t]:>5}  {fpHeals[t]:>6}  {fpAliveTicks[t]:>11}   " &
+        &"{(1_000_000.0 * fpHeals[t].float / at.float):>19.1f}   " &
+        &"{(fpHeals[t].float / e.float):>7.2f}"
+    when compiles(pwFeet):
+      echo &"  FIRE (diagnostic only, never evidence): peelFeetFrames {pwFeet}  " &
+        &"of which WIDENED-2hp {pwWideOnly}  |  2hp-with-kit-committed frames " &
+        &"{pwWideAvail}"
+      echo "    (wideOnly>0 proves the lever is WIRED and load-bearing. It proves " &
+        "nothing else: `avail` counts DWELL in a state the lever itself lengthens " &
+        "— an armed bot spends the whole walk there — so the ratio is not an " &
+        "opportunity rate. The outcome is kits/1e6 alive ticks, above.)"
     echo &"  --- FIXED-WINDOW life spend (the arm-invariant comparator; " &
       &"'by half-time' moves with an episode length the lever itself changes) ---"
     echo &"  team    eps   meanEpisodeTicks   livesSpentBy1000   livesSpentBy1500   livesSpentBy2000"
@@ -1243,6 +1574,65 @@ proc main() =
       "the widened-detour half (L3b) is DELETED — it fired 819-913x per arm and " &
       "normal cap would have missed; ffaMedSee fires>0 proves the visible-kit " &
       "union chose a target the formula-spot-only base would not have)"
+
+  when defined(peeldiag):
+    echo "==================================================="
+    echo "--- ⭐⭐ PEEL DIAGNOSTIC (-d:peeldiag): WHICH LINK IS BROKEN? ---"
+    echo &"  PERCEPTION  ffa4 decide frames {pdDecide}"
+    echo &"    ownHp histogram  unread(0)={pdHpHist[0]}  1hp={pdHpHist[1]}  " &
+      &"2hp={pdHpHist[2]}  3hp={pdHpHist[3]}"
+    echo "      (1hp+2hp == 0 with decide frames > 0 => CAUSE 1: the hp readback " &
+      "is dead and every hp-gated branch in the policy is decoration.)"
+    echo &"    med-kit LABEL: frames with >=1 real sprite {pdLabelFrames}  " &
+      &"total sprites {pdLabelSprites}"
+    echo "      (0 with decide frames > 0 => CAUSE 2: LabelMedKit matches nothing " &
+      "— the silent-rename failure. Diff tests/label_manifest.txt.)"
+    echo &"  medEcon FUNNEL  hpRead {pdEconOn} -> wounded {pdWounded} -> " &
+      &"freeOfObjective {pdFree} -> inContact {pdInContact} -> passedHpGate " &
+      &"{pdHpGate} (aimedAtUs VETOED {pdAimVeto}) -> reachedScan {pdScan} -> " &
+      &"COMMITTED A KIT {pdHaveKit}"
+    echo "      (scan > 0 with COMMITTED == 0 => CAUSE 3: discovery works and the " &
+      "DETOUR BUDGET rejects everything.)"
+    echo "  ⭐ APPROACH TEST — Σ px CLOSED per committed frame, chosen kit vs a " &
+      "FROZEN not-chosen placebo:"
+    echo "  hp   commits  meanCommitDist   frames   px/frame CHOSEN   px/frame PLACEBO   CHOSEN-PLACEBO"
+    for h in 1 .. 2:
+      let f = max(1, pdFrames[h])
+      let c = max(1, pdCommits[h])
+      echo &"  {h}   {pdCommits[h]:>7}   {(pdCommitDist[h] / c.float):>13.1f}   " &
+        &"{pdFrames[h]:>6}   {(pdClosed[h] / f.float):>15.3f}   " &
+        &"{(pdPlac[h] / f.float):>16.3f}   " &
+        &"{((pdClosed[h] - pdPlac[h]) / f.float):>+14.3f}"
+    echo "      (CHOSEN-PLACEBO ~ 0 => we do NOT steer at kits and the peel gate " &
+      "is releasing feet toward a destination the movement layer never walks to. " &
+      "CHOSEN-PLACEBO > 0 => steering is real and the gate is the binding term.)"
+    flushFile(stdout)
+
+  when defined(feasprobe):
+    echo "==================================================="
+    echo "--- ⭐⭐ FEASIBILITY GATE A/B (-d:feasprobe) ---"
+    echo &"  arm: MEDFEAS={getEnv(\"MEDFEAS\")} MEDFEASTEAM={getEnv(\"MEDFEASTEAM\")}" &
+      &"   reach={fsReachPx:.0f}px (= {fsSpeedPx:.2f} px/tick x expected hp1 life)"
+    echo &"  hp1 entries EXCLUDED for having no stocked kit anywhere: {fsNoStockSegs}"
+    echo "  The verdict is computed downstream over the per-segment FSEG rows and"
+    echo "  the per-(episode,team) FEPT rows above — pooled counters are point"
+    echo "  estimates with no error bar, and this rig is only valid PAIRED."
+    when defined(feasdiag):
+      echo &"  FIRE (mechanism only, never the verdict): hp1 scans " &
+        &"control={fgScanHp1[0]} armed={fgScanHp1[1]}  |  committed a kit " &
+        &"control={fgCommitHp1[0]} armed={fgCommitHp1[1]}  |  took NO errand " &
+        &"control={fgNoErrandHp1[0]} armed={fgNoErrandHp1[1]}"
+      echo &"  mean commit distance at hp1: control " &
+        &"{(fgCommitDist[0] / max(1, fgCommitHp1[0]).float):.1f}px  armed " &
+        &"{(fgCommitDist[1] / max(1, fgCommitHp1[1]).float):.1f}px"
+      echo &"  of those commits, SEEN kits (rest = the two formula spots): " &
+        &"control {fgPickVisHp1[0]}  armed {fgPickVisHp1[1]}"
+      for ai in 0 .. 1:
+        var line = ""
+        for b in 0 .. 6:
+          line.add &"{b * 50}-{(b + 1) * 50}:{fgDistHist[ai][b]}  "
+        echo &"  hp1 commit-distance histogram [{(if ai == 1: \"ARMED\" else: \"control\")}]  " & line
+    flushFile(stdout)
 
   when defined(msprobe):
     echo "==================================================="
