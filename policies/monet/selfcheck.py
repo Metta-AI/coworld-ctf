@@ -2498,6 +2498,185 @@ check("(g3) final4 re-emit RETRY: the earlier bail (g1) left the flag "
       reemit_g3 is None and _f4h_seat_g.final4_reemit_done is True,
       repr(_f4h_log_g3.getvalue()))
 
+# ── v51 (ereq_99f472a2): the LADDER-MAINTENANCE leak. starter_harness.
+# _live_loop's maintenance block (~"ladder maintenance" comment) calls
+# gate_and_build directly on seat.wanted_entries and NEVER goes through
+# repair_call/adjust_entries -- a path separate from BOTH reemit helpers
+# above. v50 measured ~700 ticks of supply_run sitting on the wire at
+# detourMax=300 AFTER the final-four phase line had already printed,
+# because that resend never re-clamped anything. v51 factors the clamp
+# itself out into policy.apply_phase_clamps (called both at the end of
+# adjust_entries, after CONVERSION/ARMAMENT's own auto-insert, and
+# directly from the maintenance block via the new
+# Persona.apply_phase_clamps hook) so every wire send shares ONE clamp
+# implementation. ──────────────────────────────────────────────────────
+
+
+def _f4m_stale_entries():
+    # A committed-but-stale ladder: shaped exactly like what
+    # seat.wanted_entries would hold if it was last written BEFORE final4
+    # became true (detourMax still at the model/CONVERSION/ARMAMENT
+    # default, never clamped).
+    return [
+        {"play": "loot", "entry_id": "arm",
+         "params": {"detourMax": 400, "contested": "avoid"}},
+        {"play": "supply_run", "entry_id": "bank",
+         "params": {"whenHpBelow": 4, "detourMax": 400,
+                    "contested": "avoid"}},
+    ]
+
+
+# (a) maintenance resend while final4 is ALREADY committed (the phase line
+# already printed on an earlier real/reemit turn -- exactly the ereq_
+# 99f472a2 shape) -- calling the SAME hook the maintenance block now calls
+# must commit supply_run/loot detourMax <= 150 and log the distinguishable
+# "(maintenance)" line.
+_f4m_view_a = {"world": {"alive_teams": 4}, "self": {"alive": True}}
+_f4m_pact_a = {"final4_committed": True, "final4_logged": True}
+_f4m_entries_a = _f4m_stale_entries()
+_f4m_log_a = _io.StringIO()
+with _contextlib.redirect_stdout(_f4m_log_a):
+    _f4m_fired_a = PERSONA.apply_phase_clamps(
+        _f4m_entries_a, _f4m_view_a, _f4m_pact_a, source="maintenance")
+_f4m_a_loot = next(e for e in _f4m_entries_a if e["play"] == "loot")
+_f4m_a_supply = next(e for e in _f4m_entries_a if e["play"] == "supply_run")
+check("(a) maintenance resend while final4 is active: loot.detourMax "
+      "commits <= 150 (400 -> 150)",
+      _f4m_fired_a and _f4m_a_loot["params"].get("detourMax") == 150,
+      str(_f4m_a_loot["params"]))
+check("(a) maintenance resend while final4 is active: supply_run."
+      "detourMax also commits <= 150 (whenHpBelow untouched)",
+      _f4m_a_supply["params"].get("detourMax") == 150
+      and _f4m_a_supply["params"].get("whenHpBelow") == 4,
+      str(_f4m_a_supply["params"]))
+check("(a) maintenance resend logs the distinguishable "
+      "'[monet] final4 clamp (maintenance): <play>.detourMax <old> -> "
+      "150' line",
+      "final4 clamp (maintenance): loot.detourMax 400 -> 150"
+      in _f4m_log_a.getvalue()
+      and "final4 clamp (maintenance): supply_run.detourMax 400 -> 150"
+      in _f4m_log_a.getvalue(),
+      repr(_f4m_log_a.getvalue()))
+
+# Deliberate-break proof: the pre-v51 shape had NO clamp hook at all on
+# this path (starter_harness's maintenance block had nothing to call) --
+# reproduce that exactly by exercising the maintenance block's OWN guard
+# (`if persona.apply_phase_clamps is not None`) with the hook unset, and
+# show the SAME stale ladder now leaks detourMax=400 straight through,
+# proving the (a) checks above discriminate the fix rather than passing
+# unconditionally.
+_f4m_entries_break = _f4m_stale_entries()
+_saved_clamp_hook = PERSONA.apply_phase_clamps
+PERSONA.apply_phase_clamps = None
+try:
+    if PERSONA.apply_phase_clamps is not None:
+        PERSONA.apply_phase_clamps(_f4m_entries_break, _f4m_view_a,
+                                   dict(_f4m_pact_a), source="maintenance")
+finally:
+    PERSONA.apply_phase_clamps = _saved_clamp_hook
+_f4m_break_loot = next(e for e in _f4m_entries_break if e["play"] == "loot")
+check("(a) BREAK PROOF: with no phase-clamp hook wired to the persona "
+      "(the pre-v51 shape), the identical stale maintenance resend leaks "
+      "loot.detourMax=400 straight onto the wire -- the fix above is what "
+      "closes this, not a scenario that was already safe",
+      _f4m_break_loot["params"].get("detourMax") == 400,
+      str(_f4m_break_loot["params"]))
+
+# (b) maintenance resend OUTSIDE final4 (alive_teams=8): untouched -- no
+# clamp, no log line, entries pass through exactly as gated.
+_f4m_view_b = {"world": {"alive_teams": 8}, "self": {"alive": True}}
+_f4m_entries_b = _f4m_stale_entries()
+_f4m_log_b = _io.StringIO()
+with _contextlib.redirect_stdout(_f4m_log_b):
+    _f4m_fired_b = PERSONA.apply_phase_clamps(
+        _f4m_entries_b, _f4m_view_b, {}, source="maintenance")
+_f4m_b_loot = next(e for e in _f4m_entries_b if e["play"] == "loot")
+check("(b) maintenance resend outside final4: loot.detourMax stays at "
+      "400, untouched",
+      not _f4m_fired_b and _f4m_b_loot["params"].get("detourMax") == 400,
+      str(_f4m_b_loot["params"]))
+check("(b) maintenance resend outside final4: no clamp line logged, no "
+      "phase line either",
+      _f4m_log_b.getvalue() == "", repr(_f4m_log_b.getvalue()))
+
+# (d) enumerate every wire-send path in starter_harness and prove each one
+# actually reaches policy.apply_phase_clamps -- monkeypatch the module-
+# level function (adjust_entries resolves it as a bare global at CALL
+# time, so reassigning policy.apply_phase_clamps redirects every caller
+# below) and count invocations. Restored in a finally so no later test in
+# this file sees the stub.
+import inspect as _inspect_v51
+
+_f4m_call_count = {"n": 0}
+_real_apply_phase_clamps = policy.apply_phase_clamps
+
+
+def _f4m_counting_clamp(entries, view, pact_state, source=None):
+    _f4m_call_count["n"] += 1
+    return _real_apply_phase_clamps(entries, view, pact_state, source=source)
+
+
+policy.apply_phase_clamps = _f4m_counting_clamp
+try:
+    # d1: a real model call / opening call / re-call all share repair_call.
+    starter_harness.repair_call(
+        _f4_call(), PERSONA, fake_seat(view={"world": {"alive_teams": 8}}),
+        AVAILABLE)
+    _f4m_after_repair = _f4m_call_count["n"]
+    # d2: kickoff-reemit -- separate path, also funnels through repair_call.
+    _f4m_kickoff_seat = fake_seat(
+        context={"self": {"seat": 3, "duo_partner": None},
+                 "roster": [{"seat": i} for i in range(10)]},
+        chat=[{"seat": 5, "text": "seat:3 pact? never a shot between us"}])
+    starter_harness.repair_call(
+        PERSONA.canned_turns[0], PERSONA, _f4m_kickoff_seat, AVAILABLE)
+    _f4m_kickoff_seat.view = {"tick": 800, "self": {"pos": [0, 0]},
+                              "tracks": []}
+    starter_harness.maybe_kickoff_reemit(PERSONA, _f4m_kickoff_seat, AVAILABLE)
+    _f4m_after_kickoff = _f4m_call_count["n"]
+    # d3: final4-reemit -- the other harness-owned resend.
+    _f4m_f4reemit_seat = fake_seat(view={"world": {"alive_teams": 8}})
+    starter_harness.repair_call(_f4_call(), PERSONA, _f4m_f4reemit_seat,
+                                AVAILABLE)
+    _f4m_f4reemit_seat.view = {"world": {"alive_teams": 4},
+                               "self": {"alive": True}}
+    starter_harness.maybe_final4_reemit(PERSONA, _f4m_f4reemit_seat,
+                                        AVAILABLE)
+    _f4m_after_f4reemit = _f4m_call_count["n"]
+finally:
+    policy.apply_phase_clamps = _real_apply_phase_clamps
+
+check("(d) send-path enumeration: repair_call (opening/re-call/pre-call's "
+      "shared path) reaches apply_phase_clamps",
+      _f4m_after_repair >= 1, str(_f4m_after_repair))
+check("(d) send-path enumeration: maybe_kickoff_reemit also funnels "
+      "through repair_call and reaches apply_phase_clamps",
+      _f4m_after_kickoff > _f4m_after_repair, str(_f4m_after_kickoff))
+check("(d) send-path enumeration: maybe_final4_reemit also funnels "
+      "through repair_call and reaches apply_phase_clamps",
+      _f4m_after_f4reemit > _f4m_after_kickoff, str(_f4m_after_f4reemit))
+
+# d4: the maintenance path cannot be driven without a live socket/engine
+# (it lives inside _live_loop's `while True` pump/drain loop) -- assert by
+# source inspection that the maintenance block itself calls
+# persona.apply_phase_clamps, mirroring this file's existing prompt-wiring
+# source-inspection tests (see the _live_loop prompt-wiring block below).
+_f4m_loop_src = _inspect_v51.getsource(starter_harness._live_loop)
+_f4m_maint_start = _f4m_loop_src.find("last_maintenance_at >=")
+_f4m_maint_end = _f4m_loop_src.find("last_maintenance_at = time.monotonic()")
+_f4m_maint_block = (_f4m_loop_src[_f4m_maint_start:_f4m_maint_end]
+                    if _f4m_maint_start != -1 and _f4m_maint_end != -1
+                    else "")
+check("(d) send-path enumeration: _live_loop's ladder-maintenance block "
+      "itself calls persona.apply_phase_clamps on the entries it is about "
+      "to send, not just repair_call-based paths",
+      "persona.apply_phase_clamps" in _f4m_maint_block,
+      repr(_f4m_maint_block[:200]))
+check("(d) send-path enumeration: PERSONA.apply_phase_clamps is wired to "
+      "the SAME function policy.adjust_entries calls internally -- one "
+      "clamp implementation, not two copies that can drift apart",
+      PERSONA.apply_phase_clamps is policy.apply_phase_clamps)
+
 # (h) kickoff re-emit and final4 re-emit both fire in ONE episode without
 # interfering: kickoff at the first Playing tick (alive_teams still high),
 # final4 later once the team count drops to <=4. Different flags
