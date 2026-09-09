@@ -36,9 +36,12 @@ PARTNER_REF = "seat:19"
 NEIGHBOR_REFS = {"seat:4", "seat:20"}
 
 
-def fake_seat(context=None, view=None):
-    return types.SimpleNamespace(context=context or dict(FAKE_CONTEXT),
-                                 view=view or {}, kill_feed=[])
+def fake_seat(context=None, view=None, chat=None, kill_feed=None,
+              pact_state=None):
+    return types.SimpleNamespace(
+        context=context or dict(FAKE_CONTEXT), view=view or {},
+        chat=chat or [], kill_feed=kill_feed or [],
+        pact_state=pact_state if pact_state is not None else {})
 
 
 failures = []
@@ -908,27 +911,33 @@ check("team-0 seat re-aims the placeholder pact off its own duo",
       and set(pact0["params"]["partners"]) == {"seat:1", "seat:17"},
       str(pact0))
 
-# ── UNAIMABLE pact (IMPROVE queue #1, tick 15; fixed 2026-09-05): a SOLO
-# seat (duo_partner missing or == own seat) has no neighboring duo
-# (_neighbor_duo returns None) and no genuine partner to fall back on, so
-# a placeholder/self-referential pact cannot be re-aimed at anything
-# real. It must be DROPPED -- the same release mechanic as an ended
-# truce -- rather than let the placeholder seats ride onto the wire and
-# poison target_law's never-list with two arbitrary, unrelated solo
-# opponents we hold no truce with. ─────────────────────────────────────────
-solo_seat = fake_seat(context={"self": {"seat": 3, "duo_partner": None}})
+# ── SOLO pact naming (OWNER DIRECTIVE pact fix, supersedes the
+# 2026-09-05 IMPROVE queue #1 drop-fix): a SOLO seat (duo_partner missing
+# or == own seat) has no neighboring duo (_neighbor_duo returns None).
+# MEASURE.md traced this branch as the dominant cause of the field's
+# 4/37 declared, 0/37 formed pact record: it used to DROP the entry
+# entirely. It must now name real, live rival seats instead and NEVER
+# drop -- invited > reciprocate > fallback > retry (see
+# policy._resolve_solo_pact_partners). With no huddle chat and no
+# play_view yet (this is the pre-call turn), the roster-order fallback
+# inside _nearest_live_rivals names the two lowest-numbered other seats,
+# deterministically. ─────────────────────────────────────────────────────
+solo_seat = fake_seat(context={"self": {"seat": 3, "duo_partner": None},
+                               "roster": [{"seat": i} for i in range(6)]})
 _, entries_solo = starter_harness.repair_call(
     PERSONA.canned_turns[0], PERSONA, solo_seat, AVAILABLE)
 pact_solo = next((e for e in entries_solo if e["play"] == "pact"), None)
 law_solo = next((e for e in entries_solo if e["play"] == "target_law"), None)
-check("SOLO + placeholder pact: the unaimable pact is DROPPED entirely, "
-      "not re-aimed and not left carrying the placeholder",
-      pact_solo is None, str(pact_solo))
-check("SOLO + placeholder pact: the dropped pact's placeholder seats "
-      "never reach target_law's never-list",
+check("SOLO + placeholder pact: never dropped -- named at the "
+      "roster-order fallback (no telemetry yet, deterministic)",
+      pact_solo is not None
+      and set(pact_solo["params"]["partners"]) == {"seat:0", "seat:1"},
+      str(pact_solo))
+check("SOLO + placeholder pact: the OLD placeholder seats never reach "
+      "target_law's never-list -- only the newly-named fallback seats do",
       law_solo is not None
-      and not ({"seat:0", "seat:16"}
-               & set(law_solo["params"].get("never", []))),
+      and {"seat:0", "seat:1"} <= set(law_solo["params"].get("never", []))
+      and "seat:16" not in set(law_solo["params"].get("never", [])),
       str(law_solo))
 
 # ── SOLO + a model's genuine, real, distinct pact choice: left untouched.
@@ -969,6 +978,145 @@ check("NEGATIVE CONTROL: a real DUO seat's placeholder pact is still "
       pact_duo_control is not None
       and set(pact_duo_control["params"]["partners"]) == NEIGHBOR_REFS,
       str(pact_duo_control))
+
+# ── _parse_pact_invites: the huddle-transcript parser (OWNER DIRECTIVE
+# pact fix). Three synthetic transcripts -- invite by seat id, invite by
+# player name, and no invite at all -- read from context["_chat"], the
+# same shape starter_harness.repair_call now threads through from
+# seat.chat (see repair_call). Our own seat is 3 throughout. ───────────────
+_INVITE_ROSTER = [{"seat": 3, "name": "Monet"}, {"seat": 7, "name": "Ari Sklar"},
+                  {"seat": 9, "name": "relh"}]
+_ctx_invite_by_id = {"self": {"seat": 3}, "roster": _INVITE_ROSTER,
+                    "_chat": [{"seat": 7, "text": "seat:3 non-aggression? "
+                                                  "I hold if you hold."}]}
+check("_parse_pact_invites: invite by literal seat id is read",
+      policy._parse_pact_invites(_ctx_invite_by_id) == {7},
+      str(policy._parse_pact_invites(_ctx_invite_by_id)))
+
+_ctx_invite_by_name = {"self": {"seat": 3}, "roster": _INVITE_ROSTER,
+                       "_chat": [{"seat": 9, "text": "truce, Monet -- "
+                                                     "never a shot between us"}]}
+check("_parse_pact_invites: invite by roster player NAME (no seat id "
+      "in the text at all) is read",
+      policy._parse_pact_invites(_ctx_invite_by_name) == {9},
+      str(policy._parse_pact_invites(_ctx_invite_by_name)))
+
+_ctx_no_invite = {"self": {"seat": 3}, "roster": _INVITE_ROSTER,
+                  "_chat": [{"seat": 7, "text": "gl hf, going for the west "
+                                               "marker"},
+                            {"seat": 9, "text": "pact with seat:7 only, "
+                                                "not interested otherwise"}]}
+check("_parse_pact_invites: NEGATIVE -- chat that never names us (even "
+      "when it says 'pact' about someone else) yields no invite",
+      policy._parse_pact_invites(_ctx_no_invite) == set(),
+      str(policy._parse_pact_invites(_ctx_no_invite)))
+check("_parse_pact_invites: NEGATIVE -- our own chat line does not "
+      "self-invite",
+      policy._parse_pact_invites(
+          {"self": {"seat": 3}, "roster": _INVITE_ROSTER,
+           "_chat": [{"seat": 3, "text": "truce, seat:3? I hold if you "
+                                        "hold."}]}) == set(),
+      "sender==our own seat must never count as an invite")
+
+# ── AIM via a real invitation: a SOLO seat whose huddle was invited by
+# seat 7 (by id) must declare back at exactly seat 7, reason "invited",
+# and log a `[monet] pact aim:` commit line (part E) -- never fall back
+# to the nearest-seat mechanism when a real invite exists. ────────────────
+import io as _io
+import contextlib as _contextlib
+
+invited_seat = fake_seat(
+    context={"self": {"seat": 3, "duo_partner": None}, "roster": _INVITE_ROSTER},
+    chat=[{"seat": 7, "text": "seat:3 pact? never a shot between us"}])
+_aim_log = _io.StringIO()
+with _contextlib.redirect_stdout(_aim_log):
+    _, entries_invited = starter_harness.repair_call(
+        PERSONA.canned_turns[0], PERSONA, invited_seat, AVAILABLE)
+pact_invited = next((e for e in entries_invited if e["play"] == "pact"), None)
+check("AIM: a named invitation is accepted verbatim, not overwritten by "
+      "the nearest-seat fallback",
+      pact_invited is not None
+      and set(pact_invited["params"]["partners"]) == {"seat:7"},
+      str(pact_invited))
+check("part E: a committed pact call logs one `[monet] pact aim:` line "
+      "naming the seat and the reason",
+      "[monet] pact aim:" in _aim_log.getvalue()
+      and "seat:7=invited" in _aim_log.getvalue(),
+      repr(_aim_log.getvalue()))
+
+# ── RECIPROCATE on a LATER turn: partners accumulate without churning the
+# existing set -- turn 1 has no invite (fallback names the 2 nearest),
+# turn 2's huddle is invited by a NEW seat, which must be ADDED, not
+# swap out the fallback pair. Both calls reuse the SAME seat object, so
+# seat.pact_state (threaded into context["_pact_state"] by repair_call)
+# persists turn to turn exactly like a live match. ─────────────────────────
+_RECIP_ROSTER = [{"seat": i} for i in range(8)]
+recip_seat = fake_seat(
+    context={"self": {"seat": 3, "duo_partner": None}, "roster": _RECIP_ROSTER},
+    view={"self": {"pos": [0, 0]},
+          "tracks": [{"seat": 1, "team": 1, "pos": [10, 0]},
+                     {"seat": 2, "team": 2, "pos": [20, 0]}]})
+_, entries_t1 = starter_harness.repair_call(
+    PERSONA.canned_turns[0], PERSONA, recip_seat, AVAILABLE)
+pact_t1 = next((e for e in entries_t1 if e["play"] == "pact"), None)
+check("RECIPROCATE setup: turn 1 falls back to the 2 nearest (seats 1, 2)",
+      pact_t1 is not None
+      and set(pact_t1["params"]["partners"]) == {"seat:1", "seat:2"},
+      str(pact_t1))
+
+recip_seat.chat = [{"seat": 5, "text": "seat:3 truce -- I'll hold fire"}]
+_, entries_t2 = starter_harness.repair_call(
+    PERSONA.canned_turns[0], PERSONA, recip_seat, AVAILABLE)
+pact_t2 = next((e for e in entries_t2 if e["play"] == "pact"), None)
+check("RECIPROCATE: a NEW inviter (seat 5) on turn 2 is ADDED, the "
+      "existing fallback pair (1, 2) is kept, not churned",
+      pact_t2 is not None
+      and set(pact_t2["params"]["partners"]) == {"seat:1", "seat:2", "seat:5"},
+      str(pact_t2))
+
+# ── RETRY + cap-3: with no new invite ever arriving, one retry adds ONE
+# more nearest seat on the turn after the fallback declare (cap 3
+# total), and a further turn with still no invite does NOT exceed the
+# cap or retry twice. ───────────────────────────────────────────────────
+retry_seat = fake_seat(
+    context={"self": {"seat": 3, "duo_partner": None}, "roster": _RECIP_ROSTER},
+    view={"self": {"pos": [0, 0]},
+          "tracks": [{"seat": 1, "team": 1, "pos": [10, 0]},
+                     {"seat": 2, "team": 2, "pos": [20, 0]},
+                     {"seat": 4, "team": 4, "pos": [30, 0]}]})
+_, r_t1 = starter_harness.repair_call(
+    PERSONA.canned_turns[0], PERSONA, retry_seat, AVAILABLE)
+_, r_t2 = starter_harness.repair_call(
+    PERSONA.canned_turns[0], PERSONA, retry_seat, AVAILABLE)
+pact_r2 = next((e for e in r_t2 if e["play"] == "pact"), None)
+check("RETRY: turn 2 (no new invite) adds ONE more nearest seat (seat "
+      "4), capped at 3 total",
+      pact_r2 is not None
+      and set(pact_r2["params"]["partners"]) == {"seat:1", "seat:2", "seat:4"},
+      str(pact_r2))
+_, r_t3 = starter_harness.repair_call(
+    PERSONA.canned_turns[0], PERSONA, retry_seat, AVAILABLE)
+pact_r3 = next((e for e in r_t3 if e["play"] == "pact"), None)
+check("RETRY: a third turn with still no invite does not retry again or "
+      "exceed the 3-partner cap",
+      pact_r3 is not None
+      and set(pact_r3["params"]["partners"]) == {"seat:1", "seat:2", "seat:4"},
+      str(pact_r3))
+
+# ── NEGATIVE: pact partners are structurally incapable of landing in
+# target_law's `prefer` (an enum of classes, never seats -- PERCEPTION.md
+# (c)) and always land in `never` -- true for the SOLO fallback/invite
+# path exactly as it already was for the DUO path. ────────────────────────
+law_r2 = next((e for e in r_t2 if e["play"] == "target_law"), None)
+check("NEGATIVE: pact partners never appear in target_law.prefer",
+      law_r2 is not None
+      and not ({"seat:1", "seat:2", "seat:4"}
+               & set(law_r2["params"].get("prefer", []))),
+      str(law_r2["params"].get("prefer") if law_r2 else None))
+check("NEGATIVE: pact partners always appear in target_law.never",
+      law_r2 is not None
+      and {"seat:1", "seat:2", "seat:4"} <= set(law_r2["params"].get("never", [])),
+      str(law_r2["params"].get("never") if law_r2 else None))
 
 # ── _neighbor_duo: team size is OBSERVED per call (self/duo_partner
 # offset), never a fixed divisor off seat or roster count. A 16-seat SOLO

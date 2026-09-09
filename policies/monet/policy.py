@@ -33,7 +33,9 @@ whole research program, translated to the play-calling layer:
 
 from __future__ import annotations
 
+import math
 import pathlib
+import re
 import sys
 
 _HERE = pathlib.Path(__file__).resolve().parent
@@ -372,6 +374,182 @@ def _neighbor_duo(context):
     return (nt, nt + team_count)
 
 
+# ── SOLO pact naming (OWNER DIRECTIVE, GV15/#467 era) ───────────────────────
+# _neighbor_duo answers None in 16-solo (no duo exists), so the UNAIMABLE
+# branch below used to drop the pact entry outright -- confirmed root cause
+# of MEASURE.md's 4/37 declared, 0/37 formed: the huddle transcript is heard
+# by the harness (seat.chat, poc_policy.PlaySeat._file "lobby_chat" branch)
+# but was never threaded to adjust_entries at all (repair_call only passed
+# seat.context/seat.view; grep for invit|reciproc in this file was zero
+# hits before this change). starter_harness.repair_call now hands us that
+# transcript at context["_chat"] (list of {"seat","text"}), the episode's
+# kill history at context["_kill_feed"] (same schema as view["kill_feed"]:
+# tick/victim_seat/killer_team -- team IS seat in 16-solo, PERCEPTION.md
+# (b)/(c)), and a persistent per-episode scratchpad at context["_pact_state"]
+# (the same dict object every call, owned by the seat, so state survives
+# turn to turn exactly like a live match -- see repair_call).
+_PACT_KEYWORDS = ("pact", "truce", "non-aggression", "nonaggression")
+
+
+def _named_seats(context, text):
+    """Every seat `text` names: a literal seat:N / seat N token, or a
+    roster display name substring (longest name checked first so a short
+    name cannot shadow-match inside a longer one)."""
+    hits = {int(m) for m in re.findall(r"seat[:\s]*(\d+)", text, re.IGNORECASE)}
+    roster = [r for r in (context.get("roster") or []) if isinstance(r, dict)]
+    low = text.lower()
+    for row in sorted(roster, key=lambda r: -len(str(r.get("name") or ""))):
+        name, seat = row.get("name"), row.get("seat")
+        if (isinstance(name, str) and name and isinstance(seat, int)
+                and name.lower() in low):
+            hits.add(seat)
+    return hits
+
+
+def _parse_pact_invites(context):
+    """Live seats that named a pact/truce AND named US in the same lobby
+    chat line. The 0xB2 broadcast carries only the sender's own seat, so a
+    keyword+us-mention match on one message already identifies who is
+    proposing/reciprocating with us -- no cross-referencing needed."""
+    self_facts = context.get("self") or {}
+    my_seat = self_facts.get("seat")
+    invites = set()
+    for msg in context.get("_chat") or []:
+        if not isinstance(msg, dict):
+            continue
+        sender, text = msg.get("seat"), msg.get("text")
+        if not isinstance(sender, int) or sender == my_seat:
+            continue
+        if not isinstance(text, str):
+            continue
+        low = text.lower()
+        if not any(k in low for k in _PACT_KEYWORDS):
+            continue
+        if isinstance(my_seat, int) and my_seat in _named_seats(context, text):
+            invites.add(sender)
+    return invites
+
+
+def _excluded_pact_seats(context):
+    """Seats to never name: whoever tagged us, and whoever we tagged, this
+    episode. kill_feed carries killer_team, not killer_seat (PERCEPTION.md
+    (b)) -- exact in 16-solo, where team == seat."""
+    self_facts = context.get("self") or {}
+    my_seat = self_facts.get("seat")
+    my_team = self_facts.get("team", my_seat)
+    excluded = set()
+    for kill in context.get("_kill_feed") or []:
+        if not isinstance(kill, dict):
+            continue
+        victim, killer_team = kill.get("victim_seat"), kill.get("killer_team")
+        if victim == my_seat and isinstance(killer_team, int):
+            excluded.add(killer_team)
+        elif (killer_team == my_team and isinstance(victim, int)
+              and victim != my_seat):
+            excluded.add(victim)
+    return excluded
+
+
+def _is_xy(value) -> bool:
+    return (isinstance(value, (list, tuple)) and len(value) == 2
+            and all(isinstance(v, (int, float)) for v in value))
+
+
+def _nearest_live_rivals(context, view, exclude, limit):
+    """Deterministic nearest-N rival seats by straight-line distance from
+    our own position, tie-broken by seat id. Before the first play_view
+    (the pre-call, before any tick has landed) there is no position to
+    rank by; fall back to roster order so a pact is still named something
+    real on turn one, never left empty."""
+    self_facts = context.get("self") or {}
+    my_seat = self_facts.get("seat")
+    my_team = self_facts.get("team", my_seat)
+    exclude = set(exclude) | {my_seat}
+    my_pos = ((view or {}).get("self") or {}).get("pos")
+    if not _is_xy(my_pos):
+        roster = sorted((r for r in (context.get("roster") or [])
+                         if isinstance(r, dict) and isinstance(r.get("seat"), int)),
+                        key=lambda r: r["seat"])
+        return [r["seat"] for r in roster
+                if r["seat"] not in exclude
+                and r.get("team", r["seat"]) != my_team][:limit]
+    ranked = []
+    for track in (view or {}).get("tracks", []):
+        if not isinstance(track, dict):
+            continue
+        seat = track.get("seat")
+        if (not isinstance(seat, int) or seat in exclude
+                or track.get("team", seat) == my_team or track.get("downed")):
+            continue
+        pos = track.get("pos")
+        if not _is_xy(pos):
+            continue
+        ranked.append((math.hypot(pos[0] - my_pos[0], pos[1] - my_pos[1]), seat))
+    ranked.sort(key=lambda pair: (pair[0], pair[1]))
+    return [seat for _, seat in ranked[:limit]]
+
+
+def _resolve_solo_pact_partners(context, view):
+    """The SOLO named-partner mechanism: named, live rival seats only,
+    never the placeholder, never dropped. State persists turn to turn in
+    context["_pact_state"] (see repair_call -- it is the same dict object
+    every call for one seat's one episode). Returns
+    (partner_seat_ints, {seat: reason})."""
+    state = context.setdefault("_pact_state", {})
+    partners = state.setdefault("partners", [])
+    reasons = state.setdefault("reasons", {})
+    state["calls"] = state.get("calls", 0) + 1
+
+    excluded = _excluded_pact_seats(context)
+
+    # BETRAYAL: drop a current partner who has since tagged us; never
+    # re-add them. onBetrayal="returnFire" (below) is the in-match
+    # response -- this is the never-list/never-re-propose side of it.
+    for s in [p for p in partners if p in excluded]:
+        partners.remove(s)
+        reasons.pop(s, None)
+
+    # RECIPROCATE -- and the very first AIM, which is the same operation
+    # on the turn partners is still empty: any live seat that named us in
+    # the huddle, not already a partner, not excluded.
+    invited_now = sorted(_parse_pact_invites(context) - excluded)
+    gained_invite = False
+    for s in invited_now:
+        if s in partners or len(partners) >= 3:
+            continue
+        reasons[s] = "invited" if not partners else "reciprocate"
+        partners.append(s)
+        gained_invite = True
+
+    # FALLBACK: nobody has ever invited us -- name the 2 nearest live
+    # rivals, computed once (not re-picked every turn, so it cannot churn
+    # as positions move).
+    if not partners and not state.get("fallback_done"):
+        state["fallback_done"] = True
+        for s in _nearest_live_rivals(context, view, excluded, 2):
+            reasons[s] = "fallback"
+            partners.append(s)
+
+    # RETRY: we have no perception of the sim's mutual-pact bit at all
+    # (PERCEPTION.md (a)) -- "not mutual by the next turn" is read as "no
+    # one has named us back yet". Re-declare once, same seats plus one new
+    # nearest seat, capped at 3 total.
+    if (partners and not gained_invite and not state.get("retried")
+            and state.get("calls", 0) >= 2 and len(partners) < 3):
+        state["retried"] = True
+        for s in _nearest_live_rivals(context, view, excluded | set(partners), 1):
+            reasons[s] = "retry"
+            partners.append(s)
+
+    partners[:] = partners[:3]
+    return list(partners), {s: reasons[s] for s in partners if s in reasons}
+
+
+def _log_pact_aim(partners, reasons):
+    tagged = ", ".join(f"seat:{s}={reasons.get(s, '?')}" for s in partners)
+    print(f"[monet] pact aim: partners=[{tagged}]", flush=True)
+
+
 def adjust_entries(entries, context, view):
     self_facts = context.get("self") or {}
     partner = self_facts.get("duo_partner")
@@ -410,26 +588,23 @@ def adjust_entries(entries, context, view):
             neighbors = _neighbor_duo(context)
             if neighbors is not None:
                 partners = [f"seat:{n}" for n in neighbors]
-            elif not partners and partner is not None:
-                partners = [f"seat:{partner}"]
             else:
-                # UNAIMABLE (16-solo BR reshape, confirmed realized on the
-                # field 2026-09-05, 108/108 episodes r4003-4011, coworld
-                # 0.7.334): _neighbor_duo now correctly answers None (no
-                # duo this match) and there is no genuine duo_partner to
-                # fall back on either, so a placeholder or self-referential
-                # pact has nothing real left to name. Previously NEITHER
-                # branch above fired here and the placeholder partners rode
-                # onto the wire unchanged (IMPROVE queue #1, tick 15) --
-                # they then fed pact_seats below into target_law's
-                # never-list, making us refuse to tag two arbitrary,
-                # unrelated solo seats we hold no truce with. Drop the
-                # entry instead: dropping IS the documented release
-                # mechanic (see TRUCE HONOR below), so an unaimable pact is
-                # handled exactly like an ended truce -- it contributes
-                # nothing to pact_seats and the never-list stays clean.
-                entries = [e for e in entries if e is not entry]
-                continue
+                # SOLO / no genuine duo this match (missing or
+                # self-referential duo_partner). Previously DROPPED the
+                # entry outright (IMPROVE queue #1, tick 15, fixed
+                # 2026-09-05) because there was nothing real to name --
+                # confirmed by MEASURE.md as the dominant cause of the
+                # 4/37 declared, 0/37 formed pact record: an unaimed pact
+                # is now named at real, live rival seats instead (invited
+                # -> reciprocate -> fallback -> retry; see
+                # _resolve_solo_pact_partners) and never dropped.
+                resolved, reasons = _resolve_solo_pact_partners(context, view)
+                if resolved:
+                    partners = [f"seat:{s}" for s in resolved]
+                    _log_pact_aim(resolved, reasons)
+                # else: truly nothing to name (empty roster/view) -- leave
+                # the incoming (placeholder) partners as they are rather
+                # than ship an invalid empty-partners call.
         params["partners"] = partners
         params["onBetrayal"] = "returnFire"
         pact_seats.extend(partners)
@@ -761,7 +936,12 @@ PERSONA = Persona(
                  "offer it in chat FIRST, then call it with the other duo's "
                  "seats (seat:N form only). A pact nobody heard is not a "
                  "truce. Keep it in every call while it stands -- dropping "
-                 "it IS the betrayal, so say so when you do."),
+                 "it IS the betrayal, so say so when you do. Solo matches "
+                 "have no duo to name: if you propose or answer a truce in "
+                 "chat, NAME the seat explicitly (\"seat:N\") -- the "
+                 "harness aims an unnamed solo pact at whoever named you "
+                 "back, so your own chat naming them first is what makes "
+                 "it mutual."),
         "target_law": ("target_law: prefer weakened, revenge, bounty, "
                        "isolated -- all four, weakened FIRST. This is your "
                        "only lever over WHO you shoot next among live "

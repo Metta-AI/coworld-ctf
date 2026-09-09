@@ -190,6 +190,10 @@ class StarterSeat(poc_policy.PlaySeat):
         self._kills_seen: set = set()
         #: the model's full ladder before gating (see layer_ladder)
         self.wanted_entries: list = []
+        #: a persona's adjust_entries scratchpad that survives turn to
+        #: turn for this one seat's one episode (e.g. Monet's pact-partner
+        #: state, see repair_call) -- opaque to the harness itself.
+        self.pact_state: dict = {}
 
     def _file(self, packet: dict) -> None:
         super()._file(packet)
@@ -1120,8 +1124,23 @@ def repair_call(decision: dict, persona: Persona, seat: StarterSeat,
     payload, entries = build_call(decision, available)
     adjusted = json.loads(json.dumps(entries))
     if persona.adjust_entries is not None:
-        adjusted = persona.adjust_entries(
-            adjusted, seat.context or {}, seat.view or {})
+        # The huddle transcript (seat.chat, filed by poc_policy.PlaySeat
+        # from every 0xB2 lobby_chat broadcast) and the episode's kill
+        # history (seat.kill_feed) were never threaded to adjust_entries
+        # before -- a persona could see them only by reading raw seat.*
+        # attributes it does not otherwise receive. Hand both over as
+        # plain, JSON-shaped data under `_`-prefixed keys (so they can
+        # never collide with a real PlayContext field) plus a persistent
+        # per-seat scratchpad (`seat.pact_state`, the SAME dict object
+        # every call for this seat's one episode) a persona can use to
+        # remember state turn to turn -- e.g. Monet's pact partners.
+        ctx = dict(seat.context or {})
+        ctx["_chat"] = [{"seat": m.get("seat"), "text": m.get("text", "")}
+                        for m in getattr(seat, "chat", None) or []
+                        if isinstance(m, dict)]
+        ctx["_kill_feed"] = list(getattr(seat, "kill_feed", None) or [])
+        ctx["_pact_state"] = seat.pact_state
+        adjusted = persona.adjust_entries(adjusted, ctx, seat.view or {})
     # The full wanted ladder (before gating) is what maintenance re-derives
     # from as the view changes; the gated ladder is what goes on the wire.
     seat.wanted_entries = json.loads(json.dumps(adjusted))
