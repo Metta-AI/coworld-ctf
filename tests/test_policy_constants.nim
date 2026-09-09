@@ -189,6 +189,18 @@ suite "policy constants track the engine":
     # never see the shipped number again — the exact failure `policyFloat()`
     # exists to prevent, one level further out. A guard has to track the value
     # the champion actually plays with, through every indirection.
+    # ⚠️ CROSS-LANE OWNERSHIP — read before "fixing" a failure here.
+    # `ArcFfReachPx` / `ArcFfBodyPx` / `ArcFfRidePx` / `ArcFfSlope` are NOT the
+    # arc lane's. They arrived at 702701e with v58's friendly-fire vetoes, so
+    # the WINDUP/AoE-VETO lane owns them — and this test now transitively bounds
+    # a third lane's constants against the engine. That is correct by
+    # construction (the veto wedge and the fire wedge are built from the same
+    # numbers, so if they move together an overshoot still trips the ENGINE
+    # bound), but it means an edit in a lane that has never heard of this file
+    # can turn it red. If you are that lane: the failure is telling you the arc
+    # weapon's fire or veto envelope no longer matches `sim.selectArcVictims`,
+    # which is a real defect, not a stale test. Re-derive from
+    # src/ctf/sim_types.nim rather than relaxing the bound.
     const
       ArcFfReachPx = 170.0
       ArcFfBodyPx = 17.0
@@ -207,6 +219,10 @@ suite "policy constants track the engine":
       # Post-correction shape. Assert the ARMING too — a lever that silently
       # became opt-IN would move the shipped envelope back to the control arm
       # without changing either number.
+      # ⚠️ This is a SOURCE assertion: it proves the file says default-ON. It
+      # does NOT prove the built binary resolves default-ON — see 4b, and pair
+      # it with a resolved-tune dump in the ship checklist. Source, resolved
+      # tune, and image recipe are three separate guarantees.
       check policyHas("result.sprayConeFire = getEnv(\"NOSPRAYCONE\").len == 0")
       check policyHas("ArcFfReachPx + ArcFfBodyPx")
       shippedFireReach = ArcFfReachPx + ArcFfBodyPx                # 187
@@ -437,6 +453,68 @@ suite "policy constants track the engine":
     # same binary with the mode off reproduces the audit's 0.0/0/0/0 exactly.
     # The branch is live and dominant; only the rig was blind.
     check engineSrc.contains("14,970 body-EVACUATION frames")
+
+  # ── 4b. THE IMAGE MUST NOT ARM OR DISARM ANYTHING ───────────────────────
+  #
+  # ⚠️ WHY THIS EXISTS: every other arming check in this file is a SOURCE
+  # assertion, and the bug that cost NINE DAYS was an IMAGE bug. `touchCommit`
+  # was correct in source the whole time; it was dark in the built container
+  # because arming depended on an env var the Dockerfile never set. A source
+  # parse cannot see that, and neither can a local rig run — they came apart
+  # once already, and the shipped champion is what counts.
+  #
+  # THE GUARANTEE THIS PINS. The policy's arming contract is:
+  #     default-ON  ->  `result.x = getEnv("NOX").len == 0`   (opt-OUT)
+  #     dark        ->  `result.x = getEnv("X").len > 0`      (opt-IN)
+  # Both resolve correctly IF AND ONLY IF the image supplies no environment of
+  # its own. So rather than trying to predict which vars matter, assert the
+  # stronger and simpler property: THE RUNTIME STAGE SETS NO ENV AT ALL. Then
+  # every opt-OUT lever is necessarily ON in the image and every opt-IN lever is
+  # necessarily OFF, with no per-lever bookkeeping to fall out of date.
+  #
+  # ⚠️ WHAT IT STILL DOES NOT PROVE: that the built BINARY resolves the tune the
+  # way the source reads. This is a static guard over the build recipe, not an
+  # execution of the artifact. The complement is a RESOLVED-TUNE dump read off a
+  # constructed Bot (the `LEVERSTATE` / `SPRAYARM` probe shape in the eval
+  # harness), which belongs in the ship checklist rather than in CI. Source
+  # parse, resolved tune, and image recipe are three different guarantees; this
+  # file owns two of them and deliberately does not pretend to own the third.
+
+  test "the shipped IMAGE supplies no environment, so arming is code-only":
+    let dockerfile = readFile(RepoRoot / "players" / "baseline" / "Dockerfile")
+    # Split into build stages; the LAST `FROM` begins the runtime stage, which
+    # is the only one whose environment the running policy can observe.
+    var stages: seq[string] = @[]
+    for line in dockerfile.splitLines():
+      if line.strip().toLowerAscii().startsWith("from "):
+        stages.add ""
+      if stages.len > 0:
+        stages[^1].add line & "\n"
+    check stages.len >= 2          # a builder stage and a runtime stage
+    let runtime = stages[^1]
+
+    # (1) THE RUNTIME STAGE DECLARES NO ENV WHATSOEVER. Not "no NO* vars" — none
+    #     at all, which is the property that needs no maintenance.
+    for line in runtime.splitLines():
+      let t = line.strip()
+      check not t.toLowerAscii().startsWith("env ")
+
+    # (2) …and it inherits nothing from the builder: only the compiled binary is
+    #     copied forward, so the builder's `ENV PATH` cannot leak into the run.
+    check runtime.contains("COPY --from=build")
+    check not runtime.contains("ENV PATH")
+
+    # (3) COMPILE-TIME arming is off too: the image builds with an EMPTY define
+    #     set, so every `when defined(...)` lever is dark in the shipped binary.
+    #     This is what keeps `arcBreach` honest (see section 2a).
+    check dockerfile.contains("ARG NIM_DEFINES=\"\"")
+
+    # ⚠️ IF THIS TEST FAILS, DO NOT "FIX" IT BY NARROWING THE CHECK. An `ENV`
+    # line appearing in the runtime stage means a lever is being armed by the
+    # IMAGE — the exact anti-pattern that hid `touchCommit` for nine days while
+    # it was field-proven. The fix is to move the arming into
+    # `shippedCombatTune()` as a default-ON `NO*` opt-out, never to allow the
+    # env var here.
 
   # ── 5. NO STILLBORN / NO-OP LEVER MAY RETURN ────────────────────────────
 
