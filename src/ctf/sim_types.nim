@@ -29,12 +29,37 @@ export glory
 
 const
   GameName* = "ctf"
-  ReplayCompatibleGameVersions* = ["60"]
+  ReplayCompatibleGameVersions* = ["61"]
     ## The replay-load allowlist (play-calling design §4.3): versions whose
     ## recorded files still play back correctly under THIS engine. The
     ## criterion is the GameVersion changelog below, not chronology — a
     ## version is listed only when nothing since changed the gameHash
-    ## schema, the hash trajectory, or a flatty keyframe layout. GV58 drops
+    ## schema, the hash trajectory, or a flatty keyframe layout. GV60 drops
+    ## out because GV61 (LEVELS ARE POWER, below) wires the six previously-
+    ## dead `levelX()` GLORY buffs into live combat — windup/hp/fire-
+    ## cooldown/spray-reset/grenade-charges/carrier-speed now all read a
+    ## cog's `.level` (already hashed) and change already-hashed fields
+    ## (`fireWindup`, `hp`, `fireCooldown`, `grenadeCharges`) the moment any
+    ## cog reaches level 1 — a hash TRAJECTORY change for any GV60 recording
+    ## that contains real combat (nearly all of them; combat is how xp is
+    ## earned). No flatty layout change: no field added or reordered. GV61
+    ## was claimed as GV60 first, but #476 (maxwell/veteran-perception-label,
+    ## `17509ef6`) independently landed its own GameVersion 60 ~9 minutes
+    ## earlier, so this branch renumbers to the next free integer per
+    ## AGENTS.md's "second to merge renumbers" rule — #476 holds GameVersion
+    ## 60. `GameVersion` is a bare compile-time string, never read inside
+    ## `gameHash` (sim_state.nim) or mixed into any hashed field, so this
+    ## renumber left the LEVELS ARE POWER rules and hash TRAJECTORY byte-
+    ## identical, only the header label moved: the 9 committed `.bitreplay`
+    ## fixtures were patched in place (the two-byte "60"->"61" payload swap
+    ## in each file's fixed-width `gameVersion` header field,
+    ## `tools/record_fixture.sh`'s own writer format: u16 length + ASCII
+    ## bytes, same length in and out) rather than re-recorded, since
+    ## re-recording would roll a NEW live bot race for no behavioural
+    ## reason. GV60 (#476, LABEL VETERAN MARK, kept in the changelog below
+    ## verbatim) was itself hash-neutral versus GV59 per that commit's own
+    ## note, so GV61's real hash-trajectory break is still against GV59's
+    ## rules, same as the paragraph above already states. GV58 drops
     ## out because GV59 moves when a downed cog's own team AND a currently
     ## pact-allied team both go upright-empty at different ticks, or a
     ## pact-ally hit downs/confirms a partner: `downed`/`alive`/`hp`
@@ -87,7 +112,24 @@ const
     ## RewardAccount on the wire. Widening requires a real archived fixture
     ## that survives initialization and stepping (PM ruling, 2026-08-30),
     ## never a header rewrite.
-  GameVersion* = "60"
+  GameVersion* = "61"
+    ## GV61 (LEVELS ARE POWER, GloryVersion 16): the six `levelX()` GLORY
+    ## buff accessors, dead since GV10, are wired into live combat --
+    ## windup, max hp, fire cooldown, spray reset, grenade charges, carrier
+    ## speed all now vary with a cog's per-life level. Moves the hash
+    ## TRAJECTORY of every recorded fixture that reaches level 1+ (nearly
+    ## all of them; combat is how xp is earned) -- same class of bump as
+    ## GV49's "trajectory, not schema" note just below. No wire SCHEMA
+    ## change: no field added or reordered on `Player`/`GameConfig`. This
+    ## PR first landed as GV60, but #476 (maxwell/veteran-perception-label,
+    ## `17509ef6`) independently claimed GameVersion 60 first (committed
+    ## ~9 minutes earlier), so this branch renumbers to 61 per AGENTS.md's
+    ## "second to merge renumbers" rule -- #476 holds GameVersion 60. All 9
+    ## AGENTS.md fixtures relabeled in place against this commit (see
+    ## `ReplayCompatibleGameVersions`' own comment above for why a live
+    ## re-record was unnecessary). See glory.nim's `GloryVersion` doc for
+    ## the full rule.
+    ##
     ## GV60 (LABEL VETERAN MARK: a perception-only label, `LabelVeteranMark`,
     ## makes a level-3+ (AceLevel) cog's status visible to any policy that
     ## can see it — proximity-attach, fog-gated, same idiom as the hp-pip and
@@ -99,6 +141,7 @@ const
     ## (doctrine): a policy that upgrades to look for `veteran mark <n>`
     ## needs a version signal that the label can now appear, even though
     ## nothing about replay/hash compatibility actually changed.
+    ##
     ## GV59 (ALLY REVIVE: PACT ALLIES REVIVE, ALLIANCE IS THE SURVIVAL UNIT,
     ## ALLY-FIRE PRICES FRIENDLY): a registered pact (`pactMask`) previously
     ## did nothing for a downed cog -- `updateDowned`'s tagger scan and
@@ -2972,6 +3015,20 @@ type
     fireCooldown*: int
     fireWindup*: int           ## ticks until a pulled trigger releases its shot.
     windupBrads*: int          ## aim angle locked at the trigger pull, -1 = none.
+    windupStartTick*: int      ## GLORY: the tick startFireWindup armed at (only
+                               ## meaningful while windupBrads >= 0). Snapshot,
+                               ## not reconstructed: `levelWindupTicks` makes
+                               ## the windup duration level-dependent, and a
+                               ## shooter can level across L1/L5 mid-windup (an
+                               ## independent grenade/spray hit on the SAME
+                               ## tick range can pay xp), so re-deriving the arm
+                               ## tick from a fresh `shooter.level` read at
+                               ## resolve time can name the WRONG tick and
+                               ## desync the shot's actionId from the
+                               ## already-emitted GunTrigger event's. Analysis/
+                               ## broadcast-only (feeds no damage/RNG/position
+                               ## math) -- excluded from gameHash like
+                               ## `lastKilledBy`..`tookShield` just below.
     carryingFlag*: bool
     hasGrenade*: bool          ## each player carries at most one grenade.
     hasShield*: bool           ## carrying an endzone shield: 3x slower fire.
@@ -4901,12 +4958,15 @@ proc parsePerk*(text: string): Perk =
       return perk
   raise newException(CtfError, "Unknown perk name: " & text)
 
-proc maxHpFor*(config: GameConfig, team: Team, perks: PerkSet): int =
-  ## One seat's max hit points: the team's (handicap-interpolated) hit points
-  ## plus the armor bonus when the seat carries the perk.
+proc maxHpFor*(config: GameConfig, team: Team, perks: PerkSet, level: int = 0): int =
+  ## One seat's max hit points: the team's (handicap-interpolated) hit points,
+  ## the armor bonus when the seat carries the perk, and GLORY's L3+ hp buff
+  ## (`levelMaxHp`) on top. `level` defaults to 0 (no buff), so every
+  ## pre-existing call site that does not pass it stays byte-identical.
   result = config.hitPointsFor(team)
   if PerkArmor in perks:
     result += config.perkMods.armorHp
+  result = levelMaxHp(result, level)
 
 proc maxSpeedFor*(config: GameConfig, team: Team, perks: PerkSet): int =
   ## One seat's max speed: the team's (handicap-interpolated) max speed,

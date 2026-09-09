@@ -7086,7 +7086,9 @@ proc addHpPips(
     if viewerIndex >= 0 and i != viewerIndex and
         not sim.playerVisibleTo(viewerIndex, i):
       continue
-    let maxHp = max(1, sim.config.maxHpFor(player.team, player.perks))
+    # GLORY L3+ (levelMaxHp): the bar's own ceiling must track the buff, or
+    # a leveled cog's hp reads clamped against the wrong cap.
+    let maxHp = max(1, sim.config.maxHpFor(player.team, player.perks, player.level))
     let hp = clamp(player.hp, 0, maxHp)
     let shieldHp = max(0, player.shieldHp)
     let width = hpBarWidth(maxHp + shieldHp)
