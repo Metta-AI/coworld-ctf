@@ -185,6 +185,20 @@ intentionally" climb between MID and TOP the owner described — or an
 oversight in the pin? This doc does not fill the gap or quietly widen a
 band to close it; it is an open question for the lead/owner to answer.
 
+**RULING (resolves the flag above): the gap is deliberate.** 7–8 points
+is the **upper shoulder of MID** — where a strong mid-risk player lands
+regularly; still "played the game, but skill varies" at its best. TOP
+begins where wins become intentional and predictable (~9).
+
+**The bands are percentile checks, not walls.** No discontinuity is
+intended between MID and TOP through 6–9 pts.
+
+**Rig acceptance criterion for S5 (explicit, not prose):** the simulated
+distribution MUST show a **continuous population through 6–9 pts** —
+seat-episodes landing there, not a gap. A visible population gap in the
+simulated distribution at 6–9 pts is a **FAILURE of the rig to fix**, not
+evidence that the bands are working or that the boundary is "clean."
+
 ---
 
 ## 6. What is NOT verified
