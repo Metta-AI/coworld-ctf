@@ -38,5 +38,6 @@ import
   test_pb_paint,
   test_pb_scoring,
   test_scoring_routing,
-  test_glory_league_score
+  test_glory_league_score,
+  test_glory_percent_scale_headroom
 {.warning[UnusedImport]: on.}

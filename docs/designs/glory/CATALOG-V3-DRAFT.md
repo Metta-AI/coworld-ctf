@@ -3,8 +3,12 @@
 Program 25d9108e, task 703813a4. Gate: the S2 lead reviews this before Step 5 (RIG SIMULATION).
 **This document decides nothing.** It restructures the deed/achievement catalog against the
 signed target and the tier-map/representation candidates, prices every lever's cost, and names
-every disposition still waiting on evidence. No sim/glory/sim_types code was touched, no
-GLORYVERSION bump, no wire change, no settings POST, no deploy, no merge.
+every disposition still waiting on evidence. No `glory.nim`/`sim.nim`/`sim_types.nim` *behavior* was
+touched, no GLORYVERSION bump, no wire change, no settings POST, no deploy, no merge. **One
+explicit, authorized exception**: `tests/test_glory_percent_scale_headroom.nim` was added as
+additive-only test code (per the S4 gate's explicit instruction to prove, not assert, the
+representation option's integer headroom) — it defines its own local fold helpers, imports but does
+not modify any production proc, and is registered in `tests/shard_1.nim` so it does not run dark.
 
 ## 0. What this is designed against
 
@@ -35,6 +39,12 @@ open jobs neither of which has landed:
   **conditional** disposition for every dead slot (if-structural / if-behavioural) and mark which
   ones already have strong prior code evidence vs which are genuinely open. **No disposition below
   is final.**
+
+**FREEZE RULE, unchanged and restated**: several individual sub-questions in this draft have since
+been RULED (the representation option, the mid/top ladder, the placement-lump direction, the drain
+mechanism) — those rulings are recorded in place throughout and are not re-opened. **The document as
+a whole still does not freeze.** PR #491 stays marked DRAFT and does not merge until JOB1 and JOB2
+both land; at that point it merges with a "frozen at [commit/date]" stamp added, not silently.
 
 ## ▶ THREE FRESH FACTS FROM THE LEAD, CARRIED FORWARD (2026-09-09, after this brief was issued)
 
@@ -89,7 +99,23 @@ open jobs neither of which has landed:
 built) never pop as a floating "+Ng"; they feed a meter whose whole rungs show (heat, done right, is
 the existing model — the flame-chip HUD indicator already ships per the pinball study's `glory.nim`
 citation). Pops stay reserved for x2 and up, matching `deedPopWord`'s existing exclusion of
-`dShieldSoak`/`dAchievement` from the pop path (glory.nim, `popsScore`).
+`dShieldSoak`/`dAchievement` from the pop path (glory.nim, `popsScore`). This is now a restated LAW,
+not just a carried-forward convention — see Section 9's header.
+
+**RULED — the drain needs a visible cue, agreed, generalize the FF-halving division (not a sub-1
+factor).** Every drain event needs a switch, a fire counter, **and a visible cue** — the "womp womp"
+must be legible, never silent. **Description of the cue, not an implementation**: conceptually the
+inverse of a deed pop — where a pop is a bright, upward "+Ng" flash in a deed's own pop-word
+vocabulary (e.g. "TAG", "BOUNTY"), a drain cue would be a muted, downward-reading marker (a
+distinct color/shape so it is never mistaken for a normal pop) tied to the SAME site-and-tick
+convention `deedPopWord` already uses, naming what happened in the existing tagging vocabulary
+(e.g. "OWN PAINT" already exists for `dTeamKill`; an extended drain trigger would need its own
+one-word label in the same register). The natural second home for it is the endcard's per-player
+itemization (Section 11) — a drain event is exactly the kind of "what actually happened to this
+seat's score" line the itemization work already wants to show. **⚠️ Per the S2-gate ruling, the
+journey lane owns the endcard bundle and this catalog does not author endcard changes — the cue is
+described here and flagged for the lead's gate to route (Section 11), not designed or built in this
+draft.**
 
 ## 2. Deed catalog restructured against the tier map
 
@@ -217,6 +243,16 @@ re-priced off their current x1/inert state:
    reached "intentionally," per the owner's TOP-band definition, rather than only its lower half
    being reached by accumulating small choices.
 
+**RULED (lead, condition on approving commons-into-meter repricing): each repriced common keeps
+its OWN fire counter.** `dHonorableKill`, `dShieldSoak`, and `dClutchHeal` (items 1–3 above) get
+independently observable per-deed mint-rate counters — the existing census tooling (Q1's per-deed
+mint table) already reports each of these separately today and needs no new mechanism, only
+continuing to report them once they move into the meter band rather than collapsing them into one
+opaque "meter ticks" number. **A meter whose inputs are not individually observable is a lever we
+cannot audit** — this is a hard requirement on Section 5's heat-meter build too (its own per-source,
+per-rung reporting, already specified there) and on any future addition to this tier: every deed
+that feeds the meter is independently countable, always.
+
 ### Applying the ruled ladder (low 1–2 · mid 2–8, centre 4, shoulder 7–8 · top ≈9+): does this
 ### catalog's proposed deed set pay smoothly through 6–9, or does it cliff?
 
@@ -245,13 +281,17 @@ the mid band's width must keep paying smoothly through 7–8 (the strong-mid-ris
   of exactly the cliff the lead's ruling warns against, and it sits squarely in a lever this
   catalog already proposes to reprice** — flagging it now rather than after S5 finds it in
   simulation.
-- **A candidate mitigation, not decided here**: instead of one threshold-triggered lump at
-  `dFinal8`/`dFinal4`/`dFinal2`/win, spread the same total value across a few smaller,
+- **RULED (lead, agreed): reprice `dFinal8/4/2` DOWN into a small ramp, not a single lump.** The
+  proposed shape, not decided to constants: instead of one threshold-triggered lump at
+  `dFinal8`/`dFinal4`/`dFinal2`, spread the same total value across a few smaller,
   survival-time-correlated increments (e.g., a small per-milestone bump PLUS a continuous
   survival-duration credit that already climbs before the milestone is crossed) so a seat's points
-  ramp up *before* it reaches final-8/4/2 rather than jumping there discontinuously. This is a
-  mechanism proposal, not a constant — S5's rig is where "does this actually fill 6–9 continuously"
-  gets checked against real policies, not asserted here.
+  ramp up *before* it reaches final-8/4/2 rather than jumping there discontinuously. **The win
+  multiplier stays the win** — it is not being repriced away — but per the ruling it must **not be
+  the only route from 6 to 9**: the ramp above has to carry a non-winning survivor's points up
+  through the shoulder on its own. This is a mechanism proposal, not a constant — **the rig's
+  continuity check through 6–9 is the acceptance test**, per the ruling; S5 is where "does this
+  actually fill 6–9 continuously" gets checked against real policies, not asserted here.
 
 **What this section does NOT decide**: the exact constants that make the mid band's meter-fed
 deeds and the reshaped placement/win lump jointly produce a continuous 2–8→9+ population — that
@@ -471,7 +511,20 @@ ruled, independent of the sim's internal representation) and (b) a real, specifi
 engineering tradeoffs on fractional factors, sub-1 factors, rounding, and the owner's own prior
 integer-only ruling (8c) — those tradeoffs, not a math error, are what Section 9 costs and weighs.
 
-## 9. Representation option — log2 deed-points vs. staying integer
+## 9. Representation option — RULED: percent-scaled integer, log2 CONSIDERED and REJECTED
+
+**Lead's ruling on this section (2026-09-09)**: the percent-scaled-integer pattern
+(`AchievementFirstMultPct`-style) is **APPROVED** for the fractional tier. No wire change, no
+WIRE-OK request. Two conditions were attached, both discharged below with a real test, not an
+assertion: (a) prove the integer headroom with actual test code; (b) restate the legibility law as
+a hard law. The log2 deed-points option is **retained in this document as "considered, rejected,"**
+not deleted — a rejected option with its reasons on record is worth more than a silently dropped
+one.
+
+**LAW (restated per the lead's condition (b), binding on every lever in this catalog that touches
+the fractional tier or the drain band)**: fractional factors feed the **meter**; they are **never**
+individually popped as a floating "+Ng." Pops remain reserved for x2 and up, matching
+`deedPopWord`'s existing exclusion of `dShieldSoak`/`dAchievement` from the pop path.
 
 **Confirmed structural facts** (re-verified this draft, not carried on trust):
 - `gloryProduct*: array[Team, int64]` (sim_types.nim:4419) — the sim's canonical state is an int64
@@ -485,7 +538,7 @@ integer-only ruling (8c) — those tradeoffs, not a math error, are what Section
   already-tested** precedent for representing a non-integer-looking multiplier (×3.00) as an
   integer-percent scale, inside the current int64 product, with zero wire change.
 
-### Option A — log2 deed-points (sim accumulates fixed-point log2, displays `2^points`)
+### Option A — CONSIDERED, REJECTED — log2 deed-points (sim accumulates fixed-point log2, displays `2^points`)
 
 **Benefits claimed by the discussion doc**: fractional factors become trivial (see 8c(1) above — real,
 but the benefit is narrower than "trivial," it is specifically about avoiding compounding
@@ -520,7 +573,21 @@ representation change now that the display formula is fixed.
 - **Rollback**: needs a switch that keeps BOTH representations live during a trial (wire carries
   whichever the switch selects) — doable, but doubles the tested surface until retired.
 
-### Option B — stay integer, scale fractions via percent (reuse `AchievementFirstMultPct`'s pattern)
+Rejection reasons, unchanged by the ruling, kept on record: (1) fractional factors are already
+representable today at zero blast radius via a proven, live pattern — the premise that log2 is
+uniquely required for "fractional factors trivial" does not hold, though 8c(1) names a real (not
+fabricated) numerical edge log2 has there; (2) the season's geometric-mean benefit is already
+achieved externally by metta from whatever integer the sim reports, now that the display formula is
+ruled rather than open — riding on the sim's internal representation to serve the season layer is
+unnecessary, not just premature; (3) the determinism and fixture-re-record costs are large; (4)
+8c(4) is the sharpest reason of all: the owner's own `RecutMintCapTable` ruling already rejected a
+smaller-scoped version of exactly this "second table, its own rounding" tradeoff, on the stated
+ground that the economy is integer-only by owner constraint. **The one item that would reopen this
+if evidence changes**: if the drain band (8c(2)) is ever built as a true sub-1 multiplicative
+factor rather than a generalized division, that specific feature is genuinely cheaper in log2-space
+— worth re-costing on its own, but not a reason to revisit the fractional-tier ruling below.
+
+### Option B — RULED / APPROVED — stay integer, scale fractions via percent (reuse `AchievementFirstMultPct`'s pattern)
 
 **Benefits**: zero wire/fixture blast radius — still an int64 product, same wire shape, same
 fixtures, same census tooling, same reconciliation path. Ships as an ordinary `glory.nim`
@@ -528,41 +595,69 @@ repricing wave (a GLORYVERSION bump for new deed classes, the same class of chan
 already does routinely), not a representation redesign. Directly reuses a pattern already proven
 live in production.
 
-**Costs**: precision drift under many small percent-scaled folds compounding via `div` truncation
-across a long chain of x1.1–x1.5 factors — a real but bounded numerical-design problem (mitigated by
-keeping a higher-precision intermediate or specifying a fold order), much smaller in scope than
-Option A's blast radius.
+### 9a. The headroom test — proof, not assertion (S4 gate condition (a))
 
-### Recommendation
+Per the lead's explicit instruction, the precision-drift cost above was not left as a claim: a new,
+additive-only test file was written and run — `tests/test_glory_percent_scale_headroom.nim`
+(registered in `tests/shard_1.nim`), defining its **own** local fold helpers and touching no
+`glory.nim` scoring proc. **All numbers below are measured output from an actual local run of this
+file (`nim c -r -d:release`), not projected.**
 
-**Recommend Option B (stay integer, percent-scaled factors) for S4/S5. Do NOT seek the owner's
-WIRE-OK at this step.** Reasoning: (1) fractional factors are already representable today at zero
-blast radius via a proven, live pattern — the premise that log2 is uniquely required for
-"fractional factors trivial" does not hold, though 8c(1) names a real (not fabricated) numerical
-edge log2 has there; (2) the season's geometric-mean benefit is already achieved externally by
-metta from whatever integer the sim reports, now that the display formula is ruled rather than
-open — riding on the sim's internal representation to serve the season layer is unnecessary, not
-just premature; (3) the determinism and fixture-re-record costs are large and not yet sized in
-engineering-days; (4) 8c(4) is the sharpest reason of all: the owner's own `RecutMintCapTable`
-ruling already rejected a smaller-scoped version of exactly this "second table, its own rounding"
-tradeoff, on the stated ground that the economy is integer-only by owner constraint; (5) nothing in
-the evidence gathered so far (census, addendum, or the still-open top-attribution job) has shown
-percent-scaled integers are *numerically insufficient* to hit the signed target distribution — that
-is an S5 rig question, not resolved by this catalog. Revisit Option A only if S5's simulation finds
-Option B's precision loss materially distorts the mid-band shape (8c(1)/(3) name exactly where that
-loss would show up first: long chains of small fractional folds), and cost it again then with real
-rig numbers, not projected ones. The one item that would change this recommendation fastest is if
-the drain band (8c(2)) is built as a true sub-1 multiplicative factor rather than a generalized
-division — that specific feature is genuinely cheaper in log2-space, and is worth re-costing on its
-own if Section 1's "generalize the halving division instead" direction turns out not to be
-sufficient.
+- **Overflow: a total non-issue for the naive per-step fold**, exactly as expected — even the
+  adversarial worst case (30 consecutive x1.50 factors from a seed already at the pinned ceiling
+  scale, 65536) reaches only ~1.26×10¹⁰, nowhere near int64's ~9.2×10¹⁸ ceiling (it does exceed
+  today's real `RecutProductCapArmed` = 2²⁴, which is expected and correct — any real fold would
+  route through the same cap check every other class already uses).
+- **UNPLANNED FINDING, found by running the test, not by reasoning about it**: the mitigation this
+  catalog's Option B costing had proposed — "keep the exact rational product in a high-precision
+  intermediate, truncate once at the end" — **fails outright**. Applying it to a 30-factor chain
+  triggers a real `OverflowDefect`: the intermediate numerator (`150^30`) overflows int64 by
+  roughly 45 orders of magnitude before the single final division ever happens. That specific
+  mitigation, as described, does not work and is not usable as stated.
+- **A corrected mitigation (batch-of-5 renormalization) fixes the overflow** by folding the
+  running ratio into the accumulator every 5 factors instead of once per 30, using the SAME
+  pre-multiply defensive pattern `recutFold` itself already uses (check `result >= cap ÷
+  maxPerBatchMultiplier` before multiplying, clamp instead of risking overflow) — reuse, not a new
+  idiom.
+- **The rounding-drift finding, measured, honest, not smoothed over**: with the corrected batched
+  mitigation, drift at the **real production seed** (`RecutSeed = 1`) is **23.65%** — a real,
+  material loss, not the near-zero the doc's language implied before this test existed. Drift falls
+  fast as the accumulator grows past the bare seed: **3.99% at seed 2, 3.94% at seed 4, 3.88% at
+  seed 8, 1.46% at seed 16**, and **0.0003% at the pinned ceiling scale (65536)**. The naive
+  (unbatched) per-step fold is far worse at the real seed — **99.95% drift**, and is a mathematical
+  fixed point: `1 × pct ÷ 100 = 1` for every `pct` in the whole 110–150 tier, so repeating it
+  forever changes nothing.
+- **Actionable mitigation this finding points to, not decided here**: the failure is specifically
+  about folding a fractional factor into a *still-at-the-bare-seed* accumulator. A **fold-order
+  rule** — defer any fractional/meter-tier factor until at least one whole-integer-class deed has
+  already folded once (moving the accumulator off 1) — would avoid the worst of this drift by
+  construction, since every measured seed above 1 already shows single-digit-or-better drift. This
+  is a concrete, cheap mechanism proposal for S5 to test against real episodes, not a constant.
+- **Verdict on the gate's condition (a)**: the headroom (overflow) claim **holds** without
+  qualification. The rounding-drift claim **does not hold as a blanket "negligible" claim** — it is
+  real and seed-dependent, largest exactly at the point every episode starts (`RecutSeed = 1`) and
+  negligible once the accumulator has grown. This is reported plainly because the gate asked for
+  exactly this outcome if it occurred; it does not on its own overturn the lead's approval of the
+  representation (which was already conditioned on this being measured and reported, not on the
+  number coming back at zero), but it is now a mandatory, cited input to S5's rig design, not a
+  footnote.
+
+### Recommendation (unchanged in direction, now evidence-backed rather than argued)
+
+**Option B (percent-scaled integer factors) is the RULED path for S4/S5. No WIRE-OK sought or
+needed.** The representation choice stands on the reasons above; the NEW obligation this section's
+own test surfaced is a **design constraint on fold order and/or per-deed drift budgets**, to be
+carried into S5 rather than resolved here — S5 must verify that whichever real deeds land in the
+x1.1–1.5 tier do not fold against a bare seed in a way that reproduces this test's worst-case
+numbers.
 
 ## 10. Every proposed lever — switch, fire counter, rollback (consolidated)
 
 | lever | switch | fire counter | rollback |
 |---|---|---|---|
-| Reprice modal kill/soak/heal off x1 (§4) | new deed classes behind a GLORYVERSION bump (all-or-nothing per the frozen-table pattern) | mint-rate-by-class report (extend census tooling, already exists) | revert `RecutClassTable` rows, GLORYVERSION bump back |
+| Reprice modal kill/soak/heal off x1 (§4) | new deed classes behind a GLORYVERSION bump (all-or-nothing per the frozen-table pattern) | **per-deed** mint-rate report, each of `dHonorableKill`/`dShieldSoak`/`dClutchHeal` independently observable (RULED condition, §4) — not one merged meter counter | revert `RecutClassTable` rows, GLORYVERSION bump back |
 | Drain band, generalized from FF halvings (§1, §2a) | new halving-trigger conditions behind config flag | `recutFfHalvings` incident count, already logged per episode | flag off, byte-identical to today's FF-only halving |
+| Drain visible cue (§1, RULED — described, not authored) | rides the same config flag as the drain-band lever above (no standalone switch) | drain-cue-shown count, alongside the halving-incident counter | flag off, no cue fires (drain itself reverts too) |
 | Heat tags-as-hits (§5) | `heatCreditsOnHit` config flag, default OFF | rung-occupancy-by-source report (extends existing census Q1 heat table) | flag off, zero behavior change |
 | Heat per-victim rate cap (§5) | ships bundled with tags-as-hits (no standalone toggle proposed) | cap-triggered count per (attacker,victim) window | remove the cap check, revert to uncapped credit (only meaningful once tags-as-hits is armed) |
 | Pact engine-enforced expiry (§6) | `pactMaxLifetimeTicks` config flag, default OFF | expiry-cause counter: engine-cap vs. policy-holdFire vs. still-active-at-end | flag off, `pactActive` reverts to today's unconditional-until-policy-ends read |
@@ -570,7 +665,7 @@ sufficient.
 | Lit jackpot deed (§6) | new deed behind `RecutMintCapTable`-style cap + a "primed" precondition gate | mint count + primed-but-uncollected count | remove the deed row, GLORYVERSION bump back |
 | `RecutProductCapArmed` live counter (§7) | none — always-on observation | `capHitCount`, logged every episode | delete the counter, no behavior change |
 | Placement ladder reprice (§2a, `dFinal8/4/2`) | new class values behind a GLORYVERSION bump | existing mint-rate reporting (already 100% observed) | revert class values |
-| Representation change (§9, NOT recommended now) | would need a dual-representation switch during any trial | N/A — not proposed to build | N/A — not proposed to build |
+| Representation change (§9 — log2, CONSIDERED and REJECTED; percent-scaled integer RULED/APPROVED instead) | N/A — Option A not being built; Option B ships as an ordinary GLORYVERSION repricing wave, same switch as any other class change | Option B's own headroom/drift is measured by `tests/test_glory_percent_scale_headroom.nim` (§9a), not a runtime counter | N/A for Option A (never built); Option B rolls back like any other class reprice |
 
 ## 11. Endcard implications — flagged, not authored
 
@@ -586,6 +681,12 @@ the lead's gate to route:
   state somewhere client-side to be legible as a *choice* rather than an invisible server fact — the
   exact surface (HUD, endcard, or both) is explicitly **not decided here** and depends on the
   journey lane's own in-flight work.
+- **The drain visible cue (Section 1)**: a muted, downward-reading marker distinct from a normal
+  deed pop, described conceptually in Section 1 but **not designed or built here** — flagged for
+  the lead's gate to route into either the live-play HUD strip or the endcard's per-player
+  itemization (most likely both: a live moment cue plus a summarized line in the post-match
+  breakdown). The RULED requirement is that it exist and be legible, never silent; the exact surface
+  is the journey lane's call, one bundle author at a time.
 
 ## 12. What this draft does NOT decide
 
@@ -619,6 +720,15 @@ the lead's gate to route:
 
 ## 14. What is NOT verified (carried forward, not re-checked this draft)
 
+- `tests/test_glory_percent_scale_headroom.nim` (Section 9a) was run **locally only** (`nim c -r
+  -d:release`, this session) — not yet exercised by hosted CI (which is independently red on
+  `origin/main` itself for an unrelated pre-existing reason, see the PR). All numbers reported are
+  real local output, not projected, but the hosted-CI run of this specific new file has not been
+  observed.
+- The headroom test's chosen chain (30 factors cycling percents 110/120/130/140/150, batch size 5
+  for the corrected mitigation) is a representative stress shape, not derived from any specific
+  real deed's measured mint frequency — S5 should re-run against whatever actual deeds land in the
+  fractional tier and their real per-episode mint counts, not this synthetic chain.
 - Whether `play_view` can expose a new "risky moment" / "mode lit" / "pact active" perception signal
   — the pinball study flagged this as unchecked; Sections 6's stateful-modes and pact-decay
   proposals both assume some new perceivable state is buildable, which has not been confirmed.
