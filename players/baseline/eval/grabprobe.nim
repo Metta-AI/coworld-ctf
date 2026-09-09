@@ -175,6 +175,35 @@ proc newDriver(slot, team, episodeSeed: int): Driver =
   let lastLifeTeam = getEnv("LASTLIFETEAM")
   if lastLifeTeam.len > 0:
     tune.lastLifeGuard = team == parseInt(lastLifeTeam)
+  # ⭐⭐ ffaPeelWide TEAM ISOLATION (2026-08-18, the medkit-peel fix). Same trap,
+  # same shape as FFAMEDTEAM directly above: shippedCombatTune() reads FFAPEEL
+  # from the PROCESS env and all numPlayers bots share ONE process, so a bare
+  # FFAPEEL=1 arms every team and the "A/B" is a MIRROR. FFAPEELTEAM=<n> arms
+  # ONLY engine team index n (0..3) and strips every other team, which is also
+  # the closest local analogue of the hosted field, where only we carry the
+  # lever and three rivals do not. Raw team INDEX, not red/blue: `t` above
+  # collapses every non-zero team to Blue on a >2-team board, so red/blue would
+  # arm two of four. FFAPEELTEAM=9 (any out-of-range index) is the all-control
+  # baseline and is how the control arm of this A/B is run.
+  # `when compiles` so this same file drops into a pre-lever tree.
+  when compiles(tune.ffaPeelWide):
+    let ffaPeelTeam = getEnv("FFAPEELTEAM")
+    if ffaPeelTeam.len > 0:
+      tune.ffaPeelWide = team == parseInt(ffaPeelTeam)
+  # ⭐⭐ woundedBank TEAM ISOLATION (2026-08-18, the pre-registered wbank A/B).
+  # Identical trap and identical shape to FFAMEDTEAM/FFAPEELTEAM above:
+  # shippedCombatTune() reads WBANK off the PROCESS env and all numPlayers bots
+  # share ONE process, so a bare WBANK=1 arms every team and the "A/B" is a
+  # MIRROR. WBANKTEAM=<n> arms ONLY engine team index n (0..3) and STRIPS every
+  # other team — the closest local analogue of the hosted field, where only we
+  # carry the lever. Raw team INDEX, not red/blue: `t` above collapses every
+  # non-zero team to Blue on a >2-team board, so red/blue would arm two of four.
+  # WBANKTEAM=9 (any out-of-range index) is the all-control baseline.
+  # This assignment is UNCONDITIONAL when the env var is present, so it also
+  # overrides a stray WBANK=1 in the environment.
+  let wbankTeam = getEnv("WBANKTEAM")
+  if wbankTeam.len > 0:
+    tune.woundedBank = team == parseInt(wbankTeam)
   result.bot = Bot(slot: slot, team: t, role: role, tune: tune)
   result.bot.resetTransient()
   result.client = initProtocolClient()
@@ -396,6 +425,24 @@ when defined(fpprobe):
     fpHp1Escape: array[4, int]     # ...and got back above 1 hp alive (a heal)
     fpHp1Death: array[4, int]      # ...and died at 1 hp
     fpHeals: array[4, int]         # any hp increase on a live body (kits taken)
+    # ⭐⭐ ALIVE TICKS (2026-08-18, the medkit-peel outcome metric). Kits per
+    # EPISODE is confounded by exactly the thing the lever changes: a lever that
+    # keeps bodies alive gives them more time to collect kits, and a lever that
+    # gets them killed reads as "fewer kits" for a reason that has nothing to do
+    # with peeling. The hosted field metric for this is kits per 1e6 ALIVE ticks
+    # (us 59.7, winner 212.1, the SCRIPTED FILLER 224.3), so the rig computes the
+    # same denominator: one tick, per live body, per team.
+    fpAliveTicks: array[4, int]
+    # Per-EPISODE mirrors of the counters above. The pooled sums give a point
+    # estimate and no error bar; a CI needs the per-episode series, so every
+    # episode emits one machine-readable FPEP row per team and the batch stats
+    # are computed downstream over episodes (the independent unit), never over
+    # ticks (which are massively autocorrelated and would fake the n).
+    fpEpHeals: array[4, int]
+    fpEpAlive: array[4, int]
+    fpEpHp1Enter: array[4, int]
+    fpEpHp1Escape: array[4, int]
+    fpEpHp1Death: array[4, int]
     fpTicksSum = 0
     fpGames = 0
 
@@ -473,6 +520,11 @@ proc main() =
       for t in 0 .. 3:
         fpDeathTL[t].setLen(0)
         fpCapTL[t].setLen(0)
+        fpEpHeals[t] = 0
+        fpEpAlive[t] = 0
+        fpEpHp1Enter[t] = 0
+        fpEpHp1Escape[t] = 0
+        fpEpHp1Death[t] = 0
       var fpWasHp1 = newSeq[bool](numPlayers)
       var fpLastHp = newSeq[int](numPlayers)
       var fpLastDeaths = newSeq[int](numPlayers)
@@ -546,22 +598,31 @@ proc main() =
             cTot[tm] += engine.slotCaptures(s)
             # hp == 1 episodes: entered, escaped (healed above 1 while alive),
             # or died there. GROUND TRUTH, never the bot's own belief.
+            # ⭐ ALIVE TICKS: the denominator of the outcome metric, GROUND
+            # TRUTH per live body per tick (slotVitals, off sim.players).
+            if v.alive:
+              inc fpAliveTicks[tm]
+              inc fpEpAlive[tm]
             if v.alive and v.hp == 1 and not fpWasHp1[s]:
               fpWasHp1[s] = true
               inc fpHp1Enter[tm]
+              inc fpEpHp1Enter[tm]
             elif fpWasHp1[s]:
               if v.deaths > fpLastDeaths[s] or not v.alive:
                 fpWasHp1[s] = false
                 inc fpHp1Death[tm]
+                inc fpEpHp1Death[tm]
               elif v.hp > 1:
                 fpWasHp1[s] = false
                 inc fpHp1Escape[tm]
+                inc fpEpHp1Escape[tm]
             # ⚠️ `alive last tick too`: a RESPAWN restores hp from 0 to full a few
             # ticks AFTER the death counter moved, so without this a respawn
             # reads as a medkit and heals/ep inflates ~10x.
             if v.alive and fpWasAlive[s] and v.hp > fpLastHp[s] and
                 v.deaths == fpLastDeaths[s]:
               inc fpHeals[tm]
+              inc fpEpHeals[tm]
           fpLastHp[s] = v.hp
           fpLastDeaths[s] = v.deaths
           fpWasAlive[s] = v.alive
@@ -611,6 +672,19 @@ proc main() =
         tmLastCapTotal = tmCapNow
       if r.phaseOver: break
     let r = engine.result()
+    when defined(evdump):
+      # ⭐ RIG-FIDELITY AUDIT (2026-08-18). Dump this episode in the HOSTED
+      # replay wire format so one analyser scores rig and field alike. Off
+      # unless EVDUMP_DIR is set, so an -d:evdump binary is still a normal probe
+      # binary. Every slot is our own policy here, so the addresses are named by
+      # engine team, not by entrant: a mirror rig has no rivals.
+      if getEnv("EVDUMP_DIR").len > 0:
+        var evAddr: seq[string] = @[]
+        for s in 0 ..< numPlayers:
+          evAddr.add "rigteam" & $engine.teamOfSlot(s)
+        createDir(getEnv("EVDUMP_DIR"))
+        writeFile(getEnv("EVDUMP_DIR") / ("ep" & $epSeed & ".jsonl"),
+                  engine.evJsonl(evAddr))
     when defined(lifeprobe):
       # Episode ended before tick FfaFixedWindow (common in ffa4 — the mode ends
       # by ELIMINATION): no more lives can be spent after that, so the final
@@ -723,6 +797,20 @@ proc main() =
             alive[sl.team] += sl.lives + (if sl.alive: 1 else: 0)
         for t in 0 ..< min(4, nTeams):
           if alive[t] == 0: inc fpWiped[t]
+        # ⭐⭐ ONE MACHINE-READABLE ROW PER (EPISODE, TEAM). Printed and flushed
+        # per episode for two reasons: this rig runs minutes per episode under
+        # fleet load so a killed run must still be a usable measurement, and a
+        # CI needs the per-episode series (the independent unit) rather than the
+        # pooled totals the summary block prints. `arm` records which team the
+        # lever was armed on so a downstream reader never has to be told.
+        for t in 0 ..< min(4, nTeams):
+          echo &"FPEP seed={epSeed} team={t} armTeam={getEnv(\"FFAPEELTEAM\")} " &
+            &"ticks={realTicks} aliveTicks={fpEpAlive[t]} heals={fpEpHeals[t]} " &
+            &"hp1Enter={fpEpHp1Enter[t]} hp1Escape={fpEpHp1Escape[t]} " &
+            &"hp1Death={fpEpHp1Death[t]} livesEnd={fpDeathTL[t][^1]} " &
+            &"wiped={(if alive[t] == 0: 1 else: 0)} caps={fpCapTL[t][^1]} " &
+            &"grabs={engine.teamGrabs[t]} wbTeam={getEnv(\"WBANKTEAM\")}"
+        flushFile(stdout)
     totRedGrab += r.redGrabs; totBlueGrab += r.blueGrabs
     totRedCap += r.redCaptures; totBlueCap += r.blueCaptures
     totRedShot += r.redShots; totBlueShot += r.blueShots
@@ -1175,6 +1263,27 @@ proc main() =
         &"{fpHp1Enter[t]:>5}  {(100.0 * fpHp1Escape[t].float / h1.float):>12.1f}%  " &
         &"{(100.0 * fpHp1Death[t].float / h1.float):>9.1f}%  " &
         &"{(fpHeals[t].float / e.float):>7.2f}"
+    echo "  --- ⭐ THE OUTCOME METRIC: KITS COLLECTED per 1e6 ALIVE ticks ---"
+    echo "  (the hosted comparator: us 59.7, league winner 212.1, the SCRIPTED"
+    echo "   FILLER 224.3. Alive ticks, not episodes, because a lever that keeps"
+    echo "   bodies alive buys them collecting TIME and would read as a win for"
+    echo "   free. A fire counter is NOT a substitute: v57 raised ffaMedSee"
+    echo "   firings 4,044 -> 19,439 and completed heals FELL 61 -> 54.)"
+    echo &"  team    eps   heals   aliveTicks    kits/1e6 aliveTicks   kits/ep"
+    for t in 0 ..< min(4, max(2, evalTeams)):
+      let e = max(1, fpEps[t])
+      let at = max(1, fpAliveTicks[t])
+      echo &"  {TeamName[t]} {fpEps[t]:>5}  {fpHeals[t]:>6}  {fpAliveTicks[t]:>11}   " &
+        &"{(1_000_000.0 * fpHeals[t].float / at.float):>19.1f}   " &
+        &"{(fpHeals[t].float / e.float):>7.2f}"
+    when compiles(pwFeet):
+      echo &"  FIRE (diagnostic only, never evidence): peelFeetFrames {pwFeet}  " &
+        &"of which WIDENED-2hp {pwWideOnly}  |  2hp-with-kit-committed frames " &
+        &"{pwWideAvail}"
+      echo "    (wideOnly>0 proves the lever is WIRED and load-bearing. It proves " &
+        "nothing else: `avail` counts DWELL in a state the lever itself lengthens " &
+        "— an armed bot spends the whole walk there — so the ratio is not an " &
+        "opportunity rate. The outcome is kits/1e6 alive ticks, above.)"
     echo &"  --- FIXED-WINDOW life spend (the arm-invariant comparator; " &
       &"'by half-time' moves with an episode length the lever itself changes) ---"
     echo &"  team    eps   meanEpisodeTicks   livesSpentBy1000   livesSpentBy1500   livesSpentBy2000"
@@ -1244,6 +1353,39 @@ proc main() =
       "normal cap would have missed; ffaMedSee fires>0 proves the visible-kit " &
       "union chose a target the formula-spot-only base would not have)"
 
+  when defined(peeldiag):
+    echo "==================================================="
+    echo "--- ⭐⭐ PEEL DIAGNOSTIC (-d:peeldiag): WHICH LINK IS BROKEN? ---"
+    echo &"  PERCEPTION  ffa4 decide frames {pdDecide}"
+    echo &"    ownHp histogram  unread(0)={pdHpHist[0]}  1hp={pdHpHist[1]}  " &
+      &"2hp={pdHpHist[2]}  3hp={pdHpHist[3]}"
+    echo "      (1hp+2hp == 0 with decide frames > 0 => CAUSE 1: the hp readback " &
+      "is dead and every hp-gated branch in the policy is decoration.)"
+    echo &"    med-kit LABEL: frames with >=1 real sprite {pdLabelFrames}  " &
+      &"total sprites {pdLabelSprites}"
+    echo "      (0 with decide frames > 0 => CAUSE 2: LabelMedKit matches nothing " &
+      "— the silent-rename failure. Diff tests/label_manifest.txt.)"
+    echo &"  medEcon FUNNEL  hpRead {pdEconOn} -> wounded {pdWounded} -> " &
+      &"freeOfObjective {pdFree} -> inContact {pdInContact} -> passedHpGate " &
+      &"{pdHpGate} (aimedAtUs VETOED {pdAimVeto}) -> reachedScan {pdScan} -> " &
+      &"COMMITTED A KIT {pdHaveKit}"
+    echo "      (scan > 0 with COMMITTED == 0 => CAUSE 3: discovery works and the " &
+      "DETOUR BUDGET rejects everything.)"
+    echo "  ⭐ APPROACH TEST — Σ px CLOSED per committed frame, chosen kit vs a " &
+      "FROZEN not-chosen placebo:"
+    echo "  hp   commits  meanCommitDist   frames   px/frame CHOSEN   px/frame PLACEBO   CHOSEN-PLACEBO"
+    for h in 1 .. 2:
+      let f = max(1, pdFrames[h])
+      let c = max(1, pdCommits[h])
+      echo &"  {h}   {pdCommits[h]:>7}   {(pdCommitDist[h] / c.float):>13.1f}   " &
+        &"{pdFrames[h]:>6}   {(pdClosed[h] / f.float):>15.3f}   " &
+        &"{(pdPlac[h] / f.float):>16.3f}   " &
+        &"{((pdClosed[h] - pdPlac[h]) / f.float):>+14.3f}"
+    echo "      (CHOSEN-PLACEBO ~ 0 => we do NOT steer at kits and the peel gate " &
+      "is releasing feet toward a destination the movement layer never walks to. " &
+      "CHOSEN-PLACEBO > 0 => steering is real and the gate is the binding term.)"
+    flushFile(stdout)
+
   when defined(msprobe):
     echo "==================================================="
     echo "--- MEDKIT HEALS (msprobe, tune-independent global — msHeals) ---"
@@ -1259,6 +1401,19 @@ proc main() =
     let escapePct = (if hp1Total > 0: 100.0 * wbHp1Heals.float / hp1Total.float else: 0.0)
     echo &"  hp1 segments resolved {hp1Total}  healedToFull {wbHp1Heals}  " &
       &"diedFromHp1 {wbHp1Deaths}  P(escape|hp==1) {escapePct:.2f}%"
+    # ⚠️ THE ABOVE IS THE FOGGED READ (client.selfHp) and under-counts ~10x —
+    # it is here only for continuity with the old wbprobe rows. The PRIMARY is
+    # the fpprobe hp1Enter/hp1Escape block, off engine slotVitals.
+    # ⭐ GUARDRAIL: the finish-window suspension. woundedBank deliberately
+    # REFUSES to bank when a fresh 1-hp enemy holds our clear line inside
+    # FinishRange. finishSusp == 0 in an ARMED run means that refusal stopped
+    # firing and the lever is eating conversions. Process-global, but only the
+    # ARMED team can bank, so it is directly attributable.
+    echo &"  WBFIRE armTeam={getEnv(\"WBANKTEAM\")} bankEntries={wbEntries} " &
+      &"bankFrames={wbFrames} finishSusp={wbFinishSuspend} " &
+      &"lineSegs={wbLineSegs} break60={wbBreak60} bankHeals={wbBankHeals} " &
+      &"bankDeaths={wbBankDeaths}"
+    echo "  (FIRE COUNTERS ARE DIAGNOSTIC ONLY, never evidence — v57.)"
 
 when isMainModule:
   main()
