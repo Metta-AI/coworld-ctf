@@ -1743,11 +1743,20 @@ proc retainedBytes(index: BodyRouteIndex): int64 =
     index.fineAnchors.len * sizeof(int32))
 
 proc retainedIndexBytes*(index: BodyRouteIndex): int64 =
-  ## Exact retained owner plus sequence payload bytes. The sequence headers
-  ## themselves live in the fixed owner object counted by sizeof.
+  ## Exact retained owner, sequence payloads, and allocator headers. Sequence
+  ## values themselves live in the fixed owner object counted by sizeof.
   if index == nil:
     return 0
-  int64(sizeof(index[])) + index.retainedBytes
+  result = int64(sizeof(index[])) + index.retainedBytes
+  for length in [index.legalMoves.len, index.roomOf.len,
+      index.localIndex.len, index.roomCellStart.len, index.roomCells.len,
+      index.roomSideStart.len, index.roomSides.len, index.sides.len,
+      index.portalNext.len, index.segments.len, index.cells.len,
+      index.arcStart.len, index.arcs.len, index.sideComponent.len,
+      index.cellComponent.len, index.pockets.len, index.pocketCells.len,
+      index.fineAnchorStart.len, index.fineAnchors.len]:
+    if length > 0:
+      result += 16
 
 proc followingPayloadBytes*(index: BodyRouteIndex): tuple[
     portalNext, cells, total: int64] =

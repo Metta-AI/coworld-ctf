@@ -5,10 +5,10 @@
 
 import std/[algorithm, json, math, options, os, strformat]
 import ../src/ctf/[arena, br_map_pool]
-import ../src/shell/body_cache
+import ../src/shell/body_danger
 import ../src/shell/body_map
 import ../src/shell/body_nav
-import ../src/shell/body_planner
+import ../src/shell/body_route_query
 import ../tests/nav_route_corpus_support
 
 const
@@ -21,24 +21,10 @@ type
     route: seq[BodyPoint]
     length: float64
 
-proc finishPlan(planner: BodyPlanner, cache: BodySeatCache,
-                danger: BodyDangerField, job: var BodyPlanJob) =
-  var guard = 0
-  while job.planPending:
-    var budget = 1_000_000
-    discard planner.stepPlan(cache, danger, job, budget)
-    inc guard
-    if guard >= 100_000:
-      raise newException(ValueError, "current planner did not terminate")
-
 proc pathLength(route: openArray[BodyPoint]): float64 =
   for index in 1 ..< route.len:
     result += hypot((route[index].x - route[index - 1].x).float,
                     (route[index].y - route[index - 1].y).float)
-
-proc emptyDanger(map: BodyMap): BodyDangerField =
-  BodyDangerField(values: newSeq[float32](map.gridWidth * map.gridHeight),
-    gridW: map.gridWidth, gridH: map.gridHeight)
 
 proc selectPairs(map: BodyMap): array[NavCorpusDistance, SelectedPair] =
   ## Selection runs only in this explicit writer. The checked-in coordinates,
@@ -67,20 +53,22 @@ proc selectPairs(map: BodyMap): array[NavCorpusDistance, SelectedPair] =
   if targets.len < CandidateCount:
     raise newException(ValueError, "map has too few same-component lattice points")
 
-  let planner = newBodyPlanner(map)
-  let cache = newBodySeatCache(map)
-  let danger = emptyDanger(map)
+  let nav = newBodyNavSystem(map, 1, NavCorpusGunRangePx)
   var successful: seq[SelectedPair]
   for sample in 0 ..< CandidateCount:
     let target = targets[sample * (targets.len - 1) div (CandidateCount - 1)]
     let validated = map.validateGoal(target, start)
     if validated.isNone or validated.get.goalPoint != target:
       continue
-    var job: BodyPlanJob
-    planner.startPlan(cache, job, uint64(sample + 1), start, validated.get)
-    planner.finishPlan(cache, danger, job)
-    if job.planSucceeded:
-      let route = planner.pathSnapshot(job)
+    nav.resetNavigationLife(0)
+    discard nav.navigationWaypoint(0, start, validated.get, sample)
+    var guard = 0
+    while (nav.routeJob.active or
+        nav.seats[0].pendingRoute.lifecycle != brlIdle) and guard < 100_000:
+      discard nav.runRouteScheduler(sample)
+      inc guard
+    if nav.seats[0].lastQuerySucceeded:
+      let route = nav.seats[0].installedRoutePoints
       successful.add SelectedPair(start: start, goal: target,
         route: route, length: route.pathLength)
   if successful.len < 4:

@@ -66,9 +66,10 @@ unmerged at the time of writing).
 
 The engine already builds one immutable `BodyMap` from the real `CtfMap` and
 exposes room labels, rooms, chokes, pixel rays, and the cover atlas
-(`src/shell/body_map.nim:41-70,115-207,755-915`). Per seat it owns a four-slot
-route cache and a fog-derived danger field (`src/shell/types.nim:441`;
-`src/shell/body_planner.nim:28-31,134-138`). `setStandingIntent` is the body
+(`src/shell/body_map.nim`). Per seat it owns a fog-derived danger field, one
+newest pending request, and a fixed installed-route buffer; the episode owns
+the shared mixed-grid search workspace (`src/shell/body_nav.nim`;
+`src/shell/body_route_query.nim`). `setStandingIntent` is the body
 installation seam (`src/shell/body.nim:571-596`). No new engine hook is needed
 to measure or later implement the proposed surface.
 

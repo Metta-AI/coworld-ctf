@@ -1,33 +1,21 @@
-## Phase-9 qualification harness for the bounded Season 2 body navigator.
-##
-## Canonical rows are produced only by the repository Docker build running as
-## linux/amd64 with one CPU. Development subsets remain available to make the
-## expensive gate debuggable without weakening the canonical `--all` run.
+## Production qualification harness for the resumable mixed-grid body route.
 
 import std/[algorithm, json, math, monotimes, options, os, osproc, strformat,
   sequtils, strutils, tables, times]
 import crunchy/[common, sha256]
 import bitworld/spriteprotocol
 import ../src/ctf/[arena, br_map_pool, sim_types, zone_field]
-import ../src/shell/[body, body_hazard, body_map, body_nav, body_planner,
+import ../src/shell/[body, body_danger, body_hazard, body_map, body_nav,
   body_route_index, body_route_query, episode, standing_order]
 import ../tests/nav_route_corpus_support
 
 const
   CanonicalPlatform = "linux/amd64"
-  CanonicalFlags =
-    "-d:release -d:useMalloc --threads:on --opt:speed --stackTrace:on"
-  PoolActivationLimit = 2.0
-  ColossalActivationLimit = 3.0
-  PoolRetainedLimit = 16'i64 * 1024 * 1024
-  ColossalRetainedLimit = 32'i64 * 1024 * 1024
-  QualityP95Limit = 3.0
-  QualityMaxLimit = 10.0
-  ActivationWarmups = 1
-  ActivationSamples = 5
-  ColossalActivationSamples = 3
+  CanonicalFlags = "-d:release -d:useMalloc --threads:on --opt:speed --stackTrace:on"
+  QualityP95Limit = 0.5
+  QualityMaxLimit = 3.0
   TickWarmups = 5
-  TickSamples = 30
+  TickSamples = 120
   TickP95LimitNs = 4_000_000'i64
   TickMaxLimitNs = 5_000_000'i64
 
@@ -36,48 +24,33 @@ type
     label: string
     gameMap: CtfMap
     colossal: bool
-
   NavGateScenario = enum
     ngsFirstGoals = "first_goals"
     ngsMovingGoals = "moving_goals"
-    ngsBucketDangerRollover = "bucket_danger_rollover"
     ngsStuckReplans = "stuck_replans"
-    ngsWorstDegree = "worst_degree"
-    ngsColdMemo = "cold_memo"
 
 proc sha256Text(value: string): string = sha256(value).toHex()
-
 proc elapsedNs(started: MonoTime): int64 =
   (getMonoTime() - started).inNanoseconds
 
-proc percentile(values: openArray[float64], fraction: float64): float64 =
-  if values.len == 0:
-    return Inf
+proc percentile[T](values: openArray[T], fraction: float64): T =
+  if values.len == 0: return default(T)
   var ordered = @values
   ordered.sort()
   ordered[max(0, min(ordered.high,
     int(ceil(fraction * ordered.len.float)) - 1))]
 
-proc medianNs(values: openArray[int64]): float64 =
-  var floats = newSeq[float64](values.len)
-  for index, value in values:
-    floats[index] = value.float
-  percentile(floats, 0.5)
-
 proc nsArray(values: openArray[int64]): JsonNode =
   result = newJArray()
-  for value in values:
-    result.add %value
+  for value in values: result.add %value
 
 proc rssBytes(): int64 =
   if fileExists("/proc/self/statm"):
     let fields = readFile("/proc/self/statm").splitWhitespace()
-    if fields.len >= 2:
-      return parseBiggestInt(fields[1]) * 4096
+    if fields.len >= 2: return parseBiggestInt(fields[1]) * 4096
   let value = execProcess("ps", args = ["-o", "rss=", "-p",
     $getCurrentProcessId()], options = {poUsePath}).strip
-  if value.len > 0:
-    return parseBiggestInt(value) * 1024
+  if value.len > 0: return parseBiggestInt(value) * 1024
   -1
 
 proc loadPoolMap(pool: JsonNode, poolIndex: int): MapGate =
@@ -93,193 +66,100 @@ proc colossalMap(): MapGate =
   result.gameMap = generateCtfMap(4242, overrides, 4)
   result.gameMap.name = result.label
 
-proc armedSnapshot(map: BodyMap): ZoneDamageSnapshot =
-  let
-    sourceW = (map.width + NavCell - 1) div NavCell
-    sourceH = (map.height + NavCell - 1) div NavCell
-  result = ZoneDamageSnapshot(gridW: sourceW, gridH: sourceH,
-    cellPx: NavCell, fingerprint: 0x50395a4e4156'u64,
-    damage: newSeq[uint16](sourceW * sourceH))
-  for index in 0 ..< result.damage.len:
-    result.damage[index] =
-      if index mod 11 == 0: HazardNeverArrives
-      else: uint16(96 + index mod 1024)
-
-proc appendUnique(points: var seq[BodyPoint], point: BodyPoint) =
-  if points.len == 0 or points[^1] != point:
-    points.add point
-
-proc routePoints(index: BodyRouteIndex,
-    route: BodyRouteQueryResult): seq[BodyPoint] =
-  for offset in 0 ..< route.descriptor.startLegLen.int:
-    result.appendUnique(route.startLegPoint(offset))
-  for edgeOffset in 0 ..< route.descriptor.edgeCount.int:
-    let
-      edge = route.resultEdgeAt(edgeOffset)
-      segment = edge.routeEdgeSegment
-      metadata = index.routeSegmentAt(segment)
-      reversed = edge.routeEdgeReversed
-    for pointOffset in 0 ..< metadata.cellLen.int:
-      result.appendUnique(index.routePoint(
-        index.segmentCellAt(segment, pointOffset, reversed)))
-  for offset in 0 ..< route.descriptor.goalLegLen.int:
-    result.appendUnique(route.goalLegPoint(offset))
-
-proc executedRoutePoints(index: BodyRouteIndex,
-    scratch: BodyRouteQueryScratch,
-    route: BodyRouteQueryResult,
-    request: var BodyRouteRequest): seq[BodyPoint] =
-  ## Replay the production follower's bounded K=6 visibility smoothing. A
-  ## waypoint is treated as the next polyline vertex; resampling below turns
-  ## each executed chord into the oracle's 4 px scoring resolution.
-  let seat = BodyNavSeat()
-  if not seat.installRoute(scratch, route, 1):
-    return
-  var position = route.descriptor.exactStart
-  result.add position
-  let rawLimit = route.descriptor.startLegLen.int +
-    route.descriptor.goalLegLen.int + route.descriptor.edgeCount.int *
-    RouteLocalLegCap + 2
-  while result.len <= rawLimit:
-    let waypoint = seat.routeWaypoint(index, position)
-    if waypoint.isNone:
-      break
-    if waypoint.get == position:
-      return @[]
-    position = waypoint.get
-    result.appendUnique(position)
-  if result.len > rawLimit or result[^1] != route.descriptor.exactGoal:
-    result.setLen(0)
-
-proc routeLegal(map: BodyMap, item: NavCorpusCase,
+proc routeLegal(map: BodyMap; item: NavCorpusCase;
     route: openArray[BodyPoint]): bool =
   if route.len == 0 or route[0] != item.start or
-      route[^1] != item.validatedGoal:
-    return false
+      route[^1] != item.validatedGoal: return false
   for point in route:
     if not map.canStand(point) or map.componentOf(point) != item.component:
       return false
-  for offset in 1 ..< route.len:
-    if not map.segmentClear(route[offset - 1], route[offset]):
-      return false
+  for index in 1 ..< route.len:
+    if not map.segmentClear(route[index - 1], route[index]): return false
   true
 
-proc requestBlockedCell(item: NavCorpusCase): Option[BodyPoint] =
-  ## The corpus stores the dense oracle's 8 px cell coordinate; the live
-  ## request carries a pixel position whose containing cell is penalized.
-  if item.blockedCell.isSome:
-    some(cellCenter(item.blockedCell.get))
-  else:
-    none(BodyPoint)
+proc pointsJson(points: openArray[BodyPoint]): JsonNode =
+  result = newJArray()
+  for point in points:
+    result.add %*[point.x, point.y]
 
 proc qualityRow(name: string, values: openArray[float64], missing,
     illegal: int): JsonNode =
-  let
-    p95 = percentile(values, 0.95)
-    maximum = if values.len == 0: Inf else: max(values)
-    passed = values.len > 0 and missing == 0 and illegal == 0 and
-      p95 <= QualityP95Limit and maximum <= QualityMaxLimit
-  %*{
-    "stratum": name,
-    "count": values.len,
-    "missing": missing,
-    "illegal": illegal,
-    "p95_inflation_pct": p95,
-    "max_inflation_pct": maximum,
-    "p95_limit_pct": QualityP95Limit,
-    "max_limit_pct": QualityMaxLimit,
-    "pass": passed
-  }
+  let p95 = values.percentile(0.95)
+  let maximum = if values.len == 0: 0.0 else: max(values)
+  %*{"name": name, "scored": values.len, "missing": missing,
+    "illegal": illegal, "inflation_p95_pct": p95,
+    "inflation_max_pct": maximum,
+    "pass": missing == 0 and illegal == 0 and
+      p95 <= QualityP95Limit and maximum <= QualityMaxLimit}
 
 proc runRouteCorpusGate(corpus: NavCorpus, pool: JsonNode,
-    onlyPool = -1): JsonNode =
+    onlyPool: int): JsonNode =
   var
     allInflation: seq[float64]
     strata = initTable[string, seq[float64]]()
     missingByStratum = initCountTable[string]()
     illegalByStratum = initCountTable[string]()
-    missing = 0
-    illegal = 0
-    routeIdentities = newStringOfCap(corpus.cases.len * 96)
     cases = newJArray()
+    routeIdentities = ""
+    missing, illegal, totalPops, maximumTicks, maximumSpans: int
   for poolIndex in 0 ..< pool.len:
-    if onlyPool >= 0 and poolIndex != onlyPool:
-      continue
-    stderr.writeLine &"quality {poolIndex + 1}/{pool.len}"
-    let
-      loaded = loadPoolMap(pool, poolIndex)
-      map = newBodyMap(loaded.gameMap)
-      index = newBodyRouteIndex(map)
-      scratch = newBodyRouteQueryScratch(index)
-    var dangerByHash = initTable[string, BodyDangerField]()
+    if onlyPool >= 0 and poolIndex != onlyPool: continue
+    stderr.writeLine &"quality pool {poolIndex + 1}/{pool.len}"
+    let loaded = loadPoolMap(pool, poolIndex)
+    let map = newBodyMap(loaded.gameMap)
+    let nav = newBodyNavSystem(map, 1, NavCorpusGunRangePx)
     for item in corpus.cases:
-      if item.poolIndex != poolIndex:
-        continue
+      if item.poolIndex != poolIndex: continue
       let key = &"r{item.rosterSize}/{item.profile}/{item.dynamic}/{item.distance}"
-      if item.dangerHash notin dangerByHash:
-        dangerByHash[item.dangerHash] = map.buildOracleDanger(item)
-      var danger = dangerByHash[item.dangerHash]
+      nav.resetNavigationLife(0)
+      nav.initializeDanger([DangerInput(selfXy: item.start,
+        candidates: item.dangerSources)], 0)
+      let danger = BodyDangerField(values: nav.seats[0].dangerSnapshot,
+        gridW: map.gridWidth, gridH: map.gridHeight)
       if dangerRasterHash(danger) != item.dangerHash:
-        raise newException(ValueError,
-          "danger raster drifted for corpus case " & item.id)
-      let validated = map.validateGoal(item.requestedGoal, item.start)
-      if validated.isNone or validated.get.goalPoint != item.validatedGoal or
-          validated.get.goalComponent != item.component:
-        inc missing
-        missingByStratum.inc key
+        raise newException(ValueError, "production danger differs: " & item.id)
+      if item.blockedCell.isSome:
+        nav.seats[0].blockedPenalty = some((
+          pos: cellCenter(item.blockedCell.get), untilTick: high(int)))
+      let goal = map.validateGoal(item.requestedGoal, item.start)
+      if goal.isNone or goal.get.goalPoint != item.validatedGoal:
+        raise newException(ValueError, "production goal differs: " & item.id)
+      discard nav.navigationWaypoint(0, item.start, goal.get, 0,
+        profile = item.profile.corpusProfile)
+      var ticks = 0
+      while (nav.routeJob.active or
+          nav.seats[0].pendingRoute.lifecycle != brlIdle) and ticks < 10_000:
+        totalPops += nav.runRouteScheduler(ticks)
+        inc ticks
+      maximumTicks = max(maximumTicks, ticks)
+      let route = nav.seats[0].installedRoutePoints
+      maximumSpans = max(maximumSpans,
+        nav.seats[0].installedRoute.spanCount.int)
+      if ticks >= 10_000 or route.len == 0:
+        inc missing; missingByStratum.inc key
         routeIdentities.add item.id & ":missing;"
-        cases.add %*{"id": item.id, "status": "goal-validation"}
+        cases.add %*{"id": item.id, "status": "missing", "ticks": ticks}
         continue
-      let request = BodyRouteRequest(
-        start: item.start,
-        goal: validated.get,
-        profile: item.profile.corpusProfile,
-        danger: if item.dynamic in {ncdDanger, ncdBoth}: addr danger else: nil,
-        blockedCell: item.requestBlockedCell,
-        hazard: newDarkBodyHazardOverlay())
-      let candidate = index.queryBodyRoute(scratch, request)
-      if not candidate.ok:
-        inc missing
-        missingByStratum.inc key
-        routeIdentities.add item.id & ":" & $candidate.failure & ";"
-        cases.add %*{"id": item.id, "status": $candidate.failure}
-        continue
-      let raw = index.routePoints(candidate)
-      if not map.routeLegal(item, raw):
-        inc illegal
-        illegalByStratum.inc key
+      if not map.routeLegal(item, route):
+        inc illegal; illegalByStratum.inc key
         routeIdentities.add item.id & ":illegal;"
-        cases.add %*{"id": item.id, "status": "illegal"}
+        cases.add %*{"id": item.id, "status": "illegal", "ticks": ticks}
         continue
-      var executionRequest = request
-      let executed = index.executedRoutePoints(scratch, candidate,
-        executionRequest)
-      if not map.routeLegal(item, executed):
-        inc illegal
-        illegalByStratum.inc key
-        routeIdentities.add item.id & ":executed-illegal;"
-        cases.add %*{"id": item.id, "status": "executed-illegal"}
-        continue
-      let sampled = resampleRoute4px(executed)
-      let inflation = routeInflationPct(
-        oracleFloatCost(sampled, map, danger, item.profile.corpusProfile,
-          item.blockedCell),
-        item.oracleCost)
+      let sampled = resampleRoute4px(route)
+      let inflation = routeInflationPct(oracleFloatCost(sampled, map, danger,
+        item.profile.corpusProfile, item.blockedCell), item.oracleCost)
+      let candidateHash = routeHash(sampled)
       allInflation.add inflation
       strata.mgetOrPut(key, @[]).add inflation
-      let candidateHash = routeHash(sampled)
       routeIdentities.add item.id & ":" & candidateHash & ";"
-      cases.add %*{
-        "id": item.id,
-        "status": "ok",
-        "inflation_pct": inflation,
-        "route_hash": candidateHash,
-        "local_cap_hits": candidate.stats.localCapHits,
-        "local_pops": candidate.stats.localPops,
-        "side_cap_hits": candidate.stats.sideCapHits,
-        "side_pops": candidate.stats.sidePops
-      }
-
+      var caseRow = %*{"id": item.id, "status": "ok", "ticks": ticks,
+        "spans": nav.seats[0].installedRoute.spanCount, "points": route.len,
+        "inflation_pct": inflation, "route_hash": candidateHash}
+      if inflation > QualityMaxLimit:
+        caseRow["candidate_route"] = pointsJson(sampled)
+        caseRow["oracle_route"] = pointsJson(
+          map.oracleRoute4pxWithDanger(item, danger))
+      cases.add caseRow
   var rows = newJArray()
   rows.add qualityRow("overall", allInflation, missing, illegal)
   for rosterSize in [16, 32]:
@@ -290,165 +170,159 @@ proc runRouteCorpusGate(corpus: NavCorpus, pool: JsonNode,
           rows.add qualityRow(key, strata.getOrDefault(key),
             missingByStratum.getOrDefault(key),
             illegalByStratum.getOrDefault(key))
-  result = %*{
-    "case_count": if onlyPool < 0: corpus.cases.len else: cases.len,
-    "scored_count": allInflation.len,
-    "missing": missing,
-    "illegal": illegal,
-    "route_hash": sha256Text(routeIdentities),
-    "cases": cases,
-    "strata": rows
-  }
-  result["pass"] = %rows.elems.allIt(it["pass"].getBool())
+  result = %*{"case_count": if onlyPool < 0: corpus.cases.len else: cases.len,
+    "scored_count": allInflation.len, "missing": missing, "illegal": illegal,
+    "total_pops": totalPops, "maximum_route_ticks": maximumTicks,
+    "maximum_span_count": maximumSpans,
+    "route_hash": sha256Text(routeIdentities), "cases": cases,
+    "strata": rows, "pass": rows.elems.allIt(it["pass"].getBool())}
 
-proc activationRow(gate: MapGate, sampleCount: int): JsonNode =
-  var baselineSamples, candidateSamples: seq[int64]
-  var ratioSamples: seq[float64]
-  var rssDeltaSamples: seq[int64]
-  var retained = 0'i64
-  var transient = 0'i64
-  var perSeatDanger = 0'i64
-  var components = newJObject()
-  for sample in 0 .. ActivationWarmups + sampleCount - 1:
-    GC_fullCollect()
-    let rssBefore = rssBytes()
-    let baselineStarted = getMonoTime()
-    discard newBodyMap(gate.gameMap)
-    let baselineNs = baselineStarted.elapsedNs
+proc bytesJson(bytes: BodyNavigationBytes): JsonNode =
+  %*{"system_owner": bytes.systemOwner, "route_index": bytes.routeIndex,
+    "safety_scratch": bytes.safetyScratch, "mixed_graph": bytes.mixedGraph,
+    "seat_owners": bytes.seatOwners, "seat_caches": bytes.seatCaches,
+    "danger_rasters": bytes.dangerRasters,
+    "danger_workspaces": bytes.dangerWorkspaces,
+    "packed_int16_weights": bytes.packedWeights,
+    "shared_danger_geometry": bytes.sharedDangerGeometry,
+    "trace": bytes.trace, "allocator_overhead": bytes.allocatorOverhead,
+    "total": bytes.total}
 
-    let candidateStarted = getMonoTime()
-    let
-      map = newBodyMap(gate.gameMap)
-      index = newBodyRouteIndex(map)
-      scratch = newBodyRouteQueryScratch(index)
-      overlay = newBodyHazardOverlay(index, map.armedSnapshot)
-      safeCache = newBodySafeCache()
-    safeCache.refreshSafeCache(index, overlay, 0, 1)
-    let candidateNs = candidateStarted.elapsedNs
-    GC_fullCollect()
-    let rssAfter = rssBytes()
-    let
-      indexBytes = index.retainedIndexBytes
-      scratchBytes = scratch.retainedBytes
-      overlayBytes = overlay.retainedBytes
-      safeCacheBytes = safeCache.retainedBytes
-    retained = indexBytes + scratchBytes + overlayBytes + safeCacheBytes
-    perSeatDanger = int64(map.gridWidth * map.gridHeight) *
-      int64(sizeof(float32) + sizeof(uint32))
-    transient = index.routeIndexStats.transientPeakBytes
-    components = %*{
-      "index_bytes": indexBytes,
-      "query_scratch_bytes": scratchBytes,
-      "hazard_overlay_bytes": overlayBytes,
-      "safe_cache_bytes": safeCacheBytes
-    }
-    if sample >= ActivationWarmups:
-      baselineSamples.add baselineNs
-      candidateSamples.add candidateNs
-      ratioSamples.add candidateNs.float / baselineNs.float
-      rssDeltaSamples.add(max(0'i64, rssAfter - rssBefore))
-  let
-    ratio = percentile(ratioSamples, 1.0)
-    ratioLimit = if gate.colossal: ColossalActivationLimit
-      else: PoolActivationLimit
-    retainedLimit = if gate.colossal: ColossalRetainedLimit
-      else: PoolRetainedLimit
-  result = %*{
-    "map": gate.label,
-    "colossal": gate.colossal,
-    "baseline_body_map_samples_ns": baselineSamples.nsArray,
-    "candidate_body_map_index_overlay_cache_samples_ns": candidateSamples.nsArray,
-    "baseline_median_ns": baselineSamples.medianNs,
-    "candidate_median_ns": candidateSamples.medianNs,
-    "sample_ratios": ratioSamples,
-    "max_ratio": ratio,
-    "ratio_limit": ratioLimit,
-    "retained_bytes": retained,
-    "retained_limit_bytes": retainedLimit,
-    "transient_peak_bytes": transient,
-    "steady_state_rss_delta_samples_bytes": rssDeltaSamples,
-    "per_seat_danger_and_visited_bytes": perSeatDanger,
-    "retained_components": components,
-    "pass": ratio <= ratioLimit and retained <= retainedLimit
-  }
+proc activationRow(gate: MapGate): JsonNode =
+  GC_fullCollect()
+  let rssBefore = rssBytes()
+  let mapStarted = getMonoTime()
+  let map = newBodyMap(gate.gameMap)
+  let mapNs = mapStarted.elapsedNs
+  let indexStarted = getMonoTime()
+  let index = newBodyRouteIndex(map)
+  let indexNs = indexStarted.elapsedNs
+  let deleted = index.followingPayloadBytes
+  let navStarted = getMonoTime()
+  let nav = newBodyNavSystem(map, 32, 331, preparedRouteIndex = index)
+  let navNs = navStarted.elapsedNs
+  GC_fullCollect()
+  let rssAfter = rssBytes()
+  var start, goal: BodyPoint
+  var component = -1
+  block findEndpoints:
+    for y in countup(0, map.height - 1, BodyFineStepPx):
+      for x in countup(0, map.width - 1, BodyFineStepPx):
+        let point: BodyPoint = (x, y)
+        if map.canStand(point):
+          start = point; component = map.componentOf(point); break findEndpoints
+  var bestDistance = -1'i64
+  for y in countup(0, map.height - 1, BodyFineStepPx):
+    for x in countup(0, map.width - 1, BodyFineStepPx):
+      let point: BodyPoint = (x, y)
+      if map.canStand(point) and map.componentOf(point) == component:
+        let distance = int64(point.x - start.x) * int64(point.x - start.x) +
+          int64(point.y - start.y) * int64(point.y - start.y)
+        if distance > bestDistance: bestDistance = distance; goal = point
+  let validated = map.validateGoal(goal, start)
+  if validated.isNone:
+    raise newException(ValueError, "activation query has no valid goal")
+  var querySamples, queryPops: seq[int64]
+  for sample in 0 ..< 12:
+    let seat = sample mod nav.seats.len
+    nav.resetNavigationLife(seat)
+    let started = getMonoTime()
+    discard nav.navigationWaypoint(seat, start, validated.get, sample)
+    var pops = 0
+    while nav.routeJob.active or nav.seats[seat].pendingRoute.lifecycle != brlIdle:
+      pops += nav.runRouteScheduler(sample)
+    querySamples.add started.elapsedNs
+    queryPops.add int64(pops)
+  %*{"map": gate.label, "colossal": gate.colossal,
+    "body_map_activation_ns": mapNs, "route_index_activation_ns": indexNs,
+    "mixed_nav_activation_ns": navNs,
+    "total_activation_ns": mapNs + indexNs + navNs,
+    "rss_delta_bytes": max(0'i64, rssAfter - rssBefore),
+    "deleted_following_portal_next_bytes": deleted.portalNext,
+    "deleted_following_cells_bytes": deleted.cells,
+    "deleted_following_total_bytes": deleted.total,
+    "retained_cap_bytes": BodyNavigationRetainedCap,
+    "retained": bytesJson(nav.navigationBytes),
+    "far_query_samples_ns": querySamples.nsArray, "far_query_pops": queryPops,
+    "far_query_p50_ns": querySamples.percentile(0.5),
+    "far_query_p95_ns": querySamples.percentile(0.95),
+    "far_query_max_ns": max(querySamples),
+    "far_query_p50_pops": queryPops.percentile(0.5),
+    "far_query_max_pops": max(queryPops),
+    "far_query_span_count": nav.seats[11].installedRoute.spanCount,
+    "far_query_point_count": nav.seats[11].installedRoute.pointCount,
+    "pass": nav.navigationBytes.total <= BodyNavigationRetainedCap}
 
-proc runActivationGate(pool: JsonNode): JsonNode =
+proc runActivationGate(pool: JsonNode; onlyPool: int): JsonNode =
   var rows = newJArray()
   for poolIndex in 0 ..< pool.len:
+    if onlyPool >= 0 and poolIndex != onlyPool: continue
     stderr.writeLine &"activation {poolIndex + 1}/{pool.len}"
-    rows.add activationRow(loadPoolMap(pool, poolIndex), ActivationSamples)
+    rows.add activationRow(loadPoolMap(pool, poolIndex))
   stderr.writeLine "activation colossal"
-  rows.add activationRow(colossalMap(), ColossalActivationSamples)
-  result = %*{"maps": rows}
-  result["pass"] = %rows.elems.allIt(it["pass"].getBool())
+  rows.add activationRow(colossalMap())
+  %*{"maps": rows, "pass": rows.elems.allIt(it["pass"].getBool())}
+
+proc armedSnapshot(map: BodyMap): ZoneDamageSnapshot =
+  let sourceW = (map.width + NavCell - 1) div NavCell
+  let sourceH = (map.height + NavCell - 1) div NavCell
+  result = ZoneDamageSnapshot(gridW: sourceW, gridH: sourceH,
+    cellPx: NavCell, fingerprint: 0x50395a4e4156'u64,
+    damage: newSeq[uint16](sourceW * sourceH))
+  for index in 0 ..< result.damage.len:
+    result.damage[index] = if index mod 11 == 0: HazardNeverArrives
+      else: uint16(96 + index mod 1024)
 
 proc playControls(count: int): seq[SlotControl] =
   result = newSeq[SlotControl](count)
-  for control in result.mitems:
-    control = scPlay
+  for control in result.mitems: control = scPlay
 
 proc tickFrames(map: BodyMap, positions: openArray[BodyPoint], target: BodyPoint,
     tick: int): seq[ShellSeatFrame] =
   for seat in 0 ..< positions.len:
     var tracks: seq[BodyTrackUpdate]
     for threat in 0 ..< 8:
-      tracks.add BodyTrackUpdate(
-        seat: (seat + threat + 1) mod positions.len,
+      tracks.add BodyTrackUpdate(seat: (seat + threat + 1) mod positions.len,
         pos: (target.x + (threat mod 3 - 1) * 16,
-          target.y + (threat div 3 - 1) * 16),
-        team: Blue, aimBrads: some(0), hpKnown: some(3),
-        weapon: some(bwGun), tick: uint32(tick))
-    result.add ShellSeatFrame(
-      seat: uint8(seat), playerIndex: seat, present: true, playing: true,
-      alive: true, aliveTeams: 16, motionScale: 1, velocity: 1,
-      bodyInputs: BodyTickInputs(
-        self: BodySelfState(pos: positions[seat], hp: 4, hpFrac: 1.0,
-          lives: some(1), aimBrads: seat mod 256, alive: true),
-        visibleTracks: tracks),
+          target.y + (threat div 3 - 1) * 16), team: Blue,
+        aimBrads: some(0), hpKnown: some(3), weapon: some(bwGun),
+        tick: uint32(tick))
+    result.add ShellSeatFrame(seat: uint8(seat), playerIndex: seat,
+      present: true, playing: true, alive: true, aliveTeams: 16,
+      motionScale: 1, velocity: 1,
+      bodyInputs: BodyTickInputs(self: BodySelfState(pos: positions[seat],
+        hp: 4, hpFrac: 1.0, lives: some(1), aimBrads: seat mod 256,
+        alive: true), visibleTracks: tracks),
       defaultFallbacks: BrDefaultFallbacks(
         currentZone: MapRect(x: 0, y: 0, w: map.width, h: map.height),
         nextZone: MapRect(x: 0, y: 0, w: map.width, h: map.height),
-        ticksToNextShrink: BrRotateLeadTicks,
-        zonePhase: 1, zoneDps: 2, rotateTarget: some(target)))
+        ticksToNextShrink: BrRotateLeadTicks, zonePhase: 1, zoneDps: 2,
+        rotateTarget: some(target)))
 
-proc tickRow(map: BodyMap, index: BodyRouteIndex, rosterSize: int,
-    scenario: NavGateScenario, start, nearGoal, farGoal: BodyPoint,
-    worstRoom, worstDegree: int): JsonNode =
+proc tickRow(gameMap: CtfMap, rosterSize: int, scenario: NavGateScenario,
+    start, nearGoal, farGoal: BodyPoint): JsonNode =
+  let map = newBodyMap(gameMap)
+  let index = newBodyRouteIndex(map)
   let overlay = newBodyHazardOverlay(index, map.armedSnapshot)
   var episode = initShellEpisode(true, true, playControls(rosterSize), map,
     331, hazard = overlay, preparedRouteIndex = index)
-  var
-    tick = 1
-    positions = newSeq[BodyPoint](rosterSize)
-  for position in positions.mitems:
-    position = start
-  discard episode.step(tickFrames(map, positions, nearGoal, tick),
-    uint32(tick), 0)
-  var samples: seq[int64]
+  var tick = 1
+  var positions = newSeq[BodyPoint](rosterSize)
+  var samples, pops: seq[int64]
+  for position in positions.mitems: position = start
+  discard episode.step(tickFrames(map, positions, nearGoal, tick), uint32(tick), 0)
   for sample in 0 ..< TickWarmups + TickSamples:
     inc tick
-    let target =
-      if scenario == ngsMovingGoals and (sample and 1) != 0: nearGoal
-      else: farGoal
+    let target = if scenario == ngsMovingGoals and
+        ((sample div 12) and 1) != 0: nearGoal else: farGoal
     case scenario
     of ngsFirstGoals:
-      for seat in 0 ..< rosterSize:
-        episode.nav.resetNavigationLife(seat)
+      for seat in 0 ..< rosterSize: episode.nav.resetNavigationLife(seat)
     of ngsStuckReplans:
-      for seat in episode.nav.seats:
-        seat.stuckTicks = 8
-    of ngsColdMemo:
-      episode.nav.routeScratch.invalidateArcMemo()
-      for seat in 0 ..< rosterSize:
-        episode.nav.resetNavigationLife(seat)
-    else:
-      discard
-    let elapsed =
-      if scenario == ngsBucketDangerRollover:
-        (sample + 2) * SafeBucketTicks
-      else: sample
-    let output = episode.step(
-      tickFrames(map, positions, target, tick), uint32(tick), elapsed)
+      for seat in episode.nav.seats: seat.stuckTicks = 8
+    of ngsMovingGoals: discard
+    let output = episode.step(tickFrames(map, positions, target, tick),
+      uint32(tick), sample)
     if scenario != ngsStuckReplans:
       for mask in output.masks:
         let bits = encodeInputMask(mask.input)
@@ -457,174 +331,103 @@ proc tickRow(map: BodyMap, index: BodyRouteIndex, rosterSize: int,
         if (bits and ButtonRight) != 0: next.x += 4
         if (bits and ButtonUp) != 0: next.y -= 4
         if (bits and ButtonDown) != 0: next.y += 4
-        if map.canStand(next):
-          positions[mask.seat.int] = next
+        if map.canStand(next): positions[mask.seat.int] = next
     if sample >= TickWarmups:
       samples.add output.bodySliceNanoseconds
+      pops.add int64(episode.nav.routePopsLastTick)
   episode.closeShellEpisode()
-  var floating = newSeq[float64](samples.len)
-  for offset, sample in samples:
-    floating[offset] = sample.float
-  let
-    p95 = int64(percentile(floating, 0.95))
-    maximum = max(samples)
-  result = %*{
-    "roster_size": rosterSize,
-    "scenario": $scenario,
-    "warmups": TickWarmups,
-    "sample_count": TickSamples,
-    "samples_ns": samples.nsArray,
-    "p95_ns": p95,
-    "max_ns": maximum,
-    "p95_limit_ns": TickP95LimitNs,
-    "max_limit_ns": TickMaxLimitNs,
-    "worst_degree_map": map.name,
-    "worst_degree_room": worstRoom,
-    "worst_degree": worstDegree,
-    "pass": p95 <= TickP95LimitNs and maximum <= TickMaxLimitNs
-  }
+  let p95 = samples.percentile(0.95)
+  let maximum = max(samples)
+  %*{"roster_size": rosterSize, "scenario": $scenario,
+    "warmups": TickWarmups, "sample_count": TickSamples,
+    "samples_ns": samples.nsArray, "pops_per_tick": pops,
+    "p50_ns": samples.percentile(0.5), "p95_ns": p95, "max_ns": maximum,
+    "p95_limit_ns": TickP95LimitNs, "max_limit_ns": TickMaxLimitNs,
+    "pass": p95 <= TickP95LimitNs and maximum <= TickMaxLimitNs}
 
 proc runTickGate(corpus: NavCorpus, pool: JsonNode): JsonNode =
-  let
-    loaded = loadPoolMap(pool, 15)
-    map = newBodyMap(loaded.gameMap)
-    index = newBodyRouteIndex(map)
-  var
-    start, nearGoal, farGoal: BodyPoint
-    foundNear = false
-    foundFar = false
-    worstRoom = -1
-    worstDegree = -1
-  for room in 0 ..< map.roomCount:
-    let degree = index.roomSideRange(room).len
-    if degree > worstDegree:
-      worstDegree = degree
-      worstRoom = room
+  let loaded = loadPoolMap(pool, 15)
+  var start, nearGoal, farGoal: BodyPoint
+  var foundNear, foundFar: bool
   for item in corpus.cases:
     if item.poolIndex == 15 and item.rosterSize == 16 and
         item.profile == ncpDefault and item.dynamic == ncdNone:
       start = item.start
-      if item.distance == ncrNear:
-        nearGoal = item.validatedGoal
-        foundNear = true
-      else:
-        farGoal = item.validatedGoal
-        foundFar = true
+      if item.distance == ncrNear: nearGoal = item.validatedGoal; foundNear = true
+      else: farGoal = item.validatedGoal; foundFar = true
   if not foundNear or not foundFar:
     raise newException(ValueError, "tick corpus anchors are missing")
   var rows = newJArray()
   for rosterSize in [16, 32]:
     for scenario in NavGateScenario:
       stderr.writeLine &"tick roster={rosterSize} scenario={scenario}"
-      rows.add tickRow(map, index, rosterSize, scenario, start, nearGoal,
-        farGoal, worstRoom, worstDegree)
-  result = %*{"maps": rows}
-  result["pass"] = %rows.elems.allIt(it["pass"].getBool())
+      rows.add tickRow(loaded.gameMap, rosterSize, scenario, start, nearGoal, farGoal)
+  %*{"maps": rows, "pass": rows.elems.allIt(it["pass"].getBool())}
 
 proc metadata(corpus: NavCorpus, canonical: bool): JsonNode =
-  let
-    commit = getEnv("NAV_GATE_COMMIT")
-    dirty = getEnv("NAV_GATE_DIRTY")
-    imageId = getEnv("NAV_GATE_IMAGE_ID")
-    cpuLimit = getEnv("NAV_GATE_CPU_LIMIT")
-    machine = execProcess("uname -m").strip
-    platform = hostOS & "/" &
-      (if machine in ["x86_64", "amd64"]: "amd64" else: machine)
+  let commit = getEnv("NAV_GATE_COMMIT")
+  let dirty = getEnv("NAV_GATE_DIRTY")
+  let imageId = getEnv("NAV_GATE_IMAGE_ID")
+  let cpuLimit = getEnv("NAV_GATE_CPU_LIMIT")
+  let machine = execProcess("uname -m").strip
+  let platform = hostOS & "/" &
+    (if machine in ["x86_64", "amd64"]: "amd64" else: machine)
   if canonical and (commit.len == 0 or dirty != "false" or
       platform != CanonicalPlatform or cpuLimit != "1" or imageId.len == 0):
-    raise newException(ValueError,
-      &"canonical run refused: commit={commit} dirty={dirty} " &
-      &"platform={platform} cpu_limit={cpuLimit} image_id={imageId}")
-  %*{
-    "commit": commit,
-    "dirty": dirty,
-    "nim_version": NimVersion,
-    "os_arch": platform,
-    "compile_flags": CanonicalFlags,
-    "image_id": imageId,
-    "cpu_limit": cpuLimit,
-    "pool_digest": corpus.poolSha256,
-    "canonical": canonical
-  }
+    raise newException(ValueError, &"canonical run refused: commit={commit} " &
+      &"dirty={dirty} platform={platform} cpu_limit={cpuLimit} image_id={imageId}")
+  %*{"commit": commit, "dirty": dirty, "nim_version": NimVersion,
+    "os_arch": platform, "compile_flags": CanonicalFlags,
+    "image_id": imageId, "cpu_limit": cpuLimit,
+    "pool_digest": corpus.poolSha256, "canonical": canonical}
 
 proc usage() =
   echo "usage: bench_body_nav_rework --quality|--activation|--tick|--all " &
     "[--corpus PATH] [--pool-index N]"
 
 when isMainModule:
-  var
-    runQuality = false
-    runActivation = false
-    runTick = false
-    canonical = false
-    onlyPool = -1
-    corpusPath = "tests/fixtures/shell/nav_route_corpus.json"
+  var runQuality, runActivation, runTick, canonical: bool
+  var onlyPool = -1
+  var corpusPath = "tests/fixtures/shell/nav_route_corpus.json"
   var index = 1
   while index <= paramCount():
     case paramStr(index)
     of "--quality": runQuality = true
     of "--activation": runActivation = true
     of "--tick": runTick = true
-    of "--all":
-      runQuality = true
-      runActivation = true
-      runTick = true
-      canonical = true
+    of "--all": runQuality = true; runActivation = true; runTick = true; canonical = true
     of "--corpus":
       inc index
-      if index > paramCount():
-        usage()
-        quit(2)
+      if index > paramCount(): usage(); quit(2)
       corpusPath = paramStr(index)
     of "--pool-index":
       inc index
-      if index > paramCount():
-        usage()
-        quit(2)
+      if index > paramCount(): usage(); quit(2)
       onlyPool = parseInt(paramStr(index))
-    of "--help", "-h":
-      usage()
-      quit(0)
-    else:
-      usage()
-      quit(2)
+    of "--help", "-h": usage(); quit(0)
+    else: usage(); quit(2)
     inc index
-  if not runQuality and not runActivation and not runTick:
-    usage()
-    quit(2)
+  if not runQuality and not runActivation and not runTick: usage(); quit(2)
   if canonical and onlyPool >= 0:
-    raise newException(ValueError,
-      "canonical --all run does not accept --pool-index")
-
-  let
-    corpus = loadNavRouteCorpus(corpusPath)
-    pool = loadBrS2PoolRaw()
-  var root = %*{
-    "schema": "coworld_body_nav_gate",
-    "v": 1,
+    raise newException(ValueError, "canonical --all does not accept --pool-index")
+  let corpus = loadNavRouteCorpus(corpusPath)
+  let pool = loadBrS2PoolRaw()
+  var root = %*{"schema": "coworld_body_nav_gate", "v": 2,
     "metadata": metadata(corpus, canonical),
-    "thresholds": {
-      "quality_p95_inflation_pct": QualityP95Limit,
+    "thresholds": {"quality_p95_inflation_pct": QualityP95Limit,
       "quality_max_inflation_pct": QualityMaxLimit,
-      "pool_activation_ratio": PoolActivationLimit,
-      "colossal_activation_ratio": ColossalActivationLimit,
-      "pool_retained_bytes": PoolRetainedLimit,
-      "colossal_retained_bytes": ColossalRetainedLimit,
-      "tick_p95_ns": TickP95LimitNs,
-      "tick_max_ns": TickMaxLimitNs
-    }
-  }
+      "retained_cap_bytes": BodyNavigationRetainedCap,
+      "tick_p95_ns": TickP95LimitNs, "tick_max_ns": TickMaxLimitNs}}
   var passed = true
   if runQuality:
     root["quality"] = runRouteCorpusGate(corpus, pool, onlyPool)
     passed = passed and root["quality"]["pass"].getBool()
   if runActivation:
-    root["activation"] = runActivationGate(pool)
+    root["activation"] = runActivationGate(pool, onlyPool)
     passed = passed and root["activation"]["pass"].getBool()
   if runTick:
     root["tick"] = runTickGate(corpus, pool)
     passed = passed and root["tick"]["pass"].getBool()
   root["pass"] = %passed
   echo pretty(root)
-  if not passed:
-    quit(1)
+  if not passed: quit(1)

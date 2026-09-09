@@ -722,7 +722,7 @@
     precomputed legal mixed-resolution graph. Exact 4 px legality is retained in danger-dilated and static
     wall-band regions; exact cold chains connect 8 px anchors elsewhere. Costs decode exact packed Q8 danger
     values with widened arithmetic. One episode-wide width-1 Dial queue and stamped workspace spend at most
-    16,384 exact pops per tick. Stable shortest-job-first admission orders by lower-bound work, original
+    4,096 exact pops per tick. Stable shortest-job-first admission orders by lower-bound work, original
     request tick, then seat id. Each seat has one newest pending request and a fixed span buffer; a route is
     installed only after complete bounded reconstruction. A published danger-generation change invalidates
     stale routes and requeues stale work before another pop. No query or tick path allocates or clears

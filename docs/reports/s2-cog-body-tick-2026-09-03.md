@@ -4,6 +4,13 @@ Research report on the Paintbot Season 2 engine (`coworld-ctf`), for James and
 coding agents who know the game but not the code. Researched against commit
 `28405185` on 2026-09-03.
 
+> **Historical snapshot.** Phase 10 of the navigation rework replaced the
+> planner, route cache/minter, and plan-budget diagnostics described below.
+> Current routing is the pop-budgeted mixed-grid contract in
+> `docs/designs/strategy-play-calling-shell-2026-08-29.md`; current diagnostics
+> are in `docs/designs/SHELL_DEMO.md`. File and line citations below remain a
+> record of the inspected 2026-09-03 commit, not current-code references.
+
 ## Executive summary
 
 Every 41.67 ms (24 ticks per second) the game thread runs one tick. For the cogs

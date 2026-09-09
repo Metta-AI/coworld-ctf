@@ -16,7 +16,7 @@ type
     brfValidation
 
 const
-  BodyRoutePopBudgetPerTick* = 16_384
+  BodyRoutePopBudgetPerTick* = 4_096
   BodyFineStepPx* = 4
   BodyRouteSpanCap* = 4_096
   BodyEndpointAttachmentCap* = 512
@@ -85,7 +85,7 @@ type
 
   BodyMixedGraphBytes* = object
     legality*, cellForNode*, fineForCell*, anchors*, wallBand*: int64
-    bridges*, workspace*, buckets*, reconstruction*: int64
+    bridges*, workspace*, buckets*, reconstruction*, allocatorOverhead*: int64
     total*: int64
 
   BodyAttachmentSet = object
@@ -596,21 +596,6 @@ proc beginBodyRouteSearch*(job: var BodyRouteSearchJob;
         octileFine(graph.finePoint(node), request.goal) - allowance))
       workspace.state[node] = generation
 
-proc bridgeIsCold(graph: BodyMixedGraph; weights: openArray[int16];
-    sourceCell, direction: int): bool {.inline.} =
-  let
-    offset = graph.bridgeOffset[sourceCell][direction].int
-    length = graph.bridgeLen[sourceCell][direction].int
-  if offset < 0 or length == 0:
-    return false
-  if graph.wallBand[sourceCell] != 0 or weights[sourceCell].packedHot:
-    return false
-  for pathOffset in 0 ..< length:
-    let cell = graph.cellForNode[graph.bridgeNodes[offset + pathOffset]].int
-    if graph.wallBand[cell] != 0 or weights[cell].packedHot:
-      return false
-  true
-
 proc spendBodyRoutePops*(job: var BodyRouteSearchJob;
     graph: BodyMixedGraph; workspace: BodyRouteWorkspace;
     weights: openArray[int16]; hazard: BodyHazardOverlay;
@@ -673,15 +658,15 @@ proc spendBodyRoutePops*(job: var BodyRouteSearchJob;
               workspace.queue.queuePush(nextNode, candidate + max(0'i32,
                 octileFine(toPoint, job.request.goal) - allowance))
               workspace.state[nextNode] = generation
-      if graph.anchorNode[node] == 0 or
-          not graph.bridgeIsCold(weights, graph.cellForNode[node].int,
-            direction):
+      if graph.anchorNode[node] == 0:
         continue
       let
         sourceCell = graph.cellForNode[node].int
         bridgeOffset = graph.bridgeOffset[sourceCell][direction].int
         bridgeLen = graph.bridgeLen[sourceCell][direction].int
-        target = graph.bridgeNodes[bridgeOffset + bridgeLen - 1].int
+      if bridgeOffset < 0 or bridgeLen == 0:
+        continue
+      let target = graph.bridgeNodes[bridgeOffset + bridgeLen - 1].int
       if workspace.state[target] == (generation or BodyDialClosedBit):
         continue
       var edge = 0'i32
@@ -798,6 +783,7 @@ proc finishBodyRouteSearch*(job: BodyRouteSearchJob;
 
 proc bodyMixedGraphBytes*(graph: BodyMixedGraph;
     workspace: BodyRouteWorkspace): BodyMixedGraphBytes =
+  const SequenceAllocationOverhead = 16'i64
   result.legality = int64(graph.legality.legal.len +
     graph.legality.standable.len)
   result.cellForNode = int64(graph.cellForNode.len * sizeof(int32))
@@ -817,6 +803,19 @@ proc bodyMixedGraphBytes*(graph: BodyMixedGraph;
     int64(workspace.queue.next.len + workspace.queue.previous.len +
       workspace.queue.bucket.len + workspace.queue.queuedF.len) * sizeof(int32)
   result.reconstruction = int64(workspace.reconstruct.len * sizeof(int32))
+  for length in [
+      graph.legality.legal.len, graph.legality.standable.len,
+      graph.cellForNode.len, graph.fineForCell.len,
+      graph.anchorForCell.len, graph.anchorNode.len, graph.wallBand.len,
+      graph.bridgeOffset.len, graph.bridgeLen.len, graph.bridgeNodes.len,
+      workspace.g.len, workspace.parent.len, workspace.parentBridge.len,
+      workspace.goalCost.len, workspace.state.len, workspace.goalStamp.len,
+      workspace.reconstruct.len, workspace.queue.head.len,
+      workspace.queue.tail.len, workspace.queue.touchedGeneration.len,
+      workspace.queue.next.len, workspace.queue.previous.len,
+      workspace.queue.bucket.len, workspace.queue.queuedF.len]:
+    if length > 0:
+      result.allocatorOverhead += SequenceAllocationOverhead
   result.total = result.legality + result.cellForNode + result.fineForCell +
     result.anchors + result.wallBand + result.bridges + result.workspace +
-    result.buckets + result.reconstruction
+    result.buckets + result.reconstruction + result.allocatorOverhead

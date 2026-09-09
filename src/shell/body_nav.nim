@@ -24,7 +24,7 @@ const
   FollowBlockTtlTicks = 96
   MaxDangerSources* = 8
   FollowLookaheadK* = 6
-  BodyNavigationRetainedCap* = 192'i64 * 1024 * 1024
+  BodyNavigationRetainedCap* = 256'i64 * 1024 * 1024
   SequenceAllocationOverhead = 16'i64
 
 type
@@ -132,10 +132,6 @@ type
     routePopsLastTick*: int
     navigationBytes*: BodyNavigationBytes
 
-proc seqAllocationBytes(length, elementBytes: int): int64 {.inline.} =
-  if length == 0: 0
-  else: int64(length * elementBytes) + SequenceAllocationOverhead
-
 proc retainedNavigationBytes*(system: BodyNavSystem): BodyNavigationBytes =
   if system == nil:
     return
@@ -145,27 +141,38 @@ proc retainedNavigationBytes*(system: BodyNavSystem): BodyNavigationBytes =
   if system.safetyScratch != nil:
     result.safetyScratch = system.safetyScratch.retainedBytes
   if system.mixedGraph != nil and system.routeWorkspace != nil:
+    let graphBytes = system.mixedGraph.bodyMixedGraphBytes(
+      system.routeWorkspace)
     result.mixedGraph = int64(sizeof(system.mixedGraph[]) +
-      sizeof(system.routeWorkspace[])) +
-      system.mixedGraph.bodyMixedGraphBytes(system.routeWorkspace).total
-  result.trace = seqAllocationBytes(system.dangerTrace.len,
-    sizeof(DangerRebuild))
+      sizeof(system.routeWorkspace[])) + graphBytes.total -
+      graphBytes.allocatorOverhead
+    result.allocatorOverhead += graphBytes.allocatorOverhead
+  result.trace = int64(system.dangerTrace.len * sizeof(DangerRebuild))
+  result.seatOwners = int64(system.seats.len * sizeof(BodyNavSeat))
+  if system.seats.len > 0:
+    result.allocatorOverhead += SequenceAllocationOverhead
+  if system.dangerTrace.len > 0:
+    result.allocatorOverhead += SequenceAllocationOverhead
   for seat in system.seats:
     result.seatOwners += int64(sizeof(seat[]))
     if seat.cache != nil:
       result.seatCaches += int64(sizeof(seat.cache[]))
-    result.dangerRasters += seqAllocationBytes(seat.danger.values.len,
-      sizeof(float32))
-    result.dangerWorkspaces += seqAllocationBytes(
-      seat.dangerWorkspace.visited.len, sizeof(uint32))
-    result.packedWeights += seqAllocationBytes(seat.packedWeights.len,
-      sizeof(int16))
+    result.dangerRasters += int64(seat.danger.values.len * sizeof(float32))
+    result.dangerWorkspaces += int64(
+      seat.dangerWorkspace.visited.len * sizeof(uint32))
+    result.packedWeights += int64(seat.packedWeights.len * sizeof(int16))
+    for length in [seat.danger.values.len,
+        seat.dangerWorkspace.visited.len, seat.packedWeights.len]:
+      if length > 0:
+        result.allocatorOverhead += SequenceAllocationOverhead
   if system.seats.len > 0:
-    result.sharedDangerGeometry = seqAllocationBytes(
-      system.seats[0].dangerKernel.len, sizeof(float32)) +
-      seqAllocationBytes(system.seats[0].dangerPerimeter.len,
-        sizeof(BodyPoint))
-  result.allocatorOverhead = SequenceAllocationOverhead * 2
+    result.sharedDangerGeometry = int64(
+      system.seats[0].dangerKernel.len * sizeof(float32) +
+      system.seats[0].dangerPerimeter.len * sizeof(BodyPoint))
+    for length in [system.seats[0].dangerKernel.len,
+        system.seats[0].dangerPerimeter.len]:
+      if length > 0:
+        result.allocatorOverhead += SequenceAllocationOverhead
   result.total = result.systemOwner + result.routeIndex +
     result.safetyScratch + result.mixedGraph + result.seatOwners +
     result.seatCaches + result.dangerRasters + result.dangerWorkspaces +

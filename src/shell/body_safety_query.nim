@@ -1,7 +1,7 @@
 ## Fixed-workspace local and side hints for zone-safe-ground selection.
 
 import std/options
-import body_cache, body_hazard, body_map, body_route_index
+import body_hazard, body_map, body_route_index
 
 const
   SafetySearchPopCap* = 512

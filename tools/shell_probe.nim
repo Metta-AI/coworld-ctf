@@ -5,7 +5,7 @@
 import std/[algorithm, options, os, strformat, strutils]
 import bitworld/spriteprotocol
 import ../src/ctf/sim_types
-import ../src/shell/[body, body_map, body_nav, body_planner, default_play,
+import ../src/shell/[body, body_danger, body_map, body_nav, default_play,
   episode, reflexes, standing_order]
 
 when ShellRuntimeAvailable:

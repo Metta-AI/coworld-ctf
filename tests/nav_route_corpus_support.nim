@@ -199,7 +199,8 @@ proc dangerRasterHash*(danger: BodyDangerField): string =
   sha256Text(bytes)
 
 proc buildOracleDanger*(map: BodyMap; item: NavCorpusCase): BodyDangerField =
-  let system = newBodyNavSystem(map, 1, NavCorpusGunRangePx)
+  let system = newBodyNavSystem(map, 1, NavCorpusGunRangePx,
+    prepareRouteQueries = false)
   system.seats[0].rebuildDanger(map, DangerInput(
     selfXy: item.start, candidates: item.dangerSources), 0)
   result = BodyDangerField(values: system.seats[0].dangerSnapshot,
