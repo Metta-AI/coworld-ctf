@@ -252,6 +252,89 @@ change needed.
   here). This closes the specific gap Walk 1 found (process table, filesystem, network) — it is not a
   claim of hardened-sandbox/gVisor-grade isolation against a genuinely adversarial process.
 
+## Protocol v1.4: a browser inside the container, and a credential fallback (2026-09-09)
+
+Closes v1.3's "No browser inside the container" gap above, and answers the credential question THE
+WHOLE's Phase 0 left open ("the owner mints the run-scoped key" — never happened; the owner declined
+to mint one and directed a fallback chain instead).
+
+**Browser.** `tools/stranger_walk/container/Dockerfile` now installs headless Chromium twice into one
+shared `$PLAYWRIGHT_BROWSERS_PATH` (`/opt/playwright-browsers`, `chmod a+rX` for the runtime non-root
+user): the Node `@playwright/mcp` package (what the stranger's own `claude -p` session is wired to via
+`--mcp-config`, mirroring `run.sh`'s existing host-mode browser wiring exactly — same package, same
+`--headless --user-data-dir` flags) and the Python `playwright` package (used only by
+`entrypoint.sh`'s `selftest` mode, which needs no Anthropic credential, for a scripted proof: launch
+headless, fetch `https://softmax.com/paintbot`, save a screenshot to
+`/home/stranger/browser-selftest.png`). Two independent installs into the same path is deliberate —
+simpler and more robust than chasing exact browser-revision parity between the two ecosystems; each
+just uses its own matching revision subfolder if they differ, at the cost of a few hundred extra MB in
+the image. `run_container.sh`'s `run` mode gets the same fresh-profile-per-run and
+already-has-cookies refusal check `run.sh` has (`$RUN_DIR/.playwright-profile`), and writes the MCP
+config to a *file* (`$RUN_DIR/mcp-config.json`) rather than a `docker run -e` CLI argument, to avoid a
+JSON-through-env-var quoting hazard. `meta.json`'s `browser_enabled`/`playwright_profile`/
+`cookie_precheck` fields, previously hardcoded `False`/absent for container mode, now reflect reality.
+
+**Credential, resolved in order, owner-ruled 2026-09-09:**
+- **(a) an Anthropic API key** at `$STRANGER_ANTHROPIC_API_KEY_FILE` — unchanged from v1.3. Checked
+  first every time; absent on this machine as of this writing (searched: this shell's environment, and
+  every file under `~/.ctf/knowledge` by name/content — zero hits).
+- **(b) else, the HOST's own Claude Code login.** The design's premise ("a credential file under
+  `~/.claude`") does not hold on this host — there is no `~/.claude/.credentials.json`; Claude Code
+  here stores its OAuth session in the **macOS Keychain**, service `"Claude Code-credentials"`,
+  account `maxwellstarr` — a *live*, actively-refreshed session (this is very likely the same login
+  every other concurrent agent on this machine authenticates with too). Extracted via `security
+  find-generic-password -s "Claude Code-credentials" -w`, piped **directly to a file** (never through
+  a shell variable, never echoed) at `$RUN_DIR/.claude/.credentials.json` (mode 600) — the exact
+  relative path Claude Code reads as its Linux/non-Keychain credential store, which is why this
+  authenticates inside the container.
+
+  Owner-authorized after review, with two guards:
+  1. **Directory separation, by construction.** The credential file lives under `$RUN_DIR`, bind-mounted
+     at `/home/stranger` (`$HOME`, matching real OS convention). The stranger's own working directory
+     is a *separate* bind mount at `/workspace` (`$RUN_DIR/workspace` → `/workspace`) — `entrypoint.sh`
+     now `cd`s there before invoking `claude -p`, and the site-signup `env` file (GITHUB_USER/
+     GITHUB_PASS/STRANGER_EMAIL) moved there too, since `prompt.md` tells the stranger to check "your
+     own working directory" for it. `/workspace` and `/home/stranger` are siblings under `/` — neither
+     is an ancestor of the other — so no `docker build .` / `tar czf policy.tar.gz .` run from the
+     stranger's own cwd can sweep the credential in, regardless of host-side nesting.
+  2. **`isolation_audit.sh` gained a credential-leak scan** (`tools/stranger_walk/credential_scan.py`,
+     new file): (i) a substring search of every standard run artifact (transcript, meta, score, logs,
+     rendered prompt, isolation probe) for the credential's own value, and (ii) a `docker save` +
+     tar-layer scan of any docker image the run built (`docker_images_created.txt`, a before/after
+     `docker images -q` diff — only ever non-empty if `--enable-docker-socket` was used; N/A/PASS by
+     construction otherwise, since the container can't reach a docker daemon by default). Both report
+     PASS/FAIL plus a SHA256 fingerprint of the credential file's bytes **only** — the value itself is
+     never printed by either check, verified by round-tripping both against a synthetic fake secret
+     (never the real one) before this was used for anything real: a decoy hit in a transcript and a
+     decoy hit baked into a throwaway `docker save`d image both correctly reported FAIL with the exact
+     artifact/layer name and never the matched text; a clean pair of decoys both correctly reported
+     PASS.
+
+  A no-fallback rule still applies: if neither (a) nor (b) resolves, `run_container.sh` refuses to
+  launch a `run`-mode container — there is no silent third path.
+
+  **Kill switch:** because (b) is the operator's own live login, they can invalidate it at any time by
+  signing out of Claude Code and back in — every run still authenticated with the old token stops
+  working immediately, mid-run if necessary.
+
+**Correction to v1.3's launch.sh claim.** v1.3 said above "no changes to `launch.sh` were needed" for
+`run_container.sh`. That was never actually true of the code: `launch.sh`'s dispatch `case` statement
+only ever recognized `run.sh`/`resume.sh` — `launch.sh run_container.sh ...` hit the `*)` "unknown
+target" branch and exited 1 (found and fixed 2026-09-09, launching this round's BEFORE runs). Fixed by
+adding `run_container.sh` (same argv shape as `run.sh`: `RUN_ID=$2`) and `chain_before_runs.sh` (see
+below; no single run-id of its own, so its pidfile/log key off a synthetic `chain-<first-stage-run-id>`
+instead) to that `case` statement.
+
+**Chain runner.** `tools/stranger_walk/chain_before_runs.sh` serializes N container runs one at a
+time (GitHub sign-in/submission must never overlap on the shared throwaway identity — see "Signing up
+is part of the measured path" above), running `score.py` (logged) then `isolation_audit.sh` (GATING)
+between every stage: PASS moves to the next run, FAIL halts the whole sequence, attempts a best-effort
+`coworld retire-membership` cleanup of that run's own memberships via its own isolated `$HOME`, and
+writes a `CHAIN-HALTED-<epoch>.txt` marker under the runs parent dir. Stated limitation: a
+fully-detached background script cannot push a live notification into a chat session in this
+environment — the marker file is the signal; whoever is tracking a chained launch needs to poll for
+its existence, same as polling `meta.json`'s `run_status` already works for a single run.
+
 ## Protocol v2: the prompt was scaffolding, not discovery (2026-09-09, owner ruling)
 
 Owner ruling, after reviewing Walk 1's five runs: `prompt.md`'s "Announce milestones" rule (the

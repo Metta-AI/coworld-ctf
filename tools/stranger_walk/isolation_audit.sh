@@ -12,6 +12,7 @@ RUNS_PARENT="${2:-${STRANGER_RUNS_PARENT:-/Users/maxwellstarr/projects/stranger-
 RUN_DIR="$RUNS_PARENT/$RUN_ID"
 TRANSCRIPT="$RUN_DIR/transcript.jsonl"
 PROBE_RESULT="$RUN_DIR/isolation_probe.json"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 if [ ! -f "$TRANSCRIPT" ]; then
   echo "no transcript at $TRANSCRIPT" >&2
@@ -80,6 +81,33 @@ else:
   else
     echo "$PROBE_SUMMARY" >&2
   fi
+fi
+
+# v1.4 guard #2 (owner-authorized 2026-09-09, host_claude_login credential
+# path): two checks, both via tools/stranger_walk/credential_scan.py, both
+# report PASS/FAIL plus a SHA256 fingerprint only — the credential's actual
+# value is never printed by either. Both are no-ops (PASS, "not applicable")
+# for the common case: a run that used credential option (a), or a bare
+# run.sh host-mode run that never had a $RUN_DIR/.claude/.credentials.json
+# at all.
+CRED_SCAN_OUT="$(python3 "$SCRIPT_DIR/credential_scan.py" artifacts "$RUN_DIR")"
+echo "$CRED_SCAN_OUT"
+if echo "$CRED_SCAN_OUT" | grep -q 'result=FAIL'; then
+  HITS=$((HITS + 1))
+fi
+
+DOCKER_IMAGES_FILE="$RUN_DIR/docker_images_created.txt"
+if [ -f "$DOCKER_IMAGES_FILE" ] && [ -s "$DOCKER_IMAGES_FILE" ]; then
+  while IFS= read -r IMG; do
+    [ -z "$IMG" ] && continue
+    IMG_SCAN_OUT="$(python3 "$SCRIPT_DIR/credential_scan.py" docker-image "$RUN_DIR" "$IMG" 2>&1)"
+    echo "$IMG_SCAN_OUT"
+    if echo "$IMG_SCAN_OUT" | grep -q 'result=FAIL'; then
+      HITS=$((HITS + 1))
+    fi
+  done < "$DOCKER_IMAGES_FILE"
+else
+  echo "DOCKER IMAGE SCAN: N/A — no new docker image(s) recorded for this run (docker socket disabled by default, or none built)"
 fi
 
 if [ "$HITS" -gt 0 ]; then
