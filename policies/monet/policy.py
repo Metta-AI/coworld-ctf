@@ -694,6 +694,34 @@ def adjust_entries(entries, context, view):
     # the target_law never-target guarantee -- see CONFIRMED_PACT_REASONS.
     pact_seats = []
     confirmed_seats = []
+
+    # v48 (r4535 1/3 reemit coverage fix): `entries` (this call's wire
+    # ladder) and `_pact_state["partners"]` (the persisted commitment) are
+    # independently mutated -- the ladder drifts pact-less the instant the
+    # model's own proposal for THIS call omits "play":"pact", even though
+    # the persisted partners are still live. starter_harness.py's
+    # maybe_kickoff_reemit trusts the LADDER snapshot (seat.wanted_entries),
+    # not the persisted state, so a pact-less ladder silently burns the
+    # one-shot reemit flag with nothing ever sent (r4535 episodes 1 and 3,
+    # 1/3 coverage). Re-inject a synthetic pact entry here -- SOLO path
+    # only (_neighbor_duo(context) is None); DUO pact entries are a
+    # different, untouched mechanism and are never synthesized here. The
+    # loop below then re-derives partners from persisted state via
+    # _resolve_solo_pact_partners, applying the PACT_PARTNER_CAP clamp and
+    # the confirmed-only never-target gate exactly as for a genuine
+    # submission.
+    if (not any(e.get("play") == "pact" for e in entries)
+            and _neighbor_duo(context) is None
+            and (context.get("_pact_state") or {}).get("partners")):
+        entries = list(entries) + [
+            {"entry_id": "truce", "play": "pact", "params": {"partners": []}}
+        ]
+        print(
+            "[monet] pact ladder re-sync: partners="
+            + str(list((context.get("_pact_state") or {}).get("partners") or [])),
+            flush=True,
+        )
+
     for entry in list(entries):
         if entry.get("play") != "pact":
             continue

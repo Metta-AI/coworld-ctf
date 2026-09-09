@@ -1452,6 +1452,179 @@ check("(v47-merge) CONFIRMED-ONLY GATE holds on the re-emit path: all 3 "
            & set((_v47_merge_law or {}).get("params", {}).get("never", []))),
       str((_v47_merge_law or {}).get("params", {}).get("never")))
 
+# ── v48 LADDER RE-SYNC (r4535 1/3 reemit coverage: episodes 1 and 3 had a
+# real model call whose OWN entries omitted "play":"pact" entirely even
+# though _pact_state["partners"] was still live from an earlier fallback --
+# adjust_entries' pact loop only ever touches entries the model itself
+# proposed as "pact", so seat.wanted_entries came out pact-less and
+# maybe_kickoff_reemit's ladder-snapshot check (starter_harness.py) bailed
+# silently, burning the one-shot flag with nothing ever sent). ────────────
+
+# (v48a) huddle commit WITH a real pact (chat invites -> confirmed
+# partners), then a SECOND repair_call whose own entries OMIT "play":
+# "pact" altogether (mirrors the real opening-call model output in
+# episodes 1/3) -- policy.py must re-inject a synthetic pact entry from
+# persisted state, log the re-sync line, and keep partners/cap/confirmed-
+# gate intact; the first Playing turn with NO model call must then still
+# re-emit via maybe_kickoff_reemit, reason=kickoff-reemit.
+_V48A_ROSTER = [{"seat": i} for i in range(10)]
+v48a_seat = fake_seat(
+    context={"self": {"seat": 3, "duo_partner": None}, "roster": _V48A_ROSTER},
+    chat=[{"seat": 5, "text": "seat:3 pact? never a shot between us"},
+          {"seat": 6, "text": "seat:3 truce, hold fire"},
+          {"seat": 7, "text": "seat:3 non-aggression, in?"}])
+starter_harness.repair_call(
+    PERSONA.canned_turns[0], PERSONA, v48a_seat, AVAILABLE)
+check("(v48a) setup: huddle turn resolves 3 real inviters (confirmed)",
+      set(v48a_seat.pact_state.get("partners", [])) == {5, 6, 7}
+      and all(v48a_seat.pact_state.get("reasons", {}).get(s) in
+              policy.CONFIRMED_PACT_REASONS for s in (5, 6, 7)),
+      str(v48a_seat.pact_state))
+
+_v48a_pactless_call = {"call": {"entries": [
+    {"play": "target_law", "entry_id": "law",
+     "params": {"prefer": ["revenge", "bounty", "weakened", "isolated"]}},
+]}}
+v48a_seat.view = {"self": {"pos": [0, 0]}, "tracks": []}  # still pre-tick,
+# no visible tracks -- isolates the re-sync from the (separately tested)
+# RETRY mechanism, which needs real track data to find new candidates.
+_v48a_log1 = _io.StringIO()
+with _contextlib.redirect_stdout(_v48a_log1):
+    _, v48a_second_entries = starter_harness.repair_call(
+        _v48a_pactless_call, PERSONA, v48a_seat, AVAILABLE)
+v48a_pact2 = next((e for e in v48a_second_entries if e["play"] == "pact"), None)
+v48a_law2 = next((e for e in v48a_second_entries if e["play"] == "target_law"), None)
+check("(v48a) LADDER RE-SYNC: a model call whose own entries omit "
+      "\"play\":\"pact\" gets a synthetic pact entry re-injected from "
+      "persisted state, logged, with the SAME 3 confirmed partners",
+      v48a_pact2 is not None
+      and set(v48a_pact2["params"]["partners"]) == {"seat:5", "seat:6", "seat:7"}
+      and "[monet] pact ladder re-sync: partners=" in _v48a_log1.getvalue(),
+      repr(_v48a_log1.getvalue()))
+check("(v48a) LADDER RE-SYNC respects the confirmed-only never-target gate: "
+      "all 3 re-synced partners (invited/reciprocate) reach target_law.never",
+      v48a_pact2 is not None
+      and v48a_law2 is not None
+      and set(v48a_pact2["params"]["partners"])
+          <= set(v48a_law2.get("params", {}).get("never", [])),
+      str((v48a_law2 or {}).get("params", {}).get("never")))
+
+v48a_seat.view = {"tick": 800, "self": {"pos": [0, 0]}, "tracks": []}
+_v48a_log2 = _io.StringIO()
+with _contextlib.redirect_stdout(_v48a_log2):
+    v48a_reemit = starter_harness.maybe_kickoff_reemit(
+        PERSONA, v48a_seat, AVAILABLE)
+v48a_reemit_pact = (next((e for e in v48a_reemit[1] if e["play"] == "pact"), None)
+                     if v48a_reemit is not None else None)
+check("(v48a) the first Playing turn with NO model call in between still "
+      "re-emits (reason=kickoff-reemit) because the ladder re-sync kept "
+      "seat.wanted_entries carrying a live pact entry",
+      v48a_reemit is not None
+      and v48a_reemit_pact is not None
+      and set(v48a_reemit_pact["params"]["partners"]) == {"seat:5", "seat:6", "seat:7"}
+      and "reason=kickoff-reemit" in _v48a_log2.getvalue(),
+      repr(_v48a_log2.getvalue()))
+
+# (v48b) reemit BAIL does not burn the one-shot flag: the first Playing
+# iteration finds an empty ladder (no pact entry at all) -> logs a skip
+# line, leaves seat.kickoff_reemit_done UNSET -> once a LATER iteration's
+# ladder carries a pact entry again, the reemit fires. This test isolates
+# starter_harness.py's own bail/flag contract from policy.py's specific
+# re-sync mechanism (v48a already covers that end-to-end pipeline).
+_V48B_ROSTER = [{"seat": i} for i in range(10)]
+v48b_seat = fake_seat(
+    context={"self": {"seat": 3, "duo_partner": None}, "roster": _V48B_ROSTER},
+    chat=[{"seat": 5, "text": "seat:3 pact? never a shot between us"},
+          {"seat": 6, "text": "seat:3 truce, hold fire"}])
+starter_harness.repair_call(
+    PERSONA.canned_turns[0], PERSONA, v48b_seat, AVAILABLE)
+check("(v48b) setup: huddle resolves 2 real inviters",
+      set(v48b_seat.pact_state.get("partners", [])) == {5, 6},
+      str(v48b_seat.pact_state))
+# Simulate a drifted, pact-less ladder directly.
+v48b_seat.wanted_entries = [e for e in v48b_seat.wanted_entries
+                            if e.get("play") != "pact"]
+v48b_seat.view = {"tick": 800, "self": {"pos": [0, 0]}, "tracks": []}
+_v48b_log1 = _io.StringIO()
+with _contextlib.redirect_stdout(_v48b_log1):
+    v48b_reemit1 = starter_harness.maybe_kickoff_reemit(
+        PERSONA, v48b_seat, AVAILABLE)
+check("(v48b) BAIL: empty ladder on the first Playing iteration logs a "
+      "skip line and returns None",
+      v48b_reemit1 is None
+      and "[monet] pact reemit skipped: no pact entry on wanted ladder"
+          in _v48b_log1.getvalue(),
+      repr(_v48b_log1.getvalue()))
+check("(v48b) BAIL does NOT burn the one-shot flag: seat.kickoff_reemit_done "
+      "stays unset after the skip",
+      not getattr(v48b_seat, "kickoff_reemit_done", False),
+      str(getattr(v48b_seat, "kickoff_reemit_done", None)))
+
+# A later iteration: the ladder carries a pact entry again (however it got
+# there -- v48a proves policy.py's re-sync is the real-world mechanism).
+v48b_seat.wanted_entries = [
+    {"entry_id": "truce", "play": "pact",
+     "params": {"partners": ["seat:5", "seat:6"], "onBetrayal": "returnFire"}},
+]
+_v48b_log2 = _io.StringIO()
+with _contextlib.redirect_stdout(_v48b_log2):
+    v48b_reemit2 = starter_harness.maybe_kickoff_reemit(
+        PERSONA, v48b_seat, AVAILABLE)
+v48b_reemit2_pact = (next((e for e in v48b_reemit2[1] if e["play"] == "pact"), None)
+                      if v48b_reemit2 is not None else None)
+check("(v48b) HEALED: once the ladder carries a pact entry again, the NEXT "
+      "iteration in the same Playing phase fires the re-emit "
+      "(reason=kickoff-reemit), and NOW the flag is set",
+      v48b_reemit2 is not None
+      and v48b_reemit2_pact is not None
+      and "reason=kickoff-reemit" in _v48b_log2.getvalue()
+      and getattr(v48b_seat, "kickoff_reemit_done", False) is True,
+      repr(_v48b_log2.getvalue()))
+
+# (v48c) DUO path unchanged: a genuine duo seat's pact_state never carries
+# "partners" at all, and _neighbor_duo(context) is not None for it -- the
+# v48 re-sync's SOLO-only gate must never fire here, even when the model's
+# own entries omit "play":"pact".
+v48c_seat = fake_seat(context=dict(FAKE_CONTEXT))  # seat 3, duo_partner 19
+_v48c_pactless_call = {"call": {"entries": [
+    {"play": "target_law", "entry_id": "law",
+     "params": {"prefer": ["revenge", "bounty", "weakened", "isolated"]}},
+]}}
+_v48c_log = _io.StringIO()
+with _contextlib.redirect_stdout(_v48c_log):
+    _, v48c_entries = starter_harness.repair_call(
+        _v48c_pactless_call, PERSONA, v48c_seat, AVAILABLE)
+check("(v48c) DUO UNCHANGED: no pact_state partners, no re-sync line, no "
+      "synthetic pact entry conjured for a genuine duo seat",
+      not v48c_seat.pact_state.get("partners")
+      and "[monet] pact ladder re-sync" not in _v48c_log.getvalue()
+      and next((e for e in v48c_entries if e["play"] == "pact"), None) is None,
+      repr(_v48c_log.getvalue()))
+
+# (v48d) no-partner episode (no inviters, no fallback candidates at all --
+# same starved roster as v47a-c) injects nothing: the re-sync gate requires
+# a LIVE persisted commitment, not just SOLO-ness.
+v48d_seat = fake_seat(
+    context={"self": {"seat": 3, "duo_partner": None},
+             "roster": [{"seat": 3}]})
+starter_harness.repair_call(
+    PERSONA.canned_turns[0], PERSONA, v48d_seat, AVAILABLE)
+check("(v48d) setup: no inviters, no fallback candidates -- partners empty",
+      not v48d_seat.pact_state.get("partners"),
+      str(v48d_seat.pact_state))
+_v48d_pactless_call = {"call": {"entries": [
+    {"play": "target_law", "entry_id": "law",
+     "params": {"prefer": ["revenge", "bounty", "weakened", "isolated"]}},
+]}}
+_v48d_log = _io.StringIO()
+with _contextlib.redirect_stdout(_v48d_log):
+    _, v48d_entries = starter_harness.repair_call(
+        _v48d_pactless_call, PERSONA, v48d_seat, AVAILABLE)
+check("(v48d) NO-PARTNER EPISODE: nothing injected, no re-sync line",
+      "[monet] pact ladder re-sync" not in _v48d_log.getvalue()
+      and next((e for e in v48d_entries if e["play"] == "pact"), None) is None,
+      repr(_v48d_log.getvalue()))
+
 # ── (b) verbatim field reciprocation line (RECIPROCITY.md #3, round 4519
 # 480898f1, seat 10/orange, our seat 12): carries NONE of the ORIGINAL
 # _PACT_KEYWORDS ("reciprocates"/"hold fire" only) -- must still be read

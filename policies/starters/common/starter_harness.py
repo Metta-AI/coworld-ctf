@@ -1199,26 +1199,48 @@ def maybe_kickoff_reemit(persona: Persona, seat: StarterSeat,
         return None
     view = seat.view or {}
     if not isinstance(view.get("tick"), int):
+        # Not yet Playing (still spawn/lobby) -- nothing to decide yet, and
+        # not a "skip" worth logging; the one-shot flag below is only set
+        # once a real decision (fire or bail) has actually been made.
         return None
-    # One-shot regardless of outcome: this is "the first turn/tick the view
-    # carries a real tick", not "the first turn a resend is possible" -- a
-    # seat with no partners this turn gets no later retry either.
-    seat.kickoff_reemit_done = True
     state = seat.pact_state or {}
-    if not state.get("partners") or state.get("kickoff_committed"):
+    if state.get("kickoff_committed"):
+        # v48: mutual exclusion with the model-call kickoff path, UNCHANGED
+        # from v47 -- a model-authored call already re-affirmed the pact
+        # this episode (policy.py's KICKOFF branch sets this). That's a
+        # legitimate final state, not ladder drift, so mark done for good.
+        seat.kickoff_reemit_done = True
+        return None
+    if not state.get("partners"):
+        print("[monet] pact reemit skipped: no partners", flush=True)
         return None
     last_wanted = getattr(seat, "wanted_entries", None) or []
     if not any(isinstance(e, dict) and e.get("play") == "pact"
                for e in last_wanted):
+        # v48 (r4535 1/3 reemit coverage fix): v47 burned
+        # seat.kickoff_reemit_done HERE even though nothing was ever sent
+        # -- a silent, permanent bail whenever the model's own ladder for
+        # this call happened to omit "play":"pact" (episodes 1 and 3 of
+        # r4535, 1/3 coverage). The ladder can re-sync a pact entry back in
+        # on a later call (policy.py's v48 re-sync just above the pact
+        # loop in adjust_entries), so leave the flag UNSET here and let a
+        # later iteration in this same Playing phase try again once that
+        # re-sync lands.
+        print("[monet] pact reemit skipped: no pact entry on wanted ladder",
+              flush=True)
         return None
     decision = {"call": {"entries": json.loads(json.dumps(last_wanted))}}
     orig_context = seat.context
     seat.context = dict(orig_context or {})
     seat.context["_synthetic_trigger"] = "kickoff-reemit"
     try:
-        return repair_call(decision, persona, seat, available)
+        result = repair_call(decision, persona, seat, available)
     finally:
         seat.context = orig_context
+    # Only mark done after a successful send (reached here) -- never on a
+    # skip, so ladder drift can heal within the same Playing phase.
+    seat.kickoff_reemit_done = True
+    return result
 
 
 def _base_name(name) -> str:
