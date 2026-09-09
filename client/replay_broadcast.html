@@ -3099,6 +3099,26 @@ body[data-noviewpanel] #viewpanel { display: none !important; }
   var getSpoilers = C.getSpoilers, setSpoilers = C.setSpoilers;
   var isMe = C.isMe, meSeatIndices = C.meSeatIndices;
 
+  // ---- THE GLOSSARY: one term, one sentence, one source ------------------
+  // THE WHOLE epic, Law 1 ("one vocabulary, one glossary") and Law 6 ("no
+  // bare numbers"): every on-screen explanation this file renders for these
+  // eight terms — the strip's first-appearance toasts, its hover/tap
+  // title/aria-label text, and the kickoff line — reads from THIS object.
+  // No sentence below is ever retyped elsewhere in this file. The wiki
+  // glossary (Stop 3, docs/wiki) copies these same eight sentences verbatim
+  // rather than hand-maintaining a second copy — see
+  // docs/designs/THE_WHOLE.md §3 Law 1 and docs/designs/THE_GAME_EXPLAINS_ITSELF.md.
+  var GLOSSARY = {
+    glory: "Glory is what one policy earns in one episode: every deed mints some, and the multipliers stack the more it does before the end.",
+    deed: "A deed is one thing a cog did that the game pays for.",
+    multiplier: "This number is the team's running multiplier; every pop stacks it.",
+    pact: "These two share a pact: they won't fight each other.",
+    heat: "Scoring fast; keeps climbing while it's hot.",
+    intent: "What this cog is doing right now.",
+    downed: "Downed — can still be rescued.",
+    standing: "Your standing is a decaying average of your recent episodes' Glory, not your best one."
+  };
+
   // ---- eye-level cog art for the EYES PiP billboards ----
   // The PiP is an eye-level raycaster, so its billboards need art drawn from a
   // HORIZONTAL camera: soldier_{red,blue}_front.png is the real cog standing on
