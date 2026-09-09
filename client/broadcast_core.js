@@ -70,6 +70,17 @@
   const FLASH_PULSE_TICKS = 32;        // ~1.3 s at 24 Hz
   const FLASH_PULSE_COLOR = '232, 163, 61';  // the chrome's amber accent
 
+  // "This one is me" viewer marker (owner: can't find his own cog among 16
+  // on a league replay). Anchors on the SAME rig-head object pool
+  // drawFlashPulses/setDownedSeats already key off — identity is resolved
+  // viewer-side in chrome_common.js (?me=/localStorage against roster[].name),
+  // the page hands the core plain roster-array indices, same "page resolves
+  // identity, core just draws" split as setFlashCalls above. Cream/paper —
+  // deliberately NOT amber (that's the flash pulse / heat color above) and
+  // NOT a team color, so it reads as "this is the viewer's own chrome"
+  // regardless of which side the seat is on.
+  const ME_MARKER_COLOR = '242, 232, 216';
+
   // LOOT(s2) downedMode: the rest of one player's rig object family (see
   // RIG_HEAD_OBJECT_BASE above — same "sim.players INDEX" keying, same
   // wire-preferred/literal-fallback contract). A downed cog draws its FULL
@@ -476,6 +487,12 @@
     // verification pass can tell "the invariant held because there was
     // nothing to catch" apart from "the invariant caught something."
     let eliminatedDrawSkips = 0;
+
+    // "This one is me": roster-array indices to mark (setMeSeats below).
+    // Empty on any replay where ?me never matched a seat — drawMeMarkers
+    // exits on the first check, same zero-cost-by-default shape as
+    // flashCalls/downedObjectIds above.
+    let meSeats = [];
 
     let socket = null;
     let rafHandle = null;
@@ -1414,6 +1431,7 @@
         offscreenCtx.drawImage(layer.canvas, 0, 0);
       }
       drawFlashPulses(offscreenCtx);
+      drawMeMarkers(offscreenCtx);
       staticBandsDirty = false;
       dirty = false;
     }
@@ -1508,6 +1526,29 @@
       if (changed) dirty = true;
     }
 
+    function setMeSeats(seats) {
+      // "This one is me": pushed by the page every frame off
+      // ChromeCommon.meSeatIndices(s) (roster names matched against
+      // ?me=/localStorage). `seats` are roster-array indices, matching
+      // RIG_HEAD_OBJECT_BASE's own keying — same contract as setDownedSeats
+      // above, just a plain array instead of a Set (drawMeMarkers below
+      // walks it directly; there's no per-object membership test to make
+      // fast, unlike downedObjectIds inside blitObject). Same change-gated
+      // `dirty` as setDownedSeats too: a PAUSED replay never glides, so
+      // without this the marker would sit invisible until the next moved
+      // object — a static board is exactly when the owner needs it most.
+      const next = (seats || []).filter(seat => typeof seat === 'number' && seat >= 0);
+      let changed = next.length !== meSeats.length;
+      if (!changed) {
+        const prev = new Set(meSeats);
+        for (const seat of next) {
+          if (!prev.has(seat)) { changed = true; break; }
+        }
+      }
+      meSeats = next;
+      if (changed) dirty = true;
+    }
+
     function drawFlashPulses(targetCtx) {
       // Two thin expanding rings over the flashed seat's sprite — strokes
       // only, in the chrome's amber, deliberately unlike any paint/game FX
@@ -1548,6 +1589,59 @@
           targetCtx.lineWidth = 3.5 * (1 - 0.45 * t);
           targetCtx.stroke();
         }
+      }
+    }
+
+    function drawMeMarkers(targetCtx) {
+      // A thin outline ring at the cog's feet + a small caret above it —
+      // broadcast chrome, not a game HUD element, so strokes only, never a
+      // fill, and never big enough to obscure the cog or the paint under
+      // it. Always-on (not a pulse like drawFlashPulses above): the viewer
+      // needs to find this cog at ANY moment during playback, not just for
+      // a beat after some event.
+      if (!meSeats.length) return;
+      for (const idx of meSeats) {
+        const obj = objects.get(RIG_HEAD_OBJECT_BASE + idx);
+        if (!obj) continue;  // seat currently has no rig on board (dead/gone): nothing to mark
+        const sprite = sprites.get(obj.spriteId);
+        const w = sprite ? sprite.width : 24;
+        const h = sprite ? sprite.height : 24;
+        // dispX/dispY glide every tick same as every other draw (see the
+        // motion-interpolation block up top) — reading them here, not a
+        // cached position, is what keeps the marker from fighting the
+        // glide or lagging a seek/scrub.
+        const cx = obj.dispX + w / 2;
+        // The HEAD object's canvas is HUB-centered and padded to fit the
+        // whole articulated rig (see drawFlashPulses' own comment above) —
+        // its actual drawn footprint is a few times smaller than that box
+        // and sits BELOW the hub, toward the legs/wheels, so the ring
+        // anchors off a fraction under center rather than the box's own
+        // top/bottom edge.
+        const cy = obj.dispY + h / 2;
+        const feetY = cy + h * 0.20;
+        const rx = Math.max(w, 14) * 0.30;
+        const ry = rx * 0.42;  // flattened: a footprint ring, not a halo
+
+        targetCtx.beginPath();
+        targetCtx.ellipse(cx, feetY, rx, ry, 0, 0, Math.PI * 2);
+        targetCtx.strokeStyle = 'rgba(' + ME_MARKER_COLOR + ', 0.95)';
+        targetCtx.lineWidth = 2;
+        targetCtx.stroke();
+
+        // Caret above the head, pointing straight down at it — the
+        // second half of the shape the owner asked for, legible at a
+        // glance among 16 near-identical cogs without a filled shape
+        // competing with the board's own paint.
+        const caretY = cy - h * 0.34;
+        const caretW = 5;
+        targetCtx.beginPath();
+        targetCtx.moveTo(cx - caretW, caretY - caretW);
+        targetCtx.lineTo(cx, caretY);
+        targetCtx.lineTo(cx + caretW, caretY - caretW);
+        targetCtx.strokeStyle = 'rgba(' + ME_MARKER_COLOR + ', 0.95)';
+        targetCtx.lineWidth = 2;
+        targetCtx.lineJoin = 'round';
+        targetCtx.stroke();
       }
     }
 
@@ -2251,6 +2345,7 @@
       setFlashCalls,
       setDownedSeats,
       setEliminatedSeats,
+      setMeSeats,
       stop
     };
   }

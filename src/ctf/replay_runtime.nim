@@ -219,7 +219,12 @@ proc buildReplayViewerPacket*(
       # other lead-frame field.
       if sendLead: lobbyChat else: nil,
       if sendLead: ballots else: nil,
-      mismatchSameBuild = replay.sameEngineBuild
+      mismatchSameBuild = replay.sameEngineBuild,
+      # HEAT ON THE WIRE: rides the exact same one-shot as leadSeries above
+      # (sendLead), not a second flag -- there is no scenario where the
+      # momentum series is ready and the parallel heat series is not; both
+      # come off the same precompute walk (replays.nim's advanceReplayScan).
+      heatSeries = (if sendLead: replay.heatSeries else: @[])
     )
   )
   if sendLead:

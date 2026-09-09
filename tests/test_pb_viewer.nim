@@ -13,7 +13,7 @@ const
   ## latch in the shared chrome closure (beat timeline, verdict chip,
   ## momentum series, lull spans, placed scrubber markers) now has one reset
   ## entry point the pages call from their reconnect hook.
-  ChromeCommonFingerprint = "f7ee102ba32d6fbc"
+  ChromeCommonFingerprint = "e7d0eac3a8969bdb"
     ## chrome_common.js pinned: everything paintball adds lives in the
     ## appended game block, so an edit to the shared chrome fails a test
     ## instead of silently drifting. Re-pinned during the season2 main
@@ -46,6 +46,12 @@ const
     ## so a CSS token retune could otherwise silently drift their canvas
     ## chrome out of sync with their own HTML/CSS. Shared-chrome change on
     ## purpose; the appended-paintball-block guarantee is untouched.
+    ## Re-pinned once more for the viewer-identity block: a new
+    ## ?me=/localStorage['ctf.chrome.me'] reader (getMe/isMe/meSeatIndices)
+    ## lets the owner mark his own cog on a replay board he's watching.
+    ## Shared-chrome change on purpose -- all three viewers read the same
+    ## identity off the same roster; the appended-paintball-block guarantee
+    ## is untouched.
   Page = "client/replay_broadcast.html"
   Chrome = "client/chrome_common.js"
   Core = "client/broadcast_core.js"
