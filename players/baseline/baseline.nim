@@ -461,6 +461,30 @@ when defined(fsprobe):
                       # is on us within HoldVsGunRange, with NO cover-mate (turning the back)
   var fsHold = 0      # ...frames the new holdVsGun guard actually caught + held that case
 
+when defined(aggroprobe):
+  # ⭐⭐ -d:aggroprobe (2026-08-19) — THE VACUITY / BLAST-RADIUS PROBE for the
+  # global `aggro` scalar. aggroScale multiplies the four engage-range tune
+  # fields, but the PLAN LAYER immediately below re-raises maxEngage to the RAW,
+  # UNSCALED bot.tune.fireRange via `max(maxEngage, bot.tune.fireRange)` in
+  # PhOpen/PhPress (rushers + flankers), PhEscort, PhDefend and PhForce — and
+  # planLayer SHIPS ON. So the dial can be SILENTLY VACUOUS in exactly the
+  # phases that fight the most, which is the difference between "the lever is
+  # weak" and "the lever never fired". Counters are per SLOT: `bot.team`
+  # collapses engine teams 1..3 to Blue on a >2-team board and cannot attribute
+  # a per-colour arm. grabprobe aggregates slots -> teams at report time.
+  var agFrames*: array[32, int]        # decide() frames that computed a POSITIVE engage radius
+  var agScaled*: array[32, int]        # ...on which aggroScale actually LOWERED it (scale < 1)
+  var agRestored*: array[32, int]      # ...and the plan layer then RAISED it back up
+  var agFullyUndone*: array[32, int]   # ...restored all the way to the unscaled value (dial = 0 effect)
+  var agBaseSum*: array[32, float]     # Σ radius after aggroScale, before the plan layer
+  var agFinalSum*: array[32, float]    # Σ radius ACTUALLY used
+  var agCfFinalSum*: array[32, float]  # Σ radius this frame WOULD have used at aggro = 1.0,
+                                       # INCLUDING the plan-layer floor — the only honest
+                                       # counterfactual (comparing a post-plan-layer actual
+                                       # against a pre-plan-layer unscaled value is not
+                                       # apples-to-apples and reads as a negative "cut").
+  var agUnscaledSum*: array[32, float] # Σ radius the SAME frame would have had at aggro = 1.0
+
 when defined(arcprobe):
   # -d:arcprobe ONLY (Stage 2, 2026-07-24): the OFFENSIVE arc-breacher funnel.
   # Each counter = decide()-frames of the designated breacher seat surviving one
@@ -8878,6 +8902,13 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
     elif rushing: bot.tune.rushEngageRange * aggroScale
     elif mateCarry: bot.tune.escortEngageRange * aggroScale
     else: bot.tune.fireRange * aggroScale
+  when defined(aggroprobe):
+    # Exact, not re-derived: aggroScale is a pure scalar on every branch above,
+    # so maxEngage / aggroScale IS the radius this same frame would have used at
+    # aggro = 1.0. No branch is re-evaluated, so the probe cannot disagree with
+    # the code it measures.
+    let agBase = maxEngage
+    let agUnscaled = (if aggroScale > 0.0: maxEngage / aggroScale else: maxEngage)
   # ⭐⭐ PLAN-LAYER COMBAT TEETH: the phase drives ENGAGEMENT, not just movement, so a
   # called play actually WINS its fight instead of gently repositioning. PhOpen/PhPress
   # widen the attacker's engage range so the grouped opening clash + the man-advantage
@@ -8903,6 +8934,21 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
       # must remove enemy guns, not gently reposition. Every seat widens to fireRange.
       maxEngage = max(maxEngage, bot.tune.fireRange)
     else: discard
+  when defined(aggroprobe):
+    if bot.slot < 32 and agBase > 0.0:
+      inc agFrames[bot.slot]
+      agBaseSum[bot.slot] += agBase
+      agFinalSum[bot.slot] += maxEngage
+      agUnscaledSum[bot.slot] += agUnscaled
+      # planFloor: the plan layer only ever RAISES, via max(maxEngage, fireRange).
+      # If it raised us, maxEngage IS that floor; if it did not, there is no floor
+      # binding this frame. cfFinal = the same max() applied to the unscaled radius.
+      let agPlanFloor = (if maxEngage > agBase + 0.001: maxEngage else: 0.0)
+      agCfFinalSum[bot.slot] += max(agUnscaled, agPlanFloor)
+      if aggroScale < 0.999:
+        inc agScaled[bot.slot]
+        if maxEngage > agBase + 0.001: inc agRestored[bot.slot]
+        if maxEngage >= agUnscaled - 0.001: inc agFullyUndone[bot.slot]
   # Focus-fire intel: which remembered enemies sit on a visible mate's aim
   # line right now. A mate's rendered aim dots are an absolute readback of
   # where it is about to shoot; piling our shot onto the same target converts

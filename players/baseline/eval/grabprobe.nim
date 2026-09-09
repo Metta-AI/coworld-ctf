@@ -175,6 +175,18 @@ proc newDriver(slot, team, episodeSeed: int): Driver =
   let lastLifeTeam = getEnv("LASTLIFETEAM")
   if lastLifeTeam.len > 0:
     tune.lastLifeGuard = team == parseInt(lastLifeTeam)
+  # ⭐⭐ AGGROTEAM=<n> AGGROVAL=<float> — per-team arming of the GLOBAL aggro
+  # scalar (2026-08-19). shippedCombatTune() reads AGGRO from the PROCESS env
+  # and all numPlayers bots share ONE process, so a bare AGGRO= is a MIRROR
+  # that can only measure zero — the identical trap FFAMEDTEAM/LASTLIFETEAM
+  # above exist to avoid. AGGROTEAM applies AGGROVAL to engine team index n
+  # ONLY; every other team keeps the shipped 1.0. Uses the raw team INDEX,
+  # not red/blue: `t` collapses every non-zero team to Blue on a >2-team board.
+  # AGGROTEAM=9 (any out-of-range index) is the all-control baseline.
+  let aggroTeam = getEnv("AGGROTEAM")
+  if aggroTeam.len > 0:
+    let av = (if getEnv("AGGROVAL").len > 0: parseFloat(getEnv("AGGROVAL")) else: 1.0)
+    tune.aggro = (if team == parseInt(aggroTeam): av else: 1.0)
   result.bot = Bot(slot: slot, team: t, role: role, tune: tune)
   result.bot.resetTransient()
   result.client = initProtocolClient()
@@ -292,6 +304,12 @@ when defined(lifeprobe):
   var lpHalfSpentSum: array[4, float]
   var lpFinalAllElim: array[4, int]
 
+when defined(aggroprobe):
+  var agTeamOfSlot: array[32, int]   # real team index per slot; the aggroprobe
+                                     # counters in baseline.nim are per SLOT
+                                     # because `bot.team` collapses engine teams
+                                     # 1..3 to Blue on a >2-team board.
+
 when defined(doorprobe):
   var engineTeamOfSlot: array[32, int]   # real team index per slot (4-team safe)
 
@@ -396,6 +414,24 @@ when defined(fpprobe):
     fpHp1Escape: array[4, int]     # ...and got back above 1 hp alive (a heal)
     fpHp1Death: array[4, int]      # ...and died at 1 hp
     fpHeals: array[4, int]         # any hp increase on a live body (kits taken)
+    # ⭐⭐ THE NORTH STAR (2026-08-19, aggro-dial lane): CAPTURES PER LIFE SPENT.
+    # Ours 0.051 vs ffa4 winners 0.084 — we buy captures at ~2x the price. A
+    # deaths-only or bouts-only test PASSES for a dial that cuts fights and
+    # captures in the same proportion, which is worth exactly nothing, so the
+    # ratio is the primary and both raw numerators are printed beside it.
+    fpCapsAt: array[3, array[4, int]]    # Σ captures by tick 1000 / 1500 / 2000
+    fpAliveTicks: array[4, int]          # Σ seat-ticks ALIVE (whole episode)
+    fpAliveTicks1k: array[4, int]        # ...restricted to tick <= 1000
+    fpKills: array[4, int]               # Σ kills (guard: must not fall > 10%)
+    # ⭐ MECHANISM: incoming damage BOUTS. A bout = a run of incoming damage to
+    # ONE seat with no >= 90-tick gap. 86% of the death gap is CONTACT VOLUME
+    # (24% more fights), so bouts/1000 team-alive-ticks is the mechanism the
+    # dial must move; P(fatal | bout) is the GUARD that it did not just make
+    # each fight deadlier.
+    fpBouts: array[4, int]               # bouts opened, whole episode
+    fpBouts1k: array[4, int]             # ...opened at tick <= 1000
+    fpBoutsFatal: array[4, int]          # bouts that ended in a death
+    fpBoutsFatal1k: array[4, int]
     fpTicksSum = 0
     fpGames = 0
 
@@ -467,12 +503,29 @@ proc main() =
       drivers.add newDriver(s, engine.teamOfSlot(s), epSeed)
       when defined(doorprobe):
         if s < 32: engineTeamOfSlot[s] = engine.teamOfSlot(s)
+      when defined(aggroprobe):
+        if s < 32: agTeamOfSlot[s] = engine.teamOfSlot(s)
     when defined(ndprobe):
       ndReleases.setLen(0)     # the release ledger is per-EPISODE (joined below)
     when defined(fpprobe):
       for t in 0 .. 3:
         fpDeathTL[t].setLen(0)
         fpCapTL[t].setLen(0)
+      # ⭐ PER-EPISODE snapshots. The batch totals are cumulative, but the paired
+      # analysis needs one row per (seed, team) and the DIVERGENT-EPISODE COUNT
+      # needs a per-episode fingerprint: a batch-level hash proves "something
+      # differed somewhere", which is not an n. A lever on this programme claimed
+      # n=23 with 2 of 3 episodes byte-identical.
+      var fpEpMask: uint64 = 0xcbf29ce484222325'u64
+      let fpB0 = fpBouts
+      let fpBF0 = fpBoutsFatal
+      let fpB1k0 = fpBouts1k
+      let fpBF1k0 = fpBoutsFatal1k
+      let fpAT0 = fpAliveTicks
+      let fpAT1k0 = fpAliveTicks1k
+      var fpLastDmgTick = newSeq[int](numPlayers)
+      for s in 0 ..< numPlayers: fpLastDmgTick[s] = -1_000_000
+      var fpBoutFatal = newSeq[bool](numPlayers)
       var fpWasHp1 = newSeq[bool](numPlayers)
       var fpLastHp = newSeq[int](numPlayers)
       var fpLastDeaths = newSeq[int](numPlayers)
@@ -513,7 +566,9 @@ proc main() =
         let packet = engine.frameFor(s)
         let mask = drivers[s].frame(packet)
         engine.setMask(s, mask)
-        when defined(fpprobe): fpMix(fpMask, mask)
+        when defined(fpprobe):
+          fpMix(fpMask, mask)
+          fpMix(fpEpMask, mask)
         # ⭐⭐ SHOUT-FORWARDING FIX (2026-08-17). This rig never forwarded a bot's
         # staged shout (bot.shoutWant) into the sim — harness.nim's runEpisode
         # does this every frame (engine.applyShout), grabprobe never did. The
@@ -544,6 +599,27 @@ proc main() =
           if tm in 0 .. 3:
             dTot[tm] += v.deaths
             cTot[tm] += engine.slotCaptures(s)
+            # ALIVE-TICK denominator: every rate below is per 1000 team-ALIVE
+            # ticks, never per episode — a lever that survives longer would
+            # otherwise read as "more fights" purely from being on the board.
+            if v.alive:
+              inc fpAliveTicks[tm]
+              if tick <= 1000: inc fpAliveTicks1k[tm]
+            # INCOMING DAMAGE: an hp drop on a body that was alive last tick and
+            # has NOT re-spawned, or a death (a death is damage, and it is the
+            # fatal end of its own bout).
+            let died = v.deaths > fpLastDeaths[s]
+            let hurt = v.alive and fpWasAlive[s] and v.hp < fpLastHp[s] and not died
+            if died or hurt:
+              if tick - fpLastDmgTick[s] >= 90:
+                inc fpBouts[tm]
+                if tick <= 1000: inc fpBouts1k[tm]
+                fpBoutFatal[s] = false
+              fpLastDmgTick[s] = tick
+              if died and not fpBoutFatal[s]:
+                fpBoutFatal[s] = true
+                inc fpBoutsFatal[tm]
+                if tick <= 1000: inc fpBoutsFatal1k[tm]
             # hp == 1 episodes: entered, escaped (healed above 1 while alive),
             # or died there. GROUND TRUTH, never the bot's own belief.
             if v.alive and v.hp == 1 and not fpWasHp1[s]:
@@ -711,6 +787,7 @@ proc main() =
             # arms are compared on the same population.
             let idx = min(realTicks - 1, FpFixedTicks[w] - 1)
             fpLivesAt[w][t] += fpDeathTL[t][max(0, idx)]
+            fpCapsAt[w][t] += fpCapTL[t][max(0, idx)]
             inc fpLivesAtN[w][t]
           fpLivesHalf[t] += fpDeathTL[t][halfIdx]
           fpLivesEnd[t] += fpDeathTL[t][^1]
@@ -723,6 +800,19 @@ proc main() =
             alive[sl.team] += sl.lives + (if sl.alive: 1 else: 0)
         for t in 0 ..< min(4, nTeams):
           if alive[t] == 0: inc fpWiped[t]
+        # ⭐ ONE ROW PER (SEED, TEAM). `epmask` is the per-episode button-mask
+        # hash: two arms whose row differs ONLY in the env echo are the SAME
+        # episode and must not be counted as an n.
+        for t in 0 ..< min(4, nTeams):
+          let iw = min(realTicks - 1, 999)
+          echo &"AGEP seed={epSeed} team={t} " &
+            &"armTeam={getEnv(\"AGGROTEAM\")} armVal={getEnv(\"AGGROVAL\")} " &
+            &"epmask=0x{fpEpMask:016x} ticks={realTicks} " &
+            &"caps={fpCapTL[t][^1]} caps1k={fpCapTL[t][max(0, iw)]} " &
+            &"lives={fpDeathTL[t][^1]} lives1k={fpDeathTL[t][max(0, iw)]} " &
+            &"bouts={fpBouts[t] - fpB0[t]} bouts1k={fpBouts1k[t] - fpB1k0[t]} " &
+            &"fatal={fpBoutsFatal[t] - fpBF0[t]} fatal1k={fpBoutsFatal1k[t] - fpBF1k0[t]} " &
+            &"alive={fpAliveTicks[t] - fpAT0[t]} alive1k={fpAliveTicks1k[t] - fpAT1k0[t]}"
     totRedGrab += r.redGrabs; totBlueGrab += r.blueGrabs
     totRedCap += r.redCaptures; totBlueCap += r.blueCaptures
     totRedShot += r.redShots; totBlueShot += r.blueShots
@@ -735,6 +825,7 @@ proc main() =
       if s.team in 0 .. 3:
         teamCaps[s.team] += s.captures
         teamKills[s.team] += s.kills
+        when defined(fpprobe): fpKills[s.team] += s.kills
         teamDeaths[s.team] += s.deaths
     when defined(shapeprobe):
       var perGame: array[2, string]
@@ -1151,6 +1242,41 @@ proc main() =
 
   when defined(fpprobe):
     const TeamName = ["red   ", "blue  ", "green ", "yellow"]
+    when defined(aggroprobe):
+      # ⭐⭐ THE VACUITY TABLE. The dial multiplies four engage-range fields, then
+      # the plan layer re-raises maxEngage to the RAW fireRange in PhOpen/PhPress
+      # (rushers + flankers), PhEscort, PhDefend and PhForce — and planLayer
+      # SHIPS ON. If `restored%` is high the lever is not weak, it never fired.
+      echo "==================================================="
+      echo "--- ⭐⭐ AGGRO BLAST RADIUS / VACUITY (-d:aggroprobe) ---"
+      echo &"  arm: AGGROTEAM={getEnv(\"AGGROTEAM\")} AGGROVAL={getEnv(\"AGGROVAL\")} AGGRO={getEnv(\"AGGRO\")}"
+      echo "  scaledFrames = engage frames where aggroScale actually LOWERED the radius"
+      echo "  restored     = ...the plan layer then RAISED it back up"
+      echo "  fullyUndone  = ...back to the whole aggro=1.0 value: the dial did NOTHING that frame"
+      echo "  realisedCut% = how much of the radius the dial ASKED to remove actually survived"
+      echo "  team   engageFrames   scaled   restored  restored%   fullyUndone  undone%   " &
+        "meanBase  meanFinal  cfFinal@a=1  realisedCut%"
+      var agF, agS, agR, agU: array[4, int]
+      var agB, agFi, agUn, agCf: array[4, float]
+      for sl in 0 ..< 32:
+        let t = agTeamOfSlot[sl]
+        if t notin 0 .. 3: continue
+        agF[t] += agFrames[sl]; agS[t] += agScaled[sl]
+        agR[t] += agRestored[sl]; agU[t] += agFullyUndone[sl]
+        agB[t] += agBaseSum[sl]; agFi[t] += agFinalSum[sl]; agUn[t] += agUnscaledSum[sl]
+        agCf[t] += agCfFinalSum[sl]
+      for t in 0 ..< min(4, max(2, evalTeams)):
+        let sf = max(1, agS[t]).float
+        let ff = max(1, agF[t]).float
+        # BOTH sides post-plan-layer. asked = the cut the dial requested at the
+        # select; got = the cut that actually survived to the radius used.
+        let asked = agUn[t] - agB[t]
+        let got = agCf[t] - agFi[t]
+        echo &"  {TeamName[t]} {agF[t]:>13}   {agS[t]:>6}   {agR[t]:>8}  " &
+          &"{(100.0 * agR[t].float / sf):>8.1f}%   {agU[t]:>11}  " &
+          &"{(100.0 * agU[t].float / sf):>6.1f}%   " &
+          &"{(agB[t] / ff):>8.1f}  {(agFi[t] / ff):>9.1f}  {(agCf[t] / ff):>12.1f}  " &
+          &"{(if asked > 0.001: 100.0 * got / asked else: 0.0):>11.1f}%"
     echo "==================================================="
     echo "--- FFA4 LIFE ECONOMY (-d:fpprobe, GROUND TRUTH) ---"
     echo &"  arm: NOFFAMEDSEE={getEnv(\"NOFFAMEDSEE\")} NOLASTLIFE={getEnv(\"NOLASTLIFE\")} " &
@@ -1184,6 +1310,30 @@ proc main() =
         &"{(fpLivesAt[0][t].float / max(1, fpLivesAtN[0][t]).float):>16.2f}   " &
         &"{(fpLivesAt[1][t].float / max(1, fpLivesAtN[1][t]).float):>16.2f}   " &
         &"{(fpLivesAt[2][t].float / max(1, fpLivesAtN[2][t]).float):>16.2f}"
+    # ⭐⭐ THE AGGRO-DIAL SCORECARD (2026-08-19). NORTH STAR = captures per LIFE
+    # SPENT. RAW NUMERATORS are printed beside every rate on purpose: a primary
+    # that resolves to 3 events vs 6 has killed a lever on this programme, and a
+    # rate alone hides it. Rates are per 1000 team-ALIVE ticks (not per episode)
+    # so a longer-surviving arm is not credited with "more fighting".
+    echo &"  --- ⭐ CAPTURES PER LIFE SPENT (the north star: ours 0.051, ffa4 winners 0.084) ---"
+    echo &"  team    eps      caps    lives   capsPerLife |  caps@1k  lives@1k  capsPerLife@1k"
+    for t in 0 ..< min(4, max(2, evalTeams)):
+      let lv = max(1, fpLivesEnd[t])
+      let lv1 = max(1, fpLivesAt[0][t])
+      echo &"  {TeamName[t]} {fpEps[t]:>5}   {fpCapsTotal[t]:>7}  {fpLivesEnd[t]:>7}   " &
+        &"{(fpCapsTotal[t].float / lv.float):>11.4f} |  {fpCapsAt[0][t]:>6}  {fpLivesAt[0][t]:>8}  " &
+        &"{(fpCapsAt[0][t].float / lv1.float):>13.4f}"
+    echo &"  --- MECHANISM (bouts) + GUARDS (kills, P(fatal|bout)), per 1000 team-ALIVE ticks ---"
+    echo &"  team   aliveTicks@1k   bouts@1k   boutsPer1k |  aliveTicksAll   kills   killsPer1k   " &
+      &"boutsAll  fatalBouts   P(fatal|bout)"
+    for t in 0 ..< min(4, max(2, evalTeams)):
+      let a1 = max(1, fpAliveTicks1k[t]).float
+      let aa = max(1, fpAliveTicks[t]).float
+      let bb = max(1, fpBouts[t]).float
+      echo &"  {TeamName[t]} {fpAliveTicks1k[t]:>13}   {fpBouts1k[t]:>8}   " &
+        &"{(1000.0 * fpBouts1k[t].float / a1):>10.3f} |  {fpAliveTicks[t]:>12}   " &
+        &"{fpKills[t]:>5}   {(1000.0 * fpKills[t].float / aa):>10.3f}   " &
+        &"{fpBouts[t]:>8}  {fpBoutsFatal[t]:>10}   {(100.0 * fpBoutsFatal[t].float / bb):>12.1f}%"
     var lh, le, ep, wp, ct, cl, e1, es, ed, hl = 0
     for t in 0 ..< min(4, max(2, evalTeams)):
       lh += fpLivesHalf[t]; le += fpLivesEnd[t]; ep += fpEps[t]; wp += fpWiped[t]
