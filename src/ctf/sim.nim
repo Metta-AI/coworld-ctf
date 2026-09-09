@@ -326,6 +326,60 @@ proc addGloryPop(sim: var SimServer, team: Team, x, y, amount: int,
     startDelay: startDelay
   )
 
+proc recutCurrentScore*(sim: SimServer, team: Team): int64 =
+  ## S5 (CATALOG-V3-DRAFT.md §9b): the one place `gloryProduct` is read back
+  ## into a reported score, so `gloryFixedPointScale` has exactly one
+  ## call site to change rather than three duplicated ones (awardDeed,
+  ## claimAchievement, the win-factor fold). Dark (flag off): identical to
+  ## the historical `recutScore(gloryProduct, halvings)` call.
+  let halvings = recutFfHalvings(sim.gloryFfIncidents[team], sim.config.brMode)
+  if sim.config.gloryFixedPointScale:
+    recutScoreScaled(sim.gloryProduct[team], halvings, GlorySCALE)
+  else:
+    recutScore(sim.gloryProduct[team], halvings)
+
+proc recutFoldObserved*(sim: var SimServer, team: Team, factor: int): int64 =
+  ## Wraps `recutFold` with the S5 cap-hit fire counter (CATALOG-V3-DRAFT.md
+  ## §7): `RecutProductCapArmed` shipped with a measured cap-hit TARGET
+  ## (<=1.5%) and no way to observe the real rate -- `grep -r "cap_hit"`
+  ## returned zero matches repo-wide before this. Logged (`GLORY_CAP_HIT`),
+  ## the same "log a line on every call" idiom the metta season-transform
+  ## PR already used for its own fire counter -- not a new SimServer field
+  ## (a flatty keyframe layout change this draft does not have approval
+  ## for), and not gameHash (same "derived, re-simulates identically"
+  ## reasoning as `recutMintCounts`). A no-op observation: it changes no
+  ## score, only whether the clamp that already happens is now visible.
+  let before = sim.gloryProduct[team]
+  result = recutFold(before, factor, sim.config.deedMintCaps)
+  if recutCapHit(before, result, recutProductCap(sim.config.deedMintCaps)):
+    sim.logGameEvent("GLORY_CAP_HIT team=" & teamText(team) &
+      " factor=" & $factor & " cap=" & $result)
+    sim.emitEvent(GloryDeed, target = ord(team), weapon = "capHit",
+      amount = factor, content = "GLORY_CAP_HIT")
+
+func recutActiveScale*(config: GameConfig): int64 {.inline.} =
+  ## The `GlorySCALE` in force for `recutFoldPct`'s GATE RULING 2 floor
+  ## guard: `GlorySCALE` if `gloryFixedPointScale` is armed, else 1
+  ## (unscaled — the floor guard still applies, just against the raw
+  ## product). One place to compute this so every `recutFoldPct` call
+  ## site agrees.
+  if config.gloryFixedPointScale: GlorySCALE else: int64(1)
+
+proc recutFoldPctObserved*(sim: var SimServer, team: Team, pct: int): int64 =
+  ## Percent-scaled sibling of `recutFoldObserved` (S5 placement ramp,
+  ## `placementRampV3`; GATE RULING 1, `catalogV3Reprice`) — same cap-hit
+  ## fire counter, `recutFoldPct` instead of `recutFold` underneath, scale
+  ## read from `sim.config` via `recutActiveScale` so GATE RULING 2's
+  ## small-factor floor guard applies correctly regardless of caller.
+  let before = sim.gloryProduct[team]
+  result = recutFoldPct(before, pct, sim.config.deedMintCaps,
+                        recutActiveScale(sim.config))
+  if recutCapHit(before, result, recutProductCap(sim.config.deedMintCaps)):
+    sim.logGameEvent("GLORY_CAP_HIT team=" & teamText(team) &
+      " pct=" & $pct & " cap=" & $result)
+    sim.emitEvent(GloryDeed, target = ord(team), weapon = "capHit",
+      amount = pct, content = "GLORY_CAP_HIT")
+
 proc awardDeed*(sim: var SimServer, team: Team, deed: Deed, x, y: int,
                 times = 1, byIndex = -1, fxActor = -1, stackK = 1) =
   ## THE SINGLE MINT. Every glory award in the engine goes through here.
@@ -435,17 +489,43 @@ proc awardDeed*(sim: var SimServer, team: Team, deed: Deed, x, y: int,
           inc sim.recutMintCounts[team][deed], times
           if folds == 0:
             factor = 1
+      # S5 (CATALOG-V3-DRAFT.md §4, placementRampV3): dFinal8/dFinal4/
+      # dFinal2 fold a PERCENT-scaled class (100/100/130) instead of
+      # `RecutClassTable`'s frozen integer (2/3/4) -- crushing the
+      # placement ladder toward "a small deliberate reward" per the lead's
+      # ruling. `amount` below then reports the PERCENT (100/130), not a
+      # classic integer factor, for these three deeds only, while this
+      # switch is armed -- a named, deliberate departure (see
+      # `RecutPlacementRampPct`'s own doc comment); every other deed is
+      # completely unaffected. Dark (flag off): unchanged, `recutFold`
+      # against `RecutClassTable`'s frozen class, exactly as today.
+      #
+      # GATE RULING 1 (catalogV3Reprice): a SECOND, independent percent
+      # path selecting `RecutClassTableV3Pct`/etc instead of the frozen
+      # integer table -- mutually exclusive with the placement ramp above
+      # (dFinal8/4/2 stay governed by `placementRampV3` alone; v3 reprices
+      # every OTHER deed). Switch OFF (this whole branch never taken):
+      # byte-identical to the pre-GATE-RULING-1 code, proven in
+      # `test_glory_s5_rig.nim`.
+      let ramped = sim.config.placementRampV3 and deed in RecutPlacementRampDeeds
+      let v3 = sim.config.catalogV3Reprice and not ramped and deed != dTeamKill
+      let pct =
+        if folds == 0: 100   # mint cap exhausted: neutral, matches `factor = 1` above
+        elif ramped: RecutPlacementRampPct[deed]
+        elif v3: recutFactorV3Pct(deed, sim.heatEmbers[team], sitePct,
+                                  carrying, stackK, sim.config.winAsMultiplier)
+        else: 0
       for _ in 1 .. folds:
-        sim.gloryProduct[team] = recutFold(sim.gloryProduct[team], factor,
-                                           sim.config.deedMintCaps)
-      amount = factor
+        sim.gloryProduct[team] =
+          if ramped or v3: sim.recutFoldPctObserved(team, pct)
+          else: sim.recutFoldObserved(team, factor)
+      amount = if ramped or v3: pct else: factor
     # The int ledger carries the DERIVED score (floor of the division —
     # see recutScore's own comment), so every existing reader (broadcast
     # "glory", the banked league score, the endcard) reports the recut
-    # score with zero reader changes.
-    sim.teamGlory[team] = int(recutScore(
-      sim.gloryProduct[team],
-      recutFfHalvings(sim.gloryFfIncidents[team], sim.config.brMode)))
+    # score with zero reader changes. S5: routes through `recutCurrentScore`
+    # so `gloryFixedPointScale` has one call site, not three.
+    sim.teamGlory[team] = int(sim.recutCurrentScore(team))
   inc sim.deedCounts[deed], times
   sim.deedGloryMass[deed] += amount
   if popsScore(deed):
@@ -536,13 +616,19 @@ proc claimAchievement*(sim: var SimServer, team: Team, tree: Tree, tier: int,
     # — already bounded by construction, which is exactly the property
     # `RecutMintCapTable` exists to supply for the deeds that lack it. The
     # armed PRODUCT bound still rides along (layer 2 covers every fold).
-    let factor = recutAchievementFactor(tier, effectiveFirst)
-    sim.gloryProduct[team] = recutFold(sim.gloryProduct[team], factor,
-                                       sim.config.deedMintCaps)
-    amount = factor
-    sim.teamGlory[team] = int(recutScore(
-      sim.gloryProduct[team],
-      recutFfHalvings(sim.gloryFfIncidents[team], sim.config.brMode)))
+    # GATE RULING 1 (catalogV3Reprice): treeSquad.IV/treeGun.V reprice via
+    # `RecutTierClassV3Pct` instead of the frozen `RecutTierClass` — same
+    # switch, same byte-identity-when-off guarantee as awardDeed's own v3
+    # branch.
+    if sim.config.catalogV3Reprice:
+      let pct = recutAchievementFactorV3Pct(tier, effectiveFirst)
+      sim.gloryProduct[team] = sim.recutFoldPctObserved(team, pct)
+      amount = pct
+    else:
+      let factor = recutAchievementFactor(tier, effectiveFirst)
+      sim.gloryProduct[team] = sim.recutFoldObserved(team, factor)
+      amount = factor
+    sim.teamGlory[team] = int(sim.recutCurrentScore(team))
   inc sim.deedCounts[dAchievement]
   sim.deedGloryMass[dAchievement] += amount
   let byCog = byIndex >= 0 and byIndex < sim.players.len and
@@ -985,7 +1071,17 @@ proc resetGloryLedger*(sim: var SimServer) =
     # dark game's fields costs nothing observable (they are hashed and read
     # only under the armed flag) and means an armed game can never inherit
     # a stale product through any reset path.
-    sim.gloryProduct[team] = RecutSeed
+    #
+    # S5 (CATALOG-V3-DRAFT.md §9b, gloryFixedPointScale): seeds at
+    # `GlorySCALE` instead of the bare `RecutSeed` when armed -- every
+    # existing WHOLE-integer class factor cancels the scale out exactly at
+    # `recutScoreScaled`'s read (see that proc's own doc comment), so this
+    # is inert by itself; it only matters once a percent-scaled fold
+    # (`recutFoldPct`, e.g. the placement ramp below) actually runs against
+    # this seed.
+    sim.gloryProduct[team] =
+      if sim.config.gloryFixedPointScale: RecutSeed * GlorySCALE
+      else: RecutSeed
     sim.gloryFfIncidents[team] = 0
     # MINTCAP: the per-episode budget ledger opens empty with the product
     # it bounds. Unconditional for the same reason the seed is: writing
@@ -2988,9 +3084,25 @@ proc killPlayer*(
         # more specific fact than time-of-kill at equal class. A marquee
         # fact shadowed by a higher-class kill deed goes unminted
         # (flagged to conformance review, same one-deed law as every
-        # other co-satisfied kill).
+        # other co-satisfied kill) — EXCEPT a pact-scope marquee
+        # (`pactScopedWipeDown`, `pactForced` below), which the coordinator
+        # ruled always mints over an ordinarily-resolved kill deed
+        # ("pacts are the chosen tier"), after the S5 rig measured real
+        # dDuoDown mint-rate loss to exactly this kind of shadowing.
         if sim.config.brMode and not ctx.friendly:
           var marquee = dNone
+          var pactForced = false
+            ## GATE RULING 4 (coordinator, after this program's own
+            ## shadowing finding): "when one kill satisfies BOTH a
+            ## pact-scope deed and a solo deed, the PACT deed mints --
+            ## pacts are the chosen tier." Set true only by the pact-scope
+            ## branch below; bypasses the class-comparison gate at this
+            ## if-block's own tail so a pact-scope dDuoDown/dWipe can never
+            ## again be shadowed by an ordinary higher-class kill deed
+            ## (e.g. dLongshotKill) -- exactly the real, measured cost the
+            ## S5 rig found before this rule existed. The ORIGINAL
+            ## solo-team dDuoDown path (no pact) is UNCHANGED -- still
+            ## class-gated, same as always.
           if sim.config.zonePhases.len > 0:
             let zone = sim.recutZonePhase(sim.tickCount - sim.gameStartTick)
             if zone.final: marquee = dLastLight
@@ -3018,8 +3130,52 @@ proc killPlayer*(
             if victimTeamSeats >= 2 and not partnerAlive and
                 RecutClassTable[dDuoDown] >= RecutClassTable[marquee]:
               marquee = dDuoDown
+            elif sim.config.pactScopedWipeDown:
+              # S5 RULING (c) (CATALOG-V3-DRAFT.md, THREE ROOT-CAUSE
+              # RULINGS): "`dDuoDown` and `dWipe` RETARGET TO PACT SCOPE --
+              # a pact downing/wiping an OPPOSING pact." In 16-solo every
+              # team seats exactly 1, so `victimTeamSeats >= 2` above is
+              # structurally never true (the exact "CUT-for-16-solo"
+              # finding this ruling is retargeting away from) -- this
+              # branch substitutes the victim's PACT GROUP for its own
+              # single-seat team: `dDuoDown` when this kill empties the
+              # victim's own team but the victim's allies are still alive
+              # (one member of the alliance fell); `dWipe` when this kill
+              # leaves the ENTIRE opposing pact group (>=2 teams) with zero
+              # living players (the whole alliance is gone) -- the bigger,
+              # rarer fact, checked first so it can win the one-kill-one-
+              # deed precedence over the smaller one. Un-pacted kills
+              # (`victimGroup.len == 1`) and kills against your OWN pact
+              # partner (never reachable here -- `not ctx.friendly` already
+              # excludes same-team/allied damage) are unaffected. Own fire
+              # counters: neither deed has any OTHER path to mint in BR
+              # today, so `deedCounts[dDuoDown]`/`deedCounts[dWipe]` alone
+              # would not distinguish "this fired" from "shadowed by a
+              # higher-class kill deed" -- the log/event lines below record
+              # the raw incidence before that precedence check runs.
+              let victimGroup = sim.pactGroupTeams(victim.team)
+              if victimGroup.len >= 2 and killer.team notin victimGroup and
+                  sim.pactGroupLivingExcluding(@[victim.team], targetIndex) == 0:
+                if sim.pactGroupLivingExcluding(victimGroup, targetIndex) == 0:
+                  sim.logGameEvent("GLORY_PACT_WIPE team=" &
+                    teamText(killer.team) & " group_size=" & $victimGroup.len)
+                  sim.emitEvent(GloryDeed, source = killerIndex,
+                    target = ord(killer.team), weapon = "pactWipe",
+                    amount = victimGroup.len, content = "GLORY_PACT_WIPE")
+                  if RecutClassTable[dWipe] >= RecutClassTable[marquee]:
+                    marquee = dWipe
+                    pactForced = true
+                else:
+                  sim.logGameEvent("GLORY_PACT_DUODOWN team=" &
+                    teamText(killer.team) & " group_size=" & $victimGroup.len)
+                  sim.emitEvent(GloryDeed, source = killerIndex,
+                    target = ord(killer.team), weapon = "pactDuoDown",
+                    amount = victimGroup.len, content = "GLORY_PACT_DUODOWN")
+                  if RecutClassTable[dDuoDown] >= RecutClassTable[marquee]:
+                    marquee = dDuoDown
+                    pactForced = true
           if marquee != dNone and
-              RecutClassTable[marquee] > RecutClassTable[deed]:
+              (pactForced or RecutClassTable[marquee] > RecutClassTable[deed]):
             deed = marquee
       # AMENDMENT 5 (glory-2, spec owner override, recut contract): a
       # friendly hit under armed downedMode never reaches here undowned --
@@ -3091,7 +3247,17 @@ proc killPlayer*(
           # as the counter line above, credited to the assister (never the
           # killer, who just banked the kill deed at this same site). The
           # BR overlay rides increment 2, hence the mode gate.
-          if not sim.config.brMode:
+          #
+          # S5 RULING (b) (CATALOG-V3-DRAFT.md, THREE ROOT-CAUSE RULINGS):
+          # `brAssistRescueUngated` removes this mode gate — "these are the
+          # pact era's chosen-magnitude deeds and exactly what the owner
+          # wants graded." No new fire counter needed: `deedCounts[dAssist]`/
+          # `deedGloryMass[dAssist]` (awardDeed, unconditional) already
+          # report the real mint rate the instant BR starts minting this,
+          # which is the whole observability question ruling (b) could not
+          # answer statically (zero recorded BR events in the frozen
+          # population). Dark (flag off): BR mints nothing here, unchanged.
+          if not sim.config.brMode or sim.config.brAssistRescueUngated:
             sim.awardDeed(killer.team, dAssist, victim.x, victim.y,
                           byIndex = victimDamager)
         if victim.menacingTick >= 0 and
@@ -3109,7 +3275,12 @@ proc killPlayer*(
             # Part 1). A rescue whose partner already died still counts as
             # engine telemetry, but it is not the celebrated act. BR rides
             # increment 2, hence the mode gate.
-            if not sim.config.brMode and sim.players[menaced].alive:
+            #
+            # S5 RULING (b): same `brAssistRescueUngated` switch as dAssist
+            # above — see that site's comment. The ALIVE predicate is
+            # unchanged either way (it is not part of the mode gate).
+            if (not sim.config.brMode or sim.config.brAssistRescueUngated) and
+                sim.players[menaced].alive:
               sim.awardDeed(killer.team, dRescue, victim.x, victim.y,
                             byIndex = killerIndex)
         if killer.rescuedTick >= 0 and
@@ -5977,11 +6148,8 @@ proc finishGame*(sim: var SimServer, winner: Team, isDraw = false, timeLimitReac
     # Once per episode by construction (one finalize, one winner) — no
     # MINT cap applies; the armed PRODUCT bound does, so the backstop
     # covers the last fold of the episode too.
-    sim.gloryProduct[winner] = recutFold(sim.gloryProduct[winner], winFactor,
-                                         sim.config.deedMintCaps)
-    sim.teamGlory[winner] = int(recutScore(
-      sim.gloryProduct[winner],
-      recutFfHalvings(sim.gloryFfIncidents[winner], sim.config.brMode)))
+    sim.gloryProduct[winner] = sim.recutFoldObserved(winner, winFactor)
+    sim.teamGlory[winner] = int(sim.recutCurrentScore(winner))
     if sim.gameEventLoggingEnabled:
       sim.logGameEvent(teamText(winner) & " win factor x" & $winFactor)
   if isDraw:
@@ -7927,10 +8095,47 @@ proc packRadiusSq*(sim: SimServer): int =
   if h <= 0: h = MapHeight
   (PackAreaPct * w * h) div 314
 
+proc recutMintSurvivalCredit(sim: var SimServer, seatIndex: int) =
+  ## S5 (CATALOG-V3-DRAFT.md §4, `placementRampV3`, THE OTHER HALF of the
+  ## ruled fix alongside the placement-ramp reprice above): "a continuous
+  ## survival-duration credit that already climbs before the milestone is
+  ## crossed" -- so a non-winning survivor's points ramp UP through the
+  ## 6-9pt shoulder instead of sitting flat until (if ever) a placement
+  ## milestone lands. Folds a small percent-scaled credit
+  ## (`RecutSurvivalCreditPct`) every `RecutSurvivalCreditIntervalTicks` an
+  ## alive seat's `aliveTicks` crosses, via the SAME `recutFoldPct`/
+  ## fixed-point path the placement ramp uses -- and per that path's own
+  ## documented dependency, this is a near no-op early in an episode
+  ## unless `gloryFixedPointScale` is ALSO armed (a small pct against a
+  ## small accumulator floors to nothing; see `recutFoldPct`'s doc
+  ## comment). Named plainly, not hidden: `placementRampV3` alone mutes
+  ## most of this credit's own effect until the accumulator has already
+  ## grown from other folds.
+  if not (sim.config.placementRampV3 and sim.config.gloryMultiplierRecut and
+      sim.config.winAsMultiplier and sim.config.brMode):
+    return
+  let ticks = sim.players[seatIndex].aliveTicks
+  if ticks <= 0 or ticks mod RecutSurvivalCreditIntervalTicks != 0:
+    return
+  let team = sim.players[seatIndex].team
+  sim.gloryProduct[team] =
+    sim.recutFoldPctObserved(team, RecutSurvivalCreditPct)
+  sim.teamGlory[team] = int(sim.recutCurrentScore(team))
+  sim.logGameEvent("GLORY_SURVIVAL_CREDIT team=" & teamText(team) &
+    " alive_ticks=" & $ticks)
+  sim.emitEvent(GloryDeed, source = seatIndex, target = ord(team),
+    weapon = "survivalCredit", amount = RecutSurvivalCreditPct,
+    content = "GLORY_SURVIVAL_CREDIT")
+
 proc updatePackTicks*(sim: var SimServer) =
   ## Analysis-only (`pack`): one alive tick per living cog, and a pack tick
   ## when at least PackMates living teammates stand within the pack radius.
-  ## Nothing here enters gameHash.
+  ## Nothing here enters gameHash. S5: also the cadence the placement
+  ## ramp's continuous survival credit rides (`recutMintSurvivalCredit`,
+  ## dark unless `placementRampV3` is armed) -- piggybacked here rather
+  ## than a new per-tick pass because this loop already visits every alive
+  ## seat once per tick and already owns `aliveTicks`, the exact signal the
+  ## credit's cadence is keyed on.
   if sim.phase != Playing:
     return
   let radiusSq = sim.packRadiusSq()
@@ -7938,6 +8143,7 @@ proc updatePackTicks*(sim: var SimServer) =
     if not sim.players[i].alive:
       continue
     inc sim.players[i].aliveTicks
+    sim.recutMintSurvivalCredit(i)
     var mates = 0
     for j in 0 ..< sim.players.len:
       if j == i or not sim.players[j].alive or

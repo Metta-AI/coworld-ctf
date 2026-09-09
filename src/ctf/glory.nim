@@ -2494,6 +2494,35 @@ const
     ## scores seed; losers still bank 0 at the league." The league-side loss
     ## gate is roster.nim's existing playerWon gate, untouched.
 
+  GlorySCALE*: int64 = 1024
+    ## Explicitly typed `int64` (not a bare int literal): on the wasm32
+    ## replay-viewer build target, Nim's plain `int` is 32 bits, and an
+    ## untyped literal constant used alongside an explicit `int64` in the
+    ## same expression (`recutActiveScale`, sim.nim) fails to unify there
+    ## even though it compiles fine on every 64-bit native target where
+    ## `int` and `int64` are the same concrete type -- caught by actually
+    ## building the wasm bundle (`tools/build_replay_viewer.sh`), not by
+    ## `nim check`/native shard builds, which cannot see this class of bug.
+    ## S5 RIG SIMULATION (epic 25d9108e, CATALOG-V3-DRAFT.md §9b, coordinator
+    ## follow-up ruling): the FIXED-POINT representation for the fractional
+    ## (percent-scaled) deed tier — seed the accumulator at `GlorySCALE`
+    ## (representing "1.0") instead of the bare `RecutSeed`, fold exactly the
+    ## same way, strip `GlorySCALE` once at the point the score is read
+    ## (`recutScoreScaled`). Measured (`tests/test_glory_percent_scale_
+    ## headroom.nim`, S4): worst-case drift 0.131% across every tested seed
+    ## at this scale (2^10), with the overflow margin (`RecutProductCapArmed
+    ## * GlorySCALE * 150`) sitting ~7.2 million times below 2^62. Only
+    ## meaningful once a caller actually folds a percent-scaled factor
+    ## (`recutFoldPct`) into a `GlorySCALE`-seeded product — armed with no
+    ## fractional-tier deed live, this const is inert plumbing: every
+    ## existing whole-integer class factor cancels the scale out exactly
+    ## (see `recutScoreScaled`'s own doc comment), which is why arming
+    ## `GameConfig.gloryFixedPointScale` alone changes no reported score.
+    ## `SCALE = 2^10` was picked over 2^8 per the S4 decision table (strictly
+    ## lower drift at every tested seed, same overflow headroom); NOT the
+    ## GLORYVERSION-bumped, wire-visible catalog v3 repricing itself, which
+    ## remains S6+/owner-gated and is not built here.
+
   RecutClassTable*: array[Deed, int] = [
     1,      # dNone (never minted; neutral by construction)
     # ×1 — commons (table §1 row 1): "still mint, still pop, still count
@@ -2862,6 +2891,328 @@ func recutScore*(product: int64, halvings: int): int64 {.inline.} =
   if halvings <= 0: return product
   if halvings >= 63: return 0
   product div (int64(1) shl halvings)
+
+func recutCapHit*(before, after, cap: int64): bool {.inline.} =
+  ## S5 fire counter (CATALOG-V3-DRAFT.md §7): true exactly when a fold just
+  ## CLAMPED the product to `cap` — i.e. `recutFold` returned the cap AND the
+  ## pre-fold product was not already sitting at it. Pure predicate so the
+  ## call sites (`sim.nim`, the only three places that call `recutFold`
+  ## against a team's `gloryProduct`) can increment their own counter without
+  ## `recutFold` itself needing a side effect (it stays a `func`, unchanged,
+  ## so every existing caller and fixture is untouched). This is the counter
+  ## `RecutProductCapArmed` shipped without — `grep -r "cap_hit"` returned
+  ## zero matches repo-wide before this — and it is pure observation: no
+  ## switch, always on. The caller (`sim.recutFoldObserved`/
+  ## `recutFoldPctObserved`, sim.nim) logs `GLORY_CAP_HIT` and emits a
+  ## `GloryDeed` event (`weapon="capHit"`) the instant this returns true —
+  ## never a new `SimServer` counter field, to avoid the flatty keyframe
+  ## layout change that would need. Silent (0 log lines) whenever
+  ## `deedMintCaps` is dark (the cap the fold saturates at is then the
+  ## ~2^62 overflow guard, which no measured episode has ever reached).
+  after == cap and before != cap
+
+const
+  RecutMinAccumulatorForSmallPct* = 64
+    ## GATE RULING 2 (coordinator, 2026-09-09, after the S5 rig's own
+    ## bare-seed finding: 23.08% drift at EVERY tested SCALE from 2^8 to
+    ## 2^20 — a structural integer-division floor scale size cannot fix,
+    ## not a rounding artifact). CATALOG RULE, reinstating a narrowed
+    ## fold-order discipline: a fractional-tier factor that is SMALL
+    ## (`pct < 200`, i.e. below `x2.00`) is NEVER folded while the
+    ## accumulator (in UNSCALED units — `product` if `gloryFixedPointScale`
+    ## is dark, `product div scale` if armed) sits at or below this floor.
+    ## The fold is SKIPPED (product returned unchanged), not applied and
+    ## then silently floored away at read-out — honest about "not yet
+    ## effective" rather than a fold that "happened" and vanished. Factors
+    ## `pct >= 200` are unrestricted (a real x2+ nudge registers even from
+    ## a small base with tolerable drift — see `test_glory_s5_rig.nim`).
+    ## `SCALE` stays `2^10` (`GlorySCALE`) — this rule does not change the
+    ## representation, only which small folds are allowed to apply early.
+
+func recutFoldPct*(product: int64, pct: int, capsArmed: bool = false,
+                   scale: int64 = 1): int64 {.inline.} =
+  ## S5 fixed-point fold (CATALOG-V3-DRAFT.md §9 Option B / §9b): folds one
+  ## PERCENT-SCALED factor (`pct=100` is the true identity, `x1.00`; `pct=
+  ## 130` folds `x1.30`) — the `AchievementFirstMultPct`-style idiom
+  ## generalized to any percent, not just the FIRST-claim ×300. Distinct
+  ## from `recutFold` (which takes a WHOLE integer class factor and never
+  ## divides) because this one always divides by 100, so it must never be
+  ## applied to `RecutClassTable`'s existing whole-class factors — those
+  ## keep folding through `recutFold` unchanged.
+  ##
+  ## `scale` (default 1, i.e. unscaled) is the caller's current
+  ## `GlorySCALE` if `gloryFixedPointScale` is armed, else 1 — used ONLY by
+  ## GATE RULING 2's small-factor floor guard below, so this proc still
+  ## does the SAME multiply-then-`div 100` regardless of scale; `scale`
+  ## never appears in that arithmetic itself (stripping it is
+  ## `recutScoreScaled`'s job, at read-out, not this proc's).
+  ##
+  ## REQUIRES a `GlorySCALE`-seeded accumulator (or a factor `pct >= 200`,
+  ## GATE RULING 2) to avoid the exact failure
+  ## `test_glory_percent_scale_headroom.nim` measured: at the bare seed (1),
+  ## `(1 * pct) div 100 == 1` for every `pct` in the fractional tier's whole
+  ## 100-199 range — a silent, total no-op, not a rounding error. `pct=100`
+  ## is the one input for which that is not true — it is an exact no-op at
+  ## ANY base, scaled or not, which is exactly why the placement ramp (§4)
+  ## can price `dFinal8`/`dFinal4` at `pct=100` today (crushed to zero
+  ## marginal score, still mints/pops/counts) without depending on the
+  ## representation switch at all — only `dFinal2`'s `pct=130` leg needs
+  ## `GlorySCALE` (or the GATE RULING 2 floor) to not truncate away.
+  if pct <= 100: return product
+  if pct < 200 and product < RecutMinAccumulatorForSmallPct * scale:
+    return product   # GATE RULING 2: base too small, skip this fold.
+  let cap = recutProductCap(capsArmed)
+  if product >= cap div int64(pct):
+    return cap
+  (product * int64(pct)) div 100
+
+func recutScoreScaled*(product: int64, halvings: int,
+                       scale: int64 = GlorySCALE): int64 {.inline.} =
+  ## S5 HALVING-ORDER INVARIANT (CATALOG-V3-DRAFT.md §9b, the S5 brief's own
+  ## explicit call-out): the SAFE order is halve FIRST — reusing
+  ## `recutScore`'s existing `halvings >= 63 -> 0` guard VERBATIM, so that
+  ## guard's behavior is identical whether or not `GlorySCALE` is armed —
+  ## then strip `scale` SECOND. The unsafe alternative, forming a single
+  ## COMBINED divisor (`scale * (1 shl halvings)`) before dividing once,
+  ## overflows int64 around halvings 53-61 (`scale * (1 shl 61)` alone
+  ## already exceeds `high(int64)` at `scale = 1024`) — a case realistic
+  ## play (halvings 0-5) would never exercise, and never catch in a
+  ## regression, which is exactly why this needs its own explicit test
+  ## line (`tests/test_glory_s5_rig.nim`, suite "S5 halving-order
+  ## invariant") rather than resting on the fact that today's episodes
+  ## stay in the safe range. This function
+  ## IS the fix: it can never form the unsafe combined divisor, because it
+  ## divides by `scale` in a second, separate step.
+  recutScore(product, halvings) div scale
+
+const
+  RecutPlacementRampDeeds* = {dFinal8, dFinal4, dFinal2}
+    ## S5 (CATALOG-V3-DRAFT.md §4, lead-ruled): the placement ladder reprices
+    ## DOWN into a small ramp under `GameConfig.placementRampV3`, replacing
+    ## the frozen `RecutClassTable` classes (2/3/4, cumulative x24 for a
+    ## winner) for exactly these three deeds — every other deed keeps
+    ## folding through `RecutClassTable`/`recutFold` unchanged.
+
+  RecutPlacementRampPct*: array[Deed, int] = block:
+    var pcts: array[Deed, int]
+    for deed in Deed: pcts[deed] = 100  # unused outside RecutPlacementRampDeeds
+    pcts[dFinal8] = 100  # x1.00 — crushed to a pure milestone marker (§4:
+                         # "a small deliberate reward, not the engine of the
+                         # middle"). Still mints/pops/counts; contributes
+                         # ZERO marginal score (recutFoldPct's own no-op).
+    pcts[dFinal4] = 100  # x1.00 — same reasoning.
+    pcts[dFinal2] = 130  # x1.30 — the one milestone still worth a small,
+                         # deliberate score nudge (the two finalists' own
+                         # tiebreaker besides the win multiplier). Needs
+                         # `gloryFixedPointScale` armed to avoid truncating
+                         # away at a small accumulator — see `recutFoldPct`.
+    pcts
+
+  RecutSurvivalCreditIntervalTicks* = 720
+    ## S5 (CATALOG-V3-DRAFT.md §4, the ruled fix's OTHER half): "a continuous
+    ## survival-duration credit that already climbs before the milestone is
+    ## crossed" — ~30s at the engine's 24 ticks/s (`TargetFps`). A candidate
+    ## cadence, not a tuned constant: S5's rig sweeps this alongside the
+    ## pct below; not decided by this draft.
+  RecutSurvivalCreditPct* = 102
+    ## x1.02 per checkpoint an alive seat's `aliveTicks` crosses a
+    ## `RecutSurvivalCreditIntervalTicks` boundary. A CANDIDATE value sized
+    ## only to be "small and frequent" (the §4 ramp's own requirement) —
+    ## the rig reports what this actually does to the 6-9pt continuity
+    ## check, it does not defend this exact number.
+
+# ───────────────────────────────────────────────────────────────────────────
+# GATE RULING 1 (coordinator, 2026-09-09) — "WIRE-OK for the rig only, in
+# this exact form": the v3 `RecutClassTable`/`RecutTierClass`/`HeatLadder`/
+# `RecutStackLadder` reprice (CATALOG-V3-DRAFT.md's FREEZE CONDITION 1
+# static trial), implemented as a SWITCH-SELECTED SECOND TABLE
+# (`GameConfig.catalogV3Reprice`, default OFF). Switch OFF selects the
+# FROZEN table above and is BYTE-IDENTICAL — proven, not asserted, by
+# `test_glory_s5_rig.nim`'s equivalence-to-pure-frozen-arithmetic test and
+# a pinned `gameHash` fixture. NO GLORYVERSION BUMP: this table is dead
+# weight in the binary until the switch arms, the wire shape is untouched,
+# and the switch itself defaults off, so no league or build sees any of
+# this until an S6 ship PR explicitly arms it (owner GO required, per the
+# coordinator's own ruling: "the GLORYVERSION bump lives ONLY in the S6
+# ship PR").
+#
+# VALUES — GATE RULING (coordinator, after this rig's first report):
+# "STOP GUESSING -- USE S4'S ACTUAL CONSTANTS... No new constants are
+# invented in S5 -- a documented table IS the freeze." Investigated before
+# writing a single number: `git show --stat 57308cf3` (PR #491, the S4
+# freeze) touched ONLY `docs/designs/glory/CATALOG-V3-DRAFT.md` -- no
+# `tools/glory` file. `git show --stat f6c8d95e` (PR #494) added
+# `attribution_decompose.py`/`attribution_analyze.py`, which are the S1b
+# TOP-ATTRIBUTION tools (measuring recorded events against a bucket
+# schema) -- not a repricing tool, and neither takes a v3/reprice CLI
+# argument (`attribution_decompose.py --help`: only `--rows`/`--attr-dir`/
+# `--out`). `CATALOG-V3-DRAFT.md` itself, verbatim, confirms this: its own
+# FREEZE CONDITION 1 section names the script as
+# `/tmp/glory-catalog/attribution-tool/reprice_v3.py`, "not committed --
+# ephemeral trial tooling." **The tool the coordinator described does not
+# exist in this repo** -- this is reported as its own finding, not
+# silently worked around. What DOES exist verbatim, committed, in
+# `CATALOG-V3-DRAFT.md` (Section "FREEZE CONDITION 1" prose, and Section
+# 2a's own per-deed disposition table) is used below, value for value,
+# with no invented number for anything the doc leaves unspecified:
+#   - dHonorableKill 1->2.2, dShieldSoak 1->1.6, dClutchHeal 1->1.8,
+#     dPointBlankKill 1->2.5 (exact, "What had to be repriced" prose).
+#   - HEAT 2/4/8 -> 5/14/36 (exact, same prose).
+#   - ALLY-STACK scaled x2.5 (exact, same prose).
+#   - dClosingTime base ->1.1/1.2 win-bumped (exact, same prose).
+#   - treeSquad.IV (Tier IV) x2->x1.05 (exact, same prose).
+#   - treeGun.V (Tier V) exponent 0.5, i.e. sqrt(4)=2 -> x2.0 (exact, same
+#     prose: "scaled down (exponent 0.5) but kept real").
+# The prose's OWN "already-real classes... all raised further" line
+# (dFirstBlood/dLongshotKill/dAceTag/dLastLight/dRevengeKill/dRunDown/
+# dSplashMultiKill) names NO exact target -- and Section 2a's OWN per-deed
+# table (this same committed document) marks every one of these SEVEN
+# deeds "KEEP-PENDING" / explicitly "(unchanged)" as its proposed tier. An
+# earlier draft of this file invented a flat +50% for these seven, which
+# this GATE RULING retracts: they fold at their CLASSIC, UNCHANGED
+# `RecutClassTable` value under v3 too (the `for deed in Deed:` default
+# below), matching the doc's own most specific, most recent word on them.
+# TERRITORY's "scaled to 15% of its current magnitude" names a TARGET
+# FRACTION with no formula -- not enough to apply without inventing the
+# mechanism, so v3 territory shift is a NO-OP (same reasoning): named as a
+# gap, not silently approximated. `dJointAct` and `WIN` are explicitly
+# UNTOUCHED (the doc's own "the win multiplier stays the win" ruling;
+# dJointAct's era-split is a BUCKET reclassification, not a class change).
+const
+  RecutClassTableV3Pct*: array[Deed, int] = block:
+    ## RECOVERED (coordinator, 2026-09-09): the repricer was never lost, it
+    ## was ephemeral in /tmp and has now been preserved at
+    ## `~/.ctf/knowledge/glory-gradient/00s-s4-repricer-recovered/
+    ## reprice_v3.py` and landed verbatim at `tools/glory/reprice_v3.py`
+    ## (this PR). Every value below is copied from that file's own
+    ## `NEW_BASE_CLASS` dict, verbatim -- the earlier "(unchanged)"
+    ## placeholder for the seven previously-unspecified deeds is WRONG and
+    ## retracted; the tool's own comment on them: "Boost the ALREADY-real
+    ## kill classes too -- the design law says magnitude moves to 'kills'
+    ## broadly, not only the ex-commons."
+    var pcts: array[Deed, int]
+    for deed in Deed: pcts[deed] = RecutClassTable[deed] * 100
+    pcts[dHonorableKill] = 220     # x1 -> x2.2
+    pcts[dShieldSoak] = 160        # x1 -> x1.6
+    pcts[dClutchHeal] = 180        # x1 -> x1.8
+    pcts[dPointBlankKill] = 250    # x1 -> x2.5
+    pcts[dFirstBlood] = 400        # x2 -> x4
+    pcts[dLongshotKill] = 600      # x3 -> x6
+    pcts[dSplashMultiKill] = 600   # x3 -> x6
+    pcts[dRevengeKill] = 400       # x2 -> x4
+    pcts[dRunDown] = 400           # x2 -> x4
+    pcts[dAceTag] = 900            # x4 -> x9
+    pcts[dLastLight] = 800         # x4 -> x8
+    pcts[dClosingTime] = 110       # x2 -> x1.1 (non-win base)
+    # dJointAct (2) and dLevelUp (1.0) are in `NEW_BASE_CLASS` too but
+    # equal their classic values -- no override needed, the default above
+    # already matches verbatim.
+    pcts
+
+  RecutClosingTimeWinBumpV3Pct* = 120
+    ## dClosingTime's win-bumped base under v3: x3 -> x1.2 (exact, doc-named).
+
+  RecutTierClassV3Pct*: array[AchievementTiers, int] = block:
+    var pcts: array[AchievementTiers, int]
+    for tier in 0 ..< AchievementTiers: pcts[tier] = RecutTierClass[tier] * 100
+    pcts[3] = 105   # Tier IV (treeSquad.IV Clean Sheet): x2 -> x1.05 (exact)
+    pcts[4] = 200   # Tier V (treeGun.V Sharpshooter): x4 -> x2.0 (exponent
+                     # 0.5 per the doc's own wording: sqrt(4)=2)
+    pcts
+
+  HeatLadderV3Pct*: array[4, int] = [100, 500, 1400, 3600]
+    ## x1/x5/x14/x36 (exact, doc-named: "2/4/8 -> 5/14/36").
+
+  RecutStackLadderV3Pct*: array[6, int] = [100, 500, 750, 1250, 2000, 3250]
+    ## k=1 stays neutral (x1, unscaled -- a lone seat is never "stacked");
+    ## k=2..6 (classic ladder 2,3,5,8,13) scaled x2.5 (exact, doc-named:
+    ## "ALLY-STACK scaled x2.5").
+
+func recutTerritoryShiftPctV3*(oldBase: int): int {.inline.} =
+  ## RECOVERED verbatim formula (`reprice_v3.py`): `territory_log2 =
+  ## (log2(shifted) - log2(oldBase)) * TERRITORY_SCALE` where `shifted =
+  ## oldBase + 1` (the classic +1-rung territory shift) and
+  ## `TERRITORY_SCALE = 0.15`; the multiplicative bump is `2^territory_log2`.
+  ## `glory.nim` carries ZERO imports (this file's own law, see its
+  ## header), so `std/math`'s `log2`/`pow` are not available -- every
+  ## value RecutClassTable's own oldBase can actually be (2, 3, 4, 6, 8;
+  ## commons=1 never shifts, gated by the caller) is precomputed by hand
+  ## instead of at runtime:
+  ##   oldBase=2: (3/2)^0.15 = 1.0627 -> 106%
+  ##   oldBase=3: (4/3)^0.15 = 1.0441 -> 104%
+  ##   oldBase=4: (5/4)^0.15 = 1.0340 -> 103%
+  ##   oldBase=6: (7/6)^0.15 = 1.0234 -> 102%
+  ##   oldBase=8: (9/8)^0.15 = 1.0178 -> 102%
+  case oldBase
+  of 2: 106
+  of 3: 104
+  of 4: 103
+  of 6: 102
+  of 8: 102
+  else: 100
+
+func heatMultV3Pct*(embers: int): int {.inline.} =
+  ## V3 sibling of `heatMult`, percent-scaled.
+  let rung = heatRung(embers)
+  HeatLadderV3Pct[if rung > HeatLadderV3Pct.high: HeatLadderV3Pct.high else: rung]
+
+func recutStackMultV3Pct*(k: int): int {.inline.} =
+  ## V3 sibling of `recutStackMult`, percent-scaled.
+  if k <= 1: RecutStackLadderV3Pct[0]
+  elif k >= RecutStackLadderV3Pct.len: RecutStackLadderV3Pct[^1]
+  else: RecutStackLadderV3Pct[k - 1]
+
+func recutShiftedClassV3Pct*(deed: Deed, sitePct: int,
+                             winAsMult: bool = false): int {.inline.} =
+  ## V3 sibling of `recutShiftedClass`, percent-scaled. Commons (pct<=100)
+  ## never shift, same law as the classic path (§5.8, load-bearing).
+  result =
+    if deed == dClosingTime:
+      (if winAsMult: RecutClosingTimeWinBumpV3Pct else: RecutClassTableV3Pct[dClosingTime])
+    else: RecutClassTableV3Pct[deed]
+  if result > 100 and sitePct == SiteMultEnemyPct:
+    let oldBase = RecutClassTable[deed]
+    if oldBase >= 2:
+      result = (result * recutTerritoryShiftPctV3(oldBase)) div 100
+
+func recutFactorV3Pct*(deed: Deed; embers, sitePct: int; carrying: bool;
+                       stackK: int = 1; winAsMult: bool = false): int =
+  ## V3 sibling of `recutFactor`, percent-scaled. Accumulates class x heat
+  ## x carry x stack as a SINGLE rational (numerator/denominator) and
+  ## divides ONCE at the end, not once per stage -- the "keep an exact
+  ## intermediate, truncate once" pattern `test_glory_percent_scale_
+  ## headroom.nim` proved UNSAFE for a 30-factor chain (numerator overflow)
+  ## but which is safe here: at most 4 stages, worst case numerator
+  ## ~600*3600*200*3250 ~= 1.4e12, nowhere near int64 overflow.
+  let classPct = recutShiftedClassV3Pct(deed, sitePct, winAsMult)
+  if classPct <= 100: return 100
+  var num = int64(classPct)
+  var den = int64(100)
+  if paysHeat(deed):
+    num *= int64(heatMultV3Pct(embers)); den *= 100
+  if carrying and isDrama(deed):
+    num *= int64(CarrierHoldMultPct); den *= 100
+  num *= int64(recutStackMultV3Pct(stackK)); den *= 100
+  result = int((num * 100) div den)
+
+func recutAchievementFactorV3Pct*(tier: int, isFirst: bool): int =
+  ## V3 sibling of `recutAchievementFactor`, percent-scaled. Tier V
+  ## (Sharpshooter) uses the RECOVERED verbatim formula (`reprice_v3.py`):
+  ## `eff_amt = max(1.01, amt ** 0.5)`, where `amt` is the CLASSIC amount
+  ## INCLUDING the FIRST-claim x3 where it applies (`4*3=12` for FIRST,
+  ## `4` otherwise) -- NOT tier-scaled-then-separately-x3'd, which an
+  ## earlier draft of this function did (200% * 300% = 600%, wrong: the
+  ## tool applies the sqrt to the COMBINED amount, `sqrt(12)~=3.46`, not
+  ## `sqrt(4)*3=6`). Both sqrt results are compile-time-known constants
+  ## (tier V's classic amount is fixed), so no `std/math` import is needed
+  ## (this file's own zero-imports law): sqrt(4)=2.0 -> 200%,
+  ## sqrt(12)=3.4641016... -> 346% (rounded to the nearest percent).
+  if tier < 0 or tier >= AchievementTiers: return 100
+  if tier == AchievementTiers - 2:   # Tier IV, treeSquad.IV Clean Sheet
+    return 105
+  if tier == AchievementTiers - 1:   # Tier V, treeGun.V Sharpshooter
+    return if isFirst: 346 else: 200
+  result = RecutTierClassV3Pct[tier]
 
 const
   RecutWinFactorBR* = 4
