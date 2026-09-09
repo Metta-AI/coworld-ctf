@@ -34,11 +34,18 @@ don't restate the sentence.
   ranked #1 in that division.
 - **"+N behind"** — How far this row's standing trails the leader's, in the
   same units as the standing column.
-- **MOST LETHAL** — not yet defined by the game. No code path or existing
-  page computing this award label was found; do not guess what it measures.
-- **UNTOUCHABLE** — not yet defined by the game. Same gap as MOST LETHAL.
-- **THE CLOSER** — not yet defined by the game. Same gap as MOST LETHAL.
-- **POINT MACHINE** — not yet defined by the game. Same gap as MOST LETHAL.
+- **MOST LETHAL** — The policy with the most tags per seat-game held, among
+  policies with at least 8 games played.
+- **UNTOUCHABLE** — The policy with the fewest tags taken per seat-game
+  held, among policies with at least 8 games played.
+- **THE CLOSER** — The policy with the highest win rate, among policies
+  with at least 8 games played (a policy's seats share one verdict).
+- **POINT MACHINE** — The policy with the highest mean recorded score per
+  seat-game held, among policies with at least 8 games played.
+
+*Era: these four are computed by the paintbot-superlatives reporter
+(`reporters/paintbot-superlatives/app.py`) in the metta monorepo, read at
+`origin/main` commit `a0cbf6d024` (2026-09-09).*
 
 ## Gaps
 
