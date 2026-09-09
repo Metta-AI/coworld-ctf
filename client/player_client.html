@@ -481,7 +481,7 @@ function fit(){
    write that comment warns about. scheduleDraw() queues the real paint for
    the next rAF instead. */
 function sizeCanvas(width,height){if(sceneCanvas.width!==width||sceneCanvas.height!==height){sceneCanvas.width=width;sceneCanvas.height=height;sceneCtx.imageSmoothingEnabled=false;fit();camInited=false;cameraTransformDirty=true;scheduleDraw()}}
-function sendMask(mask,force=false){if(!w||w.readyState!==1)return;if(!force&&mask===l)return;w.send(spriteMode?new Uint8Array([0x84,mask&255]):new Uint8Array([0,mask&255]));l=mask}
+function sendMask(mask,force=false){if(!w||w.readyState!==1)return;if(!force&&mask===l)return;w.send(spriteMode?new Uint8Array([0x84,mask&255]):new Uint8Array([0,mask&255]));l=mask;lastSendAt=performance.now()} // B2-15: stamps the outgoing send for the rtt_p50_ms proxy sampled in w.onmessage below
 function release(){k={};sendMask(0,true)}
 function chat(text){const clean=text.replace(/[^\x20-\x7e]/g,"");if(!clean||!w||w.readyState!==1)return;if(spriteMode){const b=new Uint8Array(clean.length+3);b[0]=0x81;b[1]=clean.length&255;b[2]=clean.length>>8;for(let j=0;j<clean.length;j++)b[j+3]=clean.charCodeAt(j);w.send(b)}else{const b=new Uint8Array(clean.length+1);b[0]=1;for(let j=0;j<clean.length;j++)b[j+1]=clean.charCodeAt(j);w.send(b)}}
 fit();
@@ -1138,6 +1138,19 @@ function frameTick(now){
     rafHandle=requestAnimationFrame(frameTick);
     return;
   }
+  /* B2-15 telemetry: rolling rAF-delta ring buffer for fps_p50/fps_p5.
+     Sampled here (past the document.hidden/hitstop early-returns above) so
+     a backgrounded or frozen tab never counts as a "frame" -- this reflects
+     perceived smoothness, not raw rAF firing rate. fdt<1000 excludes a
+     tab-resume/long-stall gap from being logged as one absurd near-zero-fps
+     sample (that is a resume event, not stutter); telemetryRing()/
+     fpsPercentiles() (near sendTelemetryBeacon, bottom of file) consume
+     this. */
+  if(lastFrameTickAt){
+    const fdt=now-lastFrameTickAt;
+    if(fdt>0&&fdt<1000){fpsRing.push(fdt);if(fpsRing.length>FPS_RING_SIZE)fpsRing.shift()}
+  }
+  lastFrameTickAt=now;
   const animating=updateInterpolation(now);
   /* OPT-12: advance the local wall-clock prediction ticker FIRST (fires zero
      or more predictAdvance() calls depending on elapsed real time, entirely
@@ -1164,6 +1177,26 @@ function frameTick(now){
   {
     const selfObj=selfObjectId!==null?objects.get(selfObjectId):null;
     window.__selfRenderPos=selfObj?{x:selfObj.dispX,y:selfObj.dispY,t:now}:null;
+  }
+  /* B2-15 telemetry: input->visible-motion latency. pendingInputAt/
+     pendingInputPos are armed by noteInput() (keydown/mousedown listener,
+     bottom of file) at the START of an input burst (>=120ms since the last
+     one). Here, every frame, check whether __selfRenderPos (just updated
+     above) has actually MOVED since that burst started; if so the delta is
+     a real sample. INPUT_LATENCY_DROP_MS bounds how long we wait -- a press
+     that never produces motion (blocked by a wall, or a wasted keypress
+     while dead/unseated) is DROPPED, not logged as a huge fake latency,
+     per the brief's own explicit call-out of that failure mode. */
+  if(pendingInputAt){
+    if(now-pendingInputAt>INPUT_LATENCY_DROP_MS){pendingInputAt=0;pendingInputPos=null}
+    else{
+      const sp=window.__selfRenderPos;
+      if(sp&&pendingInputPos&&(sp.x!==pendingInputPos.x||sp.y!==pendingInputPos.y)){
+        inputLatRing.push(sp.t-pendingInputAt);
+        if(inputLatRing.length>INPUT_LAT_RING_SIZE)inputLatRing.shift();
+        pendingInputAt=0;pendingInputPos=null;
+      }
+    }
   }
   drawSprite();
   /* Keep the rAF chain alive on its own while predicting+seated, even if
@@ -1217,6 +1250,15 @@ let lastFrameAt=0,everSawFrame=false,staleWatchdog=0;
   w.onopen=()=>{reconnectAttempts=0;n("");lastFrameAt=performance.now()};
   w.onmessage=e=>{
     lastFrameAt=performance.now();everSawFrame=true;
+    /* B2-15: rtt_p50_ms proxy. This protocol has no ping/pong, so the best
+       available real signal is the client's own outgoing-send-to-next-
+       incoming-frame gap: sendMask() (called once per controlsTick, i.e.
+       once per RECEIVED frame) stamps lastSendAt on every actual w.send();
+       the very next message to land here is that round trip's answer.
+       Reset to 0 immediately so a message that did NOT follow a fresh send
+       (e.g. sendMask's own dedupe skipped the wire write because the mask
+       was unchanged) is never double-counted against a later frame. */
+    if(lastSendAt){rttRing.push(performance.now()-lastSendAt);if(rttRing.length>RTT_RING_SIZE)rttRing.shift();lastSendAt=0}
     /* Frame-type guard, MUST run before any Uint8Array conversion. This
        socket is binary-only by contract (binaryType="arraybuffer" above),
        but a text frame lands here as a plain JS string regardless of that
@@ -3143,6 +3185,124 @@ document.addEventListener("visibilitychange",()=>{
   scheduleDraw();
   if(!uiRafHandle)uiRafHandle=requestAnimationFrame(uiTick);
 });
+/* ============================ B2-15: client self-instrumentation + beacon
+   Goal (see task brief / humanplay-optimization batch2 telemetry.md): every
+   number this lane has ever published about prediction came from a
+   scripted, smooth-cursor synthetic session -- never a real WASD-tapping
+   human hitting real terrain modifiers prediction is wall-blind to. This
+   block is read-only measurement wired onto counters this file already
+   exposes on window (__predict, __selfRenderPos) plus a few new ones
+   (fpsRing/rttRing/inputLatRing/longtask observer, all declared here so a
+   single self-contained section owns the whole feature -- frameTick/
+   sendMask/w.onmessage above only got the minimal one-line hooks needed to
+   feed these rings; hoisting/closures over a single top-level <script>
+   scope mean declaration ORDER here doesn't matter, only that it runs
+   before the events (rAF/message/keydown) that reference it fire, which is
+   guaranteed since JS runs this whole script synchronously first). Sends
+   NOTHING but this session's own perf counters -- no IP, no account, no UA
+   string beyond a coarse device class (identity boundary matches reward/
+   endcard's own seat-name-only rule, memory ctf-reward-identity-is-seat-name).
+   Ships inert if /api/telemetry 404s (B2-16 may not exist yet on a given
+   shell build): sendBeacon is fire-and-forget by design -- a 404 response
+   is invisible to this page (no throw, no console error, no retry loop). */
+const TELEMETRY_URL=u.searchParams.get("telemetryUrl")||"/api/telemetry"; // same-origin default; query override lets a verification stub point elsewhere
+const TELEMETRY_INTERVAL_MS=60000; // owner-flippable cadence, per the brief
+const BUILD_STAMP="__CTF_BUILD_STAMP__"; // compile-time splice target -- see server.nim's EmbeddedPlayerClientHtml .replace chain (ctfSimSourcesStamp, build_stamp.nim); "" on a build compiled without -d:ctfSimSourcesStamp=<hash> (tests, ad-hoc dev builds) -- never fabricate a value when blank.
+const PAGE_LOAD_T0=Date.now();
+const TELEMETRY_SID=(()=>{try{return crypto.randomUUID()}catch(e){return "sid"+Math.random().toString(36).slice(2)+Date.now().toString(36)}})(); // one per page load; not a player identity, just a way to group one session's beacons
+const FPS_RING_SIZE=2048,RTT_RING_SIZE=256,INPUT_LAT_RING_SIZE=128;
+const INPUT_BURST_GAP_MS=120; // brief's own definition of a new input "burst"
+const INPUT_LATENCY_DROP_MS=500; // no motion this long after a burst start == blocked by a wall (or dead/unseated) -- drop, don't log a fake spike
+let lastFrameTickAt=0,fpsRing=[],lastSendAt=0,rttRing=[],
+  pendingInputAt=0,pendingInputPos=null,inputLatRing=[];
+window.__net={get reconnects(){return reconnectAttempts}}; // mirrors reconnectAttempts (declared far above, near the socket connect() IIFE) live -- same "expose the existing counter on window" idiom as window.__predict
+let lastInputAtTelemetry=0;
+function noteInput(){
+  const now=performance.now();
+  if(now-lastInputAtTelemetry>=INPUT_BURST_GAP_MS){
+    pendingInputAt=now;
+    pendingInputPos=window.__selfRenderPos?{x:window.__selfRenderPos.x,y:window.__selfRenderPos.y}:null;
+  }
+  lastInputAtTelemetry=now;
+}
+addEventListener("keydown",noteInput);
+addEventListener("mousedown",noteInput);
+/* Long-task share: PerformanceObserver is feature-detected and left fully
+   inert (never even calls .observe()) on a browser without 'longtask'
+   support (e.g. Firefox at time of writing) -- same defensive style
+   navigator.sendBeacon?.() already uses everywhere else in this file.
+   longtask_pct reports null rather than a fake 0 when unsupported, so a
+   consumer can tell "definitely idle" from "we never measured". */
+let longtaskBlockedMs=0,longtaskSupported=false;
+if(typeof PerformanceObserver!=="undefined"&&PerformanceObserver.supportedEntryTypes&&PerformanceObserver.supportedEntryTypes.includes("longtask")){
+  try{
+    new PerformanceObserver(list=>{for(const e of list.getEntries())longtaskBlockedMs+=e.duration}).observe({entryTypes:["longtask"]});
+    longtaskSupported=true;
+  }catch(e){longtaskSupported=false}
+}
+function ringPercentile(ring,p){
+  if(ring.length===0)return null;
+  const sorted=ring.slice().sort((x,y)=>x-y);
+  return Math.round(sorted[Math.min(sorted.length-1,Math.floor(p*sorted.length))]*10)/10;
+}
+function fpsPercentile(p){
+  if(fpsRing.length===0)return null;
+  const sorted=fpsRing.map(dt=>dt>0?1000/dt:0).sort((x,y)=>x-y);
+  return Math.round(sorted[Math.min(sorted.length-1,Math.floor(p*sorted.length))]*10)/10;
+}
+/* device class: cheap UA sniff + touch/viewport, computed at send time
+   (matches telemetry.md's own "cheap" framing -- no dependency on the
+   still-unshipped-everywhere navigator.userAgentData). Only distinguishes
+   the three schema-fixed buckets; it does NOT capture the separate
+   takeover-vs-fresh-match distinction the wider plan doc flags (mouse aim
+   only exists on /takeover, memory ctf-human-aim-only-on-takeover-socket)
+   -- that axis has no field in the fixed schema this task and B2-16 both
+   implement, so an analysis needing it will have to key off something else
+   (e.g. directAimActive, already computed above) rather than this beacon
+   alone. */
+function deviceClass(){
+  const ua=navigator.userAgent||"";
+  const touch=(navigator.maxTouchPoints||0)>0;
+  const minSide=Math.min(innerWidth||0,innerHeight||0);
+  if(/iPad|Android(?!.*Mobile)/i.test(ua)||(touch&&minSide>=600&&minSide<1200))return "tablet";
+  if(/Mobi|iPhone|Android/i.test(ua)||(touch&&minSide<600))return "mobile";
+  return "desktop";
+}
+function telemetryPayload(final){
+  const elapsedMs=performance.now();
+  return {
+    v:1,
+    sid:TELEMETRY_SID,
+    seat:u.searchParams.get("name")||null, // seat name only, matching the reward/endcard identity boundary -- never IP/account
+    mode:isBrMap()?"br":"ctf",
+    predict:PREDICT_ENABLED,
+    build:BUILD_STAMP,
+    t0:PAGE_LOAD_T0,
+    dur_s:Math.round((Date.now()-PAGE_LOAD_T0)/100)/10,
+    fps_p50:fpsPercentile(0.5),
+    fps_p5:fpsPercentile(0.05),
+    longtask_pct:longtaskSupported?Math.min(100,Math.round((longtaskBlockedMs/Math.max(1,elapsedMs))*1000)/10):null,
+    input_lat_p50_ms:ringPercentile(inputLatRing,0.5),
+    rtt_p50_ms:ringPercentile(rttRing,0.5),
+    snaps:window.__predict?window.__predict.corrections:null,
+    snap_max_err:window.__predict?window.__predict.maxError:null,
+    reconnects:reconnectAttempts,
+    device:deviceClass(),
+    final:!!final
+  };
+}
+function sendTelemetryBeacon(final){
+  try{
+    const body=new Blob([JSON.stringify(telemetryPayload(final))],{type:"application/json"});
+    navigator.sendBeacon?.(TELEMETRY_URL,body);
+  }catch(e){/* never let a beacon failure touch gameplay */}
+}
+setInterval(()=>sendTelemetryBeacon(false),TELEMETRY_INTERVAL_MS);
+/* This file is iframe CONTENT (embedded by web/play.html or web/takeover.html
+   in the shell repo), so it needs its OWN pagehide listener -- the shell
+   page's own pagehide (web/index.html:422, web/play.html:283) only fires
+   for the TOP document, not this frame. */
+addEventListener("pagehide",()=>sendTelemetryBeacon(true));
 </script>
 <script src="player_hud.js"></script>
 </body>
