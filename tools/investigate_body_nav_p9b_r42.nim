@@ -58,7 +58,7 @@ proc percentileInt(values: openArray[int64], fraction: float64): int64 =
   sorted.sort()
   sorted[min(sorted.high, max(0, int(ceil(fraction * sorted.len.float)) - 1))]
 
-proc begin(queue: var DialQueue) =
+proc begin*(queue: var DialQueue) =
   for raw in queue.touched:
     queue.buckets[raw.int].setLen(0)
   queue.touched.setLen(0)
@@ -66,7 +66,7 @@ proc begin(queue: var DialQueue) =
   queue.currentQuotient = high(int64)
   queue.nextInsertion = 0
 
-proc push(queue: var DialQueue, f, g, node: int32) {.inline.} =
+proc push*(queue: var DialQueue, f, g, node: int32) {.inline.} =
   let
     quotient = f.int64 div queue.width
     slot = int(quotient mod queue.bucketCount)
@@ -78,7 +78,7 @@ proc push(queue: var DialQueue, f, g, node: int32) {.inline.} =
   inc queue.len
   queue.currentQuotient = min(queue.currentQuotient, quotient)
 
-proc pop(queue: var DialQueue): BucketEntry =
+proc pop*(queue: var DialQueue): BucketEntry =
   while queue.len > 0:
     let slot = int(queue.currentQuotient mod queue.bucketCount)
     var best = -1
@@ -127,7 +127,7 @@ proc buildCombinedCellCost*(weights,
     doAssert hazardCost[cell] == 0
     result[cell] = weights[cell]
 
-proc stepCost(factor: int32, diagonal: bool): int32 {.inline.} =
+proc stepCost*(factor: int32, diagonal: bool): int32 {.inline.} =
   let base = if diagonal: 91'i64 else: 64'i64
   int32((base * factor.int64 + 32_768) shr 16)
 
