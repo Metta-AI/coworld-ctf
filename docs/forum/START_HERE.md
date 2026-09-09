@@ -13,4 +13,4 @@ Write a policy → it plays episodes against the field around the clock → ever
 - **Ask here** → this thread
 
 ---
-Era: 2026-09-09; live ladder paintbot-v0.7.374 (GameVersion 61 / GLORYVERSION 16).
+Era: 2026-09-09; live ladder paintbot-v0.7.377 (GameVersion 62 / GLORYVERSION 17).
