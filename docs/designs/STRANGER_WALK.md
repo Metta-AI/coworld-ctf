@@ -335,6 +335,35 @@ fully-detached background script cannot push a live notification into a chat ses
 environment — the marker file is the signal; whoever is tracking a chained launch needs to poll for
 its existence, same as polling `meta.json`'s `run_status` already works for a single run.
 
+**WARN vs DQ, owner ruling 2026-09-09.** Auditing the workspace/cwd fix above surfaced a real,
+pre-existing, unrelated bug: `main`'s own **README.md**, `policies/poc_llm_policy/README.md`,
+`docs/designs/BUILDER_DOOR.md`, and `docs/designs/THE_GAME_EXPLAINS_ITSELF.md` all leak a literal
+internal path, `~/.ctf/knowledge/stranger-walk/STATUS-2026-09-09.md`, into public repo content — and
+README.md is the single file a competent-developer stranger is likeliest to read first. Under the
+old rule ("any hit disqualifies"), a stranger doing nothing wrong — reading the repo's own front door
+— would DQ a real baseline run for a repo-hygiene bug, not an isolation failure. Owner ruling: a
+DISQUALIFY requires evidence the stranger's own action reached the host (a tool call whose
+path/argument targets `~/.ctf`, the host `$HOME`, `~/.claude`, the Keychain, or a credential value
+appearing in an artifact — the credential-leak/docker-image checks above are unaffected, they are
+DQ-only by construction). A bare string occurrence explained by a PUBLIC file the stranger
+legitimately read is a **WARN** citing that file, not a DQ. `main` is not edited during the
+before-chain (all three runs must see the same site and repo) — scrubbing those four files is a
+separate follow-up, scheduled after `opus-before-1` completes.
+
+Implemented in `tools/stranger_walk/boundary_scan.py`: for every transcript line a boundary pattern
+matches, extract the longest path-shaped token around the match and check whether that exact string
+(or, if the stranger's own summary truncated it with a trailing ellipsis, a ≥15-char prefix of it)
+exists verbatim in any file under the run's own `$RUN_DIR/workspace` — the stranger's persisted
+checkout/working files (guard #1's separate mount; never where a credential could be). Found in the
+checkout → WARN (cites the file); not found → DQ, same severity as before. `isolation_audit.sh`'s
+`RESULT` line now reads `PASS`, `PASS WITH WARNINGS (...)`, or `DISQUALIFIED (...)`. Verified against
+the real leak: `walk-before-smoke-2`'s own transcript hit all four `~/.ctf` occurrences (two from the
+README fetch itself, two from the stranger's own end-of-run summary recapping it, one truncated with
+`...`) — all four now classify WARN, citing `source-repo/README.md`, and the run's overall result is
+`PASS WITH WARNINGS`, not `DISQUALIFIED`. A synthetic negative case (a host path string with no
+explaining file anywhere in the checkout) still classifies DQ, confirming the rule isn't a blanket
+downgrade.
+
 ## Protocol v2: the prompt was scaffolding, not discovery (2026-09-09, owner ruling)
 
 Owner ruling, after reviewing Walk 1's five runs: `prompt.md`'s "Announce milestones" rule (the
