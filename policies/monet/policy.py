@@ -214,6 +214,29 @@ JACKAL_JOIN_WHEN = "bothWeakened"
 FIRE_SUPERIORITY_PRESS_RANGE = {"default": 220, "endgame": 220}
 FIRE_SUPERIORITY_FINISH_RANGE = {"default": 140, "endgame": 120}
 
+# FIRE_SUPERIORITY ENGAGE_DIST WIRE FIX (v53, GloryVersion 17 economy read,
+# /tmp/monet_gv17_econ/GV17_ECONOMY.md, n=63 paired same-lobby episodes vs
+# docxology/softmaxclaudius-t2/pawchuck): under GV17's catalog-v3 re-price
+# (dHonorableKill x2.2, dLongshotKill x6, dAceTag x9, placement lumps
+# dFinal8/dFinal4 zeroed) the paired gap is engagement VOLUME, not range --
+# our shots_fired/episode (2.38) is under half docxology's (5.04) and our
+# longshot-tag rate (1.6% of episodes) trails docxology's (10.7%) 6x, while
+# our own mean first-shot distance (707) and max shot distance (827)
+# already match or exceed every leader's. engageDist (the fresh-enemy-track
+# radius that counts as "a live gun" for fire_superiority's press/break
+# arithmetic, plays/fire_superiority.nim's `ally`/target-count branch) sat
+# at the schema default of 600 -- BELOW our own average engagement range --
+# so a real fraction of engagements we are geometrically capable of reached
+# were structurally ungated before fire_superiority ever counted them.
+# Raised to 750 (just under our observed 707-827 mean/max shot-distance
+# band) in BOTH phase buckets, same "doctrine, not schema drift" pin class
+# as FIRE_SUPERIORITY_PRESS_RANGE above: pressRange (220/220) and
+# finishRange (140/120) are UNCHANGED by this change -- this is the
+# activation gate, not the press-vs-finish bands, and v42's press-range
+# rollback (wider 400/340 traded away score-ratio under the pre-GV17
+# economy) is a different lever, left alone (one lever at a time).
+FIRE_SUPERIORITY_ENGAGE_DIST = {"default": 750, "endgame": 750}
+
 # FINAL FOUR (F4) DETOUR CEILING (F4 initiative, /tmp/monet_f4_0909/
 # F4_INITIATIVE.md, pooled v45+v46 n=202 GV15-era episodes): once caught
 # first at F4, Monet dies inside 5s 88.9% of the time vs 16.7% when it fires
@@ -365,8 +388,9 @@ def _final4(view):
 
 def apply_phase_clamps(entries, view, pact_state, source=None):
     """The ONE clamp point for every ENDGAME-DOCTRINE pin this persona owns
-    -- fire_superiority.pressRange/finishRange, supply_run.whenHpBelow, and
-    the final-four detour ceiling (FINAL4_DETOUR_MAX) -- every entries list
+    -- fire_superiority.pressRange/finishRange/engageDist, supply_run.
+    whenHpBelow, and the final-four detour ceiling (FINAL4_DETOUR_MAX) --
+    every entries list
     about to reach the wire must pass through this before it is sent,
     whether it came from a real model call, one of the two harness reemit
     helpers, or a maintenance resend.
@@ -407,6 +431,13 @@ def apply_phase_clamps(entries, view, pact_state, source=None):
     maintenance resend -- shares ONE implementation instead of a copy that
     can drift out of sync with adjust_entries again.
 
+    v53 (GV17 economy, engagement volume): a THIRD fire_superiority field,
+    engageDist (FIRE_SUPERIORITY_ENGAGE_DIST), joins pressRange/finishRange
+    in the SAME per-entry loop below -- same GATED_PLAY maintenance-bypass
+    risk, same fix. engageDist is not final4-gated, exactly like pressRange/
+    finishRange: it pins to doctrine (750/750) on every entry, every send
+    path, unconditionally.
+
     Calling this SAME function from both adjust_entries (after its own
     CONVERSION/ARMAMENT inserts) and from the maintenance resend path
     closes all these gaps with one implementation instead of separate
@@ -446,14 +477,18 @@ def apply_phase_clamps(entries, view, pact_state, source=None):
 
     # FIRE_SUPERIORITY WIRE FIX (v44, moved here v52 -- see module docstring
     # above FIRE_SUPERIORITY_PRESS_RANGE/FIRE_SUPERIORITY_FINISH_RANGE):
-    # pin both levers to the doctrine value for the CURRENT live-zone-clock
-    # phase on every entry about to be sent, on every path -- never trust
-    # the model, a stale cached ladder, or a gated resend to have carried
-    # the right value. pressRange happens to be the SAME doctrine number in
-    # both phase buckets today (220/220), which is what makes it read as
-    # "always pinned"; finishRange still tightens 140 -> 120 in the
-    # zone-timer endgame window (_in_marquee_zone_window), unchanged from
-    # v44.
+    # pin all three levers to the doctrine value for the CURRENT
+    # live-zone-clock phase on every entry about to be sent, on every path
+    # -- never trust the model, a stale cached ladder, or a gated resend to
+    # have carried the right value. pressRange happens to be the SAME
+    # doctrine number in both phase buckets today (220/220), which is what
+    # makes it read as "always pinned"; finishRange still tightens 140 ->
+    # 120 in the zone-timer endgame window (_in_marquee_zone_window),
+    # unchanged from v44. engageDist (v53, FIRE_SUPERIORITY_ENGAGE_DIST,
+    # GV17 economy engagement-volume fix) is ALSO flat across both phase
+    # buckets (750/750) -- same "always pinned" shape as pressRange, added
+    # to this SAME loop rather than a new one so it shares the identical
+    # clamp/log/maintenance-bypass-closing mechanism.
     phase = "endgame" if _in_marquee_zone_window(view) else "default"
     for entry in entries:
         if entry.get("play") != "fire_superiority":
@@ -461,7 +496,8 @@ def apply_phase_clamps(entries, view, pact_state, source=None):
         params = entry.setdefault("params", {})
         for field, doctrine_by_phase in (
                 ("pressRange", FIRE_SUPERIORITY_PRESS_RANGE),
-                ("finishRange", FIRE_SUPERIORITY_FINISH_RANGE)):
+                ("finishRange", FIRE_SUPERIORITY_FINISH_RANGE),
+                ("engageDist", FIRE_SUPERIORITY_ENGAGE_DIST)):
             doctrine = doctrine_by_phase[phase]
             old = params.get(field)
             if old != doctrine:
@@ -1071,19 +1107,21 @@ def adjust_entries(entries, context, view):
     entries = _normalize_bodyguard(entries)
 
     # PHASE CLAMPS (see FIRE_SUPERIORITY_PRESS_RANGE/FIRE_SUPERIORITY_
-    # FINISH_RANGE/SUPPLY_DEFAULTS/FINAL4_DETOUR_MAX/apply_phase_clamps
-    # above): v51 (ereq_99f472a2, ~700 exposed ticks) moved the final-four
-    # detour clamp into apply_phase_clamps, called once at the END of this
-    # function (after the CONVERSION/ARMAMENT auto-insert below), so an
-    # auto-inserted supply_run/loot rung the model never named this turn is
-    # clamped too -- the OLD inline-only clamp here ran BEFORE that insert
-    # and never saw those rungs at all. v52 (PIN_BYPASS_AUDIT) moved
-    # fire_superiority's pressRange/finishRange wire fix and supply_run's
-    # whenHpBelow re-anchor into the SAME function for the SAME reason:
+    # FINISH_RANGE/FIRE_SUPERIORITY_ENGAGE_DIST/SUPPLY_DEFAULTS/
+    # FINAL4_DETOUR_MAX/apply_phase_clamps above): v51 (ereq_99f472a2, ~700
+    # exposed ticks) moved the final-four detour clamp into
+    # apply_phase_clamps, called once at the END of this function (after
+    # the CONVERSION/ARMAMENT auto-insert below), so an auto-inserted
+    # supply_run/loot rung the model never named this turn is clamped too
+    # -- the OLD inline-only clamp here ran BEFORE that insert and never
+    # saw those rungs at all. v52 (PIN_BYPASS_AUDIT) moved fire_superiority's
+    # pressRange/finishRange wire fix and supply_run's whenHpBelow
+    # re-anchor into the SAME function for the SAME reason; v53 added
+    # fire_superiority's engageDist to that same field loop:
     # starter_harness's ladder-maintenance resend bypasses this whole
     # function (calls gate_and_build directly on a cached wanted ladder,
     # never adjust_entries), so a stale/model-wrong value on any of these
-    # three levers could otherwise sit on the wire, re-sent verbatim, for
+    # levers could otherwise sit on the wire, re-sent verbatim, for
     # as long as the maintenance gate kept re-opening with no fresh
     # model/reemit call. apply_phase_clamps is the ONE implementation this
     # function and that resend path now share for all three pins. See
@@ -1498,7 +1536,19 @@ PERSONA = Persona(
                              "pins it so it cannot creep in either "
                              "direction. finishRange stays 140, tightening "
                              "to 120 in the endgame window: closer to the "
-                             "target once the field is small."),
+                             "target once the field is small. Doctrine "
+                             "engageDist is 750 in every phase (v53, "
+                             "GloryVersion 17 economy): the schema default "
+                             "of 600 sat below our own observed mean "
+                             "engagement range, so real fights we could "
+                             "already reach were never counted as guns in "
+                             "the press/break math -- widening the gate to "
+                             "750 raises engagement volume, the measured "
+                             "gap vs the field's shots-fired/episode, "
+                             "without touching pressRange or finishRange. "
+                             "The clamp pins engageDist the same way it "
+                             "pins pressRange: it cannot creep back to the "
+                             "schema default."),
         "ring_walker": ("ring_walker is survival rule zero: the ring is "
                         "a schedule, not a surprise -- leave the building "
                         "BEFORE the walk turns into an escape, and only "
@@ -1629,8 +1679,12 @@ PERSONA = Persona(
                  # endgame's woundedPct=0, because the field is still near
                  # full strength here and a parity fight is a genuinely
                  # different bet than the endgame's thinned field.
+                 # engageDist 600->750 (v53, FIRE_SUPERIORITY_ENGAGE_DIST):
+                 # written literal matches doctrine, same as pressRange/
+                 # finishRange -- apply_phase_clamps repins this every send
+                 # regardless, but the source stays honest.
                  "params": {"breakDeficit": 2, "coverMax": 260,
-                            "engageDist": 600, "finishRange": 140,
+                            "engageDist": 750, "finishRange": 140,
                             "pressRange": 220, "woundedPct": 50}},
                 {"play": "hold_vs_gun", "entry_id": "holdgun",
                  "params": {"calmTicks": 48, "coverMax": 260,
@@ -1764,8 +1818,11 @@ PERSONA = Persona(
                  # fire_superiority.nim): closes to a tight band ONLY on a
                  # target already known wounded, aimed at the measured 3x
                  # dPointBlankKill gap without breakDeficit's downside.
+                 # engageDist 600->750 (v53, FIRE_SUPERIORITY_ENGAGE_DIST):
+                 # see the constant's own comment for the GV17 economy
+                 # engagement-volume rationale.
                  "params": {"breakDeficit": 2, "coverMax": 260,
-                            "engageDist": 600, "finishRange": 140,
+                            "engageDist": 750, "finishRange": 140,
                             "pressRange": 220, "woundedPct": 50}},
                 {"play": "hold_vs_gun", "entry_id": "holdgun",
                  "params": {"calmTicks": 48, "coverMax": 260,
@@ -1862,8 +1919,12 @@ PERSONA = Persona(
                  # the lever that needed to move). finishRange NEW (v10),
                  # tighter than mid's 140: fewer duos left means less flank
                  # risk while closing on a target already known wounded.
+                 # engageDist 600->750 (v53, FIRE_SUPERIORITY_ENGAGE_DIST):
+                 # see the constant's own comment for the GV17 economy
+                 # engagement-volume rationale; flat 750 in endgame too,
+                 # same as default -- this lever is not phase-split.
                  "params": {"breakDeficit": 2, "coverMax": 200,
-                            "engageDist": 600, "finishRange": 120,
+                            "engageDist": 750, "finishRange": 120,
                             "pressRange": 220, "woundedPct": 0}},
                 {"play": "crossfire", "entry_id": "shape",
                  "params": {"spacing": [120, 280], "minAngle": 36}},

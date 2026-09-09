@@ -2046,6 +2046,14 @@ for _phase, _view in _PRESS_PHASE_VIEWS.items():
           _fs["params"].get("finishRange")
           == policy.FIRE_SUPERIORITY_FINISH_RANGE[_phase],
           str(_fs["params"]))
+    check(f"(v53) bare-schema submission (phase={_phase}): fire_superiority."
+          "engageDist is installed at doctrine 750 even though the model's "
+          "bare-schema call OMITTED engageDist entirely (schema-default-"
+          "creep rule: absent is not honest, the clamp SETS it)",
+          _fs["params"].get("engageDist")
+          == policy.FIRE_SUPERIORITY_ENGAGE_DIST[_phase]
+          == 750,
+          str(_fs["params"]))
     check(f"bare-schema submission (phase={_phase}): supply_run."
           "whenHpBelow clamps 3 -> 4 (manifest max hp), not the stale "
           "schema default",
@@ -2057,9 +2065,15 @@ for _phase, _view in _PRESS_PHASE_VIEWS.items():
           and _jk["params"].get("joinWhen") == policy.JACKAL_JOIN_WHEN,
           str(_jk["params"]))
 
-# Negative: the new clamp owns exactly pressRange/finishRange/whenHpBelow
-# and must never touch a sibling field on the same entry, the same way the
-# jackal clamp above never touches exitAfter.
+# Negative: the new clamp owns exactly pressRange/finishRange/engageDist/
+# whenHpBelow and must never touch a sibling field on the same entry, the
+# same way the jackal clamp above never touches exitAfter.
+#
+# v53 UPDATE: engageDist joins pressRange/finishRange as an owned field
+# (FIRE_SUPERIORITY_ENGAGE_DIST) -- a submitted 512 is no longer left
+# alone, it commits to doctrine (750) like the other two. woundedPct/
+# breakDeficit/coverMax remain the untouched siblings that prove the
+# clamp is scoped, not a blanket overwrite of every field.
 _owned_call = {"call": {"entries": [
     {"play": "fire_superiority", "entry_id": "pressbreak",
      "params": {"pressRange": 220, "finishRange": 140, "woundedPct": 77,
@@ -2071,19 +2085,97 @@ _seat = fake_seat()
 starter_harness.repair_call(_owned_call, PERSONA, _seat, AVAILABLE)
 _owned_fs = next(e for e in _seat.wanted_entries if e["play"] == "fire_superiority")
 _owned_sr = next(e for e in _seat.wanted_entries if e["play"] == "supply_run")
-check("fire_superiority clamp leaves woundedPct/breakDeficit/engageDist/"
-      "coverMax exactly as submitted -- it owns pressRange/finishRange "
+check("fire_superiority clamp leaves woundedPct/breakDeficit/coverMax "
+      "exactly as submitted -- it owns pressRange/finishRange/engageDist "
       "only",
       _owned_fs["params"].get("woundedPct") == 77
       and _owned_fs["params"].get("breakDeficit") == 6
-      and _owned_fs["params"].get("engageDist") == 512
       and _owned_fs["params"].get("coverMax") == 111,
+      str(_owned_fs["params"]))
+check("(v53) fire_superiority clamp commits engageDist 512 -> doctrine "
+      "750, same ownership class as pressRange/finishRange -- a "
+      "model-submitted value is never left alone",
+      _owned_fs["params"].get("engageDist")
+      == policy.FIRE_SUPERIORITY_ENGAGE_DIST["default"] == 750,
       str(_owned_fs["params"]))
 check("supply_run clamp leaves detourMax/contested exactly as submitted "
       "-- it owns whenHpBelow only",
       _owned_sr["params"].get("detourMax") == 222
       and _owned_sr["params"].get("contested") == "race",
       str(_owned_sr["params"]))
+
+# ── v53 (GV17 economy, engagement volume): fire_superiority.engageDist
+# wire fix, same class as pressRange/finishRange's v44 fix and supply_run's
+# whenHpBelow re-anchor -- a model-proposed (or maintenance-resent) 600 (the
+# schema default / stale doctrine) must commit to the new doctrine (750) on
+# every send path, with a distinguishable clamp log line. ─────────────────
+_v53_call = {"call": {"entries": [
+    {"play": "fire_superiority", "entry_id": "pressbreak",
+     "params": {"pressRange": 220, "finishRange": 140, "engageDist": 600,
+                "woundedPct": 50}},
+]}}
+_v53_seat_a = fake_seat()
+_v53_log_a = _io.StringIO()
+with _contextlib.redirect_stdout(_v53_log_a):
+    starter_harness.repair_call(_v53_call, PERSONA, _v53_seat_a, AVAILABLE)
+_v53_a_fs = next(e for e in _v53_seat_a.wanted_entries
+                 if e["play"] == "fire_superiority")
+check("(v53-a) a model-proposed engageDist 600 commits to doctrine 750",
+      _v53_a_fs["params"].get("engageDist")
+      == policy.FIRE_SUPERIORITY_ENGAGE_DIST["default"] == 750,
+      str(_v53_a_fs["params"]))
+check("(v53-a) the override logs the distinguishable clamp line naming "
+      "engageDist, old value, and 750",
+      "clamp fire_superiority.engageDist 600->750" in _v53_log_a.getvalue(),
+      repr(_v53_log_a.getvalue()))
+
+# (b) maintenance resend: same fix, same '(maintenance)' tag as pressRange/
+# finishRange's own v52 maintenance-resend checks above. Inlines the SAME
+# default-phase view shape _V52_DEFAULT_VIEW uses further below (that name
+# is not defined yet at this point in the file).
+_v53_default_view = {"world": {"zone": {"phase": 2, "ticks_to_shrink": 500},
+                                "alive_teams": 8},
+                      "self": {"alive": True}}
+_v53_entries_b = [{"play": "fire_superiority", "entry_id": "pressbreak",
+                   "params": {"pressRange": 220, "finishRange": 140,
+                              "engageDist": 600, "woundedPct": 50}}]
+_v53_log_b = _io.StringIO()
+with _contextlib.redirect_stdout(_v53_log_b):
+    _v53_fired_b = PERSONA.apply_phase_clamps(
+        _v53_entries_b, _v53_default_view, {}, source="maintenance")
+_v53_b_fs = _v53_entries_b[0]
+check("(v53-b) maintenance resend: fire_superiority.engageDist commits "
+      "600 -> 750 too, not just a real model call",
+      _v53_fired_b and _v53_b_fs["params"].get("engageDist") == 750,
+      str(_v53_b_fs["params"]))
+check("(v53-b) maintenance resend logs the distinguishable '(maintenance)' "
+      "engageDist clamp line",
+      "clamp fire_superiority.engageDist (maintenance) 600->750"
+      in _v53_log_b.getvalue(),
+      repr(_v53_log_b.getvalue()))
+
+# Deliberate-break proof: with no clamp hook wired (the pre-v53 shape), the
+# identical stale/model-default engageDist=600 leaks straight through --
+# proves the (v53-a)/(v53-b) checks above discriminate the real fix rather
+# than passing unconditionally (same method as the v52 PRESS WIRE FIX break
+# proof further below).
+_v53_entries_break = [{"play": "fire_superiority", "entry_id": "pressbreak",
+                       "params": {"pressRange": 220, "finishRange": 140,
+                                  "engageDist": 600, "woundedPct": 50}}]
+_v53_saved_hook = PERSONA.apply_phase_clamps
+PERSONA.apply_phase_clamps = None
+try:
+    if PERSONA.apply_phase_clamps is not None:
+        PERSONA.apply_phase_clamps(_v53_entries_break, _v53_default_view,
+                                   {}, source="maintenance")
+finally:
+    PERSONA.apply_phase_clamps = _v53_saved_hook
+check("(v53) BREAK PROOF: with no phase-clamp hook wired to the persona "
+      "(the pre-v53 shape), a stale/model-default engageDist=600 leaks "
+      "straight onto the wire, unclamped -- the fix above is what closes "
+      "this, not a scenario that was already safe",
+      _v53_entries_break[0]["params"].get("engageDist") == 600,
+      str(_v53_entries_break[0]["params"]))
 
 
 # ── v10 amendment: the endgame standoff fix, pinned against the SOURCE
@@ -2243,17 +2335,20 @@ check("(a) final4: the phase-entry log fires once, "
       "'[monet] final4: alive_teams=4'",
       "[monet] final4: alive_teams=4" in _f4_log_a.getvalue(),
       repr(_f4_log_a.getvalue()))
-check("(d) final4 (alive_teams=4): fire_superiority.engageDist is left "
-      "EXACTLY as submitted (600) -- this lane clamps play SELECTION "
-      "(loot/supply_run detourMax), never fire_superiority's numbers "
-      "(pressRange/engageDist were flat between caught-first and "
-      "fired-first in the F4 data, so they are not the lever)",
-      _f4a_fs["params"].get("engageDist") == 600, str(_f4a_fs["params"]))
-check("(d) final4 (alive_teams=4): fire_superiority.pressRange/finishRange "
-      "keep clamping to the ordinary default-phase doctrine, unaffected "
-      "by final4",
+check("(d) final4 (alive_teams=4): fire_superiority.pressRange/finishRange/"
+      "engageDist keep clamping to the ordinary default-phase doctrine, "
+      "unaffected by final4 -- this lane (the earlier `if _final4(view)` "
+      "block) only clamps play SELECTION (loot/supply_run detourMax); "
+      "fire_superiority's own numbers are pinned by the UNCONDITIONAL "
+      "field loop above it in the same function, which runs regardless of "
+      "final4 state. v53 UPDATE: engageDist now commits 600 -> 750 here "
+      "too (same class as pressRange/finishRange, no longer 'left exactly "
+      "as submitted' -- that was only ever true because nothing owned the "
+      "field yet, not because final4 exempts it)",
       _f4a_fs["params"].get("pressRange") == 220
-      and _f4a_fs["params"].get("finishRange") == 140,
+      and _f4a_fs["params"].get("finishRange") == 140
+      and _f4a_fs["params"].get("engageDist")
+      == policy.FIRE_SUPERIORITY_ENGAGE_DIST["default"] == 750,
       str(_f4a_fs["params"]))
 
 # Ceiling, not a forced pin: a model already under the cap is left alone.
@@ -2732,6 +2827,12 @@ check("(a) v52 maintenance resend logs the distinguishable '(maintenance)' "
       and "clamp fire_superiority.finishRange (maintenance) 140->120 "
       "phase=endgame" in _v52_log_a.getvalue(),
       repr(_v52_log_a.getvalue()))
+check("(a) v53: the SAME endgame maintenance resend also commits "
+      "engageDist 600 -> 750 (fixture's own engageDist, unrelated to the "
+      "pressRange/finishRange values under test here)",
+      _v52_a_fs["params"].get("engageDist")
+      == policy.FIRE_SUPERIORITY_ENGAGE_DIST["endgame"] == 750,
+      str(_v52_a_fs["params"]))
 
 # Deliberate-break proof: with no clamp hook wired (the pre-v52 shape), the
 # identical stale ladder leaks 400/140 straight through during the endgame
