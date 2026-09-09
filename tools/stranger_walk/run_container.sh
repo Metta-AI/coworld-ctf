@@ -119,7 +119,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(git -C "$SCRIPT_DIR" rev-parse --show-toplevel)"
 CONTAINER_DIR="$SCRIPT_DIR/container"
 ENTRY_URL="${STRANGER_ENTRY_URL:-https://softmax.com/paintbot}"
-IMAGE_TAG="${STRANGER_IMAGE_TAG:-stranger-walk:v1.4}"
+IMAGE_TAG="${STRANGER_IMAGE_TAG:-stranger-walk:v1.5}"
 
 # Protocol v2 contamination gate — see run.sh's identical check and
 # check_prompt.py's own header. Runs before anything else, dry-run or not.
@@ -146,7 +146,8 @@ if [ "$DRY_RUN" = "1" ] && [ "$MODE_OR_MODEL" != "probe" ] && [ "$MODE_OR_MODEL"
   echo "[$RUN_ID]   rendered body ($(wc -l < "$SCRATCH/prompt.rendered.md" | tr -d ' ') lines) begins:" >&2
   head -3 "$SCRATCH/prompt.rendered.md" | sed 's/^/[dry-run]   | /' >&2
   echo "[$RUN_ID]   \$HOME inside the container is /home/stranger by construction (own filesystem namespace — no host \$HOME to leak, unlike run.sh's env-scoping trick)." >&2
-  echo "[$RUN_ID]   would docker run: --user \$(id -u):\$(id -g) -v <run-dir>:/home/stranger -v <run-dir>/workspace:/workspace -w /workspace -e MODEL=$MODEL $IMAGE_TAG" >&2
+  echo "[$RUN_ID]   would docker run: --user \$(id -u):\$(id -g) --network stranger-walk-net-$RUN_ID -e DOCKER_HOST=tcp://dockerd:2375 -v <run-dir>:/home/stranger -v <run-dir>/workspace:/workspace -w /workspace -e MODEL=$MODEL $IMAGE_TAG" >&2
+  echo "[$RUN_ID]   would also start a per-run docker-in-docker sidecar (stranger-walk-dind-$RUN_ID) on that same private network — see start_sidecar in this script's header." >&2
   echo "[$RUN_ID]   NOTE (v1.4): browser is wired via @playwright/mcp, same mechanism run.sh uses on the host — see mcp-config.json below." >&2
   CRED_SRC="${STRANGER_ANTHROPIC_API_KEY_FILE:-$HOME/.ctf/knowledge/stranger-walk/anthropic_api_key}"
   if [ -f "$CRED_SRC" ]; then
@@ -192,6 +193,58 @@ docker version >/dev/null 2>&1 || { echo "docker daemon not reachable (\`docker 
 #      `--user 0` "root inside is fine, it's namespaced" caveat to document.
 HOST_UID_GID="$(id -u):$(id -g)"
 
+# v1.5: each run gets its OWN isolated Docker — a docker-in-docker sidecar
+# container with its own daemon and ephemeral storage, on the run's own
+# private network, never the host's docker socket. Found 2026-09-09
+# (triaging sonnet-before-1, v1.4): no daemon was reachable inside the
+# container at all (no root, no userns, `newuidmap` missing — the
+# `docker.io` CLIENT was there, but nothing gave it a daemon to talk to),
+# so the stranger could not build its policy image the documented way and
+# hand-rolled an OCI pusher plus a from-scratch WebSocket client instead —
+# the builder hallway cannot be measured like that.
+DIND_IMAGE="${STRANGER_DIND_IMAGE:-docker:27-dind}"
+
+start_sidecar() {
+  # $1 = run_id, $2 = network name, $3 = sidecar container name.
+  # --privileged is required for a nested dockerd to run at all (it needs
+  # kernel capabilities a normal container doesn't get); DOCKER_TLS_CERTDIR=
+  # (empty) skips the dind entrypoint's TLS cert generation so the inner
+  # daemon just listens on plain TCP — acceptable here because this daemon
+  # is reachable ONLY from this run's own private network, never the host
+  # or any other run.
+  docker network create "$2" >/dev/null
+  docker run -d --name "$3" --network "$2" --network-alias dockerd \
+    --privileged \
+    -e DOCKER_TLS_CERTDIR= \
+    "$DIND_IMAGE" --host=tcp://0.0.0.0:2375 >/dev/null
+  local tries=0
+  until docker exec "$3" docker version >/dev/null 2>&1; do
+    tries=$((tries + 1))
+    if [ "$tries" -gt 60 ]; then
+      echo "[$1] sidecar docker daemon never became ready (waited 60s)" >&2
+      return 1
+    fi
+    sleep 1
+  done
+  echo "[$1] sidecar docker daemon ready: $3 on network $2" >&2
+}
+
+stop_sidecar_and_scan() {
+  # $1 = run_dir, $2 = sidecar container name. Persists a `docker save` of
+  # every image the sidecar ever held to a LOCAL tar file under
+  # $RUN_DIR/sidecar_images/ BEFORE removing the sidecar — its storage is
+  # ephemeral by design (see header), so this is the only chance to keep
+  # anything isolation_audit.sh can later scan (possibly long after this
+  # run, and this run's sidecar, are both gone).
+  local run_dir="$1" sidecar="$2"
+  mkdir -p "$run_dir/sidecar_images"
+  local img
+  for img in $(docker exec "$sidecar" docker images -q 2>/dev/null | sort -u); do
+    docker exec "$sidecar" docker save "$img" > "$run_dir/sidecar_images/$img.tar" 2>/dev/null || true
+  done
+  docker rm -f "$sidecar" >/dev/null 2>&1 || true
+}
+
 echo "[$RUN_ID] building image $IMAGE_TAG from $CONTAINER_DIR ..." >&2
 docker build -q -t "$IMAGE_TAG" "$CONTAINER_DIR" > "$RUN_DIR/docker-build.log" 2>&1 \
   || { echo "[$RUN_ID] docker build FAILED — see $RUN_DIR/docker-build.log" >&2; tail -40 "$RUN_DIR/docker-build.log" >&2; exit 1; }
@@ -202,12 +255,23 @@ CONTAINER_NAME="stranger-walk-$RUN_ID-$(date +%s)"
 if [ "$MODE_OR_MODEL" = "probe" ] || [ "$MODE_OR_MODEL" = "selftest" ]; then
   MODE="$MODE_OR_MODEL"
   RESULT_PATH="/home/stranger/isolation_probe.json"
+  NETWORK_NAME="stranger-walk-net-$RUN_ID"
+  SIDECAR_NAME="stranger-walk-dind-$RUN_ID"
+  NETWORK_ARGS=(--network bridge)
+  if [ "$MODE" = "selftest" ]; then
+    # selftest (unlike probe) must prove `docker build`+`docker run` really
+    # work through the same per-run sidecar a real run gets — see
+    # entrypoint.sh's docker build+run check.
+    echo "[$RUN_ID] starting isolated docker-in-docker sidecar for selftest ..." >&2
+    start_sidecar "$RUN_ID" "$NETWORK_NAME" "$SIDECAR_NAME" || { echo "[$RUN_ID] sidecar setup FAILED" >&2; exit 1; }
+    NETWORK_ARGS=(--network "$NETWORK_NAME" -e DOCKER_HOST=tcp://dockerd:2375)
+  fi
   echo "[$RUN_ID] running mode=$MODE (no credential needed) ..." >&2
   set +e
   docker run --rm \
     --name "$CONTAINER_NAME" \
     --hostname stranger \
-    --network bridge \
+    "${NETWORK_ARGS[@]}" \
     --pids-limit 512 \
     --user "$HOST_UID_GID" \
     -e HOME=/home/stranger \
@@ -218,6 +282,10 @@ if [ "$MODE_OR_MODEL" = "probe" ] || [ "$MODE_OR_MODEL" = "selftest" ]; then
     > "$RUN_DIR/$MODE.stdout.log" 2> "$RUN_DIR/$MODE.stderr.log"
   EXIT_CODE=$?
   set -e
+  if [ "$MODE" = "selftest" ]; then
+    docker rm -f "$SIDECAR_NAME" >/dev/null 2>&1 || true
+    docker network rm "$NETWORK_NAME" >/dev/null 2>&1 || true
+  fi
   echo "[$RUN_ID] mode=$MODE exit=$EXIT_CODE — logs: $RUN_DIR/$MODE.std{out,err}.log" >&2
   if [ "$MODE" = "probe" ]; then
     echo "[$RUN_ID] probe result: $RUN_DIR/isolation_probe.json" >&2
@@ -320,25 +388,39 @@ if [ "$STRANGER_BROWSER" = "1" ]; then
     exit 1
   fi
   COOKIE_PRECHECK="verified pre-launch: 0 cookies for softmax.com/google.com/github.com in $RUN_DIR/.playwright-profile"
+  # v1.5 fix: triaging sonnet-before-1 (v1.4) found the stranger's browser
+  # tool failing every real navigation with "Chromium distribution 'chrome'
+  # is not found at /opt/google/chrome/chrome" — @playwright/mcp's default
+  # --browser channel is the SYSTEM "chrome" (a real Google Chrome install),
+  # not the playwright-managed Chromium this image actually installs (see
+  # Dockerfile's PLAYWRIGHT_BROWSERS_PATH). --browser chromium pins it to
+  # the bundled one. The selftest's MCP probe (mcp_probe.py, see
+  # entrypoint.sh) launches the identical command/args, so this exact
+  # mismatch is caught before a real run ever hits it again.
   python3 -c "
 import json
 print(json.dumps({'mcpServers': {'playwright': {
     'command': 'npx',
-    'args': ['--yes', '@playwright/mcp@latest', '--headless', '--user-data-dir', '/home/stranger/.playwright-profile']
+    'args': ['--yes', '@playwright/mcp@latest', '--headless', '--browser', 'chromium', '--user-data-dir', '/home/stranger/.playwright-profile']
 }}}))
 " > "$RUN_DIR/mcp-config.json"
 fi
 
-# v1.4 guard #2, tracking half: only meaningful when
-# STRANGER_ENABLE_DOCKER_SOCKET=1 (off by default — see Dockerfile/this
-# script's docker.io comments; with no socket mounted the container cannot
-# reach any docker daemon and cannot build an image at all). Snapshot
-# existing image IDs now so the post-run diff (below, after `docker wait`)
-# can isolate exactly what THIS run created.
+# Legacy v1.4 host-docker-socket opt-in — off by default, superseded by
+# the always-on per-run sidecar below, kept only so an explicit
+# STRANGER_ENABLE_DOCKER_SOCKET=1 invocation still tracks its own images
+# the old way. New runs get docker access via the sidecar regardless.
 ENABLE_DOCKER_SOCKET="${STRANGER_ENABLE_DOCKER_SOCKET:-0}"
 if [ "$ENABLE_DOCKER_SOCKET" = "1" ]; then
   docker images -q | sort -u > "$RUN_DIR/docker_images_before.txt" || true
 fi
+
+# v1.5: this run's own isolated Docker — see start_sidecar's header above
+# for the full rationale (no host daemon was reachable at all before this,
+# so a stranger could not build its policy image the documented way).
+NETWORK_NAME="stranger-walk-net-$RUN_ID"
+SIDECAR_NAME="stranger-walk-dind-$RUN_ID"
+start_sidecar "$RUN_ID" "$NETWORK_NAME" "$SIDECAR_NAME" || { echo "[$RUN_ID] sidecar setup FAILED — refusing to launch a 'run'-mode container without one (owner order 2026-09-09: the builder hallway must be measurable)" >&2; exit 1; }
 
 PAINTBOT_TAGS_AT_MAIN="$(git -C "$REPO_ROOT" tag --points-at origin/main --list 'paintbot-v*' 2>/dev/null | tr '\n' ',' | sed 's/,$//')"
 # Freshest possible era stamp: query origin directly (not the local clone's
@@ -423,6 +505,9 @@ meta = {
     "workspace_dir": "/workspace",
     "credential_source": "$CRED_MODE",
     "enable_docker_socket": $( [ "$ENABLE_DOCKER_SOCKET" = "1" ] && echo True || echo False ),
+    "docker_sidecar": True,
+    "docker_host": "tcp://dockerd:2375",
+    "docker_network": "$NETWORK_NAME",
     "start_iso": "$START_ISO",
     "start_epoch": $START_EPOCH,
 }
@@ -442,7 +527,8 @@ echo "[$RUN_ID] model=$MODEL entry=$ENTRY_URL resolved=[$ENTRY_RESOLVED] glory=$
 DOCKER_RUN_ARGS=(
   run -d --name "$CONTAINER_NAME"
   --hostname stranger
-  --network bridge
+  --network "$NETWORK_NAME"
+  -e DOCKER_HOST=tcp://dockerd:2375
   --pids-limit 512
   --memory 2g
   --cpus 2
@@ -485,7 +571,10 @@ echo "[$RUN_ID] launch.sh already gives run.sh, with a second, independent layer
 # Block until the container exits — same shape as run.sh's synchronous
 # `claude -p ...` call. `tools/stranger_walk/launch.sh run_container.sh
 # <model> <run-id>` detaches THIS script exactly like it already detaches
-# run.sh today; no changes to launch.sh were needed.
+# run.sh today — v1.4 correction: launch.sh's dispatch actually needed a
+# fix for this to be true (it only ever recognized run.sh/resume.sh; see
+# docs/designs/STRANGER_WALK.md's v1.4 "Correction to v1.3's launch.sh
+# claim").
 set +e
 docker wait "$CONTAINER_ID" > "$RUN_DIR/container.exit_code" 2> "$RUN_DIR/docker-wait.stderr.log"
 EXIT_CODE="$(tr -d '[:space:]' < "$RUN_DIR/container.exit_code" 2>/dev/null || echo 1)"
@@ -495,10 +584,16 @@ set -e
 docker logs "$CONTAINER_ID" > "$RUN_DIR/container.stdout.log" 2> "$RUN_DIR/container.stderr.log" || true
 docker rm "$CONTAINER_ID" >/dev/null 2>&1 || true
 
-# v1.4 guard #2, tracking half (see docker_images_before.txt snapshot
-# above): diff to isolate exactly what images THIS run created, for
-# isolation_audit.sh's docker-image-scan check to sweep. Empty/absent list
-# is the expected, common case (STRANGER_ENABLE_DOCKER_SOCKET=0 by default).
+# v1.5: persist the sidecar's own images to local tar files (its storage
+# is ephemeral — this is the only chance) BEFORE removing it, then remove
+# the sidecar and the run's private network. See isolation_audit.sh's
+# sidecar_images/ scan, and stop_sidecar_and_scan's header above.
+stop_sidecar_and_scan "$RUN_DIR" "$SIDECAR_NAME"
+docker network rm "$NETWORK_NAME" >/dev/null 2>&1 || true
+
+# Legacy v1.4 guard #2, tracking half (see docker_images_before.txt
+# snapshot above): only relevant if STRANGER_ENABLE_DOCKER_SOCKET=1 was
+# explicitly set — off by default, superseded by the sidecar above.
 if [ "$ENABLE_DOCKER_SOCKET" = "1" ]; then
   docker images -q | sort -u > "$RUN_DIR/docker_images_after.txt" || true
   comm -13 "$RUN_DIR/docker_images_before.txt" "$RUN_DIR/docker_images_after.txt" > "$RUN_DIR/docker_images_created.txt" || true
