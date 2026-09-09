@@ -385,12 +385,18 @@ Protocol v2's `prompt.md` (see that file) strips the prompt to the owner's own o
 statement plus the mechanics that are genuine operational necessities, not scaffolding (checking
 the working directory for an `env` file; the `WAITING: ` handshake for a human-relayed signup
 code — kept because `resume.sh` needs it to know a run is paused on a human, not stuck or done).
-It says nothing about milestones, beliefs, or the words "blocked"/"ready." `judge.md` and
-`score.py` moved milestone/belief extraction to a post-hoc step: the judge reads the plain
-think-aloud transcript after the run and decides, using outside knowledge the stranger never had,
-where each M1–M8 was actually reached and what beliefs were stated and whether they were true —
-there's no longer a self-report to grade against. `score.py`'s mechanical layer (tool-call counts,
-digs, stuck-episode timing) stays transcript-derived either way; see that file's docstring for one
+It says nothing about milestones, beliefs, or the words "blocked"/"ready." Milestone/belief
+extraction moved to a post-hoc step, and the two tools do NOT share that job: `score.py` only
+**scaffolds** `milestones`/`beliefs` as empty fields in `score.json` (mechanical — tool-call counts,
+digs, stuck-episode timing, prompt-contamination status — is all it computes itself) and marks the
+run `"judged": false` until something fills them in. `judge.md` is the actual pass that fills them
+in — read the plain think-aloud transcript after the run and decide, using outside knowledge the
+stranger never had, where each M1–M8 was actually reached and what beliefs were stated and whether
+they were true — **run by a judge agent** (a separate LLM/human pass over the transcript, not part
+of `score.py`'s own execution), whose output gets hand-saved back into that same `score.json`
+(`score.py` preserves any judge-authored content already there on a re-run, only recomputing the
+mechanical fields around it). There's no longer a self-report to grade against. `score.py`'s
+mechanical layer stays transcript-derived either way; see that file's docstring for one
 caveat found while rebuilding it — the new stuck-episode signal (gaps between assistant turns) is
 coarser than v1's marker-gap version, since a genuinely-waiting stranger tends to check in every
 30-300 seconds rather than fall silent, so `stuck_minutes_total` is now a lower bound the judge

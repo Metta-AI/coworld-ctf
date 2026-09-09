@@ -219,11 +219,16 @@ if [ "$STRANGER_BROWSER" = "1" ]; then
     exit 1
   fi
   COOKIE_PRECHECK="verified pre-launch: 0 cookies for softmax.com/google.com/github.com in $PLAYWRIGHT_PROFILE"
+  # v1.5 fix (found on the container path, run_container.sh — same package,
+  # so the same bug applies here): @playwright/mcp's default --browser
+  # channel is the SYSTEM "chrome" install, not playwright's own managed
+  # Chromium; pin it explicitly so this doesn't silently depend on whatever
+  # browser channels happen to be installed on whichever host runs this.
   MCP_CONFIG="$(python3 -c "
 import json
 print(json.dumps({'mcpServers': {'playwright': {
     'command': 'npx',
-    'args': ['--yes', '@playwright/mcp@latest', '--headless', '--user-data-dir', '$PLAYWRIGHT_PROFILE']
+    'args': ['--yes', '@playwright/mcp@latest', '--headless', '--browser', 'chromium', '--user-data-dir', '$PLAYWRIGHT_PROFILE']
 }}}))
 ")"
 fi

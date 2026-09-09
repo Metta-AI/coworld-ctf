@@ -1,4 +1,4 @@
-# tools/stranger_walk/container/Dockerfile — Stranger Walk protocol v1.4
+# tools/stranger_walk/container/Dockerfile — Stranger Walk protocol v1.5
 #
 # Gives the stranger process its OWN Linux PID namespace, filesystem, and
 # network namespace, instead of running as a bare `claude -p` process on the
@@ -31,6 +31,19 @@
 # revision subfolder into the same path at build time — no conflict, just a
 # few hundred extra MB in the image; simpler and more robust than chasing
 # exact version parity between the two ecosystems.
+#
+# v1.5 gives each run its OWN Docker: triaging sonnet-before-1 (v1.4) found
+# no Docker daemon reachable inside the container at all (no root, no
+# userns, `newuidmap` missing — `docker.io`'s CLIENT was installed, per the
+# comment below, but nothing ever gave it a daemon to talk to), so the
+# stranger could not build its policy image the documented way and
+# hand-rolled an OCI pusher plus a from-scratch WebSocket client instead —
+# the builder hallway cannot be measured like that. `run_container.sh` now
+# starts a per-run docker-in-docker SIDECAR container (its own daemon, own
+# ephemeral storage, on the run's own private network) and points this
+# container's `DOCKER_HOST` at it — never the host's own docker socket, and
+# no image change needed here at all: `docker.io`'s client (already
+# installed below) reads `DOCKER_HOST` natively.
 FROM node:20-bookworm-slim
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
@@ -93,7 +106,8 @@ ENV HOME=/home/stranger
 
 COPY entrypoint.sh /entrypoint.sh
 COPY probe.sh /probe.sh
-RUN chmod +x /entrypoint.sh /probe.sh
+COPY mcp_probe.py /mcp_probe.py
+RUN chmod +x /entrypoint.sh /probe.sh /mcp_probe.py
 
 # No USER directive: `run_container.sh` always launches this image with
 # `docker run --user "$(id -u):$(id -g)"` — the INVOKING HOST USER's own

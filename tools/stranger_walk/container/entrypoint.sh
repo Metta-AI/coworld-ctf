@@ -41,15 +41,18 @@ if [ "$MODE" = "selftest" ]; then
   python3 --version
   git --version
   uv --version
-  echo "[selftest] docker client present (no daemon reachable, by design):"
+  echo "[selftest] docker client version (DOCKER_HOST=${DOCKER_HOST:-unset}):"
   docker --version || true
 
-  # v1.4: prove the browser mechanism for real — no Anthropic credential
-  # needed, this is a scripted Python playwright fetch, not a claude turn.
+  SELFTEST_FAIL=0
+
+  # v1.4: a scripted Python playwright fetch — a real, independent sanity
+  # check that the image's own browser-tooling install is sound (this is
+  # NOT the stranger's own code path — see the MCP probe below for that).
   # Screenshot lands at /home/stranger/browser-selftest.png, which
   # run_container.sh's bind mount (`-v "$RUN_DIR:/home/stranger"`) puts
   # straight into the run dir on the host at $RUN_DIR/browser-selftest.png.
-  echo "[selftest] python playwright: headless chromium fetch of https://softmax.com/paintbot"
+  echo "[selftest] python playwright (image sanity check): headless chromium fetch of https://softmax.com/paintbot"
   python3 - <<'PYEOF'
 import sys
 from playwright.sync_api import sync_playwright
@@ -68,8 +71,41 @@ except Exception as e:
     print(f"[selftest] browser screenshot FAILED: {e}", file=sys.stderr)
     sys.exit(1)
 PYEOF
+  [ $? -eq 0 ] || SELFTEST_FAIL=1
 
-  exit 0
+  # v1.5: drive the SAME @playwright/mcp process and args the stranger's
+  # own claude -p session gets (see run_container.sh's mcp-config.json) —
+  # this is the check that would have caught the v1.4 "Chromium
+  # distribution 'chrome' is not found" bug, since it exercises the exact
+  # command line, not a lookalike. No Anthropic credential needed (never
+  # goes through claude at all).
+  echo "[selftest] @playwright/mcp (the stranger's ACTUAL browser tool): navigate + screenshot via real MCP stdio"
+  mkdir -p /home/stranger/.mcp-selftest-profile
+  python3 /mcp_probe.py /home/stranger/.mcp-selftest-profile /home/stranger/mcp-browser-selftest.png
+  [ $? -eq 0 ] || SELFTEST_FAIL=1
+
+  # v1.5: prove `docker build` + `docker run` of a hello image really work
+  # from inside the stranger's own shell, via DOCKER_HOST pointed at this
+  # run's own per-run docker-in-docker sidecar (run_container.sh) — never
+  # the host's docker socket. Found 2026-09-09: no daemon was reachable at
+  # all before this (no root, no userns, `newuidmap` missing), so a
+  # stranger could not build its policy image the documented way.
+  echo "[selftest] docker build + docker run (isolated per-run sidecar, DOCKER_HOST=${DOCKER_HOST:-unset}):"
+  mkdir -p /tmp/hello-build
+  cat > /tmp/hello-build/Dockerfile <<'DOCKEREOF'
+FROM busybox
+CMD ["echo", "hello from the stranger's own isolated docker sidecar"]
+DOCKEREOF
+  if docker build -t stranger-walk-hello:selftest /tmp/hello-build > /tmp/hello-build.log 2>&1 \
+     && docker run --rm stranger-walk-hello:selftest > /tmp/hello-run.log 2>&1; then
+    echo "[selftest] docker build+run OK: $(cat /tmp/hello-run.log)"
+  else
+    echo "[selftest] docker build+run FAILED:" >&2
+    tail -20 /tmp/hello-build.log /tmp/hello-run.log >&2
+    SELFTEST_FAIL=1
+  fi
+
+  exit "$SELFTEST_FAIL"
 fi
 
 # v1.4 guard #1: `claude -p` starts in the stranger's own WORKSPACE, never
