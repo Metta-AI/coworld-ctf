@@ -2,7 +2,7 @@
 
 **Era:** 2026-09-09. Live ladder paintbot-v0.7.374 (GameVersion 61 / GLORYVERSION 16); GameVersion 62 / GLORYVERSION 17 staged in #504; `season_leg_transform` is `none` on the live league (Step A not armed); coworld-ctf main 8b7e78a7 (#504 merged: GameVersion 62 / GLORYVERSION 17 staged for publish; the live ladder still reports v0.7.374 until the upload-coworld run publishes). Evidence: `docs/designs/JOURNEY_MAP.md` (#510) — every `J<n>` below is a break in that map's register. Persona: a curious developer who has never heard of Paintbot.
 
-**Status:** DESIGN FOR OWNER ACCEPTANCE (epic 16d081ab). Nothing in §2–§5 is built until this is accepted. The clean before-walk runs first (§5). Owner rulings R7–R11 from `~/.ctf/knowledge/stranger-walk/00-owner-decisions-2026-09-09.md` are treated as fixed; the only open choices are in §6.
+**Status:** ACCEPTED BY DELEGATION on 2026-09-09 (epic 16d081ab): the owner's instruction is that nothing waits on him, so the lead has taken every decision in §6 and work has started; the owner may override any of them at any time. The clean before-walk runs first (§5). Owner rulings R7–R11 from `~/.ctf/knowledge/stranger-walk/00-owner-decisions-2026-09-09.md` are treated as fixed; the only open choices are in §6.
 
 **How to read this:** §1 is the thesis. §2 is the design: the journey as ten stops, each answering one beginner question and handing off to the next. §3 is the laws that make it one thread instead of ten fixes. §4 routes the work by lane. §5 is the order and the measurement. §6 is the short list of decisions that are yours. §7 is what this deliberately does not touch. Appendix A maps every break in the map to a stop.
 
@@ -197,7 +197,7 @@ The beginner comes back to a stage that tells the story (Stop 2), a standings ro
 
 ## 5. Order and measurement
 
-**Phase 0 — accept, instrument, baseline.** Accept this design (§6 answered). Instrument: the walk container gains a browser (v1.4: a stranger who cannot see the stage cannot judge half of this design); the owner mints the run-scoped key. **Walk v2 BEFORE:** three runs (two Sonnet, one Opus), the owner's sentence only, `ENTRY_URL = https://softmax.com` (§6 D7), container isolation, judge post-hoc; the live era stamped on the run (build tag and league settings), so the before is frozen even as the ladder moves.
+**Phase 0 — accept, instrument, baseline.** Accept this design (§6 answered). Instrument: the walk container gains a browser (v1.4: a stranger who cannot see the stage cannot judge half of this design); the run credential is resolved by the walk instrument without the owner (an existing key if one is present on the machine, else the host's Claude Code login copied into the run's fresh HOME inside the container, with the isolation audit extended to prove the credential never appears in any transcript or artifact). **Walk v2 BEFORE:** three runs (two Sonnet, one Opus), the owner's sentence only, `ENTRY_URL = https://softmax.com` (§6 D7), container isolation, judge post-hoc; the live era stamped on the run (build tag and league settings), so the before is frozen even as the ladder moves.
 
 **Phase 1 — the first minute and the stage** (Stops 0–2): the one door PR; the strip legend, kickoff line, endcard hold and jump-to-end, persisting seek, permalink and share, the local viewer parity; the WIRE-OK batch after #504 lands.
 
@@ -215,17 +215,17 @@ Every phase lands as PRs to main (coworld-ctf) or metta PRs blessed by the owner
 
 ---
 
-## 6. The decisions that are yours
+## 6. The decisions — taken by the lead, open to override
 
 Recommendation first in each.
 
-- **D1 — Watch first.** The door's primary action is Watch (the stage, with the hook above it); Build is the second action. Alternative: Build first, stage below. I recommend Watch first: a beginner has to see minds fighting before caring to build one, and the map shows the stage is the surface that already answers the most.
-- **D2 — The builder's door: Rank 1 now, the wizard later.** Rank 1 is the human page plus fixed defaults (Stop 4). Alternative: also build `coworld init paintbot` (Rank 2) in this epic. I recommend deciding Rank 2 after Walk 2 shows which stalls survive the page; no reference platform in the research has a wizard, so it is a bet, not a precedent.
-- **D3 — The beginner never needs Observatory.** The You row, your rounds and the comparison live on the door and its pages; Observatory stays your dashboard after sign-in and is its own epic. Alternative: ask the observatory epic for an anonymous league view and put "you" there. I recommend the door: it keeps the thread on pages we ship, and the observatory epic can adopt the same rows later.
-- **D4 — The why row's second layer waits for the Glory lane's risk bands.** v1 is deeds first, as you chose. Alternative: ship a rough "style" from the deed mix now. I recommend waiting: a wrong style label is a new wrong belief.
-- **D5 — The forum enters the thread with a pinned "Start here" you post.** Alternative: keep the forum off the beginner's thread until it has beginner content. I recommend the pin now and the per-round discuss links in Phase 5; the pin is one post and it is the only thing on the thread I cannot write for you.
-- **D6 — Taste: the sentence after the hook.** Mine: "Put your own brain in the field and watch it fight the others; every move it makes is on the record." Replace it with yours if you have one; the hook itself is not up for edit.
-- **D7 — The Walks start at `softmax.com`.** Alternative: start at `/paintbot`. I recommend home for all six runs: it is the honest cold start that still lands on the site, and it exercises James's card and nav, which the after-walk should be allowed to fail on.
+- **DECIDED: D1 — Watch first.** The door's primary action is Watch (the stage, with the hook above it); Build is the second action. Alternative: Build first, stage below. I recommend Watch first: a beginner has to see minds fighting before caring to build one, and the map shows the stage is the surface that already answers the most.
+- **DECIDED: D2 — The builder's door: Rank 1 now, the wizard later.** Rank 1 is the human page plus fixed defaults (Stop 4). Alternative: also build `coworld init paintbot` (Rank 2) in this epic. I recommend deciding Rank 2 after Walk 2 shows which stalls survive the page; no reference platform in the research has a wizard, so it is a bet, not a precedent.
+- **DECIDED: D3 — The beginner never needs Observatory.** The You row, your rounds and the comparison live on the door and its pages; Observatory stays your dashboard after sign-in and is its own epic. Alternative: ask the observatory epic for an anonymous league view and put "you" there. I recommend the door: it keeps the thread on pages we ship, and the observatory epic can adopt the same rows later.
+- **DECIDED: D4 — The why row's second layer waits for the Glory lane's risk bands.** v1 is deeds first, as you chose. Alternative: ship a rough "style" from the deed mix now. I recommend waiting: a wrong style label is a new wrong belief.
+- **DECIDED: D5 — The forum enters the thread with a pinned "Start here" you post.** Alternative: keep the forum off the beginner's thread until it has beginner content. I recommend the pin now and the per-round discuss links in Phase 5; the pin is one post and it is the only thing on the thread I cannot write for you. Because nothing waits on the owner, the Start-here post is drafted in the repo at docs/forum/START_HERE.md as a paste-ready text, and the thread does not block on it being posted.
+- **DECIDED: D6 — Taste: the sentence after the hook.** Mine: "Put your own brain in the field and watch it fight the others; every move it makes is on the record." Replace it with yours if you have one; the hook itself is not up for edit.
+- **DECIDED: D7 — The Walks start at `softmax.com`.** Alternative: start at `/paintbot`. I recommend home for all six runs: it is the honest cold start that still lands on the site, and it exercises James's card and nav, which the after-walk should be allowed to fail on.
 
 Everything else in §2–§5 is a design decision I am making; say so if any of it is wrong.
 
