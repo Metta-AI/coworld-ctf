@@ -228,6 +228,32 @@
   function clamp(v, lo, hi) { return v < lo ? lo : v > hi ? hi : v; }
   function el(tag, cls) { const e = document.createElement(tag); if (cls) e.className = cls; return e; }
   function fmtDash(v, suffix) { return (v === null || v === undefined) ? '—' : (v + (suffix || '')); }
+  // OPT-11 (CR-2): render() used to write every textContent/className/style
+  // property unconditionally, every call, at whatever rate the driving loop
+  // ran (previously an uncapped rAF — up to the browser's granted frame
+  // rate). These three helpers make each write conditional on the value
+  // actually changing, keyed into a single `lastRendered` cache object (see
+  // the main-loop section below) — the DOM only gets touched when something
+  // a player would actually see has changed, at any call rate.
+  function setText(node, cache, key, value) {
+    value = String(value);
+    if (cache[key] === value) return false;
+    cache[key] = value;
+    node.textContent = value;
+    return true;
+  }
+  function setClass(node, cache, key, value) {
+    if (cache[key] === value) return false;
+    cache[key] = value;
+    node.className = value;
+    return true;
+  }
+  function setStyleProp(node, cache, key, prop, value) {
+    if (cache[key] === value) return false;
+    cache[key] = value;
+    node.style[prop] = value;
+    return true;
+  }
   // Fills in every documented CONTRACT field a caller's partial state didn't
   // set — found necessary by testing, not by inspection: window.PaintbotHUD
   // .update()'s Object.assign is a SHALLOW merge, so a caller passing e.g.
@@ -1090,7 +1116,17 @@
   // approaching the 32-row wall the emitting lane flagged; own row is exempt
   // from the cap (see below), so "where am I" never scrolls away.
   const BR_MAX_ROWS = 12;
+  // OPT-11: this only runs while Tab is held/pinned (render() gates the
+  // call on `open`), but a held Tab during a live fight would otherwise
+  // still rebuild the whole table's innerHTML at the loop's full rate even
+  // when nothing in it changed. Cheap signature check first — skip the
+  // rebuild when the underlying rows/scores haven't moved since the table
+  // was last actually painted.
+  let lastScoreboardSig = null;
   function renderScoreboard(nodes, state) {
+    const sig = JSON.stringify([state.variant, state.teamScores, state.teamsAlive, state.playerRows, state.roster.resolved]);
+    if (sig === lastScoreboardSig) return;
+    lastScoreboardSig = sig;
     const rows = state.playerRows.slice();
     // Team score / teams-alive is the always-on TOP-CENTER bar now (see
     // renderTopBar) — not repeated here, so the hold-Tab panel is purely
@@ -1179,11 +1215,28 @@
   // (HUD_SPEC.md Part 2 — team score for CTF, teams-alive + zone status for
   // BR). Always-on, never gated behind Tab; team count alone (present every
   // tick) picks the variant the same way buildState() does.
+  //
+  // OPT-11 (CR-2): this used to be `nodes.top.innerHTML = '...'` rebuilt
+  // from scratch on every call — the single biggest contributor to the
+  // measured 975 DOM-mutations/s (a full teardown+rebuild of every team
+  // span/chip, every tick, even when nothing changed). Rewritten to build
+  // the variant's DOM skeleton ONCE (buildTopBarSkeleton, only re-runs on
+  // an actual 'unknown'->'ctf'/'br' transition, which happens at most once
+  // per page load — variant never flips mid-match) and update individual
+  // nodes' textContent/style/class in place afterward, each write gated on
+  // an actual value change. Visible output (text, colors, chip fill/hollow,
+  // ordering) is unchanged — only how it lands in the DOM changed.
   // ---------------------------------------------------------------------
-  function renderTopBar(nodes, state) {
-    if (state.variant === 'unknown') { nodes.top.style.display = 'none'; return; }
-    nodes.top.style.display = '';
-    if (state.variant === 'ctf') {
+  let topBarVariant = null; // 'ctf' | 'br' | null — tracks which skeleton is mounted
+  let topBarEls = null; // variant-specific persistent element refs
+  let topBarTeamOrder = []; // CTF: last painted kills-desc team-key order (skip no-op DOM reorders)
+  let topBarChipEls = new Map(); // BR: team key -> reused <i class="phud-chip"> element
+
+  function buildTopBarSkeleton(nodes, variant) {
+    while (nodes.top.firstChild) nodes.top.removeChild(nodes.top.firstChild);
+    topBarTeamOrder = [];
+    topBarChipEls = new Map();
+    if (variant === 'ctf') {
       // Eyebrow label (coordinator, live 8/30: Maxwell himself couldn't
       // identify this strip -- guessed team lives, then a hearts perk --
       // for a bare "BLUE 110/110" pair. It's tags-made/tags-lost
@@ -1192,24 +1245,113 @@
       // branch was missing entirely. Provisional word ("team tags") --
       // paintbot-voice owns the eventual paintball-register vocabulary
       // pass; not designing around this string.
-      nodes.top.innerHTML = '<span class="phud-eyebrow">team tags</span>' +
-        state.teamScores.slice()
-        .sort(function (a, b) { return b.kills - a.kills; })
-        .map(function (t) {
-          return '<span class="t" style="color:' + teamColor(t.team.toLowerCase()) + '">' +
-            t.team + ' <span class="phud-dim">' + t.kills + '/' + t.deaths + '</span></span>';
-        }).join('');
+      const eyebrow = el('span', 'phud-eyebrow'); eyebrow.textContent = 'team tags';
+      nodes.top.appendChild(eyebrow);
+      topBarEls = { teamNodes: new Map() };
     } else {
-      const zoneWord = state.zone ? (state.zone.shrinking ? 'SHRINKING' : 'HOLD') : '—';
-      const chips = teamAliveChips(state);
-      nodes.top.innerHTML =
-        '<span class="phud-eyebrow">teams alive</span><span class="t">' +
-        fmtDash(chips.aliveCount != null ? chips.aliveCount : state.teamsAlive) +
-        ' <span class="phud-dim">/ ' + fmtDash(state.teamScores.length) + '</span></span>' +
-        '<span class="phud-chips">' + chips.html + '</span>' +
-        '<span class="phud-eyebrow">zone</span><span class="t">' + zoneWord + '</span>';
+      const eyebrowAlive = el('span', 'phud-eyebrow'); eyebrowAlive.textContent = 'teams alive';
+      const aliveSpan = el('span', 't');
+      const aliveCountText = document.createTextNode('');
+      const aliveDim = el('span', 'phud-dim');
+      aliveSpan.appendChild(aliveCountText);
+      aliveSpan.appendChild(aliveDim);
+      const chipsSpan = el('span', 'phud-chips');
+      const eyebrowZone = el('span', 'phud-eyebrow'); eyebrowZone.textContent = 'zone';
+      const zoneSpan = el('span', 't');
+      nodes.top.appendChild(eyebrowAlive);
+      nodes.top.appendChild(aliveSpan);
+      nodes.top.appendChild(chipsSpan);
+      nodes.top.appendChild(eyebrowZone);
+      nodes.top.appendChild(zoneSpan);
+      topBarEls = { aliveCountText: aliveCountText, aliveDim: aliveDim, chipsSpan: chipsSpan, zoneSpan: zoneSpan };
+      // Fresh nodes start empty — invalidate the diff cache so the next
+      // render() unconditionally writes real content into them instead of
+      // wrongly matching a stale cached value from a prior build/variant.
+      lastRendered.topAliveText = undefined; lastRendered.topAliveDim = undefined; lastRendered.topZoneWord = undefined;
     }
-    positionTopBar(nodes);
+    topBarVariant = variant;
+  }
+
+  function renderTopBarCtf(nodes, state) {
+    const sorted = state.teamScores.slice().sort(function (a, b) { return b.kills - a.kills; });
+    const order = sorted.map(function (t) { return t.team; });
+    sorted.forEach(function (t) {
+      let node = topBarEls.teamNodes.get(t.team);
+      if (!node) {
+        node = el('span', 't');
+        node._dim = el('span', 'phud-dim');
+        node._lastColor = null; node._lastLabel = null;
+        topBarEls.teamNodes.set(t.team, node);
+      }
+      const color = teamColor(t.team.toLowerCase());
+      if (node._lastColor !== color) { node._lastColor = color; node.style.color = color; }
+      const label = t.team + ' ';
+      if (node._lastLabel !== label) {
+        node._lastLabel = label;
+        while (node.firstChild) node.removeChild(node.firstChild);
+        node.appendChild(document.createTextNode(label));
+        node.appendChild(node._dim);
+      }
+      const kd = t.kills + '/' + t.deaths;
+      if (node._dim.textContent !== kd) node._dim.textContent = kd;
+    });
+    // Drop stale team nodes (shouldn't happen mid-match — team list is
+    // fixed once known — kept as a safety net, not a hot path).
+    topBarEls.teamNodes.forEach(function (node, team) {
+      if (order.indexOf(team) === -1) { node.remove(); topBarEls.teamNodes.delete(team); }
+    });
+    // Reorder only when the actual kills-desc rank order changed.
+    if (order.join(',') !== topBarTeamOrder.join(',')) {
+      topBarTeamOrder = order;
+      order.forEach(function (team) { nodes.top.appendChild(topBarEls.teamNodes.get(team)); });
+    }
+  }
+
+  function renderTopBarBr(nodes, state) {
+    const zoneWord = state.zone ? (state.zone.shrinking ? 'SHRINKING' : 'HOLD') : '—';
+    const chips = teamAliveChips(state);
+    const aliveText = fmtDash(chips.aliveCount != null ? chips.aliveCount : state.teamsAlive) + ' ';
+    if (lastRendered.topAliveText !== aliveText) { lastRendered.topAliveText = aliveText; topBarEls.aliveCountText.nodeValue = aliveText; }
+    const dimText = '/ ' + fmtDash(state.teamScores.length);
+    if (lastRendered.topAliveDim !== dimText) { lastRendered.topAliveDim = dimText; topBarEls.aliveDim.textContent = dimText; }
+    if (lastRendered.topZoneWord !== zoneWord) { lastRendered.topZoneWord = zoneWord; topBarEls.zoneSpan.textContent = zoneWord; }
+
+    const seen = new Set();
+    chips.chips.forEach(function (c) {
+      seen.add(c.team);
+      let chip = topBarChipEls.get(c.team);
+      if (!chip) {
+        chip = el('i', 'phud-chip');
+        chip._lastClass = 'phud-chip'; chip._lastBg = null; chip._lastTitle = null;
+        topBarEls.chipsSpan.appendChild(chip);
+        topBarChipEls.set(c.team, chip);
+      }
+      const cls = 'phud-chip' + (c.wiped ? ' wiped' : '');
+      if (chip._lastClass !== cls) { chip._lastClass = cls; chip.className = cls; }
+      if (!c.wiped) {
+        const bg = teamColor(c.key);
+        if (chip._lastBg !== bg) { chip._lastBg = bg; chip.style.background = bg; }
+      } else if (chip._lastBg !== null) {
+        chip._lastBg = null; chip.style.background = '';
+      }
+      const title = c.team + (c.wiped ? ' — eliminated' : '');
+      if (chip._lastTitle !== title) { chip._lastTitle = title; chip.title = title; }
+    });
+    topBarChipEls.forEach(function (chip, team) {
+      if (!seen.has(team)) { chip.remove(); topBarChipEls.delete(team); }
+    });
+  }
+
+  function renderTopBar(nodes, state, railRect) {
+    if (state.variant === 'unknown') {
+      if (lastRendered.topDisplay !== 'none') { lastRendered.topDisplay = 'none'; nodes.top.style.display = 'none'; }
+      return;
+    }
+    if (lastRendered.topDisplay !== '') { lastRendered.topDisplay = ''; nodes.top.style.display = ''; }
+    if (topBarVariant !== state.variant) buildTopBarSkeleton(nodes, state.variant);
+    if (state.variant === 'ctf') renderTopBarCtf(nodes, state);
+    else renderTopBarBr(nodes, state);
+    positionTopBar(nodes, railRect);
   }
   // Collision fix (coordinator, live 8/30): a prior HUD lane found this bar
   // (CTF team score / BR teams-alive) can overlap #phud-rail's kills/
@@ -1225,13 +1367,24 @@
   // right edge plus a gutter, in which case it's pushed right just far
   // enough to clear it -- true at every window size and every scale step,
   // not tuned per breakpoint.
-  function positionTopBar(nodes) {
-    const railRect = nodes.rail.getBoundingClientRect();
+  //
+  // OPT-11: `railRect` is now read ONCE at the top of render(), before any
+  // of this frame's writes, and passed in — the read this function used to
+  // do itself landed AFTER several sibling writes already happened this
+  // frame (cd/hp/lv), forcing a synchronous layout flush mid-render every
+  // tick (CR-2's "forced reflow after write"). `nodes.top.offsetWidth`
+  // below is the one read that genuinely must come after this frame's own
+  // top-bar content writes (it needs the bar's freshly-updated width) —
+  // unavoidable, but the actual DOM WRITE (`style.left`) stays gated on the
+  // computed value actually changing, so a static top bar costs one cheap
+  // read and zero mutations per tick instead of one every frame regardless.
+  function positionTopBar(nodes, railRect) {
     const gutter = 14 * hudScaleValue();
     const halfTopWidth = nodes.top.offsetWidth / 2;
     const naturalCenter = innerWidth / 2;
     const minCenter = railRect.right + gutter + halfTopWidth;
-    nodes.top.style.left = Math.max(naturalCenter, minCenter) + 'px';
+    const left = Math.max(naturalCenter, minCenter) + 'px';
+    if (lastRendered.topLeft !== left) { lastRendered.topLeft = left; nodes.top.style.left = left; }
   }
   // Per-team elimination read, keyed lowercase: "team score <NAME> ..." ships
   // NAME upper-ascii'd (addTeamScoreboard, global.nim:4327) while the roster
@@ -1264,21 +1417,48 @@
   // NOT change the reserved state.teamsAlive contract field, which stays
   // whatever buildState() set it to (null today; real feed once realcog
   // routes teamLivesRemaining() onto the wire).
+  // Round-boundary guard: BR's own win condition ends a round at exactly
+  // ONE team remaining — the sim never lets play continue to zero, so a
+  // computed 0 here is never a real reading (confirmed live: the SAME
+  // roster read "1 / 16" one tick and "0 / 16" the next, ~450ms later,
+  // with every seat's deaths flipping to >0 in that single tick — the
+  // concluding round's teardown and the next round's fresh roster
+  // crossing on the wire, not an actual all-dead match). Rather than flash
+  // a number the mode cannot produce, hold the last real (non-zero)
+  // reading through that one seam tick; the very next tick's real roster
+  // (this round's last survivor, or the new round's fresh N) overwrites
+  // it immediately, so a hold never goes stale for more than a frame.
+  // OPT-11: returns structured per-team chip data (team/key/wiped) instead
+  // of a pre-joined HTML string — renderTopBarBr updates persistent <i>
+  // elements from this in place rather than rebuilding the chip row's
+  // innerHTML every tick. Same wipe rule, same hold-through-the-zero-seam
+  // behavior as before, just not serialized to a string along the way.
+  let lastGoodAlive = null, lastGoodChips = [];
   function teamAliveChips(state) {
     const status = teamAliveStatus(state);
     const teams = state.teamScores.map(function (t) { return t.team; });
-    if (!teams.length) return { html: '', aliveCount: null };
-    let aliveCount = 0, html = '';
-    teams.forEach(function (team) {
+    if (!teams.length) return { chips: [], aliveCount: null };
+    let aliveCount = 0;
+    const chips = teams.map(function (team) {
       const key = String(team).toLowerCase();
       const e = status.get(key);
       const wiped = !!(e && e.anyData && !e.anyAlive);
       if (!wiped) aliveCount++;
-      html += '<i class="phud-chip' + (wiped ? ' wiped' : '') + '"' +
-        (wiped ? '' : ' style="background:' + teamColor(key) + '"') +
-        ' title="' + escapeHtml(team) + (wiped ? ' — eliminated' : '') + '"></i>';
+      return { team: team, key: key, wiped: wiped };
     });
-    return { html: html, aliveCount: aliveCount };
+    if (aliveCount === 0) {
+      // Hold the last real reading through the seam tick when we have one.
+      // No held reading yet (e.g. this client attached mid-match right on
+      // a boundary tick, before ever seeing a real count) is the SAME
+      // "don't know yet" case buildState() already renders honestly as a
+      // dash elsewhere — never invent 0 there either, so drop the
+      // all-wiped chip row along with it rather than show hollow chips
+      // next to a dash.
+      if (lastGoodAlive !== null) return { chips: lastGoodChips, aliveCount: lastGoodAlive, held: true };
+      return { chips: [], aliveCount: null };
+    }
+    lastGoodAlive = aliveCount; lastGoodChips = chips;
+    return { chips: chips, aliveCount: aliveCount };
   }
   function whoText(human) { return human === true ? 'HUMAN' : human === false ? 'BOT' : '—'; }
   function escapeHtml(s) { return String(s).replace(/[&<>"]/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]; }); }
@@ -1302,6 +1482,10 @@
   let nodes = null, canvasEl = null;
   let prevKills = null, prevSeated = false;
   let cooldownPrevReady = null;
+  // OPT-11 (CR-2): every write in render() now goes through setText/
+  // setClass/setStyleProp gated on this cache instead of writing
+  // unconditionally — see those helpers' own comment up top.
+  let lastRendered = {};
   // Found by testing (a live tick-animation check came back silently false):
   // the self-attaching auto-scan loop below and the public update() push API
   // both write the SAME shared render state (prevKills, cooldownPrevReady,
@@ -1313,8 +1497,34 @@
   // "push mode" is actually usable rather than a documented trap.
   let autoScanEnabled = true;
 
+  // OPT-11 (CR-2/CR-5): this used to run off a raw, uncapped
+  // requestAnimationFrame chain — up to whatever rate the browser granted
+  // (44 fps measured under load), rebuilding the scoreboard/top-bar/rail
+  // every single tick regardless of whether the underlying game state (24
+  // ticks/s on the wire) had actually changed. HUD numbers never need to
+  // update faster than a player can read them, so this now drives off a
+  // plain 10-12Hz interval instead — HUD_TICK_MS=90 matches the cadence
+  // drawMinimap already throttled itself to (the "good pattern" CR-5 cited).
+  // The interval is torn down on document.hidden and restarted on
+  // visibilitychange back to visible, so a backgrounded tab pays nothing
+  // (previously: background rAF, throttled by the browser but never zero).
+  const HUD_TICK_MS = 90;
+  let hudTimer = null;
+  function startLoop() {
+    if (hudTimer !== null) return;
+    frame(); // paint immediately on (re)start rather than waiting a full tick
+    hudTimer = setInterval(frame, HUD_TICK_MS);
+  }
+  function stopLoop() {
+    if (hudTimer === null) return;
+    clearInterval(hudTimer);
+    hudTimer = null;
+  }
+  document.addEventListener('visibilitychange', function () {
+    if (document.hidden) stopLoop(); else startLoop();
+  });
+
   function frame() {
-    requestAnimationFrame(frame);
     if (!autoScanEnabled) return;
     if (!nodes) return;
     canvasEl = canvasEl || document.getElementById('c');
@@ -1329,17 +1539,25 @@
   }
 
   function render(state, now) {
+    // OPT-11 (CR-2): the one layout READ this function needs (the rail's
+    // rendered rect, for centering the top bar) is taken up front, before
+    // any of this frame's writes below — previously positionTopBar() read
+    // it AFTER the cd/hp/lv writes just below had already run, forcing a
+    // synchronous layout flush mid-frame every tick. Reading first means a
+    // clean, unforced read on every tick that didn't just change layout.
+    const railRect = nodes.rail.getBoundingClientRect();
+
     // A — weapon-ready STATUS, fixed in the condition panel (bottom-left),
     // never cursor-anchored — see the CSS block's own comment for the field
     // report this replaced. No seat = nothing to show.
     const cd = nodes.cooldown;
     if (!state.seated || state.fire.ready === null) {
-      cd.style.opacity = '0';
-      nodes.weaponText.textContent = '—';
+      setStyleProp(cd, lastRendered, 'cdOpacity', 'opacity', '0');
+      setText(nodes.weaponText, lastRendered, 'weaponText', '—');
     } else {
-      cd.style.opacity = '1';
-      cd.className = state.fire.ready ? 'ready' : 'cooling';
-      nodes.weaponText.textContent = state.fire.ready ? 'READY' : 'COOLING';
+      setStyleProp(cd, lastRendered, 'cdOpacity', 'opacity', '1');
+      setClass(cd, lastRendered, 'cdClass', state.fire.ready ? 'ready' : 'cooling');
+      setText(nodes.weaponText, lastRendered, 'weaponText', state.fire.ready ? 'READY' : 'COOLING');
       if (state.fire.ready && cooldownPrevReady === false) {
         cd.classList.add('pop'); // it just finished cooling — a real transition, not fabricated progress
         setTimeout(function () { cd.classList.remove('pop'); }, 240);
@@ -1351,41 +1569,48 @@
     if (state.seated && (state.health.hp !== null || state.health.lives !== null)) {
       let hpText = state.health.hp !== null ? state.health.hp + (state.health.maxHp ? '/' + state.health.maxHp : '') + ' hp' : '—';
       if (state.health.shield) hpText += ' +' + state.health.shield + ' shield';
-      nodes.hp.textContent = hpText;
-      nodes.hp.className = 'phud-num' + (state.health.maxHp && state.health.hp <= Math.ceil(state.health.maxHp * 0.34) ? ' phud-hp-low' : '');
-      nodes.lv.textContent = fmtDash(state.health.lives, ' left');
+      setText(nodes.hp, lastRendered, 'hpText', hpText);
+      setClass(nodes.hp, lastRendered, 'hpClass', 'phud-num' + (state.health.maxHp && state.health.hp <= Math.ceil(state.health.maxHp * 0.34) ? ' phud-hp-low' : ''));
+      setText(nodes.lv, lastRendered, 'lvText', fmtDash(state.health.lives, ' left'));
     } else {
-      nodes.hp.textContent = '—'; nodes.hp.className = 'phud-num';
-      nodes.lv.textContent = '—';
+      setText(nodes.hp, lastRendered, 'hpText', '—');
+      setClass(nodes.hp, lastRendered, 'hpClass', 'phud-num');
+      setText(nodes.lv, lastRendered, 'lvText', '—');
     }
     if (state.combat.buffs.length) {
-      nodes.buffWrap.style.display = ''; nodes.buffs.textContent = state.combat.buffs.join(', ');
-    } else nodes.buffWrap.style.display = 'none';
+      setStyleProp(nodes.buffWrap, lastRendered, 'buffWrapDisplay', 'display', '');
+      setText(nodes.buffs, lastRendered, 'buffsText', state.combat.buffs.join(', '));
+    } else {
+      setStyleProp(nodes.buffWrap, lastRendered, 'buffWrapDisplay', 'display', 'none');
+    }
 
     // Top-center — always-on match situation (team score / teams-alive+zone).
-    renderTopBar(nodes, state);
+    renderTopBar(nodes, state, railRect);
 
     // E — persistent kills/deaths/score, with a restrained tick on real increment.
-    setStat(nodes.k, state.combat.kills, function () { return prevKills !== null && state.combat.kills !== null && state.combat.kills > prevKills; });
+    setStat(nodes.k, 'kText', state.combat.kills, function () { return prevKills !== null && state.combat.kills !== null && state.combat.kills > prevKills; });
     prevKills = state.combat.kills;
-    nodes.d.textContent = fmtDash(state.combat.deaths);
-    nodes.sc.textContent = fmtDash(state.combat.score);
-    nodes.rk.textContent = state.combat.rank ? state.combat.rank : '—';
+    setText(nodes.d, lastRendered, 'dText', fmtDash(state.combat.deaths));
+    setText(nodes.sc, lastRendered, 'scText', fmtDash(state.combat.score));
+    setText(nodes.rk, lastRendered, 'rkText', state.combat.rank ? state.combat.rank : '—');
 
     // B — minimap (+ BR zone label; qualitative, never a fabricated countdown).
-    nodes.miniLabel.textContent = state.zone
+    setText(nodes.miniLabel, lastRendered, 'miniLabelText', state.zone
       ? 'map · zone ' + (state.zone.shrinking ? 'shrinking' : 'hold')
-      : 'map';
+      : 'map');
     drawMinimap(nodes.mini, canvasEl, state);
 
     // D — scoreboard visibility + content.
     const open = scoreHeld || scorePinned;
-    nodes.score.classList.toggle('open', open);
+    if (lastRendered.scoreOpen !== open) {
+      lastRendered.scoreOpen = open;
+      nodes.score.classList.toggle('open', open);
+    }
     if (open) renderScoreboard(nodes, state);
   }
-  function setStat(elm, value, didTick) {
+  function setStat(elm, cacheKey, value, didTick) {
     const tick = didTick();
-    elm.textContent = fmtDash(value);
+    setText(elm, lastRendered, cacheKey, fmtDash(value));
     if (tick) { elm.classList.remove('tick'); void elm.offsetWidth; elm.classList.add('tick'); }
   }
 
@@ -1396,7 +1621,7 @@
       nodes.toggle.classList.toggle('pinned', scorePinned);
     });
     nodes.scaleToggle.addEventListener('click', function () { cycleHudScale(nodes); });
-    requestAnimationFrame(frame);
+    if (!document.hidden) startLoop(); // visibilitychange listener (above) starts it if the tab is backgrounded at boot
   }
   if (document.body) boot(); else document.addEventListener('DOMContentLoaded', boot);
 

@@ -92,6 +92,54 @@ suite "rich analysis events":
         check impact[0].headingBrads == heading
         check impact[0].damages.len == 1
 
+  test "levelling mid-windup does not desync the trigger and shot actionIds":
+    ## GLORY regression (windupStartTick): startFireWindup arms `fireWindup`
+    ## off the shooter's level AT ARM TIME (`levelWindupTicks`), a fixed
+    ## countdown that nothing re-derives mid-flight. But the shooter's own
+    ## `.level` field can still change WHILE that countdown is running -- a
+    ## grenade or spray hit lands on the independent damage channel and
+    ## pays xp on its own tick, unrelated to the gun's windup. If the shot's
+    ## actionId were reconstructed from a FRESH `shooter.level` read at
+    ## resolve time (the pre-windupStartTick bug), a mid-windup level
+    ## crossing L1/L5 would misname the arm tick and desync the Shot/
+    ## ShotImpact actionId from the already-emitted GunTrigger's.
+    var game = twoTeamGame(collectEvents = true)
+    game.players[0].placeAtCenter(60, MapHeight div 2)
+    game.players[0].aimBrads = 0
+    game.players[1].placeAtCenter(100, MapHeight div 2)
+    check game.players[0].level == 0
+
+    game.startFireWindup(0)
+    let triggers = game.eventsOf(GunTrigger)
+    check triggers.len == 1
+    let triggerTick = triggers[0].tick
+
+    # Step partway through the windup, THEN level the shooter across L1
+    # (LevelWindupDelta 0 -> -1) while fireWindup is still counting down
+    # from the level-0 duration it armed at.
+    let halfway = game.config.fireWindupTicks div 2
+    for _ in 0 ..< halfway:
+      game.step(game.none(), game.none())
+    check game.players[0].fireWindup > 0  # still winding up
+    game.addXp(0, LevelThresholds[0])
+    check game.players[0].level == 1  # crossed L1 mid-windup
+
+    # Finish the windup. The countdown is untouched by the level change (it
+    # was set once, at arm time), so the shot still releases and must carry
+    # the ORIGINAL trigger's actionId, not one reconstructed off the new,
+    # higher level.
+    while game.players[0].fireWindup > 0:
+      game.step(game.none(), game.none())
+
+    let
+      shots = game.eventsOf(Shot)
+      impacts = game.eventsOf(ShotImpact)
+    check shots.len == 1
+    check shots[0].tick > triggerTick
+    check shots[0].actionId == triggers[0].actionId
+    check impacts.len == 1
+    check impacts[0].actionId == triggers[0].actionId
+
   test "a missed shot still reports its wall or range impact":
     var game = twoTeamGame(collectEvents = true)
     game.players[0].x = game.gameMap.center.x

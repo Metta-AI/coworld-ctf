@@ -1991,6 +1991,7 @@ proc startGame*(sim: var SimServer) =
     sim.players[i].fireCooldown = 0
     sim.players[i].fireWindup = 0
     sim.players[i].windupBrads = -1
+    sim.players[i].windupStartTick = -1
     sim.players[i].aimBrads =
       sim.gameMap.spawnAimBrads(sim.players[i].team, groupOffset)
     sim.players[i].flipH =
@@ -2626,6 +2627,7 @@ proc downPlayer(
   victim.carryY = 0
   victim.fireWindup = 0
   victim.windupBrads = -1
+  victim.windupStartTick = -1
   victim.arcTicksLeft = 0
   victim.arcAimBrads = -1
   victim.throwCharge = 0
@@ -3145,6 +3147,7 @@ proc killPlayer*(
   # A dying trigger pull never releases, and a carried grenade is lost.
   sim.players[targetIndex].fireWindup = 0
   sim.players[targetIndex].windupBrads = -1
+  sim.players[targetIndex].windupStartTick = -1
   sim.players[targetIndex].hasGrenade = false
   sim.players[targetIndex].hasShield = false
   sim.players[targetIndex].shieldHp = 0
@@ -3489,8 +3492,11 @@ proc startArcFire*(sim: var SimServer, attackerIndex: int) =
   ## next firing. Damage is dealt by resolveActiveArcCones each active tick.
   if not sim.canFireArc(attackerIndex):
     return
+  # GLORY L2 (levelSprayReset): -40% of the recharge half only; the active
+  # damage window (SprayPaintActiveTicks) is untouched.
   sim.players[attackerIndex].fireCooldown =
-    SprayPaintActiveTicks + SprayPaintResetTicks
+    SprayPaintActiveTicks +
+      levelSprayReset(SprayPaintResetTicks, sim.players[attackerIndex].level)
   sim.players[attackerIndex].arcTicksLeft = SprayPaintActiveTicks
   # Lock the aim NOW: the cone keeps this direction for its whole active
   # window, so turning the cog mid-spray no longer sweeps it around. One
@@ -3842,7 +3848,15 @@ proc selectGunShot(sim: var SimServer, shooterIndex: int): PendingGunShot =
       else: shooter.aimBrads
     triggerTick =
       if shooter.windupBrads >= 0:
-        sim.tickCount - sim.config.fireWindupTicks
+        # The tick startFireWindup armed at, so this shot's actionId
+        # matches the GunTrigger event's. Read from the snapshot
+        # (windupStartTick), NOT reconstructed by subtracting a
+        # freshly-read `shooter.level`'s windup ticks from `sim.tickCount`
+        # — GLORY L1/L5 makes the windup duration level-dependent, and a
+        # shooter can level across L1/L5 mid-windup (an independent
+        # grenade/spray hit pays xp on its own tick), which would make a
+        # live re-derivation name the wrong arm tick.
+        shooter.windupStartTick
       else:
         sim.tickCount
     (ux, uy) = sim.jitterDirection(headingBrads, shooter.perks)
@@ -3874,9 +3888,13 @@ proc applyFire(sim: var SimServer, shot: PendingGunShot) =
     cooldownScale = max(ShieldFireSlowdown, CarrierFireSlowdown)
   if sim.playerTrench(shooterIndex) >= 0:
     cooldownScale = max(cooldownScale, TrenchFireSlowdown)
+  # GLORY L4 (levelFireCooldown): -25% base cooldown, floored at 1 tick, THEN
+  # the shield/carrier/trench slowdown composes on top same as always.
   sim.players[shooterIndex].fireCooldown =
-    sim.config.fireCooldownTicks * cooldownScale
+    levelFireCooldown(sim.config.fireCooldownTicks, shooter.level) *
+      cooldownScale
   sim.players[shooterIndex].windupBrads = -1
+  sim.players[shooterIndex].windupStartTick = -1
   # Accuracy bookkeeping (analysis-only, excluded from gameHash): every call
   # here is one released shot; a shot that locked onto a live enemy on the ray
   # (targetIndex >= 0) is on-target, so it counts as a hit even in the rare
@@ -4205,8 +4223,16 @@ proc startFireWindup*(sim: var SimServer, shooterIndex: int) =
   if sim.players[shooterIndex].fireWindup > 0:
     return
   let actionId = sim.eventActionId(shooterIndex, GunAction)
-  sim.players[shooterIndex].fireWindup = sim.config.fireWindupTicks
+  # GLORY L1/L5 (levelWindupTicks): -1 tick at L1, another -1 at L5. Floored
+  # at 1 tick by the accessor itself, so this can never fire same-tick.
+  sim.players[shooterIndex].fireWindup =
+    levelWindupTicks(sim.config.fireWindupTicks, sim.players[shooterIndex].level)
   sim.players[shooterIndex].windupBrads = sim.players[shooterIndex].aimBrads
+  # Snapshot the arm tick (see windupStartTick's own doc): selectGunShot
+  # reads THIS at resolve time instead of re-deriving it from a fresh level
+  # read, which a mid-windup level-up (grenade/spray xp on the independent
+  # applyGrenadeInput channel) would get wrong.
+  sim.players[shooterIndex].windupStartTick = sim.tickCount
   sim.emitEvent(
     GunTrigger,
     source = shooterIndex,
@@ -4296,7 +4322,12 @@ proc throwGrenade(sim: var SimServer, playerIndex: int) =
     distance = throwDistance,
     item = "grenade"
   )
-  sim.players[playerIndex].hasGrenade = false
+  # GLORY L4 (levelGrenadeCharges): only drop hasGrenade once every charge
+  # from this pickup is spent, so a L4+ throw can fire again immediately.
+  sim.players[playerIndex].grenadeCharges =
+    max(0, sim.players[playerIndex].grenadeCharges - 1)
+  if sim.players[playerIndex].grenadeCharges <= 0:
+    sim.players[playerIndex].hasGrenade = false
   sim.players[playerIndex].throwCharge = 0
   sim.logGameEvent(playerColorText(player.color) & " threw a grenade")
 
@@ -4401,6 +4432,7 @@ proc dropHeldItem(sim: var SimServer, playerIndex: int) =
     # mirror-image reset when the can is taken).
     p.fireWindup = 0
     p.windupBrads = -1
+    p.windupStartTick = -1
   elif sim.config.lootStart and p.hasGun:
     kind = dkGun
     p.hasGun = false
@@ -4773,6 +4805,9 @@ proc tryPickupGrenades*(sim: var SimServer, playerIndex: int) =
   sim.pickupByTouch(playerIndex, grenadeSpawns, GrenadePickupRange,
       GrenadeRespawnTicks):
     sim.players[playerIndex].hasGrenade = true
+    # GLORY L4 (levelGrenadeCharges): a pickup yields 2 throws instead of 1.
+    sim.players[playerIndex].grenadeCharges =
+      levelGrenadeCharges(sim.players[playerIndex].level)
     sim.emitPickup(playerIndex, "grenade", spawn.x, spawn.y)
     sim.logGameEvent(
       playerColorText(sim.players[playerIndex].color) &
@@ -4795,7 +4830,8 @@ proc tryPickupMedKits*(sim: var SimServer, playerIndex: int) =
   if not sim.players[playerIndex].alive or sim.players[playerIndex].downed:
     return
   let maxHp = sim.config.maxHpFor(
-    sim.players[playerIndex].team, sim.players[playerIndex].perks)
+    sim.players[playerIndex].team, sim.players[playerIndex].perks,
+    sim.players[playerIndex].level)
   if sim.players[playerIndex].hp >= maxHp:
     return
   # GLORY: read BEFORE the pickup heals, like the kill site reads its
@@ -4870,7 +4906,8 @@ proc updateBandageApplies*(sim: var SimServer) =
       continue
     if sim.players[i].bandages <= 0:
       continue
-    let maxHp = sim.config.maxHpFor(sim.players[i].team, sim.players[i].perks)
+    let maxHp = sim.config.maxHpFor(
+      sim.players[i].team, sim.players[i].perks, sim.players[i].level)
     if sim.players[i].hp >= maxHp:
       continue
     if sim.tickCount - sim.players[i].lastDamageTick < BandageApplyTicks:
@@ -4965,6 +5002,7 @@ proc tryPickupSprayPaints*(sim: var SimServer, playerIndex: int) =
     sim.players[playerIndex].hasSprayPaint = true
     sim.players[playerIndex].fireWindup = 0
     sim.players[playerIndex].windupBrads = -1
+    sim.players[playerIndex].windupStartTick = -1
     sim.emitPickup(playerIndex, "spray_can", spawn.x, spawn.y)
     sim.logGameEvent(
       playerColorText(sim.players[playerIndex].color) &
@@ -5020,6 +5058,7 @@ proc tryPickupDropped*(sim: var SimServer, playerIndex: int) =
         p.hasSprayPaint = true
         p.fireWindup = 0
         p.windupBrads = -1
+        p.windupStartTick = -1
         took = true
     of dkGun:
       if not p.hasGun:
@@ -5379,8 +5418,11 @@ proc applyInput*(
     player.aimBrads < AimBradsTurn * 3 div 4
 
   let
+    # GLORY L5 (levelCarrierSpeedPct): the heart's speed tax is waived.
     speedScale =
-      if player.carryingFlag: sim.config.carrierSpeedPct else: 100
+      if player.carryingFlag:
+        levelCarrierSpeedPct(sim.config.carrierSpeedPct, player.level)
+      else: 100
     # The floor-paint buff composes MULTIPLICATIVELY AFTER the carrier scale
     # and BEFORE the trench divisor, in exactly this integer order so both
     # ends of the map round identically. paintPct is 100 whenever the buff is
@@ -6053,7 +6095,12 @@ proc finishGame*(sim: var SimServer, winner: Team, isDraw = false, timeLimitReac
   for p in sim.players:
     if p.team != winner:
       continue
-    let fullHp = sim.config.maxHpFor(p.team, p.perks)
+    # GLORY (levelMaxHp): a leveled cog's owed-respawn budget must count
+    # its OWN buffed ceiling, not the unleveled base -- p.hp already reads
+    # buffed for the current life, but fullHp is ALSO the multiplier for
+    # every remaining/owed life below, so it needs the same buff or a
+    # levelled winner's budget is undercounted.
+    let fullHp = sim.config.maxHpFor(p.team, p.perks, p.level)
     if p.alive:
       # An alive cog with N lives dies N times in total, so it still has
       # N - 1 respawns owed; a dead cog waiting on its timer has `lives`.
@@ -6596,7 +6643,8 @@ proc updatePaintBuff*(sim: var SimServer) =
     if sim.players[i].ownPaintTicks < max(1, sim.config.paintHealTicks):
       continue
     sim.players[i].ownPaintTicks = 0
-    let maxHp = sim.config.maxHpFor(sim.players[i].team, sim.players[i].perks)
+    let maxHp = sim.config.maxHpFor(
+      sim.players[i].team, sim.players[i].perks, sim.players[i].level)
     if sim.players[i].hp >= maxHp:
       continue
     inc sim.players[i].hp
@@ -7925,7 +7973,8 @@ proc respawnPlayers(sim: var SimServer) =
         if slot >= 0 and slot < MaxPlayers:
           inc sim.seatLifeGenerations[slot]
         sim.players[i].hp =
-          sim.config.maxHpFor(sim.players[i].team, sim.players[i].perks)
+          sim.config.maxHpFor(
+            sim.players[i].team, sim.players[i].perks, sim.players[i].level)
         sim.players[i].aimBrads =
           sim.gameMap.spawnAimBrads(sim.players[i].team, groupOffset)
         sim.players[i].flipH =

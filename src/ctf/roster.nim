@@ -544,6 +544,7 @@ proc addPlayer*(
     aimBrads: sim.gameMap.spawnAimBrads(team, groupOffset),
     flipH: sim.gameMap.spawnFlipH(team, groupOffset),
     windupBrads: -1,
+    windupStartTick: -1,
     arcAimBrads: -1,
     team: team,
     alive: true,

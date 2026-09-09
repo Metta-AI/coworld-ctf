@@ -298,9 +298,32 @@ type
                        ## from 2nd. Recut class x4.
 
 const
-  GloryVersion* = 15
+  GloryVersion* = 16
     ## Bumped on any pricing change, so a ledger can be attributed to the
     ## table that produced it. A cross-version comparison is invalid.
+    ##
+    ## v16 (2026-09-08, LEVELS ARE POWER -- owner ruling 2026-08-21, "Maxwell
+    ## wants power"; card 2d30dba3): the six `levelX()` buff accessors
+    ## (`levelWindupTicks`/`levelMaxHp`/`levelFireCooldown`/
+    ## `levelSprayReset`/`levelGrenadeCharges`/`levelCarrierSpeedPct`) landed
+    ## dead at GV10 (04096969, "unwired increment 1/3") and stayed dead ever
+    ## since -- glory levels were earned but conferred zero combat power.
+    ## Wired live: `startFireWindup`/`selectGunShot` (L1/L5 windup),
+    ## `maxHpFor`'s six callers (L3+ hp ceiling), `applyFire` (L4 fire
+    ## cooldown), `startArcFire` (L2 spray reset), `tryPickupGrenades` +
+    ## `throwGrenade` (L4 two-charge grenades, now actually tracked
+    ## per-life instead of always reading 0), `applyInput` (L5 carrier
+    ## speed waiver). `levelGunRange` stays unwired -- it is retired dead
+    ## code (GLORY C2), not a gap. Rides on top of v15 just below (#467,
+    ## merged first) -- claims GV16 as the next free number, GameVersion 59
+    ## -> 60. This moves the hash TRAJECTORY of nearly every fixture
+    ## (combat is how xp is earned, so any real game now reaches level 1+),
+    ## not just the pact-scoped slice #467 touched, so it earns its own
+    ## GameVersion the way GV36/GV38/GV45/GV49 did rather than #467's
+    ## narrower GloryVersion-only bump. No wire SCHEMA change: no field
+    ## added or reordered on `Player`/`GameConfig`. All 9 AGENTS.md
+    ## fixtures re-recorded against this commit (on top of #467's own
+    ## already-merged state).
     ##
     ## v15 (2026-09-08, dJointAct pact-gated: alliance-only -- owner ruling
     ## 2026-09-08, S2 lead session, task f3fe0b4f): JOINT ACT pays ONLY
@@ -1389,8 +1412,12 @@ const
   #
   # The ladder is built so that every rung grants a distinct CAPABILITY
   # rather than a bigger number, so a levelled cog plays differently instead
-  # of just harder. Values are cumulative and applied at five integer sites
-  # in `sim.nim`; all arithmetic stays integer.
+  # of just harder. Values are cumulative and applied at six integer sites
+  # in `sim.nim` (GLORYVERSION 16 wired all six live: startFireWindup +
+  # selectGunShot's triggerTick, maxHpFor's six callers, applyFire,
+  # startArcFire, tryPickupGrenades + throwGrenade, applyInput); all
+  # arithmetic stays integer. `levelGunRange` (below) stays UNWIRED on
+  # purpose -- it is retired dead code, always the 100% no-op identity.
   #
   #   L1 Tagger     windup -1 tick        the lead we measured at +70pp
   #   L2 Marksman   spray reset -40%     the spray finally recycles
