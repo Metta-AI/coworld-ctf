@@ -1,4 +1,4 @@
-# tools/stranger_walk/container/Dockerfile — Stranger Walk protocol v1.3
+# tools/stranger_walk/container/Dockerfile — Stranger Walk protocol v1.4
 #
 # Gives the stranger process its OWN Linux PID namespace, filesystem, and
 # network namespace, instead of running as a bare `claude -p` process on the
@@ -16,6 +16,21 @@
 # only tools/stranger_walk/{entrypoint.sh,probe.sh} and the run dir (bind
 # mounted at container run time by run_container.sh) know anything about
 # this project.
+#
+# v1.4 adds a browser: Walk 1's strangers needed one (GitHub OAuth sign-in,
+# watching replays) and container mode previously had none at all
+# (`browser_enabled` was hardcoded `false` — see docs/designs/STRANGER_WALK.md
+# v1.3, "What v1.3 still does not close: No browser inside the container").
+# Two independent browser stacks share one Chromium download location
+# ($PLAYWRIGHT_BROWSERS_PATH below): the Python `playwright` package (used by
+# `entrypoint.sh`'s `selftest` mode for a scripted, no-credential screenshot
+# proof) and the Node `@playwright/mcp` server (what the stranger's own
+# `claude -p` session actually gets wired to via `--mcp-config`, mirroring
+# `run.sh`'s existing host-mode browser wiring — see that script's header).
+# If their exact browser revisions don't line up, each downloads its own
+# revision subfolder into the same path at build time — no conflict, just a
+# few hundred extra MB in the image; simpler and more robust than chasing
+# exact version parity between the two ecosystems.
 FROM node:20-bookworm-slim
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
@@ -50,6 +65,27 @@ RUN curl -LsSf https://astral.sh/uv/install.sh | env UV_INSTALL_DIR=/usr/local/b
 # a newer release (there is no isolation reason to pin harder here — the
 # stranger is a normal user of this tool, not testing it).
 RUN npm install -g @anthropic-ai/claude-code
+
+# v1.4: headless Chromium, two ways in. Shared download location, chmod'd
+# world-readable+executable at the end so the RUNTIME non-root user (always
+# the invoking host's own uid:gid — see the no-USER-directive note below,
+# never the root this file builds as) can actually launch the browser.
+ENV PLAYWRIGHT_BROWSERS_PATH=/opt/playwright-browsers
+
+# 1. The Node MCP server — what the stranger's `claude -p` session is
+#    actually wired to via `--mcp-config` (see entrypoint.sh), same
+#    `@playwright/mcp` package `run.sh` already uses for host-mode runs.
+RUN npm install -g playwright @playwright/mcp@latest \
+    && npx --yes playwright install --with-deps chromium
+
+# 2. Python playwright — used by entrypoint.sh's `selftest` mode to prove
+#    the browser mechanism with a scripted, no-Anthropic-credential-needed
+#    screenshot fetch (see that script). Debian bookworm's system pip is
+#    PEP 668 "externally managed" — --break-system-packages is deliberate,
+#    this is a throwaway container image, not a host Python environment.
+RUN pip3 install --no-cache-dir --break-system-packages playwright \
+    && python3 -m playwright install --with-deps chromium \
+    && chmod -R a+rX /opt/playwright-browsers
 
 RUN mkdir -p /home/stranger
 WORKDIR /home/stranger

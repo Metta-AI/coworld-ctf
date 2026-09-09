@@ -40,21 +40,35 @@
 # or by polling meta.json's run_status directly.
 set -euo pipefail
 
-TARGET="${1:?usage: launch.sh <run.sh|resume.sh> <args...>}"
+TARGET="${1:?usage: launch.sh <run.sh|run_container.sh|resume.sh|chain_before_runs.sh> <args...>}"
 shift
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 RUNS_PARENT="${STRANGER_RUNS_PARENT:-/Users/maxwellstarr/projects/stranger-walk-runs}"
 
+# v1.4 fix: this case statement previously only recognized run.sh/resume.sh
+# — docs/designs/STRANGER_WALK.md's v1.3 section claimed "no changes to
+# launch.sh were needed" for run_container.sh, but that was never actually
+# true of this code (verified 2026-09-09: `launch.sh run_container.sh ...`
+# hit the `*)` "unknown target" branch and exited 1). Corrected here, and
+# extended for chain_before_runs.sh (protocol v1.4's serialized-run
+# launcher), which has no single run-id of its own — argv is
+# `<max-budget-usd> <model:run-id> [...]`, so its pidfile/log are keyed off
+# a synthetic `chain-<first-stage-run-id>` id instead, kept separate from
+# any individual run's own $RUN_DIR.
 case "$TARGET" in
-  run.sh)
-    RUN_ID="${2:?usage: launch.sh run.sh <model> <run-id> [max-budget-usd]}"
+  run.sh|run_container.sh)
+    RUN_ID="${2:?usage: launch.sh $TARGET <model|probe|selftest> <run-id> [max-budget-usd]}"
     ;;
   resume.sh)
     RUN_ID="${1:?usage: launch.sh resume.sh <run-id> \"<message>\" [kind]}"
     ;;
+  chain_before_runs.sh)
+    FIRST_STAGE="${2:?usage: launch.sh chain_before_runs.sh <max-budget-usd> <model:run-id> [...]}"
+    RUN_ID="chain-${FIRST_STAGE#*:}"
+    ;;
   *)
-    echo "unknown target: $TARGET (expected run.sh or resume.sh)" >&2
+    echo "unknown target: $TARGET (expected run.sh, run_container.sh, resume.sh, or chain_before_runs.sh)" >&2
     exit 1
     ;;
 esac
