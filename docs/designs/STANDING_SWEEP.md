@@ -274,6 +274,11 @@ this result rests on a boundary the criterion was written to test, not deep
 inside a passing region. **No settings change is proposed or applied here**;
 this table only reports which rows pass/fail the literal criterion.
 
+**Superseded below.** The "Robustness read" section that follows shows this
+literal `~103` anchor reproduces on only 6/30 (20%) of resampled draws — see
+"Rate criterion, restated" after it for the corrected, distributional version
+of this criterion and the resulting pick.
+
 ## Robustness read: bootstrap over resampled round windows (2026-09-09, S0 fix PR)
 
 The rate criterion above rests on **one run, one seed, one ledger window**,
@@ -345,6 +350,51 @@ near-zero across every draw for every setting (never-frac 0.00 throughout,
 medians 0-6 rounds) — the asymmetry noted in "Current-setting metrics" above
 (declines register immediately, improvements don't) holds up under
 resampling without qualification.
+
+## Rate criterion, restated (2026-09-09) — the pick
+
+**Supersedes** the literal criterion above. The old wording ("no faster than
+today's ~103 rounds," a single point estimate) is replaced with a
+**distributional** form: *"the 1.5x climb-time distribution under the new
+rule must not be faster than today's climb-time distribution,"* compared by
+bootstrapped **medians and p10** (see "Robustness read" above), not a single
+draw.
+
+**⚠️ Anchor caveat, verbatim:** the old "~103" reference was unstable (6/30
+draws, bootstrapped median 41.5); the criterion is now distributional for
+that reason.
+
+Why this changes the outcome: today's bootstrapped median `up` is **41.5
+rounds**, not 103 — the single-draw 103 was an unlucky (slow-tail)
+realization. Under the distributional criterion, every log2 candidate at
+`k >= 0.02` has a higher (slower-or-equal) median **and** p10 than today's
+41.5/0.0: log2 alone 44.0/16.9, `k=0.035` 65.5/48.0, `k=0.03` 94.5/55.9,
+`k=0.025` 96.5/69.5, `k=0.02` 121.0/100.9. The owner's "no faster climb"
+concern is satisfied by the **whole log2 family** — the climb constraint
+stops discriminating between rates, so the pick falls to the owner's primary
+symptom instead: the board changes too fast.
+
+**The pick: `rated_k = 0.025`.** Fewest #1 changes of the extended rows
+(4.74/50, vs. 5.73 / 8.89 / 7.51 for `k=0.02` / `0.03` / `0.035`), tau 0.979,
+corrected leader share 3.2% (0.0319), decay half-life `ln(2)/0.025 ≈ 27.7`
+rounds. Chosen on fewest #1 changes with stability and leader share both in
+hand, once the climb constraint no longer discriminates.
+
+**Runner-up: `k = 0.02`.** Better leader share (0.0269 vs. 0.0319) but
+*more* #1 changes (5.73 vs. 4.74/50) — the honest trade against the pick,
+not a second-place tie.
+
+**⚠️ Era-span caveat, verbatim:** r4257-r4526 is not one cohort — 242/253
+rounds are GloryVersion 14, the last 11 cross into GloryVersion 15 (JointAct
+pact-only, PR #467); ~7% of 100-round windows touch that tail.
+
+**This pick is a recommendation on record, not an authorisation.** The POST
+does **not** follow from it. It still waits on: the `log2` transform
+actually landing (a code change, not a settings knob, per "Recommendation"
+below); the sign-aware clamp fix for negative legs; a live-league audit of
+every league running `rated` aggregation with an armed clamp; and the
+owner's GO relayed by the S2 lead. No settings were changed to produce this
+section.
 
 ## Recommendation
 
