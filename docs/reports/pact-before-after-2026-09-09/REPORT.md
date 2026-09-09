@@ -19,6 +19,7 @@ boundary (see README's era caveat).
 | v46 | 4527-4534 | 96 | 95.8% (92/96) | 18.8% (18/96) | 9.4% (9/96) | 8.3% (8/96) |
 | v47 (interim, n=12) | 4535-4536 | 12 | 100% (12/12) | 16.7% (2/12) | 0.0% (0/12) | 8.3% (1/12) |
 | v48 (interim, n=37) | 4540-4542 | 37 | 100% (37/37) | 100% (37/37) | 29.7% (11/37) | 91.9% (34/37) |
+| v49 (pooled, GV15+GV16) | 4545-4603 | 717 | 95.8% (687/717) | 95.8% (687/717) | 27.6% (198/717) | 83.1% (596/717) |
 
 Also cited: the small pre-fix sample recorded before this pipeline existed
 (`monet-pact-baseline-2026-09-09.md`): 37 episodes, wire-declared in 4/37,
@@ -43,6 +44,7 @@ v48's re-sync fix is what finally closes that gap: sim-declared jumps to
 | v46 | 96 | 1.0% [0.2, 5.7] | 30.2% [21.9, 40.0] | 1.00 [0.80, 2.00] | 1.83 |
 | v47 (interim, n=12) | 12 | 8.3% [1.5, 35.4] | 50.0% [25.4, 74.6] | 4.67 [1.50, 320] | 3.58 |
 | v48 (interim, n=37) | 37 | 10.8% [4.3, 24.7] | 32.4% [19.6, 48.5] | 1.33 [0.67, 2.67] | 2.00 |
+| v49 (pooled, n=717) | 717 | 3.6% [2.5, 5.3] | 23.6% [20.6, 26.8] | 1.00 [1.00, 1.00] | 1.64* |
 
 None of the pre-registered rollback triggers (score-ratio 95% CI upper
 bound under 1.0 at n>=100, or a significant drop in rank<=4 versus the
@@ -51,6 +53,13 @@ v46 (1.0%) before recovering by v48 (10.8%); rank<=4 and tags/episode both
 trend up from v44 through v48. v47's outcome numbers (n=12) carry
 confidence intervals wide enough that they should be read as a single
 noisy data point, not a trend.
+
+*v49's tags/ep (1.64) is recomputed with the same per-episode deed-credit
+definition used for every other row here (any glory_deed event credited to
+Monet's own seat), after the source pipeline's own headline v49 figure
+(0.556) turned out to use a narrower deed filter -- see README's
+tags-definition note. Neither rollback trigger fired for v49 either, at
+n=717 or in either era split.
 
 ## c. Field reference: how the rest of the field forms pacts
 
@@ -74,8 +83,10 @@ ever made before that point.
   in-match tick, plus a higher partner cap (3 to 5).
 - **v48**: a re-sync fix so the re-emit fires on every episode, not just
   some of them.
-- **v49**: no loot detours once only four teams remain (not yet observed
-  in a real episode, since no sampled v49 episode has reached that point).
+- **v49**: no loot detours once only four teams remain. Now read at n=717
+  (rounds 4545-4603): the clamp never armed in any episode (0/717 reached
+  the final four with a detour attempted), so v49 is functionally v48 on
+  the ladder for this one mechanic.
 
 ## e. Caveats
 
@@ -92,12 +103,17 @@ ever made before that point.
   polling budget was exhausted before the next round closed. Direction is
   positive and consistent with v46's own finding, but this is not the
   closed-cohort number.
-- **v49 has no ladder read yet.** Only a first-round, 8-episode
-  ship-verification pass exists (3 fully decoded, 5 scanned for key
-  markers); no episode in that round reached the final four, so the new
-  detour-limiting behavior was armed but not exercised. This dataset
-  reports that verification result but does not include v49 in
-  `episodes.csv`.
+- **v49 is now a full ladder read** (n=717, rounds 4545-4603, 0 decode
+  failures). It pools two engine eras that are never pooled elsewhere in
+  this dataset outside the v49 rows: GameVersion 60 (GV15, rounds
+  4545-4551, n=80) and GameVersion 61 (GV16, rounds 4552-4603, n=637,
+  six level buffs live, fights run roughly 2.3x longer). Win rate,
+  rank<=4 and score-ratio compare fine across that seam (pooled and both
+  era splits are all in `summary.csv`); deed-rate metrics (tags/ep,
+  JointAct/ep) are not stationary across it because they scale with
+  fight length, not the pact mechanic. The final-four detour clamp v49
+  introduced never armed (0/717), so on the ladder v49 is functionally
+  v48 for that one mechanic.
 
 ## f. Chart
 

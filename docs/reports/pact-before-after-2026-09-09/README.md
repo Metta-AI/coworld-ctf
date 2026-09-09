@@ -3,7 +3,7 @@
 This dataset measures Monet's (our Season 2 Paintbot policy's) pact
 behavior and ladder outcomes across six policy versions spanning the
 2026-09-09 pact fixes: v44 (the pre-fix baseline), v45, v46, v47, v48, and
-a first-round verification pass on v49. "Pact" here means the in-game
+v49 (now a full n=717 ladder read across rounds 4545-4603). "Pact" here means the in-game
 alliance mechanic: two teams declare each other as partners and, once the
 declaration is mutual, hold fire and can act jointly for the rest of the
 episode.
@@ -56,6 +56,26 @@ A second, smaller engine bump (GameVersion 59 to 60, at round 4529) is
 perception-only (a new visibility label) and does not change scoring or
 pacts; episodes on either side of it are pooled together in this dataset.
 
+## The GameVersion-61 (GV16) era note, inside v49
+
+A third engine change lands inside the v49 read itself, at round 4552:
+engine builds 0.7.369-0.7.374 carry GameVersion 61 ("GV16"), which wires
+six level-up combat buffs into the fight system. The pact mechanic and the
+scoring formula are both untouched by this change, but fights now run
+roughly 2.3x longer on average. Rounds 4545-4551 (engine 0.7.367,
+GameVersion 60) are pre-GV16; rounds 4552-4603 are post-GV16. This dataset
+reports both a pooled v49 row and the two era-split rows
+(`v49_pre_gv16`, `v49_post_gv16`) in `summary.csv` and `episodes.csv`.
+
+**What is comparable across this seam and what is not:** win rate,
+rank<=4, and score-ratio are all read from the API's own per-episode
+results, independent of fight length, so they compare cleanly across GV16
+and against v48. Deed-rate metrics (`tags_per_ep_*`, `jointact_per_ep`)
+are **not stationary** across this seam purely because of longer fights
+producing more scoring opportunities per episode, not because of any pact
+or scoring change -- treat a shift in those two columns between the
+pre/post-GV16 rows as a fight-length artifact, not a policy effect.
+
 ## What changed, one line per version
 
 - **v45** -- Monet started naming real rival team names as pact partners
@@ -68,8 +88,11 @@ pacts; episodes on either side of it are pooled together in this dataset.
  in-match tick, plus raising the partner cap from 3 to 5.
 - **v48** -- a re-sync fix so that re-emit fires on every episode, not only
  some.
-- **v49** -- no loot detours once only four teams remain (this only
- matters in the final four, which no sampled v49 episode reached yet).
+- **v49** -- no loot detours once only four teams remain. Now read at
+ n=717 (rounds 4545-4603): the clamp never armed in any episode (0/717
+ reached the final four with a detour attempted), so on the ladder v49
+ is functionally v48 for this one mechanic -- the fix is shipped and
+ harmless, but has not yet been exercised by a real final four.
 
 ## The field reference: how often rivals form pacts, and when
 
@@ -90,9 +113,11 @@ get theirs registered; Monet, declaring only pre-match, did not.
 
 - `summary.csv` -- one row per version (or control cohort), aggregate
  metrics with confidence intervals where available.
-- `episodes.csv` -- one row per episode, merged across all six read
- cohorts (v44_baseline, v44_gv15_control, v45, v46, v47, v48). v49 is
- excluded (no per-episode rows export exists yet, see REPORT.md caveats).
+- `episodes.csv` -- one row per episode, merged across all seven read
+ cohorts (v44_baseline, v44_gv15_control, v45, v46, v47, v48, v49). v49's
+ 717 rows carry `era` = `GV15` or `GV16` per round (see the GV16 era note
+ above); `v49_pre_gv16` / `v49_post_gv16` in `summary.csv` are the same
+ 717 episodes split on that boundary, not a separate read.
 - `REPORT.md` / `REPORT.html` -- the before/after narrative, funnel table,
  outcome table, and one chart (`REPORT.html` only).
 - `CHECKS.md` -- independent recomputation of n / formed-count / win-count
@@ -117,6 +142,20 @@ get theirs registered; Monet, declaring only pre-match, did not.
 | `partners_per_commit` | mean number of partner seats named per committed pact-aim line |
 | `jointact_per_ep` | mean count of the joint-action reward event credited to Monet per episode (see era caveat above) |
 | `tags_per_ep_mean` / `_median` | mean/median count of scoring "tag" events credited to Monet's seat per episode |
+
+**Tags-definition note (v49):** the source read pipeline's own headline
+v49 figure (`tags/ep mean 0.556`, see `V49_FULL_TABLE.md` /
+`v49_full_report.json` under `/tmp/monet_v49/read/`) used a narrower deed
+filter than every other version in this dataset. v44/v45/v46/v48 all use
+the same definition, `tags_and_kickoff_final.py`'s `tags_per_ep()`: count
+every decoded `glory_deed` event with `source == our_position`, of any
+deed kind (kills, level-ups, final-N placement deeds, etc, not only a
+narrow "tag" kind), per episode. The `tags_per_ep_mean` / `_median` /
+`share_2plus_tags_pct` values reported here for v49, v49_pre_gv16 and
+v49_post_gv16 were recomputed with that exact same function pointed at
+`v49_full_rows.json` + the decoded replay cache, so they are comparable
+to v44 through v48 on this column -- do not use the 0.556 figure from the
+source pipeline's own v49 report, it is a different, narrower metric.
 | `share_2plus_tags_pct` | % of episodes with 2 or more tags credited |
 | `win_pct` (+ CI) | % of episodes Monet's team won, with 95% CI |
 | `rank4_pct` (+ CI) | % of episodes Monet placed in the top 4, with 95% CI |
@@ -154,9 +193,9 @@ get theirs registered; Monet, declaring only pre-match, did not.
 - v48 is an interim read at n=37 (target was n>=40, missed by 3); the
  positive direction (pact-formed and win rate both up) is consistent
  with v46's own finding, but is not yet the final read for that cohort.
-- v49 has no per-episode rows export; only a first-round, 8-episode
- ship-verification pass exists at the time of this dataset. It is
- reported in `summary.csv` with a verdict but excluded from
- `episodes.csv`.
+- v49 is now a full read (n=717, 0 decode failures) and is included in
+ `episodes.csv`; it pools GV15 and GV16 engine eras (see the GV16 era
+ note above) and its final-four detour clamp never armed (0/717), so it
+ reads as functionally-v48 on the ladder for that one mechanic.
 - `platform_version` for v45 could not be found in any source file read
  for this dataset (see CHECKS.md).

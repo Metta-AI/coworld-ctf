@@ -54,6 +54,7 @@ era caveat).</p>
 <tr><td>v46</td><td>4527-4534</td><td>96</td><td>95.8% (92/96)</td><td>18.8% (18/96)</td><td>9.4% (9/96)</td><td>8.3% (8/96)</td></tr>
 <tr><td>v47 (interim, n=12)</td><td>4535-4536</td><td>12</td><td>100% (12/12)</td><td>16.7% (2/12)</td><td>0.0% (0/12)</td><td>8.3% (1/12)</td></tr>
 <tr><td>v48 (interim, n=37)</td><td>4540-4542</td><td>37</td><td>100% (37/37)</td><td>100% (37/37)</td><td>29.7% (11/37)</td><td>91.9% (34/37)</td></tr>
+<tr><td>v49 (pooled, GV15+GV16)</td><td>4545-4603</td><td>717</td><td>95.8% (687/717)</td><td>95.8% (687/717)</td><td>27.6% (198/717)</td><td>83.1% (596/717)</td></tr>
 </table>
 
 <p class="muted">Also cited: the small pre-fix sample recorded before this pipeline
@@ -77,6 +78,7 @@ jumps to 100% and formed nearly triples versus v46 (29.7% vs 9.4%).</p>
 <tr><td>v46</td><td>96</td><td>1.0% [0.2, 5.7]</td><td>30.2% [21.9, 40.0]</td><td>1.00 [0.80, 2.00]</td><td>1.83</td></tr>
 <tr><td>v47 (interim, n=12)</td><td>12</td><td>8.3% [1.5, 35.4]</td><td>50.0% [25.4, 74.6]</td><td>4.67 [1.50, 320]</td><td>3.58</td></tr>
 <tr><td>v48 (interim, n=37)</td><td>37</td><td>10.8% [4.3, 24.7]</td><td>32.4% [19.6, 48.5]</td><td>1.33 [0.67, 2.67]</td><td>2.00</td></tr>
+<tr><td>v49 (pooled, n=717)</td><td>717</td><td>3.6% [2.5, 5.3]</td><td>23.6% [20.6, 26.8]</td><td>1.00 [1.00, 1.00]</td><td>1.64*</td></tr>
 </table>
 
 <p>None of the pre-registered rollback triggers (score-ratio 95% CI upper bound
@@ -84,13 +86,13 @@ under 1.0 at n&ge;100, or a significant drop in rank&le;4 versus the prior basel
 fired at any read point through v48. Win rate dipped at v46 (1.0%) before
 recovering by v48 (10.8%); rank&le;4 and tags/episode both trend up from v44
 through v48. v47's outcome numbers (n=12) carry confidence intervals wide enough
-that they should be read as a single noisy data point, not a trend.</p>
+that they should be read as a single noisy data point, not a trend. v49's tags/ep (1.64*) is recomputed with the same per-episode deed-credit definition as every other row after the source pipeline's own v49 figure (0.556) turned out to use a narrower deed filter; see README's tags-definition note.</p>
 
 <div class="chart-wrap">
-<svg viewBox="0 0 720 360" xmlns="http://www.w3.org/2000/svg" font-family="Merriweather Sans, Arial, sans-serif" role="img" aria-label="Pact formed rate and win rate by Monet policy version">
-<rect x="0" y="0" width="720" height="360" fill="#fffdf4"/>
+<svg viewBox="0 0 720 375" xmlns="http://www.w3.org/2000/svg" font-family="Merriweather Sans, Arial, sans-serif" role="img" aria-label="Pact formed rate and win rate by Monet policy version">
+<rect x="0" y="0" width="720" height="375" fill="#fffdf4"/>
 <text x="70" y="26" font-size="14" font-weight="700" fill="#111827">Pact formed rate and win rate, by version</text>
-<text x="70" y="42" font-size="10.5" fill="#555555">v44 rounds 4499-4513 (n=172) through v48 rounds 4540-4542 (n=37, interim)</text>
+<text x="70" y="42" font-size="10.5" fill="#555555">v44 rounds 4499-4513 (n=172) through v49 rounds 4545-4603 (n=717, pooled GV15+GV16)</text>
 <line x1="70" y1="290.0" x2="690" y2="290.0" stroke="#e4dac8" stroke-width="1"/>
 <text x="62" y="293.0" font-size="9.5" fill="#999999" text-anchor="end">0%</text>
 <line x1="70" y1="221.4" x2="690" y2="221.4" stroke="#e4dac8" stroke-width="1"/>
@@ -100,37 +102,43 @@ that they should be read as a single noisy data point, not a trend.</p>
 <line x1="70" y1="84.3" x2="690" y2="84.3" stroke="#e4dac8" stroke-width="1"/>
 <text x="62" y="87.3" font-size="9.5" fill="#999999" text-anchor="end">30%</text>
 <line x1="70" y1="290" x2="690" y2="290" stroke="#d4c9b5" stroke-width="1.5"/>
-<rect x="93.0" y="266.0" width="34" height="24.0" fill="#1a3875" opacity="1"/>
-<text x="110.0" y="261.0" font-size="9.5" fill="#111827" text-anchor="middle">3.5%</text>
-<rect x="137.0" y="242.0" width="34" height="48.0" fill="#b36e4e" opacity="1"/>
-<text x="154.0" y="237.0" font-size="9.5" fill="#111827" text-anchor="middle">7%</text>
-<text x="132.0" y="306" font-size="11" font-weight="700" fill="#111827" text-anchor="middle">v44</text>
-<text x="132.0" y="320" font-size="9" fill="#999999" text-anchor="middle">n=172</text>
-<rect x="217.0" y="257.8" width="34" height="32.2" fill="#1a3875" opacity="1"/>
-<text x="234.0" y="252.8" font-size="9.5" fill="#111827" text-anchor="middle">4.7%</text>
-<rect x="261.0" y="257.8" width="34" height="32.2" fill="#b36e4e" opacity="1"/>
-<text x="278.0" y="252.8" font-size="9.5" fill="#111827" text-anchor="middle">4.7%</text>
-<text x="256.0" y="306" font-size="11" font-weight="700" fill="#111827" text-anchor="middle">v45</text>
-<text x="256.0" y="320" font-size="9" fill="#999999" text-anchor="middle">n=106</text>
-<rect x="341.0" y="225.5" width="34" height="64.5" fill="#1a3875" opacity="1"/>
-<text x="358.0" y="220.5" font-size="9.5" fill="#111827" text-anchor="middle">9.4%</text>
-<rect x="385.0" y="283.1" width="34" height="6.9" fill="#b36e4e" opacity="1"/>
-<text x="402.0" y="278.1" font-size="9.5" fill="#111827" text-anchor="middle">1%</text>
-<text x="380.0" y="306" font-size="11" font-weight="700" fill="#111827" text-anchor="middle">v46</text>
-<text x="380.0" y="320" font-size="9" fill="#999999" text-anchor="middle">n=96</text>
-<rect x="465.0" y="290.0" width="34" height="0.0" fill="#1a3875" opacity="0.55"/>
-<text x="482.0" y="285.0" font-size="9.5" fill="#111827" text-anchor="middle">0%</text>
-<rect x="509.0" y="233.1" width="34" height="56.9" fill="#b36e4e" opacity="0.55"/>
-<text x="526.0" y="228.1" font-size="9.5" fill="#111827" text-anchor="middle">8.3%</text>
-<text x="504.0" y="306" font-size="11" font-weight="700" fill="#111827" text-anchor="middle">v47*</text>
-<text x="504.0" y="320" font-size="9" fill="#999999" text-anchor="middle">n=12</text>
-<rect x="589.0" y="86.3" width="34" height="203.7" fill="#1a3875" opacity="0.55"/>
-<text x="606.0" y="81.3" font-size="9.5" fill="#111827" text-anchor="middle">29.7%</text>
-<rect x="633.0" y="215.9" width="34" height="74.1" fill="#b36e4e" opacity="0.55"/>
-<text x="650.0" y="210.9" font-size="9.5" fill="#111827" text-anchor="middle">10.8%</text>
-<text x="628.0" y="306" font-size="11" font-weight="700" fill="#111827" text-anchor="middle">v48*</text>
-<text x="628.0" y="320" font-size="9" fill="#999999" text-anchor="middle">n=37</text>
-<text x="70" y="346" font-size="9" fill="#999999">* v47 (n=12) and v48 (n=37) are interim reads below their n&gt;=40 target; shown at reduced opacity.</text>
+<rect x="93" y="266.0" width="34" height="24.0" fill="#1a3875" opacity="1"/>
+<text x="110" y="261.0" font-size="9.5" fill="#111827" text-anchor="middle">3.5%</text>
+<rect x="137" y="242.0" width="34" height="48.0" fill="#b36e4e" opacity="1"/>
+<text x="154" y="237.0" font-size="9.5" fill="#111827" text-anchor="middle">7%</text>
+<text x="132" y="306" font-size="11" font-weight="700" fill="#111827" text-anchor="middle">v44</text>
+<text x="132" y="320" font-size="9" fill="#999999" text-anchor="middle">n=172</text>
+<rect x="193" y="257.8" width="34" height="32.2" fill="#1a3875" opacity="1"/>
+<text x="210" y="252.8" font-size="9.5" fill="#111827" text-anchor="middle">4.7%</text>
+<rect x="237" y="257.8" width="34" height="32.2" fill="#b36e4e" opacity="1"/>
+<text x="254" y="252.8" font-size="9.5" fill="#111827" text-anchor="middle">4.7%</text>
+<text x="232" y="306" font-size="11" font-weight="700" fill="#111827" text-anchor="middle">v45</text>
+<text x="232" y="320" font-size="9" fill="#999999" text-anchor="middle">n=106</text>
+<rect x="293" y="225.5" width="34" height="64.5" fill="#1a3875" opacity="1"/>
+<text x="310" y="220.5" font-size="9.5" fill="#111827" text-anchor="middle">9.4%</text>
+<rect x="337" y="283.1" width="34" height="6.9" fill="#b36e4e" opacity="1"/>
+<text x="354" y="278.1" font-size="9.5" fill="#111827" text-anchor="middle">1%</text>
+<text x="332" y="306" font-size="11" font-weight="700" fill="#111827" text-anchor="middle">v46</text>
+<text x="332" y="320" font-size="9" fill="#999999" text-anchor="middle">n=96</text>
+<rect x="393" y="290.0" width="34" height="0.0" fill="#1a3875" opacity="0.55"/>
+<text x="410" y="285.0" font-size="9.5" fill="#111827" text-anchor="middle">0%</text>
+<rect x="437" y="233.1" width="34" height="56.9" fill="#b36e4e" opacity="0.55"/>
+<text x="454" y="228.1" font-size="9.5" fill="#111827" text-anchor="middle">8.3%</text>
+<text x="432" y="306" font-size="11" font-weight="700" fill="#111827" text-anchor="middle">v47*</text>
+<text x="432" y="320" font-size="9" fill="#999999" text-anchor="middle">n=12</text>
+<rect x="493" y="86.3" width="34" height="203.7" fill="#1a3875" opacity="0.55"/>
+<text x="510" y="81.3" font-size="9.5" fill="#111827" text-anchor="middle">29.7%</text>
+<rect x="537" y="215.9" width="34" height="74.1" fill="#b36e4e" opacity="0.55"/>
+<text x="554" y="210.9" font-size="9.5" fill="#111827" text-anchor="middle">10.8%</text>
+<text x="532" y="306" font-size="11" font-weight="700" fill="#111827" text-anchor="middle">v48*</text>
+<text x="532" y="320" font-size="9" fill="#999999" text-anchor="middle">n=37</text>
+<rect x="593" y="100.7" width="34" height="189.3" fill="#1a3875" opacity="1"/>
+<text x="610" y="95.7" font-size="9.5" fill="#111827" text-anchor="middle">27.6%</text>
+<rect x="637" y="265.3" width="34" height="24.7" fill="#b36e4e" opacity="1"/>
+<text x="654" y="260.3" font-size="9.5" fill="#111827" text-anchor="middle">3.6%</text>
+<text x="632" y="306" font-size="11" font-weight="700" fill="#111827" text-anchor="middle">v49</text>
+<text x="632" y="320" font-size="9" fill="#999999" text-anchor="middle">n=717</text><text x="70" y="346" font-size="9" fill="#999999">* v47 (n=12) and v48 (n=37) are interim reads below their n&gt;=40 target; shown at reduced opacity.</text>
+<text x="70" y="358" font-size="9" fill="#999999">v49 pools GameVersion 60 (GV15, rounds 4545-4551) and GameVersion 61 (GV16, rounds 4552-4603, six level buffs, longer fights); win/rank/score-ratio compare fine across that seam, deed-rate metrics do not.</text>
 <rect x="520" y="41" width="10" height="10" fill="#1a3875"/>
 <text x="535" y="50" font-size="10" fill="#111827">pact formed %</text>
 <rect x="615" y="41" width="10" height="10" fill="#b36e4e"/>
@@ -158,9 +166,7 @@ starts, and only holds fire on a partner who has named Monet back.</li>
 first in-match tick, plus a higher partner cap (3 to 5).</li>
 <li><strong>v48</strong>: a re-sync fix so the re-emit fires on every episode,
 not just some of them.</li>
-<li><strong>v49</strong>: no loot detours once only four teams remain (not yet
-observed in a real episode, since no sampled v49 episode has reached that
-point).</li>
+<li><strong>v49</strong>: no loot detours once only four teams remain. Now read at n=717 across rounds 4545-4603: the clamp never armed (0/717 episodes reached the final four with a detour attempted), so v49 is functionally v48 on the ladder for this mechanic.</li>
 </ul>
 
 <h2>e. Caveats</h2>
@@ -178,11 +184,7 @@ informational point estimate only.</li>
 (3 short); polling budget was exhausted before the next round closed. Direction
 is positive and consistent with v46's own finding, but this is not the
 closed-cohort number.</li>
-<li><strong>v49 has no ladder read yet.</strong> Only a first-round, 8-episode
-ship-verification pass exists (3 fully decoded, 5 scanned for key markers); no
-episode in that round reached the final four, so the new detour-limiting
-behavior was armed but not exercised. This dataset reports that verification
-result but does not include v49 in <code>episodes.csv</code>.</li>
+<li><strong>v49 is now a full ladder read (n=717, rounds 4545-4603, 0 decode failures).</strong> It pools two engine eras that are never pooled elsewhere in this dataset outside the v49 rows: GameVersion 60 (GV15, rounds 4545-4551, n=80) and GameVersion 61 (GV16, rounds 4552-4603, n=637), where six level buffs went live and fights run roughly 2.3x longer. Win rate, rank&le;4 and score-ratio are comparable across that seam (both era splits and the pooled row are reported in <code>summary.csv</code>); deed-rate metrics (tags/ep, JointAct/ep) are not stationary across it because they scale with fight length, not with the pact mechanic. The final-four detour clamp v49 introduced never armed in any of the 717 episodes, so on the ladder v49 is functionally v48 for that one mechanic.</li>
 </ul>
 
 </body>
