@@ -168,12 +168,96 @@ leader-change rate from log2-alone's 9.49/50 back toward today's baseline
 better than today) and its *faster*, not slower, responsiveness (48 rounds, same
 as log2 alone, versus today's 103).
 
+## Rate sweep extension: k in {0.02, 0.025, 0.03, 0.035}
+
+**Era stamp.** Re-run 2026-09-09 with `tools/ladder/standing_replay.py` at
+origin/main commit `62fa01461a0a18265686e35645f617d83b6af224` (script sha256
+`79e50b9baa759ef4e4e3eb8dacd27a33c782a84a3abb3ae5082f4c881dd5b1ae`, unchanged
+since PR #478 — no tool code edited for this run), same real ledger as above
+(253 rounds, r4257–r4526, ledger sha256
+`a991f9922fe21ebeb3d3ed802b5a20f72aaecc8cea680cfcfa2ef6fcced4830c`). The
+`log2` row and the `log2 + rated_k=0.035` row below reproduce the "Top-3
+combined candidates" table above **exactly** (same tau/chg/share/up to every
+digit), confirming this is the identical ledger and script, not a re-pull.
+
+| Setting | tau_mean | #1 chg/50 | leader share | up (1.5x→top3) | down (0.5x→out) |
+| --- | --- | --- | --- | --- | --- |
+| log2 + rated_k=0.02 | 0.979 | 5.73 | 0.059 | 103 | 0 |
+| log2 + rated_k=0.025 | 0.979 | 4.74 | 0.060 | 96 | 0 |
+| log2 + rated_k=0.03 | 0.970 | 8.89 | 0.061 | 49 | 0 |
+| log2 + rated_k=0.035 (from table above) | 0.960 | 7.51 | 0.061 | 48 | 0 |
+
+The 0.025 row was first surfaced by two uncommitted 2026-09-09 ad-hoc re-runs
+of this same script (preserved with raw JSON and scripts at
+`~/.ctf/knowledge/glory-gradient/00e-sweep-raw-runs/{sweep-slow,sweep-f1}/`);
+this section commits that row, plus 0.02 and 0.03 for a complete picture of
+the interval, as the doc's own record.
+
+**Leader-share definition, stated explicitly.** `leader_best_round_share()`
+always decays contributions using the served-default `rated_k=0.05` (the
+module constant `CURRENT["rated_k"]`), **not** the row's own swept `rated_k`
+— so every non-0.05 `rated_k` row in this document (all rows in this table,
+plus the `rated_k` axis rows and the `log2 + rated_k=0.035` row above) reports
+leader share decayed at 0.05, never at that row's own rate. This is a **bug
+in the helper, not a design choice**, confirmed by direct inspection
+(`tools/ladder/standing_replay.py:452-473`) and by reproduction: it is the
+full explanation for the 2026-09-09 disagreement where two ad-hoc scripts
+reported 0.060 vs. 0.032 for the identical `log2 + rated_k=0.025` setting.
+The `sweep-slow` script called the shared helper as-is and got 0.060 (matches
+this table exactly). The `sweep-f1` script independently reimplemented the
+decay using the row's actual k=0.025 and got 0.032; patching the helper to
+accept the swept k and re-running against the same ledger reproduces
+0.031876310968393766, matching `sweep-f1`'s figure to 6 significant figures.
+Both preserved runs were internally correct given what each one actually
+computed — the discrepancy is a latent parameter-threading bug, not noise and
+not two valid definitions. No fix is applied to the helper in this PR (this
+section extends the doc, it does not change tool behavior or retroactively
+recompute the rows above); a future change to thread the swept `rated_k`
+through `leader_best_round_share` would alter every non-0.05-`rated_k` share
+value already committed in this file, so it should be its own reviewed step.
+
+## Rate selection criterion (owner's criterion, applied literally, 2026-09-09)
+
+Owner's criterion, verbatim: *"fewest #1 changes subject to the 1.5x climb
+time not being faster than today's ~103 rounds (the owner explicitly does not
+want a faster climb)."* Lower `up` is a **faster** climb, so the constraint is
+`up >= ~103`. Applied to the `log2` family only — the transform is already
+decided (geometric-mean glory stands; see S0 gate ruling), so only the rate
+constant is open:
+
+| Setting | up | up >= ~103? | #1 chg/50 | Result |
+| --- | --- | --- | --- | --- |
+| log2 (rate unchanged, k=0.05) | 48 | No — faster | 9.49 | FAIL |
+| log2 + rated_k=0.035 | 48 | No — faster | 7.51 | FAIL |
+| log2 + rated_k=0.03 | 49 | No — faster | 8.89 | FAIL |
+| log2 + rated_k=0.025 | 96 | No — faster | 4.74 | FAIL |
+| **log2 + rated_k=0.02** | **103** | **Yes — tied, not faster** | **5.73** | **PASS** |
+
+Exactly one row satisfies the constraint as literally written:
+**`log2 + rated_k=0.02`**, tied at `up=103` (not faster than today). It is not
+the lowest-`#1-chg` row overall (`log2 + rated_k=0.025`'s 4.74 is lower, but
+that row's `up=96` is faster than today and is excluded); among the rows that
+satisfy the constraint it is the only candidate, so it trivially has the
+fewest #1 changes subject to the constraint. This is a real tie, not a
+comfortable margin — `up=103` matches today's baseline to the exact round,
+and 0.02 was not one of PR #478's originally-swept `log2 + rated_k` values, so
+this result rests on a boundary the criterion was written to test, not deep
+inside a passing region. **No settings change is proposed or applied here**;
+this table only reports which rows pass/fail the literal criterion.
+
 ## Recommendation
 
 **Switch the round-score transform from raw to `log2(1 + round_score)` and lower
 `rated_k` from 0.05 to 0.035.** Leave `sum_top_k` and `rated_clamp_multiple`
 untouched — top_k has no headroom to spend today, and the clamp becomes a
 no-op once log2 is in place.
+
+**2026-09-09 update:** this `rated_k=0.035` pick predates the owner's rate
+criterion being formalized. Applying that criterion literally (see "Rate
+selection criterion" above) does **not** select 0.035 — only `rated_k=0.02`
+passes. The transform half of this recommendation (raw → log2) stands; the
+rate half is superseded by the criterion section above pending the owner's
+read on that finding.
 
 - Leader's single-round dependency: 31.4% → 6.1%
 - Time for a genuinely-better policy to reach top-3: 103 rounds → 48 rounds (faster)
@@ -246,3 +330,11 @@ real 2^24 leg at r4258; the rank-points transform staying bounded at [0,25].
   climb time.
 - No settings were changed and no backfill was run; this is a recommendation,
   not a live change.
+- **2026-09-09 extension:** the `log2 + rated_k=0.02` pass on the rate
+  criterion is a single-run, single-seed result on one real ledger window; it
+  was not re-verified against a second ledger pull or an independently
+  re-derived `mid_subject`/`top_subject` pair, and `up=103` is an exact tie
+  against the baseline rather than a comfortable margin. The
+  `leader_best_round_share()` decay-constant bug is confirmed by direct code
+  inspection and reproduction of both preserved figures, but no fix was
+  written or tested — only documented.
