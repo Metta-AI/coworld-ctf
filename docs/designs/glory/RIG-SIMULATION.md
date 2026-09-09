@@ -235,11 +235,62 @@ table falls short, so a genuinely different fix (real numbers for those
 seven, or a different lever entirely) is needed, not a bigger guess. TEST
 4 (cap-hit @ 2^24): 0.0000%, unchanged.
 
-**Cap-hit ceiling sensitivity (task 2, one row, owner picks)**: ceiling 16
-pts → 0.0000% (0/3000); ceiling 14 pts → 4.5333% (136/3000); ceiling 12
-pts → 4.5333% (136/3000, same population — nothing lands strictly between
-12 and 14 pts in this run). 16 is too loose to ever bind under this rig's
-per-seat volumes; 12 and 14 both land far above the 0.1–1% design band.
+**FINAL RE-RUN — the S4 static repricer was RECOVERED (coordinator; it was
+ephemeral in /tmp, not lost) and landed verbatim at `tools/glory/
+reprice_v3.py`.** `CATALOG-V3-DRAFT.md` §15 now carries the tool's own
+exact `NEW_BASE_CLASS`/`HEAT_REMAP`/`STACK_SCALE`/`TERRITORY_SCALE`
+values; `glory.nim`'s `RecutClassTableV3Pct` was corrected to match
+verbatim (the seven previously-"(unchanged)" deeds now use the tool's
+real x4/x6/x6/x4/x4/x9/x8, territory uses the tool's real log2-domain
+0.15-scale formula, and a second real bug was fixed: Tier V's v3 sqrt was
+being applied to the tier value alone then multiplied by the FIRST bonus
+separately, instead of to the combined amount as the tool does).
+
+**Coordinator's fractional-vs-integer hypothesis, TESTED: REFUTED.** The
+rig's `catalogV3Reprice` path was already percent-scaled (not integer) for
+every base class — confirmed by re-running with the tool's exact verbatim
+fractional values swapped in for the seven previously-wrong deeds:
+p50/p75/p90/p99 = 2.00/4.00/6.27/14.00, CHOSEN share mid=**33.70%**
+top=**48.76%** — barely moved from the pre-correction run (33.06%/46.75%,
+±1pt). **The representation was never the cause of the gap.** This is the
+real finding the coordinator asked for: the static tool's 54.61%/71.11%
+prediction does not survive contact with this dynamic rig, for a
+diagnosable reason (below), not an implementation bug.
+
+**Per-class breakdown (task 3) — where the residual magnitude actually
+sits**, mean log2-bits and share of a seat's total, mid band / top band:
+
+| bucket | mid % | top % |
+|---|---:|---:|
+| ACHIEVEMENTS (CONSTANT) | 40.97% | 24.80% |
+| WIN (HANDED) | 9.89% | 18.15% |
+| PLACEMENT (HANDED) | 2.52% | 3.47% |
+| dHonorableKill (CHOSEN) | 15.34% | 19.09% |
+| dLongshotKill (CHOSEN) | 12.48% | 15.39% |
+| dShieldSoak (CHOSEN) | 10.42% | 12.49% |
+| HEAT (CHOSEN) | 3.87% | 0.04% |
+| all other CHOSEN deeds | ~2.5% | ~2.2% |
+
+**Diagnosis**: ACHIEVEMENTS (a CONSTANT bucket, per the tool's own
+HANDED/CONSTANT/CHOSEN split) consumes 25–41% of total magnitude in this
+Monte Carlo — far more than CHOSEN needs to leave room for once WIN and
+PLACEMENT are also subtracted. This traces to the archetype model's own
+achievement-claim probability (69.18%, reused verbatim from the census's
+population-WIDE Sharpshooter rate for BOTH baseline and skilled seats) —
+a MODELLING CHOICE, not a representation bug, and named here as the
+leading candidate for why CHOSEN undershoots, not asserted as proven.
+
+**Cap-hit ceiling sensitivity (task 2), fine sweep as requested**: 16→0.0000%,
+15.5→0.0000%, 15.0→0.0000%, 14.5→0.0000%, 14.0→**6.0667%** (182/3000),
+12.0→6.0667% (same 182 seats). **This IS a cliff, not a curve**: zero
+population between 14.5 and 16, then a jump straight to 6.07% at 14.0,
+with nothing further between 12 and 14 either. Per the coordinator's own
+framing: **the ceiling is NOT the lever here** — the top of this Monte
+Carlo's distribution is discrete/clustered (driven by which deed
+combinations a seat happens to draw), not a smooth tail a ceiling can
+slide along to hit 0.1–1%. Whether this clustering is a real property of
+the live distribution or an artifact of the archetype model's own limited
+draw space is unresolved — flagged, not decided.
 
 ### Acceptance tests (re-run)
 
