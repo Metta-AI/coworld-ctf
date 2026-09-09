@@ -144,6 +144,7 @@ const SampleJson = """{
   "gloryMultiplierRecut": {"gloryMultiplierRecut": true},
   "winAsMultiplier": {"winAsMultiplier": true},
   "deedMintCaps": {"deedMintCaps": true},
+  "achievementLightableModes": {"achievementLightableModes": true},
   "stampRealizedConfig": {"stampRealizedConfig": true},
   "frameLoadoutFlags": {"frameLoadoutFlags": true},
   "brAssistRescueUngated": {"brAssistRescueUngated": true},

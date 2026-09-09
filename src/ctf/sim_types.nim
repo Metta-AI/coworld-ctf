@@ -3025,6 +3025,56 @@ type
                         ## or the survival credit actually folds a
                         ## percent-scaled factor. Dark = false: unscaled,
                         ## byte-identical.
+    achievementLightableModes*: bool ## S4b (epic 25d9108e, follow-on to S5):
+                        ## generalizes `treeGun.V`'s own FIRST-claim
+                        ## precedent (CENSUS-2026-09-ACHIEVEMENTS.md's own
+                        ## "the model to generalize") into a pinball-shaped
+                        ## "bank lights the jackpot" mechanic for EVERY
+                        ## achievement tree, uniform, no per-tree
+                        ## special-casing. At the moment a team claims a
+                        ## tree's TOP tier (`AchievementTiers - 1`, the
+                        ## existing FIRST-claim-eligible tier), this counts
+                        ## how many of that SAME tree's four lower tiers
+                        ## (indices 0..3) the team ALREADY claimed this
+                        ## episode (`sim.claimed`, no new state) and folds
+                        ## an extra `recutModeLitBonus(lightCount)` factor
+                        ## (glory.nim `RecutModeLitLadder`) on top of the
+                        ## tier's existing classic/`catalogV3Reprice` price
+                        ## — orthogonal to which tier-pricing table is
+                        ## active, applied strictly AFTER it. This is what
+                        ## converts the achievement axis from the S5 rig's
+                        ## own CONSTANT classification (25-41% of a Monte
+                        ## Carlo seat's magnitude, invariant to how many
+                        ## OTHER tiers of the same tree a seat also earned)
+                        ## into CHOSEN: a seat that only ever lands the
+                        ## rare top-tier act scores the SAME as today
+                        ## (`lightCount` 0/1 -> bonus x1, no regression);
+                        ## one that also banks the tree's easier lower
+                        ## tiers along the way scores MORE, for real chosen
+                        ## breadth of play, not luck. Read only while
+                        ## `gloryMultiplierRecut` is armed (enforced at the
+                        ## `claimAchievement` call site, same discipline as
+                        ## every S5 flag above — no separate "requires"
+                        ## validation needed since the check is physically
+                        ## inside that armed branch). Fire counter:
+                        ## `GLORY_ACH_MODE_LIT` log line on EVERY top-tier
+                        ## claim while armed (lightCount 0..4 and the
+                        ## resulting bonus, always, not just when the bonus
+                        ## is > 1 -- so the full distribution, including the
+                        ## "not lit" case, is reconstructable from the log
+                        ## alone) plus a `GloryDeed` tier-2 event
+                        ## (`weapon="achModeLit"`) whenever the bonus
+                        ## actually folds (bonus > 1) -- same "log a line /
+                        ## emit an event, not a new SimServer field" idiom
+                        ## RIG-SIMULATION.md already used for
+                        ## `GLORY_CAP_HIT`/`GLORY_PACT_DUODOWN`. No
+                        ## GLORYVERSION bump, no wire change: the new field
+                        ## is a `GameConfig` bool, the new fold reuses
+                        ## `recutFoldObserved` (already-armed machinery),
+                        ## and the new counter is a log line, not a struct
+                        ## change. Dark = false: this whole block is
+                        ## unreached -- byte-identical, proven in
+                        ## `tests/test_glory_s4b_modes.nim`.
     stampRealizedConfig*: bool ## STAMP(amendment 2 §2): emit the
                         ## realized-config stamp {realizedBuild, flagSet,
                         ## variantId, stampVersion} at finalize — into the

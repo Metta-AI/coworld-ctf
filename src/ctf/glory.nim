@@ -2880,6 +2880,48 @@ func recutAchievementFactor*(tier: int, isFirst: bool): int =
   if isFirst and result > 1:
     result = result * AchievementFirstMultPct div 100
 
+const
+  RecutModeLitLadder*: array[AchievementTiers, int] = [1, 1, 2, 3, 4]
+    ## S4b (epic 25d9108e): the "bank lights the jackpot" ladder. Indexed
+    ## by `lightCount` — how many of a tree's four LOWER tiers (indices
+    ## 0..3, i.e. `AchievementTiers - 1` of them) the SAME team already
+    ## claimed this episode at the moment the tree's TOP tier (index
+    ## `AchievementTiers - 1`) is claimed. `lightCount` therefore ranges
+    ## 0..4, five values — the same count as `AchievementTiers`, which is
+    ## why this array happens to share that size (not because it indexes
+    ## a tier; kept a distinct named constant so the two meanings are never
+    ## confused at a call site).
+    ##
+    ## 0/1 lower tiers already claimed -> x1, NO bonus: matches today's
+    ## behavior exactly (no regression for a seat that only ever lands the
+    ## rare top-tier act alone — a single lower tier is not "a set", it is
+    ## the same one-off act pinball's own drop-target study distinguishes
+    ## from a completed bank). 2/3/4 -> x2/x3/x4: a real, escalating
+    ## reward for banking MORE of the tree's easier tiers along the way,
+    ## i.e. for CHOSEN breadth of play, not for the rare act alone.
+    ## Composes with the tree's existing FIRST-claim x3
+    ## (`AchievementFirstMultPct`, unchanged, tier-V-only): the two stack
+    ## multiplicatively, giving (today's classic treeGun.V numbers, x4
+    ## base): {lightCount 0/1: x4 or x12 FIRST — unchanged} x
+    ## {lightCount 2: x8/x24} x {lightCount 3: x12/x36} x
+    ## {lightCount 4: x16/x48} — SEVEN distinct payout values where today
+    ## there are exactly TWO (x4, x12). This is the concrete mechanism for
+    ## RIG-SIMULATION.md's own open finding ("the cap-hit ceiling is a
+    ## cliff, not a curve": 14.5/15/15.5/16 all read 0.0000%, nothing
+    ## between 12 and 14) — it gives the top of the distribution
+    ## intermediate rungs it did not have before, without moving the
+    ## ceiling itself. Read only while `achievementLightableModes` is
+    ## armed (sim_types.nim GameConfig field, its own comment).
+
+func recutModeLitBonus*(lightCount: int): int {.inline.} =
+  ## Pure lookup, same "pure predicate, testable without a SimServer" idiom
+  ## as `recutCapHit`. Clamped both ends so a future tree with MORE than
+  ## four lower tiers (there are none today; `AchievementTiers` is fixed at
+  ## 5) cannot index out of bounds.
+  if lightCount <= 0: RecutModeLitLadder[0]
+  elif lightCount >= RecutModeLitLadder.high: RecutModeLitLadder[^1]
+  else: RecutModeLitLadder[lightCount]
+
 func recutFfHalvings*(incidents: int, brMode: bool): int {.inline.} =
   ## Table §4, ruled and baked per mode: BR = ÷2 per `dTeamKill` incident;
   ## CTF = ÷2 per TWO incidents. Both compounding, NEITHER capped (owner,

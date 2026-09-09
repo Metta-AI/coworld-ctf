@@ -40,5 +40,6 @@ import
   test_scoring_routing,
   test_glory_league_score,
   test_glory_percent_scale_headroom,
-  test_glory_s5_rig
+  test_glory_s5_rig,
+  test_glory_s4b_modes
 {.warning[UnusedImport]: on.}
