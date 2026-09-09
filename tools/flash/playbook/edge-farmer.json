@@ -1,0 +1,24 @@
+{
+  "paintbot_policy": 1,
+  "name": "edge-farmer",
+  "doc": "Lingers at the paint line loading up on kit, only rotating in once the shrink truly forces the move -- first to gear up, last to run.",
+  "traits": { "nerve": 0.4, "greed": 0.5, "patience": 0.9 },
+  "rules": [
+    { "when": ["and", ["get", "self.in_ring"],
+                      [">", ["get", "self.ticks_to_ring_close"], 48]],
+      "score": ["+",
+        ["*", 30, ["get", "intent.is_medkit"]],
+        ["*", 20, ["get", "intent.is_item"]],
+        ["*", -15, ["get", "intent.is_ring_safe"]],
+        ["*", -10, ["get", "intent.exposure"]]
+      ]
+    },
+    { "when": ["or", ["not", ["get", "self.in_ring"]],
+                     ["<=", ["get", "self.ticks_to_ring_close"], 48]],
+      "score": ["+",
+        ["*", 50, ["get", "intent.is_ring_safe"]],
+        ["*", -20, ["get", "intent.exposure"]]
+      ]
+    }
+  ]
+}

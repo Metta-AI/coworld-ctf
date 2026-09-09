@@ -1,0 +1,37 @@
+{
+  "paintbot_policy": 1,
+  "name": "wide-intel",
+  "doc": "Ranges wide of its partner while they're both healthy -- an extra set of eyes is worth the separation -- reels back in to help the moment its partner is hurt, and turtles solo the moment that second set of eyes goes dark for good.",
+  "traits": { "nerve": 0.45, "greed": 0.55, "patience": 0.5 },
+  "rules": [
+    { "when": ["and", ["get", "self.partner_alive"],
+                      [">=", ["get", "partner.hp_frac"], 0.5]],
+      "score": ["+",
+        ["*", 20, ["get", "intent.is_enemy"]],
+        ["*", 20, ["get", "intent.is_medkit"]],
+        ["*", 15, ["get", "intent.is_item"]],
+        ["*", -15, ["get", "intent.exposure"]],
+        ["*", 10, ["get", "intent.is_ring_safe"]]
+      ]
+    },
+    { "when": ["and", ["get", "self.partner_alive"],
+                      ["<", ["get", "partner.hp_frac"], 0.5]],
+      "score": ["+",
+        ["*", -25, ["get", "intent.exposure"]],
+        ["*", 20, ["get", "intent.is_cover"]],
+        ["*", 15, ["get", "intent.is_medkit"]],
+        ["*", ["get", "intent.is_enemy"],
+              ["*", 15, ["-", 1, ["get", "intent.enemy_hp_frac"]]]]
+      ]
+    },
+    { "when": ["not", ["get", "self.partner_alive"]],
+      "score": ["+",
+        ["*", -35, ["get", "intent.exposure"]],
+        ["*", 30, ["get", "intent.is_cover"]],
+        ["*", ["get", "intent.is_enemy"],
+              ["*", 20, ["-", 1, ["get", "intent.enemy_hp_frac"]]]],
+        ["*", 10, ["get", "intent.is_ring_safe"]]
+      ]
+    }
+  ]
+}
