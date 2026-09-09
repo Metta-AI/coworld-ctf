@@ -1,0 +1,449 @@
+version,platform_version,round,episode_id,engine_version,era,declared_wire,declared_sim,formed,partners_named,kickoff_present,tags,jointact,win,rank,score,score_ratio,decode_ok
+v44_baseline,43,4499,ddee2a29-3f9c-44e4-935b-ced14d845bc4,0.7.356,pre-GV15,False,n/a_pre_gv15,False,n/a_not_tracked,n/a_pre_v46,n/a_not_exported,1,False,5,n/a_not_exported,2.4,n/a_not_tracked
+v44_baseline,43,4499,d9876ecc-db1b-49ee-b5b7-8678e28a8f35,0.7.356,pre-GV15,False,n/a_pre_gv15,False,n/a_not_tracked,n/a_pre_v46,n/a_not_exported,2,False,6,n/a_not_exported,1.5,n/a_not_tracked
+v44_baseline,43,4499,d7e7a0a8-ae13-4b2b-8d26-ca5bbf0a4d76,0.7.356,pre-GV15,False,n/a_pre_gv15,False,n/a_not_tracked,n/a_pre_v46,n/a_not_exported,2,False,6,n/a_not_exported,1.5,n/a_not_tracked
+v44_baseline,43,4499,920783b0-66f3-456d-be87-27fc66d74013,0.7.356,pre-GV15,False,n/a_pre_gv15,False,n/a_not_tracked,n/a_pre_v46,n/a_not_exported,1,False,5,n/a_not_exported,1.3333,n/a_not_tracked
+v44_baseline,43,4499,e1cfabe1-ef10-443d-9d6d-bb16c045a421,0.7.356,pre-GV15,False,n/a_pre_gv15,False,n/a_not_tracked,n/a_pre_v46,n/a_not_exported,0,False,11,n/a_not_exported,0.125,n/a_not_tracked
+v44_baseline,43,4499,59564101-c1af-40fd-ba10-7e6e09497139,0.7.356,pre-GV15,False,n/a_pre_gv15,False,n/a_not_tracked,n/a_pre_v46,n/a_not_exported,1,False,9,n/a_not_exported,0.6667,n/a_not_tracked
+v44_baseline,43,4499,0275c8e0-bf52-47c9-a32b-5338a29dfaa5,0.7.356,pre-GV15,False,n/a_pre_gv15,False,n/a_not_tracked,n/a_pre_v46,n/a_not_exported,2,False,6,n/a_not_exported,1.5,n/a_not_tracked
+v44_baseline,43,4500,ed98c410-afe0-4ace-9e9e-613ab0b31d9c,0.7.356,pre-GV15,False,n/a_pre_gv15,False,n/a_not_tracked,n/a_pre_v46,n/a_not_exported,0,False,7,n/a_not_exported,1.7778,n/a_not_tracked
+v44_baseline,43,4499,5efc6425-d52a-40dd-8fb7-d0ab42d73a4e,0.7.356,pre-GV15,False,n/a_pre_gv15,False,n/a_not_tracked,n/a_pre_v46,n/a_not_exported,2,False,2,n/a_not_exported,192.0,n/a_not_tracked
+v44_baseline,43,4499,cae2b1c4-8f50-4150-83ab-9ec697f73f98,0.7.356,pre-GV15,False,n/a_pre_gv15,False,n/a_not_tracked,n/a_pre_v46,n/a_not_exported,1,False,9,n/a_not_exported,0.6667,n/a_not_tracked
+v44_baseline,43,4499,05ecdd37-111b-4388-b3f2-4a8f7f0db848,0.7.356,pre-GV15,False,n/a_pre_gv15,False,n/a_not_tracked,n/a_pre_v46,n/a_not_exported,0,False,13,n/a_not_exported,0.3333,n/a_not_tracked
+v44_baseline,43,4499,45814412-eb85-4357-bfb1-7547804579a0,0.7.356,pre-GV15,False,n/a_pre_gv15,False,n/a_not_tracked,n/a_pre_v46,n/a_not_exported,0,False,8,n/a_not_exported,1.5,n/a_not_tracked
+v44_baseline,43,4500,a05e9bb4-001b-4b87-8e06-5aa0a7dbf354,0.7.356,pre-GV15,True,n/a_pre_gv15,False,n/a_not_tracked,n/a_pre_v46,n/a_not_exported,1,False,8,n/a_not_exported,1.0,n/a_not_tracked
+v44_baseline,43,4500,8752d001-0e56-4e2b-8262-4b49c5630a42,0.7.356,pre-GV15,False,n/a_pre_gv15,False,n/a_not_tracked,n/a_pre_v46,n/a_not_exported,2,False,5,n/a_not_exported,4.0,n/a_not_tracked
+v44_baseline,43,4500,28aa6829-9600-44f3-b76b-5b05c1fbfd1e,0.7.356,pre-GV15,True,n/a_pre_gv15,False,n/a_not_tracked,n/a_pre_v46,n/a_not_exported,0,False,11,n/a_not_exported,0.4,n/a_not_tracked
+v44_baseline,43,4500,d3557dff-eccf-44c4-858b-5aa67c1b595e,0.7.356,pre-GV15,False,n/a_pre_gv15,False,n/a_not_tracked,n/a_pre_v46,n/a_not_exported,2,False,2,n/a_not_exported,12.0,n/a_not_tracked
+v44_baseline,43,4500,92cf6de2-d6e2-4caf-b938-2c47b3271ca8,0.7.356,pre-GV15,False,n/a_pre_gv15,False,n/a_not_tracked,n/a_pre_v46,n/a_not_exported,1,True,1,n/a_not_exported,192.0,n/a_not_tracked
+v44_baseline,43,4499,4e8dfbfb-9816-4074-a2f1-30124e6fbb07,0.7.356,pre-GV15,False,n/a_pre_gv15,False,n/a_not_tracked,n/a_pre_v46,n/a_not_exported,0,False,9,n/a_not_exported,0.9412,n/a_not_tracked
+v44_baseline,43,4500,b962b30a-518e-49b5-9a70-553c76d9e8f4,0.7.356,pre-GV15,False,n/a_pre_gv15,False,n/a_not_tracked,n/a_pre_v46,n/a_not_exported,1,False,9,n/a_not_exported,0.5455,n/a_not_tracked
+v44_baseline,43,4500,241ae9c9-8b2d-4041-b3d2-45ca50725fda,0.7.356,pre-GV15,False,n/a_pre_gv15,False,n/a_not_tracked,n/a_pre_v46,n/a_not_exported,0,False,1,n/a_not_exported,1365.3333,n/a_not_tracked
+v44_baseline,43,4500,e1265e29-3a44-4c7e-ab33-d13197c1e061,0.7.356,pre-GV15,False,n/a_pre_gv15,False,n/a_not_tracked,n/a_pre_v46,n/a_not_exported,2,True,1,n/a_not_exported,3949.7143,n/a_not_tracked
+v44_baseline,43,4501,e5ed3652-3ae6-4c78-a731-d1f5e1692bce,0.7.356,pre-GV15,False,n/a_pre_gv15,False,n/a_not_tracked,n/a_pre_v46,n/a_not_exported,2,False,3,n/a_not_exported,18.0,n/a_not_tracked
+v44_baseline,43,4500,84553469-c831-4ccd-93eb-8ad1646f2167,0.7.356,pre-GV15,False,n/a_pre_gv15,False,n/a_not_tracked,n/a_pre_v46,n/a_not_exported,1,False,10,n/a_not_exported,0.1818,n/a_not_tracked
+v44_baseline,43,4501,c6aaaec4-e5a7-4b2e-967a-0af0ce23da80,0.7.356,pre-GV15,False,n/a_pre_gv15,False,n/a_not_tracked,n/a_pre_v46,n/a_not_exported,1,False,9,n/a_not_exported,0.8,n/a_not_tracked
+v44_baseline,43,4501,f4867ec8-37b8-4813-885a-ee324400f915,0.7.356,pre-GV15,True,n/a_pre_gv15,False,n/a_not_tracked,n/a_pre_v46,n/a_not_exported,1,False,4,n/a_not_exported,2.6667,n/a_not_tracked
+v44_baseline,43,4501,f690c180-37a8-47e3-82e7-ff30c61318aa,0.7.356,pre-GV15,False,n/a_pre_gv15,False,n/a_not_tracked,n/a_pre_v46,n/a_not_exported,2,False,1,n/a_not_exported,6912.0,n/a_not_tracked
+v44_baseline,43,4501,bc9d6acf-224d-469b-bb2d-c4221fe1f79b,0.7.356,pre-GV15,False,n/a_pre_gv15,False,n/a_not_tracked,n/a_pre_v46,n/a_not_exported,0,False,13,n/a_not_exported,0.1818,n/a_not_tracked
+v44_baseline,43,4501,44eecd1d-124e-4c86-bd59-6f02c33041f0,0.7.356,pre-GV15,False,n/a_pre_gv15,False,n/a_not_tracked,n/a_pre_v46,n/a_not_exported,0,False,14,n/a_not_exported,0.1667,n/a_not_tracked
+v44_baseline,43,4501,1254a83b-1361-4601-8cee-938e59037746,0.7.356,pre-GV15,False,n/a_pre_gv15,False,n/a_not_tracked,n/a_pre_v46,n/a_not_exported,0,False,12,n/a_not_exported,0.6667,n/a_not_tracked
+v44_baseline,43,4501,b4a9a910-0e81-45a4-93e7-fd2016c369cd,0.7.356,pre-GV15,False,n/a_pre_gv15,False,n/a_not_tracked,n/a_pre_v46,n/a_not_exported,1,False,7,n/a_not_exported,1.7778,n/a_not_tracked
+v44_baseline,43,4501,da318622-b066-4b06-a6b1-2ba9badbf44a,0.7.356,pre-GV15,False,n/a_pre_gv15,False,n/a_not_tracked,n/a_pre_v46,n/a_not_exported,0,False,12,n/a_not_exported,0.6667,n/a_not_tracked
+v44_baseline,43,4501,40dcce69-8a4a-4078-9f4f-88a8895ff3e3,0.7.356,pre-GV15,False,n/a_pre_gv15,False,n/a_not_tracked,n/a_pre_v46,n/a_not_exported,2,True,1,n/a_not_exported,6144.0,n/a_not_tracked
+v44_baseline,43,4501,e31c8a39-ff75-4277-8210-f7990322235b,0.7.356,pre-GV15,False,n/a_pre_gv15,False,n/a_not_tracked,n/a_pre_v46,n/a_not_exported,1,False,10,n/a_not_exported,0.4286,n/a_not_tracked
+v44_baseline,43,4501,aa9f39f9-b4ee-42d5-a719-20f37844168e,0.7.356,pre-GV15,False,n/a_pre_gv15,False,n/a_not_tracked,n/a_pre_v46,n/a_not_exported,2,True,1,n/a_not_exported,46080.0,n/a_not_tracked
+v44_baseline,43,4502,e2e182be-5ce8-4db2-995b-5b62c7803b84,0.7.356,pre-GV15,False,n/a_pre_gv15,False,n/a_not_tracked,n/a_pre_v46,n/a_not_exported,1,False,6,n/a_not_exported,2.4,n/a_not_tracked
+v44_baseline,43,4500,16762310-c3de-4829-95e2-b170a38d4fdc,0.7.356,pre-GV15,True,n/a_pre_gv15,False,n/a_not_tracked,n/a_pre_v46,n/a_not_exported,0,False,13,n/a_not_exported,0.2222,n/a_not_tracked
+v44_baseline,43,4500,11ad1ccc-a0d7-4db0-93e0-9cdbf98a2c16,0.7.356,pre-GV15,False,n/a_pre_gv15,False,n/a_not_tracked,n/a_pre_v46,n/a_not_exported,0,False,13,n/a_not_exported,0.0741,n/a_not_tracked
+v44_baseline,43,4502,9b053e2c-2a43-4307-aad6-6b87fd058308,0.7.356,pre-GV15,False,n/a_pre_gv15,False,n/a_not_tracked,n/a_pre_v46,n/a_not_exported,1,False,6,n/a_not_exported,5.3333,n/a_not_tracked
+v44_baseline,43,4502,ce1b209f-aa73-4dbe-a1f6-8ddfa479af1f,0.7.356,pre-GV15,False,n/a_pre_gv15,False,n/a_not_tracked,n/a_pre_v46,n/a_not_exported,1,True,3,n/a_not_exported,384.0,n/a_not_tracked
+v44_baseline,43,4501,37baedf6-cb70-4013-a401-35c277c5bc45,0.7.356,pre-GV15,False,n/a_pre_gv15,False,n/a_not_tracked,n/a_pre_v46,n/a_not_exported,2,False,2,n/a_not_exported,288.0,n/a_not_tracked
+v44_baseline,43,4503,0f7a15ce-16c4-4553-bc5d-cb035df71ca5,0.7.356,pre-GV15,False,n/a_pre_gv15,False,n/a_not_tracked,n/a_pre_v46,n/a_not_exported,1,True,1,n/a_not_exported,3072.0,n/a_not_tracked
+v44_baseline,43,4503,de775727-0ac8-4356-8ea1-6199b736e588,0.7.356,pre-GV15,False,n/a_pre_gv15,False,n/a_not_tracked,n/a_pre_v46,n/a_not_exported,2,False,5,n/a_not_exported,7.7143,n/a_not_tracked
+v44_baseline,43,4503,041dcff0-474d-4ffd-aada-02c3ca2e5333,0.7.356,pre-GV15,False,n/a_pre_gv15,False,n/a_not_tracked,n/a_pre_v46,n/a_not_exported,1,False,10,n/a_not_exported,0.6,n/a_not_tracked
+v44_baseline,43,4503,0ed13b43-4aaa-4d13-8836-f2e0fa9ea7f9,0.7.356,pre-GV15,True,n/a_pre_gv15,False,n/a_not_tracked,n/a_pre_v46,n/a_not_exported,0,False,5,n/a_not_exported,3.5556,n/a_not_tracked
+v44_baseline,43,4503,b23376c4-fbb2-43f3-9f15-6d99d55abdfc,0.7.356,pre-GV15,False,n/a_pre_gv15,False,n/a_not_tracked,n/a_pre_v46,n/a_not_exported,1,False,5,n/a_not_exported,2.0,n/a_not_tracked
+v44_baseline,43,4503,69a4294b-659b-4404-913f-9b881a16516f,0.7.356,pre-GV15,False,n/a_pre_gv15,False,n/a_not_tracked,n/a_pre_v46,n/a_not_exported,0,False,14,n/a_not_exported,0.1111,n/a_not_tracked
+v44_baseline,43,4503,b3df3a03-061e-4976-b4e9-d226d3849612,0.7.356,pre-GV15,True,n/a_pre_gv15,False,n/a_not_tracked,n/a_pre_v46,n/a_not_exported,1,False,6,n/a_not_exported,1.3333,n/a_not_tracked
+v44_baseline,43,4503,0509dd37-579a-4bae-a49a-716508a79624,0.7.356,pre-GV15,False,n/a_pre_gv15,False,n/a_not_tracked,n/a_pre_v46,n/a_not_exported,0,False,13,n/a_not_exported,0.2222,n/a_not_tracked
+v44_baseline,43,4503,633bbc88-0dac-4358-8dcc-82551d19377d,0.7.356,pre-GV15,False,n/a_pre_gv15,False,n/a_not_tracked,n/a_pre_v46,n/a_not_exported,1,False,9,n/a_not_exported,0.2857,n/a_not_tracked
+v44_baseline,43,4503,34b4b8c8-d9e8-4468-a5e8-247078d8edb2,0.7.356,pre-GV15,False,n/a_pre_gv15,False,n/a_not_tracked,n/a_pre_v46,n/a_not_exported,1,False,6,n/a_not_exported,1.7143,n/a_not_tracked
+v44_baseline,43,4504,19f9fe3f-ada1-4c28-9c9f-84b2fe24b1f8,0.7.357,pre-GV15,False,n/a_pre_gv15,False,n/a_not_tracked,n/a_pre_v46,n/a_not_exported,0,False,13,n/a_not_exported,0.1429,n/a_not_tracked
+v44_baseline,43,4504,e31a48ac-b1f6-458e-a93c-b9ca212780a4,0.7.357,pre-GV15,False,n/a_pre_gv15,False,n/a_not_tracked,n/a_pre_v46,n/a_not_exported,1,False,8,n/a_not_exported,1.0,n/a_not_tracked
+v44_baseline,43,4504,eaa23f80-f45d-4fb9-88aa-2e1c92e0a3d3,0.7.357,pre-GV15,False,n/a_pre_gv15,False,n/a_not_tracked,n/a_pre_v46,n/a_not_exported,0,False,5,n/a_not_exported,6.8571,n/a_not_tracked
+v44_baseline,43,4504,353ae1b1-57f3-4cf3-b6c2-0e9136ef3282,0.7.357,pre-GV15,False,n/a_pre_gv15,False,n/a_not_tracked,n/a_pre_v46,n/a_not_exported,0,False,15,n/a_not_exported,0.2,n/a_not_tracked
+v44_baseline,43,4504,1a9204b1-df14-4186-98ef-2d48004db875,0.7.357,pre-GV15,False,n/a_pre_gv15,False,n/a_not_tracked,n/a_pre_v46,n/a_not_exported,1,False,4,n/a_not_exported,48.0,n/a_not_tracked
+v44_baseline,43,4504,0866da0b-fd64-4f0a-9091-4760d91db15a,0.7.357,pre-GV15,False,n/a_pre_gv15,False,n/a_not_tracked,n/a_pre_v46,n/a_not_exported,2,False,7,n/a_not_exported,1.0,n/a_not_tracked
+v44_baseline,43,4504,45ae3693-1494-46f7-9694-02b9420c65b6,0.7.357,pre-GV15,False,n/a_pre_gv15,False,n/a_not_tracked,n/a_pre_v46,n/a_not_exported,0,False,13,n/a_not_exported,0.1176,n/a_not_tracked
+v44_baseline,43,4504,e77197d2-2935-4c30-ab31-34f2b9c6ce3b,0.7.357,pre-GV15,False,n/a_pre_gv15,False,n/a_not_tracked,n/a_pre_v46,n/a_not_exported,0,False,14,n/a_not_exported,0.1333,n/a_not_tracked
+v44_baseline,43,4504,521f7b5b-87fa-4f99-9475-dccdce96298a,0.7.357,pre-GV15,False,n/a_pre_gv15,False,n/a_not_tracked,n/a_pre_v46,n/a_not_exported,0,False,2,n/a_not_exported,38.4,n/a_not_tracked
+v44_baseline,43,4504,92e257ab-d51e-4c27-addb-c0d10da9d771,0.7.357,pre-GV15,False,n/a_pre_gv15,False,n/a_not_tracked,n/a_pre_v46,n/a_not_exported,0,False,13,n/a_not_exported,0.2222,n/a_not_tracked
+v44_baseline,43,4505,b7a97178-dc29-4745-8266-e690a02f7b54,0.7.357,pre-GV15,False,n/a_pre_gv15,False,n/a_not_tracked,n/a_pre_v46,n/a_not_exported,2,False,8,n/a_not_exported,1.2,n/a_not_tracked
+v44_baseline,43,4504,3d63ac35-f985-48e8-8a5e-22b77d8569a1,0.7.357,pre-GV15,False,n/a_pre_gv15,False,n/a_not_tracked,n/a_pre_v46,n/a_not_exported,1,False,10,n/a_not_exported,0.4,n/a_not_tracked
+v44_baseline,43,4505,79d839fa-e520-4c69-80d9-fe61e73edcf0,0.7.357,pre-GV15,True,n/a_pre_gv15,False,n/a_not_tracked,n/a_pre_v46,n/a_not_exported,1,False,9,n/a_not_exported,0.6667,n/a_not_tracked
+v44_baseline,43,4504,6dccf5e0-3d28-41b7-a9b9-38ec5261ee02,0.7.357,pre-GV15,False,n/a_pre_gv15,False,n/a_not_tracked,n/a_pre_v46,n/a_not_exported,0,True,2,n/a_not_exported,213.3333,n/a_not_tracked
+v44_baseline,43,4504,d22dea38-7829-4c39-897b-57264591866b,0.7.357,pre-GV15,False,n/a_pre_gv15,False,n/a_not_tracked,n/a_pre_v46,n/a_not_exported,2,False,7,n/a_not_exported,6.0,n/a_not_tracked
+v44_baseline,43,4505,be84d06d-59c7-4eb7-89c9-8c5ada4cbc5c,0.7.357,pre-GV15,False,n/a_pre_gv15,False,n/a_not_tracked,n/a_pre_v46,n/a_not_exported,2,False,3,n/a_not_exported,12.0,n/a_not_tracked
+v44_baseline,43,4505,705cada5-7a1d-4931-a296-52ad9bed0399,0.7.357,pre-GV15,False,n/a_pre_gv15,False,n/a_not_tracked,n/a_pre_v46,n/a_not_exported,2,False,7,n/a_not_exported,1.0588,n/a_not_tracked
+v44_baseline,43,4505,018ff1fa-60fe-4cd6-b7ab-75b6e3695f2b,0.7.357,pre-GV15,False,n/a_pre_gv15,False,n/a_not_tracked,n/a_pre_v46,n/a_not_exported,0,False,14,n/a_not_exported,0.0556,n/a_not_tracked
+v44_baseline,43,4505,5d1baa55-0bfb-4537-b645-099cb734ae21,0.7.357,pre-GV15,False,n/a_pre_gv15,False,n/a_not_tracked,n/a_pre_v46,n/a_not_exported,2,False,5,n/a_not_exported,7.2,n/a_not_tracked
+v44_baseline,43,4505,989914cf-f767-450b-945b-056c1cdca94a,0.7.357,pre-GV15,False,n/a_pre_gv15,False,n/a_not_tracked,n/a_pre_v46,n/a_not_exported,2,False,8,n/a_not_exported,1.0,n/a_not_tracked
+v44_baseline,43,4505,fd9e4a11-5080-401a-accf-599a9e6f9f08,0.7.357,pre-GV15,False,n/a_pre_gv15,False,n/a_not_tracked,n/a_pre_v46,n/a_not_exported,0,False,12,n/a_not_exported,0.2222,n/a_not_tracked
+v44_baseline,43,4505,f08b19b5-cdde-4a51-8eac-8c5facc21220,0.7.357,pre-GV15,False,n/a_pre_gv15,False,n/a_not_tracked,n/a_pre_v46,n/a_not_exported,0,False,12,n/a_not_exported,0.2222,n/a_not_tracked
+v44_baseline,43,4505,4be1db48-2d79-4f6d-a69d-656ef00a1006,0.7.357,pre-GV15,True,n/a_pre_gv15,True,n/a_not_tracked,n/a_pre_v46,n/a_not_exported,0,True,1,n/a_not_exported,512.0,n/a_not_tracked
+v44_baseline,43,4505,8d90bb37-87ab-497d-9bdb-07e92d044bdd,0.7.357,pre-GV15,False,n/a_pre_gv15,False,n/a_not_tracked,n/a_pre_v46,n/a_not_exported,1,False,3,n/a_not_exported,192.0,n/a_not_tracked
+v44_baseline,43,4505,f0974fbd-66d0-4926-89dd-2804148bebe5,0.7.357,pre-GV15,True,n/a_pre_gv15,False,n/a_not_tracked,n/a_pre_v46,n/a_not_exported,1,False,1,n/a_not_exported,192.0,n/a_not_tracked
+v44_baseline,43,4506,5b0cc16c-70df-4568-a81f-473c587ff863,0.7.357,pre-GV15,False,n/a_pre_gv15,False,n/a_not_tracked,n/a_pre_v46,n/a_not_exported,1,False,9,n/a_not_exported,0.8571,n/a_not_tracked
+v44_baseline,43,4506,1b652c7b-ff6e-41ac-891e-fc3a7cb2d0b6,0.7.357,pre-GV15,False,n/a_pre_gv15,False,n/a_not_tracked,n/a_pre_v46,n/a_not_exported,2,False,7,n/a_not_exported,1.5,n/a_not_tracked
+v44_baseline,43,4506,73d86728-8a59-480f-a026-c8fbd3976849,0.7.357,pre-GV15,True,n/a_pre_gv15,True,n/a_not_tracked,n/a_pre_v46,n/a_not_exported,1,False,3,n/a_not_exported,9.8182,n/a_not_tracked
+v44_baseline,43,4506,032d575d-8ae4-4432-82dc-0d43f30c8580,0.7.357,pre-GV15,True,n/a_pre_gv15,False,n/a_not_tracked,n/a_pre_v46,n/a_not_exported,0,False,12,n/a_not_exported,0.2,n/a_not_tracked
+v44_baseline,43,4506,a6fc61da-f40f-4fc6-bf4c-f380d2f8c2f0,0.7.357,pre-GV15,True,n/a_pre_gv15,False,n/a_not_tracked,n/a_pre_v46,n/a_not_exported,2,False,8,n/a_not_exported,1.2,n/a_not_tracked
+v44_baseline,43,4506,03bc5eef-939e-4a44-a870-3f56e21ff940,0.7.357,pre-GV15,False,n/a_pre_gv15,False,n/a_not_tracked,n/a_pre_v46,n/a_not_exported,0,False,12,n/a_not_exported,0.3333,n/a_not_tracked
+v44_baseline,43,4506,5f444d8b-55ae-4d85-8df4-5bc1d24e8631,0.7.357,pre-GV15,False,n/a_pre_gv15,False,n/a_not_tracked,n/a_pre_v46,n/a_not_exported,1,False,9,n/a_not_exported,0.6667,n/a_not_tracked
+v44_baseline,43,4506,2febe65e-b205-487f-9320-2b94b983ee20,0.7.357,pre-GV15,False,n/a_pre_gv15,False,n/a_not_tracked,n/a_pre_v46,n/a_not_exported,1,False,9,n/a_not_exported,0.6667,n/a_not_tracked
+v44_baseline,43,4506,94c72237-c71d-445e-97e9-cd56690d5ea3,0.7.357,pre-GV15,True,n/a_pre_gv15,False,n/a_not_tracked,n/a_pre_v46,n/a_not_exported,2,False,5,n/a_not_exported,4.5,n/a_not_tracked
+v44_baseline,43,4506,9efaf3f4-fa16-461c-824d-34a8dfaf41d6,0.7.357,pre-GV15,False,n/a_pre_gv15,False,n/a_not_tracked,n/a_pre_v46,n/a_not_exported,1,False,8,n/a_not_exported,1.0,n/a_not_tracked
+v44_baseline,43,4507,249cb6f8-60b6-41e8-a3ae-04770a8005b2,0.7.357,pre-GV15,False,n/a_pre_gv15,False,n/a_not_tracked,n/a_pre_v46,n/a_not_exported,1,False,11,n/a_not_exported,0.4,n/a_not_tracked
+v44_baseline,43,4506,290a4722-fa6e-473c-b99e-f992d448c826,0.7.357,pre-GV15,False,n/a_pre_gv15,False,n/a_not_tracked,n/a_pre_v46,n/a_not_exported,1,False,8,n/a_not_exported,1.0,n/a_not_tracked
+v44_baseline,43,4507,7be12fe6-2ca9-4e35-bbc2-6f29c873b9df,0.7.357,pre-GV15,False,n/a_pre_gv15,False,n/a_not_tracked,n/a_pre_v46,n/a_not_exported,1,False,11,n/a_not_exported,0.4286,n/a_not_tracked
+v44_baseline,43,4506,4dc810f2-6dad-4b02-95f3-7e8b330a4d6d,0.7.357,pre-GV15,False,n/a_pre_gv15,False,n/a_not_tracked,n/a_pre_v46,n/a_not_exported,2,False,4,n/a_not_exported,12.0,n/a_not_tracked
+v44_baseline,43,4507,246fac3b-9396-475e-985e-2476f699a770,0.7.357,pre-GV15,False,n/a_pre_gv15,False,n/a_not_tracked,n/a_pre_v46,n/a_not_exported,0,False,14,n/a_not_exported,0.1429,n/a_not_tracked
+v44_baseline,43,4507,678274b0-86a2-49f1-beca-57b3ffff7145,0.7.357,pre-GV15,False,n/a_pre_gv15,False,n/a_not_tracked,n/a_pre_v46,n/a_not_exported,1,False,4,n/a_not_exported,12.0,n/a_not_tracked
+v44_baseline,43,4507,2baf3ace-59cf-4e20-b287-ea348fe20f51,0.7.357,pre-GV15,False,n/a_pre_gv15,False,n/a_not_tracked,n/a_pre_v46,n/a_not_exported,1,False,4,n/a_not_exported,3.0,n/a_not_tracked
+v44_baseline,43,4507,6ae8fa8b-bc4c-41bb-a453-9ee28cd7cc47,0.7.357,pre-GV15,False,n/a_pre_gv15,False,n/a_not_tracked,n/a_pre_v46,n/a_not_exported,1,False,11,n/a_not_exported,0.4,n/a_not_tracked
+v44_baseline,43,4507,f6363aff-46d5-43aa-b4c7-f47199b08fb4,0.7.357,pre-GV15,False,n/a_pre_gv15,False,n/a_not_tracked,n/a_pre_v46,n/a_not_exported,0,False,6,n/a_not_exported,1.7778,n/a_not_tracked
+v44_baseline,43,4507,25e5af4e-045d-4bfb-a767-2f46beb2a0bf,0.7.357,pre-GV15,False,n/a_pre_gv15,False,n/a_not_tracked,n/a_pre_v46,n/a_not_exported,1,False,6,n/a_not_exported,5.3333,n/a_not_tracked
+v44_baseline,43,4507,2bd41ffe-5622-44f6-8233-e1e3bc78f541,0.7.357,pre-GV15,False,n/a_pre_gv15,False,n/a_not_tracked,n/a_pre_v46,n/a_not_exported,0,False,13,n/a_not_exported,0.1667,n/a_not_tracked
+v44_baseline,43,4507,176bb9ee-e653-4f9c-962b-2e3783a74bcd,0.7.357,pre-GV15,False,n/a_pre_gv15,False,n/a_not_tracked,n/a_pre_v46,n/a_not_exported,1,False,3,n/a_not_exported,24.0,n/a_not_tracked
+v44_baseline,43,4507,c6ee5a40-fb5b-4688-bc31-fb1166e410c1,0.7.357,pre-GV15,False,n/a_pre_gv15,False,n/a_not_tracked,n/a_pre_v46,n/a_not_exported,3,False,4,n/a_not_exported,16.9412,n/a_not_tracked
+v44_baseline,43,4508,6e1a46a4-4e69-47ac-8ec1-16a97f726f7e,0.7.358,pre-GV15,False,n/a_pre_gv15,False,n/a_not_tracked,n/a_pre_v46,n/a_not_exported,1,False,8,n/a_not_exported,1.0,n/a_not_tracked
+v44_baseline,43,4507,cdde1dae-bbe3-4d5a-9124-3aab42180e0c,0.7.357,pre-GV15,False,n/a_pre_gv15,False,n/a_not_tracked,n/a_pre_v46,n/a_not_exported,1,True,1,n/a_not_exported,14043.4286,n/a_not_tracked
+v44_baseline,43,4508,824e9e44-ba39-4fab-a79c-b6a1cdc26eaa,0.7.358,pre-GV15,False,n/a_pre_gv15,False,n/a_not_tracked,n/a_pre_v46,n/a_not_exported,0,False,12,n/a_not_exported,0.2222,n/a_not_tracked
+v44_baseline,43,4508,855ccef1-b367-4fe1-9830-f6d421caa97b,0.7.358,pre-GV15,False,n/a_pre_gv15,False,n/a_not_tracked,n/a_pre_v46,n/a_not_exported,1,False,12,n/a_not_exported,0.2222,n/a_not_tracked
+v44_baseline,43,4508,4912f0e3-a4ae-4b8b-b45b-8173e38d92e8,0.7.358,pre-GV15,False,n/a_pre_gv15,False,n/a_not_tracked,n/a_pre_v46,n/a_not_exported,0,False,12,n/a_not_exported,0.2222,n/a_not_tracked
+v44_baseline,43,4508,0d1c94eb-72f0-4e82-8c3a-271a32558608,0.7.358,pre-GV15,True,n/a_pre_gv15,True,n/a_not_tracked,n/a_pre_v46,n/a_not_exported,1,False,9,n/a_not_exported,0.6667,n/a_not_tracked
+v44_baseline,43,4508,a1a8a0da-0568-429c-a7e7-370269e4fd84,0.7.358,pre-GV15,True,n/a_pre_gv15,False,n/a_not_tracked,n/a_pre_v46,n/a_not_exported,1,False,8,n/a_not_exported,1.3333,n/a_not_tracked
+v44_baseline,43,4508,b93e43ee-6839-4c3d-898d-ff6d17b0ed01,0.7.358,pre-GV15,False,n/a_pre_gv15,False,n/a_not_tracked,n/a_pre_v46,n/a_not_exported,2,False,3,n/a_not_exported,13.0909,n/a_not_tracked
+v44_baseline,43,4508,c7fe8612-31c2-44b6-9a26-e24511a8f8a9,0.7.358,pre-GV15,False,n/a_pre_gv15,False,n/a_not_tracked,n/a_pre_v46,n/a_not_exported,0,False,12,n/a_not_exported,0.3333,n/a_not_tracked
+v44_baseline,43,4508,85195824-4416-429e-bf19-e19b1aeb4890,0.7.358,pre-GV15,False,n/a_pre_gv15,False,n/a_not_tracked,n/a_pre_v46,n/a_not_exported,0,False,14,n/a_not_exported,0.2857,n/a_not_tracked
+v44_baseline,43,4508,af03823d-a2ef-4cc8-9bad-1f3667bb7785,0.7.358,pre-GV15,False,n/a_pre_gv15,False,n/a_not_tracked,n/a_pre_v46,n/a_not_exported,0,False,8,n/a_not_exported,1.0,n/a_not_tracked
+v44_baseline,43,4508,05df5d2b-9f0e-4de5-be63-11325fb49af7,0.7.358,pre-GV15,True,n/a_pre_gv15,False,n/a_not_tracked,n/a_pre_v46,n/a_not_exported,1,False,8,n/a_not_exported,1.0,n/a_not_tracked
+v44_baseline,43,4508,fa65f0ce-3867-4635-990e-70aa065a1ce8,0.7.358,pre-GV15,False,n/a_pre_gv15,False,n/a_not_tracked,n/a_pre_v46,n/a_not_exported,0,False,13,n/a_not_exported,0.1333,n/a_not_tracked
+v44_baseline,43,4509,39a89681-a55c-4d68-9dfb-3e3be15c131e,0.7.359,pre-GV15,True,n/a_pre_gv15,False,n/a_not_tracked,n/a_pre_v46,n/a_not_exported,0,False,14,n/a_not_exported,0.1333,n/a_not_tracked
+v44_baseline,43,4509,c97d91d9-f1b7-49ac-89ca-601efc595321,0.7.359,pre-GV15,False,n/a_pre_gv15,False,n/a_not_tracked,n/a_pre_v46,n/a_not_exported,1,False,3,n/a_not_exported,14.4,n/a_not_tracked
+v44_baseline,43,4509,6f5dfb27-b5dd-4418-8e0f-10a19849b43e,0.7.359,pre-GV15,False,n/a_pre_gv15,False,n/a_not_tracked,n/a_pre_v46,n/a_not_exported,0,False,4,n/a_not_exported,27.4286,n/a_not_tracked
+v44_baseline,43,4509,88352032-4fbd-4617-bdac-5d41c6412e6c,0.7.359,pre-GV15,False,n/a_pre_gv15,False,n/a_not_tracked,n/a_pre_v46,n/a_not_exported,1,False,10,n/a_not_exported,0.1053,n/a_not_tracked
+v44_baseline,43,4509,42e83e0f-1b18-47db-98d4-a7e2874c4562,0.7.359,pre-GV15,False,n/a_pre_gv15,False,n/a_not_tracked,n/a_pre_v46,n/a_not_exported,2,False,7,n/a_not_exported,1.8,n/a_not_tracked
+v44_baseline,43,4509,acfa7bcc-66bb-479f-9ef7-765e5174b9b5,0.7.359,pre-GV15,False,n/a_pre_gv15,False,n/a_not_tracked,n/a_pre_v46,n/a_not_exported,1,False,9,n/a_not_exported,0.6667,n/a_not_tracked
+v44_baseline,43,4509,b5a88e9f-54d6-45ec-827f-bc47bf98ac90,0.7.359,pre-GV15,False,n/a_pre_gv15,False,n/a_not_tracked,n/a_pre_v46,n/a_not_exported,1,False,4,n/a_not_exported,12.0,n/a_not_tracked
+v44_baseline,43,4509,ac9f96c1-352e-42b4-bb39-5d802dbf9712,0.7.359,pre-GV15,False,n/a_pre_gv15,False,n/a_not_tracked,n/a_pre_v46,n/a_not_exported,1,False,7,n/a_not_exported,1.0,n/a_not_tracked
+v44_baseline,43,4509,4a3535d8-4206-4bda-8750-a8d7ee3e0ab2,0.7.359,pre-GV15,False,n/a_pre_gv15,False,n/a_not_tracked,n/a_pre_v46,n/a_not_exported,1,False,9,n/a_not_exported,0.8,n/a_not_tracked
+v44_baseline,43,4509,93468a9a-9400-4c50-b1a4-fba83753f209,0.7.359,pre-GV15,False,n/a_pre_gv15,False,n/a_not_tracked,n/a_pre_v46,n/a_not_exported,3,False,6,n/a_not_exported,4.0,n/a_not_tracked
+v44_baseline,43,4509,201e51b6-0ff8-4449-9c1d-4255401e47f9,0.7.359,pre-GV15,False,n/a_pre_gv15,False,n/a_not_tracked,n/a_pre_v46,n/a_not_exported,1,False,6,n/a_not_exported,1.3333,n/a_not_tracked
+v44_baseline,43,4509,34fa5499-4d45-4c08-9ea6-4acdcad0612b,0.7.359,pre-GV15,False,n/a_pre_gv15,False,n/a_not_tracked,n/a_pre_v46,n/a_not_exported,0,False,14,n/a_not_exported,0.2222,n/a_not_tracked
+v44_baseline,43,4510,9749a3e2-b3b6-4062-bba5-be36c7625075,0.7.359,pre-GV15,False,n/a_pre_gv15,False,n/a_not_tracked,n/a_pre_v46,n/a_not_exported,0,False,7,n/a_not_exported,1.6,n/a_not_tracked
+v44_baseline,43,4510,e8dea363-e375-427c-8104-3a3aafffc75a,0.7.359,pre-GV15,False,n/a_pre_gv15,False,n/a_not_tracked,n/a_pre_v46,n/a_not_exported,0,False,5,n/a_not_exported,2.6667,n/a_not_tracked
+v44_baseline,43,4510,7ca98ece-8867-4eff-80ec-4f1657fe59e6,0.7.359,pre-GV15,False,n/a_pre_gv15,False,n/a_not_tracked,n/a_pre_v46,n/a_not_exported,0,False,13,n/a_not_exported,0.0556,n/a_not_tracked
+v44_baseline,43,4510,2f6a844e-a600-44e4-9d9a-a905651daf5f,0.7.359,pre-GV15,False,n/a_pre_gv15,False,n/a_not_tracked,n/a_pre_v46,n/a_not_exported,0,False,3,n/a_not_exported,21.3333,n/a_not_tracked
+v44_baseline,43,4510,2be5067d-5c00-4017-b123-3dcaee2bfde9,0.7.359,pre-GV15,False,n/a_pre_gv15,False,n/a_not_tracked,n/a_pre_v46,n/a_not_exported,1,False,7,n/a_not_exported,1.7143,n/a_not_tracked
+v44_baseline,43,4510,81880b0f-a2ab-4b2b-b860-413dc869eaec,0.7.359,pre-GV15,False,n/a_pre_gv15,False,n/a_not_tracked,n/a_pre_v46,n/a_not_exported,1,False,9,n/a_not_exported,0.8571,n/a_not_tracked
+v44_baseline,43,4510,b52d7e2d-d8aa-45b5-94f5-eb374d6b2a8c,0.7.359,pre-GV15,False,n/a_pre_gv15,False,n/a_not_tracked,n/a_pre_v46,n/a_not_exported,0,False,13,n/a_not_exported,0.4444,n/a_not_tracked
+v44_baseline,43,4510,e3c0f009-6f3c-4d8a-bc54-c600200db81f,0.7.359,pre-GV15,True,n/a_pre_gv15,True,n/a_not_tracked,n/a_pre_v46,n/a_not_exported,0,False,13,n/a_not_exported,0.0952,n/a_not_tracked
+v44_baseline,43,4510,d67832d4-dfdf-4bf0-8026-c43d3025efff,0.7.359,pre-GV15,False,n/a_pre_gv15,False,n/a_not_tracked,n/a_pre_v46,n/a_not_exported,1,False,2,n/a_not_exported,19.2,n/a_not_tracked
+v44_baseline,43,4510,3ad70be9-56ec-4c0d-bad3-066a2a4a22d8,0.7.359,pre-GV15,True,n/a_pre_gv15,True,n/a_not_tracked,n/a_pre_v46,n/a_not_exported,0,False,4,n/a_not_exported,18.0,n/a_not_tracked
+v44_baseline,43,4510,caa002bc-5eba-45d7-a17c-ad52f8591228,0.7.359,pre-GV15,True,n/a_pre_gv15,False,n/a_not_tracked,n/a_pre_v46,n/a_not_exported,0,False,9,n/a_not_exported,0.8,n/a_not_tracked
+v44_baseline,43,4510,4491431d-c936-420a-b99a-cc77b1f43137,0.7.359,pre-GV15,False,n/a_pre_gv15,False,n/a_not_tracked,n/a_pre_v46,n/a_not_exported,1,False,9,n/a_not_exported,0.6667,n/a_not_tracked
+v44_baseline,43,4510,8e5099ba-1b96-48b4-9981-a58a1044e159,0.7.359,pre-GV15,False,n/a_pre_gv15,False,n/a_not_tracked,n/a_pre_v46,n/a_not_exported,1,False,12,n/a_not_exported,0.1429,n/a_not_tracked
+v44_baseline,43,4511,b574823a-4c1a-4580-b675-a8b94d2e3c80,0.7.360,pre-GV15,False,n/a_pre_gv15,False,n/a_not_tracked,n/a_pre_v46,n/a_not_exported,1,False,8,n/a_not_exported,1.0,n/a_not_tracked
+v44_baseline,43,4511,5416610f-5eb4-46d1-a4ba-b300b480d286,0.7.360,pre-GV15,False,n/a_pre_gv15,False,n/a_not_tracked,n/a_pre_v46,n/a_not_exported,1,False,9,n/a_not_exported,0.5455,n/a_not_tracked
+v44_baseline,43,4511,f6128085-f73a-4eee-a599-39d775afd630,0.7.360,pre-GV15,True,n/a_pre_gv15,False,n/a_not_tracked,n/a_pre_v46,n/a_not_exported,2,False,10,n/a_not_exported,0.4615,n/a_not_tracked
+v44_baseline,43,4511,433362c6-9293-4d94-9853-71efebd17014,0.7.360,pre-GV15,False,n/a_pre_gv15,False,n/a_not_tracked,n/a_pre_v46,n/a_not_exported,2,False,11,n/a_not_exported,0.4286,n/a_not_tracked
+v44_baseline,43,4511,45007513-7040-41ab-9f06-3c95964f7406,0.7.360,pre-GV15,False,n/a_pre_gv15,False,n/a_not_tracked,n/a_pre_v46,n/a_not_exported,0,False,13,n/a_not_exported,0.2222,n/a_not_tracked
+v44_baseline,43,4511,214be226-01bf-499e-9011-6b7aa7217ea4,0.7.360,pre-GV15,False,n/a_pre_gv15,False,n/a_not_tracked,n/a_pre_v46,n/a_not_exported,1,False,9,n/a_not_exported,0.5,n/a_not_tracked
+v44_baseline,43,4511,6b708e0c-1789-4c82-9e30-c049492ac216,0.7.360,pre-GV15,False,n/a_pre_gv15,False,n/a_not_tracked,n/a_pre_v46,n/a_not_exported,0,False,13,n/a_not_exported,0.2667,n/a_not_tracked
+v44_baseline,43,4511,6c16de40-cfdc-4646-9b10-7607e5a60845,0.7.360,pre-GV15,False,n/a_pre_gv15,False,n/a_not_tracked,n/a_pre_v46,n/a_not_exported,1,False,7,n/a_not_exported,1.4545,n/a_not_tracked
+v44_baseline,43,4511,1d1ad8f4-e137-45be-9ac6-dc864769c911,0.7.360,pre-GV15,False,n/a_pre_gv15,False,n/a_not_tracked,n/a_pre_v46,n/a_not_exported,2,False,6,n/a_not_exported,2.1176,n/a_not_tracked
+v44_baseline,43,4511,581d4ad6-27c1-42db-81ad-8d768eb68503,0.7.360,pre-GV15,False,n/a_pre_gv15,False,n/a_not_tracked,n/a_pre_v46,n/a_not_exported,2,False,7,n/a_not_exported,2.0,n/a_not_tracked
+v44_baseline,43,4511,b1f7aac5-6c1a-4daf-a9f3-27bfe98f1338,0.7.360,pre-GV15,False,n/a_pre_gv15,False,n/a_not_tracked,n/a_pre_v46,n/a_not_exported,1,False,10,n/a_not_exported,0.6,n/a_not_tracked
+v44_baseline,43,4511,60f95d4b-3ca0-4b10-bdb6-721b6841f016,0.7.360,pre-GV15,False,n/a_pre_gv15,False,n/a_not_tracked,n/a_pre_v46,n/a_not_exported,0,True,2,n/a_not_exported,2560.0,n/a_not_tracked
+v44_baseline,43,4512,befa1d27-c0b3-4e00-aa6d-c43d1e266eb3,0.7.360,pre-GV15,False,n/a_pre_gv15,False,n/a_not_tracked,n/a_pre_v46,n/a_not_exported,1,False,11,n/a_not_exported,0.2857,n/a_not_tracked
+v44_baseline,43,4512,69ab168e-f7b5-43e3-9ef2-7a8c9ef4f495,0.7.360,pre-GV15,True,n/a_pre_gv15,False,n/a_not_tracked,n/a_pre_v46,n/a_not_exported,1,False,10,n/a_not_exported,0.4,n/a_not_tracked
+v44_baseline,43,4512,1fa54ed2-9cc0-4345-bc42-5a18f5553961,0.7.360,pre-GV15,False,n/a_pre_gv15,False,n/a_not_tracked,n/a_pre_v46,n/a_not_exported,1,False,6,n/a_not_exported,4.0,n/a_not_tracked
+v44_baseline,43,4512,90807fd2-aee8-4de0-8fe9-a73b77d107e9,0.7.360,pre-GV15,True,n/a_pre_gv15,False,n/a_not_tracked,n/a_pre_v46,n/a_not_exported,0,False,13,n/a_not_exported,0.2222,n/a_not_tracked
+v44_baseline,43,4512,c1724efb-acda-46d4-82d9-22332e59ddef,0.7.360,pre-GV15,False,n/a_pre_gv15,False,n/a_not_tracked,n/a_pre_v46,n/a_not_exported,0,False,7,n/a_not_exported,1.3333,n/a_not_tracked
+v44_baseline,43,4512,48cc112d-b057-4231-932b-818e51883554,0.7.360,pre-GV15,False,n/a_pre_gv15,False,n/a_not_tracked,n/a_pre_v46,n/a_not_exported,1,False,4,n/a_not_exported,12.0,n/a_not_tracked
+v44_baseline,43,4512,1ad3833d-d996-4e10-ba1d-66e5150208b5,0.7.360,pre-GV15,False,n/a_pre_gv15,False,n/a_not_tracked,n/a_pre_v46,n/a_not_exported,1,False,4,n/a_not_exported,16.0,n/a_not_tracked
+v44_baseline,43,4512,5cdc86e2-b3f6-4fc5-ab91-b4f35ae19f16,0.7.360,pre-GV15,False,n/a_pre_gv15,False,n/a_not_tracked,n/a_pre_v46,n/a_not_exported,1,False,9,n/a_not_exported,0.8571,n/a_not_tracked
+v44_baseline,43,4512,77072e76-643b-47f4-b2ef-ff70aaed10b6,0.7.360,pre-GV15,False,n/a_pre_gv15,False,n/a_not_tracked,n/a_pre_v46,n/a_not_exported,0,False,5,n/a_not_exported,5.3333,n/a_not_tracked
+v44_baseline,43,4512,f30fcc2a-b5e9-4b24-a470-a753a5590247,0.7.360,pre-GV15,False,n/a_pre_gv15,False,n/a_not_tracked,n/a_pre_v46,n/a_not_exported,1,False,10,n/a_not_exported,0.5,n/a_not_tracked
+v44_baseline,43,4512,a4f789fd-e05b-42c0-89fa-f434346ce8c7,0.7.360,pre-GV15,True,n/a_pre_gv15,True,n/a_not_tracked,n/a_pre_v46,n/a_not_exported,0,False,4,n/a_not_exported,6.8571,n/a_not_tracked
+v44_baseline,43,4513,986dedeb-c2f2-4427-8557-af50ecfb5d3f,0.7.360,pre-GV15,False,n/a_pre_gv15,False,n/a_not_tracked,n/a_pre_v46,n/a_not_exported,0,False,10,n/a_not_exported,0.5,n/a_not_tracked
+v44_baseline,43,4512,f7b301cb-de1a-40dc-b794-9291cbf6aeb3,0.7.360,pre-GV15,False,n/a_pre_gv15,False,n/a_not_tracked,n/a_pre_v46,n/a_not_exported,1,False,6,n/a_not_exported,1.2,n/a_not_tracked
+v44_baseline,43,4513,d203ef65-0516-490a-aa53-30ed2303a758,0.7.360,pre-GV15,False,n/a_pre_gv15,False,n/a_not_tracked,n/a_pre_v46,n/a_not_exported,1,True,1,n/a_not_exported,853.3333,n/a_not_tracked
+v44_baseline,43,4513,93005b1d-2346-492d-9bf4-67a927d7a21d,0.7.360,pre-GV15,False,n/a_pre_gv15,False,n/a_not_tracked,n/a_pre_v46,n/a_not_exported,3,True,1,n/a_not_exported,49766.4,n/a_not_tracked
+v44_baseline,43,4513,6b0cf648-3e28-43e7-bcc7-da47fd7c3016,0.7.360,pre-GV15,False,n/a_pre_gv15,False,n/a_not_tracked,n/a_pre_v46,n/a_not_exported,0,False,2,n/a_not_exported,614.4,n/a_not_tracked
+v44_baseline,43,4513,c0ec9c80-8ac8-4b5e-ba34-18af0d98de15,0.7.360,pre-GV15,False,n/a_pre_gv15,False,n/a_not_tracked,n/a_pre_v46,n/a_not_exported,1,False,2,n/a_not_exported,64.0,n/a_not_tracked
+v44_baseline,43,4513,72e6ba66-243c-4f92-b160-53e978407661,0.7.360,pre-GV15,True,n/a_pre_gv15,False,n/a_not_tracked,n/a_pre_v46,n/a_not_exported,1,False,7,n/a_not_exported,1.0,n/a_not_tracked
+v44_baseline,43,4513,0b32144d-1bf4-4761-87c2-0a80346dcd5f,0.7.360,pre-GV15,False,n/a_pre_gv15,False,n/a_not_tracked,n/a_pre_v46,n/a_not_exported,0,False,14,n/a_not_exported,0.3333,n/a_not_tracked
+v44_baseline,43,4513,02d6401e-a3bd-4a4f-a4c1-2643b2360dec,0.7.360,pre-GV15,False,n/a_pre_gv15,False,n/a_not_tracked,n/a_pre_v46,n/a_not_exported,2,False,9,n/a_not_exported,0.6667,n/a_not_tracked
+v44_baseline,43,4513,da4c3252-93df-4285-a319-2cf676f9f2a8,0.7.360,pre-GV15,False,n/a_pre_gv15,False,n/a_not_tracked,n/a_pre_v46,n/a_not_exported,0,False,15,n/a_not_exported,0.0667,n/a_not_tracked
+v44_baseline,43,4513,5d4f01d6-7644-4cd6-9a2a-c163172cbf8f,0.7.360,pre-GV15,False,n/a_pre_gv15,False,n/a_not_tracked,n/a_pre_v46,n/a_not_exported,0,False,9,n/a_not_exported,0.8571,n/a_not_tracked
+v44_baseline,43,4513,82835df2-a97c-4c03-8a26-ce7c7f6e6e57,0.7.360,pre-GV15,False,n/a_pre_gv15,False,n/a_not_tracked,n/a_pre_v46,n/a_not_exported,0,False,9,n/a_not_exported,0.8,n/a_not_tracked
+v44_baseline,43,4513,47b359f9-0653-48e4-b107-837ef1f0e0ae,0.7.360,pre-GV15,False,n/a_pre_gv15,False,n/a_not_tracked,n/a_pre_v46,n/a_not_exported,0,False,8,n/a_not_exported,1.0,n/a_not_tracked
+v44_gv15_control,43,4515,86f69532-669a-473a-a9bf-36469314586e,0.7.361,post-GV15,False,False,False,0,n/a_pre_v46,n/a_not_exported,0,False,10,n/a_not_exported,0.5,True
+v44_gv15_control,43,4515,ee33e6e9-62cd-471b-8811-0ab6281cad5f,0.7.361,post-GV15,False,False,False,0,n/a_pre_v46,n/a_not_exported,0,False,3,n/a_not_exported,16.0,True
+v44_gv15_control,43,4515,48957899-80d4-4e07-9773-28844695deba,0.7.361,post-GV15,False,False,False,0,n/a_pre_v46,n/a_not_exported,0,False,10,n/a_not_exported,0.5,True
+v44_gv15_control,43,4515,9bf17771-52ae-4af3-9046-3a76053adf98,0.7.361,post-GV15,False,False,False,0,n/a_pre_v46,n/a_not_exported,0,False,5,n/a_not_exported,2.4,True
+v44_gv15_control,43,4515,5f915f31-1ae5-4613-87bd-8b80cff4dcac,0.7.361,post-GV15,False,False,False,0,n/a_pre_v46,n/a_not_exported,0,False,6,n/a_not_exported,3.0,True
+v44_gv15_control,43,4515,6355b5f5-a70a-493e-ba86-47f65ce843f6,0.7.361,post-GV15,True,True,False,0,n/a_pre_v46,n/a_not_exported,0,False,4,n/a_not_exported,12.0,True
+v44_gv15_control,43,4515,6537d0f9-8360-4d84-a325-42f56a93b740,0.7.361,post-GV15,False,False,False,0,n/a_pre_v46,n/a_not_exported,0,False,10,n/a_not_exported,0.125,True
+v44_gv15_control,43,4515,11c2868f-4dcd-4fc9-8d6e-b7d5cd10826e,0.7.361,post-GV15,False,False,False,0,n/a_pre_v46,n/a_not_exported,0,False,10,n/a_not_exported,0.3333,True
+v44_gv15_control,43,4515,e0c19940-941d-4c3c-874a-6321ab780561,0.7.361,post-GV15,True,True,False,0,n/a_pre_v46,n/a_not_exported,0,False,10,n/a_not_exported,0.5,True
+v44_gv15_control,43,4515,4791b709-3c6c-4eb8-9936-303e0930dccb,0.7.361,post-GV15,False,False,False,0,n/a_pre_v46,n/a_not_exported,0,False,5,n/a_not_exported,2.0,True
+v44_gv15_control,43,4515,22f97b07-55c4-46fe-9e31-185c7a8bbca4,0.7.361,post-GV15,False,False,False,0,n/a_pre_v46,n/a_not_exported,0,False,7,n/a_not_exported,1.5,True
+v44_gv15_control,43,4515,1c9c9b09-3ced-4428-8178-e8d93376aa5d,0.7.361,post-GV15,True,True,True,0,n/a_pre_v46,n/a_not_exported,0,False,3,n/a_not_exported,64.0,True
+v44_gv15_control,43,4515,4943d2a2-dc99-4543-8fe5-819bb43818de,0.7.361,post-GV15,False,False,False,0,n/a_pre_v46,n/a_not_exported,0,False,4,n/a_not_exported,16.0,True
+v44_gv15_control,43,4516,0958be1a-fc5d-4cfe-a814-d9375f35edf8,0.7.361,post-GV15,False,False,False,0,n/a_pre_v46,n/a_not_exported,0,False,10,n/a_not_exported,0.5,True
+v44_gv15_control,43,4516,078044a6-91f2-4d43-bc62-28327f226865,0.7.361,post-GV15,False,False,False,0,n/a_pre_v46,n/a_not_exported,0,False,11,n/a_not_exported,0.5,True
+v44_gv15_control,43,4516,d068f961-8320-4974-8f26-03f87165b086,0.7.361,post-GV15,False,False,False,0,n/a_pre_v46,n/a_not_exported,0,False,8,n/a_not_exported,1.0,True
+v44_gv15_control,43,4516,a81eeb39-1d0c-4cc6-9ed1-d3c692be23e7,0.7.361,post-GV15,False,False,False,0,n/a_pre_v46,n/a_not_exported,0,False,2,n/a_not_exported,96.0,True
+v44_gv15_control,43,4516,f03f5ba8-bd37-46e0-bc0d-597c8a2031ee,0.7.361,post-GV15,False,False,False,0,n/a_pre_v46,n/a_not_exported,0,False,10,n/a_not_exported,0.3333,True
+v44_gv15_control,43,4516,3a5fbc40-31e3-4a8e-86d8-46a6d1b47096,0.7.361,post-GV15,False,False,False,0,n/a_pre_v46,n/a_not_exported,0,False,10,n/a_not_exported,0.5,True
+v44_gv15_control,43,4516,62ce749d-5d45-4347-bc1a-f35cd0a068f7,0.7.361,post-GV15,False,False,False,0,n/a_pre_v46,n/a_not_exported,0,False,11,n/a_not_exported,0.5,True
+v44_gv15_control,43,4516,2e00323a-9ae7-4fb7-ab65-24b6a649d6e7,0.7.361,post-GV15,False,False,False,0,n/a_pre_v46,n/a_not_exported,0,False,10,n/a_not_exported,0.25,True
+v44_gv15_control,43,4516,dc3c08f4-d60f-40f8-ad37-a2229c29b315,0.7.361,post-GV15,False,False,False,0,n/a_pre_v46,n/a_not_exported,0,False,4,n/a_not_exported,9.6,True
+v44_gv15_control,43,4516,394911ff-2694-443d-90fe-591f0454632a,0.7.361,post-GV15,False,False,False,0,n/a_pre_v46,n/a_not_exported,0,False,9,n/a_not_exported,0.6667,True
+v44_gv15_control,43,4516,11170d23-f237-4348-8075-eb766ddf4bc3,0.7.361,post-GV15,False,False,False,0,n/a_pre_v46,n/a_not_exported,0,False,11,n/a_not_exported,0.3333,True
+v44_gv15_control,43,4516,878fd0d8-50c1-4466-b95c-836b1024f3c9,0.7.361,post-GV15,False,False,False,0,n/a_pre_v46,n/a_not_exported,0,False,10,n/a_not_exported,0.5,True
+v45,n/a (not recorded in source reads),4517,031c0b98-3391-41ce-a4f9-68de165c05a9,0.7.362,post-GV15,True,False,False,2,n/a_pre_v46,n/a_not_exported,0,False,10,n/a_not_exported,0.3333,True
+v45,n/a (not recorded in source reads),4517,739afccc-c828-4a56-865e-ac2f7a3d797c,0.7.362,post-GV15,True,False,False,2,n/a_pre_v46,n/a_not_exported,0,False,6,n/a_not_exported,3.0,True
+v45,n/a (not recorded in source reads),4517,b8e7b92f-38c7-45e7-b3c2-919064f3cf2b,0.7.362,post-GV15,True,False,False,2,n/a_pre_v46,n/a_not_exported,0,False,9,n/a_not_exported,0.5,True
+v45,n/a (not recorded in source reads),4517,3e5dbf2c-12ff-4492-8e0a-50c9fa057e2d,0.7.362,post-GV15,True,False,False,2,n/a_pre_v46,n/a_not_exported,0,False,10,n/a_not_exported,0.5,True
+v45,n/a (not recorded in source reads),4517,66ecc5dd-796f-4a26-917b-be1c774de9d2,0.7.362,post-GV15,True,False,False,2,n/a_pre_v46,n/a_not_exported,0,False,9,n/a_not_exported,0.6667,True
+v45,n/a (not recorded in source reads),4517,ca046877-8240-4eb3-ac90-4ec43c36f4ab,0.7.362,post-GV15,True,False,False,1,n/a_pre_v46,n/a_not_exported,0,False,5,n/a_not_exported,1.5,True
+v45,n/a (not recorded in source reads),4517,9b29b9b4-e142-47c5-9652-03768a127a6d,0.7.362,post-GV15,True,False,False,2,n/a_pre_v46,n/a_not_exported,0,False,3,n/a_not_exported,12.0,True
+v45,n/a (not recorded in source reads),4517,ac700ea9-67a8-4659-bc0b-2e15e79ebabe,0.7.362,post-GV15,True,False,False,2,n/a_pre_v46,n/a_not_exported,0,False,10,n/a_not_exported,0.5,True
+v45,n/a (not recorded in source reads),4517,58d4bac7-d136-4d87-8cc4-0f3e2c3df2eb,0.7.362,post-GV15,True,False,False,2,n/a_pre_v46,n/a_not_exported,0,False,4,n/a_not_exported,4.0,True
+v45,n/a (not recorded in source reads),4517,54d32cad-26e2-4202-bf29-011f9eda222e,0.7.362,post-GV15,True,False,False,2,n/a_pre_v46,n/a_not_exported,0,False,7,n/a_not_exported,2.0,True
+v45,n/a (not recorded in source reads),4518,ae837cb5-ad5a-4cd2-b9e6-083685dd077b,0.7.362,post-GV15,True,False,False,2,n/a_pre_v46,n/a_not_exported,0,True,1,n/a_not_exported,384.0,True
+v45,n/a (not recorded in source reads),4517,a1bc2441-f7c4-41fd-bf83-5a11cd9db757,0.7.362,post-GV15,True,False,False,2,n/a_pre_v46,n/a_not_exported,0,False,6,n/a_not_exported,2.0,True
+v45,n/a (not recorded in source reads),4518,5167497b-70c0-40ae-af6e-9dcd3997e1c1,0.7.362,post-GV15,True,False,False,2,n/a_pre_v46,n/a_not_exported,0,False,7,n/a_not_exported,1.0,True
+v45,n/a (not recorded in source reads),4518,f5c54731-4028-41b6-83a0-6fb8e14f3018,0.7.362,post-GV15,True,False,False,2,n/a_pre_v46,n/a_not_exported,0,False,9,n/a_not_exported,0.6667,True
+v45,n/a (not recorded in source reads),4518,d16ebbd1-377b-4fb9-a930-1bc9f8473ce4,0.7.362,post-GV15,True,False,False,2,n/a_pre_v46,n/a_not_exported,0,False,10,n/a_not_exported,0.5,True
+v45,n/a (not recorded in source reads),4517,5890467d-bac8-4873-b392-2af8e138db30,0.7.362,post-GV15,True,False,False,2,n/a_pre_v46,n/a_not_exported,0,False,7,n/a_not_exported,1.0,True
+v45,n/a (not recorded in source reads),4518,82b481a0-94c4-4f05-9cf2-702086f03f72,0.7.362,post-GV15,True,False,False,2,n/a_pre_v46,n/a_not_exported,0,False,11,n/a_not_exported,0.25,True
+v45,n/a (not recorded in source reads),4518,afdaa814-6f48-40eb-9eb1-d2419cc40a00,0.7.362,post-GV15,True,False,False,2,n/a_pre_v46,n/a_not_exported,0,False,2,n/a_not_exported,13824.0,True
+v45,n/a (not recorded in source reads),4518,f58da419-655f-4998-bc56-20f08d39a874,0.7.362,post-GV15,True,False,False,1,n/a_pre_v46,n/a_not_exported,0,False,10,n/a_not_exported,0.3333,True
+v45,n/a (not recorded in source reads),4518,84ef984b-37fd-47c2-a04a-2851f40d2bd0,0.7.362,post-GV15,True,False,False,2,n/a_pre_v46,n/a_not_exported,0,False,10,n/a_not_exported,0.5,True
+v45,n/a (not recorded in source reads),4518,248e55c8-7db7-4772-ad1c-e5d9c9bf55d3,0.7.362,post-GV15,True,False,False,2,n/a_pre_v46,n/a_not_exported,0,True,1,n/a_not_exported,1536.0,True
+v45,n/a (not recorded in source reads),4518,7c993ea9-4ac0-43c0-b6c5-381f601a03fb,0.7.362,post-GV15,True,False,False,1,n/a_pre_v46,n/a_not_exported,0,False,7,n/a_not_exported,1.0,True
+v45,n/a (not recorded in source reads),4518,91b2051d-64e7-4545-a7c4-5fb12654744f,0.7.362,post-GV15,True,False,False,2,n/a_pre_v46,n/a_not_exported,0,False,10,n/a_not_exported,0.5,True
+v45,n/a (not recorded in source reads),4518,2b40d22e-824a-4007-b1b5-e208b9e1a694,0.7.362,post-GV15,True,False,False,2,n/a_pre_v46,n/a_not_exported,0,False,4,n/a_not_exported,2.6667,True
+v45,n/a (not recorded in source reads),4519,0e01dd45-91da-487e-85e1-2fe445ff85e6,0.7.362,post-GV15,True,False,False,2,n/a_pre_v46,n/a_not_exported,0,False,9,n/a_not_exported,0.6667,True
+v45,n/a (not recorded in source reads),4519,79fabe93-334f-49b7-b008-a74d0bc9e9d3,0.7.362,post-GV15,True,False,False,2,n/a_pre_v46,n/a_not_exported,0,False,5,n/a_not_exported,1.3333,True
+v45,n/a (not recorded in source reads),4519,d0231669-5071-4594-9eeb-1daae6098910,0.7.362,post-GV15,True,False,False,2,n/a_pre_v46,n/a_not_exported,0,False,10,n/a_not_exported,0.5,True
+v45,n/a (not recorded in source reads),4519,5cc2c957-8d9d-4d43-84c6-86d6e4987b42,0.7.362,post-GV15,True,False,False,2,n/a_pre_v46,n/a_not_exported,0,False,10,n/a_not_exported,0.5,True
+v45,n/a (not recorded in source reads),4519,0e898589-a47d-41a5-88c2-95797c499808,0.7.362,post-GV15,True,False,False,2,n/a_pre_v46,n/a_not_exported,0,True,2,n/a_not_exported,96.0,True
+v45,n/a (not recorded in source reads),4519,480898f1-d86c-4837-a35c-433577983cc4,0.7.362,post-GV15,True,True,True,2,n/a_pre_v46,n/a_not_exported,0,False,5,n/a_not_exported,1.3333,True
+v45,n/a (not recorded in source reads),4519,77be2284-dd10-4585-b480-1bb18547c46c,0.7.362,post-GV15,True,False,False,2,n/a_pre_v46,n/a_not_exported,0,False,4,n/a_not_exported,4.0,True
+v45,n/a (not recorded in source reads),4519,bc320c8b-219e-401e-b598-18fae43f29c4,0.7.362,post-GV15,True,False,False,2,n/a_pre_v46,n/a_not_exported,0,False,8,n/a_not_exported,1.0,True
+v45,n/a (not recorded in source reads),4519,a989d8db-3139-4549-ae13-30dba18a0f10,0.7.362,post-GV15,True,False,False,2,n/a_pre_v46,n/a_not_exported,0,False,2,n/a_not_exported,192.0,True
+v45,n/a (not recorded in source reads),4519,3de59ee9-8c4e-4358-8384-3f84c80c6d71,0.7.362,post-GV15,True,False,False,2,n/a_pre_v46,n/a_not_exported,0,False,11,n/a_not_exported,0.3333,True
+v45,n/a (not recorded in source reads),4520,955ec09d-9014-4445-acbb-20b1f4946223,0.7.362,post-GV15,False,False,False,0,n/a_pre_v46,n/a_not_exported,0,False,1,n/a_not_exported,96.0,True
+v45,n/a (not recorded in source reads),4520,903bb9a5-cbb0-4708-8d58-bc01bd749e9e,0.7.362,post-GV15,True,False,False,1,n/a_pre_v46,n/a_not_exported,0,False,6,n/a_not_exported,2.4,True
+v45,n/a (not recorded in source reads),4520,5fd1e76e-c281-4651-8bb7-99e3a1e02349,0.7.362,post-GV15,True,False,False,2,n/a_pre_v46,n/a_not_exported,0,False,10,n/a_not_exported,0.5,True
+v45,n/a (not recorded in source reads),4519,a66e75d3-6ccd-48ef-bb36-6b211a7a1ccf,0.7.362,post-GV15,True,False,False,2,n/a_pre_v46,n/a_not_exported,0,False,10,n/a_not_exported,0.5,True
+v45,n/a (not recorded in source reads),4520,4127a1f7-f69b-412f-bcb5-8c2c632c09e6,0.7.362,post-GV15,True,False,False,2,n/a_pre_v46,n/a_not_exported,0,False,9,n/a_not_exported,0.6667,True
+v45,n/a (not recorded in source reads),4519,02e68473-25e2-468c-970e-5fe0de5b8708,0.7.362,post-GV15,True,False,False,1,n/a_pre_v46,n/a_not_exported,0,False,8,n/a_not_exported,1.0,True
+v45,n/a (not recorded in source reads),4520,4584462d-54f9-466f-ae58-9ef5cd8b3fcf,0.7.362,post-GV15,True,False,False,2,n/a_pre_v46,n/a_not_exported,0,False,10,n/a_not_exported,0.5,True
+v45,n/a (not recorded in source reads),4520,54fae474-cdb2-479c-9699-d4c2c32d2520,0.7.362,post-GV15,True,False,False,2,n/a_pre_v46,n/a_not_exported,0,False,12,n/a_not_exported,0.1429,True
+v45,n/a (not recorded in source reads),4520,12330624-02fe-4a5d-b610-355ace5cb54b,0.7.362,post-GV15,True,False,False,2,n/a_pre_v46,n/a_not_exported,0,True,2,n/a_not_exported,192.0,True
+v45,n/a (not recorded in source reads),4520,96355411-2b50-48a8-bcac-b7ba2caf2f14,0.7.362,post-GV15,True,False,False,2,n/a_pre_v46,n/a_not_exported,0,False,9,n/a_not_exported,0.6667,True
+v45,n/a (not recorded in source reads),4520,62443b4e-bc2a-4a7d-8d9b-a7374c03c686,0.7.362,post-GV15,True,False,False,1,n/a_pre_v46,n/a_not_exported,0,False,7,n/a_not_exported,1.0,True
+v45,n/a (not recorded in source reads),4520,8819c981-1402-4dfb-85f3-edfde484d43c,0.7.362,post-GV15,True,False,False,2,n/a_pre_v46,n/a_not_exported,0,False,9,n/a_not_exported,0.6667,True
+v45,n/a (not recorded in source reads),4520,93e803a4-1199-470c-bc2e-4bfa0b9f66d9,0.7.362,post-GV15,True,False,False,2,n/a_pre_v46,n/a_not_exported,0,False,10,n/a_not_exported,0.4,True
+v45,n/a (not recorded in source reads),4520,8a28dd96-5c73-4b36-b088-3cb476dcb745,0.7.362,post-GV15,True,False,False,2,n/a_pre_v46,n/a_not_exported,0,False,13,n/a_not_exported,0.25,True
+v45,n/a (not recorded in source reads),4521,0998cfe5-2974-4f2c-9df7-e524c845099b,0.7.362,post-GV15,True,False,False,2,n/a_pre_v46,n/a_not_exported,0,False,7,n/a_not_exported,1.0,True
+v45,n/a (not recorded in source reads),4521,0131375e-a5e6-4f55-9d6f-c4aade36db92,0.7.362,post-GV15,True,False,False,2,n/a_pre_v46,n/a_not_exported,0,False,6,n/a_not_exported,2.0,True
+v45,n/a (not recorded in source reads),4521,ac830928-066a-445a-a91c-5e8722782b25,0.7.362,post-GV15,True,False,False,2,n/a_pre_v46,n/a_not_exported,0,False,6,n/a_not_exported,1.2,True
+v45,n/a (not recorded in source reads),4521,74f8133a-ebe9-4de9-90ff-7a286d75d060,0.7.362,post-GV15,True,True,True,1,n/a_pre_v46,n/a_not_exported,0,False,9,n/a_not_exported,0.6667,True
+v45,n/a (not recorded in source reads),4521,71ed7b66-46b1-443e-8be4-de9d3ac8bc7e,0.7.362,post-GV15,True,True,False,2,n/a_pre_v46,n/a_not_exported,0,False,7,n/a_not_exported,1.5,True
+v45,n/a (not recorded in source reads),4521,1bdbfe2e-31dc-441b-8ee1-85eadfaa3f67,0.7.362,post-GV15,True,True,False,2,n/a_pre_v46,n/a_not_exported,0,False,9,n/a_not_exported,0.6667,True
+v45,n/a (not recorded in source reads),4521,d315c223-78b4-42b3-b9fc-bb0611e3aded,0.7.362,post-GV15,True,False,False,1,n/a_pre_v46,n/a_not_exported,0,False,9,n/a_not_exported,0.6667,True
+v45,n/a (not recorded in source reads),4521,37a23af8-c1f1-44d1-ac62-37449a3715b2,0.7.362,post-GV15,True,False,False,1,n/a_pre_v46,n/a_not_exported,0,False,10,n/a_not_exported,0.5,True
+v45,n/a (not recorded in source reads),4521,b5d7db5f-66e8-436e-9b92-8d1983bb265f,0.7.362,post-GV15,True,True,False,2,n/a_pre_v46,n/a_not_exported,0,False,9,n/a_not_exported,0.6667,True
+v45,n/a (not recorded in source reads),4521,6d2f80f2-9523-4c70-ab4b-90f9ff81742e,0.7.362,post-GV15,True,False,False,2,n/a_pre_v46,n/a_not_exported,0,False,5,n/a_not_exported,4.5714,True
+v45,n/a (not recorded in source reads),4521,a00cbc09-f420-46c5-be0f-91bac03bb863,0.7.362,post-GV15,False,False,False,0,n/a_pre_v46,n/a_not_exported,0,False,9,n/a_not_exported,0.8571,True
+v45,n/a (not recorded in source reads),4521,4ff95b1f-e6ad-4502-9a50-95b713fa1ef4,0.7.362,post-GV15,True,False,False,2,n/a_pre_v46,n/a_not_exported,0,False,9,n/a_not_exported,0.6667,True
+v45,n/a (not recorded in source reads),4522,b93d16d1-7c75-4284-b36a-ee3e15e691a0,0.7.362,post-GV15,True,False,False,2,n/a_pre_v46,n/a_not_exported,0,False,6,n/a_not_exported,4.0,True
+v45,n/a (not recorded in source reads),4522,40f043bf-8414-4324-bea3-593eb7bd1be0,0.7.362,post-GV15,True,True,False,2,n/a_pre_v46,n/a_not_exported,0,False,10,n/a_not_exported,0.5,True
+v45,n/a (not recorded in source reads),4522,e45b8bfd-b163-4a3b-871c-e63fb004ab79,0.7.362,post-GV15,True,False,False,2,n/a_pre_v46,n/a_not_exported,0,False,9,n/a_not_exported,0.6667,True
+v45,n/a (not recorded in source reads),4522,41388c0e-03fb-469f-8876-cb79ccf296d5,0.7.362,post-GV15,True,False,False,1,n/a_pre_v46,n/a_not_exported,0,False,10,n/a_not_exported,0.5,True
+v45,n/a (not recorded in source reads),4522,9b3d1376-b9b1-466c-937a-5383ac2749ea,0.7.362,post-GV15,True,True,False,2,n/a_pre_v46,n/a_not_exported,0,False,11,n/a_not_exported,0.4,True
+v45,n/a (not recorded in source reads),4522,a614eddf-8159-4d4f-8dfc-f04ed954db67,0.7.362,post-GV15,True,False,False,2,n/a_pre_v46,n/a_not_exported,0,True,2,n/a_not_exported,1920.0,True
+v45,n/a (not recorded in source reads),4522,ed7bfadd-ad25-474e-b01a-482cf3547323,0.7.362,post-GV15,True,False,False,1,n/a_pre_v46,n/a_not_exported,0,False,6,n/a_not_exported,3.0,True
+v45,n/a (not recorded in source reads),4522,db2ee7b9-cc4b-4c58-8a7f-fdda92e215d5,0.7.362,post-GV15,True,True,False,2,n/a_pre_v46,n/a_not_exported,0,False,7,n/a_not_exported,1.3333,True
+v45,n/a (not recorded in source reads),4522,d2bff52e-d8f7-48fb-aff1-5b0b93e2407c,0.7.362,post-GV15,False,False,False,0,n/a_pre_v46,n/a_not_exported,0,False,4,n/a_not_exported,12.0,True
+v45,n/a (not recorded in source reads),4522,adf09e03-d53c-42fa-a5a6-72f3968cf437,0.7.362,post-GV15,True,False,False,2,n/a_pre_v46,n/a_not_exported,0,False,12,n/a_not_exported,0.1667,True
+v45,n/a (not recorded in source reads),4522,d811e6dc-7e04-4c91-b08b-c64ff53a5330,0.7.362,post-GV15,True,False,False,2,n/a_pre_v46,n/a_not_exported,0,False,4,n/a_not_exported,16.0,True
+v45,n/a (not recorded in source reads),4522,30abcc45-9557-45f5-96a8-cd32e3f4b419,0.7.362,post-GV15,True,False,False,2,n/a_pre_v46,n/a_not_exported,0,False,9,n/a_not_exported,0.5,True
+v45,n/a (not recorded in source reads),4523,89a79e71-bbed-4699-bcb0-dafffb834421,0.7.363,post-GV15,True,False,False,2,n/a_pre_v46,n/a_not_exported,0,False,5,n/a_not_exported,3.0,True
+v45,n/a (not recorded in source reads),4523,0a68b0e4-abaf-42f8-b747-872eded1a9b3,0.7.363,post-GV15,True,False,False,2,n/a_pre_v46,n/a_not_exported,0,False,10,n/a_not_exported,0.5,True
+v45,n/a (not recorded in source reads),4523,3b07298a-042e-456b-a278-38aa4390ec92,0.7.363,post-GV15,True,False,False,2,n/a_pre_v46,n/a_not_exported,0,False,10,n/a_not_exported,0.1667,True
+v45,n/a (not recorded in source reads),4523,ff9d1233-0a99-4dc5-8fc9-7c7b0c356517,0.7.363,post-GV15,True,False,False,2,n/a_pre_v46,n/a_not_exported,0,False,4,n/a_not_exported,4.0,True
+v45,n/a (not recorded in source reads),4523,b5dc1f3f-5b88-4925-978c-64447935fd1f,0.7.363,post-GV15,True,False,False,1,n/a_pre_v46,n/a_not_exported,0,False,1,n/a_not_exported,13824.0,True
+v45,n/a (not recorded in source reads),4523,2de17f9f-5941-4278-9ac0-ea5207823ea6,0.7.363,post-GV15,True,False,False,2,n/a_pre_v46,n/a_not_exported,0,False,11,n/a_not_exported,0.3333,True
+v45,n/a (not recorded in source reads),4523,96ae48d9-d69d-4218-b5dd-e4e0d8e81d47,0.7.363,post-GV15,True,False,False,1,n/a_pre_v46,n/a_not_exported,0,False,7,n/a_not_exported,1.3333,True
+v45,n/a (not recorded in source reads),4523,820a6d35-074e-4192-a5a1-cbda78e42c85,0.7.363,post-GV15,True,False,False,2,n/a_pre_v46,n/a_not_exported,0,False,5,n/a_not_exported,5.3333,True
+v45,n/a (not recorded in source reads),4523,e87a226d-d57f-487e-add3-d930a6692447,0.7.363,post-GV15,True,False,False,2,n/a_pre_v46,n/a_not_exported,0,False,4,n/a_not_exported,12.0,True
+v45,n/a (not recorded in source reads),4523,897b9ed6-7d98-4b3c-8d81-5d17971008fb,0.7.363,post-GV15,True,False,False,2,n/a_pre_v46,n/a_not_exported,0,False,10,n/a_not_exported,0.5,True
+v45,n/a (not recorded in source reads),4523,abb87061-cc1c-4196-a786-dad8dfb3f86b,0.7.363,post-GV15,True,False,False,2,n/a_pre_v46,n/a_not_exported,0,False,10,n/a_not_exported,0.5,True
+v45,n/a (not recorded in source reads),4523,dd37bfcb-1329-4777-8c52-4c26d5a02ac2,0.7.363,post-GV15,True,False,False,1,n/a_pre_v46,n/a_not_exported,0,False,10,n/a_not_exported,0.5,True
+v45,n/a (not recorded in source reads),4524,5af1a3ea-46f5-483e-9777-a5f31b09faaa,0.7.363,post-GV15,True,False,False,2,n/a_pre_v46,n/a_not_exported,0,False,10,n/a_not_exported,0.5,True
+v45,n/a (not recorded in source reads),4524,17b86abf-3c53-4771-9852-09fe33ad0fa5,0.7.363,post-GV15,True,True,False,2,n/a_pre_v46,n/a_not_exported,0,False,2,n/a_not_exported,192.0,True
+v45,n/a (not recorded in source reads),4524,484e7187-46f4-42d2-9409-27c6bec332f9,0.7.363,post-GV15,True,False,False,2,n/a_pre_v46,n/a_not_exported,0,False,10,n/a_not_exported,0.5,True
+v45,n/a (not recorded in source reads),4524,3ca859dc-0176-468e-b1da-36d85fac34f0,0.7.363,post-GV15,True,False,False,2,n/a_pre_v46,n/a_not_exported,0,False,10,n/a_not_exported,0.5,True
+v45,n/a (not recorded in source reads),4524,bd52d0e8-2c41-42a1-95db-05deae6d1500,0.7.363,post-GV15,True,False,False,2,n/a_pre_v46,n/a_not_exported,0,False,4,n/a_not_exported,12.0,True
+v45,n/a (not recorded in source reads),4524,d4d447e6-620f-4799-8b24-55239ffcbb08,0.7.363,post-GV15,True,True,False,2,n/a_pre_v46,n/a_not_exported,0,False,10,n/a_not_exported,0.5,True
+v45,n/a (not recorded in source reads),4524,e1df60d0-2b2c-4e98-876f-0ad3e8210ea2,0.7.363,post-GV15,True,True,True,2,n/a_pre_v46,n/a_not_exported,0,False,8,n/a_not_exported,1.0,True
+v45,n/a (not recorded in source reads),4524,d103640a-259b-4aaf-81b6-242779d11681,0.7.363,post-GV15,True,True,True,2,n/a_pre_v46,n/a_not_exported,0,False,6,n/a_not_exported,2.0,True
+v45,n/a (not recorded in source reads),4524,aea21942-b391-44ce-bdd7-3183e2d777d8,0.7.363,post-GV15,False,False,False,0,n/a_pre_v46,n/a_not_exported,0,False,9,n/a_not_exported,0.2857,True
+v45,n/a (not recorded in source reads),4524,8143d1f3-3e6a-4d18-a963-d9737cb72b21,0.7.363,post-GV15,True,False,False,2,n/a_pre_v46,n/a_not_exported,0,False,3,n/a_not_exported,32.0,True
+v45,n/a (not recorded in source reads),4524,90567f80-7907-42cc-831b-8459a9f1188f,0.7.363,post-GV15,True,False,False,2,n/a_pre_v46,n/a_not_exported,0,False,5,n/a_not_exported,2.0,True
+v45,n/a (not recorded in source reads),4524,6fe73e91-d0f6-4e23-8bb3-e988085c6d0b,0.7.363,post-GV15,True,False,False,2,n/a_pre_v46,n/a_not_exported,0,False,4,n/a_not_exported,3.0,True
+v45,n/a (not recorded in source reads),4525,5f94cc63-eb0c-498e-bccc-11b6e678d357,0.7.363,post-GV15,True,False,False,2,n/a_pre_v46,n/a_not_exported,0,False,9,n/a_not_exported,0.6667,True
+v45,n/a (not recorded in source reads),4525,e3833919-316e-4223-9f68-a7669a67738d,0.7.363,post-GV15,False,False,False,0,n/a_pre_v46,n/a_not_exported,0,False,11,n/a_not_exported,0.5,True
+v45,n/a (not recorded in source reads),4525,69444126-bcc1-486c-93ea-a97631512cf6,0.7.363,post-GV15,True,False,False,2,n/a_pre_v46,n/a_not_exported,0,False,11,n/a_not_exported,0.3333,True
+v45,n/a (not recorded in source reads),4526,1eb9140e-f7c0-4402-94d3-1dfdf7975ab2,0.7.364,post-GV15,True,False,False,2,n/a_pre_v46,n/a_not_exported,0,False,2,n/a_not_exported,768.0,True
+v45,n/a (not recorded in source reads),4526,2b7ea1bd-5395-4219-9d5d-0d41921d790c,0.7.364,post-GV15,True,False,False,2,n/a_pre_v46,n/a_not_exported,0,False,6,n/a_not_exported,4.0,True
+v45,n/a (not recorded in source reads),4526,a15ea29c-27fb-427d-96f6-0bf427cc465f,0.7.364,post-GV15,True,False,False,2,n/a_pre_v46,n/a_not_exported,0,False,10,n/a_not_exported,0.5,True
+v45,n/a (not recorded in source reads),4526,04bfd023-b60b-469e-a28d-3a2daba47ca8,0.7.364,post-GV15,True,False,False,2,n/a_pre_v46,n/a_not_exported,0,False,10,n/a_not_exported,0.5,True
+v45,n/a (not recorded in source reads),4526,0fc650ae-c502-4f05-9928-85211f1ea384,0.7.364,post-GV15,True,True,True,2,n/a_pre_v46,n/a_not_exported,0,False,4,n/a_not_exported,72.0,True
+v45,n/a (not recorded in source reads),4526,b9751075-5552-426a-84cf-cac72c82473b,0.7.364,post-GV15,True,False,False,2,n/a_pre_v46,n/a_not_exported,0,False,12,n/a_not_exported,0.3333,True
+v45,n/a (not recorded in source reads),4526,4616eb67-2174-47a6-b87a-9949681f7f02,0.7.364,post-GV15,True,False,False,2,n/a_pre_v46,n/a_not_exported,0,False,6,n/a_not_exported,4.0,True
+v46,47,4527,c900a12a-9a8d-4a67-b07d-70bcbd9ed6cb,0.7.364,post-GV15,True,True,False,8,True,n/a_not_exported,0,False,9,n/a_not_exported,0.6667,True
+v46,47,4527,2d5eee0f-dc18-4ed0-a9b9-1e189b59e1ec,0.7.364,post-GV15,True,True,False,8,True,n/a_not_exported,0,False,10,n/a_not_exported,0.5,True
+v46,47,4527,8222bedf-3fe3-4728-8992-3ab6ff6c34e9,0.7.364,post-GV15,True,False,False,2,False,n/a_not_exported,0,False,11,n/a_not_exported,0.25,True
+v46,47,4527,04e219eb-b62b-4651-a6b8-6145b52729b2,0.7.364,post-GV15,True,True,False,8,True,n/a_not_exported,0,False,11,n/a_not_exported,0.5,True
+v46,47,4527,6e54d23c-1be2-44e5-8572-88d8f5784f1b,0.7.364,post-GV15,True,False,False,2,False,n/a_not_exported,0,False,8,n/a_not_exported,1.0,True
+v46,47,4527,2b498e61-324f-4298-a9db-549bf084b9ae,0.7.364,post-GV15,True,True,False,5,False,n/a_not_exported,0,False,4,n/a_not_exported,12.0,True
+v46,47,4527,3da82d78-fe68-4cd9-974e-a4896c6239a6,0.7.364,post-GV15,True,True,True,3,False,n/a_not_exported,1,False,6,n/a_not_exported,1.5,True
+v46,47,4527,9cb99c15-866b-4ff8-a3cd-1c55ce59c509,0.7.364,post-GV15,True,False,False,2,False,n/a_not_exported,0,False,2,n/a_not_exported,48.0,True
+v46,47,4527,706c7cc4-51e3-4628-b27e-8c99d5bd0d82,0.7.364,post-GV15,True,False,False,2,False,n/a_not_exported,0,False,3,n/a_not_exported,12.0,True
+v46,47,4527,14b87738-8213-4743-bed2-592c3bcda429,0.7.364,post-GV15,True,False,False,1,False,n/a_not_exported,0,False,6,n/a_not_exported,2.0,True
+v46,47,4528,f685ab70-5896-4539-adb1-eea34295a848,0.7.364,post-GV15,True,False,False,2,False,n/a_not_exported,0,False,10,n/a_not_exported,0.5,True
+v46,47,4528,88e77146-147b-458e-bef1-e4cd90385b9b,0.7.364,post-GV15,True,False,False,1,False,n/a_not_exported,0,False,4,n/a_not_exported,8.0,True
+v46,47,4527,f72499fc-7a8c-4128-9ff6-1cbe8fe4647c,0.7.364,post-GV15,True,False,False,2,False,n/a_not_exported,0,False,9,n/a_not_exported,0.5,True
+v46,47,4527,03c1cb5d-8a9e-4291-9213-478ccab628fc,0.7.364,post-GV15,True,False,False,2,False,n/a_not_exported,0,False,3,n/a_not_exported,12.0,True
+v46,47,4528,84736a3b-b77d-4127-8c99-fdf55b914fc2,0.7.364,post-GV15,True,True,True,5,True,n/a_not_exported,0,False,8,n/a_not_exported,1.0,True
+v46,47,4528,40bbc3f5-cc5e-422a-b11e-2bb9bf5ae491,0.7.364,post-GV15,True,False,False,2,False,n/a_not_exported,0,False,10,n/a_not_exported,0.5,True
+v46,47,4528,59effe24-c0d8-491f-a1c6-41e859c64e77,0.7.364,post-GV15,True,False,False,2,False,n/a_not_exported,0,False,2,n/a_not_exported,64.0,True
+v46,47,4528,54f3ee9c-bd2b-4ed7-8d40-50879de9805b,0.7.364,post-GV15,True,False,False,2,False,n/a_not_exported,0,False,10,n/a_not_exported,0.5,True
+v46,47,4528,fe3eb9cd-8924-4255-8bde-027707d2191d,0.7.364,post-GV15,True,False,False,2,False,n/a_not_exported,0,False,7,n/a_not_exported,1.3333,True
+v46,47,4528,239ff166-dc7a-468f-8b94-d6fadab9577a,0.7.364,post-GV15,True,False,False,2,False,n/a_not_exported,0,False,7,n/a_not_exported,1.0,True
+v46,47,4528,f3287876-c924-40ec-bf3e-27050748e08b,0.7.364,post-GV15,True,False,False,2,False,n/a_not_exported,0,False,5,n/a_not_exported,1.3333,True
+v46,47,4528,414ac0a2-a3d0-466d-ae7e-a671002a86da,0.7.364,post-GV15,True,False,False,1,False,n/a_not_exported,0,True,1,n/a_not_exported,240.0,True
+v46,47,4528,8a759bd5-7806-4e59-b01c-0ad8aec9e842,0.7.364,post-GV15,True,False,False,2,False,n/a_not_exported,0,False,12,n/a_not_exported,0.2857,True
+v46,47,4528,002fc20a-b61a-489c-ba76-9bc7e9af9764,0.7.364,post-GV15,True,False,False,2,False,n/a_not_exported,0,False,5,n/a_not_exported,3.0,True
+v46,47,4528,e452d9f7-04ff-463d-82df-eb9bd04c6fed,0.7.364,post-GV15,True,False,False,2,False,n/a_not_exported,0,False,11,n/a_not_exported,0.3333,True
+v46,47,4529,bba809c4-c14b-429c-8878-2924e14b9b02,0.7.365,post-GV15,True,True,True,3,False,n/a_not_exported,0,False,9,n/a_not_exported,0.6667,True
+v46,47,4529,6814829b-5bef-4892-9991-2b520f4012b3,0.7.365,post-GV15,True,True,True,6,False,n/a_not_exported,1,False,7,n/a_not_exported,1.0,True
+v46,47,4529,927b4605-7963-40b8-8659-fa5649901183,0.7.365,post-GV15,True,False,False,2,False,n/a_not_exported,0,False,2,n/a_not_exported,85.3333,True
+v46,47,4529,49e01964-cf1b-4e0a-9858-24a69317f5d0,0.7.365,post-GV15,True,False,False,2,False,n/a_not_exported,0,False,9,n/a_not_exported,0.4,True
+v46,47,4529,1871df27-c0d5-4c0c-b37b-4cd9c6a0e7da,0.7.365,post-GV15,True,False,False,2,False,n/a_not_exported,0,False,6,n/a_not_exported,1.3333,True
+v46,47,4529,a2a2f434-f76c-42eb-aa80-e95477581e7d,0.7.365,post-GV15,True,False,False,2,False,n/a_not_exported,0,False,11,n/a_not_exported,0.3333,True
+v46,47,4529,7e5640be-7252-4cc7-914b-c5d44bddecba,0.7.365,post-GV15,True,False,False,2,False,n/a_not_exported,0,False,9,n/a_not_exported,0.6667,True
+v46,47,4529,ee636d78-c235-4b01-8b4d-9bc91c60eb7d,0.7.365,post-GV15,True,False,False,2,False,n/a_not_exported,0,False,10,n/a_not_exported,0.25,True
+v46,47,4529,18125737-a73b-4d34-9700-4318cb704014,0.7.365,post-GV15,True,False,False,2,False,n/a_not_exported,0,False,11,n/a_not_exported,0.5,True
+v46,47,4529,e7366636-bb7c-4f16-bd56-4dc9f0b8da14,0.7.365,post-GV15,True,False,False,2,False,n/a_not_exported,0,False,11,n/a_not_exported,0.5,True
+v46,47,4530,2db33710-e6b9-4354-b482-12bb80994076,0.7.365,post-GV15,True,False,False,2,False,n/a_not_exported,0,False,9,n/a_not_exported,0.6667,True
+v46,47,4529,ff86fa82-893b-4770-9232-09f33aa04663,0.7.365,post-GV15,True,False,False,2,False,n/a_not_exported,0,False,2,n/a_not_exported,1024.0,True
+v46,47,4529,81210730-79a3-4a6b-8137-eaefb7459082,0.7.365,post-GV15,True,False,False,2,False,n/a_not_exported,0,False,8,n/a_not_exported,1.0,True
+v46,47,4530,e54e02ee-1212-4c77-aa7c-e8b3a13e97c5,0.7.365,post-GV15,True,False,False,2,False,n/a_not_exported,0,False,9,n/a_not_exported,0.8,True
+v46,47,4530,77aaf627-13df-400d-8acd-fe0fd21508a6,0.7.365,post-GV15,True,False,False,2,False,n/a_not_exported,0,False,6,n/a_not_exported,3.0,True
+v46,47,4530,608d0a81-81e5-4f98-aa25-1a4069ddb989,0.7.365,post-GV15,True,True,False,8,True,n/a_not_exported,0,False,4,n/a_not_exported,64.0,True
+v46,47,4530,197cbd51-b91b-4e15-b18a-3d8c42193c78,0.7.365,post-GV15,False,False,False,0,False,n/a_not_exported,0,False,3,n/a_not_exported,16.0,True
+v46,47,4530,1e13bb76-b92e-45d8-9f86-fbf69c9662d6,0.7.365,post-GV15,True,False,False,2,False,n/a_not_exported,0,False,2,n/a_not_exported,192.0,True
+v46,47,4530,90fee643-c05a-44d2-8138-6d87f7f5d879,0.7.365,post-GV15,True,False,False,2,False,n/a_not_exported,0,False,4,n/a_not_exported,3.2,True
+v46,47,4530,f5d6c253-4211-42bd-b445-9dfdf44064eb,0.7.365,post-GV15,True,False,False,2,False,n/a_not_exported,0,False,6,n/a_not_exported,2.6667,True
+v46,47,4530,339f6e1b-2882-431f-a9b2-664c36da9d3c,0.7.365,post-GV15,True,False,False,1,False,n/a_not_exported,0,False,8,n/a_not_exported,1.0,True
+v46,47,4530,1ce8d3cb-6697-46db-a95d-e8f961c16df7,0.7.365,post-GV15,True,False,False,2,False,n/a_not_exported,0,False,11,n/a_not_exported,0.5,True
+v46,47,4530,0fe74f99-394a-4c73-9a7e-3e6e61d9bedc,0.7.365,post-GV15,False,False,False,0,False,n/a_not_exported,0,False,11,n/a_not_exported,0.3333,True
+v46,47,4530,b2d468dd-9f56-42fe-8056-836697e6dc28,0.7.365,post-GV15,True,False,False,2,False,n/a_not_exported,0,False,9,n/a_not_exported,0.6667,True
+v46,47,4531,631ef901-fb84-4281-b549-cf964560e4c3,0.7.365,post-GV15,True,False,False,2,False,n/a_not_exported,0,False,10,n/a_not_exported,0.5,True
+v46,47,4531,745590d9-f6db-47cf-ab7e-f43b0fca94e9,0.7.365,post-GV15,True,False,False,2,False,n/a_not_exported,0,False,9,n/a_not_exported,0.6667,True
+v46,47,4531,e3a4008d-db9b-496d-84ca-32130703fb7f,0.7.365,post-GV15,True,False,False,2,False,n/a_not_exported,0,False,10,n/a_not_exported,0.5,True
+v46,47,4531,4f29828c-ace0-4e7c-877d-79dc3586c8e9,0.7.365,post-GV15,True,False,False,2,False,n/a_not_exported,0,False,6,n/a_not_exported,3.0,True
+v46,47,4531,fa1fbd7f-b5d8-44a1-9d8a-c17eb3beecd8,0.7.365,post-GV15,True,False,False,2,False,n/a_not_exported,0,False,11,n/a_not_exported,0.25,True
+v46,47,4531,819c4373-cf47-471d-a5a6-9956fb30126e,0.7.365,post-GV15,True,False,False,1,False,n/a_not_exported,0,False,3,n/a_not_exported,10.6667,True
+v46,47,4531,5a540798-c47b-4ae3-9912-fc6b680763ca,0.7.365,post-GV15,True,False,False,2,False,n/a_not_exported,0,False,7,n/a_not_exported,3.0,True
+v46,47,4531,7f0728e0-06f7-486d-ac37-cf6781128eb8,0.7.365,post-GV15,False,False,False,0,False,n/a_not_exported,0,False,4,n/a_not_exported,6.0,True
+v46,47,4531,a9cd6896-31d7-4a1a-92ec-c384405b97e3,0.7.365,post-GV15,True,False,False,2,False,n/a_not_exported,0,False,2,n/a_not_exported,64.0,True
+v46,47,4531,4a6604b3-fc2e-41ea-8770-0176ecae16c6,0.7.365,post-GV15,True,False,False,2,False,n/a_not_exported,0,False,10,n/a_not_exported,0.5,True
+v46,47,4531,9026e999-7ad3-4a08-a6dd-a90e473f550c,0.7.365,post-GV15,True,True,False,5,False,n/a_not_exported,0,False,10,n/a_not_exported,0.5,True
+v46,47,4532,3252a458-c7e3-4ad3-8040-0e01c2a1809e,0.7.365,post-GV15,True,False,False,2,False,n/a_not_exported,0,False,4,n/a_not_exported,3.0,True
+v46,47,4531,9dc3ef24-f618-4c91-96b6-847607179d75,0.7.365,post-GV15,True,False,False,2,False,n/a_not_exported,0,False,3,n/a_not_exported,48.0,True
+v46,47,4532,2d2f7565-b3ab-45a9-aece-3ddb606a11d5,0.7.365,post-GV15,True,False,False,1,False,n/a_not_exported,0,False,3,n/a_not_exported,12.0,True
+v46,47,4532,a5a20eb3-b360-4a95-9afc-9aacefed0f1c,0.7.365,post-GV15,True,False,False,1,False,n/a_not_exported,0,False,3,n/a_not_exported,48.0,True
+v46,47,4532,437890db-4f37-45c2-81ac-542a4aae18bb,0.7.365,post-GV15,True,True,False,5,False,n/a_not_exported,0,False,10,n/a_not_exported,0.5,True
+v46,47,4532,fab78457-5357-4132-a7e7-48f53c465497,0.7.365,post-GV15,True,False,False,2,False,n/a_not_exported,0,False,11,n/a_not_exported,0.5,True
+v46,47,4532,568084a3-707c-4cb8-89c7-6f83b600fe5a,0.7.365,post-GV15,True,False,False,2,False,n/a_not_exported,0,False,5,n/a_not_exported,2.0,True
+v46,47,4532,2ed47147-057d-46c6-bd38-4ec480e5d1b9,0.7.365,post-GV15,True,True,True,5,True,n/a_not_exported,0,False,7,n/a_not_exported,1.0,True
+v46,47,4532,ca515d45-c936-4cdd-8304-c7a17879b3f8,0.7.365,post-GV15,True,False,False,2,False,n/a_not_exported,0,False,5,n/a_not_exported,3.0,True
+v46,47,4532,75f30091-73a0-4f9f-9cfc-92dfa88c1a80,0.7.365,post-GV15,True,False,False,2,False,n/a_not_exported,0,False,5,n/a_not_exported,2.0,True
+v46,47,4532,9412e60e-fd0f-4551-b657-9b4302b93981,0.7.365,post-GV15,True,False,False,2,False,n/a_not_exported,0,False,10,n/a_not_exported,0.4,True
+v46,47,4532,2531aa75-4e52-4634-995d-626afa9109e7,0.7.365,post-GV15,True,True,False,5,False,n/a_not_exported,0,False,7,n/a_not_exported,1.0,True
+v46,47,4532,f2ef2acf-d1e8-4458-9d38-45dccc63bcd2,0.7.365,post-GV15,True,False,False,2,False,n/a_not_exported,0,False,3,n/a_not_exported,48.0,True
+v46,47,4532,da8a5271-87ff-4a10-91d2-c5fdaf72d081,0.7.365,post-GV15,True,True,True,8,True,n/a_not_exported,0,False,8,n/a_not_exported,1.0,True
+v46,47,4533,61cefa5a-9782-4933-a19c-f47cce871731,0.7.366,post-GV15,True,False,False,2,False,n/a_not_exported,0,False,11,n/a_not_exported,0.3333,True
+v46,47,4533,6f9f2db9-3893-480f-bd59-7f00adfe21ef,0.7.366,post-GV15,True,False,False,2,False,n/a_not_exported,0,False,5,n/a_not_exported,2.2857,True
+v46,47,4533,04514167-b617-4ce5-aada-dde0ab277355,0.7.366,post-GV15,True,False,False,2,False,n/a_not_exported,0,False,10,n/a_not_exported,0.5,True
+v46,47,4533,339a3ef6-140c-44c9-a8e5-4e579b040962,0.7.366,post-GV15,True,False,False,2,False,n/a_not_exported,0,False,8,n/a_not_exported,1.0,True
+v46,47,4533,12214946-9e15-4d34-b08b-820c27fe0353,0.7.366,post-GV15,True,False,False,2,False,n/a_not_exported,0,False,4,n/a_not_exported,5.3333,True
+v46,47,4533,c5459a05-2fe6-4484-b38a-07eb18922b1b,0.7.366,post-GV15,True,False,False,2,False,n/a_not_exported,0,False,8,n/a_not_exported,1.0,True
+v46,47,4533,f6305e16-d93f-42da-97cd-b551a83b47ba,0.7.366,post-GV15,True,False,False,2,False,n/a_not_exported,0,False,3,n/a_not_exported,18.0,True
+v46,47,4533,a18d00b3-c302-4c67-92e2-a13fb909d38c,0.7.366,post-GV15,True,True,False,5,False,n/a_not_exported,0,False,4,n/a_not_exported,16.0,True
+v46,47,4533,283de660-51bc-4284-9c82-5b2a1b9e65c1,0.7.366,post-GV15,True,False,False,1,False,n/a_not_exported,0,False,2,n/a_not_exported,576.0,True
+v46,47,4533,78b20707-55f1-437a-8870-f0789c3a6278,0.7.366,post-GV15,True,False,False,2,False,n/a_not_exported,0,False,5,n/a_not_exported,4.0,True
+v46,47,4534,0652290c-d4c4-4986-b27f-b1bfb1fc7ed3,0.7.366,post-GV15,True,True,True,6,False,n/a_not_exported,1,False,8,n/a_not_exported,1.0,True
+v46,47,4534,c7e0cea8-0b6a-46fb-86e0-32676799c02d,0.7.366,post-GV15,True,False,False,2,False,n/a_not_exported,0,False,11,n/a_not_exported,0.5,True
+v46,47,4534,4a0deed3-767b-41de-93b3-1f6c159adeee,0.7.366,post-GV15,False,False,False,0,False,n/a_not_exported,0,False,10,n/a_not_exported,0.5,True
+v46,47,4534,a80ced4d-2dac-49e4-aa4e-15b8443f6e04,0.7.366,post-GV15,True,True,True,5,True,n/a_not_exported,0,False,2,n/a_not_exported,128.0,True
+v46,47,4534,4c8fc873-4ff8-4a1c-90e1-2d1e9edb43e5,0.7.366,post-GV15,True,False,False,2,False,n/a_not_exported,0,False,3,n/a_not_exported,12.0,True
+v46,47,4534,9eff764f-0e00-4b2a-907f-74e69c554b5b,0.7.366,post-GV15,True,False,False,2,False,n/a_not_exported,0,False,11,n/a_not_exported,0.5,True
+v46,47,4534,f8c5170b-57e9-4e66-8c79-57c05e51eb16,0.7.366,post-GV15,True,True,True,5,False,n/a_not_exported,0,False,9,n/a_not_exported,0.6667,True
+v46,47,4534,9e0c2cd0-124e-4a01-8659-261b7a516c2c,0.7.366,post-GV15,True,False,False,1,False,n/a_not_exported,0,False,2,n/a_not_exported,144.0,True
+v46,47,4534,b078db25-079b-485e-959c-ccfdd126dced,0.7.366,post-GV15,True,False,False,2,False,n/a_not_exported,0,False,9,n/a_not_exported,0.8,True
+v46,47,4534,24a4b825-344f-4a53-a0c5-5760123b9d62,0.7.366,post-GV15,True,False,False,2,False,n/a_not_exported,0,False,3,n/a_not_exported,16.0,True
+v46,47,4534,68524b96-bc19-4094-a817-8f5066e49c01,0.7.366,post-GV15,True,False,False,2,False,n/a_not_exported,0,False,10,n/a_not_exported,0.5,True
+v46,47,4534,e145e92f-a428-465b-9939-b2c7af87237b,0.7.366,post-GV15,True,False,False,2,False,n/a_not_exported,0,False,10,n/a_not_exported,0.5,True
+v47,48,4535,818535f5-aa78-4881-b9f2-b57c339163e2,0.7.366,post-GV15,True,False,False,3,False,n/a_not_exported,0,False,4,n/a_not_exported,12.0,True
+v47,48,4535,16fe3c2a-c39c-44e2-9131-d8a34f0063f7,0.7.366,post-GV15,True,True,False,7,False,n/a_not_exported,0,False,3,n/a_not_exported,5.3333,True
+v47,48,4535,6183bcfc-86e9-49d0-8877-1ef89bda2787,0.7.366,post-GV15,True,False,False,3,False,n/a_not_exported,0,False,2,n/a_not_exported,576.0,True
+v47,48,4535,00ac01e9-025f-45ca-9dae-65c746ea5e97,0.7.366,post-GV15,True,False,False,3,False,n/a_not_exported,0,False,10,n/a_not_exported,0.5,True
+v47,48,4535,de175d7e-f2d7-442e-b7c0-aedb55abc5f7,0.7.366,post-GV15,True,False,False,3,False,n/a_not_exported,0,False,5,n/a_not_exported,3.0,True
+v47,48,4535,f45e279d-f160-4b91-bedd-bfbc1fb62d27,0.7.366,post-GV15,True,False,False,3,False,n/a_not_exported,0,False,2,n/a_not_exported,64.0,True
+v47,48,4535,196ae9d0-8bc5-4cad-8ed1-9305b3dec14d,0.7.366,post-GV15,True,True,False,13,True,n/a_not_exported,0,False,7,n/a_not_exported,1.0,True
+v47,48,4535,1b6138e1-6917-4c9a-b2ed-70be18f0fff1,0.7.366,post-GV15,True,False,False,3,False,n/a_not_exported,0,False,2,n/a_not_exported,4608.0,True
+v47,48,4535,c46d6a11-4ada-4cb2-9389-24c60a3cf8a9,0.7.366,post-GV15,True,False,False,3,False,n/a_not_exported,0,False,5,n/a_not_exported,4.0,True
+v47,48,4535,6c48f006-56bd-4ba0-8d1d-dc090bd478ed,0.7.366,post-GV15,True,False,False,1,False,n/a_not_exported,0,False,6,n/a_not_exported,2.0,True
+v47,48,4535,505b7ce4-527c-4ac8-a638-c27e51992cc5,0.7.366,post-GV15,True,False,False,1,False,n/a_not_exported,0,True,1,n/a_not_exported,1536.0,True
+v47,48,4535,396b7f56-724b-4592-bf12-ce94a8f6b6a3,0.7.366,post-GV15,True,False,False,3,False,n/a_not_exported,0,False,9,n/a_not_exported,0.6667,True
+v48,49 (inferred from v49 ship precheck),4540,ff1a360d-f289-4e43-92b4-73f52e7d4aa3,0.7.367,post-GV15,True,True,False,13,True,n/a_not_exported,0,False,6,n/a_not_exported,1.3333,True
+v48,49 (inferred from v49 ship precheck),4540,e37b17ae-0694-454d-ba86-365205854151,0.7.367,post-GV15,True,True,False,13,True,n/a_not_exported,0,False,1,n/a_not_exported,36864.0,True
+v48,49 (inferred from v49 ship precheck),4540,4ee8039a-5b88-4f31-801a-e7e118b0928f,0.7.367,post-GV15,True,True,False,13,True,n/a_not_exported,0,False,10,n/a_not_exported,0.5,True
+v48,49 (inferred from v49 ship precheck),4540,eba93a56-6d32-4499-ba03-cae845a54b86,0.7.367,post-GV15,True,True,True,13,True,n/a_not_exported,0,False,4,n/a_not_exported,2.6667,True
+v48,49 (inferred from v49 ship precheck),4540,b3d7d95f-325c-47ca-949f-4ebe83f2833b,0.7.367,post-GV15,True,True,True,10,True,n/a_not_exported,0,False,10,n/a_not_exported,0.5,True
+v48,49 (inferred from v49 ship precheck),4540,88a2d111-797f-4a3b-92a4-42c82ef84285,0.7.367,post-GV15,True,True,False,13,True,n/a_not_exported,0,False,1,n/a_not_exported,3456.0,True
+v48,49 (inferred from v49 ship precheck),4540,c5ac7104-6cdb-40c8-99ef-492d974d4c77,0.7.367,post-GV15,True,True,False,13,True,n/a_not_exported,0,False,10,n/a_not_exported,0.5,True
+v48,49 (inferred from v49 ship precheck),4540,84fddb81-1071-40f9-aa67-65b8f51599f1,0.7.367,post-GV15,True,True,True,7,True,n/a_not_exported,0,False,11,n/a_not_exported,0.3333,True
+v48,49 (inferred from v49 ship precheck),4540,bb8e9c3f-0653-40e2-b50f-080b776a0c4d,0.7.367,post-GV15,True,True,True,12,False,n/a_not_exported,0,False,7,n/a_not_exported,1.3333,True
+v48,49 (inferred from v49 ship precheck),4540,aa8ea6b1-3500-4b2a-ae39-dd63bd34bb02,0.7.367,post-GV15,True,True,False,28,True,n/a_not_exported,0,True,1,n/a_not_exported,384.0,True
+v48,49 (inferred from v49 ship precheck),4540,4cb19280-ae01-4c02-afce-c5fec5657f9c,0.7.367,post-GV15,True,True,False,17,True,n/a_not_exported,0,False,3,n/a_not_exported,48.0,True
+v48,49 (inferred from v49 ship precheck),4541,5e47912a-19ec-406a-adcd-33f0b06c2ca8,0.7.367,post-GV15,True,True,False,18,True,n/a_not_exported,0,True,3,n/a_not_exported,128.0,True
+v48,49 (inferred from v49 ship precheck),4541,9d7bf90f-d851-4a11-80a3-0e66571c1b86,0.7.367,post-GV15,True,True,False,18,True,n/a_not_exported,0,False,10,n/a_not_exported,0.5,True
+v48,49 (inferred from v49 ship precheck),4541,a4d764c2-9b70-488c-85d5-75a39f5080e7,0.7.367,post-GV15,True,True,True,10,True,n/a_not_exported,0,False,7,n/a_not_exported,1.5,True
+v48,49 (inferred from v49 ship precheck),4541,f412035a-1292-4408-b85f-d93d754756cf,0.7.367,post-GV15,True,True,False,13,True,n/a_not_exported,0,True,1,n/a_not_exported,1536.0,True
+v48,49 (inferred from v49 ship precheck),4540,50c30050-e7ce-41d8-9fd1-3d760f197ba0,0.7.367,post-GV15,True,True,False,13,True,n/a_not_exported,0,False,4,n/a_not_exported,2.0,True
+v48,49 (inferred from v49 ship precheck),4541,82da6037-9072-43af-9e93-043b4c012334,0.7.367,post-GV15,True,True,True,18,True,n/a_not_exported,0,False,9,n/a_not_exported,0.6667,True
+v48,49 (inferred from v49 ship precheck),4541,e1c05ab6-4383-41d9-abd1-d954f2011076,0.7.367,post-GV15,True,True,False,13,True,n/a_not_exported,0,False,5,n/a_not_exported,2.4,True
+v48,49 (inferred from v49 ship precheck),4541,abc077dd-d235-466b-a51e-4d2aa861d772,0.7.367,post-GV15,True,True,True,17,False,n/a_not_exported,0,False,12,n/a_not_exported,0.25,True
+v48,49 (inferred from v49 ship precheck),4541,61d7196c-b434-40ac-a353-5b0aede76acf,0.7.367,post-GV15,True,True,False,13,True,n/a_not_exported,0,False,9,n/a_not_exported,0.6667,True
+v48,49 (inferred from v49 ship precheck),4541,76f9104b-422e-413a-80de-f3fa90746ac7,0.7.367,post-GV15,True,True,False,13,True,n/a_not_exported,0,False,8,n/a_not_exported,1.3333,True
+v48,49 (inferred from v49 ship precheck),4541,00755b2c-9f2b-4ead-ac53-460b9db1669e,0.7.367,post-GV15,True,True,True,7,True,n/a_not_exported,0,False,10,n/a_not_exported,0.5,True
+v48,49 (inferred from v49 ship precheck),4541,6d3fb28a-2edd-44f9-ab7c-87609590ba09,0.7.367,post-GV15,True,True,False,13,True,n/a_not_exported,0,False,6,n/a_not_exported,1.3333,True
+v48,49 (inferred from v49 ship precheck),4541,97eb2b28-6085-4e97-90bd-21c4f4a54fdc,0.7.367,post-GV15,True,True,False,28,True,n/a_not_exported,0,False,3,n/a_not_exported,12.0,True
+v48,49 (inferred from v49 ship precheck),4542,32c75660-a6b2-4962-8631-5df3637bb788,0.7.367,post-GV15,True,True,False,13,True,n/a_not_exported,0,False,6,n/a_not_exported,2.0,True
+v48,49 (inferred from v49 ship precheck),4542,e1dfb80e-83f7-4fda-b14b-938466648013,0.7.367,post-GV15,True,True,False,18,True,n/a_not_exported,0,False,9,n/a_not_exported,0.6667,True
+v48,49 (inferred from v49 ship precheck),4542,c4513531-6ea1-4f70-a93d-d8754582c3dc,0.7.367,post-GV15,True,True,False,13,True,n/a_not_exported,0,False,10,n/a_not_exported,0.5,True
+v48,49 (inferred from v49 ship precheck),4542,73843f74-b538-43cb-9594-b26eb9d87a4a,0.7.367,post-GV15,True,True,True,13,True,n/a_not_exported,0,False,7,n/a_not_exported,1.0,True
+v48,49 (inferred from v49 ship precheck),4542,5e33e2f5-3b7b-475e-bacc-b0963388d82f,0.7.367,post-GV15,True,True,False,13,True,n/a_not_exported,0,False,6,n/a_not_exported,3.0,True
+v48,49 (inferred from v49 ship precheck),4542,f0113b52-1826-4088-a29c-cf89bd81a9ab,0.7.367,post-GV15,True,True,False,13,True,n/a_not_exported,0,False,3,n/a_not_exported,4.0,True
+v48,49 (inferred from v49 ship precheck),4542,2386d6fa-1dc6-4d85-865c-2a078acf997f,0.7.367,post-GV15,True,True,False,26,True,n/a_not_exported,0,False,4,n/a_not_exported,12.0,True
+v48,49 (inferred from v49 ship precheck),4542,10321da0-3aac-481b-ae30-59b5063f8010,0.7.367,post-GV15,True,True,True,12,False,n/a_not_exported,0,True,1,n/a_not_exported,8192.0,True
+v48,49 (inferred from v49 ship precheck),4542,b256bfad-6f4d-47cd-a9b9-16fa71336d8c,0.7.367,post-GV15,True,True,False,13,True,n/a_not_exported,0,False,10,n/a_not_exported,0.5,True
+v48,49 (inferred from v49 ship precheck),4542,5adfbc35-98bc-4013-ab7e-40fa7fb6587c,0.7.367,post-GV15,True,True,False,13,True,n/a_not_exported,0,False,5,n/a_not_exported,12.0,True
+v48,49 (inferred from v49 ship precheck),4542,e5da7c78-35b0-4640-b728-5464d936ecde,0.7.367,post-GV15,True,True,False,13,True,n/a_not_exported,0,False,9,n/a_not_exported,0.5,True
+v48,49 (inferred from v49 ship precheck),4542,820061e3-06c2-4304-b719-a89ec6a4578b,0.7.367,post-GV15,True,True,False,13,True,n/a_not_exported,0,False,9,n/a_not_exported,0.6667,True
+v48,49 (inferred from v49 ship precheck),4542,c9362328-2ba8-488c-b7ec-d79e6d4f63f1,0.7.367,post-GV15,True,True,True,18,True,n/a_not_exported,0,False,7,n/a_not_exported,1.0,True

@@ -1,0 +1,189 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Monet pact fixes: before/after, 2026-09-09</title>
+<style>
+  :root {
+    --bg: #fffdf4; --surface: #fffaf0; --fg: #111827; --fg-subtle: #555555;
+    --fg-muted: #999999; --ink-navy: #1a3875; --border: #e4dac8;
+    --border-strong: #d4c9b5;
+  }
+  body {
+    background: var(--bg); color: var(--fg);
+    font-family: "Merriweather Sans", Arial, sans-serif;
+    font-size: 15px; line-height: 1.55;
+    max-width: 860px; margin: 0 auto; padding: 32px 24px 80px;
+  }
+  h1, h2 {
+    font-family: Georgia, "Merriweather", serif; color: var(--ink-navy);
+  }
+  h1 { font-size: 1.5rem; border-bottom: 2px solid var(--border-strong); padding-bottom: 10px; }
+  h2 {
+    font-size: 0.95rem; text-transform: uppercase; letter-spacing: 0.08em;
+    margin-top: 2.2em;
+  }
+  table { border-collapse: collapse; width: 100%; margin: 1em 0; font-size: 0.92rem; }
+  th, td { border-bottom: 1px solid var(--border); padding: 6px 10px; text-align: left; }
+  th { color: var(--fg-subtle); font-weight: 700; border-bottom: 2px solid var(--border-strong); }
+  code { background: #f8f6ef; padding: 1px 4px; border-radius: 3px; font-size: 0.9em; }
+  .muted { color: var(--fg-muted); }
+  .chart-wrap { margin: 1.5em 0; border: 1px solid var(--border); padding: 12px; background: var(--surface); }
+  a { color: var(--ink-navy); }
+</style>
+</head>
+<body>
+
+<h1>Monet pact fixes: before/after, 2026-09-09</h1>
+
+<p>Full dataset and column definitions: <code>README.md</code>, <code>summary.csv</code>,
+<code>episodes.csv</code>. Independent recomputation check: <code>CHECKS.md</code>.
+Twin of this page: <code>REPORT.md</code>.</p>
+
+<p>All numbers below carry their episode count (n), round range, and engine era;
+confidence intervals are given where the source pipeline computed one. No number
+here is pooled across the pre/post GloryVersion-15 engine boundary (see README's
+era caveat).</p>
+
+<h2>a. The funnel: wire-declared to sim-declared to formed to kickoff coverage</h2>
+<table>
+<tr><th>version</th><th>rounds</th><th>n</th><th>wire-declared</th><th>sim-declared</th><th>formed (mutual)</th><th>kickoff coverage</th></tr>
+<tr><td>v44 (pre-fix)</td><td>4499-4513</td><td>172</td><td>14.5% (25/172)</td><td class="muted">n/a (pre-GV15)</td><td>3.5% (6/172)</td><td class="muted">n/a</td></tr>
+<tr><td>v44_gv15 control</td><td>4515-4516</td><td>25</td><td>12.0% (3/25)</td><td>12.0% (3/25)</td><td>4.0% (1/25)</td><td class="muted">n/a</td></tr>
+<tr><td>v45</td><td>4517-4526</td><td>106</td><td>95.3% (101/106)</td><td>12.3% (13/106)</td><td>4.7% (5/106)</td><td class="muted">n/a</td></tr>
+<tr><td>v46</td><td>4527-4534</td><td>96</td><td>95.8% (92/96)</td><td>18.8% (18/96)</td><td>9.4% (9/96)</td><td>8.3% (8/96)</td></tr>
+<tr><td>v47 (interim, n=12)</td><td>4535-4536</td><td>12</td><td>100% (12/12)</td><td>16.7% (2/12)</td><td>0.0% (0/12)</td><td>8.3% (1/12)</td></tr>
+<tr><td>v48 (interim, n=37)</td><td>4540-4542</td><td>37</td><td>100% (37/37)</td><td>100% (37/37)</td><td>29.7% (11/37)</td><td>91.9% (34/37)</td></tr>
+</table>
+
+<p class="muted">Also cited: the small pre-fix sample recorded before this pipeline
+existed (<code>monet-pact-baseline-2026-09-09.md</code>): 37 episodes, wire-declared
+in 4/37, formed in 0/37 &mdash; consistent in direction with the 172-episode v44
+baseline above.</p>
+
+<p>Reading the funnel: v45's fix (naming real partners instead of a placeholder) is
+what moves wire-declared from ~14% to ~95%+ &mdash; Monet is now committing a real,
+matchable partner nearly every episode. But sim-declared stays low through v45 and
+v46 (12&ndash;19%) because most of those wire commits still land before the match's
+active phase starts, where the game engine does not register them (see the field
+reference below). v48's re-sync fix is what finally closes that gap: sim-declared
+jumps to 100% and formed nearly triples versus v46 (29.7% vs 9.4%).</p>
+
+<h2>b. The outcome table: win, rank&le;4, score-ratio, tags/episode</h2>
+<table>
+<tr><th>version</th><th>n</th><th>win % [95% CI]</th><th>rank&le;4 % [95% CI]</th><th>score-ratio median [95% CI]</th><th>tags/ep (mean)</th></tr>
+<tr><td>v44 (pre-fix)</td><td>172</td><td>7.0% [4.0, 11.8]</td><td>24.4% [18.6, 31.4]</td><td>1.00 [0.86, 1.33]</td><td>0.70</td></tr>
+<tr><td>v45</td><td>106</td><td>4.7% [2.0, 10.6]</td><td>21.7% [14.9, 30.5]</td><td>0.76 [0.67, 1.27]</td><td>1.55</td></tr>
+<tr><td>v46</td><td>96</td><td>1.0% [0.2, 5.7]</td><td>30.2% [21.9, 40.0]</td><td>1.00 [0.80, 2.00]</td><td>1.83</td></tr>
+<tr><td>v47 (interim, n=12)</td><td>12</td><td>8.3% [1.5, 35.4]</td><td>50.0% [25.4, 74.6]</td><td>4.67 [1.50, 320]</td><td>3.58</td></tr>
+<tr><td>v48 (interim, n=37)</td><td>37</td><td>10.8% [4.3, 24.7]</td><td>32.4% [19.6, 48.5]</td><td>1.33 [0.67, 2.67]</td><td>2.00</td></tr>
+</table>
+
+<p>None of the pre-registered rollback triggers (score-ratio 95% CI upper bound
+under 1.0 at n&ge;100, or a significant drop in rank&le;4 versus the prior baseline)
+fired at any read point through v48. Win rate dipped at v46 (1.0%) before
+recovering by v48 (10.8%); rank&le;4 and tags/episode both trend up from v44
+through v48. v47's outcome numbers (n=12) carry confidence intervals wide enough
+that they should be read as a single noisy data point, not a trend.</p>
+
+<div class="chart-wrap">
+<svg viewBox="0 0 720 360" xmlns="http://www.w3.org/2000/svg" font-family="Merriweather Sans, Arial, sans-serif" role="img" aria-label="Pact formed rate and win rate by Monet policy version">
+<rect x="0" y="0" width="720" height="360" fill="#fffdf4"/>
+<text x="70" y="26" font-size="14" font-weight="700" fill="#111827">Pact formed rate and win rate, by version</text>
+<text x="70" y="42" font-size="10.5" fill="#555555">v44 rounds 4499-4513 (n=172) through v48 rounds 4540-4542 (n=37, interim)</text>
+<line x1="70" y1="290.0" x2="690" y2="290.0" stroke="#e4dac8" stroke-width="1"/>
+<text x="62" y="293.0" font-size="9.5" fill="#999999" text-anchor="end">0%</text>
+<line x1="70" y1="221.4" x2="690" y2="221.4" stroke="#e4dac8" stroke-width="1"/>
+<text x="62" y="224.4" font-size="9.5" fill="#999999" text-anchor="end">10%</text>
+<line x1="70" y1="152.9" x2="690" y2="152.9" stroke="#e4dac8" stroke-width="1"/>
+<text x="62" y="155.9" font-size="9.5" fill="#999999" text-anchor="end">20%</text>
+<line x1="70" y1="84.3" x2="690" y2="84.3" stroke="#e4dac8" stroke-width="1"/>
+<text x="62" y="87.3" font-size="9.5" fill="#999999" text-anchor="end">30%</text>
+<line x1="70" y1="290" x2="690" y2="290" stroke="#d4c9b5" stroke-width="1.5"/>
+<rect x="93.0" y="266.0" width="34" height="24.0" fill="#1a3875" opacity="1"/>
+<text x="110.0" y="261.0" font-size="9.5" fill="#111827" text-anchor="middle">3.5%</text>
+<rect x="137.0" y="242.0" width="34" height="48.0" fill="#b36e4e" opacity="1"/>
+<text x="154.0" y="237.0" font-size="9.5" fill="#111827" text-anchor="middle">7%</text>
+<text x="132.0" y="306" font-size="11" font-weight="700" fill="#111827" text-anchor="middle">v44</text>
+<text x="132.0" y="320" font-size="9" fill="#999999" text-anchor="middle">n=172</text>
+<rect x="217.0" y="257.8" width="34" height="32.2" fill="#1a3875" opacity="1"/>
+<text x="234.0" y="252.8" font-size="9.5" fill="#111827" text-anchor="middle">4.7%</text>
+<rect x="261.0" y="257.8" width="34" height="32.2" fill="#b36e4e" opacity="1"/>
+<text x="278.0" y="252.8" font-size="9.5" fill="#111827" text-anchor="middle">4.7%</text>
+<text x="256.0" y="306" font-size="11" font-weight="700" fill="#111827" text-anchor="middle">v45</text>
+<text x="256.0" y="320" font-size="9" fill="#999999" text-anchor="middle">n=106</text>
+<rect x="341.0" y="225.5" width="34" height="64.5" fill="#1a3875" opacity="1"/>
+<text x="358.0" y="220.5" font-size="9.5" fill="#111827" text-anchor="middle">9.4%</text>
+<rect x="385.0" y="283.1" width="34" height="6.9" fill="#b36e4e" opacity="1"/>
+<text x="402.0" y="278.1" font-size="9.5" fill="#111827" text-anchor="middle">1%</text>
+<text x="380.0" y="306" font-size="11" font-weight="700" fill="#111827" text-anchor="middle">v46</text>
+<text x="380.0" y="320" font-size="9" fill="#999999" text-anchor="middle">n=96</text>
+<rect x="465.0" y="290.0" width="34" height="0.0" fill="#1a3875" opacity="0.55"/>
+<text x="482.0" y="285.0" font-size="9.5" fill="#111827" text-anchor="middle">0%</text>
+<rect x="509.0" y="233.1" width="34" height="56.9" fill="#b36e4e" opacity="0.55"/>
+<text x="526.0" y="228.1" font-size="9.5" fill="#111827" text-anchor="middle">8.3%</text>
+<text x="504.0" y="306" font-size="11" font-weight="700" fill="#111827" text-anchor="middle">v47*</text>
+<text x="504.0" y="320" font-size="9" fill="#999999" text-anchor="middle">n=12</text>
+<rect x="589.0" y="86.3" width="34" height="203.7" fill="#1a3875" opacity="0.55"/>
+<text x="606.0" y="81.3" font-size="9.5" fill="#111827" text-anchor="middle">29.7%</text>
+<rect x="633.0" y="215.9" width="34" height="74.1" fill="#b36e4e" opacity="0.55"/>
+<text x="650.0" y="210.9" font-size="9.5" fill="#111827" text-anchor="middle">10.8%</text>
+<text x="628.0" y="306" font-size="11" font-weight="700" fill="#111827" text-anchor="middle">v48*</text>
+<text x="628.0" y="320" font-size="9" fill="#999999" text-anchor="middle">n=37</text>
+<text x="70" y="346" font-size="9" fill="#999999">* v47 (n=12) and v48 (n=37) are interim reads below their n&gt;=40 target; shown at reduced opacity.</text>
+<rect x="520" y="41" width="10" height="10" fill="#1a3875"/>
+<text x="535" y="50" font-size="10" fill="#111827">pact formed %</text>
+<rect x="615" y="41" width="10" height="10" fill="#b36e4e"/>
+<text x="630" y="50" font-size="10" fill="#111827">win %</text>
+</svg>
+</div>
+
+<h2>c. Field reference: how the rest of the field forms pacts</h2>
+<p>In the same 48-episode v45 cohort used for the reciprocity study, rival teams
+(not Monet) formed 47 mutual pact pairs across 28 of the 48 episodes &mdash; the
+mechanism works reliably for the field. Of those pairs, 77% both declare at the
+exact tick the match's active phase begins, concentrated at match-start rather
+than spread through the pre-match huddle. This is the same registration point
+Monet's pre-v46 declarations missed: the game engine only records a pact
+declaration once the match is actually underway, and Monet's commits, before the
+v46 fix, were only ever made before that point.</p>
+
+<h2>d. What changed, one plain sentence per version</h2>
+<ul>
+<li><strong>v45</strong>: Monet started naming real rival team names as pact
+partners, instead of a placeholder that could never match a real opponent.</li>
+<li><strong>v46</strong>: Monet re-affirms its partner list once the match itself
+starts, and only holds fire on a partner who has named Monet back.</li>
+<li><strong>v47</strong>: a harness-level re-emit of the committed pact at the
+first in-match tick, plus a higher partner cap (3 to 5).</li>
+<li><strong>v48</strong>: a re-sync fix so the re-emit fires on every episode,
+not just some of them.</li>
+<li><strong>v49</strong>: no loot detours once only four teams remain (not yet
+observed in a real episode, since no sampled v49 episode has reached that
+point).</li>
+</ul>
+
+<h2>e. Caveats</h2>
+<ul>
+<li><strong>n and era</strong>: v44's 172-episode baseline is entirely
+pre-GloryVersion-15 (the joint-action reward paid without a pact); every version
+from v45 on is post-GloryVersion-15 (the reward requires an active pact). The
+same-era v44_gv15_control (n=25) confirms the resulting JointAct/episode gap
+between v44 and v45+ is an engine-era artifact, not a v45 effect.</li>
+<li><strong>v47 is not a readable result.</strong> n=12 versus a target of
+n&ge;40; the policy version was benched by the ladder scheduler after a single
+round before more episodes could accumulate. Treat every v47 number as an
+informational point estimate only.</li>
+<li><strong>v48 is interim, not final.</strong> n=37 versus a target of n&ge;40
+(3 short); polling budget was exhausted before the next round closed. Direction
+is positive and consistent with v46's own finding, but this is not the
+closed-cohort number.</li>
+<li><strong>v49 has no ladder read yet.</strong> Only a first-round, 8-episode
+ship-verification pass exists (3 fully decoded, 5 scanned for key markers); no
+episode in that round reached the final four, so the new detour-limiting
+behavior was armed but not exercised. This dataset reports that verification
+result but does not include v49 in <code>episodes.csv</code>.</li>
+</ul>
+
+</body>
+</html>
