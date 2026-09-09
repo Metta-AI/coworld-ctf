@@ -1184,6 +1184,117 @@ check("(a) KICKOFF: the first call whose view carries a real tick "
       and "reason=kickoff" in _ko_log2.getvalue(),
       repr(_ko_log2.getvalue()))
 
+# ── v47a KICKOFF RE-EMIT (kickoff fired 2/3 in v46's first-round read;
+# the third episode made only 1-3 model calls total, none after Playing
+# began, so policy.py's own KICKOFF branch never got a turn to run at all
+# -- it lives inside adjust_entries, which only runs when repair_call is
+# invoked, which only happens on a model call). starter_harness.
+# maybe_kickoff_reemit is the harness's OWN turn: no model call needed. ──
+
+# (v47a-a) huddle commit, then the first real-tick turn arrives WITHOUT any
+# model call in between (repair_call is never invoked a second time) --
+# maybe_kickoff_reemit must independently resend the SAME partners, tagged
+# reason=kickoff-reemit, and must be a one-shot (a second call is a no-op).
+_V47A_ROSTER = [{"seat": i} for i in range(10)]
+v47a_seat = fake_seat(
+    context={"self": {"seat": 3, "duo_partner": None}, "roster": _V47A_ROSTER},
+    chat=[{"seat": 5, "text": "seat:3 pact? never a shot between us"},
+          {"seat": 6, "text": "seat:3 truce, hold fire"},
+          {"seat": 7, "text": "seat:3 non-aggression, in?"}])
+_v47a_log1 = _io.StringIO()
+with _contextlib.redirect_stdout(_v47a_log1):
+    starter_harness.repair_call(
+        PERSONA.canned_turns[0], PERSONA, v47a_seat, AVAILABLE)
+check("(v47a-a) setup: huddle turn (no view yet) resolves 3 real inviters, "
+      "no kickoff yet (no tick)",
+      set(v47a_seat.pact_state.get("partners", [])) == {5, 6, 7}
+      and not v47a_seat.pact_state.get("kickoff_committed"),
+      str(v47a_seat.pact_state))
+
+v47a_seat.view = {"tick": 800, "self": {"pos": [0, 0]}, "tracks": []}
+_v47a_log2 = _io.StringIO()
+with _contextlib.redirect_stdout(_v47a_log2):
+    reemit_a = starter_harness.maybe_kickoff_reemit(PERSONA, v47a_seat, AVAILABLE)
+_pact_reemit_a = (next((e for e in reemit_a[1] if e["play"] == "pact"), None)
+                  if reemit_a is not None else None)
+check("(v47a-a) KICKOFF RE-EMIT: no model call landed on the first real-tick "
+      "turn -- the harness itself resends the SAME partners, tagged "
+      "reason=kickoff-reemit, with no model involved",
+      reemit_a is not None
+      and _pact_reemit_a is not None
+      and set(_pact_reemit_a["params"]["partners"]) == {"seat:5", "seat:6", "seat:7"}
+      and "reason=kickoff-reemit" in _v47a_log2.getvalue()
+      and v47a_seat.pact_state.get("kickoff_committed") is True,
+      repr(_v47a_log2.getvalue()))
+
+_v47a_log3 = _io.StringIO()
+with _contextlib.redirect_stdout(_v47a_log3):
+    reemit_a2 = starter_harness.maybe_kickoff_reemit(PERSONA, v47a_seat, AVAILABLE)
+check("(v47a-a) KICKOFF RE-EMIT is a one-shot: a second call on a later "
+      "turn is a no-op (no second wire call, no second log line)",
+      reemit_a2 is None and _v47a_log3.getvalue() == "",
+      repr(_v47a_log3.getvalue()))
+
+# (v47a-b) same huddle setup, but this time a REAL model call lands on the
+# first real-tick turn first (policy.py's own KICKOFF branch fires,
+# reason=kickoff) -- maybe_kickoff_reemit must then be a no-op: no second
+# commit, no reason=kickoff-reemit anywhere.
+v47a_seat_b = fake_seat(
+    context={"self": {"seat": 3, "duo_partner": None}, "roster": _V47A_ROSTER},
+    chat=[{"seat": 5, "text": "seat:3 pact? never a shot between us"},
+          {"seat": 6, "text": "seat:3 truce, hold fire"},
+          {"seat": 7, "text": "seat:3 non-aggression, in?"}])
+starter_harness.repair_call(
+    PERSONA.canned_turns[0], PERSONA, v47a_seat_b, AVAILABLE)
+v47a_seat_b.view = {"tick": 800, "self": {"pos": [0, 0]}, "tracks": []}
+_v47a_log_b1 = _io.StringIO()
+with _contextlib.redirect_stdout(_v47a_log_b1):
+    _, ko_b_entries = starter_harness.repair_call(
+        PERSONA.canned_turns[0], PERSONA, v47a_seat_b, AVAILABLE)
+check("(v47a-b) setup: a real model call on the first real-tick turn fires "
+      "v46's own KICKOFF branch (reason=kickoff)",
+      "reason=kickoff" in _v47a_log_b1.getvalue()
+      and "reason=kickoff-reemit" not in _v47a_log_b1.getvalue()
+      and v47a_seat_b.pact_state.get("kickoff_committed") is True,
+      repr(_v47a_log_b1.getvalue()))
+_v47a_log_b2 = _io.StringIO()
+with _contextlib.redirect_stdout(_v47a_log_b2):
+    reemit_b = starter_harness.maybe_kickoff_reemit(PERSONA, v47a_seat_b, AVAILABLE)
+check("(v47a-b) KICKOFF RE-EMIT: a real model call already fired kickoff "
+      "this turn -- NO re-emit, no double commit, no reason=kickoff-reemit",
+      reemit_b is None and _v47a_log_b2.getvalue() == "",
+      repr(_v47a_log_b2.getvalue()))
+
+# (v47a-c) no partners resolved at all (empty roster/no candidates) ->
+# nothing emitted, ever -- the reemit stays a pure no-op, not just a delay.
+v47a_seat_c = fake_seat(
+    context={"self": {"seat": 3, "duo_partner": None},
+             "roster": [{"seat": 3}]})
+starter_harness.repair_call(
+    PERSONA.canned_turns[0], PERSONA, v47a_seat_c, AVAILABLE)
+check("(v47a-c) setup: no inviters and no fallback candidates leaves "
+      "partners empty",
+      not v47a_seat_c.pact_state.get("partners"),
+      str(v47a_seat_c.pact_state))
+v47a_seat_c.view = {"tick": 800, "self": {"pos": [0, 0]}, "tracks": []}
+reemit_c = starter_harness.maybe_kickoff_reemit(PERSONA, v47a_seat_c, AVAILABLE)
+check("(v47a-c) KICKOFF RE-EMIT: no partners -> nothing emitted",
+      reemit_c is None, str(reemit_c))
+
+# (v47a-d) real DUO seat (genuine duo_partner, the untouched mechanism) --
+# pact_state never gains "partners" on that path, so the reemit is a no-op;
+# the duo pact mechanism itself is never touched by this feature.
+v47a_seat_d = fake_seat(context=dict(FAKE_CONTEXT))  # seat 3, duo_partner 19
+starter_harness.repair_call(
+    PERSONA.canned_turns[0], PERSONA, v47a_seat_d, AVAILABLE)
+check("(v47a-d) setup: real DUO path never populates pact_state partners",
+      not v47a_seat_d.pact_state.get("partners"),
+      str(v47a_seat_d.pact_state))
+v47a_seat_d.view = {"tick": 800, "self": {"pos": [0, 0]}, "tracks": []}
+reemit_d = starter_harness.maybe_kickoff_reemit(PERSONA, v47a_seat_d, AVAILABLE)
+check("(v47a-d) KICKOFF RE-EMIT: DUO path untouched -- no-op",
+      reemit_d is None, str(reemit_d))
+
 # ── (b) verbatim field reciprocation line (RECIPROCITY.md #3, round 4519
 # 480898f1, seat 10/orange, our seat 12): carries NONE of the ORIGINAL
 # _PACT_KEYWORDS ("reciprocates"/"hold fire" only) -- must still be read

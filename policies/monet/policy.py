@@ -598,10 +598,23 @@ def _resolve_solo_pact_partners(context, view):
     # sim in 46/47 measured episodes. Re-commit here, once, with whatever
     # partners are already resolved (even if unchanged this call), so a
     # wire call naming them lands AFTER Playing has begun.
+    # v47a (RECIPROCITY.md first-round read of v46: kickoff fired 2/3
+    # episodes -- the third made only 1-3 model calls total, none after
+    # Playing began, so this branch never got a turn to run at all).
+    # starter_harness.maybe_kickoff_reemit drives the SAME re-commit through
+    # this SAME function, from the harness's own turn loop, with NO model
+    # call -- it flags the synthetic trigger via
+    # context["_synthetic_trigger"] so the wire-committed line is tagged
+    # kickoff-reemit instead of kickoff (still resolves the SAME partners,
+    # same never-target mirror -- only the reason string differs, so a
+    # reader can tell which path produced a given commit).
     if (partners and isinstance(view.get("tick"), int)
             and not state.get("kickoff_committed")):
         state["kickoff_committed"] = True
-        event = event or "kickoff"
+        if event is None:
+            event = ("kickoff-reemit"
+                      if context.get("_synthetic_trigger") == "kickoff-reemit"
+                      else "kickoff")
 
     partners[:] = partners[:3]
     return (list(partners), {s: reasons[s] for s in partners if s in reasons},

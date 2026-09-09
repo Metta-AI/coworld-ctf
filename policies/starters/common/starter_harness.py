@@ -1148,6 +1148,79 @@ def repair_call(decision: dict, persona: Persona, seat: StarterSeat,
     return gate_and_build(seat, available)
 
 
+def maybe_kickoff_reemit(persona: Persona, seat: StarterSeat,
+                          available: list[str]) -> tuple[bytes, list] | None:
+    """v47a: re-send a persona's already-committed SOLO pact WITHOUT a model
+    call, at the first turn whose view carries a real tick.
+
+    Motivation (measured, not theoretical): a persona's own in-``adjust_
+    entries`` kickoff re-affirm (see policy.py's ``_resolve_solo_pact_
+    partners`` KICKOFF branch) only runs when THIS function's caller,
+    ``repair_call``, is itself invoked -- which only happens on the opening
+    call and on a model re-call. RECIPROCITY.md's v46 first-round read
+    found that mechanism fired in 2 of 3 episodes; the third made only 1-3
+    model calls total, none after Playing began, so the kickoff branch
+    never got a turn to run there at all. This function is the harness's
+    OWN turn -- it does not wait on the model's cadence (``_triggers``/
+    ``_gap_allows``/``periodic_seconds`` in ``_live_loop``) at all.
+
+    Signal for "Playing has begun": the same one ``_in_spawn_phase`` already
+    relies on (its own docstring: "the views start when the match does") --
+    ``seat.view`` is ``{}`` for every lobby/huddle turn and first carries an
+    ``int`` ``"tick"`` on the turn Playing actually starts.
+
+    Fires at most once per episode (``seat.kickoff_reemit_done``), and only
+    when there is something real to resend: ``seat.pact_state["partners"]``
+    (the SAME persisted dict ``adjust_entries`` writes to) must already
+    hold live partner seats AND not already be kickoff-committed --
+    the latter check is what makes this a no-op whenever a real model call
+    already re-affirmed the pact this same turn (whichever call reaches
+    policy.py's KICKOFF branch first sets ``kickoff_committed``; the other
+    reads it already set and skips). Duo seats never populate
+    ``pact_state["partners"]`` at all (a real duo pact is a different,
+    untouched mechanism -- see policy.py's ``else`` branch in
+    ``adjust_entries``), so this is a natural no-op there too.
+
+    Reuses ``repair_call`` -- the SAME build/adjust/gate path a model-
+    authored call takes -- resending ``seat.wanted_entries`` (the persona's
+    own last-wanted ladder) verbatim as the synthetic "decision", so the
+    re-committed pact entry (and its target_law never-mirror) comes out
+    identical in shape to one the model produced. A single context flag,
+    ``_synthetic_trigger``, tells policy.py's KICKOFF branch this resend
+    had no model behind it, so it logs ``reason=kickoff-reemit`` instead of
+    ``reason=kickoff`` -- same commit, distinguishable trigger.
+
+    Returns ``(payload, entries)`` to send on the wire, or ``None`` when
+    there is nothing to do this turn. Does NOT itself call ``seat.call`` --
+    the caller (``_live_loop``) owns the actual send, exactly like the
+    ladder-maintenance block just above it in that loop.
+    """
+    if getattr(seat, "kickoff_reemit_done", False):
+        return None
+    view = seat.view or {}
+    if not isinstance(view.get("tick"), int):
+        return None
+    # One-shot regardless of outcome: this is "the first turn/tick the view
+    # carries a real tick", not "the first turn a resend is possible" -- a
+    # seat with no partners this turn gets no later retry either.
+    seat.kickoff_reemit_done = True
+    state = seat.pact_state or {}
+    if not state.get("partners") or state.get("kickoff_committed"):
+        return None
+    last_wanted = getattr(seat, "wanted_entries", None) or []
+    if not any(isinstance(e, dict) and e.get("play") == "pact"
+               for e in last_wanted):
+        return None
+    decision = {"call": {"entries": json.loads(json.dumps(last_wanted))}}
+    orig_context = seat.context
+    seat.context = dict(orig_context or {})
+    seat.context["_synthetic_trigger"] = "kickoff-reemit"
+    try:
+        return repair_call(decision, persona, seat, available)
+    finally:
+        seat.context = orig_context
+
+
 def _base_name(name) -> str:
     """'James Botts (2)' -> 'James Botts': the roster de-duplicates one
     entrant's seats with a ' (N)' suffix."""
@@ -1727,6 +1800,21 @@ def _live_loop(persona: Persona, seat: StarterSeat, engine,
                     before = _snapshot(seat, partner)
                     _record_committed(gated_entries)
             last_maintenance_at = time.monotonic()
+        # v47a kickoff re-emit: a persona-level, no-model-call resend of an
+        # already-committed pact at the first real-tick turn (see
+        # maybe_kickoff_reemit's docstring). Checked every iteration but
+        # only ever ACTS once per episode (seat.kickoff_reemit_done) and
+        # only when policy.py's own kickoff branch has not already fired
+        # this same turn via a real model call above/below -- whichever
+        # reaches policy.py first wins, so this never double-commits.
+        reemit = maybe_kickoff_reemit(persona, seat, available)
+        if reemit is not None:
+            reemit_payload, reemit_entries = reemit
+            outcome = seat.call(reemit_payload, "kickoff-reemit")
+            if outcome is not None and outcome["kind"] == "call_accepted":
+                payload = reemit_payload
+                before = _snapshot(seat, partner)
+                _record_committed(reemit_entries)
         if calls >= budget:
             continue
         elapsed = time.monotonic() - last_call_at
