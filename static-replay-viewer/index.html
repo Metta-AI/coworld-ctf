@@ -1245,21 +1245,23 @@ body.commswide.act-huddle #commsdock {
   background: linear-gradient(180deg, rgba(36, 26, 18, 0.9), rgba(22, 15, 9, 0.8));
 }
 
-/* ---------- 1d. SIDE-LANE HUD (owner spec 2026-09-02) ----------
+/* ---------- 1d. SIDE-LANE HUD (owner spec 2026-09-02; SUPERSEDED 2026-09-09
+   — "the left rail is the design i want" / "always" / "just make left rail
+   the default. fix the problem at its core.") ----------
    "use the full left lane letterbox space to put the names and scorebug and
-   chat and everything." When the fitted board leaves a REAL pillarbox column
-   on BOTH flanks (>= 300 free px a side, measured the way the docked layout
-   will actually sit — scorebug out of the top band), relayout() sets
-   body.sidelanes and dockLanes() MOVES the overlay chrome into the dead
-   bands: LEFT rail = identity (clock, the scorebug roster, the comms/huddle
-   feed), RIGHT rail (tier 2, .sidelanes-both, when both flanks are wide) =
-   live surfaces (view instrument, kill feed). The board gets the whole
-   frame height back (--topband collapses to 0) and nothing floats over
-   play that has a rail to live in. Narrow boxes keep today's centered
-   stage + overlay chrome unchanged — dockLanes restores every element to
-   its exact home slot. The rails are designed columns: type + whitespace
-   on the warm letterbox tone, never a stack of boxed widgets. See
-   relayout() for the two-tier geometry decision. */
+   chat and everything." body.sidelanes is now unconditional — relayout()
+   always docks the glory ledger (#scorebug: clock, roster, comms/huddle
+   feed) into the LEFT rail, at every window shape and in embed mode, with
+   no top-band fallback. When the fitted board ALSO leaves a real pillarbox
+   column on the right flank (>= 300 free px, tier 2, .sidelanes-both),
+   relayout() adds the RIGHT rail for live surfaces (view instrument, kill
+   feed) and dockLanes() moves them there too. The board gets the whole
+   frame height back (--topband collapses to 0) and nothing floats over play
+   that has a rail to live in. Below ~480px wide the rail's reserved width
+   shrinks rather than disappearing — see relayout() for the tiny-viewport
+   floor. The rails are designed columns: type + whitespace on the warm
+   letterbox tone, never a stack of boxed widgets. See relayout() for the
+   two-tier geometry decision. */
 #lane-l, #lane-r {
   display: none;
   flex-direction: column;
@@ -2770,14 +2772,21 @@ body.sidelanes-both #killfeed {
 
 /* ============================================================
    EMBED MODE — inside the League Replayer shell (?embed=1)
-   The shell owns the walls + team headers + KDA + standings + transport, drawn
-   from the postMessage frame stream. Here we show the board (the lit pit floor)
-   PLUS the designed broadcast feedback layer that belongs over the play area —
-   the kill feed and the flag-event banner lane (lower-third / center wipes).
-   We hide only the chrome the shell re-draws (scorebug/transport) and the
-   ambient light-pool/grain/status, and let the board fill the embed box.
+   The shell owns the walls + KDA roster tables + division standings +
+   transport, drawn from the postMessage frame stream. Here we show the board
+   (the lit pit floor) PLUS the designed broadcast feedback layer that belongs
+   over the play area — the kill feed and the flag-event banner lane
+   (lower-third / center wipes).
+   SUPERSEDED 2026-09-09 (owner: "left rail is the design i want" / "always"):
+   #scorebug is NO LONGER hidden here. The glory ledger (team plates, clock,
+   lives, hunting chips) now docks into the board's own left rail at every
+   window shape, embed included (relayout()'s sideLanes is unconditional) —
+   it is the single source of truth. The shell's OWN top-band scorebug (the
+   duplicate "ported 1:1 from the broadcast replay" one) was removed in
+   league_replayer.html so the two HUDs never compete for the same top strip.
+   We still hide the chrome the shell re-draws (transport) and the ambient
+   light-pool/grain/status, and let the board fill the embed box.
    ============================================================ */
-body[data-embed] #scorebug,
 body[data-embed] #transport,
 body[data-embed] #lightpool,
 body[data-embed] #grain,
@@ -3288,11 +3297,14 @@ body[data-noviewpanel] #viewpanel { display: none !important; }
 
   // ---- embed mode (League Replayer) ----------------------------------------
   // When loaded inside the League Replayer shell (?embed=1), this client renders
-  // ONLY the board (its own scorebug/transport/feed chrome is hidden by CSS via
-  // body[data-embed]) and streams each parsed state frame up to the parent shell
-  // over postMessage. The shell owns the walls + scorebug + KDA + standings and
-  // draws them from this stream, so there is ONE websocket / ONE transport /
-  // perfect tick-sync between the embedded game and the wall HUD.
+  // the board PLUS its own glory ledger — docked into the left rail, same as
+  // standalone (SUPERSEDED 2026-09-09: the rail is the single source of truth
+  // for #scorebug at every window shape now; only its own transport/feed
+  // chrome is hidden by CSS via body[data-embed]) — and streams each parsed
+  // state frame up to the parent shell over postMessage. The shell owns the
+  // walls + KDA roster tables + division standings and draws them from this
+  // stream, so there is ONE websocket / ONE transport / perfect tick-sync
+  // between the embedded game and the wall HUD.
   var EMBED = false;
   try { EMBED = new URLSearchParams(location.search).get('embed') === '1'; } catch (e) {}
   if (EMBED) document.body.setAttribute('data-embed', '1');
@@ -7867,47 +7879,49 @@ body[data-noviewpanel] #viewpanel { display: none !important; }
     // arena → a square four-team board) swings --hudscale far enough that the
     // second pass is still reserving the old bands, which would leave the board
     // a couple of percent off its true aspect — visible as thin dead strips.
-    var scorebug = document.getElementById('scorebug');
     var transport = document.getElementById('transport');
     var root = document.documentElement;
     var topBand = parseFloat(getComputedStyle(root).getPropertyValue('--topband')) || 0;
     var band = parseFloat(getComputedStyle(root).getPropertyValue('--band')) || 0;
     var stageW = 0, stageH = 0;
-    // SIDE-LANE HUD (owner spec 2026-09-02): use the letterbox columns for
-    // the chrome instead of overlaying/top-barring the arena. Two tiers,
-    // decided from pure geometry (no DOM measuring, so the mode can never
-    // oscillate with its own layout):
+    // SIDE-LANE HUD (owner spec 2026-09-02; SUPERSEDED 2026-09-09 — "the left
+    // rail is the design i want" / "always" / "just make left rail the
+    // default. fix the problem at its core."). The left rail is now the
+    // PERMANENT home of the glory ledger (#scorebug) at every window shape,
+    // embed or not — there is no more top-band fallback for it, and no more
+    // aspect/cost gate. Two tiers, decided from pure geometry (no DOM
+    // measuring, so the mode can never oscillate with its own layout):
     //   - fit0: the board fitted with the scorebug OUT of the top band
     //     (that is how every docked tier actually sits).
     //   - TIER 2 (both rails)  — fit0 leaves >= LANE_MIN a side: identity
     //     rail LEFT, live-surface rail RIGHT, stage centered, aspect fit
     //     untouched. The square-board / ultrawide case.
-    //   - TIER 1 (left rail)   — the wide 1.87:1 arena at a 16:9 window
-    //     leaves only a thin column, and reclaiming the top band widens the
-    //     board and eats it. So cap the board at (boxW - RAIL_MIN) and dock
-    //     it RIGHT: the freed top band pays for the rail (the board ends up
-    //     LARGER than the undocked layout at 1920x1080), and the whole
-    //     letterbox consolidates into one usable left column. Engaged only
-    //     while the cap costs < 10% of the free-fit width — past that the
-    //     rail would be eating the arena, not the letterbox.
-    //   - otherwise            — today's centered stage + overlay chrome,
-    //     byte-for-byte (dockLanes restores the exact home DOM).
+    //   - TIER 1 (left rail, the default) — every other shape, portrait
+    //     included. Cap the board at (boxW - railMin) and dock it RIGHT: the
+    //     freed top band pays for the rail (the board ends up LARGER than
+    //     the old undocked layout at 1920x1080), and the whole letterbox
+    //     consolidates into one usable left column. Below ~480px wide,
+    //     reserving the full RAIL_MIN (240) would leave no room for the
+    //     board at all, so railMin/boardFloor shrink together instead — the
+    //     rail gets thin rather than disappearing (owner: shrink it, don't
+    //     fall back).
     var LANE_MIN = 300, RAIL_MIN = 240;
     var availH0 = Math.max(1, boxH - band);
     var fit0 = Math.min(boxW, Math.round(availH0 * BOARD_ASPECT));
-    var lanesBoth = !EMBED && (boxW - fit0) >= 2 * LANE_MIN;
-    var cappedW = Math.min(fit0, Math.max(320, boxW - RAIL_MIN));
-    var sideLanes = lanesBoth ||
-      (!EMBED && boxW > boxH && cappedW / fit0 >= 0.9);
+    var lanesBoth = (boxW - fit0) >= 2 * LANE_MIN;
+    var tinyBox = boxW < 480;
+    var railMin = tinyBox ? Math.max(80, Math.round(boxW * 0.32)) : RAIL_MIN;
+    var boardFloor = tinyBox ? Math.max(120, Math.round(boxW * 0.45)) : 320;
+    var sideLanes = true;
     if (document.body.classList.contains('sidelanes') !== sideLanes ||
         document.body.classList.contains('sidelanes-both') !== (sideLanes && lanesBoth)) {
       document.body.classList.toggle('sidelanes', sideLanes);
       document.body.classList.toggle('sidelanes-both', sideLanes && lanesBoth);
       dockLanes(sideLanes, sideLanes && lanesBoth);
     }
-    // Tier 1 fits the board into the box MINUS the reserved rail; tier 2 and
-    // the fallback fit the full box.
-    var fitBoxW = sideLanes && !lanesBoth ? Math.max(320, boxW - RAIL_MIN) : boxW;
+    // Tier 1 fits the board into the box MINUS the reserved rail; tier 2
+    // fits the full box (both rails then split the leftover evenly).
+    var fitBoxW = lanesBoth ? boxW : Math.max(boardFloor, boxW - railMin);
     for (var pass = 0; pass < 4; pass++) {
       var prevTop = topBand, prevBand = band;
       var availH = Math.max(1, boxH - topBand - band);
@@ -7927,10 +7941,10 @@ body[data-noviewpanel] #viewpanel { display: none !important; }
       var scale = Math.max(0.5, Math.min(1.6, boardW / 760));
       root.style.setProperty('--hudscale', scale.toFixed(3));
       stage.classList.toggle('tiny', boardW <= 620);
-      // Measure each band's natural height → reserve exactly that. With the
-      // scorebug docked in the left rail the top band is simply gone — the
-      // board gets the whole frame height back.
-      topBand = (sideLanes || !scorebug) ? 0 : scorebug.offsetHeight;
+      // The scorebug is always docked in the left rail now (sideLanes is
+      // unconditional) — the top band never reserves space, so the board
+      // gets the whole frame height back at every window shape.
+      topBand = 0;
       band = transport ? transport.offsetHeight : 0;
       root.style.setProperty('--topband', topBand + 'px');
       root.style.setProperty('--band', band + 'px');
