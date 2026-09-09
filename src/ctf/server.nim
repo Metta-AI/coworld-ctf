@@ -7,7 +7,7 @@ import
   curly, mummy,
   sim, global, glory, replays, replay_codec as ctfReplayCodec, broadcast,
   replay_runtime, events, wire_constants,
-  control, directives, baselines, decide, mux,
+  control, directives, baselines, decide, mux, build_stamp,
   ../shell/[body, body_map, episode, ingress, outbound,
     standing_order, transport, view],
   ../shell/dispatch, ../shell/packets, ../shell/replay_records, ../shell/seats,
@@ -405,6 +405,17 @@ const
     "<script src=\"player_hud.js\"></script>",
     "<script>" & defuseScriptClose(staticRead("../../client/player_hud.js")) &
       "</script>"
+  ).replace(
+    # B2-15 telemetry beacon: splices the compile-time build stamp
+    # (build_stamp.nim's ctfSimSourcesStamp, empty "" on a build compiled
+    # without -d:ctfSimSourcesStamp=<hash>) into player_client.html's
+    # BUILD_STAMP placeholder so the beacon's `build` field names a real
+    # engine identity instead of a client-side guess. Plain text substitution
+    # is safe here: the stamp is always 64 hex chars (tools/sim_sources_stamp.sh)
+    # or the empty string, never a quote/backslash that could break the JS
+    # string literal it lands inside.
+    "__CTF_BUILD_STAMP__",
+    ctfSimSourcesStamp
   )
   # Dungeon-wall textures (nanobanana generations) served as static assets so the
   # shell HTML stays small and editable. Wide for top/bottom, tall for side walls.
