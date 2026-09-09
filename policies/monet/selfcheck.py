@@ -1051,11 +1051,12 @@ check("part E: a committed pact call logs one `[monet] pact aim:` line "
       repr(_aim_log.getvalue()))
 law_invited = next((e for e in entries_invited if e["play"] == "target_law"),
                    None)
-check("v46 CONFIRMED-ONLY GATE: an INVITED seat (named us first, in chat) "
-      "DOES reach target_law.never -- this is exactly the confirmed case "
-      "the fallback/retry tests above must NOT get",
-      law_invited is not None
-      and "seat:7" in set(law_invited["params"].get("never", [])),
+check("v55 HOLD-DISABLED GATE: an INVITED seat (named us first, in chat) "
+      "does NOT reach target_law.never -- CONFIRMED_PACT_REASONS is empty, "
+      "so even the strongest confirmed reason earns no never-target hold "
+      "(ACE_PACT.md Q2: the unconditional hold cost 0.56 forgone tags/ep "
+      "for 0 measured betrayal-defense benefit)",
+      "seat:7" not in set((law_invited or {}).get("params", {}).get("never", [])),
       str(law_invited))
 
 # ── RECIPROCATE on a LATER turn: partners accumulate without churning the
@@ -1088,13 +1089,14 @@ check("RECIPROCATE: a NEW inviter (seat 5) on turn 2 is ADDED, the "
       and set(pact_t2["params"]["partners"]) == {"seat:1", "seat:2", "seat:5"},
       str(pact_t2))
 law_t2 = next((e for e in entries_t2 if e["play"] == "target_law"), None)
-check("v46 CONFIRMED-ONLY GATE, mixed case: the RECIPROCATED seat (5, "
-      "named us back) reaches target_law.never; the two unilateral "
-      "FALLBACK seats (1, 2, never confirmed) do not, in the same call",
-      law_t2 is not None
-      and "seat:5" in set(law_t2["params"].get("never", []))
-      and "seat:1" not in set(law_t2["params"].get("never", []))
-      and "seat:2" not in set(law_t2["params"].get("never", [])),
+check("v55 HOLD-DISABLED GATE, mixed case: the RECIPROCATED seat (5, "
+      "named us back) does NOT reach target_law.never either -- same as "
+      "the two unilateral FALLBACK seats (1, 2), in the same call. "
+      "CONFIRMED_PACT_REASONS is empty, so a reciprocated partner earns "
+      "no more never-target hold than a unilateral fallback pick now",
+      "seat:5" not in set((law_t2 or {}).get("params", {}).get("never", []))
+      and "seat:1" not in set((law_t2 or {}).get("params", {}).get("never", []))
+      and "seat:2" not in set((law_t2 or {}).get("params", {}).get("never", [])),
       str(law_t2["params"].get("never") if law_t2 else None))
 
 # ── RETRY + cap-3: with no new invite ever arriving, one retry adds ONE
@@ -1475,10 +1477,16 @@ v48a_seat = fake_seat(
           {"seat": 7, "text": "seat:3 non-aggression, in?"}])
 starter_harness.repair_call(
     PERSONA.canned_turns[0], PERSONA, v48a_seat, AVAILABLE)
-check("(v48a) setup: huddle turn resolves 3 real inviters (confirmed)",
+# v55: CONFIRMED_PACT_REASONS is empty (never a live membership test any
+# more), so this checks the underlying classification directly --
+# "invited"/"reciprocate" is still the correct reason a real chat inviter
+# earns (that classification logic is UNCHANGED by v55; only whether it
+# earns a never-target hold changed).
+check("(v48a) setup: huddle turn resolves 3 real inviters "
+      "(invited/reciprocate)",
       set(v48a_seat.pact_state.get("partners", [])) == {5, 6, 7}
       and all(v48a_seat.pact_state.get("reasons", {}).get(s) in
-              policy.CONFIRMED_PACT_REASONS for s in (5, 6, 7)),
+              ("invited", "reciprocate") for s in (5, 6, 7)),
       str(v48a_seat.pact_state))
 
 _v48a_pactless_call = {"call": {"entries": [
@@ -1501,12 +1509,13 @@ check("(v48a) LADDER RE-SYNC: a model call whose own entries omit "
       and set(v48a_pact2["params"]["partners"]) == {"seat:5", "seat:6", "seat:7"}
       and "[monet] pact ladder re-sync: partners=" in _v48a_log1.getvalue(),
       repr(_v48a_log1.getvalue()))
-check("(v48a) LADDER RE-SYNC respects the confirmed-only never-target gate: "
-      "all 3 re-synced partners (invited/reciprocate) reach target_law.never",
+check("(v55) LADDER RE-SYNC respects the hold-disabled gate: none of the "
+      "3 re-synced partners (invited/reciprocate) reach target_law.never "
+      "-- the re-sync path shares the SAME empty CONFIRMED_PACT_REASONS "
+      "as every other commit path, no separate hold leaks back in here",
       v48a_pact2 is not None
-      and v48a_law2 is not None
-      and set(v48a_pact2["params"]["partners"])
-          <= set(v48a_law2.get("params", {}).get("never", [])),
+      and not (set(v48a_pact2["params"]["partners"])
+               & set((v48a_law2 or {}).get("params", {}).get("never", []))),
       str((v48a_law2 or {}).get("params", {}).get("never")))
 
 v48a_seat.view = {"tick": 800, "self": {"pos": [0, 0]}, "tracks": []}

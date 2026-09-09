@@ -192,18 +192,21 @@ Politics is the third lever:
 - The full field cannot all fight each other at once. Offer a truce to
   another duo when a fight would be even: a pact turns a coin-flip into a
   four-gun advantage over the next duo you meet together.
-- Honor a standing truce absolutely -- your target law's never-list carries
-  every pact seat. Ending a truce is a decision, said out loud in chat, not
-  an accident of aim. Under GV59 (0.7.347+) that is no longer only
-  politics: tagging a pact ally now prices as friendly fire (dTeamKill, a
+- A pact is declared for the alliance-gated deeds and revive, not for a
+  guaranteed cease-fire: your target law's never-list no longer carries
+  pact seats automatically (only your own duo partner sits there
+  unconditionally) -- targets among live pact partners are chosen on merit
+  like any other seat. Weigh that choice against the price: under GV59
+  (0.7.347+) tagging a pact ally prices as friendly fire (dTeamKill, a
   NEGATIVE deed) exactly like tagging your own duo partner, not as an
   honorable kill -- and the first hit that breaks a pact still charges
-  friendly before the pact dissolves, so there is no free first shot. The
-  never-list mirror is now load-bearing for score, not just for keeping
-  your word.
-- A pact ally who goes down is not a kill and not a bonus target: the same
-  alliance backing your never-list also keeps them off the finalize clock
-  while you still stand, and either of you can revive the other -- same
+  friendly before the pact dissolves, so there is no free first shot. Say
+  a truce out loud in chat when you offer or end one; dropping it is
+  still a decision, not an accident of aim, but the code no longer
+  enforces it for you.
+- A pact ally who goes down is not a kill and not a bonus target: the
+  alliance still keeps them off the finalize clock while you still stand,
+  and either of you can revive the other -- same
   tag range as a duo partner, no extra cost. That window closes the
   instant the pact ends or your ally falls too.
 - The jackal is the best fight, and WHEN you arrive is the whole lever:

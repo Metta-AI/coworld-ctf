@@ -9,21 +9,30 @@ whole research program, translated to the play-calling layer:
   observables the doctrine actually keys on),
 * four model turns spread across the match arc (opening / consolidation /
   mid / endgame) instead of a burst of early re-calls,
-* ``adjust_entries`` enforces the three non-negotiables structurally:
-  TRUCE HONOR -- every pact's partners are mirrored into every target_law
-  never-list, so betrayal requires explicitly dropping the pact and can
-  never be an accident of aim; FIRE DISCIPLINE -- the duo partner is on the
-  never-list whether or not the model remembered (a partner tag is -60g).
-  GV59 (engine tree decb97fd, live build 0.7.347+; sim.nim
-  downFriendly ~2580-2601) repriced a pact-ally tag onto the SAME -60g dTeamKill class
-  as a partner tag -- previously an honorable kill. TRUCE HONOR was built
-  for politics before that repricing existed, and needed no code change to
-  become the correct fire-discipline mechanism for it too: mirroring pact
-  partners into never already keeps target_law off them, so this
-  mechanism (not new prose) is what actually protects the score now;
-  CONVERSION -- a supply_run rung is guaranteed in every ladder, because the
-  lineage's oldest measured failure is winning the fight and never banking
-  the life,
+* ``adjust_entries`` enforces the non-negotiables structurally: FIRE
+  DISCIPLINE -- the duo partner (own team) is on the never-list whether or
+  not the model remembered (a partner tag is -60g). GV59 (engine tree decb97fd,
+  live build 0.7.347+; sim.nim downFriendly ~2580-2601) repriced
+  a pact-ally tag onto the SAME -60g dTeamKill class as a partner tag --
+  previously an honorable kill; that repricing is unaffected by v55 below,
+  and still fully prices any pact-ally tag whether or not target_law holds
+  it off. TRUCE HONOR -- the old structural mirror of every pact's
+  partners into every target_law never-list -- is DROPPED as of v55 (GV17
+  ace/pact read, n=63: 25/63 formed pacts paid ~nothing -- dJointAct
+  0.08/formed-ep, dAssist/dRescue 0 field-wide, median glory identical --
+  while the unconditional never-target hold on the 36 confirmed partner
+  relationships cost ~0.56 forgone tags/ep, 2x our realized kill rate:
+  0/36 partners ever engaged, 0/36 ever tagged us [the betrayal risk the
+  hold existed to avoid never materialized], 35/36 died anyway to someone
+  else). ``CONFIRMED_PACT_REASONS`` is now empty, so no pact partner ever
+  reaches target_law.never. Pacts are still declared, re-affirmed on
+  kickoff/final4/maintenance, capped at 5, and `onBetrayal: returnFire`
+  still answers an actual betrayal in kind -- only the standing,
+  full-episode hold-fire guarantee is gone; targets among live pact
+  partners are now chosen on merit like any other seat, weighing the
+  still-live dTeamKill price of tagging one. CONVERSION -- a supply_run
+  rung is guaranteed in every ladder, because the lineage's oldest
+  measured failure is winning the fight and never banking the life,
 * ``extra_summary`` appends a one-line AWARENESS digest to every model turn:
   ring in/out + shrink clock, partner state (hp TREND across turns, falling
   hp attributed UNDER FIRE vs zone-burning by rect), fresh-vs-stale threat
@@ -84,21 +93,37 @@ PACT_PLACEHOLDER = {"seat:0", "seat:16"}
 # treat every SOLO partner the same, including unilateral FALLBACK/RETRY
 # picks -- 2 nearest live rivals WE chose with zero evidence they want a
 # pact with us. That silently held our own fire on rivals who keep
-# shooting us, for the entire episode, on a guess. Only a seat that has
-# actually named US back in chat ("invited" -- they proposed first;
-# "reciprocate" -- they named us on a later turn) is confirmed enough to
-# earn the no-fire guarantee; fallback/retry stay named on the wire (so a
-# genuine mutual sim pact can still form if THEY also name us) but do not
-# reach target_law.never until confirmed.
-CONFIRMED_PACT_REASONS = {"invited", "reciprocate"}
+# shooting us, for the entire episode, on a guess. v46 narrowed the
+# no-fire guarantee to only a seat that had actually named US back in chat
+# ("invited"/"reciprocate"), leaving fallback/retry named on the wire (so a
+# genuine mutual sim pact could still form) but off target_law.never.
+#
+# v55 (GV17 ace/pact economy read, n=63 episodes, `ACE_PACT.md` Q2):
+# narrowing wasn't enough -- even the strictest tier, mutually FORMED
+# pacts, still doesn't pay. 25/63 formed pacts produced 36 distinct
+# (episode, confirmed-partner) relationships; we held fire on 36/36 (100%)
+# and it bought nothing measurable (dJointAct 0.08/formed-ep, dAssist/
+# dRescue 0 field-wide, median final_glory identical to no-pact episodes)
+# while it cost real kills: 0/36 partners were ever engaged, 0/36 ever
+# tagged us back (the betrayal risk the hold exists to prevent never
+# materialized in this window), and 35/36 (97%) died anyway to some OTHER
+# seat -- 35 kills' worth of glory over 63 episodes (~0.56/ep, ~2x our
+# realized ~0.24 dHonorableKill/ep baseline) forgone for partners who were
+# never going to survive our restraint regardless. Emptying this set drops
+# every pact partner out of target_law.never -- `onBetrayal: returnFire`
+# still does the defensive job the hold was protecting, at zero measured
+# cost, without the 0.56 tags/ep the unconditional hold was giving away.
+# Pact declare/reciprocate/cap/re-emit mechanics below are UNCHANGED.
+CONFIRMED_PACT_REASONS = frozenset()
 
 # v47b (owner direction 2026-09-09): more FORMED pacts is the lever for more
 # JointAct / pact-stack / revive opportunities (GV15 made JointAct pact-only
 # -- see doctrine ledger ctf-joint-action-pays-without-a-pact.md, OBSOLETE at
 # GV15). Raising the partner cap 3 -> 5 does not by itself remove more
-# targets from fire, because the confirmed-only never-list gate above is
-# untouched: only "invited"/"reciprocate" partners ever reach
-# target_law.never, no matter how high this cap goes. Checked for a lower
+# targets from fire: it is a pure pact-formation/declaration lever, wholly
+# separate from CONFIRMED_PACT_REASONS above (v55: empty, so ZERO partners
+# of any reason ever reach target_law.never, no matter how high this cap
+# goes). Checked for a lower
 # limiter before picking 5: src/ctf/sim.nim declarePactPartners
 # (~lines 915-969) encodes partners as a uint16 BITMASK over the Team enum
 # (sim_types.nim Team, TeamPoolWidth=16) -- no numeric per-declaration cap
@@ -949,8 +974,12 @@ def adjust_entries(entries, context, view):
 
     # Re-aim placeholder or self-referential pacts at the neighboring duo;
     # keep a model's real choice of partners. Betrayal is answered in kind.
-    # `confirmed_seats` (v46) is the subset of `pact_seats` that has earned
-    # the target_law never-target guarantee -- see CONFIRMED_PACT_REASONS.
+    # `confirmed_seats` (v46) used to be the subset of `pact_seats` that
+    # earned the target_law never-target guarantee -- as of v55,
+    # CONFIRMED_PACT_REASONS is empty, so this is always []; kept as the
+    # same computed set (not deleted) so the reason-classification logic
+    # (invited/reciprocate/fallback/retry) and onBetrayal/params handling
+    # below stay a single shared path instead of forking one off.
     pact_seats = []
     confirmed_seats = []
 
@@ -984,6 +1013,10 @@ def adjust_entries(entries, context, view):
     for entry in list(entries):
         if entry.get("play") != "pact":
             continue
+        pstate_flag = context.setdefault("_pact_state", {})
+        if not pstate_flag.get("holds_disabled_logged"):
+            pstate_flag["holds_disabled_logged"] = True
+            print("[monet] pact holds: disabled (v55)", flush=True)
         params = entry.setdefault("params", {})
         partners = [p for p in params.get("partners", []) if isinstance(p, str)]
         entry_confirmed = []
@@ -1075,14 +1108,14 @@ def adjust_entries(entries, context, view):
         pact_seats.extend(partners)
         confirmed_seats.extend(entry_confirmed)
 
-    # TRUCE HONOR + FIRE DISCIPLINE: the never-list is derived, not trusted.
-    # Ending a truce means dropping the pact entry -- the law then releases
-    # those seats on the same call, and never sooner. v46: only CONFIRMED
-    # partners (named us back, or the untouched DUO/real-submission paths)
-    # earn the no-fire guarantee -- unilateral fallback/retry picks stay
-    # named on the wire (pact_seats, used above for onBetrayal/params only)
-    # but do NOT reach target_law.never until confirmed (see
-    # CONFIRMED_PACT_REASONS; field-measured motive at that constant).
+    # FIRE DISCIPLINE (own duo only, v55): the never-list is derived, not
+    # trusted, for the one relationship it still covers -- our own duo
+    # partner, added unconditionally below. Pact partners no longer reach
+    # it at all: CONFIRMED_PACT_REASONS is empty (see its definition and
+    # ACE_PACT.md Q2 for the field read), so `confirmed_seats` above is
+    # always [] and `law_never` starts empty every call. Pacts are still
+    # declared/re-affirmed and `onBetrayal: returnFire` still fires on an
+    # actual betrayal -- only the standing, unconditional hold is gone.
     law_never = list(confirmed_seats)
     if partner is not None and f"seat:{partner}" not in law_never:
         law_never.append(f"seat:{partner}")
@@ -1431,11 +1464,14 @@ PERSONA = Persona(
                        "bounty mark instead costs the gap a chain cannot "
                        "survive. Sequencing beats selection -- any tag open "
                        "to you now usually outscores waiting for a better "
-                       "one. The harness mirrors your partner and every "
-                       "pact seat into never; you release seats by dropping "
-                       "the pact, never by editing the list. Set a "
-                       "holdTrigger only for a planned endgame release: a "
-                       "released hold LATCHES and can never re-arm."),
+                       "one. The harness mirrors only your own duo partner "
+                       "into never automatically; pact partners are NOT "
+                       "held off the never-list -- pick targets among them "
+                       "on merit like any other live seat (weigh the "
+                       "dTeamKill friendly-fire price of tagging one, but "
+                       "the code will not stop you). Set a holdTrigger "
+                       "only for a planned endgame release: a released "
+                       "hold LATCHES and can never re-arm."),
         "edge_ride": ("edge_ride: the native escape reflex outranks every "
                       "play at the wall, and calling a rotation REPLACES "
                       "the default one. Call it only with a specific "
