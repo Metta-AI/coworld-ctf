@@ -48,8 +48,20 @@ Stated ratio targets (owner-signed, from the S2 question set):
 - MID spread ≈ **~20× wide** (roughly p25–p85 of the mid band) — and that
   spread must come from deeds CHOSEN, not from placement legs.
 - TOP ≈ **~100× a typical round**, reached intentionally.
-- JACKPOT ≈ **~1000× median**, cap-hit on the order of **0.1–1%** of
-  seat-episodes.
+- JACKPOT ≈ ~~**~1000× median**, cap-hit on the order of **0.1–1%** of
+  seat-episodes.~~
+  **⚠️ SUPERSEDED on the raw scale** (S2 lead, 2026-09-09, under the
+  owner's delegation — see `CAP-CEILING-S7.md`'s Decision; owner may
+  overrule). The owner's feel rulings ("jackpots RARE by design", "the
+  top must feel glorious and earned, not lucky, not a fluke", "crazy
+  but not predictable scores", "exponential compounding") rule out a
+  raw-scale wall that pins a chunk of the top decile to one number:
+  `CAP-CEILING-S7.md`'s sweep gives the jackpot ratio at each tested
+  ceiling (2^14 16,384× · 2^18 262,144× · 2^20 1,048,576× · 2^21
+  2,097,152×), and cap-hit ∈[0.1,1]% and ≈1000× median cannot both hold
+  on the raw scale — the tail is exponential in tag count. Standings
+  are unaffected (`signed_log2`, Step A: 21 raw bits vs. a 2–8 bit
+  mid-band is fine there).
 - The geometric-mean standings must separate TOP from MID **every round**
   (this is why the season rule is per-leg log / geometric mean — already
   decided, not reopened here).

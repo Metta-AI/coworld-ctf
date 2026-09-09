@@ -197,6 +197,19 @@ gradient is this PR's own direct, literal answer to `RIG-SIMULATION.md`'s cap-hi
 mean or the CHOSEN-share percentage, is the lever this specific arming decision should be
 evaluated against** when the live re-measure happens.
 
+**⚠️ CORRECTED** (S2 lead, 2026-09-09, under the owner's delegation — see
+`CAP-CEILING-S7.md`'s Decision; owner may overrule). The cap-hit CLIFF
+`RIG-SIMULATION.md` reported was a Monte Carlo artifact — one Sharpshooter
+claim rate shared across both archetypes in that synthetic rig, not a
+structural property of the real economy (`CAP-CEILING-S7.md` §4). On real
+GV62 play, S4b does **not** move cap-hit: identical cap-hit/top-decile-capped
+S4b on vs off at 6 of 7 tested ceilings, +1 row at the 7th (2^19); its real,
+measured effect is a small, honest CHOSEN-share nudge (+0.04–0.09pp at the
+top decile). The gradient above still ships — as a continuity/feel feature
+on the achievement axis, bundled into GLORYVERSION 17→18 alongside the
+CEILING (`CAP-CEILING-S7.md` §8) — not as the cap-hit-cliff answer this
+section originally framed it as. The ceiling, not S4b, is the wall lever.
+
 ## What this does NOT decide / NOT verified
 
 - Does not touch `treeSquad.IV` (Clean Sheet)'s own separately-flagged "RE-SCOPE, highest
