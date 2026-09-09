@@ -20,13 +20,13 @@ type
     positions: seq[int32]
     len: int
 
-  DenseWorkspace = object
+  DenseWorkspace* = object
     generation: uint32
     g, parent, parentBridge, goalCost: seq[int32]
     state, goalStamp: seq[uint32]
     heap: KeyHeap
 
-  MixedGraph = object
+  MixedGraph* = object
     legality: FineLegality
     cellForNode: seq[int32]
     fineForCell: seq[array[4, int32]]
@@ -38,10 +38,10 @@ type
     bridgeNodes: seq[int32]
     wallBandCells, wallBandFineNodes: int
 
-  SearchResult = object
-    reached: bool
-    pops: int
-    route: seq[BodyPoint]
+  SearchResult* = object
+    reached*: bool
+    pops*: int
+    route*: seq[BodyPoint]
 
   Accum = object
     inflations, pops, nanoseconds, hotCells, unionCells, activeNodes: seq[float64]
@@ -54,7 +54,7 @@ proc loadMap(pool: JsonNode, poolIndex: int): BodyMap =
   gameMap.name = entry["name"].getStr()
   newBodyMap(gameMap)
 
-proc findCase(corpus: NavCorpus, id: string): NavCorpusCase =
+proc findCase*(corpus: NavCorpus, id: string): NavCorpusCase =
   for item in corpus.cases:
     if item.id == id: return item
   raise newException(ValueError, "corpus case not found: " & id)
@@ -119,7 +119,7 @@ proc pop(heap: var KeyHeap): int64 {.inline.} =
     heap.positions[keyNode(heap.keys[0])] = 0
     heap.siftDown(0)
 
-proc newWorkspace(count: int): DenseWorkspace =
+proc newWorkspace*(count: int): DenseWorkspace =
   doAssert count <= (1 shl TieBits)
   result.g = newSeq[int32](count)
   result.parent = newSeq[int32](count)
@@ -224,7 +224,7 @@ proc findBridge(table: FineLegality, startNode,
     cursor = parents[cursor].int
   result.reverse()
 
-proc buildMixedGraph(map: BodyMap): MixedGraph =
+proc buildMixedGraph*(map: BodyMap): MixedGraph =
   result.legality = map.buildFineLegality()
   let
     nodeCount = result.legality.legal.len
@@ -294,7 +294,7 @@ proc buildMixedGraph(map: BodyMap): MixedGraph =
       result.bridgeLen[cellIndex][direction] = uint8(path.len)
       result.bridgeNodes.add path
 
-proc buildHot(map: BodyMap, danger: BodyDangerField): seq[uint8] =
+proc buildHot*(map: BodyMap, danger: BodyDangerField): seq[uint8] =
   result = newSeq[uint8](map.gridWidth * map.gridHeight)
   for source, value in danger.values:
     if value <= 0: continue
@@ -306,10 +306,12 @@ proc buildHot(map: BodyMap, danger: BodyDangerField): seq[uint8] =
             next.y >= 0 and next.y < map.gridHeight:
           result[next.y * map.gridWidth + next.x] = 1
 
-proc buildRefined(graph: MixedGraph, hot: openArray[uint8]): seq[uint8] =
+proc buildRefined*(graph: MixedGraph, hot: openArray[uint8]): seq[uint8] =
   result = newSeq[uint8](hot.len)
   for cell in 0 ..< hot.len:
     result[cell] = hot[cell] or graph.wallBand[cell]
+
+proc nodeCount*(graph: MixedGraph): int = graph.legality.legal.len
 
 proc active(graph: MixedGraph, refined: openArray[uint8],
     node: int, startNode = -1, goalNode = -1): bool {.inline.} =
@@ -332,7 +334,7 @@ proc quantizeDangerQ8(value: float32): int64 {.inline.} =
   if fraction > 0.5 or (fraction == 0.5 and (lower and 1) != 0): lower + 1
   else: lower
 
-proc buildWeights(danger: BodyDangerField,
+proc buildWeights*(danger: BodyDangerField,
     profile: NavCorpusProfile): seq[int32] =
   result = newSeq[int32](danger.values.len)
   let weight = profile.profileWeightQ8
@@ -434,7 +436,7 @@ proc attachments(graph: MixedGraph, map: BodyMap,
                 cost: map.integratedEdgeCostQ4(weights, hazardCost,
                   blockedCell, endpoint, point))
 
-proc search(graph: MixedGraph, map: BodyMap,
+proc search*(graph: MixedGraph, map: BodyMap,
     item: NavCorpusCase, refined: openArray[uint8], weights,
     hazardCost: openArray[int32], workspace: var DenseWorkspace): SearchResult =
   workspace.begin()
