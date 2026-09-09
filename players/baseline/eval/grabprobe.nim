@@ -611,6 +611,19 @@ proc main() =
         tmLastCapTotal = tmCapNow
       if r.phaseOver: break
     let r = engine.result()
+    when defined(evdump):
+      # ⭐ RIG-FIDELITY AUDIT (2026-08-18). Dump this episode in the HOSTED
+      # replay wire format so one analyser scores rig and field alike. Off
+      # unless EVDUMP_DIR is set, so an -d:evdump binary is still a normal probe
+      # binary. Every slot is our own policy here, so the addresses are named by
+      # engine team, not by entrant: a mirror rig has no rivals.
+      if getEnv("EVDUMP_DIR").len > 0:
+        var evAddr: seq[string] = @[]
+        for s in 0 ..< numPlayers:
+          evAddr.add "rigteam" & $engine.teamOfSlot(s)
+        createDir(getEnv("EVDUMP_DIR"))
+        writeFile(getEnv("EVDUMP_DIR") / ("ep" & $epSeed & ".jsonl"),
+                  engine.evJsonl(evAddr))
     when defined(lifeprobe):
       # Episode ended before tick FfaFixedWindow (common in ffa4 — the mode ends
       # by ELIMINATION): no more lives can be spent after that, so the final
