@@ -528,6 +528,11 @@ proc awardDeed*(sim: var SimServer, team: Team, deed: Deed, x, y: int,
     sim.teamGlory[team] = int(sim.recutCurrentScore(team))
   inc sim.deedCounts[deed], times
   sim.deedGloryMass[deed] += amount
+  # WIRE-OK "Glory by deed" endcard breakdown (THE WHOLE epic): the same
+  # audit write, per-team, so the endcard can show each seat's own deed
+  # totals instead of only the whole-episode `deedCounts`/`deedGloryMass`.
+  inc sim.teamDeedCounts[team][deed], times
+  sim.teamDeedGloryMass[team][deed] += amount
   if popsScore(deed):
     let
       earned = byIndex >= 0 and byIndex < sim.players.len
@@ -653,6 +658,8 @@ proc claimAchievement*(sim: var SimServer, team: Team, tree: Tree, tier: int,
     sim.teamGlory[team] = int(sim.recutCurrentScore(team))
   inc sim.deedCounts[dAchievement]
   sim.deedGloryMass[dAchievement] += amount
+  inc sim.teamDeedCounts[team][dAchievement]
+  sim.teamDeedGloryMass[team][dAchievement] += amount
   let byCog = byIndex >= 0 and byIndex < sim.players.len and
               sim.players[byIndex].team == team
   sim.achievementFeed.add AchievementClaim(
@@ -1114,6 +1121,10 @@ proc resetGloryLedger*(sim: var SimServer) =
     # hand game 2 a duo that has already spent its dTagBack allowance.
     for deed in Deed:
       sim.recutMintCounts[team][deed] = 0
+      # Mirrors `deedCounts`/`deedGloryMass`'s own game-boundary reset
+      # below, per-team: this ledger's semantics ride theirs exactly.
+      sim.teamDeedCounts[team][deed] = 0
+      sim.teamDeedGloryMass[team][deed] = 0
     sim.heatEmbers[team] = 0
     sim.heatLastDeed[team] = 0
     sim.heatLastDecay[team] = 0

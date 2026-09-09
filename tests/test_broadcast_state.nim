@@ -194,6 +194,26 @@ suite "broadcast state channel":
       # panel is built against.
       check not state.hasKey("huddle")
       check not state.hasKey("vote")
+      # WIRE-OK BATCH (THE WHOLE epic, GameVersion 62->63): the realized-
+      # economy stamp rides every frame, unconditional like "pops"/"glory".
+      # This classic CTF fixture predates the recut economy and never sets
+      # `gloryMultiplierRecut`, so it stays on the dark v12 ledger.
+      check state.hasKey("economy")
+      check state["economy"].getStr == "classic"
+      # Each seat's own deed breakdown on the verdict block: always present
+      # (an array, possibly empty for a seat that minted nothing), never
+      # omit-when-absent like "prog"/"flag" above -- same idiom as "glory"/
+      # "lives" on the same object. This fixture ends on a real capture, so
+      # the winning side must have minted at least one deed (the capture
+      # itself, at minimum).
+      for team in ["red", "blue"]:
+        check state["over"]["teams"][team].hasKey("deeds")
+        check state["over"]["teams"][team]["deeds"].kind == JArray
+      check state["over"]["teams"]["blue"]["deeds"].len >= 1
+      for entry in state["over"]["teams"]["blue"]["deeds"]:
+        check entry.hasKey("deed")
+        check entry["label"].getStr.len > 0
+        check entry["count"].getInt >= 1
     finally:
       setCurrentDir(previousDir)
 
