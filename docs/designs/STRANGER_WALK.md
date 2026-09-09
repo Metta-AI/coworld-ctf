@@ -8,7 +8,8 @@ it, and the first baseline reading (**Walk 1**).
 Tooling lives in `tools/stranger_walk/`: `prompt.md` (the fixed stranger prompt), `judge.md` (the
 scoring rubric), `run.sh` / `resume.sh` (launch/continue one run), `launch.sh` (protocol v1.2 —
 launch a run fully detached), `score.py` (extract timings from a transcript), `isolation_audit.sh`
-(catch a stranger that saw something it shouldn't have).
+(catch a stranger that saw something it shouldn't have), `run_container.sh` + `container/` (protocol
+v1.3 — the same run, inside its own Linux container: own PID namespace, own filesystem, own network).
 
 ## Protocol, in one page
 
@@ -141,6 +142,110 @@ Usage: `tools/stranger_walk/launch.sh run.sh <model> <run-id> [max-budget-usd]`.
 gets the PID back immediately and polls (never a backgrounded "wait for the notification" itself —
 that pattern is exactly what killed `sonnet-b` one layer up): `while kill -0 "$(cat
 <run-dir>/launch.pid)" 2>/dev/null; do sleep 60; done`, or poll `meta.json`'s `run_status`.
+
+## Protocol v1.3: container isolation (2026-09-09, closes the process-table gap)
+
+Walk 1 left one gap explicitly unfixed (see above, "Isolation gap found in Walk 1, NOT fixed"):
+`sonnet-c` ran an ordinary `ps aux | grep coworld` and got back the HOST's entire process table —
+`run.sh`'s isolated-`$HOME` trick scopes environment variables for Bash-tool subprocesses, not the
+OS-level process list, which is a kernel property `$HOME` cannot touch. Real internal paths and
+model identifiers leaked through a grep that had no intention of finding them. This needed real
+process/filesystem/network-namespace isolation, which a bare `-p` process on macOS with no
+container runtime available (the situation Walk 1 shipped under) does not have.
+
+**What changed.** `tools/stranger_walk/run_container.sh` + `tools/stranger_walk/container/{Dockerfile,
+entrypoint.sh,probe.sh}` run the stranger inside its own Linux container instead of a bare process
+on the host: own PID namespace (`ps aux` can only ever see that container's own processes), own
+filesystem (no `/Users`, no `~/.softmax`, `~/.ctf`, `~/.claude/projects` — the image ships none of
+this project's tooling or vocabulary, only a plain developer toolbox: git, curl, python3, uv, the
+`docker` CLI, and Claude Code itself), own network namespace (bridged — reaches the public internet,
+cannot reach anything bound to the HOST's `127.0.0.1`). The run-dir *contract* is unchanged: same
+`/Users/maxwellstarr/projects/stranger-walk-runs/<run-id>/` layout, `meta.json`, `transcript.jsonl`,
+`prompt.rendered.md` — `score.py` and `isolation_audit.sh` work on a container run's output exactly
+as they do on a `run.sh` run's.
+
+**What closes it.** `tools/stranger_walk/container/probe.sh` is a scripted, non-`claude` probe (no
+Anthropic credential needed) that runs inside the container and checks, for real, each time: (1)
+`ps aux` shows only this namespace's own processes, no host path/vocabulary; (2) `/Users` is absent;
+(3) none of `~/.softmax`, `~/.claude/projects`, `~/.ctf`, `~/.aws` exist; (4) `env` carries no host
+username/path string; (5) this process's own PID namespace has its own PID-1 init, not the host's;
+(6) network reaches `https://softmax.com/paintbot`; (7) network does *not* reach the container's own
+loopback (nothing of the host's is bound there). Result is written to `isolation_probe.json` in the
+run dir; `isolation_audit.sh` now reads it when present and treats any failed check as a disqualifying
+hit, same severity as a transcript boundary hit. **Verified empirically 2026-09-09** (all 7 checks,
+run for real — not just inspected — via `run_container.sh probe <run-id>`): `overall_pass: true`.
+Honesty note carried in `probe.sh`'s own header: checks 2 and part of 4 are trivially true on *any*
+stock Linux container regardless of isolation quality (`/Users` is a macOS path, full stop) — the
+checks that actually exercise isolation are 1, 3, 5, and 7.
+
+**Credential contract** (the one genuinely new problem a container introduces): `run.sh` reuses the
+HOST's own `claude` OAuth session — its top-level process deliberately keeps the real `$HOME` so it
+can authenticate; only Bash-tool subprocesses get an isolated `$HOME`. A container has **no** host
+`$HOME` at all (`$HOME` is `/home/stranger` for every process in it, `claude` included), so it needs
+its own credential, and that credential must never be the host's `~/.claude`:
+- **Source**: an Anthropic API key, one line, at `$STRANGER_ANTHROPIC_API_KEY_FILE` (default
+  `~/.ctf/knowledge/stranger-walk/anthropic_api_key`, never committed — same convention as
+  `run.sh`'s `STRANGER_OWNER_ENV` for the site-signup identity).
+- **Injection**: `run_container.sh` copies it into `$RUN_DIR/credential.env` (mode 600) and passes it
+  to `docker run --env-file` — never baked into the image, never a `docker run -e` CLI arg (those are
+  more visible in `docker inspect`/process listings than an env-file's contents), never a mounted
+  `~/.claude` directory in any form.
+- **No fallback**: if that file is absent, `run_container.sh` refuses to launch a real/smoke `run`
+  and says so — there is no silent "reuse whatever `claude` happens to already be authenticated as."
+  That silent-reuse path is exactly what caused the 2026-09-09 real-ladder-submission incident below
+  for third-party CLI credential stores; a container makes the same mistake strictly worse (it would
+  require handing the container the host's own credential store wholesale).
+- **One-line launch, once a key file exists**: `tools/stranger_walk/run_container.sh sonnet
+  <run-id>` for a real baseline, or `STRANGER_SMOKE=1 tools/stranger_walk/run_container.sh sonnet
+  <run-id>` for a mechanism smoke test (hard-stops at M5, same guarantee as `run.sh`'s smoke path —
+  verified: see below). `probe`/`selftest` modes need no credential (`run_container.sh probe
+  <run-id>` / `run_container.sh selftest <run-id>`).
+
+**Verified empirically 2026-09-09, with a placeholder (non-functional) key, not a real credential**
+(this task was scoped to never mint or spend a real Anthropic credential; see "What v1.3 does not
+verify" below): `STRANGER_SMOKE=1 STRANGER_ANTHROPIC_API_KEY_FILE=<placeholder> run_container.sh
+sonnet maxwell-c1-smoke` ran the full pipeline end-to-end — image build, container launch as the
+invoking host user's own non-root `uid:gid` (a real bug found and fixed along the way: `claude
+--permission-mode bypassPermissions` refuses to start as root/sudo, so the container cannot run as
+root — see `run_container.sh`'s header), `claude -p` genuinely attempting authentication (transcript
+shows real `401 authentication_failed` `api_retry` events, 10/10 attempts, real backoff, ~187s wall
+clock — this is not a stub, `claude` really tried and really failed), `docker wait` blocking for the
+container's real exit, and `meta.json`/`transcript.jsonl`/`isolation_probe.json` produced in the
+exact run-dir layout `score.py` and `isolation_audit.sh` already expect. Both tools ran clean against
+this run's output (`score.py`: 0 milestones, correctly — no assistant turn ever ran; `isolation_audit.sh`:
+PASS, including the new probe-check path, verified both for a real pass and, separately, a synthetic
+forced-failure copy of the same `isolation_probe.json` to confirm the fail path actually disqualifies).
+
+**Compatibility with protocol v2 (branch `maxwell/walk-protocol-v2`, replacing `prompt.md`).**
+`run_container.sh` never hard-codes prompt text: like `run.sh`, it reads whichever of `prompt.md` /
+`smoke_prompt.md` is present in `tools/stranger_walk/` **at invocation time** and renders it into
+`$RUN_DIR/prompt.rendered.md`, which is what the container actually receives (bind-mounted, read at
+container start). Whatever v2 lands as the new `prompt.md` is picked up automatically, no launcher
+change needed.
+
+**What v1.3 still does not close:**
+- **No real `claude -p` run against a working credential was exercised by this task**, by design — no
+  Anthropic API key was minted or extracted for this proof, only a placeholder used to prove the
+  pipeline (see above). The mechanism is proven; a real baseline run through the container has not
+  been. Whoever runs the first real container baseline should confirm a full walk still reaches its
+  usual milestones (M1–M8) the same way it does through `run.sh` — nothing about the container should
+  change *that*, but it hasn't been observed.
+- **Docker socket / policy-image builds**: the image ships the `docker` CLI (no daemon) so `docker
+  build` is on `PATH`, but with no socket mounted it cannot reach any daemon — a stranger that decides
+  to build a policy image this way hits a dead end. `run_container.sh`'s `STRANGER_ENABLE_DOCKER_SOCKET=1`
+  flag mounts the HOST's `/var/run/docker.sock`, which grants the container root-equivalent control of
+  the host's docker daemon — create/exec/mount arbitrary host paths into *any* container on the host,
+  not a scoped grant. Off by default; use only if a real walk demonstrates it actually needs to build a
+  policy image (no evidence from Walk 1 that it does — see the "Signing up is part of the measured
+  path" section above; every real run submitted via `coworld upload-policy`/`coworld submit`, no
+  `docker build` involved).
+- **No browser inside the container.** `run.sh`'s official (non-smoke) runs get a headless `playwright`
+  MCP server with its own fresh profile; `run_container.sh` does not wire this up (would need a
+  Chromium install in the image plus the same MCP config `run.sh` already renders) — out of scope for
+  this pass, flagged for whoever runs the next real container baseline.
+- **Container-escape / kernel-level isolation is only as strong as the container runtime** (OrbStack,
+  here). This closes the specific gap Walk 1 found (process table, filesystem, network) — it is not a
+  claim of hardened-sandbox/gVisor-grade isolation against a genuinely adversarial process.
 
 ## Incident: a $1 smoke test put a real submission on the real ladder
 
@@ -367,12 +472,12 @@ actually works: `--run python --run /app/policies/starters/opportunist/policy.py
 
 ## Not verified this round
 
-- **Process-table isolation gap** (see above): `ps`/`top`/any host-wide process inspection is not
-  scoped by the `$HOME` fix, can leak real internal paths/model identifiers, and is not fixed —
-  only caught after the fact by `isolation_audit.sh` and handled by discard-and-rerun. A real fix
-  would need process/container-namespace isolation for the stranger's Bash subprocess tree, which
-  this macOS, non-containerized setup doesn't have available. Flagging for whoever scopes Walk 2's
-  infra.
+- **Process-table isolation gap — CLOSED by protocol v1.3** (see that section above): `run_container.sh`
+  runs the stranger in its own Linux container (own PID/filesystem/network namespace); `probe.sh`
+  proves it for real (7/7 checks, run empirically 2026-09-09). `run.sh` (bare host process) still has
+  this gap and is unchanged — v1.3 is a new, additional path, not a replacement of `run.sh`. Not yet
+  verified through v1.3: an actual authenticated baseline run (only a placeholder-credential pipeline
+  proof exists so far — see v1.3's "What v1.3 still does not close").
 - **`sonnet-a`'s Elite Paintbot league membership.** Its own M8 belief states v2 "remained stably
   'competing' in the separate Elite Paintbot league the whole time" — that membership was never
   identified by lpm-id or withdrawn by this task (only its Paintbot Season 2 memberships were
