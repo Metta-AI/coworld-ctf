@@ -768,14 +768,27 @@ html, body {
   align-items: center;
   line-height: 1;
 }
+/* POP TRUTH scale-down (2026-09-09): landed at 26u the ×N read "almost
+   twice the size of the cog itself" (owner). Measured directly off a real
+   1440px-viewport screenshot of this same viewer (a fixture BR replay,
+   default zoom, no manual zoom applied): a cog's own on-screen sprite
+   spans ~15px top-of-helmet to bottom-of-boot (two independent cogs
+   measured, 14-15px each); the ×N glyph at font-size 26u rendered a ~29px
+   cap height ("2" in "×2 FINAL 8") -- ~1.9x the cog, not the ~1.0x
+   (never above ~1.25x) target. 26 -> 14 (x0.538) brings the cap height to
+   ~15.6px, ~1.04x the cog. The label shrinks less (8.5 -> 7, x0.824) so
+   the hero:label ratio TIGHTENS from 3.06:1 to a flat 2:1 rather than
+   preserving the old, more extreme gap -- still unambiguously the
+   subordinate element, just no longer needing to be tiny to read that
+   way once the hero itself is human-scaled. */
 .glory-pop.hero .mult {
-  font-size: calc(26 * var(--u));
+  font-size: calc(14 * var(--u));
   font-weight: 700;
   color: var(--amber);
 }
 .glory-pop.hero .word {
   margin-top: calc(2 * var(--u));
-  font-size: calc(8.5 * var(--u));
+  font-size: calc(7 * var(--u));
   font-weight: 600;
   color: var(--paper-dim);
   letter-spacing: 0.06em;
