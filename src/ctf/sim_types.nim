@@ -2375,6 +2375,13 @@ type
                                   ## the mode is off — the default,
                                   ## byte-identical to a build with no BR
                                   ## code at all.
+    instantTakeover*: bool        ## seat-takeover TIMING override only, WITHOUT
+                                  ## the brMode elimination ruleset: arms
+                                  ## advanceSeatTakeover's `instant` branch and
+                                  ## migratePendingTakeovers' `preferAlive` so a
+                                  ## human drives the seat on the first sampled
+                                  ## frame instead of waiting for a cog death.
+                                  ## false = off, the default.
     # GVNEXT(zone): appended fields, same append-safety reasoning as
     # brMode above (a seq and scalars on GameConfig, not an array[Team, X]
     # run). BR INTEGRATION: elim's brMode and zone's zone* fields both

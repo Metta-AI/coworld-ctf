@@ -5604,18 +5604,53 @@ proc applyFovCone*(
   ## angle, reaching visionRange px — 1.5x the gun range, GV34) plus the
   ## omnidirectional vision bubble (visionBubble px, exempt from the range
   ## cap).
+  ##
+  ## OPT-09/SV-1 (fog): `shadowcast` is walls-only line of sight, unbounded
+  ## by range — in a map with any structure its true cells cluster around
+  ## the viewer instead of covering the whole FovGridW x FovGridH grid.
+  ## Two changes, both provably identical output to the original per-cell
+  ## loop over the whole grid:
+  ##   1. Restrict the loop to the bounding box of `shadowcast`'s true
+  ##      cells — every cell outside it is already false in `shadowcast`
+  ##      (nothing for the cone filter to do) and the copyMem below already
+  ##      carried that false into `visible`, so skipping it changes nothing.
+  ##   2. Skip `sqrt(d2)` for a candidate whose dot product is <= 0 (behind
+  ##      or perpendicular to aim) IFF coneCos > 0 (half-angle < 90°): the
+  ##      original comparison `dot < coneCos * sqrt(d2)` then has a
+  ##      strictly-positive RHS, so any dot <= 0 already satisfies it —
+  ##      same outcome, no sqrt. Gated on coneCos > 0 because a wider
+  ##      config (visionConeDeg up to 180, sim_config.nim's validated
+  ##      range) makes the RHS non-positive and this shortcut wrong; that
+  ##      case falls through to the exact original comparison, unchanged.
   if visible.len != FovCellCount:
     visible.setLen(FovCellCount)
   copyMem(addr visible[0], unsafeAddr shadowcast[0],
     FovCellCount * sizeof(bool))
+  var
+    boxMinCx = FovGridW
+    boxMaxCx = -1
+    boxMinCy = FovGridH
+    boxMaxCy = -1
+  for cy in 0 ..< FovGridH:
+    let rowBase = cy * FovGridW
+    for cx in 0 ..< FovGridW:
+      if shadowcast[rowBase + cx]:
+        if cx < boxMinCx: boxMinCx = cx
+        if cx > boxMaxCx: boxMaxCx = cx
+        if cy < boxMinCy: boxMinCy = cy
+        if cy > boxMaxCy: boxMaxCy = cy
+  if boxMaxCx < boxMinCx:
+    return  ## nothing visible at all (origin cell is always true in
+             ## practice, so this is a defensive no-op, not a hot path).
   let
     (ox, oy) = fovCellCenter(originCx, originCy)
     (ax, ay) = aimVector(aimBrads)
     coneCos = cos(float(sim.config.visionConeDeg) * PI / 180.0)
+    coneCosPositive = coneCos > 0.0
     bubbleSq = float(sim.config.visionBubble * sim.config.visionBubble)
     rangeSq = float(sim.visionRange() * sim.visionRange())
-  for cy in 0 ..< FovGridH:
-    for cx in 0 ..< FovGridW:
+  for cy in boxMinCy .. boxMaxCy:
+    for cx in boxMinCx .. boxMaxCx:
       let index = fovCellIndex(cx, cy)
       if not visible[index]:
         continue
@@ -5630,7 +5665,9 @@ proc applyFovCone*(
         visible[index] = false
         continue
       let dot = vx * ax + vy * ay
-      if dot < coneCos * sqrt(d2):
+      if coneCosPositive and dot <= 0.0:
+        visible[index] = false
+      elif dot < coneCos * sqrt(d2):
         visible[index] = false
 
 proc computeFovVisible*(
