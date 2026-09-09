@@ -27,6 +27,8 @@ type
     cost: seq[float64]
     parent: seq[int32]
     seenGeneration, closedGeneration: seq[uint32]
+    goalCost: seq[float64]
+    goalGeneration: seq[uint32]
 
   CorridorResult = object
     reached: bool
@@ -43,12 +45,15 @@ proc initCorridorScratch(cellCount: int): CorridorScratch =
   result.parent = newSeq[int32](cellCount)
   result.seenGeneration = newSeq[uint32](cellCount)
   result.closedGeneration = newSeq[uint32](cellCount)
+  result.goalCost = newSeq[float64](cellCount)
+  result.goalGeneration = newSeq[uint32](cellCount)
 
 proc beginQuery(scratch: var CorridorScratch) =
   inc scratch.generation
   if scratch.generation == 0:
     for stamp in scratch.seenGeneration.mitems: stamp = 0
     for stamp in scratch.closedGeneration.mitems: stamp = 0
+    for stamp in scratch.goalGeneration.mitems: stamp = 0
     scratch.generation = 1
 
 proc percentile(values: openArray[float64], fraction: float64): float64 =
@@ -208,52 +213,79 @@ proc sharedRoomCost(map: BodyMap, danger: BodyDangerField,
     if aRoom == bRoom and aRoom in sharedRooms:
       result += map.edgeCost(danger, item, route[offset - 1], route[offset])
 
+proc attachCells(map: BodyMap, index: BodyRouteIndex,
+    danger: BodyDangerField, item: NavCorpusCase, endpoint: BodyPoint,
+    allowedRooms: HashSet[int]): seq[tuple[cell: int, cost: float64]] =
+  let center = map.cellOf(endpoint)
+  for ring in 0 .. PortalAnchorRingCells:
+    for y in max(0, center.y - ring) ..
+        min(map.gridHeight - 1, center.y + ring):
+      for x in max(0, center.x - ring) ..
+          min(map.gridWidth - 1, center.x + ring):
+        if max(abs(x - center.x), abs(y - center.y)) != ring:
+          continue
+        let
+          cell = y * map.gridWidth + x
+          room = index.roomForCell(cell)
+          point = cellCenter((x, y))
+        if room < 0 or (allowedRooms.len > 0 and room notin allowedRooms) or
+            not map.segmentClear(endpoint, point):
+          continue
+        result.add (cell: cell,
+          cost: map.edgeCost(danger, item, endpoint, point))
+
+proc globalHeuristic(cell, goalCell: BodyPoint): float64 =
+  ## A goal connector may end up to four diagonal nav cells from goalCell.
+  ## Subtract that maximum displacement so this remains admissible.
+  max(0.0, routeOctileQ4(cell, goalCell).float / 16.0 -
+    PortalAnchorRingCells.float * NavCell.float * sqrt(2.0))
+
 proc corridorRoute(map: BodyMap, index: BodyRouteIndex,
     danger: BodyDangerField, item: NavCorpusCase,
     allowedRooms: HashSet[int], popCap: int,
     scratch: var CorridorScratch): CorridorResult =
   scratch.beginQuery()
   let
-    startCell = map.cellOf(item.start)
     goalCell = map.cellOf(item.validatedGoal)
-    startIndex = startCell.y * map.gridWidth + startCell.x
-    goalIndex = goalCell.y * map.gridWidth + goalCell.x
-    startCenter = cellCenter(startCell)
-    goalCenter = cellCenter(goalCell)
-  if (allowedRooms.len > 0 and
-      (index.roomForCell(startIndex) notin allowedRooms or
-       index.roomForCell(goalIndex) notin allowedRooms)) or
-      not map.segmentClear(item.start, startCenter) or
-      not map.segmentClear(goalCenter, item.validatedGoal):
+    starts = map.attachCells(index, danger, item, item.start, allowedRooms)
+    goals = map.attachCells(index, danger, item, item.validatedGoal,
+      allowedRooms)
+  if starts.len == 0 or goals.len == 0:
     return
   var heap: HeapQueue[CorridorNode]
-  scratch.seenGeneration[startIndex] = scratch.generation
-  scratch.cost[startIndex] = 0.0
-  scratch.parent[startIndex] = -1
-  heap.push CorridorNode(
-    priority: routeOctileQ4(startCell, goalCell).float / 16.0,
-    cost: 0.0, cell: startIndex)
+  for goal in goals:
+    scratch.goalGeneration[goal.cell] = scratch.generation
+    scratch.goalCost[goal.cell] = goal.cost
+  for start in starts:
+    if scratch.seenGeneration[start.cell] != scratch.generation or
+        start.cost < scratch.cost[start.cell]:
+      scratch.seenGeneration[start.cell] = scratch.generation
+      scratch.cost[start.cell] = start.cost
+      scratch.parent[start.cell] = -1
+      let cell = (x: start.cell mod map.gridWidth,
+        y: start.cell div map.gridWidth)
+      heap.push CorridorNode(
+        priority: start.cost + globalHeuristic(cell, goalCell),
+        cost: start.cost, cell: start.cell)
+  var
+    bestGoal = -1
+    bestGoalCost = Inf
   while heap.len > 0 and result.pops < popCap:
     let current = heap.pop()
     if scratch.closedGeneration[current.cell] == scratch.generation or
         scratch.seenGeneration[current.cell] != scratch.generation or
         current.cost != scratch.cost[current.cell]:
       continue
+    if current.priority >= bestGoalCost:
+      break
     scratch.closedGeneration[current.cell] = scratch.generation
     inc result.pops
-    if current.cell == goalIndex:
-      result.reached = true
-      var cursor = goalIndex
-      while cursor >= 0:
-        result.route.add cellCenter(
-          (cursor mod map.gridWidth, cursor div map.gridWidth))
-        cursor = scratch.parent[cursor].int
-      result.route.reverse()
-      if result.route[0] != item.start:
-        result.route.insert(item.start, 0)
-      if result.route[^1] != item.validatedGoal:
-        result.route.add item.validatedGoal
-      return
+    if scratch.goalGeneration[current.cell] == scratch.generation:
+      let total = current.cost + scratch.goalCost[current.cell]
+      if total < bestGoalCost:
+        bestGoalCost = total
+        bestGoal = current.cell
+      continue
     let
       cell: BodyPoint = (x: current.cell mod map.gridWidth,
         y: current.cell div map.gridWidth)
@@ -277,8 +309,20 @@ proc corridorRoute(map: BodyMap, index: BodyRouteIndex,
         scratch.parent[nextIndex] = int32(current.cell)
         heap.push CorridorNode(
           priority: candidate +
-            routeOctileQ4(nextCell, goalCell).float / 16.0,
+            globalHeuristic(nextCell, goalCell),
           cost: candidate, cell: nextIndex)
+  if bestGoal >= 0:
+    result.reached = true
+    var cursor = bestGoal
+    while cursor >= 0:
+      result.route.add cellCenter(
+        (cursor mod map.gridWidth, cursor div map.gridWidth))
+      cursor = scratch.parent[cursor].int
+    result.route.reverse()
+    if result.route[0] != item.start:
+      result.route.insert(item.start, 0)
+    if result.route[^1] != item.validatedGoal:
+      result.route.add item.validatedGoal
 
 proc selectedRooms(map: BodyMap,
     route: openArray[BodyPoint]): HashSet[int] =
