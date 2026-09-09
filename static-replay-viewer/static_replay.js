@@ -315,6 +315,21 @@
       setFlashCalls: function (calls) {
         if (worker) worker.postMessage({ type: 'flashCalls', calls: calls });
       },
+      // STALE BODIES FIX: this adapter was missing both of these — the page
+      // calls core.setDownedSeats/setEliminatedSeats every frame (see
+      // client/replay_broadcast.html's pushDownedSeatsToCore/
+      // pushEliminatedSeatsToCore), but with no passthrough here neither
+      // ever reached the Worker's own BroadcastCore instance, which is the
+      // one actually drawing the board. In this (static bundle) delivery
+      // mode the downed-fade and the eliminated-never-draws invariant were
+      // both silently inert no matter what the roster said. Same forward-
+      // to-Worker shape as setFlashCalls above.
+      setDownedSeats: function (seats) {
+        if (worker) worker.postMessage({ type: 'downedSeats', seats: seats });
+      },
+      setEliminatedSeats: function (seats) {
+        if (worker) worker.postMessage({ type: 'eliminatedSeats', seats: seats });
+      },
       // Zoom/pan forwarded to the worker that owns the OffscreenCanvas. Same
       // signatures as the in-process core, so the page drives one API whether
       // it renders here or in a worker.

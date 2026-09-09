@@ -177,7 +177,7 @@ climbing heat (`glory.nim:2436-2539` `RecutMintCapTable`, applied at
 | deed | budget | line |
 | --- | ---: | --- |
 | `dTagBack` (revive a downed partner) | 3 | `glory.nim:2522` |
-| `dJointAct` (cross-duo damage window) | 6 | `glory.nim:2530` |
+| `dJointAct` (cross-duo damage window, **alliance-only since GloryVersion 15** — see below) | 6 | `glory.nim:2530` |
 | `dDuoDown` (finish an enemy duo) | 4 | `glory.nim:2510` |
 | `dShieldSoak` | 3 | `glory.nim:2500` |
 
@@ -209,8 +209,21 @@ those two rows only fire under that flag (`sim.nim:7790-7792`,
 `glory.nim:2382-2383`). Their mint caps above are pre-armed for the day it
 flips. Check the variant before you tune to any of it.
 
-The economy version is `GloryVersion = 13` (`glory.nim:273`); it bumps on any
+**`dJointAct` is alliance-only (GloryVersion 15, owner ruling 2026-09-08):** a
+contributing seat mints it only if it shares an ACTIVE formal pact with at
+least one other contributing team on the same damage incident
+(`pactActive`, the mutual-pact registry the `pact` play feeds). Two or more
+UNALLIED teams co-damaging the same victim now mints nothing for anyone —
+before this ruling any ≥2-team co-fire minted regardless of alliance.
+`dTagBack` needed no equivalent change: its cross-team revive already
+requires an active pact as a precondition (a non-pact cross-team revive
+cannot happen), so it could never mint off unallied co-fire in the first
+place.
+
+The economy version is `GloryVersion = 15` (`glory.nim:301`); it bumps on any
 pricing change, and a score compared across versions is not a comparison.
+This section's other line references predate later refactors and may drift —
+check the cited symbol, not the exact line number.
 
 ---
 

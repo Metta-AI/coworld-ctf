@@ -458,6 +458,25 @@
     // therefore free) on any replay that never arms downedMode.
     let downedObjectIds = new Set();
 
+    // STALE BODIES FIX: the rig object ids of seats the roster marks NOT
+    // alive (setEliminatedSeats below). Elimination is normally reaped by
+    // the server's per-frame delete diff (opcode 0x03), but that diff can
+    // miss a seat across a scrub/seek or an episode boundary (see
+    // resetStreamState's own comment on the analogous object-ledger gap) —
+    // an id nobody deletes just keeps drawing at full color forever. This
+    // set is an INVARIANT, independent of whether a delete ever arrives:
+    // drawObject below refuses to draw any id in here, full stop. Source of
+    // truth is the same roster the page already reads for `downed`
+    // (broadcast.nim's rosterJson `alive` field), so it carries no new wire
+    // data. Empty (and therefore free) whenever every seat is alive.
+    let eliminatedObjectIds = new Set();
+    // Counts how many times drawObject's eliminated-seat check above has
+    // actually SUPPRESSED a draw (as opposed to the id simply never having
+    // been retained at all) — read by getDebugObjectState, below, so a
+    // verification pass can tell "the invariant held because there was
+    // nothing to catch" apart from "the invariant caught something."
+    let eliminatedDrawSkips = 0;
+
     let socket = null;
     let rafHandle = null;
     let dirty = false;
@@ -950,6 +969,11 @@
         renderZonePaint(targetCtx, obj.dispX);
         return;
       }
+      // STALE BODIES FIX: a seat the roster marks NOT alive never draws,
+      // full stop — checked before the sprite lookup so an eliminated
+      // seat's retained rig object costs nothing but a Set lookup even if
+      // it lingers in `objects` for the rest of the episode.
+      if (eliminatedObjectIds.has(obj.id)) { eliminatedDrawSkips++; return; }
       const sprite = sprites.get(obj.spriteId);
       if (!sprite || !sprite.pixels) return;
       // LOOT(s2) downedMode: fade a downed cog's rig objects at draw time
@@ -1419,10 +1443,12 @@
       if (!flashCalls.length) flashCalls = null;
     }
 
-    function downedRigObjectIds(seat) {
+    function seatRigObjectIds(seat) {
       // The whole rig object family for one seat (see RIG_*_OBJECT_BASE
       // above): 1 head + 2 arms + 3 legs + 3 wheels + 1 gun, mirroring
-      // src/ctf/global.nim's addCogRigObjects id math exactly.
+      // src/ctf/global.nim's addCogRigObjects id math exactly. Shared by
+      // setDownedSeats (fade) and setEliminatedSeats (never-draw) below —
+      // both just resolve a seat to "its ids", identically.
       return [
         RIG_HEAD_OBJECT_BASE + seat,
         RIG_ARM_OBJECT_BASE + seat * 2, RIG_ARM_OBJECT_BASE + seat * 2 + 1,
@@ -1432,6 +1458,23 @@
         RIG_WHEEL_OBJECT_BASE + seat * 3 + 2,
         RIG_GUN_OBJECT_BASE + seat
       ];
+    }
+
+    function seatIdSetFromList(seats) {
+      const next = new Set();
+      for (const seat of (seats || [])) {
+        if (typeof seat !== 'number' || seat < 0) continue;
+        for (const id of seatRigObjectIds(seat)) next.add(id);
+      }
+      return next;
+    }
+
+    function setsDiffer(a, b) {
+      if (a.size !== b.size) return true;
+      for (const id of a) {
+        if (!b.has(id)) return true;
+      }
+      return false;
     }
 
     function setDownedSeats(seats) {
@@ -1444,18 +1487,24 @@
       // change-tracking of its own; `dirty` is set only when the resolved
       // object-id set actually differs, so a downedMode-off replay (always
       // an empty list) never forces an extra composite.
-      const next = new Set();
-      for (const seat of (seats || [])) {
-        if (typeof seat !== 'number' || seat < 0) continue;
-        for (const id of downedRigObjectIds(seat)) next.add(id);
-      }
-      let changed = next.size !== downedObjectIds.size;
-      if (!changed) {
-        for (const id of next) {
-          if (!downedObjectIds.has(id)) { changed = true; break; }
-        }
-      }
+      const next = seatIdSetFromList(seats);
+      const changed = setsDiffer(next, downedObjectIds);
       downedObjectIds = next;
+      if (changed) dirty = true;
+    }
+
+    function setEliminatedSeats(seats) {
+      // STALE BODIES FIX: pushed by the page every frame off the roster's
+      // per-seat `alive` flag (present on every roster entry, unlike the
+      // downedMode-gated `downed` flag above) — same seat-index keying, same
+      // "page resolves identity, core just enforces the invariant" split.
+      // drawObject refuses to draw any id in this set, so an eliminated
+      // seat's rig cannot render at full color even if the server's own
+      // delete diff (0x03) never reaps the id (a scrub/seek or episode
+      // change is the known way that can happen — see resetStreamState).
+      const next = seatIdSetFromList(seats);
+      const changed = setsDiffer(next, eliminatedObjectIds);
+      eliminatedObjectIds = next;
       if (changed) dirty = true;
     }
 
@@ -1956,6 +2005,17 @@
       layers.clear();
       sprites.clear();
       objects.clear();
+      movingObjects.clear();
+      // STALE BODIES FIX: a new episode's roster starts from scratch too —
+      // carrying the PREVIOUS episode's downed/eliminated sets forward would
+      // fade or hide the new episode's seats by their old seat-index
+      // meaning until the first fresh roster frame arrives. Both are
+      // re-derived within one frame either way (the page pushes them every
+      // onFrame), but clearing here means a mid-transition composite (if
+      // one is ever drawn before that first frame) draws everyone plain
+      // instead of borrowing stale state.
+      downedObjectIds = new Set();
+      eliminatedObjectIds = new Set();
       zoneField = null;
       zoneCanvas = null;
       zoneCtx = null;
@@ -2144,6 +2204,30 @@
       };
     }
 
+    function getDebugObjectState() {
+      // VERIFICATION ONLY (stalebodies-fix): exposes the state the stale-
+      // bodies invariant depends on, so a headless check can assert on it
+      // directly instead of reading pixels. Not on any hot path: called by
+      // a test harness, never by the draw loop itself.
+      const liveIds = [...objects.keys()];
+      const eliminatedRetainedIds =
+        liveIds.filter(id => eliminatedObjectIds.has(id));
+      return {
+        liveObjectCount: liveIds.length,
+        eliminatedSeatIds: [...eliminatedObjectIds],
+        downedSeatIds: [...downedObjectIds],
+        // Ids the server never reaped (still in `objects`) for a seat the
+        // roster marks eliminated — reproduces the wire condition the fix
+        // guards against. Non-zero here is EXPECTED on a real seek/episode
+        // jump; drawObject refuses to draw any of them regardless.
+        eliminatedRetainedIds,
+        // How many times drawObject's own check actually fired. Non-zero
+        // alongside a non-empty eliminatedRetainedIds proves the guard is
+        // live, not just present.
+        eliminatedDrawSkips
+      };
+    }
+
     return {
       start,
       ingest,
@@ -2154,6 +2238,7 @@
       setViewportSize,
       getPaceStats,
       getZonePaintStats,
+      getDebugObjectState,
       beginZoneEndcard,
       resetZoneEndcard,
       zoomAt,
@@ -2165,6 +2250,7 @@
       attachMinimap,
       setFlashCalls,
       setDownedSeats,
+      setEliminatedSeats,
       stop
     };
   }

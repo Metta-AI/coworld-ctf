@@ -43,8 +43,27 @@ window.ChromeCommon = function (ctx) {
   var $ = function (id) { return document.getElementById(id); };
 
   // ---- palette (mirrors board tints so chrome matches the arena) ----
-  var RED = '#e0523a', BLUE = '#3f7cc4', AMBER = '#e8a33d', PAPER = '#f2e8d8';
-  var GREEN = '#45a85e', YELLOW = '#ddc531';
+  // Read from the live CSS custom properties (:root --red/--blue/--amber/
+  // --paper/--green/--yellow) via getComputedStyle instead of a second
+  // hardcoded copy of the token hexes -- this file draws canvas/SVG chrome
+  // (scorebug, momentum graph, beat markers) that needs literal color
+  // values, not a var() reference, so without this read a CSS token retune
+  // could silently drift three viewers' canvas chrome out of sync with
+  // their own HTML/CSS. The literals stay ONLY as the file:// fallback
+  // (no spliced <style> block to read a property from), so a raw open's
+  // behaviour is unchanged.
+  var rootStyle = getComputedStyle(document.documentElement);
+  function cssTok(name, fallback) {
+    var v = rootStyle.getPropertyValue(name);
+    v = v && v.trim();
+    return v || fallback;
+  }
+  var RED = cssTok('--red', '#e0523a'),
+    BLUE = cssTok('--blue', '#3f7cc4'),
+    AMBER = cssTok('--amber', '#e8a33d'),
+    PAPER = cssTok('--paper', '#f2e8d8');
+  var GREEN = cssTok('--green', '#45a85e'),
+    YELLOW = cssTok('--yellow', '#ddc531');
 
   // ---- teams (2-4, data-driven) --------------------------------------------
   // The chrome renders whatever teams the state frame carries, in this

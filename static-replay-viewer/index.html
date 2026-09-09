@@ -768,14 +768,27 @@ html, body {
   align-items: center;
   line-height: 1;
 }
+/* POP TRUTH scale-down (2026-09-09): landed at 26u the ×N read "almost
+   twice the size of the cog itself" (owner). Measured directly off a real
+   1440px-viewport screenshot of this same viewer (a fixture BR replay,
+   default zoom, no manual zoom applied): a cog's own on-screen sprite
+   spans ~15px top-of-helmet to bottom-of-boot (two independent cogs
+   measured, 14-15px each); the ×N glyph at font-size 26u rendered a ~29px
+   cap height ("2" in "×2 FINAL 8") -- ~1.9x the cog, not the ~1.0x
+   (never above ~1.25x) target. 26 -> 14 (x0.538) brings the cap height to
+   ~15.6px, ~1.04x the cog. The label shrinks less (8.5 -> 7, x0.824) so
+   the hero:label ratio TIGHTENS from 3.06:1 to a flat 2:1 rather than
+   preserving the old, more extreme gap -- still unambiguously the
+   subordinate element, just no longer needing to be tiny to read that
+   way once the hero itself is human-scaled. */
 .glory-pop.hero .mult {
-  font-size: calc(26 * var(--u));
+  font-size: calc(14 * var(--u));
   font-weight: 700;
   color: var(--amber);
 }
 .glory-pop.hero .word {
   margin-top: calc(2 * var(--u));
-  font-size: calc(8.5 * var(--u));
+  font-size: calc(7 * var(--u));
   font-weight: 600;
   color: var(--paper-dim);
   letter-spacing: 0.06em;
@@ -1880,6 +1893,15 @@ body.sidelanes-both #killfeed {
   z-index: 30;
   padding: calc(20 * var(--u));
   text-align: center;
+  /* Local text-only lightening of --blue: the token itself stays untouched
+     (it paints pips/scorebug/board tints file-wide, out of scope here) but
+     as small BODY TEXT (.ec-tname/.fl-num at 13-22u, not large-text) raw
+     --blue only clears ~4.4:1 against this stage's own gradient two lines
+     up, under the 4.5:1 AA text floor. This scoped var clears >=5:1 against
+     both the lightest and darkest stop of that gradient, staying paired
+     with --red (which already clears ~5:1 here) rather than reading louder
+     than it. */
+  --blue-text: #4a86ca;
 }
 #endcard.on { display: flex; animation: ec-shake 160ms ease-out; }
 @keyframes cardfade { from { opacity: 0; } to { opacity: 1; } }
@@ -2200,6 +2222,11 @@ body.sidelanes-both #killfeed {
   text-overflow: ellipsis;
 }
 #endcard .ec-tname { color: var(--tc, var(--paper)); }
+/* Overrides the generic .blue{--tc:var(--blue)} utility for these two
+   elements only (higher specificity: #endcard + two classes beats one) --
+   see --blue-text above for why. Every other file-wide use of --tc/.blue
+   (scorebug, pips, board) is unaffected. */
+#endcard .ec-tname.blue, #endcard .fl-num.blue { --tc: var(--blue-text); }
 #endcard .ec-lives { display: flex; align-items: baseline; gap: calc(6 * var(--u)); font-family: var(--pixfont); }
 #endcard .fl-num { font-size: calc(22 * var(--u)); color: var(--tc, var(--paper)); }
 /* SEASON 2: per-team GLORY total + the achievements ledger line, riding
@@ -2540,6 +2567,16 @@ body.sidelanes-both #killfeed {
   .plate.leader .glory-num,
   .heat-flame.heat-blazing { animation: none; }
   .banner-chip, .feed-row { animation-duration: 1ms; }
+  /* End-card reveal (ec-shake / ec-flash-fade / ec-headline-pop) collapses
+     to its end state instantly instead of playing out. Each selector below
+     matches the SAME specificity as the rule that actually starts the
+     animation (id/class/pseudo-element and all) -- a lower-specificity
+     neutralizer here loses the cascade to the higher-specificity animating
+     rule regardless of media-query order, and the animation keeps playing
+     at full length under reduced motion. */
+  #endcard.on, #endcard.on::before, #endcard.on .headline {
+    animation-duration: 1ms; animation-delay: 0ms;
+  }
 }
 
 /* ============================================================
@@ -3332,6 +3369,15 @@ body[data-noviewpanel] #viewpanel { display: none !important; }
     ecTeams = null;
     sbTeams = null;
     resetZoneEndcard();
+    // STALE BODIES FIX: a new episode's tick clock starts back at (near)
+    // zero, so a previous episode's final-frame pops — otherwise only
+    // reaped by the `jumped` detector's own clearGloryPops() call, which a
+    // plain episode boundary is not guaranteed to trip — would otherwise
+    // still read as "recent" against the new episode's low tick count and
+    // paint over its opening ticks. Reconciled fresh from the new
+    // connection's own first frame either way (renderGloryPops keys off
+    // `s.pops`), so this only removes the one-frame flash.
+    clearGloryPops();
     C.resetEpisode();
     if (window.PaintballChrome && window.PaintballChrome.reset) {
       window.PaintballChrome.reset();
@@ -5515,6 +5561,26 @@ body[data-noviewpanel] #viewpanel { display: none !important; }
     }
     core.setDownedSeats(downed);
   }
+  // STALE BODIES FIX: `alive` (unlike `downed`) rides every roster entry on
+  // every mode, never gated on downedMode, so this works the same for a
+  // classic multi-life match and a one-life BR episode alike. In BR a
+  // seat's `alive` goes false only once the seat is genuinely gone (lives
+  // hits 0 the same tick — src/ctf/sim.nim's killPlayer, brMode branch); in
+  // downedMode it stays true through a down (the `downed` flag above is
+  // what fades a ghost), so the two sets are always disjoint. Same array-
+  // position-as-seat-id convention as pushDownedSeatsToCore, so no seatInfo
+  // lookup is needed here either.
+  function pushEliminatedSeatsToCore(s) {
+    if (!core || !core.setEliminatedSeats) return;
+    var r = s.roster;
+    var eliminated = [];
+    if (r && r.length) {
+      for (var i = 0; i < r.length; i++) {
+        if (r[i] && r[i].alive === false) eliminated.push(i);
+      }
+    }
+    core.setEliminatedSeats(eliminated);
+  }
   function seatName(seat) {
     var info = seatInfo[seat];
     return (info && info.name && info.name !== '?') ? info.name : ('SEAT ' + seat);
@@ -5707,6 +5773,7 @@ body[data-noviewpanel] #viewpanel { display: none !important; }
     if (s.vote && !voteCache) voteCache = s.vote.slice().sort(byOrd);
     learnSeats(s);
     pushDownedSeatsToCore(s);
+    pushEliminatedSeatsToCore(s);
 
     var inLobby = s.ph === 'lobby';
     var nowMs = (s.t || 0) * 1000 / FPS;
@@ -5853,8 +5920,11 @@ body[data-noviewpanel] #viewpanel { display: none !important; }
 
   function endcardBadge(cls, count, title) {
     // One honor icon; repeat events fold into a ·N suffix instead of stacking.
+    // The icon itself is a CSS ::before glyph with no text content of its
+    // own -- role="img" + aria-label carries the same fact the hover-only
+    // title gives sighted mouse users to AT users too.
     if (!count) return '';
-    return '<span class="ec-badge ' + cls + '" title="' + title + '">' +
+    return '<span class="ec-badge ' + cls + '" role="img" aria-label="' + title + '" title="' + title + '">' +
       (count > 1 ? '·' + count : '') + '</span>';
   }
 
@@ -5885,9 +5955,9 @@ body[data-noviewpanel] #viewpanel { display: none !important; }
     // baked pixel art); a team without baked art gets a tinted glyph.
     if (heartTeam === 'red' || heartTeam === 'blue' ||
         heartTeam === 'green' || heartTeam === 'yellow') {
-      return '<span class="ec-heart ' + heartTeam + '" title="Captured the ' + heartTeam + ' heart"></span>';
+      return '<span class="ec-heart ' + heartTeam + '" role="img" aria-label="Captured the ' + heartTeam + ' heart" title="Captured the ' + heartTeam + ' heart"></span>';
     }
-    return '<span class="ec-heart-glyph" title="Captured an enemy heart">♥</span>';
+    return '<span class="ec-heart-glyph" role="img" aria-label="Captured an enemy heart" title="Captured an enemy heart">♥</span>';
   }
 
   function capturedHeartsHtml(s, p) {
@@ -5949,7 +6019,9 @@ body[data-noviewpanel] #viewpanel { display: none !important; }
         '<span class="n">' + (p.k || 0) + '</span>' +
         '<span class="n">' + (p.d || 0) + '</span>' +
         '<span class="n tk" title="Team kills — killed a teammate">' + (p.tk > 0 ? p.tk : '') + '</span>' +
-        '<span class="n clstr">' + (cluster > 0 ? cluster : '') + '</span>' +
+        '<span class="n clstr"' + (cluster > 0
+          ? ' aria-label="Multi-kill cluster: ' + cluster + '" title="Multi-kill cluster: ' + cluster + '"'
+          : '') + '>' + (cluster > 0 ? cluster : '') + '</span>' +
         '<span class="n cap">' + capturedHeartsHtml(s, p) + '</span>' +
         '</div>';
     }

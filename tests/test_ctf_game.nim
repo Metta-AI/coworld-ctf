@@ -513,6 +513,26 @@ suite "ctf game":
       sim.step(noInput, noInput)
     check sim.recentShots.len == 0
 
+  test "an fx stamped ahead of tickCount (a stale rewind artifact) is pruned, not kept forever":
+    ## FX PRUNE FIX (harness task f4d7de6e): pruneAgedFx's un-gated
+    ## `sim.tickCount - fx.tickField` goes NEGATIVE for an entry whose
+    ## tickField sits ahead of the current tick (only possible from a tick
+    ## count that moved backward under it, e.g. a replay seek/rewind —
+    ## no live producer ever schedules an fx ahead of its own creation
+    ## tick). `negative < life` is true for any `life > 0`, so pre-fix such
+    ## an entry survived every future prune pass forever, no matter how
+    ## many ticks elapsed. A handful of ticks is enough to prove the fix:
+    ## the entry is dropped outright, not merely aged like a normal one.
+    var sim = twoTeamGame()
+    sim.recentShots.add ShotFx(
+      x0: 1, y0: 1, x1: 2, y1: 2,
+      firedTick: sim.tickCount + 5000, color: 1, hit: false)
+    check sim.recentShots.len == 1
+    let noInput = newSeq[InputState](sim.players.len)
+    for _ in 0 ..< 3:
+      sim.step(noInput, noInput)
+    check sim.recentShots.len == 0
+
   test "a kill leaves a splatter that skips the hash and fades out":
     var sim = twoTeamGame()
     let cx = sim.gameMap.center.x

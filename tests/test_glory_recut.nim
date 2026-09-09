@@ -690,6 +690,11 @@ suite "§A6 armed sim: win factor, dTagBack, dJointAct, dark parity":
     # so its product opens unseeded — seed it like the engine seeds active
     # teams, purely so the fold below is observable.
     sim.gloryProduct[Green] = RecutSeed
+    # ALLIANCE GATE (owner ruling 2026-09-08): this test exercises dedup and
+    # seat-keying, which the pact gate does not change once a pact exists —
+    # register Blue<->Green so the below stays a joint ACT, not unallied
+    # co-fire (which now mints nothing; see the dedicated gate suite below).
+    sim.registerPact(Blue, Green)
     discard sim.absorbDamage(0, 1, attackerIndex = 2, weapon = "gun")
     check sim.deedCounts[dJointAct] == 0               # one duo is no joint act
     discard sim.absorbDamage(0, 1, attackerIndex = 4, weapon = "gun")
@@ -724,6 +729,7 @@ suite "§A6 armed sim: win factor, dTagBack, dJointAct, dark parity":
     sim.players[4].team = Green
     sim.players[5].team = Green
     sim.players[0].hp = 100
+    sim.registerPact(Blue, Green)                      # see gate note above
     discard sim.absorbDamage(0, 1, attackerIndex = 2, weapon = "gun")
     discard sim.absorbDamage(0, 1, attackerIndex = 4, weapon = "gun")
     check sim.deedCounts[dJointAct] == 2
@@ -743,6 +749,52 @@ suite "§A6 armed sim: win factor, dTagBack, dJointAct, dark parity":
     discard sim.absorbDamage(0, 1, attackerIndex = 4, weapon = "gun")
     check sim.deedCounts[dJointAct] == 0
     check sim.recutJointSeats.len == 0                 # state never even touched
+
+suite "dJointAct alliance gate (owner ruling 2026-09-08, task f3fe0b4f)":
+  ## THE RULE: JOINT ACT pays ONLY seats in a FORMAL ALLIANCE. Before this
+  ## gate, `recutJointActOnDamage` minted for every contributing seat the
+  ## instant >=2 distinct teams had landed a qualifying hit on one victim
+  ## inside the 120-tick window — no pact check at all, so unallied
+  ## third-party co-fire ("jackal" damage) minted for free. These two tests
+  ## are the fail-before/pass-after pair: reverting the pact check in
+  ## `recutJointActOnDamage` (sim.nim) makes the FIRST test fail with
+  ## `deedCounts[dJointAct] == 2` where it asserts `== 0`.
+  test "NON-pact co-fire mints NOTHING (THE FIX, as a test)":
+    var sim = startedGame(winMultConfig(br = true), 6)
+    sim.players[0].team = Red    # victim's own duo
+    sim.players[1].team = Red
+    sim.players[2].team = Blue   # unallied contributor #1
+    sim.players[3].team = Blue
+    sim.players[4].team = Green  # unallied contributor #2
+    sim.players[5].team = Green
+    sim.players[0].hp = 100
+    sim.gloryProduct[Green] = RecutSeed
+    # Blue and Green co-damage Red's seat 0 inside the window with NO pact
+    # registered between them anywhere.
+    discard sim.absorbDamage(0, 1, attackerIndex = 2, weapon = "gun")
+    discard sim.absorbDamage(0, 1, attackerIndex = 4, weapon = "gun")
+    check not sim.pactActive(Blue, Green)
+    check sim.deedCounts[dJointAct] == 0     # THE FIX: no alliance, no mint
+    check sim.gloryProduct[Blue] == RecutSeed
+    check sim.gloryProduct[Green] == RecutSeed
+
+  test "an ACTIVE mutual pact mints dJointAct for EACH contributor":
+    var sim = startedGame(winMultConfig(br = true), 6)
+    sim.players[0].team = Red
+    sim.players[1].team = Red
+    sim.players[2].team = Blue
+    sim.players[3].team = Blue
+    sim.players[4].team = Green
+    sim.players[5].team = Green
+    sim.players[0].hp = 100
+    sim.gloryProduct[Green] = RecutSeed
+    sim.registerPact(Blue, Green)            # the ONLY difference vs above
+    discard sim.absorbDamage(0, 1, attackerIndex = 2, weapon = "gun")
+    discard sim.absorbDamage(0, 1, attackerIndex = 4, weapon = "gun")
+    check sim.pactActive(Blue, Green)
+    check sim.deedCounts[dJointAct] == 2      # both contributing seats mint
+    check sim.gloryProduct[Blue] == 3
+    check sim.gloryProduct[Green] == 3
 
 # ─────────────────────────────────────────────────────────────────────────
 # MINTCAP (2026-09-04) — per-episode, per-duo MINT BUDGETS on the
