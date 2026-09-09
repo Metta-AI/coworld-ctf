@@ -1458,6 +1458,11 @@ html, body {
   text-transform: uppercase;
   color: var(--paper-dim);
 }
+/* mgRepaintTier leaves this empty rather than guess a tier when the
+   once-per-episode lead series hasn't arrived yet (or never will, on a
+   wire that predates it) -- collapse the reserved gap too, not just the
+   text. Kept byte-identical to the copy in replay_broadcast.html. */
+#endcard .mg-line:empty { display: none; margin-top: 0; }
 #endcard .ec-field {
   width: 100%;
   display: flex;
@@ -2129,12 +2134,20 @@ body[data-noviewpanel] #viewpanel { display: none !important; }
   // (`s.lead`) into its own local copy instead of reaching in. Kept
   // byte-identical to the copy in replay_broadcast.html.
   var mgLeadFull = null;
+  // The MATCH GLORY totals from the endcard's most recent render (set by
+  // renderEndcardBR) -- cached here so mgRepaintTier (below matchGloryTier)
+  // can redraw the tier line the instant mgLeadFull actually arrives, even
+  // when renderEndcard's own content dedupe (card._key) never calls
+  // renderEndcardBR again for what is, correctly, the SAME verdict. Kept
+  // byte-identical to the copy in replay_broadcast.html.
+  var mgTotalsCache = null;
   function mgIngestLead(s) {
     if (mgLeadFull || !s.lead || Array.isArray(s.lead)) return;
     mgLeadFull = {
       teams: s.lead.teams || [],
       pts: (s.lead.pts || []).map(function (p) { return { t: p[0], vals: p.slice(1) }; })
     };
+    mgRepaintTier();
   }
   var getSpoilers = C.getSpoilers, setSpoilers = C.setSpoilers;
 
@@ -2774,8 +2787,11 @@ body[data-noviewpanel] #viewpanel { display: none !important; }
     // MATCH GLORY + paint-splat finish: a new episode is a new match, so the
     // once-per-episode lead series and the sequence's fresh-reveal edges
     // must all re-derive from the incoming stream (same reasoning as every
-    // other latch this function already clears).
+    // other latch this function already clears). mgTotalsCache resets too
+    // -- a stale prior match's totals must never let mgRepaintTier redraw a
+    // tier line for a match that already ended.
     mgLeadFull = null;
+    mgTotalsCache = null;
     gameoverEntered = false;
     ecSequenceStarted = false;
     ecTargets = null;
@@ -5209,6 +5225,26 @@ body[data-noviewpanel] #viewpanel { display: none !important; }
     }
     return { id: 'rout', line: MG_TIERS[MG_TIERS.length - 1].lines[0] };
   }
+  // The show-review tier is a property of the MATCH, never of the viewing
+  // path: this is the ONLY place that writes #mg-line's text, and it always
+  // derives the tier from the complete, one-shot `lead` series (mgLeadFull)
+  // plus the last-rendered totals (mgTotalsCache) -- never from how many
+  // frames the viewer happened to render on the way here. Called both from
+  // renderEndcardBR (the normal render path) and from mgIngestLead the
+  // moment the series lands late, so a straight seek-to-end that outraces
+  // the wire's background scan still lands on the SAME tier a play-through
+  // would compute, once the series arrives -- it just repaints a beat
+  // later instead of guessing wrong and freezing. No series yet (or ever,
+  // on a wire that predates lead tracking / carries the legacy 2-team diff
+  // array): omit the line rather than print a 0-change guess. Kept
+  // byte-identical to the copy in replay_broadcast.html.
+  function mgRepaintTier() {
+    var mgLine = $('mg-line');
+    if (!mgLine || !mgTotalsCache) return;
+    if (!mgLeadFull) { mgLine.textContent = ''; return; }
+    var mgTier = matchGloryTier(matchGloryMargin(mgTotalsCache), matchGloryLeadChanges(mgLeadFull));
+    mgLine.textContent = mgTier.line;
+  }
   // Odometer target parts: the sign and unit (k/M/B/T/Q) are decided ONCE,
   // off the FINAL total, and held static for the whole roll -- only the
   // mantissa counts up. A negative total rolls its MAGNITUDE up with the
@@ -5283,14 +5319,19 @@ body[data-noviewpanel] #viewpanel { display: none !important; }
         var mgTotals = teams.map(function (t) { return teamGloryOf(o, t); })
           .filter(function (v) { return v !== null; });
         var mgSum = mgTotals.reduce(function (a, b) { return a + b; }, 0);
-        var mgTier = matchGloryTier(matchGloryMargin(mgTotals), matchGloryLeadChanges(mgLeadFull));
         $('mg-num').textContent = gloryText(mgSum);
         $('mg-num').title = mgSum + ' combined glory';
-        $('mg-line').textContent = mgTier.line;
+        // The tier line itself is NOT written here -- mgRepaintTier owns
+        // it exclusively (see its own comment) so a lead series that lands
+        // on a later frame than this render still recomputes and repaints,
+        // instead of freezing whatever this one call produced.
+        mgTotalsCache = mgTotals;
+        mgRepaintTier();
         // This view has no ec-glory-hero-num (see ensureEndcardTeams), so
         // the hero slot never rolls here — only the combined total does.
         ecTargets = { hero: null, mg: mgSum };
       } else {
+        mgTotalsCache = null;
         ecTargets = null;
       }
     }
