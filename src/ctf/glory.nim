@@ -973,9 +973,16 @@ const
     ## At L5 the heart no longer slows you.
 
   LevelNames*: array[0 .. MaxLevel, string] = [
-    "recruit", "tagger", "marksman", "ironhide", "quickdraw", "legend"
+    "primer", "dabbler", "splatter", "drencher", "artist", "maestro"
   ]
     ## What the feed and the replay pip call each rung.
+    ##
+    ## Season 2 ladder (promo/ART_DIRECTION.md:193, FINAL 2026-08-28),
+    ## replacing the shipped recruit/tagger/marksman/ironhide/quickdraw/
+    ## legend set, which read as military kit. Verified collision-free
+    ## against every `AchievementNames` tier (~40 names) at rename time --
+    ## "Splatterbomb" (treeGrenade II) and "The Muralist" (treeSpray IV) are
+    ## the only near-misses, and neither is an exact match.
 
   # ── Deed detection geometry ─────────────────────────────────────────────
   PointBlankPx* = 110

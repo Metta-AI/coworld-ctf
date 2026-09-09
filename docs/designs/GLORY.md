@@ -75,12 +75,12 @@ by repeating a free action.
 Each rung a cog crosses buys a real, playable capability — not just a
 bigger number:
 
-1. **Tagger** — a faster trigger.
-2. **Marksman** — the spray can recycles faster.
-3. **Ironhide** — one more hit point of headroom (must still be healed
+1. **Dabbler** — a faster trigger.
+2. **Splatter** — the spray can recycles faster.
+3. **Drencher** — one more hit point of headroom (must still be healed
    back; a level-up is never a free heal).
-4. **Quickdraw** — faster fire, and the grenade holds two charges.
-5. **Legend** — the fastest trigger in the game, and carrying the enemy
+4. **Artist** — faster fire, and the grenade holds two charges.
+5. **Maestro** — the fastest trigger in the game, and carrying the enemy
    flag no longer slows you down.
 
 The anti-snowball rule: **levels are per life**. A cog's xp resets to zero

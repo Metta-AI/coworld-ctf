@@ -1364,7 +1364,7 @@ suite "glory in the sim: the hover inspector":
     sim.addXp(0, LevelThresholds[AceLevel - 1])
 
     let text = sim.inspectorLines(0).join("\n")
-    check "IRONHIDE" in text                      # the rank, by name
+    check "DRENCHER" in text                      # the rank, by name
     check "xp " in text                           # progress to the next rank
     check "buffs" in text                         # what the rank is BUYING
     check "windup" in text                        # a specific, checkable buff

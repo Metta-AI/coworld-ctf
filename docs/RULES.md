@@ -288,7 +288,7 @@ garnish: rank changes what a cog can do.
   all pay zero, on the ruling that a cog benefiting only itself is not
   work the ladder should reward. A kill levels nobody: the damage that
   produced it already did, in proportion to who dealt it. The ladder is
-  `recruit → tagger → marksman → ironhide → quickdraw → legend`. **Getting
+  `primer → dabbler → splatter → drencher → artist → maestro`. **Getting
   tagged out resets the ladder to zero** and the buffs go with it, so a
   dominant cog is bounded to one life. Killing a rank-3+ cog pays an
   `ace tag` bounty, and friendly fire subtracts xp.

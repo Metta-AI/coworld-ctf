@@ -437,7 +437,7 @@ suite "broadcast state channel: the glory ledger":
       check not empty.hasKey("insp")
       let carded = parseJson(sim.buildStateJson(
         newJArray(), false, 1, replay.replayMaxTick(), false, true, -1, -1,
-        inspectSlot = 3, inspectLines = @["ALPHA", "rank IRONHIDE ***"]
+        inspectSlot = 3, inspectLines = @["ALPHA", "rank DRENCHER ***"]
       ))
       check carded["insp"]["slot"].getInt == 3
       check carded["insp"]["lines"].len == 2
