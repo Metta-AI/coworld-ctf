@@ -158,19 +158,19 @@ suite "broadcast state channel":
       check state["ph"].getStr == "gameover"
       check state.hasKey("over")
       # A capture win is not a draw and not a time-limit tiebreak. The winner
-      # is pinned to the current recording of the fixture (GameVersion 61,
-      # seed 1: Blue captures the red heart, eliminating Red). A seed does
+      # is pinned to the current recording of the fixture (GameVersion 63,
+      # seed 1: Red captures the blue heart, eliminating Blue). A seed does
       # not pin the outcome — the bots are separate processes — so which side
       # wins is re-pinned on every re-record; the STRUCTURE (a capture ending,
       # no draw, no time limit) is what the test is actually asserting.
       check state["over"]["draw"].getBool == false
       check state["over"]["timeLimit"].getBool == false
-      check state["over"]["winner"].getStr == "blue"
+      check state["over"]["winner"].getStr == "red"
       # The scorebug axis is lives + flag state, never a kill score.
       check state["teams"]["red"].hasKey("lives")
       # GV32: the captured heart ends the game in the "captured" state.
-      check state["teams"]["red"]["flag"].getStr == "captured"
-      check state["teams"]["blue"]["flag"].getStr in ["home", "taken"]
+      check state["teams"]["blue"]["flag"].getStr == "captured"
+      check state["teams"]["red"]["flag"].getStr in ["home", "taken"]
       # The verdict carries a team-keyed map (any team count) that agrees with
       # the legacy red/blue scalars.
       for team in ["red", "blue"]:
@@ -209,8 +209,8 @@ suite "broadcast state channel":
       for team in ["red", "blue"]:
         check state["over"]["teams"][team].hasKey("deeds")
         check state["over"]["teams"][team]["deeds"].kind == JArray
-      check state["over"]["teams"]["blue"]["deeds"].len >= 1
-      for entry in state["over"]["teams"]["blue"]["deeds"]:
+      check state["over"]["teams"]["red"]["deeds"].len >= 1
+      for entry in state["over"]["teams"]["red"]["deeds"]:
         check entry.hasKey("deed")
         check entry["label"].getStr.len > 0
         check entry["count"].getInt >= 1
@@ -315,8 +315,8 @@ suite "broadcast state channel":
         replay.leadSeries, replay.leadMetric, replay.leadOutTicks
       ))
       # ELIMINATION TICKS, one per team in the same order. capture-seed1 ends
-      # on Blue capturing the red heart (GV60 recording), which eliminates
-      # Red -- so Red has a real tick and Blue, still standing, has -1.
+      # on Red capturing the blue heart (GV63 recording), which eliminates
+      # Blue -- so Blue has a real tick and Red, still standing, has -1.
       #
       # The >0 matters. "No lives banked and nobody up" is also true of the
       # LOBBY, before anyone has spawned, so latching it directly marks every
@@ -327,16 +327,16 @@ suite "broadcast state channel":
       check replay.leadOutTicks.len == 2
       let redOut = replay.leadOutTicks[0]
       let blueOut = replay.leadOutTicks[1]
-      check redOut > 1
-      check redOut <= replay.leadSeries[^1][0]
-      check blueOut == -1
+      check redOut == -1
+      check blueOut > 1
+      check blueOut <= replay.leadSeries[^1][0]
       # The band captions itself from this, rather than hardcoding a metric.
       check state["lead"]["metric"].getStr == "glory"
       # …and the wire carries them, so the lane can stop drawing a dead team
       # as a live competitor.
       check state["lead"]["out"].len == 2
-      check state["lead"]["out"][0].getInt == redOut
-      check state["lead"]["out"][1].getInt == -1
+      check state["lead"]["out"][0].getInt == -1
+      check state["lead"]["out"][1].getInt == blueOut
       check state["lead"]["teams"].len == 2
       check state["lead"]["teams"][0].getStr == "red"
       check state["lead"]["teams"][1].getStr == "blue"
@@ -422,7 +422,7 @@ suite "broadcast state channel":
       let verdicts = replay.beatEvents.elems.filterIt(it["k"].getStr == "gameover")
       check verdicts.len == 1
       check verdicts[0]["draw"].getBool == false
-      check verdicts[0]["winner"].getStr == "blue"
+      check verdicts[0]["winner"].getStr == "red"
       # The chrome frame ships the timeline when (and only when) asked.
       let withBeats = parseJson(sim.buildStateJson(
         newJArray(), false, 1, replay.replayMaxTick(), false, true, -1, -1,

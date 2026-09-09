@@ -53,17 +53,23 @@ const
     ## exactly the reasoning error that missed this.
     ##
     ## GV62 drops out because GV63 (WIRE-OK BATCH -- REALIZED ECONOMY +
-    ## GLORY BY DEED, THE WHOLE epic) appends `teamDeedCounts`/
-    ## `teamDeedGloryMass` (`array[Team, array[Deed, int]]`) to `SimServer`
-    ## -- a flatty keyframe layout change, so a GV62 recording's positional
-    ## bytes cannot be re-hydrated under this engine at all. Unlike the
+    ## GLORY BY DEED, THE WHOLE epic) appends `teamDeedTally`
+    ## (`array[Team, seq[TeamDeedTally]]`) to `SimServer` -- a flatty
+    ## keyframe layout change, so a GV62 recording's positional bytes
+    ## cannot be re-hydrated under this engine at all. A seq per team, not
+    ## a dense `array[Team, array[Deed, int]]` pair: the dense shape traps
+    ## every wasm32 replay load (`ctf-an-unused-field-can-blow-the-wasm-
+    ## stack` -- native shards stay green regardless, only the
+    ## wasm-replay-viewer job builds under that budget), so this bump costs
+    ## `SimServer` only a (pointer, length) header per team until a deed
+    ## actually mints (see `TeamDeedTally`'s own doc comment). Unlike the
     ## hash-neutral GV61->62 relabel documented just below, every committed
     ## fixture is RE-RECORDED under GV63 (not header-patched) through the
     ## sanctioned `-d:write*` regeneration blocks. No hash TRAJECTORY
-    ## change: the two new fields are audit/reporting telemetry only
-    ## (written at the same mint sites as, never read back differently
-    ## from, and excluded from gameHash exactly like, the whole-episode
-    ## `deedCounts`/`deedGloryMass` pair they mirror per-team), and the two
+    ## change: the new field is audit/reporting telemetry only (written at
+    ## the same mint sites as, never read back differently from, and
+    ## excluded from gameHash exactly like, the whole-episode
+    ## `deedCounts`/`deedGloryMass` pair it mirrors per-team), and the two
     ## new broadcast.nim wire keys this bump adds (a per-frame "economy"
     ## stamp, a per-team "deeds" breakdown on the `over` block) are
     ## read-only projections of already-computed state -- every existing
@@ -171,13 +177,15 @@ const
     ## count, glory minted -- the endcard's "Glory by deed" per-seat
     ## breakdown, PLATFORM_LEGIBILITY_DATA.md / ENDCARD_V1_STANDINGS_
     ## DELTA.md's why-row deed layer). A flatty keyframe layout change:
-    ## `teamDeedCounts`/`teamDeedGloryMass` (`array[Team, array[Deed,
-    ## int]]`, sim_types.nim) appended to `SimServer` right after the
-    ## whole-episode `deedCounts`/`deedGloryMass` GLORY AUDIT pair they
-    ## mirror per-team, written at the exact same mint sites (`awardDeed`,
-    ## `claimAchievement`, sim.nim), never read back into any scoring
-    ## decision, excluded from gameHash -- same "audit telemetry only"
-    ## status as the pair they mirror. No hash TRAJECTORY change: nothing
+    ## `teamDeedTally` (`array[Team, seq[TeamDeedTally]]`, sim_types.nim)
+    ## appended to `SimServer` -- a seq per team, not a dense per-Deed
+    ## array (that shape blows the wasm32 viewer's stack budget, see
+    ## `TeamDeedTally`'s own doc comment), written at the exact same mint
+    ## sites (`awardDeed`, `claimAchievement`, sim.nim, via
+    ## `recordTeamDeed`) as the whole-episode `deedCounts`/`deedGloryMass`
+    ## GLORY AUDIT pair it mirrors per-team, never read back into any
+    ## scoring decision, excluded from gameHash -- same "audit telemetry
+    ## only" status as that pair. No hash TRAJECTORY change: nothing
     ## here alters what any existing config simulates to. Endcard per-seat
     ## LEAGUE IDENTITY (player_id/policy_version_id/round_id) was scoped
     ## for this same batch and is explicitly NOT shipped here: traced
@@ -3904,6 +3912,30 @@ type
                                ## SATISFIED the tier, or -1 for a team tree
                                ## (`treeSquad`) which no single cog can own.
 
+  TeamDeedTally* = object
+    ## GLORY BY DEED (WIRE-OK batch, THE WHOLE epic, GameVersion 62->63): one
+    ## seat's running total for ONE deed that has fired at least once for it.
+    ## `SimServer.teamDeedTally` holds a `seq[TeamDeedTally]` per team
+    ## (`array[Team, seq[TeamDeedTally]]`) instead of a dense `array[Team,
+    ## array[Deed, int]]` pair on purpose: a dense pair sizes to
+    ## teamCount(16) x Deed.len(35) x 2 fields, ~4.5 KB of pure `SimServer`
+    ## growth regardless of how many deeds a game ever mints, and the exact
+    ## shape of a prior wasm32 outage (`ctf-an-unused-field-can-blow-the-
+    ## wasm-stack`: an O(teamCount^2) 1 KB array alone traps every replay
+    ## load under emscripten's tighter stack, native shards staying green
+    ## throughout since only the wasm-replay-viewer job builds under that
+    ## budget). A seq costs only its (pointer, length) header until
+    ## something is appended, so this field's SimServer footprint is
+    ## proportional to distinct deeds actually minted (bounded by Deed.len,
+    ## typically far fewer), not the full catalog every team could
+    ## theoretically reach. Never read back into any scoring decision, not
+    ## in gameHash -- audit/reporting telemetry only, same status as
+    ## `deedCounts`/`deedGloryMass`.
+    deed*: Deed
+    count*: int
+    glory*: int                ## can be negative (a friendly-fire-heavy
+                               ## seat's own dTeamKill entries).
+
   ShotFeedbackFx* = object
     ## A PRIVATE, one-shot combat-outcome record: config-gated
     ## (`allowShotFeedback`, default off) and, like every Fx type above,
@@ -4830,23 +4862,22 @@ type
                                ## Not in gameHash -- audit telemetry only.
     deedGloryMass*: array[Deed, int]  ## GLORY AUDIT: glory minted per deed.
                                ## Not in gameHash -- audit telemetry only.
-    teamDeedCounts*: array[Team, array[Deed, int]]
-                               ## GLORY AUDIT: `deedCounts`' per-team (=
-                               ## per-seat in BR, one team per duo) mirror
-                               ## -- the WIRE-OK "Glory by deed" endcard
-                               ## breakdown (THE WHOLE epic, GameVersion
-                               ## 62->63) needs a per-seat split that the
-                               ## whole-episode `deedCounts` cannot supply.
+    teamDeedTally*: array[Team, seq[TeamDeedTally]]
+                               ## GLORY AUDIT: `deedCounts`/`deedGloryMass`'s
+                               ## per-team (= per-seat in BR, one team per
+                               ## duo) mirror -- the WIRE-OK "Glory by deed"
+                               ## endcard breakdown (THE WHOLE epic,
+                               ## GameVersion 62->63) needs a per-seat split
+                               ## the whole-episode ledger cannot supply. See
+                               ## `TeamDeedTally`'s own doc comment for why
+                               ## this is a seq, not a dense per-Deed array.
                                ## Written at the exact same mint sites
-                               ## (awardDeed, claimAchievement) as
-                               ## `deedCounts`, never read back into any
-                               ## scoring decision. Not in gameHash --
-                               ## audit/reporting telemetry only, same
-                               ## status as `deedCounts`.
-    teamDeedGloryMass*: array[Team, array[Deed, int]]
-                               ## GLORY AUDIT: `deedGloryMass`'s per-team
-                               ## mirror, same reasoning and status as
-                               ## `teamDeedCounts` just above.
+                               ## (awardDeed, claimAchievement, via
+                               ## `recordTeamDeed` below) as `deedCounts`,
+                               ## never read back into any scoring decision.
+                               ## Not in gameHash -- audit/reporting
+                               ## telemetry only, same status as
+                               ## `deedCounts`.
     gloryPops*: seq[GloryFx]   ## GLORY: cosmetic floating "+Ng" score pops
                                ## and achievement claim toasts. Never in
                                ## gameHash. Feeds the HUD (Phase 3, deferred
@@ -5079,6 +5110,22 @@ proc teams*(sim: SimServer): Slice[Team] =
   ## Returns the active teams in one game.
   sim.gameMap.teams()
 
+proc recordTeamDeed*(sim: var SimServer, team: Team, deed: Deed, times,
+                     amount: int) =
+  ## GLORY BY DEED (WIRE-OK batch, THE WHOLE epic): the single write site for
+  ## `SimServer.teamDeedTally` -- mirrors `deedCounts`/`deedGloryMass`'s own
+  ## write (`inc`/`+=`) but against the per-team seq (see `TeamDeedTally`'s
+  ## own doc comment for why this is a seq, not a dense array). A linear
+  ## scan is fine here: called once per mint (awardDeed, claimAchievement),
+  ## never per-tick, and bounded by the number of DISTINCT deeds one team
+  ## can ever mint (Deed.len, ~35).
+  for entry in sim.teamDeedTally[team].mitems:
+    if entry.deed == deed:
+      inc entry.count, times
+      entry.glory += amount
+      return
+  sim.teamDeedTally[team].add(TeamDeedTally(deed: deed, count: times,
+                                            glory: amount))
 
 proc teamText*(team: Team): string =
   ## Returns the readable team name.
