@@ -9,10 +9,10 @@ const
   PoolSamples = 5
   ColossalSamples = 3
 
-type FineLegality = object
-  width, height: int
-  standable: seq[uint8]
-  legal: seq[uint8]
+type FineLegality* = object
+  width*, height*: int
+  standable*: seq[uint8]
+  legal*: seq[uint8]
 
 proc loadMap(pool: JsonNode, poolIndex: int): BodyMap =
   let entry = pool[poolIndex]
@@ -30,13 +30,13 @@ proc colossalMap(): BodyMap =
 proc setBit(bits: var seq[uint8], index: int) {.inline.} =
   bits[index shr 3] = bits[index shr 3] or uint8(1 shl (index and 7))
 
-proc bitAt(bits: openArray[uint8], index: int): bool {.inline.} =
+proc bitAt*(bits: openArray[uint8], index: int): bool {.inline.} =
   (bits[index shr 3] and uint8(1 shl (index and 7))) != 0
 
-proc pointAt(index, width: int): BodyPoint {.inline.} =
+proc pointAt*(index, width: int): BodyPoint {.inline.} =
   (x: (index mod width) * FineStep, y: (index div width) * FineStep)
 
-proc buildFineLegality(map: BodyMap): FineLegality =
+proc buildFineLegality*(map: BodyMap): FineLegality =
   result.width = (map.width - 1) div FineStep + 1
   result.height = (map.height - 1) div FineStep + 1
   let count = result.width * result.height
