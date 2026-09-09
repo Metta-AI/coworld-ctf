@@ -18,7 +18,7 @@
 ## partitioner. That costs nothing today and is why the partition and lift
 ## stages take a `SymGroup` rather than a `MapSymmetry`.
 
-import sim_types, arena
+import sim_types
 
 type
   SymGroup* = object
@@ -57,15 +57,15 @@ func orbitOrder*(g: SymGroup): int {.inline.} =
 
 func image*(g: SymGroup, p: MapPoint, k: int): MapPoint =
   ## The k-th image of a point; k = 0 is the identity.
+  result = p
   case g.kind
   of symMirror:
-    if k mod 2 == 0: p
-    else: MapPoint(x: g.reflectX(p.x), y: p.y)
+    if k mod 2 != 0:
+      result = MapPoint(x: g.reflectX(p.x), y: p.y)
   of symRot180:
-    if k mod 2 == 0: p
-    else: MapPoint(x: g.reflectX(p.x), y: g.reflectY(p.y))
+    if k mod 2 != 0:
+      result = MapPoint(x: g.reflectX(p.x), y: g.reflectY(p.y))
   of symRot90:
-    result = p
     for _ in 0 ..< (k mod 4):
       result = g.quarterTurn(result)
 
@@ -95,8 +95,13 @@ func domain*(g: SymGroup): MapRect =
   of symRot90:
     MapRect(x: 0, y: 0, w: (g.width + 1) div 2, h: (g.height + 1) div 2)
 
+func inRectPt*(p: MapPoint, r: MapRect): bool {.inline.} =
+  ## `arena.inRect` for a point. Spelled here so this module stays a LEAF —
+  ## `arena` imports the generator, so the generator cannot import `arena`.
+  p.x >= r.x and p.x < r.x + r.w and p.y >= r.y and p.y < r.y + r.h
+
 func inDomain*(g: SymGroup, x, y: int): bool {.inline.} =
-  inRect(x, y, g.domain())
+  inRectPt(MapPoint(x: x, y: y), g.domain())
 
 func axisX*(g: SymGroup): int {.inline.} =
   ## The last column of the fundamental domain — the one the mirror axis runs
@@ -129,7 +134,19 @@ func liftSites*(g: SymGroup, domainSites: openArray[MapPoint]): seq[MapPoint] =
   ## partition is computed against THIS, so a cell's shape near the seam is
   ## the true one (bounded by the bisector against its own mirror image) and
   ## not an artefact of clipping to the domain rectangle.
+  ##
+  ## The domain's own seeds come FIRST and in order, so site index i < the
+  ## domain seed count names domain seed i. The generator relies on that to
+  ## know which cells it owns; interleaving the images (which the obvious
+  ## `for p: for q in orbit(p)` does) silently makes every second cell someone
+  ## else's, and the map draws its terrain into half the board.
+  ##
+  ## `domainSites` must already be duplicate-free — dedup here would shift the
+  ## very indices the contract above is about.
   for p in domainSites:
-    for q in g.orbit(p):
+    result.add p
+  for p in domainSites:
+    for k in 1 ..< g.orbitOrder():
+      let q = g.image(p, k)
       if q notin result:
         result.add q
