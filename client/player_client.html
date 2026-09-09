@@ -3273,7 +3273,11 @@ function telemetryPayload(final){
   return {
     v:1,
     sid:TELEMETRY_SID,
-    seat:u.searchParams.get("name")||null, // seat name only, matching the reward/endcard identity boundary -- never IP/account
+    // seat name only, matching the reward/endcard identity boundary -- never
+    // IP/account. `name` is only ever set on the takeover path; the real
+    // fresh-match production URL (engine.mjs playerClientUrl()) never sets
+    // it, so fall back to the slot index every load already carries.
+    seat:u.searchParams.get("name")||u.searchParams.get("slot")||null,
     mode:isBrMap()?"br":"ctf",
     predict:PREDICT_ENABLED,
     build:BUILD_STAMP,
