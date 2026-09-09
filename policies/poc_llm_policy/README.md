@@ -184,7 +184,7 @@ Build from the **repository root** — the playbook is compiled from `play_sdk/`
 during the build:
 
 ```bash
-docker build -f policies/poc_llm_policy/Dockerfile -t poc-llm-policy .
+docker build --platform linux/amd64 -f policies/poc_llm_policy/Dockerfile -t poc-llm-policy .
 
 # Offline / CI: no model credentials of any kind.
 docker run --rm \
@@ -200,6 +200,20 @@ docker run --rm \
   poc-llm-policy
 ```
 
+**`--platform linux/amd64` is required on Apple Silicon** — the ladder runs
+amd64 images, and `coworld upload-policy` refuses an arm64 one ("Coworld
+uploads and hosted execution require linux/amd64 images", already verified in
+`policies/starters/README.md:203`). Omitting the flag does **not** fail the
+build: verified on this Apple Silicon machine, `docker build` without
+`--platform` succeeds silently and produces an arm64 image (`docker inspect
+--format '{{.Architecture}}'` → `arm64`) — the rejection only surfaces later,
+at upload. Running an amd64 image locally on Apple Silicon also needs either
+Rosetta or `export DOCKER_DEFAULT_PLATFORM=linux/amd64`, or the CLI itself
+warns on every local run (verified, `coworld==0.1.46`): "linux/amd64-only
+Coworld images will run on Apple Silicon, but DOCKER_DEFAULT_PLATFORM is not
+set to linux/amd64" (setup:
+<https://github.com/Metta-AI/coworld/blob/main/src/coworld/docs/MACOS.md>).
+
 **In a hosted tournament you pass no key at all.** The platform injects the
 sidecar environment into the pod, the harness detects
 `AWS_ENDPOINT_URL_BEDROCK_RUNTIME` and takes the Bedrock path automatically, and
@@ -211,6 +225,50 @@ The server has to be reachable from inside the container: start it with
 `COGAME_HOST=0.0.0.0` and use `host.docker.internal` (Docker Desktop) or
 `--network host` with `POC_HOST=127.0.0.1` (Linux). `run_poc.sh` binds the
 server to loopback, so for a container run start the server yourself.
+
+### Running this image through `coworld run-episode` — and why it can't yet
+
+`coworld run-episode` and `coworld play` are the CLI's own headless/hosted-shaped
+local proof (`coworld run-episode --help`, verified against `coworld==0.1.46`:
+"Run one or more headless local episodes"). The custom-command flag on both is
+`--run`, and it takes **one argv token per flag, never a JSON array** — the
+exact trap a real Stranger Walk run hit and lost 12.1 minutes / 18 calls to
+before landing on the fix (`~/.ctf/knowledge/stranger-walk/STATUS-2026-09-09.md`
+punchlist #1). Verified against the installed CLI's own validation
+(`coworld==0.1.46`, `coworld/cli_support.py:64-83`):
+
+```bash
+# WRONG — one --run value holding a whole argv list:
+coworld run-episode <manifest> <image> --run '["python", "/app/policy.py", "--canned"]'
+# Error: --run takes one token per flag, e.g. `--run python --run /app/policy.py --run --canned`;
+# the first --run value (the executable) contains spaces: ...
+
+# RIGHT — repeat --run once per token, executable first:
+coworld run-episode <manifest> <image> \
+  --run python --run /app/policy.py --run --canned \
+  -o runs/local-smoke --timeout-seconds 240
+```
+
+**This specific image is not yet `run-episode`/`play`-compatible.** Verified
+by running it: `coworld run-episode`/`play` inject a single pre-built
+`COWORLD_PLAYER_WS_URL` (and `COGAMES_ENGINE_WS_URL`, same value) into every
+player container — confirmed by reading the installed `coworld==0.1.46`
+package, `coworld/runner/runner.py:476` (the same convention the *hosted*
+Kubernetes runner uses, `coworld/runner/kubernetes_runner.py:807`, so this is
+not a local-only quirk). `poc_policy.py` only reads `POC_HOST`/`POC_PORT`/
+`POC_SLOT`/`POC_TOKEN` (`poc_policy.py:562-567`) — it never looks at
+`COWORLD_PLAYER_WS_URL` — so under `run-episode`/`play` it falls back to its
+baked-in image defaults (`127.0.0.1:21815`, empty token) and fails with
+`FAILED: transport error: [Errno 111] Connection refused` (reproduced on this
+machine). Use the `docker run` form above (against a server you start
+yourself) for this image; the same `--run` argv pattern, run against a
+`policies/starters/` image instead (its harness *does* read
+`COWORLD_PLAYER_WS_URL`), is a genuinely completed local episode — verified:
+16/16 players connected, `game started: players=16`, a winner, and a replay
+written, in 18s wall time end to end. Root README's
+["Run Season 2 locally"](../../README.md#run-season-2-locally) has the full
+copy-pasteable command. See also the protocol quick reference in
+[`docs/PROTOCOL.md`](../../docs/PROTOCOL.md#season-2-quick-reference-read-this-first).
 
 ### Environment
 
@@ -449,6 +507,12 @@ a gap between what the spec says and what the validator checks.
     registered, that a correct client gets silence. The failure mode is a
     counter, not a status or a close, so from the client side it is
     indistinguishable from a bug in your own bytes.
+
+**Item 1, partly addressed:** `docs/PROTOCOL.md` now opens with a "Season 2
+quick reference" pointing at this file, the connect/observe/act facts it
+still owns, and the §4.3 normative table — it is still Sprite v1 below the
+fold, but an outside author landing on the obviously-named file no longer
+learns nothing.
 
 ### On the platform side, by contrast
 

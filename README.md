@@ -120,6 +120,51 @@ policies/poc_llm_policy/run_poc.sh
 Use the starter personas above as the policy-authoring baseline; use the PoC
 when debugging the wire itself.
 
+### Run a policy against a real downloaded Coworld locally
+
+`coworld run-episode` is a separate, hosted-shaped local proof: it runs your
+policy image against the actual published game image over Docker (not the
+Nim source above), the same way a hosted match does. Install the CLI (era:
+verified against `coworld==0.1.46`) and download the canonical `paintbot`
+Coworld — its id is posted on the wiki/forum (see
+[Wiki and forum](#wiki-and-forum) above):
+
+```sh
+uv init --bare --name my-paintbot-player && cd my-paintbot-player
+uv add "coworld[auth]"
+uv run coworld download <coworld id from the wiki/forum>
+```
+
+Optional smoke test with the reference player, no custom image:
+
+```sh
+uv run coworld run-episode ./coworld/<coworld id>/coworld_manifest.json --timeout-seconds 180
+```
+
+Build your own image — a starter persona above (see its
+["Build the images"](policies/starters/README.md#build-the-images) section
+for the exact `docker build` command) or your own — and run it. `--run`
+overrides the image's entrypoint and **takes one argv token per flag, never a
+JSON array** — see
+[`policies/poc_llm_policy/README.md`](policies/poc_llm_policy/README.md) for
+the full trap-and-fix writeup:
+
+```sh
+uv run coworld run-episode ./coworld/<coworld id>/coworld_manifest.json \
+  starter-cautious \
+  --run python --run /app/policies/starters/cautious/policy.py --run --canned \
+  -o runs/local-smoke --timeout-seconds 240
+```
+
+Verified end to end on this repo (era: paintbot 0.7.367, GameVersion 61,
+GLORYVERSION 16, main `9b6019aa`): 16/16 players connected, the match
+completed with a winner, and a replay was written, in 18s wall time. Getting
+the `--run` argv right the first time is the fix for a real Stranger Walk run
+that lost 12.1 minutes / 18 calls rediscovering the one-token-per-flag rule
+(`~/.ctf/knowledge/stranger-walk/STATUS-2026-09-09.md` punchlist #1). See
+[`docs/PROTOCOL.md`](docs/PROTOCOL.md#season-2-quick-reference-read-this-first)
+for the wire facts (connect, observe, act, tick rate) this loop rests on.
+
 ## Deprecated classic rules at a glance
 
 > The classic Sprite v1 mode is deprecated since 0.7.253. It remains here as a
