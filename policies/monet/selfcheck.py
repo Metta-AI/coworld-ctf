@@ -2001,14 +2001,17 @@ check("a model call naming jackal with a WIDER earshot than the floor is "
 # v44 UPDATE: a ladder read rolled back v42's 400/340 pressRange doctrine
 # (score-ratio 1.20->0.67, trade rate 18->30%) and repointed doctrine at
 # 220 flat, the value that was already living on the wire -- so for
-# pressRange specifically, schema default and doctrine are now the SAME
-# number by design. The bare-schema call below still submits the raw
-# 220/140 a compliant-but-unread model produces; the pressRange check no
-# longer distinguishes "clamped" from "coincidentally already correct",
-# but the clamp still unconditionally overwrites the field (see the
-# negative "owns exactly" check below, and the finishRange/whenHpBelow
-# checks in this same loop, which still submit values that DIFFER from
-# doctrine and so still exercise the clamp for real). ──────────────────
+# pressRange specifically, schema default and doctrine were briefly the
+# SAME number by design.
+#
+# v54 UPDATE (GV17 tag pricing, see FIRE_SUPERIORITY_PRESS_RANGE's own
+# module comment): doctrine moves OFF the schema default again -- 300
+# default / 260 endgame, still well under v42's 400/340 -- so the
+# bare-schema call below (still submitting the raw 220/140 a compliant-
+# but-unread model produces, unchanged) is once again a REAL clamp
+# exercise for pressRange too, not just finishRange/whenHpBelow: 220 must
+# commit to 300 or 260 depending on phase, never left at the schema
+# default. ─────────────────────────────────────────────────────────────
 _PRESS_PHASE_VIEWS = {
     "default": {},
     "endgame": {"world": {"zone": {"phase": policy.TOTAL_ZONE_PHASES,
@@ -2034,12 +2037,11 @@ for _phase, _view in _PRESS_PHASE_VIEWS.items():
     _sr = next(e for e in _seat.wanted_entries if e["play"] == "supply_run")
     _jk = next(e for e in _seat.wanted_entries if e["play"] == "jackal")
     check(f"bare-schema submission (phase={_phase}): fire_superiority."
-          "pressRange is pinned at doctrine 220 (v44: doctrine now equals "
-          "the schema default on purpose, so the wire cannot drift off "
-          "220 in either direction)",
+          "pressRange commits from the raw schema default (220) to v54 "
+          "doctrine (300 default / 260 endgame), never left at 220",
           _fs["params"].get("pressRange")
           == policy.FIRE_SUPERIORITY_PRESS_RANGE[_phase]
-          == 220,
+          != 220,
           str(_fs["params"]))
     check(f"bare-schema submission (phase={_phase}): fire_superiority."
           "finishRange clamps 140 -> doctrine, not the schema default",
@@ -2344,8 +2346,11 @@ check("(d) final4 (alive_teams=4): fire_superiority.pressRange/finishRange/"
       "final4 state. v53 UPDATE: engageDist now commits 600 -> 750 here "
       "too (same class as pressRange/finishRange, no longer 'left exactly "
       "as submitted' -- that was only ever true because nothing owned the "
-      "field yet, not because final4 exempts it)",
-      _f4a_fs["params"].get("pressRange") == 220
+      "field yet, not because final4 exempts it). v54 UPDATE: the bare-"
+      "schema 220 submitted for pressRange now commits to the default-"
+      "phase doctrine 300 here too, same reasoning.",
+      _f4a_fs["params"].get("pressRange")
+      == policy.FIRE_SUPERIORITY_PRESS_RANGE["default"] == 300
       and _f4a_fs["params"].get("finishRange") == 140
       and _f4a_fs["params"].get("engageDist")
       == policy.FIRE_SUPERIORITY_ENGAGE_DIST["default"] == 750,
@@ -2804,8 +2809,9 @@ def _v52_supply_entry(when_hp_below):
 
 
 # (a) maintenance resend DURING the zone-timer endgame with fire_superiority
-# pressRange 400 / finishRange 140 in wanted_entries -> committed 220/120
-# with the distinguishable '(maintenance)' clamp lines.
+# pressRange 400 / finishRange 140 in wanted_entries -> committed 260/120
+# (v54: endgame pressRange doctrine is 260, not the pre-v54 220) with the
+# distinguishable '(maintenance)' clamp lines.
 _v52_entries_a = _v52_fs_entry(400, 140)
 _v52_log_a = _io.StringIO()
 with _contextlib.redirect_stdout(_v52_log_a):
@@ -2813,8 +2819,10 @@ with _contextlib.redirect_stdout(_v52_log_a):
         _v52_entries_a, _V52_ENDGAME_VIEW, {}, source="maintenance")
 _v52_a_fs = _v52_entries_a[0]
 check("(a) v52 maintenance resend during the zone-timer endgame: "
-      "fire_superiority.pressRange commits 400 -> 220",
-      _v52_fired_a and _v52_a_fs["params"].get("pressRange") == 220,
+      "fire_superiority.pressRange commits 400 -> 260 (v54 endgame "
+      "doctrine)",
+      _v52_fired_a and _v52_a_fs["params"].get("pressRange")
+      == policy.FIRE_SUPERIORITY_PRESS_RANGE["endgame"] == 260,
       str(_v52_a_fs["params"]))
 check("(a) v52 maintenance resend during the zone-timer endgame: "
       "fire_superiority.finishRange commits 140 -> 120 (endgame tighten)",
@@ -2822,7 +2830,7 @@ check("(a) v52 maintenance resend during the zone-timer endgame: "
       str(_v52_a_fs["params"]))
 check("(a) v52 maintenance resend logs the distinguishable '(maintenance)' "
       "clamp lines for both fire_superiority levers",
-      "clamp fire_superiority.pressRange (maintenance) 400->220 "
+      "clamp fire_superiority.pressRange (maintenance) 400->260 "
       "phase=endgame" in _v52_log_a.getvalue()
       and "clamp fire_superiority.finishRange (maintenance) 140->120 "
       "phase=endgame" in _v52_log_a.getvalue(),
@@ -2857,10 +2865,10 @@ check("(a) v52 BREAK PROOF: with no phase-clamp hook wired to the persona "
       str(_v52_entries_break[0]["params"]))
 
 # (b) maintenance resend OUTSIDE the zone-timer endgame: pressRange is
-# still pinned to 220 (the "always" pin -- doctrine is the same 220 in
-# both phase buckets today), finishRange stays untouched at its own
-# (already-doctrine) 140 -- the endgame-only 120 tighten never fires
-# outside the window.
+# still pinned, now to the v54 default-phase doctrine (300, tighter than
+# v42's 400 but wider than the pre-v54 220 floor) -- finishRange stays
+# untouched at its own (already-doctrine) 140, the endgame-only 120
+# tighten never fires outside the window.
 _v52_entries_b = _v52_fs_entry(400, 140)
 _v52_log_b = _io.StringIO()
 with _contextlib.redirect_stdout(_v52_log_b):
@@ -2868,8 +2876,10 @@ with _contextlib.redirect_stdout(_v52_log_b):
         _v52_entries_b, _V52_DEFAULT_VIEW, {}, source="maintenance")
 _v52_b_fs = _v52_entries_b[0]
 check("(b) v52 maintenance resend outside the zone-timer endgame: "
-      "fire_superiority.pressRange is still pinned 400 -> 220",
-      _v52_fired_b and _v52_b_fs["params"].get("pressRange") == 220,
+      "fire_superiority.pressRange is still pinned 400 -> 300 (v54 "
+      "default-phase doctrine)",
+      _v52_fired_b and _v52_b_fs["params"].get("pressRange")
+      == policy.FIRE_SUPERIORITY_PRESS_RANGE["default"] == 300,
       str(_v52_b_fs["params"]))
 check("(b) v52 maintenance resend outside endgame: finishRange is left "
       "untouched at 140 (no endgame tighten, no clamp line logged for it)",
@@ -2919,6 +2929,86 @@ check("(e) v52: PERSONA.apply_phase_clamps is STILL wired to the SAME "
       "function policy.adjust_entries calls internally, now covering all "
       "three endgame pins in one implementation",
       PERSONA.apply_phase_clamps is policy.apply_phase_clamps)
+
+# ── v54 (GV17 economy, tag pricing): pressRange doctrine moves off the
+# accidental 220 floor to 300 default / 260 endgame -- bounded well under
+# v42's rolled-back 400/340, see FIRE_SUPERIORITY_PRESS_RANGE's own module
+# comment for the full GV17-vs-GV15 pricing rationale. Same class of proof
+# as the v53 engageDist block above: (a) a REAL model call proposing the
+# old v42 value (400) commits DOWN to doctrine, with a distinguishable
+# clamp log line; (b) the clamp is a PIN, not a ceiling/max -- a proposed
+# value BELOW doctrine (250) must commit UP to 300, never left alone the
+# way a max()/upper-bound clamp would leave it; a deliberate-break proof
+# on (a) proves these checks discriminate the real fix. ──────────────────
+_v54_call_400 = {"call": {"entries": [
+    {"play": "fire_superiority", "entry_id": "pressbreak",
+     "params": {"pressRange": 400, "finishRange": 140, "engageDist": 750,
+                "woundedPct": 50}},
+]}}
+_v54_seat_a = fake_seat()
+_v54_log_a = _io.StringIO()
+with _contextlib.redirect_stdout(_v54_log_a):
+    starter_harness.repair_call(_v54_call_400, PERSONA, _v54_seat_a, AVAILABLE)
+_v54_a_fs = next(e for e in _v54_seat_a.wanted_entries
+                  if e["play"] == "fire_superiority")
+check("(v54-a) a model-proposed pressRange 400 (v42's rolled-back "
+      "doctrine) commits DOWN to the new default-phase doctrine 300, "
+      "never left at 400 and never left at the raw schema default 220",
+      _v54_a_fs["params"].get("pressRange")
+      == policy.FIRE_SUPERIORITY_PRESS_RANGE["default"] == 300,
+      str(_v54_a_fs["params"]))
+check("(v54-a) the override logs the distinguishable clamp line naming "
+      "pressRange, old value, and 300",
+      "clamp fire_superiority.pressRange 400->300" in _v54_log_a.getvalue(),
+      repr(_v54_log_a.getvalue()))
+
+# Deliberate-break proof on (v54-a): with no clamp hook wired (the pre-v44
+# shape), the identical model-proposed pressRange=400 leaks straight
+# through -- proves the (v54-a) checks above discriminate the real fix
+# rather than passing unconditionally (same method as the v52/v53 break
+# proofs above).
+_v54_entries_break = [{"play": "fire_superiority", "entry_id": "pressbreak",
+                       "params": {"pressRange": 400, "finishRange": 140,
+                                  "engageDist": 750, "woundedPct": 50}}]
+_v54_saved_hook = PERSONA.apply_phase_clamps
+PERSONA.apply_phase_clamps = None
+try:
+    if PERSONA.apply_phase_clamps is not None:
+        PERSONA.apply_phase_clamps(_v54_entries_break, _V52_DEFAULT_VIEW,
+                                   {}, source="maintenance")
+finally:
+    PERSONA.apply_phase_clamps = _v54_saved_hook
+check("(v54) BREAK PROOF: with no phase-clamp hook wired to the persona, "
+      "a model-proposed pressRange=400 leaks straight onto the wire, "
+      "unclamped -- the (v54-a) check above is what closes this, not a "
+      "scenario that was already safe",
+      _v54_entries_break[0]["params"].get("pressRange") == 400,
+      str(_v54_entries_break[0]["params"]))
+
+# (v54-b) PIN, NOT CEILING: the mechanism (`params[field] = doctrine`,
+# apply_phase_clamps's own field loop) is an unconditional assignment, not
+# a min()/max() bound -- confirmed by reading the source (policy.py's
+# apply_phase_clamps). Proof: a maintenance-resent value BELOW doctrine
+# (250, under the default-phase 300) still commits UP to 300, the same
+# direction a max()-only ceiling would refuse to move it.
+_v54_entries_low = _v52_fs_entry(250, 140)
+_v54_log_low = _io.StringIO()
+with _contextlib.redirect_stdout(_v54_log_low):
+    _v54_fired_low = PERSONA.apply_phase_clamps(
+        _v54_entries_low, _V52_DEFAULT_VIEW, {}, source="maintenance")
+_v54_low_fs = _v54_entries_low[0]
+check("(v54-b) PIN NOT CEILING: a maintenance-resent pressRange BELOW "
+      "doctrine (250) still commits UP to 300 -- the clamp pins to an "
+      "exact value in both directions, it is not a max()/upper-bound "
+      "clamp that would leave a lower value alone",
+      _v54_fired_low and _v54_low_fs["params"].get("pressRange")
+      == policy.FIRE_SUPERIORITY_PRESS_RANGE["default"] == 300,
+      str(_v54_low_fs["params"]))
+check("(v54-b) the low-value clamp still logs the distinguishable "
+      "'(maintenance)' line, same shape as the high-value clamp",
+      "clamp fire_superiority.pressRange (maintenance) 250->300"
+      in _v54_log_low.getvalue(),
+      repr(_v54_log_low.getvalue()))
 
 # (h) kickoff re-emit and final4 re-emit both fire in ONE episode without
 # interfering: kickoff at the first Playing tick (alive_teams still high),

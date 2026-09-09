@@ -211,7 +211,27 @@ JACKAL_JOIN_WHEN = "bothWeakened"
 # collapses to two buckets, endgame and everything else, even though
 # pressRange no longer differs between them, so a future doctrine split
 # only needs a constant change, not a new branch.
-FIRE_SUPERIORITY_PRESS_RANGE = {"default": 220, "endgame": 220}
+#
+# v54 (GV17 economy, catalog v3, /Users/maxwellstarr/.ctf/handoff/
+# 2026-09-09-gv17-plan.md item 2): GloryVersion 17 (round 4611 on) re-priced
+# honorable tags to x2.2 and zeroed the final-eight/final-four placement
+# lumps that were live when v42's 400/340 band was measured and rolled back
+# (score-ratio 1.20->0.67, trade-after-first-tag 18->30%, p=.0009, under
+# GloryVersion 15). That result does not carry forward unread under a
+# different tag-pricing regime, so pressRange doctrine moves off the
+# accidental-default floor (220) toward the wider band -- but bounded WELL
+# under v42's 400/340, not a re-run of the same experiment: 300 default,
+# 260 endgame. This is a bounded step, not a reversal-in-full; ship-then-
+# read against v53 in the same GV17 era (trade-after-first-tag rate is the
+# pre-registered read metric, since that is exactly what v42 broke), and
+# the champion flip back to v53's lpm is the rollback if it reads the same
+# way again. The clamp mechanism itself is unchanged from v44/v52/v53: it
+# PINS (assigns, never min()/max()s) the doctrine value onto every
+# fire_superiority entry on every send path, so pressRange is once again
+# split by phase the same shape finishRange already is -- endgame closes
+# tighter (260) than the rest of the match (300) now that finishRange's own
+# 140/120 split is no longer the only phase-gated number here.
+FIRE_SUPERIORITY_PRESS_RANGE = {"default": 300, "endgame": 260}
 FIRE_SUPERIORITY_FINISH_RANGE = {"default": 140, "endgame": 120}
 
 # FIRE_SUPERIORITY ENGAGE_DIST WIRE FIX (v53, GloryVersion 17 economy read,
@@ -460,7 +480,7 @@ def apply_phase_clamps(entries, view, pact_state, source=None):
     (v50's original "reason=final4-reemit" suffix, unchanged), and the
     string "maintenance" for starter_harness's ladder-maintenance resend
     -- logged as e.g. ``clamp fire_superiority.pressRange (maintenance)
-    <old> -> 220 phase=<phase>`` or ``final4 clamp (maintenance):
+    <old> -> 300 phase=<phase>`` or ``final4 clamp (maintenance):
     <play>.detourMax <old> -> 150`` so a maintenance-triggered clamp is
     distinguishable in the log from a model-authored one. Real calls get
     the exact same log text adjust_entries always produced (tag/suffix
@@ -480,11 +500,10 @@ def apply_phase_clamps(entries, view, pact_state, source=None):
     # pin all three levers to the doctrine value for the CURRENT
     # live-zone-clock phase on every entry about to be sent, on every path
     # -- never trust the model, a stale cached ladder, or a gated resend to
-    # have carried the right value. pressRange happens to be the SAME
-    # doctrine number in both phase buckets today (220/220), which is what
-    # makes it read as "always pinned"; finishRange still tightens 140 ->
-    # 120 in the zone-timer endgame window (_in_marquee_zone_window),
-    # unchanged from v44. engageDist (v53, FIRE_SUPERIORITY_ENGAGE_DIST,
+    # have carried the right value. pressRange (v54, GV17 economy: 300
+    # default / 260 endgame) is now phase-split the same shape finishRange
+    # already is (140 -> 120): endgame closes tighter than the rest of the
+    # match. engageDist (v53, FIRE_SUPERIORITY_ENGAGE_DIST,
     # GV17 economy engagement-volume fix) is ALSO flat across both phase
     # buckets (750/750) -- same "always pinned" shape as pressRange, added
     # to this SAME loop rather than a new one so it shares the identical
@@ -1525,17 +1544,25 @@ PERSONA = Persona(
                              "nothing on a quiet field and is already armed "
                              "the instant a fight starts; do not wait for "
                              "consolidation to call it the first time. "
-                             "Doctrine pressRange is 220 in every phase, "
-                             "same as the playbook's stated default -- a "
-                             "2026-09-08 ladder read showed a wider "
-                             "400/340 band traded away score-ratio (1.20 "
-                             "-> 0.67) and raised the trade rate (18% -> "
-                             "30%) by buying more exposure to third seats, "
-                             "so 220 is now the deliberate floor-and-"
-                             "ceiling, not schema-default drift: the clamp "
-                             "pins it so it cannot creep in either "
-                             "direction. finishRange stays 140, tightening "
-                             "to 120 in the endgame window: closer to the "
+                             "Doctrine pressRange is 300 by default, 260 "
+                             "in the endgame window (v54, GloryVersion 17 "
+                             "tag pricing): the 2026-09-08 ladder read that "
+                             "rolled a wider 400/340 band back to 220 "
+                             "(score-ratio 1.20 -> 0.67, trade rate 18% -> "
+                             "30%) was measured under GloryVersion 15's "
+                             "pricing -- GV17 pays honorable tags x2.2 and "
+                             "zeroes the final-eight/final-four placement "
+                             "lumps that read carried, so that result does "
+                             "not stand unread under the new economy. 300/"
+                             "260 is a bounded step off the accidental 220 "
+                             "floor toward that band, not a repeat of it -- "
+                             "well under 400/340, phase-split the way "
+                             "finishRange already is, closing tighter once "
+                             "the field thins. The clamp pins it exactly, "
+                             "in either direction, so it cannot creep past "
+                             "doctrine either way. finishRange stays 140, "
+                             "tightening to 120 in the endgame window: "
+                             "closer to the "
                              "target once the field is small. Doctrine "
                              "engageDist is 750 in every phase (v53, "
                              "GloryVersion 17 economy): the schema default "
@@ -1682,10 +1709,12 @@ PERSONA = Persona(
                  # engageDist 600->750 (v53, FIRE_SUPERIORITY_ENGAGE_DIST):
                  # written literal matches doctrine, same as pressRange/
                  # finishRange -- apply_phase_clamps repins this every send
-                 # regardless, but the source stays honest.
+                 # regardless, but the source stays honest. pressRange
+                 # 220->300 (v54, FIRE_SUPERIORITY_PRESS_RANGE, GV17 tag
+                 # pricing): default-phase doctrine.
                  "params": {"breakDeficit": 2, "coverMax": 260,
                             "engageDist": 750, "finishRange": 140,
-                            "pressRange": 220, "woundedPct": 50}},
+                            "pressRange": 300, "woundedPct": 50}},
                 {"play": "hold_vs_gun", "entry_id": "holdgun",
                  "params": {"calmTicks": 48, "coverMax": 260,
                             "engageDist": 500}},
@@ -1820,10 +1849,11 @@ PERSONA = Persona(
                  # dPointBlankKill gap without breakDeficit's downside.
                  # engageDist 600->750 (v53, FIRE_SUPERIORITY_ENGAGE_DIST):
                  # see the constant's own comment for the GV17 economy
-                 # engagement-volume rationale.
+                 # engagement-volume rationale. pressRange 220->300 (v54,
+                 # FIRE_SUPERIORITY_PRESS_RANGE): default-phase doctrine.
                  "params": {"breakDeficit": 2, "coverMax": 260,
                             "engageDist": 750, "finishRange": 140,
-                            "pressRange": 220, "woundedPct": 50}},
+                            "pressRange": 300, "woundedPct": 50}},
                 {"play": "hold_vs_gun", "entry_id": "holdgun",
                  "params": {"calmTicks": 48, "coverMax": 260,
                             "engageDist": 500}},
@@ -1923,9 +1953,11 @@ PERSONA = Persona(
                  # see the constant's own comment for the GV17 economy
                  # engagement-volume rationale; flat 750 in endgame too,
                  # same as default -- this lever is not phase-split.
+                 # pressRange 220->260 (v54, FIRE_SUPERIORITY_PRESS_RANGE):
+                 # endgame-phase doctrine, tighter than default's 300.
                  "params": {"breakDeficit": 2, "coverMax": 200,
                             "engageDist": 750, "finishRange": 120,
-                            "pressRange": 220, "woundedPct": 0}},
+                            "pressRange": 260, "woundedPct": 0}},
                 {"play": "crossfire", "entry_id": "shape",
                  "params": {"spacing": [120, 280], "minAngle": 36}},
                 {"play": "supply_run", "entry_id": "bank",
