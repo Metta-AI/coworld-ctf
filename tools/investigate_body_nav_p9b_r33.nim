@@ -27,16 +27,16 @@ type
     heap: KeyHeap
 
   MixedGraph* = object
-    legality: FineLegality
-    cellForNode: seq[int32]
-    fineForCell: seq[array[4, int32]]
-    anchorForCell: seq[int32]
-    anchorNode: seq[uint8]
-    wallBand: seq[uint8]
-    bridgeOffset: seq[array[8, int32]]
-    bridgeLen: seq[array[8, uint8]]
-    bridgeNodes: seq[int32]
-    wallBandCells, wallBandFineNodes: int
+    legality*: FineLegality
+    cellForNode*: seq[int32]
+    fineForCell*: seq[array[4, int32]]
+    anchorForCell*: seq[int32]
+    anchorNode*: seq[uint8]
+    wallBand*: seq[uint8]
+    bridgeOffset*: seq[array[8, int32]]
+    bridgeLen*: seq[array[8, uint8]]
+    bridgeNodes*: seq[int32]
+    wallBandCells*, wallBandFineNodes*: int
 
   SearchResult* = object
     reached*: bool
@@ -59,7 +59,7 @@ proc findCase*(corpus: NavCorpus, id: string): NavCorpusCase =
     if item.id == id: return item
   raise newException(ValueError, "corpus case not found: " & id)
 
-proc percentile(values: openArray[float64], fraction: float64): float64 =
+proc percentile*(values: openArray[float64], fraction: float64): float64 =
   if values.len == 0: return Inf
   var sorted = @values
   sorted.sort()
@@ -313,7 +313,7 @@ proc buildRefined*(graph: MixedGraph, hot: openArray[uint8]): seq[uint8] =
 
 proc nodeCount*(graph: MixedGraph): int = graph.legality.legal.len
 
-proc active(graph: MixedGraph, refined: openArray[uint8],
+proc active*(graph: MixedGraph, refined: openArray[uint8],
     node: int, startNode = -1, goalNode = -1): bool {.inline.} =
   graph.legality.standable.bitAt(node) and
     (node == startNode or node == goalNode or
@@ -341,14 +341,14 @@ proc buildWeights*(danger: BodyDangerField,
   for cell, value in danger.values:
     result[cell] = int32(65_536'i64 + weight * quantizeDangerQ8(value))
 
-proc octileQ4(a, b: BodyPoint, diagonalCost: int): int32 {.inline.} =
+proc octileQ4*(a, b: BodyPoint, diagonalCost: int): int32 {.inline.} =
   let
     dx = abs(a.x - b.x) div FineStep
     dy = abs(a.y - b.y) div FineStep
     diagonal = min(dx, dy)
   int32(diagonalCost * diagonal + 64 * (max(dx, dy) - diagonal))
 
-proc midpointCell(map: BodyMap, a, b: BodyPoint): int {.inline.} =
+proc midpointCell*(map: BodyMap, a, b: BodyPoint): int {.inline.} =
   let cell = map.cellOf(((a.x + b.x) div 2, (a.y + b.y) div 2))
   cell.y * map.gridWidth + cell.x
 
@@ -376,7 +376,7 @@ proc roundedFraction(delta, part, parts: int): int {.inline.} =
   if numerator >= 0: (numerator + parts div 2) div parts
   else: -((-numerator + parts div 2) div parts)
 
-proc integratedEdgeCostQ4(map: BodyMap, weights,
+proc integratedEdgeCostQ4*(map: BodyMap, weights,
     hazardCost: openArray[int32], blockedCell: int,
     a, b: BodyPoint): int32 {.inline.} =
   let
@@ -396,7 +396,7 @@ proc integratedEdgeCostQ4(map: BodyMap, weights,
     result += int32(blocked + hazardCost[cell].int64)
     previous = next
 
-proc attachments(graph: MixedGraph, map: BodyMap,
+proc attachments*(graph: MixedGraph, map: BodyMap,
     refined: openArray[uint8], weights, hazardCost: openArray[int32],
     blockedCell: int, endpoint: BodyPoint):
     seq[tuple[node: int, cost: int32]] =
@@ -571,7 +571,7 @@ proc search*(graph: MixedGraph, map: BodyMap,
     if result.route[^1] != item.validatedGoal:
       result.route.add item.validatedGoal
 
-proc routeLegal(map: BodyMap, item: NavCorpusCase,
+proc routeLegal*(map: BodyMap, item: NavCorpusCase,
     route: openArray[BodyPoint]): bool =
   if route.len == 0 or route[0] != item.start or
       route[^1] != item.validatedGoal: return false
