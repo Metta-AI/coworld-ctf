@@ -29,12 +29,32 @@ export glory
 
 const
   GameName* = "ctf"
-  ReplayCompatibleGameVersions* = ["61"]
+  ReplayCompatibleGameVersions* = ["61", "62"]
     ## The replay-load allowlist (play-calling design §4.3): versions whose
     ## recorded files still play back correctly under THIS engine. The
     ## criterion is the GameVersion changelog below, not chronology — a
     ## version is listed only when nothing since changed the gameHash
-    ## schema, the hash trajectory, or a flatty keyframe layout. GV60 drops
+    ## schema, the hash trajectory, or a flatty keyframe layout. GV61
+    ## STAYS listed alongside GV62 — a deliberate departure from every
+    ## other entry in this const's history, reasoned explicitly rather
+    ## than by the usual "nothing changed" default: GV62 (GLORY GRADIENT
+    ## S6 SHIP, below) arms five brand-new `GameConfig` bools
+    ## (`catalogV3Reprice`/`gloryFixedPointScale`/`placementRampV3`/
+    ## `brAssistRescueUngated`/`pactScopedWipeDown`) that DID NOT EXIST as
+    ## fields until #501 (S5) landed under GV61 — no GV61 recording's own
+    ## JSON config diff can possibly carry any of these keys, so
+    ## `config.update` leaves every GV61 replay's copy of each field at
+    ## `defaultGameConfig()`'s own compiled default, which this PR does
+    ## NOT touch (stays `false` for all five — see GLORYVERSION 17's own
+    ## changelog in glory.nim). Every prior exclusion in this list (GV52
+    ## spawn stagger, GV57 heat cadence, GV58 friendly-fire timing, GV59
+    ## ally-revive, GV61 leveling) changed how an ALREADY-HASHED, already-
+    ## existing field gets computed — a GV-labeled recording of that
+    ## vintage could reach the changed path by construction. This bump
+    ## cannot: the five fields are net-new and the ship arms them only via
+    ## `coworld_manifest_paintbot.json`'s battle-royale-s2 variant, never
+    ## the compiled default, so a GV61 fixture replayed under this engine
+    ## reproduces its original hash exactly. GV60 drops
     ## out because GV61 (LEVELS ARE POWER, below) wires the six previously-
     ## dead `levelX()` GLORY buffs into live combat — windup/hp/fire-
     ## cooldown/spray-reset/grenade-charges/carrier-speed now all read a
@@ -112,8 +132,31 @@ const
     ## RewardAccount on the wire. Widening requires a real archived fixture
     ## that survives initialization and stepping (PM ruling, 2026-08-30),
     ## never a header rewrite.
-  GameVersion* = "61"
-    ## GV61 (LEVELS ARE POWER, GloryVersion 16): the six `levelX()` GLORY
+  GameVersion* = "62"
+    ## GV62 (GLORY GRADIENT S6 SHIP, GloryVersion 17, epic 25d9108e -- DRAFT,
+    ## owner GLORYVERSION GO required before this PR merges): arms, on the
+    ## battle-royale-s2 flagship variant's manifest ONLY, the five S5
+    ## switches #501 built and proved dark (`catalogV3Reprice`,
+    ## `gloryFixedPointScale`, `placementRampV3`, `brAssistRescueUngated`,
+    ## `pactScopedWipeDown` -- see glory.nim's `GloryVersion` v17 changelog
+    ## for what each does). Moves the hash TRAJECTORY of every FUTURE
+    ## battle-royale-s2 recording from this variant's next publish onward
+    ## (a measured-distribution-moving change per the spec owner's own
+    ## 2026-09-03 ruling below: takes a bump on its own). Does NOT move any
+    ## EXISTING recording's trajectory: all five fields are net-new
+    ## `GameConfig` bools that did not exist before #501, so no GV61 (or
+    ## earlier) fixture's own JSON diff can carry them, and
+    ## `defaultGameConfig()` -- untouched by this PR -- still resolves all
+    ## five to `false` when replaying one. This is why GV61 stays in
+    ## `ReplayCompatibleGameVersions` above instead of dropping out (see
+    ## that const's own comment for the full reasoning, spelled out there
+    ## because it departs from every prior exclusion in this changelog). No
+    ## flatty keyframe layout change: no field added or reordered on
+    ## `Player`/`SimServer`. No wire schema change beyond the five new
+    ## `GameConfig` keys themselves (echoed only when armed, matching every
+    ## prior recut flag's own idiom).
+    ##
+    ## Previously GV61 (LEVELS ARE POWER, GloryVersion 16): the six `levelX()` GLORY
     ## buff accessors, dead since GV10, are wired into live combat --
     ## windup, max hp, fire cooldown, spray reset, grenade charges, carrier
     ## speed all now vary with a cog's per-life level. Moves the hash

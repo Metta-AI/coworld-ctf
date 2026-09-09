@@ -748,6 +748,31 @@
           "type": "boolean",
           "default": false
         },
+        "brAssistRescueUngated": {
+          "description": "GLORY GRADIENT S6 SHIP (epic 25d9108e, gate ruling b): removes the classic-only gate ahead of the dAssist/dRescue mints (sim.nim, kill-resolution site) so battle royale mints them exactly like CTF already does — no new counter needed, deedCounts/deedGloryMass already report both deeds per-episode. Reads only while gloryMultiplierRecut is armed. Off by default everywhere except the battle-royale-s2 flagship variant, which ships it ARMED as one of the five S6 catalog-v3 switches (owner GLORYVERSION GO required) — a rollback-only switch: flip it false on that variant and BR mints neither deed again, no code change.",
+          "type": "boolean",
+          "default": false
+        },
+        "pactScopedWipeDown": {
+          "description": "GLORY GRADIENT S6 SHIP (epic 25d9108e, gate ruling c): retargets dDuoDown/dWipe to PACT SCOPE in battle royale — a kill that empties an opposing team currently pact-bound to at least one other team mints the pact-scope dDuoDown; a kill that leaves an entire opposing pact group with zero living players mints the pact-scope dWipe. Solo-vs-solo (no pact) is unaffected — dDuoDown/dWipe stay exactly as they are today. Reads only while gloryMultiplierRecut is armed. Off by default everywhere except the battle-royale-s2 flagship variant, ARMED as one of the five S6 catalog-v3 switches (owner GLORYVERSION GO required) — a rollback-only switch.",
+          "type": "boolean",
+          "default": false
+        },
+        "placementRampV3": {
+          "description": "GLORY GRADIENT S6 SHIP (epic 25d9108e, CATALOG-V3-DRAFT.md §4): reprices dFinal8/dFinal4/dFinal2 from the frozen ×2/×3/×4 ladder to a percent-scaled 100/100/130, plus a continuous per-seat survival-duration credit so a non-winning survivor's points climb before reaching a milestone, not only at one. Pairs with gloryFixedPointScale to avoid truncating its own small percent factors early in an episode. Reads only while gloryMultiplierRecut is armed. Off by default everywhere except the battle-royale-s2 flagship variant, ARMED as one of the five S6 catalog-v3 switches (owner GLORYVERSION GO required) — a rollback-only switch.",
+          "type": "boolean",
+          "default": false
+        },
+        "gloryFixedPointScale": {
+          "description": "GLORY GRADIENT S6 SHIP (epic 25d9108e, CATALOG-V3-DRAFT.md §9b, ruled representation): seeds the glory product at a 1024x fixed-point scale instead of the bare seed, and reads it back through a halving-order-safe accumulator (halve first, then strip the scale) so small v3 percent factors register instead of truncating away to a no-op. Every existing whole-integer class factor cancels the scale out exactly, so arming this alone changes no reported score. Reads only while gloryMultiplierRecut is armed. Off by default everywhere except the battle-royale-s2 flagship variant, ARMED as one of the five S6 catalog-v3 switches (owner GLORYVERSION GO required) — a rollback-only switch.",
+          "type": "boolean",
+          "default": false
+        },
+        "catalogV3Reprice": {
+          "description": "GLORY GRADIENT S6 SHIP (epic 25d9108e, gate ruling 1, CATALOG-V3-DRAFT.md's frozen static trial): selects the v3 percent-scaled reprice table (kill/heat/territory/stack classes) in place of the frozen v2 table this ships alongside GLORYVERSION 16→17. Switch OFF stays byte-identical to today's frozen table (proven by test_glory_s5_rig.nim's equivalence test and a pinned gameHash fixture) — this key is the one that actually changes it. The catalog's own static prediction puts CHOSEN-deed share of a seat's mid/top-band score at ~71%; the S5 Monte Carlo rig, calibrated against real census mint rates, measures ~49% under an admitted archetype-model compression (one Sharpshooter claim rate shared across archetypes) — a live re-measure after this ships (S6 follow-up, not this key) settles which number holds. Reads only while gloryMultiplierRecut is armed. Off by default everywhere except the battle-royale-s2 flagship variant, ARMED as one of the five S6 catalog-v3 switches (owner GLORYVERSION GO required) — a rollback-only switch: flip it false on that variant and the frozen v2 table returns with no code change.",
+          "type": "boolean",
+          "default": false
+        },
         "variantId": {
           "description": "Self-label: the manifest variant id this game_config was published under, echoed verbatim into the realized-config stamp and the replay header so replay-only audits can name the variant without platform access. The engine only reports it.",
           "type": "string",
@@ -1390,7 +1415,12 @@
         "winAsMultiplier": true,
         "deedMintCaps": true,
         "sprayCount": 6,
-        "grenadeCount": 22
+        "grenadeCount": 22,
+        "brAssistRescueUngated": true,
+        "pactScopedWipeDown": true,
+        "placementRampV3": true,
+        "gloryFixedPointScale": true,
+        "catalogV3Reprice": true
       }
     },
     {

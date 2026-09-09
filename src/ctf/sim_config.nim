@@ -136,6 +136,21 @@ proc defaultGameConfig*(): GameConfig =
     # reads only under an armed recut.
     deedMintCaps: false,
     stampRealizedConfig: false,
+    # S5/S6 (CATALOG-V3-DRAFT.md, epic 25d9108e): the five percent-scaled
+    # v3 catalog switches, all dark by default — SAME per-flag activation
+    # discipline as gloryMultiplierRecut/winAsMultiplier above, each reads
+    # only while gloryMultiplierRecut is armed (enforced at each call
+    # site, not here). This compiled default NEVER changes: the S6 ship
+    # arms all five on the battle-royale-s2 flagship variant's manifest
+    # only (coworld_manifest_paintbot.json), so every other config —
+    # every test's own local GameConfig, every already-committed
+    # `.bitreplay` fixture, every non-flagship variant — stays exactly
+    # byte-identical to before this PR existed.
+    brAssistRescueUngated: false,
+    pactScopedWipeDown: false,
+    placementRampV3: false,
+    gloryFixedPointScale: false,
+    catalogV3Reprice: false,
     variantId: "",
     # SPAWNLOOT: dark by default (see sim_types.nim's own field comments) —
     # 0 seeded guns, 0 seeded hoppers, so the radius is never read.
@@ -1442,6 +1457,18 @@ proc update*(config: var GameConfig, jsonText: string) =
   node.readConfigBool("winAsMultiplier", config.winAsMultiplier)
   node.readConfigBool("deedMintCaps", config.deedMintCaps)
   node.readConfigBool("stampRealizedConfig", config.stampRealizedConfig)
+  # S5/S6 (CATALOG-V3-DRAFT.md, epic 25d9108e): appended reads for the
+  # five appended v3-catalog switch fields (sim_types.nim) — same
+  # tail-append rule as everything above. Absent keys leave the dark
+  # defaults, so an existing config JSON (every already-committed
+  # `.bitreplay` fixture, every non-flagship variant) parses to an
+  # unchanged config. Each is its OWN key, per-flag activation, matching
+  # the recut family's own Amendment 2 §1 discipline.
+  node.readConfigBool("brAssistRescueUngated", config.brAssistRescueUngated)
+  node.readConfigBool("pactScopedWipeDown", config.pactScopedWipeDown)
+  node.readConfigBool("placementRampV3", config.placementRampV3)
+  node.readConfigBool("gloryFixedPointScale", config.gloryFixedPointScale)
+  node.readConfigBool("catalogV3Reprice", config.catalogV3Reprice)
   node.readConfigString("variantId", config.variantId)
   # SPAWNLOOT: appended reads for the appended spawn-loot-seeding fields
   # (sim_types.nim) — same tail-append rule as everything above. Absent
@@ -1847,6 +1874,20 @@ proc echoRecutKeys(config: GameConfig, node: JsonNode) =
   # an offline audit of a suspicious score needs first.
   if config.deedMintCaps:
     node["deedMintCaps"] = %config.deedMintCaps
+  # S5/S6 (CATALOG-V3-DRAFT.md, epic 25d9108e): same armed-only echo rule —
+  # an armed replay's header pins exactly which of the five v3-catalog
+  # switches the episode actually played under; a dark echo carries none
+  # of them, so every pre-#501 and non-flagship replay stays unchanged.
+  if config.brAssistRescueUngated:
+    node["brAssistRescueUngated"] = %config.brAssistRescueUngated
+  if config.pactScopedWipeDown:
+    node["pactScopedWipeDown"] = %config.pactScopedWipeDown
+  if config.placementRampV3:
+    node["placementRampV3"] = %config.placementRampV3
+  if config.gloryFixedPointScale:
+    node["gloryFixedPointScale"] = %config.gloryFixedPointScale
+  if config.catalogV3Reprice:
+    node["catalogV3Reprice"] = %config.catalogV3Reprice
 
 proc echoStampKeys(config: GameConfig, node: JsonNode) =
   ## STAMP(recut contract Amendment 2 §2): the stamp gate and the variant
@@ -2041,14 +2082,19 @@ proc realizedConfigStampJson*(config: GameConfig): string =
   ## which serves as the amendment's replay-manifest secondary copy.
   var flags: seq[string] = @[
     "bandagePickups=" & $config.bandagePickups,
+    "brAssistRescueUngated=" & $config.brAssistRescueUngated,
     "brMode=" & $config.brMode,
+    "catalogV3Reprice=" & $config.catalogV3Reprice,
     "deedMintCaps=" & $config.deedMintCaps,
     "downedEscalation=" & $config.downedEscalation,
     "downedMode=" & $config.downedMode,
     "frameLoadoutFlags=" & $config.frameLoadoutFlags,
+    "gloryFixedPointScale=" & $config.gloryFixedPointScale,
     "gloryMultiplierRecut=" & $config.gloryMultiplierRecut,
     "hopperSiteTrafficPermille=" & $config.hopperSiteTrafficPermille,
     "lootStart=" & $config.lootStart,
+    "pactScopedWipeDown=" & $config.pactScopedWipeDown,
+    "placementRampV3=" & $config.placementRampV3,
     "winAsMultiplier=" & $config.winAsMultiplier,
     "medKitCount=" & $config.medKitCount,
     "sprayCount=" & $config.sprayCount,
