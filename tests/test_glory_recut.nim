@@ -1291,6 +1291,38 @@ suite "GV14 placement ladder: milestones at the alive-count crossings":
     check sim.recutFinalFired == [false, false, false]
     check sim.gloryProduct[Team(0)] == RecutSeed
 
+  test "POP TRUTH fix B: the Final2 pop draws on the survivor's seat, not the home pedestal":
+    # The pre-fix behaviour (recutMintPlacementMilestones passing no
+    # byIndex) draws every milestone pop at `flagHome` -- dead pedestal
+    # space once the survivors have moved off it. Move both finalists well
+    # away from their own home before the crossing mints, so a
+    # home-anchored draw and a seat-anchored draw land at DISTINGUISHABLE
+    # positions and this test can tell them apart.
+    var sim = br16SoloGame(armed = true)
+    for k in 2 .. 15:
+      sim.killPlayer(k, -1)
+    let
+      home0 = sim.gameMap.flagHome(Team(0))
+      home1 = sim.gameMap.flagHome(Team(1))
+    sim.players[0].x = home0.x + 4000
+    sim.players[0].y = home0.y + 4000
+    sim.players[1].x = home1.x - 4000
+    sim.players[1].y = home1.y - 4000
+    sim.checkWinCondition()
+    check sim.deedCounts[dFinal2] == 2
+    var seen = 0
+    for pop in sim.gloryPops:
+      if pop.word != deedPopWord(dFinal2):
+        continue
+      inc seen
+      let
+        home = sim.gameMap.flagHome(pop.team)
+        seatIdx = int(pop.team)   # br16SoloGame: player i IS Team(i)
+      check pop.x == sim.players[seatIdx].x
+      check pop.y == sim.players[seatIdx].y
+      check (pop.x, pop.y) != (home.x, home.y)
+    check seen == 2
+
 suite "GV14 win factor: the M_solo/M_duo seam, end to end":
   test "a SOLO winner folds ×8 — numerically the retired deed's own flat 8":
     # Identical 2-solo-team games, only the flag differs: the OFF path

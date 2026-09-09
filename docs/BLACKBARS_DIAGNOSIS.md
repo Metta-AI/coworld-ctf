@@ -1,18 +1,34 @@
-# The camera-transform bands ("blackbars"): five mitigations, standing down
+# The "blackbars": five mitigations that missed, and the fog-seam fix that landed
 
-> **Historical investigation.** This is an incident record for the earlier
-> player client, not current Season 2 game or policy guidance. The findings
-> below remain preserved for future renderer diagnosis.
+> **Historical investigation, now closed.** An incident record for the earlier
+> player client, not current Season 2 game or policy guidance. Preserved
+> because the dead ends are instructive; the resolution is at the top.
 
 **For:** whoever next picks up Maxwell's "black bars when I move" report on the
 player client, or anyone about to trust a small-N screenshot experiment on this
 codebase in general.
 
-**Status as of this writing: STANDING DOWN, not fixed.** Two real, verified
-improvements shipped (below) but the reported artifact is not confirmed solved.
-Revisit only if Maxwell's own eyes, playing the shipped build, say it still
-matters — his judgement of priority against everything else that changed in
-the same swap is worth more than another guess from screenshots.
+**Status: SOLVED 2026-08-30, confirmed by Maxwell's own eyes on the live
+field — "holy shit. FOG LINES GONE."** This document's own closing advice was
+followed exactly: it said to revisit only if the owner, playing the shipped
+build, said it still mattered. He did, and the answer came back.
+
+**The artifact was never the camera transform, and never dark bands.** It was
+LIGHT SEAMS: `addFogRuns` rebuilds fog as many independent per-row rects every
+tick, and the client's generic motion-glide interpolated each one separately,
+so adjacent runs briefly disagreed and let the lit board show through the gap.
+The five mitigations below chased a camera-transform theory and a dark-band
+polarity, which is why none of them landed the fix — preserved as the record of
+a real diagnostic dead end, not as current guidance.
+
+**The fix:** fog runs SNAP to their target position and are excluded from
+interpolation — `e1fdf118` "client: fog runs SNAP to target position, never
+glide", live on main. See the inline comment there for the mechanism.
+
+This status block was stale for nine days after the fix shipped, which is its
+own lesson: a diagnosis doc that outlives its investigation will be read as
+current by the next person, and "STANDING DOWN, not fixed" is exactly the
+sentence that stops someone re-testing a thing that already works.
 
 ## Symptom
 

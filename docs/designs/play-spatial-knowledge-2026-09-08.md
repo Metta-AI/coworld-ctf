@@ -9,7 +9,7 @@
 
 All repository `path:line` citations in this document refer to that evidence
 commit. The measurements are from an Apple M4 Pro, arm64 macOS 15.5, Nim 2.2.6,
-wasi-sdk 33 (`clang 22.1.0`) and Wasmtime 48.0.1. The untracked research report
+wasi-sdk 33 (`clang 22.1.0`) and Wasmtime 48.0.1. The research report (`docs/reports/s2-cog-body-tick-2026-09-03.md`)
 supplied by James was read for its sections 4.3–4.4, 7, and Appendix C; it is
 background, not a committed source.
 

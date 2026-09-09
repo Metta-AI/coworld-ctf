@@ -752,6 +752,35 @@ html, body {
 }
 .glory-pop.neg { color: var(--red); }
 
+/* POP TRUTH A1 (owner-picked, final 2026-09-08): "the multiplier is the
+   exciting thing, the deed is just a label for it" — the ×N HERO, large
+   bold amber, the deed name a subordinate small caps label in a neutral
+   (paper-dim) tone, stacked under it so no deed digit (e.g. "FINAL 8")
+   ever shares a text run with the multiplier's own digits. House floor
+   kept: hierarchy by size/weight/tone only, no boxes/pills. Only the
+   positive-armed ×N branch gets this treatment (renderGloryPops below
+   adds the `hero` class + `.mult`/`.word` children); every other pop
+   shape (achievement claim, word-channel RANK UP, FF halving, classic
+   dark +NG) is untouched, still a single textContent run. */
+.glory-pop.hero {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  line-height: 1;
+}
+.glory-pop.hero .mult {
+  font-size: calc(26 * var(--u));
+  font-weight: 700;
+  color: var(--amber);
+}
+.glory-pop.hero .word {
+  margin-top: calc(2 * var(--u));
+  font-size: calc(8.5 * var(--u));
+  font-weight: 600;
+  color: var(--paper-dim);
+  letter-spacing: 0.06em;
+}
+
 /* ---------- 1c. SEASON 2 phase presentation: vote -> huddle -> arena ------
    The episode opens as a broadcast SEGMENT SEQUENCE (owner spec): the MAP
    VOTE takes the board region first (4 options in 4 quadrants, a name-chip
@@ -5309,8 +5338,28 @@ body[data-noviewpanel] #viewpanel { display: none !important; }
       var el = gloryPopEls[key];
       if (!el) {
         el = document.createElement('div');
-        el.className = 'glory-pop' + (p.lbl ? ' claim' : '') + (p.amt < 0 ? ' neg' : '');
-        el.textContent = gloryPopText(p);
+        // POP TRUTH A1: the ×N multiplier branch (positive amount, armed
+        // recut, never a named claim) is the ONE shape that gets the
+        // hero/label split -- every other pop (claim, word-channel
+        // amt===0, FF halving, classic dark +NG) keeps its original
+        // single-run textContent below, byte-identical to before.
+        var isHero = !p.lbl && p.amt > 0 && recutArmed;
+        el.className = 'glory-pop' + (p.lbl ? ' claim' : '') + (p.amt < 0 ? ' neg' : '') +
+          (isHero ? ' hero' : '');
+        if (isHero) {
+          var mult = document.createElement('span');
+          mult.className = 'mult';
+          mult.textContent = '×' + p.amt;
+          el.appendChild(mult);
+          if (p.word) {
+            var word = document.createElement('span');
+            word.className = 'word';
+            word.textContent = p.word;
+            el.appendChild(word);
+          }
+        } else {
+          el.textContent = gloryPopText(p);
+        }
         gloryPopsEl.appendChild(el);
         gloryPopEls[key] = el;
       }

@@ -183,7 +183,7 @@ not dispatching 32 jobs.
 Guest-step cost is not measured in the repository. The useful upper bound is
 96 calls at 50,000 instructions plus host calls; the earlier gate report put a
 worst tick of `nearest_cover` calls near 2.6 ms, but that number and the rest of
-the report are provisional (the untracked research report, section 7). B is
+the report are provisional (`docs/reports/s2-cog-body-tick-2026-09-03.md`, section 7). B is
 the best first candidate because its possible serial work is largest and its
 Store ownership is clean, not because a speedup has already been demonstrated.
 
@@ -224,7 +224,7 @@ parallel-versus-serial goldens.
 
 The old view number cannot justify C after lazy view construction. The
 remaining known provisional number is roughly 2.7 ms for the 32-seat reflex
-worst shape (the untracked research report, section 7), while default, context,
+worst shape (`docs/reports/s2-cog-body-tick-2026-09-03.md`, section 7), while default, context,
 and guard costs are not isolated. Implement C only if the profiling task shows
 this input stage is at least 20% of shell p95 at 32 seats and scales on 2- and
 4-CPU runs.
@@ -359,7 +359,7 @@ before choosing work. Until then, the gate-report figures are provisional:
 3.51 ms for the old eager 32-seat view shape, about 0.98 ms for one danger
 rebuild, and about 2.6 ms for a worst tick of cover calls
 (`docs/reports/body-lane-gate-report-2026-08-31.md:31-48`,
-`docs/reports/body-lane-gate-report-2026-08-31.md:65-81`; the untracked research
+`docs/reports/body-lane-gate-report-2026-08-31.md:65-81`; the research
 report, section 7). Guest steps remain unmeasured.
 
 Use the existing profiler/probe rather than committing a second benchmark
