@@ -23,6 +23,7 @@ type
   LoopKind = enum
     acceptedDial = "accepted_dial"
     stagedNeighbors = "staged_neighbors"
+    stagedPrefetch = "staged_neighbors_prefetch"
     stagedWarm128 = "staged_neighbors_warm_128"
 
   RunResult = object
@@ -57,9 +58,12 @@ proc hashRoute(value: var uint64, seat, tick: int,
     value = (value xor uint64(point.x * 65_537 + point.y)) *
       1_099_511_628_211'u64
 
+proc prefetchRead(address: pointer) {.inline.} =
+  {.emit: "__builtin_prefetch(`address`, 0, 1);".}
+
 proc stepDialJobStaged(job: var DialJob, graph: MixedGraph, map: BodyMap,
     refined: openArray[uint8], combined: openArray[int32],
-    workspace: var DialWorkspace, popBudget: int): int =
+    workspace: var DialWorkspace, popBudget: int, prefetch: bool): int =
   ## The accepted workspace is already structure-of-arrays. This variant
   ## stages legal neighbour indices/stamps before pricing them, walks only set
   ## legality bits, computes midpoint cells arithmetically, and reads queued g
@@ -100,8 +104,12 @@ proc stepDialJobStaged(job: var DialJob, graph: MixedGraph, map: BodyMap,
       directions[moveCount] = direction
       nextNodes[moveCount] = (fineY + delta.y) * graph.legality.width +
         fineX + delta.x
-      nextStamps[moveCount] = workspace.state[nextNodes[moveCount]]
+      if prefetch:
+        prefetchRead(unsafeAddr workspace.state[nextNodes[moveCount]])
+        prefetchRead(unsafeAddr workspace.g[nextNodes[moveCount]])
       inc moveCount
+    for offset in 0 ..< moveCount:
+      nextStamps[offset] = workspace.state[nextNodes[offset]]
     for offset in 0 ..< moveCount:
       let
         direction = directions[offset]
@@ -219,7 +227,8 @@ proc advance(job: var DialJob, kind: LoopKind, graph: MixedGraph,
   if kind == acceptedDial:
     job.stepDialJob(graph, map, refined, combined, hazard, workspace, budget)
   else:
-    job.stepDialJobStaged(graph, map, refined, combined, workspace, budget)
+    job.stepDialJobStaged(graph, map, refined, combined, workspace, budget,
+      kind == stagedPrefetch)
 
 proc profileCase(pool: JsonNode, corpus: NavCorpus, id: string): JsonNode =
   let
@@ -232,7 +241,7 @@ proc profileCase(pool: JsonNode, corpus: NavCorpus, id: string): JsonNode =
     combined = buildCombinedCellCost(danger.buildWeights(item.profile), hazard)
     maxEdge = graph.maximumEdgeCost(combined, hazard)
   var rows = newJArray()
-  for kind in [acceptedDial, stagedNeighbors]:
+  for kind in [acceptedDial, stagedNeighbors, stagedPrefetch]:
     var
       workspace = newDialWorkspace(graph.nodeCount, 1, maxEdge)
       samplesNs, samplesQueuePops, samplesSettledPops, nsPerPop: seq[int64]
