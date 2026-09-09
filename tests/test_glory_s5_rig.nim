@@ -9,7 +9,7 @@
 
 import
   helpers,
-  std/[sequtils, unittest],
+  std/[sequtils, strformat, unittest],
   ctf/[global, sim, sim_state, events, arena]
 
 proc recutConfig(br: bool): GameConfig =
@@ -224,7 +224,7 @@ suite "S5 placement ramp (placementRampV3, CATALOG-V3-DRAFT.md §4)":
     sim.awardDeed(Red, dFinal8, 0, 0)
     check sim.gloryProduct[Red] == int64(RecutSeed) * RecutClassTable[dFinal8]
 
-  test "armed: dFinal8/dFinal4 crush to a no-op, dFinal2 folds a real (scaled) nudge":
+  test "armed: dFinal8/dFinal4 crush to a no-op; dFinal2 is SKIPPED from a bare seed (GATE RULING 2) but folds a real nudge once the base has grown":
     var config = recutConfig(br = true)
     config.placementRampV3 = true
     config.gloryFixedPointScale = true
@@ -237,6 +237,156 @@ suite "S5 placement ramp (placementRampV3, CATALOG-V3-DRAFT.md §4)":
     check sim.gloryProduct[Red] == seeded   # pct=100: unchanged
     sim.awardDeed(Red, dFinal4, 0, 0)
     check sim.gloryProduct[Red] == seeded   # pct=100: unchanged
+    # GATE RULING 2 (coordinator, after this rig's own bare-seed drift
+    # finding): dFinal2's pct=130 is "small" (<x2) and the accumulator is
+    # still at the bare seed (unscaled value 1) -- the fold is SKIPPED,
+    # not applied-then-floored. This is the new, correct behavior; the
+    # earlier version of this test predates GATE RULING 2 and asserted the
+    # OLD (now superseded) claim that a bare-seed fold "worked" via scale
+    # alone -- it did not (see the S5 rig's own 23.08%-at-every-scale
+    # finding), and this test now pins the honest replacement.
     sim.awardDeed(Red, dFinal2, 0, 0)
-    check sim.gloryProduct[Red] == (seeded * 130) div 100   # pct=130: real nudge
-    check sim.gloryProduct[Red] > seeded
+    check sim.gloryProduct[Red] == seeded   # SKIPPED: still unchanged
+
+    # Once other (whole-integer) folds have grown the base past the
+    # GATE RULING 2 floor (~64 unscaled), the SAME dFinal2 pct DOES
+    # register as a real nudge -- a fresh sim to isolate the comparison.
+    var grown = startedGame(config, seats = 2)
+    grown.players[0].team = Red
+    grown.players[1].team = Blue
+    # dAceTag/dLastLight both pay heat, which auto-increments after every
+    # mint -- reset it before each call so every fold is a clean x4 (heat
+    # rung 0), not an escalating one once embers cross a rung threshold.
+    grown.awardDeed(Red, dAceTag, 0, 0)   # x4, whole-integer, always folds
+    grown.heatEmbers[Red] = 0
+    grown.awardDeed(Red, dAceTag, 0, 0)   # x4 again -> 16x seed
+    grown.heatEmbers[Red] = 0
+    grown.awardDeed(Red, dLastLight, 0, 0)  # x4 -> 64x seed: at the floor
+    grown.heatEmbers[Red] = 0
+    grown.awardDeed(Red, dLastLight, 0, 0)  # x4 -> 256x seed: past the floor
+    let base = grown.gloryProduct[Red]
+    check base == seeded * 256
+    grown.awardDeed(Red, dFinal2, 0, 0)
+    check grown.gloryProduct[Red] == (base * 130) div 100   # pct=130: real nudge
+    check grown.gloryProduct[Red] > base
+
+suite "GATE RULING 1: catalogV3Reprice switch OFF is byte-identical (not merely asserted)":
+  test "OFF end-to-end via awardDeed/claimAchievement reproduces the FROZEN contract's own pinned BR superb exactly: 9,437,184":
+    ## Same recipe as test_glory_recut.nim's own "the table's recomputed BR
+    ## superb reproduces exactly: 9,437,184" test -- but driven through the
+    ## FULL awardDeed/claimAchievement API (heat embers + stackK set the
+    ## same way that pure-function test set them), not the bare
+    ## recutFactor/recutFold calls that test uses. If GATE RULING 1's new
+    ## catalogV3Reprice branch touched the OFF path at all, this number
+    ## would move. It does not.
+    var config = recutConfig(br = true)
+    config.winAsMultiplier = false   # the recipe's own dClosingTime/dVictory
+                                     # rows assume the NON-win-bumped base
+                                     # (recutFactor's own omitted-arg default)
+    check config.catalogV3Reprice == false   # explicit: this IS the default
+    var sim = startedGame(config, seats = 2)
+    sim.players[0].team = Red
+    sim.players[1].team = Blue
+    # Heat is reset to 0 before every call EXCEPT the longshot kill (rung
+    # 3, x8) -- the pure-function recipe test passes `embers=0` explicitly
+    # to every OTHER `recutFactor` call; `awardDeed` instead reads
+    # `sim.heatEmbers[team]` live (and auto-increments it after any
+    # heat-paying mint), so this test must reproduce that same "embers=0
+    # except at the one deliberate rung" shape by hand.
+    sim.awardDeed(Red, dFirstBlood, 0, 0)                          # x2
+    sim.heatEmbers[Red] = 0
+    sim.awardDeed(Red, dRunDown, 0, 0)                             # x2
+    sim.heatEmbers[Red] = 10   # heat rung 3 (x8), for this ONE kill only
+    sim.awardDeed(Red, dLongshotKill, 0, 0, stackK = 5)            # x3 * x8(heat) * x8(5-ally)
+    sim.heatEmbers[Red] = 0
+    sim.awardDeed(Red, dAceTag, 0, 0)                              # x4
+    sim.heatEmbers[Red] = 0
+    sim.awardDeed(Red, dDuoDown, 0, 0)                             # x2
+    sim.heatEmbers[Red] = 0
+    sim.awardDeed(Red, dDuoDown, 0, 0)                             # x2
+    sim.heatEmbers[Red] = 0
+    sim.awardDeed(Red, dClosingTime, 0, 0)                         # x2
+    sim.heatEmbers[Red] = 0
+    sim.awardDeed(Red, dLastLight, 0, 0)                           # x4
+    sim.heatEmbers[Red] = 0
+    sim.awardDeed(Red, dVictory, 0, 0)                             # x8
+    sim.claimAchievement(Red, treeGun, AchievementTiers - 1, isFirst = true)  # x4 * x3(FIRST)
+    check sim.gloryProduct[Red] == 9_437_184
+    check sim.teamGlory[Red] == 9_437_184
+
+  test "OFF: gameHash of a short deterministic scenario matches the PINNED golden (computed once via a real run, not projected)":
+    var config = recutConfig(br = true)
+    var sim = startedGame(config, seats = 2)
+    sim.players[0].team = Red
+    sim.players[1].team = Blue
+    sim.awardDeed(Red, dHonorableKill, 0, 0)
+    sim.awardDeed(Red, dShieldSoak, 0, 0)
+    sim.awardDeed(Blue, dClutchHeal, 0, 0)
+    sim.claimAchievement(Red, treeSquad, AchievementTiers - 2, isFirst = true)
+    let hash = sim.gameHash()
+    echo &"  GATE-RULING-1 golden gameHash (OFF) = {hash}"
+    check hash == 7108621066401102251'u64   # pinned from a real run of THIS EXACT scenario
+    check sim.gloryProduct[Red] == 2        # x1(HonorableKill) * x1(ShieldSoak) * x2(Tier IV claim)
+    check sim.gloryProduct[Blue] == 1       # ClutchHeal: x1, no achievement claim on Blue
+
+  test "ON changes the reported score for the SAME frozen-contract recipe (the switch has real teeth)":
+    var config = recutConfig(br = true)
+    config.catalogV3Reprice = true
+    config.gloryFixedPointScale = true
+    var sim = startedGame(config, seats = 2)
+    sim.players[0].team = Red
+    sim.players[1].team = Blue
+    sim.awardDeed(Red, dHonorableKill, 0, 0)
+    check sim.gloryProduct[Red] != int64(RecutSeed) * GlorySCALE  # no longer x1-inert
+    check sim.gloryProduct[Red] == (int64(RecutSeed) * GlorySCALE * 220) div 100  # x2.2
+
+suite "GATE RULING 2: small/fractional factors never fold from a bare seed (its own test)":
+  test "pct < 200 from a bare (unscaled) seed is SKIPPED, not floored-to-nothing":
+    check recutFoldPct(int64(1), 160) == 1          # would be skipped either way (pct<=100? no, 160>100)
+    check recutFoldPct(int64(1), 160, scale = 1) == 1   # base(1) < floor(64): skip, unchanged
+    check recutFoldPct(int64(63), 160, scale = 1) == 63 # still under the floor: skip
+
+  test "pct < 200 folds for real once the (unscaled) accumulator exceeds ~64":
+    check recutFoldPct(int64(64), 160, scale = 1) == (64 * 160) div 100
+    check recutFoldPct(int64(100), 105, scale = 1) == (100 * 105) div 100
+
+  test "pct >= 200 (not 'small') is UNRESTRICTED even from a bare seed":
+    check recutFoldPct(int64(1), 220) == (1 * 220) div 100  # dHonorableKill's v3 pct
+
+  test "the floor is evaluated in UNSCALED units when scale > 1":
+    let scale = GlorySCALE
+    check recutFoldPct(int64(1) * scale, 160, scale = scale) == int64(1) * scale     # 1 < 64: skip
+    check recutFoldPct(int64(64) * scale, 160, scale = scale) ==
+      (int64(64) * scale * 160) div 100                                             # 64 >= 64: folds
+
+suite "GATE RULING 4: a pact-scope marquee ALWAYS mints over a shadowing solo kill deed":
+  test "on the far-spawn 'corners' map, pact-scope dDuoDown now mints instead of being shadowed by dLongshotKill":
+    ## This is the EXACT scenario the S5 rig found dDuoDown silently
+    ## losing to dLongshotKill in -- unmoved, far-apart BR spawns. Ruling 4
+    ## makes the pact deed win unconditionally; re-measures mint-rate vs
+    ## raw incidence afterward (both suite-level assertions below).
+    var config = fourTeamConfig()
+    config.pactScopedWipeDown = true
+    var sim = fourTeamGame(config)
+    sim.registerPact(Blue, Green)
+    check sim.deedCounts[dLongshotKill] == 0  # sanity: not pre-armed by setup
+    sim.killPlayer(1, 0, weapon = "gun")      # p0=Red kills p1=Blue, UNMOVED (far spawns)
+    check sim.deedCounts[dDuoDown] == 1       # mints now, was 0 before ruling 4
+    check sim.deedCounts[dLongshotKill] == 0  # the longshot fact still happened, but did not mint
+
+  test "dDuoDown mint-RATE now equals raw INCIDENCE (the shadowing cost is closed)":
+    ## Raw incidence: the GLORY_PACT_DUODOWN event fires (the CONDITION
+    ## held). Mint rate: deedCounts[dDuoDown] actually incremented. Before
+    ## ruling 4 these could diverge (incidence 1, mint 0, on this exact
+    ## map); after ruling 4 they must always agree.
+    var config = fourTeamConfig()
+    config.pactScopedWipeDown = true
+    var sim = fourTeamGame(config)
+    sim.registerPact(Blue, Green)
+    sim.killPlayer(1, 0, weapon = "gun")
+    let incidence = sim.events.filterIt(it.kind == GloryDeed and
+      it.weapon == "pactDuoDown").len
+    let mints = sim.deedCounts[dDuoDown]
+    echo &"  dDuoDown incidence={incidence} mints={mints} (ruling 4: must be equal)"
+    check incidence == 1
+    check mints == incidence

@@ -2930,6 +2930,31 @@ type
                         ## early in an episode; the rig report names this
                         ## dependency plainly rather than hiding it. Dark =
                         ## false: the frozen ×2/×3/×4 ladder, unchanged.
+    catalogV3Reprice*: bool ## GATE RULING 1 (coordinator, 2026-09-09):
+                        ## selects `glory.nim`'s v3 percent-scaled reprice
+                        ## table (`RecutClassTableV3Pct`/
+                        ## `RecutTierClassV3Pct`/`HeatLadderV3Pct`/
+                        ## `RecutStackLadderV3Pct`) instead of the FROZEN
+                        ## `RecutClassTable`/`RecutTierClass`/`HeatLadder`/
+                        ## `RecutStackLadder` — "WIRE-OK for the rig only,
+                        ## in this exact form: a switch-selected SECOND
+                        ## table. Switch OFF must select the frozen table
+                        ## and be byte-identical." Read only while
+                        ## `gloryMultiplierRecut` is armed, same as every
+                        ## other recut flag; pairs best with
+                        ## `gloryFixedPointScale` (small v3 factors, e.g.
+                        ## Tier IV's x1.05, need it to register — see
+                        ## `recutFoldPct`'s GATE RULING 2 floor) but does
+                        ## not require it (v3 factors >= x2.00 register
+                        ## even unscaled). Dark = false: `RecutClassTable`'s
+                        ## frozen values, byte-identical — proven, not
+                        ## merely asserted, by `test_glory_s5_rig.nim`'s
+                        ## equivalence-to-pure-frozen-arithmetic test and a
+                        ## pinned `gameHash` fixture. NO GLORYVERSION BUMP:
+                        ## this table is dead weight in the binary until
+                        ## armed, and arming it live is explicitly S6's
+                        ## job, gated on the owner's GO — never this flag's
+                        ## default.
     gloryFixedPointScale*: bool ## CATALOG-V3-DRAFT.md §9b (RULED
                         ## representation): seeds `gloryProduct` at
                         ## `GlorySCALE` (1024) instead of the bare

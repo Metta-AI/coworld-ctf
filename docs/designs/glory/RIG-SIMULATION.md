@@ -5,6 +5,33 @@ Program `25d9108e`. Opens on the S4 freeze (`origin/main @ 57308cf3`, PR
 — PR only, S2 lead merges. No GLORYVERSION bump, no wire change, no
 settings POST, no deploy performed by this step.
 
+## GATE RULINGS (coordinator, 2026-09-09, after the first pass of this rig)
+
+The coordinator reviewed the first version of this report (ARMED scoring
+lower than DARK because the deed-class reprice was correctly out of scope)
+and issued five rulings that changed this PR:
+
+1. **WIRE-OK for the rig only, in this exact form**: the v3 reprice landed
+   as a switch-selected SECOND table (`GameConfig.catalogV3Reprice`,
+   default OFF); switch OFF selects the frozen table and is byte-identical
+   — proven, not merely asserted (own section below). **No GLORYVERSION
+   bump in S5** — that lives only in the S6 ship PR, owner-gated.
+2. **Fold-order reinstated, narrowed**: fractional/small (`<x2`) factors
+   never fold from a bare seed; the accumulator must exceed ~64 first —
+   `RecutMinAccumulatorForSmallPct` in `recutFoldPct`, its own test suite.
+3. **Bands resolved, no boundary moves**: MID = 2–6 as signed; 7–8 is
+   MID's upper shoulder and counts toward CONTINUITY only, never toward
+   the MID CHOSEN target. (This PR does not edit `CATALOG-V3-DRAFT.md`
+   itself — flagged for the doc's own owner to correct its "2–8" wording;
+   this rig now measures CHOSEN share against MID = 2–6 only.)
+4. **Mint priority**: when one kill satisfies both a pact-scope deed and a
+   solo deed, the PACT deed mints unconditionally (`pactForced` in
+   `killPlayer`) — own test, and the dDuoDown mint-rate-vs-incidence
+   re-measure below.
+5. **Monte Carlo caveat stays on every number**: the archetypes are
+   direction-calibrated modelling choices, not measured policies — kept on
+   both the original and the re-run distribution.
+
 ## ERA FRAMING (mandatory, per this step's own brief)
 
 Every comparison below is **pre-#477 baseline vs post-#477 live**, never one
@@ -34,6 +61,7 @@ while `gloryMultiplierRecut` is armed (enforced at each call site):
 | `pactScopedWipeDown` | ruling (c): retargets `dDuoDown`/`dWipe` onto an opposing PACT GROUP instead of a same-team partner (sim_state.nim `pactGroupTeams`/`pactGroupLivingExcluding`; integrated at the existing marquee-upgrade site, same one-kill-one-deed precedence dDuoDown already used) | byte-identical: no pact-scope path is ever consulted |
 | `placementRampV3` | CATALOG-V3-DRAFT.md §4: `dFinal8`/`dFinal4` → pct=100 (a true no-op — still mints/pops/counts, contributes zero marginal score), `dFinal2` → pct=130, folded via a NEW percent-scaled fold (`recutFoldPct`); plus a continuous per-seat survival credit (`RecutSurvivalCreditPct`=102 every `RecutSurvivalCreditIntervalTicks`=720 ticks of `aliveTicks`, piggybacked on the existing `updatePackTicks` per-tick loop) | byte-identical: `RecutClassTable`'s frozen 2/3/4 |
 | `gloryFixedPointScale` | CATALOG-V3-DRAFT.md §9b RULED representation: seeds `gloryProduct` at `GlorySCALE`=1024 instead of the bare `RecutSeed`; `recutScoreScaled` reads it back (halve first via `recutScore`'s own `halvings>=63→0` guard, THEN strip scale — the SAFE order) | byte-identical: unscaled |
+| `catalogV3Reprice` | **GATE RULING 1**: selects `RecutClassTableV3Pct`/`RecutTierClassV3Pct`/`HeatLadderV3Pct`/`RecutStackLadderV3Pct` (percent-scaled) instead of the frozen `RecutClassTable`/`RecutTierClass`/`HeatLadder`/`RecutStackLadder` (`recutFactorV3Pct`/`recutAchievementFactorV3Pct`, glory.nim) | byte-identical: frozen tables, proven below |
 
 **Fire counters are NOT new `SimServer` fields.** The first draft of this
 work added `capHitCount`/`recutPactDuoDownCount`/etc directly to
@@ -72,13 +100,12 @@ halving-order invariant") proves, against real production constants:
 
 ## Test status
 
-`tests/test_glory_s5_rig.nim` — **19/19 passing, local run**
+`tests/test_glory_s5_rig.nim` — **28/28 passing, local run**
 (`nim c -d:noSignalHandler --threads:on -d:useMalloc`, runtime-stub shape,
 `WASMTIME_C_API=""` for `nim check`; real Wasmtime C API for the shard
 build). Registered in `tests/shard_1.nim`. Full 4-shard regression run
-(local): shard 1 368/368, shard 2 782/782, shard 3 650/650, shard 4
-398/398 — **0 failures anywhere**, confirming the new switches are
-byte-identical dark and the rest of the suite is unaffected.
+(local, post gate-rulings): shard 1 377/377, shard 2 782/782, shard 3
+650/650, shard 4 398/398 — **0 failures anywhere**.
 **Not yet a CI run** — this PR's CI run id will supersede this local
 verification per this program's own "verified via test X must cite the
 CI run id" law; treat the numbers above as local-only until then.
@@ -95,7 +122,50 @@ away:
 - The pact-scope `dDuoDown` marquee is correctly SHADOWED by a higher-class
   LONGSHOT kill on far-apart BR spawns (the existing one-kill-one-deed
   upgrade-only law working as designed) — this is itself a real, reportable
-  finding, not just a test-setup fix (see "mint-RATE" below).
+  finding, not just a test-setup fix (see "mint-RATE" below, and GATE
+  RULING 4's fix).
+
+### GATE RULING 1 — the switch-OFF zero-diff proof
+
+`test_glory_s5_rig.nim`, suite "GATE RULING 1: catalogV3Reprice switch OFF
+is byte-identical (not merely asserted)":
+- **"OFF end-to-end via awardDeed/claimAchievement reproduces the FROZEN
+  contract's own pinned BR superb exactly: 9,437,184"** — the SAME recipe
+  `test_glory_recut.nim`'s own pure-function test uses, driven through the
+  full `awardDeed`/`claimAchievement` API instead of bare `recutFactor`
+  calls. Result: **9,437,184**, exact match. PASS.
+- **"OFF: gameHash of a short deterministic scenario matches the PINNED
+  golden"** — a 4-mint scenario (`dHonorableKill`+`dShieldSoak`+
+  `dClutchHeal`+one `treeSquad` claim), `gameHash()` pinned at
+  `7108621066401102251` (computed once via a real run, printed then
+  hard-coded, same idiom this codebase's own fixture tests use throughout).
+  PASS.
+- **"ON changes the reported score for the SAME frozen-contract recipe"**
+  — confirms the switch has real teeth (`dHonorableKill` folds `x2.2`
+  instead of `x1` once armed). PASS.
+
+### GATE RULING 2 — the fold-order rule's own test
+
+`RecutMinAccumulatorForSmallPct = 64` in `recutFoldPct` (glory.nim): a
+factor with `pct < 200` is skipped (not floored-to-nothing) while the
+UNSCALED accumulator sits at or below 64. Suite "GATE RULING 2: small/
+fractional factors never fold from a bare seed" — 4/4 PASS, including the
+scaled-vs-unscaled floor-evaluation case. The pre-existing placement-ramp
+test (`test "armed: dFinal8/dFinal4 crush..."`) was updated to match: a
+bare-seed `dFinal2` fold (pct=130) is now correctly SKIPPED, and a second
+scenario (base grown to 256x seed via prior whole-integer folds) shows the
+SAME pct folding for real once past the floor.
+
+### GATE RULING 4 — mint priority + dDuoDown mint-rate vs incidence
+
+`pactForced` (sim.nim `killPlayer`) makes a pact-scope marquee win
+unconditionally over an ordinarily-resolved kill deed. Suite "GATE RULING
+4": on the SAME far-spawn "corners" map scenario that previously showed
+`dDuoDown` shadowed by `dLongshotKill`, `dDuoDown` now mints
+(`deedCounts[dDuoDown] == 1`). Re-measured mint-rate vs raw incidence:
+**incidence=1, mints=1 — equal**. Before this ruling, the same scenario
+measured incidence=1, mints=0 (a 100% loss on this map shape); the gap is
+now fully closed.
 
 ## SIMULATE — Monte Carlo rig against real production scoring code
 
@@ -120,78 +190,68 @@ Ephemeral trial tooling (matches S4's own `reprice_v3.py` precedent — "not
 committed"): `/tmp/glory-s5/rig/s5_montecarlo.nim`, 1,500 baseline +
 1,500 skilled seat-episodes, seed base 20260909.
 
-### Simulated distribution vs the pinned ladder
+### Simulated distribution vs the pinned ladder — RE-RUN with catalogV3Reprice ON (GATE RULING 1)
+
+**MONTE CARLO CAVEAT (GATE RULING 5, repeated here on purpose): the
+"baseline"/"skilled" archetypes are direction-calibrated MODELLING
+CHOICES, not measured policies — every number below is provisional until
+S6 re-measures on the live post-#477 ladder.**
+
+A bug was found and fixed while wiring this re-run: the original script
+computed the baseline/skilled mean split by slicing the SORTED combined
+array by index, which measures "lower half vs upper half of the pooled
+population," not "baseline vs skilled" — a different, wrong number. Fixed
+by tracking each archetype's points in its own seq before sorting the
+combined array for percentile display. The corrected code is what
+produced every number below (the first version of this report's own
+acceptance-test-2 numbers were computed with the buggy split and are
+superseded by this run in full, not just the catalogV3Reprice delta).
 
 3,000 seat-episodes (1,500 baseline + 1,500 skilled), paired seeds:
 
-| percentile | DARK (S4 frozen) pts | ARMED (4 S5 switches) pts |
+| percentile | DARK (S4 frozen) pts | ARMED (5 switches incl. catalogV3Reprice) pts |
 |---:|---:|---:|
-| p10 | 1.00 | 0.00 |
-| p25 | 2.00 | 2.00 |
+| p10 | 1.00 | 1.00 |
+| p25 | 2.00 | 1.00 |
 | p50 (median) | 3.58 | 2.00 |
-| p75 | 6.58 | 3.58 |
-| p90 | 9.58 | 5.36 |
-| p99 | 12.75 | 9.55 |
+| p75 | 6.58 | 4.00 |
+| p90 | 9.58 | 6.27 |
+| p99 | 12.75 | 14.00 |
 
-**Headline, stated plainly, not softened: ARMED scores LOWER than DARK at
-every percentile from p50 up.** This is the correct, expected consequence
-of this step's own SCOPE DISCIPLINE, not a bug: `placementRampV3` crushes
-`dFinal8`/`dFinal4` to a true no-op (pct=100) and reprices `dFinal2` down
-to a small x1.30 nudge — removing real magnitude from the HANDED
-(placement) bucket, exactly per the lead's ruling — but this rig does
-**not** also raise the kill/heat/support deed classes
-(`dHonorableKill`×1→×2.2, heat rungs 2/4/8→5/14/36, etc.) the way
-`CATALOG-V3-DRAFT.md`'s own "FREEZE CONDITION 1" static re-price trial
-did, because that reprice needs new `RecutClassTable`/`RecutTierClass`
-VALUES — a **GLORYVERSION bump this step has no WIRE-OK for** (per this
-step's own explicit boundary: "STOP and report rather than doing it"). The
-result is exactly what you'd expect from removing a HANDED lever without
-building its CHOSEN replacement: less magnitude everywhere, not
-redistributed magnitude. **This is the single most important finding of
-this rig, and it is a scope finding, not a code defect**: S5's four
-levers (representation, halving order, cap counter, rulings b/c, placement
-ramp) are real, tested, and safe — but the catalog's OWN "move magnitude
-from placement to kills" design law needs BOTH halves landed together to
-show the target shape; this PR ships the first half only, correctly, and
-proves — with real evidence, not assertion — that the second half (the
-deed-class reprice, S6/owner-gated) is load-bearing, not optional polish.
+### Acceptance tests (re-run)
 
-### Acceptance tests
-
-1. **CONTINUOUS POPULATION THROUGH 6–9 PTS: PASS, weakly, wrong trend.**
-   164 of 3,000 (5.5%) armed seat-episodes land in [6,9] — non-zero, so not
-   a hard gap — but DARK's own p75–p90 (6.58–9.58) sat almost entirely
-   inside that band while ARMED's shifted down to p90=5.36, i.e. the
-   placement-ramp crush (without the kill reprice) makes 6–9 pts a
-   THINNER shoulder, not a thicker one. Passes the letter of the test;
-   fails its spirit until the reprice half lands.
-2. **Geometric-mean standings separate TOP from MID: PASS, compressed.**
-   ARMED: baseline mean 1.46 pts vs skilled mean 4.22 pts (skilled ≈6.8×
-   baseline in the leg domain, `2^4.22 / 2^1.46`) — skilled seats still
-   score higher, so separation holds. But DARK separated MORE (2.05 vs
-   7.14 pts, ≈34×) — again the placement/win HANDED lump (today's actual
-   separator, since it scales with skill via reach-probability) got
-   crushed without a CHOSEN-side replacement. Separation survives; it
-   shrinks. Same root cause as test 1.
-3. **Mid band's magnitude mostly from deeds CHOSEN: FAIL, and this rig
-   shows exactly why.** Measured CHOSEN log2-share: mid-band mean **5.92%**,
-   top mean **8.06%** — far below the catalog's own static-repriced target
-   (54.61%/71.11%). Root cause, found by running this, not assumed:
-   `chosenLog2Share`'s CHOSEN deeds (kills, heat) are folded through
-   `RecutClassTable`'s **UNCHANGED, S4-frozen** classes, and `dHonorableKill`/
-   `dShieldSoak`/`dClutchHeal` are still priced at **×1** (commons) —
-   `log2(1) = 0`, so ANY NUMBER of kills a seat racks up contributes
-   **exactly zero** log2-magnitude under this rig's (deliberately)
-   unrepriced classes. This is not a rig bug — it is a precise, load-bearing
-   demonstration that acceptance test 3 is structurally impossible to pass
-   without the deed-class reprice this step is not authorized to make.
-4. **Cap-hit lands in 0.1–1%: FAIL (measured 0.0000%, 0 of 3,000).**
-   Consistent with the census's own real measurement (0.020%, `TARGET-
-   DISTRIBUTION.md §3`) and with finding 3 above: `RecutProductCapArmed`
-   (2^24 ≈ 16.8M) is essentially unreachable under either today's classes
-   or this rig's infra-only levers — reaching the 0.1–1% design band
-   needs the same kill/heat reprice that test 3 is blocked on, not a
-   change to the cap itself.
+1. **CONTINUOUS POPULATION THROUGH 6–9 PTS: PASS, improved.** 213 of 3,000
+   (7.1%, was 164/5.5% infra-only) armed seat-episodes land in [6,9] — up
+   with the reprice armed, and p90 (6.27) now sits just inside the band
+   instead of below it. Still thinner than DARK's own natural 6.58–9.58
+   p75–p90 span, but moving the right direction with the reprice landed.
+2. **Geometric-mean standings separate TOP from MID: PASS.** ARMED
+   (CORRECTED split, see bug note above): baseline mean **1.67** pts vs
+   skilled mean **4.23** pts — skilled ≈2.6 pts higher in log-space
+   (≈6× in the leg domain). DARK (corrected): baseline 2.99 vs skilled
+   6.20. Separation holds under both configs; the reprice does not close
+   the gap between them (a different question from whether it exists).
+3. **Mid band's magnitude mostly from deeds CHOSEN: FAIL, closer.**
+   Measured CHOSEN log2-share: mid-band mean **33.41%**, top mean
+   **47.82%** — up sharply from the infra-only run (5.92%/8.06%,
+   structurally zero because kills folded at the frozen ×1), but still
+   below the catalog's own static-repriced target (54.61%/71.11%) and
+   below a bare majority. Likely cause: this rig's OWN trial constants for
+   the "already-real classes... raised further" deeds (a flat +50%, since
+   `CATALOG-V3-DRAFT.md` names no exact target — see the v3 table's own
+   doc comment) are probably smaller than the static tool's undisclosed
+   trial values, and/or the Monte Carlo's per-seat kill RATES themselves
+   (census episode-aggregate ÷ 16) undercount a skilled seat's real kill
+   volume. Not re-tuned further in this pass — flagged for S6, not
+   silently pushed past 50% by picking bigger trial constants after
+   seeing this number.
+4. **Cap-hit lands in 0.1–1%: FAIL (still 0.0000%, 0 of 3,000).**
+   Unchanged from the infra-only run and consistent with the census's own
+   near-zero measurement (0.020%). `RecutProductCapArmed` (2^24 ≈ 16.8M)
+   remains far above what even the v3-repriced classes reach in this
+   Monte Carlo's per-seat mint volumes — reaching the design band likely
+   needs either larger v3 constants than this rig's trial +50%, or a
+   lower cap, neither decided here.
 
 ## MEASURE WHAT THE STATIC PASS COULD NOT
 

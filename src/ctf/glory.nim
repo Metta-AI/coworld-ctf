@@ -2903,8 +2903,26 @@ func recutCapHit*(before, after, cap: int64): bool {.inline.} =
   ## ~2^62 overflow guard, which no measured episode has ever reached).
   after == cap and before != cap
 
-func recutFoldPct*(product: int64, pct: int,
-                   capsArmed: bool = false): int64 {.inline.} =
+const
+  RecutMinAccumulatorForSmallPct* = 64
+    ## GATE RULING 2 (coordinator, 2026-09-09, after the S5 rig's own
+    ## bare-seed finding: 23.08% drift at EVERY tested SCALE from 2^8 to
+    ## 2^20 — a structural integer-division floor scale size cannot fix,
+    ## not a rounding artifact). CATALOG RULE, reinstating a narrowed
+    ## fold-order discipline: a fractional-tier factor that is SMALL
+    ## (`pct < 200`, i.e. below `x2.00`) is NEVER folded while the
+    ## accumulator (in UNSCALED units — `product` if `gloryFixedPointScale`
+    ## is dark, `product div scale` if armed) sits at or below this floor.
+    ## The fold is SKIPPED (product returned unchanged), not applied and
+    ## then silently floored away at read-out — honest about "not yet
+    ## effective" rather than a fold that "happened" and vanished. Factors
+    ## `pct >= 200` are unrestricted (a real x2+ nudge registers even from
+    ## a small base with tolerable drift — see `test_glory_s5_rig.nim`).
+    ## `SCALE` stays `2^10` (`GlorySCALE`) — this rule does not change the
+    ## representation, only which small folds are allowed to apply early.
+
+func recutFoldPct*(product: int64, pct: int, capsArmed: bool = false,
+                   scale: int64 = 1): int64 {.inline.} =
   ## S5 fixed-point fold (CATALOG-V3-DRAFT.md §9 Option B / §9b): folds one
   ## PERCENT-SCALED factor (`pct=100` is the true identity, `x1.00`; `pct=
   ## 130` folds `x1.30`) — the `AchievementFirstMultPct`-style idiom
@@ -2914,20 +2932,27 @@ func recutFoldPct*(product: int64, pct: int,
   ## applied to `RecutClassTable`'s existing whole-class factors — those
   ## keep folding through `recutFold` unchanged.
   ##
-  ## REQUIRES a `GlorySCALE`-seeded accumulator to avoid the exact failure
+  ## `scale` (default 1, i.e. unscaled) is the caller's current
+  ## `GlorySCALE` if `gloryFixedPointScale` is armed, else 1 — used ONLY by
+  ## GATE RULING 2's small-factor floor guard below, so this proc still
+  ## does the SAME multiply-then-`div 100` regardless of scale; `scale`
+  ## never appears in that arithmetic itself (stripping it is
+  ## `recutScoreScaled`'s job, at read-out, not this proc's).
+  ##
+  ## REQUIRES a `GlorySCALE`-seeded accumulator (or a factor `pct >= 200`,
+  ## GATE RULING 2) to avoid the exact failure
   ## `test_glory_percent_scale_headroom.nim` measured: at the bare seed (1),
   ## `(1 * pct) div 100 == 1` for every `pct` in the fractional tier's whole
-  ## 100-199 range — a silent, total no-op, not a rounding error. Callers
-  ## arm `GameConfig.gloryFixedPointScale` (which seeds `gloryProduct` at
-  ## `GlorySCALE` instead of `RecutSeed` in `resetGloryLedger`) before this
-  ## proc can do anything meaningful; `pct=100` is the one input for which
-  ## that is not true — it is an exact no-op at ANY base, scaled or not,
-  ## which is exactly why the placement ramp (§4) can price `dFinal8`/
-  ## `dFinal4` at `pct=100` today (crushed to zero marginal score, still
-  ## mints/pops/counts) without depending on the representation switch at
-  ## all — only `dFinal2`'s `pct=130` leg needs `GlorySCALE` to not
-  ## truncate away.
+  ## 100-199 range — a silent, total no-op, not a rounding error. `pct=100`
+  ## is the one input for which that is not true — it is an exact no-op at
+  ## ANY base, scaled or not, which is exactly why the placement ramp (§4)
+  ## can price `dFinal8`/`dFinal4` at `pct=100` today (crushed to zero
+  ## marginal score, still mints/pops/counts) without depending on the
+  ## representation switch at all — only `dFinal2`'s `pct=130` leg needs
+  ## `GlorySCALE` (or the GATE RULING 2 floor) to not truncate away.
   if pct <= 100: return product
+  if pct < 200 and product < RecutMinAccumulatorForSmallPct * scale:
+    return product   # GATE RULING 2: base too small, skip this fold.
   let cap = recutProductCap(capsArmed)
   if product >= cap div int64(pct):
     return cap
@@ -2987,6 +3012,129 @@ const
     ## only to be "small and frequent" (the §4 ramp's own requirement) —
     ## the rig reports what this actually does to the 6-9pt continuity
     ## check, it does not defend this exact number.
+
+# ───────────────────────────────────────────────────────────────────────────
+# GATE RULING 1 (coordinator, 2026-09-09) — "WIRE-OK for the rig only, in
+# this exact form": the v3 `RecutClassTable`/`RecutTierClass`/`HeatLadder`/
+# `RecutStackLadder` reprice (CATALOG-V3-DRAFT.md's FREEZE CONDITION 1
+# static trial), implemented as a SWITCH-SELECTED SECOND TABLE
+# (`GameConfig.catalogV3Reprice`, default OFF). Switch OFF selects the
+# FROZEN table above and is BYTE-IDENTICAL — proven, not asserted, by
+# `test_glory_s5_rig.nim`'s equivalence-to-pure-frozen-arithmetic test and
+# a pinned `gameHash` fixture. NO GLORYVERSION BUMP: this table is dead
+# weight in the binary until the switch arms, the wire shape is untouched,
+# and the switch itself defaults off, so no league or build sees any of
+# this until an S6 ship PR explicitly arms it (owner GO required, per the
+# coordinator's own ruling: "the GLORYVERSION bump lives ONLY in the S6
+# ship PR").
+#
+# VALUES: the FOUR exact deltas CATALOG-V3-DRAFT.md names verbatim
+# (dHonorableKill/dShieldSoak/dClutchHeal/dPointBlankKill, HEAT, dClosingTime,
+# treeSquad.IV, treeGun.V) are used as given. The doc's "already-real classes
+# ... all raised further" line (dFirstBlood/dLongshotKill/dAceTag/dLastLight/
+# dRevengeKill/dRunDown/dSplashMultiKill) names NO exact target — a flat
+# +50% is THIS rig's trial choice, per the doc's own "simulators pick
+# constants" latitude, named here as a modeling choice, not a re-derivation.
+# TERRITORY's "scaled to 15% of its current magnitude" is approximated as a
+# flat +15% enemy-ground multiplier (`RecutTerritoryShiftPctV3`) — the
+# original static-repricing tool's exact per-deed formula was ephemeral,
+# uncommitted trial tooling (`/tmp/glory-catalog/attribution-tool/
+# reprice_v3.py`) and is not re-derivable; flagged as a simplification, not
+# hidden. `dJointAct` and `WIN` are explicitly UNTOUCHED (the doc's own
+# "the win multiplier stays the win" ruling; dJointAct's era-split is a
+# BUCKET reclassification, not a class change).
+const
+  RecutClassTableV3Pct*: array[Deed, int] = block:
+    var pcts: array[Deed, int]
+    for deed in Deed: pcts[deed] = RecutClassTable[deed] * 100
+    pcts[dHonorableKill] = 220     # x1 -> x2.2 (exact, doc-named)
+    pcts[dShieldSoak] = 160        # x1 -> x1.6 (exact, doc-named)
+    pcts[dClutchHeal] = 180        # x1 -> x1.8 (exact, doc-named)
+    pcts[dPointBlankKill] = 250    # x1 -> x2.5 (exact, doc-named)
+    pcts[dFirstBlood] = 300        # x2 -> x3.0 (+50%, THIS rig's trial)
+    pcts[dLongshotKill] = 450      # x3 -> x4.5 (+50%, trial)
+    pcts[dSplashMultiKill] = 450   # x3 -> x4.5 (+50%, trial)
+    pcts[dRevengeKill] = 300       # x2 -> x3.0 (+50%, trial)
+    pcts[dRunDown] = 300           # x2 -> x3.0 (+50%, trial)
+    pcts[dAceTag] = 600            # x4 -> x6.0 (+50%, trial)
+    pcts[dLastLight] = 600         # x4 -> x6.0 (+50%, trial)
+    pcts[dClosingTime] = 110       # x2 -> x1.1 (exact, doc-named, non-win base)
+    pcts
+
+  RecutClosingTimeWinBumpV3Pct* = 120
+    ## dClosingTime's win-bumped base under v3: x3 -> x1.2 (exact, doc-named).
+
+  RecutTierClassV3Pct*: array[AchievementTiers, int] = block:
+    var pcts: array[AchievementTiers, int]
+    for tier in 0 ..< AchievementTiers: pcts[tier] = RecutTierClass[tier] * 100
+    pcts[3] = 105   # Tier IV (treeSquad.IV Clean Sheet): x2 -> x1.05 (exact)
+    pcts[4] = 200   # Tier V (treeGun.V Sharpshooter): x4 -> x2.0 (exponent
+                     # 0.5 per the doc's own wording: sqrt(4)=2)
+    pcts
+
+  HeatLadderV3Pct*: array[4, int] = [100, 500, 1400, 3600]
+    ## x1/x5/x14/x36 (exact, doc-named: "2/4/8 -> 5/14/36").
+
+  RecutStackLadderV3Pct*: array[6, int] = [100, 500, 750, 1250, 2000, 3250]
+    ## k=1 stays neutral (x1, unscaled -- a lone seat is never "stacked");
+    ## k=2..6 (classic ladder 2,3,5,8,13) scaled x2.5 (exact, doc-named:
+    ## "ALLY-STACK scaled x2.5").
+
+  RecutTerritoryShiftPctV3* = 115
+    ## Approximation of "TERRITORY's rung-shift scaled to 15% of its
+    ## current magnitude" -- a flat +15% multiplicative bump on enemy
+    ## ground for any non-commons v3 class, in place of the classic rung
+    ## INCREMENT (`recutShiftedClass`'s `inc result`). See this section's
+    ## header for why this is an approximation, not a re-derivation.
+
+func heatMultV3Pct*(embers: int): int {.inline.} =
+  ## V3 sibling of `heatMult`, percent-scaled.
+  let rung = heatRung(embers)
+  HeatLadderV3Pct[if rung > HeatLadderV3Pct.high: HeatLadderV3Pct.high else: rung]
+
+func recutStackMultV3Pct*(k: int): int {.inline.} =
+  ## V3 sibling of `recutStackMult`, percent-scaled.
+  if k <= 1: RecutStackLadderV3Pct[0]
+  elif k >= RecutStackLadderV3Pct.len: RecutStackLadderV3Pct[^1]
+  else: RecutStackLadderV3Pct[k - 1]
+
+func recutShiftedClassV3Pct*(deed: Deed, sitePct: int,
+                             winAsMult: bool = false): int {.inline.} =
+  ## V3 sibling of `recutShiftedClass`, percent-scaled. Commons (pct<=100)
+  ## never shift, same law as the classic path (§5.8, load-bearing).
+  result =
+    if deed == dClosingTime:
+      (if winAsMult: RecutClosingTimeWinBumpV3Pct else: RecutClassTableV3Pct[dClosingTime])
+    else: RecutClassTableV3Pct[deed]
+  if result > 100 and sitePct == SiteMultEnemyPct:
+    result = (result * RecutTerritoryShiftPctV3) div 100
+
+func recutFactorV3Pct*(deed: Deed; embers, sitePct: int; carrying: bool;
+                       stackK: int = 1; winAsMult: bool = false): int =
+  ## V3 sibling of `recutFactor`, percent-scaled. Accumulates class x heat
+  ## x carry x stack as a SINGLE rational (numerator/denominator) and
+  ## divides ONCE at the end, not once per stage -- the "keep an exact
+  ## intermediate, truncate once" pattern `test_glory_percent_scale_
+  ## headroom.nim` proved UNSAFE for a 30-factor chain (numerator overflow)
+  ## but which is safe here: at most 4 stages, worst case numerator
+  ## ~600*3600*200*3250 ~= 1.4e12, nowhere near int64 overflow.
+  let classPct = recutShiftedClassV3Pct(deed, sitePct, winAsMult)
+  if classPct <= 100: return 100
+  var num = int64(classPct)
+  var den = int64(100)
+  if paysHeat(deed):
+    num *= int64(heatMultV3Pct(embers)); den *= 100
+  if carrying and isDrama(deed):
+    num *= int64(CarrierHoldMultPct); den *= 100
+  num *= int64(recutStackMultV3Pct(stackK)); den *= 100
+  result = int((num * 100) div den)
+
+func recutAchievementFactorV3Pct*(tier: int, isFirst: bool): int =
+  ## V3 sibling of `recutAchievementFactor`, percent-scaled.
+  if tier < 0 or tier >= AchievementTiers: return 100
+  result = RecutTierClassV3Pct[tier]
+  if isFirst and result > 100:
+    result = (result * AchievementFirstMultPct) div 100
 
 const
   RecutWinFactorBR* = 4
