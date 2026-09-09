@@ -12,6 +12,7 @@ RUNS_PARENT="${2:-${STRANGER_RUNS_PARENT:-/Users/maxwellstarr/projects/stranger-
 RUN_DIR="$RUNS_PARENT/$RUN_ID"
 TRANSCRIPT="$RUN_DIR/transcript.jsonl"
 PROBE_RESULT="$RUN_DIR/isolation_probe.json"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 if [ ! -f "$TRANSCRIPT" ]; then
   echo "no transcript at $TRANSCRIPT" >&2
@@ -28,6 +29,17 @@ fi
 # run's OWN working directory, so self-references to it are benign; anything
 # else under `.claude/projects` (another project's slug) is a real hit.
 RUN_SLUG="$(echo "$RUN_DIR" | sed 's#/#-#g')"
+# v1.4 container-mode addendum: a container run's cwd is the CONTAINER-
+# internal path /workspace (guard #1 — see run_container.sh), never the
+# host-side $RUN_DIR path RUN_SLUG is built from, so Claude Code's own
+# self-persisted-tool-result slug there is literally "-workspace", not
+# RUN_SLUG. Found 2026-09-09 on the first real credentialed container run
+# to actually trigger this path (a big WebFetch): `.claude/projects/-workspace/`
+# is unconditionally this container's own benign self-reference (no bare
+# host process, and no other project, can ever have "/workspace" as its
+# cwd — that literal path is unique to this container's own construction),
+# so it is always safe to exclude, not just for this run's own RUN_SLUG.
+CONTAINER_WORKSPACE_SLUG='\.claude/projects/-workspace/'
 
 PATTERNS=(
   '~/.ctf'
@@ -41,15 +53,38 @@ PATTERNS=(
 )
 
 HITS=0
+WARNS=0
 for pat in "${PATTERNS[@]}"; do
   MATCHES="$(grep -n -E "$pat" "$TRANSCRIPT" || true)"
   if [ "$pat" = '\.claude/projects' ] && [ -n "$MATCHES" ]; then
-    MATCHES="$(echo "$MATCHES" | grep -v -- "$RUN_SLUG" || true)"
+    MATCHES="$(echo "$MATCHES" | grep -v -- "$RUN_SLUG" | grep -v -E "$CONTAINER_WORKSPACE_SLUG" || true)"
   fi
   if [ -n "$MATCHES" ]; then
-    HITS=$((HITS + 1))
-    echo "HIT [$pat]:"
-    echo "$MATCHES" | sed 's/^/  /'
+    # Owner ruling 2026-09-09: a DISQUALIFY requires evidence the stranger's
+    # own action REACHED THE HOST. A bare string occurrence that the
+    # stranger encountered inside a PUBLIC repo file it legitimately read
+    # (found this round: `~/.ctf/knowledge/stranger-walk/STATUS-2026-09-09.md`
+    # leaks into README.md and three other public docs, all on `main`
+    # today) is a WARN citing that file, not a DQ — a repo-hygiene bug is
+    # not a container/credential isolation failure. boundary_scan.py checks
+    # each hit against the stranger's own persisted checkout under
+    # $RUN_DIR/workspace (guard #1's separate mount — never where a
+    # credential/host secret could be) and classifies WARN vs DQ per line.
+    CLASSIFIED="$(echo "$MATCHES" | python3 "$SCRIPT_DIR/boundary_scan.py" "$RUN_DIR" "$pat")"
+    DQ_LINES="$(echo "$CLASSIFIED" | grep '^DQ ' || true)"
+    WARN_LINES="$(echo "$CLASSIFIED" | grep '^WARN ' || true)"
+    if [ -n "$DQ_LINES" ]; then
+      HITS=$((HITS + 1))
+      echo "HIT [$pat]:"
+      echo "$MATCHES" | sed 's/^/  /'
+      echo "  classified DQ (not explained by the stranger's own repo checkout):"
+      echo "$DQ_LINES" | sed 's/^/    /'
+    fi
+    if [ -n "$WARN_LINES" ]; then
+      WARNS=$((WARNS + 1))
+      echo "WARN [$pat] — explained by the stranger's own public repo checkout, not disqualifying:"
+      echo "$WARN_LINES" | sed 's/^/  /'
+    fi
   fi
 done
 
@@ -82,9 +117,39 @@ else:
   fi
 fi
 
+# v1.4 guard #2 (owner-authorized 2026-09-09, host_claude_login credential
+# path): two checks, both via tools/stranger_walk/credential_scan.py, both
+# report PASS/FAIL plus a SHA256 fingerprint only — the credential's actual
+# value is never printed by either. Both are no-ops (PASS, "not applicable")
+# for the common case: a run that used credential option (a), or a bare
+# run.sh host-mode run that never had a $RUN_DIR/.claude/.credentials.json
+# at all.
+CRED_SCAN_OUT="$(python3 "$SCRIPT_DIR/credential_scan.py" artifacts "$RUN_DIR")"
+echo "$CRED_SCAN_OUT"
+if echo "$CRED_SCAN_OUT" | grep -q 'result=FAIL'; then
+  HITS=$((HITS + 1))
+fi
+
+DOCKER_IMAGES_FILE="$RUN_DIR/docker_images_created.txt"
+if [ -f "$DOCKER_IMAGES_FILE" ] && [ -s "$DOCKER_IMAGES_FILE" ]; then
+  while IFS= read -r IMG; do
+    [ -z "$IMG" ] && continue
+    IMG_SCAN_OUT="$(python3 "$SCRIPT_DIR/credential_scan.py" docker-image "$RUN_DIR" "$IMG" 2>&1)"
+    echo "$IMG_SCAN_OUT"
+    if echo "$IMG_SCAN_OUT" | grep -q 'result=FAIL'; then
+      HITS=$((HITS + 1))
+    fi
+  done < "$DOCKER_IMAGES_FILE"
+else
+  echo "DOCKER IMAGE SCAN: N/A — no new docker image(s) recorded for this run (docker socket disabled by default, or none built)"
+fi
+
 if [ "$HITS" -gt 0 ]; then
   echo "RESULT: DISQUALIFIED ($HITS pattern(s) matched) — $RUN_ID" >&2
   exit 1
+elif [ "$WARNS" -gt 0 ]; then
+  echo "RESULT: PASS WITH WARNINGS ($WARNS pattern(s) explained by the stranger's own public repo checkout, not disqualifying) — $RUN_ID" >&2
+  exit 0
 else
   echo "RESULT: PASS — $RUN_ID has no isolation-boundary hits" >&2
   exit 0

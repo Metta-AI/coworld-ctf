@@ -203,23 +203,33 @@ suite "SEASON 2 replay viewer HUD: phase presentation + comms":
 
 suite "SEASON 2 replay viewer HUD: side-lane docking (letterbox rails)":
   ## Owner spec 2026-09-02: "use the full left lane letterbox space to put
-  ## the names and scorebug and chat and everything." When the fitted board
-  ## leaves a real pillarbox column on both flanks, relayout() docks the
-  ## overlay chrome into the dead bands (identity LEFT, live surfaces
-  ## RIGHT); narrow boxes keep the classic centered-stage layout untouched.
+  ## the names and scorebug and chat and everything." SUPERSEDED 2026-09-09
+  ## (owner: "the left rail is the design i want" / "always" / "just make
+  ## left rail the default. fix the problem at its core."): the left rail
+  ## is no longer gated by aspect, cost, or embed mode — relayout() docks it
+  ## unconditionally at every window shape, embed included, and only the
+  ## SECOND (right, live-surface) rail still depends on there being real
+  ## pillarbox room on both flanks. Below ~480px wide the rail's reserved
+  ## width shrinks (railMin/boardFloor) rather than the rail disappearing.
   test "both pillarbox rails exist and relayout decides the tiers by geometry":
     checkInBoth "id=\"lane-l\""
     checkInBoth "id=\"lane-r\""
-    # Tier 2 (both rails) needs a real lane each side of the free-fit board;
-    # tier 1 (left rail only) caps the board at boxW - RAIL_MIN and engages
-    # only while that costs < 10% of the free fit — the rail must eat the
-    # letterbox, never the arena.
-    checkInBoth "var lanesBoth = !EMBED && (boxW - fit0) >= 2 * LANE_MIN;"
-    checkInBoth "(!EMBED && boxW > boxH && cappedW / fit0 >= 0.9);"
+    # Tier 2 (both rails) needs a real lane each side of the free-fit board
+    # and is no longer gated by embed mode either. Tier 1 (left rail) is
+    # now unconditional (owner: "always") — no aspect/cost gate remains.
+    checkInBoth "var lanesBoth = (boxW - fit0) >= 2 * LANE_MIN;"
+    checkInBoth "var sideLanes = true;"
     checkInBoth "dockLanes(sideLanes, sideLanes && lanesBoth);"
 
+  test "the rail shrinks rather than disappearing below ~480px wide":
+    checkInBoth "var tinyBox = boxW < 480;"
+    checkInBoth "var railMin = tinyBox ? Math.max(80, Math.round(boxW * 0.32)) : RAIL_MIN;"
+    checkInBoth "var boardFloor = tinyBox ? Math.max(120, Math.round(boxW * 0.45)) : 320;"
+
   test "docked mode gives the board the top band back":
-    checkInBoth "topBand = (sideLanes || !scorebug) ? 0 : scorebug.offsetHeight;"
+    # sideLanes is unconditional now, so the top band never reserves space —
+    # no more "sideLanes || !scorebug" ternary guarding a top-band fallback.
+    checkInBoth "topBand = 0;"
 
   test "docking MOVES elements and the narrow fallback restores the home DOM":
     # Moved, never cloned: getElementById references and listeners stay
@@ -240,3 +250,55 @@ suite "SEASON 2 replay viewer HUD: side-lane docking (letterbox rails)":
     checkInBoth "(sideLanes || (COMMS_AVAILABLE && (boxW - stageW) >= 280));"
     checkInBoth "cd-empty"
     checkInBoth "#commsFeed:empty + .cd-empty { display: block; }"
+
+suite "SEASON 2 replay viewer HUD: left rail is the default (owner 2026-09-09)":
+  ## "the left rail is the design i want" / "always" / "just make left rail
+  ## the default. fix the problem at its core." Guards the two regressions
+  ## this could silently reintroduce: the embed CSS hiding #scorebug again
+  ## (the board must draw its own rail ledger inside the League Replayer's
+  ## iframe), and the League Replayer shell growing back its own duplicate
+  ## top-band scorebug (team names + clock) now that the board always
+  ## supplies that.
+  test "embed mode no longer hides the rail's #scorebug":
+    for page in bothPages():
+      checkpoint(page.label & " still hides #scorebug in embed mode")
+      check not page.text.contains("body[data-embed] #scorebug,")
+    # transport/lightpool/grain/status stay shell-owned in embed — only the
+    # glory ledger moved.
+    checkInBoth "body[data-embed] #transport,"
+
+  test "the League Replayer shell no longer draws its own top-band scorebug":
+    let shellSource = readFile(GameDir / "client" / "league_replayer.html")
+    let shellServed = readFile(GameDir / "static-replay-viewer" / "league.html")
+    for shell in [shellSource, shellServed]:
+      checkpoint("shell must hide its own #scorebug")
+      check "#scorebug{display:none}" in shell
+      checkpoint("shell must no longer build wall-corner team names")
+      check "nm.className='wallname" notin shell
+      check ".wallname{" notin shell
+      # The KDA roster tables + division standings are NOT a duplicate of
+      # anything the board draws (no per-player K/D or standings in the
+      # board's own HUD) — they must survive untouched.
+      checkpoint("shell's KDA plaques (not a duplicate) must survive")
+      check "id=\"kda-l\"" in shell
+      check "id=\"kda-r\"" in shell
+      check "class=\"khead\"" in shell
+      check "function renderStandings" in shell
+
+suite "SEASON 2 replay viewer HUD: BR rail fit at 16 seats (owner follow-up 2026-09-09)":
+  ## The 16-seat verification pass on the left-rail-is-the-default change
+  ## found two defects the 2-team fixture never exercised: at a wide tier-2
+  ## rail (e.g. 3454x846) .br-cell-glory's margin-left:auto (in the
+  ## sidelane block, ~1280-1410) put ~800px between a chip's name and its
+  ## own number; at a very short rail (the kiosk/theater stage) a single
+  ## 16-cell column measured 239px of content in a 128px-tall lane and
+  ## clipped (#lane-l is overflow:hidden). Both fixed by NEW rules outside
+  ## that block — this suite guards them without re-touching it.
+  test "the wide rail keeps a chip's name and number close together":
+    checkInBoth "body.sidelanes #scorebug .br-cell { max-width: 340px; }"
+    checkInBoth "body.sidelanes #scorebug .br-cell .br-cell-glory { margin-left: calc(10 * var(--u)); }"
+
+  test "the tiny rail splits the 16-cell roster into two columns instead of clipping":
+    checkInBoth "document.body.classList.toggle('tiny', boardW <= 620);"
+    checkInBoth "body.sidelanes.tiny #scorebug .br-cellband {"
+    checkInBoth "body.sidelanes.tiny #scorebug .br-cell {"

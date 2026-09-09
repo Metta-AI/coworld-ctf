@@ -7,7 +7,7 @@ the coworld package, prove it runs locally against the bundled starter
 policies, package your own policy as a Docker image, upload it, and submit
 it to a league. Every command below was run against a fresh install of the
 `coworld` CLI (`uv add coworld`, no prior state) and its exact output is
-quoted where it matters — including the two places a first run trips on
+quoted where it matters — including the three places a first run trips on
 undocumented behavior.
 
 ## Rules
@@ -59,6 +59,22 @@ View the replay with:
 uv run coworld replay ./coworld/<id>/coworld_manifest.json runs/smoke/replay
 ```
 
+**Undocumented trap #2: `run-episode`'s own "Inspect replay" hint names the
+wrong document.** Because Paintbot's manifest declares a static
+replay-viewer bundle for hosted play (`game.replay_viewer` in
+`coworld_manifest_paintbot.json`), the CLI's own success message reads:
+
+```
+Inspect replay: open <path> in your static replay viewer bundle (see STATIC_REPLAY_VIEWERS.md)
+```
+
+`STATIC_REPLAY_VIEWERS.md` ships inside the `coworld` package itself and is
+an implementation guide for *building* a viewer, not instructions for
+*using* one — ignore it. The command above (`coworld replay ...`) is the
+real answer and works regardless of what the hint says; that field can't
+be dropped to fix the hint either, since it also drives uploading the
+hosted static bundle on submission.
+
 ### 2b. Running against your own image, and the `--run` trap
 
 To seat your own policy image instead of the bundled baseline, add it as a
@@ -71,7 +87,7 @@ uv run coworld run-episode ./coworld/<id>/coworld_manifest.json \
 
 One image is reused for every seat unless you list one image per seat. If
 your image needs a non-default entrypoint, override it with `--run` — and
-this is **undocumented trap #2**, the one that cost the most time on a real
+this is **undocumented trap #3**, the one that cost the most time on a real
 first attempt: `--run` takes **one shell token per flag, repeated**, never a
 single JSON-encoded array. Passing JSON fails immediately, at argument
 parsing, before any container starts:
@@ -174,6 +190,7 @@ version, since this surface is newer and more likely to have moved.
 
 | Version | Change |
 | --- | --- |
+| 2026-09-09 (wiki) | Added §2's "undocumented trap #2": `run-episode`'s own "Inspect replay" hint names `STATIC_REPLAY_VIEWERS.md` (a metta-bundled implementation guide) instead of the usage command already shown above it — root cause confirmed in `cli.py` (JOURNEY_MAP.md J19); the field driving it (`game.replay_viewer`) is a live production dependency for the hosted static bundle and cannot be dropped to fix the hint, so this page carries the workaround instead. Renumbered the `--run` trap to #3. |
 | 2026-09-09 (wiki) | Corrected the sign-in claim in §4: "there is no token or API-key alternative" was misleading — `softmax --help` lists `get-login-url`, `get-token`, `set-token`, `exchange-code` as sibling commands for carrying a credential around after GitHub OAuth. None of them is a non-GitHub sign-in path (GitHub OAuth is still required at least once); the wording now names them instead of denying they exist. Also moved the GitHub-account disclosure to the first line of §4. |
 | New page (2026-09-09) | Written to close the gap [[submitting-a-policy]] flagged as unverified: the platform push step, `coworld upload-policy` and `coworld submit`, now have confirmed `--help` shapes and a documented league ID lookup. Both undocumented CLI traps above (`--variant` defaulting to the certification fixture; `--run` requiring one token per flag, not JSON) were reproduced firsthand against a fresh `coworld` install resolving to `paintbot:0.7.367`. |
 

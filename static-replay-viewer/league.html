@@ -40,11 +40,14 @@
   /* ============================================================
      THE LEAGUE REPLAYER: a walled stone pit. The embedded replay
      iframe is the lit floor in the middle; four dungeon walls rise
-     around it to a shared vanishing point; the REAL designed
-     scorebug + transport chroma (ported 1:1 from the broadcast
-     replay) plus the league KDA tables + division standings ride as
+     around it to a shared vanishing point; the REAL designed transport
+     chroma plus the league KDA tables + division standings ride as
      flat readable panels over the wall stone (no black bars — the
-     bars ARE walls, so the HUD floats on the stone).
+     bars ARE walls, so the HUD floats on the stone). SUPERSEDED
+     2026-09-09 (owner: "left rail is the design i want" / "always"):
+     the shell no longer draws its own scorebug — the embedded board
+     always docks its glory ledger into its own left rail, inside the
+     floor, so there is one HUD instead of two competing for the top band.
      ============================================================ */
   #shell{position:fixed; inset:0; overflow:hidden;
     background:radial-gradient(120% 90% at 50% 42%, var(--stage-hi), var(--surround) 78%);}
@@ -68,37 +71,18 @@
   .hud{position:absolute; z-index:5; font-family:var(--pixfont)}
 
   /* ============================================================
-     TOP WALL — match clock centered, with the (possibly long) TEAM
-     NAMES flanking it in the corners. The wall band has the horizontal
-     room the narrow side columns don't, so long league/policy names
-     live up here. Flag + lives stay in the side-column header below.
+     TOP WALL — SUPERSEDED 2026-09-09 (owner: "left rail is the design i
+     want" / "always"). This used to show the match clock centered with the
+     TEAM NAMES flanking it in the corners; that duplicated the board's own
+     rail, which now always carries the clock + team names + handicap chip
+     (embed included), so #scorebug is hidden (display:none) and the
+     .wallnames/.wallname/.wallrow/.hcap rules that only ever styled its
+     removed children are gone too. .clock/.ffwd-mini stay — they are
+     write targets for the SHARED chrome_common.js renderClock()/
+     renderTransport(), which don't null-guard their lookups — but render
+     nothing since their #scorebug parent is display:none.
      ============================================================ */
-  #scorebug{display:flex; align-items:center; justify-content:center;
-    padding:calc(6*var(--u)) calc(14*var(--u)); gap:calc(16*var(--u)); pointer-events:none}
-  #scorebug > *{pointer-events:auto}
-  /* one names column per side of the clock: 1 name for classic 2-team play,
-     2 stacked for a 3-4 team game (matching the stacked side plaques below) */
-  .wallnames{flex:1 1 0; min-width:0; display:flex; flex-direction:column;
-    justify-content:center; gap:calc(2*var(--u))}
-  .wallname{min-width:0; font-family:var(--pixfont); font-size:calc(26*var(--u));
-    letter-spacing:.5px; line-height:1.05; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
-    color:var(--tc, var(--paper));
-    text-shadow:0 calc(2*var(--u)) 0 var(--ink), 0 0 calc(11*var(--u)) rgba(0,0,0,.72)}
-  .wallnames.side-l .wallname{text-align:left}
-  .wallnames.side-r .wallname{text-align:right}
-  /* two stacked names shrink so both corners still read */
-  .wallnames.stacked .wallname{font-size:calc(19*var(--u))}
-  /* name + handicap chip on one line; the chip sits toward the center clock */
-  .wallrow{display:flex; align-items:baseline; gap:calc(6*var(--u)); min-width:0}
-  .wallnames.side-l .wallrow{flex-direction:row}
-  .wallnames.side-r .wallrow{flex-direction:row-reverse}
-  .wallrow .wallname{flex:0 1 auto}
-  /* Handicap chip: an amber pill; the full delta breakdown rides in the native
-     `title` on hover (cursor:help). Hidden when the team is unhandicapped. */
-  .hcap{flex:none; font-family:var(--finefont); font-size:calc(11*var(--u));
-    letter-spacing:.04em; line-height:1; color:var(--ink); background:var(--amber);
-    border-radius:calc(4*var(--u)); padding:calc(3*var(--u)) calc(5*var(--u));
-    white-space:nowrap; cursor:help}
+  #scorebug{display:none}
   .clock{flex:none; position:relative; display:flex; flex-direction:column; align-items:center;
     justify-content:center; gap:calc(3*var(--u))}
   .clock .time{font-family:var(--pixfont); font-size:calc(34*var(--u)); line-height:1; color:var(--paper);
@@ -124,8 +108,11 @@
   .plaque{display:flex; flex-direction:column; padding:calc(6*var(--u)) calc(10*var(--u));
     pointer-events:auto; min-height:0; overflow:hidden}
 
-  /* team header block: flag icon + LIVES counter. (Team NAME lives up in
-     the top-wall corners — see .wallname — so long names never truncate.) */
+  /* team header block: flag icon + LIVES counter. No team NAME text here —
+     SUPERSEDED 2026-09-09, it used to live up in the top-wall corners
+     (.wallname, removed); the board's own rail plate carries it now, always.
+     This plaque reads by color (flag icon, life pips, standings rank) and
+     by proximity to the board's rail. */
   .team-head{display:flex; align-items:center; gap:calc(9*var(--u)); min-width:0;
     margin-bottom:calc(8*var(--u))}
   .plaque.right .team-head{flex-direction:row-reverse}
@@ -297,16 +284,29 @@
   <div id="walls"></div>
   <div id="floor"><iframe id="game" title="Paintbot replay"></iframe></div>
 
-  <!-- top wall: match clock centered, team names (1-2 per side) in the corners.
-       Names and side plaques are generated per active team by ensureShellTeams(). -->
-  <div id="scorebug" class="hud">
-    <div class="wallnames side-l" id="names-l"></div>
+  <!-- SUPERSEDED 2026-09-09 (owner: "the left rail is the design i want" /
+       "always" / "just make left rail the default. fix the problem at its
+       core."). The top-wall scorebug (team names + clock, "ported 1:1 from
+       the broadcast replay") duplicated what the embedded board now ALWAYS
+       draws in its own left rail (client/replay_broadcast.html relayout()
+       docks #scorebug into the rail unconditionally, embed included) — the
+       team-name/clock content is removed here so there is one HUD, one
+       place. #clock/#clock-time/#clock-caption/#ffwd-mini stay in the DOM
+       (display:none) purely as write targets for the SHARED
+       chrome_common.js renderClock()/renderTransport() calls, neither of
+       which null-guards its element lookups — they render nothing and
+       reserve no layout space. The KDA roster tables + division standings
+       below (id="kda-l"/"kda-r") are NOT a duplicate — the board's own HUD
+       has no per-player K/D table or standings — so they stay; team
+       identity there now reads by color (flag icon, life pips, standings
+       rank) and by proximity to the board's own rail plates, which do
+       carry the name. -->
+  <div id="scorebug" class="hud" aria-hidden="true">
     <div class="clock amb" id="clock">
       <div class="time" id="clock-time">0:00</div>
       <span class="ffwd-mini" id="ffwd-mini">▸▸</span>
       <div class="caption" id="clock-caption">In the locker room</div>
     </div>
-    <div class="wallnames side-r" id="names-r"></div>
   </div>
 
   <div class="plaque-col hud" id="kda-l"></div>
@@ -515,7 +515,10 @@
   var lastLayout = null;
   function layout(){
     var vw = window.innerWidth, vh = window.innerHeight;
-    // minimum wall thickness that still fits the HUD (scorebug/KDA/transport).
+    // minimum wall thickness that still fits the HUD (KDA/transport; the top
+    // wall is purely decorative now — SUPERSEDED 2026-09-09, its scorebug
+    // moved into the board's own rail — kept at its old thickness rather
+    // than reclaimed, to avoid destabilizing the wall homography).
     var sideMin = clamp(150, vw*0.135, 300);
     var topMin  = clamp(56,  vh*0.08,  120);
     var botMin  = clamp(88,  vh*0.135, 175);
@@ -540,11 +543,8 @@
     buildWalls(bx,by,bw,bh,vw,vh);
 
     // ---- position flat HUD panels over the wall zones ----
-    // scorebug spans the FULL viewport so each team plate hugs its true top
-    // corner — vertically over the side-wall column that holds its roster table
-    // below (red↔left table, blue↔right table). Its horizontal padding matches
-    // the tables' (10u) so the plates line up with the table columns.
-    var sb=$('scorebug'); sb.style.left='0px'; sb.style.width=vw+'px'; sb.style.top='0px'; sb.style.height=by+'px';
+    // (the wall-corner scorebug is display:none now — SUPERSEDED 2026-09-09,
+    // see its CSS/HTML comments — so it is no longer positioned here.)
     var kr=$('kda-l'); kr.style.left='0px';  kr.style.width=bx+'px';       kr.style.top=by+'px'; kr.style.height=bh+'px';
     var kb=$('kda-r'); kb.style.right='0px'; kb.style.width=(vw-bR)+'px';  kb.style.top=by+'px'; kb.style.height=bh+'px';
     var tp=$('transport'); tp.style.left=bx+'px'; tp.style.width=bw+'px'; tp.style.top=bB+'px'; tp.style.height=(vh-bB)+'px';
@@ -630,32 +630,21 @@
     if (was!==taken){ el.classList.remove('flip'); void el.offsetWidth; el.classList.add('flip'); }
   }
 
-  // Rebuild the wall-corner names + side plaques when the active team set
-  // changes (once per match in practice). Teams alternate sides in TEAM_ORDER —
-  // index 0/2 left, 1/3 right — matching the board's plate layout.
+  // Rebuild the side plaques when the active team set changes (once per
+  // match in practice). Teams alternate sides in TEAM_ORDER — index 0/2
+  // left, 1/3 right — matching the board's plate layout. SUPERSEDED
+  // 2026-09-09: this used to also (re)build a wall-corner name+handicap row
+  // per team (the duplicate top-band scorebug) — removed; the board's own
+  // rail plate carries the team name + handicap chip now, always.
   var shellTeams=null;
   function ensureShellTeams(teams){
     var key=teams.join(',');
     if (shellTeams===key) return;
     shellTeams=key;
-    var names=[$('names-l'), $('names-r')];
     var cols=[$('kda-l'), $('kda-r')];
-    names[0].innerHTML=''; names[1].innerHTML='';
     cols[0].innerHTML=''; cols[1].innerHTML='';
-    names[0].classList.toggle('stacked', teams.length>2);
-    names[1].classList.toggle('stacked', teams.length>2);
     teams.forEach(function(team, i){
       var side=i%2;
-      var row=document.createElement('div');
-      row.className='wallrow '+team;
-      var nm=document.createElement('div');
-      nm.className='wallname '+team;
-      nm.id='name-'+team;
-      nm.textContent=team.toUpperCase();
-      var hc=document.createElement('span');
-      hc.className='hcap'; hc.id='hcap-'+team; hc.style.display='none';
-      row.appendChild(nm); row.appendChild(hc);
-      names[side].appendChild(row);
       var pl=document.createElement('div');
       pl.className='plaque '+(side===0?'left':'right')+' '+team;
       pl.id='kda-'+team;
@@ -686,8 +675,9 @@
     var lives={};
     teams.forEach(function(team){ lives[team]=(tr[team]&&tr[team].lives)||0; });
     teams.forEach(function(team){
-      setName('name-'+team, teamName(s, team, team.toUpperCase()));
-      setHandicap('hcap-'+team, s, team);
+      // Team name + handicap chip: SUPERSEDED 2026-09-09 — used to write
+      // into the wall-corner scorebug (now removed); the board's own rail
+      // plate always carries both, so no shell-side write target remains.
       // Life meter(s) + perk badges — shared chrome (chrome_common.js
       // renderTeamMeters): the classic single "Lives N", or per-policy split
       // meters in CTF-Doubles.

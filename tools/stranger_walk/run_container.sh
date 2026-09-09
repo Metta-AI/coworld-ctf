@@ -44,25 +44,51 @@
 # is /home/stranger for every process in it, claude included — so there is
 # nothing for claude's own process to authenticate with unless this script
 # gives it one. That credential must be THIS RUN'S OWN, never the host's
-# ~/.claude:
-#   - Source: $STRANGER_ANTHROPIC_API_KEY_FILE (default
-#     ~/.ctf/knowledge/stranger-walk/anthropic_api_key — never committed,
-#     same convention as run.sh's STRANGER_OWNER_ENV for the site-signup
-#     identity). A bare API key, nothing else, one line.
-#   - Handling: copied into $RUN_DIR/credential.env (mode 600, a normal
-#     `KEY=value` line docker --env-file reads), passed to the container via
-#     `docker run --env-file` — never baked into the image, never passed as
-#     a `docker run -e` CLI arg (those show up in `docker inspect`/process
-#     listings on THIS host more readily than an env-file's contents do),
-#     never the host's ~/.claude directory mounted in any form.
-#   - No fallback: if the credential file is absent, this script REFUSES to
-#     launch a `run`-mode container. There is no silent "reuse whatever
-#     `claude` is already authenticated as" path — that path is exactly what
-#     caused the 2026-09-09 real-ladder-submission incident (see
-#     docs/designs/STRANGER_WALK.md's Incident section) for third-party CLI
-#     credential stores, and a container makes the SAME mistake worse (it
-#     would require mounting host state wholesale, not just leaving env
-#     vars ambient).
+# ~/.claude, resolved in this order (v1.4, 2026-09-09 owner ruling):
+#   (a) an Anthropic API key at $STRANGER_ANTHROPIC_API_KEY_FILE (default
+#       ~/.ctf/knowledge/stranger-walk/anthropic_api_key — never committed,
+#       same convention as run.sh's STRANGER_OWNER_ENV for the site-signup
+#       identity). A bare API key, nothing else, one line. Copied into
+#       $RUN_DIR/credential.env (mode 600, a normal `KEY=value` line docker
+#       --env-file reads), passed to the container via `docker run
+#       --env-file` — never baked into the image, never a `docker run -e`
+#       CLI arg (those show up in `docker inspect`/process listings on THIS
+#       host more readily than an env-file's contents do).
+#   (b) else, the HOST's own Claude Code login. On THIS host that is not a
+#       file under ~/.claude at all (checked 2026-09-09, absent) — Claude
+#       Code here stores its OAuth session in the macOS Keychain, service
+#       "Claude Code-credentials". Extracted via `security
+#       find-generic-password -s "Claude Code-credentials" -w` piped
+#       DIRECTLY to a file (never through a shell variable/echo) at
+#       $RUN_DIR/.claude/.credentials.json (mode 600) — the exact relative
+#       path Claude Code reads as its Linux/non-Keychain credential store,
+#       which is why this authenticates inside the container. Owner-
+#       authorized 2026-09-09 with two guards: (1) that file lives under
+#       $RUN_DIR (bind-mounted at /home/stranger); the stranger's own
+#       working directory is a SEPARATE bind mount at /workspace (see
+#       WORKSPACE_DIR below) — never an ancestor of /home/stranger and never
+#       contained by it — so no `docker build .` / `tar czf policy.tar.gz .`
+#       from the stranger's cwd can sweep this file in by construction.
+#       (2) isolation_audit.sh gained two new checks (via
+#       tools/stranger_walk/credential_scan.py): a substring search of every
+#       run artifact for the credential's own value (reported by SHA256
+#       fingerprint + PASS/FAIL only — the value itself is never printed
+#       anywhere), and a `docker save` + tar-layer scan of any docker image
+#       the run built (relevant only if --enable-docker-socket was used;
+#       N/A/PASS by construction otherwise, since the container can't reach
+#       a docker daemon by default). This credential is a LIVE, shared
+#       login — the same one Walk 1's host-mode `run.sh` runs already
+#       executed under (a macOS Keychain session is per-user, not per-run),
+#       and the same one other agents on this machine may be using
+#       concurrently. The owner can invalidate it at any time by signing out
+#       of Claude Code and back in — every run authenticated with it stops
+#       working immediately.
+#   No further fallback: if neither (a) nor (b) is resolvable, this script
+#   REFUSES to launch a `run`-mode container — there is no silent "reuse
+#   whatever `claude` is already authenticated as via some other path." That
+#   silent-reuse path is exactly what caused the 2026-09-09
+#   real-ladder-submission incident (see docs/designs/STRANGER_WALK.md's
+#   Incident section) for third-party CLI credential stores.
 #   `probe` and `selftest` modes need no credential at all and skip this
 #   check entirely.
 set -euo pipefail
@@ -93,7 +119,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(git -C "$SCRIPT_DIR" rev-parse --show-toplevel)"
 CONTAINER_DIR="$SCRIPT_DIR/container"
 ENTRY_URL="${STRANGER_ENTRY_URL:-https://softmax.com/paintbot}"
-IMAGE_TAG="${STRANGER_IMAGE_TAG:-stranger-walk:v1.3}"
+IMAGE_TAG="${STRANGER_IMAGE_TAG:-stranger-walk:v1.4}"
 
 # Protocol v2 contamination gate — see run.sh's identical check and
 # check_prompt.py's own header. Runs before anything else, dry-run or not.
@@ -120,22 +146,33 @@ if [ "$DRY_RUN" = "1" ] && [ "$MODE_OR_MODEL" != "probe" ] && [ "$MODE_OR_MODEL"
   echo "[$RUN_ID]   rendered body ($(wc -l < "$SCRATCH/prompt.rendered.md" | tr -d ' ') lines) begins:" >&2
   head -3 "$SCRATCH/prompt.rendered.md" | sed 's/^/[dry-run]   | /' >&2
   echo "[$RUN_ID]   \$HOME inside the container is /home/stranger by construction (own filesystem namespace — no host \$HOME to leak, unlike run.sh's env-scoping trick)." >&2
-  echo "[$RUN_ID]   would docker run: --user \$(id -u):\$(id -g) --env-file <run-dir>/credential.env -v <run-dir>:/home/stranger -e MODEL=$MODEL $IMAGE_TAG" >&2
-  echo "[$RUN_ID]   NOTE: container mode has no browser/playwright support yet (browser_enabled is hardcoded false) — pre-existing v1.3 gap, unchanged by this PR." >&2
+  echo "[$RUN_ID]   would docker run: --user \$(id -u):\$(id -g) -v <run-dir>:/home/stranger -v <run-dir>/workspace:/workspace -w /workspace -e MODEL=$MODEL $IMAGE_TAG" >&2
+  echo "[$RUN_ID]   NOTE (v1.4): browser is wired via @playwright/mcp, same mechanism run.sh uses on the host — see mcp-config.json below." >&2
   CRED_SRC="${STRANGER_ANTHROPIC_API_KEY_FILE:-$HOME/.ctf/knowledge/stranger-walk/anthropic_api_key}"
-  if [ ! -f "$CRED_SRC" ]; then
-    echo "[$RUN_ID] REFUSING TO LAUNCH: no Anthropic API key at $CRED_SRC." >&2
-    echo "[$RUN_ID] container auth must be THIS RUN'S OWN credential, never the host's ~/.claude — see this script's header." >&2
-    echo "[$RUN_ID] set STRANGER_ANTHROPIC_API_KEY_FILE to a file containing one Anthropic API key, or run 'probe'/'selftest' instead." >&2
+  if [ -f "$CRED_SRC" ]; then
+    echo "[$RUN_ID] credential option (a): Anthropic API key file present at $CRED_SRC (contents never read/printed by dry-run) — a real launch would proceed." >&2
+  elif security find-generic-password -s "${STRANGER_HOST_CLAUDE_KEYCHAIN_SERVICE:-Claude Code-credentials}" >/dev/null 2>&1; then
+    echo "[$RUN_ID] credential option (a) absent ($CRED_SRC not found); option (b) available: host Claude Code login in the macOS Keychain (service \"${STRANGER_HOST_CLAUDE_KEYCHAIN_SERVICE:-Claude Code-credentials}\") — a real launch would extract and use it (see this script's header for the guards)." >&2
+  else
+    echo "[$RUN_ID] REFUSING TO LAUNCH: no Anthropic API key at $CRED_SRC and no host Claude Code Keychain login found." >&2
+    echo "[$RUN_ID] container auth must be THIS RUN'S OWN credential — see this script's header." >&2
     exit 1
   fi
-  echo "[$RUN_ID] credential file present at $CRED_SRC (contents never read/printed by dry-run) — a real launch would proceed." >&2
   exit 0
 fi
 
 RUNS_PARENT="${STRANGER_RUNS_PARENT:-/Users/maxwellstarr/projects/stranger-walk-runs}"
 RUN_DIR="$RUNS_PARENT/$RUN_ID"
-mkdir -p "$RUN_DIR"
+# v1.4 guard #1: the stranger's own working directory is a SEPARATE bind
+# mount at /workspace, never an ancestor of /home/stranger (=$RUN_DIR) and
+# never contained by it — so a `docker build .` / `tar czf x.tar.gz .` run
+# from the stranger's own cwd cannot sweep in $RUN_DIR/.claude/.credentials.json
+# (the host_claude_login credential, when that's the resolved option — see
+# this script's header) or anything else under $RUN_DIR. Verified by
+# construction: two independent bind mounts, container-side paths /workspace
+# and /home/stranger are siblings under /, neither contains the other.
+WORKSPACE_DIR="$RUN_DIR/workspace"
+mkdir -p "$RUN_DIR" "$WORKSPACE_DIR"
 
 command -v docker >/dev/null 2>&1 || { echo "docker not found — install OrbStack/Docker Desktop" >&2; exit 1; }
 docker version >/dev/null 2>&1 || { echo "docker daemon not reachable (\`docker version\` failed)" >&2; exit 1; }
@@ -195,16 +232,50 @@ if [ -e "$RUN_DIR/meta.json" ]; then
   exit 1
 fi
 
+# v1.4 credential resolution: (a) Anthropic API key file, else (b) the
+# host's Claude Code login (owner-authorized 2026-09-09 — see this script's
+# header for the full guard rationale). CRED_MODE records which was used;
+# CRED_ENV_FILE is only set for (a).
 CRED_SRC="${STRANGER_ANTHROPIC_API_KEY_FILE:-$HOME/.ctf/knowledge/stranger-walk/anthropic_api_key}"
-if [ ! -f "$CRED_SRC" ]; then
-  echo "[$RUN_ID] no Anthropic API key at $CRED_SRC — refusing to launch a 'run'-mode container." >&2
-  echo "[$RUN_ID] container auth must be THIS RUN'S OWN credential, never the host's ~/.claude — see this script's header." >&2
-  echo "[$RUN_ID] set STRANGER_ANTHROPIC_API_KEY_FILE to a file containing one Anthropic API key, or run 'probe'/'selftest' instead." >&2
-  exit 1
+CRED_MODE=""
+CRED_ENV_FILE=""
+if [ -f "$CRED_SRC" ]; then
+  CRED_MODE="anthropic_api_key"
+  CRED_ENV_FILE="$RUN_DIR/credential.env"
+  printf 'ANTHROPIC_API_KEY=%s\n' "$(cat "$CRED_SRC")" > "$CRED_ENV_FILE"
+  chmod 600 "$CRED_ENV_FILE"
+  echo "[$RUN_ID] credential option (a): Anthropic API key from $CRED_SRC" >&2
+else
+  KEYCHAIN_SERVICE="${STRANGER_HOST_CLAUDE_KEYCHAIN_SERVICE:-Claude Code-credentials}"
+  if security find-generic-password -s "$KEYCHAIN_SERVICE" >/dev/null 2>&1; then
+    CRED_MODE="host_claude_login"
+    mkdir -p "$RUN_DIR/.claude"
+    chmod 700 "$RUN_DIR/.claude"
+    # Piped straight to a file — never through a shell variable, never
+    # echoed — see this script's header for the full guard rationale.
+    security find-generic-password -s "$KEYCHAIN_SERVICE" -w > "$RUN_DIR/.claude/.credentials.json"
+    chmod 600 "$RUN_DIR/.claude/.credentials.json"
+    CRED_SHA256="$(shasum -a 256 "$RUN_DIR/.claude/.credentials.json" | awk '{print $1}')"
+    KEYCHAIN_ACCOUNT="$(id -un)"
+    python3 - "$RUN_DIR/credential_meta.json" "$CRED_SHA256" "$KEYCHAIN_SERVICE" "$KEYCHAIN_ACCOUNT" <<'PYEOF'
+import json, sys
+out = {
+    "credential_source": "host_claude_login",
+    "credential_sha256": sys.argv[2],
+    "keychain_service": sys.argv[3],
+    "keychain_account": sys.argv[4],
+    "note": "value never stored in this file or printed anywhere; see isolation_audit.sh's credential leak check",
+}
+with open(sys.argv[1], "w") as f:
+    json.dump(out, f, indent=2)
+PYEOF
+    echo "[$RUN_ID] credential option (b): host Claude Code login, macOS Keychain service \"$KEYCHAIN_SERVICE\" account \"$KEYCHAIN_ACCOUNT\" (sha256=$CRED_SHA256, value never printed)" >&2
+  else
+    echo "[$RUN_ID] no Anthropic API key at $CRED_SRC and no host Claude Code Keychain login found — refusing to launch a 'run'-mode container." >&2
+    echo "[$RUN_ID] container auth must be THIS RUN'S OWN credential — see this script's header." >&2
+    exit 1
+  fi
 fi
-CRED_ENV_FILE="$RUN_DIR/credential.env"
-printf 'ANTHROPIC_API_KEY=%s\n' "$(cat "$CRED_SRC")" > "$CRED_ENV_FILE"
-chmod 600 "$CRED_ENV_FILE"
 
 if [ "${STRANGER_SMOKE:-0}" = "1" ]; then
   SOURCE_PROMPT="$SCRIPT_DIR/smoke_prompt.md"
@@ -217,24 +288,119 @@ python3 "$SCRIPT_DIR/check_prompt.py" --show-body "$SOURCE_PROMPT" \
 
 ENTRY_RESOLVED="$(curl -sS -o /dev/null -w '%{http_code} %{url_effective}' -L --max-time 15 "$ENTRY_URL" || echo "CURL_FAILED")"
 
+# Site-signup identity (GITHUB_USER/GITHUB_PASS/STRANGER_EMAIL) goes into
+# the stranger's own WORKSPACE, not $RUN_DIR/home — prompt.md tells the
+# stranger to check "your own working directory (`.` — the directory you
+# were launched in)" for a file named `env`, and the stranger's cwd is
+# /workspace (see WORKSPACE_DIR / guard #1 above), not /home/stranger.
 OWNER_ENV_SRC="${STRANGER_OWNER_ENV:-$HOME/.ctf/knowledge/stranger-walk/env}"
 HAD_OWNER_ENV="false"
 if [ "${STRANGER_SMOKE:-0}" != "1" ] && [ -f "$OWNER_ENV_SRC" ]; then
-  cp "$OWNER_ENV_SRC" "$RUN_DIR/env"
-  chmod 600 "$RUN_DIR/env"
+  cp "$OWNER_ENV_SRC" "$WORKSPACE_DIR/env"
+  chmod 600 "$WORKSPACE_DIR/env"
   HAD_OWNER_ENV="true"
 fi
 
+# v1.4: real browser for official (non-smoke) runs, mirroring run.sh's own
+# --mcp-config wiring (same @playwright/mcp server, fresh --user-data-dir
+# per run). Config is written to a FILE in $RUN_DIR (not a docker -e CLI
+# arg) so entrypoint.sh can reference it with --mcp-config, avoiding any
+# JSON-through-docker-run-e quoting hazard.
+STRANGER_BROWSER="${STRANGER_BROWSER:-$( [ "${STRANGER_SMOKE:-0}" = "1" ] && echo 0 || echo 1 )}"
+COOKIE_PRECHECK="not_applicable (no browser for this run)"
+if [ "$STRANGER_BROWSER" = "1" ]; then
+  mkdir -p "$RUN_DIR/.playwright-profile"
+  COOKIES_DB="$RUN_DIR/.playwright-profile/Default/Cookies"
+  COOKIE_HITS=0
+  if [ -f "$COOKIES_DB" ] && command -v sqlite3 >/dev/null 2>&1; then
+    COOKIE_HITS="$(sqlite3 "$COOKIES_DB" "select count(*) from cookies where host_key like '%softmax.com%' or host_key like '%google.com%' or host_key like '%github.com%';" 2>/dev/null || echo 0)"
+  fi
+  if [ "$COOKIE_HITS" != "0" ]; then
+    echo "[$RUN_ID] REFUSING TO LAUNCH: playwright profile at $RUN_DIR/.playwright-profile already has $COOKIE_HITS softmax/google/github cookie(s) — not a fresh profile" >&2
+    exit 1
+  fi
+  COOKIE_PRECHECK="verified pre-launch: 0 cookies for softmax.com/google.com/github.com in $RUN_DIR/.playwright-profile"
+  python3 -c "
+import json
+print(json.dumps({'mcpServers': {'playwright': {
+    'command': 'npx',
+    'args': ['--yes', '@playwright/mcp@latest', '--headless', '--user-data-dir', '/home/stranger/.playwright-profile']
+}}}))
+" > "$RUN_DIR/mcp-config.json"
+fi
+
+# v1.4 guard #2, tracking half: only meaningful when
+# STRANGER_ENABLE_DOCKER_SOCKET=1 (off by default — see Dockerfile/this
+# script's docker.io comments; with no socket mounted the container cannot
+# reach any docker daemon and cannot build an image at all). Snapshot
+# existing image IDs now so the post-run diff (below, after `docker wait`)
+# can isolate exactly what THIS run created.
+ENABLE_DOCKER_SOCKET="${STRANGER_ENABLE_DOCKER_SOCKET:-0}"
+if [ "$ENABLE_DOCKER_SOCKET" = "1" ]; then
+  docker images -q | sort -u > "$RUN_DIR/docker_images_before.txt" || true
+fi
+
 PAINTBOT_TAGS_AT_MAIN="$(git -C "$REPO_ROOT" tag --points-at origin/main --list 'paintbot-v*' 2>/dev/null | tr '\n' ',' | sed 's/,$//')"
-LATEST_PAINTBOT_TAG="$(git -C "$REPO_ROOT" tag --list 'paintbot-v*' --sort=-v:refname 2>/dev/null | head -1)"
+# Freshest possible era stamp: query origin directly (not the local clone's
+# last `git fetch`) so a build that publishes mid-chain (this walk expects
+# exactly that — see docs/designs/STRANGER_WALK.md's "Era" section) is
+# still reflected on every stage's own meta.json, not just the first.
+LATEST_PAINTBOT_TAG="$(git ls-remote --tags origin 2>/dev/null | grep -oE 'paintbot-v[0-9.]+$' | sort -V | tail -1)"
+[ -n "$LATEST_PAINTBOT_TAG" ] || LATEST_PAINTBOT_TAG="$(git -C "$REPO_ROOT" tag --list 'paintbot-v*' --sort=-v:refname 2>/dev/null | head -1)"
 GLORY_VERSION="$(grep -m1 -oE 'GloryVersion\*? = [0-9]+' "$REPO_ROOT/src/ctf/glory.nim" 2>/dev/null | grep -oE '[0-9]+$' || echo "unknown")"
+
+# Public read of the live league's current standing rule (no commissioner
+# token needed — this is content any visitor to the public page already
+# gets), read-only recon for the record only, never shown to the stranger.
+# Falls back to "not readable publicly" if the page's shape ever changes.
+# NOTE: this heredoc is deliberately NOT nested inside a `$( ... )` command
+# substitution — this host's /bin/bash (old, GPLv2-era, shipped by Apple)
+# has a real, reproducible quoting bug where a heredoc inside `$(...)`
+# requires an EVEN total count of literal `'` characters in its body even
+# when the delimiter itself is quoted (verified empirically 2026-09-09);
+# an apostrophe in an ordinary comment ("curl's") was enough to trip it.
+# Writing to a temp file sidesteps the bug entirely.
+STANDING_RULE_TMP="$(mktemp)"
+python3 - "$STANDING_RULE_TMP" <<'PYEOF' 2>/dev/null
+import re, sys, urllib.request
+
+result = "not readable publicly"
+try:
+    # A default urllib User-Agent gets a 403 from this site (verified
+    # 2026-09-09); curl-s default UA does not — send a plain one instead
+    # of shelling out, so this stays a single self-contained recon step.
+    req = urllib.request.Request(
+        "https://softmax.com/paintbot",
+        headers={"User-Agent": "Mozilla/5.0 (compatible; stranger-walk-recon/1.0)"},
+    )
+    html = urllib.request.urlopen(req, timeout=15).read().decode("utf-8", "ignore")
+    # The page embeds its data as a JSON STRING inside a script payload, so
+    # the quotes are backslash-escaped in the raw HTML (verified
+    # 2026-09-09: literal `\"ranking\":` on the wire, not `"ranking":`) —
+    # match the escaped form, then unescape the captured group so it's
+    # valid JSON on its own.
+    m = re.search(
+        r'\\"ranking\\":(\{[^{}]*\}),\\"divisions\\":\[\{\\"name\\":\\"Competition\\",'
+        r'\\"division_id\\":\\"div_aa7825db-262f-4a62-b01a-177c1b48f7ee\\"',
+        html,
+    )
+    if m:
+        result = m.group(1).replace('\\"', '"')
+except Exception:
+    pass
+with open(sys.argv[1], "w") as f:
+    f.write(result)
+PYEOF
+STANDING_RULE_PUBLIC="$(cat "$STANDING_RULE_TMP" 2>/dev/null)"
+rm -f "$STANDING_RULE_TMP"
+[ -n "$STANDING_RULE_PUBLIC" ] || STANDING_RULE_PUBLIC="not readable publicly"
 
 START_ISO="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 START_EPOCH="$(date +%s)"
 
 STRANGER_TOOLS="Bash,Read,Write,Edit,Glob,Grep,WebFetch,WebSearch"
 
-python3 - "$RUN_DIR/meta.json" <<PYEOF
+python3 - "$RUN_DIR/meta.json" "$STANDING_RULE_PUBLIC" <<PYEOF
 import json, sys
 meta = {
     "run_id": "$RUN_ID",
@@ -251,15 +417,27 @@ meta = {
     "max_budget_usd": $MAX_BUDGET_USD,
     "had_owner_env": $( [ "$HAD_OWNER_ENV" = "true" ] && echo True || echo False ),
     "smoke": $( [ "${STRANGER_SMOKE:-0}" = "1" ] && echo True || echo False ),
-    "browser_enabled": False,
+    "browser_enabled": $( [ "$STRANGER_BROWSER" = "1" ] && echo True || echo False ),
+    "playwright_profile": $( [ "$STRANGER_BROWSER" = "1" ] && echo "\"/home/stranger/.playwright-profile\"" || echo None ),
+    "cookie_precheck": "$COOKIE_PRECHECK",
+    "workspace_dir": "/workspace",
+    "credential_source": "$CRED_MODE",
+    "enable_docker_socket": $( [ "$ENABLE_DOCKER_SOCKET" = "1" ] && echo True || echo False ),
     "start_iso": "$START_ISO",
     "start_epoch": $START_EPOCH,
 }
+# Passed via argv, not interpolated into this source text — the standing
+# rule is raw JSON-shaped text (embedded double quotes) that would corrupt
+# a bash-interpolated python string literal.
+try:
+    meta["standing_rule_public_read"] = json.loads(sys.argv[2])
+except Exception:
+    meta["standing_rule_public_read"] = sys.argv[2]
 with open(sys.argv[1], "w") as f:
     json.dump(meta, f, indent=2)
 PYEOF
 
-echo "[$RUN_ID] model=$MODEL entry=$ENTRY_URL resolved=[$ENTRY_RESOLVED] glory=$GLORY_VERSION isolation=container" >&2
+echo "[$RUN_ID] model=$MODEL entry=$ENTRY_URL resolved=[$ENTRY_RESOLVED] glory=$GLORY_VERSION isolation=container credential=$CRED_MODE browser=$STRANGER_BROWSER" >&2
 
 DOCKER_RUN_ARGS=(
   run -d --name "$CONTAINER_NAME"
@@ -269,15 +447,24 @@ DOCKER_RUN_ARGS=(
   --memory 2g
   --cpus 2
   --user "$HOST_UID_GID"
-  --env-file "$CRED_ENV_FILE"
   -e HOME=/home/stranger
   -e MODEL="$MODEL"
   -e STRANGER_TOOLS="$STRANGER_TOOLS"
   -e MAX_BUDGET_USD="$MAX_BUDGET_USD"
   -e STRANGER_CONTAINER_MODE=run
+  -e STRANGER_BROWSER="$STRANGER_BROWSER"
   -v "$RUN_DIR:/home/stranger"
-  -w /home/stranger
+  -v "$WORKSPACE_DIR:/workspace"
+  -w /workspace
 )
+if [ -n "$CRED_ENV_FILE" ]; then
+  # Option (a) only — the API key is handed in via --env-file, never baked
+  # into the image or a `docker run -e` CLI arg. Option (b)'s credential is
+  # already present on disk at $RUN_DIR/.claude/.credentials.json, which the
+  # -v "$RUN_DIR:/home/stranger" mount above already places at
+  # /home/stranger/.claude/.credentials.json — no extra docker flag needed.
+  DOCKER_RUN_ARGS+=(--env-file "$CRED_ENV_FILE")
+fi
 if [ "${STRANGER_ENABLE_DOCKER_SOCKET:-0}" = "1" ]; then
   echo "[$RUN_ID] WARNING: --enable-docker-socket is ON. Mounting /var/run/docker.sock gives this" >&2
   echo "[$RUN_ID]   container root-equivalent control of the HOST's docker daemon — it can create," >&2
@@ -307,6 +494,15 @@ set -e
 
 docker logs "$CONTAINER_ID" > "$RUN_DIR/container.stdout.log" 2> "$RUN_DIR/container.stderr.log" || true
 docker rm "$CONTAINER_ID" >/dev/null 2>&1 || true
+
+# v1.4 guard #2, tracking half (see docker_images_before.txt snapshot
+# above): diff to isolate exactly what images THIS run created, for
+# isolation_audit.sh's docker-image-scan check to sweep. Empty/absent list
+# is the expected, common case (STRANGER_ENABLE_DOCKER_SOCKET=0 by default).
+if [ "$ENABLE_DOCKER_SOCKET" = "1" ]; then
+  docker images -q | sort -u > "$RUN_DIR/docker_images_after.txt" || true
+  comm -13 "$RUN_DIR/docker_images_before.txt" "$RUN_DIR/docker_images_after.txt" > "$RUN_DIR/docker_images_created.txt" || true
+fi
 
 END_ISO="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 END_EPOCH="$(date +%s)"
