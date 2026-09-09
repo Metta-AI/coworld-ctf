@@ -364,6 +364,21 @@ proc teamPoliciesJson(sim: SimServer, team: Team): JsonNode =
       seen.add(pol)
       result.add(%pol)
 
+proc pactPartnersJson(sim: SimServer, team: Team): JsonNode =
+  ## THE MIND ON THE STRIP (Phase 2a, THE WHOLE epic, score-bug-is-the-mind
+  ## ruling 2026-09-09): every OTHER team `team` currently holds a live
+  ## mutual pact with, read straight off `sim.pactActive`/`pactMask`
+  ## (sim_state.nim, ALLIANCE P1 -- already hashed and replay-safe, carried
+  ## since GameVersion 54). No new SimServer field, no flatty layout change,
+  ## no GameVersion bump: this exposes a field the engine already computes
+  ## and already replays deterministically, the same "read an existing
+  ## field onto the chrome" move `heat` made just above. Empty on a pact-
+  ## free game, byte-identical in shape to every pre-existing frame.
+  result = newJArray()
+  for other in sim.teams():
+    if other != team and sim.pactActive(team, other):
+      result.add(%teamText(other))
+
 proc teamStateJson(sim: SimServer, team: Team): JsonNode =
   ## Returns one team's scorebug state: lives, flag state, carrier, progress.
   ## BR N-point spawn subsystem: a flagless map arms no flag, so the
@@ -398,7 +413,10 @@ proc teamStateJson(sim: SimServer, team: Team): JsonNode =
     # top rung and the x1 floor holds 99.7%+ of BR seat-time -- a chain this
     # unexploited was never on the wire for a spectator (or a policy author
     # reading a replay) to even SEE, let alone play toward.
-    "heat": heatMult(sim.heatEmbers[team])
+    "heat": heatMult(sim.heatEmbers[team]),
+    # THE MIND ON THE STRIP: this team's live pact partners, see
+    # `pactPartnersJson`'s own doc comment just above.
+    "pact": sim.pactPartnersJson(team)
   }
   if not sim.gameMap.flagless:
     let
