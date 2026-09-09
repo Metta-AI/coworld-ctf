@@ -67,8 +67,26 @@
 #   check entirely.
 set -euo pipefail
 
-MODE_OR_MODEL="${1:?usage: run_container.sh probe^|selftest^|MODEL RUN_ID MAX_BUDGET_USD_optional}"
-RUN_ID="${2:?usage: run_container.sh probe^|selftest^|MODEL RUN_ID MAX_BUDGET_USD_optional}"
+# --dry-run (protocol v2, 2026-09-09): for `run`-mode only (probe/selftest
+# don't take a credential and aren't gated). Validates the prompt
+# contamination gate, renders the prompt, and checks for the Anthropic
+# credential file WITHOUT requiring Docker, building an image, or starting a
+# container — so the credential-absent refusal (below) can be demonstrated
+# on a box that doesn't even have Docker running. Never mints or reads the
+# credential file's contents.
+DRY_RUN=0
+ARGS=()
+for a in "$@"; do
+  if [ "$a" = "--dry-run" ]; then
+    DRY_RUN=1
+  else
+    ARGS+=("$a")
+  fi
+done
+set -- "${ARGS[@]+"${ARGS[@]}"}"
+
+MODE_OR_MODEL="${1:?usage: run_container.sh probe^|selftest^|MODEL RUN_ID MAX_BUDGET_USD_optional [--dry-run]}"
+RUN_ID="${2:?usage: run_container.sh probe^|selftest^|MODEL RUN_ID MAX_BUDGET_USD_optional [--dry-run]}"
 MAX_BUDGET_USD="${3:-25}"
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -76,6 +94,44 @@ REPO_ROOT="$(git -C "$SCRIPT_DIR" rev-parse --show-toplevel)"
 CONTAINER_DIR="$SCRIPT_DIR/container"
 ENTRY_URL="${STRANGER_ENTRY_URL:-https://softmax.com/paintbot}"
 IMAGE_TAG="${STRANGER_IMAGE_TAG:-stranger-walk:v1.3}"
+
+# Protocol v2 contamination gate — see run.sh's identical check and
+# check_prompt.py's own header. Runs before anything else, dry-run or not.
+if ! python3 "$SCRIPT_DIR/check_prompt.py" "$SCRIPT_DIR/prompt.md" >&2; then
+  echo "[$RUN_ID] REFUSING TO LAUNCH: prompt.md failed the Protocol v2 contamination gate (see above)." >&2
+  exit 1
+fi
+
+if [ "$DRY_RUN" = "1" ] && [ "$MODE_OR_MODEL" != "probe" ] && [ "$MODE_OR_MODEL" != "selftest" ]; then
+  MODEL="$MODE_OR_MODEL"
+  if [ "${STRANGER_SMOKE:-0}" = "1" ]; then
+    SOURCE_PROMPT="$SCRIPT_DIR/smoke_prompt.md"
+  else
+    SOURCE_PROMPT="$SCRIPT_DIR/prompt.md"
+  fi
+  PROMPT_SHA256="$(shasum -a 256 "$SOURCE_PROMPT" | awk '{print $1}')"
+  SCRATCH="$(mktemp -d)"
+  trap 'rm -rf "$SCRATCH"' EXIT
+  python3 "$SCRIPT_DIR/check_prompt.py" --show-body "$SOURCE_PROMPT" \
+    | sed "s#{{ENTRY_URL}}#$ENTRY_URL#g" > "$SCRATCH/prompt.rendered.md"
+  echo "[$RUN_ID] DRY RUN (container) — docker not invoked, no run dir written." >&2
+  echo "[$RUN_ID]   model=$MODEL image_tag=$IMAGE_TAG" >&2
+  echo "[$RUN_ID]   source_prompt=$SOURCE_PROMPT (sha256=$PROMPT_SHA256)" >&2
+  echo "[$RUN_ID]   rendered body ($(wc -l < "$SCRATCH/prompt.rendered.md" | tr -d ' ') lines) begins:" >&2
+  head -3 "$SCRATCH/prompt.rendered.md" | sed 's/^/[dry-run]   | /' >&2
+  echo "[$RUN_ID]   \$HOME inside the container is /home/stranger by construction (own filesystem namespace — no host \$HOME to leak, unlike run.sh's env-scoping trick)." >&2
+  echo "[$RUN_ID]   would docker run: --user \$(id -u):\$(id -g) --env-file <run-dir>/credential.env -v <run-dir>:/home/stranger -e MODEL=$MODEL $IMAGE_TAG" >&2
+  echo "[$RUN_ID]   NOTE: container mode has no browser/playwright support yet (browser_enabled is hardcoded false) — pre-existing v1.3 gap, unchanged by this PR." >&2
+  CRED_SRC="${STRANGER_ANTHROPIC_API_KEY_FILE:-$HOME/.ctf/knowledge/stranger-walk/anthropic_api_key}"
+  if [ ! -f "$CRED_SRC" ]; then
+    echo "[$RUN_ID] REFUSING TO LAUNCH: no Anthropic API key at $CRED_SRC." >&2
+    echo "[$RUN_ID] container auth must be THIS RUN'S OWN credential, never the host's ~/.claude — see this script's header." >&2
+    echo "[$RUN_ID] set STRANGER_ANTHROPIC_API_KEY_FILE to a file containing one Anthropic API key, or run 'probe'/'selftest' instead." >&2
+    exit 1
+  fi
+  echo "[$RUN_ID] credential file present at $CRED_SRC (contents never read/printed by dry-run) — a real launch would proceed." >&2
+  exit 0
+fi
 
 RUNS_PARENT="${STRANGER_RUNS_PARENT:-/Users/maxwellstarr/projects/stranger-walk-runs}"
 RUN_DIR="$RUNS_PARENT/$RUN_ID"
@@ -156,7 +212,8 @@ else
   SOURCE_PROMPT="$SCRIPT_DIR/prompt.md"
 fi
 PROMPT_SHA256="$(shasum -a 256 "$SOURCE_PROMPT" | awk '{print $1}')"
-sed "s#{{ENTRY_URL}}#$ENTRY_URL#g" "$SOURCE_PROMPT" > "$RUN_DIR/prompt.rendered.md"
+python3 "$SCRIPT_DIR/check_prompt.py" --show-body "$SOURCE_PROMPT" \
+  | sed "s#{{ENTRY_URL}}#$ENTRY_URL#g" > "$RUN_DIR/prompt.rendered.md"
 
 ENTRY_RESOLVED="$(curl -sS -o /dev/null -w '%{http_code} %{url_effective}' -L --max-time 15 "$ENTRY_URL" || echo "CURL_FAILED")"
 

@@ -1133,6 +1133,59 @@ Staging variants `battle-royale-s2-lootstart` and `battle-royale-s2-downed`
 exactly one of the two loot flags each, so the S2 flag family can be staged
 or bisected per-flag instead of riding one coupled variant switch.
 
+## Season 2 glory scoring — catalog update (draft, pending sign-off)
+
+**This section describes a draft change, not a live one.** It is written
+into a pull request the league owner still has to approve before it ships
+to `battle-royale-s2`; nothing below is true of the game you are playing
+today until that happens. It is here so entrants can see, ahead of time,
+exactly what would change about how glory is priced.
+
+If it ships, here is what is different for every player:
+
+- **Tags, hot streaks, contested-ground tags, and assisted tags are worth
+  more.** The shared multiplier table described above — the one that turns
+  a tag into a glory number — gets repriced upward across most of its rows.
+  How you earn glory is unchanged (you still have to tag, hold ground,
+  chain a hot streak, or fight alongside teammates); only what each of
+  those is worth on the scoreboard moves.
+- **Finishing rewards are repriced, and survival now trickles in
+  continuously.** The bonus for finishing among the last 8, last 4, or the
+  final 2 teams changes value, and — new — a team that is still alive earns
+  a small, steadily-growing survival bonus the whole time it survives, not
+  only at those three finish lines. Two players eliminated before the
+  final 8, one much later than the other, will now score differently for
+  it; before this change they scored identically (nothing) until the first
+  finish line.
+- **Assists and rescues count in battle royale.** Tagging a teammate back
+  in or covering their revive already scored points in capture-the-flag;
+  this closes the gap so the same actions score in battle royale too —
+  previously they were worth nothing there.
+- **Allied group takedowns are credited correctly.** When you are formally
+  allied with another team and a kill takes down, or completely wipes out,
+  an entire allied GROUP of enemy teams — not just the one team you tagged
+  — the game now recognizes and credits the group bonus. Before this
+  change, that exact situation could be silently scored as an ordinary
+  single tag instead, worth less than what actually happened on the field.
+- **A few small bonuses stop rounding away to zero.** Some multiplier steps
+  are smaller than a whole extra multiple and used to disappear entirely
+  when combined with certain other bonuses; they now register as the
+  small partial bonus they were always meant to be.
+- **Nothing about tagging, movement, spray, grenades, hearts, or the win
+  conditions above changes.** This only changes how many glory points a
+  tag, a finish, an assist, or a group takedown is worth — never whether
+  or how you earn one.
+
+If this ships, the glory economy version moves from **GLORYVERSION 16** to
+**GLORYVERSION 17**. A score is only ever comparable to another score from
+the same GLORYVERSION — a leaderboard should not blend seasons across that
+line. What the two competing predictions say about how much of a typical
+score moves from "how you finished" to "what you actively did" during the
+match — and how far off a first estimate turned out to be from a real
+measurement of games actually played — is exactly the kind of claim this
+project holds itself to double-checking against real games once it ships,
+rather than trusting the first estimate.
+
 ## Engine reward scoring
 
 The published Season 2 variant uses `scoring: "classic"`, with the BR placement

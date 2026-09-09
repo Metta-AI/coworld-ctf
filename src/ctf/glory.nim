@@ -298,9 +298,33 @@ type
                        ## from 2nd. Recut class x4.
 
 const
-  GloryVersion* = 16
+  GloryVersion* = 17
     ## Bumped on any pricing change, so a ledger can be attributed to the
     ## table that produced it. A cross-version comparison is invalid.
+    ##
+    ## v17 (2026-09-09, GLORY GRADIENT S6 SHIP, epic 25d9108e -- DRAFT,
+    ## owner GLORYVERSION GO required before merge): arms, on the
+    ## battle-royale-s2 flagship variant's manifest ONLY (same mechanism as
+    ## v14/v16's own arms -- `coworld_manifest_paintbot.json`, never
+    ## `defaultGameConfig()`), the five S5 switches CATALOG-V3-DRAFT.md and
+    ## RIG-SIMULATION.md built and proved dark (#501): `catalogV3Reprice`
+    ## (the v3 percent-scaled kill/heat/territory/stack reprice table,
+    ## GATE RULING 1), `gloryFixedPointScale` (the fixed-point accumulator
+    ## v3's small factors need to register, §9b), `placementRampV3` (§4
+    ## placement/survival-credit continuity fix), `brAssistRescueUngated`
+    ## and `pactScopedWipeDown` (rulings b/c, BR assist/rescue + pact-scope
+    ## marquee parity with CTF). All five ship TOGETHER because the rig's
+    ## own reported numbers (CHOSEN share, cap-hit cliff) were measured
+    ## with all five armed at once -- shipping a subset would not match
+    ## what the PR body quotes. Era boundary: v16 was live from
+    ## paintbot-v0.7.369 (2026-09-09 07:24Z, GameVersion 61); v17 has NOT
+    ## shipped to any build as of this draft -- it exists only in this PR
+    ## until the owner's GO. `defaultGameConfig()` is untouched (every
+    ## switch's own compiled default stays false), so every existing
+    ## pinned/frozen recut arithmetic test and every committed `.bitreplay`
+    ## fixture (none of which can carry a key that did not exist at record
+    ## time) stays byte-identical -- the OFF path this table's own GATE
+    ## RULING 1 proved in #501 is unchanged by this bump.
     ##
     ## v16 (2026-09-08, LEVELS ARE POWER -- owner ruling 2026-08-21, "Maxwell
     ## wants power"; card 2d30dba3): the six `levelX()` buff accessors

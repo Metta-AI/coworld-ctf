@@ -2,12 +2,55 @@
 
 This is read by the HUMAN/AGENT judging a completed run, never by the stranger. The judge has
 full internal knowledge (source, memory, wiki) that the stranger does not, and uses it only to
-grade the stranger's beliefs and milestone claims after the fact — never to help a run in flight.
+grade the stranger's beliefs and milestone reach after the fact — never to help a run in flight.
+
+## Protocol v2 (2026-09-09, owner ruling): post-hoc extraction, not self-report
+
+Protocol v1's `prompt.md` handed the stranger the eight milestones by name and asked it to narrate
+`BELIEF: `/`MILESTONE: ` lines as it formed them. The owner ruled that invalid as a clean-slate
+discovery test: telling a stranger "here are the 8 things a game must teach you, announce each
+one" primes it to go hunting for exactly those 8 things, which is scaffolding, not the stranger's
+own unprompted path. Protocol v1's five runs are kept on record (they still surfaced real,
+independently-verifiable defects — see `docs/designs/STRANGER_WALK.md`'s "Protocol v2" section)
+but are **invalid as a baseline** for "did the game explain itself with no help."
+
+Protocol v2's `prompt.md` gives the stranger only the goal, the think-aloud instruction, the
+contact/lane rules, and the signup/`WAITING: ` mechanics (kept because it's a real synchronization
+primitive, not milestone scaffolding — see that file's own note). It does **not** mention
+milestones, beliefs, or the words "blocked"/"ready" at all. `score.py` mechanically computes tool
+counts, digs, and stuck-episode timing straight from transcript timestamps — it can do all of that
+with zero cooperation from the stranger. What it cannot compute is milestones and beliefs, because
+there's no longer a `MILESTONE:`/`BELIEF:` line to find. That's now the judge's job, done directly
+against the raw transcript:
+
+1. Run `score.py <run-id>` first — it writes the mechanical skeleton (`milestones: {}`,
+   `beliefs: []`, `judged: false`) so you have tool-call counts, digs, and stuck episodes to work
+   from.
+2. Read `transcript.jsonl`'s assistant `text` blocks in chronological order (skip `tool_use`/
+   `tool_result` blocks — you're reading the stranger's own reasoning prose, not its actions,
+   though the actions around a passage are useful context for a stuck episode).
+3. For each milestone M1–M8 below, find the FIRST point in that prose where its criteria are
+   actually met (not claimed — the stranger isn't claiming anything anymore, so there's nothing to
+   fact-check against a self-report; you're finding it yourself). Record, in the same shape
+   Protocol v1 used so downstream tooling doesn't change: `{"timestamp": ..., "elapsed_s": ...,
+   "tool_call_count": ..., "sentence": "<your one-sentence account of what the transcript shows,
+   citing the specific tool call or passage>"}`. The `tool_call_count` is whatever `total_tool_calls`
+   value applied at that point in the transcript — count `tool_use` blocks in turns up to and
+   including the one you cite.
+4. Separately, extract **belief statements** — any sentence in the prose asserting how the game,
+   scoring, or submission process works, hedged or confident. Aim for the same density Protocol
+   v1's self-reported beliefs had (roughly one substantive claim every few minutes of active
+   reasoning); don't invent claims the prose doesn't support, and don't extract restatements that
+   add no new claim. For each: `{"text": "<quoted or lightly paraphrased>", "timestamp": ...,
+   "elapsed_s": ..., "tool_call_count": ..., "verdict": "true"|"false"|
+   "unknowable-from-public-surfaces", "source": "<path/file:line, memory doc, or public URL>",
+   "note": "<why a stranger would land here, for false/partly beliefs — this is punchlist material>"}`.
+   Grading happens in this same pass — there's no separate "judge the self-report" step anymore.
+5. Hand-edit `<run-dir>/score.json`'s `milestones` and `beliefs` keys with what you found (also set
+   `furthest_milestone`). Re-running `score.py` afterward is safe — it preserves whatever's already
+   in those two keys and only recomputes the mechanical fields around them.
 
 ## Milestone completion criteria
-
-A milestone counts as REACHED only if the stranger's own transcript supports the claim — a
-`MILESTONE: M<n>` line is a claim, not proof. Verify each one:
 
 - **M1 (knows the game).** The stranger can state genre + objective + format (e.g. "battle-royale
   team paintball, last team standing") in its own words, not just quoted page text pasted verbatim
@@ -30,29 +73,28 @@ A milestone counts as REACHED only if the stranger's own transcript supports the
 - **M8 (changed it, saw rank respond).** Requires a second submit + a second standings check
   showing a rank delta the stranger attributes to its change.
 
-If credentials never existed in the run env, M6–M8 are expected to be unreached; the run should
-instead show a `READY-TO-SUBMIT:` line. Grade that line's accuracy against what the real
-submission flow requires (cite the actual endpoint/UI path from the codebase or docs) — a
-confident-but-wrong `READY-TO-SUBMIT:` is a wrong belief, not a milestone.
+If the stranger never obtains usable credentials, M6–M8 are expected to be unreached. Judge
+whatever the stranger says about why it's stopping (there's no `READY-TO-SUBMIT:`/`BLOCKED-M6:`
+marker to look for anymore — read its own words) against what the real submission flow requires
+(cite the actual endpoint/UI path from the codebase or docs); a confident-but-wrong account of why
+it's stuck is a wrong belief like any other, graded the same way.
 
-**Owner decision 2026-09-09:** the stranger self-signs-up with a real address
-(`STRANGER_EMAIL`, from `~/.ctf/knowledge/stranger-walk/env`, copied to `<run-id>/env` by
-run.sh). Two special markers follow from this:
+**Owner decision 2026-09-09 (unchanged by Protocol v2):** the stranger self-signs-up with a real
+address (`STRANGER_EMAIL`, from `~/.ctf/knowledge/stranger-walk/env`, copied to `<run-id>/env` by
+run.sh). One marker survives the v1→v2 cut because it's a synchronization primitive, not
+scaffolding:
 
 - `WAITING: ` — the stranger hit an email-verification step it can't complete alone and stopped
   cleanly, to be resumed via `resume.sh <run-id> "<code>"` once the owner relays the code from
-  their inbox. The wall-clock between the `WAITING:` line and the resume is real time the
-  stranger spent blocked on a human, not stuck for lack of ideas — `score.py` tags that gap
-  `"owner_latency": true` and totals it separately (`owner_latency_minutes_total`). Report it in
-  `STRANGER_WALK.md` as its own line, not folded into "stuck minutes."
-- `BLOCKED-M6: ` — the site requires a GitHub/Google login the stranger has no credentials for
-  (as opposed to an email/password it could self-serve). This is a genuine M6 blocker, not a
-  process failure — verify the claim against the real signup flow and record it as the top-line
-  finding for what's stopping strangers from ever reaching M6.
+  their inbox. The wall-clock between the `WAITING: ` line and the resume is real time the
+  stranger spent blocked on a human, not stuck for lack of ideas — `score.py` tags the gap that
+  follows `"owner_latency": true` and totals it separately
+  (`owner_latency_minutes_total`). Report it in `STRANGER_WALK.md` as its own line, not folded
+  into "stuck minutes."
 
 ## Scoring each BELIEF
 
-For every `BELIEF:` line in the transcript, the judge assigns exactly one of:
+For every belief you extract, assign exactly one of:
 
 - **true** — matches the real system. Cite the source of truth: a `path/file:line` in the
   codebase, a named internal memory file, or a public page URL the stranger itself could have
@@ -75,9 +117,16 @@ anything interesting.
   different surface (e.g. softmax.com → github.com, or observatory/v2 → wiki → forum) in search
   of a fact the current surface didn't have. `score.py` computes this mechanically from
   `WebFetch`/`WebSearch` targets; the judge should sanity-check a few by hand.
-- A **stuck episode** is any ≥10-minute gap between `BELIEF:`/`MILESTONE:` lines. `score.py`
-  finds these; the judge should read what tool calls happened during the gap and write one line
-  on what actually blocked progress (a missing link, a confusing label, a slow page, a dead end).
+- A **stuck episode** is now (Protocol v2) any ≥10-minute gap between consecutive assistant turns
+  — `score.py` finds these mechanically, with no marker needed. This is a coarser signal than it
+  sounds: a stranger genuinely waiting on a slow qualification round tends to check in every
+  30-300s rather than fall silent, so a real ~15-20 minute wait can hide as several turn-gaps that
+  individually never cross 10 minutes — `stuck_minutes_total` is a lower bound, not a
+  measurement. The judge should read what tool calls happened during each reported gap (attached
+  in `stuck_episodes[].tool_calls_during`) and, more importantly, should also read the surrounding
+  transcript directly for genuine multi-turn wait stretches the mechanical threshold missed —
+  write one line on what actually blocked progress (a missing link, a confusing label, a slow
+  page, a dead end, a qualification/round-fulfillment wait).
 
 ## Attribution rule
 

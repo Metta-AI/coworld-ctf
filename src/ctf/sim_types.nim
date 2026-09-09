@@ -29,12 +29,38 @@ export glory
 
 const
   GameName* = "ctf"
-  ReplayCompatibleGameVersions* = ["61"]
+  ReplayCompatibleGameVersions* = ["62"]
     ## The replay-load allowlist (play-calling design §4.3): versions whose
-    ## recorded files still play back correctly under THIS engine. The
-    ## criterion is the GameVersion changelog below, not chronology — a
-    ## version is listed only when nothing since changed the gameHash
-    ## schema, the hash trajectory, or a flatty keyframe layout. GV60 drops
+    ## recorded files still play back correctly under THIS engine. PROVEN
+    ## invariant, not a style choice — `test_replay_compat.nim`'s "the
+    ## compatibility allowlist excludes both named prior versions" asserts
+    ## `ReplayCompatibleGameVersions == [GameVersion]` outright: this array
+    ## holds EXACTLY ONE entry, the current `GameVersion`, always. (An
+    ## earlier draft of this comment argued GV61 could safely stay listed
+    ## alongside GV62 — the five new switches this PR adds are net-new
+    ## `GameConfig` fields absent from every GV61 recording, so
+    ## `defaultGameConfig()` being untouched really does make a GV61
+    ## replay's glory arithmetic byte-identical under this engine. That
+    ## analysis is still true, but it is not the rule this codebase
+    ## enforces: the allowlist is unconditionally single-entry regardless
+    ## of whether a specific prior version happens to be provably
+    ## unaffected by the SPECIFIC change motivating the bump, because
+    ## `GameVersion` is also read independently of glory scoring — e.g.
+    ## `tests/test_shell_replay.nim`'s `nativeIdentity` stamps the live
+    ## `GameVersion` into every native reflex play-call entry, so a bump
+    ## for ANY reason moves those bytes too, whether or not that specific
+    ## reason ever touches them. A per-bump case-by-case exemption is
+    ## exactly the reasoning error that missed this. Every committed
+    ## `.bitreplay`/`.bin` fixture carrying a GV61 header is relabeled to
+    ## GV62 via this codebase's own established path for a hash-neutral
+    ## bump (the GV60->61 precedent immediately below: a header-only
+    ## relabel, or the fixture's own `when defined(write*)` regeneration
+    ## block where one exists — never a hand patch of the checked-in
+    ## bytes) — not re-recorded, since none of them exercise the five new
+    ## switches (they didn't exist before this PR) and the shell-replay
+    ## goldens regenerate byte-for-byte from source, so nothing about
+    ## their actual recorded content changes, only the version label.
+    ## GV60 drops
     ## out because GV61 (LEVELS ARE POWER, below) wires the six previously-
     ## dead `levelX()` GLORY buffs into live combat — windup/hp/fire-
     ## cooldown/spray-reset/grenade-charges/carrier-speed now all read a
@@ -112,8 +138,36 @@ const
     ## RewardAccount on the wire. Widening requires a real archived fixture
     ## that survives initialization and stepping (PM ruling, 2026-08-30),
     ## never a header rewrite.
-  GameVersion* = "61"
-    ## GV61 (LEVELS ARE POWER, GloryVersion 16): the six `levelX()` GLORY
+  GameVersion* = "62"
+    ## GV62 (GLORY GRADIENT S6 SHIP, GloryVersion 17, epic 25d9108e -- DRAFT,
+    ## owner GLORYVERSION GO required before this PR merges): arms, on the
+    ## battle-royale-s2 flagship variant's manifest ONLY, the five S5
+    ## switches #501 built and proved dark (`catalogV3Reprice`,
+    ## `gloryFixedPointScale`, `placementRampV3`, `brAssistRescueUngated`,
+    ## `pactScopedWipeDown` -- see glory.nim's `GloryVersion` v17 changelog
+    ## for what each does). Moves the hash TRAJECTORY of every FUTURE
+    ## battle-royale-s2 recording from this variant's next publish onward
+    ## (a measured-distribution-moving change per the spec owner's own
+    ## 2026-09-03 ruling below: takes a bump on its own). Does NOT move any
+    ## EXISTING recording's glory-scoring trajectory: all five fields are
+    ## net-new `GameConfig` bools that did not exist before #501, so no
+    ## GV61 (or earlier) fixture's own JSON diff can carry them, and
+    ## `defaultGameConfig()` -- untouched by this PR -- still resolves all
+    ## five to `false` when replaying one. GV61 nonetheless DROPS OUT of
+    ## `ReplayCompatibleGameVersions` above, same as every prior bump: that
+    ## const's own comment corrects an earlier draft of this reasoning,
+    ## which tried to keep GV61 listed on exactly this glory-scoring
+    ## argument and missed that `GameVersion` is read independently of
+    ## glory scoring elsewhere (the shell-replay native-reflex stamp,
+    ## `tests/test_shell_replay.nim`) -- a case-by-case exemption from the
+    ## single-entry invariant is not this codebase's rule, proven by
+    ## `test_replay_compat.nim`'s own hard check. No flatty keyframe layout
+    ## change: no field added or reordered on
+    ## `Player`/`SimServer`. No wire schema change beyond the five new
+    ## `GameConfig` keys themselves (echoed only when armed, matching every
+    ## prior recut flag's own idiom).
+    ##
+    ## Previously GV61 (LEVELS ARE POWER, GloryVersion 16): the six `levelX()` GLORY
     ## buff accessors, dead since GV10, are wired into live combat --
     ## windup, max hp, fire cooldown, spray reset, grenade charges, carrier
     ## speed all now vary with a cog's per-life level. Moves the hash
