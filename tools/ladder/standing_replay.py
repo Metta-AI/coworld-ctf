@@ -449,7 +449,12 @@ def stability_metrics(history, top_n=16):
     }
 
 
-def leader_best_round_share(history, contributions):
+def leader_best_round_share(history, contributions, rated_k=None):
+    """`rated_k` must be the SAME rate the passed-in `history`/`contributions`
+    were replayed with (falls back to CURRENT["rated_k"] only if the caller
+    doesn't know its own rate) — decay weights computed at any other rate
+    silently mis-score every non-CURRENT setting swept by callers like
+    `_metrics_for_setting`."""
     if not history:
         return None
     _, final_standing = history[-1]
@@ -460,7 +465,7 @@ def leader_best_round_share(history, contributions):
     if final <= 0:
         return None
     n = len(contributions.get(leader, []))
-    k = CURRENT["rated_k"]
+    k = CURRENT["rated_k"] if rated_k is None else rated_k
     best_share = 0.0
     for idx, (_, clipped) in enumerate(contributions.get(leader, [])):
         remaining = n - 1 - idx
@@ -586,7 +591,7 @@ def _metrics_for_setting(rounds, setting, mid_subject, top_subject, from_idx,
         history, contributions = _run()
         stab = stability_metrics(history)
 
-    share = leader_best_round_share(history, contributions)
+    share = leader_best_round_share(history, contributions, rated_k=s["rated_k"])
     spike = spike_sensitivity(rounds, s["rated_k"], s["clamp_M"], s["top_k"],
                                s["transform"], s["episode_mode"])
 
