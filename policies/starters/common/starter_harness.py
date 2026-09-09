@@ -1243,6 +1243,135 @@ def maybe_kickoff_reemit(persona: Persona, seat: StarterSeat,
     return result
 
 
+# v50 (FINAL4_DIAG.md): the same team-count boundary policy.py's own
+# _final4/FINAL4_TEAM_THRESHOLD uses (4) -- mirrored here as a literal, not
+# imported, because starter_harness.py is the persona-agnostic common
+# module and policy.py is Monet-specific (see this module's own import
+# block: no persona modules are imported here). Re-count both together if
+# the F4 initiative's boundary is ever retuned.
+FINAL4_TEAM_THRESHOLD = 4
+
+
+def maybe_final4_reemit(persona: Persona, seat: StarterSeat,
+                         available: list[str]) -> tuple[bytes, list] | None:
+    """v50: re-send a persona's already-committed ladder WITHOUT a model
+    call, the first turn the engine's own alive_teams counter reads <=
+    FINAL4_TEAM_THRESHOLD (4) while we are alive and no model call has
+    already committed a clamped ladder there.
+
+    Motivation (measured, not theoretical -- FINAL4_DIAG.md, the v49
+    693-episode corpus): the model is called sparsely (median 1x/episode,
+    mean 1.34x) -- most of a match runs on canned/scripted plays with no
+    fresh model call at all. Only 117/693 episodes (16.9%) ever had a
+    model call land at alive_teams<=4 (304 calls total, all 304 with the
+    zone-timer endgame already active too), and on the 28-episode subset
+    that actually reached the final four, only 16/28 (57%) produced ANY
+    model call there -- the other 12/28 died before the engine's own
+    alive_teams counter ever told them "4 teams left". A model-call-only
+    clamp (policy.py's ``final4`` branch in ``adjust_entries``)
+    structurally cannot cover this phase on its own; this function is the
+    harness's OWN turn, exactly parallel to ``maybe_kickoff_reemit`` above
+    -- it does not wait on the model's cadence (``_triggers``/
+    ``_gap_allows``/``periodic_seconds`` in ``_live_loop``) at all.
+
+    Signal: the SAME raw field the awareness lines already render
+    (``_vital_lines``/``_state_lines``, "Teams still alive: N.") --
+    ``seat.view["world"]["alive_teams"]`` -- read directly here, never
+    reconstructed from the kill feed or a placement label.
+
+    Fires at most once per episode (``seat.final4_reemit_done``), only
+    while alive, only once alive_teams first reads <= FINAL4_TEAM_THRESHOLD,
+    and only when ``seat.pact_state`` does not already show
+    ``final4_committed`` -- the mutual-exclusion flag policy.py's own
+    final4 branch in ``adjust_entries`` sets on EVERY final4-true turn,
+    synthetic or real (whichever reaches it first wins, so this never
+    double-commits against a real model call that already landed at
+    alive_teams<=4 this episode).
+
+    Reuses ``repair_call`` -- the SAME build/adjust/gate path a model-
+    authored call takes -- resending ``seat.wanted_entries`` (the
+    persona's own last-wanted ladder) verbatim as the synthetic
+    "decision", so policy.py's final4 branch sees it, clamps any
+    loot/supply_run detourMax on it, and logs both the phase line and any
+    clamp lines exactly as a real call would. A single context flag,
+    ``_synthetic_trigger`` = ``"final4-reemit"``, tells policy.py's final4
+    branch this resend had no model behind it, so it tags
+    ``reason=final4-reemit`` on those lines -- same commit, distinguishable
+    trigger (mirrors kickoff-reemit's own tagging exactly).
+
+    Does NOT resend when ``seat.wanted_entries`` is empty -- there is no
+    committed ladder yet to re-affirm, so nothing sent is the honest
+    action (a later iteration can still try once a ladder exists). Does
+    NOT require a loot/supply_run entry to be present on that ladder: the
+    resend still exercises policy.py's final4 branch, so the once-per-
+    episode ``[monet] final4: alive_teams=<n>`` phase line logs even when
+    there's nothing on the wire for the clamp to touch.
+
+    Returns ``(payload, entries)`` to send on the wire, or ``None`` when
+    there is nothing to do this turn. Does NOT itself call ``seat.call`` --
+    the caller (``_live_loop``) owns the actual send, exactly like
+    ``maybe_kickoff_reemit`` just above it in that loop.
+
+    SOLO AND DUO: applied to both. Unlike the pact-partner kickoff-reemit
+    (structurally solo-only -- duo seats never populate
+    ``pact_state["partners"]``, see ``maybe_kickoff_reemit``'s own
+    docstring), the final-four detour clamp has no such structural
+    exclusion: policy.py's final4 branch reads only ``world.alive_teams``
+    and clamps ``loot``/``supply_run`` entries, both of which duo seats
+    also carry on their wanted ladder. No reason found to withhold this
+    from duo; applying to both.
+    """
+    if getattr(seat, "final4_reemit_done", False):
+        return None
+    view = seat.view or {}
+    me = view.get("self") or {}
+    if me.get("alive") is False:
+        # Not alive -- nothing to decide. _live_loop itself returns on
+        # this condition before reaching this call, so this is defensive,
+        # not expected to fire; flag stays unset regardless.
+        print("[monet] final4 reemit skipped: not alive", flush=True)
+        return None
+    world = view.get("world")
+    if not isinstance(world, dict):
+        print("[monet] final4 reemit skipped: no world view yet",
+              flush=True)
+        return None
+    alive_teams = world.get("alive_teams")
+    if not (isinstance(alive_teams, (int, float))
+            and alive_teams <= FINAL4_TEAM_THRESHOLD):
+        # Not the final four yet (or the engine hasn't told us this turn)
+        # -- try again next iteration, no flag burned.
+        return None
+    state = seat.pact_state or {}
+    if state.get("final4_committed"):
+        # A real model call already committed a clamped ladder at
+        # alive_teams<=4 this episode (policy.py's final4 branch sets this
+        # on every final4-true turn, synthetic or real). Legitimate final
+        # state, not ladder drift -- mark done for good, matching
+        # kickoff's own already-committed handling.
+        seat.final4_reemit_done = True
+        return None
+    last_wanted = getattr(seat, "wanted_entries", None) or []
+    if not last_wanted:
+        print("[monet] final4 reemit skipped: no wanted entries yet",
+              flush=True)
+        return None
+    decision = {"call": {"entries": json.loads(json.dumps(last_wanted))}}
+    orig_context = seat.context
+    seat.context = dict(orig_context or {})
+    seat.context["_synthetic_trigger"] = "final4-reemit"
+    try:
+        result = repair_call(decision, persona, seat, available)
+    finally:
+        seat.context = orig_context
+    # Only mark done after a successful send (reached here) -- never on a
+    # skip, so a later iteration in the same final-four phase can retry
+    # (e.g. wanted_entries populates a turn later than alive_teams first
+    # drops to <=4).
+    seat.final4_reemit_done = True
+    return result
+
+
 def _base_name(name) -> str:
     """'James Botts (2)' -> 'James Botts': the roster de-duplicates one
     entrant's seats with a ' (N)' suffix."""
@@ -1837,6 +1966,27 @@ def _live_loop(persona: Persona, seat: StarterSeat, engine,
                 payload = reemit_payload
                 before = _snapshot(seat, partner)
                 _record_committed(reemit_entries)
+        # v50 final4 re-emit: a persona-level, no-model-call resend of an
+        # already-committed ladder the moment the engine's own alive_teams
+        # counter first reads <=4 while alive (see maybe_final4_reemit's
+        # docstring / FINAL4_DIAG.md -- the model-call-only clamp covered
+        # 0/693 episodes). Checked every iteration but only ever ACTS once
+        # per episode (seat.final4_reemit_done) and only when policy.py's
+        # own final4 branch has not already fired this episode via a real
+        # model call (mutual exclusion via seat.pact_state["final4_
+        # committed"], same shape as kickoff's own committed flag).
+        # Independent of the kickoff re-emit above -- different flags,
+        # different trigger condition -- both can fire in one episode
+        # (kickoff at the first Playing tick, final4 later once the team
+        # count drops).
+        final4_reemit = maybe_final4_reemit(persona, seat, available)
+        if final4_reemit is not None:
+            final4_payload, final4_entries = final4_reemit
+            outcome = seat.call(final4_payload, "final4-reemit")
+            if outcome is not None and outcome["kind"] == "call_accepted":
+                payload = final4_payload
+                before = _snapshot(seat, partner)
+                _record_committed(final4_entries)
         if calls >= budget:
             continue
         elapsed = time.monotonic() - last_call_at

@@ -2286,11 +2286,16 @@ check("(b) 8 alive teams: supply_run.detourMax stays at 400 too (only "
       _f4b_supply["params"].get("detourMax") == 400,
       str(_f4b_supply["params"]))
 
-# (c) the zone-timer endgame phase is ALREADY active (LastLight window) at
-# the same time alive_teams<=4: the pre-existing endgame clamps own the
-# ladder exactly as before this change, and final4 must never fire (no
-# double-log, no detourMax override) -- see the "evaluated only when NOT
-# already in the marquee window" rule in adjust_entries.
+# (c) v50 (FINAL4_DIAG.md): the zone-timer endgame phase is ALREADY active
+# (LastLight window) at the same time alive_teams<=4 -- measured at
+# 304/304 (100%) of real model calls with alive_teams<=4 across the full
+# 693-episode v49 corpus. The OLD `(not _in_marquee_zone_window(view)) and
+# _final4(view)` gate cancelled the clamp out completely on every one of
+# them (0/693 episodes armed) -- this combination is the norm, not an
+# edge case, so v50 drops the AND-NOT exclusion: final4 now fires HERE
+# too. The two clamps touch disjoint fields (fire_superiority.press
+# Range/finishRange for endgame vs. loot/supply_run.detourMax for
+# final4) and both already use min(), so they stack instead of competing.
 _f4_endgame_view = {"world": {
     "zone": {"phase": policy.TOTAL_ZONE_PHASES, "ticks_to_shrink": 0},
     "alive_teams": 4}}
@@ -2303,22 +2308,57 @@ _f4c_supply = next(e for e in _f4_seat_c.wanted_entries
                    if e["play"] == "supply_run")
 _f4c_fs = next(e for e in _f4_seat_c.wanted_entries
                if e["play"] == "fire_superiority")
-check("(c) endgame active + alive_teams<=4: final4 does NOT clamp -- "
-      "loot.detourMax stays at the model's submitted 400 (the zone-timer "
-      "endgame branch owns the ladder, unmodified by this change)",
-      _f4c_loot["params"].get("detourMax") == 400, str(_f4c_loot["params"]))
-check("(c) endgame active + alive_teams<=4: supply_run.detourMax also "
-      "stays at 400 -- same reason",
-      _f4c_supply["params"].get("detourMax") == 400,
+check("(c) v50: endgame active + alive_teams<=4: final4 DOES clamp now -- "
+      "loot.detourMax 400 -> 150 -- the v49 bug was the exclusion "
+      "itself (100% endgame overlap made the clamp unreachable), so the "
+      "fix is firing here, not staying silent",
+      _f4c_loot["params"].get("detourMax") == 150, str(_f4c_loot["params"]))
+check("(c) v50: endgame active + alive_teams<=4: supply_run.detourMax "
+      "also clamps 400 -> 150 -- same reason",
+      _f4c_supply["params"].get("detourMax") == 150,
       str(_f4c_supply["params"]))
-check("(c) endgame active + alive_teams<=4: the pre-existing endgame "
-      "clamp still tightens fire_superiority.finishRange to 120, "
-      "untouched by this change",
+check("(c) v50: endgame active + alive_teams<=4: the pre-existing "
+      "endgame clamp STILL tightens fire_superiority.finishRange to 120 "
+      "-- final4 and endgame clamps stack via min() on disjoint fields, "
+      "neither excludes the other",
       _f4c_fs["params"].get("finishRange") == 120, str(_f4c_fs["params"]))
-check("(c) endgame active + alive_teams<=4: no final4 log line at all -- "
-      "it never double-logs alongside the pre-existing endgame clamp's "
-      "own 'phase=endgame' log lines",
-      "final4" not in _f4_log_c.getvalue(), repr(_f4_log_c.getvalue()))
+check("(c) v50: endgame active + alive_teams<=4: the final4 phase line "
+      "DOES log once -- 'final4: alive_teams=4' -- alongside the "
+      "endgame clamp's own log lines, no exclusion between them",
+      "final4: alive_teams=4" in _f4_log_c.getvalue(),
+      repr(_f4_log_c.getvalue()))
+check("(c) v50: endgame active + alive_teams<=4: both detourMax clamp "
+      "lines log too",
+      "final4 clamp: loot.detourMax 400 -> 150" in _f4_log_c.getvalue()
+      and "final4 clamp: supply_run.detourMax 400 -> 150"
+      in _f4_log_c.getvalue(),
+      repr(_f4_log_c.getvalue()))
+
+# Deliberate-break proof: monkeypatch policy._final4 back to the OLD
+# `_final4(view) and not _in_marquee_zone_window(view)` shape (the v49
+# gate) and rerun the exact same endgame+alive_teams<=4 scenario -- the
+# new (c) assertion above must flip to what WOULD be a FAIL (clamp absent
+# again), proving (c) actually discriminates the fix rather than passing
+# unconditionally. Restore immediately after.
+_real_final4 = policy._final4
+
+
+def _v49_broken_final4(view):
+    return _real_final4(view) and not policy._in_marquee_zone_window(view)
+
+
+policy._final4 = _v49_broken_final4
+_f4_seat_c_broken = fake_seat(view=_f4_endgame_view)
+starter_harness.repair_call(_f4_call(), PERSONA, _f4_seat_c_broken, AVAILABLE)
+_f4c_broken_loot = next(e for e in _f4_seat_c_broken.wanted_entries
+                        if e["play"] == "loot")
+policy._final4 = _real_final4
+check("(c) v50 self-test: reverting to the v49 AND-NOT gate flips this "
+      "exact scenario back to the old broken behaviour (loot.detourMax "
+      "stays 400, no clamp) -- proving the (c) checks above discriminate "
+      "the fix rather than passing unconditionally",
+      _f4c_broken_loot["params"].get("detourMax") == 400,
+      str(_f4c_broken_loot["params"]))
 
 # Log-once, across turns on the SAME seat (mirrors the pact-aim "logs "
 # once" tests elsewhere in this file): a second call on a seat already in
@@ -2340,6 +2380,163 @@ check("final4: the detourMax clamp itself keeps firing on the SECOND "
       "final4 turn too (only the phase-entry announcement is one-shot)",
       "final4 clamp: loot.detourMax 400 -> 150" in _f4_log_once2.getvalue(),
       repr(_f4_log_once2.getvalue()))
+
+# ── v50: starter_harness.maybe_final4_reemit -- the harness's OWN turn,
+# no model call needed (see FINAL4_DIAG.md: mean 1.34 model calls/episode,
+# only 16/28 final-four episodes ever had ANY model call at alive_teams
+# <=4, so a model-call-only clamp structurally cannot cover this phase). ──
+
+# (d) first <=4 view, no model call in flight -- the harness itself
+# resends the last-wanted ladder, tagged reason=final4-reemit, clamping
+# any loot/supply_run detourMax exactly like a real call would.
+_f4h_seat_d = fake_seat(view={"world": {"alive_teams": 8}})
+starter_harness.repair_call(_f4_call(), PERSONA, _f4h_seat_d, AVAILABLE)
+_f4h_seat_d.view = {"world": {"alive_teams": 4}, "self": {"alive": True}}
+_f4h_log_d = _io.StringIO()
+with _contextlib.redirect_stdout(_f4h_log_d):
+    reemit_d = starter_harness.maybe_final4_reemit(PERSONA, _f4h_seat_d, AVAILABLE)
+_f4h_d_loot = next((e for e in _f4h_seat_d.wanted_entries
+                    if e["play"] == "loot"), None)
+check("(d) final4 re-emit: no model call landed at the first alive_teams"
+      "<=4 turn -- the harness itself resends the last-wanted ladder, "
+      "tagged reason=final4-reemit, with loot.detourMax clamped 400 -> "
+      "150 exactly like a real call",
+      reemit_d is not None
+      and _f4h_d_loot is not None
+      and _f4h_d_loot["params"].get("detourMax") == 150
+      and "reason=final4-reemit" in _f4h_log_d.getvalue()
+      and "final4: alive_teams=4" in _f4h_log_d.getvalue()
+      and _f4h_seat_d.final4_reemit_done is True
+      and _f4h_seat_d.pact_state.get("final4_committed") is True,
+      repr(_f4h_log_d.getvalue()))
+_f4h_log_d2 = _io.StringIO()
+with _contextlib.redirect_stdout(_f4h_log_d2):
+    reemit_d2 = starter_harness.maybe_final4_reemit(PERSONA, _f4h_seat_d, AVAILABLE)
+check("(d) final4 re-emit is a one-shot: a second call on a later turn "
+      "is a no-op (no second wire call, no second log line)",
+      reemit_d2 is None and _f4h_log_d2.getvalue() == "",
+      repr(_f4h_log_d2.getvalue()))
+
+# (e) a REAL model call already landed at alive_teams<=4 first (policy.py's
+# own final4 branch fires, setting pact_state["final4_committed"]) --
+# maybe_final4_reemit must then be a pure no-op: no second commit, no
+# reason=final4-reemit anywhere, no double log.
+_f4h_seat_e = fake_seat(view={"world": {"alive_teams": 4},
+                              "self": {"alive": True}})
+_f4h_log_e1 = _io.StringIO()
+with _contextlib.redirect_stdout(_f4h_log_e1):
+    starter_harness.repair_call(_f4_call(), PERSONA, _f4h_seat_e, AVAILABLE)
+check("(e) setup: a real model call at alive_teams<=4 fires policy.py's "
+      "own final4 branch and sets final4_committed",
+      "final4: alive_teams=4" in _f4h_log_e1.getvalue()
+      and "reason=final4-reemit" not in _f4h_log_e1.getvalue()
+      and _f4h_seat_e.pact_state.get("final4_committed") is True,
+      repr(_f4h_log_e1.getvalue()))
+_f4h_log_e2 = _io.StringIO()
+with _contextlib.redirect_stdout(_f4h_log_e2):
+    reemit_e = starter_harness.maybe_final4_reemit(PERSONA, _f4h_seat_e, AVAILABLE)
+check("(e) final4 re-emit: a real model call already committed at "
+      "alive_teams<=4 this episode -- NO re-emit, no double commit, no "
+      "reason=final4-reemit, and the one-shot flag is marked done anyway "
+      "(legitimate final state, mirrors kickoff's own already-committed "
+      "handling)",
+      reemit_e is None and _f4h_log_e2.getvalue() == ""
+      and _f4h_seat_e.final4_reemit_done is True,
+      repr(_f4h_log_e2.getvalue()))
+
+# (f) 5+ teams alive -- not the final four yet -- nothing happens, and the
+# one-shot flag is never burned (a later drop to <=4 must still fire).
+_f4h_seat_f = fake_seat(view={"world": {"alive_teams": 5},
+                              "self": {"alive": True}})
+starter_harness.repair_call(_f4_call(), PERSONA, _f4h_seat_f, AVAILABLE)
+reemit_f = starter_harness.maybe_final4_reemit(PERSONA, _f4h_seat_f, AVAILABLE)
+check("(f) final4 re-emit: 5+ teams alive -- nothing emitted, flag not "
+      "burned",
+      reemit_f is None
+      and not getattr(_f4h_seat_f, "final4_reemit_done", False),
+      str(reemit_f))
+
+# (g) BAIL cases log the reason and do NOT burn the one-shot flag, so a
+# later iteration can still succeed once the missing precondition shows up.
+_f4h_seat_g = fake_seat(view={"world": {"alive_teams": 4},
+                              "self": {"alive": True}})
+# g1: alive_teams<=4 already, but nothing has ever been committed yet --
+# seat.wanted_entries is empty (no huddle/model call happened at all).
+_f4h_log_g1 = _io.StringIO()
+with _contextlib.redirect_stdout(_f4h_log_g1):
+    reemit_g1 = starter_harness.maybe_final4_reemit(PERSONA, _f4h_seat_g, AVAILABLE)
+check("(g1) final4 re-emit BAIL: no wanted entries yet -- logs "
+      "'final4 reemit skipped: no wanted entries yet', returns None, and "
+      "does NOT burn the one-shot flag",
+      reemit_g1 is None
+      and "final4 reemit skipped: no wanted entries yet" in _f4h_log_g1.getvalue()
+      and not getattr(_f4h_seat_g, "final4_reemit_done", False),
+      repr(_f4h_log_g1.getvalue()))
+# g2: not alive -- logs and bails, flag not burned.
+_f4h_seat_g2 = fake_seat(view={"world": {"alive_teams": 4},
+                               "self": {"alive": False}})
+_f4h_log_g2 = _io.StringIO()
+with _contextlib.redirect_stdout(_f4h_log_g2):
+    reemit_g2 = starter_harness.maybe_final4_reemit(PERSONA, _f4h_seat_g2, AVAILABLE)
+check("(g2) final4 re-emit BAIL: not alive -- logs 'final4 reemit "
+      "skipped: not alive', returns None, flag not burned",
+      reemit_g2 is None
+      and "final4 reemit skipped: not alive" in _f4h_log_g2.getvalue()
+      and not getattr(_f4h_seat_g2, "final4_reemit_done", False),
+      repr(_f4h_log_g2.getvalue()))
+# g3: the SAME seat as g1, once a ladder finally exists (a later
+# iteration), the un-burned flag lets the retry succeed.
+starter_harness.repair_call(_f4_call(), PERSONA, _f4h_seat_g, AVAILABLE)
+_f4h_log_g3 = _io.StringIO()
+with _contextlib.redirect_stdout(_f4h_log_g3):
+    reemit_g3 = starter_harness.maybe_final4_reemit(PERSONA, _f4h_seat_g, AVAILABLE)
+check("(g3) final4 re-emit RETRY: the earlier bail (g1) left the flag "
+      "unset, so once a real model call lands and populates a ladder, "
+      "this seat's final4_committed is already True from that call -- "
+      "recognized as the legitimate already-committed no-op, not a "
+      "second bail",
+      reemit_g3 is None and _f4h_seat_g.final4_reemit_done is True,
+      repr(_f4h_log_g3.getvalue()))
+
+# (h) kickoff re-emit and final4 re-emit both fire in ONE episode without
+# interfering: kickoff at the first Playing tick (alive_teams still high),
+# final4 later once the team count drops to <=4. Different flags
+# (kickoff_reemit_done vs final4_reemit_done), different persisted keys
+# (kickoff_committed vs final4_committed) -- neither reemit path touches
+# the other's bookkeeping.
+_H_ROSTER = [{"seat": i} for i in range(10)]
+h_seat = fake_seat(
+    context={"self": {"seat": 3, "duo_partner": None}, "roster": _H_ROSTER},
+    chat=[{"seat": 5, "text": "seat:3 pact? never a shot between us"}])
+starter_harness.repair_call(PERSONA.canned_turns[0], PERSONA, h_seat, AVAILABLE)
+h_seat.view = {"tick": 800, "self": {"pos": [0, 0], "alive": True},
+               "tracks": [], "world": {"alive_teams": 8}}
+_h_log1 = _io.StringIO()
+with _contextlib.redirect_stdout(_h_log1):
+    h_reemit1 = starter_harness.maybe_kickoff_reemit(PERSONA, h_seat, AVAILABLE)
+check("(h) setup: kickoff re-emit fires first, at the first Playing tick, "
+      "while alive_teams is still 8 (not final four yet)",
+      h_reemit1 is not None
+      and "reason=kickoff-reemit" in _h_log1.getvalue()
+      and h_seat.pact_state.get("kickoff_committed") is True
+      and not h_seat.pact_state.get("final4_committed"),
+      repr(_h_log1.getvalue()))
+h_seat.view = {"tick": 2100, "self": {"pos": [0, 0], "alive": True},
+               "tracks": [], "world": {"alive_teams": 4}}
+_h_log2 = _io.StringIO()
+with _contextlib.redirect_stdout(_h_log2):
+    h_reemit2 = starter_harness.maybe_final4_reemit(PERSONA, h_seat, AVAILABLE)
+check("(h) final4 re-emit fires LATER in the SAME episode, once "
+      "alive_teams drops to 4 -- independent of the earlier kickoff "
+      "re-emit, no interference between the two one-shot flags",
+      h_reemit2 is not None
+      and "reason=final4-reemit" in _h_log2.getvalue()
+      and "final4: alive_teams=4" in _h_log2.getvalue()
+      and h_seat.final4_reemit_done is True
+      and h_seat.kickoff_reemit_done is True
+      and h_seat.pact_state.get("final4_committed") is True
+      and h_seat.pact_state.get("kickoff_committed") is True,
+      repr(_h_log2.getvalue()))
 
 _mid_idx, _endgame_idx = 2, 3  # canned_turns is 0-indexed; "turn 3"/"turn 4"
 for _view, _expect, _label in (
