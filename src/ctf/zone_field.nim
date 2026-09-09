@@ -1619,10 +1619,25 @@ var
   ZoneArrivalFieldKey: tuple[w, h, cx, cy, zcx, zcy, scheduleFp: int] =
     (-1, -1, -1, -1, -1, -1, -1)
   ZoneArrivalFieldValue*: ZoneArrivalField
-  ZoneArrivalFieldShipped*: bool  ## whether the data sprite has gone out for
-                                 ## the CURRENT key — false again the instant
-                                 ## the key changes (a fresh episode/map),
-                                 ## which is the only time it gets resent.
+  ZoneArrivalFieldShipped*: bool  ## whether the data sprite has gone out to
+                                 ## AT LEAST ONE viewer for the CURRENT key —
+                                 ## false again the instant the key changes
+                                 ## (a fresh episode/map). Diagnostic/first-
+                                 ## light state only: it is NOT the emission
+                                 ## gate (see ZoneArrivalFieldSerial).
+  ZoneArrivalFieldSerial*: int    ## bumps on every REBUILD (key change). The
+                                 ## sprite-def cache is PER VIEWER (each
+                                 ## connection's own spriteDefs), so "already
+                                 ## shipped" is a question about the viewer,
+                                 ## never the process: addZoneEdgeBand folds
+                                 ## this serial into the field sprite's label
+                                 ## and lets addSpriteChanged's per-viewer
+                                 ## dedupe decide who still needs the bytes —
+                                 ## a late-joining human on a 16-bot pool
+                                 ## match included. A process-global "shipped"
+                                 ## flag let the FIRST viewer rendered after
+                                 ## a rebuild (a bot) consume the single
+                                 ## emission and starved every later one.
 
 type ZoneArrivalFieldDebugState* = object
   built*: bool
@@ -1662,6 +1677,7 @@ proc ensureZoneArrivalField*(sim: SimServer): bool {.discardable, measure.} =
     return false
   ZoneArrivalFieldKey = key
   ZoneArrivalFieldShipped = false
+  inc ZoneArrivalFieldSerial
   when defined(zoneArrivalFieldProbe):
     let t0 = epochTime()
   ensureZoneFloorGrid(sim)
