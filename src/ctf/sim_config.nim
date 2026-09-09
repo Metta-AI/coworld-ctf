@@ -58,6 +58,7 @@ proc defaultGameConfig*(): GameConfig =
     barrageStartSec: BarrageStartSec,
     barrageSaturateSec: BarrageSaturateSec,
     brMode: false,
+    instantTakeover: false,
     zonePhases: @[],
     allowCallouts: false,
     allowPolicyReflash: false,
@@ -1395,6 +1396,7 @@ proc update*(config: var GameConfig, jsonText: string) =
   node.readConfigPlayers(config.slots)
   # GVNEXT(elim): appended read for the appended brMode field (sim_types.nim).
   node.readConfigBool("brMode", config.brMode)
+  node.readConfigBool("instantTakeover", config.instantTakeover)
   # GVNEXT(shell): appended reads for the play-calling shell's root fields
   # (sim_types.nim). Season 2 defaults on; allowDeprecatedModes is the live
   # legacy-mode boot override.
@@ -1673,6 +1675,8 @@ proc echoBrModeKeys(config: GameConfig, node: JsonNode) =
   ## config stays byte-identical to a pre-BR build's echo.
   if config.brMode:
     node["brMode"] = %config.brMode
+  if config.instantTakeover:
+    node["instantTakeover"] = %config.instantTakeover
 
 proc echoSeatTakeoverKeys(config: GameConfig, node: JsonNode) =
   ## Same rule for seat takeover: echoed only when the freeplay mode is on,
