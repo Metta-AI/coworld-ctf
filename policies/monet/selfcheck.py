@@ -933,11 +933,15 @@ check("SOLO + placeholder pact: never dropped -- named at the "
       pact_solo is not None
       and set(pact_solo["params"]["partners"]) == {"seat:0", "seat:1"},
       str(pact_solo))
-check("SOLO + placeholder pact: the OLD placeholder seats never reach "
-      "target_law's never-list -- only the newly-named fallback seats do",
-      law_solo is not None
-      and {"seat:0", "seat:1"} <= set(law_solo["params"].get("never", []))
-      and "seat:16" not in set(law_solo["params"].get("never", [])),
+check("v46 CONFIRMED-ONLY GATE: a FALLBACK-only pact (no chat, unilateral "
+      "2-nearest pick, nobody has named us back) does NOT reach target_"
+      "law's never-list -- holding fire on a rival who has never agreed "
+      "to anything cost score at n=84 (measured: score-ratio 0.76 vs "
+      "v44's 1.00 while pact FORMED sat at 2%). The old placeholder "
+      "seats (seat:0/16) were never in it either.",
+      "seat:0" not in set((law_solo or {}).get("params", {}).get("never", []))
+      and "seat:1" not in set((law_solo or {}).get("params", {}).get("never", []))
+      and "seat:16" not in set((law_solo or {}).get("params", {}).get("never", [])),
       str(law_solo))
 
 # ── SOLO + a model's genuine, real, distinct pact choice: left untouched.
@@ -1043,6 +1047,14 @@ check("part E: a committed pact call logs one `[monet] pact aim:` line "
       "[monet] pact aim:" in _aim_log.getvalue()
       and "seat:7=invited" in _aim_log.getvalue(),
       repr(_aim_log.getvalue()))
+law_invited = next((e for e in entries_invited if e["play"] == "target_law"),
+                   None)
+check("v46 CONFIRMED-ONLY GATE: an INVITED seat (named us first, in chat) "
+      "DOES reach target_law.never -- this is exactly the confirmed case "
+      "the fallback/retry tests above must NOT get",
+      law_invited is not None
+      and "seat:7" in set(law_invited["params"].get("never", [])),
+      str(law_invited))
 
 # ── RECIPROCATE on a LATER turn: partners accumulate without churning the
 # existing set -- turn 1 has no invite (fallback names the 2 nearest),
@@ -1073,6 +1085,15 @@ check("RECIPROCATE: a NEW inviter (seat 5) on turn 2 is ADDED, the "
       pact_t2 is not None
       and set(pact_t2["params"]["partners"]) == {"seat:1", "seat:2", "seat:5"},
       str(pact_t2))
+law_t2 = next((e for e in entries_t2 if e["play"] == "target_law"), None)
+check("v46 CONFIRMED-ONLY GATE, mixed case: the RECIPROCATED seat (5, "
+      "named us back) reaches target_law.never; the two unilateral "
+      "FALLBACK seats (1, 2, never confirmed) do not, in the same call",
+      law_t2 is not None
+      and "seat:5" in set(law_t2["params"].get("never", []))
+      and "seat:1" not in set(law_t2["params"].get("never", []))
+      and "seat:2" not in set(law_t2["params"].get("never", [])),
+      str(law_t2["params"].get("never") if law_t2 else None))
 
 # ── RETRY + cap-3: with no new invite ever arriving, one retry adds ONE
 # more nearest seat on the turn after the fallback declare (cap 3
@@ -1113,10 +1134,111 @@ check("NEGATIVE: pact partners never appear in target_law.prefer",
       and not ({"seat:1", "seat:2", "seat:4"}
                & set(law_r2["params"].get("prefer", []))),
       str(law_r2["params"].get("prefer") if law_r2 else None))
-check("NEGATIVE: pact partners always appear in target_law.never",
-      law_r2 is not None
-      and {"seat:1", "seat:2", "seat:4"} <= set(law_r2["params"].get("never", [])),
+check("v46 CONFIRMED-ONLY GATE: FALLBACK (seat:1,2) and RETRY (seat:4) "
+      "partners never appear in target_law.never either -- none of them "
+      "have named us back; the guarantee has not been earned by any of "
+      "the three",
+      not ({"seat:1", "seat:2", "seat:4"}
+           & set((law_r2 or {}).get("params", {}).get("never", []))),
       str(law_r2["params"].get("never") if law_r2 else None))
+
+# ── (a) KICKOFF RE-AFFIRM (v46 change 1, RECIPROCITY.md ranked fix #1): a
+# lobby-time commit never reaches sim.nim's declarePactPartners
+# (Playing-phase-gated -- 46/47 measured episodes). Turn 1 (no view yet)
+# resolves 3 real inviters and commits ONCE; turn 2's view first carries a
+# real tick -- starter_harness's own `_in_spawn_phase` comment states "the
+# views start when the match does", i.e. this is the first call at/after
+# Playing begins. It must RE-COMMIT the SAME partners, tagged
+# reason=kickoff: this is the two-commits proof (huddle-time +
+# kickoff-time, identical set). ─────────────────────────────────────────
+_KICKOFF_ROSTER = [{"seat": i} for i in range(10)]
+kickoff_seat = fake_seat(
+    context={"self": {"seat": 3, "duo_partner": None}, "roster": _KICKOFF_ROSTER},
+    chat=[{"seat": 5, "text": "seat:3 pact? never a shot between us"},
+          {"seat": 6, "text": "seat:3 truce, hold fire"},
+          {"seat": 7, "text": "seat:3 non-aggression, in?"}])
+_ko_log1 = _io.StringIO()
+with _contextlib.redirect_stdout(_ko_log1):
+    _, ko_t1 = starter_harness.repair_call(
+        PERSONA.canned_turns[0], PERSONA, kickoff_seat, AVAILABLE)
+pact_ko1 = next((e for e in ko_t1 if e["play"] == "pact"), None)
+check("KICKOFF setup: huddle turn (no view yet, 3 real inviters) commits "
+      "the full 3-partner cap once",
+      pact_ko1 is not None
+      and set(pact_ko1["params"]["partners"]) == {"seat:5", "seat:6", "seat:7"}
+      and _ko_log1.getvalue().count("[monet] pact aim:") == 1,
+      repr(_ko_log1.getvalue()))
+
+kickoff_seat.view = {"tick": 800, "self": {"pos": [0, 0]}, "tracks": []}
+_ko_log2 = _io.StringIO()
+with _contextlib.redirect_stdout(_ko_log2):
+    _, ko_t2 = starter_harness.repair_call(
+        PERSONA.canned_turns[0], PERSONA, kickoff_seat, AVAILABLE)
+pact_ko2 = next((e for e in ko_t2 if e["play"] == "pact"), None)
+check("(a) KICKOFF: the first call whose view carries a real tick "
+      "RE-COMMITS the SAME partners with reason=kickoff -- the second "
+      "wire pact commit, landing AFTER sim.nim's declarePactPartners "
+      "(Playing-gated) is listening",
+      pact_ko2 is not None
+      and set(pact_ko2["params"]["partners"]) == {"seat:5", "seat:6", "seat:7"}
+      and "reason=kickoff" in _ko_log2.getvalue(),
+      repr(_ko_log2.getvalue()))
+
+# ── (b) verbatim field reciprocation line (RECIPROCITY.md #3, round 4519
+# 480898f1, seat 10/orange, our seat 12): carries NONE of the ORIGINAL
+# _PACT_KEYWORDS ("reciprocates"/"hold fire" only) -- must still be read
+# as an invitation naming us via the seat-naming-only rule (change 2). ───
+_ctx_verbatim_recip = {
+    "self": {"seat": 12},
+    "_chat": [{"seat": 10, "text": "softmaxwell—orange reciprocates. "
+                                   "hold fire on seat:12, we hold on you. "
+                                   "yellow in?"}]}
+check("(b) _parse_pact_invites: the verbatim field reciprocation line is "
+      "parsed as an invitation naming us, though it uses none of the "
+      "ORIGINAL _PACT_KEYWORDS tokens",
+      policy._parse_pact_invites(_ctx_verbatim_recip) == {10},
+      str(policy._parse_pact_invites(_ctx_verbatim_recip)))
+
+# ── (c) LATE RESCAN past the point `unaimed` goes False (v46 change 3):
+# turn 1 submits a REAL, already-resolved pact entry (partners 1, 2 --
+# simulating a model echoing its own prior commit back, exactly the
+# RECIPROCITY.md #3 mechanism that made `_resolve_solo_pact_partners`
+# unreachable a second time pre-v46). Turn 2 is a LATER turn, still
+# `unaimed`=False (the entry keeps naming 1, 2), but a NEW seat (9) has
+# since named us in chat -- it must be ADDED, 1 and 2 must NOT be
+# dropped. ─────────────────────────────────────────────────────────────
+_LATE_ROSTER = [{"seat": i} for i in range(10)]
+late_seat = fake_seat(
+    context={"self": {"seat": 3, "duo_partner": None}, "roster": _LATE_ROSTER})
+_late_real_call = {"call": {"entries": [
+    {"play": "pact", "entry_id": "truce",
+     "params": {"partners": ["seat:1", "seat:2"], "protect": False,
+                "onBetrayal": "returnFire"}},
+    {"play": "target_law", "entry_id": "law",
+     "params": {"prefer": ["revenge", "bounty", "weakened", "isolated"]}},
+]}}
+_, late_t1 = starter_harness.repair_call(
+    _late_real_call, PERSONA, late_seat, AVAILABLE)
+pact_late1 = next((e for e in late_t1 if e["play"] == "pact"), None)
+check("(c) LATE RESCAN setup: a real, already-resolved 2-partner entry "
+      "passes through unmodified on the turn nothing new happens",
+      pact_late1 is not None
+      and set(pact_late1["params"]["partners"]) == {"seat:1", "seat:2"},
+      str(pact_late1))
+
+late_seat.chat = [{"seat": 9, "text": "seat:3 name us back and we do not "
+                                       "fire on you for the rest of the "
+                                       "episode"}]
+_, late_t2 = starter_harness.repair_call(
+    _late_real_call, PERSONA, late_seat, AVAILABLE)
+pact_late2 = next((e for e in late_t2 if e["play"] == "pact"), None)
+check("(c) LATE RESCAN: a late namer (seat 9) on a LATER turn, past the "
+      "point `unaimed` went False, is ADDED without dropping the "
+      "existing partners (1, 2) -- architecturally unreachable pre-v46",
+      pact_late2 is not None
+      and set(pact_late2["params"]["partners"])
+      == {"seat:1", "seat:2", "seat:9"},
+      str(pact_late2))
 
 # ── _neighbor_duo: team size is OBSERVED per call (self/duo_partner
 # offset), never a fixed divisor off seat or roster count. A 16-seat SOLO

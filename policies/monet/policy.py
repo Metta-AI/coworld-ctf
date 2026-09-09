@@ -79,6 +79,27 @@ LOOT_DEFAULTS = {"detourMax": 400, "contested": "avoid"}
 # includes the placeholder when we ARE team 0).
 PACT_PLACEHOLDER = {"seat:0", "seat:16"}
 
+# v46 field-measured fix (n=84, score-ratio 0.76 [0.67,1.17] vs v44's 1.00
+# while pact FORMED sits at 2%): the never-target mirror below used to
+# treat every SOLO partner the same, including unilateral FALLBACK/RETRY
+# picks -- 2 nearest live rivals WE chose with zero evidence they want a
+# pact with us. That silently held our own fire on rivals who keep
+# shooting us, for the entire episode, on a guess. Only a seat that has
+# actually named US back in chat ("invited" -- they proposed first;
+# "reciprocate" -- they named us on a later turn) is confirmed enough to
+# earn the no-fire guarantee; fallback/retry stay named on the wire (so a
+# genuine mutual sim pact can still form if THEY also name us) but do not
+# reach target_law.never until confirmed.
+CONFIRMED_PACT_REASONS = {"invited", "reciprocate"}
+
+
+def _seat_num(ref):
+    """'seat:7' -> 7, else None."""
+    if not isinstance(ref, str) or not ref.startswith("seat:"):
+        return None
+    digits = ref.split(":", 1)[1]
+    return int(digits) if digits.isdigit() else None
+
 # Formation floors: below these the duo is stacked and tags itself.
 MIN_LEASH = 100
 MIN_SPACING = 120
@@ -388,7 +409,18 @@ def _neighbor_duo(context):
 # (b)/(c)), and a persistent per-episode scratchpad at context["_pact_state"]
 # (the same dict object every call, owned by the seat, so state survives
 # turn to turn exactly like a live match -- see repair_call).
-_PACT_KEYWORDS = ("pact", "truce", "non-aggression", "nonaggression")
+# v46 (RECIPROCITY.md #3): widened for documentation/advisory context --
+# real reciprocation lines routinely use NONE of these tokens ("softmaxwell
+# -- orange reciprocates. hold fire on seat:12, we hold on you" carries only
+# "reciprocates"/"hold fire", not "pact"/"truce"; "name us back and we do
+# not fire on you" carries neither). _parse_pact_invites below no longer
+# gates on this tuple at all -- naming our seat/name in a chat line is
+# sufficient on its own (see its docstring) -- this list is kept as the
+# vocabulary reference the naming-only design supersedes, not a live gate.
+_PACT_KEYWORDS = ("pact", "truce", "non-aggression", "nonaggression",
+                   "reciprocate", "reciprocates", "reciprocated",
+                   "hold fire", "hold on you", "locked in", "name us back",
+                   "no fire", "non-aggro")
 
 
 def _named_seats(context, text):
@@ -407,10 +439,16 @@ def _named_seats(context, text):
 
 
 def _parse_pact_invites(context):
-    """Live seats that named a pact/truce AND named US in the same lobby
-    chat line. The 0xB2 broadcast carries only the sender's own seat, so a
-    keyword+us-mention match on one message already identifies who is
-    proposing/reciprocating with us -- no cross-referencing needed."""
+    """Live seats that named US in the lobby/live chat -- v46 (RECIPROCITY.md
+    #3): naming us is sufficient ON ITS OWN, no keyword required. The old
+    keyword+us-mention gate silently dropped real reciprocation lines that
+    carry no _PACT_KEYWORDS token at all, e.g. "softmaxwell -- orange
+    reciprocates. hold fire on seat:12, we hold on you. yellow in?" (only
+    "reciprocates"/"hold fire") and "seat 13 here... name us back and we do
+    not fire on you" (neither word). The 0xB2 broadcast carries only the
+    sender's own seat, so a bare us-mention on one message already
+    identifies who is proposing/reciprocating with us -- no cross-
+    referencing, and no keyword, needed."""
     self_facts = context.get("self") or {}
     my_seat = self_facts.get("seat")
     invites = set()
@@ -421,9 +459,6 @@ def _parse_pact_invites(context):
         if not isinstance(sender, int) or sender == my_seat:
             continue
         if not isinstance(text, str):
-            continue
-        low = text.lower()
-        if not any(k in low for k in _PACT_KEYWORDS):
             continue
         if isinstance(my_seat, int) and my_seat in _named_seats(context, text):
             invites.add(sender)
@@ -494,11 +529,15 @@ def _resolve_solo_pact_partners(context, view):
     never the placeholder, never dropped. State persists turn to turn in
     context["_pact_state"] (see repair_call -- it is the same dict object
     every call for one seat's one episode). Returns
-    (partner_seat_ints, {seat: reason})."""
+    (partner_seat_ints, {seat: reason}, event) -- `event` is None when
+    nothing new happened this call, else the reason THIS call is worth
+    re-committing to the wire ("invited"/"reciprocate"/"fallback"/"retry"/
+    "kickoff")."""
     state = context.setdefault("_pact_state", {})
     partners = state.setdefault("partners", [])
     reasons = state.setdefault("reasons", {})
     state["calls"] = state.get("calls", 0) + 1
+    event = None
 
     excluded = _excluded_pact_seats(context)
 
@@ -511,7 +550,10 @@ def _resolve_solo_pact_partners(context, view):
 
     # RECIPROCATE -- and the very first AIM, which is the same operation
     # on the turn partners is still empty: any live seat that named us in
-    # the huddle, not already a partner, not excluded.
+    # the huddle, not already a partner, not excluded. v46: this now also
+    # runs on turns AFTER the first real partners exist (see the loosened
+    # `adjust_entries` guard below), which is what makes a late namer
+    # (change 3) reachable at all.
     invited_now = sorted(_parse_pact_invites(context) - excluded)
     gained_invite = False
     for s in invited_now:
@@ -520,6 +562,7 @@ def _resolve_solo_pact_partners(context, view):
         reasons[s] = "invited" if not partners else "reciprocate"
         partners.append(s)
         gained_invite = True
+        event = reasons[s]
 
     # FALLBACK: nobody has ever invited us -- name the 2 nearest live
     # rivals, computed once (not re-picked every turn, so it cannot churn
@@ -529,6 +572,7 @@ def _resolve_solo_pact_partners(context, view):
         for s in _nearest_live_rivals(context, view, excluded, 2):
             reasons[s] = "fallback"
             partners.append(s)
+        event = event or "fallback"
 
     # RETRY: we have no perception of the sim's mutual-pact bit at all
     # (PERCEPTION.md (a)) -- "not mutual by the next turn" is read as "no
@@ -540,14 +584,34 @@ def _resolve_solo_pact_partners(context, view):
         for s in _nearest_live_rivals(context, view, excluded | set(partners), 1):
             reasons[s] = "retry"
             partners.append(s)
+        event = event or "retry"
+
+    # KICKOFF RE-AFFIRM (v46, RECIPROCITY.md ranked fix #1): the first call
+    # whose `view` carries a real tick is the first call at/after the sim's
+    # Playing phase begins -- starter_harness._in_spawn_phase's own comment
+    # ("the views start when the match does") is the harness's own existing
+    # proof that seat.view is empty for every lobby/huddle turn and first
+    # becomes populated exactly when Playing starts. Our wire installs land
+    # at tick 235-531 (still lobby, view still empty) while sim.nim's
+    # declarePactPartners only registers a declare once sim.phase==Playing
+    # (tick 768-1759 observed), so a lobby-only commit is invisible to the
+    # sim in 46/47 measured episodes. Re-commit here, once, with whatever
+    # partners are already resolved (even if unchanged this call), so a
+    # wire call naming them lands AFTER Playing has begun.
+    if (partners and isinstance(view.get("tick"), int)
+            and not state.get("kickoff_committed")):
+        state["kickoff_committed"] = True
+        event = event or "kickoff"
 
     partners[:] = partners[:3]
-    return list(partners), {s: reasons[s] for s in partners if s in reasons}
+    return (list(partners), {s: reasons[s] for s in partners if s in reasons},
+            event)
 
 
-def _log_pact_aim(partners, reasons):
+def _log_pact_aim(partners, reasons, event=None):
     tagged = ", ".join(f"seat:{s}={reasons.get(s, '?')}" for s in partners)
-    print(f"[monet] pact aim: partners=[{tagged}]", flush=True)
+    suffix = f" reason={event}" if event else ""
+    print(f"[monet] pact aim: partners=[{tagged}]{suffix}", flush=True)
 
 
 def adjust_entries(entries, context, view):
@@ -576,18 +640,26 @@ def adjust_entries(entries, context, view):
 
     # Re-aim placeholder or self-referential pacts at the neighboring duo;
     # keep a model's real choice of partners. Betrayal is answered in kind.
+    # `confirmed_seats` (v46) is the subset of `pact_seats` that has earned
+    # the target_law never-target guarantee -- see CONFIRMED_PACT_REASONS.
     pact_seats = []
+    confirmed_seats = []
     for entry in list(entries):
         if entry.get("play") != "pact":
             continue
         params = entry.setdefault("params", {})
         partners = [p for p in params.get("partners", []) if isinstance(p, str)]
+        entry_confirmed = []
         unaimed = (not partners or set(partners) == PACT_PLACEHOLDER
                    or set(partners) & own_duo)
         if unaimed:
             neighbors = _neighbor_duo(context)
             if neighbors is not None:
                 partners = [f"seat:{n}" for n in neighbors]
+                # DUO neighbor-aim is a different, untouched mechanism (a
+                # designed rival-duo targeting convention, not a unilateral
+                # guess) -- always confirmed, exactly as before v46.
+                entry_confirmed = list(partners)
             else:
                 # SOLO / no genuine duo this match (missing or
                 # self-referential duo_partner). Previously DROPPED the
@@ -598,21 +670,76 @@ def adjust_entries(entries, context, view):
                 # is now named at real, live rival seats instead (invited
                 # -> reciprocate -> fallback -> retry; see
                 # _resolve_solo_pact_partners) and never dropped.
-                resolved, reasons = _resolve_solo_pact_partners(context, view)
+                resolved, reasons, event = _resolve_solo_pact_partners(
+                    context, view)
                 if resolved:
                     partners = [f"seat:{s}" for s in resolved]
-                    _log_pact_aim(resolved, reasons)
+                    _log_pact_aim(resolved, reasons, event or "resolve")
+                    entry_confirmed = [f"seat:{s}" for s in resolved
+                                       if reasons.get(s)
+                                       in CONFIRMED_PACT_REASONS]
                 # else: truly nothing to name (empty roster/view) -- leave
                 # the incoming (placeholder) partners as they are rather
-                # than ship an invalid empty-partners call.
+                # than ship an invalid empty-partners call (and nothing to
+                # confirm: entry_confirmed stays empty).
+        elif _neighbor_duo(context) is None:
+            # v46 (RECIPROCITY.md #3): SOLO episodes used to stop calling
+            # _resolve_solo_pact_partners forever the instant `partners`
+            # held real, non-placeholder seats -- `unaimed` above goes
+            # False on that turn and stays False every later turn once the
+            # model echoes its own already-committed partners back (46/47
+            # declared-but-never-registered episodes measured this way).
+            # That made kickoff re-affirm, late reciprocation, and retry
+            # all unreachable a second time. Seed the persisted state from
+            # THIS call's real (possibly model-authored) partners first --
+            # so a genuine model choice (the one episode that formed a
+            # pact, round 4519 480898f1, was exactly a model re-declare
+            # like this) is the truth the resolver builds on, never
+            # silently replaced by a stale fallback pick -- then let the
+            # resolver run for kickoff-reaffirm/late-invite/retry. Only
+            # override the submitted entry when the resolver reports a
+            # real event this call (`event` truthy); otherwise the
+            # model/canned submission passes through completely untouched,
+            # exactly as before.
+            pstate = context.setdefault("_pact_state", {})
+            if not pstate.get("partners") and partners:
+                seeded = sorted({int(p.split(":", 1)[1]) for p in partners
+                                  if p.split(":", 1)[1].isdigit()})
+                pstate["partners"] = seeded
+                pstate.setdefault("reasons", {})
+                for s in seeded:
+                    pstate["reasons"].setdefault(s, "named")
+            resolved, reasons, event = _resolve_solo_pact_partners(
+                context, view)
+            if resolved and event:
+                partners = [f"seat:{s}" for s in resolved]
+                _log_pact_aim(resolved, reasons, event)
+            # Confirmed status reflects the PERSISTED reasons regardless of
+            # whether this particular call changed anything -- a seat named
+            # "invited"/"reciprocate" on an earlier turn stays confirmed on
+            # every later turn too, it does not need to re-earn it.
+            entry_confirmed = [p for p in partners
+                               if reasons.get(_seat_num(p))
+                               in CONFIRMED_PACT_REASONS]
+        else:
+            # Real DUO submission, already aimed at genuine partners (not
+            # placeholder, not self-referential) -- untouched mechanism,
+            # always confirmed, exactly as before v46.
+            entry_confirmed = list(partners)
         params["partners"] = partners
         params["onBetrayal"] = "returnFire"
         pact_seats.extend(partners)
+        confirmed_seats.extend(entry_confirmed)
 
     # TRUCE HONOR + FIRE DISCIPLINE: the never-list is derived, not trusted.
     # Ending a truce means dropping the pact entry -- the law then releases
-    # those seats on the same call, and never sooner.
-    law_never = list(pact_seats)
+    # those seats on the same call, and never sooner. v46: only CONFIRMED
+    # partners (named us back, or the untouched DUO/real-submission paths)
+    # earn the no-fire guarantee -- unilateral fallback/retry picks stay
+    # named on the wire (pact_seats, used above for onBetrayal/params only)
+    # but do NOT reach target_law.never until confirmed (see
+    # CONFIRMED_PACT_REASONS; field-measured motive at that constant).
+    law_never = list(confirmed_seats)
     if partner is not None and f"seat:{partner}" not in law_never:
         law_never.append(f"seat:{partner}")
     law = next((e for e in entries if e.get("play") == "target_law"), None)
