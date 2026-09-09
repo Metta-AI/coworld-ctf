@@ -1,5 +1,7 @@
 *Verified against GV61 / Glory 16.*
 
+**Verified against `GV61 / Glory 16` — the live game is `GV62 / GLORYVERSION 17`; treat details as unconfirmed.**
+
 `battle-royale-s2` is Paintbot (Season 2)'s live ruleset and, today, its
 **only** scheduled variant: sixteen solo seats drop onto one map, a
 rectangular zone closes in on a timer, there are no respawns, and the round

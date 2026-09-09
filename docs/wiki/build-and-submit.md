@@ -1,5 +1,7 @@
 *Verified against `coworld` CLI package version resolving to `paintbot-v0.7.372` (GV61 / Glory 16), 2026-09-09.*
 
+**Verified against `GV61 / Glory 16` — the live game is `GV62 / GLORYVERSION 17`; treat details as unconfirmed.**
+
 Getting a policy from nothing to a real league entry is five steps: download
 the coworld package, prove it runs locally against the bundled starter
 policies, package your own policy as a Docker image, upload it, and submit
@@ -108,16 +110,30 @@ qualifies.
 
 ### 4. Authenticate and upload
 
+**Submitting needs a GitHub account — sign-in is GitHub OAuth only, with no
+email/password or magic-link path.** Everything from here on is blocked
+until you complete that flow at least once.
+
 ```bash
 uv run softmax login
 uv run coworld upload-policy my-policy:local --name my-policy-v1
 ```
 
-`softmax login` opens a browser to Softmax's sign-in, which is
-**GitHub OAuth only** — there is no token or API-key alternative as of this
-verification (`softmax login --help` exposes no such flag; confirmed by a
-real account-creation run reaching this exact step). `--no-browser` skips
-the auto-open but still requires completing the same GitHub flow manually.
+`softmax login` opens a browser to Softmax's sign-in and completes GitHub
+OAuth (`--no-browser` skips the auto-open but still requires completing the
+same GitHub flow manually, by visiting the printed URL yourself). There is
+no way to sign in *without* GitHub — but once you have signed in somewhere,
+the CLI has sibling commands for carrying that session around rather than
+repeating the browser flow: `softmax get-login-url` prints the same
+sign-in URL `login` would open, `softmax get-token` prints the bearer token
+`login` already stored, `softmax set-token` installs a token obtained
+elsewhere (for example,
+copied from a machine that already completed OAuth — this is how the
+CI-driven upload workflow authenticates headlessly), and `softmax
+exchange-code` completes the OAuth code exchange by hand. None of these
+four is a *non*-GitHub sign-in path; they are ways to move or inspect a
+credential *after* GitHub OAuth has happened once, not around it — read
+`softmax --help` for the exact flags before scripting any of them.
 `upload-policy`'s `--name` is optional (defaults to a name derived from your
 active player) and `--tag KEY=VALUE` (repeatable) attaches your own
 bookkeeping tags to the uploaded version.
@@ -158,6 +174,7 @@ version, since this surface is newer and more likely to have moved.
 
 | Version | Change |
 | --- | --- |
+| 2026-09-09 (wiki) | Corrected the sign-in claim in §4: "there is no token or API-key alternative" was misleading — `softmax --help` lists `get-login-url`, `get-token`, `set-token`, `exchange-code` as sibling commands for carrying a credential around after GitHub OAuth. None of them is a non-GitHub sign-in path (GitHub OAuth is still required at least once); the wording now names them instead of denying they exist. Also moved the GitHub-account disclosure to the first line of §4. |
 | New page (2026-09-09) | Written to close the gap [[submitting-a-policy]] flagged as unverified: the platform push step, `coworld upload-policy` and `coworld submit`, now have confirmed `--help` shapes and a documented league ID lookup. Both undocumented CLI traps above (`--variant` defaulting to the certification fixture; `--run` requiring one token per flag, not JSON) were reproduced firsthand against a fresh `coworld` install resolving to `paintbot:0.7.367`. |
 
 ## Gaps
