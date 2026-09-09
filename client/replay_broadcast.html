@@ -352,8 +352,10 @@ html, body {
   font-size: calc(15 * var(--u));
   line-height: 1;
   color: var(--amber);
+  font-weight: 400;
   font-variant-numeric: tabular-nums;
   flex: none;
+  transform-origin: left center;
 }
 /* Eliminated: STAYS in its slot (never removed/collapsed — the band is a
    ledger of the whole field, not a shrinking list), just visually dead. */
@@ -481,10 +483,13 @@ html, body {
   font-size: calc(24 * var(--u));
   line-height: 1;
   color: var(--amber);
+  font-weight: 400;
   flex: none;
   font-variant-numeric: tabular-nums;
   text-shadow: 0 calc(2 * var(--u)) 0 var(--ink);
+  transform-origin: left center;
 }
+.plate.side-l .glory-num { transform-origin: right center; }
 .glory-label {
   font-family: var(--finefont);
   font-size: calc(8 * var(--u));
@@ -689,6 +694,32 @@ html, body {
 #stage.beat-active .amb,
 #stage.beat-active .plate.leader .lives-num,
 #stage.beat-active .plate.leader .glory-num { animation-play-state: paused; }
+
+/* SCORE-BUG MULTIPLIER pulse (task 19971077). Owner ruling: "two numbers in
+   one font/color is bad design" (task 36e10cc2) — there is no separate
+   token. When armed, the score-bug's EXISTING glory numeral (.br-cell-glory
+   / .glory-num) itself renders as the multiplier ("×2,304") and pulses in
+   place; when dark/unarmed it stays today's plain figure, untouched (see
+   renderGloryFigure). A one-shot ~200ms scale+glow whenever the value
+   changes, up OR down (a self-frag halving can drop it) — settles back to
+   the numeral's own base style on its own (single iteration, no infinite
+   loop like leaderpulse; text-shadow is intentionally omitted from the 0%/
+   100% keyframes so it resolves to each numeral's own base shadow — none
+   for .br-cell-glory, the ink drop-shadow for .glory-num — rather than
+   stomping it). JS retriggers via the same remove/reflow/add idiom the
+   flag-taken flip uses elsewhere in this file. */
+.br-cell-glory.pulse-mult,
+.glory-num.pulse-mult { animation: multpulse 200ms ease-out; }
+@keyframes multpulse {
+  0%, 100% { transform: scale(1); }
+  35% { transform: scale(1.16); text-shadow: 0 0 calc(6 * var(--u)) var(--amber); }
+}
+/* Reduced-motion twin: no transform, no glow — a plain font-weight step so
+   the change still reads without any scale or motion. */
+@keyframes multpulse-reduced {
+  0%, 100% { font-weight: 400; }
+  35% { font-weight: 700; }
+}
 
 /* ---------- 3. BANNER LANE ---------- */
 #bannerlane {
@@ -2578,6 +2609,10 @@ body.sidelanes-both #killfeed {
   .plate.leader .glory-num,
   .heat-flame.heat-blazing { animation: none; }
   .banner-chip, .feed-row { animation-duration: 1ms; }
+  /* SCORE-BUG MULTIPLIER (task 19971077): swap the scale+glow pulse for a
+     plain weight step — no transform, no motion. */
+  .br-cell-glory.pulse-mult,
+  .glory-num.pulse-mult { animation: multpulse-reduced 200ms ease-out; }
   /* End-card reveal (ec-shake / ec-flash-fade / ec-headline-pop) collapses
      to its end state instantly instead of playing out. Each selector below
      matches the SAME specificity as the rule that actually starts the
@@ -3241,6 +3276,58 @@ body[data-noviewpanel] #viewpanel { display: none !important; }
     el.className = 'heat-flame' + (tier ? ' ' + tier : '');
   }
 
+  // ---- score-bug glory figure AS the multiplier (task 19971077) ----
+  // "The multiplier is the exciting thing; the deed is a label" (owner,
+  // pinball/combo-meter model). This does NOT introduce a new quantity or a
+  // new wire field: `tr[team].glory` already IS the seat's running glory
+  // MULTIPLIER, not just "the score" —
+  //   sim.gloryProduct[team] (sim_types.nim:4351) is Π(event factors),
+  //   seeded at RecutSeed=1 (glory.nim:2465) and folded by recutFold
+  //   (glory.nim:2813, `product * factor` saturating at the product cap)
+  //   every deed/achievement/win mint (sim.nim:439-440, 540-541, and the
+  //   win-factor fold near sim.nim:5900s).
+  //   sim.teamGlory[team] (sim_types.nim:4331, the wire's unconditional
+  //   "glory" key — broadcast.nim:392/1246) = recutScore(gloryProduct,
+  //   halvings) (glory.nim:2828) = gloryProduct >> halvings, FLOORED.
+  //   Halvings only accrue from dTeamKill self/friendly-fire incidents
+  //   (sim.nim:400-406) — near-moot in 16-solo BR, so teamGlory ==
+  //   gloryProduct in the overwhelming common case (this file's own
+  //   `recutArmed`/`allSeed` kickoff sample, defined further down next to
+  //   gloryPopText, already assumes glory===1===RecutSeed when armed).
+  // OWNER RULING (task 36e10cc2): "two numbers in one font/color is bad
+  // design" — no separate token beside the numeral. The EXISTING glory
+  // figure (.br-cell-glory / .glory-num — same element, same slot, no new
+  // span) renders AS the multiplier when armed, and pulses in place.
+  // GATE ON recutArmed (var declared below, `var` hoists — read at CALL
+  // time): under the dark/additive economy (recutArmed false, or still
+  // null/unsampled) `glory` is a signed point total (CAN be negative — see
+  // ctf-team-glory-can-go-negative), not a product, so "×-60" would
+  // mislabel a real additive score as a combo multiplier — and pulsing a
+  // plain point change as if it were a combo hit would be its own
+  // mislabel. So the dark path renders today's plain figure, untouched, no
+  // pulse — same never-guess posture gloryPopText already takes for its
+  // own "×" vs "+NG" rendering choice.
+  var gloryFigurePrev = {}; // team -> last rendered numeric value (armed only)
+  function renderGloryFigure(el, team, gv) {
+    if (!el || typeof gv !== 'number') return;
+    if (recutArmed !== true) {
+      el.textContent = gv; // dark economy: today's plain figure, unchanged
+      return;
+    }
+    // Group thousands so an exponential product stays readable ("×2,304"),
+    // not the fixed-precision ×N of a bounded combo ladder.
+    el.textContent = '×' + gv.toLocaleString('en-US');
+    var prev = gloryFigurePrev[team];
+    if (typeof prev === 'number' && prev !== gv) {
+      // same remove/reflow/add idiom the flag-taken flip uses elsewhere in
+      // this file, so a same-tick re-change still restarts the pulse.
+      el.classList.remove('pulse-mult');
+      void el.offsetWidth;
+      el.classList.add('pulse-mult');
+    }
+    gloryFigurePrev[team] = gv;
+  }
+
   // (speed chips are built + rendered by the shared chrome via ctx.send)
 
   // ---- core (board renderer + WS) ----
@@ -3836,7 +3923,10 @@ body[data-noviewpanel] #viewpanel { display: none !important; }
       teams.forEach(function (team) {
         var gv = tr[team] && tr[team].glory;
         var gloryEl = $('cell-glory-' + team);
-        if (gloryEl) gloryEl.textContent = typeof gv === 'number' ? gv : '—';
+        if (gloryEl) {
+          if (typeof gv === 'number') { renderGloryFigure(gloryEl, team, gv); }
+          else { gloryEl.textContent = '—'; delete gloryFigurePrev[team]; }
+        }
         var cell = $('cell-' + team);
         var isLeader = haveLeader && team === leader;
         if (cell) {
@@ -3913,7 +4003,7 @@ body[data-noviewpanel] #viewpanel { display: none !important; }
       var platePre = document.querySelector('.plate[data-team="' + team + '"]');
       if (platePre) platePre.classList.toggle('has-glory', isElim(s) && typeof gv === 'number');
       var gloryEl = $('glory-' + team);
-      if (gloryEl && isElim(s) && typeof gv === 'number') gloryEl.textContent = gv;
+      if (gloryEl && isElim(s) && typeof gv === 'number') renderGloryFigure(gloryEl, team, gv);
       // HEAT FLAME: same trailing-window gain tracker the BR leader block
       // uses (noteGloryForHeat/applyHeatFlame above) — one tracker per team
       // key, so a classic 2-4 team plate's flame and the BR block never
