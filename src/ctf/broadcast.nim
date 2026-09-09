@@ -379,6 +379,35 @@ proc pactPartnersJson(sim: SimServer, team: Team): JsonNode =
     if other != team and sim.pactActive(team, other):
       result.add(%teamText(other))
 
+proc teamDeedsJson(sim: SimServer, team: Team): JsonNode =
+  ## GLORY BY DEED (WIRE-OK batch, THE WHOLE epic, GameVersion 62->63): this
+  ## seat's own deed totals -- one entry per Deed that fired at least once
+  ## for it, in `Deed` enum order (deterministic, no sort needed). Reads
+  ## `sim.teamDeedCounts`/`teamDeedGloryMass` (sim_types.nim), the per-team
+  ## mirror of the whole-episode `deedCounts`/`deedGloryMass` GLORY AUDIT
+  ## ledger, written at the exact same mint sites (`awardDeed`,
+  ## `claimAchievement`, sim.nim). `deed` is the raw enum name (a stable
+  ## key, same idiom as the achievement feed's own "tree": $claim.tree);
+  ## `label` is `deedName`'s prose -- NOT a stable wire contract per that
+  ## proc's own doc comment, free to reword, but fine as a display string a
+  ## client renders and never parses (same status as the achievement
+  ## feed's own "name": achievementName(...) a few lines below this call
+  ## site). This is the endcard's per-seat "why this Glory" row and the
+  ## why-row's deed layer (PLATFORM_LEGIBILITY_DATA.md, ENDCARD_V1_
+  ## STANDINGS_DELTA.md); `glory` can be negative (a friendly-fire-heavy
+  ## seat's own dTeamKill entries), same as the ledger it mirrors.
+  result = newJArray()
+  for deed in Deed:
+    let count = sim.teamDeedCounts[team][deed]
+    if count == 0:
+      continue
+    result.add(%*{
+      "deed": $deed,
+      "label": deedName(deed),
+      "count": count,
+      "glory": sim.teamDeedGloryMass[team][deed]
+    })
+
 proc teamStateJson(sim: SimServer, team: Team): JsonNode =
   ## Returns one team's scorebug state: lives, flag state, carrier, progress.
   ## BR N-point spawn subsystem: a flagless map arms no flag, so the
@@ -1105,7 +1134,17 @@ proc buildStateJson*(
     # own doc comment) -- unconditional and cheap like `roster`, since the
     # queue is already bounded by `pruneAgedFx`, not something to gate behind
     # a "send once" flag the way the full-match `ach`/`lead` chrome is.
-    "pops": sim.gloryPopsJson()
+    "pops": sim.gloryPopsJson(),
+    # REALIZED-ECONOMY STAMP (WIRE-OK batch, THE WHOLE epic, GameVersion
+    # 62->63): which glory economy this episode actually armed --
+    # `sim.config.gloryMultiplierRecut` is read straight from config, no
+    # inference. Replaces the client's own `sampleRecutArmed` first-'playing'
+    # -frame sample (client/replay_broadcast.html), which used to be the
+    # ONLY way to tell (no per-episode flag existed on the wire before this
+    # -- see that function's own doc comment) and could stay wrong forever
+    # for a client that only ever sees frames after kickoff. Unconditional,
+    # like "pops"/"glory"/"heat": every frame, not a "send once" flag.
+    "economy": (if sim.config.gloryMultiplierRecut: "recut" else: "classic")
   }
 
   # Mismatch banner TIER, present only while a mismatch is actually being
@@ -1299,7 +1338,13 @@ proc buildStateJson*(
         # key ("glory") teamStateJson already carries live, so an endcard
         # reader that already displays the live figure needs no new key to
         # show its final value.
-        "glory": sim.teamGlory[team]
+        "glory": sim.teamGlory[team],
+        # GLORY BY DEED: this seat's own deed totals -- see
+        # `teamDeedsJson`'s own doc comment. Unconditional array (possibly
+        # empty for a seat that never minted anything), same "always
+        # present" idiom as "glory"/"lives" just above, not the
+        # omit-when-absent idiom the flag-only "prog" key below uses.
+        "deeds": sim.teamDeedsJson(team)
       }
       # BR N-point spawn subsystem: no flag, so no progress to report. Same
       # omit-when-absent idiom as teamStateJson.

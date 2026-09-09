@@ -29,7 +29,7 @@ export glory
 
 const
   GameName* = "ctf"
-  ReplayCompatibleGameVersions* = ["62"]
+  ReplayCompatibleGameVersions* = ["63"]
     ## The replay-load allowlist (play-calling design §4.3): versions whose
     ## recorded files still play back correctly under THIS engine. PROVEN
     ## invariant, not a style choice — `test_replay_compat.nim`'s "the
@@ -50,7 +50,27 @@ const
     ## `GameVersion` into every native reflex play-call entry, so a bump
     ## for ANY reason moves those bytes too, whether or not that specific
     ## reason ever touches them. A per-bump case-by-case exemption is
-    ## exactly the reasoning error that missed this. Every committed
+    ## exactly the reasoning error that missed this.
+    ##
+    ## GV62 drops out because GV63 (WIRE-OK BATCH -- REALIZED ECONOMY +
+    ## GLORY BY DEED, THE WHOLE epic) appends `teamDeedCounts`/
+    ## `teamDeedGloryMass` (`array[Team, array[Deed, int]]`) to `SimServer`
+    ## -- a flatty keyframe layout change, so a GV62 recording's positional
+    ## bytes cannot be re-hydrated under this engine at all. Unlike the
+    ## hash-neutral GV61->62 relabel documented just below, every committed
+    ## fixture is RE-RECORDED under GV63 (not header-patched) through the
+    ## sanctioned `-d:write*` regeneration blocks. No hash TRAJECTORY
+    ## change: the two new fields are audit/reporting telemetry only
+    ## (written at the same mint sites as, never read back differently
+    ## from, and excluded from gameHash exactly like, the whole-episode
+    ## `deedCounts`/`deedGloryMass` pair they mirror per-team), and the two
+    ## new broadcast.nim wire keys this bump adds (a per-frame "economy"
+    ## stamp, a per-team "deeds" breakdown on the `over` block) are
+    ## read-only projections of already-computed state -- every existing
+    ## config still simulates to the identical hash trajectory it always
+    ## has; only the keyframe LAYOUT and the wire SCHEMA moved.
+    ##
+    ## Every committed
     ## `.bitreplay`/`.bin` fixture carrying a GV61 header is relabeled to
     ## GV62 via this codebase's own established path for a hash-neutral
     ## bump (the GV60->61 precedent immediately below: a header-only
@@ -138,8 +158,41 @@ const
     ## RewardAccount on the wire. Widening requires a real archived fixture
     ## that survives initialization and stepping (PM ruling, 2026-08-30),
     ## never a header rewrite.
-  GameVersion* = "62"
-    ## GV62 (GLORY GRADIENT S6 SHIP, GloryVersion 17, epic 25d9108e -- DRAFT,
+  GameVersion* = "63"
+    ## GV63 (WIRE-OK BATCH -- REALIZED ECONOMY + GLORY BY DEED, THE WHOLE
+    ## epic, GLORYVERSION unchanged at 17): two additive broadcast.nim wire
+    ## keys, both read-only projections of already-computed state -- a
+    ## per-frame top-level "economy" stamp (`"recut"`/`"classic"`, straight
+    ## off `sim.config.gloryMultiplierRecut`, replacing the client's own
+    ## first-'playing'-frame `sampleRecutArmed` inference, which now falls
+    ## back to that sample only for a replay recorded before this stamp
+    ## existed), and a per-team `"deeds"` array on the `over` block's
+    ## per-team verdict object (`teamDeedsJson`: deed id, prose label,
+    ## count, glory minted -- the endcard's "Glory by deed" per-seat
+    ## breakdown, PLATFORM_LEGIBILITY_DATA.md / ENDCARD_V1_STANDINGS_
+    ## DELTA.md's why-row deed layer). A flatty keyframe layout change:
+    ## `teamDeedCounts`/`teamDeedGloryMass` (`array[Team, array[Deed,
+    ## int]]`, sim_types.nim) appended to `SimServer` right after the
+    ## whole-episode `deedCounts`/`deedGloryMass` GLORY AUDIT pair they
+    ## mirror per-team, written at the exact same mint sites (`awardDeed`,
+    ## `claimAchievement`, sim.nim), never read back into any scoring
+    ## decision, excluded from gameHash -- same "audit telemetry only"
+    ## status as the pair they mirror. No hash TRAJECTORY change: nothing
+    ## here alters what any existing config simulates to. Endcard per-seat
+    ## LEAGUE IDENTITY (player_id/policy_version_id/round_id) was scoped
+    ## for this same batch and is explicitly NOT shipped here: traced
+    ## through `bitworld/runtime.nim`'s `RuntimeConfig` (host/port/config/
+    ## resultsUri/replayUri/replay/logUri/replayMode/mismatchQuit -- no
+    ## identity field) and the manifest's `config_schema` (`players[]`
+    ## requires only `name`, `additionalProperties: false`; a seat's
+    ## `player_id`/`policy_version_id` only ever appears under the
+    ## manifest's separate `certification` block, metta-side bookkeeping
+    ## never forwarded into the launched game's config), the coworld-ctf
+    ## server has no inbound channel for any of the three today -- a
+    ## platform-side (metta dispatcher) ask, not a WIRE-OK gap this repo
+    ## can close alone. See this PR's own report for the full trace.
+    ##
+    ## Previously GV62 (GLORY GRADIENT S6 SHIP, GloryVersion 17, epic 25d9108e -- DRAFT,
     ## owner GLORYVERSION GO required before this PR merges): arms, on the
     ## battle-royale-s2 flagship variant's manifest ONLY, the five S5
     ## switches #501 built and proved dark (`catalogV3Reprice`,
@@ -4777,6 +4830,23 @@ type
                                ## Not in gameHash -- audit telemetry only.
     deedGloryMass*: array[Deed, int]  ## GLORY AUDIT: glory minted per deed.
                                ## Not in gameHash -- audit telemetry only.
+    teamDeedCounts*: array[Team, array[Deed, int]]
+                               ## GLORY AUDIT: `deedCounts`' per-team (=
+                               ## per-seat in BR, one team per duo) mirror
+                               ## -- the WIRE-OK "Glory by deed" endcard
+                               ## breakdown (THE WHOLE epic, GameVersion
+                               ## 62->63) needs a per-seat split that the
+                               ## whole-episode `deedCounts` cannot supply.
+                               ## Written at the exact same mint sites
+                               ## (awardDeed, claimAchievement) as
+                               ## `deedCounts`, never read back into any
+                               ## scoring decision. Not in gameHash --
+                               ## audit/reporting telemetry only, same
+                               ## status as `deedCounts`.
+    teamDeedGloryMass*: array[Team, array[Deed, int]]
+                               ## GLORY AUDIT: `deedGloryMass`'s per-team
+                               ## mirror, same reasoning and status as
+                               ## `teamDeedCounts` just above.
     gloryPops*: seq[GloryFx]   ## GLORY: cosmetic floating "+Ng" score pops
                                ## and achievement claim toasts. Never in
                                ## gameHash. Feeds the HUD (Phase 3, deferred
