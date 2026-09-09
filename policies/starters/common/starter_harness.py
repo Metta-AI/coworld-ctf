@@ -109,16 +109,31 @@ class Persona:
     #: (entries, context, view) -> entries. Runs after the generic repair and
     #: is itself re-repaired, so a hook can only ever narrow, never break.
     adjust_entries: Callable | None = None
-    #: (entries, view, pact_state, source=...) -> bool. v51: the SAME
-    #: phase-clamp helper adjust_entries calls internally (e.g. Monet's
-    #: final-four detourMax ceiling), exposed here so a harness-side resend
-    #: that bypasses adjust_entries entirely -- today, only the ladder-
-    #: maintenance resend in _live_loop, see MAINTENANCE_SECONDS below --
-    #: can still apply it to the exact entries list about to hit the wire.
-    #: Mutates `entries` in place; the bool return is informational (did
-    #: anything change). None (default) = no phase clamp exists for this
-    #: persona, maintenance resends unchanged from pre-v51 behavior.
+    #: (entries, view, pact_state, source=..., gun_range=...) -> bool. v51:
+    #: the SAME phase-clamp helper adjust_entries calls internally (e.g.
+    #: Monet's final-four detourMax ceiling), exposed here so a harness-side
+    #: resend that bypasses adjust_entries entirely -- the ladder-
+    #: maintenance resend in _live_loop (MAINTENANCE_SECONDS below) and, as
+    #: of v54c, maybe_range_duel_reemit -- can still apply it to the exact
+    #: entries list about to hit the wire. Mutates `entries` in place; the
+    #: bool return is informational (did anything change). `gun_range`
+    #: (v54c: the episode-static 0xB0 play_context field, read from
+    #: seat.context at every call site since this helper never sees
+    #: `context` directly) is optional and persona-specific -- personas
+    #: without a gun-range-scaled doctrine ignore it. None (default) = no
+    #: phase clamp exists for this persona, maintenance resends unchanged
+    #: from pre-v51 behavior.
     apply_phase_clamps: Callable | None = None
+    #: (view, pact_state, gun_range) -> dict(active, ...). v54c: read-only
+    #: detector a persona exposes so a harness-side hook (see
+    #: maybe_range_duel_reemit) can learn "is a hold-and-return-fire window
+    #: active right now" and its own edge (just (re)armed vs already
+    #: running) WITHOUT reaching into the persona's module internals.
+    #: Mutates the shared `pact_state` dict (the window's expiry tick) but
+    #: never `entries` or the wire -- installing/clamping stays inside
+    #: apply_phase_clamps so there is still exactly one place that does it.
+    #: None (default) = no such mechanism exists for this persona.
+    range_duel_status: Callable | None = None
     #: (context, turn) -> str | None. An additional deliberate chat line per
     #: turn (the collaborative policy's coordination channel).
     extra_chat: Callable | None = None
@@ -1382,6 +1397,71 @@ def maybe_final4_reemit(persona: Persona, seat: StarterSeat,
     return result
 
 
+def maybe_range_duel_reemit(persona: Persona, seat: StarterSeat,
+                             available: list[str]) -> tuple[bytes, list] | None:
+    """v54c: the moment a persona's own range-duel window (re)arms this
+    tick -- an identified, tracked shooter at/beyond the live longshot line,
+    see policy.py's module docstring above RANGE_DUEL_REF_PX for the full
+    aggressors-signal derivation and why anonymous aggressor entries are
+    never used -- resend the seat's own last-wanted ladder with no model
+    call, exactly like maybe_final4_reemit above, so apply_phase_clamps gets
+    a turn to install hold_vs_gun and clamp fire_superiority.pressRange
+    without waiting on the next real model call or the next
+    MAINTENANCE_SECONDS tick.
+
+    Unlike final4 (one commitment per episode), a range-duel window can
+    open more than once per episode -- this is deliberately one-shot PER
+    WINDOW, not per episode: `persona.range_duel_status` mutates
+    `seat.pact_state["range_duel_until"]` (the window's own expiry tick)
+    every time it is called, and this function only fires when that value
+    just advanced past what it read a moment before AND it has not already
+    reemitted for that exact expiry tick (`range_duel_reemit_until`). A
+    real model call or a maintenance resend racing this one to the wire
+    first is not a double-commit: both paths converge on the SAME
+    apply_phase_clamps, so whichever lands first simply makes the other's
+    resend a no-op repeat of an already-current ladder.
+
+    Requires `persona.range_duel_status` (None = mechanism not wired for
+    this persona, always a no-op) and `seat.wanted_entries` non-empty (no
+    committed ladder yet to re-affirm -- same honesty rule as
+    maybe_final4_reemit).
+    """
+    if persona.range_duel_status is None:
+        return None
+    view = seat.view or {}
+    me = view.get("self") or {}
+    if not view or me.get("alive") is False:
+        return None
+    pstate = seat.pact_state
+    if pstate is None:
+        return None
+    before_until = pstate.get("range_duel_until", -1)
+    gun_range = (seat.context or {}).get("gun_range")
+    status = persona.range_duel_status(view, pstate, gun_range)
+    if not status.get("active"):
+        return None
+    now_until = pstate.get("range_duel_until", -1)
+    if now_until == before_until:
+        # Already-active, unchanged window (a prior reemit or a real call
+        # already covered it this tick) -- nothing new to affirm.
+        return None
+    if pstate.get("range_duel_reemit_until") == now_until:
+        return None  # already reemitted for this exact window
+    last_wanted = getattr(seat, "wanted_entries", None) or []
+    if not last_wanted:
+        return None
+    decision = {"call": {"entries": json.loads(json.dumps(last_wanted))}}
+    orig_context = seat.context
+    seat.context = dict(orig_context or {})
+    seat.context["_synthetic_trigger"] = "range-duel-reemit"
+    try:
+        result = repair_call(decision, persona, seat, available)
+    finally:
+        seat.context = orig_context
+    pstate["range_duel_reemit_until"] = now_until
+    return result
+
+
 def _base_name(name) -> str:
     """'James Botts (2)' -> 'James Botts': the roster de-duplicates one
     entrant's seats with a ' (N)' suffix."""
@@ -1959,8 +2039,14 @@ def _live_loop(persona: Persona, seat: StarterSeat, engine,
             # maintenance-only resend for however long the gate keeps
             # re-opening with no fresh model/reemit call in between.
             if persona.apply_phase_clamps is not None:
+                # v54c: gun_range lives on the 0xB0 play_context frame
+                # (seat.context), never on the per-tick view -- pass it
+                # through explicitly so a gun-range-scaled doctrine (e.g.
+                # Monet's range-duel threshold) still pins on a bare
+                # maintenance resend, not just a real/reemit model call.
                 changed = persona.apply_phase_clamps(
-                    gated_entries, view, seat.pact_state, source="maintenance")
+                    gated_entries, view, seat.pact_state, source="maintenance",
+                    gun_range=(seat.context or {}).get("gun_range"))
                 if changed:
                     gated_payload = wire.canonical_json(
                         {"plays": gated_entries}).encode("utf-8")
@@ -2012,6 +2098,21 @@ def _live_loop(persona: Persona, seat: StarterSeat, engine,
                 payload = final4_payload
                 before = _snapshot(seat, partner)
                 _record_committed(final4_entries)
+        # v54c range-duel re-emit: a persona-level, no-model-call resend the
+        # instant a hold-and-return-fire window (re)arms (see
+        # maybe_range_duel_reemit's docstring / policy.py's range_duel_
+        # status). Checked every iteration; a no-op unless the persona
+        # wires persona.range_duel_status (None for every other starter).
+        # Independent of kickoff/final4 above -- different flags, different
+        # trigger condition, can co-fire with either in the same episode.
+        range_duel_reemit = maybe_range_duel_reemit(persona, seat, available)
+        if range_duel_reemit is not None:
+            rd_payload, rd_entries = range_duel_reemit
+            outcome = seat.call(rd_payload, "range-duel-reemit")
+            if outcome is not None and outcome["kind"] == "call_accepted":
+                payload = rd_payload
+                before = _snapshot(seat, partner)
+                _record_committed(rd_entries)
         if calls >= budget:
             continue
         elapsed = time.monotonic() - last_call_at

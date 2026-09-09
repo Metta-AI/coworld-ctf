@@ -237,6 +237,112 @@ FIRE_SUPERIORITY_FINISH_RANGE = {"default": 140, "endgame": 120}
 # economy) is a different lever, left alone (one lever at a time).
 FIRE_SUPERIORITY_ENGAGE_DIST = {"default": 750, "endgame": 750}
 
+# RANGE DUEL HOLD (v54c, /tmp/monet_longshot_0909/LONGSHOT.md: 5.6% (us) vs
+# 21.6% (docxology) range-shot-to-kill conversion at the live map's
+# gunRange-scaled longshot line -- 866px at gunRange=1300, ratio
+# 700/1050 = LongshotPx/CtfReferenceGunRange, src/ctf/glory.nim:1538/1614 --
+# traced to OUR OWN press doctrine (FIRE_SUPERIORITY_PRESS_RANGE=220)
+# closing every engagement toward point-blank instead of holding the firing
+# line the way docxology's kills do: 0/7 of their longshot kills show the
+# VICTIM closing, all static/retreating exchanges, no advance required on
+# either side. /tmp/monet_v54b/STATE.md's direct design -- hold once OUR
+# OWN shot lands on the rival -- was NO-SIGNAL: no shooter-private
+# hit-landed field exists anywhere on the wire (kill_feed carries no killer
+# seat or location; tracks[].hp drops are unattributed to any shooter).
+#
+# v54c pivots to the signal that DOES exist: `aggressors`
+# (src/shell/schemas/play_view.schema.json:266-282, view.nim:98-102,
+# 1030-1032) is incoming fire ON us -- victim-private by the schema's own
+# comment, the opposite direction from v54b's blocked design, but real and
+# already read (starter_harness's awareness line, "You were SHOT AT..."
+# already renders it). Its only fields are `tick` (required), `dir_brads`
+# (required, BEARING ONLY) and `seat` (optional int, "omit when
+# anonymous" -- populated only when the shooter was ITSELF visible to the
+# engine's own hit-attribution check at the moment of the shot,
+# server.nim:3854-3862 `observation.attackerSlot >= 0`, a check this
+# policy-lane's files do not own). aggressors NEVER carries a distance.
+# Two derivations were on the table:
+#   (a) seat present -> match tracks[seat] (play_view.schema.json:173-225)
+#       for that seat's last-known `pos`; distance = euclidean(self.pos,
+#       track.pos). REAL and exact -- not an estimate -- because both
+#       numbers are the engine's own reported positions. This is the ONLY
+#       derivation used below (see _range_duel_shooter_distance).
+#   (b) seat absent (anonymous) -> guess a distance from `dir_brads` alone
+#       by hunting for the nearest track along that bearing. REJECTED as a
+#       blind mechanism: "anonymous" is exactly the case where the shooter
+#       is NOT one of our current tracks (that is *why* the engine withheld
+#       the seat) -- the case that matters most (a genuinely far, unseen
+#       attacker) is the case this heuristic is least able to answer
+#       honestly, and it would as often misattribute a closer, unrelated
+#       track sharing that bearing. Anonymous aggressor entries are
+#       inspected (counted, loggable) but never gate this mechanism.
+# Coverage is therefore bounded to aggressor events where the shooter was
+# identified: landing a ranged "gun" hit generally implies the attacker
+# had a sightline to us, which on most engines of this shape implies WE
+# also had a sightline back -- so this should catch the open,
+# static/retreating firefights LONGSHOT.md measures docxology winning, but
+# it is a real subset of incoming fire, not every hit. Never a guess: when
+# neither the seat nor a matching track is available, this mechanism does
+# nothing for that aggressor entry (never treated as near, never as far).
+RANGE_DUEL_REF_PX = 700          # LongshotPx, src/ctf/glory.nim:1538
+RANGE_DUEL_REF_GUN_RANGE = 1050  # CtfReferenceGunRange, glory.nim:1614
+RANGE_DUEL_FALLBACK_PX = 866     # 700*1300/1050 -- the live GV62-window
+                                 # threshold LONGSHOT.md measured, used only
+                                 # when play_context.gun_range is missing
+RANGE_DUEL_HOLD_TICKS = 240      # ~10s @ 24 ticks/s. Matches the window the
+                                 # awareness digest already calls "the last
+                                 # 10 s" for aggressors and sits comfortably
+                                 # inside the schema's own 120-tick
+                                 # aggressor-retention window doubled over,
+                                 # so a single qualifying hit buys a real
+                                 # hold, not a one-tick flicker
+RANGE_DUEL_AGGRESSOR_FRESH_TICKS = 24  # only a hit landed within roughly
+                                 # the last game-second (re)arms/extends the
+                                 # window -- a stale aggressor row already
+                                 # past this age must not re-trigger it
+RANGE_DUEL_MIN_SELF_HP = 1       # guard: never force a stand-and-trade
+                                 # posture when one more hit kills us
+                                 # outright -- self.hp <= this disables the
+                                 # whole mechanism regardless of distance
+RANGE_DUEL_HOLD_VS_GUN_PARAMS = {
+    # hold_vs_gun (plays.py:276-301) is the one play on this ladder with
+    # real "do not advance" semantics -- these are its REAL params (schema
+    # bounds in the comment), chosen for the range-duel posture, not left
+    # at plays.py's own defaults:
+    "calmTicks": 120,  # schema 12..120, default 48. Raised to the schema
+                       # MAX so "is there a live threat" inside hold_vs_
+                       # gun's own engine-side logic stays armed for as
+                       # long as the schema allows -- matched to the
+                       # aggressors window's own 120-tick retention
+                       # (play_view.schema.json:267) rather than the
+                       # default 48, which would let the play read "calm"
+                       # well before our own RANGE_DUEL_HOLD_TICKS expires.
+    "coverMax": 0,     # schema 0..600, default 260. 0 = pure stand-ground,
+                       # never reposition. The task is literally "hold
+                       # position" -- cover-SEEKING is itself movement, so
+                       # this is the one setting that actually stops
+                       # pressing rather than just repositioning toward a
+                       # different cover point.
+    "engageDist": 500, # schema 100..1200, default 500. Placeholder; always
+                       # OVERWRITTEN per-call below to the live
+                       # RANGE_DUEL_PX (clamped to the schema bounds) so
+                       # hold_vs_gun's OWN gate (starter_harness.gate_open:
+                       # nearest_enemy <= engageDist) can open AT the
+                       # range-duel distance, not only closer than it.
+}
+# fire_superiority.pressRange during an active window: pinned to the
+# schema MINIMUM (60), not the maximum. Per /tmp/monet_v54b/STATE.md's own
+# finding, pressRange cannot express "hold at 866px" at ANY setting --
+# even the schema MAXIMUM (500) sits 366px inside the live longshot line --
+# so this lever is structurally incapable of holding the actual duel
+# distance either way. Rather than leave it at a value that still invites
+# a long, uncontrolled close (up to the model's/doctrine's 220 default),
+# this pins it to the narrowest bound the schema allows, starving
+# fire_superiority's own press behaviour of standoff cushion so that
+# hold_vs_gun (coverMax=0 above, the play with the real "never advance"
+# semantics) is left doing the actual holding.
+FIRE_SUPERIORITY_RANGE_DUEL_PRESS_RANGE = 60  # plays.py:315, schema min
+
 # FINAL FOUR (F4) DETOUR CEILING (F4 initiative, /tmp/monet_f4_0909/
 # F4_INITIATIVE.md, pooled v45+v46 n=202 GV15-era episodes): once caught
 # first at F4, Monet dies inside 5s 88.9% of the time vs 16.7% when it fires
@@ -386,14 +492,116 @@ def _final4(view):
             and alive_teams <= FINAL4_TEAM_THRESHOLD)
 
 
-def apply_phase_clamps(entries, view, pact_state, source=None):
+def _range_duel_px(gun_range):
+    """700/1050 * gun_range (glory.nim's scaledByGunRange applied to
+    LongshotPx), floor-divided the same way the engine does. Falls back to
+    RANGE_DUEL_FALLBACK_PX when gun_range is missing/non-positive -- e.g.
+    before the 0xB0 play_context frame has landed."""
+    if isinstance(gun_range, (int, float)) and gun_range > 0:
+        return int(gun_range) * RANGE_DUEL_REF_PX // RANGE_DUEL_REF_GUN_RANGE
+    return RANGE_DUEL_FALLBACK_PX
+
+
+def _range_duel_shooter_distance(view):
+    """The one non-blind distance derivation (see RANGE_DUEL_REF_PX's
+    module comment above for the full rationale): the largest distance,
+    among this tick's FRESH, SEAT-IDENTIFIED aggressor entries, between
+    self.pos and that seat's own tracks[] position. None when self.pos is
+    unreadable, no aggressor entry is both fresh and seat-identified, or no
+    tracks[] row matches the identified seat. Anonymous aggressor entries
+    (seat omitted) are never consulted for distance -- they simply cannot
+    move this result, by design."""
+    me = (view or {}).get("self") or {}
+    pos = me.get("pos")
+    if not starter_harness._is_pos(pos):
+        return None
+    tick = (view or {}).get("tick", 0) or 0
+    aggressors = (view or {}).get("aggressors") or []
+    if not aggressors:
+        return None
+    tracks_by_seat = {}
+    for t in (view or {}).get("tracks", []):
+        if (isinstance(t, dict) and isinstance(t.get("seat"), int)
+                and starter_harness._is_pos(t.get("pos"))):
+            tracks_by_seat[t["seat"]] = t
+    best = None
+    for a in aggressors:
+        if not isinstance(a, dict):
+            continue
+        a_tick = a.get("tick")
+        if (not isinstance(a_tick, int)
+                or tick - a_tick > RANGE_DUEL_AGGRESSOR_FRESH_TICKS
+                or tick - a_tick < 0):
+            continue
+        seat = a.get("seat")
+        if not isinstance(seat, int):
+            continue  # anonymous -- inspected, never used (module doc above)
+        track = tracks_by_seat.get(seat)
+        if track is None:
+            continue  # identified but no matching track position
+        d = starter_harness._dist(pos, track["pos"])
+        if best is None or d > best:
+            best = d
+    return best
+
+
+def range_duel_status(view, pact_state, gun_range):
+    """Read-only: does the RANGE_DUEL window arm/stay armed this tick, and
+    did it just (re)arm (vs already running unchanged)? Mutates
+    `pact_state["range_duel_until"]`/`["range_duel_px"]` (the shared expiry
+    tick and the resolved threshold, so apply_phase_clamps and
+    maybe_range_duel_reemit agree on both without recomputing gun_range
+    scaling twice) but never touches `entries` or the wire -- installing
+    hold_vs_gun and clamping fire_superiority stays inside
+    apply_phase_clamps, the one place that owns the wire.
+
+    Exposed on PERSONA as `range_duel_status` so starter_harness's
+    maybe_range_duel_reemit can call it without reaching into this
+    module's internals (mirrors how apply_phase_clamps itself is exposed).
+    """
+    pstate = pact_state if pact_state is not None else {}
+    view = view or {}
+    tick = view.get("tick", 0) or 0
+    me = view.get("self") or {}
+    self_hp = me.get("hp")
+    low_hp = isinstance(self_hp, int) and self_hp <= RANGE_DUEL_MIN_SELF_HP
+    range_duel_px = _range_duel_px(gun_range)
+    pstate["range_duel_px"] = range_duel_px
+    shooter_dist = None if low_hp else _range_duel_shooter_distance(view)
+    if shooter_dist is not None and shooter_dist >= range_duel_px:
+        new_until = tick + RANGE_DUEL_HOLD_TICKS
+        if new_until > pstate.get("range_duel_until", -1):
+            pstate["range_duel_until"] = new_until
+            pstate["range_duel_shooter_dist"] = shooter_dist
+            if pstate.get("range_duel_last_logged_until") != new_until:
+                pstate["range_duel_last_logged_until"] = new_until
+                starter_harness._log(
+                    PERSONA,
+                    f"range duel: shooter_dist={int(shooter_dist)} "
+                    f"until={new_until}")
+    until = pstate.get("range_duel_until", -1)
+    active = (not low_hp) and tick <= until
+    return {"active": active, "until": until, "range_duel_px": range_duel_px,
+            "shooter_dist": shooter_dist, "low_hp": low_hp}
+
+
+def apply_phase_clamps(entries, view, pact_state, source=None, gun_range=None):
     """The ONE clamp point for every ENDGAME-DOCTRINE pin this persona owns
     -- fire_superiority.pressRange/finishRange/engageDist, supply_run.
-    whenHpBelow, and the final-four detour ceiling (FINAL4_DETOUR_MAX) --
-    every entries list
+    whenHpBelow, the final-four detour ceiling (FINAL4_DETOUR_MAX), and (v54c)
+    the range-duel hold_vs_gun install/removal -- every entries list
     about to reach the wire must pass through this before it is sent,
-    whether it came from a real model call, one of the two harness reemit
+    whether it came from a real model call, one of the three harness reemit
     helpers, or a maintenance resend.
+
+    `gun_range` (v54c): the episode-static play_context.gun_range field
+    (never present on `view` itself -- it rides the separate 0xB0 frame,
+    seat.context on the harness side), needed to scale RANGE_DUEL_PX per
+    map. Every call site passes it explicitly (adjust_entries has
+    `context` in scope directly; the maintenance resend and both reemit
+    helpers read `seat.context.get("gun_range")`). None/missing falls back
+    to RANGE_DUEL_FALLBACK_PX (866) inside range_duel_status -- personas
+    without this mechanism never pass it at all.
 
     HISTORY (v51, ereq_99f472a2, episode's ~700 exposed ticks): v50 put the
     final-four clamp inline inside adjust_entries, keyed off a local
@@ -457,8 +665,10 @@ def apply_phase_clamps(entries, view, pact_state, source=None):
     `source` tags where this call came from, log wording only: None for a
     real model call (v50/v44's original plain wording, unchanged), the
     string "final4-reemit" for maybe_final4_reemit's synthetic resend
-    (v50's original "reason=final4-reemit" suffix, unchanged), and the
-    string "maintenance" for starter_harness's ladder-maintenance resend
+    (v50's original "reason=final4-reemit" suffix, unchanged), the string
+    "range-duel-reemit" for maybe_range_duel_reemit's synthetic resend
+    (v54c, same suffix shape), and the string "maintenance" for
+    starter_harness's ladder-maintenance resend
     -- logged as e.g. ``clamp fire_superiority.pressRange (maintenance)
     <old> -> 220 phase=<phase>`` or ``final4 clamp (maintenance):
     <play>.detourMax <old> -> 150`` so a maintenance-triggered clamp is
@@ -471,9 +681,20 @@ def apply_phase_clamps(entries, view, pact_state, source=None):
         tag, suffix = " (maintenance)", ""
     elif source == "final4-reemit":
         tag, suffix = "", " reason=final4-reemit"
+    elif source == "range-duel-reemit":
+        tag, suffix = "", " reason=range-duel-reemit"
     else:
         tag, suffix = "", ""
     fired = False
+
+    # RANGE DUEL HOLD (v54c, RANGE_DUEL_REF_PX's module comment above): read
+    # the shared window status ONCE per call, before the fire_superiority
+    # loop below needs it for pressRange's conditional doctrine. This is a
+    # read (plus, if a fresh qualifying hit landed, the ONE mutation that
+    # arms/extends pact_state["range_duel_until"]) -- never touches
+    # `entries` itself; the install/clamp/remove below does that.
+    range_duel = range_duel_status(view, pstate, gun_range)
+    range_duel_active = range_duel["active"]
 
     # FIRE_SUPERIORITY WIRE FIX (v44, moved here v52 -- see module docstring
     # above FIRE_SUPERIORITY_PRESS_RANGE/FIRE_SUPERIORITY_FINISH_RANGE):
@@ -488,7 +709,14 @@ def apply_phase_clamps(entries, view, pact_state, source=None):
     # GV17 economy engagement-volume fix) is ALSO flat across both phase
     # buckets (750/750) -- same "always pinned" shape as pressRange, added
     # to this SAME loop rather than a new one so it shares the identical
-    # clamp/log/maintenance-bypass-closing mechanism.
+    # clamp/log/maintenance-bypass-closing mechanism. v54c: pressRange gets
+    # a THIRD doctrine source -- while a range-duel window is active, the
+    # phase-keyed 220/220 doctrine is overridden by
+    # FIRE_SUPERIORITY_RANGE_DUEL_PRESS_RANGE (60, the schema minimum; see
+    # that constant's own comment for why the minimum, not the maximum) --
+    # computed and logged INSIDE this same loop, not as a second pass
+    # afterward, so the log never shows a transient "-> 220" that would
+    # never actually reach the wire.
     phase = "endgame" if _in_marquee_zone_window(view) else "default"
     for entry in entries:
         if entry.get("play") != "fire_superiority":
@@ -498,6 +726,17 @@ def apply_phase_clamps(entries, view, pact_state, source=None):
                 ("pressRange", FIRE_SUPERIORITY_PRESS_RANGE),
                 ("finishRange", FIRE_SUPERIORITY_FINISH_RANGE),
                 ("engageDist", FIRE_SUPERIORITY_ENGAGE_DIST)):
+            if field == "pressRange" and range_duel_active:
+                doctrine = FIRE_SUPERIORITY_RANGE_DUEL_PRESS_RANGE
+                old = params.get(field)
+                if old != doctrine:
+                    starter_harness._log(
+                        PERSONA,
+                        f"range duel clamp: fire_superiority.pressRange"
+                        f"{tag} {old!r} -> {doctrine}{suffix}")
+                    fired = True
+                params[field] = doctrine
+                continue
             doctrine = doctrine_by_phase[phase]
             old = params.get(field)
             if old != doctrine:
@@ -507,6 +746,43 @@ def apply_phase_clamps(entries, view, pact_state, source=None):
                     f"phase={phase}{suffix}")
                 fired = True
             params[field] = doctrine
+
+    # RANGE DUEL HOLD, continued: install/refresh our own hold_vs_gun entry
+    # while the window is active (real params documented at
+    # RANGE_DUEL_HOLD_VS_GUN_PARAMS above; engageDist is overwritten here to
+    # the LIVE range_duel_px so hold_vs_gun's own gate -- starter_harness.
+    # gate_open: nearest_enemy <= engageDist -- can open at the range-duel
+    # distance itself). On expiry, remove only the entry THIS mechanism
+    # owns (fingerprinted by coverMax=0 + calmTicks=120, a shape no canned
+    # turn or schema default in this codebase uses -- every existing
+    # hold_vs_gun call site here ships coverMax=260/calmTicks=48) so a
+    # model- or canned-turn-authored hold_vs_gun entry is never touched.
+    if range_duel_active:
+        hv_params = dict(RANGE_DUEL_HOLD_VS_GUN_PARAMS)
+        hv_params["engageDist"] = max(100, min(1200, int(range_duel["range_duel_px"])))
+        existing = next((e for e in entries if e.get("play") == "hold_vs_gun"),
+                         None)
+        if existing is None:
+            entries.append({"play": "hold_vs_gun", "entry_id": "holdgun",
+                             "params": hv_params})
+            starter_harness._log(
+                PERSONA,
+                f"range duel: hold_vs_gun installed{tag} "
+                f"engageDist={hv_params['engageDist']}{suffix}")
+            fired = True
+        elif existing.get("params") != hv_params:
+            existing["params"] = hv_params
+            fired = True
+    else:
+        for entry in list(entries):
+            if entry.get("play") != "hold_vs_gun":
+                continue
+            p = entry.get("params") or {}
+            if (p.get("coverMax") == 0
+                    and p.get("calmTicks")
+                    == RANGE_DUEL_HOLD_VS_GUN_PARAMS["calmTicks"]):
+                entries.remove(entry)
+                fired = True
 
     # SUPPLY_RUN whenHpBelow re-anchor (moved here v52, same fix class as
     # above -- see SUPPLY_DEFAULTS's own note): pin to doctrine on every
@@ -1258,9 +1534,14 @@ def adjust_entries(entries, context, view):
     # these inserts). `context["_pact_state"]` is the same persistent
     # object as `seat.pact_state` (see repair_call); `_synthetic_trigger`
     # tags which harness path is resending (None = real model call,
-    # "final4-reemit" = maybe_final4_reemit's synthetic resend).
+    # "final4-reemit"/"range-duel-reemit" = the two harness synthetic
+    # resends). gun_range (v54c) comes straight off `context` -- this is
+    # the one call site that HAS the full 0xB0 play_context dict in scope
+    # directly, unlike the maintenance/reemit paths which read
+    # seat.context instead.
     apply_phase_clamps(entries, view, context.setdefault("_pact_state", {}),
-                       source=context.get("_synthetic_trigger"))
+                       source=context.get("_synthetic_trigger"),
+                       gun_range=context.get("gun_range"))
 
     # Stabilize entry_id LAST, after every insert above (CONVERSION,
     # ARMAMENT, the pact/law rewrites) so whatever plays actually make it
@@ -1948,6 +2229,7 @@ PERSONA = Persona(
     partner_focus=True,
     adjust_entries=adjust_entries,
     apply_phase_clamps=apply_phase_clamps,
+    range_duel_status=range_duel_status,
     extra_chat=extra_chat,
     extra_summary=awareness_lines,
 )

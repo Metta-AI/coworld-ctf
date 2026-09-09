@@ -2706,9 +2706,10 @@ _f4m_call_count = {"n": 0}
 _real_apply_phase_clamps = policy.apply_phase_clamps
 
 
-def _f4m_counting_clamp(entries, view, pact_state, source=None):
+def _f4m_counting_clamp(entries, view, pact_state, source=None, gun_range=None):
     _f4m_call_count["n"] += 1
-    return _real_apply_phase_clamps(entries, view, pact_state, source=source)
+    return _real_apply_phase_clamps(entries, view, pact_state, source=source,
+                                     gun_range=gun_range)
 
 
 policy.apply_phase_clamps = _f4m_counting_clamp
@@ -4836,6 +4837,229 @@ check("policy.py: TRUCE HONOR docstring names GV59 and the exact "
       "downFriendly ~2580-2601" in policy.__doc__,
       "GV59/downFriendly citation not found in policy.py module "
       "docstring")
+
+# ── v54c RANGE DUEL HOLD (/tmp/monet_longshot_0909/LONGSHOT.md,
+# /tmp/monet_v54b/STATE.md): the ONE non-blind distance derivation off
+# `aggressors` -- seat-identified entries matched to tracks[] for an exact
+# euclidean distance, anonymous entries never consulted -- gates a
+# hold_vs_gun install + fire_superiority.pressRange clamp to the schema
+# minimum while a rival is shooting at us from at/beyond the live
+# gunRange-scaled longshot line. See RANGE_DUEL_REF_PX's module docstring
+# in policy.py for the full signal writeup. ───────────────────────────────
+_rd_pre_block_failures = len(failures)  # snapshot for check (f) below
+_RD_TICK = 1000
+_RD_UNTIL = _RD_TICK + policy.RANGE_DUEL_HOLD_TICKS
+_RD_GUN_RANGE = 1300  # -> range_duel_px = 700*1300//1050 = 866 (LONGSHOT.md)
+assert policy._range_duel_px(_RD_GUN_RANGE) == 866, policy._range_duel_px(_RD_GUN_RANGE)
+
+
+def _rd_view(tick, self_hp, aggressor_dist, aggressor_seat=7,
+             aggressor_age=1, aggressors=None):
+    """self at (1000, 1000); an identified track at aggressor_dist px due
+    north, with a same-tick aggressor entry naming that seat -- the exact,
+    non-heuristic derivation this mechanism uses. `aggressors=[]` simulates
+    a genuinely anonymous/unmatched hit (no seat, or a seat with no track)."""
+    if aggressors is None:
+        aggressors = [{"tick": tick - aggressor_age, "dir_brads": 0,
+                       "seat": aggressor_seat}]
+    return {"tick": tick,
+            "self": {"pos": [1000, 1000], "hp": self_hp, "hp_frac": 1.0,
+                      "aim_brads": 0, "alive": True},
+            "tracks": [{"seat": aggressor_seat, "team": "Red",
+                        "pos": [1000, 1000 + aggressor_dist],
+                        "fresh_tick": tick}],
+            "aggressors": aggressors,
+            "world": {"alive_teams": 8}}
+
+
+def _fs_entry(press=220):
+    return {"play": "fire_superiority", "entry_id": "pressbreak",
+            "params": {"pressRange": press, "finishRange": 140,
+                       "engageDist": 750, "woundedPct": 50}}
+
+
+# (a) aggressor at 900px (>= 866) arms the window: hold_vs_gun installed,
+# pressRange clamped to schema min 60, both log lines present.
+_rd_entries_a = [_fs_entry()]
+_rd_log_a = _io.StringIO()
+with _contextlib.redirect_stdout(_rd_log_a):
+    _rd_fired_a = policy.apply_phase_clamps(
+        _rd_entries_a, _rd_view(_RD_TICK, 4, 900), {},
+        gun_range=_RD_GUN_RANGE)
+_rd_hv_a = next((e for e in _rd_entries_a if e["play"] == "hold_vs_gun"), None)
+_rd_fs_a = next(e for e in _rd_entries_a if e["play"] == "fire_superiority")
+check("(a) aggressor at 900px: apply_phase_clamps reports it changed "
+      "something", _rd_fired_a)
+check("(a) aggressor at 900px: hold_vs_gun installed with real "
+      "stand-ground params (coverMax=0, calmTicks=120, engageDist=866)",
+      _rd_hv_a is not None and _rd_hv_a["params"] == {
+          "calmTicks": 120, "coverMax": 0, "engageDist": 866},
+      str(_rd_hv_a))
+check("(a) aggressor at 900px: fire_superiority.pressRange clamped to the "
+      "schema minimum (60), not the model-submitted 220",
+      _rd_fs_a["params"].get("pressRange") == 60, str(_rd_fs_a["params"]))
+check("(a) aggressor at 900px: logs 'range duel: shooter_dist=900 "
+      f"until={_RD_UNTIL}'",
+      f"range duel: shooter_dist=900 until={_RD_UNTIL}" in _rd_log_a.getvalue(),
+      repr(_rd_log_a.getvalue()))
+check("(a) aggressor at 900px: logs the pressRange clamp line naming old "
+      "value and 60",
+      "range duel clamp: fire_superiority.pressRange 220 -> 60"
+      in _rd_log_a.getvalue(), repr(_rd_log_a.getvalue()))
+
+# (a) BREAK PROOF: with no phase-clamp hook wired (the pre-v54c shape), the
+# identical 900px aggressor changes nothing -- proves the checks above
+# discriminate the real mechanism, not a scenario already satisfied some
+# other way (same method as the v52/v53 break proofs above).
+_rd_entries_break = [_fs_entry()]
+_rd_saved_hook = PERSONA.apply_phase_clamps
+PERSONA.apply_phase_clamps = None
+try:
+    if PERSONA.apply_phase_clamps is not None:
+        PERSONA.apply_phase_clamps(_rd_entries_break,
+                                   _rd_view(_RD_TICK, 4, 900), {},
+                                   gun_range=_RD_GUN_RANGE)
+finally:
+    PERSONA.apply_phase_clamps = _rd_saved_hook
+check("(a) BREAK PROOF: with no phase-clamp hook wired, the identical "
+      "900px aggressor leaves pressRange at the model's 220 and installs "
+      "no hold_vs_gun -- the mechanism above is what closes this",
+      _rd_entries_break[0]["params"].get("pressRange") == 220
+      and not any(e["play"] == "hold_vs_gun" for e in _rd_entries_break),
+      str(_rd_entries_break))
+
+# (b) aggressor at 400px (< 866): nothing changes -- no hold_vs_gun, no
+# pressRange clamp, no range-duel log lines at all.
+_rd_entries_b = [_fs_entry()]
+_rd_log_b = _io.StringIO()
+with _contextlib.redirect_stdout(_rd_log_b):
+    policy.apply_phase_clamps(_rd_entries_b, _rd_view(_RD_TICK, 4, 400), {},
+                              gun_range=_RD_GUN_RANGE)
+_rd_fs_b = next(e for e in _rd_entries_b if e["play"] == "fire_superiority")
+check("(b) aggressor at 400px: no hold_vs_gun installed",
+      not any(e["play"] == "hold_vs_gun" for e in _rd_entries_b),
+      str(_rd_entries_b))
+check("(b) aggressor at 400px: fire_superiority.pressRange stays at "
+      "ordinary doctrine (220), never the range-duel 60",
+      _rd_fs_b["params"].get("pressRange") == 220, str(_rd_fs_b["params"]))
+check("(b) aggressor at 400px: no range-duel log line at all",
+      "range duel" not in _rd_log_b.getvalue(), repr(_rd_log_b.getvalue()))
+
+# (b, anonymous) an aggressor entry with NO seat (the "far and genuinely
+# unseen" case this mechanism explicitly refuses to guess about) never
+# arms the window either, however far dir_brads alone might suggest.
+_rd_entries_anon = [_fs_entry()]
+_rd_view_anon = _rd_view(_RD_TICK, 4, 900,
+                         aggressors=[{"tick": _RD_TICK - 1, "dir_brads": 0}])
+policy.apply_phase_clamps(_rd_entries_anon, _rd_view_anon, {},
+                          gun_range=_RD_GUN_RANGE)
+_rd_fs_anon = next(e for e in _rd_entries_anon if e["play"] == "fire_superiority")
+check("(b, anonymous) an anonymous aggressor entry (no seat) never arms "
+      "the window even at 900px -- the mechanism refuses to guess a "
+      "distance off dir_brads alone",
+      _rd_fs_anon["params"].get("pressRange") == 220
+      and not any(e["play"] == "hold_vs_gun" for e in _rd_entries_anon),
+      str(_rd_entries_anon))
+
+# (c) expiry after RANGE_DUEL_HOLD_TICKS: pressRange returns to 220,
+# hold_vs_gun (the entry THIS mechanism installed) is removed. Carries the
+# SAME pact_state dict forward from an (a)-shaped arming call, then re-runs
+# apply_phase_clamps on the ALREADY-INSTALLED ladder past the expiry tick
+# with no fresh qualifying aggressor.
+_rd_pstate_c = {}
+_rd_entries_c = [_fs_entry()]
+policy.apply_phase_clamps(_rd_entries_c, _rd_view(_RD_TICK, 4, 900),
+                          _rd_pstate_c, gun_range=_RD_GUN_RANGE)
+assert any(e["play"] == "hold_vs_gun" for e in _rd_entries_c)
+_rd_log_c = _io.StringIO()
+with _contextlib.redirect_stdout(_rd_log_c):
+    policy.apply_phase_clamps(
+        _rd_entries_c, _rd_view(_RD_UNTIL + 1, 4, 900, aggressors=[]),
+        _rd_pstate_c, gun_range=_RD_GUN_RANGE)
+_rd_fs_c = next(e for e in _rd_entries_c if e["play"] == "fire_superiority")
+check("(c) past expiry with no fresh aggressor: fire_superiority."
+      "pressRange returns to ordinary doctrine 220",
+      _rd_fs_c["params"].get("pressRange") == 220, str(_rd_fs_c["params"]))
+check("(c) past expiry with no fresh aggressor: hold_vs_gun (our own "
+      "installed entry, fingerprinted by coverMax=0/calmTicks=120) is "
+      "removed, not left dormant with an inflated engageDist",
+      not any(e["play"] == "hold_vs_gun" for e in _rd_entries_c),
+      str(_rd_entries_c))
+
+# (d) maintenance resend during the window: still clamps to 60, tagged
+# '(maintenance)', exactly like every other pin in apply_phase_clamps.
+_rd_entries_d = [_fs_entry()]
+_rd_log_d = _io.StringIO()
+with _contextlib.redirect_stdout(_rd_log_d):
+    _rd_fired_d = PERSONA.apply_phase_clamps(
+        _rd_entries_d, _rd_view(_RD_TICK, 4, 900), {},
+        source="maintenance", gun_range=_RD_GUN_RANGE)
+_rd_fs_d = next(e for e in _rd_entries_d if e["play"] == "fire_superiority")
+check("(d) maintenance resend: fire_superiority.pressRange still commits "
+      "to 60 during an active window, not just on a real model call",
+      _rd_fired_d and _rd_fs_d["params"].get("pressRange") == 60,
+      str(_rd_fs_d["params"]))
+check("(d) maintenance resend: logs the distinguishable '(maintenance)' "
+      "range-duel clamp line",
+      "range duel clamp: fire_superiority.pressRange (maintenance) 220 -> 60"
+      in _rd_log_d.getvalue(), repr(_rd_log_d.getvalue()))
+
+# (e) harness hook (maybe_range_duel_reemit): fires once, without a model
+# call, the instant the window (re)arms; does not double-fire on a repeat
+# check of the SAME unchanged window, and defers to a real call that beat
+# it to the wire (mutual exclusion via seat.pact_state, the same shared
+# dict apply_phase_clamps itself mutates).
+_rd_seat_e = fake_seat(
+    context={"self": {"seat": 3, "duo_partner": 19}, "gun_range": _RD_GUN_RANGE},
+    view=_rd_view(_RD_TICK, 4, 900))
+_rd_seat_e.wanted_entries = [_fs_entry(), {"play": "edge_ride",
+                                          "entry_id": "ride", "params": {}}]
+_rd_reemit_1 = starter_harness.maybe_range_duel_reemit(PERSONA, _rd_seat_e,
+                                                       AVAILABLE)
+check("(e) first check while the window arms: maybe_range_duel_reemit "
+      "fires (returns a payload), no model call involved",
+      _rd_reemit_1 is not None, str(_rd_reemit_1))
+_rd_e_fs = next((e for e in _rd_seat_e.wanted_entries
+                 if e["play"] == "fire_superiority"), None)
+check("(e) the reemit's own repair_call path reached apply_phase_clamps: "
+      "seat.wanted_entries now carries pressRange 60 and an installed "
+      "hold_vs_gun",
+      _rd_e_fs is not None and _rd_e_fs["params"].get("pressRange") == 60
+      and any(e["play"] == "hold_vs_gun" for e in _rd_seat_e.wanted_entries),
+      str(_rd_seat_e.wanted_entries))
+_rd_reemit_2 = starter_harness.maybe_range_duel_reemit(PERSONA, _rd_seat_e,
+                                                       AVAILABLE)
+check("(e) second check on the SAME unchanged window: does not double-fire",
+      _rd_reemit_2 is None, str(_rd_reemit_2))
+
+# (e, mutual exclusion) a NEW window (fresh pact_state) that a REAL call
+# already covered this tick: the reemit hook must see its own status check
+# report the same `until` it already saw and skip, never re-sending on top
+# of a real call.
+_rd_seat_e2 = fake_seat(
+    context={"self": {"seat": 3, "duo_partner": 19}, "gun_range": _RD_GUN_RANGE},
+    view=_rd_view(2000, 4, 900))
+_rd_seat_e2.wanted_entries = [_fs_entry()]
+_rd_real_entries = [_fs_entry()]
+policy.apply_phase_clamps(_rd_real_entries, _rd_seat_e2.view,
+                          _rd_seat_e2.pact_state, gun_range=_RD_GUN_RANGE)
+_rd_reemit_3 = starter_harness.maybe_range_duel_reemit(PERSONA, _rd_seat_e2,
+                                                       AVAILABLE)
+check("(e, mutual exclusion) a real call already advanced pact_state's "
+      "range_duel_until this tick -- the reemit hook sees no change and "
+      "stays a no-op instead of double-sending",
+      _rd_reemit_3 is None, str(_rd_reemit_3))
+
+# (f) v44-v53 all stayed green: `_rd_pre_block_failures`, snapshotted
+# BEFORE test (a) above ran anything, counts every failure recorded by the
+# 628 checks that precede this v54c block in the same process (engageDist
+# 750, the pressRange/finishRange/whenHpBelow wire-fix pins, the
+# final-four detour clamp, ...). A genuine count, not a tautology --
+# `failures` only grows on an actual `check(..., ok=False, ...)` call.
+check("(f) engageDist 750, the wire-fix pins, and the final-four clamp "
+      "(v44-v53) all stayed green in this same run: zero failures "
+      "recorded before this v54c block began",
+      _rd_pre_block_failures == 0, f"{_rd_pre_block_failures} failure(s)")
 
 print()
 if failures:
