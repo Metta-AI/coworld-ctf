@@ -226,7 +226,7 @@ The server has to be reachable from inside the container: start it with
 `--network host` with `POC_HOST=127.0.0.1` (Linux). `run_poc.sh` binds the
 server to loopback, so for a container run start the server yourself.
 
-### Running this image through `coworld run-episode` — and why it can't yet
+### Running this image through `coworld run-episode`
 
 `coworld run-episode` and `coworld play` are the CLI's own headless/hosted-shaped
 local proof (`coworld run-episode --help`, verified against `coworld==0.1.46`:
@@ -249,25 +249,33 @@ coworld run-episode <manifest> <image> \
   -o runs/local-smoke --timeout-seconds 240
 ```
 
-**This specific image is not yet `run-episode`/`play`-compatible.** Verified
-by running it: `coworld run-episode`/`play` inject a single pre-built
-`COWORLD_PLAYER_WS_URL` (and `COGAMES_ENGINE_WS_URL`, same value) into every
-player container — confirmed by reading the installed `coworld==0.1.46`
-package, `coworld/runner/runner.py:476` (the same convention the *hosted*
-Kubernetes runner uses, `coworld/runner/kubernetes_runner.py:807`, so this is
-not a local-only quirk). `poc_policy.py` only reads `POC_HOST`/`POC_PORT`/
-`POC_SLOT`/`POC_TOKEN` (`poc_policy.py:562-567`) — it never looks at
-`COWORLD_PLAYER_WS_URL` — so under `run-episode`/`play` it falls back to its
-baked-in image defaults (`127.0.0.1:21815`, empty token) and fails with
-`FAILED: transport error: [Errno 111] Connection refused` (reproduced on this
-machine). Use the `docker run` form above (against a server you start
-yourself) for this image; the same `--run` argv pattern, run against a
-`policies/starters/` image instead (its harness *does* read
-`COWORLD_PLAYER_WS_URL`), is a genuinely completed local episode — verified:
-16/16 players connected, `game started: players=16`, a winner, and a replay
-written, in 18s wall time end to end. Root README's
-["Run Season 2 locally"](../../README.md#run-season-2-locally) has the full
-copy-pasteable command. See also the protocol quick reference in
+**This image is `run-episode`/`play`-compatible.** `coworld run-episode` and
+`coworld play` inject a single pre-built `COWORLD_PLAYER_WS_URL` (and
+`COGAMES_ENGINE_WS_URL`, same value) into every player container — confirmed
+by reading the installed `coworld==0.1.46` package,
+`coworld/runner/runner.py:476` (the same convention the *hosted* Kubernetes
+runner uses, `coworld/runner/kubernetes_runner.py:807`, so this is not a
+local-only quirk). `poc_policy.py` now parses `COWORLD_PLAYER_WS_URL` first,
+via `_hosted_ws_defaults()`, falling back to `POC_HOST`/`POC_PORT`/
+`POC_SLOT`/`POC_TOKEN` only for the manual `docker run` path above — the same
+contract `policies/starters/common/starter_harness.py` already reads. This
+used to fail with `FAILED: transport error: [Errno 111] Connection refused`
+before that fix; it no longer does. Verified: built `poc-llm-policy:doorfix`
+with `docker build --platform linux/amd64`, then ran
+
+```bash
+uv run coworld run-episode <manifest> poc-llm-policy:doorfix \
+  --variant battle-royale-s2 \
+  --run python --run /app/poc_policy.py --run --canned \
+  -o run-episode-out3 --timeout-seconds 300
+```
+
+against a freshly downloaded real `paintbot:0.7.367` Coworld. All 16 seats
+connected as `"control":"play"`, uploaded modules, got module_ready, had an
+opening call and a mid-match re-call accepted, and the episode completed with
+a winner and a written replay. Root README's ["Run Season 2
+locally"](../../README.md#run-season-2-locally) has the full copy-pasteable
+command. See also the protocol quick reference in
 [`docs/PROTOCOL.md`](../../docs/PROTOCOL.md#season-2-quick-reference-read-this-first).
 
 ### Environment
