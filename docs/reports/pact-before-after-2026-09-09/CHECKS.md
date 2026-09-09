@@ -18,6 +18,7 @@ the VERDICT/READ markdown tables quote).
 | v49_pre_gv16 | 80 | 80 | OK | 19 | 19 | OK | 3 | 3 | OK |
 | v49_post_gv16 | 637 | 637 | OK | 179 | 179 | OK | 23 | 23 | OK |
 | v50 | 47 | 47 | OK | 14 | 14 | OK | 1 | 1 | OK |
+| v53 | 48 | 48 | OK | 17 | 17 | OK | 2 | 2 | OK |
 
 ## Result: ALL MATCH
 
@@ -67,3 +68,26 @@ the VERDICT/READ markdown tables quote).
   under `/tmp/monet_v50/read/cache/v50_n40/decoded/`. Marked INTERIM in
   `summary.csv`'s verdict column per the read brief, not because any
   check failed -- see README's Known Gaps.
+- v53 (2026-09-09, n=48, rounds 4620-4623, policy_version_id a3479a93,
+  platform_version 54, GV17/GameVersion 62 -- the first cohort in this
+  dataset on that era) is a fresh read, not a refresh of an existing
+  cohort. n / formed_k / win_k above are recomputed straight from
+  `episodes.csv`'s own v53 rows and match `/tmp/monet_v53/read/
+  v53_n40_metrics.json`'s own `pact_formed_k`=17 / `win_k`=2 fields
+  exactly, with 0/48 decode failures. `kickoff_coverage_pct` (77.1%) and
+  `tags_per_ep_*` (mean 2.604, median 2.0, share_2plus 54.2%) both use
+  the identical `tags_and_kickoff_final.py`-derived definitions as
+  v44-v50 (script: `/tmp/monet_v53/read/tags_kickoff_v53.py`), run
+  against the same decoded-replay/policy-log cache `read_v53.py` built.
+  `partners_per_commit` (3.948) is the mean of `aim_partner_counts`
+  flattened across all 48 episodes' rows, same method as v50's
+  `v50_extras.py`. The comparison baseline (pooled v51+v52, n=88) was
+  read fresh for this cohort with the identical pipeline (`read_v53.py`
+  copied from `read_v51.py`, only `HERE` repointed) and is NOT itself a
+  row in this dataset's CSVs -- see README's GV17 era note. Marked
+  INTERIM in `summary.csv`'s verdict column: n=48 meets the read floor,
+  but rollback trigger B (rank<=4 down, p<0.10) FIRED vs the pooled
+  baseline (22.9% vs 44.3%, p=0.0157) -- reported informational-only per
+  this read's brief (n<100), not because any check here failed. See
+  README's Known Gaps and `/tmp/monet_v53/read/READ_N40.md` for the full
+  read.
