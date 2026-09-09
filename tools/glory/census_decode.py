@@ -28,6 +28,9 @@ import urllib.request
 import concurrent.futures as cf
 from collections import Counter, defaultdict
 
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import catalog_fold  # noqa: E402
+
 CAP = 2 ** 24
 
 HEAT_LADDER = [1, 2, 4, 8]
@@ -120,7 +123,14 @@ def heat_occupancy_for_seat(events_for_seat, episode_ticks):
     return occ
 
 
-def analyze_episode(ep, jsonl_path):
+def analyze_episode(ep, jsonl_path, catalog="v2"):
+    """`catalog`: "v2" (default -- the ORIGINAL, byte-identical flat-integer
+    fold; every pre-existing caller that does not pass `catalog` gets
+    EXACTLY the historical behavior, which is how the GV61/GV15
+    reconciliation stays a regression gate) or "v3" (GLORYVERSION 17 /
+    GameVersion 62+, percent-scaled fixed-point fold -- see
+    tools/glory/catalog_fold.py, ported from src/ctf/glory.nim's
+    `recutFoldPct`/`recutScoreScaled`/`recutWinFactor`)."""
     with open(jsonl_path) as f:
         lines = [json.loads(l) for l in f]
     summary = next((e for e in lines if e.get("type") == "summary"), None)
@@ -141,6 +151,12 @@ def analyze_episode(ep, jsonl_path):
     closing_time_amt = defaultdict(int)
     jointact_amt = defaultdict(int)
     death_tick = {}
+    # v3 only: chronological (tick, weapon, amt) per seat, fed to
+    # catalog_fold.fold_events_v3 -- GATE RULING 2's floor guard is
+    # state-/order-dependent, so this must replay in the SAME order the
+    # wire recorded it, not be reduced online like the v2 `product[t] *=`
+    # loop above.
+    fold_events_per_seat = defaultdict(list)
 
     for e in lines:
         kind = e.get("kind")
@@ -155,10 +171,21 @@ def analyze_episode(ep, jsonl_path):
             continue
         weapon = e.get("weapon", "")
         amt = e.get("amount") or 0
+        tick = e.get("tick") or 0
+        # v3-only chronological event list, collected ALONGSIDE the v2 loop
+        # below without altering it: excludes the marker events (`capHit`/
+        # `pactWipe`/`pactDuoDown`) that never route through
+        # recutFold/recutFoldPct in the engine (sim.nim ~L357/380/3184/3194)
+        # -- the v2 branch is untouched (byte-identical regression), this
+        # exclusion only ever affects the NEW `catalog="v3"` path.
+        if kind == "glory_deed" and weapon == "dTeamKill":
+            pass  # handled below via `ff`, never a fold_events entry
+        elif weapon not in catalog_fold.NON_FOLD_MARKER_WEAPONS:
+            fold_events_per_seat[t].append((tick, weapon, amt))
         if kind == "glory_deed":
             deed_counts_per_seat[t][weapon] += 1
             if weapon in HEAT_PAYING_DEEDS:
-                heat_events_per_seat[t].append((e.get("tick"), weapon))
+                heat_events_per_seat[t].append((tick, weapon))
             if weapon == "dTeamKill":
                 ff[t] += 1
             elif amt and amt > 1:
@@ -172,21 +199,40 @@ def analyze_episode(ep, jsonl_path):
             if amt and amt > 1:
                 product[t] *= amt
 
+    catalog_switches = catalog_fold.CATALOG_V3 if catalog == "v3" else catalog_fold.CATALOG_V2
+
     rows = []
     reported_map = {s["position"]: s["score"] for s in ep.get("participant_scores") or []}
     for s in range(n):
-        p = product[s]
         h = ff[s]
-        recon = p >> h if h else p
-        win_mult = 8 if s in winner_slots else 1
-        uncapped = recon * win_mult
-        final = min(uncapped, CAP)
+        is_winner = s in winner_slots
+        if catalog == "v3":
+            seat_events = sorted(fold_events_per_seat[s], key=lambda ev: ev[0])
+            p3 = catalog_fold.fold_events_v3(
+                ((weapon, amt) for _tick, weapon, amt in seat_events), catalog_switches)
+            if is_winner and winner_team:
+                winner_seats = len(winner_slots)
+                win_factor = catalog_fold.recut_win_factor(catalog_switches.brMode, winner_seats)
+                p3 = catalog_fold.recut_fold(p3, win_factor, catalog_switches.cap)
+            # `score_from_product` applies the halving/scale strip to the
+            # CAPPED product (the cap already saturated `p3` above, matching
+            # the sim's own sticky-cap behavior) -- `capped` is observable
+            # directly from `p3`.
+            final = catalog_fold.score_from_product(p3, h, catalog_switches)
+            capped_flag = p3 >= catalog_switches.cap
+        else:
+            p = product[s]
+            recon = p >> h if h else p
+            win_mult = 8 if is_winner else 1
+            uncapped_raw = recon * win_mult
+            final = min(uncapped_raw, CAP)
+            capped_flag = uncapped_raw >= CAP
         heat_occ = heat_occupancy_for_seat(sorted(heat_events_per_seat[s]), ticks)
         rows.append(dict(
             episode_id=ep["episode_id"], round_number=ep["round_number"],
             coworld_version=ep["coworld_version"], slot=s,
             reported=reported_map.get(s), recon_final=final,
-            win=(s in winner_slots), capped=(uncapped >= CAP),
+            win=is_winner, capped=capped_flag,
             deed_counts=dict(deed_counts_per_seat[s]),
             ach_counts=dict(ach_counts_per_seat[s]),
             closing_time_amt=closing_time_amt.get(s, 0),
@@ -208,7 +254,21 @@ def main():
         "~/.ctf/scout/glory_census_replays"))
     ap.add_argument("--out", default="/tmp/glory-census/seat_episode_rows.json")
     ap.add_argument("--workers", type=int, default=16)
+    ap.add_argument("--catalog", choices=["v2", "v3", "auto"], default="v2",
+                     help="fold to use (DO item 1): 'v2' (default, the "
+                          "ORIGINAL flat-integer fold -- every existing "
+                          "invocation without this flag is UNCHANGED), 'v3' "
+                          "(percent-scaled fixed-point fold, every episode), "
+                          "or 'auto' (per-episode coworld_version lookup "
+                          "against --catalog-map)")
+    ap.add_argument("--catalog-map",
+                     help="JSON {coworld_version: 'v2'|'v3'}, produced by "
+                          "tools/glory/catalog_detect.py; required with "
+                          "--catalog auto")
     args = ap.parse_args()
+    if args.catalog == "auto" and not args.catalog_map:
+        ap.error("--catalog auto requires --catalog-map")
+    catalog_map = catalog_fold.load_catalog_map(args.catalog_map) if args.catalog_map else {}
 
     os.makedirs(args.cache_dir, exist_ok=True)
     os.makedirs(os.path.dirname(args.out) or ".", exist_ok=True)
@@ -252,8 +312,16 @@ def main():
         jp = jsonl_paths.get(ep["episode_id"])
         if not jp:
             continue
+        if args.catalog == "auto":
+            episode_catalog = catalog_map.get(ep["coworld_version"])
+            if episode_catalog is None:
+                bad_eps.append((ep["episode_id"],
+                                 f"no catalog entry for {ep['coworld_version']}"))
+                continue
+        else:
+            episode_catalog = args.catalog
         try:
-            rows, _summary = analyze_episode(ep, jp)
+            rows, _summary = analyze_episode(ep, jp, catalog=episode_catalog)
         except Exception as e:  # noqa: BLE001
             bad_eps.append((ep["episode_id"], str(e)))
             continue
