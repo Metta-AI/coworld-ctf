@@ -5168,52 +5168,68 @@
       ],
       "slots": [
         {
-          "team": "red"
+          "team": "red",
+          "control": "play"
         },
         {
-          "team": "blue"
+          "team": "blue",
+          "control": "play"
         },
         {
-          "team": "red"
+          "team": "red",
+          "control": "play"
         },
         {
-          "team": "blue"
+          "team": "blue",
+          "control": "play"
         },
         {
-          "team": "red"
+          "team": "red",
+          "control": "play"
         },
         {
-          "team": "blue"
+          "team": "blue",
+          "control": "play"
         },
         {
-          "team": "red"
+          "team": "red",
+          "control": "play"
         },
         {
-          "team": "blue"
+          "team": "blue",
+          "control": "play"
         },
         {
-          "team": "red"
+          "team": "red",
+          "control": "play"
         },
         {
-          "team": "blue"
+          "team": "blue",
+          "control": "play"
         },
         {
-          "team": "red"
+          "team": "red",
+          "control": "play"
         },
         {
-          "team": "blue"
+          "team": "blue",
+          "control": "play"
         },
         {
-          "team": "red"
+          "team": "red",
+          "control": "play"
         },
         {
-          "team": "blue"
+          "team": "blue",
+          "control": "play"
         },
         {
-          "team": "red"
+          "team": "red",
+          "control": "play"
         },
         {
-          "team": "blue"
+          "team": "blue",
+          "control": "play"
         }
       ],
       "seed": 679961,

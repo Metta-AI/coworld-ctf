@@ -554,12 +554,18 @@ proc receiveLatestFrameInto*(
   ws: WebSocket,
   gui: bool,
   packed,
-  unpacked: var seq[uint8]
+  unpacked: var seq[uint8],
+  preloaded: Option[Message] = none(Message)
 ): bool {.measure.} =
   ## Receives wire data and updates the provided reusable frame buffers.
+  ## `preloaded`, when given, stands in for this call's first message
+  ## instead of blocking on the socket -- for a caller that already peeked
+  ## one message off the wire (protocol detection) and must not drop it.
   client.frameAdvance = 0
   if client.spritePending == 0:
-    let firstMessage = ws.receiveMessage(if gui: 10 else: -1)
+    let firstMessage =
+      if preloaded.isSome: preloaded
+      else: ws.receiveMessage(if gui: 10 else: -1)
     if firstMessage.isNone:
       client.frameBufferLen = 0
       client.framesDropped = 0
@@ -590,10 +596,12 @@ proc receiveLatestFrameInto*(
 proc receiveLatestFrame*(
   client: ProtocolClient,
   ws: WebSocket,
-  gui: bool
+  gui: bool,
+  preloaded: Option[Message] = none(Message)
 ): bool =
   ## Receives wire data and updates the latest client-owned frame buffers.
-  client.receiveLatestFrameInto(ws, gui, client.packed, client.unpacked)
+  client.receiveLatestFrameInto(ws, gui, client.packed, client.unpacked,
+    preloaded)
 
 proc copyLatestFrame*(
   client: ProtocolClient,
