@@ -1,0 +1,3 @@
+bench_body_nav_rework.nim bench_body_nav_rework
+bench_body_nav_rework.nim metadata
+Error: unhandled exception: canonical run refused: commit= dirty= platform=linux/amd64 cpu_limit= image_id= [ValueError]

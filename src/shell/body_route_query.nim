@@ -22,6 +22,7 @@ const
   BodyEndpointAttachmentCap* = 512
   BodyDialClosedBit = 0x8000_0000'u32
   BodyDialMaxBuckets = 262_144
+  BodyDialDefaultBuckets = 131_072
 
 type
   BodyFineLegality* = object
@@ -514,7 +515,7 @@ proc beginQueue(queue: var BodyDialQueue) =
   queue.currentF = high(int32)
 
 proc newBodyRouteWorkspace*(graph: BodyMixedGraph;
-    bucketCount = BodyDialMaxBuckets): BodyRouteWorkspace =
+    bucketCount = BodyDialDefaultBuckets): BodyRouteWorkspace =
   if graph == nil:
     raise newException(ValueError, "body route workspace requires a graph")
   if bucketCount <= 1 or bucketCount > BodyDialMaxBuckets:

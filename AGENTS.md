@@ -232,10 +232,22 @@ env -u WASMTIME_C_API nim check -d:noSignalHandler --threads:on src/ctf.nim
 quality and cross-architecture determinism, activation time, and retained
 memory. On an arm64 development host its Docker process is emulated, so it
 does not gate wall-clock tick time. Run `tools/bench_body_nav_rework --tick`
-natively for the 16/32-seat first-goal, moving-goal, and stuck-replan timing
-gate (p95 at most 4 ms and maximum at most 5 ms). A future native amd64 CI
-runner may gate the same tick harness; emulated tick measurements are
-informational only.
+on real EC2 hardware matching observed production instance families for the
+16/32-seat first-goal, moving-goal, and stuck-replan timing gate (p95 at most
+4 ms and maximum at most 5 ms). Budget selection requires additional headroom:
+p95 at most 3.6 ms and maximum at most 4.5 ms in every registered row and repeat.
+Mac and emulated measurements are informational only.
+
+`--latency` separately measures actual route publication after life resets,
+with 16/32-seat near/far waves and a 2,000-tick cap. A cap hit is a failure;
+request issuance is not completion. `--all` is reserved for the canonical
+Docker environment; native diagnostic runs use explicit `--quality --activation`.
+Activation reports gate shared retained navigation data on every pool map at
+16 MiB, conservatively including all allocator overhead, and total retained
+navigation data at 256 MiB (including colossal maps). The Dial ring defaults
+to 131,072 buckets and retains exact absolute-cost ordering.
+Current research evidence and incomplete qualification items are tracked in
+[the research ledger](docs/designs/nav-rework-evidence-2026-09-09/research/LEDGER.md).
 
 ### Profiling build
 

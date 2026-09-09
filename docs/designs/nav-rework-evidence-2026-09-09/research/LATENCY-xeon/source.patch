@@ -1,0 +1,339 @@
+diff --git a/tools/bench_body_nav_rework.nim b/tools/bench_body_nav_rework.nim
+index a9c1597..d943ee2 100644
+--- a/tools/bench_body_nav_rework.nim
++++ b/tools/bench_body_nav_rework.nim
+@@ -1,11 +1,12 @@
+ ## Production qualification harness for the resumable mixed-grid body route.
+ 
+-{.define: bodyNavBreakdown.}
++when not defined(navGateNoBreakdown):
++  {.define: bodyNavBreakdown.}
+ 
+ import std/[algorithm, json, math, monotimes, options, os, osproc, strformat,
+   sequtils, strutils, tables, times]
+ import crunchy/[common, sha256]
+-import bitworld/spriteprotocol
++import bitworld/[profile, spriteprotocol]
+ import ../src/ctf/[arena, br_map_pool, sim_types, zone_field]
+ import ../src/shell/[body, body_danger, body_hazard, body_map, body_nav,
+   body_route_index, body_route_query, episode, standing_order]
+@@ -20,6 +21,13 @@ const
+   TickSamples = 120
+   TickP95LimitNs = 4_000_000'i64
+   TickMaxLimitNs = 5_000_000'i64
++  ## --latency: ticks from a seat's first request after a life reset until a
++  ## route is published for it. One warm-up wave, then measured waves that
++  ## alternate far and near goals. A wave that does not publish every seat
++  ## within the cap fails the row; the cap is a workload bound, not a target.
++  LatencyWarmupWaves = 1
++  LatencyMeasuredWaves = 10
++  LatencyWaveTickCap = 2000
+ 
+ type
+   MapGate = object
+@@ -235,6 +243,13 @@ proc activationRow(gate: MapGate): JsonNode =
+       pops += nav.runRouteScheduler(sample)
+     querySamples.add started.elapsedNs
+     queryPops.add int64(pops)
++  let bytes = nav.navigationBytes
++  # Include all allocator overhead as a conservative bound, even the seat
++  # allocations, so shared storage cannot disappear into a reporting category.
++  let sharedUpperBound = bytes.systemOwner + bytes.routeIndex +
++    bytes.safetyScratch + bytes.mixedGraph + bytes.sharedDangerGeometry +
++    bytes.trace + bytes.allocatorOverhead
++  const PoolSharedCap = 16'i64 * 1024 * 1024
+   %*{"map": gate.label, "colossal": gate.colossal,
+     "body_map_activation_ns": mapNs, "route_index_activation_ns": indexNs,
+     "mixed_nav_activation_ns": navNs,
+@@ -244,7 +259,9 @@ proc activationRow(gate: MapGate): JsonNode =
+     "deleted_following_cells_bytes": deleted.cells,
+     "deleted_following_total_bytes": deleted.total,
+     "retained_cap_bytes": BodyNavigationRetainedCap,
+-    "retained": bytesJson(nav.navigationBytes),
++    "retained": bytesJson(bytes),
++    "shared_retained_upper_bound_bytes": sharedUpperBound,
++    "pool_shared_cap_bytes": PoolSharedCap,
+     "far_query_samples_ns": querySamples.nsArray, "far_query_pops": queryPops,
+     "far_query_p50_ns": querySamples.percentile(0.5),
+     "far_query_p95_ns": querySamples.percentile(0.95),
+@@ -253,7 +270,8 @@ proc activationRow(gate: MapGate): JsonNode =
+     "far_query_max_pops": max(queryPops),
+     "far_query_span_count": nav.seats[11].installedRoute.spanCount,
+     "far_query_point_count": nav.seats[11].installedRoute.pointCount,
+-    "pass": nav.navigationBytes.total <= BodyNavigationRetainedCap}
++    "pass": bytes.total <= BodyNavigationRetainedCap and
++      (gate.colossal or sharedUpperBound <= PoolSharedCap)}
+ 
+ proc runActivationGate(pool: JsonNode; onlyPool: int): JsonNode =
+   var rows = newJArray()
+@@ -344,7 +362,8 @@ proc tickRow(gameMap: CtfMap, rosterSize: int, scenario: NavGateScenario,
+     if sample >= TickWarmups:
+       samples.add output.bodySliceNanoseconds
+       let
+-        timing = episode.nav.timing
++        timing = when defined(bodyNavBreakdown): episode.nav.timing
++                 else: BodyNavTiming()
+         routeSearch = timing.routePopNanoseconds
+         requestOverhead = timing.requestSubmitNanoseconds +
+           timing.schedulerRestartNanoseconds +
+@@ -464,6 +483,207 @@ proc runTickGate(corpus: NavCorpus, pool: JsonNode): JsonNode =
+       rows.add tickRow(loaded.gameMap, rosterSize, scenario, start, nearGoal, farGoal)
+   %*{"maps": rows, "pass": rows.elems.allIt(it["pass"].getBool())}
+ 
++type
++  LatencySeatOutcome = object
++    seat: int
++    ticksToRoute: int        # 0 until a route is published in this wave
++    installedRevision: uint64
++    requestRevision: uint64  # seat.revision at wave end (counts requests)
++    pointCount: int32
++    fingerprint: int64
++    replacements: uint32
++    firstWaitTick: int32
++    lifecycle: BodyRouteLifecycle
++    lastQuerySucceeded: bool
++    lastFailure: BodyRouteFailure
++  LatencyWave = object
++    wave: int
++    far, measured: bool
++    ticksUsed: int
++    capHit: bool
++    seats: seq[LatencySeatOutcome]
++    completionOrder: seq[int]
++    tickSamples: seq[int64]
++    # Scheduler counters summed over the wave; measured only when the
++    # breakdown clocks are compiled in, otherwise left at zero.
++    restarts, admissions, completions, weightRefreshes, pops: int64
++
++proc runLatencyWaves(gameMap: CtfMap, rosterSize: int,
++    start, nearGoal, farGoal: BodyPoint): seq[LatencyWave] =
++  ## Completion is the publication marker `installedRoute.revision`, which
++  ## `resetNavigationLife` zeroes and `installMixedRoute` writes last with the
++  ## request generation it satisfied. `seat.revision` counts requests (it is
++  ## bumped on submission and also zeroed by the reset), so it cannot mark
++  ## completion; it is recorded so a superseded first request is visible.
++  let map = newBodyMap(gameMap)
++  let index = newBodyRouteIndex(map)
++  let overlay = newBodyHazardOverlay(index, map.armedSnapshot)
++  var episode = initShellEpisode(true, true, playControls(rosterSize), map,
++    331, hazard = overlay, preparedRouteIndex = index)
++  var tick = 1
++  var positions = newSeq[BodyPoint](rosterSize)
++  for position in positions.mitems: position = start
++  discard episode.step(tickFrames(map, positions, farGoal, farGoal, tick),
++    uint32(tick), 0)
++  for wave in 0 ..< LatencyWarmupWaves + LatencyMeasuredWaves:
++    let measuredIndex = wave - LatencyWarmupWaves
++    var row = LatencyWave(wave: wave, measured: wave >= LatencyWarmupWaves,
++      far: wave < LatencyWarmupWaves or measuredIndex mod 2 == 0)
++    let target = if row.far: farGoal else: nearGoal
++    for position in positions.mitems: position = start
++    for seat in 0 ..< rosterSize: episode.nav.resetNavigationLife(seat)
++    row.seats = newSeq[LatencySeatOutcome](rosterSize)
++    for seat in 0 ..< rosterSize: row.seats[seat].seat = seat
++    var completed = 0
++    var waveTick = 0
++    while completed < rosterSize and waveTick < LatencyWaveTickCap:
++      inc waveTick
++      inc tick
++      let output = episode.step(tickFrames(map, positions, target, farGoal,
++        tick), uint32(tick), waveTick)
++      row.tickSamples.add output.bodySliceNanoseconds
++      row.pops += int64(episode.nav.routePopsLastTick)
++      when defined(bodyNavBreakdown):
++        row.restarts += int64(episode.nav.timing.schedulerRestarts)
++        row.admissions += int64(episode.nav.timing.requestAdmissions)
++        row.completions += int64(episode.nav.timing.routeCompletions)
++        row.weightRefreshes += int64(episode.nav.timing.weightRefreshes)
++      for mask in output.masks:
++        let bits = encodeInputMask(mask.input)
++        var next = positions[mask.seat.int]
++        if (bits and ButtonLeft) != 0: next.x -= 4
++        if (bits and ButtonRight) != 0: next.x += 4
++        if (bits and ButtonUp) != 0: next.y -= 4
++        if (bits and ButtonDown) != 0: next.y += 4
++        if map.canStand(next): positions[mask.seat.int] = next
++      for seat in 0 ..< rosterSize:
++        if row.seats[seat].ticksToRoute != 0: continue
++        let nav = episode.nav.seats[seat]
++        if nav.installedRoute.revision != 0:
++          row.seats[seat].ticksToRoute = waveTick
++          row.seats[seat].installedRevision = nav.installedRoute.revision
++          row.seats[seat].pointCount = nav.installedRoute.pointCount
++          row.seats[seat].fingerprint = int64(nav.installedRouteFingerprint)
++          row.completionOrder.add seat
++          inc completed
++    row.ticksUsed = waveTick
++    row.capHit = completed < rosterSize
++    for seat in 0 ..< rosterSize:
++      let nav = episode.nav.seats[seat]
++      row.seats[seat].requestRevision = nav.revision
++      row.seats[seat].replacements = nav.pendingRoute.replacements
++      row.seats[seat].firstWaitTick = nav.pendingRoute.firstWaitTick
++      row.seats[seat].lifecycle = nav.pendingRoute.lifecycle
++      row.seats[seat].lastQuerySucceeded = nav.lastQuerySucceeded
++      row.seats[seat].lastFailure = nav.lastQueryFailure
++    result.add row
++  episode.closeShellEpisode()
++
++proc sameLatencyOutcome(a, b: seq[LatencyWave]): bool =
++  if a.len != b.len: return false
++  for wave in 0 ..< a.len:
++    if a[wave].ticksUsed != b[wave].ticksUsed or
++        a[wave].capHit != b[wave].capHit or
++        a[wave].completionOrder != b[wave].completionOrder or
++        a[wave].seats.len != b[wave].seats.len:
++      return false
++    for seat in 0 ..< a[wave].seats.len:
++      let x = a[wave].seats[seat]
++      let y = b[wave].seats[seat]
++      if x.ticksToRoute != y.ticksToRoute or
++          x.installedRevision != y.installedRevision or
++          x.requestRevision != y.requestRevision or
++          x.pointCount != y.pointCount or x.fingerprint != y.fingerprint or
++          x.replacements != y.replacements or x.lifecycle != y.lifecycle or
++          x.lastFailure != y.lastFailure:
++        return false
++  true
++
++proc latencyRow(gameMap: CtfMap, rosterSize: int,
++    start, nearGoal, farGoal: BodyPoint): JsonNode =
++  let first = runLatencyWaves(gameMap, rosterSize, start, nearGoal, farGoal)
++  let second = runLatencyWaves(gameMap, rosterSize, start, nearGoal, farGoal)
++  let deterministic = sameLatencyOutcome(first, second)
++  var farSamples, nearSamples: seq[int]
++  var tickSamples: seq[int64]
++  var capHits, unpublished, superseded, failed = 0
++  var waves = newJArray()
++  for wave in first:
++    var seats = newJArray()
++    for outcome in wave.seats:
++      let published = outcome.ticksToRoute != 0 and outcome.pointCount > 0
++      if wave.measured:
++        if published:
++          if wave.far: farSamples.add outcome.ticksToRoute
++          else: nearSamples.add outcome.ticksToRoute
++        else:
++          inc unpublished
++        # Revision 1 is the first request after the wave's reset; a published
++        # route with a higher revision means that first request was replaced.
++        if published and outcome.installedRevision != 1:
++          inc superseded
++        if not published and outcome.lastFailure != brfNone:
++          inc failed
++      seats.add %*{"seat": outcome.seat, "published": published,
++        "ticks_to_route": outcome.ticksToRoute,
++        "installed_revision": outcome.installedRevision,
++        "request_revision": outcome.requestRevision,
++        "point_count": outcome.pointCount, "fingerprint": outcome.fingerprint,
++        "replacements": outcome.replacements,
++        "first_wait_tick": outcome.firstWaitTick,
++        "lifecycle_at_end": $outcome.lifecycle,
++        "last_query_succeeded": outcome.lastQuerySucceeded,
++        "last_failure": $outcome.lastFailure}
++    if wave.measured:
++      inc capHits, ord(wave.capHit)
++      for sample in wave.tickSamples: tickSamples.add sample
++    waves.add %*{"wave": wave.wave, "goal": (if wave.far: "far" else: "near"),
++      "measured": wave.measured, "ticks_used": wave.ticksUsed,
++      "cap_hit": wave.capHit, "completion_order": wave.completionOrder,
++      "pops": wave.pops, "scheduler_restarts": wave.restarts,
++      "request_admissions": wave.admissions,
++      "route_completions": wave.completions,
++      "weight_refreshes": wave.weightRefreshes,
++      "counters_measured": defined(bodyNavBreakdown), "seats": seats}
++  let pass = deterministic and capHits == 0 and unpublished == 0
++  %*{"roster_size": rosterSize, "warmup_waves": LatencyWarmupWaves,
++    "measured_waves": LatencyMeasuredWaves, "wave_tick_cap": LatencyWaveTickCap,
++    "pop_budget_per_tick": BodyRoutePopBudgetPerTick,
++    "far_ticks_to_route_samples": farSamples,
++    "far_ticks_to_route_p50": farSamples.percentile(0.5),
++    "far_ticks_to_route_p95": farSamples.percentile(0.95),
++    "far_ticks_to_route_max": (if farSamples.len > 0: max(farSamples) else: 0),
++    "near_ticks_to_route_samples": nearSamples,
++    "near_ticks_to_route_p50": nearSamples.percentile(0.5),
++    "near_ticks_to_route_p95": nearSamples.percentile(0.95),
++    "near_ticks_to_route_max": (if nearSamples.len > 0: max(nearSamples) else: 0),
++    "cap_hits": capHits, "unpublished_seat_waves": unpublished,
++    "superseded_before_install": superseded,
++    "failed_unpublished": failed, "deterministic": deterministic,
++    "wave_tick_samples_ns": tickSamples.nsArray,
++    "wave_tick_p50_ns": tickSamples.percentile(0.5),
++    "wave_tick_p95_ns": tickSamples.percentile(0.95),
++    "wave_tick_max_ns": (if tickSamples.len > 0: max(tickSamples) else: 0'i64),
++    "tick_timing_gated": false, "waves": waves, "pass": pass}
++
++proc runLatencyGate(corpus: NavCorpus, pool: JsonNode): JsonNode =
++  let loaded = loadPoolMap(pool, 15)
++  var start, nearGoal, farGoal: BodyPoint
++  var foundNear, foundFar: bool
++  for item in corpus.cases:
++    if item.poolIndex == 15 and item.rosterSize == 16 and
++        item.profile == ncpDefault and item.dynamic == ncdNone:
++      start = item.start
++      if item.distance == ncrNear: nearGoal = item.validatedGoal; foundNear = true
++      else: farGoal = item.validatedGoal; foundFar = true
++  if not foundNear or not foundFar:
++    raise newException(ValueError, "latency corpus anchors are missing")
++  var rows = newJArray()
++  for rosterSize in [16, 32]:
++    stderr.writeLine &"latency roster={rosterSize}"
++    rows.add latencyRow(loaded.gameMap, rosterSize, start, nearGoal, farGoal)
++  %*{"maps": rows, "pass": rows.elems.allIt(it["pass"].getBool())}
++
+ proc metadata(corpus: NavCorpus, canonical: bool): JsonNode =
+   let commit = getEnv("NAV_GATE_COMMIT")
+   let dirty = getEnv("NAV_GATE_DIRTY")
+@@ -477,16 +697,17 @@ proc metadata(corpus: NavCorpus, canonical: bool): JsonNode =
+     raise newException(ValueError, &"canonical run refused: commit={commit} " &
+       &"dirty={dirty} platform={platform} cpu_limit={cpuLimit} image_id={imageId}")
+   %*{"commit": commit, "dirty": dirty, "nim_version": NimVersion,
++    "body_nav_breakdown": defined(bodyNavBreakdown),
+     "os_arch": platform, "compile_flags": CanonicalFlags,
+     "image_id": imageId, "cpu_limit": cpuLimit,
+     "pool_digest": corpus.poolSha256, "canonical": canonical}
+ 
+ proc usage() =
+-  echo "usage: bench_body_nav_rework --quality|--activation|--tick|--all " &
+-    "[--corpus PATH] [--pool-index N]"
++  echo "usage: bench_body_nav_rework --quality|--activation|--tick|--latency|" &
++    "--all [--corpus PATH] [--pool-index N]"
+ 
+ when isMainModule:
+-  var runQuality, runActivation, runTick, canonical: bool
++  var runQuality, runActivation, runTick, runLatency, canonical: bool
+   var onlyPool = -1
+   var corpusPath = "tests/fixtures/shell/nav_route_corpus.json"
+   var index = 1
+@@ -495,6 +716,7 @@ when isMainModule:
+     of "--quality": runQuality = true
+     of "--activation": runActivation = true
+     of "--tick": runTick = true
++    of "--latency": runLatency = true
+     of "--all":
+       # Docker's linux/amd64 run is emulated on the development arm64 host.
+       # Keep cross-architecture correctness, determinism, activation, and
+@@ -514,7 +736,8 @@ when isMainModule:
+     of "--help", "-h": usage(); quit(0)
+     else: usage(); quit(2)
+     inc index
+-  if not runQuality and not runActivation and not runTick: usage(); quit(2)
++  if not runQuality and not runActivation and not runTick and
++      not runLatency: usage(); quit(2)
+   if canonical and onlyPool >= 0:
+     raise newException(ValueError, "canonical --all does not accept --pool-index")
+   let corpus = loadNavRouteCorpus(corpusPath)
+@@ -533,8 +756,13 @@ when isMainModule:
+     root["activation"] = runActivationGate(pool, onlyPool)
+     passed = passed and root["activation"]["pass"].getBool()
+   if runTick:
++    startProfileTrace()
+     root["tick"] = runTickGate(corpus, pool)
++    finishProfileTrace()
+     passed = passed and root["tick"]["pass"].getBool()
++  if runLatency:
++    root["latency"] = runLatencyGate(corpus, pool)
++    passed = passed and root["latency"]["pass"].getBool()
+   root["pass"] = %passed
+   echo pretty(root)
+   if not passed: quit(1)

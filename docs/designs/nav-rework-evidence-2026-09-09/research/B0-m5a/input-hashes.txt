@@ -1,0 +1,2 @@
+60d7c7b38646c10c37fe23fa59bd16549377e04f9aab034ee69147e20117a031  nimby.lock
+aefb19ecf5159288f78c041429c81523b02c641f0e186cdd2de37958db871de7  tests/fixtures/shell/nav_route_corpus.json

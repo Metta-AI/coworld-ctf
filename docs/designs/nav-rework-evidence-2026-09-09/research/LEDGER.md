@@ -1,0 +1,74 @@
+# Navigation throughput research ledger
+
+Status: preflight and inherited Phase 10 baseline preparation; no selected production budget.
+
+- Source baseline: 20234cc7; james/s2-nav-rework, fresh origin/main comparison 89 ahead / 0 behind, clean main worktree.
+- Isolated local worktree: ../coworld-ctf-worktrees/nav-throughput-research, branch james/nav-throughput-research.
+- Claude peer: tmux nav-research-peer. Owns PEER_PLAN.md and META_RESEARCH.md only until next negotiated unit. Main owns all other paths.
+- Live budget is 1,024; historical handoff section 3 value 4,096 is stale. Moving-goal historic x86 numbers invalidated by threat-cloud harness confound.
+- Broker aws.readonly account 751442549699 has no sandbox devbox; sandbox identity fallback resolved i-0bd98ccf84b6ea6a6 at 3.81.19.75, m6i.8xlarge, running. SSH confirms Xeon 8375C, 32 vCPU, 16 cores, SMT2, one NUMA node.
+- Broker role Kubernetes call rejected Unauthorized. Configured kube identity succeeds. Game nodes are in softmax-tournament, not softmax-main (main contains app/infra nodes). Production game pod/node join being captured.
+- Remote ~/metta and its services are protected. Old ~/coworld-ctf-nav has dependency directories and an older HEAD; create a separate research checkout rather than update it.
+- Devbox root 84% used / 32 GiB available. Avoid Docker builds there without a capacity check.
+- Meta-research and baseline protocol review underway. No main optimization experiment may start before loop is recorded and peer reviewed.
+- No Asana write, publishing, push, PR or merge authorized. Updates are local artifacts only.
+- B0 registered in BASELINE_PREREG.md then launched at remote PID 3005344, nohup ~/run_nav_throughput_baseline_20260909.sh, results ~/nav-throughput-results-20260909/B0. 1024 completed; sweep continues. Raw files retrieved incrementally.
+- First local tool change imports existing bitworld/profile and starts/finishes Fluffy capture around --tick only. This uses existing game-thread markers; no production src change. Separate profiled executable/run required; profile startup text means stdout is not clean JSON for that diagnostic run.
+- B0 complete: three pinned repeats at all four budgets. Report B0_REPORT.md, 72 validated rows B0_SUMMARY.json, B0_SHA256SUMS. Largest tested headroom-passing B1024; largest tested ordinary4/5-passing B2048 (max4.994589 is near boundary). Neither is complete production qualification.
+- Fluffy PROFILE complete at B1024, 756 tick frames / 18144 seat observations, trace and per-name summary retained. Scheduled danger and planning dominate trace durations; nested totals overlap. No guest installed in this synthetic harness, so no invokeStep proof; actual profiled server/demo still required.
+- I0 extra-clock off/A-A registered, launched remote PID3047188; separate on-A1, off-B, on-A2 binaries, three interleaved repeats each; inspect results and compare pop arrays before claiming equivalence.
+- Metta CLI preflight: clean metta_6 main fast-forwarded to current 79891cfa; plain uv refused outside Nix, corrected via nix develop (no bypass). CLI help verified. No coworld/softmax CLI used yet.
+- Owned new sandbox host created with current metta box CLI: jamesboggs-nav-throughput-c6a, i-0b37d010a49d1a53d, c6a.4xlarge, public98.91.195.140, AMI ami-05a3e9423ae4d7a19. Creation at about22:18UTC. Track host lifetime and terminate only this owned instance when campaign no longer needs it. Broker does not vend sandbox identity; metta box uses sandbox SSO. CLI also uses existing GitHub login (broker does not vend GitHub) and its standard setup credential transfer.
+- Original coworld main tree remains clean; experiment changes only in isolated nav-throughput-research worktree. No algorithm/src changes yet.
+- C6a setup initial clone failed early EOF because setup raced the still-transferring bundle (orchestrator error). Transfer completed; local and remote SHA256 now match f5f33cad75c66f39661b7b85a59779d8ad4fc15ab82fc85eef3a626ffc1fc5d8. Failed clone left no checkout. Resume clone/sync/fetch only, retain original failure log; no benchmark data existed or was discarded.
+- I0 complete and all9 pop arrays identical; see I0_REPORT.md. No consistent clock-removal speedup established. GameVersion guard passes current baseline: mainGV62, branchGV63.
+
+## Resume checkpoint (22:26UTC approximate)
+
+- Active goal thread01a08835-4e9b-7ae0-af9f-3af82e9023d3; do not mark complete. User asked follow handoff, including long research effort.
+- Peer accepted research loop (PEER_CARDS section7). Then granted exclusive ownership of tools/bench_body_nav_rework.nim for --latency addition, preserving root profile/timing toggle edits. Read LATENCY_BRIEF.md; main must NOT edit harness while peer works. Peer sentinel LATENCY HARNESS READY. Peer report research/LATENCY_REPORT.md. No other src owner.
+- Correct completion marker is installedRoute.revision, not seat.revision (request generation). Reset sets generations to0. Peer must prove actual publication and preserve tick workloads.
+- C6a setup now complete, EPYC7R13 16vCPU/8cores/SMT2, root190GiB free. B0-c6a prereg frozen before launch; sweep remotePID9272 using same four budgets and three pinned repetitions, no algorithm change. Runtime deps under that checkout. Collect ~/nav-throughput-results-20260909/B0 into local B0-c6a (NOT B0, which is Xeon).
+- Xeon full quality+activation launched remotePID3063502 at B1024 baseline binary. Results ~/nav-throughput-results-20260909/QUALITY. Check run.exit and JSON completeness. Not canonical Docker yet. Inspect pool/shared memory versus handoff16MiB and complete allocation ledger; current global cap256MiB includes colossal and needs explicit justification.
+- metta box new session exec81159 is still transferring standard CLI credentials/settings after successful host initialization; no need to repeat launch. Failed Claude skill-transfer printed; not needed for benchmark host. Poll completion once as needed.
+- Next: verify peer diff and latency semantics; build/run two fresh latency processes on real hardware; finish C6a baseline and appropriate fleet-tail comparison; retain selected exact-B first-goal latency; finish inherited fixtures/viewer/full-suite/compile shapes/containment/Docker/docs. Do NOT start H11/H2 optimization before inherited Phase10/11 done.
+- Documentation checkpoint audit: tested runner outputs and reports agree; B0 summary validates72 rows,120 samples/row, nearest-rank p95 and max, pop cap. I0 report matches all9 raw JSONs. Fluffy valid JSON and existing marker counts verified. No source behavior changes this session yet; tool profiling/timing toggle documented in RESEARCH_LOOP/I0/PROFILE reports. Broader Phase11 docs audit remains pending.
+
+- Quality3072/0missing/0illegal passed, expected route hash. Memory gap identified: conservative shared pool17510959B>16MiB; global256MiB gate insufficient. Proposed half-size default existing Dial bucket ring saves1572864B; pending peer review, no src change. Full colossal262713692B justifies256MiB cap only for total colossal.
+
+## Continuation1
+
+Previous turn classified progress (baseline+I0+Fluffy+platform evidence, owned host provisioned).
+- Fresh origin fetch still89ahead/0behind; no rebase needed. Main Coworld remains protected.
+- Full B0-c6a complete:1024 worst2.481313/2.568848ms;2048 3.168633/3.276519 PASS headroom;3072 3.820500/3.964618 PASS4/5 only;4096 4.514640/4.783795 FAIL. B0_C6A_SUMMARY.json validates72 rows.
+- C6a qualification prep installed CI-pinned Nim2.2.10 via nimby, both server shapes and builds of server/baseline/four shards completed (inspect exit files). No full suite run yet; final fixtures and memory fix may require recompilation first. Docker pins2.2.4 separately; B0 uses2.2.6 for historic comparability.
+- tools/record_br_golden.sh needed missing --threads:on/-d:noSignalHandler on server and verification builds. Added flags; bash syntax check passes. Existing native script otherwise fails with sanctioned WASMTIME_C_API set. No gameplay/source change.
+- Owned tail host via current metta box CLI: jamesboggs-nav-throughput-m5a, i-08b7fb62b50e0740a, m5a.4xlarge,3.90.148.165. Started around22:30UTC. Setup transferring baseline bundle then pinned toolchain; task terminal handle39160 is CLI credential-copy tail, do not repeat launch. Record lifetime and retire only owned hosts when work no longer needs them.
+
+## Continuation 2 checkpoint
+
+- M5a setup complete, actual AMD EPYC 7571 /16 vCPU /8 cores SMT2. B0-m5a preregistered then launched PID9517 via run_nav_baseline.sh. B1024 finished; matrix ongoing, no concurrent benchmark on host. Collect remote B0 into local B0-m5a, never overwrite Xeon B0.
+- Peer MEMORY_REVIEW.md confirms correct shared scope and exact Dial collision semantics. M0_PREREG.md registered. Root changed only default bucket count to131072 (max supported262144 unchanged) and added route/pop-count equality test comparing262144/131072/2 buckets under variable danger.
+- Focused test_shell_body_nav_rework passes on c6a with CI Nim2.2.10, useMalloc, runtime-linked. Log remote QUALIFICATION/test-nav-memory.log, RESULT0. Candidate is not accepted yet.
+- M0 interleaved parent/candidate tick plus candidate full quality/activation launched c6a PID16705, run_memory_qualification.sh, results M0/. Uses original unchanged harness, Nim2.2.6 matched to B0, B1024. No benchmark concurrency. Pool shared cap still must be added to harness after peer ownership ends, and all65 activation rows checked explicitly.
+- LATENCY peer provisional finding: far waves hit2000tick cap; periodic danger generation refresh unconditionally restarts search (~63 restarts per wave). Root verified publishDangerGeneration and cancelStaleRouteJob source. This is not yet real-EC2 latency evidence. Preserve all failures. Peer still owns harness until LATENCY HARNESS READY; report/durable local LATENCY/ being finalized. Must verify on EC2 and resolve inherited correctness/acceptance implications before choosing budget or starting optimization programme.
+- Root sent peer request to finish report/sentinel and release harness so pool memory gate can be added. No production generation behavior changed. Do not suppress refreshes or tune wave cap to produce success.
+- No commits, viewer/fixture/full-suite completion, or Phase10/11 sentinel yet. Goal remains active.
+
+- Peer delivered LATENCY HARNESS READY and durable LATENCY_REPORT.md/LATENCY raw data+hashes. Root owns harness again. Added explicit shared upper-bound field and pool16MiB gate to activationRow, including all allocator overhead conservatively. Not yet final tested.
+- Peer now independently reviewing liveness semantics and existing dynamic invalidation practice, read LIVENESS_REVIEW_BRIEF.md; owns only LIVENESS_REVIEW.md. No src edits authorized for peer.
+- Xeon originalsrc B1024 latency diagnostic launched PID3154181 using run_latency_xeon.sh, two sequential fresh processes, CPU5, results remote LATENCY/. Harness includes completion workload and pool memory gate; source unchanged, separate from M0. Collect to local LATENCY-xeon rather than peer Mac LATENCY/.
+- M0 three interleaved processes each finished. Local M0/TIMING_SUMMARY.json verifies36 rows/120samples and every parent/candidate pop array equal. Parent worstp95/max2.484543/2.524236ms, candidate2.484964/2.642113ms. Both headroompass; no material p95 improvement claimed.
+- M0 original quality command incorrectly used Docker-only --all and canonical guard refused before work. Failure JSON/stderr/exit retained. Correct native --quality --activation with new gated harness is running via shell session90187 on c6a; build log build-candidate-gated.log, native-quality-activation.*. This is explicitly noncanonical; canonical Docker stillrequired. Harness remoteSHA256 matched local f460932dd22fbbfb4987deacc576f8894c3f9f2d68f6bcb70bb2c82ad05f6a33 duringcompile. Transfer session12558 completed. EarlierM0DONE onlymeansscriptended, NOT qualitypass.
+- Next collect native quality/memory and m5a fullB0 (poll loghandle87177), verify Xeonlatency and peer liveness review; finish Phase10/11 gaps beforeoptimizations. Nativecorrectedrun90187 ongoing; ownedc6a/m5a remain billable, originalXeonprotected.
+
+## Continuation 3 checkpoint
+
+Previous turn: progress, not merely waiting. This turn collected decisive measurements.
+- B0-m5a complete, source20234cc7, AMD EPYC7571. B1024 worstp95/max6.055890/6.129271ms; higher budgets fail too. B0_M5A_SUMMARY.json validates72 rows. Registered floor follow-up completed B0/256/512: worst4.237955/4.292386,4.677157/4.777420,5.129240/5.168551ms. Even zero pops fails ordinary4ms p95, so budget tuning alone cannot qualify this production family. Retain B0-m5a-floor/; no selected fleet budget.
+- Xeon LATENCY two processes complete, non-timing data identical to one another and peer Mac results. Farwaves all capped2000ticks (80/160 unpublished seatwaves); near18/48/51 and54/135/141. LATENCY_XEON_REPORT.md. Search-cadence failure is now real-EC2 reproduced.
+- M0 native fullcorpus passes same3072/hash/pops; all64 pool shared totals manually verified <=16MiB, largest15938095B; colossal total261140828B. First native compile raced harness transfer, lacked new capfields; retained and reported honestly. Subsequent forced rebuild after verified transfer passed --activation --pool-index29 (largestpool+colossal) with new capfields; M0/gate-verified.json and gate-harness.sha256. Canonical fullDocker stillpending.
+- M0 viewer Docker rebuild completed handle34466, changesonlytrackedctf_replay.wasm. Moduleeval/stamp running in nexttoolhandle; inspect log. Source notchanged duringbuild. Freshfetchstill89ahead/0behind.
+- L0 registered in L0_PREREG.md, peer LIVENESS_REVIEW.md accepted with corrections underway. Preserve in-flight job only for exact ordered source equality; retain installed-route expiry everycadence to keepzonepricefreshness. Public rebuildDanger/initializeDanger remain forced; reuse onlyin scheduled path. No L0src editsyet. Need meaningful tests, GameVersionclaimscan/bump because maskschange, ninefixtures/viewer/finalqual.
+- Provisioningc8i-flex attempted using sanctionedmettaCLI; RunInstances refused VcpuLimitExceeded (account208vCPU). No c8i launched. CLI richtraceback exposedGitHubOAuthcredential in tooloutput. User immediately alerted and asyncrotation request sent. Never copyrawtraceback/token toartifacts. Furtherprovisioning throughcredential paused pendingrotation andcapacity. Existingofflinebenchmarks/localworkcontinue. m8i notattempted. No tokenrevocationdonewithoutuserauthorization; no secretmatchesinresearch artifact scan.
+- Existingownedhosts c6a i-0b37d010a49d1a53d andm5a i-08b7fb62b50e0740a stillrunning/billable andneeded; originalXeonprotected. No additionalinstancecreated. No Asana/push/PR/merge.

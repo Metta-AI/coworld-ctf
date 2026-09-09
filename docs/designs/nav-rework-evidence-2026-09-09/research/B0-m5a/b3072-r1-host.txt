@@ -1,0 +1,22 @@
+Wed Sep  9 22:41:36 UTC 2026
+ 22:41:36 up 11 min,  0 users,  load average: 1.07, 0.80, 0.43
+    PID %CPU COMMAND
+      1  0.5 systemd
+     11  0.2 kworker/u32:0-ext4-rsv-conversion
+    111  0.1 kworker/u34:0-flush-259:0
+    629  0.1 snapd
+   1406  0.1 amazon-ssm-agen
+   5036  0.1 determinate-nix
+      2  0.0 kthreadd
+      3  0.0 pool_workqueue_release
+      4  0.0 kworker/R-rcu_g
+      5  0.0 kworker/R-rcu_p
+      6  0.0 kworker/R-slub_
+      7  0.0 kworker/R-netns
+      8  0.0 kworker/0:0-cgroup_free
+     10  0.0 kworker/0:0H-events_highpri
+     12  0.0 kworker/R-mm_pe
+     13  0.0 rcu_tasks_rude_kthread
+     14  0.0 rcu_tasks_trace_kthread
+     15  0.0 ksoftirqd/0
+     16  0.0 rcu_sched

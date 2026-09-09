@@ -1,0 +1,22 @@
+Wed Sep  9 22:25:33 UTC 2026
+ 22:25:33 up 7 min,  0 users,  load average: 1.30, 0.59, 0.25
+    PID %CPU COMMAND
+      1  0.4 systemd
+     11  0.1 kworker/u32:0-events_power_efficient
+    115  0.1 kworker/u32:1-events_power_efficient
+    395  0.1 kworker/u32:5-events_power_efficient
+    422  0.1 kworker/u32:6-events_power_efficient
+    620  0.1 snapd
+   1402  0.1 amazon-ssm-agen
+   4842  0.1 determinate-nix
+   7030  0.1 sshd
+      2  0.0 kthreadd
+      3  0.0 pool_workqueue_release
+      4  0.0 kworker/R-rcu_g
+      5  0.0 kworker/R-rcu_p
+      6  0.0 kworker/R-slub_
+      7  0.0 kworker/R-netns
+      9  0.0 kworker/0:0H-events_highpri
+     10  0.0 kworker/0:1-events
+     12  0.0 kworker/R-mm_pe
+     13  0.0 rcu_tasks_rude_kthread

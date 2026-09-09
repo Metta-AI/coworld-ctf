@@ -1,0 +1,13 @@
+*.bundle
+B0/bench-*
+I0/bench-*
+I0/cache-*/
+PROFILE/bench-*
+B0-c6a/bench-*
+B0-m5a/bench-*
+M0/bench-*
+M0/cache-*/
+LATENCY/bench-*
+LATENCY/cache-*/
+B0-m5a-floor/bench-*
+LATENCY-xeon/bench-*
