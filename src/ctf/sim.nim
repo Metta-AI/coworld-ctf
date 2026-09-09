@@ -628,6 +628,28 @@ proc claimAchievement*(sim: var SimServer, team: Team, tree: Tree, tier: int,
       let factor = recutAchievementFactor(tier, effectiveFirst)
       sim.gloryProduct[team] = sim.recutFoldObserved(team, factor)
       amount = factor
+    # S4b (epic 25d9108e, follow-on to S5) — "bank lights the jackpot":
+    # orthogonal to whichever tier-pricing table just ran above (classic or
+    # `catalogV3Reprice`), applied strictly AFTER it, TOP TIER ONLY (the
+    # same tier FIRST-claim already singles out). `sim.claimed` already
+    # carries every prior claim this episode — no new state, reused as-is.
+    if tier == AchievementTiers - 1 and sim.config.achievementLightableModes:
+      var lightCount = 0
+      for lowerTier in 0 ..< AchievementTiers - 1:
+        if sim.claimed[team][achievementKey(tree, lowerTier)]: inc lightCount
+      let bonus = recutModeLitBonus(lightCount)
+      if bonus > 1:
+        sim.gloryProduct[team] = sim.recutFoldObserved(team, bonus)
+        amount = amount * bonus
+        sim.emitEvent(GloryDeed, target = ord(team), weapon = "achModeLit",
+          amount = bonus, content = "GLORY_ACH_MODE_LIT")
+      # Fire counter (GLORY_ACH_MODE_LIT): logged on EVERY top-tier claim
+      # while armed, bonus==1 included, so the full lightCount/bonus
+      # distribution -- not just the "lit" cases -- is reconstructable from
+      # the log alone (same idiom as GLORY_CAP_HIT above).
+      sim.logGameEvent("GLORY_ACH_MODE_LIT team=" & teamText(team) &
+        " tree=" & $tree & " lightCount=" & $lightCount &
+        " bonus=" & $bonus)
     sim.teamGlory[team] = int(sim.recutCurrentScore(team))
   inc sim.deedCounts[dAchievement]
   sim.deedGloryMass[dAchievement] += amount
