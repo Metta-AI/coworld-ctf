@@ -1,4 +1,4 @@
-*Verified against `coworld` CLI package version resolving to `paintbot:0.7.367` (GV61 / Glory 16), 2026-09-09.*
+*Verified against `coworld` CLI package version resolving to `paintbot-v0.7.372` (GV61 / Glory 16), 2026-09-09.*
 
 Getting a policy from nothing to a real league entry is five steps: download
 the coworld package, prove it runs locally against the bundled starter
