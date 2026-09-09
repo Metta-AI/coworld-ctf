@@ -29,7 +29,7 @@ export glory
 
 const
   GameName* = "ctf"
-  ReplayCompatibleGameVersions* = ["62"]
+  ReplayCompatibleGameVersions* = ["63"]
     ## The replay-load allowlist (play-calling design §4.3): versions whose
     ## recorded files still play back correctly under THIS engine. PROVEN
     ## invariant, not a style choice — `test_replay_compat.nim`'s "the
@@ -138,8 +138,18 @@ const
     ## RewardAccount on the wire. Widening requires a real archived fixture
     ## that survives initialization and stepping (PM ruling, 2026-08-30),
     ## never a header rewrite.
-  GameVersion* = "62"
-    ## GV62 (GLORY GRADIENT S6 SHIP, GloryVersion 17, epic 25d9108e -- DRAFT,
+  GameVersion* = "63"
+    ## GV63 (POP-BUDGETED MIXED-GRID BODY ROUTES): replaces the Season 2
+    ## body's hierarchical primary follower and route-field minter with one
+    ## episode-wide resumable exact-Q8 search over precomputed 4 px legality,
+    ## wall/danger fine nodes, and reconstructable 8 px bridges. Stable SJF
+    ## admission spends at most 4,096 pops per tick while legal steering covers
+    ## every wait or bounded failure. This changes play-seat movement and thus
+    ## replay trajectories; it does not change the flatty keyframe layout.
+    ## Colossal navigation now admits the measured dense representation under
+    ## a 256 MiB retained-navigation cap with exact packed int16 seat weights.
+    ##
+    ## Previously GV62 (GLORY GRADIENT S6 SHIP, GloryVersion 17, epic 25d9108e -- DRAFT,
     ## owner GLORYVERSION GO required before this PR merges): arms, on the
     ## battle-royale-s2 flagship variant's manifest ONLY, the five S5
     ## switches #501 built and proved dark (`catalogV3Reprice`,
