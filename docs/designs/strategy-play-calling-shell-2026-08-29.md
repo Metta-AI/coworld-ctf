@@ -292,7 +292,7 @@ boundedly. The graph precomputes exact 4 px legality, keeps 4 px nodes in the
 danger-dilated region and static wall band, and contracts exact cold chains
 between 8 px anchors elsewhere. Costs use exact packed Q8 danger values with
 widened arithmetic. One episode-wide width-1 Dial queue and generation-stamped
-workspace spend at most 4,096 exact pops per simulation tick; they never clear
+workspace spend at most 1,024 exact pops per simulation tick; they never clear
 or allocate map-sized storage on a query or tick path.
 
 Each seat owns one newest pending request and a fixed span buffer. Stable

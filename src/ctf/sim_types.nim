@@ -143,7 +143,7 @@ const
     ## body's hierarchical primary follower and route-field minter with one
     ## episode-wide resumable exact-Q8 search over precomputed 4 px legality,
     ## wall/danger fine nodes, and reconstructable 8 px bridges. Stable SJF
-    ## admission spends at most 4,096 pops per tick while legal steering covers
+    ## admission spends at most 1,024 pops per tick while legal steering covers
     ## every wait or bounded failure. This changes play-seat movement and thus
     ## replay trajectories; it does not change the flatty keyframe layout.
     ## Colossal navigation now admits the measured dense representation under

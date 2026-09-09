@@ -90,7 +90,7 @@ and the replay), so any two streams join on it. Seat lists are printed as
   without a route; `no_progress` means neither path can make physical
   progress; and `arrived` means the validated endpoint is reached. The two
   seat lists identify the states most useful for diagnosis. Printed once a
-  second. Route work itself is bounded by the episode-wide 4,096-pop budget;
+  second. Route work itself is bounded by the episode-wide 1,024-pop budget;
   the removed legacy `SHELL_PLAN_BUDGET` event is no longer emitted.
 - `SHELL_COMBAT tick=T fired= aligning= none_shootable= vetoed=
   no_enemy= none_shootable_seats=[...] aligning_seats=[...]` — weapon-path

@@ -16,7 +16,7 @@ type
     brfValidation
 
 const
-  BodyRoutePopBudgetPerTick* = 4_096
+  BodyRoutePopBudgetPerTick* = 1_024
   BodyFineStepPx* = 4
   BodyRouteSpanCap* = 4_096
   BodyEndpointAttachmentCap* = 512
