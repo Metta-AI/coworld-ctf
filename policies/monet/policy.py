@@ -909,14 +909,21 @@ def adjust_entries(entries, context, view):
     # already clear their own floors -- a harmless no-op there).
     entries = _normalize_bodyguard(entries)
 
-    # FINAL FOUR (see FINAL4_DETOUR_MAX/_final4 above): evaluated only when
-    # the zone-timer endgame phase is NOT already active, so this never
-    # fights the existing _in_marquee_zone_window-gated clamps below (T22's
-    # MARQUEE CLOCK BAND, the fire_superiority phase pin) -- it fills the
-    # gap where F4 is reached before the ring gets there. If the ring DOES
-    # get there first, the pre-existing endgame branches own the ladder
-    # exactly as before this change, unmodified.
-    final4 = (not _in_marquee_zone_window(view)) and _final4(view)
+    # FINAL FOUR (see FINAL4_DETOUR_MAX/_final4 above): keyed on _final4
+    # alone -- v50's FINAL4_DIAG.md measured the old
+    # `(not _in_marquee_zone_window(view)) and _final4(view)` gate at 0/693
+    # armed episodes: 304/304 real model calls with alive_teams<=4 already
+    # had the zone-timer endgame active (100% overlap, mean 1.34 calls/
+    # episode means most of a match runs on canned turns with no fresh
+    # call at all), so the AND-NOT construction never arbitrated a real
+    # conflict -- it permanently disabled this clamp. The two clamps touch
+    # disjoint fields (fire_superiority.pressRange/finishRange in MARQUEE
+    # CLOCK BAND below vs. supply_run/loot.detourMax here) and both
+    # already use min(), so stacking is naturally safe -- no exclusion
+    # needed. If a genuine shared-field conflict is ever found, resolve it
+    # by explicit precedence (apply endgame's clamp first, let final4's
+    # min() tighten further), not by re-adding a blanket AND-NOT gate.
+    final4 = _final4(view)
     if final4:
         # "Once" needs a scratchpad that survives turn to turn -- `context`
         # itself is a fresh dict rebuilt from seat.context every call (see
@@ -925,10 +932,19 @@ def adjust_entries(entries, context, view):
         # carries a flag forward; a plain context[...] write here would
         # silently re-log every single turn instead of once per episode.
         pstate = context.setdefault("_pact_state", {})
+        # FINAL4_COMMITTED (v50): set on every final4-true turn (synthetic
+        # or real) so starter_harness.maybe_final4_reemit -- which shares
+        # this SAME persisted dict via seat.pact_state -- can see a real
+        # model call already committed a clamped ladder at alive_teams<=4
+        # and skip its own one-shot synthetic resend (no double commit).
+        pstate["final4_committed"] = True
+        synthetic = context.get("_synthetic_trigger") == "final4-reemit"
+        reason_suffix = " reason=final4-reemit" if synthetic else ""
         if not pstate.get("final4_logged"):
             pstate["final4_logged"] = True
             alive = (view.get("world") or {}).get("alive_teams")
-            starter_harness._log(PERSONA, f"final4: alive_teams={alive!r}")
+            starter_harness._log(
+                PERSONA, f"final4: alive_teams={alive!r}{reason_suffix}")
 
     for entry in entries:
         if entry.get("play") == "jackal":
@@ -1014,7 +1030,7 @@ def adjust_entries(entries, context, view):
                     starter_harness._log(
                         PERSONA,
                         f"final4 clamp: supply_run.detourMax {old_detour!r} "
-                        f"-> {FINAL4_DETOUR_MAX}")
+                        f"-> {FINAL4_DETOUR_MAX}{reason_suffix}")
                 params["detourMax"] = new_detour
         elif entry.get("play") == "loot" and final4:
             # FINAL4 (see FINAL4_DETOUR_MAX above): same clamp shape as
@@ -1032,7 +1048,7 @@ def adjust_entries(entries, context, view):
                 starter_harness._log(
                     PERSONA,
                     f"final4 clamp: loot.detourMax {old_detour!r} "
-                    f"-> {FINAL4_DETOUR_MAX}")
+                    f"-> {FINAL4_DETOUR_MAX}{reason_suffix}")
             params["detourMax"] = new_detour
 
     # MARQUEE CLOCK BAND (T22): the v10 fix -- woundedPct zeroed so "ANY
