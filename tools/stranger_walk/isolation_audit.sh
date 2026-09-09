@@ -130,6 +130,34 @@ if echo "$CRED_SCAN_OUT" | grep -q 'result=FAIL'; then
   HITS=$((HITS + 1))
 fi
 
+# v1.5: the stranger's own docker builds happen inside a PER-RUN
+# docker-in-docker sidecar (own daemon, ephemeral storage, private network
+# — see run_container.sh's start_sidecar/stop_sidecar_and_scan) — never the
+# host's docker socket. Its images can't be scanned live at audit time
+# (the sidecar and its storage are torn down at run end, possibly long
+# before an audit runs) — run_container.sh persists a `docker save` of
+# every image the sidecar held to a local tar file under
+# $RUN_DIR/sidecar_images/ BEFORE tearing the sidecar down, specifically so
+# this scan can still happen here, later, with no live daemon needed.
+SIDECAR_IMAGES_DIR="$RUN_DIR/sidecar_images"
+SIDECAR_SCAN_COUNT=0
+if [ -d "$SIDECAR_IMAGES_DIR" ]; then
+  for TARFILE in "$SIDECAR_IMAGES_DIR"/*.tar; do
+    [ -e "$TARFILE" ] || continue
+    SIDECAR_SCAN_COUNT=$((SIDECAR_SCAN_COUNT + 1))
+    IMG_SCAN_OUT="$(python3 "$SCRIPT_DIR/credential_scan.py" docker-image-tarfile "$RUN_DIR" "$TARFILE" 2>&1)"
+    echo "$IMG_SCAN_OUT"
+    if echo "$IMG_SCAN_OUT" | grep -q 'result=FAIL'; then
+      HITS=$((HITS + 1))
+    fi
+  done
+fi
+if [ "$SIDECAR_SCAN_COUNT" -eq 0 ]; then
+  echo "DOCKER IMAGE SCAN: N/A — no sidecar image(s) recorded for this run (none built, or a bare run.sh/host-mode run with no sidecar at all)"
+fi
+
+# Legacy path (pre-v1.5, host-docker-socket opt-in — superseded by the
+# sidecar above but kept for any older run dir that still has it).
 DOCKER_IMAGES_FILE="$RUN_DIR/docker_images_created.txt"
 if [ -f "$DOCKER_IMAGES_FILE" ] && [ -s "$DOCKER_IMAGES_FILE" ]; then
   while IFS= read -r IMG; do
@@ -140,8 +168,6 @@ if [ -f "$DOCKER_IMAGES_FILE" ] && [ -s "$DOCKER_IMAGES_FILE" ]; then
       HITS=$((HITS + 1))
     fi
   done < "$DOCKER_IMAGES_FILE"
-else
-  echo "DOCKER IMAGE SCAN: N/A — no new docker image(s) recorded for this run (docker socket disabled by default, or none built)"
 fi
 
 if [ "$HITS" -gt 0 ]; then
