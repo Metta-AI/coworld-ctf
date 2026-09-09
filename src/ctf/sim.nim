@@ -2777,6 +2777,24 @@ proc recutJointActOnDamage(sim: var SimServer,
   ## never reaches here. Priced at the VICTIM's site, like every
   ## victim-site deed (Amendment 7 §1's territory precedent).
   ##
+  ## ALLIANCE GATE (owner ruling 2026-09-08, task f3fe0b4f, GloryVersion
+  ## 15): JOINT ACT is an ALLIANCE deed, not a co-fire deed — a
+  ## contributing seat mints ONLY if it shares an ACTIVE formal pact
+  ## (`pactActive`, the GV56 mutual-pact registry) with at least one
+  ## OTHER contributing team on this same incident. Two-plus unallied
+  ## teams jackaling the same victim (the pre-gate behaviour) now mints
+  ## NOTHING for anyone — the ≥2-duos test below stays as the cheap
+  ## necessary-but-not-sufficient early-out (a pact needs a second team
+  ## to exist at all), and the real gate is the per-seat pact check in
+  ## the mint loop. Own-team contributors are unaffected: a duo was never
+  ## required to hold a pact with itself, so a duo's second seat still
+  ## rides in once ANY of its teammates clears the cross-team pact check
+  ## against another contributing team. A seat with no pact partner yet
+  ## simply stays pending (not marked minted) and gets re-evaluated on
+  ## the incident's next qualifying hit — mirroring the pre-existing
+  ## retroactive-mint behaviour for seats that arrived before the
+  ## ≥2-duos threshold was met.
+  ##
   ## Called ONLY armed+winAsMultiplier+brMode — a dark or v13-armed game
   ## never touches `recutJointSeats`, which is the byte-identity guard.
   while sim.recutJointSeats.len < sim.players.len:
@@ -2815,6 +2833,14 @@ proc recutJointActOnDamage(sim: var SimServer,
   var minting: seq[int] = @[]
   for entry in sim.recutJointSeats[victimIndex].mitems:
     if entry.minted:
+      continue
+    let selfTeam = sim.players[entry.seat].team
+    var pactPartner = false
+    for t in duos:
+      if t != selfTeam and sim.pactActive(selfTeam, t):
+        pactPartner = true
+        break
+    if not pactPartner:
       continue
     entry.minted = true
     minting.add entry.seat
@@ -8230,9 +8256,23 @@ template pruneAgedFx(sim: var SimServer, fxField, tickField: untyped,
   ## Keeps the entries of one aged FX/state seq that are younger than `life`
   ## ticks (the entry is in scope as `fx` inside the `life` expression, for
   ## per-entry lifetimes). Same copy-filter shape every pruned seq used.
+  ##
+  ## FX PRUNE FIX (harness task f4d7de6e): every producer across all 10
+  ## `pruneAgedFx` call sites stamps `tickField` with `sim.tickCount` at
+  ## creation (verified by grep — none schedules an fx ahead of the tick it
+  ## fires on), so `fx.tickField > sim.tickCount` is never a legitimately
+  ## future-scheduled entry, only a stale one left over from a tick count
+  ## that has since moved BACKWARD under it (a replay seek/rewind that
+  ## resets `sim.tickCount` without also clearing the FX seqs). The
+  ## un-gated `sim.tickCount - fx.tickField` went NEGATIVE for such an
+  ## entry, and `negative < life` is true for any `life > 0` — pre-fix,
+  ## that entry survived every prune pass FOREVER regardless of how many
+  ## ticks actually elapsed. Such an entry is dropped outright now, the
+  ## same tick its staleness is observed, rather than being aged like a
+  ## normal (non-negative) entry.
   var kept: typeof(sim.fxField) = @[]
   for fx {.inject.} in sim.fxField:
-    if sim.tickCount - fx.tickField < life:
+    if fx.tickField <= sim.tickCount and sim.tickCount - fx.tickField < life:
       kept.add fx
   sim.fxField = kept
 

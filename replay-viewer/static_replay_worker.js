@@ -271,6 +271,16 @@ self.onmessage = function (event) {
       // there) for the in-arena pulse ring — see broadcast_core.js
       // setFlashCalls.
       if (core.setFlashCalls) core.setFlashCalls(message.calls);
+    } else if (message.type === 'downedSeats' && core) {
+      // STALE BODIES FIX: forwarded from the page's setDownedSeats
+      // passthrough (static_replay.js) — without this the Worker's own
+      // BroadcastCore instance, which owns the OffscreenCanvas actually
+      // drawing the board, never learned which seats to fade.
+      if (core.setDownedSeats) core.setDownedSeats(message.seats);
+    } else if (message.type === 'eliminatedSeats' && core) {
+      // STALE BODIES FIX: same gap as downedSeats above, for the
+      // never-draw-an-eliminated-seat's-rig invariant.
+      if (core.setEliminatedSeats) core.setEliminatedSeats(message.seats);
     } else if (message.type === 'command' && core) {
       core.sendCommand(message.text || '');
       applyInputNow();

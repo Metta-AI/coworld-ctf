@@ -1090,6 +1090,15 @@ publishes on `main` today:**
   CTF-arming; `recutWinFactor` returns ×1 there. **With the flag off, as it is
   today, the win pays as the `dVictory` ×8 deed** (`sim.nim:5683-5686`) and
   `dTagBack`/`dJointAct` are not priced at all.
+  **`dJointAct` is alliance-only (GloryVersion 15, owner ruling 2026-09-08):**
+  a contributing seat mints only if it shares an ACTIVE formal pact
+  (`pactActive`, `sim_state.nim:219`) with at least one OTHER contributing
+  team on the same 120-tick damage incident (`recutJointActOnDamage`,
+  `sim.nim:2762`); unallied multi-team co-fire on one victim now mints
+  nothing. `dTagBack` was checked and needed no change: its cross-team
+  revive already requires `pactActive` as a precondition (`sim.nim:8068-8070`,
+  ALLIANCE P1 2026-09-07), so it could never mint off a non-pact cross-team
+  revive.
 - **`deedMintCaps`** (bool, default off; **ARMED on `battle-royale-s2`** —
   reads only under an armed recut): a per-episode, per-duo mint budget for
   every deed whose repeat count is not bounded by a scarce contested resource
