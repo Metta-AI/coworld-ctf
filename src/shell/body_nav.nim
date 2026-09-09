@@ -964,7 +964,7 @@ proc chainToSide(system: BodyNavSystem; startCell, side: int): tuple[
     targetPoint = system.routeIndex.routePoint(int32(target))
     estimate = routeOctileQ4(startPoint, targetPoint)
   result.distanceQ4 = uint32(min(high(uint32).int64, estimate))
-  result.firstStep = int32(target)
+  result.firstStep = if target == startCell: -1'i32 else: int32(target)
   result.found = true
 
 proc safeSourceSide(system: BodyNavSystem; startSide: int): int =
