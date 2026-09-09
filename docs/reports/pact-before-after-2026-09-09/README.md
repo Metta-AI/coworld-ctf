@@ -1,12 +1,14 @@
 # Monet pact before/after dataset (2026-09-09)
 
 This dataset measures Monet's (our Season 2 Paintbot policy's) pact
-behavior and ladder outcomes across six policy versions spanning the
-2026-09-09 pact fixes: v44 (the pre-fix baseline), v45, v46, v47, v48, and
-v49 (now a full n=717 ladder read across rounds 4545-4603). "Pact" here means the in-game
-alliance mechanic: two teams declare each other as partners and, once the
-declaration is mutual, hold fire and can act jointly for the rest of the
-episode.
+behavior and ladder outcomes across seven policy versions spanning the
+2026-09-09 pact fixes: v44 (the pre-fix baseline), v45, v46, v47, v48,
+v49 (a full n=717 ladder read across rounds 4545-4603), and v50 (an
+interim n=47 read across rounds 4607-4610 -- the first version where the
+final-four detour clamp actually reaches the wire). "Pact" here means the
+in-game alliance mechanic: two teams declare each other as partners and,
+once the declaration is mutual, hold fire and can act jointly for the rest
+of the episode.
 
 ## How this was measured
 
@@ -66,6 +68,11 @@ roughly 2.3x longer on average. Rounds 4545-4551 (engine 0.7.367,
 GameVersion 60) are pre-GV16; rounds 4552-4603 are post-GV16. This dataset
 reports both a pooled v49 row and the two era-split rows
 (`v49_pre_gv16`, `v49_post_gv16`) in `summary.csv` and `episodes.csv`.
+v50's entire read window (rounds 4607-4610) sits inside this same GV16 era
+(builds 0.7.375-0.7.376, both a strict superset of 0.7.374's GameVersion,
+confirmed unchanged via `sim_types.nim`), so v50 needs no era split -- its
+one `summary.csv`/`episodes.csv` row is directly comparable to
+`v49_post_gv16` and nothing else.
 
 **What is comparable across this seam and what is not:** win rate,
 rank<=4, and score-ratio are all read from the API's own per-episode
@@ -93,6 +100,24 @@ pre/post-GV16 rows as a fight-length artifact, not a policy effect.
  reached the final four with a detour attempted), so on the ladder v49
  is functionally v48 for this one mechanic -- the fix is shipped and
  harmless, but has not yet been exercised by a real final four.
+- **v50** -- dropped the gate that kept v49's final-four clamp from ever
+ arming (the gate required the zone-ring endgame to be inactive, which in
+ practice always overlapped with reaching the final four, so the clamp
+ code was unreachable). Read at n=47 (rounds 4607-4610): the clamp now
+ reaches the wire -- the policy's own "final4" phase line fires in 11/47
+ episodes, 100% of the 8/47 where a second, independent log signal
+ (Monet's periodic "Teams still alive" line) also confirms alive_teams<=4
+ while Monet was still alive. A known follow-up gap reproduces at this
+ n: a separate harness code path ("ladder maintenance", used to re-sync
+ pact partners) can re-install an uncapped loot/supply_run detour after
+ the clamp has already fired, in 3 of the 11 phase-reached episodes (real,
+ multi-second exposure in 1 of the 3; near-zero in the other 2 because the
+ episode ended immediately after). Win/rank/formed/kickoff are all flat
+ vs `v49_post_gv16` at this n; the final-four engagement-initiative and
+ P(F2|F4) metrics this fix specifically targets have not moved yet either,
+ but the F4-reached sub-sample is small (n=11-17) -- see `v50`'s row in
+ `summary.csv` for the exact figures and `READ_N40.md` under
+ `/tmp/monet_v50/read/` for the full read.
 
 ## The field reference: how often rivals form pacts, and when
 
@@ -113,11 +138,12 @@ get theirs registered; Monet, declaring only pre-match, did not.
 
 - `summary.csv` -- one row per version (or control cohort), aggregate
  metrics with confidence intervals where available.
-- `episodes.csv` -- one row per episode, merged across all seven read
- cohorts (v44_baseline, v44_gv15_control, v45, v46, v47, v48, v49). v49's
- 717 rows carry `era` = `GV15` or `GV16` per round (see the GV16 era note
- above); `v49_pre_gv16` / `v49_post_gv16` in `summary.csv` are the same
- 717 episodes split on that boundary, not a separate read.
+- `episodes.csv` -- one row per episode, merged across all eight read
+ cohorts (v44_baseline, v44_gv15_control, v45, v46, v47, v48, v49, v50).
+ v49's 717 rows carry `era` = `GV15` or `GV16` per round (see the GV16 era
+ note above); `v49_pre_gv16` / `v49_post_gv16` in `summary.csv` are the
+ same 717 episodes split on that boundary, not a separate read. v50's 47
+ rows are all `era` = `GV16` (see the v50 era note above).
 - `REPORT.md` / `REPORT.html` -- the before/after narrative, funnel table,
  outcome table, and one chart (`REPORT.html` only).
 - `CHECKS.md` -- independent recomputation of n / formed-count / win-count
@@ -129,7 +155,7 @@ get theirs registered; Monet, declaring only pre-match, did not.
 
 | column | meaning |
 |---|---|
-| `version` | internal read-cohort label (`v44_baseline`, `v44_gv15_control`, `v45`..`v48`, `v49`) |
+| `version` | internal read-cohort label (`v44_baseline`, `v44_gv15_control`, `v45`..`v48`, `v49`, `v49_pre_gv16`, `v49_post_gv16`, `v50`) |
 | `platform_version` | the ladder's own policy-version number, where a source file states it explicitly; "n/a" / "(inferred...)" otherwise -- see CHECKS.md |
 | `policy_version_id` | first 8 hex characters of the full policy-version UUID |
 | `rounds` | the round-number range the n episodes were drawn from |
@@ -138,7 +164,7 @@ get theirs registered; Monet, declaring only pre-match, did not.
 | `declared_wire_pct` | % of episodes where Monet's own committed call named at least one pact partner |
 | `declared_sim_pct` | % of episodes where the game engine's own event log recorded Monet actually declaring in-sim (requires the post-match-start registration point); "n/a (pre-GV15)" where the mechanism did not yet exist to measure |
 | `formed_pct` | % of episodes where a pact became mutual (both sides recorded the declare) |
-| `kickoff_coverage_pct` | % of episodes where Monet's re-affirm-at-match-start line fired (v46+ only) |
+| `kickoff_coverage_pct` | % of episodes where Monet's re-affirm-at-match-start line fired (v46+ only) -- **two different sub-definitions live under this one column name**: v46/v47 count the strict `reason=kickoff` label only (rare, ~8%, the natural first-call case); v48/v49/v50 count the broader `reason=kickoff-reemit` label (the harness's synthetic re-emit introduced in v47, ~83-92%). Do not read a jump between v47 and v48 on this column as the mechanism suddenly working 10x better -- it is a metric-definition change, not a policy change. v50 uses the same `kickoff-reemit` definition as v48/v49, so it IS comparable to those two. |
 | `partners_per_commit` | mean number of partner seats named per committed pact-aim line |
 | `jointact_per_ep` | mean count of the joint-action reward event credited to Monet per episode (see era caveat above) |
 | `tags_per_ep_mean` / `_median` | mean/median count of scoring "tag" events credited to Monet's seat per episode |
@@ -199,3 +225,13 @@ source pipeline's own v49 report, it is a different, narrower metric.
  reads as functionally-v48 on the ladder for that one mechanic.
 - `platform_version` for v45 could not be found in any source file read
  for this dataset (see CHECKS.md).
+- v50 is an **interim** read at n=47 (meets the n>=40 floor, but marked
+ interim because it is a single read of a mechanism that only just started
+ arming, with an open follow-up gap): the final-four clamp reaches the
+ wire for the first time (11/47 phase-line fires), but a ladder-
+ maintenance-resend path can still leak an uncapped detour past it (3/11
+ phase-reached episodes, real exposure in 1 of the 3). The F4-outcome
+ metrics (engaged-first share, P(F2|F4)) this fix targets are read on a
+ small sub-sample (n=11-17 F4-reached episodes) and have not shown a
+ measurable move yet vs `v49_post_gv16`. See `/tmp/monet_v50/read/
+ READ_N40.md` for the full read.

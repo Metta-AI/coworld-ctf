@@ -17,6 +17,7 @@ the VERDICT/READ markdown tables quote).
 | v49 (pooled) | 717 | 717 | OK | 198 | 198 | OK | 26 | 26 | OK |
 | v49_pre_gv16 | 80 | 80 | OK | 19 | 19 | OK | 3 | 3 | OK |
 | v49_post_gv16 | 637 | 637 | OK | 179 | 179 | OK | 23 | 23 | OK |
+| v50 | 47 | 47 | OK | 14 | 14 | OK | 1 | 1 | OK |
 
 ## Result: ALL MATCH
 
@@ -49,3 +50,20 @@ the VERDICT/READ markdown tables quote).
   (grepped all of /tmp/monet_v45/read/*.md and recip/*.md for "platform"); v48's
   platform_version (49) is inferred from v49's SHIPPED.md line "Platform max Monet
   version was 49 pre-upload", not from a v48 file stating it directly.
+- v50 (2026-09-09, n=47, rounds 4607-4610, policy_version_id 31e09e78,
+  platform_version 51 per SHIPPED.md's "Uploaded policy-monet:v50 ...
+  -> Monet:v51") is a fresh read, not a refresh of an existing cohort.
+  n / formed_k / win_k above are recomputed straight from
+  `/tmp/monet_v50/read/v50_episodes_rows.csv` (itself built from
+  `v50_n40_rows.json`) and match `v50_n40_metrics.json`'s own
+  `pact_formed_k`=14 / `win_k`=1 fields exactly, with 0/47 decode
+  failures. `kickoff_coverage_pct` (85.1%) uses the same `kickoff-reemit`
+  broad definition as v48/v49 (see README's kickoff_coverage_pct note),
+  computed by `/tmp/monet_v50/read/v50_extras.py` against the same cached
+  policy logs. `tags_per_ep_*` (mean 1.574, median 1, share_2plus 38.3%,
+  n=47) uses the identical `glory_deed`-any-kind-credited-to-our-seat
+  definition as v44-v49 (`tags_and_kickoff_final.py`'s `tags_per_ep()`),
+  also computed by `v50_extras.py` against the decoded replay cache
+  under `/tmp/monet_v50/read/cache/v50_n40/decoded/`. Marked INTERIM in
+  `summary.csv`'s verdict column per the read brief, not because any
+  check failed -- see README's Known Gaps.
