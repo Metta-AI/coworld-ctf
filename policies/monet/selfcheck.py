@@ -1395,6 +1395,63 @@ reemit_d = starter_harness.maybe_kickoff_reemit(PERSONA, v47a_seat_d, AVAILABLE)
 check("(v47a-d) KICKOFF RE-EMIT: DUO path untouched -- no-op",
       reemit_d is None, str(reemit_d))
 
+# ── v47 MERGE INTEGRATION (v47a kickoff-reemit x v47b cap-5/fallback-3):
+# huddle turn with NO chat invitations at all (pure fallback, cap=5 never
+# even approached) names the 3 nearest live rivals; the first Playing turn
+# then arrives with NO model call in between -- maybe_kickoff_reemit must
+# resend those SAME 3 fallback partners, tagged reason=kickoff-reemit, and
+# because "fallback" is not in CONFIRMED_PACT_REASONS ({"invited",
+# "reciprocate"}), the target_law mirror must carry ZERO never-target
+# entries for them -- the re-emit path must not launder an unconfirmed
+# fallback into a confirmed never-target guarantee just because the
+# harness (not the model) is the one re-sending it.
+_V47_MERGE_ROSTER = [{"seat": i} for i in range(8)]
+v47_merge_seat = fake_seat(
+    context={"self": {"seat": 3, "duo_partner": None}, "roster": _V47_MERGE_ROSTER},
+    view={"self": {"pos": [0, 0]},
+          "tracks": [{"seat": 1, "team": 1, "pos": [10, 0]},
+                     {"seat": 2, "team": 2, "pos": [20, 0]},
+                     {"seat": 4, "team": 4, "pos": [30, 0]},
+                     {"seat": 5, "team": 5, "pos": [999, 0]}]})
+_, v47_merge_huddle_entries = starter_harness.repair_call(
+    PERSONA.canned_turns[0], PERSONA, v47_merge_seat, AVAILABLE)
+v47_merge_huddle_pact = next(
+    (e for e in v47_merge_huddle_entries if e["play"] == "pact"), None)
+check("(v47-merge) setup: huddle turn (no chat invites, no tick yet) "
+      "falls back to the 3 nearest live rivals (1, 2, 4), no kickoff yet",
+      v47_merge_huddle_pact is not None
+      and set(v47_merge_huddle_pact["params"]["partners"])
+          == {"seat:1", "seat:2", "seat:4"}
+      and not v47_merge_seat.pact_state.get("kickoff_committed"),
+      str(v47_merge_huddle_pact))
+
+v47_merge_seat.view = {"tick": 800, "self": {"pos": [0, 0]}, "tracks": []}
+_v47_merge_log = _io.StringIO()
+with _contextlib.redirect_stdout(_v47_merge_log):
+    v47_merge_reemit = starter_harness.maybe_kickoff_reemit(
+        PERSONA, v47_merge_seat, AVAILABLE)
+_v47_merge_pact = (next((e for e in v47_merge_reemit[1]
+                          if e["play"] == "pact"), None)
+                    if v47_merge_reemit is not None else None)
+_v47_merge_law = (next((e for e in v47_merge_reemit[1]
+                         if e["play"] == "target_law"), None)
+                   if v47_merge_reemit is not None else None)
+check("(v47-merge) KICKOFF RE-EMIT with NO model call resends the SAME 3 "
+      "fallback partners, tagged reason=kickoff-reemit",
+      v47_merge_reemit is not None
+      and _v47_merge_pact is not None
+      and set(_v47_merge_pact["params"]["partners"])
+          == {"seat:1", "seat:2", "seat:4"}
+      and "reason=kickoff-reemit" in _v47_merge_log.getvalue()
+      and v47_merge_seat.pact_state.get("kickoff_committed") is True,
+      repr(_v47_merge_log.getvalue()))
+check("(v47-merge) CONFIRMED-ONLY GATE holds on the re-emit path: all 3 "
+      "resent partners are fallback-only (never invited/reciprocated), so "
+      "target_law's never-list carries ZERO of them",
+      not (set(_v47_merge_pact["params"]["partners"])
+           & set((_v47_merge_law or {}).get("params", {}).get("never", []))),
+      str((_v47_merge_law or {}).get("params", {}).get("never")))
+
 # ── (b) verbatim field reciprocation line (RECIPROCITY.md #3, round 4519
 # 480898f1, seat 10/orange, our seat 12): carries NONE of the ORIGINAL
 # _PACT_KEYWORDS ("reciprocates"/"hold fire" only) -- must still be read
