@@ -5,7 +5,7 @@
 ## execution. This module owns only the server-side lifecycle,
 ## default-order installation, mask handoff, annotations, and timing split.
 
-import std/[json, monotimes, options, os, sequtils, strformat, strutils, times]
+import std/[json, math, monotimes, options, os, sequtils, strformat, strutils, times]
 import bitworld/[profile, spriteprotocol]
 import ../ctf/sim_types
 import body_map
