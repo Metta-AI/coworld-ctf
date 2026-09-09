@@ -1346,10 +1346,14 @@ html, body {
 }
 /* ---- BR (elim) variant: a winner-dominant hero card + a ranked, compressed
    field list — replaces the per-team KDA panel grid above, which is still
-   used as-is for classic 2-4 team CTF (#endcard .ec-teams:not(.br)). BR has
-   no per-match glory data yet (that lane lands separately), so this shows
-   only what the wire actually carries: lives, placement, and kills summed
-   from the roster — never a glory/XP/rank vocabulary. */
+   used as-is for classic 2-4 team CTF (#endcard .ec-teams:not(.br)). This
+   view predates the glory-first hero card ported to replay_broadcast.html
+   (no per-team glory column here — that lane still lands separately), so
+   the ranked field list below shows only what it always has: lives,
+   placement, and kills summed from the roster. The hero card's own
+   MATCH GLORY line (2026-09-08, .mg-splash below) is the one glory number
+   on this page: the COMBINED total across every team, not a per-team
+   breakdown. */
 #endcard .ec-teams.br {
   flex-direction: column;
   align-items: center;
@@ -1374,6 +1378,44 @@ html, body {
 #endcard .ec-hero-line {
   font-family: var(--finefont);
   font-size: calc(10.5 * var(--u));
+  color: var(--paper-dim);
+}
+/* MATCH GLORY (owner 2026-09-08): the COMBINED total across every team,
+   win or draw — celebrates the MATCH's show. This view predates the
+   glory-first hero card (no ec-glory-hero-num here), so the combined
+   total stands alone as the card's only glory readout — sized to read as
+   a secondary stat under the hero name/line, amber like every other
+   glory readout on the platform, small-caps label inline rather than a
+   second stacked block — no new box, per house style. The tier line
+   beneath is the show review: quiet italic caps, no exclamation, no emoji. */
+#endcard .mg-splash {
+  margin-top: calc(4 * var(--u));
+  padding-top: calc(4 * var(--u));
+  border-top: 1px solid rgba(232, 163, 61, 0.25);
+}
+#endcard.on .mg-splash { animation: cardfade 220ms ease-out 700ms both; }
+#endcard .mg-total {
+  font-family: var(--pixfont);
+  font-variant-numeric: tabular-nums;
+}
+#endcard .mg-total-label {
+  font-size: calc(9 * var(--u));
+  letter-spacing: 0.14em;
+  color: var(--paper-dim);
+  margin-right: calc(4 * var(--u));
+}
+#endcard .mg-total-num {
+  font-size: calc(20 * var(--u));
+  color: var(--amber);
+  text-shadow: 0 calc(1.5 * var(--u)) 0 var(--ink);
+}
+#endcard .mg-line {
+  margin-top: calc(2 * var(--u));
+  font-family: var(--finefont);
+  font-style: italic;
+  font-size: calc(9.5 * var(--u));
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
   color: var(--paper-dim);
 }
 #endcard .ec-field {
@@ -1778,6 +1820,14 @@ html, body {
     animation-duration: 1ms; animation-delay: 0ms;
   }
 }
+@media (prefers-reduced-motion: reduce) {
+  /* MATCH GLORY splash (2026-09-08): its fade-in collapses to the end state
+     instantly, same specificity as the animating rule (a lower-specificity
+     neutralizer loses the cascade and keeps animating). */
+  #endcard.on .mg-splash {
+    animation-duration: 1ms; animation-delay: 0ms;
+  }
+}
 
 /* ============================================================
    EMBED MODE — inside the League Replayer shell (?embed=1)
@@ -2021,6 +2071,22 @@ body[data-noviewpanel] #viewpanel { display: none !important; }
   var captureTeam = C.captureTeam, ingestBeats = C.ingestBeats, setVerdict = C.setVerdict;
   var ingestLeadSeries = C.ingestLeadSeries, recordMomentum = C.recordMomentum;
   var renderMomentum = C.renderMomentum;
+  // MATCH GLORY lead-change tracking (see matchGloryLeadChanges below) needs
+  // the full-match {teams, pts} series chrome_common.js's ingestLeadSeries
+  // caches -- but that cache lives in chrome_common's own PRIVATE closure
+  // and isn't part of its returned surface, and chrome_common.js carries a
+  // byte-identical fingerprint pin (tests/test_pb_viewer.nim) that must stay
+  // untouched. So this re-parses the same once-per-episode wire field
+  // (`s.lead`) into its own local copy instead of reaching in. Kept
+  // byte-identical to the copy in replay_broadcast.html.
+  var mgLeadFull = null;
+  function mgIngestLead(s) {
+    if (mgLeadFull || !s.lead || Array.isArray(s.lead)) return;
+    mgLeadFull = {
+      teams: s.lead.teams || [],
+      pts: (s.lead.pts || []).map(function (p) { return { t: p[0], vals: p.slice(1) }; })
+    };
+  }
   var getSpoilers = C.getSpoilers, setSpoilers = C.setSpoilers;
 
   // ---- eye-level cog art for the EYES PiP billboards ----
@@ -2656,6 +2722,10 @@ body[data-noviewpanel] #viewpanel { display: none !important; }
     ecTeams = null;
     sbTeams = null;
     resetZoneEndcard();
+    // MATCH GLORY: a new episode is a new match, so the once-per-episode
+    // lead series must re-derive from the incoming stream (same reasoning
+    // as every other latch this function already clears).
+    mgLeadFull = null;
     C.resetEpisode();
     if (window.PaintballChrome && window.PaintballChrome.reset) {
       window.PaintballChrome.reset();
@@ -2726,6 +2796,7 @@ body[data-noviewpanel] #viewpanel { display: none !important; }
     // come from events only; on a jump the tracker resync'd (no events), so we
     // keep whatever markers we already collected.
     ingestLeadSeries(s);
+    mgIngestLead(s);
     ingestFpMap(s);
     ingestLullSpans(s);
     // The up-front beat timeline is the OTHER path heart chrome rides
@@ -4608,7 +4679,19 @@ body[data-noviewpanel] #viewpanel { display: none !important; }
       hero.className = 'ec-hero';
       hero.innerHTML =
         '<div class="ec-hero-name" id="ec-hero-name">—</div>' +
-        '<div class="ec-hero-line" id="ec-hero-line"></div>';
+        '<div class="ec-hero-line" id="ec-hero-line"></div>' +
+        // MATCH GLORY (2026-09-08, owner): the COMBINED total across every
+        // team, win OR draw — the match is the show, so a draw reviews
+        // itself too (see matchGloryTier for the scale-free tiering law).
+        // Empty/hidden (JS display:none gate) on a replay whose wire
+        // carries no glory field at all. This view predates the
+        // glory-first hero card (no ec-glory-hero-num), so this is the
+        // ONLY glory readout on this page's endcard.
+        '<div class="mg-splash" id="mg-splash">' +
+        '<div class="mg-total"><span class="mg-total-label">MATCH GLORY</span> ' +
+        '<span class="mg-total-num" id="mg-num">0</span></div>' +
+        '<div class="mg-line" id="mg-line"></div>' +
+        '</div>';
       wrap.appendChild(hero);
       var field = document.createElement('div');
       field.className = 'ec-field';
@@ -4673,6 +4756,135 @@ body[data-noviewpanel] #viewpanel { display: none !important; }
     return n;
   }
 
+  // Glory totals run to five and six figures, and a wall of digits is not a
+  // score anyone can read at a glance on a card that holds for ten seconds.
+  // Abbreviate above 10k, keep one decimal so 16.6k and 16.1k stay
+  // distinguishable, and leave everything below 10,000 exact. Kept
+  // byte-identical to the copy in replay_broadcast.html (same idiom this
+  // file already follows for ordinal/teamKillTotal/rosterIsSolo above).
+  var GLORY_UNITS = ['k', 'M', 'B', 'T', 'Q'];
+  function gloryText(v) {
+    if (typeof v !== 'number' || !isFinite(v)) return '—';
+    var a = Math.abs(v), sign = v < 0 ? '-' : '';
+    if (a < 10000) return String(v);   // four digits still scan; keep them exact
+    // The ladder runs to Q on purpose: S2 glory is a RUNAWAY with no cap and
+    // has been measured at 9.15 QUADRILLION, so stopping at M would print
+    // "9150000000M" on the very card that is supposed to be readable.
+    var n = a, u = -1;
+    while (n >= 1000 && u < GLORY_UNITS.length - 1) { n /= 1000; u++; }
+    var t = trimTenth(n);
+    // Rounding can push a value up into the next unit (999,999 -> "1000k").
+    if (t === '1000' && u < GLORY_UNITS.length - 1) { t = '1'; u++; }
+    return sign + t + GLORY_UNITS[u];
+  }
+  function trimTenth(n) {
+    // 16.6 keeps its tenth; 20.0 renders as 20, not "20.0".
+    var r = n.toFixed(1);
+    return r.slice(-2) === '.0' ? r.slice(0, -2) : r;
+  }
+  function teamGloryOf(o, team) {
+    // The verdict frame's per-team round glory, or null when the wire
+    // predates the glory port (never coerce a missing field to 0 — 0 is a
+    // real ledger value).
+    var g = o.teams && o.teams[team] && o.teams[team].glory;
+    return typeof g === 'number' ? g : null;
+  }
+
+  // ── MATCH GLORY: combined total + show-review tier ──────────────────────
+  // Owner design law: the MATCH is the show, so a draw earns this number
+  // too, not just a decided winner's own ledger. Tiering used to cut at
+  // absolute glory floors (2000/2300/2600/3100, lifted from one field
+  // snapshot) -- dead the moment the S2 economy retunes: glory today reaches
+  // 9.15 QUADRILLION with no cap and has measured NEGATIVE (-60). Every cut
+  // below is a RATIO or a COUNT instead, so neither moves if the units
+  // retune again. Kept byte-identical to the copy in replay_broadcast.html.
+  //
+  // matchGloryMargin: 0 = the top two teams are dead even, 1 = a runaway.
+  // abs() on the numerator AND on each total means a field that runs
+  // entirely negative (or straddles zero) still produces a sane ratio, and
+  // scaling every total by the same positive constant never changes the
+  // result (see tests/test_match_glory.mjs's x1e6 case).
+  function matchGloryMargin(totals) {
+    var sorted = (totals || [])
+      .filter(function (v) { return typeof v === 'number' && isFinite(v); })
+      .sort(function (a, b) { return b - a; });
+    if (sorted.length < 2) return 1; // nothing to race against reads as a runaway
+    var top = sorted[0], second = sorted[1];
+    var spread = Math.abs(top) + Math.abs(second);
+    return spread > 0 ? Math.abs(top - second) / spread : 0;
+  }
+  // matchGloryLeadChanges: counts how many times the argmax team identity
+  // flips across a {teams, pts:[{t, vals[]}]} series -- the same shape
+  // chrome_common.js's ingestLeadSeries reads off the wire's `s.lead` field,
+  // re-parsed locally here by mgIngestLead rather than reaching into
+  // chrome_common's own private fullLeadSeries closure (chrome_common.js
+  // carries a byte-identical fingerprint pin and stays untouched). A tie
+  // keeps the previous leader -- a tie is not a change -- and the opening
+  // all-zero tick never crowns a "leader": kickoff itself is never change #1.
+  function matchGloryLeadChanges(series) {
+    if (!series || !series.pts || !series.pts.length) return 0;
+    var changes = 0, leader = null, seen = false;
+    for (var k = 0; k < series.pts.length; k++) {
+      var vals = series.pts[k].vals || [];
+      var top = null, topV = -Infinity;
+      for (var i = 0; i < vals.length; i++) {
+        if (typeof vals[i] === 'number' && vals[i] > topV) { topV = vals[i]; top = i; }
+      }
+      if (top === null) continue;
+      if (!seen) {
+        if (topV === 0) continue; // nobody has scored yet -- no leader to name
+        leader = top; seen = true; continue;
+      }
+      if (top !== leader) { changes++; leader = top; }
+    }
+    return changes;
+  }
+  // The show-review line. Priority-ordered (first match wins), same idiom
+  // as the absolute-floor table this replaces. Line choice inside a tier is
+  // itself scale-free (seeded off margin+changes, never off the raw
+  // totals), so a x1e6 scale test can assert the exact string, not just
+  // the tier id.
+  var MG_TIERS = [
+    { id: 'razor', test: function (m) { return m < 0.08; },
+      lines: ['RAZOR-CLOSE, START TO FINISH', 'DECIDED IN THE FINAL EXCHANGE',
+        'NEITHER SIDE EVER PULLED CLEAR'] },
+    { id: 'backforth', test: function (m, c) { return c >= 3 && m < 0.4; },
+      lines: ['THE LEAD CHANGED HANDS REPEATEDLY', 'NEITHER SIDE HELD IT FOR LONG',
+        'A MATCH THAT KEPT REVERSING'] },
+    { id: 'contested', test: function (m, c) { return c >= 1 && m < 0.65; },
+      lines: ['CONTESTED TO THE FINISH', 'THE LEAD HELD, BARELY', 'EARNED, NOT HANDED OVER'] },
+    { id: 'clear', test: function (m) { return m < 0.85; },
+      lines: ['A CLEAR RESULT, NO DRAMA', 'SETTLED EARLY, HELD LATE', 'STEADY FROM START TO FINISH'] },
+    { id: 'rout', test: function () { return true; },
+      lines: ['ONE-SIDED FROM THE START', 'NEVER IN DOUBT', 'A RESULT, NOT A CONTEST'] }
+  ];
+  function matchGloryTier(margin, changes) {
+    var m = typeof margin === 'number' && isFinite(margin) ? Math.max(0, Math.min(1, margin)) : 1;
+    var c = Math.max(0, changes || 0);
+    for (var i = 0; i < MG_TIERS.length; i++) {
+      if (MG_TIERS[i].test(m, c)) {
+        var pool = MG_TIERS[i].lines;
+        return { id: MG_TIERS[i].id, line: pool[(c + Math.round(m * 97)) % pool.length] };
+      }
+    }
+    return { id: 'rout', line: MG_TIERS[MG_TIERS.length - 1].lines[0] };
+  }
+  // Odometer target parts: the sign and unit (k/M/B/T/Q) are decided ONCE,
+  // off the FINAL total, and held static for the whole roll -- only the
+  // mantissa counts up. A negative total rolls its MAGNITUDE up with the
+  // minus sign held static throughout. Mirrors gloryText's own carry rule
+  // so the LANDED frame can always be swapped for gloryText(v)'s own
+  // byte-exact output.
+  function gloryOdometerParts(v) {
+    if (typeof v !== 'number' || !isFinite(v)) return { sign: '', unit: '', mantissa: 0 };
+    var sign = v < 0 ? '-' : '', a = Math.abs(v);
+    if (a < 10000) return { sign: sign, unit: '', mantissa: a };
+    var n = a, u = -1;
+    while (n >= 1000 && u < GLORY_UNITS.length - 1) { n /= 1000; u++; }
+    if (trimTenth(n) === '1000' && u < GLORY_UNITS.length - 1) { n = 1; u++; }
+    return { sign: sign, unit: GLORY_UNITS[u], mantissa: n };
+  }
+
   // BR end-card body: winner-dominant hero + the rest of the field in
   // placement order, compressed past BR_SHOW_RANKS. Placement comes from the
   // wire's over.teams[team].place when the server ships it (BR games only);
@@ -4712,6 +4924,30 @@ body[data-noviewpanel] #viewpanel { display: none !important; }
       heroName.style.removeProperty('--tc');
       heroName.textContent = 'NO SURVIVORS';
       heroLine.textContent = 'Every team was eliminated — no team left standing.';
+    }
+
+    // MATCH GLORY: the COMBINED total across every team still in the
+    // episode's ledger — winner-agnostic on purpose, so a draw gets the
+    // same show-review treatment a decided match does (previously a draw
+    // got no glory language at all). Hidden only when the wire carries no
+    // glory field at all: a real combined 0 is an honest dud, an absent
+    // field is not a dud. The tier line reads the CLOSENESS of the final
+    // standings plus how many times the lead actually changed hands
+    // (matchGloryLeadChanges, off the locally re-parsed s.lead series) —
+    // both scale-free.
+    var mgSplash = $('mg-splash');
+    if (mgSplash) {
+      var anyGlory = teams.some(function (t) { return teamGloryOf(o, t) !== null; });
+      mgSplash.style.display = anyGlory ? '' : 'none';
+      if (anyGlory) {
+        var mgTotals = teams.map(function (t) { return teamGloryOf(o, t); })
+          .filter(function (v) { return v !== null; });
+        var mgSum = mgTotals.reduce(function (a, b) { return a + b; }, 0);
+        var mgTier = matchGloryTier(matchGloryMargin(mgTotals), matchGloryLeadChanges(mgLeadFull));
+        $('mg-num').textContent = gloryText(mgSum);
+        $('mg-num').title = mgSum + ' combined glory';
+        $('mg-line').textContent = mgTier.line;
+      }
     }
 
     var rest = winner ? ranked.filter(function (t) { return t !== winner; }) : ranked;
