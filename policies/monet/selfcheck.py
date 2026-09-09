@@ -2677,6 +2677,148 @@ check("(d) send-path enumeration: PERSONA.apply_phase_clamps is wired to "
       "clamp implementation, not two copies that can drift apart",
       PERSONA.apply_phase_clamps is policy.apply_phase_clamps)
 
+# ── v52 (PIN_BYPASS_AUDIT, flagged by the v51 builder): the SAME
+# maintenance-resend leak v51 closed for the final-four detour ceiling
+# applies to fire_superiority's pressRange/finishRange wire fix and
+# supply_run's whenHpBelow re-anchor -- both used to live ONLY in
+# adjust_entries's per-entry loop, which starter_harness's ladder-
+# maintenance resend never runs (fire_superiority is a GATED_PLAY the
+# maintenance resend can re-install straight from seat.wanted_entries).
+# Both pins now live in apply_phase_clamps alongside the final-four clamp
+# (see its own docstring), so the SAME hook the maintenance block already
+# calls (v51's Persona.apply_phase_clamps wiring, unchanged) closes this
+# gap too with no new plumbing. ──────────────────────────────────────────
+
+_V52_ENDGAME_VIEW = {"world": {"zone": {"phase": 6}, "alive_teams": 8},
+                      "self": {"alive": True}}
+_V52_DEFAULT_VIEW = {"world": {"zone": {"phase": 2, "ticks_to_shrink": 500},
+                                "alive_teams": 8},
+                      "self": {"alive": True}}
+
+
+def _v52_fs_entry(press, finish):
+    return [{"play": "fire_superiority", "entry_id": "press",
+             "params": {"pressRange": press, "finishRange": finish,
+                        "engageDist": 600, "woundedPct": 50}}]
+
+
+def _v52_supply_entry(when_hp_below):
+    return [{"play": "supply_run", "entry_id": "bank",
+             "params": {"whenHpBelow": when_hp_below, "detourMax": 300,
+                        "contested": "avoid"}}]
+
+
+# (a) maintenance resend DURING the zone-timer endgame with fire_superiority
+# pressRange 400 / finishRange 140 in wanted_entries -> committed 220/120
+# with the distinguishable '(maintenance)' clamp lines.
+_v52_entries_a = _v52_fs_entry(400, 140)
+_v52_log_a = _io.StringIO()
+with _contextlib.redirect_stdout(_v52_log_a):
+    _v52_fired_a = PERSONA.apply_phase_clamps(
+        _v52_entries_a, _V52_ENDGAME_VIEW, {}, source="maintenance")
+_v52_a_fs = _v52_entries_a[0]
+check("(a) v52 maintenance resend during the zone-timer endgame: "
+      "fire_superiority.pressRange commits 400 -> 220",
+      _v52_fired_a and _v52_a_fs["params"].get("pressRange") == 220,
+      str(_v52_a_fs["params"]))
+check("(a) v52 maintenance resend during the zone-timer endgame: "
+      "fire_superiority.finishRange commits 140 -> 120 (endgame tighten)",
+      _v52_a_fs["params"].get("finishRange") == 120,
+      str(_v52_a_fs["params"]))
+check("(a) v52 maintenance resend logs the distinguishable '(maintenance)' "
+      "clamp lines for both fire_superiority levers",
+      "clamp fire_superiority.pressRange (maintenance) 400->220 "
+      "phase=endgame" in _v52_log_a.getvalue()
+      and "clamp fire_superiority.finishRange (maintenance) 140->120 "
+      "phase=endgame" in _v52_log_a.getvalue(),
+      repr(_v52_log_a.getvalue()))
+
+# Deliberate-break proof: with no clamp hook wired (the pre-v52 shape), the
+# identical stale ladder leaks 400/140 straight through during the endgame
+# window -- proves the (a) checks above discriminate the fix rather than
+# passing unconditionally.
+_v52_entries_break = _v52_fs_entry(400, 140)
+_v52_saved_hook = PERSONA.apply_phase_clamps
+PERSONA.apply_phase_clamps = None
+try:
+    if PERSONA.apply_phase_clamps is not None:
+        PERSONA.apply_phase_clamps(_v52_entries_break, _V52_ENDGAME_VIEW,
+                                   {}, source="maintenance")
+finally:
+    PERSONA.apply_phase_clamps = _v52_saved_hook
+check("(a) v52 BREAK PROOF: with no phase-clamp hook wired to the persona "
+      "(the pre-v52 shape), the identical stale maintenance resend leaks "
+      "fire_superiority.pressRange=400/finishRange=140 straight onto the "
+      "wire during the zone-timer endgame -- the fix above is what closes "
+      "this, not a scenario that was already safe",
+      _v52_entries_break[0]["params"].get("pressRange") == 400
+      and _v52_entries_break[0]["params"].get("finishRange") == 140,
+      str(_v52_entries_break[0]["params"]))
+
+# (b) maintenance resend OUTSIDE the zone-timer endgame: pressRange is
+# still pinned to 220 (the "always" pin -- doctrine is the same 220 in
+# both phase buckets today), finishRange stays untouched at its own
+# (already-doctrine) 140 -- the endgame-only 120 tighten never fires
+# outside the window.
+_v52_entries_b = _v52_fs_entry(400, 140)
+_v52_log_b = _io.StringIO()
+with _contextlib.redirect_stdout(_v52_log_b):
+    _v52_fired_b = PERSONA.apply_phase_clamps(
+        _v52_entries_b, _V52_DEFAULT_VIEW, {}, source="maintenance")
+_v52_b_fs = _v52_entries_b[0]
+check("(b) v52 maintenance resend outside the zone-timer endgame: "
+      "fire_superiority.pressRange is still pinned 400 -> 220",
+      _v52_fired_b and _v52_b_fs["params"].get("pressRange") == 220,
+      str(_v52_b_fs["params"]))
+check("(b) v52 maintenance resend outside endgame: finishRange is left "
+      "untouched at 140 (no endgame tighten, no clamp line logged for it)",
+      _v52_b_fs["params"].get("finishRange") == 140
+      and "finishRange" not in _v52_log_b.getvalue(),
+      repr(_v52_log_b.getvalue()))
+
+# (c) supply_run whenHpBelow drift on the maintenance path -> corrected to
+# doctrine (4), with the distinguishable '(maintenance)' clamp line.
+_v52_entries_c = _v52_supply_entry(6)
+_v52_log_c = _io.StringIO()
+with _contextlib.redirect_stdout(_v52_log_c):
+    _v52_fired_c = PERSONA.apply_phase_clamps(
+        _v52_entries_c, _V52_DEFAULT_VIEW, {}, source="maintenance")
+_v52_c_supply = _v52_entries_c[0]
+check("(c) v52 maintenance resend: supply_run.whenHpBelow drift (6) is "
+      "corrected to doctrine (4) on the maintenance path",
+      _v52_fired_c and _v52_c_supply["params"].get("whenHpBelow") == 4,
+      str(_v52_c_supply["params"]))
+check("(c) v52 maintenance resend logs the distinguishable '(maintenance)' "
+      "whenHpBelow clamp line",
+      "clamp supply_run.whenHpBelow (maintenance) 6->4"
+      in _v52_log_c.getvalue(),
+      repr(_v52_log_c.getvalue()))
+
+# (d) all v51 checks (final-four detour ceiling on the maintenance path)
+# are unaffected by moving the other two pins into the same function --
+# re-run the exact v51 (a) scenario and confirm it still commits 400 -> 150
+# with the same log line shape.
+_v52_d_entries = _f4m_stale_entries()
+_v52_d_log = _io.StringIO()
+with _contextlib.redirect_stdout(_v52_d_log):
+    _v52_d_fired = PERSONA.apply_phase_clamps(
+        _v52_d_entries, _f4m_view_a, dict(_f4m_pact_a), source="maintenance")
+_v52_d_loot = next(e for e in _v52_d_entries if e["play"] == "loot")
+check("(d) v52: v51's final-four maintenance-resend clamp is unaffected by "
+      "moving the other two pins into apply_phase_clamps -- loot.detourMax "
+      "still commits 400 -> 150",
+      _v52_d_fired and _v52_d_loot["params"].get("detourMax") == 150,
+      str(_v52_d_loot["params"]))
+
+# (e) the v51 send-path enumeration (every seat.call( path funnels through
+# apply_phase_clamps) is unaffected -- re-assert the SAME identity check
+# the v51 (d) block above already proved, now that apply_phase_clamps also
+# owns the fire_superiority/supply_run pins.
+check("(e) v52: PERSONA.apply_phase_clamps is STILL wired to the SAME "
+      "function policy.adjust_entries calls internally, now covering all "
+      "three endgame pins in one implementation",
+      PERSONA.apply_phase_clamps is policy.apply_phase_clamps)
+
 # (h) kickoff re-emit and final4 re-emit both fire in ONE episode without
 # interfering: kickoff at the first Playing tick (alive_teams still high),
 # final4 later once the team count drops to <=4. Different flags

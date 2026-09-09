@@ -364,17 +364,19 @@ def _final4(view):
 
 
 def apply_phase_clamps(entries, view, pact_state, source=None):
-    """The ONE clamp point for the final-four detour ceiling
-    (FINAL4_DETOUR_MAX) -- every entries list about to reach the wire must
-    pass through this before it is sent, whether it came from a real model
-    call, one of the two harness reemit helpers, or a maintenance resend.
+    """The ONE clamp point for every ENDGAME-DOCTRINE pin this persona owns
+    -- fire_superiority.pressRange/finishRange, supply_run.whenHpBelow, and
+    the final-four detour ceiling (FINAL4_DETOUR_MAX) -- every entries list
+    about to reach the wire must pass through this before it is sent,
+    whether it came from a real model call, one of the two harness reemit
+    helpers, or a maintenance resend.
 
-    HISTORY (v51, ereq_99f472a2, episode's ~700 exposed ticks): v50 put
-    this clamp inline inside adjust_entries, keyed off a local `final4`
-    variable computed partway through that function. Two gaps fell out of
-    that placement, both silent because neither is a model-authored
-    mistake -- they are wire values the model never even had a chance to
-    submit:
+    HISTORY (v51, ereq_99f472a2, episode's ~700 exposed ticks): v50 put the
+    final-four clamp inline inside adjust_entries, keyed off a local
+    `final4` variable computed partway through that function. Two gaps
+    fell out of that placement, both silent because neither is a
+    model-authored mistake -- they are wire values the model never even
+    had a chance to submit:
 
     1. adjust_entries's own CONVERSION/ARMAMENT steps auto-insert a bare
        supply_run/loot rung (SUPPLY_DEFAULTS/LOOT_DEFAULTS: detourMax
@@ -392,14 +394,27 @@ def apply_phase_clamps(entries, view, pact_state, source=None):
        re-clamp it -- measured ~700 ticks past the final-four phase line
        in ereq_99f472a2.
 
+    v52 (PIN_BYPASS_AUDIT, flagged by the v51 builder): the SAME structural
+    gap exists for the OTHER endgame-doctrine pins that used to live only
+    in adjust_entries's per-entry loop -- fire_superiority's
+    pressRange/finishRange wire fix (FIRE_SUPERIORITY_PRESS_RANGE/
+    FIRE_SUPERIORITY_FINISH_RANGE) and supply_run's whenHpBelow re-anchor
+    (SUPPLY_DEFAULTS["whenHpBelow"]). fire_superiority is a GATED_PLAY, so
+    the maintenance resend can re-install it straight from
+    `seat.wanted_entries` without ever passing back through
+    adjust_entries, exactly like the final-four leak. Both pins move here
+    so every wire send -- model call, either reemit helper, or a
+    maintenance resend -- shares ONE implementation instead of a copy that
+    can drift out of sync with adjust_entries again.
+
     Calling this SAME function from both adjust_entries (after its own
     CONVERSION/ARMAMENT inserts) and from the maintenance resend path
-    directly closes both gaps with one implementation instead of two
+    closes all these gaps with one implementation instead of separate
     copies that can drift apart again.
 
     Mutates `entries` in place (same contract as adjust_entries's other
-    internal steps) and returns True iff the final-four clamp actually
-    changed something on this call (informational only).
+    internal steps) and returns True iff ANY clamp in this function
+    actually changed something on this call (informational only).
 
     `pact_state` is the SAME persisted dict every final4 mechanism already
     shares (`seat.pact_state`, aliased as `context["_pact_state"]` inside
@@ -409,29 +424,18 @@ def apply_phase_clamps(entries, view, pact_state, source=None):
     line twice.
 
     `source` tags where this call came from, log wording only: None for a
-    real model call (v50's original plain wording, unchanged), the string
-    "final4-reemit" for maybe_final4_reemit's synthetic resend (v50's
-    original "reason=final4-reemit" suffix, unchanged), and the new string
-    "maintenance" for starter_harness's ladder-maintenance resend --
-    logged as ``final4 clamp (maintenance): <play>.detourMax <old> -> 150``
-    so a maintenance-triggered clamp is distinguishable in the log from a
-    model-authored one.
+    real model call (v50/v44's original plain wording, unchanged), the
+    string "final4-reemit" for maybe_final4_reemit's synthetic resend
+    (v50's original "reason=final4-reemit" suffix, unchanged), and the
+    string "maintenance" for starter_harness's ladder-maintenance resend
+    -- logged as e.g. ``clamp fire_superiority.pressRange (maintenance)
+    <old> -> 220 phase=<phase>`` or ``final4 clamp (maintenance):
+    <play>.detourMax <old> -> 150`` so a maintenance-triggered clamp is
+    distinguishable in the log from a model-authored one. Real calls get
+    the exact same log text adjust_entries always produced (tag/suffix
+    both empty), so this move is behaviour-identical for that path.
     """
-    if not _final4(view):
-        return False
     pstate = pact_state if pact_state is not None else {}
-    # FINAL4_COMMITTED (v50, unchanged): set on every final4-true turn
-    # (synthetic or real) so starter_harness.maybe_final4_reemit -- which
-    # shares this SAME persisted dict via seat.pact_state -- can see a
-    # clamp already landed at alive_teams<=4 and skip its own one-shot
-    # synthetic resend (no double commit).
-    pstate["final4_committed"] = True
-    if not pstate.get("final4_logged"):
-        pstate["final4_logged"] = True
-        alive = (view.get("world") or {}).get("alive_teams")
-        phase_suffix = " reason=final4-reemit" if source == "final4-reemit" else ""
-        starter_harness._log(
-            PERSONA, f"final4: alive_teams={alive!r}{phase_suffix}")
     if source == "maintenance":
         tag, suffix = " (maintenance)", ""
     elif source == "final4-reemit":
@@ -439,22 +443,84 @@ def apply_phase_clamps(entries, view, pact_state, source=None):
     else:
         tag, suffix = "", ""
     fired = False
+
+    # FIRE_SUPERIORITY WIRE FIX (v44, moved here v52 -- see module docstring
+    # above FIRE_SUPERIORITY_PRESS_RANGE/FIRE_SUPERIORITY_FINISH_RANGE):
+    # pin both levers to the doctrine value for the CURRENT live-zone-clock
+    # phase on every entry about to be sent, on every path -- never trust
+    # the model, a stale cached ladder, or a gated resend to have carried
+    # the right value. pressRange happens to be the SAME doctrine number in
+    # both phase buckets today (220/220), which is what makes it read as
+    # "always pinned"; finishRange still tightens 140 -> 120 in the
+    # zone-timer endgame window (_in_marquee_zone_window), unchanged from
+    # v44.
+    phase = "endgame" if _in_marquee_zone_window(view) else "default"
     for entry in entries:
-        play = entry.get("play")
-        if play not in ("supply_run", "loot"):
+        if entry.get("play") != "fire_superiority":
             continue
         params = entry.setdefault("params", {})
-        old_detour = params.get("detourMax")
-        new_detour = (min(old_detour, FINAL4_DETOUR_MAX)
-                      if isinstance(old_detour, (int, float))
-                      else FINAL4_DETOUR_MAX)
-        if old_detour != new_detour:
+        for field, doctrine_by_phase in (
+                ("pressRange", FIRE_SUPERIORITY_PRESS_RANGE),
+                ("finishRange", FIRE_SUPERIORITY_FINISH_RANGE)):
+            doctrine = doctrine_by_phase[phase]
+            old = params.get(field)
+            if old != doctrine:
+                starter_harness._log(
+                    PERSONA,
+                    f"clamp fire_superiority.{field}{tag} {old!r}->{doctrine} "
+                    f"phase={phase}{suffix}")
+                fired = True
+            params[field] = doctrine
+
+    # SUPPLY_RUN whenHpBelow re-anchor (moved here v52, same fix class as
+    # above -- see SUPPLY_DEFAULTS's own note): pin to doctrine on every
+    # submitted supply_run entry, not just the insert-if-missing rung.
+    for entry in entries:
+        if entry.get("play") != "supply_run":
+            continue
+        params = entry.setdefault("params", {})
+        doctrine = SUPPLY_DEFAULTS["whenHpBelow"]
+        old = params.get("whenHpBelow")
+        if old != doctrine:
             starter_harness._log(
                 PERSONA,
-                f"final4 clamp{tag}: {play}.detourMax {old_detour!r} "
-                f"-> {FINAL4_DETOUR_MAX}{suffix}")
+                f"clamp supply_run.whenHpBelow{tag} {old!r}->{doctrine}{suffix}")
             fired = True
-        params["detourMax"] = new_detour
+        params["whenHpBelow"] = doctrine
+
+    # FINAL FOUR (v50/v51, unchanged logic): only the detour ceiling is
+    # gated on _final4(view) -- the two pins above are NOT final4-gated,
+    # they apply on every call regardless of alive_teams.
+    if _final4(view):
+        # FINAL4_COMMITTED (v50, unchanged): set on every final4-true turn
+        # (synthetic or real) so starter_harness.maybe_final4_reemit --
+        # which shares this SAME persisted dict via seat.pact_state -- can
+        # see a clamp already landed at alive_teams<=4 and skip its own
+        # one-shot synthetic resend (no double commit).
+        pstate["final4_committed"] = True
+        if not pstate.get("final4_logged"):
+            pstate["final4_logged"] = True
+            alive = (view.get("world") or {}).get("alive_teams")
+            phase_suffix = (" reason=final4-reemit"
+                            if source == "final4-reemit" else "")
+            starter_harness._log(
+                PERSONA, f"final4: alive_teams={alive!r}{phase_suffix}")
+        for entry in entries:
+            play = entry.get("play")
+            if play not in ("supply_run", "loot"):
+                continue
+            params = entry.setdefault("params", {})
+            old_detour = params.get("detourMax")
+            new_detour = (min(old_detour, FINAL4_DETOUR_MAX)
+                          if isinstance(old_detour, (int, float))
+                          else FINAL4_DETOUR_MAX)
+            if old_detour != new_detour:
+                starter_harness._log(
+                    PERSONA,
+                    f"final4 clamp{tag}: {play}.detourMax {old_detour!r} "
+                    f"-> {FINAL4_DETOUR_MAX}{suffix}")
+                fired = True
+            params["detourMax"] = new_detour
     return fired
 
 
@@ -1004,18 +1070,24 @@ def adjust_entries(entries, context, view):
     # already clear their own floors -- a harmless no-op there).
     entries = _normalize_bodyguard(entries)
 
-    # FINAL FOUR (see FINAL4_DETOUR_MAX/_final4/apply_phase_clamps above):
-    # v51 (ereq_99f472a2, ~700 exposed ticks) moved the actual detour clamp
-    # into apply_phase_clamps, called once at the END of this function
-    # (after the CONVERSION/ARMAMENT auto-insert below), so an
+    # PHASE CLAMPS (see FIRE_SUPERIORITY_PRESS_RANGE/FIRE_SUPERIORITY_
+    # FINISH_RANGE/SUPPLY_DEFAULTS/FINAL4_DETOUR_MAX/apply_phase_clamps
+    # above): v51 (ereq_99f472a2, ~700 exposed ticks) moved the final-four
+    # detour clamp into apply_phase_clamps, called once at the END of this
+    # function (after the CONVERSION/ARMAMENT auto-insert below), so an
     # auto-inserted supply_run/loot rung the model never named this turn is
     # clamped too -- the OLD inline-only clamp here ran BEFORE that insert
-    # and never saw those rungs at all. starter_harness's ladder-maintenance
-    # resend bypasses this whole function (calls gate_and_build directly on
-    # a cached wanted ladder); apply_phase_clamps is the ONE implementation
-    # both this function and that resend path now share, so a stale
-    # pre-final4 detourMax can no longer survive a maintenance-only resend
-    # either. See apply_phase_clamps's own docstring for the full history.
+    # and never saw those rungs at all. v52 (PIN_BYPASS_AUDIT) moved
+    # fire_superiority's pressRange/finishRange wire fix and supply_run's
+    # whenHpBelow re-anchor into the SAME function for the SAME reason:
+    # starter_harness's ladder-maintenance resend bypasses this whole
+    # function (calls gate_and_build directly on a cached wanted ladder,
+    # never adjust_entries), so a stale/model-wrong value on any of these
+    # three levers could otherwise sit on the wire, re-sent verbatim, for
+    # as long as the maintenance gate kept re-opening with no fresh
+    # model/reemit call. apply_phase_clamps is the ONE implementation this
+    # function and that resend path now share for all three pins. See
+    # apply_phase_clamps's own docstring for the full history.
 
     for entry in entries:
         if entry.get("play") == "jackal":
@@ -1060,42 +1132,12 @@ def adjust_entries(entries, context, view):
                     and isinstance(spacing[0], int)):
                 spacing[0] = max(spacing[0], MIN_SPACING)
                 spacing[1] = max(spacing[1], spacing[0])
-        elif entry.get("play") == "fire_superiority":
-            # WIRE FIX (see FIRE_SUPERIORITY_PRESS_RANGE/
-            # FIRE_SUPERIORITY_FINISH_RANGE above): pin both levers to the
-            # doctrine value for the current phase on every submitted
-            # entry, mirroring the jackal earshot/joinWhen clamp above --
-            # never trust the model to have reproduced a value plays.py's
-            # own brief states incorrectly.
-            params = entry.setdefault("params", {})
-            phase = "endgame" if _in_marquee_zone_window(view) else "default"
-            for field, doctrine_by_phase in (
-                    ("pressRange", FIRE_SUPERIORITY_PRESS_RANGE),
-                    ("finishRange", FIRE_SUPERIORITY_FINISH_RANGE)):
-                doctrine = doctrine_by_phase[phase]
-                old = params.get(field)
-                if old != doctrine:
-                    starter_harness._log(
-                        PERSONA,
-                        f"clamp fire_superiority.{field} {old!r}->{doctrine} "
-                        f"phase={phase}")
-                params[field] = doctrine
-        elif entry.get("play") == "supply_run":
-            # WIRE FIX (see SUPPLY_DEFAULTS's note above): pin whenHpBelow
-            # to doctrine on every submitted entry, not just the
-            # insert-if-missing rung below.
-            params = entry.setdefault("params", {})
-            doctrine = SUPPLY_DEFAULTS["whenHpBelow"]
-            old = params.get("whenHpBelow")
-            if old != doctrine:
-                starter_harness._log(
-                    PERSONA,
-                    f"clamp supply_run.whenHpBelow {old!r}->{doctrine}")
-            params["whenHpBelow"] = doctrine
-            # final4 detourMax clamp: moved to apply_phase_clamps, called
-            # once at the end of this function -- see the FINAL FOUR
-            # comment above for why (auto-inserted rungs, maintenance
-            # bypass).
+        # fire_superiority's pressRange/finishRange wire fix and
+        # supply_run's whenHpBelow re-anchor: moved to apply_phase_clamps
+        # (v52), called once at the end of this function -- see the PHASE
+        # CLAMPS comment above for why (auto-inserted rungs, maintenance
+        # bypass). Same call site also still owns the final4 detourMax
+        # clamp (v51).
 
     # MARQUEE CLOCK BAND (T22): the v10 fix -- woundedPct zeroed so "ANY
     # numeric parity or better now PRESSES instead of holding" -- was
