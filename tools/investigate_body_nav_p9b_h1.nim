@@ -24,7 +24,10 @@ type
   SearchGraph = object
     width, height, step, attachRadius: int
     points: seq[BodyPoint]
+    active: seq[bool]
     legal: seq[uint8]
+    coarseNext: seq[array[8, int32]]
+    activeCount: int
 
   SearchResult = object
     reached: bool
@@ -78,11 +81,38 @@ proc beginSearch(workspace: var SearchWorkspace) =
 proc graphPoint(graph: SearchGraph, x, y: int): BodyPoint {.inline.} =
   graph.points[y * graph.width + x]
 
+proc chooseSubcellAnchor(map: BodyMap, cell: BodyPoint): Option[BodyPoint] =
+  let center = cellCenter(cell)
+  var
+    best = center
+    bestClearance = low(int)
+    bestDistance = high(int)
+  for dy in [0, 4]:
+    for dx in [0, 4]:
+      let point = (x: cell.x * NavCell + dx, y: cell.y * NavCell + dy)
+      if map.cellOf(point) != cell or not map.canStand(point):
+        continue
+      let
+        clearance = map.clearanceAt(point)
+        distance = (point.x - center.x) * (point.x - center.x) +
+          (point.y - center.y) * (point.y - center.y)
+      if result.isNone or clearance > bestClearance or
+          (clearance == bestClearance and
+           (distance < bestDistance or
+            (distance == bestDistance and
+             (point.y < best.y or
+              (point.y == best.y and point.x < best.x))))):
+        result = some(point)
+        best = point
+        bestClearance = clearance
+        bestDistance = distance
+
 proc buildFourPixelGraph(map: BodyMap): SearchGraph =
   result.step = 4
   result.width = (map.width - 1) div result.step + 1
   result.height = (map.height - 1) div result.step + 1
   result.points = newSeq[BodyPoint](result.width * result.height)
+  result.active = newSeq[bool](result.points.len)
   result.legal = newSeq[uint8](result.points.len)
   for y in 0 ..< result.height:
     for x in 0 ..< result.width:
@@ -95,6 +125,8 @@ proc buildFourPixelGraph(map: BodyMap): SearchGraph =
         point = result.points[offset]
       if not map.canStand(point):
         continue
+      result.active[offset] = true
+      inc result.activeCount
       for direction, delta in NavNeighbors:
         let next = (x: x + delta.x, y: y + delta.y)
         if next.x < 0 or next.x >= result.width or
@@ -110,6 +142,7 @@ proc buildSubcellAnchorGraph(map: BodyMap): SearchGraph =
   result.width = map.gridWidth
   result.height = map.gridHeight
   result.points = newSeq[BodyPoint](result.width * result.height)
+  result.active = newSeq[bool](result.points.len)
   result.legal = newSeq[uint8](result.points.len)
   for point in result.points.mitems:
     point = (-1, -1)
@@ -117,33 +150,11 @@ proc buildSubcellAnchorGraph(map: BodyMap): SearchGraph =
     for x in 0 ..< result.width:
       let
         offset = y * result.width + x
-        center = cellCenter((x, y))
-      var
-        found = false
-        best = center
-        bestClearance = low(int)
-        bestDistance = high(int)
-      for dy in [0, 4]:
-        for dx in [0, 4]:
-          let point = (x: x * NavCell + dx, y: y * NavCell + dy)
-          if map.cellOf(point) != (x, y) or not map.canStand(point):
-            continue
-          let
-            clearance = map.clearanceAt(point)
-            distance = (point.x - center.x) * (point.x - center.x) +
-              (point.y - center.y) * (point.y - center.y)
-          if not found or clearance > bestClearance or
-              (clearance == bestClearance and
-               (distance < bestDistance or
-                (distance == bestDistance and
-                 (point.y < best.y or
-                  (point.y == best.y and point.x < best.x))))):
-            found = true
-            best = point
-            bestClearance = clearance
-            bestDistance = distance
-      if found:
-        result.points[offset] = best
+        anchor = map.chooseSubcellAnchor((x, y))
+      if anchor.isSome:
+        result.points[offset] = anchor.get
+        result.active[offset] = true
+        inc result.activeCount
   for y in 0 ..< result.height:
     for x in 0 ..< result.width:
       let
@@ -159,6 +170,86 @@ proc buildSubcellAnchorGraph(map: BodyMap): SearchGraph =
         let nextPoint = result.graphPoint(next.x, next.y)
         if nextPoint.x >= 0 and map.segmentClear(point, nextPoint):
           result.legal[offset] = result.legal[offset] or uint8(1 shl direction)
+
+proc buildMixedWallGraph(map: BodyMap): SearchGraph =
+  result.step = 4
+  result.attachRadius = PortalAnchorRingCells * (NavCell div result.step)
+  result.width = (map.width - 1) div result.step + 1
+  result.height = (map.height - 1) div result.step + 1
+  result.points = newSeq[BodyPoint](result.width * result.height)
+  result.active = newSeq[bool](result.points.len)
+  result.legal = newSeq[uint8](result.points.len)
+  result.coarseNext = newSeq[array[8, int32]](result.points.len)
+  for neighbors in result.coarseNext.mitems:
+    for cell in neighbors.mitems: cell = -1
+  let coarseCount = map.gridWidth * map.gridHeight
+  var
+    nearWall = newSeq[bool](coarseCount)
+    anchors = newSeq[BodyPoint](coarseCount)
+  for anchor in anchors.mitems: anchor = (-1, -1)
+  for y in 0 ..< map.gridHeight:
+    for x in 0 ..< map.gridWidth:
+      let coarse = y * map.gridWidth + x
+      for dy in -2 .. 2:
+        for dx in -2 .. 2:
+          let nearby = (x: x + dx, y: y + dy)
+          if nearby.x < 0 or nearby.x >= map.gridWidth or
+              nearby.y < 0 or nearby.y >= map.gridHeight or
+              not map.cellWalkable(nearby):
+            nearWall[coarse] = true
+      let anchor = map.chooseSubcellAnchor((x, y))
+      if anchor.isSome: anchors[coarse] = anchor.get
+  for y in 0 ..< result.height:
+    for x in 0 ..< result.width:
+      let
+        offset = y * result.width + x
+        point = (x: x * result.step, y: y * result.step)
+        cell = map.cellOf(point)
+        coarse = cell.y * map.gridWidth + cell.x
+      result.points[offset] = point
+      if map.canStand(point) and
+          (nearWall[coarse] or anchors[coarse] == point):
+        result.active[offset] = true
+        inc result.activeCount
+  for y in 0 ..< result.height:
+    for x in 0 ..< result.width:
+      let
+        offset = y * result.width + x
+        point = result.points[offset]
+      if not result.active[offset]: continue
+      for direction, delta in NavNeighbors:
+        let next = (x: x + delta.x, y: y + delta.y)
+        if next.x < 0 or next.x >= result.width or
+            next.y < 0 or next.y >= result.height:
+          continue
+        let nextCell = next.y * result.width + next.x
+        if result.active[nextCell] and
+            map.segmentClear(point, result.points[nextCell]):
+          result.legal[offset] = result.legal[offset] or uint8(1 shl direction)
+  for y in 0 ..< map.gridHeight:
+    for x in 0 ..< map.gridWidth:
+      let
+        anchor = anchors[y * map.gridWidth + x]
+        fromX = anchor.x div result.step
+        fromY = anchor.y div result.step
+      if anchor.x < 0 or fromX < 0 or fromX >= result.width or
+          fromY < 0 or fromY >= result.height:
+        continue
+      let fromCell = fromY * result.width + fromX
+      for direction, delta in NavNeighbors:
+        let next = (x: x + delta.x, y: y + delta.y)
+        if next.x < 0 or next.x >= map.gridWidth or
+            next.y < 0 or next.y >= map.gridHeight:
+          continue
+        let
+          nextAnchor = anchors[next.y * map.gridWidth + next.x]
+          nextX = nextAnchor.x div result.step
+          nextY = nextAnchor.y div result.step
+        if nextAnchor.x >= 0 and nextX >= 0 and nextX < result.width and
+            nextY >= 0 and nextY < result.height and
+            map.segmentClear(anchor, nextAnchor):
+          result.coarseNext[fromCell][direction] =
+            int32(nextY * result.width + nextX)
 
 proc routeLegal(map: BodyMap, item: NavCorpusCase,
     route: openArray[BodyPoint]): bool =
@@ -196,7 +287,7 @@ proc attachments(map: BodyMap, graph: SearchGraph, danger: BodyDangerField,
         let
           cell = y * graph.width + x
           point = graph.points[cell]
-        if point.x >= 0 and map.segmentClear(endpoint, point):
+        if graph.active[cell] and map.segmentClear(endpoint, point):
           result.add (cell: cell,
             cost: map.edgeCost(danger, item, endpoint, point))
 
@@ -270,6 +361,25 @@ proc search(map: BodyMap, graph: SearchGraph, danger: BodyDangerField,
                          (point.y - item.validatedGoal.y).float) -
             heuristicAllowance),
           cost: candidate, cell: nextCell)
+    if graph.coarseNext.len > 0:
+      for direction in 0 ..< NavNeighbors.len:
+        let nextCell = graph.coarseNext[current.cell][direction].int
+        if nextCell < 0 or
+            workspace.closed[nextCell] == workspace.generation:
+          continue
+        let candidate = current.cost + map.edgeCost(danger, item,
+          graph.points[current.cell], graph.points[nextCell])
+        if workspace.seen[nextCell] != workspace.generation or
+            candidate < workspace.cost[nextCell]:
+          workspace.seen[nextCell] = workspace.generation
+          workspace.cost[nextCell] = candidate
+          workspace.parent[nextCell] = int32(current.cell)
+          let point = graph.points[nextCell]
+          heap.push SearchNode(priority: candidate +
+            max(0.0, hypot((point.x - item.validatedGoal.x).float,
+                           (point.y - item.validatedGoal.y).float) -
+              heuristicAllowance),
+            cost: candidate, cell: nextCell)
   if bestGoal >= 0:
     result.reached = true
     var cursor = bestGoal
@@ -286,7 +396,8 @@ proc resultRow(name: string, values: openArray[float64]): JsonNode =
     "p95_inflation_pct": percentile(values, 0.95),
     "max_inflation_pct": if values.len == 0: Inf else: max(values)}
 
-proc accumJson(accum: Accum, name: string, workspaceBytes: int64): JsonNode =
+proc accumJson(accum: Accum, name: string, workspaceBytes,
+    compactWorkspaceBytes: int64, activeNodes: int): JsonNode =
   var rows = newJArray()
   rows.add resultRow("overall", accum.all)
   for roster in [16, 32]:
@@ -302,12 +413,17 @@ proc accumJson(accum: Accum, name: string, workspaceBytes: int64): JsonNode =
     "pops_max": if accum.pops.len == 0: 0.0 else: max(accum.pops),
     "query_ns_p50": percentile(accum.nanoseconds, 0.50),
     "query_ns_p95": percentile(accum.nanoseconds, 0.95),
-    "workspace_bytes": workspaceBytes, "quality": rows}
+    "workspace_bytes": workspaceBytes,
+    "compact_workspace_bytes": compactWorkspaceBytes,
+    "active_nodes": activeNodes, "quality": rows}
 
 proc measureGraph(pool: JsonNode, corpus: NavCorpus,
     graphName: string, buildGraph: proc(map: BodyMap): SearchGraph): JsonNode =
   var accum: Accum
-  var maxWorkspaceBytes = 0'i64
+  var
+    maxWorkspaceBytes = 0'i64
+    maxCompactWorkspaceBytes = 0'i64
+    maxActiveNodes = 0
   for poolIndex in 0 ..< pool.len:
     stderr.writeLine &"{graphName} map {poolIndex + 1}/{pool.len}"
     let
@@ -319,6 +435,10 @@ proc measureGraph(pool: JsonNode, corpus: NavCorpus,
     maxWorkspaceBytes = max(maxWorkspaceBytes,
       int64(graph.points.len * (sizeof(float64) + sizeof(int32) +
         2 * sizeof(uint32))))
+    maxCompactWorkspaceBytes = max(maxCompactWorkspaceBytes,
+      int64(graph.activeCount * (sizeof(float64) + sizeof(int32) +
+        2 * sizeof(uint32))))
+    maxActiveNodes = max(maxActiveNodes, graph.activeCount)
     for item in corpus.cases:
       if item.poolIndex != poolIndex: continue
       if item.dangerHash notin dangerByHash:
@@ -342,7 +462,8 @@ proc measureGraph(pool: JsonNode, corpus: NavCorpus,
       accum.longest = max(accum.longest, found.route.len)
       accum.pops.add found.pops.float
       accum.nanoseconds.add elapsed.float
-  accum.accumJson(graphName, maxWorkspaceBytes)
+  accum.accumJson(graphName, maxWorkspaceBytes, maxCompactWorkspaceBytes,
+    maxActiveNodes)
 
 proc worstWallStats(pool: JsonNode, corpus: NavCorpus,
     artifact: JsonNode): JsonNode =
@@ -391,28 +512,43 @@ proc profileCase(pool: JsonNode, corpus: NavCorpus, id, graphName: string,
   %*{"name": graphName, "id": id, "samples": samples}
 
 when isMainModule:
-  if paramCount() != 2:
-    quit("usage: investigate_body_nav_p9b_h1 CORPUS CANONICAL_JSON", 2)
+  if paramCount() notin [2, 3]:
+    quit("usage: investigate_body_nav_p9b_h1 CORPUS CANONICAL_JSON " &
+      "[mixed-only]", 2)
+  if paramCount() == 3 and paramStr(3) != "mixed-only":
+    quit("third argument must be mixed-only", 2)
   let
     corpus = loadNavRouteCorpus(paramStr(1))
     artifact = parseFile(paramStr(2))
     pool = loadBrS2PoolRaw()
     medianId = "m09-br-gen-21450-r32-s9-default-blocked-far"
     farId = "m15-br-gen-22010-r16-s15-default-danger-far"
-  stderr.writeLine "measure worst-30 wall occupancy"
-  let walls = pool.worstWallStats(corpus, artifact)
-  stderr.writeLine "measure full 4px graph"
-  let four = pool.measureGraph(corpus, "full_4px", buildFourPixelGraph)
-  stderr.writeLine "measure subcell anchors"
-  let anchors = pool.measureGraph(corpus, "subcell_anchor_8px",
-    buildSubcellAnchorGraph)
-  echo pretty(%*{"schema": "coworld_body_nav_p9b_h1", "v": 1,
-    "worst_30_wall_stats": walls,
-    "graphs": [four, anchors],
-    "profiles": [
-      pool.profileCase(corpus, medianId, "full_4px", buildFourPixelGraph),
-      pool.profileCase(corpus, farId, "full_4px", buildFourPixelGraph),
-      pool.profileCase(corpus, medianId, "subcell_anchor_8px",
-        buildSubcellAnchorGraph),
-      pool.profileCase(corpus, farId, "subcell_anchor_8px",
-        buildSubcellAnchorGraph)]})
+  if paramCount() == 3:
+    stderr.writeLine "measure mixed near-wall graph"
+    let mixed = pool.measureGraph(corpus, "mixed_wall_4px",
+      buildMixedWallGraph)
+    echo pretty(%*{"schema": "coworld_body_nav_p9b_h1", "v": 1,
+      "graphs": [mixed],
+      "profiles": [
+        pool.profileCase(corpus, medianId, "mixed_wall_4px",
+          buildMixedWallGraph),
+        pool.profileCase(corpus, farId, "mixed_wall_4px",
+          buildMixedWallGraph)]})
+  else:
+    stderr.writeLine "measure worst-30 wall occupancy"
+    let walls = pool.worstWallStats(corpus, artifact)
+    stderr.writeLine "measure full 4px graph"
+    let four = pool.measureGraph(corpus, "full_4px", buildFourPixelGraph)
+    stderr.writeLine "measure subcell anchors"
+    let anchors = pool.measureGraph(corpus, "subcell_anchor_8px",
+      buildSubcellAnchorGraph)
+    echo pretty(%*{"schema": "coworld_body_nav_p9b_h1", "v": 1,
+      "worst_30_wall_stats": walls,
+      "graphs": [four, anchors],
+      "profiles": [
+        pool.profileCase(corpus, medianId, "full_4px", buildFourPixelGraph),
+        pool.profileCase(corpus, farId, "full_4px", buildFourPixelGraph),
+        pool.profileCase(corpus, medianId, "subcell_anchor_8px",
+          buildSubcellAnchorGraph),
+        pool.profileCase(corpus, farId, "subcell_anchor_8px",
+          buildSubcellAnchorGraph)]})
