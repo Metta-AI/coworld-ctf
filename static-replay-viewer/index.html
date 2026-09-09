@@ -2229,6 +2229,11 @@ body.sidelanes-both #killfeed {
   text-transform: uppercase;
   color: var(--paper-dim);
 }
+/* mgRepaintTier leaves this empty rather than guess a tier when the
+   once-per-episode lead series hasn't arrived yet (or never will, on a
+   wire that predates it) -- collapse the reserved gap too, not just the
+   text, same idiom as .ec-mvp-line:empty above. */
+#endcard .mg-line:empty { display: none; margin-top: 0; }
 #endcard .ec-mvp-line .ec-mvp-dim { color: var(--paper-dim); }
 #endcard .ec-field {
   width: 100%;
@@ -2988,15 +2993,29 @@ body[data-noviewpanel] #viewpanel { display: none !important; }
   // (`s.lead`) into its own local copy instead of reaching in. Only the
   // team-keyed shape names a leader by IDENTITY across >2 BR teams; the
   // legacy 2-team diff array predates BR/glory entirely and is read as "no
-  // series" (matchGloryLeadChanges then honestly reads 0 lead changes,
-  // never a guess).
+  // series" -- matchGloryLeadChanges/mgRepaintTier then honestly omit the
+  // tier line rather than guess a 0-change count off data that never came.
   var mgLeadFull = null;
+  // The MATCH GLORY totals from the endcard's most recent render (set by
+  // renderEndcardBR) -- cached here so mgRepaintTier (below matchGloryTier)
+  // can redraw the tier line the instant mgLeadFull actually arrives, even
+  // when renderEndcard's own content dedupe (card._key) never calls
+  // renderEndcardBR again for what is, correctly, the SAME verdict. Without
+  // this, a viewer whose first game-over frame lands before the one-shot
+  // `lead` field does (a straight seek-to-end on the native server: sendLead
+  // waits on a background scan that a fast seek can outrace) would freeze
+  // whatever tier the missing series produced FOREVER, while a play-through
+  // that happens to render a later frame gets the true tier -- the exact
+  // "same match, different tier depending on how you watched it" bug this
+  // cache exists to close.
+  var mgTotalsCache = null;
   function mgIngestLead(s) {
     if (mgLeadFull || !s.lead || Array.isArray(s.lead)) return;
     mgLeadFull = {
       teams: s.lead.teams || [],
       pts: (s.lead.pts || []).map(function (p) { return { t: p[0], vals: p.slice(1) }; })
     };
+    mgRepaintTier();
   }
   var renderMomentum = C.renderMomentum;
   var getSpoilers = C.getSpoilers, setSpoilers = C.setSpoilers;
@@ -3608,8 +3627,11 @@ body[data-noviewpanel] #viewpanel { display: none !important; }
     // MATCH GLORY + paint-splat finish: a new episode is a new match, so the
     // once-per-episode lead series and the sequence's fresh-reveal edges
     // must all re-derive from the incoming stream (same reasoning as every
-    // other latch this function already clears).
+    // other latch this function already clears). mgTotalsCache resets too
+    // -- a stale prior match's totals must never let mgRepaintTier redraw a
+    // tier line for a match that already ended.
     mgLeadFull = null;
+    mgTotalsCache = null;
     gameoverEntered = false;
     ecSequenceStarted = false;
     ecTargets = null;
@@ -6837,6 +6859,25 @@ body[data-noviewpanel] #viewpanel { display: none !important; }
     }
     return { id: 'rout', line: MG_TIERS[MG_TIERS.length - 1].lines[0] };
   }
+  // The show-review tier is a property of the MATCH, never of the viewing
+  // path: this is the ONLY place that writes #mg-line's text, and it always
+  // derives the tier from the complete, one-shot `lead` series (mgLeadFull)
+  // plus the last-rendered totals (mgTotalsCache) -- never from how many
+  // frames the viewer happened to render on the way here. Called both from
+  // renderEndcardBR (the normal render path) and from mgIngestLead the
+  // moment the series lands late, so a straight seek-to-end that outraces
+  // the wire's background scan still lands on the SAME tier a play-through
+  // would compute, once the series arrives -- it just repaints a beat
+  // later instead of guessing wrong and freezing. No series yet (or ever,
+  // on a wire that predates lead tracking / carries the legacy 2-team diff
+  // array): omit the line rather than print a 0-change guess.
+  function mgRepaintTier() {
+    var mgLine = $('mg-line');
+    if (!mgLine || !mgTotalsCache) return;
+    if (!mgLeadFull) { mgLine.textContent = ''; return; }
+    var mgTier = matchGloryTier(matchGloryMargin(mgTotalsCache), matchGloryLeadChanges(mgLeadFull));
+    mgLine.textContent = mgTier.line;
+  }
   // Odometer target parts: the sign and unit (k/M/B/T/Q) are decided ONCE,
   // off the FINAL total, and held static for the whole roll -- only the
   // mantissa counts up. A live unit flip mid-roll ("9000 ... 12000 ... 1.5M
@@ -7059,12 +7100,22 @@ body[data-noviewpanel] #viewpanel { display: none !important; }
         var mgTotals = teams.map(function (t) { return teamGloryOf(o, t); })
           .filter(function (v) { return v !== null; });
         var mgSum = mgTotals.reduce(function (a, b) { return a + b; }, 0);
-        var mgTier = matchGloryTier(matchGloryMargin(mgTotals), matchGloryLeadChanges(mgLeadFull));
         $('mg-num').textContent = gloryText(mgSum);
         $('mg-num').title = mgSum + ' combined glory';
-        $('mg-line').textContent = mgTier.line;
+        // The tier line itself is NOT written here -- mgRepaintTier owns
+        // it exclusively, reading mgTotalsCache (set on the next line) and
+        // whatever mgLeadFull holds right now. This function can run once
+        // per distinct verdict (renderEndcard's card._key dedupe) on a
+        // frame where the once-per-episode lead series hasn't shown up on
+        // the wire yet; caching the totals lets mgIngestLead call
+        // mgRepaintTier again, later, off the SAME data, the moment the
+        // series actually lands -- instead of this tier freezing into
+        // whatever (possibly series-less) guess this one call produced.
+        mgTotalsCache = mgTotals;
+        mgRepaintTier();
         ecTargets = { hero: heroGlory, mg: mgSum };
       } else {
+        mgTotalsCache = null;
         ecTargets = null;
       }
     }
