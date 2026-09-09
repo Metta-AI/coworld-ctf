@@ -109,6 +109,16 @@ class Persona:
     #: (entries, context, view) -> entries. Runs after the generic repair and
     #: is itself re-repaired, so a hook can only ever narrow, never break.
     adjust_entries: Callable | None = None
+    #: (entries, view, pact_state, source=...) -> bool. v51: the SAME
+    #: phase-clamp helper adjust_entries calls internally (e.g. Monet's
+    #: final-four detourMax ceiling), exposed here so a harness-side resend
+    #: that bypasses adjust_entries entirely -- today, only the ladder-
+    #: maintenance resend in _live_loop, see MAINTENANCE_SECONDS below --
+    #: can still apply it to the exact entries list about to hit the wire.
+    #: Mutates `entries` in place; the bool return is informational (did
+    #: anything change). None (default) = no phase clamp exists for this
+    #: persona, maintenance resends unchanged from pre-v51 behavior.
+    apply_phase_clamps: Callable | None = None
     #: (context, turn) -> str | None. An additional deliberate chat line per
     #: turn (the collaborative policy's coordination channel).
     extra_chat: Callable | None = None
@@ -1939,6 +1949,21 @@ def _live_loop(persona: Persona, seat: StarterSeat, engine,
         # cheap and can run every couple of seconds.
         if time.monotonic() - last_maintenance_at >= MAINTENANCE_SECONDS:
             gated_payload, gated_entries = gate_and_build(seat, available)
+            # v51 (ereq_99f472a2): this resend never touches repair_call/
+            # adjust_entries -- it rebuilds straight from the cached
+            # seat.wanted_entries -- so a persona's own phase clamp (e.g.
+            # Monet's final-four detourMax ceiling) never gets a turn to
+            # run here on its own. Apply it explicitly to the entries this
+            # call is ABOUT to send, and re-canonicalize the payload if it
+            # changed anything, so a stale pre-clamp value cannot survive a
+            # maintenance-only resend for however long the gate keeps
+            # re-opening with no fresh model/reemit call in between.
+            if persona.apply_phase_clamps is not None:
+                changed = persona.apply_phase_clamps(
+                    gated_entries, view, seat.pact_state, source="maintenance")
+                if changed:
+                    gated_payload = wire.canonical_json(
+                        {"plays": gated_entries}).encode("utf-8")
             if gated_payload != payload:
                 before_ids = [e.get("entry_id") for e in _entries_of(payload)]
                 after_ids = [e.get("entry_id") for e in gated_entries]

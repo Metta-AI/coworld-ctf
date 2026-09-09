@@ -363,6 +363,101 @@ def _final4(view):
             and alive_teams <= FINAL4_TEAM_THRESHOLD)
 
 
+def apply_phase_clamps(entries, view, pact_state, source=None):
+    """The ONE clamp point for the final-four detour ceiling
+    (FINAL4_DETOUR_MAX) -- every entries list about to reach the wire must
+    pass through this before it is sent, whether it came from a real model
+    call, one of the two harness reemit helpers, or a maintenance resend.
+
+    HISTORY (v51, ereq_99f472a2, episode's ~700 exposed ticks): v50 put
+    this clamp inline inside adjust_entries, keyed off a local `final4`
+    variable computed partway through that function. Two gaps fell out of
+    that placement, both silent because neither is a model-authored
+    mistake -- they are wire values the model never even had a chance to
+    submit:
+
+    1. adjust_entries's own CONVERSION/ARMAMENT steps auto-insert a bare
+       supply_run/loot rung (SUPPLY_DEFAULTS/LOOT_DEFAULTS: detourMax
+       300/400) when the model's own entries omit them -- but that insert
+       ran AFTER the old inline clamp's per-entry loop, so an
+       auto-inserted rung during final4 shipped at the raw default,
+       uncapped, even on a real model-authored call.
+    2. starter_harness._live_loop's ladder-maintenance resend (~line 1941:
+       `gate_and_build(seat, available)`) never calls adjust_entries at
+       all -- it re-derives a wire payload straight from the cached
+       `seat.wanted_entries`, so a ladder committed BEFORE final4 became
+       true (detourMax=300) could sit on the wire, re-sent verbatim every
+       ~2s, for as long as the maintenance gate kept re-opening with no
+       fresh model/reemit call to pass back through adjust_entries and
+       re-clamp it -- measured ~700 ticks past the final-four phase line
+       in ereq_99f472a2.
+
+    Calling this SAME function from both adjust_entries (after its own
+    CONVERSION/ARMAMENT inserts) and from the maintenance resend path
+    directly closes both gaps with one implementation instead of two
+    copies that can drift apart again.
+
+    Mutates `entries` in place (same contract as adjust_entries's other
+    internal steps) and returns True iff the final-four clamp actually
+    changed something on this call (informational only).
+
+    `pact_state` is the SAME persisted dict every final4 mechanism already
+    shares (`seat.pact_state`, aliased as `context["_pact_state"]` inside
+    adjust_entries) -- `final4_committed`/`final4_logged` on it are the
+    mutual-exclusion/dedup flags so a duplicate resend from any source
+    never re-clamps what is already clamped and never re-logs the phase
+    line twice.
+
+    `source` tags where this call came from, log wording only: None for a
+    real model call (v50's original plain wording, unchanged), the string
+    "final4-reemit" for maybe_final4_reemit's synthetic resend (v50's
+    original "reason=final4-reemit" suffix, unchanged), and the new string
+    "maintenance" for starter_harness's ladder-maintenance resend --
+    logged as ``final4 clamp (maintenance): <play>.detourMax <old> -> 150``
+    so a maintenance-triggered clamp is distinguishable in the log from a
+    model-authored one.
+    """
+    if not _final4(view):
+        return False
+    pstate = pact_state if pact_state is not None else {}
+    # FINAL4_COMMITTED (v50, unchanged): set on every final4-true turn
+    # (synthetic or real) so starter_harness.maybe_final4_reemit -- which
+    # shares this SAME persisted dict via seat.pact_state -- can see a
+    # clamp already landed at alive_teams<=4 and skip its own one-shot
+    # synthetic resend (no double commit).
+    pstate["final4_committed"] = True
+    if not pstate.get("final4_logged"):
+        pstate["final4_logged"] = True
+        alive = (view.get("world") or {}).get("alive_teams")
+        phase_suffix = " reason=final4-reemit" if source == "final4-reemit" else ""
+        starter_harness._log(
+            PERSONA, f"final4: alive_teams={alive!r}{phase_suffix}")
+    if source == "maintenance":
+        tag, suffix = " (maintenance)", ""
+    elif source == "final4-reemit":
+        tag, suffix = "", " reason=final4-reemit"
+    else:
+        tag, suffix = "", ""
+    fired = False
+    for entry in entries:
+        play = entry.get("play")
+        if play not in ("supply_run", "loot"):
+            continue
+        params = entry.setdefault("params", {})
+        old_detour = params.get("detourMax")
+        new_detour = (min(old_detour, FINAL4_DETOUR_MAX)
+                      if isinstance(old_detour, (int, float))
+                      else FINAL4_DETOUR_MAX)
+        if old_detour != new_detour:
+            starter_harness._log(
+                PERSONA,
+                f"final4 clamp{tag}: {play}.detourMax {old_detour!r} "
+                f"-> {FINAL4_DETOUR_MAX}{suffix}")
+            fired = True
+        params["detourMax"] = new_detour
+    return fired
+
+
 def _normalize_bodyguard(entries):
     """Collapse every bodyguard entry the model submitted -- one, several,
     self-named or canonical -- into exactly the canonical pair from
@@ -909,42 +1004,18 @@ def adjust_entries(entries, context, view):
     # already clear their own floors -- a harmless no-op there).
     entries = _normalize_bodyguard(entries)
 
-    # FINAL FOUR (see FINAL4_DETOUR_MAX/_final4 above): keyed on _final4
-    # alone -- v50's FINAL4_DIAG.md measured the old
-    # `(not _in_marquee_zone_window(view)) and _final4(view)` gate at 0/693
-    # armed episodes: 304/304 real model calls with alive_teams<=4 already
-    # had the zone-timer endgame active (100% overlap, mean 1.34 calls/
-    # episode means most of a match runs on canned turns with no fresh
-    # call at all), so the AND-NOT construction never arbitrated a real
-    # conflict -- it permanently disabled this clamp. The two clamps touch
-    # disjoint fields (fire_superiority.pressRange/finishRange in MARQUEE
-    # CLOCK BAND below vs. supply_run/loot.detourMax here) and both
-    # already use min(), so stacking is naturally safe -- no exclusion
-    # needed. If a genuine shared-field conflict is ever found, resolve it
-    # by explicit precedence (apply endgame's clamp first, let final4's
-    # min() tighten further), not by re-adding a blanket AND-NOT gate.
-    final4 = _final4(view)
-    if final4:
-        # "Once" needs a scratchpad that survives turn to turn -- `context`
-        # itself is a fresh dict rebuilt from seat.context every call (see
-        # starter_harness.repair_call), so only the SAME persistent object
-        # ``context["_pact_state"]`` (aliased to seat.pact_state) actually
-        # carries a flag forward; a plain context[...] write here would
-        # silently re-log every single turn instead of once per episode.
-        pstate = context.setdefault("_pact_state", {})
-        # FINAL4_COMMITTED (v50): set on every final4-true turn (synthetic
-        # or real) so starter_harness.maybe_final4_reemit -- which shares
-        # this SAME persisted dict via seat.pact_state -- can see a real
-        # model call already committed a clamped ladder at alive_teams<=4
-        # and skip its own one-shot synthetic resend (no double commit).
-        pstate["final4_committed"] = True
-        synthetic = context.get("_synthetic_trigger") == "final4-reemit"
-        reason_suffix = " reason=final4-reemit" if synthetic else ""
-        if not pstate.get("final4_logged"):
-            pstate["final4_logged"] = True
-            alive = (view.get("world") or {}).get("alive_teams")
-            starter_harness._log(
-                PERSONA, f"final4: alive_teams={alive!r}{reason_suffix}")
+    # FINAL FOUR (see FINAL4_DETOUR_MAX/_final4/apply_phase_clamps above):
+    # v51 (ereq_99f472a2, ~700 exposed ticks) moved the actual detour clamp
+    # into apply_phase_clamps, called once at the END of this function
+    # (after the CONVERSION/ARMAMENT auto-insert below), so an
+    # auto-inserted supply_run/loot rung the model never named this turn is
+    # clamped too -- the OLD inline-only clamp here ran BEFORE that insert
+    # and never saw those rungs at all. starter_harness's ladder-maintenance
+    # resend bypasses this whole function (calls gate_and_build directly on
+    # a cached wanted ladder); apply_phase_clamps is the ONE implementation
+    # both this function and that resend path now share, so a stale
+    # pre-final4 detourMax can no longer survive a maintenance-only resend
+    # either. See apply_phase_clamps's own docstring for the full history.
 
     for entry in entries:
         if entry.get("play") == "jackal":
@@ -1021,35 +1092,10 @@ def adjust_entries(entries, context, view):
                     PERSONA,
                     f"clamp supply_run.whenHpBelow {old!r}->{doctrine}")
             params["whenHpBelow"] = doctrine
-            if final4:
-                old_detour = params.get("detourMax")
-                new_detour = (min(old_detour, FINAL4_DETOUR_MAX)
-                              if isinstance(old_detour, (int, float))
-                              else FINAL4_DETOUR_MAX)
-                if old_detour != new_detour:
-                    starter_harness._log(
-                        PERSONA,
-                        f"final4 clamp: supply_run.detourMax {old_detour!r} "
-                        f"-> {FINAL4_DETOUR_MAX}{reason_suffix}")
-                params["detourMax"] = new_detour
-        elif entry.get("play") == "loot" and final4:
-            # FINAL4 (see FINAL4_DETOUR_MAX above): same clamp shape as
-            # supply_run's just above, on the play the F4 initiative's
-            # precursor data actually implicated (last-committed play was
-            # `loot` in 53% of caught-first cases vs 28% of fired-first
-            # ones) -- a ceiling (min), not a pin, so a model that already
-            # proposes something tighter than 150 is left alone.
-            params = entry.setdefault("params", {})
-            old_detour = params.get("detourMax")
-            new_detour = (min(old_detour, FINAL4_DETOUR_MAX)
-                          if isinstance(old_detour, (int, float))
-                          else FINAL4_DETOUR_MAX)
-            if old_detour != new_detour:
-                starter_harness._log(
-                    PERSONA,
-                    f"final4 clamp: loot.detourMax {old_detour!r} "
-                    f"-> {FINAL4_DETOUR_MAX}{reason_suffix}")
-            params["detourMax"] = new_detour
+            # final4 detourMax clamp: moved to apply_phase_clamps, called
+            # once at the end of this function -- see the FINAL FOUR
+            # comment above for why (auto-inserted rungs, maintenance
+            # bypass).
 
     # MARQUEE CLOCK BAND (T22): the v10 fix -- woundedPct zeroed so "ANY
     # numeric parity or better now PRESSES instead of holding" -- was
@@ -1122,6 +1168,19 @@ def adjust_entries(entries, context, view):
                 break
         else:
             entries.append(rung)
+
+    # FINAL FOUR CLAMP (v51, ereq_99f472a2): applied HERE, after CONVERSION
+    # and ARMAMENT above have had their chance to auto-insert a bare-default
+    # supply_run/loot rung (SUPPLY_DEFAULTS/LOOT_DEFAULTS: detourMax
+    # 300/400) -- an entry inserted BEFORE this point would never have been
+    # visited by a clamp that ran earlier in the function (v50's bug: the
+    # old inline clamp lived in the per-entry loop above, which runs before
+    # these inserts). `context["_pact_state"]` is the same persistent
+    # object as `seat.pact_state` (see repair_call); `_synthetic_trigger`
+    # tags which harness path is resending (None = real model call,
+    # "final4-reemit" = maybe_final4_reemit's synthetic resend).
+    apply_phase_clamps(entries, view, context.setdefault("_pact_state", {}),
+                       source=context.get("_synthetic_trigger"))
 
     # Stabilize entry_id LAST, after every insert above (CONVERSION,
     # ARMAMENT, the pact/law rewrites) so whatever plays actually make it
@@ -1785,6 +1844,7 @@ PERSONA = Persona(
     include_kill_feed=True,
     partner_focus=True,
     adjust_entries=adjust_entries,
+    apply_phase_clamps=apply_phase_clamps,
     extra_chat=extra_chat,
     extra_summary=awareness_lines,
 )
