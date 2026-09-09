@@ -281,6 +281,11 @@ self.onmessage = function (event) {
       // STALE BODIES FIX: same gap as downedSeats above, for the
       // never-draw-an-eliminated-seat's-rig invariant.
       if (core.setEliminatedSeats) core.setEliminatedSeats(message.seats);
+    } else if (message.type === 'meSeats' && core) {
+      // "This one is me": forwarded from the page's setMeSeats passthrough
+      // (static_replay.js) — without this the Worker's own BroadcastCore
+      // instance never learned which seat(s) to ring as the viewer's own.
+      if (core.setMeSeats) core.setMeSeats(message.seats);
     } else if (message.type === 'command' && core) {
       core.sendCommand(message.text || '');
       applyInputNow();
