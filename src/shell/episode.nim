@@ -187,7 +187,6 @@ type
     ladderStatuses*: seq[ShellLadderStatus]
     playLogLines*: seq[string]
     retuned*: seq[ShellEntryIdentity]
-    planBudget*: seq[PlanBudgetEvent]
     nav*: ShellNavSummary
     combat*: ShellCombatSummary
     bodyNanoseconds*: int64
@@ -404,7 +403,7 @@ proc initShellEpisode*(season2Shell, brMode: bool,
   result.nav = newBodyNavSystem(map, controls.len, liveGunRangePx,
     prepareRouteQueries = controls.anyIt(it == scPlay),
     preparedRouteIndex = preparedRouteIndex)
-  if result.nav.routeScratch != nil:
+  if result.nav.safetyScratch != nil:
     result.nav.installSafetyContext(result.hazard, result.safeCache)
   when ShellRuntimeAvailable:
     result.mapName = mapName
@@ -1496,10 +1495,9 @@ proc step*(episode: var ShellEpisode,
   stageBlock(result.stageNanoseconds, ssDanger, "shell.danger"):
     episode.nav.rebuildScheduledDanger(tick.int, episode.dangerInputs(tick))
   stageBlock(result.stageNanoseconds, ssPlanning, "shell.planning"):
-    discard episode.nav.runPlanningTick(tick.int)
+    discard episode.nav.runRouteScheduler(tick.int)
   result.bodySliceNanoseconds =
     (getMonoTime() - bodySliceStarted).inNanoseconds
-  result.planBudget = episode.nav.drainPlanBudgetEvents()
 
 proc observeDeaths*(episode: var ShellEpisode,
     frames: openArray[ShellSeatFrame], tick: uint32): seq[ShellAnnotation] =
@@ -1532,16 +1530,6 @@ proc seatDisplayName*(episode: ShellEpisode, seat: int): string =
 
 proc seatList(seats: seq[uint8]): string =
   "[" & seats.mapIt($it).join(",") & "]"
-
-proc formatPlanBudgetEvent*(event: PlanBudgetEvent): string =
-  let outcome =
-    case event.outcome
-    of pboSuspended: "suspended"
-    of pboCompleted: "completed"
-    of pboFailed: "failed"
-  &"SHELL_PLAN_BUDGET tick={event.tick} seat={event.seat} " &
-    &"revision={event.revision} visits={event.visits} units={event.units} " &
-    &"outcome={outcome}"
 
 proc formatNavSummary*(tick: uint32, nav: ShellNavSummary): string =
   &"SHELL_NAV tick={tick} idle={nav.counts[bnsIdle]} " &

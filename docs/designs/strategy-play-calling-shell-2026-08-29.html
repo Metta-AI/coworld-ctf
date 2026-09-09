@@ -673,17 +673,16 @@
       Dijkstra fields on demand<sup class="ref"><a href="#src-5" title="LAB:worldmap.nim:908-917">5</a></sup>, and the duck phase writes its cache on demand<sup class="ref"><a href="#src-6" title="LAB:worldmap.nim:957-1009">6</a></sup>. The
       <strong>episode layer</strong> is built once per episode before any seat activates (<a href="#s10">section 10</a>'s
       barrier), is immutable afterward, and is shared by every seat: the clearance field, the walkable
-      grid, connected components, rooms and chokepoints, cover sectors, and the firing-position atlas. The
-      <strong>seat layer</strong> is each seat's own bounded caches over that shared layer: at most
-      <code>MaxRouteFieldsPerSeat</code> (4) route fields and <code>MaxDuckEntriesPerSeat</code> (256) duck
-      results, least-recently-used eviction, memory counted in the per-seat budget, and cold-query cost
-      counted in the tick budget. The body and both spatial imports read the shared layer and the seat's
-      own caches, never another seat's, so query order across seats cannot change any result, latency
-      class, or retained memory; a 32-seat test permutes seat order and asserts exactly that.</li>
+      grid, connected components, rooms and chokepoints, cover sectors, firing-position atlas, retained
+      safety-hint hierarchy, and mixed-resolution route graph. One stamped search workspace is shared by
+      the episode. The <strong>seat layer</strong> owns a danger raster, exact packed Q8 weights, one newest
+      pending request, a fixed route-span buffer, and the bounded duck cache; it owns no heap or map-sized
+      route-search workspace. The body and both spatial imports read the shared layer and the seat's own
+      state, never another seat's.</li>
       <li><strong>The executor.</strong> Stencil's action resolution<sup class="ref"><a href="#src-7" title="LAB:action.nim:402-551">7</a></sup>, navigation follower with its
-      corridor rule<sup class="ref"><a href="#src-8" title="LAB:nav.nim">8</a></sup>, pure weighted A* planner<sup class="ref"><a href="#src-9" title="LAB:planner.nim">9</a></sup>, and combat layer<sup class="ref"><a href="#src-10" title="LAB:fight.nim">10</a></sup>, executing the seat's
-      current <code>Intent</code> every tick: plan and follow a route to the intent's goal, manage
-      micro-movement within the allowed set, pick and engage targets under the intent's combat policy, and
+      corridor rule<sup class="ref"><a href="#src-8" title="LAB:nav.nim">8</a></sup> and combat layer<sup class="ref"><a href="#src-10" title="LAB:fight.nim">10</a></sup>, executing the seat's
+      current <code>Intent</code> every tick: submit or follow a route to the intent's goal, steer legally
+      while route work waits, restarts, or fails boundedly, manage micro-movement, pick and engage targets, and
       emit the seat's button mask into the sim.</li>
     </ul>
     <p>The body executes a <em>standing order</em>. An <code>Intent</code> persists until a play replaces
@@ -718,6 +717,17 @@
     (hashed) and annotations (not hashed).</p>
 
     <h3 id="s3-3">3.3 The four ported-with-improvement rulings</h3>
+    <p><strong>Production navigation contract (2026-09-09; supersedes the route-field cache and
+    synchronous-query text below).</strong> Body routes are pop-budgeted resumable searches over a
+    precomputed legal mixed-resolution graph. Exact 4 px legality is retained in danger-dilated and static
+    wall-band regions; exact cold chains connect 8 px anchors elsewhere. Costs decode exact packed Q8 danger
+    values with widened arithmetic. One episode-wide width-1 Dial queue and stamped workspace spend at most
+    16,384 exact pops per tick. Stable shortest-job-first admission orders by lower-bound work, original
+    request tick, then seat id. Each seat has one newest pending request and a fixed span buffer; a route is
+    installed only after complete bounded reconstruction. A published danger-generation change invalidates
+    stale routes and requeues stale work before another pop. No query or tick path allocates or clears
+    map-sized state. The hierarchy remains only for safety hints, estimates, coverage, and activation proof.
+    Steering covers every wait, restart, and bounded failure tick.</p>
     <p><strong>One target-acquisition route.</strong> The ported combat layer routes every target choice
     through the scored selector (<code>scoreTarget</code><sup class="ref"><a href="#src-15" title="LAB:fight.nim:162-283">15</a></sup>). The nearest-enemy fallback path that
     stencil's gun uses outside a firefight, and the spray selector's independent scan, both collapse into

@@ -3,7 +3,7 @@
 import std/[json, os, options, sequtils, strutils, unittest]
 import bitworld/spriteprotocol
 import ../src/ctf/[replays, sim_config, sim_types]
-import ../src/shell/[binary_view, body, body_map, body_nav, body_planner,
+import ../src/shell/[binary_view, body, body_danger, body_map, body_nav,
   body_route_query, default_play, episode, standing_order, types]
 
 proc controls(kind: SlotControl, count: int): seq[SlotControl] =
@@ -167,7 +167,7 @@ suite "shell episode":
     var episode = initShellEpisode(true, true, controls(scPlay, 1),
       map, 331)
     check episode.nav.routeIndex != nil
-    check episode.nav.routeScratch != nil
+    check episode.nav.safetyScratch != nil
     let lines = episode.configureDemoPlayFromJson(
       "{\"demoPlay\":{\"modulePath\":\"missing.wasm\"," &
       "\"playName\":\"missing\",\"params\":{},\"seats\":[0]}}")
@@ -182,7 +182,7 @@ suite "shell episode":
     let episode = initShellEpisode(true, true, controls(scInput, 2),
       map, 331)
     check episode.nav.routeIndex == nil
-    check episode.nav.routeScratch == nil
+    check episode.nav.safetyScratch == nil
 
   test "shell binary view carries truthful hp count and fraction":
     let map = testBodyMap()
@@ -318,14 +318,15 @@ suite "shell episode":
     check body.actFromBelief(1).encodeInputMask() != 0
     let seat = episode.nav.seats[0]
     check seat.acceptedAnchor.isSome
-    check seat.installedRouteRevision > 0
+    discard episode.nav.runRouteScheduler(1)
+    check seat.installedRoute.revision > 0
 
     discard episode.observeDeaths([frame(map, 0, alive = false)], 2)
     check not episode.seats[0].active
     check body.navState == bnsIdle
     check not seat.active
     check seat.acceptedAnchor.isNone
-    check seat.installedRouteRevision == 0
+    check seat.installedRoute.revision == 0
     check seat.revision == 0
     check seat.lastXy.isNone
     check seat.blockedPenalty.isNone
@@ -339,13 +340,14 @@ suite "shell episode":
     check episode.seats[0].active
     check seat.active
     check seat.acceptedAnchor.isNone
-    check seat.installedRouteRevision == 0
+    check seat.installedRoute.revision == 0
     let respawned = episode.seats[0].body
     respawned.setStandingIntent(intent, some(goal), 1)
     respawned.updateBelief(frame(map, 0, start).bodyInputs, 3)
     check respawned.actFromBelief(3).encodeInputMask() != 0
     check seat.acceptedAnchor.isSome
-    check seat.installedRouteRevision > 0
+    discard episode.nav.runRouteScheduler(3)
+    check seat.installedRoute.revision > 0
 
   test "32 real bodies hand movement masks through the ordinary replay path":
     let map = testBodyMap()

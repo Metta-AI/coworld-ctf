@@ -1340,8 +1340,8 @@ proc actFromBelief*(body: SeatBody, tick: uint32; elapsedTick = 0;
                     gameGeneration = 0'u64): InputState =
   ## Executes one seat's action phase from its current belief.
   ##
-  ## Cold plan work and danger rebuild cadence stay episode-owned; callers run
-  ## `runPlanningTick` and `rebuildScheduledDanger` on the shared BodyNavSystem.
+  ## Route work and danger rebuild cadence stay episode-owned; callers run the
+  ## shared pop-budgeted scheduler after `rebuildScheduledDanger`.
   body.followerNanoseconds = 0
   body.weaponNanoseconds = 0
   body.navState = bnsIdle

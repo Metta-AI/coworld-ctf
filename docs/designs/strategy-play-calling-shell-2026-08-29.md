@@ -176,14 +176,14 @@ Per Season 2 seat, the game maintains and runs:
   descriptor buffers, but no map-sized route-search workspace. The body and
   both spatial imports read the shared layer and the seat's own state, never
   another seat's, so query order across seats cannot change any result,
-  latency class, or retained memory. The older route-field planner remains
-  compiled only through the navigation cutover and no longer produces
-  play-seat masks (Appendix H.3, ruling twelve).
+  latency class, or retained memory. The legacy route-field planner and minter
+  were deleted by the production navigation cutover (Appendix H.3).
 - **The executor.** Stencil's action resolution (`LAB:action.nim:402-551`),
   navigation follower with its corridor rule (`LAB:nav.nim`), and combat layer
   (`LAB:fight.nim`), executing the seat's current `Intent` every tick: query
-  and follow a bounded hierarchical route to the intent's goal, steer locally
-  when no route advances, manage micro-movement within the allowed set, pick
+  and follow a bounded mixed-resolution route to the intent's goal, steer
+  locally while a route waits, restarts, or fails boundedly, manage
+  micro-movement within the allowed set, pick
   and engage targets under the intent's combat policy, and emit the seat's
   button mask into the sim.
 
@@ -285,24 +285,26 @@ deterministic amount. Stencil never ran thirty-two bodies in one
 process, so this is the honest model, not a compromise of one. The
 differential allowlist covers it, and a golden pins the cadence.
 
-**Bounded cold planning per tick.** A sixth ruling, from the same
-measurement: one cold worst-case plan on the giant field cost ~65 ms —
-alone exceeding the entire quarter-tick allowance — so a mass retarget
-(every seat replanning at once) is unboundable without a rule. The port
-bounds cold-planning WORK per tick — a deterministic search-expansion
-budget, not a plans-per-tick count, because one cold plan alone exceeds
-the allowance: a plan that exhausts the tick's budget suspends with
-resumable search state and continues on a later tick, and seats queue
-for budget in seat-index round-robin resuming where the last tick
-stopped (the house quota pattern of §6.1's `MaxInitsPerTick`). A seat
-whose plan is suspended keeps executing its standing route. The
-differential allowlist covers the delay; a golden pins the queue order
-under a mass retarget. Whether the cold plan itself is reducible (a
-warm oracle, coarse-first planning) is a named P1 investigation, not a
-gate: the queue makes the tick safe either way.
+**Pop-budgeted production routing.** Body routes are pop-budgeted resumable
+searches over a precomputed legal mixed-resolution graph. Production steering
+supplies a legal moving command while a request waits, is restarted, or fails
+boundedly. The graph precomputes exact 4 px legality, keeps 4 px nodes in the
+danger-dilated region and static wall band, and contracts exact cold chains
+between 8 px anchors elsewhere. Costs use exact packed Q8 danger values with
+widened arithmetic. One episode-wide width-1 Dial queue and generation-stamped
+workspace spend at most 16,384 exact pops per simulation tick; they never clear
+or allocate map-sized storage on a query or tick path.
 
-This ruling likewise remains as legacy-planner history. Active play-seat
-movement uses ruling twelve's synchronous bounded query and same-tick steering.
+Each seat owns one newest pending request and a fixed span buffer. Stable
+shortest-job-first admission orders requests by snapshotted lower-bound work,
+original request tick, then seat id; an admitted job is not preempted. A danger
+rebuild publishes all new weights before incrementing its monotonic generation,
+then stale installed routes are invalidated and stale work is requeued before
+another pop. Reconstruction must fit the fixed buffer before route revision,
+cursor, and danger generation install atomically. The retained hierarchy now
+serves only safety hints, admission estimates, endpoint coverage, and activation
+proof; it is not a primary follower. Overflow and cap failures are visible and
+bounded rather than approximated.
 
 **Capped danger-rebuild sources.** A seventh ruling, from the same
 measurement's sharpest edge: one seat rebuilding its danger field

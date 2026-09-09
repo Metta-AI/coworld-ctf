@@ -78,12 +78,6 @@ and the replay), so any two streams join on it. Seat lists are printed as
   not private or durable, and do not enter status, replay, game state, or
   `gameHash`. A slow stdout collector can delay the server loop. Upload-time
   manifest-probe logs have no seat/entry identity and are not printed here.
-- `SHELL_PLAN_BUDGET tick=T seat=S revision=R visits=V units=U
-  outcome=suspended|completed|failed` — the seat's cold route plan ran out
-  of the pooled per-tick budget (`suspended`, once per starved visit), or a
-  plan that had been suspended at least once finally resolved
-  (`completed`/`failed`, with `visits` as the total retry count). A plan
-  that fits its first visit prints nothing.
 - `SHELL_ZONE tick=T elapsed=E phases=N phase=P current=[x,y,w,h]
   next=[x,y,w,h] dps=D arrival_built=B arrival_grid=WxH arrival_cells=N
   edge_band_shipped=B` — the zone schedule and arrival-field state, printed
@@ -96,7 +90,8 @@ and the replay), so any two streams join on it. Seat lists are printed as
   without a route; `no_progress` means neither path can make physical
   progress; and `arrived` means the validated endpoint is reached. The two
   seat lists identify the states most useful for diagnosis. Printed once a
-  second and on every tick with a plan-budget event.
+  second. Route work itself is bounded by the episode-wide 16,384-pop budget;
+  the removed legacy `SHELL_PLAN_BUDGET` event is no longer emitted.
 - `SHELL_COMBAT tick=T fired= aligning= none_shootable= vetoed=
   no_enemy= none_shootable_seats=[...] aligning_seats=[...]` — weapon-path
   census, once a second. `aligning` is a shootable target held but not yet

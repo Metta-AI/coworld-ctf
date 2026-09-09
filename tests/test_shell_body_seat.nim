@@ -9,8 +9,9 @@ import ../src/shell/body_cache
 import ../src/shell/body_hazard
 import ../src/shell/body_map
 import ../src/shell/body_nav
-import ../src/shell/body_planner
+import ../src/shell/body_danger
 import ../src/shell/body_route_index
+import ../src/shell/body_route_query
 import ../src/shell/types as shellTypes
 
 proc openMap(): BodyMap =
@@ -102,18 +103,18 @@ proc near(a, b: BodyPoint, radius: float): bool =
     dy = a.y - b.y
   float(dx * dx + dy * dy) <= radius * radius
 
-proc settlePlans(nav: BodyNavSystem, tick: var int, limit = 400) =
+proc settleRoutes(nav: BodyNavSystem, tick: var int, limit = 400) =
   var guard = 0
   while guard < limit:
-    var pending = false
+    var pending = nav.routeJob.active
     for seat in nav.seats:
-      pending = pending or seat.job.planPending
+      pending = pending or seat.pendingRoute.lifecycle != brlIdle
     if not pending:
       return
-    discard nav.runPlanningTick(tick)
+    discard nav.runRouteScheduler(tick)
     inc tick
     inc guard
-  raise newException(ValueError, "planning did not settle")
+  raise newException(ValueError, "routing did not settle")
 
 suite "shell body seat belief-lite seam":
   test "cover goal uses fresh nearest-eight tracks and the existing cache":
@@ -181,17 +182,14 @@ suite "shell body seat belief-lite seam":
         pos: (320, 160), tick: 1)]), 1)
     let goal = body.defaultCoverGoal(1)
     require goal.isSome
-    check body.nav.seats[0].cache.readyRouteFieldCount == 0
     body.setStandingIntent(navigateIntent(goal.get.goalPoint,
       arriveRadius = 24), goal, 0)
     discard body.actFromBelief(1)
     check body.standingGoal == goal
     check body.nav.seats[0].desiredGoal == some(goal.get.goalPoint)
-    for tick in 1 .. 256:
-      discard body.nav.runPlanningTick(tick)
-      if body.nav.seats[0].pathLen > 0:
-        break
-    check body.nav.seats[0].pathLen > 0
+    var tick = 1
+    body.nav.settleRoutes(tick)
+    check body.nav.seats[0].installedRoute.revision > 0
     check body.standingGoal.get.belongsTo(map)
 
   test "activation installs the safe standing order":
@@ -246,24 +244,15 @@ suite "shell body seat belief-lite seam":
 
     let goal0 = map.validateGoal((48, 24), (16, 24)).get
     let goal1 = map.validateGoal((16, 24), (48, 24)).get
-    nav.replacePlan(first.seatIndex, 10, (16, 24), goal0)
-    nav.replacePlan(second.seatIndex, 11, (48, 24), goal1)
-    let spent = nav.runPlanningTick(2)
-    check spent <= ColdPlanBudgetPerTick
-    var tickSpend = 0
-    var sawFirst = false
-    var sawSecond = false
-    for visit in nav.planningTraceSnapshot:
-      if visit.tick == 2:
-        tickSpend += visit.units
-        sawFirst = sawFirst or visit.seat == first.seatIndex
-        sawSecond = sawSecond or visit.seat == second.seatIndex
-    for visit in nav.mintTraceSnapshot:
-      if visit.tick == 2:
-        tickSpend += visit.units
-    check tickSpend == spent
-    check sawFirst
-    check sawSecond
+    discard nav.navigationWaypoint(first.seatIndex, (16, 24), goal0, 2)
+    discard nav.navigationWaypoint(second.seatIndex, (48, 24), goal1, 2)
+    let spent = nav.runRouteScheduler(2)
+    check spent <= BodyRoutePopBudgetPerTick
+    check nav.routePopsLastTick == spent
+    var settleTick = 3
+    nav.settleRoutes(settleTick)
+    check nav.seats[first.seatIndex].installedRoute.revision > 0
+    check nav.seats[second.seatIndex].installedRoute.revision > 0
 
   test "inactive navigation seats are skipped and cannot be queried":
     let
@@ -291,24 +280,20 @@ suite "shell body seat belief-lite seam":
     expect ValueError:
       body.setStandingIntent(holdIntent(), some(goal), 4)
 
-    body.nav.replacePlan(0, 1, (16, 48), goal)
-    body.nav.replacePlan(body.seatIndex, 1, (16, 48), goal)
-    body.nav.seats[body.seatIndex].cache.pinStandingGoal((80, 48))
-    let existingPin = body.nav.seats[body.seatIndex].cache.pinnedRouteKey
-    check body.nav.seats[0].job.planPending
-    check body.nav.seats[body.seatIndex].job.planPending
+    discard body.nav.navigationWaypoint(body.seatIndex, (16, 48), goal, 1)
+    let pendingGoal = body.nav.seats[body.seatIndex].pendingRoute.request.goal
+    check body.nav.seats[body.seatIndex].pendingRoute.lifecycle == brlPending
     body.setStandingIntent(navigateIntent(point), some(goal), 5)
-    check body.nav.seats[0].job.planPending
-    check body.nav.seats[body.seatIndex].job.planPending
+    check body.nav.seats[body.seatIndex].pendingRoute.lifecycle == brlPending
+    check body.nav.seats[body.seatIndex].pendingRoute.request.goal == pendingGoal
     check body.standingIntent.kind == shellTypes.ikNavigateTo
     check body.effectiveCallNumber == 5
     check body.standingGoal.get.goalPoint == goal.goalPoint
-    check body.nav.seats[body.seatIndex].cache.pinnedRouteKey == existingPin
 
     body.setStandingIntent(holdIntent(), none(ValidatedGoal), 6)
     check body.effectiveCallNumber == 6
     check body.standingGoal.isNone
-    check body.nav.seats[body.seatIndex].cache.pinnedRouteKey == existingPin
+    check body.nav.seats[body.seatIndex].pendingRoute.lifecycle == brlPending
 
     let payload = shellTypes.Intent(kind: shellTypes.ikNavigateTo,
       point: some(MapPoint(x: point.x, y: point.y)),
@@ -320,8 +305,7 @@ suite "shell body seat belief-lite seam":
     check body.standingIntent.combat.holdFire
     check body.standingIntent.drop
     check body.standingIntent.handoff == "gun"
-    check body.nav.seats[body.seatIndex].job.planPending
-    check body.nav.seats[body.seatIndex].cache.pinnedRouteKey == existingPin
+    check body.nav.seats[body.seatIndex].pendingRoute.lifecycle == brlPending
 
   test "safe call number zero intent leaves navigation work untouched":
     let map = openMap()
@@ -331,16 +315,14 @@ suite "shell body seat belief-lite seam":
     let goal = map.validateGoal(point, start).get
 
     body.setStandingIntent(navigateIntent(point), some(goal), 9)
-    body.nav.replacePlan(body.seatIndex, 9, start, goal)
-    check body.nav.seats[body.seatIndex].job.planPending
-    check body.nav.seats[body.seatIndex].cache.pinnedRouteKey.isNone
+    discard body.nav.navigationWaypoint(body.seatIndex, start, goal, 9)
+    check body.nav.seats[body.seatIndex].pendingRoute.lifecycle == brlPending
 
     body.setStandingIntent(holdIntent(), none(ValidatedGoal), 0)
     check body.effectiveCallNumber == 0
     check body.standingIntent.kind == shellTypes.ikHold
     check body.standingGoal.isNone
-    check body.nav.seats[body.seatIndex].job.planPending
-    check body.nav.seats[body.seatIndex].cache.pinnedRouteKey.isNone
+    check body.nav.seats[body.seatIndex].pendingRoute.lifecycle == brlPending
 
     let input = body.seatTick(BodyTickInputs(self: selfState(start)), 10)
     check input.mask == ButtonSelect
@@ -353,8 +335,11 @@ suite "shell body seat belief-lite seam":
       literal = NavRequestAnchor(goalCell: (10, 6),
         identity: NavTargetIdentity(kind: ntiLiteral, sourceCell: 154),
         profile: shellTypes.cpDefault)
-    seat.setActivePathForTest([(16, 48), (160, 48)], 1)
     check seat.shouldQueryRoute(literal, 0)
+    var installed = BodyInstalledRoute(revision: 1, spanCount: 1)
+    installed.spans[0] = BodyRouteSpan(start: (16, 48),
+      deltaX: 8, steps: 18)
+    seat.installedRoute = installed
     seat.acceptRequestAnchor(literal, 0)
     check not seat.shouldQueryRoute(NavRequestAnchor(goalCell: (11, 6),
       identity: NavTargetIdentity(kind: ntiLiteral, sourceCell: 155),
@@ -392,31 +377,6 @@ suite "shell body seat belief-lite seam":
     let emptySeat = newBodyNavSystem(map, 1, 331).seats[0]
     emptySeat.acceptRequestAnchor(literal, 0)
     check emptySeat.shouldQueryRoute(literal, 1)
-
-  test "a requested anchor survives failure while an old route advances":
-    let
-      map = openMap()
-      nav = newBodyNavSystem(map, 1, 331)
-      seat = nav.seats[0]
-      start: BodyPoint = (16, 48)
-      oldPath = [start, (80, 48)]
-      goal = map.validateGoal((160, 48), start).get
-      goalCell = map.cellOf(goal.goalPoint)
-      anchor = NavRequestAnchor(goalCell: goalCell,
-        identity: NavTargetIdentity(kind: ntiLiteral,
-          sourceCell: int32(goalCell.y * map.gridWidth + goalCell.x)),
-        profile: shellTypes.cpDefault)
-    seat.setActivePathForTest(oldPath, 1)
-    discard nav.navigationWaypoint(0, start, goal, 7)
-    check seat.job.planPending
-    check seat.acceptedAnchor == some(anchor)
-    check seat.activePath == @oldPath
-
-    seat.cache.cancelPlan(seat.job)
-    check not seat.job.planPending
-    check not seat.shouldQueryRoute(anchor, 8)
-    seat.cursor = seat.pathLen
-    check seat.shouldQueryRoute(anchor, 8)
 
   test "semantic goal resolves before arrival and dark context uses fallback":
     let
@@ -762,15 +722,13 @@ suite "shell body seat belief-lite seam":
       tick = 0
       masks: seq[uint8]
     while tick < 512 and not near(pos, goal.goalPoint, 10.0):
-      let traceLen = nav.planningTraceSnapshot.len
       let input = body.seatTick(BodyTickInputs(
         self: selfState(pos, aimBrads = aim)), tick.uint32)
-      check nav.planningTraceSnapshot.len == traceLen
       masks.add(input.mask)
       check input.withoutActuatorWeapons
       check nav.dangerTraceSnapshot.len == 0
-      discard nav.runPlanningTick(tick)
-      check nav.planningTraceSnapshot.len >= traceLen
+      check nav.routePopsLastTick <= BodyRoutePopBudgetPerTick
+      discard nav.runRouteScheduler(tick)
       pos = stepPosition(pos, input)
       aim = stepAim(aim, input)
       inc tick
@@ -794,7 +752,7 @@ suite "shell body seat belief-lite seam":
       let input = replayBody.seatTick(BodyTickInputs(
         self: selfState(replayPos, aimBrads = replayAim)), replayTick.uint32)
       check input.mask == expected
-      discard replayNav.runPlanningTick(replayTick)
+      discard replayNav.runRouteScheduler(replayTick)
       replayPos = stepPosition(replayPos, input)
       replayAim = stepAim(replayAim, input)
 
@@ -838,8 +796,8 @@ suite "shell body seat belief-lite seam":
     let input = body.seatTick(BodyTickInputs(
       self: selfState(start, aimBrads = 32)), 0)
     check input.mask == ButtonSelect
-    check not body.nav.seats[body.seatIndex].job.planPending
-    check body.nav.planningTraceSnapshot.len == 0
+    check body.nav.seats[body.seatIndex].pendingRoute.lifecycle == brlIdle
+    check not body.nav.routeJob.active
 
   test "seatTick dead seats return zero while still applying belief":
     let body = activateSeatBody(openMap(), 0, 331)
@@ -855,8 +813,8 @@ suite "shell body seat belief-lite seam":
     check input.mask == 0
     check body.tracks[5].isSome
     check body.tracks[5].get.pos == (80, 48)
-    check not body.nav.seats[body.seatIndex].job.planPending
-    check body.nav.planningTraceSnapshot.len == 0
+    check body.nav.seats[body.seatIndex].pendingRoute.lifecycle == brlIdle
+    check not body.nav.routeJob.active
 
   test "seatTick never emits weapon bits during mixed movement and idle aim":
     let map = openMap()
@@ -876,7 +834,7 @@ suite "shell body seat belief-lite seam":
         self: selfState(pos, aimBrads = aim)), tick.uint32)
       check (input.mask and ButtonA) == 0
       check (input.mask and ButtonC) == 0
-      discard nav.runPlanningTick(tick)
+      discard nav.runRouteScheduler(tick)
       pos = stepPosition(pos, input)
       aim = stepAim(aim, input)
 
@@ -901,14 +859,14 @@ suite "shell body seat belief-lite seam":
           let input = bodies[seat].seatTick(BodyTickInputs(
             self: selfState(positions[seat], aimBrads = 32)), tick.uint32)
           result.masks[seat].add(input.mask)
-        discard nav.runPlanningTick(tick)
+        discard nav.runRouteScheduler(tick)
         for seat in 0 .. 1:
           positions[seat] = stepPosition(positions[seat],
             decodeInputMask(result.masks[seat][^1]))
         inc tick
-      nav.settlePlans(tick)
+      nav.settleRoutes(tick)
       for seat in 0 .. 1:
-        result.paths[seat] = nav.seats[seat].activePath
+        result.paths[seat] = nav.seats[seat].installedRoutePoints
 
     let forward = runOrder(@[0, 1])
     let reversed = runOrder(@[1, 0])

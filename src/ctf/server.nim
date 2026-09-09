@@ -5261,14 +5261,9 @@ proc runServerLoop*(
               echo annotation.formatLifecycleAnnotation(
                 shellEpisode.seatDisplayName(annotation.seat.int))
             replayWriter.writeAnnotation(annotation)
-          # Cold-planning budget events print on the tick they happen; the
-          # follower census prints once a second and on every event tick so
-          # the two join by tick. The weapon-path census prints once a second.
-          for event in shellTick.planBudget:
-            echo event.formatPlanBudgetEvent()
           let secondBoundary = (sim.tickCount mod 24) == 0
           if shellTick.masks.len > 0:
-            if secondBoundary or shellTick.planBudget.len > 0:
+            if secondBoundary:
               echo formatNavSummary(uint32(sim.tickCount + 1), shellTick.nav)
             if secondBoundary:
               echo formatCombatSummary(uint32(sim.tickCount + 1),

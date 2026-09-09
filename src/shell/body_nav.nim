@@ -1,35 +1,15 @@
-## Seat navigation coordinator: danger cadence, global cold-work scheduler,
-## atomic route replacement, and stencil-exact warm follower behavior.
-##
-## One 256-unit budget PER SEAT per tick, pooled (planBudgetPerTick).
-## Plans are spent first, in the existing persisted seat-index round
-## robin. Field minting consumes only what the plan pass leaves, through
-## its own persisted seat-index cursor, with at most one mint in flight
-## server-wide. A play's order moves the cog before it warms the oracle.
-##
-## WHY the pool scales with seats: the budget was a flat 256 units per
-## tick server-wide, sized for one or two seats on a paintball board. A
-## Season 2 league episode runs 16 seats on a 2271x1212 generated map,
-## where one 900 px route costs ~17k units on the PlanStepPx lattice.
-## Sixteen such plans sharing 256 units a tick each got a slice every
-## thirty-odd ticks and took over a thousand ticks to finish, and the
-## follower holds a cog still while its plan is pending — so hosted cogs
-## stood where they spawned until the zone killed them (round 3633,
-## 0.7.283). Per-seat pooling keeps every single-seat contract byte-
-## identical and lets a full roster plan in parallel; the worst case
-## (32 seats, all planning) is ~8k units, a few milliseconds of a 41 ms
-## tick, and the planning pass is outside the containment body-tick gate.
+## Seat navigation coordinator: danger cadence, one shared pop-budgeted
+## mixed-grid search, stable SJF admission, and atomic bounded routes.
 
 import std/[hashes, math, options]
 import bitworld/[profile, spriteprotocol]
 import ../ctf/sim_types
-import body_cache, body_hazard, body_map, body_planner, body_route_index,
-  body_route_query
+import body_cache, body_danger, body_hazard, body_map, body_route_index,
+  body_route_query, body_safety_query
 import types as shellTypes
 
 const
   DangerCadenceK* = 32
-  ColdPlanBudgetPerTick* = 256
   DangerLosFlatPx = 400
   DangerLosFarFactor = 0.6
   DangerLosRangePx = 1050
@@ -44,11 +24,8 @@ const
   FollowBlockTtlTicks = 96
   MaxDangerSources* = 8
   FollowLookaheadK* = 6
-  RoutePhaseStart = 0'u8
-  RoutePhaseEdges = 1'u8
-  RoutePhaseGoal = 2'u8
-  RoutePhaseEndpoint = 3'u8
-  RoutePhaseDone = 4'u8
+  BodyNavigationRetainedCap* = 192'i64 * 1024 * 1024
+  SequenceAllocationOverhead = 16'i64
 
 type
   DangerWorkspace = object
@@ -77,18 +54,33 @@ type
     profile*: shellTypes.CostProfile
     moving*: bool
 
-  BodyRouteCursor* = object
-    phase*: uint8
-    edgeIndex*, cellOffset*: uint16
+  BodyRouteLifecycle* = enum
+    brlIdle
+    brlPending
+    brlInFlight
+
+  BodyPendingRoute* = object
+    lifecycle*: BodyRouteLifecycle
+    request*: BodyRouteSearchRequest
+    firstWaitTick*: int32
+    replacements*: uint32
+
+  BodyInstalledRoute* = object
+    spans*: array[BodyRouteSpanCap, BodyRouteSpan]
+    spanCount*, spanIndex*, stepIndex*: uint16
+    revision*, dangerGeneration*: uint64
+    failure*: BodyRouteFailure
+    pointCount*: int32
+
+  BodyNavigationBytes* = object
+    systemOwner*, routeIndex*, safetyScratch*, mixedGraph*: int64
+    seatOwners*, seatCaches*, dangerRasters*, dangerWorkspaces*: int64
+    packedWeights*, sharedDangerGeometry*, trace*, allocatorOverhead*: int64
+    total*: int64
 
   BodyNavSeat* = ref object
     index*: int
     cache*: BodySeatCache
-    planner*: BodyPlanner
-    job*: BodyPlanJob
-    mintJob*: BodyMintJob
-    mintGoal*: Option[BodyPoint]
-    mintRevision*: uint64
     danger*: BodyDangerField
     dangerWorkspace: DangerWorkspace
     dangerKernel: seq[float32]
@@ -105,10 +97,6 @@ type
     desiredMoving*: bool
     acceptedAnchor*: Option[NavRequestAnchor]
     revision*: uint64
-    path*: seq[BodyPoint]
-    pathLen*: int
-    pathRevision*: uint64
-    cursor*: int
     lastXy*: Option[BodyPoint]
     stuckTicks*: int
     blockedPenalty*: Option[tuple[pos: BodyPoint, untilTick: int]]
@@ -116,71 +104,73 @@ type
     lastPlanTick*: int
     followReplans*: int
     followStuckEvents*: int
-    planVisits*: int   ## planning visits spent on the current revision
-    installedDescriptor: BodyRouteDescriptor
-    installedEdges: array[RouteEdgeCap, RouteEdgeRef]
-    installedStartLeg: array[RouteLocalLegCap, int32]
-    installedGoalLeg: array[RouteLocalLegCap, int32]
-    installedRevision: uint64
-    routeCursor*: BodyRouteCursor
-    installedAnchor: BodyPoint
     lastQuerySucceeded*: bool
     lastQueryFailure*: BodyRouteFailure
-
-  PlanningVisit* = object
-    tick*: int
-    seat*: int
-    revision*: uint64
-    units*: int
-    completed*: bool
-
-  MintVisit* = object
-    tick*: int
-    seat*: int
-    revision*: uint64
-    units*: int
-    completed*: bool
+    packedWeights*: seq[int16]
+    dangerGeneration*: uint64
+    pendingRoute*: BodyPendingRoute
+    installedRoute*: BodyInstalledRoute
 
   DangerRebuild* = object
     tick*: int
     seat*: int
     sourceCount*: int
 
-  PlanBudgetOutcome* = enum
-    pboSuspended   ## the pooled budget ran out with this plan still pending
-    pboCompleted   ## a plan that needed more than one visit finally landed
-    pboFailed      ## a plan that needed more than one visit finally failed
-
-  PlanBudgetEvent* = object
-    ## One operator-visible cold-planning budget event (always-on, unlike the
-    ## capacity-gated traces above). A plan that fits its first visit produces
-    ## no event; every suspension does, and so does the visit that finally
-    ## resolves a plan which was suspended at least once, so the log shows
-    ## both the stall and how many visits (retries) it took to clear.
-    tick*: int
-    seat*: int
-    revision*: uint64
-    visits*: int       ## planning visits spent on this revision so far
-    units*: int        ## work units spent on this visit
-    outcome*: PlanBudgetOutcome
-
   BodyNavSystem* = ref object
     map*: BodyMap
     seats*: seq[BodyNavSeat]
     routeIndex*: BodyRouteIndex
-    routeScratch*: BodyRouteQueryScratch
+    safetyScratch*: BodySafetyScratch
     hazard: BodyHazardOverlay
-    minter*: BodyFieldMinter
     dangerK*: int
-    lastPlanSeat*: int
-    lastMintSeat*: int
-    planningTrace: seq[PlanningVisit]
-    mintTrace: seq[MintVisit]
     dangerTrace: seq[DangerRebuild]
-    planningTraceLen: int
-    mintTraceLen: int
     dangerTraceLen: int
-    planBudgetEvents: seq[PlanBudgetEvent]  ## drained by the episode each tick
+    mixedGraph*: BodyMixedGraph
+    routeWorkspace*: BodyRouteWorkspace
+    routeJob*: BodyRouteSearchJob
+    routeJobSeat*: int
+    routePopsLastTick*: int
+    navigationBytes*: BodyNavigationBytes
+
+proc seqAllocationBytes(length, elementBytes: int): int64 {.inline.} =
+  if length == 0: 0
+  else: int64(length * elementBytes) + SequenceAllocationOverhead
+
+proc retainedNavigationBytes*(system: BodyNavSystem): BodyNavigationBytes =
+  if system == nil:
+    return
+  result.systemOwner = int64(sizeof(system[]))
+  if system.routeIndex != nil:
+    result.routeIndex = system.routeIndex.retainedIndexBytes
+  if system.safetyScratch != nil:
+    result.safetyScratch = system.safetyScratch.retainedBytes
+  if system.mixedGraph != nil and system.routeWorkspace != nil:
+    result.mixedGraph = int64(sizeof(system.mixedGraph[]) +
+      sizeof(system.routeWorkspace[])) +
+      system.mixedGraph.bodyMixedGraphBytes(system.routeWorkspace).total
+  result.trace = seqAllocationBytes(system.dangerTrace.len,
+    sizeof(DangerRebuild))
+  for seat in system.seats:
+    result.seatOwners += int64(sizeof(seat[]))
+    if seat.cache != nil:
+      result.seatCaches += int64(sizeof(seat.cache[]))
+    result.dangerRasters += seqAllocationBytes(seat.danger.values.len,
+      sizeof(float32))
+    result.dangerWorkspaces += seqAllocationBytes(
+      seat.dangerWorkspace.visited.len, sizeof(uint32))
+    result.packedWeights += seqAllocationBytes(seat.packedWeights.len,
+      sizeof(int16))
+  if system.seats.len > 0:
+    result.sharedDangerGeometry = seqAllocationBytes(
+      system.seats[0].dangerKernel.len, sizeof(float32)) +
+      seqAllocationBytes(system.seats[0].dangerPerimeter.len,
+        sizeof(BodyPoint))
+  result.allocatorOverhead = SequenceAllocationOverhead * 2
+  result.total = result.systemOwner + result.routeIndex +
+    result.safetyScratch + result.mixedGraph + result.seatOwners +
+    result.seatCaches + result.dangerRasters + result.dangerWorkspaces +
+    result.packedWeights + result.sharedDangerGeometry + result.trace +
+    result.allocatorOverhead
 
 proc pyRound(value: float): int =
   let lower = floor(value).int
@@ -235,7 +225,7 @@ proc initDangerGeometry(liveGunRangePx: int): tuple[kernel: seq[float32],
 proc newBodyNavSystem*(map: BodyMap, seatCount, liveGunRangePx: int,
                        dangerK = DangerCadenceK,
                        traceCapacity = 0,
-                       prepareRouteQueries = false,
+                       prepareRouteQueries = true,
                        preparedRouteIndex: BodyRouteIndex = nil): BodyNavSystem =
   ## Activation-barrier constructor. The hierarchical query index is built
   ## only for an episode that can issue those queries; direct-input and legacy
@@ -256,81 +246,39 @@ proc newBodyNavSystem*(map: BodyMap, seatCount, liveGunRangePx: int,
         "prepared route index belongs to another body map")
     result.routeIndex = if preparedRouteIndex == nil:
       newBodyRouteIndex(map) else: preparedRouteIndex
-    result.routeScratch = newBodyRouteQueryScratch(result.routeIndex)
-  result.minter = newBodyFieldMinter(map)
+    result.safetyScratch = newBodySafetyScratch(result.routeIndex)
+    result.mixedGraph = newBodyMixedGraph(map)
+    result.routeWorkspace = newBodyRouteWorkspace(result.mixedGraph)
+    result.routeJobSeat = -1
+    discard result.routeIndex.releaseFollowingPayload()
   result.dangerK = dangerK
-  result.lastPlanSeat = -1
-  result.lastMintSeat = -1
-  result.planningTrace = newSeq[PlanningVisit](traceCapacity)
-  result.mintTrace = newSeq[MintVisit](traceCapacity)
   result.dangerTrace = newSeq[DangerRebuild](traceCapacity)
   result.seats = newSeq[BodyNavSeat](seatCount)
   let dangerGeometry = initDangerGeometry(liveGunRangePx)
   for index in 0 ..< seatCount:
     let cache = newBodySeatCache(map)
-    let planner = if prepareRouteQueries: nil else: newBodyPlanner(map)
     let danger = initDanger(map)
     result.seats[index] = BodyNavSeat(index: index, cache: cache,
-      planner: planner, danger: danger.field,
+      danger: danger.field,
       dangerWorkspace: danger.workspace, dangerTick: 0, active: true,
       dangerKernel: dangerGeometry.kernel,
       dangerPerimeter: dangerGeometry.perimeter,
       dangerRadius: dangerGeometry.radius,
       dangerRangePx: liveGunRangePx,
-      desiredProfile: shellTypes.cpDefault,
-      path: newSeq[BodyPoint](planner.workspaceCapacity + 2))
+      desiredProfile: shellTypes.cpDefault)
+    if prepareRouteQueries:
+      result.seats[index].dangerGeneration = 1
+      result.mixedGraph.rebuildPackedWeights(
+        result.seats[index].danger, result.seats[index].packedWeights)
+  result.navigationBytes = result.retainedNavigationBytes()
+  if prepareRouteQueries and
+      result.navigationBytes.total > BodyNavigationRetainedCap:
+    raise newException(BodyMapError,
+      "body navigation map '" & map.name & "' retains " &
+      $result.navigationBytes.total & " bytes, above cap " &
+      $BodyNavigationRetainedCap)
 
 proc seatCount*(system: BodyNavSystem): int = system.seats.len
-
-proc installRoute*(seat: BodyNavSeat, scratch: BodyRouteQueryScratch,
-    route: BodyRouteQueryResult, revision: uint64): bool =
-  ## Publish only after every bounded array has copied successfully. The local
-  ## staging values keep a typed/stale failure from changing any live bytes.
-  if seat == nil or scratch == nil or not route.ok:
-    return false
-  var
-    edges: array[RouteEdgeCap, RouteEdgeRef]
-    startLeg: array[RouteLocalLegCap, int32]
-    goalLeg: array[RouteLocalLegCap, int32]
-  if not scratch.copyResultEdges(route, edges) or
-      not scratch.copyResultStartLeg(route, startLeg) or
-      not scratch.copyResultGoalLeg(route, goalLeg):
-    return false
-  seat.installedEdges = edges
-  seat.installedStartLeg = startLeg
-  seat.installedGoalLeg = goalLeg
-  seat.installedDescriptor = route.descriptor
-  seat.routeCursor = BodyRouteCursor(phase: RoutePhaseStart)
-  seat.installedAnchor = route.descriptor.exactStart
-  seat.installedRevision = revision
-  true
-
-proc installedRouteRevision*(seat: BodyNavSeat): uint64 =
-  if seat == nil: 0 else: seat.installedRevision
-
-proc installedRouteCursor*(seat: BodyNavSeat): int =
-  if seat == nil: 0 else: seat.routeCursor.cellOffset.int
-
-proc installedRouteAnchor*(seat: BodyNavSeat): BodyPoint =
-  if seat == nil: (0, 0) else: seat.installedAnchor
-
-proc installedRouteFingerprint*(seat: BodyNavSeat): Hash =
-  if seat == nil:
-    return 0
-  var value = hash(seat.installedDescriptor.edgeCount) !&
-    hash(seat.installedDescriptor.startLegLen) !&
-    hash(seat.installedDescriptor.goalLegLen) !&
-    hash(seat.installedDescriptor.exactStart) !&
-    hash(seat.installedDescriptor.exactGoal) !&
-    hash(seat.routeCursor.phase) !& hash(seat.routeCursor.edgeIndex) !&
-    hash(seat.routeCursor.cellOffset) !& hash(seat.installedAnchor)
-  for offset in 0 ..< seat.installedDescriptor.edgeCount.int:
-    value = value !& hash(uint16(seat.installedEdges[offset]))
-  for offset in 0 ..< seat.installedDescriptor.startLegLen.int:
-    value = value !& hash(seat.installedStartLeg[offset])
-  for offset in 0 ..< seat.installedDescriptor.goalLegLen.int:
-    value = value !& hash(seat.installedGoalLeg[offset])
-  !$value
 
 proc liveWeaponRangePx*(system: BodyNavSystem, seatIndex: int): int =
   ## The live gun range captured at activation. Body weapon scoring uses the
@@ -343,57 +291,6 @@ proc recordDanger(system: BodyNavSystem, value: DangerRebuild) {.inline.} =
   if system.dangerTraceLen < system.dangerTrace.len:
     system.dangerTrace[system.dangerTraceLen] = value
     inc system.dangerTraceLen
-
-proc recordPlanning(system: BodyNavSystem, value: PlanningVisit) {.inline.} =
-  if system.planningTraceLen < system.planningTrace.len:
-    system.planningTrace[system.planningTraceLen] = value
-    inc system.planningTraceLen
-
-proc recordMint(system: BodyNavSystem, value: MintVisit) {.inline.} =
-  if system.mintTraceLen < system.mintTrace.len:
-    system.mintTrace[system.mintTraceLen] = value
-    inc system.mintTraceLen
-
-proc recordPlanBudget(system: BodyNavSystem, tick: int, seat: BodyNavSeat,
-                      revision: uint64, units: int) =
-  ## Called after every planning visit. Prewarm passes (tick < 0) are silent:
-  ## they run before the match and have no tick to join against.
-  if tick < 0:
-    return
-  var outcome: PlanBudgetOutcome
-  if seat.job.planPending:
-    outcome = pboSuspended
-  elif seat.planVisits > 1:
-    outcome = if seat.job.planSucceeded: pboCompleted else: pboFailed
-  else:
-    return
-  system.planBudgetEvents.add(PlanBudgetEvent(tick: tick, seat: seat.index,
-    revision: revision, visits: seat.planVisits, units: units,
-    outcome: outcome))
-
-proc drainPlanBudgetEvents*(system: BodyNavSystem): seq[PlanBudgetEvent] =
-  ## Hands the events recorded since the last drain to the caller (the
-  ## episode, once per tick) and clears them.
-  result = move(system.planBudgetEvents)
-  system.planBudgetEvents = @[]
-
-proc followingStalePath*(seat: BodyNavSeat): bool =
-  ## True while the follower walks a route planned for an earlier request
-  ## because the current request's plan has not landed yet.
-  seat.pathLen > 0 and seat.pathRevision != seat.revision
-
-proc hasNoPath*(seat: BodyNavSeat): bool =
-  seat.pathLen == 0
-
-proc planningTraceSnapshot*(system: BodyNavSystem): seq[PlanningVisit] =
-  result = newSeq[PlanningVisit](system.planningTraceLen)
-  for index in 0 ..< system.planningTraceLen:
-    result[index] = system.planningTrace[index]
-
-proc mintTraceSnapshot*(system: BodyNavSystem): seq[MintVisit] =
-  result = newSeq[MintVisit](system.mintTraceLen)
-  for index in 0 ..< system.mintTraceLen:
-    result[index] = system.mintTrace[index]
 
 proc dangerTraceSnapshot*(system: BodyNavSystem): seq[DangerRebuild] =
   result = newSeq[DangerRebuild](system.dangerTraceLen)
@@ -410,14 +307,6 @@ proc resetNavigationLife*(system: BodyNavSystem, seatIndex: int) =
   doAssert seat.active,
     "navigation life must be cleared before the seat becomes inactive"
 
-  seat.installedDescriptor = BodyRouteDescriptor()
-  seat.installedEdges = default(array[RouteEdgeCap, RouteEdgeRef])
-  seat.installedStartLeg = default(array[RouteLocalLegCap, int32])
-  seat.installedGoalLeg = default(array[RouteLocalLegCap, int32])
-  seat.routeCursor = BodyRouteCursor(phase: RoutePhaseDone)
-  seat.installedAnchor = (0, 0)
-  seat.installedRevision = 0
-
   seat.acceptedAnchor = none(NavRequestAnchor)
   seat.desiredGoal = none(BodyPoint)
   seat.revision = 0
@@ -432,15 +321,11 @@ proc resetNavigationLife*(system: BodyNavSystem, seatIndex: int) =
   seat.desiredMoving = false
   seat.lastQuerySucceeded = false
   seat.lastQueryFailure = brfNone
-
-  seat.pathLen = 0
-  seat.pathRevision = 0
-  seat.cursor = 0
-  seat.job = BodyPlanJob()
-  seat.mintJob = BodyMintJob()
-  seat.mintGoal = none(BodyPoint)
-  seat.mintRevision = 0
-  seat.planVisits = 0
+  seat.pendingRoute = BodyPendingRoute()
+  seat.installedRoute = BodyInstalledRoute()
+  if system.routeJobSeat == seatIndex:
+    system.routeJob = BodyRouteSearchJob()
+    system.routeJobSeat = -1
 
 proc nextVisitGeneration(seat: BodyNavSeat) =
   if seat.dangerWorkspace.visitGeneration == high(uint32):
@@ -542,6 +427,20 @@ proc rebuildDangerFromPoints(seat: BodyNavSeat, map: BodyMap,
     seat.danger.maximum = max(seat.danger.maximum, value)
   seat.dangerTick = tick
 
+proc publishDangerGeneration(system: BodyNavSystem; seat: BodyNavSeat) =
+  ## Publish only after the complete float raster and exact packed Q8 view are
+  ## ready. A search can therefore compare one monotonic generation before it
+  ## spends another pop.
+  if system.mixedGraph == nil:
+    return
+  system.mixedGraph.rebuildPackedWeights(seat.danger, seat.packedWeights)
+  inc seat.dangerGeneration
+  if seat.dangerGeneration == 0:
+    seat.dangerGeneration = 1
+  if seat.installedRoute.revision != 0 and
+      seat.installedRoute.dangerGeneration != seat.dangerGeneration:
+    seat.installedRoute = BodyInstalledRoute()
+
 proc dangerCandidateLess(aDistance: int64, aSeat: int,
                          bDistance: int64, bSeat: int): bool {.inline.} =
   aDistance < bDistance or (aDistance == bDistance and aSeat < bSeat)
@@ -609,6 +508,7 @@ proc initializeDanger*(system: BodyNavSystem,
     raise newException(ValueError, "danger source rows must match seat count")
   for index, seat in system.seats:
     seat.rebuildDanger(system.map, sourcesBySeat[index], activationTick)
+    system.publishDangerGeneration(seat)
 
 proc dangerSeatDue*(tick, seat, cadenceK: int): bool =
   cadenceK > 0 and floorMod(tick, cadenceK) == floorMod(seat, cadenceK)
@@ -627,6 +527,7 @@ proc rebuildScheduledDanger*(system: BodyNavSystem, tick: int,
   for index, seat in system.seats:
     if seat.active and dangerSeatDue(tick, index, system.dangerK):
       seat.rebuildDanger(system.map, sourcesBySeat[index], tick)
+      system.publishDangerGeneration(seat)
       system.recordDanger(DangerRebuild(tick: tick, seat: index,
         sourceCount: seat.selectedDangerCount))
 
@@ -641,205 +542,8 @@ proc dangerFingerprint*(seat: BodyNavSeat): Hash =
     value = value !& hash(sample)
   !$value
 
-proc mintQueuedOrPending*(seat: BodyNavSeat): bool =
-  seat.mintGoal.isSome or seat.mintJob.mintPending
-
-proc enqueueMint(seat: BodyNavSeat, goal: BodyPoint, revision: uint64) =
-  let key = seat.cache.routeKey(goal)
-  if seat.cache.routeSlotReady(key):
-    return
-  if seat.mintJob.mintPending:
-    if seat.mintJob.routeKey != key:
-      seat.cache.cancelMint(seat.mintJob)
-      seat.mintGoal = some(goal)
-      seat.mintRevision = revision
-    return
-  if seat.mintGoal.isSome and seat.cache.routeKey(seat.mintGoal.get) == key:
-    return
-  seat.mintGoal = some(goal)
-  seat.mintRevision = revision
-
-proc replacePlan*(system: BodyNavSystem, seatIndex: int, revision: uint64,
-                  selfXy: BodyPoint, goal: ValidatedGoal,
-                  profile = shellTypes.cpDefault,
-                  avoid = none(BodyPoint)) =
-  let seat = system.seats[seatIndex]
-  if seat.job.planPending:
-    seat.cache.cancelPlan(seat.job)
-  seat.revision = revision
-  seat.desiredGoal = some(goal.goalPoint)
-  seat.desiredProfile = profile
-  seat.planner.startPlan(seat.cache, seat.job, revision, selfXy,
-    goal, profile, avoid)
-  seat.planVisits = 0
-  seat.enqueueMint(goal.goalPoint, revision)
-
-proc installCompletedPath(seat: BodyNavSeat) =
-  swap(seat.path, seat.planner.resultPath)
-  seat.pathLen = seat.planner.resultLen
-  seat.planner.resultLen = 0
-  seat.pathRevision = seat.job.revision
-  seat.cache.pinStandingGoal(seat.job.goal)
-  seat.cursor = 0
-  seat.stuckTicks = 0
-
-proc hasPendingPlan(system: BodyNavSystem): bool =
-  for seat in system.seats:
-    if seat.job.planPending:
-      return true
-
-proc pendingPlanCount*(system: BodyNavSystem): int =
-  ## Seats whose cold plan is still computing at the end of the tick.
-  for seat in system.seats:
-    if seat.job.planPending:
-      inc result
-
-proc hasPendingMint*(system: BodyNavSystem): bool =
-  for seat in system.seats:
-    if seat.mintQueuedOrPending:
-      return true
-
-proc activeMintSeat(system: BodyNavSystem): int =
-  for index, seat in system.seats:
-    if seat.mintJob.mintPending:
-      return index
-  -1
-
-proc nextQueuedMintSeat(system: BodyNavSystem): int =
-  var scanned = 0
-  var index = floorMod(system.lastMintSeat + 1, system.seats.len)
-  while scanned < system.seats.len:
-    if system.seats[index].mintGoal.isSome:
-      return index
-    inc scanned
-    index = (index + 1) mod system.seats.len
-  -1
-
-proc runPlanningWork(system: BodyNavSystem, tick, budgetLimit: int,
-    evaluationOrder: openArray[int] = [], runMints = true): int =
-  ## The plan pass owns the budget first; the field minter can spend only the
-  ## unclaimed tail, through its own persisted cursor.
-  discard evaluationOrder
-  var budget = budgetLimit
-  var scanned = 0
-  var index = floorMod(system.lastPlanSeat + 1, system.seats.len)
-  while budget > 0 and scanned < system.seats.len:
-    let seat = system.seats[index]
-    if seat.job.planPending:
-      let revision = seat.job.revision
-      let units = seat.planner.stepPlan(seat.cache, seat.danger, seat.job, budget)
-      system.lastPlanSeat = index
-      inc seat.planVisits
-      system.recordPlanning(PlanningVisit(tick: tick, seat: index,
-        revision: revision, units: units, completed: seat.job.planFinished))
-      system.recordPlanBudget(tick, seat, revision, units)
-      if seat.job.planSucceeded:
-        seat.installCompletedPath()
-      if budget == 0:
-        break
-      if units == 0 and seat.job.planPending:
-        raise newException(BodyMapError,
-          "pending plan made no progress under available budget")
-    inc scanned
-    index = (index + 1) mod system.seats.len
-  if runMints and budget > 0:
-    var mintSeat = system.activeMintSeat()
-    if mintSeat < 0:
-      mintSeat = system.nextQueuedMintSeat()
-      if mintSeat >= 0:
-        let seat = system.seats[mintSeat]
-        system.lastMintSeat = mintSeat
-        system.minter.beginMint(seat.cache, seat.mintJob,
-          seat.mintGoal.get, seat.mintRevision)
-    if mintSeat >= 0:
-      let seat = system.seats[mintSeat]
-      let revision = seat.mintJob.revision
-      let units = system.minter.stepMint(seat.cache, seat.mintJob, budget)
-      system.recordMint(MintVisit(tick: tick, seat: mintSeat,
-        revision: revision, units: units, completed: seat.mintJob.mintFinished))
-      if seat.mintJob.mintFinished:
-        seat.mintGoal = none(BodyPoint)
-      elif units == 0 and seat.mintJob.mintPending:
-        raise newException(BodyMapError,
-          "pending mint made no progress under available budget")
-  budgetLimit - budget
-
-proc planBudgetPerTick*(system: BodyNavSystem): int =
-  ## The pooled cold-work budget for one tick: ColdPlanBudgetPerTick for
-  ## every configured seat (see the module comment for why it scales).
-  ColdPlanBudgetPerTick * max(1, system.seats.len)
-
-proc runPlanningTick*(system: BodyNavSystem, tick: int,
-    evaluationOrder: openArray[int] = []): int =
-  when ProfileTracePath.len > 0:
-    measurePush("runPlanningTick")
-    defer: measurePop()
-  system.runPlanningWork(tick, system.planBudgetPerTick, evaluationOrder)
-
-proc prewarmColdPlans*(system: BodyNavSystem) =
-  ## Activation-barrier cold-plan drain.
-  ##
-  ## This is intentionally off-tick work for the §10 activation barrier. The
-  ## 256-unit `runPlanningTick` budget still governs PLAYING ticks; this API is
-  ## not a playing-tick shortcut. It drains repeated scheduler chunks through
-  ## the same persisted seat-index round robin, records barrier visits with
-  ## `tick = -1`, and publishes paths through the ordinary completion install
-  ## path. It deliberately does not warm route fields: after ruling 10 a plan
-  ## never needs a field, and stencil mints fields lazily on demand.
-  while system.hasPendingPlan:
-    discard system.runPlanningWork(-1, system.planBudgetPerTick, [], false)
-
-proc planCursor*(system: BodyNavSystem): int = system.lastPlanSeat
-
-proc mintCursor*(system: BodyNavSystem): int = system.lastMintSeat
-
-proc activePath*(seat: BodyNavSeat): seq[BodyPoint] =
-  result = newSeq[BodyPoint](seat.pathLen)
-  for index in 0 ..< seat.pathLen:
-    result[index] = seat.path[index]
-
-proc setActivePathForTest*(seat: BodyNavSeat, path: openArray[BodyPoint],
-                           revision: uint64) =
-  if path.len > seat.path.len:
-    raise newException(ValueError, "test path exceeds fixed follower buffer")
-  for index, point in path:
-    seat.path[index] = point
-  seat.pathLen = path.len
-  seat.pathRevision = revision
-  seat.cursor = 0
-
 proc distance(a, b: BodyPoint): float =
   hypot((a.x - b.x).float, (a.y - b.y).float)
-
-proc pointSegmentDistance(point, start, finish: BodyPoint): float =
-  let dx = (finish.x - start.x).float
-  let dy = (finish.y - start.y).float
-  if dx == 0.0 and dy == 0.0:
-    return distance(point, start)
-  let projection = clamp(
-    ((point.x - start.x).float * dx + (point.y - start.y).float * dy) /
-      (dx * dx + dy * dy), 0.0, 1.0)
-  hypot(point.x.float - (start.x.float + projection * dx),
-        point.y.float - (start.y.float + projection * dy))
-
-proc withinCorridor*(seat: BodyNavSeat, point: BodyPoint): bool =
-  if seat.pathLen == 0:
-    return seat.lastXy.isSome and
-      distance(point, seat.lastXy.get) <= FollowCorridorPx
-  let cursor = clamp(seat.cursor, 0, seat.pathLen - 1)
-  let previous = max(0, cursor - 1)
-  let following = min(seat.pathLen - 1, cursor + 1)
-  min(pointSegmentDistance(point, seat.path[previous], seat.path[cursor]),
-      pointSegmentDistance(point, seat.path[cursor], seat.path[following])) <=
-    FollowCorridorPx
-
-proc followerWaypoint*(seat: BodyNavSeat, selfXy: BodyPoint): BodyPoint =
-  if seat.pathLen == 0:
-    return selfXy
-  while seat.cursor < seat.pathLen - 1 and
-      distance(selfXy, seat.path[seat.cursor]) < NavCell.float:
-    inc seat.cursor
-  seat.path[seat.cursor]
 
 proc noteProgress*(seat: BodyNavSeat, selfXy: BodyPoint) =
   if seat.lastXy.isSome and distance(selfXy, seat.lastXy.get) < 1.0:
@@ -869,16 +573,10 @@ proc shouldQueryRoute*(seat: BodyNavSeat; anchor: NavRequestAnchor;
     return true
   if anchor.profile != accepted.profile:
     return true
-  if seat.planner == nil:
-    if seat.installedRevision == 0 or
-        seat.routeCursor.phase >= RoutePhaseDone:
-      return true
-    if seat.stuckTicks >= StuckTicks:
-      return true
-    return anchor.moving and tick - seat.lastPlanTick >= PlanMovingReplanTicks
-  if seat.job.planPending:
+  if seat.pendingRoute.lifecycle != brlIdle:
     return false
-  if seat.pathLen == 0 or seat.cursor >= seat.pathLen:
+  if seat.installedRoute.revision == 0 or
+      seat.installedRoute.spanIndex >= seat.installedRoute.spanCount:
     return true
   if seat.stuckTicks >= StuckTicks:
     return true
@@ -892,97 +590,214 @@ proc acceptRequestAnchor*(seat: BodyNavSeat; anchor: NavRequestAnchor;
   seat.desiredMoving = anchor.moving
   seat.lastPlanTick = tick
 
-proc normalizeRouteCursor(seat: BodyNavSeat; index: BodyRouteIndex) =
-  while seat.routeCursor.phase < RoutePhaseDone:
-    case seat.routeCursor.phase
-    of RoutePhaseStart:
-      if seat.routeCursor.cellOffset < seat.installedDescriptor.startLegLen:
-        return
-      seat.routeCursor = BodyRouteCursor(phase: RoutePhaseEdges)
-    of RoutePhaseEdges:
-      if seat.routeCursor.edgeIndex >= seat.installedDescriptor.edgeCount:
-        seat.routeCursor = BodyRouteCursor(phase: RoutePhaseGoal)
-        continue
-      let edge = seat.installedEdges[seat.routeCursor.edgeIndex]
-      let length = index.routeSegmentAt(edge.routeEdgeSegment).cellLen
-      if seat.routeCursor.cellOffset < length:
-        return
-      inc seat.routeCursor.edgeIndex
-      seat.routeCursor.cellOffset = 0
-    of RoutePhaseGoal:
-      if seat.routeCursor.cellOffset < seat.installedDescriptor.goalLegLen:
-        return
-      seat.routeCursor = BodyRouteCursor(phase: RoutePhaseEndpoint)
-    of RoutePhaseEndpoint:
-      if seat.routeCursor.cellOffset == 0:
-        return
-      seat.routeCursor = BodyRouteCursor(phase: RoutePhaseDone)
-    else:
-      seat.routeCursor.phase = RoutePhaseDone
+proc installedPointAt(seat: BodyNavSeat; spanIndex, stepIndex: int): BodyPoint =
+  let span = seat.installedRoute.spans[spanIndex]
+  (x: span.start.x + span.deltaX.int * stepIndex,
+    y: span.start.y + span.deltaY.int * stepIndex)
 
-proc routeCursorPoint(seat: BodyNavSeat; index: BodyRouteIndex;
-    offset = 0): Option[BodyPoint] =
-  let targetOffset = seat.routeCursor.cellOffset.int + offset
-  case seat.routeCursor.phase
-  of RoutePhaseStart:
-    if targetOffset < seat.installedDescriptor.startLegLen.int:
-      return some(index.routePoint(seat.installedStartLeg[targetOffset]))
-  of RoutePhaseEdges:
-    if seat.routeCursor.edgeIndex < seat.installedDescriptor.edgeCount:
-      let edge = seat.installedEdges[seat.routeCursor.edgeIndex]
-      let segment = index.routeSegmentAt(edge.routeEdgeSegment)
-      if targetOffset < segment.cellLen.int:
-        return some(index.routePoint(index.segmentCellAt(
-          edge.routeEdgeSegment, targetOffset, edge.routeEdgeReversed)))
-  of RoutePhaseGoal:
-    if targetOffset < seat.installedDescriptor.goalLegLen.int:
-      return some(index.routePoint(seat.installedGoalLeg[targetOffset]))
-  of RoutePhaseEndpoint:
-    if targetOffset == 0:
-      return some(seat.installedDescriptor.exactGoal)
-  else:
-    discard
+proc normalizeInstalledCursor(seat: BodyNavSeat) =
+  while seat.installedRoute.spanIndex < seat.installedRoute.spanCount:
+    let span = seat.installedRoute.spans[seat.installedRoute.spanIndex]
+    if seat.installedRoute.stepIndex <= span.steps:
+      return
+    inc seat.installedRoute.spanIndex
+    seat.installedRoute.stepIndex = 1
+
+proc advanceInstalledCursor(seat: BodyNavSeat) =
+  inc seat.installedRoute.stepIndex
+  seat.normalizeInstalledCursor()
+
+proc installedLookaheadPoint(seat: BodyNavSeat; offset: int): Option[BodyPoint] =
+  var
+    spanIndex = seat.installedRoute.spanIndex.int
+    stepIndex = seat.installedRoute.stepIndex.int
+    remaining = offset
+  while spanIndex < seat.installedRoute.spanCount.int:
+    let span = seat.installedRoute.spans[spanIndex]
+    if stepIndex <= span.steps.int:
+      if remaining == 0:
+        return some(seat.installedPointAt(spanIndex, stepIndex))
+      dec remaining
+      inc stepIndex
+    else:
+      inc spanIndex
+      stepIndex = 1
   none(BodyPoint)
 
-proc advanceRouteCursor(seat: BodyNavSeat; index: BodyRouteIndex) =
-  inc seat.routeCursor.cellOffset
-  seat.normalizeRouteCursor(index)
-
-proc routeWaypoint*(seat: BodyNavSeat; index: BodyRouteIndex;
+proc mixedRouteWaypoint(seat: BodyNavSeat; map: BodyMap;
     selfPos: BodyPoint): Option[BodyPoint] =
-  if seat == nil or index == nil or seat.installedRevision == 0:
+  if seat.installedRoute.revision == 0:
     return none(BodyPoint)
-  seat.normalizeRouteCursor(index)
-  while seat.routeCursor.phase < RoutePhaseDone:
-    var
-      found = false
-      best = selfPos
-      bestOffset = 0
+  seat.normalizeInstalledCursor()
+  while seat.installedRoute.spanIndex < seat.installedRoute.spanCount:
+    var best = none(BodyPoint)
+    var bestOffset = 0
     for offset in 0 .. FollowLookaheadK:
-      let candidate = seat.routeCursorPoint(index, offset)
+      let candidate = seat.installedLookaheadPoint(offset)
       if candidate.isNone:
         break
-      if index.map.segmentClear(selfPos, candidate.get):
-        found = true
-        best = candidate.get
+      if map.segmentClear(selfPos, candidate.get):
+        best = candidate
         bestOffset = offset
-    if not found:
-      seat.installedAnchor = selfPos
-      return seat.routeCursorPoint(index)
-    seat.routeCursor.cellOffset = uint16(
-      seat.routeCursor.cellOffset.int + bestOffset)
-    if distance(selfPos, best) >= 1.0:
-      seat.installedAnchor = best
-      return some(best)
-    seat.advanceRouteCursor(index)
-  seat.installedAnchor = seat.installedDescriptor.exactGoal
+    if best.isNone:
+      return seat.installedLookaheadPoint(0)
+    for _ in 0 ..< bestOffset:
+      seat.advanceInstalledCursor()
+    if distance(selfPos, best.get) >= 1.0:
+      return best
+    seat.advanceInstalledCursor()
   none(BodyPoint)
 
 proc routeAdvancing*(seat: BodyNavSeat; selfPos: BodyPoint;
     arriveRadius: float): bool =
-  seat != nil and seat.installedRevision != 0 and
-    seat.routeCursor.phase < RoutePhaseDone and
-    distance(selfPos, seat.installedAnchor) > arriveRadius
+  if seat == nil:
+    return false
+  if seat.installedRoute.revision != 0:
+    return seat.installedRoute.spanIndex < seat.installedRoute.spanCount and
+      distance(selfPos, seat.installedLookaheadPoint(0).get(selfPos)) >
+        arriveRadius
+  false
+
+proc installMixedRoute(seat: BodyNavSeat; route: BodyRouteBuild;
+    request: BodyRouteSearchRequest): bool =
+  ## Copy into a local fixed object first. No descriptor or cursor becomes
+  ## visible until reconstruction and every bounded copy have succeeded.
+  if not route.ok or route.spanCount.int > BodyRouteSpanCap:
+    return false
+  var installed = BodyInstalledRoute(spanCount: route.spanCount,
+    revision: request.requestGeneration,
+    dangerGeneration: request.dangerGeneration,
+    failure: route.failure, pointCount: route.pointCount)
+  for offset in 0 ..< route.spanCount.int:
+    installed.spans[offset] = route.spans[offset]
+  seat.installedRoute = installed
+  true
+
+proc installedRoutePoints*(seat: BodyNavSeat): seq[BodyPoint] =
+  ## Diagnostic snapshot for corpus/qualification gates; never used by play.
+  if seat == nil or seat.installedRoute.revision == 0:
+    return
+  for spanOffset in 0 ..< seat.installedRoute.spanCount.int:
+    let span = seat.installedRoute.spans[spanOffset]
+    let firstStep = if spanOffset == 0: 0 else: 1
+    for step in firstStep .. span.steps.int:
+      result.add (x: span.start.x + span.deltaX.int * step,
+        y: span.start.y + span.deltaY.int * step)
+
+proc installedRouteFingerprint*(seat: BodyNavSeat): Hash =
+  var value: Hash
+  for point in seat.installedRoutePoints:
+    value = value !& hash(point)
+  !$value
+
+proc submitMixedRoute(system: BodyNavSystem; seat: BodyNavSeat;
+    selfPos: BodyPoint; goal: BodyPoint; profile: shellTypes.CostProfile;
+    elapsedZoneTick, tick: int) =
+  let replacing = seat.pendingRoute.lifecycle != brlIdle
+  let blockedCell = if seat.blockedPenalty.isSome:
+      let cell = system.map.cellOf(seat.blockedPenalty.get.pos)
+      int32(cell.y * system.map.gridWidth + cell.x)
+    else:
+      -1'i32
+  seat.pendingRoute.request = BodyRouteSearchRequest(start: selfPos,
+    goal: goal, profile: profile, blockedCell: blockedCell,
+    elapsedZoneTick: int32(elapsedZoneTick),
+    requestGeneration: seat.revision,
+    dangerGeneration: seat.dangerGeneration)
+  seat.pendingRoute.lifecycle = brlPending
+  if replacing:
+    inc seat.pendingRoute.replacements
+  else:
+    seat.pendingRoute.firstWaitTick = int32(tick)
+
+proc estimatedRoutePops(request: BodyRouteSearchRequest): int64 {.inline.} =
+  let
+    dx = abs(request.start.x - request.goal.x) div BodyFineStepPx
+    dy = abs(request.start.y - request.goal.y) div BodyFineStepPx
+  int64(max(dx, dy))
+
+proc nextPendingSeat(system: BodyNavSystem): int =
+  result = -1
+  var bestEstimate = high(int64)
+  var bestTick = high(int32)
+  for seat in system.seats:
+    if not seat.active or seat.pendingRoute.lifecycle != brlPending:
+      continue
+    let estimate = estimatedRoutePops(seat.pendingRoute.request)
+    if result < 0 or estimate < bestEstimate or
+        (estimate == bestEstimate and
+          (seat.pendingRoute.firstWaitTick < bestTick or
+           (seat.pendingRoute.firstWaitTick == bestTick and
+            seat.index < result))):
+      result = seat.index
+      bestEstimate = estimate
+      bestTick = seat.pendingRoute.firstWaitTick
+
+proc cancelStaleRouteJob(system: BodyNavSystem) =
+  if not system.routeJob.active or system.routeJobSeat < 0:
+    return
+  let seat = system.seats[system.routeJobSeat]
+  let request = system.routeJob.request
+  if seat.pendingRoute.lifecycle != brlInFlight or
+      seat.pendingRoute.request.requestGeneration !=
+        request.requestGeneration:
+    system.routeJob = BodyRouteSearchJob()
+    system.routeJobSeat = -1
+  elif request.dangerGeneration != seat.dangerGeneration:
+    seat.pendingRoute.request.dangerGeneration = seat.dangerGeneration
+    seat.pendingRoute.lifecycle = brlPending
+    system.routeJob = BodyRouteSearchJob()
+    system.routeJobSeat = -1
+
+proc runRouteScheduler*(system: BodyNavSystem; tick: int;
+    popBudget = BodyRoutePopBudgetPerTick): int =
+  ## One episode-wide exact-pop allowance. Completed work is published after
+  ## the action pass and is therefore first visible on the next action pass.
+  if system == nil or system.mixedGraph == nil:
+    return
+  if popBudget < 0:
+    raise newException(ValueError, "body route pop budget must not be negative")
+  system.cancelStaleRouteJob()
+  var remaining = popBudget
+  while remaining > 0:
+    if not system.routeJob.active:
+      let seatIndex = system.nextPendingSeat()
+      if seatIndex < 0:
+        break
+      let seat = system.seats[seatIndex]
+      if seat.pendingRoute.request.dangerGeneration != seat.dangerGeneration:
+        seat.pendingRoute.request.dangerGeneration = seat.dangerGeneration
+      system.routeJobSeat = seatIndex
+      seat.pendingRoute.lifecycle = brlInFlight
+      system.routeJob.beginBodyRouteSearch(system.mixedGraph,
+        system.routeWorkspace, seat.packedWeights,
+        seat.pendingRoute.request)
+    let seat = system.seats[system.routeJobSeat]
+    let spent = system.routeJob.spendBodyRoutePops(system.mixedGraph,
+      system.routeWorkspace, seat.packedWeights, system.hazard, remaining)
+    remaining -= spent
+    result += spent
+    if system.routeJob.complete:
+      let request = system.routeJob.request
+      let route = system.routeJob.finishBodyRouteSearch(
+        system.mixedGraph, system.routeWorkspace)
+      if seat.pendingRoute.lifecycle == brlInFlight and
+          seat.pendingRoute.request.requestGeneration ==
+            request.requestGeneration and
+          seat.dangerGeneration == request.dangerGeneration:
+        seat.lastQuerySucceeded = route.ok
+        seat.lastQueryFailure = route.failure
+        if route.ok:
+          doAssert seat.installMixedRoute(route, request)
+        seat.pendingRoute.lifecycle = brlIdle
+      system.routeJob = BodyRouteSearchJob()
+      system.routeJobSeat = -1
+      if spent == 0:
+        continue
+    elif spent == 0:
+      raise newException(BodyMapError,
+        "in-flight body route made no progress under available pop budget")
+  system.routePopsLastTick = result
 
 proc profileWeightQ8(profile: shellTypes.CostProfile): int64 {.inline.} =
   case profile
@@ -1094,7 +909,7 @@ proc navigationWaypoint*(system: BodyNavSystem, seatIndex: int,
       sourceCell: int32(goalCell.y * system.map.gridWidth + goalCell.x))
   let anchor = NavRequestAnchor(goalCell: goalCell, identity: identity,
     profile: profile, moving: movingTarget)
-  let forcedReplan = not seat.job.planPending and
+  let forcedReplan = seat.pendingRoute.lifecycle == brlIdle and
     seat.stuckTicks >= StuckTicks
   if forcedReplan:
     if seat.lastFollowReplanTick.isSome and
@@ -1103,33 +918,18 @@ proc navigationWaypoint*(system: BodyNavSystem, seatIndex: int,
     seat.lastFollowReplanTick = some(tick)
     seat.blockedPenalty = some((selfXy, tick + FollowBlockTtlTicks))
     inc seat.followReplans
-  if system.routeIndex != nil:
+  if system.mixedGraph != nil:
     if seat.shouldQueryRoute(anchor, tick):
       inc seat.revision
       seat.desiredGoal = some(goal.goalPoint)
       seat.desiredProfile = profile
-      let request = BodyRouteRequest(start: selfXy, goal: goal,
-        profile: profile, danger: addr seat.danger,
-        blockedCell: if seat.blockedPenalty.isSome:
-          some(seat.blockedPenalty.get.pos) else: none(BodyPoint),
-        hazard: system.hazard, elapsedZoneTick: elapsedZoneTick)
-      let route = system.routeIndex.queryBodyRoute(system.routeScratch, request)
+      system.submitMixedRoute(seat, selfXy, goal.goalPoint, profile,
+        elapsedZoneTick, tick)
       seat.acceptRequestAnchor(anchor, tick)
-      seat.lastQuerySucceeded = route.ok
-      seat.lastQueryFailure = route.failure
-      if route.ok:
-        doAssert seat.installRoute(system.routeScratch, route, seat.revision)
       seat.stuckTicks = 0
-    let waypoint = seat.routeWaypoint(system.routeIndex, selfXy)
+    let waypoint = seat.mixedRouteWaypoint(system.map, selfXy)
     return if waypoint.isSome: waypoint.get else: selfXy
-  if seat.shouldQueryRoute(anchor, tick):
-    inc seat.revision
-    let avoid = if seat.blockedPenalty.isSome:
-      some(seat.blockedPenalty.get.pos) else: none(BodyPoint)
-    system.replacePlan(seatIndex, seat.revision, selfXy, goal, profile, avoid)
-    seat.acceptRequestAnchor(anchor, tick)
-    seat.stuckTicks = 0
-  seat.followerWaypoint(selfXy)
+  selfXy
 
 proc safetyCellPoint(system: BodyNavSystem;
     cellIndex: int): BodyPoint {.inline.} =
@@ -1137,45 +937,34 @@ proc safetyCellPoint(system: BodyNavSystem;
 
 proc installSafetyContext*(system: BodyNavSystem; hazard: BodyHazardOverlay;
     cache: BodySafeCache) =
-  if system == nil or system.routeScratch == nil:
+  if system == nil or system.safetyScratch == nil:
     raise newException(ValueError,
       "body navigation safety context requires route query scratch")
   system.hazard = hazard
-  system.routeScratch.installSafetyContext(hazard, cache)
+  system.safetyScratch.installSafetyContext(hazard, cache)
 
 proc safetyHintsReady*(system: BodyNavSystem): bool =
-  system != nil and system.routeScratch.safetyReady
+  system != nil and system.safetyScratch.safetyReady
 
 proc chainToSide(system: BodyNavSystem; startCell, side: int): tuple[
     found: bool, firstStep: int32, distanceQ4: uint32] =
-  var current = startCell
   let target = system.routeIndex.portalSideAt(side).anchorCell.int
-  var visits = 0
-  while current != target:
-    if visits >= system.routeIndex.routeIndexStats.navCells:
-      return
-    let next = system.routeIndex.nextCellTowardSide(side, current)
-    if next < 0 or next.int == current:
-      return
-    if result.firstStep < 0:
-      result.firstStep = next
-    let
-      a = system.safetyCellPoint(current)
-      b = system.safetyCellPoint(next.int)
-      diagonal = a.x != b.x and a.y != b.y
-      step = if diagonal: 181'u32 else: uint32(NavCell * 16)
-    if result.distanceQ4 > high(uint32) - step:
-      return
-    result.distanceQ4 += step
-    current = next.int
-    inc visits
+  if system.routeIndex.roomForCell(startCell) !=
+      system.routeIndex.portalSideAt(side).room.int:
+    return
+  let
+    startPoint = cellCenter(system.safetyCellPoint(startCell))
+    targetPoint = system.routeIndex.routePoint(int32(target))
+    estimate = routeOctileQ4(startPoint, targetPoint)
+  result.distanceQ4 = uint32(min(high(uint32).int64, estimate))
+  result.firstStep = int32(target)
   result.found = true
 
 proc safeSourceSide(system: BodyNavSystem; startSide: int): int =
   var current = startSide
   let sideCount = system.routeIndex.routeIndexStats.sides
   for _ in 0 ..< sideCount:
-    let next = system.routeScratch.safetyNextSideAt(current)
+    let next = system.safetyScratch.safetyNextSideAt(current)
     if next.isNone:
       return -1
     if next.get == current:
@@ -1184,25 +973,10 @@ proc safeSourceSide(system: BodyNavSystem; startSide: int): int =
   -1
 
 proc graphFirstPoint(system: BodyNavSystem; side: int): Option[BodyPoint] =
-  let next = system.routeScratch.safetyNextSideAt(side)
+  let next = system.safetyScratch.safetyNextSideAt(side)
   if next.isNone or next.get == side:
     return none(BodyPoint)
-  for arcOffset in system.routeIndex.arcRangeForSide(side):
-    let arc = system.routeIndex.routeArcAt(arcOffset)
-    if arc.toSide.int != next.get:
-      continue
-    let segment = system.routeIndex.routeSegmentAt(arc.segment.int)
-    if segment.cellLen.int < 2:
-      return none(BodyPoint)
-    let origin = system.routeIndex.routePoint(
-      system.routeIndex.segmentCellAt(arc.segment.int, 0, arc.reversed))
-    for offset in 1 ..< segment.cellLen.int:
-      let point = system.routeIndex.routePoint(
-        system.routeIndex.segmentCellAt(arc.segment.int, offset, arc.reversed))
-      if point != origin:
-        return some(point)
-    return none(BodyPoint)
-  none(BodyPoint)
+  some(system.routeIndex.sideAnchor(next.get))
 
 proc safetyOctantToward(origin, target: BodyPoint): int8 =
   let
@@ -1228,16 +1002,16 @@ proc safetyHintsFor*(system: BodyNavSystem; selfPos: BodyPoint;
     safeDistPx: -1, retreatOctant: -1, sourceCell: none(int32))
   if not system.safetyHintsReady:
     return
-  system.routeScratch.refreshSafety(elapsedTick, gameGeneration)
+  system.safetyScratch.refreshSafety(elapsedTick, gameGeneration)
   let
     start = system.map.cellOf(selfPos)
     startCell = start.y * system.map.gridWidth + start.x
-    arrival = system.routeScratch.safetyArrivalAt(startCell)
+    arrival = system.safetyScratch.safetyArrivalAt(startCell)
   if arrival != HazardNeverArrives:
     result.ticksUntilPaintHere = int32(max(0, arrival.int - elapsedTick))
   if not system.map.cellWalkable(start):
     return
-  if system.routeScratch.safetyCellDryAt(startCell):
+  if system.safetyScratch.safetyCellDryAt(startCell):
     result.ticksToSafety = 0
     result.safeDistPx = 0
     result.sourceCell = some(int32(startCell))
@@ -1251,9 +1025,9 @@ proc safetyHintsFor*(system: BodyNavSystem; selfPos: BodyPoint;
     sourceCell = -1'i32
     firstPoint = none(BodyPoint)
     distanceQ4 = high(uint64)
-  if system.routeScratch.safetyRoomHasDryAt(room):
-    let local = system.routeScratch.nearestDryCell(startCell, room)
-    if local.found and system.routeScratch.safetyCellDryAt(
+  if system.safetyScratch.safetyRoomHasDryAt(room):
+    let local = system.safetyScratch.nearestDryCell(startCell, room)
+    if local.found and system.safetyScratch.safetyCellDryAt(
         local.sourceCell.int):
       found = true
       sourceCell = local.sourceCell
@@ -1264,7 +1038,7 @@ proc safetyHintsFor*(system: BodyNavSystem; selfPos: BodyPoint;
   else:
     for sideOffset in system.routeIndex.roomSideRange(room):
       let side = system.routeIndex.roomSideAt(sideOffset)
-      let safeDistance = system.routeScratch.safetyDistanceQ4At(side)
+      let safeDistance = system.safetyScratch.safetyDistanceQ4At(side)
       if safeDistance == high(uint32):
         continue
       let chain = system.chainToSide(startCell, side)
@@ -1275,7 +1049,7 @@ proc safetyHintsFor*(system: BodyNavSystem; selfPos: BodyPoint;
         continue
       let candidateSource =
         system.routeIndex.portalSideAt(sourceSide).anchorCell
-      if not system.routeScratch.safetyCellDryAt(candidateSource.int):
+      if not system.safetyScratch.safetyCellDryAt(candidateSource.int):
         continue
       let candidate = chain.distanceQ4.uint64 + safeDistance.uint64
       if not found or candidate < distanceQ4 or
@@ -1290,7 +1064,7 @@ proc safetyHintsFor*(system: BodyNavSystem; selfPos: BodyPoint;
           firstPoint = system.graphFirstPoint(side)
 
   if not found or sourceCell < 0 or
-      not system.routeScratch.safetyCellDryAt(sourceCell.int):
+      not system.safetyScratch.safetyCellDryAt(sourceCell.int):
     return
   result.sourceCell = some(sourceCell)
   result.safeDistPx = ceilSafetyMetric(distanceQ4, 16)

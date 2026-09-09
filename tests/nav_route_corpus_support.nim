@@ -8,7 +8,7 @@ import std/[algorithm, heapqueue, json, math, options, sets, strformat, tables]
 import crunchy/[common, sha256]
 import ../src/shell/body_map
 import ../src/shell/body_nav
-import ../src/shell/body_planner
+import ../src/shell/body_danger
 import ../src/shell/types as shellTypes
 
 const

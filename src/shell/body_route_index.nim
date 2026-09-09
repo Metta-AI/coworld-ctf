@@ -1749,6 +1749,27 @@ proc retainedIndexBytes*(index: BodyRouteIndex): int64 =
     return 0
   int64(sizeof(index[])) + index.retainedBytes
 
+proc followingPayloadBytes*(index: BodyRouteIndex): tuple[
+    portalNext, cells, total: int64] =
+  ## Diagnostic ledger for the two activation-only following payloads.
+  if index == nil:
+    return
+  result.portalNext = int64(index.portalNext.len * sizeof(uint8))
+  result.cells = int64(index.cells.len * sizeof(int32))
+  result.total = result.portalNext + result.cells
+
+proc releaseFollowingPayload*(index: BodyRouteIndex): int64 =
+  ## The mixed graph owns production reconstruction. These activation-only
+  ## fields remain available while the hierarchy, hazard summaries, and query
+  ## scratch are built, then are released before gameplay.
+  if index == nil:
+    return
+  result = int64(index.portalNext.len * sizeof(uint8) +
+    index.cells.len * sizeof(int32))
+  index.portalNext = @[]
+  index.cells = @[]
+  index.stats.retainedBytes = index.retainedBytes()
+
 proc validateRouteIndex*(index: BodyRouteIndex)
 
 proc newBodyRouteIndex*(map: BodyMap): BodyRouteIndex =

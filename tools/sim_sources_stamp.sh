@@ -35,6 +35,11 @@ git ls-files -z --cached --others --exclude-standard \
   | LC_ALL=C sort -zu \
   | {
       while IFS= read -r -d '' file; do
+        # A tracked source deleted in the working tree remains in the index
+        # until the cutover is committed. Its absence is represented by the
+        # missing path/content pair rather than making local viewer rebuilds
+        # impossible during that required pre-commit window.
+        [[ -f "${file}" ]] || continue
         printf '%s\0' "${file}"
         cat "${file}"
         printf '\0'

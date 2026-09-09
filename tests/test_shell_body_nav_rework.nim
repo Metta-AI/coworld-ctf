@@ -1,12 +1,12 @@
-## Phase 1's frozen shared-navigation laws, made live and shard-wired in Phase 7.
+## Production mixed-grid route and scheduler laws.
 
 import std/[json, options, tables, unittest]
 import bitworld/spriteprotocol
 import ../src/ctf/[arena, br_map_pool, sim_types]
 import ../src/shell/body
+import ../src/shell/body_danger
 import ../src/shell/body_map
 import ../src/shell/body_nav
-import ../src/shell/body_planner
 import ../src/shell/body_route_index
 import ../src/shell/body_route_query
 import ../src/shell/types as shellTypes
@@ -33,19 +33,23 @@ proc navigateIntent(point: BodyPoint): shellTypes.Intent =
     profile: shellTypes.cpDefault, combat: shellTypes.CombatPolicy())
 
 proc movementMask(input: InputState): uint8 =
-  encodeInputMask(input) and (ButtonUp or ButtonDown or ButtonLeft or ButtonRight)
+  encodeInputMask(input) and
+    (ButtonUp or ButtonDown or ButtonLeft or ButtonRight)
 
-proc firstSeparatedSidePair(index: BodyRouteIndex): tuple[a, b: int] =
-  let stats = index.routeIndexStats()
-  for a in 0 ..< stats.sides:
-    for b in a + 1 ..< stats.sides:
-      if index.graphComponentForSide(a) == index.graphComponentForSide(b) and
-          index.portalSideAt(a).room != index.portalSideAt(b).room and
-          not index.map.segmentClear(index.sideAnchor(a), index.sideAnchor(b)):
-        return (a, b)
-  raise newException(ValueError, "map has no separated side pair")
+proc runToIdle(nav: BodyNavSystem; startTick = 0; budget =
+    BodyRoutePopBudgetPerTick): int =
+  var tick = startTick
+  while tick - startTick < 10_000:
+    var pending = nav.routeJob.active
+    for seat in nav.seats:
+      pending = pending or seat.pendingRoute.lifecycle != brlIdle
+    if not pending:
+      return tick
+    discard nav.runRouteScheduler(tick, budget)
+    inc tick
+  raise newException(ValueError, "production route did not settle")
 
-suite "shared navigation rework Phase 1 contract":
+suite "production mixed-grid body navigation":
   test "literal corpus provenance and independent oracle are frozen":
     let
       corpus = loadNavRouteCorpus("tests/fixtures/shell/nav_route_corpus.json")
@@ -65,22 +69,17 @@ suite "shared navigation rework Phase 1 contract":
       let validated = map.validateGoal(item.requestedGoal, item.start)
       check validated.isSome
       check validated.get.goalPoint == item.validatedGoal
-      check validated.get.goalComponent == item.component
       let danger = map.buildOracleDanger(item)
       check dangerRasterHash(danger) == item.dangerHash
       let route = map.oracleRoute4pxWithDanger(item, danger)
-      check route.len > 0
-      check route[0] == item.start
-      check route[^1] == item.validatedGoal
       check routeHash(route) == item.oracleRouteHash
-      let cost = oracleFloatCost(route, map, danger,
-        item.profile.corpusProfile, item.blockedCell)
-      check abs(cost - item.oracleCost) <= 1e-9
+      check abs(oracleFloatCost(route, map, danger,
+        item.profile.corpusProfile, item.blockedCell) - item.oracleCost) <= 1e-9
 
-  test "a new valid goal moves on its acceptance tick":
+  test "a living valid goal moves on its acceptance tick while route waits":
     let
       map = openMap()
-      nav = newBodyNavSystem(map, 1, 331, prepareRouteQueries = true)
+      nav = newBodyNavSystem(map, 1, 331)
       body = activateSeatBody(nav, 0)
       start: BodyPoint = (16, 48)
       target: BodyPoint = (160, 48)
@@ -88,199 +87,114 @@ suite "shared navigation rework Phase 1 contract":
     body.setStandingIntent(navigateIntent(target), some(goal), 1)
     body.updateBelief(BodyTickInputs(self: selfState(start)), 0)
     check body.actFromBelief(0).movementMask != 0
-
-  test "an exhausted old endpoint does not stall a replacement goal":
-    let
-      map = openMap()
-      nav = newBodyNavSystem(map, 1, 331, prepareRouteQueries = true)
-      body = activateSeatBody(nav, 0)
-      seat = nav.seats[0]
-      start: BodyPoint = (48, 48)
-      oldGoal: BodyPoint = start
-      target: BodyPoint = (160, 48)
-      goal = map.validateGoal(target, start).get
-    seat.desiredGoal = some(oldGoal)
-    seat.revision = 1
-    seat.setActivePathForTest(@[oldGoal], 1)
-    body.setStandingIntent(navigateIntent(target), some(goal), 2)
-    body.updateBelief(BodyTickInputs(self: selfState(start)), 1)
-    check body.actFromBelief(1).movementMask != 0
-
-  test "active action ticks perform no full-board route search":
-    let
-      map = openMap()
-      nav = newBodyNavSystem(map, 1, 331, prepareRouteQueries = true)
-      body = activateSeatBody(nav, 0)
-      seat = nav.seats[0]
-      start: BodyPoint = (16, 48)
-      target: BodyPoint = (160, 48)
-      goal = map.validateGoal(target, start).get
-      latticeCells = ((map.width - 1) div PlanStepPx + 1) *
-        ((map.height - 1) div PlanStepPx + 1)
-      mapSizedCapacities = [map.width * map.height,
-        map.gridWidth * map.gridHeight, latticeCells]
-    body.setStandingIntent(navigateIntent(target), some(goal), 1)
-    body.updateBelief(BodyTickInputs(self: selfState(start)), 0)
-    let
-      workBefore = seat.job.workUnits
-      mintBefore = seat.mintJob.workUnits
-    discard body.actFromBelief(0)
-    let scheduledFullBoardPlan = seat.job.planPending
-    discard nav.runPlanningTick(0)
-    check not scheduledFullBoardPlan and
-      seat.job.workUnits == workBefore and
-      seat.mintJob.workUnits == mintBefore and
-      seat.planner.workspaceCapacity notin mapSizedCapacities
-
-  test "route query workspace is shared and per-seat route storage is fixed":
-    let
-      small = newBodyNavSystem(openMap(), 1, 331,
-        prepareRouteQueries = true)
-      arenaMap = newBodyMap(loadCtfMapMetadata("arena"))
-      large = newBodyNavSystem(arenaMap, 32, 331,
-        prepareRouteQueries = true)
-    check small.routeIndex.routeIndexStats.navCells !=
-      large.routeIndex.routeIndexStats.navCells
-    check small.routeIndex.fineAnchorCount != large.routeIndex.fineAnchorCount
-    check small.routeScratch != nil
-    check large.routeScratch != nil
-    check sizeof(small.seats[0][]) == sizeof(large.seats[0][])
-    for seat in large.seats:
-      check seat.planner == nil
-      check seat.path.len == 2
-
-  test "steering is deterministic when a bounded query has no route":
-    let
-      map = openMap()
-      nav = newBodyNavSystem(map, 1, 331, prepareRouteQueries = true)
-      body = activateSeatBody(nav, 0)
-      start: BodyPoint = (16, 48)
-      target: BodyPoint = (160, 48)
-      goal = map.validateGoal(target, start).get
-    nav.routeScratch = nil
-    body.setStandingIntent(navigateIntent(target), some(goal), 1)
-    body.updateBelief(BodyTickInputs(self: selfState(start)), 0)
-    let first = body.actFromBelief(0)
-    check first.movementMask == ButtonRight
     check body.navState == bnsSteering
-    check nav.seats[0].lastQueryFailure == brfValidation
-    for tick in 1 .. 8:
-      body.updateBelief(BodyTickInputs(self: selfState(start)), uint32(tick))
-      check body.actFromBelief(uint32(tick)).movementMask == ButtonRight
+    check nav.seats[0].pendingRoute.lifecycle == brlPending
+    check nav.runRouteScheduler(0, 0) == 0
+    check nav.seats[0].pendingRoute.lifecycle == brlPending
 
-  test "steering keeps NavNeighbors order when best scores tie":
+  test "search resumes under an exact pop budget and installs atomically":
     let
       map = openMap()
-      nav = newBodyNavSystem(map, 1, 331, prepareRouteQueries = true)
-      seat = nav.seats[0]
-      start: BodyPoint = (48, 48)
-      target: BodyPoint = (96, 0)
-    seat.blockedPenalty = some((pos: (56, 40), untilTick: 20))
-    check nav.steeringMask(0, start, target, shellTypes.cpDefault, 0) ==
-      ButtonRight
-
-  test "follower smooths no farther than six exact-clear local cells":
-    let
-      map = openMap()
-      nav = newBodyNavSystem(map, 1, 331, prepareRouteQueries = true)
-      seat = nav.seats[0]
-      start: BodyPoint = (16, 48)
-      target: BodyPoint = (160, 48)
-      goal = map.validateGoal(target, start).get
-      blocked: BodyPoint = (88, 48)
-      request = BodyRouteRequest(start: start, goal: goal,
-        blockedCell: some(blocked))
-      route = nav.routeIndex.queryBodyRoute(nav.routeScratch, request)
-    check route.ok
-    check route.descriptor.edgeCount == 0
-    check route.descriptor.startLegLen.int > FollowLookaheadK + 3
-    check seat.installRoute(nav.routeScratch, route, 1)
-
-    var expected = 0
-    for offset in 0 .. min(FollowLookaheadK,
-        route.descriptor.startLegLen.int - 1):
-      if map.segmentClear(start, route.startLegPoint(offset)):
-        expected = offset
-    let waypoint = seat.routeWaypoint(nav.routeIndex, start)
-    check waypoint == some(route.startLegPoint(expected))
-    check seat.installedRouteCursor == expected
-    check expected == FollowLookaheadK
-
-  test "follower streams indexed middle segments to the exact endpoint":
-    let
-      map = newBodyMap(loadCtfMapMetadata("arena"))
-      nav = newBodyNavSystem(map, 1, 331, prepareRouteQueries = true)
-      pair = nav.routeIndex.firstSeparatedSidePair()
-      start = nav.routeIndex.sideAnchor(pair.a)
-      goal = map.validateGoal(nav.routeIndex.sideAnchor(pair.b), start).get
-      request = BodyRouteRequest(start: start, goal: goal)
-      route = nav.routeIndex.queryBodyRoute(nav.routeScratch, request)
-      seat = nav.seats[0]
-    check route.ok
-    check route.descriptor.edgeCount > 0
-    check route.descriptor.startLegLen > 0
-    check route.descriptor.goalLegLen > 0
-    check seat.installRoute(nav.routeScratch, route, 1)
-
+      graph = newBodyMixedGraph(map)
+      workspace = newBodyRouteWorkspace(graph)
+      danger = BodyDangerField(values: newSeq[float32](
+        map.gridWidth * map.gridHeight), gridW: map.gridWidth,
+        gridH: map.gridHeight)
+      request = BodyRouteSearchRequest(start: (16, 48), goal: (160, 48),
+        profile: shellTypes.cpDefault, blockedCell: -1,
+        requestGeneration: 1, dangerGeneration: 1)
     var
-      pos = start
-      hops = 0
-    while hops < 4096:
-      let waypoint = seat.routeWaypoint(nav.routeIndex, pos)
-      if waypoint.isNone:
-        break
-      check waypoint.get != pos
-      check map.segmentClear(pos, waypoint.get)
-      pos = waypoint.get
-      inc hops
-    check hops > 0
-    check hops < 4096
-    check pos == goal.goalPoint
-    check not seat.routeAdvancing(pos, 0.0)
+      weights: seq[int16]
+      job: BodyRouteSearchJob
+      calls = 0
+      total = 0
+    graph.rebuildPackedWeights(danger, weights)
+    job.beginBodyRouteSearch(graph, workspace, weights, request)
+    while not job.complete:
+      let spent = job.spendBodyRoutePops(graph, workspace, weights, nil, 1)
+      check spent == 1
+      inc total, spent
+      inc calls
+    let route = job.finishBodyRouteSearch(graph, workspace)
+    check calls == total
+    check route.ok
+    check route.pointCount > 2
+    check route.spans[0].start == request.start
+    let nav = newBodyNavSystem(map, 1, 331)
+    nav.seats[0].installedRoute = BodyInstalledRoute(revision: 99)
+    discard nav.navigationWaypoint(0, request.start,
+      map.validateGoal(request.goal, request.start).get, 0)
+    discard nav.runRouteScheduler(0)
+    check nav.seats[0].installedRoute.revision == 1
+    check nav.seats[0].installedRoute.pointCount == route.pointCount
 
-  test "a failed replacement retains an old route only while it advances":
+  test "one pending slot keeps only the newest request":
     let
       map = openMap()
-      nav = newBodyNavSystem(map, 1, 331, prepareRouteQueries = true)
-      body = activateSeatBody(nav, 0)
+      nav = newBodyNavSystem(map, 1, 331)
       start: BodyPoint = (16, 48)
-      oldTarget: BodyPoint = (80, 48)
-      newTarget: BodyPoint = (160, 48)
-      oldGoal = map.validateGoal(oldTarget, start).get
-      newGoal = map.validateGoal(newTarget, start).get
-    body.setStandingIntent(navigateIntent(oldTarget), some(oldGoal), 1)
-    body.updateBelief(BodyTickInputs(self: selfState(start)), 0)
-    check body.actFromBelief(0).movementMask == ButtonRight
+      first = map.validateGoal((160, 48), start).get
+      second = map.validateGoal((80, 48), start).get
+    discard nav.navigationWaypoint(0, start, first, 4)
+    discard nav.navigationWaypoint(0, start, second, 5)
+    check nav.seats[0].pendingRoute.lifecycle == brlPending
+    check nav.seats[0].pendingRoute.replacements == 1
+    check nav.seats[0].pendingRoute.request.goal == second.goalPoint
+    discard nav.runToIdle(5)
+    check nav.seats[0].installedRoute.revision == 2
+    check nav.seats[0].installedRoutePoints[^1] == second.goalPoint
 
-    nav.routeScratch = nil
-    body.setStandingIntent(navigateIntent(newTarget), some(newGoal), 2)
-    body.updateBelief(BodyTickInputs(self: selfState(start)), 1)
-    check body.actFromBelief(1).movementMask == ButtonRight
-    check body.navState == bnsFollowing
-    check nav.seats[0].lastQueryFailure == brfValidation
-
-    body.updateBelief(BodyTickInputs(self: selfState(oldTarget)), 2)
-    check body.actFromBelief(2).movementMask == ButtonRight
-    check body.navState == bnsSteering
-
-  test "no physically progressing octant reports no-progress":
+  test "stable shortest-job-first admission uses seat id as final tie break":
     let
       map = openMap()
-      nav = newBodyNavSystem(map, 1, 331, prepareRouteQueries = true)
-      body = activateSeatBody(nav, 0)
-      start: BodyPoint = (183, 48)
-      target: BodyPoint = (184, 48)
+      nav = newBodyNavSystem(map, 3, 331)
+      starts = [(16, 40), (16, 48), (16, 56)]
+      targets = [(160, 40), (80, 48), (80, 56)]
+    for seat in 0 .. 2:
+      discard nav.navigationWaypoint(seat, starts[seat],
+        map.validateGoal(targets[seat], starts[seat]).get, 0)
+    discard nav.runRouteScheduler(0, 1)
+    check nav.routeJob.active
+    check nav.routeJobSeat == 1
+    discard nav.runToIdle(1, 32)
+    for seat in nav.seats:
+      check seat.installedRoute.revision == 1
+
+  test "danger generation cancels stale in-flight work before another pop":
+    let
+      map = openMap()
+      nav = newBodyNavSystem(map, 1, 331)
+      start: BodyPoint = (16, 48)
+      target: BodyPoint = (160, 48)
       goal = map.validateGoal(target, start).get
-    nav.routeScratch = nil
-    body.setStandingIntent(navigateIntent(target), some(goal), 1)
-    body.updateBelief(BodyTickInputs(self: selfState(start)), 0)
-    check body.actFromBelief(0).movementMask == 0
-    check body.navState == bnsNoProgress
+    discard nav.navigationWaypoint(0, start, goal, 0)
+    discard nav.runRouteScheduler(0, 1)
+    let staleGeneration = nav.routeJob.request.dangerGeneration
+    nav.initializeDanger([DangerInput(selfXy: start,
+      candidates: @[DangerCandidate(seatIndex: 4, pos: (80, 48))])], 1)
+    check nav.seats[0].dangerGeneration > staleGeneration
+    discard nav.runRouteScheduler(1, 1)
+    check nav.routeJob.request.dangerGeneration ==
+      nav.seats[0].dangerGeneration
+    discard nav.runToIdle(2, 32)
+    check nav.seats[0].installedRoute.dangerGeneration ==
+      nav.seats[0].dangerGeneration
 
-  test "an arrived endpoint is never an advancing route":
+  test "workspace is shared and per-seat route state has fixed layout":
+    let nav = newBodyNavSystem(openMap(), 32, 331)
+    check nav.routeWorkspace != nil
+    check nav.mixedGraph != nil
+    check sizeof(BodyRouteSearchRequest) <= 64
+    check sizeof(BodyRouteSearchJob) <= 128
+    check sizeof(BodyRouteSpan) <= 24
+    check sizeof(nav.seats[0].installedRoute) ==
+      sizeof(nav.seats[^1].installedRoute)
+    check nav.routeIndex.followingPayloadBytes.total == 0
+
+  test "arrived endpoints do not report route progress":
     let
       map = openMap()
-      nav = newBodyNavSystem(map, 1, 331, prepareRouteQueries = true)
+      nav = newBodyNavSystem(map, 1, 331)
       body = activateSeatBody(nav, 0)
       start: BodyPoint = (16, 48)
       goal = map.validateGoal(start, start).get
