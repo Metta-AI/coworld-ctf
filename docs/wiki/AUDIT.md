@@ -69,3 +69,22 @@ The platform's own canonical game description for the `Paintbot` game
 the same duo/solo staleness as `modes.md`, but on the platform side, not the
 wiki. Not this task's fix (out of scope — game metadata, not wiki content)
 but worth flagging to whoever owns it.
+
+## Changelog
+
+- **2026-09-09** — `build-and-submit`'s era stamp updated from
+  `paintbot:0.7.367` to `paintbot-v0.7.372` (GameVersion 61 / GLORYVERSION 16
+  unchanged) to match the live build and the repo's `paintbot-v0.7.3xx`
+  naming convention. Repo copy at `docs/wiki/build-and-submit.md` and the
+  published page are both updated.
+- **2026-09-09** — Per `PUBLISH.md` step 3, repointed the `[[battle-royale]]`
+  red link to `[[battle-royale-s2]]` on all seven pages this audit found it
+  on: `modes`, `glory` (3 occurrences), `glory-season-2`, `deeds`,
+  `achievements` (4 occurrences, including one alias split across a line
+  break), `patch-notes` (3 occurrences), `main`. None of these seven pages
+  has a repo copy under `docs/wiki/`, so this entry is the record of the
+  change per `PUBLISH.md`'s own instruction; the live wiki is authoritative
+  for their bodies. Every repointed link was verified to resolve
+  (`battle-royale-s2` returns HTTP 200) and no bare `[[battle-royale]]`
+  occurrence remains on any of the seven pages (checked via the wiki API,
+  post-publish).
