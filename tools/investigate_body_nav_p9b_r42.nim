@@ -12,29 +12,39 @@ const
   ClosedBit = 0x8000_0000'u32
 
 type
-  BucketEntry = object
-    f: int32
-    g: int32
-    node: int32
-    insertion: uint64
+  BucketEntry* = object
+    f*: int32
+    g*: int32
+    node*: int32
+    insertion*: uint64
 
-  DialQueue = object
-    width, bucketCount, len: int
-    currentQuotient: int64
-    nextInsertion: uint64
-    buckets: seq[seq[BucketEntry]]
-    touched: seq[int32]
+  DialQueue* = object
+    width*, bucketCount*, len*: int
+    currentQuotient*: int64
+    nextInsertion*: uint64
+    buckets*: seq[seq[BucketEntry]]
+    touched*: seq[int32]
 
-  DialWorkspace = object
-    generation: uint32
-    g, parent, parentBridge, goalCost: seq[int32]
-    state, goalStamp: seq[uint32]
-    queue: DialQueue
+  DialWorkspace* = object
+    generation*: uint32
+    g*, parent*, parentBridge*, goalCost*: seq[int32]
+    state*, goalStamp*: seq[uint32]
+    queue*: DialQueue
 
-  DialResult = object
-    reached: bool
-    pops: int
-    route: seq[BodyPoint]
+  DialResult* = object
+    reached*: bool
+    pops*: int
+    route*: seq[BodyPoint]
+
+  DialJob* = object
+    active*, complete*: bool
+    generation*: uint32
+    blockedCell*, startNode*, goalNode*: int
+    allowance*: int32
+    bestNode*: int
+    bestCost*: int32
+    pops*: int
+    item*: NavCorpusCase
 
 proc loadMap(pool: JsonNode, poolIndex: int): BodyMap =
   let entry = pool[poolIndex]
@@ -87,7 +97,7 @@ proc pop(queue: var DialQueue): BucketEntry =
     inc queue.currentQuotient
   raise newException(IndexDefect, "pop from empty Dial queue")
 
-proc newDialWorkspace(count, width, maxEdgeCost: int): DialWorkspace =
+proc newDialWorkspace*(count, width, maxEdgeCost: int): DialWorkspace =
   result.g = newSeq[int32](count)
   result.parent = newSeq[int32](count)
   result.parentBridge = newSeq[int32](count)
@@ -107,7 +117,7 @@ proc begin(workspace: var DialWorkspace) =
     workspace.generation = 1
   workspace.queue.begin()
 
-proc buildCombinedCellCost(weights,
+proc buildCombinedCellCost*(weights,
     hazardCost: openArray[int32]): seq[int32] =
   ## R3.3's incremental hazard overlay is armed but zero in this corpus. The
   ## retained Q16 factor is therefore the exact combined table, and every
@@ -121,7 +131,7 @@ proc stepCost(factor: int32, diagonal: bool): int32 {.inline.} =
   let base = if diagonal: 91'i64 else: 64'i64
   int32((base * factor.int64 + 32_768) shr 16)
 
-proc maximumEdgeCost(graph: MixedGraph, combined,
+proc maximumEdgeCost*(graph: MixedGraph, combined,
     hazard: openArray[int32]): int =
   var maximumCell = 1
   for cell in 0 ..< combined.len:
@@ -268,6 +278,156 @@ proc searchDial(graph: MixedGraph, map: BodyMap, item: NavCorpusCase,
     if result.route[0] != item.start: result.route.insert(item.start, 0)
     if result.route[^1] != item.validatedGoal:
       result.route.add item.validatedGoal
+
+proc startDialJob*(job: var DialJob, graph: MixedGraph, map: BodyMap,
+    item: NavCorpusCase, refined: openArray[uint8], combined,
+    hazardCost: openArray[int32], workspace: var DialWorkspace) =
+  workspace.begin()
+  job = DialJob(active: true, generation: workspace.generation,
+    bestNode: -1, bestCost: high(int32), item: item)
+  job.blockedCell = if item.blockedCell.isSome:
+      item.blockedCell.get.y * map.gridWidth + item.blockedCell.get.x else: -1
+  let
+    starts = graph.attachments(map, refined, combined, hazardCost,
+      job.blockedCell, item.start)
+    goals = graph.attachments(map, refined, combined, hazardCost,
+      job.blockedCell, item.validatedGoal)
+  job.startNode = if starts.len == 1 and starts[0].cost == 0: starts[0].node
+    else: -1
+  job.goalNode = if goals.len == 1 and goals[0].cost == 0: goals[0].node
+    else: -1
+  job.allowance = int32(PortalAnchorRingCells * NavCell * 23)
+  if starts.len == 0 or goals.len == 0:
+    job.complete = true
+    return
+  for goal in goals:
+    if workspace.goalStamp[goal.node] != job.generation or
+        goal.cost < workspace.goalCost[goal.node]:
+      workspace.goalStamp[goal.node] = job.generation
+      workspace.goalCost[goal.node] = goal.cost
+  for start in starts:
+    if workspace.state[start.node] != job.generation or
+        start.cost < workspace.g[start.node]:
+      workspace.g[start.node] = start.cost
+      workspace.parent[start.node] = -1
+      workspace.parentBridge[start.node] = -1
+      let heuristic = max(0'i32, octileQ4(
+        pointAt(start.node, graph.legality.width), item.validatedGoal, 90) -
+        job.allowance)
+      workspace.queue.push(start.cost + heuristic,
+        start.cost, int32(start.node))
+      workspace.state[start.node] = job.generation
+
+proc stepDialJob*(job: var DialJob, graph: MixedGraph, map: BodyMap,
+    refined: openArray[uint8], combined, hazardCost: openArray[int32],
+    workspace: var DialWorkspace, popBudget: int): int =
+  if not job.active or job.complete: return
+  while result < popBudget and workspace.queue.len > 0:
+    let entry = workspace.queue.pop()
+    inc result
+    let node = entry.node.int
+    if workspace.state[node] != job.generation or workspace.g[node] != entry.g:
+      continue
+    if entry.f >= job.bestCost:
+      job.complete = true
+      break
+    workspace.state[node] = job.generation or ClosedBit
+    inc job.pops
+    let currentG = workspace.g[node]
+    if workspace.goalStamp[node] == job.generation:
+      let total = currentG.int64 + workspace.goalCost[node].int64
+      if total < job.bestCost.int64:
+        job.bestCost = int32(total)
+        job.bestNode = node
+    let
+      fineX = node mod graph.legality.width
+      fineY = node div graph.legality.width
+      legal = graph.legality.legal[node]
+      fromPoint = pointAt(node, graph.legality.width)
+    for direction, delta in NavNeighbors:
+      if (legal and uint8(1 shl direction)) != 0:
+        let nextNode = (fineY + delta.y) * graph.legality.width +
+          fineX + delta.x
+        if graph.active(refined, nextNode, job.startNode, job.goalNode) and
+            workspace.state[nextNode] != (job.generation or ClosedBit):
+          let
+            toPoint = pointAt(nextNode, graph.legality.width)
+            cell = map.midpointCell(fromPoint, toPoint)
+            baseCost = stepCost(combined[cell], direction >= 4)
+            edgeCost = if cell == job.blockedCell: baseCost * 8 else: baseCost
+            candidate = currentG + edgeCost
+          if workspace.state[nextNode] != job.generation or
+              candidate < workspace.g[nextNode]:
+            workspace.g[nextNode] = candidate
+            workspace.parent[nextNode] = int32(node)
+            workspace.parentBridge[nextNode] = -1
+            let heuristic = max(0'i32, octileQ4(toPoint,
+              job.item.validatedGoal, 90) - job.allowance)
+            workspace.queue.push(candidate + heuristic,
+              candidate, int32(nextNode))
+            workspace.state[nextNode] = job.generation
+      if graph.anchorNode[node] == 0: continue
+      let sourceCell = graph.cellForNode[node].int
+      let
+        offset = graph.bridgeOffset[sourceCell][direction].int
+        pathLen = graph.bridgeLen[sourceCell][direction].int
+      if offset < 0 or pathLen == 0: continue
+      let target = graph.bridgeNodes[offset + pathLen - 1].int
+      if workspace.state[target] == (job.generation or ClosedBit): continue
+      var
+        edgeCost = 0'i32
+        previous = fromPoint
+      for pathIndex in 0 ..< pathLen:
+        let nextPoint = pointAt(graph.bridgeNodes[offset + pathIndex].int,
+          graph.legality.width)
+        let
+          dx = abs(nextPoint.x - previous.x)
+          dy = abs(nextPoint.y - previous.y)
+          cell = map.midpointCell(previous, nextPoint)
+          baseCost = stepCost(combined[cell], dx != 0 and dy != 0)
+          priced = if cell == job.blockedCell: baseCost * 8 else: baseCost
+        edgeCost += priced
+        previous = nextPoint
+      let candidate = currentG + edgeCost
+      if workspace.state[target] != job.generation or
+          candidate < workspace.g[target]:
+        workspace.g[target] = candidate
+        workspace.parent[target] = int32(node)
+        workspace.parentBridge[target] = int32(sourceCell * 8 + direction)
+        let heuristic = max(0'i32, octileQ4(previous,
+          job.item.validatedGoal, 90) - job.allowance)
+        workspace.queue.push(candidate + heuristic,
+          candidate, int32(target))
+        workspace.state[target] = job.generation
+  if workspace.queue.len == 0:
+    job.complete = true
+
+proc finishDialJob*(job: DialJob, graph: MixedGraph,
+    workspace: DialWorkspace): DialResult =
+  result.pops = job.pops
+  if not job.complete or job.bestNode < 0: return
+  result.reached = true
+  var cursor = job.bestNode
+  while cursor >= 0:
+    result.route.add pointAt(cursor, graph.legality.width)
+    let bridgeId = workspace.parentBridge[cursor].int
+    if bridgeId >= 0:
+      let
+        cell = bridgeId div 8
+        direction = bridgeId mod 8
+        offset = graph.bridgeOffset[cell][direction].int
+        pathLen = graph.bridgeLen[cell][direction].int
+      if pathLen > 1:
+        for pathIndex in countdown(pathLen - 2, 0):
+          result.route.add pointAt(
+            graph.bridgeNodes[offset + pathIndex].int,
+            graph.legality.width)
+    cursor = workspace.parent[cursor].int
+  result.route.reverse()
+  if result.route[0] != job.item.start:
+    result.route.insert(job.item.start, 0)
+  if result.route[^1] != job.item.validatedGoal:
+    result.route.add job.item.validatedGoal
 
 proc profile(pool: JsonNode, corpus: NavCorpus, id: string): JsonNode =
   let
