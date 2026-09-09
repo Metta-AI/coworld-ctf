@@ -5,7 +5,9 @@
 ## real (increment 2/3, e11cc008/ba256d95), so its 31-test law suite was
 ## running dark: `tests/tests.nim` and every CI run compiled and passed
 ## without ever executing it. Wired in here (fast shard, cheap pure-func
-## tests, no SimServer).
+## tests, no SimServer). test_zero_mint_reachability is the same shape --
+## a standalone reachability probe of glory.nim's pure killDeed
+## classifier, no SimServer -- so it joins the other glory tests here.
 {.warning[UnusedImport]: off.}
 {.define(shellShardRegressionGate).}
 import
@@ -77,5 +79,6 @@ import
   test_shot_feedback,
   test_shouts,
   test_spinning_diamonds,
-  test_team_art
+  test_team_art,
+  test_zero_mint_reachability
 {.warning[UnusedImport]: on.}

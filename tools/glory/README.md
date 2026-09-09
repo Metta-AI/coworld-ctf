@@ -106,3 +106,93 @@ build as of this census (latest completed round confirmed still on
 GloryVersion 15 / 0.7.367). Re-run `discover_cohort.py` before reusing any
 of this against a later build — do not assume the extractors here still
 match.
+
+## S1 addendum — achievements (`census_achievements.py` / `_analyze.py`)
+
+Re-walks the SAME cached replay extractions (no new download, no new
+extractor) to split the census's single combined product into a
+`deed_product` factor and an `ach_product` factor per seat-episode, and
+tallies every `(tree, tier)` achievement mint. Full findings:
+`docs/designs/glory/ACHIEVEMENTS-2026-09.md` (lane copy:
+`~/.ctf/knowledge/glory-gradient/01b-achievements-addendum-2026-09-09.md`).
+Headline: achievements supply ~60.3%/50.0% (mean/median) of log2-magnitude
+population-wide but only ~18.0%/9.8% at the top decile — they dominate the
+FLOOR (Clean Sheet mints for free in 100% of episodes), not the ceiling.
+
+## S1b addendum — TOP-DECILE ATTRIBUTION (`attribution_decompose.py` / `_analyze.py`)
+
+Full findings: `docs/designs/glory/TOP-ATTRIBUTION.md` (lane copy:
+`~/.ctf/knowledge/glory-gradient/01c-top-attribution-2026-09-09.md`).
+
+The census's own recipe/achievement figures answer "how much of the score
+came from these NAMED deeds" but cannot answer "how much came from HEAT,
+CARRY, ALLY-STACK or TERRITORY" — those are cross-cutting multipliers
+folded INSIDE a deed's `amount` at mint time
+(`glory.nim recutFactor` = `shiftedClass × heatMult × carryMult ×
+stackMult`), not separable from the wire's `amount` field alone. Reading
+them back out requires the live sim state at mint time (heat ember count,
+territory site, carry flag, ally-stack k) — none of which is independently
+recoverable from the replay wire by observation, and guessing at it risks
+exactly the kind of confident-wrong attribution this investigation exists
+to avoid.
+
+**Method**: `attribution_decompose.py` reads an extra per-event field this
+population's existing `.jsonl` extractions do NOT have: a
+`"shiftedClass|heatMult|carryMult|stackMult"` breakdown string riding the
+tier-2 `GloryDeed` event's existing (always `""` on the live path, never in
+gameHash) `content` field. Producing it requires one ANALYSIS-ONLY,
+NEVER-SHIPPED, NEVER-MERGED instrumentation line at the exact
+`recutFactor` call site in a **private local copy** of `src/ctf/sim.nim`
+(`awardDeed`, armed non-`dTeamKill` branch) — it stashes the sub-factors
+that already produced `factor` into `content` before the existing
+`emitEvent(GloryDeed, ...)` call. Zero sim/scoring behavior change (the
+score math is untouched; only a debug string is added to an already-inert
+analysis field), and it is never landed in this repo — built at a
+permanent local path exactly like the census's own extractor binaries:
+
+```
+cp -R ~/.ctf/pipeline-loop/tools/census_gv59_gv15_build ~/.ctf/pipeline-loop/tools/attr_gv59_build
+cp -R ~/.ctf/pipeline-loop/tools/census_gv60_build      ~/.ctf/pipeline-loop/tools/attr_gv60_build
+# patch src/ctf/sim.nim's awardDeed (armed branch) to compute and stash:
+#   attrShiftedClass = recutShiftedClass(deed, sitePct, sim.config.winAsMultiplier)
+#   attrHeatMult/attrCarryMult/attrStackMult, mirroring recutFactor's own
+#   control flow EXACTLY (a shiftedClass<=1 commons takes NO live-state
+#   factor, matching recutFactor's early return) -- then pass
+#   content = mintNote ("shiftedClass|heat|carry|stack") into the existing
+#   emitEvent(GloryDeed, ...) call.
+cd ~/.ctf/pipeline-loop/tools/attr_gv59_build && nim c -d:release --hints:off -o:bin/extract_events tools/extract_events.nim
+cd ~/.ctf/pipeline-loop/tools/attr_gv60_build && nim c -d:release --hints:off -o:bin/extract_events tools/extract_events.nim
+```
+
+Then re-extract the SAME cached `.replay` files (no re-download) with the
+instrumented binaries, and run:
+
+```
+python3 tools/glory/attribution_decompose.py \
+    --rows seat_episode_rows_final.json \
+    --attr-dir ~/.ctf/scout/glory_attr_replays \
+    --out attribution_rows.json
+python3 tools/glory/attribution_analyze.py --rows attribution_rows.json
+```
+
+**Validation**: per-event, `shiftedClass × heatMult × carryMult × stackMult`
+is checked against the event's own `amount` (0 mismatches observed, 0
+`UNRESOLVED`-bucket events across 4,880 seat-episodes); per seat-episode,
+the SAME integer recombination method `census_decode.py` uses (fold
+`amount`s, halve by FF incidents, multiply the win factor, cap at 2^24)
+reconciles to the census's own already-validated `recon_final` for
+**4,880/4,880 (100.00%)**. The resulting log2-magnitude bucket shares sum
+to the row's own log2(final) with a **0.000% mean/median residual**
+(ground-truth instrumentation, not statistical inference — there is
+nothing left over to be uncertain about).
+
+**`tests/test_zero_mint_reachability.nim`** (repo root, unmodified shipped
+source, no private build needed): a standalone reachability probe against
+the PURE `killDeed(ctx: KillContext): Deed` classifier
+(`src/ctf/glory.nim`). Confirms `dSprayKill`/`dGrenadeKill`/`dEscortKill`
+are all classifier-reachable at a real BR map's scaled point-blank/longshot
+thresholds (`gunRange=331`, the live `br-golden-map.json` value) — their
+zero-mint status in the census is BEHAVIOURAL (nobody landed that kill
+shape), not a precedence dead-zone. Run with `nim r
+tests/test_zero_mint_reachability.nim` from the repo root (needs
+`tests/config.nims`'s `--path:"../src"`, already committed).
