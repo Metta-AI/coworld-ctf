@@ -1,6 +1,8 @@
 # Can we replace the CTF tournament with Monte Carlo rollouts?
 
-**Status:** DRAFT — methodology fixed, findings pending
+**Status:** COMPLETE — verdict and plan below. Research done 2026-09-09; all live API figures
+measured that day and era-stamped by division. Read the **VERDICT** and **EXECUTION PLAN** at the
+end first; §1–6 are the framing, F1–F12 the evidence.
 **Source:** Asana `1217201474450553` (Paintbot board, `1 · Scoped`, Layer: League & Campaign Ops).
 Raised by daveey in Discord `#game-of-the-week`: *"it seems like for CTF we don't actually need
 to run the tournament, we could use historical 1v1 scores between each policy in the roster,
@@ -344,74 +346,200 @@ the one result here that could change what the public CTF standings *are*.
 
 ---
 
-# RECOMMENDATION
+# EMPIRICAL RESULTS (measured live, 2026-09-09)
 
-**Directionally right, already built, wrong premise, and the real risk is elsewhere.**
+## F8. There is no CTF league any more — and the game of the week is BR
 
-- ✅ **Sound in kind.** CTF episodes genuinely are pairwise — 8v8, 16 seats, exactly two scored
-  policies per episode — so the 1v1 matrix daveey assumes really does exist. The method is
-  standard and validated practice elsewhere (§6).
-- ✅ **A rollout is more informative than a bracket.** It reports `P(champion)` over the whole
-  field with intervals; a bracket reports one sample.
-- ❌ **The motivating economics are absent.** The proposal saves tournament episodes. We run no
-  tournaments (**F2**), so the saving is zero. The decision it actually bears on is whether to
-  *finish* live tournaments (spec 0073), not whether to stop them.
-- 🚨 **The live risk is unvalidated trust.** A shipped, user-facing simulator has never been
-  checked against reality (**F5**) and ships a `sufficiency` badge that measures precision, not
-  correctness (**F4**). "Insufficient/marginal/sufficient" will be read as a correctness verdict.
-  That is the thing to fix, and it is fixable cheaply.
+`GET /v2/leagues?limit=500` → 200, **140 leagues, complete** (no pagination; the schema exposes
+only a `game_id` filter — there is no `include_hidden`/`archived` parameter anywhere in the
+OpenAPI spec). **No league is named CTF**, and no league name or description contains "ctf" or
+"capture the flag" — the single occurrence in the whole roster is prose on *Battle Royale* saying
+combat is *"inherited from Coworld CTF"*.
 
-**So: do not build a simulator. Validate the one that shipped, then decide.**
+The stale constants in `tools/ladder/ctfapi.py:20-21` no longer resolve. Two checks confirm this is
+retirement, not filtering:
+- **12 listed leagues have `rounds_paused_at` set** — so a *paused* league still appears. CTF does
+  not appear, therefore CTF is not merely paused.
+- 0 listed leagues have `hidden=true` or `disabled_at` set.
+
+> Honest caveat: unauthenticated `GET /v2/leagues/{id}` returns **401 for every id, including a
+> fabricated one**, so that probe cannot distinguish existence. The retirement conclusion rests on
+> the complete public list plus the authenticated 404, not on the 401.
+
+**And `is_game_of_week: true` belongs to `Paintbot (Season 2)`** — whose own game description reads
+*"Season 2 plays battle royale: sixteen duos on a giant generated map… last team standing."* So the
+channel the proposal came from is now discussing BR, the very league this study is scoped to exclude.
+
+## F9. Episode shape — which divisions are actually CTF-shaped
+
+Measured directly by pulling real rounds and counting distinct scored policies per episode:
+
+| Division | Seats | Distinct policies / episode | Pairwise 1v1? |
+|---|---|---|---|
+| **Campaign** | 16 | **2** (62 eps; 10 more scored 0) | ✅ yes — 8v8, policy A vs policy B |
+| **Paintarena** | 2 | **2** (176 eps) | ✅ yes — pure duel |
+| Elite Paintbot | 16 | 2 or 4 (52 / 47) | ⚠️ mixed — the 2v2 partner lottery |
+| Battle Royale | 12 | 12 | ❌ free-for-all |
+| Paintbot (S2) | 16 | 16 | ❌ free-for-all |
+
+**Campaign and Paintarena are the only genuinely head-to-head divisions live today.** For BR and
+S2, a "pairwise matrix" would be co-appearance in a 16-way FFA, not duels — reducing a 16-way
+finish order to 120 pairwise comparisons discards the joint structure and yields non-independent
+"wins". That is a second, independent reason the proposal does not transfer to BR.
+
+## F10. The density census — the answer to the task's "Done when" #1
+
+Via `GET /v2/divisions/{id}/pairing-matrix` (authenticated). For Campaign and Paintarena,
+`games_together` **is** the head-to-head game count, because those episodes contain exactly two
+policies — so these numbers are exact, not a proxy.
+
+| Division | Policies | Fill rate | Median games/pair | **Binomial SE at median** | Graph connected? | Connected using only pairs n≥30? |
+|---|---|---|---|---|---|---|
+| **Campaign** | 30 | 374/435 = **86.0%** | **20** | **±11.2 pp** | ✅ [30] | ✅ [30] |
+| **Paintarena** | 12 | 18/66 = **27.3%** | 1400 | ±1.3 pp | ✅ [12] | ❌ **[9, 1, 1, 1]** |
+| Paintbot S2 *(FFA, co-appearance)* | 19 | 171/171 = 100% | 386 | ±2.5 pp | ✅ | ✅ |
+
+Per-pair tail, Campaign: **242 of 374 observed pairs have fewer than 30 games**; 322 have fewer
+than 100; 354 have fewer than 400.
+
+### Both CTF-shaped divisions fail the data prerequisite — for opposite reasons
+
+- **Campaign is connected but badly under-powered.** A median of 20 games per pair gives a
+  standard error of **±11.2 pp** on each cell. At that precision a 55/45 matchup is
+  indistinguishable from a 45/55 one — and elimination brackets are decided exactly by such
+  near-even pairs. Against the literature's benchmarks (§6: SE ≈5 pp at n=100; chess SPRT needs
+  500–1000 games to resolve a >30-Elo gap), Campaign has roughly **1/25th** the data per pair
+  needed to resolve close matchups.
+- **Paintarena is precise but not comparable.** Where pairs exist they are measured to ±1.3 pp,
+  but only 27% of pairs exist at all, and when restricted to well-measured pairs (n≥30) the
+  comparison graph **fragments into [9, 1, 1, 1]** — three policies become formally incomparable.
+  Connectivity is the literature's *hard* gate (Bradley & Terry 1952; Simons & Yao 1999), and the
+  shipped engine papers over it with `eps=0.1` fabricated virtual wins (**F3-A**) rather than
+  reporting the fracture.
+
+This is the empirical core of the verdict: **the pairwise matrix daveey assumes is either too
+noisy (Campaign) or too sparse (Paintarena) to carry a bracket today** — and the shipped simulator
+would return a confident-looking answer in both cases.
+
+## F11. Two defects found in passing
+
+- `GET /v2/divisions/{elite_div}/pairing-matrix` returned **500 Internal Server Error**, then a
+  **read timeout** on retry — the endpoint is unreliable for Elite Paintbot (plausibly its mixed
+  2-and-4-policy episode shape, F9).
+- **~14% of Campaign episodes score zero policies** (10 of 72 sampled) and drop out of any matrix
+  as `episodes_skipped` (`matrix.py:222-225`) with no surfaced reason. Worth a look on its own.
+
+## F12. Every tournament ever attempted has failed
+
+Authenticated, live:
+
+| League | Tournaments | Status |
+|---|---|---|
+| Paintbot (Season 2) | **2** | **both `failed`** — `TournamentWorkflow failed: Activity task failed`, `placements: null` on both |
+| Battle Royale | 0 | — |
+| Elite Paintbot | 0 | — |
+| Paintarena | 0 | — |
+
+**Zero tournaments have ever produced placements on this platform.** This corroborates F2 from the
+other direction: spec 0073's live wiring is unchecked, and the two attempts to run it crashed in
+the Temporal activity.
+
+> Inconsistency worth filing: `GET /v2/tournaments?limit=100` returns `[]` while
+> `GET /v2/leagues/{s2}/tournaments` returns the two failed records. The global list does not
+> surface them.
+
+This inverts the proposal's economics one final time. daveey's question — *"do we need to run the
+tournament?"* — presumes a tournament that runs. **We have never successfully run one.** The
+simulator is not a cheaper alternative to a working bracket; right now it is the *only* thing that
+produces tournament placements at all.
+
+---
+
+# VERDICT
+
+**The reasoning is sound. The premise is not, and the shipped implementation is the real risk.**
+
+daveey is right on method — pairwise-matrix Monte Carlo is exactly how this is done elsewhere
+(§6), and a rollout's distribution genuinely carries more information than one bracket. He is also
+right that CTF-shaped episodes give clean 1v1 data where they exist (F9). But four independent
+findings mean the proposal cannot be executed as posed:
+
+1. **There is no CTF league to apply it to** (F8). It is absent from the complete 140-league
+   roster, and paused leagues still list — so this is retirement, not a pause. The
+   `#game-of-the-week` channel it was raised in now runs **BR**, which this study excludes.
+2. **There is no tournament being run, and never has been one that worked** (F2, F12). Two
+   attempts, both crashed, zero placements ever. **The episode saving that motivates the proposal
+   is zero.**
+3. **It is already built** (F1). `tournament_sim` — engine, matrix, route, Observatory UI — is on
+   `main` and already does Bradley-Terry + Monte Carlo over recorded pairwise results.
+4. **In the two live CTF-shaped divisions, the data fails its own prerequisite** (F10). Campaign is
+   connected but at ±11.2 pp per cell — roughly 1/25th the games per pair needed to resolve the
+   near-even matchups that decide brackets. Paintarena is precise but fragments into
+   **[9, 1, 1, 1]** once restricted to well-measured pairs, so three policies are formally
+   incomparable.
+
+**And the finding that matters most is one nobody asked for:** a shipped, user-facing simulator has
+**never been validated against reality** (F5), and reports a `sufficiency` badge that measures
+estimate *precision*, not *correctness* (F4). On both divisions above it would return a
+confident-looking answer over data that cannot support one. That is the live risk here, and it is
+cheap to fix.
+
+**Recommendation: don't build, don't back-test brackets — relabel the badge, then validate the win
+model on episodes.**
 
 ---
 
 # EXECUTION PLAN
 
-Each phase has a gate. Stop and report at every gate — several can end the work early.
+**Phase 0 — density census + episode shape — ✅ DONE in this study** (F9, F10, F12).
+The task's "Done when" #1 is answered: fill rates, per-pair sample distributions, connectivity, and
+the precision gate are all reported above.
 
-### Phase 0 — Density census + intransitivity  *(≈half a day; answers the task's "Done when" #1)*
-Build the CTF pairwise matrix from banked ladder episodes via the shipped
-`matrix.load_pairwise_matrix`, and report, era-stamped by `coworld_version`:
-fill rate; **per-pair sample counts as a distribution, not a mean**; fill as a function of Elo gap
-(the §4.2 bias probe); **comparison-graph connectivity** (a hard gate — disconnected components are
-not comparable at all, §6); the `episodes_skipped` count and why; the raw draw rate (F3-B); and the
-3-cycle census (**F7**).
-**Gate:** if the graph is disconnected or median per-pair `n` is tiny (SE ≈5pp at n=100), report
-that and stop — nothing downstream can be trusted, and this alone answers a chunk of the task.
+### Phase 1 — Relabel `sufficiency` and file the defects  *(~half a day; do this first)*
+Highest value per hour, and independent of everything else. A PR to metta renaming the verdict to
+what it measures (e.g. `estimate_precision`) and stating the scope in both the API response and
+`TournamentSimDetail.tsx`: *"measures how precisely the win model is estimated, not whether it
+matches reality; never validated against a real tournament."* Plus bugs for: the draw gap (F3-B,
+draws tallied but never sampled), the fabricated cold-start strength (F3-A), the Elite
+`pairing-matrix` 500/timeout and the ~14% zero-score Campaign episodes (F11), and the
+`/v2/tournaments` global-list inconsistency (F12).
+**Gate:** none — this is worth doing regardless of every other outcome.
 
-### Phase 1 — Episode-level calibration back-test  *(≈1–2 days; the core)*
-Implement **F6**: temporal hold-out within one engine era, score Brier/log against the uniform,
-Elo, and BT baselines, plot the reliability diagram, report sharpness alongside calibration, and
-stratify by Elo gap and by observed-vs-BT-filled pairs.
-**Gate — the kill criterion:** if the matrix does not beat the live Elo baseline out-of-sample,
-the idea adds nothing over the leaderboard we already publish. Say so plainly and stop.
+### Phase 2 — Episode-level calibration back-test on Campaign  *(~1–2 days; the real validation)*
+Implement §F6 against **Campaign** (the only division that is both CTF-shaped and roster-complete).
+Temporal hold-out inside one `coworld_version`; score Brier/log against uniform, live-Elo, and BT
+baselines; reliability diagram; report sharpness with calibration; stratify by Elo gap and by
+observed-vs-BT-filled pairs.
+**Kill criterion:** if the matrix cannot beat the Elo baseline out-of-sample, the idea adds nothing
+over the ranking already published. Say so and stop.
+**Expect this to be hard at ±11.2 pp** — a likely honest outcome is *"the data cannot currently
+support a bracket"*, which is itself the answer to daveey's question.
 
-### Phase 2 — Sufficiency audit + defect reports  *(≈half a day)*
-Cross-tabulate the shipped `sufficiency` verdict against measured out-of-sample calibration. Any
-configuration graded `"sufficient"` while miscalibrated is a defect against a live feature.
-Deliverables: a PR relabelling the verdict to what it measures (e.g. `estimate_precision`) with the
-scope stated in the API response and UI, plus filed bugs for the draw gap (F3-B) and, if it bites,
-the fabricated cold-start strength (F3-A).
-*This phase is worth doing on its own merits even if Phase 1 fails its gate.*
+### Phase 3 — Price the gap with the platform's own tool  *(~2 hours)*
+`POST /v2/divisions/{id}/power-analysis` already computes episodes-needed to detect a given skill
+gap. Run it across Campaign's roster and publish **how many episodes per pair** would be needed to
+make rollouts trustworthy. That converts "not enough data" into a budget number the league owners
+can accept or refuse — and it is the number that decides whether to fix the matrix or fix the
+Temporal workflow.
 
-### Phase 3 — The decision memo  *(≈half a day)*
-One page to daveey and the league owners, stating the purpose assumption explicitly (§3):
-whether to finish spec 0073's live tournament wiring at all; whether rollout output should be
-published as CTF standings; and, if F7 found significant cycles, whether standings should move to
-Nash averaging / α-Rank instead of Elo **or** a simulated bracket.
+### Phase 4 — Intransitivity census  *(~half a day; the one that could change standings)*
+§F7 on Campaign and Paintarena: count significant 3-cycles vs chance, and BT residual structure.
+If cycles are real, the Elo leaderboard is actively misleading and the right answer is Nash
+averaging / α-Rank (§6) — **not** a simulated bracket. Worth doing regardless of the tournament
+decision.
 
-### Phase 4 — *conditional* — bracket-free ranking  *(only if F7 finds cycles)*
-Implement Nash averaging (Balduzzi 2018) and α-Rank (Omidshafiei 2019) over the same matrix and
-compare all three rankings — Elo, simulated-bracket, bracket-free — on the same held-out episodes.
+### Phase 5 — Decision memo  *(~half a day)*
+One page to daveey and the league owners, stating the purpose assumption explicitly (§3). The real
+decision is the inverse of the one asked: **given the simulator exists and works, and the Temporal
+workflow does not, is it worth fixing live tournaments at all?**
 
-### Explicitly out of scope
-BR / the main league (16-way, no pairwise structure); any change to a live league without a
-recorded owner GO; finishing spec 0073's Temporal wiring (that is the *outcome* of Phase 3,
-not part of this study).
+### Out of scope
+BR / Paintbot S2 and any FFA division (F9 — no duel structure); changes to a live league without a
+recorded owner GO; fixing the Temporal workflow (that is Phase 5's *output*).
 
-### Risks
-- Data window may be one `coworld_version` deep (default `coworld_version_min="latest"`), which
-  could make Phase 1's hold-out too thin. Mitigation: widen `version_min` and treat era as a
-  covariate, reporting the cross-era stability check (§4.1) as a first-class result.
-- `tournament_sim` is owned by the platform team, not this lane. Phase 2's PR touches their
-  surface — coordinate before landing.
+### Ownership note
+League + Campaign are **daveey's lane**, not this board's (memory: campaign work is explicitly
+out of scope for the Paintbot board). The Asana task is assigned to Maxwell but was auto-filed
+from `#game-of-the-week` on 2026-08-05 — inside the Season-1 window that the board's router was
+later floored out (`season2_start = 2026-08-26`). **Confirm ownership with daveey before executing
+Phases 2–5.** Phase 1 touches only metta platform code and is unaffected.
