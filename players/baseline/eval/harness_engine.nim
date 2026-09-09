@@ -188,6 +188,13 @@ proc newEvalEngine*(numPlayers: int, seed: int, maxTicks: int): EvalEngine =
     # (collectEvents costs real allocation), so every other probe build stays
     # exactly as fast.
     result.sim.collectEvents = true
+  when defined(lofprobe):
+    # -d:lofprobe (2026-08-19, LINE OF FIRE): the tier-2 sink is the only way to
+    # get the SAME estimator the field census used — a ShotImpact's `target` and
+    # `distance` say what STOPPED each gun shot and how far out. Scoring the rig
+    # with a bespoke counter and the field with impact records would compare two
+    # different quantities; this makes them one quantity.
+    result.sim.collectEvents = true
   when defined(ndprobe):
     # -d:ndprobe (2026-08-14, the v56 nade package): the tier-2 sink carries
     # GrenadeThrow / GrenadeImpact / Pickup, which is the only ENGINE-TRUTH
@@ -600,6 +607,35 @@ when defined(rangehitprobe):
      blueShotsNear: engine.blueShotsNear, blueHitsNear: engine.blueHitsNear,
      redShotsFar: engine.redShotsFar, redHitsFar: engine.redHitsFar,
      blueShotsFar: engine.blueShotsFar, blueHitsFar: engine.blueHitsFar)
+
+when defined(lofprobe):
+  proc lofShotRows*(engine: EvalEngine): seq[tuple[srcTeam, outcome: int,
+                                                   dist: float]] =
+    ## Every GUN ShotImpact this episode, classified exactly as the field census
+    ## classifies a hosted replay's shot_impact record:
+    ##   outcome 0 = terminated on level GEOMETRY (or range limit) — target < 0
+    ##   outcome 1 = terminated on an ENEMY body
+    ##   outcome 2 = terminated on a TEAMMATE body
+    ## `dist` is the muzzle->impact flight distance in px (verified on the field
+    ## corpus to equal |impact - muzzle| to 0.0000 px).
+    ##
+    ## ⚠️ `source`/`target` are stable JOIN slots, not raw player indices — the
+    ## same trap weaponKillCounts and friendlyFireCounts document.
+    var teamOf = newSeq[int](engine.sim.players.len)
+    for i in 0 ..< teamOf.len: teamOf[i] = -1
+    for p in engine.sim.players:
+      if p.joinOrder >= 0 and p.joinOrder < teamOf.len:
+        teamOf[p.joinOrder] = ord(p.team)
+    for e in engine.sim.events:
+      if e.kind != ShotImpact or e.weapon != "gun": continue
+      if e.source < 0 or e.source >= teamOf.len: continue
+      let st = teamOf[e.source]
+      if st < 0: continue
+      var oc = 0
+      if e.target >= 0 and e.target < teamOf.len and e.target != e.source:
+        let tt = teamOf[e.target]
+        if tt >= 0: oc = (if tt == st: 2 else: 1)
+      result.add((srcTeam: st, outcome: oc, dist: e.distance))
 
 when defined(shapeprobe):
   proc shapeCounts*(engine: EvalEngine, team: int): tuple[

@@ -175,6 +175,26 @@ proc newDriver(slot, team, episodeSeed: int): Driver =
   let lastLifeTeam = getEnv("LASTLIFETEAM")
   if lastLifeTeam.len > 0:
     tune.lastLifeGuard = team == parseInt(lastLifeTeam)
+  # ⭐⭐ cqbLos (LINE OF FIRE, 2026-08-19) TEAM ISOLATION. shippedCombatTune()
+  # reads CQBLOS from the process env and all bots share ONE process, so a bare
+  # CQBLOS=1 arms every team and measures a MIRROR. CQBLOSTEAM=<n> arms ONLY
+  # engine team index n (0..3) and strips every other team. Raw team INDEX, not
+  # red/blue: `t` collapses every non-zero team to Blue on a >2-team board.
+  # CQBLOSTEAM=9 (any out-of-range index) is the all-control baseline arm — same
+  # binary, same env shape, the two runs differ in ONE integer.
+  when compiles(tune.cqbLos):
+    # Accepts a COMMA LIST ("0,2") as well as a single index, so one run can arm
+    # half the board and still be paired against a pure CQBLOSTEAM=9 control.
+    # That halves the core-minutes needed to cover all four seats, which matters
+    # because seat is NOT exchangeable here (the mid-quad finding) and every
+    # team therefore has to be measured against ITSELF.
+    let cqbLosTeam = getEnv("CQBLOSTEAM")
+    if cqbLosTeam.len > 0:
+      var armed = false
+      for part in cqbLosTeam.split(','):
+        let p = part.strip()
+        if p.len > 0 and team == parseInt(p): armed = true
+      tune.cqbLos = armed
   result.bot = Bot(slot: slot, team: t, role: role, tune: tune)
   result.bot.resetTransient()
   result.client = initProtocolClient()
@@ -467,6 +487,8 @@ proc main() =
       drivers.add newDriver(s, engine.teamOfSlot(s), epSeed)
       when defined(doorprobe):
         if s < 32: engineTeamOfSlot[s] = engine.teamOfSlot(s)
+      when defined(lofprobe):
+        if s < 32: lofTeamOfSlot[s] = engine.teamOfSlot(s)
     when defined(ndprobe):
       ndReleases.setLen(0)     # the release ledger is per-EPISODE (joined below)
     when defined(fpprobe):
@@ -611,6 +633,64 @@ proc main() =
         tmLastCapTotal = tmCapNow
       if r.phaseOver: break
     let r = engine.result()
+    when defined(lofprobe):
+      # Gate counters: the FUTILITY BOUND. "The lever fired" is not "the lever
+      # could have changed the outcome" — lofVetoLive is the subset that deleted
+      # a trigger pull that would otherwise have reached the button mask.
+      for t in 0 .. 3:
+        if lofOpp[t] == 0 and lofPulls[t] == 0: continue
+        echo "LOFGATE ", epSeed, " ", t, " ", lofOpp[t], " ", lofVeto[t],
+          " ", lofVetoWall[t], " ", lofVetoMate[t], " ", lofVetoLive[t],
+          " ", lofPulls[t]
+      for t in 0 .. 3:
+        if lofVeto[t] == 0: continue
+        echo "LOFREFIRE ", epSeed, " ", t, " ", lofVeto[t],
+          " ", lofRefire[t][0], " ", lofRefire[t][1], " ", lofRefire[t][2],
+          " ", lofRefire[t][3], " ", lofRefire[t][4], " ", lofRefire[t][5]
+      for t in 0 .. 3:
+        lofOpp[t] = 0; lofVeto[t] = 0; lofVetoWall[t] = 0
+        lofVetoMate[t] = 0; lofVetoLive[t] = 0; lofPulls[t] = 0
+        for b in 0 .. 5: lofRefire[t][b] = 0
+      for sl in 0 ..< 32:
+        lofVetoPending[sl] = false; lofVetoTickOf[sl] = 0
+    when defined(lofprobe):
+      # ⭐⭐ LINE OF FIRE per-episode, per-team row. Printed RAW (one line per
+      # episode per team) rather than aggregated, so the pairing is done
+      # downstream: rig absolutes are not calibrated, so only a WITHIN-BLOCK
+      # paired contrast on identical seeds is admissible, and that needs the
+      # per-episode grain. Columns are counts, never rates — the ratio is formed
+      # after pooling so no episode with 3 shots gets the weight of one with 90.
+      block lofRow:
+        var
+          sh150, en150, mt150, gm150: array[4, int]
+          shAll, enAll, mtAll, gmAll: array[4, int]
+          kl, dt, cp, lv: array[4, int]
+        for row in engine.lofShotRows():
+          let t = row.srcTeam
+          if t notin 0 .. 3: continue
+          inc shAll[t]
+          case row.outcome
+          of 1: inc enAll[t]
+          of 2: inc mtAll[t]
+          else: inc gmAll[t]
+          if row.dist <= 150.0:
+            inc sh150[t]
+            case row.outcome
+            of 1: inc en150[t]
+            of 2: inc mt150[t]
+            else: inc gm150[t]
+        for st in r.slots:
+          if st.team notin 0 .. 3: continue
+          kl[st.team] += st.kills
+          dt[st.team] += st.deaths
+          cp[st.team] += st.captures
+          lv[st.team] += st.lives + (if st.alive: 1 else: 0)
+        for t in 0 .. 3:
+          if shAll[t] == 0 and kl[t] == 0 and dt[t] == 0: continue
+          echo "LOFROW ", epSeed, " ", t, " ", r.ticks,
+            " ", sh150[t], " ", en150[t], " ", mt150[t], " ", gm150[t],
+            " ", shAll[t], " ", enAll[t], " ", mtAll[t], " ", gmAll[t],
+            " ", kl[t], " ", dt[t], " ", cp[t], " ", lv[t]
     when defined(lifeprobe):
       # Episode ended before tick FfaFixedWindow (common in ffa4 — the mode ends
       # by ELIMINATION): no more lives can be spent after that, so the final

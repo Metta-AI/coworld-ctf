@@ -941,6 +941,10 @@ const
                               # 6. See AUDITOR.md, "the CQB plant trap".
   WindupPlantTicks = 5        # DEAD with the above: the movement suppression the
                               # reverted plant applied after a CQB trigger pull.
+  CqbLosRangePx = 150.0       # default reach of the cqbLos fire-axis re-check.
+                              # The <=150px bin is where the measured deficit sits
+                              # and where the 17px slack buys the most angular
+                              # divergence (16 deg at 60px vs 1.4 deg at 400px).
   FireSlackPx = 11.0          # fire when the aim error's perpendicular miss
                               # at the target's range is inside this (the
                               # corridor half-width is ~14px; keep margin)
@@ -1908,6 +1912,25 @@ type
                               # remembered enemy instead of down the move lane.
     fireOnRealBody: bool      # gate the trigger on the perp-miss to the target's
                               # REAL last-seen position, not the full lead phantom.
+    cqbLos: bool              # LINE OF FIRE: re-validate the corridor on the axis
+                              # that ACTUALLY fires (bot.estAim), not the ideal ray
+                              # to the aim point that target-selection cleared.
+    cqbLosRange: float        # only re-validate inside this range (0 = everywhere
+                              # the gun engages); the divergence is a close-range
+                              # problem because the slack is angular, not linear.
+    cqbLosWall: bool          # include the WALL half of the cqbLos re-check.
+                              # The gate counters say ~94% of all cqbLos vetoes
+                              # are wall vetoes, and the field autopsy says the
+                              # geometry gap vs the league leader is 3.0pp, not
+                              # the 11pp the code comment claims — so the wall
+                              # half is nearly all of the collateral and almost
+                              # none of the prize. OFF makes this a pure
+                              # friendly-fire veto.
+    cqbLosLead: float         # WINDUP LEAD (ticks) applied to the cqbLos
+                              # corridor test: advance each mate, and our own
+                              # muzzle, by this much of its velocity so the test
+                              # runs on the geometry the BULLET meets, not the
+                              # geometry at the trigger pull. 0 = test at T0.
     threatFacingBonus: bool   # danger-score: credit an enemy FACING us so we
                               # engage the greatest threat first.
     shout: bool               # EMIT shouts at all (carrier heartbeat + enemy
@@ -3652,6 +3675,10 @@ proc defaultCombatTune(): CombatTune =
     aimLock: false,           # control: aim resets to the move lane off-target.
     huntSweep: false,         # control: no active acquisition sweep.
     fireOnRealBody: false,    # control: fire gate uses the full lead phantom.
+    cqbLos: false,            # control: no fire-axis re-validation at the trigger.
+    cqbLosRange: 0.0,         # control: unused while cqbLos is false.
+    cqbLosWall: true,         # control: cqbLos as originally built (wall+mate).
+    cqbLosLead: 0.0,          # control: corridor tested at the trigger tick.
     threatFacingBonus: false, # control: danger score ignores enemy facing.
     shout: false,             # control: never shout.
     shoutCallout: false,      # control: no enemy callouts.
@@ -4005,6 +4032,51 @@ proc shippedCombatTune(): CombatTune =
   # windup: by the time the bullet leaves, the juking body it was aimed at has moved on.
   # REALBODY=1 re-enables it for anyone who wants to re-measure; it ships OFF.
   result.fireOnRealBody = getEnv("REALBODY").len > 0
+  # ⭐⭐ cqbLos — LINE OF FIRE, not line of sight (2026-08-19).
+  #
+  # Target SELECTION clears the ray me->predicted (pixelRayClear + friendlyBlocked,
+  # in the candidate loop). The TRIGGER then fires along bot.estAim, and the slack
+  # there explicitly tolerates a perp-miss of max(fireSlackPx, 17.0) inside 300px.
+  # Perp-miss is a LINEAR tolerance on an ANGULAR error, so the divergence between
+  # the ray that was cleared and the ray that actually fires explodes as range
+  # falls: 17px of slack is 1.4 deg at 400px but 9.8 deg at 100px and 16.5 deg at
+  # 60px. Nothing re-validates the corridor on the bearing that fires.
+  #
+  # FIELD CENSUS (2026-08-19, 634 league episodes re-simulated to ground truth,
+  # 349 ffa4 + 285 two-team, hit events verified == platform slot_shots_hit to
+  # +3 in 82,467). Per GUN SHOT, ffa4:
+  #     terminates on ENEMY      ours 54.6%   field 66.4-68.2%
+  #     terminates on TEAMMATE   ours  2.1%   field  0.6- 1.1%
+  #     terminates on GEOMETRY   ours 43.2%   field 31.2-32.5%
+  #     ...geometry within 150px ours 17.2%   field 10.7-14.0%
+  # So the dominant term is WALLS, not teammate bodies (teammates are ~1.2pp of a
+  # ~12pp deficit). Both are the same defect — a corridor nobody re-checked — so
+  # this re-runs BOTH tests on bradsDir(bot.estAim) out to the target's range.
+  #
+  # This is NOT the 2026-08-04 range-scaled lead (that moved WHERE we aim, and the
+  # crater survived it), and NOT fireOnRealBody (that OPENED the trigger wider and
+  # was refuted). This one CLOSES the trigger on frames whose real axis is fouled;
+  # the turret is already slewing onto the target, so a vetoed frame fires a tick
+  # or two later on a clean axis rather than not at all.
+  #
+  # Ships OFF. CQBLOS=1 arms, NOCQBLOS=1 force-reverts, CQBLOSRANGE=<px> sweeps
+  # the reach (0 = every engagement range). ⚠️ A bare CQBLOS=1 is a MIRROR — all
+  # rig bots share one process env; CQBLOSTEAM=<n> in grabprobe.nim is the A/B.
+  result.cqbLos = getEnv("CQBLOS").len > 0 and getEnv("NOCQBLOS").len == 0
+  result.cqbLosRange =
+    if getEnv("CQBLOSRANGE").len > 0: parseFloat(getEnv("CQBLOSRANGE"))
+    else: CqbLosRangePx
+  # CQBLOSNOWALL=1 drops the WALL half of the re-check, leaving a pure friendly
+  # corridor veto. Unset = the lever exactly as built.
+  result.cqbLosWall = getEnv("CQBLOSNOWALL").len == 0
+  # ⭐⭐ CQBLEAD=<ticks> (2026-08-19) — the WINDUP-AWARE variant of the same veto.
+  # NOT a mirror hazard even though it is a bare process env: it only has effect
+  # where cqbLos is already armed, and cqbLos arming is per-team via CQBLOSTEAM.
+  # 5 == FireWindupTicks (sim_types.nim), the tick gap between the trigger pull
+  # and the bullet actually leaving.
+  result.cqbLosLead =
+    if getEnv("CQBLEAD").len > 0: parseFloat(getEnv("CQBLEAD"))
+    else: 0.0
   # counterArc (Play C, GameVersion 15 plasma arc): prioritize a DISARMED enemy
   # arc-carrier (gun off for life while holding) beyond its 136px cone — a free
   # kill that deletes the enemy's whole AoE play. Ships on the SAME field-only
@@ -4574,6 +4646,36 @@ when defined(roleprobe):
     let anchorD = sqrt(dx * dx + dy * dy)
     if anchorD > 90.0 and anchorD >= stealD - 1.0: inc rpPark[t][seat]
 
+
+when defined(lofprobe):
+  # ── LINE-OF-FIRE GATE COUNTERS (2026-08-19). PURE instrumentation: nothing
+  # here is ever read by a decision, so a -d:lofprobe build decides
+  # bit-identically to one without it (proven by diffing LOFROW output).
+  # "It FIRED" is not "it could have CHANGED the outcome": the fire bit only
+  # reaches the mask on a RISING edge (`wantFire and not bot.firedLast`), so a
+  # veto on a frame where firedLast is already true costs nothing. lofVetoLive
+  # is the veto count that actually deleted a trigger pull.
+  var
+    lofOpp*: array[4, int]        # cqbLos gate REACHED (armed, in range, wantFire)
+    lofVeto*: array[4, int]       # ...and it cleared wantFire
+    lofVetoWall*: array[4, int]   # ...because the wall ray was fouled
+    lofVetoMate*: array[4, int]   # ...because a mate sat in the corridor
+    lofVetoLive*: array[4, int]   # ...and the pull would have reached the mask
+    lofPulls*: array[4, int]      # trigger pulls actually emitted (the denominator)
+    # ⭐⭐ RE-FIRE LATENCY. The lever's own justification is "vetoing here costs at
+    # most a few ticks of slew, never the engagement". That is a TESTABLE claim and
+    # this is the test: after a veto, how many ticks until this slot actually emits
+    # a trigger pull again? Buckets are <=1, <=2, <=3, <=5, <=10, >10 ticks; a veto
+    # with no follow-up pull before the episode ends is counted as NEVER
+    # (vetoes - sum(buckets)), which is the case the claim would have to exclude.
+    lofVetoTickOf*: array[32, int]
+    lofVetoPending*: array[32, bool]
+    lofRefire*: array[4, array[6, int]]
+    lofTeamOfSlot*: array[32, int]  # ENGINE team index per slot. `bot.team` is
+                                    # Red/Blue and collapses every non-zero team
+                                    # to Blue on a 4-team board (the 4-team role
+                                    # arithmetic trap), so the probe cannot use
+                                    # it. grabprobe stamps this at episode setup.
 
 when defined(rngprobe):
   # ── RANGED-CORRIDOR PROBE (pure instrumentation, identical in every tree).
@@ -6343,19 +6445,33 @@ proc vanityRoll(slot, tick, salt: int): bool =
   h = h xor (h shr 15)
   int(h mod 100'u32) < VanityShoutChance
 
-proc friendlyBlocked(bot: Bot, me, aim: Vec, enemyDist: float): bool =
+proc friendlyBlocked(bot: Bot, me, aim: Vec, enemyDist: float,
+                     lead: float = 0.0): bool =
   ## True when a remembered teammate could eat the shot: the bullet is a
   ## corridor hitscan (~14px half width) along the aim ray and the server
   ## kills the NEAREST player inside it, friend or foe — 8v8 puts many
   ## teammates downrange. The fire axis is the exact angle the turret would
   ## fire at right now.
+  ##
+  ## ⭐⭐ `lead` (2026-08-19, WINDUP AUTOPSY): the trigger pull LOCKS the aim but
+  ## the bullet leaves fireWindupTicks (5) later, from the shooter's then-current
+  ## position, against the then-current bodies. Measured on 346 hosted ffa4
+  ## team-Episodes: at the DECISION tick the victim's perpendicular offset from
+  ## the ray is median 15.0px and only 49.4% sit inside the 15px corridor, but at
+  ## the RELEASE tick with both bodies moved it is 9.2px and 99.8%. 32.4% of all
+  ## friendly-fire hits are "the mate was outside the corridor on BOTH rays when
+  ## we decided, and moved into the bullet afterwards" — invisible to ANY veto
+  ## evaluated at T0. `lead` advances each remembered mate by its tracked
+  ## velocity over the windup so the test is run against the geometry the BULLET
+  ## will meet. lead = 0.0 (the default, and every pre-existing call site) leaves
+  ## this proc bit-identical to the version that shipped.
   let dir = bradsDir(bradsOf(aim - me))
   for t in bot.mates:
     let age = float(bot.tick - t.lastSeen)
     if age > 36:
       continue
     let
-      rel = t.pos - me
+      rel = (t.pos + t.vel * lead) - me
       d = rel.len()
       along = dot(rel, dir)
     if along <= 0 or d < 1e-6:
@@ -10460,6 +10576,48 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
           client.pixelRayClear(me, engageBody) and
           not bot.friendlyBlocked(me, engageBody, bodyD):
         wantFire = true
+    # ⭐⭐ LINE OF FIRE (cqbLos). Last word on the gun trigger: re-cast the wall
+    # ray AND the friendly corridor along bot.estAim — the bearing the turret
+    # will actually fire on — out to the target's range. `muzzleRay` is a point
+    # on that axis at engageD, so friendlyBlocked's own `bradsOf(aim - me)`
+    # recovers estAim exactly and its along-track window stays [0, engageD+14].
+    # Vetoing here costs at most a few ticks of slew, never the engagement.
+    if wantFire and bot.tune.cqbLos and
+        (bot.tune.cqbLosRange <= 0.0 or engageD <= bot.tune.cqbLosRange):
+      # WINDUP LEAD: the aim angle is locked at the pull but the muzzle travels
+      # with us for the 5 windup ticks, so the release ray is the SAME bearing
+      # from a SHIFTED origin. Our own velocity is the one-tick delta (lastPos is
+      # still last tick's position here — decide() restamps it at the tail), and
+      # it is rejected unless it is a plausible single-tick move, so tick 0 and a
+      # respawn teleport contribute nothing.
+      when defined(lofprobe): inc lofOpp[clamp(lofTeamOfSlot[clamp(bot.slot, 0, 31)], 0, 3)]
+      var origin = me
+      if bot.tune.cqbLosLead > 0.0:
+        let step = me - bot.lastPos
+        if step.len() <= 6.0:
+          origin = me + step * bot.tune.cqbLosLead
+      let muzzleRay = origin + bradsDir(bot.estAim) * engageD
+      # Both tests are EVALUATED unconditionally and masked afterwards, never
+      # short-circuited: a skipped client query would change call order, and
+      # "the control ran a different number of queries" is exactly how a rig
+      # A/B stops being a clean contrast.
+      let
+        wallFoul = not client.pixelRayClear(origin, muzzleRay)
+        mateFoul = bot.friendlyBlocked(origin, muzzleRay, engageD,
+                                       bot.tune.cqbLosLead)
+        lofWall = bot.tune.cqbLosWall and wallFoul
+        lofMate = mateFoul
+      if lofWall or lofMate:
+        when defined(lofprobe):
+          let lt = clamp(lofTeamOfSlot[clamp(bot.slot, 0, 31)], 0, 3)
+          inc lofVeto[lt]
+          if lofWall: inc lofVetoWall[lt]
+          if lofMate: inc lofVetoMate[lt]
+          if not bot.firedLast: inc lofVetoLive[lt]
+          let ls = clamp(bot.slot, 0, 31)
+          lofVetoTickOf[ls] = bot.tick     # latest veto wins: the question is how
+          lofVetoPending[ls] = true        # long the BLOCK lasted, not the first one
+        wantFire = false
     if retreating or declining or banking or peeling or (bot.tune.carrierFlee and iCarry):
       # Outnumbered (retreat), declining the coin-flip trade (tradeGate), banking
       # at 1 hp, OR carrying the heart (flee):
@@ -11360,6 +11518,16 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
     if rwArmedFrame and not rwNavHit: inc rwEmitOther
   var mask = moveMask or rotBits
   if wantFire and not bot.firedLast:
+    when defined(lofprobe):
+      let lpS = clamp(bot.slot, 0, 31)
+      let lpT = clamp(lofTeamOfSlot[lpS], 0, 3)
+      inc lofPulls[lpT]
+      if lofVetoPending[lpS]:
+        let gap = bot.tick - lofVetoTickOf[lpS]
+        let b = (if gap <= 1: 0 elif gap <= 2: 1 elif gap <= 3: 2
+                 elif gap <= 5: 3 elif gap <= 10: 4 else: 5)
+        inc lofRefire[lpT][b]
+        lofVetoPending[lpS] = false
     mask = moveMask or ButtonA
     when defined(rngprobe):
       if rpBand >= 0: inc rpFire[rpSide][rpBand]
