@@ -8256,9 +8256,23 @@ template pruneAgedFx(sim: var SimServer, fxField, tickField: untyped,
   ## Keeps the entries of one aged FX/state seq that are younger than `life`
   ## ticks (the entry is in scope as `fx` inside the `life` expression, for
   ## per-entry lifetimes). Same copy-filter shape every pruned seq used.
+  ##
+  ## FX PRUNE FIX (harness task f4d7de6e): every producer across all 10
+  ## `pruneAgedFx` call sites stamps `tickField` with `sim.tickCount` at
+  ## creation (verified by grep — none schedules an fx ahead of the tick it
+  ## fires on), so `fx.tickField > sim.tickCount` is never a legitimately
+  ## future-scheduled entry, only a stale one left over from a tick count
+  ## that has since moved BACKWARD under it (a replay seek/rewind that
+  ## resets `sim.tickCount` without also clearing the FX seqs). The
+  ## un-gated `sim.tickCount - fx.tickField` went NEGATIVE for such an
+  ## entry, and `negative < life` is true for any `life > 0` — pre-fix,
+  ## that entry survived every prune pass FOREVER regardless of how many
+  ## ticks actually elapsed. Such an entry is dropped outright now, the
+  ## same tick its staleness is observed, rather than being aged like a
+  ## normal (non-negative) entry.
   var kept: typeof(sim.fxField) = @[]
   for fx {.inject.} in sim.fxField:
-    if sim.tickCount - fx.tickField < life:
+    if fx.tickField <= sim.tickCount and sim.tickCount - fx.tickField < life:
       kept.add fx
   sim.fxField = kept
 
