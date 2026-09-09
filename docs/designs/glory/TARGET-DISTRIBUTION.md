@@ -145,7 +145,49 @@ which anchor closes each ratio. Flagging per instruction; not adjusted here.
 
 ---
 
-## 5. What is NOT verified
+## 5. Pinned arithmetic (owner-delegated ruling — resolves §4's ambiguity)
+
+The ambiguity in §4 (which anchor "a typical round" means) was surfaced,
+not resolved, by this doc. The owner delegated the numeric pin to the lead;
+the lead's ruling below resolves it. §4 is left standing as the record of
+what was ambiguous and how it got resolved — it is not deleted or edited.
+
+**"Typical" = the median of all legs**, which after the redesign sits at
+the mid band's centre (~4 pts).
+
+| band | pts | note |
+|---|---:|---|
+| LOW | 1–2 | unchanged |
+| MID | 2–6 | centre ≈ 4 pts = the "typical" anchor |
+| TOP | ≈9–11 | ≈100× the median |
+| JACKPOT | ≈13–15 | ≈1000× the median |
+| ceiling | ≈16 | cap-hit ~0.1–1% |
+
+**Working, so the anchor-dependence in §4 can be seen to close:**
+- `log2(100) = 6.6439`, so TOP sits at `median + 6.64 ≈ 10.64` pts —
+  inside the pinned 9–11 range.
+- `log2(1000) = 9.9658`, so JACKPOT sits at `median + 9.97 ≈ 13.97 ≈ 14`
+  pts — inside the pinned 13–15 range.
+- Both check out against the ~4-pt median anchor, i.e. §4's "anchor on
+  MID's centre" reading is the one the lead ruled correct, not the
+  "anchor on MID's floor" alternative also raised in §4.
+
+**Degree of freedom, not slack**: simulators (S5) may move any boundary
+above by **±1 pt on the rig**, provided the reason for the move is written
+down. This is an explicit, deliberate tolerance — not an invitation to
+silently retune a band to make a different number work.
+
+**⚠️ Flagged, not resolved here: 6–9 pts is unassigned.** MID tops out at
+6 pts; TOP starts at ≈9 pts. The earlier (§2/§4) draft had TOP at 7–10,
+which covered this range; the pinned ladder does not. **7–8 pts is
+currently unnamed.** Is this deliberate headroom — the "reached
+intentionally" climb between MID and TOP the owner described — or an
+oversight in the pin? This doc does not fill the gap or quietly widen a
+band to close it; it is an open question for the lead/owner to answer.
+
+---
+
+## 6. What is NOT verified
 
 - The pts↔leg↔ratio reconciliation in §4 is arithmetic only — no
   simulation was run against these bands; S5 owns fitting deed classes,
