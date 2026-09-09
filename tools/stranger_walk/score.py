@@ -69,9 +69,30 @@ import sys
 from datetime import datetime, timezone
 from urllib.parse import urlparse
 
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import check_prompt  # noqa: E402 — Protocol v2 contamination gate, reused below
+
 WAITING_PREFIX = "WAITING:"
 
 STUCK_THRESHOLD_S = 10 * 60
+
+
+def prompt_contamination_status(run_dir):
+    """Re-run the Protocol v2 contamination gate (check_prompt.py) against
+    THIS RUN's own saved prompt.rendered.md — the actual text that specific
+    run's stranger saw, not today's prompt.md — so a run made under an
+    older, contaminated prompt (e.g. any Walk 1 run, whose prompt handed out
+    the milestone list) is flagged and can never quietly get compared to a
+    clean Protocol v2 baseline. Returns (status, reasons)."""
+    rendered_path = os.path.join(run_dir, "prompt.rendered.md")
+    if not os.path.exists(rendered_path):
+        return "unknown (no prompt.rendered.md saved for this run)", []
+    from pathlib import Path
+    reasons = check_prompt.check_body(
+        check_prompt.render_body(Path(rendered_path)), "prompt.rendered.md")
+    if reasons:
+        return "PROMPT-CONTAMINATED", reasons
+    return "v2-clean", []
 
 
 def iso_to_epoch(ts):
@@ -195,10 +216,20 @@ def main():
         prev_epoch = epoch
         prev_had_waiting = turn_had_waiting
 
+    prompt_status, prompt_contamination_reasons = prompt_contamination_status(run_dir)
+
     result = {
         "run_id": run_id,
         "model": meta.get("model"),
         "prompt_sha256": meta.get("prompt_sha256"),
+        # PROMPT-CONTAMINATED means THIS run's own saved prompt.rendered.md
+        # (checked fresh every score.py run — never cached) mentions a
+        # milestone/belief/etc. it should never have been handed (see
+        # check_prompt.py). A contaminated run is not comparable to a clean
+        # Protocol v2 baseline no matter what milestones/beliefs a judge
+        # later fills in below — every Walk 1 run is expected to land here.
+        "prompt_status": prompt_status,
+        "prompt_contamination_reasons": prompt_contamination_reasons,
         "entry_url_resolved": meta.get("entry_url_resolved"),
         "wall_clock_seconds": meta.get("wall_clock_seconds"),
         "total_tool_calls": tool_call_count,
@@ -233,13 +264,22 @@ def main():
     wall_s = meta.get("wall_clock_seconds") or 0
     hours = wall_s / 3600
     md = (
-        f"| {run_id} | {meta.get('model')} | {result['furthest_milestone'] or 'UNJUDGED'} | "
+        f"| {run_id} | {meta.get('model')} | {prompt_status} | "
+        f"{result['furthest_milestone'] or 'UNJUDGED'} | "
         f"{hours:.2f}h | {tool_call_count} | {dig_count} | "
         f"{result['stuck_minutes_total']}m | {result['owner_latency_minutes_total']}m | "
         f"{result['belief_count']} | {'yes' if result['judged'] else 'no (run judge.md)'} |"
     )
     print(md)
     print(f"# wrote {out_path}", file=sys.stderr)
+    if prompt_status == "PROMPT-CONTAMINATED":
+        print(
+            f"# WARNING: {run_id}'s own saved prompt.rendered.md is PROMPT-CONTAMINATED "
+            f"({len(prompt_contamination_reasons)} hit(s)) — this run cannot be cited as a "
+            "Protocol v2 baseline no matter what milestones/beliefs get filled in below. "
+            "See prompt_contamination_reasons in score.json.",
+            file=sys.stderr,
+        )
     if not result["judged"]:
         print(
             f"# NOTE: {run_id} has no judge-authored milestones/beliefs yet — "

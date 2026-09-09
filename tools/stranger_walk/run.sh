@@ -74,13 +74,75 @@
 #   browser_* tools became available (both fail together under --safe-mode).
 set -euo pipefail
 
-MODEL="${1:?usage: run.sh <model> <run-id> [max-budget-usd]}"
-RUN_ID="${2:?usage: run.sh <model> <run-id> [max-budget-usd]}"
+# --dry-run (protocol v2, 2026-09-09): validate + render everything a real
+# launch would (prompt contamination gate, fresh $HOME path, fresh browser
+# profile precheck, entry URL resolution) and print what WOULD happen —
+# without starting `claude -p` and without writing into a real run dir under
+# $RUNS_PARENT. May appear anywhere in argv.
+DRY_RUN=0
+ARGS=()
+for a in "$@"; do
+  if [ "$a" = "--dry-run" ]; then
+    DRY_RUN=1
+  else
+    ARGS+=("$a")
+  fi
+done
+set -- "${ARGS[@]+"${ARGS[@]}"}"
+
+MODEL="${1:?usage: run.sh <model> <run-id> [max-budget-usd] [--dry-run]}"
+RUN_ID="${2:?usage: run.sh <model> <run-id> [max-budget-usd] [--dry-run]}"
 MAX_BUDGET_USD="${3:-25}"
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(git -C "$SCRIPT_DIR" rev-parse --show-toplevel)"
 ENTRY_URL="${STRANGER_ENTRY_URL:-https://softmax.com/paintbot}"
+
+# Protocol v2 contamination gate: prompt.md must contain ONLY the owner's
+# sentence (plus the WAITING: handshake) — nothing that would prime the
+# stranger toward a specific milestone. Runs BEFORE anything else, dry-run
+# or not, and before any run dir exists, so a contaminated prompt.md can
+# never launch even once. See check_prompt.py's own header for exactly what
+# it checks (the rendered body only — the doc comment above the `---`
+# delimiter is never shown to the stranger and is exempt).
+if ! python3 "$SCRIPT_DIR/check_prompt.py" "$SCRIPT_DIR/prompt.md" >&2; then
+  echo "[$RUN_ID] REFUSING TO LAUNCH: prompt.md failed the Protocol v2 contamination gate (see above)." >&2
+  exit 1
+fi
+
+if [ "$DRY_RUN" = "1" ]; then
+  RUNS_PARENT="${STRANGER_RUNS_PARENT:-/Users/maxwellstarr/projects/stranger-walk-runs}"
+  SCRATCH="$(mktemp -d)"
+  trap 'rm -rf "$SCRATCH"' EXIT
+  if [ "${STRANGER_SMOKE:-0}" = "1" ]; then
+    SOURCE_PROMPT="$SCRIPT_DIR/smoke_prompt.md"
+  else
+    SOURCE_PROMPT="$SCRIPT_DIR/prompt.md"
+  fi
+  PROMPT_SHA256="$(shasum -a 256 "$SOURCE_PROMPT" | awk '{print $1}')"
+  python3 "$SCRIPT_DIR/check_prompt.py" --show-body "$SOURCE_PROMPT" \
+    | sed "s#{{ENTRY_URL}}#$ENTRY_URL#g" > "$SCRATCH/prompt.rendered.md"
+  ENTRY_RESOLVED="$(curl -sS -o /dev/null -w '%{http_code} %{url_effective}' -L --max-time 15 "$ENTRY_URL" || echo "CURL_FAILED")"
+  FRESH_HOME="$RUNS_PARENT/$RUN_ID/home"
+  FRESH_BROWSER_PROFILE="$FRESH_HOME/.playwright-profile"
+  OWNER_ENV_SRC="${STRANGER_OWNER_ENV:-$HOME/.ctf/knowledge/stranger-walk/env}"
+  echo "[$RUN_ID] DRY RUN — no process started, no run dir written." >&2
+  echo "[$RUN_ID]   model=$MODEL" >&2
+  echo "[$RUN_ID]   source_prompt=$SOURCE_PROMPT (sha256=$PROMPT_SHA256)" >&2
+  echo "[$RUN_ID]   rendered body ($(wc -l < "$SCRATCH/prompt.rendered.md" | tr -d ' ') lines) begins:" >&2
+  head -3 "$SCRATCH/prompt.rendered.md" | sed 's/^/[dry-run]   | /' >&2
+  echo "[$RUN_ID]   entry_url=$ENTRY_URL resolved=[$ENTRY_RESOLVED]" >&2
+  echo "[$RUN_ID]   would create fresh \$HOME at: $FRESH_HOME (does not exist yet: $([ -e "$FRESH_HOME" ] && echo NO — ALREADY EXISTS || echo confirmed fresh))" >&2
+  echo "[$RUN_ID]   would create fresh browser profile at: $FRESH_BROWSER_PROFILE (0 cookies — brand new dir)" >&2
+  if [ -f "$OWNER_ENV_SRC" ]; then
+    echo "[$RUN_ID]   owner signup env: PRESENT at $OWNER_ENV_SRC — would be copied into run dir as 'env' (never printed/read here)" >&2
+  else
+    echo "[$RUN_ID]   owner signup env: ABSENT at $OWNER_ENV_SRC — run would proceed without it (credentials-absent branch of prompt.md)" >&2
+  fi
+  echo "[$RUN_ID]   auth model: reuses THIS HOST's own claude OAuth session (run.sh, not run_container.sh — no separate Anthropic API key needed)." >&2
+  echo "[$RUN_ID] DRY RUN clean — a real launch would proceed." >&2
+  exit 0
+fi
 
 RUNS_PARENT="${STRANGER_RUNS_PARENT:-/Users/maxwellstarr/projects/stranger-walk-runs}"
 RUN_DIR="$RUNS_PARENT/$RUN_ID"
@@ -102,10 +164,14 @@ else
   SOURCE_PROMPT="$SCRIPT_DIR/prompt.md"
 fi
 
-# Render the fixed prompt with the entry URL substituted. sha256 is over the
-# TEMPLATE (protocol identity), independent of which URL got filled in.
+# Render the fixed prompt with the entry URL substituted: check_prompt.py's
+# render_body (via --show-body) strips the contributor-facing doc comment
+# above the `---` delimiter — that comment is never shown to the stranger —
+# then sed fills in the entry URL. sha256 is over the un-rendered TEMPLATE
+# (protocol identity), independent of which URL got filled in.
 PROMPT_SHA256="$(shasum -a 256 "$SOURCE_PROMPT" | awk '{print $1}')"
-sed "s#{{ENTRY_URL}}#$ENTRY_URL#g" "$SOURCE_PROMPT" > "$RUN_DIR/prompt.rendered.md"
+python3 "$SCRIPT_DIR/check_prompt.py" --show-body "$SOURCE_PROMPT" \
+  | sed "s#{{ENTRY_URL}}#$ENTRY_URL#g" > "$RUN_DIR/prompt.rendered.md"
 
 # Isolated $HOME for the stranger's Bash-tool subprocesses ONLY (see header
 # note above) — never for claude's own process, which needs the real $HOME to

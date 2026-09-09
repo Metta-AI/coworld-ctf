@@ -305,6 +305,44 @@ the exact new prompt text, scored cleanly with the new `score.py` (mechanical fi
 `isolation_audit.sh` with no boundary hits. No real ladder run was launched for this
 verification — a scored Protocol v2 baseline is separate, future work.
 
+### Enforcing v2 in code, not just prose (2026-09-09)
+
+The prompt-level ruling above is only as good as its enforcement. Two gaps closed this round:
+
+- **`tools/stranger_walk/check_prompt.py`** is a launch-time gate, not documentation: it renders
+  exactly the text `run.sh`/`run_container.sh` would hand the stranger (everything strictly after
+  the first bare `---` line — the doc comment above it is contributor-facing and never shown) and
+  refuses (non-zero exit) if that body mentions `milestone`, any `M1`–`M8` label, `BELIEF`,
+  `BLOCKED`, `submit`, `coworld`, `observatory`, `wiki`, `docs.softmax.com`, `replay`,
+  `standings`, `sign in`, or `github`. Both launchers now call it before doing anything else — a
+  contaminated `prompt.md` can never launch, not even once. It found a real bug while being built:
+  both launchers were rendering the *entire* `prompt.md` file — including the old contributor doc
+  comment, which itself talks about `MILESTONE:`/`BELIEF:` — verbatim into `prompt.rendered.md`.
+  Fixed by having both launchers render through `check_prompt.py --show-body` (the same
+  delimiter-based extraction the gate itself checks) instead of `cat`-ing the whole file.
+  `check_prompt.py --selftest` is a standing regression test: prompt.md clean today, a synthetic
+  contaminated body caught, a header-only mention NOT false-flagged, and Walk 1's own real
+  `sonnet-a/prompt.rendered.md` (genuinely leaked) caught. Today it finds zero problems in
+  `prompt.md` and 37 in Walk 1's saved prompt — see "Baseline runs" below.
+- **`score.py` now stamps every run's own saved `prompt.rendered.md`** (not today's `prompt.md` —
+  the actual text that specific run's stranger saw) with `prompt_status`: `v2-clean` or
+  `PROMPT-CONTAMINATED` (plus `prompt_contamination_reasons`). This makes it structurally
+  impossible to accidentally compare an old Protocol v1 run to a Protocol v2 baseline: every Walk
+  1 run is `PROMPT-CONTAMINATED` by construction, printed as its own warning line and its own
+  column in `score.py`'s markdown row, independent of whether a judge later fills in
+  milestones/beliefs for it (a contaminated run can still be scored for its punchlist value — see
+  "Baseline runs" — it just can never silently read as a clean baseline).
+- **`run.sh --dry-run` / `run_container.sh <model> <run-id> --dry-run`**: validate the
+  contamination gate, render the prompt, resolve the entry URL, and (container only) check for
+  `STRANGER_ANTHROPIC_API_KEY_FILE` — all without starting a process, touching Docker, or writing
+  a run dir. Verified 2026-09-09: `run.sh --dry-run` reports a fresh `$HOME`/browser-profile path
+  and the owner's `env` file's presence (never reads it); `run_container.sh --dry-run` reports the
+  container wiring (image tag, `--env-file` contract, uid:gid) and then genuinely **refuses** —
+  `~/.ctf/knowledge/stranger-walk/anthropic_api_key` is absent on this machine today, so a real
+  container run cannot launch until the owner mints a run-scoped key. Container mode still has no
+  browser/playwright support (`browser_enabled` is hardcoded `false`) — a pre-existing v1.3 gap,
+  unchanged by this round.
+
 ## Incident: a $1 smoke test put a real submission on the real ladder
 
 Before the baselines ran, a cheap haiku smoke test of the mechanism (not a scored run) proved the
@@ -364,6 +402,15 @@ asked to self-report `BELIEF:`/`MILESTONE:` lines. Per the owner ruling above, t
 timing/ordering number below a measurement of "how fast a primed stranger checks off a known
 list," not "how legible the game is to an unprimed one" — read them as defect evidence, not as
 THE baseline. The clean baseline is future work under Protocol v2 + container isolation.
+
+This is now machine-checked, not just asserted here: running the current `score.py` against
+`sonnet-a`'s or `sonnet-b`'s own saved `prompt.rendered.md` reports `prompt_status:
+PROMPT-CONTAMINATED` with 37 concrete hits (every `M1`–`M8` label plus `milestone`/`belief`/
+`submit`/`coworld`/`wiki`/`replay`/`standings`/`github`) — see "Enforcing v2 in code, not just
+prose" above. That doesn't erase the milestones a judge finds in these transcripts (`sonnet-a`
+genuinely reached M8: retuned `recall_seconds` 8.0→6.0, rebuilt, re-uploaded as
+`opportunist-v1:v2`, and observed its rank respond — transcript line 1272), it just guarantees the
+run can never be silently cited as a clean Protocol v2 baseline number.
 
 Five runs total. Three complete, isolation-clean runs form the (invalid-as-baseline) set
 (`sonnet-a`, `opus-a`,
