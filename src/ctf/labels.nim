@@ -131,6 +131,22 @@ const
     ## shared so the parser (players/baseline) and labelHp cannot drift.
     ## Overhead health bar, `hp <lit>/<total>`. A distinct object centered on
     ## its player and fog-gated with them: attach it by proximity.
+  LabelPrefixVeteranMark* = "veteran mark "
+    ## Overhead rank plume, `veteran mark <level>`, over a cog at or above
+    ## `AceLevel` (glory.nim) — the same threshold that turns killing that
+    ## cog into `dAceTag`, a bounty. Before this label existed the rule had
+    ## no perception: `dAceTag` converted 0 of 429 real opportunities and
+    ## only 8.8% of seats ever saw a level-3 cog, because a policy had no
+    ## way to tell a levelled cog from a fresh one — the hit-point delta
+    ## `LevelBonusHp` grants is on the wire (the `hp` bar's own denominator),
+    ## but nothing named WHY a seat's max jumped. One marker per living
+    ## cog at/above `AceLevel`, absent below it — absence is the "recruit"
+    ## signal, same idiom as `LabelShieldCarried`'s absence meaning
+    ## "no shield". A distinct object centered on its cog and fog-gated with
+    ## them exactly like `LabelShieldCarried`/`LabelBarrierCarried`
+    ## (`playerVisibleTo`): it can never name a level for an enemy the
+    ## viewer could not otherwise see. `<level>` is the cog's current-life
+    ## level (`player.level`, `AceLevel..MaxLevel`) — see `labelVeteranMark`.
   LabelPrefixLives* = "lives "
     ## Own top-right HUD text, `lives <hp>hp x<lives>`. Reads PAST the base hp
     ## cap — a shield carrier shows 6hp — which is how a policy detects its own
@@ -431,6 +447,14 @@ proc labelHp*(hp, maxHp: int, shieldHp = 0): string =
   result = LabelPrefixHp & $hp & "/" & $maxHp
   if shieldHp > 0:
     result.add(LabelHpShieldSep & $shieldHp)
+
+proc labelVeteranMark*(level: int): string =
+  ## One cog's overhead rank plume label, `veteran mark <level>`. A consumer
+  ## matches LabelPrefixVeteranMark and parses the tail as the integer level
+  ## (AceLevel..MaxLevel). Only ever built for `level >= AceLevel` — the
+  ## producer (global.nim) never calls this below the threshold, so the
+  ## label's mere presence already says "bounty."
+  LabelPrefixVeteranMark & $level
 
 proc labelGameParams*(teams, mapWidth, mapHeight: int): string =
   ## The episode-parameter marker label,

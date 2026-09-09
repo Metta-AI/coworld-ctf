@@ -29,7 +29,7 @@ export glory
 
 const
   GameName* = "ctf"
-  ReplayCompatibleGameVersions* = ["59"]
+  ReplayCompatibleGameVersions* = ["60"]
     ## The replay-load allowlist (play-calling design §4.3): versions whose
     ## recorded files still play back correctly under THIS engine. The
     ## criterion is the GameVersion changelog below, not chronology — a
@@ -87,7 +87,18 @@ const
     ## RewardAccount on the wire. Widening requires a real archived fixture
     ## that survives initialization and stepping (PM ruling, 2026-08-30),
     ## never a header rewrite.
-  GameVersion* = "59"
+  GameVersion* = "60"
+    ## GV60 (LABEL VETERAN MARK: a perception-only label, `LabelVeteranMark`,
+    ## makes a level-3+ (AceLevel) cog's status visible to any policy that
+    ## can see it — proximity-attach, fog-gated, same idiom as the hp-pip and
+    ## shield/barrier-carried labels). No sim-state, hash, or keyframe change:
+    ## the emitter (`addVeteranMarks`, global.nim) reads existing `level`
+    ## data and writes to the perception wire only, so gameHash is untouched
+    ## and every GV59 recording re-simulates byte-identical under this
+    ## engine. The bump exists solely because labels are the perception API
+    ## (doctrine): a policy that upgrades to look for `veteran mark <n>`
+    ## needs a version signal that the label can now appear, even though
+    ## nothing about replay/hash compatibility actually changed.
     ## GV59 (ALLY REVIVE: PACT ALLIES REVIVE, ALLIANCE IS THE SURVIVAL UNIT,
     ## ALLY-FIRE PRICES FRIENDLY): a registered pact (`pactMask`) previously
     ## did nothing for a downed cog -- `updateDowned`'s tagger scan and
