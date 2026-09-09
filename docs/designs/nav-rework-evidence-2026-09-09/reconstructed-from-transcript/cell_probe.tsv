@@ -1,0 +1,10 @@
+# 8px cell probe (scratch cell_probe.nim, commit fad3029f, arm64 release, 2026-09-04). NOTE: "pool:N" here is the LEGACY map_pool.nim entry N (poolCtfMap), not data/br_s2_map_pool.json.
+label standablePx standablePxInWalkableCell walkableCells cellsNoRoom cellsStandableButCenterNot orthSteps illegalOrth diagSteps illegalDiag pixelComponents cellComponentsLegal spawnCompPx spawnCompPxReachable8px
+pool:0   643659   630649   9949   0  738   38198   0  37534   1030  1   2  643659   630615
+pool:1   4692867  4632176  73046  0  3946  283354  0  279182  5654  1   1  4692867  4632176
+pool:2   4658133  4608287  72784  0  3284  283032  0  278680  4628  1   1  4658133  4608287
+pool:4   2156880  2124148  33621  0  2030  129412  0  126662  2870  1   1  2156880  2124148
+pool:5   4933175  4887586  76824  0  2962  300860  0  297194  3510  1   1  4933175  4887586
+pool:12  2199897  2170818  34296  0  1894  132534  0  130450  3050  1   1  2199897  2170818
+pool:17  631611   619670   9807   0  731   37600   0  36878   942   19  5  631593   619552
+pool:18  438098   431015   6815   0  442   26106   0  25416   484   7   3  437740   430712

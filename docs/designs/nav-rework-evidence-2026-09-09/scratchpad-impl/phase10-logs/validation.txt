@@ -1,0 +1,10 @@
+rows=18
+unique_process_ids=18
+matrix_complete=true
+raw_samples_per_row=120
+raw_slice_lengths_match=true
+deterministic_repeat=true
+deterministic_reversed_arrival=true
+failed_routes=0
+illegal_routes=0
+max_inflation_pct=8.881784197001252e-14

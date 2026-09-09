@@ -1,0 +1,41 @@
+# Nav rework design session ledger
+- Codex session: tmux `codex-nav`, cwd repo, YOLO. Round 1 brief dispatched 15:46; watcher running.
+- Collab files: scratchpad/collab/{BRIEF.md, DRAFT_DESIGN.md, nav_census.tsv, cell_probe.tsv}; expecting REVIEW.md + "REVIEW DONE".
+- Evidence: nav_census.json (bench_body_port nav-census, uncommitted tool diff), cell_probe.json.
+- Next: read REVIEW.md from disk, verify claims, write RESPONSE.md, PROCEED ROUND 2 -> VERDICT; then brief docs/designs/.nav-rework-brief.md, render subagent, humanize, verify.
+- Round 3: VERDICT GO 16:0x; brief updated; Codex stood down. Next: render subagent -> humanize -> verify.
+## Implementation orchestration (started 2026-09-04 ~16:35)
+- Codex session tmux `codex-impl`, model gpt-5.6-sol (gpt-6 rejected on ChatGPT account; TUI says 5.6-sol is the GPT-6 generation), YOLO, cwd worktree.
+- Worktree /Users/jamesboggs/coding/coworlds/coworld-ctf-worktrees/nav-rework, branch james/s2-nav-rework from origin/main 429f4831 (design cited fad3029f; drift noted in brief).
+- nim.cfg copied from main checkout; wasmtime via tools/runtime_spike/fetch_deps.sh (nix store path gone).
+- Collab dir scratchpad/impl/: BRIEF.md, expect PLAN.md (+ "PLAN DONE"), LEDGER.md, PHASE_n_REPORT.md.
+- Gate loop: review PLAN from disk -> PLAN: GO/REVISE -> phases with PROCEED P<n>; re-run tests myself from $S/build.
+- Cover-hold 1218165969208626 still Blocked; nav proceeds independent; cover corpus row TODO.
+- PLAN: GO sent 17:16; waiting PHASE 1 DONE
+- Phase 1 accepted (verified 3 red / 20 OK); PROCEED P2 17:32
+- Phase 2 paused on choke-47 crossing gap; authorized sparse 4px micro-corridor with constraints 17:59
+- Phase 2 blocker 2: choke room labels non-local (68 misses/26 maps). Decided: derive portals from coarse room raster (boundary clusters) + choke-hinted fine gaps 18:31
+- Phase 2 blocker 3: islands w/o coarse cells in non-spawn components. Ruled: proof scoped to validator components 19:36
+- Phase 2 blocker 4: 483 validator-component pixels with no fixed-phase 4px path. Ruled: pixel-grid pocket BFS in 32px box, string-pulled fine points, chaining 19:49
+- Phase 2 accepted (verified 7/15/20/23 + both shapes); PROCEED P3 2026-09-08 00:59
+- Phase 3: containment body gate regression HEAD 6.49ms vs base 5.39ms (32 seats, this Mac). FIXUP dispatched 2026-09-08 02:35
+- P3 fixup verified (containment 5.80ms max, waves 4.4-4.8); PROCEED P4 2026-09-08 03:07
+- Phase 4: zone_field imports shell (wasm build risk) + systematic +4.4% tick delta. FIXUP dispatched 2026-09-08 04:05
+- P4 fixup verified (layer restored, 11/15/10 + shapes); PROCEED P5 2026-09-08 04:39
+- Phase 5 accepted (17/20/9/2/20/23/15/11 + shapes, containment 4.71ms); PROCEED P6 2026-09-08 07:04
+- Phase 6 accepted (13/26/20/21/10/3/17/25 + shapes, containment 4.68ms); PROCEED P7 2026-09-08 08:02
+- FOUND via handoff task 1218200004252283: Phase 4 commit 9a9a77a7 passes raw sim.tickCount - sim.gameStartTick into shellEpisode.step (server.nim:5222); gameStartTick=-1 in lobby => bug class from #408. Must become sim.gameTicksElapsed(). Queue as mandatory fixup at the Phase 7 gate (before P8). 2026-09-08 08:24
+- 2026-09-08 10:23 Phase 7 gate in progress: rework 11/11, nav 20, seat 27, query 10, ladder 28, hazard 17, both shapes OK. first-light tests were renamed (ba6afa95) -> test_shell_episode*. Containment pair queued until load<2.5. NOTE: another Claude session is implementing cover-hold in coworld-ctf-worktrees/impl-cover-hold (commits e2219b7f/613e24c8/7c8882ed, viewer rebuilt) -> expect episode.nim/default-facts merge work at Phase 10; its suite runs are the load source.
+- 11:08 Gate speedups: gate.sh (4-way parallel compiles), full suite only at P8/P11, single bounded containment pair
+- Phase 7 accepted; clock fix-up + PROCEED P8 dispatched 2026-09-08 11:23
+- Phase 8 accepted (all suites + shapes green, lobby clock test 19/19); PROCEED P9 2026-09-08 12:09
+- 2026-09-08 15:57 PHASE 9 GATE RED: quality p95 19.9%/max 86.7% (danger strata), 4 overflows; tick first_goals 611ms/16 seats (pathological). Investigation dispatched; James to decide.
+- 2026-09-08 16:25 James: room nav must be danger-sensitive; Fluffy profiling; optimisation campaign P9B queued (scoreboard rounds).
+- 2026-09-08 16:54 P9 investigation: cycle bug fixed (c43b97dd); query cost = per-seat re-pricing of static cells (156k reads); corridor A* p95 7% but max 86%. Redirected campaign: Idea 0 = bounded sync 8px weighted A* + per-tick budget.
+- 2026-09-08 17:23 Round 1: global 8px A* still 19.6%/84.8% on carrier-danger -> hypothesis: 8px centre-walkability excludes wall-hugging LOS shadows. Redirect 2: test 4px lattice + sub-cell anchors; per-pop cost 265ns -> target 60ns.
+- 17:26 James idea D: danger-adaptive resolution (fine nodes only in hot danger cells) queued after H1/H2
+- 2026-09-08 18:30 Round 2: 4px full search = 0.000% (oracle) but 30-60ms; D1 0.76% overall, worst 5.4/8.2, max 83% from cold 4px-only lanes; per-pop 290ns. Redirect 3: precomputed 4px legality, per-pop vs legacy, D+wall-band, budget.
+- 2026-09-08 19:47 Round 3: R3.3 (D + wall band) passes all quality gates 0.313%/0.829%; time 2.3ms p50 / 9.9ms far; K=2 budget still 20ms/tick. Redirect 4: ALT landmarks, Dial bucket queue, resumable pop budget with steering.
+- 2026-09-08 21:02 Round 4: R4.4 passes quality (0.313/0.829) and slice (3.09/3.17ms) with B=12,288; tail 87/173 ticks at 32 seats first goals. Redirect 5: tail reduction, steering cost, colossal fit.
+- 2026-09-08 22:53 Round 5: SJF median 2-5 ticks; B=16k tail 35/69; steering ratio 1.006/1.019 vs ideal; colossal fits only with sparse workspace at 4-6x per-pop cost. P10 plan requested; awaiting James's ruling.
+- 2026-09-09 09:33 James RULED: contract change approved; B=16,384; colossal cap raised (int16). PROCEED P10 dispatched (through P11).

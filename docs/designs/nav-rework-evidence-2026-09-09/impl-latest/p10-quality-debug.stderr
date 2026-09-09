@@ -1,0 +1,7 @@
+quality pool 1/64
+/Users/jamesboggs/coding/coworlds/coworld-ctf-worktrees/nav-rework/tools/bench_body_nav_rework.nim(422) bench_body_nav_rework
+/Users/jamesboggs/coding/coworlds/coworld-ctf-worktrees/nav-rework/tools/bench_body_nav_rework.nim(132) runRouteCorpusGate
+/Users/jamesboggs/coding/coworlds/coworld-ctf-worktrees/nav-rework/src/shell/body_nav.nim(783) runRouteScheduler
+/Users/jamesboggs/coding/coworlds/coworld-ctf-worktrees/nav-rework/src/shell/body_route_query.nim(667) spendBodyRoutePops
+/Users/jamesboggs/.nimby/nim/lib/system/fatal.nim(53) sysFatal
+Error: unhandled exception: index -2 not in 0 .. 523033 [IndexDefect]

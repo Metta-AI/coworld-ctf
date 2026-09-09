@@ -1,0 +1,1487 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Nav Rework Design</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Merriweather:wght@400;700;900&family=Merriweather+Sans:wght@400;600;700&display=swap" rel="stylesheet">
+<style>
+  /* ============ Ink & Print tokens ============ */
+  :root {
+    --bg: #fffdf4;            /* cream paper */
+    --surface: #fffaf0;
+    --surface-alt: #f8f6ef;
+    --fg: #111827;            /* warm near-black — never pure #000 */
+    --fg-subtle: #555555;
+    --fg-muted: #999999;
+    --ink-navy: #1a3875;
+    --ink-sage: #6e8050;
+    --ink-terracotta: #b36e4e;
+    --ink-gold: #d4a853;
+    --accent: #859ebe;
+    --accent-soft: #eef2f7;
+    --cta: #0e2758;
+    --cta-foreground: #fffdf4;
+    --border: #e4dac8;
+    --border-strong: #d4c9b5;
+    --border-subtle: #f0ebe1;
+    --serif: 'Merriweather', Georgia, serif;
+    --sans: 'Merriweather Sans', 'Helvetica Neue', sans-serif;
+    --mono: ui-monospace, 'SF Mono', Menlo, monospace;
+  }
+
+  * { box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--fg);
+    font-family: var(--sans);
+    font-size: 15px;
+    line-height: 1.7;
+  }
+
+  /* ============ Page grid: reading column + comment rail ============ */
+  .dc-page {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 320px;
+    gap: 0;
+    max-width: 1240px;
+    margin: 0 auto;
+  }
+  article#doc {
+    max-width: 72ch;
+    margin: 0 auto;
+    padding: 56px 40px 120px;
+    min-width: 0;
+  }
+
+  /* ============ Typography ============ */
+  .eyebrow {
+    font-family: var(--sans);
+    font-size: 11px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.12em;
+    color: var(--fg-subtle);
+  }
+  header.masthead { border-bottom: 2px solid var(--border-strong); padding-bottom: 20px; margin-bottom: 32px; }
+  header.masthead h1 {
+    font-family: var(--serif);
+    font-weight: 900;
+    font-size: 34px;
+    line-height: 1.2;
+    margin: 8px 0 10px;
+  }
+  header.masthead .context { color: var(--fg-subtle); font-size: 13.5px; margin: 0; }
+  h2 {
+    font-family: var(--serif);
+    font-weight: 700;
+    font-size: 15px;
+    text-transform: uppercase;
+    letter-spacing: 0.12em;
+    color: var(--ink-navy);
+    margin: 48px 0 12px;
+  }
+  h3 { font-family: var(--serif); font-weight: 700; font-size: 16.5px; margin: 32px 0 8px; }
+  p { margin: 0 0 14px; }
+  a { color: var(--ink-navy); text-decoration-color: var(--accent); text-underline-offset: 3px; }
+  a:hover { color: var(--cta); }
+  strong { font-weight: 700; }
+  ul, ol { padding-left: 24px; margin: 0 0 14px; }
+  li { margin-bottom: 4px; }
+  hr { border: 0; border-top: 1px solid var(--border); margin: 40px 0; }
+
+  /* Key-points opener: every section starts with scannable bullets */
+  .key-points {
+    list-style: none;
+    padding: 0 0 0 2px;
+    margin: 0 0 18px;
+  }
+  .key-points li { padding-left: 18px; position: relative; margin-bottom: 6px; }
+  .key-points li::before { content: '—'; position: absolute; left: 0; color: var(--ink-gold); font-weight: 700; }
+
+  /* ============ TOC ============ */
+  nav.toc { margin: 28px 0 8px; }
+  nav.toc ol { list-style: none; padding: 0; column-count: 2; column-gap: 40px; margin: 10px 0 0; }
+  nav.toc li { margin-bottom: 5px; break-inside: avoid; }
+  nav.toc a { text-decoration: none; border-bottom: 1px dotted var(--border-strong); }
+  nav.toc .toc-num { font-family: var(--mono); font-size: 12px; color: var(--fg-muted); margin-right: 8px; }
+
+  /* ============ Tables ============ */
+  table {
+    border-collapse: collapse;
+    width: 100%;
+    margin: 18px 0 22px;
+    font-size: 13.5px;
+  }
+  th {
+    font-family: var(--sans);
+    font-size: 11px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--fg-subtle);
+    text-align: left;
+    padding: 6px 12px 6px 0;
+    border-bottom: 2px solid var(--border-strong);
+  }
+  td { padding: 7px 12px 7px 0; border-bottom: 1px solid var(--border-subtle); vertical-align: top; }
+  td.num, th.num { text-align: right; font-family: var(--mono); font-size: 12.5px; font-feature-settings: 'tnum' 1; }
+
+  /* ============ Figures ============ */
+  figure { margin: 24px 0 28px; }
+  figure svg { max-width: 100%; height: auto; display: block; }
+  figcaption {
+    margin-top: 10px;
+    font-size: 12px;
+    color: var(--fg-subtle);
+  }
+  figcaption .fig-label {
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    font-size: 10.5px;
+    color: var(--ink-navy);
+    margin-right: 8px;
+  }
+
+  /* ============ Code & citations ============ */
+  code {
+    font-family: var(--mono);
+    font-size: 12.5px;
+    background: var(--surface-alt);
+    padding: 1px 5px;
+    border-radius: 3px;
+  }
+  pre {
+    background: var(--surface-alt);
+    border: 1px solid var(--border-subtle);
+    border-radius: 3px;
+    padding: 14px 16px;
+    overflow-x: auto;
+    margin: 16px 0 20px;
+  }
+  pre code { background: none; padding: 0; font-size: 12.5px; line-height: 1.6; }
+  .cite {
+    font-family: var(--mono);
+    font-size: 11.5px;
+    color: var(--fg-subtle);
+    background: var(--surface-alt);
+    padding: 1px 6px;
+    border-radius: 3px;
+    white-space: nowrap;
+  }
+  /* Superscript source references — body prose never carries raw file paths.
+     Full citation lives in the title (hover) and in the numbered Sources list. */
+  sup.ref { line-height: 0; }
+  sup.ref a {
+    font-family: var(--mono);
+    font-size: 10.5px;
+    font-weight: 700;
+    color: var(--ink-navy);
+    text-decoration: none;
+    padding: 0 1px;
+  }
+  sup.ref a:hover { text-decoration: underline; }
+  ol.sources { margin: 12px 0; padding-left: 30px; }
+  ol.sources li {
+    font-size: 13px;
+    padding: 2px 0;
+  }
+  ol.sources li::marker {
+    font-family: var(--mono);
+    font-weight: 700;
+    color: var(--ink-navy);
+  }
+  ol.sources li:target { background: var(--accent-soft); }
+
+  /* ============ Callouts ============ */
+  .callout { padding: 12px 16px; margin: 18px 0; font-size: 13.5px; border-radius: 3px; }
+  .callout .callout-label {
+    display: block;
+    font-size: 10.5px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    margin-bottom: 4px;
+  }
+  .callout-info { background: var(--accent-soft); }
+  .callout-info .callout-label { color: var(--ink-navy); }
+  .callout-warn { background: rgba(179, 110, 78, 0.08); border-left: 3px solid var(--ink-terracotta); }
+  .callout-warn .callout-label { color: var(--ink-terracotta); }
+  .callout-open { background: rgba(212, 168, 83, 0.10); }
+  .callout-open .callout-label { color: #8a6a1f; }
+
+  /* Decision record */
+  .decision { border-top: 1px solid var(--border); padding: 14px 0 4px; margin: 14px 0; }
+  .decision .decision-label { font-size: 10.5px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.1em; color: var(--ink-sage); }
+  .decision p { margin-top: 6px; }
+
+  @media (max-width: 1100px) {
+    .dc-page { grid-template-columns: 1fr; }
+  }
+  @media print {
+    #dc-sidebar, #dc-fab, #dc-toggle { display: none !important; }
+    .dc-page { grid-template-columns: 1fr; }
+  }
+
+  /* ================================================================
+     DC-COMMENTS BEGIN — styles (copy verbatim; do not modify)
+     ================================================================ */
+  ::highlight(dc-hl) { background: rgba(212, 168, 83, 0.28); }
+  ::highlight(dc-hl-active) { background: rgba(212, 168, 83, 0.6); }
+
+  #dc-fab {
+    position: absolute;
+    z-index: 40;
+    display: none;
+    font-family: var(--sans);
+    font-size: 11px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: var(--cta-foreground);
+    background: var(--cta);
+    border: 1px solid #0a1c42;
+    border-radius: 3px;
+    padding: 5px 10px;
+    cursor: pointer;
+  }
+  #dc-fab:hover { background: var(--ink-navy); }
+
+  #dc-sidebar {
+    border-left: 1px solid var(--border);
+    background: var(--surface);
+    padding: 24px 20px 60px;
+    font-size: 13px;
+    position: sticky;
+    top: 0;
+    height: 100dvh;
+    overflow-y: auto;
+  }
+  #dc-sidebar h2.dc-title {
+    font-family: var(--sans);
+    font-size: 11px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.12em;
+    color: var(--fg-subtle);
+    margin: 0 0 4px;
+  }
+  .dc-actions { display: flex; gap: 6px; flex-wrap: wrap; margin: 10px 0 18px; }
+  .dc-btn {
+    font-family: var(--sans);
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--fg);
+    background: var(--surface);
+    border: 1px solid var(--border-strong);
+    border-radius: 3px;
+    padding: 4px 9px;
+    cursor: pointer;
+  }
+  .dc-btn:hover { background: var(--surface-alt); }
+  .dc-btn:focus-visible, #dc-fab:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  .dc-empty { color: var(--fg-muted); font-style: italic; }
+  .dc-item { border-top: 1px solid var(--border-subtle); padding: 12px 0; cursor: pointer; }
+  .dc-item.dc-resolved { opacity: 0.5; }
+  .dc-quote {
+    border-left: 2px solid var(--ink-gold);
+    padding-left: 8px;
+    color: var(--fg-subtle);
+    font-style: italic;
+    font-size: 12px;
+    margin-bottom: 6px;
+    overflow-wrap: break-word;
+  }
+  .dc-orphan-tag {
+    font-size: 9.5px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: var(--ink-terracotta);
+    background: rgba(179, 110, 78, 0.12);
+    border-radius: 999px;
+    padding: 1px 7px;
+    margin-left: 6px;
+  }
+  .dc-text { white-space: pre-wrap; overflow-wrap: break-word; }
+  .dc-item textarea {
+    width: 100%;
+    min-height: 64px;
+    font-family: var(--sans);
+    font-size: 13px;
+    color: var(--fg);
+    background: var(--bg);
+    border: 1px solid var(--border-strong);
+    border-radius: 3px;
+    padding: 6px 8px;
+    resize: vertical;
+  }
+  .dc-item textarea:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+  .dc-meta { display: flex; align-items: center; gap: 10px; margin-top: 6px; font-size: 11px; color: var(--fg-muted); }
+  .dc-meta label { display: flex; align-items: center; gap: 4px; cursor: pointer; }
+  .dc-meta .dc-del { margin-left: auto; color: var(--ink-terracotta); background: none; border: none; font-size: 11px; cursor: pointer; padding: 0; }
+  .dc-meta .dc-del:hover { text-decoration: underline; }
+  #dc-status { font-size: 11px; color: var(--ink-sage); min-height: 16px; margin-top: 8px; }
+
+  #dc-toggle { display: none; }
+  @media (max-width: 1100px) {
+    #dc-sidebar {
+      position: fixed;
+      right: 0;
+      top: 0;
+      width: 320px;
+      max-width: 90vw;
+      transform: translateX(100%);
+      transition: transform 200ms ease-out;
+      z-index: 50;
+      box-shadow: -4px 0 16px rgba(0, 0, 0, 0.08);
+    }
+    #dc-sidebar.dc-open { transform: translateX(0); }
+    #dc-toggle {
+      display: block;
+      position: fixed;
+      right: 16px;
+      bottom: 16px;
+      z-index: 51;
+      font-family: var(--sans);
+      font-size: 11px;
+      font-weight: 700;
+      color: var(--cta-foreground);
+      background: var(--cta);
+      border: 1px solid #0a1c42;
+      border-radius: 999px;
+      padding: 9px 15px;
+      cursor: pointer;
+    }
+  }
+  /* ============ DC-COMMENTS END — styles ============ */
+  /* ============ Additions for this document ============ */
+  .table-scroll { overflow-x: auto; margin: 18px 0 22px; }
+  .table-scroll table { margin: 0; min-width: 640px; }
+  .dc-replies { margin-top: 8px; padding-left: 10px; border-left: 2px solid var(--border-strong); }
+  .dc-reply-author { font-family: var(--sans); font-size: 10px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: var(--ink-navy); }
+  .dc-reply-text { font-size: 12.5px; line-height: 1.5; color: var(--fg); white-space: pre-wrap; margin-top: 2px; }
+  .dc-reply-text a { color: var(--ink-navy); word-break: break-all; }
+</style>
+</head>
+<body>
+<div class="dc-page">
+<article id="doc">
+
+  <!-- ============ Masthead ============ -->
+  <header class="masthead">
+    <span class="eyebrow">Design document · 2026-09-04 · Proposed, reviewed (Codex: GO)</span>
+    <h1>Precomputed Shared Cog Navigation</h1>
+    <p class="context">This document describes a rework of route planning in the Season 2 cog body. The rework replaces the per-seat, budgeted, map-sized A* with four parts: one immutable room/portal route index per map, one zone hazard overlay per episode, synchronous bounded route queries, and deterministic local steering. Implementation has not started. The repo commit is fad3029f (origin/main). Claude drafted the document for James. A Codex reviewer challenged it in three rounds, and its fact checks are included (see §10). Reference PRs #408, #409 and #410 are inputs to this design. Do not merge them.</p>
+  </header>
+
+  <!-- ============ Executive summary ============ -->
+  <section id="summary">
+    <h2>Executive Summary</h2>
+    <p>Season 2 cogs stand still when they must walk. A cog with no route gets its own position as a waypoint, and thus it emits an empty movement mask. A cog that completed an older route and then gets a new goal keeps the completed route loaded. The engine reports this cog as "walking an older route", but the cog does not move. Four mechanisms cause this. Every standing order cancels the pending plan. The planner is a resumable A* over a 4 px lattice of up to 344,487 nodes, rationed at 256 work units per seat per tick. The scheduler gives no priority to seats with no route. Dead seats continue to spend budget. On giant pool maps, cold far routes take 10-21 scheduler ticks. When goals alternate for 32 ticks, the planner spends and discards every permitted unit, and 260-483 of 512 seat-ticks give no movement. Each seat also holds about 68 MB of planner workspace sized to the full lattice, which is about 2.2 GB for 32 seats.</p>
+    <p>The proposal keeps <code>BodyMap</code>, the exact collision predicate, the cost model, the follower shape and the per-seat danger field. It replaces the planner with a hierarchical route index built once per map install. The rooms and chokes from <code>BodyMap</code> become a graph of portal <em>sides</em>. Precomputed intra-room segments and per-portal crossings join the sides, and next-hop portal fields cover the inside of each room. A bounded A* over that side graph, plus bounded endpoint refinement, answers every route request in the same call, in integer fixed-point arithmetic. The query validates the route descriptor in shared scratch and then copies it atomically into about 12 KB of per-seat state. A zone hazard overlay prices paint arrival as a finite cost, never as a prune. An eight-octant steering rule moves the cog when no advancing route exists. The probe measured the shared index at about 3.5 MB on giant maps and about 16.3 MiB on colossal. The index build took 189-283 ms against a 479-499 ms <code>BodyMap</code> baseline. The gates of the task decide every estimate in this document: route cost inflation p95 ≤ 3 %, body slice p95 ≤ 4 ms, activation ≤ 2x baseline. The main accepted trade is that a static segment cannot avoid danger inside a room.</p>
+  </section>
+
+  <!-- ============ TOC ============ -->
+  <nav class="toc">
+    <span class="eyebrow">Contents</span>
+    <ol>
+      <li><span class="toc-num">1</span><a href="#problem">Problem</a></li>
+      <li><span class="toc-num">2</span><a href="#keeps">What the design keeps</a></li>
+      <li><span class="toc-num">3</span><a href="#topology">Measured topology</a></li>
+      <li><span class="toc-num">4</span><a href="#design">Proposed design</a></li>
+      <li><span class="toc-num">5</span><a href="#decisions">Decisions and rejected alternatives</a></li>
+      <li><span class="toc-num">6</span><a href="#gates">Gates</a></li>
+      <li><span class="toc-num">7</span><a href="#risks">Risks and mitigations</a></li>
+      <li><span class="toc-num">8</span><a href="#rollout">Rollout</a></li>
+      <li><span class="toc-num">9</span><a href="#open-questions">Open questions</a></li>
+      <li><span class="toc-num">10</span><a href="#review">Review record</a></li>
+      <li><span class="toc-num">11</span><a href="#sources">Sources</a></li>
+    </ol>
+  </nav>
+
+  <!-- ============ 1 Problem ============ -->
+  <section id="problem">
+    <h2>1 · Problem</h2>
+    <ul class="key-points">
+      <li>Two verified player-visible stalls: a life with no route yet, and a finished route that survives a new goal.</li>
+      <li>Four mechanisms compound them: cancel-on-intent, a rationed lattice A*, a scheduler with no priority for route-less seats, and dead seats that keep planning.</li>
+      <li>Planner workspace is sized to the full lattice for every seat: ~68 MB per seat on a giant map, ~2.2 GB at 32 seats.</li>
+      <li>The focused test suites are green because the liveness cases are uncovered, not because they pass.</li>
+    </ul>
+
+    <p>The tick-by-tick body report<sup class="ref"><a href="#src-1" title="docs/reports/s2-cog-body-tick-2026-09-03.md">1</a></sup> found the symptom: Season 2 cogs stand still when they must walk. Players can see two cases. The code shows both.</p>
+
+    <p>The first case is a cog whose current life has no route. When the path length is zero, the waypoint function of the follower returns the position of the cog<sup class="ref"><a href="#src-2" title="src/shell/body_nav.nim:687-693">2</a></sup>. As a result, the seat tick emits an empty movement mask and records the diagnostic state <code>bnsNoPath</code><sup class="ref"><a href="#src-3" title="src/shell/body.nim:1311-1330">3</a></sup>. The second case is a cog that reached the endpoint of an older route and then gets a new goal. The completed route stays loaded, and its cursor stays on the last point. That point is the position of the cog. The engine reports the state <code>bnsStalePath</code>, "walking an older route"<sup class="ref"><a href="#src-4" title="src/shell/body.nim:310">4</a></sup>, but the movement mask is zero.</p>
+
+    <h3>Four mechanisms make it worse</h3>
+    <p><strong>Order churn discards almost complete work.</strong> <code>setStandingIntent</code> cancels the pending plan on every new standing order<sup class="ref"><a href="#src-5" title="src/shell/body.nim:565-590 (cancel at :582-583)">5</a></sup>. That cancel occurs before the navigation waypoint code applies its two-cell goal hysteresis<sup class="ref"><a href="#src-6" title="src/shell/body_nav.nim:726-732">6</a></sup>. Thus the hysteresis never protects a plan in flight.</p>
+    <p><strong>The planner rations its work across ticks.</strong> The planner is a resumable weighted A* on a 4 px lattice<sup class="ref"><a href="#src-7" title="src/shell/body_planner.nim:15, :584-640">7</a></sup>. A pooled budget of 256 work units per configured seat per tick drives it<sup class="ref"><a href="#src-8" title="src/shell/body_nav.nim:31, :572-628">8</a></sup>. On a giant pool map the lattice has 344,487 nodes. The task measured that a far route needs about 137k work units<sup class="ref"><a href="#src-9" title="Asana task 1218165906459726 and its comments (measurements, gates, decisions)">9</a></sup>. Under the share of one seat, that is hundreds of ticks.</p>
+    <p><strong>The scheduler has no priority.</strong> The round-robin over seats does not prefer seats that have no usable route<sup class="ref"><a href="#src-10" title="src/shell/body_nav.nim:577-598">10</a></sup>.</p>
+    <p><strong>Dead seats continue to plan.</strong> Death only changes the <code>active</code> flag of the seat<sup class="ref"><a href="#src-11" title="src/shell/episode.nim:987-997; src/shell/body_nav.nim:305-306">11</a></sup>. The planning scheduler never reads that flag<sup class="ref"><a href="#src-12" title="src/shell/body_nav.nim:572-619">12</a></sup>. Thus a dead seat can continue to spend work units that live seats need.</p>
+
+    <h3>Measurements</h3>
+    <p>The task measurements<sup class="ref"><a href="#src-9" title="Asana task 1218165906459726 and its comments (measurements, gates, decisions)">9</a></sup> come from an arm64 release build with 16 seats on battle-royale pool maps 0, 21, 42 and 63. Cold far routes complete in 10-21 scheduler ticks. When goals alternate for 32 ticks, the planner spends and discards all 131,072 permitted work units on every map. The zero-movement counts are 260/512, 286/512, 483/512 and 428/512 seat-ticks. A no-path seat at index 15 waited 6-11 ticks for its first planning visit. The peak process RSS was about 2.37 GB. The focused suites pass (<code>test_shell_body_nav</code> 20/20, <code>test_shell_body_seat</code> 22/22). Thus the liveness cases are not covered. They are not red.</p>
+
+    <h3>Why the memory is that large</h3>
+    <p>A giant map has 85,814 nav cells and 344,487 lattice nodes. <code>newBodyPlanner</code> sizes every workspace to the full lattice<sup class="ref"><a href="#src-13" title="src/shell/body_planner.nim:252-270">13</a></sup>. <code>newBodyNavSystem</code> allocates one planner, one cache and one path buffer per seat<sup class="ref"><a href="#src-14" title="src/shell/body_nav.nim:197-233">14</a></sup>. The table shows the per-seat total on a giant map.</p>
+
+    <table>
+      <thead>
+        <tr><th>Per-seat allocation (giant map)</th><th class="num">Size</th></tr>
+      </thead>
+      <tbody>
+        <tr><td>A* heap nodes (40 B x 344,487)</td><td class="num">13.8 MB</td></tr>
+        <tr><td>Heap positions + generations (2 x 8 B x 344,487)</td><td class="num">5.5 MB</td></tr>
+        <tr><td>Search hash tables (3 x 8 B x 1,048,576)</td><td class="num">25.2 MB</td></tr>
+        <tr><td>Keys / closed / gScore / cameFrom</td><td class="num">8.6 MB</td></tr>
+        <tr><td>Planner result path (16 B x 344,487)</td><td class="num">5.5 MB</td></tr>
+        <tr><td>Follower path buffer (16 B x 344,489)</td><td class="num">5.5 MB</td></tr>
+        <tr><td>Four route-field rasters (85,814 x 9 B each)<sup class="ref"><a href="#src-15" title="src/shell/body_cache.nim:54-64; src/shell/types.nim:441">15</a></sup></td><td class="num">3.1 MB</td></tr>
+        <tr><td>Danger field + visited raster (2 x 4 B x 85,814)</td><td class="num">0.7 MB</td></tr>
+        <tr><td><strong>Total per seat</strong></td><td class="num"><strong>~68 MB</strong> (x32 seats ≈ 2.2 GB)</td></tr>
+      </tbody>
+    </table>
+  </section>
+
+  <!-- ============ 2 What the design keeps ============ -->
+  <section id="keeps">
+    <h2>2 · What the design keeps from the existing code</h2>
+    <ul class="key-points">
+      <li><code>BodyMap</code> stays the immutable per-episode terrain layer, including rooms, chokes and goal validation.</li>
+      <li>The exact collision predicate, the cost model, the follower shape and the per-seat danger field are all retained unchanged.</li>
+      <li>The zone paint-arrival field and three reference PRs supply the hazard projection, the safety hints and the semantic target contract.</li>
+    </ul>
+
+    <p><strong>BodyMap.</strong> <code>BodyMap</code> is already an immutable per-episode terrain layer. It holds 1 px wall and clearance rasters (a chessboard distance transform), pixel components, and the 8 px nav grid. On that grid, <code>NavCell = 8</code>, and a cell is walkable when the clearance at its center is more than <code>PlayerHalf</code> (6 px). It computes watershed rooms over clearance. Chokes sit at room contacts, and <code>buildTopology</code> removes chokes closer than 64 px (<code>GateSeparationPx</code>)<sup class="ref"><a href="#src-16" title="src/shell/body_map.nim:13 (NavCell), :20 (GateSeparationPx), :482-658 (buildTopology)">16</a></sup>. It also holds the cover atlas, the validator tables, and the home fields. <code>validateGoal</code> is the only constructor of <code>ValidatedGoal</code><sup class="ref"><a href="#src-17" title="src/shell/body_map.nim:397-412">17</a></sup>. One convention is important for the index build. <code>roomLabelAt</code> returns a <em>one</em>-based label, but <code>BodyRoom</code> and the <code>roomA</code>/<code>roomB</code> fields of <code>BodyChoke</code> are <em>zero</em>-based indices<sup class="ref"><a href="#src-18" title="src/shell/body_map.nim:190-192 (roomLabelAt), :194-205, :633-654 (zero-based room indices)">18</a></sup>.</p>
+
+    <p><strong>The exact collision predicate.</strong> A move is legal when <code>canStand</code> and the pixel-exact <code>segmentClear</code> both pass. The current planner tests both for every lattice step<sup class="ref"><a href="#src-19" title="src/shell/body_map.nim:164-165 (canStand); src/shell/body_planner.nim:298-329 (segmentClear), :610-617 (edge legality)">19</a></sup>.</p>
+
+    <p><strong>The cost model.</strong> The cost of a step is its length x (1 + profileDangerWeight x danger at the midpoint of the step). When the nav cell of the midpoint is the blocked-penalty cell, the cost is multiplied by 8 (<code>FollowBlockFactor</code>). The profile danger weights are cpDefault 1.0, cpCarrier 2.5 and cpHunter 0.25<sup class="ref"><a href="#src-20" title="src/shell/body_planner.nim:18 (FollowBlockFactor), :618-628 (blocked cost), :88-92 (profile weights)">20</a></sup>.</p>
+
+    <p><strong>The follower shape.</strong> The follower has a path buffer with a cursor. The waypoint advances when the cog is within one <code>NavCell</code>. The corridor is 20 px. The cog is stuck after 8 ticks. The blocked penalty lasts 96 ticks<sup class="ref"><a href="#src-21" title="src/shell/body_nav.nim:38-43, :687-717">21</a></sup>.</p>
+
+    <p><strong>The per-seat danger field</strong> and its rebuild, which occurs every 32 ticks with a stagger and uses at most eight visible enemies<sup class="ref"><a href="#src-22" title="src/shell/body_nav.nim:30, :44, :440-485">22</a></sup>.</p>
+
+    <p><strong>The zone paint-arrival field.</strong> The sim builds one <code>ZoneArrivalField</code> per episode. The field has two surfaces. The <code>damage</code> surface is not gated, and <code>zoneDamageByPaint</code> reads it. The <code>arrival</code> surface is gated by the render layer, and it can say "never" under wall art. <code>zonePaintedForDamageAt</code> compares <code>damage</code> with the elapsed clock of the schedule (<code>sim.tickCount - sim.gameStartTick</code>). The grid stride is 4 px (<code>ZoneFieldCellPx</code>). The sentinel is <code>ZoneNeverArrives = 0xFFFF</code>. <code>ensureZoneArrivalField</code> builds the field on first use<sup class="ref"><a href="#src-23" title="src/ctf/zone_field.nim:1593-1616 (two surfaces), :1762-1796 (zonePaintedForDamageAt), :65 (ZoneFieldCellPx), :263 (ZoneNeverArrives), :1644-1662 (ensureZoneArrivalField)">23</a></sup>.</p>
+
+    <p><strong>From the reference PRs.</strong> PR #408 gives four items: the conservative MIN projection of the 4 px field onto the 8 px nav grid, the finite hazard price (never a prune), the derated ETA speed of MaxSpeed x 3 / (MotionScale x 4) = 2.0625 px/tick, and the 48-tick safe-horizon bucket<sup class="ref"><a href="#src-24" title="PR #408 https://github.com/Metta-AI/coworld-ctf/pull/408">24</a></sup>. The top speed is 704/256 = 2.75 px/tick<sup class="ref"><a href="#src-25" title="src/ctf/sim_types.nim:514-518">25</a></sup>. PR #409 gives the fog-safe integer nav hints: ticks until paint here, ticks to safety, geodesic safe distance in px, and a retreat octant<sup class="ref"><a href="#src-26" title="PR #409 https://github.com/Metta-AI/coworld-ctf/pull/409">26</a></sup>. PR #410 gives <code>navigate_to</code> with <code>target_class = "zone_safe_ground"</code> and a <em>required</em> literal fallback point, which the engine resolves<sup class="ref"><a href="#src-27" title="PR #410 https://github.com/Metta-AI/coworld-ctf/pull/410">27</a></sup>.</p>
+  </section>
+
+  <!-- ============ 3 Measured topology ============ -->
+  <section id="topology">
+    <h2>3 · Measured topology</h2>
+    <ul class="key-points">
+      <li>Giant pool maps have 85,814 nav cells in 43-107 rooms with 212-369 chokes. Colossal has 343,256 cells, 302 rooms and 1,237 chokes.</li>
+      <li>A probe of the proposed index shape builds in 189-283 ms on giant maps against a 479-499 ms <code>BodyMap</code> baseline, and 2,245 ms on colossal.</li>
+      <li>Every walkable cell has a room. Orthogonal cell steps are always legal. Diagonal steps are illegal 1.3-2.7 % of the time, thus a legality mask is necessary.</li>
+    </ul>
+
+    <p>All numbers in this section come from this machine (arm64 release build, commit fad3029f). The canonical linux/amd64 numbers come from the gate run in rollout subtask 02 (§8).</p>
+
+    <h3>Nav census</h3>
+    <p>The census comes from the <code>nav-census</code> mode of the body-port bench tool. That mode is an uncommitted diff at this time<sup class="ref"><a href="#src-28" title="tools/bench_body_port.nim nav-census (uncommitted diff of the census tool)">28</a></sup>.</p>
+    <div class="table-scroll">
+    <table>
+      <thead>
+        <tr><th>Map</th><th class="num">Size (px)</th><th class="num">Nav cells</th><th class="num">Lattice nodes</th><th class="num">Rooms</th><th class="num">Chokes</th><th class="num">Intra-room portal pairs</th><th class="num">Max room degree</th><th class="num">BodyMap build</th></tr>
+      </thead>
+      <tbody>
+        <tr><td>pool:1 (giant)</td><td class="num">3211 x 1713</td><td class="num">85,814</td><td class="num">344,487</td><td class="num">107</td><td class="num">369</td><td class="num">4,374</td><td class="num">43</td><td class="num">512 ms</td></tr>
+        <tr><td>pool:2 (giant)</td><td class="num">3211 x 1713</td><td class="num">85,814</td><td class="num">344,487</td><td class="num">51</td><td class="num">241</td><td class="num">3,979</td><td class="num">46</td><td class="num">516 ms</td></tr>
+        <tr><td>pool:5 (giant)</td><td class="num">3211 x 1713</td><td class="num">85,814</td><td class="num">344,487</td><td class="num">43</td><td class="num">212</td><td class="num">2,601</td><td class="num">34</td><td class="num">504 ms</td></tr>
+        <tr><td>pool:12 (huge)</td><td class="num">2223 x 1186</td><td class="num">40,996</td><td class="num">165,132</td><td class="num">23</td><td class="num">113</td><td class="num">1,872</td><td class="num">35</td><td class="num">214 ms</td></tr>
+        <tr><td>pool:0 (standard)</td><td class="num">1235 x 659</td><td class="num">12,628</td><td class="num">50,985</td><td class="num">11</td><td class="num">30</td><td class="num">224</td><td class="num">12</td><td class="num">65 ms</td></tr>
+        <tr><td>size:colossal (supported, not pooled)</td><td class="num">6422 x 3427</td><td class="num">343,256</td><td class="num">1,376,342</td><td class="num">302</td><td class="num">1,237</td><td class="num">13,730</td><td class="num">55</td><td class="num">2,411 ms</td></tr>
+      </tbody>
+    </table>
+    </div>
+    <p>The 20 sampled pool entries go from 1050 x 560 px (9,170 cells, 5-15 rooms) up to giant. pool:17 has 19 pixel components, and pool:18 has 7 (pits and islands). Spawns are always in one component, and every <code>ValidatedGoal</code> is in the component of the requester<sup class="ref"><a href="#src-28" title="tools/bench_body_port.nim nav-census (uncommitted diff of the census tool)">28</a></sup>.</p>
+
+    <h3>Index probe</h3>
+    <p>A scratch probe ran one room-bounded Dijkstra per (room, portal) pair over legal 8 px moves. The time includes the build of the legality mask<sup class="ref"><a href="#src-29" title="scratch seg_probe.nim (this session)">29</a></sup>. The probe stored full distance fields and reused none of the Dijkstra parents. Thus its build time is an upper bound for the proposed shape, which stores only next-hops.</p>
+    <div class="table-scroll">
+    <table>
+      <thead>
+        <tr><th>Map</th><th class="num">(room, portal) Dijkstras</th><th class="num">Portal-field cells</th><th class="num">Max room cells</th><th class="num">Portal pairs with a segment</th><th class="num">Pairs unreachable inside the room</th><th class="num">Segment cells total</th><th class="num">Avg segment cells</th><th class="num">Max chain cells</th><th class="num">Index build</th><th class="num">BodyMap build (same run)</th></tr>
+      </thead>
+      <tbody>
+        <tr><td>pool:1</td><td class="num">738</td><td class="num">1,695,732</td><td class="num">12,846</td><td class="num">4,261</td><td class="num">113</td><td class="num">224,822</td><td class="num">52</td><td class="num">147</td><td class="num">231 ms</td><td class="num">499 ms</td></tr>
+        <tr><td>pool:2</td><td class="num">482</td><td class="num">1,958,462</td><td class="num">15,350</td><td class="num">3,940</td><td class="num">39</td><td class="num">256,077</td><td class="num">64</td><td class="num">202</td><td class="num">283 ms</td><td class="num">497 ms</td></tr>
+        <tr><td>pool:5</td><td class="num">424</td><td class="num">1,278,175</td><td class="num">18,885</td><td class="num">2,482</td><td class="num">119</td><td class="num">105,692</td><td class="num">42</td><td class="num">213</td><td class="num">189 ms</td><td class="num">479 ms</td></tr>
+        <tr><td>pool:12</td><td class="num">226</td><td class="num">811,402</td><td class="num">8,520</td><td class="num">1,827</td><td class="num">45</td><td class="num">107,110</td><td class="num">58</td><td class="num">146</td><td class="num">108 ms</td><td class="num">211 ms</td></tr>
+        <tr><td>pool:0</td><td class="num">60</td><td class="num">111,251</td><td class="num">3,743</td><td class="num">218</td><td class="num">6</td><td class="num">8,433</td><td class="num">38</td><td class="num">79</td><td class="num">15 ms</td><td class="num">62 ms</td></tr>
+        <tr><td>colossal</td><td class="num">2,474</td><td class="num">9,507,875</td><td class="num">70,041</td><td class="num">13,046</td><td class="num">684</td><td class="num">763,627</td><td class="num">58</td><td class="num">436</td><td class="num">2,245 ms</td><td class="num">2,263 ms</td></tr>
+      </tbody>
+    </table>
+    </div>
+    <p>On the six maps in table order, 5 / 0 / 4 / 1 / 0 / 12 portal cells have a nearest walkable cell in neither incident room<sup class="ref"><a href="#src-29" title="scratch seg_probe.nim (this session)">29</a></sup>. This is why portals need two-sided anchors (§4.1).</p>
+
+    <h3>Cell probe</h3>
+    <p>A second scratch probe compared the 8 px grid with the pixel-exact predicate on 8 pool maps<sup class="ref"><a href="#src-30" title="scratch cell_probe.nim (this session, 8 pool maps)">30</a></sup>.</p>
+    <table>
+      <thead>
+        <tr><th>Question</th><th>Finding (8 pool maps)</th></tr>
+      </thead>
+      <tbody>
+        <tr><td>Does every walkable nav cell have a room?</td><td>Yes: 0 misses on all 8 maps.</td></tr>
+        <tr><td>Are orthogonal 8 px centre-to-centre steps between walkable cells collision-legal?</td><td>Always: 0 illegal of 26k-301k steps per map.</td></tr>
+        <tr><td>Are diagonal steps collision-legal?</td><td>Not always: 1.3-2.7 % illegal even with the corner-cut check, so a per-cell legality mask is required.</td></tr>
+        <tr><td>How many standable pixels sit in a cell whose centre is not standable?</td><td>0.7-2.0 % of standable pixels (pool:1: 4,692,867 standable px, 4,632,176 of them in walkable cells). Cells that hold standable pixels but have a non-standable centre: 442-3,946 per map.</td></tr>
+        <tr><td>Does legal 8 px connectivity match pixel connectivity?</td><td>pool:0 splits one pixel component into two legal cell components (a 34-pixel pocket). On every other sampled map the counts match. The spawn pixel component keeps 98.7-99.3 % of its standable pixels in cells reachable from the spawn cell.</td></tr>
+      </tbody>
+    </table>
+  </section>
+
+  <!-- ============ 4 Proposed design ============ -->
+  <section id="design">
+    <h2>4 · Proposed design</h2>
+    <ul class="key-points">
+      <li>One immutable route index per map install, shared by every seat. One immutable hazard overlay per episode. A small bounded safe cache per horizon bucket.</li>
+      <li>Every route request is answered synchronously in the same call by a bounded A* over the portal-side graph plus bounded endpoint refinement.</li>
+      <li>The follower reads the legs from the index. The endpoint legs are copied into small fixed per-seat buffers. A deterministic eight-octant rule steers when no advancing route exists.</li>
+      <li>All route choice is integer arithmetic with no clocks, threads, pointer identity or hash-iteration order.</li>
+    </ul>
+
+    <p>In one sentence: build one immutable room/portal route index per map install, attach one immutable zone hazard overlay per episode, answer every route request in the same call with a bounded search over the portal-side graph plus bounded endpoint refinement, execute the selected legs from the index, and steer locally with a deterministic eight-octant rule when no advancing route exists.</p>
+
+    <figure>
+      <svg viewBox="0 0 720 330" width="100%" role="img" aria-label="One navigate tick, today versus proposed">
+        <defs>
+          <marker id="arr-navy" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto">
+            <path d="M0,0 L8,4 L0,8" fill="none" stroke="#1a3875" stroke-width="1.2"/>
+          </marker>
+          <marker id="arr-sage" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto">
+            <path d="M0,0 L8,4 L0,8" fill="none" stroke="#6e8050" stroke-width="1.2"/>
+          </marker>
+        </defs>
+        <!-- Today -->
+        <text x="20" y="22" font-family="Merriweather Sans" font-size="11" font-weight="700" letter-spacing="1.2" fill="#555555">TODAY</text>
+        <rect x="20" y="34" width="300" height="40" rx="3" fill="#fffaf0" stroke="#d4c9b5"/>
+        <text x="170" y="58" text-anchor="middle" font-family="Merriweather Sans" font-size="12.5" fill="#111827">Standing intent arrives</text>
+        <line x1="170" y1="74" x2="170" y2="96" stroke="#1a3875" stroke-width="1.5" marker-end="url(#arr-navy)"/>
+        <rect x="20" y="98" width="300" height="40" rx="3" fill="#fffaf0" stroke="#b36e4e"/>
+        <text x="170" y="122" text-anchor="middle" font-family="Merriweather Sans" font-size="12.5" fill="#111827">Cancel any pending plan</text>
+        <line x1="170" y1="138" x2="170" y2="160" stroke="#1a3875" stroke-width="1.5" marker-end="url(#arr-navy)"/>
+        <rect x="20" y="162" width="300" height="58" rx="3" fill="#fffaf0" stroke="#b36e4e"/>
+        <text x="170" y="184" text-anchor="middle" font-family="Merriweather Sans" font-size="12.5" fill="#111827">Resumable A* on the 4 px lattice,</text>
+        <text x="170" y="204" text-anchor="middle" font-family="Merriweather Sans" font-size="12.5" fill="#111827">256 work units per seat per tick, over many ticks</text>
+        <line x1="170" y1="220" x2="170" y2="242" stroke="#1a3875" stroke-width="1.5" marker-end="url(#arr-navy)"/>
+        <rect x="20" y="244" width="300" height="58" rx="3" fill="#fffaf0" stroke="#b36e4e"/>
+        <text x="170" y="266" text-anchor="middle" font-family="Merriweather Sans" font-size="12.5" fill="#111827">While the plan is pending the follower</text>
+        <text x="170" y="286" text-anchor="middle" font-family="Merriweather Sans" font-size="12.5" fill="#b36e4e">returns the cog's own position: mask = 0</text>
+        <!-- Proposed -->
+        <text x="400" y="22" font-family="Merriweather Sans" font-size="11" font-weight="700" letter-spacing="1.2" fill="#555555">PROPOSED</text>
+        <rect x="400" y="34" width="300" height="40" rx="3" fill="#fffaf0" stroke="#d4c9b5"/>
+        <text x="550" y="58" text-anchor="middle" font-family="Merriweather Sans" font-size="12.5" fill="#111827">Standing intent arrives</text>
+        <line x1="550" y1="74" x2="550" y2="96" stroke="#6e8050" stroke-width="1.5" marker-end="url(#arr-sage)"/>
+        <rect x="400" y="98" width="300" height="40" rx="3" fill="#fffaf0" stroke="#6e8050"/>
+        <text x="550" y="122" text-anchor="middle" font-family="Merriweather Sans" font-size="12.5" fill="#111827">Anchor check: goal moved &gt; 2 cells?</text>
+        <line x1="550" y1="138" x2="550" y2="160" stroke="#6e8050" stroke-width="1.5" marker-end="url(#arr-sage)"/>
+        <rect x="400" y="162" width="300" height="58" rx="3" fill="#fffaf0" stroke="#6e8050"/>
+        <text x="550" y="184" text-anchor="middle" font-family="Merriweather Sans" font-size="12.5" fill="#111827">Synchronous bounded A* over the</text>
+        <text x="550" y="204" text-anchor="middle" font-family="Merriweather Sans" font-size="12.5" fill="#111827">portal-side graph, same call, same tick</text>
+        <line x1="550" y1="220" x2="550" y2="242" stroke="#6e8050" stroke-width="1.5" marker-end="url(#arr-sage)"/>
+        <rect x="400" y="244" width="140" height="58" rx="3" fill="#fffaf0" stroke="#6e8050"/>
+        <text x="470" y="266" text-anchor="middle" font-family="Merriweather Sans" font-size="12.5" fill="#111827">Validate, then</text>
+        <text x="470" y="286" text-anchor="middle" font-family="Merriweather Sans" font-size="12.5" fill="#111827">atomic descriptor copy</text>
+        <line x1="540" y1="273" x2="558" y2="273" stroke="#6e8050" stroke-width="1.5" marker-end="url(#arr-sage)"/>
+        <rect x="560" y="244" width="140" height="58" rx="3" fill="#eef2f7" stroke="#1a3875"/>
+        <text x="630" y="266" text-anchor="middle" font-family="Merriweather Sans" font-size="12.5" font-weight="600" fill="#1a3875">Follow the route,</text>
+        <text x="630" y="286" text-anchor="middle" font-family="Merriweather Sans" font-size="12.5" font-weight="600" fill="#1a3875">or steer: mask ≠ 0</text>
+        <text x="20" y="322" font-family="Merriweather Sans" font-size="11" fill="#555555">Terracotta outlines mark the steps that produce the stall today; sage outlines mark the replacement steps.</text>
+      </svg>
+      <figcaption><span class="fig-label">Figure 1</span>One navigate tick, today versus proposed. Today a new order cancels the pending plan and the follower has nothing to follow until the rationed lattice A* completes over many ticks. In the proposal the query completes inside the call that asked for it, so the cog either follows a fresh route or steers on the same tick.</figcaption>
+    </figure>
+
+    <h3 id="design-index">4.1 BodyRouteIndex (map install, immutable, episode-shared)</h3>
+    <p>The build makes the index from <code>BodyMap</code> inside the same activation barrier, before <code>newBodyNavSystem</code>. The index is deterministic by construction. Every loop runs in room index, choke index and row-major cell order. There are no tables keyed by pointer and no hash iteration.</p>
+
+    <figure>
+      <svg viewBox="0 0 720 340" width="100%" role="img" aria-label="Schematic of the route index: two rooms sharing a choke">
+        <defs>
+          <marker id="arr-hop" markerWidth="7" markerHeight="7" refX="6" refY="3.5" orient="auto">
+            <path d="M0,0 L7,3.5 L0,7" fill="none" stroke="#859ebe" stroke-width="1.2"/>
+          </marker>
+          <marker id="arr-gold" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto">
+            <path d="M0,0 L8,4 L0,8" fill="none" stroke="#d4a853" stroke-width="1.2"/>
+          </marker>
+        </defs>
+        <!-- Room A -->
+        <rect x="20" y="40" width="330" height="240" rx="4" fill="#fffaf0" stroke="#d4c9b5"/>
+        <text x="34" y="62" font-family="Merriweather Sans" font-size="11" font-weight="700" letter-spacing="1.2" fill="#555555">ROOM A</text>
+        <!-- Room B -->
+        <rect x="390" y="40" width="310" height="240" rx="4" fill="#fffaf0" stroke="#d4c9b5"/>
+        <text x="404" y="62" font-family="Merriweather Sans" font-size="11" font-weight="700" letter-spacing="1.2" fill="#555555">ROOM B</text>
+        <!-- Wall between rooms with a choke gap -->
+        <rect x="350" y="40" width="40" height="88" fill="#e4dac8"/>
+        <rect x="350" y="192" width="40" height="88" fill="#e4dac8"/>
+        <text x="370" y="30" text-anchor="middle" font-family="Merriweather Sans" font-size="11" fill="#555555">choke (BodyMap)</text>
+        <!-- Next-hop arrows in room A toward side A of the shared portal -->
+        <text x="105" y="62" font-family="Merriweather Sans" font-size="11" fill="#859ebe">next-hops toward side A (uint8 per cell)</text>
+        <g stroke="#859ebe" stroke-width="1.2" marker-end="url(#arr-hop)">
+          <line x1="200" y1="74" x2="222" y2="86"/>
+          <line x1="250" y1="76" x2="272" y2="92"/>
+          <line x1="300" y1="86" x2="318" y2="108"/>
+          <line x1="60" y1="256" x2="82" y2="242"/>
+          <line x1="130" y1="258" x2="152" y2="244"/>
+          <line x1="200" y1="256" x2="222" y2="240"/>
+          <line x1="270" y1="250" x2="292" y2="232"/>
+        </g>
+        <!-- Start point and chain -->
+        <circle cx="60" cy="90" r="5" fill="#6e8050"/>
+        <text x="70" y="94" font-family="Merriweather Sans" font-size="11" fill="#6e8050">start (cog cell)</text>
+        <polyline points="60,90 130,120 210,145 280,160 326,160" fill="none" stroke="#6e8050" stroke-width="1.8" marker-end="url(#arr-sage)"/>
+        <text x="126" y="137" font-family="Merriweather Sans" font-size="11" fill="#6e8050" transform="rotate(19 126 137)">start chain: walk next-hops to side A</text>
+        <!-- Second portal on the left edge of room A (side node only) -->
+        <circle cx="34" cy="190" r="7" fill="#fffdf4" stroke="#1a3875" stroke-width="1.8"/>
+        <text x="46" y="178" font-family="Merriweather Sans" font-size="11" fill="#1a3875">side: portal 2, room A</text>
+        <!-- Intra-room segment between the two sides in room A -->
+        <polyline points="41,190 120,205 210,200 290,178 330,164" fill="none" stroke="#1a3875" stroke-width="2" stroke-dasharray="6 3"/>
+        <text x="100" y="224" font-family="Merriweather Sans" font-size="11" fill="#1a3875">intra-room segment (static cells, 1/16 px length)</text>
+        <!-- Portal sides for the shared choke -->
+        <circle cx="336" cy="160" r="7" fill="#fffdf4" stroke="#1a3875" stroke-width="1.8"/>
+        <text x="338" y="146" text-anchor="end" font-family="Merriweather Sans" font-size="11" fill="#1a3875">side A</text>
+        <circle cx="404" cy="160" r="7" fill="#fffdf4" stroke="#1a3875" stroke-width="1.8"/>
+        <text x="402" y="146" font-family="Merriweather Sans" font-size="11" fill="#1a3875">side B</text>
+        <!-- Crossing edge -->
+        <line x1="343" y1="160" x2="397" y2="160" stroke="#b36e4e" stroke-width="2.5"/>
+        <text x="370" y="200" text-anchor="middle" font-family="Merriweather Sans" font-size="11" fill="#b36e4e">crossing edge</text>
+        <text x="370" y="214" text-anchor="middle" font-family="Merriweather Sans" font-size="10.5" fill="#b36e4e">(always paid)</text>
+        <!-- Goal leg in room B -->
+        <polyline points="411,160 480,175 560,205 608,228" fill="none" stroke="#6e8050" stroke-width="1.8" marker-end="url(#arr-sage)"/>
+        <text x="400" y="258" font-family="Merriweather Sans" font-size="11" fill="#6e8050">goal leg (copied, ≤ 512 cells)</text>
+        <!-- Goal cell and exact connector -->
+        <rect x="608" y="222" width="16" height="16" fill="none" stroke="#6e8050" stroke-width="1.5"/>
+        <line x1="624" y1="230" x2="660" y2="212" stroke="#d4a853" stroke-width="2" marker-end="url(#arr-gold)"/>
+        <circle cx="664" cy="210" r="4" fill="#d4a853"/>
+        <text x="600" y="258" font-family="Merriweather Sans" font-size="11" fill="#8a6a1f">exact goal connector</text>
+        <text x="600" y="272" font-family="Merriweather Sans" font-size="11" fill="#8a6a1f">(≤ 32 px, segmentClear)</text>
+        <!-- Legend -->
+        <text x="20" y="306" font-family="Merriweather Sans" font-size="11" fill="#555555">Nodes are portal sides (portal, room). Edges are intra-room segments between sides of one room, plus one crossing per portal.</text>
+        <text x="20" y="322" font-family="Merriweather Sans" font-size="11" fill="#555555">A route = ordered edge IDs with direction, plus a copied start leg and goal leg and the exact endpoint connectors.</text>
+      </svg>
+      <figcaption><span class="fig-label">Figure 2</span>The route index. Two rooms share a choke; each side of the choke gets its own anchor cell and graph node, and the legal crossing between them is an edge with its own length, danger, blocked and hazard cost. Inside a room, portal sides are joined by static segments read off the room-restricted Dijkstra, and every cell carries a next-hop toward each of the room's portal sides.</figcaption>
+    </figure>
+
+    <p>The index holds six kinds of data. The sizes are for pool:1 (giant) and colossal.</p>
+    <ol>
+      <li><strong>Legal moves.</strong> <code>legalMoves: seq[uint8]</code> holds one byte per nav cell. Bit <em>i</em> is set when the move to the canonical <code>Neighbors[i]</code> is legal: both cells are walkable, the move does not cut a corner, and pixel <code>segmentClear</code> passes between the centers. This is the <em>one</em> legality oracle for the index build, the smoothing of the follower, the local search and the steering. <code>segmentClear</code> and <code>Neighbors</code> move into the body map module, so that there is exactly one implementation. Today the map and the planner each have a copy<sup class="ref"><a href="#src-31" title="src/shell/body_map.nim:24-27; src/shell/body_planner.nim:20-22, :298 (duplicated Neighbors and segmentClear)">31</a></sup>. Size: 86 KB giant / 343 KB colossal.</li>
+      <li><strong>Room compaction.</strong> <code>roomOf: seq[uint16]</code> holds the zero-based room index per nav cell. <code>roomCellStart</code> and <code>roomCells</code> hold the cell indices per room in row-major order. <code>localIndex: seq[int32]</code> holds the index of each nav cell inside its room. The build asserts that every walkable cell has a room. The probe found that this is always true on 8 maps (§3). Size: about 0.6 MB / 2.4 MB.</li>
+      <li><strong>Portals.</strong> Portals are the <code>BodyMap</code> chokes, with two sides. For each choke, the build stores an anchor cell on the roomA side and one on the roomB side. Each anchor is the nearest walkable cell of that room to the choke pixel, found within a bounded ring in a fixed ring order. The build also stores the legal crossing between the two anchors. The crossing is a direct legal edge, or a bounded build-time search whose cells become a crossing segment. Activation asserts that every portal reaches both rooms. The one-sided rule of the probe gave 0-12 anchor mismatches per map (§3).</li>
+      <li><strong>Portal fields.</strong> For each (room <em>r</em>, portal <em>p</em> of <em>r</em>), the index holds one <code>uint8</code> next-hop per cell of <em>r</em>. The next-hop is the index of the legal neighbor toward the anchor of <em>p</em> on the side of <em>r</em>. One room-restricted Dijkstra computes it, and ties go to <code>Neighbors</code> order. The index does not store distances. A query that needs the distance from a cell to <em>p</em> walks the chain. Exact scoring walks the chain in any case. The measured maximum chain is 213 cells on giant and 436 on colossal. The Dijkstra uses one transient <code>uint32</code> distance array over one room, and the build reuses it. Size: 1.7 MB / 9.5 MB.</li>
+      <li><strong>Intra-room segments.</strong> For every portal pair (<em>p</em> &lt; <em>q</em>) of a room, the index holds the cell path <em>p</em> → <em>q</em>, read from the Dijkstra parents of <em>p</em>. The path is flat (<code>segmentCells: seq[int32]</code> with start and length), with the static length as <code>uint32</code> in 1/16 px and a bounding box. Pairs that are not reachable inside the room get no segment (measured 1-5 % of pairs). The abstract graph routes around them through other rooms. Size: 0.9 MB / 3.1 MB.</li>
+      <li><strong>Portal-side graph.</strong> The nodes are the (portal, incident room) <em>sides</em>, at most 2,474 on colossal. The edges are the intra-room segments between sides of the same room (at most 27,460 directed) plus one crossing edge per portal between its two sides (at most 2,474 directed). Because the crossing is an edge, a room change always pays the length, danger, blocked and hazard cost of the crossing. Every selected edge names exactly one segment.</li>
+    </ol>
+
+    <p><strong>Budget.</strong> The retained total is about 3.5 MB on giant (limit 16 MiB) and about 16.3 MiB on colossal (limit 32 MiB). The transient build workspace is one heap and one distance array over one room (at most 70,041 cells), and the build reuses it. The build time of the probe is an upper bound for this shape. It was 189-283 ms on giant maps against a 479-499 ms <code>BodyMap</code> baseline (total 1.4-1.6x the baseline, cap 2x). It was 2,245 ms on colossal against 2,263 ms (total 2.0x, cap 3x)<sup class="ref"><a href="#src-29" title="scratch seg_probe.nim (this session)">29</a></sup>. The canonical linux/amd64 numbers come from the gate run of subtask 02.</p>
+
+    <figure>
+      <svg viewBox="0 0 720 330" width="100%" role="img" aria-label="Retained navigation memory on a log scale: per-seat today, per-seat proposed, shared index">
+        <!-- axis: log10 bytes from 1e4 (10 KB) to 1e8 (100 MB); x0=230, 112 px per decade -->
+        <text x="20" y="22" font-family="Merriweather Sans" font-size="11" font-weight="700" letter-spacing="1.2" fill="#555555">RETAINED NAV MEMORY, LOG SCALE (each gridline is 10x)</text>
+        <g stroke="#e4dac8" stroke-width="1">
+          <line x1="230" y1="40" x2="230" y2="262"/>
+          <line x1="342" y1="40" x2="342" y2="262"/>
+          <line x1="454" y1="40" x2="454" y2="262"/>
+          <line x1="566" y1="40" x2="566" y2="262"/>
+          <line x1="678" y1="40" x2="678" y2="262"/>
+        </g>
+        <g font-family="Merriweather Sans" font-size="11" fill="#999999" text-anchor="middle">
+          <text x="230" y="278">10 KB</text>
+          <text x="342" y="278">100 KB</text>
+          <text x="454" y="278">1 MB</text>
+          <text x="566" y="278">10 MB</text>
+          <text x="678" y="278">100 MB</text>
+        </g>
+        <!-- per-seat today: 68 MB -> log10 7.833 -> 230 + 3.833*112 = 659 -->
+        <text x="20" y="66" font-family="Merriweather Sans" font-size="12" fill="#111827">Per seat, today (giant)</text>
+        <rect x="230" y="52" width="429" height="20" fill="#b36e4e"/>
+        <text x="654" y="66" text-anchor="end" font-family="Merriweather Sans" font-size="11.5" font-weight="700" fill="#fffdf4">~68 MB per seat; ~2.2 GB at 32 seats</text>
+        <!-- per-seat proposed route state: 12 KB -> log10 4.079 -> 230 + 0.079*112 = 239 -->
+        <text x="20" y="108" font-family="Merriweather Sans" font-size="12" fill="#111827">Per seat, proposed: route state</text>
+        <rect x="230" y="94" width="9" height="20" fill="#6e8050"/>
+        <text x="246" y="108" font-family="Merriweather Sans" font-size="11.5" fill="#111827">~12 KB (8 KB edge descriptors + 4 KB leg buffers)</text>
+        <!-- per-seat danger + visited: 0.7 MB -> log10 5.845 -> 230 + 1.845*112 = 437 -->
+        <text x="20" y="150" font-family="Merriweather Sans" font-size="12" fill="#111827">Per seat, unchanged: danger + visited</text>
+        <rect x="230" y="136" width="207" height="20" fill="#d4c9b5"/>
+        <text x="444" y="150" font-family="Merriweather Sans" font-size="11.5" fill="#111827">0.7 MB giant (2.75 MB colossal); outside this task</text>
+        <!-- shared index giant: 3.5 MB -> log10 6.544 -> 230 + 2.544*112 = 515 -->
+        <text x="20" y="192" font-family="Merriweather Sans" font-size="12" fill="#111827">Shared index, giant (once per map)</text>
+        <rect x="230" y="178" width="285" height="20" fill="#1a3875"/>
+        <text x="522" y="192" font-family="Merriweather Sans" font-size="11.5" fill="#111827">~3.5 MB (limit 16 MiB)</text>
+        <!-- shared index colossal: 16.3 MiB = 17.09 MB -> log10 7.233 -> 230 + 3.233*112 = 592 -->
+        <text x="20" y="234" font-family="Merriweather Sans" font-size="12" fill="#111827">Shared index, colossal (once per map)</text>
+        <rect x="230" y="220" width="362" height="20" fill="#1a3875"/>
+        <text x="586" y="234" text-anchor="end" font-family="Merriweather Sans" font-size="11.5" font-weight="700" fill="#fffdf4">~16.3 MiB (limit 32 MiB)</text>
+        <text x="20" y="306" font-family="Merriweather Sans" font-size="11" fill="#555555">Bar length is logarithmic, so the 68 MB bar is not 5,600 times longer than the 12 KB bar. The per-seat bars repeat</text>
+        <text x="20" y="322" font-family="Merriweather Sans" font-size="11" fill="#555555">for every seat (16 published, 32 supported); the shared index exists once per map install. Proposed sizes are estimates.</text>
+      </svg>
+      <figcaption><span class="fig-label">Figure 3</span>Retained navigation memory, log scale. Today's per-seat planner workspace is replaced by about 12 KB of per-seat route state plus a shared index measured at ~3.5 MB (giant) and ~16.3 MiB (colossal). The per-seat danger and visited rasters are unchanged by this task.</figcaption>
+    </figure>
+
+    <p><strong>Coverage proof.</strong> Rollout subtask 02 runs an offline, exhaustive proof on every supported map. Every standable pixel must have a legal pixel connector of at most 32 px to an anchored nav cell of the same pixel component. Two anchored cells must be connected in the graph exactly when their pixel components are equal. The probes already show that pool:0 splits one pixel component into two legal 8 px components (a 34-pixel pocket). Thus this is an invariant to prove, not a sample to hope for. If the proof fails on a map, the build adds sparse 4 px micro-corridor nodes where the proof fails, before qualification. The route corpus is the cost test only. It is never the topology proof.</p>
+
+    <h3 id="design-hazard">4.2 BodyHazardOverlay (episode, immutable) and BodySafeCache (episode, mutable, bounded)</h3>
+    <p><strong>Server seam.</strong> The seam is in <code>resetFirstLightForSim</code><sup class="ref"><a href="#src-32" title="src/ctf/server.nim:3857-3870">32</a></sup>, after <code>newBodyMap</code>. When <code>season2Shell and zoneDamageByPaint and zonePhases.len &gt; 0</code>, the server calls <code>ensureZoneArrivalField(sim)</code>, takes a snapshot of the <code>damage</code> surface (never <code>arrival</code>), the grid dimensions and the field fingerprint, builds the overlay, and then constructs the nav system. In all other cases the overlay is a typed <em>dark</em> state: there is no hazard term, the hints are absent, and class targets cannot resolve, so the literal fallback of the play stands. Nothing is built on first use on the play path.</p>
+    <p>The overlay is relative to the schedule and has no origin. <code>gameStartTick</code> is -1 until <code>startGame</code> enters Playing<sup class="ref"><a href="#src-33" title="src/ctf/sim.nim:1694-1696, :6679, :6750">33</a></sup>, and that occurs after the construction of FirstLight. Thus the overlay takes no snapshot of an origin. The server passes the live elapsed zone tick (the same <code>sim.tickCount - sim.gameStartTick</code> that every zone consumer reads) into the FirstLight step. The hazard ETA, the safe buckets and the hints all use that tick.</p>
+    <p><strong>Overlay data.</strong> <code>arrival: seq[uint16]</code> holds, per nav cell, the MIN over the 4 px source cells that the nav cell covers (the conservative projection of PR #408<sup class="ref"><a href="#src-24" title="PR #408 https://github.com/Metta-AI/coworld-ctf/pull/408">24</a></sup>). Per segment, <code>arrivalMin</code>/<code>arrivalMax</code> let the query skip segments that are provably zero-risk or provably saturated. Per room, <code>maxDamageArrival</code> treats never-arrives as infinity. Size: 172 KB giant / 686 KB colossal.</p>
+    <p><strong>Safe cache.</strong> The key is (overlay fingerprint, game generation, horizon bucket of 48 ticks). The cache is recomputed once per bucket roll, and it is re-keyed if the elapsed time moves backwards. The set of <em>dry</em> portal sides (arrival later than the bucket end plus the horizon) seeds one multi-source Dijkstra over the side graph with static lengths. The result is <code>safeDistPx[side]</code> and <code>safeNext[side]</code>. The per-room flag "contains a dry cell" comes from <code>maxDamageArrival</code> in O(rooms), which is 302 on colossal. This is microseconds of work. No full-grid flow field and no full-grid scan runs on a bucket roll. (PR #408 built a full field again every 48 ticks. That is rejected.)</p>
+    <p><strong>Per-seat safety answers</strong> obey the contract of PR #409<sup class="ref"><a href="#src-26" title="PR #409 https://github.com/Metta-AI/coworld-ctf/pull/409">26</a></sup>. The answers are integers, and they are fog-safe because the paint front is public. If the own cell of the cog is dry, ticks_to_safety is 0. If not, and the own room has dry cells, a bounded legal BFS from the cog (fixed cap, 512 cells) finds the nearest dry cell. In all other cases the answer is the best of (walked chain distance to side <em>s</em> + <code>safeDistPx[s]</code>) over the portal sides of the room. The direction is the first step of the winner, as an octant. Every resolved source must satisfy the dry predicate (asserted). If not, the answer is "unreachable", and the literal point of the play stands. The identity of a <code>zone_safe_ground</code> target is (class, resolved source cell). The bucket is cache provenance, not intent identity, so an unchanged target never causes route churn. Resolution runs before the arrived test in <code>seatTick</code>, so the effective goal is the class target, not the fallback.</p>
+
+    <h3 id="design-query">4.3 Live route query (synchronous, bounded, runs only when a request changes)</h3>
+    <p>The inputs are the seat position, the <code>ValidatedGoal</code>, the cost profile, the danger field of the seat, the blocked-penalty cell, the overlay, and the elapsed zone tick.</p>
+    <ol>
+      <li><strong>Endpoint attach, both ends.</strong> The candidate anchor cells are within a ring of at most 4 nav cells (32 px, the current <code>EndpointSnapPx</code><sup class="ref"><a href="#src-34" title="src/shell/body_planner.nim:16 (EndpointSnapPx)">34</a></sup>), in fixed ring order. A candidate is accepted only if the exact pixel segment between the anchor and the endpoint passes <code>segmentClear</code>. No candidate is a typed failure. Then the follower keeps an advancing old route if it has one, or it steers. The route always ends at <code>goal.goalPoint</code> itself, as the path of the current planner does<sup class="ref"><a href="#src-35" title="src/shell/body_planner.nim:666-676">35</a></sup>. The play path does not use <code>BodyMap.nearestWalkable</code>, whose ring has no bound<sup class="ref"><a href="#src-36" title="src/shell/body_map.nim:418-427 (nearestWalkable, unbounded ring)">36</a></sup>.</li>
+      <li><strong>Same-room candidates</strong> apply when the start and the goal share a room. Candidate (a) is the straight line, if every cell step along it is legal. Candidate (b) goes through the best portal side of the room. The query walks both next-hop chains (O(degree x chain) reads) and stays inside the room. Candidate (c) is a bounded weighted room-local A* over <code>legalMoves</code> in a shared generation-stamped workspace, with a <em>fixed</em> expansion cap. The cap is a constant derived from latency. 4,096 is the first hypothesis. The cap is never derived from room size, because rooms reach 70,041 cells. The query scores all candidates with the full cost model, and the cheapest wins. A cap hit only removes candidate (c).</li>
+      <li><strong>Side-graph A*.</strong> The start and the goal are virtual nodes. Exactly scored chains (danger, blocked cell, hazard advanced cell by cell) attach them to the portal sides of their rooms. The edge cost = static length + danger-weighted cost + blocked factor + hazard price. The heuristic is the exact integer octile distance, 181 x min(dx, dy) + 128 x (max(dx, dy) - min(dx, dy)), over <em>cell-index</em> deltas between anchors. That heuristic is admissible for the encoded metric. The golden oracle states this formula and every rounding rule, so the integer implementation and the reference cannot disagree by convention. Ties go to (cost, side index). A constant expansion cap of 4,096 pops, more than the side count of any supported map, only guards against bugs. The workspace arrays have the size of the side count, and all seats <em>share</em> them (queries are sequential). They have generation stamps, so the query clears nothing.</li>
+      <li><strong>Segment-cost memo.</strong> <em>One</em> shared, query-local memo keyed by edge ID holds the danger-weighted segment costs. Each directed edge has a 4 B value plus a 2 B generation stamp (27,460 x 6 B = 165 KB on colossal, counted in the retained shared total). Nothing is memoised per seat, and nothing is cleared per query. The blocked factor applies to segments whose bounding box contains the blocked cell and whose cell list contains it.</li>
+      <li><strong>Hazard price per edge.</strong> The query starts from the entry ETA. It advances the ETA along the cells of the segment by their 1/16 px lengths at 2.0625 px per tick (an integer ratio), and applies the finite ramp at each cell in traversal order. The per-segment extrema only skip segments that are provably zero or provably saturated. The price is finite. It is never a prune.</li>
+      <li><strong>Assemble and install.</strong> The query assembles the whole route descriptor in shared query scratch: the ordered edge IDs with direction, the copied start leg or local leg, the copied goal leg, and the exact endpoint connectors. It validates every leg. Only then does it copy the descriptor into the fixed buffers of the seat and change the route revision. The edge-descriptor buffer holds 4,096 entries. That bound is safe because a non-negative shortest path is simple, and activation asserts it. The start/local and goal leg buffers hold 512 cells each. Their size comes from the search cap and the measured maximum chain (213 cells giant, 436 colossal). A failed query never touches the active route.</li>
+    </ol>
+    <p><strong>Cost estimate on giant</strong>, to be replaced by the numbers of subtask 09: the attach step is at most 2 x 46 sides x at most 213 cells, about 20k cell reads. The A* is at most 738 sides and 8,748 directed edges with O(1) memoised edge cost. The segments that the search relaxes bound a cold memo fill. In the worst case that is every segment, 224,822 cell reads, about 0.2-0.4 ms. This is the one estimate that can put the 5 ms maximum at risk, if all 16 seats query cold in the same tick. Thus the benchmark includes exactly that burst, and the fallback is to sample every second cell.</p>
+
+    <figure>
+      <svg viewBox="0 0 720 330" width="100%" role="img" aria-label="Activation time as a multiple of the BodyMap baseline, with the 2x and 3x caps">
+        <!-- axis: multiples of baseline, 0..3.2x; x0=150, 160 px per 1.0x -->
+        <text x="20" y="22" font-family="Merriweather Sans" font-size="11" font-weight="700" letter-spacing="1.2" fill="#555555">ACTIVATION TIME AS A MULTIPLE OF THE BODYMAP BASELINE (probe, arm64, same run)</text>
+        <g stroke="#e4dac8" stroke-width="1">
+          <line x1="150" y1="36" x2="150" y2="262"/>
+          <line x1="310" y1="36" x2="310" y2="262"/>
+          <line x1="470" y1="36" x2="470" y2="262" stroke="#b36e4e" stroke-dasharray="4 3"/>
+          <line x1="630" y1="36" x2="630" y2="262" stroke="#b36e4e" stroke-dasharray="4 3"/>
+        </g>
+        <g font-family="Merriweather Sans" font-size="11" fill="#999999" text-anchor="middle">
+          <text x="150" y="278">0x</text>
+          <text x="310" y="278">1x (BodyMap alone)</text>
+          <text x="470" y="278" fill="#b36e4e">2x cap (pool maps)</text>
+          <text x="630" y="278" fill="#b36e4e">3x cap (colossal)</text>
+        </g>
+        <!-- pool:1: 499 + 231 = 730 -> 1.46x ; index width = 231/499*160 = 74 -->
+        <text x="20" y="58" font-family="Merriweather Sans" font-size="12" fill="#111827">pool:1 giant</text>
+        <rect x="150" y="44" width="160" height="18" fill="#d4c9b5"/>
+        <rect x="310" y="44" width="74" height="18" fill="#1a3875"/>
+        <text x="392" y="58" font-family="Merriweather Sans" font-size="11" fill="#111827">499 + 231 ms = 1.46x</text>
+        <!-- pool:2: 497 + 283 = 780 -> 1.57x ; 283/497*160 = 91 -->
+        <text x="20" y="94" font-family="Merriweather Sans" font-size="12" fill="#111827">pool:2 giant</text>
+        <rect x="150" y="80" width="160" height="18" fill="#d4c9b5"/>
+        <rect x="310" y="80" width="91" height="18" fill="#1a3875"/>
+        <text x="409" y="94" font-family="Merriweather Sans" font-size="11" fill="#111827">497 + 283 ms = 1.57x</text>
+        <!-- pool:5: 479 + 189 = 668 -> 1.39x ; 189/479*160 = 63 -->
+        <text x="20" y="130" font-family="Merriweather Sans" font-size="12" fill="#111827">pool:5 giant</text>
+        <rect x="150" y="116" width="160" height="18" fill="#d4c9b5"/>
+        <rect x="310" y="116" width="63" height="18" fill="#1a3875"/>
+        <text x="381" y="130" font-family="Merriweather Sans" font-size="11" fill="#111827">479 + 189 ms = 1.39x</text>
+        <!-- pool:12: 211 + 108 = 319 -> 1.51x ; 108/211*160 = 82 -->
+        <text x="20" y="166" font-family="Merriweather Sans" font-size="12" fill="#111827">pool:12 huge</text>
+        <rect x="150" y="152" width="160" height="18" fill="#d4c9b5"/>
+        <rect x="310" y="152" width="82" height="18" fill="#1a3875"/>
+        <text x="400" y="166" font-family="Merriweather Sans" font-size="11" fill="#111827">211 + 108 ms = 1.51x</text>
+        <!-- pool:0: 62 + 15 = 77 -> 1.24x ; 15/62*160 = 39 -->
+        <text x="20" y="202" font-family="Merriweather Sans" font-size="12" fill="#111827">pool:0 standard</text>
+        <rect x="150" y="188" width="160" height="18" fill="#d4c9b5"/>
+        <rect x="310" y="188" width="39" height="18" fill="#1a3875"/>
+        <text x="357" y="202" font-family="Merriweather Sans" font-size="11" fill="#111827">62 + 15 ms = 1.24x</text>
+        <!-- colossal: 2263 + 2245 = 4508 -> 1.99x ; 2245/2263*160 = 159 -->
+        <text x="20" y="238" font-family="Merriweather Sans" font-size="12" fill="#111827">colossal</text>
+        <rect x="150" y="224" width="160" height="18" fill="#d4c9b5"/>
+        <rect x="310" y="224" width="159" height="18" fill="#1a3875"/>
+        <text x="477" y="238" font-family="Merriweather Sans" font-size="11" fill="#111827">2,263 + 2,245 ms = 1.99x (cap 3x)</text>
+        <!-- legend -->
+        <rect x="20" y="296" width="12" height="12" fill="#d4c9b5"/>
+        <text x="38" y="306" font-family="Merriweather Sans" font-size="11" fill="#555555">BodyMap build (baseline, same run)</text>
+        <rect x="260" y="296" width="12" height="12" fill="#1a3875"/>
+        <text x="278" y="306" font-family="Merriweather Sans" font-size="11" fill="#555555">index build (probe; an upper bound on the proposed shape)</text>
+        <text x="20" y="324" font-family="Merriweather Sans" font-size="11" fill="#555555">Each row is normalised to its own baseline, so bar lengths compare ratios, not milliseconds; the labels carry the milliseconds.</text>
+      </svg>
+      <figcaption><span class="fig-label">Figure 4</span>Activation time versus the gate. Each bar is BodyMap build plus index build, drawn as a multiple of that map's BodyMap baseline in the same run. Pool maps land at 1.24-1.57x against a 2x cap; colossal lands at 1.99x against a 3x cap. The probe kept full distance fields, so the real index build should be no slower. Canonical numbers come from the linux/amd64 gate run.</figcaption>
+    </figure>
+
+    <h3 id="design-follow">4.4 Following and immediate movement (every navigate tick)</h3>
+    <ul>
+      <li><strong>Legs, not a map-sized path.</strong> The follower executes the legs of the descriptor. The start/local leg and the goal leg come from the copied buffers of the seat. The middle legs come from the index by (edge id, direction, offset). The crossings come from the stored crossing cells. The last leg is the pixel connector to the exact goal. The waypoint advance, corridor, stuck and blocked-penalty rules keep their current values.</li>
+      <li><strong>Follow-time smoothing.</strong> The follower looks ahead up to K = 6 cells along the current leg. It targets the farthest point whose exact pixel segment from the actual position of the cog passes <code>segmentClear</code>. This removes portal-point kinks and octile zig-zags, and it is what keeps short gate crossings under the 3 % gate. The corpus measures executed masks, so the smoothing is inside the measurement.</li>
+      <li><strong>Advancing route.</strong> A route advances when its next waypoint is farther than the arrive radius from the cog. An arrived endpoint is <em>not</em> an advancing route.</li>
+      <li><strong>Local steering</strong> runs when there is no advancing route (a failed query, or an exhausted route while the goal changed). It evaluates the eight octants in <code>Neighbors</code> order. The candidate is self + 8 px along the octant. It rejects the candidate if <code>canStand</code> fails, if pixel <code>segmentClear</code> fails, or if the candidate is the blocked-penalty cell. Score = distance-to-target reduction (target = the next waypoint if any, or the goal) minus profile-weighted danger minus hazard price, in integers. It selects the maximum, and ties go to octant order. If no candidate makes progress, the cog stands and records <code>bnsNoProgress</code>. The rule is O(8) and allocates nothing.</li>
+      <li><strong>Diagnostic states</strong> become: idle, following, steering, no-progress, arrived. <code>bnsStalePath</code> is removed. It can no longer claim motion while the cog is stationary.</li>
+    </ul>
+
+    <h3 id="design-lifecycle">4.5 Request lifecycle</h3>
+    <ul>
+      <li><code>setStandingIntent</code> no longer touches navigation. The cancel<sup class="ref"><a href="#src-5" title="src/shell/body.nim:565-590 (cancel at :582-583)">5</a></sup> and the goal pin both go, and the pins go with the route-field slots. The nav coordinator owns every request decision.</li>
+      <li><strong>Route anchor</strong> = the goal cell of the last <em>accepted</em> request, installed or failed. A query runs if and only if one of these conditions is true: there is no route in this life, the goal cell differs from the anchor by more than 2 cells (<code>ReplanGoalCells</code>) on an axis, the profile changed, the seat was stuck for 8 ticks, the goal moves and 12 ticks passed since the last query, or the current route is exhausted. Sub-threshold moves do not move the anchor, so cumulative one-cell drift causes a query in the end. Epoch and provenance changes are invisible to navigation.</li>
+      <li>Queries are synchronous. Thus there is no pending state and nothing to cancel, and the replacement is ready in the same call. After a failed query, the seat keeps the old route only while it advances. If not, the seat steers.</li>
+      <li><strong>Death</strong> (<code>resetAfterDeath</code><sup class="ref"><a href="#src-11" title="src/shell/episode.nim:987-997; src/shell/body_nav.nim:305-306">11</a></sup>) clears the route descriptors, the leg buffers, the cursor, the anchor, the revision, lastXy, stuckTicks, the blocked penalty, the last-query tick, the follow counters, the desired profile and moving flags, and the semantic target identity. <em>Then</em> it calls <code>setSeatActive(false)</code>. The danger rebuild already skips inactive seats<sup class="ref"><a href="#src-37" title="src/shell/body_nav.nim:481-483">37</a></sup>, and an assertion makes sure that no query touches an inactive seat. The shared index, the overlay and the safe cache persist.</li>
+    </ul>
+
+    <h3 id="design-arith">4.6 Arithmetic and determinism</h3>
+    <p>Search costs are integers in 1/16 px. An orthogonal step is 128, and a diagonal step is 181, with the exact integer octile heuristic from §4.3. A Euclidean heuristic in these units is <em>not</em> admissible: 181/128 = 1.4140625 &lt; √2, and 53 diagonal steps already show the gap. The search samples danger from the existing float32 field and quantises it to 1/256 at the point of use. That is at most 0.49 % relative error on a carrier-profile path, and the report compares it with the unquantised oracle. Profile weights are integer ratios over 256 (256, 640, 64). The blocked factor 8 is exact. The hazard ramp is in integer ticks. Every rational product rounds to nearest. Totals are in checked int64. The cost-gate <em>oracle</em> stays the 4 px float formula of the task, and it scores the returned route. The gate must see the quantisation of the search, so the oracle never adopts it.</p>
+    <p>Route choice uses no clocks, threads, async work, pointer identity or hash-iteration order. Replays re-drive input masks, and no body_* module is in the wasm build (PR #408 showed this<sup class="ref"><a href="#src-24" title="PR #408 https://github.com/Metta-AI/coworld-ctf/pull/408">24</a></sup>). Thus archived replays stay valid. Movement masks do change. Thus a collision-free <code>GameVersion</code> (currently "52"<sup class="ref"><a href="#src-38" title="src/ctf/sim_types.nim:58 (GameVersion)">38</a></sup>), all nine replay fixtures<sup class="ref"><a href="#src-39" title="AGENTS.md:377-401 (replay fixtures)">39</a></sup> and the committed replay viewer are recorded again after the gates pass.</p>
+
+    <h3 id="design-deleted">4.7 Deleted</h3>
+    <p>The rework deletes <code>BodyPlanner</code> and its lattice workspace, <code>BodyFieldMinter</code>, the route-field slots in <code>BodySeatCache</code> (<code>MaxRouteFieldsPerSeat</code>, pins, <code>peekRouteDistance</code>), the plan and mint jobs, <code>ColdPlanBudgetPerTick</code>, <code>runPlanningTick</code>, <code>prewarmColdPlans</code>, the plan budget events and traces, the scheduler cursors, and <code>bnsStalePath</code>. The duck cache stays, because cover-hold owns it. Per-seat route-query state decreases from about 68 MB to about 12 KB (edge descriptors 8 KB, two 512-cell leg buffers 4 KB). The per-seat danger and visited rasters (0.7 MB giant, 2.75 MB colossal) do not change, and they are outside this task. A uint8 danger raster with a shared visited raster is a listed follow-up.</p>
+  </section>
+
+  <!-- ============ 5 Decisions ============ -->
+  <section id="decisions">
+    <h2>5 · Decisions and rejected alternatives</h2>
+    <ul class="key-points">
+      <li>A hierarchical room/portal index over <code>BodyMap</code>'s existing rooms and chokes, with 8 px cells and exact pixel endpoint connectors.</li>
+      <li>One static segment per portal pair, scored dynamically. A portal-side graph, so that crossings are always paid. Integer fixed-point costs.</li>
+      <li>Each record below names the decision, what lost, and why it lost.</li>
+    </ul>
+
+    <div class="decision">
+      <span class="decision-label">Decision</span>
+      <p><strong>An HPA*-style room/portal index over BodyMap's rooms and chokes.</strong></p>
+      <p><strong>Rejected:</strong> JPS, because its benefit assumes uniform static costs, and here the costs are profile-weighted danger, blocked cells and zone time. Recast/Detour, which has the correct behavior model, but it is a C++ 3D navmesh and an FFI dependency for a deterministic integer-bitmap Nim sim. D* Lite, which targets edge costs that change, but here the topology is static and the goals churn. Continuum crowds, which amortise shared destinations, but the seats have distinct goals and danger fields. No maintained Nim package covers deterministic hierarchical game navigation. Also rejected: the resumable scheduler with priority for no-route seats. It still needs map-sized per-seat state, it still takes hundreds of ticks for far routes, and steering alone lets cogs walk greedily into dead ends for seconds.</p>
+    </div>
+
+    <div class="decision">
+      <span class="decision-label">Decision</span>
+      <p><strong>8 px cells with centre anchors and exact pixel endpoint connectors as the baseline.</strong></p>
+      <p><strong>Rejected as baseline:</strong> a 4 px index, which needs 4x the field memory (about 76 MB on colossal, more than the limit). Per-cell sub-lattice anchors plus sparse 4 px micro-corridor nodes, which the Codex reviewer preferred. That option stays as the documented <em>contingency</em> if the corpus gate reports a missing route. The probes show that the spawn component keeps 98.7-99.3 % of standable pixels, and the connector covers the rest on the sampled maps.</p>
+    </div>
+
+    <div class="decision">
+      <span class="decision-label">Decision</span>
+      <p><strong>One static segment per portal pair, scored dynamically, plus bounded weighted refinement in the endpoint rooms.</strong> This is the explicit trade of the task: "dynamic global danger may select among precomputed structural route segments; the engine does not need the exact cell-by-cell dynamic optimum."</p>
+      <p><strong>Rejected:</strong> <em>k</em> alternative segments per pair, which costs more memory with no evidence that it is necessary. The gate decides.</p>
+    </div>
+
+    <div class="decision">
+      <span class="decision-label">Decision</span>
+      <p><strong>One shared, query-local segment-cost memo keyed by edge ID.</strong></p>
+      <p><strong>Rejected:</strong> an eager per-seat refresh at every danger rebuild, which touches every segment every 32 ticks whether or not a query uses it (13,730 segments per seat per generation on colossal). A per-seat lazy memo, which is 13,730 x 4 B = 55 KB per seat on colossal, against the intent that per-seat query state stays small.</p>
+    </div>
+
+    <div class="decision">
+      <span class="decision-label">Decision</span>
+      <p><strong>A route is ordered edge IDs with direction over a portal-side graph, with legs executed from the index, endpoint legs copied into small fixed buffers, and the whole descriptor validated in shared scratch before an atomic copy.</strong></p>
+      <p><strong>Rejected:</strong> a per-seat flat cell buffer with prefix truncation, which adds a second query/install lifecycle for a case that "cannot occur". A prefix that is accepted in silence is not a route. An ordered <em>portal</em> list over collapsed portal nodes, which lets the search change rooms without payment for the crossing, and which cannot say which of two parallel segments won. Live descent on the static portal field for the start leg, which discards a weighted local result and reads a shared workspace that the next query overwrites.</p>
+    </div>
+
+    <div class="decision">
+      <span class="decision-label">Decision</span>
+      <p><strong>Follow-time smoothing with the exact pixel predicate from the cog's real position.</strong></p>
+      <p><strong>Rejected:</strong> query-time polyline smoothing, because the cog is rarely on the polyline, and a Bresenham walk over cells proves a staircase, not the chord.</p>
+    </div>
+
+    <div class="decision">
+      <span class="decision-label">Decision</span>
+      <p><strong>Semantic target identity is (class, source cell), not the bucket.</strong></p>
+      <p><strong>Rejected:</strong> the bucket in the identity, which forces a replan every 48 ticks with an unchanged target.</p>
+    </div>
+
+    <div class="decision">
+      <span class="decision-label">Decision</span>
+      <p><strong>The hazard overlay is immutable. The per-bucket safe results live in a separate bounded cache.</strong></p>
+      <p><strong>Rejected:</strong> one object holding both, which contradicts the ownership and lifecycle claims.</p>
+    </div>
+
+    <div class="decision">
+      <span class="decision-label">Decision</span>
+      <p><strong>Integer fixed-point costs (128/181) with the exact integer octile heuristic. uint8 next-hop portal fields.</strong></p>
+      <p><strong>Rejected:</strong> float costs, because tie outcomes drift across builds. A Euclidean heuristic in the same units, which is not admissible (181/128 &lt; √2). uint16 distance fields, which take twice the memory, and 1/16 px units overflow on a 436-cell chain. An oracle that shares the quantisation of the search, which hides exactly the error that the 3 % gate exists to catch.</p>
+    </div>
+
+    <div class="decision">
+      <span class="decision-label">Decision</span>
+      <p><strong>Zone data: consume <code>damage</code>, gate on <code>zoneDamageByPaint</code>, and pass the live elapsed zone tick into the step.</strong></p>
+      <p><strong>Rejected:</strong> the <code>arrival</code> surface, which gives false safe lanes under wall art. The absolute sim tick, because the schedule runs on elapsed ticks. A snapshot of <code>gameStartTick</code> at FirstLight construction, because it is -1 until <code>startGame</code>, and it changes between games.</p>
+    </div>
+
+    <div class="decision">
+      <span class="decision-label">Decision</span>
+      <p><strong>Room "contains dry cells" comes from a per-room <code>maxDamageArrival</code> computed once at overlay build.</strong></p>
+      <p><strong>Rejected:</strong> a linear pass over all nav cells on every bucket roll, which is 343,256 reads every 48 ticks on colossal for a value that never changes.</p>
+    </div>
+  </section>
+
+  <!-- ============ 6 Gates ============ -->
+  <section id="gates">
+    <h2>6 · Gates</h2>
+    <ul class="key-points">
+      <li>The gates come from the task. The design must pass them, not redefine them.</li>
+      <li>Legality and reachability are absolute. Cost inflation, body time and activation are numeric thresholds, measured on the canonical linux/amd64 build.</li>
+      <li>Structural gates forbid any full-grid search on a play tick and any map-sized per-seat query state.</li>
+    </ul>
+
+    <table>
+      <thead>
+        <tr><th>Gate</th><th>Threshold</th><th>Where and how measured</th></tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>Legality and reachability</td>
+          <td>Every route is collision-legal and ends at the same validated goal and component as the current planner. A missing route is a failure, never a sample.</td>
+          <td>The route corpus (below). The offline coverage proof of §4.1 for topology.</td>
+        </tr>
+        <tr>
+          <td>Cost inflation</td>
+          <td>p95 ≤ 3.0 % and max ≤ 10.0 %, overall and within every stratum, with each stratum reported separately. An empty stratum is a failure.</td>
+          <td>The checked-in literal corpus: 64 pool maps, 16-seat published and 32-seat supported rosters, cpDefault, cpCarrier and cpHunter, four dynamic snapshots (none, literal danger, literal blocked cell, both), near and far. C(R) = the sum over consecutive steps, after deterministic 4 px resampling, of Euclidean step length x (1 + profileDangerWeight x danger(midpoint)), x8 when the midpoint's NavCell is the blocked cell. Inflation = 100 x (C(candidate) - C(current)) / C(current). After cover-hold lands, the corpus gains a cold transition to a cover goal.</td>
+        </tr>
+        <tr>
+          <td>Body time</td>
+          <td>Complete FirstLight body slice p95 ≤ 4.0 ms and max ≤ 5.0 ms, for 16 and 32 seats.</td>
+          <td>linux/amd64 Docker release (Nim 2.2.4, pinned nimby.lock, -d:release -d:useMalloc --threads:on --opt:speed), one production-equivalent CPU, five warmups, 30 repetitions. Timed inclusively: every seat body tick, danger rebuild, query, steering and bookkeeping, but not guest runtime or view encoding. Hard cases: simultaneous first goals for all seats, all-seat moving-goal replans, bucket and danger-generation rollover ticks, stuck replans, worst-degree rooms, cold memo.</td>
+        </tr>
+        <tr>
+          <td>Activation time</td>
+          <td>Map + index within 2x the current BodyMap baseline on every published pool map, and within 3x on colossal.</td>
+          <td>Same image, same run as the baseline.</td>
+        </tr>
+        <tr>
+          <td>Retained shared nav data</td>
+          <td>≤ 16 MiB on pool maps. ≤ 32 MiB on colossal. The transient build peak is reported separately.</td>
+          <td>Subtask 02's index gate run.</td>
+        </tr>
+        <tr>
+          <td>No live full-grid search</td>
+          <td>No active-play tick schedules or advances a full-grid search.</td>
+          <td>Asserted in tests and diagnostics.</td>
+        </tr>
+        <tr>
+          <td>Bounded per-seat query state</td>
+          <td>Per-seat query state contains no array sized by map width, height or fine-node count.</td>
+          <td>Asserted at activation.</td>
+        </tr>
+        <tr>
+          <td>Versioning</td>
+          <td>GameVersion bumped, nine fixtures re-recorded, viewer rebuilt.</td>
+          <td>After the gates above pass.</td>
+        </tr>
+      </tbody>
+    </table>
+  </section>
+
+  <!-- ============ 7 Risks ============ -->
+  <section id="risks">
+    <h2>7 · Risks and mitigations</h2>
+    <ul class="key-points">
+      <li>The latency risks are the cold memo burst and huge rooms. Both have a fixed-cap or sampling fallback that never raises the playing-tick cap.</li>
+      <li>The correctness risks are the static-segment trade, two-sided anchors, and clock or platform drift. Each fails loudly, or a gate bounds it.</li>
+      <li>The hazard model is conservative-late and single-label. Both are accepted with a named adversarial test.</li>
+    </ul>
+
+    <div class="callout callout-warn">
+      <span class="callout-label">Risk</span>
+      <strong>Cold memo burst.</strong> All seats query in the same tick with empty memos. Mitigation: the benchmark includes exactly that case. The fallback is to sample every second segment cell (half the reads), or a per-tick memo-fill cap that degrades the remaining edges to static cost deterministically.
+    </div>
+    <div class="callout callout-warn">
+      <span class="callout-label">Risk</span>
+      <strong>Rooms are huge (70k cells).</strong> The same-room path relies on the straight line, the via-portal candidate and a local A* with a fixed latency-derived cap, never a cap derived from room size. On a cap hit, the portal candidate's full inflation counts in its stratum, and failing the 10 % max means adding structural alternatives to the index rather than raising the playing-tick cap.
+    </div>
+    <div class="callout callout-warn">
+      <span class="callout-label">Risk</span>
+      <strong>A static segment cannot dodge danger inside a room.</strong> This is the trade that the task accepts. Endpoint refinement and the cost gate bound it.
+    </div>
+    <div class="callout callout-warn">
+      <span class="callout-label">Risk</span>
+      <strong>Portal pairs unreachable inside their room (1-5 %).</strong> The abstract graph routes through neighbouring rooms. If the gate shows inflation from this, extend the build-time Dijkstra to a bounded margin outside the room.
+    </div>
+    <div class="callout callout-warn">
+      <span class="callout-label">Risk</span>
+      <strong>Two-sided portal anchors that cannot be joined by a bounded crossing search.</strong> This is an activation failure with a message naming the choke. Measured mismatch counts are 0-12 per map.
+    </div>
+    <div class="callout callout-warn">
+      <span class="callout-label">Risk</span>
+      <strong>The hazard arrival estimate is conservative-late.</strong> This is safe only because the hazard is a price, not a prune. The document and the code carry the warning from PR #408.
+    </div>
+    <div class="callout callout-warn">
+      <span class="callout-label">Risk</span>
+      <strong>Zone clock origin drift</strong>, for example a config reload mid-episode. The overlay stores the fingerprint. A mismatch at the safe-cache key is an assertion, not a silent stale answer.
+    </div>
+    <div class="callout callout-warn">
+      <span class="callout-label">Risk</span>
+      <strong>Determinism drift between arm64 development and linux/amd64 canonical builds.</strong> Route choice uses integer arithmetic everywhere. The corpus hashes are compared across both platforms.
+    </div>
+    <div class="callout callout-warn">
+      <span class="callout-label">Risk</span>
+      <strong>Search-side danger quantisation (1/256) versus the float oracle.</strong> Bounded at 0.49 % relative error on a carrier-profile path. It is reported, and never hidden by quantisation of the oracle.
+    </div>
+    <div class="callout callout-warn">
+      <span class="callout-label">Risk</span>
+      <strong>Single-label search versus a time-dependent hazard.</strong> The side-graph A* carries one (cost, physical length) label per node, but a slightly dearer, shorter prefix can reach a later segment before the paint does. Qualification includes that adversarial case. If the single-label search misses the intended safe route, the search keeps an earliest-arrival alternative label per node, never a larger playing-tick cap.
+    </div>
+  </section>
+
+  <!-- ============ 8 Rollout ============ -->
+  <section id="rollout">
+    <h2>8 · Rollout</h2>
+    <ul class="key-points">
+      <li>Eleven Asana subtasks, in order. Tests and the index gate come first. Deletion of the live planner comes last.</li>
+      <li>Blocked today only by the cover-hold task, which defines the cover destination contract.</li>
+    </ul>
+    <ol>
+      <li>Freeze the route corpus and add failing liveness and no-live-search tests.</li>
+      <li>Build and gate the immutable shared <code>BodyRouteIndex</code> on all 64 maps plus colossal: measure components, portal sides, segments, bytes and build time. Run the exhaustive pixel-coverage proof of §4.1. Fail closed.</li>
+      <li>Bounded hierarchical route queries over precomputed segments.</li>
+      <li>Precomputed danger scoring and the immutable zone-hazard overlay (after 03).</li>
+      <li>Stable safety hints and zone-safe semantic targets (after 03).</li>
+      <li>Coalesce literal and semantic goals against stable route anchors (after 01).</li>
+      <li>Deterministic local steering and full per-life reset.</li>
+      <li>Route, hazard, wire, lifecycle and diagnostic regressions.</li>
+      <li>All-map route quality, activation, memory and 16/32-seat tick gates.</li>
+      <li>Remove live full-grid planning and version the gameplay and wire change.</li>
+      <li>Final server, shell, replay, viewer and documentation verification.</li>
+    </ol>
+    <div class="callout callout-info">
+      <span class="callout-label">Blocked on</span>
+      Cover-hold task 1218165969208626, which defines the cover destination contract. After it lands: rebase, add its cold transition to the corpus, and move the parent task to Ready for Agent.
+    </div>
+  </section>
+
+  <!-- ============ 9 Open questions ============ -->
+  <section id="open-questions">
+    <h2>9 · Open questions</h2>
+    <div class="callout callout-open">
+      <span class="callout-label">Open</span>
+      Whether the danger raster should shrink to uint8 with a shared visited raster in the same change. The task puts it out of scope, but it dominates per-seat memory after this rework.
+    </div>
+    <div class="callout callout-open">
+      <span class="callout-label">Open</span>
+      Whether <code>pairsUnreachableInRoom</code> should be closed by a bounded margin in the build-time Dijkstra before the gate run, or only if the gate fails.
+    </div>
+    <div class="callout callout-open">
+      <span class="callout-label">Open</span>
+      The exact local-A* expansion cap and the smoothing lookahead K. Both start at the values in §4.3 and §4.4 (4,096 expansions, K = 6) and are tuned only from the latency and corpus results.
+    </div>
+    <div class="callout callout-open">
+      <span class="callout-label">Open</span>
+      Whether the corpus should include colossal (supported, not pooled) for the latency gate as well as the memory gate.
+    </div>
+  </section>
+
+  <!-- ============ 10 Review record ============ -->
+  <section id="review">
+    <h2>10 · Review record</h2>
+    <ul class="key-points">
+      <li>Three Codex rounds: round 1 fact checks and simplifications, round 2 REVISE with seven corrections, round 3 GO with three implementation-proof notes.</li>
+      <li>Everything accepted is in §4 and §5 above. Nothing stays as a dissent.</li>
+    </ul>
+
+    <h3>Round 1: fact checks and simplifications, all accepted</h3>
+    <p>Fact checks included: the <code>damage</code> versus <code>arrival</code> surface distinction. The derated ETA speed. The current connector scan has no bound<sup class="ref"><a href="#src-40" title="src/shell/body_planner.nim:399-435 (unbounded connector scan)">40</a></sup>, so the new attach needs its own bound. One-based versus zero-based room ids. Colossal has 13,730 pairs and 27,460 directed edges. Per-seat danger rasters are 2.75 MB on colossal. The zone field is built on first use and needs a server seam. There are nine fixtures. The overlay must be separate from the mutable safe cache.</p>
+    <p>Simplifications accepted: one legality oracle. No room-repair BFS. No <code>portalArrival</code> array. No bucket in target identity. No prefix truncation. Class resolution before the arrived test.</p>
+
+    <h3>Round 2: REVISE, seven corrections, all accepted</h3>
+    <ol>
+      <li>The Euclidean heuristic was not admissible in 1/16 px units. The exact octile heuristic replaced it. Portal fields became uint8 next-hops. The cost oracle stays float.</li>
+      <li>Portal <em>sides</em> are the graph nodes, and routes store edge IDs with direction, because collapsed portal nodes let a room change skip the crossing cost.</li>
+      <li>The query assembles and validates the route descriptor in shared scratch before an atomic copy. The segment memo is shared and query-local, not per seat.</li>
+      <li>The local search cap is a latency-derived constant, never room size.</li>
+      <li>No <code>gameStartTick</code> snapshot, because it is -1 until <code>startGame</code>. The server passes the elapsed zone tick into the step.</li>
+      <li>The 8 px coverage becomes an exhaustive offline proof in subtask 02.</li>
+      <li>Room dry flags come from a per-room <code>maxDamageArrival</code>, and hazard pricing advances the ETA cell by cell.</li>
+    </ol>
+
+    <h3>Round 3: GO, with three implementation-proof notes folded in</h3>
+    <ol>
+      <li>Memo accounting: the shared segment-cost memo is counted in the retained shared total (§4.3, item 4).</li>
+      <li>The octile heuristic is computed on cell-index deltas, with the rounding rule stated in the oracle (§4.3, item 3).</li>
+      <li>An adversarial earliest-arrival hazard case is part of qualification (§7, last risk).</li>
+    </ol>
+  </section>
+
+  <!-- ============ Sources ============ -->
+  <section id="sources">
+    <h2>11 · Sources</h2>
+    <p>One entry per cited source, in first-citation order. Line numbers refer to repo commit fad3029f (origin/main).</p>
+    <ol class="sources">
+      <li id="src-1"><span class="cite">docs/reports/s2-cog-body-tick-2026-09-03.md</span> — the tick-by-tick cog body report that established the symptom.</li>
+      <li id="src-2"><span class="cite">src/shell/body_nav.nim:687-693</span> — <code>followerWaypoint</code> returns the cog's own position when <code>pathLen == 0</code>.</li>
+      <li id="src-3"><span class="cite">src/shell/body.nim:1311-1330</span> — <code>seatTick</code> emits an empty movement mask and records <code>bnsNoPath</code>.</li>
+      <li id="src-4"><span class="cite">src/shell/body.nim:310</span> — <code>bnsStalePath</code>, "walking an older route".</li>
+      <li id="src-5"><span class="cite">src/shell/body.nim:565-590</span> — <code>setStandingIntent</code>; the pending-plan cancel is at :582-583.</li>
+      <li id="src-6"><span class="cite">src/shell/body_nav.nim:726-732</span> — <code>navigationWaypoint</code>'s two-cell goal hysteresis.</li>
+      <li id="src-7"><span class="cite">src/shell/body_planner.nim:15, :584-640</span> — the 4 px lattice constant and the resumable weighted A*.</li>
+      <li id="src-8"><span class="cite">src/shell/body_nav.nim:31, :572-628</span> — the 256-unit per-seat budget and the planning scheduler.</li>
+      <li id="src-9"><span class="cite">Asana task 1218165906459726 and its comments</span> — the task's measurements, gates and decisions (work-unit counts, tick counts, zero-movement counts, RSS).</li>
+      <li id="src-10"><span class="cite">src/shell/body_nav.nim:577-598</span> — the seat round-robin, which does not prioritise route-less seats.</li>
+      <li id="src-11"><span class="cite">src/shell/episode.nim:987-997; src/shell/body_nav.nim:305-306</span> — <code>resetAfterDeath</code> and the <code>active</code> flag it flips.</li>
+      <li id="src-12"><span class="cite">src/shell/body_nav.nim:572-619</span> — the scheduler never reads the seat's <code>active</code> flag.</li>
+      <li id="src-13"><span class="cite">src/shell/body_planner.nim:252-270</span> — <code>newBodyPlanner</code> sizes every workspace to the full lattice.</li>
+      <li id="src-14"><span class="cite">src/shell/body_nav.nim:197-233</span> — <code>newBodyNavSystem</code> allocates one planner, cache and path buffer per seat.</li>
+      <li id="src-15"><span class="cite">src/shell/body_cache.nim:54-64; src/shell/types.nim:441</span> — the four per-seat route-field rasters.</li>
+      <li id="src-16"><span class="cite">src/shell/body_map.nim:13, :20, :482-658</span> — <code>NavCell = 8</code>, <code>GateSeparationPx</code>, and <code>buildTopology</code>.</li>
+      <li id="src-17"><span class="cite">src/shell/body_map.nim:397-412</span> — <code>validateGoal</code>, the sole constructor of <code>ValidatedGoal</code>.</li>
+      <li id="src-18"><span class="cite">src/shell/body_map.nim:190-192, :194-205, :633-654</span> — <code>roomLabelAt</code> (one-based) versus <code>BodyRoom</code> / <code>BodyChoke.roomA/roomB</code> (zero-based).</li>
+      <li id="src-19"><span class="cite">src/shell/body_map.nim:164-165; src/shell/body_planner.nim:298-329, :610-617</span> — <code>canStand</code>, the pixel-exact <code>segmentClear</code>, and the planner's per-step legality.</li>
+      <li id="src-20"><span class="cite">src/shell/body_planner.nim:18, :618-628, :88-92</span> — <code>FollowBlockFactor</code>, the blocked-cell cost, and the profile danger weights.</li>
+      <li id="src-21"><span class="cite">src/shell/body_nav.nim:38-43, :687-717</span> — follower constants (corridor, stuck, blocked penalty) and the follower itself.</li>
+      <li id="src-22"><span class="cite">src/shell/body_nav.nim:30, :44, :440-485</span> — the per-seat danger field and its 32-tick staggered rebuild.</li>
+      <li id="src-23"><span class="cite">src/ctf/zone_field.nim:1593-1616, :1762-1796, :65, :263, :1644-1662</span> — <code>ZoneArrivalField</code> surfaces, <code>zonePaintedForDamageAt</code>, <code>ZoneFieldCellPx</code>, <code>ZoneNeverArrives</code>, <code>ensureZoneArrivalField</code>.</li>
+      <li id="src-24"><span class="cite">PR #408 — https://github.com/Metta-AI/coworld-ctf/pull/408</span> — MIN projection, finite hazard price, derated ETA speed, 48-tick bucket; verified that no body_* module is in the wasm build. Reference only, not to be merged.</li>
+      <li id="src-25"><span class="cite">src/ctf/sim_types.nim:514-518</span> — top speed 704/256 = 2.75 px/tick.</li>
+      <li id="src-26"><span class="cite">PR #409 — https://github.com/Metta-AI/coworld-ctf/pull/409</span> — fog-safe integer nav hints. Reference only, not to be merged.</li>
+      <li id="src-27"><span class="cite">PR #410 — https://github.com/Metta-AI/coworld-ctf/pull/410</span> — <code>navigate_to</code> with <code>target_class = "zone_safe_ground"</code> and a required literal fallback. Reference only, not to be merged.</li>
+      <li id="src-28"><span class="cite">tools/bench_body_port.nim nav-census (uncommitted)</span> — the nav census in §3; the census tool's diff is not yet committed.</li>
+      <li id="src-29"><span class="cite">scratch seg_probe.nim (this session)</span> — the index probe in §3: one room-bounded Dijkstra per (room, portal), full distance fields stored, no parent reuse.</li>
+      <li id="src-30"><span class="cite">scratch cell_probe.nim (this session)</span> — the cell probe in §3 over 8 pool maps.</li>
+      <li id="src-31"><span class="cite">src/shell/body_map.nim:24-27; src/shell/body_planner.nim:20-22, :298</span> — the duplicated <code>Neighbors</code> table and <code>segmentClear</code>.</li>
+      <li id="src-32"><span class="cite">src/ctf/server.nim:3857-3870</span> — <code>resetFirstLightForSim</code>, the server seam for the overlay.</li>
+      <li id="src-33"><span class="cite">src/ctf/sim.nim:1694-1696, :6679, :6750</span> — <code>gameStartTick</code> is -1 until <code>startGame</code> enters Playing.</li>
+      <li id="src-34"><span class="cite">src/shell/body_planner.nim:16</span> — <code>EndpointSnapPx</code> (32 px).</li>
+      <li id="src-35"><span class="cite">src/shell/body_planner.nim:666-676</span> — the current planner's path ends at <code>goal.goalPoint</code>.</li>
+      <li id="src-36"><span class="cite">src/shell/body_map.nim:418-427</span> — <code>nearestWalkable</code>, an unbounded ring search.</li>
+      <li id="src-37"><span class="cite">src/shell/body_nav.nim:481-483</span> — the danger rebuild already skips inactive seats.</li>
+      <li id="src-38"><span class="cite">src/ctf/sim_types.nim:58</span> — <code>GameVersion</code>, currently "52".</li>
+      <li id="src-39"><span class="cite">AGENTS.md:377-401</span> — the nine replay fixtures.</li>
+      <li id="src-40"><span class="cite">src/shell/body_planner.nim:399-435</span> — the current endpoint connector scan, which is unbounded.</li>
+    </ol>
+  </section>
+
+</article>
+
+<!-- ================================================================
+     DC-COMMENTS BEGIN — markup + script (copy verbatim; do not modify)
+     ================================================================ -->
+<aside id="dc-sidebar" aria-label="Comments">
+  <h2 class="dc-title">Comments <span id="dc-count"></span></h2>
+  <div class="dc-actions">
+    <button class="dc-btn" id="dc-export">Export JSON</button>
+    <button class="dc-btn" id="dc-copy">Copy JSON</button>
+    <button class="dc-btn" id="dc-import">Import…</button>
+    <input type="file" id="dc-file" accept=".json,application/json" hidden>
+  </div>
+  <div id="dc-status" role="status"></div>
+  <div id="dc-list"><p class="dc-empty">No comments yet. Select text in the document to add one.</p></div>
+</aside>
+<button id="dc-fab" type="button">+ Comment</button>
+<button id="dc-toggle" type="button">Comments</button>
+<!-- Preload slot: a renderer may put a dc-comments/1 `comments` array here (each comment optionally carrying `replies`). Merged by id into the stored comments on load. Leave empty otherwise. -->
+<script id="dc-preload" type="application/json"></script>
+
+<script>
+(() => {
+  'use strict';
+  const FORMAT = 'dc-comments/1';
+  const CTX = 32; // prefix/suffix context length, chars
+  const doc = document.getElementById('doc');
+  const fab = document.getElementById('dc-fab');
+  const listEl = document.getElementById('dc-list');
+  const countEl = document.getElementById('dc-count');
+  const statusEl = document.getElementById('dc-status');
+  const sidebar = document.getElementById('dc-sidebar');
+  const storeKey = 'dc:' + document.title;
+
+  let comments = []; // {id, exact, prefix, suffix, text, created, resolved}
+  let ranges = new Map(); // id -> Range (null if orphaned)
+  let seq = 0;
+
+  // ---- text indexing: one global string over #doc's text nodes ----
+  function docText() {
+    const r = document.createRange();
+    r.selectNodeContents(doc);
+    return r.toString();
+  }
+  function globalOffset(container, offset) {
+    const r = document.createRange();
+    r.setStart(doc, 0);
+    r.setEnd(container, offset);
+    return r.toString().length;
+  }
+  function offsetsToRange(start, end) {
+    const walker = document.createTreeWalker(doc, NodeFilter.SHOW_TEXT);
+    let pos = 0, range = document.createRange(), haveStart = false;
+    while (walker.nextNode()) {
+      const node = walker.currentNode, len = node.data.length;
+      if (!haveStart && pos + len >= start) {
+        range.setStart(node, start - pos);
+        haveStart = true;
+      }
+      if (haveStart && pos + len >= end) {
+        range.setEnd(node, end - pos);
+        return range;
+      }
+      pos += len;
+    }
+    return null;
+  }
+
+  // ---- anchoring: TextQuoteSelector-style exact + prefix/suffix ----
+  function selectorFromRange(range) {
+    const text = docText();
+    const start = globalOffset(range.startContainer, range.startOffset);
+    const end = globalOffset(range.endContainer, range.endOffset);
+    return {
+      exact: text.slice(start, end),
+      prefix: text.slice(Math.max(0, start - CTX), start),
+      suffix: text.slice(end, end + CTX),
+    };
+  }
+  function locate(c) {
+    const text = docText();
+    let i = text.indexOf(c.prefix + c.exact + c.suffix);
+    if (i >= 0) return offsetsToRange(i + c.prefix.length, i + c.prefix.length + c.exact.length);
+    i = text.indexOf(c.exact);
+    if (i >= 0) return offsetsToRange(i, i + c.exact.length);
+    return null;
+  }
+  function reanchorAll() {
+    ranges = new Map(comments.map(c => [c.id, locate(c)]));
+    paint();
+  }
+
+  // ---- painting via CSS Custom Highlight API ----
+  const hl = typeof Highlight !== 'undefined' ? new Highlight() : null;
+  const hlActive = typeof Highlight !== 'undefined' ? new Highlight() : null;
+  if (hl) { CSS.highlights.set('dc-hl', hl); CSS.highlights.set('dc-hl-active', hlActive); }
+  function paint(activeId) {
+    if (!hl) return;
+    hl.clear(); hlActive.clear();
+    for (const [id, r] of ranges) {
+      if (!r) continue;
+      (id === activeId ? hlActive : hl).add(r);
+    }
+  }
+
+  // ---- persistence (best-effort; file:// storage varies by browser) ----
+  function save() {
+    try { localStorage.setItem(storeKey, JSON.stringify(comments)); } catch (e) { /* unavailable on some file:// setups */ }
+  }
+  function load() {
+    try {
+      const raw = localStorage.getItem(storeKey);
+      if (raw) comments = JSON.parse(raw);
+    } catch (e) { /* ignore */ }
+  }
+
+  // ---- sidebar rendering ----
+  function flash(msg) {
+    statusEl.textContent = msg;
+    setTimeout(() => { if (statusEl.textContent === msg) statusEl.textContent = ''; }, 2500);
+  }
+  function sortedComments() {
+    const pos = c => {
+      const r = ranges.get(c.id);
+      return r ? globalOffset(r.startContainer, r.startOffset) : Infinity; // orphans last
+    };
+    return [...comments].sort((a, b) => pos(a) - pos(b));
+  }
+  function render(editingId) {
+    countEl.textContent = comments.length ? '(' + comments.length + ')' : '';
+    listEl.textContent = '';
+    if (!comments.length) {
+      const p = document.createElement('p');
+      p.className = 'dc-empty';
+      p.textContent = 'No comments yet. Select text in the document to add one.';
+      listEl.appendChild(p);
+      return;
+    }
+    for (const c of sortedComments()) {
+      const item = document.createElement('div');
+      item.className = 'dc-item' + (c.resolved ? ' dc-resolved' : '');
+      item.dataset.id = c.id;
+
+      const quote = document.createElement('div');
+      quote.className = 'dc-quote';
+      quote.textContent = c.exact.length > 90 ? c.exact.slice(0, 90) + '…' : c.exact;
+      if (!ranges.get(c.id)) {
+        const tag = document.createElement('span');
+        tag.className = 'dc-orphan-tag';
+        tag.textContent = 'orphaned';
+        quote.appendChild(tag);
+      }
+      item.appendChild(quote);
+
+      if (c.id === editingId) {
+        const ta = document.createElement('textarea');
+        ta.value = c.text;
+        ta.placeholder = 'Write a comment… (⌘/Ctrl+Enter to save, Esc to cancel)';
+        ta.addEventListener('keydown', e => {
+          if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') commit();
+          if (e.key === 'Escape') cancel();
+        });
+        ta.addEventListener('click', e => e.stopPropagation());
+        const saveBtn = document.createElement('button');
+        saveBtn.className = 'dc-btn';
+        saveBtn.textContent = 'Save';
+        saveBtn.style.marginTop = '6px';
+        saveBtn.addEventListener('click', e => { e.stopPropagation(); commit(); });
+        function commit() {
+          c.text = ta.value.trim();
+          if (!c.text) return cancel();
+          save(); render();
+        }
+        function cancel() {
+          if (!c.text) { comments = comments.filter(x => x.id !== c.id); ranges.delete(c.id); paint(); }
+          save(); render();
+        }
+        item.appendChild(ta);
+        item.appendChild(saveBtn);
+        listEl.appendChild(item);
+        requestAnimationFrame(() => ta.focus());
+        continue;
+      }
+
+      const text = document.createElement('div');
+      text.className = 'dc-text';
+      text.textContent = c.text;
+      item.appendChild(text);
+
+      if (Array.isArray(c.replies) && c.replies.length) {
+        const box = document.createElement('div');
+        box.className = 'dc-replies';
+        for (const r of c.replies) {
+          const who = document.createElement('div');
+          who.className = 'dc-reply-author';
+          who.textContent = 'Reply from ' + (r.author || 'agent') + (r.created ? ' · ' + String(r.created).slice(0, 10) : '');
+          const body = document.createElement('div');
+          body.className = 'dc-reply-text';
+          for (const part of String(r.text || '').split(/(https?:\/\/[^\s)]+)/g)) {
+            if (/^https?:\/\//.test(part)) {
+              const a = document.createElement('a');
+              a.href = part; a.target = '_blank'; a.rel = 'noopener';
+              a.textContent = part;
+              a.addEventListener('click', e => e.stopPropagation());
+              body.appendChild(a);
+            } else body.appendChild(document.createTextNode(part));
+          }
+          box.append(who, body);
+        }
+        item.appendChild(box);
+      }
+
+      const meta = document.createElement('div');
+      meta.className = 'dc-meta';
+      const when = document.createElement('span');
+      when.textContent = c.created.slice(0, 10);
+      const resolved = document.createElement('label');
+      const cb = document.createElement('input');
+      cb.type = 'checkbox';
+      cb.checked = !!c.resolved;
+      cb.addEventListener('click', e => e.stopPropagation());
+      cb.addEventListener('change', () => { c.resolved = cb.checked; save(); render(); });
+      resolved.append(cb, 'resolved');
+      const del = document.createElement('button');
+      del.className = 'dc-del';
+      del.textContent = 'delete';
+      del.addEventListener('click', e => {
+        e.stopPropagation();
+        comments = comments.filter(x => x.id !== c.id);
+        ranges.delete(c.id);
+        paint(); save(); render();
+      });
+      meta.append(when, resolved, del);
+      item.appendChild(meta);
+
+      item.addEventListener('click', () => {
+        const r = ranges.get(c.id);
+        if (!r) return flash('Anchor not found in this version of the document.');
+        const rect = r.getBoundingClientRect();
+        window.scrollTo({ top: window.scrollY + rect.top - 160, behavior: 'smooth' });
+        paint(c.id);
+        setTimeout(() => paint(), 2000);
+      });
+      // double-click text to edit
+      text.addEventListener('dblclick', e => { e.stopPropagation(); render(c.id); });
+      listEl.appendChild(item);
+    }
+  }
+
+  // ---- selection -> floating Comment button ----
+  document.addEventListener('mouseup', e => {
+    if (fab.contains(e.target)) return;
+    setTimeout(() => {
+      const sel = window.getSelection();
+      if (!sel || sel.isCollapsed || !sel.rangeCount) { fab.style.display = 'none'; return; }
+      const range = sel.getRangeAt(0);
+      if (!doc.contains(range.commonAncestorContainer) || !range.toString().trim()) {
+        fab.style.display = 'none';
+        return;
+      }
+      const rect = range.getBoundingClientRect();
+      fab.style.display = 'block';
+      fab.style.left = Math.min(rect.right + 8 + window.scrollX, window.scrollX + document.documentElement.clientWidth - 120) + 'px';
+      fab.style.top = (rect.top + window.scrollY - 4) + 'px';
+      fab.dataset.pending = '1';
+    }, 0);
+  });
+  fab.addEventListener('click', () => {
+    const sel = window.getSelection();
+    if (!sel || sel.isCollapsed) return;
+    const range = sel.getRangeAt(0);
+    const c = Object.assign({ id: 'c' + Date.now().toString(36) + (seq++), text: '', created: new Date().toISOString(), resolved: false }, selectorFromRange(range));
+    comments.push(c);
+    ranges.set(c.id, range.cloneRange());
+    paint(c.id);
+    sel.removeAllRanges();
+    fab.style.display = 'none';
+    sidebar.classList.add('dc-open');
+    render(c.id);
+  });
+
+  // ---- export / import ----
+  function payload() {
+    return JSON.stringify({
+      format: FORMAT,
+      doc: document.title,
+      exported: new Date().toISOString(),
+      comments: comments,
+    }, null, 2);
+  }
+  document.getElementById('dc-export').addEventListener('click', () => {
+    const blob = new Blob([payload()], { type: 'application/json' });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = (document.title.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'doc') + '.comments.json';
+    a.click();
+    URL.revokeObjectURL(a.href);
+    flash('Downloaded.');
+  });
+  document.getElementById('dc-copy').addEventListener('click', async () => {
+    try { await navigator.clipboard.writeText(payload()); flash('Copied to clipboard.'); }
+    catch (e) { flash('Clipboard blocked — use Export instead.'); }
+  });
+  document.getElementById('dc-import').addEventListener('click', () => document.getElementById('dc-file').click());
+  document.getElementById('dc-file').addEventListener('change', e => {
+    const file = e.target.files[0];
+    if (!file) return;
+    file.text().then(raw => {
+      const data = JSON.parse(raw);
+      if (data.format !== FORMAT || !Array.isArray(data.comments)) { flash('Not a dc-comments file.'); return; }
+      const byId = new Map(comments.map(c => [c.id, c]));
+      for (const c of data.comments) byId.set(c.id, c);
+      comments = [...byId.values()];
+      reanchorAll(); save(); render();
+      flash('Imported ' + data.comments.length + ' comment(s).');
+    }).catch(() => flash('Could not parse that file.'));
+    e.target.value = '';
+  });
+
+  document.getElementById('dc-toggle').addEventListener('click', () => sidebar.classList.toggle('dc-open'));
+
+  // ---- init ----
+  load();
+  // Merge the renderer's preloaded comments (with replies) by id: a stored
+  // comment keeps its own text/resolved state and takes the preloaded replies.
+  try {
+    const pre = document.getElementById('dc-preload');
+    const preloaded = pre && pre.textContent.trim() ? JSON.parse(pre.textContent) : [];
+    if (Array.isArray(preloaded) && preloaded.length) {
+      const byId = new Map(comments.map(c => [c.id, c]));
+      for (const c of preloaded) {
+        const existing = byId.get(c.id);
+        if (existing) { if (c.replies) existing.replies = c.replies; }
+        else byId.set(c.id, c);
+      }
+      comments = [...byId.values()];
+      save();
+    }
+  } catch (e) { /* malformed preload: ignore */ }
+  reanchorAll();
+  render();
+})();
+</script>
+<!-- ============ DC-COMMENTS END ============ -->
+</div>
+</body>
+</html>

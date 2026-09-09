@@ -1,0 +1,4 @@
+activation 1/64
+activation colossal
+body_nav.nim(283)        newBodyNavSystem
+Error: unhandled exception: body navigation map 'size:colossal' retains 262713572 bytes, above cap 201326592 [BodyMapError]
