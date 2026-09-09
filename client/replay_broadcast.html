@@ -3044,6 +3044,7 @@ body[data-noviewpanel] #viewpanel { display: none !important; }
         <button class="tbtn" id="btn-loop" title="Loop (r)">↻</button>
         <button class="tbtn" id="btn-skip" title="Auto-skip lulls (f)">▸▸</button>
         <button class="tbtn" id="btn-spoilers" title="Spoilers: kills / flag story / winner on the timeline ahead of the playhead (o)">spoilers</button>
+        <button class="tbtn" id="btn-share" title="Copy a link to this exact moment" aria-label="Copy a link to this exact moment">Share</button>
         <span class="ffwd-chip" id="ffwd-chip">▸▸ SKIPPING LULL</span>
         <span class="win-chip" id="win-chip"></span>
         <span class="tick-clock" id="tick-clock">0 / 0</span>
@@ -7814,6 +7815,55 @@ body[data-noviewpanel] #viewpanel { display: none !important; }
   $('btn-end').addEventListener('click', function () { send('e'); });
   $('btn-loop').addEventListener('click', function () { send('r'); });
   $('btn-skip').addEventListener('click', function () { send('f'); });
+
+  // A STABLE PERMALINK, SHARED (Stop 2, moment 10 / J28): this file has no
+  // ?e=<episode-id> concept at all — grepped every URL param it reads
+  // (embed/viewpanel/speed/t/achievement, see EMBED/START_SPEED/SEEK_T/
+  // ACH_FOCUS above) and none of them is an episode id. That id is minted
+  // and resolved by the HOST page (metta/Observatory), not this client, so
+  // J28's reported instability is that host's concern — not reproducible
+  // here, and not fixed here. What THIS page already owns and CAN make
+  // genuinely shareable: its own ?t=<tick> deep-link (SEEK_T above) — a
+  // replay URL plus a tick is a fully deterministic moment (hash-verified
+  // playback, not a live guess). Share copies location.href with ?t= set
+  // to the CURRENT tick, so pasting it back in reopens on this exact
+  // moment — the client half of "a stable permalink," done honestly.
+  function currentShareUrl() {
+    try {
+      var url = new URL(location.href);
+      if (lastState && typeof lastState.t === 'number') {
+        url.searchParams.set('t', String(lastState.t));
+      }
+      return url.toString();
+    } catch (e) { return location.href; }
+  }
+  function copyText(text) {
+    try {
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(text);
+        return true;
+      }
+    } catch (e) { /* fall through to the legacy path below */ }
+    // Clipboard API unavailable (insecure context, denied permission, an
+    // older embed) — an offscreen textarea + execCommand is still a real
+    // copy and needs no dialog.
+    try {
+      var ta = document.createElement('textarea');
+      ta.value = text;
+      ta.style.position = 'fixed';
+      ta.style.opacity = '0';
+      document.body.appendChild(ta);
+      ta.select();
+      var ok = document.execCommand('copy');
+      document.body.removeChild(ta);
+      return ok;
+    } catch (e2) { return false; }
+  }
+  $('btn-share').addEventListener('click', function () {
+    var url = currentShareUrl();
+    var ok = copyText(url);
+    enqueueStory(ok ? 'Link copied — opens on this exact moment.' : url);
+  });
 
   // SEEK PERSISTENCE ON THE LIVE STAGE (Stop 2, moment 10 / J32): the wire's
   // own transportEnabled flag (`s.en`) is false for the WHOLE live-viewing
