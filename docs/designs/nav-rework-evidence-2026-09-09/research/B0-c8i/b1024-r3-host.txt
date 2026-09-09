@@ -1,0 +1,22 @@
+Wed Sep  9 23:39:39 UTC 2026
+ 23:39:39 up 10 min,  0 users,  load average: 1.30, 0.33, 0.12
+    PID %CPU COMMAND
+      1  0.2 systemd
+      2  0.0 kthreadd
+      3  0.0 pool_workqueue_release
+      4  0.0 kworker/R-rcu_g
+      5  0.0 kworker/R-rcu_p
+      6  0.0 kworker/R-slub_
+      7  0.0 kworker/R-netns
+      9  0.0 kworker/0:0H-events_highpri
+     10  0.0 kworker/0:1-mm_percpu_wq
+     11  0.0 kworker/u32:0-events_power_efficient
+     12  0.0 kworker/R-mm_pe
+     13  0.0 rcu_tasks_rude_kthread
+     14  0.0 rcu_tasks_trace_kthread
+     15  0.0 ksoftirqd/0
+     16  0.0 rcu_sched
+     17  0.0 migration/0
+     18  0.0 idle_inject/0
+     19  0.0 cpuhp/0
+     20  0.0 cpuhp/1

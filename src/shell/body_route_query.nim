@@ -310,7 +310,7 @@ proc packedDangerQ8(value: float32): uint16 {.inline.} =
   if value <= 0:
     return 0
   let scaled = value.float * 256.0
-  let lower = floor(scaled).int
+  let lower = scaled.int
   let fraction = scaled - lower.float
   let rounded = if fraction > 0.5 or
       (fraction == 0.5 and (lower and 1) != 0): lower + 1 else: lower

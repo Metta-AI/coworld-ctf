@@ -19,3 +19,10 @@ Append results; do not erase negatives. All numbers are observed, not inferred p
 | L0 failed qualification | c6a and m5a CPU5 B1024 | reuse identical ordered sources | modest timing gain; m5a still fails; far waves publish only3seats then cap | L0_REPORT.md | not a complete liveness fix or throughput success |
 
 | L1 failed completion target | c6a CPU5 B1024 | exact packed identity with shared scratch | no false restarts; still3publishedseats/farwave; quality and memory pass | L1_REPORT.md | no doubling or general admission-liveness claim |
+
+| C0 | m5a CPU5 B1024 | L1 native vs repository Docker | native5.793836/5.857997ms; Docker5.404456/5.496837ms; both fail | C0_REPORT.md | no compiler-only attribution or fleet qualification |
+| B0-c8i | c8i-flex.4xlarge CPU5 | baseline20234cc7 | B4096 passes headroom3.574419/3.822601ms | B0_C8I_REPORT.md | does not qualify slower m5a or establish an optimization |
+
+| B0-m8i | m8i-flex.4xlarge CPU5 | baseline20234cc7 | B4096 passes headroom3.537775/3.699664ms | B0_M8I_REPORT.md | frozen331px harness, not current1300px/11-map variant |
+
+| S1 | m5a CPU5 B1024 | positive Q8 truncation | refresh2.30% better; whole-body still5.713180/5.770981ms fail; exact quality and memory unchanged | S1_REPORT.md | no doubling, fleet or current-variant qualification |

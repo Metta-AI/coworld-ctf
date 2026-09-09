@@ -1,0 +1,11 @@
+Nim Compiler Version 2.2.6 [Linux: amd64]
+Compiled at 2026-09-09
+Copyright (c) 2006-2025 by Andreas Rumpf
+
+git hash: ab00c56904e3126ad826bb520d243513a139436a
+active boot switches: -d:release
+gcc (Ubuntu 11.4.0-1ubuntu1~22.04.3) 11.4.0
+Copyright (C) 2021 Free Software Foundation, Inc.
+This is free software; see the source for copying conditions.  There is NO
+warranty; not even for MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+

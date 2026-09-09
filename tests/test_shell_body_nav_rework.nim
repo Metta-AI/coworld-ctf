@@ -50,6 +50,24 @@ proc runToIdle(nav: BodyNavSystem; startTick = 0; budget =
   raise newException(ValueError, "production route did not settle")
 
 suite "production mixed-grid body navigation":
+  test "packed danger keeps ties-to-even and range boundaries":
+    let map = openMap()
+    let graph = newBodyMixedGraph(map)
+    var danger = BodyDangerField(
+      values: newSeq[float32](map.gridWidth * map.gridHeight))
+    var weights: seq[int16]
+    let scaledValues = [0.0'f32, 0.5, 1.5, 2.5, 3.5,
+      2.499, 2.501, 32767.0]
+    let expected = [0, 0, 2, 2, 4, 2, 3, 32767]
+    for i, value in scaledValues:
+      danger.values[i] = value / 256.0'f32
+    graph.rebuildPackedWeights(danger, weights)
+    for i, value in expected:
+      check (cast[uint16](weights[i]) and 0x7fff'u16).int == value
+    danger.values[0] = 32767.5'f32 / 256.0'f32
+    expect BodyMapError:
+      graph.rebuildPackedWeights(danger, weights)
+
   test "literal corpus provenance and independent oracle are frozen":
     let
       corpus = loadNavRouteCorpus("tests/fixtures/shell/nav_route_corpus.json")

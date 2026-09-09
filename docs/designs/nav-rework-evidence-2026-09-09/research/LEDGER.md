@@ -100,3 +100,26 @@ Previous turn: progress, not merely waiting. This turn collected decisive measur
 - Potentialsafeprovisioningpath identifiedbutNOTexecuted: existingmetta.setup.tools.sandbox.ec2.launch_instance helper canlaunchbarebenchmarkhostwithtoken-freeuserdata; bypassesonlyCLIcredential-loading/tracebackpath,notAWSquotaortoolchain. ReusehelperthroughNix andofflinebundlebootstrap afterfreeingownedhostslot, ratherthanusingexposedGitHubtoken. No hoststopped/terminatedyet; c6a/m5a idleaftercompletedruns,neededforremainingwork. Quota208andtokenrotationstillpending; no c8i/m8ilaunched. Do notread/printEC2UserData (earlierCLIembeddedtokenthere).
 
 - L1 fullserverlinked/stubchecks both exit0. L1viewerDockerbuild nowrunning; do noteditsrcuntilsnapshotfinishes, pollcurrenthandle/log beforecommit. No newproductionacceptanceclaim.
+
+## Continuation 6
+
+- L1 checkpoint d88fe68d committed after syncing origin/main (judge documentation only). Both server shapes and viewer passed; L1 remains a failed all-publish experiment, not doubled throughput.
+- C6a stopped, disk preserved. Credential-free helper launched c8i i-045ddd6df51150967 at 98.91.229.56; setup complete, baseline runner PID4199 active. C0 m5a runner14019 finished timing and is running quality/activation. Do not overlap benchmarks.
+- S1 preregistered; portable positive float conversion change and boundary tests now local. No S1 benchmark result yet.
+
+- C0 m5a complete, quality/activation exit0. Native worst5.793836/5.857997ms, Docker5.404456/5.496837ms; all pop arrays equal; both fail whole-body gate. C0_REPORT.md. S1 boundary suite13tests passes locally; peer review pending. S1 m5a runner21049 active, ~/nav-s1.log, resultsS1/, three pairs then quality/activation. C8 B0 runner4199 reached3072 and is finishing4096.
+
+- B0 c8i complete and retrieved: all four budgets pass headroom, B4096 worst3.574419/3.822601ms. B0_C8I_REPORT.md. Verified no benchmark before rotating owned slot. C8i now stopped; m8i i-0382a6e0a77c014d7 running54.91.165.255. Offlinebundle/setup transfer session91356 active; setup not started yet.
+- S1 three pairs complete: refresh1.105472->1.080091ms worst, whole-body5.721624->5.713180ms p95; no meaningful whole-body gain. Fullqualityactivation runningPID21049. S1_REVIEW.md says exact valid finite raster inputs, undefined invalid conversion pre-existing; no extra production guard warranted. Viewer build58402 active. Peer now RASTER_REVIEW.md codegen/precompute investigation, no source ownership.
+
+- m8i bundle transfer91356 completed. Setup launched throughssh57347; inspect returnedPID and ~/nav-throughput-setup.log. Same savedbundle SHA expectedf5f33cad75c66f39661b7b85a59779d8ad4fc15ab82fc85eef3a626ffc1fc5d8. Baseline runner uploaded asrun_baseline_c6a.sh but notstarted onm8i.
+
+- M8i setup initialPID2849 failed because transfer usedbaseline.bundle while script expectsnav-throughput-baseline-20260909.bundle. Preservedinitiallog, renamedverifiedownedinput, retryPID3449 completed. Actualbaseline nowPID4537, ~/nav-baseline.log. No duplicatedbench.
+- S1 viewerbuild58402 andqa_module_eval passed module/GV/source-stamp checks. Syncedorigin/main5edb2bce via localmerged5967c82 beforecheckpoint; onlytools/glory+glorydocs changed. SourceS1unchanged.
+
+- New major scopefinding verified againstsource: currentmanifestbattle-royale-s2 usesbrpool16 (11largermaps) andexplicitgunRange1300; frozenharness/corpus64S2mapsand331. Server passesconfig.gunRange, sopeer1050defaultclaimnotcorrect. PRODUCTION_SHAPE_FINDING.md recordscoveragegap; donotclaimliveconfigurationverifiedoroldbaselineprodqualification. NextG0 isolateactualrange then11mapcoverage withoutweakeningfrozen3072qualitygate.
+
+- M8i baseline4537 completed allfourbudgets andrawretrievedB0-m8i. B4096 worst3.537775/3.699664ms. Hostidlebutretainedfornextproduction-shapecomparison. S1 m5a21049 stillliveat9min04, qualitycomplete/all64activationrowsdone, colossalrunning. Do notrestart.
+- PeerRASTER_REVIEW.md nowwritten; investigateexactcell-centerblockedtable orinlining. Need readfullreviewandvalidatebeforeimplementing. Userinformedconfigured1300px and11-mapvs64-mapcoveragegap. No qualification sentinel.
+
+- S1 fullydoneexit0, allqualityandmemorypass, poparraysmatch. S1_REPORT.md has exactroutehashfromrawJSON (useartifactratherthanearliermanuallytranscribedhash). Candidate retained2.30%weightrefreshimprovement only. M5aidle, sourceparentrestoredbyrunnertrap. Viewercheckpass. Readycheckpoint.

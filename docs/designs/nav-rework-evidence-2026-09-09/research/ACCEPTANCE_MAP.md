@@ -166,3 +166,11 @@ should be reported ahead of any budget number.
 5. The `--latency` pass rule is our experiment criterion, not an inherited gate; keep it for
    experiments, do not present it as Phase 10 acceptance, and report far tails as censored
    with counts.
+6. Workload scope (found during `RASTER_REVIEW.md`, verified at HEAD): the shipped
+   `battle-royale-s2` variant in `coworld_manifest_paintbot.json` sets `gunRange: 1300`
+   explicitly and `mapPath: brpool16`, which resolves to the 11 giant maps in
+   `data/br_map_pool.json`; the corpus, the tick and latency rows and the memory ledgers use
+   the 64-map `brpool` file at its 331 px metadata. The 331 px corpus stays the frozen
+   quality reference. Whether the deployed manifest matches the repo one must be confirmed;
+   if it does, the tick, latency and memory qualification rows need a paired diagnostic at the
+   configured range and pool before any host floor is called production-representative.
