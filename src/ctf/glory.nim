@@ -2494,7 +2494,15 @@ const
     ## scores seed; losers still bank 0 at the league." The league-side loss
     ## gate is roster.nim's existing playerWon gate, untouched.
 
-  GlorySCALE* = 1024
+  GlorySCALE*: int64 = 1024
+    ## Explicitly typed `int64` (not a bare int literal): on the wasm32
+    ## replay-viewer build target, Nim's plain `int` is 32 bits, and an
+    ## untyped literal constant used alongside an explicit `int64` in the
+    ## same expression (`recutActiveScale`, sim.nim) fails to unify there
+    ## even though it compiles fine on every 64-bit native target where
+    ## `int` and `int64` are the same concrete type -- caught by actually
+    ## building the wasm bundle (`tools/build_replay_viewer.sh`), not by
+    ## `nim check`/native shard builds, which cannot see this class of bug.
     ## S5 RIG SIMULATION (epic 25d9108e, CATALOG-V3-DRAFT.md §9b, coordinator
     ## follow-up ruling): the FIXED-POINT representation for the fractional
     ## (percent-scaled) deed tier — seed the accumulator at `GlorySCALE`
