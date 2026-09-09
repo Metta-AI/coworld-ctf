@@ -60,6 +60,44 @@ proc probe(mapPath: string) =
     &"onBorder={diffOnBorder} walkWallNotComplement={walkDisagree}" &
     (if total > 0: &" first={firstDiff}" else: "")
 
+  ## The OTHER two spec masks, which the map-fitness harness scores against:
+  ## maxWall (mapWallAt spinSwept) and minWall (spinAlways). NOT the same
+  ## comparison as above, and the difference is easy to state wrongly. A
+  ## spinning diamond's SWEPT rosette is bounded by its CIRCUMRADIUS (see
+  ## rasterizeWallMasks), while isAnimatedDiamondPixel tests the RESTING L1
+  ## diamond — and an L1 diamond is a strict subset of the L2 disc of the same
+  ## radius. So the region where maxWall disagrees with the bake is strictly
+  ## LARGER than the resting footprint: the lobes between the L1 diamond and
+  ## the circumscribed circle are swept-stone but rest-floor, and
+  ## isAnimatedDiamondPixel says FALSE there. Count both sides separately so
+  ## the claim is checked rather than assumed.
+  let (maxWall, minWall) = rasterizeWallMasks(gameMap, ArenaObstacles)
+  var
+    maxInFootprint = 0
+    maxOutside = 0
+    minInFootprint = 0
+    minOutside = 0
+    firstOutside = (-1, -1)
+  for y in 0 ..< h:
+    for x in 0 ..< w:
+      let
+        i = y * w + x
+        baked = layers.wallImage[x, y].a > 0
+        inFootprint = isAnimatedDiamondPixel(x, y)
+      if baked != maxWall[i]:
+        if inFootprint:
+          inc maxInFootprint
+        else:
+          inc maxOutside
+          if firstOutside[0] < 0:
+            firstOutside = (x, y)
+      if baked != minWall[i]:
+        if inFootprint: inc minInFootprint else: inc minOutside
+  echo &"{\"\":16s} vs maxWall inRestFootprint={maxInFootprint} " &
+    &"OUTSIDE={maxOutside}" &
+    (if maxOutside > 0: &" first={firstOutside}" else: "") &
+    &" | vs minWall inRestFootprint={minInFootprint} OUTSIDE={minOutside}"
+
 when isMainModule:
   var paths: seq[string]
   for i in 1 .. paramCount():
