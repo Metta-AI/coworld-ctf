@@ -370,65 +370,98 @@ retirement, not filtering:
 *"Season 2 plays battle royale: sixteen duos on a giant generated map… last team standing."* So the
 channel the proposal came from is now discussing BR, the very league this study is scoped to exclude.
 
-## F9. Episode shape — which divisions are actually CTF-shaped
 
-Measured directly by pulling real rounds and counting distinct scored policies per episode:
+## F9. Which divisions are actually in scope — and a correction
 
-| Division | Seats | Distinct policies / episode | Pairwise 1v1? |
+**Correction (owner, 2026-09-09): Paintarena is a different game entirely, not a Paintbot
+division.** An earlier draft of this study treated it as a CTF-shaped Paintbot division and drew
+conclusions from it. That was wrong and those numbers have been removed. Confirmed against the
+API: `Paintarena` is its own game (`game.coworld_name = "paintarena"`), distinct from
+`game.coworld_name = "paintbot"`.
+
+**Exactly three leagues run the Paintbot game** (`GET /v2/leagues`, filtered on `game.name`):
+
+| League | Division | `is_game_of_week` |
+|---|---|---|
+| **Elite Paintbot** | Competition (`div_ed510662…`) | false |
+| Campaign | Competition (`div_254a3613…`) | false |
+| Paintbot (Season 2) | Competition (`div_aa7825db…`) | **true** — plays BR, out of scope |
+
+Each has exactly **one** division named `Competition` — verified *authenticated* via
+`GET /v2/divisions?league_id=…`, so this is not a public-visibility artifact.
+
+> ⚠️ **Open question for the owner.** The scope given was *"Elite Paintbot and CTF are the two
+> Paintbot divisions in question."* **I cannot find a CTF league or division.** All 158 divisions
+> carry only the names `Competition` (132), `Qualifiers` (19), and seven one-offs — none is CTF —
+> and no league is named CTF (F8). Either CTF is retired (which F8's evidence supports) or it
+> lives somewhere this API does not expose. **Everything below about Elite Paintbot stands
+> regardless; the CTF half is blocked on identifying the division.**
+
+### Episode shape, measured on real rounds
+
+| Division | Seats | Distinct scored policies / episode | Clean 1v1? |
 |---|---|---|---|
-| **Campaign** | 16 | **2** (62 eps; 10 more scored 0) | ✅ yes — 8v8, policy A vs policy B |
-| **Paintarena** | 2 | **2** (176 eps) | ✅ yes — pure duel |
-| Elite Paintbot | 16 | 2 or 4 (52 / 47) | ⚠️ mixed — the 2v2 partner lottery |
+| **Elite Paintbot** | 16 | **2 (48.8%)**, 4 (43.5%), 0 (7.8%) — n=400 | ⚠️ **only half** |
+| Campaign | 16 | 2 (62 of 72), 0 (10) | ✅ 8v8, A vs B |
 | Battle Royale | 12 | 12 | ❌ free-for-all |
 | Paintbot (S2) | 16 | 16 | ❌ free-for-all |
 
-**Campaign and Paintarena are the only genuinely head-to-head divisions live today.** For BR and
-S2, a "pairwise matrix" would be co-appearance in a 16-way FFA, not duels — reducing a 16-way
-finish order to 120 pairwise comparisons discards the joint structure and yields non-independent
-"wins". That is a second, independent reason the proposal does not transfer to BR.
+## F10. Elite Paintbot — the headline result
 
-## F10. The density census — the answer to the task's "Done when" #1
+`GET /v2/divisions/div_ed510662…/pairing-matrix` (authenticated; **needs a ~240 s timeout** — the
+default client timeout gives up, and one attempt returned a 500):
 
-Via `GET /v2/divisions/{id}/pairing-matrix` (authenticated). For Campaign and Paintarena,
-`games_together` **is** the head-to-head game count, because those episodes contain exactly two
-policies — so these numbers are exact, not a proxy.
+- **51 policies**, 80,987 games, fill **1120/1275 = 87.8%**
+- Full comparison graph: **connected [51]**
+- Restricted to pairs with **n ≥ 30**: **[45, 1, 1, 1, 1, 1, 1]** — six policies fall out
+- Restricted to pairs with **n ≥ 100**: **[43, 1×8]** — eight fall out
+- **Median 66 games/pair → binomial SE ±6.2 pp**
+- 378 pairs have <30 games; 625 have <100; **1069 of 1120 have <400**
 
-| Division | Policies | Fill rate | Median games/pair | **Binomial SE at median** | Graph connected? | Connected using only pairs n≥30? |
-|---|---|---|---|---|---|---|
-| **Campaign** | 30 | 374/435 = **86.0%** | **20** | **±11.2 pp** | ✅ [30] | ✅ [30] |
-| **Paintarena** | 12 | 18/66 = **27.3%** | 1400 | ±1.3 pp | ✅ [12] | ❌ **[9, 1, 1, 1]** |
-| Paintbot S2 *(FFA, co-appearance)* | 19 | 171/171 = 100% | 386 | ±2.5 pp | ✅ | ✅ |
+### Two independent problems, and the second is worse
 
-Per-pair tail, Campaign: **242 of 374 observed pairs have fewer than 30 games**; 322 have fewer
-than 100; 354 have fewer than 400.
+**Problem 1 — precision.** ±6.2 pp per cell is better than Campaign's ±11.2 pp but still coarse:
+it cannot separate a 55/45 matchup from 45/55, and elimination brackets are decided by exactly
+those near-even pairs. Against the benchmarks in §6 (SE ≈5 pp at n=100; chess SPRT wants 500–1000
+games to resolve a >30-Elo gap), 1069 of 1120 pairs are under-powered. And the well-measured
+subgraph is **disconnected** — six to eight policies are formally incomparable, which is
+Bradley-Terry's *hard* gate, not a quality knob. The shipped engine hides this behind `eps=0.1`
+fabricated virtual wins (**F3-A**) instead of reporting the fracture.
 
-### Both CTF-shaped divisions fail the data prerequisite — for opposite reasons
+**Problem 2 — over half the episodes are structurally unrepresentable.** Elite is the 2v2 partner
+lottery: **43.5% of its episodes score four distinct policies** (two coalitions of two). In those,
+the competing unit is a *coalition*, not a policy — "A partnered with B beat C partnered with D"
+**cannot be written down in a policy-vs-policy matrix at all.** This is a representational limit,
+not a data-volume one; no amount of extra episodes fixes it.
 
-- **Campaign is connected but badly under-powered.** A median of 20 games per pair gives a
-  standard error of **±11.2 pp** on each cell. At that precision a 55/45 matchup is
-  indistinguishable from a 45/55 one — and elimination brackets are decided exactly by such
-  near-even pairs. Against the literature's benchmarks (§6: SE ≈5 pp at n=100; chess SPRT needs
-  500–1000 games to resolve a >30-Elo gap), Campaign has roughly **1/25th** the data per pair
-  needed to resolve close matchups.
-- **Paintarena is precise but not comparable.** Where pairs exist they are measured to ±1.3 pp,
-  but only 27% of pairs exist at all, and when restricted to well-measured pairs (n≥30) the
-  comparison graph **fragments into [9, 1, 1, 1]** — three policies become formally incomparable.
-  Connectivity is the literature's *hard* gate (Bradley & Terry 1952; Simons & Yao 1999), and the
-  shipped engine papers over it with `eps=0.1` fabricated virtual wins (**F3-A**) rather than
-  reporting the fracture.
+And the shipped matrix builder simply drops them: `matrix.py:222-225` requires exactly two scored
+policies, else `episodes_skipped += 1`. Measured over 400 real Elite episodes:
 
-This is the empirical core of the verdict: **the pairwise matrix daveey assumes is either too
-noisy (Campaign) or too sparse (Paintarena) to carry a bracket today** — and the shipped simulator
-would return a confident-looking answer in both cases.
+> **51.2% of Elite Paintbot episodes are silently discarded by `tournament_sim`'s matrix builder**
+> (205 of 400 — 174 four-policy coalition games plus 31 that scored nothing).
 
-## F11. Two defects found in passing
+A rollout over Elite is therefore built from **less than half its own league's history**, with no
+warning to the caller, and the discarded half is precisely the part that carries the partnership
+effects Elite exists to test.
 
-- `GET /v2/divisions/{elite_div}/pairing-matrix` returned **500 Internal Server Error**, then a
-  **read timeout** on retry — the endpoint is unreliable for Elite Paintbot (plausibly its mixed
-  2-and-4-policy episode shape, F9).
-- **~14% of Campaign episodes score zero policies** (10 of 72 sampled) and drop out of any matrix
-  as `episodes_skipped` (`matrix.py:222-225`) with no surfaced reason. Worth a look on its own.
+## F11. Campaign — connected but under-powered
 
+Campaign is the one Paintbot division with clean A-vs-B episodes (8v8, exactly 2 policies).
+30 policies, fill 374/435 = **86.0%**, graph **connected [30]** even at n ≥ 30 — but the
+**median is 20 games/pair → SE ±11.2 pp**, and 242 of 374 pairs have fewer than 30 games.
+Roughly **1/25th** the games per pair needed to resolve close matchups.
+
+Note Campaign is daveey's separate project and explicitly out of scope for the Paintbot board, so
+it is reported here as evidence, not as proposed work.
+
+## F11b. Defects found in passing
+
+- `pairing-matrix` for a large roster is **slow enough to time out the default client** (Elite
+  needed ~240 s; one attempt returned **500**). Any caller using the stock timeout sees a failure,
+  not a slow success.
+- **~14% of Campaign episodes and 7.8% of Elite episodes score zero policies** and vanish into
+  `episodes_skipped` with no surfaced reason.
+- `GET /v2/tournaments` returns `[]` globally while the league-scoped call returns records (F12).
 ## F12. Every tournament ever attempted has failed
 
 Authenticated, live:
@@ -464,25 +497,29 @@ daveey is right on method — pairwise-matrix Monte Carlo is exactly how this is
 right that CTF-shaped episodes give clean 1v1 data where they exist (F9). But four independent
 findings mean the proposal cannot be executed as posed:
 
-1. **There is no CTF league to apply it to** (F8). It is absent from the complete 140-league
-   roster, and paused leagues still list — so this is retirement, not a pause. The
-   `#game-of-the-week` channel it was raised in now runs **BR**, which this study excludes.
+1. **The CTF division named in scope cannot be found** (F8, F9). No league is named CTF in the
+   complete 140-league roster, and no division among all 158 is either — verified authenticated.
+   Paused leagues still list, so this is retirement, not a pause. The `#game-of-the-week` channel
+   it was raised in now runs **BR**, which this study excludes. ⚠️ **This is the one open question
+   in the study** — see F9. Everything about Elite Paintbot stands regardless.
 2. **There is no tournament being run, and never has been one that worked** (F2, F12). Two
    attempts, both crashed, zero placements ever. **The episode saving that motivates the proposal
    is zero.**
 3. **It is already built** (F1). `tournament_sim` — engine, matrix, route, Observatory UI — is on
    `main` and already does Bradley-Terry + Monte Carlo over recorded pairwise results.
-4. **In the two live CTF-shaped divisions, the data fails its own prerequisite** (F10). Campaign is
-   connected but at ±11.2 pp per cell — roughly 1/25th the games per pair needed to resolve the
-   near-even matchups that decide brackets. Paintarena is precise but fragments into
-   **[9, 1, 1, 1]** once restricted to well-measured pairs, so three policies are formally
-   incomparable.
+4. **In Elite Paintbot, the data fails its own prerequisite twice over** (F10). Median 66 games per
+   pair gives **±6.2 pp** — too coarse for the near-even matchups that decide brackets, with 1069
+   of 1120 pairs under 400 games — and the well-measured subgraph is **disconnected** ([45,1,1,1,1,1,1]
+   at n ≥ 30), so six policies are formally incomparable. Worse, Elite is the 2v2 partner lottery:
+   **51.2% of its episodes are silently dropped** by the matrix builder because a coalition result
+   ("A+B beat C+D") cannot be written in a policy-vs-policy matrix at all. That half is a
+   representational limit, not a data-volume one — more episodes will never fix it.
 
 **And the finding that matters most is one nobody asked for:** a shipped, user-facing simulator has
 **never been validated against reality** (F5), and reports a `sufficiency` badge that measures
-estimate *precision*, not *correctness* (F4). On both divisions above it would return a
-confident-looking answer over data that cannot support one. That is the live risk here, and it is
-cheap to fix.
+estimate *precision*, not *correctness* (F4). On Elite it would return a confident-looking answer
+built from **under half the league's own history**, over pairs it cannot separate. That is the live
+risk here, and it is cheap to fix.
 
 **Recommendation: don't build, don't back-test brackets — relabel the badge, then validate the win
 model on episodes.**
@@ -501,29 +538,38 @@ what it measures (e.g. `estimate_precision`) and stating the scope in both the A
 `TournamentSimDetail.tsx`: *"measures how precisely the win model is estimated, not whether it
 matches reality; never validated against a real tournament."* Plus bugs for: the draw gap (F3-B,
 draws tallied but never sampled), the fabricated cold-start strength (F3-A), the Elite
-`pairing-matrix` 500/timeout and the ~14% zero-score Campaign episodes (F11), and the
+`pairing-matrix` slow-timeout/500 and the zero-score episodes (F11b), and the
 `/v2/tournaments` global-list inconsistency (F12).
 **Gate:** none — this is worth doing regardless of every other outcome.
 
-### Phase 2 — Episode-level calibration back-test on Campaign  *(~1–2 days; the real validation)*
-Implement §F6 against **Campaign** (the only division that is both CTF-shaped and roster-complete).
-Temporal hold-out inside one `coworld_version`; score Brier/log against uniform, live-Elo, and BT
-baselines; reliability diagram; report sharpness with calibration; stratify by Elo gap and by
-observed-vs-BT-filled pairs.
+### Phase 1b — Surface the dropped half  *(~2 hours; Elite-specific, and arguably urgent)*
+`tournament_sim` discards **51.2%** of Elite Paintbot's episodes with no warning (F10). Minimum
+fix: return `episodes_skipped` with its reason breakdown in the API response and show it in
+`TournamentSimDetail.tsx`, so a caller can see the rollout used under half the league's history.
+The deeper question — whether Elite should be ranked over *coalitions* rather than policies —
+belongs in Phase 5, not here.
+
+### Phase 2 — Episode-level calibration back-test on Elite Paintbot  *(~1–2 days; the real validation)*
+Implement §F6 against **Elite Paintbot**, restricted to its clean two-policy episodes (48.8% of the
+division, ~40k games — still the largest clean pairwise corpus we have). Temporal hold-out inside
+one `coworld_version`; score Brier/log against uniform, live-Elo and BT baselines; reliability
+diagram; report sharpness with calibration; stratify by Elo gap and by observed-vs-BT-filled pairs.
 **Kill criterion:** if the matrix cannot beat the Elo baseline out-of-sample, the idea adds nothing
 over the ranking already published. Say so and stop.
-**Expect this to be hard at ±11.2 pp** — a likely honest outcome is *"the data cannot currently
+**Expect this to be hard at ±6.2 pp** — a likely honest outcome is *"the data cannot currently
 support a bracket"*, which is itself the answer to daveey's question.
 
 ### Phase 3 — Price the gap with the platform's own tool  *(~2 hours)*
 `POST /v2/divisions/{id}/power-analysis` already computes episodes-needed to detect a given skill
-gap. Run it across Campaign's roster and publish **how many episodes per pair** would be needed to
-make rollouts trustworthy. That converts "not enough data" into a budget number the league owners
-can accept or refuse — and it is the number that decides whether to fix the matrix or fix the
-Temporal workflow.
+gap. Run it across Elite's 51-policy roster and publish **how many episodes per pair** would be
+needed to make rollouts trustworthy — with particular attention to the six policies that fall out
+of the n ≥ 30 subgraph. That converts "not enough data" into a budget number the league owners can
+accept or refuse, and it is the number that decides whether to fix the matrix or fix the Temporal
+workflow.
 
 ### Phase 4 — Intransitivity census  *(~half a day; the one that could change standings)*
-§F7 on Campaign and Paintarena: count significant 3-cycles vs chance, and BT residual structure.
+§F7 on Elite Paintbot's clean-duel subset: count significant 3-cycles vs chance, and BT residual
+structure.
 If cycles are real, the Elo leaderboard is actively misleading and the right answer is Nash
 averaging / α-Rank (§6) — **not** a simulated bracket. Worth doing regardless of the tournament
 decision.
@@ -543,3 +589,15 @@ out of scope for the Paintbot board). The Asana task is assigned to Maxwell but 
 from `#game-of-the-week` on 2026-08-05 — inside the Season-1 window that the board's router was
 later floored out (`season2_start = 2026-08-26`). **Confirm ownership with daveey before executing
 Phases 2–5.** Phase 1 touches only metta platform code and is unaffected.
+
+### ⚠️ Blocked sub-thread — identify "CTF"
+The scope named **Elite Paintbot and CTF** as the two Paintbot divisions in question. Elite is
+measured and covered above. **CTF could not be located** — no league among 140 and no division
+among 158 carries that name, verified authenticated (F8, F9). Until someone names the division id
+(or confirms it is retired), the CTF half of this study cannot start. Everything else proceeds.
+
+### Correction log
+- **2026-09-09:** an earlier draft treated **Paintarena** as a CTF-shaped Paintbot division and
+  drew conclusions from its 27% fill and `[9,1,1,1]` fragmentation. Paintarena is a **separate
+  game** (`coworld_name = "paintarena"`). Those findings are withdrawn; Elite Paintbot (F10)
+  replaces them as the headline division.
