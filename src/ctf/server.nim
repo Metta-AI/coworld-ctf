@@ -3140,6 +3140,17 @@ type
     ## outside every pool (map, flags, players, HUD) land in "core".
     objectPools: Table[string, int64]
 
+var
+  opt09ProfileTicksChecked = false
+  opt09ProfileTicksEnabled = false
+  opt09ProfileTicksHavePrev = false
+  opt09ProfileTicksLastExit: MonoTime
+    ## OPT-09 throwaway instrumentation (never shipped, matches
+    ## profile-2acfb5d3.md's PROFILE_TICKS addition): with PROFILE_TICKS=1
+    ## set, emits "TICK_MS <n>" to stderr — the wall time from the end of
+    ## the previous tick's pacing to the start of this one, i.e. real
+    ## game-logic + socket-send cost, excluding the limiter's own sleep.
+
 proc runFrameLimiter(
   previousTick: var MonoTime,
   fastMode: bool,
@@ -3147,6 +3158,14 @@ proc runFrameLimiter(
   playerIndices: openArray[int],
   playerCount: int
 ): FrameAdvance =
+  if not opt09ProfileTicksChecked:
+    opt09ProfileTicksEnabled = existsEnv("PROFILE_TICKS")
+    opt09ProfileTicksChecked = true
+  if opt09ProfileTicksEnabled:
+    let entryNow = getMonoTime()
+    if opt09ProfileTicksHavePrev:
+      let ms = (entryNow - opt09ProfileTicksLastExit).inMicroseconds.float / 1000.0
+      stderr.writeLine("TICK_MS " & $ms)
   let frameDuration = initDuration(microseconds = 1_000_000 div TargetFps)
   var slept = false
   while true:
@@ -3161,6 +3180,9 @@ proc runFrameLimiter(
     sleep(max(1, min(2, int(remaining.inMilliseconds))))
     slept = true
   previousTick = getMonoTime()
+  if opt09ProfileTicksEnabled:
+    opt09ProfileTicksLastExit = previousTick
+    opt09ProfileTicksHavePrev = true
 
 proc recordTraffic(
   metrics: var ServerMetrics,
