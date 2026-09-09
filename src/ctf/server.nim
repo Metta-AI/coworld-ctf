@@ -498,7 +498,16 @@ const
     ("/client/art/lockerroom/red_6.webp",
       staticRead("../../client/art/lockerroom/red_6.webp")),
   ]
-  BroadcastFont = staticRead("../../data/font.ttf")
+  # TWO font files exist on purpose — do not "tidy" them into one. This is a
+  # Latin-1 SUBSET (ASCII + Latin-1 + light punctuation, ~195 glyphs) served
+  # to the DOM: the iframed player client, HUD and broadcast chrome, which
+  # only ever render human-typed seat names and UI chrome in that range.
+  # data/font.ttf (the FULL face) is separately staticRead'd from disk at
+  # RUNTIME by global.nim's boardTypeface() to rasterise names, damage pops
+  # and shout bubbles into the board's PIXEL STREAM at boardScale > 1 — that
+  # path has no fallback font, so subsetting data/font.ttf itself would emit
+  # .notdef boxes straight into the sim's rendered output. Keep them separate.
+  BroadcastFont = staticRead("../../data/font_web.ttf")
   # Cog art for the first-person EYES PiP billboards (real body + legs + wheels
   # + cyan visor, team-tinted). Served as static PNGs so the raycast view can
   # blit the true cog instead of a procedural chassis.
@@ -2920,6 +2929,7 @@ proc httpHandler(request: Request) =
     var fontHeaders: HttpHeaders
     fontHeaders["Content-Type"] = "font/ttf"
     fontHeaders["Cache-Control"] = "public, max-age=3600"
+    fontHeaders["Vary"] = "Accept-Encoding"
     request.respond(200, fontHeaders, BroadcastFont)
   elif request.path in [
       bitworldClient.ReplayClientRoute,
