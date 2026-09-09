@@ -135,6 +135,10 @@ proc defaultGameConfig*(): GameConfig =
     # backstop, dark by default — its OWN key (per-flag activation),
     # reads only under an armed recut.
     deedMintCaps: false,
+    # S4B(epic 25d9108e): the achievement "bank lights the jackpot" bonus,
+    # dark by default — its OWN key (per-flag activation), reads only
+    # under an armed recut (enforced at the claimAchievement call site).
+    achievementLightableModes: false,
     stampRealizedConfig: false,
     # S5/S6 (CATALOG-V3-DRAFT.md, epic 25d9108e): the five percent-scaled
     # v3 catalog switches, all dark by default — SAME per-flag activation
@@ -1456,6 +1460,12 @@ proc update*(config: var GameConfig, jsonText: string) =
   node.readConfigBool("gloryMultiplierRecut", config.gloryMultiplierRecut)
   node.readConfigBool("winAsMultiplier", config.winAsMultiplier)
   node.readConfigBool("deedMintCaps", config.deedMintCaps)
+  # S4B(epic 25d9108e): appended read for the appended
+  # achievementLightableModes field (sim_types.nim) — same tail-append rule
+  # as everything above. An absent key leaves the dark default, so an
+  # existing config JSON parses to an unchanged config.
+  node.readConfigBool(
+    "achievementLightableModes", config.achievementLightableModes)
   node.readConfigBool("stampRealizedConfig", config.stampRealizedConfig)
   # S5/S6 (CATALOG-V3-DRAFT.md, epic 25d9108e): appended reads for the
   # five appended v3-catalog switch fields (sim_types.nim) — same
@@ -1888,6 +1898,12 @@ proc echoRecutKeys(config: GameConfig, node: JsonNode) =
     node["gloryFixedPointScale"] = %config.gloryFixedPointScale
   if config.catalogV3Reprice:
     node["catalogV3Reprice"] = %config.catalogV3Reprice
+  # S4B(epic 25d9108e): same armed-only echo rule — an armed replay's
+  # header pins whether the achievement "bank lights the jackpot" bonus
+  # was live, the one fact an offline audit of a surprising achievement
+  # payout needs first.
+  if config.achievementLightableModes:
+    node["achievementLightableModes"] = %config.achievementLightableModes
 
 proc echoStampKeys(config: GameConfig, node: JsonNode) =
   ## STAMP(recut contract Amendment 2 §2): the stamp gate and the variant
@@ -2081,6 +2097,7 @@ proc realizedConfigStampJson*(config: GameConfig): string =
   ## same facts through the config echo + engineStamp (replay_codec.nim),
   ## which serves as the amendment's replay-manifest secondary copy.
   var flags: seq[string] = @[
+    "achievementLightableModes=" & $config.achievementLightableModes,
     "bandagePickups=" & $config.bandagePickups,
     "brAssistRescueUngated=" & $config.brAssistRescueUngated,
     "brMode=" & $config.brMode,
