@@ -121,6 +121,33 @@ when defined(gtprobe):
   var gtNoCover = 0   # ...and no mate covering in place
   var gtFireCount = 0 # ...and a mate inbound => the hold actually fired
 
+when defined(rangeprobe):
+  # ⭐⭐ -d:rangeprobe ONLY (2026-08-18): DID THE MECHANISM FIRE? This lever has
+  # the strongest prior the programme has produced, which is exactly why a null
+  # must be distinguishable from a lever that never bound. rpBound counts frames
+  # where the clamp genuinely LOWERED the engage radius (not merely frames where
+  # it was armed), and rpCutSum/rpBound is the mean px removed — a cap set above
+  # the radius the bot was already using would show rpBound == 0 and is a
+  # vacuous arm, not a null result.
+  var rpFrames = 0    # ffa4 decide frames with the cap armed and a live gun
+  var rpBound = 0     # ...of which the clamp actually lowered maxEngage
+  var rpCutSum = 0.0  # Σ px removed by the clamp
+  # ⭐ FUTILITY BOUND (2026-08-18). rpBound says the clamp lowered the CEILING;
+  # it does NOT say the clamp removed the target the bot would have PICKED. If
+  # the chosen enemy already sat inside the cap, lowering the ceiling changes
+  # nothing and the lever's effect ceiling is zero however hard rpBound fires.
+  # rpSelFar / rpSel is that bound, measured in the CONTROL arm: the share of
+  # engage picks that sit beyond Ffa4EngageCapPx is the most the cap could ever
+  # change. "The lever fired" and "the lever could have changed the outcome"
+  # are different assertions and only the second one licenses a 30-run sweep.
+  var rpPickD = 0.0   # distance of the provisional pick, last write wins
+  var rpSel = 0       # frames that selected an engage target at all
+  var rpSelFar = 0    # ...of which the pick sat BEYOND Ffa4EngageCapPx
+  var rpSelDSum = 0.0 # Σ selected-target distance, for the mean
+  var rpHlReach = 0   # Voronoi holdLine: frames past the outer guard
+  var rpHlDeep = 0    # ...of which measured over-extended past the trigger depth
+  var rpHlFire = 0    # ...of which actually held (movement target overridden)
+
 when defined(hlprobe):
   # -d:hlprobe ONLY: instrument the holdLine gate as a FUNNEL so a 0-fire result is
   # diagnosable (correctly gated vs dead code / a line that never forms in the mirror).
@@ -188,6 +215,60 @@ when defined(ffa4probe):
   var f4MedPickVis = 0    # ...target came from the VISIBLE family (ffaMedSee/medSee)
   var f4MedPickVisOff = 0 # ...and that kit is OFF both formula spots => an address
                           #    the pre-lever code could never have produced
+
+when defined(peeldiag):
+  # ⭐⭐ -d:peeldiag (2026-08-18, THE PLACEBO-CONTROLLED APPROACH TEST). The
+  # replay finding this exists to adjudicate: net distance CLOSED on the nearest
+  # STOCKED kit during an hp==1 segment is -0.2 +-4.1 px for us against +8.5
+  # +-5.1 on a LOCKED (on-cooldown) placebo spot — i.e. we appear to close more
+  # ground on EMPTY spots than on real ones, which would mean our kits are
+  # accidental walk-overs and every gate above them is decoration.
+  #
+  # Replays cannot separate the three causes; this can, because it reads the
+  # policy's OWN state at the decision:
+  #   (1) perception dead — bot.ownHp never reads below MaxHp (pdHpHist), or
+  #       LabelMedKit returns an empty seq (pdLabelFrames), the silent-rename
+  #       failure this project has hit three times;
+  #   (2) discovery dead — hp and label both fine but no candidate ever clears
+  #       the detour budget (the funnel below ends at pdScan with pdHaveKit 0);
+  #   (3) discovery FINE and the WALK is the failure — a target is committed
+  #       every frame and the bot still does not close on it (pdClosed ~ 0).
+  # Only (3) is a movement-arbitration bug; (1) and (2) are perception bugs and
+  # would make the peel gate irrelevant.
+  #
+  # ⚠️ THE PLACEBO IS THE POINT. "We closed 40px on a kit" means nothing if the
+  # fight happened to drift that way. pdPlacebo accumulates the identical sum
+  # against a candidate the bot did NOT choose, so ordinary drift cancels and
+  # only STEERING survives. Never shipped; never compiled into the player image.
+  const PdSlots = 64
+  var pdPrevTick: array[PdSlots, int]
+  var pdPrevKitX: array[PdSlots, float]
+  var pdPrevKitY: array[PdSlots, float]
+  var pdPrevDist: array[PdSlots, float]
+  var pdPrevPlac: array[PdSlots, float]
+  var pdPlacX: array[PdSlots, float]
+  var pdPlacY: array[PdSlots, float]
+  var pdPrevHave: array[PdSlots, bool]
+  # hp-bucketed approach accumulators (index = ownHp, 0..3)
+  var pdFrames: array[4, int]        # consecutive committed frames scored
+  var pdClosed: array[4, float]      # Σ (prevDist - curDist) toward the CHOSEN kit
+  var pdPlac: array[4, float]        # Σ the same toward a NOT-chosen candidate
+  var pdCommitDist: array[4, float]  # Σ distance to the chosen kit at commit
+  var pdCommits: array[4, int]
+  # perception
+  var pdDecide = 0
+  var pdHpHist: array[5, int]        # ownHp 0..4 (0 = unread)
+  var pdLabelFrames = 0              # frames the med-kit label returned >=1 real sprite
+  var pdLabelSprites = 0
+  # the medKitEcon FUNNEL: each counter = frames surviving one more gate
+  var pdEconOn = 0        # tune.medEcon on, hp read
+  var pdWounded = 0       # ...and hp in 1 ..< MaxHp (the wounded band)
+  var pdFree = 0          # ...and no higher objective owns the bot
+  var pdInContact = 0     # ...and engaged / near threat (the interesting half)
+  var pdHpGate = 0        # ...and hp <= lightContactHp (allowed to break contact)
+  var pdAimVeto = 0       # ...but a live gun inside FinishRange vetoed the walk
+  var pdScan = 0          # ...reached the candidate scan
+  var pdHaveKit = 0       # ...and a candidate cleared the detour budget
 
 when defined(commsprobe):
   # -d:commsprobe ONLY: prove the comms bus is LIVE — codewords emitted, heard,
@@ -293,6 +374,20 @@ when defined(lifeprobe):
   var llOnLastLifeFrames = 0   # population: alive frames onLastLife read true
   var llWantSuppressed = 0     # ...and wantPocketRush WOULD have been true
                                 # (the veto was load-bearing, not a no-op)
+  # ⭐ ffaPeelWide FIRE DIAGNOSTICS (2026-08-18). Explicitly NOT evidence — see
+  # the ffaPeelWide field doc. pwWideOnly > 0 is the WIRING proof and nothing
+  # more; the outcome lives in -d:fpprobe (kits collected per 1e6 alive ticks).
+  # ⚠️ pwWideAvail IS NOT AN ARM-INDEPENDENT DENOMINATOR, and the first run of
+  # this probe proved it: one armed team of four produced 572 of 586 total
+  # avail frames. It counts FRAMES, and an armed bot that peels at 2 hp then
+  # SPENDS the whole walk sitting in the 2-hp-with-a-kit-committed state, while
+  # a control bot at 2 hp keeps shooting and leaves that state within a few
+  # ticks (usually by dropping to 1 hp — 80.4% of hp-2 spells end there). So
+  # `avail` measures dwell in the state, which the lever itself changes. Read it
+  # as "the lever is live and load-bearing", never as an opportunity rate.
+  var pwFeet = 0        # frames the med peel handed the feet over (any hp tier)
+  var pwWideOnly = 0    # ...of which came from the WIDENED 2-hp tier (new frames)
+  var pwWideAvail = 0   # ffa4 in-contact 2-hp frames with a kit committed (both arms)
   var ffaMedFireCount = 0      # frames ffaMedSee (not base medSee) supplied
                                 # the chosen medEcon target
 
@@ -872,6 +967,24 @@ const
                               # and a 1-hp bot is worth less than the detour.
   MedKitOnSpotPx = 26.0       # "we are standing on the spot": if this close and the
                               # kit sprite is NOT visible, it is taken - stop going.
+  FfaPeelWideHp = 2           # ffaPeelWide: at or below this hp an ffa4 bot that has
+                              # already committed a kit target gets FEET (v48 `peeling`),
+                              # not just a target the act chain discards. 2 is the WIDEST
+                              # value this dimension has: medEcon breaks out at
+                              # `ownHp notin 1 ..< MaxHp` and MaxHp is 3, so hp 1 and 2 are
+                              # the entire wounded band — "arm it earlier" has no room left
+                              # above 2 that is not "peel at full health", which is not a
+                              # peel. That matters because the TIMING says even 2 is late:
+                              # an hp-1 spell has a median 26 ticks to live and our completed
+                              # heals take a median 71 (winners 121), so the 1-hp errand is
+                              # armed inside a window shorter than its own completion time.
+                              # hp 2 adds a median 28 ticks of dwell — a 54-tick runway
+                              # against a 71-tick median walk. Necessary, not obviously
+                              # sufficient; the remaining runway has to come from the
+                              # DISTANCE term (MedKitEconDetour is 320px ≈ 130 ticks of
+                              # walking), not from hp. Measured, not assumed: 80.4% of hp-2
+                              # spells end at hp 1 and only 2.8% end in a heal (winners 7.4%),
+                              # so the 2-hp tier is where the losing transition happens.
   MedKitLightContactHp = 1    # medEcon: at or below this hp a bot breaks LIGHT contact
                               # (a threat that is not aiming at us) to go heal. At 1 hp
                               # the next bullet is death, so healing outranks the duel.
@@ -1265,6 +1378,46 @@ const
                                 # 3-body wave hits the line together = regroupPush parity)
   HoldLineCommit = 90           # once released, commit the joint push for this many ticks
                                 # (hysteresis; mirrors RegroupPushCommit)
+
+  # --- ffa4 CONTACT VOLUME: the engage cap + the Voronoi over-extend brake ----
+  # ⭐⭐ THE DEATH-GAP DECOMPOSITION (2026-08-18; 160 team-Episodes @0.7.229, us
+  # paired against the REAL rival teams inside the SAME Episode).
+  # `deaths = bouts x P(fatal|bout)` is an IDENTITY — every death lies inside
+  # exactly one incoming-damage bout — so the death gap splits with NO residual:
+  #     WHOLE +1.517  =  M1 CONTACT VOLUME +1.301  +  M2 BOUT LETHALITY +0.154
+  # and M2's CI crosses zero. We do NOT lose fights more often (57.0% fatal per
+  # bout vs the rivals' 56.1%). We have 24% MORE of them: 8.12 vs 6.56 bouts by
+  # t=1000. Replicates on 0.7.228 (n=60, CONTACT +0.877). Tempo is not free —
+  # win rate by early-bout tercile runs 61.3 / 47.0 / 35.8 / 30.5%.
+  #
+  # THE MECHANISM IS A MISSING TEAM TERM. The engage-candidate select caps at
+  # `bot.tune.fireRange * aggroScale` (1250px) with no GameTeams term anywhere,
+  # so a 4-team board applies the SAME map-wide radius to 12 enemies instead of
+  # 4. The candidate set triples and "the nearest fresh track" is nearly always
+  # inside it. Independently established on this engine: 0 of 35,335 shots ever
+  # damaged anyone past 832px, and P(hit) is 0 past 900px. Most of that radius
+  # therefore commits us to a target we CANNOT hit while standing inside a set
+  # that can hit us. Corroborating: P(fire <=1s | no enemy within 250px) is
+  # 0.249 for us vs relh's 0.165.
+  Ffa4EngageCapPx = 420.0     # the DEFAULT cap once GameTeams > 2. FFARANGE=<px>
+                              # overrides it, which is how the value below was
+                              # swept rather than asserted. Anchored on three
+                              # MEASURED horizons, not taste: 832px is the
+                              # furthest shot that ever damaged anybody, ~900px is
+                              # where P(hit) reaches zero, and 250px is the radius
+                              # the "opens fire with nothing inside it" split was
+                              # measured on. 420 is half the damage horizon — it
+                              # keeps every band that has ever landed a shot
+                              # (median hit range ~170px) plus a full engagement
+                              # of closing room, and drops only the band that has
+                              # never converted but still buys incoming fire.
+  Ffa4HoldDepthScale = 0.5    # the Voronoi depth below is a DIFFERENCE OF
+                              # DISTANCES (own base minus nearest enemy base),
+                              # which grows ~2px per 1px of real penetration past
+                              # the boundary. Halving it restores the units the
+                              # HoldLine* constants were calibrated in, so the
+                              # re-key changes the GEOMETRY of the brake without
+                              # silently also changing its trigger depth.
 
   # --- grabGate (numbers-gated pocket rush) -----------------------------------
   # The h006 grab-discipline finding (2026-07-22): h006 grabs almost only when up
@@ -2918,6 +3071,148 @@ type
                               # CORRELATE, not causation (the scripted filler shows the opposite
                               # slope). This ships as a repaired address, nothing more.
                               # Default ON; NOFFAMEDSEE=1 turns it off.
+    ffaPeelWide: bool         # ⭐⭐ FFA4 PEEL FEET (2026-08-18, the medkit-peel gate).
+                              # medEcon already COMMITS a kit target at 2 hp in contact
+                              # (medPeel raised lightContactHp 1 -> 2 and ships ON), but
+                              # only a 1-hp bot is handed FEET: v48's `peeling` — the flag
+                              # that puts the kit into the act-chain steer set so the walk
+                              # survives being engaged — is gated `bot.ownHp == 1`. At 2 hp
+                              # the target is written and the movement arbitration throws it
+                              # away, which is the exact no-op v48 was built to fix, still
+                              # live one hp tier up. So this widens FEET, not addressing, not
+                              # range, and not the disengage rule: every upstream veto
+                              # (objective yields, the ranged aimedAtUs hold-vs-gun test)
+                              # is untouched, and the only frames that change are
+                              # in-contact 2-hp frames that ALREADY chose a kit.
+                              # ⚠️ WHY THIS IS NOT A v55 REVERT. v55 narrowed the same gate
+                              # <=2hp -> ==1hp and its comment records the trade honestly:
+                              # kits/Ep 1.03 -> 0.57, bought with mid-game gun K-D +155 -> +41
+                              # and -24% gun damage. That trade was measured and correct FOR
+                              # 2-TEAM DEATHMATCH, where a lost duel concedes a respawn and
+                              # we run +34pp above field. ffa4 is ELIMINATION: a team that
+                              # reaches 12 deaths has won 0 of 3661 hosted episodes, and our
+                              # kills-paired vs the scripted control is +4.71 — ABOVE relh
+                              # (+4.03) and richard (+4.10), two policies that win twice as
+                              # often as we do. We paid lives for the one currency we were
+                              # already best at. So this is armed on GameTeams > 2 ONLY, at
+                              # the call site (same reasoning as ffaMedSee — GameTeams is
+                              # unknown at shippedCombatTune() time), and a 2-team game is
+                              # byte-identical regardless of this flag.
+                              # ⚠️ THE OUTCOME RULE. v57 shipped ffaMedSee (better kit
+                              # ADDRESSING) and 19,439 target-supplied firings produced FEWER
+                              # completed heals than 4,044 did. A fire counter is not evidence
+                              # here; only KITS COLLECTED per alive-tick is. See -d:lifeprobe
+                              # pwFeet/pwWideOnly for the diagnostic half, and -d:fpprobe's
+                              # heals per 1e6 ALIVE ticks for the half that decides.
+                              # Ships OFF: FFAPEEL=1 arms it, and the eval rig's
+                              # FFAPEELTEAM=<n> arms exactly one engine team so a bare arm
+                              # cannot become a mirror.
+                              # ⛔⛔ MEASURED AND NULL (2026-08-18), STAYS OFF. Built, wired,
+                              # proven live, and it moves NOTHING. Two independent local
+                              # designs on the corrected hosted board family
+                              # (quadmirror+corners, EVAL_TEAMS=4):
+                              #   seed-matched MIRROR, n=23 episodes / 176 team-episodes:
+                              #     kits collected per 1e6 ALIVE ticks 102.0 armed vs 97.6
+                              #     control, rate ratio 1.04x, 95% CI [0.71, 1.54] (51 vs 50
+                              #     kits). Episode-paired delta +2.9 per 1e6, CI [-18.1, +24.0].
+                              #   within-episode (one armed team of four, arm rotated over all
+                              #     four seats), n=12 episodes: 1.03x, CI [0.11, 9.86].
+                              #   the BEST-POWERED proxy — hp==1 ENTRIES per 1e6 alive ticks,
+                              #     n=799 vs 814 entries, 20x the kit count: 1.014x, CI
+                              #     [0.920, 1.118]. A tight null, not an underpowered one: if
+                              #     2-hp bots were healing before dropping to 1 hp, this is the
+                              #     number that would move first, and it does not.
+                              # ⭐ WHY IT IS NULL — -d:peeldiag, placebo-controlled, both arms
+                              # on the SAME boards (3 episodes, seeds 700-702). Perception is
+                              # FINE: ownHp reads 1hp on 13,200 frames and 2hp on 8,112, and the
+                              # med-kit label returns real sprites on 18,230 frames, so neither
+                              # the "hp never reads" nor the "LabelMedKit renamed" failure is
+                              # happening. medEcon COMMITS a kit on 6,961 frames.
+                              # STEERING IS REAL — the bot does walk at the kit it chose:
+                              #   hp1  chosen 0.443 px/frame vs a FROZEN not-chosen placebo
+                              #        0.232  =>  +0.210 steering (47% of raw), 39 errands
+                              #   hp2  chosen 1.283 vs placebo 0.635  =>  +0.649 (51%), 6 errands
+                              # ⛔ THE ERRAND IS SIMPLY NOT SURVIVABLE. Against a 12px engine
+                              # touch radius (MedKitPickupRange) and the measured runway:
+                              #   hp1  223px at commit, 476 frames of travel needed vs a ~26-tick
+                              #        life  =>  18.3x SHORT
+                              #   hp2  300px at commit, 224 frames needed vs a ~54-tick life
+                              #        =>  4.2x SHORT
+                              # A bot cannot reach a kit it commits to, at either hp tier, by a
+                              # factor of 4 to 18. Widening WHEN the feet are released cannot fix
+                              # a walk that needs 4-18x more life than the bot has left.
+                              # ⚠️ AND THE LEVER IS NEARLY INERT PER EPISODE: 2 of 3 diagnostic
+                              # episodes and 3 of 23 mirror episodes came out BYTE-IDENTICAL
+                              # armed vs control, and only 6-7 hp2 errands exist across 3
+                              # episodes. There is very little for it to act on.
+                              # ⇒ The binding constraint is REACHABILITY — distance to the kit
+                              # versus remaining life — not the hp threshold. The right fix is a
+                              # commit-time feasibility gate (only take the errand when the walk
+                              # FITS in the expected remaining life), which is a different change
+                              # from this one and would also NARROW today's hp1 behaviour, so it
+                              # needs its own A/B. Keep this OFF; re-measure the hp tier only
+                              # after reachability is fixed, because the tier cannot matter until
+                              # the walk can finish.
+                              # 🧾 CORRECTION (same day): an earlier single-episode read of this
+                              # same probe reported "hp1 has ZERO commits" and "only 15% of the
+                              # approach is steering". Both were n=1 artifacts and are RETRACTED
+                              # by the 3-episode numbers above. One episode is not a sample here
+                              # — the per-episode inert fraction alone guarantees it.
+                              # 🚨 NEVER QUOTE THESE ABSOLUTES AS A RIG BASELINE (2026-08-18,
+                              # caught by the woundedBank A/B session pooling these same logs).
+                              # kits/1e6 alive ticks and P(escape|hp==1) are properties of the
+                              # SEED BLOCK, not of the rig. Identical binary, identical env,
+                              # identical --ticks 5000:
+                              #     seeds 700-702   13.3 kits/1e6,  0.79% escape  (48 team-eps)
+                              #     seeds 800-837   97.6 kits/1e6,  1.93% escape  (92 team-eps)
+                              #     seeds 7100+     ~41 kits/1e6,   0.65% escape  (their block)
+                              # A 7.7x spread on kits and ~3x on escape between blocks of the
+                              # same rig. So "the rig reproduces the hosted 2.1%" is NOT a
+                              # calibration claim — the field value merely sits inside a wide
+                              # rig range. Report the RANGE, and only ever compare arms that are
+                              # SEED-MATCHED; every verdict above is paired within a block, which
+                              # is why the between-block spread does not touch it.
+                              # ⚠️ It does explain the useless CI on the within-episode wave: it
+                              # ran entirely on the 700s block (1 vs 3 kits, CI [0.11, 9.78]).
+                              # That design was not underpowered in principle, it was run on the
+                              # kit-poorest block. Put the next one on an 800-class block.
+                              # 📐 WHY THIS NULL IS READABLE AT ALL — the metric choice, which
+                              # was the load-bearing decision and is the transferable lesson
+                              # (earned jointly with the sibling woundedBank A/B, which died on
+                              # exactly this). The obvious outcome here is P(escape|hp==1), and
+                              # it is a RARE BINARY: ~1-2% base rate, so an arm lands 3-6 escape
+                              # events out of ~424 hp1 entries and a doubling would need
+                              # THOUSANDS of segments per arm. No n reachable on this rig
+                              # resolves it — the sibling's primary was arithmetically dead
+                              # before it ran. Kits per 1e6 ALIVE ticks is the CONTINUOUS
+                              # PRECURSOR of the same mechanism and it does resolve, which is
+                              # why the verdict above has a CI worth reading.
+                              # ⇒ RULE: when the outcome of interest is rare, pre-register the
+                              # continuous precursor and demote the rare event to DESCRIPTIVE.
+                              # P(escape|hp==1) appears above only as description; nothing is
+                              # concluded from it.
+                              # ✅ THIS NULL IS NOT THE 4-TEAM PARITY DEFECT, checked because
+                              # the sibling woundedBank A/B is contaminated by exactly that and
+                              # the same objection will be raised here. findBankCell — whose
+                              # `homeSign(bot.team) * (p.x - me.x) < -20.0` filter (L6158) is a
+                              # 2-team x-axis assumption that misroutes three of four teams on a
+                              # corner board — has exactly ONE call site (L7831), and it is on
+                              # the woundedBank path. The peel path never reaches it: `peeling`
+                              # steers to `target`, which medEcon set to chosenEcon, and the kit
+                              # ADDRESS is formula spots + visible sprites with no team-parity
+                              # term anywhere. The one homeSign site that sits between medEcon
+                              # and the act chain is the oneRunner hold-line clamp (L10502), and
+                              # oneRunner requires the SHAPE env var (L4581) which was unset in
+                              # every run above — so it never executed. Parity-clean.
+                              # 🔗 NON-OVERLAP WITH woundedBank, verified in code, not assumed:
+                              # bankHpThreshold = min(MaxHp-1, round(1/aggro)) (L7584) with the
+                              # shipped aggro = 1.0 (L4478) evaluates to 1, and that line's own
+                              # comment says it is byte-identical to the old `ownHp == 1`. So at
+                              # the shipped tune NOTHING serves the 2hp tier: `banking` stops at
+                              # 1hp and `peeling` was gated at 1hp. ffaPeelWide is the only path
+                              # that ever reaches 2hp — the behaviour is genuinely new, and it
+                              # still buys nothing, which is what makes the null informative
+                              # rather than a confound with a neighbouring lever.
     lastLifeGuard: bool       # ⭐⭐ LAST-LIFE GUARD (2026-08-17, ffa4 lives audit). Per-seat
                               # deaths-of-3 are flat (A 2.69 / B 2.59 / C 2.74 / D 2.79) — no
                               # seat currently protects its OWN last life, yet P(win) by our own
@@ -2967,6 +3262,38 @@ type
                               # volume/commitment gate, agnostic of WHO we shoot. Scoped to
                               # GameTeams > 2 (2-team combat is already the fireSuperiority
                               # arithmetic and stays byte-identical). NOVOLUME=1 reverts.
+    ffaEngageCap: float       # ⭐⭐ FFA4 ENGAGE-RANGE CAP (2026-08-18, the death-gap
+                              # decomposition). 0.0 = OFF. Above 0, the maximum engage
+                              # radius in px once GameTeams > 2. The select that picks
+                              # an engage candidate has NO GameTeams term: it applies
+                              # `fireRange * aggroScale` (1250px, a map-wide radius) to
+                              # 12 enemies on a 4-team board instead of 4, tripling the
+                              # candidate set. Since 0 of 35,335 shots ever damaged
+                              # anyone past 832px, most of that radius commits us to a
+                              # target we cannot hit while placing us inside a set that
+                              # can hit us. This is the CONTACT-VOLUME lever: it targets
+                              # bouts, the +1.301 of the +1.517 death gap, NOT lethality
+                              # (+0.154, CI crosses zero — we do not lose fights more
+                              # often, we have 24% more of them). ⚠️ Applied as a FINAL
+                              # clamp, after the plan-layer widening: PhOpen/PhPress/
+                              # PhDefend/PhForce each `max(maxEngage, fireRange)` and
+                              # planLayer SHIPS ON, so a cap on the default select branch
+                              # alone would be silently defeated in exactly the phases
+                              # that fight the most. Never raises a disarmed 0 (the
+                              # carrier / pocketRush gun discipline is untouched).
+    ffaHoldVoronoi: bool      # ⭐⭐ RE-KEY THE OVER-EXTEND BRAKE (2026-08-18). holdLine
+                              # is the only anti-over-extend gate we ship and on ffa4 it
+                              # is MIS-KEYED twice over. (1) Its depth is penetration
+                              # past a single x-midline that four corner bases do not
+                              # have — see voronoiDepth: for half the seats the old
+                              # formula reads "deep in the enemy half" on our own
+                              # doorstep. (2) It is gated to {MidTop, MidBottom,
+                              # MidGuard} — half the roster — and on a 4-team board there
+                              # is no HomeDefender to make that split mean anything, so
+                              # the brake covers half the bodies that over-extend. This
+                              # flag swaps the depth to Voronoi nearest-base and opens
+                              # the gate to every seat. GameTeams > 2 only, so 2-team is
+                              # byte-identical by construction.
 
   Bot = ref object
     slot: int
@@ -3742,8 +4069,11 @@ proc defaultCombatTune(): CombatTune =
     aggro: 1.0,               # control: today's shipped posture exactly (every multiply is a no-op).
     medPeel: false,           # control: medEcon's aimedAtUs veto is unranged, MedKitLightContactHp stays 1.
     ffaMedSee: false,         # control: medEcon's ffa4 candidates stay the two formula spots only.
+    ffaPeelWide: false,       # control: the ffa4 med peel gets FEET only at 1 hp (the v55 gate).
     lastLifeGuard: false,     # control: a last-life bot dives the pocket and heals like any other.
     tradeGate: false,         # control: fireSuperiority presses on "not badly outnumbered", not "hold an edge".
+    ffaEngageCap: 0.0,        # control: ffa4 engages on the same map-wide 1250px radius as 2-team.
+    ffaHoldVoronoi: false,    # control: holdLine keys depth on CenterX and brakes mids only.
   )
 
 proc shippedCombatTune(): CombatTune =
@@ -4401,6 +4731,16 @@ proc shippedCombatTune(): CombatTune =
   # so a 2-team game is byte-identical regardless of these two flags. See the
   # ffaMedSee / lastLifeGuard field docs for the full measurement.
   result.ffaMedSee = getEnv("NOFFAMEDSEE").len == 0
+  # ⭐⭐ ffaPeelWide (2026-08-18): FEET for the ffa4 med peel at 2 hp, not just 1.
+  # DEFAULT OFF — this has local mechanism evidence only and no hosted read, and
+  # the file's own rule is that an unproven behaviour half ships dark (the
+  # lastLifeGuard precedent directly below). FFAPEEL=1 arms it; NOFFAPEEL=1
+  # force-offs on top so the documented revert name works whichever way the
+  # default is later flipped, and flipping the ship is this one line becoming
+  # `getEnv("NOFFAPEEL").len == 0`. Call-site gated on GameTeams > 2, so a
+  # 2-team board is byte-identical either way (proven: -d:fpprobe mask/traj
+  # fingerprints are equal on a 2-team run with the lever armed and disarmed).
+  result.ffaPeelWide = getEnv("FFAPEEL").len > 0 and getEnv("NOFFAPEEL").len == 0
   # ⛔ lastLifeGuard DEFAULT OFF (2026-08-17 gate). The perception half — the
   # ownLives readback — is PROVEN LIVE (selfLives() parsed 204,566 of 204,566
   # decide frames on the gen 4-team rig, distribution x3/x2/x1 = 54591/66578/83397)
@@ -4438,6 +4778,23 @@ proc shippedCombatTune(): CombatTune =
   # force-offs on top (same double gate as HOTDOOR/NOHOTDOOR above), so the
   # documented revert name keeps working either way.
   result.tradeGate = getEnv("VOLUME").len > 0 and getEnv("NOVOLUME").len == 0
+  # ⭐⭐ FFA4 CONTACT-VOLUME PACKAGE (2026-08-18, the death-gap decomposition).
+  # Both DEFAULT OFF, both call-site gated on GameTeams > 2, so a 2-team board
+  # is byte-identical whatever the env says (proven, not asserted: the 2-team
+  # invariant run is in this lever's evidence). FFARANGE=<px> sets the cap
+  # explicitly so the value is SWEPT rather than declared — FFARANGE=1 is the
+  # shorthand for the Ffa4EngageCapPx default. NOFFARANGE=1 / NOFFAHOLD=1 still
+  # force-off on top (the HOTDOOR/NOHOTDOOR double gate), so the documented
+  # revert name keeps working whichever way the default is later flipped.
+  # ⚠️ A BARE ENV FLAG IS A MIRROR, NOT AN A/B: all 16 rig bots share one
+  # process env, so arming by env alone arms every team and measures nothing.
+  # FFARANGETEAM=<n> / FFAHOLDTEAM=<n> in grabprobe.nim strip every other team
+  # and are what the A/B actually runs (the FFAMEDTEAM/FFAPEELTEAM pattern).
+  result.ffaEngageCap =
+    if getEnv("NOFFARANGE").len > 0 or getEnv("FFARANGE").len == 0: 0.0
+    elif getEnv("FFARANGE") == "1": Ffa4EngageCapPx
+    else: parseFloat(getEnv("FFARANGE"))
+  result.ffaHoldVoronoi = getEnv("FFAHOLD").len > 0 and getEnv("NOFFAHOLD").len == 0
 
 
 when defined(doorprobe):
@@ -4791,6 +5148,50 @@ proc findSelf(
     let label = "self " & color & (if facingRight: " right" else: " left")
     for o in client.spriteObjectsWithLabel(label):
       return (alive: true, pos: client.mapPos(o))
+
+var
+  PedHome: array[4, Vec]        ## per-colour pedestal POSITION, cached on first
+  PedHomeSeen: array[4, bool]   ## sight. The planted banner is never fogged, so
+                                ## every bot can see all four bases every frame —
+                                ## this is the only board-wide geometry a 4-team
+                                ## board makes available, and it is what the
+                                ## Voronoi over-extend depth is keyed on. Cached
+                                ## because the banner VANISHES while that heart is
+                                ## being carried, exactly when the fix matters.
+
+proc voronoiDepth(p: Vec, myCi: int): float =
+  ## ⭐⭐ OVER-EXTEND DEPTH ON A BOARD THAT HAS NO MIDLINE (2026-08-18).
+  ## holdLine — the only anti-over-extend brake we ship — measured depth as
+  ## `-homeSign(team) * (x - CenterX)`: penetration past a SINGLE x-midline.
+  ## Four bases sitting at the four corners of a rectangle do not have one.
+  ## On the hosted 4-team board the measured base centroids are
+  ## (84,126)/(1098,93)/(179,537)/(1168,540), so for the two teams whose base
+  ## shares the enemy's half of x, the old formula reports us "deep in the enemy
+  ## half" while we stand on our own doorstep — and reports depth 0 while we are
+  ## inside a rival's base. It is not noisy, it is UNDEFINED: every positional
+  ## estimator that assumes one x-midline is measuring a quantity four bases do
+  ## not have.
+  ##
+  ## The Voronoi form asks the question the midline was a proxy for: are we
+  ## closer to somebody else's base than to our own? Zero ON the boundary
+  ## between our territory and the nearest rival's, positive as we push into
+  ## theirs, negative at home — the exact sign convention the HoldLine*
+  ## constants were written against. Scaled by Ffa4HoldDepthScale to keep those
+  ## constants' units. Returns 0.0 (never holds) if the geometry is not yet
+  ## known, so an un-cached frame degrades to today's behaviour rather than to
+  ## a wrong answer.
+  if myCi < 0 or myCi >= 4 or not PedHomeSeen[myCi]:
+    return 0.0
+  var nearest = -1.0
+  for i in 0 ..< max(GameTeams, 2):
+    if i == myCi or not PedHomeSeen[i]:
+      continue
+    let d = dist(p, PedHome[i])
+    if nearest < 0.0 or d < nearest:
+      nearest = d
+  if nearest < 0.0:
+    return 0.0
+  result = (dist(p, PedHome[myCi]) - nearest) * Ffa4HoldDepthScale
 
 proc plantedPedestalPos(client: ProtocolClient, o: SpriteObjectInfo): Vec =
   ## The TRUE pedestal point under a planted-banner sprite. ⚠️ ENGINE DRIFT,
@@ -6874,6 +7275,20 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
   # regardless of ffaMedSee/lastLifeGuard. onLastLife is agent-local (this bot's
   # own remaining lives), never a team-wide posture change.
   let ffa4Board = GameTeams > 2
+  when defined(peeldiag):
+    if ffa4Board:
+      inc pdDecide
+      inc pdHpHist[clamp(bot.ownHp, 0, 4)]
+      var seen = 0
+      for o in client.spriteObjectsWithLabel(LabelMedKit):
+        let pp = client.mapPos(o)
+        if pp.x < 40.0 or pp.y < 40.0 or pp.x > float(MapW - 40) or
+            pp.y > float(MapH - 40):
+          continue                                   # HUD indicator shares the label
+        inc seen
+      if seen > 0:
+        inc pdLabelFrames
+        pdLabelSprites += seen
   let onLastLife = bot.tune.lastLifeGuard and ffa4Board and bot.ownLives == 1
   when defined(ffa4probe):
     if onLastLife: inc f4OnLastLife
@@ -6918,8 +7333,16 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
   # its heart stolen or has been eliminated (GV33 retires a dead team's heart).
   # Either way there is nothing there to raid.
   for i in 0 ..< max(GameTeams, 2):
-    HeartHome[i] = client.spriteObjectsWithLabel(
-      TeamColorNames[i] & " flag planted").len > 0
+    let planted = client.spriteObjectsWithLabel(TeamColorNames[i] & " flag planted")
+    HeartHome[i] = planted.len > 0
+    # ⭐ CACHE ALL FOUR BASES, not just ours and the raid target. The banner is
+    # never fogged, so this is free board-wide geometry every frame — and it is
+    # the ONLY such geometry a 4-team board offers. voronoiDepth keys the
+    # over-extend brake on it. Cached on first sight because the banner vanishes
+    # while that heart is carried, which is exactly when the fix is needed.
+    if planted.len > 0:
+      PedHome[i] = client.plantedPedestalPos(planted[0])
+      PedHomeSeen[i] = true
   if enemyPlanted.len > 0:
     bot.stealPedPos = client.plantedPedestalPos(enemyPlanted[0])
     bot.stealPedSeen = true
@@ -8536,16 +8959,33 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
   when defined(hlprobe):
     if bot.tune.holdLine and bot.role in {MidTop, MidBottom, MidGuard}:
       inc hlMid
+  # ⭐⭐ THE BRAKE IS MIS-KEYED TWICE (2026-08-18). See the ffaHoldVoronoi tune
+  # doc. (1) ROLE: the {MidTop, MidBottom, MidGuard} gate is half the roster, and
+  # a 4-team board has no HomeDefender to make that split mean anything — a
+  # half-roster brake is a candidate reason this never bites. (2) DEPTH: below.
+  let hlVoronoi = ffa4Board and bot.tune.ffaHoldVoronoi
+  let hlRoleOk =
+    if hlVoronoi: true
+    else: bot.role in {MidTop, MidBottom, MidGuard}
   if bot.tune.holdLine and not iCarry and not mateCarry and not ownStolen and
       not retreating and not declining and not pushOut and
-      bot.role in {MidTop, MidBottom, MidGuard} and
+      hlRoleOk and
       not (bot.tune.oneRunner and bot.role == MidTop) and
       dist(me, stealTarget) >= PocketRushRange:
     # ⭐ SHAPE carve-out (same reason as regroupPush above): the runner never rallies.
     when defined(hlprobe):
       inc hlReach
     # Depth INTO the enemy half: 0 at center, grows toward the enemy pedestal.
-    let depth = -homeSign(bot.team) * (me.x - float(CenterX))
+    # ⭐⭐ ...except on a board with four corner bases, where there is no "enemy
+    # half" and no midline to be past. voronoiDepth asks the question CenterX was
+    # only ever a proxy for: are we closer to somebody else's base than our own?
+    let depth =
+      if hlVoronoi: voronoiDepth(me, TeamColorNames.find(myColor))
+      else: -homeSign(bot.team) * (me.x - float(CenterX))
+    when defined(rangeprobe):
+      if hlVoronoi:
+        inc rpHlReach
+        if depth >= HoldLineTrigDepth: inc rpHlDeep
     var freshMatesNear = 0   # fresh mates within our local pack radius RIGHT NOW
     var joinMates = 0        # fresh mates homeward of me — support genuinely inbound
     for t in bot.mates:
@@ -8601,8 +9041,25 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
       bot.holdLineHoldUntil = bot.tick + HoldLineCommit
       # Rally line: a shallow point just inside the enemy half at our current height
       # (the lane we advanced up), so the strung-out wave converges before the line.
-      let rallyX = float(CenterX) - homeSign(bot.team) * HoldLineRallyDepth
-      target = vec(rallyX, me.y)
+      # ⭐⭐ THE RALLY POINT MUST MOVE WITH THE DEPTH IT IS KEYED ON. The old
+      # rally is a point on the x-midline at our own lane height; under the
+      # Voronoi key the equivalent is "back off along the line to our OWN base
+      # until we are only HoldLineRallyDepth into the rival's territory". Same
+      # shape (still forward of the boundary — we re-form, never cede ground),
+      # correct geometry. `pull` is the surplus depth, and depth is already in
+      # real px via Ffa4HoldDepthScale, so this is a straight pull-back.
+      if hlVoronoi:
+        let myCi = TeamColorNames.find(myColor)
+        let pull = max(0.0, depth - HoldLineRallyDepth)
+        if myCi >= 0 and PedHomeSeen[myCi] and pull > 0.0:
+          target = me + norm(PedHome[myCi] - me) * pull
+        else:
+          target = me
+      else:
+        let rallyX = float(CenterX) - homeSign(bot.team) * HoldLineRallyDepth
+        target = vec(rallyX, me.y)
+      when defined(rangeprobe):
+        if hlVoronoi: inc rpHlFire
       when defined(commsprobe):
         if heardLine and not line: inc csLineArm  # cross-fog line convergence fired
       when defined(hlprobe):
@@ -8903,6 +9360,27 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
       # must remove enemy guns, not gently reposition. Every seat widens to fireRange.
       maxEngage = max(maxEngage, bot.tune.fireRange)
     else: discard
+  # ⭐⭐ THE ffa4 ENGAGE CAP (2026-08-18, the death-gap decomposition). Everything
+  # above this line computes an engage radius with NO GameTeams term in it, so a
+  # 4-team board hands the same map-wide 1250px to 12 enemies that a 2-team board
+  # hands to 4. See the ffaEngageCap tune-field doc for the identity this comes
+  # from (+1.301 of the +1.517 gap is CONTACT VOLUME, not lethality).
+  #
+  # ⚠️ PLACED AFTER THE PLAN LAYER ON PURPOSE. planLayer SHIPS ON, and PhOpen /
+  # PhPress / PhDefend / PhForce each re-widen with `max(maxEngage, fireRange)`.
+  # Capping only the default select branch would leave the lever silently
+  # vacuous in precisely the phases that fight the most — the "did the mechanism
+  # even fire" failure this programme has now paid for more than once.
+  #
+  # Never raises a disarmed 0: the pocketRush / carrier gun discipline above is a
+  # deliberate 0 and a `min` against a positive cap would resurrect the gun.
+  if GameTeams > 2 and bot.tune.ffaEngageCap > 0.0 and maxEngage > 0.0:
+    when defined(rangeprobe):
+      inc rpFrames
+      if maxEngage > bot.tune.ffaEngageCap:
+        inc rpBound                       # the clamp actually LOWERED the radius
+        rpCutSum += maxEngage - bot.tune.ffaEngageCap
+    maxEngage = min(maxEngage, bot.tune.ffaEngageCap)
   # Focus-fire intel: which remembered enemies sit on a visible mate's aim
   # line right now. A mate's rendered aim dots are an absolute readback of
   # where it is about to shoot; piling our shot onto the same target converts
@@ -9164,6 +9642,8 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
         engagePrio = prio
         engageD = d
         engage = i
+        when defined(rangeprobe):
+          rpPickD = d          # provisional; the LAST write is the final pick
         aim = predicted
         engageBody = t.pos
         engageSat = saturated
@@ -9172,6 +9652,16 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
       blockedAim = predicted
       blockedBody = t.pos
       haveBlocked = true
+
+  # ⭐ FUTILITY BOUND tally — run this in the CONTROL arm (cap disarmed, so the
+  # ceiling is the stock 1250). The share of picks sitting beyond the candidate
+  # cap is the MOST the cap could ever change; if it is small, the lever's
+  # effect ceiling is near zero no matter how often rpBound fires.
+  when defined(rangeprobe):
+    if GameTeams > 2 and engage >= 0:
+      inc rpSel
+      rpSelDSum += rpPickD
+      if rpPickD > Ffa4EngageCapPx: inc rpSelFar
 
   when defined(scprobe):
     if bot.tune.satCap and engage >= 0:
@@ -9990,12 +10480,18 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
     if not bot.tune.medEcon: break medKitEcon
     when defined(meprobe):
       if bot.ownHp > 0: inc meOn
+    when defined(peeldiag):
+      if ffa4Board and bot.ownHp > 0: inc pdEconOn
     if bot.ownHp notin 1 ..< MaxHp: break medKitEcon    # unread(0) or full: no detour
     when defined(meprobe): inc meWounded
+    when defined(peeldiag):
+      if ffa4Board: inc pdWounded
     if iCarry or mateCarry or pocketRush or ownStolen or
         seekingPickup or iHaveShield or iHaveSword or iHavePlasma:
       break medKitEcon                                 # a higher objective owns this bot
     when defined(meprobe): inc meFree
+    when defined(peeldiag):
+      if ffa4Board: inc pdFree
     # ffa4Board / onLastLife: computed once, right after the lives readback
     # near the top of decide() — reused here unchanged.
 
@@ -10011,8 +10507,12 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
       #   (2) aimedAtUs is RANGE-GATED to FinishRange (~260px): 83% of shots
       #       land under 150px, so a gun aimed at us from well beyond effective
       #       range is a paper threat, not a real veto on the walk.
+      when defined(peeldiag):
+        if ffa4Board: inc pdInContact
       let lightContactHp = if bot.tune.medPeel: 2 else: MedKitLightContactHp
       if bot.ownHp > lightContactHp: break medKitEcon
+      when defined(peeldiag):
+        if ffa4Board: inc pdHpGate
       var aimedAtUs = false
       for i in 0 ..< bot.enemies.len:
         let t = bot.enemies[i]
@@ -10030,6 +10530,8 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
           continue                                     # no line: it cannot punish the walk
         aimedAtUs = true
         break
+      when defined(peeldiag):
+        if ffa4Board and aimedAtUs: inc pdAimVeto
       if aimedAtUs: break medKitEcon                   # a live gun on us: hold, don't flee
       when defined(meprobe): inc meLightBreak
     when defined(meprobe): inc meSafe
@@ -10039,6 +10541,8 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
     # are close enough that an absent sprite proves the kit is gone.
     # ⭐⭐ lastLifeGuard WIDER MEDKIT ERRAND: a bot on its last life gets a
     # bigger routing budget (both families below share this one cap).
+    when defined(peeldiag):
+      if ffa4Board: inc pdScan
     var bestEcon = MedKitEconDetour
     var haveEconKit = false
     var chosenEcon: Vec
@@ -10121,6 +10625,41 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
         inc ffaMedFireCount   # ffaMedSee (not base medSee) supplied this target
     if haveEconKit:
       target = chosenEcon
+      when defined(peeldiag):
+        if ffa4Board:
+          inc pdHaveKit
+          # ⭐ THE APPROACH TEST, policy-side. Σ over CONSECUTIVE committed
+          # frames of (previous distance - current distance) to the chosen kit:
+          # positive means we actually walked at it. The placebo is a second
+          # kit-shaped destination we did NOT choose, FROZEN for the whole
+          # commit run — if the two sums match, the "approach" is just the fight
+          # drifting and there is no steering at all, which is exactly the
+          # replay finding this build exists to confirm or refute locally.
+          let sl = clamp(bot.slot, 0, PdSlots - 1)
+          let hpi = clamp(bot.ownHp, 0, 3)
+          let curD = dist(me, chosenEcon)
+          let cont = pdPrevHave[sl] and bot.tick - pdPrevTick[sl] <= 30 and
+                     dist(vec(pdPrevKitX[sl], pdPrevKitY[sl]), chosenEcon) <= 20.0
+          if cont:
+            let curP = dist(me, vec(pdPlacX[sl], pdPlacY[sl]))
+            pdClosed[hpi] += pdPrevDist[sl] - curD
+            pdPlac[hpi] += pdPrevPlac[sl] - curP
+            inc pdFrames[hpi]
+            pdPrevPlac[sl] = curP
+          else:
+            inc pdCommits[hpi]
+            pdCommitDist[hpi] += curD
+            let sA = vec(MedKitAX, MedKitAY)
+            let sB = vec(MedKitBX, MedKitBY)
+            let sP = (if dist(me, sA) >= dist(me, sB): sA else: sB)
+            pdPlacX[sl] = sP.x
+            pdPlacY[sl] = sP.y
+            pdPrevPlac[sl] = dist(me, sP)
+          pdPrevTick[sl] = bot.tick
+          pdPrevKitX[sl] = chosenEcon.x
+          pdPrevKitY[sl] = chosenEcon.y
+          pdPrevDist[sl] = curD
+          pdPrevHave[sl] = true
       # ⭐ v48: GIVE THE PEEL FEET. This assignment was DISCARDED whenever we
       # were engaged: the act chain only navSteers to `target` under fire for
       # retreating/banking/carrierFlee, and woundedBank (the intended owner of
@@ -10137,8 +10676,36 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 =
       # measured again. Peel feet ONLY at 1hp — one hit from deletion, where
       # leaving the fight is right; a 2hp bot keeps its gun in the line (the
       # out-of-contact medEcon walk is unaffected — it never had feet issues).
-      if getEnv("NOPEEL").len == 0 and bot.ownHp == 1:
+      # ⭐⭐ ffaPeelWide (2026-08-18, ffa4 medkit-peel fix). ffa4 ONLY, and only
+      # the FEET: everything above this line — which kit, whether we may
+      # disengage at all, the ranged aimedAtUs hold-vs-gun veto — is unchanged,
+      # so this adds no new disengagement, only movement for a walk medEcon has
+      # ALREADY decided to make. On GameTeams <= 2 the second disjunct is false
+      # by construction and the emitted button stream is identical, which is the
+      # whole point: v55's <=2hp -> ==1hp narrowing bought real 2-team K/D and
+      # is not being reverted, it is being scoped to the mode that pays for it.
+      let peelWide = ffa4Board and bot.tune.ffaPeelWide and
+                     bot.ownHp <= FfaPeelWideHp
+      if getEnv("NOPEEL").len == 0 and (bot.ownHp == 1 or peelWide):
         peeling = true
+        when defined(lifeprobe):
+          # DIAGNOSTIC ONLY — never evidence. A lever that "fired 19,439 times"
+          # and moved zero heals is exactly what v57 was; the number that decides
+          # this is kits COLLECTED per alive-tick (-d:fpprobe), not this counter.
+          # Split so a null can be diagnosed: pwFeet is every peel, pwWideOnly is
+          # the frames that are NEW (2 hp, which the v55 gate refused).
+          inc pwFeet
+          if bot.ownHp > 1: inc pwWideOnly
+      when defined(lifeprobe):
+        # ffa4 frames at 2 hp with a kit already committed — the state the lever
+        # acts in. ⚠️ NOT an arm-independent denominator: an armed bot spends the
+        # whole walk sitting in this state while a control bot leaves it within a
+        # few ticks, so the lever inflates its own denominator (measured: one
+        # armed team of four produced 572 of 586 such frames). Read it only as
+        # "the state is reachable on this board at all".
+        if ffa4Board and bot.ownHp > 1 and bot.ownHp <= FfaPeelWideHp and
+            getEnv("NOPEEL").len == 0:
+          inc pwWideAvail
       when defined(ffa4probe):
         inc f4MedFire
         if onLastLife: inc f4MedLastLife
