@@ -125,12 +125,25 @@ proc buildLiveViewerPacket*(
   ## the whole match is already recorded -- a live match cannot know its own
   ## future. Passing empty/nil for those is an honest omission (the client
   ## already treats them as "absent this frame, cached from an earlier one"),
-  ## not a fabricated value. Likewise transportEnabled=false and
-  ## mismatchTick=-1: a live stream has no scrubber to seek and no replay
-  ## hash to mismatch.
+  ## not a fabricated value. mismatchTick stays -1 unconditionally: a live
+  ## sim is never loaded from a recorded file, so it never has a hash to
+  ## mismatch against, ended or not.
+  ##
+  ## transportEnabled, however, is NOT "false for the whole live-viewing
+  ## window" -- it is `sim.phase == GameOver`. Once the win condition fires,
+  ## sim.step's `of GameOver:` branch (sim.nim) returns immediately after
+  ## `dec sim.gameOverTimer` every tick -- no movement, combat, or roster
+  ## change runs again until gameOverTimer expires and resetToLobby() fires.
+  ## The board is frozen for that whole held window (the same window the
+  ## client's endcard hold displays), which is exactly the "episode has
+  ## ended" state buildReplayViewerPacket already always reports as
+  ## transportEnabled=true. A game still in Lobby or Playing keeps this
+  ## false, matching the original "a live stream has no scrubber to seek"
+  ## reasoning for the case where it actually applies.
+  let transportEnabled = sim.phase == GameOver
   result = sim.buildSpriteProtocolUpdates(
     state, nextState, overlays, tick, playing, speed, maxTick, looping,
-    false, -1
+    transportEnabled, -1
   )
   if result.len == 0:
     return
@@ -141,7 +154,7 @@ proc buildLiveViewerPacket*(
     1,
     [0'u8, 0, 0, 0],
     sim.buildStateJson(
-      events, playing, speed, maxTick, looping, false, -1,
+      events, playing, speed, maxTick, looping, transportEnabled, -1,
       nextState.selectedJoinOrder,
       startTick = sim.gameStartTick,
       includeFpMap = sendFpMap
