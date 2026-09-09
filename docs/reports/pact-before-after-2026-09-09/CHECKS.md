@@ -18,7 +18,7 @@ the VERDICT/READ markdown tables quote).
 | v49_pre_gv16 | 80 | 80 | OK | 19 | 19 | OK | 3 | 3 | OK |
 | v49_post_gv16 | 637 | 637 | OK | 179 | 179 | OK | 23 | 23 | OK |
 | v50 | 47 | 47 | OK | 14 | 14 | OK | 1 | 1 | OK |
-| v53 | 48 | 48 | OK | 17 | 17 | OK | 2 | 2 | OK |
+| v53 | 110 | 110 | OK | 41 | 41 | OK | 9 | 9 | OK |
 
 ## Result: ALL MATCH
 
@@ -68,26 +68,37 @@ the VERDICT/READ markdown tables quote).
   under `/tmp/monet_v50/read/cache/v50_n40/decoded/`. Marked INTERIM in
   `summary.csv`'s verdict column per the read brief, not because any
   check failed -- see README's Known Gaps.
-- v53 (2026-09-09, n=48, rounds 4620-4623, policy_version_id a3479a93,
-  platform_version 54, GV17/GameVersion 62 -- the first cohort in this
-  dataset on that era) is a fresh read, not a refresh of an existing
-  cohort. n / formed_k / win_k above are recomputed straight from
-  `episodes.csv`'s own v53 rows and match `/tmp/monet_v53/read/
-  v53_n40_metrics.json`'s own `pact_formed_k`=17 / `win_k`=2 fields
-  exactly, with 0/48 decode failures. `kickoff_coverage_pct` (77.1%) and
-  `tags_per_ep_*` (mean 2.604, median 2.0, share_2plus 54.2%) both use
-  the identical `tags_and_kickoff_final.py`-derived definitions as
-  v44-v50 (script: `/tmp/monet_v53/read/tags_kickoff_v53.py`), run
-  against the same decoded-replay/policy-log cache `read_v53.py` built.
-  `partners_per_commit` (3.948) is the mean of `aim_partner_counts`
-  flattened across all 48 episodes' rows, same method as v50's
-  `v50_extras.py`. The comparison baseline (pooled v51+v52, n=88) was
-  read fresh for this cohort with the identical pipeline (`read_v53.py`
-  copied from `read_v51.py`, only `HERE` repointed) and is NOT itself a
-  row in this dataset's CSVs -- see README's GV17 era note. Marked
-  INTERIM in `summary.csv`'s verdict column: n=48 meets the read floor,
-  but rollback trigger B (rank<=4 down, p<0.10) FIRED vs the pooled
-  baseline (22.9% vs 44.3%, p=0.0157) -- reported informational-only per
-  this read's brief (n<100), not because any check here failed. See
-  README's Known Gaps and `/tmp/monet_v53/read/READ_N40.md` for the full
-  read.
+- v53 (2026-09-09, DECIDING READ at n=110, rounds 4620-4628,
+  policy_version_id a3479a93, platform_version 54, GV17/GameVersion 62 --
+  the first cohort in this dataset on that era) REPLACES the interim
+  v53_n40 read (n=48, rounds 4620-4623) that was previously in these
+  CSVs; the interim's 48 episode rows and summary row were removed and
+  replaced with the full n=110 set, not appended alongside them, to
+  avoid double-counting the shared rounds 4620-4623. n / formed_k /
+  win_k above are recomputed straight from `episodes.csv`'s own v53 rows
+  and match `/tmp/monet_v53/read/v53_n100_metrics.json`'s own
+  `pact_formed_k`=41 / `win_k`=9 fields exactly, with 0/110 decode
+  failures. `kickoff_coverage_pct` (81.8%) and `tags_per_ep_*` (mean
+  2.736, median 2.0, share_2plus 56.4%) both use the identical
+  `tags_and_kickoff_final.py`-derived definitions as v44-v50 (script:
+  `/tmp/monet_v53/read/tags_kickoff_v53.py`), run against the same
+  decoded-replay/policy-log cache `read_v53.py` built. `partners_per_commit`
+  (3.935) is the mean of `aim_partner_counts` flattened across all 110
+  episodes' rows, same method as v50's `v50_extras.py`. The comparison
+  baseline (pooled v51+v52, n=88) is the same one used for the interim
+  read and is NOT itself a row in this dataset's CSVs -- see README's
+  GV17 era note. A secondary baseline (whole pre-v53 GV17 population =
+  v50 tail rounds 4611-4612, pv 31e09e78, n=25, freshly decoded for this
+  read + v51 + v52, n=113) was also read and is likewise not a CSV row;
+  it tracks the primary baseline closely (rank<=4 40.7% vs 44.3%) and
+  does not change the verdict. `summary.csv`'s verdict column is now
+  **KEEP**: at n=110 neither pre-registered rollback trigger fired
+  (Trigger A: SR CI-upper=1.0, not <1.0; Trigger B: rank<=4 36.4%
+  [40/110] vs baseline 44.3% [39/88], p=0.307, Fisher exact -- NOT <0.10).
+  This reverses the interim read's Trigger-B FIRE (22.9% vs 44.3%,
+  p=0.0157 at n=48) -- mechanism checks (F4-reach rate flat, death-phase
+  showing no earlier dying, unchanged same-round field composition) found
+  no support for a real decline, consistent with the n=48 estimate being
+  a small-sample low. See README's Known Gaps and
+  `/tmp/monet_v53/read/READ_N100.md` for the full read (supersedes
+  READ_N40.md).

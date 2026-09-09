@@ -5,10 +5,11 @@ behavior and ladder outcomes across policy versions spanning the
 2026-09-09 pact fixes: v44 (the pre-fix baseline), v45, v46, v47, v48,
 v49 (a full n=717 ladder read across rounds 4545-4603), v50 (an
 interim n=47 read across rounds 4607-4610 -- the first version where the
-final-four detour clamp actually reaches the wire), and v53 (an interim
-n=48 read across rounds 4620-4623, GloryVersion 17 -- `fire_superiority`'s
+final-four detour clamp actually reaches the wire), and v53 (a DECIDING
+read at n=110 across rounds 4620-4628, GloryVersion 17 -- `fire_superiority`'s
 `engageDist` doctrine raised 600->750, compared against a freshly-computed
-pooled pre-v53 GV17 baseline, v51+v52, n=88; see the GameVersion-62 (GV17)
+pooled pre-v53 GV17 baseline, v51+v52, n=88, and a secondary whole-population
+baseline, v50-tail+v51+v52, n=113; see the GameVersion-62 (GV17)
 era note below). "Pact" here means the
 in-game alliance mechanic: two teams declare each other as partners and,
 once the declaration is mutual, hold fire and can act jointly for the rest
@@ -97,20 +98,25 @@ old whole-integer path; `dLongshotKill` reprices 3x->6x; a new
 `survivalCredit` wire deed). `ReplayCompatibleGameVersions` was replaced
 to exactly `["62"]`, so GV16 and GV17 replays are decoded with different
 binaries and are **never pooled** in this dataset. v53 is the first
-version read in this era: pv `a3479a93` (platform 54), rounds 4620-4623,
-n=48, compared against a pooled pre-v53 GV17 baseline built the same way
-for this read -- v51 (pv `3307ac7c`, rounds 4613-4616, n=50) + v52
-(pv `a77e7f6d`, rounds 4617-4619, n=38) = n=88, identical fire doctrine
-except `engageDist` (600, vs v53's 750). **v51 and v52 are not
-independently included as their own rows in `summary.csv`/`episodes.csv`**
-(only v53 is, per this read's brief) -- the pooled baseline numbers live
-in v53's own `READ_N40.md` and source JSON under
-`/tmp/monet_v53/read/baseline_v51v52_*.json`, not in this dataset's CSVs.
-Two newer builds surfaced mid-window (0.7.378, 0.7.379); both were
-independently verified via `gh api .../compare/e6807465...<sha>` to be
-GameVersion/GloryVersion-unchanged (a dark/unarmed achievements PR plus a
-pure-docs commit), so all 48 v53 episodes decode with the same GV17
-binary and none were excluded on that basis.
+version read in this era: pv `a3479a93` (platform 54), rounds 4620-4628,
+n=110 (the DECIDING read; supersedes an interim n=48 read across rounds
+4620-4623), compared against a pooled pre-v53 GV17 baseline built the
+same way for this read -- v51 (pv `3307ac7c`, rounds 4613-4616, n=50) +
+v52 (pv `a77e7f6d`, rounds 4617-4619, n=38) = n=88, identical fire
+doctrine except `engageDist` (600, vs v53's 750) -- and, as a secondary
+reference, the whole pre-v53 GV17 population: v50's tail (pv `31e09e78`,
+rounds 4611-4612, n=25) + v51 + v52 = n=113. **v51, v52 and the v50 tail
+are not independently included as their own rows in
+`summary.csv`/`episodes.csv`** (only v53 is, per this read's brief) --
+the baseline numbers live in v53's own `READ_N100.md` and source JSON
+under `/tmp/monet_v53/read/baseline_v51v52_*.json` and
+`/tmp/monet_v53/read/gv17_pre_v53_full_*.json`, not in this dataset's
+CSVs. Five builds surfaced across the full window (0.7.377-0.7.381);
+each successive one was independently verified via
+`gh api .../compare/<prev-sha>...<sha>` to be GameVersion/GloryVersion-
+unchanged (a dark/unarmed achievements PR, then three consecutive
+pure-docs/wiki commits), so all 110 v53 episodes decode with the same
+GV17 binary and none were excluded on that basis.
 
 ## What changed, one line per version
 
@@ -148,23 +154,26 @@ binary and none were excluded on that basis.
  `summary.csv` for the exact figures and `READ_N40.md` under
  `/tmp/monet_v50/read/` for the full read.
 - **v53** -- `fire_superiority`'s `engageDist` doctrine raised 600->750
- (GV17 era, platform 54). Read at n=48 (rounds 4620-4623) against a
- pooled pre-v53 GV17 baseline (v51+v52, n=88, identical doctrine except
- `engageDist`): shots fired/ep is flat (3.208 vs 3.114), range shots
- (>=866px, the live map's longshot line)/ep is slightly down (0.313 vs
- 0.375) but conversion-to-kill on those shots is up (26.7% vs 12.1%) and
- `dLongshotKill` tags/ep are up 2.3x (0.104 vs 0.045), while
- `dHonorableKill` tags/ep drop by more than half (0.083 vs 0.273) --
- consistent with engaging from farther out trading close-range kills for
- longshot-class ones. Final-four initiative (engaged-first share 41.2%
- vs 32.0%) and P(F2|F4) (72.2% vs 53.1%) both trend up but on small
- F4-reached sub-samples (n=17-18), not distinguishable from noise.
- **Rollback trigger B (rank<=4 down, p<0.10) FIRED**: rank<=4 dropped to
- 22.9% (11/48) from the baseline's 44.3% (39/88), p=0.0157 -- reported
- informational-only per this read's brief (n=48<100), not acted on, but
- flagged as the header follow-up before any keep/ship call. See `v53`'s
- row in `summary.csv` and `/tmp/monet_v53/read/READ_N40.md` for the full
- read.
+ (GV17 era, platform 54). DECIDING read at n=110 (rounds 4620-4628)
+ against a pooled pre-v53 GV17 baseline (v51+v52, n=88, identical
+ doctrine except `engageDist`) and a secondary whole-population baseline
+ (v50-tail+v51+v52, n=113): shots fired/ep is up (3.673 vs 3.114), range
+ shots (>=866px, the live map's longshot line)/ep is down (0.282 vs
+ 0.375) but conversion-to-kill on those shots is up (22.6% vs 12.1%) and
+ `dLongshotKill` tags/ep are up (0.082 vs 0.045), while `dHonorableKill`
+ tags/ep are down (0.191 vs 0.273) -- consistent with engaging from
+ farther out trading close-range kills for longshot-class ones. F4-reach
+ rate is unchanged (35.5% vs 36.4%); final-four initiative (engaged-first
+ share 45.7% vs 32.0%) and P(F2|F4) (76.9% vs 53.1%) both held up and grew
+ from the interim read. **Neither pre-registered rollback trigger fired
+ at n=110**: Trigger A (SR CI-upper<1.0) NOT FIRED (CI-upper=1.0);
+ Trigger B (rank<=4 down, p<0.10) NOT FIRED -- rank<=4 36.4% (40/110) vs
+ baseline 44.3% (39/88), p=0.307 (Fisher exact), REVERSING the interim
+ n=48 read's FIRE (22.9% vs 44.3%, p=0.0157). Mechanism checks (death-
+ phase, same-round field composition) found no support for a real
+ decline -- see `v53`'s row in `summary.csv` and
+ `/tmp/monet_v53/read/READ_N100.md` for the full read (supersedes
+ `READ_N40.md`). **VERDICT: KEEP.**
 
 ## The field reference: how often rivals form pacts, and when
 
@@ -191,8 +200,11 @@ get theirs registered; Monet, declaring only pre-match, did not.
  GV16 era note above); `v49_pre_gv16` / `v49_post_gv16` in `summary.csv`
  are the same 717 episodes split on that boundary, not a separate read.
  v50's 47 rows are all `era` = `GV16` (see the v50 era note above). v53's
- 48 rows are all `era` = `GV17` (see the GV17 era note above); v51/v52
- (the pooled pre-v53 GV17 baseline) are NOT included as their own rows.
+ 110 rows (rounds 4620-4628, the DECIDING read; supersedes the earlier
+ interim 48-row set for rounds 4620-4623) are all `era` = `GV17` (see the
+ GV17 era note above); v51/v52 (the pooled pre-v53 GV17 baseline) and the
+ v50 tail (the secondary whole-population baseline) are NOT included as
+ their own rows.
 - `REPORT.md` / `REPORT.html` -- the before/after narrative, funnel table,
  outcome table, and one chart (`REPORT.html` only).
 - `CHECKS.md` -- independent recomputation of n / formed-count / win-count
@@ -213,7 +225,7 @@ get theirs registered; Monet, declaring only pre-match, did not.
 | `declared_wire_pct` | % of episodes where Monet's own committed call named at least one pact partner |
 | `declared_sim_pct` | % of episodes where the game engine's own event log recorded Monet actually declaring in-sim (requires the post-match-start registration point); "n/a (pre-GV15)" where the mechanism did not yet exist to measure |
 | `formed_pct` | % of episodes where a pact became mutual (both sides recorded the declare) |
-| `kickoff_coverage_pct` | % of episodes where Monet's re-affirm-at-match-start line fired (v46+ only) -- **two different sub-definitions live under this one column name**: v46/v47 count the strict `reason=kickoff` label only (rare, ~8%, the natural first-call case); v48/v49/v50 count the broader `reason=kickoff-reemit` label (the harness's synthetic re-emit introduced in v47, ~83-92%). Do not read a jump between v47 and v48 on this column as the mechanism suddenly working 10x better -- it is a metric-definition change, not a policy change. v50 uses the same `kickoff-reemit` definition as v48/v49, so it IS comparable to those two. v53 reuses `tags_and_kickoff_final.py`'s own regex (`reason=` followed by `[a-zA-Z_]+`, which truncates `kickoff-reemit` at the hyphen to `kickoff`), so it counts both the strict and reemit reason strings under one umbrella -- its 77.1% is in the same broad-definition family as v48-v50 and directly comparable to them, and to the freshly-computed pooled v51+v52 GV17 baseline (79.5%), which used the identical script. |
+| `kickoff_coverage_pct` | % of episodes where Monet's re-affirm-at-match-start line fired (v46+ only) -- **two different sub-definitions live under this one column name**: v46/v47 count the strict `reason=kickoff` label only (rare, ~8%, the natural first-call case); v48/v49/v50 count the broader `reason=kickoff-reemit` label (the harness's synthetic re-emit introduced in v47, ~83-92%). Do not read a jump between v47 and v48 on this column as the mechanism suddenly working 10x better -- it is a metric-definition change, not a policy change. v50 uses the same `kickoff-reemit` definition as v48/v49, so it IS comparable to those two. v53 reuses `tags_and_kickoff_final.py`'s own regex (`reason=` followed by `[a-zA-Z_]+`, which truncates `kickoff-reemit` at the hyphen to `kickoff`), so it counts both the strict and reemit reason strings under one umbrella -- its 81.8% (n=110, DECIDING read) is in the same broad-definition family as v48-v50 and directly comparable to them, and to the freshly-computed pooled v51+v52 GV17 baseline (79.5%), which used the identical script. |
 | `partners_per_commit` | mean number of partner seats named per committed pact-aim line |
 | `jointact_per_ep` | mean count of the joint-action reward event credited to Monet per episode (see era caveat above) |
 | `tags_per_ep_mean` / `_median` | mean/median count of scoring "tag" events credited to Monet's seat per episode |
@@ -284,15 +296,20 @@ source pipeline's own v49 report, it is a different, narrower metric.
  small sub-sample (n=11-17 F4-reached episodes) and have not shown a
  measurable move yet vs `v49_post_gv16`. See `/tmp/monet_v50/read/
  READ_N40.md` for the full read.
-- v53 is an **interim** read at n=48 (meets the n>=40 floor; single read,
- GV17 era, GameVersion/GloryVersion confirmed unchanged across two newer
- builds seen mid-window via `gh compare`). The engagement-composition
- shift it targets shows up as expected (range-shot conversion and
- longshot tags/ep both up, honorable tags/ep down), and F4 initiative/
- P(F2|F4) trend up, but both on small F4-reached sub-samples (n=17-18).
- **Rollback trigger B fired** (rank<=4 22.9% vs the pooled v51+v52
- baseline's 44.3%, p=0.0157) -- reported informational-only per this
- read's brief (n<100), not acted on here (report only, no champion
- changes), but it is the header follow-up: get a larger same-era read
- before treating this cohort as a clean win. See `/tmp/monet_v53/read/
- READ_N40.md` for the full read.
+- v53 is now a **DECIDING** read at n=110 (meets the n>=100 floor;
+ rounds 4620-4628, GV17 era, GameVersion/GloryVersion confirmed
+ unchanged across all four newer builds seen across the window via
+ `gh compare`), superseding the earlier interim n=48 read. The
+ engagement-composition shift it targets shows up as expected
+ (range-shot conversion and longshot tags/ep both up, honorable tags/ep
+ down), and F4 initiative/P(F2|F4) both held up and grew from the
+ interim read (engaged-first 45.7% vs baseline 32.0%; P(F2|F4) 76.9% vs
+ 53.1%), while F4-reach rate itself stayed flat (35.5% vs 36.4%).
+ **Neither pre-registered rollback trigger fired at n=110**: Trigger A
+ (SR CI-upper<1.0) not fired; Trigger B (rank<=4 22.9% vs baseline's
+ 44.3%, p=0.0157 at n=48) reversed to NOT FIRED at n=110 (36.4% vs
+ 44.3%, p=0.307) -- a same-era, larger read found no death-phase or
+ field-composition evidence of a real decline, so the n=48 signal reads
+ as small-sample noise, not a suppressed regression. VERDICT: KEEP. See
+ `/tmp/monet_v53/read/READ_N100.md` for the full read (the interim
+ `READ_N40.md` remains on disk for the record).
