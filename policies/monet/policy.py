@@ -92,6 +92,27 @@ PACT_PLACEHOLDER = {"seat:0", "seat:16"}
 # reach target_law.never until confirmed.
 CONFIRMED_PACT_REASONS = {"invited", "reciprocate"}
 
+# v47b (owner direction 2026-09-09): more FORMED pacts is the lever for more
+# JointAct / pact-stack / revive opportunities (GV15 made JointAct pact-only
+# -- see doctrine ledger ctf-joint-action-pays-without-a-pact.md, OBSOLETE at
+# GV15). Raising the partner cap 3 -> 5 does not by itself remove more
+# targets from fire, because the confirmed-only never-list gate above is
+# untouched: only "invited"/"reciprocate" partners ever reach
+# target_law.never, no matter how high this cap goes. Checked for a lower
+# limiter before picking 5: src/ctf/sim.nim declarePactPartners
+# (~lines 915-969) encodes partners as a uint16 BITMASK over the Team enum
+# (sim_types.nim Team, TeamPoolWidth=16) -- no numeric per-declaration cap
+# in the engine itself, bounded only by team count (up to 15 rivals).
+# policies/starters/common/plays.py's "pact" play schema caps
+# partners at max_items=8 -- also >= 5. Neither src-side limiter sits below
+# 5, so 5 is used as directed. Schema-default-creep lesson (doctrine
+# ledger ctf-schema-default-creep-press-range.md): plays.py's max_items=8
+# is looser than our house number, so a genuine model submission could
+# legally carry 6-8 raw seats -- this house cap is enforced explicitly in
+# adjust_entries below, never left to the model or to the wire schema
+# alone.
+PACT_PARTNER_CAP = 5
+
 
 def _seat_num(ref):
     """'seat:7' -> 7, else None."""
@@ -557,34 +578,50 @@ def _resolve_solo_pact_partners(context, view):
     invited_now = sorted(_parse_pact_invites(context) - excluded)
     gained_invite = False
     for s in invited_now:
-        if s in partners or len(partners) >= 3:
+        if s in partners or len(partners) >= PACT_PARTNER_CAP:
             continue
         reasons[s] = "invited" if not partners else "reciprocate"
         partners.append(s)
         gained_invite = True
         event = reasons[s]
 
-    # FALLBACK: nobody has ever invited us -- name the 2 nearest live
-    # rivals, computed once (not re-picked every turn, so it cannot churn
-    # as positions move).
+    # FALLBACK (v47b: 2 -> 3): nobody has ever invited us -- name the 3
+    # nearest live rivals, computed once (not re-picked every turn, so it
+    # cannot churn as positions move). More named partners is more surface
+    # for a genuine mutual pact to form (owner direction 2026-09-09).
     if not partners and not state.get("fallback_done"):
         state["fallback_done"] = True
-        for s in _nearest_live_rivals(context, view, excluded, 2):
+        for s in _nearest_live_rivals(context, view, excluded, 3):
             reasons[s] = "fallback"
             partners.append(s)
         event = event or "fallback"
 
-    # RETRY: we have no perception of the sim's mutual-pact bit at all
-    # (PERCEPTION.md (a)) -- "not mutual by the next turn" is read as "no
-    # one has named us back yet". Re-declare once, same seats plus one new
-    # nearest seat, capped at 3 total.
+    # RETRY (v47b: +1 -> +2): we have no perception of the sim's mutual-pact
+    # bit at all (PERCEPTION.md (a)) -- "not mutual by the next turn" is
+    # read as "no one has named us back yet". Re-declare once, same seats
+    # plus up to 2 new nearest seats, capped at PACT_PARTNER_CAP total.
+    # v47b fix (surfaced by the raised cap): only spend the one-shot
+    # `retried` flag and the `retry` event tag when a candidate is actually
+    # FOUND -- with cap=3 this branch was naturally starved shut once the
+    # 3 invited-partner cap was already hit (see the KICKOFF test, which
+    # commits exactly 3 invited partners then expects a clean
+    # reason=kickoff on the next call); with cap=5, `len(partners) < 5`
+    # stays true past that same 3-partner state, so an empty-view call
+    # (no visible rivals yet) would otherwise burn the retry attempt AND
+    # steal the kickoff call's own event tag for nothing. Leaving `retried`
+    # unset when nothing was found means a later call with real track data
+    # can still retry -- never a worse outcome than the old one-shot.
     if (partners and not gained_invite and not state.get("retried")
-            and state.get("calls", 0) >= 2 and len(partners) < 3):
-        state["retried"] = True
-        for s in _nearest_live_rivals(context, view, excluded | set(partners), 1):
-            reasons[s] = "retry"
-            partners.append(s)
-        event = event or "retry"
+            and state.get("calls", 0) >= 2 and len(partners) < PACT_PARTNER_CAP):
+        retry_room = PACT_PARTNER_CAP - len(partners)
+        retry_picks = _nearest_live_rivals(
+            context, view, excluded | set(partners), min(2, retry_room))
+        if retry_picks:
+            state["retried"] = True
+            for s in retry_picks:
+                reasons[s] = "retry"
+                partners.append(s)
+            event = event or "retry"
 
     # KICKOFF RE-AFFIRM (v46, RECIPROCITY.md ranked fix #1): the first call
     # whose `view` carries a real tick is the first call at/after the sim's
@@ -616,7 +653,7 @@ def _resolve_solo_pact_partners(context, view):
                       if context.get("_synthetic_trigger") == "kickoff-reemit"
                       else "kickoff")
 
-    partners[:] = partners[:3]
+    partners[:] = partners[:PACT_PARTNER_CAP]
     return (list(partners), {s: reasons[s] for s in partners if s in reasons},
             event)
 
@@ -739,6 +776,13 @@ def adjust_entries(entries, context, view):
             # placeholder, not self-referential) -- untouched mechanism,
             # always confirmed, exactly as before v46.
             entry_confirmed = list(partners)
+        # v47b house cap enforcement (schema-default-creep lesson): clamp
+        # HERE, unconditionally, for every branch above -- including a
+        # genuine model submission, which the wire schema alone would let
+        # through with up to 8 raw seats (plays.py "pact" max_items=8).
+        # The number is never left to the model.
+        partners = partners[:PACT_PARTNER_CAP]
+        entry_confirmed = [p for p in entry_confirmed if p in partners]
         params["partners"] = partners
         params["onBetrayal"] = "returnFire"
         pact_seats.extend(partners)

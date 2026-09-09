@@ -920,8 +920,9 @@ check("team-0 seat re-aims the placeholder pact off its own duo",
 # drop -- invited > reciprocate > fallback > retry (see
 # policy._resolve_solo_pact_partners). With no huddle chat and no
 # play_view yet (this is the pre-call turn), the roster-order fallback
-# inside _nearest_live_rivals names the two lowest-numbered other seats,
-# deterministically. ─────────────────────────────────────────────────────
+# inside _nearest_live_rivals names the THREE lowest-numbered other seats,
+# deterministically (v47b: fallback widened 2 -> 3, owner direction
+# 2026-09-09, more formed pacts). ─────────────────────────────────────────
 solo_seat = fake_seat(context={"self": {"seat": 3, "duo_partner": None},
                                "roster": [{"seat": i} for i in range(6)]})
 _, entries_solo = starter_harness.repair_call(
@@ -931,16 +932,17 @@ law_solo = next((e for e in entries_solo if e["play"] == "target_law"), None)
 check("SOLO + placeholder pact: never dropped -- named at the "
       "roster-order fallback (no telemetry yet, deterministic)",
       pact_solo is not None
-      and set(pact_solo["params"]["partners"]) == {"seat:0", "seat:1"},
+      and set(pact_solo["params"]["partners"]) == {"seat:0", "seat:1", "seat:2"},
       str(pact_solo))
 check("v46 CONFIRMED-ONLY GATE: a FALLBACK-only pact (no chat, unilateral "
-      "2-nearest pick, nobody has named us back) does NOT reach target_"
+      "3-nearest pick, nobody has named us back) does NOT reach target_"
       "law's never-list -- holding fire on a rival who has never agreed "
       "to anything cost score at n=84 (measured: score-ratio 0.76 vs "
       "v44's 1.00 while pact FORMED sat at 2%). The old placeholder "
       "seats (seat:0/16) were never in it either.",
       "seat:0" not in set((law_solo or {}).get("params", {}).get("never", []))
       and "seat:1" not in set((law_solo or {}).get("params", {}).get("never", []))
+      and "seat:2" not in set((law_solo or {}).get("params", {}).get("never", []))
       and "seat:16" not in set((law_solo or {}).get("params", {}).get("never", [])),
       str(law_solo))
 
@@ -1141,6 +1143,104 @@ check("v46 CONFIRMED-ONLY GATE: FALLBACK (seat:1,2) and RETRY (seat:4) "
       not ({"seat:1", "seat:2", "seat:4"}
            & set((law_r2 or {}).get("params", {}).get("never", []))),
       str(law_r2["params"].get("never") if law_r2 else None))
+
+# ── v47b (owner direction 2026-09-09, "more pacts": partner cap 3 -> 5) ────
+# Engine check: src/ctf/sim.nim declarePactPartners (~915-969) encodes
+# partners as a uint16 bitmask over the Team enum (TeamPoolWidth=16) --
+# no per-declaration numeric cap; policies/starters/common/plays.py's
+# "pact" schema caps at max_items=8. Neither sits below 5, so 5 is used.
+
+# (v47b-a) FALLBACK now names the 3 NEAREST live rivals (was 2), ranked by
+# real distance (not roster order) when a view/position exists.
+_V47B_ROSTER = [{"seat": i} for i in range(8)]
+v47b_fallback_seat = fake_seat(
+    context={"self": {"seat": 3, "duo_partner": None}, "roster": _V47B_ROSTER},
+    view={"self": {"pos": [0, 0]},
+          "tracks": [{"seat": 1, "team": 1, "pos": [10, 0]},
+                     {"seat": 2, "team": 2, "pos": [20, 0]},
+                     {"seat": 4, "team": 4, "pos": [30, 0]},
+                     {"seat": 5, "team": 5, "pos": [999, 0]}]})
+_, v47b_fb_entries = starter_harness.repair_call(
+    PERSONA.canned_turns[0], PERSONA, v47b_fallback_seat, AVAILABLE)
+v47b_fb_pact = next((e for e in v47b_fb_entries if e["play"] == "pact"), None)
+check("(v47b-a) FALLBACK names the 3 NEAREST live rivals by distance "
+      "(1, 2, 4), the far seat (5, at x=999) is NOT named",
+      v47b_fb_pact is not None
+      and set(v47b_fb_pact["params"]["partners"]) == {"seat:1", "seat:2", "seat:4"},
+      str(v47b_fb_pact))
+
+# (v47b-b) CAP is 5 -- a single call with 6 real chat invitations keeps
+# only 5, the 6th is dropped by _resolve_solo_pact_partners itself.
+_V47B_CAP_ROSTER = [{"seat": i} for i in range(10)]
+v47b_cap_seat = fake_seat(
+    context={"self": {"seat": 3, "duo_partner": None}, "roster": _V47B_CAP_ROSTER},
+    chat=[{"seat": s, "text": f"seat:3 pact? never a shot between us"}
+          for s in (4, 5, 6, 7, 8, 9)])
+_, v47b_cap_entries = starter_harness.repair_call(
+    PERSONA.canned_turns[0], PERSONA, v47b_cap_seat, AVAILABLE)
+v47b_cap_pact = next((e for e in v47b_cap_entries if e["play"] == "pact"), None)
+check("(v47b-b) CAP=5: 6 simultaneous real invitations (seats 4-9) yield "
+      "exactly 5 partners, never 6",
+      v47b_cap_pact is not None
+      and len(v47b_cap_pact["params"]["partners"]) == 5
+      and set(v47b_cap_pact["params"]["partners"]) <= {f"seat:{s}" for s in
+                                                         (4, 5, 6, 7, 8, 9)},
+      str(v47b_cap_pact))
+
+# (v47b-c) confirmed-only never-target STILL holds at the new 5-partner
+# width: FALLBACK (3) + RETRY (2) reaches the cap using only unconfirmed
+# reasons -- zero of those 5 may reach target_law.never.
+_V47B_C_ROSTER = [{"seat": i} for i in range(10)]
+v47b_c_seat = fake_seat(
+    context={"self": {"seat": 3, "duo_partner": None}, "roster": _V47B_C_ROSTER},
+    view={"self": {"pos": [0, 0]},
+          "tracks": [{"seat": 1, "team": 1, "pos": [10, 0]},
+                     {"seat": 2, "team": 2, "pos": [20, 0]},
+                     {"seat": 4, "team": 4, "pos": [30, 0]},
+                     {"seat": 5, "team": 5, "pos": [40, 0]},
+                     {"seat": 6, "team": 6, "pos": [50, 0]}]})
+_, v47b_c_t1 = starter_harness.repair_call(
+    PERSONA.canned_turns[0], PERSONA, v47b_c_seat, AVAILABLE)
+_, v47b_c_t2 = starter_harness.repair_call(
+    PERSONA.canned_turns[0], PERSONA, v47b_c_seat, AVAILABLE)
+v47b_c_pact = next((e for e in v47b_c_t2 if e["play"] == "pact"), None)
+v47b_c_law = next((e for e in v47b_c_t2 if e["play"] == "target_law"), None)
+check("(v47b-c) FALLBACK(3)+RETRY(2) reaches the 5-partner cap with no "
+      "invite ever received",
+      v47b_c_pact is not None
+      and set(v47b_c_pact["params"]["partners"])
+      == {"seat:1", "seat:2", "seat:4", "seat:5", "seat:6"},
+      str(v47b_c_pact))
+check("(v47b-c) CONFIRMED-ONLY GATE at width 5: fallback-only/retry-only "
+      "partners produce ZERO never-target entries -- none of the 5 have "
+      "ever named us back",
+      not ({"seat:1", "seat:2", "seat:4", "seat:5", "seat:6"}
+           & set((v47b_c_law or {}).get("params", {}).get("never", []))),
+      str((v47b_c_law or {}).get("params", {}).get("never")))
+
+# (v47b-d) the wire clamp is enforced in adjust_entries itself, not left to
+# the model or the wire schema (which alone permits up to 8, plays.py
+# max_items=8) -- a genuine, real, distinct 8-partner model submission is
+# clamped down to 5 on the committed call.
+v47b_wire_seat = fake_seat(
+    context={"self": {"seat": 3, "duo_partner": None}})
+_v47b_wire_call = {"call": {"entries": [
+    {"play": "pact", "entry_id": "truce",
+     "params": {"partners": [f"seat:{s}" for s in range(10, 18)],
+                "protect": False, "onBetrayal": "returnFire"}},
+    {"play": "target_law", "entry_id": "law",
+     "params": {"prefer": ["revenge", "bounty", "weakened", "isolated"]}},
+]}}
+_, v47b_wire_entries = starter_harness.repair_call(
+    _v47b_wire_call, PERSONA, v47b_wire_seat, AVAILABLE)
+v47b_wire_pact = next((e for e in v47b_wire_entries if e["play"] == "pact"),
+                      None)
+check("(v47b-d) wire clamp: an 8-partner real model submission (seats "
+      "10-17, schema-legal at max_items=8) is clamped to AT MOST 5 "
+      "partners on the committed call",
+      v47b_wire_pact is not None
+      and len(v47b_wire_pact["params"]["partners"]) <= 5,
+      str(v47b_wire_pact))
 
 # ── (a) KICKOFF RE-AFFIRM (v46 change 1, RECIPROCITY.md ranked fix #1): a
 # lobby-time commit never reaches sim.nim's declarePactPartners
