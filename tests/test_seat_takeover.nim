@@ -34,6 +34,23 @@ suite "freeplay seat takeover":
     check t.advanceSeatTakeover(5, true)
     check t.active
 
+  test "brMode: arriving after the cog is already eliminated still lands":
+    # Single-life elimination cogs only ever go true -> false once. A human
+    # requesting a seat whose cog died before they connected can never see a
+    # future false -> true edge this round, so the ordinary rule alone would
+    # strand them "suiting up" for the rest of the round. The `instant` path
+    # (brMode) must land them anyway, on the first sampled frame, exactly
+    # like the already-alive case does.
+    var deadOnArrival = seat(9)
+    check deadOnArrival.advanceSeatTakeover(9, false, instant = true)
+    check deadOnArrival.active
+    check not deadOnArrival.cogAlive
+    # The already-alive case is unchanged by this fix.
+    var aliveOnArrival = seat(11)
+    check aliveOnArrival.advanceSeatTakeover(11, true, instant = true)
+    check aliveOnArrival.active
+    check aliveOnArrival.cogAlive
+
   test "once driving, later deaths never hand the seat back":
     var t = seat(0)
     discard t.advanceSeatTakeover(0, false)

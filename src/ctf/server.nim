@@ -534,16 +534,22 @@ proc advanceSeatTakeover(
   ## so a human arriving mid-life waits out that life rather than taking the
   ## field at once.
   ##
-  ## `instant` (brMode): a single-life elimination cog that is already alive
-  ## on the FIRST sampled frame will never produce a false -> true edge — it
-  ## only ever goes true -> false once, permanently, on elimination. Gating
-  ## on the respawn edge in that mode means the takeover can never land: the
-  ## human's socket is attached to the seat's view (so they see a vision
-  ## cone) while the seat's input keeps reading from the policy forever (so
-  ## an AI keeps driving). So in brMode, land on the very first sampled frame
-  ## if the cog is alive right then — still exactly one frame late enough to
-  ## avoid landing on a cog that is already dead when the human arrives (that
-  ## case falls through to the ordinary edge, same as before).
+  ## `instant` (brMode): a single-life elimination cog only ever goes
+  ## true -> false once, permanently, on elimination — it never produces a
+  ## false -> true edge again this round, whether it was ALIVE or already
+  ## DEAD on the first sampled frame. Gating on the respawn edge in that mode
+  ## means the takeover can never land: the human's socket is attached to the
+  ## seat's view (so they see a vision cone) while the seat's input keeps
+  ## reading from the policy forever (so an AI keeps driving). So in brMode,
+  ## land on the very first sampled frame regardless of whether the cog is
+  ## alive or already dead right then — still exactly one frame late enough
+  ## to never body-snatch a life in progress, and correct for a cog that is
+  ## already a corpse too: there is no future spawn to wait for this round
+  ## (the ordinary edge below can never fire for it), so the human simply
+  ## takes the seat of record from here — exactly like a live player who is
+  ## themselves eliminated mid-match, who keeps the seat rather than losing
+  ## it. The seat's next REAL spawn, if any, is landSeatTakeoversOnNewMatch's
+  ## job at the next match boundary, not this function's.
   takeover.cog = cog
   takeover.cogAlive = cogAlive
   if takeover.active:
@@ -551,7 +557,7 @@ proc advanceSeatTakeover(
   if takeover.observed and not takeover.prevAlive and cogAlive:
     takeover.active = true
     result = true
-  elif instant and not takeover.observed and cogAlive:
+  elif instant and not takeover.observed:
     takeover.active = true
     result = true
   takeover.observed = true
