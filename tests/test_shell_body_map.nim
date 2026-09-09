@@ -338,7 +338,8 @@ suite "shell body immutable episode map":
       let duck = cache.duckFor(index)
       check map.canStand(duck.pos)
     check cache.duckEntryCount == shellTypes.MaxDuckEntriesPerSeat
-    let firstKey = map.routeKey(map.atlasPostAt(0).pos)
+    let firstCell = map.cellOf(map.atlasPostAt(0).pos)
+    let firstKey = firstCell.y * map.gridWidth + firstCell.x
     discard cache.duckFor(shellTypes.MaxDuckEntriesPerSeat)
     check firstKey notin cache.duckKeys
 
