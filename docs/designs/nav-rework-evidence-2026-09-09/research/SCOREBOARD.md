@@ -15,3 +15,5 @@ Append results; do not erase negatives. All numbers are observed, not inferred p
 | B0-m5a | m5a.4xlarge CPU5 | 20234cc7, Nim2.2.6 | B1024 worst6.055890/6.129271ms; all four budgets fail | B0_M5A_SUMMARY.json | no fleet-wide budget can be selected yet |
 | M0 | c6a CPU5 | half default Dial ring | same corpus hash and pops; pool max15938095B; timing2.484964/2.642113ms | M0_REPORT.md | not final canonical or complete inherited qualification |
 | L0 preregistered | Xeon, then production families | exact ordered source reuse, retain installed-route expiry | not implemented or measured | L0_PREREG.md | no claim of general moving-threat liveness |
+
+| L0 failed qualification | c6a and m5a CPU5 B1024 | reuse identical ordered sources | modest timing gain; m5a still fails; far waves publish only3seats then cap | L0_REPORT.md | not a complete liveness fix or throughput success |

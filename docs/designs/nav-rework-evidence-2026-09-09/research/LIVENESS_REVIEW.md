@@ -151,7 +151,7 @@ Change confined to `publishDangerGeneration` (`body_nav.nim:457-474`):
    passes: the first writes the Q8 values, the second scatters the 0x8000 hot bit onto the
    neighbours of every danger > 0 cell. A compare in the first pass would see old values that
    still carry hot bits, and the second pass only sets bits, never clears them, so an
-   old-versus-new decision needs the complete old table. Options: (a) one shared 344 KB scratch
+   old-versus-new decision needs the complete old table. Options: (a) one shared 85 KB scratch (85,466 bytes on the largest pool map, 778,752 on colossal)
    buffer (seats rebuild sequentially, so one buffer serves all; counted in the shared retained
    total), copy the old table in, rebuild, compare; (b) compare in pass one with the hot bit
    masked off on both sides and additionally detect any hot bit that would be cleared (an old
@@ -188,7 +188,7 @@ Tests required:
   a later decision, in increasing scope: (a) restart only if a changed cell was read by the
   search so far (a changed cell adjacent to a settled node), which needs a per-cell touched
   stamp or a neighbourhood check of `workspace.state`; (b) finish the job on a snapshot of the
-  table taken at admission and refresh afterwards (344 KB copy per admission, a route priced on
+  table taken at admission and refresh afterwards (85 KB copy per admission, a route priced on
   danger up to one job-lifetime old); (c) LPA*-style local repair, which the design rejected as
   the primary planner. Each is a new policy.
 - Hazard ETA staleness grows with job lifetime and, if the installed-route wipe is removed,

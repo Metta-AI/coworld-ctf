@@ -511,14 +511,17 @@ proc selectDangerSources(seat: BodyNavSeat, input: DangerInput) =
   seat.selectedDangerCount = selectNearestSources(input.selfXy,
     input.candidates, seat.selectedDangerSeats, seat.selectedDangerPoints)
 
-proc rebuildDanger*(seat: BodyNavSeat, map: BodyMap,
-                    input: DangerInput, tick: int) =
-  seat.selectDangerSources(input)
+proc rebuildSelectedDanger(seat: BodyNavSeat, map: BodyMap, tick: int) =
   if seat.selectedDangerCount == 0:
     seat.rebuildDangerFromPoints(map, [], tick)
   else:
     seat.rebuildDangerFromPoints(map,
       seat.selectedDangerPoints.toOpenArray(0, seat.selectedDangerCount - 1), tick)
+
+proc rebuildDanger*(seat: BodyNavSeat, map: BodyMap,
+                    input: DangerInput, tick: int) =
+  seat.selectDangerSources(input)
+  seat.rebuildSelectedDanger(map, tick)
 
 proc selectedDangerSourceSeats*(seat: BodyNavSeat): seq[int] =
   ## Diagnostic snapshot; never used by the playing-tick path.
@@ -558,8 +561,22 @@ proc rebuildScheduledDanger*(system: BodyNavSystem, tick: int,
     raise newException(ValueError, "danger source rows must match seat count")
   for index, seat in system.seats:
     if seat.active and dangerSeatDue(tick, index, system.dangerK):
-      seat.rebuildDanger(system.map, sourcesBySeat[index], tick)
-      system.publishDangerGeneration(seat)
+      let previousCount = seat.selectedDangerCount
+      let previousPoints = seat.selectedDangerPoints
+      seat.selectDangerSources(sourcesBySeat[index])
+      var changed = previousCount != seat.selectedDangerCount
+      for source in 0 ..< seat.selectedDangerCount:
+        if seat.selectedDangerPoints[source] != previousPoints[source]:
+          changed = true
+      if changed:
+        seat.rebuildSelectedDanger(system.map, tick)
+        system.publishDangerGeneration(seat)
+      else:
+        # Map and kernel are immutable; identical ordered sources produce the
+        # same raster and weights. Keep unfinished search work, but retain the
+        # cadence expiry of installed routes so zone prices still refresh.
+        seat.dangerTick = tick
+        seat.installedRoute = BodyInstalledRoute()
       system.recordDanger(DangerRebuild(tick: tick, seat: index,
         sourceCount: seat.selectedDangerCount))
 

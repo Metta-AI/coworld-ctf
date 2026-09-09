@@ -210,6 +210,65 @@ suite "production mixed-grid body navigation":
     check nav.seats[0].installedRoute.dangerGeneration ==
       nav.seats[0].dangerGeneration
 
+  test "unchanged scheduled danger preserves search but expires installed routes":
+    let
+      map = openMap()
+      nav = newBodyNavSystem(map, 1, 331, traceCapacity = 8)
+      start: BodyPoint = (16, 48)
+      target: BodyPoint = (160, 48)
+      inputs = [DangerInput(selfXy: start,
+        candidates: @[DangerCandidate(seatIndex: 4, pos: (80, 48))])]
+      movedInputs = [DangerInput(selfXy: (20, 48),
+        candidates: inputs[0].candidates)]
+      forced = newBodyNavSystem(map, 1, 331)
+    nav.initializeDanger(inputs)
+    forced.initializeDanger(inputs)
+    let forcedGeneration = forced.seats[0].dangerGeneration
+    forced.initializeDanger(movedInputs, 32)
+    check forced.seats[0].dangerGeneration == forcedGeneration + 1
+    let generation = nav.seats[0].dangerGeneration
+    let raster = nav.seats[0].dangerSnapshot
+    let weights = nav.seats[0].packedWeights
+    discard nav.navigationWaypoint(0, start,
+      map.validateGoal(target, start).get, 0)
+    discard nav.runRouteScheduler(0, 1)
+    let workspaceGeneration = nav.routeJob.workspaceGeneration
+    nav.rebuildScheduledDanger(32, movedInputs)
+    check nav.seats[0].dangerSnapshot == forced.seats[0].dangerSnapshot
+    check nav.seats[0].packedWeights == forced.seats[0].packedWeights
+    check nav.seats[0].dangerGeneration == generation
+    check nav.seats[0].dangerTick == 32
+    check nav.seats[0].dangerSnapshot == raster
+    check nav.seats[0].packedWeights == weights
+    discard nav.runRouteScheduler(32, 1)
+    check nav.routeJob.workspaceGeneration == workspaceGeneration
+    discard nav.runToIdle(33, 32)
+    check nav.seats[0].installedRoute.revision != 0
+    nav.rebuildScheduledDanger(64, inputs)
+    check nav.seats[0].dangerGeneration == generation
+    check nav.seats[0].installedRoute.revision == 0
+
+  test "scheduled danger changes on removal return and source reordering":
+    let
+      map = openMap()
+      nav = newBodyNavSystem(map, 1, 331)
+      sources = @[DangerCandidate(seatIndex: 1, pos: (64, 48)),
+        DangerCandidate(seatIndex: 2, pos: (128, 48))]
+    nav.initializeDanger([DangerInput(selfXy: (16, 48), candidates: sources)])
+    var generation = nav.seats[0].dangerGeneration
+    nav.rebuildScheduledDanger(32, [DangerInput(selfXy: (160, 48),
+      candidates: sources)])
+    check nav.seats[0].dangerGeneration == generation + 1
+    generation = nav.seats[0].dangerGeneration
+    nav.rebuildScheduledDanger(64, [DangerInput(selfXy: (160, 48))])
+    check nav.seats[0].dangerGeneration == generation + 1
+    generation = nav.seats[0].dangerGeneration
+    nav.rebuildScheduledDanger(96, [DangerInput(selfXy: (160, 48))])
+    check nav.seats[0].dangerGeneration == generation
+    nav.rebuildScheduledDanger(128, [DangerInput(selfXy: (160, 48),
+      candidates: sources)])
+    check nav.seats[0].dangerGeneration == generation + 1
+
   test "workspace is shared and per-seat route state has fixed layout":
     let nav = newBodyNavSystem(openMap(), 32, 331)
     check nav.routeWorkspace != nil

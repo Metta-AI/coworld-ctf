@@ -11,3 +11,8 @@ LATENCY/bench-*
 LATENCY/cache-*/
 B0-m5a-floor/bench-*
 LATENCY-xeon/bench-*
+L0-c6a/bench-*
+L0-c6a/cache-*/
+L0-m5a/bench-*
+L0-m5a/cache-*/
+!*.log
