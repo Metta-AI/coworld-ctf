@@ -1637,6 +1637,34 @@ proc barrageRatePermille*(sim: SimServer): int =
     (sim.config.barrageMaxPerSec - sim.config.barrageStartPerSec) *
       sim.barrageProgressPermille()
 
+proc zoneRectAndDps*(
+  sim: SimServer, elapsedTicks: int
+): tuple[cur, next: MapRect, dps: int]
+  ## Forward declaration (CALIB, LOCAL DO-NOT-MERGE): killPlayer's calib
+  ## instrumentation reads the zone rect; the implementation lives further
+  ## down in this file, unchanged.
+
+proc calibZonePhaseState(
+  sim: SimServer, elapsedTicks: int
+): tuple[phaseIdx: int, shrinking: bool, finalPhase: bool] =
+  ## CALIB (LOCAL DO-NOT-MERGE): mirrors zoneRectAndDpsRaw's phase walk to
+  ## report which phase is active and whether the rect is actively
+  ## interpolating (the frozen "Closing Time" definition: a phase's
+  ## shrinkTicks segment; a HOLD is not closure). finalPhase covers the last
+  ## authored phase's wait, shrink, and hold-forever segments.
+  let n = sim.config.zonePhases.len
+  if n == 0:
+    return (-1, false, false)
+  var t = max(0, elapsedTicks)
+  for idx, phase in sim.config.zonePhases:
+    if t < phase.waitTicks:
+      return (idx, false, idx == n - 1)
+    t -= phase.waitTicks
+    if t < phase.shrinkTicks:
+      return (idx, true, idx == n - 1)
+    t -= phase.shrinkTicks
+  (n - 1, false, true)
+
 proc killPlayer*(
   sim: var SimServer,
   targetIndex,
@@ -1802,6 +1830,45 @@ proc killPlayer*(
            sim.tickCount - killer.rescuedTick <= SecondWindTicks:
           sim.players[killerIndex].secondWind = true
         sim.recordTeamKillRing(killer.team, killerIndex)
+        # -- CALIB (LOCAL DO-NOT-MERGE): BR curriculum calibration --
+        if sim.config.brMode:
+          var calibPartnerIdx = -1
+          for pi in 0 ..< sim.players.len:
+            if sim.players[pi].team == killer.team and pi != killerIndex:
+              calibPartnerIdx = pi
+              break
+          if calibPartnerIdx >= 0:
+            if not sim.players[calibPartnerIdx].alive:
+              inc sim.players[killerIndex].calibLoneKills
+              if sim.players[calibPartnerIdx].lastKilledBy == targetIndex:
+                inc sim.players[killerIndex].calibPartnerAvenges
+            elif sim.players[calibPartnerIdx].lastDamagedBy == targetIndex and
+                sim.players[calibPartnerIdx].lastDamagedByTick >= 0 and
+                sim.tickCount - sim.players[calibPartnerIdx].lastDamagedByTick <=
+                  AssistWindowTicks:
+              inc sim.players[killerIndex].calibPartnerPeels
+          if sim.config.zonePhases.len > 0:
+            let
+              calibElapsed = sim.tickCount - sim.gameStartTick
+              (calibRect, _, _) = sim.zoneRectAndDps(calibElapsed)
+              kcx = killer.x + CollisionW div 2
+              kcy = killer.y + CollisionH div 2
+              vcx = victim.x + CollisionW div 2
+              vcy = victim.y + CollisionH div 2
+              killerIn = kcx >= calibRect.x and
+                kcx <= calibRect.x + calibRect.w - 1 and
+                kcy >= calibRect.y and kcy <= calibRect.y + calibRect.h - 1
+              victimIn = vcx >= calibRect.x and
+                vcx <= calibRect.x + calibRect.w - 1 and
+                vcy >= calibRect.y and vcy <= calibRect.y + calibRect.h - 1
+            if killerIn and not victimIn:
+              inc sim.players[killerIndex].calibEdgeKills
+            let (_, calibShrinking, calibFinal) =
+              sim.calibZonePhaseState(calibElapsed)
+            if calibShrinking:
+              inc sim.players[killerIndex].calibClosureKills
+            if calibFinal:
+              inc sim.players[killerIndex].calibFinalPhaseKills
       if not sim.firstBloodDone and not ctx.friendly:
         sim.firstBloodDone = true
         sim.awardDeed(killer.team, dFirstBlood, victim.x, victim.y,
@@ -4090,6 +4157,89 @@ proc brPlacements*(sim: SimServer): array[Team, int] =
   for idx, team in sim.brRankedTeams():
     result[team] = idx + 1
 
+proc teamHasLivePlayers(sim: SimServer, team: Team): bool
+  ## CALIB (LOCAL DO-NOT-MERGE): forward declaration -- the real body lives
+  ## further down this file, unchanged; `calibDumpEpisode` below needs it
+  ## and sits above that definition (same idiom as this file's own
+  ## pre-existing `zoneRectAndDps*` forward declaration).
+
+proc calibDumpEpisode(sim: SimServer, winner: Team, isDraw: bool) =
+  ## CALIB (LOCAL DO-NOT-MERGE): the whole increment-2 calibration lane's one
+  ## extraction point. Dumps ONE stdout line, prefixed `CALIB_JSON `, at the
+  ## exact conclusion instant `finishGame` decides a winner -- every quantity
+  ## §4/§7 (and the Amendment-3 bucket retarget) needs, plus everything
+  ## "cheap to record" so a retarget never forces a re-run: the full
+  ## deedCounts/deedGloryMass ledger (every deed, not a hand-picked subset --
+  ## this is what lets a bucket definition change be a re-aggregation, not a
+  ## new sim run), the team-elimination count, and a per-player row with
+  ## every causal counter this branch tracks (kills/assists/rescues/
+  ## escortKills/damage) plus the seven BR calib shadow counters. Analysis
+  ## only: never touches gameHash, never affects a single decision the sim
+  ## makes -- this proc reads state, it writes nothing back.
+  var deeds = newJArray()
+  for d in Deed:
+    if sim.deedCounts[d] == 0 and sim.deedGloryMass[d] == 0:
+      continue
+    deeds.add %*{
+      "deed": deedName(d), "enum": $d,
+      "count": sim.deedCounts[d], "glory": sim.deedGloryMass[d]
+    }
+  var teamsAliveAtEnd = 0
+  for team in sim.teams():
+    if sim.teamHasLivePlayers(team):
+      inc teamsAliveAtEnd
+  var players = newJArray()
+  for i in 0 ..< sim.players.len:
+    let p = sim.players[i]
+    # CALIB (LOCAL DO-NOT-MERGE, zone-pacing lane): elapsed-since-Playing
+    # death tick, for the elimination-timing curve the pacing fix needs.
+    # -1 = never died (the eventual round winner, or a live straggler on a
+    # timeout/draw ending). Uses the SAME elapsed convention as the zone
+    # phase reads (`sim.tickCount - sim.gameStartTick`) so a death tick is
+    # directly comparable to a zonePhases wait/shrink boundary.
+    let deathTickElapsed =
+      if p.lastKilledByTick < 0: -1
+      else: max(0, p.lastKilledByTick - sim.gameStartTick)
+    players.add %*{
+      "idx": i, "team": teamText(p.team), "alive": p.alive,
+      "kills": p.kills, "deaths": p.deaths,
+      "damageDealt": p.damageDealt, "attacksMade": p.attacksMade,
+      "assists": p.assists, "rescues": p.rescues,
+      "escortKills": p.escortKills,
+      "calibPartnerPeels": p.calibPartnerPeels,
+      "calibPartnerAvenges": p.calibPartnerAvenges,
+      "calibLoneKills": p.calibLoneKills,
+      "calibEdgeKills": p.calibEdgeKills,
+      "calibClosureKills": p.calibClosureKills,
+      "calibFinalPhaseKills": p.calibFinalPhaseKills,
+      "calibOutsideRolls": p.calibOutsideRolls,
+      "calibOutsideTicksTotal": p.calibOutsideTicksTotal,
+      "calibZoneHits": p.calibZoneHits,
+      "deathTickElapsed": deathTickElapsed
+    }
+  var totalGloryAll = 0
+  for team in sim.teams():
+    totalGloryAll += sim.teamGlory[team]
+  let j = %*{
+    "brMode": sim.config.brMode,
+    "teamCount": sim.gameMap.teamCount(),
+    "winner": teamText(winner),
+    "isDraw": isDraw,
+    "tickCount": sim.tickCount,
+    "gameStartTick": sim.gameStartTick,
+    "joinedSeats": sim.players.len,
+    "totalJoinsEver": sim.calibJoinCount,
+    "lastJoinTick": sim.calibLastJoinTick,
+    "teamsAliveAtEnd": teamsAliveAtEnd,
+    "teamsEliminated": sim.gameMap.teamCount() - teamsAliveAtEnd,
+    "totalGloryAll": totalGloryAll,
+    "totalGlory": sim.teamGlory,
+    "deeds": deeds,
+    "players": players
+  }
+  stdout.writeLine("CALIB_JSON " & $j)
+  stdout.flushFile()
+
 proc finishGame*(sim: var SimServer, winner: Team, isDraw = false, timeLimitReached = false) =
   ## Moves to game over and awards all winning players.
   if sim.phase == GameOver:
@@ -4104,6 +4254,7 @@ proc finishGame*(sim: var SimServer, winner: Team, isDraw = false, timeLimitReac
   sim.isDraw = isDraw
   sim.gameOverTimer = sim.config.gameOverTicks
   sim.timeLimitReached = timeLimitReached
+  sim.calibDumpEpisode(winner, isDraw)
   # GLORY: Clean Sheet (treeSquad tier IV) is a FULL-GAME requirement --
   # `satisfiedAchievements` never reports it, so this is its one and only
   # mint site, placed before the `isDraw` early return so it fires on every
@@ -4706,14 +4857,17 @@ proc updateZone*(sim: var SimServer) =
       sim.players[i].zoneOutsideTicks = 0
       continue
     inc sim.players[i].zoneOutsideTicks
+    inc sim.players[i].calibOutsideTicksTotal  # CALIB (LOCAL DO-NOT-MERGE)
     if sim.players[i].zoneOutsideTicks < ZoneDamageRollTicks:
       continue
     sim.players[i].zoneOutsideTicks = 0
+    inc sim.players[i].calibOutsideRolls  # CALIB (LOCAL DO-NOT-MERGE)
     if dps <= 0:
       continue
     let
       bubbleUp = sim.players[i].hasShield and sim.players[i].shieldHp > 0
       blocked = sim.absorbDamage(i, dps)
+    inc sim.players[i].calibZoneHits  # CALIB (LOCAL DO-NOT-MERGE)
     # Zone paint marks the body the same way puddle/weapon paint does —
     # unless the shield bubble ate the hit.
     if not bubbleUp:
@@ -5557,6 +5711,8 @@ proc initSimServer*(config: GameConfig): SimServer =
   result.players = @[]
   result.nextJoinOrder = 0
   result.gameStartTick = -1
+  result.calibLastJoinTick = -1
+  result.calibJoinCount = 0
   result.startWaitTimer = 0
   result.lobbyWaitTimer = 0
   result.barrageStartTick = -1
@@ -5619,6 +5775,8 @@ proc resetToLobby*(sim: var SimServer) =
   sim.gloryDeeds = @[]
   sim.nextJoinOrder = 0
   sim.gameStartTick = -1
+  sim.calibLastJoinTick = -1
+  sim.calibJoinCount = 0
   sim.startWaitTimer = 0
   sim.lobbyWaitTimer = 0
   sim.lobbyChatActive = false

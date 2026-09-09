@@ -2614,6 +2614,18 @@ type
                                ## sent THIS episode's phase (resets with
                                ## lobbyChatDone, SimServer); caps at
                                ## LobbyChatMaxMessagesPerSeat.
+    # -- CALIB (LOCAL DO-NOT-MERGE): BR curriculum calibration counters --
+    # Analysis-only, appended at the object's end, never in gameHash. A
+    # measuring device for the increment-2 contract, not a deliverable.
+    calibPartnerPeels*: int
+    calibPartnerAvenges*: int
+    calibLoneKills*: int
+    calibEdgeKills*: int
+    calibClosureKills*: int
+    calibFinalPhaseKills*: int
+    calibOutsideRolls*: int
+    calibOutsideTicksTotal*: int
+    calibZoneHits*: int
 
   PlayerFov* = object
     ## One player's cached fog-of-war visibility grid (FovGridW x FovGridH
@@ -3256,6 +3268,21 @@ type
     airborneGrenades*: seq[AirborneGrenade]
     sprayPaintFlashes*: seq[SprayPaintFx]
     gameStartTick*: int
+    calibLastJoinTick*: int  ## CALIB (LOCAL DO-NOT-MERGE, zone-pacing lane):
+                             ## sim.tickCount at the most recent addPlayer
+                             ## call -- the join-census diagnostic (seats
+                             ## joined / tick of last join) requested for the
+                             ## fresh zone-pacing episodes. -1 = no joins yet.
+                             ## Analysis-only, never in gameHash.
+    calibJoinCount*: int     ## CALIB (LOCAL DO-NOT-MERGE, zone-pacing lane):
+                             ## total addPlayer calls this game, monotonic --
+                             ## NEVER decremented on disconnect (unlike
+                             ## `sim.players.len`, which shrinks via
+                             ## `removePlayerAt`'s `.delete`). Comparing this
+                             ## against `sim.players.len` at game-end
+                             ## distinguishes "never joined" (calibJoinCount
+                             ## < 32) from "joined then dropped mid-game"
+                             ## (calibJoinCount == 32 but players.len < 32).
     startWaitTimer*: int
     lobbyWaitTimer*: int  ## lobby ticks spent short of minPlayers (live-server
                           ## lobby lifecycle only: not hashed, not in replays).

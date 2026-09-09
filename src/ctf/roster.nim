@@ -548,6 +548,8 @@ proc addPlayer*(
     valid: false,
     visible: newSeq[bool](FovCellCount)
   )
+  sim.calibLastJoinTick = sim.tickCount  # CALIB (LOCAL DO-NOT-MERGE, zone-pacing lane)
+  inc sim.calibJoinCount  # CALIB (LOCAL DO-NOT-MERGE, zone-pacing lane)
   sim.advanceJoinOrder()
   sim.arrangeHomePositions()
   sim.players.high
