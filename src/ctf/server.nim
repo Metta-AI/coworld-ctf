@@ -7,7 +7,7 @@ import
   curly, mummy,
   sim, global, glory, replays, replay_codec as ctfReplayCodec, broadcast,
   replay_runtime, events, wire_constants,
-  control, directives, baselines, decide, mux,
+  control, directives, baselines, decide, mux, build_stamp,
   ../shell/[body, body_map, episode, ingress, outbound,
     standing_order, transport, view],
   ../shell/dispatch, ../shell/packets, ../shell/replay_records, ../shell/seats,
@@ -405,6 +405,17 @@ const
     "<script src=\"player_hud.js\"></script>",
     "<script>" & defuseScriptClose(staticRead("../../client/player_hud.js")) &
       "</script>"
+  ).replace(
+    # B2-15 telemetry beacon: splices the compile-time build stamp
+    # (build_stamp.nim's ctfSimSourcesStamp, empty "" on a build compiled
+    # without -d:ctfSimSourcesStamp=<hash>) into player_client.html's
+    # BUILD_STAMP placeholder so the beacon's `build` field names a real
+    # engine identity instead of a client-side guess. Plain text substitution
+    # is safe here: the stamp is always 64 hex chars (tools/sim_sources_stamp.sh)
+    # or the empty string, never a quote/backslash that could break the JS
+    # string literal it lands inside.
+    "__CTF_BUILD_STAMP__",
+    ctfSimSourcesStamp
   )
   # Dungeon-wall textures (nanobanana generations) served as static assets so the
   # shell HTML stays small and editable. Wide for top/bottom, tall for side walls.
@@ -464,7 +475,16 @@ const
     ("/client/art/lockerroom/red_6.webp",
       staticRead("../../client/art/lockerroom/red_6.webp")),
   ]
-  BroadcastFont = staticRead("../../data/font.ttf")
+  # TWO font files exist on purpose — do not "tidy" them into one. This is a
+  # Latin-1 SUBSET (ASCII + Latin-1 + light punctuation, ~195 glyphs) served
+  # to the DOM: the iframed player client, HUD and broadcast chrome, which
+  # only ever render human-typed seat names and UI chrome in that range.
+  # data/font.ttf (the FULL face) is separately staticRead'd from disk at
+  # RUNTIME by global.nim's boardTypeface() to rasterise names, damage pops
+  # and shout bubbles into the board's PIXEL STREAM at boardScale > 1 — that
+  # path has no fallback font, so subsetting data/font.ttf itself would emit
+  # .notdef boxes straight into the sim's rendered output. Keep them separate.
+  BroadcastFont = staticRead("../../data/font_web.ttf")
   # Cog art for the first-person EYES PiP billboards (real body + legs + wheels
   # + cyan visor, team-tinted). Served as static PNGs so the raycast view can
   # blit the true cog instead of a procedural chassis.
@@ -2844,6 +2864,7 @@ proc httpHandler(request: Request) =
     var fontHeaders: HttpHeaders
     fontHeaders["Content-Type"] = "font/ttf"
     fontHeaders["Cache-Control"] = "public, max-age=3600"
+    fontHeaders["Vary"] = "Accept-Encoding"
     request.respond(200, fontHeaders, BroadcastFont)
   elif request.path in [
       bitworldClient.ReplayClientRoute,
