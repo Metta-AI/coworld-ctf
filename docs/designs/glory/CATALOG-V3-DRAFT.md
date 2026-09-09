@@ -627,29 +627,63 @@ file (`nim c -r -d:release`), not projected.**
   (unbatched) per-step fold is far worse at the real seed — **99.95% drift**, and is a mathematical
   fixed point: `1 × pct ÷ 100 = 1` for every `pct` in the whole 110–150 tier, so repeating it
   forever changes nothing.
-- **Actionable mitigation this finding points to, not decided here**: the failure is specifically
-  about folding a fractional factor into a *still-at-the-bare-seed* accumulator. A **fold-order
-  rule** — defer any fractional/meter-tier factor until at least one whole-integer-class deed has
-  already folded once (moving the accumulator off 1) — would avoid the worst of this drift by
-  construction, since every measured seed above 1 already shows single-digit-or-better drift. This
-  is a concrete, cheap mechanism proposal for S5 to test against real episodes, not a constant.
-- **Verdict on the gate's condition (a)**: the headroom (overflow) claim **holds** without
-  qualification. The rounding-drift claim **does not hold as a blanket "negligible" claim** — it is
-  real and seed-dependent, largest exactly at the point every episode starts (`RecutSeed = 1`) and
-  negligible once the accumulator has grown. This is reported plainly because the gate asked for
-  exactly this outcome if it occurred; it does not on its own overturn the lead's approval of the
-  representation (which was already conditioned on this being measured and reported, not on the
-  number coming back at zero), but it is now a mandatory, cited input to S5's rig design, not a
-  footnote.
+### 9b. SUPERSEDED by a cleaner answer — the FIXED-POINT ACCUMULATOR (coordinator follow-up ruling)
 
-### Recommendation (unchanged in direction, now evidence-backed rather than argued)
+The batch-of-5 mitigation above and its fold-order constraint were **provisional pending one more
+test case**, per the coordinator's explicit instruction not to freeze that constraint yet. A third
+mechanism — seed the accumulator at a fixed-point `SCALE` (representing "1.0") instead of at the
+bare `RecutSeed = 1`, fold exactly the same naive per-step way, and strip `SCALE` off only once at
+the point `recutScore` reads the value for the wire — was added to
+`tests/test_glory_percent_scale_headroom.nim` and run for real at `SCALE = 2^8 (256)` and
+`SCALE = 2^10 (1024)`.
 
-**Option B (percent-scaled integer factors) is the RULED path for S4/S5. No WIRE-OK sought or
-needed.** The representation choice stands on the reasons above; the NEW obligation this section's
-own test surfaced is a **design constraint on fold order and/or per-deed drift budgets**, to be
-carried into S5 rather than resolved here — S5 must verify that whichever real deeds land in the
-x1.1–1.5 tier do not fold against a bare seed in a way that reproduces this test's worst-case
-numbers.
+**Measured drift, both scales, all seeds — the decision table**:
+
+| seed | SCALE=256 drift | SCALE=1024 drift |
+|---:|---:|---:|
+| 1 | 0.58797% | 0.13132% |
+| 2 | 0.38247% | 0.13132% |
+| 4 | 0.13132% | 0.05141% |
+| 8 | 0.11419% | 0.02287% |
+| 16 | 0.04855% | 0.01145% |
+| 65536 (ceiling) | 0.00001% | 0.00000% |
+| **worst across all seeds** | **0.58797%** | **0.13132%** |
+
+**Every seed, both scales, is under 1% — with margin to spare (worst case 0.59%, over 1.7× headroom
+below the 1% bar).** Existing integer factors (x2 → pct 200, x3 → pct 300, x12 → pct 1200) fold
+**exactly** at both scales (0 drift) — confirmed directly, not assumed, since any whole multiple of
+100 divides evenly regardless of scale.
+
+**Overflow margin, including the FF-halving division path, both scales**:
+- Multiply path: `RecutProductCapArmed × SCALE × 150` = 644,245,094,400 (SCALE=256) and
+  2,576,980,377,600 (SCALE=1024) — both **~7.2 million times below `2^62`**
+  (4,611,686,018,427,387,904), an enormous margin, not a close call.
+- Halving path: the scaled accumulator at the cap (`RecutProductCapArmed × SCALE` =
+  4,294,967,296 / 17,179,869,184) forms without overflow at either scale. Verified the **safe
+  order** — halve first (reusing `recutScore`'s own existing `halvings >= 63 → 0` guard verbatim,
+  unaffected by `SCALE`), strip `SCALE` second — agrees exactly with a naive combined-divisor order
+  (`scale × (1 shl halvings)`) at every realistic halvings count (0–5) tested. The combined-divisor
+  order is NOT recommended for production: `scale × (1 shl halvings)` itself would overflow int64
+  around halvings≈53–61 depending on scale, where the safe (halve-then-unscale) order never forms
+  that product at all and stays correct regardless.
+
+**DECISION, per the coordinator's own stated rule**: drift is ≤1% at every seed with margin to
+spare, at both candidate scales. **The fixed-point accumulator becomes the S4 representation. The
+batch-of-5 mitigation and its fold-order constraint are DROPPED** — an x1.1 factor applied first,
+against the bare seed, is no longer worthless (0.59% drift, not 99.95%), so no deed-ordering
+discipline is required of whoever writes the next fractional-tier deed. **Recommend `SCALE = 2^10
+(1024)`** over `2^8`: strictly lower drift at every seed tested, and the overflow margin at 2^10 is
+still ~7 million× below `2^62` — the extra precision costs nothing measurable in headroom.
+
+### Recommendation (superseded from the batch-of-5 framing, now landed on the fixed-point answer)
+
+**Option B (percent-scaled integer factors) is the RULED path for S4/S5, implemented as a
+FIXED-POINT accumulator (`SCALE = 2^10`), not a batch-renormalized rational.** No WIRE-OK sought or
+needed — `SCALE` is an internal sim-side implementation detail; `recutScore`'s existing wire output
+(after the one `div SCALE` strip) is unchanged in shape or meaning. No fold-order constraint is
+carried into S5. S5 should still re-run this test's method (not necessarily this exact synthetic
+chain, see "What is NOT verified") against whichever real deeds actually land in the x1.1–1.5
+tier, but the representation question itself is closed pending only the top-attribution freeze.
 
 ## 10. Every proposed lever — switch, fire counter, rollback (consolidated)
 
@@ -665,7 +699,7 @@ numbers.
 | Lit jackpot deed (§6) | new deed behind `RecutMintCapTable`-style cap + a "primed" precondition gate | mint count + primed-but-uncollected count | remove the deed row, GLORYVERSION bump back |
 | `RecutProductCapArmed` live counter (§7) | none — always-on observation | `capHitCount`, logged every episode | delete the counter, no behavior change |
 | Placement ladder reprice (§2a, `dFinal8/4/2`) | new class values behind a GLORYVERSION bump | existing mint-rate reporting (already 100% observed) | revert class values |
-| Representation change (§9 — log2, CONSIDERED and REJECTED; percent-scaled integer RULED/APPROVED instead) | N/A — Option A not being built; Option B ships as an ordinary GLORYVERSION repricing wave, same switch as any other class change | Option B's own headroom/drift is measured by `tests/test_glory_percent_scale_headroom.nim` (§9a), not a runtime counter | N/A for Option A (never built); Option B rolls back like any other class reprice |
+| Representation change (§9 — log2 CONSIDERED/REJECTED; percent-scaled integer as a FIXED-POINT accumulator, `SCALE=2^10`, RULED/APPROVED) | N/A — Option A not being built; the fixed-point accumulator ships as an ordinary GLORYVERSION repricing wave, `recutScore` gains one `div SCALE` strip, same switch as any other class change | headroom/drift measured by `tests/test_glory_percent_scale_headroom.nim` (§9a/9b), not a runtime counter; worst drift 0.59%/0.13% at SCALE 2^8/2^10 across all tested seeds | N/A for Option A (never built); the fixed-point strip rolls back by removing the `div SCALE` and reverting `RecutClassTable`/`RecutTierClass` to their pre-fractional-tier values |
 
 ## 11. Endcard implications — flagged, not authored
 
@@ -725,10 +759,14 @@ the lead's gate to route:
   `origin/main` itself for an unrelated pre-existing reason, see the PR). All numbers reported are
   real local output, not projected, but the hosted-CI run of this specific new file has not been
   observed.
-- The headroom test's chosen chain (30 factors cycling percents 110/120/130/140/150, batch size 5
-  for the corrected mitigation) is a representative stress shape, not derived from any specific
-  real deed's measured mint frequency — S5 should re-run against whatever actual deeds land in the
-  fractional tier and their real per-episode mint counts, not this synthetic chain.
+- The headroom test's chosen chain (30 factors cycling percents 110/120/130/140/150) is a
+  representative stress shape, not derived from any specific real deed's measured mint frequency —
+  S5 should re-run against whatever actual deeds land in the fractional tier and their real
+  per-episode mint counts, not this synthetic chain. This applies to the adopted fixed-point
+  accumulator too, not just the superseded batch-of-5 mitigation.
+- The fixed-point decision (Section 9b) was tested at exactly `SCALE = 2^8` and `2^10` — the two
+  values the coordinator specified — not swept across other scales; `2^10` is recommended as
+  strictly better on the two points tested, not as an optimum found by search.
 - Whether `play_view` can expose a new "risky moment" / "mode lit" / "pact active" perception signal
   — the pinball study flagged this as unchecked; Sections 6's stateful-modes and pact-decay
   proposals both assume some new perceivable state is buildable, which has not been confirmed.

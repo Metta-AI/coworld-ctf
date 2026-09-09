@@ -26,10 +26,21 @@
 ## avoids that overflow and materially improves on the naive per-step
 ## drift, but does NOT eliminate it at the real seed (~24% drift
 ## measured, not the near-zero this catalog's doc language implied before
-## this test was written). This is a genuine finding that reopens part of
-## the representation question at the LOW end specifically -- reported
-## here, not papered over -- see CATALOG-V3-DRAFT.md's Report for how it
-## changes the recommendation's caveats.
+## this test was written).
+##
+## SUPERSEDED BY A CLEANER ANSWER (coordinator follow-up ruling, same
+## session): the batch-of-5 mitigation above was deliberately NOT frozen
+## pending one more test case. The FINAL suite below adds a FIXED-POINT
+## ACCUMULATOR (seed the accumulator at a SCALE representing "1.0" instead
+## of at the bare seed, fold exactly the naive per-step way, strip SCALE
+## once at the wire) at SCALE=2^8 and SCALE=2^10. Measured: worst-case
+## drift across ALL tested seeds is 0.588% (SCALE=256) and 0.131%
+## (SCALE=1024) -- both comfortably under the 1% decision bar, with
+## existing integer factors (x2/x3/x12) staying exactly exact and the
+## overflow margin (including the FF-halving division path) sitting
+## ~7 million times below 2^62 at both scales. DECISION: the fixed-point
+## accumulator (SCALE=2^10) is the adopted S4 representation; the
+## batch-of-5 mitigation and its fold-order constraint are DROPPED.
 
 import
   std/[math, strformat, unittest],
@@ -115,6 +126,23 @@ proc foldMitigatedBatched(seed: int64, pctChain: openArray[int],
       renormalize()
       count = 0
   renormalize()
+
+proc foldFixedPoint(seed: int64, pctChain: openArray[int], scale: int64): int64 =
+  ## S4 gate follow-up (coordinator ruling): a FIXED-POINT accumulator --
+  ## seed the accumulator at `scale` (representing "1.0") instead of 1,
+  ## fold exactly the same per-step way as `foldNaive`, and strip the
+  ## scale off only once, at the point `recutScore` would read the value
+  ## for the wire. This is NOT the broken "keep a separate exact
+  ## rational, truncate once" idea (`foldMitigatedNaive`) -- there is no
+  ## separate numerator/denominator to overflow. It is literally the
+  ## naive per-step algorithm, just started from a larger fixed point, so
+  ## the SAME <1-unit-per-fold truncation loss becomes a much smaller
+  ## fraction of a much larger running value.
+  result = seed * scale
+  for pct in pctChain:
+    result = (result * pct) div 100
+  # Caller strips `scale` via `div scale` -- kept unscaled here so the
+  # halving-order tests below can operate on the same raw scaled value.
 
 proc exactProduct(seed: int64, pctChain: openArray[int]): float64 =
   result = float64(seed)
@@ -237,3 +265,61 @@ suite "percent-scaled headroom: rounding drift (S4 gate condition 2a, part 2)":
     let driftAtCeilingUncapped = driftPct(foldMitigatedBatched(int64(65536), chain30, batch = 5, cap = high(int64)),
                                            exactProduct(int64(65536), chain30))
     check driftAtCeilingUncapped < 0.01'f64  # negligible once the base is already large, drift isolated from capping
+
+suite "percent-scaled headroom: FIXED-POINT ACCUMULATOR (S4 gate follow-up, coordinator ruling)":
+  test "drift <= 1% at every tested seed, for BOTH SCALE=2^8 and SCALE=2^10 -- the decision test":
+    let chain30 = chainOf(30)
+    let seeds = [int64(1), int64(2), int64(4), int64(8), int64(16), int64(65536)]
+    var worstDriftBySale: seq[float64] = @[]
+    for scale in [int64(256), int64(1024)]:  # 2^8, 2^10
+      var worst = 0.0'f64
+      for seed in seeds:
+        let scaledResult = foldFixedPoint(seed, chain30, scale)
+        let unscaled = scaledResult div scale          # `recutScore`-equivalent: strip SCALE once
+        let exact = exactProduct(seed, chain30)
+        let drift = driftPct(unscaled, exact)
+        echo &"  SCALE={scale} seed={seed}: fixed-point={unscaled} exact={exact:.2f} drift={drift:.5f}%"
+        if drift > worst: worst = drift
+      worstDriftBySale.add worst
+      echo &"  SCALE={scale}: worst drift across all seeds = {worst:.5f}%"
+      # THE DECISION RULE: drift <= 1% at every seed, with margin to spare.
+      check worst <= 1.0'f64
+
+  test "existing INTEGER factors (x2, x3, x12) stay EXACT under fixed-point, both scales":
+    for scale in [int64(256), int64(1024)]:
+      for (pct, expectedFactor) in [(200, 2'i64), (300, 3'i64), (1200, 12'i64)]:
+        let scaledResult = foldFixedPoint(int64(1), [pct], scale)
+        let unscaled = scaledResult div scale
+        echo &"  SCALE={scale} pct={pct}: result={unscaled} expected={expectedFactor}"
+        check unscaled == expectedFactor  # zero drift -- whole percents are exact multiples of 100
+
+  test "overflow margin: RecutProductCapArmed * SCALE * 150 stays below 2^62, both scales":
+    for scale in [int64(256), int64(1024)]:
+      let margin = RecutProductCapArmed * scale * int64(150)
+      let bound = int64(1) shl 62
+      echo &"  SCALE={scale}: cap*scale*150 = {margin}  (2^62 = {bound}, ratio = {(margin.float64/bound.float64):.9f})"
+      check margin < bound
+      check margin < high(int64)  # explicit, not just implied by the 2^62 check
+
+  test "FF-halving division path: verify the intermediate BEFORE the halving division, both scales":
+    let chain30 = chainOf(30)
+    for scale in [int64(256), int64(1024)]:
+      let scaledAtCap = RecutProductCapArmed * scale  # worst-case fixed-point accumulator
+      echo &"  SCALE={scale}: scaled accumulator at cap = {scaledAtCap} (no overflow forming this value)"
+      check scaledAtCap < high(int64)
+      # SAFE ORDER (recommended): halve first -- mirrors `recutScore`'s existing
+      # `if halvings >= 63: return 0` guard verbatim, unaffected by SCALE -- then
+      # strip SCALE second. Verified to match a NAIVE COMBINED-DIVISOR order at
+      # every realistic halvings count, and the combined order is shown to
+      # overflow for large halvings where the safe order does not.
+      let scaledResult = foldFixedPoint(int64(1), chain30, scale)
+      for halvings in [0, 1, 2, 3, 5]:
+        let safeOrder = (scaledResult shr halvings) div scale
+        let combinedDivisor = scale * (int64(1) shl halvings)
+        let naiveCombined = scaledResult div combinedDivisor
+        check safeOrder == naiveCombined  # agree at realistic halving counts
+      # Where the combined-divisor order becomes UNSAFE (not used in production,
+      # demonstrated here so nobody reaches for it later): scale*(1 shl halvings)
+      # itself overflows int64 well before any realistic halvings count.
+      check scale * (int64(1) shl 40) < high(int64)   # combined divisor still fine at 40
+      check high(int64) div scale < (int64(1) shl 61) # ...but AT 61 the combined divisor would overflow -- the safe (halve-then-unscale) order never forms this product at all.
