@@ -246,6 +246,80 @@ suite "S4b GATE: switch ON has real teeth":
     check count0 < count2
     check count2 < count3
 
+suite "S4b per-tree coverage: all 8 achievement trees, uniform mechanism (KNOWN GAP closed)":
+  ## Before this suite, only `treeGun` had the full armed sweep (the "ON"
+  ## suite above) and `treeSquad` had only the OFF byte-identity test (the
+  ## "GATE: switch OFF" suite above) -- every other tree was untested.
+  ## `claimAchievement`'s S4b block (sim.nim) never branches on `tree`
+  ## (only on `tier == AchievementTiers - 1` and the switch), so the
+  ## mechanism is DESIGNED to be uniform across all `AchievementTrees`(8)
+  ## -- this suite proves that generalization holds for real, per tree,
+  ## rather than trusting it by reading the source. Sourced through
+  ## `config.update` (the manifest path the "S4b manifest reachability"
+  ## suite above proves the schema reaches), not a direct struct
+  ## assignment, exercised end-to-end into a real `claimAchievement` call
+  ## for each tree -- a future per-tree special case that only broke the
+  ## schema-sourced path would be caught here.
+  for tree in Tree:
+    test &"{tree}: (a) manifest-path reachability (b) lightCount 0..4 -> x1/x1/x2/x3/x4 (c) fire counter exactly once per claim":
+      # (a) manifest-path reachability: armed via config.update, the same
+      # join the "S4b manifest reachability" suite proves the SCHEMA
+      # reaches -- here proven to reach all the way into this tree's own
+      # claimAchievement fold, not merely into the GameConfig field.
+      var darkConfig = defaultGameConfig()
+      darkConfig.brMode = true
+      darkConfig.gloryMultiplierRecut = true
+      check darkConfig.achievementLightableModes == false
+
+      var armedConfig = defaultGameConfig()
+      armedConfig.brMode = true
+      armedConfig.gloryMultiplierRecut = true
+      armedConfig.update("""{"achievementLightableModes": true}""")
+      check armedConfig.achievementLightableModes == true
+
+      for lightCount in 0 .. 4:
+        # (b) the x1/x1/x2/x3/x4 ladder on THIS tree's top-tier claim.
+        # Expected value derived from the SAME source constants the
+        # production path folds (RecutTierClass for the lower tiers'
+        # own classic price, recutAchievementFactor for the top tier,
+        # recutModeLitBonus for this lever's own ladder) rather than
+        # restated magic numbers -- assert against the source, not the
+        # prose.
+        var sim = startedGame(armedConfig)
+        sim.players[0].team = Red
+        sim.players[1].team = Blue
+        for t in 0 ..< min(lightCount, AchievementTiers - 1):
+          sim.claimAchievement(Red, tree, t, isFirst = false)
+        sim.claimAchievement(Red, tree, AchievementTiers - 1, isFirst = false)
+
+        var expected = int64(1)
+        for t in 0 ..< min(lightCount, AchievementTiers - 1):
+          expected = expected * int64(RecutTierClass[t])
+        let topFactor = recutAchievementFactor(AchievementTiers - 1, false)
+        let bonus = recutModeLitBonus(lightCount)
+        expected = expected * int64(topFactor) * int64(bonus)
+        checkpoint(&"{tree} lightCount={lightCount}: expected={expected} bonus={bonus}")
+        check sim.gloryProduct[Red] == expected
+        check sim.teamGlory[Red] == expected
+
+        # (c) fire counter: exactly one achModeLit event when the bonus
+        # actually folds (bonus > 1), zero when it doesn't (lightCount
+        # 0/1, bonus == 1) -- and a repeat claim of the SAME top tier
+        # (claimAchievement's own `claimed[]` early-return) must not
+        # fire a second time, so "exactly once per armed top-tier claim"
+        # holds even under a redundant caller, not just on a fresh sim.
+        let events = sim.events.filterIt(
+          it.kind == GloryDeed and it.weapon == "achModeLit")
+        if bonus > 1:
+          check events.len == 1
+          check events[0].amount == bonus
+        else:
+          check events.len == 0
+        sim.claimAchievement(Red, tree, AchievementTiers - 1, isFirst = false)
+        let eventsAfterRepeat = sim.events.filterIt(
+          it.kind == GloryDeed and it.weapon == "achModeLit")
+        check eventsAfterRepeat.len == events.len
+
 suite "S4b fire counter: GLORY_ACH_MODE_LIT (log line + achModeLit event, every armed top-tier claim)":
   test "logs on EVERY armed top-tier claim, bonus==1 (not lit) included":
     var config = modesConfig(armed = true)

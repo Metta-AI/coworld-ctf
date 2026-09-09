@@ -3,7 +3,9 @@
 Program `25d9108e`. Follow-on to S5 (`RIG-SIMULATION.md`, PR #501, already landed at `0c4df1f8`),
 dispatched in parallel with the S6 ship draft (PR #504) and deliberately independent of it — this
 PR does not read, gate on, or assume #504's catalog-v3-default-ON work has landed. No
-GLORYVERSION bump (still 16, `glory.nim:301`); no wire change; no settings POST; no deploy.
+GLORYVERSION bump (still 17 as of this branch's rebase onto #504's ship, `8b7e78a7`,
+which already carried it 16→17 for the unrelated catalog-v3-default-ON work — this PR does not
+touch `glory.nim:301` a second time); no wire change; no settings POST; no deploy.
 
 ## Why (the evidence, not restated in full — see the cited docs)
 
@@ -113,8 +115,87 @@ already-landed S5-armed economy (`catalogV3Reprice` + `placementRampV3` + `glory
 set by direct struct assignment exactly as `test_glory_s5_rig.nim` itself does). This measures
 THIS LEVER's marginal effect, not a re-derivation of the full population-calibrated Monte Carlo.
 
-[Numbers filled in from the local test run — see the PR body / final report for the actual
-echoed figures and pass/fail per test.]
+Numbers below are the actual echoed figures from a local run of
+`nim c -d:release --hints:off -d:noSignalHandler --threads:on -d:useMalloc -r
+tests/test_glory_s4b_modes.nim` (Nim 2.2.10, this commit), reproduced inside the full CI
+invocation (`tests/shard_1.nim`, which imports this file: 407/407 checks OK, 0 FAILED).
+
+- **Jackpot gradient, classic pricing** (test `"classic pricing: DARK has 2 distinct tier-V
+  payouts, ARMED has 7"`): `DARK=[4, 12]` (2 distinct), `ARMED=[4, 8, 12, 16, 24, 36, 48]` (7
+  distinct).
+- **Jackpot gradient, v3 pct pricing** (test `"v3 (catalogV3Reprice) pricing: DARK has 2
+  distinct payouts, ARMED has 8"`): `DARK=[200, 346]` (2 distinct),
+  `ARMED=[200, 346, 400, 600, 692, 800, 1038, 1384]` (8 distinct).
+- **1) CONTINUITY** (test `"1) CONTINUITY: armed adds intermediate point-values the dark sweep
+  does not have (max gap shrinks)"`): dark 16 distinct log2-glory points (max gap 9.000 bits),
+  armed 24 distinct points (max gap 6.999 bits) — armed strictly widens the point set and
+  shrinks the largest hole.
+- **2) SEPARATION** (test `"2) SEPARATION: armed widens (never narrows) the gap between the
+  LOW-shape floor and the HIGH-shape jackpot"`): LOW-floor → HIGH-jackpot spread dark=17.685
+  bits, armed=19.685 bits — armed is strictly wider, never narrower.
+- **3) CHOSEN share** (test `"3) CHOSEN share: at the HIGH shape's own jackpot (lightCount=3,
+  FIRST), the mode-lit bonus is a real, independently-observable slice of the achievement
+  axis's own magnitude"`): HIGH shape, lightCount=3, FIRST: total=22.370 bits,
+  achievement-axis=4.376 bits (19.6% of total), of which the mode-lit bonus ALONE=2.585 bits
+  (11.6% of total) — a real, independently observable slice, not the whole achievement axis
+  (the pre-existing FIRST-claim ×3 and the tier's own base price account for the rest).
+- **4) CAP-HIT** (test `"4) CAP-HIT: none of the 30x2 modest-shape points hit
+  RecutProductCapArmed; a deliberately stacked scenario shows the lever CAN reach it"`): 0/60
+  points in the ordinary sweep hit `RecutProductCapArmed` (matches the census's own near-zero
+  finding); the deliberately stacked stress scenario (HIGH shape ×7 + a fully-lit FIRST claim,
+  `deedMintCaps` off to isolate the raw product path) reaches `teamGlory=4,503,599,627,370,496`
+  ≥ `cap=16,777,216` — the cap is reachable in principle once armed, not merely theoretical.
+- **Per-tree coverage** (new in this PR, closing KNOWN GAP 1 — suite `"S4b per-tree coverage:
+  all 8 achievement trees, uniform mechanism (KNOWN GAP closed)"`): all `AchievementTrees`(8)
+  trees (`treeGun`, `treeSpray`, `treeGrenade`, `treeShield`, `treeMedKit`, `treeCarrier`,
+  `treeDefender`, `treeSquad`) pass manifest-path reachability (armed via `config.update`, not
+  a direct struct assignment), the `lightCount` 0..4 → ×1/×1/×2/×3/×4 ladder on that tree's own
+  top-tier claim, and the fire-counter-exactly-once check (including a redundant re-claim of
+  the same top tier not double-firing, via `claimAchievement`'s own `claimed[]` dedup) — 8/8
+  OK, no failures.
+
+Full local run, both CI shards (Nim 2.2.10, `-d:release --hints:off -d:noSignalHandler
+--threads:on -d:useMalloc`, `tools/runtime_spike/fetch_deps.sh` provisioning the pinned
+Wasmtime C API shard_2 needs): `tests/shard_1.nim` 407/407 OK; `tests/shard_2.nim` 782/782 OK,
+including `test_shard_wiring` (confirms this file is not a dark, unimported test); the two
+GATE-RULING-1 OFF goldens (`gloryProduct`/`teamGlory` 9,437,184 and `gameHash`
+7108621066401102251) reproduce unchanged.
+
+## Arming note (a future step, not this PR)
+
+This PR ships DARK: `achievementLightableModes` compiles to `false` in `defaultGameConfig()`
+(`sim_config.nim`), is absent from every manifest variant's `game_config` override block in
+`coworld_manifest_paintbot.json` — only the schema's own `"default": false` documents the key
+— and lands with no GLORYVERSION or GameVersion bump of its own.
+
+Arming later is expected to follow the exact precedent PR #504 (`8b7e78a7`, "glory: S6 SHIP —
+catalog v3 default ON, GLORYVERSION 16→17, GameVersion 61→62") already set for
+`catalogV3Reprice` and its four S5 sibling switches: turn the key on inside the
+`battle-royale-s2` flagship variant's own `game_config` block in
+`coworld_manifest_paintbot.json` (the block at `"variantId": "battle-royale-s2"`), **not** in
+`defaultGameConfig()`'s compiled default — a manifest-only arm of one already-shipped, already
+dark-tested switch, gated on an explicit owner GLORYVERSION GO, exactly as #504's own commit
+message frames it ("Arms, on the battle-royale-s2 flagship variant's manifest ONLY, never
+`defaultGameConfig()`'s compiled default").
+
+Arming is a **live scoring change** — it moves every tree's top-tier payout from 2 achievable
+values to 7 (classic) or 8 (`catalogV3Reprice`) — and, per this codebase's own doctrine (the
+same doctrine #504's own commit cites for its own bump), needs a GLORYVERSION bump, a
+GameVersion bump, and a fixture re-record at that time: the same three-part cost #504 itself
+paid (GLORYVERSION 16→17, GameVersion 61→62, nine `.bitreplay` fixtures relabeled + shell/replay
+goldens regenerated + the static replay viewer rebuilt). None of that is done here, by design —
+this PR's non-negotiable #5 ("no GLORYVERSION bump") is proven by construction, not by
+inspection: a `GameConfig` bool, a fold that reuses already-armed machinery, and a log line —
+no `SimServer` struct change, so nothing forces the bump yet.
+
+One more fact this future arming decision should weigh: the jackpot band itself gains a
+**gradient** it does not have today. Today's classic top-tier payout is effectively binary (2
+achievable values, `{4, 12}` — `lightCount` is invisible to the score); armed, it becomes a
+7-rung ladder (`{4, 8, 12, 16, 24, 36, 48}`), 8 distinct rungs under `catalogV3Reprice`. That
+gradient is this PR's own direct, literal answer to `RIG-SIMULATION.md`'s cap-hit-cliff finding
+(14.5/15/15.5/16 all read 0.0000%, nothing between 12 and 14) — so **the cap-hit cliff, not the
+mean or the CHOSEN-share percentage, is the lever this specific arming decision should be
+evaluated against** when the live re-measure happens.
 
 ## What this does NOT decide / NOT verified
 
