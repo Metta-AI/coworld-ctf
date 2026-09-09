@@ -261,7 +261,7 @@ when isMainModule:
     hazard = newSeq[int32](map.gridWidth * map.gridHeight)
   var rows = newJArray()
   for admission in Admission:
-    for budget in [4_096, 8_192, 12_288]:
+    for budget in [4_096, 8_192, 12_288, 16_384]:
       for rosterSize in [16, 32]:
         let
           suffix = if rosterSize == 16: "r16-s15" else: "r32-s15"
