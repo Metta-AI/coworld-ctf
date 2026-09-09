@@ -99,6 +99,10 @@ proc fullFeatureGame(teams4 = false): SimServer =
   # `barrier carried` marker renders (a barrier excludes a GRENADE, not a
   # shield — seat 2 keeps the grenade).
   result.players[1].hasBarrier = true
+  # The same visible enemy is also a veteran (AceLevel+), so the
+  # `veteran mark <n>` rank plume renders — the only fixture seat this
+  # sweep can reuse without adding a new visible actor.
+  result.players[1].level = AceLevel
   # A STANDING half-hex in the viewer's cone: injected directly with the
   # east-facing vertex set placeBarrier derives (the input path needs a
   # press-edge step this posed frame never takes). Its label carries

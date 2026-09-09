@@ -373,6 +373,9 @@ type
     pos: Vec
     facingRight: bool
     hp: int                   # from the overhead pip bar; 0 = not read
+    level: int                # from the overhead veteran-mark plume;
+                              # 0 = no mark seen (below AceLevel, or fog).
+                              # AceLevel+ means killing them pays dAceTag.
 
   Track = object              # a remembered player
     pos, vel: Vec
@@ -380,6 +383,7 @@ type
     synthetic: bool           # injected from an E-shout, not own eyes
     facingRight: bool
     hp: int                   # last observed hit points; 0 = never read
+    level: int                # last observed veteran level; 0 = never marked
 
   Bot = ref object
     slot: int
@@ -674,10 +678,11 @@ proc findSelf(
       return (alive: true, pos: client.mapPos(o))
 
 proc actorsFor(client: ProtocolClient, color: string): seq[Actor] {.measure.} =
-  ## Visible players of one color in map coordinates plus horizontal facing
-  ## and hit points. The overhead "hp <n>/<max>" pip bar is fog-culled with
-  ## its player, so whenever the player is visible its hp is too: attach the
-  ## nearest pip bar within HpPipRadius.
+  ## Visible players of one color in map coordinates plus horizontal facing,
+  ## hit points, and veteran level. The overhead "hp <n>/<max>" pip bar and
+  ## the "veteran mark <n>" plume are both fog-culled with their player, so
+  ## whenever the player is visible each is too: attach the nearest one
+  ## within HpPipRadius.
   for facingRight in [true, false]:
     let label = labelPlayer(
       color, if facingRight: LabelSideRight else: LabelSideLeft)
@@ -707,6 +712,22 @@ proc actorsFor(client: ProtocolClient, color: string): seq[Actor] {.measure.} =
         best = i
     if best >= 0:
       result[best].hp = hp
+  for (o, label) in client.spriteObjectsWithLabelPrefix(LabelPrefixVeteranMark):
+    # `veteran mark <level>` — the rank plume over a cog at or above
+    # AceLevel (glory.nim): killing them pays dAceTag, so its mere presence
+    # says "bounty." Fog-culled with its cog exactly like the hp bar, so the
+    # same nearest-within-HpPipRadius attach applies.
+    let level = parseInt(label[LabelPrefixVeteranMark.len .. ^1])
+    let p = client.mapPos(o)
+    var best = -1
+    var bestD = HpPipRadius
+    for i in 0 ..< result.len:
+      let d = dist(result[i].pos, p)
+      if d < bestD:
+        bestD = d
+        best = i
+    if best >= 0:
+      result[best].level = level
 
 proc walkableAt(client: ProtocolClient, x, y: int): bool =
   if x < 0 or y < 0 or x >= client.walkabilityWidth or
@@ -1368,10 +1389,13 @@ proc updateTracks(bot: Bot, tracks: var seq[Track], seen: seq[Actor]) =
       tracks[best].synthetic = false
       if a.hp > 0:
         tracks[best].hp = a.hp
+      if a.level > 0:
+        tracks[best].level = a.level
       claimed[best] = true
     else:
       tracks.add(Track(
-        pos: a.pos, lastSeen: bot.tick, facingRight: a.facingRight, hp: a.hp))
+        pos: a.pos, lastSeen: bot.tick, facingRight: a.facingRight,
+        hp: a.hp, level: a.level))
       claimed.add(true)
   var kept: seq[Track]
   for t in tracks:

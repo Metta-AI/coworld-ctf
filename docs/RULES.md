@@ -1532,6 +1532,20 @@ Like the `hp <hp>/<maxHp>` bar, the badge is a distinct object centered on its
 player's body: attach it by proximity. It is fog-gated with its player and disappears on
 death.
 
+**Veteran mark (GameVersion 60):** a living player at or above `AceLevel`
+(the Season 2 glory level where killing them pays the `dAceTag` bounty —
+see Season 2 glory scoring) carries an overhead rank-plume object labeled
+`veteran mark <level>`. Like the `hp <hp>/<maxHp>` bar, it carries no player
+identity of its own — it is a distinct object positioned over its player:
+attach it by proximity, exactly like the hp bar. It is fog-gated with its
+player (the same rule as the shield- and barrier-carried markers: it can
+never name a level for an enemy the viewer could not otherwise see) and is
+**absent** below `AceLevel` — absence is the "not a bounty yet" signal, the
+same idiom the shield-carried marker uses for "no shield". Before this
+label existed, `dAceTag` had no perception: a policy could see a
+level-3+ enemy's inflated hp bar (the `LevelBonusHp` denominator) but had
+no way to tell WHY it was inflated, or which enemy was worth the bounty.
+
 ---
 
 ## Implementation notes

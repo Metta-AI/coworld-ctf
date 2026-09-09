@@ -103,6 +103,20 @@ const
                                ## one 27px — but the icons keep this anchor so
                                ## they don't slide with every armor/shield
                                ## state change.
+  VeteranMarkSpriteBase = 3000 ## overhead rank-plume sprites: 3000 + player
+                               ## index — per-seat like the hp bar just above,
+                               ## because BOTH the plume's brightness and its
+                               ## label's level digit vary with player.level,
+                               ## so two differently-levelled seats sharing one
+                               ## id would clobber each other's label (the
+                               ## sprite-collision rule). Sits in the free gap
+                               ## between GameOverIconSpriteBase (2850..2865)
+                               ## and IdentityBadgeSpriteBase (9200) — MaxPlayers
+                               ## (32) ids fit with room to spare either side.
+  VeteranMarkObjectBase = 25000 ## rank-plume object-id pool: one per player,
+                                ## in the free gap between TracerDotObjectBase
+                                ## (24000) and PaintBombPickupObjectBase (35330).
+  VeteranMarkSize = 10          ## px footprint of the overhead rank plume.
   IdentityBadgeSpriteBase = 9200 ## Greek identity badges keyed
                                  ## (ord(team)*IdentityNames.len + identity) *
                                  ## SoldierRotations + aim step:
@@ -2308,6 +2322,28 @@ proc buildHpBarSprite(hp, maxHp, shieldHp: int): seq[uint8] {.measure.} =
           result.putRawRgbaPixel(i, 44, 40, 34, 170)
         else:
           result.putRawRgbaPixel(i, 108, 170, 220, 235)
+
+proc buildVeteranMarkSprite(level: int): seq[uint8] {.measure.} =
+  ## The overhead rank plume for a cog at or above `AceLevel` (glory.nim):
+  ## a small ember diamond whose glow brightens with level — the "crowd can
+  ## SEE it" half of the veteran fantasy AceLevel's own doc comment
+  ## describes. The exact level is the LABEL's job (labelVeteranMark); the
+  ## art only needs to read as "this cog is burning," not spell the number.
+  const size = VeteranMarkSize
+  result = newRgbaPixels(size, size)
+  let
+    steps = max(1, MaxLevel - AceLevel)
+    lit = clamp(level - AceLevel, 0, steps)
+    glow = 160 + (95 * lit) div steps          ## 160..255 with level
+    mid = size div 2
+  for y in 0 ..< size:
+    for x in 0 ..< size:
+      let d = abs(x - mid) + abs(y - mid)      ## diamond (L1) footprint
+      let i = y * size + x
+      if d <= mid - 2:
+        result.putRawRgbaPixel(i, uint8(glow), 90, 20, 240)
+      elif d <= mid:
+        result.putRawRgbaPixel(i, 180, 60, 10, 200)
 
 const IdentityGlyphs: array[8, array[IdentityGlyphH, uint8]] = [
   ## Uppercase Greek Α Β Γ Δ Ε Ζ Η Θ as 5×7 row bitmasks (bit 4 = leftmost
@@ -7074,6 +7110,54 @@ proc addHpPips(
       spriteId
     )
 
+proc addVeteranMarks(
+  sim: SimServer,
+  spriteDefs: var seq[SpriteDefinition],
+  currentIds: var seq[int],
+  packet: var seq[uint8],
+  viewerIndex = -1
+) {.measure.} =
+  ## Places the overhead rank plume over every living cog at or above
+  ## `AceLevel` (glory.nim) — the mark that says "killing this cog pays
+  ## `dAceTag`". Fog-gated exactly like the hp bar just above: the map view
+  ## passes no viewer and shows every plume; a player view passes its
+  ## viewer index and only receives the plumes of cogs it can see. Sprite
+  ## ids are a fixed pool keyed by player index — like the hp bar, both the
+  ## art's glow AND the label's level digit are per-seat state, so
+  ## addBoardSpriteChanged re-uploads exactly when either changes. Absent
+  ## below AceLevel: absence is the "not a bounty yet" signal, same idiom
+  ## as `LabelShieldCarried`'s absence meaning "no shield". Positioned by
+  ## `overheadAnchorY()` alone (no extra stack offset) so its center lands
+  ## within `HpPipRadius` (players/baseline/baseline.nim) of the player's
+  ## own position — the same proximity contract the hp bar relies on for a
+  ## consumer that cannot read player identity off this label.
+  for i in 0 ..< sim.players.len:
+    let player = sim.players[i]
+    if not player.alive or player.level < AceLevel:
+      continue
+    if viewerIndex >= 0 and i != viewerIndex and
+        not sim.playerVisibleTo(viewerIndex, i):
+      continue
+    let spriteId = VeteranMarkSpriteBase + i
+    packet.addBoardSpriteChanged(
+      spriteDefs,
+      spriteId,
+      VeteranMarkSize,
+      VeteranMarkSize,
+      buildVeteranMarkSprite(player.level),
+      labelVeteranMark(player.level)
+    )
+    let objectId = VeteranMarkObjectBase + i
+    currentIds.add(objectId)
+    packet.addBoardObject(
+      objectId,
+      player.x + CollisionW div 2 - VeteranMarkSize div 2,
+      player.overheadAnchorY() - VeteranMarkSize div 2,
+      30002,
+      MapLayerId,
+      spriteId
+    )
+
 proc addIdentityBadges(
   sim: SimServer,
   spriteDefs: var seq[SpriteDefinition],
@@ -7866,6 +7950,12 @@ proc buildSpriteProtocolPlayerUpdates*(
       viewerIndex = playerIndex
     )
     sim.addHpPips(
+      nextState.spriteDefs,
+      currentIds,
+      result,
+      viewerIndex = playerIndex
+    )
+    sim.addVeteranMarks(
       nextState.spriteDefs,
       currentIds,
       result,
@@ -8992,6 +9082,7 @@ proc buildSpriteProtocolUpdates*(
   sim.addBoardShouts(nextState, currentIds, result)
   sim.addAimIndicators(nextState.spriteDefs, currentIds, result)
   sim.addHpPips(nextState.spriteDefs, currentIds, result)
+  sim.addVeteranMarks(nextState.spriteDefs, currentIds, result)
   sim.addIdentityBadges(nextState.spriteDefs, currentIds, result)
 
   # Advance the per-player segmented-trike drive animation. Only step on a NEW
