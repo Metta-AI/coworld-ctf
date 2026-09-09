@@ -239,11 +239,20 @@ proc bindReadyModule(seat: int, name: string) =
     makeGuest: nil))
   echo "POC_WIRE_BOUND name=", name, " sha256=", bound.get.hash
 
-proc onModuleUpload(socket: WebSocket, seat: int,
+proc onModuleUpload(socket: WebSocket, seat: int, generation: uint64,
                     packet: ModuleUploadPacket) {.gcsafe.} =
+  ## `generation` is the dispatcher's real per-seat binding generation
+  ## (`PlayModuleUploadConsumer`, `src/ctf/server.nim`, added 9f147986) --
+  ## threaded straight into `admitModule` as the origin token, exactly the
+  ## way production's `handleProductionModuleUpload` threads it into
+  ## `episode.admitPlayModule`. `PocGeneration` stays reserved for the
+  ## envelope's own `"gen"` field (see `controlViewEnvelope` /
+  ## `playContextEnvelope`): this PoC never rebinds a socket mid-episode, so
+  ## the envelope it reports to the client is pinned, but the admission
+  ## check itself now honours whatever generation the wire actually sent.
   {.cast(gcsafe).}:
     rememberSocket(seat, socket)
-    let admitted = plane.admitModule(seat, packet.uploadId, PocGeneration,
+    let admitted = plane.admitModule(seat, packet.uploadId, generation,
       packet.wasm.rawBytes)
     echo "POC_WIRE_UPLOAD seat=", seat, " upload_id=", packet.uploadId,
       " bytes=", packet.wasm.len, " accepted=", admitted.accepted
@@ -264,12 +273,14 @@ proc onModuleUpload(socket: WebSocket, seat: int,
     for name in ["edge_ride", "pact"]:
       bindReadyModule(seat, name)
 
-proc onPlayCall(socket: WebSocket, seat: int,
+proc onPlayCall(socket: WebSocket, seat: int, generation: uint64,
                 packet: PlayCallPacket) {.gcsafe.} =
+  ## Same origin-generation threading as `onModuleUpload` above, matching
+  ## production's `handleProductionPlayCall`.
   {.cast(gcsafe).}:
     rememberSocket(seat, socket)
     let accepted = ladderDriver.acceptCall(seat, packet.proposalId,
-      PocGeneration, pocTick, packet.callBytes, bindings, noGuardContext())
+      generation, pocTick, packet.callBytes, bindings, noGuardContext())
     echo "POC_WIRE_CALL seat=", seat, " proposal_id=", packet.proposalId,
       " accepted=", accepted.accepted, " call_number=", accepted.callNumber,
       " reason=", accepted.reason, " path=", accepted.path

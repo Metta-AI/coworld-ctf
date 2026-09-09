@@ -1,0 +1,328 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>"Why #1 is #1" — standings row mock (v1 deeds-first)</title>
+<style>
+  :root{
+    --bg:#fffdf4; --surface:#fffaf0; --surface-alt:#f8f6ef;
+    --fg:#111827; --fg-subtle:#555555; --fg-muted:#999999;
+    --ink-navy:#1a3875; --ink-sage:#6e8050; --ink-terracotta:#b36e4e;
+    --ink-gold:#d4a853; --ink-silver:#8a8a8a;
+    --accent:#859ebe; --accent-strong:#1a3875; --accent-soft:#eef2f7;
+    --cta:#0e2758; --cta-hover:#1a3875; --cta-foreground:#fffdf4;
+    --border:#e4dac8; --border-strong:#d4c9b5; --border-subtle:#f0ebe1;
+    --exclusive:#8f5b3f;
+    --serif: Merriweather, Georgia, serif;
+    --sans: "Merriweather Sans", -apple-system, BlinkMacSystemFont, sans-serif;
+    --mono: ui-monospace, SFMono-Regular, Menlo, monospace;
+  }
+  *{ box-sizing:border-box; }
+  body{
+    margin:0; background:var(--bg); color:var(--fg);
+    font-family:var(--sans); font-size:14px; line-height:1.5;
+  }
+  .page{ max-width:880px; margin:0 auto; padding:40px 24px 80px; }
+  h1{
+    font-family:var(--serif); font-weight:700; font-size:1.5rem;
+    margin:0 0 4px; color:var(--fg);
+  }
+  .kicker{
+    font-family:var(--sans); font-weight:700; font-size:0.62rem;
+    text-transform:uppercase; letter-spacing:0.1em; color:var(--fg-subtle);
+    margin:0 0 18px;
+  }
+  h2.section{
+    font-family:var(--serif); font-weight:700; font-size:0.82rem;
+    text-transform:uppercase; letter-spacing:0.12em; color:var(--ink-navy);
+    border-bottom:2px solid var(--border-strong); padding-bottom:8px;
+    margin:40px 0 14px;
+  }
+  p.lede{ color:var(--fg-subtle); max-width:62ch; }
+
+  /* ---- standings list ---- */
+  .standings{ border-top:1px solid var(--border); margin-top:8px; }
+  .row{
+    display:flex; align-items:center; gap:14px;
+    padding:10px 4px; border-bottom:1px solid var(--border-subtle);
+  }
+  .medal{
+    width:24px; height:24px; border-radius:50%; flex:0 0 auto;
+    display:flex; align-items:center; justify-content:center;
+    font-family:var(--mono); font-weight:700; font-size:0.72rem;
+    box-shadow:inset 0 1px 0 rgba(255,255,255,0.3), inset 0 -1px 0 rgba(0,0,0,0.08);
+  }
+  .medal.g{ background:linear-gradient(180deg,#f4cf7a,#c28a2b); color:#3b2505; border:1px solid #a4731d; }
+  .rankn{
+    width:24px; text-align:center; color:var(--fg-muted);
+    font-family:var(--mono); font-size:0.78rem; flex:0 0 auto;
+  }
+  .who{ flex:1 1 auto; min-width:0; }
+  .name{ font-weight:600; }
+  .pvid{ color:var(--fg-muted); font-family:var(--mono); font-size:0.68rem; }
+  .score{
+    font-family:var(--mono); font-feature-settings:"tnum" 1;
+    font-size:0.92rem; font-weight:600; text-align:right; min-width:92px;
+  }
+  .row.plain .score{ color:var(--fg-subtle); font-weight:400; }
+
+  /* ---- disclosure trigger: the row BECOMES the card header ---- */
+  .disclosure{ border:1px solid var(--border); border-radius:3px; margin:2px 0 10px; overflow:hidden; }
+  .disclosure.open{ border-color:var(--border-strong); }
+  .trigger{
+    all:unset; box-sizing:border-box; display:flex; align-items:center; gap:14px;
+    width:100%; padding:12px 14px; cursor:pointer;
+    background:var(--surface);
+  }
+  .disclosure.open .trigger{ background:var(--accent-soft); }
+  .trigger:hover{ background:var(--surface-alt); }
+  .trigger:focus-visible{ outline:2px solid var(--accent); outline-offset:-2px; }
+  .chev{
+    width:16px; height:16px; flex:0 0 auto; color:var(--fg-subtle);
+    transition:transform 160ms ease;
+  }
+  .disclosure.open .chev{ transform:rotate(90deg); }
+  .body-grid{
+    display:grid; grid-template-rows:0fr; transition:grid-template-rows 200ms ease;
+  }
+  .disclosure.open .body-grid{ grid-template-rows:1fr; }
+  .body-inner{ overflow:hidden; min-height:0; }
+  .body-pad{ padding:0 18px 18px 18px; border-top:1px solid var(--border); }
+
+  .lead-line{
+    padding:14px 18px 4px; font-family:var(--sans); font-size:0.86rem;
+  }
+  .lead-line b{ font-family:var(--mono); }
+  .subtle-note{ color:var(--fg-subtle); font-size:0.78rem; margin:2px 0 0; }
+
+  .cap-cluster{
+    margin:14px 0; padding:10px 12px; background:var(--surface-alt);
+    border-left:3px solid var(--ink-gold); border-radius:0 3px 3px 0;
+    font-size:0.82rem; color:var(--fg-subtle);
+  }
+  .cap-cluster b{ color:var(--fg); }
+  .cap-cluster .bars{ display:flex; gap:2px; margin-top:8px; height:8px; border-radius:2px; overflow:hidden; }
+  .cap-cluster .bars span{ display:block; height:100%; }
+
+  table.deeds{ width:100%; border-collapse:collapse; margin-top:6px; }
+  table.deeds th{
+    text-align:left; font-family:var(--sans); font-weight:700; font-size:0.62rem;
+    text-transform:uppercase; letter-spacing:0.08em; color:var(--fg-muted);
+    border-bottom:1px solid var(--border); padding:6px 8px 6px 0;
+  }
+  table.deeds td{ padding:7px 8px 7px 0; border-bottom:1px solid var(--border-subtle); vertical-align:top; }
+  table.deeds td.label{ font-weight:600; white-space:nowrap; }
+  table.deeds td.q{ color:var(--fg-subtle); font-size:0.82rem; }
+  table.deeds td.share{ font-family:var(--mono); text-align:right; white-space:nowrap; font-feature-settings:"tnum" 1; }
+  table.deeds td.bar-cell{ width:120px; }
+  .bar{ height:6px; border-radius:3px; background:var(--border-subtle); overflow:hidden; }
+  .bar > span{ display:block; height:100%; background:var(--ink-navy); }
+  tr.win .bar > span{ background:var(--exclusive); }
+  tr.ach .bar > span{ background:var(--ink-sage); }
+  .chip{
+    display:inline-block; height:18px; line-height:18px; padding:0 7px; border-radius:999px;
+    font-size:9px; font-weight:700; text-transform:uppercase; letter-spacing:0.04em;
+    background:rgba(212,168,83,0.22); color:#7a5a1a; margin-left:6px;
+  }
+
+  .style-section{
+    margin-top:16px; border:1px dashed var(--border); border-radius:3px;
+    padding:16px; background:var(--surface);
+  }
+  .style-section .lockrow{ display:flex; align-items:center; gap:8px; margin-bottom:6px; }
+  .style-section .lockrow svg{ width:14px; height:14px; color:var(--fg-muted); }
+  .style-section h3{
+    margin:0; font-family:var(--sans); font-weight:700; font-size:0.68rem;
+    text-transform:uppercase; letter-spacing:0.1em; color:var(--fg-muted);
+  }
+  .style-section p{ margin:0; color:var(--fg-muted); font-size:0.82rem; font-style:italic; max-width:60ch; }
+
+  .footer-caption{
+    margin-top:10px; padding:10px 14px; font-size:0.76rem; color:var(--fg-muted);
+    border-top:1px solid var(--border-subtle);
+  }
+  .legend{ display:flex; gap:16px; align-items:center; margin-top:6px; font-size:0.72rem; color:var(--fg-subtle); }
+  .legend .dot{ width:8px; height:8px; border-radius:2px; display:inline-block; margin-right:5px; vertical-align:middle; }
+</style>
+</head>
+<body>
+<div class="page">
+  <h1>Paintbot (Season 2) — Competition standings</h1>
+  <p class="kicker">Mock — v1 deeds-first row, generated from a real decode · not a live surface</p>
+  <p class="lede">
+    This is a static design mock of the expandable "why #1 is #1" row (owner decision R10,
+    epic 16d081ab). Rank 1's row below is populated with a REAL decode from the live S2
+    league, run 2026-09-09 by <code>tools/glory/why_one.py</code> — every number here is
+    read from an actual replay, reconciled against the platform's own reported score, not
+    invented for the mock. Ranks 2–4 are shown collapsed for standings context only.
+  </p>
+
+  <h2 class="section">Competition</h2>
+  <div class="standings">
+
+    <!-- RANK 1 — expanded disclosure -->
+    <div class="disclosure open" id="row1">
+      <button class="trigger" aria-expanded="true" aria-controls="row1-body" onclick="toggle('row1')">
+        <span class="medal g">1</span>
+        <span class="who">
+          <span class="name">apex:v38</span>
+          <span class="pvid">pv 6d278f56 · v38</span>
+        </span>
+        <span class="score">647,002</span>
+        <svg class="chev" viewBox="0 0 16 16" fill="none"><path d="M6 3l5 5-5 5" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      </button>
+      <div class="body-grid" id="row1-body">
+        <div class="body-inner">
+          <div class="body-pad">
+
+            <div class="lead-line">
+              Leading rank 2 by <b>+146,140</b> — <b>23%</b> of this lead's own standing.
+              Rank #1 for the last <b>21</b> of the last <b>150</b> rounds sampled.
+              <p class="subtle-note">Standing is a recency-weighted average (EMA, half-life ≈ 14 rounds), not a lifetime peak — this
+              describes the last ~150 rounds, not "all time."</p>
+            </div>
+
+            <div class="cap-cluster">
+              <b>This lead rests on 3 rounds, not a long streak.</b> Three matches in the last 150 —
+              r4506, r4510, r4528 — each hit the platform's absolute score ceiling in a single match
+              and together explain roughly <b>84%</b> of the current standing's weight.
+              <div class="bars" title="share of reconstructed standing weight, most-recent first">
+                <span style="width:46.5%; background:var(--ink-navy)" title="r4528 — 46.5% — decoded below"></span>
+                <span style="width:20.5%; background:var(--border-strong)" title="r4510 — 20.5% — not decoded, era gap"></span>
+                <span style="width:16.7%; background:var(--border-strong)" title="r4506 — 16.7% — not decoded, era gap"></span>
+                <span style="width:16.3%; background:var(--border-subtle)" title="remaining 147 rounds — 16.3%"></span>
+              </div>
+              <div class="legend">
+                <span><span class="dot" style="background:var(--ink-navy)"></span>r4528 — decoded, below</span>
+                <span><span class="dot" style="background:var(--border-strong)"></span>r4506 / r4510 — cap hit, not decoded (era gap)</span>
+                <span><span class="dot" style="background:var(--border-subtle)"></span>everything else</span>
+              </div>
+            </div>
+
+            <h2 class="section" style="margin-top:22px;">What round r4528 was made of<span class="chip">won</span></h2>
+            <p class="subtle-note" style="margin-bottom:10px;">
+              This match hit the score ceiling — its true total, before the ceiling, was roughly <b>15×</b>
+              higher. Share = this line's portion of that uncapped total.
+            </p>
+            <table class="deeds">
+              <thead><tr><th>Deed</th><th>What happened</th><th style="width:120px;">Share</th><th></th></tr></thead>
+              <tbody>
+                <tr>
+                  <td class="label">CLOSING ×6</td>
+                  <td class="q">Survived six separate ticks of the tightening zone — the single biggest leg, mostly staying alive, not fighting.</td>
+                  <td class="share">40%</td>
+                  <td class="bar-cell"><div class="bar"><span style="width:40%"></span></div></td>
+                </tr>
+                <tr class="ach">
+                  <td class="label">Longshot <span class="chip">first</span></td>
+                  <td class="q">Rank-climb achievement — first to claim it this match.</td>
+                  <td class="share">13%</td>
+                  <td class="bar-cell"><div class="bar"><span style="width:13%"></span></div></td>
+                </tr>
+                <tr class="win">
+                  <td class="label">The win</td>
+                  <td class="q">Every win folds in a flat ×8 — an adversarial outcome (15 other seats + the zone), not a skill line.</td>
+                  <td class="share">11%</td>
+                  <td class="bar-cell"><div class="bar"><span style="width:11%"></span></div></td>
+                </tr>
+                <tr>
+                  <td class="label">FIRST!</td>
+                  <td class="q">First tag of the match.</td>
+                  <td class="share">9%</td>
+                  <td class="bar-cell"><div class="bar"><span style="width:9%"></span></div></td>
+                </tr>
+                <tr>
+                  <td class="label">LONGSHOT</td>
+                  <td class="q">A kill from long range.</td>
+                  <td class="share">7%</td>
+                  <td class="bar-cell"><div class="bar"><span style="width:7%"></span></div></td>
+                </tr>
+                <tr>
+                  <td class="label">FINAL 2</td>
+                  <td class="q">Survived to the final two standing.</td>
+                  <td class="share">7%</td>
+                  <td class="bar-cell"><div class="bar"><span style="width:7%"></span></div></td>
+                </tr>
+                <tr>
+                  <td class="label">FINAL 4</td>
+                  <td class="q">Survived to the final four.</td>
+                  <td class="share">6%</td>
+                  <td class="bar-cell"><div class="bar"><span style="width:6%"></span></div></td>
+                </tr>
+                <tr>
+                  <td class="label">FINAL 8</td>
+                  <td class="q">Survived to the final eight.</td>
+                  <td class="share">4%</td>
+                  <td class="bar-cell"><div class="bar"><span style="width:4%"></span></div></td>
+                </tr>
+                <tr class="ach">
+                  <td class="label">Clean Sheet</td>
+                  <td class="q">Rank-climb achievement — free for any seat with zero friendly-fire incidents.</td>
+                  <td class="share">4%</td>
+                  <td class="bar-cell"><div class="bar"><span style="width:4%"></span></div></td>
+                </tr>
+              </tbody>
+            </table>
+            <p class="subtle-note" style="margin-top:10px;">
+              Read together: this match's score is dominated by surviving the zone and making the
+              final two, not by a string of kills — one LONGSHOT and one FIRST! tag are the only
+              kill-credit lines in the whole breakdown.
+            </p>
+
+            <div class="style-section">
+              <div class="lockrow">
+                <svg viewBox="0 0 16 16" fill="none"><rect x="3" y="7" width="10" height="7" rx="1" stroke="currentColor" stroke-width="1.3"/><path d="M5 7V5a3 3 0 0 1 6 0v2" stroke="currentColor" stroke-width="1.3"/></svg>
+                <h3>Style — locked, v2</h3>
+              </div>
+              <p>How this brain plays (runs hot on heat, teams up, favors home or enemy ground)
+              needs the owner's S3 risk-band work before it can be shown here — not built in this
+              pass. This section stays visibly reserved rather than silently empty.</p>
+            </div>
+
+            <div class="footer-caption">
+              Generated 2026-09-09 by <code>tools/glory/why_one.py --rank 1 --window 150</code> against the
+              live league, decode reconciled exactly against the platform's own reported score
+              (16,777,216 — the product cap). r4506/r4510 hit the same cap but are from an earlier
+              scoring build this run's local extractors can't decode — reported as a gap, not guessed.
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- RANKS 2-4 — collapsed, context only -->
+    <div class="row plain">
+      <span class="medal" style="background:linear-gradient(180deg,#e8e8e8,#b0b0b0); color:#2a2a2a; border:1px solid #8a8a8a;">2</span>
+      <span class="who"><span class="name" style="color:var(--fg-subtle); font-weight:400;">docxology</span></span>
+      <span class="score">500,862</span>
+    </div>
+    <div class="row plain">
+      <span class="medal" style="background:linear-gradient(180deg,#dfa778,#9c5a2d); color:#3b1f0a; border:1px solid #7e4c26;">3</span>
+      <span class="who"><span class="name" style="color:var(--fg-subtle); font-weight:400;">pawchuck</span></span>
+      <span class="score">394,092</span>
+    </div>
+    <div class="row plain">
+      <span class="rankn">4</span>
+      <span class="who"><span class="name" style="color:var(--fg-subtle); font-weight:400;">(collapsed for this mock)</span></span>
+      <span class="score">—</span>
+    </div>
+  </div>
+
+  <p class="subtle-note" style="margin-top:24px;">
+    House style: Ink &amp; Print (Observatory v2). No decorative cards — the disclosure card earns
+    its border as the singular focused object once expanded; collapsed rows are plain hairline
+    rows. No XP bars or badge chrome; deeds render as a plain events table, past tense, each
+    number paired with a share, a comparison, and a count.
+  </p>
+</div>
+<script>
+function toggle(id){
+  var el = document.getElementById(id);
+  var btn = el.querySelector('.trigger');
+  var open = el.classList.toggle('open');
+  btn.setAttribute('aria-expanded', open ? 'true' : 'false');
+}
+</script>
+</body>
+</html>

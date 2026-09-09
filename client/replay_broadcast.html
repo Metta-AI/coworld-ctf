@@ -363,6 +363,39 @@ html, body {
   color: var(--paper);
   font-weight: 700;
 }
+/* THE MIND ON THE STRIP: pact grouping (Phase 2a, THE WHOLE epic,
+   "score-bug-is-the-mind" ruling 2026-09-09). Rendered as ONE SHARED
+   MARKER — never a line drawn across the board (the field stays clean;
+   pacts belong on the strip). An `outline` (not `box-shadow`, which the
+   "me" ring above already occupies) in the FIRST partner's own team color
+   rides every member square of a pact-holding cell, so partnered cells
+   read as a pair by matching ring colors, no legend required. Composes
+   cleanly with `.me`'s box-shadow ring (different CSS property, same
+   element) so "me" and "in a pact" are both visible at once. */
+.br-cell.pact .br-cell-life {
+  outline: calc(1 * var(--u)) solid var(--pactcol, transparent);
+  outline-offset: calc(0.5 * var(--u));
+}
+/* THE MIND ON THE STRIP: one-word intent, dim and small — a caption on the
+   name, not a second headline (see intentWordFor's own doc comment: a
+   DERIVED PROXY from wire fields already present, not a policy readout).
+   Hides at .dead (a downed/eliminated row already reads via .br-cell-mname
+   dimming; "hunting" on a corpse would be a lie the strip must not tell —
+   JS itself returns '' for !p.alive, this is belt-and-suspenders). */
+.br-cell-intent {
+  font-family: var(--pixfont);
+  font-size: calc(6 * var(--u));
+  letter-spacing: 0.2px;
+  color: var(--paper-dim);
+  opacity: 0.65;
+  text-transform: uppercase;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: calc(30 * var(--u));
+  flex: none;
+}
+.br-cell-member.dead .br-cell-intent { display: none; }
 /* The prominent figure in the cell — glory is still the score, just one
    per team now instead of one for the whole bar (Maxwell: show all 16). */
 .br-cell-glory {
@@ -3424,6 +3457,66 @@ body[data-noviewpanel] #viewpanel { display: none !important; }
     el.className = 'heat-flame' + (tier ? ' ' + tier : '');
   }
 
+  // ---- THE MIND ON THE STRIP: pact grouping + one-word intent ----
+  // Phase 2a, THE WHOLE epic, "score-bug-is-the-mind" ruling (2026-09-09):
+  // the field stays clean (no pact lines, no intent labels on cogs) and the
+  // score-bug strip is where a spectator reads (1) which seats are in a
+  // pact together and (2) what each brain is doing right now.
+  //
+  // (1) PACT GROUPING reads `tr[team].pact` verbatim — broadcast.nim's
+  // `pactPartnersJson` exposes the engine's own `pactMask`/`pactActive`
+  // (sim_state.nim, carried since GameVersion 54; already hashed and
+  // replay-safe). No inference here at all.
+  //
+  // (2) INTENT WORD is NOT a readout of the policy's real decision — the
+  // engine keeps no such field (checked against sim_types.nim's `Player`
+  // object and body.nim's target_law scoring: there is no target/mode
+  // field written back anywhere a spectator could read it; see
+  // docs/designs/STRIP_IS_THE_MIND.md's wire-check). It is a DERIVED PROXY,
+  // computed here from facts already on the wire — the roster's own
+  // `downed`/`carry`/`handoff` flags, the team's own `own`-the-hill flag,
+  // and the unconditional `kill` event's `killer` slot (broadcast.nim,
+  // every mode) — never invented, never positional (no x/y is read, so
+  // this can never imply a field the strip doesn't actually have).
+  var INTENT_TAG_WINDOW_TICKS = 3 * 24; // ~3s: how long "tagging" lingers after a kill
+  var intentLastTag = {};    // slot -> tick of this seat's last credited kill
+  var intentLastAssist = {}; // slot -> tick a PACT PARTNER last scored a kill
+  function noteIntentEvents(s) {
+    var evs = s.events;
+    if (!evs || !evs.length) return;
+    var slotTeam = {};
+    (s.roster || []).forEach(function (p) { if (p && p.s != null) slotTeam[p.s] = p.team; });
+    var tr = s.teams || {};
+    evs.forEach(function (e) {
+      if (!e || e.k !== 'kill' || typeof e.killer !== 'number' || e.killer < 0) return;
+      intentLastTag[e.killer] = e.t;
+      var killerTeam = slotTeam[e.killer];
+      var partners = killerTeam && tr[killerTeam] && tr[killerTeam].pact;
+      if (!partners || !partners.length) return;
+      // Every seat on a partner team reads as "allied push" for the same
+      // window a lone tag reads as "tagging" — a joint-action-flavored
+      // beat, not a claim about who fired together (the wire does not say
+      // that; only that a pact was live when the partner scored).
+      (s.roster || []).forEach(function (p) {
+        if (p && partners.indexOf(p.team) !== -1) intentLastAssist[p.s] = e.t;
+      });
+    });
+  }
+  function intentWordFor(p, s, team, tr) {
+    if (!p || !p.alive) return ''; // a dead/downed-out row already reads via .dead
+    if (p.downed) return 'downed';
+    if (p.handoff) return 'resupplying';
+    if (p.carry) return 'carrying';
+    var now = s.t || 0;
+    if (typeof intentLastTag[p.s] === 'number' &&
+        now - intentLastTag[p.s] <= INTENT_TAG_WINDOW_TICKS) return 'tagging';
+    if (typeof intentLastAssist[p.s] === 'number' &&
+        now - intentLastAssist[p.s] <= INTENT_TAG_WINDOW_TICKS) return 'allied push';
+    var t = (tr && tr[team]) || {};
+    if (t.own) return 'holding';
+    return 'hunting';
+  }
+
   // ---- score-bug glory figure AS the multiplier (task 19971077) ----
   // "The multiplier is the exciting thing; the deed is a label" (owner,
   // pinball/combo-meter model). This does NOT introduce a new quantity or a
@@ -4106,6 +4199,7 @@ body[data-noviewpanel] #viewpanel { display: none !important; }
       // leader" of an all-zero field is just whichever team sorted first —
       // no cell earns the leader glow/flame until someone actually scores.
       var haveLeader = leader !== null && leaderGlory > 0;
+      noteIntentEvents(s);
       teams.forEach(function (team) {
         var gv = tr[team] && tr[team].glory;
         var gloryEl = $('cell-glory-' + team);
@@ -4118,6 +4212,13 @@ body[data-noviewpanel] #viewpanel { display: none !important; }
         if (cell) {
           cell.classList.toggle('out', lives[team] <= 0);
           cell.classList.toggle('leader', isLeader);
+          // THE MIND ON THE STRIP: pact grouping — a shared ring, colored in
+          // the FIRST partner's own team color, on every member square of
+          // BOTH partnered cells. Two rings that point at each other's
+          // color read as one pair without a legend.
+          var pact = (tr[team] && tr[team].pact) || [];
+          cell.classList.toggle('pact', pact.length > 0);
+          if (pact.length > 0) cell.style.setProperty('--pactcol', teamCol(pact[0]) || AMBER);
         }
         // PLAYER IDENTITY member rows (2026-09-02, owner: "the life
         // squares can stack vertically and have the name to the right"):
@@ -4155,7 +4256,8 @@ body[data-noviewpanel] #viewpanel { display: none !important; }
               row.className = 'br-cell-member';
               row.title = teamHeadline(ident);
               row.innerHTML = '<span class="br-cell-life"></span>' +
-                '<span class="br-cell-mname">' + esc(brShortIdent(ident)) + '</span>';
+                '<span class="br-cell-mname">' + esc(brShortIdent(ident)) + '</span>' +
+                '<span class="br-cell-intent"></span>';
               membersEl.appendChild(row);
             });
             membersEl._mkey = mkey;
@@ -4168,6 +4270,14 @@ body[data-noviewpanel] #viewpanel { display: none !important; }
               // row at mkey-rebuild time) so the marker still lands on a
               // page whose ?me= only resolves after the roster fills in.
               row.classList.toggle('me', isMe(p.name));
+              // THE MIND ON THE STRIP: one word, updated every frame — see
+              // intentWordFor's own doc comment (derived proxy, not a
+              // policy readout).
+              var intentEl = row.querySelector('.br-cell-intent');
+              if (intentEl) {
+                var word = intentWordFor(p, s, team, tr);
+                if (intentEl._word !== word) { intentEl.textContent = word; intentEl._word = word; }
+              }
             }
           });
         }

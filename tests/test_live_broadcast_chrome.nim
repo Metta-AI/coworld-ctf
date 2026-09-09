@@ -168,3 +168,51 @@ suite "live broadcast chrome (buildLiveViewerPacket)":
         events)
       viewer = nextViewer
       check withChrome.gameHash() == withoutChrome.gameHash()
+
+  test "THE MIND ON THE STRIP: team 'pact' key reads sim.pactMask live, empty on a pact-free game":
+    ## Phase 2a wire check (THE WHOLE epic, score-bug-is-the-mind ruling
+    ## 2026-09-09): `pactPartnersJson` (broadcast.nim) is a read of an
+    ## EXISTING SimServer field (`pactMask`, carried since GameVersion 54) —
+    ## no new field, no flatty layout change, no GameVersion bump. This pins
+    ## the chrome's own shape: absent on a pact-free game (byte-identical to
+    ## every pre-existing frame), and it flips live off the exact same
+    ## `registerPact`/`declarePactPartners` calls test_alliance_pact.nim
+    ## already proves correct — this test only pins the WIRE EXPOSURE, not
+    ## the registry's own mutation rules.
+    var sim = brGame(teams = 4)
+    var tracker = initBroadcastTracker()
+    var warmup = newJArray()
+    sim.stepEvents(tracker, warmup)
+    var
+      viewer = initGlobalViewerState()
+      nextViewer: GlobalViewerState
+    block noPact:
+      var events = newJArray()
+      let packet = sim.buildLiveViewerPacket(
+        viewer, nextViewer, [], sim.tickCount, 7200, 1, true, false, events)
+      viewer = nextViewer
+      let chrome = packet.chromeOf()
+      check chrome["teams"]["red"]["pact"].kind == JArray
+      check chrome["teams"]["red"]["pact"].len == 0
+      check chrome["teams"]["blue"]["pact"].len == 0
+    sim.registerPact(Red, Blue)
+    block withPact:
+      var events = newJArray()
+      let packet = sim.buildLiveViewerPacket(
+        viewer, nextViewer, [], sim.tickCount, 7200, 1, true, false, events)
+      viewer = nextViewer
+      let chrome = packet.chromeOf()
+      check chrome["teams"]["red"]["pact"].getElems.mapIt(it.getStr) == @["blue"]
+      check chrome["teams"]["blue"]["pact"].getElems.mapIt(it.getStr) == @["red"]
+      # Unrelated teams stay untouched -- a pact is a pairwise fact, never a
+      # whole-field one.
+      check chrome["teams"]["green"]["pact"].len == 0
+      check chrome["teams"]["yellow"]["pact"].len == 0
+    sim.dissolvePact(Red, Blue)
+    block dissolved:
+      var events = newJArray()
+      let packet = sim.buildLiveViewerPacket(
+        viewer, nextViewer, [], sim.tickCount, 7200, 1, true, false, events)
+      let chrome = packet.chromeOf()
+      check chrome["teams"]["red"]["pact"].len == 0
+      check chrome["teams"]["blue"]["pact"].len == 0

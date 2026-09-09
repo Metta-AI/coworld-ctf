@@ -4,6 +4,50 @@
 > enabled with `allowDeprecatedModes: true`, not the Season 2 play-seat wire.
 > New policy authors should start in [`policies/starters/`](../policies/starters/README.md).
 
+## Season 2 quick reference (read this first)
+
+*Era: GameVersion 61 / GLORYVERSION 16 / paintbot 0.7.367+ (main `9b6019aa`).*
+This whole file is the **deprecated** direct-input protocol below. A Season 2
+play seat does not send button masks — it uploads WASM plays and calls them
+by name (normative spec:
+[`docs/designs/strategy-play-calling-shell-2026-08-29.md`](designs/strategy-play-calling-shell-2026-08-29.md)
+§4.3). What Season 2 *does* keep from Sprite v1: the play-seat connection, the
+engine's fixed tick rate, and (for a container-based policy) the seat-identity
+env vars. One screen, each line pointing at where it is proven:
+
+- **Connect.** Every play seat — Season 2 included — is a websocket at
+  `ws://host:port/player?slot=<N>&token=<T>`; the Season 2 wire is the same
+  socket upgraded with 0xA0 ModuleUpload
+  ([`policies/poc_llm_policy/README.md:26`](../policies/poc_llm_policy/README.md),
+  "What it proves").
+- **Seat-identity env vars** a container policy reads to build that URL —
+  documented for the local PoC harness at
+  [`policies/poc_llm_policy/README.md:283-284`](../policies/poc_llm_policy/README.md):
+  `POC_HOST`/`POC_PORT` (the game server) and `POC_SLOT`/`POC_TOKEN` (the play
+  seat and its token). **`coworld run-episode`/`coworld play` instead inject a
+  single pre-built `COWORLD_PLAYER_WS_URL`** (verified against the installed
+  `coworld==0.1.46` CLI, `coworld/runner/runner.py:476`) — the two conventions
+  are not interchangeable; see the "Run it" section of the poc README.
+- **Observe.** The player stream is Sprite v1 frames: 1x map-pixel coordinates
+  (see "Observation render scale" below, this file), and the map camera
+  object's presence marks in-game vs. lobby/interstitial (see "Lobby and
+  interstitial detection" below, this file).
+- **Act — the direct-input 8-bit mask** (deprecated modes only; a Season 2
+  seat calls plays by name instead, never this mask): bit0 Up=1, bit1
+  Down=2, bit2 Left=4, bit3 Right=8, bit4 Select=16, bit5 A=32, bit6 B=64 —
+  inherited wholesale from the
+  [Sprite v1 base spec](https://github.com/Metta-AI/bitworld/blob/master/docs/sprite_v1.md),
+  not redefined in this repo — and bit7 C=128, this repo's own extension (see
+  "Player input: bit 7 is the C button" below, this file, and
+  `players/baseline/baseline.nim:150`).
+- **Tick rate.** 24 ticks/sec, engine-wide, deprecated and Season 2 alike
+  (`docs/RULES.md:1237`; also `src/ctf/sim_types.nim:895`, a 5-minute game =
+  7,200 ticks at 24/s).
+- **Run a policy against a real local episode end to end:** see the root
+  [`README.md`](../README.md#run-season-2-locally) or
+  [`policies/poc_llm_policy/README.md`](../policies/poc_llm_policy/README.md)'s
+  "Run it" section for the verified `coworld run-episode` invocation.
+
 Both the player endpoints (`/player`, POV observation streams) and the
 global/spectator endpoint speak
 [Sprite v1](https://github.com/Metta-AI/bitworld/blob/master/docs/sprite_v1.md).
