@@ -115,10 +115,52 @@ def test_rank_points_transform_is_bounded():
             assert 0 <= clipped <= 25
 
 
+def test_leader_best_round_share_uses_its_own_rated_k():
+    """Regression for the sweep-tool bug found 2026-09-09
+    (~/.ctf/knowledge/glory-gradient/00f-sweep-extended-2026-09-09.md):
+    leader_best_round_share() used to hardcode the module constant
+    CURRENT["rated_k"]=0.05 for its decay weights instead of the rate the
+    passed-in history/contributions were actually replayed with. Two
+    settings that differ ONLY in rated_k produce different EMA histories, so
+    their true leader-share values must differ too. Before the fix this test
+    fails: both calls silently decay at 0.05 regardless of `rated_k`, so a
+    0.02-replayed history and a 0.035-replayed history came out numerically
+    identical to within float noise."""
+    fx = _load_fixture()
+
+    history_a, contrib_a = sr.replay_setting(fx["rounds"], rated_k=0.02,
+                                              clamp_M=150, top_k=12,
+                                              transform="log2",
+                                              episode_mode="current")
+    history_b, contrib_b = sr.replay_setting(fx["rounds"], rated_k=0.035,
+                                              clamp_M=150, top_k=12,
+                                              transform="log2",
+                                              episode_mode="current")
+
+    share_a = sr.leader_best_round_share(history_a, contrib_a, rated_k=0.02)
+    share_b = sr.leader_best_round_share(history_b, contrib_b, rated_k=0.035)
+
+    assert share_a is not None and share_b is not None
+    rel_diff = abs(share_a - share_b) / max(share_a, share_b)
+    assert rel_diff > 0.01, (
+        f"share at k=0.02 ({share_a}) and k=0.035 ({share_b}) are "
+        f"suspiciously close (rel_diff {rel_diff}) — looks like the decay "
+        "weights are not actually using each row's own rated_k"
+    )
+
+    # Same history, evaluated at the row's own k vs. a manually forced 0.05
+    # (the old hardcoded value) must also disagree — pins the exact
+    # mechanism of the bug, not just "some" k-dependence elsewhere.
+    share_a_forced_current = sr.leader_best_round_share(history_a, contrib_a,
+                                                          rated_k=0.05)
+    assert share_a != share_a_forced_current
+
+
 if __name__ == "__main__":
     test_fixture_shape()
     test_replay_reproduces_fixture_standings_exactly()
     test_clamp_bounds_the_single_round_move()
     test_rank_points_transform_is_bounded()
+    test_leader_best_round_share_uses_its_own_rated_k()
     print("all standing_replay.py fixture tests passed "
           f"({FIXTURE}: 15-round real ledger slice, r4257-r4271)")

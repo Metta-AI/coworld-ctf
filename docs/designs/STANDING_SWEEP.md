@@ -106,11 +106,11 @@ changes too fast" is describing.
 
 | Axis | Setting | tau_mean | #1 chg/50 | leader share | up (1.5x→top3) | down (0.5x→out) |
 | --- | --- | --- | --- | --- | --- | --- |
-| **rated_k** | 0.02 | 0.976 | 3.56 | 0.333 | never | 9 |
-| | 0.035 | 0.963 | 6.32 | 0.316 | 103 | 0 |
+| **rated_k** | 0.02 | 0.976 | 3.56 | 0.193 ⁽¹⁾ | never | 9 |
+| | 0.035 | 0.963 | 6.32 | 0.267 ⁽¹⁾ | 103 | 0 |
 | | **0.05 (current)** | **0.954** | **6.92** | **0.314** | **103** | **0** |
-| | 0.075 | 0.939 | 9.88 | 0.341 | 103 | 0 |
-| | 0.1 | 0.926 | 12.85 | 0.399 | 103 | 0 |
+| | 0.075 | 0.939 | 9.88 | 0.372 ⁽¹⁾ | 103 | 0 |
+| | 0.1 | 0.926 | 12.85 | 0.417 ⁽¹⁾ | 103 | 0 |
 | **clamp_M** | 10 | 0.970 | 3.56 | 0.273 | 116 | 0 |
 | | 30 | 0.960 | 5.93 | 0.310 | 103 | 0 |
 | | 60 | 0.955 | 6.72 | 0.313 | 103 | 0 |
@@ -123,6 +123,13 @@ changes too fast" is describing.
 | **episode cadence** | half (20 draws) | 0.959 | 5.55 | 0.682 | never | 0 |
 | | current | 0.954 | 6.92 | 0.314 | 103 | 0 |
 | | double | 0.947 | 6.35 | 0.278 | never* | 0 |
+
+`⁽¹⁾` **Erratum (2026-09-09, S0 fix PR):** these `rated_k` rows' leader-share
+values were originally computed with decay hardcoded at `k=0.05` regardless of
+the row's own rate (see "Leader-share definition, stated explicitly" below);
+they are corrected here using each row's own swept `rated_k` and supersede the
+prior 0.333/0.316/0.341/0.399 values. No other column in this table is
+affected by the bug or changes.
 
 `sum_top_k` is confirmed **inert on this ledger**: the scheduler produces exactly
 12 legs/entrant/round with zero headroom, matching `docs/SCORING_ERAS.md`'s "H
@@ -152,9 +159,9 @@ close, not just the noise around it.
 
 | Setting | tau_mean | #1 chg/50 | leader share | up | down |
 | --- | --- | --- | --- | --- | --- |
-| log2 only | 0.942 | 9.49 | 0.043 | 48 | 0 |
-| log2 + clamp_M=60 | 0.942 | 9.49 | 0.043 | 48 | 0 |
-| **log2 + rated_k=0.035** | **0.960** | **7.51** | **0.061** | **48** | 0 |
+| log2 only | 0.942 | 9.49 | 0.0432 | 48 | 0 |
+| log2 + clamp_M=60 | 0.942 | 9.49 | 0.0432 | 48 | 0 |
+| **log2 + rated_k=0.035** | **0.960** | **7.51** | **0.0427** ⁽¹⁾ | **48** | 0 |
 
 `log2 + clamp_M=60` is **identical** to `log2` alone — once magnitudes are
 log-compressed, a round-over-round swing of 60x in *log-space* essentially never
@@ -164,9 +171,230 @@ transform is in place; **only one of the two levers is needed.**
 `log2 + rated_k=0.035` is the best of the three: it recovers the top-tier tau
 that `log2` alone gives up (0.960, better than today's 0.954) and cuts the
 leader-change rate from log2-alone's 9.49/50 back toward today's baseline
-(7.51/50), while keeping log2's full anti-spike effect (share 0.061, still 5x
-better than today) and its *faster*, not slower, responsiveness (48 rounds, same
-as log2 alone, versus today's 103).
+(7.51/50), while keeping log2's full anti-spike effect (share 0.0427 ⁽¹⁾, still
+~7x better than today's 0.314) and its *faster*, not slower, responsiveness (48
+rounds, same as log2 alone, versus today's 103). Corrected: adding
+`rated_k=0.035` to `log2` barely moves leader share at all versus `log2` alone
+(0.0427 vs. 0.0432) — the two combined candidates above were reported as 0.043
+vs. 0.061 (a real difference) before the decay-constant fix; post-fix they are
+within noise of each other, so the rate half of this combo is not buying
+anti-spike protection on top of the transform, only the tau/responsiveness
+trade described above.
+
+## Rate sweep extension: k in {0.02, 0.025, 0.03, 0.035}
+
+**Era stamp.** Re-run 2026-09-09 with `tools/ladder/standing_replay.py` at
+origin/main commit `62fa01461a0a18265686e35645f617d83b6af224` (script sha256
+`79e50b9baa759ef4e4e3eb8dacd27a33c782a84a3abb3ae5082f4c881dd5b1ae`, unchanged
+since PR #478 — no tool code edited for this run), same real ledger as above
+(253 rounds, r4257–r4526, ledger sha256
+`a991f9922fe21ebeb3d3ed802b5a20f72aaecc8cea680cfcfa2ef6fcced4830c`). The
+`log2` row and the `log2 + rated_k=0.035` row below reproduce the "Top-3
+combined candidates" table above **exactly** (same tau/chg/share/up to every
+digit), confirming this is the identical ledger and script, not a re-pull.
+
+| Setting | tau_mean | #1 chg/50 | leader share | up (1.5x→top3) | down (0.5x→out) |
+| --- | --- | --- | --- | --- | --- |
+| log2 + rated_k=0.02 | 0.979 | 5.73 | 0.0269 ⁽¹⁾ | 103 | 0 |
+| log2 + rated_k=0.025 | 0.979 | 4.74 | 0.0319 ⁽¹⁾ | 96 | 0 |
+| log2 + rated_k=0.03 | 0.970 | 8.89 | 0.0363 ⁽¹⁾ | 49 | 0 |
+| log2 + rated_k=0.035 (from table above) | 0.960 | 7.51 | 0.0427 ⁽¹⁾ | 48 | 0 |
+
+The 0.025 row was first surfaced by two uncommitted 2026-09-09 ad-hoc re-runs
+of this same script (preserved with raw JSON and scripts at
+`~/.ctf/knowledge/glory-gradient/00e-sweep-raw-runs/{sweep-slow,sweep-f1}/`);
+this section commits that row, plus 0.02 and 0.03 for a complete picture of
+the interval, as the doc's own record.
+
+**Leader-share definition, stated explicitly.**
+
+`⁽¹⁾` **Erratum (2026-09-09, S0 fix PR — "fix first" ruling):** every
+leader-share value marked `⁽¹⁾` in this document was originally computed with
+decay fixed at `k=0.05` regardless of the row's own swept rate and is
+**superseded** by the corrected value shown. See the regression test below.
+
+`leader_best_round_share()` used to always decay contributions using the
+served-default `rated_k=0.05` (the module constant `CURRENT["rated_k"]`),
+**not** the row's own swept `rated_k` — so every non-0.05 `rated_k` row in
+this document (all rows in this table, plus the `rated_k` axis rows and the
+`log2 + rated_k=0.035` row above) reported leader share decayed at 0.05,
+never at that row's own rate. This was a **bug in the helper, not a design
+choice**, confirmed by direct inspection (`tools/ladder/standing_replay.py:
+452-473`) and by reproduction: it is the full explanation for the 2026-09-09
+disagreement where two ad-hoc scripts reported 0.060 vs. 0.032 for the
+identical `log2 + rated_k=0.025` setting. The `sweep-slow` script called the
+shared helper as-is and got 0.060 (matches this table's old, pre-fix value
+exactly). The `sweep-f1` script independently reimplemented the decay using
+the row's actual k=0.025 and got 0.032; patching the helper to accept the
+swept k and re-running against the same ledger reproduces
+0.031876310968393766, matching `sweep-f1`'s figure to 6 significant figures
+and this table's corrected 0.0319 value. Both preserved runs were internally
+correct given what each one actually computed — the discrepancy was a latent
+parameter-threading bug, not noise and not two valid definitions.
+
+**Fixed 2026-09-09 (follow-up PR to #482, per the S2 lead's "fix first — do
+not merge a known-wrong column into the source of truth" ruling):**
+`leader_best_round_share()` now takes an explicit `rated_k` argument, and its
+one call site (`_metrics_for_setting`) threads each swept setting's own rate
+through instead of the module constant. Covered by a regression test,
+`test_leader_best_round_share_uses_its_own_rated_k`
+(`tools/ladder/test_standing_replay.py`), which fails against the old
+hardcoded-0.05 signature and passes against the fix. Every `⁽¹⁾`-marked share
+value in this document — the `rated_k` axis table, the `log2 + rated_k=0.035`
+combined-candidate row, and the four rows in this table — has been
+recomputed with the fix on the identical frozen ledger (same sha256 as
+above) and reflects each row's own decay rate.
+
+## Rate selection criterion (owner's criterion, applied literally, 2026-09-09)
+
+Owner's criterion, verbatim: *"fewest #1 changes subject to the 1.5x climb
+time not being faster than today's ~103 rounds (the owner explicitly does not
+want a faster climb)."* Lower `up` is a **faster** climb, so the constraint is
+`up >= ~103`. Applied to the `log2` family only — the transform is already
+decided (geometric-mean glory stands; see S0 gate ruling), so only the rate
+constant is open:
+
+| Setting | up | up >= ~103? | #1 chg/50 | Result |
+| --- | --- | --- | --- | --- |
+| log2 (rate unchanged, k=0.05) | 48 | No — faster | 9.49 | FAIL |
+| log2 + rated_k=0.035 | 48 | No — faster | 7.51 | FAIL |
+| log2 + rated_k=0.03 | 49 | No — faster | 8.89 | FAIL |
+| log2 + rated_k=0.025 | 96 | No — faster | 4.74 | FAIL |
+| **log2 + rated_k=0.02** | **103** | **Yes — tied, not faster** | **5.73** | **PASS** |
+
+Exactly one row satisfies the constraint as literally written:
+**`log2 + rated_k=0.02`**, tied at `up=103` (not faster than today). It is not
+the lowest-`#1-chg` row overall (`log2 + rated_k=0.025`'s 4.74 is lower, but
+that row's `up=96` is faster than today and is excluded); among the rows that
+satisfy the constraint it is the only candidate, so it trivially has the
+fewest #1 changes subject to the constraint. This is a real tie, not a
+comfortable margin — `up=103` matches today's baseline to the exact round,
+and 0.02 was not one of PR #478's originally-swept `log2 + rated_k` values, so
+this result rests on a boundary the criterion was written to test, not deep
+inside a passing region. **No settings change is proposed or applied here**;
+this table only reports which rows pass/fail the literal criterion.
+
+**Superseded below.** The "Robustness read" section that follows shows this
+literal `~103` anchor reproduces on only 6/30 (20%) of resampled draws — see
+"Rate criterion, restated" after it for the corrected, distributional version
+of this criterion and the resulting pick.
+
+## Robustness read: bootstrap over resampled round windows (2026-09-09, S0 fix PR)
+
+The rate criterion above rests on **one run, one seed, one ledger window**,
+and its only passing row (`log2 + rated_k=0.02`, `up=103`) passes by an
+**exact tie** against the baseline — too thin to hang a season-long constant
+on by itself. This section bootstraps all five metrics over resampled
+round windows of the same frozen ledger (sha256
+`a991f9922fe21ebeb3d3ed802b5a20f72aaecc8cea680cfcfa2ef6fcced4830c`) using the
+fixed tool, reporting **median + 10th/90th-percentile interval**, ≥20 draws
+per metric, fixed seed for reproducibility.
+
+**Method (two schemes, since a fixed-length window can't observe both):**
+- `tau_mean` / `#1 chg/50` / `leader share`: computed fresh (own cold-start
+  EMA) on 30 sliding **100-round windows** (`rounds[s:s+100]`, `s` drawn
+  without replacement from the 154 possible starts).
+- `up` / `down`: a 100-round window can't observe `up≈103` at all (not
+  enough room left after injection), so these are resampled instead by
+  sliding the **injection point** (`from_idx`) across the full 253-round
+  ledger — 30 draws of `from_idx` in `[20,126]` (mirrors the doc's own
+  `from_idx=126`), which guarantees ≥127 rounds always remain after
+  injection, comfortably more than the ~103-round threshold, so a "never"
+  result is a real signal and not an artifact of a too-short remainder.
+
+| Setting | tau_mean med [p10,p90] | #1 chg/50 med [p10,p90] | leader share med [p10,p90] | up (finite) med [p10,p90] | up: PASS (≥103 or never) frac |
+| --- | --- | --- | --- | --- | --- |
+| raw, k=0.05 (today) | 0.946 [0.938,0.955] | 6.25 [2.95,9.00] | 0.333 [0.260,0.542] | 41.5 [0.0,109.1] | **0.20** |
+| log2, k=0.05 (log2 alone) | 0.949 [0.938,0.956] | 8.00 [4.00,12.05] | 0.0618 [0.0526,0.0689] | 44.0 [16.9,60.1] | 0.00 |
+| log2, k=0.035 | 0.969 [0.960,0.974] | 5.25 [1.50,10.50] | 0.0453 [0.0382,0.0503] | 65.5 [48.0,96.3] | 0.07 |
+| log2, k=0.03 | 0.972 [0.964,0.979] | 3.25 [1.40,7.65] | 0.0392 [0.0332,0.0429] | 94.5 [55.9,147.2] | 0.43 |
+| log2, k=0.025 | 0.979 [0.971,0.984] | 2.75 [0.45,7.55] | 0.0310 [0.0281,0.0354] | 96.5 [69.5,147.2] | 0.43 |
+| **log2, k=0.02** | **0.984 [0.978,0.989]** | **1.50 [0.00,5.10]** | **0.0245 [0.0213,0.0290]** | **121.0 [100.9,155.2]** | **0.83** |
+
+**Does `k=0.02`'s pass survive the spread?** Mostly yes — of the log2-family
+rates, `k=0.02` passes the literal `up>=103` criterion on **25/30 (83%)** of
+resampled injection points, a clear majority and the highest of any rate
+tested (0.43, 0.43, 0.07, 0.00 for 0.025/0.03/0.035/log2-alone respectively —
+a smooth, monotonic decline with k, consistent with basic EMA-decay mechanics
+rather than noise). Its bootstrapped `up` median (121) sits comfortably above
+103, and the 10-90 interval `[100.9,155.2]` barely dips below the threshold
+at the low end. So the committed doc's single-window exact tie
+**understates**, if anything, how often `k=0.02` clears the bar — it is not
+an artifact of that one window.
+
+**But the reference point itself is shakier than the tie suggests.** The
+"today ≈103 rounds" baseline that the whole criterion is anchored to only
+reproduces `up>=103` on **6/30 (20%)** of resampled injection points; its own
+bootstrapped median is **41.5 rounds**, roughly 2.5x faster than the specific
+`from_idx=126` draw the committed doc measured it at. That single draw landed
+near the slow tail of the baseline's own distribution, not its typical
+value. This does not overturn the criterion's PASS/FAIL calls above (which
+correctly apply the owner's literal wording to the specific measurement the
+owner was shown), but it means "~103 rounds" is a **fragile anchor** for a
+season-long constant — a second real-ledger pull, or the owner re-stating the
+criterion against a more typical baseline value, would materially change
+which rates pass. Flagging this rather than re-deriving the criterion, which
+is the owner's call, not this worker's.
+
+Caveats on this bootstrap itself: (1) 100-round window replays cold-start
+their own EMA rather than inheriting a running standing, which the "top5
+standing" chart discussion elsewhere in this doc already flags as inflating
+early-window volatility slightly — the tau/chg/share intervals above are
+therefore a mild overestimate of true within-season variance, not an
+underestimate. (2) This is still the **same single 253-round ledger pull**
+sliced differently, not a second independent pull — see "The ledger" above
+for the GloryVersion 14→15 boundary this window straddles (r4515–4526, the
+last 11 of 253 rounds); any window or injection draw touching those rounds
+inherits that same era-span caveat. (3) `down` was uniformly fast and
+near-zero across every draw for every setting (never-frac 0.00 throughout,
+medians 0-6 rounds) — the asymmetry noted in "Current-setting metrics" above
+(declines register immediately, improvements don't) holds up under
+resampling without qualification.
+
+## Rate criterion, restated (2026-09-09) — the pick
+
+**Supersedes** the literal criterion above. The old wording ("no faster than
+today's ~103 rounds," a single point estimate) is replaced with a
+**distributional** form: *"the 1.5x climb-time distribution under the new
+rule must not be faster than today's climb-time distribution,"* compared by
+bootstrapped **medians and p10** (see "Robustness read" above), not a single
+draw.
+
+**⚠️ Anchor caveat, verbatim:** the old "~103" reference was unstable (6/30
+draws, bootstrapped median 41.5); the criterion is now distributional for
+that reason.
+
+Why this changes the outcome: today's bootstrapped median `up` is **41.5
+rounds**, not 103 — the single-draw 103 was an unlucky (slow-tail)
+realization. Under the distributional criterion, every log2 candidate at
+`k >= 0.02` has a higher (slower-or-equal) median **and** p10 than today's
+41.5/0.0: log2 alone 44.0/16.9, `k=0.035` 65.5/48.0, `k=0.03` 94.5/55.9,
+`k=0.025` 96.5/69.5, `k=0.02` 121.0/100.9. The owner's "no faster climb"
+concern is satisfied by the **whole log2 family** — the climb constraint
+stops discriminating between rates, so the pick falls to the owner's primary
+symptom instead: the board changes too fast.
+
+**The pick: `rated_k = 0.025`.** Fewest #1 changes of the extended rows
+(4.74/50, vs. 5.73 / 8.89 / 7.51 for `k=0.02` / `0.03` / `0.035`), tau 0.979,
+corrected leader share 3.2% (0.0319), decay half-life `ln(2)/0.025 ≈ 27.7`
+rounds. Chosen on fewest #1 changes with stability and leader share both in
+hand, once the climb constraint no longer discriminates.
+
+**Runner-up: `k = 0.02`.** Better leader share (0.0269 vs. 0.0319) but
+*more* #1 changes (5.73 vs. 4.74/50) — the honest trade against the pick,
+not a second-place tie.
+
+**⚠️ Era-span caveat, verbatim:** r4257-r4526 is not one cohort — 242/253
+rounds are GloryVersion 14, the last 11 cross into GloryVersion 15 (JointAct
+pact-only, PR #467); ~7% of 100-round windows touch that tail.
+
+**This pick is a recommendation on record, not an authorisation.** The POST
+does **not** follow from it. It still waits on: the `log2` transform
+actually landing (a code change, not a settings knob, per "Recommendation"
+below); the sign-aware clamp fix for negative legs; a live-league audit of
+every league running `rated` aggregation with an armed clamp; and the
+owner's GO relayed by the S2 lead. No settings were changed to produce this
+section.
 
 ## Recommendation
 
@@ -175,7 +403,15 @@ as log2 alone, versus today's 103).
 untouched — top_k has no headroom to spend today, and the clamp becomes a
 no-op once log2 is in place.
 
-- Leader's single-round dependency: 31.4% → 6.1%
+**2026-09-09 update:** this `rated_k=0.035` pick predates the owner's rate
+criterion being formalized. Applying that criterion literally (see "Rate
+selection criterion" above) does **not** select 0.035 — only `rated_k=0.02`
+passes. The transform half of this recommendation (raw → log2) stands; the
+rate half is superseded by the criterion section above pending the owner's
+read on that finding.
+
+- Leader's single-round dependency: 31.4% → 4.3% ⁽¹⁾ (corrected; previously
+  miscomputed as 6.1% by the decay-constant bug fixed in this document)
 - Time for a genuinely-better policy to reach top-3: 103 rounds → 48 rounds (faster)
 - Consecutive-round rank stability (tau): 0.954 → 0.960 (slightly better)
 - #1 turnover: 6.92/50 rounds → 7.51/50 rounds (a small, acceptable cost)
@@ -223,11 +459,16 @@ point in log2's favor.
 
 ## Tests
 
-`python3 -m pytest tools/ladder/test_standing_replay.py -q` → **4 passed**.
+`python3 -m pytest tools/ladder/test_standing_replay.py -q` → **5 passed**.
 Fixture: `tools/ladder/testdata/standing_fixture.json` (first 15 rounds of the
 real pull, r4257–r4271). Covers: exact reproduction of pinned standings on the
 fixture; the clamp's one-round-move bound (`1+k(M-1)`) holding on the fixture's
-real 2^24 leg at r4258; the rank-points transform staying bounded at [0,25].
+real 2^24 leg at r4258; the rank-points transform staying bounded at [0,25];
+and (added 2026-09-09, S0 fix PR) `test_leader_best_round_share_uses_its_own_
+rated_k` — a regression test for the decay-constant bug above, asserting two
+settings that differ only in `rated_k` produce materially different leader
+shares. Confirmed to fail (`TypeError: unexpected keyword argument 'rated_k'`)
+against the pre-fix signature and pass against the fix.
 
 ## What is NOT verified
 
@@ -246,3 +487,31 @@ real 2^24 leg at r4258; the rank-points transform staying bounded at [0,25].
   climb time.
 - No settings were changed and no backfill was run; this is a recommendation,
   not a live change.
+- **2026-09-09 extension:** the `log2 + rated_k=0.02` pass on the rate
+  criterion is a single-run, single-seed **point estimate** on one real
+  ledger window; it was not re-verified against a second independent ledger
+  pull or an independently re-derived `mid_subject`/`top_subject` pair, and
+  `up=103` is an exact tie against that one point estimate. The bootstrap
+  in "Robustness read" above resamples within this same pull and shows the
+  pass holds on 83% of resampled injection points (not an artifact of one
+  window) — but it is still the same single 253-round pull sliced
+  differently, not a second pull, and the baseline `~103` anchor itself
+  reproduces on only 20% of the same draws (bootstrapped median 41.5), which
+  the owner has not yet been asked to weigh in on.
+- **2026-09-09 fix PR:** the `leader_best_round_share()` decay-constant bug
+  (confirmed by direct code inspection and reproduction of both preserved
+  figures) is now **fixed** — `rated_k` is threaded through explicitly and
+  covered by a regression test (`test_leader_best_round_share_uses_its_own_
+  rated_k`) confirmed to fail pre-fix and pass post-fix. Every leader-share
+  value in this document has been recomputed with the fix; values marked
+  `⁽¹⁾` are the ones that changed. Not independently re-verified by a second
+  reviewer.
+- **Era span, reported not fixed:** this ledger (253 rounds, r4257–r4526) is
+  known to straddle a GloryVersion/GameVersion boundary — see "The ledger"
+  above (242/253 rounds on GloryVersion 14, the last 11 on GloryVersion 15).
+  Every table and the bootstrap in this document replay this single window
+  as-is; none of the mechanics conclusions (rated_k/clamp/top_k/transform
+  behave identically regardless of what produced the input scores) require
+  a single-era window, but no absolute-magnitude or "typical season" claim
+  should be read out of it, and this sweep was not re-scoped to a
+  single-era subwindow to address it.
