@@ -1458,7 +1458,16 @@ body.sidelanes-both #killfeed {
       roughly halves the needed height so all 16 cells fit (measured:
       16-cell content now 123px, inside the 128px lane). */
 body.sidelanes #scorebug .br-cell { max-width: 340px; }
-body.sidelanes #scorebug .br-cell .br-cell-glory { margin-left: calc(10 * var(--u)); }
+/* RECONCILED with THE WHOLE Stop 2's "Glory" noun label (Law 6): the
+   numeral this rule was written against is now wrapped in
+   .br-cell-glory-wrap (label stacked above the numeral, see the BR RAIL
+   FIT comment's own line above and the ~line-405 wrap CSS) — the
+   auto-margin this overrides also moved to that wrapper. Retargeted one
+   level up so the override still wins (same specificity bump, one more
+   class) and still lands on the element that actually carries
+   margin-left:auto; the fixed 10u gap now sits after the name for the
+   label+numeral pair together, same as intended for the bare numeral. */
+body.sidelanes #scorebug .br-cell .br-cell-glory-wrap { margin-left: calc(10 * var(--u)); }
 body.sidelanes.tiny #scorebug .br-cellband {
   flex-direction: row;
   flex-wrap: wrap;
