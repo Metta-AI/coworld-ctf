@@ -118,10 +118,15 @@ anything interesting.
   of a fact the current surface didn't have. `score.py` computes this mechanically from
   `WebFetch`/`WebSearch` targets; the judge should sanity-check a few by hand.
 - A **stuck episode** is now (Protocol v2) any ≥10-minute gap between consecutive assistant turns
-  — `score.py` finds these mechanically, with no marker needed. The judge should read what tool
-  calls happened during the gap (attached in `stuck_episodes[].tool_calls_during`) and write one
-  line on what actually blocked progress (a missing link, a confusing label, a slow page, a dead
-  end).
+  — `score.py` finds these mechanically, with no marker needed. This is a coarser signal than it
+  sounds: a stranger genuinely waiting on a slow qualification round tends to check in every
+  30-300s rather than fall silent, so a real ~15-20 minute wait can hide as several turn-gaps that
+  individually never cross 10 minutes — `stuck_minutes_total` is a lower bound, not a
+  measurement. The judge should read what tool calls happened during each reported gap (attached
+  in `stuck_episodes[].tool_calls_during`) and, more importantly, should also read the surrounding
+  transcript directly for genuine multi-turn wait stretches the mechanical threshold missed —
+  write one line on what actually blocked progress (a missing link, a confusing label, a slow
+  page, a dead end, a qualification/round-fulfillment wait).
 
 ## Attribution rule
 

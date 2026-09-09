@@ -31,9 +31,10 @@
 #                               auto-approved stalls forever (no TTY to answer). This is
 #                               the closest available substitute for a real interactive
 #                               permission grant. Isolation is enforced by convention
-#                               (prompt.md rule 5), checked post-hoc by
-#                               isolation_audit.sh — not by an OS-level sandbox. That is
-#                               a deliberate, documented choice, not an oversight.
+#                               (prompt.md's "stay in your lane" instruction), checked
+#                               post-hoc by isolation_audit.sh — not by an OS-level
+#                               sandbox. That is a deliberate, documented choice, not an
+#                               oversight.
 #   (session IS persisted, deliberately: owner decision 2026-09-09 has the stranger
 #   sign itself up with a real address from ~/.ctf/knowledge/stranger-walk/env
 #   (STRANGER_EMAIL; never committed, copied into $RUN_DIR/env before launch). If
@@ -165,10 +166,10 @@ fi
 ENTRY_RESOLVED="$(curl -sS -o /dev/null -w '%{http_code} %{url_effective}' -L --max-time 15 "$ENTRY_URL" || echo "CURL_FAILED")"
 
 # Owner-provided signup address (never committed): copy into the run's own cwd as
-# `env` so the stranger finds it via prompt.md rule 3's "check your working
-# directory for a file named env" instruction. Absence is a valid, recorded state
-# (the run then behaves per the credentials-absent branch of the prompt). Smoke
-# tests never get this — the smoke prompt hard-stops before signup, so there's
+# `env` so the stranger finds it via prompt.md's "check your working directory for a
+# file named env" instruction. Absence is a valid, recorded state (the run then has
+# no usable credentials and stops on its own). Smoke tests never get this — the
+# smoke prompt hard-stops before signup, so there's
 # no reason to hand out the real address.
 OWNER_ENV_SRC="${STRANGER_OWNER_ENV:-$HOME/.ctf/knowledge/stranger-walk/env}"
 HAD_OWNER_ENV="false"

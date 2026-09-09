@@ -46,6 +46,22 @@ Definitions:
     turns (or from run start to the first turn), with the tool calls
     attempted during the gap attached for the judge to read and explain in
     one line (a missing link, a confusing label, a slow page, a dead end).
+
+CAVEAT (measured empirically against Protocol v1 transcripts, 2026-09-09):
+this per-turn-gap definition is coarser than it sounds. A stranger that's
+genuinely waiting on a slow qualification round tends to check in every
+30-300s (a poll loop, a `browser_wait_for`, a quick status re-check) rather
+than falling silent for a single unbroken 10+ minute stretch — so a real
+~15-20 minute wait can show up here as several turn-gaps that individually
+never cross the 10-minute line, and this script will under-report it. Tool-
+name/keyword heuristics to stitch those check-ins into one episode were
+tried and rejected: they either missed real waits (requiring literal
+`sleep`/`wait_for` primitives) or produced runaway false positives (a
+200+ minute "episode" once a keyword like "round"/"standing" matched
+ordinary research tool calls for long stretches of a run). The judge's own
+read of `stuck_episodes[].tool_calls_during` — and of the surrounding
+transcript generally — is the authoritative account of what blocked
+progress; treat `stuck_minutes_total` as a lower bound, not a measurement.
 """
 import json
 import os

@@ -5,6 +5,11 @@ measures whether a total stranger — a competent developer who has never heard 
 Softmax — can get from zero to a policy climbing the ladder. This is the instrument that measures
 it, and the first baseline reading (**Walk 1**).
 
+> **Read this first: Walk 1 (below) is INVALID as a discovery baseline.** Its prompt handed the
+> stranger the eight milestones by name and asked it to narrate them — scaffolding, not
+> discovery. It's still valid as a defect punchlist. See "Protocol v2" below for the ruling, the
+> fix, and the clean baseline this document now points to.
+
 Tooling lives in `tools/stranger_walk/`: `prompt.md` (the fixed stranger prompt), `judge.md` (the
 scoring rubric), `run.sh` / `resume.sh` (launch/continue one run), `launch.sh` (protocol v1.2 —
 launch a run fully detached), `score.py` (extract timings from a transcript), `isolation_audit.sh`
@@ -247,6 +252,59 @@ change needed.
   here). This closes the specific gap Walk 1 found (process table, filesystem, network) — it is not a
   claim of hardened-sandbox/gVisor-grade isolation against a genuinely adversarial process.
 
+## Protocol v2: the prompt was scaffolding, not discovery (2026-09-09, owner ruling)
+
+Owner ruling, after reviewing Walk 1's five runs: `prompt.md`'s "Announce milestones" rule (the
+old rule 2) handed the stranger the exact eight-item list — M1 knows the game, M2 top ways to
+score, ... M8 changed it and saw rank respond — and told it to narrate `BELIEF: `/`MILESTONE: `
+lines the moment it formed them. That primes a stranger to go looking for exactly the eight things
+being measured; it is not what an unprompted stranger would naturally do on its own. **Walk 1's
+five runs (`sonnet-a`, `sonnet-b`, `opus-a`, `sonnet-c`, `sonnet-d`) are therefore INVALID as a
+"did the game explain itself with zero help" baseline.** They remain valid for a narrower claim:
+every concrete defect they surfaced (the stale wiki protocol page, the silently-required
+"Institution" field, the `--run` argv footgun, the 404ing free-play field, the shared-account
+collision, the qualification-wait documentation gap, and the rest below) is real regardless of how
+the run was prompted, because those are properties of the site/CLI, not artifacts of the
+stranger's instructions. What Walk 1 can no longer support is any claim shaped like "a stranger
+naturally reaches M-such-and-such in N minutes" or "a stranger naturally forms belief X at this
+point" — those numbers are contaminated by the milestone list being handed out in advance.
+
+Protocol v2's `prompt.md` (see that file) strips the prompt to the owner's own one-paragraph goal
+statement plus the mechanics that are genuine operational necessities, not scaffolding (checking
+the working directory for an `env` file; the `WAITING: ` handshake for a human-relayed signup
+code — kept because `resume.sh` needs it to know a run is paused on a human, not stuck or done).
+It says nothing about milestones, beliefs, or the words "blocked"/"ready." `judge.md` and
+`score.py` moved milestone/belief extraction to a post-hoc step: the judge reads the plain
+think-aloud transcript after the run and decides, using outside knowledge the stranger never had,
+where each M1–M8 was actually reached and what beliefs were stated and whether they were true —
+there's no longer a self-report to grade against. `score.py`'s mechanical layer (tool-call counts,
+digs, stuck-episode timing) stays transcript-derived either way; see that file's docstring for one
+caveat found while rebuilding it — the new stuck-episode signal (gaps between assistant turns) is
+coarser than v1's marker-gap version, since a genuinely-waiting stranger tends to check in every
+30-300 seconds rather than fall silent, so `stuck_minutes_total` is now a lower bound the judge
+should double-check against the transcript, not a measurement.
+
+The clean, un-scaffolded baseline — the one THE WHOLE epic's before/after comparison actually
+needs — runs under Protocol v2's `prompt.md` through `run_container.sh` (Protocol v1.3, above),
+combining both fixes: no milestone-list scaffolding and real container-level process/filesystem/
+network isolation instead of the bash-launched `-p` process's `$HOME`-scoping-only approach.
+`run_container.sh` reads whichever `prompt.md`/`smoke_prompt.md` is present at invocation time, so
+it already picks up Protocol v2's prompt with no launcher change (see v1.3's "Compatibility with
+protocol v2" note above) — what's still missing is a real, credentialed, scored run through that
+combined path (v1.3 only proved the container pipeline with a placeholder key; no Protocol v2 run,
+container or otherwise, has been scored yet). Walk 1's numbers stay in this document as a
+historical record and a defect punchlist, explicitly relabeled: not a baseline.
+
+**Verified working end-to-end under Protocol v2 (2026-09-09):** a haiku smoke run
+(`smoketest-v2-1`, `STRANGER_SMOKE=1`) using the new `smoke_prompt.md` completed in 115s, stopped
+of its own accord before any login/signup/submit action (hard-stop verified both by the model's
+own words and by `run.sh`'s independent post-hoc grep for `login`/`upload-policy`/`submit`/
+`exchange-code` — PASS, zero hits), produced a `meta.json` with a `prompt_sha256` binding it to
+the exact new prompt text, scored cleanly with the new `score.py` (mechanical fields populated,
+`milestones`/`beliefs` correctly left empty pending judge extraction, as designed), and passed
+`isolation_audit.sh` with no boundary hits. No real ladder run was launched for this
+verification — a scored Protocol v2 baseline is separate, future work.
+
 ## Incident: a $1 smoke test put a real submission on the real ladder
 
 Before the baselines ran, a cheap haiku smoke test of the mechanism (not a scored run) proved the
@@ -299,9 +357,16 @@ disagreed until 07:24Z, independent of anything a stranger did.
 | `sonnet-c` (DISQUALIFIED) | 08:07:56Z | *(none)* | 16 | 0.7.369 / GV16, throughout |
 | `sonnet-d` | 09:05:03Z | *(none)* | 16 | 0.7.369 / GV16, throughout |
 
-## Baseline runs
+## Baseline runs (Walk 1 — INVALID as a discovery baseline; see "Protocol v2" above)
 
-Five runs total. Three complete, isolation-clean runs form the baseline (`sonnet-a`, `opus-a`,
+Everything below this line is Protocol v1 data: the stranger was handed the milestone list and
+asked to self-report `BELIEF:`/`MILESTONE:` lines. Per the owner ruling above, that makes every
+timing/ordering number below a measurement of "how fast a primed stranger checks off a known
+list," not "how legible the game is to an unprimed one" — read them as defect evidence, not as
+THE baseline. The clean baseline is future work under Protocol v2 + container isolation.
+
+Five runs total. Three complete, isolation-clean runs form the (invalid-as-baseline) set
+(`sonnet-a`, `opus-a`,
 `sonnet-d`). `sonnet-b` was killed by session teardown mid-progress, not a stranger failure —
 reported separately. `sonnet-c` completed a full run but is **disqualified** by the isolation
 audit (see the new gap above) — reported separately, discarded per protocol, replaced by
