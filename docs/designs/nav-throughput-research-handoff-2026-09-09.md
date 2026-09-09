@@ -14,6 +14,22 @@ You are a Codex instance. You MUST collaborate with a Claude Code instance as co
 
 One of your FIRST tasks: do meta-research on state-of-the-art auto-research loops for agents (e.g. AI-Scientist-style loops, AutoResearch/ResearchAgent patterns, Sakana, Nous, "agent laboratory", program-synthesis-by-evolution loops such as AlphaEvolve/FunSearch-style search over code, OpenEvolve, etc.) and best practices (hypothesis registries, pre-registration, ablations, held-out validation, negative-result logging, reproducibility manifests, budget accounting, stopping rules). Then implement the loop you choose for THIS problem before running the main experiments. Write it down as a living document.
 
+## 0a. Unfinished work you inherit — finish this BEFORE the research programme
+
+The previous Codex session was stopped mid-Phase-10 so the worktree could be collapsed into the main checkout. Its own stand-down notes are in `docs/designs/nav-rework-evidence-2026-09-09/impl-latest/PHASE_10_REPORT.md` ("State at stand-down"); read them. In short:
+
+- Last code checkpoint: commit "wip: instrument x86 navigation overhead" (labelled wip; on top of the cutover). It adds a per-stage timing split to `tools/bench_body_nav_rework.nim` (pops, request submission, stale-job cancel, SJF selection, endpoint attach, finish/install, packed-weight refresh, waypoint, route-advance, steering, follower, weapon, danger, planning, residual body; plus `route_search_ns_per_pop_*`), compiled only for the harness via `bodyNavBreakdown`. It also carries two small hot-path improvements with Mac-only evidence (farthest-first lookahead search cut waypoint p95 ~45 %; publishing only live route spans cut install p95 ~55 %). Focused suites `test_shell_body_nav_rework.nim` and `test_shell_body_seat.nim` pass; both server compile shapes check.
+- CORRECTION you must carry: the earlier finding "each replan costs ~1 ms outside the pop budget" (in DEVBOX_NUMBERS_2.md, in the notes, and in an Asana comment) was a HARNESS CONFOUND. The harness moved the eight synthetic danger tracks whenever it moved goals, so moving-goal rows also paid extra danger-ray and weapon work. With the corrected harness, request overhead p95 is 9-12 us on the Mac at B=1,024 and moving-goal p95 fell from ~4.1-5.0 ms to ~1.0-1.4 ms there. All real-amd64 rows in section 4 below were taken with the CONFOUNDED harness: the first-goal and stuck rows are still valid for per-pop scaling (~0.55 us/pop on the Xeon), the moving-goal rows are NOT and must be rerun.
+- `BodyRoutePopBudgetPerTick` in src/shell/body_route_query.nim currently reads the rejected provisional value (1,024 at stand-down; verify). It is NOT the selected production value.
+- Not done: any real-amd64 measurement of the wip checkpoint; the compact active-node workspace experiment (only worth it if the corrected split shows pops dominating); fixture re-record and viewer rebuild after the wip src changes (the committed viewer is expected to FAIL its sim-source-stamp check until then); the full test suite, final containment pair, final canonical Docker quality/activation/memory/determinism run, the Phase 10 sentinel, and all of Phase 11 (docs, final verification).
+
+Exact next steps as the previous session wrote them (do these first, then the baseline in section 1 is simply the result of step 3):
+1. On the one-core real x86_64 host, build `tools/bench_body_nav_rework.nim` at HEAD with the established release/useMalloc/noSignalHandler flags and rerun the corrected `--tick` rows; retain the full split JSON.
+2. Measure B = 1,024 / 2,048 / 3,072 / 4,096 from fresh builds (sed the constant, rebuild, restore). Verify request-overhead p95 <= 100 us on x86; report real x86 ns/pop from the emitted fields. Only if the pop slice dominates, evaluate compact active-node indexing.
+3. Choose the largest B whose worst real-amd64 row has p95 <= 3.6 ms and max <= 4.5 ms; set the constant once; report the first-goal route-latency tail (p50/p95/max ticks at 16/32 seats) for that exact B.
+4. Update the budget text in the design/report docs, run `tools/ci/check_gameversion.sh origin/main` (GV63 is claimed; main may have moved), re-record all nine replay fixtures at the chosen B, rebuild the committed viewer (Docker).
+5. Full tests once, both server compile shapes, one isolated containment pair (pair it with a same-host origin/main run), the canonical Docker gate (quality/activation/memory/determinism only), then Phase 11: docs audit (design doc + HTML twin, BR_PLAYS.md, FIRST_LIGHT_DEMO.md, AGENTS.md), final verification, Asana update.
+
 ## 1. The goal
 
 Maximise the number of search pops per game tick that fit inside a 5 ms whole-body tick on the hardware production actually runs on, WITHOUT sacrificing route-planning quality.
@@ -48,7 +64,7 @@ EC2 (one pinned Ice Lake core), whole-body tick p95/max in ms, 16 seats | 32 sea
 - B=3,072: first 3.32/3.39, moving 5.36/6.28 (FAIL), stuck 3.78/3.89 | first 3.56/3.61, moving 7.11/7.59 (FAIL), stuck 3.96/4.94
 - B=4,096: first 3.91/3.93, moving 6.15/6.85, stuck 4.49/7.29 | first 4.11/4.15, moving 7.44/7.69, stuck 7.79/8.12
 - B=8,192 and 16,384: 6-15 ms, all fail.
-Two structural facts: (a) the non-search body floor is ~1.7 ms (16 seats) / ~2.0 ms (32 seats) on this core; (b) moving_goals fails at EVERY budget because each replan REQUEST costs ~1 ms OUTSIDE the pop budget (endpoint attach ring scan + exact connectors, per-seat 4 px weight-table refresh at each danger generation (172k int16 per seat), reconstruct + validateBodyRoute + install). Cutting that per-request overhead is the first throughput win; a Codex session was profiling it at handoff (look for "X86 OVERHEAD DONE" / a split-instrumented harness in the collab dir).
+Two structural facts: (a) the non-search body floor is ~1.7 ms (16 seats) / ~2.0 ms (32 seats) on this core (from first-goal rows, still valid); (b) the moving_goals rows above are INVALID (harness confound, see section 0a) and must be rerun with the corrected harness before drawing any conclusion about per-request overhead.
 Containment test on the same box: origin/main 16.4 ms max_body, HEAD 9.6 ms; its 5.6 ms gate is host-calibrated and fails on main too. Pair it with a same-box main baseline; never read it as a nav pass/fail.
 
 ## 5. Rules and rulings in force

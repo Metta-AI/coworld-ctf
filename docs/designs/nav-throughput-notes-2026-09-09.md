@@ -9,9 +9,10 @@ Agent-agnostic copy of the learnings from session session_01H4Tq8mKE8YCb7mvENxWf
 - Whole-body tick rows (p95/max ms, 32 seats): B=16,384 -> 12-15; 8,192 -> 6.6-10;
   4,096 -> 4.1-7.8; 3,072 -> 3.6-7.1; 2,048 -> 3.0-6.1; 1,024 -> 2.4-5.4.
   The per-pop cost on this core is ~3x the M4's (~185 ns on M4).
-- The moving_goals row fails at EVERY budget (5.36 ms at B=1,024): ~1 ms per
-  replan REQUEST is spent outside the pop budget (endpoint attach, per-seat
-  4 px weight-table refresh, reconstruct/validate/install). Non-search body
+- The moving_goals rows measured on 2026-09-09 (e.g. 5.36 ms at B=1,024) were
+  taken with a CONFOUNDED harness (it moved the danger tracks with the goals)
+  and are invalid; the corrected harness shows request overhead of 9-12 us on
+  the Mac. Rerun on x86 before drawing conclusions. Non-search body
   floor is ~1.7 ms (16 seats) / ~2.0 ms (32 seats) on this core.
 - Containment test (32-seat body gate): origin/main = 16.4 ms max_body on this
   box; HEAD = 9.6 ms (40 % cheaper). Its 5.6 ms scaled gate is unattainable on
