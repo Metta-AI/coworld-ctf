@@ -1,9 +1,38 @@
 # GLORY GRADIENT — step 1 CENSUS tooling
 
-Scripts used to produce `~/.ctf/knowledge/glory-gradient/01-census-2026-09-08.md`
+Scripts used to produce the census findings, landed in this repo at
+[`docs/designs/glory/CENSUS-2026-09.md`](../../docs/designs/glory/CENSUS-2026-09.md)
+(lane ledger copy: `~/.ctf/knowledge/glory-gradient/01-census-2026-09-08.md`)
 (era: GloryVersion 15, coworld_version 0.7.361-0.7.367, rounds r4515-r4539 on
 the Paintbot Season 2 ladder). Read-only against the live API; these scripts
 never touch sim/scoring code.
+
+## TRAP: a 0/N reconciliation means you dropped achievement events, not that the extractor is broken
+
+**Symptom**: `census_decode.py`'s reconciliation check against the platform's
+own `participant_scores` reports **0 of N seat-episodes matching** — every
+single one, not a noisy subset. It looks like a totally broken extractor or
+a wrong game version.
+
+**Cause**: the recut product score is folded from **two separate event
+catalogs into the SAME running product** — `glory_deed` events AND
+`achievement` events (e.g. `treeSquad`'s "Clean Sheet", which mints
+`amount=2` for every seat in every episode). A decode that only multiplies
+`glory_deed` amounts into the product silently omits every achievement
+factor. It does not error or warn — it just produces a per-seat total that
+is wrong by a large, systematic multiplicative factor, so it fails to match
+`participant_scores` for every seat-episode at once (hence 0/N, not a
+partial mismatch).
+
+**Fix**: fold `amount` from **both** `glory_deed` AND `achievement` events
+into the same running product (see `census_decode.py`), whenever
+`amount > 1`. This is what took this census's own first pass from 0/4,880
+to 4,880/4,880 (100.00%) reconciled. **Never trust a decode's downstream
+numbers until the reconciliation check passes at (or extremely near) 100%.**
+A 0/N result is diagnostic, not just a failure — it is the specific
+signature of this achievement-events omission, and the fastest way to
+confirm it is to check whether achievement-catalog events are present in
+the replay's event stream and being folded.
 
 ## Pipeline
 
