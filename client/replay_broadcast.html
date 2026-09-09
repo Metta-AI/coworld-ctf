@@ -804,6 +804,35 @@ html, body {
 @keyframes chippop { from { transform: translateY(calc(-8 * var(--u))) scale(0.9); opacity: 0; } to { transform: none; opacity: 1; } }
 @keyframes chipfade { to { opacity: 0; transform: translateY(calc(-4 * var(--u))); } }
 
+/* ---------- 3b. KICKOFF LINE: the first seconds of every episode ---------
+   THE WHOLE epic, Stop 2: "N seats drop in. Last one standing wins. The
+   zone closes." shown once per episode start (gated on hasZoneField + the
+   opening ~3s of tick time — see maybeAnnounceKickoff), held on the same
+   wall-clock dwell-floor pattern #bannerlane uses. A full sentence, so —
+   unlike .banner-chip's short uppercase callouts — this wraps and reads in
+   sentence case rather than being forced upper-case. */
+#kickoffLine {
+  position: absolute;
+  top: calc(30 * var(--u));
+  left: 50%;
+  transform: translateX(-50%) translateY(calc(-6 * var(--u)));
+  z-index: 13;
+  max-width: min(86%, calc(420 * var(--u)));
+  text-align: center;
+  font-family: var(--pixfont);
+  font-size: calc(12 * var(--u));
+  line-height: 1.4;
+  letter-spacing: 0.01em;
+  color: var(--paper);
+  background: var(--ink-soft);
+  border-bottom: calc(3 * var(--u)) solid var(--amber);
+  padding: calc(8 * var(--u)) calc(16 * var(--u));
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 220ms ease-out, transform 220ms ease-out;
+}
+#kickoffLine.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+
 /* ---------- 1b. GLORY POPS ---------- */
 /* SEASON 2: world-anchored floating "+Ng"/named-claim pops, one per entry in
    the frame's s.pops (sim.gloryPops, see broadcast.nim gloryPopsJson). #gloryPops
@@ -2938,6 +2967,7 @@ body[data-noviewpanel] #viewpanel { display: none !important; }
       <div class="fpv-grip" id="fpv-grip" title="Drag to resize"></div>
     </div>
     <div id="bannerlane"></div>
+    <div id="kickoffLine" role="status" aria-live="polite"></div>
     <div id="killfeed"></div>
     <div id="gloryPops"></div>
     <!-- SEASON 2 phase presentation: the MAP VOTE and HUDDLE acts, plus the
@@ -3200,7 +3230,7 @@ body[data-noviewpanel] #viewpanel { display: none !important; }
   //      (feed row / banner / curtain), collapsing only the dead time between
   //      contacts. These are NOT one speed knob — one caps motion, one floors dwell.
   var ANIM_MAX_FACTOR = 2;
-  var DWELL_FLOOR_MS = { feed: 2600, banner: 1900, curtain: 2400, read: 600 };
+  var DWELL_FLOOR_MS = { feed: 2600, banner: 1900, curtain: 2400, read: 600, kickoff: 3200 };
   function animFactor() {
     // Lever 1 — the chrome plays at min(replaySpeed, cap): at 16× the board flies
     // but a kill row still slides in at 2×-equivalent so a human can read it.
@@ -3682,6 +3712,43 @@ body[data-noviewpanel] #viewpanel { display: none !important; }
   var zoneEndcardShown = false;
   var zoneEndcardTimer = null;
 
+  // ---- KICKOFF LINE: "N seats drop in. Last one standing wins. The zone
+  // closes." — THE WHOLE epic, Stop 2, moment 2 (docs/designs/
+  // THE_GAME_EXPLAINS_ITSELF.md #2). Gated on hasZoneField (only a BR/zone
+  // episode has an objective this sentence is true of — a classic CTF/
+  // territory episode has no shrinking zone) and the opening tick window,
+  // so it fires once near s.t===0 and again every time the tick clock
+  // restarts low (a fresh episode's stream, a loop, or a restart-to-start —
+  // all read the same "this round is beginning" signal, no separate latch
+  // needed). Seat count reads (s.roster || []).length off the wire rather
+  // than a hard-coded 16, per the task's own instruction.
+  var KICKOFF_TICKS = 3 * 24; // ~3s at 24 ticks/s baseline (matches the file's other *_TICKS windows)
+  var kickoffAnnounced = false;
+  var kickoffHideTimer = null;
+  function maybeAnnounceKickoff(s, hasZoneField) {
+    if (!s || typeof s.t !== 'number') return;
+    if (s.t <= 1) kickoffAnnounced = false; // fresh episode / loop / restart: re-arm
+    if (!hasZoneField || kickoffAnnounced || s.t > KICKOFF_TICKS) return;
+    kickoffAnnounced = true;
+    var seats = (s.roster || []).length || 16;
+    var text = seats + ' seats drop in. Last one standing wins. The zone closes.';
+    var el = $('kickoffLine');
+    if (!el) return;
+    el.textContent = text;
+    el.classList.add('show');
+    if (kickoffHideTimer) clearTimeout(kickoffHideTimer);
+    kickoffHideTimer = setTimeout(function () {
+      kickoffHideTimer = null;
+      el.classList.remove('show');
+    }, dwellFloor('kickoff'));
+  }
+  function resetKickoffLine() {
+    kickoffAnnounced = false;
+    if (kickoffHideTimer) { clearTimeout(kickoffHideTimer); kickoffHideTimer = null; }
+    var el = $('kickoffLine');
+    if (el) el.classList.remove('show');
+  }
+
   function resetZoneEndcard() {
     zoneEndcardArmed = false;
     zoneEndcardShown = false;
@@ -3776,6 +3843,7 @@ body[data-noviewpanel] #viewpanel { display: none !important; }
     ecTeams = null;
     sbTeams = null;
     resetZoneEndcard();
+    resetKickoffLine();
     // STALE BODIES FIX: a new episode's tick clock starts back at (near)
     // zero, so a previous episode's final-frame pops — otherwise only
     // reaped by the `jumped` detector's own clearGloryPops() call, which a
@@ -3849,6 +3917,7 @@ body[data-noviewpanel] #viewpanel { display: none !important; }
     }
     syncBoardAspect(s);
     postToShell('frame', s);
+    maybeAnnounceKickoff(s, hasZoneField);
 
     // Detect a jump (seek/loop): clear transient beats so nothing phantoms.
     // A skip-lulls fast-forward frame legitimately advances up to 64 ticks
