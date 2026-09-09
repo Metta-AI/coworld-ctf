@@ -781,10 +781,20 @@ html, body {
    preserving the old, more extreme gap -- still unambiguously the
    subordinate element, just no longer needing to be tiny to read that
    way once the hero itself is human-scaled. */
+/* STAGGERED ENTRY (task 8c626dc8, owner spec 2026-09-09): the ×N slams in
+   first, the deed label follows ~120ms behind, then both share ONE hold and
+   ONE fade so they leave as a single unit -- never a whole-unit fade-in,
+   never a fade-REPLACE when a new pop lands on a stale one. The actual
+   entrance/hold/fade math lives in renderGloryPops (tick-age driven, like
+   every other pop timing in this file, so it can't desync from replay
+   speed/pause/seek); these two rules just declare the elements the JS
+   scale/slide reads from. `prefers-reduced-motion` collapses the stagger
+   to zero in JS but keeps this same shared hold/fade. */
 .glory-pop.hero .mult {
   font-size: calc(14 * var(--u));
   font-weight: 700;
   color: var(--amber);
+  will-change: transform, opacity;
 }
 .glory-pop.hero .word {
   margin-top: calc(2 * var(--u));
@@ -792,6 +802,7 @@ html, body {
   font-weight: 600;
   color: var(--paper-dim);
   letter-spacing: 0.06em;
+  will-change: transform, opacity;
 }
 
 /* ---------- 1c. SEASON 2 phase presentation: vote -> huddle -> arena ------
@@ -5364,6 +5375,23 @@ body[data-noviewpanel] #viewpanel { display: none !important; }
     // than guessing at a division glyph the owner didn't ask for.
     return (p.amt >= 0 ? '+' : '') + p.amt + 'G' + (p.word ? ' ' + p.word : '');
   }
+  // STAGGERED ENTRY (task 8c626dc8, owner spec 2026-09-09): the ×N hero
+  // multiplier slams in first, the deed label follows ~120ms behind, then
+  // BOTH share one hold and one fade so they leave together as a single
+  // unit. Both offsets are in TICKS (like GLORY_FX_TICKS itself) so the
+  // choreography rides the same tick-age clock as the rest of this
+  // function and can never desync from replay speed/pause/seek the way a
+  // wall-clock CSS animation would.
+  var HERO_STAGGER_TICKS = 3;  // ~125ms @ FPS(24) -- the owner's "~120ms lead"
+  var HERO_ENTER_TICKS = 2;    // ~83ms -- each child's own quick "slam" ramp
+  // Sampled live (not once) so a mid-session emulate/toggle of the OS/browser
+  // setting is honored on the very next frame, same as any other reduced-
+  // motion consumer would expect.
+  var reducedMotionMql = (window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)')) || null;
+  function heroEntryOpacity(entryAge) {
+    var t = Math.max(0, Math.min(1, entryAge / HERO_ENTER_TICKS));
+    return 1 - Math.pow(1 - t, 2); // ease-out — a quick, punchy ramp, not linear
+  }
   function renderGloryPops(s) {
     if (!gloryPopsEl || !core || !core.getTransform) return;
     var t = core.getTransform();
@@ -5420,13 +5448,44 @@ body[data-noviewpanel] #viewpanel { display: none !important; }
       // stacking their TEXT.
       var rowLift = (p.row || 0) * 15 * t.scale;
       var rise = 22 * t.scale * frac + rowLift;
-      // fade in over the first 12% of its life, hold, fade out over the last
-      // 30% — the same shape the kill-feed/banner lanes use (pop, hold, go).
-      var opacity = frac < 0.12 ? frac / 0.12 : Math.min(1, (1 - frac) / 0.3);
       el.style.left = cssX + 'px';
       el.style.top = cssY + 'px';
-      el.style.opacity = String(Math.max(0, opacity));
       el.style.transform = 'translate(-50%, calc(-100% - ' + rise + 'px))';
+      var isHero = !p.lbl && p.amt > 0 && recutArmed;
+      if (isHero) {
+        // The container carries the SHARED hold/fade only (no fade-in here
+        // -- entry is delegated to the children below); each child's own
+        // opacity is multiplicative with the container's, so during entry
+        // container(1) x child(0..1) staggers the reveal, and once both
+        // children have fully entered, container(1..0) x child(1) fades
+        // them out identically -- one hold, one fade, leaving as one unit.
+        var holdFade = Math.min(1, (1 - frac) / 0.3);
+        el.style.opacity = String(Math.max(0, holdFade));
+        var reduced = !!(reducedMotionMql && reducedMotionMql.matches);
+        var wordDelay = reduced ? 0 : HERO_STAGGER_TICKS; // no stagger under reduced motion
+        var multEase = heroEntryOpacity(age);
+        var wordEase = heroEntryOpacity(age - wordDelay);
+        var multEl = el.querySelector('.mult');
+        if (multEl) {
+          multEl.style.opacity = String(multEase);
+          // "slam": starts slightly oversized, eases down to 1 as it fades
+          // in. Reduced motion drops the scale punch, keeps the fade.
+          multEl.style.transform = reduced ? '' : 'scale(' + (1 + 0.3 * (1 - multEase)) + ')';
+        }
+        var wordEl = el.querySelector('.word');
+        if (wordEl) {
+          wordEl.style.opacity = String(wordEase);
+          // slides up into its resting spot under the ×N. Reduced motion
+          // drops the slide, keeps the fade.
+          wordEl.style.transform = reduced ? '' : 'translateY(' + (4 * (1 - wordEase)) + 'px)';
+        }
+      } else {
+        // fade in over the first 12% of its life, hold, fade out over the
+        // last 30% — the same shape the kill-feed/banner lanes use (pop,
+        // hold, go). Untouched for every non-hero pop shape.
+        var opacity = frac < 0.12 ? frac / 0.12 : Math.min(1, (1 - frac) / 0.3);
+        el.style.opacity = String(Math.max(0, opacity));
+      }
     });
     Object.keys(gloryPopEls).forEach(function (key) {
       if (!seen[key]) {
