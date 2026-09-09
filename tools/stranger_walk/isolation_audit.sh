@@ -11,6 +11,7 @@ RUN_ID="${1:?usage: isolation_audit.sh <run-id> [runs-parent]}"
 RUNS_PARENT="${2:-${STRANGER_RUNS_PARENT:-/Users/maxwellstarr/projects/stranger-walk-runs}}"
 RUN_DIR="$RUNS_PARENT/$RUN_ID"
 TRANSCRIPT="$RUN_DIR/transcript.jsonl"
+PROBE_RESULT="$RUN_DIR/isolation_probe.json"
 
 if [ ! -f "$TRANSCRIPT" ]; then
   echo "no transcript at $TRANSCRIPT" >&2
@@ -51,6 +52,35 @@ for pat in "${PATTERNS[@]}"; do
     echo "$MATCHES" | sed 's/^/  /'
   fi
 done
+
+# Protocol v1.3: container runs (tools/stranger_walk/run_container.sh) write
+# a scripted isolation_probe.json (own PID namespace, no host paths in
+# ps/env, no host credential dirs visible, network reaches the public entry
+# point but not host loopback — see tools/stranger_walk/container/probe.sh).
+# A bare run.sh run has no such file — that's expected, not a failure; only
+# check it when present, and only mark it fatal, not merely a warning: a
+# container run whose OWN probe failed its isolation claim should disqualify
+# exactly like a real boundary hit in the transcript does.
+if [ -f "$PROBE_RESULT" ]; then
+  PROBE_SUMMARY="$(python3 -c "
+import json
+d = json.load(open('$PROBE_RESULT'))
+failed = [c for c in d.get('checks', []) if not c.get('ok')]
+if not d.get('overall_pass', False) or failed:
+    for c in failed:
+        print('FAIL [' + c['name'] + ']: ' + c.get('detail', ''))
+    print('PROBE_FAIL')
+else:
+    print('PROBE_PASS (' + str(len(d.get('checks', []))) + ' checks)')
+")"
+  if echo "$PROBE_SUMMARY" | grep -q '^PROBE_FAIL$'; then
+    HITS=$((HITS + 1))
+    echo "HIT [container isolation_probe.json]:"
+    echo "$PROBE_SUMMARY" | grep '^FAIL ' | sed 's/^/  /'
+  else
+    echo "$PROBE_SUMMARY" >&2
+  fi
+fi
 
 if [ "$HITS" -gt 0 ]; then
   echo "RESULT: DISQUALIFIED ($HITS pattern(s) matched) — $RUN_ID" >&2
