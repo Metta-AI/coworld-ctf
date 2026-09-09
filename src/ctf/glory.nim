@@ -2494,6 +2494,27 @@ const
     ## scores seed; losers still bank 0 at the league." The league-side loss
     ## gate is roster.nim's existing playerWon gate, untouched.
 
+  GlorySCALE* = 1024
+    ## S5 RIG SIMULATION (epic 25d9108e, CATALOG-V3-DRAFT.md §9b, coordinator
+    ## follow-up ruling): the FIXED-POINT representation for the fractional
+    ## (percent-scaled) deed tier — seed the accumulator at `GlorySCALE`
+    ## (representing "1.0") instead of the bare `RecutSeed`, fold exactly the
+    ## same way, strip `GlorySCALE` once at the point the score is read
+    ## (`recutScoreScaled`). Measured (`tests/test_glory_percent_scale_
+    ## headroom.nim`, S4): worst-case drift 0.131% across every tested seed
+    ## at this scale (2^10), with the overflow margin (`RecutProductCapArmed
+    ## * GlorySCALE * 150`) sitting ~7.2 million times below 2^62. Only
+    ## meaningful once a caller actually folds a percent-scaled factor
+    ## (`recutFoldPct`) into a `GlorySCALE`-seeded product — armed with no
+    ## fractional-tier deed live, this const is inert plumbing: every
+    ## existing whole-integer class factor cancels the scale out exactly
+    ## (see `recutScoreScaled`'s own doc comment), which is why arming
+    ## `GameConfig.gloryFixedPointScale` alone changes no reported score.
+    ## `SCALE = 2^10` was picked over 2^8 per the S4 decision table (strictly
+    ## lower drift at every tested seed, same overflow headroom); NOT the
+    ## GLORYVERSION-bumped, wire-visible catalog v3 repricing itself, which
+    ## remains S6+/owner-gated and is not built here.
+
   RecutClassTable*: array[Deed, int] = [
     1,      # dNone (never minted; neutral by construction)
     # ×1 — commons (table §1 row 1): "still mint, still pop, still count
@@ -2862,6 +2883,110 @@ func recutScore*(product: int64, halvings: int): int64 {.inline.} =
   if halvings <= 0: return product
   if halvings >= 63: return 0
   product div (int64(1) shl halvings)
+
+func recutCapHit*(before, after, cap: int64): bool {.inline.} =
+  ## S5 fire counter (CATALOG-V3-DRAFT.md §7): true exactly when a fold just
+  ## CLAMPED the product to `cap` — i.e. `recutFold` returned the cap AND the
+  ## pre-fold product was not already sitting at it. Pure predicate so the
+  ## call sites (`sim.nim`, the only three places that call `recutFold`
+  ## against a team's `gloryProduct`) can increment their own counter without
+  ## `recutFold` itself needing a side effect (it stays a `func`, unchanged,
+  ## so every existing caller and fixture is untouched). This is the counter
+  ## `RecutProductCapArmed` shipped without — `grep -r "cap_hit"` returned
+  ## zero matches repo-wide before this — and it is pure observation: no
+  ## switch, always on. The caller (`sim.recutFoldObserved`/
+  ## `recutFoldPctObserved`, sim.nim) logs `GLORY_CAP_HIT` and emits a
+  ## `GloryDeed` event (`weapon="capHit"`) the instant this returns true —
+  ## never a new `SimServer` counter field, to avoid the flatty keyframe
+  ## layout change that would need. Silent (0 log lines) whenever
+  ## `deedMintCaps` is dark (the cap the fold saturates at is then the
+  ## ~2^62 overflow guard, which no measured episode has ever reached).
+  after == cap and before != cap
+
+func recutFoldPct*(product: int64, pct: int,
+                   capsArmed: bool = false): int64 {.inline.} =
+  ## S5 fixed-point fold (CATALOG-V3-DRAFT.md §9 Option B / §9b): folds one
+  ## PERCENT-SCALED factor (`pct=100` is the true identity, `x1.00`; `pct=
+  ## 130` folds `x1.30`) — the `AchievementFirstMultPct`-style idiom
+  ## generalized to any percent, not just the FIRST-claim ×300. Distinct
+  ## from `recutFold` (which takes a WHOLE integer class factor and never
+  ## divides) because this one always divides by 100, so it must never be
+  ## applied to `RecutClassTable`'s existing whole-class factors — those
+  ## keep folding through `recutFold` unchanged.
+  ##
+  ## REQUIRES a `GlorySCALE`-seeded accumulator to avoid the exact failure
+  ## `test_glory_percent_scale_headroom.nim` measured: at the bare seed (1),
+  ## `(1 * pct) div 100 == 1` for every `pct` in the fractional tier's whole
+  ## 100-199 range — a silent, total no-op, not a rounding error. Callers
+  ## arm `GameConfig.gloryFixedPointScale` (which seeds `gloryProduct` at
+  ## `GlorySCALE` instead of `RecutSeed` in `resetGloryLedger`) before this
+  ## proc can do anything meaningful; `pct=100` is the one input for which
+  ## that is not true — it is an exact no-op at ANY base, scaled or not,
+  ## which is exactly why the placement ramp (§4) can price `dFinal8`/
+  ## `dFinal4` at `pct=100` today (crushed to zero marginal score, still
+  ## mints/pops/counts) without depending on the representation switch at
+  ## all — only `dFinal2`'s `pct=130` leg needs `GlorySCALE` to not
+  ## truncate away.
+  if pct <= 100: return product
+  let cap = recutProductCap(capsArmed)
+  if product >= cap div int64(pct):
+    return cap
+  (product * int64(pct)) div 100
+
+func recutScoreScaled*(product: int64, halvings: int,
+                       scale: int64 = GlorySCALE): int64 {.inline.} =
+  ## S5 HALVING-ORDER INVARIANT (CATALOG-V3-DRAFT.md §9b, the S5 brief's own
+  ## explicit call-out): the SAFE order is halve FIRST — reusing
+  ## `recutScore`'s existing `halvings >= 63 -> 0` guard VERBATIM, so that
+  ## guard's behavior is identical whether or not `GlorySCALE` is armed —
+  ## then strip `scale` SECOND. The unsafe alternative, forming a single
+  ## COMBINED divisor (`scale * (1 shl halvings)`) before dividing once,
+  ## overflows int64 around halvings 53-61 (`scale * (1 shl 61)` alone
+  ## already exceeds `high(int64)` at `scale = 1024`) — a case realistic
+  ## play (halvings 0-5) would never exercise, and never catch in a
+  ## regression, which is exactly why this needs its own explicit test
+  ## line (`tests/test_glory_s5_rig.nim`, suite "S5 halving-order
+  ## invariant") rather than resting on the fact that today's episodes
+  ## stay in the safe range. This function
+  ## IS the fix: it can never form the unsafe combined divisor, because it
+  ## divides by `scale` in a second, separate step.
+  recutScore(product, halvings) div scale
+
+const
+  RecutPlacementRampDeeds* = {dFinal8, dFinal4, dFinal2}
+    ## S5 (CATALOG-V3-DRAFT.md §4, lead-ruled): the placement ladder reprices
+    ## DOWN into a small ramp under `GameConfig.placementRampV3`, replacing
+    ## the frozen `RecutClassTable` classes (2/3/4, cumulative x24 for a
+    ## winner) for exactly these three deeds — every other deed keeps
+    ## folding through `RecutClassTable`/`recutFold` unchanged.
+
+  RecutPlacementRampPct*: array[Deed, int] = block:
+    var pcts: array[Deed, int]
+    for deed in Deed: pcts[deed] = 100  # unused outside RecutPlacementRampDeeds
+    pcts[dFinal8] = 100  # x1.00 — crushed to a pure milestone marker (§4:
+                         # "a small deliberate reward, not the engine of the
+                         # middle"). Still mints/pops/counts; contributes
+                         # ZERO marginal score (recutFoldPct's own no-op).
+    pcts[dFinal4] = 100  # x1.00 — same reasoning.
+    pcts[dFinal2] = 130  # x1.30 — the one milestone still worth a small,
+                         # deliberate score nudge (the two finalists' own
+                         # tiebreaker besides the win multiplier). Needs
+                         # `gloryFixedPointScale` armed to avoid truncating
+                         # away at a small accumulator — see `recutFoldPct`.
+    pcts
+
+  RecutSurvivalCreditIntervalTicks* = 720
+    ## S5 (CATALOG-V3-DRAFT.md §4, the ruled fix's OTHER half): "a continuous
+    ## survival-duration credit that already climbs before the milestone is
+    ## crossed" — ~30s at the engine's 24 ticks/s (`TargetFps`). A candidate
+    ## cadence, not a tuned constant: S5's rig sweeps this alongside the
+    ## pct below; not decided by this draft.
+  RecutSurvivalCreditPct* = 102
+    ## x1.02 per checkpoint an alive seat's `aliveTicks` crosses a
+    ## `RecutSurvivalCreditIntervalTicks` boundary. A CANDIDATE value sized
+    ## only to be "small and frequent" (the §4 ramp's own requirement) —
+    ## the rig reports what this actually does to the 6-9pt continuity
+    ## check, it does not defend this exact number.
 
 const
   RecutWinFactorBR* = 4

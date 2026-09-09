@@ -222,6 +222,31 @@ proc pactActive*(sim: SimServer, a, b: Team): bool =
   ## needs to check both rows.
   (sim.pactMask[a] and (1'u16 shl ord(b))) != 0
 
+proc pactGroupTeams*(sim: SimServer, team: Team): seq[Team] =
+  ## S5 RULING (c) (CATALOG-V3-DRAFT.md, epic 25d9108e): `team` plus every
+  ## team it currently holds a mutual pact with (`pactMask`) -- the
+  ## "opposing pact" ruling (c) retargets the BR `dDuoDown`/`dWipe` mints
+  ## onto (sim.nim, the kill-resolution site). Size 1 = `team` holds no
+  ## active pact, i.e. a lone team is its own group of one, matching
+  ## today's un-pacted 16-solo shape exactly.
+  result = @[team]
+  for t in sim.teams():
+    if t != team and sim.pactActive(team, t):
+      result.add t
+
+proc pactGroupLivingExcluding*(sim: SimServer, group: seq[Team],
+                               excluding: int): int =
+  ## Count of living players across every team in `group`, treating seat
+  ## index `excluding` as already dead regardless of its stored `alive`
+  ## flag. Mirrors the existing dDuoDown solo-team-guard's own pattern
+  ## (sim.nim): at the kill-resolution call site the dying seat's death has
+  ## not been applied to `sim.players` yet, so a caller checking "is the
+  ## victim's team/pact-group now empty" must exclude it explicitly rather
+  ## than trusting `alive`.
+  for i, p in sim.players:
+    if i != excluding and p.alive and p.team in group:
+      inc result
+
 proc registerPact*(sim: var SimServer, a, b: Team) =
   ## Sets the mutual bit for `a`/`b`. P1's original caller was
   ## resolveConfiguredPacts (sim.nim, pre-match config seed); GameVersion

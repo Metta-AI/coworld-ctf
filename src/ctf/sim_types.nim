@@ -2873,6 +2873,79 @@ type
                         ## two-part re-arm gate (the other part, the
                         ## mechanical no-revive-in-paint fix, rides the
                         ## paintdeath lane).
+    # ── S5 RIG SIMULATION (epic 25d9108e, CATALOG-V3-DRAFT.md, all DEFAULT
+    # FALSE / dark-inert) ── four independent switches, same per-flag
+    # activation discipline as the recut flags above: each reads only while
+    # `gloryMultiplierRecut` is armed (enforced at each call site, not here),
+    # arming one never drags another, and every dark default reproduces
+    # today's LIVE (post-#477, GLORYVERSION 16) scoring byte-for-byte. None
+    # of these bump GLORYVERSION or change the wire — S5's brief is explicit
+    # that both need separate, explicit approval this draft does not have.
+    brAssistRescueUngated*: bool ## RULING (b) (CATALOG-V3-DRAFT.md, THREE
+                        ## ROOT-CAUSE RULINGS): removes the `if not
+                        ## sim.config.brMode` gate ahead of the `dAssist`/
+                        ## `dRescue` mints (sim.nim, the kill-resolution
+                        ## site) so BR mints them exactly like CTF already
+                        ## does. No new counter needed: `deedCounts`/
+                        ## `deedGloryMass` already report both deeds
+                        ## per-episode; ungating is what makes BR populate
+                        ## them for the first time. Dark = false: BR mints
+                        ## neither, byte-identical to today.
+    pactScopedWipeDown*: bool ## RULING (c): retargets `dDuoDown`/`dWipe` to
+                        ## PACT SCOPE in BR — a kill that empties an
+                        ## OPPOSING team currently pact-bound to >=1 other
+                        ## team mints the pact-scope `dDuoDown` (that one
+                        ## team fell); a kill that leaves an entire opposing
+                        ## PACT GROUP (>=2 teams) with zero living players
+                        ## mints the pact-scope `dWipe`. Solo-vs-solo (no
+                        ## pact) is unaffected — `dDuoDown`/`dWipe` stay
+                        ## CUT-for-16-solo exactly as today. Own fire
+                        ## observability: `GLORY_PACT_DUODOWN`/
+                        ## `GLORY_PACT_WIPE` log lines + `GloryDeed` tier-2
+                        ## events (`weapon="pactDuoDown"/"pactWipe"`,
+                        ## sim.nim killPlayer) since these events cannot
+                        ## occur without this flag, so no existing counter
+                        ## would otherwise observe them — a log line/event,
+                        ## not a new `SimServer` field (see this file's own
+                        ## "GameVersion bump covers the flatty keyframe
+                        ## layout change" precedent on `pactMask`/
+                        ## `recutFinalFired` for why a stateful counter
+                        ## field was avoided). Dark = false: byte-identical
+                        ## (no pact-scope path is ever consulted).
+    placementRampV3*: bool ## CATALOG-V3-DRAFT.md §4 (lead-ruled fix for the
+                        ## 6-9pt continuity gap): reprices `dFinal8`/
+                        ## `dFinal4`/`dFinal2` from `RecutClassTable`'s
+                        ## frozen 2/3/4 to a percent-scaled 100/100/130
+                        ## (`glory.nim RecutPlacementRampPct`, folded via
+                        ## `recutFoldPct` instead of `recutFold`), PLUS a
+                        ## continuous per-seat survival-duration credit
+                        ## (`RecutSurvivalCreditPct`/`-IntervalTicks`) so a
+                        ## non-winning survivor's points climb before
+                        ## reaching a milestone, not only at one. The
+                        ## `pct=130` leg and the survival credit both need
+                        ## `gloryFixedPointScale` armed to not truncate away
+                        ## at a small accumulator (see `recutFoldPct`'s own
+                        ## doc comment) — armed alone, without the scale
+                        ## flag, this silently mutes most of its own effect
+                        ## early in an episode; the rig report names this
+                        ## dependency plainly rather than hiding it. Dark =
+                        ## false: the frozen ×2/×3/×4 ladder, unchanged.
+    gloryFixedPointScale*: bool ## CATALOG-V3-DRAFT.md §9b (RULED
+                        ## representation): seeds `gloryProduct` at
+                        ## `GlorySCALE` (1024) instead of the bare
+                        ## `RecutSeed`, and reads it back through
+                        ## `recutScoreScaled` (halve first via
+                        ## `recutScore`'s own guard, THEN strip the scale —
+                        ## the SAFE order; see that proc's own doc comment
+                        ## for why the combined-divisor order is unsafe
+                        ## past halvings ~53). Every existing WHOLE-integer
+                        ## class factor cancels the scale out exactly, so
+                        ## arming this ALONE (no fractional deed live)
+                        ## changes no reported score — it only becomes
+                        ## observable once `placementRampV3`'s `pct=130` leg
+                        ## or the survival credit actually folds a
+                        ## percent-scaled factor. Dark = false: unscaled,
+                        ## byte-identical.
     stampRealizedConfig*: bool ## STAMP(amendment 2 §2): emit the
                         ## realized-config stamp {realizedBuild, flagSet,
                         ## variantId, stampVersion} at finalize — into the
