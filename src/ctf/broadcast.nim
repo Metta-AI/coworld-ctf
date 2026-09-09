@@ -381,31 +381,29 @@ proc pactPartnersJson(sim: SimServer, team: Team): JsonNode =
 
 proc teamDeedsJson(sim: SimServer, team: Team): JsonNode =
   ## GLORY BY DEED (WIRE-OK batch, THE WHOLE epic, GameVersion 62->63): this
-  ## seat's own deed totals -- one entry per Deed that fired at least once
-  ## for it, in `Deed` enum order (deterministic, no sort needed). Reads
-  ## `sim.teamDeedCounts`/`teamDeedGloryMass` (sim_types.nim), the per-team
-  ## mirror of the whole-episode `deedCounts`/`deedGloryMass` GLORY AUDIT
-  ## ledger, written at the exact same mint sites (`awardDeed`,
-  ## `claimAchievement`, sim.nim). `deed` is the raw enum name (a stable
-  ## key, same idiom as the achievement feed's own "tree": $claim.tree);
-  ## `label` is `deedName`'s prose -- NOT a stable wire contract per that
-  ## proc's own doc comment, free to reword, but fine as a display string a
-  ## client renders and never parses (same status as the achievement
-  ## feed's own "name": achievementName(...) a few lines below this call
-  ## site). This is the endcard's per-seat "why this Glory" row and the
-  ## why-row's deed layer (PLATFORM_LEGIBILITY_DATA.md, ENDCARD_V1_
-  ## STANDINGS_DELTA.md); `glory` can be negative (a friendly-fire-heavy
-  ## seat's own dTeamKill entries), same as the ledger it mirrors.
+  ## seat's own deed totals -- one entry per distinct deed that fired at
+  ## least once for it, in first-mint order (`sim.teamDeedTally`,
+  ## sim_types.nim: a seq, not a dense per-Deed array -- see
+  ## `TeamDeedTally`'s own doc comment for why). Order is not a wire
+  ## contract; the client sorts by |glory| itself (`teamDeedsText`,
+  ## client/replay_broadcast.html). Written at the exact same mint sites
+  ## (`awardDeed`, `claimAchievement`, sim.nim, via `recordTeamDeed`).
+  ## `deed` is the raw enum name (a stable key, same idiom as the
+  ## achievement feed's own "tree": $claim.tree); `label` is `deedName`'s
+  ## prose -- NOT a stable wire contract per that proc's own doc comment,
+  ## free to reword, but fine as a display string a client renders and
+  ## never parses (same status as the achievement feed's own "name":
+  ## achievementName(...) a few lines below this call site). This is the
+  ## endcard's per-seat "why this Glory" row and the why-row's deed layer
+  ## (PLATFORM_LEGIBILITY_DATA.md, ENDCARD_V1_STANDINGS_DELTA.md); `glory`
+  ## can be negative (a friendly-fire-heavy seat's own dTeamKill entries).
   result = newJArray()
-  for deed in Deed:
-    let count = sim.teamDeedCounts[team][deed]
-    if count == 0:
-      continue
+  for entry in sim.teamDeedTally[team]:
     result.add(%*{
-      "deed": $deed,
-      "label": deedName(deed),
-      "count": count,
-      "glory": sim.teamDeedGloryMass[team][deed]
+      "deed": $entry.deed,
+      "label": deedName(entry.deed),
+      "count": entry.count,
+      "glory": entry.glory
     })
 
 proc teamStateJson(sim: SimServer, team: Team): JsonNode =
