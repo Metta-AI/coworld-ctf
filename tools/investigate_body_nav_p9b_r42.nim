@@ -144,7 +144,7 @@ proc maximumEdgeCost*(graph: MixedGraph, combined,
       maximumBridge = max(maximumBridge, length.int)
   maximumCell * maximumBridge
 
-proc searchDial(graph: MixedGraph, map: BodyMap, item: NavCorpusCase,
+proc searchDial*(graph: MixedGraph, map: BodyMap, item: NavCorpusCase,
     refined: openArray[uint8], combined, hazardCost: openArray[int32],
     workspace: var DialWorkspace): DialResult =
   workspace.begin()
