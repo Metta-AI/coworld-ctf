@@ -154,6 +154,11 @@ html, body {
 #scorebug {
   position: absolute;
   top: 0; left: 0; right: 0;
+  /* Above #endcard (z-index:30) on purpose: the reserved top band is never
+     supposed to overlap the card (see --topband below), but a stray reflow
+     that briefly mismeasures the band must never let the endcard -- or its
+     paint-splat canvas -- paint over the live scorebug cells. */
+  z-index: 31;
   display: grid;
   /* minmax(0,1fr), NOT 1fr: a bare 1fr track floors at its content's min-content
      width, so a long team name would blow the side track out and shove the center
@@ -4792,9 +4797,12 @@ body[data-noviewpanel] #viewpanel { display: none !important; }
   // red/blue split): the winner (if any) dominates at ~65% of the blobs,
   // the rest spread evenly across every OTHER team so an 8-team field still
   // reads as "everyone else", not one arbitrary runner-up; a draw spreads
-  // evenly across every team. Landing anchors are off-center (never dead
-  // center -- the verdict text has to stay readable through it, same law
-  // as the FPV splat's anchor list) after flying in from a random edge.
+  // evenly across every team. Landing anchors keep clear of the whole
+  // center copy column (x in [0.25, 0.75], the headline-to-rows band) --
+  // the splat canvas already paints behind the text (z-index:-1, see the
+  // CSS), but anchors that never land near the words in the first place
+  // means the settled volley frames the copy instead of merely hiding
+  // behind it. Ink & Print rule: decoration never touches the words.
   function ecBuildBlobs(teams, winner, key) {
     var seed = ecHash(key);
     function rnd(i) { var x = Math.sin(seed * 0.0001 + i * 91.7) * 43758.5453; return x - Math.floor(x); }
@@ -4805,7 +4813,7 @@ body[data-noviewpanel] #viewpanel { display: none !important; }
       { x: 0.08, y: 0.12 }, { x: 0.92, y: 0.12 },
       { x: 0.06, y: 0.45 }, { x: 0.94, y: 0.45 },
       { x: 0.12, y: 0.90 }, { x: 0.88, y: 0.90 },
-      { x: 0.32, y: 0.06 }, { x: 0.68, y: 0.06 }
+      { x: 0.18, y: 0.06 }, { x: 0.82, y: 0.06 }
     ];
     var blobs = [];
     for (var i = 0; i < n; i++) {
