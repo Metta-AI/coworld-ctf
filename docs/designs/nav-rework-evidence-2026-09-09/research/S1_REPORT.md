@@ -9,3 +9,5 @@ Focused13tests and peer review pass. Peer separately swept33553920 rounding inpu
 Decision: retain as a small exact weight-refresh improvement; it does not solve the m5a floor or double throughput. Production-shape coverage is independently incomplete: see PRODUCTION_SHAPE_FINDING.md.
 
 Documentation audit: no public API, configured behavior or numerical contract changes. The existing ties-to-even and range rules remain true; this report, preregistration, review and scoreboard document the experiment. Final Phase10/11 docs and shipping checks remain outstanding.
+
+Accounting correction: pre-M1 danger geometry was copied per seat but counted once. Total-memory numbers understated retained payload; see [GEOMETRY_ACCOUNTING_CORRECTION.md](GEOMETRY_ACCOUNTING_CORRECTION.md). Raw results are preserved.

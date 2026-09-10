@@ -37,3 +37,5 @@ failed outcomes are stated explicitly; the production qualification guide
 continues to point to the ledger rather than claim an accepted budget. No
 public command or wire-schema change is introduced by L0. Broad Phase11 docs
 and final replay artifacts remain pending, as recorded above.
+
+Accounting correction: pre-M1 danger geometry was copied per seat but counted once. Total-memory numbers understated retained payload; see [GEOMETRY_ACCOUNTING_CORRECTION.md](GEOMETRY_ACCOUNTING_CORRECTION.md). Raw results are preserved.

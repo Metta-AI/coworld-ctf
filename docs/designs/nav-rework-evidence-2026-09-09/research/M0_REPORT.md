@@ -46,3 +46,5 @@ After transfer completed, a forced rebuild with the recorded harness SHA ran
 emitted the new shared-cap fields:15938095bytes for pool29 and132979292bytes
 shared on colossal. `M0/gate-verified.json` and `gate-harness.sha256` identify
 this check. Full canonical Docker verification remains pending.
+
+Accounting correction: pre-M1 danger geometry was copied per seat but counted once. Total-memory numbers understated retained payload; see [GEOMETRY_ACCOUNTING_CORRECTION.md](GEOMETRY_ACCOUNTING_CORRECTION.md). Raw results are preserved.

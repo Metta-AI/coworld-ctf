@@ -90,14 +90,17 @@ type
     requestSubmissions*, schedulerRestarts*, requestAdmissions*: int
     routeCompletions*, weightRefreshes*: int
 
+  DangerGeometry = ref object
+    kernel: seq[float32]
+    perimeter: seq[BodyPoint]
+    radius: int
+
   BodyNavSeat* = ref object
     index*: int
     cache*: BodySeatCache
     danger*: BodyDangerField
     dangerWorkspace: DangerWorkspace
-    dangerKernel: seq[float32]
-    dangerPerimeter: seq[BodyPoint]
-    dangerRadius: int
+    dangerGeometry: DangerGeometry
     dangerRangePx: int
     selectedDangerSeats: array[MaxDangerSources, int]
     selectedDangerPoints: array[MaxDangerSources, BodyPoint]
@@ -191,11 +194,13 @@ proc retainedNavigationBytes*(system: BodyNavSystem): BodyNavigationBytes =
       if length > 0:
         result.allocatorOverhead += SequenceAllocationOverhead
   if system.seats.len > 0:
-    result.sharedDangerGeometry = int64(
-      system.seats[0].dangerKernel.len * sizeof(float32) +
-      system.seats[0].dangerPerimeter.len * sizeof(BodyPoint))
-    for length in [system.seats[0].dangerKernel.len,
-        system.seats[0].dangerPerimeter.len]:
+    result.sharedDangerGeometry =
+      int64(sizeof(system.seats[0].dangerGeometry[])) + int64(
+      system.seats[0].dangerGeometry.kernel.len * sizeof(float32) +
+      system.seats[0].dangerGeometry.perimeter.len * sizeof(BodyPoint))
+    result.allocatorOverhead += SequenceAllocationOverhead
+    for length in [system.seats[0].dangerGeometry.kernel.len,
+        system.seats[0].dangerGeometry.perimeter.len]:
       if length > 0:
         result.allocatorOverhead += SequenceAllocationOverhead
   result.total = result.systemOwner + result.routeIndex +
@@ -229,9 +234,9 @@ proc initDanger(map: BodyMap): tuple[field: BodyDangerField,
     gridW: map.gridWidth, gridH: map.gridHeight)
   result.workspace.visited = newSeq[uint32](size)
 
-proc initDangerGeometry(liveGunRangePx: int): tuple[kernel: seq[float32],
-                                 perimeter: seq[BodyPoint], radius: int] =
-  ## Immutable ray geometry shared by all seats; activation-time allocation.
+proc initDangerGeometry(liveGunRangePx: int): DangerGeometry =
+  ## A reference owner prevents per-seat sequence copies under ORC.
+  new(result)
   result.radius = max(1, (liveGunRangePx + NavCell - 1) div NavCell)
   let diameter = result.radius * 2 + 1
   result.kernel = newSeq[float32](diameter * diameter)
@@ -295,9 +300,7 @@ proc newBodyNavSystem*(map: BodyMap, seatCount, liveGunRangePx: int,
     result.seats[index] = BodyNavSeat(index: index, cache: cache,
       danger: danger.field,
       dangerWorkspace: danger.workspace, dangerTick: 0, active: true,
-      dangerKernel: dangerGeometry.kernel,
-      dangerPerimeter: dangerGeometry.perimeter,
-      dangerRadius: dangerGeometry.radius,
+      dangerGeometry: dangerGeometry,
       dangerRangePx: liveGunRangePx,
       desiredProfile: shellTypes.cpDefault)
     if prepareRouteQueries:
@@ -436,10 +439,10 @@ proc rebuildDangerFromPoints(seat: BodyNavSeat, map: BodyMap,
   for source in sources:
     let origin = map.cellOf(source)
     seat.nextVisitGeneration()
-    seat.addVisibleCell(origin, seat.dangerKernel, seat.dangerRadius,
+    seat.addVisibleCell(origin, seat.dangerGeometry.kernel, seat.dangerGeometry.radius,
       origin.x, origin.y)
-    for offset in seat.dangerPerimeter:
-      seat.castRay(map, origin, seat.dangerKernel, seat.dangerRadius,
+    for offset in seat.dangerGeometry.perimeter:
+      seat.castRay(map, origin, seat.dangerGeometry.kernel, seat.dangerGeometry.radius,
         origin.x + offset.x, origin.y + offset.y)
     let closeRange = min(DangerClosePx, seat.dangerRangePx)
     let closeCells = (closeRange + NavCell - 1) div NavCell

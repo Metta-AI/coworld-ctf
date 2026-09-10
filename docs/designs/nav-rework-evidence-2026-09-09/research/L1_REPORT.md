@@ -36,3 +36,5 @@ passed. The viewer was rebuilt and module/source-stamp checks passed. These
 checks do not replace the final GameVersion/fixture cycle or canonical gate.
 The compiler review and actual-server Fluffy report are separate evidence,
 not measurements of this candidate on production hardware.
+
+Accounting correction: pre-M1 danger geometry was copied per seat but counted once. Total-memory numbers understated retained payload; see [GEOMETRY_ACCOUNTING_CORRECTION.md](GEOMETRY_ACCOUNTING_CORRECTION.md). Raw results are preserved.

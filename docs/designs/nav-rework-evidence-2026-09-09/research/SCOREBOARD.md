@@ -30,3 +30,5 @@ Append results; do not erase negatives. All numbers are observed, not inferred p
 - G0: configured range diagnostic on m5a, same source and 3 paired runs; 331 px worst p95/max5.691996/5.807979ms,1300 px13.982918/15.593524ms. Workload gap, no optimization claim. G0_REPORT.md.
 
 - G1: checked-in configured 11-map screen on native m8i; all maps fail timing and shared memory. Worst p95/max15.015300/15.193815ms, original logical shared max30,755,007B. Later M2/M3 correct capacity/context counts; raw G1 preserved. G1_REPORT.md.
+
+- M1: reference-share immutable danger geometry under ORC; generated C no longer duplicates per-seat sequence payloads. Three m5a1300px pairs show no substantial speed gain; full quality unchanged. Historical logical memory undercount corrected, later capacity/context audit still required. M1_REPORT.md.
