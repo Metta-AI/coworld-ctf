@@ -1,5 +1,7 @@
 *Verified against `paintbot-v0.7.377` (GV62 / GLORYVERSION 17), 2026-09-09 — see `docs/wiki/_era.md`.*
 
+**Verified against `GV62 / Glory 17` — the live game is `GV63 / GLORYVERSION 17`; treat details as unconfirmed.**
+
 One line each for the words the strip, the endcard and the standings use.
 These sentences are shared with the game client — the client renders the
 same ones — so they are written here exactly once and quoted verbatim
