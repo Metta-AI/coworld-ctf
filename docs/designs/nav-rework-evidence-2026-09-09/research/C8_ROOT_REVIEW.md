@@ -1,0 +1,13 @@
+# C8 implementation screen authorization
+
+PROCEED in nav-source-cache only. Preserve C6 v2 snapshots/tools first. Parent is frozen C2 plus inert C5 markers, without C3/C6 optimizations; make materialized parent/candidate body_nav snapshots. Candidate only: after the existing first-visit stamp and kernel index, load weight; return if exactly0; otherwise record the bit and add that same weight. No ray changes, cap changes, new allocation, config limit, or source ordering change. Root owns primary source and native runners.
+
+Run focused cache/nav tests, the kernel-support/zero-count diagnostic, and all nine source-trace raster chains for both arms. Verify old versus new raster equality, not only two calls to the new function. Cache keys/hits/misses and allocated capacities must remain identical; bitmap contents/set-bit counts intentionally change. Preserve live331/1050/1300/1600support checks. Produce C8/ snapshots and exact patch, test/count results and C8_SCREEN_READY.md. End C8 SCREEN READY and wait.
+
+Native preregistration: root m8i CPU5 three interleaved parent/candidate pairs on allnine real traces and changing/repeated-source diagnostics, counters only in the diagnostic outputs, fullquality oldhash. Root m5a CPU5 three paired configured-map3 runs (all6rows) plus331/1300short rows only if the real-trace screen shows improvement without a material regression. Full11map final qualification is for the selected combined candidate, not another45minute sweep for every small screen. No relaxation of final gates. Prediction: fewer bitmap adds improves hits; the added branch may hurt misses and must be reported. A null overall result closes standalone C8 without primary adoption, even though nonzero support may still inform C7.
+
+Report corrections: the C8 tool uses the pre-block classification validated for these nine traces, not a universally sequential classifier. Also331px zero cells are beyond331, not beyond1050; make the workload distinction explicit.
+
+For later C7: an exact capacity can be derived by counting nonzero kernel cells during initDangerGeometry, using the actual already-computed kernel. One source can record each kernel index at most once, so each slot needs no more than this count. At1300 that is54,173pairs rather than69,169square slots, about13.9MB for32slots. No observed-source max and no overflow fallback is needed. Do not implement C7 yet; retain this for design review after the native screens.
+
+After freezing C8, review C3_FINAL_REVIEW_REQUEST.md (documents only). Root recommends rejection of its small synthetic gain/real-trace tradeoff, then restoring C2 primary source.

@@ -1,0 +1,268 @@
+{
+  "cacheVersion": "D20240927T193831",
+  "outputFile": "/home/ubuntu/nav-throughput-results-20260909/C8-mechanisms/bench-candidate-cache",
+  "outputLastModificationTime": "",
+  "compile": [
+    [
+      "/home/ubuntu/nav-throughput-results-20260909/C8-mechanisms/cache-candidate-cache/@psystem@sexceptions.nim.c",
+      "gcc -c  -w -fmax-errors=3 -fno-strict-aliasing -pthread -O3 -fno-ident -fno-math-errno   -I/home/ubuntu/.nimby/nim-2.2.6/lib -I/home/ubuntu/coworld-nav-wavefront-20260909/tools -o /home/ubuntu/nav-throughput-results-20260909/C8-mechanisms/cache-candidate-cache/@psystem@sexceptions.nim.c.o /home/ubuntu/nav-throughput-results-20260909/C8-mechanisms/cache-candidate-cache/@psystem@sexceptions.nim.c"
+    ],
+    [
+      "/home/ubuntu/nav-throughput-results-20260909/C8-mechanisms/cache-candidate-cache/@pstd@sprivate@sdigitsutils.nim.c",
+      "gcc -c  -w -fmax-errors=3 -fno-strict-aliasing -pthread -O3 -fno-ident -fno-math-errno   -I/home/ubuntu/.nimby/nim-2.2.6/lib -I/home/ubuntu/coworld-nav-wavefront-20260909/tools -o /home/ubuntu/nav-throughput-results-20260909/C8-mechanisms/cache-candidate-cache/@pstd@sprivate@sdigitsutils.nim.c.o /home/ubuntu/nav-throughput-results-20260909/C8-mechanisms/cache-candidate-cache/@pstd@sprivate@sdigitsutils.nim.c"
+    ],
+    [
+      "/home/ubuntu/nav-throughput-results-20260909/C8-mechanisms/cache-candidate-cache/@pstd@sassertions.nim.c",
+      "gcc -c  -w -fmax-errors=3 -fno-strict-aliasing -pthread -O3 -fno-ident -fno-math-errno   -I/home/ubuntu/.nimby/nim-2.2.6/lib -I/home/ubuntu/coworld-nav-wavefront-20260909/tools -o /home/ubuntu/nav-throughput-results-20260909/C8-mechanisms/cache-candidate-cache/@pstd@sassertions.nim.c.o /home/ubuntu/nav-throughput-results-20260909/C8-mechanisms/cache-candidate-cache/@pstd@sassertions.nim.c"
+    ],
+    [
+      "/home/ubuntu/nav-throughput-results-20260909/C8-mechanisms/cache-candidate-cache/@pstd@sprivate@sdragonbox.nim.c",
+      "gcc -c  -w -fmax-errors=3 -fno-strict-aliasing -pthread -O3 -fno-ident -fno-math-errno   -I/home/ubuntu/.nimby/nim-2.2.6/lib -I/home/ubuntu/coworld-nav-wavefront-20260909/tools -o /home/ubuntu/nav-throughput-results-20260909/C8-mechanisms/cache-candidate-cache/@pstd@sprivate@sdragonbox.nim.c.o /home/ubuntu/nav-throughput-results-20260909/C8-mechanisms/cache-candidate-cache/@pstd@sprivate@sdragonbox.nim.c"
+    ],
+    [
+      "/home/ubuntu/nav-throughput-results-20260909/C8-mechanisms/cache-candidate-cache/@pstd@sformatfloat.nim.c",
+      "gcc -c  -w -fmax-errors=3 -fno-strict-aliasing -pthread -O3 -fno-ident -fno-math-errno   -I/home/ubuntu/.nimby/nim-2.2.6/lib -I/home/ubuntu/coworld-nav-wavefront-20260909/tools -o /home/ubuntu/nav-throughput-results-20260909/C8-mechanisms/cache-candidate-cache/@pstd@sformatfloat.nim.c.o /home/ubuntu/nav-throughput-results-20260909/C8-mechanisms/cache-candidate-cache/@pstd@sformatfloat.nim.c"
+    ],
+    [
+      "/home/ubuntu/nav-throughput-results-20260909/C8-mechanisms/cache-candidate-cache/@psystem@sdollars.nim.c",
+      "gcc -c  -w -fmax-errors=3 -fno-strict-aliasing -pthread -O3 -fno-ident -fno-math-errno   -I/home/ubuntu/.nimby/nim-2.2.6/lib -I/home/ubuntu/coworld-nav-wavefront-20260909/tools -o /home/ubuntu/nav-throughput-results-20260909/C8-mechanisms/cache-candidate-cache/@psystem@sdollars.nim.c.o /home/ubuntu/nav-throughput-results-20260909/C8-mechanisms/cache-candidate-cache/@psystem@sdollars.nim.c"
+    ],
+    [
+      "/home/ubuntu/nav-throughput-results-20260909/C8-mechanisms/cache-candidate-cache/@pstd@ssyncio.nim.c",
+      "gcc -c  -w -fmax-errors=3 -fno-strict-aliasing -pthread -O3 -fno-ident -fno-math-errno   -I/home/ubuntu/.nimby/nim-2.2.6/lib -I/home/ubuntu/coworld-nav-wavefront-20260909/tools -o /home/ubuntu/nav-throughput-results-20260909/C8-mechanisms/cache-candidate-cache/@pstd@ssyncio.nim.c.o /home/ubuntu/nav-throughput-results-20260909/C8-mechanisms/cache-candidate-cache/@pstd@ssyncio.nim.c"
+    ],
+    [
+      "/home/ubuntu/nav-throughput-results-20260909/C8-mechanisms/cache-candidate-cache/@psystem.nim.c",
+      "gcc -c  -w -fmax-errors=3 -fno-strict-aliasing -pthread -O3 -fno-ident -fno-math-errno   -I/home/ubuntu/.nimby/nim-2.2.6/lib -I/home/ubuntu/coworld-nav-wavefront-20260909/tools -o /home/ubuntu/nav-throughput-results-20260909/C8-mechanisms/cache-candidate-cache/@psystem.nim.c.o /home/ubuntu/nav-throughput-results-20260909/C8-mechanisms/cache-candidate-cache/@psystem.nim.c"
+    ],
+    [
+      "/home/ubuntu/nav-throughput-results-20260909/C8-mechanisms/cache-candidate-cache/@phashes.nim.c",
+      "gcc -c  -w -fmax-errors=3 -fno-strict-aliasing -pthread -O3 -fno-ident -fno-math-errno   -I/home/ubuntu/.nimby/nim-2.2.6/lib -I/home/ubuntu/coworld-nav-wavefront-20260909/tools -o /home/ubuntu/nav-throughput-results-20260909/C8-mechanisms/cache-candidate-cache/@phashes.nim.c.o /home/ubuntu/nav-throughput-results-20260909/C8-mechanisms/cache-candidate-cache/@phashes.nim.c"
+    ],
+    [
+      "/home/ubuntu/nav-throughput-results-20260909/C8-mechanisms/cache-candidate-cache/@pmath.nim.c",
+      "gcc -c  -w -fmax-errors=3 -fno-strict-aliasing -pthread -O3 -fno-ident -fno-math-errno   -I/home/ubuntu/.nimby/nim-2.2.6/lib -I/home/ubuntu/coworld-nav-wavefront-20260909/tools -o /home/ubuntu/nav-throughput-results-20260909/C8-mechanisms/cache-candidate-cache/@pmath.nim.c.o /home/ubuntu/nav-throughput-results-20260909/C8-mechanisms/cache-candidate-cache/@pmath.nim.c"
+    ],
+    [
+      "/home/ubuntu/nav-throughput-results-20260909/C8-mechanisms/cache-candidate-cache/@palgorithm.nim.c",
+      "gcc -c  -w -fmax-errors=3 -fno-strict-aliasing -pthread -O3 -fno-ident -fno-math-errno   -I/home/ubuntu/.nimby/nim-2.2.6/lib -I/home/ubuntu/coworld-nav-wavefront-20260909/tools -o /home/ubuntu/nav-throughput-results-20260909/C8-mechanisms/cache-candidate-cache/@palgorithm.nim.c.o /home/ubuntu/nav-throughput-results-20260909/C8-mechanisms/cache-candidate-cache/@palgorithm.nim.c"
+    ],
+    [
+      "/home/ubuntu/nav-throughput-results-20260909/C8-mechanisms/cache-candidate-cache/@ptables.nim.c",
+      "gcc -c  -w -fmax-errors=3 -fno-strict-aliasing -pthread -O3 -fno-ident -fno-math-errno   -I/home/ubuntu/.nimby/nim-2.2.6/lib -I/home/ubuntu/coworld-nav-wavefront-20260909/tools -o /home/ubuntu/nav-throughput-results-20260909/C8-mechanisms/cache-candidate-cache/@ptables.nim.c.o /home/ubuntu/nav-throughput-results-20260909/C8-mechanisms/cache-candidate-cache/@ptables.nim.c"
+    ],
+    [
+      "/home/ubuntu/nav-throughput-results-20260909/C8-mechanisms/cache-candidate-cache/@pparseutils.nim.c",
+      "gcc -c  -w -fmax-errors=3 -fno-strict-aliasing -pthread -O3 -fno-ident -fno-math-errno   -I/home/ubuntu/.nimby/nim-2.2.6/lib -I/home/ubuntu/coworld-nav-wavefront-20260909/tools -o /home/ubuntu/nav-throughput-results-20260909/C8-mechanisms/cache-candidate-cache/@pparseutils.nim.c.o /home/ubuntu/nav-throughput-results-20260909/C8-mechanisms/cache-candidate-cache/@pparseutils.nim.c"
+    ],
+    [
+      "/home/ubuntu/nav-throughput-results-20260909/C8-mechanisms/cache-candidate-cache/@punicode.nim.c",
+      "gcc -c  -w -fmax-errors=3 -fno-strict-aliasing -pthread -O3 -fno-ident -fno-math-errno   -I/home/ubuntu/.nimby/nim-2.2.6/lib -I/home/ubuntu/coworld-nav-wavefront-20260909/tools -o /home/ubuntu/nav-throughput-results-20260909/C8-mechanisms/cache-candidate-cache/@punicode.nim.c.o /home/ubuntu/nav-throughput-results-20260909/C8-mechanisms/cache-candidate-cache/@punicode.nim.c"
+    ],
+    [
+      "/home/ubuntu/nav-throughput-results-20260909/C8-mechanisms/cache-candidate-cache/@pstrutils.nim.c",
+      "gcc -c  -w -fmax-errors=3 -fno-strict-aliasing -pthread -O3 -fno-ident -fno-math-errno   -I/home/ubuntu/.nimby/nim-2.2.6/lib -I/home/ubuntu/coworld-nav-wavefront-20260909/tools -o /home/ubuntu/nav-throughput-results-20260909/C8-mechanisms/cache-candidate-cache/@pstrutils.nim.c.o /home/ubuntu/nav-throughput-results-20260909/C8-mechanisms/cache-candidate-cache/@pstrutils.nim.c"
+    ],
+    [
+      "/home/ubuntu/nav-throughput-results-20260909/C8-mechanisms/cache-candidate-cache/@pstreams.nim.c",
+      "gcc -c  -w -fmax-errors=3 -fno-strict-aliasing -pthread -O3 -fno-ident -fno-math-errno   -I/home/ubuntu/.nimby/nim-2.2.6/lib -I/home/ubuntu/coworld-nav-wavefront-20260909/tools -o /home/ubuntu/nav-throughput-results-20260909/C8-mechanisms/cache-candidate-cache/@pstreams.nim.c.o /home/ubuntu/nav-throughput-results-20260909/C8-mechanisms/cache-candidate-cache/@pstreams.nim.c"
+    ],
+    [
+      "/home/ubuntu/nav-throughput-results-20260909/C8-mechanisms/cache-candidate-cache/@plexbase.nim.c",
+      "gcc -c  -w -fmax-errors=3 -fno-strict-aliasing -pthread -O3 -fno-ident -fno-math-errno   -I/home/ubuntu/.nimby/nim-2.2.6/lib -I/home/ubuntu/coworld-nav-wavefront-20260909/tools -o /home/ubuntu/nav-throughput-results-20260909/C8-mechanisms/cache-candidate-cache/@plexbase.nim.c.o /home/ubuntu/nav-throughput-results-20260909/C8-mechanisms/cache-candidate-cache/@plexbase.nim.c"
+    ],
+    [
+      "/home/ubuntu/nav-throughput-results-20260909/C8-mechanisms/cache-candidate-cache/@pparsejson.nim.c",
+      "gcc -c  -w -fmax-errors=3 -fno-strict-aliasing -pthread -O3 -fno-ident -fno-math-errno   -I/home/ubuntu/.nimby/nim-2.2.6/lib -I/home/ubuntu/coworld-nav-wavefront-20260909/tools -o /home/ubuntu/nav-throughput-results-20260909/C8-mechanisms/cache-candidate-cache/@pparsejson.nim.c.o /home/ubuntu/nav-throughput-results-20260909/C8-mechanisms/cache-candidate-cache/@pparsejson.nim.c"
+    ],
+    [
+      "/home/ubuntu/nav-throughput-results-20260909/C8-mechanisms/cache-candidate-cache/@pjson.nim.c",
+      "gcc -c  -w -fmax-errors=3 -fno-strict-aliasing -pthread -O3 -fno-ident -fno-math-errno   -I/home/ubuntu/.nimby/nim-2.2.6/lib -I/home/ubuntu/coworld-nav-wavefront-20260909/tools -o /home/ubuntu/nav-throughput-results-20260909/C8-mechanisms/cache-candidate-cache/@pjson.nim.c.o /home/ubuntu/nav-throughput-results-20260909/C8-mechanisms/cache-candidate-cache/@pjson.nim.c"
+    ],
+    [
+      "/home/ubuntu/nav-throughput-results-20260909/C8-mechanisms/cache-candidate-cache/@ptimes.nim.c",
+      "gcc -c  -w -fmax-errors=3 -fno-strict-aliasing -pthread -O3 -fno-ident -fno-math-errno   -I/home/ubuntu/.nimby/nim-2.2.6/lib -I/home/ubuntu/coworld-nav-wavefront-20260909/tools -o /home/ubuntu/nav-throughput-results-20260909/C8-mechanisms/cache-candidate-cache/@ptimes.nim.c.o /home/ubuntu/nav-throughput-results-20260909/C8-mechanisms/cache-candidate-cache/@ptimes.nim.c"
+    ],
+    [
+      "/home/ubuntu/nav-throughput-results-20260909/C8-mechanisms/cache-candidate-cache/@pstd@smonotimes.nim.c",
+      "gcc -c  -w -fmax-errors=3 -fno-strict-aliasing -pthread -O3 -fno-ident -fno-math-errno   -I/home/ubuntu/.nimby/nim-2.2.6/lib -I/home/ubuntu/coworld-nav-wavefront-20260909/tools -o /home/ubuntu/nav-throughput-results-20260909/C8-mechanisms/cache-candidate-cache/@pstd@smonotimes.nim.c.o /home/ubuntu/nav-throughput-results-20260909/C8-mechanisms/cache-candidate-cache/@pstd@smonotimes.nim.c"
+    ],
+    [
+      "/home/ubuntu/nav-throughput-results-20260909/C8-mechanisms/cache-candidate-cache/@pstd@senvvars.nim.c",
+      "gcc -c  -w -fmax-errors=3 -fno-strict-aliasing -pthread -O3 -fno-ident -fno-math-errno   -I/home/ubuntu/.nimby/nim-2.2.6/lib -I/home/ubuntu/coworld-nav-wavefront-20260909/tools -o /home/ubuntu/nav-throughput-results-20260909/C8-mechanisms/cache-candidate-cache/@pstd@senvvars.nim.c.o /home/ubuntu/nav-throughput-results-20260909/C8-mechanisms/cache-candidate-cache/@pstd@senvvars.nim.c"
+    ],
+    [
+      "/home/ubuntu/nav-throughput-results-20260909/C8-mechanisms/cache-candidate-cache/@pstd@scmdline.nim.c",
+      "gcc -c  -w -fmax-errors=3 -fno-strict-aliasing -pthread -O3 -fno-ident -fno-math-errno   -I/home/ubuntu/.nimby/nim-2.2.6/lib -I/home/ubuntu/coworld-nav-wavefront-20260909/tools -o /home/ubuntu/nav-throughput-results-20260909/C8-mechanisms/cache-candidate-cache/@pstd@scmdline.nim.c.o /home/ubuntu/nav-throughput-results-20260909/C8-mechanisms/cache-candidate-cache/@pstd@scmdline.nim.c"
+    ],
+    [
+      "/home/ubuntu/nav-throughput-results-20260909/C8-mechanisms/cache-candidate-cache/@prandom.nim.c",
+      "gcc -c  -w -fmax-errors=3 -fno-strict-aliasing -pthread -O3 -fno-ident -fno-math-errno   -I/home/ubuntu/.nimby/nim-2.2.6/lib -I/home/ubuntu/coworld-nav-wavefront-20260909/tools -o /home/ubuntu/nav-throughput-results-20260909/C8-mechanisms/cache-candidate-cache/@prandom.nim.c.o /home/ubuntu/nav-throughput-results-20260909/C8-mechanisms/cache-candidate-cache/@prandom.nim.c"
+    ],
+    [
+      "/home/ubuntu/nav-throughput-results-20260909/C8-mechanisms/cache-candidate-cache/@pdeques.nim.c",
+      "gcc -c  -w -fmax-errors=3 -fno-strict-aliasing -pthread -O3 -fno-ident -fno-math-errno   -I/home/ubuntu/.nimby/nim-2.2.6/lib -I/home/ubuntu/coworld-nav-wavefront-20260909/tools -o /home/ubuntu/nav-throughput-results-20260909/C8-mechanisms/cache-candidate-cache/@pdeques.nim.c.o /home/ubuntu/nav-throughput-results-20260909/C8-mechanisms/cache-candidate-cache/@pdeques.nim.c"
+    ],
+    [
+      "/home/ubuntu/nav-throughput-results-20260909/C8-mechanisms/cache-candidate-cache/@pjsony.nim.c",
+      "gcc -c  -w -fmax-errors=3 -fno-strict-aliasing -pthread -O3 -fno-ident -fno-math-errno   -I/home/ubuntu/.nimby/nim-2.2.6/lib -I/home/ubuntu/coworld-nav-wavefront-20260909/tools -o /home/ubuntu/nav-throughput-results-20260909/C8-mechanisms/cache-candidate-cache/@pjsony.nim.c.o /home/ubuntu/nav-throughput-results-20260909/C8-mechanisms/cache-candidate-cache/@pjsony.nim.c"
+    ],
+    [
+      "/home/ubuntu/nav-throughput-results-20260909/C8-mechanisms/cache-candidate-cache/@pnimsimd@sruntimecheck.nim.c",
+      "gcc -c  -w -fmax-errors=3 -fno-strict-aliasing -pthread -O3 -fno-ident -fno-math-errno   -I/home/ubuntu/.nimby/nim-2.2.6/lib -I/home/ubuntu/coworld-nav-wavefront-20260909/tools -o /home/ubuntu/nav-throughput-results-20260909/C8-mechanisms/cache-candidate-cache/@pnimsimd@sruntimecheck.nim.c.o /home/ubuntu/nav-throughput-results-20260909/C8-mechanisms/cache-candidate-cache/@pnimsimd@sruntimecheck.nim.c"
+    ],
+    [
+      "/home/ubuntu/nav-throughput-results-20260909/C8-mechanisms/cache-candidate-cache/@ppixie@ssimd.nim.c",
+      "gcc -c  -w -fmax-errors=3 -fno-strict-aliasing -pthread -O3 -fno-ident -fno-math-errno   -I/home/ubuntu/.nimby/nim-2.2.6/lib -I/home/ubuntu/coworld-nav-wavefront-20260909/tools -o /home/ubuntu/nav-throughput-results-20260909/C8-mechanisms/cache-candidate-cache/@ppixie@ssimd.nim.c.o /home/ubuntu/nav-throughput-results-20260909/C8-mechanisms/cache-candidate-cache/@ppixie@ssimd.nim.c"
+    ],
+    [
+      "/home/ubuntu/nav-throughput-results-20260909/C8-mechanisms/cache-candidate-cache/@ppixie@sfontformats@sopentype.nim.c",
+      "gcc -c  -w -fmax-errors=3 -fno-strict-aliasing -pthread -O3 -fno-ident -fno-math-errno   -I/home/ubuntu/.nimby/nim-2.2.6/lib -I/home/ubuntu/coworld-nav-wavefront-20260909/tools -o /home/ubuntu/nav-throughput-results-20260909/C8-mechanisms/cache-candidate-cache/@ppixie@sfontformats@sopentype.nim.c.o /home/ubuntu/nav-throughput-results-20260909/C8-mechanisms/cache-candidate-cache/@ppixie@sfontformats@sopentype.nim.c"
+    ],
+    [
+      "/home/ubuntu/nav-throughput-results-20260909/C8-mechanisms/cache-candidate-cache/@ppixie@sfileformats@sjpeg.nim.c",
+      "gcc -c  -w -fmax-errors=3 -fno-strict-aliasing -pthread -O3 -fno-ident -fno-math-errno   -I/home/ubuntu/.nimby/nim-2.2.6/lib -I/home/ubuntu/coworld-nav-wavefront-20260909/tools -o /home/ubuntu/nav-throughput-results-20260909/C8-mechanisms/cache-candidate-cache/@ppixie@sfileformats@sjpeg.nim.c.o /home/ubuntu/nav-throughput-results-20260909/C8-mechanisms/cache-candidate-cache/@ppixie@sfileformats@sjpeg.nim.c"
+    ],
+    [
+      "/home/ubuntu/nav-throughput-results-20260909/C8-mechanisms/cache-candidate-cache/@pheapqueue.nim.c",
+      "gcc -c  -w -fmax-errors=3 -fno-strict-aliasing -pthread -O3 -fno-ident -fno-math-errno   -I/home/ubuntu/.nimby/nim-2.2.6/lib -I/home/ubuntu/coworld-nav-wavefront-20260909/tools -o /home/ubuntu/nav-throughput-results-20260909/C8-mechanisms/cache-candidate-cache/@pheapqueue.nim.c.o /home/ubuntu/nav-throughput-results-20260909/C8-mechanisms/cache-candidate-cache/@pheapqueue.nim.c"
+    ],
+    [
+      "/home/ubuntu/nav-throughput-results-20260909/C8-mechanisms/cache-candidate-cache/@pcrunchy@ssha256.nim.c",
+      "gcc -c  -w -fmax-errors=3 -fno-strict-aliasing -pthread -O3 -fno-ident -fno-math-errno   -I/home/ubuntu/.nimby/nim-2.2.6/lib -I/home/ubuntu/coworld-nav-wavefront-20260909/tools -o /home/ubuntu/nav-throughput-results-20260909/C8-mechanisms/cache-candidate-cache/@pcrunchy@ssha256.nim.c.o /home/ubuntu/nav-throughput-results-20260909/C8-mechanisms/cache-candidate-cache/@pcrunchy@ssha256.nim.c"
+    ],
+    [
+      "/home/ubuntu/nav-throughput-results-20260909/C8-mechanisms/cache-candidate-cache/@ppixie@sfileformats@spng.nim.c",
+      "gcc -c  -w -fmax-errors=3 -fno-strict-aliasing -pthread -O3 -fno-ident -fno-math-errno   -I/home/ubuntu/.nimby/nim-2.2.6/lib -I/home/ubuntu/coworld-nav-wavefront-20260909/tools -o /home/ubuntu/nav-throughput-results-20260909/C8-mechanisms/cache-candidate-cache/@ppixie@sfileformats@spng.nim.c.o /home/ubuntu/nav-throughput-results-20260909/C8-mechanisms/cache-candidate-cache/@ppixie@sfileformats@spng.nim.c"
+    ],
+    [
+      "/home/ubuntu/nav-throughput-results-20260909/C8-mechanisms/cache-candidate-cache/@pbitworld@sspriteprotocol.nim.c",
+      "gcc -c  -w -fmax-errors=3 -fno-strict-aliasing -pthread -O3 -fno-ident -fno-math-errno   -I/home/ubuntu/.nimby/nim-2.2.6/lib -I/home/ubuntu/coworld-nav-wavefront-20260909/tools -o /home/ubuntu/nav-throughput-results-20260909/C8-mechanisms/cache-candidate-cache/@pbitworld@sspriteprotocol.nim.c.o /home/ubuntu/nav-throughput-results-20260909/C8-mechanisms/cache-candidate-cache/@pbitworld@sspriteprotocol.nim.c"
+    ],
+    [
+      "/home/ubuntu/nav-throughput-results-20260909/C8-mechanisms/cache-candidate-cache/@pbitworld@spixelfonts.nim.c",
+      "gcc -c  -w -fmax-errors=3 -fno-strict-aliasing -pthread -O3 -fno-ident -fno-math-errno   -I/home/ubuntu/.nimby/nim-2.2.6/lib -I/home/ubuntu/coworld-nav-wavefront-20260909/tools -o /home/ubuntu/nav-throughput-results-20260909/C8-mechanisms/cache-candidate-cache/@pbitworld@spixelfonts.nim.c.o /home/ubuntu/nav-throughput-results-20260909/C8-mechanisms/cache-candidate-cache/@pbitworld@spixelfonts.nim.c"
+    ],
+    [
+      "/home/ubuntu/nav-throughput-results-20260909/C8-mechanisms/cache-candidate-cache/@p..@sctf@ssim_types.nim.c",
+      "gcc -c  -w -fmax-errors=3 -fno-strict-aliasing -pthread -O3 -fno-ident -fno-math-errno   -I/home/ubuntu/.nimby/nim-2.2.6/lib -I/home/ubuntu/coworld-nav-wavefront-20260909/tools -o /home/ubuntu/nav-throughput-results-20260909/C8-mechanisms/cache-candidate-cache/@p..@sctf@ssim_types.nim.c.o /home/ubuntu/nav-throughput-results-20260909/C8-mechanisms/cache-candidate-cache/@p..@sctf@ssim_types.nim.c"
+    ],
+    [
+      "/home/ubuntu/nav-throughput-results-20260909/C8-mechanisms/cache-candidate-cache/@p..@sctf@sarena.nim.c",
+      "gcc -c  -w -fmax-errors=3 -fno-strict-aliasing -pthread -O3 -fno-ident -fno-math-errno   -I/home/ubuntu/.nimby/nim-2.2.6/lib -I/home/ubuntu/coworld-nav-wavefront-20260909/tools -o /home/ubuntu/nav-throughput-results-20260909/C8-mechanisms/cache-candidate-cache/@p..@sctf@sarena.nim.c.o /home/ubuntu/nav-throughput-results-20260909/C8-mechanisms/cache-candidate-cache/@p..@sctf@sarena.nim.c"
+    ],
+    [
+      "/home/ubuntu/nav-throughput-results-20260909/C8-mechanisms/cache-candidate-cache/@pstrformat.nim.c",
+      "gcc -c  -w -fmax-errors=3 -fno-strict-aliasing -pthread -O3 -fno-ident -fno-math-errno   -I/home/ubuntu/.nimby/nim-2.2.6/lib -I/home/ubuntu/coworld-nav-wavefront-20260909/tools -o /home/ubuntu/nav-throughput-results-20260909/C8-mechanisms/cache-candidate-cache/@pstrformat.nim.c.o /home/ubuntu/nav-throughput-results-20260909/C8-mechanisms/cache-candidate-cache/@pstrformat.nim.c"
+    ],
+    [
+      "/home/ubuntu/nav-throughput-results-20260909/C8-mechanisms/cache-candidate-cache/@p..@sctf@sbr_map_pool.nim.c",
+      "gcc -c  -w -fmax-errors=3 -fno-strict-aliasing -pthread -O3 -fno-ident -fno-math-errno   -I/home/ubuntu/.nimby/nim-2.2.6/lib -I/home/ubuntu/coworld-nav-wavefront-20260909/tools -o /home/ubuntu/nav-throughput-results-20260909/C8-mechanisms/cache-candidate-cache/@p..@sctf@sbr_map_pool.nim.c.o /home/ubuntu/nav-throughput-results-20260909/C8-mechanisms/cache-candidate-cache/@p..@sctf@sbr_map_pool.nim.c"
+    ],
+    [
+      "/home/ubuntu/nav-throughput-results-20260909/C8-mechanisms/cache-candidate-cache/@pbody_map.nim.c",
+      "gcc -c  -w -fmax-errors=3 -fno-strict-aliasing -pthread -O3 -fno-ident -fno-math-errno   -I/home/ubuntu/.nimby/nim-2.2.6/lib -I/home/ubuntu/coworld-nav-wavefront-20260909/tools -o /home/ubuntu/nav-throughput-results-20260909/C8-mechanisms/cache-candidate-cache/@pbody_map.nim.c.o /home/ubuntu/nav-throughput-results-20260909/C8-mechanisms/cache-candidate-cache/@pbody_map.nim.c"
+    ],
+    [
+      "/home/ubuntu/nav-throughput-results-20260909/C8-mechanisms/cache-candidate-cache/@pbody_cache.nim.c",
+      "gcc -c  -w -fmax-errors=3 -fno-strict-aliasing -pthread -O3 -fno-ident -fno-math-errno   -I/home/ubuntu/.nimby/nim-2.2.6/lib -I/home/ubuntu/coworld-nav-wavefront-20260909/tools -o /home/ubuntu/nav-throughput-results-20260909/C8-mechanisms/cache-candidate-cache/@pbody_cache.nim.c.o /home/ubuntu/nav-throughput-results-20260909/C8-mechanisms/cache-candidate-cache/@pbody_cache.nim.c"
+    ],
+    [
+      "/home/ubuntu/nav-throughput-results-20260909/C8-mechanisms/cache-candidate-cache/@pbody_danger.nim.c",
+      "gcc -c  -w -fmax-errors=3 -fno-strict-aliasing -pthread -O3 -fno-ident -fno-math-errno   -I/home/ubuntu/.nimby/nim-2.2.6/lib -I/home/ubuntu/coworld-nav-wavefront-20260909/tools -o /home/ubuntu/nav-throughput-results-20260909/C8-mechanisms/cache-candidate-cache/@pbody_danger.nim.c.o /home/ubuntu/nav-throughput-results-20260909/C8-mechanisms/cache-candidate-cache/@pbody_danger.nim.c"
+    ],
+    [
+      "/home/ubuntu/nav-throughput-results-20260909/C8-mechanisms/cache-candidate-cache/@p..@sctf@szone_field.nim.c",
+      "gcc -c  -w -fmax-errors=3 -fno-strict-aliasing -pthread -O3 -fno-ident -fno-math-errno   -I/home/ubuntu/.nimby/nim-2.2.6/lib -I/home/ubuntu/coworld-nav-wavefront-20260909/tools -o /home/ubuntu/nav-throughput-results-20260909/C8-mechanisms/cache-candidate-cache/@p..@sctf@szone_field.nim.c.o /home/ubuntu/nav-throughput-results-20260909/C8-mechanisms/cache-candidate-cache/@p..@sctf@szone_field.nim.c"
+    ],
+    [
+      "/home/ubuntu/nav-throughput-results-20260909/C8-mechanisms/cache-candidate-cache/@pbody_route_index.nim.c",
+      "gcc -c  -w -fmax-errors=3 -fno-strict-aliasing -pthread -O3 -fno-ident -fno-math-errno   -I/home/ubuntu/.nimby/nim-2.2.6/lib -I/home/ubuntu/coworld-nav-wavefront-20260909/tools -o /home/ubuntu/nav-throughput-results-20260909/C8-mechanisms/cache-candidate-cache/@pbody_route_index.nim.c.o /home/ubuntu/nav-throughput-results-20260909/C8-mechanisms/cache-candidate-cache/@pbody_route_index.nim.c"
+    ],
+    [
+      "/home/ubuntu/nav-throughput-results-20260909/C8-mechanisms/cache-candidate-cache/@pbody_hazard.nim.c",
+      "gcc -c  -w -fmax-errors=3 -fno-strict-aliasing -pthread -O3 -fno-ident -fno-math-errno   -I/home/ubuntu/.nimby/nim-2.2.6/lib -I/home/ubuntu/coworld-nav-wavefront-20260909/tools -o /home/ubuntu/nav-throughput-results-20260909/C8-mechanisms/cache-candidate-cache/@pbody_hazard.nim.c.o /home/ubuntu/nav-throughput-results-20260909/C8-mechanisms/cache-candidate-cache/@pbody_hazard.nim.c"
+    ],
+    [
+      "/home/ubuntu/nav-throughput-results-20260909/C8-mechanisms/cache-candidate-cache/@pbody_route_query.nim.c",
+      "gcc -c  -w -fmax-errors=3 -fno-strict-aliasing -pthread -O3 -fno-ident -fno-math-errno   -I/home/ubuntu/.nimby/nim-2.2.6/lib -I/home/ubuntu/coworld-nav-wavefront-20260909/tools -o /home/ubuntu/nav-throughput-results-20260909/C8-mechanisms/cache-candidate-cache/@pbody_route_query.nim.c.o /home/ubuntu/nav-throughput-results-20260909/C8-mechanisms/cache-candidate-cache/@pbody_route_query.nim.c"
+    ],
+    [
+      "/home/ubuntu/nav-throughput-results-20260909/C8-mechanisms/cache-candidate-cache/@pbody_safety_query.nim.c",
+      "gcc -c  -w -fmax-errors=3 -fno-strict-aliasing -pthread -O3 -fno-ident -fno-math-errno   -I/home/ubuntu/.nimby/nim-2.2.6/lib -I/home/ubuntu/coworld-nav-wavefront-20260909/tools -o /home/ubuntu/nav-throughput-results-20260909/C8-mechanisms/cache-candidate-cache/@pbody_safety_query.nim.c.o /home/ubuntu/nav-throughput-results-20260909/C8-mechanisms/cache-candidate-cache/@pbody_safety_query.nim.c"
+    ],
+    [
+      "/home/ubuntu/nav-throughput-results-20260909/C8-mechanisms/cache-candidate-cache/@pbody_nav.nim.c",
+      "gcc -c  -w -fmax-errors=3 -fno-strict-aliasing -pthread -O3 -fno-ident -fno-math-errno   -I/home/ubuntu/.nimby/nim-2.2.6/lib -I/home/ubuntu/coworld-nav-wavefront-20260909/tools -o /home/ubuntu/nav-throughput-results-20260909/C8-mechanisms/cache-candidate-cache/@pbody_nav.nim.c.o /home/ubuntu/nav-throughput-results-20260909/C8-mechanisms/cache-candidate-cache/@pbody_nav.nim.c"
+    ],
+    [
+      "/home/ubuntu/nav-throughput-results-20260909/C8-mechanisms/cache-candidate-cache/@mbench_body_danger_cache.nim.c",
+      "gcc -c  -w -fmax-errors=3 -fno-strict-aliasing -pthread -O3 -fno-ident -fno-math-errno   -I/home/ubuntu/.nimby/nim-2.2.6/lib -I/home/ubuntu/coworld-nav-wavefront-20260909/tools -o /home/ubuntu/nav-throughput-results-20260909/C8-mechanisms/cache-candidate-cache/@mbench_body_danger_cache.nim.c.o /home/ubuntu/nav-throughput-results-20260909/C8-mechanisms/cache-candidate-cache/@mbench_body_danger_cache.nim.c"
+    ]
+  ],
+  "link": [
+    "/home/ubuntu/nav-throughput-results-20260909/C8-mechanisms/cache-candidate-cache/@psystem@sexceptions.nim.c.o",
+    "/home/ubuntu/nav-throughput-results-20260909/C8-mechanisms/cache-candidate-cache/@pstd@sprivate@sdigitsutils.nim.c.o",
+    "/home/ubuntu/nav-throughput-results-20260909/C8-mechanisms/cache-candidate-cache/@pstd@sassertions.nim.c.o",
+    "/home/ubuntu/nav-throughput-results-20260909/C8-mechanisms/cache-candidate-cache/@pstd@sprivate@sdragonbox.nim.c.o",
+    "/home/ubuntu/nav-throughput-results-20260909/C8-mechanisms/cache-candidate-cache/@pstd@sformatfloat.nim.c.o",
+    "/home/ubuntu/nav-throughput-results-20260909/C8-mechanisms/cache-candidate-cache/@psystem@sdollars.nim.c.o",
+    "/home/ubuntu/nav-throughput-results-20260909/C8-mechanisms/cache-candidate-cache/@pstd@ssyncio.nim.c.o",
+    "/home/ubuntu/nav-throughput-results-20260909/C8-mechanisms/cache-candidate-cache/@psystem.nim.c.o",
+    "/home/ubuntu/nav-throughput-results-20260909/C8-mechanisms/cache-candidate-cache/@phashes.nim.c.o",
+    "/home/ubuntu/nav-throughput-results-20260909/C8-mechanisms/cache-candidate-cache/@pmath.nim.c.o",
+    "/home/ubuntu/nav-throughput-results-20260909/C8-mechanisms/cache-candidate-cache/@palgorithm.nim.c.o",
+    "/home/ubuntu/nav-throughput-results-20260909/C8-mechanisms/cache-candidate-cache/@ptables.nim.c.o",
+    "/home/ubuntu/nav-throughput-results-20260909/C8-mechanisms/cache-candidate-cache/@pparseutils.nim.c.o",
+    "/home/ubuntu/nav-throughput-results-20260909/C8-mechanisms/cache-candidate-cache/@punicode.nim.c.o",
+    "/home/ubuntu/nav-throughput-results-20260909/C8-mechanisms/cache-candidate-cache/@pstrutils.nim.c.o",
+    "/home/ubuntu/nav-throughput-results-20260909/C8-mechanisms/cache-candidate-cache/@pstreams.nim.c.o",
+    "/home/ubuntu/nav-throughput-results-20260909/C8-mechanisms/cache-candidate-cache/@plexbase.nim.c.o",
+    "/home/ubuntu/nav-throughput-results-20260909/C8-mechanisms/cache-candidate-cache/@pparsejson.nim.c.o",
+    "/home/ubuntu/nav-throughput-results-20260909/C8-mechanisms/cache-candidate-cache/@pjson.nim.c.o",
+    "/home/ubuntu/nav-throughput-results-20260909/C8-mechanisms/cache-candidate-cache/@ptimes.nim.c.o",
+    "/home/ubuntu/nav-throughput-results-20260909/C8-mechanisms/cache-candidate-cache/@pstd@smonotimes.nim.c.o",
+    "/home/ubuntu/nav-throughput-results-20260909/C8-mechanisms/cache-candidate-cache/@pstd@senvvars.nim.c.o",
+    "/home/ubuntu/nav-throughput-results-20260909/C8-mechanisms/cache-candidate-cache/@pstd@scmdline.nim.c.o",
+    "/home/ubuntu/nav-throughput-results-20260909/C8-mechanisms/cache-candidate-cache/@prandom.nim.c.o",
+    "/home/ubuntu/nav-throughput-results-20260909/C8-mechanisms/cache-candidate-cache/@pdeques.nim.c.o",
+    "/home/ubuntu/nav-throughput-results-20260909/C8-mechanisms/cache-candidate-cache/@pjsony.nim.c.o",
+    "/home/ubuntu/nav-throughput-results-20260909/C8-mechanisms/cache-candidate-cache/@pnimsimd@sruntimecheck.nim.c.o",
+    "/home/ubuntu/nav-throughput-results-20260909/C8-mechanisms/cache-candidate-cache/@ppixie@ssimd.nim.c.o",
+    "/home/ubuntu/nav-throughput-results-20260909/C8-mechanisms/cache-candidate-cache/@ppixie@sfontformats@sopentype.nim.c.o",
+    "/home/ubuntu/nav-throughput-results-20260909/C8-mechanisms/cache-candidate-cache/@ppixie@sfileformats@sjpeg.nim.c.o",
+    "/home/ubuntu/nav-throughput-results-20260909/C8-mechanisms/cache-candidate-cache/@pheapqueue.nim.c.o",
+    "/home/ubuntu/nav-throughput-results-20260909/C8-mechanisms/cache-candidate-cache/@pcrunchy@ssha256.nim.c.o",
+    "/home/ubuntu/nav-throughput-results-20260909/C8-mechanisms/cache-candidate-cache/@ppixie@sfileformats@spng.nim.c.o",
+    "/home/ubuntu/nav-throughput-results-20260909/C8-mechanisms/cache-candidate-cache/@pbitworld@sspriteprotocol.nim.c.o",
+    "/home/ubuntu/nav-throughput-results-20260909/C8-mechanisms/cache-candidate-cache/@pbitworld@spixelfonts.nim.c.o",
+    "/home/ubuntu/nav-throughput-results-20260909/C8-mechanisms/cache-candidate-cache/@p..@sctf@ssim_types.nim.c.o",
+    "/home/ubuntu/nav-throughput-results-20260909/C8-mechanisms/cache-candidate-cache/@p..@sctf@sarena.nim.c.o",
+    "/home/ubuntu/nav-throughput-results-20260909/C8-mechanisms/cache-candidate-cache/@pstrformat.nim.c.o",
+    "/home/ubuntu/nav-throughput-results-20260909/C8-mechanisms/cache-candidate-cache/@p..@sctf@sbr_map_pool.nim.c.o",
+    "/home/ubuntu/nav-throughput-results-20260909/C8-mechanisms/cache-candidate-cache/@pbody_map.nim.c.o",
+    "/home/ubuntu/nav-throughput-results-20260909/C8-mechanisms/cache-candidate-cache/@pbody_cache.nim.c.o",
+    "/home/ubuntu/nav-throughput-results-20260909/C8-mechanisms/cache-candidate-cache/@pbody_danger.nim.c.o",
+    "/home/ubuntu/nav-throughput-results-20260909/C8-mechanisms/cache-candidate-cache/@p..@sctf@szone_field.nim.c.o",
+    "/home/ubuntu/nav-throughput-results-20260909/C8-mechanisms/cache-candidate-cache/@pbody_route_index.nim.c.o",
+    "/home/ubuntu/nav-throughput-results-20260909/C8-mechanisms/cache-candidate-cache/@pbody_hazard.nim.c.o",
+    "/home/ubuntu/nav-throughput-results-20260909/C8-mechanisms/cache-candidate-cache/@pbody_route_query.nim.c.o",
+    "/home/ubuntu/nav-throughput-results-20260909/C8-mechanisms/cache-candidate-cache/@pbody_safety_query.nim.c.o",
+    "/home/ubuntu/nav-throughput-results-20260909/C8-mechanisms/cache-candidate-cache/@pbody_nav.nim.c.o",
+    "/home/ubuntu/nav-throughput-results-20260909/C8-mechanisms/cache-candidate-cache/@mbench_body_danger_cache.nim.c.o"
+  ],
+  "linkcmd": "gcc   -o /home/ubuntu/nav-throughput-results-20260909/C8-mechanisms/bench-candidate-cache /home/ubuntu/nav-throughput-results-20260909/C8-mechanisms/cache-candidate-cache/@psystem@sexceptions.nim.c.o /home/ubuntu/nav-throughput-results-20260909/C8-mechanisms/cache-candidate-cache/@pstd@sprivate@sdigitsutils.nim.c.o /home/ubuntu/nav-throughput-results-20260909/C8-mechanisms/cache-candidate-cache/@pstd@sassertions.nim.c.o /home/ubuntu/nav-throughput-results-20260909/C8-mechanisms/cache-candidate-cache/@pstd@sprivate@sdragonbox.nim.c.o /home/ubuntu/nav-throughput-results-20260909/C8-mechanisms/cache-candidate-cache/@pstd@sformatfloat.nim.c.o /home/ubuntu/nav-throughput-results-20260909/C8-mechanisms/cache-candidate-cache/@psystem@sdollars.nim.c.o /home/ubuntu/nav-throughput-results-20260909/C8-mechanisms/cache-candidate-cache/@pstd@ssyncio.nim.c.o /home/ubuntu/nav-throughput-results-20260909/C8-mechanisms/cache-candidate-cache/@psystem.nim.c.o /home/ubuntu/nav-throughput-results-20260909/C8-mechanisms/cache-candidate-cache/@phashes.nim.c.o /home/ubuntu/nav-throughput-results-20260909/C8-mechanisms/cache-candidate-cache/@pmath.nim.c.o /home/ubuntu/nav-throughput-results-20260909/C8-mechanisms/cache-candidate-cache/@palgorithm.nim.c.o /home/ubuntu/nav-throughput-results-20260909/C8-mechanisms/cache-candidate-cache/@ptables.nim.c.o /home/ubuntu/nav-throughput-results-20260909/C8-mechanisms/cache-candidate-cache/@pparseutils.nim.c.o /home/ubuntu/nav-throughput-results-20260909/C8-mechanisms/cache-candidate-cache/@punicode.nim.c.o /home/ubuntu/nav-throughput-results-20260909/C8-mechanisms/cache-candidate-cache/@pstrutils.nim.c.o /home/ubuntu/nav-throughput-results-20260909/C8-mechanisms/cache-candidate-cache/@pstreams.nim.c.o /home/ubuntu/nav-throughput-results-20260909/C8-mechanisms/cache-candidate-cache/@plexbase.nim.c.o /home/ubuntu/nav-throughput-results-20260909/C8-mechanisms/cache-candidate-cache/@pparsejson.nim.c.o /home/ubuntu/nav-throughput-results-20260909/C8-mechanisms/cache-candidate-cache/@pjson.nim.c.o /home/ubuntu/nav-throughput-results-20260909/C8-mechanisms/cache-candidate-cache/@ptimes.nim.c.o /home/ubuntu/nav-throughput-results-20260909/C8-mechanisms/cache-candidate-cache/@pstd@smonotimes.nim.c.o /home/ubuntu/nav-throughput-results-20260909/C8-mechanisms/cache-candidate-cache/@pstd@senvvars.nim.c.o /home/ubuntu/nav-throughput-results-20260909/C8-mechanisms/cache-candidate-cache/@pstd@scmdline.nim.c.o /home/ubuntu/nav-throughput-results-20260909/C8-mechanisms/cache-candidate-cache/@prandom.nim.c.o /home/ubuntu/nav-throughput-results-20260909/C8-mechanisms/cache-candidate-cache/@pdeques.nim.c.o /home/ubuntu/nav-throughput-results-20260909/C8-mechanisms/cache-candidate-cache/@pjsony.nim.c.o /home/ubuntu/nav-throughput-results-20260909/C8-mechanisms/cache-candidate-cache/@pnimsimd@sruntimecheck.nim.c.o /home/ubuntu/nav-throughput-results-20260909/C8-mechanisms/cache-candidate-cache/@ppixie@ssimd.nim.c.o /home/ubuntu/nav-throughput-results-20260909/C8-mechanisms/cache-candidate-cache/@ppixie@sfontformats@sopentype.nim.c.o /home/ubuntu/nav-throughput-results-20260909/C8-mechanisms/cache-candidate-cache/@ppixie@sfileformats@sjpeg.nim.c.o /home/ubuntu/nav-throughput-results-20260909/C8-mechanisms/cache-candidate-cache/@pheapqueue.nim.c.o /home/ubuntu/nav-throughput-results-20260909/C8-mechanisms/cache-candidate-cache/@pcrunchy@ssha256.nim.c.o /home/ubuntu/nav-throughput-results-20260909/C8-mechanisms/cache-candidate-cache/@ppixie@sfileformats@spng.nim.c.o /home/ubuntu/nav-throughput-results-20260909/C8-mechanisms/cache-candidate-cache/@pbitworld@sspriteprotocol.nim.c.o /home/ubuntu/nav-throughput-results-20260909/C8-mechanisms/cache-candidate-cache/@pbitworld@spixelfonts.nim.c.o /home/ubuntu/nav-throughput-results-20260909/C8-mechanisms/cache-candidate-cache/@p..@sctf@ssim_types.nim.c.o /home/ubuntu/nav-throughput-results-20260909/C8-mechanisms/cache-candidate-cache/@p..@sctf@sarena.nim.c.o /home/ubuntu/nav-throughput-results-20260909/C8-mechanisms/cache-candidate-cache/@pstrformat.nim.c.o /home/ubuntu/nav-throughput-results-20260909/C8-mechanisms/cache-candidate-cache/@p..@sctf@sbr_map_pool.nim.c.o /home/ubuntu/nav-throughput-results-20260909/C8-mechanisms/cache-candidate-cache/@pbody_map.nim.c.o /home/ubuntu/nav-throughput-results-20260909/C8-mechanisms/cache-candidate-cache/@pbody_cache.nim.c.o /home/ubuntu/nav-throughput-results-20260909/C8-mechanisms/cache-candidate-cache/@pbody_danger.nim.c.o /home/ubuntu/nav-throughput-results-20260909/C8-mechanisms/cache-candidate-cache/@p..@sctf@szone_field.nim.c.o /home/ubuntu/nav-throughput-results-20260909/C8-mechanisms/cache-candidate-cache/@pbody_route_index.nim.c.o /home/ubuntu/nav-throughput-results-20260909/C8-mechanisms/cache-candidate-cache/@pbody_hazard.nim.c.o /home/ubuntu/nav-throughput-results-20260909/C8-mechanisms/cache-candidate-cache/@pbody_route_query.nim.c.o /home/ubuntu/nav-throughput-results-20260909/C8-mechanisms/cache-candidate-cache/@pbody_safety_query.nim.c.o /home/ubuntu/nav-throughput-results-20260909/C8-mechanisms/cache-candidate-cache/@pbody_nav.nim.c.o /home/ubuntu/nav-throughput-results-20260909/C8-mechanisms/cache-candidate-cache/@mbench_body_danger_cache.nim.c.o  -pthread -pthread -lm -lm -lrt   -ldl",
+  "extraCmds": [],
+  "configFiles": [
+    "/home/ubuntu/.nimby/nim-2.2.6/config/nim.cfg",
+    "/home/ubuntu/.nimby/nim-2.2.6/config/config.nims",
+    "/home/ubuntu/coworld-nav-wavefront-20260909/nim.cfg"
+  ],
+  "stdinInput": false,
+  "projectIsCmd": false,
+  "cmdInput": "",
+  "currentDir": "/home/ubuntu/coworld-nav-wavefront-20260909",
+  "cmdline": "",
+  "depfiles": [],
+  "nimexe": ""
+}

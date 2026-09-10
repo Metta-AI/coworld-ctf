@@ -1,0 +1,86 @@
+[
+  {
+    "row": "bench.tickRow:16:first_goals",
+    "fills": 10,
+    "last_fill": 31,
+    "max_no_fill_us": 21.598,
+    "mean_measured_fill_stage_us": {
+      "rebuildScheduledDanger": 1480.3700000000001,
+      "danger.clear": 40.55,
+      "danger.hit.replay": 736.6700000000001,
+      "danger.closeFloor": 116.25000000000003,
+      "danger.scaleMax": 161.03,
+      "danger.packWeights": 420.46000000000004
+    }
+  },
+  {
+    "row": "bench.tickRow:16:moving_goals",
+    "fills": 10,
+    "last_fill": 31,
+    "max_no_fill_us": 21.104,
+    "mean_measured_fill_stage_us": {
+      "rebuildScheduledDanger": 1474.4100000000003,
+      "danger.clear": 36.88,
+      "danger.hit.replay": 733.12,
+      "danger.closeFloor": 113.57000000000001,
+      "danger.scaleMax": 161.39000000000001,
+      "danger.packWeights": 422.5
+    }
+  },
+  {
+    "row": "bench.tickRow:16:stuck_replans",
+    "fills": 10,
+    "last_fill": 31,
+    "max_no_fill_us": 6.272,
+    "mean_measured_fill_stage_us": {
+      "rebuildScheduledDanger": 1478.52,
+      "danger.clear": 36.63,
+      "danger.hit.replay": 735.67,
+      "danger.closeFloor": 114.71,
+      "danger.scaleMax": 160.79000000000002,
+      "danger.packWeights": 422.39
+    }
+  },
+  {
+    "row": "bench.tickRow:32:first_goals",
+    "fills": 26,
+    "last_fill": 31,
+    "max_no_fill_us": 12.021,
+    "mean_measured_fill_stage_us": {
+      "rebuildScheduledDanger": 1484.9499999999998,
+      "danger.clear": 40.34615384615385,
+      "danger.hit.replay": 739.6384615384616,
+      "danger.closeFloor": 114.87307692307692,
+      "danger.scaleMax": 161.0423076923077,
+      "danger.packWeights": 423.073076923077
+    }
+  },
+  {
+    "row": "bench.tickRow:32:moving_goals",
+    "fills": 26,
+    "last_fill": 31,
+    "max_no_fill_us": 24.793,
+    "mean_measured_fill_stage_us": {
+      "rebuildScheduledDanger": 1476.692307692308,
+      "danger.clear": 38.592307692307685,
+      "danger.hit.replay": 732.4884615384616,
+      "danger.closeFloor": 114.00769230769232,
+      "danger.scaleMax": 161.18461538461543,
+      "danger.packWeights": 423.5346153846154
+    }
+  },
+  {
+    "row": "bench.tickRow:32:stuck_replans",
+    "fills": 26,
+    "last_fill": 31,
+    "max_no_fill_us": 21.94,
+    "mean_measured_fill_stage_us": {
+      "rebuildScheduledDanger": 1475.1807692307693,
+      "danger.clear": 38.33461538461539,
+      "danger.hit.replay": 731.1000000000001,
+      "danger.closeFloor": 115.1923076923077,
+      "danger.scaleMax": 162.2846153846154,
+      "danger.packWeights": 420.7076923076923
+    }
+  }
+]

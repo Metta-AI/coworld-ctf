@@ -1,0 +1,4 @@
+build-traced exit=0
+run-traced exit=1
+build-counted exit=0
+run-counted exit=1

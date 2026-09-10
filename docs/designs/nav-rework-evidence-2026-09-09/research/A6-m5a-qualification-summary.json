@@ -1,0 +1,68 @@
+{
+  "activation_count": 76,
+  "activation_time_pass": 62,
+  "memory_pass": 76,
+  "activation_worst_ratio": 2.267116880665054,
+  "activation_failures": [
+    {
+      "map": "published:01:br-gen-20184",
+      "ratio": 2.04200671946677
+    },
+    {
+      "map": "published:07:br-gen-21170",
+      "ratio": 2.030265885372163
+    },
+    {
+      "map": "published:08:br-gen-21378",
+      "ratio": 2.0205978736581036
+    },
+    {
+      "map": "published:09:br-gen-21450",
+      "ratio": 2.007615397145489
+    },
+    {
+      "map": "published:14:br-gen-21944",
+      "ratio": 2.003568099365315
+    },
+    {
+      "map": "published:15:br-gen-22010",
+      "ratio": 2.071956150983562
+    },
+    {
+      "map": "published:29:br-gen-23312",
+      "ratio": 2.0827012985247366
+    },
+    {
+      "map": "published:37:br-gen-23712",
+      "ratio": 2.0053733500044646
+    },
+    {
+      "map": "published:38:br-gen-23732",
+      "ratio": 2.06648741358044
+    },
+    {
+      "map": "published:40:br-gen-23894",
+      "ratio": 2.007359437652371
+    },
+    {
+      "map": "published:48:br-gen-24678",
+      "ratio": 2.267116880665054
+    },
+    {
+      "map": "published:49:br-gen-24962",
+      "ratio": 2.011651361412114
+    },
+    {
+      "map": "published:63:br-gen-26528",
+      "ratio": 2.0350318038242117
+    },
+    {
+      "map": "configured:5:br-gen-5204",
+      "ratio": 2.023856358300295
+    }
+  ],
+  "configured_tick_maps_pass": 0,
+  "worst_p95_ns": 15738642,
+  "worst_max_ns": 15873816,
+  "retained_ledgers_equal_m8i": true
+}

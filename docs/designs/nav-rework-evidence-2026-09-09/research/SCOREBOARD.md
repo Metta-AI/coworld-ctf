@@ -88,3 +88,7 @@ G0 bed15e11; G1 9e4971f1; M1 5a6c4963; W1 da13e2c7; M2 d9962a8d; M3 f261aeca; W2
 - C6 rejected at native micro gate:1300px replay gains6.90–8.94%, below preregistered10%; all27real-trace totals regress0.12–1.53%,24/27p95slower. Exact inputs/rasters/crafted indices. No primarysource or whole-body run. C6_NATIVE_REPORT.md.
 
 - C3 rejected: all 198 configured rows exact, median p95 gain1.25%, 0/11maps pass; recorded-trace p95 worsens23/27pairs. Source/viewer restored to C2; multi-range cache regression retained. C3_STATUS.md.
+
+- A6 m5a qualification complete:3072quality exact,62/76activation-time,76/76memory,retained ledgers equal m8i. No integration;14activation failures remain. A6-m5a-qualification-summary.json.
+
+- C8 rejected standalone: all27recorded-trace totals slow0.50–2.38%,26/27p95slower; all3072quality exact. No primary source change or m5a follow-up. C8_ROOT_RESULT.md.

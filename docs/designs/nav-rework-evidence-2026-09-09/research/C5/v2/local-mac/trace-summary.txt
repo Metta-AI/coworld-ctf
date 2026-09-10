@@ -1,0 +1,20 @@
+bench.tickRow:32:moving_goals    count=      1 mean_us=2775727.000 total_ms=  2775.727
+bench.tickRow:32:stuck_replans   count=      1 mean_us=2770230.000 total_ms=  2770.230
+bench.tickRow:32:first_goals     count=      1 mean_us=2756564.000 total_ms=  2756.564
+bench.tickRow:16:moving_goals    count=      1 mean_us=2675980.791 total_ms=  2675.981
+bench.tickRow:16:first_goals     count=      1 mean_us=2668535.458 total_ms=  2668.535
+bench.tickRow:16:stuck_replans   count=      1 mean_us=2634812.500 total_ms=  2634.812
+shell.danger                     count=    756 mean_us=   835.085 total_ms=   631.324
+rebuildScheduledDanger           count=    756 mean_us=   829.659 total_ms=   627.222
+shell.planning                   count=    756 mean_us=   675.349 total_ms=   510.564
+danger.hit.replay                count=   1104 mean_us=   360.214 total_ms=   397.676
+body.weapon                      count=  18144 mean_us=     4.965 total_ms=    90.077
+danger.miss.rays                 count=     48 mean_us=  1524.863 total_ms=    73.193
+danger.closeFloor                count=   1152 mean_us=    61.025 total_ms=    70.301
+danger.packWeights               count=    144 mean_us=   369.570 total_ms=    53.218
+shell.default                    count=  18144 mean_us=     1.917 total_ms=    34.778
+body.follower                    count=  18144 mean_us=     1.792 total_ms=    32.508
+danger.scaleMax                  count=    144 mean_us=   169.901 total_ms=    24.466
+shell.lifecycle                  count=  18144 mean_us=     0.904 total_ms=    16.398
+body.belief                      count=  18144 mean_us=     0.685 total_ms=    12.422
+danger.clear                     count=    144 mean_us=    51.682 total_ms=     7.442

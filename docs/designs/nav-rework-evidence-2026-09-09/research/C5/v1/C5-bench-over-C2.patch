@@ -1,0 +1,31 @@
+--- /Users/jamesboggs/coding/coworlds/coworld-ctf-worktrees/nav-throughput-research/docs/designs/nav-rework-evidence-2026-09-09/research/C5/original/C2-bench_body_nav_rework.nim	2026-09-10 10:35:02
++++ tools/bench_body_nav_rework.nim	2026-09-10 10:36:03
+@@ -435,10 +435,17 @@
+       requestAdmissions.add int64(timing.requestAdmissions)
+       routeCompletions.add int64(timing.routeCompletions)
+       weightRefreshes.add int64(timing.weightRefreshes)
++  # C5: cache hit/miss counts for this row, read after all timing, only in
++  # -d:dangerSourceCacheCounters builds (null otherwise).
++  var dangerCache = newJNull()
++  when defined(dangerSourceCacheCounters):
++    let counters = episode.nav.dangerSourceCacheCounters()
++    dangerCache = %*{"hits": counters.hits, "misses": counters.misses}
+   episode.closeShellEpisode()
+   let p95 = samples.percentile(0.95)
+   let maximum = max(samples)
+   %*{"roster_size": rosterSize, "scenario": $scenario,
++    "danger_source_cache": dangerCache,
+     "warmups": TickWarmups, "sample_count": TickSamples,
+     "samples_ns": samples.nsArray, "pops_per_tick": pops,
+     "masks_per_tick": masksPerTick, "mask_ticks": TickWarmups + TickSamples + 1,
+@@ -844,7 +851,10 @@
+       "tick_p95_ns": TickP95LimitNs, "tick_max_ns": TickMaxLimitNs}}
+   var passed = true
+   if runConfigured:
++    # C5: trace the configured rows too (the frozen --tick path already does).
++    startProfileTrace()
+     root["configured_tick"] = runConfiguredTick(onlyPool)
++    finishProfileTrace()
+     passed = passed and root["configured_tick"]["pass"].getBool()
+   if runQuality:
+     root["quality"] = runRouteCorpusGate(corpus, pool, onlyPool)

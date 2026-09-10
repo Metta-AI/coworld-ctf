@@ -204,3 +204,7 @@ Primary consolidated through W7 addaad7a with newer notes restored from verified
 ### C3 decision after final peer review
 
 C3 rejected: 179/198 configured p95 rows improved about 1.25% median, but 0/11 maps passed and 23/27 recorded-trace p95 pairs slowed. Restored only the owned C3 source and viewer to retained HEAD; preserved the multi-range cache regression test and all evidence. C8 remains isolated pending native measurement.
+
+### Native completion C8 and A6 m5a
+
+Both runners completed and restored owned hosts cleanly. C8 rejected:27/27actualtrace totals slower,26/27p95 slower; quality3072exact. A6 m5a65+11qualification:62/76activation time,76/76memory,0/11tickmaps. A6 remains isolated. Peer C7tools-only micro active, A7early-visited proposal pending peer review. Primary source is retainedC2, HEAD98c71887.
