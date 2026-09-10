@@ -29,3 +29,5 @@ is waived or converted into a passing result.
 The original checkout's unrelated in-progress merge and divergent local main
 are preserved. Submission uses an isolated clone with main at fetched
 origin/main, rather than rewriting the shared local main branch.
+
+Final collection: C10 m8i passes, m5a fails the registered randomized-trace total limit; both strict quality checks pass. Both evaluators reproduce their saved JSON exactly. All four owned research instances read back stopped. The final handoff and scoreboard explicitly close C10 as rejected for adoption.

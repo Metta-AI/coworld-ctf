@@ -110,3 +110,8 @@ G0 bed15e11; G1 9e4971f1; M1 5a6c4963; W1 da13e2c7; M2 d9962a8d; M3 f261aeca; W2
 - C10 preregistered grouped replay: retained bitmap unchanged; safe4cellgroups cover98.81–99.70%of additions on sixmap/range samples. ARM fivecrafted+256border/mask cases exact forscalar/SIMD. Three-arm native20%screen pending; no productionchange. C10_MICRO_DECISION.md and C10_MICRO_READY.md.
 
 - C10 native micro passesbothhosts: SIMD1300replay ratios0.4398–0.4520m8i and0.2905–0.2971m5a; scalar~0.72–0.73. All180processoutputs exact, fivecrafted+256border cases exactacrossARM/SSE2. SIMDadvancesonlytofullsource trace/regime screen. C10_NATIVE_MICRO_RESULT.md.
+
+
+## Final park boundary — 2026-09-10
+
+James approved merging evidence and restorable code only, leaving the live runtime unchanged. C10 full native screen: m8i pass, m5a fail (randomized trace total median 1.020196 > 1.01). Exactness and 3,072-case quality pass both hosts. C10 rejected for adoption; no rerun. C11 proof remains unimplemented. See C10_FULL_PARK_RESULT.md and ../park-2026-09-10/README.md. Research goal and Phase 10/11 remain incomplete; agents are parked.

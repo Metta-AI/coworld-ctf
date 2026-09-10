@@ -1,13 +1,13 @@
 # Park operations
 
-Claude peer nav-research-peer delivered PARK HANDOFF READY and is idle. No new
-experiments are running. Root is finishing collection of the existing C10 full
-screen, runner 76802 on m5a; its source-restoration EXIT trap will be verified.
+Claude peer nav-research-peer delivered PARK HANDOFF READY and is idle. Both
+existing C10 runs completed, all results were downloaded and evaluated, source
+restoration was verified, and no benchmark process remained before stopping.
 
-m8i i-0382a6e0a77c014d7 completed, its source restored, results downloaded and
-its EC2 state verified stopped. c6a i-0b37d010a49d1a53d and c8i
-i-045ddd6df51150967 are also stopped. m5a i-08b7fb62b50e0740a will be stopped
-after collection. Stopped instances retain disks for later restart.
+m8i i-0382a6e0a77c014d7 and m5a i-08b7fb62b50e0740a have received stop requests.
+c6a i-0b37d010a49d1a53d and c8i i-045ddd6df51150967 were already stopped.
+Final EC2 readback is recorded in host-state-final.json. Stopped instances
+retain disks for later restart; these old public IPs must not be assumed valid.
 
 The broker aws.readonly credentials target account 751442549699 and cannot
 see these instances. Sandbox account 015142856185 was verified through EC2

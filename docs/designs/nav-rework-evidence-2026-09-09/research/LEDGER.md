@@ -252,3 +252,8 @@ C10 frozen three-arm native: m8i launch52986 DONE;90processrows exact, scalar130
 C10m5a75157DONE, bothhosts restored, rawdataretrieved/evaluatorpassed. SIMDselectedfornextscreen bypre-set20%/5%rules; all180microprocessrows exact. Rootwillpreparefullsourceisolatedcandidate; primaryunchanged. PeerC11countsactive, C10resultreviewqueuedafter.
 
 C10 full-source native launched m8iPID54502 andm5aPID76802, C10-full resultdirs, frozenC10/full source/runner. Five pairs of9traces/4regimes plusstrict3072quality. Rootlocalnav-deferred-cache nowholds isolatedcandidatebody_nav (othertrackedfilesclean); primarysrcunchanged. Fullsource local9cache/17navtests,5crafted/256border andbothservercompilechecks pass. PeerC11counts plusC10micro-result/fullsource reviews active. Do not restart nativejobs whilethesehandleslive.
+
+
+## Final park boundary — 2026-09-10
+
+James approved merging evidence and restorable code only, leaving the live runtime unchanged. C10 full native screen: m8i pass, m5a fail (randomized trace total median 1.020196 > 1.01). Exactness and 3,072-case quality pass both hosts. C10 rejected for adoption; no rerun. C11 proof remains unimplemented. See C10_FULL_PARK_RESULT.md and ../park-2026-09-10/README.md. Research goal and Phase 10/11 remain incomplete; agents are parked.

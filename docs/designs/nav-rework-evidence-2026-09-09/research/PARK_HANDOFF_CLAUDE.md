@@ -1,3 +1,5 @@
+> **Root final collection update:** C10 finished after this peer handoff and failed the m5a actual-trace limit. It is rejected for adoption; no integrated qualification or rerun. See [final result](C10_FULL_PARK_RESULT.md). The primary research checkpoint is f6f1e965 in nav-throughput-research; nav-deferred-cache is an isolated experimental tree. The historical pending/restart statements below are superseded by the final park archive.
+
 # Park handoff: Claude peer (nav throughput co-research), 2026-09-10
 
 Written at James's wrap instruction (`WRAP_REQUEST.md`). Purpose: let a
