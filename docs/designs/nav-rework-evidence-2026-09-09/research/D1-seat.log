@@ -1,0 +1,57 @@
+Hint: used config file '/Users/jamesboggs/.nimby/nim/config/nim.cfg' [Conf]
+Hint: used config file '/Users/jamesboggs/.nimby/nim/config/config.nims' [Conf]
+Hint: used config file '/Users/jamesboggs/coding/coworlds/coworld-ctf-worktrees/nav-throughput-research/nim.cfg' [Conf]
+Hint: used config file '/Users/jamesboggs/coding/coworlds/coworld-ctf-worktrees/nav-throughput-research/tests/config.nims' [Conf]
+............................................................................................................................................................................................................................
+/Users/jamesboggs/coding/coworlds/coworld-ctf-worktrees/nav-throughput-research/src/ctf/arena.nim(1373, 5) Hint: 'inside' is declared but not used [XDeclaredButNotUsed]
+/Users/jamesboggs/coding/coworlds/coworld-ctf-worktrees/nav-throughput-research/src/ctf/arena.nim(3702, 6) Hint: 'rectsNode' is declared but not used [XDeclaredButNotUsed]
+/Users/jamesboggs/coding/coworlds/coworld-ctf-worktrees/nav-throughput-research/src/ctf/arena.nim(3707, 6) Hint: 'rectsFromNode' is declared but not used [XDeclaredButNotUsed]
+...........
+/Users/jamesboggs/coding/coworlds/coworld-ctf-worktrees/nav-throughput-research/src/shell/body_route_query.nim(3, 24) Warning: imported and not used: 'math' [UnusedImport]
+..
+/Users/jamesboggs/coding/coworlds/coworld-ctf-worktrees/nav-throughput-research/src/shell/body.nim(1299, 6) Hint: 'enemyShootableWithoutPolicy' is declared but not used [XDeclaredButNotUsed]
+/Users/jamesboggs/coding/coworlds/coworld-ctf-worktrees/nav-throughput-research/tests/test_shell_body_seat.nim(12, 21) Warning: imported and not used: 'body_danger' [UnusedImport]
+CC: system.nim
+CC: options.nim
+CC: math.nim
+CC: hashes.nim
+CC: shell/body_nav.nim
+CC: shell/cover_scorer.nim
+CC: shell/body.nim
+CC: test_shell_body_seat.nim
+Hint:  [Link]
+Hint: mm: orc; threads: on; opt: speed; options: -d:release
+132851 lines; 3.178s; 425.641MiB peakmem; proj: /Users/jamesboggs/coding/coworlds/coworld-ctf-worktrees/nav-throughput-research/tests/test_shell_body_seat.nim; out: /tmp/nav-research-d1-seat [SuccessX]
+Hint: /tmp/nav-research-d1-seat [Exec]
+
+[Suite] shell body seat belief-lite seam
+COVER_BODY cache_reused=true fresh_goal=(x: 788, y: 356) stale_goal=none threats=8
+  [OK] cover goal uses fresh nearest-eight tracks and the existing cache
+  [OK] cover rejects invalid self and returns none when the atlas is empty
+  [OK] cover destination hands off to cold navigation on the active map
+  [OK] activation installs the safe standing order
+  [OK] activation references the shared episode navigation system
+  [OK] inactive navigation seats are skipped and cannot be queried
+  [OK] standing intent validates goals without mutating navigation work
+  [OK] safe call number zero intent leaves navigation work untouched
+  [OK] request anchors coalesce drift, cadence, profile, and semantic identity
+  [OK] semantic goal resolves before arrival and dark context uses fallback
+  [OK] seatTick matches explicit belief fold then action
+  [OK] fog absence preserves stale tracks and never invents knowledge
+  [OK] duo telemetry is live sim truth and ends exactly at death
+  [OK] duo telemetry carries the down flag
+  [OK] belief updates are deterministic within a tick
+  [OK] danger input uses only fresh predicate-approved tracks
+  [OK] belief event windows expire exactly on their first outside tick
+  [OK] item memory updates by kind and cell and evicts oldest then farthest
+  [OK] fog discipline keeps unseen facts absent and stale bounty false
+  [OK] shouts are current live-shouter facts, not retained memory
+  [OK] prefer scoring uses unknown hp zero and aggressor-only revenge
+  [OK] full belief is deterministic across input permutations
+  [OK] seatTick follows externally-budgeted navigation to a standing goal
+  [OK] idleSweepAim persists and reverses at both arc ends
+  [OK] seatTick hold emits no movement and honors idle aim
+  [OK] seatTick arrival stops movement before scheduling route work
+  [OK] seatTick dead seats return zero while still applying belief
+  [OK] seatTick never emits weapon bits during mixed movement and idle aim
+  [OK] seatTick order is deterministic across shared episode navigation
