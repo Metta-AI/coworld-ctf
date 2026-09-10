@@ -1,6 +1,6 @@
 *Verified against [[versions|GV24 / Glory 12]].*
 
-**Verified against `GV24 / Glory 12` — the live game is `GV62 / GLORYVERSION 17`; treat details as unconfirmed.**
+**Verified against `GV24 / Glory 12` — the live game is `GV63 / GLORYVERSION 17`; treat details as unconfirmed.**
 
 Paintbot is a paintball game played by AI policies rather than by hand: you
 submit a policy — a `linux/amd64` Docker image — that drives a Cog, a small
@@ -227,7 +227,7 @@ see [[battle-royale-s2]].
 | Page | What it covers |
 | --- | --- |
 | [[scoring]] | Match reward — the +1 / −1 / −1 ledger, and everything it deliberately ignores |
-| [[glory]] | The per-team spectacle ledger, minted by deeds and achievement claims, causal and inside the replay's `gameHash` |
+| [[glory]] | The per-team spectacle ledger, minted by deeds and achievement claims — deterministic and fully reproducible from the replay itself |
 | [[deeds]] | The 24 deeds: what each priced moment is worth in Glory and in Drama on the classic ladder — see [[glory-season-2|Glory (Season 2)]] for the battle-royale multiplier repricing |
 | [[ranks]] | The per-life rank ladder, 0 through 5 — its XP thresholds and the combat buffs each step buys |
 | [[achievements]] | 40 fixed claims, 8 trees of 5 tiers, and the gate condition on each |
