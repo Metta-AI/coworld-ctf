@@ -35,6 +35,36 @@
 ARG NIM_IMAGE=ghcr.io/metta-ai/coworld-ctf-nim:b47ad65d
 ARG RUNTIME_IMAGE=ghcr.io/metta-ai/coworld-ctf-runtime:b47ad65d
 
+# ── Season 2 playbook: every reference play under play_sdk/reference/ ─────
+# Reused verbatim from policies/starters/common/build_playbook.sh (the same
+# recipe the starter policies bake their playbook with) so the baseline's
+# Season 2 half calls the SAME compiled plays a starter would, never its own
+# fork of them. Pinned to linux/amd64 like the starters' own Dockerfiles:
+# the official Nim image publishes no arm64 manifest, and wasm is
+# architecture-neutral either way.
+FROM --platform=linux/amd64 ${NIM_IMAGE} AS playbook
+ARG WASI_SDK_VERSION=33
+ARG WASI_SDK_RELEASE=33.0
+RUN set -eux; \
+    case "$(uname -m)" in \
+      x86_64)  wasi_target=x86_64-linux ;; \
+      aarch64) wasi_target=arm64-linux ;; \
+      *) echo "unsupported arch $(uname -m)" >&2; exit 1 ;; \
+    esac; \
+    archive="wasi-sdk-${WASI_SDK_RELEASE}-${wasi_target}.tar.gz"; \
+    curl -fsSL -o /tmp/wasi-sdk.tar.gz \
+      "https://github.com/WebAssembly/wasi-sdk/releases/download/wasi-sdk-${WASI_SDK_VERSION}/${archive}"; \
+    mkdir -p /opt/wasi-sdk; \
+    tar -xzf /tmp/wasi-sdk.tar.gz --strip-components=1 -C /opt/wasi-sdk; \
+    rm /tmp/wasi-sdk.tar.gz
+ENV WASI_SDK_PATH=/opt/wasi-sdk
+WORKDIR /src
+COPY play_sdk ./play_sdk
+COPY tools/runtime_spike ./tools/runtime_spike
+COPY policies/starters/common/build_playbook.sh ./policies/starters/common/
+RUN chmod +x policies/starters/common/build_playbook.sh \
+    && policies/starters/common/build_playbook.sh /playbook
+
 FROM ${NIM_IMAGE} AS build
 # nimby writes its global package tree under $HOME; the image has no home dir.
 ENV HOME=/tmp
@@ -66,4 +96,12 @@ RUN nim c \
 
 FROM ${RUNTIME_IMAGE}
 COPY --from=build /workspace/ctf/baseline /bin/baseline
+# The Season 2 playbook: s2play.nim reads BASELINE_PLAYBOOK (defaults to
+# /playbook) at startup and uploads whichever of its known reference plays
+# are present. Missing this stage is not fatal at runtime -- a play seat
+# with nothing uploaded simply plays the engine's own default play -- but a
+# real match wants the reference plays actually driving, so this image
+# always ships them.
+COPY --from=playbook /playbook /playbook
+ENV BASELINE_PLAYBOOK=/playbook
 CMD ["/bin/baseline"]
