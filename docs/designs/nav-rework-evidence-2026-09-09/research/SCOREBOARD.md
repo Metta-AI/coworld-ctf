@@ -67,3 +67,6 @@ G0 bed15e11; G1 9e4971f1; M1 5a6c4963; W1 da13e2c7; M2 d9962a8d; M3 f261aeca; W2
 - C1: current A0/P1 source, three m5a native/Docker pairs per range. 1300px worstp95/max5.186019/5.246860 native versus5.140920/5.177941 Docker, both fail. All masks/pops and Dockerfullquality match. See C1_REPORT.md.
 
 - A2 retained: coarse-edge symmetry preserves32,545,936bits/76maps and fullquality. Three m8i targeted pairs reduce map48 index~24ms and pass ratios; full sweep stillfails map48 at2.004792788x (75/76time,76/76memory). See A2_REPORT.md.
+
+- A3 rejected: inline legalNavMove has no repeatable native m8i gain and full map48 remains2.003934x. Source restored to A2. See A3_REPORT.md.
+- H1 isolated positive work screen: full quality matches across architectures with15.47% fewer corpus pops; native short-run completions462->789 and near latency improve, whole-body does not. Censored far-tail worsens; adoption pending joint review. See H1_NATIVE_REPORT.md.
