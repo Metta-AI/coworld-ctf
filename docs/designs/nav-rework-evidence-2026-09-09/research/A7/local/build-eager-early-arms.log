@@ -1,0 +1,48 @@
+Hint: used config file '/Users/jamesboggs/.nimby/nim/config/nim.cfg' [Conf]
+Hint: used config file '/Users/jamesboggs/.nimby/nim/config/config.nims' [Conf]
+Hint: used config file '/Users/jamesboggs/coding/coworlds/coworld-ctf-worktrees/nav-early-visited/nim.cfg' [Conf]
+..........................................................................................................................................................................................................................
+/Users/jamesboggs/coding/coworlds/coworld-ctf-worktrees/nav-early-visited/src/ctf/arena.nim(1373, 5) Hint: 'inside' is declared but not used [XDeclaredButNotUsed]
+/Users/jamesboggs/coding/coworlds/coworld-ctf-worktrees/nav-early-visited/src/ctf/arena.nim(3702, 6) Hint: 'rectsNode' is declared but not used [XDeclaredButNotUsed]
+/Users/jamesboggs/coding/coworlds/coworld-ctf-worktrees/nav-early-visited/src/ctf/arena.nim(3707, 6) Hint: 'rectsFromNode' is declared but not used [XDeclaredButNotUsed]
+..
+CC: system/exceptions.nim
+CC: std/private/digitsutils.nim
+CC: std/assertions.nim
+CC: std/private/dragonbox.nim
+CC: std/formatfloat.nim
+CC: system/dollars.nim
+CC: std/syncio.nim
+CC: system.nim
+CC: algorithm.nim
+CC: math.nim
+CC: parseutils.nim
+CC: unicode.nim
+CC: strutils.nim
+CC: strformat.nim
+CC: heapqueue.nim
+CC: hashes.nim
+CC: tables.nim
+CC: streams.nim
+CC: lexbase.nim
+CC: parsejson.nim
+CC: json.nim
+CC: jsony.nim
+CC: flatty/binny.nim
+CC: posix.nim
+CC: times.nim
+CC: std/cmdline.nim
+CC: pixie/fontformats/opentype.nim
+CC: pixie/fileformats/jpeg.nim
+CC: pixie/fileformats/png.nim
+CC: random.nim
+CC: bitworld/spriteprotocol.nim
+CC: bitworld/pixelfonts.nim
+CC: ../src/ctf/sim_types.nim
+CC: ../src/ctf/arena.nim
+CC: ../src/shell/body_map.nim
+CC: ../src/ctf/br_map_pool.nim
+CC: check_pixel_search_arms.nim
+Hint:  [Link]
+Hint: mm: orc; threads: on; opt: speed; options: -d:release
+113029 lines; 2.567s; 341.711MiB peakmem; proj: /Users/jamesboggs/coding/coworlds/coworld-ctf-worktrees/nav-early-visited/tools/check_pixel_search_arms.nim; out: /Users/jamesboggs/coding/coworlds/coworld-ctf-worktrees/nav-throughput-research/docs/designs/nav-rework-evidence-2026-09-09/research/A7/local/eager-early-arms [SuccessX]

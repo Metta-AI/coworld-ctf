@@ -1,0 +1,7 @@
+# A7 local exactness and first native screen
+
+Four materialized sources preserve all11crafted outcomes, the173424-search map48 chain4D841154B18CFF53 and all76selected-index array hashes/counts/retained fields. The identity tool does not hash every struct array; keep its original coverage limit. Focused index suites7/7pass per arm. Lazy scratch remains the A6 transient addition; the early-visited move adds no allocation.
+
+Coverage correction: the original A6-crafted corner_pinch returns reached=false in both modes, so it does not prove that exactEdges changes the outcome. Root added a v2 diagnostic that compares plain/exact outputs for every real-map start. It finds12differences in each arm, with identical examples/results across arms; all maintain the original chain. Example start(589,63), target2055: plain reports reached with empty simplified points, exact has[(589,63),(589,62),(596,60)]. This is an existing outcome and not changed by A7. Raw v1 and v2 outputs retained.
+
+Native m8i counter-free public-constructor means (5constructions per process,3interleaved repeats): eager252.860/252.258/253.513ms; eager-early251.279/251.005/250.577; lazy254.058/244.198/244.330; lazy-early238.767/240.627/240.365. Combined candidate/eager0.9443/0.9539/0.9481, median about5.2%gain; early-only is sub-threshold. The first lazy process is slower than its later repeats; retain it without attributing a cause or discarding it. No integration or fleet acceptance yet; m5a follow-up pending.

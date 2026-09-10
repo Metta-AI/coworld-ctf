@@ -92,3 +92,7 @@ G0 bed15e11; G1 9e4971f1; M1 5a6c4963; W1 da13e2c7; M2 d9962a8d; M3 f261aeca; W2
 - A6 m5a qualification complete:3072quality exact,62/76activation-time,76/76memory,retained ledgers equal m8i. No integration;14activation failures remain. A6-m5a-qualification-summary.json.
 
 - C8 rejected standalone: all27recorded-trace totals slow0.50–2.38%,26/27p95slower; all3072quality exact. No primary source change or m5a follow-up. C8_ROOT_RESULT.md.
+
+- C7v2micro passes both native hosts:120rows exact, list replay about49–59%faster m8i and51–56%m5a. Full64slot candidate still isolated; no whole-body/cap decision. C7_NATIVE_MICRO_REPORT.md.
+
+- A7 sub-threshold: combinedlazy+early gainsmedian5.2%m8i but3.8%m5a, below5%both-host gate; early-onlyflat. All76selected-index fields and173424pathchain exact,12real exactEdges differences preserved. No integration. A7_NATIVE_REPORT.md.

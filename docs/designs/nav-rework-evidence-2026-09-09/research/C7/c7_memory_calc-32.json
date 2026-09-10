@@ -1,0 +1,712 @@
+{
+ "slots": 32,
+ "list_cache_bytes": {
+  "331": 1379120,
+  "1300": 13868848
+ },
+ "rows": [
+  {
+   "map": "published:00:br-gen-20049",
+   "range_px": 331,
+   "colossal": false,
+   "shared_before": 16222278,
+   "shared_after": 17542486,
+   "total_before": 29355174,
+   "total_after": 30675382
+  },
+  {
+   "map": "published:01:br-gen-20184",
+   "range_px": 331,
+   "colossal": false,
+   "shared_before": 16228940,
+   "shared_after": 17549148,
+   "total_before": 29361836,
+   "total_after": 30682044
+  },
+  {
+   "map": "published:02:br-gen-20708",
+   "range_px": 331,
+   "colossal": false,
+   "shared_before": 16218231,
+   "shared_after": 17538439,
+   "total_before": 29351127,
+   "total_after": 30671335
+  },
+  {
+   "map": "published:03:br-gen-20798",
+   "range_px": 331,
+   "colossal": false,
+   "shared_before": 16217132,
+   "shared_after": 17537340,
+   "total_before": 29350028,
+   "total_after": 30670236
+  },
+  {
+   "map": "published:04:br-gen-20822",
+   "range_px": 331,
+   "colossal": false,
+   "shared_before": 16223598,
+   "shared_after": 17543806,
+   "total_before": 29356494,
+   "total_after": 30676702
+  },
+  {
+   "map": "published:05:br-gen-20894",
+   "range_px": 331,
+   "colossal": false,
+   "shared_before": 16223380,
+   "shared_after": 17543588,
+   "total_before": 29356276,
+   "total_after": 30676484
+  },
+  {
+   "map": "published:06:br-gen-20930",
+   "range_px": 331,
+   "colossal": false,
+   "shared_before": 16214495,
+   "shared_after": 17534703,
+   "total_before": 29347391,
+   "total_after": 30667599
+  },
+  {
+   "map": "published:07:br-gen-21170",
+   "range_px": 331,
+   "colossal": false,
+   "shared_before": 16228270,
+   "shared_after": 17548478,
+   "total_before": 29361166,
+   "total_after": 30681374
+  },
+  {
+   "map": "published:08:br-gen-21378",
+   "range_px": 331,
+   "colossal": false,
+   "shared_before": 16232478,
+   "shared_after": 17552686,
+   "total_before": 29365374,
+   "total_after": 30685582
+  },
+  {
+   "map": "published:09:br-gen-21450",
+   "range_px": 331,
+   "colossal": false,
+   "shared_before": 16234814,
+   "shared_after": 17555022,
+   "total_before": 29367710,
+   "total_after": 30687918
+  },
+  {
+   "map": "published:10:br-gen-21686",
+   "range_px": 331,
+   "colossal": false,
+   "shared_before": 16230069,
+   "shared_after": 17550277,
+   "total_before": 29362965,
+   "total_after": 30683173
+  },
+  {
+   "map": "published:11:br-gen-21704",
+   "range_px": 331,
+   "colossal": false,
+   "shared_before": 16230363,
+   "shared_after": 17550571,
+   "total_before": 29363259,
+   "total_after": 30683467
+  },
+  {
+   "map": "published:12:br-gen-21849",
+   "range_px": 331,
+   "colossal": false,
+   "shared_before": 16217485,
+   "shared_after": 17537693,
+   "total_before": 29350381,
+   "total_after": 30670589
+  },
+  {
+   "map": "published:13:br-gen-21884",
+   "range_px": 331,
+   "colossal": false,
+   "shared_before": 16224219,
+   "shared_after": 17544427,
+   "total_before": 29357115,
+   "total_after": 30677323
+  },
+  {
+   "map": "published:14:br-gen-21944",
+   "range_px": 331,
+   "colossal": false,
+   "shared_before": 16229470,
+   "shared_after": 17549678,
+   "total_before": 29362366,
+   "total_after": 30682574
+  },
+  {
+   "map": "published:15:br-gen-22010",
+   "range_px": 331,
+   "colossal": false,
+   "shared_before": 16252180,
+   "shared_after": 17572388,
+   "total_before": 29385076,
+   "total_after": 30705284
+  },
+  {
+   "map": "published:16:br-gen-22178",
+   "range_px": 331,
+   "colossal": false,
+   "shared_before": 16217986,
+   "shared_after": 17538194,
+   "total_before": 29350882,
+   "total_after": 30671090
+  },
+  {
+   "map": "published:17:br-gen-22338",
+   "range_px": 331,
+   "colossal": false,
+   "shared_before": 16214402,
+   "shared_after": 17534610,
+   "total_before": 29347298,
+   "total_after": 30667506
+  },
+  {
+   "map": "published:18:br-gen-22358",
+   "range_px": 331,
+   "colossal": false,
+   "shared_before": 16228978,
+   "shared_after": 17549186,
+   "total_before": 29361874,
+   "total_after": 30682082
+  },
+  {
+   "map": "published:19:br-gen-22436",
+   "range_px": 331,
+   "colossal": false,
+   "shared_before": 16218370,
+   "shared_after": 17538578,
+   "total_before": 29351266,
+   "total_after": 30671474
+  },
+  {
+   "map": "published:20:br-gen-22446",
+   "range_px": 331,
+   "colossal": false,
+   "shared_before": 16227711,
+   "shared_after": 17547919,
+   "total_before": 29360607,
+   "total_after": 30680815
+  },
+  {
+   "map": "published:21:br-gen-22508",
+   "range_px": 331,
+   "colossal": false,
+   "shared_before": 16231471,
+   "shared_after": 17551679,
+   "total_before": 29364367,
+   "total_after": 30684575
+  },
+  {
+   "map": "published:22:br-gen-22527",
+   "range_px": 331,
+   "colossal": false,
+   "shared_before": 16212112,
+   "shared_after": 17532320,
+   "total_before": 29345008,
+   "total_after": 30665216
+  },
+  {
+   "map": "published:23:br-gen-22548",
+   "range_px": 331,
+   "colossal": false,
+   "shared_before": 16215557,
+   "shared_after": 17535765,
+   "total_before": 29348453,
+   "total_after": 30668661
+  },
+  {
+   "map": "published:24:br-gen-22574",
+   "range_px": 331,
+   "colossal": false,
+   "shared_before": 16219691,
+   "shared_after": 17539899,
+   "total_before": 29352587,
+   "total_after": 30672795
+  },
+  {
+   "map": "published:25:br-gen-22650",
+   "range_px": 331,
+   "colossal": false,
+   "shared_before": 16220179,
+   "shared_after": 17540387,
+   "total_before": 29353075,
+   "total_after": 30673283
+  },
+  {
+   "map": "published:26:br-gen-22772",
+   "range_px": 331,
+   "colossal": false,
+   "shared_before": 16222018,
+   "shared_after": 17542226,
+   "total_before": 29354914,
+   "total_after": 30675122
+  },
+  {
+   "map": "published:27:br-gen-22850",
+   "range_px": 331,
+   "colossal": false,
+   "shared_before": 16217406,
+   "shared_after": 17537614,
+   "total_before": 29350302,
+   "total_after": 30670510
+  },
+  {
+   "map": "published:28:br-gen-23168",
+   "range_px": 331,
+   "colossal": false,
+   "shared_before": 16221250,
+   "shared_after": 17541458,
+   "total_before": 29354146,
+   "total_after": 30674354
+  },
+  {
+   "map": "published:29:br-gen-23312",
+   "range_px": 331,
+   "colossal": false,
+   "shared_before": 16250317,
+   "shared_after": 17570525,
+   "total_before": 29383213,
+   "total_after": 30703421
+  },
+  {
+   "map": "published:30:br-gen-23355",
+   "range_px": 331,
+   "colossal": false,
+   "shared_before": 16215891,
+   "shared_after": 17536099,
+   "total_before": 29348787,
+   "total_after": 30668995
+  },
+  {
+   "map": "published:31:br-gen-23424",
+   "range_px": 331,
+   "colossal": false,
+   "shared_before": 16217507,
+   "shared_after": 17537715,
+   "total_before": 29350403,
+   "total_after": 30670611
+  },
+  {
+   "map": "published:32:br-gen-23457",
+   "range_px": 331,
+   "colossal": false,
+   "shared_before": 16228072,
+   "shared_after": 17548280,
+   "total_before": 29360968,
+   "total_after": 30681176
+  },
+  {
+   "map": "published:33:br-gen-23479",
+   "range_px": 331,
+   "colossal": false,
+   "shared_before": 16211557,
+   "shared_after": 17531765,
+   "total_before": 29344453,
+   "total_after": 30664661
+  },
+  {
+   "map": "published:34:br-gen-23546",
+   "range_px": 331,
+   "colossal": false,
+   "shared_before": 16228338,
+   "shared_after": 17548546,
+   "total_before": 29361234,
+   "total_after": 30681442
+  },
+  {
+   "map": "published:35:br-gen-23660",
+   "range_px": 331,
+   "colossal": false,
+   "shared_before": 16225062,
+   "shared_after": 17545270,
+   "total_before": 29357958,
+   "total_after": 30678166
+  },
+  {
+   "map": "published:36:br-gen-23691",
+   "range_px": 331,
+   "colossal": false,
+   "shared_before": 16209843,
+   "shared_after": 17530051,
+   "total_before": 29342739,
+   "total_after": 30662947
+  },
+  {
+   "map": "published:37:br-gen-23712",
+   "range_px": 331,
+   "colossal": false,
+   "shared_before": 16252478,
+   "shared_after": 17572686,
+   "total_before": 29385374,
+   "total_after": 30705582
+  },
+  {
+   "map": "published:38:br-gen-23732",
+   "range_px": 331,
+   "colossal": false,
+   "shared_before": 16234569,
+   "shared_after": 17554777,
+   "total_before": 29367465,
+   "total_after": 30687673
+  },
+  {
+   "map": "published:39:br-gen-23829",
+   "range_px": 331,
+   "colossal": false,
+   "shared_before": 16217859,
+   "shared_after": 17538067,
+   "total_before": 29350755,
+   "total_after": 30670963
+  },
+  {
+   "map": "published:40:br-gen-23894",
+   "range_px": 331,
+   "colossal": false,
+   "shared_before": 16217304,
+   "shared_after": 17537512,
+   "total_before": 29350200,
+   "total_after": 30670408
+  },
+  {
+   "map": "published:41:br-gen-23942",
+   "range_px": 331,
+   "colossal": false,
+   "shared_before": 16225418,
+   "shared_after": 17545626,
+   "total_before": 29358314,
+   "total_after": 30678522
+  },
+  {
+   "map": "published:42:br-gen-24008",
+   "range_px": 331,
+   "colossal": false,
+   "shared_before": 16212949,
+   "shared_after": 17533157,
+   "total_before": 29345845,
+   "total_after": 30666053
+  },
+  {
+   "map": "published:43:br-gen-24030",
+   "range_px": 331,
+   "colossal": false,
+   "shared_before": 16223708,
+   "shared_after": 17543916,
+   "total_before": 29356604,
+   "total_after": 30676812
+  },
+  {
+   "map": "published:44:br-gen-24248",
+   "range_px": 331,
+   "colossal": false,
+   "shared_before": 16226650,
+   "shared_after": 17546858,
+   "total_before": 29359546,
+   "total_after": 30679754
+  },
+  {
+   "map": "published:45:br-gen-24288",
+   "range_px": 331,
+   "colossal": false,
+   "shared_before": 16229229,
+   "shared_after": 17549437,
+   "total_before": 29362125,
+   "total_after": 30682333
+  },
+  {
+   "map": "published:46:br-gen-24540",
+   "range_px": 331,
+   "colossal": false,
+   "shared_before": 16217005,
+   "shared_after": 17537213,
+   "total_before": 29349901,
+   "total_after": 30670109
+  },
+  {
+   "map": "published:47:br-gen-24632",
+   "range_px": 331,
+   "colossal": false,
+   "shared_before": 16223813,
+   "shared_after": 17544021,
+   "total_before": 29356709,
+   "total_after": 30676917
+  },
+  {
+   "map": "published:48:br-gen-24678",
+   "range_px": 331,
+   "colossal": false,
+   "shared_before": 16216489,
+   "shared_after": 17536697,
+   "total_before": 29349385,
+   "total_after": 30669593
+  },
+  {
+   "map": "published:49:br-gen-24962",
+   "range_px": 331,
+   "colossal": false,
+   "shared_before": 16237100,
+   "shared_after": 17557308,
+   "total_before": 29369996,
+   "total_after": 30690204
+  },
+  {
+   "map": "published:50:br-gen-24968",
+   "range_px": 331,
+   "colossal": false,
+   "shared_before": 16219098,
+   "shared_after": 17539306,
+   "total_before": 29351994,
+   "total_after": 30672202
+  },
+  {
+   "map": "published:51:br-gen-25118",
+   "range_px": 331,
+   "colossal": false,
+   "shared_before": 16223564,
+   "shared_after": 17543772,
+   "total_before": 29356460,
+   "total_after": 30676668
+  },
+  {
+   "map": "published:52:br-gen-25268",
+   "range_px": 331,
+   "colossal": false,
+   "shared_before": 16225563,
+   "shared_after": 17545771,
+   "total_before": 29358459,
+   "total_after": 30678667
+  },
+  {
+   "map": "published:53:br-gen-25466",
+   "range_px": 331,
+   "colossal": false,
+   "shared_before": 16223213,
+   "shared_after": 17543421,
+   "total_before": 29356109,
+   "total_after": 30676317
+  },
+  {
+   "map": "published:54:br-gen-25706",
+   "range_px": 331,
+   "colossal": false,
+   "shared_before": 16225280,
+   "shared_after": 17545488,
+   "total_before": 29358176,
+   "total_after": 30678384
+  },
+  {
+   "map": "published:55:br-gen-25748",
+   "range_px": 331,
+   "colossal": false,
+   "shared_before": 16221441,
+   "shared_after": 17541649,
+   "total_before": 29354337,
+   "total_after": 30674545
+  },
+  {
+   "map": "published:56:br-gen-25898",
+   "range_px": 331,
+   "colossal": false,
+   "shared_before": 16226168,
+   "shared_after": 17546376,
+   "total_before": 29359064,
+   "total_after": 30679272
+  },
+  {
+   "map": "published:57:br-gen-25952",
+   "range_px": 331,
+   "colossal": false,
+   "shared_before": 16223994,
+   "shared_after": 17544202,
+   "total_before": 29356890,
+   "total_after": 30677098
+  },
+  {
+   "map": "published:58:br-gen-26151",
+   "range_px": 331,
+   "colossal": false,
+   "shared_before": 16212152,
+   "shared_after": 17532360,
+   "total_before": 29345048,
+   "total_after": 30665256
+  },
+  {
+   "map": "published:59:br-gen-26174",
+   "range_px": 331,
+   "colossal": false,
+   "shared_before": 16216379,
+   "shared_after": 17536587,
+   "total_before": 29349275,
+   "total_after": 30669483
+  },
+  {
+   "map": "published:60:br-gen-26258",
+   "range_px": 331,
+   "colossal": false,
+   "shared_before": 16226829,
+   "shared_after": 17547037,
+   "total_before": 29359725,
+   "total_after": 30679933
+  },
+  {
+   "map": "published:61:br-gen-26340",
+   "range_px": 331,
+   "colossal": false,
+   "shared_before": 16213320,
+   "shared_after": 17533528,
+   "total_before": 29346216,
+   "total_after": 30666424
+  },
+  {
+   "map": "published:62:br-gen-26474",
+   "range_px": 331,
+   "colossal": false,
+   "shared_before": 16224897,
+   "shared_after": 17545105,
+   "total_before": 29357793,
+   "total_after": 30678001
+  },
+  {
+   "map": "published:63:br-gen-26528",
+   "range_px": 331,
+   "colossal": false,
+   "shared_before": 16234845,
+   "shared_after": 17555053,
+   "total_before": 29367741,
+   "total_after": 30687949
+  },
+  {
+   "map": "size:colossal",
+   "range_px": 331,
+   "colossal": true,
+   "shared_before": 138377419,
+   "shared_after": 139697627,
+   "total_before": 229158347,
+   "total_after": 230478555,
+   "geometry_331": 422444,
+   "geometry_1300_est": 832268,
+   "total_after_1300_conservative": 243378107
+  },
+  {
+   "map": "configured:0:br-gen-505",
+   "range_px": 1300,
+   "colossal": false,
+   "shared_before": 32442066,
+   "shared_after": 45454306,
+   "total_before": 55225106,
+   "total_after": 68237346
+  },
+  {
+   "map": "configured:1:br-gen-5001",
+   "range_px": 1300,
+   "colossal": false,
+   "shared_before": 32442670,
+   "shared_after": 45454910,
+   "total_before": 55225710,
+   "total_after": 68237950
+  },
+  {
+   "map": "configured:2:br-gen-5040",
+   "range_px": 1300,
+   "colossal": false,
+   "shared_before": 32423190,
+   "shared_after": 45435430,
+   "total_before": 55206230,
+   "total_after": 68218470
+  },
+  {
+   "map": "configured:3:br-gen-5120",
+   "range_px": 1300,
+   "colossal": false,
+   "shared_before": 32461068,
+   "shared_after": 45473308,
+   "total_before": 55244108,
+   "total_after": 68256348
+  },
+  {
+   "map": "configured:4:br-gen-5161",
+   "range_px": 1300,
+   "colossal": false,
+   "shared_before": 32447580,
+   "shared_after": 45459820,
+   "total_before": 55230620,
+   "total_after": 68242860
+  },
+  {
+   "map": "configured:5:br-gen-5204",
+   "range_px": 1300,
+   "colossal": false,
+   "shared_before": 32464268,
+   "shared_after": 45476508,
+   "total_before": 55247308,
+   "total_after": 68259548
+  },
+  {
+   "map": "configured:6:br-gen-5263",
+   "range_px": 1300,
+   "colossal": false,
+   "shared_before": 32451468,
+   "shared_after": 45463708,
+   "total_before": 55234508,
+   "total_after": 68246748
+  },
+  {
+   "map": "configured:7:br-gen-5312",
+   "range_px": 1300,
+   "colossal": false,
+   "shared_before": 32449296,
+   "shared_after": 45461536,
+   "total_before": 55232336,
+   "total_after": 68244576
+  },
+  {
+   "map": "configured:8:br-gen-5359",
+   "range_px": 1300,
+   "colossal": false,
+   "shared_before": 32438954,
+   "shared_after": 45451194,
+   "total_before": 55221994,
+   "total_after": 68234234
+  },
+  {
+   "map": "configured:9:br-gen-5400",
+   "range_px": 1300,
+   "colossal": false,
+   "shared_before": 32450722,
+   "shared_after": 45462962,
+   "total_before": 55233762,
+   "total_after": 68246002
+  },
+  {
+   "map": "configured:10:br-gen-5448",
+   "range_px": 1300,
+   "colossal": false,
+   "shared_before": 32450597,
+   "shared_after": 45462837,
+   "total_before": 55233637,
+   "total_after": 68245877
+  }
+ ],
+ "worst": {
+  "shared_331": 17572686,
+  "total_331": 30705582,
+  "shared_1300": 45476508,
+  "total_1300": 68259548,
+  "colossal_total_331": 230478555,
+  "colossal_total_1300_conservative": 243378107
+ },
+ "margins": {
+  "shared_1300_vs_64MiB": 21632356,
+  "shared_1300_vs_32MiB": -11922076,
+  "shared_331_vs_32MiB": 15981746,
+  "colossal_331_vs_256MiB": 37956901,
+  "colossal_1300_conservative_vs_256MiB": 25057349,
+  "total_1300_vs_256MiB": 200175908
+ }
+}

@@ -1,0 +1,228 @@
+{
+  "cacheVersion": "D20240927T193831",
+  "outputFile": "/home/ubuntu/nav-throughput-results-20260909/C7-micro/check-c2",
+  "outputLastModificationTime": "",
+  "compile": [
+    [
+      "/home/ubuntu/nav-throughput-results-20260909/C7-micro/cache-c2-check/@psystem@sexceptions.nim.c",
+      "gcc -c  -w -fmax-errors=3 -fno-strict-aliasing -pthread -O3 -fno-ident -fno-math-errno   -I/home/ubuntu/.nimby/nim-2.2.6/lib -I/home/ubuntu/coworld-nav-wavefront-20260909/tools -o /home/ubuntu/nav-throughput-results-20260909/C7-micro/cache-c2-check/@psystem@sexceptions.nim.c.o /home/ubuntu/nav-throughput-results-20260909/C7-micro/cache-c2-check/@psystem@sexceptions.nim.c"
+    ],
+    [
+      "/home/ubuntu/nav-throughput-results-20260909/C7-micro/cache-c2-check/@pstd@sprivate@sdigitsutils.nim.c",
+      "gcc -c  -w -fmax-errors=3 -fno-strict-aliasing -pthread -O3 -fno-ident -fno-math-errno   -I/home/ubuntu/.nimby/nim-2.2.6/lib -I/home/ubuntu/coworld-nav-wavefront-20260909/tools -o /home/ubuntu/nav-throughput-results-20260909/C7-micro/cache-c2-check/@pstd@sprivate@sdigitsutils.nim.c.o /home/ubuntu/nav-throughput-results-20260909/C7-micro/cache-c2-check/@pstd@sprivate@sdigitsutils.nim.c"
+    ],
+    [
+      "/home/ubuntu/nav-throughput-results-20260909/C7-micro/cache-c2-check/@pstd@sassertions.nim.c",
+      "gcc -c  -w -fmax-errors=3 -fno-strict-aliasing -pthread -O3 -fno-ident -fno-math-errno   -I/home/ubuntu/.nimby/nim-2.2.6/lib -I/home/ubuntu/coworld-nav-wavefront-20260909/tools -o /home/ubuntu/nav-throughput-results-20260909/C7-micro/cache-c2-check/@pstd@sassertions.nim.c.o /home/ubuntu/nav-throughput-results-20260909/C7-micro/cache-c2-check/@pstd@sassertions.nim.c"
+    ],
+    [
+      "/home/ubuntu/nav-throughput-results-20260909/C7-micro/cache-c2-check/@pstd@sprivate@sdragonbox.nim.c",
+      "gcc -c  -w -fmax-errors=3 -fno-strict-aliasing -pthread -O3 -fno-ident -fno-math-errno   -I/home/ubuntu/.nimby/nim-2.2.6/lib -I/home/ubuntu/coworld-nav-wavefront-20260909/tools -o /home/ubuntu/nav-throughput-results-20260909/C7-micro/cache-c2-check/@pstd@sprivate@sdragonbox.nim.c.o /home/ubuntu/nav-throughput-results-20260909/C7-micro/cache-c2-check/@pstd@sprivate@sdragonbox.nim.c"
+    ],
+    [
+      "/home/ubuntu/nav-throughput-results-20260909/C7-micro/cache-c2-check/@pstd@sformatfloat.nim.c",
+      "gcc -c  -w -fmax-errors=3 -fno-strict-aliasing -pthread -O3 -fno-ident -fno-math-errno   -I/home/ubuntu/.nimby/nim-2.2.6/lib -I/home/ubuntu/coworld-nav-wavefront-20260909/tools -o /home/ubuntu/nav-throughput-results-20260909/C7-micro/cache-c2-check/@pstd@sformatfloat.nim.c.o /home/ubuntu/nav-throughput-results-20260909/C7-micro/cache-c2-check/@pstd@sformatfloat.nim.c"
+    ],
+    [
+      "/home/ubuntu/nav-throughput-results-20260909/C7-micro/cache-c2-check/@psystem@sdollars.nim.c",
+      "gcc -c  -w -fmax-errors=3 -fno-strict-aliasing -pthread -O3 -fno-ident -fno-math-errno   -I/home/ubuntu/.nimby/nim-2.2.6/lib -I/home/ubuntu/coworld-nav-wavefront-20260909/tools -o /home/ubuntu/nav-throughput-results-20260909/C7-micro/cache-c2-check/@psystem@sdollars.nim.c.o /home/ubuntu/nav-throughput-results-20260909/C7-micro/cache-c2-check/@psystem@sdollars.nim.c"
+    ],
+    [
+      "/home/ubuntu/nav-throughput-results-20260909/C7-micro/cache-c2-check/@psystem.nim.c",
+      "gcc -c  -w -fmax-errors=3 -fno-strict-aliasing -pthread -O3 -fno-ident -fno-math-errno   -I/home/ubuntu/.nimby/nim-2.2.6/lib -I/home/ubuntu/coworld-nav-wavefront-20260909/tools -o /home/ubuntu/nav-throughput-results-20260909/C7-micro/cache-c2-check/@psystem.nim.c.o /home/ubuntu/nav-throughput-results-20260909/C7-micro/cache-c2-check/@psystem.nim.c"
+    ],
+    [
+      "/home/ubuntu/nav-throughput-results-20260909/C7-micro/cache-c2-check/@palgorithm.nim.c",
+      "gcc -c  -w -fmax-errors=3 -fno-strict-aliasing -pthread -O3 -fno-ident -fno-math-errno   -I/home/ubuntu/.nimby/nim-2.2.6/lib -I/home/ubuntu/coworld-nav-wavefront-20260909/tools -o /home/ubuntu/nav-throughput-results-20260909/C7-micro/cache-c2-check/@palgorithm.nim.c.o /home/ubuntu/nav-throughput-results-20260909/C7-micro/cache-c2-check/@palgorithm.nim.c"
+    ],
+    [
+      "/home/ubuntu/nav-throughput-results-20260909/C7-micro/cache-c2-check/@phashes.nim.c",
+      "gcc -c  -w -fmax-errors=3 -fno-strict-aliasing -pthread -O3 -fno-ident -fno-math-errno   -I/home/ubuntu/.nimby/nim-2.2.6/lib -I/home/ubuntu/coworld-nav-wavefront-20260909/tools -o /home/ubuntu/nav-throughput-results-20260909/C7-micro/cache-c2-check/@phashes.nim.c.o /home/ubuntu/nav-throughput-results-20260909/C7-micro/cache-c2-check/@phashes.nim.c"
+    ],
+    [
+      "/home/ubuntu/nav-throughput-results-20260909/C7-micro/cache-c2-check/@pmath.nim.c",
+      "gcc -c  -w -fmax-errors=3 -fno-strict-aliasing -pthread -O3 -fno-ident -fno-math-errno   -I/home/ubuntu/.nimby/nim-2.2.6/lib -I/home/ubuntu/coworld-nav-wavefront-20260909/tools -o /home/ubuntu/nav-throughput-results-20260909/C7-micro/cache-c2-check/@pmath.nim.c.o /home/ubuntu/nav-throughput-results-20260909/C7-micro/cache-c2-check/@pmath.nim.c"
+    ],
+    [
+      "/home/ubuntu/nav-throughput-results-20260909/C7-micro/cache-c2-check/@punicode.nim.c",
+      "gcc -c  -w -fmax-errors=3 -fno-strict-aliasing -pthread -O3 -fno-ident -fno-math-errno   -I/home/ubuntu/.nimby/nim-2.2.6/lib -I/home/ubuntu/coworld-nav-wavefront-20260909/tools -o /home/ubuntu/nav-throughput-results-20260909/C7-micro/cache-c2-check/@punicode.nim.c.o /home/ubuntu/nav-throughput-results-20260909/C7-micro/cache-c2-check/@punicode.nim.c"
+    ],
+    [
+      "/home/ubuntu/nav-throughput-results-20260909/C7-micro/cache-c2-check/@pstrutils.nim.c",
+      "gcc -c  -w -fmax-errors=3 -fno-strict-aliasing -pthread -O3 -fno-ident -fno-math-errno   -I/home/ubuntu/.nimby/nim-2.2.6/lib -I/home/ubuntu/coworld-nav-wavefront-20260909/tools -o /home/ubuntu/nav-throughput-results-20260909/C7-micro/cache-c2-check/@pstrutils.nim.c.o /home/ubuntu/nav-throughput-results-20260909/C7-micro/cache-c2-check/@pstrutils.nim.c"
+    ],
+    [
+      "/home/ubuntu/nav-throughput-results-20260909/C7-micro/cache-c2-check/@ptables.nim.c",
+      "gcc -c  -w -fmax-errors=3 -fno-strict-aliasing -pthread -O3 -fno-ident -fno-math-errno   -I/home/ubuntu/.nimby/nim-2.2.6/lib -I/home/ubuntu/coworld-nav-wavefront-20260909/tools -o /home/ubuntu/nav-throughput-results-20260909/C7-micro/cache-c2-check/@ptables.nim.c.o /home/ubuntu/nav-throughput-results-20260909/C7-micro/cache-c2-check/@ptables.nim.c"
+    ],
+    [
+      "/home/ubuntu/nav-throughput-results-20260909/C7-micro/cache-c2-check/@pflatty@sbinny.nim.c",
+      "gcc -c  -w -fmax-errors=3 -fno-strict-aliasing -pthread -O3 -fno-ident -fno-math-errno   -I/home/ubuntu/.nimby/nim-2.2.6/lib -I/home/ubuntu/coworld-nav-wavefront-20260909/tools -o /home/ubuntu/nav-throughput-results-20260909/C7-micro/cache-c2-check/@pflatty@sbinny.nim.c.o /home/ubuntu/nav-throughput-results-20260909/C7-micro/cache-c2-check/@pflatty@sbinny.nim.c"
+    ],
+    [
+      "/home/ubuntu/nav-throughput-results-20260909/C7-micro/cache-c2-check/@ptimes.nim.c",
+      "gcc -c  -w -fmax-errors=3 -fno-strict-aliasing -pthread -O3 -fno-ident -fno-math-errno   -I/home/ubuntu/.nimby/nim-2.2.6/lib -I/home/ubuntu/coworld-nav-wavefront-20260909/tools -o /home/ubuntu/nav-throughput-results-20260909/C7-micro/cache-c2-check/@ptimes.nim.c.o /home/ubuntu/nav-throughput-results-20260909/C7-micro/cache-c2-check/@ptimes.nim.c"
+    ],
+    [
+      "/home/ubuntu/nav-throughput-results-20260909/C7-micro/cache-c2-check/@pstd@senvvars.nim.c",
+      "gcc -c  -w -fmax-errors=3 -fno-strict-aliasing -pthread -O3 -fno-ident -fno-math-errno   -I/home/ubuntu/.nimby/nim-2.2.6/lib -I/home/ubuntu/coworld-nav-wavefront-20260909/tools -o /home/ubuntu/nav-throughput-results-20260909/C7-micro/cache-c2-check/@pstd@senvvars.nim.c.o /home/ubuntu/nav-throughput-results-20260909/C7-micro/cache-c2-check/@pstd@senvvars.nim.c"
+    ],
+    [
+      "/home/ubuntu/nav-throughput-results-20260909/C7-micro/cache-c2-check/@pstd@scmdline.nim.c",
+      "gcc -c  -w -fmax-errors=3 -fno-strict-aliasing -pthread -O3 -fno-ident -fno-math-errno   -I/home/ubuntu/.nimby/nim-2.2.6/lib -I/home/ubuntu/coworld-nav-wavefront-20260909/tools -o /home/ubuntu/nav-throughput-results-20260909/C7-micro/cache-c2-check/@pstd@scmdline.nim.c.o /home/ubuntu/nav-throughput-results-20260909/C7-micro/cache-c2-check/@pstd@scmdline.nim.c"
+    ],
+    [
+      "/home/ubuntu/nav-throughput-results-20260909/C7-micro/cache-c2-check/@pnimsimd@sruntimecheck.nim.c",
+      "gcc -c  -w -fmax-errors=3 -fno-strict-aliasing -pthread -O3 -fno-ident -fno-math-errno   -I/home/ubuntu/.nimby/nim-2.2.6/lib -I/home/ubuntu/coworld-nav-wavefront-20260909/tools -o /home/ubuntu/nav-throughput-results-20260909/C7-micro/cache-c2-check/@pnimsimd@sruntimecheck.nim.c.o /home/ubuntu/nav-throughput-results-20260909/C7-micro/cache-c2-check/@pnimsimd@sruntimecheck.nim.c"
+    ],
+    [
+      "/home/ubuntu/nav-throughput-results-20260909/C7-micro/cache-c2-check/@ppixie@ssimd.nim.c",
+      "gcc -c  -w -fmax-errors=3 -fno-strict-aliasing -pthread -O3 -fno-ident -fno-math-errno   -I/home/ubuntu/.nimby/nim-2.2.6/lib -I/home/ubuntu/coworld-nav-wavefront-20260909/tools -o /home/ubuntu/nav-throughput-results-20260909/C7-micro/cache-c2-check/@ppixie@ssimd.nim.c.o /home/ubuntu/nav-throughput-results-20260909/C7-micro/cache-c2-check/@ppixie@ssimd.nim.c"
+    ],
+    [
+      "/home/ubuntu/nav-throughput-results-20260909/C7-micro/cache-c2-check/@psets.nim.c",
+      "gcc -c  -w -fmax-errors=3 -fno-strict-aliasing -pthread -O3 -fno-ident -fno-math-errno   -I/home/ubuntu/.nimby/nim-2.2.6/lib -I/home/ubuntu/coworld-nav-wavefront-20260909/tools -o /home/ubuntu/nav-throughput-results-20260909/C7-micro/cache-c2-check/@psets.nim.c.o /home/ubuntu/nav-throughput-results-20260909/C7-micro/cache-c2-check/@psets.nim.c"
+    ],
+    [
+      "/home/ubuntu/nav-throughput-results-20260909/C7-micro/cache-c2-check/@ppixie@sfontformats@sopentype.nim.c",
+      "gcc -c  -w -fmax-errors=3 -fno-strict-aliasing -pthread -O3 -fno-ident -fno-math-errno   -I/home/ubuntu/.nimby/nim-2.2.6/lib -I/home/ubuntu/coworld-nav-wavefront-20260909/tools -o /home/ubuntu/nav-throughput-results-20260909/C7-micro/cache-c2-check/@ppixie@sfontformats@sopentype.nim.c.o /home/ubuntu/nav-throughput-results-20260909/C7-micro/cache-c2-check/@ppixie@sfontformats@sopentype.nim.c"
+    ],
+    [
+      "/home/ubuntu/nav-throughput-results-20260909/C7-micro/cache-c2-check/@ppixie@sfileformats@sjpeg.nim.c",
+      "gcc -c  -w -fmax-errors=3 -fno-strict-aliasing -pthread -O3 -fno-ident -fno-math-errno   -I/home/ubuntu/.nimby/nim-2.2.6/lib -I/home/ubuntu/coworld-nav-wavefront-20260909/tools -o /home/ubuntu/nav-throughput-results-20260909/C7-micro/cache-c2-check/@ppixie@sfileformats@sjpeg.nim.c.o /home/ubuntu/nav-throughput-results-20260909/C7-micro/cache-c2-check/@ppixie@sfileformats@sjpeg.nim.c"
+    ],
+    [
+      "/home/ubuntu/nav-throughput-results-20260909/C7-micro/cache-c2-check/@pheapqueue.nim.c",
+      "gcc -c  -w -fmax-errors=3 -fno-strict-aliasing -pthread -O3 -fno-ident -fno-math-errno   -I/home/ubuntu/.nimby/nim-2.2.6/lib -I/home/ubuntu/coworld-nav-wavefront-20260909/tools -o /home/ubuntu/nav-throughput-results-20260909/C7-micro/cache-c2-check/@pheapqueue.nim.c.o /home/ubuntu/nav-throughput-results-20260909/C7-micro/cache-c2-check/@pheapqueue.nim.c"
+    ],
+    [
+      "/home/ubuntu/nav-throughput-results-20260909/C7-micro/cache-c2-check/@pcrunchy@ssha256.nim.c",
+      "gcc -c  -w -fmax-errors=3 -fno-strict-aliasing -pthread -O3 -fno-ident -fno-math-errno   -I/home/ubuntu/.nimby/nim-2.2.6/lib -I/home/ubuntu/coworld-nav-wavefront-20260909/tools -o /home/ubuntu/nav-throughput-results-20260909/C7-micro/cache-c2-check/@pcrunchy@ssha256.nim.c.o /home/ubuntu/nav-throughput-results-20260909/C7-micro/cache-c2-check/@pcrunchy@ssha256.nim.c"
+    ],
+    [
+      "/home/ubuntu/nav-throughput-results-20260909/C7-micro/cache-c2-check/@ppixie@sfileformats@spng.nim.c",
+      "gcc -c  -w -fmax-errors=3 -fno-strict-aliasing -pthread -O3 -fno-ident -fno-math-errno   -I/home/ubuntu/.nimby/nim-2.2.6/lib -I/home/ubuntu/coworld-nav-wavefront-20260909/tools -o /home/ubuntu/nav-throughput-results-20260909/C7-micro/cache-c2-check/@ppixie@sfileformats@spng.nim.c.o /home/ubuntu/nav-throughput-results-20260909/C7-micro/cache-c2-check/@ppixie@sfileformats@spng.nim.c"
+    ],
+    [
+      "/home/ubuntu/nav-throughput-results-20260909/C7-micro/cache-c2-check/@pbitworld@sspriteprotocol.nim.c",
+      "gcc -c  -w -fmax-errors=3 -fno-strict-aliasing -pthread -O3 -fno-ident -fno-math-errno   -I/home/ubuntu/.nimby/nim-2.2.6/lib -I/home/ubuntu/coworld-nav-wavefront-20260909/tools -o /home/ubuntu/nav-throughput-results-20260909/C7-micro/cache-c2-check/@pbitworld@sspriteprotocol.nim.c.o /home/ubuntu/nav-throughput-results-20260909/C7-micro/cache-c2-check/@pbitworld@sspriteprotocol.nim.c"
+    ],
+    [
+      "/home/ubuntu/nav-throughput-results-20260909/C7-micro/cache-c2-check/@prandom.nim.c",
+      "gcc -c  -w -fmax-errors=3 -fno-strict-aliasing -pthread -O3 -fno-ident -fno-math-errno   -I/home/ubuntu/.nimby/nim-2.2.6/lib -I/home/ubuntu/coworld-nav-wavefront-20260909/tools -o /home/ubuntu/nav-throughput-results-20260909/C7-micro/cache-c2-check/@prandom.nim.c.o /home/ubuntu/nav-throughput-results-20260909/C7-micro/cache-c2-check/@prandom.nim.c"
+    ],
+    [
+      "/home/ubuntu/nav-throughput-results-20260909/C7-micro/cache-c2-check/@pbitworld@spixelfonts.nim.c",
+      "gcc -c  -w -fmax-errors=3 -fno-strict-aliasing -pthread -O3 -fno-ident -fno-math-errno   -I/home/ubuntu/.nimby/nim-2.2.6/lib -I/home/ubuntu/coworld-nav-wavefront-20260909/tools -o /home/ubuntu/nav-throughput-results-20260909/C7-micro/cache-c2-check/@pbitworld@spixelfonts.nim.c.o /home/ubuntu/nav-throughput-results-20260909/C7-micro/cache-c2-check/@pbitworld@spixelfonts.nim.c"
+    ],
+    [
+      "/home/ubuntu/nav-throughput-results-20260909/C7-micro/cache-c2-check/@m..@ssrc@sctf@ssim_types.nim.c",
+      "gcc -c  -w -fmax-errors=3 -fno-strict-aliasing -pthread -O3 -fno-ident -fno-math-errno   -I/home/ubuntu/.nimby/nim-2.2.6/lib -I/home/ubuntu/coworld-nav-wavefront-20260909/tools -o /home/ubuntu/nav-throughput-results-20260909/C7-micro/cache-c2-check/@m..@ssrc@sctf@ssim_types.nim.c.o /home/ubuntu/nav-throughput-results-20260909/C7-micro/cache-c2-check/@m..@ssrc@sctf@ssim_types.nim.c"
+    ],
+    [
+      "/home/ubuntu/nav-throughput-results-20260909/C7-micro/cache-c2-check/@pjson.nim.c",
+      "gcc -c  -w -fmax-errors=3 -fno-strict-aliasing -pthread -O3 -fno-ident -fno-math-errno   -I/home/ubuntu/.nimby/nim-2.2.6/lib -I/home/ubuntu/coworld-nav-wavefront-20260909/tools -o /home/ubuntu/nav-throughput-results-20260909/C7-micro/cache-c2-check/@pjson.nim.c.o /home/ubuntu/nav-throughput-results-20260909/C7-micro/cache-c2-check/@pjson.nim.c"
+    ],
+    [
+      "/home/ubuntu/nav-throughput-results-20260909/C7-micro/cache-c2-check/@m..@ssrc@sctf@sarena.nim.c",
+      "gcc -c  -w -fmax-errors=3 -fno-strict-aliasing -pthread -O3 -fno-ident -fno-math-errno   -I/home/ubuntu/.nimby/nim-2.2.6/lib -I/home/ubuntu/coworld-nav-wavefront-20260909/tools -o /home/ubuntu/nav-throughput-results-20260909/C7-micro/cache-c2-check/@m..@ssrc@sctf@sarena.nim.c.o /home/ubuntu/nav-throughput-results-20260909/C7-micro/cache-c2-check/@m..@ssrc@sctf@sarena.nim.c"
+    ],
+    [
+      "/home/ubuntu/nav-throughput-results-20260909/C7-micro/cache-c2-check/@m..@ssrc@sshell@sbody_map.nim.c",
+      "gcc -c  -w -fmax-errors=3 -fno-strict-aliasing -pthread -O3 -fno-ident -fno-math-errno   -I/home/ubuntu/.nimby/nim-2.2.6/lib -I/home/ubuntu/coworld-nav-wavefront-20260909/tools -o /home/ubuntu/nav-throughput-results-20260909/C7-micro/cache-c2-check/@m..@ssrc@sshell@sbody_map.nim.c.o /home/ubuntu/nav-throughput-results-20260909/C7-micro/cache-c2-check/@m..@ssrc@sshell@sbody_map.nim.c"
+    ],
+    [
+      "/home/ubuntu/nav-throughput-results-20260909/C7-micro/cache-c2-check/@m..@ssrc@sshell@sbody_cache.nim.c",
+      "gcc -c  -w -fmax-errors=3 -fno-strict-aliasing -pthread -O3 -fno-ident -fno-math-errno   -I/home/ubuntu/.nimby/nim-2.2.6/lib -I/home/ubuntu/coworld-nav-wavefront-20260909/tools -o /home/ubuntu/nav-throughput-results-20260909/C7-micro/cache-c2-check/@m..@ssrc@sshell@sbody_cache.nim.c.o /home/ubuntu/nav-throughput-results-20260909/C7-micro/cache-c2-check/@m..@ssrc@sshell@sbody_cache.nim.c"
+    ],
+    [
+      "/home/ubuntu/nav-throughput-results-20260909/C7-micro/cache-c2-check/@m..@ssrc@sshell@sbody_danger.nim.c",
+      "gcc -c  -w -fmax-errors=3 -fno-strict-aliasing -pthread -O3 -fno-ident -fno-math-errno   -I/home/ubuntu/.nimby/nim-2.2.6/lib -I/home/ubuntu/coworld-nav-wavefront-20260909/tools -o /home/ubuntu/nav-throughput-results-20260909/C7-micro/cache-c2-check/@m..@ssrc@sshell@sbody_danger.nim.c.o /home/ubuntu/nav-throughput-results-20260909/C7-micro/cache-c2-check/@m..@ssrc@sshell@sbody_danger.nim.c"
+    ],
+    [
+      "/home/ubuntu/nav-throughput-results-20260909/C7-micro/cache-c2-check/@m..@ssrc@sctf@szone_field.nim.c",
+      "gcc -c  -w -fmax-errors=3 -fno-strict-aliasing -pthread -O3 -fno-ident -fno-math-errno   -I/home/ubuntu/.nimby/nim-2.2.6/lib -I/home/ubuntu/coworld-nav-wavefront-20260909/tools -o /home/ubuntu/nav-throughput-results-20260909/C7-micro/cache-c2-check/@m..@ssrc@sctf@szone_field.nim.c.o /home/ubuntu/nav-throughput-results-20260909/C7-micro/cache-c2-check/@m..@ssrc@sctf@szone_field.nim.c"
+    ],
+    [
+      "/home/ubuntu/nav-throughput-results-20260909/C7-micro/cache-c2-check/@pstrformat.nim.c",
+      "gcc -c  -w -fmax-errors=3 -fno-strict-aliasing -pthread -O3 -fno-ident -fno-math-errno   -I/home/ubuntu/.nimby/nim-2.2.6/lib -I/home/ubuntu/coworld-nav-wavefront-20260909/tools -o /home/ubuntu/nav-throughput-results-20260909/C7-micro/cache-c2-check/@pstrformat.nim.c.o /home/ubuntu/nav-throughput-results-20260909/C7-micro/cache-c2-check/@pstrformat.nim.c"
+    ],
+    [
+      "/home/ubuntu/nav-throughput-results-20260909/C7-micro/cache-c2-check/@m..@ssrc@sshell@sbody_route_index.nim.c",
+      "gcc -c  -w -fmax-errors=3 -fno-strict-aliasing -pthread -O3 -fno-ident -fno-math-errno   -I/home/ubuntu/.nimby/nim-2.2.6/lib -I/home/ubuntu/coworld-nav-wavefront-20260909/tools -o /home/ubuntu/nav-throughput-results-20260909/C7-micro/cache-c2-check/@m..@ssrc@sshell@sbody_route_index.nim.c.o /home/ubuntu/nav-throughput-results-20260909/C7-micro/cache-c2-check/@m..@ssrc@sshell@sbody_route_index.nim.c"
+    ],
+    [
+      "/home/ubuntu/nav-throughput-results-20260909/C7-micro/cache-c2-check/@m..@ssrc@sshell@sbody_hazard.nim.c",
+      "gcc -c  -w -fmax-errors=3 -fno-strict-aliasing -pthread -O3 -fno-ident -fno-math-errno   -I/home/ubuntu/.nimby/nim-2.2.6/lib -I/home/ubuntu/coworld-nav-wavefront-20260909/tools -o /home/ubuntu/nav-throughput-results-20260909/C7-micro/cache-c2-check/@m..@ssrc@sshell@sbody_hazard.nim.c.o /home/ubuntu/nav-throughput-results-20260909/C7-micro/cache-c2-check/@m..@ssrc@sshell@sbody_hazard.nim.c"
+    ],
+    [
+      "/home/ubuntu/nav-throughput-results-20260909/C7-micro/cache-c2-check/@m..@ssrc@sshell@sbody_route_query.nim.c",
+      "gcc -c  -w -fmax-errors=3 -fno-strict-aliasing -pthread -O3 -fno-ident -fno-math-errno   -I/home/ubuntu/.nimby/nim-2.2.6/lib -I/home/ubuntu/coworld-nav-wavefront-20260909/tools -o /home/ubuntu/nav-throughput-results-20260909/C7-micro/cache-c2-check/@m..@ssrc@sshell@sbody_route_query.nim.c.o /home/ubuntu/nav-throughput-results-20260909/C7-micro/cache-c2-check/@m..@ssrc@sshell@sbody_route_query.nim.c"
+    ],
+    [
+      "/home/ubuntu/nav-throughput-results-20260909/C7-micro/cache-c2-check/@m..@ssrc@sshell@sbody_safety_query.nim.c",
+      "gcc -c  -w -fmax-errors=3 -fno-strict-aliasing -pthread -O3 -fno-ident -fno-math-errno   -I/home/ubuntu/.nimby/nim-2.2.6/lib -I/home/ubuntu/coworld-nav-wavefront-20260909/tools -o /home/ubuntu/nav-throughput-results-20260909/C7-micro/cache-c2-check/@m..@ssrc@sshell@sbody_safety_query.nim.c.o /home/ubuntu/nav-throughput-results-20260909/C7-micro/cache-c2-check/@m..@ssrc@sshell@sbody_safety_query.nim.c"
+    ],
+    [
+      "/home/ubuntu/nav-throughput-results-20260909/C7-micro/cache-c2-check/@mcheck_danger_list_capture.nim.c",
+      "gcc -c  -w -fmax-errors=3 -fno-strict-aliasing -pthread -O3 -fno-ident -fno-math-errno   -I/home/ubuntu/.nimby/nim-2.2.6/lib -I/home/ubuntu/coworld-nav-wavefront-20260909/tools -o /home/ubuntu/nav-throughput-results-20260909/C7-micro/cache-c2-check/@mcheck_danger_list_capture.nim.c.o /home/ubuntu/nav-throughput-results-20260909/C7-micro/cache-c2-check/@mcheck_danger_list_capture.nim.c"
+    ]
+  ],
+  "link": [
+    "/home/ubuntu/nav-throughput-results-20260909/C7-micro/cache-c2-check/@psystem@sexceptions.nim.c.o",
+    "/home/ubuntu/nav-throughput-results-20260909/C7-micro/cache-c2-check/@pstd@sprivate@sdigitsutils.nim.c.o",
+    "/home/ubuntu/nav-throughput-results-20260909/C7-micro/cache-c2-check/@pstd@sassertions.nim.c.o",
+    "/home/ubuntu/nav-throughput-results-20260909/C7-micro/cache-c2-check/@pstd@sprivate@sdragonbox.nim.c.o",
+    "/home/ubuntu/nav-throughput-results-20260909/C7-micro/cache-c2-check/@pstd@sformatfloat.nim.c.o",
+    "/home/ubuntu/nav-throughput-results-20260909/C7-micro/cache-c2-check/@psystem@sdollars.nim.c.o",
+    "/home/ubuntu/nav-throughput-results-20260909/C7-micro/cache-c2-check/@psystem.nim.c.o",
+    "/home/ubuntu/nav-throughput-results-20260909/C7-micro/cache-c2-check/@palgorithm.nim.c.o",
+    "/home/ubuntu/nav-throughput-results-20260909/C7-micro/cache-c2-check/@phashes.nim.c.o",
+    "/home/ubuntu/nav-throughput-results-20260909/C7-micro/cache-c2-check/@pmath.nim.c.o",
+    "/home/ubuntu/nav-throughput-results-20260909/C7-micro/cache-c2-check/@punicode.nim.c.o",
+    "/home/ubuntu/nav-throughput-results-20260909/C7-micro/cache-c2-check/@pstrutils.nim.c.o",
+    "/home/ubuntu/nav-throughput-results-20260909/C7-micro/cache-c2-check/@ptables.nim.c.o",
+    "/home/ubuntu/nav-throughput-results-20260909/C7-micro/cache-c2-check/@pflatty@sbinny.nim.c.o",
+    "/home/ubuntu/nav-throughput-results-20260909/C7-micro/cache-c2-check/@ptimes.nim.c.o",
+    "/home/ubuntu/nav-throughput-results-20260909/C7-micro/cache-c2-check/@pstd@senvvars.nim.c.o",
+    "/home/ubuntu/nav-throughput-results-20260909/C7-micro/cache-c2-check/@pstd@scmdline.nim.c.o",
+    "/home/ubuntu/nav-throughput-results-20260909/C7-micro/cache-c2-check/@pnimsimd@sruntimecheck.nim.c.o",
+    "/home/ubuntu/nav-throughput-results-20260909/C7-micro/cache-c2-check/@ppixie@ssimd.nim.c.o",
+    "/home/ubuntu/nav-throughput-results-20260909/C7-micro/cache-c2-check/@psets.nim.c.o",
+    "/home/ubuntu/nav-throughput-results-20260909/C7-micro/cache-c2-check/@ppixie@sfontformats@sopentype.nim.c.o",
+    "/home/ubuntu/nav-throughput-results-20260909/C7-micro/cache-c2-check/@ppixie@sfileformats@sjpeg.nim.c.o",
+    "/home/ubuntu/nav-throughput-results-20260909/C7-micro/cache-c2-check/@pheapqueue.nim.c.o",
+    "/home/ubuntu/nav-throughput-results-20260909/C7-micro/cache-c2-check/@pcrunchy@ssha256.nim.c.o",
+    "/home/ubuntu/nav-throughput-results-20260909/C7-micro/cache-c2-check/@ppixie@sfileformats@spng.nim.c.o",
+    "/home/ubuntu/nav-throughput-results-20260909/C7-micro/cache-c2-check/@pbitworld@sspriteprotocol.nim.c.o",
+    "/home/ubuntu/nav-throughput-results-20260909/C7-micro/cache-c2-check/@prandom.nim.c.o",
+    "/home/ubuntu/nav-throughput-results-20260909/C7-micro/cache-c2-check/@pbitworld@spixelfonts.nim.c.o",
+    "/home/ubuntu/nav-throughput-results-20260909/C7-micro/cache-c2-check/@m..@ssrc@sctf@ssim_types.nim.c.o",
+    "/home/ubuntu/nav-throughput-results-20260909/C7-micro/cache-c2-check/@pjson.nim.c.o",
+    "/home/ubuntu/nav-throughput-results-20260909/C7-micro/cache-c2-check/@m..@ssrc@sctf@sarena.nim.c.o",
+    "/home/ubuntu/nav-throughput-results-20260909/C7-micro/cache-c2-check/@m..@ssrc@sshell@sbody_map.nim.c.o",
+    "/home/ubuntu/nav-throughput-results-20260909/C7-micro/cache-c2-check/@m..@ssrc@sshell@sbody_cache.nim.c.o",
+    "/home/ubuntu/nav-throughput-results-20260909/C7-micro/cache-c2-check/@m..@ssrc@sshell@sbody_danger.nim.c.o",
+    "/home/ubuntu/nav-throughput-results-20260909/C7-micro/cache-c2-check/@m..@ssrc@sctf@szone_field.nim.c.o",
+    "/home/ubuntu/nav-throughput-results-20260909/C7-micro/cache-c2-check/@pstrformat.nim.c.o",
+    "/home/ubuntu/nav-throughput-results-20260909/C7-micro/cache-c2-check/@m..@ssrc@sshell@sbody_route_index.nim.c.o",
+    "/home/ubuntu/nav-throughput-results-20260909/C7-micro/cache-c2-check/@m..@ssrc@sshell@sbody_hazard.nim.c.o",
+    "/home/ubuntu/nav-throughput-results-20260909/C7-micro/cache-c2-check/@m..@ssrc@sshell@sbody_route_query.nim.c.o",
+    "/home/ubuntu/nav-throughput-results-20260909/C7-micro/cache-c2-check/@m..@ssrc@sshell@sbody_safety_query.nim.c.o",
+    "/home/ubuntu/nav-throughput-results-20260909/C7-micro/cache-c2-check/@mcheck_danger_list_capture.nim.c.o"
+  ],
+  "linkcmd": "gcc   -o /home/ubuntu/nav-throughput-results-20260909/C7-micro/check-c2 /home/ubuntu/nav-throughput-results-20260909/C7-micro/cache-c2-check/@psystem@sexceptions.nim.c.o /home/ubuntu/nav-throughput-results-20260909/C7-micro/cache-c2-check/@pstd@sprivate@sdigitsutils.nim.c.o /home/ubuntu/nav-throughput-results-20260909/C7-micro/cache-c2-check/@pstd@sassertions.nim.c.o /home/ubuntu/nav-throughput-results-20260909/C7-micro/cache-c2-check/@pstd@sprivate@sdragonbox.nim.c.o /home/ubuntu/nav-throughput-results-20260909/C7-micro/cache-c2-check/@pstd@sformatfloat.nim.c.o /home/ubuntu/nav-throughput-results-20260909/C7-micro/cache-c2-check/@psystem@sdollars.nim.c.o /home/ubuntu/nav-throughput-results-20260909/C7-micro/cache-c2-check/@psystem.nim.c.o /home/ubuntu/nav-throughput-results-20260909/C7-micro/cache-c2-check/@palgorithm.nim.c.o /home/ubuntu/nav-throughput-results-20260909/C7-micro/cache-c2-check/@phashes.nim.c.o /home/ubuntu/nav-throughput-results-20260909/C7-micro/cache-c2-check/@pmath.nim.c.o /home/ubuntu/nav-throughput-results-20260909/C7-micro/cache-c2-check/@punicode.nim.c.o /home/ubuntu/nav-throughput-results-20260909/C7-micro/cache-c2-check/@pstrutils.nim.c.o /home/ubuntu/nav-throughput-results-20260909/C7-micro/cache-c2-check/@ptables.nim.c.o /home/ubuntu/nav-throughput-results-20260909/C7-micro/cache-c2-check/@pflatty@sbinny.nim.c.o /home/ubuntu/nav-throughput-results-20260909/C7-micro/cache-c2-check/@ptimes.nim.c.o /home/ubuntu/nav-throughput-results-20260909/C7-micro/cache-c2-check/@pstd@senvvars.nim.c.o /home/ubuntu/nav-throughput-results-20260909/C7-micro/cache-c2-check/@pstd@scmdline.nim.c.o /home/ubuntu/nav-throughput-results-20260909/C7-micro/cache-c2-check/@pnimsimd@sruntimecheck.nim.c.o /home/ubuntu/nav-throughput-results-20260909/C7-micro/cache-c2-check/@ppixie@ssimd.nim.c.o /home/ubuntu/nav-throughput-results-20260909/C7-micro/cache-c2-check/@psets.nim.c.o /home/ubuntu/nav-throughput-results-20260909/C7-micro/cache-c2-check/@ppixie@sfontformats@sopentype.nim.c.o /home/ubuntu/nav-throughput-results-20260909/C7-micro/cache-c2-check/@ppixie@sfileformats@sjpeg.nim.c.o /home/ubuntu/nav-throughput-results-20260909/C7-micro/cache-c2-check/@pheapqueue.nim.c.o /home/ubuntu/nav-throughput-results-20260909/C7-micro/cache-c2-check/@pcrunchy@ssha256.nim.c.o /home/ubuntu/nav-throughput-results-20260909/C7-micro/cache-c2-check/@ppixie@sfileformats@spng.nim.c.o /home/ubuntu/nav-throughput-results-20260909/C7-micro/cache-c2-check/@pbitworld@sspriteprotocol.nim.c.o /home/ubuntu/nav-throughput-results-20260909/C7-micro/cache-c2-check/@prandom.nim.c.o /home/ubuntu/nav-throughput-results-20260909/C7-micro/cache-c2-check/@pbitworld@spixelfonts.nim.c.o /home/ubuntu/nav-throughput-results-20260909/C7-micro/cache-c2-check/@m..@ssrc@sctf@ssim_types.nim.c.o /home/ubuntu/nav-throughput-results-20260909/C7-micro/cache-c2-check/@pjson.nim.c.o /home/ubuntu/nav-throughput-results-20260909/C7-micro/cache-c2-check/@m..@ssrc@sctf@sarena.nim.c.o /home/ubuntu/nav-throughput-results-20260909/C7-micro/cache-c2-check/@m..@ssrc@sshell@sbody_map.nim.c.o /home/ubuntu/nav-throughput-results-20260909/C7-micro/cache-c2-check/@m..@ssrc@sshell@sbody_cache.nim.c.o /home/ubuntu/nav-throughput-results-20260909/C7-micro/cache-c2-check/@m..@ssrc@sshell@sbody_danger.nim.c.o /home/ubuntu/nav-throughput-results-20260909/C7-micro/cache-c2-check/@m..@ssrc@sctf@szone_field.nim.c.o /home/ubuntu/nav-throughput-results-20260909/C7-micro/cache-c2-check/@pstrformat.nim.c.o /home/ubuntu/nav-throughput-results-20260909/C7-micro/cache-c2-check/@m..@ssrc@sshell@sbody_route_index.nim.c.o /home/ubuntu/nav-throughput-results-20260909/C7-micro/cache-c2-check/@m..@ssrc@sshell@sbody_hazard.nim.c.o /home/ubuntu/nav-throughput-results-20260909/C7-micro/cache-c2-check/@m..@ssrc@sshell@sbody_route_query.nim.c.o /home/ubuntu/nav-throughput-results-20260909/C7-micro/cache-c2-check/@m..@ssrc@sshell@sbody_safety_query.nim.c.o /home/ubuntu/nav-throughput-results-20260909/C7-micro/cache-c2-check/@mcheck_danger_list_capture.nim.c.o  -pthread -pthread -lm -lm -lrt   -ldl",
+  "extraCmds": [],
+  "configFiles": [
+    "/home/ubuntu/.nimby/nim-2.2.6/config/nim.cfg",
+    "/home/ubuntu/.nimby/nim-2.2.6/config/config.nims",
+    "/home/ubuntu/coworld-nav-wavefront-20260909/nim.cfg"
+  ],
+  "stdinInput": false,
+  "projectIsCmd": false,
+  "cmdInput": "",
+  "currentDir": "/home/ubuntu/coworld-nav-wavefront-20260909",
+  "cmdline": "",
+  "depfiles": [],
+  "nimexe": ""
+}

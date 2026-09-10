@@ -208,3 +208,13 @@ C3 rejected: 179/198 configured p95 rows improved about 1.25% median, but 0/11 m
 ### Native completion C8 and A6 m5a
 
 Both runners completed and restored owned hosts cleanly. C8 rejected:27/27actualtrace totals slower,26/27p95 slower; quality3072exact. A6 m5a65+11qualification:62/76activation time,76/76memory,0/11tickmaps. A6 remains isolated. Peer C7tools-only micro active, A7early-visited proposal pending peer review. Primary source is retainedC2, HEAD98c71887.
+
+### A7 local exactness screen
+
+After peer A7_REVIEW_READY, root created nav-early-visited at fixed A6 experimental basef9dff753. Owns only that tree and A7evidence. Four materialized arms: eager, eager-early, lazy, lazy-early; predicate move only. Local runner session99122. Initial build lacked generated nim.cfg; fixed with canonical nimby --global sync nimby.lock and preserved failure log, then reran. No primary source changes. Native A7 runner uses real public constructor without Fluffy/counters for timing, separate from prior A6 attribution.
+
+### C7 and A7 native progress
+
+C7v2m8i completed, all60micro rows exact; list/C2 ratios0.4138–0.5107 pass20%replay gate. m5a replicatePID63545 active. Peer full64-slot cache candidate authorized in C7_IMPLEMENT_REVIEW.md, with current memory proposal below64MiBshared/256MiBtotal and no primary cap/source change.
+
+A7local fourarm checks complete, additionalv2exact-edge coverage finds12real differences preserved across allarms (original craftedpinch failsbothmodes; correctedcoverageclaim). m8i publicconstructor runnerPID43378DONE/clean; combinedlazy+early median~5.2%gain vs eager, early-onlysubthreshold. m5ainputs uploaded, do notlaunchuntilC7runnerDONEandrestore. PrimaryHEAD7fe0c3a3, src/viewer/testclean.

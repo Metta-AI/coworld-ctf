@@ -1,0 +1,7 @@
+# A7 native result: below the two-host advancement threshold
+
+Root compared four materialized arms on public newBodyRouteIndex without Fluffy or diagnostic counters: eager A4, eager with early visited rejection, lazy A6, lazy with early rejection. Each host ran three interleaved/reversed-order sets of five constructions on map48, pinned CPU5. Both runners finished and restored their source cleanly. Raw samples, builds, patches, hardware/source/executable hashes are retained in A7-m8i/ and A7-m5a/.
+
+On m8i, combined lazy+early/eager mean-time ratios are0.9443/0.9539/0.9481 (median5.2%improvement). On m5a ratios are0.9619/0.9616/0.9671 (3.3–3.8%improvement, median3.8%). Early-only ratios are0.9884–0.9950 on m8i, but m5a ranges fromslightly worse toslightly better; it does not provide a useful standalone gain. Do not infer a stable sub-percent speedup from these samples. Full exactness and strengthened exactEdges coverage are in A7_LOCAL_REVIEW.md.
+
+The preregistration required at least5% on both hosts. A7 does not earn integration, including the combined arm; retain the exact candidate as a sub-threshold result for possible future ablations. A6 lazy remains a separate isolated candidate with its own earlier evidence, not a silently integrated fallback. No primary source, cap, budget, GameVersion or viewer change. No full quality or full76activation rerun for A7 is warranted after failing the speed screen.
