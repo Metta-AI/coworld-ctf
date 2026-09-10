@@ -1,4 +1,4 @@
-"""Verify archived source restoration using only main's base commit and patches."""
+"""Verify restoration via temporary indexes; Git may create loose blob objects."""
 
 import json
 import os

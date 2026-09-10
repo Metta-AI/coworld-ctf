@@ -33,3 +33,5 @@ origin/main, rather than rewriting the shared local main branch.
 Final collection: C10 m8i passes, m5a fails the registered randomized-trace total limit; both strict quality checks pass. Both evaluators reproduce their saved JSON exactly. All four owned research instances read back stopped. The final handoff and scoreboard explicitly close C10 as rejected for adoption.
 
 Packaging audit: Dockerfile copies the build context into its build stage. The evidence directory is excluded through .dockerignore so archived raw traces do not inflate that context. No production source or build script refers to this evidence directory. The final image already copies only selected binaries, JSON and data.
+
+Independent-review follow-up: large raw JSON files are gzip-compressed without byte changes, with original digests and explicit expansion instructions. Side historical heads are provenance-only. Current operations records use host labels; frozen historical identifiers are deliberately preserved as non-secret provenance. The complete source patches remain byte-identical and the verifier still passes.

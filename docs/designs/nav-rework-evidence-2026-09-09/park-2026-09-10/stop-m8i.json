@@ -1,7 +1,7 @@
 {
     "StoppingInstances": [
         {
-            "InstanceId": "i-0382a6e0a77c014d7",
+            "InstanceId": "owned-m8i",
             "CurrentState": {
                 "Code": 64,
                 "Name": "stopping"

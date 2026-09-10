@@ -40,6 +40,30 @@ ownership paths and the files saved. Compiler caches and built executables
 are intentionally excluded; frozen source, build commands, logs and hashes
 are preserved. The unrelated original checkout is untouched.
 
+## Read the large raw measurements
+
+JSON measurements larger than 1 MB are stored as deterministic `.json.gz`
+files. `compressed-measurements.json` records each original byte count and
+SHA-256; decompression was verified byte-for-byte before removing the plain
+copy. Historical report links and evaluators use the original `.json` names.
+Expand them in a research checkout before following those links or commands:
+
+```sh
+python3 - <<'PYTHON'
+import gzip
+from pathlib import Path
+root = Path("docs/designs/nav-rework-evidence-2026-09-09")
+for source in root.rglob("*.json.gz"):
+    target = source.with_suffix("")
+    if not target.exists():
+        target.write_bytes(gzip.decompress(source.read_bytes()))
+PYTHON
+```
+
+`SHA256SUMS.archive` hashes the committed archive files, including compressed
+measurements and untracked source snapshots. Keep historical input and source
+hashes distinct from hashes of the compressed storage representation.
+
 ## Restore the primary research code
 
 First run `python3 docs/designs/nav-rework-evidence-2026-09-09/park-2026-09-10/verify_restore.py`
@@ -47,15 +71,16 @@ from the archive checkout. It checks all eight saved bases against the saved
 blob/mode manifests, then checks that each side-worktree dirty patch applies.
 It uses temporary Git indexes and does not change the working tree.
 
-Run from a fresh clone or an existing clean checkout. Use absolute paths for
-`archive` and `resume`; do not apply the patch on current main.
+Run from a fresh clone or an existing clean checkout. Apply only in a new
+detached worktree at the pinned commit, never on your main branch or a shared
+checkout. Use absolute paths for `archive` and `resume`.
 
 ```sh
 archive="$PWD/docs/designs/nav-rework-evidence-2026-09-09/park-2026-09-10"
-resume="/tmp/coworld-nav-resume"
-git worktree add --detach "$resume" "$(cat "$archive/base.txt")"
-git -C "$resume" apply --check "$archive/implementation.patch"
-git -C "$resume" apply "$archive/implementation.patch"
+resume="$HOME/coding/coworlds/coworld-ctf-worktrees/nav-resume"
+git worktree add --detach "$resume" "$(cat "$archive/base.txt")" &&
+  git -C "$resume" apply --check "$archive/implementation.patch" &&
+  git -C "$resume" apply "$archive/implementation.patch"
 ```
 
 The research evidence remains available in the archive checkout. Copy the
@@ -65,10 +90,12 @@ restores unqualified GV65 work; do not publish it, reuse its version number,
 or regenerate final fixtures without rechecking current main, all version
 claims, the final budget, and the qualification requirements.
 
-To restore a side experiment, start another worktree at `base.txt`, apply its
+To restore a side experiment, start another worktree at the top-level
+`park-2026-09-10/base.txt` commit, apply its
 `worktrees/<name>/base.patch`, then `working-tree.patch`, then copy the
 `untracked/` contents to their relative paths. Its historical base hash is
-also recorded. No historical research commit object is required for this
+recorded in `historical-head.txt` for provenance only; do not check it out.
+No historical research commit object is required for this
 patch-based restore.
 
 ## Verified boundaries and remaining work
