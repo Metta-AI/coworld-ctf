@@ -30,7 +30,8 @@
 
 import
   helpers,
-  std/[os, strutils, unittest]
+  std/[os, strutils, unittest],
+  ctf/glory
 
 const
   SourcePage = GameDir / "client" / "replay_broadcast.html"
@@ -309,3 +310,110 @@ suite "SEASON 2 replay viewer HUD: BR rail fit at 16 seats (owner follow-up 2026
     checkInBoth "document.body.classList.toggle('tiny', boardW <= 620);"
     checkInBoth "body.sidelanes.tiny #scorebug .br-cellband {"
     checkInBoth "body.sidelanes.tiny #scorebug .br-cell {"
+
+suite "SEASON 2 replay viewer HUD: catalog v3 popup law (owner bug, 2026-09-10)":
+  ## Owner: "what the heck is giving everyone a x100!? ... i thought we
+  ## weren't doing popups for less than 2x? ... especially not 1x that
+  ## gives you nothing". Catalog v3 (GloryVersion >= 17, live since r4611)
+  ## puts a positive recut-armed deed's `amt` on the wire as a PERCENT
+  ## (src/ctf/sim.nim's awardDeed -- "amount = if ramped or v3: pct else:
+  ## factor" -- 100 = x1.00, 220 = x2.20), but the hero-pop gate and label
+  ## (this file, introduced by #466/9ef5aa09) still read `p.amt` as the OLD
+  ## integer factor, so a neutral dFinal4 mint (pct 100, x1.00, zero
+  ## effect) popped as "x100 FINAL 4". THE LAW
+  ## (docs/designs/glory/CATALOG-V3-DRAFT.md's "Legibility law carried
+  ## forward, unchanged", ~line 259-263): "fractional factors ... never pop
+  ## as a floating '+Ng' ... Pops stay reserved for x2 and up."
+  ##
+  ## No wire field exists (client-only patch, see gloryPopFactor's own doc
+  ## comment) to tell a v3-percent positive amt apart from the OLD
+  ## integer-factor one; the fix proxies off recutArmed itself, which today
+  ## is empirically 1:1 with catalogV3Reprice (the only manifest that ever
+  ## arms gloryMultiplierRecut, battle-royale-s2, arms all three switches
+  ## together) -- these checks guard the SOURCE TOKENS of that fix, not the
+  ## economics; the FIVE deeds it silences on a real replay (dFinal8 pct
+  ## 100, dFinal4 pct 100, dFinal2 pct 130, dClutchHeal pct 180,
+  ## dClosingTime pct 110/120) and the one it still pops (e.g.
+  ## dHonorableKill pct 220 -> "×2.20") are verified against a real
+  ## 16-seat BR replay separately (screenshot + DOM pass, not this
+  ## text-scan suite).
+  test "one shared pct-to-factor helper feeds every pop/label path":
+    checkInBoth "function gloryPopFactor(p) {"
+    checkInBoth "return p.amt / 100;"
+    checkInBoth "function gloryPopFactorLabel(factor) {"
+    # THE LAW's own worked examples are "×2.00"/"×2.20" -- ALWAYS two
+    # decimals. An earlier draft here was `(factor % 1 === 0) ?
+    # String(factor) : factor.toFixed(1)`, which rendered a x2.00 kill as
+    # bare "×2" and a x2.20 kill as one-decimal "×2.2" -- caught and fixed
+    # before this landed; pin the fixed body so it can't regress back.
+    checkInBoth "return factor.toFixed(2);"
+    # Both the pop-text path and the hero-DOM `.mult` label path call
+    # through the SAME label helper -- no second place re-derives "×N".
+    checkInBoth "return '×' + gloryPopFactorLabel(factor) + (p.word ? ' ' + p.word : '');"
+    checkInBoth "mult.textContent = '×' + gloryPopFactorLabel(gloryPopFactor(p));"
+
+  test "the hero gate requires factor >= 2.0, shared by both DOM call sites":
+    checkInBoth "var HERO_POP_MIN_FACTOR = 2.0;"
+    checkInBoth "function gloryPopIsHero(p) {"
+    checkInBoth "return !p.lbl && p.amt > 0 && recutArmed && gloryPopFactor(p) >= HERO_POP_MIN_FACTOR;"
+    # renderGloryPops has two isHero sites (element-create + every-frame
+    # restyle) -- both must route through the one gate function, not
+    # re-derive the condition inline a second time.
+    checkInBoth "var isHero = gloryPopIsHero(p);"
+
+  test "sub-2x factors (the exact x1.00 neutral case included) never float a callout":
+    checkInBoth "if (factor < HERO_POP_MIN_FACTOR) return '';"
+    # Boundary check against the SAME 2.0 the source gates on (not a
+    # second hard-coded 2.0 that could drift from it): 199 pct floors to
+    # 1.99 (silent), 200 pct floors to exactly 2.00 (pops).
+    check 199.0 / 100.0 < 2.0
+    check 200.0 / 100.0 >= 2.0
+
+  test "the real v3 pricing table names all five sub-2x deeds this law silences, plus one kill deed it still pops":
+    # Ties the client's HERO_POP_MIN_FACTOR = 2.0 gate to the REAL
+    # production pricing (`RecutPlacementRampPct`/`RecutClassTableV3Pct`,
+    # src/ctf/glory.nim) rather than the hard-coded pct literals named in
+    # the owner bug report and this suite's own doc comment above -- if a
+    # future repricing ever pushed one of these five over 2.00x (or the
+    # kill deed back under it) without updating the popup law, THIS check
+    # goes red where a pure text-scan of the client alone could not catch
+    # it. glory.nim's own zero-imports law means this needs no sim/data/
+    # setup, just the enum + tables (helpers' GameDir cwd-flip is not
+    # needed here).
+    checkpoint("dFinal8: milestone marker, crushed to a pure no-op under placementRampV3")
+    check RecutPlacementRampPct[dFinal8] == 100
+    checkpoint("dFinal4: same crush, same reasoning")
+    check RecutPlacementRampPct[dFinal4] == 100
+    checkpoint("dFinal2: the one milestone still worth a small nudge, still sub-2x")
+    check RecutPlacementRampPct[dFinal2] == 130
+    checkpoint("dClutchHeal: v9-retired self-heal, priced sub-2x under v3 too")
+    check RecutClassTableV3Pct[dClutchHeal] == 180
+    checkpoint("dClosingTime: non-win base, sub-2x")
+    check RecutClassTableV3Pct[dClosingTime] == 110
+    checkpoint("dClosingTime: win-bumped base, still sub-2x")
+    check RecutClosingTimeWinBumpV3Pct == 120
+    checkpoint("dHonorableKill: the plain-kill floor, the one of these seven at/above 2.00x")
+    check RecutClassTableV3Pct[dHonorableKill] == 220
+    # Restate the gate's own arithmetic against each real pct above, so
+    # this test is a genuine popup-law regression guard, not just a
+    # pricing-table snapshot.
+    for pct in [RecutPlacementRampPct[dFinal8], RecutPlacementRampPct[dFinal4],
+                RecutPlacementRampPct[dFinal2], RecutClassTableV3Pct[dClutchHeal],
+                RecutClassTableV3Pct[dClosingTime], RecutClosingTimeWinBumpV3Pct]:
+      check (pct.float / 100.0) < 2.0
+    check (RecutClassTableV3Pct[dHonorableKill].float / 100.0) >= 2.0
+
+  test "the old integer-factor hero gate is gone from the fixed source":
+    # SOURCE-only (not checkInBoth): static-replay-viewer/index.html is the
+    # Docker-baked SHIPPED copy and stays byte-for-byte the pre-fix output
+    # until tools/build_replay_viewer.sh actually rebuilds it (this file's
+    # own concurrency note, top of file) -- asserting the OLD gate's
+    # absence there today would only be re-describing "the bundle has not
+    # been rebuilt yet", not proving anything about this fix. The bundle
+    # side of this same assertion is exactly the "stale-bundle" red this
+    # suite's own PR calls out explicitly.
+    let src = readFile(SourcePage)
+    checkpoint("source must not still gate on the old raw p.amt reading")
+    check not src.contains("var isHero = !p.lbl && p.amt > 0 && recutArmed;")
+    checkpoint("source must not still label the old raw p.amt reading")
+    check not src.contains("mult.textContent = '×' + p.amt;")

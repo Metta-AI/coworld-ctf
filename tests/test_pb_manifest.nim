@@ -56,6 +56,20 @@ suite "paintbot manifest and deprecated variants":
     for id in declared:
       check id in seated
 
+  test "certification actually exercises the Season 2 play-calling path":
+    ## The starter-protocol scar (PR #524, held): `season2Shell: true` alone
+    ## does NOT make a seat speak Season 2 -- each slot needs its own
+    ## `control: "play"` (config_schema's own description of the field), and
+    ## without it every certification seat ran the safe direct-input path,
+    ## blind to a baseline that crashes on the first Season 2 opcode. Assert
+    ## BOTH halves of the fixture's own claim: the shell is armed, and every
+    ## seat is actually bound to it.
+    let cfg = manifest["certification"]["game_config"]
+    check cfg["season2Shell"].getBool()
+    check cfg["slots"].len > 0
+    for slot in cfg["slots"]:
+      check slot["control"].getStr() == "play"
+
   test "results_schema covers every key BOTH results documents write":
     let schema = game["results_schema"]
     check schema["additionalProperties"].getBool() == false

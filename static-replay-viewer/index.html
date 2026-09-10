@@ -6368,10 +6368,63 @@ body[data-noviewpanel] #viewpanel { display: none !important; }
     else if (allZero) recutArmed = false;
     // else: ambiguous (e.g. a mid-fight join) — stays null/classic, deliberately.
   }
+  // CATALOG V3 PERCENT SCALE (owner bug, 2026-09-10: "what the heck is
+  // giving everyone a x100!? ... especially not 1x that gives you
+  // nothing"). GloryVersion 17 (live since r4611, CATALOG-V3-DRAFT.md)
+  // repriced the armed-recut positive-deed wire value a second time:
+  // `amt` is no longer the integer FACTOR the comment above describes, it
+  // is a PERCENT (sim.nim's awardDeed — "amount = if ramped or v3: pct
+  // else: factor" — 100 = ×1.00, 220 = ×2.20). THE LAW
+  // (CATALOG-V3-DRAFT.md:259-263): a hero pop is reserved for ×2 and up;
+  // a fractional/neutral factor never floats a callout, it only feeds the
+  // meter. Un-fixed, the old `p.amt` reading treated every percent as if
+  // it were still the old integer factor, so a neutral dFinal4 mint (pct
+  // 100, ×1.00, zero effect) popped as "×100".
+  //
+  // The wire still carries NO per-pop or per-episode flag for which of
+  // the two positive-amt scales (integer factor vs percent) is live —
+  // the same gap `recutArmed`'s own note above already lives with; the
+  // honest fix needs a wire field (a GameVersion surface change, out of
+  // scope for a client-only patch). This proxies off an EMPIRICAL fact
+  // instead of a real signal: every manifest shipped today arms
+  // `catalogV3Reprice`/`placementRampV3` in the exact same bundle as
+  // `gloryMultiplierRecut` (coworld_manifest_paintbot.json's sole
+  // `battle-royale-s2` block is the only place any shipped manifest arms
+  // `gloryMultiplierRecut` at all — grepped, none other), so
+  // `recutArmed === true` already implies percent scale for every live
+  // and future replay. Known, accepted gap: an ARCHIVED pre-GV17
+  // recording of that same variant (recut armed before catalogV3Reprice
+  // existed) would still be misread by this proxy — nothing client-side
+  // can tell the two apart without the wire field.
+  var HERO_POP_MIN_FACTOR = 2.0; // THE LAW: ×2 and up only, never ×1.x or ×1.0.
+  function gloryPopFactor(p) {
+    return p.amt / 100;
+  }
+  function gloryPopFactorLabel(factor) {
+    // THE LAW's own worked examples are "×2.00"/"×2.20" — always TWO
+    // decimals, never the bare percent ("×200") and never a
+    // whole-number-strips-to-"×2" short form either (an earlier draft of
+    // this helper did `(factor % 1 === 0) ? String(factor) : toFixed(1)`,
+    // which rendered a x2.00 kill as "×2" and a x2.20 kill as "×2.2" —
+    // both a decimal digit short of the ruled shape).
+    return factor.toFixed(2);
+  }
+  function gloryPopIsHero(p) {
+    return !p.lbl && p.amt > 0 && recutArmed && gloryPopFactor(p) >= HERO_POP_MIN_FACTOR;
+  }
   function gloryPopText(p) {
     if (p.lbl) return p.lbl; // achievement claim: name only, never an amount
     if (p.amt === 0) return p.word || ''; // e.g. RANK UP — never draw an empty "+0G"
-    if (p.amt > 0 && recutArmed) return '×' + p.amt + (p.word ? ' ' + p.word : '');
+    if (p.amt > 0 && recutArmed) {
+      var factor = gloryPopFactor(p);
+      // Sub-×2: THE LAW says this never floats a callout, and this
+      // client has no meter/tally path to hand it to instead (grepped) —
+      // so it simply does not pop, the same silent-degrade posture this
+      // file already takes for a replay whose .shell carries no records
+      // for a given lane.
+      if (factor < HERO_POP_MIN_FACTOR) return '';
+      return '×' + gloryPopFactorLabel(factor) + (p.word ? ' ' + p.word : '');
+    }
     // Negative amounts under armed recut are a FF halving count (a
     // division, not a factor — sim.nim's dTeamKill branch), not glory
     // notation at all; left as the existing signed "-NG" shape rather
@@ -6420,13 +6473,13 @@ body[data-noviewpanel] #viewpanel { display: none !important; }
         // hero/label split -- every other pop (claim, word-channel
         // amt===0, FF halving, classic dark +NG) keeps its original
         // single-run textContent below, byte-identical to before.
-        var isHero = !p.lbl && p.amt > 0 && recutArmed;
+        var isHero = gloryPopIsHero(p);
         el.className = 'glory-pop' + (p.lbl ? ' claim' : '') + (p.amt < 0 ? ' neg' : '') +
           (isHero ? ' hero' : '');
         if (isHero) {
           var mult = document.createElement('span');
           mult.className = 'mult';
-          mult.textContent = '×' + p.amt;
+          mult.textContent = '×' + gloryPopFactorLabel(gloryPopFactor(p));
           el.appendChild(mult);
           if (p.word) {
             var word = document.createElement('span');
@@ -6454,7 +6507,7 @@ body[data-noviewpanel] #viewpanel { display: none !important; }
       el.style.left = cssX + 'px';
       el.style.top = cssY + 'px';
       el.style.transform = 'translate(-50%, calc(-100% - ' + rise + 'px))';
-      var isHero = !p.lbl && p.amt > 0 && recutArmed;
+      var isHero = gloryPopIsHero(p);
       if (isHero) {
         // The container carries the SHARED hold/fade only (no fade-in here
         // -- entry is delegated to the children below); each child's own

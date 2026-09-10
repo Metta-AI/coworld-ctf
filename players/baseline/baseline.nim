@@ -1,7 +1,18 @@
-## Deprecated-mode capture-the-flag bot for Coworld CTF (8v8, classic two-flag,
-## dense-cover arena, FOG-OF-WAR full-map vision). Deprecated since 0.7.253;
-## live use requires `allowDeprecatedModes: true`. This Sprite v1 bot cannot
-## drive a Season 2 play seat; start with `policies/starters/` instead.
+## Protocol-adaptive baseline for Coworld CTF: on connection it detects which
+## contract the server speaks (the leading byte of the first unprompted
+## message) and dispatches accordingly, never sending an opcode the other
+## side's contract does not define -- see `runBot` below and
+## `baseline/s2play.nim`'s module doc for the Season 2 half.
+##
+## DEPRECATED-MODE PATH (8v8, classic two-flag, dense-cover arena,
+## FOG-OF-WAR full-map vision). Deprecated since 0.7.253; live use requires
+## `allowDeprecatedModes: true`. Everything below this point through
+## `runBot`'s legacy branch describes ONLY this Sprite v1 direct-input path;
+## a Season 2 `control: "play"` seat instead runs `baseline/s2play.nim`'s
+## gated play-calling loop over the reference plays, which has no button
+## masks, aim brads, or nav grid of its own -- consult that module's doc for
+## what a Season 2 seat actually does. `policies/starters/` remains the
+## place to start a NEW play-calling policy from scratch.
 ##
 ## Speaks the Bitworld Sprite v1 protocol over a websocket. The observation is
 ## the FULL map in map coordinates, but entities are fogged: an enemy (and an
@@ -77,12 +88,14 @@
 ## a short windup), so we stop rotating on the tick we pull.
 
 import
-  std/[algorithm, heapqueue, math, net, os, random, strutils],
+  std/[algorithm, heapqueue, math, net, options, os, random, strutils],
   bitworld/profile, bitworld/spriteprotocol,
   ctf/labels,
   whisky,
   baseline/protocols,
-  baseline/artlog
+  baseline/artlog,
+  baseline/s2play,
+  baseline/s2wire
 
 when defined(taunt):
   import baseline/taunts
@@ -3479,6 +3492,28 @@ proc onMessage*(component: var BaselineComponent, message: string): seq[string] 
   component.advancePolicy(component.client.frameAdvance)
   component.policyReplies()
 
+proc peekFirstMessage(ws: WebSocket): Message =
+  ## Blocks for the very first application message the server sends,
+  ## answering any Ping along the way (the transport-level keepalive, never
+  ## a protocol opcode either contract owns). Protocol detection reads this
+  ## message's leading byte before this process sends anything of its own,
+  ## so it works for both contracts without guessing: a Season 2 seat's
+  ## 0xB0 PlayContext arrives unprompted at socket registration
+  ## (docs/designs/strategy-play-calling-shell-2026-08-29.md §4.3), and a
+  ## legacy seat's first Sprite v1 frame arrives on the same server-driven
+  ## schedule the old pre-emptive `spritesOffBlob` send used to race.
+  while true:
+    let msg = ws.receiveMessage(-1)
+    if msg.isNone:
+      continue
+    case msg.get.kind
+    of Ping:
+      ws.send(msg.get.data, Pong)
+    of BinaryMessage, TextMessage:
+      return msg.get
+    of Pong:
+      discard
+
 proc runBot(url: string) =
   ## Connects, then loops frames forever, reconnecting on disconnect.
   let
@@ -3511,53 +3546,71 @@ proc runBot(url: string) =
       # optname 1 is SO_DEBUG: EACCES without CAP_NET_ADMIN, and a silent
       # no-op for Nagle even when privileged).
       ws.socket.setSockOpt(OptNoDelay, true, level = IPPROTO_TCP.cint)
-      # Sprites Off (0x87), sent before anything else so the server strips
-      # pixel payloads from the very first frame. Servers that predate the
-      # packet ignore unknown client messages, so this is safe everywhere.
-      ws.send(spritesOffBlob(), BinaryMessage)
       echo "connected ", endpoint
       everConnected = true
-      client.reset()
-      bot.navBuilt = false
-      bot.resetTransient()
-      component.hasSent = false
-      while true:
-        if not client.receiveLatestFrame(ws, false):
-          continue
-        let advance = max(1, client.frameAdvance)
-        component.advancePolicy(advance)
-        if profileShouldDump(bot.tick):
-          finishProfileTrace()
-        if not client.mapCameraReady:
-          if playing:
-            playing = false
-            artEvent(bot.tick, "game_end")
-          bot.resetTransient()             # lobby / game-over interstitial
-          continue
-        if not playing:
-          playing = true
-          artEvent(bot.tick, "game_start")
-        for reply in component.policyReplies():
-          ws.send(reply, BinaryMessage)
-        # Fixture-only chatter: shout on a slot-staggered ~2s cadence so a
-        # recorded episode carries live shouts to exercise the bubble render.
-        if shoutEnabled and
-            (bot.tick + bot.slot * 5) mod (2 * 24) < advance:
-          let phrase = ShoutVocab[(bot.tick div 48 + bot.slot) mod
-            ShoutVocab.len]
-          ws.send(chatBlob(phrase), BinaryMessage)
-        # Competitive coordination / taunt shouts (compile-gated).
-        when defined(shoutCoord) or defined(taunt):
-          if bot.shoutWant.len > 0:
-            ws.send(chatBlob(bot.shoutWant), BinaryMessage)
-            artEvent(bot.tick, "shout_tx", %*{"text": bot.shoutWant})
-            bot.shoutWant = ""
-        # Done thinking: a fastMode server advances the tick as soon as
-        # every player has sent this; older servers ignore the packet.
-        # Gated OFF by default (see fastReadyEnabled above): only fixture
-        # recording opts in via CTF_BOT_FAST_READY=1.
-        if fastReadyEnabled:
-          ws.send(readyBlob(), BinaryMessage)
+      # Detect the contract before speaking: peek the server's first
+      # message rather than assuming Sprite v1 (see peekFirstMessage).
+      let firstMessage = peekFirstMessage(ws)
+      let isSeason2 = firstMessage.kind == BinaryMessage and
+        isPlayContextOpcode(firstMessage.data)
+      if isSeason2:
+        # Never falls through: runS2Session returns only by raising (socket
+        # closed / malformed packet), caught below exactly like the legacy
+        # branch's own disconnect.
+        runS2Session(ws, slot, firstMessage)
+      else:
+        # Sprites Off (0x87): now that the protocol is confirmed legacy,
+        # not pre-emptively. A server that predates the packet still
+        # ignores unknown client messages, and this bot never decodes
+        # pixels either way (gui=false below), so the only observable
+        # effect of the one-frame delay is one extra pixel-carrying server
+        # frame over the wire — never a difference in what this bot decides
+        # or sends.
+        ws.send(spritesOffBlob(), BinaryMessage)
+        client.reset()
+        bot.navBuilt = false
+        bot.resetTransient()
+        component.hasSent = false
+        var pending = some(firstMessage)
+        while true:
+          let gotFrame = client.receiveLatestFrame(ws, false, pending)
+          pending = none(Message)
+          if not gotFrame:
+            continue
+          let advance = max(1, client.frameAdvance)
+          component.advancePolicy(advance)
+          if profileShouldDump(bot.tick):
+            finishProfileTrace()
+          if not client.mapCameraReady:
+            if playing:
+              playing = false
+              artEvent(bot.tick, "game_end")
+            bot.resetTransient()           # lobby / game-over interstitial
+            continue
+          if not playing:
+            playing = true
+            artEvent(bot.tick, "game_start")
+          for reply in component.policyReplies():
+            ws.send(reply, BinaryMessage)
+          # Fixture-only chatter: shout on a slot-staggered ~2s cadence so a
+          # recorded episode carries live shouts to exercise the bubble render.
+          if shoutEnabled and
+              (bot.tick + bot.slot * 5) mod (2 * 24) < advance:
+            let phrase = ShoutVocab[(bot.tick div 48 + bot.slot) mod
+              ShoutVocab.len]
+            ws.send(chatBlob(phrase), BinaryMessage)
+          # Competitive coordination / taunt shouts (compile-gated).
+          when defined(shoutCoord) or defined(taunt):
+            if bot.shoutWant.len > 0:
+              ws.send(chatBlob(bot.shoutWant), BinaryMessage)
+              artEvent(bot.tick, "shout_tx", %*{"text": bot.shoutWant})
+              bot.shoutWant = ""
+          # Done thinking: a fastMode server advances the tick as soon as
+          # every player has sent this; older servers ignore the packet.
+          # Gated OFF by default (see fastReadyEnabled above): only fixture
+          # recording opts in via CTF_BOT_FAST_READY=1.
+          if fastReadyEnabled:
+            ws.send(readyBlob(), BinaryMessage)
     except Exception as e:
       if everConnected:
         # The game ended and the server went away: exit so the episode

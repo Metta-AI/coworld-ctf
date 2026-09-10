@@ -4,6 +4,7 @@
 ## is also part of the full local run).
 {.warning[UnusedImport]: off.}
 import
+  test_baseline_s2,
   test_br_elim,
   test_br_placement,
   test_br_team_bridge,

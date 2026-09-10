@@ -10,18 +10,30 @@ Full protocol writeup: `docs/designs/STRANGER_WALK.md`. This file is a quick ind
 - `launch.sh` — protocol v1.2: launch `run.sh`/`resume.sh`/`run_container.sh` fully detached (survives
   the launching session dying).
 - `run_container.sh` + `container/{Dockerfile,entrypoint.sh,probe.sh}` — **protocol v1.3, browser +
-  credential fallback in v1.4**: the same run, inside its own Linux container (own PID namespace, own
+  credential fallback in v1.4, per-run docker-in-docker sidecar in v1.5, sidecar network+workspace
+  sharing in v1.6**: the same run, inside its own Linux container (own PID namespace, own
   filesystem, own network). Closes the process-table visibility gap `run.sh` cannot close (`ps aux`
   inside the container can only ever see the container's own processes). v1.4 adds a headless
   Chromium browser (Python `playwright` for the no-credential `selftest` screenshot proof;
   `@playwright/mcp` wired via `--mcp-config` for the stranger's own `claude -p` session, same
   mechanism `run.sh` already uses on the host) and a credential fallback chain — see the script's
-  header for the full contract. Three modes:
+  header for the full contract. v1.5 gives each run its own docker-in-docker sidecar (own daemon,
+  ephemeral storage, private network) so the stranger can `docker build`/`docker run` at all. v1.6
+  fixes two DinD traps found by actually running `coworld run-episode` (the documented local test)
+  through a v1.5 sandbox+sidecar pair: (a) `-v` bind mounts resolve on the DAEMON's filesystem, not
+  the client's, so the sidecar needs the run's `$WORKSPACE_DIR` mounted at `/workspace` too, same as
+  the sandbox — without it, `coworld run-episode` failed with `cannot open: /coworld/config.json
+  [IOError]` on every real run; (b) the sandbox now joins the sidecar's own network namespace
+  (`--network container:<sidecar>`) instead of a separate bridge address, so `127.0.0.1` — which
+  `coworld run-episode`'s own health check hardcodes — means the same loopback on both sides. See
+  `start_sidecar`'s header in `run_container.sh` for the full write-up. Three modes:
   - `run_container.sh probe <run-id>` — isolation self-probe, no credential needed. Writes
     `isolation_probe.json` to the run dir; `isolation_audit.sh` checks it automatically when present.
   - `run_container.sh selftest <run-id>` — proves the image itself is built right (claude/node/python/
     git/uv on PATH, plus a real headless-Chromium screenshot of the public entry point via Python
-    playwright), no Anthropic credential, network only to fetch that one page.
+    playwright), a `docker build`+`docker run` through the per-run sidecar, and (v1.6) a REAL
+    `coworld run-episode` through that same sidecar with a real `results.json`/`replay` on disk —
+    the certification default until #527 (the play-seat baseline) lands. No Anthropic credential.
   - `run_container.sh <model> <run-id> [max-budget-usd]` — the actual stranger. Set `STRANGER_SMOKE=1`
     for the hard-stop-at-M5 smoke prompt (same guarantee `run.sh` gives). Credential resolved in order:
     (a) `STRANGER_ANTHROPIC_API_KEY_FILE` (default `~/.ctf/knowledge/stranger-walk/anthropic_api_key`),
