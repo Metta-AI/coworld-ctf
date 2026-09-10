@@ -22,9 +22,11 @@ rather than drifting silently.
 
 - **Date recorded:** 2026-09-09
 - **Live variant:** `battle-royale-s2`
-- **Build tag:** `paintbot-v0.7.377`
-- **GameVersion:** 62
+- **Build tag:** `paintbot-v0.7.392`
+- **GameVersion:** 63
 - **GLORYVERSION:** 17
+- **Era note:** GV63 (#525, 3c127d1c): realized-economy stamp + per-seat
+  glory-by-deed on the `over` block — wire change; GLORYVERSION unchanged.
 - **Standing rule:** Standing is a decaying average (an EMA, aggregation
   mode `rated`) of your recent rounds' scores, `rated_k` 0.05 — not a
   running total and not your single best round.
@@ -56,7 +58,7 @@ and — when that page's stamped pair is older than the pair above — inserts
 one line immediately after the page's own stamp:
 
 > **Verified against `<page's own stamp>` — the live game is
-> `GV62 / GLORYVERSION 17`; treat details as unconfirmed.**
+> `GV63 / GLORYVERSION 17`; treat details as unconfirmed.**
 
 The page's own original stamp line is never edited or removed — the
 banner is additive, so a re-verification still has the old stamp to diff

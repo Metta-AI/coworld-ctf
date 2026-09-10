@@ -21,7 +21,7 @@ then copy the same values down here. Editing only one file is exactly the
 drift `test_era.py` exists to catch.
 
 Era stamp mirrored here (as of `docs/wiki/_era.md` dated 2026-09-09):
-paintbot-v0.7.377, GameVersion 62 / GLORYVERSION 17, on league
+paintbot-v0.7.392, GameVersion 63 / GLORYVERSION 17, on league
 `league_b8fa9b35` (Paintbot Season 2). `uv run coworld leagues` lists the
 live league id and its variant without login; `coworld download`'s own
 AGENTS.md tells you if the Coworld snapshot you downloaded is older than
@@ -39,10 +39,10 @@ from __future__ import annotations
 LIVE_VARIANT: str = "battle-royale-s2"
 
 #: Mirrors `docs/wiki/_era.md`'s **Build tag**.
-BUILD_TAG: str = "paintbot-v0.7.377"
+BUILD_TAG: str = "paintbot-v0.7.392"
 
 #: Mirrors `docs/wiki/_era.md`'s **GameVersion**.
-GAME_VERSION: int = 62
+GAME_VERSION: int = 63
 
 #: Mirrors `docs/wiki/_era.md`'s **GLORYVERSION**.
 GLORY_VERSION: int = 17
