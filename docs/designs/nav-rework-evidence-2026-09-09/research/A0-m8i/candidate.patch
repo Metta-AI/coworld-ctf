@@ -1,0 +1,23 @@
+diff --git a/src/shell/body_route_query.nim b/src/shell/body_route_query.nim
+index 556daaad..142475f8 100644
+--- a/src/shell/body_route_query.nim
++++ b/src/shell/body_route_query.nim
+@@ -128,7 +128,9 @@ proc buildBodyFineLegality(map: BodyMap): BodyFineLegality =
+         y: (node div result.width) * BodyFineStepPx)
+       x = node mod result.width
+       y = node div result.width
+-    for direction, delta in NavNeighbors:
++    # Unit axis and diagonal segments have the same samples in reverse.
++    for (direction, reverse) in [(1, 0), (3, 2), (6, 5), (7, 4)]:
++      let delta = NavNeighbors[direction]
+       let next = (x: x + delta.x, y: y + delta.y)
+       if next.x < 0 or next.x >= result.width or
+           next.y < 0 or next.y >= result.height:
+@@ -139,6 +141,7 @@ proc buildBodyFineLegality(map: BodyMap): BodyFineLegality =
+           y: next.y * BodyFineStepPx)
+         if map.segmentClear(point, nextPoint):
+           result.legal[node] = result.legal[node] or uint8(1 shl direction)
++          result.legal[nextNode] = result.legal[nextNode] or uint8(1 shl reverse)
+ 
+ proc chooseBodyAnchor(table: BodyFineLegality; map: BodyMap;
+     cell: BodyPoint): int32 =
