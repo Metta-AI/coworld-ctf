@@ -40,3 +40,5 @@ Append results; do not erase negatives. All numbers are observed, not inferred p
 - M3: include installed hazard and refreshed cache; all65 original maps pass, historical configured shared maximum31,521,758B. New user ruling permits a later32 MiB cap update; raw16 MiB failures remain. M3_REPORT.md.
 
 - W2: Worst m5a p95/max11.543802/12.864276 ->10.375292/10.534817ms; all masks/pops and full corpus unchanged. See W2_REPORT.md.
+
+- R1: Worst m5a1300px p95/max10.367423/10.601260 ->7.984246/8.777049ms; all masks/pops and corpus unchanged. Count shared table memory. See R1_REPORT.md.
