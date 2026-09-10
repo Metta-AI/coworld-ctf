@@ -76,6 +76,7 @@ type
 
   BodyNavigationBytes* = object
     systemOwner*, routeIndex*, safetyScratch*, mixedGraph*: int64
+    hazardOverlay*, safeCache*: int64
     seatOwners*, seatCaches*, dangerRasters*, dangerWorkspaces*: int64
     packedWeights*, packedWeightScratch*, sharedDangerGeometry*: int64
     trace*, allocatorOverhead*: int64
@@ -165,6 +166,10 @@ proc retainedNavigationBytes*(system: BodyNavSystem): BodyNavigationBytes =
     result.routeIndex = system.routeIndex.retainedIndexBytes
   if system.safetyScratch != nil:
     result.safetyScratch = system.safetyScratch.retainedBytes
+    let context = system.safetyScratch.contextRetainedBytes
+    result.hazardOverlay = context.hazard
+    result.safeCache = context.cache
+    result.allocatorOverhead += context.allocatorOverhead
   if system.mixedGraph != nil and system.routeWorkspace != nil:
     let graphBytes = system.mixedGraph.bodyMixedGraphBytes(
       system.routeWorkspace)
@@ -204,7 +209,8 @@ proc retainedNavigationBytes*(system: BodyNavSystem): BodyNavigationBytes =
       if length > 0:
         result.allocatorOverhead += SequenceAllocationOverhead
   result.total = result.systemOwner + result.routeIndex +
-    result.safetyScratch + result.mixedGraph + result.seatOwners +
+    result.safetyScratch + result.hazardOverlay + result.safeCache +
+    result.mixedGraph + result.seatOwners +
     result.seatCaches + result.dangerRasters + result.dangerWorkspaces +
     result.packedWeights + result.packedWeightScratch +
     result.sharedDangerGeometry + result.trace +

@@ -5,6 +5,8 @@ import bitworld/spriteprotocol
 import ../src/ctf/[arena, br_map_pool, sim_types]
 import ../src/shell/body
 import ../src/shell/body_danger
+import ../src/shell/body_hazard
+import ../src/ctf/zone_field
 import ../src/shell/body_map
 import ../src/shell/body_nav
 import ../src/shell/body_route_index
@@ -50,6 +52,27 @@ proc runToIdle(nav: BodyNavSystem; startTick = 0; budget =
   raise newException(ValueError, "production route did not settle")
 
 suite "production mixed-grid body navigation":
+  test "fresh navigation ledger counts the populated safety context":
+    let map = openMap()
+    let index = newBodyRouteIndex(map)
+    var snapshot = ZoneDamageSnapshot(gridW: map.gridWidth,
+      gridH: map.gridHeight, cellPx: NavCell, fingerprint: 1,
+      damage: newSeq[uint16](map.gridWidth * map.gridHeight))
+    for value in snapshot.damage.mitems: value = 96
+    let overlay = newBodyHazardOverlay(index, snapshot)
+    let cache = newBodySafeCache()
+    cache.refreshSafeCache(index, overlay, 0, 1)
+    let nav = newBodyNavSystem(map, 2, 331, preparedRouteIndex = index)
+    let before = nav.retainedNavigationBytes
+    nav.installSafetyContext(overlay, cache)
+    let after = nav.retainedNavigationBytes
+    check before.hazardOverlay == 0
+    check before.safeCache == 0
+    check after.hazardOverlay == overlay.retainedBytes
+    check after.safeCache == cache.retainedBytes
+    check after.total - before.total == after.hazardOverlay + after.safeCache +
+      after.allocatorOverhead - before.allocatorOverhead
+
   test "graph ledger includes unused reserved bridge capacity":
     let graph = newBodyMixedGraph(openMap())
     let workspace = newBodyRouteWorkspace(graph)

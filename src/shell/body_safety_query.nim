@@ -45,6 +45,24 @@ proc newBodySafetyScratch*(index: BodyRouteIndex): BodySafetyScratch =
 proc retainedBytes*(scratch: BodySafetyScratch): int64 =
   if scratch == nil: 0 else: int64(sizeof(scratch[]))
 
+proc contextRetainedBytes*(scratch: BodySafetyScratch): tuple[
+    hazard, cache, allocatorOverhead: int64] =
+  if scratch == nil: return
+  result.hazard = scratch.hazard.retainedBytes
+  result.cache = scratch.cache.retainedBytes
+  if scratch.hazard != nil:
+    result.allocatorOverhead += 16
+    for capacity in [scratch.hazard.arrival.capacity,
+        scratch.hazard.segmentArrivalMin.capacity,
+        scratch.hazard.segmentArrivalMax.capacity,
+        scratch.hazard.roomMaxArrival.capacity]:
+      if capacity > 0: result.allocatorOverhead += 16
+  if scratch.cache != nil:
+    result.allocatorOverhead += 16
+    for capacity in [scratch.cache.safeDistQ4.capacity,
+        scratch.cache.safeNext.capacity, scratch.cache.roomHasDry.capacity]:
+      if capacity > 0: result.allocatorOverhead += 16
+
 proc routeOctileQ4*(a, b: BodyPoint): int64 =
   let
     dx = abs(a.x - b.x)

@@ -1,0 +1,2 @@
+2e1576aa11a74adb73c2be2cd81b059066e0e1abb47b043c74c50a16015b1b5c  coworld_manifest_paintbot.json
+45215bca7f548ef0b8f7e51e748a59e502fd9181959c7c30bb94e3d8bff222af  data/br_map_pool.json

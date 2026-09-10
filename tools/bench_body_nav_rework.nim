@@ -194,11 +194,14 @@ proc bytesJson(bytes: BodyNavigationBytes): JsonNode =
     "seat_owners": bytes.seatOwners, "seat_caches": bytes.seatCaches,
     "danger_rasters": bytes.dangerRasters,
     "danger_workspaces": bytes.dangerWorkspaces,
+    "hazard_overlay": bytes.hazardOverlay, "safe_cache": bytes.safeCache,
     "packed_int16_weights": bytes.packedWeights,
     "packed_weight_scratch": bytes.packedWeightScratch,
     "shared_danger_geometry": bytes.sharedDangerGeometry,
     "trace": bytes.trace, "allocator_overhead": bytes.allocatorOverhead,
     "total": bytes.total}
+
+proc armedSnapshot(map: BodyMap): ZoneDamageSnapshot
 
 proc activationRow(gate: MapGate; gunRange = NavCorpusGunRangePx): JsonNode =
   GC_fullCollect()
@@ -210,8 +213,16 @@ proc activationRow(gate: MapGate; gunRange = NavCorpusGunRangePx): JsonNode =
   let index = newBodyRouteIndex(map)
   let indexNs = indexStarted.elapsedNs
   let deleted = index.followingPayloadBytes
+  let hazardStarted = getMonoTime()
+  let overlay = newBodyHazardOverlay(index, map.armedSnapshot)
+  let hazardNs = hazardStarted.elapsedNs
+  let cacheStarted = getMonoTime()
+  let cache = newBodySafeCache()
+  cache.refreshSafeCache(index, overlay, 0, 1)
+  let cacheNs = cacheStarted.elapsedNs
   let navStarted = getMonoTime()
   let nav = newBodyNavSystem(map, 32, gunRange, preparedRouteIndex = index)
+  nav.installSafetyContext(overlay, cache)
   let navNs = navStarted.elapsedNs
   GC_fullCollect()
   let rssAfter = rssBytes()
@@ -245,18 +256,20 @@ proc activationRow(gate: MapGate; gunRange = NavCorpusGunRangePx): JsonNode =
       pops += nav.runRouteScheduler(sample)
     querySamples.add started.elapsedNs
     queryPops.add int64(pops)
-  let bytes = nav.navigationBytes
+  let bytes = nav.retainedNavigationBytes
   # Include all allocator overhead as a conservative bound, even the seat
   # allocations, so shared storage cannot disappear into a reporting category.
   let sharedUpperBound = bytes.systemOwner + bytes.routeIndex +
-    bytes.safetyScratch + bytes.mixedGraph + bytes.packedWeightScratch +
+    bytes.safetyScratch + bytes.hazardOverlay + bytes.safeCache +
+    bytes.mixedGraph + bytes.packedWeightScratch +
     bytes.sharedDangerGeometry +
     bytes.trace + bytes.allocatorOverhead
   const PoolSharedCap = 16'i64 * 1024 * 1024
   %*{"map": gate.label, "colossal": gate.colossal,
     "body_map_activation_ns": mapNs, "route_index_activation_ns": indexNs,
     "mixed_nav_activation_ns": navNs,
-    "total_activation_ns": mapNs + indexNs + navNs,
+    "hazard_activation_ns": hazardNs, "safe_cache_activation_ns": cacheNs,
+    "total_activation_ns": mapNs + indexNs + hazardNs + cacheNs + navNs,
     "rss_delta_bytes": max(0'i64, rssAfter - rssBefore),
     "deleted_following_portal_next_bytes": deleted.portalNext,
     "deleted_following_cells_bytes": deleted.cells,
