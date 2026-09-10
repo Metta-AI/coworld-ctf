@@ -1,0 +1,343 @@
+# PARKED — game-side seat-identity consumer
+#
+# Extracted BY HAND from origin/maxwell/glory-s8-ship @ eb8e8be2 (the old,
+# wire-batched S8 cut). Deliberately excludes that commit's GameVersion
+# 63->64 bump and ReplayCompatibleGameVersions allowlist edit in
+# sim_types.nim — this patch is the seat-identity consumer ONLY, not a
+# GameVersion change. See README.md in this directory for why this is
+# parked rather than shipped, and what unparks it.
+#
+# NOT applied by this ship. NOT wired into any build. Kept here so the
+# work is not lost and the next attempt does not start from zero.
+
+diff --git a/src/ctf/sim_types.nim b/src/ctf/sim_types.nim
+index 8ccdcf5d..d495dbf6 100644
+--- a/src/ctf/sim_types.nim
++++ b/src/ctf/sim_types.nim
+@@ -3936,6 +3962,41 @@ type
+     glory*: int                ## can be negative (a friendly-fire-heavy
+                                ## seat's own dTeamKill entries).
+
++  SeatIdentityEntry* = object
++    ## GLORY GRADIENT S8 (GameVersion 63->64, epic 25d9108e): one seat's
++    ## platform identity, read once at live server startup from the
++    ## `COWORLD_SEAT_IDENTITY` env var (metta PR #22382, `dispatcher:
++    ## forward per-seat platform identity to the game runtime`) -- that
++    ## var's own shape is a JSON object keyed by seat POSITION (the
++    ## dispatcher's `policy_version_ids` array index, which lines up with
++    ## `config.players[]`'s own order for the fresh, non-shell episodes
++    ## the platform launches this way) mapping to `{player_id,
++    ## policy_version_id, policy_name, round_id, episode_id, is_filler?}`.
++    ## `slot` here mirrors that same source position (matches the
++    ## achievement feed's own "slot" = joinOrder idiom for a fresh,
++    ## non-squad episode, where join order and config array order
++    ## coincide -- a shell/squad episode with mid-match dynamic joins is
++    ## not this env var's target and is not specially handled).
++    ## `playerId`/`policyVersionId`/`policyName`/`roundId`/`episodeId` are
++    ## `""` when the source JSON carries `null` (a league zombie/baseline
++    ## seat's `player_id`, or an episode with no round) -- this repo has
++    ## no other use for an empty identity string, so `""` is an
++    ## unambiguous "absent" sentinel, the same idiom `variantId`'s own
++    ## schema entry ("The engine only reports it") uses for an unset
++    ## platform-echo string. Never read back into any scoring decision,
++    ## not in gameHash -- platform/audit metadata only, same status as
++    ## `TeamDeedTally` just above. Set ONCE per live process (never
++    ## re-read from a replay-loaded run's own environment -- see
++    ## `SimServer.seatIdentity`'s own comment for why a loaded replay
++    ## keeps whatever its OWN recording keyframed instead).
++    slot*: int
++    playerId*: string
++    policyVersionId*: string
++    policyName*: string
++    roundId*: string
++    episodeId*: string
++    isFiller*: bool
++
+   ShotFeedbackFx* = object
+     ## A PRIVATE, one-shot combat-outcome record: config-gated
+     ## (`allowShotFeedback`, default off) and, like every Fx type above,
+@@ -4967,6 +5028,30 @@ type
+     blastObservations*: seq[BlastObservation]
+     sprayImpactObservations*: seq[SprayImpactObservation]
+     shoutObservations*: seq[ShoutObservation]
++    # GLORY GRADIENT S8 (GameVersion 63->64): appended for the flatty
++    # keyframe rule, same discipline every block above follows.
++    seatIdentity*: seq[SeatIdentityEntry]
++                             ## Per-seat platform identity -- see
++                             ## `SeatIdentityEntry`'s own doc comment for
++                             ## the full source/shape/sentinel contract.
++                             ## Empty on every process that never sees
++                             ## `COWORLD_SEAT_IDENTITY` (every local/dev/
++                             ## test run, and every non-platform-hosted
++                             ## episode) -- unconditional empty seq, not a
++                             ## flag-gated field, same "always present,
++                             ## possibly empty" idiom `teamDeedTally` uses.
++                             ## Set explicitly at server startup for a
++                             ## LIVE (non-replay-loaded) run only
++                             ## (`runServerLoop`, server.nim) -- a
++                             ## replay-loaded run keeps whatever its own
++                             ## keyframe already carries (baked in at
++                             ## record time by the SAME live-only set,
++                             ## since keyframes snapshot the whole
++                             ## SimServer), so a later offline playback of
++                             ## a platform-hosted episode still shows the
++                             ## identity that was live when it was
++                             ## recorded, with no env var needed at
++                             ## decode time.
+
+ # Team endzone display colors (shared by the map bake and the paint FX).
+ const
+
+diff --git a/src/ctf/server.nim b/src/ctf/server.nim
+index c9215da8..51de1d34 100644
+--- a/src/ctf/server.nim
++++ b/src/ctf/server.nim
+@@ -4093,6 +4093,63 @@ proc finishAndCopyProfileTrace(done: var bool) =
+     copyFile(ProfileTracePath, destination)
+     echo "Profile trace copied: ", destination
+
++const CoworldSeatIdentityEnv* = "COWORLD_SEAT_IDENTITY"
++  ## GLORY GRADIENT S8 (GameVersion 63->64, epic 25d9108e): metta PR
++  ## #22382 (`dispatcher: forward per-seat platform identity to the game
++  ## runtime`) sets this on a platform-hosted episode's game container.
++  ## Same ad-hoc-literal idiom `COGAME_EVENTS_URI`/`COGAME_METRICS_URI`/
++  ## `COGAME_MUX_SOCKET`/`COWORLD_WORKDIR` already use just below --
++  ## `RuntimeConfig` (bitworld/runtime.nim, an external package) has no
++  ## identity field and never will from this repo alone (see GV63's own
++  ## changelog, sim_types.nim, for the traced reason), so this reads
++  ## beside it rather than through it, exactly like those four.
++
++proc parseSeatIdentity*(raw: string): seq[SeatIdentityEntry] =
++  ## Parses `COWORLD_SEAT_IDENTITY`'s JSON object (seat position -> `{
++  ## player_id, policy_version_id, policy_name, round_id, episode_id,
++  ## is_filler? }`, any value possibly `null`) into `SeatIdentityEntry`
++  ## rows -- see that type's own doc comment (sim_types.nim) for the
++  ## null/absent-string sentinel convention and the position/slot mapping.
++  ## Never raises: an optional platform-metadata channel must not be able
++  ## to kill a live server on a malformed value, so a parse failure or an
++  ## unexpected shape logs one line and returns empty, same as "the env
++  ## var was never set" (the empty-seq idiom `SimServer.seatIdentity`
++  ## already uses for "no identity" everywhere else).
++  result = @[]
++  if raw.len == 0:
++    return
++  var parsed: JsonNode
++  try:
++    parsed = parseJson(raw)
++  except CatchableError as e:
++    echo "COWORLD_SEAT_IDENTITY: malformed JSON, ignoring (", e.msg, ")"
++    return
++  if parsed.kind != JObject:
++    echo "COWORLD_SEAT_IDENTITY: expected a JSON object, ignoring"
++    return
++  proc optStr(node: JsonNode, key: string): string =
++    if node.hasKey(key) and node[key].kind == JString: node[key].getStr()
++    else: ""
++  for key, entry in parsed.pairs:
++    if entry.kind != JObject:
++      continue
++    var slot: int
++    try:
++      slot = parseInt(key)
++    except ValueError:
++      echo "COWORLD_SEAT_IDENTITY: non-integer seat key '", key, "', skipping"
++      continue
++    result.add SeatIdentityEntry(
++      slot: slot,
++      playerId: entry.optStr("player_id"),
++      policyVersionId: entry.optStr("policy_version_id"),
++      policyName: entry.optStr("policy_name"),
++      roundId: entry.optStr("round_id"),
++      episodeId: entry.optStr("episode_id"),
++      isFiller: entry.hasKey("is_filler") and entry["is_filler"].kind == JBool and
++        entry["is_filler"].getBool()
++    )
++
+ proc runServerLoop*(
+   host = DefaultHost,
+   port = DefaultPort,
+@@ -4194,6 +4251,11 @@ proc runServerLoop*(
+         "COGAME_METRICS_URI must be a file:// path, got: " & uri
+       )
+
++  # GLORY GRADIENT S8: parsed ONCE, live or replay -- but only APPLIED to a
++  # live run (below). Cheap even when unused (empty string -> empty seq
++  # immediately, see parseSeatIdentity's own comment).
++  let seatIdentityValue = parseSeatIdentity(getEnv(CoworldSeatIdentityEnv))
++
+   var
+     sim =
+       if replayLoaded: move(initializedReplay.sim)
+@@ -4201,6 +4263,13 @@ proc runServerLoop*(
+     lastTick = getMonoTime()
+     collectedEvents: seq[SimEvent] = @[]
+   sim.collectEvents = eventsPath.len > 0
++  # A replay-loaded run keeps whatever identity its OWN keyframe already
++  # carries (baked in live, at the original recording's own startup) --
++  # see `SimServer.seatIdentity`'s own comment (sim_types.nim) for why
++  # overwriting it here from THIS process's (almost always empty, for an
++  # offline replay viewer) environment would be wrong.
++  if not replayLoaded:
++    sim.seatIdentity = seatIdentityValue
+   block:
+     # Bake the supersampled spectator render caches (map, endzone fades,
+     # soldier rotations) BEFORE the listener opens: a viewer's first-message
+@@ -4935,6 +5004,11 @@ proc runServerLoop*(
+       inc config.seed
+       sim = initSimServer(config)
+       sim.collectEvents = eventsPath.len > 0
++      # `shouldReset` only ever fires when `not replayLoaded` (set just
++      # above, guarded on that same predicate) -- identity persists across
++      # a multi-game match's own games exactly like it does across the
++      # first game, no re-read needed.
++      sim.seatIdentity = seatIdentityValue
+       shellEpisode.resetShellForSim(replayLoaded, config, sim, "reset",
+         runtimeConfig.config)
+       # One file describes ONE match. A reset that kept the previous match's
+
+diff --git a/src/ctf/broadcast.nim b/src/ctf/broadcast.nim
+index 383b6fcd..86e680e9 100644
+--- a/src/ctf/broadcast.nim
++++ b/src/ctf/broadcast.nim
+@@ -1387,6 +1387,28 @@ proc buildStateJson*(
+           "slot": claim.slot
+         })
+       state["over"]["achievements"] = feed
++    # GLORY GRADIENT S8 (GameVersion 63->64, epic 25d9108e): per-seat
++    # platform identity -- `player_id`/`policy_version_id`/`policy_name`/
++    # `round_id`/`episode_id`/`is_filler`, keyed by `slot` (the achievement
++    # feed's own "slot" idiom just above) -- from `COWORLD_SEAT_IDENTITY`
++    # (metta PR #22382), parsed once at live server startup
++    # (`parseSeatIdentity`, server.nim) into `sim.seatIdentity`. Omit-
++    # when-absent like "achievements"/"distinctions" just above and below:
++    # every local/dev/test run and every non-platform-hosted episode never
++    # sets the env var, so this key is simply never present on that wire.
++    if sim.seatIdentity.len > 0:
++      var identity = newJArray()
++      for entry in sim.seatIdentity:
++        identity.add(%*{
++          "slot": entry.slot,
++          "playerId": entry.playerId,
++          "policyVersionId": entry.policyVersionId,
++          "policyName": entry.policyName,
++          "roundId": entry.roundId,
++          "episodeId": entry.episodeId,
++          "isFiller": entry.isFiller
++        })
++      state["over"]["identity"] = identity
+     # GLORY v12 (contract §3): capture DISTINCTIONS -- "Uphill" and "Fast
+     # Break" moved off the Heart ladder and onto the match record. The
+     # engine still pins `capturedOutnumbered`/`capturedFastBreak` at the
+
+diff --git a/tests/test_seat_identity.nim b/tests/test_seat_identity.nim
+new file mode 100644
+index 00000000..865549f8
+--- /dev/null
++++ b/tests/test_seat_identity.nim
+@@ -0,0 +1,106 @@
++## GLORY GRADIENT S8 (GameVersion 63->64, epic 25d9108e): the game-side
++## seat-identity consumer. Metta PR #22382 (`dispatcher: forward per-seat
++## platform identity to the game runtime`) sets `COWORLD_SEAT_IDENTITY` on
++## a platform-hosted episode's game container -- a JSON object keyed by
++## seat position -> `{player_id, policy_version_id, policy_name, round_id,
++## episode_id, is_filler?}`, any value possibly `null`. This suite proves
++## both halves of the consumer: `parseSeatIdentity` (server.nim) turns that
++## env var's JSON into `SeatIdentityEntry` rows, and `over.identity`
++## (broadcast.nim) carries them on the wire when present, is ABSENT when
++## not -- the two states GV63's own changelog scoped this batch to close
++## (no inbound channel existed before this PR).
++
++import
++  helpers,
++  std/[json, os, unittest],
++  ctf/[broadcast, server, sim]
++
++suite "parseSeatIdentity: COWORLD_SEAT_IDENTITY -> SeatIdentityEntry":
++  test "empty string (env unset) parses to an empty seq":
++    check parseSeatIdentity("").len == 0
++
++  test "malformed JSON parses to an empty seq, does not raise":
++    check parseSeatIdentity("not json").len == 0
++    check parseSeatIdentity("[]").len == 0        # a JSON array, not object
++    check parseSeatIdentity("""{"0": "not an object"}""").len == 0
++
++  test "well-formed shape: every field, plus a filler seat and a null player_id":
++    let raw = """{
++      "0": {"player_id": "ply_abc", "policy_version_id": "pv_1",
++             "policy_name": "monet", "round_id": "r4700",
++             "episode_id": "ep_1", "is_filler": false},
++      "1": {"player_id": null, "policy_version_id": "pv_baseline",
++             "policy_name": "baseline", "round_id": null,
++             "episode_id": "ep_1", "is_filler": true}
++    }"""
++    let entries = parseSeatIdentity(raw)
++    check entries.len == 2
++    let bySlot = block:
++      var t: array[2, SeatIdentityEntry]
++      for e in entries:
++        t[e.slot] = e
++      t
++    check bySlot[0].playerId == "ply_abc"
++    check bySlot[0].policyVersionId == "pv_1"
++    check bySlot[0].policyName == "monet"
++    check bySlot[0].roundId == "r4700"
++    check bySlot[0].episodeId == "ep_1"
++    check bySlot[0].isFiller == false
++    # null player_id / round_id -> "" sentinel (SeatIdentityEntry's own
++    # doc comment), never a crash or a literal "null" string.
++    check bySlot[1].playerId == ""
++    check bySlot[1].roundId == ""
++    check bySlot[1].policyVersionId == "pv_baseline"
++    check bySlot[1].isFiller == true
++
++  test "a non-integer seat key is skipped, not fatal to the rest":
++    let raw = """{"not-a-slot": {"player_id": "x"}, "2": {"player_id": "y"}}"""
++    let entries = parseSeatIdentity(raw)
++    check entries.len == 1
++    check entries[0].slot == 2
++    check entries[0].playerId == "y"
++
++  test "reads through the real env var, end to end (putEnv -> getEnv -> parse)":
++    putEnv("COWORLD_SEAT_IDENTITY", """{"0": {"player_id": "ply_env"}}""")
++    let entries = parseSeatIdentity(getEnv("COWORLD_SEAT_IDENTITY"))
++    delEnv("COWORLD_SEAT_IDENTITY")
++    check entries.len == 1
++    check entries[0].playerId == "ply_env"
++
++suite "over.identity: present when sim.seatIdentity is set, absent when it is not":
++  test "absent by default -- no seat identity, no key on the wire":
++    var sim = twoTeamGame()
++    sim.finishGame(Red)
++    check sim.seatIdentity.len == 0    # unconditional empty seq idiom
++    let state = parseJson(sim.buildStateJson(
++      newJArray(), false, 1, 1000, false, true, -1, -1
++    ))
++    check state["ph"].getStr == "gameover"
++    check not state["over"].hasKey("identity")
++
++  test "present when sim.seatIdentity is set (what a live process does from the env)":
++    var sim = twoTeamGame()
++    sim.seatIdentity = parseSeatIdentity("""{
++      "0": {"player_id": "ply_red0", "policy_version_id": "pv_9",
++             "policy_name": "monet", "round_id": "r4700",
++             "episode_id": "ep_42", "is_filler": false},
++      "1": {"player_id": null, "policy_version_id": "pv_baseline",
++             "policy_name": "baseline", "is_filler": true}
++    }""")
++    sim.finishGame(Red)
++    let state = parseJson(sim.buildStateJson(
++      newJArray(), false, 1, 1000, false, true, -1, -1
++    ))
++    require state["over"].hasKey("identity")
++    let identity = state["over"]["identity"]
++    check identity.len == 2
++    var bySlot: array[2, JsonNode]
++    for entry in identity:
++      bySlot[entry["slot"].getInt] = entry
++    check bySlot[0]["playerId"].getStr == "ply_red0"
++    check bySlot[0]["policyVersionId"].getStr == "pv_9"
++    check bySlot[0]["roundId"].getStr == "r4700"
++    check bySlot[0]["episodeId"].getStr == "ep_42"
++    check bySlot[0]["isFiller"].getBool == false
++    check bySlot[1]["playerId"].getStr == ""     # null -> "" sentinel, on the wire too
++    check bySlot[1]["isFiller"].getBool == true
