@@ -468,7 +468,7 @@ suite "SEASON 2 replay viewer HUD: comms rail redesign (owner 2026-09-10)":
     # PR's verification pass, comfortably above the 9px kiosk floor).
     checkInBoth "font-size: clamp(11.5px, calc(10 * var(--u)), 16px);"
     checkInBoth "font-size: clamp(11px, calc(9.5 * var(--u)), 15px);"
-    checkInBoth "font-size: clamp(10.5px, calc(8.5 * var(--u)), 15px);"
+    checkInBoth "font-size: clamp(11px, calc(8.5 * var(--u)), 15px);"
 
   test "the flash row drops the redundant \"flashed\" word and keeps one glyph":
     checkInBoth "class=\"fl-bolt\" aria-hidden=\"true\">⚡</span>"
