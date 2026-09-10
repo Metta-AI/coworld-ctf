@@ -106,3 +106,7 @@ G0 bed15e11; G1 9e4971f1; M1 5a6c4963; W1 da13e2c7; M2 d9962a8d; M3 f261aeca; W2
 - A8countscreen passes correctedpre-runcriterion: map48 189identical failedsearches repeat,44.2866%dequeuework; all1991pixelcalls across76maps showzeroexact-keyresultdifferences, onlymap48repeats. First128failure-keycachewouldserveall189; no timinggainproven. A8_FULL_COUNT_RESULT.md.
 
 - A8 bounded failure memo native screen negative: m8i median6.15593%gain, m5a4.96858%vs preregistered5%bothhosts. All76maps/19retainedarrays exact;189hits/356784saveddequeues match model; noadoption, no capchange. A8_MEMO_SCREEN_RESULT.md.
+
+- C10 preregistered grouped replay: retained bitmap unchanged; safe4cellgroups cover98.81–99.70%of additions on sixmap/range samples. ARM fivecrafted+256border/mask cases exact forscalar/SIMD. Three-arm native20%screen pending; no productionchange. C10_MICRO_DECISION.md and C10_MICRO_READY.md.
+
+- C10 native micro passesbothhosts: SIMD1300replay ratios0.4398–0.4520m8i and0.2905–0.2971m5a; scalar~0.72–0.73. All180processoutputs exact, fivecrafted+256border cases exactacrossARM/SSE2. SIMDadvancesonlytofullsource trace/regime screen. C10_NATIVE_MICRO_RESULT.md.

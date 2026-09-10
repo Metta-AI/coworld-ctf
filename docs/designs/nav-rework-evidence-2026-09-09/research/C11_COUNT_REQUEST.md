@@ -1,0 +1,9 @@
+# C11 close-floor intervals: independent counts/exactness unit
+
+Root accepts C10_MICRO_SOURCE_REVIEW.md; native frozen micro has started (m8i launchhandle52986; root is monitoring both launches), and root owns all native jobs/results. Peer must not touch nativehosts or C10 files.
+
+Concrete parallel subtask: investigate ranked close-floor row spans with a tools-only exactness/count proof. Own only new research/C11/ artifacts and C11_COUNT_REVIEW.md; no src changes or timed benchmarks. Read current rebuildDangerFromPoints close-floor code and constants first. Use existing Python stdlib math.isqrt for an integer reference proposal, no package addition. Enumerate all effective integer radii0..DangerClosePx, all64source pixel offsets within an8pxcell, and every row/column in the original clipped closeCells box. Compare the exact squared-distance predicate to an interval endpoint formula, with zero membership differences required. Include empty rows, exact-circle boundaries, small radii and representative clipping at map corners/sides. Keep source order and the kernel-then-close-floor addition order explicit.
+
+Candidate formula for review, not a mandate: per row dy=8*row+4-subY, remaining=R*R-dy*dy; if nonnegative, limit=isqrt(remaining), xlo=ceil((subX-4-limit)/8), xhi=floor((subX-4+limit)/8), clipped to original[-closeCells,closeCells] and map bounds. If any property fails, report it before proposing code. Record tested cases/cell memberships, operation counts and a fixed output hash. Compute exact row-table storage for64offsets and2*closeCells+1rows using explicit widths; no memo of per-cell lists. Existing FluffycloseFloor times are attribution only, not a speed result.
+
+Write C11_COUNT_REVIEW.md with the proof, unresolved concerns, and a proposed native screen for this distinct mechanism. Do not implement production code or start timing. End C11 COUNT REVIEW READY and wait. Keep all handoffs in the repository; no external memory writes.

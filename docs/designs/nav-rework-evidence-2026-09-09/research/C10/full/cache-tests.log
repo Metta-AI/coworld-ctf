@@ -1,0 +1,6 @@
+Hint: used config file '/Users/jamesboggs/.nimby/nim/config/nim.cfg' [Conf]
+Hint: used config file '/Users/jamesboggs/.nimby/nim/config/config.nims' [Conf]
+Hint: used config file '/Users/jamesboggs/coding/coworlds/coworld-ctf-worktrees/nav-deferred-cache/nim.cfg' [Conf]
+Hint: used config file '/Users/jamesboggs/coding/coworlds/coworld-ctf-worktrees/nav-deferred-cache/tests/config.nims' [Conf]
+.....................................................................
+Error: cannot open 'tests/test_shell_body_danger_cache.nim'

@@ -1,0 +1,389 @@
+{
+  "exact": true,
+  "rows": [
+    {
+      "map": "br-gen-5120",
+      "range_px": 331,
+      "pairs": [
+        {
+          "repeat": 1,
+          "median_ns": {
+            "parent": 13053.21484375,
+            "scalar": 9236.1796875,
+            "simd": 5196.41796875
+          },
+          "scalar_parent": 0.7075789219789306,
+          "simd_parent": 0.3980948778482791,
+          "simd_scalar": 0.5626155125351983
+        },
+        {
+          "repeat": 2,
+          "median_ns": {
+            "parent": 12786.45703125,
+            "scalar": 9189.50390625,
+            "simd": 5220.51953125
+          },
+          "scalar_parent": 0.7186903990519755,
+          "simd_parent": 0.40828507212678944,
+          "simd_scalar": 0.5680959042521763
+        },
+        {
+          "repeat": 3,
+          "median_ns": {
+            "parent": 12827.51171875,
+            "scalar": 9112.0234375,
+            "simd": 5232.796875
+          },
+          "scalar_parent": 0.7103500380499311,
+          "simd_parent": 0.407935458546587,
+          "simd_scalar": 0.5742738603442052
+        },
+        {
+          "repeat": 4,
+          "median_ns": {
+            "parent": 12789.0546875,
+            "scalar": 9148.5859375,
+            "simd": 5276.37109375
+          },
+          "scalar_parent": 0.7153449696670554,
+          "simd_parent": 0.4125692807387176,
+          "simd_scalar": 0.5767417095708951
+        },
+        {
+          "repeat": 5,
+          "median_ns": {
+            "parent": 12752.60546875,
+            "scalar": 9212.46484375,
+            "simd": 5277.93359375
+          },
+          "scalar_parent": 0.7223986397387544,
+          "simd_parent": 0.41387100123841114,
+          "simd_scalar": 0.57291221006186
+        }
+      ],
+      "scalar_parent": 0.7153449696670554,
+      "simd_parent": 0.40828507212678944,
+      "simd_scalar": 0.57291221006186
+    },
+    {
+      "map": "br-gen-5120",
+      "range_px": 1300,
+      "pairs": [
+        {
+          "repeat": 1,
+          "median_ns": {
+            "parent": 45688.046875,
+            "scalar": 32860.51171875,
+            "simd": 20203.734375
+          },
+          "scalar_parent": 0.7192365173467485,
+          "simd_parent": 0.4422105070561741,
+          "simd_scalar": 0.6148332243856044
+        },
+        {
+          "repeat": 2,
+          "median_ns": {
+            "parent": 45833.62109375,
+            "scalar": 32786.859375,
+            "simd": 20275.04296875
+          },
+          "scalar_parent": 0.7153451678613041,
+          "simd_parent": 0.44236179653531155,
+          "simd_scalar": 0.6183892984946808
+        },
+        {
+          "repeat": 3,
+          "median_ns": {
+            "parent": 45879.3671875,
+            "scalar": 33389.7421875,
+            "simd": 28093.80859375
+          },
+          "scalar_parent": 0.7277725093949673,
+          "simd_parent": 0.61234080406855,
+          "simd_scalar": 0.8413904017583993
+        },
+        {
+          "repeat": 4,
+          "median_ns": {
+            "parent": 45724.86328125,
+            "scalar": 33462.55078125,
+            "simd": 20303.9765625
+          },
+          "scalar_parent": 0.7318239657803788,
+          "simd_parent": 0.44404674187021304,
+          "simd_scalar": 0.6067671497977041
+        },
+        {
+          "repeat": 5,
+          "median_ns": {
+            "parent": 45691.91015625,
+            "scalar": 32982.953125,
+            "simd": 20224.921875
+          },
+          "scalar_parent": 0.7218554228135811,
+          "simd_parent": 0.44263682139437804,
+          "simd_scalar": 0.6131931788627554
+        }
+      ],
+      "scalar_parent": 0.7218554228135811,
+      "simd_parent": 0.44263682139437804,
+      "simd_scalar": 0.6148332243856044
+    },
+    {
+      "map": "br-gen-5204",
+      "range_px": 331,
+      "pairs": [
+        {
+          "repeat": 1,
+          "median_ns": {
+            "parent": 12754.04296875,
+            "scalar": 8976.97265625,
+            "simd": 5234.26953125
+          },
+          "scalar_parent": 0.7038530980525477,
+          "simd_parent": 0.4104008073420346,
+          "simd_scalar": 0.5830773615652897
+        },
+        {
+          "repeat": 2,
+          "median_ns": {
+            "parent": 12684.9453125,
+            "scalar": 9132.9453125,
+            "simd": 5213.7578125
+          },
+          "scalar_parent": 0.7199830261388839,
+          "simd_parent": 0.41101933702167864,
+          "simd_scalar": 0.5708736485440331
+        },
+        {
+          "repeat": 3,
+          "median_ns": {
+            "parent": 12780.76953125,
+            "scalar": 8921.7734375,
+            "simd": 5154.484375
+          },
+          "scalar_parent": 0.6980623049093838,
+          "simd_parent": 0.40330000180324627,
+          "simd_scalar": 0.5777421284130204
+        },
+        {
+          "repeat": 4,
+          "median_ns": {
+            "parent": 12763.37109375,
+            "scalar": 8925.61328125,
+            "simd": 5212.5625
+          },
+          "scalar_parent": 0.6993147198878137,
+          "simd_parent": 0.40840013674384984,
+          "simd_scalar": 0.5840004866612369
+        },
+        {
+          "repeat": 5,
+          "median_ns": {
+            "parent": 12685.69140625,
+            "scalar": 9041.70703125,
+            "simd": 5211.23046875
+          },
+          "scalar_parent": 0.7127484613724185,
+          "simd_parent": 0.410795935504353,
+          "simd_scalar": 0.576354713854244
+        }
+      ],
+      "scalar_parent": 0.7038530980525477,
+      "simd_parent": 0.4104008073420346,
+      "simd_scalar": 0.5777421284130204
+    },
+    {
+      "map": "br-gen-5204",
+      "range_px": 1300,
+      "pairs": [
+        {
+          "repeat": 1,
+          "median_ns": {
+            "parent": 47964.60546875,
+            "scalar": 34272.546875,
+            "simd": 20985.7890625
+          },
+          "scalar_parent": 0.7145382838044884,
+          "simd_parent": 0.4375265647952156,
+          "simd_scalar": 0.6123206757595251
+        },
+        {
+          "repeat": 2,
+          "median_ns": {
+            "parent": 47579.59375,
+            "scalar": 33908.93359375,
+            "simd": 20901.76953125
+          },
+          "scalar_parent": 0.7126780815304881,
+          "simd_parent": 0.4393011348746541,
+          "simd_scalar": 0.6164089316893928
+        },
+        {
+          "repeat": 3,
+          "median_ns": {
+            "parent": 47664.09765625,
+            "scalar": 34367.4296875,
+            "simd": 21702.70703125
+          },
+          "scalar_parent": 0.7210338887637273,
+          "simd_parent": 0.45532608605681246,
+          "simd_scalar": 0.6314905487140237
+        },
+        {
+          "repeat": 4,
+          "median_ns": {
+            "parent": 47666.19140625,
+            "scalar": 34532.96484375,
+            "simd": 21004.375
+          },
+          "scalar_parent": 0.7244750173017186,
+          "simd_parent": 0.44065561733228603,
+          "simd_scalar": 0.6082412875650179
+        },
+        {
+          "repeat": 5,
+          "median_ns": {
+            "parent": 47787.86328125,
+            "scalar": 34056.93359375,
+            "simd": 21015.73046875
+          },
+          "scalar_parent": 0.7126691016359492,
+          "simd_parent": 0.43977129391754394,
+          "simd_scalar": 0.6170764144369922
+        }
+      ],
+      "scalar_parent": 0.7145382838044884,
+      "simd_parent": 0.43977129391754394,
+      "simd_scalar": 0.6164089316893928
+    },
+    {
+      "map": "br-gen-5263",
+      "range_px": 331,
+      "pairs": [
+        {
+          "repeat": 1,
+          "median_ns": {
+            "parent": 12382.91796875,
+            "scalar": 8841.765625,
+            "simd": 5156.71875
+          },
+          "scalar_parent": 0.7140292495931423,
+          "simd_parent": 0.4164380934294881,
+          "simd_scalar": 0.5832227372572998
+        },
+        {
+          "repeat": 2,
+          "median_ns": {
+            "parent": 12213.59765625,
+            "scalar": 8778.23828125,
+            "simd": 5147.84765625
+          },
+          "scalar_parent": 0.7187266625536791,
+          "simd_parent": 0.42148495481310694,
+          "simd_scalar": 0.5864328913519717
+        },
+        {
+          "repeat": 3,
+          "median_ns": {
+            "parent": 12264.7109375,
+            "scalar": 8926.65234375,
+            "simd": 5169.42578125
+          },
+          "scalar_parent": 0.7278322652070249,
+          "simd_parent": 0.42148777966256085,
+          "simd_scalar": 0.5791001578401758
+        },
+        {
+          "repeat": 4,
+          "median_ns": {
+            "parent": 12181.2890625,
+            "scalar": 8783.06640625,
+            "simd": 5129.6484375
+          },
+          "scalar_parent": 0.7210293066017618,
+          "simd_parent": 0.4211088343097925,
+          "simd_scalar": 0.5840384440051324
+        },
+        {
+          "repeat": 5,
+          "median_ns": {
+            "parent": 12205.16015625,
+            "scalar": 8789.0546875,
+            "simd": 5176.62890625
+          },
+          "scalar_parent": 0.7201097384207051,
+          "simd_parent": 0.42413445132869965,
+          "simd_scalar": 0.5889858568763172
+        }
+      ],
+      "scalar_parent": 0.7201097384207051,
+      "simd_parent": 0.42148495481310694,
+      "simd_scalar": 0.5840384440051324
+    },
+    {
+      "map": "br-gen-5263",
+      "range_px": 1300,
+      "pairs": [
+        {
+          "repeat": 1,
+          "median_ns": {
+            "parent": 39381.02734375,
+            "scalar": 30205.6875,
+            "simd": 17821.31640625
+          },
+          "scalar_parent": 0.7670111608907486,
+          "simd_parent": 0.45253558904624025,
+          "simd_scalar": 0.5899987016104169
+        },
+        {
+          "repeat": 2,
+          "median_ns": {
+            "parent": 39316.0,
+            "scalar": 28615.0390625,
+            "simd": 17804.87890625
+          },
+          "scalar_parent": 0.7278217281132363,
+          "simd_parent": 0.4528659809301557,
+          "simd_scalar": 0.622221023964398
+        },
+        {
+          "repeat": 3,
+          "median_ns": {
+            "parent": 39523.21875,
+            "scalar": 28403.69140625,
+            "simd": 17840.16796875
+          },
+          "scalar_parent": 0.7186583558873225,
+          "simd_parent": 0.45138449076215487,
+          "simd_scalar": 0.628093289480832
+        },
+        {
+          "repeat": 4,
+          "median_ns": {
+            "parent": 39442.0,
+            "scalar": 28841.6796875,
+            "simd": 17829.23828125
+          },
+          "scalar_parent": 0.7312428296612747,
+          "simd_parent": 0.4520368713871,
+          "simd_scalar": 0.6181761421120422
+        },
+        {
+          "repeat": 5,
+          "median_ns": {
+            "parent": 39374.796875,
+            "scalar": 28514.1484375,
+            "simd": 17792.70703125
+          },
+          "scalar_parent": 0.7241725850173036,
+          "simd_parent": 0.45188060493962867,
+          "simd_scalar": 0.6239957356696004
+        }
+      ],
+      "scalar_parent": 0.7278217281132363,
+      "simd_parent": 0.4520368713871,
+      "simd_scalar": 0.622221023964398
+    }
+  ]
+}
