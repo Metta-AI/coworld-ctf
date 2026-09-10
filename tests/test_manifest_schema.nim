@@ -409,3 +409,55 @@ suite "league manifest config_schema vs GameConfig":
       check sim.winner == Red
       for i, seat in seats:
         check sim.players[seat].reward == (if i mod 2 == 0: 2 else: -2)
+
+suite "gloryMultiplierRecut implies catalog v3 (client percent-wire dependency)":
+  ## The viewer has NO wire field for which glory era is live (PR #537,
+  ## "viewer: enforce the >=2x popup law under catalog v3"): a positive
+  ## recut-armed deed's `amt` is an integer FACTOR under the old table but a
+  ## PERCENT under v3 (src/ctf/sim.nim:522 -- "amount = if ramped or v3: pct
+  ## else: factor"), and client/replay_broadcast.html's `gloryPopFactor`
+  ## (p.amt / 100) can only tell the two apart by trusting that "recut armed"
+  ## (sampleRecutArmed, the client's own era proxy) means "v3 percent scale".
+  ## That trust is sound ONLY because, empirically, TODAY every manifest
+  ## block that arms `gloryMultiplierRecut` also arms `catalogV3Reprice` (the
+  ## switch that actually selects the percent-scaled pricing table) and
+  ## `placementRampV3` (the OTHER path that reports a percent `amount`,
+  ## src/ctf/sim.nim's `ramped` branch) in the same block. This suite pins
+  ## that invariant so a future manifest publish that arms the multiplier
+  ## recut WITHOUT the percent-scale switches (reviving the pre-v3 integer
+  ## factor under an armed recut) fails here LOUD, instead of silently
+  ## mislabelling every popup in production again -- the exact bug the owner
+  ## reported ("what the heck is giving everyone a x100!?").
+  test "every variant (published + archived) that arms gloryMultiplierRecut also arms catalogV3Reprice and placementRampV3":
+    var checkedAny = false
+    for name in [ManifestName, ArchiveName]:
+      let doc = parseFile(GameDir / name)
+      if not doc.hasKey("variants"):
+        continue
+      for variant in doc["variants"]:
+        let gameConfig = variant["game_config"]
+        if gameConfig.hasKey("gloryMultiplierRecut") and
+           gameConfig["gloryMultiplierRecut"].getBool():
+          checkedAny = true
+          let variantId = variant["id"].getStr()
+          checkpoint(name & " variant '" & variantId &
+            "' arms gloryMultiplierRecut -- the client's era proxy " &
+            "(recutArmed) needs catalogV3Reprice armed alongside it too, " &
+            "or gloryPopFactor's p.amt/100 misreads an old-table integer " &
+            "factor as a percent")
+          check gameConfig.hasKey("catalogV3Reprice")
+          check gameConfig["catalogV3Reprice"].getBool()
+          checkpoint(name & " variant '" & variantId &
+            "' arms gloryMultiplierRecut -- placementRampV3 also reports a " &
+            "percent `amount` for dFinal8/dFinal4/dFinal2 (sim.nim's " &
+            "`ramped` branch), so it must stay in lockstep too")
+          check gameConfig.hasKey("placementRampV3")
+          check gameConfig["placementRampV3"].getBool()
+    # If nothing armed gloryMultiplierRecut at all, the client's era proxy
+    # is moot (recutArmed can never observe the percent-scale gap) but that
+    # would ALSO mean this test stopped exercising anything -- fail loud
+    # rather than pass vacuously.
+    checkpoint("expected at least one manifest variant arming " &
+      "gloryMultiplierRecut (battle-royale-s2 today) -- if none do, this " &
+      "test is vacuous and the client's era-proxy comment is stale")
+    check checkedAny
