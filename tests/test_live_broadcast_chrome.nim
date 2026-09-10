@@ -66,6 +66,9 @@ suite "live broadcast chrome (buildLiveViewerPacket)":
     check not chrome.hasKey("lulls")
     check not chrome.hasKey("beats")
     check not chrome.hasKey("ach")
+    # THE WHOLE Stop 2 (stage-seek): a genuinely live episode disables
+    # transport -- seeking a still-playing stream is meaningless.
+    check chrome["en"].getBool == false
 
   test "a live kill reaches the chrome's events the same tick it happens":
     var sim = brGame()
@@ -104,6 +107,59 @@ suite "live broadcast chrome (buildLiveViewerPacket)":
     check chrome.hasKey("over")
     check chrome["over"]["winner"].getStr == "red"
     check chrome["teams"]["red"].hasKey("lives")
+    # THE WHOLE Stop 2 (stage-seek): the just-finished episode is HELD on
+    # the stage (sim.step's `of GameOver:` branch freezes the board -- only
+    # `dec gameOverTimer` runs -- until it expires and resetToLobby fires),
+    # so transport (seek/rate/jump-to-end) enables here even though this is
+    # still the live process (never replayLoaded). This is the flag the
+    # client's scrubber dim-lock (`updateScrubLiveLock`, PR #517) reads.
+    check chrome["en"].getBool == true
+
+  test "transport flips the instant phase crosses into GameOver, and stays off through Lobby":
+    ## Pins the exact rule (not just endpoints): disabled while genuinely
+    ## live (Lobby, Playing), enabled the same tick the sim holds GameOver --
+    ## no separate "ended" bookkeeping needed, because sim.phase already is
+    ## that signal.
+    var config = defaultGameConfig()
+    config.brMode = true
+    config.teams = 2
+    var lobbySim = initCtfForTest(config)
+    check lobbySim.phase == Lobby
+    var
+      tracker = initBroadcastTracker()
+      viewer = initGlobalViewerState()
+      nextViewer: GlobalViewerState
+      warmup = newJArray()
+    lobbySim.stepEvents(tracker, warmup)
+    block stillLobby:
+      var events = newJArray()
+      let packet = lobbySim.buildLiveViewerPacket(
+        viewer, nextViewer, [], lobbySim.tickCount, 7200, 1, true, false,
+        events)
+      check packet.chromeOf()["en"].getBool == false
+
+    var sim = lobbySim
+    for i in 0 ..< 2:
+      discard sim.addPlayer("p" & $i)
+    sim.startGame()
+    tracker = initBroadcastTracker()
+    warmup = newJArray()
+    sim.stepEvents(tracker, warmup)
+    block playing:
+      check sim.phase == Playing
+      var events = newJArray()
+      let packet = sim.buildLiveViewerPacket(
+        viewer, nextViewer, [], sim.tickCount, 7200, 1, true, false, events)
+      check packet.chromeOf()["en"].getBool == false
+
+    sim.killPlayer(1, 0)  # brMode, 2 teams, 1 seat each: wipes blue's only seat
+    sim.checkWinCondition()
+    check sim.phase == GameOver
+    block ended:
+      var events = newJArray()
+      let packet = sim.buildLiveViewerPacket(
+        viewer, nextViewer, [], sim.tickCount, 7200, 1, true, false, events)
+      check packet.chromeOf()["en"].getBool == true
 
   test "resync (an in-match round transition) starts the next diff clean, no phantom flood":
     # Mirrors server.nim's needsReregister handling: the roster and tick
