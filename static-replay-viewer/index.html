@@ -3169,28 +3169,15 @@ body[data-noviewpanel] #viewpanel { display: none !important; }
   var getSpoilers = C.getSpoilers, setSpoilers = C.setSpoilers;
   var isMe = C.isMe, meSeatIndices = C.meSeatIndices;
 
-  // ---- THE GLOSSARY: one term, one sentence, one source ------------------
-  // THE WHOLE epic, Law 1 ("one vocabulary, one glossary") and Law 6 ("no
-  // bare numbers"): every on-screen explanation this file renders for these
-  // terms — the strip's first-appearance toasts, its hover/tap
-  // title/aria-label text, the kickoff line, and the "Glory by deed" endcard
-  // tooltip (#525, WIRE-OK batch, GameVersion 63) — reads from THIS object.
-  // No sentence below is ever retyped elsewhere in this file. The wiki
-  // glossary (Stop 3, docs/wiki) copies these same sentences verbatim
-  // rather than hand-maintaining a second copy — see
-  // docs/designs/THE_WHOLE.md §3 Law 1 and docs/designs/THE_GAME_EXPLAINS_ITSELF.md.
-  var GLOSSARY = {
-    glory: "Glory is what one policy earns in one episode: every deed mints some, and the multipliers stack the more it does before the end.",
-    deed: "A deed is one thing a cog did that the game pays for.",
-    multiplier: "This number is the team's running multiplier; every pop stacks it.",
-    pact: "These two share a pact: they won't fight each other.",
-    heat: "Scoring fast; keeps climbing while it's hot.",
-    intent: "What this cog is doing right now.",
-    downed: "Downed — can still be rescued.",
-    standing: "Your standing is a decaying average of your recent episodes' Glory, not your best one.",
-    gloryByDeed: 'Glory by deed — the acts that built this seat’s total.',
-    deedNegative: '‘Own paint’ (friendly fire) subtracts from the same ledger, it never zeroes it.'
-  };
+  // THE GLOSSARY lives further down this IIFE, immediately before
+  // ordinal()/teamDeedsText() (tests/test_glory_by_deed_endcard.mjs slices
+  // the file starting at that declaration through the SEASON 2 comment
+  // below teamDeedsText and vm-evals it standalone, so the declaration has
+  // to sit right next to the self-contained helpers it shares that slice
+  // with, not up here next to code that touches `window`). Do not spell
+  // the declaration's own "var" + object-literal opening out verbatim in
+  // this comment -- the test locates it with a plain string search, and a
+  // second occurrence up here would be found first.
 
   // ---- eye-level cog art for the EYES PiP billboards ----
   // The PiP is an eye-level raycaster, so its billboards need art drawn from a
@@ -7214,10 +7201,32 @@ body[data-noviewpanel] #viewpanel { display: none !important; }
 
   var BR_SHOW_RANKS = 4; // ranks below the winner shown individually before compressing
 
-  // gloryByDeed / deedNegative now live in THE GLOSSARY (see the single
-  // canonical `var GLOSSARY` near the top of this IIFE) — #517 landed on
-  // main first, so this batch's two "Glory by deed" endcard sentences were
-  // folded into that object on rebase instead of duplicating the var.
+  // ---- THE GLOSSARY: one term, one sentence, one source ------------------
+  // THE WHOLE epic, Law 1 ("one vocabulary, one glossary") and Law 6 ("no
+  // bare numbers"): every on-screen explanation this file renders for these
+  // terms — the strip's first-appearance toasts, its hover/tap
+  // title/aria-label text, the kickoff line, and the "Glory by deed" endcard
+  // tooltip (#525, WIRE-OK batch, GameVersion 63) — reads from THIS object.
+  // No sentence below is ever retyped elsewhere in this file. The wiki
+  // glossary (Stop 3, docs/wiki) copies these same sentences verbatim
+  // rather than hand-maintaining a second copy — see
+  // docs/designs/THE_WHOLE.md §3 Law 1 and docs/designs/THE_GAME_EXPLAINS_ITSELF.md.
+  // Declared here (not up near the other UI helpers) because
+  // tests/test_glory_by_deed_endcard.mjs slices the served page from this
+  // exact string through the SEASON 2 comment below teamDeedsText and
+  // vm-evals the slice standalone -- it must stay window-reference-free.
+  var GLOSSARY = {
+    glory: "Glory is what one policy earns in one episode: every deed mints some, and the multipliers stack the more it does before the end.",
+    deed: "A deed is one thing a cog did that the game pays for.",
+    multiplier: "This number is the team's running multiplier; every pop stacks it.",
+    pact: "These two share a pact: they won't fight each other.",
+    heat: "Scoring fast; keeps climbing while it's hot.",
+    intent: "What this cog is doing right now.",
+    downed: "Downed — can still be rescued.",
+    standing: "Your standing is a decaying average of your recent episodes' Glory, not your best one.",
+    gloryByDeed: 'Glory by deed — the acts that built this seat’s total.',
+    deedNegative: '‘Own paint’ (friendly fire) subtracts from the same ledger, it never zeroes it.'
+  };
 
   function ordinal(n) {
     var suf = ['th', 'st', 'nd', 'rd'], v = n % 100;
