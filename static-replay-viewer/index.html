@@ -1456,8 +1456,38 @@ body.sidelanes-both #killfeed {
       two below the existing .tiny threshold (relayout() already toggles
       this at boardW <= 620; extended here to <body> as well as <stage>)
       roughly halves the needed height so all 16 cells fit (measured:
-      16-cell content now 123px, inside the 128px lane). */
-body.sidelanes #scorebug .br-cell { max-width: 340px; }
+      16-cell content now 123px, inside the 128px lane).
+   3. CHIP CLIP (owner defect, 2026-09-10 — pre-existing at the 2038x1474
+      shape specifically, bisected byte-identical back through #521/#518;
+      see #534's PR comment and the follow-up PR that reconfirmed it under
+      the real rajdhani font): the two fixes above assumed the row's own
+      children would always fit the rail's real width, but nothing here
+      ever gave them a way to give up space when they don't. `.br-cell` is
+      `width:100%` of the rail with NO shrink of its own (`flex:0 0 auto`,
+      the base rule above), and both `.br-cell-members` (the swatch+name
+      stack) and `.br-cell-glory-wrap` (this fix's own margin-left:10u
+      numeral) are `flex:none` — neither ever yields width to the other.
+      At a narrow tier-1 rail (2038x1474: ~240px rail, ~189px content
+      after #lane-l's own padding — see the sidelane block above, NOT
+      touched here) that fixed sum can exceed the real available width,
+      and since nothing here clips locally, the overflow rides out to
+      #lane-l's own `overflow:hidden` and gets cut off mid-numeral — DOM-
+      measured (real rajdhani font, not the fallback sans a first pass
+      measured under): 3 of 16 chips, up to 7.05px past the rail's right
+      edge. `.br-cell-glory` must NEVER be the side that gives: the
+      numeral is a bare figure with no ellipsis backstop of its own,
+      unlike `.br-cell-mname` two lines below, which already carries one
+      (overflow:hidden + text-overflow:ellipsis + a max-width cap) — it
+      just never actually got offered a chance to shrink into use, since
+      its own parent stack refused to. Letting `.br-cell-members` shrink
+      (flex-shrink, its existing min-width:0 already permits going to 0
+      once shrink is allowed) hands 100% of any deficit to the name, which
+      truncates further via its own existing ellipsis rule — the numeral
+      never moves. The 4px right pad on the cell (added to the existing
+      340px cap below, not a new rule) is the "not just barely" floor: a
+      flush 0px fit at the rail edge would still read as a clip on a soft
+      subpixel round. */
+body.sidelanes #scorebug .br-cell { max-width: 340px; padding-right: 4px; }
 /* RECONCILED with THE WHOLE Stop 2's "Glory" noun label (Law 6): the
    numeral this rule was written against is now wrapped in
    .br-cell-glory-wrap (label stacked above the numeral, see the BR RAIL
@@ -1468,6 +1498,12 @@ body.sidelanes #scorebug .br-cell { max-width: 340px; }
    margin-left:auto; the fixed 10u gap now sits after the name for the
    label+numeral pair together, same as intended for the bare numeral. */
 body.sidelanes #scorebug .br-cell .br-cell-glory-wrap { margin-left: calc(10 * var(--u)); }
+/* CHIP CLIP fix, part 2 (see point 3 in the comment above): the base
+   .br-cell-members rule (~line 318) is flex:none — it already carries
+   min-width:0 for an unrelated reason, but shrink:0 means that min-width
+   was never reachable. This is the ONLY property changed: give the
+   name+swatch stack somewhere to go before the numeral ever has to. */
+body.sidelanes #scorebug .br-cell .br-cell-members { flex-shrink: 1; }
 body.sidelanes.tiny #scorebug .br-cellband {
   flex-direction: row;
   flex-wrap: wrap;
