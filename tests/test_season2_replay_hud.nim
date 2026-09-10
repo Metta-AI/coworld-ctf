@@ -303,7 +303,9 @@ suite "SEASON 2 replay viewer HUD: BR rail fit at 16 seats (owner follow-up 2026
   ## retargeted one level up to keep landing on the element that actually
   ## carries it. Same fix, same specificity bump, new selector text.
   test "the wide rail keeps a chip's name and number close together":
-    checkInBoth "body.sidelanes #scorebug .br-cell { max-width: 340px; }"
+    # The literal now also carries the CHIP CLIP fix's 4px pad (see the
+    # suite below) — one rule, both defects, updated together.
+    checkInBoth "body.sidelanes #scorebug .br-cell { max-width: 340px; padding-right: 4px; }"
     checkInBoth "body.sidelanes #scorebug .br-cell .br-cell-glory-wrap { margin-left: calc(10 * var(--u)); }"
 
   test "the tiny rail splits the 16-cell roster into two columns instead of clipping":
@@ -417,3 +419,33 @@ suite "SEASON 2 replay viewer HUD: catalog v3 popup law (owner bug, 2026-09-10)"
     check not src.contains("var isHero = !p.lbl && p.amt > 0 && recutArmed;")
     checkpoint("source must not still label the old raw p.amt reading")
     check not src.contains("mult.textContent = '×' + p.amt;")
+
+suite "SEASON 2 replay viewer HUD: chip clip fix (owner defect, 2026-09-10)":
+  ## Pre-existing at the owner's own 2038x1474 window shape, bisected
+  ## byte-identical on main before #534 (that PR found and reported it,
+  ## deliberately out of its own scope). DOM-measured (real rajdhani font,
+  ## via a spliced-source + synthetic-frame harness, no server build): at
+  ## 2038x1474, 3 of 16 .br-cell-glory numerals sat past #lane-l's right
+  ## edge, up to 7.05px overshoot (a first pass under the browser's
+  ## fallback sans, in #534's own PR comment, measured 10 cells / 10.41px
+  ## — the real font changes the exact count but not the defect: the row's
+  ## children never had a way to give up width to each other). Zero
+  ## overshoot at all 3 verification shapes (2038x1474, 3454x846, 540x300)
+  ## after this fix — screenshot/DOM verification only, not re-encoded here
+  ## (this suite pins the CSS tokens the fix depends on, same idiom as the
+  ## BR rail fit suite above).
+  test "the name+swatch stack can shrink so the numeral never has to":
+    # Base .br-cell-members rule (~line 318) is flex:none — this override
+    # is the ONLY property touched, scoped to the BR rail only.
+    checkInBoth "body.sidelanes #scorebug .br-cell .br-cell-members { flex-shrink: 1; }"
+
+  test "the cell reserves a real inner margin, not a flush 0px fit":
+    checkInBoth "body.sidelanes #scorebug .br-cell { max-width: 340px; padding-right: 4px; }"
+
+  test "the numeral element itself still carries no shrink — it is never the side that gives":
+    # .br-cell-glory (the bare figure) stays flex:none, untouched by this
+    # fix — only .br-cell-members (the name+swatch stack) got a shrink
+    # override. Guards against a future edit "fixing" the clip by making
+    # the NUMBER give up space instead of the name.
+    checkInBoth ".br-cell-glory {\n  font-family: var(--pixfont);"
+    checkInBoth "  flex: none;\n  transform-origin: left center;\n}"
