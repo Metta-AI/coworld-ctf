@@ -424,8 +424,10 @@ proc castRay(seat: BodyNavSeat, origin: BodyPoint,
   var y = origin.y
   var ix = 0
   var iy = 0
+  let decisionX = 2 * ny
+  let decisionY = 2 * nx
+  var decision = ny - nx
   while ix < nx or iy < ny:
-    let decision = (1 + 2 * ix) * ny - (1 + 2 * iy) * nx
     if decision == 0:
       let sideX = x + stepX
       let sideY = y + stepY
@@ -438,12 +440,15 @@ proc castRay(seat: BodyNavSeat, origin: BodyPoint,
       y = sideY
       inc ix
       inc iy
+      decision += decisionX - decisionY
     elif decision < 0:
       x += stepX
       inc ix
+      decision += decisionX
     else:
       y += stepY
       inc iy
+      decision -= decisionY
     if seat.dangerGeometry.sightCellBlocked(x, y):
       break
     seat.addVisibleCell(origin, kernel, kernelRadius, x, y)

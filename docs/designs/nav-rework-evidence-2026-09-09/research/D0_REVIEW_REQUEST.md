@@ -1,0 +1,9 @@
+# D0 hypothesis: precompute the danger-ray step sequence
+
+W7 removes most weapon cost, but m5a worst body p95 remains~5.96ms; danger p95~3.64ms includes~1.08ms weight refresh. The remaining LOS walk still recomputes checked decision=(1+2*ix)*ny-(1+2*iy)*nx at every step of every ray, every source, every cadence. Geometry is immutable for the episode.
+
+Proposal: during initDangerGeometry, precompute the current castRay walk for each existing perimeter offset as a byte step kind (X, Y, or both) in one flat seq, with a per-ray offset/length table. Keep the exact existing perimeter, signs, diagonal side-wall refusal order, addVisibleCell order, endpoint order, bounds checks and float operations. Runtime castRay reads the precomputed step kind instead of recomputing ix/iy/decision. No visibility approximation and no source/result cache. M1's shared ref owner keeps this table shared by all seats. Expected table is about150k bytes at1300px, plus a few KB offsets; measure allocated capacity and count it in sharedDangerGeometry. It should fit the newly authorized32 MiB shared cap, but verify before claiming it.
+
+Please review exactness, simplest layout, activation/memory cost and whether an incremental decision update is a better first ablation. A static move table should remove more arithmetic but add a byte read; both are candidates, not assumed wins. Write D0_REVIEW.md; no source edits. Root will close checkpoint backlog and sync research branch before implementing. End D0 REVIEW READY and wait. The earlier RASTER_REVIEW's R2 accessor-inlining suggestion is separate and has not been implemented.
+
+W7 current code review remains requested; complete it first if still pending. New memory ruling removes structural bridge/workspace compression from required work; do not implement it.

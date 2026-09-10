@@ -49,3 +49,5 @@ Append results; do not erase negatives. All numbers are observed, not inferred p
 G0 bed15e11; G1 9e4971f1; M1 5a6c4963; W1 da13e2c7; M2 d9962a8d; M3 f261aeca; W2 f5433765; R1 ae5658fc; W6 e5791746; W7 addaad7a. Source-changing units include rebuilt viewer artifacts and documentation audits. Newer research notes were restored after the primary branch fast-forward; original files remain in the external sync backup.
 
 - CAP32: James authorized up to 4x non-colossal caps. Selected 32 MiB shared (2x), preserving the 256 MiB total/colossal cap. Fresh memory passes all 76 maps; configured timing and inherited activation ratios still fail. Historical 16 MiB failures above remain historical. See MEMORY_CAP_RULING.md.
+
+- D0a: incremental danger-ray decision; m5a1300px three pairs p95/max5.948740/6.034892 ->5.838907/5.953172ms. All18 matched rows improve p95; masks, pops, full quality and retained ledgers unchanged. Tick gate still fails. D0_REPORT.md.
