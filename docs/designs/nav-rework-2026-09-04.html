@@ -377,6 +377,7 @@
   <header class="masthead">
     <span class="eyebrow">Design document · 2026-09-04 · Proposed, reviewed (Codex: GO)</span>
     <h1>Precomputed Shared Cog Navigation</h1>
+    <p><strong>Current memory ruling (2026-09-09).</strong> James authorized up to a fourfold increase in non-colossal memory caps. The research harness now uses a 32 MiB shared-navigation limit on non-colossal maps (twice the previous 16 MiB), with the existing 256 MiB total-navigation limit unchanged, including colossal. The largest measured configured-map shared footprint is 31,607,620 bytes; fresh memory qualification passes all 76 measured maps; timing and activation-time qualification remain incomplete. Earlier measurements and limits below describe historical designs. Timing, quality, determinism and activation requirements are unchanged. See <a href="nav-rework-evidence-2026-09-09/research/MEMORY_CAP_RULING.md">the ruling and measured rationale</a>.</p>
     <p class="context">This document describes a rework of route planning in the Season 2 cog body. The rework replaces the per-seat, budgeted, map-sized A* with four parts: one immutable room/portal route index per map, one zone hazard overlay per episode, synchronous bounded route queries, and deterministic local steering. Implementation has not started. The repo commit is fad3029f (origin/main). Claude drafted the document for James. A Codex reviewer challenged it in three rounds, and its fact checks are included (see §10). Reference PRs #408, #409 and #410 are inputs to this design. Do not merge them.</p>
   </header>
 

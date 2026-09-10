@@ -27,22 +27,25 @@ Append results; do not erase negatives. All numbers are observed, not inferred p
 
 | S1 | m5a CPU5 B1024 | positive Q8 truncation | refresh2.30% better; whole-body still5.713180/5.770981ms fail; exact quality and memory unchanged | S1_REPORT.md | no doubling, fleet or current-variant qualification |
 
-- G0: configured range diagnostic on m5a, same source and 3 paired runs; 331 px worst p95/max5.691996/5.807979ms,1300 px13.982918/15.593524ms. Workload gap, no optimization claim. G0_REPORT.md.
+| G0 | m5a CPU5 B1024 | S1, gun range331vs1300 only | whole-body p95 5.691996->13.982918ms; maximum15.593524ms at1300 | G0_REPORT.md | old geometry; no full configured-variant or optimization acceptance |
 
-- G1: checked-in configured 11-map screen on native m8i; all maps fail timing and shared memory. Worst p95/max15.015300/15.193815ms, original logical shared max30,755,007B. Later M2/M3 correct capacity/context counts; raw G1 preserved. G1_REPORT.md.
+| G1 | m8i CPU5 B1024 | S1 configured1300px/11-map screen | all11 fail timing and16MiBsharedcap; worstp95/max15.015300/15.193815ms; sharedmax30755007B | G1_REPORT.md | single diagnostic, no hosted readback or repeat qualification |
 
 - M1: reference-share immutable danger geometry under ORC; generated C no longer duplicates per-seat sequence payloads. Three m5a1300px pairs show no substantial speed gain; full quality unchanged. Historical logical memory undercount corrected, later capacity/context audit still required. M1_REPORT.md.
-
 - W1: integer nearest/ties-even ray traversal; m5a1300px p95/max13.820488/15.464153 ->11.448389/12.762947ms. All masks/pops match, full quality unchanged; still fails tick gate. W1_REPORT.md.
-
 - M2: capacity-based retained ledger; original65 maps pass, configured11 all fail shared cap (max31,340,947B). No speed claim; hazard/cache context still omitted until M3. M2_REPORT.md.
 
-- M3: include installed hazard and refreshed cache; all65 original maps pass, historical configured shared maximum31,521,758B. New user ruling permits a later32 MiB cap update; raw16 MiB failures remain. M3_REPORT.md.
+- M3: full installed hazard/cache accounting; 65 original maps pass memory, configured11 all fail shared cap (max31,521,758B). No speed claim. See M3_REPORT.md.
+- W2: checked direct wall lookup, m5a1300px three pairs; p95/max11.543802/12.864276 ->10.375292/10.534817ms; all masks/pops identical, full3,072 quality and activation pass. Tick gate still fails; retain for combined qualification. See W2_REPORT.md.
 
-- W2: Worst m5a p95/max11.543802/12.864276 ->10.375292/10.534817ms; all masks/pops and full corpus unchanged. See W2_REPORT.md.
+- R1: exact shared sight table, three m5a1300px pairs; worst p95/max10.367423/10.601260 ->7.984246/8.777049ms. All masks/pops identical, full corpus hash unchanged; original memory gates pass, configured giant shared cap still fails. R1_REPORT.md.
 
-- R1: Worst m5a1300px p95/max10.367423/10.601260 ->7.984246/8.777049ms; all masks/pops and corpus unchanged. Count shared table memory. See R1_REPORT.md.
+- W6: major-axis specialization; m5a1300px p95/max8.201069/8.788592 ->5.960683/6.704114ms. All masks/pops and full corpus hash unchanged; original memory passes, configured shared cap remains failed. W6_REPORT.md.
 
-- W6: Worst m5a p95/max8.201069/8.788592 ->5.960683/6.704114ms; all masks/pops and full corpus unchanged. See W6_REPORT.md.
+- W7: clearance skip, weapon p95 3.206897->0.638566ms; whole-body p95/max5.881750/5.931860 ->5.957923/6.044486ms (no worst-body improvement). All masks/pops and corpus hash unchanged; clearance proof checks pass261,581,865 pixels. One reader repair retained. W7_REPORT.md.
 
-- W7: Weapon p95 improves3.206897->0.638566ms; worst body p95 does not improve. All masks/pops and corpus unchanged; clearance invariants pass261581865 pixels. Preserve failed verifier attempt. See W7_REPORT.md.
+## Durable checkpoint mapping
+
+G0 bed15e11; G1 9e4971f1; M1 5a6c4963; W1 da13e2c7; M2 d9962a8d; M3 f261aeca; W2 f5433765; R1 ae5658fc; W6 e5791746; W7 addaad7a. Source-changing units include rebuilt viewer artifacts and documentation audits. Newer research notes were restored after the primary branch fast-forward; original files remain in the external sync backup.
+
+- CAP32: James authorized up to 4x non-colossal caps. Selected 32 MiB shared (2x), preserving the 256 MiB total/colossal cap. Fresh memory passes all 76 maps; configured timing and inherited activation ratios still fail. Historical 16 MiB failures above remain historical. See MEMORY_CAP_RULING.md.

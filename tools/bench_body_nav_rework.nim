@@ -264,7 +264,7 @@ proc activationRow(gate: MapGate; gunRange = NavCorpusGunRangePx): JsonNode =
     bytes.mixedGraph + bytes.packedWeightScratch +
     bytes.sharedDangerGeometry +
     bytes.trace + bytes.allocatorOverhead
-  const PoolSharedCap = 16'i64 * 1024 * 1024
+  const PoolSharedCap = 32'i64 * 1024 * 1024
   %*{"map": gate.label, "colossal": gate.colossal,
     "body_map_activation_ns": mapNs, "route_index_activation_ns": indexNs,
     "mixed_nav_activation_ns": navNs,
