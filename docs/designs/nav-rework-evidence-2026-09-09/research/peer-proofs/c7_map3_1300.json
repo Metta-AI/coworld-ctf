@@ -1,0 +1,16 @@
+[
+  {
+    "map": "br-gen-5120",
+    "diameter": 327,
+    "stride": 3,
+    "sources": 22513,
+    "words": 37619223,
+    "full_words": 957550,
+    "set_bits": 252292211,
+    "full_word_bits": 61283200,
+    "full_word_bit_share": 0.24290563611573407,
+    "row_spans_per_full_word": 1.0032102762257846,
+    "max_set_bits_per_source": 25483,
+    "min_set_bits_per_source": 116
+  }
+]

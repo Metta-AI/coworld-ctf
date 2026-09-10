@@ -1,0 +1,5 @@
+# WF0 isolated screen before production integration
+
+Implement the reviewed Manhattan-shell/ray-set method in a standalone diagnostic. Compare its full float raster bitwise with the real public BodyNavSeat.rebuildDanger implementation at ranges331 and1300 on frozen maps0/29/48, configured maps0/5/10, and colossal. Use fixed seeded standable source positions and unchanged source selection/order, attenuation and close-floor constants. Measure30 fresh rebuild samples per row on m5a CPU5, with all geometry construction outside the timed rebuild and measured separately.
+
+This pilot is deliberately an isolated danger-stage screen, not whole-body acceptance or full-map qualification. Reject a consistently slower candidate before introducing production data structures. Retain every failure. If promising, proceed to the full integration and76-map differential in WF0_IMPLEMENTATION_PLAN.md. No production source, memory cap or runtime behavior changes in this screen. Counter-hypothesis: early wall termination makes the current ray walk cheaper than scanning inactive wavefront cells.

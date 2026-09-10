@@ -1,0 +1,12 @@
+{
+  "parent_pops": 37637596,
+  "candidate_pops": 31814084,
+  "pop_work_ratio": 1.1830482373781372,
+  "changed_route_cases": 640,
+  "worse_inflation_cases": 24,
+  "better_inflation_cases": 0,
+  "maximum_inflation_increase_pct_points": 2.220446049250313e-14,
+  "maximum_inflation_decrease_pct_points": 0.0,
+  "candidate_hash": "ee2488d32085fb4de3457c4cf841298c14b87add2225964d934f80f2a7c1013d",
+  "worse_strata": []
+}

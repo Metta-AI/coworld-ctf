@@ -1,0 +1,50 @@
+[
+  {
+    "map": "br-gen-5120",
+    "range_px": 1300,
+    "safe_set_fraction": 0.9947372370273702,
+    "mean_set_lanes_nonempty": 3.7238305519334656,
+    "full_nibble_set_fraction": 0.9271231651318781,
+    "total_set_bits": 679681
+  },
+  {
+    "map": "br-gen-5120",
+    "range_px": 331,
+    "safe_set_fraction": 0.9890719947985696,
+    "mean_set_lanes_nonempty": 3.7435172530003182,
+    "full_nibble_set_fraction": 0.9286553802295632,
+    "total_set_bits": 199945
+  },
+  {
+    "map": "br-gen-5204",
+    "range_px": 1300,
+    "safe_set_fraction": 0.9969988435393338,
+    "mean_set_lanes_nonempty": 3.713250311593368,
+    "full_nibble_set_fraction": 0.9247680027078103,
+    "total_set_bits": 709060
+  },
+  {
+    "map": "br-gen-5204",
+    "range_px": 331,
+    "safe_set_fraction": 0.9894562828861158,
+    "mean_set_lanes_nonempty": 3.737065149831428,
+    "full_nibble_set_fraction": 0.9276253452412152,
+    "total_set_bits": 198412
+  },
+  {
+    "map": "br-gen-5263",
+    "range_px": 1300,
+    "safe_set_fraction": 0.994274736693121,
+    "mean_set_lanes_nonempty": 3.701402331895863,
+    "full_nibble_set_fraction": 0.9200603422385314,
+    "total_set_bits": 579362
+  },
+  {
+    "map": "br-gen-5263",
+    "range_px": 331,
+    "safe_set_fraction": 0.9881272307369305,
+    "mean_set_lanes_nonempty": 3.719495529264769,
+    "full_nibble_set_fraction": 0.923388620617258,
+    "total_set_bits": 190520
+  }
+]

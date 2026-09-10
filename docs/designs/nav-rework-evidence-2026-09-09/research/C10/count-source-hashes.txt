@@ -1,0 +1,2 @@
+a0200d40545e220ae9940e017c249ff67f271b7735c3692d5a128c1555b5eba7  src/shell/body_nav.nim
+b6ba2fe6528e194d67b960dc2f677ba75e28c883217fc401838434b9332df243  tools/count_danger_simd_groups.nim

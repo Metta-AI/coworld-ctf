@@ -1,0 +1,74 @@
+[
+  {
+    "trace": "s2_16_679962",
+    "expected_conversions": 35,
+    "actual_conversions": 35,
+    "hits": 75,
+    "misses": 121,
+    "raster_mismatches": 0
+  },
+  {
+    "trace": "s2_16_679963",
+    "expected_conversions": 21,
+    "actual_conversions": 21,
+    "hits": 48,
+    "misses": 86,
+    "raster_mismatches": 0
+  },
+  {
+    "trace": "s2_16_679964",
+    "expected_conversions": 31,
+    "actual_conversions": 31,
+    "hits": 77,
+    "misses": 112,
+    "raster_mismatches": 0
+  },
+  {
+    "trace": "s2_16_679965",
+    "expected_conversions": 17,
+    "actual_conversions": 17,
+    "hits": 29,
+    "misses": 92,
+    "raster_mismatches": 0
+  },
+  {
+    "trace": "s2_32_679962",
+    "expected_conversions": 92,
+    "actual_conversions": 92,
+    "hits": 375,
+    "misses": 382,
+    "raster_mismatches": 0
+  },
+  {
+    "trace": "s2_32_679963",
+    "expected_conversions": 70,
+    "actual_conversions": 70,
+    "hits": 286,
+    "misses": 244,
+    "raster_mismatches": 0
+  },
+  {
+    "trace": "s2_32_679964",
+    "expected_conversions": 97,
+    "actual_conversions": 97,
+    "hits": 295,
+    "misses": 378,
+    "raster_mismatches": 0
+  },
+  {
+    "trace": "s2_32_679965",
+    "expected_conversions": 84,
+    "actual_conversions": 84,
+    "hits": 248,
+    "misses": 306,
+    "raster_mismatches": 0
+  },
+  {
+    "trace": "smoke_s2_16_randomized",
+    "expected_conversions": 18,
+    "actual_conversions": 18,
+    "hits": 33,
+    "misses": 104,
+    "raster_mismatches": 0
+  }
+]

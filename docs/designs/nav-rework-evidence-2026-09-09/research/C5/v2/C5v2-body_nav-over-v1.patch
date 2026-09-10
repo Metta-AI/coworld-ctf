@@ -1,0 +1,14 @@
+--- /Users/jamesboggs/coding/coworlds/coworld-ctf-worktrees/nav-throughput-research/docs/designs/nav-rework-evidence-2026-09-09/research/C5/v1/snapshot/C5-body_nav.nim	2026-09-10 10:39:19
++++ src/shell/body_nav.nim	2026-09-10 10:39:35
+@@ -615,7 +615,10 @@
+     return
+   when defined(bodyNavBreakdown):
+     let started = getMonoTime()
+-  system.mixedGraph.rebuildPackedWeights(seat.danger, system.packedWeightScratch)
++  # C5 v2: the pack alone; the equality compare and generation publication
++  # below stay outside the marker.
++  dangerStage("danger.packWeights"):
++    system.mixedGraph.rebuildPackedWeights(seat.danger, system.packedWeightScratch)
+   when defined(bodyNavBreakdown):
+     system.timing.weightRefreshNanoseconds += timingElapsed(started)
+     inc system.timing.weightRefreshes

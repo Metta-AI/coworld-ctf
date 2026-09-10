@@ -1,0 +1,18 @@
+Hint: used config file '/Users/jamesboggs/.nimby/nim/config/nim.cfg' [Conf]
+Hint: used config file '/Users/jamesboggs/.nimby/nim/config/config.nims' [Conf]
+Hint: used config file '/Users/jamesboggs/coding/coworlds/coworld-ctf-worktrees/nav-deferred-cache/nim.cfg' [Conf]
+..........................................................................................................................................................................................................................
+/Users/jamesboggs/coding/coworlds/coworld-ctf-worktrees/nav-deferred-cache/src/ctf/arena.nim(1373, 5) Hint: 'inside' is declared but not used [XDeclaredButNotUsed]
+/Users/jamesboggs/coding/coworlds/coworld-ctf-worktrees/nav-deferred-cache/src/ctf/arena.nim(3702, 6) Hint: 'rectsNode' is declared but not used [XDeclaredButNotUsed]
+/Users/jamesboggs/coding/coworlds/coworld-ctf-worktrees/nav-deferred-cache/src/ctf/arena.nim(3707, 6) Hint: 'rectsFromNode' is declared but not used [XDeclaredButNotUsed]
+.......
+/Users/jamesboggs/coding/coworlds/coworld-ctf-worktrees/nav-deferred-cache/src/shell/body_route_query.nim(3, 24) Warning: imported and not used: 'math' [UnusedImport]
+..
+/Users/jamesboggs/coding/coworlds/coworld-ctf-worktrees/nav-deferred-cache/tools/c10_replay.nim(2, 12) Hint: duplicate import of 'bitops'; previous import here: /Users/jamesboggs/coding/coworlds/coworld-ctf-worktrees/nav-deferred-cache/src/shell/body_nav.nim(4, 24) [DuplicateModuleImport]
+/Users/jamesboggs/coding/coworlds/coworld-ctf-worktrees/nav-deferred-cache/tools/check_c10_replay.nim(16, 19) Hint: duplicate import of 'bitops'; previous import here: /Users/jamesboggs/coding/coworlds/coworld-ctf-worktrees/nav-deferred-cache/tools/c10_replay.nim(2, 12) [DuplicateModuleImport]
+CC: tables.nim
+CC: json.nim
+CC: check_c10_replay.nim
+Hint:  [Link]
+Hint: mm: orc; threads: on; opt: speed; options: -d:release
+117689 lines; 2.085s; 339.254MiB peakmem; proj: /Users/jamesboggs/coding/coworlds/coworld-ctf-worktrees/nav-deferred-cache/tools/check_c10_replay.nim; out: /Users/jamesboggs/coding/coworlds/coworld-ctf-worktrees/nav-throughput-research/docs/designs/nav-rework-evidence-2026-09-09/research/C10/correctness [SuccessX]

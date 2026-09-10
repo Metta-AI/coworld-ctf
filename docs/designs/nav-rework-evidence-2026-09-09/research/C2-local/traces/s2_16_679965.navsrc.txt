@@ -1,0 +1,880 @@
+NAVSRC sys id=1 grid=401x214 range_px=1300 radius=163 perimeter=924 sight_fnv=D0E0AA21315A40B0 seats=16 map=br-gen-5001
+NAVSRC sched sys=1 tick=1 seat=1 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=2 seat=2 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=3 seat=3 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=4 seat=4 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=5 seat=5 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=6 seat=6 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=7 seat=7 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=8 seat=8 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=9 seat=9 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=10 seat=10 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=11 seat=11 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=12 seat=12 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=13 seat=13 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=14 seat=14 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=15 seat=15 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=32 seat=0 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=33 seat=1 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=34 seat=2 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=35 seat=3 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=36 seat=4 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=37 seat=5 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=38 seat=6 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=39 seat=7 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=40 seat=8 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=41 seat=9 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=42 seat=10 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=43 seat=11 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=44 seat=12 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=45 seat=13 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=46 seat=14 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=47 seat=15 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=64 seat=0 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=65 seat=1 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=66 seat=2 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=67 seat=3 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=68 seat=4 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=69 seat=5 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=70 seat=6 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=71 seat=7 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=72 seat=8 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=73 seat=9 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=74 seat=10 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=75 seat=11 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=76 seat=12 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=77 seat=13 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=78 seat=14 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=79 seat=15 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=96 seat=0 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=97 seat=1 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=98 seat=2 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=99 seat=3 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=100 seat=4 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=101 seat=5 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=102 seat=6 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=103 seat=7 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=104 seat=8 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=105 seat=9 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=106 seat=10 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=107 seat=11 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=108 seat=12 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=109 seat=13 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=110 seat=14 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=111 seat=15 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=128 seat=0 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=129 seat=1 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=130 seat=2 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=131 seat=3 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=132 seat=4 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=133 seat=5 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=134 seat=6 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=135 seat=7 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=136 seat=8 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=137 seat=9 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=138 seat=10 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=139 seat=11 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=140 seat=12 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=141 seat=13 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=142 seat=14 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=143 seat=15 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=160 seat=0 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=161 seat=1 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=162 seat=2 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=163 seat=3 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=164 seat=4 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=165 seat=5 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=166 seat=6 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=167 seat=7 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=168 seat=8 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=169 seat=9 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=170 seat=10 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=171 seat=11 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=172 seat=12 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=173 seat=13 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=174 seat=14 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=175 seat=15 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=192 seat=0 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=193 seat=1 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=194 seat=2 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=195 seat=3 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=196 seat=4 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=197 seat=5 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=198 seat=6 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=199 seat=7 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=200 seat=8 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=201 seat=9 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=202 seat=10 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=203 seat=11 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=204 seat=12 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=205 seat=13 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=206 seat=14 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=207 seat=15 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=224 seat=0 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=225 seat=1 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=226 seat=2 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=227 seat=3 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=228 seat=4 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=229 seat=5 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=230 seat=6 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=231 seat=7 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=232 seat=8 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=233 seat=9 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=234 seat=10 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=235 seat=11 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=236 seat=12 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=237 seat=13 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=238 seat=14 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=239 seat=15 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=256 seat=0 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=257 seat=1 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=258 seat=2 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=259 seat=3 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=260 seat=4 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=261 seat=5 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=262 seat=6 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=263 seat=7 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=264 seat=8 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=265 seat=9 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=266 seat=10 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=267 seat=11 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=268 seat=12 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=269 seat=13 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=270 seat=14 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=271 seat=15 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=288 seat=0 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=289 seat=1 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=290 seat=2 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=291 seat=3 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=292 seat=4 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=293 seat=5 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=294 seat=6 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=295 seat=7 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=296 seat=8 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=297 seat=9 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=298 seat=10 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=299 seat=11 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=300 seat=12 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=301 seat=13 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=302 seat=14 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=303 seat=15 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=320 seat=0 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=321 seat=1 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=322 seat=2 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=323 seat=3 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=324 seat=4 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=325 seat=5 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=326 seat=6 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=327 seat=7 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=328 seat=8 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=329 seat=9 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=330 seat=10 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=331 seat=11 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=332 seat=12 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=333 seat=13 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=334 seat=14 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=335 seat=15 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=352 seat=0 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=353 seat=1 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=354 seat=2 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=355 seat=3 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=356 seat=4 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=357 seat=5 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=358 seat=6 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=359 seat=7 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=360 seat=8 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=361 seat=9 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=362 seat=10 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=363 seat=11 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=364 seat=12 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=365 seat=13 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=366 seat=14 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=367 seat=15 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=384 seat=0 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=385 seat=1 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=386 seat=2 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=387 seat=3 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=388 seat=4 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=389 seat=5 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=390 seat=6 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=391 seat=7 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=392 seat=8 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=393 seat=9 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=394 seat=10 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=395 seat=11 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=396 seat=12 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=397 seat=13 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=398 seat=14 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=399 seat=15 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=416 seat=0 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=417 seat=1 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=418 seat=2 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=419 seat=3 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=420 seat=4 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=421 seat=5 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=422 seat=6 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=423 seat=7 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=424 seat=8 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=425 seat=9 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=426 seat=10 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=427 seat=11 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=428 seat=12 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=429 seat=13 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=430 seat=14 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=431 seat=15 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=448 seat=0 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=449 seat=1 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=450 seat=2 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=451 seat=3 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=452 seat=4 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=453 seat=5 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=454 seat=6 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=455 seat=7 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=456 seat=8 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=457 seat=9 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=458 seat=10 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=459 seat=11 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=460 seat=12 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=461 seat=13 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=462 seat=14 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=463 seat=15 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=480 seat=0 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=481 seat=1 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=482 seat=2 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=483 seat=3 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=484 seat=4 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=485 seat=5 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=486 seat=6 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=487 seat=7 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=488 seat=8 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=489 seat=9 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=490 seat=10 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=491 seat=11 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=492 seat=12 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=493 seat=13 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=494 seat=14 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=495 seat=15 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=512 seat=0 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=513 seat=1 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=514 seat=2 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=515 seat=3 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=516 seat=4 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=517 seat=5 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=518 seat=6 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=519 seat=7 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=520 seat=8 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=521 seat=9 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=522 seat=10 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=523 seat=11 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=524 seat=12 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=525 seat=13 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=526 seat=14 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=527 seat=15 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=544 seat=0 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=545 seat=1 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=546 seat=2 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=547 seat=3 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=548 seat=4 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=549 seat=5 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=550 seat=6 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=551 seat=7 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=552 seat=8 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=553 seat=9 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=554 seat=10 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=555 seat=11 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=556 seat=12 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=557 seat=13 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=558 seat=14 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=559 seat=15 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=576 seat=0 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=577 seat=1 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=578 seat=2 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=579 seat=3 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=580 seat=4 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=581 seat=5 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=582 seat=6 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=583 seat=7 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=584 seat=8 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=585 seat=9 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=586 seat=10 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=587 seat=11 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=588 seat=12 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=589 seat=13 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=590 seat=14 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=591 seat=15 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=608 seat=0 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=609 seat=1 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=610 seat=2 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=611 seat=3 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=612 seat=4 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=613 seat=5 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=614 seat=6 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=615 seat=7 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=616 seat=8 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=617 seat=9 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=618 seat=10 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=619 seat=11 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=620 seat=12 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=621 seat=13 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=622 seat=14 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=623 seat=15 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=640 seat=0 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=641 seat=1 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=642 seat=2 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=643 seat=3 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=644 seat=4 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=645 seat=5 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=646 seat=6 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=647 seat=7 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=648 seat=8 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=649 seat=9 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=650 seat=10 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=651 seat=11 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=652 seat=12 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=653 seat=13 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=654 seat=14 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=655 seat=15 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=672 seat=0 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=673 seat=1 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=674 seat=2 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=675 seat=3 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=676 seat=4 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=677 seat=5 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=678 seat=6 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=679 seat=7 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=680 seat=8 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=681 seat=9 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=682 seat=10 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=683 seat=11 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=684 seat=12 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=685 seat=13 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=686 seat=14 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=687 seat=15 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=704 seat=0 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=705 seat=1 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=706 seat=2 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=707 seat=3 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=708 seat=4 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=709 seat=5 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=710 seat=6 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=711 seat=7 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=712 seat=8 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=713 seat=9 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=714 seat=10 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=715 seat=11 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=716 seat=12 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=717 seat=13 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=718 seat=14 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=719 seat=15 changed=0 n=0 cells= pts=
+NAVSRC active sys=1 seat=0 active=1
+NAVSRC active sys=1 seat=1 active=1
+NAVSRC active sys=1 seat=2 active=1
+NAVSRC active sys=1 seat=3 active=1
+NAVSRC active sys=1 seat=4 active=1
+NAVSRC active sys=1 seat=5 active=1
+NAVSRC active sys=1 seat=6 active=1
+NAVSRC active sys=1 seat=7 active=1
+NAVSRC active sys=1 seat=8 active=1
+NAVSRC active sys=1 seat=9 active=1
+NAVSRC active sys=1 seat=10 active=1
+NAVSRC active sys=1 seat=11 active=1
+NAVSRC active sys=1 seat=12 active=1
+NAVSRC active sys=1 seat=13 active=1
+NAVSRC active sys=1 seat=14 active=1
+NAVSRC active sys=1 seat=15 active=1
+NAVSRC sched sys=1 tick=736 seat=0 changed=1 n=1 cells=338:71 pts=2709:568:4
+NAVSRC rays sys=1 tick=736 seat=0 src=338:71:59064
+NAVSRC sched sys=1 tick=737 seat=1 changed=1 n=2 cells=125:146,154:184 pts=1004:1170:6,1235:1476:10
+NAVSRC rays sys=1 tick=737 seat=1 src=125:146:83008,154:184:45787
+NAVSRC sched sys=1 tick=738 seat=2 changed=1 n=1 cells=238:70 pts=1909:567:3
+NAVSRC rays sys=1 tick=738 seat=2 src=238:70:65931
+NAVSRC sched sys=1 tick=739 seat=3 changed=1 n=3 cells=158:81,125:145,29:123 pts=1268:650:2,1004:1166:6,232:984:5
+NAVSRC rays sys=1 tick=739 seat=3 src=158:81:65107,125:145:83537,29:123:63855
+NAVSRC sched sys=1 tick=740 seat=4 changed=1 n=1 cells=257:205 pts=2061:1644:11
+NAVSRC rays sys=1 tick=740 seat=4 src=257:205:52873
+NAVSRC sched sys=1 tick=741 seat=5 changed=1 n=2 cells=76:94,238:70 pts=609:759:1,1909:565:3
+NAVSRC rays sys=1 tick=741 seat=5 src=76:94:80058,238:70:65931
+NAVSRC sched sys=1 tick=742 seat=6 changed=1 n=2 cells=159:80,238:70 pts=1276:641:2,1909:565:3
+NAVSRC rays sys=1 tick=742 seat=6 src=159:80:64275,238:70:65931
+NAVSRC sched sys=1 tick=743 seat=7 changed=1 n=1 cells=238:70 pts=1909:565:3
+NAVSRC rays sys=1 tick=743 seat=7 src=238:70:65931
+NAVSRC sched sys=1 tick=744 seat=8 changed=1 n=1 cells=266:120 pts=2133:967:7
+NAVSRC rays sys=1 tick=744 seat=8 src=266:120:61850
+NAVSRC sched sys=1 tick=745 seat=9 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=746 seat=10 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=747 seat=11 changed=1 n=1 cells=338:71 pts=2709:568:4
+NAVSRC rays sys=1 tick=747 seat=11 src=338:71:59064
+NAVSRC sched sys=1 tick=748 seat=12 changed=1 n=1 cells=369:148 pts=2952:1189:8
+NAVSRC rays sys=1 tick=748 seat=12 src=369:148:49351
+NAVSRC sched sys=1 tick=749 seat=13 changed=1 n=3 cells=78:94,127:142,158:183 pts=630:759:1,1017:1139:6,1268:1471:10
+NAVSRC rays sys=1 tick=749 seat=13 src=78:94:80936,127:142:84892,158:183:43358
+NAVSRC sched sys=1 tick=750 seat=14 changed=1 n=1 cells=256:31 pts=2052:251:15
+NAVSRC rays sys=1 tick=750 seat=14 src=256:31:53772
+NAVSRC sched sys=1 tick=751 seat=15 changed=1 n=1 cells=238:72 pts=1909:578:3
+NAVSRC rays sys=1 tick=751 seat=15 src=238:72:65931
+NAVSRC active sys=1 seat=3 active=0
+NAVSRC sched sys=1 tick=768 seat=0 changed=0 n=1 cells=338:71 pts=2709:568:4
+NAVSRC sched sys=1 tick=769 seat=1 changed=1 n=1 cells=127:136 pts=1020:1088:6
+NAVSRC rays sys=1 tick=769 seat=1 src=127:136:86838
+NAVSRC sched sys=1 tick=770 seat=2 changed=1 n=0 cells= pts=
+NAVSRC rays sys=1 tick=770 seat=2 src=
+NAVSRC sched sys=1 tick=772 seat=4 changed=1 n=1 cells=250:200 pts=2002:1603:11
+NAVSRC rays sys=1 tick=772 seat=4 src=250:200:47689
+NAVSRC sched sys=1 tick=773 seat=5 changed=1 n=2 cells=86:99,128:134 pts=690:794:1,1026:1077:6
+NAVSRC rays sys=1 tick=773 seat=5 src=86:99:84053,128:134:87212
+NAVSRC sched sys=1 tick=774 seat=6 changed=1 n=1 cells=162:75 pts=1300:607:2
+NAVSRC rays sys=1 tick=774 seat=6 src=162:75:58476
+NAVSRC sched sys=1 tick=775 seat=7 changed=1 n=2 cells=364:144,358:197 pts=2914:1152:8,2866:1580:12
+NAVSRC rays sys=1 tick=775 seat=7 src=364:144:49425,358:197:44330
+NAVSRC sched sys=1 tick=776 seat=8 changed=0 n=1 cells=266:120 pts=2133:967:7
+NAVSRC sched sys=1 tick=777 seat=9 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=778 seat=10 changed=1 n=1 cells=162:75 pts=1300:607:2
+NAVSRC rays sys=1 tick=778 seat=10 src=162:75:58476
+NAVSRC sched sys=1 tick=779 seat=11 changed=1 n=0 cells= pts=
+NAVSRC rays sys=1 tick=779 seat=11 src=
+NAVSRC sched sys=1 tick=780 seat=12 changed=1 n=2 cells=364:143,266:120 pts=2913:1150:8,2133:967:7
+NAVSRC rays sys=1 tick=780 seat=12 src=364:143:49441,266:120:61850
+NAVSRC sched sys=1 tick=781 seat=13 changed=1 n=2 cells=86:99,130:131 pts=691:795:1,1045:1055:6
+NAVSRC rays sys=1 tick=781 seat=13 src=86:99:84053,130:131:87615
+NAVSRC sched sys=1 tick=782 seat=14 changed=0 n=1 cells=256:31 pts=2052:251:15
+NAVSRC sched sys=1 tick=783 seat=15 changed=1 n=0 cells= pts=
+NAVSRC rays sys=1 tick=783 seat=15 src=
+NAVSRC active sys=1 seat=4 active=0
+NAVSRC sched sys=1 tick=800 seat=0 changed=1 n=0 cells= pts=
+NAVSRC rays sys=1 tick=800 seat=0 src=
+NAVSRC sched sys=1 tick=801 seat=1 changed=1 n=1 cells=133:126 pts=1071:1008:6
+NAVSRC rays sys=1 tick=801 seat=1 src=133:126:87918
+NAVSRC sched sys=1 tick=802 seat=2 changed=1 n=2 cells=134:126,169:175 pts=1072:1008:6,1356:1402:10
+NAVSRC rays sys=1 tick=802 seat=2 src=134:126:87887,169:175:28196
+NAVSRC sched sys=1 tick=805 seat=5 changed=1 n=2 cells=86:99,134:126 pts=691:795:1,1072:1008:6
+NAVSRC rays sys=1 tick=805 seat=5 src=86:99:84053,134:126:87887
+NAVSRC sched sys=1 tick=806 seat=6 changed=1 n=2 cells=162:75,133:5 pts=1300:607:2,1064:43:14
+NAVSRC rays sys=1 tick=806 seat=6 src=162:75:58476,133:5:42322
+NAVSRC sched sys=1 tick=807 seat=7 changed=1 n=1 cells=356:135 pts=2850:1083:8
+NAVSRC rays sys=1 tick=807 seat=7 src=356:135:46854
+NAVSRC sched sys=1 tick=808 seat=8 changed=0 n=1 cells=266:120 pts=2133:967:7
+NAVSRC sched sys=1 tick=809 seat=9 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=810 seat=10 changed=1 n=0 cells= pts=
+NAVSRC rays sys=1 tick=810 seat=10 src=
+NAVSRC sched sys=1 tick=811 seat=11 changed=1 n=2 cells=348:203,354:134 pts=2791:1625:12,2839:1072:8
+NAVSRC rays sys=1 tick=811 seat=11 src=348:203:36867,354:134:46636
+NAVSRC sched sys=1 tick=812 seat=12 changed=1 n=0 cells= pts=
+NAVSRC rays sys=1 tick=812 seat=12 src=
+NAVSRC sched sys=1 tick=813 seat=13 changed=1 n=1 cells=86:99 pts=691:795:1
+NAVSRC rays sys=1 tick=813 seat=13 src=86:99:84053
+NAVSRC sched sys=1 tick=814 seat=14 changed=1 n=1 cells=254:35 pts=2034:285:15
+NAVSRC rays sys=1 tick=814 seat=14 src=254:35:54822
+NAVSRC sched sys=1 tick=815 seat=15 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=832 seat=0 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=833 seat=1 changed=1 n=1 cells=134:129 pts=1073:1037:6
+NAVSRC rays sys=1 tick=833 seat=1 src=134:129:87203
+NAVSRC sched sys=1 tick=834 seat=2 changed=1 n=2 cells=134:129,169:175 pts=1072:1039:6,1356:1402:10
+NAVSRC rays sys=1 tick=834 seat=2 src=134:129:87203,169:175:28196
+NAVSRC sched sys=1 tick=837 seat=5 changed=1 n=2 cells=86:99,133:131 pts=691:795:1,1068:1048:6
+NAVSRC rays sys=1 tick=837 seat=5 src=86:99:84053,133:131:86551
+NAVSRC sched sys=1 tick=838 seat=6 changed=1 n=2 cells=162:75,251:43 pts=1300:607:2,2009:351:15
+NAVSRC rays sys=1 tick=838 seat=6 src=162:75:58476,251:43:53461
+NAVSRC sched sys=1 tick=839 seat=7 changed=1 n=1 cells=351:131 pts=2808:1054:8
+NAVSRC rays sys=1 tick=839 seat=7 src=351:131:45698
+NAVSRC sched sys=1 tick=840 seat=8 changed=0 n=1 cells=266:120 pts=2133:967:7
+NAVSRC sched sys=1 tick=841 seat=9 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=842 seat=10 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=843 seat=11 changed=1 n=1 cells=346:204 pts=2768:1634:12
+NAVSRC rays sys=1 tick=843 seat=11 src=346:204:39834
+NAVSRC sched sys=1 tick=844 seat=12 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=845 seat=13 changed=0 n=1 cells=86:99 pts=691:795:1
+NAVSRC sched sys=1 tick=846 seat=14 changed=1 n=0 cells= pts=
+NAVSRC rays sys=1 tick=846 seat=14 src=
+NAVSRC sched sys=1 tick=847 seat=15 changed=0 n=0 cells= pts=
+NAVSRC active sys=1 seat=8 active=0
+NAVSRC sched sys=1 tick=864 seat=0 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=865 seat=1 changed=1 n=1 cells=125:140 pts=1004:1125:6
+NAVSRC rays sys=1 tick=865 seat=1 src=125:140:85670
+NAVSRC sched sys=1 tick=866 seat=2 changed=1 n=2 cells=125:140,169:175 pts=1002:1127:6,1356:1402:10
+NAVSRC rays sys=1 tick=866 seat=2 src=125:140:85670,169:175:28196
+NAVSRC sched sys=1 tick=869 seat=5 changed=1 n=1 cells=86:98 pts=694:791:1
+NAVSRC rays sys=1 tick=869 seat=5 src=86:98:83945
+NAVSRC sched sys=1 tick=870 seat=6 changed=1 n=3 cells=162:74,75:27,247:52 pts=1303:593:2,606:217:13,1978:423:15
+NAVSRC rays sys=1 tick=870 seat=6 src=162:74:57246,75:27:59046,247:52:60249
+NAVSRC sched sys=1 tick=871 seat=7 changed=1 n=0 cells= pts=
+NAVSRC rays sys=1 tick=871 seat=7 src=
+NAVSRC active sys=1 seat=6 active=0
+NAVSRC sched sys=1 tick=873 seat=9 changed=1 n=1 cells=29:120 pts=232:962:5
+NAVSRC rays sys=1 tick=873 seat=9 src=29:120:65356
+NAVSRC sched sys=1 tick=874 seat=10 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=875 seat=11 changed=1 n=0 cells= pts=
+NAVSRC rays sys=1 tick=875 seat=11 src=
+NAVSRC sched sys=1 tick=876 seat=12 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=877 seat=13 changed=1 n=1 cells=87:99 pts=697:792:1
+NAVSRC rays sys=1 tick=877 seat=13 src=87:99:84129
+NAVSRC sched sys=1 tick=878 seat=14 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=879 seat=15 changed=1 n=1 cells=264:116 pts=2114:929:7
+NAVSRC rays sys=1 tick=879 seat=15 src=264:116:59952
+NAVSRC sched sys=1 tick=896 seat=0 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=897 seat=1 changed=1 n=0 cells= pts=
+NAVSRC rays sys=1 tick=897 seat=1 src=
+NAVSRC sched sys=1 tick=898 seat=2 changed=1 n=0 cells= pts=
+NAVSRC rays sys=1 tick=898 seat=2 src=
+NAVSRC sched sys=1 tick=901 seat=5 changed=1 n=1 cells=94:106 pts=759:855:1
+NAVSRC rays sys=1 tick=901 seat=5 src=94:106:86474
+NAVSRC sched sys=1 tick=903 seat=7 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=905 seat=9 changed=1 n=0 cells= pts=
+NAVSRC rays sys=1 tick=905 seat=9 src=
+NAVSRC sched sys=1 tick=906 seat=10 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=907 seat=11 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=908 seat=12 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=909 seat=13 changed=1 n=1 cells=97:109 pts=781:877:1
+NAVSRC rays sys=1 tick=909 seat=13 src=97:109:86911
+NAVSRC sched sys=1 tick=910 seat=14 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=911 seat=15 changed=1 n=1 cells=257:105 pts=2060:844:7
+NAVSRC rays sys=1 tick=911 seat=15 src=257:105:54597
+NAVSRC sched sys=1 tick=928 seat=0 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=929 seat=1 changed=1 n=1 cells=244:51 pts=1959:412:15
+NAVSRC rays sys=1 tick=929 seat=1 src=244:51:59350
+NAVSRC sched sys=1 tick=930 seat=2 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=933 seat=5 changed=1 n=1 cells=98:110 pts=785:881:1
+NAVSRC rays sys=1 tick=933 seat=5 src=98:110:87413
+NAVSRC sched sys=1 tick=935 seat=7 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=937 seat=9 changed=1 n=1 cells=31:114 pts=254:912:5
+NAVSRC rays sys=1 tick=937 seat=9 src=31:114:68099
+NAVSRC sched sys=1 tick=938 seat=10 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=939 seat=11 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=940 seat=12 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=941 seat=13 changed=1 n=1 cells=98:110 pts=785:881:1
+NAVSRC rays sys=1 tick=941 seat=13 src=98:110:87413
+NAVSRC active sys=1 seat=7 active=0
+NAVSRC sched sys=1 tick=942 seat=14 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=943 seat=15 changed=1 n=0 cells= pts=
+NAVSRC rays sys=1 tick=943 seat=15 src=
+NAVSRC sched sys=1 tick=960 seat=0 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=961 seat=1 changed=0 n=1 cells=244:51 pts=1959:412:15
+NAVSRC sched sys=1 tick=962 seat=2 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=965 seat=5 changed=0 n=1 cells=98:110 pts=785:881:1
+NAVSRC sched sys=1 tick=969 seat=9 changed=1 n=2 cells=31:114,89:34 pts=254:912:5,719:273:13
+NAVSRC rays sys=1 tick=969 seat=9 src=31:114:68099,89:34:53931
+NAVSRC sched sys=1 tick=970 seat=10 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=971 seat=11 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=972 seat=12 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=973 seat=13 changed=1 n=2 cells=98:110,10:155 pts=785:881:1,85:1240:9
+NAVSRC rays sys=1 tick=973 seat=13 src=98:110:87413,10:155:32194
+NAVSRC sched sys=1 tick=974 seat=14 changed=1 n=1 cells=234:172 pts=1874:1383:11
+NAVSRC rays sys=1 tick=974 seat=14 src=234:172:20661
+NAVSRC sched sys=1 tick=975 seat=15 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=992 seat=0 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=993 seat=1 changed=0 n=1 cells=244:51 pts=1959:412:15
+NAVSRC sched sys=1 tick=994 seat=2 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=997 seat=5 changed=0 n=1 cells=98:110 pts=785:881:1
+NAVSRC sched sys=1 tick=1001 seat=9 changed=0 n=2 cells=31:114,89:34 pts=254:912:5,719:273:13
+NAVSRC sched sys=1 tick=1002 seat=10 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=1003 seat=11 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=1004 seat=12 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=1005 seat=13 changed=0 n=2 cells=98:110,10:155 pts=785:881:1,85:1240:9
+NAVSRC sched sys=1 tick=1006 seat=14 changed=0 n=1 cells=234:172 pts=1874:1383:11
+NAVSRC sched sys=1 tick=1007 seat=15 changed=0 n=0 cells= pts=
+NAVSRC active sys=1 seat=5 active=0
+NAVSRC sched sys=1 tick=1024 seat=0 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=1025 seat=1 changed=0 n=1 cells=244:51 pts=1959:412:15
+NAVSRC sched sys=1 tick=1026 seat=2 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=1033 seat=9 changed=1 n=1 cells=89:34 pts=719:273:13
+NAVSRC rays sys=1 tick=1033 seat=9 src=89:34:53931
+NAVSRC sched sys=1 tick=1034 seat=10 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=1035 seat=11 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=1036 seat=12 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=1037 seat=13 changed=0 n=2 cells=98:110,10:155 pts=785:881:1,85:1240:9
+NAVSRC sched sys=1 tick=1038 seat=14 changed=0 n=1 cells=234:172 pts=1874:1383:11
+NAVSRC sched sys=1 tick=1039 seat=15 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=1056 seat=0 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=1057 seat=1 changed=0 n=1 cells=244:51 pts=1959:412:15
+NAVSRC sched sys=1 tick=1058 seat=2 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=1065 seat=9 changed=0 n=1 cells=89:34 pts=719:273:13
+NAVSRC sched sys=1 tick=1066 seat=10 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=1067 seat=11 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=1068 seat=12 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=1069 seat=13 changed=0 n=2 cells=98:110,10:155 pts=785:881:1,85:1240:9
+NAVSRC sched sys=1 tick=1070 seat=14 changed=0 n=1 cells=234:172 pts=1874:1383:11
+NAVSRC sched sys=1 tick=1071 seat=15 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=1088 seat=0 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=1089 seat=1 changed=0 n=1 cells=244:51 pts=1959:412:15
+NAVSRC sched sys=1 tick=1090 seat=2 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=1097 seat=9 changed=0 n=1 cells=89:34 pts=719:273:13
+NAVSRC sched sys=1 tick=1098 seat=10 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=1099 seat=11 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=1100 seat=12 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=1101 seat=13 changed=0 n=2 cells=98:110,10:155 pts=785:881:1,85:1240:9
+NAVSRC sched sys=1 tick=1102 seat=14 changed=0 n=1 cells=234:172 pts=1874:1383:11
+NAVSRC sched sys=1 tick=1103 seat=15 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=1120 seat=0 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=1121 seat=1 changed=0 n=1 cells=244:51 pts=1959:412:15
+NAVSRC sched sys=1 tick=1122 seat=2 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=1129 seat=9 changed=0 n=1 cells=89:34 pts=719:273:13
+NAVSRC sched sys=1 tick=1130 seat=10 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=1131 seat=11 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=1132 seat=12 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=1133 seat=13 changed=0 n=2 cells=98:110,10:155 pts=785:881:1,85:1240:9
+NAVSRC sched sys=1 tick=1134 seat=14 changed=0 n=1 cells=234:172 pts=1874:1383:11
+NAVSRC sched sys=1 tick=1135 seat=15 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=1152 seat=0 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=1153 seat=1 changed=1 n=1 cells=242:54 pts=1941:432:15
+NAVSRC rays sys=1 tick=1153 seat=1 src=242:54:59906
+NAVSRC sched sys=1 tick=1154 seat=2 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=1161 seat=9 changed=1 n=1 cells=89:39 pts=719:317:13
+NAVSRC rays sys=1 tick=1161 seat=9 src=89:39:57205
+NAVSRC sched sys=1 tick=1162 seat=10 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=1163 seat=11 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=1164 seat=12 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=1165 seat=13 changed=1 n=2 cells=98:110,14:153 pts=785:881:1,113:1229:9
+NAVSRC rays sys=1 tick=1165 seat=13 src=98:110:87413,14:153:34467
+NAVSRC sched sys=1 tick=1166 seat=14 changed=1 n=0 cells= pts=
+NAVSRC rays sys=1 tick=1166 seat=14 src=
+NAVSRC sched sys=1 tick=1167 seat=15 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=1184 seat=0 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=1185 seat=1 changed=1 n=1 cells=238:61 pts=1907:493:15
+NAVSRC rays sys=1 tick=1185 seat=1 src=238:61:63063
+NAVSRC sched sys=1 tick=1186 seat=2 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=1193 seat=9 changed=1 n=1 cells=89:50 pts=719:405:13
+NAVSRC rays sys=1 tick=1193 seat=9 src=89:50:63180
+NAVSRC sched sys=1 tick=1194 seat=10 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=1195 seat=11 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=1196 seat=12 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=1197 seat=13 changed=1 n=2 cells=98:110,19:151 pts=785:881:1,156:1212:9
+NAVSRC rays sys=1 tick=1197 seat=13 src=98:110:87413,19:151:36177
+NAVSRC sched sys=1 tick=1198 seat=14 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=1199 seat=15 changed=1 n=1 cells=292:177 pts=2340:1423:12
+NAVSRC rays sys=1 tick=1199 seat=15 src=292:177:73103
+NAVSRC sched sys=1 tick=1216 seat=0 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=1217 seat=1 changed=0 n=1 cells=238:61 pts=1907:493:15
+NAVSRC sched sys=1 tick=1218 seat=2 changed=0 n=0 cells= pts=
+NAVSRC active sys=1 seat=1 active=0
+NAVSRC sched sys=1 tick=1225 seat=9 changed=1 n=1 cells=89:59 pts=715:475:13
+NAVSRC rays sys=1 tick=1225 seat=9 src=89:59:69096
+NAVSRC sched sys=1 tick=1226 seat=10 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=1227 seat=11 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=1228 seat=12 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=1229 seat=13 changed=1 n=1 cells=19:151 pts=157:1212:9
+NAVSRC rays sys=1 tick=1229 seat=13 src=19:151:36177
+NAVSRC sched sys=1 tick=1230 seat=14 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=1231 seat=15 changed=1 n=1 cells=281:172 pts=2252:1383:12
+NAVSRC rays sys=1 tick=1231 seat=15 src=281:172:71780
+NAVSRC active sys=1 seat=12 active=0
+NAVSRC sched sys=1 tick=1248 seat=0 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=1250 seat=2 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=1257 seat=9 changed=1 n=1 cells=88:61 pts=708:495:13
+NAVSRC rays sys=1 tick=1257 seat=9 src=88:61:69445
+NAVSRC sched sys=1 tick=1258 seat=10 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=1259 seat=11 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=1261 seat=13 changed=0 n=1 cells=19:151 pts=157:1212:9
+NAVSRC sched sys=1 tick=1262 seat=14 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=1263 seat=15 changed=1 n=0 cells= pts=
+NAVSRC rays sys=1 tick=1263 seat=15 src=
+NAVSRC sched sys=1 tick=1280 seat=0 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=1282 seat=2 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=1289 seat=9 changed=0 n=1 cells=88:61 pts=708:495:13
+NAVSRC sched sys=1 tick=1290 seat=10 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=1291 seat=11 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=1293 seat=13 changed=0 n=1 cells=19:151 pts=157:1212:9
+NAVSRC sched sys=1 tick=1294 seat=14 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=1295 seat=15 changed=1 n=1 cells=253:55 pts=2024:445:0
+NAVSRC rays sys=1 tick=1295 seat=15 src=253:55:57938
+NAVSRC sched sys=1 tick=1312 seat=0 changed=1 n=1 cells=238:61 pts=1907:493:15
+NAVSRC rays sys=1 tick=1312 seat=0 src=238:61:63063
+NAVSRC sched sys=1 tick=1314 seat=2 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=1321 seat=9 changed=0 n=1 cells=88:61 pts=708:495:13
+NAVSRC sched sys=1 tick=1322 seat=10 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=1323 seat=11 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=1325 seat=13 changed=0 n=1 cells=19:151 pts=157:1212:9
+NAVSRC sched sys=1 tick=1326 seat=14 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=1327 seat=15 changed=1 n=1 cells=242:61 pts=1936:490:0
+NAVSRC rays sys=1 tick=1327 seat=15 src=242:61:62961
+NAVSRC sched sys=1 tick=1344 seat=0 changed=1 n=2 cells=235:61,174:72 pts=1880:493:15,1392:576:2
+NAVSRC rays sys=1 tick=1344 seat=0 src=235:61:62809,174:72:58550
+NAVSRC sched sys=1 tick=1346 seat=2 changed=1 n=2 cells=235:61,238:62 pts=1880:493:15,1909:498:0
+NAVSRC rays sys=1 tick=1346 seat=2 src=235:61:62809,238:62:63909
+NAVSRC sched sys=1 tick=1353 seat=9 changed=1 n=0 cells= pts=
+NAVSRC rays sys=1 tick=1353 seat=9 src=
+NAVSRC sched sys=1 tick=1354 seat=10 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=1355 seat=11 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=1357 seat=13 changed=1 n=0 cells= pts=
+NAVSRC rays sys=1 tick=1357 seat=13 src=
+NAVSRC sched sys=1 tick=1358 seat=14 changed=1 n=1 cells=172:76 pts=1377:615:2
+NAVSRC rays sys=1 tick=1358 seat=14 src=172:76:61580
+NAVSRC sched sys=1 tick=1359 seat=15 changed=1 n=1 cells=234:62 pts=1875:498:0
+NAVSRC rays sys=1 tick=1359 seat=15 src=234:62:63457
+NAVSRC sched sys=1 tick=1376 seat=0 changed=1 n=3 cells=228:61,169:83,130:78 pts=1824:493:15,1358:664:2,1042:625:14
+NAVSRC rays sys=1 tick=1376 seat=0 src=228:61:63500,169:83:68325,130:78:45817
+NAVSRC sched sys=1 tick=1378 seat=2 changed=1 n=2 cells=227:61,231:63 pts=1822:493:15,1855:507:0
+NAVSRC rays sys=1 tick=1378 seat=2 src=227:61:63860,231:63:64634
+NAVSRC active sys=1 seat=15 active=0
+NAVSRC sched sys=1 tick=1385 seat=9 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=1386 seat=10 changed=1 n=2 cells=168:86,130:81 pts=1349:692:2,1042:652:14
+NAVSRC rays sys=1 tick=1386 seat=10 src=168:86:71158,130:81:49533
+NAVSRC sched sys=1 tick=1387 seat=11 changed=0 n=0 cells= pts=
+NAVSRC active sys=1 seat=0 active=0
+NAVSRC sched sys=1 tick=1389 seat=13 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=1390 seat=14 changed=1 n=0 cells= pts=
+NAVSRC rays sys=1 tick=1390 seat=14 src=
+NAVSRC sched sys=1 tick=1410 seat=2 changed=1 n=0 cells= pts=
+NAVSRC rays sys=1 tick=1410 seat=2 src=
+NAVSRC sched sys=1 tick=1417 seat=9 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=1418 seat=10 changed=1 n=2 cells=167:89,130:89 pts=1341:715:2,1042:713:14
+NAVSRC rays sys=1 tick=1418 seat=10 src=167:89:73454,130:89:63577
+NAVSRC sched sys=1 tick=1419 seat=11 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=1421 seat=13 changed=1 n=2 cells=130:89,218:161 pts=1042:713:14,1747:1290:11
+NAVSRC rays sys=1 tick=1421 seat=13 src=130:89:63577,218:161:27699
+NAVSRC active sys=1 seat=11 active=0
+NAVSRC sched sys=1 tick=1422 seat=14 changed=1 n=1 cells=167:162 pts=1338:1302:10
+NAVSRC rays sys=1 tick=1422 seat=14 src=167:162:29373
+NAVSRC sched sys=1 tick=1442 seat=2 changed=1 n=1 cells=167:162 pts=1338:1302:10
+NAVSRC rays sys=1 tick=1442 seat=2 src=167:162:29373
+NAVSRC sched sys=1 tick=1449 seat=9 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=1450 seat=10 changed=0 n=2 cells=167:89,130:89 pts=1341:715:2,1042:713:14
+NAVSRC sched sys=1 tick=1453 seat=13 changed=1 n=1 cells=130:89 pts=1042:713:14
+NAVSRC rays sys=1 tick=1453 seat=13 src=130:89:63577
+NAVSRC sched sys=1 tick=1454 seat=14 changed=0 n=1 cells=167:162 pts=1338:1302:10
+NAVSRC sched sys=1 tick=1474 seat=2 changed=0 n=1 cells=167:162 pts=1338:1302:10
+NAVSRC sched sys=1 tick=1481 seat=9 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=1482 seat=10 changed=0 n=2 cells=167:89,130:89 pts=1341:715:2,1042:713:14
+NAVSRC sched sys=1 tick=1485 seat=13 changed=0 n=1 cells=130:89 pts=1042:713:14
+NAVSRC sched sys=1 tick=1486 seat=14 changed=0 n=1 cells=167:162 pts=1338:1302:10
+NAVSRC sched sys=1 tick=1506 seat=2 changed=0 n=1 cells=167:162 pts=1338:1302:10
+NAVSRC sched sys=1 tick=1513 seat=9 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=1514 seat=10 changed=0 n=2 cells=167:89,130:89 pts=1341:715:2,1042:713:14
+NAVSRC sched sys=1 tick=1517 seat=13 changed=0 n=1 cells=130:89 pts=1042:713:14
+NAVSRC sched sys=1 tick=1518 seat=14 changed=0 n=1 cells=167:162 pts=1338:1302:10
+NAVSRC sched sys=1 tick=1538 seat=2 changed=0 n=1 cells=167:162 pts=1338:1302:10
+NAVSRC sched sys=1 tick=1545 seat=9 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=1546 seat=10 changed=0 n=2 cells=167:89,130:89 pts=1341:715:2,1042:713:14
+NAVSRC sched sys=1 tick=1549 seat=13 changed=0 n=1 cells=130:89 pts=1042:713:14
+NAVSRC sched sys=1 tick=1550 seat=14 changed=0 n=1 cells=167:162 pts=1338:1302:10
+NAVSRC sched sys=1 tick=1570 seat=2 changed=0 n=1 cells=167:162 pts=1338:1302:10
+NAVSRC sched sys=1 tick=1577 seat=9 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=1578 seat=10 changed=0 n=2 cells=167:89,130:89 pts=1341:715:2,1042:713:14
+NAVSRC sched sys=1 tick=1581 seat=13 changed=0 n=1 cells=130:89 pts=1042:713:14
+NAVSRC sched sys=1 tick=1582 seat=14 changed=0 n=1 cells=167:162 pts=1338:1302:10
+NAVSRC sched sys=1 tick=1602 seat=2 changed=1 n=1 cells=162:162 pts=1302:1302:10
+NAVSRC rays sys=1 tick=1602 seat=2 src=162:162:30161
+NAVSRC sched sys=1 tick=1609 seat=9 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=1610 seat=10 changed=1 n=0 cells= pts=
+NAVSRC rays sys=1 tick=1610 seat=10 src=
+NAVSRC sched sys=1 tick=1613 seat=13 changed=1 n=2 cells=124:97,159:89 pts=993:779:14,1275:715:2
+NAVSRC rays sys=1 tick=1613 seat=13 src=124:97:81227,159:89:74655
+NAVSRC sched sys=1 tick=1614 seat=14 changed=1 n=0 cells= pts=
+NAVSRC rays sys=1 tick=1614 seat=14 src=
+NAVSRC sched sys=1 tick=1634 seat=2 changed=1 n=0 cells= pts=
+NAVSRC rays sys=1 tick=1634 seat=2 src=
+NAVSRC sched sys=1 tick=1641 seat=9 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=1642 seat=10 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=1645 seat=13 changed=1 n=2 cells=114:108,148:93 pts=912:867:14,1187:748:2
+NAVSRC rays sys=1 tick=1645 seat=13 src=114:108:88165,148:93:77087
+NAVSRC sched sys=1 tick=1646 seat=14 changed=0 n=0 cells= pts=
+NAVSRC active sys=1 seat=2 active=0
+NAVSRC active sys=1 seat=10 active=0
+NAVSRC sched sys=1 tick=1673 seat=9 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=1677 seat=13 changed=1 n=1 cells=113:109 pts=910:876:14
+NAVSRC rays sys=1 tick=1677 seat=13 src=113:109:88280
+NAVSRC sched sys=1 tick=1678 seat=14 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=1705 seat=9 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=1709 seat=13 changed=0 n=1 cells=113:109 pts=910:876:14
+NAVSRC sched sys=1 tick=1710 seat=14 changed=0 n=0 cells= pts=
+NAVSRC active sys=1 seat=14 active=0
+NAVSRC sched sys=1 tick=1737 seat=9 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=1741 seat=13 changed=1 n=0 cells= pts=
+NAVSRC rays sys=1 tick=1741 seat=13 src=
+NAVSRC sched sys=1 tick=1769 seat=9 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=1773 seat=13 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=1801 seat=9 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=1805 seat=13 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=1833 seat=9 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=1837 seat=13 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=1865 seat=9 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=1869 seat=13 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=1897 seat=9 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=1901 seat=13 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=1929 seat=9 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=1933 seat=13 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=1961 seat=9 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=1965 seat=13 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=1993 seat=9 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=1997 seat=13 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=2025 seat=9 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=2029 seat=13 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=2057 seat=9 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=2061 seat=13 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=2089 seat=9 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=2093 seat=13 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=2121 seat=9 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=2125 seat=13 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=2153 seat=9 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=2157 seat=13 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=2185 seat=9 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=2189 seat=13 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=2217 seat=9 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=2221 seat=13 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=2249 seat=9 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=2253 seat=13 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=2281 seat=9 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=2285 seat=13 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=2313 seat=9 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=2317 seat=13 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=2345 seat=9 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=2349 seat=13 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=2377 seat=9 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=2381 seat=13 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=2409 seat=9 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=2413 seat=13 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=2441 seat=9 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=2445 seat=13 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=2473 seat=9 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=2477 seat=13 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=2505 seat=9 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=2509 seat=13 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=2537 seat=9 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=2541 seat=13 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=2569 seat=9 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=2573 seat=13 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=2601 seat=9 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=2605 seat=13 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=2633 seat=9 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=2637 seat=13 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=2665 seat=9 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=2669 seat=13 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=2697 seat=9 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=2701 seat=13 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=2729 seat=9 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=2733 seat=13 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=2761 seat=9 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=2765 seat=13 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=2793 seat=9 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=2797 seat=13 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=2825 seat=9 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=2829 seat=13 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=2857 seat=9 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=2861 seat=13 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=2889 seat=9 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=2893 seat=13 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=2921 seat=9 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=2925 seat=13 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=2953 seat=9 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=2957 seat=13 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=2985 seat=9 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=2989 seat=13 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=3017 seat=9 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=3021 seat=13 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=3049 seat=9 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=3053 seat=13 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=3081 seat=9 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=3085 seat=13 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=3113 seat=9 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=3117 seat=13 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=3145 seat=9 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=3149 seat=13 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=3177 seat=9 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=3181 seat=13 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=3209 seat=9 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=3213 seat=13 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=3241 seat=9 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=3245 seat=13 changed=0 n=0 cells= pts=
+NAVSRC sched sys=1 tick=3273 seat=9 changed=1 n=1 cells=46:127 pts=369:1018:13
+NAVSRC rays sys=1 tick=3273 seat=9 src=46:127:57381
+NAVSRC sched sys=1 tick=3277 seat=13 changed=1 n=1 cells=41:136 pts=334:1089:9
+NAVSRC rays sys=1 tick=3277 seat=13 src=41:136:37831
+NAVSRC active sys=1 seat=13 active=0

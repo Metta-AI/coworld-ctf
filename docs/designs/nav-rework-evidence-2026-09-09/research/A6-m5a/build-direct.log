@@ -1,0 +1,62 @@
+Hint: used config file '/home/ubuntu/.nimby/nim-2.2.6/config/nim.cfg' [Conf]
+Hint: used config file '/home/ubuntu/.nimby/nim-2.2.6/config/config.nims' [Conf]
+Hint: used config file '/home/ubuntu/coworld-nav-wavefront-20260909/nim.cfg' [Conf]
+......................................................................................................................................
+/home/ubuntu/.nimby/pkgs/fluffy/src/fluffy/measure.nim(63, 9) Hint: -d:nimTypeNames must be to track allocations and deallocations [User]
+..............................................................................................
+/home/ubuntu/coworld-nav-wavefront-20260909/src/ctf/arena.nim(1373, 5) Hint: 'inside' is declared but not used [XDeclaredButNotUsed]
+/home/ubuntu/coworld-nav-wavefront-20260909/src/ctf/arena.nim(3702, 6) Hint: 'rectsNode' is declared but not used [XDeclaredButNotUsed]
+/home/ubuntu/coworld-nav-wavefront-20260909/src/ctf/arena.nim(3707, 6) Hint: 'rectsFromNode' is declared but not used [XDeclaredButNotUsed]
+.
+/home/ubuntu/coworld-nav-wavefront-20260909/tools/profile_body_route_index.nim(5, 17) Hint: duplicate import of 'profile'; previous import here: /home/ubuntu/coworld-nav-wavefront-20260909/src/shell/body_route_index.nim(8, 17) [DuplicateModuleImport]
+.
+CC: system/exceptions.nim
+CC: std/private/digitsutils.nim
+CC: std/assertions.nim
+CC: std/private/dragonbox.nim
+CC: std/formatfloat.nim
+CC: system/dollars.nim
+CC: std/syncio.nim
+CC: system.nim
+CC: algorithm.nim
+CC: math.nim
+CC: parseutils.nim
+CC: unicode.nim
+CC: strutils.nim
+CC: strformat.nim
+CC: pathnorm.nim
+CC: std/oserrors.nim
+CC: std/private/oscommon.nim
+CC: std/private/ospaths2.nim
+CC: times.nim
+CC: std/private/osdirs.nim
+CC: std/envvars.nim
+CC: std/cmdline.nim
+CC: hashes.nim
+CC: tables.nim
+CC: streams.nim
+CC: lexbase.nim
+CC: parsejson.nim
+CC: json.nim
+CC: std/monotimes.nim
+CC: jsony.nim
+CC: fluffy/measure.nim
+CC: bitworld/profile.nim
+CC: heapqueue.nim
+CC: nimsimd/runtimecheck.nim
+CC: pixie/simd.nim
+CC: pixie/fontformats/opentype.nim
+CC: pixie/fileformats/jpeg.nim
+CC: crunchy/sha256.nim
+CC: pixie/fileformats/png.nim
+CC: random.nim
+CC: bitworld/spriteprotocol.nim
+CC: bitworld/pixelfonts.nim
+CC: ../ctf/sim_types.nim
+CC: ../ctf/arena.nim
+CC: body_map.nim
+CC: ../ctf/br_map_pool.nim
+CC: profile_body_route_index.nim
+Hint:  [Link]
+Hint: mm: orc; threads: on; opt: speed; options: -d:release
+115205 lines; 11.919s; 341.754MiB peakmem; proj: /home/ubuntu/coworld-nav-wavefront-20260909/tools/profile_body_route_index.nim; out: /home/ubuntu/nav-throughput-results-20260909/A6-screen/profile-direct [SuccessX]

@@ -1,0 +1,42 @@
+[
+  {
+    "snapshot": "primary",
+    "head": "f6f1e965cfcb0d9399b790014e38c66ce1f371a1",
+    "verified_paths": 1478
+  },
+  {
+    "snapshot": "nav-deferred-cache",
+    "head": "eaa208bd7111c3cd75aaea9cbf2d0850caff0ba6",
+    "verified_paths": 1478
+  },
+  {
+    "snapshot": "nav-early-visited",
+    "head": "f9dff753eb7caac375616ddc7a6ada202f34c449",
+    "verified_paths": 1473
+  },
+  {
+    "snapshot": "nav-heuristic-screen",
+    "head": "1598713cea3040f255e47c885959bc96c4eb031b",
+    "verified_paths": 1472
+  },
+  {
+    "snapshot": "nav-source-cache",
+    "head": "f9dff753eb7caac375616ddc7a6ada202f34c449",
+    "verified_paths": 1473
+  },
+  {
+    "snapshot": "nav-source-trace",
+    "head": "3aeb03982fdd6e2ee0c7d78441cdde9acadae487",
+    "verified_paths": 1472
+  },
+  {
+    "snapshot": "nav-validation-symmetry",
+    "head": "f9dff753eb7caac375616ddc7a6ada202f34c449",
+    "verified_paths": 1473
+  },
+  {
+    "snapshot": "nav-throughput-checkpoints",
+    "head": "addaad7a3a85213d28c3f99e99a4331ff198e2e2",
+    "verified_paths": 1464
+  }
+]

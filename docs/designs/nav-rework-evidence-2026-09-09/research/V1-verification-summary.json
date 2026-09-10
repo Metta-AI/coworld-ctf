@@ -1,0 +1,18 @@
+{
+  "ledger_comparisons": 65,
+  "colossal_saved_bytes": 37380096,
+  "native_rollover": {
+    "parent": {
+      "maps": 228,
+      "rebuilds": 21888,
+      "exact": true,
+      "rollovers": 0
+    },
+    "candidate": {
+      "maps": 228,
+      "rebuilds": 21888,
+      "exact": true,
+      "rollovers": 684
+    }
+  }
+}

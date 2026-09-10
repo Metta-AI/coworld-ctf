@@ -1,0 +1,74 @@
+[
+ {
+  "map": "br-gen-5120",
+  "range_px": 1300,
+  "c2_bitmap_ns_median": 161361.97954545455,
+  "c8_bitmap_ns_median": 148576.6090909091,
+  "list_ns_median": 12902.532954545455,
+  "list_over_c2": 0.07996018015452581,
+  "list_over_c8": 0.08684094376289624,
+  "c8_over_c2": 0.9207659047654165,
+  "exact": true,
+  "origins_equal": true
+ },
+ {
+  "map": "br-gen-5204",
+  "range_px": 1300,
+  "c2_bitmap_ns_median": 193915.5088888889,
+  "c8_bitmap_ns_median": 177232.36111111112,
+  "list_ns_median": 15357.453333333333,
+  "list_over_c2": 0.07919662239152288,
+  "list_over_c8": 0.08665151915290112,
+  "c8_over_c2": 0.9139669236701589,
+  "exact": true,
+  "origins_equal": true
+ },
+ {
+  "map": "br-gen-5263",
+  "range_px": 1300,
+  "c2_bitmap_ns_median": 142801.87142857144,
+  "c8_bitmap_ns_median": 128739.75306122449,
+  "list_ns_median": 11109.013775510204,
+  "list_over_c2": 0.07779319461556819,
+  "list_over_c8": 0.08629046981492278,
+  "c8_over_c2": 0.901527072252826,
+  "exact": true,
+  "origins_equal": true
+ },
+ {
+  "map": "br-gen-5120",
+  "range_px": 331,
+  "c2_bitmap_ns_median": 48714.25227272727,
+  "c8_bitmap_ns_median": 46899.527272727275,
+  "list_ns_median": 4093.7267045454546,
+  "list_over_c2": 0.08403550323684907,
+  "list_over_c8": 0.08728716348759476,
+  "c8_over_c2": 0.9627475550719686,
+  "exact": true,
+  "origins_equal": true
+ },
+ {
+  "map": "br-gen-5204",
+  "range_px": 331,
+  "c2_bitmap_ns_median": 54550.13888888889,
+  "c8_bitmap_ns_median": 52038.01,
+  "list_ns_median": 4512.014444444445,
+  "list_over_c2": 0.08271316143914494,
+  "list_over_c8": 0.08670612970104823,
+  "c8_over_c2": 0.953948258610198,
+  "exact": true,
+  "origins_equal": true
+ },
+ {
+  "map": "br-gen-5263",
+  "range_px": 331,
+  "c2_bitmap_ns_median": 44732.9081632653,
+  "c8_bitmap_ns_median": 42597.95918367347,
+  "list_ns_median": 3703.8688775510204,
+  "list_over_c2": 0.08279964414637903,
+  "list_over_c8": 0.08694944425813252,
+  "c8_over_c2": 0.9522734141987876,
+  "exact": true,
+  "origins_equal": true
+ }
+]

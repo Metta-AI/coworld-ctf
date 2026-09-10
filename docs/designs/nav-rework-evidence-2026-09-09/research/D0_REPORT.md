@@ -1,0 +1,7 @@
+# D0a: incremental integer danger-ray decision
+
+Three interleaved native m5a CPU5 parent/candidate pairs at B1024 and range1300 show a small consistent improvement. Worst whole-body p95/max is 5.948740/6.034892 ms for W7 and 5.838907/5.953172 ms for D0a. All18 matched rows improve p95. Inclusive danger worst p95 is3.623374 ->3.550262 ms; weight refresh is separately1.121942 ->1.100752 ms. These percentiles are not subtracted. Full per-row/repeat values are in D0-m5a/summary.json. The 4/5 ms tick gate still fails; no doubling or budget selection is established.
+
+All masks and pop arrays match in all18 pairs. Fresh native m8i frozen quality has exactly the same3072 case records, zero missing/illegal,37637596 pops and route hash `5a1340213fe3046dc119d6f8d5d59d59cbfd379f885b95968f105d3edcbca500`; all65 retained ledgers are identical to CAP32. Focused navigation15/15 and body-seat29/29 tests pass, as do runtime-linked and runtime-stub server checks. Independent review verifies recurrence and unchanged check/visit ordering, including90600 exhaustive direction pairs and both actual perimeters.
+
+Retain this small exact change for combined qualification. It removes repeated integer multiplications without new allocation, kernel-index changes or geometry hoisting. The current configured-map timing and inherited activation-time failures remain; see CAP32_REPORT.md. Final canonical gate, fixture/version work, containment and Phase10/11 are incomplete.

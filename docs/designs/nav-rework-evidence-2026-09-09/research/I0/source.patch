@@ -1,0 +1,47 @@
+diff --git a/tools/bench_body_nav_rework.nim b/tools/bench_body_nav_rework.nim
+index a9c1597..fef4b16 100644
+--- a/tools/bench_body_nav_rework.nim
++++ b/tools/bench_body_nav_rework.nim
+@@ -1,11 +1,12 @@
+ ## Production qualification harness for the resumable mixed-grid body route.
+ 
+-{.define: bodyNavBreakdown.}
++when not defined(navGateNoBreakdown):
++  {.define: bodyNavBreakdown.}
+ 
+ import std/[algorithm, json, math, monotimes, options, os, osproc, strformat,
+   sequtils, strutils, tables, times]
+ import crunchy/[common, sha256]
+-import bitworld/spriteprotocol
++import bitworld/[profile, spriteprotocol]
+ import ../src/ctf/[arena, br_map_pool, sim_types, zone_field]
+ import ../src/shell/[body, body_danger, body_hazard, body_map, body_nav,
+   body_route_index, body_route_query, episode, standing_order]
+@@ -344,7 +345,8 @@ proc tickRow(gameMap: CtfMap, rosterSize: int, scenario: NavGateScenario,
+     if sample >= TickWarmups:
+       samples.add output.bodySliceNanoseconds
+       let
+-        timing = episode.nav.timing
++        timing = when defined(bodyNavBreakdown): episode.nav.timing
++                 else: BodyNavTiming()
+         routeSearch = timing.routePopNanoseconds
+         requestOverhead = timing.requestSubmitNanoseconds +
+           timing.schedulerRestartNanoseconds +
+@@ -477,6 +479,7 @@ proc metadata(corpus: NavCorpus, canonical: bool): JsonNode =
+     raise newException(ValueError, &"canonical run refused: commit={commit} " &
+       &"dirty={dirty} platform={platform} cpu_limit={cpuLimit} image_id={imageId}")
+   %*{"commit": commit, "dirty": dirty, "nim_version": NimVersion,
++    "body_nav_breakdown": defined(bodyNavBreakdown),
+     "os_arch": platform, "compile_flags": CanonicalFlags,
+     "image_id": imageId, "cpu_limit": cpuLimit,
+     "pool_digest": corpus.poolSha256, "canonical": canonical}
+@@ -533,7 +536,9 @@ when isMainModule:
+     root["activation"] = runActivationGate(pool, onlyPool)
+     passed = passed and root["activation"]["pass"].getBool()
+   if runTick:
++    startProfileTrace()
+     root["tick"] = runTickGate(corpus, pool)
++    finishProfileTrace()
+     passed = passed and root["tick"]["pass"].getBool()
+   root["pass"] = %passed
+   echo pretty(root)

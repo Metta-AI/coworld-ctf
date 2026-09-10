@@ -1,0 +1,1 @@
+Root owns nav-early-visited. Fixed experimental baseline f9dff753 matches A6 and owned native checkouts; paired evidence requires this frozen base. Primary integration branch was fetched and is current with origin/main at7fe0c3a3. No primary A7 edits; clean integration, if earned, will be reapplied and validated against current primary. Peer owns C7 in nav-source-cache only.

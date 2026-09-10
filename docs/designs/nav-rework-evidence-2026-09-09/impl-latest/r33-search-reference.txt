@@ -1,0 +1,281 @@
+        result.anchorNode[anchor.int] = 1
+        if not map.cellWalkable(cell): wallSeeds[cellIndex] = 1
+  for source, seeded in wallSeeds:
+    if seeded == 0: continue
+    let cell = (x: source mod map.gridWidth, y: source div map.gridWidth)
+    for dy in -1 .. 1:
+      for dx in -1 .. 1:
+        let next = (x: cell.x + dx, y: cell.y + dy)
+        if next.x >= 0 and next.x < map.gridWidth and
+            next.y >= 0 and next.y < map.gridHeight:
+          result.wallBand[next.y * map.gridWidth + next.x] = 1
+  for value in result.wallBand:
+    if value != 0: inc result.wallBandCells
+  for node in 0 ..< nodeCount:
+    if result.wallBand[result.cellForNode[node].int] != 0 and
+        result.legality.standable.bitAt(node):
+      inc result.wallBandFineNodes
+  for cellIndex in 0 ..< cellCount:
+    let
+      node = result.anchorForCell[cellIndex].int
+      cell = (x: cellIndex mod map.gridWidth,
+        y: cellIndex div map.gridWidth)
+    if node < 0: continue
+    for direction, delta in NavNeighbors:
+      let next = (x: cell.x + delta.x, y: cell.y + delta.y)
+      if next.x < 0 or next.x >= map.gridWidth or
+          next.y < 0 or next.y >= map.gridHeight: continue
+      let nextIndex = next.y * map.gridWidth + next.x
+      let target = result.anchorForCell[nextIndex].int
+      if target < 0: continue
+      let path = result.legality.findBridge(node, target)
+      if path.len == 0 or path.len > high(uint8).int: continue
+      result.bridgeOffset[cellIndex][direction] =
+        int32(result.bridgeNodes.len)
+      result.bridgeLen[cellIndex][direction] = uint8(path.len)
+      result.bridgeNodes.add path
+
+proc buildHot*(map: BodyMap, danger: BodyDangerField): seq[uint8] =
+  result = newSeq[uint8](map.gridWidth * map.gridHeight)
+  for source, value in danger.values:
+    if value <= 0: continue
+    let cell = (x: source mod map.gridWidth, y: source div map.gridWidth)
+    for dy in -1 .. 1:
+      for dx in -1 .. 1:
+        let next = (x: cell.x + dx, y: cell.y + dy)
+        if next.x >= 0 and next.x < map.gridWidth and
+            next.y >= 0 and next.y < map.gridHeight:
+          result[next.y * map.gridWidth + next.x] = 1
+
+proc buildRefined*(graph: MixedGraph, hot: openArray[uint8]): seq[uint8] =
+  result = newSeq[uint8](hot.len)
+  for cell in 0 ..< hot.len:
+    result[cell] = hot[cell] or graph.wallBand[cell]
+
+proc nodeCount*(graph: MixedGraph): int = graph.legality.legal.len
+
+proc active*(graph: MixedGraph, refined: openArray[uint8],
+    node: int, startNode = -1, goalNode = -1): bool {.inline.} =
+  graph.legality.standable.bitAt(node) and
+    (node == startNode or node == goalNode or
+      refined[graph.cellForNode[node].int] != 0 or
+      graph.anchorNode[node] != 0)
+
+proc profileWeightQ8(profile: NavCorpusProfile): int64 {.inline.} =
+  case profile
+  of ncpDefault: 256
+  of ncpCarrier: 640
+  of ncpHunter: 64
+
+proc quantizeDangerQ8(value: float32): int64 {.inline.} =
+  if value <= 0: return 0
+  let scaled = value.float * 256.0
+  let lower = floor(scaled).int64
+  let fraction = scaled - lower.float
+  if fraction > 0.5 or (fraction == 0.5 and (lower and 1) != 0): lower + 1
+  else: lower
+
+proc buildWeights*(danger: BodyDangerField,
+    profile: NavCorpusProfile): seq[int32] =
+  result = newSeq[int32](danger.values.len)
+  let weight = profile.profileWeightQ8
+  for cell, value in danger.values:
+    result[cell] = int32(65_536'i64 + weight * quantizeDangerQ8(value))
+
+proc octileQ4*(a, b: BodyPoint, diagonalCost: int): int32 {.inline.} =
+  let
+    dx = abs(a.x - b.x) div FineStep
+    dy = abs(a.y - b.y) div FineStep
+    diagonal = min(dx, dy)
+  int32(diagonalCost * diagonal + 64 * (max(dx, dy) - diagonal))
+
+proc midpointCell*(map: BodyMap, a, b: BodyPoint): int {.inline.} =
+  let cell = map.cellOf(((a.x + b.x) div 2, (a.y + b.y) div 2))
+  cell.y * map.gridWidth + cell.x
+
+proc distanceQ4(dx, dy: int): int32 {.inline.} =
+  case dx * dx + dy * dy
+  of 0: 0
+  of 1: 16
+  of 2: 23
+  of 4: 32
+  of 5: 36
+  of 8: 45
+  of 9: 48
+  of 10: 51
+  of 13: 58
+  of 16: 64
+  of 17: 66
+  of 18: 68
+  of 20: 72
+  of 25: 80
+  of 32: 91
+  else: raise newException(ValueError, "edge subdivision exceeded 4 px")
+
+proc roundedFraction(delta, part, parts: int): int {.inline.} =
+  let numerator = delta * part
+  if numerator >= 0: (numerator + parts div 2) div parts
+  else: -((-numerator + parts div 2) div parts)
+
+proc integratedEdgeCostQ4*(map: BodyMap, weights,
+    hazardCost: openArray[int32], blockedCell: int,
+    a, b: BodyPoint): int32 {.inline.} =
+  let
+    dx = b.x - a.x
+    dy = b.y - a.y
+    parts = max(1, (max(abs(dx), abs(dy)) + FineStep - 1) div FineStep)
+  var previous = a
+  for part in 1 .. parts:
+    let next = (x: a.x + roundedFraction(dx, part, parts),
+      y: a.y + roundedFraction(dy, part, parts))
+    let
+      cell = map.midpointCell(previous, next)
+      base = distanceQ4(abs(next.x - previous.x),
+        abs(next.y - previous.y)).int64
+      weighted = (base * weights[cell].int64 + 32_768) shr 16
+      blocked = if cell == blockedCell: weighted * 8 else: weighted
+    result += int32(blocked + hazardCost[cell].int64)
+    previous = next
+
+proc attachments*(graph: MixedGraph, map: BodyMap,
+    refined: openArray[uint8], weights, hazardCost: openArray[int32],
+    blockedCell: int, endpoint: BodyPoint):
+    seq[tuple[node: int, cost: int32]] =
+  if endpoint.x mod FineStep == 0 and endpoint.y mod FineStep == 0:
+    let node = endpoint.y div FineStep * graph.legality.width +
+      endpoint.x div FineStep
+    if node >= 0 and node < graph.legality.legal.len and
+        graph.legality.standable.bitAt(node):
+      return @[(node: node, cost: 0'i32)]
+  let center = map.cellOf(endpoint)
+  var seen = initTable[int, bool]()
+  for ring in 0 .. PortalAnchorRingCells:
+    for y in max(0, center.y - ring) .. min(map.gridHeight - 1,
+        center.y + ring):
+      for x in max(0, center.x - ring) .. min(map.gridWidth - 1,
+          center.x + ring):
+        if max(abs(x - center.x), abs(y - center.y)) != ring: continue
+        let cellIndex = y * map.gridWidth + x
+        if refined[cellIndex] != 0:
+          for rawNode in graph.fineForCell[cellIndex]:
+            let node = rawNode.int
+            if node < 0 or not graph.active(refined, node) or node in seen:
+              continue
+            let point = pointAt(node, graph.legality.width)
+            if map.segmentClear(endpoint, point):
+              seen[node] = true
+              result.add (node: node,
+                cost: map.integratedEdgeCostQ4(weights, hazardCost,
+                  blockedCell, endpoint, point))
+        else:
+          let node = graph.anchorForCell[cellIndex].int
+          if node >= 0 and node notin seen:
+            let point = pointAt(node, graph.legality.width)
+            if map.segmentClear(endpoint, point):
+              seen[node] = true
+              result.add (node: node,
+                cost: map.integratedEdgeCostQ4(weights, hazardCost,
+                  blockedCell, endpoint, point))
+
+proc search*(graph: MixedGraph, map: BodyMap,
+    item: NavCorpusCase, refined: openArray[uint8], weights,
+    hazardCost: openArray[int32], workspace: var DenseWorkspace): SearchResult =
+  workspace.begin()
+  let blockedCell = if item.blockedCell.isSome:
+      item.blockedCell.get.y * map.gridWidth + item.blockedCell.get.x else: -1
+  let
+    generation = workspace.generation
+    starts = graph.attachments(map, refined, weights, hazardCost,
+      blockedCell, item.start)
+    goals = graph.attachments(map, refined, weights, hazardCost,
+      blockedCell, item.validatedGoal)
+    startNode = if starts.len == 1 and starts[0].cost == 0: starts[0].node
+      else: -1
+    goalNode = if goals.len == 1 and goals[0].cost == 0: goals[0].node
+      else: -1
+  if starts.len == 0 or goals.len == 0: return
+  for goal in goals:
+    if workspace.goalStamp[goal.node] != generation or
+        goal.cost < workspace.goalCost[goal.node]:
+      workspace.goalStamp[goal.node] = generation
+      workspace.goalCost[goal.node] = goal.cost
+  let allowance = int32(PortalAnchorRingCells * NavCell * 23)
+  for start in starts:
+    if workspace.state[start.node] != generation or
+        start.cost < workspace.g[start.node]:
+      workspace.g[start.node] = start.cost
+      workspace.parent[start.node] = -1
+      workspace.parentBridge[start.node] = -1
+      let heuristic = max(0'i32,
+        octileQ4(pointAt(start.node, graph.legality.width),
+          item.validatedGoal, 90) - allowance)
+      workspace.heap.pushOrDecrease(workspace.state, generation,
+        makeKey(start.cost.int64 + heuristic.int64, start.node))
+      workspace.state[start.node] = generation
+  var
+    bestNode = -1
+    bestCost = high(int32)
+  while workspace.heap.len > 0:
+    let
+      key = workspace.heap.pop()
+      node = keyNode(key)
+    if workspace.state[node] != generation: continue
+    if key.keyCost >= bestCost.int64: break
+    workspace.state[node] = generation or ClosedBit
+    inc result.pops
+    let currentG = workspace.g[node]
+    if workspace.goalStamp[node] == generation:
+      let total = currentG.int64 + workspace.goalCost[node].int64
+      if total < bestCost.int64:
+        bestCost = int32(total)
+        bestNode = node
+    let
+      fineX = node mod graph.legality.width
+      fineY = node div graph.legality.width
+      legal = graph.legality.legal[node]
+      fromPoint = pointAt(node, graph.legality.width)
+    for direction, delta in NavNeighbors:
+      if (legal and uint8(1 shl direction)) != 0:
+        let nextNode = (fineY + delta.y) * graph.legality.width +
+          fineX + delta.x
+        if graph.active(refined, nextNode, startNode, goalNode) and
+            workspace.state[nextNode] != (generation or ClosedBit):
+          let
+            toPoint = pointAt(nextNode, graph.legality.width)
+            cell = map.midpointCell(fromPoint, toPoint)
+            base = if direction < 4: 64'i64 else: 91'i64
+            weighted = (base * weights[cell].int64 + 32_768) shr 16
+            blocked = if cell == blockedCell: weighted * 8 else: weighted
+            candidate64 = currentG.int64 + blocked + hazardCost[cell].int64
+            candidate = int32(candidate64)
+          if workspace.state[nextNode] != generation or
+              candidate < workspace.g[nextNode]:
+            workspace.g[nextNode] = candidate
+            workspace.parent[nextNode] = int32(node)
+            workspace.parentBridge[nextNode] = -1
+            let f = candidate64 + max(0'i32,
+              octileQ4(pointAt(nextNode, graph.legality.width),
+                item.validatedGoal, 90) - allowance).int64
+            workspace.heap.pushOrDecrease(workspace.state, generation,
+              makeKey(f, nextNode))
+            workspace.state[nextNode] = generation
+      if graph.anchorNode[node] == 0: continue
+      let sourceCell = graph.cellForNode[node].int
+      let
+        offset = graph.bridgeOffset[sourceCell][direction].int
+        pathLen = graph.bridgeLen[sourceCell][direction].int
+      if offset < 0 or pathLen == 0: continue
+      let target = graph.bridgeNodes[offset + pathLen - 1].int
+      if workspace.state[target] == (generation or ClosedBit): continue
+      var
+        edgeCost = 0'i32
+        previous = fromPoint
+      for pathIndex in 0 ..< pathLen:
+        let nextPoint = pointAt(graph.bridgeNodes[offset + pathIndex].int,
+          graph.legality.width)
+        edgeCost += map.integratedEdgeCostQ4(weights, hazardCost,
+          blockedCell, previous, nextPoint)
+        previous = nextPoint
+      let
+        candidate64 = currentG.int64 + edgeCost.int64
+        candidate = int32(candidate64)

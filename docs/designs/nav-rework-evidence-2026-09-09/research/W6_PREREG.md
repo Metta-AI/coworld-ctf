@@ -1,0 +1,7 @@
+# W6: specialize the exact ray sampler by its major axis
+
+Parent is W2 ray sampling with the R1 sight table and M3 memory accounting. Candidate chooses the major axis once outside the loop. Since steps=max(abs(dx),abs(dy)), the major coordinate advances by exactly plus or minus one each sample and always has remainder zero. Only the minor axis needs the existing nearest/ties-even conversion and remainder correction. Keep public endpoint refusal, zero-length behavior, all compiler checks, wall predicate, sample order and endpoints.
+
+This is the standard DDA specialization described by the line-drawing research already recorded in W1_RESEARCH.md, applied to the project's existing exact sampler rather than adding a library. It removes redundant major-axis rounding and correction work. No timing gain is assumed; no changes to search, costs, masks or memory are intended.
+
+Before timing, run the exhaustive 262,144 small-ray and 20,000 seeded long/reversed differential cases already used by W1/W2. Then three interleaved fresh parent/candidate processes on native m5a CPU5 at1,300px/B1,024, with identical common harness and source except body_map. Require identical masks/pops in every row. Full frozen corpus and full M3 activation are regression gates on m8i. Report row/repeat weapon and whole-body p95/max; retain negative outcomes, no percentile subtraction. No check-elision or range-test change is part of W6.

@@ -1,0 +1,90 @@
+[
+ {
+  "map": "br-gen-5001",
+  "range_px": 1300,
+  "bitmap_ns": 161480.20795454545,
+  "conversion_ns": 167616.95113636364,
+  "list_ns": 14574.478409090909,
+  "incremental_conversion_cost": 0.03800306712229158,
+  "list_over_bitmap": 0.0902555092893702,
+  "exact": true,
+  "origins_equal": true
+ },
+ {
+  "map": "br-gen-5120",
+  "range_px": 1300,
+  "bitmap_ns": 162286.45909090908,
+  "conversion_ns": 171560.60568181818,
+  "list_ns": 14347.111363636364,
+  "incremental_conversion_cost": 0.05714676777631796,
+  "list_over_bitmap": 0.08840609034176689,
+  "exact": true,
+  "origins_equal": true
+ },
+ {
+  "map": "br-gen-5204",
+  "range_px": 1300,
+  "bitmap_ns": 195553.88888888888,
+  "conversion_ns": 202265.64777777778,
+  "list_ns": 17291.944444444445,
+  "incremental_conversion_cost": 0.03432178683341058,
+  "list_over_bitmap": 0.08842546953525172,
+  "exact": true,
+  "origins_equal": true
+ },
+ {
+  "map": "br-gen-5263",
+  "range_px": 1300,
+  "bitmap_ns": 142438.6051020408,
+  "conversion_ns": 150132.1857142857,
+  "list_ns": 12518.579591836735,
+  "incremental_conversion_cost": 0.05401331055392839,
+  "list_over_bitmap": 0.08788754693903818,
+  "exact": true,
+  "origins_equal": true
+ },
+ {
+  "map": "br-gen-5001",
+  "range_px": 331,
+  "bitmap_ns": 48259.18522727273,
+  "conversion_ns": 51536.64772727273,
+  "list_ns": 4222.301136363636,
+  "incremental_conversion_cost": 0.06791375537247588,
+  "list_over_bitmap": 0.08749217618322917,
+  "exact": true,
+  "origins_equal": true
+ },
+ {
+  "map": "br-gen-5120",
+  "range_px": 331,
+  "bitmap_ns": 49042.61363636364,
+  "conversion_ns": 51139.535227272725,
+  "list_ns": 4295.170454545455,
+  "incremental_conversion_cost": 0.04275713375427203,
+  "list_over_bitmap": 0.08758037421073973,
+  "exact": true,
+  "origins_equal": true
+ },
+ {
+  "map": "br-gen-5204",
+  "range_px": 331,
+  "bitmap_ns": 54638.75,
+  "conversion_ns": 57205.09333333333,
+  "list_ns": 4740.648888888889,
+  "incremental_conversion_cost": 0.04696929072010854,
+  "list_over_bitmap": 0.08676349456912702,
+  "exact": true,
+  "origins_equal": true
+ },
+ {
+  "map": "br-gen-5263",
+  "range_px": 331,
+  "bitmap_ns": 44444.6,
+  "conversion_ns": 47405.31428571429,
+  "list_ns": 4130.484693877551,
+  "incremental_conversion_cost": 0.06661583827313756,
+  "list_over_bitmap": 0.09293558033771372,
+  "exact": true,
+  "origins_equal": true
+ }
+]

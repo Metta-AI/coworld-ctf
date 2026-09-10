@@ -1,0 +1,3 @@
+# C9 final wording correction
+
+After A8 source review, please revise C9_DIAG_REVIEW.md: castRay is normalized instruction-identical, but the whole miss path is not (extra store, offsets and register changes). Replace categorical "no instruction-level mechanism" and "which is nothing" with "no obvious large instruction-level regression; effect not measured". sourceCacheSlot alignment changes 32 to 0, so do not claim all miss-path relative alignment is identical. Remove uncited Zen 1 sensitivity assertion or cite primary evidence; hardware characteristics alone do not establish a cause. nav-deferred-cache C9 source is restored and the tree is now A8 experimental, not frozen C9. These are wording corrections, not new experiments. End C9 WORDING FINAL READY and wait.

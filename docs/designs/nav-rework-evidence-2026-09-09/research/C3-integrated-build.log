@@ -1,0 +1,37 @@
+Hint: used config file '/Users/jamesboggs/.nimby/nim/config/nim.cfg' [Conf]
+Hint: used config file '/Users/jamesboggs/.nimby/nim/config/config.nims' [Conf]
+Hint: used config file '/Users/jamesboggs/coding/coworlds/coworld-ctf-worktrees/nav-throughput-research/nim.cfg' [Conf]
+..............................................................................................................................................................................................................................
+/Users/jamesboggs/coding/coworlds/coworld-ctf-worktrees/nav-throughput-research/src/ctf/arena.nim(1373, 5) Hint: 'inside' is declared but not used [XDeclaredButNotUsed]
+/Users/jamesboggs/coding/coworlds/coworld-ctf-worktrees/nav-throughput-research/src/ctf/arena.nim(3702, 6) Hint: 'rectsNode' is declared but not used [XDeclaredButNotUsed]
+/Users/jamesboggs/coding/coworlds/coworld-ctf-worktrees/nav-throughput-research/src/ctf/arena.nim(3707, 6) Hint: 'rectsFromNode' is declared but not used [XDeclaredButNotUsed]
+...........
+/Users/jamesboggs/coding/coworlds/coworld-ctf-worktrees/nav-throughput-research/src/shell/body_route_query.nim(3, 24) Warning: imported and not used: 'math' [UnusedImport]
+..
+/Users/jamesboggs/coding/coworlds/coworld-ctf-worktrees/nav-throughput-research/src/shell/body.nim(1299, 6) Hint: 'enemyShootableWithoutPolicy' is declared but not used [XDeclaredButNotUsed]
+..............
+/Users/jamesboggs/coding/coworlds/coworld-ctf-worktrees/nav-throughput-research/src/shell/episode.nim(1434, 7) Hint: 'seatTeams' is declared but not used [XDeclaredButNotUsed]
+/Users/jamesboggs/coding/coworlds/coworld-ctf-worktrees/nav-throughput-research/src/shell/episode.nim(221, 3) Hint: 'ShellRuntimeState' is declared but not used [XDeclaredButNotUsed]
+/Users/jamesboggs/coding/coworlds/coworld-ctf-worktrees/nav-throughput-research/src/shell/episode.nim(274, 6) Hint: 'frameForSeat' is declared but not used [XDeclaredButNotUsed]
+/Users/jamesboggs/coding/coworlds/coworld-ctf-worktrees/nav-throughput-research/src/shell/episode.nim(285, 6) Hint: 'playZoneTicksToShrink' is declared but not used [XDeclaredButNotUsed]
+/Users/jamesboggs/coding/coworlds/coworld-ctf-worktrees/nav-throughput-research/src/shell/episode.nim(517, 6) Hint: 'rawBytes' is declared but not used [XDeclaredButNotUsed]
+/Users/jamesboggs/coding/coworlds/coworld-ctf-worktrees/nav-throughput-research/src/shell/episode.nim(592, 6) Hint: 'withContentSha' is declared but not used [XDeclaredButNotUsed]
+/Users/jamesboggs/coding/coworlds/coworld-ctf-worktrees/nav-throughput-research/src/shell/episode.nim(8, 19) Warning: imported and not used: 'math' [UnusedImport]
+..
+/Users/jamesboggs/coding/coworlds/coworld-ctf-worktrees/nav-throughput-research/tools/build_nav_route_corpus.nim(15, 3) Hint: 'DefaultOutput' is declared but not used [XDeclaredButNotUsed]
+/Users/jamesboggs/coding/coworlds/coworld-ctf-worktrees/nav-throughput-research/tools/build_nav_route_corpus.nim(155, 6) Hint: 'writeCorpus' is declared but not used [XDeclaredButNotUsed]
+/Users/jamesboggs/coding/coworlds/coworld-ctf-worktrees/nav-throughput-research/tools/build_nav_route_corpus.nim(6, 45) Warning: imported and not used: 'os' [UnusedImport]
+CC: system.nim
+CC: hashes.nim
+CC: math.nim
+CC: ../src/shell/body_nav.nim
+CC: ../src/shell/cover_scorer.nim
+CC: ../src/shell/body.nim
+CC: ../src/shell/standing_order.nim
+CC: ../src/shell/episode.nim
+CC: ../tests/nav_route_corpus_support.nim
+CC: build_nav_route_corpus.nim
+CC: bench_body_nav_rework.nim
+Hint:  [Link]
+Hint: mm: orc; threads: on; opt: speed; options: -d:release
+129849 lines; 2.782s; 424.984MiB peakmem; proj: /Users/jamesboggs/coding/coworlds/coworld-ctf-worktrees/nav-throughput-research/tools/bench_body_nav_rework.nim; out: /Users/jamesboggs/coding/coworlds/coworld-ctf-worktrees/nav-throughput-research/build/bench-c3-integrated [SuccessX]

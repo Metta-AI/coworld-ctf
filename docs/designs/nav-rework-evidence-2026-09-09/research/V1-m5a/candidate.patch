@@ -1,0 +1,42 @@
+diff --git a/src/shell/body_nav.nim b/src/shell/body_nav.nim
+index 23b14823..ee6ce0dd 100644
+--- a/src/shell/body_nav.nim
++++ b/src/shell/body_nav.nim
+@@ -31,8 +31,8 @@ const
+ 
+ type
+   DangerWorkspace = object
+-    visited: seq[uint32]
+-    visitGeneration: uint32
++    visited: seq[uint8]
++    visitGeneration: uint8
+ 
+   DangerCandidate* = object
+     seatIndex*: int
+@@ -194,7 +194,7 @@ proc retainedNavigationBytes*(system: BodyNavSystem): BodyNavigationBytes =
+       result.seatCaches += int64(sizeof(seat.cache[]))
+     result.dangerRasters += int64(seat.danger.values.capacity * sizeof(float32))
+     result.dangerWorkspaces += int64(
+-      seat.dangerWorkspace.visited.capacity * sizeof(uint32))
++      seat.dangerWorkspace.visited.capacity * sizeof(uint8))
+     result.packedWeights += int64(seat.packedWeights.capacity * sizeof(int16))
+     for length in [seat.danger.values.capacity,
+         seat.dangerWorkspace.visited.capacity, seat.packedWeights.capacity]:
+@@ -242,7 +242,7 @@ proc initDanger(map: BodyMap): tuple[field: BodyDangerField,
+   let size = map.gridWidth * map.gridHeight
+   result.field = BodyDangerField(values: newSeq[float32](size),
+     gridW: map.gridWidth, gridH: map.gridHeight)
+-  result.workspace.visited = newSeq[uint32](size)
++  result.workspace.visited = newSeq[uint8](size)
+ 
+ proc initDangerGeometry(map: BodyMap, liveGunRangePx: int): DangerGeometry =
+   ## A reference owner prevents per-seat sequence copies under ORC.
+@@ -382,7 +382,7 @@ proc resetNavigationLife*(system: BodyNavSystem, seatIndex: int) =
+     system.routeJobSeat = -1
+ 
+ proc nextVisitGeneration(seat: BodyNavSeat) =
+-  if seat.dangerWorkspace.visitGeneration == high(uint32):
++  if seat.dangerWorkspace.visitGeneration == high(uint8):
+     for value in seat.dangerWorkspace.visited.mitems:
+       value = 0
+     seat.dangerWorkspace.visitGeneration = 1

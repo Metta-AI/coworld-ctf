@@ -1,0 +1,3 @@
+# A6 lazy follow-up
+
+Materialized lazy/eager snapshots and profiler remain frozen. m5a: run the identical three-arm counter-free native screen after C3 PID56947 ends and its DONE marker exists; no overlap. Direct remains a negative control for the observed host difference. m8i: unprofiled lazy build of the normal harness, full3072 quality (pre-H1 hash), full65 activation plus all11 configured rows, and focused route-index tests. Require selected arrays, corpus paths/pops, and retained memory unchanged from A4 (lazy scratch is transient). Capture activation ratios separately per map; do not average failures into a pass. If m5a lazy does not improve, do not infer fleet value from m8i alone. Root will review adoption only after the additional evidence.

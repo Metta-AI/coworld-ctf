@@ -1,0 +1,18 @@
+[
+    {
+        "Id": "i-08b7fb62b50e0740a",
+        "State": "running"
+    },
+    {
+        "Id": "i-0382a6e0a77c014d7",
+        "State": "stopped"
+    },
+    {
+        "Id": "i-0b37d010a49d1a53d",
+        "State": "stopped"
+    },
+    {
+        "Id": "i-045ddd6df51150967",
+        "State": "stopped"
+    }
+]

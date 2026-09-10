@@ -1,0 +1,13 @@
+diff --git a/src/shell/body_route_query.nim b/src/shell/body_route_query.nim
+index 7c97b91..204f75f 100644
+--- a/src/shell/body_route_query.nim
++++ b/src/shell/body_route_query.nim
+@@ -16,7 +16,7 @@ type
+     brfValidation
+ 
+ const
+-  BodyRoutePopBudgetPerTick* = 1_024
++  BodyRoutePopBudgetPerTick* = 4096
+   BodyFineStepPx* = 4
+   BodyRouteSpanCap* = 4_096
+   BodyEndpointAttachmentCap* = 512

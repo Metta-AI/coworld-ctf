@@ -1,0 +1,747 @@
+--- parent
+
++++ candidate
+
+@@ -10,19 +10,19 @@
+
+ sub    $0x148,%rsp
+ mov    $0xffffffffffffffd0,%r15
++mov    %r8,0x30(%rsp)
++xor    %r8d,%r8d
+ mov    %rsi,0x8(%rsp)
+ mov    %rcx,0x28(%rsp)
+-mov    %r8,0x30(%rsp)
+ mov    %fs:0x28,%rax
+ mov    %rax,0x138(%rsp)
+ lea    RIP(%rip),%rax
+ movq   $0x0,0xb0(%rsp)
++mov    %r8w,0xc0(%rsp)
+ mov    %rax,0xa8(%rsp)
+ lea    RIP(%rip),%rax
+ mov    %rax,0xb8(%rsp)
+-xor    %eax,%eax
+-mov    %ax,0xc0(%rsp)
+ mov    %fs:(%r15),%rdx
+ test   %rdx,%rdx
+-je     <rebuildDangerFromPoints__OOZsrcZshellZbody95nav_uID+0x150>
++je     <rebuildDangerFromPoints__OOZsrcZshellZbody95nav_uID+0x160>
+ movzwl 0x22(%rdx),%eax
+ mov    %rdx,0xa0(%rsp)
+@@ -32,20 +32,21 @@
+
+ mov    %rdx,%fs:(%r15)
+ cmp    $0x7d0,%ax
+-je     <rebuildDangerFromPoints__OOZsrcZshellZbody95nav_uID+0x140>
++je     <rebuildDangerFromPoints__OOZsrcZshellZbody95nav_uID+0x150>
+ mov    0x10(%r13),%r12
+ xor    %ebp,%ebp
+ test   %r12,%r12
+-jg     <rebuildDangerFromPoints__OOZsrcZshellZbody95nav_uID+0xd6>
+-jmp    <rebuildDangerFromPoints__OOZsrcZshellZbody95nav_uID+0x180>
++jg     <rebuildDangerFromPoints__OOZsrcZshellZbody95nav_uID+0xde>
++jmp    <rebuildDangerFromPoints__OOZsrcZshellZbody95nav_uID+0x190>
++nopw   0x0(%rax,%rax,1)
+ cmp    %rbp,%r12
+-je     <rebuildDangerFromPoints__OOZsrcZshellZbody95nav_uID+0x180>
++je     <rebuildDangerFromPoints__OOZsrcZshellZbody95nav_uID+0x190>
+ mov    0x10(%r13),%rsi
+ cmp    %rbp,%rsi
+-jle    <rebuildDangerFromPoints__OOZsrcZshellZbody95nav_uID+0x718>
++jle    <rebuildDangerFromPoints__OOZsrcZshellZbody95nav_uID+0x730>
+ mov    0x18(%r13),%rax
+ movl   $0x0,0x8(%rax,%rbp,4)
+ add    $0x1,%rbp
+ cmp    0x10(%r13),%r12
+-je     <rebuildDangerFromPoints__OOZsrcZshellZbody95nav_uID+0xc0>
++je     <rebuildDangerFromPoints__OOZsrcZshellZbody95nav_uID+0xc8>
+ mov    RIP(%rip),%rdi
+ mov    RIP(%rip),%rsi
+@@ -53,5 +54,5 @@
+
+ mov    $0xffffffffffffff90,%rax
+ cmpb   $0x0,%fs:(%rax)
+-je     <rebuildDangerFromPoints__OOZsrcZshellZbody95nav_uID+0xc0>
++je     <rebuildDangerFromPoints__OOZsrcZshellZbody95nav_uID+0xc8>
+ mov    %fs:(%r15),%rdx
+ mov    (%rdx),%rax
+@@ -59,5 +60,5 @@
+
+ mov    0x138(%rsp),%rax
+ sub    %fs:0x28,%rax
+-jne    <rebuildDangerFromPoints__OOZsrcZshellZbody95nav_uID+0xb92>
++jne    <rebuildDangerFromPoints__OOZsrcZshellZbody95nav_uID+0xbca>
+ add    $0x148,%rsp
+ pop    %rbx
+@@ -68,6 +69,7 @@
+
+ pop    %r15
+ ret    
++nopl   0x0(%rax,%rax,1)
+ call   <callDepthLimitReached__system_uID>
+-jmp    <rebuildDangerFromPoints__OOZsrcZshellZbody95nav_uID+0xb0>
++jmp    <rebuildDangerFromPoints__OOZsrcZshellZbody95nav_uID+0xb2>
+ nopw   0x0(%rax,%rax,1)
+ movq   $0x0,0xa0(%rsp)
+@@ -76,8 +78,8 @@
+
+ lea    0xa0(%rsp),%rax
+ mov    %rax,%fs:(%r15)
+-jmp    <rebuildDangerFromPoints__OOZsrcZshellZbody95nav_uID+0xb0>
++jmp    <rebuildDangerFromPoints__OOZsrcZshellZbody95nav_uID+0xb2>
+ nopw   0x0(%rax,%rax,1)
+ cmpq   $0x0,0x28(%rsp)
+-jle    <rebuildDangerFromPoints__OOZsrcZshellZbody95nav_uID+0xaa2>
++jle    <rebuildDangerFromPoints__OOZsrcZshellZbody95nav_uID+0xada>
+ mov    $0xffffffffffffff90,%rax
+ mov    %rbx,0x50(%rsp)
+@@ -98,5 +100,5 @@
+
+ movq   %xmm2,0x38(%rsp)
+ cmpb   $0x0,%fs:(%rax)
+-jne    <rebuildDangerFromPoints__OOZsrcZshellZbody95nav_uID+0x10c>
++jne    <rebuildDangerFromPoints__OOZsrcZshellZbody95nav_uID+0x114>
+ mov    0x58(%r13),%rsi
+ lea    0x98(%rsp),%rdi
+@@ -107,30 +109,30 @@
+
+ movzbl %fs:(%rbx),%esi
+ test   %sil,%sil
+-jne    <rebuildDangerFromPoints__OOZsrcZshellZbody95nav_uID+0x10c>
++jne    <rebuildDangerFromPoints__OOZsrcZshellZbody95nav_uID+0x114>
+ imul   %r12,%rax
+-jo     <rebuildDangerFromPoints__OOZsrcZshellZbody95nav_uID+0x9fa>
++jo     <rebuildDangerFromPoints__OOZsrcZshellZbody95nav_uID+0xa10>
+ add    0x38(%rsp),%rax
+ seto   %r14b
+ mov    %rax,%rbp
+ movzbl %r14b,%r14d
+-jo     <rebuildDangerFromPoints__OOZsrcZshellZbody95nav_uID+0x9fa>
++jo     <rebuildDangerFromPoints__OOZsrcZshellZbody95nav_uID+0xa10>
+ mov    $0x80000000,%eax
+ mov    $0xffffffff,%ebx
+ add    %rbp,%rax
+ cmp    %rbx,%rax
+-ja     <rebuildDangerFromPoints__OOZsrcZshellZbody95nav_uID+0xb39>
++ja     <rebuildDangerFromPoints__OOZsrcZshellZbody95nav_uID+0xb71>
+ mov    0x98(%rsp),%rbx
+ lea    RIP(%rip),%rax
++xor    %edi,%edi
+ mov    %ebp,%ecx
+-addq   $0x1,0x418(%rbx)
++addq   $0x1,0x430(%rbx)
+ mov    %rax,0x108(%rsp)
+ lea    RIP(%rip),%rax
+ mov    %rax,0x118(%rsp)
+-xor    %eax,%eax
+ movq   $0x0,0x110(%rsp)
+-mov    %ax,0x120(%rsp)
++mov    %di,0x120(%rsp)
+ mov    %fs:(%r15),%rdx
+ test   %rdx,%rdx
+-je     <rebuildDangerFromPoints__OOZsrcZshellZbody95nav_uID+0x72d>
++je     <rebuildDangerFromPoints__OOZsrcZshellZbody95nav_uID+0x745>
+ movzwl 0x22(%rdx),%eax
+ lea    0x100(%rsp),%rdi
+@@ -141,5 +143,5 @@
+
+ mov    %rdi,%fs:(%r15)
+ cmp    $0x7d0,%ax
+-jne    <rebuildDangerFromPoints__OOZsrcZshellZbody95nav_uID+0x300>
++jne    <rebuildDangerFromPoints__OOZsrcZshellZbody95nav_uID+0x310>
+ mov    %ebp,0x58(%rsp)
+ call   <callDepthLimitReached__system_uID>
+@@ -152,12 +154,12 @@
+
+ mov    %r14,%rax
+ shl    $0x4,%rax
+-cmp    0x18(%rbx,%rax,1),%ecx
+-je     <rebuildDangerFromPoints__OOZsrcZshellZbody95nav_uID+0x759>
++cmp    0x30(%rbx,%rax,1),%ecx
++je     <rebuildDangerFromPoints__OOZsrcZshellZbody95nav_uID+0x771>
+ add    $0x1,%r14
+ cmp    $0x40,%r14
+-jne    <rebuildDangerFromPoints__OOZsrcZshellZbody95nav_uID+0x300>
++jne    <rebuildDangerFromPoints__OOZsrcZshellZbody95nav_uID+0x310>
+ mov    %rdx,%fs:(%r15)
+ test   %sil,%sil
+-jne    <rebuildDangerFromPoints__OOZsrcZshellZbody95nav_uID+0x110>
++jne    <rebuildDangerFromPoints__OOZsrcZshellZbody95nav_uID+0x118>
+ mov    %rbx,%rdi
+ call   <sourceCacheVictim__OOZsrcZshellZbody95nav_uID>
+@@ -165,40 +167,41 @@
+
+ mov    0x20(%rsp),%rax
+ cmpb   $0x0,%fs:(%rax)
+-jne    <rebuildDangerFromPoints__OOZsrcZshellZbody95nav_uID+0x10c>
++jne    <rebuildDangerFromPoints__OOZsrcZshellZbody95nav_uID+0x114>
+ cmp    $0x3f,%rdi
+-ja     <rebuildDangerFromPoints__OOZsrcZshellZbody95nav_uID+0xbc8>
++ja     <rebuildDangerFromPoints__OOZsrcZshellZbody95nav_uID+0xc00>
+ mov    %rdi,%rax
+-mov    0x418(%rbx),%rdx
++mov    0x430(%rbx),%rdx
+ xor    %r14d,%r14d
+ shl    $0x4,%rax
+ add    %rbx,%rax
+-mov    %ebp,0x18(%rax)
+-mov    %rdx,0x20(%rax)
++mov    %ebp,0x30(%rax)
++movl   $0xffffffff,0x34(%rax)
++mov    %rdx,0x38(%rax)
+ imul   (%rbx),%rdi
+ seto   %r14b
+-jo     <rebuildDangerFromPoints__OOZsrcZshellZbody95nav_uID+0x9fa>
++jo     <rebuildDangerFromPoints__OOZsrcZshellZbody95nav_uID+0xa10>
+ mov    %rdi,0x60(%r13)
+ xor    %eax,%eax
+-jmp    <rebuildDangerFromPoints__OOZsrcZshellZbody95nav_uID+0x3ba>
+-nopl   (%rax)
++jmp    <rebuildDangerFromPoints__OOZsrcZshellZbody95nav_uID+0x3d2>
++nopl   0x0(%rax)
+ mov    %rax,%rdi
+ add    0x60(%r13),%rdi
+-jo     <rebuildDangerFromPoints__OOZsrcZshellZbody95nav_uID+0x9fa>
++jo     <rebuildDangerFromPoints__OOZsrcZshellZbody95nav_uID+0xa10>
+ mov    0x8(%rbx),%rdx
+ test   %rdi,%rdi
+-js     <rebuildDangerFromPoints__OOZsrcZshellZbody95nav_uID+0xb56>
++js     <rebuildDangerFromPoints__OOZsrcZshellZbody95nav_uID+0xb8e>
+ cmp    %rdx,%rdi
+-jge    <rebuildDangerFromPoints__OOZsrcZshellZbody95nav_uID+0xb56>
++jge    <rebuildDangerFromPoints__OOZsrcZshellZbody95nav_uID+0xb8e>
+ mov    0x10(%rbx),%rdx
+ add    $0x1,%rax
+ movq   $0x0,0x8(%rdx,%rdi,8)
+-jo     <rebuildDangerFromPoints__OOZsrcZshellZbody95nav_uID+0x9fa>
++jo     <rebuildDangerFromPoints__OOZsrcZshellZbody95nav_uID+0xa10>
+ cmp    %rax,(%rbx)
+-jg     <rebuildDangerFromPoints__OOZsrcZshellZbody95nav_uID+0x380>
++jg     <rebuildDangerFromPoints__OOZsrcZshellZbody95nav_uID+0x398>
+ mov    %r13,%rdi
+ call   <nextVisitGeneration__OOZsrcZshellZbody95nav_uID>
+ mov    0x20(%rsp),%rax
+ cmpb   $0x0,%fs:(%rax)
+-jne    <rebuildDangerFromPoints__OOZsrcZshellZbody95nav_uID+0x10c>
++jne    <rebuildDangerFromPoints__OOZsrcZshellZbody95nav_uID+0x114>
+ mov    0x50(%r13),%rax
+ lea    RIP(%rip),%rdi
+@@ -209,13 +212,13 @@
+
+ lea    RIP(%rip),%rdi
+ mov    %rdi,0xe8(%rsp)
++lea    0x8(%rax),%rsi
+ test   %rax,%rax
+-lea    0x8(%rax),%rsi
+ movq   $0x0,0xe0(%rsp)
+ cmovne %rsi,%rax
+-xor    %ebp,%ebp
+-mov    %bp,0xf0(%rsp)
++xor    %esi,%esi
++mov    %si,0xf0(%rsp)
+ mov    %fs:(%r15),%rdi
+ test   %rdi,%rdi
+-je     <rebuildDangerFromPoints__OOZsrcZshellZbody95nav_uID+0xba1>
++je     <rebuildDangerFromPoints__OOZsrcZshellZbody95nav_uID+0xbd9>
+ movzwl 0x22(%rdi),%esi
+ mov    %rdi,0xd0(%rsp)
+@@ -225,5 +228,5 @@
+
+ mov    %rdi,%fs:(%r15)
+ cmp    $0x7d0,%si
+-jne    <rebuildDangerFromPoints__OOZsrcZshellZbody95nav_uID+0x47e>
++jne    <rebuildDangerFromPoints__OOZsrcZshellZbody95nav_uID+0x496>
+ mov    %rax,0x70(%rsp)
+ mov    %rdx,0x58(%rsp)
+@@ -235,45 +238,45 @@
+
+ mov    0x38(%rsp),%rdi
+ test   %rdi,%rdi
+-js     <rebuildDangerFromPoints__OOZsrcZshellZbody95nav_uID+0x614>
++js     <rebuildDangerFromPoints__OOZsrcZshellZbody95nav_uID+0x62c>
+ mov    0x20(%r13),%rsi
+ cmp    %rdi,%rsi
+-jle    <rebuildDangerFromPoints__OOZsrcZshellZbody95nav_uID+0x614>
++jle    <rebuildDangerFromPoints__OOZsrcZshellZbody95nav_uID+0x62c>
+ test   %r12,%r12
+-js     <rebuildDangerFromPoints__OOZsrcZshellZbody95nav_uID+0x614>
++js     <rebuildDangerFromPoints__OOZsrcZshellZbody95nav_uID+0x62c>
+ cmp    %r12,0x28(%r13)
+-jle    <rebuildDangerFromPoints__OOZsrcZshellZbody95nav_uID+0x614>
++jle    <rebuildDangerFromPoints__OOZsrcZshellZbody95nav_uID+0x62c>
+ imul   %r12,%rsi
+-jo     <rebuildDangerFromPoints__OOZsrcZshellZbody95nav_uID+0xb97>
++jo     <rebuildDangerFromPoints__OOZsrcZshellZbody95nav_uID+0xbcf>
+ add    %rdi,%rsi
+ mov    %rsi,%rbp
+-jo     <rebuildDangerFromPoints__OOZsrcZshellZbody95nav_uID+0xb97>
++jo     <rebuildDangerFromPoints__OOZsrcZshellZbody95nav_uID+0xbcf>
+ mov    0x38(%r13),%rsi
+ test   %rbp,%rbp
+-js     <rebuildDangerFromPoints__OOZsrcZshellZbody95nav_uID+0xc2f>
++js     <rebuildDangerFromPoints__OOZsrcZshellZbody95nav_uID+0xc67>
+ cmp    %rsi,%rbp
+-jge    <rebuildDangerFromPoints__OOZsrcZshellZbody95nav_uID+0xc2f>
++jge    <rebuildDangerFromPoints__OOZsrcZshellZbody95nav_uID+0xc67>
+ mov    0x40(%r13),%rsi
+ mov    0x48(%r13),%edi
+ cmp    %edi,0x8(%rsi,%rbp,4)
+-je     <rebuildDangerFromPoints__OOZsrcZshellZbody95nav_uID+0x614>
++je     <rebuildDangerFromPoints__OOZsrcZshellZbody95nav_uID+0x62c>
+ mov    %edi,0x8(%rsi,%rbp,4)
+ imul   $0x2,%rcx,%rdi
+-jo     <rebuildDangerFromPoints__OOZsrcZshellZbody95nav_uID+0xb97>
++jo     <rebuildDangerFromPoints__OOZsrcZshellZbody95nav_uID+0xbcf>
+ add    $0x1,%rdi
+-jo     <rebuildDangerFromPoints__OOZsrcZshellZbody95nav_uID+0xb97>
++jo     <rebuildDangerFromPoints__OOZsrcZshellZbody95nav_uID+0xbcf>
+ imul   %rcx,%rdi
+-jo     <rebuildDangerFromPoints__OOZsrcZshellZbody95nav_uID+0xb97>
++jo     <rebuildDangerFromPoints__OOZsrcZshellZbody95nav_uID+0xbcf>
+ add    %rcx,%rdi
+-jo     <rebuildDangerFromPoints__OOZsrcZshellZbody95nav_uID+0xb97>
++jo     <rebuildDangerFromPoints__OOZsrcZshellZbody95nav_uID+0xbcf>
+ mov    %rdi,%r8
+ sar    $0x6,%r8
+ add    0x60(%r13),%r8
+-jo     <rebuildDangerFromPoints__OOZsrcZshellZbody95nav_uID+0xb97>
++jo     <rebuildDangerFromPoints__OOZsrcZshellZbody95nav_uID+0xbcf>
+ mov    0x58(%r13),%rsi
+ mov    0x8(%rsi),%rcx
+ test   %r8,%r8
+-js     <rebuildDangerFromPoints__OOZsrcZshellZbody95nav_uID+0xc1e>
++js     <rebuildDangerFromPoints__OOZsrcZshellZbody95nav_uID+0xc56>
+ cmp    %rcx,%r8
+-jge    <rebuildDangerFromPoints__OOZsrcZshellZbody95nav_uID+0xc1e>
++jge    <rebuildDangerFromPoints__OOZsrcZshellZbody95nav_uID+0xc56>
+ mov    0x10(%rsi),%r9
+ mov    %edi,%ecx
+@@ -283,9 +286,9 @@
+
+ mov    0x10(%r13),%rcx
+ cmp    %rcx,%rbp
+-jge    <rebuildDangerFromPoints__OOZsrcZshellZbody95nav_uID+0xc0d>
++jge    <rebuildDangerFromPoints__OOZsrcZshellZbody95nav_uID+0xc45>
+ test   %rdi,%rdi
+-js     <rebuildDangerFromPoints__OOZsrcZshellZbody95nav_uID+0xbff>
++js     <rebuildDangerFromPoints__OOZsrcZshellZbody95nav_uID+0xc37>
+ cmp    %rdi,%rdx
+-jle    <rebuildDangerFromPoints__OOZsrcZshellZbody95nav_uID+0xbff>
++jle    <rebuildDangerFromPoints__OOZsrcZshellZbody95nav_uID+0xc37>
+ movss  (%rax,%rdi,4),%xmm0
+ lea    RIP(%rip),%rax
+@@ -298,5 +301,5 @@
+
+ mov    %fs:(%r15),%rdx
+ test   %rdx,%rdx
+-je     <rebuildDangerFromPoints__OOZsrcZshellZbody95nav_uID+0xbdb>
++je     <rebuildDangerFromPoints__OOZsrcZshellZbody95nav_uID+0xc13>
+ movzwl 0x22(%rdx),%eax
+ mov    0x60(%rsp),%rdi
+@@ -306,5 +309,5 @@
+
+ mov    %rdi,%fs:(%r15)
+ cmp    $0x7d0,%ax
+-jne    <rebuildDangerFromPoints__OOZsrcZshellZbody95nav_uID+0x5fd>
++jne    <rebuildDangerFromPoints__OOZsrcZshellZbody95nav_uID+0x615>
+ mov    %rcx,0x58(%rsp)
+ movss  %xmm0,0x10(%rsp)
+@@ -322,9 +325,9 @@
+
+ mov    0x20(%rsp),%rax
+ cmpb   $0x0,%fs:(%rax)
+-jne    <rebuildDangerFromPoints__OOZsrcZshellZbody95nav_uID+0x110>
++jne    <rebuildDangerFromPoints__OOZsrcZshellZbody95nav_uID+0x118>
+ mov    0x50(%r13),%rdx
+ mov    0x10(%rdx),%rbp
+ test   %rbp,%rbp
+-jle    <rebuildDangerFromPoints__OOZsrcZshellZbody95nav_uID+0x7a7>
++jle    <rebuildDangerFromPoints__OOZsrcZshellZbody95nav_uID+0x7bd>
+ movdqa 0x40(%rsp),%xmm4
+ movq   %xmm4,0x10(%rsp)
+@@ -334,9 +337,9 @@
+
+ add    0x18(%rdx),%rax
+ add    0x8(%rax),%rsi
+-jo     <rebuildDangerFromPoints__OOZsrcZshellZbody95nav_uID+0x9fa>
++jo     <rebuildDangerFromPoints__OOZsrcZshellZbody95nav_uID+0xa10>
+ mov    %r12,%rcx
+ add    0x10(%rax),%rcx
+ mov    %rcx,%rax
+-jo     <rebuildDangerFromPoints__OOZsrcZshellZbody95nav_uID+0x9fa>
++jo     <rebuildDangerFromPoints__OOZsrcZshellZbody95nav_uID+0xa10>
+ mov    0x8(%rdx),%rcx
+ mov    0x20(%rdx),%r9
+@@ -351,13 +354,13 @@
+
+ mov    0x58(%rsp),%rdx
+ call   <castRay__OOZsrcZshellZbody95nav_uID>
+-pop    %r10
+ pop    %r11
+-mov    0x20(%rsp),%rax
+-cmpb   $0x0,%fs:(%rax)
+-jne    <rebuildDangerFromPoints__OOZsrcZshellZbody95nav_uID+0x10c>
++pop    %rax
++mov    0x20(%rsp),%rax
++cmpb   $0x0,%fs:(%rax)
++jne    <rebuildDangerFromPoints__OOZsrcZshellZbody95nav_uID+0x114>
+ mov    0x50(%r13),%rax
+ add    $0x1,%r14
+ cmp    0x10(%rax),%rbp
+-je     <rebuildDangerFromPoints__OOZsrcZshellZbody95nav_uID+0x6e2>
++je     <rebuildDangerFromPoints__OOZsrcZshellZbody95nav_uID+0x6f9>
+ mov    RIP(%rip),%rdi
+ mov    RIP(%rip),%rsi
+@@ -365,22 +368,22 @@
+
+ mov    0x20(%rsp),%rax
+ cmpb   $0x0,%fs:(%rax)
+-jne    <rebuildDangerFromPoints__OOZsrcZshellZbody95nav_uID+0x10c>
++jne    <rebuildDangerFromPoints__OOZsrcZshellZbody95nav_uID+0x114>
+ cmp    %r14,%rbp
+-je     <rebuildDangerFromPoints__OOZsrcZshellZbody95nav_uID+0x7a7>
++je     <rebuildDangerFromPoints__OOZsrcZshellZbody95nav_uID+0x7bd>
+ mov    0x50(%r13),%rdx
+ mov    0x10(%rdx),%rax
+ cmp    %r14,%rax
+-jg     <rebuildDangerFromPoints__OOZsrcZshellZbody95nav_uID+0x64b>
++jg     <rebuildDangerFromPoints__OOZsrcZshellZbody95nav_uID+0x663>
+ lea    -0x1(%rax),%rsi
+ mov    %r14,%rdi
+ call   <raiseIndexError2>
+ mov    %fs:(%r15),%rdx
+-jmp    <rebuildDangerFromPoints__OOZsrcZshellZbody95nav_uID+0x110>
+-nopl   0x0(%rax)
++jmp    <rebuildDangerFromPoints__OOZsrcZshellZbody95nav_uID+0x118>
++nopl   0x0(%rax,%rax,1)
+ sub    $0x1,%rsi
+ mov    %rbp,%rdi
+ call   <raiseIndexError2>
+ mov    %fs:(%r15),%rdx
+-jmp    <rebuildDangerFromPoints__OOZsrcZshellZbody95nav_uID+0x110>
++jmp    <rebuildDangerFromPoints__OOZsrcZshellZbody95nav_uID+0x118>
+ lea    0x100(%rsp),%rax
+ xor    %edi,%edi
+@@ -389,22 +392,22 @@
+
+ mov    %rax,0x60(%rsp)
+ mov    %rax,%fs:(%r15)
+-jmp    <rebuildDangerFromPoints__OOZsrcZshellZbody95nav_uID+0x300>
++jmp    <rebuildDangerFromPoints__OOZsrcZshellZbody95nav_uID+0x310>
+ mov    %rdx,%fs:(%r15)
+ test   %sil,%sil
+-jne    <rebuildDangerFromPoints__OOZsrcZshellZbody95nav_uID+0x110>
+-mov    0x418(%rbx),%rdx
+-mov    %r14,%rax
+-mov    %r14,%rcx
+-shl    $0x4,%rax
+-mov    %rdx,0x20(%rax,%rbx,1)
+-imul   (%rbx),%rcx
+-jo     <rebuildDangerFromPoints__OOZsrcZshellZbody95nav_uID+0x9fa>
++jne    <rebuildDangerFromPoints__OOZsrcZshellZbody95nav_uID+0x118>
++add    %rbx,%rax
++mov    0x430(%rbx),%rdx
++mov    0x34(%rax),%r9d
++mov    %rdx,0x38(%rax)
++test   %r9d,%r9d
++jns    <rebuildDangerFromPoints__OOZsrcZshellZbody95nav_uID+0xa1e>
+ mov    0x10(%rsp),%rsi
+ mov    0x18(%rsp),%rdx
++mov    %r14,%rcx
+ mov    %r13,%rdi
+-call   <replayVisibleCells__OOZsrcZshellZbody95nav_uID>
+-mov    0x20(%rsp),%rax
+-cmpb   $0x0,%fs:(%rax)
+-jne    <rebuildDangerFromPoints__OOZsrcZshellZbody95nav_uID+0x10c>
++call   <materializeVisibleCells__OOZsrcZshellZbody95nav_uID>
++mov    0x20(%rsp),%rax
++cmpb   $0x0,%fs:(%rax)
++jne    <rebuildDangerFromPoints__OOZsrcZshellZbody95nav_uID+0x114>
+ mov    0x68(%r13),%rax
+ mov    $0xbe,%edx
+@@ -420,8 +423,8 @@
+
+ mov    %rcx,0x10(%rsp)
+ mov    %rax,0x40(%rsp)
+-jo     <rebuildDangerFromPoints__OOZsrcZshellZbody95nav_uID+0x9fa>
++jo     <rebuildDangerFromPoints__OOZsrcZshellZbody95nav_uID+0xa10>
+ mov    %r12,%r14
+ sub    %rcx,%r14
+-jo     <rebuildDangerFromPoints__OOZsrcZshellZbody95nav_uID+0x9fa>
++jo     <rebuildDangerFromPoints__OOZsrcZshellZbody95nav_uID+0xa10>
+ mov    0x8(%rsp),%rdi
+ xor    %eax,%eax
+@@ -431,10 +434,10 @@
+
+ mov    0x20(%rsp),%rcx
+ cmpb   $0x0,%fs:(%rcx)
+-jne    <rebuildDangerFromPoints__OOZsrcZshellZbody95nav_uID+0x10c>
++jne    <rebuildDangerFromPoints__OOZsrcZshellZbody95nav_uID+0x114>
+ sub    $0x1,%rax
+-jo     <rebuildDangerFromPoints__OOZsrcZshellZbody95nav_uID+0x9fa>
++jo     <rebuildDangerFromPoints__OOZsrcZshellZbody95nav_uID+0xa10>
+ mov    %r12,%rdx
+ add    0x10(%rsp),%rdx
+-jo     <rebuildDangerFromPoints__OOZsrcZshellZbody95nav_uID+0x9fa>
++jo     <rebuildDangerFromPoints__OOZsrcZshellZbody95nav_uID+0xa10>
+ cmp    %rdx,%rax
+ mov    %rbx,0x78(%rsp)
+@@ -444,8 +447,8 @@
+
+ mov    %rdx,0x70(%rsp)
+ cmp    0x70(%rsp),%r14
+-jg     <rebuildDangerFromPoints__OOZsrcZshellZbody95nav_uID+0xa74>
++jg     <rebuildDangerFromPoints__OOZsrcZshellZbody95nav_uID+0xaac>
+ mov    0x38(%rsp),%rcx
+ sub    0x10(%rsp),%rcx
+-jo     <rebuildDangerFromPoints__OOZsrcZshellZbody95nav_uID+0x9fa>
++jo     <rebuildDangerFromPoints__OOZsrcZshellZbody95nav_uID+0xa10>
+ xor    %eax,%eax
+ test   %rcx,%rcx
+@@ -455,14 +458,14 @@
+
+ call   <gridWidth__OOZsrcZshellZbody95map_uID>
+ cmpb   $0x0,%fs:(%r12)
+-jne    <rebuildDangerFromPoints__OOZsrcZshellZbody95nav_uID+0x10c>
++jne    <rebuildDangerFromPoints__OOZsrcZshellZbody95nav_uID+0x114>
+ sub    $0x1,%rax
+-jo     <rebuildDangerFromPoints__OOZsrcZshellZbody95nav_uID+0x9fa>
++jo     <rebuildDangerFromPoints__OOZsrcZshellZbody95nav_uID+0xa10>
+ mov    0x38(%rsp),%rdx
+ add    0x10(%rsp),%rdx
+-jo     <rebuildDangerFromPoints__OOZsrcZshellZbody95nav_uID+0x9fa>
++jo     <rebuildDangerFromPoints__OOZsrcZshellZbody95nav_uID+0xa10>
+ cmp    %rdx,%rax
+ cmovle %rax,%rdx
+ cmp    %rdx,%r13
+-jg     <rebuildDangerFromPoints__OOZsrcZshellZbody95nav_uID+0x9f0>
++jg     <rebuildDangerFromPoints__OOZsrcZshellZbody95nav_uID+0xa06>
+ mov    0x50(%rsp),%rbx
+ mov    %r13,%rbp
+@@ -472,36 +475,36 @@
+
+ call   <cellCenter__OOZsrcZshellZbody95map_uID>
+ cmpb   $0x0,%fs:(%r12)
+-jne    <rebuildDangerFromPoints__OOZsrcZshellZbody95nav_uID+0x10c>
++jne    <rebuildDangerFromPoints__OOZsrcZshellZbody95nav_uID+0x114>
+ sub    (%rbx),%rax
+-jo     <rebuildDangerFromPoints__OOZsrcZshellZbody95nav_uID+0xa33>
++jo     <rebuildDangerFromPoints__OOZsrcZshellZbody95nav_uID+0xa6b>
+ sub    0x8(%rbx),%rdx
+-jo     <rebuildDangerFromPoints__OOZsrcZshellZbody95nav_uID+0xa33>
++jo     <rebuildDangerFromPoints__OOZsrcZshellZbody95nav_uID+0xa6b>
+ imul   %rax,%rax
+-jo     <rebuildDangerFromPoints__OOZsrcZshellZbody95nav_uID+0xa33>
++jo     <rebuildDangerFromPoints__OOZsrcZshellZbody95nav_uID+0xa6b>
+ imul   %rdx,%rdx
+-jo     <rebuildDangerFromPoints__OOZsrcZshellZbody95nav_uID+0xa33>
++jo     <rebuildDangerFromPoints__OOZsrcZshellZbody95nav_uID+0xa6b>
+ add    %rdx,%rax
+-jo     <rebuildDangerFromPoints__OOZsrcZshellZbody95nav_uID+0xa33>
++jo     <rebuildDangerFromPoints__OOZsrcZshellZbody95nav_uID+0xa6b>
+ cmp    %rax,0x40(%rsp)
+-jl     <rebuildDangerFromPoints__OOZsrcZshellZbody95nav_uID+0x9db>
++jl     <rebuildDangerFromPoints__OOZsrcZshellZbody95nav_uID+0x9f1>
+ mov    0x8(%rsp),%rdi
+ call   <gridWidth__OOZsrcZshellZbody95map_uID>
+ cmpb   $0x0,%fs:(%r12)
+ mov    %rax,%rdi
+-jne    <rebuildDangerFromPoints__OOZsrcZshellZbody95nav_uID+0x10c>
++jne    <rebuildDangerFromPoints__OOZsrcZshellZbody95nav_uID+0x114>
+ imul   %r14,%rdi
+-jo     <rebuildDangerFromPoints__OOZsrcZshellZbody95nav_uID+0xa33>
++jo     <rebuildDangerFromPoints__OOZsrcZshellZbody95nav_uID+0xa6b>
+ add    %rbp,%rdi
+-jo     <rebuildDangerFromPoints__OOZsrcZshellZbody95nav_uID+0xa33>
++jo     <rebuildDangerFromPoints__OOZsrcZshellZbody95nav_uID+0xa6b>
+ mov    0x58(%rsp),%rax
+ mov    0x10(%rax),%rax
+ test   %rdi,%rdi
+-js     <rebuildDangerFromPoints__OOZsrcZshellZbody95nav_uID+0xa66>
++js     <rebuildDangerFromPoints__OOZsrcZshellZbody95nav_uID+0xa9e>
+ cmp    %rax,%rdi
+-jge    <rebuildDangerFromPoints__OOZsrcZshellZbody95nav_uID+0xa66>
++jge    <rebuildDangerFromPoints__OOZsrcZshellZbody95nav_uID+0xa9e>
+ mov    0x58(%rsp),%rax
+-xor    %r9d,%r9d
++xor    %r10d,%r10d
+ movq   $0x0,0x110(%rsp)
+-mov    %r9w,0x120(%rsp)
++mov    %r10w,0x120(%rsp)
+ mov    0x18(%rax),%rsi
+ lea    RIP(%rip),%rax
+@@ -511,5 +514,5 @@
+
+ mov    %fs:(%r15),%rdx
+ test   %rdx,%rdx
+-je     <rebuildDangerFromPoints__OOZsrcZshellZbody95nav_uID+0xa3d>
++je     <rebuildDangerFromPoints__OOZsrcZshellZbody95nav_uID+0xa75>
+ movzwl 0x22(%rdx),%eax
+ mov    0x60(%rsp),%rcx
+@@ -520,5 +523,5 @@
+
+ mov    %rcx,%fs:(%r15)
+ cmp    $0x7d0,%ax
+-je     <rebuildDangerFromPoints__OOZsrcZshellZbody95nav_uID+0xa08>
++je     <rebuildDangerFromPoints__OOZsrcZshellZbody95nav_uID+0xa3d>
+ movss  RIP(%rip),%xmm0
+ addss  0x8(%rsi,%rdi,4),%xmm0
+@@ -529,12 +532,19 @@
+
+ add    $0x1,%rcx
+ mov    %rcx,%rbp
+-jo     <rebuildDangerFromPoints__OOZsrcZshellZbody95nav_uID+0xa33>
++jo     <rebuildDangerFromPoints__OOZsrcZshellZbody95nav_uID+0xa6b>
+ cmp    %r13,%rcx
+-jle    <rebuildDangerFromPoints__OOZsrcZshellZbody95nav_uID+0x8b2>
++jle    <rebuildDangerFromPoints__OOZsrcZshellZbody95nav_uID+0x8c8>
+ add    $0x1,%r14
+-jno    <rebuildDangerFromPoints__OOZsrcZshellZbody95nav_uID+0x840>
++jno    <rebuildDangerFromPoints__OOZsrcZshellZbody95nav_uID+0x856>
+ call   <raiseOverflow>
+ mov    %fs:(%r15),%rdx
+-jmp    <rebuildDangerFromPoints__OOZsrcZshellZbody95nav_uID+0x110>
++jmp    <rebuildDangerFromPoints__OOZsrcZshellZbody95nav_uID+0x118>
++mov    %r14,%rsi
++mov    %r13,%rdi
++call   <replayListEntries__OOZsrcZshellZbody95nav_uID>
++mov    0x20(%rsp),%rax
++cmpb   $0x0,%fs:(%rax)
++je     <rebuildDangerFromPoints__OOZsrcZshellZbody95nav_uID+0x7bd>
++jmp    <rebuildDangerFromPoints__OOZsrcZshellZbody95nav_uID+0x114>
+ mov    %rdi,0x88(%rsp)
+ mov    %rsi,0x80(%rsp)
+@@ -543,7 +553,7 @@
+
+ mov    0x88(%rsp),%rdi
+ mov    0x80(%rsp),%rsi
+-jmp    <rebuildDangerFromPoints__OOZsrcZshellZbody95nav_uID+0x9c0>
++jmp    <rebuildDangerFromPoints__OOZsrcZshellZbody95nav_uID+0x9d6>
+ call   <raiseOverflow>
+-jmp    <rebuildDangerFromPoints__OOZsrcZshellZbody95nav_uID+0x10c>
++jmp    <rebuildDangerFromPoints__OOZsrcZshellZbody95nav_uID+0x114>
+ mov    0x60(%rsp),%rax
+ xor    %r8d,%r8d
+@@ -552,8 +562,8 @@
+
+ mov    %rax,%rdx
+ mov    %rax,%fs:(%r15)
+-jmp    <rebuildDangerFromPoints__OOZsrcZshellZbody95nav_uID+0x9c0>
++jmp    <rebuildDangerFromPoints__OOZsrcZshellZbody95nav_uID+0x9d6>
+ lea    -0x1(%rax),%rsi
+ call   <raiseIndexError2>
+-jmp    <rebuildDangerFromPoints__OOZsrcZshellZbody95nav_uID+0x10c>
++jmp    <rebuildDangerFromPoints__OOZsrcZshellZbody95nav_uID+0x114>
+ mov    0x78(%rsp),%rbx
+ addq   $0x1,0x68(%rsp)
+@@ -564,5 +574,5 @@
+
+ addq   $0x10,0x50(%rsp)
+ cmp    %r14,0x28(%rsp)
+-jne    <rebuildDangerFromPoints__OOZsrcZshellZbody95nav_uID+0x1a6>
++jne    <rebuildDangerFromPoints__OOZsrcZshellZbody95nav_uID+0x1b6>
+ mov    0x10(%r13),%rbx
+ movl   $0x0,0x30(%r13)
+@@ -571,17 +581,17 @@
+
+ mov    %rbx,%rax
+ test   %rbx,%rbx
+-jg     <rebuildDangerFromPoints__OOZsrcZshellZbody95nav_uID+0xae4>
+-jmp    <rebuildDangerFromPoints__OOZsrcZshellZbody95nav_uID+0xb68>
++jg     <rebuildDangerFromPoints__OOZsrcZshellZbody95nav_uID+0xb1c>
++jmp    <rebuildDangerFromPoints__OOZsrcZshellZbody95nav_uID+0xba0>
+ nopl   0x0(%rax)
+ cmp    %rbp,%rbx
+-je     <rebuildDangerFromPoints__OOZsrcZshellZbody95nav_uID+0xb68>
++je     <rebuildDangerFromPoints__OOZsrcZshellZbody95nav_uID+0xba0>
+ mov    0x10(%r13),%rax
+ cmp    %rbp,%rax
+-jle    <rebuildDangerFromPoints__OOZsrcZshellZbody95nav_uID+0xb7d>
++jle    <rebuildDangerFromPoints__OOZsrcZshellZbody95nav_uID+0xbb5>
+ movss  0x30(%r13),%xmm0
+ mov    0x18(%r13),%rdx
+ movss  0x8(%rdx,%rbp,4),%xmm1
+ comiss %xmm1,%xmm0
+-jae    <rebuildDangerFromPoints__OOZsrcZshellZbody95nav_uID+0xb05>
++jae    <rebuildDangerFromPoints__OOZsrcZshellZbody95nav_uID+0xb3d>
+ ucomiss %xmm1,%xmm1
+ movd   %xmm0,%edi
+@@ -592,5 +602,5 @@
+
+ add    $0x1,%rbp
+ cmp    %rbx,%rax
+-je     <rebuildDangerFromPoints__OOZsrcZshellZbody95nav_uID+0xac8>
++je     <rebuildDangerFromPoints__OOZsrcZshellZbody95nav_uID+0xb00>
+ mov    RIP(%rip),%rdi
+ mov    RIP(%rip),%rsi
+@@ -598,6 +608,6 @@
+
+ mov    $0xffffffffffffff90,%rax
+ cmpb   $0x0,%fs:(%rax)
+-je     <rebuildDangerFromPoints__OOZsrcZshellZbody95nav_uID+0xac8>
+-jmp    <rebuildDangerFromPoints__OOZsrcZshellZbody95nav_uID+0x10c>
++je     <rebuildDangerFromPoints__OOZsrcZshellZbody95nav_uID+0xb00>
++jmp    <rebuildDangerFromPoints__OOZsrcZshellZbody95nav_uID+0x114>
+ mov    $0x7fffffff,%edx
+ mov    $0xffffffff80000000,%rsi
+@@ -605,48 +615,48 @@
+
+ call   <raiseRangeErrorI>
+ mov    %fs:(%r15),%rdx
+-jmp    <rebuildDangerFromPoints__OOZsrcZshellZbody95nav_uID+0x110>
++jmp    <rebuildDangerFromPoints__OOZsrcZshellZbody95nav_uID+0x118>
+ lea    -0x1(%rdx),%rsi
+ call   <raiseIndexError2>
+ mov    %fs:(%r15),%rdx
+-jmp    <rebuildDangerFromPoints__OOZsrcZshellZbody95nav_uID+0x110>
++jmp    <rebuildDangerFromPoints__OOZsrcZshellZbody95nav_uID+0x118>
+ mov    0x30(%rsp),%rax
+ mov    %rax,0x138(%r13)
+ mov    %fs:(%r15),%rdx
+-jmp    <rebuildDangerFromPoints__OOZsrcZshellZbody95nav_uID+0x110>
++jmp    <rebuildDangerFromPoints__OOZsrcZshellZbody95nav_uID+0x118>
+ lea    -0x1(%rax),%rsi
+ mov    %rbp,%rdi
+ call   <raiseIndexError2>
+ mov    %fs:(%r15),%rdx
+-jmp    <rebuildDangerFromPoints__OOZsrcZshellZbody95nav_uID+0x110>
++jmp    <rebuildDangerFromPoints__OOZsrcZshellZbody95nav_uID+0x118>
+ call   <__stack_chk_fail@plt>
+ call   <raiseOverflow>
+-jmp    <rebuildDangerFromPoints__OOZsrcZshellZbody95nav_uID+0x614>
++jmp    <rebuildDangerFromPoints__OOZsrcZshellZbody95nav_uID+0x62c>
+ lea    0xd0(%rsp),%rsi
+ movw   $0x0,0xf2(%rsp)
+ movq   $0x0,0xd0(%rsp)
+ mov    %rsi,%fs:(%r15)
+-jmp    <rebuildDangerFromPoints__OOZsrcZshellZbody95nav_uID+0x47e>
++jmp    <rebuildDangerFromPoints__OOZsrcZshellZbody95nav_uID+0x496>
+ mov    $0x3f,%esi
+ call   <raiseIndexError2>
+ mov    %fs:(%r15),%rdx
+-jmp    <rebuildDangerFromPoints__OOZsrcZshellZbody95nav_uID+0x110>
++jmp    <rebuildDangerFromPoints__OOZsrcZshellZbody95nav_uID+0x118>
+ movw   $0x0,0x122(%rsp)
+ mov    0x60(%rsp),%rax
+ movq   $0x0,0x100(%rsp)
+ mov    %rax,%fs:(%r15)
+-jmp    <rebuildDangerFromPoints__OOZsrcZshellZbody95nav_uID+0x5fd>
++jmp    <rebuildDangerFromPoints__OOZsrcZshellZbody95nav_uID+0x615>
+ lea    -0x1(%rdx),%rsi
+ call   <raiseIndexError2>
+-jmp    <rebuildDangerFromPoints__OOZsrcZshellZbody95nav_uID+0x614>
++jmp    <rebuildDangerFromPoints__OOZsrcZshellZbody95nav_uID+0x62c>
+ lea    -0x1(%rcx),%rsi
+ mov    %rbp,%rdi
+ call   <raiseIndexError2>
+-jmp    <rebuildDangerFromPoints__OOZsrcZshellZbody95nav_uID+0x614>
++jmp    <rebuildDangerFromPoints__OOZsrcZshellZbody95nav_uID+0x62c>
+ lea    -0x1(%rcx),%rsi
+ mov    %r8,%rdi
+ call   <raiseIndexError2>
+-jmp    <rebuildDangerFromPoints__OOZsrcZshellZbody95nav_uID+0x614>
++jmp    <rebuildDangerFromPoints__OOZsrcZshellZbody95nav_uID+0x62c>
+ sub    $0x1,%rsi
+ mov    %rbp,%rdi
+ call   <raiseIndexError2>
+-jmp    <rebuildDangerFromPoints__OOZsrcZshellZbody95nav_uID+0x614>
++jmp    <rebuildDangerFromPoints__OOZsrcZshellZbody95nav_uID+0x62c>

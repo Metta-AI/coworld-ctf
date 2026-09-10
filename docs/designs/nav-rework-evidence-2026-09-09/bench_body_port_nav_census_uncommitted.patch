@@ -1,0 +1,78 @@
+diff --git a/tools/bench_body_port.nim b/tools/bench_body_port.nim
+index e4ce635c..aac7e7c0 100644
+--- a/tools/bench_body_port.nim
++++ b/tools/bench_body_port.nim
+@@ -813,6 +813,55 @@ proc censusRow(): JsonNode =
+     "per_seed": perSeed}
+   latencyRow("census.thinned_atlas_giant_33", details)
+ 
++proc navMapRow(label: string, seed: int, gameMap: ctfTypes.CtfMap): JsonNode =
++  let started = getMonoTime()
++  let map = newBodyMap(gameMap)
++  let buildNs = elapsedNs(started)
++  let latticeW = (map.width - 1) div PlanStepPx + 1
++  let latticeH = (map.height - 1) div PlanStepPx + 1
++  var intraRoomPairs = 0
++  var maxRoomChokes = 0
++  var roomNavCells = newSeq[int](map.roomCount)
++  for cellY in 0 ..< map.gridHeight:
++    for cellX in 0 ..< map.gridWidth:
++      let room = map.roomLabelAt(cellCenter((cellX, cellY))) - 1
++      if room >= 0:
++        inc roomNavCells[room]
++  var portalFieldCells = 0
++  for roomIndex in 0 ..< map.roomCount:
++    let degree = map.roomAt(roomIndex).chokes.len
++    maxRoomChokes = max(maxRoomChokes, degree)
++    intraRoomPairs += degree * (degree - 1) div 2
++    portalFieldCells += degree * roomNavCells[roomIndex]
++  %*{"label": label, "seed": seed,
++    "map_width": map.width, "map_height": map.height,
++    "nav_cells": map.gridWidth * map.gridHeight,
++    "plan_nodes": latticeW * latticeH,
++    "components": map.componentCount,
++    "rooms": map.roomCount, "chokes": map.chokeCount,
++    "intra_room_choke_pairs": intraRoomPairs,
++    "max_room_chokes": maxRoomChokes,
++    "portal_field_cells": portalFieldCells,
++    "atlas_posts": map.atlasPostCount,
++    "validator_bytes": map.validatorLogicalBytes,
++    "build_ns": buildNs}
++
++proc navCensusRow(): JsonNode =
++  var samples = newJArray()
++  for index in 0 ..< 20:
++    samples.add(navMapRow("pool:" & $index, index, ctfArena.poolCtfMap(index)))
++  for size in ["small", "standard", "large", "huge", "giant", "colossal"]:
++    let overrides = ctfTypes.MapGenOverrides(size: size,
++      windows: -1, pits: -1, pitDensity: -1)
++    samples.add(navMapRow("size:" & size, 4242,
++      ctfArena.generateCtfMap(4242, overrides, 2)))
++  latencyRow("census.navigation_topology", %*{
++    "pool_entries": 20,
++    "fixed_sizes": ["small", "standard", "large", "huge", "giant", "colossal"],
++    "plan_step_px": PlanStepPx,
++    "nav_cell_px": NavCell,
++    "samples": samples})
++
+ proc addRows(target: JsonNode, rows: openArray[JsonNode]) =
+   for item in rows:
+     target.add(item)
+@@ -853,7 +902,7 @@ proc runCase(options: Options, scenario: Scenario): seq[JsonNode] =
+   of "duck": result.add(options.duckRow(scenario))
+   else:
+     raise newException(ValueError,
+-      "cases are smoke, all, danger, planning, latency, view, episode, validator, duck, census")
++      "cases are smoke, all, danger, planning, latency, view, episode, validator, duck, census, nav-census")
+ 
+ proc gitHead(): string =
+   try:
+@@ -871,6 +920,8 @@ proc main() =
+   var rows = newJArray()
+   if options.selectedCase == "census":
+     rows.add(censusRow())
++  elif options.selectedCase == "nav-census":
++    rows.add(navCensusRow())
+   elif smoke:
+     rows.addRows(options.runCase(smokeScenario()))
+   else:

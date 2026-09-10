@@ -1,0 +1,71 @@
+Hint: used config file '/Users/jamesboggs/.nimby/nim/config/nim.cfg' [Conf]
+Hint: used config file '/Users/jamesboggs/.nimby/nim/config/config.nims' [Conf]
+Hint: used config file '/Users/jamesboggs/coding/coworlds/coworld-ctf-worktrees/nav-deferred-cache/nim.cfg' [Conf]
+..........................................................................................................................................................................................................................
+/Users/jamesboggs/coding/coworlds/coworld-ctf-worktrees/nav-deferred-cache/src/ctf/arena.nim(1373, 5) Hint: 'inside' is declared but not used [XDeclaredButNotUsed]
+/Users/jamesboggs/coding/coworlds/coworld-ctf-worktrees/nav-deferred-cache/src/ctf/arena.nim(3702, 6) Hint: 'rectsNode' is declared but not used [XDeclaredButNotUsed]
+/Users/jamesboggs/coding/coworlds/coworld-ctf-worktrees/nav-deferred-cache/src/ctf/arena.nim(3707, 6) Hint: 'rectsFromNode' is declared but not used [XDeclaredButNotUsed]
+.......
+/Users/jamesboggs/coding/coworlds/coworld-ctf-worktrees/nav-deferred-cache/src/shell/body_route_query.nim(3, 24) Warning: imported and not used: 'math' [UnusedImport]
+.
+/Users/jamesboggs/coding/coworlds/coworld-ctf-worktrees/nav-deferred-cache/tools/count_danger_simd_groups.nim(19, 51) Hint: duplicate import of 'hashes'; previous import here: /Users/jamesboggs/coding/coworlds/coworld-ctf-worktrees/nav-deferred-cache/src/shell/body_nav.nim(4, 32) [DuplicateModuleImport]
+/Users/jamesboggs/coding/coworlds/coworld-ctf-worktrees/nav-deferred-cache/tools/count_danger_simd_groups.nim(19, 59) Hint: duplicate import of 'algorithm'; previous import here: /Users/jamesboggs/coding/coworlds/coworld-ctf-worktrees/nav-deferred-cache/src/shell/body_nav.nim(4, 13) [DuplicateModuleImport]
+/Users/jamesboggs/coding/coworlds/coworld-ctf-worktrees/nav-deferred-cache/tools/count_danger_simd_groups.nim(19, 70) Hint: duplicate import of 'bitops'; previous import here: /Users/jamesboggs/coding/coworlds/coworld-ctf-worktrees/nav-deferred-cache/src/shell/body_nav.nim(4, 24) [DuplicateModuleImport]
+.
+/Users/jamesboggs/coding/coworlds/coworld-ctf-worktrees/nav-deferred-cache/tools/count_danger_simd_groups.nim(20, 33) Hint: duplicate import of 'sim_types'; previous import here: /Users/jamesboggs/coding/coworlds/coworld-ctf-worktrees/nav-deferred-cache/src/shell/body_nav.nim(8, 15) [DuplicateModuleImport]
+/Users/jamesboggs/coding/coworlds/coworld-ctf-worktrees/nav-deferred-cache/tools/count_danger_simd_groups.nim(51, 5) Hint: 'batches' is declared but not used [XDeclaredButNotUsed]
+/Users/jamesboggs/coding/coworlds/coworld-ctf-worktrees/nav-deferred-cache/tools/count_danger_simd_groups.nim(52, 5) Hint: 'repeats' is declared but not used [XDeclaredButNotUsed]
+/Users/jamesboggs/coding/coworlds/coworld-ctf-worktrees/nav-deferred-cache/tools/count_danger_simd_groups.nim(18, 7) Hint: 'DangerReplayArmLabel' is declared but not used [XDeclaredButNotUsed]
+/Users/jamesboggs/coding/coworlds/coworld-ctf-worktrees/nav-deferred-cache/tools/count_danger_simd_groups.nim(22, 6) Hint: 'referenceReplay' is declared but not used [XDeclaredButNotUsed]
+/Users/jamesboggs/coding/coworlds/coworld-ctf-worktrees/nav-deferred-cache/tools/count_danger_simd_groups.nim(39, 6) Hint: 'rasterHash' is declared but not used [XDeclaredButNotUsed]
+/Users/jamesboggs/coding/coworlds/coworld-ctf-worktrees/nav-deferred-cache/tools/count_danger_simd_groups.nim(19, 59) Warning: imported and not used: 'algorithm' [UnusedImport]
+/Users/jamesboggs/coding/coworlds/coworld-ctf-worktrees/nav-deferred-cache/tools/count_danger_simd_groups.nim(20, 33) Warning: imported and not used: 'sim_types' [UnusedImport]
+/Users/jamesboggs/coding/coworlds/coworld-ctf-worktrees/nav-deferred-cache/tools/count_danger_simd_groups.nim(19, 44) Warning: imported and not used: 'times' [UnusedImport]
+/Users/jamesboggs/coding/coworlds/coworld-ctf-worktrees/nav-deferred-cache/tools/count_danger_simd_groups.nim(19, 33) Warning: imported and not used: 'monotimes' [UnusedImport]
+CC: system/exceptions.nim
+CC: std/private/digitsutils.nim
+CC: std/assertions.nim
+CC: std/private/dragonbox.nim
+CC: std/formatfloat.nim
+CC: system/dollars.nim
+CC: std/syncio.nim
+CC: system.nim
+CC: algorithm.nim
+CC: hashes.nim
+CC: math.nim
+CC: parseutils.nim
+CC: unicode.nim
+CC: strutils.nim
+CC: tables.nim
+CC: flatty/binny.nim
+CC: posix.nim
+CC: times.nim
+CC: std/cmdline.nim
+CC: pixie/fontformats/opentype.nim
+CC: streams.nim
+CC: lexbase.nim
+CC: pixie/fileformats/jpeg.nim
+CC: heapqueue.nim
+CC: pixie/fileformats/png.nim
+CC: bitworld/spriteprotocol.nim
+CC: random.nim
+CC: bitworld/pixelfonts.nim
+CC: ../ctf/sim_types.nim
+CC: parsejson.nim
+CC: json.nim
+CC: jsony.nim
+CC: ../ctf/arena.nim
+CC: body_map.nim
+CC: body_cache.nim
+CC: body_danger.nim
+CC: ../ctf/zone_field.nim
+CC: strformat.nim
+CC: body_route_index.nim
+CC: body_hazard.nim
+CC: body_route_query.nim
+CC: body_safety_query.nim
+CC: ../ctf/br_map_pool.nim
+CC: count_danger_simd_groups.nim
+Hint:  [Link]
+Hint: mm: orc; threads: on; opt: speed; options: -d:release
+117831 lines; 3.360s; 339.246MiB peakmem; proj: /Users/jamesboggs/coding/coworlds/coworld-ctf-worktrees/nav-deferred-cache/tools/count_danger_simd_groups.nim; out: /Users/jamesboggs/coding/coworlds/coworld-ctf-worktrees/nav-throughput-research/docs/designs/nav-rework-evidence-2026-09-09/research/C10/counts [SuccessX]

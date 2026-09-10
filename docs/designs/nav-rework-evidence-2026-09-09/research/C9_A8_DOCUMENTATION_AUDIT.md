@@ -1,0 +1,7 @@
+# C9 full result and A8 count documentation audit
+
+Primaryruntime, tests, viewer andcap unchanged at eaa208bd. C9failed preregisteredm5achanging-source limits despite usefulrecordedtrace/repeated-source results; bothqualityhashes exact. C9_NATIVE_FULL_RESULT, SCOREBOARD andLEDGER state noadoption. Isolatedrootintegrationtrial savedsource/patch and13passingcachetests, thenrestoredallownedfiles. Its64MiBcap is an archivedproposal, not currentbehavior. No AGENTS/rules/viewer update needed for this evidence-onlycheckpoint.
+
+A8counts are explicitlynon-substituting andnon-timing, with exactinputs/outcomes/dequeues, per-scratch reset andall76mapcoverage. Pre-runthresholdcorrection is retained againstoldA6counts; no post-resultthresholdchange. v2preservesv1. Fullkeyandboundedcachemodels are separatefrom implementation; all76maps1991calls are operationevidence, not complete indexidentity orqualityqualification. The f9/A4validator baseline distinction is explicit. Relevantprimarysourcesresearchlinks are in A8_COUNT_PROPOSAL.
+
+Validation: C9summaryevaluator passesm8i17checks andfails3m5achangingchecks; qualityexact bothhosts. A8v2map48stagecounters equalv1; all76count runs finishwithoutmismatch andsource restorationverified. Bashrunners syntaxchecked, artifacts frozenwithsourcehashes. Compiler caches/binaries excluded; generated per-function C excerpts deliberatelyincluded. Final budget/fleet/headroom, m5aactivation,fixtures/viewer/fullsuite/containment work remainincomplete.

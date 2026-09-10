@@ -1,0 +1,17 @@
+utc=2026-09-09T06:28:19Z
+ProductName:		macOS
+ProductVersion:		15.5
+BuildVersion:		24F74
+Darwin Jamess-MacBook-Pro.local 24.5.0 Darwin Kernel Version 24.5.0: Tue Apr 22 19:53:27 PDT 2025; root:xnu-11417.121.6~2/RELEASE_ARM64_T6041 arm64
+Nim Compiler Version 2.2.6 [MacOSX: arm64]
+Compiled at 2026-03-23
+Copyright (c) 2006-2025 by Andreas Rumpf
+
+git hash: ab00c56904e3126ad826bb520d243513a139436a
+active boot switches: -d:release
+james/s2-nav-rework
+e7cda62bbfd5739a7d1dbe4f961ec8688a1ee404
+71	0
+421c5e66d710a82408760d74d5d367274c50fc6247005d062e9afd3a3bc2a889  tools/investigate_body_nav_p10.nim
+b05bad8af8482f4bb3fc55b5628efffaddeae70b50d444642ce00f58595ba048  /tmp/coworld-nav-p10-measure
+aefb19ecf5159288f78c041429c81523b02c641f0e186cdd2de37958db871de7  tests/fixtures/shell/nav_route_corpus.json

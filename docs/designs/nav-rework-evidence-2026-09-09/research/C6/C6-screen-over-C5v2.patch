@@ -1,0 +1,39 @@
+--- /Users/jamesboggs/coding/coworlds/coworld-ctf-worktrees/nav-throughput-research/docs/designs/nav-rework-evidence-2026-09-09/research/C6/baseline/C5v2-body_nav.nim	2026-09-10 10:50:14
++++ src/shell/body_nav.nim	2026-09-10 10:50:28
+@@ -26,6 +26,9 @@
+   FollowBlockTtlTicks = 96
+   MaxDangerSources* = 8
+   DangerSourceCacheSlots* = 64
++  ## C6 screen arm (isolated tree): full visibility words replay as
++  ## contiguous spans. Off by default so the tree stays byte-for-byte C2.
++  DangerReplayFullWords* {.booldefine.} = false
+   FollowLookaheadK* = 6
+   BodyNavigationRetainedCap* = 256'i64 * 1024 * 1024
+   SequenceAllocationOverhead = 16'i64
+@@ -538,6 +541,26 @@
+     gridW = seat.danger.gridW
+   for wordIndex in 0 ..< cache.words:
+     var word = cache.bits[base + wordIndex]
++    when DangerReplayFullWords:
++      if word == high(uint64):
++        # C6 arm: all 64 cells of this word are visible, so add them as
++        # contiguous spans split only at kernel-row boundaries. Same single
++        # add per cell as the sparse loop; the last word always carries
++        # unset padding bits (diameter is odd), so it is never full.
++        var kernelIndex = wordIndex * 64
++        var remaining = 64
++        while remaining > 0:
++          let kernelY = kernelIndex div diameter
++          let kernelX = kernelIndex - kernelY * diameter
++          let span = min(remaining, diameter - kernelX)
++          let gridBase = (origin.y - radius + kernelY) * gridW +
++            origin.x - radius + kernelX
++          for offset in 0 ..< span:
++            seat.danger.values[gridBase + offset] +=
++              seat.dangerGeometry.kernel[kernelIndex + offset]
++          kernelIndex += span
++          remaining -= span
++        continue
+     while word != 0:
+       let kernelIndex = wordIndex * 64 + countTrailingZeroBits(word)
+       let kernelY = kernelIndex div diameter

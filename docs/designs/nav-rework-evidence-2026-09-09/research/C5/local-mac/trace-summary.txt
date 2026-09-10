@@ -1,0 +1,13 @@
+shell.danger                     count=    756 mean_us=   810.863 total_ms=   613.013
+rebuildScheduledDanger           count=    756 mean_us=   805.402 total_ms=   608.884
+shell.planning                   count=    756 mean_us=   691.030 total_ms=   522.418
+danger.hit.replay                count=   1104 mean_us=   353.475 total_ms=   390.236
+body.weapon                      count=  18144 mean_us=     4.964 total_ms=    90.074
+danger.miss.rays                 count=     48 mean_us=  1463.278 total_ms=    70.237
+danger.closeFloor                count=   1152 mean_us=    59.917 total_ms=    69.024
+shell.default                    count=  18144 mean_us=     1.919 total_ms=    34.811
+body.follower                    count=  18144 mean_us=     1.779 total_ms=    32.269
+danger.scaleMax                  count=    144 mean_us=   138.864 total_ms=    19.996
+shell.lifecycle                  count=  18144 mean_us=     0.904 total_ms=    16.398
+body.belief                      count=  18144 mean_us=     0.694 total_ms=    12.585
+danger.clear                     count=    144 mean_us=    45.368 total_ms=     6.533

@@ -1,0 +1,608 @@
+[
+  {
+    "repeat": 1,
+    "arm": "direct",
+    "parent_index_ms": 837.9848422000001,
+    "candidate_index_ms": 984.7399508,
+    "ratio": 1.1751285956613688,
+    "stages": {
+      "index.legalMoves": {
+        "parent_mean_ms": 89.2758982,
+        "candidate_mean_ms": 89.65185740000001
+      },
+      "index.roomLayout": {
+        "parent_mean_ms": 2.8789652,
+        "candidate_mean_ms": 2.9061516000000003
+      },
+      "index.sides": {
+        "parent_mean_ms": 5.799783000000001,
+        "candidate_mean_ms": 5.8240434
+      },
+      "index.fieldsAndCountSegments": {
+        "parent_mean_ms": 159.515394,
+        "candidate_mean_ms": 159.9782184
+      },
+      "index.fillSegmentsAndArcs": {
+        "parent_mean_ms": 4.375185800000001,
+        "candidate_mean_ms": 4.384602000000001
+      },
+      "index.graphComponents": {
+        "parent_mean_ms": 4.2333624,
+        "candidate_mean_ms": 4.248724599999999
+      },
+      "index.seedPixelComponents": {
+        "parent_mean_ms": 6.1080424,
+        "candidate_mean_ms": 6.1726744
+      },
+      "index.validatorAnchors": {
+        "parent_mean_ms": 2.5679832,
+        "candidate_mean_ms": 2.5762815999999997
+      },
+      "pocket.canonicalMapping": {
+        "parent_mean_ms": 2.8445522,
+        "candidate_mean_ms": 2.8266996
+      },
+      "pocket.initialTargetsScratch": {
+        "parent_mean_ms": 0.007659999999999999,
+        "candidate_mean_ms": 0.007486199999999999
+      },
+      "pocket.coverage.classify": {
+        "parent_mean_ms": 5.0533826,
+        "candidate_mean_ms": 5.0537824
+      },
+      "pocket.coverage.pixelScan": {
+        "parent_mean_ms": 163.8869172,
+        "candidate_mean_ms": 192.21074240000002
+      },
+      "pocket.coverage.resolvePending": {
+        "parent_mean_ms": 103.7922122,
+        "candidate_mean_ms": 160.083581
+      },
+      "pocket.coverage.sort": {
+        "parent_mean_ms": 1.0308576,
+        "candidate_mean_ms": 1.0276054
+      },
+      "pocket.coverage": {
+        "parent_mean_ms": 273.897101,
+        "candidate_mean_ms": 358.5304752
+      },
+      "pocket.graphJoins": {
+        "parent_mean_ms": 96.6301538,
+        "candidate_mean_ms": 136.6189104
+      },
+      "pocket.finalPending": {
+        "parent_mean_ms": 70.603386,
+        "candidate_mean_ms": 91.1732932
+      },
+      "pocket.pack": {
+        "parent_mean_ms": 0.013072399999999998,
+        "candidate_mean_ms": 0.012703999999999998
+      },
+      "pocket.collapse": {
+        "parent_mean_ms": 0.1029342,
+        "candidate_mean_ms": 0.13108920000000002
+      },
+      "index.pocketConnectors": {
+        "parent_mean_ms": 444.10262800000004,
+        "candidate_mean_ms": 589.304574
+      },
+      "index.fineAnchorIndex": {
+        "parent_mean_ms": 0.207585,
+        "candidate_mean_ms": 0.22521359999999999
+      },
+      "index.validate": {
+        "parent_mean_ms": 118.9097908,
+        "candidate_mean_ms": 119.45734780000002
+      },
+      "index.complete": {
+        "parent_mean_ms": 837.9848422000001,
+        "candidate_mean_ms": 984.7399508
+      }
+    }
+  },
+  {
+    "repeat": 1,
+    "arm": "lazy",
+    "parent_index_ms": 837.9848422000001,
+    "candidate_index_ms": 814.843016,
+    "ratio": 0.9723839560877441,
+    "stages": {
+      "index.legalMoves": {
+        "parent_mean_ms": 89.2758982,
+        "candidate_mean_ms": 89.38013240000001
+      },
+      "index.roomLayout": {
+        "parent_mean_ms": 2.8789652,
+        "candidate_mean_ms": 2.8726426000000003
+      },
+      "index.sides": {
+        "parent_mean_ms": 5.799783000000001,
+        "candidate_mean_ms": 5.5673714
+      },
+      "index.fieldsAndCountSegments": {
+        "parent_mean_ms": 159.515394,
+        "candidate_mean_ms": 159.66900460000002
+      },
+      "index.fillSegmentsAndArcs": {
+        "parent_mean_ms": 4.375185800000001,
+        "candidate_mean_ms": 4.3852682000000005
+      },
+      "index.graphComponents": {
+        "parent_mean_ms": 4.2333624,
+        "candidate_mean_ms": 4.2360704
+      },
+      "index.seedPixelComponents": {
+        "parent_mean_ms": 6.1080424,
+        "candidate_mean_ms": 6.1216048
+      },
+      "index.validatorAnchors": {
+        "parent_mean_ms": 2.5679832,
+        "candidate_mean_ms": 2.554509
+      },
+      "pocket.canonicalMapping": {
+        "parent_mean_ms": 2.8445522,
+        "candidate_mean_ms": 2.8369358
+      },
+      "pocket.initialTargetsScratch": {
+        "parent_mean_ms": 0.007659999999999999,
+        "candidate_mean_ms": 0.0084282
+      },
+      "pocket.coverage.classify": {
+        "parent_mean_ms": 5.0533826,
+        "candidate_mean_ms": 5.076963
+      },
+      "pocket.coverage.pixelScan": {
+        "parent_mean_ms": 163.8869172,
+        "candidate_mean_ms": 159.7221322
+      },
+      "pocket.coverage.resolvePending": {
+        "parent_mean_ms": 103.7922122,
+        "candidate_mean_ms": 96.82896219999999
+      },
+      "pocket.coverage.sort": {
+        "parent_mean_ms": 1.0308576,
+        "candidate_mean_ms": 1.0309172000000002
+      },
+      "pocket.coverage": {
+        "parent_mean_ms": 273.897101,
+        "candidate_mean_ms": 262.79475
+      },
+      "pocket.graphJoins": {
+        "parent_mean_ms": 96.6301538,
+        "candidate_mean_ms": 90.3633408
+      },
+      "pocket.finalPending": {
+        "parent_mean_ms": 70.603386,
+        "candidate_mean_ms": 64.61441239999999
+      },
+      "pocket.pack": {
+        "parent_mean_ms": 0.013072399999999998,
+        "candidate_mean_ms": 0.012834
+      },
+      "pocket.collapse": {
+        "parent_mean_ms": 0.1029342,
+        "candidate_mean_ms": 0.10789680000000001
+      },
+      "index.pocketConnectors": {
+        "parent_mean_ms": 444.10262800000004,
+        "candidate_mean_ms": 420.74244639999995
+      },
+      "index.fineAnchorIndex": {
+        "parent_mean_ms": 0.207585,
+        "candidate_mean_ms": 0.22048099999999998
+      },
+      "index.validate": {
+        "parent_mean_ms": 118.9097908,
+        "candidate_mean_ms": 119.0841028
+      },
+      "index.complete": {
+        "parent_mean_ms": 837.9848422000001,
+        "candidate_mean_ms": 814.843016
+      }
+    }
+  },
+  {
+    "repeat": 2,
+    "arm": "direct",
+    "parent_index_ms": 840.1264092,
+    "candidate_index_ms": 991.9891822000001,
+    "ratio": 1.1807618131473923,
+    "stages": {
+      "index.legalMoves": {
+        "parent_mean_ms": 89.6228934,
+        "candidate_mean_ms": 89.4573832
+      },
+      "index.roomLayout": {
+        "parent_mean_ms": 2.8739643999999998,
+        "candidate_mean_ms": 2.8795048
+      },
+      "index.sides": {
+        "parent_mean_ms": 5.8053184,
+        "candidate_mean_ms": 5.837575
+      },
+      "index.fieldsAndCountSegments": {
+        "parent_mean_ms": 160.6578426,
+        "candidate_mean_ms": 159.4809938
+      },
+      "index.fillSegmentsAndArcs": {
+        "parent_mean_ms": 4.386631599999999,
+        "candidate_mean_ms": 4.3674333999999995
+      },
+      "index.graphComponents": {
+        "parent_mean_ms": 4.2410702,
+        "candidate_mean_ms": 4.227657600000001
+      },
+      "index.seedPixelComponents": {
+        "parent_mean_ms": 6.128614,
+        "candidate_mean_ms": 6.1310199999999995
+      },
+      "index.validatorAnchors": {
+        "parent_mean_ms": 2.5740191999999995,
+        "candidate_mean_ms": 2.5572172
+      },
+      "pocket.canonicalMapping": {
+        "parent_mean_ms": 2.854822,
+        "candidate_mean_ms": 2.8196727999999998
+      },
+      "pocket.initialTargetsScratch": {
+        "parent_mean_ms": 0.0074322,
+        "candidate_mean_ms": 0.0094986
+      },
+      "pocket.coverage.classify": {
+        "parent_mean_ms": 5.6160635999999995,
+        "candidate_mean_ms": 5.0841684
+      },
+      "pocket.coverage.pixelScan": {
+        "parent_mean_ms": 164.2616832,
+        "candidate_mean_ms": 194.65166639999998
+      },
+      "pocket.coverage.resolvePending": {
+        "parent_mean_ms": 103.2449956,
+        "candidate_mean_ms": 160.53628759999998
+      },
+      "pocket.coverage.sort": {
+        "parent_mean_ms": 1.0353654,
+        "candidate_mean_ms": 1.0346294
+      },
+      "pocket.coverage": {
+        "parent_mean_ms": 274.2896788,
+        "candidate_mean_ms": 361.4563554
+      },
+      "pocket.graphJoins": {
+        "parent_mean_ms": 96.61566459999999,
+        "candidate_mean_ms": 139.98673200000002
+      },
+      "pocket.finalPending": {
+        "parent_mean_ms": 70.658194,
+        "candidate_mean_ms": 92.7231994
+      },
+      "pocket.pack": {
+        "parent_mean_ms": 0.0129102,
+        "candidate_mean_ms": 0.0128882
+      },
+      "pocket.collapse": {
+        "parent_mean_ms": 0.0974768,
+        "candidate_mean_ms": 0.12925899999999999
+      },
+      "index.pocketConnectors": {
+        "parent_mean_ms": 444.5399848,
+        "candidate_mean_ms": 597.1414516
+      },
+      "index.fineAnchorIndex": {
+        "parent_mean_ms": 0.217527,
+        "candidate_mean_ms": 0.2287478
+      },
+      "index.validate": {
+        "parent_mean_ms": 119.06851119999999,
+        "candidate_mean_ms": 119.67022579999998
+      },
+      "index.complete": {
+        "parent_mean_ms": 840.1264092,
+        "candidate_mean_ms": 991.9891822000001
+      }
+    }
+  },
+  {
+    "repeat": 2,
+    "arm": "lazy",
+    "parent_index_ms": 840.1264092,
+    "candidate_index_ms": 819.3689296,
+    "ratio": 0.9752924329330797,
+    "stages": {
+      "index.legalMoves": {
+        "parent_mean_ms": 89.6228934,
+        "candidate_mean_ms": 89.5962334
+      },
+      "index.roomLayout": {
+        "parent_mean_ms": 2.8739643999999998,
+        "candidate_mean_ms": 2.8557262
+      },
+      "index.sides": {
+        "parent_mean_ms": 5.8053184,
+        "candidate_mean_ms": 5.566120799999999
+      },
+      "index.fieldsAndCountSegments": {
+        "parent_mean_ms": 160.6578426,
+        "candidate_mean_ms": 162.7832888
+      },
+      "index.fillSegmentsAndArcs": {
+        "parent_mean_ms": 4.386631599999999,
+        "candidate_mean_ms": 4.3838156
+      },
+      "index.graphComponents": {
+        "parent_mean_ms": 4.2410702,
+        "candidate_mean_ms": 4.235210199999999
+      },
+      "index.seedPixelComponents": {
+        "parent_mean_ms": 6.128614,
+        "candidate_mean_ms": 6.1407806
+      },
+      "index.validatorAnchors": {
+        "parent_mean_ms": 2.5740191999999995,
+        "candidate_mean_ms": 2.5760796
+      },
+      "pocket.canonicalMapping": {
+        "parent_mean_ms": 2.854822,
+        "candidate_mean_ms": 2.8174870000000003
+      },
+      "pocket.initialTargetsScratch": {
+        "parent_mean_ms": 0.0074322,
+        "candidate_mean_ms": 0.0084422
+      },
+      "pocket.coverage.classify": {
+        "parent_mean_ms": 5.6160635999999995,
+        "candidate_mean_ms": 5.125117599999999
+      },
+      "pocket.coverage.pixelScan": {
+        "parent_mean_ms": 164.2616832,
+        "candidate_mean_ms": 159.97141019999998
+      },
+      "pocket.coverage.resolvePending": {
+        "parent_mean_ms": 103.2449956,
+        "candidate_mean_ms": 97.485747
+      },
+      "pocket.coverage.sort": {
+        "parent_mean_ms": 1.0353654,
+        "candidate_mean_ms": 1.0307272
+      },
+      "pocket.coverage": {
+        "parent_mean_ms": 274.2896788,
+        "candidate_mean_ms": 263.7494016
+      },
+      "pocket.graphJoins": {
+        "parent_mean_ms": 96.61566459999999,
+        "candidate_mean_ms": 90.4994752
+      },
+      "pocket.finalPending": {
+        "parent_mean_ms": 70.658194,
+        "candidate_mean_ms": 64.6364204
+      },
+      "pocket.pack": {
+        "parent_mean_ms": 0.0129102,
+        "candidate_mean_ms": 0.012766
+      },
+      "pocket.collapse": {
+        "parent_mean_ms": 0.0974768,
+        "candidate_mean_ms": 0.1053388
+      },
+      "index.pocketConnectors": {
+        "parent_mean_ms": 444.5399848,
+        "candidate_mean_ms": 421.83311119999996
+      },
+      "index.fineAnchorIndex": {
+        "parent_mean_ms": 0.217527,
+        "candidate_mean_ms": 0.22287939999999998
+      },
+      "index.validate": {
+        "parent_mean_ms": 119.06851119999999,
+        "candidate_mean_ms": 119.16608559999999
+      },
+      "index.complete": {
+        "parent_mean_ms": 840.1264092,
+        "candidate_mean_ms": 819.3689296
+      }
+    }
+  },
+  {
+    "repeat": 3,
+    "arm": "direct",
+    "parent_index_ms": 839.258059,
+    "candidate_index_ms": 983.7863244,
+    "ratio": 1.1722095651630793,
+    "stages": {
+      "index.legalMoves": {
+        "parent_mean_ms": 89.6589902,
+        "candidate_mean_ms": 89.664505
+      },
+      "index.roomLayout": {
+        "parent_mean_ms": 2.8798307999999997,
+        "candidate_mean_ms": 2.9006494
+      },
+      "index.sides": {
+        "parent_mean_ms": 5.8034608,
+        "candidate_mean_ms": 5.8872766
+      },
+      "index.fieldsAndCountSegments": {
+        "parent_mean_ms": 159.79484340000002,
+        "candidate_mean_ms": 159.998565
+      },
+      "index.fillSegmentsAndArcs": {
+        "parent_mean_ms": 4.368281199999999,
+        "candidate_mean_ms": 4.3693994
+      },
+      "index.graphComponents": {
+        "parent_mean_ms": 4.233264,
+        "candidate_mean_ms": 4.2541823999999995
+      },
+      "index.seedPixelComponents": {
+        "parent_mean_ms": 6.473535,
+        "candidate_mean_ms": 6.1322504
+      },
+      "index.validatorAnchors": {
+        "parent_mean_ms": 2.5771194,
+        "candidate_mean_ms": 2.5744092
+      },
+      "pocket.canonicalMapping": {
+        "parent_mean_ms": 2.8956809999999997,
+        "candidate_mean_ms": 2.8341776
+      },
+      "pocket.initialTargetsScratch": {
+        "parent_mean_ms": 0.0078242,
+        "candidate_mean_ms": 0.007718000000000001
+      },
+      "pocket.coverage.classify": {
+        "parent_mean_ms": 5.0666666,
+        "candidate_mean_ms": 5.088221
+      },
+      "pocket.coverage.pixelScan": {
+        "parent_mean_ms": 163.4663138,
+        "candidate_mean_ms": 190.8327324
+      },
+      "pocket.coverage.resolvePending": {
+        "parent_mean_ms": 103.4204544,
+        "candidate_mean_ms": 160.4117414
+      },
+      "pocket.coverage.sort": {
+        "parent_mean_ms": 1.0322254,
+        "candidate_mean_ms": 1.0308536
+      },
+      "pocket.coverage": {
+        "parent_mean_ms": 273.1171054,
+        "candidate_mean_ms": 357.52487
+      },
+      "pocket.graphJoins": {
+        "parent_mean_ms": 97.0166912,
+        "candidate_mean_ms": 136.86114360000002
+      },
+      "pocket.finalPending": {
+        "parent_mean_ms": 70.8756272,
+        "candidate_mean_ms": 91.32431840000001
+      },
+      "pocket.pack": {
+        "parent_mean_ms": 0.013058199999999999,
+        "candidate_mean_ms": 0.012826599999999999
+      },
+      "pocket.collapse": {
+        "parent_mean_ms": 0.0984666,
+        "candidate_mean_ms": 0.13565100000000002
+      },
+      "index.pocketConnectors": {
+        "parent_mean_ms": 444.02812,
+        "candidate_mean_ms": 588.7046791999999
+      },
+      "index.fineAnchorIndex": {
+        "parent_mean_ms": 0.21898719999999997,
+        "candidate_mean_ms": 0.2299978
+      },
+      "index.validate": {
+        "parent_mean_ms": 119.21128059999998,
+        "candidate_mean_ms": 119.05968580000001
+      },
+      "index.complete": {
+        "parent_mean_ms": 839.258059,
+        "candidate_mean_ms": 983.7863244
+      }
+    }
+  },
+  {
+    "repeat": 3,
+    "arm": "lazy",
+    "parent_index_ms": 839.258059,
+    "candidate_index_ms": 815.4593002,
+    "ratio": 0.9716430976804001,
+    "stages": {
+      "index.legalMoves": {
+        "parent_mean_ms": 89.6589902,
+        "candidate_mean_ms": 89.5779944
+      },
+      "index.roomLayout": {
+        "parent_mean_ms": 2.8798307999999997,
+        "candidate_mean_ms": 2.8756906
+      },
+      "index.sides": {
+        "parent_mean_ms": 5.8034608,
+        "candidate_mean_ms": 5.614647800000001
+      },
+      "index.fieldsAndCountSegments": {
+        "parent_mean_ms": 159.79484340000002,
+        "candidate_mean_ms": 160.0575482
+      },
+      "index.fillSegmentsAndArcs": {
+        "parent_mean_ms": 4.368281199999999,
+        "candidate_mean_ms": 4.382981600000001
+      },
+      "index.graphComponents": {
+        "parent_mean_ms": 4.233264,
+        "candidate_mean_ms": 4.242580199999999
+      },
+      "index.seedPixelComponents": {
+        "parent_mean_ms": 6.473535,
+        "candidate_mean_ms": 6.1214322
+      },
+      "index.validatorAnchors": {
+        "parent_mean_ms": 2.5771194,
+        "candidate_mean_ms": 2.557165
+      },
+      "pocket.canonicalMapping": {
+        "parent_mean_ms": 2.8956809999999997,
+        "candidate_mean_ms": 2.8298714
+      },
+      "pocket.initialTargetsScratch": {
+        "parent_mean_ms": 0.0078242,
+        "candidate_mean_ms": 0.008744
+      },
+      "pocket.coverage.classify": {
+        "parent_mean_ms": 5.0666666,
+        "candidate_mean_ms": 5.0641124
+      },
+      "pocket.coverage.pixelScan": {
+        "parent_mean_ms": 163.4663138,
+        "candidate_mean_ms": 159.97042560000003
+      },
+      "pocket.coverage.resolvePending": {
+        "parent_mean_ms": 103.4204544,
+        "candidate_mean_ms": 96.6256036
+      },
+      "pocket.coverage.sort": {
+        "parent_mean_ms": 1.0322254,
+        "candidate_mean_ms": 1.0408378
+      },
+      "pocket.coverage": {
+        "parent_mean_ms": 273.1171054,
+        "candidate_mean_ms": 262.83587879999993
+      },
+      "pocket.graphJoins": {
+        "parent_mean_ms": 97.0166912,
+        "candidate_mean_ms": 90.2744658
+      },
+      "pocket.finalPending": {
+        "parent_mean_ms": 70.8756272,
+        "candidate_mean_ms": 64.44223299999999
+      },
+      "pocket.pack": {
+        "parent_mean_ms": 0.013058199999999999,
+        "candidate_mean_ms": 0.013138200000000001
+      },
+      "pocket.collapse": {
+        "parent_mean_ms": 0.0984666,
+        "candidate_mean_ms": 0.1052748
+      },
+      "index.pocketConnectors": {
+        "parent_mean_ms": 444.02812,
+        "candidate_mean_ms": 420.51330820000004
+      },
+      "index.fineAnchorIndex": {
+        "parent_mean_ms": 0.21898719999999997,
+        "candidate_mean_ms": 0.2158192
+      },
+      "index.validate": {
+        "parent_mean_ms": 119.21128059999998,
+        "candidate_mean_ms": 119.2903986
+      },
+      "index.complete": {
+        "parent_mean_ms": 839.258059,
+        "candidate_mean_ms": 815.4593002
+      }
+    }
+  }
+]

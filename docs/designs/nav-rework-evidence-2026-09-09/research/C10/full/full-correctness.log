@@ -1,0 +1,53 @@
+Hint: used config file '/Users/jamesboggs/.nimby/nim/config/nim.cfg' [Conf]
+Hint: used config file '/Users/jamesboggs/.nimby/nim/config/config.nims' [Conf]
+Hint: used config file '/Users/jamesboggs/coding/coworlds/coworld-ctf-worktrees/nav-deferred-cache/nim.cfg' [Conf]
+..........................................................................................................................................................................................................................
+/Users/jamesboggs/coding/coworlds/coworld-ctf-worktrees/nav-deferred-cache/src/ctf/arena.nim(1373, 5) Hint: 'inside' is declared but not used [XDeclaredButNotUsed]
+/Users/jamesboggs/coding/coworlds/coworld-ctf-worktrees/nav-deferred-cache/src/ctf/arena.nim(3702, 6) Hint: 'rectsNode' is declared but not used [XDeclaredButNotUsed]
+/Users/jamesboggs/coding/coworlds/coworld-ctf-worktrees/nav-deferred-cache/src/ctf/arena.nim(3707, 6) Hint: 'rectsFromNode' is declared but not used [XDeclaredButNotUsed]
+.......
+/Users/jamesboggs/coding/coworlds/coworld-ctf-worktrees/nav-deferred-cache/src/shell/body_route_query.nim(3, 24) Warning: imported and not used: 'math' [UnusedImport]
+.
+/Users/jamesboggs/coding/coworlds/coworld-ctf-worktrees/nav-deferred-cache/tools/check_c10_full_replay.nim(15, 19) Hint: duplicate import of 'bitops'; previous import here: /Users/jamesboggs/coding/coworlds/coworld-ctf-worktrees/nav-deferred-cache/src/shell/body_nav.nim(4, 24) [DuplicateModuleImport]
+CC: system/exceptions.nim
+CC: std/private/digitsutils.nim
+CC: std/assertions.nim
+CC: std/private/dragonbox.nim
+CC: std/formatfloat.nim
+CC: system/dollars.nim
+CC: system.nim
+CC: algorithm.nim
+CC: hashes.nim
+CC: math.nim
+CC: unicode.nim
+CC: strutils.nim
+CC: tables.nim
+CC: flatty/binny.nim
+CC: posix.nim
+CC: times.nim
+CC: std/cmdline.nim
+CC: pixie/fontformats/opentype.nim
+CC: pixie/fileformats/jpeg.nim
+CC: heapqueue.nim
+CC: pixie/fileformats/png.nim
+CC: bitworld/spriteprotocol.nim
+CC: random.nim
+CC: bitworld/pixelfonts.nim
+CC: ../ctf/sim_types.nim
+CC: json.nim
+CC: ../ctf/arena.nim
+CC: body_map.nim
+CC: body_cache.nim
+CC: body_danger.nim
+CC: ../ctf/zone_field.nim
+CC: strformat.nim
+CC: body_route_index.nim
+CC: body_hazard.nim
+CC: body_route_query.nim
+CC: body_safety_query.nim
+CC: check_c10_full_replay.nim
+Hint:  [Link]
+Hint: mm: orc; threads: on; opt: speed; options: -d:release
+117686 lines; 2.640s; 339.281MiB peakmem; proj: /Users/jamesboggs/coding/coworlds/coworld-ctf-worktrees/nav-deferred-cache/tools/check_c10_full_replay.nim; out: /Users/jamesboggs/coding/coworlds/coworld-ctf-worktrees/nav-throughput-research/docs/designs/nav-rework-evidence-2026-09-09/research/C10/full/check [SuccessX]
+Hint: /Users/jamesboggs/coding/coworlds/coworld-ctf-worktrees/nav-throughput-research/docs/designs/nav-rework-evidence-2026-09-09/research/C10/full/check [Exec]
+{"arm":"unspecified","cases":[{"case":"d27_all_visible","range_px":104,"diameter":27,"words":12,"set_bits":729,"full_words":11,"row_crossing_full_words":11,"touched_cells":729,"cell_mismatches":0},{"case":"d27_full_words_crossing_rows","range_px":104,"diameter":27,"words":12,"set_bits":197,"full_words":3,"row_crossing_full_words":3,"touched_cells":197,"cell_mismatches":0},{"case":"d327_full_word_straddling_row","range_px":1300,"diameter":327,"words":1671,"set_bits":134,"full_words":1,"row_crossing_full_words":1,"touched_cells":134,"cell_mismatches":0},{"case":"d327_mixed_dense_rows","range_px":1300,"diameter":327,"words":1671,"set_bits":4663,"full_words":56,"row_crossing_full_words":10,"touched_cells":4663,"cell_mismatches":0},{"case":"d327_all_visible","range_px":1300,"diameter":327,"words":1671,"set_bits":106929,"full_words":1670,"row_crossing_full_words":321,"touched_cells":106929,"cell_mismatches":0}],"border_mask_cases":256}

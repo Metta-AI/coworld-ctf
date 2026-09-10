@@ -1,0 +1,1174 @@
+diff --git a/src/shell/body_hazard.nim b/src/shell/body_hazard.nim
+index 53c2c43..1eeed74 100644
+--- a/src/shell/body_hazard.nim
++++ b/src/shell/body_hazard.nim
+@@ -53,24 +53,24 @@ proc newDarkBodyHazardOverlay*(): BodyHazardOverlay =
+   BodyHazardOverlay(state: bhsDark)
+ 
+ proc retainedBytes*(overlay: BodyHazardOverlay): int64 =
+-  ## Exact retained owner plus sequence payload bytes. The sequence headers
++  ## Retained owner plus allocated sequence capacity. The sequence headers
+   ## themselves live in the fixed owner object counted by sizeof.
+   if overlay == nil:
+     return 0
+   int64(sizeof(overlay[]) +
+-    overlay.arrival.len * sizeof(uint16) +
+-    overlay.segmentArrivalMin.len * sizeof(uint16) +
+-    overlay.segmentArrivalMax.len * sizeof(uint16) +
+-    overlay.roomMaxArrival.len * sizeof(uint16))
++    overlay.arrival.capacity * sizeof(uint16) +
++    overlay.segmentArrivalMin.capacity * sizeof(uint16) +
++    overlay.segmentArrivalMax.capacity * sizeof(uint16) +
++    overlay.roomMaxArrival.capacity * sizeof(uint16))
+ 
+ proc retainedBytes*(cache: BodySafeCache): int64 =
+-  ## Exact retained owner plus sequence payload bytes.
++  ## Retained owner plus allocated sequence capacity.
+   if cache == nil:
+     return 0
+   int64(sizeof(cache[]) +
+-    cache.safeDistQ4.len * sizeof(uint32) +
+-    cache.safeNext.len * sizeof(uint16) +
+-    cache.roomHasDry.len * sizeof(bool))
++    cache.safeDistQ4.capacity * sizeof(uint32) +
++    cache.safeNext.capacity * sizeof(uint16) +
++    cache.roomHasDry.capacity * sizeof(bool))
+ 
+ proc projectedArrival(index: BodyRouteIndex,
+     source: ZoneDamageSnapshot, navCell: int): uint16 =
+diff --git a/src/shell/body_map.nim b/src/shell/body_map.nim
+index 74a92aa..5d0ce09 100644
+--- a/src/shell/body_map.nim
++++ b/src/shell/body_map.nim
+@@ -155,9 +155,26 @@ proc inBounds*(map: BodyMap, point: BodyPoint): bool =
+ proc isWall*(map: BodyMap, point: BodyPoint): bool =
+   not map.inBounds(point) or map.wall[map.pixelIndex(point.x, point.y)]
+ 
++proc roundedRayCoordinate(lower, remainder, steps: int): int {.inline.} =
++  if remainder * 2 > steps or
++      (remainder * 2 == steps and (lower and 1) != 0):
++    lower + 1
++  else:
++    lower
++
++proc advanceRayCoordinate(lower, remainder: var int;
++    delta, steps: int) {.inline.} =
++  remainder += delta
++  if remainder < 0:
++    remainder += steps
++    dec lower
++  elif remainder >= steps:
++    remainder -= steps
++    inc lower
++
+ proc rayClear*(map: BodyMap, a, b: BodyPoint): bool =
+-  ## Pixel ray check for body-side weapon gating. Endpoints outside the map
+-  ## are blocked; otherwise any wall pixel sampled along the segment blocks.
++  ## Same nearest-pixel samples and ties-to-even as the floating interpolant.
++  ## abs(delta) <= steps, so one remainder correction advances each axis.
+   if not map.inBounds(a) or not map.inBounds(b):
+     return false
+   let
+@@ -166,12 +183,30 @@ proc rayClear*(map: BodyMap, a, b: BodyPoint): bool =
+     steps = max(abs(dx), abs(dy))
+   if steps == 0:
+     return not map.isWall(a)
+-  for step in 0 .. steps:
+-    let point = (
+-      x: pyRound(a.x.float + dx.float * step.float / steps.float),
+-      y: pyRound(a.y.float + dy.float * step.float / steps.float))
+-    if map.isWall(point):
+-      return false
++  # The major axis has an integer coordinate at every sample; only the
++  # minor axis needs rounding and a remainder correction.
++  if abs(dx) >= abs(dy):
++    var x = a.x
++    var lowerY = a.y
++    var remainderY = 0
++    let stepX = cmp(dx, 0)
++    for step in 0 .. steps:
++      let y = roundedRayCoordinate(lowerY, remainderY, steps)
++      if map.wall[map.pixelIndex(x, y)]:
++        return false
++      x += stepX
++      advanceRayCoordinate(lowerY, remainderY, dy, steps)
++  else:
++    var y = a.y
++    var lowerX = a.x
++    var remainderX = 0
++    let stepY = cmp(dy, 0)
++    for step in 0 .. steps:
++      let x = roundedRayCoordinate(lowerX, remainderX, steps)
++      if map.wall[map.pixelIndex(x, y)]:
++        return false
++      y += stepY
++      advanceRayCoordinate(lowerX, remainderX, dx, steps)
+   true
+ 
+ proc clearanceAt*(map: BodyMap, point: BodyPoint): int =
+diff --git a/src/shell/body_nav.nim b/src/shell/body_nav.nim
+index 16c4908..50d24ce 100644
+--- a/src/shell/body_nav.nim
++++ b/src/shell/body_nav.nim
+@@ -76,8 +76,10 @@ type
+ 
+   BodyNavigationBytes* = object
+     systemOwner*, routeIndex*, safetyScratch*, mixedGraph*: int64
++    hazardOverlay*, safeCache*: int64
+     seatOwners*, seatCaches*, dangerRasters*, dangerWorkspaces*: int64
+-    packedWeights*, sharedDangerGeometry*, trace*, allocatorOverhead*: int64
++    packedWeights*, packedWeightScratch*, sharedDangerGeometry*: int64
++    trace*, allocatorOverhead*: int64
+     total*: int64
+ 
+   BodyNavTiming* = object
+@@ -89,14 +91,19 @@ type
+     requestSubmissions*, schedulerRestarts*, requestAdmissions*: int
+     routeCompletions*, weightRefreshes*: int
+ 
++  DangerGeometry = ref object
++    kernel: seq[float32]
++    perimeter: seq[BodyPoint]
++    radius: int
++    gridWidth, gridHeight: int
++    sightBlocked: seq[bool]
++
+   BodyNavSeat* = ref object
+     index*: int
+     cache*: BodySeatCache
+     danger*: BodyDangerField
+     dangerWorkspace: DangerWorkspace
+-    dangerKernel: seq[float32]
+-    dangerPerimeter: seq[BodyPoint]
+-    dangerRadius: int
++    dangerGeometry: DangerGeometry
+     dangerRangePx: int
+     selectedDangerSeats: array[MaxDangerSources, int]
+     selectedDangerPoints: array[MaxDangerSources, BodyPoint]
+@@ -138,6 +145,7 @@ type
+     dangerTraceLen: int
+     mixedGraph*: BodyMixedGraph
+     routeWorkspace*: BodyRouteWorkspace
++    packedWeightScratch: seq[int16]
+     routeJob*: BodyRouteSearchJob
+     routeJobSeat*: int
+     routePopsLastTick*: int
+@@ -160,6 +168,10 @@ proc retainedNavigationBytes*(system: BodyNavSystem): BodyNavigationBytes =
+     result.routeIndex = system.routeIndex.retainedIndexBytes
+   if system.safetyScratch != nil:
+     result.safetyScratch = system.safetyScratch.retainedBytes
++    let context = system.safetyScratch.contextRetainedBytes
++    result.hazardOverlay = context.hazard
++    result.safeCache = context.cache
++    result.allocatorOverhead += context.allocatorOverhead
+   if system.mixedGraph != nil and system.routeWorkspace != nil:
+     let graphBytes = system.mixedGraph.bodyMixedGraphBytes(
+       system.routeWorkspace)
+@@ -167,36 +179,45 @@ proc retainedNavigationBytes*(system: BodyNavSystem): BodyNavigationBytes =
+       sizeof(system.routeWorkspace[])) + graphBytes.total -
+       graphBytes.allocatorOverhead
+     result.allocatorOverhead += graphBytes.allocatorOverhead
+-  result.trace = int64(system.dangerTrace.len * sizeof(DangerRebuild))
+-  result.seatOwners = int64(system.seats.len * sizeof(BodyNavSeat))
++  result.packedWeightScratch = int64(system.packedWeightScratch.capacity * sizeof(int16))
++  if system.packedWeightScratch.capacity > 0:
++    result.allocatorOverhead += SequenceAllocationOverhead
++  result.trace = int64(system.dangerTrace.capacity * sizeof(DangerRebuild))
++  result.seatOwners = int64(system.seats.capacity * sizeof(BodyNavSeat))
+   if system.seats.len > 0:
+     result.allocatorOverhead += SequenceAllocationOverhead
+-  if system.dangerTrace.len > 0:
++  if system.dangerTrace.capacity > 0:
+     result.allocatorOverhead += SequenceAllocationOverhead
+   for seat in system.seats:
+     result.seatOwners += int64(sizeof(seat[]))
+     if seat.cache != nil:
+       result.seatCaches += int64(sizeof(seat.cache[]))
+-    result.dangerRasters += int64(seat.danger.values.len * sizeof(float32))
++    result.dangerRasters += int64(seat.danger.values.capacity * sizeof(float32))
+     result.dangerWorkspaces += int64(
+-      seat.dangerWorkspace.visited.len * sizeof(uint32))
+-    result.packedWeights += int64(seat.packedWeights.len * sizeof(int16))
+-    for length in [seat.danger.values.len,
+-        seat.dangerWorkspace.visited.len, seat.packedWeights.len]:
++      seat.dangerWorkspace.visited.capacity * sizeof(uint32))
++    result.packedWeights += int64(seat.packedWeights.capacity * sizeof(int16))
++    for length in [seat.danger.values.capacity,
++        seat.dangerWorkspace.visited.capacity, seat.packedWeights.capacity]:
+       if length > 0:
+         result.allocatorOverhead += SequenceAllocationOverhead
+   if system.seats.len > 0:
+-    result.sharedDangerGeometry = int64(
+-      system.seats[0].dangerKernel.len * sizeof(float32) +
+-      system.seats[0].dangerPerimeter.len * sizeof(BodyPoint))
+-    for length in [system.seats[0].dangerKernel.len,
+-        system.seats[0].dangerPerimeter.len]:
++    result.sharedDangerGeometry =
++      int64(sizeof(system.seats[0].dangerGeometry[])) + int64(
++      system.seats[0].dangerGeometry.kernel.capacity * sizeof(float32) +
++      system.seats[0].dangerGeometry.perimeter.capacity * sizeof(BodyPoint) +
++      system.seats[0].dangerGeometry.sightBlocked.capacity * sizeof(bool))
++    result.allocatorOverhead += SequenceAllocationOverhead
++    for length in [system.seats[0].dangerGeometry.kernel.capacity,
++        system.seats[0].dangerGeometry.perimeter.capacity,
++        system.seats[0].dangerGeometry.sightBlocked.capacity]:
+       if length > 0:
+         result.allocatorOverhead += SequenceAllocationOverhead
+   result.total = result.systemOwner + result.routeIndex +
+-    result.safetyScratch + result.mixedGraph + result.seatOwners +
++    result.safetyScratch + result.hazardOverlay + result.safeCache +
++    result.mixedGraph + result.seatOwners +
+     result.seatCaches + result.dangerRasters + result.dangerWorkspaces +
+-    result.packedWeights + result.sharedDangerGeometry + result.trace +
++    result.packedWeights + result.packedWeightScratch +
++    result.sharedDangerGeometry + result.trace +
+     result.allocatorOverhead
+ 
+ proc pyRound(value: float): int =
+@@ -223,9 +244,16 @@ proc initDanger(map: BodyMap): tuple[field: BodyDangerField,
+     gridW: map.gridWidth, gridH: map.gridHeight)
+   result.workspace.visited = newSeq[uint32](size)
+ 
+-proc initDangerGeometry(liveGunRangePx: int): tuple[kernel: seq[float32],
+-                                 perimeter: seq[BodyPoint], radius: int] =
+-  ## Immutable ray geometry shared by all seats; activation-time allocation.
++proc initDangerGeometry(map: BodyMap, liveGunRangePx: int): DangerGeometry =
++  ## A reference owner prevents per-seat sequence copies under ORC.
++  new(result)
++  result.gridWidth = map.gridWidth
++  result.gridHeight = map.gridHeight
++  result.sightBlocked = newSeq[bool](result.gridWidth * result.gridHeight)
++  for y in 0 ..< result.gridHeight:
++    for x in 0 ..< result.gridWidth:
++      result.sightBlocked[y * result.gridWidth + x] =
++        map.isWall(cellCenter((x, y)))
+   result.radius = max(1, (liveGunRangePx + NavCell - 1) div NavCell)
+   let diameter = result.radius * 2 + 1
+   result.kernel = newSeq[float32](diameter * diameter)
+@@ -276,21 +304,20 @@ proc newBodyNavSystem*(map: BodyMap, seatCount, liveGunRangePx: int,
+     result.safetyScratch = newBodySafetyScratch(result.routeIndex)
+     result.mixedGraph = newBodyMixedGraph(map)
+     result.routeWorkspace = newBodyRouteWorkspace(result.mixedGraph)
++    result.packedWeightScratch = newSeq[int16](map.gridWidth * map.gridHeight)
+     result.routeJobSeat = -1
+     discard result.routeIndex.releaseFollowingPayload()
+   result.dangerK = dangerK
+   result.dangerTrace = newSeq[DangerRebuild](traceCapacity)
+   result.seats = newSeq[BodyNavSeat](seatCount)
+-  let dangerGeometry = initDangerGeometry(liveGunRangePx)
++  let dangerGeometry = initDangerGeometry(map, liveGunRangePx)
+   for index in 0 ..< seatCount:
+     let cache = newBodySeatCache(map)
+     let danger = initDanger(map)
+     result.seats[index] = BodyNavSeat(index: index, cache: cache,
+       danger: danger.field,
+       dangerWorkspace: danger.workspace, dangerTick: 0, active: true,
+-      dangerKernel: dangerGeometry.kernel,
+-      dangerPerimeter: dangerGeometry.perimeter,
+-      dangerRadius: dangerGeometry.radius,
++      dangerGeometry: dangerGeometry,
+       dangerRangePx: liveGunRangePx,
+       desiredProfile: shellTypes.cpDefault)
+     if prepareRouteQueries:
+@@ -379,12 +406,12 @@ proc addVisibleCell(seat: BodyNavSeat, origin: BodyPoint,
+   let kernelY = gy - origin.y + kernelRadius
+   seat.danger.values[index] += kernel[kernelY * diameter + kernelX]
+ 
+-proc sightCellBlocked(map: BodyMap, x, y: int): bool {.inline.} =
+-  if x < 0 or x >= map.gridWidth or y < 0 or y >= map.gridHeight:
++proc sightCellBlocked(geometry: DangerGeometry, x, y: int): bool {.inline.} =
++  if x < 0 or x >= geometry.gridWidth or y < 0 or y >= geometry.gridHeight:
+     return true
+-  map.isWall(cellCenter((x, y)))
++  geometry.sightBlocked[y * geometry.gridWidth + x]
+ 
+-proc castRay(seat: BodyNavSeat, map: BodyMap, origin: BodyPoint,
++proc castRay(seat: BodyNavSeat, origin: BodyPoint,
+              kernel: openArray[float32], kernelRadius,
+              targetX, targetY: int) =
+   let dx = targetX - origin.x
+@@ -402,7 +429,8 @@ proc castRay(seat: BodyNavSeat, map: BodyMap, origin: BodyPoint,
+     if decision == 0:
+       let sideX = x + stepX
+       let sideY = y + stepY
+-      if map.sightCellBlocked(sideX, y) or map.sightCellBlocked(x, sideY):
++      if seat.dangerGeometry.sightCellBlocked(sideX, y) or
++          seat.dangerGeometry.sightCellBlocked(x, sideY):
+         break
+       seat.addVisibleCell(origin, kernel, kernelRadius, sideX, y)
+       seat.addVisibleCell(origin, kernel, kernelRadius, x, sideY)
+@@ -416,7 +444,7 @@ proc castRay(seat: BodyNavSeat, map: BodyMap, origin: BodyPoint,
+     else:
+       y += stepY
+       inc iy
+-    if map.sightCellBlocked(x, y):
++    if seat.dangerGeometry.sightCellBlocked(x, y):
+       break
+     seat.addVisibleCell(origin, kernel, kernelRadius, x, y)
+ 
+@@ -429,10 +457,10 @@ proc rebuildDangerFromPoints(seat: BodyNavSeat, map: BodyMap,
+   for source in sources:
+     let origin = map.cellOf(source)
+     seat.nextVisitGeneration()
+-    seat.addVisibleCell(origin, seat.dangerKernel, seat.dangerRadius,
++    seat.addVisibleCell(origin, seat.dangerGeometry.kernel, seat.dangerGeometry.radius,
+       origin.x, origin.y)
+-    for offset in seat.dangerPerimeter:
+-      seat.castRay(map, origin, seat.dangerKernel, seat.dangerRadius,
++    for offset in seat.dangerGeometry.perimeter:
++      seat.castRay(origin, seat.dangerGeometry.kernel, seat.dangerGeometry.radius,
+         origin.x + offset.x, origin.y + offset.y)
+     let closeRange = min(DangerClosePx, seat.dangerRangePx)
+     let closeCells = (closeRange + NavCell - 1) div NavCell
+@@ -454,7 +482,8 @@ proc rebuildDangerFromPoints(seat: BodyNavSeat, map: BodyMap,
+     seat.danger.maximum = max(seat.danger.maximum, value)
+   seat.dangerTick = tick
+ 
+-proc publishDangerGeneration(system: BodyNavSystem; seat: BodyNavSeat) =
++proc publishDangerGeneration(system: BodyNavSystem; seat: BodyNavSeat;
++    force = false) =
+   ## Publish only after the complete float raster and exact packed Q8 view are
+   ## ready. A search can therefore compare one monotonic generation before it
+   ## spends another pop.
+@@ -462,15 +491,16 @@ proc publishDangerGeneration(system: BodyNavSystem; seat: BodyNavSeat) =
+     return
+   when defined(bodyNavBreakdown):
+     let started = getMonoTime()
+-  system.mixedGraph.rebuildPackedWeights(seat.danger, seat.packedWeights)
++  system.mixedGraph.rebuildPackedWeights(seat.danger, system.packedWeightScratch)
+   when defined(bodyNavBreakdown):
+     system.timing.weightRefreshNanoseconds += timingElapsed(started)
+     inc system.timing.weightRefreshes
+-  inc seat.dangerGeneration
+-  if seat.dangerGeneration == 0:
+-    seat.dangerGeneration = 1
+-  if seat.installedRoute.revision != 0 and
+-      seat.installedRoute.dangerGeneration != seat.dangerGeneration:
++  if force or system.packedWeightScratch != seat.packedWeights:
++    swap(system.packedWeightScratch, seat.packedWeights)
++    inc seat.dangerGeneration
++    if seat.dangerGeneration == 0:
++      seat.dangerGeneration = 1
++  if seat.installedRoute.revision != 0:
+     seat.installedRoute = BodyInstalledRoute()
+ 
+ proc dangerCandidateLess(aDistance: int64, aSeat: int,
+@@ -511,15 +541,18 @@ proc selectDangerSources(seat: BodyNavSeat, input: DangerInput) =
+   seat.selectedDangerCount = selectNearestSources(input.selfXy,
+     input.candidates, seat.selectedDangerSeats, seat.selectedDangerPoints)
+ 
+-proc rebuildDanger*(seat: BodyNavSeat, map: BodyMap,
+-                    input: DangerInput, tick: int) =
+-  seat.selectDangerSources(input)
++proc rebuildSelectedDanger(seat: BodyNavSeat, map: BodyMap, tick: int) =
+   if seat.selectedDangerCount == 0:
+     seat.rebuildDangerFromPoints(map, [], tick)
+   else:
+     seat.rebuildDangerFromPoints(map,
+       seat.selectedDangerPoints.toOpenArray(0, seat.selectedDangerCount - 1), tick)
+ 
++proc rebuildDanger*(seat: BodyNavSeat, map: BodyMap,
++                    input: DangerInput, tick: int) =
++  seat.selectDangerSources(input)
++  seat.rebuildSelectedDanger(map, tick)
++
+ proc selectedDangerSourceSeats*(seat: BodyNavSeat): seq[int] =
+   ## Diagnostic snapshot; never used by the playing-tick path.
+   result = newSeq[int](seat.selectedDangerCount)
+@@ -540,7 +573,7 @@ proc initializeDanger*(system: BodyNavSystem,
+     raise newException(ValueError, "danger source rows must match seat count")
+   for index, seat in system.seats:
+     seat.rebuildDanger(system.map, sourcesBySeat[index], activationTick)
+-    system.publishDangerGeneration(seat)
++    system.publishDangerGeneration(seat, force = true)
+ 
+ proc dangerSeatDue*(tick, seat, cadenceK: int): bool =
+   cadenceK > 0 and floorMod(tick, cadenceK) == floorMod(seat, cadenceK)
+@@ -558,8 +591,23 @@ proc rebuildScheduledDanger*(system: BodyNavSystem, tick: int,
+     raise newException(ValueError, "danger source rows must match seat count")
+   for index, seat in system.seats:
+     if seat.active and dangerSeatDue(tick, index, system.dangerK):
+-      seat.rebuildDanger(system.map, sourcesBySeat[index], tick)
+-      system.publishDangerGeneration(seat)
++      let previousCount = seat.selectedDangerCount
++      let previousPoints = seat.selectedDangerPoints
++      seat.selectDangerSources(sourcesBySeat[index])
++      var changed = previousCount != seat.selectedDangerCount
++      for source in 0 ..< seat.selectedDangerCount:
++        if seat.selectedDangerPoints[source] != previousPoints[source]:
++          changed = true
++      if changed:
++        seat.rebuildSelectedDanger(system.map, tick)
++        system.publishDangerGeneration(seat)
++      else:
++        # Map and kernel are immutable; identical ordered sources produce the
++        # same raster and weights. Keep unfinished search work, but retain the
++        # cadence expiry of installed routes so zone prices still refresh.
++        seat.dangerTick = tick
++        if seat.installedRoute.revision != 0:
++          seat.installedRoute = BodyInstalledRoute()
+       system.recordDanger(DangerRebuild(tick: tick, seat: index,
+         sourceCount: seat.selectedDangerCount))
+ 
+diff --git a/src/shell/body_route_index.nim b/src/shell/body_route_index.nim
+index 1c7bb68..aa94d30 100644
+--- a/src/shell/body_route_index.nim
++++ b/src/shell/body_route_index.nim
+@@ -1722,39 +1722,39 @@ proc buildFineAnchorIndex(index: BodyRouteIndex) =
+     index.fineAnchors[offset] = pair.pointRef
+ 
+ proc retainedBytes(index: BodyRouteIndex): int64 =
+-  int64(index.legalMoves.len * sizeof(uint8) +
+-    index.roomOf.len * sizeof(uint16) +
+-    index.localIndex.len * sizeof(int32) +
+-    index.roomCellStart.len * sizeof(int32) +
+-    index.roomCells.len * sizeof(int32) +
+-    index.roomSideStart.len * sizeof(int32) +
+-    index.roomSides.len * sizeof(uint16) +
+-    index.sides.len * sizeof(BodyPortalSide) +
+-    index.portalNext.len * sizeof(uint8) +
+-    index.segments.len * sizeof(BodyRouteSegment) +
+-    index.cells.len * sizeof(int32) +
+-    index.arcStart.len * sizeof(int32) +
+-    index.arcs.len * sizeof(BodyRouteArc) +
+-    index.sideComponent.len * sizeof(uint16) +
+-    index.cellComponent.len * sizeof(uint16) +
+-    index.pockets.len * sizeof(BodyPocketConnector) +
+-    index.pocketCells.len * sizeof(int32) +
+-    index.fineAnchorStart.len * sizeof(int32) +
+-    index.fineAnchors.len * sizeof(int32))
++  int64(index.legalMoves.capacity * sizeof(uint8) +
++    index.roomOf.capacity * sizeof(uint16) +
++    index.localIndex.capacity * sizeof(int32) +
++    index.roomCellStart.capacity * sizeof(int32) +
++    index.roomCells.capacity * sizeof(int32) +
++    index.roomSideStart.capacity * sizeof(int32) +
++    index.roomSides.capacity * sizeof(uint16) +
++    index.sides.capacity * sizeof(BodyPortalSide) +
++    index.portalNext.capacity * sizeof(uint8) +
++    index.segments.capacity * sizeof(BodyRouteSegment) +
++    index.cells.capacity * sizeof(int32) +
++    index.arcStart.capacity * sizeof(int32) +
++    index.arcs.capacity * sizeof(BodyRouteArc) +
++    index.sideComponent.capacity * sizeof(uint16) +
++    index.cellComponent.capacity * sizeof(uint16) +
++    index.pockets.capacity * sizeof(BodyPocketConnector) +
++    index.pocketCells.capacity * sizeof(int32) +
++    index.fineAnchorStart.capacity * sizeof(int32) +
++    index.fineAnchors.capacity * sizeof(int32))
+ 
+ proc retainedIndexBytes*(index: BodyRouteIndex): int64 =
+-  ## Exact retained owner, sequence payloads, and allocator headers. Sequence
++  ## Retained owner, allocated sequence capacity, and header allowance. Sequence
+   ## values themselves live in the fixed owner object counted by sizeof.
+   if index == nil:
+     return 0
+   result = int64(sizeof(index[])) + index.retainedBytes
+-  for length in [index.legalMoves.len, index.roomOf.len,
+-      index.localIndex.len, index.roomCellStart.len, index.roomCells.len,
+-      index.roomSideStart.len, index.roomSides.len, index.sides.len,
+-      index.portalNext.len, index.segments.len, index.cells.len,
+-      index.arcStart.len, index.arcs.len, index.sideComponent.len,
+-      index.cellComponent.len, index.pockets.len, index.pocketCells.len,
+-      index.fineAnchorStart.len, index.fineAnchors.len]:
++  for length in [index.legalMoves.capacity, index.roomOf.capacity,
++      index.localIndex.capacity, index.roomCellStart.capacity, index.roomCells.capacity,
++      index.roomSideStart.capacity, index.roomSides.capacity, index.sides.capacity,
++      index.portalNext.capacity, index.segments.capacity, index.cells.capacity,
++      index.arcStart.capacity, index.arcs.capacity, index.sideComponent.capacity,
++      index.cellComponent.capacity, index.pockets.capacity, index.pocketCells.capacity,
++      index.fineAnchorStart.capacity, index.fineAnchors.capacity]:
+     if length > 0:
+       result += 16
+ 
+diff --git a/src/shell/body_route_query.nim b/src/shell/body_route_query.nim
+index 7c97b91..e7c4b7b 100644
+--- a/src/shell/body_route_query.nim
++++ b/src/shell/body_route_query.nim
+@@ -22,6 +22,7 @@ const
+   BodyEndpointAttachmentCap* = 512
+   BodyDialClosedBit = 0x8000_0000'u32
+   BodyDialMaxBuckets = 262_144
++  BodyDialDefaultBuckets = 131_072
+ 
+ type
+   BodyFineLegality* = object
+@@ -309,7 +310,7 @@ proc packedDangerQ8(value: float32): uint16 {.inline.} =
+   if value <= 0:
+     return 0
+   let scaled = value.float * 256.0
+-  let lower = floor(scaled).int
++  let lower = scaled.int
+   let fraction = scaled - lower.float
+   let rounded = if fraction > 0.5 or
+       (fraction == 0.5 and (lower and 1) != 0): lower + 1 else: lower
+@@ -514,7 +515,7 @@ proc beginQueue(queue: var BodyDialQueue) =
+   queue.currentF = high(int32)
+ 
+ proc newBodyRouteWorkspace*(graph: BodyMixedGraph;
+-    bucketCount = BodyDialMaxBuckets): BodyRouteWorkspace =
++    bucketCount = BodyDialDefaultBuckets): BodyRouteWorkspace =
+   if graph == nil:
+     raise newException(ValueError, "body route workspace requires a graph")
+   if bucketCount <= 1 or bucketCount > BodyDialMaxBuckets:
+@@ -784,36 +785,36 @@ proc finishBodyRouteSearch*(job: BodyRouteSearchJob;
+ proc bodyMixedGraphBytes*(graph: BodyMixedGraph;
+     workspace: BodyRouteWorkspace): BodyMixedGraphBytes =
+   const SequenceAllocationOverhead = 16'i64
+-  result.legality = int64(graph.legality.legal.len +
+-    graph.legality.standable.len)
+-  result.cellForNode = int64(graph.cellForNode.len * sizeof(int32))
+-  result.fineForCell = int64(graph.fineForCell.len *
++  result.legality = int64(graph.legality.legal.capacity +
++    graph.legality.standable.capacity)
++  result.cellForNode = int64(graph.cellForNode.capacity * sizeof(int32))
++  result.fineForCell = int64(graph.fineForCell.capacity *
+     sizeof(array[4, int32]))
+-  result.anchors = int64(graph.anchorForCell.len * sizeof(int32) +
+-    graph.anchorNode.len * sizeof(uint8))
+-  result.wallBand = int64(graph.wallBand.len)
+-  result.bridges = int64(graph.bridgeOffset.len *
+-      sizeof(array[8, int32]) + graph.bridgeLen.len *
+-      sizeof(array[8, uint8]) + graph.bridgeNodes.len * sizeof(int32))
+-  result.workspace = int64(workspace.g.len + workspace.parent.len +
+-      workspace.parentBridge.len + workspace.goalCost.len) * sizeof(int32) +
+-    int64(workspace.state.len + workspace.goalStamp.len) * sizeof(uint32)
+-  result.buckets = int64(workspace.queue.head.len + workspace.queue.tail.len +
+-      workspace.queue.touchedGeneration.len) * sizeof(int32) +
+-    int64(workspace.queue.next.len + workspace.queue.previous.len +
+-      workspace.queue.bucket.len + workspace.queue.queuedF.len) * sizeof(int32)
+-  result.reconstruction = int64(workspace.reconstruct.len * sizeof(int32))
++  result.anchors = int64(graph.anchorForCell.capacity * sizeof(int32) +
++    graph.anchorNode.capacity * sizeof(uint8))
++  result.wallBand = int64(graph.wallBand.capacity)
++  result.bridges = int64(graph.bridgeOffset.capacity *
++      sizeof(array[8, int32]) + graph.bridgeLen.capacity *
++      sizeof(array[8, uint8]) + graph.bridgeNodes.capacity * sizeof(int32))
++  result.workspace = int64(workspace.g.capacity + workspace.parent.capacity +
++      workspace.parentBridge.capacity + workspace.goalCost.capacity) * sizeof(int32) +
++    int64(workspace.state.capacity + workspace.goalStamp.capacity) * sizeof(uint32)
++  result.buckets = int64(workspace.queue.head.capacity + workspace.queue.tail.capacity +
++      workspace.queue.touchedGeneration.capacity) * sizeof(int32) +
++    int64(workspace.queue.next.capacity + workspace.queue.previous.capacity +
++      workspace.queue.bucket.capacity + workspace.queue.queuedF.capacity) * sizeof(int32)
++  result.reconstruction = int64(workspace.reconstruct.capacity * sizeof(int32))
+   for length in [
+-      graph.legality.legal.len, graph.legality.standable.len,
+-      graph.cellForNode.len, graph.fineForCell.len,
+-      graph.anchorForCell.len, graph.anchorNode.len, graph.wallBand.len,
+-      graph.bridgeOffset.len, graph.bridgeLen.len, graph.bridgeNodes.len,
+-      workspace.g.len, workspace.parent.len, workspace.parentBridge.len,
+-      workspace.goalCost.len, workspace.state.len, workspace.goalStamp.len,
+-      workspace.reconstruct.len, workspace.queue.head.len,
+-      workspace.queue.tail.len, workspace.queue.touchedGeneration.len,
+-      workspace.queue.next.len, workspace.queue.previous.len,
+-      workspace.queue.bucket.len, workspace.queue.queuedF.len]:
++      graph.legality.legal.capacity, graph.legality.standable.capacity,
++      graph.cellForNode.capacity, graph.fineForCell.capacity,
++      graph.anchorForCell.capacity, graph.anchorNode.capacity, graph.wallBand.capacity,
++      graph.bridgeOffset.capacity, graph.bridgeLen.capacity, graph.bridgeNodes.capacity,
++      workspace.g.capacity, workspace.parent.capacity, workspace.parentBridge.capacity,
++      workspace.goalCost.capacity, workspace.state.capacity, workspace.goalStamp.capacity,
++      workspace.reconstruct.capacity, workspace.queue.head.capacity,
++      workspace.queue.tail.capacity, workspace.queue.touchedGeneration.capacity,
++      workspace.queue.next.capacity, workspace.queue.previous.capacity,
++      workspace.queue.bucket.capacity, workspace.queue.queuedF.capacity]:
+     if length > 0:
+       result.allocatorOverhead += SequenceAllocationOverhead
+   result.total = result.legality + result.cellForNode + result.fineForCell +
+diff --git a/src/shell/body_safety_query.nim b/src/shell/body_safety_query.nim
+index 3d73768..4c9a5a7 100644
+--- a/src/shell/body_safety_query.nim
++++ b/src/shell/body_safety_query.nim
+@@ -45,6 +45,24 @@ proc newBodySafetyScratch*(index: BodyRouteIndex): BodySafetyScratch =
+ proc retainedBytes*(scratch: BodySafetyScratch): int64 =
+   if scratch == nil: 0 else: int64(sizeof(scratch[]))
+ 
++proc contextRetainedBytes*(scratch: BodySafetyScratch): tuple[
++    hazard, cache, allocatorOverhead: int64] =
++  if scratch == nil: return
++  result.hazard = scratch.hazard.retainedBytes
++  result.cache = scratch.cache.retainedBytes
++  if scratch.hazard != nil:
++    result.allocatorOverhead += 16
++    for capacity in [scratch.hazard.arrival.capacity,
++        scratch.hazard.segmentArrivalMin.capacity,
++        scratch.hazard.segmentArrivalMax.capacity,
++        scratch.hazard.roomMaxArrival.capacity]:
++      if capacity > 0: result.allocatorOverhead += 16
++  if scratch.cache != nil:
++    result.allocatorOverhead += 16
++    for capacity in [scratch.cache.safeDistQ4.capacity,
++        scratch.cache.safeNext.capacity, scratch.cache.roomHasDry.capacity]:
++      if capacity > 0: result.allocatorOverhead += 16
++
+ proc routeOctileQ4*(a, b: BodyPoint): int64 =
+   let
+     dx = abs(a.x - b.x)
+diff --git a/tools/bench_body_nav_rework.nim b/tools/bench_body_nav_rework.nim
+index a9c1597..c632224 100644
+--- a/tools/bench_body_nav_rework.nim
++++ b/tools/bench_body_nav_rework.nim
+@@ -1,15 +1,17 @@
+ ## Production qualification harness for the resumable mixed-grid body route.
+ 
+-{.define: bodyNavBreakdown.}
++when not defined(navGateNoBreakdown):
++  {.define: bodyNavBreakdown.}
+ 
+ import std/[algorithm, json, math, monotimes, options, os, osproc, strformat,
+   sequtils, strutils, tables, times]
+ import crunchy/[common, sha256]
+-import bitworld/spriteprotocol
++import bitworld/[profile, spriteprotocol]
+ import ../src/ctf/[arena, br_map_pool, sim_types, zone_field]
+ import ../src/shell/[body, body_danger, body_hazard, body_map, body_nav,
+   body_route_index, body_route_query, episode, standing_order]
+ import ../tests/nav_route_corpus_support
++import build_nav_route_corpus
+ 
+ const
+   CanonicalPlatform = "linux/amd64"
+@@ -20,6 +22,13 @@ const
+   TickSamples = 120
+   TickP95LimitNs = 4_000_000'i64
+   TickMaxLimitNs = 5_000_000'i64
++  ## --latency: ticks from a seat's first request after a life reset until a
++  ## route is published for it. One warm-up wave, then measured waves that
++  ## alternate far and near goals. A wave that does not publish every seat
++  ## within the cap fails the row; the cap is a workload bound, not a target.
++  LatencyWarmupWaves = 1
++  LatencyMeasuredWaves = 10
++  LatencyWaveTickCap = 2000
+ 
+ type
+   MapGate = object
+@@ -185,12 +194,16 @@ proc bytesJson(bytes: BodyNavigationBytes): JsonNode =
+     "seat_owners": bytes.seatOwners, "seat_caches": bytes.seatCaches,
+     "danger_rasters": bytes.dangerRasters,
+     "danger_workspaces": bytes.dangerWorkspaces,
++    "hazard_overlay": bytes.hazardOverlay, "safe_cache": bytes.safeCache,
+     "packed_int16_weights": bytes.packedWeights,
++    "packed_weight_scratch": bytes.packedWeightScratch,
+     "shared_danger_geometry": bytes.sharedDangerGeometry,
+     "trace": bytes.trace, "allocator_overhead": bytes.allocatorOverhead,
+     "total": bytes.total}
+ 
+-proc activationRow(gate: MapGate): JsonNode =
++proc armedSnapshot(map: BodyMap): ZoneDamageSnapshot
++
++proc activationRow(gate: MapGate; gunRange = NavCorpusGunRangePx): JsonNode =
+   GC_fullCollect()
+   let rssBefore = rssBytes()
+   let mapStarted = getMonoTime()
+@@ -200,8 +213,16 @@ proc activationRow(gate: MapGate): JsonNode =
+   let index = newBodyRouteIndex(map)
+   let indexNs = indexStarted.elapsedNs
+   let deleted = index.followingPayloadBytes
++  let hazardStarted = getMonoTime()
++  let overlay = newBodyHazardOverlay(index, map.armedSnapshot)
++  let hazardNs = hazardStarted.elapsedNs
++  let cacheStarted = getMonoTime()
++  let cache = newBodySafeCache()
++  cache.refreshSafeCache(index, overlay, 0, 1)
++  let cacheNs = cacheStarted.elapsedNs
+   let navStarted = getMonoTime()
+-  let nav = newBodyNavSystem(map, 32, 331, preparedRouteIndex = index)
++  let nav = newBodyNavSystem(map, 32, gunRange, preparedRouteIndex = index)
++  nav.installSafetyContext(overlay, cache)
+   let navNs = navStarted.elapsedNs
+   GC_fullCollect()
+   let rssAfter = rssBytes()
+@@ -235,16 +256,28 @@ proc activationRow(gate: MapGate): JsonNode =
+       pops += nav.runRouteScheduler(sample)
+     querySamples.add started.elapsedNs
+     queryPops.add int64(pops)
++  let bytes = nav.retainedNavigationBytes
++  # Include all allocator overhead as a conservative bound, even the seat
++  # allocations, so shared storage cannot disappear into a reporting category.
++  let sharedUpperBound = bytes.systemOwner + bytes.routeIndex +
++    bytes.safetyScratch + bytes.hazardOverlay + bytes.safeCache +
++    bytes.mixedGraph + bytes.packedWeightScratch +
++    bytes.sharedDangerGeometry +
++    bytes.trace + bytes.allocatorOverhead
++  const PoolSharedCap = 16'i64 * 1024 * 1024
+   %*{"map": gate.label, "colossal": gate.colossal,
+     "body_map_activation_ns": mapNs, "route_index_activation_ns": indexNs,
+     "mixed_nav_activation_ns": navNs,
+-    "total_activation_ns": mapNs + indexNs + navNs,
++    "hazard_activation_ns": hazardNs, "safe_cache_activation_ns": cacheNs,
++    "total_activation_ns": mapNs + indexNs + hazardNs + cacheNs + navNs,
+     "rss_delta_bytes": max(0'i64, rssAfter - rssBefore),
+     "deleted_following_portal_next_bytes": deleted.portalNext,
+     "deleted_following_cells_bytes": deleted.cells,
+     "deleted_following_total_bytes": deleted.total,
+     "retained_cap_bytes": BodyNavigationRetainedCap,
+-    "retained": bytesJson(nav.navigationBytes),
++    "retained": bytesJson(bytes),
++    "shared_retained_upper_bound_bytes": sharedUpperBound,
++    "pool_shared_cap_bytes": PoolSharedCap,
+     "far_query_samples_ns": querySamples.nsArray, "far_query_pops": queryPops,
+     "far_query_p50_ns": querySamples.percentile(0.5),
+     "far_query_p95_ns": querySamples.percentile(0.95),
+@@ -253,16 +286,24 @@ proc activationRow(gate: MapGate): JsonNode =
+     "far_query_max_pops": max(queryPops),
+     "far_query_span_count": nav.seats[11].installedRoute.spanCount,
+     "far_query_point_count": nav.seats[11].installedRoute.pointCount,
+-    "pass": nav.navigationBytes.total <= BodyNavigationRetainedCap}
++    "pass": bytes.total <= BodyNavigationRetainedCap and
++      (gate.colossal or sharedUpperBound <= PoolSharedCap)}
++
++proc activationResult(gate: MapGate; gunRange = NavCorpusGunRangePx): JsonNode =
++  try:
++    activationRow(gate, gunRange)
++  except BodyMapError as error:
++    %*{"map": gate.label, "colossal": gate.colossal,
++      "activation_error": error.msg, "pass": false}
+ 
+ proc runActivationGate(pool: JsonNode; onlyPool: int): JsonNode =
+   var rows = newJArray()
+   for poolIndex in 0 ..< pool.len:
+     if onlyPool >= 0 and poolIndex != onlyPool: continue
+     stderr.writeLine &"activation {poolIndex + 1}/{pool.len}"
+-    rows.add activationRow(loadPoolMap(pool, poolIndex))
++    rows.add activationResult(loadPoolMap(pool, poolIndex))
+   stderr.writeLine "activation colossal"
+-  rows.add activationRow(colossalMap())
++  rows.add activationResult(colossalMap())
+   %*{"maps": rows, "pass": rows.elems.allIt(it["pass"].getBool())}
+ 
+ proc armedSnapshot(map: BodyMap): ZoneDamageSnapshot =
+@@ -302,14 +343,16 @@ proc tickFrames(map: BodyMap, positions: openArray[BodyPoint],
+         rotateTarget: some(navigationTarget)))
+ 
+ proc tickRow(gameMap: CtfMap, rosterSize: int, scenario: NavGateScenario,
+-    start, nearGoal, farGoal: BodyPoint): JsonNode =
++    start, nearGoal, farGoal: BodyPoint; gunRange: int): JsonNode =
+   let map = newBodyMap(gameMap)
+   let index = newBodyRouteIndex(map)
+   let overlay = newBodyHazardOverlay(index, map.armedSnapshot)
+   var episode = initShellEpisode(true, true, playControls(rosterSize), map,
+-    331, hazard = overlay, preparedRouteIndex = index)
++    gunRange, hazard = overlay, preparedRouteIndex = index)
+   var tick = 1
+   var positions = newSeq[BodyPoint](rosterSize)
++  var masksPerTick = newSeq[int16]((TickWarmups + TickSamples + 1) * rosterSize)
++  for mask in masksPerTick.mitems: mask = -1
+   var samples, navSamples, routeSearchSamples, requestSamples,
+     weightSamples, waypointSamples, routeAdvanceSamples, steeringSamples,
+     followerSamples, weaponSamples, dangerSamples, planningSamples,
+@@ -318,8 +361,10 @@ proc tickRow(gameMap: CtfMap, rosterSize: int, scenario: NavGateScenario,
+     searchNsPerPop, requestSubmissions, requestAdmissions,
+     routeCompletions, weightRefreshes: seq[int64]
+   for position in positions.mitems: position = start
+-  discard episode.step(tickFrames(map, positions, nearGoal, farGoal, tick),
++  let initial = episode.step(tickFrames(map, positions, nearGoal, farGoal, tick),
+     uint32(tick), 0)
++  for mask in initial.masks:
++    masksPerTick[mask.seat.int] = int16(encodeInputMask(mask.input))
+   for sample in 0 ..< TickWarmups + TickSamples:
+     inc tick
+     let target = if scenario == ngsMovingGoals and
+@@ -332,6 +377,9 @@ proc tickRow(gameMap: CtfMap, rosterSize: int, scenario: NavGateScenario,
+     of ngsMovingGoals: discard
+     let output = episode.step(tickFrames(map, positions, target, farGoal, tick),
+       uint32(tick), sample)
++    for mask in output.masks:
++      masksPerTick[(sample + 1) * rosterSize + mask.seat.int] =
++        int16(encodeInputMask(mask.input))
+     if scenario != ngsStuckReplans:
+       for mask in output.masks:
+         let bits = encodeInputMask(mask.input)
+@@ -344,7 +392,8 @@ proc tickRow(gameMap: CtfMap, rosterSize: int, scenario: NavGateScenario,
+     if sample >= TickWarmups:
+       samples.add output.bodySliceNanoseconds
+       let
+-        timing = episode.nav.timing
++        timing = when defined(bodyNavBreakdown): episode.nav.timing
++                 else: BodyNavTiming()
+         routeSearch = timing.routePopNanoseconds
+         requestOverhead = timing.requestSubmitNanoseconds +
+           timing.schedulerRestartNanoseconds +
+@@ -384,6 +433,7 @@ proc tickRow(gameMap: CtfMap, rosterSize: int, scenario: NavGateScenario,
+   %*{"roster_size": rosterSize, "scenario": $scenario,
+     "warmups": TickWarmups, "sample_count": TickSamples,
+     "samples_ns": samples.nsArray, "pops_per_tick": pops,
++    "masks_per_tick": masksPerTick, "mask_ticks": TickWarmups + TickSamples + 1,
+     "nav_samples_ns": navSamples.nsArray,
+     "route_search_samples_ns": routeSearchSamples.nsArray,
+     "request_overhead_samples_ns": requestSamples.nsArray,
+@@ -445,7 +495,7 @@ proc tickRow(gameMap: CtfMap, rosterSize: int, scenario: NavGateScenario,
+     "p95_limit_ns": TickP95LimitNs, "max_limit_ns": TickMaxLimitNs,
+     "pass": p95 <= TickP95LimitNs and maximum <= TickMaxLimitNs}
+ 
+-proc runTickGate(corpus: NavCorpus, pool: JsonNode): JsonNode =
++proc runTickGate(corpus: NavCorpus, pool: JsonNode; gunRange: int): JsonNode =
+   let loaded = loadPoolMap(pool, 15)
+   var start, nearGoal, farGoal: BodyPoint
+   var foundNear, foundFar: bool
+@@ -461,7 +511,253 @@ proc runTickGate(corpus: NavCorpus, pool: JsonNode): JsonNode =
+   for rosterSize in [16, 32]:
+     for scenario in NavGateScenario:
+       stderr.writeLine &"tick roster={rosterSize} scenario={scenario}"
+-      rows.add tickRow(loaded.gameMap, rosterSize, scenario, start, nearGoal, farGoal)
++      rows.add tickRow(loaded.gameMap, rosterSize, scenario, start, nearGoal, farGoal, gunRange)
++  %*{"maps": rows, "pass": rows.elems.allIt(it["pass"].getBool())}
++
++proc runConfiguredTick(onlyPool: int): JsonNode =
++  ## Extend coverage to the checked-in variant; keep the frozen corpus intact.
++  let manifestText = readFile("coworld_manifest_paintbot.json")
++  let manifest = parseJson(manifestText)
++  var config: JsonNode
++  for variant in manifest["variants"]:
++    if variant["id"].getStr() == "battle-royale-s2":
++      config = variant["game_config"]
++  if config == nil or config["mapPath"].getStr() != BrPoolMapName16:
++    raise newException(ValueError, "configured tick requires battle-royale-s2 brpool16")
++  let gunRange = config["gunRange"].getInt()
++  let poolText = readFile(BrS2SoloMapPoolPath)
++  let pool = parseJson(poolText)
++  if onlyPool >= pool.len:
++    raise newException(ValueError, "configured pool index out of range")
++  var rows = newJArray()
++  var passed = true
++  for poolIndex, spec in pool.elems:
++    if onlyPool >= 0 and poolIndex != onlyPool: continue
++    let gameMap = mapFromSpecJson($spec)
++    let label = "configured:" & $poolIndex & ":" & spec["name"].getStr()
++    stderr.writeLine label
++    let pairs = block:
++      let map = newBodyMap(gameMap)
++      selectPairs(map)
++    let start = pairs[ncrNear].start
++    let nearGoal = pairs[ncrNear].goal
++    let farGoal = pairs[ncrFar].goal
++    let allocation = activationRow(MapGate(label: label, gameMap: gameMap), gunRange)
++    var ticks = newJArray()
++    for rosterSize in [16, 32]:
++      for scenario in NavGateScenario:
++        ticks.add tickRow(gameMap, rosterSize, scenario, start, nearGoal, farGoal, gunRange)
++    let mapPassed = allocation["pass"].getBool() and
++      ticks.elems.allIt(it["pass"].getBool())
++    passed = passed and mapPassed
++    rows.add %*{"map": label, "map_sha256": sha256Text($spec),
++      "start": [start.x, start.y], "near_goal": [nearGoal.x, nearGoal.y],
++      "far_goal": [farGoal.x, farGoal.y], "activation": allocation,
++      "tick": ticks, "pass": mapPassed}
++  %*{"variant_id": "battle-royale-s2", "map_path": config["mapPath"].getStr(),
++    "manifest_sha256": sha256Text(manifestText),
++    "pool_path": BrS2SoloMapPoolPath, "pool_sha256": sha256Text(poolText),
++    "gun_range_px": gunRange, "maps": rows, "pass": passed}
++
++type
++  LatencySeatOutcome = object
++    seat: int
++    ticksToRoute: int        # 0 until a route is published in this wave
++    installedRevision: uint64
++    requestRevision: uint64  # seat.revision at wave end (counts requests)
++    pointCount: int32
++    fingerprint: int64
++    replacements: uint32
++    firstWaitTick: int32
++    lifecycle: BodyRouteLifecycle
++    lastQuerySucceeded: bool
++    lastFailure: BodyRouteFailure
++  LatencyWave = object
++    wave: int
++    far, measured: bool
++    ticksUsed: int
++    capHit: bool
++    seats: seq[LatencySeatOutcome]
++    completionOrder: seq[int]
++    tickSamples: seq[int64]
++    # Scheduler counters summed over the wave; measured only when the
++    # breakdown clocks are compiled in, otherwise left at zero.
++    restarts, admissions, completions, weightRefreshes, pops: int64
++
++proc runLatencyWaves(gameMap: CtfMap, rosterSize: int,
++    start, nearGoal, farGoal: BodyPoint): seq[LatencyWave] =
++  ## Completion is the publication marker `installedRoute.revision`, which
++  ## `resetNavigationLife` zeroes and `installMixedRoute` writes last with the
++  ## request generation it satisfied. `seat.revision` counts requests (it is
++  ## bumped on submission and also zeroed by the reset), so it cannot mark
++  ## completion; it is recorded so a superseded first request is visible.
++  let map = newBodyMap(gameMap)
++  let index = newBodyRouteIndex(map)
++  let overlay = newBodyHazardOverlay(index, map.armedSnapshot)
++  var episode = initShellEpisode(true, true, playControls(rosterSize), map,
++    331, hazard = overlay, preparedRouteIndex = index)
++  var tick = 1
++  var positions = newSeq[BodyPoint](rosterSize)
++  for position in positions.mitems: position = start
++  discard episode.step(tickFrames(map, positions, farGoal, farGoal, tick),
++    uint32(tick), 0)
++  for wave in 0 ..< LatencyWarmupWaves + LatencyMeasuredWaves:
++    let measuredIndex = wave - LatencyWarmupWaves
++    var row = LatencyWave(wave: wave, measured: wave >= LatencyWarmupWaves,
++      far: wave < LatencyWarmupWaves or measuredIndex mod 2 == 0)
++    let target = if row.far: farGoal else: nearGoal
++    for position in positions.mitems: position = start
++    for seat in 0 ..< rosterSize: episode.nav.resetNavigationLife(seat)
++    row.seats = newSeq[LatencySeatOutcome](rosterSize)
++    for seat in 0 ..< rosterSize: row.seats[seat].seat = seat
++    var completed = 0
++    var waveTick = 0
++    while completed < rosterSize and waveTick < LatencyWaveTickCap:
++      inc waveTick
++      inc tick
++      let output = episode.step(tickFrames(map, positions, target, farGoal,
++        tick), uint32(tick), waveTick)
++      row.tickSamples.add output.bodySliceNanoseconds
++      row.pops += int64(episode.nav.routePopsLastTick)
++      when defined(bodyNavBreakdown):
++        row.restarts += int64(episode.nav.timing.schedulerRestarts)
++        row.admissions += int64(episode.nav.timing.requestAdmissions)
++        row.completions += int64(episode.nav.timing.routeCompletions)
++        row.weightRefreshes += int64(episode.nav.timing.weightRefreshes)
++      for mask in output.masks:
++        let bits = encodeInputMask(mask.input)
++        var next = positions[mask.seat.int]
++        if (bits and ButtonLeft) != 0: next.x -= 4
++        if (bits and ButtonRight) != 0: next.x += 4
++        if (bits and ButtonUp) != 0: next.y -= 4
++        if (bits and ButtonDown) != 0: next.y += 4
++        if map.canStand(next): positions[mask.seat.int] = next
++      for seat in 0 ..< rosterSize:
++        if row.seats[seat].ticksToRoute != 0: continue
++        let nav = episode.nav.seats[seat]
++        if nav.installedRoute.revision != 0:
++          row.seats[seat].ticksToRoute = waveTick
++          row.seats[seat].installedRevision = nav.installedRoute.revision
++          row.seats[seat].pointCount = nav.installedRoute.pointCount
++          row.seats[seat].fingerprint = int64(nav.installedRouteFingerprint)
++          row.completionOrder.add seat
++          inc completed
++    row.ticksUsed = waveTick
++    row.capHit = completed < rosterSize
++    for seat in 0 ..< rosterSize:
++      let nav = episode.nav.seats[seat]
++      row.seats[seat].requestRevision = nav.revision
++      row.seats[seat].replacements = nav.pendingRoute.replacements
++      row.seats[seat].firstWaitTick = nav.pendingRoute.firstWaitTick
++      row.seats[seat].lifecycle = nav.pendingRoute.lifecycle
++      row.seats[seat].lastQuerySucceeded = nav.lastQuerySucceeded
++      row.seats[seat].lastFailure = nav.lastQueryFailure
++    result.add row
++  episode.closeShellEpisode()
++
++proc sameLatencyOutcome(a, b: seq[LatencyWave]): bool =
++  if a.len != b.len: return false
++  for wave in 0 ..< a.len:
++    if a[wave].ticksUsed != b[wave].ticksUsed or
++        a[wave].capHit != b[wave].capHit or
++        a[wave].completionOrder != b[wave].completionOrder or
++        a[wave].seats.len != b[wave].seats.len:
++      return false
++    for seat in 0 ..< a[wave].seats.len:
++      let x = a[wave].seats[seat]
++      let y = b[wave].seats[seat]
++      if x.ticksToRoute != y.ticksToRoute or
++          x.installedRevision != y.installedRevision or
++          x.requestRevision != y.requestRevision or
++          x.pointCount != y.pointCount or x.fingerprint != y.fingerprint or
++          x.replacements != y.replacements or x.lifecycle != y.lifecycle or
++          x.lastFailure != y.lastFailure:
++        return false
++  true
++
++proc latencyRow(gameMap: CtfMap, rosterSize: int,
++    start, nearGoal, farGoal: BodyPoint): JsonNode =
++  let first = runLatencyWaves(gameMap, rosterSize, start, nearGoal, farGoal)
++  let second = runLatencyWaves(gameMap, rosterSize, start, nearGoal, farGoal)
++  let deterministic = sameLatencyOutcome(first, second)
++  var farSamples, nearSamples: seq[int]
++  var tickSamples: seq[int64]
++  var capHits, unpublished, superseded, failed = 0
++  var waves = newJArray()
++  for wave in first:
++    var seats = newJArray()
++    for outcome in wave.seats:
++      let published = outcome.ticksToRoute != 0 and outcome.pointCount > 0
++      if wave.measured:
++        if published:
++          if wave.far: farSamples.add outcome.ticksToRoute
++          else: nearSamples.add outcome.ticksToRoute
++        else:
++          inc unpublished
++        # Revision 1 is the first request after the wave's reset; a published
++        # route with a higher revision means that first request was replaced.
++        if published and outcome.installedRevision != 1:
++          inc superseded
++        if not published and outcome.lastFailure != brfNone:
++          inc failed
++      seats.add %*{"seat": outcome.seat, "published": published,
++        "ticks_to_route": outcome.ticksToRoute,
++        "installed_revision": outcome.installedRevision,
++        "request_revision": outcome.requestRevision,
++        "point_count": outcome.pointCount, "fingerprint": outcome.fingerprint,
++        "replacements": outcome.replacements,
++        "first_wait_tick": outcome.firstWaitTick,
++        "lifecycle_at_end": $outcome.lifecycle,
++        "last_query_succeeded": outcome.lastQuerySucceeded,
++        "last_failure": $outcome.lastFailure}
++    if wave.measured:
++      inc capHits, ord(wave.capHit)
++      for sample in wave.tickSamples: tickSamples.add sample
++    waves.add %*{"wave": wave.wave, "goal": (if wave.far: "far" else: "near"),
++      "measured": wave.measured, "ticks_used": wave.ticksUsed,
++      "cap_hit": wave.capHit, "completion_order": wave.completionOrder,
++      "pops": wave.pops, "scheduler_restarts": wave.restarts,
++      "request_admissions": wave.admissions,
++      "route_completions": wave.completions,
++      "weight_refreshes": wave.weightRefreshes,
++      "counters_measured": defined(bodyNavBreakdown), "seats": seats}
++  let pass = deterministic and capHits == 0 and unpublished == 0
++  %*{"roster_size": rosterSize, "warmup_waves": LatencyWarmupWaves,
++    "measured_waves": LatencyMeasuredWaves, "wave_tick_cap": LatencyWaveTickCap,
++    "pop_budget_per_tick": BodyRoutePopBudgetPerTick,
++    "far_ticks_to_route_samples": farSamples,
++    "far_ticks_to_route_p50": farSamples.percentile(0.5),
++    "far_ticks_to_route_p95": farSamples.percentile(0.95),
++    "far_ticks_to_route_max": (if farSamples.len > 0: max(farSamples) else: 0),
++    "near_ticks_to_route_samples": nearSamples,
++    "near_ticks_to_route_p50": nearSamples.percentile(0.5),
++    "near_ticks_to_route_p95": nearSamples.percentile(0.95),
++    "near_ticks_to_route_max": (if nearSamples.len > 0: max(nearSamples) else: 0),
++    "cap_hits": capHits, "unpublished_seat_waves": unpublished,
++    "superseded_before_install": superseded,
++    "failed_unpublished": failed, "deterministic": deterministic,
++    "wave_tick_samples_ns": tickSamples.nsArray,
++    "wave_tick_p50_ns": tickSamples.percentile(0.5),
++    "wave_tick_p95_ns": tickSamples.percentile(0.95),
++    "wave_tick_max_ns": (if tickSamples.len > 0: max(tickSamples) else: 0'i64),
++    "tick_timing_gated": false, "waves": waves, "pass": pass}
++
++proc runLatencyGate(corpus: NavCorpus, pool: JsonNode): JsonNode =
++  let loaded = loadPoolMap(pool, 15)
++  var start, nearGoal, farGoal: BodyPoint
++  var foundNear, foundFar: bool
++  for item in corpus.cases:
++    if item.poolIndex == 15 and item.rosterSize == 16 and
++        item.profile == ncpDefault and item.dynamic == ncdNone:
++      start = item.start
++      if item.distance == ncrNear: nearGoal = item.validatedGoal; foundNear = true
++      else: farGoal = item.validatedGoal; foundFar = true
++  if not foundNear or not foundFar:
++    raise newException(ValueError, "latency corpus anchors are missing")
++  var rows = newJArray()
++  for rosterSize in [16, 32]:
++    stderr.writeLine &"latency roster={rosterSize}"
++    rows.add latencyRow(loaded.gameMap, rosterSize, start, nearGoal, farGoal)
+   %*{"maps": rows, "pass": rows.elems.allIt(it["pass"].getBool())}
+ 
+ proc metadata(corpus: NavCorpus, canonical: bool): JsonNode =
+@@ -477,17 +773,21 @@ proc metadata(corpus: NavCorpus, canonical: bool): JsonNode =
+     raise newException(ValueError, &"canonical run refused: commit={commit} " &
+       &"dirty={dirty} platform={platform} cpu_limit={cpuLimit} image_id={imageId}")
+   %*{"commit": commit, "dirty": dirty, "nim_version": NimVersion,
++    "body_nav_breakdown": defined(bodyNavBreakdown),
+     "os_arch": platform, "compile_flags": CanonicalFlags,
+     "image_id": imageId, "cpu_limit": cpuLimit,
+     "pool_digest": corpus.poolSha256, "canonical": canonical}
+ 
+ proc usage() =
+-  echo "usage: bench_body_nav_rework --quality|--activation|--tick|--all " &
+-    "[--corpus PATH] [--pool-index N]"
++  echo "usage: bench_body_nav_rework --quality|--activation|--tick|--configured-tick|--latency|" &
++    "--all [--corpus PATH] [--pool-index N] [--tick-gun-range PX]"
++  echo "--pool-index selects the configured pool under --configured-tick, " &
++    "otherwise the frozen corpus pool; --tick-gun-range only affects --tick."
+ 
+ when isMainModule:
+-  var runQuality, runActivation, runTick, canonical: bool
++  var runQuality, runActivation, runTick, runLatency, runConfigured, canonical: bool
+   var onlyPool = -1
++  var tickGunRange = NavCorpusGunRangePx
+   var corpusPath = "tests/fixtures/shell/nav_route_corpus.json"
+   var index = 1
+   while index <= paramCount():
+@@ -495,6 +795,8 @@ when isMainModule:
+     of "--quality": runQuality = true
+     of "--activation": runActivation = true
+     of "--tick": runTick = true
++    of "--configured-tick": runConfigured = true
++    of "--latency": runLatency = true
+     of "--all":
+       # Docker's linux/amd64 run is emulated on the development arm64 host.
+       # Keep cross-architecture correctness, determinism, activation, and
+@@ -507,6 +809,12 @@ when isMainModule:
+       inc index
+       if index > paramCount(): usage(); quit(2)
+       corpusPath = paramStr(index)
++    of "--tick-gun-range":
++      inc index
++      if index > paramCount(): usage(); quit(2)
++      tickGunRange = parseInt(paramStr(index))
++      if tickGunRange <= 0:
++        raise newException(ValueError, "tick gun range must be positive")
+     of "--pool-index":
+       inc index
+       if index > paramCount(): usage(); quit(2)
+@@ -514,7 +822,8 @@ when isMainModule:
+     of "--help", "-h": usage(); quit(0)
+     else: usage(); quit(2)
+     inc index
+-  if not runQuality and not runActivation and not runTick: usage(); quit(2)
++  if not runQuality and not runActivation and not runTick and
++      not runLatency and not runConfigured: usage(); quit(2)
+   if canonical and onlyPool >= 0:
+     raise newException(ValueError, "canonical --all does not accept --pool-index")
+   let corpus = loadNavRouteCorpus(corpusPath)
+@@ -526,6 +835,9 @@ when isMainModule:
+       "retained_cap_bytes": BodyNavigationRetainedCap,
+       "tick_p95_ns": TickP95LimitNs, "tick_max_ns": TickMaxLimitNs}}
+   var passed = true
++  if runConfigured:
++    root["configured_tick"] = runConfiguredTick(onlyPool)
++    passed = passed and root["configured_tick"]["pass"].getBool()
+   if runQuality:
+     root["quality"] = runRouteCorpusGate(corpus, pool, onlyPool)
+     passed = passed and root["quality"]["pass"].getBool()
+@@ -533,8 +845,14 @@ when isMainModule:
+     root["activation"] = runActivationGate(pool, onlyPool)
+     passed = passed and root["activation"]["pass"].getBool()
+   if runTick:
+-    root["tick"] = runTickGate(corpus, pool)
++    startProfileTrace()
++    root["tick"] = runTickGate(corpus, pool, tickGunRange)
++    root["tick"]["gun_range_px"] = %tickGunRange
++    finishProfileTrace()
+     passed = passed and root["tick"]["pass"].getBool()
++  if runLatency:
++    root["latency"] = runLatencyGate(corpus, pool)
++    passed = passed and root["latency"]["pass"].getBool()
+   root["pass"] = %passed
+   echo pretty(root)
+   if not passed: quit(1)
+diff --git a/tools/build_nav_route_corpus.nim b/tools/build_nav_route_corpus.nim
+index 9bdffc0..b370923 100644
+--- a/tools/build_nav_route_corpus.nim
++++ b/tools/build_nav_route_corpus.nim
+@@ -16,8 +16,8 @@ const
+   CandidateCount = 17
+ 
+ type
+-  SelectedPair = object
+-    start, goal: BodyPoint
++  SelectedPair* = object
++    start*, goal*: BodyPoint
+     route: seq[BodyPoint]
+     length: float64
+ 
+@@ -26,9 +26,9 @@ proc pathLength(route: openArray[BodyPoint]): float64 =
+     result += hypot((route[index].x - route[index - 1].x).float,
+                     (route[index].y - route[index - 1].y).float)
+ 
+-proc selectPairs(map: BodyMap): array[NavCorpusDistance, SelectedPair] =
+-  ## Selection runs only in this explicit writer. The checked-in coordinates,
+-  ## not this sampling procedure, are corpus truth.
++proc selectPairs*(map: BodyMap): array[NavCorpusDistance, SelectedPair] =
++  ## Shared by this explicit writer and configured-map diagnostic benchmarks.
++  ## The checked-in coordinates, not this procedure, remain corpus truth.
+   var start: BodyPoint
+   var foundStart = false
+   for y in countup(0, map.height - 1, PlanStepPx):

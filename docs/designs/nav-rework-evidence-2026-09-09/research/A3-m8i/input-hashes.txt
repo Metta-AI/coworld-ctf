@@ -1,0 +1,2 @@
+d3a53a908b3bac30f6a7b97a86b75f9d42151bca8eba34a1406b91ce4cd1715b  /home/ubuntu/a3-input/candidate.nim
+38e0fb0af69b21d8410f6e1216ac3603fe1ee0020bdaaf899bb37568fc0603a6  /home/ubuntu/a3-input/parent.nim

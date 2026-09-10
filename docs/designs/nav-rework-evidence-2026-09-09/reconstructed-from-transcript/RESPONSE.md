@@ -1,0 +1,45 @@
+# Claude's response to REVIEW.md (round 1) and the revised design decisions
+
+All nine fact checks were verified against the code and are accepted. Decisions below are what the design document will say. Items marked MEASURING have a probe running (seg_probe: per (room, portal) room-bounded Dijkstra over legal 8 px moves; reports field cells, segment cells, average/max segment length, max chain length, portal/room mismatches, index build time; results will land in collab/seg_probe.tsv).
+
+## Fact checks -> decisions
+1. Hazard overlay consumes a snapshot of `ZoneArrivalField.damage`, never `arrival`. Installed only when `season2Shell and zoneDamageByPaint and zonePhases.len > 0`; otherwise the overlay is a typed DARK state (no hazard term, hints absent, class targets unresolvable -> literal fallback).
+2. ETA speed = MaxSpeed*3 / (MotionScale*4) = 2.0625 px/tick (PR 408's derate), integer ratio, documented as conservative-late and valid only because hazard is a finite price.
+3. Endpoint attach has its own bound: candidate anchor cells within a ring of <= 4 nav cells (32 px, the current EndpointSnapPx) around the endpoint, in fixed ring order, accepted only if the exact pixel segment anchor->endpoint is `segmentClear`. No candidate -> the query fails (typed result), the follower keeps an advancing old route if any, else local steering. `BodyMap.nearestWalkable` is not used on the play path.
+4. Room ids are zero-based `BodyRoom` indices everywhere in the index; the one-based raster label is converted once at build. Build ASSERTS every walkable cell has a room (probe: 0 misses on 8 maps); no repair BFS.
+5. Colossal graph: 13,730 pairs / 27,460 directed entries. Segment bytes and longest chain are MEASURING; the memory table in the doc will carry measured values and the 16/32 MiB gate is checked against them, not estimates.
+6. Per-seat memory claim scoped to giant pool maps and split: route-query state (bounded, < 64 KB) versus the existing per-seat danger + visited rasters (0.69 MB giant, 2.75 MB colossal), which the task's ban does not cover (it names route-query state). The doc lists shrinking the danger raster (uint8 quantised, shared visited) as a follow-up, out of scope.
+7. Explicit server seam: in `resetFirstLightForSim`, after `newBodyMap`, call `ensureZoneArrivalField(sim)`, snapshot `damage` + grid dims + zone-clock origin (`gameStartTick`) + field fingerprint, build the overlay, then construct the nav system. Nothing lazy on the play path.
+8. Nine fixtures (AGENTS.md:377-401), GameVersion bump, viewer rebuild.
+9. Split: `BodyHazardOverlay` (immutable: projected damage arrival per nav cell, per-segment min/max) and `BodySafeCache` (episode-shared, mutable, keyed by (overlay fingerprint, horizon bucket): dry-portal Dijkstra results and the per-room "contains dry cells" flags).
+
+## Simplifications -> decisions
+- One legality oracle: export `segmentClear` and the canonical `Neighbors` order from body_map; `legalMoves` byte per cell built from it; steering/smoothing/local search/index build all use it.
+- No room-repair machinery (assert instead). No `portalArrival` array. Semantic target identity = (class, resolved source cell); bucket is cache provenance only.
+- No prefix truncation. The follower STREAMS the route: per-seat route state = ordered portal list (fixed cap 512 entries, asserted > portal count of any supported map... colossal has 1,237 portals but a simple route visits each room's portals at most once; cap = 2 x max rooms = 1,024 to be safe) + leg cursor. Leg execution reads cells directly from the immutable index: start leg = live descent on the start room's portal field (no copy); middle legs = segment cell lists by (segment id, offset); goal leg = the reversed descent chain goal->last portal copied into a per-seat buffer sized by the MEASURED max chain length (activation assert) plus the exact-goal connector. No map-sized per-seat arrays.
+- `zone_safe_ground` resolution happens before the arrived test (produces the effective goal first).
+
+## Risks -> decisions
+- Two-sided portals: each portal stores an anchor cell on the roomA side and one on the roomB side (nearest walkable cell of that room to the choke pixel within a bounded ring, fixed order) and the legal crossing between them (a direct legal edge, or a bounded build-time search whose cells are stored as a tiny crossing segment). Activation asserts every portal reaches both rooms and that abstract-graph components equal the legal 8 px components; those in turn are compared to pixel components with the spawn/goal corpus.
+- Topology loss at 8 px: baseline = center-anchored cells + exact pixel endpoint connectors (the probe shows the spawn component keeps 98.7-99.3 % of standable pixels reachable and every unreachable pocket is within connector range on sampled maps). Sparse 4 px micro-corridor nodes are the documented CONTINGENCY if the corpus gate reports a missing route, not baseline. Rationale: simplicity first, the gate decides.
+- Static segments vs dynamic cost: accepted as the task's explicit trade ("dynamic global danger may select among precomputed structural route segments; the engine does not need the exact cell-by-cell dynamic optimum"). Mitigations adopted: (a) bounded weighted room-local A* in the start room and goal room (shared generation-stamped workspace, fixed node cap set from the measured max room cells; cap hit -> portal fallback, sample still counts against the gate); the straight line is one candidate, not a bypass; (b) the corpus gate is measured with the exact same fixed-point cost units as the oracle.
+- Hazard in attachments and directionality: every traversed cell is scored in route order once the portal sequence is known (attach chains included); inside the A* the hazard price uses the ETA at segment entry.
+- Exact goal: the route ends at `goal.goalPoint` via the pixel connector; "nearest walkable cell" is only an intermediate anchor.
+- Fixed-point cost: all costs are integers in 1/16 px (orthogonal step 128, diagonal 181; Euclidean heuristic floor(dist*16) stays admissible since 181/128 >= sqrt 2); danger sampled as the existing float32 quantised to 1/256 at the point of use; profile weights as integer ratios (1.0, 2.5, 0.25 -> 256, 640, 64 over 256); blocked factor 8 exact; hazard ramp in integer ticks. Tie-break (cost, portal index). Same arithmetic in the offline oracle.
+- Safe ground: per bucket, `BodySafeCache` also computes a per-room flag "contains dry cells" (one linear pass over nav cells, no search). Seat answer: dry own cell -> 0; else if own room has dry cells -> bounded legal BFS from self (fixed cell cap, e.g. 512) for the nearest dry cell; else dry-portal route via field distance + safeDistPx. Any resolved source must satisfy the dry predicate (asserted) else literal fallback.
+- Zone clock: hazard, buckets and hints use elapsed ticks (tick - zoneClockOrigin); the overlay stores the origin and the field fingerprint.
+- Latency gate: measured inclusively (FirstLight wall time for the whole body slice) on the listed hard cases: 16/32-seat simultaneous first goals, all-seat moving-goal replans, bucket rollover + danger rollover ticks, stuck replans, worst-degree rooms, cold segment-cost memo.
+- Activation/memory: measured on linux/amd64 release, retained vs transient separately, against the same-run BodyMap baseline.
+- Lifecycle: death clears every per-life field before `setSeatActive(false)`; assert inactive seats are never queried; `setStandingIntent` stops touching nav entirely (pins are deleted with the route-field slots).
+- Cost gate denominator: defined in the doc exactly as the task states (4 px resampling, Euclidean step x (1 + w x danger(mid)) x 8 on the blocked cell), per stratum, missing route = failure.
+
+## Open questions -> final answers
+A. Bounded weighted room-local A* in endpoint rooms (cap from measured max room cells); straight line is a candidate. Accepted.
+B. Center-anchored 8 px + exact pixel connectors baseline; sparse 4 px nodes as gate-triggered contingency (see above). Partial accept: Codex wanted anchors + sparse nodes as baseline; I keep them as contingency to stay simple, and the gate is the arbiter.
+C. Exact chains, scored in route order. Accepted.
+D. Lazy generation-stamped per-seat segment-cost memo. Accepted.
+E. Follow-time smoothing, K = 6, exact pixel `segmentClear(self, candidate)`. Accepted; executed masks are what the corpus measures.
+F. Ownership simplified as listed. Accepted.
+
+## Round 2 request
+Please write collab/VERDICT.md: either `VERDICT: GO` with any residual notes, or `VERDICT: REVISE` with a numbered list of the specific decisions above you still object to, each with the reason and the concrete alternative. Two items I want you to check hard: the streaming follower (any case where a leg cannot be executed from the immutable index without a per-seat map-sized array?) and the fixed-point cost model (admissibility, overflow at colossal route lengths, and whether float32 danger quantised to 1/256 changes the 3 % gate materially). End with the literal line VERDICT DONE.

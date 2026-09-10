@@ -1,0 +1,5 @@
+# A1: exact straight two-edge bridge shortcut
+
+Parent 872e5499, including retained A0. Before the existing bounded BFS, recognize adjacent anchors separated by exactly twice a NavNeighbors delta. If both existing fine-legality bits are set in that direction, return the midpoint and target. For an axis displacement the cardinal first hop precedes competing diagonal first hops in BFS order; for a diagonal displacement the two-hop route is unique. All other cases use the unchanged BFS. No graph layout, cost, query, budget or memory-cap change.
+
+First run focused navigation tests and independent peer source review. Native m8i CPU 5: compare every graph array on all 76 maps, then three interleaved 65-map activation pairs, full 3072-case quality, and one configured 11-map diagnostic. Retain all build/source/binary identities and raw results. Accept only exact graph/route identity and a repeatable construction improvement; evaluate activation ratios separately from the memory-only activation pass field. This is an activation experiment, not a tick throughput claim. Rebuild viewer and check both server shapes before its source checkpoint.
