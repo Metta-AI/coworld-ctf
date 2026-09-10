@@ -163,14 +163,20 @@ proc roundedRayCoordinate(lower, remainder, steps: int): int {.inline.} =
     lower
 
 proc advanceRayCoordinate(lower, remainder: var int;
-    delta, steps: int) {.inline.} =
-  remainder += delta
-  if remainder < 0:
-    remainder += steps
-    dec lower
-  elif remainder >= steps:
-    remainder -= steps
-    inc lower
+    delta, steps, advance: int) {.inline.} =
+  if advance == 1:
+    remainder += delta
+    if remainder < 0:
+      remainder += steps
+      dec lower
+    elif remainder >= steps:
+      remainder -= steps
+      inc lower
+  else:
+    let accumulated = remainder.int64 + delta.int64 * advance.int64
+    let whole = floorDiv(accumulated, steps.int64)
+    lower += whole.int
+    remainder = (accumulated - whole * steps.int64).int
 
 proc rayClear*(map: BodyMap, a, b: BodyPoint): bool =
   ## Same nearest-pixel samples and ties-to-even as the floating interpolant.
@@ -183,30 +189,42 @@ proc rayClear*(map: BodyMap, a, b: BodyPoint): bool =
     steps = max(abs(dx), abs(dy))
   if steps == 0:
     return not map.isWall(a)
-  # The major axis has an integer coordinate at every sample; only the
-  # minor axis needs rounding and a remainder correction.
+  # Consecutive samples move at most one pixel per axis. The immutable
+  # Chebyshev clearance therefore bounds how many samples are known clear;
+  # saturation at 255 only shortens a safe jump. The major axis is integral,
+  # and the minor axis retains the exact nearest/ties-even remainder state.
   if abs(dx) >= abs(dy):
     var x = a.x
     var lowerY = a.y
     var remainderY = 0
     let stepX = cmp(dx, 0)
-    for step in 0 .. steps:
+    var sample = 0
+    while sample <= steps:
       let y = roundedRayCoordinate(lowerY, remainderY, steps)
-      if map.wall[map.pixelIndex(x, y)]:
+      let clearSteps = map.clearance[map.pixelIndex(x, y)].int
+      if clearSteps == 0:
         return false
-      x += stepX
-      advanceRayCoordinate(lowerY, remainderY, dy, steps)
+      if clearSteps > steps - sample:
+        return true
+      sample += clearSteps
+      x += stepX * clearSteps
+      advanceRayCoordinate(lowerY, remainderY, dy, steps, clearSteps)
   else:
     var y = a.y
     var lowerX = a.x
     var remainderX = 0
     let stepY = cmp(dy, 0)
-    for step in 0 .. steps:
+    var sample = 0
+    while sample <= steps:
       let x = roundedRayCoordinate(lowerX, remainderX, steps)
-      if map.wall[map.pixelIndex(x, y)]:
+      let clearSteps = map.clearance[map.pixelIndex(x, y)].int
+      if clearSteps == 0:
         return false
-      y += stepY
-      advanceRayCoordinate(lowerX, remainderX, dx, steps)
+      if clearSteps > steps - sample:
+        return true
+      sample += clearSteps
+      y += stepY * clearSteps
+      advanceRayCoordinate(lowerX, remainderX, dx, steps, clearSteps)
   true
 
 proc clearanceAt*(map: BodyMap, point: BodyPoint): int =

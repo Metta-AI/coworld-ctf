@@ -56,3 +56,21 @@ suite "weapon ray sampling":
       let b = (rng.rand(Width - 1), rng.rand(Height - 1))
       check map.rayClear(a, b) == map.referenceRay(a, b)
       check map.rayClear(b, a) == map.referenceRay(b, a)
+
+  test "clearance jumps preserve walls, borders and saturated distances":
+    const Side = 640
+    var pixels = newSeq[bool](Side * Side)
+    for value in pixels.mitems: value = true
+    pixels[320 * Side + 600] = false
+    pixels[600 * Side + 320] = false
+    let map = newBodyMap(pixels, Side, Side, 1, @[(32, 32)])
+    check map.clearanceAt((300, 300)) == 255
+    check map.clearanceAt((500, 320)) == 100
+    check map.clearanceAt((500, 220)) == 100
+    check map.clearanceAt((501, 221)) == 99
+    let points = [(0, 0), (0, 1), (1, 0), (2, 1), (1, 2),
+      (300, 300), (500, 320), (500, 220), (501, 221),
+      (600, 320), (320, 600), (639, 359), (359, 639), (639, 639)]
+    for a in points:
+      for b in points:
+        check map.rayClear(a, b) == map.referenceRay(a, b)

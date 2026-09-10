@@ -44,3 +44,5 @@ Append results; do not erase negatives. All numbers are observed, not inferred p
 - R1: Worst m5a1300px p95/max10.367423/10.601260 ->7.984246/8.777049ms; all masks/pops and corpus unchanged. Count shared table memory. See R1_REPORT.md.
 
 - W6: Worst m5a p95/max8.201069/8.788592 ->5.960683/6.704114ms; all masks/pops and full corpus unchanged. See W6_REPORT.md.
+
+- W7: Weapon p95 improves3.206897->0.638566ms; worst body p95 does not improve. All masks/pops and corpus unchanged; clearance invariants pass261581865 pixels. Preserve failed verifier attempt. See W7_REPORT.md.
