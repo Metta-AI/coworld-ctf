@@ -1,0 +1,4 @@
+range=331 bitmap_entry_bytes=904 list_bytes=43080 capacity=5385 sharedDangerSourceCache=2816056 payload=2814976 object_bytes=1080
+range=1050 bitmap_entry_bytes=8784 list_bytes=433384 capacity=54173 sharedDangerSourceCache=28299832 payload=28298752 object_bytes=1080
+range=1300 bitmap_entry_bytes=13368 list_bytes=433384 capacity=54173 sharedDangerSourceCache=28593208 payload=28592128 object_bytes=1080
+range=1600 bitmap_entry_bytes=20104 list_bytes=433384 capacity=54173 sharedDangerSourceCache=29024312 payload=29023232 object_bytes=1080

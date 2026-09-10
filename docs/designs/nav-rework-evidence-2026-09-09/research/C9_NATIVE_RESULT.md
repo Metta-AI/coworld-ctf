@@ -1,10 +1,10 @@
-# C9 native micro: m8i complete, m5a replication pending
+# C9 native micro: both hosts pass
 
 Root ran `run_c9_owned.sh` on CPU5 of owned m8i, five fresh processes per map/range, with frozen C2 parent and rotating operation order. All 40 rows exact; all eight median configurations pass the registered limits. At 1300px conversion adds 0.236930–0.243910 of bitmap replay and subsequent list replay costs 0.464807–0.479957 of bitmap. At331px conversion adds0.260737–0.269084 and list costs0.389144–0.499532; see exact JSON rather than rounded endpoints here. No timing defines or production changes. Native generated conversion/replay functions contain no eqcopy/eqdestroy. Source restored cleanly, DONE retrieved.
 
 Artifacts: `C9-micro-m8i/`, `C9-micro-m8i-summary.json`, `C9-micro-m8i-generated-functions.c`, `summarize_c9_micro.py`.
 
-m5a must complete C7 corrected quality and restore before replication. No full C9 source implementation yet. Micro limits are only an advancement screen, not whole-body acceptance.
+m5a completed the identical40row micro, all exact and all eight median configurations pass. Its1300px incremental conversion cost is0.072892–0.074396 and list/bitmap0.443663–0.459667. Both owned host sources restored cleanly. No full C9 source implementation yet. Micro limits are only an advancement screen, not whole-body acceptance.
 
 ## Peer next bounded task
 

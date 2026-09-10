@@ -1,0 +1,98 @@
+[
+  {
+    "map": "br-gen-5001",
+    "range_px": 331,
+    "rounds": 5,
+    "bitmap_ns": 38718.60568181818,
+    "conversion_ns": 42013.26590909091,
+    "list_ns": 19289.202272727274,
+    "conversion_increment": 0.08509242957630213,
+    "list_ratio": 0.49818948624447146,
+    "exact": true,
+    "pass_screen": true
+  },
+  {
+    "map": "br-gen-5001",
+    "range_px": 1300,
+    "rounds": 5,
+    "bitmap_ns": 138267.89659090908,
+    "conversion_ns": 148554.5181818182,
+    "list_ns": 63326.6875,
+    "conversion_increment": 0.07439631211968147,
+    "list_ratio": 0.4579999339063038,
+    "exact": true,
+    "pass_screen": true
+  },
+  {
+    "map": "br-gen-5120",
+    "range_px": 331,
+    "rounds": 5,
+    "bitmap_ns": 39993.85568181818,
+    "conversion_ns": 43710.87045454545,
+    "list_ns": 19886.82159090909,
+    "conversion_increment": 0.09293964558703657,
+    "list_ratio": 0.4972469208551438,
+    "exact": true,
+    "pass_screen": true
+  },
+  {
+    "map": "br-gen-5120",
+    "range_px": 1300,
+    "rounds": 5,
+    "bitmap_ns": 137797.96818181817,
+    "conversion_ns": 147960.86704545454,
+    "list_ns": 62053.64772727273,
+    "conversion_increment": 0.07375216774043344,
+    "list_ratio": 0.45032338681072387,
+    "exact": true,
+    "pass_screen": true
+  },
+  {
+    "map": "br-gen-5204",
+    "range_px": 331,
+    "rounds": 5,
+    "bitmap_ns": 44481.21888888889,
+    "conversion_ns": 48324.84444444445,
+    "list_ns": 22133.225555555557,
+    "conversion_increment": 0.08641007714192081,
+    "list_ratio": 0.4975858600197731,
+    "exact": true,
+    "pass_screen": true
+  },
+  {
+    "map": "br-gen-5204",
+    "range_px": 1300,
+    "rounds": 5,
+    "bitmap_ns": 164240.32,
+    "conversion_ns": 176298.64222222223,
+    "list_ns": 75495.85111111111,
+    "conversion_increment": 0.07341876965547939,
+    "list_ratio": 0.45966697526594635,
+    "exact": true,
+    "pass_screen": true
+  },
+  {
+    "map": "br-gen-5263",
+    "range_px": 331,
+    "rounds": 5,
+    "bitmap_ns": 36608.667346938775,
+    "conversion_ns": 40053.81428571429,
+    "list_ns": 18136.551020408162,
+    "conversion_increment": 0.09410741194499114,
+    "list_ratio": 0.495416859852582,
+    "exact": true,
+    "pass_screen": true
+  },
+  {
+    "map": "br-gen-5263",
+    "range_px": 1300,
+    "rounds": 5,
+    "bitmap_ns": 121982.68469387756,
+    "conversion_ns": 130874.20918367348,
+    "list_ns": 54119.17448979592,
+    "conversion_increment": 0.07289169370316535,
+    "list_ratio": 0.44366275939581956,
+    "exact": true,
+    "pass_screen": true
+  }
+]

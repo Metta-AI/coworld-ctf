@@ -100,3 +100,7 @@ G0 bed15e11; G1 9e4971f1; M1 5a6c4963; W1 da13e2c7; M2 d9962a8d; M3 f261aeca; W2
 - C7 full eager cache rejected: v1 per-cell reference ownership caused large native regressions; removing it preserves all quality/rasters but corrected traces still slow23/27p95pairs m8i and18/27m5a, with changing-source costs up1.3–4.2%. Median total ratios0.9951/0.9567 are mixed and do not justify ~27MBextra. Both full3072quality exact. C7_REFCOUNT_ROOT_RESULT.md.
 
 - C9 conditional conversion micro: m8i all40rows exact and eight median configurations pass preregistered limits;1300px conversion extra23.7–24.4%,list ratio46.5–48.0%. m5a replication active; no production/cap change. C9_NATIVE_RESULT.md.
+
+- C9 fullscreen fails m5a: all9trace medians improve totals andallquality exact, but3changing-source medians regress1.19–1.64%against1%limit. m8ipassesallchecks. Noadoption/capchange; integratedlocal13cachetests archivedthenrestored. C9_NATIVE_FULL_RESULT.md.
+
+- A8countscreen passes correctedpre-runcriterion: map48 189identical failedsearches repeat,44.2866%dequeuework; all1991pixelcalls across76maps showzeroexact-keyresultdifferences, onlymap48repeats. First128failure-keycachewouldserveall189; no timinggainproven. A8_FULL_COUNT_RESULT.md.

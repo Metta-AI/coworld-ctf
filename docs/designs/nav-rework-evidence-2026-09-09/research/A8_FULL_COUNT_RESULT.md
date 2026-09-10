@@ -1,0 +1,15 @@
+# A8 all76-map recurrence and bounded cache model
+
+All76constructor runs completed,1991pixel searches, zero exact-key result/dequeue mismatches; map48matchesv1byte-for-byte stagecounters. Onlymap48hasrepeats. Largest unique failed-key count253(map48); largest totalfailedtargetpayload7152B(configured5); maxorderedtargets acrossallcalls50(pool13). Source restored. A8/v2/local-mac/counts.json contains completepercallkeys; model_failure_memos.py andv2/memo-models.json replay them independently.
+
+Map48 pocket first-N failure-key admission gives16slots32hits,64slots128hits,128slots189hits,256slots189hits. LRU16/64gives0;LRU128gives189. Thus smallLRUfailure was correct but a no-evictionfirst-N policy preserves early failures and even16slotsserves32hits. A128entryfirst-Nmemo capturesallmeasured356784dequeue savings with724Btargetpayload onmap48. A per-startlatest-failuremodelhasidenticalcounts here; no reason toaddreplacementlogic.
+
+Proposed smallest bounded implementation for peer review beforerootwritescode:
+- PixelSearchScratch owns an inlinearray of128failed-key records (start,center,exactEdges,targetcount,64int32targets) andusedcount. Allobservedtargetlists<=50; oversizekeys orafullcache simply run the raw search withoutadmission. These are optimization storage limits, not new game/input limits.
+- Afterexistingvalidstart andbeginSearch, linearscanusedrecords, comparepoints/mode/count thenorderedtargets. Exacthitreturns defaultfailedPixelPath; beginSearch stilladvances androllscorrectly. Insert only at existingreached<0return, with exactlycopiedorderedtargets andno heapallocation. Nevercacheinvalidstart, reached-emptyor success.
+-128firstentriesmatchthe fullcountmodel. stdTablewasresearchedbutdoesnotexposeallocationcapacity; this smallboundedstandardarraymakes transientstorage sizeof(array) exact, avoidscustomhashmap/dependency andper-entryseqallocations. UpdateinitPixelSearchScratch transientPeakBytes byexactarraybytes+countfield (report sizeof onbotharchitectures); no retainedpayload orsourcecapchange.
+- Preservev1/v2diagnostics, testexistingpixelpathchainsand76indexidentities includingallrawgrapharrays; transientPeakBytes expectedchanged, notpartof identity. Addfocusedcachehit/generationrollover,fullcache/oversizelistandmode/center/orderedtarget distinction checks. Native3interleavedmap48publicconstructor pairs,5constructions/process,>=5%medianindexgain onbothhosts. Fullqualitystrictoldhash andall76activationifadvanced. No acceptanceclaimfromcounts.
+
+Base correction: A8countsnapshotwas restoredf9dff753 index, which predates A4symmetricvalidator. A4onlychangespostconstructionvalidation, so pixelcountsareunaffected, but nativebaseline MUST materializeprimarycurrent body_route_index.nim(A4) forbotharms. Rootverified f9..eaaindexdiff is onlyA4validation; do notlabelbaref9asA4. Preservethisdistinction in reports.
+
+Peer: reviewthis concrete128x64arrayplan documents-only alongsideC9review. Noimplementation. End A8 ARRAY PLAN READY or specificrevision; rootownsactualcodeandnativejobs.

@@ -1,0 +1,9 @@
+s2_16_679962 hits=75 misses=121 conversions=35 map=br-gen-5204 grid=401x214 range_px=1300 seats=16 changed_rebuilds=135 lookups=196 raster_mismatches=0 entry_bytes=13368 raster_chain_hash=877CB0AFDCCF874C 
+s2_16_679963 hits=48 misses=86 conversions=21 map=br-gen-5263 grid=401x214 range_px=1300 seats=16 changed_rebuilds=111 lookups=134 raster_mismatches=0 entry_bytes=13368 raster_chain_hash=17D4DCD21BE4A82A 
+s2_16_679964 hits=77 misses=112 conversions=31 map=br-gen-5204 grid=401x214 range_px=1300 seats=16 changed_rebuilds=124 lookups=189 raster_mismatches=0 entry_bytes=13368 raster_chain_hash=66443B672455B011 
+s2_16_679965 hits=29 misses=92 conversions=17 map=br-gen-5001 grid=401x214 range_px=1300 seats=16 changed_rebuilds=109 lookups=121 raster_mismatches=0 entry_bytes=13368 raster_chain_hash=4AB1212F978ADB52 
+s2_32_679962 hits=375 misses=382 conversions=92 map=br-gen-5204 grid=401x214 range_px=1300 seats=32 changed_rebuilds=288 lookups=757 raster_mismatches=0 entry_bytes=13368 raster_chain_hash=312C664326043E94 
+s2_32_679963 hits=286 misses=244 conversions=70 map=br-gen-5263 grid=401x214 range_px=1300 seats=32 changed_rebuilds=239 lookups=530 raster_mismatches=0 entry_bytes=13368 raster_chain_hash=6F4BBAFA189132C0 
+s2_32_679964 hits=295 misses=378 conversions=97 map=br-gen-5204 grid=401x214 range_px=1300 seats=32 changed_rebuilds=278 lookups=673 raster_mismatches=0 entry_bytes=13368 raster_chain_hash=C1D671CBD97AFC1C 
+s2_32_679965 hits=248 misses=306 conversions=84 map=br-gen-5001 grid=401x214 range_px=1300 seats=32 changed_rebuilds=274 lookups=554 raster_mismatches=0 entry_bytes=13368 raster_chain_hash=45A71C63C19A6A7B 
+smoke_s2_16_randomized hits=33 misses=104 conversions=18 map=br-gen-5001 grid=401x214 range_px=1300 seats=16 changed_rebuilds=126 lookups=137 raster_mismatches=0 entry_bytes=13368 raster_chain_hash=232E48957F0FF3C3 

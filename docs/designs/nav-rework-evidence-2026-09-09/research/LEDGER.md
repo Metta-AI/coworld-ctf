@@ -232,3 +232,11 @@ C9counts-only proposal independently matchedall9sequential LRUtraces (C9_ROOT_CO
 C7 corrected m8i DONE and source restoration verified; all3072 quality exact oldhash. C9 tools-only native micro launched m8iPID49030 via run_c9_owned.sh, frozenC2parent, CPU5, five rounds/eight configurations, rotatingthree arms. No primarysource/cap changes. m5aC7correctedPID68495still finishing quality; do not overlap. Peer C9 MICRO READY and C7 REFCOUNT PEER REVIEW READY verified; peer agrees eagerC7notadoption.
 
 C7 corrected m5aDONE/restored, full3072qualityexactoldhash,27trace/24regimepairs exact but18/27p95slower. C9m8iDONE/restored,40rows exact, all8medianconfigurationspass preregisteredlimits. m5aC9replicatePID70584nowactive, run_c9_owned.sh, no overlappingjob. Peer owns documents-only C9plan before implementation; must account for retainedbitmapPLUSlist.
+
+C9m5aPID70584DONE/restored; all40rows exact and8medianconfigurationspass. C9microbothhosts passes; fullcandidate notyetimplemented. Peer correcting estimate-not-bound wording and slotpadding in memory plan; root will gate actualtrace/miss and wholebody before retaining.
+
+C9 FULL READY verified, frozenad45ee07, source/tests/generatedC/counts reviewed. Nativefull m8iPID50020 andm5aPID71922active, no overlap. A8 COUNT REVIEW READY verifies inputs; original1000callminimum corrected pre-run against existingA6total457to100repeatedemptycalls plus25%dequeues. Rootowns A8diagnostic in nav-early-visited; peer sourcefrozen anddocs/handoffonly.
+
+A8countdiagnostic DONE/restored: map48exact189repeatedemptyfailures,356784/805625dequeues44.2866%, zeroresult/dequeuemismatches; configured3/5/6zerorepeats. Pre-run corrected100calls/25%dequeue criterion passes. A8_COUNT_RESULT.md; rootrequestspeerplanscreen, no memoizationimplemented. C9fullnative stillactive m8i50020/m5a71922.
+
+C9fullbothhostsDONE/restored; m8i17/17screenchecks pass, m5a3changing-source medianfails1.0140/1.0164/1.0119vs1.01. Allquality/outputs exact; noadoption. IsolatedintegratedC9cache13/13passed, snapshots/patch saved thenownedfilesrestored in nav-deferred-cache. Primaryunchanged. A8v2all76countsDONE/restored1991calls; onlymap48recurrence. First128failurekeysserveall189hits, maxobservedtargets50; bounded128x64arrayplan underpeerreview, no memoimplementation. Bothnativehosts idle.
