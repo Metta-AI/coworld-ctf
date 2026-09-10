@@ -80,3 +80,5 @@ G0 bed15e11; G1 9e4971f1; M1 5a6c4963; W1 da13e2c7; M2 d9962a8d; M3 f261aeca; W2
 - H1 integrated after paired-seat correction: all240near completions improve, commonfar6faster/20same/4slower,1newcompletion/0lost. New1968tick tail was additional work, not a delayed existing request. Newhash ee2488d32085fb4de3457c4cf841298c14b87add2225964d934f80f2a7c1013d; finalcombinedqualificationpending. H1_INTEGRATION.md.
 
 - C2 retained for integration: m5a short 331/1300 regimes fit B1024 headroom, but configured 0/11 pass (worst p95/max 6.484532/6.680327 ms). All 27 native real-trace pairs improve total/p95 with exact rasters; changing-source microbench regresses up to 1.08%. Integrated +16-byte owner allowance corrects isolated ledger. C2_STATUS.md.
+
+- C4 rejected at trace-count screen: complete ordered-source raster reuse at capacity8 is only2.20–7.31% of nonempty rebuilds, fails20% threshold everywhere. No source implementation or memory-cap increase. C4_REPORT.md.
