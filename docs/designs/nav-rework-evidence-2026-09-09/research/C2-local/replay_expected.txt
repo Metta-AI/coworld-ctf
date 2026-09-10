@@ -1,0 +1,9 @@
+ lookups=196  hits=75 
+ lookups=134  hits=48 
+ lookups=189  hits=77 
+ lookups=121  hits=29 
+ lookups=757  hits=375 
+ lookups=530  hits=286 
+ lookups=673  hits=295 
+ lookups=554  hits=248 
+ lookups=137  hits=33 

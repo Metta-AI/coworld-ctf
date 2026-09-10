@@ -198,6 +198,7 @@ proc bytesJson(bytes: BodyNavigationBytes): JsonNode =
     "packed_int16_weights": bytes.packedWeights,
     "packed_weight_scratch": bytes.packedWeightScratch,
     "shared_danger_geometry": bytes.sharedDangerGeometry,
+    "shared_danger_source_cache": bytes.sharedDangerSourceCache,
     "trace": bytes.trace, "allocator_overhead": bytes.allocatorOverhead,
     "total": bytes.total}
 
@@ -262,7 +263,7 @@ proc activationRow(gate: MapGate; gunRange = NavCorpusGunRangePx): JsonNode =
   let sharedUpperBound = bytes.systemOwner + bytes.routeIndex +
     bytes.safetyScratch + bytes.hazardOverlay + bytes.safeCache +
     bytes.mixedGraph + bytes.packedWeightScratch +
-    bytes.sharedDangerGeometry +
+    bytes.sharedDangerGeometry + bytes.sharedDangerSourceCache +
     bytes.trace + bytes.allocatorOverhead
   const PoolSharedCap = 32'i64 * 1024 * 1024
   let totalNs = mapNs + indexNs + hazardNs + cacheNs + navNs

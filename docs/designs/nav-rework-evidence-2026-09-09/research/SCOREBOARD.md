@@ -78,3 +78,5 @@ G0 bed15e11; G1 9e4971f1; M1 5a6c4963; W1 da13e2c7; M2 d9962a8d; M3 f261aeca; W2
 - A4 retained: equivalent coarse-edge validation,2164mutation decisions match; m8ithreepairs map48index275->251ms,full76/76activation/memorypass,fullqualityunchanged. m5a/finalcompileractivationstillopen. A4_REPORT.md.
 
 - H1 integrated after paired-seat correction: all240near completions improve, commonfar6faster/20same/4slower,1newcompletion/0lost. New1968tick tail was additional work, not a delayed existing request. Newhash ee2488d32085fb4de3457c4cf841298c14b87add2225964d934f80f2a7c1013d; finalcombinedqualificationpending. H1_INTEGRATION.md.
+
+- C2 retained for integration: m5a short 331/1300 regimes fit B1024 headroom, but configured 0/11 pass (worst p95/max 6.484532/6.680327 ms). All 27 native real-trace pairs improve total/p95 with exact rasters; changing-source microbench regresses up to 1.08%. Integrated +16-byte owner allowance corrects isolated ledger. C2_STATUS.md.

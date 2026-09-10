@@ -1,0 +1,272 @@
+[
+  {
+    "file": "parent-s2_16_679962-r1.json",
+    "rebuilds": 135,
+    "total_ratio": 0.7733863959034318,
+    "p95_ratio": 0.8585526497587611,
+    "max_ratio": 1.0351542112428624,
+    "hits": 75,
+    "misses": 121,
+    "exact": true
+  },
+  {
+    "file": "parent-s2_16_679962-r2.json",
+    "rebuilds": 135,
+    "total_ratio": 0.7721018893088188,
+    "p95_ratio": 0.8705250275971275,
+    "max_ratio": 1.0232998663620532,
+    "hits": 75,
+    "misses": 121,
+    "exact": true
+  },
+  {
+    "file": "parent-s2_16_679962-r3.json",
+    "rebuilds": 135,
+    "total_ratio": 0.7684203271716072,
+    "p95_ratio": 0.8685218273984969,
+    "max_ratio": 1.0354988576745703,
+    "hits": 75,
+    "misses": 121,
+    "exact": true
+  },
+  {
+    "file": "parent-s2_16_679963-r1.json",
+    "rebuilds": 111,
+    "total_ratio": 0.7778250590274268,
+    "p95_ratio": 0.6797837745230593,
+    "max_ratio": 1.0581143462329876,
+    "hits": 48,
+    "misses": 86,
+    "exact": true
+  },
+  {
+    "file": "parent-s2_16_679963-r2.json",
+    "rebuilds": 111,
+    "total_ratio": 0.7777404035130226,
+    "p95_ratio": 0.6898973803713699,
+    "max_ratio": 1.0545922409891257,
+    "hits": 48,
+    "misses": 86,
+    "exact": true
+  },
+  {
+    "file": "parent-s2_16_679963-r3.json",
+    "rebuilds": 111,
+    "total_ratio": 0.7740969240172685,
+    "p95_ratio": 0.7049339051268952,
+    "max_ratio": 1.0307043268508973,
+    "hits": 48,
+    "misses": 86,
+    "exact": true
+  },
+  {
+    "file": "parent-s2_16_679964-r1.json",
+    "rebuilds": 124,
+    "total_ratio": 0.7647568012753775,
+    "p95_ratio": 0.8307448142175489,
+    "max_ratio": 0.8283562647883727,
+    "hits": 77,
+    "misses": 112,
+    "exact": true
+  },
+  {
+    "file": "parent-s2_16_679964-r2.json",
+    "rebuilds": 124,
+    "total_ratio": 0.7589817303229872,
+    "p95_ratio": 0.8155717361196814,
+    "max_ratio": 0.8383153792143594,
+    "hits": 77,
+    "misses": 112,
+    "exact": true
+  },
+  {
+    "file": "parent-s2_16_679964-r3.json",
+    "rebuilds": 124,
+    "total_ratio": 0.7573642804331967,
+    "p95_ratio": 0.8244285263699597,
+    "max_ratio": 0.7596359604614137,
+    "hits": 77,
+    "misses": 112,
+    "exact": true
+  },
+  {
+    "file": "parent-s2_16_679965-r1.json",
+    "rebuilds": 109,
+    "total_ratio": 0.8752629263218242,
+    "p95_ratio": 0.9857788508796342,
+    "max_ratio": 1.0230494174871627,
+    "hits": 29,
+    "misses": 92,
+    "exact": true
+  },
+  {
+    "file": "parent-s2_16_679965-r2.json",
+    "rebuilds": 109,
+    "total_ratio": 0.8701381190958735,
+    "p95_ratio": 0.9710123362366629,
+    "max_ratio": 1.0214277023137222,
+    "hits": 29,
+    "misses": 92,
+    "exact": true
+  },
+  {
+    "file": "parent-s2_16_679965-r3.json",
+    "rebuilds": 109,
+    "total_ratio": 0.8793103448275862,
+    "p95_ratio": 0.9844857872527774,
+    "max_ratio": 1.0102249402409182,
+    "hits": 29,
+    "misses": 92,
+    "exact": true
+  },
+  {
+    "file": "parent-s2_32_679962-r1.json",
+    "rebuilds": 288,
+    "total_ratio": 0.6682450993377057,
+    "p95_ratio": 0.73466865845649,
+    "max_ratio": 0.77758152673218,
+    "hits": 375,
+    "misses": 382,
+    "exact": true
+  },
+  {
+    "file": "parent-s2_32_679962-r2.json",
+    "rebuilds": 288,
+    "total_ratio": 0.6613967455945607,
+    "p95_ratio": 0.7126296778035479,
+    "max_ratio": 0.7901378184223876,
+    "hits": 375,
+    "misses": 382,
+    "exact": true
+  },
+  {
+    "file": "parent-s2_32_679962-r3.json",
+    "rebuilds": 288,
+    "total_ratio": 0.6610891490376214,
+    "p95_ratio": 0.7037618093016759,
+    "max_ratio": 0.790665538767798,
+    "hits": 375,
+    "misses": 382,
+    "exact": true
+  },
+  {
+    "file": "parent-s2_32_679963-r1.json",
+    "rebuilds": 239,
+    "total_ratio": 0.6224796156022098,
+    "p95_ratio": 0.5978827345087709,
+    "max_ratio": 0.6527390563693574,
+    "hits": 286,
+    "misses": 244,
+    "exact": true
+  },
+  {
+    "file": "parent-s2_32_679963-r2.json",
+    "rebuilds": 239,
+    "total_ratio": 0.6202514069582993,
+    "p95_ratio": 0.6172450136288469,
+    "max_ratio": 0.6680536421045925,
+    "hits": 286,
+    "misses": 244,
+    "exact": true
+  },
+  {
+    "file": "parent-s2_32_679963-r3.json",
+    "rebuilds": 239,
+    "total_ratio": 0.6225694019045356,
+    "p95_ratio": 0.6055449326567025,
+    "max_ratio": 0.6522793195417713,
+    "hits": 286,
+    "misses": 244,
+    "exact": true
+  },
+  {
+    "file": "parent-s2_32_679964-r1.json",
+    "rebuilds": 278,
+    "total_ratio": 0.7122630902995514,
+    "p95_ratio": 0.7076851972098056,
+    "max_ratio": 0.8617899074074618,
+    "hits": 295,
+    "misses": 378,
+    "exact": true
+  },
+  {
+    "file": "parent-s2_32_679964-r2.json",
+    "rebuilds": 278,
+    "total_ratio": 0.708815302341905,
+    "p95_ratio": 0.7158811198805799,
+    "max_ratio": 0.8377394681450298,
+    "hits": 295,
+    "misses": 378,
+    "exact": true
+  },
+  {
+    "file": "parent-s2_32_679964-r3.json",
+    "rebuilds": 278,
+    "total_ratio": 0.7022430427053048,
+    "p95_ratio": 0.7039701079831232,
+    "max_ratio": 0.8314120844546197,
+    "hits": 295,
+    "misses": 378,
+    "exact": true
+  },
+  {
+    "file": "parent-s2_32_679965-r1.json",
+    "rebuilds": 274,
+    "total_ratio": 0.7260181562315756,
+    "p95_ratio": 0.7837056046701827,
+    "max_ratio": 0.9554363079936642,
+    "hits": 248,
+    "misses": 306,
+    "exact": true
+  },
+  {
+    "file": "parent-s2_32_679965-r2.json",
+    "rebuilds": 274,
+    "total_ratio": 0.7223288670174908,
+    "p95_ratio": 0.7821484544462449,
+    "max_ratio": 0.952651065316102,
+    "hits": 248,
+    "misses": 306,
+    "exact": true
+  },
+  {
+    "file": "parent-s2_32_679965-r3.json",
+    "rebuilds": 274,
+    "total_ratio": 0.7256495076772238,
+    "p95_ratio": 0.7850426630739867,
+    "max_ratio": 0.9620314920964455,
+    "hits": 248,
+    "misses": 306,
+    "exact": true
+  },
+  {
+    "file": "parent-smoke_s2_16_randomized-r1.json",
+    "rebuilds": 126,
+    "total_ratio": 0.8746299826876797,
+    "p95_ratio": 0.905147959874504,
+    "max_ratio": 1.0381930142924238,
+    "hits": 33,
+    "misses": 104,
+    "exact": true
+  },
+  {
+    "file": "parent-smoke_s2_16_randomized-r2.json",
+    "rebuilds": 126,
+    "total_ratio": 0.873289714947497,
+    "p95_ratio": 0.9051025131578321,
+    "max_ratio": 1.0217793042273287,
+    "hits": 33,
+    "misses": 104,
+    "exact": true
+  },
+  {
+    "file": "parent-smoke_s2_16_randomized-r3.json",
+    "rebuilds": 126,
+    "total_ratio": 0.8811931163939086,
+    "p95_ratio": 0.9360374738612349,
+    "max_ratio": 1.0420005256346265,
+    "hits": 33,
+    "misses": 104,
+    "exact": true
+  }
+]

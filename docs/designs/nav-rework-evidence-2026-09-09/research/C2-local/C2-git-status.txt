@@ -1,0 +1,8 @@
+ M src/shell/body_nav.nim
+ M tests/shard_4.nim
+ M tools/bench_body_nav_rework.nim
+?? docs/designs/nav-rework-evidence-2026-09-09/research/C2/
+?? docs/designs/nav-rework-evidence-2026-09-09/research/C2_PREREG.md
+?? src/shell/body_nav_source_trace_replay.nim
+?? tests/test_shell_body_danger_source_cache.nim
+?? tools/replay_danger_source_trace.nim

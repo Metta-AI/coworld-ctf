@@ -293,7 +293,7 @@ suite "production mixed-grid body navigation":
     check nav.seats[0].installedRoute.dangerGeneration ==
       nav.seats[0].dangerGeneration
 
-  test "danger visit rollover preserves each source contribution":
+  test "repeated danger rebuilds preserve each source contribution":
     let
       map = openMap()
       nav = newBodyNavSystem(map, 1, 32)
