@@ -552,12 +552,14 @@ the league owners as the real decision.**
 ---
 # EXECUTION PLAN
 
-**Phases 0 and 3 are already done in this study** — the density census, episode-shape audit and
+**Phases 0, 1, 1b and 3 are done** — 1 and 1b landed as metta PR #22429 (awaiting review; merge needs an owner go).
+**Phases 0 and 3 were done in this study** — the density census, episode-shape audit and
 the episode budget (F9–F11). The task's "Done when" #1 is answered.
 
 Each remaining phase has a gate; several can end the work early.
 
-### Phase 1 — Relabel `sufficiency` and file the defects  *(~half a day; do this first, no gate)*
+### Phase 1 — Relabel `sufficiency` and file the defects — ✅ **DONE: metta PR #22429**
+https://github.com/Metta-AI/metta/pull/22429 (open, targets main, +203/-7 across 7 files).
 Highest value per hour and independent of every other outcome. A metta PR renaming the verdict to
 what it measures (e.g. `estimate_precision`) and stating the scope in both the API response and
 `TournamentSimDetail.tsx`: *"measures how precisely the win model is estimated, not whether it
@@ -567,7 +569,7 @@ the fabricated `eps=0.1` cold-start strength (F3-A); `pairing-matrix` failing un
 client timeout on large rosters; zero-score episodes vanishing into `episodes_skipped`; and the
 `/v2/tournaments` global-list inconsistency (F12).
 
-### Phase 1b — Surface the discarded episodes  *(~2 hours; arguably urgent)*
+### Phase 1b — Surface the discarded episodes — ✅ **DONE: same PR #22429**
 Return `episodes_skipped` with its reason breakdown in the API response and render it in the UI, so
 a caller can see that a rollout used **48.8%** of Elite's history or **86.6%** of Campaign's. Today
 that loss is completely invisible at the call site. Whether Elite should be ranked over *coalitions*
