@@ -9,6 +9,14 @@
 // was eliminated" right beneath it.
 //
 // Run: node --test tests/test_endcard_draw_reason.mjs
+//
+// Also pulls in test_glory_by_deed_endcard.mjs (node:test registers an
+// imported file's test() cases in the same run) so that suite executes
+// without its own CI step -- the workflow-scope token this repo runs under
+// can't touch .github/workflows/build.yml, so this is the wired-in path
+// for that suite instead of a second `run:` line. See #525.
+import './test_glory_by_deed_endcard.mjs';
+
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
