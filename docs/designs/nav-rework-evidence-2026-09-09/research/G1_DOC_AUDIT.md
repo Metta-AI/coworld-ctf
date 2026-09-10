@@ -1,0 +1,3 @@
+# G1 documentation audit
+
+Reviewed the configured-tick harness, exported selectPairs helper, usage text, G1 report and peer review. The command reads the checked-in battle-royale-s2 manifest and its pool, records input digests and selected points, and diagnoses activation plus six tick rows per map. It is not authenticated evidence of live settings. The frozen quality corpus remains unchanged. G1 raw rows predate the reviewed scope fix that releases the selection BodyMap before timing; this checkpoint contains that fix, verified by G1-review-fixes-check.log. No gameplay/source module changes or rule changes; no GameVersion/viewer update needed. Final qualification is still incomplete.

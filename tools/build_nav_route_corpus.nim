@@ -16,8 +16,8 @@ const
   CandidateCount = 17
 
 type
-  SelectedPair = object
-    start, goal: BodyPoint
+  SelectedPair* = object
+    start*, goal*: BodyPoint
     route: seq[BodyPoint]
     length: float64
 
@@ -26,9 +26,9 @@ proc pathLength(route: openArray[BodyPoint]): float64 =
     result += hypot((route[index].x - route[index - 1].x).float,
                     (route[index].y - route[index - 1].y).float)
 
-proc selectPairs(map: BodyMap): array[NavCorpusDistance, SelectedPair] =
-  ## Selection runs only in this explicit writer. The checked-in coordinates,
-  ## not this sampling procedure, are corpus truth.
+proc selectPairs*(map: BodyMap): array[NavCorpusDistance, SelectedPair] =
+  ## Shared by this explicit writer and configured-map diagnostic benchmarks.
+  ## The checked-in coordinates, not this procedure, remain corpus truth.
   var start: BodyPoint
   var foundStart = false
   for y in countup(0, map.height - 1, PlanStepPx):

@@ -28,3 +28,5 @@ Append results; do not erase negatives. All numbers are observed, not inferred p
 | S1 | m5a CPU5 B1024 | positive Q8 truncation | refresh2.30% better; whole-body still5.713180/5.770981ms fail; exact quality and memory unchanged | S1_REPORT.md | no doubling, fleet or current-variant qualification |
 
 - G0: configured range diagnostic on m5a, same source and 3 paired runs; 331 px worst p95/max5.691996/5.807979ms,1300 px13.982918/15.593524ms. Workload gap, no optimization claim. G0_REPORT.md.
+
+- G1: checked-in configured 11-map screen on native m8i; all maps fail timing and shared memory. Worst p95/max15.015300/15.193815ms, original logical shared max30,755,007B. Later M2/M3 correct capacity/context counts; raw G1 preserved. G1_REPORT.md.

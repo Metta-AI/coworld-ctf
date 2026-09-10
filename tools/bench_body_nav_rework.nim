@@ -11,6 +11,7 @@ import ../src/ctf/[arena, br_map_pool, sim_types, zone_field]
 import ../src/shell/[body, body_danger, body_hazard, body_map, body_nav,
   body_route_index, body_route_query, episode, standing_order]
 import ../tests/nav_route_corpus_support
+import build_nav_route_corpus
 
 const
   CanonicalPlatform = "linux/amd64"
@@ -199,7 +200,7 @@ proc bytesJson(bytes: BodyNavigationBytes): JsonNode =
     "trace": bytes.trace, "allocator_overhead": bytes.allocatorOverhead,
     "total": bytes.total}
 
-proc activationRow(gate: MapGate): JsonNode =
+proc activationRow(gate: MapGate; gunRange = NavCorpusGunRangePx): JsonNode =
   GC_fullCollect()
   let rssBefore = rssBytes()
   let mapStarted = getMonoTime()
@@ -210,7 +211,7 @@ proc activationRow(gate: MapGate): JsonNode =
   let indexNs = indexStarted.elapsedNs
   let deleted = index.followingPayloadBytes
   let navStarted = getMonoTime()
-  let nav = newBodyNavSystem(map, 32, 331, preparedRouteIndex = index)
+  let nav = newBodyNavSystem(map, 32, gunRange, preparedRouteIndex = index)
   let navNs = navStarted.elapsedNs
   GC_fullCollect()
   let rssAfter = rssBytes()
@@ -485,6 +486,49 @@ proc runTickGate(corpus: NavCorpus, pool: JsonNode; gunRange: int): JsonNode =
       rows.add tickRow(loaded.gameMap, rosterSize, scenario, start, nearGoal, farGoal, gunRange)
   %*{"maps": rows, "pass": rows.elems.allIt(it["pass"].getBool())}
 
+proc runConfiguredTick(onlyPool: int): JsonNode =
+  ## Extend coverage to the checked-in variant; keep the frozen corpus intact.
+  let manifestText = readFile("coworld_manifest_paintbot.json")
+  let manifest = parseJson(manifestText)
+  var config: JsonNode
+  for variant in manifest["variants"]:
+    if variant["id"].getStr() == "battle-royale-s2":
+      config = variant["game_config"]
+  if config == nil or config["mapPath"].getStr() != BrPoolMapName16:
+    raise newException(ValueError, "configured tick requires battle-royale-s2 brpool16")
+  let gunRange = config["gunRange"].getInt()
+  let poolText = readFile(BrS2SoloMapPoolPath)
+  let pool = parseJson(poolText)
+  if onlyPool >= pool.len:
+    raise newException(ValueError, "configured pool index out of range")
+  var rows = newJArray()
+  var passed = true
+  for poolIndex, spec in pool.elems:
+    if onlyPool >= 0 and poolIndex != onlyPool: continue
+    let gameMap = mapFromSpecJson($spec)
+    let label = "configured:" & $poolIndex & ":" & spec["name"].getStr()
+    stderr.writeLine label
+    let map = newBodyMap(gameMap)
+    let pairs = selectPairs(map)
+    let start = pairs[ncrNear].start
+    let nearGoal = pairs[ncrNear].goal
+    let farGoal = pairs[ncrFar].goal
+    let allocation = activationRow(MapGate(label: label, gameMap: gameMap), gunRange)
+    var ticks = newJArray()
+    for rosterSize in [16, 32]:
+      for scenario in NavGateScenario:
+        ticks.add tickRow(gameMap, rosterSize, scenario, start, nearGoal, farGoal, gunRange)
+    let mapPassed = allocation["pass"].getBool() and
+      ticks.elems.allIt(it["pass"].getBool())
+    passed = passed and mapPassed
+    rows.add %*{"map": label, "map_sha256": sha256Text($spec),
+      "start": [start.x, start.y], "near_goal": [nearGoal.x, nearGoal.y],
+      "far_goal": [farGoal.x, farGoal.y], "activation": allocation,
+      "tick": ticks, "pass": mapPassed}
+  %*{"manifest_sha256": sha256Text(manifestText),
+    "pool_path": BrS2SoloMapPoolPath, "pool_sha256": sha256Text(poolText),
+    "gun_range_px": gunRange, "maps": rows, "pass": passed}
+
 type
   LatencySeatOutcome = object
     seat: int
@@ -705,11 +749,11 @@ proc metadata(corpus: NavCorpus, canonical: bool): JsonNode =
     "pool_digest": corpus.poolSha256, "canonical": canonical}
 
 proc usage() =
-  echo "usage: bench_body_nav_rework --quality|--activation|--tick|--latency|" &
+  echo "usage: bench_body_nav_rework --quality|--activation|--tick|--configured-tick|--latency|" &
     "--all [--corpus PATH] [--pool-index N] [--tick-gun-range PX]"
 
 when isMainModule:
-  var runQuality, runActivation, runTick, runLatency, canonical: bool
+  var runQuality, runActivation, runTick, runLatency, runConfigured, canonical: bool
   var onlyPool = -1
   var tickGunRange = NavCorpusGunRangePx
   var corpusPath = "tests/fixtures/shell/nav_route_corpus.json"
@@ -719,6 +763,7 @@ when isMainModule:
     of "--quality": runQuality = true
     of "--activation": runActivation = true
     of "--tick": runTick = true
+    of "--configured-tick": runConfigured = true
     of "--latency": runLatency = true
     of "--all":
       # Docker's linux/amd64 run is emulated on the development arm64 host.
@@ -746,7 +791,7 @@ when isMainModule:
     else: usage(); quit(2)
     inc index
   if not runQuality and not runActivation and not runTick and
-      not runLatency: usage(); quit(2)
+      not runLatency and not runConfigured: usage(); quit(2)
   if canonical and onlyPool >= 0:
     raise newException(ValueError, "canonical --all does not accept --pool-index")
   let corpus = loadNavRouteCorpus(corpusPath)
@@ -758,6 +803,9 @@ when isMainModule:
       "retained_cap_bytes": BodyNavigationRetainedCap,
       "tick_p95_ns": TickP95LimitNs, "tick_max_ns": TickMaxLimitNs}}
   var passed = true
+  if runConfigured:
+    root["configured_tick"] = runConfiguredTick(onlyPool)
+    passed = passed and root["configured_tick"]["pass"].getBool()
   if runQuality:
     root["quality"] = runRouteCorpusGate(corpus, pool, onlyPool)
     passed = passed and root["quality"]["pass"].getBool()
