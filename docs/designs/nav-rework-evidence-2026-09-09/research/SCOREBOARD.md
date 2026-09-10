@@ -76,3 +76,5 @@ G0 bed15e11; G1 9e4971f1; M1 5a6c4963; W1 da13e2c7; M2 d9962a8d; M3 f261aeca; W2
 - V1 retained: bytevisitstamps preservefullquality/masks/pops and684native rollovers. Colossal saves37,380,096B;76/76memorypasses. Smallm5atiminggain,1300pxstillfails5ms; m5aactivationonly11/76passes. V1_REPORT.md.
 
 - A4 retained: equivalent coarse-edge validation,2164mutation decisions match; m8ithreepairs map48index275->251ms,full76/76activation/memorypass,fullqualityunchanged. m5a/finalcompileractivationstillopen. A4_REPORT.md.
+
+- H1 integrated after paired-seat correction: all240near completions improve, commonfar6faster/20same/4slower,1newcompletion/0lost. New1968tick tail was additional work, not a delayed existing request. Newhash ee2488d32085fb4de3457c4cf841298c14b87add2225964d934f80f2a7c1013d; finalcombinedqualificationpending. H1_INTEGRATION.md.

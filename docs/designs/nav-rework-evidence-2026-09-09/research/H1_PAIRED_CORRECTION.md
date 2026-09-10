@@ -1,0 +1,7 @@
+# H1 paired-seat correction: completed-only tail was misleading
+
+The raw waves contain seat identities. Comparing identical measured wave/seat pairs changes the interpretation: at32seats, the1968tick completion is NEW; parent never published that request by2000. It is not an existing1169tick request being delayed to1968. A completed-only maximum can increase when a candidate finishes additional work. The prior inference that the32seat far tail worsened generally is unsupported.
+
+H1-paired-seat-latency.json preserves all480measured seat-wave pairs (16x10+32x10). At16seats all80near requests improve; far15common completions split2faster/10same/3slower, with no new/lost completions. Those three delays are8,2,36ticks; gains27,13ticks. At32seats all160near requests improve; far15common completions split4faster/10same/1slower (19ticks), with one additional completion at1968 and none lost. Both-censored requests remain unknown beyond2000, not zero or exact2000latency.
+
+Thus H1 offers broad near improvements and modest mixed common far shifts; the largest reported far-tail increase is additional success, not evidence of added starvation. Stable SJF's existing censored tail remains, but this packet does not justify making a new scheduler remedy a prerequisite solely because completed-only p95 rose. Reassess H1 jointly against the actual quality/timing/latency contract and paired evidence. It still does not meet whole-body timing or the2x goal alone and remains isolated pending that decision.

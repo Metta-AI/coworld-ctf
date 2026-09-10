@@ -1,0 +1,4802 @@
+[
+  {
+    "roster": 16,
+    "wave": 1,
+    "goal": "far",
+    "seat": 0,
+    "parent_published": true,
+    "candidate_published": true,
+    "parent_ticks": 41,
+    "candidate_ticks": 41
+  },
+  {
+    "roster": 16,
+    "wave": 1,
+    "goal": "far",
+    "seat": 1,
+    "parent_published": true,
+    "candidate_published": true,
+    "parent_ticks": 82,
+    "candidate_ticks": 82
+  },
+  {
+    "roster": 16,
+    "wave": 1,
+    "goal": "far",
+    "seat": 2,
+    "parent_published": true,
+    "candidate_published": true,
+    "parent_ticks": 1108,
+    "candidate_ticks": 1081
+  },
+  {
+    "roster": 16,
+    "wave": 1,
+    "goal": "far",
+    "seat": 3,
+    "parent_published": false,
+    "candidate_published": false,
+    "parent_ticks": null,
+    "candidate_ticks": null
+  },
+  {
+    "roster": 16,
+    "wave": 1,
+    "goal": "far",
+    "seat": 4,
+    "parent_published": false,
+    "candidate_published": false,
+    "parent_ticks": null,
+    "candidate_ticks": null
+  },
+  {
+    "roster": 16,
+    "wave": 1,
+    "goal": "far",
+    "seat": 5,
+    "parent_published": false,
+    "candidate_published": false,
+    "parent_ticks": null,
+    "candidate_ticks": null
+  },
+  {
+    "roster": 16,
+    "wave": 1,
+    "goal": "far",
+    "seat": 6,
+    "parent_published": false,
+    "candidate_published": false,
+    "parent_ticks": null,
+    "candidate_ticks": null
+  },
+  {
+    "roster": 16,
+    "wave": 1,
+    "goal": "far",
+    "seat": 7,
+    "parent_published": false,
+    "candidate_published": false,
+    "parent_ticks": null,
+    "candidate_ticks": null
+  },
+  {
+    "roster": 16,
+    "wave": 1,
+    "goal": "far",
+    "seat": 8,
+    "parent_published": false,
+    "candidate_published": false,
+    "parent_ticks": null,
+    "candidate_ticks": null
+  },
+  {
+    "roster": 16,
+    "wave": 1,
+    "goal": "far",
+    "seat": 9,
+    "parent_published": false,
+    "candidate_published": false,
+    "parent_ticks": null,
+    "candidate_ticks": null
+  },
+  {
+    "roster": 16,
+    "wave": 1,
+    "goal": "far",
+    "seat": 10,
+    "parent_published": false,
+    "candidate_published": false,
+    "parent_ticks": null,
+    "candidate_ticks": null
+  },
+  {
+    "roster": 16,
+    "wave": 1,
+    "goal": "far",
+    "seat": 11,
+    "parent_published": false,
+    "candidate_published": false,
+    "parent_ticks": null,
+    "candidate_ticks": null
+  },
+  {
+    "roster": 16,
+    "wave": 1,
+    "goal": "far",
+    "seat": 12,
+    "parent_published": false,
+    "candidate_published": false,
+    "parent_ticks": null,
+    "candidate_ticks": null
+  },
+  {
+    "roster": 16,
+    "wave": 1,
+    "goal": "far",
+    "seat": 13,
+    "parent_published": false,
+    "candidate_published": false,
+    "parent_ticks": null,
+    "candidate_ticks": null
+  },
+  {
+    "roster": 16,
+    "wave": 1,
+    "goal": "far",
+    "seat": 14,
+    "parent_published": false,
+    "candidate_published": false,
+    "parent_ticks": null,
+    "candidate_ticks": null
+  },
+  {
+    "roster": 16,
+    "wave": 1,
+    "goal": "far",
+    "seat": 15,
+    "parent_published": false,
+    "candidate_published": false,
+    "parent_ticks": null,
+    "candidate_ticks": null
+  },
+  {
+    "roster": 16,
+    "wave": 2,
+    "goal": "near",
+    "seat": 0,
+    "parent_published": true,
+    "candidate_published": true,
+    "parent_ticks": 3,
+    "candidate_ticks": 1
+  },
+  {
+    "roster": 16,
+    "wave": 2,
+    "goal": "near",
+    "seat": 1,
+    "parent_published": true,
+    "candidate_published": true,
+    "parent_ticks": 5,
+    "candidate_ticks": 2
+  },
+  {
+    "roster": 16,
+    "wave": 2,
+    "goal": "near",
+    "seat": 2,
+    "parent_published": true,
+    "candidate_published": true,
+    "parent_ticks": 7,
+    "candidate_ticks": 3
+  },
+  {
+    "roster": 16,
+    "wave": 2,
+    "goal": "near",
+    "seat": 3,
+    "parent_published": true,
+    "candidate_published": true,
+    "parent_ticks": 9,
+    "candidate_ticks": 4
+  },
+  {
+    "roster": 16,
+    "wave": 2,
+    "goal": "near",
+    "seat": 4,
+    "parent_published": true,
+    "candidate_published": true,
+    "parent_ticks": 11,
+    "candidate_ticks": 5
+  },
+  {
+    "roster": 16,
+    "wave": 2,
+    "goal": "near",
+    "seat": 5,
+    "parent_published": true,
+    "candidate_published": true,
+    "parent_ticks": 14,
+    "candidate_ticks": 6
+  },
+  {
+    "roster": 16,
+    "wave": 2,
+    "goal": "near",
+    "seat": 6,
+    "parent_published": true,
+    "candidate_published": true,
+    "parent_ticks": 16,
+    "candidate_ticks": 7
+  },
+  {
+    "roster": 16,
+    "wave": 2,
+    "goal": "near",
+    "seat": 7,
+    "parent_published": true,
+    "candidate_published": true,
+    "parent_ticks": 18,
+    "candidate_ticks": 7
+  },
+  {
+    "roster": 16,
+    "wave": 2,
+    "goal": "near",
+    "seat": 8,
+    "parent_published": true,
+    "candidate_published": true,
+    "parent_ticks": 20,
+    "candidate_ticks": 8
+  },
+  {
+    "roster": 16,
+    "wave": 2,
+    "goal": "near",
+    "seat": 9,
+    "parent_published": true,
+    "candidate_published": true,
+    "parent_ticks": 22,
+    "candidate_ticks": 9
+  },
+  {
+    "roster": 16,
+    "wave": 2,
+    "goal": "near",
+    "seat": 10,
+    "parent_published": true,
+    "candidate_published": true,
+    "parent_ticks": 25,
+    "candidate_ticks": 10
+  },
+  {
+    "roster": 16,
+    "wave": 2,
+    "goal": "near",
+    "seat": 11,
+    "parent_published": true,
+    "candidate_published": true,
+    "parent_ticks": 27,
+    "candidate_ticks": 11
+  },
+  {
+    "roster": 16,
+    "wave": 2,
+    "goal": "near",
+    "seat": 12,
+    "parent_published": true,
+    "candidate_published": true,
+    "parent_ticks": 29,
+    "candidate_ticks": 12
+  },
+  {
+    "roster": 16,
+    "wave": 2,
+    "goal": "near",
+    "seat": 13,
+    "parent_published": true,
+    "candidate_published": true,
+    "parent_ticks": 31,
+    "candidate_ticks": 13
+  },
+  {
+    "roster": 16,
+    "wave": 2,
+    "goal": "near",
+    "seat": 14,
+    "parent_published": true,
+    "candidate_published": true,
+    "parent_ticks": 33,
+    "candidate_ticks": 13
+  },
+  {
+    "roster": 16,
+    "wave": 2,
+    "goal": "near",
+    "seat": 15,
+    "parent_published": true,
+    "candidate_published": true,
+    "parent_ticks": 51,
+    "candidate_ticks": 14
+  },
+  {
+    "roster": 16,
+    "wave": 3,
+    "goal": "far",
+    "seat": 0,
+    "parent_published": true,
+    "candidate_published": true,
+    "parent_ticks": 41,
+    "candidate_ticks": 41
+  },
+  {
+    "roster": 16,
+    "wave": 3,
+    "goal": "far",
+    "seat": 1,
+    "parent_published": true,
+    "candidate_published": true,
+    "parent_ticks": 82,
+    "candidate_ticks": 82
+  },
+  {
+    "roster": 16,
+    "wave": 3,
+    "goal": "far",
+    "seat": 2,
+    "parent_published": true,
+    "candidate_published": true,
+    "parent_ticks": 1104,
+    "candidate_ticks": 1112
+  },
+  {
+    "roster": 16,
+    "wave": 3,
+    "goal": "far",
+    "seat": 3,
+    "parent_published": false,
+    "candidate_published": false,
+    "parent_ticks": null,
+    "candidate_ticks": null
+  },
+  {
+    "roster": 16,
+    "wave": 3,
+    "goal": "far",
+    "seat": 4,
+    "parent_published": false,
+    "candidate_published": false,
+    "parent_ticks": null,
+    "candidate_ticks": null
+  },
+  {
+    "roster": 16,
+    "wave": 3,
+    "goal": "far",
+    "seat": 5,
+    "parent_published": false,
+    "candidate_published": false,
+    "parent_ticks": null,
+    "candidate_ticks": null
+  },
+  {
+    "roster": 16,
+    "wave": 3,
+    "goal": "far",
+    "seat": 6,
+    "parent_published": false,
+    "candidate_published": false,
+    "parent_ticks": null,
+    "candidate_ticks": null
+  },
+  {
+    "roster": 16,
+    "wave": 3,
+    "goal": "far",
+    "seat": 7,
+    "parent_published": false,
+    "candidate_published": false,
+    "parent_ticks": null,
+    "candidate_ticks": null
+  },
+  {
+    "roster": 16,
+    "wave": 3,
+    "goal": "far",
+    "seat": 8,
+    "parent_published": false,
+    "candidate_published": false,
+    "parent_ticks": null,
+    "candidate_ticks": null
+  },
+  {
+    "roster": 16,
+    "wave": 3,
+    "goal": "far",
+    "seat": 9,
+    "parent_published": false,
+    "candidate_published": false,
+    "parent_ticks": null,
+    "candidate_ticks": null
+  },
+  {
+    "roster": 16,
+    "wave": 3,
+    "goal": "far",
+    "seat": 10,
+    "parent_published": false,
+    "candidate_published": false,
+    "parent_ticks": null,
+    "candidate_ticks": null
+  },
+  {
+    "roster": 16,
+    "wave": 3,
+    "goal": "far",
+    "seat": 11,
+    "parent_published": false,
+    "candidate_published": false,
+    "parent_ticks": null,
+    "candidate_ticks": null
+  },
+  {
+    "roster": 16,
+    "wave": 3,
+    "goal": "far",
+    "seat": 12,
+    "parent_published": false,
+    "candidate_published": false,
+    "parent_ticks": null,
+    "candidate_ticks": null
+  },
+  {
+    "roster": 16,
+    "wave": 3,
+    "goal": "far",
+    "seat": 13,
+    "parent_published": false,
+    "candidate_published": false,
+    "parent_ticks": null,
+    "candidate_ticks": null
+  },
+  {
+    "roster": 16,
+    "wave": 3,
+    "goal": "far",
+    "seat": 14,
+    "parent_published": false,
+    "candidate_published": false,
+    "parent_ticks": null,
+    "candidate_ticks": null
+  },
+  {
+    "roster": 16,
+    "wave": 3,
+    "goal": "far",
+    "seat": 15,
+    "parent_published": false,
+    "candidate_published": false,
+    "parent_ticks": null,
+    "candidate_ticks": null
+  },
+  {
+    "roster": 16,
+    "wave": 4,
+    "goal": "near",
+    "seat": 0,
+    "parent_published": true,
+    "candidate_published": true,
+    "parent_ticks": 3,
+    "candidate_ticks": 1
+  },
+  {
+    "roster": 16,
+    "wave": 4,
+    "goal": "near",
+    "seat": 1,
+    "parent_published": true,
+    "candidate_published": true,
+    "parent_ticks": 5,
+    "candidate_ticks": 2
+  },
+  {
+    "roster": 16,
+    "wave": 4,
+    "goal": "near",
+    "seat": 2,
+    "parent_published": true,
+    "candidate_published": true,
+    "parent_ticks": 7,
+    "candidate_ticks": 3
+  },
+  {
+    "roster": 16,
+    "wave": 4,
+    "goal": "near",
+    "seat": 3,
+    "parent_published": true,
+    "candidate_published": true,
+    "parent_ticks": 9,
+    "candidate_ticks": 4
+  },
+  {
+    "roster": 16,
+    "wave": 4,
+    "goal": "near",
+    "seat": 4,
+    "parent_published": true,
+    "candidate_published": true,
+    "parent_ticks": 11,
+    "candidate_ticks": 5
+  },
+  {
+    "roster": 16,
+    "wave": 4,
+    "goal": "near",
+    "seat": 5,
+    "parent_published": true,
+    "candidate_published": true,
+    "parent_ticks": 14,
+    "candidate_ticks": 6
+  },
+  {
+    "roster": 16,
+    "wave": 4,
+    "goal": "near",
+    "seat": 6,
+    "parent_published": true,
+    "candidate_published": true,
+    "parent_ticks": 16,
+    "candidate_ticks": 7
+  },
+  {
+    "roster": 16,
+    "wave": 4,
+    "goal": "near",
+    "seat": 7,
+    "parent_published": true,
+    "candidate_published": true,
+    "parent_ticks": 18,
+    "candidate_ticks": 7
+  },
+  {
+    "roster": 16,
+    "wave": 4,
+    "goal": "near",
+    "seat": 8,
+    "parent_published": true,
+    "candidate_published": true,
+    "parent_ticks": 20,
+    "candidate_ticks": 8
+  },
+  {
+    "roster": 16,
+    "wave": 4,
+    "goal": "near",
+    "seat": 9,
+    "parent_published": true,
+    "candidate_published": true,
+    "parent_ticks": 22,
+    "candidate_ticks": 9
+  },
+  {
+    "roster": 16,
+    "wave": 4,
+    "goal": "near",
+    "seat": 10,
+    "parent_published": true,
+    "candidate_published": true,
+    "parent_ticks": 25,
+    "candidate_ticks": 13
+  },
+  {
+    "roster": 16,
+    "wave": 4,
+    "goal": "near",
+    "seat": 11,
+    "parent_published": true,
+    "candidate_published": true,
+    "parent_ticks": 27,
+    "candidate_ticks": 13
+  },
+  {
+    "roster": 16,
+    "wave": 4,
+    "goal": "near",
+    "seat": 12,
+    "parent_published": true,
+    "candidate_published": true,
+    "parent_ticks": 29,
+    "candidate_ticks": 14
+  },
+  {
+    "roster": 16,
+    "wave": 4,
+    "goal": "near",
+    "seat": 13,
+    "parent_published": true,
+    "candidate_published": true,
+    "parent_ticks": 45,
+    "candidate_ticks": 15
+  },
+  {
+    "roster": 16,
+    "wave": 4,
+    "goal": "near",
+    "seat": 14,
+    "parent_published": true,
+    "candidate_published": true,
+    "parent_ticks": 47,
+    "candidate_ticks": 16
+  },
+  {
+    "roster": 16,
+    "wave": 4,
+    "goal": "near",
+    "seat": 15,
+    "parent_published": true,
+    "candidate_published": true,
+    "parent_ticks": 50,
+    "candidate_ticks": 17
+  },
+  {
+    "roster": 16,
+    "wave": 5,
+    "goal": "far",
+    "seat": 0,
+    "parent_published": true,
+    "candidate_published": true,
+    "parent_ticks": 41,
+    "candidate_ticks": 41
+  },
+  {
+    "roster": 16,
+    "wave": 5,
+    "goal": "far",
+    "seat": 1,
+    "parent_published": true,
+    "candidate_published": true,
+    "parent_ticks": 82,
+    "candidate_ticks": 82
+  },
+  {
+    "roster": 16,
+    "wave": 5,
+    "goal": "far",
+    "seat": 2,
+    "parent_published": true,
+    "candidate_published": true,
+    "parent_ticks": 1106,
+    "candidate_ticks": 1108
+  },
+  {
+    "roster": 16,
+    "wave": 5,
+    "goal": "far",
+    "seat": 3,
+    "parent_published": false,
+    "candidate_published": false,
+    "parent_ticks": null,
+    "candidate_ticks": null
+  },
+  {
+    "roster": 16,
+    "wave": 5,
+    "goal": "far",
+    "seat": 4,
+    "parent_published": false,
+    "candidate_published": false,
+    "parent_ticks": null,
+    "candidate_ticks": null
+  },
+  {
+    "roster": 16,
+    "wave": 5,
+    "goal": "far",
+    "seat": 5,
+    "parent_published": false,
+    "candidate_published": false,
+    "parent_ticks": null,
+    "candidate_ticks": null
+  },
+  {
+    "roster": 16,
+    "wave": 5,
+    "goal": "far",
+    "seat": 6,
+    "parent_published": false,
+    "candidate_published": false,
+    "parent_ticks": null,
+    "candidate_ticks": null
+  },
+  {
+    "roster": 16,
+    "wave": 5,
+    "goal": "far",
+    "seat": 7,
+    "parent_published": false,
+    "candidate_published": false,
+    "parent_ticks": null,
+    "candidate_ticks": null
+  },
+  {
+    "roster": 16,
+    "wave": 5,
+    "goal": "far",
+    "seat": 8,
+    "parent_published": false,
+    "candidate_published": false,
+    "parent_ticks": null,
+    "candidate_ticks": null
+  },
+  {
+    "roster": 16,
+    "wave": 5,
+    "goal": "far",
+    "seat": 9,
+    "parent_published": false,
+    "candidate_published": false,
+    "parent_ticks": null,
+    "candidate_ticks": null
+  },
+  {
+    "roster": 16,
+    "wave": 5,
+    "goal": "far",
+    "seat": 10,
+    "parent_published": false,
+    "candidate_published": false,
+    "parent_ticks": null,
+    "candidate_ticks": null
+  },
+  {
+    "roster": 16,
+    "wave": 5,
+    "goal": "far",
+    "seat": 11,
+    "parent_published": false,
+    "candidate_published": false,
+    "parent_ticks": null,
+    "candidate_ticks": null
+  },
+  {
+    "roster": 16,
+    "wave": 5,
+    "goal": "far",
+    "seat": 12,
+    "parent_published": false,
+    "candidate_published": false,
+    "parent_ticks": null,
+    "candidate_ticks": null
+  },
+  {
+    "roster": 16,
+    "wave": 5,
+    "goal": "far",
+    "seat": 13,
+    "parent_published": false,
+    "candidate_published": false,
+    "parent_ticks": null,
+    "candidate_ticks": null
+  },
+  {
+    "roster": 16,
+    "wave": 5,
+    "goal": "far",
+    "seat": 14,
+    "parent_published": false,
+    "candidate_published": false,
+    "parent_ticks": null,
+    "candidate_ticks": null
+  },
+  {
+    "roster": 16,
+    "wave": 5,
+    "goal": "far",
+    "seat": 15,
+    "parent_published": false,
+    "candidate_published": false,
+    "parent_ticks": null,
+    "candidate_ticks": null
+  },
+  {
+    "roster": 16,
+    "wave": 6,
+    "goal": "near",
+    "seat": 0,
+    "parent_published": true,
+    "candidate_published": true,
+    "parent_ticks": 3,
+    "candidate_ticks": 1
+  },
+  {
+    "roster": 16,
+    "wave": 6,
+    "goal": "near",
+    "seat": 1,
+    "parent_published": true,
+    "candidate_published": true,
+    "parent_ticks": 5,
+    "candidate_ticks": 2
+  },
+  {
+    "roster": 16,
+    "wave": 6,
+    "goal": "near",
+    "seat": 2,
+    "parent_published": true,
+    "candidate_published": true,
+    "parent_ticks": 7,
+    "candidate_ticks": 3
+  },
+  {
+    "roster": 16,
+    "wave": 6,
+    "goal": "near",
+    "seat": 3,
+    "parent_published": true,
+    "candidate_published": true,
+    "parent_ticks": 9,
+    "candidate_ticks": 4
+  },
+  {
+    "roster": 16,
+    "wave": 6,
+    "goal": "near",
+    "seat": 4,
+    "parent_published": true,
+    "candidate_published": true,
+    "parent_ticks": 11,
+    "candidate_ticks": 5
+  },
+  {
+    "roster": 16,
+    "wave": 6,
+    "goal": "near",
+    "seat": 5,
+    "parent_published": true,
+    "candidate_published": true,
+    "parent_ticks": 14,
+    "candidate_ticks": 6
+  },
+  {
+    "roster": 16,
+    "wave": 6,
+    "goal": "near",
+    "seat": 6,
+    "parent_published": true,
+    "candidate_published": true,
+    "parent_ticks": 16,
+    "candidate_ticks": 7
+  },
+  {
+    "roster": 16,
+    "wave": 6,
+    "goal": "near",
+    "seat": 7,
+    "parent_published": true,
+    "candidate_published": true,
+    "parent_ticks": 18,
+    "candidate_ticks": 7
+  },
+  {
+    "roster": 16,
+    "wave": 6,
+    "goal": "near",
+    "seat": 8,
+    "parent_published": true,
+    "candidate_published": true,
+    "parent_ticks": 20,
+    "candidate_ticks": 8
+  },
+  {
+    "roster": 16,
+    "wave": 6,
+    "goal": "near",
+    "seat": 9,
+    "parent_published": true,
+    "candidate_published": true,
+    "parent_ticks": 22,
+    "candidate_ticks": 9
+  },
+  {
+    "roster": 16,
+    "wave": 6,
+    "goal": "near",
+    "seat": 10,
+    "parent_published": true,
+    "candidate_published": true,
+    "parent_ticks": 25,
+    "candidate_ticks": 10
+  },
+  {
+    "roster": 16,
+    "wave": 6,
+    "goal": "near",
+    "seat": 11,
+    "parent_published": true,
+    "candidate_published": true,
+    "parent_ticks": 27,
+    "candidate_ticks": 11
+  },
+  {
+    "roster": 16,
+    "wave": 6,
+    "goal": "near",
+    "seat": 12,
+    "parent_published": true,
+    "candidate_published": true,
+    "parent_ticks": 42,
+    "candidate_ticks": 12
+  },
+  {
+    "roster": 16,
+    "wave": 6,
+    "goal": "near",
+    "seat": 13,
+    "parent_published": true,
+    "candidate_published": true,
+    "parent_ticks": 44,
+    "candidate_ticks": 13
+  },
+  {
+    "roster": 16,
+    "wave": 6,
+    "goal": "near",
+    "seat": 14,
+    "parent_published": true,
+    "candidate_published": true,
+    "parent_ticks": 46,
+    "candidate_ticks": 13
+  },
+  {
+    "roster": 16,
+    "wave": 6,
+    "goal": "near",
+    "seat": 15,
+    "parent_published": true,
+    "candidate_published": true,
+    "parent_ticks": 49,
+    "candidate_ticks": 14
+  },
+  {
+    "roster": 16,
+    "wave": 7,
+    "goal": "far",
+    "seat": 0,
+    "parent_published": true,
+    "candidate_published": true,
+    "parent_ticks": 41,
+    "candidate_ticks": 41
+  },
+  {
+    "roster": 16,
+    "wave": 7,
+    "goal": "far",
+    "seat": 1,
+    "parent_published": true,
+    "candidate_published": true,
+    "parent_ticks": 82,
+    "candidate_ticks": 82
+  },
+  {
+    "roster": 16,
+    "wave": 7,
+    "goal": "far",
+    "seat": 2,
+    "parent_published": true,
+    "candidate_published": true,
+    "parent_ticks": 1129,
+    "candidate_ticks": 1165
+  },
+  {
+    "roster": 16,
+    "wave": 7,
+    "goal": "far",
+    "seat": 3,
+    "parent_published": false,
+    "candidate_published": false,
+    "parent_ticks": null,
+    "candidate_ticks": null
+  },
+  {
+    "roster": 16,
+    "wave": 7,
+    "goal": "far",
+    "seat": 4,
+    "parent_published": false,
+    "candidate_published": false,
+    "parent_ticks": null,
+    "candidate_ticks": null
+  },
+  {
+    "roster": 16,
+    "wave": 7,
+    "goal": "far",
+    "seat": 5,
+    "parent_published": false,
+    "candidate_published": false,
+    "parent_ticks": null,
+    "candidate_ticks": null
+  },
+  {
+    "roster": 16,
+    "wave": 7,
+    "goal": "far",
+    "seat": 6,
+    "parent_published": false,
+    "candidate_published": false,
+    "parent_ticks": null,
+    "candidate_ticks": null
+  },
+  {
+    "roster": 16,
+    "wave": 7,
+    "goal": "far",
+    "seat": 7,
+    "parent_published": false,
+    "candidate_published": false,
+    "parent_ticks": null,
+    "candidate_ticks": null
+  },
+  {
+    "roster": 16,
+    "wave": 7,
+    "goal": "far",
+    "seat": 8,
+    "parent_published": false,
+    "candidate_published": false,
+    "parent_ticks": null,
+    "candidate_ticks": null
+  },
+  {
+    "roster": 16,
+    "wave": 7,
+    "goal": "far",
+    "seat": 9,
+    "parent_published": false,
+    "candidate_published": false,
+    "parent_ticks": null,
+    "candidate_ticks": null
+  },
+  {
+    "roster": 16,
+    "wave": 7,
+    "goal": "far",
+    "seat": 10,
+    "parent_published": false,
+    "candidate_published": false,
+    "parent_ticks": null,
+    "candidate_ticks": null
+  },
+  {
+    "roster": 16,
+    "wave": 7,
+    "goal": "far",
+    "seat": 11,
+    "parent_published": false,
+    "candidate_published": false,
+    "parent_ticks": null,
+    "candidate_ticks": null
+  },
+  {
+    "roster": 16,
+    "wave": 7,
+    "goal": "far",
+    "seat": 12,
+    "parent_published": false,
+    "candidate_published": false,
+    "parent_ticks": null,
+    "candidate_ticks": null
+  },
+  {
+    "roster": 16,
+    "wave": 7,
+    "goal": "far",
+    "seat": 13,
+    "parent_published": false,
+    "candidate_published": false,
+    "parent_ticks": null,
+    "candidate_ticks": null
+  },
+  {
+    "roster": 16,
+    "wave": 7,
+    "goal": "far",
+    "seat": 14,
+    "parent_published": false,
+    "candidate_published": false,
+    "parent_ticks": null,
+    "candidate_ticks": null
+  },
+  {
+    "roster": 16,
+    "wave": 7,
+    "goal": "far",
+    "seat": 15,
+    "parent_published": false,
+    "candidate_published": false,
+    "parent_ticks": null,
+    "candidate_ticks": null
+  },
+  {
+    "roster": 16,
+    "wave": 8,
+    "goal": "near",
+    "seat": 0,
+    "parent_published": true,
+    "candidate_published": true,
+    "parent_ticks": 3,
+    "candidate_ticks": 1
+  },
+  {
+    "roster": 16,
+    "wave": 8,
+    "goal": "near",
+    "seat": 1,
+    "parent_published": true,
+    "candidate_published": true,
+    "parent_ticks": 5,
+    "candidate_ticks": 2
+  },
+  {
+    "roster": 16,
+    "wave": 8,
+    "goal": "near",
+    "seat": 2,
+    "parent_published": true,
+    "candidate_published": true,
+    "parent_ticks": 7,
+    "candidate_ticks": 3
+  },
+  {
+    "roster": 16,
+    "wave": 8,
+    "goal": "near",
+    "seat": 3,
+    "parent_published": true,
+    "candidate_published": true,
+    "parent_ticks": 9,
+    "candidate_ticks": 6
+  },
+  {
+    "roster": 16,
+    "wave": 8,
+    "goal": "near",
+    "seat": 4,
+    "parent_published": true,
+    "candidate_published": true,
+    "parent_ticks": 11,
+    "candidate_ticks": 7
+  },
+  {
+    "roster": 16,
+    "wave": 8,
+    "goal": "near",
+    "seat": 5,
+    "parent_published": true,
+    "candidate_published": true,
+    "parent_ticks": 14,
+    "candidate_ticks": 8
+  },
+  {
+    "roster": 16,
+    "wave": 8,
+    "goal": "near",
+    "seat": 6,
+    "parent_published": true,
+    "candidate_published": true,
+    "parent_ticks": 16,
+    "candidate_ticks": 9
+  },
+  {
+    "roster": 16,
+    "wave": 8,
+    "goal": "near",
+    "seat": 7,
+    "parent_published": true,
+    "candidate_published": true,
+    "parent_ticks": 18,
+    "candidate_ticks": 10
+  },
+  {
+    "roster": 16,
+    "wave": 8,
+    "goal": "near",
+    "seat": 8,
+    "parent_published": true,
+    "candidate_published": true,
+    "parent_ticks": 20,
+    "candidate_ticks": 11
+  },
+  {
+    "roster": 16,
+    "wave": 8,
+    "goal": "near",
+    "seat": 9,
+    "parent_published": true,
+    "candidate_published": true,
+    "parent_ticks": 22,
+    "candidate_ticks": 11
+  },
+  {
+    "roster": 16,
+    "wave": 8,
+    "goal": "near",
+    "seat": 10,
+    "parent_published": true,
+    "candidate_published": true,
+    "parent_ticks": 25,
+    "candidate_ticks": 12
+  },
+  {
+    "roster": 16,
+    "wave": 8,
+    "goal": "near",
+    "seat": 11,
+    "parent_published": true,
+    "candidate_published": true,
+    "parent_ticks": 27,
+    "candidate_ticks": 13
+  },
+  {
+    "roster": 16,
+    "wave": 8,
+    "goal": "near",
+    "seat": 12,
+    "parent_published": true,
+    "candidate_published": true,
+    "parent_ticks": 42,
+    "candidate_ticks": 14
+  },
+  {
+    "roster": 16,
+    "wave": 8,
+    "goal": "near",
+    "seat": 13,
+    "parent_published": true,
+    "candidate_published": true,
+    "parent_ticks": 44,
+    "candidate_ticks": 15
+  },
+  {
+    "roster": 16,
+    "wave": 8,
+    "goal": "near",
+    "seat": 14,
+    "parent_published": true,
+    "candidate_published": true,
+    "parent_ticks": 47,
+    "candidate_ticks": 16
+  },
+  {
+    "roster": 16,
+    "wave": 8,
+    "goal": "near",
+    "seat": 15,
+    "parent_published": true,
+    "candidate_published": true,
+    "parent_ticks": 49,
+    "candidate_ticks": 17
+  },
+  {
+    "roster": 16,
+    "wave": 9,
+    "goal": "far",
+    "seat": 0,
+    "parent_published": true,
+    "candidate_published": true,
+    "parent_ticks": 41,
+    "candidate_ticks": 41
+  },
+  {
+    "roster": 16,
+    "wave": 9,
+    "goal": "far",
+    "seat": 1,
+    "parent_published": true,
+    "candidate_published": true,
+    "parent_ticks": 82,
+    "candidate_ticks": 82
+  },
+  {
+    "roster": 16,
+    "wave": 9,
+    "goal": "far",
+    "seat": 2,
+    "parent_published": true,
+    "candidate_published": true,
+    "parent_ticks": 1125,
+    "candidate_ticks": 1112
+  },
+  {
+    "roster": 16,
+    "wave": 9,
+    "goal": "far",
+    "seat": 3,
+    "parent_published": false,
+    "candidate_published": false,
+    "parent_ticks": null,
+    "candidate_ticks": null
+  },
+  {
+    "roster": 16,
+    "wave": 9,
+    "goal": "far",
+    "seat": 4,
+    "parent_published": false,
+    "candidate_published": false,
+    "parent_ticks": null,
+    "candidate_ticks": null
+  },
+  {
+    "roster": 16,
+    "wave": 9,
+    "goal": "far",
+    "seat": 5,
+    "parent_published": false,
+    "candidate_published": false,
+    "parent_ticks": null,
+    "candidate_ticks": null
+  },
+  {
+    "roster": 16,
+    "wave": 9,
+    "goal": "far",
+    "seat": 6,
+    "parent_published": false,
+    "candidate_published": false,
+    "parent_ticks": null,
+    "candidate_ticks": null
+  },
+  {
+    "roster": 16,
+    "wave": 9,
+    "goal": "far",
+    "seat": 7,
+    "parent_published": false,
+    "candidate_published": false,
+    "parent_ticks": null,
+    "candidate_ticks": null
+  },
+  {
+    "roster": 16,
+    "wave": 9,
+    "goal": "far",
+    "seat": 8,
+    "parent_published": false,
+    "candidate_published": false,
+    "parent_ticks": null,
+    "candidate_ticks": null
+  },
+  {
+    "roster": 16,
+    "wave": 9,
+    "goal": "far",
+    "seat": 9,
+    "parent_published": false,
+    "candidate_published": false,
+    "parent_ticks": null,
+    "candidate_ticks": null
+  },
+  {
+    "roster": 16,
+    "wave": 9,
+    "goal": "far",
+    "seat": 10,
+    "parent_published": false,
+    "candidate_published": false,
+    "parent_ticks": null,
+    "candidate_ticks": null
+  },
+  {
+    "roster": 16,
+    "wave": 9,
+    "goal": "far",
+    "seat": 11,
+    "parent_published": false,
+    "candidate_published": false,
+    "parent_ticks": null,
+    "candidate_ticks": null
+  },
+  {
+    "roster": 16,
+    "wave": 9,
+    "goal": "far",
+    "seat": 12,
+    "parent_published": false,
+    "candidate_published": false,
+    "parent_ticks": null,
+    "candidate_ticks": null
+  },
+  {
+    "roster": 16,
+    "wave": 9,
+    "goal": "far",
+    "seat": 13,
+    "parent_published": false,
+    "candidate_published": false,
+    "parent_ticks": null,
+    "candidate_ticks": null
+  },
+  {
+    "roster": 16,
+    "wave": 9,
+    "goal": "far",
+    "seat": 14,
+    "parent_published": false,
+    "candidate_published": false,
+    "parent_ticks": null,
+    "candidate_ticks": null
+  },
+  {
+    "roster": 16,
+    "wave": 9,
+    "goal": "far",
+    "seat": 15,
+    "parent_published": false,
+    "candidate_published": false,
+    "parent_ticks": null,
+    "candidate_ticks": null
+  },
+  {
+    "roster": 16,
+    "wave": 10,
+    "goal": "near",
+    "seat": 0,
+    "parent_published": true,
+    "candidate_published": true,
+    "parent_ticks": 3,
+    "candidate_ticks": 1
+  },
+  {
+    "roster": 16,
+    "wave": 10,
+    "goal": "near",
+    "seat": 1,
+    "parent_published": true,
+    "candidate_published": true,
+    "parent_ticks": 5,
+    "candidate_ticks": 2
+  },
+  {
+    "roster": 16,
+    "wave": 10,
+    "goal": "near",
+    "seat": 2,
+    "parent_published": true,
+    "candidate_published": true,
+    "parent_ticks": 7,
+    "candidate_ticks": 3
+  },
+  {
+    "roster": 16,
+    "wave": 10,
+    "goal": "near",
+    "seat": 3,
+    "parent_published": true,
+    "candidate_published": true,
+    "parent_ticks": 9,
+    "candidate_ticks": 4
+  },
+  {
+    "roster": 16,
+    "wave": 10,
+    "goal": "near",
+    "seat": 4,
+    "parent_published": true,
+    "candidate_published": true,
+    "parent_ticks": 11,
+    "candidate_ticks": 5
+  },
+  {
+    "roster": 16,
+    "wave": 10,
+    "goal": "near",
+    "seat": 5,
+    "parent_published": true,
+    "candidate_published": true,
+    "parent_ticks": 14,
+    "candidate_ticks": 6
+  },
+  {
+    "roster": 16,
+    "wave": 10,
+    "goal": "near",
+    "seat": 6,
+    "parent_published": true,
+    "candidate_published": true,
+    "parent_ticks": 16,
+    "candidate_ticks": 7
+  },
+  {
+    "roster": 16,
+    "wave": 10,
+    "goal": "near",
+    "seat": 7,
+    "parent_published": true,
+    "candidate_published": true,
+    "parent_ticks": 18,
+    "candidate_ticks": 7
+  },
+  {
+    "roster": 16,
+    "wave": 10,
+    "goal": "near",
+    "seat": 8,
+    "parent_published": true,
+    "candidate_published": true,
+    "parent_ticks": 20,
+    "candidate_ticks": 8
+  },
+  {
+    "roster": 16,
+    "wave": 10,
+    "goal": "near",
+    "seat": 9,
+    "parent_published": true,
+    "candidate_published": true,
+    "parent_ticks": 22,
+    "candidate_ticks": 9
+  },
+  {
+    "roster": 16,
+    "wave": 10,
+    "goal": "near",
+    "seat": 10,
+    "parent_published": true,
+    "candidate_published": true,
+    "parent_ticks": 25,
+    "candidate_ticks": 13
+  },
+  {
+    "roster": 16,
+    "wave": 10,
+    "goal": "near",
+    "seat": 11,
+    "parent_published": true,
+    "candidate_published": true,
+    "parent_ticks": 39,
+    "candidate_ticks": 13
+  },
+  {
+    "roster": 16,
+    "wave": 10,
+    "goal": "near",
+    "seat": 12,
+    "parent_published": true,
+    "candidate_published": true,
+    "parent_ticks": 41,
+    "candidate_ticks": 14
+  },
+  {
+    "roster": 16,
+    "wave": 10,
+    "goal": "near",
+    "seat": 13,
+    "parent_published": true,
+    "candidate_published": true,
+    "parent_ticks": 43,
+    "candidate_ticks": 15
+  },
+  {
+    "roster": 16,
+    "wave": 10,
+    "goal": "near",
+    "seat": 14,
+    "parent_published": true,
+    "candidate_published": true,
+    "parent_ticks": 46,
+    "candidate_ticks": 16
+  },
+  {
+    "roster": 16,
+    "wave": 10,
+    "goal": "near",
+    "seat": 15,
+    "parent_published": true,
+    "candidate_published": true,
+    "parent_ticks": 48,
+    "candidate_ticks": 17
+  },
+  {
+    "roster": 32,
+    "wave": 1,
+    "goal": "far",
+    "seat": 0,
+    "parent_published": true,
+    "candidate_published": true,
+    "parent_ticks": 41,
+    "candidate_ticks": 41
+  },
+  {
+    "roster": 32,
+    "wave": 1,
+    "goal": "far",
+    "seat": 1,
+    "parent_published": true,
+    "candidate_published": true,
+    "parent_ticks": 82,
+    "candidate_ticks": 82
+  },
+  {
+    "roster": 32,
+    "wave": 1,
+    "goal": "far",
+    "seat": 2,
+    "parent_published": true,
+    "candidate_published": true,
+    "parent_ticks": 1108,
+    "candidate_ticks": 1081
+  },
+  {
+    "roster": 32,
+    "wave": 1,
+    "goal": "far",
+    "seat": 3,
+    "parent_published": false,
+    "candidate_published": false,
+    "parent_ticks": null,
+    "candidate_ticks": null
+  },
+  {
+    "roster": 32,
+    "wave": 1,
+    "goal": "far",
+    "seat": 4,
+    "parent_published": false,
+    "candidate_published": false,
+    "parent_ticks": null,
+    "candidate_ticks": null
+  },
+  {
+    "roster": 32,
+    "wave": 1,
+    "goal": "far",
+    "seat": 5,
+    "parent_published": false,
+    "candidate_published": false,
+    "parent_ticks": null,
+    "candidate_ticks": null
+  },
+  {
+    "roster": 32,
+    "wave": 1,
+    "goal": "far",
+    "seat": 6,
+    "parent_published": false,
+    "candidate_published": false,
+    "parent_ticks": null,
+    "candidate_ticks": null
+  },
+  {
+    "roster": 32,
+    "wave": 1,
+    "goal": "far",
+    "seat": 7,
+    "parent_published": false,
+    "candidate_published": false,
+    "parent_ticks": null,
+    "candidate_ticks": null
+  },
+  {
+    "roster": 32,
+    "wave": 1,
+    "goal": "far",
+    "seat": 8,
+    "parent_published": false,
+    "candidate_published": false,
+    "parent_ticks": null,
+    "candidate_ticks": null
+  },
+  {
+    "roster": 32,
+    "wave": 1,
+    "goal": "far",
+    "seat": 9,
+    "parent_published": false,
+    "candidate_published": false,
+    "parent_ticks": null,
+    "candidate_ticks": null
+  },
+  {
+    "roster": 32,
+    "wave": 1,
+    "goal": "far",
+    "seat": 10,
+    "parent_published": false,
+    "candidate_published": false,
+    "parent_ticks": null,
+    "candidate_ticks": null
+  },
+  {
+    "roster": 32,
+    "wave": 1,
+    "goal": "far",
+    "seat": 11,
+    "parent_published": false,
+    "candidate_published": false,
+    "parent_ticks": null,
+    "candidate_ticks": null
+  },
+  {
+    "roster": 32,
+    "wave": 1,
+    "goal": "far",
+    "seat": 12,
+    "parent_published": false,
+    "candidate_published": false,
+    "parent_ticks": null,
+    "candidate_ticks": null
+  },
+  {
+    "roster": 32,
+    "wave": 1,
+    "goal": "far",
+    "seat": 13,
+    "parent_published": false,
+    "candidate_published": false,
+    "parent_ticks": null,
+    "candidate_ticks": null
+  },
+  {
+    "roster": 32,
+    "wave": 1,
+    "goal": "far",
+    "seat": 14,
+    "parent_published": false,
+    "candidate_published": false,
+    "parent_ticks": null,
+    "candidate_ticks": null
+  },
+  {
+    "roster": 32,
+    "wave": 1,
+    "goal": "far",
+    "seat": 15,
+    "parent_published": false,
+    "candidate_published": false,
+    "parent_ticks": null,
+    "candidate_ticks": null
+  },
+  {
+    "roster": 32,
+    "wave": 1,
+    "goal": "far",
+    "seat": 16,
+    "parent_published": false,
+    "candidate_published": false,
+    "parent_ticks": null,
+    "candidate_ticks": null
+  },
+  {
+    "roster": 32,
+    "wave": 1,
+    "goal": "far",
+    "seat": 17,
+    "parent_published": false,
+    "candidate_published": false,
+    "parent_ticks": null,
+    "candidate_ticks": null
+  },
+  {
+    "roster": 32,
+    "wave": 1,
+    "goal": "far",
+    "seat": 18,
+    "parent_published": false,
+    "candidate_published": false,
+    "parent_ticks": null,
+    "candidate_ticks": null
+  },
+  {
+    "roster": 32,
+    "wave": 1,
+    "goal": "far",
+    "seat": 19,
+    "parent_published": false,
+    "candidate_published": false,
+    "parent_ticks": null,
+    "candidate_ticks": null
+  },
+  {
+    "roster": 32,
+    "wave": 1,
+    "goal": "far",
+    "seat": 20,
+    "parent_published": false,
+    "candidate_published": false,
+    "parent_ticks": null,
+    "candidate_ticks": null
+  },
+  {
+    "roster": 32,
+    "wave": 1,
+    "goal": "far",
+    "seat": 21,
+    "parent_published": false,
+    "candidate_published": false,
+    "parent_ticks": null,
+    "candidate_ticks": null
+  },
+  {
+    "roster": 32,
+    "wave": 1,
+    "goal": "far",
+    "seat": 22,
+    "parent_published": false,
+    "candidate_published": false,
+    "parent_ticks": null,
+    "candidate_ticks": null
+  },
+  {
+    "roster": 32,
+    "wave": 1,
+    "goal": "far",
+    "seat": 23,
+    "parent_published": false,
+    "candidate_published": false,
+    "parent_ticks": null,
+    "candidate_ticks": null
+  },
+  {
+    "roster": 32,
+    "wave": 1,
+    "goal": "far",
+    "seat": 24,
+    "parent_published": false,
+    "candidate_published": false,
+    "parent_ticks": null,
+    "candidate_ticks": null
+  },
+  {
+    "roster": 32,
+    "wave": 1,
+    "goal": "far",
+    "seat": 25,
+    "parent_published": false,
+    "candidate_published": false,
+    "parent_ticks": null,
+    "candidate_ticks": null
+  },
+  {
+    "roster": 32,
+    "wave": 1,
+    "goal": "far",
+    "seat": 26,
+    "parent_published": false,
+    "candidate_published": false,
+    "parent_ticks": null,
+    "candidate_ticks": null
+  },
+  {
+    "roster": 32,
+    "wave": 1,
+    "goal": "far",
+    "seat": 27,
+    "parent_published": false,
+    "candidate_published": false,
+    "parent_ticks": null,
+    "candidate_ticks": null
+  },
+  {
+    "roster": 32,
+    "wave": 1,
+    "goal": "far",
+    "seat": 28,
+    "parent_published": false,
+    "candidate_published": false,
+    "parent_ticks": null,
+    "candidate_ticks": null
+  },
+  {
+    "roster": 32,
+    "wave": 1,
+    "goal": "far",
+    "seat": 29,
+    "parent_published": false,
+    "candidate_published": false,
+    "parent_ticks": null,
+    "candidate_ticks": null
+  },
+  {
+    "roster": 32,
+    "wave": 1,
+    "goal": "far",
+    "seat": 30,
+    "parent_published": false,
+    "candidate_published": false,
+    "parent_ticks": null,
+    "candidate_ticks": null
+  },
+  {
+    "roster": 32,
+    "wave": 1,
+    "goal": "far",
+    "seat": 31,
+    "parent_published": false,
+    "candidate_published": false,
+    "parent_ticks": null,
+    "candidate_ticks": null
+  },
+  {
+    "roster": 32,
+    "wave": 2,
+    "goal": "near",
+    "seat": 0,
+    "parent_published": true,
+    "candidate_published": true,
+    "parent_ticks": 3,
+    "candidate_ticks": 1
+  },
+  {
+    "roster": 32,
+    "wave": 2,
+    "goal": "near",
+    "seat": 1,
+    "parent_published": true,
+    "candidate_published": true,
+    "parent_ticks": 5,
+    "candidate_ticks": 2
+  },
+  {
+    "roster": 32,
+    "wave": 2,
+    "goal": "near",
+    "seat": 2,
+    "parent_published": true,
+    "candidate_published": true,
+    "parent_ticks": 7,
+    "candidate_ticks": 3
+  },
+  {
+    "roster": 32,
+    "wave": 2,
+    "goal": "near",
+    "seat": 3,
+    "parent_published": true,
+    "candidate_published": true,
+    "parent_ticks": 9,
+    "candidate_ticks": 4
+  },
+  {
+    "roster": 32,
+    "wave": 2,
+    "goal": "near",
+    "seat": 4,
+    "parent_published": true,
+    "candidate_published": true,
+    "parent_ticks": 11,
+    "candidate_ticks": 5
+  },
+  {
+    "roster": 32,
+    "wave": 2,
+    "goal": "near",
+    "seat": 5,
+    "parent_published": true,
+    "candidate_published": true,
+    "parent_ticks": 14,
+    "candidate_ticks": 6
+  },
+  {
+    "roster": 32,
+    "wave": 2,
+    "goal": "near",
+    "seat": 6,
+    "parent_published": true,
+    "candidate_published": true,
+    "parent_ticks": 16,
+    "candidate_ticks": 7
+  },
+  {
+    "roster": 32,
+    "wave": 2,
+    "goal": "near",
+    "seat": 7,
+    "parent_published": true,
+    "candidate_published": true,
+    "parent_ticks": 18,
+    "candidate_ticks": 7
+  },
+  {
+    "roster": 32,
+    "wave": 2,
+    "goal": "near",
+    "seat": 8,
+    "parent_published": true,
+    "candidate_published": true,
+    "parent_ticks": 20,
+    "candidate_ticks": 8
+  },
+  {
+    "roster": 32,
+    "wave": 2,
+    "goal": "near",
+    "seat": 9,
+    "parent_published": true,
+    "candidate_published": true,
+    "parent_ticks": 22,
+    "candidate_ticks": 9
+  },
+  {
+    "roster": 32,
+    "wave": 2,
+    "goal": "near",
+    "seat": 10,
+    "parent_published": true,
+    "candidate_published": true,
+    "parent_ticks": 25,
+    "candidate_ticks": 10
+  },
+  {
+    "roster": 32,
+    "wave": 2,
+    "goal": "near",
+    "seat": 11,
+    "parent_published": true,
+    "candidate_published": true,
+    "parent_ticks": 27,
+    "candidate_ticks": 11
+  },
+  {
+    "roster": 32,
+    "wave": 2,
+    "goal": "near",
+    "seat": 12,
+    "parent_published": true,
+    "candidate_published": true,
+    "parent_ticks": 29,
+    "candidate_ticks": 12
+  },
+  {
+    "roster": 32,
+    "wave": 2,
+    "goal": "near",
+    "seat": 13,
+    "parent_published": true,
+    "candidate_published": true,
+    "parent_ticks": 31,
+    "candidate_ticks": 13
+  },
+  {
+    "roster": 32,
+    "wave": 2,
+    "goal": "near",
+    "seat": 14,
+    "parent_published": true,
+    "candidate_published": true,
+    "parent_ticks": 33,
+    "candidate_ticks": 13
+  },
+  {
+    "roster": 32,
+    "wave": 2,
+    "goal": "near",
+    "seat": 15,
+    "parent_published": true,
+    "candidate_published": true,
+    "parent_ticks": 51,
+    "candidate_ticks": 14
+  },
+  {
+    "roster": 32,
+    "wave": 2,
+    "goal": "near",
+    "seat": 16,
+    "parent_published": true,
+    "candidate_published": true,
+    "parent_ticks": 54,
+    "candidate_ticks": 15
+  },
+  {
+    "roster": 32,
+    "wave": 2,
+    "goal": "near",
+    "seat": 17,
+    "parent_published": true,
+    "candidate_published": true,
+    "parent_ticks": 56,
+    "candidate_ticks": 16
+  },
+  {
+    "roster": 32,
+    "wave": 2,
+    "goal": "near",
+    "seat": 18,
+    "parent_published": true,
+    "candidate_published": true,
+    "parent_ticks": 58,
+    "candidate_ticks": 17
+  },
+  {
+    "roster": 32,
+    "wave": 2,
+    "goal": "near",
+    "seat": 19,
+    "parent_published": true,
+    "candidate_published": true,
+    "parent_ticks": 60,
+    "candidate_ticks": 18
+  },
+  {
+    "roster": 32,
+    "wave": 2,
+    "goal": "near",
+    "seat": 20,
+    "parent_published": true,
+    "candidate_published": true,
+    "parent_ticks": 62,
+    "candidate_ticks": 19
+  },
+  {
+    "roster": 32,
+    "wave": 2,
+    "goal": "near",
+    "seat": 21,
+    "parent_published": true,
+    "candidate_published": true,
+    "parent_ticks": 65,
+    "candidate_ticks": 20
+  },
+  {
+    "roster": 32,
+    "wave": 2,
+    "goal": "near",
+    "seat": 22,
+    "parent_published": true,
+    "candidate_published": true,
+    "parent_ticks": 72,
+    "candidate_ticks": 20
+  },
+  {
+    "roster": 32,
+    "wave": 2,
+    "goal": "near",
+    "seat": 23,
+    "parent_published": true,
+    "candidate_published": true,
+    "parent_ticks": 81,
+    "candidate_ticks": 21
+  },
+  {
+    "roster": 32,
+    "wave": 2,
+    "goal": "near",
+    "seat": 24,
+    "parent_published": true,
+    "candidate_published": true,
+    "parent_ticks": 90,
+    "candidate_ticks": 22
+  },
+  {
+    "roster": 32,
+    "wave": 2,
+    "goal": "near",
+    "seat": 25,
+    "parent_published": true,
+    "candidate_published": true,
+    "parent_ticks": 124,
+    "candidate_ticks": 24
+  },
+  {
+    "roster": 32,
+    "wave": 2,
+    "goal": "near",
+    "seat": 26,
+    "parent_published": true,
+    "candidate_published": true,
+    "parent_ticks": 126,
+    "candidate_ticks": 25
+  },
+  {
+    "roster": 32,
+    "wave": 2,
+    "goal": "near",
+    "seat": 27,
+    "parent_published": true,
+    "candidate_published": true,
+    "parent_ticks": 128,
+    "candidate_ticks": 26
+  },
+  {
+    "roster": 32,
+    "wave": 2,
+    "goal": "near",
+    "seat": 28,
+    "parent_published": true,
+    "candidate_published": true,
+    "parent_ticks": 131,
+    "candidate_ticks": 27
+  },
+  {
+    "roster": 32,
+    "wave": 2,
+    "goal": "near",
+    "seat": 29,
+    "parent_published": true,
+    "candidate_published": true,
+    "parent_ticks": 134,
+    "candidate_ticks": 28
+  },
+  {
+    "roster": 32,
+    "wave": 2,
+    "goal": "near",
+    "seat": 30,
+    "parent_published": true,
+    "candidate_published": true,
+    "parent_ticks": 137,
+    "candidate_ticks": 29
+  },
+  {
+    "roster": 32,
+    "wave": 2,
+    "goal": "near",
+    "seat": 31,
+    "parent_published": true,
+    "candidate_published": true,
+    "parent_ticks": 140,
+    "candidate_ticks": 30
+  },
+  {
+    "roster": 32,
+    "wave": 3,
+    "goal": "far",
+    "seat": 0,
+    "parent_published": true,
+    "candidate_published": true,
+    "parent_ticks": 41,
+    "candidate_ticks": 41
+  },
+  {
+    "roster": 32,
+    "wave": 3,
+    "goal": "far",
+    "seat": 1,
+    "parent_published": true,
+    "candidate_published": true,
+    "parent_ticks": 82,
+    "candidate_ticks": 82
+  },
+  {
+    "roster": 32,
+    "wave": 3,
+    "goal": "far",
+    "seat": 2,
+    "parent_published": true,
+    "candidate_published": true,
+    "parent_ticks": 1169,
+    "candidate_ticks": 1122
+  },
+  {
+    "roster": 32,
+    "wave": 3,
+    "goal": "far",
+    "seat": 3,
+    "parent_published": false,
+    "candidate_published": false,
+    "parent_ticks": null,
+    "candidate_ticks": null
+  },
+  {
+    "roster": 32,
+    "wave": 3,
+    "goal": "far",
+    "seat": 4,
+    "parent_published": false,
+    "candidate_published": false,
+    "parent_ticks": null,
+    "candidate_ticks": null
+  },
+  {
+    "roster": 32,
+    "wave": 3,
+    "goal": "far",
+    "seat": 5,
+    "parent_published": false,
+    "candidate_published": false,
+    "parent_ticks": null,
+    "candidate_ticks": null
+  },
+  {
+    "roster": 32,
+    "wave": 3,
+    "goal": "far",
+    "seat": 6,
+    "parent_published": false,
+    "candidate_published": false,
+    "parent_ticks": null,
+    "candidate_ticks": null
+  },
+  {
+    "roster": 32,
+    "wave": 3,
+    "goal": "far",
+    "seat": 7,
+    "parent_published": false,
+    "candidate_published": false,
+    "parent_ticks": null,
+    "candidate_ticks": null
+  },
+  {
+    "roster": 32,
+    "wave": 3,
+    "goal": "far",
+    "seat": 8,
+    "parent_published": false,
+    "candidate_published": false,
+    "parent_ticks": null,
+    "candidate_ticks": null
+  },
+  {
+    "roster": 32,
+    "wave": 3,
+    "goal": "far",
+    "seat": 9,
+    "parent_published": false,
+    "candidate_published": false,
+    "parent_ticks": null,
+    "candidate_ticks": null
+  },
+  {
+    "roster": 32,
+    "wave": 3,
+    "goal": "far",
+    "seat": 10,
+    "parent_published": false,
+    "candidate_published": false,
+    "parent_ticks": null,
+    "candidate_ticks": null
+  },
+  {
+    "roster": 32,
+    "wave": 3,
+    "goal": "far",
+    "seat": 11,
+    "parent_published": false,
+    "candidate_published": false,
+    "parent_ticks": null,
+    "candidate_ticks": null
+  },
+  {
+    "roster": 32,
+    "wave": 3,
+    "goal": "far",
+    "seat": 12,
+    "parent_published": false,
+    "candidate_published": false,
+    "parent_ticks": null,
+    "candidate_ticks": null
+  },
+  {
+    "roster": 32,
+    "wave": 3,
+    "goal": "far",
+    "seat": 13,
+    "parent_published": false,
+    "candidate_published": false,
+    "parent_ticks": null,
+    "candidate_ticks": null
+  },
+  {
+    "roster": 32,
+    "wave": 3,
+    "goal": "far",
+    "seat": 14,
+    "parent_published": false,
+    "candidate_published": false,
+    "parent_ticks": null,
+    "candidate_ticks": null
+  },
+  {
+    "roster": 32,
+    "wave": 3,
+    "goal": "far",
+    "seat": 15,
+    "parent_published": false,
+    "candidate_published": false,
+    "parent_ticks": null,
+    "candidate_ticks": null
+  },
+  {
+    "roster": 32,
+    "wave": 3,
+    "goal": "far",
+    "seat": 16,
+    "parent_published": false,
+    "candidate_published": false,
+    "parent_ticks": null,
+    "candidate_ticks": null
+  },
+  {
+    "roster": 32,
+    "wave": 3,
+    "goal": "far",
+    "seat": 17,
+    "parent_published": false,
+    "candidate_published": false,
+    "parent_ticks": null,
+    "candidate_ticks": null
+  },
+  {
+    "roster": 32,
+    "wave": 3,
+    "goal": "far",
+    "seat": 18,
+    "parent_published": false,
+    "candidate_published": false,
+    "parent_ticks": null,
+    "candidate_ticks": null
+  },
+  {
+    "roster": 32,
+    "wave": 3,
+    "goal": "far",
+    "seat": 19,
+    "parent_published": false,
+    "candidate_published": false,
+    "parent_ticks": null,
+    "candidate_ticks": null
+  },
+  {
+    "roster": 32,
+    "wave": 3,
+    "goal": "far",
+    "seat": 20,
+    "parent_published": false,
+    "candidate_published": false,
+    "parent_ticks": null,
+    "candidate_ticks": null
+  },
+  {
+    "roster": 32,
+    "wave": 3,
+    "goal": "far",
+    "seat": 21,
+    "parent_published": false,
+    "candidate_published": false,
+    "parent_ticks": null,
+    "candidate_ticks": null
+  },
+  {
+    "roster": 32,
+    "wave": 3,
+    "goal": "far",
+    "seat": 22,
+    "parent_published": false,
+    "candidate_published": false,
+    "parent_ticks": null,
+    "candidate_ticks": null
+  },
+  {
+    "roster": 32,
+    "wave": 3,
+    "goal": "far",
+    "seat": 23,
+    "parent_published": false,
+    "candidate_published": false,
+    "parent_ticks": null,
+    "candidate_ticks": null
+  },
+  {
+    "roster": 32,
+    "wave": 3,
+    "goal": "far",
+    "seat": 24,
+    "parent_published": false,
+    "candidate_published": false,
+    "parent_ticks": null,
+    "candidate_ticks": null
+  },
+  {
+    "roster": 32,
+    "wave": 3,
+    "goal": "far",
+    "seat": 25,
+    "parent_published": false,
+    "candidate_published": false,
+    "parent_ticks": null,
+    "candidate_ticks": null
+  },
+  {
+    "roster": 32,
+    "wave": 3,
+    "goal": "far",
+    "seat": 26,
+    "parent_published": false,
+    "candidate_published": false,
+    "parent_ticks": null,
+    "candidate_ticks": null
+  },
+  {
+    "roster": 32,
+    "wave": 3,
+    "goal": "far",
+    "seat": 27,
+    "parent_published": false,
+    "candidate_published": false,
+    "parent_ticks": null,
+    "candidate_ticks": null
+  },
+  {
+    "roster": 32,
+    "wave": 3,
+    "goal": "far",
+    "seat": 28,
+    "parent_published": false,
+    "candidate_published": false,
+    "parent_ticks": null,
+    "candidate_ticks": null
+  },
+  {
+    "roster": 32,
+    "wave": 3,
+    "goal": "far",
+    "seat": 29,
+    "parent_published": false,
+    "candidate_published": false,
+    "parent_ticks": null,
+    "candidate_ticks": null
+  },
+  {
+    "roster": 32,
+    "wave": 3,
+    "goal": "far",
+    "seat": 30,
+    "parent_published": false,
+    "candidate_published": false,
+    "parent_ticks": null,
+    "candidate_ticks": null
+  },
+  {
+    "roster": 32,
+    "wave": 3,
+    "goal": "far",
+    "seat": 31,
+    "parent_published": false,
+    "candidate_published": false,
+    "parent_ticks": null,
+    "candidate_ticks": null
+  },
+  {
+    "roster": 32,
+    "wave": 4,
+    "goal": "near",
+    "seat": 0,
+    "parent_published": true,
+    "candidate_published": true,
+    "parent_ticks": 3,
+    "candidate_ticks": 1
+  },
+  {
+    "roster": 32,
+    "wave": 4,
+    "goal": "near",
+    "seat": 1,
+    "parent_published": true,
+    "candidate_published": true,
+    "parent_ticks": 5,
+    "candidate_ticks": 2
+  },
+  {
+    "roster": 32,
+    "wave": 4,
+    "goal": "near",
+    "seat": 2,
+    "parent_published": true,
+    "candidate_published": true,
+    "parent_ticks": 7,
+    "candidate_ticks": 3
+  },
+  {
+    "roster": 32,
+    "wave": 4,
+    "goal": "near",
+    "seat": 3,
+    "parent_published": true,
+    "candidate_published": true,
+    "parent_ticks": 9,
+    "candidate_ticks": 4
+  },
+  {
+    "roster": 32,
+    "wave": 4,
+    "goal": "near",
+    "seat": 4,
+    "parent_published": true,
+    "candidate_published": true,
+    "parent_ticks": 11,
+    "candidate_ticks": 5
+  },
+  {
+    "roster": 32,
+    "wave": 4,
+    "goal": "near",
+    "seat": 5,
+    "parent_published": true,
+    "candidate_published": true,
+    "parent_ticks": 14,
+    "candidate_ticks": 6
+  },
+  {
+    "roster": 32,
+    "wave": 4,
+    "goal": "near",
+    "seat": 6,
+    "parent_published": true,
+    "candidate_published": true,
+    "parent_ticks": 16,
+    "candidate_ticks": 7
+  },
+  {
+    "roster": 32,
+    "wave": 4,
+    "goal": "near",
+    "seat": 7,
+    "parent_published": true,
+    "candidate_published": true,
+    "parent_ticks": 18,
+    "candidate_ticks": 7
+  },
+  {
+    "roster": 32,
+    "wave": 4,
+    "goal": "near",
+    "seat": 8,
+    "parent_published": true,
+    "candidate_published": true,
+    "parent_ticks": 20,
+    "candidate_ticks": 8
+  },
+  {
+    "roster": 32,
+    "wave": 4,
+    "goal": "near",
+    "seat": 9,
+    "parent_published": true,
+    "candidate_published": true,
+    "parent_ticks": 22,
+    "candidate_ticks": 9
+  },
+  {
+    "roster": 32,
+    "wave": 4,
+    "goal": "near",
+    "seat": 10,
+    "parent_published": true,
+    "candidate_published": true,
+    "parent_ticks": 25,
+    "candidate_ticks": 10
+  },
+  {
+    "roster": 32,
+    "wave": 4,
+    "goal": "near",
+    "seat": 11,
+    "parent_published": true,
+    "candidate_published": true,
+    "parent_ticks": 27,
+    "candidate_ticks": 11
+  },
+  {
+    "roster": 32,
+    "wave": 4,
+    "goal": "near",
+    "seat": 12,
+    "parent_published": true,
+    "candidate_published": true,
+    "parent_ticks": 29,
+    "candidate_ticks": 12
+  },
+  {
+    "roster": 32,
+    "wave": 4,
+    "goal": "near",
+    "seat": 13,
+    "parent_published": true,
+    "candidate_published": true,
+    "parent_ticks": 31,
+    "candidate_ticks": 13
+  },
+  {
+    "roster": 32,
+    "wave": 4,
+    "goal": "near",
+    "seat": 14,
+    "parent_published": true,
+    "candidate_published": true,
+    "parent_ticks": 33,
+    "candidate_ticks": 13
+  },
+  {
+    "roster": 32,
+    "wave": 4,
+    "goal": "near",
+    "seat": 15,
+    "parent_published": true,
+    "candidate_published": true,
+    "parent_ticks": 35,
+    "candidate_ticks": 14
+  },
+  {
+    "roster": 32,
+    "wave": 4,
+    "goal": "near",
+    "seat": 16,
+    "parent_published": true,
+    "candidate_published": true,
+    "parent_ticks": 38,
+    "candidate_ticks": 15
+  },
+  {
+    "roster": 32,
+    "wave": 4,
+    "goal": "near",
+    "seat": 17,
+    "parent_published": true,
+    "candidate_published": true,
+    "parent_ticks": 58,
+    "candidate_ticks": 16
+  },
+  {
+    "roster": 32,
+    "wave": 4,
+    "goal": "near",
+    "seat": 18,
+    "parent_published": true,
+    "candidate_published": true,
+    "parent_ticks": 60,
+    "candidate_ticks": 17
+  },
+  {
+    "roster": 32,
+    "wave": 4,
+    "goal": "near",
+    "seat": 19,
+    "parent_published": true,
+    "candidate_published": true,
+    "parent_ticks": 62,
+    "candidate_ticks": 18
+  },
+  {
+    "roster": 32,
+    "wave": 4,
+    "goal": "near",
+    "seat": 20,
+    "parent_published": true,
+    "candidate_published": true,
+    "parent_ticks": 64,
+    "candidate_ticks": 19
+  },
+  {
+    "roster": 32,
+    "wave": 4,
+    "goal": "near",
+    "seat": 21,
+    "parent_published": true,
+    "candidate_published": true,
+    "parent_ticks": 66,
+    "candidate_ticks": 22
+  },
+  {
+    "roster": 32,
+    "wave": 4,
+    "goal": "near",
+    "seat": 22,
+    "parent_published": true,
+    "candidate_published": true,
+    "parent_ticks": 69,
+    "candidate_ticks": 24
+  },
+  {
+    "roster": 32,
+    "wave": 4,
+    "goal": "near",
+    "seat": 23,
+    "parent_published": true,
+    "candidate_published": true,
+    "parent_ticks": 75,
+    "candidate_ticks": 26
+  },
+  {
+    "roster": 32,
+    "wave": 4,
+    "goal": "near",
+    "seat": 24,
+    "parent_published": true,
+    "candidate_published": true,
+    "parent_ticks": 83,
+    "candidate_ticks": 28
+  },
+  {
+    "roster": 32,
+    "wave": 4,
+    "goal": "near",
+    "seat": 25,
+    "parent_published": true,
+    "candidate_published": true,
+    "parent_ticks": 91,
+    "candidate_ticks": 30
+  },
+  {
+    "roster": 32,
+    "wave": 4,
+    "goal": "near",
+    "seat": 26,
+    "parent_published": true,
+    "candidate_published": true,
+    "parent_ticks": 124,
+    "candidate_ticks": 32
+  },
+  {
+    "roster": 32,
+    "wave": 4,
+    "goal": "near",
+    "seat": 27,
+    "parent_published": true,
+    "candidate_published": true,
+    "parent_ticks": 127,
+    "candidate_ticks": 34
+  },
+  {
+    "roster": 32,
+    "wave": 4,
+    "goal": "near",
+    "seat": 28,
+    "parent_published": true,
+    "candidate_published": true,
+    "parent_ticks": 130,
+    "candidate_ticks": 35
+  },
+  {
+    "roster": 32,
+    "wave": 4,
+    "goal": "near",
+    "seat": 29,
+    "parent_published": true,
+    "candidate_published": true,
+    "parent_ticks": 132,
+    "candidate_ticks": 37
+  },
+  {
+    "roster": 32,
+    "wave": 4,
+    "goal": "near",
+    "seat": 30,
+    "parent_published": true,
+    "candidate_published": true,
+    "parent_ticks": 134,
+    "candidate_ticks": 39
+  },
+  {
+    "roster": 32,
+    "wave": 4,
+    "goal": "near",
+    "seat": 31,
+    "parent_published": true,
+    "candidate_published": true,
+    "parent_ticks": 137,
+    "candidate_ticks": 41
+  },
+  {
+    "roster": 32,
+    "wave": 5,
+    "goal": "far",
+    "seat": 0,
+    "parent_published": true,
+    "candidate_published": true,
+    "parent_ticks": 41,
+    "candidate_ticks": 41
+  },
+  {
+    "roster": 32,
+    "wave": 5,
+    "goal": "far",
+    "seat": 1,
+    "parent_published": true,
+    "candidate_published": true,
+    "parent_ticks": 82,
+    "candidate_ticks": 82
+  },
+  {
+    "roster": 32,
+    "wave": 5,
+    "goal": "far",
+    "seat": 2,
+    "parent_published": true,
+    "candidate_published": true,
+    "parent_ticks": 1144,
+    "candidate_ticks": 1102
+  },
+  {
+    "roster": 32,
+    "wave": 5,
+    "goal": "far",
+    "seat": 3,
+    "parent_published": false,
+    "candidate_published": true,
+    "parent_ticks": null,
+    "candidate_ticks": 1968
+  },
+  {
+    "roster": 32,
+    "wave": 5,
+    "goal": "far",
+    "seat": 4,
+    "parent_published": false,
+    "candidate_published": false,
+    "parent_ticks": null,
+    "candidate_ticks": null
+  },
+  {
+    "roster": 32,
+    "wave": 5,
+    "goal": "far",
+    "seat": 5,
+    "parent_published": false,
+    "candidate_published": false,
+    "parent_ticks": null,
+    "candidate_ticks": null
+  },
+  {
+    "roster": 32,
+    "wave": 5,
+    "goal": "far",
+    "seat": 6,
+    "parent_published": false,
+    "candidate_published": false,
+    "parent_ticks": null,
+    "candidate_ticks": null
+  },
+  {
+    "roster": 32,
+    "wave": 5,
+    "goal": "far",
+    "seat": 7,
+    "parent_published": false,
+    "candidate_published": false,
+    "parent_ticks": null,
+    "candidate_ticks": null
+  },
+  {
+    "roster": 32,
+    "wave": 5,
+    "goal": "far",
+    "seat": 8,
+    "parent_published": false,
+    "candidate_published": false,
+    "parent_ticks": null,
+    "candidate_ticks": null
+  },
+  {
+    "roster": 32,
+    "wave": 5,
+    "goal": "far",
+    "seat": 9,
+    "parent_published": false,
+    "candidate_published": false,
+    "parent_ticks": null,
+    "candidate_ticks": null
+  },
+  {
+    "roster": 32,
+    "wave": 5,
+    "goal": "far",
+    "seat": 10,
+    "parent_published": false,
+    "candidate_published": false,
+    "parent_ticks": null,
+    "candidate_ticks": null
+  },
+  {
+    "roster": 32,
+    "wave": 5,
+    "goal": "far",
+    "seat": 11,
+    "parent_published": false,
+    "candidate_published": false,
+    "parent_ticks": null,
+    "candidate_ticks": null
+  },
+  {
+    "roster": 32,
+    "wave": 5,
+    "goal": "far",
+    "seat": 12,
+    "parent_published": false,
+    "candidate_published": false,
+    "parent_ticks": null,
+    "candidate_ticks": null
+  },
+  {
+    "roster": 32,
+    "wave": 5,
+    "goal": "far",
+    "seat": 13,
+    "parent_published": false,
+    "candidate_published": false,
+    "parent_ticks": null,
+    "candidate_ticks": null
+  },
+  {
+    "roster": 32,
+    "wave": 5,
+    "goal": "far",
+    "seat": 14,
+    "parent_published": false,
+    "candidate_published": false,
+    "parent_ticks": null,
+    "candidate_ticks": null
+  },
+  {
+    "roster": 32,
+    "wave": 5,
+    "goal": "far",
+    "seat": 15,
+    "parent_published": false,
+    "candidate_published": false,
+    "parent_ticks": null,
+    "candidate_ticks": null
+  },
+  {
+    "roster": 32,
+    "wave": 5,
+    "goal": "far",
+    "seat": 16,
+    "parent_published": false,
+    "candidate_published": false,
+    "parent_ticks": null,
+    "candidate_ticks": null
+  },
+  {
+    "roster": 32,
+    "wave": 5,
+    "goal": "far",
+    "seat": 17,
+    "parent_published": false,
+    "candidate_published": false,
+    "parent_ticks": null,
+    "candidate_ticks": null
+  },
+  {
+    "roster": 32,
+    "wave": 5,
+    "goal": "far",
+    "seat": 18,
+    "parent_published": false,
+    "candidate_published": false,
+    "parent_ticks": null,
+    "candidate_ticks": null
+  },
+  {
+    "roster": 32,
+    "wave": 5,
+    "goal": "far",
+    "seat": 19,
+    "parent_published": false,
+    "candidate_published": false,
+    "parent_ticks": null,
+    "candidate_ticks": null
+  },
+  {
+    "roster": 32,
+    "wave": 5,
+    "goal": "far",
+    "seat": 20,
+    "parent_published": false,
+    "candidate_published": false,
+    "parent_ticks": null,
+    "candidate_ticks": null
+  },
+  {
+    "roster": 32,
+    "wave": 5,
+    "goal": "far",
+    "seat": 21,
+    "parent_published": false,
+    "candidate_published": false,
+    "parent_ticks": null,
+    "candidate_ticks": null
+  },
+  {
+    "roster": 32,
+    "wave": 5,
+    "goal": "far",
+    "seat": 22,
+    "parent_published": false,
+    "candidate_published": false,
+    "parent_ticks": null,
+    "candidate_ticks": null
+  },
+  {
+    "roster": 32,
+    "wave": 5,
+    "goal": "far",
+    "seat": 23,
+    "parent_published": false,
+    "candidate_published": false,
+    "parent_ticks": null,
+    "candidate_ticks": null
+  },
+  {
+    "roster": 32,
+    "wave": 5,
+    "goal": "far",
+    "seat": 24,
+    "parent_published": false,
+    "candidate_published": false,
+    "parent_ticks": null,
+    "candidate_ticks": null
+  },
+  {
+    "roster": 32,
+    "wave": 5,
+    "goal": "far",
+    "seat": 25,
+    "parent_published": false,
+    "candidate_published": false,
+    "parent_ticks": null,
+    "candidate_ticks": null
+  },
+  {
+    "roster": 32,
+    "wave": 5,
+    "goal": "far",
+    "seat": 26,
+    "parent_published": false,
+    "candidate_published": false,
+    "parent_ticks": null,
+    "candidate_ticks": null
+  },
+  {
+    "roster": 32,
+    "wave": 5,
+    "goal": "far",
+    "seat": 27,
+    "parent_published": false,
+    "candidate_published": false,
+    "parent_ticks": null,
+    "candidate_ticks": null
+  },
+  {
+    "roster": 32,
+    "wave": 5,
+    "goal": "far",
+    "seat": 28,
+    "parent_published": false,
+    "candidate_published": false,
+    "parent_ticks": null,
+    "candidate_ticks": null
+  },
+  {
+    "roster": 32,
+    "wave": 5,
+    "goal": "far",
+    "seat": 29,
+    "parent_published": false,
+    "candidate_published": false,
+    "parent_ticks": null,
+    "candidate_ticks": null
+  },
+  {
+    "roster": 32,
+    "wave": 5,
+    "goal": "far",
+    "seat": 30,
+    "parent_published": false,
+    "candidate_published": false,
+    "parent_ticks": null,
+    "candidate_ticks": null
+  },
+  {
+    "roster": 32,
+    "wave": 5,
+    "goal": "far",
+    "seat": 31,
+    "parent_published": false,
+    "candidate_published": false,
+    "parent_ticks": null,
+    "candidate_ticks": null
+  },
+  {
+    "roster": 32,
+    "wave": 6,
+    "goal": "near",
+    "seat": 0,
+    "parent_published": true,
+    "candidate_published": true,
+    "parent_ticks": 3,
+    "candidate_ticks": 1
+  },
+  {
+    "roster": 32,
+    "wave": 6,
+    "goal": "near",
+    "seat": 1,
+    "parent_published": true,
+    "candidate_published": true,
+    "parent_ticks": 5,
+    "candidate_ticks": 2
+  },
+  {
+    "roster": 32,
+    "wave": 6,
+    "goal": "near",
+    "seat": 2,
+    "parent_published": true,
+    "candidate_published": true,
+    "parent_ticks": 7,
+    "candidate_ticks": 3
+  },
+  {
+    "roster": 32,
+    "wave": 6,
+    "goal": "near",
+    "seat": 3,
+    "parent_published": true,
+    "candidate_published": true,
+    "parent_ticks": 9,
+    "candidate_ticks": 4
+  },
+  {
+    "roster": 32,
+    "wave": 6,
+    "goal": "near",
+    "seat": 4,
+    "parent_published": true,
+    "candidate_published": true,
+    "parent_ticks": 11,
+    "candidate_ticks": 5
+  },
+  {
+    "roster": 32,
+    "wave": 6,
+    "goal": "near",
+    "seat": 5,
+    "parent_published": true,
+    "candidate_published": true,
+    "parent_ticks": 24,
+    "candidate_ticks": 6
+  },
+  {
+    "roster": 32,
+    "wave": 6,
+    "goal": "near",
+    "seat": 6,
+    "parent_published": true,
+    "candidate_published": true,
+    "parent_ticks": 26,
+    "candidate_ticks": 7
+  },
+  {
+    "roster": 32,
+    "wave": 6,
+    "goal": "near",
+    "seat": 7,
+    "parent_published": true,
+    "candidate_published": true,
+    "parent_ticks": 28,
+    "candidate_ticks": 7
+  },
+  {
+    "roster": 32,
+    "wave": 6,
+    "goal": "near",
+    "seat": 8,
+    "parent_published": true,
+    "candidate_published": true,
+    "parent_ticks": 30,
+    "candidate_ticks": 8
+  },
+  {
+    "roster": 32,
+    "wave": 6,
+    "goal": "near",
+    "seat": 9,
+    "parent_published": true,
+    "candidate_published": true,
+    "parent_ticks": 32,
+    "candidate_ticks": 9
+  },
+  {
+    "roster": 32,
+    "wave": 6,
+    "goal": "near",
+    "seat": 10,
+    "parent_published": true,
+    "candidate_published": true,
+    "parent_ticks": 35,
+    "candidate_ticks": 10
+  },
+  {
+    "roster": 32,
+    "wave": 6,
+    "goal": "near",
+    "seat": 11,
+    "parent_published": true,
+    "candidate_published": true,
+    "parent_ticks": 37,
+    "candidate_ticks": 11
+  },
+  {
+    "roster": 32,
+    "wave": 6,
+    "goal": "near",
+    "seat": 12,
+    "parent_published": true,
+    "candidate_published": true,
+    "parent_ticks": 39,
+    "candidate_ticks": 12
+  },
+  {
+    "roster": 32,
+    "wave": 6,
+    "goal": "near",
+    "seat": 13,
+    "parent_published": true,
+    "candidate_published": true,
+    "parent_ticks": 41,
+    "candidate_ticks": 13
+  },
+  {
+    "roster": 32,
+    "wave": 6,
+    "goal": "near",
+    "seat": 14,
+    "parent_published": true,
+    "candidate_published": true,
+    "parent_ticks": 43,
+    "candidate_ticks": 13
+  },
+  {
+    "roster": 32,
+    "wave": 6,
+    "goal": "near",
+    "seat": 15,
+    "parent_published": true,
+    "candidate_published": true,
+    "parent_ticks": 61,
+    "candidate_ticks": 14
+  },
+  {
+    "roster": 32,
+    "wave": 6,
+    "goal": "near",
+    "seat": 16,
+    "parent_published": true,
+    "candidate_published": true,
+    "parent_ticks": 63,
+    "candidate_ticks": 15
+  },
+  {
+    "roster": 32,
+    "wave": 6,
+    "goal": "near",
+    "seat": 17,
+    "parent_published": true,
+    "candidate_published": true,
+    "parent_ticks": 65,
+    "candidate_ticks": 16
+  },
+  {
+    "roster": 32,
+    "wave": 6,
+    "goal": "near",
+    "seat": 18,
+    "parent_published": true,
+    "candidate_published": true,
+    "parent_ticks": 67,
+    "candidate_ticks": 17
+  },
+  {
+    "roster": 32,
+    "wave": 6,
+    "goal": "near",
+    "seat": 19,
+    "parent_published": true,
+    "candidate_published": true,
+    "parent_ticks": 69,
+    "candidate_ticks": 18
+  },
+  {
+    "roster": 32,
+    "wave": 6,
+    "goal": "near",
+    "seat": 20,
+    "parent_published": true,
+    "candidate_published": true,
+    "parent_ticks": 72,
+    "candidate_ticks": 19
+  },
+  {
+    "roster": 32,
+    "wave": 6,
+    "goal": "near",
+    "seat": 21,
+    "parent_published": true,
+    "candidate_published": true,
+    "parent_ticks": 74,
+    "candidate_ticks": 20
+  },
+  {
+    "roster": 32,
+    "wave": 6,
+    "goal": "near",
+    "seat": 22,
+    "parent_published": true,
+    "candidate_published": true,
+    "parent_ticks": 76,
+    "candidate_ticks": 20
+  },
+  {
+    "roster": 32,
+    "wave": 6,
+    "goal": "near",
+    "seat": 23,
+    "parent_published": true,
+    "candidate_published": true,
+    "parent_ticks": 82,
+    "candidate_ticks": 21
+  },
+  {
+    "roster": 32,
+    "wave": 6,
+    "goal": "near",
+    "seat": 24,
+    "parent_published": true,
+    "candidate_published": true,
+    "parent_ticks": 89,
+    "candidate_ticks": 22
+  },
+  {
+    "roster": 32,
+    "wave": 6,
+    "goal": "near",
+    "seat": 25,
+    "parent_published": true,
+    "candidate_published": true,
+    "parent_ticks": 104,
+    "candidate_ticks": 23
+  },
+  {
+    "roster": 32,
+    "wave": 6,
+    "goal": "near",
+    "seat": 26,
+    "parent_published": true,
+    "candidate_published": true,
+    "parent_ticks": 106,
+    "candidate_ticks": 24
+  },
+  {
+    "roster": 32,
+    "wave": 6,
+    "goal": "near",
+    "seat": 27,
+    "parent_published": true,
+    "candidate_published": true,
+    "parent_ticks": 111,
+    "candidate_ticks": 25
+  },
+  {
+    "roster": 32,
+    "wave": 6,
+    "goal": "near",
+    "seat": 28,
+    "parent_published": true,
+    "candidate_published": true,
+    "parent_ticks": 116,
+    "candidate_ticks": 26
+  },
+  {
+    "roster": 32,
+    "wave": 6,
+    "goal": "near",
+    "seat": 29,
+    "parent_published": true,
+    "candidate_published": true,
+    "parent_ticks": 119,
+    "candidate_ticks": 28
+  },
+  {
+    "roster": 32,
+    "wave": 6,
+    "goal": "near",
+    "seat": 30,
+    "parent_published": true,
+    "candidate_published": true,
+    "parent_ticks": 122,
+    "candidate_ticks": 30
+  },
+  {
+    "roster": 32,
+    "wave": 6,
+    "goal": "near",
+    "seat": 31,
+    "parent_published": true,
+    "candidate_published": true,
+    "parent_ticks": 127,
+    "candidate_ticks": 32
+  },
+  {
+    "roster": 32,
+    "wave": 7,
+    "goal": "far",
+    "seat": 0,
+    "parent_published": true,
+    "candidate_published": true,
+    "parent_ticks": 41,
+    "candidate_ticks": 41
+  },
+  {
+    "roster": 32,
+    "wave": 7,
+    "goal": "far",
+    "seat": 1,
+    "parent_published": true,
+    "candidate_published": true,
+    "parent_ticks": 82,
+    "candidate_ticks": 82
+  },
+  {
+    "roster": 32,
+    "wave": 7,
+    "goal": "far",
+    "seat": 2,
+    "parent_published": true,
+    "candidate_published": true,
+    "parent_ticks": 1127,
+    "candidate_ticks": 1146
+  },
+  {
+    "roster": 32,
+    "wave": 7,
+    "goal": "far",
+    "seat": 3,
+    "parent_published": false,
+    "candidate_published": false,
+    "parent_ticks": null,
+    "candidate_ticks": null
+  },
+  {
+    "roster": 32,
+    "wave": 7,
+    "goal": "far",
+    "seat": 4,
+    "parent_published": false,
+    "candidate_published": false,
+    "parent_ticks": null,
+    "candidate_ticks": null
+  },
+  {
+    "roster": 32,
+    "wave": 7,
+    "goal": "far",
+    "seat": 5,
+    "parent_published": false,
+    "candidate_published": false,
+    "parent_ticks": null,
+    "candidate_ticks": null
+  },
+  {
+    "roster": 32,
+    "wave": 7,
+    "goal": "far",
+    "seat": 6,
+    "parent_published": false,
+    "candidate_published": false,
+    "parent_ticks": null,
+    "candidate_ticks": null
+  },
+  {
+    "roster": 32,
+    "wave": 7,
+    "goal": "far",
+    "seat": 7,
+    "parent_published": false,
+    "candidate_published": false,
+    "parent_ticks": null,
+    "candidate_ticks": null
+  },
+  {
+    "roster": 32,
+    "wave": 7,
+    "goal": "far",
+    "seat": 8,
+    "parent_published": false,
+    "candidate_published": false,
+    "parent_ticks": null,
+    "candidate_ticks": null
+  },
+  {
+    "roster": 32,
+    "wave": 7,
+    "goal": "far",
+    "seat": 9,
+    "parent_published": false,
+    "candidate_published": false,
+    "parent_ticks": null,
+    "candidate_ticks": null
+  },
+  {
+    "roster": 32,
+    "wave": 7,
+    "goal": "far",
+    "seat": 10,
+    "parent_published": false,
+    "candidate_published": false,
+    "parent_ticks": null,
+    "candidate_ticks": null
+  },
+  {
+    "roster": 32,
+    "wave": 7,
+    "goal": "far",
+    "seat": 11,
+    "parent_published": false,
+    "candidate_published": false,
+    "parent_ticks": null,
+    "candidate_ticks": null
+  },
+  {
+    "roster": 32,
+    "wave": 7,
+    "goal": "far",
+    "seat": 12,
+    "parent_published": false,
+    "candidate_published": false,
+    "parent_ticks": null,
+    "candidate_ticks": null
+  },
+  {
+    "roster": 32,
+    "wave": 7,
+    "goal": "far",
+    "seat": 13,
+    "parent_published": false,
+    "candidate_published": false,
+    "parent_ticks": null,
+    "candidate_ticks": null
+  },
+  {
+    "roster": 32,
+    "wave": 7,
+    "goal": "far",
+    "seat": 14,
+    "parent_published": false,
+    "candidate_published": false,
+    "parent_ticks": null,
+    "candidate_ticks": null
+  },
+  {
+    "roster": 32,
+    "wave": 7,
+    "goal": "far",
+    "seat": 15,
+    "parent_published": false,
+    "candidate_published": false,
+    "parent_ticks": null,
+    "candidate_ticks": null
+  },
+  {
+    "roster": 32,
+    "wave": 7,
+    "goal": "far",
+    "seat": 16,
+    "parent_published": false,
+    "candidate_published": false,
+    "parent_ticks": null,
+    "candidate_ticks": null
+  },
+  {
+    "roster": 32,
+    "wave": 7,
+    "goal": "far",
+    "seat": 17,
+    "parent_published": false,
+    "candidate_published": false,
+    "parent_ticks": null,
+    "candidate_ticks": null
+  },
+  {
+    "roster": 32,
+    "wave": 7,
+    "goal": "far",
+    "seat": 18,
+    "parent_published": false,
+    "candidate_published": false,
+    "parent_ticks": null,
+    "candidate_ticks": null
+  },
+  {
+    "roster": 32,
+    "wave": 7,
+    "goal": "far",
+    "seat": 19,
+    "parent_published": false,
+    "candidate_published": false,
+    "parent_ticks": null,
+    "candidate_ticks": null
+  },
+  {
+    "roster": 32,
+    "wave": 7,
+    "goal": "far",
+    "seat": 20,
+    "parent_published": false,
+    "candidate_published": false,
+    "parent_ticks": null,
+    "candidate_ticks": null
+  },
+  {
+    "roster": 32,
+    "wave": 7,
+    "goal": "far",
+    "seat": 21,
+    "parent_published": false,
+    "candidate_published": false,
+    "parent_ticks": null,
+    "candidate_ticks": null
+  },
+  {
+    "roster": 32,
+    "wave": 7,
+    "goal": "far",
+    "seat": 22,
+    "parent_published": false,
+    "candidate_published": false,
+    "parent_ticks": null,
+    "candidate_ticks": null
+  },
+  {
+    "roster": 32,
+    "wave": 7,
+    "goal": "far",
+    "seat": 23,
+    "parent_published": false,
+    "candidate_published": false,
+    "parent_ticks": null,
+    "candidate_ticks": null
+  },
+  {
+    "roster": 32,
+    "wave": 7,
+    "goal": "far",
+    "seat": 24,
+    "parent_published": false,
+    "candidate_published": false,
+    "parent_ticks": null,
+    "candidate_ticks": null
+  },
+  {
+    "roster": 32,
+    "wave": 7,
+    "goal": "far",
+    "seat": 25,
+    "parent_published": false,
+    "candidate_published": false,
+    "parent_ticks": null,
+    "candidate_ticks": null
+  },
+  {
+    "roster": 32,
+    "wave": 7,
+    "goal": "far",
+    "seat": 26,
+    "parent_published": false,
+    "candidate_published": false,
+    "parent_ticks": null,
+    "candidate_ticks": null
+  },
+  {
+    "roster": 32,
+    "wave": 7,
+    "goal": "far",
+    "seat": 27,
+    "parent_published": false,
+    "candidate_published": false,
+    "parent_ticks": null,
+    "candidate_ticks": null
+  },
+  {
+    "roster": 32,
+    "wave": 7,
+    "goal": "far",
+    "seat": 28,
+    "parent_published": false,
+    "candidate_published": false,
+    "parent_ticks": null,
+    "candidate_ticks": null
+  },
+  {
+    "roster": 32,
+    "wave": 7,
+    "goal": "far",
+    "seat": 29,
+    "parent_published": false,
+    "candidate_published": false,
+    "parent_ticks": null,
+    "candidate_ticks": null
+  },
+  {
+    "roster": 32,
+    "wave": 7,
+    "goal": "far",
+    "seat": 30,
+    "parent_published": false,
+    "candidate_published": false,
+    "parent_ticks": null,
+    "candidate_ticks": null
+  },
+  {
+    "roster": 32,
+    "wave": 7,
+    "goal": "far",
+    "seat": 31,
+    "parent_published": false,
+    "candidate_published": false,
+    "parent_ticks": null,
+    "candidate_ticks": null
+  },
+  {
+    "roster": 32,
+    "wave": 8,
+    "goal": "near",
+    "seat": 0,
+    "parent_published": true,
+    "candidate_published": true,
+    "parent_ticks": 3,
+    "candidate_ticks": 1
+  },
+  {
+    "roster": 32,
+    "wave": 8,
+    "goal": "near",
+    "seat": 1,
+    "parent_published": true,
+    "candidate_published": true,
+    "parent_ticks": 5,
+    "candidate_ticks": 2
+  },
+  {
+    "roster": 32,
+    "wave": 8,
+    "goal": "near",
+    "seat": 2,
+    "parent_published": true,
+    "candidate_published": true,
+    "parent_ticks": 7,
+    "candidate_ticks": 3
+  },
+  {
+    "roster": 32,
+    "wave": 8,
+    "goal": "near",
+    "seat": 3,
+    "parent_published": true,
+    "candidate_published": true,
+    "parent_ticks": 9,
+    "candidate_ticks": 4
+  },
+  {
+    "roster": 32,
+    "wave": 8,
+    "goal": "near",
+    "seat": 4,
+    "parent_published": true,
+    "candidate_published": true,
+    "parent_ticks": 11,
+    "candidate_ticks": 5
+  },
+  {
+    "roster": 32,
+    "wave": 8,
+    "goal": "near",
+    "seat": 5,
+    "parent_published": true,
+    "candidate_published": true,
+    "parent_ticks": 14,
+    "candidate_ticks": 6
+  },
+  {
+    "roster": 32,
+    "wave": 8,
+    "goal": "near",
+    "seat": 6,
+    "parent_published": true,
+    "candidate_published": true,
+    "parent_ticks": 16,
+    "candidate_ticks": 7
+  },
+  {
+    "roster": 32,
+    "wave": 8,
+    "goal": "near",
+    "seat": 7,
+    "parent_published": true,
+    "candidate_published": true,
+    "parent_ticks": 18,
+    "candidate_ticks": 7
+  },
+  {
+    "roster": 32,
+    "wave": 8,
+    "goal": "near",
+    "seat": 8,
+    "parent_published": true,
+    "candidate_published": true,
+    "parent_ticks": 20,
+    "candidate_ticks": 8
+  },
+  {
+    "roster": 32,
+    "wave": 8,
+    "goal": "near",
+    "seat": 9,
+    "parent_published": true,
+    "candidate_published": true,
+    "parent_ticks": 22,
+    "candidate_ticks": 9
+  },
+  {
+    "roster": 32,
+    "wave": 8,
+    "goal": "near",
+    "seat": 10,
+    "parent_published": true,
+    "candidate_published": true,
+    "parent_ticks": 25,
+    "candidate_ticks": 12
+  },
+  {
+    "roster": 32,
+    "wave": 8,
+    "goal": "near",
+    "seat": 11,
+    "parent_published": true,
+    "candidate_published": true,
+    "parent_ticks": 27,
+    "candidate_ticks": 14
+  },
+  {
+    "roster": 32,
+    "wave": 8,
+    "goal": "near",
+    "seat": 12,
+    "parent_published": true,
+    "candidate_published": true,
+    "parent_ticks": 29,
+    "candidate_ticks": 17
+  },
+  {
+    "roster": 32,
+    "wave": 8,
+    "goal": "near",
+    "seat": 13,
+    "parent_published": true,
+    "candidate_published": true,
+    "parent_ticks": 45,
+    "candidate_ticks": 19
+  },
+  {
+    "roster": 32,
+    "wave": 8,
+    "goal": "near",
+    "seat": 14,
+    "parent_published": true,
+    "candidate_published": true,
+    "parent_ticks": 47,
+    "candidate_ticks": 22
+  },
+  {
+    "roster": 32,
+    "wave": 8,
+    "goal": "near",
+    "seat": 15,
+    "parent_published": true,
+    "candidate_published": true,
+    "parent_ticks": 50,
+    "candidate_ticks": 23
+  },
+  {
+    "roster": 32,
+    "wave": 8,
+    "goal": "near",
+    "seat": 16,
+    "parent_published": true,
+    "candidate_published": true,
+    "parent_ticks": 52,
+    "candidate_ticks": 24
+  },
+  {
+    "roster": 32,
+    "wave": 8,
+    "goal": "near",
+    "seat": 17,
+    "parent_published": true,
+    "candidate_published": true,
+    "parent_ticks": 54,
+    "candidate_ticks": 25
+  },
+  {
+    "roster": 32,
+    "wave": 8,
+    "goal": "near",
+    "seat": 18,
+    "parent_published": true,
+    "candidate_published": true,
+    "parent_ticks": 56,
+    "candidate_ticks": 26
+  },
+  {
+    "roster": 32,
+    "wave": 8,
+    "goal": "near",
+    "seat": 19,
+    "parent_published": true,
+    "candidate_published": true,
+    "parent_ticks": 58,
+    "candidate_ticks": 27
+  },
+  {
+    "roster": 32,
+    "wave": 8,
+    "goal": "near",
+    "seat": 20,
+    "parent_published": true,
+    "candidate_published": true,
+    "parent_ticks": 61,
+    "candidate_ticks": 28
+  },
+  {
+    "roster": 32,
+    "wave": 8,
+    "goal": "near",
+    "seat": 21,
+    "parent_published": true,
+    "candidate_published": true,
+    "parent_ticks": 69,
+    "candidate_ticks": 29
+  },
+  {
+    "roster": 32,
+    "wave": 8,
+    "goal": "near",
+    "seat": 22,
+    "parent_published": true,
+    "candidate_published": true,
+    "parent_ticks": 81,
+    "candidate_ticks": 30
+  },
+  {
+    "roster": 32,
+    "wave": 8,
+    "goal": "near",
+    "seat": 23,
+    "parent_published": true,
+    "candidate_published": true,
+    "parent_ticks": 85,
+    "candidate_ticks": 30
+  },
+  {
+    "roster": 32,
+    "wave": 8,
+    "goal": "near",
+    "seat": 24,
+    "parent_published": true,
+    "candidate_published": true,
+    "parent_ticks": 87,
+    "candidate_ticks": 31
+  },
+  {
+    "roster": 32,
+    "wave": 8,
+    "goal": "near",
+    "seat": 25,
+    "parent_published": true,
+    "candidate_published": true,
+    "parent_ticks": 90,
+    "candidate_ticks": 32
+  },
+  {
+    "roster": 32,
+    "wave": 8,
+    "goal": "near",
+    "seat": 26,
+    "parent_published": true,
+    "candidate_published": true,
+    "parent_ticks": 122,
+    "candidate_ticks": 34
+  },
+  {
+    "roster": 32,
+    "wave": 8,
+    "goal": "near",
+    "seat": 27,
+    "parent_published": true,
+    "candidate_published": true,
+    "parent_ticks": 124,
+    "candidate_ticks": 35
+  },
+  {
+    "roster": 32,
+    "wave": 8,
+    "goal": "near",
+    "seat": 28,
+    "parent_published": true,
+    "candidate_published": true,
+    "parent_ticks": 126,
+    "candidate_ticks": 36
+  },
+  {
+    "roster": 32,
+    "wave": 8,
+    "goal": "near",
+    "seat": 29,
+    "parent_published": true,
+    "candidate_published": true,
+    "parent_ticks": 129,
+    "candidate_ticks": 37
+  },
+  {
+    "roster": 32,
+    "wave": 8,
+    "goal": "near",
+    "seat": 30,
+    "parent_published": true,
+    "candidate_published": true,
+    "parent_ticks": 133,
+    "candidate_ticks": 38
+  },
+  {
+    "roster": 32,
+    "wave": 8,
+    "goal": "near",
+    "seat": 31,
+    "parent_published": true,
+    "candidate_published": true,
+    "parent_ticks": 136,
+    "candidate_ticks": 38
+  },
+  {
+    "roster": 32,
+    "wave": 9,
+    "goal": "far",
+    "seat": 0,
+    "parent_published": true,
+    "candidate_published": true,
+    "parent_ticks": 41,
+    "candidate_ticks": 41
+  },
+  {
+    "roster": 32,
+    "wave": 9,
+    "goal": "far",
+    "seat": 1,
+    "parent_published": true,
+    "candidate_published": true,
+    "parent_ticks": 82,
+    "candidate_ticks": 82
+  },
+  {
+    "roster": 32,
+    "wave": 9,
+    "goal": "far",
+    "seat": 2,
+    "parent_published": true,
+    "candidate_published": true,
+    "parent_ticks": 1169,
+    "candidate_ticks": 1129
+  },
+  {
+    "roster": 32,
+    "wave": 9,
+    "goal": "far",
+    "seat": 3,
+    "parent_published": false,
+    "candidate_published": false,
+    "parent_ticks": null,
+    "candidate_ticks": null
+  },
+  {
+    "roster": 32,
+    "wave": 9,
+    "goal": "far",
+    "seat": 4,
+    "parent_published": false,
+    "candidate_published": false,
+    "parent_ticks": null,
+    "candidate_ticks": null
+  },
+  {
+    "roster": 32,
+    "wave": 9,
+    "goal": "far",
+    "seat": 5,
+    "parent_published": false,
+    "candidate_published": false,
+    "parent_ticks": null,
+    "candidate_ticks": null
+  },
+  {
+    "roster": 32,
+    "wave": 9,
+    "goal": "far",
+    "seat": 6,
+    "parent_published": false,
+    "candidate_published": false,
+    "parent_ticks": null,
+    "candidate_ticks": null
+  },
+  {
+    "roster": 32,
+    "wave": 9,
+    "goal": "far",
+    "seat": 7,
+    "parent_published": false,
+    "candidate_published": false,
+    "parent_ticks": null,
+    "candidate_ticks": null
+  },
+  {
+    "roster": 32,
+    "wave": 9,
+    "goal": "far",
+    "seat": 8,
+    "parent_published": false,
+    "candidate_published": false,
+    "parent_ticks": null,
+    "candidate_ticks": null
+  },
+  {
+    "roster": 32,
+    "wave": 9,
+    "goal": "far",
+    "seat": 9,
+    "parent_published": false,
+    "candidate_published": false,
+    "parent_ticks": null,
+    "candidate_ticks": null
+  },
+  {
+    "roster": 32,
+    "wave": 9,
+    "goal": "far",
+    "seat": 10,
+    "parent_published": false,
+    "candidate_published": false,
+    "parent_ticks": null,
+    "candidate_ticks": null
+  },
+  {
+    "roster": 32,
+    "wave": 9,
+    "goal": "far",
+    "seat": 11,
+    "parent_published": false,
+    "candidate_published": false,
+    "parent_ticks": null,
+    "candidate_ticks": null
+  },
+  {
+    "roster": 32,
+    "wave": 9,
+    "goal": "far",
+    "seat": 12,
+    "parent_published": false,
+    "candidate_published": false,
+    "parent_ticks": null,
+    "candidate_ticks": null
+  },
+  {
+    "roster": 32,
+    "wave": 9,
+    "goal": "far",
+    "seat": 13,
+    "parent_published": false,
+    "candidate_published": false,
+    "parent_ticks": null,
+    "candidate_ticks": null
+  },
+  {
+    "roster": 32,
+    "wave": 9,
+    "goal": "far",
+    "seat": 14,
+    "parent_published": false,
+    "candidate_published": false,
+    "parent_ticks": null,
+    "candidate_ticks": null
+  },
+  {
+    "roster": 32,
+    "wave": 9,
+    "goal": "far",
+    "seat": 15,
+    "parent_published": false,
+    "candidate_published": false,
+    "parent_ticks": null,
+    "candidate_ticks": null
+  },
+  {
+    "roster": 32,
+    "wave": 9,
+    "goal": "far",
+    "seat": 16,
+    "parent_published": false,
+    "candidate_published": false,
+    "parent_ticks": null,
+    "candidate_ticks": null
+  },
+  {
+    "roster": 32,
+    "wave": 9,
+    "goal": "far",
+    "seat": 17,
+    "parent_published": false,
+    "candidate_published": false,
+    "parent_ticks": null,
+    "candidate_ticks": null
+  },
+  {
+    "roster": 32,
+    "wave": 9,
+    "goal": "far",
+    "seat": 18,
+    "parent_published": false,
+    "candidate_published": false,
+    "parent_ticks": null,
+    "candidate_ticks": null
+  },
+  {
+    "roster": 32,
+    "wave": 9,
+    "goal": "far",
+    "seat": 19,
+    "parent_published": false,
+    "candidate_published": false,
+    "parent_ticks": null,
+    "candidate_ticks": null
+  },
+  {
+    "roster": 32,
+    "wave": 9,
+    "goal": "far",
+    "seat": 20,
+    "parent_published": false,
+    "candidate_published": false,
+    "parent_ticks": null,
+    "candidate_ticks": null
+  },
+  {
+    "roster": 32,
+    "wave": 9,
+    "goal": "far",
+    "seat": 21,
+    "parent_published": false,
+    "candidate_published": false,
+    "parent_ticks": null,
+    "candidate_ticks": null
+  },
+  {
+    "roster": 32,
+    "wave": 9,
+    "goal": "far",
+    "seat": 22,
+    "parent_published": false,
+    "candidate_published": false,
+    "parent_ticks": null,
+    "candidate_ticks": null
+  },
+  {
+    "roster": 32,
+    "wave": 9,
+    "goal": "far",
+    "seat": 23,
+    "parent_published": false,
+    "candidate_published": false,
+    "parent_ticks": null,
+    "candidate_ticks": null
+  },
+  {
+    "roster": 32,
+    "wave": 9,
+    "goal": "far",
+    "seat": 24,
+    "parent_published": false,
+    "candidate_published": false,
+    "parent_ticks": null,
+    "candidate_ticks": null
+  },
+  {
+    "roster": 32,
+    "wave": 9,
+    "goal": "far",
+    "seat": 25,
+    "parent_published": false,
+    "candidate_published": false,
+    "parent_ticks": null,
+    "candidate_ticks": null
+  },
+  {
+    "roster": 32,
+    "wave": 9,
+    "goal": "far",
+    "seat": 26,
+    "parent_published": false,
+    "candidate_published": false,
+    "parent_ticks": null,
+    "candidate_ticks": null
+  },
+  {
+    "roster": 32,
+    "wave": 9,
+    "goal": "far",
+    "seat": 27,
+    "parent_published": false,
+    "candidate_published": false,
+    "parent_ticks": null,
+    "candidate_ticks": null
+  },
+  {
+    "roster": 32,
+    "wave": 9,
+    "goal": "far",
+    "seat": 28,
+    "parent_published": false,
+    "candidate_published": false,
+    "parent_ticks": null,
+    "candidate_ticks": null
+  },
+  {
+    "roster": 32,
+    "wave": 9,
+    "goal": "far",
+    "seat": 29,
+    "parent_published": false,
+    "candidate_published": false,
+    "parent_ticks": null,
+    "candidate_ticks": null
+  },
+  {
+    "roster": 32,
+    "wave": 9,
+    "goal": "far",
+    "seat": 30,
+    "parent_published": false,
+    "candidate_published": false,
+    "parent_ticks": null,
+    "candidate_ticks": null
+  },
+  {
+    "roster": 32,
+    "wave": 9,
+    "goal": "far",
+    "seat": 31,
+    "parent_published": false,
+    "candidate_published": false,
+    "parent_ticks": null,
+    "candidate_ticks": null
+  },
+  {
+    "roster": 32,
+    "wave": 10,
+    "goal": "near",
+    "seat": 0,
+    "parent_published": true,
+    "candidate_published": true,
+    "parent_ticks": 3,
+    "candidate_ticks": 1
+  },
+  {
+    "roster": 32,
+    "wave": 10,
+    "goal": "near",
+    "seat": 1,
+    "parent_published": true,
+    "candidate_published": true,
+    "parent_ticks": 5,
+    "candidate_ticks": 2
+  },
+  {
+    "roster": 32,
+    "wave": 10,
+    "goal": "near",
+    "seat": 2,
+    "parent_published": true,
+    "candidate_published": true,
+    "parent_ticks": 7,
+    "candidate_ticks": 3
+  },
+  {
+    "roster": 32,
+    "wave": 10,
+    "goal": "near",
+    "seat": 3,
+    "parent_published": true,
+    "candidate_published": true,
+    "parent_ticks": 9,
+    "candidate_ticks": 4
+  },
+  {
+    "roster": 32,
+    "wave": 10,
+    "goal": "near",
+    "seat": 4,
+    "parent_published": true,
+    "candidate_published": true,
+    "parent_ticks": 11,
+    "candidate_ticks": 5
+  },
+  {
+    "roster": 32,
+    "wave": 10,
+    "goal": "near",
+    "seat": 5,
+    "parent_published": true,
+    "candidate_published": true,
+    "parent_ticks": 14,
+    "candidate_ticks": 6
+  },
+  {
+    "roster": 32,
+    "wave": 10,
+    "goal": "near",
+    "seat": 6,
+    "parent_published": true,
+    "candidate_published": true,
+    "parent_ticks": 16,
+    "candidate_ticks": 7
+  },
+  {
+    "roster": 32,
+    "wave": 10,
+    "goal": "near",
+    "seat": 7,
+    "parent_published": true,
+    "candidate_published": true,
+    "parent_ticks": 18,
+    "candidate_ticks": 7
+  },
+  {
+    "roster": 32,
+    "wave": 10,
+    "goal": "near",
+    "seat": 8,
+    "parent_published": true,
+    "candidate_published": true,
+    "parent_ticks": 20,
+    "candidate_ticks": 8
+  },
+  {
+    "roster": 32,
+    "wave": 10,
+    "goal": "near",
+    "seat": 9,
+    "parent_published": true,
+    "candidate_published": true,
+    "parent_ticks": 22,
+    "candidate_ticks": 9
+  },
+  {
+    "roster": 32,
+    "wave": 10,
+    "goal": "near",
+    "seat": 10,
+    "parent_published": true,
+    "candidate_published": true,
+    "parent_ticks": 25,
+    "candidate_ticks": 10
+  },
+  {
+    "roster": 32,
+    "wave": 10,
+    "goal": "near",
+    "seat": 11,
+    "parent_published": true,
+    "candidate_published": true,
+    "parent_ticks": 27,
+    "candidate_ticks": 11
+  },
+  {
+    "roster": 32,
+    "wave": 10,
+    "goal": "near",
+    "seat": 12,
+    "parent_published": true,
+    "candidate_published": true,
+    "parent_ticks": 29,
+    "candidate_ticks": 12
+  },
+  {
+    "roster": 32,
+    "wave": 10,
+    "goal": "near",
+    "seat": 13,
+    "parent_published": true,
+    "candidate_published": true,
+    "parent_ticks": 31,
+    "candidate_ticks": 13
+  },
+  {
+    "roster": 32,
+    "wave": 10,
+    "goal": "near",
+    "seat": 14,
+    "parent_published": true,
+    "candidate_published": true,
+    "parent_ticks": 33,
+    "candidate_ticks": 13
+  },
+  {
+    "roster": 32,
+    "wave": 10,
+    "goal": "near",
+    "seat": 15,
+    "parent_published": true,
+    "candidate_published": true,
+    "parent_ticks": 35,
+    "candidate_ticks": 14
+  },
+  {
+    "roster": 32,
+    "wave": 10,
+    "goal": "near",
+    "seat": 16,
+    "parent_published": true,
+    "candidate_published": true,
+    "parent_ticks": 38,
+    "candidate_ticks": 15
+  },
+  {
+    "roster": 32,
+    "wave": 10,
+    "goal": "near",
+    "seat": 17,
+    "parent_published": true,
+    "candidate_published": true,
+    "parent_ticks": 58,
+    "candidate_ticks": 16
+  },
+  {
+    "roster": 32,
+    "wave": 10,
+    "goal": "near",
+    "seat": 18,
+    "parent_published": true,
+    "candidate_published": true,
+    "parent_ticks": 60,
+    "candidate_ticks": 17
+  },
+  {
+    "roster": 32,
+    "wave": 10,
+    "goal": "near",
+    "seat": 19,
+    "parent_published": true,
+    "candidate_published": true,
+    "parent_ticks": 62,
+    "candidate_ticks": 18
+  },
+  {
+    "roster": 32,
+    "wave": 10,
+    "goal": "near",
+    "seat": 20,
+    "parent_published": true,
+    "candidate_published": true,
+    "parent_ticks": 64,
+    "candidate_ticks": 19
+  },
+  {
+    "roster": 32,
+    "wave": 10,
+    "goal": "near",
+    "seat": 21,
+    "parent_published": true,
+    "candidate_published": true,
+    "parent_ticks": 66,
+    "candidate_ticks": 20
+  },
+  {
+    "roster": 32,
+    "wave": 10,
+    "goal": "near",
+    "seat": 22,
+    "parent_published": true,
+    "candidate_published": true,
+    "parent_ticks": 69,
+    "candidate_ticks": 22
+  },
+  {
+    "roster": 32,
+    "wave": 10,
+    "goal": "near",
+    "seat": 23,
+    "parent_published": true,
+    "candidate_published": true,
+    "parent_ticks": 75,
+    "candidate_ticks": 24
+  },
+  {
+    "roster": 32,
+    "wave": 10,
+    "goal": "near",
+    "seat": 24,
+    "parent_published": true,
+    "candidate_published": true,
+    "parent_ticks": 83,
+    "candidate_ticks": 26
+  },
+  {
+    "roster": 32,
+    "wave": 10,
+    "goal": "near",
+    "seat": 25,
+    "parent_published": true,
+    "candidate_published": true,
+    "parent_ticks": 91,
+    "candidate_ticks": 28
+  },
+  {
+    "roster": 32,
+    "wave": 10,
+    "goal": "near",
+    "seat": 26,
+    "parent_published": true,
+    "candidate_published": true,
+    "parent_ticks": 124,
+    "candidate_ticks": 30
+  },
+  {
+    "roster": 32,
+    "wave": 10,
+    "goal": "near",
+    "seat": 27,
+    "parent_published": true,
+    "candidate_published": true,
+    "parent_ticks": 127,
+    "candidate_ticks": 32
+  },
+  {
+    "roster": 32,
+    "wave": 10,
+    "goal": "near",
+    "seat": 28,
+    "parent_published": true,
+    "candidate_published": true,
+    "parent_ticks": 130,
+    "candidate_ticks": 34
+  },
+  {
+    "roster": 32,
+    "wave": 10,
+    "goal": "near",
+    "seat": 29,
+    "parent_published": true,
+    "candidate_published": true,
+    "parent_ticks": 132,
+    "candidate_ticks": 36
+  },
+  {
+    "roster": 32,
+    "wave": 10,
+    "goal": "near",
+    "seat": 30,
+    "parent_published": true,
+    "candidate_published": true,
+    "parent_ticks": 134,
+    "candidate_ticks": 38
+  },
+  {
+    "roster": 32,
+    "wave": 10,
+    "goal": "near",
+    "seat": 31,
+    "parent_published": true,
+    "candidate_published": true,
+    "parent_ticks": 137,
+    "candidate_ticks": 39
+  }
+]

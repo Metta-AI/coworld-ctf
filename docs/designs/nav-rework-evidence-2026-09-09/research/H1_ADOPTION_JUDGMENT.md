@@ -1,5 +1,52 @@
 # H1_ADOPTION_JUDGMENT: peer view on adopting the exact-goal heuristic
 
+## 0. Revision 3 (after `H1_PAIRED_CORRECTION.md`): reassessment from paired evidence
+
+The paired seat-wave data (`H1-paired-seat-latency.json`, 480 measured
+pairs) removes the basis for the far-tail concern in sections 2 and 3
+below, which are kept as the record of an interpretation that the paired
+evidence does not support:
+
+- The 1968-tick value at 32 seats is an additional completion: a request
+  the parent never published by the cap, published by the candidate. A
+  completed-only maximum rises when more work finishes. It is not an
+  existing request slowed down.
+- Common far completions: at 32 seats 4 faster, 10 same, 1 slower by 19
+  ticks, one gained, none lost. At 16 seats 2 faster, 10 same, 3 slower
+  (8, 2, 36 ticks), gains of 27 and 13 ticks, none gained or lost. All 240
+  near pairs improve.
+- Both-censored requests stay unknown beyond 2,000 ticks in both arms; the
+  paired data says nothing about them and nothing here claims otherwise.
+
+Reassessed judgment: H1 is an exact, quality-preserving change (frozen
+quality hash and pops reproduce; route identity intentionally differs)
+whose measured effect on the latency process is a broad near-goal
+improvement and a mixed, small, net-positive shift on common far
+completions, with one extra far completion. The earlier requirement of a
+scheduler remedy as a prerequisite is withdrawn; it rested on the
+completed-only p95 reading that the pairing refutes. Stable SJF's censored
+far tail is a pre-existing, separate open item in both arms.
+
+What still governs adoption is the contract, not the far tail:
+
+- Whole-body timing is unchanged and both arms fail the 4/5 ms gates at
+  1300 px and miss selection headroom at 331 px, so H1 neither earns nor
+  blocks a timing pass and is not progress toward the 2x goal.
+- Route identity changes, so adoption carries the fixture consequences in
+  the acceptance map: the nine fixtures, GameVersion, and the viewer
+  rebuild gate in the same change, with the route-hash difference listed.
+- Determinism and cross-architecture reproduction already hold.
+
+Recommendation: adopt H1 in the next integrated validation as a standalone
+exact improvement, judged on the contract's own gates (quality, determinism,
+memory, timing not regressed, latency reported as censored count plus
+completed distribution plus survival bounds per arm). No scheduler
+prerequisite. If root wants a single sentence: the paired data shows no
+request made slower by more than 36 ticks and every near request faster,
+so the case against adoption reduces to fixture cost and to H1 not being a
+throughput result, which it never claimed to be.
+
+
 Peer (Claude) judgment requested in `CACHE_TRACE_REVIEW_REQUEST.md`, based
 on `H1_NATIVE_REPORT.md`, `H1_REVIEW.md`, and the earlier starvation
 findings. Documents only.
@@ -101,4 +148,4 @@ activation gain, frozen map 48 still at 2.003934x. Nothing in this judgment
 depends on A3, and the map 48 activation ratio remains an open item
 separate from H1.
 
-H1 JUDGMENT DONE (revision 2, corrections applied)
+H1 JUDGMENT DONE (revision 3, paired reassessment applied; sections 2 and 3 retained as superseded record)

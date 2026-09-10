@@ -601,7 +601,8 @@ proc beginBodyRouteSearch*(job: var BodyRouteSearchJob;
         goals.costs[offset] < workspace.goalCost[node]:
       workspace.goalStamp[node] = generation
       workspace.goalCost[node] = goals.costs[offset]
-  let allowance = int32(PortalAnchorRingCells * NavCell * 23)
+  let allowance = if job.goalNode >= 0: 0'i32
+    else: int32(PortalAnchorRingCells * NavCell * 23)
   for offset in 0 ..< starts.len:
     let
       node = starts.nodes[offset].int
@@ -626,7 +627,8 @@ proc spendBodyRoutePops*(job: var BodyRouteSearchJob;
   doAssert job.workspaceGeneration == workspace.generation,
     "body route job and shared workspace disagree"
   let generation = job.workspaceGeneration
-  let allowance = int32(PortalAnchorRingCells * NavCell * 23)
+  let allowance = if job.goalNode >= 0: 0'i32
+    else: int32(PortalAnchorRingCells * NavCell * 23)
   while result < popBudget and workspace.queue.len > 0:
     let entry = workspace.queue.queuePop()
     inc result
