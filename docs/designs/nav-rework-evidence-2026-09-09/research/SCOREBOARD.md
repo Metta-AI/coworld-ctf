@@ -59,3 +59,5 @@ G0 bed15e11; G1 9e4971f1; M1 5a6c4963; W1 da13e2c7; M2 d9962a8d; M3 f261aeca; W2
 - WF0 rejected: exact wavefront diagnostic passes 14 raster comparisons but loses 13/14 m5a rows; 1300 px p95 is 1.99–3.57x reference. Production unchanged. See WF0_REPORT.md.
 
 - A0 retained: symmetric fine-edge construction reduces mixed-graph activation 20.88–21.91% over three m8i pairs. All 76 graph fingerprints and full quality match; memory unchanged. 53–57/64 non-colossal activation ratios still fail. See A0_REPORT.md.
+
+- A1 retained: exact two-edge bridge shortcut halves mixed-graph activation in three m8i pairs. All 76 graph arrays, full quality and memory match. Only frozen map 48 still exceeds 2x activation (2.081–2.097x); configured timing remains failed. See A1_REPORT.md.
