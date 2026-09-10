@@ -168,13 +168,33 @@ def fetch_standings(api: Api, division_id: str) -> list[dict]:
     return rows or []
 
 
-def latest_completed_round(api: Api, division_id: str, max_pages: int = 5) -> dict | None:
-    """Newest-first per RoundListPublic; division_id is the only working server-side
-    filter (ctf-rounds-endpoint-filter-and-offset-traps). Walk `cursor` pages (never
-    `next_cursor=` as a literal param name, never rely on `offset`) until the first
-    status=="completed" entry turns up -- the newest round in the list may still be
-    running/scheduled."""
+def fetch_completed_rounds(api: Api, division_id: str, max_pages: int = 5) -> list[dict]:
+    """Walk the division's /rounds list (newest-first per RoundListPublic;
+    division_id is the only working server-side filter --
+    ctf-rounds-endpoint-filter-and-offset-traps; walk `cursor` pages, never
+    `next_cursor=` as a literal param name, never rely on `offset`) and
+    return every status=="completed" entry seen, up to max_pages*100 rounds
+    (~500 rounds / several days at the observed ~600s cadence -- see
+    00n-cadence-*.md). This is DIVISION-WIDE, unlike each subject's
+    `recent_rounds` (a small trailing per-player window that can miss a
+    round entirely for a subject who did not play it) -- it is the source
+    for both the single-round anchor (latest_completed_round) and Step A
+    deliverable 4's round-start attribution in step_a_diff.py, which needs
+    every round that completed in a time window, not just each subject's
+    own last-scored one.
+
+    NOTE (observed, not assumed -- ctf-cohort-boundary-is-observed-never-inferred):
+    every entry's `started_at` has been observed null across all rounds
+    walked (RoundExecutionBackend.dispatch / scheduled_by=ladder rounds never
+    populate it -- confirmed against metta origin/main
+    v2/orchestration/workflows.py: LeagueLadderWorkflow paces off
+    `latest_round_created_at`, not started_at). `created_at` is therefore the
+    only observed, populated start-proxy and is what round-start
+    classification uses -- each entry keeps `started_at` too so a future run
+    where it IS populated is used automatically (see `round_start_at` in
+    step_a_diff.py)."""
     cursor = None
+    completed: list[dict] = []
     for _ in range(max_pages):
         params = {"division_id": division_id, "limit": 100}
         if cursor:
@@ -185,11 +205,29 @@ def latest_completed_round(api: Api, division_id: str, max_pages: int = 5) -> di
         entries = body.get("entries") or []
         for e in entries:
             if e.get("status") == "completed":
-                return e
+                completed.append(
+                    {
+                        "round_number": e.get("round_number"),
+                        "id": e.get("id"),
+                        "status": e.get("status"),
+                        "created_at": e.get("created_at"),
+                        "started_at": e.get("started_at"),
+                        "completed_at": e.get("completed_at"),
+                    }
+                )
         cursor = body.get("next_cursor")
         if not cursor:
             break
-    return None
+    completed.sort(key=lambda x: x.get("round_number") or 0)
+    return completed
+
+
+def latest_completed_round(api: Api, division_id: str, max_pages: int = 5) -> dict | None:
+    """Highest-round_number entry from fetch_completed_rounds -- the newest
+    COMPLETED round within the paged window walked (the newest round in the
+    list may still be running/scheduled, hence filtering to completed)."""
+    completed = fetch_completed_rounds(api, division_id, max_pages=max_pages)
+    return completed[-1] if completed else None
 
 
 def fetch_settings(api: Api) -> tuple[dict | None, str]:
@@ -290,6 +328,21 @@ def render_markdown(snapshot: dict) -> str:
         lines.append("NOT FOUND within the paged window walked.")
     lines.append("")
 
+    crs = snapshot.get("completed_rounds_seen") or []
+    lines.append("## Completed rounds seen (division-wide, this read's paged window)")
+    if crs:
+        lines.append(
+            f"- {len(crs)} completed round(s), r{crs[0]['round_number']}..r{crs[-1]['round_number']}"
+        )
+        lines.append(
+            "- `started_at` observed null on every round walked (see fetch_completed_rounds "
+            "docstring); `created_at` is the start-proxy step_a_diff.py's --post-at "
+            "classification uses. Full per-round table is in the raw JSON block below."
+        )
+    else:
+        lines.append("NOT FOUND within the paged window walked.")
+    lines.append("")
+
     lines.append("## Standings (full table)")
     lines.append(
         "`raw_standing` is whatever the public leaderboard's `score` field carries "
@@ -345,7 +398,8 @@ def main() -> int:
     api = Api(token)
 
     standings = fetch_standings(api, DIVISION_ID)
-    anchor = latest_completed_round(api, DIVISION_ID)
+    completed_rounds_seen = fetch_completed_rounds(api, DIVISION_ID)
+    anchor = completed_rounds_seen[-1] if completed_rounds_seen else None
     settings, settings_reason = fetch_settings(api)
 
     rows = build_rows(standings)
@@ -378,6 +432,16 @@ def main() -> int:
         "settings": settings,
         "anchor_round": anchor,
         "rows": rows,
+        # Division-wide, newest-first-walked completed rounds (round_number, id,
+        # created_at, started_at, completed_at) -- NOT just each subject's own
+        # last-scored round. Feeds step_a_diff.py's --post-at round-start
+        # attribution (deliverable 4): "every round that completed between the
+        # two snapshots" is computed from the union of this list across both
+        # snapshot files, filtered to the (a.timestamp_utc, b.timestamp_utc]
+        # window, not by re-querying the API. Older snapshots (pre this field)
+        # simply contribute nothing to that union -- step_a_diff.py degrades
+        # gracefully, never KeyErrors on a missing field.
+        "completed_rounds_seen": completed_rounds_seen,
     }
 
     out_dir = os.path.expanduser(args.out_dir)
@@ -393,6 +457,7 @@ def main() -> int:
         print(f"anchor round: r{anchor.get('round_number')} id={anchor.get('id')} completed_at={anchor.get('completed_at')}")
     else:
         print("anchor round: NOT FOUND")
+    print(f"completed_rounds_seen: {len(completed_rounds_seen)}")
     print(f"rows: {len(rows)}")
     for r in rows[:5]:
         print(
