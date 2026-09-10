@@ -1,0 +1,362 @@
+[
+  {
+    "trace": "s2_16_679962.navsrc.txt",
+    "map": "br-gen-5204",
+    "seats": 16,
+    "capacity": 1,
+    "rebuilds": 135,
+    "empty": 16,
+    "nonempty_hits": 1,
+    "nonempty_hit_rate": 0.008403361344537815
+  },
+  {
+    "trace": "s2_16_679962.navsrc.txt",
+    "map": "br-gen-5204",
+    "seats": 16,
+    "capacity": 4,
+    "rebuilds": 135,
+    "empty": 16,
+    "nonempty_hits": 2,
+    "nonempty_hit_rate": 0.01680672268907563
+  },
+  {
+    "trace": "s2_16_679962.navsrc.txt",
+    "map": "br-gen-5204",
+    "seats": 16,
+    "capacity": 8,
+    "rebuilds": 135,
+    "empty": 16,
+    "nonempty_hits": 4,
+    "nonempty_hit_rate": 0.03361344537815126
+  },
+  {
+    "trace": "s2_16_679962.navsrc.txt",
+    "map": "br-gen-5204",
+    "seats": 16,
+    "capacity": 16,
+    "rebuilds": 135,
+    "empty": 16,
+    "nonempty_hits": 4,
+    "nonempty_hit_rate": 0.03361344537815126
+  },
+  {
+    "trace": "s2_16_679963.navsrc.txt",
+    "map": "br-gen-5263",
+    "seats": 16,
+    "capacity": 1,
+    "rebuilds": 111,
+    "empty": 20,
+    "nonempty_hits": 2,
+    "nonempty_hit_rate": 0.02197802197802198
+  },
+  {
+    "trace": "s2_16_679963.navsrc.txt",
+    "map": "br-gen-5263",
+    "seats": 16,
+    "capacity": 4,
+    "rebuilds": 111,
+    "empty": 20,
+    "nonempty_hits": 2,
+    "nonempty_hit_rate": 0.02197802197802198
+  },
+  {
+    "trace": "s2_16_679963.navsrc.txt",
+    "map": "br-gen-5263",
+    "seats": 16,
+    "capacity": 8,
+    "rebuilds": 111,
+    "empty": 20,
+    "nonempty_hits": 2,
+    "nonempty_hit_rate": 0.02197802197802198
+  },
+  {
+    "trace": "s2_16_679963.navsrc.txt",
+    "map": "br-gen-5263",
+    "seats": 16,
+    "capacity": 16,
+    "rebuilds": 111,
+    "empty": 20,
+    "nonempty_hits": 2,
+    "nonempty_hit_rate": 0.02197802197802198
+  },
+  {
+    "trace": "s2_16_679964.navsrc.txt",
+    "map": "br-gen-5204",
+    "seats": 16,
+    "capacity": 1,
+    "rebuilds": 124,
+    "empty": 15,
+    "nonempty_hits": 3,
+    "nonempty_hit_rate": 0.027522935779816515
+  },
+  {
+    "trace": "s2_16_679964.navsrc.txt",
+    "map": "br-gen-5204",
+    "seats": 16,
+    "capacity": 4,
+    "rebuilds": 124,
+    "empty": 15,
+    "nonempty_hits": 4,
+    "nonempty_hit_rate": 0.03669724770642202
+  },
+  {
+    "trace": "s2_16_679964.navsrc.txt",
+    "map": "br-gen-5204",
+    "seats": 16,
+    "capacity": 8,
+    "rebuilds": 124,
+    "empty": 15,
+    "nonempty_hits": 4,
+    "nonempty_hit_rate": 0.03669724770642202
+  },
+  {
+    "trace": "s2_16_679964.navsrc.txt",
+    "map": "br-gen-5204",
+    "seats": 16,
+    "capacity": 16,
+    "rebuilds": 124,
+    "empty": 15,
+    "nonempty_hits": 5,
+    "nonempty_hit_rate": 0.045871559633027525
+  },
+  {
+    "trace": "s2_16_679965.navsrc.txt",
+    "map": "br-gen-5001",
+    "seats": 16,
+    "capacity": 1,
+    "rebuilds": 109,
+    "empty": 23,
+    "nonempty_hits": 1,
+    "nonempty_hit_rate": 0.011627906976744186
+  },
+  {
+    "trace": "s2_16_679965.navsrc.txt",
+    "map": "br-gen-5001",
+    "seats": 16,
+    "capacity": 4,
+    "rebuilds": 109,
+    "empty": 23,
+    "nonempty_hits": 3,
+    "nonempty_hit_rate": 0.03488372093023256
+  },
+  {
+    "trace": "s2_16_679965.navsrc.txt",
+    "map": "br-gen-5001",
+    "seats": 16,
+    "capacity": 8,
+    "rebuilds": 109,
+    "empty": 23,
+    "nonempty_hits": 3,
+    "nonempty_hit_rate": 0.03488372093023256
+  },
+  {
+    "trace": "s2_16_679965.navsrc.txt",
+    "map": "br-gen-5001",
+    "seats": 16,
+    "capacity": 16,
+    "rebuilds": 109,
+    "empty": 23,
+    "nonempty_hits": 5,
+    "nonempty_hit_rate": 0.05813953488372093
+  },
+  {
+    "trace": "s2_32_679962.navsrc.txt",
+    "map": "br-gen-5204",
+    "seats": 32,
+    "capacity": 1,
+    "rebuilds": 288,
+    "empty": 30,
+    "nonempty_hits": 1,
+    "nonempty_hit_rate": 0.003875968992248062
+  },
+  {
+    "trace": "s2_32_679962.navsrc.txt",
+    "map": "br-gen-5204",
+    "seats": 32,
+    "capacity": 4,
+    "rebuilds": 288,
+    "empty": 30,
+    "nonempty_hits": 4,
+    "nonempty_hit_rate": 0.015503875968992248
+  },
+  {
+    "trace": "s2_32_679962.navsrc.txt",
+    "map": "br-gen-5204",
+    "seats": 32,
+    "capacity": 8,
+    "rebuilds": 288,
+    "empty": 30,
+    "nonempty_hits": 7,
+    "nonempty_hit_rate": 0.027131782945736434
+  },
+  {
+    "trace": "s2_32_679962.navsrc.txt",
+    "map": "br-gen-5204",
+    "seats": 32,
+    "capacity": 16,
+    "rebuilds": 288,
+    "empty": 30,
+    "nonempty_hits": 9,
+    "nonempty_hit_rate": 0.03488372093023256
+  },
+  {
+    "trace": "s2_32_679963.navsrc.txt",
+    "map": "br-gen-5263",
+    "seats": 32,
+    "capacity": 1,
+    "rebuilds": 239,
+    "empty": 20,
+    "nonempty_hits": 3,
+    "nonempty_hit_rate": 0.0136986301369863
+  },
+  {
+    "trace": "s2_32_679963.navsrc.txt",
+    "map": "br-gen-5263",
+    "seats": 32,
+    "capacity": 4,
+    "rebuilds": 239,
+    "empty": 20,
+    "nonempty_hits": 9,
+    "nonempty_hit_rate": 0.0410958904109589
+  },
+  {
+    "trace": "s2_32_679963.navsrc.txt",
+    "map": "br-gen-5263",
+    "seats": 32,
+    "capacity": 8,
+    "rebuilds": 239,
+    "empty": 20,
+    "nonempty_hits": 16,
+    "nonempty_hit_rate": 0.0730593607305936
+  },
+  {
+    "trace": "s2_32_679963.navsrc.txt",
+    "map": "br-gen-5263",
+    "seats": 32,
+    "capacity": 16,
+    "rebuilds": 239,
+    "empty": 20,
+    "nonempty_hits": 22,
+    "nonempty_hit_rate": 0.1004566210045662
+  },
+  {
+    "trace": "s2_32_679964.navsrc.txt",
+    "map": "br-gen-5204",
+    "seats": 32,
+    "capacity": 1,
+    "rebuilds": 278,
+    "empty": 25,
+    "nonempty_hits": 1,
+    "nonempty_hit_rate": 0.003952569169960474
+  },
+  {
+    "trace": "s2_32_679964.navsrc.txt",
+    "map": "br-gen-5204",
+    "seats": 32,
+    "capacity": 4,
+    "rebuilds": 278,
+    "empty": 25,
+    "nonempty_hits": 6,
+    "nonempty_hit_rate": 0.023715415019762844
+  },
+  {
+    "trace": "s2_32_679964.navsrc.txt",
+    "map": "br-gen-5204",
+    "seats": 32,
+    "capacity": 8,
+    "rebuilds": 278,
+    "empty": 25,
+    "nonempty_hits": 11,
+    "nonempty_hit_rate": 0.043478260869565216
+  },
+  {
+    "trace": "s2_32_679964.navsrc.txt",
+    "map": "br-gen-5204",
+    "seats": 32,
+    "capacity": 16,
+    "rebuilds": 278,
+    "empty": 25,
+    "nonempty_hits": 15,
+    "nonempty_hit_rate": 0.05928853754940711
+  },
+  {
+    "trace": "s2_32_679965.navsrc.txt",
+    "map": "br-gen-5001",
+    "seats": 32,
+    "capacity": 1,
+    "rebuilds": 274,
+    "empty": 40,
+    "nonempty_hits": 2,
+    "nonempty_hit_rate": 0.008547008547008548
+  },
+  {
+    "trace": "s2_32_679965.navsrc.txt",
+    "map": "br-gen-5001",
+    "seats": 32,
+    "capacity": 4,
+    "rebuilds": 274,
+    "empty": 40,
+    "nonempty_hits": 4,
+    "nonempty_hit_rate": 0.017094017094017096
+  },
+  {
+    "trace": "s2_32_679965.navsrc.txt",
+    "map": "br-gen-5001",
+    "seats": 32,
+    "capacity": 8,
+    "rebuilds": 274,
+    "empty": 40,
+    "nonempty_hits": 11,
+    "nonempty_hit_rate": 0.04700854700854701
+  },
+  {
+    "trace": "s2_32_679965.navsrc.txt",
+    "map": "br-gen-5001",
+    "seats": 32,
+    "capacity": 16,
+    "rebuilds": 274,
+    "empty": 40,
+    "nonempty_hits": 15,
+    "nonempty_hit_rate": 0.0641025641025641
+  },
+  {
+    "trace": "smoke_s2_16_randomized.navsrc.txt",
+    "map": "br-gen-5001",
+    "seats": 16,
+    "capacity": 1,
+    "rebuilds": 126,
+    "empty": 29,
+    "nonempty_hits": 0,
+    "nonempty_hit_rate": 0.0
+  },
+  {
+    "trace": "smoke_s2_16_randomized.navsrc.txt",
+    "map": "br-gen-5001",
+    "seats": 16,
+    "capacity": 4,
+    "rebuilds": 126,
+    "empty": 29,
+    "nonempty_hits": 3,
+    "nonempty_hit_rate": 0.030927835051546393
+  },
+  {
+    "trace": "smoke_s2_16_randomized.navsrc.txt",
+    "map": "br-gen-5001",
+    "seats": 16,
+    "capacity": 8,
+    "rebuilds": 126,
+    "empty": 29,
+    "nonempty_hits": 5,
+    "nonempty_hit_rate": 0.05154639175257732
+  },
+  {
+    "trace": "smoke_s2_16_randomized.navsrc.txt",
+    "map": "br-gen-5001",
+    "seats": 16,
+    "capacity": 16,
+    "rebuilds": 126,
+    "empty": 29,
+    "nonempty_hits": 5,
+    "nonempty_hit_rate": 0.05154639175257732
+  }
+]

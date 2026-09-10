@@ -1,0 +1,102 @@
+Hint: used config file '/Users/jamesboggs/.nimby/nim/config/nim.cfg' [Conf]
+Hint: used config file '/Users/jamesboggs/.nimby/nim/config/config.nims' [Conf]
+Hint: used config file '/Users/jamesboggs/coding/coworlds/coworld-ctf-worktrees/nav-throughput-research/nim.cfg' [Conf]
+..............................................................................................................................................................................................................................
+/Users/jamesboggs/coding/coworlds/coworld-ctf-worktrees/nav-throughput-research/src/ctf/arena.nim(1373, 5) Hint: 'inside' is declared but not used [XDeclaredButNotUsed]
+/Users/jamesboggs/coding/coworlds/coworld-ctf-worktrees/nav-throughput-research/src/ctf/arena.nim(3702, 6) Hint: 'rectsNode' is declared but not used [XDeclaredButNotUsed]
+/Users/jamesboggs/coding/coworlds/coworld-ctf-worktrees/nav-throughput-research/src/ctf/arena.nim(3707, 6) Hint: 'rectsFromNode' is declared but not used [XDeclaredButNotUsed]
+...........
+/Users/jamesboggs/coding/coworlds/coworld-ctf-worktrees/nav-throughput-research/src/shell/body_route_query.nim(3, 24) Warning: imported and not used: 'math' [UnusedImport]
+..
+/Users/jamesboggs/coding/coworlds/coworld-ctf-worktrees/nav-throughput-research/src/shell/body.nim(1299, 6) Hint: 'enemyShootableWithoutPolicy' is declared but not used [XDeclaredButNotUsed]
+..............
+/Users/jamesboggs/coding/coworlds/coworld-ctf-worktrees/nav-throughput-research/src/shell/episode.nim(1434, 7) Hint: 'seatTeams' is declared but not used [XDeclaredButNotUsed]
+/Users/jamesboggs/coding/coworlds/coworld-ctf-worktrees/nav-throughput-research/src/shell/episode.nim(221, 3) Hint: 'ShellRuntimeState' is declared but not used [XDeclaredButNotUsed]
+/Users/jamesboggs/coding/coworlds/coworld-ctf-worktrees/nav-throughput-research/src/shell/episode.nim(274, 6) Hint: 'frameForSeat' is declared but not used [XDeclaredButNotUsed]
+/Users/jamesboggs/coding/coworlds/coworld-ctf-worktrees/nav-throughput-research/src/shell/episode.nim(285, 6) Hint: 'playZoneTicksToShrink' is declared but not used [XDeclaredButNotUsed]
+/Users/jamesboggs/coding/coworlds/coworld-ctf-worktrees/nav-throughput-research/src/shell/episode.nim(517, 6) Hint: 'rawBytes' is declared but not used [XDeclaredButNotUsed]
+/Users/jamesboggs/coding/coworlds/coworld-ctf-worktrees/nav-throughput-research/src/shell/episode.nim(592, 6) Hint: 'withContentSha' is declared but not used [XDeclaredButNotUsed]
+/Users/jamesboggs/coding/coworlds/coworld-ctf-worktrees/nav-throughput-research/src/shell/episode.nim(8, 19) Warning: imported and not used: 'math' [UnusedImport]
+..
+/Users/jamesboggs/coding/coworlds/coworld-ctf-worktrees/nav-throughput-research/tools/build_nav_route_corpus.nim(15, 3) Hint: 'DefaultOutput' is declared but not used [XDeclaredButNotUsed]
+/Users/jamesboggs/coding/coworlds/coworld-ctf-worktrees/nav-throughput-research/tools/build_nav_route_corpus.nim(155, 6) Hint: 'writeCorpus' is declared but not used [XDeclaredButNotUsed]
+/Users/jamesboggs/coding/coworlds/coworld-ctf-worktrees/nav-throughput-research/tools/build_nav_route_corpus.nim(6, 45) Warning: imported and not used: 'os' [UnusedImport]
+CC: system/exceptions.nim
+CC: std/private/digitsutils.nim
+CC: std/assertions.nim
+CC: system/iterators.nim
+CC: std/private/dragonbox.nim
+CC: std/formatfloat.nim
+CC: system/dollars.nim
+CC: std/syncio.nim
+CC: system.nim
+CC: algorithm.nim
+CC: hashes.nim
+CC: math.nim
+CC: tables.nim
+CC: parseutils.nim
+CC: unicode.nim
+CC: strutils.nim
+CC: streams.nim
+CC: lexbase.nim
+CC: parsejson.nim
+CC: options.nim
+CC: json.nim
+CC: posix.nim
+CC: times.nim
+CC: std/monotimes.nim
+CC: std/oserrors.nim
+CC: std/private/oscommon.nim
+CC: std/private/ospaths2.nim
+CC: std/envvars.nim
+CC: std/cmdline.nim
+CC: os.nim
+CC: strtabs.nim
+CC: cpuinfo.nim
+CC: deques.nim
+CC: osproc.nim
+CC: strformat.nim
+CC: crunchy/common.nim
+CC: crunchy/sha256.nim
+CC: bitworld/profile.nim
+CC: sets.nim
+CC: pixie/fontformats/opentype.nim
+CC: pixie/fileformats/jpeg.nim
+CC: heapqueue.nim
+CC: pixie/fileformats/png.nim
+CC: supersnappy/internal.nim
+CC: bitworld/spriteprotocol.nim
+CC: jsony.nim
+CC: random.nim
+CC: bitworld/pixelfonts.nim
+CC: ../src/ctf/sim_types.nim
+CC: ../src/ctf/arena.nim
+CC: ../src/ctf/br_map_pool.nim
+CC: ../src/ctf/zone_field.nim
+CC: ../src/shell/types.nim
+CC: ../src/shell/body_map.nim
+CC: ../src/shell/body_cache.nim
+CC: ../src/shell/body_danger.nim
+CC: ../src/shell/body_route_index.nim
+CC: ../src/shell/body_hazard.nim
+CC: ../src/shell/body_route_query.nim
+CC: ../src/shell/body_safety_query.nim
+CC: ../src/shell/body_nav.nim
+CC: ../src/shell/cover_scorer.nim
+CC: ../src/shell/body.nim
+CC: ../src/shell/default_play.nim
+CC: ../src/shell/canonical.nim
+CC: ../src/shell/canonical_fast.nim
+CC: ../src/shell/policy_encoding.nim
+CC: ../src/shell/standing_order.nim
+CC: ../src/shell/episode.nim
+CC: ../tests/nav_route_corpus_support.nim
+CC: build_nav_route_corpus.nim
+CC: bench_body_nav_rework.nim
+Hint:  [Link]
+Hint: mm: orc; threads: on; opt: speed; options: -d:release
+129703 lines; 3.284s; 425.004MiB peakmem; proj: /Users/jamesboggs/coding/coworlds/coworld-ctf-worktrees/nav-throughput-research/tools/bench_body_nav_rework.nim; out: /Users/jamesboggs/coding/coworlds/coworld-ctf-worktrees/nav-throughput-research/build/bench-activation-verdict [SuccessX]
+Hint: /Users/jamesboggs/coding/coworlds/coworld-ctf-worktrees/nav-throughput-research/build/bench-activation-verdict --activation --pool-index 48 [Exec]
+activation 49/64
+activation colossal
+Error: execution of an external program failed: '/Users/jamesboggs/coding/coworlds/coworld-ctf-worktrees/nav-throughput-research/build/bench-activation-verdict --activation --pool-index 48'

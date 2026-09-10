@@ -1,0 +1,10 @@
+baseline slot=0 team=Red role=FlankBottom -> ws://127.0.0.1:21903/player?slot=0&name=Player1&token=0xBADA55_0
+connected ws://127.0.0.1:21903/player?slot=0&name=Player1&token=0xBADA55_0
+baseline slot=0 season2Shell=true -> play seat
+s2 upload edge_ride READY
+s2 upload target_law READY
+s2 upload supply_run READY
+s2 upload loot READY
+s2 playbook: 4/4 modules ready
+game over, exiting: Error receiving WebSocket frame
+artifact skipped: no upload URL

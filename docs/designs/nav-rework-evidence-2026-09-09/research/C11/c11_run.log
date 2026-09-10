@@ -1,0 +1,331 @@
+{
+ "nav_cell_px": 8,
+ "close_px": 190,
+ "radii": [
+  0,
+  190
+ ],
+ "total_cases": 39555,
+ "total_mismatching_cases": 0,
+ "disc_inside_closeCells_box_for_unclamped_sources": true,
+ "totals_over_radii_0_190_and_64_offsets": {
+  "reference_predicate_evaluations": 10354624,
+  "member_cells": 7235751,
+  "rows": 313280,
+  "empty_rows": 24148,
+  "isqrt_calls": 291848,
+  "rows_with_exact_circle_boundary": 8344,
+  "cells_exactly_on_circle": 1705
+ },
+ "clamped_source_summary": {
+  "cases": 23875,
+  "mismatches": 0,
+  "member_cells_total": 1246762,
+  "x_excursions": [
+   -1,
+   -4,
+   -7,
+   -8,
+   -9,
+   -50,
+   -1000,
+   96,
+   99,
+   103,
+   104,
+   196,
+   1096,
+   40
+  ],
+  "y_excursions": [
+   -1,
+   -8,
+   -9,
+   -300,
+   96,
+   101,
+   104,
+   2096,
+   40
+  ],
+  "grid_cells": [
+   12,
+   12
+  ],
+  "note": "source pixel kept as given; origin = cellOf clamp; box centred on the clamped origin, distance from the original pixel, as in the primary loop"
+ },
+ "clamped_source_examples": [
+  {
+   "R": 0,
+   "source": [
+    -1,
+    40
+   ],
+   "origin": [
+    0,
+    5
+   ],
+   "members": 0,
+   "mismatch": false
+  },
+  {
+   "R": 0,
+   "source": [
+    -9,
+    -9
+   ],
+   "origin": [
+    0,
+    0
+   ],
+   "members": 0,
+   "mismatch": false
+  },
+  {
+   "R": 0,
+   "source": [
+    96,
+    40
+   ],
+   "origin": [
+    11,
+    5
+   ],
+   "members": 0,
+   "mismatch": false
+  },
+  {
+   "R": 0,
+   "source": [
+    196,
+    2096
+   ],
+   "origin": [
+    11,
+    11
+   ],
+   "members": 0,
+   "mismatch": false
+  },
+  {
+   "R": 0,
+   "source": [
+    40,
+    -1
+   ],
+   "origin": [
+    5,
+    0
+   ],
+   "members": 0,
+   "mismatch": false
+  },
+  {
+   "R": 8,
+   "source": [
+    -1,
+    40
+   ],
+   "origin": [
+    0,
+    5
+   ],
+   "members": 2,
+   "mismatch": false
+  },
+  {
+   "R": 8,
+   "source": [
+    -9,
+    -9
+   ],
+   "origin": [
+    0,
+    0
+   ],
+   "members": 0,
+   "mismatch": false
+  },
+  {
+   "R": 8,
+   "source": [
+    96,
+    40
+   ],
+   "origin": [
+    11,
+    5
+   ],
+   "members": 2,
+   "mismatch": false
+  },
+  {
+   "R": 8,
+   "source": [
+    196,
+    2096
+   ],
+   "origin": [
+    11,
+    11
+   ],
+   "members": 0,
+   "mismatch": false
+  },
+  {
+   "R": 8,
+   "source": [
+    40,
+    -1
+   ],
+   "origin": [
+    5,
+    0
+   ],
+   "members": 2,
+   "mismatch": false
+  },
+  {
+   "R": 37,
+   "source": [
+    -1,
+    40
+   ],
+   "origin": [
+    0,
+    5
+   ],
+   "members": 32,
+   "mismatch": false
+  },
+  {
+   "R": 37,
+   "source": [
+    -9,
+    -9
+   ],
+   "origin": [
+    0,
+    0
+   ],
+   "members": 8,
+   "mismatch": false
+  },
+  {
+   "R": 37,
+   "source": [
+    96,
+    40
+   ],
+   "origin": [
+    11,
+    5
+   ],
+   "members": 34,
+   "mismatch": false
+  },
+  {
+   "R": 37,
+   "source": [
+    196,
+    2096
+   ],
+   "origin": [
+    11,
+    11
+   ],
+   "members": 0,
+   "mismatch": false
+  },
+  {
+   "R": 37,
+   "source": [
+    40,
+    -1
+   ],
+   "origin": [
+    5,
+    0
+   ],
+   "members": 32,
+   "mismatch": false
+  },
+  {
+   "R": 190,
+   "source": [
+    -1,
+    40
+   ],
+   "origin": [
+    0,
+    5
+   ],
+   "members": 144,
+   "mismatch": false
+  },
+  {
+   "R": 190,
+   "source": [
+    -9,
+    -9
+   ],
+   "origin": [
+    0,
+    0
+   ],
+   "members": 144,
+   "mismatch": false
+  },
+  {
+   "R": 190,
+   "source": [
+    96,
+    40
+   ],
+   "origin": [
+    11,
+    5
+   ],
+   "members": 144,
+   "mismatch": false
+  },
+  {
+   "R": 190,
+   "source": [
+    196,
+    2096
+   ],
+   "origin": [
+    11,
+    11
+   ],
+   "members": 0,
+   "mismatch": false
+  },
+  {
+   "R": 190,
+   "source": [
+    40,
+    -1
+   ],
+   "origin": [
+    5,
+    0
+   ],
+   "members": 144,
+   "mismatch": false
+  }
+ ],
+ "row_table_storage_bytes": {
+  "closeCells_at_190": 24,
+  "rows_at_190": 49,
+  "full_table_int8_bytes_64_offsets": 6272,
+  "full_table_int16_bytes_64_offsets": 12544,
+  "limit_only_table_int8_bytes_8_subY": 392,
+  "limit_only_table_int16_bytes_8_subY": 784,
+  "note": "full table: (xlo,xhi) per (subX,subY,row); limit-only: L per (subY,row), xlo/xhi then need two floor divisions per row at run time"
+ },
+ "membership_sha256": "1ec9d38e55e8152150eadda979b107a32bcdf15d405ba942808da442f97dff04"
+}
+R=190 row: {'R': 190, 'closeCells': 24, 'offsets': 64, 'mismatching_offsets': 0, 'reference_evaluations_per_source': 2401, 'members_total_64_offsets': 113369, 'rows_per_source': 49, 'empty_rows_total': 102, 'isqrt_calls_total': 3048, 'rows_with_exact_circle_boundary': 56, 'cells_exactly_on_circle_total': 12}
+R small: [(0, 1, 63), (1, 5, 187), (2, 13, 179), (3, 29, 163), (4, 49, 144), (5, 81, 120), (6, 113, 104), (7, 149, 88), (8, 197, 72)]

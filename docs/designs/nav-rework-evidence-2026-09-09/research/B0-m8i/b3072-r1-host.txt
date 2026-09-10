@@ -1,0 +1,22 @@
+Wed Sep  9 23:48:38 UTC 2026
+ 23:48:38 up 4 min,  0 users,  load average: 1.27, 0.54, 0.20
+    PID %CPU COMMAND
+      1  0.6 systemd
+     58  0.1 migration/7
+     64  0.1 migration/8
+     70  0.1 migration/9
+     76  0.1 migration/10
+     82  0.1 migration/11
+     88  0.1 migration/12
+     94  0.1 migration/13
+    100  0.1 migration/14
+    106  0.1 migration/15
+    278  0.1 systemd-journal
+    441  0.1 kworker/u32:6-flush-259:0
+    676  0.1 snapd
+   1443  0.1 amazon-ssm-agen
+      2  0.0 kthreadd
+      3  0.0 pool_workqueue_release
+      4  0.0 kworker/R-rcu_g
+      5  0.0 kworker/R-rcu_p
+      6  0.0 kworker/R-slub_

@@ -1,0 +1,7 @@
+JAMES RULING (2026-09-09): remove any canonical tick-rate gate that runs locally under emulation; it is not accurate.
+
+Apply:
+1. tools/run_body_nav_gate.sh and tools/bench_body_nav_rework.nim: the Docker linux/amd64 canonical run keeps quality, activation, retained-memory and cross-arch route-hash rows as GATES. Its tick-time rows are NOT gated: either skip them in the canonical run (`--no-tick`, the default when the run is emulated, e.g. detected by an explicit `NAV_GATE_HOST=emulated` env set by the script when `uname -m` of the Docker host differs from the container arch, or simply always for the Docker run until a real amd64 CI box exists) or emit them with `gated: false` and a `host_limited: true` flag so they never flip `pass`. The overall `pass` must not depend on emulated tick rows.
+2. The tick gate (p95 <= 4 ms, max <= 5 ms, 16 and 32 seats, first/moving/stuck) runs NATIVELY (the p10-native-tick harness) and is the gate for choosing B. If CI later gets a real amd64 runner, the same harness can gate there; document that.
+3. The Phase 9/10 reports and docs (AGENTS.md profiling/gate section, the design doc's gates section, FIRST_LIGHT_DEMO if it mentions the gate) must say: canonical = quality/activation/memory/determinism on linux/amd64; tick timing = native or real-hardware only; emulated tick numbers are informational.
+4. This does not change the budget-selection order in FIXUP_P10_BUDGET.md: native integrated rows at 16,384 / 8,192 / 4,096 decide B with the headroom screen (p95 <= 3.6 ms, max <= 4.5 ms).

@@ -1,0 +1,303 @@
+{
+  "parent": {
+    "worst_p95_ms": 2.484543,
+    "worst_max_ms": 2.524236,
+    "rows": [
+      {
+        "repeat": 1,
+        "roster": 16,
+        "scenario": "first_goals",
+        "p95_ms": 2.201298,
+        "max_ms": 2.230439,
+        "search_ns_per_pop_p95": 613
+      },
+      {
+        "repeat": 1,
+        "roster": 16,
+        "scenario": "moving_goals",
+        "p95_ms": 2.250981,
+        "max_ms": 2.292492,
+        "search_ns_per_pop_p95": 637
+      },
+      {
+        "repeat": 1,
+        "roster": 16,
+        "scenario": "stuck_replans",
+        "p95_ms": 2.173786,
+        "max_ms": 2.219418,
+        "search_ns_per_pop_p95": 631
+      },
+      {
+        "repeat": 1,
+        "roster": 32,
+        "scenario": "first_goals",
+        "p95_ms": 2.42876,
+        "max_ms": 2.457632,
+        "search_ns_per_pop_p95": 617
+      },
+      {
+        "repeat": 1,
+        "roster": 32,
+        "scenario": "moving_goals",
+        "p95_ms": 2.484543,
+        "max_ms": 2.517445,
+        "search_ns_per_pop_p95": 649
+      },
+      {
+        "repeat": 1,
+        "roster": 32,
+        "scenario": "stuck_replans",
+        "p95_ms": 2.466543,
+        "max_ms": 2.499504,
+        "search_ns_per_pop_p95": 709
+      },
+      {
+        "repeat": 2,
+        "roster": 16,
+        "scenario": "first_goals",
+        "p95_ms": 2.163415,
+        "max_ms": 2.172026,
+        "search_ns_per_pop_p95": 617
+      },
+      {
+        "repeat": 2,
+        "roster": 16,
+        "scenario": "moving_goals",
+        "p95_ms": 2.220388,
+        "max_ms": 2.291512,
+        "search_ns_per_pop_p95": 632
+      },
+      {
+        "repeat": 2,
+        "roster": 16,
+        "scenario": "stuck_replans",
+        "p95_ms": 2.151405,
+        "max_ms": 2.187186,
+        "search_ns_per_pop_p95": 629
+      },
+      {
+        "repeat": 2,
+        "roster": 32,
+        "scenario": "first_goals",
+        "p95_ms": 2.393748,
+        "max_ms": 2.42117,
+        "search_ns_per_pop_p95": 614
+      },
+      {
+        "repeat": 2,
+        "roster": 32,
+        "scenario": "moving_goals",
+        "p95_ms": 2.457122,
+        "max_ms": 2.523585,
+        "search_ns_per_pop_p95": 653
+      },
+      {
+        "repeat": 2,
+        "roster": 32,
+        "scenario": "stuck_replans",
+        "p95_ms": 2.42254,
+        "max_ms": 2.440661,
+        "search_ns_per_pop_p95": 676
+      },
+      {
+        "repeat": 3,
+        "roster": 16,
+        "scenario": "first_goals",
+        "p95_ms": 2.196858,
+        "max_ms": 2.219408,
+        "search_ns_per_pop_p95": 609
+      },
+      {
+        "repeat": 3,
+        "roster": 16,
+        "scenario": "moving_goals",
+        "p95_ms": 2.259421,
+        "max_ms": 2.294522,
+        "search_ns_per_pop_p95": 637
+      },
+      {
+        "repeat": 3,
+        "roster": 16,
+        "scenario": "stuck_replans",
+        "p95_ms": 2.176196,
+        "max_ms": 2.205288,
+        "search_ns_per_pop_p95": 634
+      },
+      {
+        "repeat": 3,
+        "roster": 32,
+        "scenario": "first_goals",
+        "p95_ms": 2.431061,
+        "max_ms": 2.520366,
+        "search_ns_per_pop_p95": 615
+      },
+      {
+        "repeat": 3,
+        "roster": 32,
+        "scenario": "moving_goals",
+        "p95_ms": 2.483723,
+        "max_ms": 2.524236,
+        "search_ns_per_pop_p95": 654
+      },
+      {
+        "repeat": 3,
+        "roster": 32,
+        "scenario": "stuck_replans",
+        "p95_ms": 2.43561,
+        "max_ms": 2.458102,
+        "search_ns_per_pop_p95": 670
+      }
+    ]
+  },
+  "candidate": {
+    "worst_p95_ms": 2.484964,
+    "worst_max_ms": 2.642113,
+    "rows": [
+      {
+        "repeat": 1,
+        "roster": 16,
+        "scenario": "first_goals",
+        "p95_ms": 2.195597,
+        "max_ms": 2.216418,
+        "search_ns_per_pop_p95": 615
+      },
+      {
+        "repeat": 1,
+        "roster": 16,
+        "scenario": "moving_goals",
+        "p95_ms": 2.262001,
+        "max_ms": 2.299943,
+        "search_ns_per_pop_p95": 644
+      },
+      {
+        "repeat": 1,
+        "roster": 16,
+        "scenario": "stuck_replans",
+        "p95_ms": 2.158445,
+        "max_ms": 2.209578,
+        "search_ns_per_pop_p95": 637
+      },
+      {
+        "repeat": 1,
+        "roster": 32,
+        "scenario": "first_goals",
+        "p95_ms": 2.4273,
+        "max_ms": 2.455012,
+        "search_ns_per_pop_p95": 619
+      },
+      {
+        "repeat": 1,
+        "roster": 32,
+        "scenario": "moving_goals",
+        "p95_ms": 2.484964,
+        "max_ms": 2.520245,
+        "search_ns_per_pop_p95": 652
+      },
+      {
+        "repeat": 1,
+        "roster": 32,
+        "scenario": "stuck_replans",
+        "p95_ms": 2.481233,
+        "max_ms": 2.58703,
+        "search_ns_per_pop_p95": 706
+      },
+      {
+        "repeat": 2,
+        "roster": 16,
+        "scenario": "first_goals",
+        "p95_ms": 2.189157,
+        "max_ms": 2.206217,
+        "search_ns_per_pop_p95": 617
+      },
+      {
+        "repeat": 2,
+        "roster": 16,
+        "scenario": "moving_goals",
+        "p95_ms": 2.25704,
+        "max_ms": 2.302943,
+        "search_ns_per_pop_p95": 639
+      },
+      {
+        "repeat": 2,
+        "roster": 16,
+        "scenario": "stuck_replans",
+        "p95_ms": 2.168646,
+        "max_ms": 2.214568,
+        "search_ns_per_pop_p95": 625
+      },
+      {
+        "repeat": 2,
+        "roster": 32,
+        "scenario": "first_goals",
+        "p95_ms": 2.419079,
+        "max_ms": 2.448441,
+        "search_ns_per_pop_p95": 615
+      },
+      {
+        "repeat": 2,
+        "roster": 32,
+        "scenario": "moving_goals",
+        "p95_ms": 2.477423,
+        "max_ms": 2.537306,
+        "search_ns_per_pop_p95": 654
+      },
+      {
+        "repeat": 2,
+        "roster": 32,
+        "scenario": "stuck_replans",
+        "p95_ms": 2.42675,
+        "max_ms": 2.447291,
+        "search_ns_per_pop_p95": 654
+      },
+      {
+        "repeat": 3,
+        "roster": 16,
+        "scenario": "first_goals",
+        "p95_ms": 2.168505,
+        "max_ms": 2.185446,
+        "search_ns_per_pop_p95": 615
+      },
+      {
+        "repeat": 3,
+        "roster": 16,
+        "scenario": "moving_goals",
+        "p95_ms": 2.232019,
+        "max_ms": 2.277762,
+        "search_ns_per_pop_p95": 634
+      },
+      {
+        "repeat": 3,
+        "roster": 16,
+        "scenario": "stuck_replans",
+        "p95_ms": 2.170486,
+        "max_ms": 2.289172,
+        "search_ns_per_pop_p95": 636
+      },
+      {
+        "repeat": 3,
+        "roster": 32,
+        "scenario": "first_goals",
+        "p95_ms": 2.412819,
+        "max_ms": 2.580469,
+        "search_ns_per_pop_p95": 615
+      },
+      {
+        "repeat": 3,
+        "roster": 32,
+        "scenario": "moving_goals",
+        "p95_ms": 2.473543,
+        "max_ms": 2.642113,
+        "search_ns_per_pop_p95": 654
+      },
+      {
+        "repeat": 3,
+        "roster": 32,
+        "scenario": "stuck_replans",
+        "p95_ms": 2.403978,
+        "max_ms": 2.466932,
+        "search_ns_per_pop_p95": 667
+      }
+    ]
+  },
+  "all_pop_arrays_identical": true
+}

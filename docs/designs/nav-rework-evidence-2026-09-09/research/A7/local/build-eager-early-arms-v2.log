@@ -1,0 +1,16 @@
+Hint: used config file '/Users/jamesboggs/.nimby/nim/config/nim.cfg' [Conf]
+Hint: used config file '/Users/jamesboggs/.nimby/nim/config/config.nims' [Conf]
+Hint: used config file '/Users/jamesboggs/coding/coworlds/coworld-ctf-worktrees/nav-early-visited/nim.cfg' [Conf]
+..........................................................................................................................................................................................................................
+/Users/jamesboggs/coding/coworlds/coworld-ctf-worktrees/nav-early-visited/src/ctf/arena.nim(1373, 5) Hint: 'inside' is declared but not used [XDeclaredButNotUsed]
+/Users/jamesboggs/coding/coworlds/coworld-ctf-worktrees/nav-early-visited/src/ctf/arena.nim(3702, 6) Hint: 'rectsNode' is declared but not used [XDeclaredButNotUsed]
+/Users/jamesboggs/coding/coworlds/coworld-ctf-worktrees/nav-early-visited/src/ctf/arena.nim(3707, 6) Hint: 'rectsFromNode' is declared but not used [XDeclaredButNotUsed]
+..
+CC: system.nim
+CC: strutils.nim
+CC: tables.nim
+CC: json.nim
+CC: check_pixel_search_arms.nim
+Hint:  [Link]
+Hint: mm: orc; threads: on; opt: speed; options: -d:release
+113040 lines; 2.446s; 341.711MiB peakmem; proj: /Users/jamesboggs/coding/coworlds/coworld-ctf-worktrees/nav-early-visited/tools/check_pixel_search_arms.nim; out: /Users/jamesboggs/coding/coworlds/coworld-ctf-worktrees/nav-throughput-research/docs/designs/nav-rework-evidence-2026-09-09/research/A7/local/eager-early-arms-v2 [SuccessX]

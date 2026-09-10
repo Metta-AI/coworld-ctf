@@ -1,0 +1,333 @@
+diff --git a/src/shell/body_nav.nim b/src/shell/body_nav.nim
+index 23b14823..431e00a2 100644
+--- a/src/shell/body_nav.nim
++++ b/src/shell/body_nav.nim
+@@ -1,7 +1,11 @@
+ ## Seat navigation coordinator: danger cadence, one shared pop-budgeted
+ ## mixed-grid search, stable SJF admission, and atomic bounded routes.
+ 
+-import std/[hashes, math, options]
++import std/[algorithm, bitops, hashes, math, options]
++when defined(amd64):
++  import nimsimd/sse2
++elif defined(arm64):
++  import nimsimd/neon
+ when defined(bodyNavBreakdown):
+   import std/[monotimes, times]
+ import bitworld/[profile, spriteprotocol]
+@@ -25,14 +29,41 @@ const
+   FollowStuckWindowTicks = 48
+   FollowBlockTtlTicks = 96
+   MaxDangerSources* = 8
++  DangerSourceCacheSlots* = 64
+   FollowLookaheadK* = 6
+   BodyNavigationRetainedCap* = 256'i64 * 1024 * 1024
+   SequenceAllocationOverhead = 16'i64
+ 
++const DangerReplayLaneMasks = block:
++  var masks: array[16, array[4, uint32]]
++  for nibble in 0 ..< 16:
++    for lane in 0 ..< 4:
++      if (nibble and (1 shl lane)) != 0:
++        masks[nibble][lane] = high(uint32)
++  masks
++
++
+ type
+   DangerWorkspace = object
+-    visited: seq[uint32]
+-    visitGeneration: uint32
++    visited: seq[uint8]
++    visitGeneration: uint8
++
++  DangerSourceCacheSlot = object
++    key: int32      ## origin 8 px cell index, -1 when empty
++    lastUse: uint64
++
++  DangerSourceCache = ref object
++    ## System-shared bounded LRU of per-origin visibility bitmaps over the
++    ## kernel box. The visible set of an origin depends only on the immutable
++    ## sight geometry and live range, so entries never invalidate; the cache
++    ## lives and dies with its nav system. One shared seq holds every slot's
++    ## words back to back (no per-entry allocations).
++    words: int      ## uint64 words per entry
++    bits: seq[uint64]
++    slots: array[DangerSourceCacheSlots, DangerSourceCacheSlot]
++    clock: uint64
++    when defined(dangerSourceCacheCounters):
++      hits*, misses*: int
+ 
+   DangerCandidate* = object
+     seatIndex*: int
+@@ -79,6 +110,7 @@ type
+     hazardOverlay*, safeCache*: int64
+     seatOwners*, seatCaches*, dangerRasters*, dangerWorkspaces*: int64
+     packedWeights*, packedWeightScratch*, sharedDangerGeometry*: int64
++    sharedDangerSourceCache*: int64
+     trace*, allocatorOverhead*: int64
+     total*: int64
+ 
+@@ -104,6 +136,8 @@ type
+     danger*: BodyDangerField
+     dangerWorkspace: DangerWorkspace
+     dangerGeometry: DangerGeometry
++    dangerSourceCache: DangerSourceCache
++    dangerRecordBase: int  ## word offset of the slot the current miss fills
+     dangerRangePx: int
+     selectedDangerSeats: array[MaxDangerSources, int]
+     selectedDangerPoints: array[MaxDangerSources, BodyPoint]
+@@ -194,7 +228,7 @@ proc retainedNavigationBytes*(system: BodyNavSystem): BodyNavigationBytes =
+       result.seatCaches += int64(sizeof(seat.cache[]))
+     result.dangerRasters += int64(seat.danger.values.capacity * sizeof(float32))
+     result.dangerWorkspaces += int64(
+-      seat.dangerWorkspace.visited.capacity * sizeof(uint32))
++      seat.dangerWorkspace.visited.capacity * sizeof(uint8))
+     result.packedWeights += int64(seat.packedWeights.capacity * sizeof(int16))
+     for length in [seat.danger.values.capacity,
+         seat.dangerWorkspace.visited.capacity, seat.packedWeights.capacity]:
+@@ -212,13 +246,20 @@ proc retainedNavigationBytes*(system: BodyNavSystem): BodyNavigationBytes =
+         system.seats[0].dangerGeometry.sightBlocked.capacity]:
+       if length > 0:
+         result.allocatorOverhead += SequenceAllocationOverhead
++    let sourceCache = system.seats[0].dangerSourceCache
++    result.sharedDangerSourceCache = int64(sizeof(sourceCache[])) +
++      int64(sourceCache.bits.capacity * sizeof(uint64)) +
++      int64(sizeof(DangerReplayLaneMasks)) # Conservative on scalar targets.
++    result.allocatorOverhead += SequenceAllocationOverhead
++    if sourceCache.bits.capacity > 0:
++      result.allocatorOverhead += SequenceAllocationOverhead
+   result.total = result.systemOwner + result.routeIndex +
+     result.safetyScratch + result.hazardOverlay + result.safeCache +
+     result.mixedGraph + result.seatOwners +
+     result.seatCaches + result.dangerRasters + result.dangerWorkspaces +
+     result.packedWeights + result.packedWeightScratch +
+-    result.sharedDangerGeometry + result.trace +
+-    result.allocatorOverhead
++    result.sharedDangerGeometry + result.sharedDangerSourceCache +
++    result.trace + result.allocatorOverhead
+ 
+ proc pyRound(value: float): int =
+   let lower = floor(value).int
+@@ -242,7 +283,7 @@ proc initDanger(map: BodyMap): tuple[field: BodyDangerField,
+   let size = map.gridWidth * map.gridHeight
+   result.field = BodyDangerField(values: newSeq[float32](size),
+     gridW: map.gridWidth, gridH: map.gridHeight)
+-  result.workspace.visited = newSeq[uint32](size)
++  result.workspace.visited = newSeq[uint8](size)
+ 
+ proc initDangerGeometry(map: BodyMap, liveGunRangePx: int): DangerGeometry =
+   ## A reference owner prevents per-seat sequence copies under ORC.
+@@ -277,6 +318,16 @@ proc initDangerGeometry(map: BodyMap, liveGunRangePx: int): DangerGeometry =
+     includeOffset(dx, dy)
+     includeOffset(-dx, dy)
+ 
++proc initDangerSourceCache(geometry: DangerGeometry): DangerSourceCache =
++  ## Sized by the live range only: every entry is one bitmap over the
++  ## kernel box, so configured and colossal maps retain the same bytes.
++  new(result)
++  let diameter = geometry.radius * 2 + 1
++  result.words = (diameter * diameter + 63) div 64
++  result.bits = newSeq[uint64](DangerSourceCacheSlots * result.words)
++  for slot in result.slots.mitems:
++    slot.key = -1
++
+ proc newBodyNavSystem*(map: BodyMap, seatCount, liveGunRangePx: int,
+                        dangerK = DangerCadenceK,
+                        traceCapacity = 0,
+@@ -311,6 +362,7 @@ proc newBodyNavSystem*(map: BodyMap, seatCount, liveGunRangePx: int,
+   result.dangerTrace = newSeq[DangerRebuild](traceCapacity)
+   result.seats = newSeq[BodyNavSeat](seatCount)
+   let dangerGeometry = initDangerGeometry(map, liveGunRangePx)
++  let dangerSourceCache = initDangerSourceCache(dangerGeometry)
+   for index in 0 ..< seatCount:
+     let cache = newBodySeatCache(map)
+     let danger = initDanger(map)
+@@ -318,6 +370,7 @@ proc newBodyNavSystem*(map: BodyMap, seatCount, liveGunRangePx: int,
+       danger: danger.field,
+       dangerWorkspace: danger.workspace, dangerTick: 0, active: true,
+       dangerGeometry: dangerGeometry,
++      dangerSourceCache: dangerSourceCache,
+       dangerRangePx: liveGunRangePx,
+       desiredProfile: shellTypes.cpDefault)
+     if prepareRouteQueries:
+@@ -382,7 +435,7 @@ proc resetNavigationLife*(system: BodyNavSystem, seatIndex: int) =
+     system.routeJobSeat = -1
+ 
+ proc nextVisitGeneration(seat: BodyNavSeat) =
+-  if seat.dangerWorkspace.visitGeneration == high(uint32):
++  if seat.dangerWorkspace.visitGeneration == high(uint8):
+     for value in seat.dangerWorkspace.visited.mitems:
+       value = 0
+     seat.dangerWorkspace.visitGeneration = 1
+@@ -404,7 +457,14 @@ proc addVisibleCell(seat: BodyNavSeat, origin: BodyPoint,
+   let diameter = kernelRadius * 2 + 1
+   let kernelX = gx - origin.x + kernelRadius
+   let kernelY = gy - origin.y + kernelRadius
+-  seat.danger.values[index] += kernel[kernelY * diameter + kernelX]
++  let kernelIndex = kernelY * diameter + kernelX
++  # First visit of this cell for this source: record it in the slot the
++  # current miss is filling, so a later request for the same origin replays
++  # exactly these adds.
++  let word = seat.dangerRecordBase + (kernelIndex shr 6)
++  seat.dangerSourceCache.bits[word] = seat.dangerSourceCache.bits[word] or
++    (1'u64 shl (kernelIndex and 63))
++  seat.danger.values[index] += kernel[kernelIndex]
+ 
+ proc sightCellBlocked(geometry: DangerGeometry, x, y: int): bool {.inline.} =
+   if x < 0 or x >= geometry.gridWidth or y < 0 or y >= geometry.gridHeight:
+@@ -453,6 +513,90 @@ proc castRay(seat: BodyNavSeat, origin: BodyPoint,
+       break
+     seat.addVisibleCell(origin, kernel, kernelRadius, x, y)
+ 
++proc sourceCacheSlot(cache: DangerSourceCache, key: int32): int =
++  ## Slot holding `key`, or -1. Linear scan: 64 compares against one
++  ## source's ray walk is negligible, and it keeps selection trivially
++  ## deterministic.
++  for slot in 0 ..< DangerSourceCacheSlots:
++    if cache.slots[slot].key == key:
++      return slot
++  -1
++
++proc sourceCacheVictim(cache: DangerSourceCache): int =
++  ## First empty slot, else the least recently used; ties (impossible under
++  ## the monotonic clock, kept for the empty case) resolve to the lowest
++  ## slot index.
++  result = 0
++  for slot in 0 ..< DangerSourceCacheSlots:
++    if cache.slots[slot].key < 0:
++      return slot
++    if cache.slots[slot].lastUse < cache.slots[result].lastUse:
++      result = slot
++
++proc replayVisibleCells(seat: BodyNavSeat, origin: BodyPoint, base: int) =
++  ## Replay aligned four-cell groups. Source order is unchanged and each
++  ## visible cell receives one addition; masked lanes retain their exact bits.
++
++  let
++    cache = seat.dangerSourceCache
++    radius = seat.dangerGeometry.radius
++    diameter = radius * 2 + 1
++    width = seat.danger.gridW
++    height = seat.danger.gridH
++    kernelLen = seat.dangerGeometry.kernel.len
++    values = cast[ptr UncheckedArray[float32]](addr seat.danger.values[0])
++    kernel = cast[ptr UncheckedArray[float32]](unsafeAddr seat.dangerGeometry.kernel[0])
++  for wordIndex in 0 ..< cache.words:
++    var word = cache.bits[base + wordIndex]
++    while word != 0:
++      let
++        shift = countTrailingZeroBits(word) and not 3
++        nibble = int((word shr shift) and 15)
++        k = wordIndex * 64 + shift
++        ky = k div diameter
++        kx = k - ky * diameter
++        gx = origin.x - radius + kx
++        gy = origin.y - radius + ky
++      if k + 3 < kernelLen and kx + 3 < diameter and
++          gx >= 0 and gx + 3 < width and gy >= 0 and gy < height:
++        when not (defined(amd64) or defined(arm64)):
++          let destinationIndex = gy * width + gx
++          for lane in 0 ..< 4:
++            if (nibble and (1 shl lane)) != 0:
++              values[destinationIndex + lane] += kernel[k + lane]
++        else:
++          let
++            destination = addr values[gy * width + gx]
++            weights = addr kernel[k]
++          when defined(amd64):
++            let before = mm_loadu_ps(destination)
++            let updated = mm_add_ps(before, mm_loadu_ps(weights))
++            if nibble == 15:
++              mm_storeu_ps(destination, updated)
++            else:
++              let mask = mm_castsi128_ps(mm_loadu_si128(unsafeAddr DangerReplayLaneMasks[nibble][0]))
++              mm_storeu_ps(destination, mm_or_ps(mm_and_ps(mask, updated),
++                mm_andnot_ps(mask, before)))
++          elif defined(arm64):
++            let before = vld1q_f32(destination)
++            let updated = vaddq_f32(before, vld1q_f32(weights))
++            if nibble == 15:
++              vst1q_f32(destination, updated)
++            else:
++              let mask = vld1q_u32(unsafeAddr DangerReplayLaneMasks[nibble][0])
++              vst1q_f32(destination, vbslq_f32(mask, updated, before))
++      else:
++        var lanes = uint64(nibble)
++        while lanes != 0:
++          let
++            scalarK = k + countTrailingZeroBits(lanes)
++            scalarY = scalarK div diameter
++            scalarX = scalarK - scalarY * diameter
++          seat.danger.values[(origin.y - radius + scalarY) * width +
++            origin.x - radius + scalarX] += seat.dangerGeometry.kernel[scalarK]
++          lanes = lanes and (lanes - 1)
++      word = word and not (15'u64 shl shift)
++
+ proc rebuildDangerFromPoints(seat: BodyNavSeat, map: BodyMap,
+                              sources: openArray[BodyPoint], tick: int) =
+   ## Stencil's complete from-scratch LOS field. This scheduled rebuild is not
+@@ -461,12 +605,29 @@ proc rebuildDangerFromPoints(seat: BodyNavSeat, map: BodyMap,
+     value = 0
+   for source in sources:
+     let origin = map.cellOf(source)
+-    seat.nextVisitGeneration()
+-    seat.addVisibleCell(origin, seat.dangerGeometry.kernel, seat.dangerGeometry.radius,
+-      origin.x, origin.y)
+-    for offset in seat.dangerGeometry.perimeter:
+-      seat.castRay(origin, seat.dangerGeometry.kernel, seat.dangerGeometry.radius,
+-        origin.x + offset.x, origin.y + offset.y)
++    let cache = seat.dangerSourceCache
++    let key = int32(origin.y * map.gridWidth + origin.x)
++    inc cache.clock
++    var slot = cache.sourceCacheSlot(key)
++    if slot >= 0:
++      when defined(dangerSourceCacheCounters):
++        inc cache.hits
++      cache.slots[slot].lastUse = cache.clock
++      seat.replayVisibleCells(origin, slot * cache.words)
++    else:
++      when defined(dangerSourceCacheCounters):
++        inc cache.misses
++      slot = cache.sourceCacheVictim()
++      cache.slots[slot] = DangerSourceCacheSlot(key: key, lastUse: cache.clock)
++      seat.dangerRecordBase = slot * cache.words
++      for word in 0 ..< cache.words:
++        cache.bits[seat.dangerRecordBase + word] = 0
++      seat.nextVisitGeneration()
++      seat.addVisibleCell(origin, seat.dangerGeometry.kernel, seat.dangerGeometry.radius,
++        origin.x, origin.y)
++      for offset in seat.dangerGeometry.perimeter:
++        seat.castRay(origin, seat.dangerGeometry.kernel, seat.dangerGeometry.radius,
++          origin.x + offset.x, origin.y + offset.y)
+     let closeRange = min(DangerClosePx, seat.dangerRangePx)
+     let closeCells = (closeRange + NavCell - 1) div NavCell
+     let closeSquared = closeRange * closeRange
+@@ -571,6 +732,28 @@ proc selectedDangerSources*(seat: BodyNavSeat): seq[DangerCandidate] =
+     result[index] = DangerCandidate(seatIndex: seat.selectedDangerSeats[index],
+       pos: seat.selectedDangerPoints[index])
+ 
++proc dangerSourceCacheOrder*(system: BodyNavSystem): seq[int] =
++  ## Diagnostic snapshot (never on the playing-tick path): cached origin
++  ## cell indices from least to most recently used. A hit moves its key to
++  ## the end; a miss on a full cache drops the front and appends.
++  var order: seq[tuple[lastUse: uint64, key: int]]
++  for slot in system.seats[0].dangerSourceCache.slots:
++    if slot.key >= 0:
++      order.add((slot.lastUse, slot.key.int))
++  order.sort(proc(a, b: tuple[lastUse: uint64, key: int]): int =
++    cmp(a.lastUse, b.lastUse))
++  for entry in order:
++    result.add entry.key
++
++proc dangerSourceCacheEntryBytes*(system: BodyNavSystem): int =
++  ## Bytes of one visibility bitmap at this system's live range.
++  system.seats[0].dangerSourceCache.words * sizeof(uint64)
++
++when defined(dangerSourceCacheCounters):
++  proc dangerSourceCacheCounters*(system: BodyNavSystem): tuple[hits, misses: int] =
++    (system.seats[0].dangerSourceCache.hits,
++     system.seats[0].dangerSourceCache.misses)
++
+ proc initializeDanger*(system: BodyNavSystem,
+                        sourcesBySeat: openArray[DangerInput],
+                        activationTick = 0) =

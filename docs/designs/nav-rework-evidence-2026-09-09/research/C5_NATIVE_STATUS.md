@@ -1,0 +1,9 @@
+# C5 native attribution: measured samples include first fills
+
+Native m8i CPU5, frozen C2 plus guarded C5 v2 markers, configured map3 (br-gen-5120), all six rows. Traced and counted builds run separately; both build/run commands exit0, and all masks/pop arrays agree across the six pairs. These are diagnostic runs, not a source-optimization acceptance pair.
+
+All changed danger rebuilds are the first scheduled fill for each seat. At16 seats, 10 of120 measured samples carry a fill; at32 seats,26 of120 do. No fill occurs after tick index31. The largest measured no-fill shell.danger duration is24.8 microseconds. Do not lengthen warmups to remove the cold-fill workload from the gate, and do not call it a recurring steady-state floor. Real source traces remain the evidence for ongoing play.
+
+On measured fill ticks, mean bitmap replay is731–740 microseconds per tick (eight sources), and weight packing is421–424 microseconds. The remaining close-floor/clear/max stages are retained separately in C5-native-stage-summary.json and the complete per-tick attribution. Durations nest; they are not additive independent percentiles, and profiler overhead is present. This strengthens the case for measuring contiguous cache replay and retains weight packing as a meaningful stage, without implying a passing m5a row.
+
+The m5a profile completed; both builds exit0 and both diagnostic runs exit1 for timing failures. All six masks/pop pairs match within and across hosts. Its measured fill danger means4.186–4.194ms, with replay56%, packing24%, close-floor10%; no changed rebuild follows tick31. Two no-fill timing outliers remain unexplained. See C5_M5A_REVIEW.md and C5-m5a-stage-summary.json. No production source or budget change follows from this profile alone. Raw source/host hashes, full Fluffy trace, row JSON, counts, exits and attribution are in C5-v2-m8i/.

@@ -1,0 +1,35 @@
+Hint: used config file '/Users/jamesboggs/.nimby/nim/config/nim.cfg' [Conf]
+Hint: used config file '/Users/jamesboggs/.nimby/nim/config/config.nims' [Conf]
+Hint: used config file '/Users/jamesboggs/coding/coworlds/coworld-ctf-worktrees/nav-throughput-research/nim.cfg' [Conf]
+...........................................................................................................................................................................................................................................
+/Users/jamesboggs/coding/coworlds/coworld-ctf-worktrees/nav-throughput-research/src/ctf/rig_art.nim(552, 5) Hint: 'unitDeg' is declared but not used [XDeclaredButNotUsed]
+....
+/Users/jamesboggs/coding/coworlds/coworld-ctf-worktrees/nav-throughput-research/src/ctf/arena.nim(1373, 5) Hint: 'inside' is declared but not used [XDeclaredButNotUsed]
+/Users/jamesboggs/coding/coworlds/coworld-ctf-worktrees/nav-throughput-research/src/ctf/arena.nim(3702, 6) Hint: 'rectsNode' is declared but not used [XDeclaredButNotUsed]
+/Users/jamesboggs/coding/coworlds/coworld-ctf-worktrees/nav-throughput-research/src/ctf/arena.nim(3707, 6) Hint: 'rectsFromNode' is declared but not used [XDeclaredButNotUsed]
+.............
+/Users/jamesboggs/coding/coworlds/coworld-ctf-worktrees/nav-throughput-research/src/ctf/global.nim(3242, 5) Hint: 'v' is declared but not used [XDeclaredButNotUsed]
+/Users/jamesboggs/coding/coworlds/coworld-ctf-worktrees/nav-throughput-research/src/ctf/global.nim(7594, 7) Hint: 'rebuilt' is declared but not used [XDeclaredButNotUsed]
+/Users/jamesboggs/coding/coworlds/coworld-ctf-worktrees/nav-throughput-research/src/ctf/global.nim(1499, 6) Hint: 'boardScaledColdMapPixels' is declared but not used [XDeclaredButNotUsed]
+..............
+/Users/jamesboggs/coding/coworlds/coworld-ctf-worktrees/nav-throughput-research/src/ctf/control.nim(16, 8) Warning: imported and not used: 'math' [UnusedImport]
+.
+/Users/jamesboggs/coding/coworlds/coworld-ctf-worktrees/nav-throughput-research/src/ctf/baselines.nim(17, 8) Warning: imported and not used: 'math' [UnusedImport]
+.............
+/Users/jamesboggs/coding/coworlds/coworld-ctf-worktrees/nav-throughput-research/src/shell/body_route_query.nim(3, 24) Warning: imported and not used: 'math' [UnusedImport]
+..
+/Users/jamesboggs/coding/coworlds/coworld-ctf-worktrees/nav-throughput-research/src/shell/body.nim(1299, 6) Hint: 'enemyShootableWithoutPolicy' is declared but not used [XDeclaredButNotUsed]
+............
+/Users/jamesboggs/coding/coworlds/coworld-ctf-worktrees/nav-throughput-research/src/shell/episode.nim(1434, 7) Hint: 'seatTeams' is declared but not used [XDeclaredButNotUsed]
+/Users/jamesboggs/coding/coworlds/coworld-ctf-worktrees/nav-throughput-research/src/shell/episode.nim(221, 3) Hint: 'ShellRuntimeState' is declared but not used [XDeclaredButNotUsed]
+/Users/jamesboggs/coding/coworlds/coworld-ctf-worktrees/nav-throughput-research/src/shell/episode.nim(274, 6) Hint: 'frameForSeat' is declared but not used [XDeclaredButNotUsed]
+/Users/jamesboggs/coding/coworlds/coworld-ctf-worktrees/nav-throughput-research/src/shell/episode.nim(285, 6) Hint: 'playZoneTicksToShrink' is declared but not used [XDeclaredButNotUsed]
+/Users/jamesboggs/coding/coworlds/coworld-ctf-worktrees/nav-throughput-research/src/shell/episode.nim(517, 6) Hint: 'rawBytes' is declared but not used [XDeclaredButNotUsed]
+/Users/jamesboggs/coding/coworlds/coworld-ctf-worktrees/nav-throughput-research/src/shell/episode.nim(592, 6) Hint: 'withContentSha' is declared but not used [XDeclaredButNotUsed]
+/Users/jamesboggs/coding/coworlds/coworld-ctf-worktrees/nav-throughput-research/src/shell/episode.nim(8, 19) Warning: imported and not used: 'math' [UnusedImport]
+.....
+/Users/jamesboggs/coding/coworlds/coworld-ctf-worktrees/nav-throughput-research/src/ctf/server.nim(1084, 6) Hint: 'registerPlayerWebSocket' is declared but not used [XDeclaredButNotUsed]
+/Users/jamesboggs/coding/coworlds/coworld-ctf-worktrees/nav-throughput-research/src/ctf/server.nim(3940, 6) Hint: 'shellBodyInputs' is declared but not used [XDeclaredButNotUsed]
+.
+Hint: 
+178029 lines; 3.892s; 537.164MiB peakmem; proj: /Users/jamesboggs/coding/coworlds/coworld-ctf-worktrees/nav-throughput-research/src/ctf.nim; out: unknownOutput [SuccessX]

@@ -1,0 +1,275 @@
+{
+ "list_over_bitmap_ratio_used": 0.5,
+ "traces": [
+  {
+   "trace": "s2_16_679962",
+   "capacity": 64,
+   "sources": 196,
+   "misses": 121,
+   "hits": 75,
+   "first_hits": 35,
+   "later_hits": 40,
+   "residencies": 121,
+   "residency_hit_histogram": {
+    "0": 86,
+    "1": 17,
+    "2": 7,
+    "3+": 11
+   },
+   "policy_first_hit": {
+    "conversions": 35,
+    "list_replays": 40,
+    "max_affordable_conversion_cost_bitmap_units": 0.5714285714285714
+   },
+   "policy_second_hit": {
+    "conversions": 18,
+    "list_replays": 22,
+    "max_affordable_conversion_cost_bitmap_units": 0.6111111111111112
+   },
+   "eager_c7_reference": {
+    "list_replays_all_hits": 75,
+    "conversions_every_miss": 121
+   }
+  },
+  {
+   "trace": "s2_16_679963",
+   "capacity": 64,
+   "sources": 134,
+   "misses": 86,
+   "hits": 48,
+   "first_hits": 21,
+   "later_hits": 27,
+   "residencies": 86,
+   "residency_hit_histogram": {
+    "0": 65,
+    "1": 13,
+    "2": 3,
+    "3+": 5
+   },
+   "policy_first_hit": {
+    "conversions": 21,
+    "list_replays": 27,
+    "max_affordable_conversion_cost_bitmap_units": 0.6428571428571429
+   },
+   "policy_second_hit": {
+    "conversions": 8,
+    "list_replays": 19,
+    "max_affordable_conversion_cost_bitmap_units": 1.1875
+   },
+   "eager_c7_reference": {
+    "list_replays_all_hits": 48,
+    "conversions_every_miss": 86
+   }
+  },
+  {
+   "trace": "s2_16_679964",
+   "capacity": 64,
+   "sources": 189,
+   "misses": 112,
+   "hits": 77,
+   "first_hits": 31,
+   "later_hits": 46,
+   "residencies": 112,
+   "residency_hit_histogram": {
+    "0": 81,
+    "1": 15,
+    "2": 6,
+    "3+": 10
+   },
+   "policy_first_hit": {
+    "conversions": 31,
+    "list_replays": 46,
+    "max_affordable_conversion_cost_bitmap_units": 0.7419354838709677
+   },
+   "policy_second_hit": {
+    "conversions": 16,
+    "list_replays": 30,
+    "max_affordable_conversion_cost_bitmap_units": 0.9375
+   },
+   "eager_c7_reference": {
+    "list_replays_all_hits": 77,
+    "conversions_every_miss": 112
+   }
+  },
+  {
+   "trace": "s2_16_679965",
+   "capacity": 64,
+   "sources": 121,
+   "misses": 92,
+   "hits": 29,
+   "first_hits": 17,
+   "later_hits": 12,
+   "residencies": 92,
+   "residency_hit_histogram": {
+    "0": 75,
+    "1": 11,
+    "2": 2,
+    "3+": 4
+   },
+   "policy_first_hit": {
+    "conversions": 17,
+    "list_replays": 12,
+    "max_affordable_conversion_cost_bitmap_units": 0.35294117647058826
+   },
+   "policy_second_hit": {
+    "conversions": 6,
+    "list_replays": 6,
+    "max_affordable_conversion_cost_bitmap_units": 0.5
+   },
+   "eager_c7_reference": {
+    "list_replays_all_hits": 29,
+    "conversions_every_miss": 92
+   }
+  },
+  {
+   "trace": "s2_32_679962",
+   "capacity": 64,
+   "sources": 757,
+   "misses": 382,
+   "hits": 375,
+   "first_hits": 92,
+   "later_hits": 283,
+   "residencies": 382,
+   "residency_hit_histogram": {
+    "0": 290,
+    "1": 39,
+    "2": 8,
+    "3+": 45
+   },
+   "policy_first_hit": {
+    "conversions": 92,
+    "list_replays": 283,
+    "max_affordable_conversion_cost_bitmap_units": 1.5380434782608696
+   },
+   "policy_second_hit": {
+    "conversions": 53,
+    "list_replays": 230,
+    "max_affordable_conversion_cost_bitmap_units": 2.169811320754717
+   },
+   "eager_c7_reference": {
+    "list_replays_all_hits": 375,
+    "conversions_every_miss": 382
+   }
+  },
+  {
+   "trace": "s2_32_679963",
+   "capacity": 64,
+   "sources": 530,
+   "misses": 244,
+   "hits": 286,
+   "first_hits": 70,
+   "later_hits": 216,
+   "residencies": 244,
+   "residency_hit_histogram": {
+    "0": 174,
+    "1": 37,
+    "2": 9,
+    "3+": 24
+   },
+   "policy_first_hit": {
+    "conversions": 70,
+    "list_replays": 216,
+    "max_affordable_conversion_cost_bitmap_units": 1.542857142857143
+   },
+   "policy_second_hit": {
+    "conversions": 33,
+    "list_replays": 183,
+    "max_affordable_conversion_cost_bitmap_units": 2.772727272727273
+   },
+   "eager_c7_reference": {
+    "list_replays_all_hits": 286,
+    "conversions_every_miss": 244
+   }
+  },
+  {
+   "trace": "s2_32_679964",
+   "capacity": 64,
+   "sources": 673,
+   "misses": 378,
+   "hits": 295,
+   "first_hits": 97,
+   "later_hits": 198,
+   "residencies": 378,
+   "residency_hit_histogram": {
+    "0": 281,
+    "1": 49,
+    "2": 12,
+    "3+": 36
+   },
+   "policy_first_hit": {
+    "conversions": 97,
+    "list_replays": 198,
+    "max_affordable_conversion_cost_bitmap_units": 1.0206185567010309
+   },
+   "policy_second_hit": {
+    "conversions": 48,
+    "list_replays": 150,
+    "max_affordable_conversion_cost_bitmap_units": 1.5625
+   },
+   "eager_c7_reference": {
+    "list_replays_all_hits": 295,
+    "conversions_every_miss": 378
+   }
+  },
+  {
+   "trace": "s2_32_679965",
+   "capacity": 64,
+   "sources": 554,
+   "misses": 306,
+   "hits": 248,
+   "first_hits": 84,
+   "later_hits": 164,
+   "residencies": 306,
+   "residency_hit_histogram": {
+    "0": 222,
+    "1": 38,
+    "2": 16,
+    "3+": 30
+   },
+   "policy_first_hit": {
+    "conversions": 84,
+    "list_replays": 164,
+    "max_affordable_conversion_cost_bitmap_units": 0.9761904761904762
+   },
+   "policy_second_hit": {
+    "conversions": 46,
+    "list_replays": 118,
+    "max_affordable_conversion_cost_bitmap_units": 1.2826086956521738
+   },
+   "eager_c7_reference": {
+    "list_replays_all_hits": 248,
+    "conversions_every_miss": 306
+   }
+  },
+  {
+   "trace": "smoke_s2_16_randomized",
+   "capacity": 64,
+   "sources": 137,
+   "misses": 104,
+   "hits": 33,
+   "first_hits": 18,
+   "later_hits": 15,
+   "residencies": 104,
+   "residency_hit_histogram": {
+    "0": 86,
+    "1": 9,
+    "2": 6,
+    "3+": 3
+   },
+   "policy_first_hit": {
+    "conversions": 18,
+    "list_replays": 15,
+    "max_affordable_conversion_cost_bitmap_units": 0.4166666666666667
+   },
+   "policy_second_hit": {
+    "conversions": 9,
+    "list_replays": 6,
+    "max_affordable_conversion_cost_bitmap_units": 0.3333333333333333
+   },
+   "eager_c7_reference": {
+    "list_replays_all_hits": 33,
+    "conversions_every_miss": 104
+   }
+  }
+ ]
+}

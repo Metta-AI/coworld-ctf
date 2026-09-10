@@ -1,0 +1,22 @@
+Wed Sep  9 22:15:00 UTC 2026
+ 22:15:00 up 84 days, 23:23,  0 users,  load average: 1.70, 1.14, 0.97
+    PID %CPU COMMAND
+   1902 13.2 k3s
+1516787  3.4 k3s
+3803518  3.4 k3s
+3811496  3.1 k3s
+3831487  3.1 k3s
+2350979  2.9 python3
+   2275  0.7 docker-proxy
+1517063  0.6 containerd
+   1094  0.5 dockerd
+2350995  0.5 python3
+3804390  0.4 containerd
+   6481  0.3 metrics-server
+1287608  0.3 containerd
+2350996  0.3 python3
+4070329  0.3 temporal
+   3322  0.2 containerd
+2350579  0.2 python3
+2350997  0.2 python3
+3010549  0.2 postgres

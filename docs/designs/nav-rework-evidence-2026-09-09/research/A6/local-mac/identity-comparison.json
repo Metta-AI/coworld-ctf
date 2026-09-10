@@ -1,0 +1,38 @@
+{
+ "arms_identical_excluding_transient_peak": true,
+ "maps": 76,
+ "transient_peak_bytes_by_arm_map48": {
+  "eager": 291720,
+  "direct": 291720,
+  "lazy": 291720
+ },
+ "counters_all_76_maps": {
+  "eager": {
+   "searches": 1991,
+   "exact_edge_searches": 172,
+   "invalid_start_returns": 0,
+   "box_pixels": 8294715,
+   "eager_fills": 8294715,
+   "read_requests": 10266427,
+   "canstand_evaluations": 8294715
+  },
+  "direct": {
+   "searches": 1991,
+   "exact_edge_searches": 172,
+   "invalid_start_returns": 0,
+   "box_pixels": 8294715,
+   "eager_fills": 0,
+   "read_requests": 10266427,
+   "canstand_evaluations": 10266427
+  },
+  "lazy": {
+   "searches": 1991,
+   "exact_edge_searches": 172,
+   "invalid_start_returns": 0,
+   "box_pixels": 8294715,
+   "eager_fills": 0,
+   "read_requests": 10266427,
+   "canstand_evaluations": 1490046
+  }
+ }
+}

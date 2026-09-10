@@ -1,0 +1,3 @@
+base (origin/main) = GV63 —   GameVersion* = "63"
+head (HEAD) = GV65 —   GameVersion* = "65"
+OK: GV65 is above the base's GV63.

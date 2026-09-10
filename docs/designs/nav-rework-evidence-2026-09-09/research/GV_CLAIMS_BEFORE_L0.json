@@ -1,0 +1,82 @@
+[
+  {
+    "branch": "origin/glory-s6-ship-draft",
+    "version": 62
+  },
+  {
+    "branch": "origin/main",
+    "version": 62
+  },
+  {
+    "branch": "origin/maxwell/builder-page",
+    "version": 62
+  },
+  {
+    "branch": "origin/maxwell/ci-drop-chrome-apt-source",
+    "version": 62
+  },
+  {
+    "branch": "origin/maxwell/client-explains",
+    "version": 62
+  },
+  {
+    "branch": "origin/maxwell/glory-census-v3-fold",
+    "version": 62
+  },
+  {
+    "branch": "origin/maxwell/glory-s4b-lightable-modes",
+    "version": 62
+  },
+  {
+    "branch": "origin/maxwell/glossary-superlatives",
+    "version": 62
+  },
+  {
+    "branch": "origin/maxwell/j19-replay-hint",
+    "version": 62
+  },
+  {
+    "branch": "origin/maxwell/stage-seek",
+    "version": 62
+  },
+  {
+    "branch": "origin/maxwell/starter-protocol",
+    "version": 62
+  },
+  {
+    "branch": "origin/maxwell/the-whole-design",
+    "version": 62
+  },
+  {
+    "branch": "origin/maxwell/the-whole-design-v15-docker-note",
+    "version": 62
+  },
+  {
+    "branch": "origin/maxwell/viewer-left-rail-default",
+    "version": 62
+  },
+  {
+    "branch": "origin/maxwell/viewer-rail-16seat-fit",
+    "version": 62
+  },
+  {
+    "branch": "origin/maxwell/walk-v14",
+    "version": 62
+  },
+  {
+    "branch": "origin/maxwell/walk-v15",
+    "version": 62
+  },
+  {
+    "branch": "origin/maxwell/wiki-book",
+    "version": 62
+  },
+  {
+    "branch": "origin/maxwell/wire-over-identity",
+    "version": 63
+  },
+  {
+    "branch": "origin/worktree-tournament-rollout-study",
+    "version": 62
+  }
+]

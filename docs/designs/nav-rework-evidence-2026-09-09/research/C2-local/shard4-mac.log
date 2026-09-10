@@ -1,0 +1,2416 @@
+shard4 build exit 0
+
+[Suite] agent skins
+  [OK] missing and explicit default skins parse silently
+  [OK] crown skin parses and is assigned when its slot joins
+  [OK] unknown string falls back with one useful warning
+  [OK] non-string skin falls back instead of raising
+  [OK] the repository config parses without skin warnings
+  [OK] non-default skins round-trip through replay config JSON
+  [OK] skin is excluded from the deterministic game hash
+game started: players=1
+game started: players=1
+game started: players=1
+game started: players=1
+  [OK] omitted and explicit default skins emit identical init packets
+game started: players=1
+game started: players=1
+  [OK] crown skin changes the rig head referenced by the global viewer
+
+[Suite] alliance pact registry -- mutation invariants
+game started: players=4
+  [OK] registerPact sets both mirrored bits
+game started: players=4
+  [OK] dissolvePact clears both mirrored bits and is idempotent
+game started: players=4
+  [OK] a team can hold multiple simultaneous pacts
+game started: players=4
+  [OK] clearPactsFor drops every pact one team holds, in both directions
+
+[Suite] alliance pact registry -- config seeding + mutuality
+game started: players=2
+  [OK] a mutual seed registers the pact at game start
+game started: players=2
+pact seed dropped (unilateral): slot 0 (alice) -> "bob" not reciprocated
+  [OK] a unilateral seed is dropped, never registered
+game started: players=2
+pact seed dropped (unknown ally name): slot 0 (alice) -> "nobody-by-this-name"
+  [OK] an ally name that resolves to nobody is dropped, never registered
+game started: players=2
+  [OK] no allies configured leaves every pact mask at zero
+  [OK] readConfigSlots parses the allies array onto the slot
+  [OK] readConfigSlots rejects a non-array allies field
+  [OK] readConfigSlots rejects a non-string element inside allies
+  [OK] configJson round-trips a configured allies list
+
+[Suite] alliance pact registry -- dissolution hooks
+game started: players=2
+  [OK] any damage between allied teams dissolves the pact immediately
+game started: players=2
+  [OK] zero-amount damage does not dissolve a pact
+game started: players=4
+  [OK] damage between non-allied teams never touches an unrelated pact
+game started: players=4
+red killed by unknown
+  [OK] a seat's death clears its team's whole pact row and column
+game started: players=2
+game started: players=2
+  [OK] a new game never inherits a previous game's dissolved-or-registered pacts
+
+[Suite] alliance pact registry -- hash inclusion
+game started: players=4
+  [OK] registering a pact moves gameHash
+game started: players=4
+  [OK] dissolving a pact moves gameHash back
+
+[Suite] alliance pact registry -- P1 is dark (no behavior may change)
+game started: players=2
+game started: players=2
+  [OK] a seeded mutual pact never alters the tick trajectory of anything but the hash
+
+[Suite] alliance pact declaration -- the `pact` play's registration seam (declarePactPartners)
+game started: players=4
+pact formed (declared): blue <-> red
+  [OK] a mutual declaration from both sides registers the pact
+game started: players=4
+  [OK] a one-sided declaration never registers a pact
+game started: players=4
+pact formed (declared): red <-> blue
+  [OK] declaration order does not matter -- whichever side completes it fires
+game started: players=4
+pact formed (declared): blue <-> red
+pact dissolved (declaration dropped): red -x- blue
+  [OK] a retune that drops a partner clears an active pact
+game started: players=4
+pact formed (declared): blue <-> red
+pact dissolved (declaration dropped): red -x- blue
+  [OK] a retune that swaps to a different partner drops the old one
+game started: players=4
+pact formed (declared): blue <-> red
+pact formed (declared): green <-> red
+  [OK] a seat can hold simultaneous mutual pacts with different partners
+game started: players=4
+  [OK] declaring a new, unrelated partner leaves an existing pact untouched
+game started: players=4
+pact formed (declared): blue <-> red
+  [OK] damage between a declaration-registered pact's teams dissolves it
+game started: players=4
+red killed by unknown
+  [OK] a dead seat's stale declaration cannot be completed by the survivor
+  [OK] declarePactPartners is refused before the game is Playing
+game started: players=4
+  [OK] declarePactPartners is refused for an out-of-range seat
+game started: players=4
+red killed by unknown
+  [OK] declarePactPartners is refused for a dead seat
+
+[Suite] alliance pact declaration -- resets clean between games
+game started: players=4
+  [OK] a fresh game starts with no seat declaring any partner
+game started: players=4
+game started: players=4
+  [OK] a declaration never survives into the next game
+
+[Suite] alliance pact declaration -- pactDeclaredPartners stays out of gameHash
+game started: players=4
+  [OK] pactDeclaredPartners never moves gameHash
+
+[Suite] alliance pact declaration -- declaration path is dark (no behavior may change)
+game started: players=4
+game started: players=4
+pact formed (declared): blue <-> red
+  [OK] a mutually declared pact never alters the tick trajectory of anything but the hash
+
+[Suite] grenade barrage config
+  [OK] off by default, with the documented ramp defaults
+  [OK] JSON round-trip through update and the config echo
+  [OK] a default game's config echo carries no barrage keys
+  [OK] rates outside 0..the ceiling are rejected
+  [OK] the barrage requires a timed game
+  [OK] the start rate must be 1..max
+  [OK] a start threshold under one second is rejected
+  [OK] a saturate window under one second is rejected
+
+[Suite] grenade barrage sim
+game started: players=2
+grenade barrage incoming
+  [OK] latches when the clock reaches the threshold
+game started: players=2
+  [OK] never latches while the mode is off
+game started: players=2
+grenade barrage incoming
+  [OK] the ramp runs edge band + start rate to full board + max rate
+game started: players=2
+red longshot tag +45
+red first tag +36
+blue killed by red
+  [OK] GV41: kills never extend the clock
+game started: players=2
+grenade barrage incoming
+grenade landed
+red longshot tag +45
+red first tag +36
+blue killed by red
+red achievement: First Tag +9
+red achievement: Longshot (FIRST!) +69
+blue heart retired
+red win
+red achievement: Clean Sheet +18
+blue achievement: Clean Sheet +18
+  [OK] a barrage game plays past the scheduled deadline until a wipe
+game started: players=2
+draw
+red achievement: Clean Sheet +18
+blue achievement: Clean Sheet +18
+  [OK] a barrage-off timed game still ends in the timeout draw
+game started: players=2
+grenade barrage incoming
+  [OK] shells launch on the accumulator cadence, into the band, unowned
+game started: players=2
+grenade landed
+red shelled by the grenade barrage
+  [OK] a landing shell wounds and kills with no combat credit
+game started: players=2
+grenade barrage incoming
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+blue shelled by the grenade barrage
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+red shelled by the grenade barrage
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+red shelled by the grenade barrage
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+blue shelled by the grenade barrage
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+grenade landed
+red shelled by the grenade barrage
+red heart retired
+blue wipeout +600
+blue win
+red achievement: Clean Sheet +18
+blue achievement: Clean Sheet +18
+  [OK] a timed barrage game never ends in a timeout draw
+game started: players=2
+game started: players=2
+  [OK] the latch tick and accumulator are hashed only once latched
+game started: players=2
+grenade barrage incoming
+grenade landed
+grenade landed
+grenade landed
+  [OK] a mid-barrage keyframe round-trips the barrage state
+
+[Suite] grenade barrage emission
+game started: players=2
+  [OK] both streams state the barrage marker whenever the mode is on
+game started: players=2
+grenade barrage incoming
+  [OK] the marker labels current depth, rate, and start
+game started: players=2
+  [OK] no marker in a default game
+
+[Suite] 16-team BR golden: end-to-end
+  [OK] the committed map spec is a real brmapkit draw with elimination-BR shape
+  [OK] the fixture's own config carries the full BR mode contract
+  [OK] a real 16-duo episode ticks to completion, hash-exact, with a winner or a documented draw
+  [OK] eliminations are monotone: once a team has zero living players, it never has one again
+  [OK] zone damage fired at least once
+  [OK] item pickups occurred from all four authored neutral pools
+  [OK] all 16 teams displace beyond a floor, and at least 12 fire (the perception-cap regression guard)
+
+[Suite] 16-team BR golden: hunt-fix anti-stall (consolidated from br-showmatch2)
+  [OK] in the final alive-teams<=4 window, the winner's distance to the nearest enemy decreases over time
+
+[Suite] broadcast state channel
+  [OK] beat stream matches the expand_replay timeline (capture ending)
+  [OK] beat stream matches the timeline (wipe ending)
+  [OK] beat stream matches the timeline (draw ending)
+  [OK] final frame state names the verdict honestly
+  [OK] SEASON 2: glory pops, huddle transcript and ballot ride the chrome frame when present
+  [OK] policyName strips only the hosted per-seat suffix
+  [OK] glory series ships team-keyed change points
+  [OK] heat rides the wire beside glory: live per-team key + its own parallel series
+  [OK] keyframe walk precomputes the flag beats + verdict timeline
+  [OK] beat timeline verdict reports a draw honestly
+  [OK] draw end-card reports a draw before any winner (F4)
+
+[Suite] corpse observation labels
+game started: players=2
+  [OK] a dead body reads as `corpse <color> <side>`, never as a live player
+game started: players=2
+  [OK] a live player still reads as `player <color>` (the real rig head)
+
+[Suite] buildCosmeticFxPacket: the private cosmetic-effects JSON
+game started: players=2
+  [OK] gate off returns empty string even with a live shot and stain in range
+game started: players=2
+  [OK] out-of-range viewer index returns empty string, not a crash
+game started: players=2
+  [OK] a visible tracer serializes kind, pts, age, color, hit
+game started: players=2
+  [OK] a shot behind the viewer, beyond the vision bubble, produces no tracer
+game started: players=2
+  [OK] a visible stain serializes kind, x, y, color, onWall
+game started: players=2
+  [OK] a stain behind the viewer, beyond the vision bubble, is dropped
+
+[Suite] cosmetic fx gate: byte-identical POLICY stream, on vs off (demonstrated, not asserted)
+game started: players=2
+game started: players=2
+  [OK] buildSpriteProtocolPlayerUpdates output is unchanged by the gate, with live shots and stains present
+game started: players=2
+game started: players=2
+  [OK] gameHash is identical whether the cosmetic-fx gate is on or off, given the same combat
+
+[Suite] tier-2 event extraction (tools/extract_events)
+  [OK] the fixture extracts a rich, ordered, results-consistent event stream
+  [OK] the JSONL emitter ends with an honest summary row
+  [OK] the summary names every seat and the outcome, so a scan stands alone
+game started: players=2
+blue hit by red (2 hp left)
+  [OK] collectEvents defaults off: a live sim collects nothing
+  [OK] --frames captures per-tick seat state that agrees with the events
+  [OK] a flag carrier is named by seat, so a disconnect cannot shift it
+
+[Suite] glory-toast source: awardDeed's fxActor pushes GloryDeedFx only when the gate is on
+game started: players=3
+red point blank tag +18
+red first tag +36
+red killed by red
+  [OK] gate off: a landed kill pushes nothing to sim.gloryDeeds
+game started: players=3
+red point blank tag +18
+red first tag +36
+red killed by red
+  [OK] gate on: a gun kill pushes the REAL priced deed -- word/amount sourced from awardDeed, position at the ACTOR's own site
+game started: players=3
+red point blank tag +18
+red first tag +36
+red killed by red
+  [OK] gate on: dFirstBlood mints real glory but never doubles the toast (fxActor scope stays kill-deed + capture only)
+game started: players=3
+grenade landed
+red bomb tag +12
+red first tag +24
+red killed by red
+  [OK] gate on: a grenade kill mints real glory but pushes NOTHING to the toast wire (the swap9-era exclusion, kept)
+game started: players=3
+grenade landed
+red the peel +90
+red first tag +24
+red rank up
+red is marksman
+red killed by red
+  [OK] gate on: a grenade kill that ALSO resolves to a higher-precedence deed still pushes nothing -- the exclusion is on the WEAPON, not the dGrenadeKill label
+game started: players=3
+red heart steal +120
+red rank up
+red is tagger
+red stole the blue heart
+red capture +1000
+red captured the blue heart
+blue eliminated
+red win
+red achievement: Delivered (FIRST!) +69
+red achievement: Clean Sheet +18
+blue achievement: Clean Sheet +18
+  [OK] gate on: a capture pushes the REAL dCapture word/amount at the carrier's own site
+game started: players=3
+game started: players=3
+red point blank tag +18
+red first tag +36
+red killed by red
+red point blank tag +18
+red first tag +36
+red killed by red
+  [OK] gameHash is identical whether the gate is on or off, given the same kill
+
+[Suite] buildCosmeticFxPacket: the glory kind
+game started: players=3
+  [OK] gate off returns empty string even with a live glory deed in range
+game started: players=3
+  [OK] out-of-range viewer index returns empty string, not a crash
+game started: players=3
+  [OK] a visible SELF kill serializes kind, tick, word, amount, team, self, x, y
+game started: players=3
+  [OK] a teammate's capture (different seat, same team) serializes self=false
+game started: players=3
+  [OK] an enemy's kill (different team) serializes self=false, team=enemy
+game started: players=3
+  [OK] a glory deed beyond the vision bubble is dropped (fog-clipped like a stain)
+game started: players=3
+  [OK] an out-of-range actorIndex is skipped defensively, not a crash
+
+[Suite] glory kind: per-recipient properties, two simultaneous takeover viewers, same frame
+game started: players=3
+  [OK] self differs by viewer, and fog differs by viewer, for the SAME gloryDeeds seq
+
+[Suite] glory kind: byte-identical POLICY stream, on vs off (demonstrated, not asserted)
+game started: players=3
+game started: players=3
+red point blank tag +18
+red first tag +36
+red killed by red
+red point blank tag +18
+red first tag +36
+red killed by red
+  [OK] buildSpriteProtocolPlayerUpdates output is unchanged by the gate, with a real glory deed populated
+
+[Suite] grenades
+game started: players=2
+red picked up a grenade
+  [OK] corner pickups exist on both sides and refill after 5 seconds
+game started: players=2
+red picked up a grenade
+  [OK] a player carries at most one grenade
+game started: players=2
+red threw a grenade
+  [OK] charge picks the distance and max is a fifth of the field
+game started: players=2
+red threw a grenade
+  [OK] a tap throws short
+game started: players=2
+red threw a grenade
+grenade landed
+red bomb tag +18
+red first tag +36
+blue killed by red
+red achievement: Delivery +9
+  [OK] grenades fly over walls and explode on landing
+game started: players=2
+red threw a grenade
+game started: players=2
+red threw a grenade
+game started: players=2
+red threw a grenade
+  [OK] the burst is a fixed two shot windups after release, near or far
+game started: players=3
+red threw a grenade
+grenade landed
+  [OK] the blast hurts everyone in the radius, thrower and teammates too
+game started: players=2
+grenade landed
+game started: players=2
+grenade landed
+game started: players=2
+grenade landed
+  [OK] the blast catches a body whose footprint overlaps the circle
+game started: players=2
+grenade landed
+blue shield soak +12
+  [OK] a blast absorbed by a bubble blinks the bubble and leaves the body clean
+game started: players=2
+grenade landed
+  [OK] a blast on a bare cog paints it and blinks no bubble
+game started: players=2
+blue point blank tag +18
+blue first tag +36
+red killed by blue
+  [OK] dying drops nothing: the carried grenade is simply lost
+game started: players=2
+  [OK] grenade state is in the game hash
+
+[Suite] handicap interpolation (pure math)
+  [OK] permille 0 returns the exact base values (no handicap)
+  [OK] full handicap: 1 life, 1 hit point, half speed, 50% miss
+  [OK] half handicap interpolates linearly
+  [OK] each team is independent
+  [OK] interpolated hit points never fall below 1
+
+[Suite] handicap config parsing
+  [OK] a per-team float map parses into permille
+  [OK] an integer 1 parses as full handicap
+  [OK] the default config has no handicaps
+  [OK] a value above 1 is rejected
+  [OK] a negative value is rejected
+  [OK] an unknown team key is rejected
+  [OK] a non-object handicaps block is rejected
+
+[Suite] handicap config echo (configJson)
+  [OK] a default game echoes no handicaps key
+  [OK] only handicapped teams round-trip as floats
+
+[Suite] handicap applied in the sim
+game started: players=2
+game started: players=2
+  [OK] a handicapped team spawns with reduced hp and lives
+game started: players=2
+game started: players=2
+  [OK] a handicap changes the game hash (it is hashed state)
+game started: players=2
+red clutch patch
+red picked up a med kit
+  [OK] a med kit heals only to the team's handicapped max
+  [OK] a handicapped player's max speed is halved at full
+game started: players=2
+  [OK] the broadcast chrome carries a handicapped team's deltas, omits others
+game started: players=2
+blue hit by red (99999 hp left)
+blue hit by red (99998 hp left)
+red rank up
+red is tagger
+blue hit by red (99997 hp left)
+blue hit by red (99996 hp left)
+red rank up
+red is marksman
+blue hit by red (99995 hp left)
+blue hit by red (99994 hp left)
+blue hit by red (99993 hp left)
+red rank up
+red is ironhide
+blue hit by red (99992 hp left)
+blue hit by red (99991 hp left)
+blue hit by red (99990 hp left)
+red rank up
+red is quickdraw
+blue hit by red (99989 hp left)
+blue hit by red (99988 hp left)
+blue hit by red (99987 hp left)
+blue hit by red (99986 hp left)
+blue hit by red (99985 hp left)
+red rank up
+red is legend
+blue hit by red (99984 hp left)
+blue hit by red (99983 hp left)
+blue hit by red (99982 hp left)
+blue hit by red (99981 hp left)
+blue hit by red (99980 hp left)
+blue hit by red (99979 hp left)
+blue hit by red (99978 hp left)
+blue hit by red (99977 hp left)
+blue hit by red (99976 hp left)
+blue hit by red (99975 hp left)
+blue hit by red (99974 hp left)
+blue hit by red (99973 hp left)
+blue hit by red (99972 hp left)
+blue hit by red (99971 hp left)
+blue hit by red (99970 hp left)
+blue hit by red (99969 hp left)
+blue hit by red (99968 hp left)
+blue hit by red (99967 hp left)
+blue hit by red (99966 hp left)
+blue hit by red (99965 hp left)
+blue hit by red (99964 hp left)
+blue hit by red (99963 hp left)
+blue hit by red (99962 hp left)
+blue hit by red (99961 hp left)
+blue hit by red (99960 hp left)
+blue hit by red (99959 hp left)
+blue hit by red (99958 hp left)
+blue hit by red (99957 hp left)
+blue hit by red (99956 hp left)
+blue hit by red (99955 hp left)
+blue hit by red (99954 hp left)
+blue hit by red (99953 hp left)
+blue hit by red (99952 hp left)
+blue hit by red (99951 hp left)
+blue hit by red (99950 hp left)
+blue hit by red (99949 hp left)
+blue hit by red (99948 hp left)
+blue hit by red (99947 hp left)
+blue hit by red (99946 hp left)
+blue hit by red (99945 hp left)
+blue hit by red (99944 hp left)
+blue hit by red (99943 hp left)
+blue hit by red (99942 hp left)
+blue hit by red (99941 hp left)
+blue hit by red (99940 hp left)
+blue hit by red (99939 hp left)
+blue hit by red (99938 hp left)
+blue hit by red (99937 hp left)
+blue hit by red (99936 hp left)
+blue hit by red (99935 hp left)
+blue hit by red (99934 hp left)
+blue hit by red (99933 hp left)
+blue hit by red (99932 hp left)
+blue hit by red (99931 hp left)
+blue hit by red (99930 hp left)
+blue hit by red (99929 hp left)
+blue hit by red (99928 hp left)
+blue hit by red (99927 hp left)
+blue hit by red (99926 hp left)
+blue hit by red (99925 hp left)
+blue hit by red (99924 hp left)
+blue hit by red (99923 hp left)
+blue hit by red (99922 hp left)
+blue hit by red (99921 hp left)
+blue hit by red (99920 hp left)
+blue hit by red (99919 hp left)
+blue hit by red (99918 hp left)
+blue hit by red (99917 hp left)
+blue hit by red (99916 hp left)
+blue hit by red (99915 hp left)
+blue hit by red (99914 hp left)
+blue hit by red (99913 hp left)
+blue hit by red (99912 hp left)
+blue hit by red (99911 hp left)
+blue hit by red (99910 hp left)
+blue hit by red (99909 hp left)
+blue hit by red (99908 hp left)
+blue hit by red (99907 hp left)
+blue hit by red (99906 hp left)
+blue hit by red (99905 hp left)
+blue hit by red (99904 hp left)
+blue hit by red (99903 hp left)
+blue hit by red (99902 hp left)
+blue hit by red (99901 hp left)
+blue hit by red (99900 hp left)
+blue hit by red (99899 hp left)
+blue hit by red (99898 hp left)
+blue hit by red (99897 hp left)
+blue hit by red (99896 hp left)
+blue hit by red (99895 hp left)
+blue hit by red (99894 hp left)
+blue hit by red (99893 hp left)
+blue hit by red (99892 hp left)
+blue hit by red (99891 hp left)
+blue hit by red (99890 hp left)
+blue hit by red (99889 hp left)
+blue hit by red (99888 hp left)
+blue hit by red (99887 hp left)
+blue hit by red (99886 hp left)
+blue hit by red (99885 hp left)
+blue hit by red (99884 hp left)
+blue hit by red (99883 hp left)
+blue hit by red (99882 hp left)
+blue hit by red (99881 hp left)
+blue hit by red (99880 hp left)
+blue hit by red (99879 hp left)
+blue hit by red (99878 hp left)
+blue hit by red (99877 hp left)
+blue hit by red (99876 hp left)
+blue hit by red (99875 hp left)
+blue hit by red (99874 hp left)
+blue hit by red (99873 hp left)
+blue hit by red (99872 hp left)
+blue hit by red (99871 hp left)
+blue hit by red (99870 hp left)
+blue hit by red (99869 hp left)
+blue hit by red (99868 hp left)
+blue hit by red (99867 hp left)
+blue hit by red (99866 hp left)
+blue hit by red (99865 hp left)
+blue hit by red (99864 hp left)
+blue hit by red (99863 hp left)
+blue hit by red (99862 hp left)
+blue hit by red (99861 hp left)
+blue hit by red (99860 hp left)
+blue hit by red (99859 hp left)
+blue hit by red (99858 hp left)
+blue hit by red (99857 hp left)
+blue hit by red (99856 hp left)
+blue hit by red (99855 hp left)
+blue hit by red (99854 hp left)
+blue hit by red (99853 hp left)
+blue hit by red (99852 hp left)
+blue hit by red (99851 hp left)
+blue hit by red (99850 hp left)
+blue hit by red (99849 hp left)
+blue hit by red (99848 hp left)
+blue hit by red (99847 hp left)
+blue hit by red (99846 hp left)
+blue hit by red (99845 hp left)
+blue hit by red (99844 hp left)
+blue hit by red (99843 hp left)
+blue hit by red (99842 hp left)
+blue hit by red (99841 hp left)
+blue hit by red (99840 hp left)
+blue hit by red (99839 hp left)
+blue hit by red (99838 hp left)
+blue hit by red (99837 hp left)
+blue hit by red (99836 hp left)
+blue hit by red (99835 hp left)
+blue hit by red (99834 hp left)
+blue hit by red (99833 hp left)
+blue hit by red (99832 hp left)
+blue hit by red (99831 hp left)
+blue hit by red (99830 hp left)
+blue hit by red (99829 hp left)
+blue hit by red (99828 hp left)
+blue hit by red (99827 hp left)
+blue hit by red (99826 hp left)
+blue hit by red (99825 hp left)
+blue hit by red (99824 hp left)
+blue hit by red (99823 hp left)
+blue hit by red (99822 hp left)
+blue hit by red (99821 hp left)
+blue hit by red (99820 hp left)
+blue hit by red (99819 hp left)
+blue hit by red (99818 hp left)
+blue hit by red (99817 hp left)
+blue hit by red (99816 hp left)
+blue hit by red (99815 hp left)
+blue hit by red (99814 hp left)
+blue hit by red (99813 hp left)
+blue hit by red (99812 hp left)
+blue hit by red (99811 hp left)
+blue hit by red (99810 hp left)
+blue hit by red (99809 hp left)
+blue hit by red (99808 hp left)
+blue hit by red (99807 hp left)
+blue hit by red (99806 hp left)
+blue hit by red (99805 hp left)
+blue hit by red (99804 hp left)
+blue hit by red (99803 hp left)
+blue hit by red (99802 hp left)
+blue hit by red (99801 hp left)
+blue hit by red (99800 hp left)
+game started: players=2
+blue hit by red (99999 hp left)
+blue hit by red (99998 hp left)
+red rank up
+red is tagger
+blue hit by red (99997 hp left)
+blue hit by red (99996 hp left)
+red rank up
+red is marksman
+blue hit by red (99995 hp left)
+blue hit by red (99994 hp left)
+blue hit by red (99993 hp left)
+red rank up
+red is ironhide
+blue hit by red (99992 hp left)
+blue hit by red (99991 hp left)
+blue hit by red (99990 hp left)
+red rank up
+red is quickdraw
+blue hit by red (99989 hp left)
+blue hit by red (99988 hp left)
+blue hit by red (99987 hp left)
+blue hit by red (99986 hp left)
+blue hit by red (99985 hp left)
+red rank up
+red is legend
+blue hit by red (99984 hp left)
+blue hit by red (99983 hp left)
+blue hit by red (99982 hp left)
+blue hit by red (99981 hp left)
+blue hit by red (99980 hp left)
+blue hit by red (99979 hp left)
+blue hit by red (99978 hp left)
+blue hit by red (99977 hp left)
+blue hit by red (99976 hp left)
+blue hit by red (99975 hp left)
+blue hit by red (99974 hp left)
+blue hit by red (99973 hp left)
+blue hit by red (99972 hp left)
+blue hit by red (99971 hp left)
+blue hit by red (99970 hp left)
+blue hit by red (99969 hp left)
+blue hit by red (99968 hp left)
+blue hit by red (99967 hp left)
+blue hit by red (99966 hp left)
+blue hit by red (99965 hp left)
+blue hit by red (99964 hp left)
+blue hit by red (99963 hp left)
+blue hit by red (99962 hp left)
+blue hit by red (99961 hp left)
+blue hit by red (99960 hp left)
+blue hit by red (99959 hp left)
+blue hit by red (99958 hp left)
+blue hit by red (99957 hp left)
+blue hit by red (99956 hp left)
+blue hit by red (99955 hp left)
+blue hit by red (99954 hp left)
+blue hit by red (99953 hp left)
+blue hit by red (99952 hp left)
+blue hit by red (99951 hp left)
+blue hit by red (99950 hp left)
+blue hit by red (99949 hp left)
+blue hit by red (99948 hp left)
+blue hit by red (99947 hp left)
+blue hit by red (99946 hp left)
+blue hit by red (99945 hp left)
+blue hit by red (99944 hp left)
+blue hit by red (99943 hp left)
+blue hit by red (99942 hp left)
+blue hit by red (99941 hp left)
+blue hit by red (99940 hp left)
+blue hit by red (99939 hp left)
+blue hit by red (99938 hp left)
+blue hit by red (99937 hp left)
+blue hit by red (99936 hp left)
+blue hit by red (99935 hp left)
+blue hit by red (99934 hp left)
+blue hit by red (99933 hp left)
+blue hit by red (99932 hp left)
+blue hit by red (99931 hp left)
+blue hit by red (99930 hp left)
+blue hit by red (99929 hp left)
+blue hit by red (99928 hp left)
+blue hit by red (99927 hp left)
+blue hit by red (99926 hp left)
+blue hit by red (99925 hp left)
+blue hit by red (99924 hp left)
+blue hit by red (99923 hp left)
+blue hit by red (99922 hp left)
+blue hit by red (99921 hp left)
+blue hit by red (99920 hp left)
+blue hit by red (99919 hp left)
+blue hit by red (99918 hp left)
+blue hit by red (99917 hp left)
+blue hit by red (99916 hp left)
+blue hit by red (99915 hp left)
+blue hit by red (99914 hp left)
+blue hit by red (99913 hp left)
+blue hit by red (99912 hp left)
+blue hit by red (99911 hp left)
+blue hit by red (99910 hp left)
+blue hit by red (99909 hp left)
+blue hit by red (99908 hp left)
+blue hit by red (99907 hp left)
+blue hit by red (99906 hp left)
+blue hit by red (99905 hp left)
+blue hit by red (99904 hp left)
+blue hit by red (99903 hp left)
+blue hit by red (99902 hp left)
+blue hit by red (99901 hp left)
+  [OK] a fully handicapped shooter misses roughly half its point-blank shots
+
+[Suite] handicap init markers (stated to policies)
+game started: players=2
+  [OK] both init streams state a handicapped team's exact deltas
+game started: players=2
+  [OK] an unhandicapped default game states base values for every team
+
+[Suite] handoff declaration: a recorded episode re-simulates bit-identically
+game started: players=4
+red picked up a grenade
+red looted a marker
+red looted a hopper
+red handed a marker to red
+red handed a hopper to red
+red hit by red (2 hp left)
+replay_codec.nim(486)    readHeader
+
+    Unhandled exception: Replay game version "65" is not compatible [ReplayError]
+  [FAILED] POSITIVE: two declared handoffs, zero divergence
+game started: players=4
+red picked up a grenade
+red looted a marker
+red looted a hopper
+red handed a marker to red
+red handed a hopper to red
+red hit by red (2 hp left)
+replay_codec.nim(486)    readHeader
+
+    Unhandled exception: Replay game version "65" is not compatible [ReplayError]
+  [FAILED] NEGATIVE: drop the handoff records and the SAME replay diverges
+
+[Suite] identity badges
+  [OK] identities assign alpha..theta by slot order within each team
+game started: players=2
+  [OK] a visible enemy's identity badge is in the observation
+game started: players=2
+  [OK] a fogged enemy's identity badge is not in the observation
+game started: players=2
+  [OK] badge label carries the wearer's loadout as suffixes
+game started: players=2
+  [OK] the board badge rides behind the visor and turns with the cog
+game started: players=2
+  [OK] a player view keeps the badge centered and upright
+game started: players=2
+  [OK] a dead player's identity badge disappears
+
+[Suite] sprite label contract
+game started: players=6
+red point blank tag +24
+red first tag +48
+blue killed by red
+game started: players=6
+red point blank tag +36
+red first tag +72
+blue killed by red
+red achievement: First Tag +9
+green heart retired
+yellow heart retired
+red sprayed paint
+game started: players=6
+red point blank tag +24
+red first tag +48
+blue killed by red
+red achievement: First Tag +9
+red sprayed paint
+game started: players=2
+game started: players=2
+game started: players=2
+  [OK] the emitted label vocabulary matches tests/label_manifest.txt
+game started: players=6
+red point blank tag +24
+red first tag +48
+blue killed by red
+red achievement: First Tag +9
+red sprayed paint
+  [OK] every policy-scanned label is actually emitted
+game started: players=6
+red point blank tag +24
+red first tag +48
+blue killed by red
+  [OK] the hp bar carries true hit points, shield layer spelled apart
+game started: players=6
+red point blank tag +36
+red first tag +72
+blue killed by red
+game started: players=6
+game started: players=6
+game started: players=6
+game started: players=6
+red point blank tag +24
+red first tag +48
+blue killed by red
+  [OK] the endzone markers state each team's capture zone exactly
+
+[Suite] own-aim marker
+game started: players=2
+  [OK] the player stream states the exact aim angle
+
+[Suite] live broadcast chrome (buildLiveViewerPacket)
+game started: players=2
+  [OK] a live mid-game frame carries real teams/roster state, no replay-only fields
+game started: players=2
+red longshot tag +45
+red first tag +36
+blue killed by red
+  [OK] a live kill reaches the chrome's events the same tick it happens
+game started: players=2
+red longshot tag +45
+red first tag +36
+blue killed by red
+blue heart retired
+red win
+red achievement: First Tag +9
+red achievement: Longshot (FIRST!) +69
+red achievement: Clean Sheet +18
+blue achievement: Clean Sheet +18
+  [OK] a live game-over frame carries an honest end-card, sourced off sim state
+game started: players=2
+red longshot tag +45
+red first tag +36
+blue killed by red
+blue heart retired
+red win
+red achievement: First Tag +9
+red achievement: Longshot (FIRST!) +69
+red achievement: Clean Sheet +18
+blue achievement: Clean Sheet +18
+  [OK] transport flips the instant phase crosses into GameOver, and stays off through Lobby
+game started: players=2
+red longshot tag +45
+red first tag +36
+blue killed by red
+  [OK] resync (an in-match round transition) starts the next diff clean, no phantom flood
+game started: players=2
+red longshot tag +45
+red first tag +36
+blue killed by red
+game started: players=4
+  [OK] a full match reset (different roster size) never crashes a fresh tracker
+game started: players=2
+game started: players=2
+  [OK] stepping the live broadcast tracker never changes the sim's own gameHash
+game started: players=4
+  [OK] THE MIND ON THE STRIP: team 'pact' key reads sim.pactMask live, empty on a pact-free game
+
+[Suite] lobby chat: the phase gate is hasPlaySeat, not lobbyChatTicks
+game started: players=1
+  [OK] RED-PROVEN: no play seat, phase never engages, applyLobbyChat always closed
+  [OK] GREEN: the SAME lobbyChatTicks, with a play seat, actually opens the phase
+game started: players=1
+  [OK] lobbyChatTicks == 0 skips the phase even WITH a play seat (the gate-off shape)
+game started: players=1
+  [OK] the phase runs exactly its configured length, then closes again
+  [OK] a roster drop mid-chat does not end the phase (Â§9.2, does not compact)
+
+[Suite] lobby chat: admission â€” length, UTF-8, control chars, blanks
+  [OK] the 512-byte bound is enforced, exactly at the boundary
+  [OK] a multibyte scalar straddling the 512th byte is a byte-length refusal
+  [OK] invalid UTF-8 is refused: a lone continuation byte
+  [OK] invalid UTF-8 is refused: an overlong two-byte encoding
+  [OK] invalid UTF-8 is refused: a surrogate code point
+  [OK] a control character is refused; the one allowed line break is not
+  [OK] empty, and whitespace-only (ASCII space/LF), payloads are refused
+  [OK] a payload of NON-ASCII spaces is content, not blank (the ASCII-only rule)
+  [OK] a combining sequence is accepted UNCHANGED (no normalization)
+
+[Suite] lobby chat: ordinals and rate caps
+  [OK] ordinals are monotonic across every seat, not per-seat
+  [OK] a seat is capped at LobbyChatMaxMessagesPerSeat per phase
+
+[Suite] lobby chat: applyShout stays untouched
+  [OK] a lobby chat send is never visible to applyShout, and vice versa
+
+[Suite] lobby chat: the 0xA3/0xB2 wire codec, byte for byte
+  [OK] a 0xA3 send packet parses back to its exact text
+  [OK] a length-prefix mismatch is refused structurally
+  [OK] the 0xB2 broadcast packet's every field lands at its documented offset
+
+[Suite] lobby chat: record 0x13 (RecLobbyChat), EMIT side only
+  [OK] the encoded record starts with the landed byte 0x13 and matches its layout
+  [OK] the record honors applyLobbyChat's own admitted ordinal and text, verbatim
+  [OK] a 512-byte text (the max) round-trips; the header is exactly 17 bytes
+
+[Suite] lobby chat: gameHash independence
+game started: players=2
+game started: players=2
+  [OK] chat content never enters gameHash: sent vs. silent, identical chain
+
+[Suite] lobby chat: existing (no play seat) configs are untouched
+game started: players=1
+game started: players=1
+  [OK] the shipped default (lobbyChatTicks 720) changes nothing without a play seat
+
+[Suite] lobby-fill reconnect wedge
+  [OK] sentinel boundary: an unrelated disconnect must not touch a pending join
+  [OK] multiple simultaneous pending joins all survive one unrelated disconnect
+game started: players=16
+  [OK] a full 16-seat reconnect blip still reaches a live round
+  [OK] the same wedge in the serve-forever reset dance (the filed 8-of-16 stall)
+game started: players=32
+  [OK] season-2 battle royale: 32 play-seat joins all seat, through scramble and a pre-admission blip
+
+[Suite] map export
+  [OK] the raw mask is the mask the sim collides against
+  [OK] every map kind exports at its own size, with matching geometry
+
+[Suite] movement footprint
+  [OK] moves across open floor toward input
+  [OK] solid footprint cannot overlap a wall
+
+[Suite] perk accessors (pure math)
+  [OK] no perks returns the exact base values
+  [OK] armor adds perkArmorHp to max hit points
+  [OK] thruster boosts max speed by perkThrusterPermille
+  [OK] grenade stretches the throw range by perkGrenadePermille
+  [OK] an unrelated perk changes nothing
+  [OK] perks stack on top of the handicap interpolation
+
+[Suite] perk config parsing
+  [OK] a flat name array is one team-wide group
+  [OK] nested arrays are per-policy groups
+  [OK] the default config has no perks
+  [OK] an unknown perk name is rejected
+  [OK] an unknown team key is rejected
+  [OK] a non-object perks block is rejected
+  [OK] a flat empty perk array is rejected (omit the team instead)
+  [OK] a policy-name object pins groups to policies
+  [OK] an empty policy-name object is rejected
+  [OK] an absurd integer perk mod is rejected
+  [OK] perkMods parses fractions to permille and counts to ints
+  [OK] an unknown perkMods key is rejected
+  [OK] an out-of-range perkMods fraction is rejected
+  [OK] a zero luckDamage is rejected
+
+[Suite] perk config echo (configJson)
+  [OK] a default game echoes no perks or perkMods keys
+  [OK] a flat group round-trips flat
+  [OK] per-policy groups round-trip nested
+  [OK] named groups round-trip as a policy-name object
+  [OK] non-default perkMods round-trip
+
+[Suite] perk group resolution at join (2v2 policies)
+  [OK] a single group is team-wide
+  [OK] two groups deal to the team's distinct policies in join order
+  [OK] a third policy clamps to the last group
+  [OK] named groups pin policies regardless of join order
+  [OK] live joins and trusted playback joins deal identical groups
+game started: players=2
+  [OK] a seat's perks survive the replay keyframe round-trip
+
+[Suite] perks applied in the sim
+game started: players=2
+red clutch patch
+red picked up a med kit
+blue clean tag +15
+blue first tag +36
+red killed by blue
+blue achievement: First Tag +9
+  [OK] an armored team spawns, respawns, and heals at +1 hp
+  [OK] a thruster team tops out 10% faster
+game started: players=2
+red threw a grenade
+grenade landed
+blue threw a grenade
+  [OK] a real full-charge throw lands at the perked distance
+game started: players=2
+  [OK] a grenade-perked throw ring and throw reach 25% further
+game started: players=2
+blue hit by red (98 hp left)
+red hit by blue (99 hp left)
+  [OK] a certain-luck shooter always deals perkLuckDamage
+game started: players=2
+blue hit by red (99 hp left)
+blue hit by red (98 hp left)
+red rank up
+red is tagger
+blue hit by red (97 hp left)
+blue hit by red (96 hp left)
+red rank up
+red is marksman
+blue hit by red (95 hp left)
+blue hit by red (94 hp left)
+blue hit by red (93 hp left)
+red rank up
+red is ironhide
+blue hit by red (92 hp left)
+blue hit by red (91 hp left)
+blue hit by red (90 hp left)
+red rank up
+red is quickdraw
+blue hit by red (89 hp left)
+blue hit by red (88 hp left)
+blue hit by red (87 hp left)
+blue hit by red (86 hp left)
+blue hit by red (85 hp left)
+red rank up
+red is legend
+blue hit by red (84 hp left)
+blue hit by red (83 hp left)
+blue hit by red (82 hp left)
+blue hit by red (81 hp left)
+blue hit by red (80 hp left)
+blue hit by red (79 hp left)
+blue hit by red (78 hp left)
+blue hit by red (77 hp left)
+blue hit by red (76 hp left)
+blue hit by red (75 hp left)
+blue hit by red (74 hp left)
+blue hit by red (73 hp left)
+blue hit by red (72 hp left)
+blue hit by red (71 hp left)
+blue hit by red (70 hp left)
+blue hit by red (69 hp left)
+blue hit by red (68 hp left)
+blue hit by red (67 hp left)
+blue hit by red (66 hp left)
+blue hit by red (65 hp left)
+blue hit by red (64 hp left)
+blue hit by red (63 hp left)
+blue hit by red (62 hp left)
+blue hit by red (61 hp left)
+blue hit by red (60 hp left)
+blue hit by red (59 hp left)
+blue hit by red (58 hp left)
+blue hit by red (57 hp left)
+blue hit by red (56 hp left)
+blue hit by red (55 hp left)
+blue hit by red (54 hp left)
+blue hit by red (53 hp left)
+blue hit by red (52 hp left)
+blue hit by red (51 hp left)
+blue hit by red (50 hp left)
+game started: players=2
+blue hit by red (99 hp left)
+blue hit by red (98 hp left)
+red rank up
+red is tagger
+blue hit by red (97 hp left)
+blue hit by red (96 hp left)
+red rank up
+red is marksman
+blue hit by red (95 hp left)
+blue hit by red (94 hp left)
+blue hit by red (93 hp left)
+red rank up
+red is ironhide
+blue hit by red (92 hp left)
+blue hit by red (91 hp left)
+blue hit by red (90 hp left)
+red rank up
+red is quickdraw
+blue hit by red (89 hp left)
+blue hit by red (88 hp left)
+blue hit by red (87 hp left)
+blue hit by red (86 hp left)
+blue hit by red (85 hp left)
+red rank up
+red is legend
+blue hit by red (84 hp left)
+blue hit by red (83 hp left)
+blue hit by red (82 hp left)
+blue hit by red (81 hp left)
+blue hit by red (80 hp left)
+blue hit by red (79 hp left)
+blue hit by red (78 hp left)
+blue hit by red (77 hp left)
+blue hit by red (76 hp left)
+blue hit by red (75 hp left)
+blue hit by red (74 hp left)
+blue hit by red (73 hp left)
+blue hit by red (72 hp left)
+blue hit by red (71 hp left)
+blue hit by red (70 hp left)
+blue hit by red (69 hp left)
+blue hit by red (68 hp left)
+blue hit by red (67 hp left)
+blue hit by red (66 hp left)
+blue hit by red (65 hp left)
+blue hit by red (64 hp left)
+blue hit by red (63 hp left)
+blue hit by red (62 hp left)
+blue hit by red (61 hp left)
+blue hit by red (60 hp left)
+blue hit by red (59 hp left)
+blue hit by red (58 hp left)
+blue hit by red (57 hp left)
+blue hit by red (56 hp left)
+blue hit by red (55 hp left)
+blue hit by red (54 hp left)
+blue hit by red (53 hp left)
+blue hit by red (52 hp left)
+blue hit by red (51 hp left)
+blue hit by red (50 hp left)
+  [OK] perk mods alone (no perks assigned) leave the game hash unchanged
+
+[Suite] scope perk: tighter aim at range
+  [OK] a scoped shooter hits far more max-range shots
+
+[Suite] perks stated to viewers and policies
+  [OK] labelPerks formats groups and the unperked dash
+game started: players=2
+  [OK] both init streams state every team's perk groups
+game started: players=2
+  [OK] the broadcast roster carries each perked seat's pk, omits others
+game started: players=2
+  [OK] a perk-free game's frame carries no pmods
+
+[Suite] policy reflash: the record can never be read as a shout
+  [OK] no cog index can set the reflash flag
+  [OK] a reflash record decodes back to its cog and its page
+  [OK] the record carries the page CONTENT, not only its hash
+  [OK] a tampered page is refused by its own recorded content hash
+  [OK] a malformed record is refused rather than half-read
+  [OK] every seat on the board fits the record's six-bit cog field
+  [OK] two different pages hash differently; the same page hashes the same
+
+[Suite] policy reflash: the config gate is real
+  [OK] off by default, and a league config's replay JSON gains no byte
+  [OK] a reflash replay self-identifies through its header config
+game started: players=2
+  [OK] gate OFF: a flash is refused and nothing in the sim moves
+game started: players=2
+  [OK] gate ON: a flash lands, and MOVES the hash
+game started: players=2
+  [OK] re-flashing the SAME page is still a distinguishable event
+game started: players=2
+  [OK] an empty page, a phantom seat, and an oversize page are all refused
+  [OK] every archived replay still loads and still re-simulates clean
+
+[Suite] policy reflash: a recorded episode re-simulates bit-identically
+game started: players=2
+replay_codec.nim(486)    readHeader
+
+    Unhandled exception: Replay game version "65" is not compatible [ReplayError]
+  [FAILED] POSITIVE: three mid-episode flashes, zero divergence
+game started: players=2
+replay_codec.nim(486)    readHeader
+
+    Unhandled exception: Replay game version "65" is not compatible [ReplayError]
+  [FAILED] NEGATIVE: drop the reflash records and the SAME replay diverges
+game started: players=2
+replay_codec.nim(486)    readHeader
+
+    Unhandled exception: Replay game version "65" is not compatible [ReplayError]
+  [FAILED] NEGATIVE: the same records, one tick late, also diverge
+
+[Suite] policy reflash: a flashed page survives a keyframe seek
+game started: players=2
+  [OK] the sim snapshot a keyframe stores round-trips the page
+game started: players=2
+replay_codec.nim(486)    readHeader
+
+    Unhandled exception: Replay game version "65" is not compatible [ReplayError]
+  [FAILED] seeking backward and forward across a flash stays hash-clean
+
+[Suite] policy reflash wire discrimination
+  [OK] a magic-prefixed proposal reaches the reflash channel, prefix stripped
+  [OK] a real overlay packet is untouched by the reflash arm
+  [OK] a bare magic with no page stays on the overlay path
+  [OK] a packet shorter than the magic cannot false-positive
+  [OK] the magic cannot collide with a real overlay opcode
+  [OK] one byte off the magic falls through to the overlay path
+game started: players=2
+  [OK] a page the sim will refuse still arrives verbatim; the DRAIN judges
+  [OK] a page carrying the sprite protocol's own framing bytes survives
+
+[Suite] paint puddles
+  [OK] no map has puddles by default, and the config echo stays clean
+game started: players=2
+  [OK] mapPuddles:1 anchors one organic splat at the generated map's center
+game started: players=2
+  [OK] the center splat is exactly its own symmetry image
+game started: players=2
+  [OK] an even request places mirror-symmetric pairs on open floor
+game started: players=2
+  [OK] the puddle set pins into the map spec and round-trips exactly
+game started: players=2
+game started: players=2
+  [OK] placement is deterministic from the map seed
+game started: players=2
+  [OK] a full second of continuous occupancy rolls; dipping out resets
+game started: players=2
+  [OK] puddleDamagePct 100 deals exactly 1 damage per completed second
+game started: players=2
+red shield soak +4
+  [OK] the shield layer soaks the puddle hit before base hp
+game started: players=2
+red dissolved in a paint puddle
+  [OK] a lethal roll is an environmental death: nobody gets the kill
+game started: players=2
+  [OK] a dead body in the puddle never ticks the clock
+game started: players=2
+  [OK] a puddle game's replay config echoes both knobs
+game started: players=2
+  [OK] placePuddles patches a pinned spec deterministically (mapkit entry)
+game started: players=2
+  [OK] placePuddles refuses 4-team maps and over-cap requests
+  [OK] config validation rejects out-of-range knobs
+
+[Suite] replay controls
+  [OK] transport and scrubber use split browser hit layers
+  [OK] replay controls are hidden during live spectating
+  [OK] hash mismatch warning is shown in the top center layer, tiered
+
+[Suite] SEASON 2 replay viewer HUD: glory
+  [OK] topbar glory numeral is wired to the per-team ledger field
+  [OK] per-deed glory pops read the sim's live cosmetic pop queue
+  [OK] endcard carries MATCH GLORY totals and the achievements ledger
+  [OK] endcard names the players behind every color (owner 2026-09-02)
+  [OK] BR scorebug cells name every member beside their life square
+
+[Suite] SEASON 2 replay viewer HUD: phase presentation + comms
+  [OK] phase overlays exist, are wired per-frame, and degrade to nothing
+  [OK] map-vote stage renders the A-D ballot quadrants and the resolved winner
+  [OK] comms feed renders chat + flash rows by seat palette and escapes text
+  [OK] the huddle collapses to a chip with an unread badge and reopens
+  [OK] flash records ride the loaded channel and anchor the in-arena pulse
+  [OK] a downed seat's roster flag fades its rig, no new chrome
+
+[Suite] SEASON 2 replay viewer HUD: side-lane docking (letterbox rails)
+  [OK] both pillarbox rails exist and relayout decides the tiers by geometry
+  [OK] the rail shrinks rather than disappearing below ~480px wide
+  [OK] docked mode gives the board the top band back
+  [OK] docking MOVES elements and the narrow fallback restores the home DOM
+  [OK] left rail = identity (scorebug + comms), right rail = live surfaces
+  [OK] the chat surface exists in the rail even when the lobby never spoke
+
+[Suite] SEASON 2 replay viewer HUD: left rail is the default (owner 2026-09-09)
+  [OK] embed mode no longer hides the rail's #scorebug
+  [OK] the League Replayer shell no longer draws its own top-band scorebug
+
+[Suite] SEASON 2 replay viewer HUD: BR rail fit at 16 seats (owner follow-up 2026-09-09)
+  [OK] the wide rail keeps a chip's name and number close together
+  [OK] the tiny rail splits the 16-cell roster into two columns instead of clipping
+
+[Suite] SEASON 2 replay viewer HUD: catalog v3 popup law (owner bug, 2026-09-10)
+  [OK] one shared pct-to-factor helper feeds every pop/label path
+  [OK] the hero gate requires factor >= 2.0, shared by both DOM call sites
+  [OK] sub-2x factors (the exact x1.00 neutral case included) never float a callout
+  [OK] the real v3 pricing table names all five sub-2x deeds this law silences, plus one kill deed it still pops
+  [OK] the old integer-factor hero gate is gone from the fixed source
+
+[Suite] SEASON 2 replay viewer HUD: chip clip fix (owner defect, 2026-09-10)
+  [OK] the name+swatch stack can shrink so the numeral never has to
+  [OK] the cell reserves a real inner margin, not a flush 0px fit
+  [OK] the numeral element itself still carries no shrink â€” it is never the side that gives
+
+[Suite] SEASON 2 replay viewer HUD: comms rail redesign (owner 2026-09-10)
+  [OK] a message is never truncated -- readability comes from type, not from cutting content
+  [OK] the flash row drops the redundant "flashed" word and keeps one glyph
+  [OK] the sidebar is height-bounded: no scrollbar, oldest messages drop, newest always visible
+  [OK] relayout() never measures the comms DOM to size the stage
+
+[Suite] shared danger source visibility cache
+  [OK] hits reproduce the uncached raster byte for byte across seats and rebuilds
+  [OK] source order is preserved on hits
+  [OK] close floor stays exact-pixel while the kernel part is cached
+  [OK] eviction follows an independent LRU model with deterministic order
+  [OK] entries are sized by the live range and owned per system
+  [OK] ledger counts the shared cache by capacity
+  [OK] scheduled rebuilds and empty selections leave the cache consistent
+
+[Suite] production mixed-grid body navigation
+  [OK] fresh navigation ledger counts the populated safety context
+  [OK] graph ledger includes unused reserved bridge capacity
+  [OK] packed hot dilation preserves borders and tiny positive values
+  [OK] packed danger keeps ties-to-even and range boundaries
+  [OK] literal corpus provenance and independent oracle are frozen
+  [OK] a living valid goal moves on its acceptance tick while route waits
+  [OK] search resumes under an exact pop budget and installs atomically
+  [OK] Dial bucket collisions preserve exact routes and pop counts
+  [OK] one pending slot keeps only the newest request
+  [OK] stable shortest-job-first admission uses seat id as final tie break
+  [OK] danger generation cancels stale in-flight work before another pop
+  [OK] unchanged scheduled danger preserves search but expires installed routes
+  [OK] scheduled danger reordering preserves exact packed costs
+  [OK] packed scratch swaps do not alias another seat
+  [OK] workspace is shared and per-seat route state has fixed layout
+  [OK] arrived endpoints do not report route progress
+
+[Suite] shell replay record bytes
+    /Users/jamesboggs/coding/coworlds/coworld-ctf-worktrees/nav-source-cache/tests/test_shell_replay.nim(343, 49): Check failed: readFile(FixtureDir / "play-call.bin") == callGolden
+    readFile(FixtureDir / "play-call.bin") was 
+    	       É {"plays":[{"entry_id":"controller","play":"pact"},{"entry_id":"grenade","play":"reflex_clear_grenade"},{"entry_id":"spray","play":"reflex_clear_spray"},{"entry_id":"zone","play":"reflex_zone_escape"}]}
+ controller %>Œ¸úè3M~¬ú¥DÚöSÜãªàg}QM grenade reflex_clear_grenade 63 spray reflex_clear_spray 63 zone reflex_zone_escape 63
+    callGolden was 
+    	       É {"plays":[{"entry_id":"controller","play":"pact"},{"entry_id":"grenade","play":"reflex_clear_grenade"},{"entry_id":"spray","play":"reflex_clear_spray"},{"entry_id":"zone","play":"reflex_zone_escape"}]}
+ controller %>Œ¸úè3M~¬ú¥DÚöSÜãªàg}QM grenade reflex_clear_grenade 65 spray reflex_clear_spray 65 zone reflex_zone_escape 65
+    /Users/jamesboggs/coding/coworlds/coworld-ctf-worktrees/nav-source-cache/tests/test_shell_replay.nim(364, 48): Check failed: readFile(FixtureDir / "manifest.bin") == expectedManifest
+    readFile(FixtureDir / "manifest.bin") was      ·®p%˜ñØÁÙoŒƒZ3²~Ø¿ĞKXVÃæîñ_ó   ÇİÇ	?&Úú-nË{±Hğ@pºé)œû¦Nü!ç                                                                           ×nó8J\)ÕÜk#ïx3to©Z«j¡‰p	¿°`*tn
+    expectedManifest was      §,…»}2PßØK~°Ëàî¹]Ó¶Ud¡äô_ë   ÇİÇ	?&Úú-nË{±Hğ@pºé)œû¦Nü!ç                                                                           ×nó8J\)ÕÜk#ïx3to©Z«j¡‰p	¿°`*tn
+  [FAILED] checked-in goldens cover calls annotations transcript and manifest
+    /Users/jamesboggs/coding/coworlds/coworld-ctf-worktrees/nav-source-cache/tests/test_shell_replay.nim(375, 26): Check failed: decoded.entries == everyReflexCall().entries
+    decoded.entries was @[(entryId: "controller", code: (kind: cikModule, moduleSha256: "253e8c0db8fa1de8334d7eacfa8fa544da9d18f61453dc19e3aae0677d518f4d")), (entryId: "grenade", code: (kind: cikNative, nativeName: "reflex_clear_grenade", nativeGameVersion: "63")), (entryId: "spray", code: (kind: cikNative, nativeName: "reflex_clear_spray", nativeGameVersion: "63")), (entryId: "zone", code: (kind: cikNative, nativeName: "reflex_zone_escape", nativeGameVersion: "63"))]
+    everyReflexCall().entries was @[(entryId: "controller", code: (kind: cikModule, moduleSha256: "253e8c0db8fa1de8334d7eacfa8fa544da9d18f61453dc19e3aae0677d518f4d")), (entryId: "grenade", code: (kind: cikNative, nativeName: "reflex_clear_grenade", nativeGameVersion: "65")), (entryId: "spray", code: (kind: cikNative, nativeName: "reflex_clear_spray", nativeGameVersion: "65")), (entryId: "zone", code: (kind: cikNative, nativeName: "reflex_zone_escape", nativeGameVersion: "65"))]
+  [FAILED] call golden names a module and every native reflex
+  [OK] annotation round trip preserves call numbers provenance and exact order
+  [OK] legacy kind-3 play-fault annotations still decode with code unknown
+  [OK] lobby u16 length is capped before conversion
+  [OK] ballot round trip preserves cast and resolved records
+  [OK] whole-record decoders reject trailing bytes
+
+[Suite] shell replay file verification
+replay_codec.nim(486)    readHeader
+
+    Unhandled exception: Replay game version "65" is not compatible [ReplayError]
+  [FAILED] format 2 eagerly verifies and retains every shell stream
+replay_codec.nim(486)    readHeader
+
+    Unhandled exception: Replay game version "65" is not compatible [ReplayError]
+  [FAILED] format 2 retains ballot records and enforces their ordinal order
+    /Users/jamesboggs/coding/coworlds/coworld-ctf-worktrees/nav-source-cache/tests/test_shell_replay.nim(300, 21): Check failed: "play-call manifest verification failed" in error`gensym805.msg
+    error`gensym805.msg was Replay game version "65" is not compatible
+    /Users/jamesboggs/coding/coworlds/coworld-ctf-worktrees/nav-source-cache/tests/test_shell_replay.nim(300, 21): Check failed: "play-call manifest verification failed" in error`gensym805.msg
+    error`gensym805.msg was Replay game version "65" is not compatible
+    /Users/jamesboggs/coding/coworlds/coworld-ctf-worktrees/nav-source-cache/tests/test_shell_replay.nim(300, 21): Check failed: "play-call manifest verification failed" in error`gensym805.msg
+    error`gensym805.msg was Replay game version "65" is not compatible
+  [FAILED] call drop shift and code-hash alteration fail the seat arm
+  [OK] transcript drop reorder edit and truncation all fail
+    /Users/jamesboggs/coding/coworlds/coworld-ctf-worktrees/nav-source-cache/tests/test_shell_replay.nim(300, 21): Check failed: "annotation manifest verification failed" in error`gensym821.msg
+    error`gensym821.msg was Replay game version "65" is not compatible
+    /Users/jamesboggs/coding/coworlds/coworld-ctf-worktrees/nav-source-cache/tests/test_shell_replay.nim(300, 21): Check failed: "annotation manifest verification failed" in error`gensym821.msg
+    error`gensym821.msg was Replay game version "65" is not compatible
+  [FAILED] annotation contributor drop and alteration fail its seat arm
+    /Users/jamesboggs/coding/coworlds/coworld-ctf-worktrees/nav-source-cache/tests/test_shell_replay.nim(300, 21): Check failed: "same-time record ordering violation" in error`gensym831.msg
+    error`gensym831.msg was Replay game version "65" is not compatible
+  [FAILED] same-time stream ordering is enforced around lobby and calls
+replay_codec.nim(486)    readHeader
+
+    Unhandled exception: Replay game version "65" is not compatible [ReplayError]
+  [FAILED] lifecycle file arms use the playback tracker
+replay_codec.nim(486)    readHeader
+
+    Unhandled exception: Replay game version "65" is not compatible [ReplayError]
+  [FAILED] high-bit shell times stay ordered in the unsigned domain
+
+[Suite] CTF-owned replay writer
+replay_codec.nim(486)    readHeader
+
+    Unhandled exception: Replay game version "65" is not compatible [ReplayError]
+  [FAILED] format 2 is selected only by the explicit shell decision
+replay_codec.nim(486)    readHeader
+
+    Unhandled exception: Replay game version "65" is not compatible [ReplayError]
+  [FAILED] live decision writer round trips every shell stream and one manifest
+
+[Suite] shell lifecycle replay presence
+Replay hash mismatch at tick 150; expected 0, got 1780217279330904682.
+  [OK] disconnect and lobby rebind survive keyframes and seeks without compaction
+
+[Suite] playbook archive
+replay_codec.nim(486)    readHeader
+
+    Unhandled exception: Replay game version "65" is not compatible [ReplayError]
+  [FAILED] content-addressed modules verify against recorded hashes
+Dropped WebSocket, message too long
+Dropped WebSocket, pending caps exceeded
+Dropped WebSocket, pending caps exceeded
+Dropped WebSocket, pending caps exceeded
+Dropped WebSocket, pending caps exceeded
+Shell transport tests passed
+
+[Suite] buildShotFeedbackPacket: the private combat-outcome JSON
+game started: players=2
+  [OK] no feedback touching this cog returns an empty string
+game started: players=2
+  [OK] empty feedback returns an empty string
+game started: players=2
+  [OK] the shooter's own cog gets a shotsLanded entry, not hitsTaken
+game started: players=2
+  [OK] the victim's own cog gets a hitsTaken entry, not shotsLanded
+game started: players=2
+  [OK] a FATAL hitsTaken entry carries killerX/killerY/killerAlive (killcam)
+game started: players=2
+  [OK] killerAlive reads false when the killer died by delivery (mutual trade)
+game started: players=2
+  [OK] shotsLanded entries NEVER carry killer position keys, fatal or not
+game started: players=2
+  [OK] delivered UNFOGGED: identity is present even if the participant never rendered the other side
+game started: players=2
+  [OK] a mutual trade in the same tick populates both arrays for the involved cogs
+
+[Suite] trenches
+  [OK] the default arena digs no trenches
+game started: players=2
+  [OK] mapPits:1 anchors one walkable pit at the generated map's center
+game started: players=2
+  [OK] the trench art edge is rough, bounded, and deterministic
+  [OK] trench edge noise survives far map coordinates and keeps its pattern
+game started: players=2
+  [OK] climbing out of a trench is one fifth speed
+game started: players=2
+  [OK] dropping in and moving across the pit are full speed
+game started: players=2
+  [OK] firing from inside a trench takes three times the cooldown
+game started: players=2
+  [OK] trench and shield fire slowdowns compose by max, not product
+game started: players=2
+blue hit by red (2 hp left)
+blue hit by red (2 hp left)
+red rank up
+red is tagger
+blue hit by red (2 hp left)
+blue hit by red (2 hp left)
+red rank up
+red is marksman
+blue hit by red (2 hp left)
+blue hit by red (2 hp left)
+blue hit by red (2 hp left)
+red rank up
+red is ironhide
+blue hit by red (2 hp left)
+blue hit by red (2 hp left)
+blue hit by red (2 hp left)
+red rank up
+red is quickdraw
+blue hit by red (2 hp left)
+blue hit by red (2 hp left)
+blue hit by red (2 hp left)
+blue hit by red (2 hp left)
+blue hit by red (2 hp left)
+red rank up
+red is legend
+blue hit by red (2 hp left)
+blue hit by red (2 hp left)
+blue hit by red (2 hp left)
+blue hit by red (2 hp left)
+blue hit by red (2 hp left)
+blue hit by red (2 hp left)
+blue hit by red (2 hp left)
+blue hit by red (2 hp left)
+blue hit by red (2 hp left)
+blue hit by red (2 hp left)
+blue hit by red (2 hp left)
+blue hit by red (2 hp left)
+blue hit by red (2 hp left)
+blue hit by red (2 hp left)
+blue hit by red (2 hp left)
+blue hit by red (2 hp left)
+blue hit by red (2 hp left)
+blue hit by red (2 hp left)
+blue hit by red (2 hp left)
+blue hit by red (2 hp left)
+blue hit by red (2 hp left)
+blue hit by red (2 hp left)
+blue hit by red (2 hp left)
+blue hit by red (2 hp left)
+blue hit by red (2 hp left)
+blue hit by red (2 hp left)
+blue hit by red (2 hp left)
+blue hit by red (2 hp left)
+blue hit by red (2 hp left)
+blue hit by red (2 hp left)
+blue hit by red (2 hp left)
+blue hit by red (2 hp left)
+blue hit by red (2 hp left)
+blue hit by red (2 hp left)
+blue hit by red (2 hp left)
+blue hit by red (2 hp left)
+blue hit by red (2 hp left)
+blue hit by red (2 hp left)
+blue hit by red (2 hp left)
+blue hit by red (2 hp left)
+blue hit by red (2 hp left)
+blue hit by red (2 hp left)
+blue hit by red (2 hp left)
+  [OK] about seventy percent of incoming shots fly over an occupant
+game started: players=2
+  [OK] a ducked shot's tracer flies straight over the trench
+game started: players=3
+red hit by red (2 hp left)
+red hit by red (2 hp left)
+red rank up
+red is tagger
+blue hit by red (2 hp left)
+blue hit by red (2 hp left)
+red rank up
+red is marksman
+blue hit by red (2 hp left)
+red hit by red (2 hp left)
+red hit by red (2 hp left)
+red rank up
+red is ironhide
+blue hit by red (2 hp left)
+red hit by red (2 hp left)
+blue hit by red (2 hp left)
+red rank up
+red is quickdraw
+red hit by red (2 hp left)
+red hit by red (2 hp left)
+red hit by red (2 hp left)
+red hit by red (2 hp left)
+red hit by red (2 hp left)
+red rank up
+red is legend
+blue hit by red (2 hp left)
+blue hit by red (2 hp left)
+red hit by red (2 hp left)
+blue hit by red (2 hp left)
+red hit by red (2 hp left)
+red hit by red (2 hp left)
+red hit by red (2 hp left)
+red hit by red (2 hp left)
+red hit by red (2 hp left)
+blue hit by red (2 hp left)
+red hit by red (2 hp left)
+red hit by red (2 hp left)
+red hit by red (2 hp left)
+red hit by red (2 hp left)
+blue hit by red (2 hp left)
+red hit by red (2 hp left)
+red hit by red (2 hp left)
+red hit by red (2 hp left)
+red hit by red (2 hp left)
+red hit by red (2 hp left)
+red hit by red (2 hp left)
+red hit by red (2 hp left)
+blue hit by red (2 hp left)
+blue hit by red (2 hp left)
+red hit by red (2 hp left)
+red hit by red (2 hp left)
+blue hit by red (2 hp left)
+red hit by red (2 hp left)
+red hit by red (2 hp left)
+blue hit by red (2 hp left)
+blue hit by red (2 hp left)
+blue hit by red (2 hp left)
+red hit by red (2 hp left)
+blue hit by red (2 hp left)
+red hit by red (2 hp left)
+red hit by red (2 hp left)
+red hit by red (2 hp left)
+red hit by red (2 hp left)
+red hit by red (2 hp left)
+red hit by red (2 hp left)
+red hit by red (2 hp left)
+red hit by red (2 hp left)
+red hit by red (2 hp left)
+red hit by red (2 hp left)
+red hit by red (2 hp left)
+blue hit by red (2 hp left)
+red hit by red (2 hp left)
+red hit by red (2 hp left)
+red hit by red (2 hp left)
+red hit by red (2 hp left)
+red hit by red (2 hp left)
+red hit by red (2 hp left)
+red hit by red (2 hp left)
+red hit by red (2 hp left)
+red hit by red (2 hp left)
+red hit by red (2 hp left)
+red hit by red (2 hp left)
+red hit by red (2 hp left)
+red hit by red (2 hp left)
+red hit by red (2 hp left)
+red hit by red (2 hp left)
+blue hit by red (2 hp left)
+blue hit by red (2 hp left)
+red hit by red (2 hp left)
+blue hit by red (2 hp left)
+red hit by red (2 hp left)
+red hit by red (2 hp left)
+red hit by red (2 hp left)
+red hit by red (2 hp left)
+red hit by red (2 hp left)
+red hit by red (2 hp left)
+red hit by red (2 hp left)
+red hit by red (2 hp left)
+red hit by red (2 hp left)
+red hit by red (2 hp left)
+red hit by red (2 hp left)
+blue hit by red (2 hp left)
+blue hit by red (2 hp left)
+blue hit by red (2 hp left)
+red hit by red (2 hp left)
+blue hit by red (2 hp left)
+red hit by red (2 hp left)
+red hit by red (2 hp left)
+blue hit by red (2 hp left)
+red hit by red (2 hp left)
+red hit by red (2 hp left)
+red hit by red (2 hp left)
+red hit by red (2 hp left)
+red hit by red (2 hp left)
+red hit by red (2 hp left)
+red hit by red (2 hp left)
+blue hit by red (2 hp left)
+red hit by red (2 hp left)
+red hit by red (2 hp left)
+red hit by red (2 hp left)
+red hit by red (2 hp left)
+blue hit by red (2 hp left)
+red hit by red (2 hp left)
+blue hit by red (2 hp left)
+blue hit by red (2 hp left)
+blue hit by red (2 hp left)
+blue hit by red (2 hp left)
+red hit by red (2 hp left)
+blue hit by red (2 hp left)
+blue hit by red (2 hp left)
+blue hit by red (2 hp left)
+red hit by red (2 hp left)
+blue hit by red (2 hp left)
+red hit by red (2 hp left)
+red hit by red (2 hp left)
+red hit by red (2 hp left)
+blue hit by red (2 hp left)
+blue hit by red (2 hp left)
+red hit by red (2 hp left)
+blue hit by red (2 hp left)
+red hit by red (2 hp left)
+red hit by red (2 hp left)
+red hit by red (2 hp left)
+red hit by red (2 hp left)
+red hit by red (2 hp left)
+red hit by red (2 hp left)
+red hit by red (2 hp left)
+red hit by red (2 hp left)
+blue hit by red (2 hp left)
+blue hit by red (2 hp left)
+red hit by red (2 hp left)
+blue hit by red (2 hp left)
+red hit by red (2 hp left)
+red hit by red (2 hp left)
+red hit by red (2 hp left)
+blue hit by red (2 hp left)
+blue hit by red (2 hp left)
+red hit by red (2 hp left)
+red hit by red (2 hp left)
+blue hit by red (2 hp left)
+red hit by red (2 hp left)
+red hit by red (2 hp left)
+red hit by red (2 hp left)
+red hit by red (2 hp left)
+red hit by red (2 hp left)
+blue hit by red (2 hp left)
+red hit by red (2 hp left)
+red hit by red (2 hp left)
+red hit by red (2 hp left)
+blue hit by red (2 hp left)
+red hit by red (2 hp left)
+red hit by red (2 hp left)
+blue hit by red (2 hp left)
+red hit by red (2 hp left)
+red hit by red (2 hp left)
+red hit by red (2 hp left)
+blue hit by red (2 hp left)
+red hit by red (2 hp left)
+blue hit by red (2 hp left)
+red hit by red (2 hp left)
+red hit by red (2 hp left)
+blue hit by red (2 hp left)
+red hit by red (2 hp left)
+blue hit by red (2 hp left)
+red hit by red (2 hp left)
+red hit by red (2 hp left)
+red hit by red (2 hp left)
+blue hit by red (2 hp left)
+red hit by red (2 hp left)
+red hit by red (2 hp left)
+red hit by red (2 hp left)
+red hit by red (2 hp left)
+red hit by red (2 hp left)
+red hit by red (2 hp left)
+red hit by red (2 hp left)
+red hit by red (2 hp left)
+red hit by red (2 hp left)
+blue hit by red (2 hp left)
+blue hit by red (2 hp left)
+red hit by red (2 hp left)
+red hit by red (2 hp left)
+red hit by red (2 hp left)
+red hit by red (2 hp left)
+red hit by red (2 hp left)
+blue hit by red (2 hp left)
+red hit by red (2 hp left)
+red hit by red (2 hp left)
+blue hit by red (2 hp left)
+blue hit by red (2 hp left)
+red hit by red (2 hp left)
+  [OK] a ducked shot carries on and can hit a body behind the trench
+game started: players=2
+blue hit by red (2 hp left)
+blue hit by red (2 hp left)
+red rank up
+red is tagger
+blue hit by red (2 hp left)
+blue hit by red (2 hp left)
+red rank up
+red is marksman
+blue hit by red (2 hp left)
+blue hit by red (2 hp left)
+blue hit by red (2 hp left)
+red rank up
+red is ironhide
+blue hit by red (2 hp left)
+blue hit by red (2 hp left)
+blue hit by red (2 hp left)
+red rank up
+red is quickdraw
+blue hit by red (2 hp left)
+blue hit by red (2 hp left)
+blue hit by red (2 hp left)
+blue hit by red (2 hp left)
+blue hit by red (2 hp left)
+red rank up
+red is legend
+blue hit by red (2 hp left)
+blue hit by red (2 hp left)
+blue hit by red (2 hp left)
+blue hit by red (2 hp left)
+blue hit by red (2 hp left)
+  [OK] shots between two occupants of the same trench are never ducked
+game started: players=2
+blue hit by red (2 hp left)
+blue hit by red (2 hp left)
+red rank up
+red is tagger
+blue hit by red (2 hp left)
+blue hit by red (2 hp left)
+red rank up
+red is marksman
+blue hit by red (2 hp left)
+blue hit by red (2 hp left)
+blue hit by red (2 hp left)
+red rank up
+red is ironhide
+blue hit by red (2 hp left)
+blue hit by red (2 hp left)
+blue hit by red (2 hp left)
+red rank up
+red is quickdraw
+blue hit by red (2 hp left)
+blue hit by red (2 hp left)
+blue hit by red (2 hp left)
+blue hit by red (2 hp left)
+blue hit by red (2 hp left)
+red rank up
+red is legend
+blue hit by red (2 hp left)
+blue hit by red (2 hp left)
+blue hit by red (2 hp left)
+blue hit by red (2 hp left)
+blue hit by red (2 hp left)
+  [OK] shots fired from inside at a target outside are never ducked
+  [OK] generated maps dig walkable, team-symmetric trenches
+  [OK] generated trenches are deterministic and survive the spec round-trip
+  [OK] mapPits locks an exact total; odd counts anchor the map center
+  [OK] mapPitDensity scales the density draw
+  [OK] mapPits and mapPitDensity flow through the game config
+game started: players=2
+  [OK] the y axis mirrors the climb-out rule
+game started: players=2
+  [OK] a heart carrier's climb-out cap composes with the carrier penalty
+game started: players=2
+  [OK] a windup released inside a pit pays the trench cooldown
+  [OK] an over-request places as many pits as fit, still in fair pairs
+  [OK] out-of-range pit knobs raise config errors at config load
+  [OK] specs recorded before trenches existed load with none
+game started: players=2
+red threw a grenade
+grenade landed
+red rank up
+red is marksman
+  [OK] a blast trapped in its victim's own trench deals amplified damage
+game started: players=2
+red threw a grenade
+grenade landed
+  [OK] a blast landing outside a trench only splashes its occupant
+game started: players=2
+red threw a grenade
+grenade landed
+  [OK] a blast with no trench in play deals the ordinary open-field amount
+game started: players=2
+red threw a grenade
+grenade landed
+  [OK] a blast's paint stains stay inside the trench that trapped it
+game started: players=2
+red threw a grenade
+grenade landed
+game started: players=2
+red threw a grenade
+grenade landed
+  [OK] a trench-trapped blast renders a smaller flash than an open one
+
+[Suite] weapon observability
+game started: players=2
+  [OK] own HUD names the weapon; badges carry an explicit weapon token
+game started: players=2
+  [OK] the board swaps the HELD weapon art to the can while one is carried
+
+[Suite] windows: glass blocks movement and shots but not vision
+  [OK] the test scene is laid out as documented
+  [OK] windows block movement exactly like stone
+  [OK] windows stay in the wall mask, but leave the fog occlusion grid
+  [OK] vision passes through a window
+  [OK] stone still blocks vision from the same viewpoint
+game started: players=2
+  [OK] a player seen through glass cannot be shot through it
+
+[Suite] identity privacy
+  [OK] a seat's frame never contains a policy address
+paintball llm: no credentials â€” the LLM provider is unavailable; every turn is falling back to the scripted layer
+  [OK] the composed LLM system + user message never contains one
+  [OK] a directive record carries aliases, never a policy address
+  [OK] the broadcast roster, team policies and results DO carry the real names
+  [OK] a shout is labelled with the shouter's anonymous slot name
+
+[Suite] performance
+episode wall time: 0s
+  [OK] 2 x 2160 ticks of sim, control and paint complete under 120 s
+
+[Suite] shout bubbles fit the frame
+  [OK] the cap is what the fixture thinks it is
+worst-case bubble top y = 0 (reserved band 19 px, board 1235x659)
+  [OK] a full-cap bubble on EVERY cog at once lands inside the board
+  [OK] a bubble that cannot fit above the cog flips below it, not off-frame
+  [OK] the placement is a pure clamp, so it never moves a bubble that fits
+  [OK] every say the scripted baselines emit fits, at every board position
+
+[Suite] broadcast chrome (both modes, one page)
+  [OK] the classic transport, scorebug, feed and endcard survive
+  [OK] the classic view controls survive (classic boards can be colossal)
+  [OK] both modes' beat kinds have CSS, and paintball beats are BUTTONS
+  [OK] the game block is APPENDED under its banner, never a rewrite
+  [OK] the game block defines no identifier the chrome alias block owns
+  [OK] the paintball chrome activates by frame content, never by default
+  [OK] heart banners are classic-CTF-only chrome (BR/flagless/PB gated)
+  [OK] an episode transition resets every once-per-match latch
+  [OK] chrome_common.js is byte-identical to the shared original
+  [OK] broadcast_core.js reads the ctf wire global only
+  [OK] the shell sets BOTH load and failure markers on <html>
+  [OK] a seek is never dropped for want of a frame, and lands promptly
+  [OK] the appended block routes every derived event kind the sim emits
+shard4 run exit 1

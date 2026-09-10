@@ -1,0 +1,10 @@
+{
+  "quality_pass": true,
+  "route_hash": "5a1340213fe3046dc119d6f8d5d59d59cbfd379f885b95968f105d3edcbca500",
+  "maps": 76,
+  "memory_pass": 76,
+  "activation_time_pass": 76,
+  "configured_tick_pass": 3,
+  "configured_worst_p95_ns": 6059062,
+  "configured_worst_max_ns": 6270696
+}

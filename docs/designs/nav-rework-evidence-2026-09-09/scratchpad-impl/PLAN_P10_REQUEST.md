@@ -1,0 +1,13 @@
+P10 PLANNING REQUEST (no production code until James rules; measurement commits only where noted).
+
+Candidate production shape, from the campaign: R3.3 mixed graph (danger>0 dilate-1 + static wall band, 4 px nodes there, 8 px anchors elsewhere with exact contracted cold chains) + width-1 exact Dial + one resumable shared workspace + stable shortest-job-first admission + per-tick pop budget B + production steering while waiting. Evidence: quality 0.313 %/0.829 %, slice under gate, steering costs <= 1.9 % of ideal progress, zero dead ends.
+
+Write $S/impl/PLAN_P10.md covering:
+1. B selection: measure B = 16,384 and 20,480 on the 18 scheduler rows natively (slice p95/max, route ticks p50/p95/max with SJF) and recommend the largest B that keeps the native worst slice <= ~3.2 ms so the canonical 4/5 ms gate has margin. Report the inclusive body-slice estimate (add the measured non-nav body work from the Phase 9 worst-degree row).
+2. Production integration: which modules change (body_route_query / body_nav / episode / body), the exact per-seat state (request, in-flight/pending flags, descriptor buffers; must stay bounded and not map-sized), the shared state (4 px legality, contracted chains, wall band, Dial workspace, per-seat weight tables and their bytes on pool maps), the danger-generation restart rule, determinism (stable seat order, no caller order), and how steering/hints/coverage keep using the hierarchical index. List exactly what the hierarchical index no longer needs to retain (portal next-hop fields? segment cells?) once following is no longer primary, with bytes, and what must stay for hints, zone_safe_ground, steering targets and the coverage proof.
+3. Deletion list for the legacy planner (unchanged from PLAN.md Phase 10) plus the Phase 3-8 hierarchical FOLLOWING code that the new path replaces; tests to delete/retarget; the corpus gate becomes the new production path's gate.
+4. Colossal options, each costed in bytes and ns/pop from R5.3 and R3.2: (a) raise the colossal shared cap to what the dense shape needs (state the number); (b) dense workspace but int16 8 px weights per seat; (c) hierarchical-only (no fine search) on maps whose lattice exceeds a threshold, with its measured quality. Recommend one.
+5. The contract rewrite for the design doc and the Asana task: the "no full-board search on a play tick" rule becomes "a pop-budgeted resumable search over the precomputed legal graph with steering covering the wait"; state the new invariants precisely (per-tick pop budget, one workspace, bounded per-seat state, deterministic admission).
+6. GameVersion/fixtures/viewer/docs steps as before, plus the Phase 9 canonical rerun and Phase 11.
+
+End with P10 PLAN DONE on its own line. Do not cut production code.

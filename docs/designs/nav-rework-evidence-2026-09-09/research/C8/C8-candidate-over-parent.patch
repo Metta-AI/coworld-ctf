@@ -1,0 +1,23 @@
+--- /Users/jamesboggs/coding/coworlds/coworld-ctf-worktrees/nav-throughput-research/docs/designs/nav-rework-evidence-2026-09-09/research/C8/snapshots/parent-body_nav.nim	2026-09-10 11:11:03
++++ /Users/jamesboggs/coding/coworlds/coworld-ctf-worktrees/nav-throughput-research/docs/designs/nav-rework-evidence-2026-09-09/research/C8/snapshots/candidate-body_nav.nim	2026-09-10 11:11:03
+@@ -443,13 +443,19 @@
+   let kernelX = gx - origin.x + kernelRadius
+   let kernelY = gy - origin.y + kernelRadius
+   let kernelIndex = kernelY * diameter + kernelX
++  # C8: the stamp above is kept, so traversal is unchanged; a zero weight
++  # would add +0.0, which is the exact identity on this nonnegative finite
++  # raster, so neither the bit nor the add is recorded.
++  let weight = kernel[kernelIndex]
++  if weight == 0'f32:
++    return
+   # First visit of this cell for this source: record it in the slot the
+   # current miss is filling, so a later request for the same origin replays
+   # exactly these adds.
+   let word = seat.dangerRecordBase + (kernelIndex shr 6)
+   seat.dangerSourceCache.bits[word] = seat.dangerSourceCache.bits[word] or
+     (1'u64 shl (kernelIndex and 63))
+-  seat.danger.values[index] += kernel[kernelIndex]
++  seat.danger.values[index] += weight
+ 
+ proc sightCellBlocked(geometry: DangerGeometry, x, y: int): bool {.inline.} =
+   if x < 0 or x >= geometry.gridWidth or y < 0 or y >= geometry.gridHeight:

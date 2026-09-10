@@ -1,0 +1,417 @@
+{
+  "rows": [
+    {
+      "roster_size": 16,
+      "scenario": "first_goals",
+      "p95_ns": 5319350,
+      "max_ns": 5369461,
+      "danger_p95_ns": 3515172,
+      "weight_refresh_p95_ns": 1085469,
+      "weapon_p95_ns": 319708,
+      "arm": "parent",
+      "repeat": 1
+    },
+    {
+      "roster_size": 16,
+      "scenario": "first_goals",
+      "p95_ns": 5351271,
+      "max_ns": 5406782,
+      "danger_p95_ns": 3542663,
+      "weight_refresh_p95_ns": 1064627,
+      "weapon_p95_ns": 323938,
+      "arm": "candidate",
+      "repeat": 1
+    },
+    {
+      "roster_size": 16,
+      "scenario": "moving_goals",
+      "p95_ns": 5378561,
+      "max_ns": 5476524,
+      "danger_p95_ns": 3494232,
+      "weight_refresh_p95_ns": 1070379,
+      "weapon_p95_ns": 278448,
+      "arm": "parent",
+      "repeat": 1
+    },
+    {
+      "roster_size": 16,
+      "scenario": "moving_goals",
+      "p95_ns": 5347031,
+      "max_ns": 5477033,
+      "danger_p95_ns": 3535773,
+      "weight_refresh_p95_ns": 1059368,
+      "weapon_p95_ns": 276369,
+      "arm": "candidate",
+      "repeat": 1
+    },
+    {
+      "roster_size": 16,
+      "scenario": "stuck_replans",
+      "p95_ns": 5246928,
+      "max_ns": 5353081,
+      "danger_p95_ns": 3509972,
+      "weight_refresh_p95_ns": 1078148,
+      "weapon_p95_ns": 255178,
+      "arm": "parent",
+      "repeat": 1
+    },
+    {
+      "roster_size": 16,
+      "scenario": "stuck_replans",
+      "p95_ns": 5289878,
+      "max_ns": 5435513,
+      "danger_p95_ns": 3544663,
+      "weight_refresh_p95_ns": 1073849,
+      "weapon_p95_ns": 254287,
+      "arm": "candidate",
+      "repeat": 1
+    },
+    {
+      "roster_size": 32,
+      "scenario": "first_goals",
+      "p95_ns": 5781132,
+      "max_ns": 5823143,
+      "danger_p95_ns": 3532633,
+      "weight_refresh_p95_ns": 1100109,
+      "weapon_p95_ns": 622266,
+      "arm": "parent",
+      "repeat": 1
+    },
+    {
+      "roster_size": 32,
+      "scenario": "first_goals",
+      "p95_ns": 5814942,
+      "max_ns": 5868964,
+      "danger_p95_ns": 3568464,
+      "weight_refresh_p95_ns": 1079979,
+      "weapon_p95_ns": 627226,
+      "arm": "candidate",
+      "repeat": 1
+    },
+    {
+      "roster_size": 32,
+      "scenario": "moving_goals",
+      "p95_ns": 5839953,
+      "max_ns": 5863844,
+      "danger_p95_ns": 3535113,
+      "weight_refresh_p95_ns": 1098859,
+      "weapon_p95_ns": 549284,
+      "arm": "parent",
+      "repeat": 1
+    },
+    {
+      "roster_size": 32,
+      "scenario": "moving_goals",
+      "p95_ns": 5877703,
+      "max_ns": 5963906,
+      "danger_p95_ns": 3572543,
+      "weight_refresh_p95_ns": 1080818,
+      "weapon_p95_ns": 551465,
+      "arm": "candidate",
+      "repeat": 1
+    },
+    {
+      "roster_size": 32,
+      "scenario": "stuck_replans",
+      "p95_ns": 5714400,
+      "max_ns": 5873724,
+      "danger_p95_ns": 3541643,
+      "weight_refresh_p95_ns": 1104819,
+      "weapon_p95_ns": 489272,
+      "arm": "parent",
+      "repeat": 1
+    },
+    {
+      "roster_size": 32,
+      "scenario": "stuck_replans",
+      "p95_ns": 5752340,
+      "max_ns": 5849322,
+      "danger_p95_ns": 3574093,
+      "weight_refresh_p95_ns": 1089968,
+      "weapon_p95_ns": 493331,
+      "arm": "candidate",
+      "repeat": 1
+    },
+    {
+      "roster_size": 16,
+      "scenario": "first_goals",
+      "p95_ns": 5305058,
+      "max_ns": 5369660,
+      "danger_p95_ns": 3492441,
+      "weight_refresh_p95_ns": 1066348,
+      "weapon_p95_ns": 318139,
+      "arm": "parent",
+      "repeat": 2
+    },
+    {
+      "roster_size": 16,
+      "scenario": "first_goals",
+      "p95_ns": 5389700,
+      "max_ns": 5438431,
+      "danger_p95_ns": 3559412,
+      "weight_refresh_p95_ns": 1077438,
+      "weapon_p95_ns": 323428,
+      "arm": "candidate",
+      "repeat": 2
+    },
+    {
+      "roster_size": 16,
+      "scenario": "moving_goals",
+      "p95_ns": 5327229,
+      "max_ns": 5392741,
+      "danger_p95_ns": 3481751,
+      "weight_refresh_p95_ns": 1069808,
+      "weapon_p95_ns": 279146,
+      "arm": "parent",
+      "repeat": 2
+    },
+    {
+      "roster_size": 16,
+      "scenario": "moving_goals",
+      "p95_ns": 5424131,
+      "max_ns": 5548954,
+      "danger_p95_ns": 3574402,
+      "weight_refresh_p95_ns": 1068748,
+      "weapon_p95_ns": 276516,
+      "arm": "candidate",
+      "repeat": 2
+    },
+    {
+      "roster_size": 16,
+      "scenario": "stuck_replans",
+      "p95_ns": 5246787,
+      "max_ns": 5373960,
+      "danger_p95_ns": 3504581,
+      "weight_refresh_p95_ns": 1070978,
+      "weapon_p95_ns": 254187,
+      "arm": "parent",
+      "repeat": 2
+    },
+    {
+      "roster_size": 16,
+      "scenario": "stuck_replans",
+      "p95_ns": 5344089,
+      "max_ns": 5451451,
+      "danger_p95_ns": 3595924,
+      "weight_refresh_p95_ns": 1093919,
+      "weapon_p95_ns": 254765,
+      "arm": "candidate",
+      "repeat": 2
+    },
+    {
+      "roster_size": 32,
+      "scenario": "first_goals",
+      "p95_ns": 5769550,
+      "max_ns": 5822432,
+      "danger_p95_ns": 3527882,
+      "weight_refresh_p95_ns": 1102039,
+      "weapon_p95_ns": 627195,
+      "arm": "parent",
+      "repeat": 2
+    },
+    {
+      "roster_size": 32,
+      "scenario": "first_goals",
+      "p95_ns": 5879843,
+      "max_ns": 5916194,
+      "danger_p95_ns": 3623465,
+      "weight_refresh_p95_ns": 1117859,
+      "weapon_p95_ns": 645547,
+      "arm": "candidate",
+      "repeat": 2
+    },
+    {
+      "roster_size": 32,
+      "scenario": "moving_goals",
+      "p95_ns": 5822931,
+      "max_ns": 5887573,
+      "danger_p95_ns": 3528852,
+      "weight_refresh_p95_ns": 1098738,
+      "weapon_p95_ns": 547855,
+      "arm": "parent",
+      "repeat": 2
+    },
+    {
+      "roster_size": 32,
+      "scenario": "moving_goals",
+      "p95_ns": 5936474,
+      "max_ns": 5971176,
+      "danger_p95_ns": 3627145,
+      "weight_refresh_p95_ns": 1113009,
+      "weapon_p95_ns": 545814,
+      "arm": "candidate",
+      "repeat": 2
+    },
+    {
+      "roster_size": 32,
+      "scenario": "stuck_replans",
+      "p95_ns": 5681227,
+      "max_ns": 5728398,
+      "danger_p95_ns": 3516162,
+      "weight_refresh_p95_ns": 1082448,
+      "weapon_p95_ns": 489653,
+      "arm": "parent",
+      "repeat": 2
+    },
+    {
+      "roster_size": 32,
+      "scenario": "stuck_replans",
+      "p95_ns": 5775341,
+      "max_ns": 5794491,
+      "danger_p95_ns": 3592753,
+      "weight_refresh_p95_ns": 1095618,
+      "weapon_p95_ns": 497181,
+      "arm": "candidate",
+      "repeat": 2
+    },
+    {
+      "roster_size": 16,
+      "scenario": "first_goals",
+      "p95_ns": 5304738,
+      "max_ns": 5349029,
+      "danger_p95_ns": 3488431,
+      "weight_refresh_p95_ns": 1058787,
+      "weapon_p95_ns": 319307,
+      "arm": "parent",
+      "repeat": 3
+    },
+    {
+      "roster_size": 16,
+      "scenario": "first_goals",
+      "p95_ns": 5364600,
+      "max_ns": 5410071,
+      "danger_p95_ns": 3548712,
+      "weight_refresh_p95_ns": 1066438,
+      "weapon_p95_ns": 320327,
+      "arm": "candidate",
+      "repeat": 3
+    },
+    {
+      "roster_size": 16,
+      "scenario": "moving_goals",
+      "p95_ns": 5349499,
+      "max_ns": 5457652,
+      "danger_p95_ns": 3491931,
+      "weight_refresh_p95_ns": 1073908,
+      "weapon_p95_ns": 272967,
+      "arm": "parent",
+      "repeat": 3
+    },
+    {
+      "roster_size": 16,
+      "scenario": "moving_goals",
+      "p95_ns": 5403021,
+      "max_ns": 5482493,
+      "danger_p95_ns": 3545972,
+      "weight_refresh_p95_ns": 1065508,
+      "weapon_p95_ns": 276877,
+      "arm": "candidate",
+      "repeat": 3
+    },
+    {
+      "roster_size": 16,
+      "scenario": "stuck_replans",
+      "p95_ns": 5244666,
+      "max_ns": 5351760,
+      "danger_p95_ns": 3483591,
+      "weight_refresh_p95_ns": 1061718,
+      "weapon_p95_ns": 254478,
+      "arm": "parent",
+      "repeat": 3
+    },
+    {
+      "roster_size": 16,
+      "scenario": "stuck_replans",
+      "p95_ns": 5326549,
+      "max_ns": 5405481,
+      "danger_p95_ns": 3542552,
+      "weight_refresh_p95_ns": 1059948,
+      "weapon_p95_ns": 253836,
+      "arm": "candidate",
+      "repeat": 3
+    },
+    {
+      "roster_size": 32,
+      "scenario": "first_goals",
+      "p95_ns": 5766600,
+      "max_ns": 5809411,
+      "danger_p95_ns": 3510071,
+      "weight_refresh_p95_ns": 1071658,
+      "weapon_p95_ns": 624917,
+      "arm": "parent",
+      "repeat": 3
+    },
+    {
+      "roster_size": 32,
+      "scenario": "first_goals",
+      "p95_ns": 5820519,
+      "max_ns": 5996664,
+      "danger_p95_ns": 3590362,
+      "weight_refresh_p95_ns": 1080958,
+      "weapon_p95_ns": 628017,
+      "arm": "candidate",
+      "repeat": 3
+    },
+    {
+      "roster_size": 32,
+      "scenario": "moving_goals",
+      "p95_ns": 5828732,
+      "max_ns": 5864983,
+      "danger_p95_ns": 3508082,
+      "weight_refresh_p95_ns": 1070718,
+      "weapon_p95_ns": 542135,
+      "arm": "parent",
+      "repeat": 3
+    },
+    {
+      "roster_size": 32,
+      "scenario": "moving_goals",
+      "p95_ns": 5901592,
+      "max_ns": 5978694,
+      "danger_p95_ns": 3603082,
+      "weight_refresh_p95_ns": 1104668,
+      "weapon_p95_ns": 535644,
+      "arm": "candidate",
+      "repeat": 3
+    },
+    {
+      "roster_size": 32,
+      "scenario": "stuck_replans",
+      "p95_ns": 5713969,
+      "max_ns": 5838172,
+      "danger_p95_ns": 3524242,
+      "weight_refresh_p95_ns": 1074238,
+      "weapon_p95_ns": 499454,
+      "arm": "parent",
+      "repeat": 3
+    },
+    {
+      "roster_size": 32,
+      "scenario": "stuck_replans",
+      "p95_ns": 5744878,
+      "max_ns": 5806439,
+      "danger_p95_ns": 3587482,
+      "weight_refresh_p95_ns": 1078988,
+      "weapon_p95_ns": 489683,
+      "arm": "candidate",
+      "repeat": 3
+    }
+  ],
+  "all_masks_and_pops_identical": true,
+  "worst": {
+    "parent": {
+      "p95_ns": 5839953,
+      "max_ns": 5887573,
+      "danger_p95_ns": 3541643,
+      "weight_refresh_p95_ns": 1104819,
+      "weapon_p95_ns": 627195
+    },
+    "candidate": {
+      "p95_ns": 5936474,
+      "max_ns": 5996664,
+      "danger_p95_ns": 3627145,
+      "weight_refresh_p95_ns": 1117859,
+      "weapon_p95_ns": 645547
+    }
+  }
+}

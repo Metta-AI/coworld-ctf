@@ -1,0 +1,11 @@
+Hint: used config file '/Users/jamesboggs/.nimby/nim/config/nim.cfg' [Conf]
+Hint: used config file '/Users/jamesboggs/.nimby/nim/config/config.nims' [Conf]
+Hint: used config file '/Users/jamesboggs/coding/coworlds/coworld-ctf-worktrees/nav-deferred-cache/nim.cfg' [Conf]
+.........................................................................................................................................................................................................................
+/Users/jamesboggs/coding/coworlds/coworld-ctf-worktrees/nav-deferred-cache/src/ctf/arena.nim(1373, 5) Hint: 'inside' is declared but not used [XDeclaredButNotUsed]
+/Users/jamesboggs/coding/coworlds/coworld-ctf-worktrees/nav-deferred-cache/src/ctf/arena.nim(3702, 6) Hint: 'rectsNode' is declared but not used [XDeclaredButNotUsed]
+/Users/jamesboggs/coding/coworlds/coworld-ctf-worktrees/nav-deferred-cache/src/ctf/arena.nim(3707, 6) Hint: 'rectsFromNode' is declared but not used [XDeclaredButNotUsed]
+..
+/Users/jamesboggs/coding/coworlds/coworld-ctf-worktrees/nav-deferred-cache/tools/check_a8_pixel_paths.nim(116, 16) Error: undeclared identifier: 'PixelStandabilityArm'
+candidates (edit distance, scope distance); see '--spellSuggest': 
+ (11, 3): 'PixelSearchFailure'

@@ -1,0 +1,6 @@
+74d5efebb4d648bd5886101b78cda9705edf398647ba9db91b028bea38f55e2b  src/shell/body_nav.nim
+1eab868f1012b47e4b4569fa6432215dda04159557d37504eab2e9d9f713d0a7  tools/bench_danger_list_replay.nim
+c0ffddbff804d2c6446d763e7376eae7ba36c9dd9e725c158b0fb061ac7a02c5  tools/check_danger_list_capture.nim
+13f5191480dd7995e72cd2b684b1cafac93b45c2bf9e58ebf31f7d8e306545d9  /Users/jamesboggs/coding/coworlds/coworld-ctf-worktrees/nav-throughput-research/docs/designs/nav-rework-evidence-2026-09-09/research/C8/snapshots/parent-body_nav.nim
+06ffb105252f946e5a035a2ebeccb2fc277bcfdf28875439e16d5505ea056a70  /Users/jamesboggs/coding/coworlds/coworld-ctf-worktrees/nav-throughput-research/docs/designs/nav-rework-evidence-2026-09-09/research/C8/snapshots/candidate-body_nav.nim
+38392df2f56e4ae56aea1193930fd9ab15599eb23ccf000912be5af3926874bb  /Users/jamesboggs/coding/coworlds/coworld-ctf-worktrees/nav-throughput-research/docs/designs/nav-rework-evidence-2026-09-09/research/C7/run_c7_micro.sh

@@ -1,0 +1,5 @@
+# CAP32 documentation audit
+
+Scope: authorized memory-policy change only. Verified `activationRow` now emits and checks 33,554,432 bytes for shared non-colossal navigation, while the runtime total cap remains 268,435,456 bytes. `MEMORY_CAP_RULING.md` preserves the user instruction and distinguishes the selected 2x increase from the allowed 4x ceiling. The design HTML links the current ruling above historical measurements. SCOREBOARD retains old-cap failures and all prior experiment rows. No gameplay, schema, config, runtime allocation or source-stamp change is caused by this harness-only cap update, so it needs no fixture or viewer rebuild itself. D0 source changes remain a separate experiment.
+
+Validation: harness Nim check passed. Fresh CAP32 memory checks pass all 76 maps and frozen quality is unchanged; configured timing and inherited activation ratios still fail. CAP32_REPORT.md distinguishes those requirements from the memory-only activation pass field. The broad Phase11 documentation reconciliation remains outstanding.

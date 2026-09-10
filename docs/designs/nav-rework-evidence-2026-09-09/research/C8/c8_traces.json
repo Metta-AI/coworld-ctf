@@ -1,0 +1,209 @@
+[
+  {
+    "trace": "s2_16_679962.navsrc.txt",
+    "map": "br-gen-5204",
+    "range_px": 1300,
+    "hits": {
+      "sources": 75,
+      "set_bits": 1146869,
+      "zero_kernel_bits": 90377,
+      "nonzero_kernel_bits": 1056492,
+      "zero_share": 0.07880324605512923,
+      "max_zero_per_source": 2690,
+      "max_nonzero_per_source": 16981
+    },
+    "misses": {
+      "sources": 121,
+      "set_bits": 1676981,
+      "zero_kernel_bits": 121332,
+      "nonzero_kernel_bits": 1555649,
+      "zero_share": 0.07235144584226058,
+      "max_zero_per_source": 2690,
+      "max_nonzero_per_source": 17174
+    }
+  },
+  {
+    "trace": "s2_16_679963.navsrc.txt",
+    "map": "br-gen-5263",
+    "range_px": 1300,
+    "hits": {
+      "sources": 48,
+      "set_bits": 709011,
+      "zero_kernel_bits": 41403,
+      "nonzero_kernel_bits": 667608,
+      "zero_share": 0.05839542686925873,
+      "max_zero_per_source": 1600,
+      "max_nonzero_per_source": 19208
+    },
+    "misses": {
+      "sources": 86,
+      "set_bits": 903017,
+      "zero_kernel_bits": 56754,
+      "nonzero_kernel_bits": 846263,
+      "zero_share": 0.06284931512917254,
+      "max_zero_per_source": 1886,
+      "max_nonzero_per_source": 19321
+    }
+  },
+  {
+    "trace": "s2_16_679964.navsrc.txt",
+    "map": "br-gen-5204",
+    "range_px": 1300,
+    "hits": {
+      "sources": 77,
+      "set_bits": 1069396,
+      "zero_kernel_bits": 81153,
+      "nonzero_kernel_bits": 988243,
+      "zero_share": 0.07588676224710023,
+      "max_zero_per_source": 2690,
+      "max_nonzero_per_source": 17064
+    },
+    "misses": {
+      "sources": 112,
+      "set_bits": 1463233,
+      "zero_kernel_bits": 112047,
+      "nonzero_kernel_bits": 1351186,
+      "zero_share": 0.07657495422806894,
+      "max_zero_per_source": 2690,
+      "max_nonzero_per_source": 17198
+    }
+  },
+  {
+    "trace": "s2_16_679965.navsrc.txt",
+    "map": "br-gen-5001",
+    "range_px": 1300,
+    "hits": {
+      "sources": 29,
+      "set_bits": 466193,
+      "zero_kernel_bits": 41879,
+      "nonzero_kernel_bits": 424314,
+      "zero_share": 0.08983189365777693,
+      "max_zero_per_source": 3110,
+      "max_nonzero_per_source": 20551
+    },
+    "misses": {
+      "sources": 92,
+      "set_bits": 1345508,
+      "zero_kernel_bits": 124403,
+      "nonzero_kernel_bits": 1221105,
+      "zero_share": 0.09245801585720784,
+      "max_zero_per_source": 3131,
+      "max_nonzero_per_source": 21067
+    }
+  },
+  {
+    "trace": "s2_32_679962.navsrc.txt",
+    "map": "br-gen-5204",
+    "range_px": 1300,
+    "hits": {
+      "sources": 375,
+      "set_bits": 5246630,
+      "zero_kernel_bits": 417238,
+      "nonzero_kernel_bits": 4829392,
+      "zero_share": 0.07952495220741695,
+      "max_zero_per_source": 2887,
+      "max_nonzero_per_source": 17040
+    },
+    "misses": {
+      "sources": 382,
+      "set_bits": 5193956,
+      "zero_kernel_bits": 396838,
+      "nonzero_kernel_bits": 4797118,
+      "zero_share": 0.07640380472995921,
+      "max_zero_per_source": 3350,
+      "max_nonzero_per_source": 17132
+    }
+  },
+  {
+    "trace": "s2_32_679963.navsrc.txt",
+    "map": "br-gen-5263",
+    "range_px": 1300,
+    "hits": {
+      "sources": 286,
+      "set_bits": 4180051,
+      "zero_kernel_bits": 233053,
+      "nonzero_kernel_bits": 3946998,
+      "zero_share": 0.05575362597250608,
+      "max_zero_per_source": 2322,
+      "max_nonzero_per_source": 19208
+    },
+    "misses": {
+      "sources": 244,
+      "set_bits": 2917274,
+      "zero_kernel_bits": 198898,
+      "nonzero_kernel_bits": 2718376,
+      "zero_share": 0.06817940310029158,
+      "max_zero_per_source": 2375,
+      "max_nonzero_per_source": 19208
+    }
+  },
+  {
+    "trace": "s2_32_679964.navsrc.txt",
+    "map": "br-gen-5204",
+    "range_px": 1300,
+    "hits": {
+      "sources": 295,
+      "set_bits": 4082778,
+      "zero_kernel_bits": 329572,
+      "nonzero_kernel_bits": 3753206,
+      "zero_share": 0.08072248846251254,
+      "max_zero_per_source": 2751,
+      "max_nonzero_per_source": 17040
+    },
+    "misses": {
+      "sources": 378,
+      "set_bits": 4989587,
+      "zero_kernel_bits": 394913,
+      "nonzero_kernel_bits": 4594674,
+      "zero_share": 0.0791474324428054,
+      "max_zero_per_source": 2812,
+      "max_nonzero_per_source": 17370
+    }
+  },
+  {
+    "trace": "s2_32_679965.navsrc.txt",
+    "map": "br-gen-5001",
+    "range_px": 1300,
+    "hits": {
+      "sources": 248,
+      "set_bits": 3553735,
+      "zero_kernel_bits": 368277,
+      "nonzero_kernel_bits": 3185458,
+      "zero_share": 0.10363096854436248,
+      "max_zero_per_source": 3131,
+      "max_nonzero_per_source": 20574
+    },
+    "misses": {
+      "sources": 306,
+      "set_bits": 4598767,
+      "zero_kernel_bits": 393633,
+      "nonzero_kernel_bits": 4205134,
+      "zero_share": 0.08559533457555037,
+      "max_zero_per_source": 3131,
+      "max_nonzero_per_source": 21141
+    }
+  },
+  {
+    "trace": "smoke_s2_16_randomized.navsrc.txt",
+    "map": "br-gen-5001",
+    "range_px": 1300,
+    "hits": {
+      "sources": 33,
+      "set_bits": 497281,
+      "zero_kernel_bits": 47583,
+      "nonzero_kernel_bits": 449698,
+      "zero_share": 0.0956863423295883,
+      "max_zero_per_source": 3110,
+      "max_nonzero_per_source": 20356
+    },
+    "misses": {
+      "sources": 104,
+      "set_bits": 1451680,
+      "zero_kernel_bits": 131361,
+      "nonzero_kernel_bits": 1320319,
+      "zero_share": 0.0904889507329439,
+      "max_zero_per_source": 3110,
+      "max_nonzero_per_source": 20538
+    }
+  }
+]

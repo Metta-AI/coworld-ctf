@@ -1,0 +1,7 @@
+# C5, A6 follow-up and C8 documentation audit
+
+These are frozen diagnostics and isolated experiments. Primary runtime source and viewer remain at retained C2; A6 lazy standability is not integrated and C8 zero omission is rejected. No production memory cap, budget, API, gameplay, config or build workflow changed. Canonical user documentation therefore remains applicable; reports and scoreboard must carry the completed native evidence and remaining failures.
+
+Updated C5_NATIVE_STATUS.md with both-host completed attribution; independently checked six traced/counted mask/pop pairs per host. The traced stdout starts with Fluffy messages before its JSON document; raw_decode from the first opening brace reads it without modifying the original. C5 timings include Fluffy overhead and nested events and do not gate acceptance. Updated A6_NATIVE_STATUS.md from its76row m5a summary (62time passes,76memory,14failures;0/11tickmaps); the isolated arm omits C2/V1/H1. Updated C8_ROOT_RESULT.md after complete quality and clean host restoration; all27trace totals regress and fullquality is exact. Kept rawJSON, traces, hashes, exits, snapshots and runners. C3/C6 runners omitted from the earlier file-prefix staging are included here as evidence only.
+
+No new fixture recording or viewer rebuild is necessary for this evidence checkpoint. Final integrated B/GV/fixtures/full suites/containment/Docker and fleet qualification remain open.

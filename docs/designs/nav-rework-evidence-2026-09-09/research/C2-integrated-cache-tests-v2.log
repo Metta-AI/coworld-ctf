@@ -1,0 +1,28 @@
+Hint: used config file '/Users/jamesboggs/.nimby/nim/config/nim.cfg' [Conf]
+Hint: used config file '/Users/jamesboggs/.nimby/nim/config/config.nims' [Conf]
+Hint: used config file '/Users/jamesboggs/coding/coworlds/coworld-ctf-worktrees/nav-throughput-research/nim.cfg' [Conf]
+Hint: used config file '/Users/jamesboggs/coding/coworlds/coworld-ctf-worktrees/nav-throughput-research/tests/config.nims' [Conf]
+...............................................................................................................................................................................................................................
+/Users/jamesboggs/coding/coworlds/coworld-ctf-worktrees/nav-throughput-research/src/ctf/arena.nim(1373, 5) Hint: 'inside' is declared but not used [XDeclaredButNotUsed]
+/Users/jamesboggs/coding/coworlds/coworld-ctf-worktrees/nav-throughput-research/src/ctf/arena.nim(3702, 6) Hint: 'rectsNode' is declared but not used [XDeclaredButNotUsed]
+/Users/jamesboggs/coding/coworlds/coworld-ctf-worktrees/nav-throughput-research/src/ctf/arena.nim(3707, 6) Hint: 'rectsFromNode' is declared but not used [XDeclaredButNotUsed]
+........
+/Users/jamesboggs/coding/coworlds/coworld-ctf-worktrees/nav-throughput-research/src/shell/body_route_query.nim(3, 24) Warning: imported and not used: 'math' [UnusedImport]
+.
+/Users/jamesboggs/coding/coworlds/coworld-ctf-worktrees/nav-throughput-research/tests/test_shell_body_danger_source_cache.nim(5, 13) Warning: imported and not used: 'algorithm' [UnusedImport]
+/Users/jamesboggs/coding/coworlds/coworld-ctf-worktrees/nav-throughput-research/tests/test_shell_body_danger_source_cache.nim(6, 21) Warning: imported and not used: 'body_danger' [UnusedImport]
+CC: shell/body_nav.nim
+Hint:  [Link]
+Hint: mm: orc; threads: on; opt: speed; options: -d:release
+132150 lines; 1.911s; 342.84MiB peakmem; proj: /Users/jamesboggs/coding/coworlds/coworld-ctf-worktrees/nav-throughput-research/tests/test_shell_body_danger_source_cache.nim; out: /Users/jamesboggs/coding/coworlds/coworld-ctf-worktrees/nav-throughput-research/tests/test_shell_body_danger_source_cache [SuccessX]
+Hint: /Users/jamesboggs/coding/coworlds/coworld-ctf-worktrees/nav-throughput-research/tests/test_shell_body_danger_source_cache [Exec]
+
+[Suite] shared danger source visibility cache
+  [OK] hits reproduce the uncached raster byte for byte across seats and rebuilds
+  [OK] source order is preserved on hits
+  [OK] close floor stays exact-pixel while the kernel part is cached
+  [OK] eviction follows an independent LRU model with deterministic order
+  [OK] entries are sized by the live range and owned per system
+  [OK] ledger counts the shared cache by capacity
+  [OK] evicted sources remain exact across visit-generation rollover
+  [OK] scheduled rebuilds and empty selections leave the cache consistent

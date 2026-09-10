@@ -1,0 +1,61 @@
+Hint: used config file '/Users/jamesboggs/.nimby/nim/config/nim.cfg' [Conf]
+Hint: used config file '/Users/jamesboggs/.nimby/nim/config/config.nims' [Conf]
+Hint: used config file '/Users/jamesboggs/coding/coworlds/coworld-ctf-worktrees/nav-throughput-research/nim.cfg' [Conf]
+..............................................................................................................................................................................................................................
+/Users/jamesboggs/coding/coworlds/coworld-ctf-worktrees/nav-throughput-research/src/ctf/arena.nim(1373, 5) Hint: 'inside' is declared but not used [XDeclaredButNotUsed]
+/Users/jamesboggs/coding/coworlds/coworld-ctf-worktrees/nav-throughput-research/src/ctf/arena.nim(3702, 6) Hint: 'rectsNode' is declared but not used [XDeclaredButNotUsed]
+/Users/jamesboggs/coding/coworlds/coworld-ctf-worktrees/nav-throughput-research/src/ctf/arena.nim(3707, 6) Hint: 'rectsFromNode' is declared but not used [XDeclaredButNotUsed]
+...........
+/Users/jamesboggs/coding/coworlds/coworld-ctf-worktrees/nav-throughput-research/src/shell/body_route_query.nim(3, 24) Warning: imported and not used: 'math' [UnusedImport]
+..
+/Users/jamesboggs/coding/coworlds/coworld-ctf-worktrees/nav-throughput-research/src/shell/body.nim(1299, 6) Hint: 'enemyShootableWithoutPolicy' is declared but not used [XDeclaredButNotUsed]
+..............
+/Users/jamesboggs/coding/coworlds/coworld-ctf-worktrees/nav-throughput-research/src/shell/episode.nim(1434, 7) Hint: 'seatTeams' is declared but not used [XDeclaredButNotUsed]
+/Users/jamesboggs/coding/coworlds/coworld-ctf-worktrees/nav-throughput-research/src/shell/episode.nim(221, 3) Hint: 'ShellRuntimeState' is declared but not used [XDeclaredButNotUsed]
+/Users/jamesboggs/coding/coworlds/coworld-ctf-worktrees/nav-throughput-research/src/shell/episode.nim(274, 6) Hint: 'frameForSeat' is declared but not used [XDeclaredButNotUsed]
+/Users/jamesboggs/coding/coworlds/coworld-ctf-worktrees/nav-throughput-research/src/shell/episode.nim(285, 6) Hint: 'playZoneTicksToShrink' is declared but not used [XDeclaredButNotUsed]
+/Users/jamesboggs/coding/coworlds/coworld-ctf-worktrees/nav-throughput-research/src/shell/episode.nim(517, 6) Hint: 'rawBytes' is declared but not used [XDeclaredButNotUsed]
+/Users/jamesboggs/coding/coworlds/coworld-ctf-worktrees/nav-throughput-research/src/shell/episode.nim(592, 6) Hint: 'withContentSha' is declared but not used [XDeclaredButNotUsed]
+/Users/jamesboggs/coding/coworlds/coworld-ctf-worktrees/nav-throughput-research/src/shell/episode.nim(8, 19) Warning: imported and not used: 'math' [UnusedImport]
+..
+/Users/jamesboggs/coding/coworlds/coworld-ctf-worktrees/nav-throughput-research/tools/build_nav_route_corpus.nim(15, 3) Hint: 'DefaultOutput' is declared but not used [XDeclaredButNotUsed]
+/Users/jamesboggs/coding/coworlds/coworld-ctf-worktrees/nav-throughput-research/tools/build_nav_route_corpus.nim(155, 6) Hint: 'writeCorpus' is declared but not used [XDeclaredButNotUsed]
+/Users/jamesboggs/coding/coworlds/coworld-ctf-worktrees/nav-throughput-research/tools/build_nav_route_corpus.nim(6, 45) Warning: imported and not used: 'os' [UnusedImport]
+/Users/jamesboggs/coding/coworlds/coworld-ctf-worktrees/nav-throughput-research/tools/bench_body_nav_rework.nim(509, 56) Error: type mismatch
+Expression: name"].getStr()}"
+  [1] r"].getStr()}": string
+
+Expected one of (first mismatch at [position]):
+[1] proc name(map: BodyMap): string
+[1] proc name(zone: Timezone): string
+
+/Users/jamesboggs/coding/coworlds/coworld-ctf-worktrees/nav-throughput-research/tools/bench_body_nav_rework.nim(509, 56) Error: expression '' has no type (or is ambiguous)
+/Users/jamesboggs/coding/coworlds/coworld-ctf-worktrees/nav-throughput-research/tools/bench_body_nav_rework.nim(509, 18) Error: in expression '"configured:{poolIndex:02}:{spec["': identifier expected, but found '"configured:{poolIndex:02}:{spec["'
+/Users/jamesboggs/coding/coworlds/coworld-ctf-worktrees/nav-throughput-research/tools/bench_body_nav_rework.nim(509, 52) Error: attempting to call undeclared routine: '<Error>'
+/Users/jamesboggs/coding/coworlds/coworld-ctf-worktrees/nav-throughput-research/tools/bench_body_nav_rework.nim(509, 18) Error: in expression '"configured:{poolIndex:02}:{spec["': identifier expected, but found '"configured:{poolIndex:02}:{spec["'
+/Users/jamesboggs/coding/coworlds/coworld-ctf-worktrees/nav-throughput-research/tools/bench_body_nav_rework.nim(509, 52) Error: attempting to call undeclared routine: '<Error>'
+/Users/jamesboggs/coding/coworlds/coworld-ctf-worktrees/nav-throughput-research/tools/bench_body_nav_rework.nim(509, 52) Error: expression '"configured:{poolIndex:02}:{spec["' cannot be called
+/Users/jamesboggs/coding/coworlds/coworld-ctf-worktrees/nav-throughput-research/tools/bench_body_nav_rework.nim(509, 17) Error: type mismatch
+Expression: &
+  [1] : 
+
+Expected one of (first mismatch at [position]):
+[1] template `&`(pattern: string{lit}): string
+[2] proc `&`(x, y: char): string
+  missing parameter: y
+[2] proc `&`(x, y: string): string
+  missing parameter: y
+[2] proc `&`(x: char; y: string): string
+  missing parameter: y
+[2] proc `&`(x: string; y: char): string
+  missing parameter: y
+[2] proc `&`[T](x, y: sink seq[T]): seq[T]
+  missing parameter: y
+[2] proc `&`[T](x: sink T; y: sink seq[T]): seq[T]
+  missing parameter: y
+[2] proc `&`[T](x: sink seq[T]; y: sink T): seq[T]
+  missing parameter: y
+
+/Users/jamesboggs/coding/coworlds/coworld-ctf-worktrees/nav-throughput-research/tools/bench_body_nav_rework.nim(509, 17) Error: expression '' has no type (or is ambiguous)
+/Users/jamesboggs/coding/coworlds/coworld-ctf-worktrees/nav-throughput-research/tools/bench_body_nav_rework.nim(509, 9) Error: 'let' symbol requires an initialization
+/Users/jamesboggs/coding/coworlds/coworld-ctf-worktrees/nav-throughput-research/tools/bench_body_nav_rework.nim(516, 51) Error: expression 'label' has no type (or is ambiguous)

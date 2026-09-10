@@ -1,0 +1,5 @@
+# C4 count screen: exact ordered-source raster reuse
+
+Question only: do real recorded scheduled rebuilds reuse an entire ordered tuple of exact pixel source positions across seats? C2 caches per-origin visibility; a complete-raster cache could avoid repeated kernel/floor/max work but has much larger retained memory. Do not implement it from synthetic timing alone or normalize source order (float additions and floors must remain exact).
+
+Use all nine existing NAVSRC traces and the same changed=1 rebuild filter as the native trace tool. Simulate fully associative LRU capacities 1, 4, 8 and 16, key=(ordered exact pixel tuple). Count an empty source tuple separately; trivial zero rasters must not inflate useful reuse. Report per-trace and per-map/roster rates, with no timing claim. A capacity-8 screen must avoid at least 20% of nonempty rebuilds on at least two of three distinct maps at both 16 and 32 seats before source work is justified. Preserve all negative cases. Memory would require a separate measured decision within the user's up-to-4x allowance; this screen does not raise any cap.

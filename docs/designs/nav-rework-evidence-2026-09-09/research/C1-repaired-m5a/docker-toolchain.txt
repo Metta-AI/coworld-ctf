@@ -1,0 +1,12 @@
+Nim Compiler Version 2.2.4 [Linux: amd64]
+Compiled at 2026-09-09
+Copyright (c) 2006-2025 by Andreas Rumpf
+
+git hash: f7145dd26efeeeb6eeae6fff649db244d81b212d
+active boot switches: -d:release
+gcc (Debian 12.2.0-14+deb12u1) 12.2.0
+Copyright (C) 2022 Free Software Foundation, Inc.
+This is free software; see the source for copying conditions.  There is NO
+warranty; not even for MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+
+a2a3727a98729f7109589c0a2aaab965d1272693759e2a0e327b1caa0bc89c1a  ./ctf
