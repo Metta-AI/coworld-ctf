@@ -1,0 +1,272 @@
+[
+  {
+    "file": "parent-br-gen-5120-1300-r1.json",
+    "map": "br-gen-5120",
+    "range": 1300,
+    "exact": true,
+    "parent_ns": 45832.078125,
+    "candidate_ns": 42027.6328125,
+    "ratio": 0.9169916471576096
+  },
+  {
+    "file": "parent-br-gen-5120-1300-r2.json",
+    "map": "br-gen-5120",
+    "range": 1300,
+    "exact": true,
+    "parent_ns": 45710.35546875,
+    "candidate_ns": 41036.6796875,
+    "ratio": 0.8977545518226133
+  },
+  {
+    "file": "parent-br-gen-5120-1300-r3.json",
+    "map": "br-gen-5120",
+    "range": 1300,
+    "exact": true,
+    "parent_ns": 45774.84375,
+    "candidate_ns": 41680.51171875,
+    "ratio": 0.910554975269577
+  },
+  {
+    "file": "parent-br-gen-5120-1300-r4.json",
+    "map": "br-gen-5120",
+    "range": 1300,
+    "exact": true,
+    "parent_ns": 45642.015625,
+    "candidate_ns": 41597.0625,
+    "ratio": 0.9113765448433786
+  },
+  {
+    "file": "parent-br-gen-5120-1300-r5.json",
+    "map": "br-gen-5120",
+    "range": 1300,
+    "exact": true,
+    "parent_ns": 45877.4921875,
+    "candidate_ns": 41745.46484375,
+    "ratio": 0.9099334521847332
+  },
+  {
+    "file": "parent-br-gen-5120-331-r1.json",
+    "map": "br-gen-5120",
+    "range": 331,
+    "exact": true,
+    "parent_ns": 12823.59375,
+    "candidate_ns": 12154.24609375,
+    "ratio": 0.9478034263016168
+  },
+  {
+    "file": "parent-br-gen-5120-331-r2.json",
+    "map": "br-gen-5120",
+    "range": 331,
+    "exact": true,
+    "parent_ns": 12794.33984375,
+    "candidate_ns": 12095.48828125,
+    "ratio": 0.9453780678773054
+  },
+  {
+    "file": "parent-br-gen-5120-331-r3.json",
+    "map": "br-gen-5120",
+    "range": 331,
+    "exact": true,
+    "parent_ns": 12783.49609375,
+    "candidate_ns": 12102.109375,
+    "ratio": 0.9466979366401076
+  },
+  {
+    "file": "parent-br-gen-5120-331-r4.json",
+    "map": "br-gen-5120",
+    "range": 331,
+    "exact": true,
+    "parent_ns": 12760.4453125,
+    "candidate_ns": 12096.53125,
+    "ratio": 0.9479709331264766
+  },
+  {
+    "file": "parent-br-gen-5120-331-r5.json",
+    "map": "br-gen-5120",
+    "range": 331,
+    "exact": true,
+    "parent_ns": 12853.9609375,
+    "candidate_ns": 12240.37890625,
+    "ratio": 0.9522651395757752
+  },
+  {
+    "file": "parent-br-gen-5204-1300-r1.json",
+    "map": "br-gen-5204",
+    "range": 1300,
+    "exact": true,
+    "parent_ns": 47712.8125,
+    "candidate_ns": 44690.32421875,
+    "ratio": 0.9366524813172562
+  },
+  {
+    "file": "parent-br-gen-5204-1300-r2.json",
+    "map": "br-gen-5204",
+    "range": 1300,
+    "exact": true,
+    "parent_ns": 47639.64453125,
+    "candidate_ns": 44600.7578125,
+    "ratio": 0.9362109699043495
+  },
+  {
+    "file": "parent-br-gen-5204-1300-r3.json",
+    "map": "br-gen-5204",
+    "range": 1300,
+    "exact": true,
+    "parent_ns": 47740.73828125,
+    "candidate_ns": 43735.86328125,
+    "ratio": 0.9161120011088538
+  },
+  {
+    "file": "parent-br-gen-5204-1300-r4.json",
+    "map": "br-gen-5204",
+    "range": 1300,
+    "exact": true,
+    "parent_ns": 47853.1875,
+    "candidate_ns": 43931.57421875,
+    "ratio": 0.9180490687010139
+  },
+  {
+    "file": "parent-br-gen-5204-1300-r5.json",
+    "map": "br-gen-5204",
+    "range": 1300,
+    "exact": true,
+    "parent_ns": 47844.42578125,
+    "candidate_ns": 44506.69140625,
+    "ratio": 0.9302377587253218
+  },
+  {
+    "file": "parent-br-gen-5204-331-r1.json",
+    "map": "br-gen-5204",
+    "range": 331,
+    "exact": true,
+    "parent_ns": 12667.62109375,
+    "candidate_ns": 12061.078125,
+    "ratio": 0.9521186366199997
+  },
+  {
+    "file": "parent-br-gen-5204-331-r2.json",
+    "map": "br-gen-5204",
+    "range": 331,
+    "exact": true,
+    "parent_ns": 12652.625,
+    "candidate_ns": 12166.07421875,
+    "ratio": 0.961545467343733
+  },
+  {
+    "file": "parent-br-gen-5204-331-r3.json",
+    "map": "br-gen-5204",
+    "range": 331,
+    "exact": true,
+    "parent_ns": 12719.19140625,
+    "candidate_ns": 11972.84375,
+    "ratio": 0.9413211396533229
+  },
+  {
+    "file": "parent-br-gen-5204-331-r4.json",
+    "map": "br-gen-5204",
+    "range": 331,
+    "exact": true,
+    "parent_ns": 12689.5859375,
+    "candidate_ns": 12005.703125,
+    "ratio": 0.9461067669293287
+  },
+  {
+    "file": "parent-br-gen-5204-331-r5.json",
+    "map": "br-gen-5204",
+    "range": 331,
+    "exact": true,
+    "parent_ns": 12738.27734375,
+    "candidate_ns": 11963.3671875,
+    "ratio": 0.9391668013390988
+  },
+  {
+    "file": "parent-br-gen-5263-1300-r1.json",
+    "map": "br-gen-5263",
+    "range": 1300,
+    "exact": true,
+    "parent_ns": 39356.890625,
+    "candidate_ns": 36865.09765625,
+    "ratio": 0.936687250207536
+  },
+  {
+    "file": "parent-br-gen-5263-1300-r2.json",
+    "map": "br-gen-5263",
+    "range": 1300,
+    "exact": true,
+    "parent_ns": 39442.83203125,
+    "candidate_ns": 36780.12109375,
+    "ratio": 0.9324918926868544
+  },
+  {
+    "file": "parent-br-gen-5263-1300-r3.json",
+    "map": "br-gen-5263",
+    "range": 1300,
+    "exact": true,
+    "parent_ns": 39535.79296875,
+    "candidate_ns": 36631.203125,
+    "ratio": 0.9265326524234418
+  },
+  {
+    "file": "parent-br-gen-5263-1300-r4.json",
+    "map": "br-gen-5263",
+    "range": 1300,
+    "exact": true,
+    "parent_ns": 39330.77734375,
+    "candidate_ns": 36316.3125,
+    "ratio": 0.923356082759218
+  },
+  {
+    "file": "parent-br-gen-5263-1300-r5.json",
+    "map": "br-gen-5263",
+    "range": 1300,
+    "exact": true,
+    "parent_ns": 39482.48828125,
+    "candidate_ns": 36758.765625,
+    "ratio": 0.9310144123428138
+  },
+  {
+    "file": "parent-br-gen-5263-331-r1.json",
+    "map": "br-gen-5263",
+    "range": 331,
+    "exact": true,
+    "parent_ns": 12168.53515625,
+    "candidate_ns": 11716.57421875,
+    "ratio": 0.9628582297132237
+  },
+  {
+    "file": "parent-br-gen-5263-331-r2.json",
+    "map": "br-gen-5263",
+    "range": 331,
+    "exact": true,
+    "parent_ns": 12166.0859375,
+    "candidate_ns": 11760.07421875,
+    "ratio": 0.9666275808969478
+  },
+  {
+    "file": "parent-br-gen-5263-331-r3.json",
+    "map": "br-gen-5263",
+    "range": 331,
+    "exact": true,
+    "parent_ns": 12213.08984375,
+    "candidate_ns": 11819.62890625,
+    "ratio": 0.9677836696090996
+  },
+  {
+    "file": "parent-br-gen-5263-331-r4.json",
+    "map": "br-gen-5263",
+    "range": 331,
+    "exact": true,
+    "parent_ns": 12180.59375,
+    "candidate_ns": 11841.07421875,
+    "ratio": 0.9721261920216328
+  },
+  {
+    "file": "parent-br-gen-5263-331-r5.json",
+    "map": "br-gen-5263",
+    "range": 331,
+    "exact": true,
+    "parent_ns": 12204.87890625,
+    "candidate_ns": 11812.5078125,
+    "ratio": 0.9678512915397243
+  }
+]

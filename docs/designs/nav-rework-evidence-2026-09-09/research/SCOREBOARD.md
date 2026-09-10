@@ -84,3 +84,7 @@ G0 bed15e11; G1 9e4971f1; M1 5a6c4963; W1 da13e2c7; M2 d9962a8d; M3 f261aeca; W2
 - C4 rejected at trace-count screen: complete ordered-source raster reuse at capacity8 is only2.20–7.31% of nonempty rebuilds, fails20% threshold everywhere. No source implementation or memory-cap increase. C4_REPORT.md.
 
 - A5 native attribution: pocket work is about half of index construction on both m5a/m8i; no uniquely worse pixel-stage host scaling. A6 lazy screen improves m8i index time3.45–4.12%, direct loses11.1–11.7%; full m8i quality and76activation/memory rows pass. All retained ledgers equal A4. m5a follow-up pending, no integration. A6_NATIVE_STATUS.md.
+
+- C6 rejected at native micro gate:1300px replay gains6.90–8.94%, below preregistered10%; all27real-trace totals regress0.12–1.53%,24/27p95slower. Exact inputs/rasters/crafted indices. No primarysource or whole-body run. C6_NATIVE_REPORT.md.
+
+- C3 rejected: all 198 configured rows exact, median p95 gain1.25%, 0/11maps pass; recorded-trace p95 worsens23/27pairs. Source/viewer restored to C2; multi-range cache regression retained. C3_STATUS.md.

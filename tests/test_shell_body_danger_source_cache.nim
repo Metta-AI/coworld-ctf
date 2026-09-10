@@ -199,3 +199,16 @@ suite "shared danger source visibility cache":
     check floatBytes(nav.seats[1].dangerSnapshot) ==
       floatBytes(rasterOf(map, [a], 331))
     check nav.seats[0].dangerSnapshot.allIt(it == 0'f32)
+
+  test "cached sparse boxes preserve border indices across word and row sizes":
+    let map = wallMap()
+    let points = [(x: 8, y: 8), (x: 472, y: 280), (x: 240, y: 144)]
+    for range in [8, 248, 256, 504, 512, 520, 1300, 1600]:
+      let nav = newBodyNavSystem(map, 1, range, prepareRouteQueries = false)
+      nav.seats[0].rebuildDanger(map, input((8, 8), points), 1)
+      # Reversing forces a new rebuild entirely from cached visibility. Large
+      # boxes exceed the map width; border origins leave long empty word gaps.
+      let reversePoints = [points[2], points[1], points[0]]
+      nav.seats[0].rebuildDanger(map, input((8, 8), reversePoints), 2)
+      check floatBytes(nav.seats[0].dangerSnapshot) ==
+        floatBytes(rasterOf(map, reversePoints, range))

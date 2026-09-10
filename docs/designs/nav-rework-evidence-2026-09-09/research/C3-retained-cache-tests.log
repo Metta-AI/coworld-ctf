@@ -1,0 +1,69 @@
+Hint: used config file '/Users/jamesboggs/.nimby/nim/config/nim.cfg' [Conf]
+Hint: used config file '/Users/jamesboggs/.nimby/nim/config/config.nims' [Conf]
+Hint: used config file '/Users/jamesboggs/coding/coworlds/coworld-ctf-worktrees/nav-throughput-research/nim.cfg' [Conf]
+Hint: used config file '/Users/jamesboggs/coding/coworlds/coworld-ctf-worktrees/nav-throughput-research/tests/config.nims' [Conf]
+..............................................................................................................................................................................................................................
+/Users/jamesboggs/coding/coworlds/coworld-ctf-worktrees/nav-throughput-research/src/ctf/arena.nim(1373, 5) Hint: 'inside' is declared but not used [XDeclaredButNotUsed]
+/Users/jamesboggs/coding/coworlds/coworld-ctf-worktrees/nav-throughput-research/src/ctf/arena.nim(3702, 6) Hint: 'rectsNode' is declared but not used [XDeclaredButNotUsed]
+/Users/jamesboggs/coding/coworlds/coworld-ctf-worktrees/nav-throughput-research/src/ctf/arena.nim(3707, 6) Hint: 'rectsFromNode' is declared but not used [XDeclaredButNotUsed]
+........
+/Users/jamesboggs/coding/coworlds/coworld-ctf-worktrees/nav-throughput-research/src/shell/body_route_query.nim(3, 24) Warning: imported and not used: 'math' [UnusedImport]
+.
+/Users/jamesboggs/coding/coworlds/coworld-ctf-worktrees/nav-throughput-research/tests/test_shell_body_danger_source_cache.nim(5, 13) Warning: imported and not used: 'algorithm' [UnusedImport]
+/Users/jamesboggs/coding/coworlds/coworld-ctf-worktrees/nav-throughput-research/tests/test_shell_body_danger_source_cache.nim(6, 21) Warning: imported and not used: 'body_danger' [UnusedImport]
+CC: system/exceptions.nim
+CC: std/private/digitsutils.nim
+CC: std/assertions.nim
+CC: system/dollars.nim
+CC: std/syncio.nim
+CC: system.nim
+CC: algorithm.nim
+CC: std/exitprocs.nim
+CC: math.nim
+CC: unicode.nim
+CC: strutils.nim
+CC: streams.nim
+CC: posix.nim
+CC: times.nim
+CC: hashes.nim
+CC: sets.nim
+CC: std/envvars.nim
+CC: std/cmdline.nim
+CC: strformat.nim
+CC: terminal.nim
+CC: unittest.nim
+CC: heapqueue.nim
+CC: tables.nim
+CC: pixie/fontformats/opentype.nim
+CC: pixie/fileformats/jpeg.nim
+CC: pixie/fileformats/png.nim
+CC: random.nim
+CC: bitworld/spriteprotocol.nim
+CC: bitworld/pixelfonts.nim
+CC: ctf/sim_types.nim
+CC: ctf/arena.nim
+CC: shell/body_map.nim
+CC: shell/body_danger.nim
+CC: shell/body_cache.nim
+CC: ctf/zone_field.nim
+CC: shell/body_route_index.nim
+CC: shell/body_hazard.nim
+CC: shell/body_route_query.nim
+CC: shell/body_safety_query.nim
+CC: shell/body_nav.nim
+CC: test_shell_body_danger_source_cache.nim
+Hint:  [Link]
+Hint: mm: orc; threads: on; opt: speed; options: -d:release
+130727 lines; 2.754s; 342.82MiB peakmem; proj: /Users/jamesboggs/coding/coworlds/coworld-ctf-worktrees/nav-throughput-research/tests/test_shell_body_danger_source_cache.nim; out: /Users/jamesboggs/coding/coworlds/coworld-ctf-worktrees/nav-throughput-research/tests/test_shell_body_danger_source_cache [SuccessX]
+Hint: /Users/jamesboggs/coding/coworlds/coworld-ctf-worktrees/nav-throughput-research/tests/test_shell_body_danger_source_cache [Exec]
+
+[Suite] shared danger source visibility cache
+  [OK] hits reproduce the uncached raster byte for byte across seats and rebuilds
+  [OK] source order is preserved on hits
+  [OK] close floor stays exact-pixel while the kernel part is cached
+  [OK] eviction follows an independent LRU model with deterministic order
+  [OK] entries are sized by the live range and owned per system
+  [OK] ledger counts the shared cache by capacity
+  [OK] evicted sources remain exact across visit-generation rollover
+  [OK] scheduled rebuilds and empty selections leave the cache consistent
+  [OK] cached sparse boxes preserve border indices across word and row sizes

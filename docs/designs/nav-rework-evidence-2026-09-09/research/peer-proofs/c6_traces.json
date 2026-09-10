@@ -1,0 +1,218 @@
+[
+  {
+    "trace": "s2_16_679962.navsrc.txt",
+    "map": "br-gen-5204",
+    "diameter": 327,
+    "words_per_entry": 1671,
+    "hits": {
+      "sources": 75,
+      "words": 125325,
+      "full_words": 3418,
+      "set_bits": 1146869,
+      "full_word_bits": 218752,
+      "full_word_bit_share": 0.19073843656075803,
+      "row_spans_per_full_word": 1.0
+    },
+    "misses": {
+      "sources": 121,
+      "words": 202191,
+      "full_words": 4713,
+      "set_bits": 1676981,
+      "full_word_bits": 301632,
+      "full_word_bit_share": 0.1798660807725311,
+      "row_spans_per_full_word": 1.0002121790791427
+    }
+  },
+  {
+    "trace": "s2_16_679963.navsrc.txt",
+    "map": "br-gen-5263",
+    "diameter": 327,
+    "words_per_entry": 1671,
+    "hits": {
+      "sources": 48,
+      "words": 80208,
+      "full_words": 2659,
+      "set_bits": 709011,
+      "full_word_bits": 170176,
+      "full_word_bit_share": 0.24001884314911898,
+      "row_spans_per_full_word": 1.0
+    },
+    "misses": {
+      "sources": 86,
+      "words": 143706,
+      "full_words": 2847,
+      "set_bits": 903017,
+      "full_word_bits": 182208,
+      "full_word_bit_share": 0.20177693221722293,
+      "row_spans_per_full_word": 1.0
+    }
+  },
+  {
+    "trace": "s2_16_679964.navsrc.txt",
+    "map": "br-gen-5204",
+    "diameter": 327,
+    "words_per_entry": 1671,
+    "hits": {
+      "sources": 77,
+      "words": 128667,
+      "full_words": 3297,
+      "set_bits": 1069396,
+      "full_word_bits": 211008,
+      "full_word_bit_share": 0.19731511993686154,
+      "row_spans_per_full_word": 1.0
+    },
+    "misses": {
+      "sources": 112,
+      "words": 187152,
+      "full_words": 3724,
+      "set_bits": 1463233,
+      "full_word_bits": 238336,
+      "full_word_bit_share": 0.16288314984694852,
+      "row_spans_per_full_word": 1.0
+    }
+  },
+  {
+    "trace": "s2_16_679965.navsrc.txt",
+    "map": "br-gen-5001",
+    "diameter": 327,
+    "words_per_entry": 1671,
+    "hits": {
+      "sources": 29,
+      "words": 48459,
+      "full_words": 2214,
+      "set_bits": 466193,
+      "full_word_bits": 141696,
+      "full_word_bit_share": 0.3039427876437441,
+      "row_spans_per_full_word": 1.0
+    },
+    "misses": {
+      "sources": 92,
+      "words": 153732,
+      "full_words": 6082,
+      "set_bits": 1345508,
+      "full_word_bits": 389248,
+      "full_word_bit_share": 0.2892944523555416,
+      "row_spans_per_full_word": 1.0
+    }
+  },
+  {
+    "trace": "s2_32_679962.navsrc.txt",
+    "map": "br-gen-5204",
+    "diameter": 327,
+    "words_per_entry": 1671,
+    "hits": {
+      "sources": 375,
+      "words": 626625,
+      "full_words": 15231,
+      "set_bits": 5246630,
+      "full_word_bits": 974784,
+      "full_word_bit_share": 0.18579240388592297,
+      "row_spans_per_full_word": 1.0000656555708751
+    },
+    "misses": {
+      "sources": 382,
+      "words": 638322,
+      "full_words": 14322,
+      "set_bits": 5193956,
+      "full_word_bits": 916608,
+      "full_word_bit_share": 0.1764758885134953,
+      "row_spans_per_full_word": 1.0008378718056137
+    }
+  },
+  {
+    "trace": "s2_32_679963.navsrc.txt",
+    "map": "br-gen-5263",
+    "diameter": 327,
+    "words_per_entry": 1671,
+    "hits": {
+      "sources": 286,
+      "words": 477906,
+      "full_words": 14967,
+      "set_bits": 4180051,
+      "full_word_bits": 957888,
+      "full_word_bit_share": 0.22915701267759653,
+      "row_spans_per_full_word": 1.0
+    },
+    "misses": {
+      "sources": 244,
+      "words": 407724,
+      "full_words": 9811,
+      "set_bits": 2917274,
+      "full_word_bits": 627904,
+      "full_word_bit_share": 0.21523655302861508,
+      "row_spans_per_full_word": 1.0001019264091326
+    }
+  },
+  {
+    "trace": "s2_32_679964.navsrc.txt",
+    "map": "br-gen-5204",
+    "diameter": 327,
+    "words_per_entry": 1671,
+    "hits": {
+      "sources": 295,
+      "words": 492945,
+      "full_words": 10162,
+      "set_bits": 4082778,
+      "full_word_bits": 650368,
+      "full_word_bit_share": 0.1592954601009411,
+      "row_spans_per_full_word": 1.0
+    },
+    "misses": {
+      "sources": 378,
+      "words": 631638,
+      "full_words": 12744,
+      "set_bits": 4989587,
+      "full_word_bits": 815616,
+      "full_word_bit_share": 0.16346362935449366,
+      "row_spans_per_full_word": 1.0
+    }
+  },
+  {
+    "trace": "s2_32_679965.navsrc.txt",
+    "map": "br-gen-5001",
+    "diameter": 327,
+    "words_per_entry": 1671,
+    "hits": {
+      "sources": 248,
+      "words": 414408,
+      "full_words": 15075,
+      "set_bits": 3553735,
+      "full_word_bits": 964800,
+      "full_word_bit_share": 0.2714890108575907,
+      "row_spans_per_full_word": 1.0
+    },
+    "misses": {
+      "sources": 306,
+      "words": 511326,
+      "full_words": 21381,
+      "set_bits": 4598767,
+      "full_word_bits": 1368384,
+      "full_word_bit_share": 0.2975545401626132,
+      "row_spans_per_full_word": 1.0
+    }
+  },
+  {
+    "trace": "smoke_s2_16_randomized.navsrc.txt",
+    "map": "br-gen-5001",
+    "diameter": 327,
+    "words_per_entry": 1671,
+    "hits": {
+      "sources": 33,
+      "words": 55143,
+      "full_words": 2334,
+      "set_bits": 497281,
+      "full_word_bits": 149376,
+      "full_word_bit_share": 0.3003854963290373,
+      "row_spans_per_full_word": 1.0
+    },
+    "misses": {
+      "sources": 104,
+      "words": 173784,
+      "full_words": 6680,
+      "set_bits": 1451680,
+      "full_word_bits": 427520,
+      "full_word_bit_share": 0.2945001653256916,
+      "row_spans_per_full_word": 1.0
+    }
+  }
+]

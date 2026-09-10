@@ -1,0 +1,9 @@
+# C6 proposal review: contiguous adds for full visibility words
+
+After finishing C5 v2, review this proposal only; do not implement yet. C3's first full m5a pair improves worst configured p95 only6.480→6.357 ms (still0/11), with exact66rows; recorded-trace p95 tradeoff remains. Root will decide after allpairs.
+
+C2 hit bitmaps already identify exact independent cells. For a word equal to high(uint64), every one of its 64 bits is visible, so replace 64 trailing-zero scans and kernelIndex divisions with contiguous add spans split only at kernel-row boundaries. For sparse words keep C2's exact existing loop unchanged. No bitmap change, no new allocation, no altered source order or floor interleaving.
+
+Full-word arm sketch: k=wordIndex*64; remaining=64. While remaining>0, ky=k div diameter; kx=k-ky*diameter; n=min(remaining,diameter-kx); grid=(origin.y-radius+ky)*gridW+origin.x-radius+kx. For offset in0..<n add values[grid+offset]+=kernel[k+offset]. Then k+=n,remaining-=n. A full word cannot include padding or out-of-grid cells because C2 only records valid cells. Cases diameter<64 may cross several rows. Negative origin-base terms must still yield exactly the old in-grid indices. This gives the compiler a plain contiguous pointwise-add loop without changing FP reduction order (there is no reduction across cells).
+
+Review correctness, existing code/pattern reuse, and the smallest diagnostic to count the share of visible cells in full words on the nine actual traces and configured map3. A count screen should precede production source work; sparse real traces may falsify this just as C4 did. Suggest a pre-registered useful full-word fraction and paired native micro/wholebody validation if justified. End C6 REVIEW READY and wait. Own only C6_REVIEW.md and a diagnostic proposal, no source edits.

@@ -1,6 +1,6 @@
 # Navigation throughput research ledger
 
-Status: preflight and inherited Phase 10 baseline preparation; no selected production budget.
+Status: active native optimization and qualification. B=1,024 remains provisional; Phase 10/11 and final fleet/Docker gates are incomplete. The entries below are chronological; see the final continuation and SCOREBOARD.md for current state.
 
 - Source baseline: 20234cc7; james/s2-nav-rework, fresh origin/main comparison 89 ahead / 0 behind, clean main worktree.
 - Isolated local worktree: ../coworld-ctf-worktrees/nav-throughput-research, branch james/nav-throughput-research.
@@ -184,3 +184,23 @@ Primary consolidated through W7 addaad7a with newer notes restored from verified
 - A2diagnostic Fluffy profile DONE on native m8i:map48 index mean300.175ms, pockets133.170,validation58.099,sidefields51.555,legalmoves49.324. A2_PROFILE_REPORT.md; no productionA2optimization. m8i jobs finished and restored sources.
 - C1 current native-vs-production-Docker comparison source872e5499 is still running on ownedm5a:initialattemptfailedmissingBuildx, packageinstalled0.30.1, repairedPID40142,~/run_c1_repaired.sh,~/nav-throughput-results-20260909/C1-repaired,~/c1-repaired-launch.log. Do not overlap m5a timing. Initial and repaired evidence kept separate. Three331pxpairs and first1300pair fetched; initial1300Docker p95/max5.133279/5.157380ms stillfail. Waitforallpairs andDockerquality/activationbeforefinalC1report.
 - Main merged through25a8cc30; GV65 and viewer stamps current. Final ninefixtures/fullqualification/containment/Phase10/11sentinels stillpending, no remote publication/Asana/prod writes. Usermemoryruling implemented32MiBnon-colossal shared,256MiBtotal/colossal unchanged.
+
+## C2 integration and native activation attribution
+
+- Local checkpoint b971d898 retains C2 shared visibility caching over V1+A4+H1. Full 3,072-case quality has H1 hash ee2488d32085fb4de3457c4cf841298c14b87add2225964d934f80f2a7c1013d and 31,814,084 pops. All 76 integrated memory rows pass, maximum non-colossal shared bound 32,464,268 B, maximum total 229,158,347 B, including the cache owner allowance corrected by 16 B. C2_STATUS.md preserves all results and limits. No cap increase beyond 32 MiB is needed.
+- Isolated C2 m5a short workloads fit B1024 headroom but configured timing passes 0/11, worst p95/max 6.484532/6.680327 ms. All 27 recorded-trace native pairs improve total/p95 with exact raster chains. Changing-source diagnostic regresses up to 1.08%; this negative prediction result is retained.
+- A5 real native Fluffy profiles are complete on m5a and m8i, with identical source hashes and counters. Map48 index construction means 840.828/252.443 ms, pockets 445.193/133.749 ms. Pixel work does not show uniquely worse host scaling. A5_NATIVE_REVIEW.md and raw A5-m5a/A5-m8i traces support the next exact activation screen.
+- C3 row-cursor arithmetic is provisional in root source for regression tests. All local cache tests and full quality remain exact; m8i recorded-trace totals are flat while 23/27 p95 pairs regress up to 8.06%. Repeated-source diagnostics improve 5–13%. Native m5a full paired configured runs continue under run_c3.sh. Do not describe C3 as retained or choose B from partial results.
+- Claude owns the isolated nav-validation-symmetry A6 direct/eager/lazy standability screen and A6 artifacts. Root owns primary source, C3 and native hosts. A6_ROOT_REVIEW.md specifies the scope and proof obligations. Protected original checkout and m6i ~/metta remain untouched; no remote publication or external task writes.
+
+## Native follow-up queue and latest results
+
+- A5/A6 evidence checkpoint138683ec: native m8i lazy construction improves3.45–4.12%, direct loses11.1–11.7%. Full lazy m8i quality, all76activation/memory rows and7focused index tests pass; all76retained ledgers equal A4. No source integration. m5a A6 runner58413 waits for C3 PID56947 and its DONE, then runs the same frozen three-arm screen.
+- C3 m5a first pair is complete:66 exact masks/pop rows, worst p95 6.479911→6.357101ms,0/11maps pass. Runner56947 continues allthreepairs; root source still provisional C3. C3 local9cache+17nav tests/fullH1quality/both explicit server shapes/viewer checks pass. m8i realtrace tradeoff is still23/27p95 regressions, flat totals.
+- C5 v2 m8i native trace is DONE, raw C5-v2-m8i/. It proves first fills, not recurring danger work:10/120measured samples at16seats,26/120at32, none aftertick31. Mean measured-fill bitmap replay731–740us, weightpack421–424us. All6traced/count masks/pop rows agree. Profiled timing is attribution only. m5a runner59153 waits for A6PID58413 and A6-screen/DONE, then runs the same C5v2snapshot.
+- C6 read-only count screen sees16–30% of replayed cells in full64-bit words; no numeric count gate had been preregistered. Root authorized a C2-based, full-word-span micro screen in peer nav-source-cache only. C6_ROOT_REVIEW.md defines exactness, five paired native micro runs and a10%replay threshold before whole-body work. Peer freezes C5v2 first; no primary/native source edits authorized for peer. Root owns native runners.
+- Current retained checkpoints: b971d898 C2,8d965a99 corrected canonical memory/latency guidance,63d2020d C4negative full-raster-reuse screen,138683ec A5/A6evidence. Upstream remains2bb289f8 at lastfetch, behind0. No completed P10/P11 or finalB claim.
+
+### C3 decision after final peer review
+
+C3 rejected: 179/198 configured p95 rows improved about 1.25% median, but 0/11 maps passed and 23/27 recorded-trace p95 pairs slowed. Restored only the owned C3 source and viewer to retained HEAD; preserved the multi-range cache regression test and all evidence. C8 remains isolated pending native measurement.

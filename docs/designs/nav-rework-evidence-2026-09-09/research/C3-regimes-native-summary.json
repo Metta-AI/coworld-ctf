@@ -1,0 +1,170 @@
+[
+  {
+    "file": "parent-regimes-r1.json",
+    "map": "br-gen-5204",
+    "regime": "changing_sources",
+    "exact": true,
+    "total_ratio": 0.9760907191064173
+  },
+  {
+    "file": "parent-regimes-r1.json",
+    "map": "br-gen-5204",
+    "regime": "repeated_sources",
+    "exact": true,
+    "total_ratio": 0.8835169563194856
+  },
+  {
+    "file": "parent-regimes-r1.json",
+    "map": "br-gen-5263",
+    "regime": "changing_sources",
+    "exact": true,
+    "total_ratio": 0.9805264088050561
+  },
+  {
+    "file": "parent-regimes-r1.json",
+    "map": "br-gen-5263",
+    "regime": "repeated_sources",
+    "exact": true,
+    "total_ratio": 0.8797948187735761
+  },
+  {
+    "file": "parent-regimes-r1.json",
+    "map": "br-gen-5001",
+    "regime": "changing_sources",
+    "exact": true,
+    "total_ratio": 0.9741266964266551
+  },
+  {
+    "file": "parent-regimes-r1.json",
+    "map": "br-gen-5001",
+    "regime": "repeated_sources",
+    "exact": true,
+    "total_ratio": 0.8736294804197783
+  },
+  {
+    "file": "parent-regimes-r1.json",
+    "map": "colossal",
+    "regime": "changing_sources",
+    "exact": true,
+    "total_ratio": 0.9892797882961458
+  },
+  {
+    "file": "parent-regimes-r1.json",
+    "map": "colossal",
+    "regime": "repeated_sources",
+    "exact": true,
+    "total_ratio": 0.8908146865662171
+  },
+  {
+    "file": "parent-regimes-r2.json",
+    "map": "br-gen-5204",
+    "regime": "changing_sources",
+    "exact": true,
+    "total_ratio": 0.9736349064043373
+  },
+  {
+    "file": "parent-regimes-r2.json",
+    "map": "br-gen-5204",
+    "regime": "repeated_sources",
+    "exact": true,
+    "total_ratio": 0.9349802331655714
+  },
+  {
+    "file": "parent-regimes-r2.json",
+    "map": "br-gen-5263",
+    "regime": "changing_sources",
+    "exact": true,
+    "total_ratio": 0.9753257184641697
+  },
+  {
+    "file": "parent-regimes-r2.json",
+    "map": "br-gen-5263",
+    "regime": "repeated_sources",
+    "exact": true,
+    "total_ratio": 0.9377994452988792
+  },
+  {
+    "file": "parent-regimes-r2.json",
+    "map": "br-gen-5001",
+    "regime": "changing_sources",
+    "exact": true,
+    "total_ratio": 0.9770841216650222
+  },
+  {
+    "file": "parent-regimes-r2.json",
+    "map": "br-gen-5001",
+    "regime": "repeated_sources",
+    "exact": true,
+    "total_ratio": 0.9390755960024649
+  },
+  {
+    "file": "parent-regimes-r2.json",
+    "map": "colossal",
+    "regime": "changing_sources",
+    "exact": true,
+    "total_ratio": 0.990228069049908
+  },
+  {
+    "file": "parent-regimes-r2.json",
+    "map": "colossal",
+    "regime": "repeated_sources",
+    "exact": true,
+    "total_ratio": 0.9526921060629792
+  },
+  {
+    "file": "parent-regimes-r3.json",
+    "map": "br-gen-5204",
+    "regime": "changing_sources",
+    "exact": true,
+    "total_ratio": 0.9833988666024016
+  },
+  {
+    "file": "parent-regimes-r3.json",
+    "map": "br-gen-5204",
+    "regime": "repeated_sources",
+    "exact": true,
+    "total_ratio": 0.8809107167297655
+  },
+  {
+    "file": "parent-regimes-r3.json",
+    "map": "br-gen-5263",
+    "regime": "changing_sources",
+    "exact": true,
+    "total_ratio": 0.9850085737181444
+  },
+  {
+    "file": "parent-regimes-r3.json",
+    "map": "br-gen-5263",
+    "regime": "repeated_sources",
+    "exact": true,
+    "total_ratio": 0.8837801805514909
+  },
+  {
+    "file": "parent-regimes-r3.json",
+    "map": "br-gen-5001",
+    "regime": "changing_sources",
+    "exact": true,
+    "total_ratio": 0.9873367794990725
+  },
+  {
+    "file": "parent-regimes-r3.json",
+    "map": "br-gen-5001",
+    "regime": "repeated_sources",
+    "exact": true,
+    "total_ratio": 0.8784396751471638
+  },
+  {
+    "file": "parent-regimes-r3.json",
+    "map": "colossal",
+    "regime": "changing_sources",
+    "exact": true,
+    "total_ratio": 0.9898793406519785
+  },
+  {
+    "file": "parent-regimes-r3.json",
+    "map": "colossal",
+    "regime": "repeated_sources",
+    "exact": true,
+    "total_ratio": 0.8866959253228452
+  }
+]
