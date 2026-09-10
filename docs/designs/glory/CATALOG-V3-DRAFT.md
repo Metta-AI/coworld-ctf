@@ -960,8 +960,8 @@ CONDITION 1" already said, correctly, before this addendum: `/tmp/
 glory-catalog/attribution-tool/reprice_v3.py`, "not committed"). An S5
 worker's independent `git show --stat` check on #491/#494 (below, kept for
 the record) correctly found it absent from the COMMITTED repo, but the
-coordinator separately located and preserved the original file at
-`~/.ctf/knowledge/glory-gradient/00s-s4-repricer-recovered/reprice_v3.py`
+coordinator separately located and preserved the original file
+(internal tracking, not public)
 (plus `reprice_v3_baseline_check.py` and the two attribution tools it
 reuses). **It is now landed verbatim** at `tools/glory/reprice_v3.py` /
 `tools/glory/reprice_v3_baseline_check.py` (this PR, epic 25d9108e S5) —
@@ -1025,4 +1025,4 @@ re-run against these corrected, verbatim values is reported in
 `docs/designs/glory/RIG-SIMULATION.md`.
 
 ---
-Source of truth for this draft, kept in sync: `~/.ctf/knowledge/glory-gradient/04-catalog-v3-draft-2026-09-09.md`.
+Source of truth for this draft, kept in sync with internal tracking (not public).

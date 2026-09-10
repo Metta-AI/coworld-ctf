@@ -31,7 +31,7 @@ factors using the SAME cached extraction the census produced (no
 re-download, no re-simulate):
 
 - `tools/glory/census_achievements.py` re-walks the 305 already-cached
-  JSONL event streams (`~/.ctf/scout/glory_census_replays/*.jsonl`,
+  JSONL event streams (internal tracking, not public,
   produced by the census's own era-matched `extract_events` binaries) and
   keeps two running products per seat — `deed_product` (glory_deed events,
   `amount>1`) and `ach_product` (achievement events, `amount>1`) — instead
@@ -200,8 +200,8 @@ No new constants proposed — this is a measurement, not a redesign.
   `tools/glory/census_achievements.py`, `tools/glory/census_achievements_analyze.py`.
 - Reused unmodified from `maxwell/glory-census`: `tools/glory/{discover_cohort,census_decode,census_analyze}.py`.
 - Reused cached data (not committed, produced by the census, `/tmp` is
-  ephemeral): episode replay cache
-  `~/.ctf/scout/glory_census_replays/*.{replay,jsonl}` (612 files, 305
+  ephemeral): episode replay cache (internal tracking, not public;
+  612 files, 305
   episodes' worth); validated ground truth
   `/tmp/glory-census/seat_episode_rows_final.json` (4,880 rows).
 - This addendum's raw output: `/tmp/glory-achv/achievement_rows.json`

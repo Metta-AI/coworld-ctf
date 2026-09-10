@@ -161,7 +161,7 @@ GLORYVERSION 16, main `9b6019aa`): 16/16 players connected, the match
 completed with a winner, and a replay was written, in 18s wall time. Getting
 the `--run` argv right the first time is the fix for a real Stranger Walk run
 that lost 12.1 minutes / 18 calls rediscovering the one-token-per-flag rule
-(`~/.ctf/knowledge/stranger-walk/STATUS-2026-09-09.md` punchlist #1). See
+(internal tracking, not public). See
 [`docs/PROTOCOL.md`](docs/PROTOCOL.md#season-2-quick-reference-read-this-first)
 for the wire facts (connect, observe, act, tick rate) this loop rests on.
 

@@ -1,6 +1,6 @@
 # Endcard v1 — Standings Delta (Phase 2, epic 16d081ab) — BLOCKED, doc only
 
-Owner decision (`~/.ctf/knowledge/stranger-walk/00-owner-decisions-2026-09-09.md`):
+Owner decision (internal tracking, not public):
 endcard v1 shows each seat's change in SEASON STANDING caused by the episode just
 played, before the pact story (v2). This doc is the STEP 1 data-availability check
 from the S2-lead task brief — no client/bundle code changes ship with it.

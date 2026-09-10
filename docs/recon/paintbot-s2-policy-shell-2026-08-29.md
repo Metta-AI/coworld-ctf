@@ -18,9 +18,9 @@ citations, so design work can start from verified ground.
 
 | Repo | Path | State |
 |---|---|---|
-| `Metta-AI/coworld-ctf` (public, push) | `/Users/jamesboggs/coding/coworlds/coworld-ctf` | `main` @ `4f8f77c`, clean |
-| `Metta-AI/coworld-paintbot-player` (private, write) | `/Users/jamesboggs/coding/coworlds/coworld-paintbot-player` | fresh clone, `main` @ `5455d1b` |
-| `personal_paintbot` (James's lab) | `/Users/jamesboggs/coding/personal_labs/personal_paintbot` | `main`, 2 ahead of origin (local work) |
+| `Metta-AI/coworld-ctf` (public, push) | `/Users/<host-user>/coding/coworlds/coworld-ctf` | `main` @ `4f8f77c`, clean |
+| `Metta-AI/coworld-paintbot-player` (private, write) | `/Users/<host-user>/coding/coworlds/coworld-paintbot-player` | fresh clone, `main` @ `5455d1b` |
+| `personal_paintbot` (James's lab) | `/Users/<host-user>/coding/personal_labs/personal_paintbot` | `main`, 2 ahead of origin (local work) |
 
 Citation convention: repo-relative paths within a section's repo; `origin/<branch>:path:line`
 for branch-only files. All branch reads were done via `git show`/`git diff` without

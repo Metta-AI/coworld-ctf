@@ -1,0 +1,18 @@
+[project]
+name = "my-paintbot-player"
+version = "0.1.0"
+description = "A Paintbot Season 2 starter policy, downloaded from coworld-ctf."
+readme = "README.md"
+# Pinned so `uv add coworld` cannot hit the fresh-machine trap where `uv
+# init` defaults requires-python to whatever system Python is on PATH
+# (often 3.9 on macOS) and every version of `coworld` needs 3.11 or 3.12 --
+# see docs/designs/JOURNEY_MAP.md J15 and docs/wiki/your-first-policy.md.
+requires-python = ">=3.11,<3.13"
+dependencies = [
+    "coworld",
+]
+
+[tool.uv]
+# no workspace inheritance: a beginner's copy of this directory is its own
+# project, not a member of the coworld-ctf monorepo it was copied out of.
+package = false

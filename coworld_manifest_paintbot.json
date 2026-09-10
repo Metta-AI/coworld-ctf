@@ -1197,7 +1197,7 @@
       "id": "baseline",
       "name": "baseline",
       "type": "player",
-      "description": "Minimal sprite-protocol CTF baseline bot: grab the flag, run it home, tag enemies in front. Image placeholder is replaced at deploy time.",
+      "description": "Minimal sprite-protocol CTF baseline bot: grab the flag, run it home, tag enemies in front. SPEAKS ONLY THE DEPRECATED SPRITE V1 DIRECT-INPUT PROTOCOL (docs/PROTOCOL.md) -- it cannot play a Season 2 play-calling seat and crashes instantly ('Malformed sprite protocol packet') against battle-royale-s2, the only variant this Coworld currently uploads. Start from policies/starters/ instead. Image placeholder is replaced at deploy time.",
       "image": "{{PLAYER_IMAGE}}",
       "run": [
         "/bin/baseline"

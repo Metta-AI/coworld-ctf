@@ -1,8 +1,8 @@
-<!-- Source: ~/.ctf/knowledge/stranger-walk/journey-map/jm-links.md, copied verbatim 2026-09-09 (shot paths repointed to ./shots/) -->
+<!-- Source: internal tracking, not public; copied verbatim 2026-09-09 (shot paths repointed to ./shots/) -->
 
 # jm-links — cold entries walk. Era: 2026-09-09, live ladder paintbot-v0.7.374 (GV61/Glory16), coworld-ctf main ≈ 070d4805.
 
-Slug `jm-links`, worker in epic 16d081ab (THE WHOLE). Five cold entries (a–e), each its own fresh headless-Chromium profile under `/tmp/jm-links/profile-<entry>`, click count restarted per entry. Persona: never-heard-of-Paintbot beginner. Screenshots: full-size in `.harness/screenshots/jm-links/`, downscaled copies cited below at `~/.ctf/knowledge/stranger-walk/journey-map/./shots/jm-links-NN.png`.
+Slug `jm-links`, worker in epic 16d081ab (THE WHOLE). Five cold entries (a–e), each its own fresh headless-Chromium profile under `/tmp/jm-links/profile-<entry>`, click count restarted per entry. Persona: never-heard-of-Paintbot beginner. Screenshots: full-size in `.harness/screenshots/jm-links/`, downscaled copies at `./shots/`.
 
 **Replay URL shape found (as myself, before the persona walk):** loading `https://softmax.com/paintbot` client-side-routes to `https://softmax.com/paintbot?e=<episode_id>#watch-stage` for whatever episode is on screen — this is what a "share/copy link" action would produce, and it is what a beginner pasted into a chat would receive.
 

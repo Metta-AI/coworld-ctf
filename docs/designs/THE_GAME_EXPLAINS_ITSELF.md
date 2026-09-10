@@ -1,7 +1,7 @@
 # The game explains itself — moment inventory + plan (Phase 2, epic 16d081ab)
 
-Umbrella task 42879588. Obeys `~/.ctf/knowledge/stranger-walk/00-owner-decisions-2026-09-09.md`
-(the journey quiz) and the glory owner model (pinball scoring, many multipliers, jackpots rare
+Umbrella task 42879588. Obeys the owner's journey-quiz ruling (internal tracking, not public)
+and the glory owner model (pinball scoring, many multipliers, jackpots rare
 and earned, "why #1 is #1"). Planning only — no code changes ship with this doc.
 
 **Era stamp:** repo at `main 588f1ac7` (GameVersion 61 / GLORYVERSION 16). GLORYVERSION 17 is

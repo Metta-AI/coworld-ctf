@@ -1,4 +1,4 @@
-<!-- Source: ~/.ctf/knowledge/stranger-walk/journey-map/jm-door.md, copied verbatim 2026-09-09 (shot paths repointed to ./shots/) -->
+<!-- Source: internal tracking, not public; copied verbatim 2026-09-09 (shot paths repointed to ./shots/) -->
 
 Era: 2026-09-09 · live ladder paintbot-v0.7.374 (GV61/Glory16) · coworld-ctf main 070d4805 · walker jm-door, entry https://softmax.com/paintbot
 
