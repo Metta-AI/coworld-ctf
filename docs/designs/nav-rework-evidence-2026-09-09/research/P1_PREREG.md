@@ -1,0 +1,5 @@
+# P1: streaming square dilation in packed weights
+
+Parent D0a implementation (D1 rejected, checkpoint490a96be). Apply the exact fixed3x3 binary dilation described in P1_REVIEW_REQUEST.md and independently reviewed in P1_REVIEW.md. Preserve `not (value <= 0)` predicate, Q8 conversion, length validation,15bit overflow refusal and all compiler checks. Carry three column booleans; clamp only row indices so duplicate edge values are harmless under OR. Add no array, cache, layout or activation work.
+
+Primary metric: weight_refresh_p95_ns in three m5a CPU5 pairs at B1024/range1300, reporting inclusive danger and whole-body separately. Counter-hypothesis: scanning neighboring zero cells loses on sparse/empty fields. Measure zero, one-source-cell and dense raw grids separately with the same packer, outside integrated acceptance. Require literal expected border/tinypositive masks, full3072 quality, masks/pops and retained-ledger equality. Source-order/raster construction unchanged. No speed claim before results. Established-operation sources and why a new SciPy/OpenCV dependency is disproportionate are in the proposal/review.

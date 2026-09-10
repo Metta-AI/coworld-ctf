@@ -53,3 +53,5 @@ G0 bed15e11; G1 9e4971f1; M1 5a6c4963; W1 da13e2c7; M2 d9962a8d; M3 f261aeca; W2
 - D0a: incremental danger-ray decision; m5a1300px three pairs p95/max5.948740/6.034892 ->5.838907/5.953172ms. All18 matched rows improve p95; masks, pops, full quality and retained ledgers unchanged. Tick gate still fails. D0_REPORT.md.
 
 - D1 rejected: incremental kernel index; m5a1300px worstp95/max5.839953/5.887573 ->5.936474/5.996664ms. Exact masks/pops/quality/ledgers, but slower. Restored D0a; archive candidate and negative evidence. D1_REPORT.md.
+
+- P1: streaming packed hot dilation, m5a1300 threepairs worstp95/max5.828086/5.878588 ->5.242172/5.274622ms; weightp951.092082->0.423183ms. Exact masks/pops/quality/memory; no sparse-regime regression observed. Tick gate still fails. P1_REPORT.md.

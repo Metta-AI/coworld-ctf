@@ -85,6 +85,36 @@ suite "production mixed-grid body navigation":
     check after.bridges - before.bridges == 64 * sizeof(int32)
     check after.total - before.total == 64 * sizeof(int32)
 
+  test "packed hot dilation preserves borders and tiny positive values":
+    proc checkGrid(width, height: int; values: seq[float32];
+                   expected: seq[uint16]) =
+      let pixelWidth = width * NavCell + NavCell - 1
+      let pixelHeight = height * NavCell + NavCell - 1
+      var walkable = newSeq[bool](pixelWidth * pixelHeight)
+      for value in walkable.mitems: value = true
+      let map = newBodyMap(walkable, pixelWidth, pixelHeight, 1, @[(7, 7)])
+      let graph = BodyMixedGraph(map: map)
+      let danger = BodyDangerField(values: values)
+      var weights: seq[int16]
+      graph.rebuildPackedWeights(danger, weights)
+      check weights.len == expected.len
+      for i, value in expected:
+        check cast[uint16](weights[i]) == value
+    checkGrid(5, 4,
+      @[1.0'f32, 0, 0, 0, 0,
+        0, 0, 0.5, 0, 0.000001,
+        0, 0, 0, 0, 0,
+        0, 0, 0, 0, 2],
+      @[0x8100'u16, 0x8000, 0x8000, 0x8000, 0x8000,
+        0x8000, 0x8000, 0x8080, 0x8000, 0x8000,
+        0, 0x8000, 0x8000, 0x8000, 0x8000,
+        0, 0, 0, 0x8000, 0x8200])
+    checkGrid(1, 3, @[0.0'f32, 0.25, 0], @[0x8000'u16, 0x8040, 0x8000])
+    checkGrid(3, 1, @[0.0'f32, 0, 0.25], @[0'u16, 0x8000, 0x8040])
+    checkGrid(1, 1, @[0.25'f32], @[0x8040'u16])
+    checkGrid(1, 1, @[0.0'f32], @[0'u16])
+    checkGrid(1, 1, @[-1.0'f32], @[0'u16])
+
   test "packed danger keeps ties-to-even and range boundaries":
     let map = openMap()
     let graph = newBodyMixedGraph(map)

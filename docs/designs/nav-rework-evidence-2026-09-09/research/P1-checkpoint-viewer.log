@@ -1,0 +1,170 @@
+#0 building with "orbstack" instance using docker driver
+
+#1 [internal] load build definition from Dockerfile.replay-viewer
+#1 transferring dockerfile: 4.66kB done
+#1 DONE 0.0s
+
+#2 [internal] load metadata for docker.io/emscripten/emsdk:4.0.15
+#2 DONE 0.6s
+
+#3 [internal] load .dockerignore
+#3 transferring context: 117B done
+#3 DONE 0.1s
+
+#4 [1/7] FROM docker.io/emscripten/emsdk:4.0.15@sha256:27bc6267cb285223b8aebb7627bfebae7cb3ad2aaa0d5923b8aa5321793033e8
+#4 resolve docker.io/emscripten/emsdk:4.0.15@sha256:27bc6267cb285223b8aebb7627bfebae7cb3ad2aaa0d5923b8aa5321793033e8 0.0s done
+#4 DONE 0.0s
+
+#5 [internal] load build context
+#5 transferring context: 13.94MB 0.9s done
+#5 DONE 0.9s
+
+#6 [2/7] RUN apt-get update &&   apt-get install -y --no-install-recommends ca-certificates curl git &&   rm -rf /var/lib/apt/lists/* &&   curl -fsSL     -o /usr/local/bin/nimby     https://github.com/treeform/nimby/releases/download/0.1.27/nimby-Linux-X64 &&   echo "3b3084394bd26b09f84a3f82389f075221c8784893238390939d71dd66ac9e8b  /usr/local/bin/nimby" | sha256sum -c - &&   chmod +x /usr/local/bin/nimby &&   nimby use 2.2.4
+#6 CACHED
+
+#7 [3/7] WORKDIR /workspace/ctf
+#7 CACHED
+
+#8 [4/7] COPY nimby.lock .
+#8 CACHED
+
+#9 [5/7] RUN nimby --global sync nimby.lock
+#9 CACHED
+
+#10 [6/7] COPY . .
+#10 DONE 44.7s
+
+#11 [7/7] RUN nim c -d:emscripten -d:ctfSimSourcesStamp="6272038e0f5234974aba7b33e54f22a64b2ddc00a89dcf1a5e02f5976cbc615e"     replay-viewer/ctf_replay.nim &&   nim c -r --hints:off -o:/tmp/gen_wire_constants tools/gen_wire_constants.nim     > replay-viewer/dist/wire_constants.js &&   cp client/broadcast_core.js replay-viewer/dist/broadcast_core.js &&   cp client/chrome_common.js replay-viewer/dist/chrome_common.js &&   cp data/font.ttf replay-viewer/dist/font.ttf &&   cp replay-viewer/static_replay.js replay-viewer/dist/static_replay.js &&   cp replay-viewer/static_replay_worker.js replay-viewer/dist/static_replay_worker.js &&   sed -e 's|<!-- WIRE_CONSTANTS -->|<script src="./wire_constants.js"></script>|'       -e 's|<!-- CHROME_COMMON -->|<script src="./chrome_common.js"></script>|'       -e 's|<!-- BROADCAST_CORE -->|<script src="./static_replay.js"></script>|'     client/replay_broadcast.html > replay-viewer/dist/index.html &&   sed -e 's|<!-- WIRE_CONSTANTS -->|<script src="./wire_constants.js"></script>|'       -e 's|<!-- CHROME_COMMON -->|<script src="./chrome_common.js"></script>|'     client/league_replayer.html > replay-viewer/dist/league.html &&   cp data/soldier_*_front.png data/soldier_*_front_gun.png     replay-viewer/dist/ &&   cp replay-viewer/loop.html replay-viewer/dist/ &&   mkdir -p replay-viewer/dist/art/walls replay-viewer/dist/art/lockerroom &&   cp client/art/walls/wall_h.jpg client/art/walls/wall_v.jpg     replay-viewer/dist/art/walls/ &&   cp client/art/lockerroom/bg.jpg client/art/lockerroom/*.webp     replay-viewer/dist/art/lockerroom/ &&   rm -rf replay-viewer/dist/nimcache &&   test -f replay-viewer/dist/ctf_replay.wasm &&   test -f replay-viewer/dist/ctf_replay.data &&   test -f replay-viewer/dist/static_replay_worker.js &&   test -f replay-viewer/dist/index.html &&   test -f replay-viewer/dist/league.html &&   test -s replay-viewer/dist/wire_constants.js &&   grep -q '^window.CTF_WIRE={' replay-viewer/dist/wire_constants.js &&   grep -q 'wire_constants.js' replay-viewer/dist/index.html &&   grep -q 'wire_constants.js' replay-viewer/dist/league.html &&   test -s replay-viewer/dist/chrome_common.js &&   grep -q 'window.ChromeCommon' replay-viewer/dist/chrome_common.js &&   grep -q 'chrome_common.js' replay-viewer/dist/index.html &&   grep -q 'chrome_common.js' replay-viewer/dist/league.html &&   grep -q 'static_replay_worker.js' replay-viewer/dist/static_replay.js &&   ! grep -q '<script src="./broadcast_core.js"></script>' replay-viewer/dist/index.html &&   ! grep -q '<script src="./ctf_replay.js"></script>' replay-viewer/dist/index.html &&   test -f replay-viewer/dist/soldier_red_front.png &&   test -f replay-viewer/dist/soldier_blue_front.png &&   test -f replay-viewer/dist/soldier_green_front.png &&   test -f replay-viewer/dist/soldier_yellow_front.png &&   test -f replay-viewer/dist/soldier_plum_front.png &&   test -f replay-viewer/dist/soldier_azure_front_gun.png &&   test "$(ls replay-viewer/dist/soldier_*_front.png | wc -l)" = "$(ls data/soldier_*_front.png | wc -l)" &&   test "$(ls replay-viewer/dist/soldier_*_front_gun.png | wc -l)" = "$(ls data/soldier_*_front_gun.png | wc -l)" &&   test -f replay-viewer/dist/art/walls/wall_h.jpg &&   test -f replay-viewer/dist/art/lockerroom/bg.jpg &&   test -f replay-viewer/dist/art/lockerroom/green_1.webp &&   test -f replay-viewer/dist/art/lockerroom/red_6.webp
+#11 2.236 Hint: used config file '/root/.nimby/nim/config/nim.cfg' [Conf]
+#11 2.237 Hint: used config file '/root/.nimby/nim/config/config.nims' [Conf]
+#11 2.237 Hint: used config file '/workspace/ctf/nim.cfg' [Conf]
+#11 2.237 Hint: used config file '/workspace/ctf/replay-viewer/config.nims' [Conf]
+#11 2.237 .......................................................................................................................................................................................................
+#11 5.692 /workspace/ctf/src/ctf/rig_art.nim(552, 5) Hint: 'unitDeg' is declared but not used [XDeclaredButNotUsed]
+#11 5.723 .....
+#11 5.868 /workspace/ctf/src/ctf/arena.nim(1373, 5) Hint: 'inside' is declared but not used [XDeclaredButNotUsed]
+#11 6.179 /workspace/ctf/src/ctf/arena.nim(3702, 6) Hint: 'rectsNode' is declared but not used [XDeclaredButNotUsed]
+#11 6.179 /workspace/ctf/src/ctf/arena.nim(3707, 6) Hint: 'rectsFromNode' is declared but not used [XDeclaredButNotUsed]
+#11 6.180 ............
+#11 7.616 /workspace/ctf/src/ctf/global.nim(3242, 5) Hint: 'v' is declared but not used [XDeclaredButNotUsed]
+#11 7.977 /workspace/ctf/src/ctf/global.nim(7594, 7) Hint: 'rebuilt' is declared but not used [XDeclaredButNotUsed]
+#11 8.074 /workspace/ctf/src/ctf/global.nim(1499, 6) Hint: 'boardScaledColdMapPixels' is declared but not used [XDeclaredButNotUsed]
+#11 8.154 .........
+#11 9.517 CC: ../../../root/.nimby/nim/lib/system/exceptions.nim
+#11 9.531 CC: ../../../root/.nimby/nim/lib/std/private/digitsutils.nim
+#11 9.542 CC: ../../../root/.nimby/nim/lib/std/assertions.nim
+#11 9.555 CC: ../../../root/.nimby/nim/lib/std/private/dragonbox.nim
+#11 9.565 CC: ../../../root/.nimby/nim/lib/std/formatfloat.nim
+#11 9.576 CC: ../../../root/.nimby/nim/lib/system/dollars.nim
+#11 9.588 CC: ../../../root/.nimby/nim/lib/std/syncio.nim
+#11 9.595 CC: ../../../root/.nimby/nim/lib/system.nim
+#11 9.603 CC: ../../../root/.nimby/nim/lib/pure/hashes.nim
+#11 9.618 CC: ../../../root/.nimby/nim/lib/pure/math.nim
+#11 9.628 CC: ../../../root/.nimby/nim/lib/pure/algorithm.nim
+#11 9.704 CC: ../../../root/.nimby/nim/lib/pure/collections/tables.nim
+#11 9.769 CC: ../../../root/.nimby/nim/lib/pure/parseutils.nim
+#11 9.802 CC: ../../../root/.nimby/nim/lib/pure/unicode.nim
+#11 11.08 CC: ../../../root/.nimby/nim/lib/pure/strutils.nim
+#11 11.12 CC: ../../../root/.nimby/nim/lib/pure/streams.nim
+#11 11.16 CC: ../../../root/.nimby/nim/lib/pure/lexbase.nim
+#11 11.74 CC: ../../../root/.nimby/nim/lib/pure/parsejson.nim
+#11 12.04 CC: ../../../root/.nimby/nim/lib/pure/json.nim
+#11 12.06 CC: ../../../root/.nimby/nim/lib/pure/pathnorm.nim
+#11 12.50 CC: ../../../root/.nimby/nim/lib/std/oserrors.nim
+#11 12.57 CC: ../../../root/.nimby/nim/lib/std/private/oscommon.nim
+#11 12.70 CC: ../../../root/.nimby/nim/lib/std/private/ospaths2.nim
+#11 12.71 CC: ../../../root/.nimby/nim/lib/pure/times.nim
+#11 12.80 CC: ../../../root/.nimby/nim/lib/std/envvars.nim
+#11 12.95 CC: ../../../root/.nimby/nim/lib/std/cmdline.nim
+#11 13.46 CC: ../../../root/.nimby/nim/lib/pure/random.nim
+#11 13.94 CC: ../../../root/.nimby/pkgs/bumpy/src/bumpy.nim
+#11 14.10 CC: ../../../root/.nimby/pkgs/chroma/src/chroma/colortypes.nim
+#11 14.21 CC: ../../../root/.nimby/pkgs/chroma/src/chroma/blends.nim
+#11 14.50 CC: ../../../root/.nimby/pkgs/chroma/src/chroma/names.nim
+#11 14.83 CC: ../../../root/.nimby/pkgs/chroma/src/chroma.nim
+#11 14.98 CC: ../../../root/.nimby/pkgs/flatty/src/flatty/binny.nim
+#11 15.11 CC: ../../../root/.nimby/pkgs/pixie/src/pixie/common.nim
+#11 15.17 CC: ../../../root/.nimby/pkgs/flatty/src/flatty/encode.nim
+#11 15.18 CC: ../../../root/.nimby/pkgs/pixie/src/pixie/blends.nim
+#11 15.18 CC: ../../../root/.nimby/pkgs/pixie/src/pixie/internal.nim
+#11 15.19 CC: ../../../root/.nimby/pkgs/pixie/src/pixie/images.nim
+#11 15.29 CC: ../../../root/.nimby/pkgs/pixie/src/pixie/paints.nim
+#11 15.63 CC: ../../../root/.nimby/pkgs/pixie/src/pixie/paths.nim
+#11 15.67 CC: ../../../root/.nimby/nim/lib/pure/collections/sets.nim
+#11 15.69 CC: ../../../root/.nimby/pkgs/pixie/src/pixie/fontformats/opentype.nim
+#11 15.76 CC: ../../../root/.nimby/nim/lib/pure/parsexml.nim
+#11 15.78 CC: ../../../root/.nimby/nim/lib/pure/strtabs.nim
+#11 16.10 CC: ../../../root/.nimby/nim/lib/pure/xmltree.nim
+#11 16.30 CC: ../../../root/.nimby/nim/lib/pure/xmlparser.nim
+#11 16.44 CC: ../../../root/.nimby/pkgs/pixie/src/pixie/fontformats/svgfont.nim
+#11 16.50 CC: ../../../root/.nimby/pkgs/pixie/src/pixie/fonts.nim
+#11 16.59 CC: ../../../root/.nimby/pkgs/pixie/src/pixie/fileformats/bmp.nim
+#11 16.61 CC: ../../../root/.nimby/pkgs/zippy/src/zippy/common.nim
+#11 16.64 CC: ../../../root/.nimby/pkgs/zippy/src/zippy/internal.nim
+#11 16.80 CC: ../../../root/.nimby/pkgs/zippy/src/zippy/bitstreams.nim
+#11 16.88 CC: ../../../root/.nimby/pkgs/pixie/src/pixie/fileformats/gif.nim
+#11 17.07 CC: ../../../root/.nimby/pkgs/pixie/src/pixie/fileformats/jpeg.nim
+#11 17.20 CC: ../../../root/.nimby/pkgs/zippy/src/zippy/adler32.nim
+#11 17.22 CC: ../../../root/.nimby/pkgs/zippy/src/zippy/crc.nim
+#11 17.50 CC: ../../../root/.nimby/nim/lib/pure/collections/heapqueue.nim
+#11 17.52 CC: ../../../root/.nimby/pkgs/zippy/src/zippy/inflate.nim
+#11 17.54 CC: ../../../root/.nimby/pkgs/zippy/src/zippy/gzip.nim
+#11 17.61 CC: ../../../root/.nimby/pkgs/zippy/src/zippy.nim
+#11 17.99 CC: ../../../root/.nimby/pkgs/crunchy/src/crunchy/common.nim
+#11 18.01 CC: ../../../root/.nimby/pkgs/crunchy/src/crunchy/crc32.nim
+#11 18.08 CC: ../../../root/.nimby/pkgs/crunchy/src/crunchy/sha256.nim
+#11 18.09 CC: ../../../root/.nimby/pkgs/pixie/src/pixie/fileformats/png.nim
+#11 18.10 CC: ../../../root/.nimby/pkgs/pixie/src/pixie/fileformats/ppm.nim
+#11 18.38 CC: ../../../root/.nimby/pkgs/pixie/src/pixie/fileformats/qoi.nim
+#11 18.40 CC: ../../../root/.nimby/pkgs/pixie/src/pixie/fileformats/svg.nim
+#11 18.43 CC: ../../../root/.nimby/pkgs/pixie/src/pixie.nim
+#11 18.44 CC: ../../../root/.nimby/pkgs/supersnappy/src/supersnappy/internal.nim
+#11 18.62 CC: ../../../root/.nimby/pkgs/supersnappy/src/supersnappy.nim
+#11 18.68 CC: ../../../root/.nimby/pkgs/bitworld/src/bitworld/spriteprotocol.nim
+#11 18.81 CC: ../../../root/.nimby/pkgs/bitworld/src/bitworld/server.nim
+#11 18.90 CC: ../../../root/.nimby/pkgs/bitworld/src/bitworld/aseprite.nim
+#11 19.07 CC: ../../../root/.nimby/pkgs/bitworld/src/bitworld/pixelfonts.nim
+#11 19.13 CC: ../src/ctf/glory.nim
+#11 19.15 CC: ../src/ctf/sim_types.nim
+#11 19.22 CC: ../src/ctf/rig_art.nim
+#11 19.41 CC: ../../../root/.nimby/nim/lib/pure/collections/deques.nim
+#11 19.62 CC: ../../../root/.nimby/pkgs/jsony/src/jsony.nim
+#11 19.75 CC: ../src/ctf/map_pool.nim
+#11 19.86 CC: ../src/ctf/arena.nim
+#11 20.03 CC: ../src/ctf/map_art.nim
+#11 20.14 CC: ../../../root/.nimby/nim/lib/pure/strformat.nim
+#11 20.15 CC: ../src/ctf/br_map_pool.nim
+#11 20.31 CC: ../src/ctf/sim_config.nim
+#11 20.37 CC: ../src/ctf/sim_state.nim
+#11 20.38 CC: ../src/ctf/paint.nim
+#11 20.40 CC: ../src/ctf/roster.nim
+#11 20.60 CC: ../src/ctf/zone_field.nim
+#11 20.64 CC: ../src/ctf/sim.nim
+#11 20.67 CC: ../src/ctf/labels.nim
+#11 20.77 CC: ../src/ctf/global.nim
+#11 20.98 CC: ../src/ctf/broadcast.nim
+#11 21.59 CC: ../../../root/.nimby/pkgs/flatty/src/flatty.nim
+#11 21.64 CC: ../../../root/.nimby/pkgs/bitworld/src/bitworld/replays.nim
+#11 21.67 CC: ../src/shell/types.nim
+#11 21.81 CC: ../src/shell/seats.nim
+#11 22.11 CC: ../src/shell/replay_records.nim
+#11 22.12 CC: ../src/ctf/replay_codec.nim
+#11 22.21 CC: ../src/ctf/replays.nim
+#11 22.25 CC: ../src/ctf/replay_runtime.nim
+#11 22.76 CC: ctf_replay.nim
+#11 24.86 Hint:  [Link]
+#11 29.84 Hint: mm: arc; opt: speed; options: -d:release
+#11 29.84 169274 lines; 27.601s; 423.91MiB peakmem; proj: /workspace/ctf/replay-viewer/ctf_replay.nim; out: /workspace/ctf/replay-viewer/ctf_replay [SuccessX]
+#11 DONE 38.0s
+
+#12 exporting to image
+#12 exporting layers
+#12 exporting layers 35.0s done
+#12 exporting manifest sha256:1a6d54e2bef2ec37991703f0d3b3067a62f43d376dd9509d1bedf09016482b41
+#12 exporting manifest sha256:1a6d54e2bef2ec37991703f0d3b3067a62f43d376dd9509d1bedf09016482b41 done
+#12 exporting config sha256:da9ff6233048c221a09f8aca83c436723543251763c0410f970d9702974b366f done
+#12 exporting attestation manifest sha256:25760432600f4cfe593386743ceb5bb48cd438e6ebe62fdde0145f156a9ea3aa 0.1s done
+#12 exporting manifest list sha256:426fbe1e5208a59244bde76070b532bc78e73a8e5d3717ee1a1b639e4952621a
+#12 exporting manifest list sha256:426fbe1e5208a59244bde76070b532bc78e73a8e5d3717ee1a1b639e4952621a 0.0s done
+#12 naming to docker.io/library/coworld-ctf-replay-viewer-build:91580 done
+#12 DONE 35.2s

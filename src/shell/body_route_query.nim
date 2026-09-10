@@ -326,21 +326,26 @@ proc rebuildPackedWeights*(graph: BodyMixedGraph; danger: BodyDangerField;
     raise newException(ValueError, "body danger raster does not match graph")
   if weights.len != cellCount:
     weights = newSeq[int16](cellCount)
-  for cell, value in danger.values:
-    weights[cell] = cast[int16](packedDangerQ8(value))
-  for source, value in danger.values:
-    if value <= 0:
-      continue
-    let cell: BodyPoint = (x: source mod graph.map.gridWidth,
-      y: source div graph.map.gridWidth)
-    for dy in -1 .. 1:
-      for dx in -1 .. 1:
-        let next = (x: cell.x + dx, y: cell.y + dy)
-        if next.x >= 0 and next.x < graph.map.gridWidth and
-            next.y >= 0 and next.y < graph.map.gridHeight:
-          let offset = next.y * graph.map.gridWidth + next.x
-          weights[offset] = cast[int16](cast[uint16](weights[offset]) or
-            0x8000'u16)
+  let width = graph.map.gridWidth
+  let height = graph.map.gridHeight
+  for y in 0 ..< height:
+    let above = max(0, y - 1) * width
+    let row = y * width
+    let below = min(height - 1, y + 1) * width
+    template columnHot(x: int): bool =
+      not (danger.values[above + x] <= 0) or
+        not (danger.values[row + x] <= 0) or
+        not (danger.values[below + x] <= 0)
+    var leftHot = false
+    var centerHot = columnHot(0)
+    for x in 0 ..< width:
+      let rightHot = x + 1 < width and columnHot(x + 1)
+      var packed = packedDangerQ8(danger.values[row + x])
+      if leftHot or centerHot or rightHot:
+        packed = packed or 0x8000'u16
+      weights[row + x] = cast[int16](packed)
+      leftHot = centerHot
+      centerHot = rightHot
 
 proc packedHot(value: int16): bool {.inline.} =
   (cast[uint16](value) and 0x8000'u16) != 0
