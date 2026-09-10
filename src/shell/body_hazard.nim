@@ -53,24 +53,24 @@ proc newDarkBodyHazardOverlay*(): BodyHazardOverlay =
   BodyHazardOverlay(state: bhsDark)
 
 proc retainedBytes*(overlay: BodyHazardOverlay): int64 =
-  ## Exact retained owner plus sequence payload bytes. The sequence headers
+  ## Retained owner plus allocated sequence capacity. The sequence headers
   ## themselves live in the fixed owner object counted by sizeof.
   if overlay == nil:
     return 0
   int64(sizeof(overlay[]) +
-    overlay.arrival.len * sizeof(uint16) +
-    overlay.segmentArrivalMin.len * sizeof(uint16) +
-    overlay.segmentArrivalMax.len * sizeof(uint16) +
-    overlay.roomMaxArrival.len * sizeof(uint16))
+    overlay.arrival.capacity * sizeof(uint16) +
+    overlay.segmentArrivalMin.capacity * sizeof(uint16) +
+    overlay.segmentArrivalMax.capacity * sizeof(uint16) +
+    overlay.roomMaxArrival.capacity * sizeof(uint16))
 
 proc retainedBytes*(cache: BodySafeCache): int64 =
-  ## Exact retained owner plus sequence payload bytes.
+  ## Retained owner plus allocated sequence capacity.
   if cache == nil:
     return 0
   int64(sizeof(cache[]) +
-    cache.safeDistQ4.len * sizeof(uint32) +
-    cache.safeNext.len * sizeof(uint16) +
-    cache.roomHasDry.len * sizeof(bool))
+    cache.safeDistQ4.capacity * sizeof(uint32) +
+    cache.safeNext.capacity * sizeof(uint16) +
+    cache.roomHasDry.capacity * sizeof(bool))
 
 proc projectedArrival(index: BodyRouteIndex,
     source: ZoneDamageSnapshot, navCell: int): uint16 =

@@ -34,3 +34,5 @@ Append results; do not erase negatives. All numbers are observed, not inferred p
 - M1: reference-share immutable danger geometry under ORC; generated C no longer duplicates per-seat sequence payloads. Three m5a1300px pairs show no substantial speed gain; full quality unchanged. Historical logical memory undercount corrected, later capacity/context audit still required. M1_REPORT.md.
 
 - W1: integer nearest/ties-even ray traversal; m5a1300px p95/max13.820488/15.464153 ->11.448389/12.762947ms. All masks/pops match, full quality unchanged; still fails tick gate. W1_REPORT.md.
+
+- M2: capacity-based retained ledger; original65 maps pass, configured11 all fail shared cap (max31,340,947B). No speed claim; hazard/cache context still omitted until M3. M2_REPORT.md.

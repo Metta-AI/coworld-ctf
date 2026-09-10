@@ -1722,39 +1722,39 @@ proc buildFineAnchorIndex(index: BodyRouteIndex) =
     index.fineAnchors[offset] = pair.pointRef
 
 proc retainedBytes(index: BodyRouteIndex): int64 =
-  int64(index.legalMoves.len * sizeof(uint8) +
-    index.roomOf.len * sizeof(uint16) +
-    index.localIndex.len * sizeof(int32) +
-    index.roomCellStart.len * sizeof(int32) +
-    index.roomCells.len * sizeof(int32) +
-    index.roomSideStart.len * sizeof(int32) +
-    index.roomSides.len * sizeof(uint16) +
-    index.sides.len * sizeof(BodyPortalSide) +
-    index.portalNext.len * sizeof(uint8) +
-    index.segments.len * sizeof(BodyRouteSegment) +
-    index.cells.len * sizeof(int32) +
-    index.arcStart.len * sizeof(int32) +
-    index.arcs.len * sizeof(BodyRouteArc) +
-    index.sideComponent.len * sizeof(uint16) +
-    index.cellComponent.len * sizeof(uint16) +
-    index.pockets.len * sizeof(BodyPocketConnector) +
-    index.pocketCells.len * sizeof(int32) +
-    index.fineAnchorStart.len * sizeof(int32) +
-    index.fineAnchors.len * sizeof(int32))
+  int64(index.legalMoves.capacity * sizeof(uint8) +
+    index.roomOf.capacity * sizeof(uint16) +
+    index.localIndex.capacity * sizeof(int32) +
+    index.roomCellStart.capacity * sizeof(int32) +
+    index.roomCells.capacity * sizeof(int32) +
+    index.roomSideStart.capacity * sizeof(int32) +
+    index.roomSides.capacity * sizeof(uint16) +
+    index.sides.capacity * sizeof(BodyPortalSide) +
+    index.portalNext.capacity * sizeof(uint8) +
+    index.segments.capacity * sizeof(BodyRouteSegment) +
+    index.cells.capacity * sizeof(int32) +
+    index.arcStart.capacity * sizeof(int32) +
+    index.arcs.capacity * sizeof(BodyRouteArc) +
+    index.sideComponent.capacity * sizeof(uint16) +
+    index.cellComponent.capacity * sizeof(uint16) +
+    index.pockets.capacity * sizeof(BodyPocketConnector) +
+    index.pocketCells.capacity * sizeof(int32) +
+    index.fineAnchorStart.capacity * sizeof(int32) +
+    index.fineAnchors.capacity * sizeof(int32))
 
 proc retainedIndexBytes*(index: BodyRouteIndex): int64 =
-  ## Exact retained owner, sequence payloads, and allocator headers. Sequence
+  ## Retained owner, allocated sequence capacity, and header allowance. Sequence
   ## values themselves live in the fixed owner object counted by sizeof.
   if index == nil:
     return 0
   result = int64(sizeof(index[])) + index.retainedBytes
-  for length in [index.legalMoves.len, index.roomOf.len,
-      index.localIndex.len, index.roomCellStart.len, index.roomCells.len,
-      index.roomSideStart.len, index.roomSides.len, index.sides.len,
-      index.portalNext.len, index.segments.len, index.cells.len,
-      index.arcStart.len, index.arcs.len, index.sideComponent.len,
-      index.cellComponent.len, index.pockets.len, index.pocketCells.len,
-      index.fineAnchorStart.len, index.fineAnchors.len]:
+  for length in [index.legalMoves.capacity, index.roomOf.capacity,
+      index.localIndex.capacity, index.roomCellStart.capacity, index.roomCells.capacity,
+      index.roomSideStart.capacity, index.roomSides.capacity, index.sides.capacity,
+      index.portalNext.capacity, index.segments.capacity, index.cells.capacity,
+      index.arcStart.capacity, index.arcs.capacity, index.sideComponent.capacity,
+      index.cellComponent.capacity, index.pockets.capacity, index.pocketCells.capacity,
+      index.fineAnchorStart.capacity, index.fineAnchors.capacity]:
     if length > 0:
       result += 16
 

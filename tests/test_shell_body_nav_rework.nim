@@ -50,6 +50,18 @@ proc runToIdle(nav: BodyNavSystem; startTick = 0; budget =
   raise newException(ValueError, "production route did not settle")
 
 suite "production mixed-grid body navigation":
+  test "graph ledger includes unused reserved bridge capacity":
+    let graph = newBodyMixedGraph(openMap())
+    let workspace = newBodyRouteWorkspace(graph)
+    let before = graph.bodyMixedGraphBytes(workspace)
+    let oldCapacity = graph.bridgeNodes.capacity
+    var reserved = newSeqOfCap[int32](oldCapacity + 64)
+    for node in graph.bridgeNodes: reserved.add node
+    graph.bridgeNodes = move(reserved)
+    let after = graph.bodyMixedGraphBytes(workspace)
+    check after.bridges - before.bridges == 64 * sizeof(int32)
+    check after.total - before.total == 64 * sizeof(int32)
+
   test "packed danger keeps ties-to-even and range boundaries":
     let map = openMap()
     let graph = newBodyMixedGraph(map)

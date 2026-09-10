@@ -276,14 +276,21 @@ proc activationRow(gate: MapGate; gunRange = NavCorpusGunRangePx): JsonNode =
     "pass": bytes.total <= BodyNavigationRetainedCap and
       (gate.colossal or sharedUpperBound <= PoolSharedCap)}
 
+proc activationResult(gate: MapGate; gunRange = NavCorpusGunRangePx): JsonNode =
+  try:
+    activationRow(gate, gunRange)
+  except BodyMapError as error:
+    %*{"map": gate.label, "colossal": gate.colossal,
+      "activation_error": error.msg, "pass": false}
+
 proc runActivationGate(pool: JsonNode; onlyPool: int): JsonNode =
   var rows = newJArray()
   for poolIndex in 0 ..< pool.len:
     if onlyPool >= 0 and poolIndex != onlyPool: continue
     stderr.writeLine &"activation {poolIndex + 1}/{pool.len}"
-    rows.add activationRow(loadPoolMap(pool, poolIndex))
+    rows.add activationResult(loadPoolMap(pool, poolIndex))
   stderr.writeLine "activation colossal"
-  rows.add activationRow(colossalMap())
+  rows.add activationResult(colossalMap())
   %*{"maps": rows, "pass": rows.elems.allIt(it["pass"].getBool())}
 
 proc armedSnapshot(map: BodyMap): ZoneDamageSnapshot =

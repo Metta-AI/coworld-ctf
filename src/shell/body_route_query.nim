@@ -785,36 +785,36 @@ proc finishBodyRouteSearch*(job: BodyRouteSearchJob;
 proc bodyMixedGraphBytes*(graph: BodyMixedGraph;
     workspace: BodyRouteWorkspace): BodyMixedGraphBytes =
   const SequenceAllocationOverhead = 16'i64
-  result.legality = int64(graph.legality.legal.len +
-    graph.legality.standable.len)
-  result.cellForNode = int64(graph.cellForNode.len * sizeof(int32))
-  result.fineForCell = int64(graph.fineForCell.len *
+  result.legality = int64(graph.legality.legal.capacity +
+    graph.legality.standable.capacity)
+  result.cellForNode = int64(graph.cellForNode.capacity * sizeof(int32))
+  result.fineForCell = int64(graph.fineForCell.capacity *
     sizeof(array[4, int32]))
-  result.anchors = int64(graph.anchorForCell.len * sizeof(int32) +
-    graph.anchorNode.len * sizeof(uint8))
-  result.wallBand = int64(graph.wallBand.len)
-  result.bridges = int64(graph.bridgeOffset.len *
-      sizeof(array[8, int32]) + graph.bridgeLen.len *
-      sizeof(array[8, uint8]) + graph.bridgeNodes.len * sizeof(int32))
-  result.workspace = int64(workspace.g.len + workspace.parent.len +
-      workspace.parentBridge.len + workspace.goalCost.len) * sizeof(int32) +
-    int64(workspace.state.len + workspace.goalStamp.len) * sizeof(uint32)
-  result.buckets = int64(workspace.queue.head.len + workspace.queue.tail.len +
-      workspace.queue.touchedGeneration.len) * sizeof(int32) +
-    int64(workspace.queue.next.len + workspace.queue.previous.len +
-      workspace.queue.bucket.len + workspace.queue.queuedF.len) * sizeof(int32)
-  result.reconstruction = int64(workspace.reconstruct.len * sizeof(int32))
+  result.anchors = int64(graph.anchorForCell.capacity * sizeof(int32) +
+    graph.anchorNode.capacity * sizeof(uint8))
+  result.wallBand = int64(graph.wallBand.capacity)
+  result.bridges = int64(graph.bridgeOffset.capacity *
+      sizeof(array[8, int32]) + graph.bridgeLen.capacity *
+      sizeof(array[8, uint8]) + graph.bridgeNodes.capacity * sizeof(int32))
+  result.workspace = int64(workspace.g.capacity + workspace.parent.capacity +
+      workspace.parentBridge.capacity + workspace.goalCost.capacity) * sizeof(int32) +
+    int64(workspace.state.capacity + workspace.goalStamp.capacity) * sizeof(uint32)
+  result.buckets = int64(workspace.queue.head.capacity + workspace.queue.tail.capacity +
+      workspace.queue.touchedGeneration.capacity) * sizeof(int32) +
+    int64(workspace.queue.next.capacity + workspace.queue.previous.capacity +
+      workspace.queue.bucket.capacity + workspace.queue.queuedF.capacity) * sizeof(int32)
+  result.reconstruction = int64(workspace.reconstruct.capacity * sizeof(int32))
   for length in [
-      graph.legality.legal.len, graph.legality.standable.len,
-      graph.cellForNode.len, graph.fineForCell.len,
-      graph.anchorForCell.len, graph.anchorNode.len, graph.wallBand.len,
-      graph.bridgeOffset.len, graph.bridgeLen.len, graph.bridgeNodes.len,
-      workspace.g.len, workspace.parent.len, workspace.parentBridge.len,
-      workspace.goalCost.len, workspace.state.len, workspace.goalStamp.len,
-      workspace.reconstruct.len, workspace.queue.head.len,
-      workspace.queue.tail.len, workspace.queue.touchedGeneration.len,
-      workspace.queue.next.len, workspace.queue.previous.len,
-      workspace.queue.bucket.len, workspace.queue.queuedF.len]:
+      graph.legality.legal.capacity, graph.legality.standable.capacity,
+      graph.cellForNode.capacity, graph.fineForCell.capacity,
+      graph.anchorForCell.capacity, graph.anchorNode.capacity, graph.wallBand.capacity,
+      graph.bridgeOffset.capacity, graph.bridgeLen.capacity, graph.bridgeNodes.capacity,
+      workspace.g.capacity, workspace.parent.capacity, workspace.parentBridge.capacity,
+      workspace.goalCost.capacity, workspace.state.capacity, workspace.goalStamp.capacity,
+      workspace.reconstruct.capacity, workspace.queue.head.capacity,
+      workspace.queue.tail.capacity, workspace.queue.touchedGeneration.capacity,
+      workspace.queue.next.capacity, workspace.queue.previous.capacity,
+      workspace.queue.bucket.capacity, workspace.queue.queuedF.capacity]:
     if length > 0:
       result.allocatorOverhead += SequenceAllocationOverhead
   result.total = result.legality + result.cellForNode + result.fineForCell +
