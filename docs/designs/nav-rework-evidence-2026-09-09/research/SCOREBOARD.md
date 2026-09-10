@@ -61,3 +61,5 @@ G0 bed15e11; G1 9e4971f1; M1 5a6c4963; W1 da13e2c7; M2 d9962a8d; M3 f261aeca; W2
 - A0 retained: symmetric fine-edge construction reduces mixed-graph activation 20.88–21.91% over three m8i pairs. All 76 graph fingerprints and full quality match; memory unchanged. 53–57/64 non-colossal activation ratios still fail. See A0_REPORT.md.
 
 - A1 retained: exact two-edge bridge shortcut halves mixed-graph activation in three m8i pairs. All 76 graph arrays, full quality and memory match. Only frozen map 48 still exceeds 2x activation (2.081–2.097x); configured timing remains failed. See A1_REPORT.md.
+
+- WF1 rejected before implementation: corrected per-source enumeration model costs median 1.52 ray-step equivalents at 331 px and 0.86 at 1300 px, exceeding preregistered 0.80/0.60 limits. Wavefront direction closed. See WF1_PROPOSAL.md and retained count scripts/output.

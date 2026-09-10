@@ -1,0 +1,3 @@
+# A2 diagnostic: remaining route-index activation cost
+
+A1's first three native pairs leave only frozen map 48 above 2x BodyMap activation (2.081–2.097x). Before another source optimization, attribute route-index construction with Fluffy on that map. The diagnostic includes the existing module to access its private activation stages, executes the exact newBodyRouteIndex stage order, and validates the resulting index. It does not replace the production constructor or alter its source. Five repeated builds on one immutable BodyMap; record host, compiler and source. Mac times identify candidate stages only, not production gate outcomes. Native follow-up waits for the current m8i/m5a jobs.

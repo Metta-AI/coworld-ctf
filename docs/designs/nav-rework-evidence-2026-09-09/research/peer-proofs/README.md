@@ -31,6 +31,8 @@ Python scripts need only Python 3.
 | `activation_legality_bridge_check.nim` (+ `.out`) | `ACTIVATION_REVIEW.md` | legality-bit symmetry on all 75 maps; bridge two-hop shortcut vs replicated BFS on every bridge | 91,240,212 edges 0 asymmetric; 22,958,138 bridges 0 mismatches; raw stdout retained |
 | `a0_legality_reference_check.nim` (+ `.out`), `a0_identity_tool_candidate_local.json` | `A0_CODE_REVIEW.md` | eight-direction legality reference vs the A0 candidate on 76 maps; local candidate hashes from the identity tool | 16,361,517 nodes, 0 differences; raw stdout retained |
 | `wf0_screen_local_mac.json` | `WF0_SCREEN_CODE_REVIEW.md` | full output of `tools/bench_body_danger_wavefront.nim` on this Mac: 14 rows, all rasters bitwise equal; timings informational | 331 px ratios 0.51-0.82, 1,300 px 1.20-1.93 (Mac, not gate evidence) |
+| `wf1_work_shape_count.nim` (+ `.out`) | `WF1_PROPOSAL.md` | executed ray steps, unique cells, wavefront cells scanned and active, kernel-cutoff tail, active-interval runs per shell on the 14 screen rows | e.g. pool 0 at 1,300 px: 341,099 steps, 54,162 unique cells, 448,312 scanned; intervals mean 2.6 |
+| `wf1_count_gate_model.nim` (+ `.out`) | `WF1_PROPOSAL.md` section 4a | per-source operation model of the interval-narrowed wavefront vs executed ray steps on the 14 screen rows | median events/steps 1.52 at 331 px, 0.86 at 1,300 px; gate failed, WF1 not built |
 | `generated_c_castRay_pre_R1.c`, `generated_c_rayClear_pre_W1.c` | `RASTER_REVIEW.md`, `WEAPON_RANGE_REVIEW.md` | extracted Nim-generated C for the two loops before R1 and W1 | call profiles quoted in the reviews |
 
 Not retained: the raw stdout of every run above (transcript only); the Docker container
