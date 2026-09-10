@@ -63,3 +63,5 @@ G0 bed15e11; G1 9e4971f1; M1 5a6c4963; W1 da13e2c7; M2 d9962a8d; M3 f261aeca; W2
 - A1 retained: exact two-edge bridge shortcut halves mixed-graph activation in three m8i pairs. All 76 graph arrays, full quality and memory match. Only frozen map 48 still exceeds 2x activation (2.081–2.097x); configured timing remains failed. See A1_REPORT.md.
 
 - WF1 rejected before implementation: corrected per-source enumeration model costs median 1.52 ray-step equivalents at 331 px and 0.86 at 1300 px, exceeding preregistered 0.80/0.60 limits. Wavefront direction closed. See WF1_PROPOSAL.md and retained count scripts/output.
+
+- C1: current A0/P1 source, three m5a native/Docker pairs per range. 1300px worstp95/max5.186019/5.246860 native versus5.140920/5.177941 Docker, both fail. All masks/pops and Dockerfullquality match. See C1_REPORT.md.
