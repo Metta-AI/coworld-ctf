@@ -1,12 +1,12 @@
 # D5 — Our own evidence (read-only): Stranger Walk baseline + repo constraints
 
 Source of truth for the Stranger Walk data: live run directory
-`/Users/maxwellstarr/projects/stranger-walk-runs/sonnet-a/` (meta.json, score.json,
+`/Users/<host-user>/projects/stranger-walk-runs/sonnet-a/` (meta.json, score.json,
 transcript.jsonl — 714 lines), confirmed by peer agent `stranger-walk` as
-isolation-audited PASS. The archival copy at
-`~/.ctf/knowledge/stranger-walk/2026-09-09/` is NOT YET POPULATED — only
+isolation-audited PASS. The archival copy (internal tracking, not public)
+is NOT YET POPULATED — only
 sonnet-a is complete; sonnet-b is running, opus-a not started. Cite as
-`sonnet-a:<ISO timestamp>` below. `~/.ctf/knowledge/stranger-walk/00-owner-decisions-2026-09-09.md`
+`sonnet-a:<ISO timestamp>` below. The owner's decision record (internal tracking, not public)
 carries the same run's 21.5-min/5-dig headline summary independently.
 
 ## Milestone timeline (sonnet-a, entry https://softmax.com/paintbot, GV 0.7.367)

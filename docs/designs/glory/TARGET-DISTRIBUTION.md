@@ -235,12 +235,9 @@ evidence that the bands are working or that the boundary is "clean."
 
 ## Sources
 
-- `~/.ctf/knowledge/glory-gradient/03-target-distribution-questions-2026-09-09.md`
-  (the three ratio questions as put to the owner, recommended options)
-- `~/.ctf/knowledge/glory-gradient/01-census-2026-09-08.md` (S1 census,
-  measured-present baseline in §3)
-- `~/.ctf/knowledge/glory-gradient/01b-achievements-addendum-2026-09-09.md`
-  (achievements decomposition, the ~40–46% open item in §3)
-- `~/.ctf/knowledge/glory-gradient/00a-manager-ledger.md` (S2 gate-open
-  guidance: "NOTHING SERVES THE MID BAND" headline, mid-band-first-and-widest
-  instruction)
+All internal tracking, not public:
+- the three ratio questions as put to the owner, recommended options
+- S1 census, measured-present baseline in §3
+- achievements decomposition, the ~40–46% open item in §3
+- S2 gate-open guidance: "NOTHING SERVES THE MID BAND" headline, mid-band-first-and-widest
+  instruction

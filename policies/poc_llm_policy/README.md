@@ -233,8 +233,7 @@ local proof (`coworld run-episode --help`, verified against `coworld==0.1.46`:
 "Run one or more headless local episodes"). The custom-command flag on both is
 `--run`, and it takes **one argv token per flag, never a JSON array** — the
 exact trap a real Stranger Walk run hit and lost 12.1 minutes / 18 calls to
-before landing on the fix (`~/.ctf/knowledge/stranger-walk/STATUS-2026-09-09.md`
-punchlist #1). Verified against the installed CLI's own validation
+before landing on the fix (internal tracking, not public). Verified against the installed CLI's own validation
 (`coworld==0.1.46`, `coworld/cli_support.py:64-83`):
 
 ```bash

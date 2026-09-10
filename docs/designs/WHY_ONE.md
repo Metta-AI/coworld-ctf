@@ -1,7 +1,7 @@
 # "Why #1 is #1" — expandable standings row (Phase 2b, epic 16d081ab)
 
-Owner's favourite legibility idea (journey-quiz decision R10, `~/.ctf/knowledge/
-stranger-walk/00-owner-decisions-2026-09-09.md`): an expandable row under the
+Owner's favourite legibility idea (journey-quiz decision R10, internal tracking,
+not public): an expandable row under the
 standings leader. **Deeds first** (causal, derivable now from real replays — this
 doc + `tools/glory/why_one.py`). **The brain's style second** (heat/carry/ally-
 stack tempo — needs S3 risk bands before it can be shown; placeholder here).
@@ -181,7 +181,7 @@ Checked directly against the live API (not assumed):
   `GET /v2/divisions?league_id=...` → `settings.ladder.ranking`, 2026-09-09).
 - Deed decode **never trusts an unreconciled result**: it downloads the real
   replay, extracts it with a locally-built `extract_events` (the S1 census's
-  own binaries, `~/.ctf/pipeline-loop/tools/census_gv{59,60}_*_build`, not
+  own binaries, not
   committed here — private per-machine build artifacts, same as the census's
   own doctrine), reconstructs the seat's final score by the exact recut-fold
   method (seed 1, fold `amount>1` events, halve per friendly-fire, ×8 on win,

@@ -5,7 +5,7 @@ Docs only — no sim/scoring/glory code touched, no GameVersion/GLORYVERSION/wir
 step.
 
 **Landing note.** This is the repo-of-record copy of the gate-approved study, landed verbatim from
-the lane ledger at `~/.ctf/knowledge/glory-gradient/02-pinball-study-2026-09-08.md` (860 lines) so
+the lane ledger (internal tracking, not public; 860 lines) so
 the deliverable exists in-repo, not only under local knowledge notes. The knowledge-lane copy
 remains the lane's working ledger and continues to accrue lane discussion; this file is a snapshot
 of its gate-approved content and is not auto-synced — treat this repo doc as the citable record for

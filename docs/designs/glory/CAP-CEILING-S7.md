@@ -97,7 +97,7 @@ ceiling" (e.g. deliberately banking lower tiers to chase the S4b bonus).
 The original S5 Monte Carlo rig (`RIG-SIMULATION.md`'s 3,000-seat
 census-calibrated simulation, `/tmp/glory-s5/rig/s5_montecarlo.nim`) was
 **never committed** and is confirmed gone (checked: not in this worktree,
-not under any `~/.ctf/pipeline-loop/tools/*` build directory) —
+not under any internal build directory) —
 `LIGHTABLE-MODES-S4B.md` itself already flagged this ("a different agent's
 `/tmp`, unavailable to this worker") and built its OWN smaller,
 deterministic, COMMITTED substitute (`tests/test_glory_s4b_modes.nim`, 3
@@ -157,10 +157,9 @@ fresh** (independent of `cap_sweep.py` entirely — this is what actually
 proves `01e-...md`'s own committed `data/gv62/` snapshot was stale, not
 this PR's tooling): `census_decode.py --catalog v3` and
 `attribution_decompose.py --catalog v3`, re-run against the SAME cached
-replays (`~/.ctf/scout/glory_census_replays/` for census, the
-content-populated instrumented cache preserved at
-`~/.ctf/knowledge/glory-gradient/00w-s6-remeasure-raw/attr_replays/` for
-attribution — the plain cache's `content` field is empty, so it cannot
+replays (internal tracking, not public — the census cache and the
+content-populated instrumented attribution cache; the plain cache's
+`content` field is empty, so it cannot
 resolve HANDED/CONSTANT/CHOSEN buckets even though it gives identical
 `reported`/`capped`/`product` values, since the fold never reads
 `content`), reproduces `5,456/5,456` rows, `154` capped, and the same
@@ -209,11 +208,12 @@ below as this PR's own addition, not part of the required set).
 | uncapped | OFF | 5456 | 0.000% | 0 | 0.00% | 83.98% | 83.98% | 62.34% | no | 24/24 | 576,744× (19.14 bits) |
 | uncapped | ON  | 5456 | 0.000% | 0 | 0.00% | 84.03% | 84.03% | 62.37% | no | 24/24 | 890,513× (19.76 bits) |
 
-Reproduce with:
+Reproduce with (the `--episodes`/`--jsonl-dir` inputs are internal census
+data, not public):
 ```
 python3 tools/glory/cap_sweep.py \
-  --episodes ~/.ctf/knowledge/glory-gradient/data/gv62/gv62_episodes.json \
-  --jsonl-dir ~/.ctf/knowledge/glory-gradient/00w-s6-remeasure-raw/attr_replays \
+  --episodes <internal episodes.json> \
+  --jsonl-dir <internal attr_replays dir> \
   --cap-bits 14,15,16,17,18,19,20,21,uncapped --s4b off,on \
   --out /tmp/glory-s7/sweep.json
 ```
@@ -475,8 +475,7 @@ in this program — this document sizes the ceiling; it does not arm it.
 
 ## Cross-refs
 
-S6 live read (the number this step opens on):
-`~/.ctf/knowledge/glory-gradient/01e-gv62-cohort-attribution-2026-09-09.md`.
+S6 live read (the number this step opens on): internal tracking, not public.
 Target bands: `TARGET-DISTRIBUTION.md`. Rig / cliff finding:
 `RIG-SIMULATION.md`. S4b mechanism: `LIGHTABLE-MODES-S4B.md`. HANDED/
 CONSTANT/CHOSEN mapping + freeze criterion: `CATALOG-V3-DRAFT.md`. Cap
@@ -486,4 +485,4 @@ constant + fold order: `src/ctf/glory.nim` (`RecutProductCapArmed`
 `src/ctf/sim.nim` (`claimAchievement` ~L591-654, the S4b fold order).
 Tooling: `tools/glory/cap_sweep.py`, `tools/glory/test_cap_sweep.py`,
 `tools/glory/catalog_fold.py` (the v3 fold this extends). Mirror:
-`~/.ctf/knowledge/glory-gradient/01f-s7-cap-ceiling-2026-09-09.md`.
+internal tracking, not public.

@@ -1,4 +1,4 @@
-<!-- Source: ~/.ctf/knowledge/stranger-walk/journey-map/jm-after.md, copied verbatim 2026-09-09 (shot paths repointed to ./shots/) -->
+<!-- Source: internal tracking, not public; copied verbatim 2026-09-09 (shot paths repointed to ./shots/) -->
 
 # Journey Map — AFTER submit (jm-after) — era 2026-09-09, live paintbot-v0.7.374 (GV61/GLORYVERSION16), main ≈070d4805
 
@@ -46,7 +46,7 @@ milestones) but the surfaces touched and defects hit are real and cited by trans
   **live-checked today**: the round-list "Search player or code" box returned `"No episode in the window
   matches."` for `gloriouslyagentic` once ~60 rounds had passed since Walk 1's round #4544 — old
   submissions age out of the searchable window with no indication of what "the window" is or how to
-  reach further back (screenshot: `~/.ctf/knowledge/stranger-walk/journey-map/./shots/jm-after-01.png`).
+  reach further back (screenshot: `./shots/jm-after-01.png`).
 - Hand-off: gave up on UI search, fell back to CLI (`coworld memberships --mine --json`, `coworld rounds
   <id> --json`) to get its real rank/score `[996]`.
 - Owning lane: Observatory epic (search/label consistency) + wiki (jargon glossary).
