@@ -38,3 +38,5 @@ Append results; do not erase negatives. All numbers are observed, not inferred p
 - M2: capacity-based retained ledger; original65 maps pass, configured11 all fail shared cap (max31,340,947B). No speed claim; hazard/cache context still omitted until M3. M2_REPORT.md.
 
 - M3: include installed hazard and refreshed cache; all65 original maps pass, historical configured shared maximum31,521,758B. New user ruling permits a later32 MiB cap update; raw16 MiB failures remain. M3_REPORT.md.
+
+- W2: Worst m5a p95/max11.543802/12.864276 ->10.375292/10.534817ms; all masks/pops and full corpus unchanged. See W2_REPORT.md.

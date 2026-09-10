@@ -189,7 +189,7 @@ proc rayClear*(map: BodyMap, a, b: BodyPoint): bool =
     let point = (
       x: roundedRayCoordinate(lower.x, remainder.x, steps),
       y: roundedRayCoordinate(lower.y, remainder.y, steps))
-    if map.isWall(point):
+    if map.wall[map.pixelIndex(point.x, point.y)]:
       return false
     advanceRayCoordinate(lower.x, remainder.x, dx, steps)
     advanceRayCoordinate(lower.y, remainder.y, dy, steps)
