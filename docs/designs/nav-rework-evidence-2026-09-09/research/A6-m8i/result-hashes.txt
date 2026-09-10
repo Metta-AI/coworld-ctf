@@ -1,0 +1,12 @@
+c917037f8caa1bc956deb2d03c4044c07db4458a23b4d347654358fda06dd8e5  /home/ubuntu/nav-throughput-results-20260909/A6-screen/profile-direct
+690848bb2f97c06356f4ce1692ea50032a4f45301efbcb48bfeb3708cc1ea9e9  /home/ubuntu/nav-throughput-results-20260909/A6-screen/profile-eager
+5ba9874395b50a9aa573f42e3fb645bd4139bbff867e21a58869323d14039b88  /home/ubuntu/nav-throughput-results-20260909/A6-screen/profile-lazy
+70a92894baae843eaeccc84ae24d5b40c5b17c488dcd05b168531c60b0026525  /home/ubuntu/nav-throughput-results-20260909/A6-screen/direct-r1.json
+81dfeee875524a137037bcd3b368f7eee91cb8f29dbf6158de398edcfd27a6b8  /home/ubuntu/nav-throughput-results-20260909/A6-screen/direct-r2.json
+60ca75b3671400a87f43b9e80f7ed07771193510946bf4a547b6f5d917fad0d0  /home/ubuntu/nav-throughput-results-20260909/A6-screen/direct-r3.json
+ade356ded10e14344d4f02e365a37868c177eb5e33089848e2633d94f93a9b6e  /home/ubuntu/nav-throughput-results-20260909/A6-screen/eager-r1.json
+76b13a8fe0657623f25cddf58c963eb7bbf29a4f000b5bd924574faad9810acc  /home/ubuntu/nav-throughput-results-20260909/A6-screen/eager-r2.json
+4b32390dbdd7f2f6232b4c39e641f54e20c716573e666301781162acaff6f862  /home/ubuntu/nav-throughput-results-20260909/A6-screen/eager-r3.json
+b09b2aed9d5ab7060493e7805c78aa4b5a98e4e3c475e451389bcf04e088f3c1  /home/ubuntu/nav-throughput-results-20260909/A6-screen/lazy-r1.json
+f3a0e5d25e2aaa6e5043c70d2b92908c3173b4515f858ba86fef9f905b5071c6  /home/ubuntu/nav-throughput-results-20260909/A6-screen/lazy-r2.json
+81186731db337575942cd36b6114f29682d06654bd4aa4f1a224355b610e96ee  /home/ubuntu/nav-throughput-results-20260909/A6-screen/lazy-r3.json

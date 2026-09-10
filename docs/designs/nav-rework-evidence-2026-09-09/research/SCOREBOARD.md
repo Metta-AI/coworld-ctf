@@ -82,3 +82,5 @@ G0 bed15e11; G1 9e4971f1; M1 5a6c4963; W1 da13e2c7; M2 d9962a8d; M3 f261aeca; W2
 - C2 retained for integration: m5a short 331/1300 regimes fit B1024 headroom, but configured 0/11 pass (worst p95/max 6.484532/6.680327 ms). All 27 native real-trace pairs improve total/p95 with exact rasters; changing-source microbench regresses up to 1.08%. Integrated +16-byte owner allowance corrects isolated ledger. C2_STATUS.md.
 
 - C4 rejected at trace-count screen: complete ordered-source raster reuse at capacity8 is only2.20–7.31% of nonempty rebuilds, fails20% threshold everywhere. No source implementation or memory-cap increase. C4_REPORT.md.
+
+- A5 native attribution: pocket work is about half of index construction on both m5a/m8i; no uniquely worse pixel-stage host scaling. A6 lazy screen improves m8i index time3.45–4.12%, direct loses11.1–11.7%; full m8i quality and76activation/memory rows pass. All retained ledgers equal A4. m5a follow-up pending, no integration. A6_NATIVE_STATUS.md.

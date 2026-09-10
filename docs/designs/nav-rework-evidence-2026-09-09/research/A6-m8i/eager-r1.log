@@ -1,0 +1,8 @@
+Profile trace enabled: /home/ubuntu/nav-throughput-results-20260909/A6-screen/current-eager.json
+Profile ticks: 100
+Trace started
+ trace events: 0
+Trace ended
+ trace events: 115
+Trace written to /home/ubuntu/nav-throughput-results-20260909/A6-screen/current-eager.json
+{"pool_index":48,"map":"br-gen-24678","repeats":5,"grid":[283,151],"pocket_counters_total":{"coverage_cells":213665,"pixel_scan_cells":59040,"secondary_cells":855,"scanned_pixels":3833280,"deferred_secondary":41120,"coverage_unresolved_before_resolve":10570,"coverage_pending_out":50930,"resolve_passes":20,"resolve_seeds":81275,"join_candidates":30835,"join_paths":5,"final_pending_in":50930,"paths":55,"pocket_points":210}}
