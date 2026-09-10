@@ -107,5 +107,9 @@ but worth flagging to whoever owns it.
   only file in this repo's `docs/wiki/` naming the standing decay
   constant's exact live value), and `tools/wiki/render_era_banner.py` (stamps every page's stale
   banner from `_era.md`; run over the 7 pages this repo mirrors locally —
-  the other 35 live-only pages are unaffected and remain the next audit's
-  scope). None of this is published; see this task's PR for the diff.
+  the other 36 live-only pages are unaffected and remain the next audit's
+  scope (counted as live total 40 minus the 4 of these 7 mirrors that were
+  actually live at that point — `main`, `modes`, `ranks`,
+  `submitting-a-policy` — not 42-minus-7, which double-counts pages that
+  were still local-only). None of this is published; see this task's PR for
+  the diff.

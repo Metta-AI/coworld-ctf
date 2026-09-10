@@ -1,9 +1,30 @@
 # Publish procedure — for the lead, after review
 
-Not run in this task (worker boundary). Mechanism per memory
-`paintbot-wiki-lane`: plain PUT to the wiki API, token from
-`~/.softmax/credentials.yaml`, **curl only** (Python `urllib` gets a
-Cloudflare 403), rate limit 30 revisions/60s.
+## Status (updated 2026-09-10)
+
+- **Steps 1–2** (publish `battle-royale-s2` and `build-and-submit`, verify
+  no red links) — run and verified. Both pages return HTTP 200 live; see
+  `AUDIT.md`'s 2026-09-09 changelog entry.
+- **Step 3** (repoint the seven `[[battle-royale]]` red links) — run and
+  verified. See `AUDIT.md`'s 2026-09-09 changelog entry: all seven pages
+  (`modes`, `glory`, `glory-season-2`, `deeds`, `achievements`,
+  `patch-notes`, `main`) were repointed to `[[battle-royale-s2]]`, and zero
+  bare `[[battle-royale]]` occurrences remain (checked via the wiki API,
+  post-publish).
+- **Step 4** — both hand-edits are done. `modes`'s two stale sections
+  (`### battle-royale-s2 duo pairing`, `### Ground items on
+  battle-royale-s2`) were already absent by the start of this task.
+  `submitting-a-policy`'s `### Platform-side push (not exercised or
+  verified)` section was removed 2026-09-10 (task `wiki-step4`), verified
+  by fetching the live body before the edit, PUTting the edited body with
+  that revision as `base_revision_id`, then fetching again and diffing
+  before vs. after: the only change was that one section's removal (89 →
+  79 lines).
+
+Mechanism per memory `paintbot-wiki-lane`: plain PUT to the wiki API, token
+from `~/.softmax/credentials.yaml`, **curl only** (Python `urllib` gets a
+Cloudflare 403), rate limit 30 revisions/60s. The procedure below remains
+the runbook for the next publish.
 
 ## 1. Publish the two new pages
 
