@@ -37,6 +37,8 @@ none blocking the measurement.
   are identical), which is harmless.
 
 ## 4. Memory accounting
+Caveat added 2026-09-09: the ledger categories were later found incomplete for the per-seat danger geometry copies; see `MEMORY_SHARING_REVIEW.md`. The scratch accounting reviewed here is unaffected.
+
 - `BodyNavigationBytes.packedWeightScratch` is counted with its allocator overhead and added
   to `total`; the scratch is allocated before `result.navigationBytes = retainedNavigationBytes()`
   and the 256 MiB cap check, so the cap sees it.

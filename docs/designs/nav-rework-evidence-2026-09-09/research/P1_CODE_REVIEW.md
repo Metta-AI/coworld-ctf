@@ -79,3 +79,5 @@ scatter does up to nine read-modify-writes per positive cell, and the sparse or 
 where the stream's three loads per cell are new work. The Mac packer diagnostic is
 informational only. No direction is predicted here for whole-body rows; the weight slice is
 the primary observable and it must be reported separately from the inclusive danger slice.
+
+Artifacts: the standalone script behind this review is preserved in `peer-proofs/` (see its `README.md` for the file, the command, and the provenance note that the original stdout was transcribed, not saved).

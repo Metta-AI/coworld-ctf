@@ -4,6 +4,8 @@ Written 2026-09-09 by Claude (peer) in response to `MEMORY_FINDING.md`. Source-b
 edits. Line numbers are at 20234cc7 plus Codex's harness-only edits.
 
 ## 1. What counts as "shared retained nav data"
+Caveat added 2026-09-09: `sharedDangerGeometry` was in fact copied per seat before M1 and the `total` figures were understated; the pool shared bound was conservative. See `MEMORY_SHARING_REVIEW.md`.
+
 
 Ratified text (Asana comment thread, `../asana-task-1218165906459726-comments.md`):
 - line 168 (task description, Codex's rewrite after James's review): "retained shared nav data
