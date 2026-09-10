@@ -143,6 +143,30 @@ discover it three weeks in: "per-player itemization" cannot be built from
 what the wire carries today without picking (a) or (b) first, and that
 choice belongs at the lead's gate, not to a unilateral implementation PR.
 
+## Status note (S8 ship, 2026-09-09) — informational only, no design change
+
+Two facts moved since this spec's own "as of this PR's base" trace above; noted
+here so a later reader does not re-derive them, not as a re-opening of the
+gate (this document still decides nothing and still authors no endcard code):
+
+- **Gap 2/4 partially closed.** #525 (`maxwell/wire-over-identity`, merged
+  ahead of this PR) shipped a durable PER-TEAM breakdown at option (a)'s own
+  idiom: `SimServer.teamDeedTally` + `over.teams[team].deeds` (deed id,
+  label, count, glory minted per team, written at the same mint sites as
+  the whole-episode audit counters). This answers "for whom" at TEAM
+  granularity, for every deed family, not only the ones with a raw
+  `GloryDeed` event's `source`. Point 1's own INTRA-team (per-PLAYER, not
+  per-team) gap for CTF/multi-cog squads is **still open** — #525 did not
+  attempt it and this note does not claim otherwise.
+- **A new, unrelated per-seat field landed alongside it**: this PR
+  (S8 ship) adds `over.identity` (seat `slot` -> `player_id`/
+  `policy_version_id`/`policy_name`/`round_id`/`episode_id`/`is_filler`,
+  from `COWORLD_SEAT_IDENTITY`, metta PR #22382) — platform WHO-identity,
+  not deed WHAT-attribution. It answers a different question than this
+  spec's own gap analysis and does not close any of the four points above;
+  named here only so it is not mistaken for progress on this spec's ask
+  when a reader greps `over.` wire keys.
+
 ## What this document explicitly does not do
 
 - Does not add, rename, or remove any `GameConfig` field, wire key, or

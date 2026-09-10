@@ -146,6 +146,34 @@ suite "S4b manifest reachability (armed from the SCHEMA path, not defaultGameCon
     require echoed.hasKey("achievementLightableModes")
     check echoed["achievementLightableModes"].getBool() == true
 
+  test "GLORY GRADIENT S8 SHIP: the battle-royale-s2 flagship variant's OWN game_config arms it (the manifest-path reachability the schema tests above don't cover)":
+    ## The suites above prove the SCHEMA declares the key and that
+    ## `config.update` honors it -- neither proves the manifest actually
+    ## SETS it anywhere. This is that proof, the same one #504's own
+    ## `catalogV3Reprice` arm never got a codified test for (verified by
+    ## grep at ship time instead) -- S8's own task explicitly asks for it
+    ## here. Reads the published manifest directly, not `config.update`, so
+    ## a future accidental revert of the flagSet block (not the schema)
+    ## fails this test instead of shipping dark.
+    let manifest = parseFile(GameDir / "coworld_manifest_paintbot.json")
+    var flagship: JsonNode = nil
+    for variant in manifest["variants"]:
+      if variant["id"].getStr() == "battle-royale-s2":
+        flagship = variant
+    require flagship != nil
+    let flagSet = flagship["game_config"]
+    require flagSet.hasKey("achievementLightableModes")
+    check flagSet["achievementLightableModes"].getBool() == true
+    # Armed alongside gloryMultiplierRecut (the switch's own "reads only
+    # while gloryMultiplierRecut is armed" precondition) and catalogV3Reprice
+    # (S7's own sizing was measured with both armed together) -- an
+    # achievementLightableModes:true with either of those false would be a
+    # silent no-op on this variant, not the S8 ship this test guards.
+    check flagSet.hasKey("gloryMultiplierRecut") and
+      flagSet["gloryMultiplierRecut"].getBool() == true
+    check flagSet.hasKey("catalogV3Reprice") and
+      flagSet["catalogV3Reprice"].getBool() == true
+
 suite "S4b recutModeLitBonus: the pure ladder (glory.nim, no SimServer needed)":
   test "0 or 1 lower tiers lit -> x1, no bonus (no regression vs today)":
     check recutModeLitBonus(0) == 1

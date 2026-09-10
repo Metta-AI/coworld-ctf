@@ -739,7 +739,7 @@
           "default": false
         },
         "achievementLightableModes": {
-          "description": "GLORY GRADIENT S4b (epic 25d9108e): achievements as lightable modes — generalizes the gun tree's own top-tier FIRST-claim precedent into a pinball-shaped \"bank lights the jackpot\" bonus for every achievement tree. When a team claims a tree's TOP tier, this counts how many of that SAME tree's four lower tiers the team already claimed this episode and folds an extra bonus (x1/x1/x2/x3/x4 by count 0-4) on top of the tier's existing price, composing multiplicatively with the existing FIRST-claim x3. A seat that only ever lands the rare top-tier act alone scores the same as today (count 0/1, no bonus); one that also banks the tree's easier tiers along the way scores more. Reads only while gloryMultiplierRecut is armed. Off by default everywhere: with it off this whole mechanism is unreached, byte-identical to today.",
+          "description": "GLORY GRADIENT S4b (epic 25d9108e): achievements as lightable modes — generalizes the gun tree's own top-tier FIRST-claim precedent into a pinball-shaped \"bank lights the jackpot\" bonus for every achievement tree. When a team claims a tree's TOP tier, this counts how many of that SAME tree's four lower tiers the team already claimed this episode and folds an extra bonus (x1/x1/x2/x3/x4 by count 0-4) on top of the tier's existing price, composing multiplicatively with the existing FIRST-claim x3. A seat that only ever lands the rare top-tier act alone scores the same as today (count 0/1, no bonus); one that also banks the tree's easier tiers along the way scores more. Reads only while gloryMultiplierRecut is armed. GLORY GRADIENT S8 SHIP (epic 25d9108e, docs/designs/glory/CAP-CEILING-S7.md): armed alongside the RecutProductCapArmed ceiling move, GLORYVERSION 17->18 -- S7's own real-population re-fold found this switch's cap-hit effect negligible on top of the ceiling move (identical cap-hit/top-decile-capped S4b on vs off at 6 of 7 tested cap levels), so arming it here does not reopen the cap-hit question the ceiling closes; its own CHOSEN-share nudge is real but small (+0.04 to +0.09pp top decile). Off by default everywhere except the battle-royale-s2 flagship variant, which ships it ARMED (owner GLORYVERSION GO required) -- a rollback-only switch: flip it false on that variant and the mechanism goes dark again, no code change.",
           "type": "boolean",
           "default": false
         },
@@ -1425,7 +1425,8 @@
         "pactScopedWipeDown": true,
         "placementRampV3": true,
         "gloryFixedPointScale": true,
-        "catalogV3Reprice": true
+        "catalogV3Reprice": true,
+        "achievementLightableModes": true
       }
     },
     {

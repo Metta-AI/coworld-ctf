@@ -1387,6 +1387,28 @@ proc buildStateJson*(
           "slot": claim.slot
         })
       state["over"]["achievements"] = feed
+    # GLORY GRADIENT S8 (GameVersion 63->64, epic 25d9108e): per-seat
+    # platform identity -- `player_id`/`policy_version_id`/`policy_name`/
+    # `round_id`/`episode_id`/`is_filler`, keyed by `slot` (the achievement
+    # feed's own "slot" idiom just above) -- from `COWORLD_SEAT_IDENTITY`
+    # (metta PR #22382), parsed once at live server startup
+    # (`parseSeatIdentity`, server.nim) into `sim.seatIdentity`. Omit-
+    # when-absent like "achievements"/"distinctions" just above and below:
+    # every local/dev/test run and every non-platform-hosted episode never
+    # sets the env var, so this key is simply never present on that wire.
+    if sim.seatIdentity.len > 0:
+      var identity = newJArray()
+      for entry in sim.seatIdentity:
+        identity.add(%*{
+          "slot": entry.slot,
+          "playerId": entry.playerId,
+          "policyVersionId": entry.policyVersionId,
+          "policyName": entry.policyName,
+          "roundId": entry.roundId,
+          "episodeId": entry.episodeId,
+          "isFiller": entry.isFiller
+        })
+      state["over"]["identity"] = identity
     # GLORY v12 (contract §3): capture DISTINCTIONS -- "Uphill" and "Fast
     # Break" moved off the Heart ladder and onto the match record. The
     # engine still pins `capturedOutnumbered`/`capturedFastBreak` at the

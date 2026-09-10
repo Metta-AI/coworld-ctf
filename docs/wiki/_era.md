@@ -24,6 +24,17 @@ regex; do not reflow these into prose.
   date above — treat that as in-flight, not yet the live rule, and re-read
   this file rather than trusting a cached copy of this sentence before
   citing either number.
+- **In-flight (not yet live, do not cite as current):** a draft PR (GLORY
+  GRADIENT S8 SHIP, epic `25d9108e`) raises `RecutProductCapArmed` (the
+  score product's backstop ceiling) 2^24 -> 2^31 internal and arms
+  achievement "lightable modes" (bank a tree's lower tiers before its top
+  claim for a bonus) on the `battle-royale-s2` flagship variant, taking
+  GLORYVERSION 17->18 and GameVersion 63->64. Held behind another PR's own
+  wire batch and the owner's GLORYVERSION GO; this file's `GameVersion`/
+  `GLORYVERSION` fields above stay at the actually-deployed 62/17 until
+  that GO lands and a build ships — per this file's own "era truth is
+  sourced, never typed" rule, this bullet is a pointer to the draft, not a
+  substitute source.
 
 ## Why this file, not a wiki page
 

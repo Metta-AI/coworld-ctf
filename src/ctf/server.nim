@@ -4093,6 +4093,63 @@ proc finishAndCopyProfileTrace(done: var bool) =
     copyFile(ProfileTracePath, destination)
     echo "Profile trace copied: ", destination
 
+const CoworldSeatIdentityEnv* = "COWORLD_SEAT_IDENTITY"
+  ## GLORY GRADIENT S8 (GameVersion 63->64, epic 25d9108e): metta PR
+  ## #22382 (`dispatcher: forward per-seat platform identity to the game
+  ## runtime`) sets this on a platform-hosted episode's game container.
+  ## Same ad-hoc-literal idiom `COGAME_EVENTS_URI`/`COGAME_METRICS_URI`/
+  ## `COGAME_MUX_SOCKET`/`COWORLD_WORKDIR` already use just below --
+  ## `RuntimeConfig` (bitworld/runtime.nim, an external package) has no
+  ## identity field and never will from this repo alone (see GV63's own
+  ## changelog, sim_types.nim, for the traced reason), so this reads
+  ## beside it rather than through it, exactly like those four.
+
+proc parseSeatIdentity*(raw: string): seq[SeatIdentityEntry] =
+  ## Parses `COWORLD_SEAT_IDENTITY`'s JSON object (seat position -> `{
+  ## player_id, policy_version_id, policy_name, round_id, episode_id,
+  ## is_filler? }`, any value possibly `null`) into `SeatIdentityEntry`
+  ## rows -- see that type's own doc comment (sim_types.nim) for the
+  ## null/absent-string sentinel convention and the position/slot mapping.
+  ## Never raises: an optional platform-metadata channel must not be able
+  ## to kill a live server on a malformed value, so a parse failure or an
+  ## unexpected shape logs one line and returns empty, same as "the env
+  ## var was never set" (the empty-seq idiom `SimServer.seatIdentity`
+  ## already uses for "no identity" everywhere else).
+  result = @[]
+  if raw.len == 0:
+    return
+  var parsed: JsonNode
+  try:
+    parsed = parseJson(raw)
+  except CatchableError as e:
+    echo "COWORLD_SEAT_IDENTITY: malformed JSON, ignoring (", e.msg, ")"
+    return
+  if parsed.kind != JObject:
+    echo "COWORLD_SEAT_IDENTITY: expected a JSON object, ignoring"
+    return
+  proc optStr(node: JsonNode, key: string): string =
+    if node.hasKey(key) and node[key].kind == JString: node[key].getStr()
+    else: ""
+  for key, entry in parsed.pairs:
+    if entry.kind != JObject:
+      continue
+    var slot: int
+    try:
+      slot = parseInt(key)
+    except ValueError:
+      echo "COWORLD_SEAT_IDENTITY: non-integer seat key '", key, "', skipping"
+      continue
+    result.add SeatIdentityEntry(
+      slot: slot,
+      playerId: entry.optStr("player_id"),
+      policyVersionId: entry.optStr("policy_version_id"),
+      policyName: entry.optStr("policy_name"),
+      roundId: entry.optStr("round_id"),
+      episodeId: entry.optStr("episode_id"),
+      isFiller: entry.hasKey("is_filler") and entry["is_filler"].kind == JBool and
+        entry["is_filler"].getBool()
+    )
+
 proc runServerLoop*(
   host = DefaultHost,
   port = DefaultPort,
@@ -4194,6 +4251,11 @@ proc runServerLoop*(
         "COGAME_METRICS_URI must be a file:// path, got: " & uri
       )
 
+  # GLORY GRADIENT S8: parsed ONCE, live or replay -- but only APPLIED to a
+  # live run (below). Cheap even when unused (empty string -> empty seq
+  # immediately, see parseSeatIdentity's own comment).
+  let seatIdentityValue = parseSeatIdentity(getEnv(CoworldSeatIdentityEnv))
+
   var
     sim =
       if replayLoaded: move(initializedReplay.sim)
@@ -4201,6 +4263,13 @@ proc runServerLoop*(
     lastTick = getMonoTime()
     collectedEvents: seq[SimEvent] = @[]
   sim.collectEvents = eventsPath.len > 0
+  # A replay-loaded run keeps whatever identity its OWN keyframe already
+  # carries (baked in live, at the original recording's own startup) --
+  # see `SimServer.seatIdentity`'s own comment (sim_types.nim) for why
+  # overwriting it here from THIS process's (almost always empty, for an
+  # offline replay viewer) environment would be wrong.
+  if not replayLoaded:
+    sim.seatIdentity = seatIdentityValue
   block:
     # Bake the supersampled spectator render caches (map, endzone fades,
     # soldier rotations) BEFORE the listener opens: a viewer's first-message
@@ -4935,6 +5004,11 @@ proc runServerLoop*(
       inc config.seed
       sim = initSimServer(config)
       sim.collectEvents = eventsPath.len > 0
+      # `shouldReset` only ever fires when `not replayLoaded` (set just
+      # above, guarded on that same predicate) -- identity persists across
+      # a multi-game match's own games exactly like it does across the
+      # first game, no re-read needed.
+      sim.seatIdentity = seatIdentityValue
       shellEpisode.resetShellForSim(replayLoaded, config, sim, "reset",
         runtimeConfig.config)
       # One file describes ONE match. A reset that kept the previous match's

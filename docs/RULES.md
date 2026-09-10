@@ -1186,6 +1186,42 @@ measurement of games actually played — is exactly the kind of claim this
 project holds itself to double-checking against real games once it ships,
 rather than trusting the first estimate.
 
+## Season 2 glory scoring — ceiling raise + lightable achievements (draft, pending sign-off)
+
+**This section describes a draft change, not a live one.** It is written
+into a pull request that is itself held behind another, separate pull
+request's own wire batch, and the league owner still has to approve both
+before either ships to `battle-royale-s2`. Nothing below is true of the
+game you are playing today until that happens.
+
+If it ships, two things change for every player, on top of whatever the
+catalog-update section above resolves to:
+
+- **The score safety ceiling moves much higher.** Every episode's total
+  glory is bounded by a backstop so a bug (or an exotic, deliberately
+  farmed sequence) cannot print an absurd, un-auditable number — think of
+  it as the highest score the game will ever report for one match, not a
+  target. That ceiling is measured against real games, not guessed: on a
+  341-episode sample only 17 in 5,456 seat-episodes (0.31%) would ever
+  reach the new, higher ceiling, versus 154 (2.82%) at today's — so this
+  mostly matters for how HIGH the rare best-of-the-best scores can climb,
+  not for ordinary play, which this change does not touch at all.
+- **Banking a tree's easier achievement tiers before its hardest one now
+  pays a bonus.** Every achievement tree has five tiers; claiming the top
+  tier already scored the same regardless of what else you had banked in
+  that tree. Now, a team that also holds the tree's four lower tiers when
+  it claims the top one earns extra credit on top of the tier's usual
+  price — the more of the tree you have already banked, the bigger the
+  top claim pays. A team that only ever lands the rare top-tier act alone
+  scores exactly what it does today; nothing about EARNING an achievement
+  changes, only what a fuller tree is additionally worth once you cash in
+  its hardest claim.
+
+If this ships, the glory economy version moves to **GLORYVERSION 18** (from
+whatever GLORYVERSION the catalog-update section above resolves to first).
+A score is only ever comparable to another score from the same
+GLORYVERSION — a leaderboard should not blend seasons across that line.
+
 ## Engine reward scoring
 
 The published Season 2 variant uses `scoring: "classic"`, with the BR placement

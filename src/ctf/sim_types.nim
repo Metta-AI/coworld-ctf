@@ -29,7 +29,7 @@ export glory
 
 const
   GameName* = "ctf"
-  ReplayCompatibleGameVersions* = ["63"]
+  ReplayCompatibleGameVersions* = ["64"]
     ## The replay-load allowlist (play-calling design §4.3): versions whose
     ## recorded files still play back correctly under THIS engine. PROVEN
     ## invariant, not a style choice — `test_replay_compat.nim`'s "the
@@ -164,8 +164,34 @@ const
     ## RewardAccount on the wire. Widening requires a real archived fixture
     ## that survives initialization and stepping (PM ruling, 2026-08-30),
     ## never a header rewrite.
-  GameVersion* = "63"
-    ## GV63 (WIRE-OK BATCH -- REALIZED ECONOMY + GLORY BY DEED, THE WHOLE
+  GameVersion* = "64"
+    ## GV64 (GLORY GRADIENT S8 SHIP, epic 25d9108e -- DRAFT, held behind
+    ## #525's GV63 batch, owner GLORYVERSION GO required before merge):
+    ## three changes bundled per the S2 lead's own ship plan
+    ## (`docs/designs/glory/CAP-CEILING-S7.md` §8):
+    ##   1. `RecutProductCapArmed` 2^24 -> 2^31 internal (glory.nim, S7's
+    ##      sized ceiling) and `achievementLightableModes` armed on the
+    ##      battle-royale-s2 flagship manifest ONLY -- GLORYVERSION 17->18
+    ##      (glory.nim's own `GloryVersion` v18 changelog has the full S7
+    ##      evidence). `defaultGameConfig()` untouched (both switches'
+    ##      compiled defaults stay false/2^24), so the OFF/dark path is
+    ##      byte-identical to GV63.
+    ##   2. Game-side seat-identity consumer: `COWORLD_SEAT_IDENTITY` env
+    ##      (metta PR #22382) parsed once at live server startup into a
+    ##      new `SimServer.seatIdentity: seq[SeatIdentityEntry]` field
+    ##      (sim_types.nim, appended at the true end of the type, same
+    ##      flatty append-only rule every prior block follows), surfaced
+    ##      unconditionally (possibly-empty seq, omitted from `over` when
+    ##      empty) as `over.identity` (broadcast.nim). This is the piece
+    ##      GV63's own changelog scoped and explicitly did NOT ship
+    ##      (no inbound channel existed); #22382 is that channel's
+    ##      platform-side half, landing "in the next GameVersion bump" per
+    ##      its own PR body -- this is that bump. A flatty keyframe layout
+    ##      change (the new field), so this alone would already require
+    ##      the bump and a full fixture re-record independent of point 1.
+    ##   3. Nothing else: no other wire schema change, no other flatty
+    ##      layout change.
+    ## Previously GV63 (WIRE-OK BATCH -- REALIZED ECONOMY + GLORY BY DEED, THE WHOLE
     ## epic, GLORYVERSION unchanged at 17): two additive broadcast.nim wire
     ## keys, both read-only projections of already-computed state -- a
     ## per-frame top-level "economy" stamp (`"recut"`/`"classic"`, straight
@@ -3936,6 +3962,41 @@ type
     glory*: int                ## can be negative (a friendly-fire-heavy
                                ## seat's own dTeamKill entries).
 
+  SeatIdentityEntry* = object
+    ## GLORY GRADIENT S8 (GameVersion 63->64, epic 25d9108e): one seat's
+    ## platform identity, read once at live server startup from the
+    ## `COWORLD_SEAT_IDENTITY` env var (metta PR #22382, `dispatcher:
+    ## forward per-seat platform identity to the game runtime`) -- that
+    ## var's own shape is a JSON object keyed by seat POSITION (the
+    ## dispatcher's `policy_version_ids` array index, which lines up with
+    ## `config.players[]`'s own order for the fresh, non-shell episodes
+    ## the platform launches this way) mapping to `{player_id,
+    ## policy_version_id, policy_name, round_id, episode_id, is_filler?}`.
+    ## `slot` here mirrors that same source position (matches the
+    ## achievement feed's own "slot" = joinOrder idiom for a fresh,
+    ## non-squad episode, where join order and config array order
+    ## coincide -- a shell/squad episode with mid-match dynamic joins is
+    ## not this env var's target and is not specially handled).
+    ## `playerId`/`policyVersionId`/`policyName`/`roundId`/`episodeId` are
+    ## `""` when the source JSON carries `null` (a league zombie/baseline
+    ## seat's `player_id`, or an episode with no round) -- this repo has
+    ## no other use for an empty identity string, so `""` is an
+    ## unambiguous "absent" sentinel, the same idiom `variantId`'s own
+    ## schema entry ("The engine only reports it") uses for an unset
+    ## platform-echo string. Never read back into any scoring decision,
+    ## not in gameHash -- platform/audit metadata only, same status as
+    ## `TeamDeedTally` just above. Set ONCE per live process (never
+    ## re-read from a replay-loaded run's own environment -- see
+    ## `SimServer.seatIdentity`'s own comment for why a loaded replay
+    ## keeps whatever its OWN recording keyframed instead).
+    slot*: int
+    playerId*: string
+    policyVersionId*: string
+    policyName*: string
+    roundId*: string
+    episodeId*: string
+    isFiller*: bool
+
   ShotFeedbackFx* = object
     ## A PRIVATE, one-shot combat-outcome record: config-gated
     ## (`allowShotFeedback`, default off) and, like every Fx type above,
@@ -4967,6 +5028,30 @@ type
     blastObservations*: seq[BlastObservation]
     sprayImpactObservations*: seq[SprayImpactObservation]
     shoutObservations*: seq[ShoutObservation]
+    # GLORY GRADIENT S8 (GameVersion 63->64): appended for the flatty
+    # keyframe rule, same discipline every block above follows.
+    seatIdentity*: seq[SeatIdentityEntry]
+                             ## Per-seat platform identity -- see
+                             ## `SeatIdentityEntry`'s own doc comment for
+                             ## the full source/shape/sentinel contract.
+                             ## Empty on every process that never sees
+                             ## `COWORLD_SEAT_IDENTITY` (every local/dev/
+                             ## test run, and every non-platform-hosted
+                             ## episode) -- unconditional empty seq, not a
+                             ## flag-gated field, same "always present,
+                             ## possibly empty" idiom `teamDeedTally` uses.
+                             ## Set explicitly at server startup for a
+                             ## LIVE (non-replay-loaded) run only
+                             ## (`runServerLoop`, server.nim) -- a
+                             ## replay-loaded run keeps whatever its own
+                             ## keyframe already carries (baked in at
+                             ## record time by the SAME live-only set,
+                             ## since keyframes snapshot the whole
+                             ## SimServer), so a later offline playback of
+                             ## a platform-hosted episode still shows the
+                             ## identity that was live when it was
+                             ## recorded, with no env var needed at
+                             ## decode time.
 
 # Team endzone display colors (shared by the map bake and the paint FX).
 const

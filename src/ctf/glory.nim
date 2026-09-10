@@ -298,9 +298,40 @@ type
                        ## from 2nd. Recut class x4.
 
 const
-  GloryVersion* = 17
+  GloryVersion* = 18
     ## Bumped on any pricing change, so a ledger can be attributed to the
     ## table that produced it. A cross-version comparison is invalid.
+    ##
+    ## v18 (2026-09-09, GLORY GRADIENT S8 SHIP, epic 25d9108e -- DRAFT,
+    ## owner GLORYVERSION GO required before merge; this PR is held behind
+    ## #525's GameVersion 63 wire batch and is not landed): arms, on the
+    ## battle-royale-s2 flagship variant's manifest ONLY (same mechanism as
+    ## v14/v16/v17's own arms), TWO switches together:
+    ##   - `RecutProductCapArmed`: 2^24 -> 2^31 internal (16,384 -> 2,097,152
+    ##     reported) -- `docs/designs/glory/CAP-CEILING-S7.md`'s sized
+    ##     ceiling; see the constant's own doc comment for the full S7
+    ##     evidence (cap-hit 2.823%->0.312%, top-decile-capped 27.75%->
+    ##     3.06%, freeze floor/CONTINUITY/SEPARATION hold).
+    ##   - `achievementLightableModes` (S4b, `LIGHTABLE-MODES-S4B.md`):
+    ##     DARK since #512 (which landed the mechanism, unarmed, no
+    ##     GLORYVERSION change) -- this bump ARMS it. S7's own re-fold
+    ##     found S4b's real effect on cap-hit negligible on top of the
+    ##     ceiling move (identical cap-hit/top-decile-capped S4b on vs off
+    ##     at every candidate but one), so arming it alongside the ceiling
+    ##     does not reopen the cap-hit question the ceiling closes; its own
+    ##     CHOSEN-share nudge is small but real (+0.04 to +0.09pp top
+    ##     decile).
+    ## Both ship TOGETHER per S7 §8's own sequencing (ceiling + S4b were
+    ## sized and measured as one bundle, not independently). Bundled in
+    ## the same PR: the game-side seat-identity consumer (metta #22382
+    ## `COWORLD_SEAT_IDENTITY` -> per-seat identity on `over`), which
+    ## carries no GLORYVERSION weight of its own (no pricing change) but
+    ## rides this GameVersion bump since it needs one regardless.
+    ## `defaultGameConfig()` is untouched (both switches' own compiled
+    ## defaults stay false/2^24), so every existing pinned/frozen recut
+    ## arithmetic test not explicitly re-targeted at the new ceiling and
+    ## every committed `.bitreplay` fixture recorded before this bump
+    ## stays byte-identical on the OFF/dark path.
     ##
     ## v17 (2026-09-09, GLORY GRADIENT S6 SHIP, epic 25d9108e -- DRAFT,
     ## owner GLORYVERSION GO required before merge): arms, on the
@@ -2639,32 +2670,42 @@ const
     ## bound, so the guard never fired. A backstop sited 2^38 above the
     ## thing it guards is not a backstop. See `RecutProductCapArmed`.
 
-  RecutProductCapArmed* = int64(1) shl 24
-    ## 16,777,216 — the MEANINGFUL backstop (defense-in-depth layer 2),
-    ## live only when `GameConfig.deedMintCaps` is armed. v14 (ruled
-    ## 25:1x, sized in the 2026-09-06 sizing package): 2^26 -> 2^24,
-    ## re-sited on MEASURED tails instead of the adversarial §A6 recipe —
-    ## it binds on exactly 1 of 12,048 live solo seat-scores (the r4039
-    ## 44.79M base-outlier), sits 3-8× above the implied legit superb
-    ## (~2-5M from solo play; 7-10M+ only WITH the pact-era ally stack,
-    ## which is the sized headroom the cap still clears as a backstop),
-    ## and 4.97× the legit all-time high the ladder has actually paid
-    ## (3,375,440 @ r3860). Deliberately BELOW the old §A6 adversarial
-    ## design ceiling (28,311,552): that recipe rides max heat AND a
-    ## 5-ally Fibonacci on one longshot — not a measured episode shape —
-    ## and every implied post-recut cap hit (6/747 solo, 3/560 balance,
-    ## 0/71 current episodes) is the base-outlier/stack-contaminated
-    ## tail, none the clean cluster.
+  RecutProductCapArmed* = int64(1) shl 31
+    ## 2,147,483,648 internal units (= 2,097,152 = 2^21 REPORTED units at
+    ## `GlorySCALE`=1024) — the MEANINGFUL backstop (defense-in-depth
+    ## layer 2), live only when `GameConfig.deedMintCaps` is armed.
     ##
-    ## It should RARELY bind (implied post-recut rate <=1.5% of episodes,
+    ## GLORY GRADIENT S7 (2026-09-09, `docs/designs/glory/CAP-CEILING-S7.md`,
+    ## epic 25d9108e, S2 lead ruling under the owner's delegation): 2^24 ->
+    ## 2^31 internal (16,384 -> 2,097,152 reported), sized against the REAL
+    ## GV62 cohort (341 episodes, 5,456 seat-episodes, r4611-r4635) instead
+    ## of a synthetic sweep — the v14 cap bound 154/5,456 seat-episodes
+    ## (2.823%) and 27.75% of the top decile, both far outside the
+    ## owner-signed cap-hit [0.1%,1%] band and the S7 top-decile-capped
+    ## <~5% bound. `tools/glory/cap_sweep.py`'s empirical re-fold of the
+    ## real per-event wire prices found 2^21 reported the first candidate
+    ## clearing both bounds with margin: cap-hit 0.312% (17/5,456),
+    ## top-decile-capped 3.06%, top-decile CHOSEN 83.16-83.21% (S4b
+    ## off/on) — comfortably above the freeze floor and RISING relative to
+    ## v14's 72.26%, since fewer top-decile rows land capped-and-
+    ## unresolved. CONTINUITY and SEPARATION hold at every candidate
+    ## tested. Unlike v14, this cap now sits STRICTLY ABOVE the frozen §A6
+    ## adversarial design ceiling (28,311,552 = max heat AND a 5-ally
+    ## Fibonacci on one longshot): the ruled §A6 superb (7,077,888) stays
+    ## exactly reachable, unclamped, by design (S7 §8). One real outlier
+    ## in the cohort (≈1,732,981,933 ≈ 2^30.7) still exceeds this ceiling
+    ## and remains cappable — the cap is sized off the POPULATION'S
+    ## cap-hit rate, not a promise that nothing can ever reach it.
+    ##
+    ## It should RARELY bind (S7-measured rate 0.312% of seat-episodes,
     ## each auditable): `RecutMintCapTable` below still bounds every deed
     ## whose repeat count is not itself bounded by a scarce contested
     ## resource. This is the layer that catches the composition bug
     ## nobody has thought of yet — the NEXT dTagBack — and clamps it
     ## instead of letting it print 10^6× and poison a season of records.
     ## A clamped episode reports one KNOWN constant, which is exactly the
-    ## point: an audit greps for 16,777,216 (verification plan N=1: no
-    ## seat at the constant; N=20: hits <=1.5%, each audited).
+    ## point: an audit greps for 2147483648 (verification plan: S7's own
+    ## 24-round after-read on the newly-armed cohort, same harness).
 
   RecutMintCapTable*: array[Deed, int] = [
     ## PER-EPISODE, PER-DUO MINT BUDGET (mintcap increment, 2026-09-04) —
