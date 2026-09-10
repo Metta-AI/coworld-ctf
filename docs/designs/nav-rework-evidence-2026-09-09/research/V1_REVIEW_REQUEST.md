@@ -1,0 +1,7 @@
+# Next exact memory/cache-locality hypothesis: byte visit generations
+
+Current DangerWorkspace.visited and visitGeneration are uint32, and nextVisitGeneration already clears the whole visited array at high(uint32) before setting generation1. Candidate would use uint8 for both, change allocation/ledger element size, and retain the same rollover algorithm with high(uint8). No ray/control/float order change. One byte percell may matter on Zen1: configured raster is~343KB and visited~343KB now; bytevisited~86KB plus raster~343KB fits closer to its512KiBL2. This is a hypothesis, not an attribution or speed claim. It also frees~37MiB across32colossal seats, which may enable later measured options without raising that cap.
+
+Please independently review exactness, resetNavigationLife interactions, generated C assumptions, and design a public-API regression that actually crosses multiple generation wraps (not just a short timing harness that never wraps). Count reset frequency with actual32-tick cadence/8sources and separate cache-clear tail cost. Consider uint16 as a later ablation if frequent clears erase benefits, not an automatic fallback. Search prior research notes for a previous rejection and inspect existing use of generation stamps before recommending any new abstraction. No source edit yet; write V1_REVIEW.md and a bounded preregistration recommendation after trace reporting/H1 review.
+
+Root A3 now owns m8i; H1 owns m5a. No remote work from peer.

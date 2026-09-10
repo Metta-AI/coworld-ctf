@@ -293,6 +293,37 @@ suite "production mixed-grid body navigation":
     check nav.seats[0].installedRoute.dangerGeneration ==
       nav.seats[0].dangerGeneration
 
+  test "danger visit rollover preserves each source contribution":
+    let
+      map = openMap()
+      nav = newBodyNavSystem(map, 1, 32)
+      reference = newBodyNavSystem(map, 1, 32)
+      left = DangerInput(selfXy: (16, 48), candidates: @[
+        DangerCandidate(seatIndex: 4, pos: (32, 48))])
+      right = DangerInput(selfXy: (16, 48), candidates: @[
+        DangerCandidate(seatIndex: 4, pos: (160, 48))])
+      empty = DangerInput(selfXy: (16, 48))
+    reference.seats[0].rebuildDanger(map, left, 0)
+    let leftRaster = reference.seats[0].dangerSnapshot
+    reference.seats[0].rebuildDanger(map, right, 1)
+    let rightRaster = reference.seats[0].dangerSnapshot
+    for tick in 0 ..< 600:
+      # Leave the left cells untouched until their old stamp is reused.
+      let revisitLeft = tick mod 255 == 0
+      nav.seats[0].rebuildDanger(map, if revisitLeft: left else: right, tick)
+      check nav.seats[0].dangerSnapshot ==
+        (if revisitLeft: leftRaster else: rightRaster)
+      if tick mod 100 == 0:
+        nav.seats[0].rebuildDanger(map, empty, tick)
+        for value in nav.seats[0].dangerSnapshot:
+          check value == 0
+    let duplicate = DangerInput(selfXy: (16, 48), candidates: @[
+      DangerCandidate(seatIndex: 4, pos: (32, 48)),
+      DangerCandidate(seatIndex: 5, pos: (32, 48))])
+    reference.seats[0].rebuildDanger(map, duplicate, 600)
+    nav.seats[0].rebuildDanger(map, duplicate, 600)
+    check nav.seats[0].dangerSnapshot == reference.seats[0].dangerSnapshot
+
   test "unchanged scheduled danger preserves search but expires installed routes":
     let
       map = openMap()
