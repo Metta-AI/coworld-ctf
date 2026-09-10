@@ -22,17 +22,32 @@ pass, since there's no separate self-reported claim to grade against.
 
 Re-running this script is safe: every judge-owned field already sitting in
 an existing score.json — milestones, beliefs, furthest_milestone, judged,
-judge_version_blob_sha, judge_version_blob_sha_prior, judged_by, and any
-per-episode stuck_episodes[].cause note (see judge.md) — is preserved
+judge_version_blob_sha, judge_version_blob_sha_prior, judged_by,
+stuck_episodes (with any per-episode .cause note, see judge.md), and
+stuck_minutes_total/owner_latency_minutes_total — is preserved
 byte-for-byte across a re-run; only the mechanical fields (timings, tool/
-dig counts, the stuck-episode skeleton itself) are recomputed. This is
-implemented as an allowlist of mechanical keys merged over a full copy of
-whatever was already on disk, not a blocklist of judge fields to avoid —
-so a judge can score.py once for the mechanical skeleton, hand-edit
-score.json to fill in milestones/beliefs/judge_version_blob_sha/judged_by,
-and re-run this script as many times as needed (e.g. after a scoring
-methodology tweak, or to pick up a later transcript) without losing that
-work.
+dig counts) are unconditionally recomputed. This is implemented as an
+allowlist of mechanical keys merged over a full copy of whatever was
+already on disk, not a blocklist of judge fields to avoid — so a judge can
+score.py once for the mechanical skeleton, hand-edit score.json to fill in
+milestones/beliefs/judge_version_blob_sha/judged_by, and re-run this
+script as many times as needed (e.g. after a scoring methodology tweak, or
+to pick up a later transcript) without losing that work.
+
+`stuck_episodes` is a special case of the same rule, not an exception to
+it: this script's own fresh mechanical read of the transcript is always
+computed and published as `detector_stuck_episodes` (and
+`detector_stuck_minutes_total`/`detector_owner_latency_minutes_total`),
+but it only ever becomes `stuck_episodes` itself — the judge-facing record
+— when there's nothing on disk yet (first run) or when it exactly
+reproduces the same set of gaps already there (safe to refresh
+mechanical sub-fields like `tool_calls_during` while carrying forward
+`cause`/`note` per matching span). If the detector's fresh read disagrees
+with what's on disk — including finding *zero* spans where the judge
+recorded real ones, which is exactly what a 2026-09-10 transcript-shape
+bug did — `stuck_episodes` is left untouched and only
+`detector_stuck_episodes` reflects the disagreement, so the machine's
+(possibly still-imperfect) view can never silently erase the judge's.
 
 The one exception to "no cooperation from the stranger": `WAITING: ` is kept
 in prompt.md (see its Protocol v2 note) because it's not milestone
@@ -53,6 +68,20 @@ Definitions:
     turns (or from run start to the first turn), with the tool calls
     attempted during the gap attached for the judge to read and explain in
     one line (a missing link, a confusing label, a slow page, a dead end).
+
+TIMESTAMP FALLBACK (found 2026-09-10 against three real Claude Code
+transcripts): `type=="assistant"` events in this transcript format never
+carry their own `timestamp` — only the `type=="user"` tool_result echo
+does. resolve_event_epochs() resolves each assistant event's epoch, in
+priority order, from: its own `timestamp` if present (older/synthetic
+transcripts) -> the paired tool_result's timestamp (by tool_use id) ->
+forward-fill from the next later event that resolved one (for a
+thinking/text-only fragment emitted before the tool_use that ends its
+logical turn) -> backward-fill from the nearest earlier one as a last
+resort. Without this, every assistant-only-timestamp read returns None
+and the detector silently finds zero spans — see the module-level note
+above on how `stuck_episodes` vs `detector_stuck_episodes` guards against
+that turning into data loss.
 
 CAVEAT (measured empirically against Protocol v1 transcripts, 2026-09-09):
 this per-turn-gap definition is coarser than it sounds. A stranger that's
@@ -127,6 +156,94 @@ def host_of(url):
         return url
 
 
+def build_tool_result_epochs(events):
+    """Map each tool_use id to the epoch of its paired tool_result.
+
+    Found empirically (2026-09-10) against three real Stranger Walk
+    transcripts: `type=="assistant"` events in this transcript format never
+    carry their own `timestamp` -- only the `type=="user"` event that
+    echoes a tool's result does, keyed to the call via
+    message.content[].tool_use_id. That echo is the earliest reliable
+    clock reading near an assistant turn, so it's the primary fallback
+    source (see resolve_event_epochs)."""
+    epochs = {}
+    for event in events:
+        if event.get("type") != "user":
+            continue
+        ts = event.get("timestamp")
+        if not ts:
+            continue
+        epoch = iso_to_epoch(ts)
+        content = event.get("message", {}).get("content", []) or []
+        if not isinstance(content, list):
+            continue
+        for block in content:
+            if isinstance(block, dict) and block.get("type") == "tool_result":
+                tool_use_id = block.get("tool_use_id")
+                if tool_use_id:
+                    epochs[tool_use_id] = epoch
+    return epochs
+
+
+def resolve_event_epochs(events):
+    """Best-available epoch per event (parallel list, file order).
+
+    Priority per event:
+      1. its own `timestamp` field, if present (covers synthetic/older
+         transcripts where assistant events do carry a real timestamp).
+      2. for an `assistant` event whose content includes `tool_use`
+         block(s): the timestamp of the paired `tool_result` echo (see
+         build_tool_result_epochs) -- the only clock reading real Claude
+         Code transcripts attach anywhere near an assistant turn.
+      3. still unresolved (a thinking/text-only assistant fragment with no
+         tool_use of its own, emitted as its own JSONL row before the
+         tool_use that ends its logical turn): forward-filled to the next
+         later event in the stream that resolved a timestamp under 1-2 --
+         the closest real clock reading to when the fragment happened,
+         consistent with this script's documented bias toward
+         under-reporting rather than over-reporting stuck time.
+      4. still unresolved after that (trailing events with nothing left to
+         look forward to, e.g. a final text-only turn with no more tool
+         calls): backward-filled from the nearest earlier resolved epoch.
+    """
+    tool_result_epoch = build_tool_result_epochs(events)
+    resolved = [None] * len(events)
+    for i, event in enumerate(events):
+        ts = event.get("timestamp")
+        if ts:
+            resolved[i] = iso_to_epoch(ts)
+            continue
+        if event.get("type") != "assistant":
+            continue
+        content = event.get("message", {}).get("content", []) or []
+        if not isinstance(content, list):
+            continue
+        found = [
+            tool_result_epoch[block["id"]]
+            for block in content
+            if isinstance(block, dict) and block.get("type") == "tool_use"
+            and block.get("id") in tool_result_epoch
+        ]
+        if found:
+            resolved[i] = max(found)
+
+    next_known = None
+    for i in range(len(events) - 1, -1, -1):
+        if resolved[i] is not None:
+            next_known = resolved[i]
+        elif next_known is not None:
+            resolved[i] = next_known
+
+    prev_known = None
+    for i in range(len(events)):
+        if resolved[i] is not None:
+            prev_known = resolved[i]
+        elif prev_known is not None:
+            resolved[i] = prev_known
+
+    return resolved
+
+
 def main():
     if len(sys.argv) < 2:
         print(__doc__)
@@ -156,17 +273,20 @@ def main():
         except (json.JSONDecodeError, OSError):
             prior = {}
 
+    events = list(load_jsonl(os.path.join(run_dir, "transcript.jsonl")))
+    event_epochs = resolve_event_epochs(events)
+
     tool_call_count = 0
     waiting_events = []
     turn_events = []  # (epoch, turn_had_waiting)
     dig_sequence = []  # (epoch, host)
     tool_calls_log = []  # (epoch, tool_name, input)
 
-    for event in load_jsonl(os.path.join(run_dir, "transcript.jsonl")):
+    for idx, event in enumerate(events):
         if event.get("type") != "assistant":
             continue
         ts = event.get("timestamp")
-        epoch = iso_to_epoch(ts) if ts else None
+        epoch = event_epochs[idx]
         content = event.get("message", {}).get("content", []) or []
         turn_had_waiting = False
         for block in content:
@@ -178,7 +298,7 @@ def main():
                         waiting_events.append({
                             "text": stripped[len(WAITING_PREFIX):].strip(),
                             "timestamp": ts,
-                            "elapsed_s": (epoch - start_epoch) if epoch else None,
+                            "elapsed_s": (epoch - start_epoch) if epoch is not None else None,
                             "tool_call_count": tool_call_count,
                         })
                         turn_had_waiting = True
@@ -227,26 +347,66 @@ def main():
         prev_epoch = epoch
         prev_had_waiting = turn_had_waiting
 
-    # Judge-authored per-episode notes (judge.md's "write one line on what
-    # actually blocked progress", stored as stuck_episodes[].cause) live
-    # inside a field this script otherwise recomputes wholesale from the
-    # transcript every run. A re-run's (from_epoch, to_epoch) span is
-    # stable for the same transcript, so match episodes on that and carry
-    # forward anything beyond the mechanical keys computed above.
+    # --- stuck-episode reconciliation: detector output vs judge output ---
+    # `stuck_episodes` just computed above is the DETECTOR's own mechanical
+    # read of the transcript this run -- always as accurate as the
+    # timestamp-fallback logic in resolve_event_epochs can make it, but it
+    # is a SEPARATE record from whatever a judge already hand-annotated
+    # into an existing score.json. The detector must never silently
+    # overwrite or blank out the judge's record just because it disagrees
+    # with (or can't currently re-derive) it.
+    #
+    # Postmortem (2026-09-10): a transcript shape where assistant events
+    # carry no `timestamp` at all (only the paired tool_result echo does)
+    # made the OLD detector compute zero spans and wipe five real
+    # judge-authored episodes on re-run, because `stuck_episodes` was
+    # unconditionally replaced with whatever the (broken) detector found.
     MECHANICAL_EPISODE_KEYS = {
         "from_epoch", "to_epoch", "duration_min", "tool_calls_during", "owner_latency",
     }
-    prior_episodes_by_span = {
-        (ep.get("from_epoch"), ep.get("to_epoch")): ep
-        for ep in (prior.get("stuck_episodes") or [])
-        if isinstance(ep, dict)
-    }
-    for ep in stuck_episodes:
-        prior_ep = prior_episodes_by_span.get((ep["from_epoch"], ep["to_epoch"]))
-        if prior_ep:
-            for k, v in prior_ep.items():
-                if k not in MECHANICAL_EPISODE_KEYS:
-                    ep[k] = v
+
+    def span_key(ep):
+        return (ep.get("from_epoch"), ep.get("to_epoch"))
+
+    detector_stuck_episodes = stuck_episodes
+    prior_stuck_episodes = prior.get("stuck_episodes")
+
+    if prior_stuck_episodes is None:
+        # Nothing on disk yet (first run, or a score.json predating this
+        # field) -- seed from the detector's own read, same as every other
+        # judge-owned field's first-run default below.
+        final_stuck_episodes = detector_stuck_episodes
+    else:
+        prior_spans = {span_key(ep) for ep in prior_stuck_episodes if isinstance(ep, dict)}
+        detector_spans = {span_key(ep) for ep in detector_stuck_episodes}
+        if prior_spans == detector_spans:
+            # The detector can fully re-derive what's on disk (identical
+            # set of gaps) -- safe to refresh the mechanical sub-fields
+            # (duration, tool calls attempted during the gap) while
+            # carrying forward any judge-added key (cause, note, ...) per
+            # matching span, same behavior as before this fix.
+            prior_by_span = {
+                span_key(ep): ep for ep in prior_stuck_episodes if isinstance(ep, dict)
+            }
+            final_stuck_episodes = []
+            for ep in detector_stuck_episodes:
+                merged = dict(ep)
+                prior_ep = prior_by_span.get(span_key(ep))
+                if prior_ep:
+                    for k, v in prior_ep.items():
+                        if k not in MECHANICAL_EPISODE_KEYS:
+                            merged[k] = v
+                final_stuck_episodes.append(merged)
+        else:
+            # Detector disagrees with what's on disk (fewer spans, more
+            # spans, or different boundaries than the judge's record --
+            # e.g. a transcript shape it previously couldn't read
+            # timestamps from at all). It cannot re-derive the judge's
+            # record, so it must not touch it: keep the judge's
+            # stuck_episodes byte-for-byte and publish the differing
+            # machine view under its own name (detector_stuck_episodes)
+            # instead of merging the two silently.
+            final_stuck_episodes = prior_stuck_episodes
 
     prompt_status, prompt_contamination_reasons = prompt_contamination_status(run_dir)
 
@@ -289,15 +449,36 @@ def main():
         # — recomputed so it can never drift from len(beliefs), even if a
         # judge hand-edits beliefs without touching this key.
         "belief_count": len(result["beliefs"]),
-        "stuck_episodes": stuck_episodes,
-        "stuck_minutes_total": round(
-            sum(s["duration_min"] for s in stuck_episodes if not s["owner_latency"]), 1),
-        "owner_latency_minutes_total": round(
-            sum(s["duration_min"] for s in stuck_episodes if s["owner_latency"]), 1),
+        # The DETECTOR's own current mechanical read — always refreshed,
+        # never the thing a judge edits. See the reconciliation block
+        # above for how this relates to (and can diverge from)
+        # `stuck_episodes` below.
+        "detector_stuck_episodes": detector_stuck_episodes,
+        "detector_stuck_minutes_total": round(
+            sum(s["duration_min"] for s in detector_stuck_episodes if not s["owner_latency"]), 1),
+        "detector_owner_latency_minutes_total": round(
+            sum(s["duration_min"] for s in detector_stuck_episodes if s["owner_latency"]), 1),
         "waiting_events": waiting_events,
         "resume_count": len(meta.get("resumes", [])),
         "resume_kinds": [r.get("kind", "owner_relay") for r in meta.get("resumes", [])],
     })
+
+    # `stuck_episodes` itself is judge territory once a judge has reviewed
+    # it (see the reconciliation block above: it's either the detector's
+    # first-run seed, a mechanical refresh of an unchanged span set, or the
+    # judge's own untouched record). `stuck_minutes_total` and
+    # `owner_latency_minutes_total` are the totals a judge sees next to
+    # that record, so they get the same unconditional-preservation
+    # treatment as every other judge-owned field above (setdefault, not
+    # update) — never silently recomputed out from under a judge once they
+    # exist on disk, even if the detector's own view (above) disagrees.
+    result["stuck_episodes"] = final_stuck_episodes
+    result.setdefault("stuck_minutes_total", round(
+        sum(s["duration_min"] for s in final_stuck_episodes
+            if isinstance(s, dict) and not s.get("owner_latency")), 1))
+    result.setdefault("owner_latency_minutes_total", round(
+        sum(s["duration_min"] for s in final_stuck_episodes
+            if isinstance(s, dict) and s.get("owner_latency")), 1))
 
     out_path = os.path.join(run_dir, "score.json")
     with open(out_path, "w") as f:

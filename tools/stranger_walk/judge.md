@@ -160,6 +160,15 @@ anything interesting.
   transcript directly for genuine multi-turn wait stretches the mechanical threshold missed —
   write one line on what actually blocked progress (a missing link, a confusing label, a slow
   page, a dead end, a qualification/round-fulfillment wait).
+- `score.py` never silently overwrites `stuck_episodes` once you've hand-added `cause` notes to
+  it: a re-run only replaces it when there's nothing on disk yet, or when its own fresh read finds
+  the exact same set of gaps (in which case it refreshes `tool_calls_during` but keeps your
+  `cause`). If a re-run's fresh read disagrees — finds more, fewer, or different gaps than what
+  you already judged — it leaves `stuck_episodes` alone and reports the disagreement separately
+  under `detector_stuck_episodes`/`detector_stuck_minutes_total`. Check that field after any
+  re-run (e.g. after a transcript grew, or after a scoring-logic fix): a nonzero
+  `detector_stuck_episodes` next to a stale/empty `stuck_episodes` means there's real stuck time
+  you haven't reviewed yet.
 
 ## Attribution rule
 
