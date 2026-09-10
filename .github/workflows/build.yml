@@ -24,6 +24,17 @@ jobs:
         run: |
           git fetch --no-tags --depth=1 origin '${{ github.base_ref }}'
           tools/ci/check_gameversion.sh FETCH_HEAD
+  # Another fast, isolated job, same shape as gameversion-tripwire above:
+  # policies/starters/common/era.py mirrors docs/wiki/_era.md (it can't
+  # parse that file at import time -- see era.py's own docstring for why)
+  # so the two are free to drift silently unless something checks them on
+  # every PR. test_era.py is that check.
+  era-tripwire:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - name: era.py matches docs/wiki/_era.md
+        run: python3 policies/starters/common/test_era.py
   build:
     strategy:
       fail-fast: false
