@@ -1,4 +1,4 @@
-# tools/stranger_walk/container/Dockerfile — Stranger Walk protocol v1.5
+# tools/stranger_walk/container/Dockerfile — Stranger Walk protocol v1.6
 #
 # Gives the stranger process its OWN Linux PID namespace, filesystem, and
 # network namespace, instead of running as a bare `claude -p` process on the

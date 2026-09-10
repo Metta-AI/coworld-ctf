@@ -119,7 +119,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(git -C "$SCRIPT_DIR" rev-parse --show-toplevel)"
 CONTAINER_DIR="$SCRIPT_DIR/container"
 ENTRY_URL="${STRANGER_ENTRY_URL:-https://softmax.com/paintbot}"
-IMAGE_TAG="${STRANGER_IMAGE_TAG:-stranger-walk:v1.5}"
+IMAGE_TAG="${STRANGER_IMAGE_TAG:-stranger-walk:v1.6}"
 
 # Protocol v2 contamination gate — see run.sh's identical check and
 # check_prompt.py's own header. Runs before anything else, dry-run or not.
@@ -146,8 +146,8 @@ if [ "$DRY_RUN" = "1" ] && [ "$MODE_OR_MODEL" != "probe" ] && [ "$MODE_OR_MODEL"
   echo "[$RUN_ID]   rendered body ($(wc -l < "$SCRATCH/prompt.rendered.md" | tr -d ' ') lines) begins:" >&2
   head -3 "$SCRATCH/prompt.rendered.md" | sed 's/^/[dry-run]   | /' >&2
   echo "[$RUN_ID]   \$HOME inside the container is /home/stranger by construction (own filesystem namespace — no host \$HOME to leak, unlike run.sh's env-scoping trick)." >&2
-  echo "[$RUN_ID]   would docker run: --user \$(id -u):\$(id -g) --network stranger-walk-net-$RUN_ID -e DOCKER_HOST=tcp://dockerd:2375 -v <run-dir>:/home/stranger -v <run-dir>/workspace:/workspace -w /workspace -e MODEL=$MODEL $IMAGE_TAG" >&2
-  echo "[$RUN_ID]   would also start a per-run docker-in-docker sidecar (stranger-walk-dind-$RUN_ID) on that same private network — see start_sidecar in this script's header." >&2
+  echo "[$RUN_ID]   would docker run: --user \$(id -u):\$(id -g) --network container:stranger-walk-dind-$RUN_ID -e DOCKER_HOST=tcp://127.0.0.1:2375 -v <run-dir>:/home/stranger -v <run-dir>/workspace:/workspace -w /workspace -e MODEL=$MODEL $IMAGE_TAG" >&2
+  echo "[$RUN_ID]   would also start a per-run docker-in-docker sidecar (stranger-walk-dind-$RUN_ID) sharing its network namespace (v1.6) and its <run-dir>/workspace mount — see start_sidecar in this script's header." >&2
   echo "[$RUN_ID]   NOTE (v1.4): browser is wired via @playwright/mcp, same mechanism run.sh uses on the host — see mcp-config.json below." >&2
   CRED_SRC="${STRANGER_ANTHROPIC_API_KEY_FILE:-$HOME/.ctf/knowledge/stranger-walk/anthropic_api_key}"
   if [ -f "$CRED_SRC" ]; then
@@ -204,8 +204,39 @@ HOST_UID_GID="$(id -u):$(id -g)"
 # the builder hallway cannot be measured like that.
 DIND_IMAGE="${STRANGER_DIND_IMAGE:-docker:27-dind}"
 
+# v1.6: TWO independent DinD traps, found by reproducing the documented local
+# test (`coworld run-episode`) inside a v1.5 sandbox+sidecar pair — see
+# docs/designs/STRANGER_WALK.md's v1.6 section for the full repro.
+#   Trap A — bind-mount source resolution: `coworld run-episode` (running
+#     INSIDE the sandbox, cwd /workspace) launches the game container via
+#     `docker run -v <workspace-path>:/coworld ...` against DOCKER_HOST (the
+#     sidecar). A `-v host:container` bind mount is resolved on the DAEMON's
+#     own filesystem, not the API client's — the sidecar had no /workspace at
+#     all, so the mount silently attached an empty directory and the game
+#     binary died with `cannot open: /coworld/config.json [IOError]`. Fixed by
+#     bind-mounting the SAME host directory ($WORKSPACE_DIR) at the SAME
+#     container path (/workspace) into the sidecar too, via start_sidecar's
+#     new $4 — never $RUN_DIR (=/home/stranger, where a host_claude_login
+#     credential can live); only the workspace half of guard #1's split ever
+#     reaches the sidecar.
+#   Trap B — published-port reachability: `coworld run-episode` health-checks
+#     its game container at a hardcoded `http://127.0.0.1:<port>/healthz`
+#     (coworld/runner/runner.py — third-party package, not ours to patch)
+#     called from the SANDBOX process, after asking the SIDECAR's daemon to
+#     publish that port on `127.0.0.1` — two different loopbacks when sandbox
+#     and sidecar are separate network namespaces on a bridge network. Fixed
+#     by giving the sandbox `--network container:<sidecar>` instead of its
+#     own bridge address: it then shares the sidecar's network namespace (so
+#     127.0.0.1 is the same loopback on both sides) without inheriting the
+#     sidecar's --privileged capabilities, mount namespace, or pid namespace
+#     — only the network stack is shared. `--hostname` cannot be set together
+#     with `--network container:...` (docker rejects the combination), so
+#     callers that switch to this mode must drop `--hostname stranger` too.
 start_sidecar() {
-  # $1 = run_id, $2 = network name, $3 = sidecar container name.
+  # $1 = run_id, $2 = network name, $3 = sidecar container name, $4 = host
+  # workspace dir to ALSO bind-mount at /workspace in the sidecar (optional —
+  # omit for callers that never launch a game container through it, e.g. a
+  # bare isolation probe). See the v1.6 header above for why this exists.
   # --privileged is required for a nested dockerd to run at all (it needs
   # kernel capabilities a normal container doesn't get); DOCKER_TLS_CERTDIR=
   # (empty) skips the dind entrypoint's TLS cert generation so the inner
@@ -213,9 +244,14 @@ start_sidecar() {
   # is reachable ONLY from this run's own private network, never the host
   # or any other run.
   docker network create "$2" >/dev/null
+  local workspace_mount=()
+  if [ -n "${4:-}" ]; then
+    workspace_mount=(-v "$4:/workspace")
+  fi
   docker run -d --name "$3" --network "$2" --network-alias dockerd \
     --privileged \
     -e DOCKER_TLS_CERTDIR= \
+    "${workspace_mount[@]+"${workspace_mount[@]}"}" \
     "$DIND_IMAGE" --host=tcp://0.0.0.0:2375 >/dev/null
   local tries=0
   until docker exec "$3" docker version >/dev/null 2>&1; do
@@ -258,25 +294,36 @@ if [ "$MODE_OR_MODEL" = "probe" ] || [ "$MODE_OR_MODEL" = "selftest" ]; then
   NETWORK_NAME="stranger-walk-net-$RUN_ID"
   SIDECAR_NAME="stranger-walk-dind-$RUN_ID"
   NETWORK_ARGS=(--network bridge)
+  HOSTNAME_ARGS=(--hostname stranger)
+  WORKSPACE_MOUNT_ARGS=()
   if [ "$MODE" = "selftest" ]; then
     # selftest (unlike probe) must prove `docker build`+`docker run` really
-    # work through the same per-run sidecar a real run gets — see
-    # entrypoint.sh's docker build+run check.
+    # work through the same per-run sidecar a real run gets, AND (v1.6) that
+    # a real `coworld run-episode` completes through it — see
+    # entrypoint.sh's docker build+run check and its v1.6 episode check.
     echo "[$RUN_ID] starting isolated docker-in-docker sidecar for selftest ..." >&2
-    start_sidecar "$RUN_ID" "$NETWORK_NAME" "$SIDECAR_NAME" || { echo "[$RUN_ID] sidecar setup FAILED" >&2; exit 1; }
-    NETWORK_ARGS=(--network "$NETWORK_NAME" -e DOCKER_HOST=tcp://dockerd:2375)
+    start_sidecar "$RUN_ID" "$NETWORK_NAME" "$SIDECAR_NAME" "$WORKSPACE_DIR" || { echo "[$RUN_ID] sidecar setup FAILED" >&2; exit 1; }
+    # v1.6 Trap B fix (see start_sidecar's header) — share the sidecar's own
+    # network namespace so 127.0.0.1 means the same thing on both sides;
+    # --hostname cannot be combined with --network container:.
+    NETWORK_ARGS=(--network "container:$SIDECAR_NAME" -e DOCKER_HOST=tcp://127.0.0.1:2375)
+    HOSTNAME_ARGS=()
+    # v1.6 Trap A fix (see start_sidecar's header) — same host dir at the
+    # same container path (/workspace) in both the sandbox and the sidecar.
+    WORKSPACE_MOUNT_ARGS=(-v "$WORKSPACE_DIR:/workspace")
   fi
   echo "[$RUN_ID] running mode=$MODE (no credential needed) ..." >&2
   set +e
   docker run --rm \
     --name "$CONTAINER_NAME" \
-    --hostname stranger \
-    "${NETWORK_ARGS[@]}" \
+    "${HOSTNAME_ARGS[@]+"${HOSTNAME_ARGS[@]}"}" \
+    "${NETWORK_ARGS[@]+"${NETWORK_ARGS[@]}"}" \
     --pids-limit 512 \
     --user "$HOST_UID_GID" \
     -e HOME=/home/stranger \
     -e STRANGER_CONTAINER_MODE="$MODE" \
     -v "$RUN_DIR:/home/stranger" \
+    "${WORKSPACE_MOUNT_ARGS[@]+"${WORKSPACE_MOUNT_ARGS[@]}"}" \
     -w /home/stranger \
     "$IMAGE_TAG" "$RESULT_PATH" \
     > "$RUN_DIR/$MODE.stdout.log" 2> "$RUN_DIR/$MODE.stderr.log"
@@ -420,7 +467,7 @@ fi
 # so a stranger could not build its policy image the documented way).
 NETWORK_NAME="stranger-walk-net-$RUN_ID"
 SIDECAR_NAME="stranger-walk-dind-$RUN_ID"
-start_sidecar "$RUN_ID" "$NETWORK_NAME" "$SIDECAR_NAME" || { echo "[$RUN_ID] sidecar setup FAILED — refusing to launch a 'run'-mode container without one (owner order 2026-09-09: the builder hallway must be measurable)" >&2; exit 1; }
+start_sidecar "$RUN_ID" "$NETWORK_NAME" "$SIDECAR_NAME" "$WORKSPACE_DIR" || { echo "[$RUN_ID] sidecar setup FAILED — refusing to launch a 'run'-mode container without one (owner order 2026-09-09: the builder hallway must be measurable)" >&2; exit 1; }
 
 PAINTBOT_TAGS_AT_MAIN="$(git -C "$REPO_ROOT" tag --points-at origin/main --list 'paintbot-v*' 2>/dev/null | tr '\n' ',' | sed 's/,$//')"
 # Freshest possible era stamp: query origin directly (not the local clone's
@@ -506,8 +553,9 @@ meta = {
     "credential_source": "$CRED_MODE",
     "enable_docker_socket": $( [ "$ENABLE_DOCKER_SOCKET" = "1" ] && echo True || echo False ),
     "docker_sidecar": True,
-    "docker_host": "tcp://dockerd:2375",
-    "docker_network": "$NETWORK_NAME",
+    "docker_host": "tcp://127.0.0.1:2375",
+    "docker_network": "container:$SIDECAR_NAME",
+    "docker_sidecar_workspace_shared": True,
     "start_iso": "$START_ISO",
     "start_epoch": $START_EPOCH,
 }
@@ -526,9 +574,14 @@ echo "[$RUN_ID] model=$MODEL entry=$ENTRY_URL resolved=[$ENTRY_RESOLVED] glory=$
 
 DOCKER_RUN_ARGS=(
   run -d --name "$CONTAINER_NAME"
-  --hostname stranger
-  --network "$NETWORK_NAME"
-  -e DOCKER_HOST=tcp://dockerd:2375
+  # v1.6 Trap B fix (see start_sidecar's header): share the sidecar's own
+  # network namespace instead of a separate bridge address, so 127.0.0.1
+  # means the same loopback on both sides — `coworld run-episode`'s own
+  # health check hardcodes 127.0.0.1. --hostname cannot be combined with
+  # --network container:, so it is dropped here (not checked anywhere else
+  # in this tooling — grepped clean).
+  --network "container:$SIDECAR_NAME"
+  -e DOCKER_HOST=tcp://127.0.0.1:2375
   --pids-limit 512
   --memory 2g
   --cpus 2

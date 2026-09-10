@@ -105,6 +105,45 @@ DOCKEREOF
     SELFTEST_FAIL=1
   fi
 
+  # v1.6: prove a REAL `coworld run-episode` — the documented local test a
+  # stranger runs before it can test a modified policy at all (README.md
+  # "Run a policy against a real downloaded Coworld locally", the "optional
+  # smoke test with the reference player, no custom image" variant) —
+  # completes end to end through this same isolated sidecar, with a real
+  # replay/result on disk. Found+fixed 2026-09-09 (walk-v16): this used to
+  # fail with `cannot open: /coworld/config.json [IOError]` (a DinD
+  # bind-mount trap — see run_container.sh's start_sidecar header for the
+  # full Trap A/Trap B writeup) on every real run before this selftest
+  # existed to catch it. Certification default until #527 (the play-seat
+  # baseline) lands: a pinned known-good Coworld ref, overridable.
+  echo "[selftest] coworld run-episode (real local episode, DOCKER_HOST=${DOCKER_HOST:-unset}):"
+  EPISODE_COWORLD_REF="${STRANGER_SELFTEST_COWORLD_REF:-cow_ef791b8b-75ee-481e-9d8a-ba40cb9f054a}"
+  EPISODE_DIR=/workspace/.selftest-episode
+  rm -rf "$EPISODE_DIR" /tmp/episode-*.log
+  mkdir -p "$EPISODE_DIR"
+  if (
+      cd "$EPISODE_DIR" \
+      && uv init --bare --name selftest-episode-player > /tmp/episode-uv-init.log 2>&1 \
+      && uv add "coworld[auth]" > /tmp/episode-uv-add.log 2>&1 \
+      && uv run coworld download "$EPISODE_COWORLD_REF" > /tmp/episode-download.log 2>&1 \
+      && MANIFEST="$(find coworld -maxdepth 2 -name coworld_manifest.json | head -1)" \
+      && [ -n "$MANIFEST" ] \
+      && uv run coworld run-episode "$MANIFEST" --timeout-seconds 180 > /tmp/episode-run.log 2>&1
+    ); then
+    RESULT_FILE="$(find "$EPISODE_DIR/coworld" -path '*/results/results.json' 2>/dev/null | head -1)"
+    REPLAY_FILE="$(find "$EPISODE_DIR/coworld" -path '*/results/replay' 2>/dev/null | head -1)"
+    if [ -n "$RESULT_FILE" ] && [ -s "$RESULT_FILE" ] && [ -n "$REPLAY_FILE" ] && [ -s "$REPLAY_FILE" ]; then
+      echo "[selftest] coworld run-episode OK: results=$RESULT_FILE replay=$REPLAY_FILE"
+    else
+      echo "[selftest] coworld run-episode FAILED: exited 0 but no results.json/replay found under $EPISODE_DIR/coworld" >&2
+      SELFTEST_FAIL=1
+    fi
+  else
+    echo "[selftest] coworld run-episode FAILED:" >&2
+    tail -20 /tmp/episode-uv-init.log /tmp/episode-uv-add.log /tmp/episode-download.log /tmp/episode-run.log 2>/dev/null >&2
+    SELFTEST_FAIL=1
+  fi
+
   exit "$SELFTEST_FAIL"
 fi
 
