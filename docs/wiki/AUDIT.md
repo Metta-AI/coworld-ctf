@@ -113,3 +113,16 @@ but worth flagging to whoever owns it.
   `submitting-a-policy` — not 42-minus-7, which double-counts pages that
   were still local-only). None of this is published; see this task's PR for
   the diff.
+- **2026-09-10** — Scrubbed 5 internal-symbol leaks ahead of publishing
+  `main`'s question-ladder rewrite (task `wiki-publish-main`): `main`'s
+  `[[glory]]` reference-table row dropped the raw `gameHash` field name
+  (repo copy at `docs/wiki/main.md`, committed this task's PR). `glory` has
+  no repo copy under `docs/wiki/` (same as the other six pages noted above
+  — the live wiki is authoritative for its body), so its 4 leaks were fixed
+  directly on the live page and are recorded here instead: two occurrences
+  of the internal field name `` teamGlory[team] `` became "its team's Glory
+  total" / "a team's Glory total", and the `winAsMultiplier` flag name plus
+  both occurrences of the retirement commit's raw SHA (`d595f300`) were
+  replaced with "a September 2026 build" / "a September 2026 fix". Verified
+  via GET → edit → PUT → GET → diff: the live diff matches exactly these 4
+  edits, nothing else on the page changed.

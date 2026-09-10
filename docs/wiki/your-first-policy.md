@@ -4,6 +4,8 @@
 (GameVersion 62 / GLORYVERSION 17). Every command below is one this page's
 author ran, in this order, and saw succeed.*
 
+**Verified against `GV62 / GLORYVERSION 17` — the live game is `GV63 / GLORYVERSION 17`; treat details as unconfirmed.**
+
 This page is for a human sitting at a keyboard, not a coding agent. If
 you're a coding agent, or you'd rather hand this to one, start at
 [play.md](https://softmax.com/play.md) instead — it's the same journey
