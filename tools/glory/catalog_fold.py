@@ -42,8 +42,11 @@ GLORY_SCALE = 1024
 RECUT_PRODUCT_CAP_DARK = 1 << 62
 # glory.nim `RecutProductCap* = int64(1) shl 62`
 
-RECUT_PRODUCT_CAP_ARMED = 1 << 24
-# glory.nim `RecutProductCapArmed* = int64(1) shl 24` (16,777,216)
+RECUT_PRODUCT_CAP_ARMED = 1 << 31
+# glory.nim `RecutProductCapArmed* = int64(1) shl 31` (2,147,483,648 internal,
+# 2,097,152 = 2^21 reported at GLORY_SCALE=1024). GLORY GRADIENT S8
+# (CAP-CEILING-S7.md, S2 lead ruling): moved off the S6-era 2^24 (16,777,216)
+# to keep this harness a live port of `src/ctf/glory.nim`, not a snapshot.
 
 RECUT_MIN_ACCUM_FOR_SMALL_PCT = 64
 # glory.nim `RecutMinAccumulatorForSmallPct* = 64` -- GATE RULING 2.
@@ -112,7 +115,9 @@ RECUT_CLASS_TABLE_V3_PCT = {
 }
 RECUT_CLOSING_TIME_WIN_BUMP_V3_PCT = 120
 # glory.nim `RecutPlacementRampPct*` (dFinal8/dFinal4/dFinal2 only).
-RECUT_PLACEMENT_RAMP_PCT = {"dFinal8": 100, "dFinal4": 100, "dFinal2": 130}
+# GLORY GRADIENT S8 PLACEMENT LADDER B (owner decision, 2026-09-10,
+# CAP-CEILING-S7.md §Placement): moved off S5/S6's 100/100/130.
+RECUT_PLACEMENT_RAMP_PCT = {"dFinal8": 115, "dFinal4": 130, "dFinal2": 160}
 HEAT_LADDER_V3_PCT = (100, 500, 1400, 3600)  # rung 0..3
 RECUT_STACK_LADDER_V3_PCT = (100, 500, 750, 1250, 2000, 3250)  # k=1..6+
 CARRIER_HOLD_MULT_PCT = 200
