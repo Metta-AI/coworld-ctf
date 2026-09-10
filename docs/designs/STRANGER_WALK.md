@@ -364,6 +364,63 @@ README fetch itself, two from the stranger's own end-of-run summary recapping it
 explaining file anywhere in the checkout) still classifies DQ, confirming the rule isn't a blanket
 downgrade.
 
+## Protocol v1.6: two docker-in-docker traps in the local test (2026-09-09, `walk-v16`)
+
+v1.5 (undocumented here — see `tools/stranger_walk/README.md` and `run_container.sh`'s own header)
+gave every run its own per-run docker-in-docker sidecar (`stranger-walk-dind-<run-id>`, its own
+daemon, ephemeral storage, a private network) so the stranger could `docker build`/`docker run` at
+all — before it, no daemon was reachable inside the sandbox (no root, no userns, `newuidmap`
+missing). Classified SANDBOX by the judges of all three before-runs: inside the sandbox, the
+stranger's own documented local test — `coworld run-episode` (README.md's "Run a policy against a
+real downloaded Coworld locally") — failed with `cannot open: /coworld/config.json [IOError]`
+(`sonnet-before-2b` transcript, the `coworld.runner.io.RunnerEpisodeError: Game container exited
+with status 1 before healthz passed` wrapper). The stranger could not test a modified policy
+locally, a plausible contributor to 3/3 before-runs submitting an unmodified starter.
+
+Reproduced by hand-building a minimal sandbox+sidecar pair matching v1.5's exact wiring and running
+the documented command — byte-for-byte the same traceback as the real transcript. Root cause
+CONFIRMED, but it was two independent DinD traps, not one — the second only surfaces once the first
+is fixed, so no prior run ever reached it:
+
+- **Trap A (the classified defect) — bind-mount source resolution.** `coworld run-episode` (a
+  third-party pip package, `coworld/runner/runner.py`, not ours to patch) launches the game
+  container via `docker run -v {workspace}:/coworld:rw ...` against `DOCKER_HOST` (the sidecar). A
+  `-v host:container` bind mount is resolved on the DAEMON's own filesystem, not the API client's —
+  the sidecar had no `/workspace` at all (only the sandbox did), so the mount silently attached an
+  empty directory and the game binary died trying to read `/coworld/config.json`. Fixed by
+  bind-mounting the SAME host directory (`$WORKSPACE_DIR`) at the SAME container path (`/workspace`)
+  into the sidecar too — never `$RUN_DIR` (`/home/stranger`, where a `host_claude_login` credential
+  can live); only the workspace half of guard #1's HOME/workspace split ever reaches the sidecar.
+- **Trap B (found only after fixing Trap A) — published-port reachability.** `coworld run-episode`
+  health-checks its game container at a hardcoded `http://127.0.0.1:<port>/healthz`, called from the
+  sandbox process, after asking the sidecar's daemon to publish that port on `127.0.0.1` — two
+  different loopbacks when sandbox and sidecar are separate network namespaces joined only by a
+  bridge network + DNS alias (v1.5's `dockerd` alias). Fixed by giving the sandbox
+  `--network container:<sidecar>` instead of its own bridge address, so it shares the sidecar's
+  network namespace (127.0.0.1 means the same loopback on both sides) without inheriting the
+  sidecar's `--privileged` capabilities, mount namespace, or PID namespace — only the network stack
+  is shared. `--hostname` cannot be combined with `--network container:...` (docker rejects it), so
+  `--hostname stranger` is dropped for the sandbox in both `selftest` and `run` mode.
+
+Verified end to end by hand before wiring the fix into the selftest: the documented command,
+`uv run coworld run-episode ./coworld/<coworld id>/coworld_manifest.json --timeout-seconds 180`
+(README.md's own "optional smoke test with the reference player, no custom image" variant, since the
+IOError does not depend on a custom starter image), completed with exit 0 — `results.json` (16
+players, real scores/kills/deaths/achievements) and a `replay` file on disk — through a v1.6-shaped
+sandbox+sidecar pair, against the live `paintbot` Coworld (`cow_ef791b8b-75ee-481e-9d8a-ba40cb9f054a`,
+era 0.7.385).
+
+`run_container.sh selftest <run-id>` now runs this same real episode (see `entrypoint.sh`'s v1.6
+selftest addition) and asserts `results.json` + `replay` land on disk — the certification default
+until #527 (the play-seat baseline) lands to supply an official one. `isolation_audit.sh` needed no
+changes: it audits transcripts/probe results/credential scans, none of which this fix touches, and a
+fixed-setup selftest still passes it (no new isolation-boundary surface — network-namespace sharing
+is scoped to the sandbox↔its-own-sidecar pair, never crosses runs, and grants no new capabilities).
+
+Not fixed by this change, and not in scope for it (would change what the stranger sees, breaking
+before/after comparability — noted as v1.7 candidates): the sandbox Bash tool's own ~10-minute
+ceiling, and teaching the stranger the round cadence.
+
 ## Protocol v2: the prompt was scaffolding, not discovery (2026-09-09, owner ruling)
 
 Owner ruling, after reviewing Walk 1's five runs: `prompt.md`'s "Announce milestones" rule (the
