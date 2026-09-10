@@ -449,3 +449,65 @@ suite "SEASON 2 replay viewer HUD: chip clip fix (owner defect, 2026-09-10)":
     # the NUMBER give up space instead of the name.
     checkInBoth ".br-cell-glory {\n  font-family: var(--pixfont);"
     checkInBoth "  flex: none;\n  transform-origin: left center;\n}"
+
+suite "SEASON 2 replay viewer HUD: comms rail redesign (owner 2026-09-10)":
+  ## Owner: "you finally got the left bar working in the replay, but you put
+  ## the chat there and it is pretty much unreadable in this design... it
+  ## goes on too long, forcing extra letterboxing that is unnecessary." Two
+  ## separate defects with two separate fixes (S2 lead correction,
+  ## 2026-09-10): (a) READABILITY comes from type size/contrast/spacing —
+  ## never from cutting content, a message wraps to however many lines it
+  ## needs; (b) LENGTH is bounded separately — the sidebar shows only the
+  ## last messages that fit its rail remainder, with no scrollbar and no
+  ## effect on the stage's own size.
+  test "a message is never truncated -- readability comes from type, not from cutting content":
+    checkInBoth "esc(item.text)"
+    checkInBoth "esc((item.plays || []).join(' · ') || 'play #' + item.epoch)"
+    # Readability floors: legible at any --hudscale, including the kiosk
+    # stage's tiny rail (measured 11.5px/11px effective at 540x300 in the
+    # PR's verification pass, comfortably above the 9px kiosk floor).
+    checkInBoth "font-size: clamp(11.5px, calc(10 * var(--u)), 16px);"
+    checkInBoth "font-size: clamp(11px, calc(9.5 * var(--u)), 15px);"
+    checkInBoth "font-size: clamp(10.5px, calc(8.5 * var(--u)), 15px);"
+
+  test "the flash row drops the redundant \"flashed\" word and keeps one glyph":
+    checkInBoth "class=\"fl-bolt\" aria-hidden=\"true\">⚡</span>"
+    for page in bothPages():
+      checkpoint(page.label & ": must not carry the redundant literal word \"flashed\" beside the bolt")
+      check not page.text.contains("⚡ flashed")
+
+  test "the sidebar is height-bounded: no scrollbar, oldest messages drop, newest always visible":
+    checkInBoth "function fitCommsFeed(el, count)"
+    checkInBoth "while (el.scrollHeight > el.clientHeight && el.children.length > 1)"
+    checkInBoth "el.classList.toggle('cd-trimmed', trimmed);"
+    checkInBoth "overflow: hidden;"
+    checkInBoth "#commsFeed.cd-trimmed {"
+    # relayout() re-fits the sidebar on a pure resize too (count unchanged,
+    # rail height changed), not just when a new message arrives.
+    checkInBoth "commsFeedEl._fitHeight !== commsFeedEl.clientHeight"
+
+  test "relayout() never measures the comms DOM to size the stage":
+    # The stage's pixel size (stageW/stageH -> boardW/boardH) is a pure
+    # function of the viewport box and fixed rail-width constants.
+    # commsWide/COMMS_AVAILABLE (a plain boolean -- "is there anything to
+    # show") legitimately decide WHERE the letterbox goes, but nothing in
+    # relayout() may read the comms DOM's height to decide HOW BIG the
+    # stage is. Extract relayout()'s own body and prove the comms elements
+    # never appear in it BY NAME -- the strongest text-scan proof available
+    # short of a browser (the live DOM-rect proof, done separately, showed
+    # the stage rect byte-identical with a heavy-huddle replay vs. none).
+    for page in bothPages():
+      let text = page.text
+      let startIdx = text.find("function relayout() {")
+      let endIdx = text.find("var ro = new ResizeObserver(relayout);")
+      checkpoint(page.label & ": could not locate relayout() to scope this check")
+      check startIdx >= 0
+      check endIdx > startIdx
+      if startIdx >= 0 and endIdx > startIdx:
+        let body = text[startIdx ..< endIdx]
+        checkpoint(page.label & ": relayout() must not reference commsFeedEl's DOM")
+        check not body.contains("commsFeedEl")
+        checkpoint(page.label & ": relayout() must not reference #commsdock's DOM")
+        check not body.contains("commsdock")
+        checkpoint(page.label & ": the board fit must stay fixed-constant geometry")
+        check body.contains("var LANE_MIN = 300, RAIL_MIN = 240;")

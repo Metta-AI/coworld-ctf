@@ -1107,46 +1107,66 @@ html, body {
   font-style: italic;
   color: var(--paper-dim);
 }
-/* Chat bubbles: warm paper-on-ink, no hard borders; the speaker line wears
-   the seat team's palette color. Shared by the room, the corner panel and
-   the comms sidebar (one renderer -- commsEntryHtml). */
-.hd-msg { display: flex; flex-direction: column; gap: calc(1.5 * var(--u)); }
+/* Chat rows: no bubble/box (house style -- hierarchy from type + whitespace,
+   not decoration). The speaker line wears the seat team's palette color, a
+   clear gap separates it from the message, and the message text itself is
+   full-brightness paper at a size that stays legible even when --hudscale
+   is small (a 480px-wide rail, the kiosk stage): the clamp() floor is the
+   readability fix (owner 2026-09-10 "the chat part... is pretty much
+   unreadable"), independent of the height-bounding fix below. Shared by the
+   room, the corner panel and the comms sidebar (one renderer --
+   commsEntryHtml); a message is NEVER truncated -- it wraps to however many
+   lines its own length needs (typically 1-2 for a huddle line, more for a
+   long opening statement), and the SIDEBAR bounds total visible HISTORY
+   (see #commsFeed below), never an individual message's own text. */
+.hd-msg { display: flex; flex-direction: column; gap: calc(3.5 * var(--u)); }
 .hd-who {
   display: flex;
   align-items: center;
   gap: calc(4 * var(--u));
   font-family: var(--finefont);
   font-weight: 600;
-  font-size: calc(8 * var(--u));
+  font-size: clamp(10.5px, calc(8.5 * var(--u)), 15px);
   letter-spacing: 0.06em;
   color: var(--tc, var(--paper-dim));
   text-transform: uppercase;
 }
 .hd-text {
-  align-self: flex-start;
-  padding: calc(4 * var(--u)) calc(8 * var(--u));
-  border-radius: calc(2 * var(--u)) calc(8 * var(--u)) calc(8 * var(--u)) calc(8 * var(--u));
-  background: rgba(242, 232, 216, 0.08);
-  font-size: calc(9.5 * var(--u));
+  align-self: stretch;
+  padding-left: calc(11 * var(--u));
+  font-size: clamp(11.5px, calc(10 * var(--u)), 16px);
   color: var(--paper);
-  line-height: 1.45;
+  line-height: 1.5;
 }
 .hd-msg { animation: chip-in 240ms ease-out; }
-/* A FLASH row: the caller retuning a seat (play-call record 0x10). Amber
-   bolt + play names -- visually apart from chat on purpose: this is
-   observability, not conversation. */
+/* A FLASH row: the caller retuning a seat (play-call record 0x10). Same
+   two-line rhythm as a chat row -- seat + name + the amber bolt (the ONE
+   glyph that marks "flashed"; the word itself is redundant next to it and
+   is dropped) on top, the full intent-word list below, never abbreviated
+   with a "+n" -- it wraps to as many lines as it needs, same as a chat
+   message. This is observability, not conversation, so the plays line
+   stays visually secondary (opacity, not a low-contrast hue -- the dim
+   grey this replaced measured under 3:1 against the rail and was the
+   readability complaint). */
 .hd-flash {
   display: flex;
-  align-items: center;
-  gap: calc(5 * var(--u));
-  font-family: var(--finefont);
-  font-size: calc(8.5 * var(--u));
-  color: var(--amber);
+  flex-direction: column;
+  gap: calc(3.5 * var(--u));
   animation: chip-in 240ms ease-out;
 }
-.hd-flash .swatch { width: calc(6 * var(--u)); height: calc(6 * var(--u)); }
-.hd-flash .fl-who { font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; }
-.hd-flash .fl-plays { color: var(--paper-dim); }
+.hd-flash .hd-who { color: var(--amber); }
+.hd-flash .fl-bolt {
+  margin-left: calc(2 * var(--u));
+  color: var(--amber);
+}
+.fl-plays {
+  padding-left: calc(11 * var(--u));
+  font-family: var(--finefont);
+  font-size: clamp(11px, calc(9.5 * var(--u)), 15px);
+  line-height: 1.45;
+  color: var(--paper);
+  opacity: 0.82;
+}
 .huddle-empty {
   color: var(--paper-dim);
   font-style: italic;
@@ -1259,14 +1279,28 @@ body.commswide #viewport { justify-content: flex-end; }
   margin-bottom: calc(8 * var(--u));
   flex: none;
 }
+/* HEIGHT-BOUNDED (owner 2026-09-10: "it goes on too long, forcing extra
+   letterboxing that is unnecessary"). This box's own size was already
+   bounded to the rail remainder by flex alone (flex:1 1 auto + min-height:0
+   inside #commsdock's fixed-height column — relayout() never measures this
+   DOM to size the stage, see the stage-rect proof in the PR); what changed
+   is the CONTENT policy: no scrollbar, no growing past the box — JS
+   (fitCommsFeed) drops whole messages off the top until the remaining set
+   fits, and this mask fades the one at the very top so a trimmed feed reads
+   as "more above" instead of a hard cut edge. The mask only appears once
+   fitCommsFeed finds something to trim (.cd-trimmed) — an untrimmed feed of
+   one or two lines never fades its only message. */
 #commsFeed {
-  overflow-y: auto;
+  overflow: hidden;
   display: flex;
   flex-direction: column;
-  gap: calc(7 * var(--u));
+  gap: calc(9 * var(--u));
   flex: 1 1 auto;
   min-height: 0;
-  scrollbar-width: thin;
+}
+#commsFeed.cd-trimmed {
+  -webkit-mask-image: linear-gradient(to bottom, transparent 0, black calc(22 * var(--u)));
+  mask-image: linear-gradient(to bottom, transparent 0, black calc(22 * var(--u)));
 }
 #commsLive {
   position: absolute;
@@ -6753,13 +6787,19 @@ body[data-noviewpanel] #viewpanel { display: none !important; }
   function commsEntryHtml(item) {
     // THE feed renderer — room, corner panel and sidebar all draw from it.
     // New observability kinds (votearm lane: ballot casts, play votes) slot
-    // in as new cases here.
+    // in as new cases here. Redesigned 2026-09-10 (owner: the old row wore
+    // the word "flashed" in text right beside its own bolt glyph, plus a
+    // dim fl-plays hue — both dropped below). Neither row is ever truncated:
+    // a name/word list
+    // wraps to as many lines as it needs (see .hd-text/.fl-plays clamp()
+    // floors) — the SIDEBAR bounds total visible HISTORY, not one message.
     if (item.kind === 'flash') {
       return '<div class="hd-flash">' +
+        '<div class="hd-who" style="--tc:' + seatCol(item.seat) + '">' +
         '<span class="swatch" style="--tc:' + seatCol(item.seat) + '"></span>' +
-        '<span class="fl-who">' + esc(seatName(item.seat)) + ' · S' + item.seat + '</span>' +
-        '<span>⚡ flashed</span>' +
-        '<span class="fl-plays">' + esc((item.plays || []).join(' · ') || 'play #' + item.epoch) + '</span>' +
+        esc(seatName(item.seat)) + ' · S' + item.seat +
+        '<span class="fl-bolt" aria-hidden="true">⚡</span></div>' +
+        '<div class="fl-plays">' + esc((item.plays || []).join(' · ') || 'play #' + item.epoch) + '</div>' +
         '</div>';
     }
     return '<div class="hd-msg">' +
@@ -6798,6 +6838,42 @@ body[data-noviewpanel] #viewpanel { display: none !important; }
     for (var i = have; i < count; i++) html += commsEntryHtml(commsItems[i]);
     el.insertAdjacentHTML('beforeend', html);
     if (autoscroll) el.scrollTop = el.scrollHeight;
+  }
+
+  // HEIGHT-BOUNDED RAIL FEED (owner 2026-09-10: "it goes on too long,
+  // forcing extra letterboxing that is unnecessary"). The sidebar's own box
+  // is already bounded to the rail remainder by CSS alone (#commsdock/
+  // #commsFeed flex:1 1 auto + min-height:0 inside the fixed-height rail —
+  // relayout() never measures comms DOM to size the stage; see the stage-
+  // rect proof in the PR). This function is what keeps the CONTENT inside
+  // that box without a scrollbar: rebuild the full revealed window (so a
+  // rail that just grew — a resize, a narrower kiosk embed going wide —
+  // can reclaim rows a previous pass trimmed), then drop whole messages off
+  // the TOP (oldest) until what remains fits, never a partial/truncated
+  // message. New messages append at the bottom, so the newest is always
+  // the last thing dropped — the auto-follow the spec asks for falls out
+  // of "always keep the bottom" for free, no scrollTop bookkeeping needed.
+  function fitCommsFeed(el, count) {
+    if (!el) return;
+    var html = '';
+    for (var i = 0; i < count; i++) html += commsEntryHtml(commsItems[i]);
+    el.innerHTML = html;
+    var trimmed = false;
+    while (el.scrollHeight > el.clientHeight && el.children.length > 1) {
+      el.removeChild(el.firstElementChild);
+      trimmed = true;
+    }
+    // The top-edge fade (CSS mask-image on #commsFeed) only reads as
+    // "more above" when there truly is more — an untrimmed feed of one or
+    // two lines must not fade its only message.
+    el.classList.toggle('cd-trimmed', trimmed);
+    // Remembers what it was last fit for, so a caller that re-runs every
+    // frame (relayout, or the "container may have just opened" branch
+    // below) can skip the rebuild when neither the message count nor the
+    // available rail height actually changed — a full rebuild+trim is
+    // cheap once, not worth repeating on every idle frame.
+    el._fitCount = count;
+    el._fitHeight = el.clientHeight;
   }
 
   // Sidebar scroll pinning: stay glued to newest unless the user scrolled
@@ -6965,9 +7041,12 @@ body[data-noviewpanel] #viewpanel { display: none !important; }
     if (huddleChipEl) huddleChipEl.classList.toggle('show', chipShow);
 
     if (commsShownCount !== count) {
+      // The sidebar is HEIGHT-BOUNDED (owner 2026-09-10) — it never gets its
+      // own scrollbar/autoscroll like the room/panel below; fitCommsFeed
+      // rebuilds the revealed window and drops whole messages off the top
+      // until it fits its flex-allocated rail space. See its own comment.
       if (wide) {
-        syncFeed(commsFeedEl, count, commsPinned);
-        if (!commsPinned && commsLiveEl) commsLiveEl.classList.add('show');
+        fitCommsFeed(commsFeedEl, count);
       } else if (commsFeedEl && commsFeedEl.childElementCount) {
         commsFeedEl.innerHTML = '';  // left wide mode: drop the hidden copy
       }
@@ -6981,7 +7060,13 @@ body[data-noviewpanel] #viewpanel { display: none !important; }
       // Same count, but a container may have just opened empty.
       if (roomOpen && huddleFeedEl && huddleFeedEl.childElementCount !== count) syncFeed(huddleFeedEl, count, true);
       if (panelOpen && huddleLinesEl && huddleLinesEl.childElementCount !== count) syncFeed(huddleLinesEl, count, true);
-      if (wide && commsFeedEl && commsFeedEl.childElementCount !== count) syncFeed(commsFeedEl, count, commsPinned);
+      // Also refit on a pure resize (count unchanged, rail height changed) —
+      // relayout() calls back in here on every ResizeObserver tick so a
+      // widened/narrowed rail immediately reclaims or re-trims rows.
+      if (wide && commsFeedEl &&
+          (commsFeedEl._fitCount !== count || commsFeedEl._fitHeight !== commsFeedEl.clientHeight)) {
+        fitCommsFeed(commsFeedEl, count);
+      }
     }
 
     // Read/unread + the chip's pulse on fresh arrivals.
