@@ -559,8 +559,11 @@ the episode budget (F9–F11). The task's "Done when" #1 is answered.
 Each remaining phase has a gate; several can end the work early.
 
 ### Phase 1 — Relabel `sufficiency` and file the defects — ✅ **MERGED: metta PR #22429**
-Squash-merged to metta `main` as **`6ffae667e4`**. Follow-up #22432 open with three Codex-review
-fixes that missed the merge queue (coverage population, structural-reason copy, a dead `dict.get`).
+Squash-merged to metta `main` as **`6ffae667e4`**. Follow-up **#22432 also merged**, carrying the
+Codex-review fixes that missed the first merge queue: coverage scoped to the round window
+(+ `window_episodes_used`/`window_episodes_skipped` so the displayed fraction and percentage come
+from the same population), the structural-reason sentence no longer relying on sort order, and a
+dead `dict.get`. Verified present on `origin/main`.
 Highest value per hour and independent of every other outcome. A metta PR renaming the verdict to
 what it measures (e.g. `estimate_precision`) and stating the scope in both the API response and
 `TournamentSimDetail.tsx`: *"measures how precisely the win model is estimated, not whether it
