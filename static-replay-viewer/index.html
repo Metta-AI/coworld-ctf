@@ -3172,10 +3172,11 @@ body[data-noviewpanel] #viewpanel { display: none !important; }
   // ---- THE GLOSSARY: one term, one sentence, one source ------------------
   // THE WHOLE epic, Law 1 ("one vocabulary, one glossary") and Law 6 ("no
   // bare numbers"): every on-screen explanation this file renders for these
-  // eight terms — the strip's first-appearance toasts, its hover/tap
-  // title/aria-label text, and the kickoff line — reads from THIS object.
+  // terms — the strip's first-appearance toasts, its hover/tap
+  // title/aria-label text, the kickoff line, and the "Glory by deed" endcard
+  // tooltip (#525, WIRE-OK batch, GameVersion 63) — reads from THIS object.
   // No sentence below is ever retyped elsewhere in this file. The wiki
-  // glossary (Stop 3, docs/wiki) copies these same eight sentences verbatim
+  // glossary (Stop 3, docs/wiki) copies these same sentences verbatim
   // rather than hand-maintaining a second copy — see
   // docs/designs/THE_WHOLE.md §3 Law 1 and docs/designs/THE_GAME_EXPLAINS_ITSELF.md.
   var GLOSSARY = {
@@ -3186,7 +3187,9 @@ body[data-noviewpanel] #viewpanel { display: none !important; }
     heat: "Scoring fast; keeps climbing while it's hot.",
     intent: "What this cog is doing right now.",
     downed: "Downed — can still be rescued.",
-    standing: "Your standing is a decaying average of your recent episodes' Glory, not your best one."
+    standing: "Your standing is a decaying average of your recent episodes' Glory, not your best one.",
+    gloryByDeed: 'Glory by deed — the acts that built this seat’s total.',
+    deedNegative: '‘Own paint’ (friendly fire) subtracts from the same ledger, it never zeroes it.'
   };
 
   // ---- eye-level cog art for the EYES PiP billboards ----
@@ -7211,17 +7214,10 @@ body[data-noviewpanel] #viewpanel { display: none !important; }
 
   var BR_SHOW_RANKS = 4; // ranks below the winner shown individually before compressing
 
-  // GLOSSARY (WIRE-OK batch, THE WHOLE epic): a shared home for short,
-  // first-appearance explainer sentences the chrome quotes verbatim instead
-  // of hand-rolling prose at each call site — the object #517 (strip
-  // legend/tooltips) is expected to land and grow. Not on main yet as of
-  // this pass, so this adds only the two sentences THIS batch's "Glory by
-  // deed" endcard tooltip needs, at the location #517 should extend rather
-  // than duplicate.
-  var GLOSSARY = {
-    gloryByDeed: 'Glory by deed — the acts that built this seat’s total.',
-    deedNegative: '‘Own paint’ (friendly fire) subtracts from the same ledger, it never zeroes it.'
-  };
+  // gloryByDeed / deedNegative now live in THE GLOSSARY (see the single
+  // canonical `var GLOSSARY` near the top of this IIFE) — #517 landed on
+  // main first, so this batch's two "Glory by deed" endcard sentences were
+  // folded into that object on rebase instead of duplicating the var.
 
   function ordinal(n) {
     var suf = ['th', 'st', 'nd', 'rd'], v = n % 100;
