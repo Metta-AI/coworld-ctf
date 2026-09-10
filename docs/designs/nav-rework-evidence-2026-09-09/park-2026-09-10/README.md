@@ -75,8 +75,9 @@ patch-based restore.
 
 `restore-verification.json` records temporary-index reconstruction of every
 non-evidence tracked blob and mode for the primary and seven side bases.
-The merge changes documentation/evidence only. Runtime source, SDK, tests,
-configuration, fixtures and the viewer remain identical to the merge base.
+The merge adds documentation/evidence and excludes this archive from Docker's
+build context. Runtime source, SDK, tests, game configuration, fixtures and
+the viewer remain identical to the merge base.
 
 Retained research shared memory cap is 32 MiB; James permitted up to 64 MiB
 for non-colossal maps if needed. Colossal/total cap remains 256 MiB. Permission
