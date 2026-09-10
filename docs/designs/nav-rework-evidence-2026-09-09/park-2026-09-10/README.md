@@ -42,6 +42,10 @@ are preserved. The unrelated original checkout is untouched.
 
 ## Read the large raw measurements
 
+Run the commands below from the repository root of the archive checkout.
+If working in a restored research tree, first copy the evidence directory
+there as described in the restore section.
+
 JSON measurements larger than 1 MB are stored as deterministic `.json.gz`
 files. `compressed-measurements.json` records each original byte count and
 SHA-256; decompression was verified byte-for-byte before removing the plain
@@ -62,7 +66,13 @@ PYTHON
 
 `SHA256SUMS.archive` hashes the committed archive files, including compressed
 measurements and untracked source snapshots. Keep historical input and source
-hashes distinct from hashes of the compressed storage representation.
+hashes distinct from hashes of the compressed storage representation. Verify
+the committed archive from the repository root with:
+
+```sh
+(cd docs/designs/nav-rework-evidence-2026-09-09 &&
+  shasum -a 256 --check --quiet park-2026-09-10/SHA256SUMS.archive)
+```
 
 ## Restore the primary research code
 

@@ -14,7 +14,8 @@ repo = subprocess.check_output(
 base = (archive / "base.txt").read_text().strip()
 evidence = "docs/designs/nav-rework-evidence-2026-09-09/"
 
-for snapshot in [archive, *sorted((archive / "worktrees").iterdir())]:
+snapshots = sorted(path for path in (archive / "worktrees").iterdir() if path.is_dir())
+for snapshot in [archive, *snapshots]:
     with tempfile.TemporaryDirectory() as temporary:
         environment = dict(os.environ, GIT_INDEX_FILE=str(Path(temporary) / "index"))
 

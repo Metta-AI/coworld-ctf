@@ -37,3 +37,7 @@ The first review ended NOT JUST NITS before these dispositions. A bounded text-o
 than findings and is not counted as a review. The corrected retry and its
 verdict are recorded in the PR description before merge.
 This review is validation evidence, not a GitHub approval of authored work.
+
+## Final bounded review
+
+The corrected text-only retry returned VERDICT: JUST NITS, with no high or medium findings in the final restore/verifier/Docker delta. Its low finding (a stray .DS_Store could be treated as a snapshot) is fixed by filtering snapshot directories. README now states the repository-root/copy ordering and provides the portable checksum command. The cosmetic plural output label is retained. No additional independent review is claimed for these small follow-up edits.
