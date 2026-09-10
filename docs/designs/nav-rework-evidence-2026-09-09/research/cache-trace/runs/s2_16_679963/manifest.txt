@@ -1,0 +1,11 @@
+tag=s2_16_679963
+head=3aeb03982fdd6e2ee0c7d78441cdde9acadae487
+nim=Nim Compiler Version 2.2.6 [MacOSX: arm64]
+server_flags=--threads:on -d:release -d:noSignalHandler -d:navSourceTrace
+seats=16
+port=21902
+server_exit=0
+date=2026-09-10T03:50:25Z
+navsrc_lines=     841
+shell_line=SHELL enabled play_seats=16 reset=startup
+sys_line=NAVSRC sys id=1 grid=401x214 range_px=1300 radius=163 perimeter=924 sight_fnv=AAE16E4C92C11402 seats=16 map=br-gen-5263

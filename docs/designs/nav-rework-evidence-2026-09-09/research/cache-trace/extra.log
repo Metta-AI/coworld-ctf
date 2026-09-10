@@ -1,0 +1,30 @@
+=== s2_16_679965 port 21911 2026-09-10T03:58:36Z
+run s2_16_679965: server pid 83539, 16 baseline S2 clients, port 21911, dir /Users/jamesboggs/coding/coworlds/coworld-ctf-worktrees/nav-source-trace/tmp/navsrc/runs/s2_16_679965
+server exit 0 after 145s
+tag=s2_16_679965
+head=3aeb03982fdd6e2ee0c7d78441cdde9acadae487
+nim=Nim Compiler Version 2.2.6 [MacOSX: arm64]
+server_flags=--threads:on -d:release -d:noSignalHandler -d:navSourceTrace
+seats=16
+port=21911
+server_exit=0
+date=2026-09-10T04:01:02Z
+navsrc_lines=     880
+shell_line=SHELL enabled play_seats=16 reset=startup
+sys_line=NAVSRC sys id=1 grid=401x214 range_px=1300 radius=163 perimeter=924 sight_fnv=D0E0AA21315A40B0 seats=16 map=br-gen-5001
+seed 679965 drew map=br-gen-5001
+=== s2_32_679965 port 21912 2026-09-10T04:01:03Z
+run s2_32_679965: server pid 89587, 32 baseline S2 clients, port 21912, dir /Users/jamesboggs/coding/coworlds/coworld-ctf-worktrees/nav-source-trace/tmp/navsrc/runs/s2_32_679965
+server exit 0 after 156s
+tag=s2_32_679965
+head=3aeb03982fdd6e2ee0c7d78441cdde9acadae487
+nim=Nim Compiler Version 2.2.6 [MacOSX: arm64]
+server_flags=--threads:on -d:release -d:noSignalHandler -d:navSourceTrace
+seats=32
+port=21912
+server_exit=0
+date=2026-09-10T04:03:42Z
+navsrc_lines=    1683
+shell_line=SHELL enabled play_seats=32 reset=startup
+sys_line=NAVSRC sys id=1 grid=401x214 range_px=1300 radius=163 perimeter=924 sight_fnv=D0E0AA21315A40B0 seats=32 map=br-gen-5001
+EXTRA DONE 2026-09-10T04:03:42Z

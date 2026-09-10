@@ -1,0 +1,4 @@
+/Users/jamesboggs/coding/coworlds/coworld-ctf-worktrees/nav-source-trace/src/ctf/control.nim(16, 8) Warning: imported and not used: 'math' [UnusedImport]
+/Users/jamesboggs/coding/coworlds/coworld-ctf-worktrees/nav-source-trace/src/ctf/baselines.nim(17, 8) Warning: imported and not used: 'math' [UnusedImport]
+/Users/jamesboggs/coding/coworlds/coworld-ctf-worktrees/nav-source-trace/src/shell/body_route_query.nim(3, 24) Warning: imported and not used: 'math' [UnusedImport]
+/Users/jamesboggs/coding/coworlds/coworld-ctf-worktrees/nav-source-trace/src/ctf/policy_page.nim(40, 6) Warning: use command `nimble install checksums` and import `checksums/sha1` instead; sha1 is deprecated [Deprecated]

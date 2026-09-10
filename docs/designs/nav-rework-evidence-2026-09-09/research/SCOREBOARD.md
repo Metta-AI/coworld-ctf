@@ -70,3 +70,5 @@ G0 bed15e11; G1 9e4971f1; M1 5a6c4963; W1 da13e2c7; M2 d9962a8d; M3 f261aeca; W2
 
 - A3 rejected: inline legalNavMove has no repeatable native m8i gain and full map48 remains2.003934x. Source restored to A2. See A3_REPORT.md.
 - H1 isolated positive work screen: full quality matches across architectures with15.47% fewer corpus pops; native short-run completions462->789 and near latency improve, whole-body does not. Censored far-tail worsens; adoption pending joint review. See H1_NATIVE_REPORT.md.
+
+- C2 trace screen: nine real baselineS2episodes, three distinct pinned maps at16/32seats. LRU64 passes30%ray-step-removal count gate on2/3 and3/3maps respectively; no timing claim. Corrected previous-rebuild carry attribution independently reproduced. CACHE_TRACE_ROOT_REVIEW.md.
