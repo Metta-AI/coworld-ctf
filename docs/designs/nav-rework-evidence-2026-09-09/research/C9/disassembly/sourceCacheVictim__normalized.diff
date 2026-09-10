@@ -1,0 +1,20 @@
+--- parent
+
++++ candidate
+
+@@ -25,5 +25,5 @@
+
+ cmp    $0x7d0,%ax
+ je     <sourceCacheVictim__OOZsrcZshellZbody95nav_uID+0xd0>
+-lea    0x18(%rbx),%rax
++lea    0x30(%rbx),%rax
+ xor    %edx,%edx
+ xor    %r8d,%r8d
+@@ -34,5 +34,5 @@
+
+ mov    %r8,%rcx
+ shl    $0x4,%rcx
+-mov    0x20(%rcx,%rbx,1),%rdi
++mov    0x38(%rcx,%rbx,1),%rdi
+ cmp    %rdi,0x8(%rax)
+ cmovb  %rdx,%r8

@@ -104,3 +104,5 @@ G0 bed15e11; G1 9e4971f1; M1 5a6c4963; W1 da13e2c7; M2 d9962a8d; M3 f261aeca; W2
 - C9 fullscreen fails m5a: all9trace medians improve totals andallquality exact, but3changing-source medians regress1.19–1.64%against1%limit. m8ipassesallchecks. Noadoption/capchange; integratedlocal13cachetests archivedthenrestored. C9_NATIVE_FULL_RESULT.md.
 
 - A8countscreen passes correctedpre-runcriterion: map48 189identical failedsearches repeat,44.2866%dequeuework; all1991pixelcalls across76maps showzeroexact-keyresultdifferences, onlymap48repeats. First128failure-keycachewouldserveall189; no timinggainproven. A8_FULL_COUNT_RESULT.md.
+
+- A8 bounded failure memo native screen negative: m8i median6.15593%gain, m5a4.96858%vs preregistered5%bothhosts. All76maps/19retainedarrays exact;189hits/356784saveddequeues match model; noadoption, no capchange. A8_MEMO_SCREEN_RESULT.md.

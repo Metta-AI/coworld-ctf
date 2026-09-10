@@ -1,0 +1,58 @@
+Hint: used config file '/Users/jamesboggs/.nimby/nim/config/nim.cfg' [Conf]
+Hint: used config file '/Users/jamesboggs/.nimby/nim/config/config.nims' [Conf]
+Hint: used config file '/Users/jamesboggs/coding/coworlds/coworld-ctf-worktrees/nav-deferred-cache/nim.cfg' [Conf]
+.........................................................................................................................................................................................................................
+/Users/jamesboggs/coding/coworlds/coworld-ctf-worktrees/nav-deferred-cache/src/ctf/arena.nim(1373, 5) Hint: 'inside' is declared but not used [XDeclaredButNotUsed]
+/Users/jamesboggs/coding/coworlds/coworld-ctf-worktrees/nav-deferred-cache/src/ctf/arena.nim(3702, 6) Hint: 'rectsNode' is declared but not used [XDeclaredButNotUsed]
+/Users/jamesboggs/coding/coworlds/coworld-ctf-worktrees/nav-deferred-cache/src/ctf/arena.nim(3707, 6) Hint: 'rectsFromNode' is declared but not used [XDeclaredButNotUsed]
+......
+CC: system/exceptions.nim
+CC: std/private/digitsutils.nim
+CC: std/assertions.nim
+CC: std/private/dragonbox.nim
+CC: std/formatfloat.nim
+CC: std/objectdollar.nim
+CC: system/dollars.nim
+CC: std/syncio.nim
+CC: system.nim
+CC: algorithm.nim
+CC: math.nim
+CC: unicode.nim
+CC: strutils.nim
+CC: strformat.nim
+CC: heapqueue.nim
+CC: hashes.nim
+CC: tables.nim
+CC: streams.nim
+CC: json.nim
+CC: sets.nim
+CC: flatty/binny.nim
+CC: posix.nim
+CC: times.nim
+CC: std/envvars.nim
+CC: std/cmdline.nim
+CC: pixie/fontformats/opentype.nim
+CC: pixie/fileformats/jpeg.nim
+CC: pixie/fileformats/png.nim
+CC: random.nim
+CC: bitworld/spriteprotocol.nim
+CC: bitworld/pixelfonts.nim
+CC: ../ctf/sim_types.nim
+CC: ../ctf/arena.nim
+CC: body_map.nim
+CC: std/exitprocs.nim
+CC: terminal.nim
+CC: unittest.nim
+CC: check_pixel_failure_memo.nim
+Hint:  [Link]
+Hint: mm: orc; threads: on; opt: speed; options: -d:release
+115381 lines; 2.717s; 341.918MiB peakmem; proj: /Users/jamesboggs/coding/coworlds/coworld-ctf-worktrees/nav-deferred-cache/tools/check_pixel_failure_memo.nim; out: /Users/jamesboggs/coding/coworlds/coworld-ctf-worktrees/nav-throughput-research/docs/designs/nav-rework-evidence-2026-09-09/research/A8/memo/focused [SuccessX]
+Hint: /Users/jamesboggs/coding/coworlds/coworld-ctf-worktrees/nav-throughput-research/docs/designs/nav-rework-evidence-2026-09-09/research/A8/memo/focused [Exec]
+
+[Suite] construction-local failure memo
+  [OK] repeat skips queue writes and preserves generation rollover
+  [OK] every key input distinguishes failures
+  [OK] full cache executes the 129th unique failure without eviction
+  [OK] oversize target lists run without admission
+  [OK] invalid starts and successful paths are never admitted
+{"record_bytes":296,"memo_bytes":37896,"scratch_bytes":38000}

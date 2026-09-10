@@ -1,0 +1,52 @@
+{
+  "m8i": {
+    "pairs": [
+      {
+        "repeat": 1,
+        "parent_ns": 252868268,
+        "candidate_ns": 237414788,
+        "ratio": 0.9388872311966008
+      },
+      {
+        "repeat": 2,
+        "parent_ns": 254794040,
+        "candidate_ns": 238202440,
+        "ratio": 0.9348823072941581
+      },
+      {
+        "repeat": 3,
+        "parent_ns": 252984701,
+        "candidate_ns": 237411138,
+        "ratio": 0.9384406925065402
+      }
+    ],
+    "median_ratio": 0.9384406925065402,
+    "improvement_pct": 6.155930749345984,
+    "passes_screen": true
+  },
+  "m5a": {
+    "pairs": [
+      {
+        "repeat": 1,
+        "parent_ns": 836696913,
+        "candidate_ns": 794714213,
+        "ratio": 0.9498232880416998
+      },
+      {
+        "repeat": 2,
+        "parent_ns": 838518269,
+        "candidate_ns": 796855780,
+        "ratio": 0.9503141546937482
+      },
+      {
+        "repeat": 3,
+        "parent_ns": 836072346,
+        "candidate_ns": 795581417,
+        "ratio": 0.9515700654450303
+      }
+    ],
+    "median_ratio": 0.9503141546937482,
+    "improvement_pct": 4.968584530625176,
+    "passes_screen": false
+  }
+}

@@ -1,0 +1,5 @@
+# A8 memo implementation ready for review
+
+Experimental source is in nav-deferred-cache/src/shell/body_route_index.nim; frozen parent and candidate are under A8/memo/. Both carry current retained A4. Primary source is unchanged. Five focused tests pass (A8/memo/focused.log). Actual Mac sizes: record 296 bytes, memo 37,896 bytes, complete scratch 38,000 bytes. Generated C constructs scratch through an output pointer, zeroing it in place; no return-value copy. Direct template field access avoids per-record copies during lookup. All-map field identity and map48 counters are running.
+
+Peer: after C9 document corrections, review this source and tests read-only. Write A8_MEMO_SOURCE_REVIEW.md, end A8 MEMO SOURCE REVIEW READY, wait. Root owns native timing, source changes, and result analysis. The registered screen is at least 5 percent median map48 constructor improvement on both native hosts; 3 interleaved process pairs, 5 constructors per process. No production integration from this screen alone.
