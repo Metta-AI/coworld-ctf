@@ -109,9 +109,20 @@ proc foldMitigatedBatched(seed: int64, pctChain: openArray[int],
   # the clamp on the very first batch, every time. The correct bound uses
   # the KNOWN, fixed range of the effective per-batch multiplier instead.
   let maxPerBatchMultiplier = int64(8)  # ceil(1.5^5), safe for batch=5
+  # UNPLANNED FINDING #3 (GLORY GRADIENT S8, exposed by the S7 cap raise
+  # 2^24 -> 2^31): the post-division bound above (`result > cap div
+  # maxPerBatchMultiplier`) is not enough EITHER, on its own, once `cap`
+  # is big enough -- it only proves the FINAL `(result * num) div den`
+  # would exceed `cap`, not that the RAW `result * num` (computed BEFORE
+  # the `div den`) fits in int64 on the way there. At the old, smaller
+  # cap the first check always tripped before `result` grew large enough
+  # for that intermediate product to reach int64's ~9.22e18 ceiling; at
+  # 2^31 it does not. Same lesson this proc's own doc comment already
+  # drew from UNPLANNED FINDING #2, applied a second time: check BEFORE
+  # multiplying, not after.
   template renormalize() =
     if num > 1:
-      if result > cap div maxPerBatchMultiplier:
+      if result > cap div maxPerBatchMultiplier or result > high(int64) div num:
         result = cap
       else:
         result = (result * num) div den
@@ -170,8 +181,9 @@ suite "percent-scaled headroom: overflow (S4 gate condition 2a, part 1)":
     let atCeiling = foldNaive(int64(65536), worst)  # seed = 2^16, the pinned ceiling scale
     echo &"  naive worst-case (30x x1.50) from seed=65536: {atCeiling}"
     check atCeiling < high(int64) div 1000  # nowhere near int64 overflow
-    # It DOES exceed today's live RecutProductCapArmed (2^24) in this
-    # deliberately adversarial all-x1.50 stress case -- expected and fine:
+    # It DOES exceed live RecutProductCapArmed (2^31 internal, S7) in this
+    # deliberately adversarial all-x1.50 stress case (~1.26e10 vs the
+    # ~2.15e9 cap) -- expected and fine:
     # a real fractional-tier fold would compose through the SAME
     # capsArmed check `recutFold` already applies to every other class,
     # not bypass it. Recorded here so nobody mistakes "no int64 overflow"
@@ -235,10 +247,10 @@ suite "percent-scaled headroom: rounding drift (S4 gate condition 2a, part 2)":
     var worstCase: seq[int] = @[]
     for _ in 0 ..< 30: worstCase.add 150
     # DEFAULT cap (RecutProductCapArmed) engaged: a 30-factor all-x1.50
-    # stress case from the ceiling scale naturally exceeds today's real
-    # 2^24 cap on its own (uncapped it would reach ~1.26e10, see the naive
-    # worst-case measurement above) -- the mechanism correctly routes
-    # through the SAME existing cap rather than needing a new one.
+    # stress case from the ceiling scale naturally exceeds the live 2^31-
+    # internal (S7) cap on its own (uncapped it would reach ~1.26e10, see
+    # the naive worst-case measurement above) -- the mechanism correctly
+    # routes through the SAME existing cap rather than needing a new one.
     let worstBatchedCapped = foldMitigatedBatched(int64(65536), worstCase, batch = 5)
     echo &"  batched-5 worst-case (30x x1.50) from seed=65536, DEFAULT cap engaged: {worstBatchedCapped} (clamped correctly, no overflow)"
     check worstBatchedCapped == RecutProductCapArmed
