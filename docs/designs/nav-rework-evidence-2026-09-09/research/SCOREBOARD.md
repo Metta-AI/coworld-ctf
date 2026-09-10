@@ -55,3 +55,5 @@ G0 bed15e11; G1 9e4971f1; M1 5a6c4963; W1 da13e2c7; M2 d9962a8d; M3 f261aeca; W2
 - D1 rejected: incremental kernel index; m5a1300px worstp95/max5.839953/5.887573 ->5.936474/5.996664ms. Exact masks/pops/quality/ledgers, but slower. Restored D0a; archive candidate and negative evidence. D1_REPORT.md.
 
 - P1: streaming packed hot dilation, m5a1300 threepairs worstp95/max5.828086/5.878588 ->5.242172/5.274622ms; weightp951.092082->0.423183ms. Exact masks/pops/quality/memory; no sparse-regime regression observed. Tick gate still fails. P1_REPORT.md.
+
+- WF0 rejected: exact wavefront diagnostic passes 14 raster comparisons but loses 13/14 m5a rows; 1300 px p95 is 1.99–3.57x reference. Production unchanged. See WF0_REPORT.md.

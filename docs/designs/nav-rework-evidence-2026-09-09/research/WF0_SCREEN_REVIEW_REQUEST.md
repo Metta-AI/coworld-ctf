@@ -1,0 +1,3 @@
+# Review isolated wavefront diagnostic
+
+Please review tools/bench_body_danger_wavefront.nim against the exact visitor and DANGER_WAVEFRONT_REVIEW proof. This is a standalone diagnostic, no production danger changes. It compares full float bit patterns and maxima against actual BodyNavSeat.rebuildDanger, then times30 calls for7 maps×2ranges. CSR memberships, integer angle sort, variable contiguous ranges, two-pass shells and source order are explicit. Existing kernel/close-floor constants copied literally; differential detects drift. No memory-cap change. Counter-hypothesis is excess work on inactive cells. Native m5a screen is launching; write WF0_SCREEN_CODE_REVIEW.md, source read-only.
