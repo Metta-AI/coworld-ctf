@@ -6401,7 +6401,13 @@ body[data-noviewpanel] #viewpanel { display: none !important; }
     return p.amt / 100;
   }
   function gloryPopFactorLabel(factor) {
-    return (factor % 1 === 0) ? String(factor) : factor.toFixed(1);
+    // THE LAW's own worked examples are "×2.00"/"×2.20" — always TWO
+    // decimals, never the bare percent ("×200") and never a
+    // whole-number-strips-to-"×2" short form either (an earlier draft of
+    // this helper did `(factor % 1 === 0) ? String(factor) : toFixed(1)`,
+    // which rendered a x2.00 kill as "×2" and a x2.20 kill as "×2.2" —
+    // both a decimal digit short of the ruled shape).
+    return factor.toFixed(2);
   }
   function gloryPopIsHero(p) {
     return !p.lbl && p.amt > 0 && recutArmed && gloryPopFactor(p) >= HERO_POP_MIN_FACTOR;

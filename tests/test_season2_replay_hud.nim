@@ -30,7 +30,8 @@
 
 import
   helpers,
-  std/[os, strutils, unittest]
+  std/[os, strutils, unittest],
+  ctf/glory
 
 const
   SourcePage = GameDir / "client" / "replay_broadcast.html"
@@ -333,13 +334,19 @@ suite "SEASON 2 replay viewer HUD: catalog v3 popup law (owner bug, 2026-09-10)"
   ## economics; the FIVE deeds it silences on a real replay (dFinal8 pct
   ## 100, dFinal4 pct 100, dFinal2 pct 130, dClutchHeal pct 180,
   ## dClosingTime pct 110/120) and the one it still pops (e.g.
-  ## dHonorableKill pct 220 -> "x2.2") are verified against a real 16-seat
-  ## BR replay separately (screenshot + DOM pass, not this text-scan suite).
+  ## dHonorableKill pct 220 -> "×2.20") are verified against a real
+  ## 16-seat BR replay separately (screenshot + DOM pass, not this
+  ## text-scan suite).
   test "one shared pct-to-factor helper feeds every pop/label path":
     checkInBoth "function gloryPopFactor(p) {"
     checkInBoth "return p.amt / 100;"
     checkInBoth "function gloryPopFactorLabel(factor) {"
-    checkInBoth "(factor % 1 === 0) ? String(factor) : factor.toFixed(1)"
+    # THE LAW's own worked examples are "×2.00"/"×2.20" -- ALWAYS two
+    # decimals. An earlier draft here was `(factor % 1 === 0) ?
+    # String(factor) : factor.toFixed(1)`, which rendered a x2.00 kill as
+    # bare "×2" and a x2.20 kill as one-decimal "×2.2" -- caught and fixed
+    # before this landed; pin the fixed body so it can't regress back.
+    checkInBoth "return factor.toFixed(2);"
     # Both the pop-text path and the hero-DOM `.mult` label path call
     # through the SAME label helper -- no second place re-derives "×N".
     checkInBoth "return '×' + gloryPopFactorLabel(factor) + (p.word ? ' ' + p.word : '');"
@@ -356,6 +363,45 @@ suite "SEASON 2 replay viewer HUD: catalog v3 popup law (owner bug, 2026-09-10)"
 
   test "sub-2x factors (the exact x1.00 neutral case included) never float a callout":
     checkInBoth "if (factor < HERO_POP_MIN_FACTOR) return '';"
+    # Boundary check against the SAME 2.0 the source gates on (not a
+    # second hard-coded 2.0 that could drift from it): 199 pct floors to
+    # 1.99 (silent), 200 pct floors to exactly 2.00 (pops).
+    check 199.0 / 100.0 < 2.0
+    check 200.0 / 100.0 >= 2.0
+
+  test "the real v3 pricing table names all five sub-2x deeds this law silences, plus one kill deed it still pops":
+    # Ties the client's HERO_POP_MIN_FACTOR = 2.0 gate to the REAL
+    # production pricing (`RecutPlacementRampPct`/`RecutClassTableV3Pct`,
+    # src/ctf/glory.nim) rather than the hard-coded pct literals named in
+    # the owner bug report and this suite's own doc comment above -- if a
+    # future repricing ever pushed one of these five over 2.00x (or the
+    # kill deed back under it) without updating the popup law, THIS check
+    # goes red where a pure text-scan of the client alone could not catch
+    # it. glory.nim's own zero-imports law means this needs no sim/data/
+    # setup, just the enum + tables (helpers' GameDir cwd-flip is not
+    # needed here).
+    checkpoint("dFinal8: milestone marker, crushed to a pure no-op under placementRampV3")
+    check RecutPlacementRampPct[dFinal8] == 100
+    checkpoint("dFinal4: same crush, same reasoning")
+    check RecutPlacementRampPct[dFinal4] == 100
+    checkpoint("dFinal2: the one milestone still worth a small nudge, still sub-2x")
+    check RecutPlacementRampPct[dFinal2] == 130
+    checkpoint("dClutchHeal: v9-retired self-heal, priced sub-2x under v3 too")
+    check RecutClassTableV3Pct[dClutchHeal] == 180
+    checkpoint("dClosingTime: non-win base, sub-2x")
+    check RecutClassTableV3Pct[dClosingTime] == 110
+    checkpoint("dClosingTime: win-bumped base, still sub-2x")
+    check RecutClosingTimeWinBumpV3Pct == 120
+    checkpoint("dHonorableKill: the plain-kill floor, the one of these seven at/above 2.00x")
+    check RecutClassTableV3Pct[dHonorableKill] == 220
+    # Restate the gate's own arithmetic against each real pct above, so
+    # this test is a genuine popup-law regression guard, not just a
+    # pricing-table snapshot.
+    for pct in [RecutPlacementRampPct[dFinal8], RecutPlacementRampPct[dFinal4],
+                RecutPlacementRampPct[dFinal2], RecutClassTableV3Pct[dClutchHeal],
+                RecutClassTableV3Pct[dClosingTime], RecutClosingTimeWinBumpV3Pct]:
+      check (pct.float / 100.0) < 2.0
+    check (RecutClassTableV3Pct[dHonorableKill].float / 100.0) >= 2.0
 
   test "the old integer-factor hero gate is gone from the fixed source":
     # SOURCE-only (not checkInBoth): static-replay-viewer/index.html is the
