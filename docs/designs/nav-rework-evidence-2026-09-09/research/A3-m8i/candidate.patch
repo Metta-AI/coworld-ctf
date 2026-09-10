@@ -1,0 +1,13 @@
+diff --git a/src/shell/body_map.nim b/src/shell/body_map.nim
+index 054b0c57..f9bc2bad 100644
+--- a/src/shell/body_map.nim
++++ b/src/shell/body_map.nim
+@@ -286,7 +286,7 @@ proc segmentClear*(map: BodyMap, start, goal: BodyPoint): bool =
+       return false
+   true
+ 
+-proc legalNavMove*(map: BodyMap, fromCell, toCell: BodyPoint): bool =
++proc legalNavMove*(map: BodyMap, fromCell, toCell: BodyPoint): bool {.inline.} =
+   let delta = (x: toCell.x - fromCell.x, y: toCell.y - fromCell.y)
+   if delta notin NavNeighbors or not map.cellWalkable(fromCell) or
+       not map.cellWalkable(toCell):
