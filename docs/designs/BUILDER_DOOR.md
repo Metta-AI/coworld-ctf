@@ -20,10 +20,9 @@ through `05-our-evidence.md` — this file is the synthesis.
 
 ## 1. The stranger's question ladder at the door
 
-Owner's journey-quiz ruling (`~/.ctf/knowledge/stranger-walk/00-owner-decisions-2026-09-09.md`,
-R7): the first minute must answer *what is this → why would I care → how does
+Owner's journey-quiz ruling (internal tracking, not public; R7): the first minute must answer *what is this → why would I care → how does
 it work*, in order; *how do I build* and *how do I submit* wait for a click.
-Measured against Stranger Walk `sonnet-a` (`/Users/maxwellstarr/projects/stranger-walk-runs/sonnet-a/`,
+Measured against Stranger Walk `sonnet-a` (internal run artifacts:
 `meta.json`, `score.json`, `transcript.jsonl`, isolation-audit PASS):
 
 | Question | Today (measured) | Evidence |
@@ -36,7 +35,7 @@ Measured against Stranger Walk `sonnet-a` (`/Users/maxwellstarr/projects/strange
 
 Two caveats on "how do I submit," read from the source, not the prose: (a)
 the run used a **pre-provisioned** synthetic GitHub account
-(`~/.ctf/knowledge/stranger-walk/env`) — the ~2.5-minute gap between the wall
+(internal tracking, not public) — the ~2.5-minute gap between the wall
 and "M6 unblocked" (transcript.jsonl:513→550, meta.json `resumes[0]`) is an
 OAuth-redirect pause, not account-creation time. The cost of a stranger who
 has *zero* GitHub account (signup + verification) is real but **unmeasured**.
@@ -181,8 +180,7 @@ low-risk; built on a broken one, it just relocates the same traps.
    documents Sprite v1 only and never mentions the Season 2 packet
    (`policies/poc_llm_policy/README.md:356-372`).
 
-**First three punchlist fixes that pay regardless of which door wins**
-(from `~/.ctf/knowledge/stranger-walk/STATUS-2026-09-09.md`):
+**First three punchlist fixes that pay regardless of which door wins:**
 1. The `--run` argv trap above (punchlist #1, 12.1 min / 18 calls lost).
 2. GitHub-only sign-in (punchlist #3) — scope a second auth method as its own
    fix, independent of the door choice; it blocks all four options equally

@@ -124,7 +124,7 @@ board now renders them as visually distinct pickups. Grepped
 
 ## Placement (T3) — explicitly OUT of this slice's scope
 
-The epic's own fan-out (`~/.ctf/handoff/2026-09-02-tg5-fanout-ledger.md`,
+The epic's own fan-out (internal tracking, not public:
 "T1 census → **T2 art gaps (bandages lane = first slice)** → T3 placement →
 ...") assigns placement to a separate task
 (`f6bd0708-1e69-4770-a880-e89ce761ff32`, "P1 · T3 Placement gap closure").

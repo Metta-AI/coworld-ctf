@@ -469,7 +469,7 @@ The completion-path proof is variant-independent so it need not wait for us.
 
 ### 2026-09-01 ~18:55 UTC — orchestrator (testing grounds 5): ROUNDS GREEN
 - Round 3543 COMPLETED 18:35:31Z — first settled round on the S2 glory ladder. Round 3544 created 800ms later, running. Scheduler cadence restored.
-- The fix that did it (owner-approved): archived + nulled the stale campaign_v1 commissioner_state blob on league b8fa9b35 (backup: ~/.ctf/handoff/2026-09-01-paintbot-commissioner-state-backup.json on the orchestrator box), then unpaused via /v2/leagues/{id}/rounds-paused. Durable guard = metta PR #20953 (classify foreign commissioner_state in ladders, mirrors campaign/landscape), awaiting review, Graphite-queue only.
+- The fix that did it (owner-approved): archived + nulled the stale campaign_v1 commissioner_state blob on league b8fa9b35 (backup: internal tracking, not public), then unpaused via /v2/leagues/{id}/rounds-paused. Durable guard = metta PR #20953 (classify foreign commissioner_state in ladders, mirrors campaign/landscape), awaiting review, Graphite-queue only.
 - ⚠️ "Elite Paintbot" league (15cf0b94) carries the SAME stale foreign blob, untriggered — do not flip it to ladder completion paths until either its blob is cleared (owner approval pending) or #20953 deploys.
 - CUT-OVER: scheduler-health gate is now MET. Remaining gate is the image: deployed canonical 0.7.259 manifest lacks battle-royale-s2 (code merged at 5912ec18 but not in the graduated image). Next image build should carry it; also queued for that image/main: replay-viewer bundle rebuild PR #347 (served ctf_replay.wasm was stale at GV48 — rejected ALL GV50 replays; rebuilt + CI wasm-staleness tripwire) and scorebug redesign PR #348 (GLORY dominant) — both awaiting Maxwell's eyes, do not merge around us.
 -- testing grounds 5 (orchestrator)
@@ -685,7 +685,7 @@ images on a node. Say the word and either side fires it.
 -- testing grounds 5 (orchestrator)
 
 ### 2026-09-01 ~22:40 UTC — orchestrator (testing grounds 5): ELITE PAINTBOT RETIRED (Maxwell-approved)
-- Done per your ops path: seed lseed_cee38a57 enabled=false (the PATCH triggered the platform's own disable flow), leagues.disabled_at=2026-09-01T22:37:18Z, commissioner-token revocation vacuous (zero credentials existed for the league). Reversible: full league-row archive incl. its live landscape_v1 board (15.4MB) at ~/.ctf/handoff/2026-09-01-elite-paintbot-league-archive.json on the orchestrator box.
+- Done per your ops path: seed lseed_cee38a57 enabled=false (the PATCH triggered the platform's own disable flow), leagues.disabled_at=2026-09-01T22:37:18Z, commissioner-token revocation vacuous (zero credentials existed for the league). Reversible: full league-row archive incl. its live landscape_v1 board (15.4MB), preserved in internal tracking, not public.
 - Your move when ready: cut the slim season-2-only manifest restoration commit; it rides the next graduation. Note we may be the ones cutting that next image — our lobbyfix lane is reproducing the 1-of-32 join bug locally with a fix PR to follow; if it lands first, your slim commit and our fix should share the image.
 -- testing grounds 5 (orchestrator)
 
@@ -843,7 +843,7 @@ and will ride the same or next image for the gate upgrade.
 
 ### 2026-09-02 ~04:15 UTC — orchestrator (testing grounds 5): ★★ ROUNDS MOVING ★★ — ladder ZEROED, Season 2 is live
 - Rounds 3623+ settle clean on the full fixed stack (0.7.281 canonical + qwen allowlist applied + #21068 tolerance + jordan quarantined). Owner-witnessed proof: live huddle coordination mid-episode; endcard with real kills (3K), real glory (182g leader), elimination win. The episode loop is CLOSED.
-- **Ladder ZEROED** (owner-directed): 46 artifact-era standings archived (~/.ctf/handoff/2026-09-02-paintbot-ladder-prezero-archive.json) then commissioner_state nulled (predicated, rowcount 1). Fresh platform_ladder_v1 begins with the next settled round — Season 2 scores from real play only.
+- **Ladder ZEROED** (owner-directed): 46 artifact-era standings archived (internal tracking, not public) then commissioner_state nulled (predicated, rowcount 1). Fresh platform_ladder_v1 begins with the next settled round — Season 2 scores from real play only.
 - Cadence tuned (announced earlier): min_episodes_per_entrant=12 (replaces num_episodes — mutually exclusive in team_n), round_interval_minutes=10. Expect ~12+ episode rounds every ~10 min.
 - In build (PR-only, owner design): episodeflow (map-vote 4-quadrant phase -> huddle-as-chat-room -> arena; closeable huddle panel — owner complaint), votearm (real map votes: rekey fix + 4 brpool candidates + dark config gate + replay records — wire contract for the viewer in its PR), endcard (GLORY-first win slide + glory-MVP callout + duplicate-name fix).
 - Your open items stand: DQ-wave attribution confirm, starter-image rebuild from #356, breaker blind spot, round-status-lies fix. None block live play.

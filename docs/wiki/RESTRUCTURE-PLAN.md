@@ -1,7 +1,7 @@
 # Restructure plan — the wiki as the book
 
-Chapter order follows the stranger's own question ladder (owner ruling,
-`~/.ctf/knowledge/stranger-walk/00-owner-decisions-2026-09-09.md`): what is
+Chapter order follows the stranger's own question ladder (owner ruling;
+internal tracking, not public): what is
 this → how it works → the S2 battle-royale rules → glory/scoring as the
 player sees it → build your brain → run an episode locally → submit → read
 the ladder. Existing pages are reassigned to that ladder below; nothing here

@@ -305,7 +305,7 @@ nim c -d:release -o:/tmp/bench_body tools/bench_body.nim
 /tmp/bench_body --seeds 4242,14005,23011,41017,65003 \
   --warmups 5 --samples 50 --output /tmp/body-bench-free.json
 
-export STENCIL_LAB_DIR=/Users/jamesboggs/coding/personal_labs/personal_paintbot/paintbot_lab/paintbot/stencil_nim
+export STENCIL_LAB_DIR=/Users/<host-user>/coding/personal_labs/personal_paintbot/paintbot_lab/paintbot/stencil_nim
 nim c -d:release --path:"$STENCIL_LAB_DIR" \
   -o:/tmp/bench_body_stencil tools/bench_body_stencil.nim
 /tmp/bench_body_stencil --case all \

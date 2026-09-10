@@ -201,8 +201,7 @@ digit), confirming this is the identical ledger and script, not a re-pull.
 | log2 + rated_k=0.035 (from table above) | 0.960 | 7.51 | 0.0427 ⁽¹⁾ | 48 | 0 |
 
 The 0.025 row was first surfaced by two uncommitted 2026-09-09 ad-hoc re-runs
-of this same script (preserved with raw JSON and scripts at
-`~/.ctf/knowledge/glory-gradient/00e-sweep-raw-runs/{sweep-slow,sweep-f1}/`);
+of this same script (raw JSON and scripts preserved in internal tracking, not public);
 this section commits that row, plus 0.02 and 0.03 for a complete picture of
 the interval, as the doc's own record.
 

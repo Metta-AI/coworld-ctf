@@ -4,9 +4,9 @@ Phase 2c of epic 16d081ab (THE WHOLE). Scope: the **paintbot page itself** — t
 walks through first. The wiki (the book) is a separate worker's lane; this doc only touches it
 where the stranger's path passes through it.
 
-Owner decisions this obeys: `~/.ctf/knowledge/stranger-walk/00-owner-decisions-2026-09-09.md`.
+Owner decisions this obeys: internal tracking, not public.
 Era stamp: GameVersion 61 / GLORYVERSION 16, main `9b6019aa`. Source evidence: the real Sonnet
-stranger-walk transcript at `/Users/maxwellstarr/projects/stranger-walk-runs/sonnet-a/` (run
+stranger-walk transcript at `/Users/<host-user>/projects/stranger-walk-runs/sonnet-a/` (run
 `sonnet-a`, completed 2026-09-09, entry URL `https://softmax.com/paintbot`, resolved 200, tags
 `paintbot-v0.7.367` / Glory 15 at walk time) plus my own live browser visits to every URL below on
 2026-09-09 (screenshots in `.harness/screenshots/p2-door/`, downscaled copies referenced from

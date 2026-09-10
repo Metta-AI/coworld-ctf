@@ -1,4 +1,4 @@
-<!-- Source: ~/.ctf/knowledge/stranger-walk/journey-map/jm-prior.md, copied verbatim 2026-09-09 (shot paths repointed to ./shots/; jm-prior itself has no shot citations) -->
+<!-- Source: internal tracking, not public; copied verbatim 2026-09-09 (shot paths repointed to ./shots/; jm-prior itself has no shot citations) -->
 
 # jm-prior — prior-art digest for THE WHOLE journey map (era: 2026-09-09, live paintbot-v0.7.369/GV61/Glory16, coworld-ctf main ≈ 7353e5ae, one commit past 070d4805)
 
@@ -56,7 +56,7 @@ Digest only — read this, not the sources. All items read directly from origin/
 
 **docs/ai/design/vocabulary.md** — Canonical entity naming, enforced across every ux.* skill: **User → Player → Policy → PolicyVersion**; **Game → Coworld → League → Division → Round → Episode**; **Champion ≠ winner** (means "currently competing"); **Score not "Points"/"VOR"**; **Round is a batch of episodes, never a turn/phase inside one match** (the single most damaging collision — an engine's own within-match "round" must be renamed, e.g. "scene"). A beginner-facing surface must use these terms exactly and actively push back on collisions, not silently adopt off-system language. **Verdict: design input — binding vocabulary constraint** on any copy the holistic design writes.
 
-## Knowledge docs (~/.ctf/knowledge/)
+## Knowledge docs (internal tracking, not public)
 
 **00-owner-decisions-2026-09-09.md** — Already known to the lead; rulings pulled into the closing section below only where other docs cite them (R7–R11).
 
@@ -102,5 +102,5 @@ The wiki's published surface (`softmax.com/paintbot/wiki/*`) answers 200 through
 
 ## What I could not read
 - Live click-through of the `#production` anchor bug in a real browser (only static `curl`/href inspection available in this pass — FRONT_DOOR.md already did the real browser repro on 2026-09-09).
-- metta's actual current `WatchTheater.tsx` source (read-only PR-diff/body only, per the "don't enter other worktrees" boundary — this repo has no metta checkout of its own; `/Users/maxwellstarr/projects/metta` is a sibling checkout on an unrelated branch, read via `gh pr view/diff` and direct file `Read` only, never `cd`/git-state changes).
+- metta's actual current `WatchTheater.tsx` source (read-only PR-diff/body only, per the "don't enter other worktrees" boundary — this repo has no metta checkout of its own; a sibling checkout on an unrelated branch was read via `gh pr view/diff` and direct file `Read` only, never `cd`/git-state changes).
 - `docs/ai/design/observatory-design-spec.md` beyond its color-token section (365 lines; the Terminology content is already fully covered by `vocabulary.md`, which supersedes it as the source of truth per that doc's own header).

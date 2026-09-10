@@ -2,7 +2,7 @@
 
 **Era:** 2026-09-09. Live ladder paintbot-v0.7.374 (GameVersion 61 / GLORYVERSION 16); GameVersion 62 / GLORYVERSION 17 staged in #504; `season_leg_transform` is `none` on the live league (Step A not armed); coworld-ctf main 8b7e78a7 (#504 merged: GameVersion 62 / GLORYVERSION 17 staged for publish; the live ladder still reports v0.7.374 until the upload-coworld run publishes). Evidence: `docs/designs/JOURNEY_MAP.md` (#510) — every `J<n>` below is a break in that map's register. Persona: a curious developer who has never heard of Paintbot.
 
-**Status:** ACCEPTED BY DELEGATION on 2026-09-09 (epic 16d081ab): the owner's instruction is that nothing waits on him, so the lead has taken every decision in §6 and work has started; the owner may override any of them at any time. The clean before-walk runs first (§5). Owner rulings R7–R11 from `~/.ctf/knowledge/stranger-walk/00-owner-decisions-2026-09-09.md` are treated as fixed; the only open choices are in §6.
+**Status:** ACCEPTED BY DELEGATION on 2026-09-09 (epic 16d081ab): the owner's instruction is that nothing waits on him, so the lead has taken every decision in §6 and work has started; the owner may override any of them at any time. The clean before-walk runs first (§5). Owner rulings R7–R11 (internal tracking, not public) are treated as fixed; the only open choices are in §6.
 
 **How to read this:** §1 is the thesis. §2 is the design: the journey as ten stops, each answering one beginner question and handing off to the next. §3 is the laws that make it one thread instead of ten fixes. §4 routes the work by lane. §5 is the order and the measurement. §6 is the short list of decisions that are yours. §7 is what this deliberately does not touch. Appendix A maps every break in the map to a stop.
 

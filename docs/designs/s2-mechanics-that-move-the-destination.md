@@ -53,7 +53,7 @@ learns a crate exists only once the crate is already inside its own field of vie
 | **Decision it forces** | A route is no longer scored by length. A path crossing paint is not a slower path, it is a fatal one, and the play must price a candidate destination by *how much painted ground the route eats* — at 3→20 dps across the six armed phases, several seconds of paint is the whole health bar. |
 | **The trap** | The rect a play receives is **no longer the surface that kills it**. `SdkZone.current` is rect geometry; the lethal verdict under the armed variant is the paint field. A play that treats "inside the rect" as "safe" is reading a boundary the engine stopped using. |
 | **Field that would answer it** | None exists. The engine already computes the exact predicate — `sim.zonePaintedForDamageAt(px, py, tick)` (`src/ctf/sim.nim:6016`), the same surface the viewer draws. A point-sample or a segment-sample along a proposed route is the minimum viable grant. |
-| **Number** | **78.8% of downs (1356 / 1721) are zone/environmental** (`source=-1`), not player-caused. **FIELD MEASUREMENT**: N=114 real hosted episodes, sampled from 6 rounds (3774, 3785, 3795, 3798, 3812, 3827) inside the clean window 3774–3827, builds 0.7.307/0.7.308, all dispatching `battle-royale-s2`. Source: `~/.ctf/handoff/2026-09-03-sectionB-live-first-cut.md`. |
+| **Number** | **78.8% of downs (1356 / 1721) are zone/environmental** (`source=-1`), not player-caused. **FIELD MEASUREMENT**: N=114 real hosted episodes, sampled from 6 rounds (3774, 3785, 3795, 3798, 3812, 3827) inside the clean window 3774–3827, builds 0.7.307/0.7.308, all dispatching `battle-royale-s2`. Source: internal tracking (not public). |
 
 The zone schedule armed in `battle-royale-s2` is six phases, `z` 0.75 → 0.001,
 `dps` 0 → 20.
@@ -65,7 +65,7 @@ The zone schedule armed in `battle-royale-s2` is six phases, `z` 0.75 → 0.001,
 | **What changed** | `lootStart` (`src/ctf/sim_config.nim:108`, default `false`, requires `brMode` at `:1127-1128`; **`true` in `battle-royale-s2`**) spawns every seat with `hasGun` and `hasHopper` false (`src/ctf/sim.nim:1835-1836`). `canFire` then requires **both** looted halves — the marker *and* the hopper that is its ammo (`src/ctf/sim.nim:3079`). |
 | **Decision it forces** | The opening destination is a crate rather than a lane, and it is **two** crates, not one. A play must sequence two pickups of different families before it has a weapon at all, and decide which half to chase first when it can see only one. |
 | **Field that would answer it** | `sightedItems` only, and only inside fog. Crate positions are not authored on the live maps — `resetLootCrates` falls back to the grenade and med-kit point pools, so crate sites are a derivable function of map furniture the play also cannot see. |
-| **Number** | **91.8% of seats (1058 / 1152) never held both a gun and a hopper for an entire episode**; of the 8.2% that armed, median time-to-armed was tick 1024 (~43s of a ~150s median match). **CEILING, NOT A FIELD ESTIMATE**: local matrix row 3, n=36 clean episodes under pinned baseline `3c5228c3`, run with stock baseline bots that have no loot-seeking behaviour, and where crates were never exhausted (133 gun / 304 hopper pickups against 13–29 and 29–49 crate-equivalents available per map). The source doc's own recommendation is explicit: *do not tune loot density or the zone schedule off this number* without re-running against a loot-seeking bot. Source: `~/.ctf/handoff/2026-09-01-loot-matrix-results.md` (Row 3). |
+| **Number** | **91.8% of seats (1058 / 1152) never held both a gun and a hopper for an entire episode**; of the 8.2% that armed, median time-to-armed was tick 1024 (~43s of a ~150s median match). **CEILING, NOT A FIELD ESTIMATE**: local matrix row 3, n=36 clean episodes under pinned baseline `3c5228c3`, run with stock baseline bots that have no loot-seeking behaviour, and where crates were never exhausted (133 gun / 304 hopper pickups against 13–29 and 29–49 crate-equivalents available per map). The source doc's own recommendation is explicit: *do not tune loot density or the zone schedule off this number* without re-running against a loot-seeking bot. Source: internal tracking (not public), Row 3. |
 
 Read the two numbers together and the shape of the problem is the whole reason
 this design exists: the ceiling says cogs do not find crates, and the field says
@@ -123,8 +123,8 @@ granted (row 4), and the perk-pickup system is not on main to design against
 
 | Number | Kind | Sample | Source |
 |---|---|---|---|
-| 78.8% of downs environmental (1356/1721) | **field measurement** | 114 hosted episodes, 6 rounds in window 3774–3827, builds 0.7.307/0.7.308 | `~/.ctf/handoff/2026-09-03-sectionB-live-first-cut.md` |
-| 91.8% never armed (1058/1152 seats) | **ceiling** — stock non-looting bots, crates never exhausted | 36 clean local episodes, matrix row 3, baseline `3c5228c3` | `~/.ctf/handoff/2026-09-01-loot-matrix-results.md` |
+| 78.8% of downs environmental (1356/1721) | **field measurement** | 114 hosted episodes, 6 rounds in window 3774–3827, builds 0.7.307/0.7.308 | internal tracking (not public) |
+| 91.8% never armed (1058/1152 seats) | **ceiling** — stock non-looting bots, crates never exhausted | 36 clean local episodes, matrix row 3, baseline `3c5228c3` | internal tracking (not public) |
 | time-to-armed p50 = 1024 ticks | **ceiling**, armed minority only (8.2% of seats) | same 36 episodes | same |
 | hopper pickup rate 0.47× marker | field measurement | 75 live episodes | `coworld_manifest_paintbot.json`, `hopperSiteTrafficPermille` |
 

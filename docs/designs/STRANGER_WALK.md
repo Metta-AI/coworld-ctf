@@ -28,7 +28,7 @@ is a finding worth recording: the public entry point is fine; nobody had actuall
 end as a first-time visitor before.
 
 **The stranger.** A fresh `claude -p` process per run, cwd = a brand-new directory under
-`/Users/maxwellstarr/projects/stranger-walk-runs/<run-id>/`, given only `prompt.md` (with the
+`/Users/<host-user>/projects/stranger-walk-runs/<run-id>/`, given only `prompt.md` (with the
 entry URL substituted) as its instructions. It thinks aloud (`BELIEF:` lines), announces
 milestones (`MILESTONE: M<n>`), and stops cleanly at one of: `M8` reached, `READY-TO-SUBMIT:`
 (credentials/identity absent), `BLOCKED-M6:` (the site needs an identity provider it can't
@@ -62,7 +62,7 @@ own backgrounded upload — and was disqualified: `ps aux` is not scoped by the 
 (process listing is a kernel/OS property, not a per-process environment variable), so it returned
 the *entire host's* process table. Its own narrow grep still matched two unrelated
 orchestration/harness processes because their command lines embed the literal path
-`/Users/maxwellstarr/projects/coworld-ctf/...`, which contains "coworld" as a substring —
+`/Users/<host-user>/projects/coworld-ctf/...`, which contains "coworld" as a substring —
 real internal absolute paths and model identifiers leaked through a filter that had no intention
 of looking for them. This is a distinct gap from the `$HOME` fix and from protocol v1.2 below; it
 is **not fixed this round** (would need real process-namespace/container isolation, out of scope
@@ -77,7 +77,7 @@ softmax/google/github cookies (the same leak by a different door). `run.sh` refu
 that profile somehow already has cookies for those three domains.
 
 **Signing up is part of the measured path** (owner decision, 2026-09-09): the stranger's own
-working directory gets a copy of `~/.ctf/knowledge/stranger-walk/env` (never committed) as `env`.
+working directory gets a copy of the owner's env file (internal tracking, not public; never committed) as `env`.
 **Finding superseded during Walk 1:** the identity-recon note going into this walk said sign-in is
 GitHub-OAuth-only with no self-serve path, so every run would hit `BLOCKED-M6:` and stop at
 `READY-TO-SUBMIT:`. That was true when only `STRANGER_EMAIL` existed in `env`. Since then the
@@ -165,7 +165,7 @@ filesystem (no `/Users`, no `~/.softmax`, `~/.ctf`, `~/.claude/projects` — the
 this project's tooling or vocabulary, only a plain developer toolbox: git, curl, python3, uv, the
 `docker` CLI, and Claude Code itself), own network namespace (bridged — reaches the public internet,
 cannot reach anything bound to the HOST's `127.0.0.1`). The run-dir *contract* is unchanged: same
-`/Users/maxwellstarr/projects/stranger-walk-runs/<run-id>/` layout, `meta.json`, `transcript.jsonl`,
+`/Users/<host-user>/projects/stranger-walk-runs/<run-id>/` layout, `meta.json`, `transcript.jsonl`,
 `prompt.rendered.md` — `score.py` and `isolation_audit.sh` work on a container run's output exactly
 as they do on a `run.sh` run's.
 
@@ -189,7 +189,7 @@ can authenticate; only Bash-tool subprocesses get an isolated `$HOME`. A contain
 `$HOME` at all (`$HOME` is `/home/stranger` for every process in it, `claude` included), so it needs
 its own credential, and that credential must never be the host's `~/.claude`:
 - **Source**: an Anthropic API key, one line, at `$STRANGER_ANTHROPIC_API_KEY_FILE` (default
-  `~/.ctf/knowledge/stranger-walk/anthropic_api_key`, never committed — same convention as
+  path is internal tracking, not public; never committed — same convention as
   `run.sh`'s `STRANGER_OWNER_ENV` for the site-signup identity).
 - **Injection**: `run_container.sh` copies it into `$RUN_DIR/credential.env` (mode 600) and passes it
   to `docker run --env-file` — never baked into the image, never a `docker run -e` CLI arg (those are
@@ -281,7 +281,7 @@ JSON-through-env-var quoting hazard. `meta.json`'s `browser_enabled`/`playwright
 - **(b) else, the HOST's own Claude Code login.** The design's premise ("a credential file under
   `~/.claude`") does not hold on this host — there is no `~/.claude/.credentials.json`; Claude Code
   here stores its OAuth session in the **macOS Keychain**, service `"Claude Code-credentials"`,
-  account `maxwellstarr` — a *live*, actively-refreshed session (this is very likely the same login
+  account `<host-user>` — a *live*, actively-refreshed session (this is very likely the same login
   every other concurrent agent on this machine authenticates with too). Extracted via `security
   find-generic-password -s "Claude Code-credentials" -w`, piped **directly to a file** (never through
   a shell variable, never echoed) at `$RUN_DIR/.claude/.credentials.json` (mode 600) — the exact
@@ -456,7 +456,7 @@ The prompt-level ruling above is only as good as its enforcement. Two gaps close
   a run dir. Verified 2026-09-09: `run.sh --dry-run` reports a fresh `$HOME`/browser-profile path
   and the owner's `env` file's presence (never reads it); `run_container.sh --dry-run` reports the
   container wiring (image tag, `--env-file` contract, uid:gid) and then genuinely **refuses** —
-  `~/.ctf/knowledge/stranger-walk/anthropic_api_key` is absent on this machine today, so a real
+  the container's Anthropic API key (internal tracking, not public) is absent on this machine today, so a real
   container run cannot launch until the owner mints a run-scoped key. Container mode still has no
   browser/playwright support (`browser_enabled` is hardcoded `false`) — a pre-existing v1.3 gap,
   unchanged by this round.
