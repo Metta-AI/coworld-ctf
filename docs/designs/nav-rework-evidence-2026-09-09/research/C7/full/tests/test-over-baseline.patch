@@ -1,0 +1,100 @@
+--- /Users/jamesboggs/coding/coworlds/coworld-ctf-worktrees/nav-throughput-research/docs/designs/nav-rework-evidence-2026-09-09/research/C7/full/baseline/test_shell_body_danger_source_cache.nim	2026-09-10 11:38:02
++++ tests/test_shell_body_danger_source_cache.nim	2026-09-10 11:45:26
+@@ -1,6 +1,8 @@
+-## Shared source-visibility cache (C2): exactness against the uncached ray
+-## walk, source order, close floor, bounded deterministic eviction, range
+-## identity, and the retained ledger.
++## Shared source-visibility cache (C2 policy, C7 list representation):
++## exactness against the uncached ray walk, source order, close floor,
++## bounded deterministic eviction, range identity, the retained ledger, and
++## the list-specific risks: capacity-exact sources, stale entries after slot
++## reuse, and index mapping at map borders across supported ranges.
+ 
+ import std/[algorithm, sequtils, unittest]
+ import ../src/shell/body_danger
+@@ -145,8 +147,12 @@
+     let map = wallMap()
+     let near = newBodyNavSystem(map, 2, 331, prepareRouteQueries = false)
+     let far = newBodyNavSystem(map, 2, 1300, prepareRouteQueries = false)
+-    check near.dangerSourceCacheEntryBytes == 904
+-    check far.dangerSourceCacheEntryBytes == 13_368
++    # Capacity is the nonzero-kernel count at the range (C8 kernel support):
++    # 5,385 cells at 331 px, 54,173 at 1300 px, 8 bytes per entry.
++    check near.dangerSourceCacheCapacity == 5_385
++    check far.dangerSourceCacheCapacity == 54_173
++    check near.dangerSourceCacheEntryBytes == 5_385 * 8
++    check far.dangerSourceCacheEntryBytes == 54_173 * 8
+     let a = (x: 40, y: 30)
+     near.seats[0].rebuildDanger(map, input((8, 8), [a]), 1)
+     check near.dangerSourceCacheOrder.len == 1
+@@ -185,3 +191,70 @@
+     check floatBytes(nav.seats[1].dangerSnapshot) ==
+       floatBytes(rasterOf(map, [a], 331))
+     check nav.seats[0].dangerSnapshot.allIt(it == 0'f32)
++
++proc bigOpenMap(widthPx, heightPx: int): BodyMap =
++  var walkable = newSeq[bool](widthPx * heightPx)
++  for y in 1 ..< heightPx - 1:
++    for x in 1 ..< widthPx - 1:
++      walkable[y * widthPx + x] = true
++  newBodyMap(walkable, widthPx, heightPx, 2, @[(16, 16), (widthPx - 17, heightPx - 17)])
++
++suite "shared danger source list risks":
++  test "an all-visible source fills a slot to exactly its capacity":
++    # Open map wide enough for the whole 327-cell kernel box at 1300 px, so
++    # every nonzero kernel cell is visible from the centre: the recorded list
++    # must be exactly capacity long (no overflow, nothing dropped).
++    let map = bigOpenMap(2800, 2800)
++    let nav = newBodyNavSystem(map, 1, 1300, prepareRouteQueries = false)
++    let center = cellCenter((map.gridWidth div 2, map.gridHeight div 2))
++    nav.seats[0].rebuildDanger(map, input((8, 8), [center]), 1)
++    check nav.dangerSourceCacheLengths == @[nav.dangerSourceCacheCapacity]
++    check nav.dangerSourceCacheCapacity == 54_173
++    let reference = newBodyNavSystem(map, 1, 1300, prepareRouteQueries = false)
++    reference.seats[0].rebuildDanger(map, input((8, 8), [center]), 1)
++    nav.seats[0].rebuildDanger(map, input((8, 8), [center]), 2)   # hit, full-length replay
++    check floatBytes(nav.seats[0].dangerSnapshot) ==
++      floatBytes(reference.seats[0].dangerSnapshot)
++
++  test "a reused slot replays only its new entries":
++    # Fill one slot with a long list, add 63 other unique origins so the
++    # cache is full with the long source as the least recently used entry,
++    # then miss on a short source: it must take exactly the long source's
++    # slot. A later hit on the short source must replay only the short
++    # list; stale entries from the long list must not be replayed.
++    let map = wallMap()
++    let range = 331
++    let nav = newBodyNavSystem(map, 1, range, prepareRouteQueries = false)
++    let long = (x: 240, y: 144)          # open centre, many visible cells
++    let short = (x: 12, y: 12)           # corner, few visible cells
++    let longKey = map.cellOf(long).y * map.gridWidth + map.cellOf(long).x
++    nav.seats[0].rebuildDanger(map, input((8, 8), [long]), 1)
++    let longLength = nav.dangerSourceCacheLengths[^1]
++    for index in 0 ..< DangerSourceCacheSlots - 1:
++      let cell = (x: 3 + index mod 16, y: 3 + index div 16)   # never the long or short cell
++      nav.seats[0].rebuildDanger(map, input((8, 8),
++        [(x: cell.x * NavCell + 2, y: cell.y * NavCell + 2)]), 2 + index)
++    check nav.dangerSourceCacheOrder.len == DangerSourceCacheSlots
++    check nav.dangerSourceCacheOrder[0] == longKey                  # still cached, least recent
++    nav.seats[0].rebuildDanger(map, input((8, 8), [short]), 100)     # miss: evicts the long slot
++    check longKey notin nav.dangerSourceCacheOrder
++    check nav.dangerSourceCacheOrder.len == DangerSourceCacheSlots
++    nav.seats[0].rebuildDanger(map, input((8, 8), [short]), 101)     # hit on the reused slot
++    let shortLength = nav.dangerSourceCacheLengths[^1]
++    check shortLength < longLength
++    check floatBytes(nav.seats[0].dangerSnapshot) ==
++      floatBytes(rasterOf(map, [short], range))
++
++  test "border origins map every entry to the right cell across supported ranges":
++    let map = wallMap()
++    for range in [331, 1050, 1300, 1600]:
++      let nav = newBodyNavSystem(map, 1, range, prepareRouteQueries = false)
++      let corners = [(x: 6, y: 6), (x: map.width - 7, y: 6),
++                     (x: 6, y: map.height - 7), (x: map.width - 7, y: map.height - 7),
++                     (x: map.width div 2, y: 6)]
++      for corner in corners:
++        nav.seats[0].rebuildDanger(map, input((8, 8), [corner]), 1)   # miss (records)
++        nav.seats[0].rebuildDanger(map, input((8, 8), [corner]), 2)   # hit (replays)
++        check floatBytes(nav.seats[0].dangerSnapshot) ==
++          floatBytes(rasterOf(map, [corner], range))
++      check nav.dangerSourceCacheCapacity == (if range >= 1050: 54_173 else: 5_385)

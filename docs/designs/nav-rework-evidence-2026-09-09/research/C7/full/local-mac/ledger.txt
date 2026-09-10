@@ -1,0 +1,4 @@
+range=331 entry_bytes=43080 sharedDangerSourceCache=2758176 slots_bytes=2757120
+range=1050 entry_bytes=433384 sharedDangerSourceCache=27737632 slots_bytes=27736576
+range=1300 entry_bytes=433384 sharedDangerSourceCache=27737632 slots_bytes=27736576
+range=1600 entry_bytes=433384 sharedDangerSourceCache=27737632 slots_bytes=27736576

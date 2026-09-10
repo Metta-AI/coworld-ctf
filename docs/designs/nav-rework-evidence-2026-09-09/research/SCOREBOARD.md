@@ -96,3 +96,7 @@ G0 bed15e11; G1 9e4971f1; M1 5a6c4963; W1 da13e2c7; M2 d9962a8d; M3 f261aeca; W2
 - C7v2micro passes both native hosts:120rows exact, list replay about49–59%faster m8i and51–56%m5a. Full64slot candidate still isolated; no whole-body/cap decision. C7_NATIVE_MICRO_REPORT.md.
 
 - A7 sub-threshold: combinedlazy+early gainsmedian5.2%m8i but3.8%m5a, below5%both-host gate; early-onlyflat. All76selected-index fields and173424pathchain exact,12real exactEdges differences preserved. No integration. A7_NATIVE_REPORT.md.
+
+- C7 full eager cache rejected: v1 per-cell reference ownership caused large native regressions; removing it preserves all quality/rasters but corrected traces still slow23/27p95pairs m8i and18/27m5a, with changing-source costs up1.3–4.2%. Median total ratios0.9951/0.9567 are mixed and do not justify ~27MBextra. Both full3072quality exact. C7_REFCOUNT_ROOT_RESULT.md.
+
+- C9 conditional conversion micro: m8i all40rows exact and eight median configurations pass preregistered limits;1300px conversion extra23.7–24.4%,list ratio46.5–48.0%. m5a replication active; no production/cap change. C9_NATIVE_RESULT.md.

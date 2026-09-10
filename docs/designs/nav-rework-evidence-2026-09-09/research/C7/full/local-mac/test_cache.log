@@ -1,0 +1,14 @@
+
+[Suite] shared danger source visibility cache
+  [OK] hits reproduce the uncached raster byte for byte across seats and rebuilds
+  [OK] source order is preserved on hits
+  [OK] close floor stays exact-pixel while the kernel part is cached
+  [OK] eviction follows an independent LRU model with deterministic order
+  [OK] entries are sized by the live range and owned per system
+  [OK] ledger counts the shared cache by capacity
+  [OK] scheduled rebuilds and empty selections leave the cache consistent
+
+[Suite] shared danger source list risks
+  [OK] an all-visible source fills a slot to exactly its capacity
+  [OK] a reused slot replays only its new entries
+  [OK] border origins map every entry to the right cell across supported ranges

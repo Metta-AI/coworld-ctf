@@ -218,3 +218,17 @@ After peer A7_REVIEW_READY, root created nav-early-visited at fixed A6 experimen
 C7v2m8i completed, all60micro rows exact; list/C2 ratios0.4138–0.5107 pass20%replay gate. m5a replicatePID63545 active. Peer full64-slot cache candidate authorized in C7_IMPLEMENT_REVIEW.md, with current memory proposal below64MiBshared/256MiBtotal and no primary cap/source change.
 
 A7local fourarm checks complete, additionalv2exact-edge coverage finds12real differences preserved across allarms (original craftedpinch failsbothmodes; correctedcoverageclaim). m8i publicconstructor runnerPID43378DONE/clean; combinedlazy+early median~5.2%gain vs eager, early-onlysubthreshold. m5ainputs uploaded, do notlaunchuntilC7runnerDONEandrestore. PrimaryHEAD7fe0c3a3, src/viewer/testclean.
+
+### C7 full v1 negative and ownership diagnosis
+
+PrimaryHEAD e10b6f11, no primary src/viewer/cap changes. C7fullv1m8iPID44713DONE/clean: all27trace pairs exact but totalratio1.4794–1.6740median1.5978; changing-source regimes1.8106–1.9725, repeated0.6829–0.7744; full3072qualityoldhash. Raw C7-full-m8i/ and summaries retained. m5av1PID66386stillactive (do not touch native checkout untilDONE/restored).
+
+Root generated-C audit proves new addVisibleCell localcache ownership eqcopy/eqdestroy with nimIncRef/nimDecRefIsLast pernonzero firstvisit, unlikeC2directfield access; artifact C7-full-generated-owner-C.txt. Its contribution to slowdown is unmeasured until correctedpair; do not call memorytraffic solecause. Peer nowowns minimal correction in C7_REFCOUNT_REVIEW.md, preservesv1.
+
+C9counts-only proposal independently matchedall9sequential LRUtraces (C9_ROOT_COUNT_CHECK.json). No C9implementation authorized. First/second-hit materialization incomparability and trace-end censoring documented in rootreview; C5synthetic no-fill attribution is not a real-play stage-shareproof. Both owned nativehosts nowhave c7-full-input complete; runner run_c7_full.sh. A7subthresholdresultscheckpointed e10b6f11.
+
+### C9 native conversion screen
+
+C7 corrected m8i DONE and source restoration verified; all3072 quality exact oldhash. C9 tools-only native micro launched m8iPID49030 via run_c9_owned.sh, frozenC2parent, CPU5, five rounds/eight configurations, rotatingthree arms. No primarysource/cap changes. m5aC7correctedPID68495still finishing quality; do not overlap. Peer C9 MICRO READY and C7 REFCOUNT PEER REVIEW READY verified; peer agrees eagerC7notadoption.
+
+C7 corrected m5aDONE/restored, full3072qualityexactoldhash,27trace/24regimepairs exact but18/27p95slower. C9m8iDONE/restored,40rows exact, all8medianconfigurationspass preregisteredlimits. m5aC9replicatePID70584nowactive, run_c9_owned.sh, no overlappingjob. Peer owns documents-only C9plan before implementation; must account for retainedbitmapPLUSlist.

@@ -1,0 +1,22 @@
+--- /Users/jamesboggs/coding/coworlds/coworld-ctf-worktrees/nav-throughput-research/docs/designs/nav-rework-evidence-2026-09-09/research/C7/refcount/snapshots/v1-body_nav.nim	2026-09-10 11:56:25
++++ src/shell/body_nav.nim	2026-09-10 11:56:25
+@@ -465,12 +465,15 @@
+     return
+   # First visit of a nonzero cell for this source: append it to the slot the
+   # current miss is filling, in ray order, so a later request for the same
+-  # origin replays exactly these adds.
+-  let cache = seat.dangerSourceCache
++  # origin replays exactly these adds. The cache is read through the seat
++  # field directly (as C2 did for its bitmap): a local `ref` alias here
++  # would be a per-cell ownership copy and destroy in the hot loop.
+   let slot = seat.dangerRecordSlot
+-  cache.entries[slot * cache.capacity + cache.slots[slot].length.int] =
++  let entry = slot * seat.dangerSourceCache.capacity +
++    seat.dangerSourceCache.slots[slot].length.int
++  seat.dangerSourceCache.entries[entry] =
+     DangerSourceEntry(gridIndex: int32(index), weight: weight)
+-  inc cache.slots[slot].length
++  inc seat.dangerSourceCache.slots[slot].length
+   seat.danger.values[index] += weight
+ 
+ proc sightCellBlocked(geometry: DangerGeometry, x, y: int): bool {.inline.} =

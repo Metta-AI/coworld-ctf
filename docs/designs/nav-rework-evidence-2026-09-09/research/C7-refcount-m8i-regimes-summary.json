@@ -1,0 +1,194 @@
+[
+  {
+    "repeat": 1,
+    "map": "br-gen-5204",
+    "range_px": 1300,
+    "regime": "changing_sources",
+    "exact": true,
+    "total_ratio": 1.0315625338653116
+  },
+  {
+    "repeat": 1,
+    "map": "br-gen-5204",
+    "range_px": 1300,
+    "regime": "repeated_sources",
+    "exact": true,
+    "total_ratio": 0.7338726952120761
+  },
+  {
+    "repeat": 1,
+    "map": "br-gen-5263",
+    "range_px": 1300,
+    "regime": "changing_sources",
+    "exact": true,
+    "total_ratio": 1.0264923082579094
+  },
+  {
+    "repeat": 1,
+    "map": "br-gen-5263",
+    "range_px": 1300,
+    "regime": "repeated_sources",
+    "exact": true,
+    "total_ratio": 0.735322353557717
+  },
+  {
+    "repeat": 1,
+    "map": "br-gen-5001",
+    "range_px": 1300,
+    "regime": "changing_sources",
+    "exact": true,
+    "total_ratio": 1.0308948613125226
+  },
+  {
+    "repeat": 1,
+    "map": "br-gen-5001",
+    "range_px": 1300,
+    "regime": "repeated_sources",
+    "exact": true,
+    "total_ratio": 0.7049123815059274
+  },
+  {
+    "repeat": 1,
+    "map": "colossal",
+    "range_px": 1300,
+    "regime": "changing_sources",
+    "exact": true,
+    "total_ratio": 1.0414763730201364
+  },
+  {
+    "repeat": 1,
+    "map": "colossal",
+    "range_px": 1300,
+    "regime": "repeated_sources",
+    "exact": true,
+    "total_ratio": 0.7192787878193576
+  },
+  {
+    "repeat": 2,
+    "map": "br-gen-5204",
+    "range_px": 1300,
+    "regime": "changing_sources",
+    "exact": true,
+    "total_ratio": 1.033613442755692
+  },
+  {
+    "repeat": 2,
+    "map": "br-gen-5204",
+    "range_px": 1300,
+    "regime": "repeated_sources",
+    "exact": true,
+    "total_ratio": 0.7008054637169342
+  },
+  {
+    "repeat": 2,
+    "map": "br-gen-5263",
+    "range_px": 1300,
+    "regime": "changing_sources",
+    "exact": true,
+    "total_ratio": 1.0285808990810117
+  },
+  {
+    "repeat": 2,
+    "map": "br-gen-5263",
+    "range_px": 1300,
+    "regime": "repeated_sources",
+    "exact": true,
+    "total_ratio": 0.7013667467625713
+  },
+  {
+    "repeat": 2,
+    "map": "br-gen-5001",
+    "range_px": 1300,
+    "regime": "changing_sources",
+    "exact": true,
+    "total_ratio": 1.0359987671965074
+  },
+  {
+    "repeat": 2,
+    "map": "br-gen-5001",
+    "range_px": 1300,
+    "regime": "repeated_sources",
+    "exact": true,
+    "total_ratio": 0.6721733349855388
+  },
+  {
+    "repeat": 2,
+    "map": "colossal",
+    "range_px": 1300,
+    "regime": "changing_sources",
+    "exact": true,
+    "total_ratio": 1.04239117997534
+  },
+  {
+    "repeat": 2,
+    "map": "colossal",
+    "range_px": 1300,
+    "regime": "repeated_sources",
+    "exact": true,
+    "total_ratio": 0.6859267830668311
+  },
+  {
+    "repeat": 3,
+    "map": "br-gen-5204",
+    "range_px": 1300,
+    "regime": "changing_sources",
+    "exact": true,
+    "total_ratio": 1.034031827098504
+  },
+  {
+    "repeat": 3,
+    "map": "br-gen-5204",
+    "range_px": 1300,
+    "regime": "repeated_sources",
+    "exact": true,
+    "total_ratio": 0.7006788604602475
+  },
+  {
+    "repeat": 3,
+    "map": "br-gen-5263",
+    "range_px": 1300,
+    "regime": "changing_sources",
+    "exact": true,
+    "total_ratio": 1.0311299272268626
+  },
+  {
+    "repeat": 3,
+    "map": "br-gen-5263",
+    "range_px": 1300,
+    "regime": "repeated_sources",
+    "exact": true,
+    "total_ratio": 0.7037384068047133
+  },
+  {
+    "repeat": 3,
+    "map": "br-gen-5001",
+    "range_px": 1300,
+    "regime": "changing_sources",
+    "exact": true,
+    "total_ratio": 1.0359063228256264
+  },
+  {
+    "repeat": 3,
+    "map": "br-gen-5001",
+    "range_px": 1300,
+    "regime": "repeated_sources",
+    "exact": true,
+    "total_ratio": 0.6715130048546213
+  },
+  {
+    "repeat": 3,
+    "map": "colossal",
+    "range_px": 1300,
+    "regime": "changing_sources",
+    "exact": true,
+    "total_ratio": 1.0411044229683186
+  },
+  {
+    "repeat": 3,
+    "map": "colossal",
+    "range_px": 1300,
+    "regime": "repeated_sources",
+    "exact": true,
+    "total_ratio": 0.6878685330015832
+  }
+]

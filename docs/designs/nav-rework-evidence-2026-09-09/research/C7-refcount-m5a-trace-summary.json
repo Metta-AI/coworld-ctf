@@ -1,0 +1,164 @@
+[
+  {
+    "pair": "parent-s2_16_679962-r1.json",
+    "exact": true,
+    "total_ratio": 1.0739501321488802,
+    "p95_ratio": 1.1363163188210743
+  },
+  {
+    "pair": "parent-s2_16_679962-r2.json",
+    "exact": true,
+    "total_ratio": 0.9688298374437766,
+    "p95_ratio": 1.0247668399425112
+  },
+  {
+    "pair": "parent-s2_16_679962-r3.json",
+    "exact": true,
+    "total_ratio": 0.9855726541051668,
+    "p95_ratio": 1.0213352946149723
+  },
+  {
+    "pair": "parent-s2_16_679963-r1.json",
+    "exact": true,
+    "total_ratio": 0.7218963237522451,
+    "p95_ratio": 0.705296361686321
+  },
+  {
+    "pair": "parent-s2_16_679963-r2.json",
+    "exact": true,
+    "total_ratio": 1.036105012791923,
+    "p95_ratio": 1.0547551874418257
+  },
+  {
+    "pair": "parent-s2_16_679963-r3.json",
+    "exact": true,
+    "total_ratio": 0.9190232975520123,
+    "p95_ratio": 1.0253791345814316
+  },
+  {
+    "pair": "parent-s2_16_679964-r1.json",
+    "exact": true,
+    "total_ratio": 0.9331346774409562,
+    "p95_ratio": 1.0035250245208274
+  },
+  {
+    "pair": "parent-s2_16_679964-r2.json",
+    "exact": true,
+    "total_ratio": 1.0203378114654091,
+    "p95_ratio": 1.0175311871685546
+  },
+  {
+    "pair": "parent-s2_16_679964-r3.json",
+    "exact": true,
+    "total_ratio": 0.9884048412209084,
+    "p95_ratio": 1.0419124069264012
+  },
+  {
+    "pair": "parent-s2_16_679965-r1.json",
+    "exact": true,
+    "total_ratio": 0.9913961093783088,
+    "p95_ratio": 1.036289404483685
+  },
+  {
+    "pair": "parent-s2_16_679965-r2.json",
+    "exact": true,
+    "total_ratio": 0.9893773380416699,
+    "p95_ratio": 1.0389975956713293
+  },
+  {
+    "pair": "parent-s2_16_679965-r3.json",
+    "exact": true,
+    "total_ratio": 0.9161291641586843,
+    "p95_ratio": 0.9406780682052148
+  },
+  {
+    "pair": "parent-s2_32_679962-r1.json",
+    "exact": true,
+    "total_ratio": 0.9560417542860274,
+    "p95_ratio": 1.0094655064196445
+  },
+  {
+    "pair": "parent-s2_32_679962-r2.json",
+    "exact": true,
+    "total_ratio": 0.926061384904471,
+    "p95_ratio": 0.9710356322057597
+  },
+  {
+    "pair": "parent-s2_32_679962-r3.json",
+    "exact": true,
+    "total_ratio": 0.9180246916747401,
+    "p95_ratio": 0.9656474661894918
+  },
+  {
+    "pair": "parent-s2_32_679963-r1.json",
+    "exact": true,
+    "total_ratio": 0.9550992200343531,
+    "p95_ratio": 1.0230329189716012
+  },
+  {
+    "pair": "parent-s2_32_679963-r2.json",
+    "exact": true,
+    "total_ratio": 0.8871299488503461,
+    "p95_ratio": 0.9489696595191166
+  },
+  {
+    "pair": "parent-s2_32_679963-r3.json",
+    "exact": true,
+    "total_ratio": 0.9588818179446993,
+    "p95_ratio": 1.0281701538133834
+  },
+  {
+    "pair": "parent-s2_32_679964-r1.json",
+    "exact": true,
+    "total_ratio": 0.9438429674531686,
+    "p95_ratio": 0.9906785142419546
+  },
+  {
+    "pair": "parent-s2_32_679964-r2.json",
+    "exact": true,
+    "total_ratio": 0.9656228762629707,
+    "p95_ratio": 0.9308302602958244
+  },
+  {
+    "pair": "parent-s2_32_679964-r3.json",
+    "exact": true,
+    "total_ratio": 0.9834740621488286,
+    "p95_ratio": 0.9555794427576727
+  },
+  {
+    "pair": "parent-s2_32_679965-r1.json",
+    "exact": true,
+    "total_ratio": 0.9520317212108037,
+    "p95_ratio": 0.9896737720190062
+  },
+  {
+    "pair": "parent-s2_32_679965-r2.json",
+    "exact": true,
+    "total_ratio": 0.9567251798132953,
+    "p95_ratio": 1.0229974504162271
+  },
+  {
+    "pair": "parent-s2_32_679965-r3.json",
+    "exact": true,
+    "total_ratio": 0.9341709501750214,
+    "p95_ratio": 1.0158199558258292
+  },
+  {
+    "pair": "parent-smoke_s2_16_randomized-r1.json",
+    "exact": true,
+    "total_ratio": 0.948832859947092,
+    "p95_ratio": 1.0227864076271718
+  },
+  {
+    "pair": "parent-smoke_s2_16_randomized-r2.json",
+    "exact": true,
+    "total_ratio": 0.9755448965834858,
+    "p95_ratio": 1.0181343108046834
+  },
+  {
+    "pair": "parent-smoke_s2_16_randomized-r3.json",
+    "exact": true,
+    "total_ratio": 1.0093365550219429,
+    "p95_ratio": 1.0268356505935057
+  }
+]

@@ -1,0 +1,207 @@
+--- /Users/jamesboggs/coding/coworlds/coworld-ctf-worktrees/nav-throughput-research/docs/designs/nav-rework-evidence-2026-09-09/research/C7/full/snapshots/parent-body_nav.nim	2026-09-10 11:38:02
++++ src/shell/body_nav.nim	2026-09-10 11:44:27
+@@ -1,7 +1,7 @@
+ ## Seat navigation coordinator: danger cadence, one shared pop-budgeted
+ ## mixed-grid search, stable SJF admission, and atomic bounded routes.
+ 
+-import std/[algorithm, bitops, hashes, math, options]
++import std/[algorithm, hashes, math, options]
+ when defined(bodyNavBreakdown):
+   import std/[monotimes, times]
+ import bitworld/[profile, spriteprotocol]
+@@ -35,18 +35,29 @@
+     visited: seq[uint32]
+     visitGeneration: uint32
+ 
++  DangerSourceEntry = object
++    ## One nonzero kernel add of a cached source: absolute raster index and
++    ## the exact weight the ray walk would add. 8 bytes, no padding.
++    gridIndex: int32
++    weight: float32
++
+   DangerSourceCacheSlot = object
+     key: int32      ## origin 8 px cell index, -1 when empty
++    length: int32   ## entries recorded for this slot (reset on replacement)
+     lastUse: uint64
+ 
+   DangerSourceCache = ref object
+-    ## System-shared bounded LRU of per-origin visibility bitmaps over the
+-    ## kernel box. The visible set of an origin depends only on the immutable
+-    ## sight geometry and live range, so entries never invalidate; the cache
+-    ## lives and dies with its nav system. One shared seq holds every slot's
+-    ## words back to back (no per-entry allocations).
+-    words: int      ## uint64 words per entry
+-    bits: seq[uint64]
++    ## System-shared bounded LRU of per-origin visibility lists. A source's
++    ## visible set depends only on the immutable sight geometry and live
++    ## range, so entries never invalidate; the cache lives and dies with its
++    ## nav system. One shared seq holds every slot's entries back to back
++    ## (no per-entry allocations). Each slot holds at most `capacity`
++    ## entries, the number of nonzero kernel cells, because one source can
++    ## first-visit each kernel index at most once (visit stamps) and
++    ## zero-weight cells are never recorded (adding +0.0 to a nonnegative
++    ## finite raster is the exact identity), so no overflow is possible.
++    capacity: int
++    entries: seq[DangerSourceEntry]
+     slots: array[DangerSourceCacheSlots, DangerSourceCacheSlot]
+     clock: uint64
+     when defined(dangerSourceCacheCounters):
+@@ -124,7 +135,7 @@
+     dangerWorkspace: DangerWorkspace
+     dangerGeometry: DangerGeometry
+     dangerSourceCache: DangerSourceCache
+-    dangerRecordBase: int  ## word offset of the slot the current miss fills
++    dangerRecordSlot: int  ## slot the current miss fills (entries appended)
+     dangerRangePx: int
+     selectedDangerSeats: array[MaxDangerSources, int]
+     selectedDangerPoints: array[MaxDangerSources, BodyPoint]
+@@ -235,8 +246,8 @@
+         result.allocatorOverhead += SequenceAllocationOverhead
+     let sourceCache = system.seats[0].dangerSourceCache
+     result.sharedDangerSourceCache = int64(sizeof(sourceCache[])) +
+-      int64(sourceCache.bits.capacity * sizeof(uint64))
+-    if sourceCache.bits.capacity > 0:
++      int64(sourceCache.entries.capacity * sizeof(DangerSourceEntry))
++    if sourceCache.entries.capacity > 0:
+       result.allocatorOverhead += SequenceAllocationOverhead
+   result.total = result.systemOwner + result.routeIndex +
+     result.safetyScratch + result.hazardOverlay + result.safeCache +
+@@ -304,12 +315,14 @@
+     includeOffset(-dx, dy)
+ 
+ proc initDangerSourceCache(geometry: DangerGeometry): DangerSourceCache =
+-  ## Sized by the live range only: every entry is one bitmap over the
+-  ## kernel box, so configured and colossal maps retain the same bytes.
++  ## Sized by the live range only: capacity is the count of nonzero cells of
++  ## the actual kernel (fixed at 54,173 for any range of 1050 px or more),
++  ## so configured and colossal maps retain the same bytes.
+   new(result)
+-  let diameter = geometry.radius * 2 + 1
+-  result.words = (diameter * diameter + 63) div 64
+-  result.bits = newSeq[uint64](DangerSourceCacheSlots * result.words)
++  for value in geometry.kernel:
++    if value != 0'f32:
++      inc result.capacity
++  result.entries = newSeq[DangerSourceEntry](DangerSourceCacheSlots * result.capacity)
+   for slot in result.slots.mitems:
+     slot.key = -1
+ 
+@@ -442,14 +455,23 @@
+   let diameter = kernelRadius * 2 + 1
+   let kernelX = gx - origin.x + kernelRadius
+   let kernelY = gy - origin.y + kernelRadius
+-  let kernelIndex = kernelY * diameter + kernelX
+-  # First visit of this cell for this source: record it in the slot the
+-  # current miss is filling, so a later request for the same origin replays
+-  # exactly these adds.
+-  let word = seat.dangerRecordBase + (kernelIndex shr 6)
+-  seat.dangerSourceCache.bits[word] = seat.dangerSourceCache.bits[word] or
+-    (1'u64 shl (kernelIndex and 63))
+-  seat.danger.values[index] += kernel[kernelIndex]
++  let weight = kernel[kernelY * diameter + kernelX]
++  if weight == 0'f32:
++    # Zero kernel weight, i.e. beyond min(live range, DangerLosRangePx) from
++    # the source: the ray walk would add +0.0, which leaves every raster bit
++    # unchanged (raster is nonnegative finite, starts at +0.0), so neither
++    # the add nor an entry is needed. The visit stamp above is kept, so
++    # traversal is unchanged.
++    return
++  # First visit of a nonzero cell for this source: append it to the slot the
++  # current miss is filling, in ray order, so a later request for the same
++  # origin replays exactly these adds.
++  let cache = seat.dangerSourceCache
++  let slot = seat.dangerRecordSlot
++  cache.entries[slot * cache.capacity + cache.slots[slot].length.int] =
++    DangerSourceEntry(gridIndex: int32(index), weight: weight)
++  inc cache.slots[slot].length
++  seat.danger.values[index] += weight
+ 
+ proc sightCellBlocked(geometry: DangerGeometry, x, y: int): bool {.inline.} =
+   if x < 0 or x >= geometry.gridWidth or y < 0 or y >= geometry.gridHeight:
+@@ -526,27 +548,15 @@
+     if cache.slots[slot].lastUse < cache.slots[result].lastUse:
+       result = slot
+ 
+-proc replayVisibleCells(seat: BodyNavSeat, origin: BodyPoint, base: int) =
+-  ## Hit path: the same kernel adds the ray walk would make for this origin,
+-  ## in box row-major order instead of ray order. Exact because every cell
+-  ## receives at most one kernel add per source and cells are independent.
+-  ## Recorded cells were in-grid for this exact origin, so no bounds check.
+-  let
+-    cache = seat.dangerSourceCache
+-    radius = seat.dangerGeometry.radius
+-    diameter = radius * 2 + 1
+-    gridW = seat.danger.gridW
+-  for wordIndex in 0 ..< cache.words:
+-    var word = cache.bits[base + wordIndex]
+-    while word != 0:
+-      let kernelIndex = wordIndex * 64 + countTrailingZeroBits(word)
+-      let kernelY = kernelIndex div diameter
+-      let kernelX = kernelIndex - kernelY * diameter
+-      let gx = origin.x - radius + kernelX
+-      let gy = origin.y - radius + kernelY
+-      seat.danger.values[gy * gridW + gx] +=
+-        seat.dangerGeometry.kernel[kernelIndex]
+-      word = word and (word - 1)
++proc replayVisibleCells(seat: BodyNavSeat, slot: int) =
++  ## Hit path: the same adds the ray walk made for this origin, in the same
++  ## ray order. Exact because every recorded cell received exactly one add
++  ## for its source and the entries are that add's index and weight.
++  let cache = seat.dangerSourceCache
++  let base = slot * cache.capacity
++  for offset in base ..< base + cache.slots[slot].length.int:
++    let entry = cache.entries[offset]
++    seat.danger.values[entry.gridIndex] += entry.weight
+ 
+ proc rebuildDangerFromPoints(seat: BodyNavSeat, map: BodyMap,
+                              sources: openArray[BodyPoint], tick: int) =
+@@ -568,16 +578,15 @@
+         inc cache.hits
+       cache.slots[slot].lastUse = cache.clock
+       dangerStage("danger.hit.replay"):
+-        seat.replayVisibleCells(origin, slot * cache.words)
++        seat.replayVisibleCells(slot)
+     else:
+       when defined(dangerSourceCacheCounters):
+         inc cache.misses
+       dangerStage("danger.miss.rays"):
+         slot = cache.sourceCacheVictim()
+-        cache.slots[slot] = DangerSourceCacheSlot(key: key, lastUse: cache.clock)
+-        seat.dangerRecordBase = slot * cache.words
+-        for word in 0 ..< cache.words:
+-          cache.bits[seat.dangerRecordBase + word] = 0
++        cache.slots[slot] = DangerSourceCacheSlot(key: key, length: 0,
++          lastUse: cache.clock)
++        seat.dangerRecordSlot = slot
+         seat.nextVisitGeneration()
+         seat.addVisibleCell(origin, seat.dangerGeometry.kernel, seat.dangerGeometry.radius,
+           origin.x, origin.y)
+@@ -707,9 +716,26 @@
+     result.add entry.key
+ 
+ proc dangerSourceCacheEntryBytes*(system: BodyNavSystem): int =
+-  ## Bytes of one visibility bitmap at this system's live range.
+-  system.seats[0].dangerSourceCache.words * sizeof(uint64)
++  ## Bytes reserved for one slot's entry list at this system's live range
++  ## (capacity times entry size).
++  system.seats[0].dangerSourceCache.capacity * sizeof(DangerSourceEntry)
+ 
++proc dangerSourceCacheCapacity*(system: BodyNavSystem): int =
++  ## Entries per slot: the nonzero-kernel count at this system's range.
++  system.seats[0].dangerSourceCache.capacity
++
++proc dangerSourceCacheLengths*(system: BodyNavSystem): seq[int] =
++  ## Diagnostic snapshot: recorded entry count per occupied slot, in the
++  ## same least-to-most-recently-used order as dangerSourceCacheOrder.
++  var order: seq[tuple[lastUse: uint64, length: int]]
++  for slot in system.seats[0].dangerSourceCache.slots:
++    if slot.key >= 0:
++      order.add((slot.lastUse, slot.length.int))
++  order.sort(proc(a, b: tuple[lastUse: uint64, length: int]): int =
++    cmp(a.lastUse, b.lastUse))
++  for entry in order:
++    result.add entry.length
++
+ when defined(dangerSourceCacheCounters):
+   proc dangerSourceCacheCounters*(system: BodyNavSystem): tuple[hits, misses: int] =
+     (system.seats[0].dangerSourceCache.hits,
