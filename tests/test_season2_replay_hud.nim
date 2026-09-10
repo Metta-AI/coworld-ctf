@@ -309,3 +309,65 @@ suite "SEASON 2 replay viewer HUD: BR rail fit at 16 seats (owner follow-up 2026
     checkInBoth "document.body.classList.toggle('tiny', boardW <= 620);"
     checkInBoth "body.sidelanes.tiny #scorebug .br-cellband {"
     checkInBoth "body.sidelanes.tiny #scorebug .br-cell {"
+
+suite "SEASON 2 replay viewer HUD: catalog v3 popup law (owner bug, 2026-09-10)":
+  ## Owner: "what the heck is giving everyone a x100!? ... i thought we
+  ## weren't doing popups for less than 2x? ... especially not 1x that
+  ## gives you nothing". Catalog v3 (GloryVersion >= 17, live since r4611)
+  ## puts a positive recut-armed deed's `amt` on the wire as a PERCENT
+  ## (src/ctf/sim.nim's awardDeed -- "amount = if ramped or v3: pct else:
+  ## factor" -- 100 = x1.00, 220 = x2.20), but the hero-pop gate and label
+  ## (this file, introduced by #466/9ef5aa09) still read `p.amt` as the OLD
+  ## integer factor, so a neutral dFinal4 mint (pct 100, x1.00, zero
+  ## effect) popped as "x100 FINAL 4". THE LAW
+  ## (docs/designs/glory/CATALOG-V3-DRAFT.md's "Legibility law carried
+  ## forward, unchanged", ~line 259-263): "fractional factors ... never pop
+  ## as a floating '+Ng' ... Pops stay reserved for x2 and up."
+  ##
+  ## No wire field exists (client-only patch, see gloryPopFactor's own doc
+  ## comment) to tell a v3-percent positive amt apart from the OLD
+  ## integer-factor one; the fix proxies off recutArmed itself, which today
+  ## is empirically 1:1 with catalogV3Reprice (the only manifest that ever
+  ## arms gloryMultiplierRecut, battle-royale-s2, arms all three switches
+  ## together) -- these checks guard the SOURCE TOKENS of that fix, not the
+  ## economics; the FIVE deeds it silences on a real replay (dFinal8 pct
+  ## 100, dFinal4 pct 100, dFinal2 pct 130, dClutchHeal pct 180,
+  ## dClosingTime pct 110/120) and the one it still pops (e.g.
+  ## dHonorableKill pct 220 -> "x2.2") are verified against a real 16-seat
+  ## BR replay separately (screenshot + DOM pass, not this text-scan suite).
+  test "one shared pct-to-factor helper feeds every pop/label path":
+    checkInBoth "function gloryPopFactor(p) {"
+    checkInBoth "return p.amt / 100;"
+    checkInBoth "function gloryPopFactorLabel(factor) {"
+    checkInBoth "(factor % 1 === 0) ? String(factor) : factor.toFixed(1)"
+    # Both the pop-text path and the hero-DOM `.mult` label path call
+    # through the SAME label helper -- no second place re-derives "×N".
+    checkInBoth "return '×' + gloryPopFactorLabel(factor) + (p.word ? ' ' + p.word : '');"
+    checkInBoth "mult.textContent = '×' + gloryPopFactorLabel(gloryPopFactor(p));"
+
+  test "the hero gate requires factor >= 2.0, shared by both DOM call sites":
+    checkInBoth "var HERO_POP_MIN_FACTOR = 2.0;"
+    checkInBoth "function gloryPopIsHero(p) {"
+    checkInBoth "return !p.lbl && p.amt > 0 && recutArmed && gloryPopFactor(p) >= HERO_POP_MIN_FACTOR;"
+    # renderGloryPops has two isHero sites (element-create + every-frame
+    # restyle) -- both must route through the one gate function, not
+    # re-derive the condition inline a second time.
+    checkInBoth "var isHero = gloryPopIsHero(p);"
+
+  test "sub-2x factors (the exact x1.00 neutral case included) never float a callout":
+    checkInBoth "if (factor < HERO_POP_MIN_FACTOR) return '';"
+
+  test "the old integer-factor hero gate is gone from the fixed source":
+    # SOURCE-only (not checkInBoth): static-replay-viewer/index.html is the
+    # Docker-baked SHIPPED copy and stays byte-for-byte the pre-fix output
+    # until tools/build_replay_viewer.sh actually rebuilds it (this file's
+    # own concurrency note, top of file) -- asserting the OLD gate's
+    # absence there today would only be re-describing "the bundle has not
+    # been rebuilt yet", not proving anything about this fix. The bundle
+    # side of this same assertion is exactly the "stale-bundle" red this
+    # suite's own PR calls out explicitly.
+    let src = readFile(SourcePage)
+    checkpoint("source must not still gate on the old raw p.amt reading")
+    check not src.contains("var isHero = !p.lbl && p.amt > 0 && recutArmed;")
+    checkpoint("source must not still label the old raw p.amt reading")
+    check not src.contains("mult.textContent = '×' + p.amt;")
