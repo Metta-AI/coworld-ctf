@@ -183,16 +183,30 @@ proc rayClear*(map: BodyMap, a, b: BodyPoint): bool =
     steps = max(abs(dx), abs(dy))
   if steps == 0:
     return not map.isWall(a)
-  var lower = a
-  var remainder: BodyPoint
-  for step in 0 .. steps:
-    let point = (
-      x: roundedRayCoordinate(lower.x, remainder.x, steps),
-      y: roundedRayCoordinate(lower.y, remainder.y, steps))
-    if map.wall[map.pixelIndex(point.x, point.y)]:
-      return false
-    advanceRayCoordinate(lower.x, remainder.x, dx, steps)
-    advanceRayCoordinate(lower.y, remainder.y, dy, steps)
+  # The major axis has an integer coordinate at every sample; only the
+  # minor axis needs rounding and a remainder correction.
+  if abs(dx) >= abs(dy):
+    var x = a.x
+    var lowerY = a.y
+    var remainderY = 0
+    let stepX = cmp(dx, 0)
+    for step in 0 .. steps:
+      let y = roundedRayCoordinate(lowerY, remainderY, steps)
+      if map.wall[map.pixelIndex(x, y)]:
+        return false
+      x += stepX
+      advanceRayCoordinate(lowerY, remainderY, dy, steps)
+  else:
+    var y = a.y
+    var lowerX = a.x
+    var remainderX = 0
+    let stepY = cmp(dy, 0)
+    for step in 0 .. steps:
+      let x = roundedRayCoordinate(lowerX, remainderX, steps)
+      if map.wall[map.pixelIndex(x, y)]:
+        return false
+      y += stepY
+      advanceRayCoordinate(lowerX, remainderX, dx, steps)
   true
 
 proc clearanceAt*(map: BodyMap, point: BodyPoint): int =

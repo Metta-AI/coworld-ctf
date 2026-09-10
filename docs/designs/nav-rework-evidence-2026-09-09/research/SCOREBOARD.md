@@ -42,3 +42,5 @@ Append results; do not erase negatives. All numbers are observed, not inferred p
 - W2: Worst m5a p95/max11.543802/12.864276 ->10.375292/10.534817ms; all masks/pops and full corpus unchanged. See W2_REPORT.md.
 
 - R1: Worst m5a1300px p95/max10.367423/10.601260 ->7.984246/8.777049ms; all masks/pops and corpus unchanged. Count shared table memory. See R1_REPORT.md.
+
+- W6: Worst m5a p95/max8.201069/8.788592 ->5.960683/6.704114ms; all masks/pops and full corpus unchanged. See W6_REPORT.md.
