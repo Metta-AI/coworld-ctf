@@ -20,12 +20,19 @@ and what beliefs were stated, and grades each belief true/false/partly/
 unknowable using outside knowledge the stranger didn't have — all in one
 pass, since there's no separate self-reported claim to grade against.
 
-Re-running this script is safe: if `milestones`/`beliefs` already have
-judge-authored content in an existing score.json, that content is preserved
-across a re-run (only the mechanical fields are recomputed) — so a judge can
-score.py once for the mechanical skeleton, hand-edit score.json to fill in
-milestones/beliefs, and re-run this script later (e.g. after a scoring
-methodology tweak) without losing that work.
+Re-running this script is safe: every judge-owned field already sitting in
+an existing score.json — milestones, beliefs, furthest_milestone, judged,
+judge_version_blob_sha, judge_version_blob_sha_prior, judged_by, and any
+per-episode stuck_episodes[].cause note (see judge.md) — is preserved
+byte-for-byte across a re-run; only the mechanical fields (timings, tool/
+dig counts, the stuck-episode skeleton itself) are recomputed. This is
+implemented as an allowlist of mechanical keys merged over a full copy of
+whatever was already on disk, not a blocklist of judge fields to avoid —
+so a judge can score.py once for the mechanical skeleton, hand-edit
+score.json to fill in milestones/beliefs/judge_version_blob_sha/judged_by,
+and re-run this script as many times as needed (e.g. after a scoring
+methodology tweak, or to pick up a later transcript) without losing that
+work.
 
 The one exception to "no cooperation from the stranger": `WAITING: ` is kept
 in prompt.md (see its Protocol v2 note) because it's not milestone
@@ -131,19 +138,23 @@ def main():
     meta = json.load(open(os.path.join(run_dir, "meta.json")))
     start_epoch = meta["start_epoch"]
 
-    # Preserve any judge-authored milestones/beliefs already sitting in an
-    # existing score.json (see module docstring) — this script never
-    # overwrites hand-judged content, only the mechanical fields around it.
+    # Preserve every judge-owned field already sitting in an existing
+    # score.json (see module docstring): milestones, beliefs,
+    # furthest_milestone, judged, judge_version_blob_sha,
+    # judge_version_blob_sha_prior, judged_by, and any per-episode
+    # stuck_episodes[].cause note (judge.md). Implemented below as an
+    # allowlist of MECHANICAL keys this script is allowed to refresh,
+    # merged over a full copy of whatever was already on disk — so any
+    # judge-owned key, including one this script doesn't know the name of
+    # yet, survives a re-run untouched instead of needing its own
+    # preserve-rule.
     existing_path = os.path.join(run_dir, "score.json")
-    prior_milestones, prior_beliefs, prior_furthest = {}, [], None
+    prior = {}
     if os.path.exists(existing_path):
         try:
-            prior = json.load(open(existing_path))
-            prior_milestones = prior.get("milestones") or {}
-            prior_beliefs = prior.get("beliefs") or []
-            prior_furthest = prior.get("furthest_milestone")
+            prior = json.load(open(existing_path)) or {}
         except (json.JSONDecodeError, OSError):
-            pass
+            prior = {}
 
     tool_call_count = 0
     waiting_events = []
@@ -216,9 +227,48 @@ def main():
         prev_epoch = epoch
         prev_had_waiting = turn_had_waiting
 
+    # Judge-authored per-episode notes (judge.md's "write one line on what
+    # actually blocked progress", stored as stuck_episodes[].cause) live
+    # inside a field this script otherwise recomputes wholesale from the
+    # transcript every run. A re-run's (from_epoch, to_epoch) span is
+    # stable for the same transcript, so match episodes on that and carry
+    # forward anything beyond the mechanical keys computed above.
+    MECHANICAL_EPISODE_KEYS = {
+        "from_epoch", "to_epoch", "duration_min", "tool_calls_during", "owner_latency",
+    }
+    prior_episodes_by_span = {
+        (ep.get("from_epoch"), ep.get("to_epoch")): ep
+        for ep in (prior.get("stuck_episodes") or [])
+        if isinstance(ep, dict)
+    }
+    for ep in stuck_episodes:
+        prior_ep = prior_episodes_by_span.get((ep["from_epoch"], ep["to_epoch"]))
+        if prior_ep:
+            for k, v in prior_ep.items():
+                if k not in MECHANICAL_EPISODE_KEYS:
+                    ep[k] = v
+
     prompt_status, prompt_contamination_reasons = prompt_contamination_status(run_dir)
 
-    result = {
+    # Start from a full copy of whatever was already on disk (judge-owned
+    # fields and all), then refresh ONLY the mechanical keys below via
+    # .update() — an allowlist of what may change, not a blocklist of what
+    # may not. Anything already in `prior` that isn't named in the
+    # .update() call — milestones, furthest_milestone, beliefs, judged,
+    # judge_version_blob_sha, judge_version_blob_sha_prior, judged_by, and
+    # any future judge-owned key this script doesn't know about — passes
+    # through byte-for-byte. First-run defaults (no existing score.json)
+    # are seeded via setdefault, matching judge.md's expected shape:
+    # milestones is {mid: {timestamp, elapsed_s, tool_call_count,
+    # sentence}}, beliefs is a list of {text, timestamp, elapsed_s,
+    # tool_call_count, verdict, source, note}.
+    result = dict(prior)
+    result.setdefault("milestones", {})
+    result.setdefault("furthest_milestone", None)
+    result.setdefault("beliefs", [])
+    result.setdefault("judged", bool(result["milestones"] or result["beliefs"]))
+
+    result.update({
         "run_id": run_id,
         "model": meta.get("model"),
         "prompt_sha256": meta.get("prompt_sha256"),
@@ -235,18 +285,10 @@ def main():
         "total_tool_calls": tool_call_count,
         "dig_count": dig_count,
         "dig_hosts_in_order": collapsed,
-        # Filled in by the judge, post-hoc, from the plain transcript — see
-        # judge.md "Post-hoc milestone & belief extraction (Protocol v2)".
-        # Same shape as Protocol v1 so downstream tooling (e.g.
-        # legibility_cut.py) doesn't need to change: milestones is
-        # {mid: {timestamp, elapsed_s, tool_call_count, sentence}}, beliefs
-        # is a list of {text, timestamp, elapsed_s, tool_call_count,
-        # verdict, source, note}.
-        "milestones": prior_milestones,
-        "furthest_milestone": prior_furthest,
-        "beliefs": prior_beliefs,
-        "belief_count": len(prior_beliefs),
-        "judged": bool(prior_milestones or prior_beliefs),
+        # Mechanical count derived from the (preserved) beliefs list above
+        # — recomputed so it can never drift from len(beliefs), even if a
+        # judge hand-edits beliefs without touching this key.
+        "belief_count": len(result["beliefs"]),
         "stuck_episodes": stuck_episodes,
         "stuck_minutes_total": round(
             sum(s["duration_min"] for s in stuck_episodes if not s["owner_latency"]), 1),
@@ -255,7 +297,7 @@ def main():
         "waiting_events": waiting_events,
         "resume_count": len(meta.get("resumes", [])),
         "resume_kinds": [r.get("kind", "owner_relay") for r in meta.get("resumes", [])],
-    }
+    })
 
     out_path = os.path.join(run_dir, "score.json")
     with open(out_path, "w") as f:
