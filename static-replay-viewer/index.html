@@ -3169,25 +3169,15 @@ body[data-noviewpanel] #viewpanel { display: none !important; }
   var getSpoilers = C.getSpoilers, setSpoilers = C.setSpoilers;
   var isMe = C.isMe, meSeatIndices = C.meSeatIndices;
 
-  // ---- THE GLOSSARY: one term, one sentence, one source ------------------
-  // THE WHOLE epic, Law 1 ("one vocabulary, one glossary") and Law 6 ("no
-  // bare numbers"): every on-screen explanation this file renders for these
-  // eight terms — the strip's first-appearance toasts, its hover/tap
-  // title/aria-label text, and the kickoff line — reads from THIS object.
-  // No sentence below is ever retyped elsewhere in this file. The wiki
-  // glossary (Stop 3, docs/wiki) copies these same eight sentences verbatim
-  // rather than hand-maintaining a second copy — see
-  // docs/designs/THE_WHOLE.md §3 Law 1 and docs/designs/THE_GAME_EXPLAINS_ITSELF.md.
-  var GLOSSARY = {
-    glory: "Glory is what one policy earns in one episode: every deed mints some, and the multipliers stack the more it does before the end.",
-    deed: "A deed is one thing a cog did that the game pays for.",
-    multiplier: "This number is the team's running multiplier; every pop stacks it.",
-    pact: "These two share a pact: they won't fight each other.",
-    heat: "Scoring fast; keeps climbing while it's hot.",
-    intent: "What this cog is doing right now.",
-    downed: "Downed — can still be rescued.",
-    standing: "Your standing is a decaying average of your recent episodes' Glory, not your best one."
-  };
+  // THE GLOSSARY lives further down this IIFE, immediately before
+  // ordinal()/teamDeedsText() (tests/test_glory_by_deed_endcard.mjs slices
+  // the file starting at that declaration through the SEASON 2 comment
+  // below teamDeedsText and vm-evals it standalone, so the declaration has
+  // to sit right next to the self-contained helpers it shares that slice
+  // with, not up here next to code that touches `window`). Do not spell
+  // the declaration's own "var" + object-literal opening out verbatim in
+  // this comment -- the test locates it with a plain string search, and a
+  // second occurrence up here would be found first.
 
   // ---- eye-level cog art for the EYES PiP billboards ----
   // The PiP is an eye-level raycaster, so its billboards need art drawn from a
@@ -6345,20 +6335,28 @@ body[data-noviewpanel] #viewpanel { display: none !important; }
   // The dark v12 ledger (every classic match, and any BR match the recut
   // flag hasn't armed) is additive and keeps "+NG" exactly as before.
   //
-  // The wire carries NO per-episode flag for which economy is live (see
-  // broadcast.nim's "br" key — flagless/elim only; tracked separately,
-  // no realized-ruleset stamp today). This infers it instead from
-  // resetGloryLedger's own invariant (glory.nim/sim.nim): every team's
-  // ledger opens at RecutSeed (1) when armed, at 0 when dark — sampled
-  // ONCE, on the first 'playing' frame this session observes (before any
-  // deed could have minted a real value). A client that only joins after
-  // kickoff never sees that frame and `recutArmed` stays null, which
-  // falls back to the safe pre-existing "+NG" rendering — never a guess
-  // that could mislabel a real additive gain as a multiplier.
-  var recutArmed = null;   // null = unknown (renders as classic +NG); true/false once sampled
+  // REALIZED-ECONOMY STAMP (WIRE-OK batch, THE WHOLE epic, GameVersion
+  // 62->63): the wire now carries a real per-frame `economy` flag
+  // ("recut"/"classic", broadcast.nim's `buildStateJson`) instead of
+  // leaving every client to infer it. Read directly when present —
+  // resolves it on ANY frame, including a client that only joins after
+  // kickoff, which the old first-'playing'-frame sample could never do.
+  // The sample below is now only a FALLBACK, for a replay recorded before
+  // this stamp existed (no "economy" key on the wire at all).
+  var recutArmed = null;   // null = unknown (renders as classic +NG); true/false once known
   var recutArmedSampled = false;
   function sampleRecutArmed(s) {
     if (recutArmedSampled || recutArmed !== null) return;
+    if (s.economy === 'recut') { recutArmed = true; recutArmedSampled = true; return; }
+    if (s.economy === 'classic') { recutArmed = false; recutArmedSampled = true; return; }
+    // FALLBACK (pre-stamp replay only): resetGloryLedger's own invariant
+    // (glory.nim/sim.nim) — every team's ledger opens at RecutSeed (1)
+    // when armed, at 0 when dark — sampled ONCE, on the first 'playing'
+    // frame this session observes (before any deed could have minted a
+    // real value). A client that only joins after kickoff never sees that
+    // frame and `recutArmed` stays null, which falls back to the safe
+    // pre-existing "+NG" rendering — never a guess that could mislabel a
+    // real additive gain as a multiplier.
     if (!isElim(s) || s.ph !== 'playing') return;
     recutArmedSampled = true; // one shot only — the first 'playing' frame seen
     var teams = activeTeams(s);
@@ -7203,6 +7201,33 @@ body[data-noviewpanel] #viewpanel { display: none !important; }
 
   var BR_SHOW_RANKS = 4; // ranks below the winner shown individually before compressing
 
+  // ---- THE GLOSSARY: one term, one sentence, one source ------------------
+  // THE WHOLE epic, Law 1 ("one vocabulary, one glossary") and Law 6 ("no
+  // bare numbers"): every on-screen explanation this file renders for these
+  // terms — the strip's first-appearance toasts, its hover/tap
+  // title/aria-label text, the kickoff line, and the "Glory by deed" endcard
+  // tooltip (#525, WIRE-OK batch, GameVersion 63) — reads from THIS object.
+  // No sentence below is ever retyped elsewhere in this file. The wiki
+  // glossary (Stop 3, docs/wiki) copies these same sentences verbatim
+  // rather than hand-maintaining a second copy — see
+  // docs/designs/THE_WHOLE.md §3 Law 1 and docs/designs/THE_GAME_EXPLAINS_ITSELF.md.
+  // Declared here (not up near the other UI helpers) because
+  // tests/test_glory_by_deed_endcard.mjs slices the served page from this
+  // exact string through the SEASON 2 comment below teamDeedsText and
+  // vm-evals the slice standalone -- it must stay window-reference-free.
+  var GLOSSARY = {
+    glory: "Glory is what one policy earns in one episode: every deed mints some, and the multipliers stack the more it does before the end.",
+    deed: "A deed is one thing a cog did that the game pays for.",
+    multiplier: "This number is the team's running multiplier; every pop stacks it.",
+    pact: "These two share a pact: they won't fight each other.",
+    heat: "Scoring fast; keeps climbing while it's hot.",
+    intent: "What this cog is doing right now.",
+    downed: "Downed — can still be rescued.",
+    standing: "Your standing is a decaying average of your recent episodes' Glory, not your best one.",
+    gloryByDeed: 'Glory by deed — the acts that built this seat’s total.',
+    deedNegative: '‘Own paint’ (friendly fire) subtracts from the same ledger, it never zeroes it.'
+  };
+
   function ordinal(n) {
     var suf = ['th', 'st', 'nd', 'rd'], v = n % 100;
     return n + (suf[(v - 20) % 10] || suf[v] || suf[0]);
@@ -7503,7 +7528,12 @@ body[data-noviewpanel] #viewpanel { display: none !important; }
       if (heroDuo) heroDuo.textContent = namesFor(winner);
       if (heroGlory !== null && heroGloryNum) {
         heroGloryNum.textContent = gloryText(heroGlory);
-        heroGloryNum.title = heroGlory + ' glory';   // exact figure on hover
+        // GLORY BY DEED: the exact figure, plus (when the wire carries a
+        // per-seat deed breakdown, GameVersion 63+) which deeds built it —
+        // see `teamDeedsText`'s own doc comment.
+        var heroDeedsText = teamDeedsText(o, winner);
+        heroGloryNum.title = heroGlory + ' glory' +
+          (heroDeedsText ? ' — ' + heroDeedsText : '');
       }
       var heroAlive = teamAliveCount(s, winner), heroSeats = teamSeatCount(s, winner);
       var heroKills = teamKillTotal(s, winner);
@@ -7614,7 +7644,10 @@ body[data-noviewpanel] #viewpanel { display: none !important; }
           ? '<span class="ec-fduo">' + esc(namesForShort(team)) + '</span>' : '') +
         '</span>' +
         (anyGlory
-          ? '<span class="ec-fglory">' + (fg !== null ? gloryText(fg) + 'G' : '—') + '</span>' : '') +
+          ? '<span class="ec-fglory"' +
+            (fg !== null && teamDeedsText(o, team)
+              ? ' title="' + esc(teamDeedsText(o, team)) + '"' : '') +
+            '>' + (fg !== null ? gloryText(fg) + 'G' : '—') + '</span>' : '') +
         '<span class="ec-fstat">' + teamKillTotal(s, team) + ' K</span>' +
         '<span class="ec-fstat">' + lv + (lv === 1 ? ' life' : ' lives') + '</span>' +
         '</div>';
@@ -7628,6 +7661,35 @@ body[data-noviewpanel] #viewpanel { display: none !important; }
     var field = $('ec-field');
     field.classList.toggle('has-glory', anyGlory);
     field.innerHTML = html;
+  }
+
+  // GLORY BY DEED (WIRE-OK batch, THE WHOLE epic, GameVersion 62->63): a
+  // plain-text summary of this seat's own `o.teams[team].deeds` (see
+  // broadcast.nim's `teamDeedsJson`) for a native `title` tooltip on the
+  // glory figure — deliberately NOT a new visible row (no layout redesign,
+  // no lines on the field): same "exact figure on hover" idiom this file
+  // already uses for `heroGloryNum.title`. Plain text, not HTML: no
+  // entities, no `esc()` — the caller HTML-attribute-escapes the whole
+  // string once. Top `maxItems` by |glory| magnitude (a friendly-fire
+  // seat's own dTeamKill entries can be negative and still be the story).
+  function teamDeedsText(o, team, maxItems) {
+    var t = o.teams && o.teams[team];
+    var deeds = (t && t.deeds) || [];
+    if (!deeds.length) return '';
+    var sorted = deeds.slice().sort(function (a, b) {
+      return Math.abs(b.glory) - Math.abs(a.glory);
+    });
+    var top = sorted.slice(0, maxItems || 5);
+    var lines = top.map(function (d) {
+      var amt = typeof d.glory === 'number'
+        ? ' (' + (d.glory >= 0 ? '+' : '') + d.glory + 'G)' : '';
+      return d.label + (d.count > 1 ? ' ×' + d.count : '') + amt;
+    });
+    var text = GLOSSARY.gloryByDeed + ' ' + lines.join(', ');
+    if (top.some(function (d) { return d.glory < 0; })) {
+      text += ' — ' + GLOSSARY.deedNegative;
+    }
+    return text;
   }
 
   // SEASON 2: this team's claimed-tier line for the endcard — "N/40 · +180"

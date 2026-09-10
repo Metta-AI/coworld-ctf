@@ -1,72 +1,31 @@
 [
   {
     "kind": "deed",
-    "tick": 680,
-    "team": 1,
-    "deed": "dClutchHeal",
-    "by": -1,
-    "glory": 0
-  },
-  {
-    "kind": "deed",
-    "tick": 854,
+    "tick": 870,
     "team": 0,
     "deed": "dLevelUp",
-    "by": 0,
+    "by": 12,
     "glory": 0
   },
   {
     "kind": "deed",
-    "tick": 854,
-    "team": 0,
-    "deed": "dPointBlankKill",
-    "by": 0,
-    "glory": 18
-  },
-  {
-    "kind": "deed",
-    "tick": 854,
-    "team": 0,
-    "deed": "dFirstBlood",
-    "by": 0,
-    "glory": 36
-  },
-  {
-    "kind": "deed",
-    "tick": 854,
+    "tick": 886,
     "team": 1,
     "deed": "dPointBlankKill",
-    "by": 7,
+    "by": 15,
     "glory": 12
   },
   {
     "kind": "deed",
-    "tick": 854,
+    "tick": 886,
     "team": 1,
-    "deed": "dAssist",
-    "by": 1,
-    "glory": 28
-  },
-  {
-    "kind": "deed",
-    "tick": 854,
-    "team": 1,
-    "deed": "dPointBlankKill",
-    "by": 9,
-    "glory": 72
+    "deed": "dFirstBlood",
+    "by": 15,
+    "glory": 24
   },
   {
     "kind": "claim",
-    "tick": 855,
-    "team": 0,
-    "tree": "treeGun",
-    "tier": 0,
-    "first": 0,
-    "glory": 9
-  },
-  {
-    "kind": "claim",
-    "tick": 855,
+    "tick": 887,
     "team": 1,
     "tree": "treeGun",
     "tier": 0,
@@ -74,58 +33,25 @@
     "glory": 9
   },
   {
-    "kind": "claim",
-    "tick": 855,
-    "team": 1,
-    "tree": "treeShield",
-    "tier": 0,
-    "first": 0,
-    "glory": 9
-  },
-  {
     "kind": "deed",
-    "tick": 870,
+    "tick": 995,
     "team": 0,
-    "deed": "dTeamKill",
-    "by": 8,
-    "glory": -60
-  },
-  {
-    "kind": "deed",
-    "tick": 902,
-    "team": 1,
-    "deed": "dLevelUp",
-    "by": 13,
-    "glory": 0
-  },
-  {
-    "kind": "deed",
-    "tick": 998,
-    "team": 0,
-    "deed": "dPointBlankKill",
-    "by": 2,
-    "glory": 72
-  },
-  {
-    "kind": "deed",
-    "tick": 1012,
-    "team": 1,
     "deed": "dFlagSteal",
     "by": -1,
-    "glory": 480
+    "glory": 120
   },
   {
     "kind": "deed",
-    "tick": 1012,
-    "team": 1,
+    "tick": 995,
+    "team": 0,
     "deed": "dLevelUp",
-    "by": 3,
+    "by": 4,
     "glory": 0
   },
   {
     "kind": "claim",
-    "tick": 1013,
-    "team": 1,
+    "tick": 996,
+    "team": 0,
     "tree": "treeCarrier",
     "tier": 0,
     "first": 0,
@@ -133,16 +59,33 @@
   },
   {
     "kind": "deed",
-    "tick": 1013,
-    "team": 1,
+    "tick": 998,
+    "team": 0,
+    "deed": "dShieldSoak",
+    "by": -1,
+    "glory": 4
+  },
+  {
+    "kind": "deed",
+    "tick": 1046,
+    "team": 0,
     "deed": "dPointBlankKill",
-    "by": 13,
-    "glory": 288
+    "by": 2,
+    "glory": 72
   },
   {
     "kind": "claim",
-    "tick": 1014,
-    "team": 1,
+    "tick": 1047,
+    "team": 0,
+    "tree": "treeGun",
+    "tier": 0,
+    "first": 0,
+    "glory": 9
+  },
+  {
+    "kind": "claim",
+    "tick": 1047,
+    "team": 0,
     "tree": "treeShield",
     "tier": 1,
     "first": 0,
@@ -150,15 +93,64 @@
   },
   {
     "kind": "deed",
-    "tick": 1029,
-    "team": 1,
+    "tick": 1094,
+    "team": 0,
     "deed": "dLevelUp",
-    "by": 3,
+    "by": 2,
     "glory": 0
   },
   {
     "kind": "deed",
-    "tick": 1206,
+    "tick": 1094,
+    "team": 0,
+    "deed": "dPointBlankKill",
+    "by": 2,
+    "glory": 96
+  },
+  {
+    "kind": "deed",
+    "tick": 1158,
+    "team": 0,
+    "deed": "dPointBlankKill",
+    "by": 14,
+    "glory": 96
+  },
+  {
+    "kind": "deed",
+    "tick": 1158,
+    "team": 0,
+    "deed": "dAssist",
+    "by": 10,
+    "glory": 224
+  },
+  {
+    "kind": "claim",
+    "tick": 1159,
+    "team": 0,
+    "tree": "treeShield",
+    "tier": 0,
+    "first": 0,
+    "glory": 9
+  },
+  {
+    "kind": "deed",
+    "tick": 1190,
+    "team": 1,
+    "deed": "dTeamKill",
+    "by": 15,
+    "glory": -60
+  },
+  {
+    "kind": "deed",
+    "tick": 1286,
+    "team": 0,
+    "deed": "dTeamKill",
+    "by": 10,
+    "glory": -60
+  },
+  {
+    "kind": "deed",
+    "tick": 1318,
     "team": 0,
     "deed": "dShieldSoak",
     "by": -1,
@@ -166,48 +158,114 @@
   },
   {
     "kind": "deed",
-    "tick": 1206,
-    "team": 1,
-    "deed": "dLevelUp",
-    "by": 1,
-    "glory": 0
-  },
-  {
-    "kind": "deed",
-    "tick": 1238,
+    "tick": 1398,
     "team": 0,
     "deed": "dShieldSoak",
     "by": -1,
-    "glory": 4
+    "glory": 6
   },
   {
     "kind": "deed",
-    "tick": 1285,
-    "team": 1,
-    "deed": "dLevelUp",
-    "by": 13,
-    "glory": 0
-  },
-  {
-    "kind": "deed",
-    "tick": 1301,
-    "team": 1,
-    "deed": "dLevelUp",
-    "by": 3,
-    "glory": 0
-  },
-  {
-    "kind": "deed",
-    "tick": 1301,
+    "tick": 1510,
     "team": 1,
     "deed": "dPointBlankKill",
+    "by": 1,
+    "glory": 18
+  },
+  {
+    "kind": "deed",
+    "tick": 1510,
+    "team": 1,
+    "deed": "dCarrierKill",
+    "by": 7,
+    "glory": 180
+  },
+  {
+    "kind": "deed",
+    "tick": 1510,
+    "team": 1,
+    "deed": "dAssist",
     "by": 3,
+    "glory": 56
+  },
+  {
+    "kind": "deed",
+    "tick": 1510,
+    "team": 1,
+    "deed": "dLevelUp",
+    "by": 7,
+    "glory": 0
+  },
+  {
+    "kind": "claim",
+    "tick": 1511,
+    "team": 1,
+    "tree": "treeShield",
+    "tier": 0,
+    "first": 0,
+    "glory": 9
+  },
+  {
+    "kind": "claim",
+    "tick": 1511,
+    "team": 1,
+    "tree": "treeDefender",
+    "tier": 0,
+    "first": 0,
+    "glory": 9
+  },
+  {
+    "kind": "deed",
+    "tick": 1560,
+    "team": 0,
+    "deed": "dFlagSteal",
+    "by": -1,
+    "glory": 480
+  },
+  {
+    "kind": "deed",
+    "tick": 1560,
+    "team": 0,
+    "deed": "dLevelUp",
+    "by": 6,
+    "glory": 0
+  },
+  {
+    "kind": "deed",
+    "tick": 1622,
+    "team": 1,
+    "deed": "dLevelUp",
+    "by": 11,
+    "glory": 0
+  },
+  {
+    "kind": "deed",
+    "tick": 1733,
+    "team": 1,
+    "deed": "dHonorableKill",
+    "by": 7,
+    "glory": 40
+  },
+  {
+    "kind": "deed",
+    "tick": 1798,
+    "team": 1,
+    "deed": "dTeamKill",
+    "by": 1,
+    "glory": -60
+  },
+  {
+    "kind": "deed",
+    "tick": 1877,
+    "team": 0,
+    "deed": "dPointBlankKill",
+    "by": 6,
     "glory": 144
   },
   {
     "kind": "claim",
-    "tick": 1302,
-    "team": 1,
+    "tick": 1878,
+    "team": 0,
     "tree": "treeCarrier",
     "tier": 1,
     "first": 0,
@@ -215,63 +273,31 @@
   },
   {
     "kind": "deed",
-    "tick": 1318,
+    "tick": 1958,
     "team": 1,
-    "deed": "dLevelUp",
-    "by": 15,
-    "glory": 0
+    "deed": "dCarrierKill",
+    "by": 5,
+    "glory": 720
   },
   {
     "kind": "deed",
-    "tick": 1366,
-    "team": 0,
-    "deed": "dLevelUp",
-    "by": 2,
-    "glory": 0
-  },
-  {
-    "kind": "deed",
-    "tick": 1397,
-    "team": 1,
-    "deed": "dPointBlankKill",
-    "by": 13,
-    "glory": 288
-  },
-  {
-    "kind": "deed",
-    "tick": 1430,
-    "team": 0,
-    "deed": "dShieldSoak",
-    "by": -1,
-    "glory": 4
-  },
-  {
-    "kind": "deed",
-    "tick": 1430,
-    "team": 1,
-    "deed": "dLevelUp",
-    "by": 7,
-    "glory": 0
-  },
-  {
-    "kind": "deed",
-    "tick": 1478,
-    "team": 1,
-    "deed": "dPointBlankKill",
-    "by": 11,
-    "glory": 288
-  },
-  {
-    "kind": "deed",
-    "tick": 1478,
+    "tick": 1958,
     "team": 1,
     "deed": "dRescue",
-    "by": 11,
-    "glory": 432
+    "by": 5,
+    "glory": 144
+  },
+  {
+    "kind": "deed",
+    "tick": 1958,
+    "team": 1,
+    "deed": "dLevelUp",
+    "by": 5,
+    "glory": 0
   },
   {
     "kind": "claim",
-    "tick": 1479,
+    "tick": 1959,
     "team": 1,
     "tree": "treeShield",
     "tier": 2,
@@ -280,138 +306,47 @@
   },
   {
     "kind": "deed",
-    "tick": 1509,
-    "team": 1,
-    "deed": "dTeamKill",
-    "by": 3,
-    "glory": -60
-  },
-  {
-    "kind": "deed",
-    "tick": 1556,
-    "team": 1,
-    "deed": "dClutchHeal",
-    "by": -1,
-    "glory": 0
-  },
-  {
-    "kind": "deed",
-    "tick": 1606,
-    "team": 1,
+    "tick": 2022,
+    "team": 0,
     "deed": "dPointBlankKill",
-    "by": 3,
-    "glory": 288
+    "by": 0,
+    "glory": 72
   },
   {
     "kind": "deed",
-    "tick": 1702,
+    "tick": 2096,
     "team": 0,
-    "deed": "dLevelUp",
-    "by": 6,
-    "glory": 0
-  },
-  {
-    "kind": "deed",
-    "tick": 1718,
-    "team": 0,
-    "deed": "dTeamKill",
-    "by": 12,
-    "glory": -60
-  },
-  {
-    "kind": "deed",
-    "tick": 1765,
-    "team": 1,
-    "deed": "dLevelUp",
-    "by": 13,
-    "glory": 0
-  },
-  {
-    "kind": "deed",
-    "tick": 1797,
-    "team": 1,
-    "deed": "dPointBlankKill",
-    "by": 13,
-    "glory": 288
-  },
-  {
-    "kind": "claim",
-    "tick": 1798,
-    "team": 1,
-    "tree": "treeGun",
-    "tier": 1,
-    "first": 0,
-    "glory": 11
-  },
-  {
-    "kind": "deed",
-    "tick": 1814,
-    "team": 0,
-    "deed": "dDenial",
-    "by": 14,
-    "glory": 120
-  },
-  {
-    "kind": "deed",
-    "tick": 1814,
-    "team": 0,
-    "deed": "dLevelUp",
-    "by": 14,
-    "glory": 0
-  },
-  {
-    "kind": "deed",
-    "tick": 1814,
-    "team": 1,
     "deed": "dFlagSteal",
     "by": -1,
     "glory": 960
   },
   {
     "kind": "deed",
-    "tick": 1814,
-    "team": 1,
+    "tick": 2096,
+    "team": 0,
     "deed": "dLevelUp",
-    "by": 13,
+    "by": 0,
     "glory": 0
   },
   {
-    "kind": "claim",
-    "tick": 1815,
-    "team": 0,
-    "tree": "treeDefender",
-    "tier": 0,
-    "first": 0,
-    "glory": 9
-  },
-  {
-    "kind": "claim",
-    "tick": 1815,
-    "team": 0,
-    "tree": "treeDefender",
-    "tier": 1,
-    "first": 0,
-    "glory": 11
-  },
-  {
     "kind": "deed",
-    "tick": 1862,
-    "team": 1,
+    "tick": 2245,
+    "team": 0,
     "deed": "dPointBlankKill",
-    "by": 5,
+    "by": 0,
     "glory": 288
   },
   {
     "kind": "deed",
-    "tick": 1862,
-    "team": 1,
-    "deed": "dAssist",
-    "by": 1,
-    "glory": 336
+    "tick": 2262,
+    "team": 0,
+    "deed": "dTeamKill",
+    "by": 4,
+    "glory": -60
   },
   {
     "kind": "deed",
-    "tick": 1925,
+    "tick": 2341,
     "team": 1,
     "deed": "dLevelUp",
     "by": 7,
@@ -419,56 +354,260 @@
   },
   {
     "kind": "deed",
-    "tick": 1941,
+    "tick": 2422,
     "team": 0,
-    "deed": "dPointBlankKill",
-    "by": 6,
-    "glory": 24
-  },
-  {
-    "kind": "deed",
-    "tick": 1941,
-    "team": 0,
-    "deed": "dAssist",
-    "by": 0,
-    "glory": 56
-  },
-  {
-    "kind": "claim",
-    "tick": 1942,
-    "team": 0,
-    "tree": "treeShield",
-    "tier": 0,
-    "first": 0,
-    "glory": 9
-  },
-  {
-    "kind": "deed",
-    "tick": 2001,
-    "team": 1,
     "deed": "dLevelUp",
-    "by": 1,
+    "by": 8,
     "glory": 0
   },
   {
     "kind": "deed",
-    "tick": 2001,
-    "team": 1,
-    "deed": "dRunDown",
-    "by": 1,
-    "glory": 384
+    "tick": 2461,
+    "team": 0,
+    "deed": "dClutchHeal",
+    "by": -1,
+    "glory": 0
   },
   {
     "kind": "deed",
-    "tick": 2001,
+    "tick": 2582,
+    "team": 1,
+    "deed": "dCarrierKill",
+    "by": 9,
+    "glory": 360
+  },
+  {
+    "kind": "deed",
+    "tick": 2582,
+    "team": 1,
+    "deed": "dAssist",
+    "by": 5,
+    "glory": 56
+  },
+  {
+    "kind": "deed",
+    "tick": 2582,
+    "team": 1,
+    "deed": "dLevelUp",
+    "by": 9,
+    "glory": 0
+  },
+  {
+    "kind": "deed",
+    "tick": 2639,
+    "team": 0,
+    "deed": "dFlagSteal",
+    "by": -1,
+    "glory": 960
+  },
+  {
+    "kind": "deed",
+    "tick": 2639,
+    "team": 0,
+    "deed": "dLevelUp",
+    "by": 12,
+    "glory": 0
+  },
+  {
+    "kind": "deed",
+    "tick": 2709,
     "team": 1,
     "deed": "dTeamKill",
-    "by": 1,
+    "by": 7,
     "glory": -60
   },
   {
+    "kind": "deed",
+    "tick": 2726,
+    "team": 0,
+    "deed": "dPointBlankKill",
+    "by": 6,
+    "glory": 288
+  },
+  {
+    "kind": "deed",
+    "tick": 2758,
+    "team": 1,
+    "deed": "dCarrierKill",
+    "by": 15,
+    "glory": 720
+  },
+  {
+    "kind": "deed",
+    "tick": 2758,
+    "team": 1,
+    "deed": "dLevelUp",
+    "by": 15,
+    "glory": 0
+  },
+  {
+    "kind": "deed",
+    "tick": 2789,
+    "team": 0,
+    "deed": "dHonorableKill",
+    "by": 8,
+    "glory": 120
+  },
+  {
+    "kind": "deed",
+    "tick": 2821,
+    "team": 1,
+    "deed": "dPointBlankKill",
+    "by": 5,
+    "glory": 96
+  },
+  {
+    "kind": "deed",
+    "tick": 2869,
+    "team": 1,
+    "deed": "dTeamKill",
+    "by": 15,
+    "glory": -60
+  },
+  {
+    "kind": "deed",
+    "tick": 3017,
+    "team": 0,
+    "deed": "dFlagSteal",
+    "by": -1,
+    "glory": 960
+  },
+  {
+    "kind": "deed",
+    "tick": 3017,
+    "team": 0,
+    "deed": "dLevelUp",
+    "by": 4,
+    "glory": 0
+  },
+  {
     "kind": "claim",
-    "tick": 2002,
+    "tick": 3018,
+    "team": 0,
+    "tree": "treeCarrier",
+    "tier": 2,
+    "first": 0,
+    "glory": 14
+  },
+  {
+    "kind": "deed",
+    "tick": 3029,
+    "team": 0,
+    "deed": "dLevelUp",
+    "by": 4,
+    "glory": 0
+  },
+  {
+    "kind": "deed",
+    "tick": 3158,
+    "team": 0,
+    "deed": "dPointBlankKill",
+    "by": 0,
+    "glory": 288
+  },
+  {
+    "kind": "claim",
+    "tick": 3159,
+    "team": 0,
+    "tree": "treeGun",
+    "tier": 1,
+    "first": 0,
+    "glory": 11
+  },
+  {
+    "kind": "deed",
+    "tick": 3253,
+    "team": 1,
+    "deed": "dLevelUp",
+    "by": 5,
+    "glory": 0
+  },
+  {
+    "kind": "deed",
+    "tick": 3253,
+    "team": 1,
+    "deed": "dCarrierKill",
+    "by": 5,
+    "glory": 720
+  },
+  {
+    "kind": "deed",
+    "tick": 3253,
+    "team": 1,
+    "deed": "dLevelUp",
+    "by": 5,
+    "glory": 0
+  },
+  {
+    "kind": "claim",
+    "tick": 3254,
+    "team": 1,
+    "tree": "treeGun",
+    "tier": 1,
+    "first": 0,
+    "glory": 11
+  },
+  {
+    "kind": "claim",
+    "tick": 3254,
+    "team": 1,
+    "tree": "treeDefender",
+    "tier": 2,
+    "first": 0,
+    "glory": 14
+  },
+  {
+    "kind": "deed",
+    "tick": 3327,
+    "team": 0,
+    "deed": "dFlagSteal",
+    "by": -1,
+    "glory": 960
+  },
+  {
+    "kind": "deed",
+    "tick": 3327,
+    "team": 0,
+    "deed": "dLevelUp",
+    "by": 0,
+    "glory": 0
+  },
+  {
+    "kind": "claim",
+    "tick": 3328,
+    "team": 0,
+    "tree": "treeCarrier",
+    "tier": 3,
+    "first": 0,
+    "glory": 18
+  },
+  {
+    "kind": "deed",
+    "tick": 3365,
+    "team": 1,
+    "deed": "dTeamKill",
+    "by": 5,
+    "glory": -60
+  },
+  {
+    "kind": "deed",
+    "tick": 3425,
+    "team": 1,
+    "deed": "dLevelUp",
+    "by": 13,
+    "glory": 0
+  },
+  {
+    "kind": "deed",
+    "tick": 3425,
+    "team": 1,
+    "deed": "dPointBlankKill",
+    "by": 13,
+    "glory": 96
+  },
+  {
+    "kind": "claim",
+    "tick": 3426,
     "team": 1,
     "tree": "treeSpray",
     "tier": 0,
@@ -477,7 +616,7 @@
   },
   {
     "kind": "claim",
-    "tick": 2002,
+    "tick": 3426,
     "team": 1,
     "tree": "treeSquad",
     "tier": 0,
@@ -486,39 +625,47 @@
   },
   {
     "kind": "deed",
-    "tick": 2006,
-    "team": 0,
-    "deed": "dLevelUp",
-    "by": 0,
-    "glory": 0
+    "tick": 3427,
+    "team": 1,
+    "deed": "dTeamKill",
+    "by": 13,
+    "glory": -60
   },
   {
     "kind": "deed",
-    "tick": 2006,
+    "tick": 3590,
     "team": 0,
     "deed": "dPointBlankKill",
-    "by": 0,
-    "glory": 48
+    "by": 6,
+    "glory": 288
   },
   {
     "kind": "deed",
-    "tick": 2065,
+    "tick": 3649,
+    "team": 1,
+    "deed": "dTeamKill",
+    "by": 13,
+    "glory": -60
+  },
+  {
+    "kind": "deed",
+    "tick": 3713,
     "team": 1,
     "deed": "dLevelUp",
-    "by": 1,
+    "by": 13,
     "glory": 0
   },
   {
     "kind": "deed",
-    "tick": 2065,
+    "tick": 3713,
     "team": 1,
     "deed": "dSprayKill",
-    "by": 1,
-    "glory": 144
+    "by": 13,
+    "glory": 96
   },
   {
     "kind": "claim",
-    "tick": 2066,
+    "tick": 3714,
     "team": 1,
     "tree": "treeSpray",
     "tier": 1,
@@ -527,7 +674,7 @@
   },
   {
     "kind": "claim",
-    "tick": 2066,
+    "tick": 3714,
     "team": 1,
     "tree": "treeSpray",
     "tier": 2,
@@ -536,23 +683,39 @@
   },
   {
     "kind": "deed",
-    "tick": 2113,
+    "tick": 3777,
+    "team": 1,
+    "deed": "dTeamKill",
+    "by": 13,
+    "glory": -60
+  },
+  {
+    "kind": "deed",
+    "tick": 3777,
     "team": 1,
     "deed": "dLevelUp",
-    "by": 1,
+    "by": 13,
     "glory": 0
   },
   {
     "kind": "deed",
-    "tick": 2113,
+    "tick": 3777,
     "team": 1,
     "deed": "dSprayKill",
+    "by": 13,
+    "glory": 96
+  },
+  {
+    "kind": "deed",
+    "tick": 3777,
+    "team": 1,
+    "deed": "dAssist",
     "by": 1,
-    "glory": 144
+    "glory": 112
   },
   {
     "kind": "claim",
-    "tick": 2114,
+    "tick": 3778,
     "team": 1,
     "tree": "treeSpray",
     "tier": 3,
@@ -561,47 +724,71 @@
   },
   {
     "kind": "deed",
-    "tick": 2150,
+    "tick": 3905,
     "team": 1,
     "deed": "dLevelUp",
-    "by": 5,
+    "by": 13,
     "glory": 0
   },
   {
     "kind": "deed",
-    "tick": 2150,
+    "tick": 3905,
     "team": 1,
-    "deed": "dPointBlankKill",
-    "by": 5,
-    "glory": 144
+    "deed": "dCarrierKill",
+    "by": 13,
+    "glory": 720
   },
   {
     "kind": "deed",
-    "tick": 2155,
+    "tick": 3905,
+    "team": 1,
+    "deed": "dAssist",
+    "by": 11,
+    "glory": 112
+  },
+  {
+    "kind": "deed",
+    "tick": 3905,
+    "team": 1,
+    "deed": "dLevelUp",
+    "by": 13,
+    "glory": 0
+  },
+  {
+    "kind": "deed",
+    "tick": 3910,
+    "team": 1,
+    "deed": "dPointBlankKill",
+    "by": 7,
+    "glory": 96
+  },
+  {
+    "kind": "deed",
+    "tick": 3997,
     "team": 0,
+    "deed": "dClutchHeal",
+    "by": -1,
+    "glory": 0
+  },
+  {
+    "kind": "deed",
+    "tick": 4193,
+    "team": 1,
     "deed": "dTeamKill",
-    "by": 10,
+    "by": 13,
     "glory": -60
   },
   {
     "kind": "deed",
-    "tick": 2193,
-    "team": 1,
-    "deed": "dLevelUp",
-    "by": 1,
-    "glory": 0
+    "tick": 4890,
+    "team": 0,
+    "deed": "dFlagSteal",
+    "by": -1,
+    "glory": 480
   },
   {
     "kind": "deed",
-    "tick": 2193,
-    "team": 1,
-    "deed": "dPointBlankKill",
-    "by": 1,
-    "glory": 144
-  },
-  {
-    "kind": "deed",
-    "tick": 2229,
+    "tick": 4890,
     "team": 0,
     "deed": "dLevelUp",
     "by": 6,
@@ -609,145 +796,80 @@
   },
   {
     "kind": "deed",
-    "tick": 2368,
-    "team": 1,
-    "deed": "dFlagSteal",
+    "tick": 4934,
+    "team": 0,
+    "deed": "dShieldSoak",
     "by": -1,
-    "glory": 960
+    "glory": 6
   },
   {
     "kind": "deed",
-    "tick": 2368,
-    "team": 1,
-    "deed": "dLevelUp",
-    "by": 5,
-    "glory": 0
-  },
-  {
-    "kind": "deed",
-    "tick": 2369,
-    "team": 1,
-    "deed": "dLevelUp",
-    "by": 1,
-    "glory": 0
-  },
-  {
-    "kind": "deed",
-    "tick": 2369,
-    "team": 1,
-    "deed": "dPointBlankKill",
-    "by": 1,
-    "glory": 288
-  },
-  {
-    "kind": "deed",
-    "tick": 2453,
-    "team": 1,
-    "deed": "dLevelUp",
-    "by": 5,
-    "glory": 0
-  },
-  {
-    "kind": "deed",
-    "tick": 2481,
-    "team": 1,
-    "deed": "dRunDown",
-    "by": 1,
-    "glory": 384
-  },
-  {
-    "kind": "deed",
-    "tick": 2534,
-    "team": 1,
-    "deed": "dPointBlankKill",
-    "by": 9,
-    "glory": 288
-  },
-  {
-    "kind": "deed",
-    "tick": 2582,
-    "team": 1,
-    "deed": "dRunDown",
-    "by": 3,
-    "glory": 384
-  },
-  {
-    "kind": "deed",
-    "tick": 2582,
-    "team": 1,
-    "deed": "dAssist",
-    "by": 5,
-    "glory": 336
-  },
-  {
-    "kind": "deed",
-    "tick": 2657,
-    "team": 1,
-    "deed": "dLevelUp",
-    "by": 1,
-    "glory": 0
-  },
-  {
-    "kind": "deed",
-    "tick": 2657,
-    "team": 1,
-    "deed": "dPointBlankKill",
-    "by": 1,
-    "glory": 288
-  },
-  {
-    "kind": "claim",
-    "tick": 2658,
-    "team": 1,
-    "tree": "treeGun",
-    "tier": 3,
-    "first": 0,
-    "glory": 18
-  },
-  {
-    "kind": "deed",
-    "tick": 2756,
-    "team": 1,
-    "deed": "dClutchHeal",
+    "tick": 4966,
+    "team": 0,
+    "deed": "dShieldSoak",
     "by": -1,
+    "glory": 6
+  },
+  {
+    "kind": "deed",
+    "tick": 5365,
+    "team": 0,
+    "deed": "dLevelUp",
+    "by": 6,
     "glory": 0
   },
   {
     "kind": "deed",
-    "tick": 2945,
-    "team": 1,
-    "deed": "dEscortKill",
-    "by": 1,
-    "glory": 336
+    "tick": 5845,
+    "team": 0,
+    "deed": "dPointBlankKill",
+    "by": 6,
+    "glory": 36
   },
   {
     "kind": "deed",
-    "tick": 3105,
+    "tick": 5910,
     "team": 1,
+    "deed": "dLevelUp",
+    "by": 7,
+    "glory": 0
+  },
+  {
+    "kind": "deed",
+    "tick": 6038,
+    "team": 0,
+    "deed": "dPointBlankKill",
+    "by": 2,
+    "glory": 48
+  },
+  {
+    "kind": "deed",
+    "tick": 6102,
+    "team": 0,
+    "deed": "dShieldSoak",
+    "by": -1,
+    "glory": 4
+  },
+  {
+    "kind": "deed",
+    "tick": 6326,
+    "team": 0,
     "deed": "dTeamKill",
-    "by": 1,
+    "by": 2,
     "glory": -60
   },
   {
     "kind": "deed",
-    "tick": 3414,
-    "team": 1,
-    "deed": "dTeamKill",
-    "by": 3,
-    "glory": -60
-  },
-  {
-    "kind": "deed",
-    "tick": 3747,
-    "team": 1,
+    "tick": 6662,
+    "team": 0,
     "deed": "dCapture",
     "by": -1,
-    "glory": 4000
+    "glory": 500
   },
   {
     "kind": "claim",
-    "tick": 3747,
-    "team": 1,
+    "tick": 6662,
+    "team": 0,
     "tree": "treeCarrier",
     "tier": 4,
     "first": 1,
