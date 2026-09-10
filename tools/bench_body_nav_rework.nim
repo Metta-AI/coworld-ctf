@@ -265,11 +265,19 @@ proc activationRow(gate: MapGate; gunRange = NavCorpusGunRangePx): JsonNode =
     bytes.sharedDangerGeometry +
     bytes.trace + bytes.allocatorOverhead
   const PoolSharedCap = 32'i64 * 1024 * 1024
+  let totalNs = mapNs + indexNs + hazardNs + cacheNs + navNs
+  let activationRatioLimit = if gate.colossal: 3 else: 2
+  let activationTimePass = totalNs <= mapNs * activationRatioLimit
+  let memoryPass = bytes.total <= BodyNavigationRetainedCap and
+    (gate.colossal or sharedUpperBound <= PoolSharedCap)
   %*{"map": gate.label, "colossal": gate.colossal,
     "body_map_activation_ns": mapNs, "route_index_activation_ns": indexNs,
     "mixed_nav_activation_ns": navNs,
     "hazard_activation_ns": hazardNs, "safe_cache_activation_ns": cacheNs,
-    "total_activation_ns": mapNs + indexNs + hazardNs + cacheNs + navNs,
+    "total_activation_ns": totalNs,
+    "activation_ratio": totalNs.float / mapNs.float,
+    "activation_ratio_limit": activationRatioLimit,
+    "activation_time_pass": activationTimePass, "memory_pass": memoryPass,
     "rss_delta_bytes": max(0'i64, rssAfter - rssBefore),
     "deleted_following_portal_next_bytes": deleted.portalNext,
     "deleted_following_cells_bytes": deleted.cells,
@@ -286,8 +294,7 @@ proc activationRow(gate: MapGate; gunRange = NavCorpusGunRangePx): JsonNode =
     "far_query_max_pops": max(queryPops),
     "far_query_span_count": nav.seats[11].installedRoute.spanCount,
     "far_query_point_count": nav.seats[11].installedRoute.pointCount,
-    "pass": bytes.total <= BodyNavigationRetainedCap and
-      (gate.colossal or sharedUpperBound <= PoolSharedCap)}
+    "pass": memoryPass and activationTimePass}
 
 proc activationResult(gate: MapGate; gunRange = NavCorpusGunRangePx): JsonNode =
   try:

@@ -1,0 +1,9 @@
+# Enforce activation time in the canonical harness verdict
+
+The design's acceptance table requires total map/navigation activation no greater than 2x the same-run BodyMap baseline on non-colossal maps and 3x on colossal. The harness emitted the component times but its `activation.maps[].pass` checked memory alone. Research reports manually evaluated these ratios; a true activation pass in old JSON therefore did not establish the time gate.
+
+`tools/bench_body_nav_rework.nim` now reports `memory_pass`, `activation_time_pass`, `activation_ratio`, and `activation_ratio_limit` separately, and combines both booleans into `pass`. The time verdict compares integer nanoseconds, including route index, mixed graph, hazard and safe-cache construction. No timer boundary, memory allowance or acceptance threshold changes. Existing raw evidence is historical and remains unchanged. A0/A1 and C1 runners already started from frozen earlier harnesses; evaluate their ratios explicitly and do not relabel their raw pass fields.
+
+This tool-only correction is needed before final canonical qualification. It does not change simulation sources, gameplay, replay version, or the viewer stamp. The design already states the threshold, so this note documents the corrected reporting contract instead of changing its criterion. Native/emulated whole-body timing restrictions remain unchanged.
+
+Validation: Nim check passes. A release smoke run on Mac for frozen map 48 plus colossal emits memory_pass=true on both rows, activation_time_pass=false on map 48 and true on colossal; the root pass is false and the process exits 1. Integer verdicts and aggregate propagation were checked against emitted component times. This validates reporting and refusal, not native production performance. Raw JSON and stderr are activation-gate-row.*.
