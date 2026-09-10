@@ -558,8 +558,9 @@ the episode budget (F9–F11). The task's "Done when" #1 is answered.
 
 Each remaining phase has a gate; several can end the work early.
 
-### Phase 1 — Relabel `sufficiency` and file the defects — ✅ **DONE: metta PR #22429**
-https://github.com/Metta-AI/metta/pull/22429 (open, targets main, +203/-7 across 7 files).
+### Phase 1 — Relabel `sufficiency` and file the defects — ✅ **MERGED: metta PR #22429**
+Squash-merged to metta `main` as **`6ffae667e4`**. Follow-up #22432 open with three Codex-review
+fixes that missed the merge queue (coverage population, structural-reason copy, a dead `dict.get`).
 Highest value per hour and independent of every other outcome. A metta PR renaming the verdict to
 what it measures (e.g. `estimate_precision`) and stating the scope in both the API response and
 `TournamentSimDetail.tsx`: *"measures how precisely the win model is estimated, not whether it
