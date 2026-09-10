@@ -1,0 +1,50 @@
+Hint: used config file '/Users/jamesboggs/.nimby/nim/config/nim.cfg' [Conf]
+Hint: used config file '/Users/jamesboggs/.nimby/nim/config/config.nims' [Conf]
+Hint: used config file '/Users/jamesboggs/coding/coworlds/coworld-ctf-worktrees/nav-throughput-research/nim.cfg' [Conf]
+Hint: used config file '/Users/jamesboggs/coding/coworlds/coworld-ctf-worktrees/nav-throughput-research/tests/config.nims' [Conf]
+.............................................................................................................................................................................................................................
+/Users/jamesboggs/coding/coworlds/coworld-ctf-worktrees/nav-throughput-research/src/ctf/arena.nim(1373, 5) Hint: 'inside' is declared but not used [XDeclaredButNotUsed]
+/Users/jamesboggs/coding/coworlds/coworld-ctf-worktrees/nav-throughput-research/src/ctf/arena.nim(3702, 6) Hint: 'rectsNode' is declared but not used [XDeclaredButNotUsed]
+/Users/jamesboggs/coding/coworlds/coworld-ctf-worktrees/nav-throughput-research/src/ctf/arena.nim(3707, 6) Hint: 'rectsFromNode' is declared but not used [XDeclaredButNotUsed]
+.
+CC: system/exceptions.nim
+CC: std/private/digitsutils.nim
+CC: std/assertions.nim
+CC: system/dollars.nim
+CC: std/syncio.nim
+CC: system.nim
+CC: math.nim
+CC: algorithm.nim
+CC: hashes.nim
+CC: unicode.nim
+CC: strutils.nim
+CC: posix.nim
+CC: times.nim
+CC: std/envvars.nim
+CC: std/cmdline.nim
+CC: random.nim
+CC: std/exitprocs.nim
+CC: streams.nim
+CC: sets.nim
+CC: strformat.nim
+CC: terminal.nim
+CC: unittest.nim
+CC: heapqueue.nim
+CC: tables.nim
+CC: pixie/fontformats/opentype.nim
+CC: pixie/fileformats/jpeg.nim
+CC: pixie/fileformats/png.nim
+CC: bitworld/spriteprotocol.nim
+CC: bitworld/pixelfonts.nim
+CC: ctf/sim_types.nim
+CC: ctf/arena.nim
+CC: shell/body_map.nim
+CC: test_shell_body_ray.nim
+Hint:  [Link]
+Hint: mm: orc; threads: on; opt: speed; options: -d:release
+123111 lines; 2.158s; 275.832MiB peakmem; proj: /Users/jamesboggs/coding/coworlds/coworld-ctf-worktrees/nav-throughput-research/tests/test_shell_body_ray.nim; out: /Users/jamesboggs/coding/coworlds/coworld-ctf-worktrees/nav-throughput-research/tests/test_shell_body_ray [SuccessX]
+Hint: /Users/jamesboggs/coding/coworlds/coworld-ctf-worktrees/nav-throughput-research/tests/test_shell_body_ray [Exec]
+
+[Suite] weapon ray sampling
+  [OK] every small ray agrees for every single blocking pixel
+  [OK] seeded long rays preserve sampled walls in both directions

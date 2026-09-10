@@ -1,0 +1,7 @@
+# Exact incremental ray sampling: research note
+
+Primary reference: [Red Blob Games, Line drawing on a grid](https://www.redblobgames.com/grids/line-drawing/) describes interpolation-and-rounding and its incremental DDA form. Generic Bresenham/supercover replacements are not interchangeable with this code's ties-to-even pixel set. The existing local divideRoundTiesEven helper handles nonnegative integer numerators but not incremental interpolation; importing a line library would add more dependency/API surface than this small, contract-specific loop.
+
+Candidate to test, not implemented: maintain each coordinate's floor and remainder for the rational interpolant. Start lower=a, remainder=0. At each sample, round upward when2*remainder>steps or an exact tie has odd lower. Then remainder+=delta; if it is negative, add steps and decrement lower; if it reaches steps, subtract steps and increment lower. Since abs(delta)<=steps, one correction suffices. The full lower coordinate supplies parity, including translated/descending lines. This removes per-pixel floating division and floor without changing intended ties.
+
+Prove against the existing double-expression reference for the supported map bounds, then differential-test actual rayClear on sparse-wall maps, reverse directions, exact-half slopes and boundary endpoints. The frozen corpus does not exercise every weapon ray; add per-tick mask comparison to a shared harness used by both binaries. No production edit or speedup claim yet.

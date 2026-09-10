@@ -1,0 +1,3 @@
+# W1 documentation audit
+
+The ray sampler preserves nearest-pixel ties-to-even and endpoint validation; source comments explain the integer remainder invariant. W1_RESEARCH, W1_REVIEW and W1_REPORT document the mechanism, bound correction, differential tests and matched measurements. The common harness records masks outside its measured body slice. No intended public rule or wire change; tests and paired masks establish exactness on their stated domains, not a claim of identical external-process fixture bytes. Full corpus route hash is unchanged. The viewer is rebuilt for this source stamp. Final fleet qualification and design acceptance remain outstanding.

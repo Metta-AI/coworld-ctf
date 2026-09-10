@@ -331,6 +331,8 @@ proc tickRow(gameMap: CtfMap, rosterSize: int, scenario: NavGateScenario,
     gunRange, hazard = overlay, preparedRouteIndex = index)
   var tick = 1
   var positions = newSeq[BodyPoint](rosterSize)
+  var masksPerTick = newSeq[int16]((TickWarmups + TickSamples + 1) * rosterSize)
+  for mask in masksPerTick.mitems: mask = -1
   var samples, navSamples, routeSearchSamples, requestSamples,
     weightSamples, waypointSamples, routeAdvanceSamples, steeringSamples,
     followerSamples, weaponSamples, dangerSamples, planningSamples,
@@ -339,8 +341,10 @@ proc tickRow(gameMap: CtfMap, rosterSize: int, scenario: NavGateScenario,
     searchNsPerPop, requestSubmissions, requestAdmissions,
     routeCompletions, weightRefreshes: seq[int64]
   for position in positions.mitems: position = start
-  discard episode.step(tickFrames(map, positions, nearGoal, farGoal, tick),
+  let initial = episode.step(tickFrames(map, positions, nearGoal, farGoal, tick),
     uint32(tick), 0)
+  for mask in initial.masks:
+    masksPerTick[mask.seat.int] = int16(encodeInputMask(mask.input))
   for sample in 0 ..< TickWarmups + TickSamples:
     inc tick
     let target = if scenario == ngsMovingGoals and
@@ -353,6 +357,9 @@ proc tickRow(gameMap: CtfMap, rosterSize: int, scenario: NavGateScenario,
     of ngsMovingGoals: discard
     let output = episode.step(tickFrames(map, positions, target, farGoal, tick),
       uint32(tick), sample)
+    for mask in output.masks:
+      masksPerTick[(sample + 1) * rosterSize + mask.seat.int] =
+        int16(encodeInputMask(mask.input))
     if scenario != ngsStuckReplans:
       for mask in output.masks:
         let bits = encodeInputMask(mask.input)
@@ -406,6 +413,7 @@ proc tickRow(gameMap: CtfMap, rosterSize: int, scenario: NavGateScenario,
   %*{"roster_size": rosterSize, "scenario": $scenario,
     "warmups": TickWarmups, "sample_count": TickSamples,
     "samples_ns": samples.nsArray, "pops_per_tick": pops,
+    "masks_per_tick": masksPerTick, "mask_ticks": TickWarmups + TickSamples + 1,
     "nav_samples_ns": navSamples.nsArray,
     "route_search_samples_ns": routeSearchSamples.nsArray,
     "request_overhead_samples_ns": requestSamples.nsArray,
@@ -508,8 +516,9 @@ proc runConfiguredTick(onlyPool: int): JsonNode =
     let gameMap = mapFromSpecJson($spec)
     let label = "configured:" & $poolIndex & ":" & spec["name"].getStr()
     stderr.writeLine label
-    let map = newBodyMap(gameMap)
-    let pairs = selectPairs(map)
+    let pairs = block:
+      let map = newBodyMap(gameMap)
+      selectPairs(map)
     let start = pairs[ncrNear].start
     let nearGoal = pairs[ncrNear].goal
     let farGoal = pairs[ncrFar].goal
@@ -525,7 +534,8 @@ proc runConfiguredTick(onlyPool: int): JsonNode =
       "start": [start.x, start.y], "near_goal": [nearGoal.x, nearGoal.y],
       "far_goal": [farGoal.x, farGoal.y], "activation": allocation,
       "tick": ticks, "pass": mapPassed}
-  %*{"manifest_sha256": sha256Text(manifestText),
+  %*{"variant_id": "battle-royale-s2", "map_path": config["mapPath"].getStr(),
+    "manifest_sha256": sha256Text(manifestText),
     "pool_path": BrS2SoloMapPoolPath, "pool_sha256": sha256Text(poolText),
     "gun_range_px": gunRange, "maps": rows, "pass": passed}
 
@@ -751,6 +761,8 @@ proc metadata(corpus: NavCorpus, canonical: bool): JsonNode =
 proc usage() =
   echo "usage: bench_body_nav_rework --quality|--activation|--tick|--configured-tick|--latency|" &
     "--all [--corpus PATH] [--pool-index N] [--tick-gun-range PX]"
+  echo "--pool-index selects the configured pool under --configured-tick, " &
+    "otherwise the frozen corpus pool; --tick-gun-range only affects --tick."
 
 when isMainModule:
   var runQuality, runActivation, runTick, runLatency, runConfigured, canonical: bool

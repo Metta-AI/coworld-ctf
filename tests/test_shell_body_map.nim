@@ -7,6 +7,7 @@ import ../src/ctf/sim_types
 import ../src/shell/body_cache
 import ../src/shell/body_map
 import ../src/shell/types as shellTypes
+import test_shell_body_ray
 
 const FixtureDir = "tests" / "fixtures" / "shell" / "body"
 const

@@ -155,9 +155,26 @@ proc inBounds*(map: BodyMap, point: BodyPoint): bool =
 proc isWall*(map: BodyMap, point: BodyPoint): bool =
   not map.inBounds(point) or map.wall[map.pixelIndex(point.x, point.y)]
 
+proc roundedRayCoordinate(lower, remainder, steps: int): int {.inline.} =
+  if remainder * 2 > steps or
+      (remainder * 2 == steps and (lower and 1) != 0):
+    lower + 1
+  else:
+    lower
+
+proc advanceRayCoordinate(lower, remainder: var int;
+    delta, steps: int) {.inline.} =
+  remainder += delta
+  if remainder < 0:
+    remainder += steps
+    dec lower
+  elif remainder >= steps:
+    remainder -= steps
+    inc lower
+
 proc rayClear*(map: BodyMap, a, b: BodyPoint): bool =
-  ## Pixel ray check for body-side weapon gating. Endpoints outside the map
-  ## are blocked; otherwise any wall pixel sampled along the segment blocks.
+  ## Same nearest-pixel samples and ties-to-even as the floating interpolant.
+  ## abs(delta) <= steps, so one remainder correction advances each axis.
   if not map.inBounds(a) or not map.inBounds(b):
     return false
   let
@@ -166,12 +183,16 @@ proc rayClear*(map: BodyMap, a, b: BodyPoint): bool =
     steps = max(abs(dx), abs(dy))
   if steps == 0:
     return not map.isWall(a)
+  var lower = a
+  var remainder: BodyPoint
   for step in 0 .. steps:
     let point = (
-      x: pyRound(a.x.float + dx.float * step.float / steps.float),
-      y: pyRound(a.y.float + dy.float * step.float / steps.float))
+      x: roundedRayCoordinate(lower.x, remainder.x, steps),
+      y: roundedRayCoordinate(lower.y, remainder.y, steps))
     if map.isWall(point):
       return false
+    advanceRayCoordinate(lower.x, remainder.x, dx, steps)
+    advanceRayCoordinate(lower.y, remainder.y, dy, steps)
   true
 
 proc clearanceAt*(map: BodyMap, point: BodyPoint): int =
