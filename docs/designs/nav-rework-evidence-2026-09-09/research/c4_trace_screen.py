@@ -13,7 +13,7 @@ for trace in sorted((root / 'C2-local/traces').glob('*.navsrc.txt')):
         if line.startswith('NAVSRC sys '):
             headers = fields
         elif fields['changed'] == '1':
-            key = tuple(tuple(map(int, point.split(':'))) for point in fields.get('pts', '').split(',') if point)
+            key = tuple(tuple(map(int, point.split(':')[:2])) for point in fields.get('pts', '').split(',') if point)
             assert len(key) == int(fields['n'])
             keys.append(key)
     for capacity in [1, 4, 8, 16]:
