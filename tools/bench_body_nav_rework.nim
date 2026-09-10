@@ -322,12 +322,12 @@ proc tickFrames(map: BodyMap, positions: openArray[BodyPoint],
         rotateTarget: some(navigationTarget)))
 
 proc tickRow(gameMap: CtfMap, rosterSize: int, scenario: NavGateScenario,
-    start, nearGoal, farGoal: BodyPoint): JsonNode =
+    start, nearGoal, farGoal: BodyPoint; gunRange: int): JsonNode =
   let map = newBodyMap(gameMap)
   let index = newBodyRouteIndex(map)
   let overlay = newBodyHazardOverlay(index, map.armedSnapshot)
   var episode = initShellEpisode(true, true, playControls(rosterSize), map,
-    331, hazard = overlay, preparedRouteIndex = index)
+    gunRange, hazard = overlay, preparedRouteIndex = index)
   var tick = 1
   var positions = newSeq[BodyPoint](rosterSize)
   var samples, navSamples, routeSearchSamples, requestSamples,
@@ -466,7 +466,7 @@ proc tickRow(gameMap: CtfMap, rosterSize: int, scenario: NavGateScenario,
     "p95_limit_ns": TickP95LimitNs, "max_limit_ns": TickMaxLimitNs,
     "pass": p95 <= TickP95LimitNs and maximum <= TickMaxLimitNs}
 
-proc runTickGate(corpus: NavCorpus, pool: JsonNode): JsonNode =
+proc runTickGate(corpus: NavCorpus, pool: JsonNode; gunRange: int): JsonNode =
   let loaded = loadPoolMap(pool, 15)
   var start, nearGoal, farGoal: BodyPoint
   var foundNear, foundFar: bool
@@ -482,7 +482,7 @@ proc runTickGate(corpus: NavCorpus, pool: JsonNode): JsonNode =
   for rosterSize in [16, 32]:
     for scenario in NavGateScenario:
       stderr.writeLine &"tick roster={rosterSize} scenario={scenario}"
-      rows.add tickRow(loaded.gameMap, rosterSize, scenario, start, nearGoal, farGoal)
+      rows.add tickRow(loaded.gameMap, rosterSize, scenario, start, nearGoal, farGoal, gunRange)
   %*{"maps": rows, "pass": rows.elems.allIt(it["pass"].getBool())}
 
 type
@@ -706,11 +706,12 @@ proc metadata(corpus: NavCorpus, canonical: bool): JsonNode =
 
 proc usage() =
   echo "usage: bench_body_nav_rework --quality|--activation|--tick|--latency|" &
-    "--all [--corpus PATH] [--pool-index N]"
+    "--all [--corpus PATH] [--pool-index N] [--tick-gun-range PX]"
 
 when isMainModule:
   var runQuality, runActivation, runTick, runLatency, canonical: bool
   var onlyPool = -1
+  var tickGunRange = NavCorpusGunRangePx
   var corpusPath = "tests/fixtures/shell/nav_route_corpus.json"
   var index = 1
   while index <= paramCount():
@@ -731,6 +732,12 @@ when isMainModule:
       inc index
       if index > paramCount(): usage(); quit(2)
       corpusPath = paramStr(index)
+    of "--tick-gun-range":
+      inc index
+      if index > paramCount(): usage(); quit(2)
+      tickGunRange = parseInt(paramStr(index))
+      if tickGunRange <= 0:
+        raise newException(ValueError, "tick gun range must be positive")
     of "--pool-index":
       inc index
       if index > paramCount(): usage(); quit(2)
@@ -759,7 +766,8 @@ when isMainModule:
     passed = passed and root["activation"]["pass"].getBool()
   if runTick:
     startProfileTrace()
-    root["tick"] = runTickGate(corpus, pool)
+    root["tick"] = runTickGate(corpus, pool, tickGunRange)
+    root["tick"]["gun_range_px"] = %tickGunRange
     finishProfileTrace()
     passed = passed and root["tick"]["pass"].getBool()
   if runLatency:
