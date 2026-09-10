@@ -724,12 +724,17 @@ proc buildLegalMoves(index: BodyRouteIndex) =
     let cell = index.cellPoint(cellIndex)
     if not index.map.cellWalkable(cell):
       continue
-    var mask = 0'u8
-    for neighborIndex, delta in NavNeighbors:
+    # Unit axis/diagonal moves have symmetric endpoint, side-cell and
+    # pixel-segment checks. Preserve both bits with one predicate call.
+    for (direction, reverse) in [(1, 0), (3, 2), (6, 5), (7, 4)]:
+      let delta = NavNeighbors[direction]
       let next = (cell.x + delta.x, cell.y + delta.y)
       if index.map.legalNavMove(cell, next):
-        mask = mask or uint8(1 shl neighborIndex)
-    index.legalMoves[cellIndex] = mask
+        index.legalMoves[cellIndex] = index.legalMoves[cellIndex] or
+          uint8(1 shl direction)
+        let nextIndex = index.cellIndex(next)
+        index.legalMoves[nextIndex] = index.legalMoves[nextIndex] or
+          uint8(1 shl reverse)
 
 proc chebyshevCells(a, b: BodyPoint): int {.inline.} =
   max(abs(a.x - b.x), abs(a.y - b.y))

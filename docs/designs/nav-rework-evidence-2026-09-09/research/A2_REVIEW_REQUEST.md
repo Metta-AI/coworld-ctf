@@ -1,0 +1,3 @@
+# Bounded A2 source review while trace builds run
+
+Root changed only buildLegalMoves in src/shell/body_route_index.nim to test directions1,3,6,7 and set reversebits0,2,5,4. Parent snapshot A2-parent-body_route_index.nim, prereg A2_PREREG.md. Full validator unchanged. Please verify restricted8px symmetry, neighbor bounds and accumulated masks are never overwritten. Tools/check_body_index_legality.nim compares everybit against the full8-direction map predicate on76maps; native runner PID22532 owns m8i. Focused route-index suite passed locally. Read-only review, write A2_CODE_REVIEW.md in root evidence; no production changes. Trace-worktree work remains your owned implementation task. C1 is now DONE; m5a is idle, but root still owns remote timing.
