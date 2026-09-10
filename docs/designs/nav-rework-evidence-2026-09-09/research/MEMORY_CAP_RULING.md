@@ -13,3 +13,7 @@ Use32 MiB (33,554,432 bytes) for the shared-navigation cap on non-colossal maps,
 Earlier16 MiB failures remain valid historical results under that limit. Do not rewrite raw artifacts or turn them into passes retroactively; new gate results must record the new32 MiB limit. No timing, quality, determinism or activation threshold is changed by this ruling.
 
 The proposed bridge/workspace compression programme is no longer required to meet the observed memory gate. Do not implement those structural changes merely to recover the superseded16 MiB target. Retain the design/review notes as proposals and focus on throughput and final qualification. The harness now enforces and reports the 32 MiB shared limit. The design HTML carries this ruling above its historical measurements. Fresh CAP32 memory qualification passes all 76 maps; see CAP32_REPORT.md. Timing and activation-time requirements remain unresolved.
+
+## C2 integrated readback
+
+The fresh C2+V1+A4+H1 ledger passes all 76 maps. Maximum non-colossal shared bound is 32,464,268 bytes, leaving 1,090,164 bytes under 32 MiB; maximum total is 229,158,347 bytes. This includes the cache owner allocation allowance corrected during integration. No additional cap increase is needed. See C2-integrated-memory-summary.json and C2_INTEGRATION.md.

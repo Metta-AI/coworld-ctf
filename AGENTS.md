@@ -239,12 +239,17 @@ p95 at most 3.6 ms and maximum at most 4.5 ms in every registered row and repeat
 Mac and emulated measurements are informational only.
 
 `--latency` separately measures actual route publication after life resets,
-with 16/32-seat near/far waves and a 2,000-tick cap. A cap hit is a failure;
-request issuance is not completion. `--all` is reserved for the canonical
+with 16/32-seat near/far waves and a 2,000-tick observation cap. A cap hit
+is an incomplete, right-censored measurement, not a measured completion at
+2,000 ticks or a newly ratified latency SLA. Request issuance is not completion. `--all` is reserved for the canonical
 Docker environment; native diagnostic runs use explicit `--quality --activation`.
-Activation reports gate shared retained navigation data on every pool map at
-16 MiB, conservatively including all allocator overhead, and total retained
-navigation data at 256 MiB (including colossal maps). The Dial ring defaults
+Activation reports gate shared retained navigation data on non-colossal maps
+at 32 MiB and total retained navigation data at 256 MiB (including colossal).
+The ledger counts retained capacities and 16-byte allocation allowances; it
+is not a physical RSS bound. The system shares a bounded 64-origin visibility
+cache; source floors and source order remain exact. Use `--configured-tick`
+for the checked-in battle-royale-s2 manifest and all eleven configured maps,
+in addition to the frozen corpus workloads. The Dial ring defaults
 to 131,072 buckets and retains exact absolute-cost ordering.
 Current research evidence and incomplete qualification items are tracked in
 [the research ledger](docs/designs/nav-rework-evidence-2026-09-09/research/LEDGER.md).
