@@ -11,6 +11,15 @@ propagates the staleness warning everywhere else automatically.
 Each field is a single fenced line so the script can parse it with a plain
 regex; do not reflow these into prose.
 
+**Second consumer, not just the banner script:** `policies/starters/common/era.py`
+mirrors the Live variant / Build tag / GameVersion / GLORYVERSION fields
+below as Python literals (a beginner's standalone copy of
+`policies/starters/` ships without `docs/`, so it cannot parse this file
+at import time). When you change a value here, also update `era.py` to
+match — `policies/starters/common/test_era.py` (wired into CI as the
+`era-tripwire` job) asserts the two agree, so forgetting fails the PR
+rather than drifting silently.
+
 - **Date recorded:** 2026-09-09
 - **Live variant:** `battle-royale-s2`
 - **Build tag:** `paintbot-v0.7.377`
