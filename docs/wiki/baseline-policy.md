@@ -1,17 +1,32 @@
-*Verified against [[versions|GV24 / Glory 12]].*
-
-**Verified against `GV24 / Glory 12` — the live game is `GV63 / GLORYVERSION 18`; treat details as unconfirmed.**
+*Verified against `paintbot-v0.7.397` (GV63 / GLORYVERSION 18), 2026-09-11 — see `docs/wiki/_era.md`.*
 
 The baseline policy is the shipped, open-source reference policy for
-Paintbot's 8v8 two-team game, packaged in a `Dockerfile` that builds its Nim
-source and runs `/bin/baseline`. That is the
-same Docker-image-plus-argv shape every [[policies|policy]] uses. It plays a
-coordinated eight-seat team: a six-strong attack wave races the enemy pedestal
-across three lanes, one seat holds a sniper post over the longest sightline as
-the team's radar, and one holds the home choke — role and target lane are
-picked deterministically from seat number alone. Because it is canonical,
-shipped, and inspectable, what follows describes what it actually does, not
-advice about what a policy should do.
+Paintbot's classic 8v8 two-team game, packaged in a `Dockerfile` that builds
+its Nim source and runs `/bin/baseline` (the run stage now also carries a
+compiled playbook of Season 2 reference plays alongside the binary — see
+`## Season 2 play-calling` below). That is the
+same Docker-image-plus-argv shape every [[policies|policy]] uses. Against a
+classic 8v8 seat it plays a coordinated eight-seat team: a six-strong attack
+wave races the enemy pedestal across three lanes, one seat holds a sniper
+post over the longest sightline as the team's radar, and one holds the home
+choke — role and target lane are picked deterministically from seat number
+alone. Because it is canonical, shipped, and inspectable, what follows
+describes what it actually does, not advice about what a policy should do.
+
+**Everything from here through `## Labels` below describes only this
+classic 8v8 path, and that path is deprecated.** The baseline's own module
+doc states it plainly: "DEPRECATED-MODE PATH (8v8, classic two-flag,
+dense-cover arena, FOG-OF-WAR full-map vision). Deprecated since 0.7.253;
+live use requires `allowDeprecatedModes: true`" (`players/baseline/
+baseline.nim:7-9`; see [[modes]] for which named variants that flag gates).
+Since commit `bccf812c` (#527, "protocol-adaptive baseline speaks Season 2
+play-calling"), the same image also drives a Season 2 `control: "play"`
+seat — the configuration every seat in the platform's own published
+`battle-royale-s2` variant actually uses — through a completely different,
+much smaller code path with "no button masks, aim brads, or nav grid of its
+own" (`players/baseline/baseline.nim:11-13`). None of the roles, lanes, fire
+discipline, or carrier logic below applies to that path; see `## Season 2
+play-calling` for what the baseline actually does there.
 
 ## Rules
 
@@ -102,7 +117,41 @@ enemy has been seen for roughly fifteen seconds, every seat — including
 Overwatch and HomeDefender, who hold their posts the rest of the match —
 abandons its post and pushes for the steal.
 
+## Season 2 play-calling
+
+This is what the baseline image actually does when the platform seats it
+into a `control: "play"` seat — the configuration every seat of the
+published `battle-royale-s2` variant uses today. It shares no code, and
+almost no concept, with the classic path above: it is a direct, deliberately
+small port of `policies/starters/common/starter_harness.py`'s gate-based
+"ladder maintenance" logic (`baseline/s2play.nim`), driving a fixed ladder
+of four uploaded reference plays rather than its own button masks, aim
+brads, or nav grid:
+
+- `edge_ride` is the always-on base — the battle-royale shrinking zone has no
+  analogue in the classic path's two-flag navigation stack, so this is a
+  genuinely new default, not a translation of anything.
+- `target_law` (`prefer: ["weakened", "isolated"]`) is always on, standing in
+  for the classic path's hurt/isolated target preference.
+- `supply_run` (heal when hurt and a medkit is in reach) and `loot` (grab
+  nearby gear when no enemy is close) are gated on the live view, standing
+  in for the classic path's medkit- and pickup-detour behaviour.
+- `pact`, `bodyguard`, `crossfire` and `jackal` — the reference playbook's
+  duo/alliance plays — are **not** uploaded: the classic baseline has no
+  negotiated-alliance concept to port, and `battle-royale-s2`'s own
+  certification fixture solo-seats every slot, so `context.self.duo_partner`
+  is always absent and those plays' gates would never open regardless.
+
+`ReferencePlays` in `baseline/s2play.nim` names the exact four-play subset
+uploaded. `policies/starters/` — not this image — is the platform's own
+starting point for writing a new play-calling policy from scratch.
+
 ## Labels
+
+**The table below is also classic-8v8-only** — a `control: "play"` seat
+receives `PlayContext`/`PlayView` messages instead of labelled sprite
+objects (see [[policies]]), so none of these labels reach the baseline's
+Season 2 code path at all.
 
 | Label | Meaning |
 | --- | --- |
@@ -122,7 +171,13 @@ should be.
 The baseline's own source comments still call the objective a "heart"
 informally in places; the labels it actually matches on are `flag` and
 `flag planted`, the same wire vocabulary [[perception]] documents for every
-policy.
+`control: "input"` seat.
+
+## Version history
+
+| Version | Change |
+| --- | --- |
+| 2026-09-11 (wiki, re-trace, GV63 / GLORYVERSION 18) | This page previously presented the classic 8v8 roles/lanes/combat description as simply what the baseline "actually does," with no note that this ruleset is deprecated (since build 0.7.253, `allowDeprecatedModes: true` required) or that the same image now also drives a completely different Season 2 `control: "play"` seat via `baseline/s2play.nim` (added by commit `bccf812c` / #527) — the configuration every seat of the live `battle-royale-s2` ladder actually uses. Added a `## Season 2 play-calling` section and scoped the rest of this page explicitly to the classic path. Also noted the baseline's `Dockerfile` now compiles and ships a reference-play playbook alongside the binary, not just the binary. |
 
 ## Gaps
 
@@ -131,12 +186,20 @@ policy.
 - Whether the `shoutCoord` build is used anywhere the baseline is actually
   deployed, or exists only as an optional flag in the baseline policy's own
   published source.
+- Whether `baseline/s2play.nim`'s gated ladder ever beats, or even matches,
+  the classic path's tactics on any measured metric — not evaluated here;
+  this page only confirms what it uploads and calls, not how well it plays.
 
 ## See also
 
-- [[policies]] — what a policy is, of which this is one example
+- [[policies]] — what a policy is, of which this is one example; also
+  documents the `control` field that decides which of this page's two paths
+  a given seat actually runs
 - [[submitting-a-policy]] — the packaging pattern this policy's own `Dockerfile` follows
-- [[perception]] — the fog and label rules this policy reads
+- [[perception]] — the fog and label rules this policy reads on a classic
+  `control: "input"` seat
+- [[modes]] — which named variants require `allowDeprecatedModes: true` to
+  boot the classic path this page mostly documents
 - [[shouts]] — the channel `shoutCoord` rides on
 - [[conventions]] — why documenting this policy's behaviour is a fact, not advice
 
