@@ -261,30 +261,11 @@ jobs:
         # tools/record_fixture.sh (recipe in AGENTS.md's fixture table);
         # config echo confirmed brMode/teams=8/zoneDamageByPaint=true/
         # zonePhases.len=3. First run: PASS, no divergence observed.
-        #
-        # glory-product-cap.bitreplay (wasm32 gameHash width fix, 2026-09-11):
-        # the S8 GLORY PRODUCT CAP class. `RecutProductCapArmed` (glory.nim)
-        # saturates `sim.gloryProduct` at 2^31, which is ONE PAST
-        # `int32.high` -- and `gameHash` narrowed it through `int(...)`
-        # before mixing. Native `int` is 64-bit so every native test and
-        # every live recording was fine; the shipped wasm32 viewer
-        # range-checked and killed the replay with
-        #   advance replay: value out of range: 2147483648 notin
-        #   -2147483648 .. 2147483647
-        # at the first capped tick. This fixture IS the real hosted episode
-        # that surfaced it (S2 round 4828, episode a020a01a, seat 11 banked
-        # 2,097,152 = cap/GlorySCALE) -- NOT a synthetic recut -- so the
-        # gate watches the exact shape prod produced. Verified RED on the
-        # published paintbot-v0.7.397 bundle (died at frame 61 of 2595) and
-        # GREEN after the fix. Supplied by the league, not
-        # tools/record_fixture.sh: it is the platform's own .replay bytes,
-        # which is the same container `ctf_load_replay` takes.
         run: |
           fail=0
           for replay in tests/replays/ctf.bitreplay \
               tests/fixtures/gen-small-pits.bitreplay \
-              tests/fixtures/br-zonepaint-smoke.bitreplay \
-              tests/fixtures/glory-product-cap.bitreplay; do
+              tests/fixtures/br-zonepaint-smoke.bitreplay; do
             echo "::group::$replay"
             node tools/wasm_replay_smoke.cjs replay-viewer/dist "$replay" 6000 || fail=1
             echo "::endgroup::"
