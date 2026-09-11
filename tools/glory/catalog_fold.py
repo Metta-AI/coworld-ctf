@@ -181,11 +181,30 @@ RECUT_CLOSING_TIME_WIN_BUMP_V3_PCT = 120
 RECUT_PLACEMENT_RAMP_PCT = {"dFinal8": 115, "dFinal4": 130, "dFinal2": 160}
 # glory.nim `RecutSurvivalCreditPct*` / `RecutSurvivalCreditIntervalTicks*`
 # (3134 / 3128): the placement ramp's continuous companion price, x1.02 per
-# 720 alive ticks (30 s at 24 ticks/s), compounding -- measured live at 8.49
-# firings/episode, ~x1.16 on the team product. See
+# 720 alive ticks (30 s at 24 ticks/s), compounding. See
 # `CONTINUOUS_CREDIT_WEAPONS` above for the full semantics and the HANDED
 # classification. Recorded, not read by the fold: the wire `amount` already
 # carries this percent.
+#
+# NOMINAL vs REALIZED -- do not quote the nominal as the effect. Nominal is
+# x1.02**n. REALIZED, measured on the live GV18/GameVersion-63 cohort
+# (r4828-r4833, 90 episodes / 1,440 seat-episodes, counterfactual: each
+# seat's product refolded WITH vs WITHOUT its own survivalCredit events):
+# mean x1.0002, median x1.0000, p90 x1.0000, max x1.0612; only 1/1440 seats
+# (0.07%) realize as much as x1.05. Score deciles D1-D9 realize EXACTLY
+# x1.0000; only D10 moves, and its mean is x1.0017.
+#
+# WHY, and it is not rounding: `recutFoldPct` SKIPS any factor in
+# 100 < pct < 200 outright while the unscaled accumulator sits at or below
+# `RecutMinAccumulatorForSmallPct` = 64 (GATE RULING 2 -- glory.nim:3025,
+# 3074-3075; `recut_fold_pct` below is the port), so a pct=102 credit is
+# IDENTICALLY ZERO until a seat has already climbed past ~64 on real deeds
+# -- the dependency sim.nim:8134-8143 names in its own doc comment. 482 of
+# the 492 firing seats in that cohort had every one of their folds skipped.
+# The other half of the gap is a units error worth naming: the ~8
+# firings/EPISODE figure is the total across all 16 seats, so the typical
+# seat draws 0.50 firings and the busiest seat in the cohort drew 5 --
+# 1.02**8.49 was never a per-seat quantity.
 RECUT_SURVIVAL_CREDIT_PCT = 102
 RECUT_SURVIVAL_CREDIT_INTERVAL_TICKS = 720
 HEAT_LADDER_V3_PCT = (100, 500, 1400, 3600)  # rung 0..3
