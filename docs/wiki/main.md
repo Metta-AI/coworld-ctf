@@ -1,6 +1,4 @@
-*Verified against [[versions|GV24 / Glory 12]].*
-
-**Verified against `GV24 / Glory 12` — the live game is `GV63 / GLORYVERSION 18`; treat details as unconfirmed.**
+*Verified against `paintbot-v0.7.397` (GV63 / GLORYVERSION 18), 2026-09-11 — see `docs/wiki/_era.md`.*
 
 Paintbot is a paintball game played by AI policies rather than by hand: you
 submit a policy — a `linux/amd64` Docker image — that drives a Cog, a small
@@ -98,13 +96,16 @@ can't yet.
 ## Reference
 
 **Everything from here down documents the classic two-team
-capture-the-flag ruleset specifically, at GV24** — it is not a description
+capture-the-flag ruleset specifically** — it is not a description
 of the live `battle-royale-s2` ladder, which has its own numbers (for
 example 4 hit points per life, not 3 — see [[damage-and-health]]) and its
 own item/loot economy (see [[battle-royale-s2]]). This section used to be
-introduced as the wiki's assumed default; it no longer is one. Treat it as
-a deep reference for the classic ruleset, due for a full re-trace against
-the live engine version per `docs/wiki/AUDIT.md`.
+introduced as the wiki's assumed default; it no longer is one. Its own
+Quick Facts and Items tables below were re-checked against current source
+for this page's 2026-09-11 pass (two stale numbers corrected — see
+`## Version history`); the deeper pages they link out to each carry their
+own independent verification status — see `docs/wiki/AUDIT.md` for which
+are still due a full re-trace.
 
 In classic two-team play, two 8-player teams, Red and Blue, spawn on
 opposite edges of a symmetric arena (1235×659 px by default) and race to
@@ -190,7 +191,7 @@ reaches a POV.
 | Arena size | 1235×659 px | — | Default arena; the `arena-large` variant is 1606×858 px |
 | Fire windup | 0.21 s | 5 | Aim locks at the trigger pull |
 | Fire cooldown | 0.5 s | 12 | 1.5 s (36 ticks) while carrying a shield; gun only, spray can untouched |
-| Gun range | 1300 px | — | Effectively map-wide; hit resolution has zero randomness |
+| Gun range | 1050 px | — | The one fixed range every map ships (map-wide only on the smallest field — bigger maps make closing distance matter); a released shot's aim carries a small Gaussian jitter, so hit resolution is not perfectly deterministic |
 | Vision cone | ±60° | — | Centred on aim, unlimited range, plus a 90 px bubble |
 | Episode score | +1 / −1 / −1 | — | Win / loss / timeout draw, the draw paid to both sides — classic ruleset only, see [[round]] for `battle-royale-s2` |
 
@@ -218,7 +219,7 @@ see [[battle-royale-s2]].
 | Item | Wire label | Effect | Pickup respawn |
 | --- | --- | --- | --- |
 | [[paint-bomb]] | `grenade` | Thrown blast: 2 hit points inside 52 px, teammates and the thrower included | 5 s |
-| [[spray-can]] | `spray can` | Forward cone: 3 hit points out to 4 squares (136 px) | 30 s |
+| [[spray-can]] | `spray can` | Forward cone: 3 hit points out to 5 squares (170 px) | 30 s |
 | [[shield]] | `shield` | 3 armor hit points, absorbed before the base pool; gun's fire cooldown 3× slower, spray can untouched | 30 s |
 | [[med-kit]] | `med kit` | Refills a hurt player to their full hit point ceiling on touch | 30 s |
 
@@ -264,6 +265,7 @@ rule, version stamps, and how to add a page.
 
 | Version | Change |
 | --- | --- |
+| 2026-09-11 (wiki) | Re-traced against `paintbot-v0.7.397` (GV63 / GLORYVERSION 18): replaced the `GV24 / Glory 12` header stamp and removed the stale-era banner line it had accreted. Checked every claim outside the "What happens in a round" section (left untouched — gated on a platform door not yet landed) against current rules and sibling pages; found no stale digit or mechanic beyond the stamp itself. Also re-checked `## Reference`'s own Quick Facts and Items tables (previously carrying a separate, now-dropped `at GV24` label) and fixed two real digit errors that had drifted since: gun range 1300 px → 1050 px (fixed at GameVersion 34; also dropped the "zero randomness" claim — released shots carry a small aim-jitter roll), and the spray can's forward-cone reach 4 squares (136 px) → 5 squares (170 px) (changed at GameVersion 30). The section's remaining content (links, prose, the 8-bit action table) was spot-checked and found still accurate. |
 | 2026-09-09 (wiki) | Rewrote this page's lead into the eight-chapter question ladder (`docs/designs/THE_WHOLE.md` Stop 3) and removed the classic-CTF-as-default framing from the top of the page: `battle-royale-s2` is now stated as the live ladder's only scheduled variant before any classic-ruleset content appears. The classic reference material (Quick facts, Items, Game mechanics, Traps, Scoring and progression, Competition) moved under `## Reference`, re-scoped explicitly to the classic ruleset rather than presented as this wiki's assumed default. Not re-traced against GV62 this pass — see `docs/wiki/AUDIT.md`. |
 
 ## Gaps
@@ -271,9 +273,11 @@ rule, version stamps, and how to add a page.
 - Which tuning parameters the platform exposes per league, and their defaults.
 - Whether anything on the platform's submission path checks a submitted image's
   `GameVersion` before it is seated, given that the wire itself cannot.
-- The `## Reference` section's classic-ruleset facts are GV24-stamped and not
-  yet re-traced against GV62 — see `docs/wiki/AUDIT.md`'s list of 27
-  unaudited pages.
+- The `## Reference` section's own Quick Facts and Items tables were
+  re-traced against current source on 2026-09-11 (see `## Version
+  history`), but the deeper pages it links out to were not individually
+  re-verified by that pass — see `docs/wiki/AUDIT.md`'s list of pages still
+  due a full re-trace.
 
 ## See also
 
