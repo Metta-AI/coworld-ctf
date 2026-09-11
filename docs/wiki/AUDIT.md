@@ -61,6 +61,14 @@ risk, flagged for the lead rather than guessed at:** a full re-trace of these
 27 against GV61 source is the natural next audit pass; not attempted here
 given this task's scope (battle-royale-s2 + build/submit).
 
+**Acceptance test for any pass over this list:** `tools/wiki/stranger_read.md`
+is the reproducible stranger-read test (task 2d) — a fresh reader with only
+the live wiki API answers eight newcomer questions, scored against a rubric
+sourced from `main`/`battle-royale-s2`/`build-and-submit`/`_era.md`. Run it
+after a re-trace pass and record the result under `docs/wiki/audits/` as the
+regression check; run #1 (2026-09-10) already caught one stale claim
+(`glory-season-2`'s "×8 VICTORY") and one missing rung (no live-state page).
+
 ## A defect adjacent to the wiki, not in it
 
 The platform's own canonical game description for the `Paintbot` game
