@@ -6,13 +6,18 @@ extracted, OFFLINE, by this program's own S6 tooling -- no live network
 here) through `catalog_fold.py`'s v3 fold state machine, with TWO swept
 parameters instead of the two fixed real-economy values:
 
-  1. `cap` -- the `RecutProductCapArmed` ceiling (glory.nim, ~L2642:
-     `RecutProductCapArmed* = int64(1) shl 24`, 16,777,216 internal units /
-     16,384 reported units at `GlorySCALE`=1024). `catalog_fold.py`'s own
-     `CatalogSwitches.cap` property only ever returns one of the two REAL
-     values the live economy has shipped (`RECUT_PRODUCT_CAP_ARMED` or
-     `RECUT_PRODUCT_CAP_DARK`) -- this module takes an explicit `cap: int`
-     instead, so a cell can ask "what if the ceiling were higher".
+  1. `cap` -- the `RecutProductCapArmed` ceiling. The GV62 (S6-era) value
+     this module's harness proof pins is `int64(1) shl 24` = 16,777,216
+     internal units / 16,384 reported at `GlorySCALE`=1024; GLORY GRADIENT
+     S8 (#538) moved the LIVE one to `shl 31`, which is exactly why
+     `catalog_fold.py` now keys that constant BY ERA
+     (`recut_product_cap_armed(glory_version)`) instead of holding one
+     value. `CatalogSwitches.cap` only ever returns a ceiling the live
+     economy actually shipped in that era -- this module takes an explicit
+     `cap: int` instead, so a cell can ask "what if the ceiling were
+     higher". Everything NOT swept (notably the placement ramp, which #538
+     also moved) is era-keyed off `glory_version`, derived per episode from
+     its own `coworld_version` in `run_cell`.
 
   2. `s4b_armed` -- whether S4b's "bank lights the jackpot" bonus
      (`achievementLightableModes`, DARK on every cohort measured so far,
@@ -155,7 +160,8 @@ def percentile(sorted_vals, p):
 
 def sweep_episode(jsonl_path: str, round_number: int, cap: int, s4b_armed: bool,
                    scale: int = catalog_fold.GLORY_SCALE,
-                   win_as_multiplier: bool = True, br_mode: bool = True):
+                   win_as_multiplier: bool = True, br_mode: bool = True,
+                   glory_version: int = catalog_fold.GLORY_VERSION_S6):
     """One seat-episode's chronological fold, cap and S4b both swept
     PARAMETERS (not the two fixed real-economy values). Adapted from
     `census_decode.py`'s `analyze_episode` (v3 branch, for the fold/score/
@@ -333,7 +339,9 @@ def sweep_episode(jsonl_path: str, round_number: int, cap: int, s4b_armed: bool,
             continue
 
         if weapon in catalog_fold.PLACEMENT_RAMP_DEEDS:
-            base = catalog_fold.RECUT_PLACEMENT_RAMP_PCT[weapon]
+            # ERA-KEYED (not HEAD's ladder): #538 moved this table, and this
+            # module's whole job is re-folding a RECORDED (pre-S8) cohort.
+            base = catalog_fold.recut_placement_ramp_pct(glory_version)[weapon]
         elif weapon == "dClosingTime":
             base = (catalog_fold.RECUT_CLOSING_TIME_WIN_BUMP_V3_PCT if win_as_multiplier
                     else catalog_fold.RECUT_CLASS_TABLE_V3_PCT["dClosingTime"])
@@ -401,12 +409,20 @@ def sweep_episode(jsonl_path: str, round_number: int, cap: int, s4b_armed: bool,
     return rows
 
 
-def run_cell(episodes, jsonl_dir, cap, s4b_armed):
-    """All 5,456 seat-episode rows for one (cap, s4b_armed) cell."""
+def run_cell(episodes, jsonl_dir, cap, s4b_armed, glory_version=None):
+    """All 5,456 seat-episode rows for one (cap, s4b_armed) cell.
+
+    `glory_version` (the era whose glory.nim constants the non-swept legs --
+    notably the placement ramp -- price against) is derived PER EPISODE from
+    its own `coworld_version` unless overridden. The cap itself stays the
+    swept parameter it has always been."""
     all_rows = []
     for ep in episodes:
         jp = os.path.join(jsonl_dir, f"{ep['episode_id']}.jsonl")
-        rows = sweep_episode(jp, ep["round_number"], cap, s4b_armed)
+        era = (glory_version if glory_version is not None
+               else catalog_fold.glory_version_for_build(ep.get("coworld_version")))
+        rows = sweep_episode(jp, ep["round_number"], cap, s4b_armed,
+                              glory_version=era)
         if rows is None:
             continue
         for r in rows:

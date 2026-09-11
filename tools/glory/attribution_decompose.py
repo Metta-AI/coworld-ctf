@@ -290,7 +290,9 @@ def decompose_episode_v3(jsonl_path, round_number, catalog=catalog_fold.CATALOG_
             continue
 
         if weapon in catalog_fold.PLACEMENT_RAMP_DEEDS:
-            base = catalog_fold.RECUT_PLACEMENT_RAMP_PCT[weapon]
+            # ERA-KEYED (not HEAD's ladder): #538 moved this table, and a
+            # pre-S8 row's placement mints priced off the OLD rungs.
+            base = catalog.placement_ramp_pct[weapon]
         elif weapon == "dClosingTime":
             base = (catalog_fold.RECUT_CLOSING_TIME_WIN_BUMP_V3_PCT if catalog.winAsMultiplier
                     else catalog_fold.RECUT_CLASS_TABLE_V3_PCT["dClosingTime"])
@@ -373,8 +375,15 @@ def main():
                           "existing invocation is UNCHANGED) or 'v3' "
                           "(percent-scaled fixed-point fold + the "
                           "dJointAct era-split; see catalog_fold.py)")
+    ap.add_argument("--glory-version", type=int, default=None,
+                     help="ESCAPE HATCH ONLY. Force every episode's fold to "
+                          "use this GLORYVERSION's glory.nim constants. "
+                          "Leave unset: the era is derived per episode from "
+                          "its own coworld_version (catalog_fold.py, "
+                          "'ERA KEYING')")
     args = ap.parse_args()
-    catalog = catalog_fold.CATALOG_V3 if args.catalog == "v3" else catalog_fold.CATALOG_V2
+    catalog_template = (catalog_fold.CATALOG_V3 if args.catalog == "v3"
+                        else catalog_fold.CATALOG_V2)
 
     with open(args.rows) as f:
         census_rows = json.load(f)
@@ -393,6 +402,11 @@ def main():
             continue
         some_census_row = next((r for r in census_rows if r["episode_id"] == eid), None)
         round_number = some_census_row["round_number"] if some_census_row else 0
+        era = args.glory_version
+        if era is None:
+            era = catalog_fold.glory_version_for_build(
+                (some_census_row or {}).get("coworld_version"))
+        catalog = catalog_template.for_era(era)
         if args.catalog == "v3":
             decomposed = decompose_episode_v3(jp, round_number, catalog)
         else:

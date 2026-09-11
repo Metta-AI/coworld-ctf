@@ -31,8 +31,125 @@ from __future__ import annotations
 
 import functools
 import json
+import re
 import subprocess
 from dataclasses import dataclass
+
+# ── ERA KEYING (read this before touching any constant below) ───────────
+#
+# THIS MODULE IS A LIVE PORT OF `src/ctf/glory.nim`, AND IT IS ALSO A
+# BACKWARD DECODER. Those two jobs conflict the moment a ship MOVES a
+# constant: HEAD's value decodes HEAD's cohort and silently mis-decodes
+# every older one.
+#
+# That is not hypothetical. GLORY GRADIENT S8 (#538, sha 1b92ec46) moved
+# `RecutProductCapArmed` 2**24 -> 2**31 and the placement ramp
+# 100/100/130 -> 115/130/160, and repointed the two literals here in the
+# same edit. From that commit until this one, re-folding the GV62 (S6)
+# cohort reconciled 5,302/5,456 instead of 5,456/5,456: the 154 rows the
+# S6-era engine had actually SATURATED at the old ceiling (16,384
+# reported) no longer saturated under the new one, so the S6 gate --
+# "the harness must reproduce S6 exactly (154 capped, top-decile CHOSEN
+# 72.26%)" -- could not be run from main at all.
+#
+# THE RULE, therefore: every constant a ship moves is ERA-KEYED here, in
+# the SAME PR as the ship. Add the new value as its own `_S<n>` literal,
+# add the boundary to `GLORY_VERSION_BY_BUILD`, and leave the old literal
+# in place forever -- a cohort recorded under it still has to decode.
+#
+# The era of a row is DERIVED, never typed by the caller:
+#   * AUTHORITATIVE: `GloryVersion*` read straight out of
+#     `src/ctf/glory.nim` at the exact commit that build was compiled from
+#     (`read_glory_version`, a local `git show` -- the same observation
+#     mechanism `read_manifest_switches` already uses for the switches).
+#     `catalog_detect.py` writes it into the catalog map, so
+#     `census_decode.py --catalog auto` gets it per episode.
+#   * DERIVED, no extra input: the episode's OWN `coworld_version` (every
+#     episode record the tools read carries one) against the era-boundary
+#     table below (`glory_version_for_build`). This is what the explicit
+#     `--catalog v2|v3` paths use, so the S6 gate needs no new flag.
+#   * ESCAPE HATCH ONLY: an explicit `--glory-version N`.
+
+GLORY_VERSION_S6 = 17
+# GLORYVERSION 17 = GameVersion 62, the S6 catalog-v3 ship (#504+).
+
+GLORY_VERSION_S8 = 18
+# GLORYVERSION 18 = the S8 ship (#538, sha 1b92ec46, build tag
+# paintbot-v0.7.397): ceiling 2^21 reported, PLACEMENT LADDER B, S4b armed.
+
+CURRENT_GLORY_VERSION = GLORY_VERSION_S8
+# Mirrors `docs/wiki/_era.md`'s **GLORYVERSION** field (and
+# `policies/starters/common/era.py`'s `GLORY_VERSION`), which mirrors
+# `src/ctf/glory.nim`'s `GloryVersion*`. `test_catalog_fold.py`'s era
+# tripwire asserts all three agree, so a GLORYVERSION bump that forgets to
+# era-key a moved constant fails a test instead of silently breaking the
+# backward decode.
+
+GLORY_VERSION_BY_BUILD = (
+    ((0, 0, 0), 13),
+    ((0, 7, 342), 14),
+    ((0, 7, 361), 15),
+    ((0, 7, 369), 16),
+    ((0, 7, 377), 17),
+    ((0, 7, 397), 18),
+)
+# build tag -> GLORYVERSION, ordered ASCENDING: a `coworld_version` resolves
+# to the LAST row whose build tag is <= it.
+#
+# EVERY ROW IS OBSERVED, none guessed: each is the first build at which
+# `git show <build>:src/ctf/glory.nim` declares that `GloryVersion*`. The
+# 14/15/16 boundaries were read from the GV61 cohort's own
+# `version_to_sha.json` round shas; 17 and 18 from the `paintbot-v*` git
+# tags. `read_glory_version` is the same read, and `catalog_detect.py`
+# flags any disagreement between the two.
+#
+# The first row is open-ended at 13 because that is the oldest build any
+# measured cohort reaches (0.7.327, where `RecutProductCapArmed` was still
+# 2^26); older than that, `deedMintCaps` is dark and `CatalogSwitches.cap`
+# returns `RECUT_PRODUCT_CAP_DARK` regardless of this table.
+
+GLORY_VERSION_RE = re.compile(r"^\s*GloryVersion\*\s*=\s*(\d+)", re.M)
+# `src/ctf/glory.nim`'s own `GloryVersion* = 18` declaration.
+
+
+def parse_build_version(coworld_version: str):
+    """`"0.7.383"` -> `(0, 7, 383)`; tolerates a `paintbot-v` prefix and a
+    trailing suffix. Returns `None` for anything unparseable (the caller
+    decides whether that is fatal -- it never silently picks an era)."""
+    if not coworld_version:
+        return None
+    m = re.search(r"(\d+)\.(\d+)\.(\d+)", str(coworld_version))
+    if not m:
+        return None
+    return tuple(int(g) for g in m.groups())
+
+
+def glory_version_for_build(coworld_version: str) -> int:
+    """GLORYVERSION for an episode's own `coworld_version` build tag.
+
+    Raises rather than guessing on an unparseable tag: an era this module
+    cannot resolve must fail the run, not silently decode at HEAD's era --
+    the exact failure mode #538 shipped."""
+    parsed = parse_build_version(coworld_version)
+    if parsed is None:
+        raise ValueError(
+            f"cannot derive GLORYVERSION from coworld_version "
+            f"{coworld_version!r} (expected a MAJOR.MINOR.PATCH build tag); "
+            f"pass an explicit glory_version instead of guessing")
+    return _era_lookup(GLORY_VERSION_BY_BUILD, parsed)
+
+
+def _era_lookup(table, key):
+    """Last row in an ascending `((key, value), ...)` table whose key is
+    <= `key`. The one lookup every era-keyed constant below shares."""
+    value = table[0][1]
+    for boundary, candidate in table:
+        if key >= boundary:
+            value = candidate
+        else:
+            break
+    return value
+
 
 # ── glory.nim constants (verbatim) ──────────────────────────────────────
 
@@ -40,13 +157,44 @@ GLORY_SCALE = 1024
 # glory.nim `GlorySCALE* : int64 = 1024`
 
 RECUT_PRODUCT_CAP_DARK = 1 << 62
-# glory.nim `RecutProductCap* = int64(1) shl 62`
+# glory.nim `RecutProductCap* = int64(1) shl 62` -- never moved by a ship.
 
-RECUT_PRODUCT_CAP_ARMED = 1 << 31
-# glory.nim `RecutProductCapArmed* = int64(1) shl 31` (2,147,483,648 internal,
-# 2,097,152 = 2^21 reported at GLORY_SCALE=1024). GLORY GRADIENT S8
-# (CAP-CEILING-S7.md, S2 lead ruling): moved off the S6-era 2^24 (16,777,216)
-# to keep this harness a live port of `src/ctf/glory.nim`, not a snapshot.
+RECUT_PRODUCT_CAP_ARMED_V13 = 1 << 26
+# glory.nim `RecutProductCapArmed* = int64(1) shl 26` (67,108,864) as
+# `deedMintCaps` first shipped it, GLORYVERSION 13 (build 0.7.327).
+
+RECUT_PRODUCT_CAP_ARMED_S6 = 1 << 24
+# glory.nim `RecutProductCapArmed* = int64(1) shl 24` from GLORYVERSION 14
+# ("CAP 2^26 -> 2^24, ruled 25:1x" -- glory.nim's own v14 changelog) through
+# GLORYVERSION 17 (16,777,216 internal, 16,384 = 2^14 reported at
+# GLORY_SCALE=1024). KEEP THIS: the GV62 cohort's 154 capped rows only
+# decode against it.
+
+RECUT_PRODUCT_CAP_ARMED_S8 = 1 << 31
+# glory.nim `RecutProductCapArmed* = int64(1) shl 31` from GLORYVERSION 18
+# (2,147,483,648 internal, 2,097,152 = 2^21 reported). GLORY GRADIENT S8
+# (#538, CAP-CEILING-S7.md, S2 lead ruling).
+
+RECUT_PRODUCT_CAP_ARMED_BY_ERA = (
+    (0, RECUT_PRODUCT_CAP_ARMED_V13),
+    (14, RECUT_PRODUCT_CAP_ARMED_S6),
+    (GLORY_VERSION_S8, RECUT_PRODUCT_CAP_ARMED_S8),
+)
+# Every row read out of `src/ctf/glory.nim` at a build that shipped it --
+# see the sweep recorded in this PR's body. ADD A ROW when a ship moves the
+# constant; never edit one.
+
+
+def recut_product_cap_armed(glory_version: int) -> int:
+    """glory.nim `RecutProductCapArmed*` AS OF `glory_version`."""
+    return _era_lookup(RECUT_PRODUCT_CAP_ARMED_BY_ERA, glory_version)
+
+
+RECUT_PRODUCT_CAP_ARMED = recut_product_cap_armed(CURRENT_GLORY_VERSION)
+# HEAD ALIAS ONLY -- the value the LIVE engine uses today. Correct for
+# "what will the sim do next round"; WRONG for decoding any cohort older
+# than `CURRENT_GLORY_VERSION`. Anything that folds recorded wire data must
+# go through `recut_product_cap_armed(era)` / `CatalogSwitches.cap`.
 
 RECUT_MIN_ACCUM_FOR_SMALL_PCT = 64
 # glory.nim `RecutMinAccumulatorForSmallPct* = 64` -- GATE RULING 2.
@@ -175,10 +323,36 @@ RECUT_CLASS_TABLE_V3_PCT = {
     for deed, base in RECUT_CLASS_TABLE.items()
 }
 RECUT_CLOSING_TIME_WIN_BUMP_V3_PCT = 120
-# glory.nim `RecutPlacementRampPct*` (dFinal8/dFinal4/dFinal2 only).
+
+# glory.nim `RecutPlacementRampPct*` (dFinal8/dFinal4/dFinal2 only) -- the
+# SECOND live-ported constant #538 (1b92ec46) moved, era-keyed for the same
+# reason the cap is: `attribution_decompose.py`/`cap_sweep.py` read it as
+# each placement mint's BASE price, so folding a GV62 row against LADDER B
+# mis-splits that mint's PLACEMENT_BASE/TERRITORY legs.
+RECUT_PLACEMENT_RAMP_PCT_S6 = {"dFinal8": 100, "dFinal4": 100, "dFinal2": 130}
+# S5/S6 ladder, live through GLORYVERSION 17.
+RECUT_PLACEMENT_RAMP_PCT_S8 = {"dFinal8": 115, "dFinal4": 130, "dFinal2": 160}
 # GLORY GRADIENT S8 PLACEMENT LADDER B (owner decision, 2026-09-10,
-# CAP-CEILING-S7.md §Placement): moved off S5/S6's 100/100/130.
-RECUT_PLACEMENT_RAMP_PCT = {"dFinal8": 115, "dFinal4": 130, "dFinal2": 160}
+# CAP-CEILING-S7.md §Placement), live from GLORYVERSION 18.
+
+RECUT_PLACEMENT_RAMP_PCT_BY_ERA = (
+    (0, RECUT_PLACEMENT_RAMP_PCT_S6),
+    (GLORY_VERSION_S8, RECUT_PLACEMENT_RAMP_PCT_S8),
+)
+# Open-ended first row: this table is only ever READ while `placementRampV3`
+# is armed, which first happened at GLORYVERSION 17 (the S6 ship) -- below
+# that the ramp deeds priced off the frozen x2/x3/x4 class ladder and this
+# constant is unreachable.
+
+
+def recut_placement_ramp_pct(glory_version: int) -> dict:
+    """glory.nim `RecutPlacementRampPct*` AS OF `glory_version`."""
+    return _era_lookup(RECUT_PLACEMENT_RAMP_PCT_BY_ERA, glory_version)
+
+
+RECUT_PLACEMENT_RAMP_PCT = recut_placement_ramp_pct(CURRENT_GLORY_VERSION)
+# HEAD ALIAS ONLY -- same caveat as `RECUT_PRODUCT_CAP_ARMED` above.
+
 # glory.nim `RecutSurvivalCreditPct*` / `RecutSurvivalCreditIntervalTicks*`
 # (3134 / 3128): the placement ramp's continuous companion price, x1.02 per
 # 720 alive ticks (30 s at 24 ticks/s), compounding. See
@@ -207,6 +381,13 @@ RECUT_PLACEMENT_RAMP_PCT = {"dFinal8": 115, "dFinal4": 130, "dFinal2": 160}
 # 1.02**8.49 was never a per-seat quantity.
 RECUT_SURVIVAL_CREDIT_PCT = 102
 RECUT_SURVIVAL_CREDIT_INTERVAL_TICKS = 720
+# NOT era-keyed, and that is a positive claim, not an omission: both
+# constants have held a single value since `placementRampV3` first armed
+# them (GLORYVERSION 17), and #538 did not move either -- see the era
+# tripwire in test_catalog_fold.py, which reads glory.nim's HEAD values and
+# fails if that stops being true. If a future ship DOES move one, era-key it
+# here in the same PR (the checklist line in tools/glory/README.md).
+
 HEAT_LADDER_V3_PCT = (100, 500, 1400, 3600)  # rung 0..3
 RECUT_STACK_LADDER_V3_PCT = (100, 500, 750, 1250, 2000, 3250)  # k=1..6+
 CARRIER_HOLD_MULT_PCT = 200
@@ -229,6 +410,12 @@ class CatalogSwitches:
     gloryFixedPointScale: bool = False
     catalogV3Reprice: bool = False
     brMode: bool = True
+    gloryVersion: int = CURRENT_GLORY_VERSION
+    #: The era this switch set describes -- the ONLY thing that selects
+    #: between two shipped values of the same glory.nim constant. Defaults
+    #: to HEAD's era so "what does the sim do next round" keeps working;
+    #: every decode of RECORDED data must set it from the episode (see
+    #: `for_episode`) rather than take this default.
 
     @property
     def label(self) -> str:
@@ -245,7 +432,35 @@ class CatalogSwitches:
 
     @property
     def cap(self) -> int:
-        return RECUT_PRODUCT_CAP_ARMED if self.deedMintCaps else RECUT_PRODUCT_CAP_DARK
+        """`RecutProductCapArmed` AS OF THIS ROW'S ERA -- not HEAD's."""
+        return (recut_product_cap_armed(self.gloryVersion)
+                if self.deedMintCaps else RECUT_PRODUCT_CAP_DARK)
+
+    @property
+    def placement_ramp_pct(self) -> dict:
+        """`RecutPlacementRampPct` AS OF THIS ROW'S ERA -- not HEAD's."""
+        return recut_placement_ramp_pct(self.gloryVersion)
+
+    def for_era(self, glory_version: int) -> "CatalogSwitches":
+        """Same switches, re-keyed to `glory_version`."""
+        if glory_version == self.gloryVersion:
+            return self
+        return CatalogSwitches(
+            gloryMultiplierRecut=self.gloryMultiplierRecut,
+            winAsMultiplier=self.winAsMultiplier,
+            deedMintCaps=self.deedMintCaps,
+            placementRampV3=self.placementRampV3,
+            gloryFixedPointScale=self.gloryFixedPointScale,
+            catalogV3Reprice=self.catalogV3Reprice,
+            brMode=self.brMode,
+            gloryVersion=glory_version,
+        )
+
+    def for_episode(self, ep) -> "CatalogSwitches":
+        """Same switches, re-keyed to the era THIS EPISODE was recorded in,
+        derived from its own `coworld_version` field (raises if that field
+        is missing or unparseable -- never silently falls back to HEAD)."""
+        return self.for_era(glory_version_for_build(ep.get("coworld_version")))
 
 
 # The two catalogs actually measured to date (GLORYVERSION-observed, not
@@ -254,9 +469,23 @@ class CatalogSwitches:
 # with deedMintCaps + winAsMultiplier armed and placementRampV3/
 # gloryFixedPointScale/catalogV3Reprice all dark; GV62 (S6 SHIP, PR #504+)
 # arms all five.
+#
+# NOTE the era on these two module-level singletons is HEAD's. They are
+# switch-set TEMPLATES, not decode-ready catalogs: call `.for_episode(ep)`
+# (or `.for_era(n)`) before folding recorded data. `census_decode.py` and
+# `attribution_decompose.py` both do.
 CATALOG_V2 = CatalogSwitches()
 CATALOG_V3 = CatalogSwitches(placementRampV3=True, gloryFixedPointScale=True,
                               catalogV3Reprice=True)
+
+
+def catalog_for(label: str, glory_version: int = CURRENT_GLORY_VERSION) -> CatalogSwitches:
+    """`("v3", 17)` -> the S6-era v3 catalog. The one place a `"v2"`/`"v3"`
+    label plus an era becomes a decode-ready `CatalogSwitches`."""
+    if label not in ("v2", "v3"):
+        raise ValueError(f"unknown catalog label {label!r} (expected 'v2'/'v3')")
+    template = CATALOG_V3 if label == "v3" else CATALOG_V2
+    return template.for_era(glory_version)
 
 
 # ── fold primitives (glory.nim `recutFold`/`recutFoldPct`/`recutScore`/
@@ -329,11 +558,14 @@ def deed_rates(total: int, n_episodes: int, n_seat_episodes: int):
 
 # ── the whole per-seat-episode fold, v2 and v3 ──────────────────────────
 
-def fold_events_v2(events, cap: int = RECUT_PRODUCT_CAP_ARMED):
+def fold_events_v2(events, cap: int = RECUT_PRODUCT_CAP_ARMED_S6):
     """Byte-identical to `census_decode.py`'s original (pre-S6) inline fold:
     seed 1, `product *= amt` for every `amt > 1`, no floor guard, no scale.
     `events` is an iterable of (weapon, amt) for ONE seat's glory_deed/
     achievement wire events (dTeamKill already filtered out by the caller).
+    The default `cap` is the S6-ERA ceiling, not HEAD's: the v2 catalog only
+    ever ran under GLORYVERSION <= 17, so no v2 row can have been folded
+    against the S8 ceiling.
     Kept here only so a caller can share one code path; census_decode.py's
     own v2 branch is untouched and does NOT call this (regression safety:
     zero risk of this refactor changing GV61/GV15 output)."""
@@ -404,10 +636,34 @@ def score_from_product(product: int, halvings: int, catalog: CatalogSwitches) ->
 # ── manifest-driven catalog detection (DO item 1) ───────────────────────
 
 FLAGSHIP_VARIANT_ID = "battle-royale-s2"
+GLORY_NIM_PATH = "src/ctf/glory.nim"
 SWITCH_KEYS = (
     "gloryMultiplierRecut", "winAsMultiplier", "deedMintCaps",
     "placementRampV3", "gloryFixedPointScale", "catalogV3Reprice",
 )
+
+
+@functools.lru_cache(maxsize=None)
+def read_glory_version(repo_root: str, commit_sha: str,
+                        glory_nim_path: str = GLORY_NIM_PATH) -> int:
+    """THE AUTHORITATIVE ERA READ: `GloryVersion*` straight out of
+    `src/ctf/glory.nim` at the exact commit a round's build was compiled
+    from (`git show <sha>:<path>`, a LOCAL git-object read -- no network).
+
+    Same observation-not-assumption principle as `read_manifest_switches`:
+    the era is read from the same source the sim was built from, not
+    inferred. `glory_version_for_build` is the no-extra-input fallback for
+    callers that have only the episode's `coworld_version`; a test pins the
+    two against each other."""
+    raw = subprocess.run(
+        ["git", "show", f"{commit_sha}:{glory_nim_path}"],
+        cwd=repo_root, capture_output=True, text=True, check=True,
+    ).stdout
+    m = GLORY_VERSION_RE.search(raw)
+    if m is None:
+        raise KeyError(f"no `GloryVersion* = <n>` in {glory_nim_path} "
+                        f"@ {commit_sha}")
+    return int(m.group(1))
 
 
 @functools.lru_cache(maxsize=None)
@@ -420,6 +676,10 @@ def read_manifest_switches(repo_root: str, commit_sha: str,
     what makes catalog selection an OBSERVATION, not an assumption: the
     switches are read from the same manifest the sim actually shipped, not
     inferred from a GameVersion/coworld_version number.
+
+    The returned switch set is ERA-KEYED the same way, from that commit's
+    own `GloryVersion*` -- so a catalog resolved here folds against the
+    constants that build actually shipped, not HEAD's.
     """
     raw = subprocess.run(
         ["git", "show", f"{commit_sha}:{manifest_path}"],
@@ -431,6 +691,7 @@ def read_manifest_switches(repo_root: str, commit_sha: str,
         raise KeyError(f"variantId={variant_id!r} not found in "
                         f"{manifest_path} @ {commit_sha}")
     kwargs = {k: bool(variant.get(k, False)) for k in SWITCH_KEYS}
+    kwargs["gloryVersion"] = read_glory_version(repo_root, commit_sha)
     return CatalogSwitches(**kwargs)
 
 
@@ -453,15 +714,36 @@ def _find_variant(node, variant_id):
 def build_catalog_map(repo_root: str, version_to_sha: dict,
                        manifest_path: str = "coworld_manifest_paintbot.json",
                        variant_id: str = FLAGSHIP_VARIANT_ID) -> dict:
-    """coworld_version -> "v2"|"v3", one manifest read per DISTINCT commit
-    (cached). Raises loudly (KeyError/CalledProcessError) rather than
-    defaulting a version it cannot resolve -- an unresolved version must
-    fail the run, not silently fold as v2."""
+    """coworld_version -> {"label": "v2"|"v3", "gloryVersion": <int>}, one
+    manifest + one glory.nim read per DISTINCT commit (cached). Raises
+    loudly (KeyError/CalledProcessError) rather than defaulting a version it
+    cannot resolve -- an unresolved version must fail the run, not silently
+    fold as v2, and now: not silently fold at HEAD's era either."""
     out = {}
     for version, sha in version_to_sha.items():
         switches = read_manifest_switches(repo_root, sha, manifest_path, variant_id)
-        out[version] = switches.label
+        out[version] = {"label": switches.label,
+                         "gloryVersion": switches.gloryVersion}
     return out
+
+
+def normalize_catalog_entry(entry, coworld_version: str = None):
+    """A catalog-map value -> `(label, glory_version)`.
+
+    Accepts BOTH shapes: the current `{"label": ..., "gloryVersion": ...}`
+    record AND the LEGACY bare `"v2"`/`"v3"` string that maps written
+    before this module was era-keyed contain. A legacy entry carries no era,
+    so the era falls back to the episode's own `coworld_version`
+    (`glory_version_for_build`) -- which is exactly as authoritative for
+    the two boundaries this module decodes across, and keeps every map
+    already on disk usable."""
+    if isinstance(entry, dict):
+        label = entry["label"]
+        era = entry.get("gloryVersion")
+        if era is None:
+            era = glory_version_for_build(coworld_version)
+        return label, int(era)
+    return entry, glory_version_for_build(coworld_version)
 
 
 def load_catalog_map(path: str) -> dict:

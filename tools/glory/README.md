@@ -98,6 +98,46 @@ episode length as the occupancy denominator for exactly this reason
 (verified directly: seat 2 of episode `ereq_b19bc577` died at tick 1754 but
 minted a `dLongshotKill` — a heat-paying deed — at tick 1883).
 
+## ERA KEYING — the rule every ship has to follow here
+
+**`catalog_fold.py` is a live port AND a backward decoder.** It mirrors
+`src/ctf/glory.nim`'s constants so the harness predicts what the sim will
+do next round; it is also the only thing that can re-fold a cohort already
+recorded. Those two jobs conflict the moment a ship MOVES a constant.
+
+GLORY GRADIENT S8 (#538, sha `1b92ec46`) moved `RecutProductCapArmed`
+(2^24 -> 2^31) and `RecutPlacementRampPct` (100/100/130 -> 115/130/160) by
+repointing the literals. The GV62 census silently fell from 5,456/5,456 to
+5,302/5,456 — the 154 rows the S6-era engine had SATURATED at the old
+ceiling (16,384 reported) stopped saturating — and the S6 reproduce gate
+(154 capped, top-decile CHOSEN 72.26%) could not be run from main at all.
+
+> **S-step checklist line:** `catalog_fold.py` is a live port — every
+> constant a ship moves must be ERA-KEYED in the SAME PR.
+
+In practice: add the new value as its own `_S<n>` literal, add the era
+boundary to `GLORY_VERSION_BY_BUILD`, and never edit an existing `_S<n>`
+literal (it is recorded history — some cohort's data was folded against
+it). `python3 tools/glory/test_catalog_fold.py` enforces both halves: it
+fails if glory.nim's HEAD value stops matching the module's HEAD alias,
+and it fails if a shipped `_S<n>` literal is edited.
+
+**How a row's era is derived** (never typed by the caller):
+
+| source | where | used by |
+| --- | --- | --- |
+| `GloryVersion*` in `src/ctf/glory.nim` at the build's own commit | `catalog_fold.read_glory_version` (local `git show`) | `catalog_detect.py` -> the catalog map -> `census_decode.py --catalog auto` |
+| the episode's own `coworld_version` vs `GLORY_VERSION_BY_BUILD` | `catalog_fold.glory_version_for_build` | every `--catalog v2`/`--catalog v3` path (no extra input, no new flag) |
+| `--glory-version N` | escape hatch only | forcing an era by hand |
+
+**The gate:** `python3 tools/glory/test_cohort_reconciliation.py` re-folds
+three real cohorts across the GLORYVERSION 17 -> 18 boundary and pins each
+count exactly — GV61 11,984/11,984, GV62 5,456/5,456, GV63 1,439/1,440 (the
+one GV63 residual, episode `ereq_1d480c9f…` slot 14, reported 2,472 vs
+recon 1,545, is a separate open investigation, named there so it cannot
+quietly become two). It skips rather than fails when a local replay cache
+is absent.
+
 ## Rebuilding for a new era
 
 `GloryVersion` moved to 16 / `GameVersion` to 61 on origin/main via PR #477
