@@ -233,7 +233,7 @@ def test_is_dated_log_slug():
     assert reb.is_dated_log_slug("changelog")
     assert reb.is_dated_log_slug("changelog-2026-09-04")
     assert reb.is_dated_log_slug("changelog-2026-09-08")
-    assert not reb.is_dated_log_slug("patch-notes")
+    assert reb.is_dated_log_slug("patch-notes")
     assert not reb.is_dated_log_slug("changelog-extra-suffix")
     assert not reb.is_dated_log_slug("glory-season-2")
 
@@ -300,6 +300,68 @@ def test_process_page_apply_leaves_dated_changelog_pages_byte_identical(tmp_path
         assert after_bytes == before_bytes, (
             f"{slug}: --apply must leave dated changelog pages byte-identical"
         )
+
+
+# --- patch-notes.md is structurally a changelog (versioned tables, newest
+# first, keyed by build/GV/Glory) and joins the exemption set alongside the
+# changelog family. Unlike the changelog fixtures above, the real
+# docs/wiki/patch-notes.md already carried a leftover banner from before it
+# was exempted (stamped GV24/Glory12, banded against a since-superseded
+# era) — so its exemption path also has to cover stripping that banner on a
+# write pass, not just staying byte-identical when there is nothing to
+# strip. ---------------------------------------------------------------
+
+FIXTURE_PATCH_NOTES_NO_BANNER = (
+    "*Verified against [[versions|GV24 / Glory 12]].*\n"
+    "\n"
+    "The strategy-relevant change log: the versions at which the play\n"
+    "itself changed, in one place.\n"
+)
+
+FIXTURE_PATCH_NOTES_WITH_BANNER = (
+    "*Verified against [[versions|GV24 / Glory 12]].*\n"
+    "\n"
+    "**Verified against `GV24 / Glory 12` — the live game is "
+    "`GV63 / GLORYVERSION 18`; treat details as unconfirmed.**\n"
+    "\n"
+    "The strategy-relevant change log: the versions at which the play\n"
+    "itself changed, in one place.\n"
+)
+
+
+def test_patch_notes_is_exempt_and_byte_identical_with_no_banner():
+    for reband in (False, True):
+        new_text, status = reb.reband_text(
+            FIXTURE_PATCH_NOTES_NO_BANNER, ERA_GV, ERA_GLORY, reband=reband,
+            slug="patch-notes",
+        )
+        assert status == "exempt-dated-log"
+        assert new_text == FIXTURE_PATCH_NOTES_NO_BANNER
+
+
+def test_patch_notes_write_pass_strips_its_leftover_banner():
+    """patch-notes.md carried a banner from before it was exempted. A write
+    pass must strip it — regardless of --reband — so the page settles into
+    its steady exempt, banner-free state instead of carrying a stale banner
+    forever (the default, additive-only mode otherwise never removes an
+    existing banner)."""
+    for reband in (False, True):
+        new_text, status = reb.reband_text(
+            FIXTURE_PATCH_NOTES_WITH_BANNER, ERA_GV, ERA_GLORY, reband=reband,
+            slug="patch-notes",
+        )
+        assert status == "banner-removed"
+        assert new_text == FIXTURE_PATCH_NOTES_NO_BANNER
+
+
+def test_process_page_apply_strips_patch_notes_leftover_banner(tmp_path):
+    page = tmp_path / "patch-notes.md"
+    page.write_text(FIXTURE_PATCH_NOTES_WITH_BANNER)
+
+    status = reb.process_page(page, ERA_GV, ERA_GLORY, write=True, reband=False)
+
+    assert status == "banner-removed"
+    assert page.read_text() == FIXTURE_PATCH_NOTES_NO_BANNER
 
 
 # --- Gap found post-#490: a page's own stamp can be brought up to the live
