@@ -1,6 +1,6 @@
 *Verified against [[versions|GV52 / Glory 13]].*
 
-**Verified against `GV52 / Glory 13` — the live game is `GV63 / GLORYVERSION 17`; treat details as unconfirmed.**
+**Verified against `GV52 / Glory 13` — the live game is `GV63 / GLORYVERSION 18`; treat details as unconfirmed.**
 
 On the Paintbot (Season 2) league's `battle-royale-s2` ladder (see
 [[modes]]), Glory no longer prices deeds by addition at all: every deed and

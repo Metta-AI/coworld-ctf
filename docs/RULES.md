@@ -1190,11 +1190,10 @@ rather than trusting the first estimate.
 
 **This section describes a draft change, not a live one**, written into a
 pull request the league owner still has to approve before it ships to
-`battle-royale-s2`. **GLORYVERSION 18 from paintbot-v0.7.39x (S8 merge sha
-— tag filled by the S2 lead at merge); scoring only, not the wire
-(GameVersion stays 63).** No fixture re-record is owed by this ship. Every
-constant this ship moves — old value to new value — is in the table below;
-nothing not listed here changes.
+`battle-royale-s2`. **GLORYVERSION 18 from paintbot-v0.7.397 (S8 merge sha
+1b92ec46); scoring only, not the wire (GameVersion stays 63).** No fixture
+re-record is owed by this ship. Every constant this ship moves — old value
+to new value — is in the table below; nothing not listed here changes.
 
 | Constant | Old | New | Note |
 | --- | --- | --- | --- |

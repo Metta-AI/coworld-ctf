@@ -2,7 +2,7 @@
 
 *Verified against [[versions|GV24 / Glory 12]].*
 
-**Verified against `GV24 / Glory 12` — the live game is `GV63 / GLORYVERSION 17`; treat details as unconfirmed.**
+**Verified against `GV24 / Glory 12` — the live game is `GV63 / GLORYVERSION 18`; treat details as unconfirmed.**
 
 An achievement is one of 40 fixed claims — **8 trees, 5 tiers each** — that
 mint [[glory|Glory]] into a team's scoreboard the instant its gate condition
