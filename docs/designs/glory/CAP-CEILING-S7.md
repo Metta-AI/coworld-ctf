@@ -473,6 +473,66 @@ in this program — this document sizes the ceiling; it does not arm it.
 
 ---
 
+## §Placement — the item-4 gate result and menu
+
+**DECIDED (owner, 2026-09-10): Ladder B.**
+
+The placement ladder (`RecutPlacementRampPct[dFinal8]`/`[dFinal4]`/
+`[dFinal2]`) was screened on the same top-decile CHOSEN-share gate this
+whole program runs candidates against, alongside the S7 ceiling and S4b
+armed. Every ladder below was measured with the ceiling and S4b ON, not
+in isolation — placement does not move independently of the rest of the
+S8 bundle. The gate's own structural finding: placement fires
+disproportionately on the top-decile seats (the same seats a finish-line
+milestone rewards), so an aggressive placement ramp erodes top-decile
+CHOSEN share by competing with the achievement/kill-chain deeds for the
+same seats' score composition — the tighter the ramp, the more headroom
+those other deeds keep.
+
+| Ladder | `dFinal8`/`dFinal4`/`dFinal2` | Top-decile CHOSEN (mean) |
+| --- | --- | --- |
+| Ruled (rejected pre-gate) | ×1.5 / ×2 / ×3 | 34.99% |
+| **A** | ×1.10 / ×1.20 / ×1.40 | 68.12% |
+| **B — DECIDED** | ×1.15 / ×1.30 / ×1.60 | 67.93% |
+| C | ×1.25 / ×1.50 / ×2.00 | 64.48% |
+| D | ×1.20 / ×1.50 / ×2.00 | 64.52% |
+| F4-pop | ×1.25 / ×2.00 / ×2.50 | 57.09% |
+| Tiers-only (placement left at S5's ×1.00/×1.00/×1.30) | — | 68.39% |
+
+Ladder A scored marginally higher (68.12 vs 67.93) but the owner picked
+**B** — both sit within the same band, well clear of the Ruled candidate's
+34.99% floor and the F4-pop candidate's structural collapse (57.09%,
+consistent with the finding above: pricing the FOUR-team finish line like
+a near-achievement is the most aggressive way to compete with the
+achievement deeds for top-decile share). All three of Ladder B's rungs
+stay under the gate's own ≥2× population line, so this move does not
+make a placement finish "pop" the score — see `docs/RULES.md`'s S8 table
+for the same framing in player-facing terms.
+
+**Final gate line for the shipped branch** (S8 ceiling 2^31 internal +
+S4b armed + PLACEMENT LADDER B + tiers IV 250%/V 300%, all together,
+re-folded on THIS branch's own `tools/glory/cap_sweep.py`/
+`tools/glory/catalog_fold.py` — harness-proof confirmed it reproduces the
+S6 MEASURED numbers exactly first, then a reprice-aware extension of the
+same fold state machine substituted the branch's own placement/tier
+percentages for the wire's historically-recorded GV62 amounts before
+folding; every other deed/achievement folds the wire's own recorded
+amount unchanged):
+
+- n=5,456 seat-episode rows, cap-hit 0.605% (33/5,456)
+- top-decile n=555, threshold=60 reported
+- **TOP-DECILE CHOSEN mean=67.93% / median=77.81%** — matches the gate
+  menu's own estimate for Ladder B EXACTLY (67.93 / 77.81)
+- MID-BAND [4,256] CHOSEN mean=47.70% / median=48.97%
+- top-decile placement share mean=1.13% / median=0.00%
+- top-decile achievement share mean=21.59% / median=19.28%
+
+This is the number of record — the menu estimate above was measured on a
+prior candidate fold; this re-fold, on the shipped branch's own constants,
+reproduces it to two decimal places.
+
+---
+
 ## Cross-refs
 
 S6 live read (the number this step opens on): internal tracking, not public.

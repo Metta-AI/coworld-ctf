@@ -908,21 +908,33 @@ suite "mintcap: the repeatable-deed enumeration and its budgets":
 suite "mintcap: the product backstop (defense-in-depth layer 2)":
   test "the bound drops from the useless 2^62 guard to the measured-tail cap":
     check RecutProductCap == int64(1) shl 62
-    check RecutProductCapArmed == 16777216          # 2^24 (v14, ruled 25:1x)
+    check RecutProductCapArmed == 2147483648   # 2^31 internal (v18, S7 ruling: 2^21 reported)
     check recutProductCap(false) == RecutProductCap  # dark: unchanged
     check recutProductCap(true) == RecutProductCapArmed
     # THE INCIDENT, as arithmetic: the blown episode reported 9.15e15;
     # the old guard sat far above it, the armed cap clamps it to one
     # greppable constant.
     check RecutProductCap > int64(9_150_000_000_000_000)
-    # v14 re-sites the cap on MEASURED tails (sizing package: binds on
-    # 1/12,048 live solo seat-scores), deliberately BELOW the old §A6
-    # adversarial design ceiling (28,311,552 = max heat AND a 5-ally
-    # stack riding one longshot — not a measured episode shape)...
-    check RecutProductCapArmed < int64(28_311_552)
+    # GLORY GRADIENT S7 (CAP-CEILING-S7.md, epic 25d9108e): the v14 cap
+    # (2^24 internal = 16,777,216, deliberately BELOW the frozen §A6
+    # adversarial ceiling of 28,311,552) is re-sized against the REAL GV62
+    # population's cap-hit rate instead -- 154/5,456 seat-episodes
+    # (2.823%) sat AT the v14 cap, 27.75% of the top decile, both far
+    # outside the owner-signed cap-hit [0.1%,1%] / top-decile-capped <~5%
+    # bands. S7's sweep (empirical re-fold of the real per-event wire
+    # prices, `tools/glory/cap_sweep.py`) found 2^21 REPORTED (2^31
+    # internal) the first candidate that clears both bands with margin
+    # (cap-hit 0.312%, top-decile-capped 3.06%) -- so unlike v14, this cap
+    # now sits STRICTLY ABOVE the frozen §A6 adversarial recipe, by design
+    # (CAP-CEILING-S7.md §8: "every cap sits strictly above the frozen A6
+    # ceiling recipe's own multiplicity for that deed, so the ruled superb
+    # episode (7,077,888) stays exactly reachable").
+    check RecutProductCapArmed > int64(28_311_552)
     # ...and comfortably above real play: 4.97× the legit all-time high
     # the ladder has actually paid (3,375,440 @ r3860) and 3-8× the
-    # implied legit superb band (~2-5M from solo play).
+    # implied legit superb band (~2-5M from solo play) -- both by a much
+    # wider margin than v14's own headroom, since the ceiling moved but
+    # real play did not.
     check RecutProductCapArmed > int64(3_375_440) * 4
     check RecutProductCapArmed > int64(5_000_000) * 3
 
@@ -944,10 +956,11 @@ suite "mintcap: the product backstop (defense-in-depth layer 2)":
       product = recutFold(product, 13)
     check product == RecutProductCap
     check recutFold(7077888, 4) == 28311552   # dark: the §A6 ceiling still pays
-    # armed (v14): the ADVERSARIAL ceiling clamps at the measured-tail
-    # cap — by ruling, not by accident (the sizing package prices the
-    # legit superb at ~2-5M; 28.3M is the max-heat+5-ally-stack recipe).
-    check recutFold(7077888, 4, capsArmed = true) == RecutProductCapArmed
+    # armed (v18, S7): the ADVERSARIAL ceiling no longer clamps -- S7
+    # deliberately re-sized the cap to sit ABOVE this recipe (see the
+    # backstop test's own S7 comment above), so the frozen §A6 superb
+    # reaches its raw, unclamped product exactly like the dark path.
+    check recutFold(7077888, 4, capsArmed = true) == 28311552
 
 suite "mintcap: THE METRONOME — 24 revives score as 3":
   test "armed: 24 metronome revives mint 24 dTagBacks and fold exactly 3":

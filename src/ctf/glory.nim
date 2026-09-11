@@ -298,9 +298,43 @@ type
                        ## from 2nd. Recut class x4.
 
 const
-  GloryVersion* = 17
+  GloryVersion* = 18
     ## Bumped on any pricing change, so a ledger can be attributed to the
     ## table that produced it. A cross-version comparison is invalid.
+    ##
+    ## v18 (2026-09-09, GLORY GRADIENT S8 SHIP, epic 25d9108e -- SCORING
+    ## ONLY, S2 lead ruling under the owner's delegation; the unrelated
+    ## season-rule POST is deferred by the owner and NOT part of this bump):
+    ## arms, on the battle-royale-s2 flagship variant's manifest ONLY (same
+    ## mechanism as v14/v16/v17's own arms -- `coworld_manifest_paintbot.json`,
+    ## never `defaultGameConfig()`), TWO switches together:
+    ##   - `RecutProductCapArmed`: 2^24 -> 2^31 internal (16,384 -> 2,097,152
+    ##     reported) -- `docs/designs/glory/CAP-CEILING-S7.md`'s sized
+    ##     ceiling; see the constant's own doc comment for the full S7
+    ##     evidence (cap-hit 2.823%->0.312%, top-decile-capped 27.75%->
+    ##     3.06%, freeze floor/CONTINUITY/SEPARATION hold).
+    ##   - `achievementLightableModes` (S4b, `LIGHTABLE-MODES-S4B.md`):
+    ##     DARK since #512 (which landed the mechanism, unarmed, no
+    ##     GLORYVERSION change) -- this bump ARMS it as a tier-completion
+    ##     bonus (not a "light-up"). S7's own re-fold found S4b's real
+    ##     effect on cap-hit negligible on top of the ceiling move, so
+    ##     arming it alongside the ceiling does not reopen the cap-hit
+    ##     question the ceiling closes.
+    ## Also moves the achievement tier ladder (lead rulings R4/R5) to stay
+    ## monotonic under the new ceiling: Tier IV x1.05 -> x2.5, Tier V
+    ## non-first x2.00 -> x3.0 (Tier V first-claim stays x3.46, still the
+    ## top of the ladder). Placement (`dFinal8`/`dFinal4`/`dFinal2`) moves
+    ## per the owner's PLACEMENT LADDER B decision (2026-09-10): x1.00/
+    ## x1.00/x1.30 -> x1.15/x1.30/x1.60 -- see the constants' own comment
+    ## and `CAP-CEILING-S7.md` §Placement for the gate menu it was chosen
+    ## from.
+    ## SCORING ONLY: this ship does NOT touch the wire. GameVersion is
+    ## unchanged, no fixture is owed a re-record by this bump alone.
+    ## `defaultGameConfig()` is untouched (both switches' own compiled
+    ## defaults stay false/2^24), so every existing pinned/frozen recut
+    ## arithmetic test not explicitly re-targeted at the new ceiling and
+    ## every committed `.bitreplay` fixture recorded before this bump
+    ## stays byte-identical on the OFF/dark path.
     ##
     ## v17 (2026-09-09, GLORY GRADIENT S6 SHIP, epic 25d9108e -- DRAFT,
     ## owner GLORYVERSION GO required before merge): arms, on the
@@ -317,14 +351,14 @@ const
     ## own reported numbers (CHOSEN share, cap-hit cliff) were measured
     ## with all five armed at once -- shipping a subset would not match
     ## what the PR body quotes. Era boundary: v16 was live from
-    ## paintbot-v0.7.369 (2026-09-09 07:24Z, GameVersion 61); v17 has NOT
-    ## shipped to any build as of this draft -- it exists only in this PR
-    ## until the owner's GO. `defaultGameConfig()` is untouched (every
-    ## switch's own compiled default stays false), so every existing
-    ## pinned/frozen recut arithmetic test and every committed `.bitreplay`
-    ## fixture (none of which can carry a key that did not exist at record
-    ## time) stays byte-identical -- the OFF path this table's own GATE
-    ## RULING 1 proved in #501 is unchanged by this bump.
+    ## paintbot-v0.7.369 (2026-09-09 07:24Z, GameVersion 61); v17 is live
+    ## since r4611 -- it is no longer a draft. `defaultGameConfig()` is
+    ## untouched (every switch's own compiled default stays false), so
+    ## every existing pinned/frozen recut arithmetic test and every
+    ## committed `.bitreplay` fixture (none of which can carry a key that
+    ## did not exist at record time) stays byte-identical -- the OFF path
+    ## this table's own GATE RULING 1 proved in #501 is unchanged by this
+    ## bump.
     ##
     ## v16 (2026-09-08, LEVELS ARE POWER -- owner ruling 2026-08-21, "Maxwell
     ## wants power"; card 2d30dba3): the six `levelX()` buff accessors
@@ -2639,32 +2673,42 @@ const
     ## bound, so the guard never fired. A backstop sited 2^38 above the
     ## thing it guards is not a backstop. See `RecutProductCapArmed`.
 
-  RecutProductCapArmed* = int64(1) shl 24
-    ## 16,777,216 — the MEANINGFUL backstop (defense-in-depth layer 2),
-    ## live only when `GameConfig.deedMintCaps` is armed. v14 (ruled
-    ## 25:1x, sized in the 2026-09-06 sizing package): 2^26 -> 2^24,
-    ## re-sited on MEASURED tails instead of the adversarial §A6 recipe —
-    ## it binds on exactly 1 of 12,048 live solo seat-scores (the r4039
-    ## 44.79M base-outlier), sits 3-8× above the implied legit superb
-    ## (~2-5M from solo play; 7-10M+ only WITH the pact-era ally stack,
-    ## which is the sized headroom the cap still clears as a backstop),
-    ## and 4.97× the legit all-time high the ladder has actually paid
-    ## (3,375,440 @ r3860). Deliberately BELOW the old §A6 adversarial
-    ## design ceiling (28,311,552): that recipe rides max heat AND a
-    ## 5-ally Fibonacci on one longshot — not a measured episode shape —
-    ## and every implied post-recut cap hit (6/747 solo, 3/560 balance,
-    ## 0/71 current episodes) is the base-outlier/stack-contaminated
-    ## tail, none the clean cluster.
+  RecutProductCapArmed* = int64(1) shl 31
+    ## 2,147,483,648 internal units (= 2,097,152 = 2^21 REPORTED units at
+    ## `GlorySCALE`=1024) — the MEANINGFUL backstop (defense-in-depth
+    ## layer 2), live only when `GameConfig.deedMintCaps` is armed.
     ##
-    ## It should RARELY bind (implied post-recut rate <=1.5% of episodes,
+    ## GLORY GRADIENT S7 (2026-09-09, `docs/designs/glory/CAP-CEILING-S7.md`,
+    ## epic 25d9108e, S2 lead ruling under the owner's delegation): 2^24 ->
+    ## 2^31 internal (16,384 -> 2,097,152 reported), sized against the REAL
+    ## GV62 cohort (341 episodes, 5,456 seat-episodes, r4611-r4635) instead
+    ## of a synthetic sweep — the v14 cap bound 154/5,456 seat-episodes
+    ## (2.823%) and 27.75% of the top decile, both far outside the
+    ## owner-signed cap-hit [0.1%,1%] band and the S7 top-decile-capped
+    ## <~5% bound. `tools/glory/cap_sweep.py`'s empirical re-fold of the
+    ## real per-event wire prices found 2^21 reported the first candidate
+    ## clearing both bounds with margin: cap-hit 0.312% (17/5,456),
+    ## top-decile-capped 3.06%, top-decile CHOSEN 83.16-83.21% (S4b
+    ## off/on) — comfortably above the freeze floor and RISING relative to
+    ## v14's 72.26%, since fewer top-decile rows land capped-and-
+    ## unresolved. CONTINUITY and SEPARATION hold at every candidate
+    ## tested. Unlike v14, this cap now sits STRICTLY ABOVE the frozen §A6
+    ## adversarial design ceiling (28,311,552 = max heat AND a 5-ally
+    ## Fibonacci on one longshot): the ruled §A6 superb (7,077,888) stays
+    ## exactly reachable, unclamped, by design (S7 §8). One real outlier
+    ## in the cohort (≈1,732,981,933 ≈ 2^30.7) still exceeds this ceiling
+    ## and remains cappable — the cap is sized off the POPULATION'S
+    ## cap-hit rate, not a promise that nothing can ever reach it.
+    ##
+    ## It should RARELY bind (S7-measured rate 0.312% of seat-episodes,
     ## each auditable): `RecutMintCapTable` below still bounds every deed
     ## whose repeat count is not itself bounded by a scarce contested
     ## resource. This is the layer that catches the composition bug
     ## nobody has thought of yet — the NEXT dTagBack — and clamps it
     ## instead of letting it print 10^6× and poison a season of records.
     ## A clamped episode reports one KNOWN constant, which is exactly the
-    ## point: an audit greps for 16,777,216 (verification plan N=1: no
-    ## seat at the constant; N=20: hits <=1.5%, each audited).
+    ## point: an audit greps for 2147483648 (verification plan: S7's own
+    ## 24-round after-read on the newly-armed cohort, same harness).
 
   RecutMintCapTable*: array[Deed, int] = [
     ## PER-EPISODE, PER-DUO MINT BUDGET (mintcap increment, 2026-09-04) —
@@ -3019,11 +3063,13 @@ func recutFoldPct*(product: int64, pct: int, capsArmed: bool = false,
   ## `(1 * pct) div 100 == 1` for every `pct` in the fractional tier's whole
   ## 100-199 range — a silent, total no-op, not a rounding error. `pct=100`
   ## is the one input for which that is not true — it is an exact no-op at
-  ## ANY base, scaled or not, which is exactly why the placement ramp (§4)
-  ## can price `dFinal8`/`dFinal4` at `pct=100` today (crushed to zero
-  ## marginal score, still mints/pops/counts) without depending on the
-  ## representation switch at all — only `dFinal2`'s `pct=130` leg needs
-  ## `GlorySCALE` (or the GATE RULING 2 floor) to not truncate away.
+  ## ANY base, scaled or not, which is exactly why the S5 placement ramp
+  ## (§4) could ORIGINALLY price `dFinal8`/`dFinal4` at `pct=100` (crushed
+  ## to zero marginal score, still mints/pops/counts) without depending on
+  ## the representation switch at all. GLORY GRADIENT S8 PLACEMENT LADDER B
+  ## (owner decision, 2026-09-10) moves all three placement pcts above 100
+  ## (115/130/160) — every leg now needs `GlorySCALE` (or the GATE RULING 2
+  ## floor) to not truncate away, not just `dFinal2`'s.
   if pct <= 100: return product
   if pct < 200 and product < RecutMinAccumulatorForSmallPct * scale:
     return product   # GATE RULING 2: base too small, skip this fold.
@@ -3062,16 +3108,21 @@ const
   RecutPlacementRampPct*: array[Deed, int] = block:
     var pcts: array[Deed, int]
     for deed in Deed: pcts[deed] = 100  # unused outside RecutPlacementRampDeeds
-    pcts[dFinal8] = 100  # x1.00 — crushed to a pure milestone marker (§4:
-                         # "a small deliberate reward, not the engine of the
-                         # middle"). Still mints/pops/counts; contributes
-                         # ZERO marginal score (recutFoldPct's own no-op).
-    pcts[dFinal4] = 100  # x1.00 — same reasoning.
-    pcts[dFinal2] = 130  # x1.30 — the one milestone still worth a small,
-                         # deliberate score nudge (the two finalists' own
-                         # tiebreaker besides the win multiplier). Needs
+    pcts[dFinal8] = 115  # x1.15 — GLORY GRADIENT S8 PLACEMENT LADDER B
+                         # (owner decision, 2026-09-10, docs/designs/glory/
+                         # CAP-CEILING-S7.md §Placement): raised off the S5
+                         # pure-milestone-marker x1.00 to a small deliberate
+                         # reward — Ladder B measured 67.93% top-decile
+                         # CHOSEN mean / 77.81% median on the gate menu, all
+                         # under the >=2x population line, so no placement
+                         # milestone pops. Still mints/pops/counts; needs
                          # `gloryFixedPointScale` armed to avoid truncating
                          # away at a small accumulator — see `recutFoldPct`.
+    pcts[dFinal4] = 130  # x1.30 — Ladder B, same decision.
+    pcts[dFinal2] = 160  # x1.60 — Ladder B, same decision; the two
+                         # finalists' own tiebreaker besides the win
+                         # multiplier, strictly above dFinal4 and dFinal8 so
+                         # the ladder stays monotonic (1.15 < 1.30 < 1.60).
     pcts
 
   RecutSurvivalCreditIntervalTicks* = 720
@@ -3181,9 +3232,17 @@ const
   RecutTierClassV3Pct*: array[AchievementTiers, int] = block:
     var pcts: array[AchievementTiers, int]
     for tier in 0 ..< AchievementTiers: pcts[tier] = RecutTierClass[tier] * 100
-    pcts[3] = 105   # Tier IV (treeSquad.IV Clean Sheet): x2 -> x1.05 (exact)
-    pcts[4] = 200   # Tier V (treeGun.V Sharpshooter): x4 -> x2.0 (exponent
-                     # 0.5 per the doc's own wording: sqrt(4)=2)
+    pcts[3] = 250   # Tier IV (treeSquad.IV Clean Sheet): x2 -> x2.5 (GLORY
+                     # GRADIENT S8, lead ruling R4: monotonic tier ladder
+                     # under the S7 ceiling move -- was x1.05, no longer
+                     # nearly-flat against Tier V)
+    pcts[4] = 300   # Tier V non-first (treeGun.V Longshot -- NOT
+                     # Sharpshooter, which is Tier IV per `AchievementNames`):
+                     # x4 -> x3.0 (S8, lead ruling R5). First-claim Tier V
+                     # stays x3.46 (`recutAchievementFactorV3Pct` below),
+                     # still strictly above this so the ladder stays
+                     # monotonic: Tier IV 2.5 < Tier V non-first 3.0 <
+                     # Tier V first-claim 3.46.
     pcts
 
   HeatLadderV3Pct*: array[4, int] = [100, 500, 1400, 3600]
@@ -3263,21 +3322,31 @@ func recutFactorV3Pct*(deed: Deed; embers, sitePct: int; carrying: bool;
 
 func recutAchievementFactorV3Pct*(tier: int, isFirst: bool): int =
   ## V3 sibling of `recutAchievementFactor`, percent-scaled. Tier V
-  ## (Sharpshooter) uses the RECOVERED verbatim formula (`reprice_v3.py`):
-  ## `eff_amt = max(1.01, amt ** 0.5)`, where `amt` is the CLASSIC amount
-  ## INCLUDING the FIRST-claim x3 where it applies (`4*3=12` for FIRST,
-  ## `4` otherwise) -- NOT tier-scaled-then-separately-x3'd, which an
-  ## earlier draft of this function did (200% * 300% = 600%, wrong: the
-  ## tool applies the sqrt to the COMBINED amount, `sqrt(12)~=3.46`, not
-  ## `sqrt(4)*3=6`). Both sqrt results are compile-time-known constants
-  ## (tier V's classic amount is fixed), so no `std/math` import is needed
-  ## (this file's own zero-imports law): sqrt(4)=2.0 -> 200%,
-  ## sqrt(12)=3.4641016... -> 346% (rounded to the nearest percent).
+  ## (treeGun.V "Longshot" -- NOT "Sharpshooter", which is treeGun's Tier
+  ## IV name per `AchievementNames`; an earlier draft of this comment had
+  ## the two swapped) FIRST-claim (346%) is still the RECOVERED verbatim
+  ## formula (`reprice_v3.py`): `eff_amt = max(1.01, amt ** 0.5)`, where
+  ## `amt` is the CLASSIC amount INCLUDING the FIRST-claim x3 (`4*3=12`)
+  ## -- NOT tier-scaled-then-separately-x3'd, which an earlier draft of
+  ## this function did (200% * 300% = 600%, wrong: the tool applies the
+  ## sqrt to the COMBINED amount, `sqrt(12)~=3.46`, not `sqrt(4)*3=6`).
+  ## `sqrt(12)=3.4641016...` -> 346% (rounded to the nearest percent, a
+  ## compile-time-known constant, so no `std/math` import is needed --
+  ## this file's own zero-imports law).
+  ##
+  ## GLORY GRADIENT S8 (lead rulings R4/R5, CAP-CEILING-S7.md): Tier IV
+  ## (treeSquad.IV "Clean Sheet") and Tier V non-first are no longer the
+  ## sqrt-recovered `reprice_v3.py` values (105%/200%) -- both are RULED
+  ## up to keep the five-tier ladder monotonic under the S7 ceiling move:
+  ## Tier IV 105% -> 250%, Tier V non-first 200% -> 300%. Tier V
+  ## FIRST-claim (346%) is untouched and stays the top of the ladder
+  ## (346 > 300 > 250), so "first claim beats every non-first claim,
+  ## every tier" still holds.
   if tier < 0 or tier >= AchievementTiers: return 100
   if tier == AchievementTiers - 2:   # Tier IV, treeSquad.IV Clean Sheet
-    return 105
-  if tier == AchievementTiers - 1:   # Tier V, treeGun.V Sharpshooter
-    return if isFirst: 346 else: 200
+    return 250
+  if tier == AchievementTiers - 1:   # Tier V, treeGun.V Longshot
+    return if isFirst: 346 else: 300
   result = RecutTierClassV3Pct[tier]
 
 const

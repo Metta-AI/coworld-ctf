@@ -1,10 +1,10 @@
+*Verified against `paintbot-v0.7.397` (GV63 / GLORYVERSION 18), 2026-09-11 — see `docs/wiki/_era.md`.*
+
 *Verified against `coworld` CLI package version resolving to `coworld==0.1.46`,
 `uv` 0.11.6, on a fresh `$HOME` with no prior Softmax or `coworld` state,
 2026-09-09. Live ladder at the time of writing: paintbot-v0.7.377
 (GameVersion 62 / GLORYVERSION 17). Every command below is one this page's
 author ran, in this order, and saw succeed.*
-
-**Verified against `GV62 / GLORYVERSION 17` — the live game is `GV63 / GLORYVERSION 17`; treat details as unconfirmed.**
 
 This page is for a human sitting at a keyboard, not a coding agent. If
 you're a coding agent, or you'd rather hand this to one, start at
@@ -224,10 +224,14 @@ uv run coworld upload-policy my-policy:local --name my-policy-v1
 ```
 
 `softmax login` opens a browser to Softmax's sign-in, which is
-**GitHub OAuth only** — there is no token or API-key alternative as of this
-verification (`softmax login --help` exposes no such flag; confirmed by a
-real account-creation run reaching this exact step). `--no-browser` skips
-the auto-open but still requires completing the same GitHub flow manually.
+**GitHub OAuth only** — there is no email/password or magic-link path, and
+everything past this step is blocked until you complete that flow at least
+once. `--no-browser` skips the auto-open but still requires completing the
+same GitHub flow manually, by visiting the printed URL yourself. Once
+you've signed in once, sibling commands (`softmax get-login-url`,
+`get-token`, `set-token`, `exchange-code`) let you carry that session
+around instead of repeating the browser flow — none of them is a way in
+*without* GitHub; see [[build-and-submit]] for the exact command shapes.
 `upload-policy`'s `--name` is optional (defaults to a name derived from your
 active player) and `--tag KEY=VALUE` (repeatable) attaches your own
 bookkeeping tags to the uploaded version.
@@ -265,6 +269,7 @@ not repeat their own verification, it hands off to it.
 
 | Version | Change |
 | --- | --- |
+| 2026-09-11 (wiki) | Re-traced against `paintbot-v0.7.397` (GV63 / GLORYVERSION 18): added the standard era stamp as line 1 — the page's own CLI-verification paragraph (kept below it) was never in the recognized stamp form, so the page had accreted a `GV62/GLORYVERSION 17` stale-era banner it could not clear on its own; removed now that the new stamp supersedes it. Corrected `## Submit`'s "no token or API-key alternative" claim, superseded by [[build-and-submit]]'s own 2026-09-09 fix: `get-login-url`/`get-token`/`set-token`/`exchange-code` exist as post-OAuth session commands, none of them a non-GitHub sign-in path. No other claim found stale. |
 | New page (2026-09-09) | Written to close J15/J16/J17/J18/J19 (docs/designs/JOURNEY_MAP.md): a human-voiced path from a fresh machine to a compared local episode, verified command-by-command on a fresh `$HOME`; ships alongside `policies/starters/pyproject.toml`, `.python-version`, `run_local.py`, `compare_local.py`, and `common/era.py`/`starter_knobs.py`/`parse_local_run.py`. |
 
 ## Gaps
