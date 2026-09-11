@@ -1,0 +1,103 @@
+## Whole shell-tick budget screen. No guest modules or simulation step.
+import std/[algorithm, json, math, monotimes, options, os, times]
+import bitworld/spriteprotocol
+import ../src/ctf/[arena, sim_types]
+import ../src/shell/[body, body_map, body_nav, episode, standing_order]
+
+proc percentile(xs: seq[int64], fraction: float): int64 =
+  var ordered = xs
+  ordered.sort()
+  ordered[max(0, int(ceil(fraction * ordered.len.float)) - 1)]
+
+proc frames(map: BodyMap, positions: seq[BodyPoint], target: BodyPoint, threats: seq[BodyPoint],
+            tick: int): seq[ShellSeatFrame] =
+  for seat, position in positions:
+    var tracks: seq[BodyTrackUpdate]
+    for enemy in 0 ..< 8:
+      tracks.add BodyTrackUpdate(seat: (seat + enemy + 1) mod positions.len,
+        pos: threats[enemy], team: Blue,
+        aimBrads: some(0), hpKnown: some(3), weapon: some(bwGun),
+        tick: uint32(tick))
+    result.add ShellSeatFrame(seat: uint8(seat), playerIndex: seat,
+      present: true, playing: true, alive: true, aliveTeams: min(16, positions.len),
+      motionScale: 1, velocity: 1,
+      bodyInputs: BodyTickInputs(self: BodySelfState(pos: position,
+        hp: 4, hpFrac: 1.0, lives: some(1), aimBrads: seat mod 256,
+        alive: true), visibleTracks: tracks),
+      defaultFallbacks: BrDefaultFallbacks(
+        currentZone: MapRect(x: 0, y: 0, w: map.width, h: map.height),
+        nextZone: MapRect(x: 0, y: 0, w: map.width, h: map.height),
+        ticksToNextShrink: BrRotateLeadTicks, zonePhase: 1, zoneDps: 2,
+        rotateTarget: some(target)))
+
+proc runRow(map: BodyMap, label: string, count, gunRange, ticks: int,
+            scenario: string): JsonNode =
+  let start = map.validateGoal((16, 16), (16, 16)).get.goalPoint
+  let nearGoal = map.validateGoal((map.width div 3, map.height div 3), start).get.goalPoint
+  let farGoal = map.validateGoal((map.width - 24, map.height - 24), start).get.goalPoint
+  var threats: seq[BodyPoint]
+  for enemy in 0 ..< 8:
+    let requested = (nearGoal.x + (enemy mod 3 - 1) * 16,
+      nearGoal.y + (enemy div 3 - 1) * 16)
+    threats.add map.validateGoal(requested, nearGoal).get.goalPoint
+  var controls = newSeq[SlotControl](count)
+  for control in controls.mitems: control = scPlay
+  var shell = initShellEpisode(true, true, controls, map, gunRange)
+  defer: shell.closeShellEpisode()
+  var positions = newSeq[BodyPoint](count)
+  for position in positions.mitems: position = start
+  var samples, danger, planning, follower, weapon: seq[int64]
+  var pending, completions: seq[int]
+  var revisions = newSeq[uint64](count)
+  var fingerprint = 0'u64
+  for tick in 1 .. ticks:
+    let target = if scenario == "moving" and (tick div 12) mod 2 == 1:
+      nearGoal else: farGoal
+    # Threat positions stay fixed when the navigation target changes.
+    let inputs = frames(map, positions, target, threats, tick)
+    if scenario == "stuck":
+      for seat in shell.nav.seats: seat.stuckTicks = 8
+    let began = getMonoTime()
+    let output = shell.step(inputs, uint32(tick))
+    samples.add((getMonoTime() - began).inNanoseconds)
+    danger.add output.stageNanoseconds[ssDanger]
+    planning.add output.stageNanoseconds[ssPlanning]
+    follower.add output.stageNanoseconds[ssFollower]
+    weapon.add output.stageNanoseconds[ssWeapon]
+    pending.add shell.nav.pendingPlanCount()
+    var published = 0
+    for seat in 0 ..< count:
+      if shell.nav.seats[seat].pathRevision != revisions[seat]:
+        inc published
+        revisions[seat] = shell.nav.seats[seat].pathRevision
+    completions.add published
+    for mask in output.masks:
+      let bits = encodeInputMask(mask.input)
+      fingerprint = (fingerprint xor uint64(bits)) * 1099511628211'u64
+      if scenario != "stuck":
+        var next = positions[mask.seat.int]
+        if (bits and ButtonLeft) != 0: next.x -= 4
+        if (bits and ButtonRight) != 0: next.x += 4
+        if (bits and ButtonUp) != 0: next.y -= 4
+        if (bits and ButtonDown) != 0: next.y += 4
+        if map.canStand(next): positions[mask.seat.int] = next
+  %*{"map": label, "seats": count, "range": gunRange,
+    "scenario": scenario, "budget_per_seat": ColdPlanBudgetPerTick,
+    "ticks": ticks, "raw_ns": samples, "p95_ns": percentile(samples, 0.95),
+    "max_ns": samples.max, "danger_ns": danger, "planning_ns": planning,
+    "follower_ns": follower, "weapon_ns": weapon, "pending": pending,
+    "published": completions, "mask_fingerprint": $fingerprint,
+    "pass": percentile(samples, 0.95) <= 4_000_000 and samples.max <= 5_000_000}
+
+let ticks = if paramCount() >= 2: parseJson(paramStr(2)).getInt else: 128
+var rows = newJArray()
+for label in ["arena", "br-golden"]:
+  let gameMap = if label == "arena": loadCtfMapMetadata("arena")
+    else: mapFromSpecJson(readFile("tests/fixtures/br-golden-map.json"))
+  let map = newBodyMap(gameMap)
+  for seats in [16, 32]:
+    for gunRange in [331, 1050, 1300]:
+      for scenario in ["first", "moving", "stuck"]:
+        stderr.writeLine(label & " " & $seats & " " & $gunRange & " " & scenario)
+        rows.add runRow(map, label, seats, gunRange, ticks, scenario)
+writeFile(paramStr(1), pretty(%*{"budget": ColdPlanBudgetPerTick, "runtime_linked": ShellRuntimeAvailable, "rows": rows}) & "\n")

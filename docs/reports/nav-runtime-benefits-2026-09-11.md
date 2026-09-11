@@ -139,3 +139,10 @@ runtime image contains all nine reference WASM modules with valid WASM headers.
 See the baseline README's build section for the ownership of the three stages.
 The owned m5a benchmark instance was confirmed stopped after evidence download;
 this release-build check ran in local Docker and needs no Tailscale access.
+
+## Follow-up budget measurements
+
+The [current-planner budget screen](nav-budget-screen-2026-09-11.md) records
+native real-server tests at 256, 512 and 1024 pooled units per configured seat.
+It is a separate exploratory experiment; it does not change the shipped budget
+or qualify the archived routing rewrite.

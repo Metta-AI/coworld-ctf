@@ -1,0 +1,1166 @@
+[
+  {
+    "repeat": 1,
+    "budget": 1024,
+    "seats": 16,
+    "frames": {
+      "n": 1200,
+      "p50_ms": 14.165952,
+      "p95_ms": 30.295262,
+      "max_ms": 198.610477,
+      "over_24hz": 21
+    },
+    "observed_seats": [
+      16
+    ],
+    "ready_module_seats": [
+      0,
+      1,
+      2,
+      3,
+      4,
+      5,
+      6,
+      7,
+      8,
+      9,
+      10,
+      11,
+      12,
+      13,
+      14,
+      15
+    ],
+    "guest_init_seats": [
+      0,
+      1,
+      2,
+      3,
+      4,
+      5,
+      6,
+      7,
+      8,
+      9,
+      10,
+      11,
+      12,
+      13,
+      14,
+      15
+    ],
+    "shell_only_ticks": [
+      1201
+    ],
+    "frame_only_ticks": [
+      1
+    ],
+    "shell": {
+      "n": 1200,
+      "p50_ms": 10.385766,
+      "p95_ms": 25.80132,
+      "max_ms": 194.432758,
+      "over_24hz": 15
+    },
+    "shell_first_tick": 2,
+    "shell_last_tick": 1201,
+    "pending_seat_ticks": 12,
+    "no_path_seat_ticks": 17,
+    "stale_seat_ticks": 142,
+    "plan_events": {
+      "completed": 6,
+      "failed": 0,
+      "suspended": 9
+    },
+    "installs": 877,
+    "play_fault_lines": 0,
+    "failure": null,
+    "exit": {
+      "code": 0,
+      "wall_seconds": 57.05990722299998
+    }
+  },
+  {
+    "repeat": 1,
+    "budget": 1024,
+    "seats": 32,
+    "frames": {
+      "n": 1200,
+      "p50_ms": 25.261834,
+      "p95_ms": 57.797379,
+      "max_ms": 393.117443,
+      "over_24hz": 194
+    },
+    "observed_seats": [
+      32
+    ],
+    "ready_module_seats": [
+      0,
+      1,
+      2,
+      3,
+      4,
+      5,
+      6,
+      7,
+      8,
+      9,
+      10,
+      11,
+      12,
+      13,
+      14,
+      15,
+      16,
+      17,
+      18,
+      19,
+      20,
+      21,
+      22,
+      23,
+      24,
+      25,
+      26,
+      27,
+      28,
+      29,
+      30,
+      31
+    ],
+    "guest_init_seats": [
+      0,
+      1,
+      2,
+      3,
+      4,
+      5,
+      6,
+      7,
+      8,
+      9,
+      10,
+      11,
+      12,
+      13,
+      14,
+      15,
+      16,
+      17,
+      18,
+      19,
+      20,
+      21,
+      22,
+      23,
+      24,
+      25,
+      26,
+      27,
+      28,
+      29,
+      30,
+      31
+    ],
+    "shell_only_ticks": [
+      1201
+    ],
+    "frame_only_ticks": [
+      1
+    ],
+    "shell": {
+      "n": 1200,
+      "p50_ms": 20.078027,
+      "p95_ms": 51.167517,
+      "max_ms": 385.989157,
+      "over_24hz": 119
+    },
+    "shell_first_tick": 2,
+    "shell_last_tick": 1201,
+    "pending_seat_ticks": 22,
+    "no_path_seat_ticks": 32,
+    "stale_seat_ticks": 225,
+    "plan_events": {
+      "completed": 7,
+      "failed": 0,
+      "suspended": 10
+    },
+    "installs": 1737,
+    "play_fault_lines": 0,
+    "failure": null,
+    "exit": {
+      "code": 0,
+      "wall_seconds": 62.058139341000015
+    }
+  },
+  {
+    "repeat": 1,
+    "budget": 256,
+    "seats": 16,
+    "frames": {
+      "n": 1200,
+      "p50_ms": 12.342075,
+      "p95_ms": 25.472757,
+      "max_ms": 144.377068,
+      "over_24hz": 3
+    },
+    "observed_seats": [
+      16
+    ],
+    "ready_module_seats": [
+      0,
+      1,
+      2,
+      3,
+      4,
+      5,
+      6,
+      7,
+      8,
+      9,
+      10,
+      11,
+      12,
+      13,
+      14,
+      15
+    ],
+    "guest_init_seats": [
+      0,
+      1,
+      2,
+      3,
+      4,
+      5,
+      6,
+      7,
+      8,
+      9,
+      10,
+      11,
+      12,
+      13,
+      14,
+      15
+    ],
+    "shell_only_ticks": [
+      1201
+    ],
+    "frame_only_ticks": [
+      1
+    ],
+    "shell": {
+      "n": 1200,
+      "p50_ms": 7.290428,
+      "p95_ms": 21.051128,
+      "max_ms": 140.244919,
+      "over_24hz": 3
+    },
+    "shell_first_tick": 2,
+    "shell_last_tick": 1201,
+    "pending_seat_ticks": 125,
+    "no_path_seat_ticks": 43,
+    "stale_seat_ticks": 204,
+    "plan_events": {
+      "completed": 14,
+      "failed": 0,
+      "suspended": 71
+    },
+    "installs": 926,
+    "play_fault_lines": 0,
+    "failure": null,
+    "exit": {
+      "code": 0,
+      "wall_seconds": 56.560036989999844
+    }
+  },
+  {
+    "repeat": 1,
+    "budget": 256,
+    "seats": 32,
+    "frames": {
+      "n": 1200,
+      "p50_ms": 24.499677,
+      "p95_ms": 51.050994,
+      "max_ms": 293.102872,
+      "over_24hz": 103
+    },
+    "observed_seats": [
+      32
+    ],
+    "ready_module_seats": [
+      0,
+      1,
+      2,
+      3,
+      4,
+      5,
+      6,
+      7,
+      8,
+      9,
+      10,
+      11,
+      12,
+      13,
+      14,
+      15,
+      16,
+      17,
+      18,
+      19,
+      20,
+      21,
+      22,
+      23,
+      24,
+      25,
+      26,
+      27,
+      28,
+      29,
+      30,
+      31
+    ],
+    "guest_init_seats": [
+      0,
+      1,
+      2,
+      3,
+      4,
+      5,
+      6,
+      7,
+      8,
+      9,
+      10,
+      11,
+      12,
+      13,
+      14,
+      15,
+      16,
+      17,
+      18,
+      19,
+      20,
+      21,
+      22,
+      23,
+      24,
+      25,
+      26,
+      27,
+      28,
+      29,
+      30,
+      31
+    ],
+    "shell_only_ticks": [
+      1201
+    ],
+    "frame_only_ticks": [
+      1
+    ],
+    "shell": {
+      "n": 1200,
+      "p50_ms": 14.850008,
+      "p95_ms": 44.301162,
+      "max_ms": 285.253359,
+      "over_24hz": 86
+    },
+    "shell_first_tick": 2,
+    "shell_last_tick": 1201,
+    "pending_seat_ticks": 210,
+    "no_path_seat_ticks": 61,
+    "stale_seat_ticks": 424,
+    "plan_events": {
+      "completed": 18,
+      "failed": 0,
+      "suspended": 82
+    },
+    "installs": 1848,
+    "play_fault_lines": 0,
+    "failure": null,
+    "exit": {
+      "code": 0,
+      "wall_seconds": 59.253916494999885
+    }
+  },
+  {
+    "repeat": 1,
+    "budget": 512,
+    "seats": 16,
+    "frames": {
+      "n": 1200,
+      "p50_ms": 13.94925,
+      "p95_ms": 23.817481,
+      "max_ms": 162.814532,
+      "over_24hz": 26
+    },
+    "observed_seats": [
+      16
+    ],
+    "ready_module_seats": [
+      0,
+      1,
+      2,
+      3,
+      4,
+      5,
+      6,
+      7,
+      8,
+      9,
+      10,
+      11,
+      12,
+      13,
+      14,
+      15
+    ],
+    "guest_init_seats": [
+      0,
+      1,
+      2,
+      3,
+      4,
+      5,
+      6,
+      7,
+      8,
+      9,
+      10,
+      11,
+      12,
+      13,
+      14,
+      15
+    ],
+    "shell_only_ticks": [
+      1201
+    ],
+    "frame_only_ticks": [
+      1
+    ],
+    "shell": {
+      "n": 1200,
+      "p50_ms": 9.801441,
+      "p95_ms": 18.913097,
+      "max_ms": 158.649003,
+      "over_24hz": 19
+    },
+    "shell_first_tick": 2,
+    "shell_last_tick": 1201,
+    "pending_seat_ticks": 45,
+    "no_path_seat_ticks": 26,
+    "stale_seat_ticks": 166,
+    "plan_events": {
+      "completed": 9,
+      "failed": 0,
+      "suspended": 23
+    },
+    "installs": 921,
+    "play_fault_lines": 0,
+    "failure": null,
+    "exit": {
+      "code": 0,
+      "wall_seconds": 56.708134957000084
+    }
+  },
+  {
+    "repeat": 1,
+    "budget": 512,
+    "seats": 32,
+    "frames": {
+      "n": 1200,
+      "p50_ms": 27.792809,
+      "p95_ms": 57.703066,
+      "max_ms": 340.797987,
+      "over_24hz": 186
+    },
+    "observed_seats": [
+      32
+    ],
+    "ready_module_seats": [
+      0,
+      1,
+      2,
+      3,
+      4,
+      5,
+      6,
+      7,
+      8,
+      9,
+      10,
+      11,
+      12,
+      13,
+      14,
+      15,
+      16,
+      17,
+      18,
+      19,
+      20,
+      21,
+      22,
+      23,
+      24,
+      25,
+      26,
+      27,
+      28,
+      29,
+      30,
+      31
+    ],
+    "guest_init_seats": [
+      0,
+      1,
+      2,
+      3,
+      4,
+      5,
+      6,
+      7,
+      8,
+      9,
+      10,
+      11,
+      12,
+      13,
+      14,
+      15,
+      16,
+      17,
+      18,
+      19,
+      20,
+      21,
+      22,
+      23,
+      24,
+      25,
+      26,
+      27,
+      28,
+      29,
+      30,
+      31
+    ],
+    "shell_only_ticks": [
+      1201
+    ],
+    "frame_only_ticks": [
+      1
+    ],
+    "shell": {
+      "n": 1200,
+      "p50_ms": 20.35088,
+      "p95_ms": 49.714583,
+      "max_ms": 332.904464,
+      "over_24hz": 71
+    },
+    "shell_first_tick": 2,
+    "shell_last_tick": 1201,
+    "pending_seat_ticks": 87,
+    "no_path_seat_ticks": 42,
+    "stale_seat_ticks": 297,
+    "plan_events": {
+      "completed": 21,
+      "failed": 0,
+      "suspended": 38
+    },
+    "installs": 1762,
+    "play_fault_lines": 0,
+    "failure": null,
+    "exit": {
+      "code": 0,
+      "wall_seconds": 60.958303702999956
+    }
+  },
+  {
+    "repeat": 2,
+    "budget": 1024,
+    "seats": 16,
+    "frames": {
+      "n": 1200,
+      "p50_ms": 14.242093,
+      "p95_ms": 30.413962,
+      "max_ms": 197.842469,
+      "over_24hz": 21
+    },
+    "observed_seats": [
+      16
+    ],
+    "ready_module_seats": [
+      0,
+      1,
+      2,
+      3,
+      4,
+      5,
+      6,
+      7,
+      8,
+      9,
+      10,
+      11,
+      12,
+      13,
+      14,
+      15
+    ],
+    "guest_init_seats": [
+      0,
+      1,
+      2,
+      3,
+      4,
+      5,
+      6,
+      7,
+      8,
+      9,
+      10,
+      11,
+      12,
+      13,
+      14,
+      15
+    ],
+    "shell_only_ticks": [
+      1201
+    ],
+    "frame_only_ticks": [
+      1
+    ],
+    "shell": {
+      "n": 1200,
+      "p50_ms": 10.469348,
+      "p95_ms": 25.882821,
+      "max_ms": 193.70112,
+      "over_24hz": 15
+    },
+    "shell_first_tick": 2,
+    "shell_last_tick": 1201,
+    "pending_seat_ticks": 12,
+    "no_path_seat_ticks": 17,
+    "stale_seat_ticks": 142,
+    "plan_events": {
+      "completed": 6,
+      "failed": 0,
+      "suspended": 9
+    },
+    "installs": 877,
+    "play_fault_lines": 0,
+    "failure": null,
+    "exit": {
+      "code": 0,
+      "wall_seconds": 57.00977067600002
+    }
+  },
+  {
+    "repeat": 2,
+    "budget": 1024,
+    "seats": 32,
+    "frames": {
+      "n": 1200,
+      "p50_ms": 25.292381,
+      "p95_ms": 57.751149,
+      "max_ms": 391.912043,
+      "over_24hz": 194
+    },
+    "observed_seats": [
+      32
+    ],
+    "ready_module_seats": [
+      0,
+      1,
+      2,
+      3,
+      4,
+      5,
+      6,
+      7,
+      8,
+      9,
+      10,
+      11,
+      12,
+      13,
+      14,
+      15,
+      16,
+      17,
+      18,
+      19,
+      20,
+      21,
+      22,
+      23,
+      24,
+      25,
+      26,
+      27,
+      28,
+      29,
+      30,
+      31
+    ],
+    "guest_init_seats": [
+      0,
+      1,
+      2,
+      3,
+      4,
+      5,
+      6,
+      7,
+      8,
+      9,
+      10,
+      11,
+      12,
+      13,
+      14,
+      15,
+      16,
+      17,
+      18,
+      19,
+      20,
+      21,
+      22,
+      23,
+      24,
+      25,
+      26,
+      27,
+      28,
+      29,
+      30,
+      31
+    ],
+    "shell_only_ticks": [
+      1201
+    ],
+    "frame_only_ticks": [
+      1
+    ],
+    "shell": {
+      "n": 1200,
+      "p50_ms": 20.201588,
+      "p95_ms": 51.171196,
+      "max_ms": 384.882488,
+      "over_24hz": 119
+    },
+    "shell_first_tick": 2,
+    "shell_last_tick": 1201,
+    "pending_seat_ticks": 22,
+    "no_path_seat_ticks": 32,
+    "stale_seat_ticks": 225,
+    "plan_events": {
+      "completed": 7,
+      "failed": 0,
+      "suspended": 10
+    },
+    "installs": 1737,
+    "play_fault_lines": 0,
+    "failure": null,
+    "exit": {
+      "code": 0,
+      "wall_seconds": 61.91089500499993
+    }
+  },
+  {
+    "repeat": 2,
+    "budget": 256,
+    "seats": 16,
+    "frames": {
+      "n": 1200,
+      "p50_ms": 12.457836,
+      "p95_ms": 25.269585,
+      "max_ms": 144.135641,
+      "over_24hz": 3
+    },
+    "observed_seats": [
+      16
+    ],
+    "ready_module_seats": [
+      0,
+      1,
+      2,
+      3,
+      4,
+      5,
+      6,
+      7,
+      8,
+      9,
+      10,
+      11,
+      12,
+      13,
+      14,
+      15
+    ],
+    "guest_init_seats": [
+      0,
+      1,
+      2,
+      3,
+      4,
+      5,
+      6,
+      7,
+      8,
+      9,
+      10,
+      11,
+      12,
+      13,
+      14,
+      15
+    ],
+    "shell_only_ticks": [
+      1201
+    ],
+    "frame_only_ticks": [
+      1
+    ],
+    "shell": {
+      "n": 1200,
+      "p50_ms": 7.295948,
+      "p95_ms": 21.079016,
+      "max_ms": 140.014443,
+      "over_24hz": 3
+    },
+    "shell_first_tick": 2,
+    "shell_last_tick": 1201,
+    "pending_seat_ticks": 125,
+    "no_path_seat_ticks": 43,
+    "stale_seat_ticks": 204,
+    "plan_events": {
+      "completed": 14,
+      "failed": 0,
+      "suspended": 71
+    },
+    "installs": 926,
+    "play_fault_lines": 0,
+    "failure": null,
+    "exit": {
+      "code": 0,
+      "wall_seconds": 56.50833919299998
+    }
+  },
+  {
+    "repeat": 2,
+    "budget": 256,
+    "seats": 32,
+    "frames": {
+      "n": 1200,
+      "p50_ms": 24.501426,
+      "p95_ms": 51.262366,
+      "max_ms": 293.117301,
+      "over_24hz": 103
+    },
+    "observed_seats": [
+      32
+    ],
+    "ready_module_seats": [
+      0,
+      1,
+      2,
+      3,
+      4,
+      5,
+      6,
+      7,
+      8,
+      9,
+      10,
+      11,
+      12,
+      13,
+      14,
+      15,
+      16,
+      17,
+      18,
+      19,
+      20,
+      21,
+      22,
+      23,
+      24,
+      25,
+      26,
+      27,
+      28,
+      29,
+      30,
+      31
+    ],
+    "guest_init_seats": [
+      0,
+      1,
+      2,
+      3,
+      4,
+      5,
+      6,
+      7,
+      8,
+      9,
+      10,
+      11,
+      12,
+      13,
+      14,
+      15,
+      16,
+      17,
+      18,
+      19,
+      20,
+      21,
+      22,
+      23,
+      24,
+      25,
+      26,
+      27,
+      28,
+      29,
+      30,
+      31
+    ],
+    "shell_only_ticks": [
+      1201
+    ],
+    "frame_only_ticks": [
+      1
+    ],
+    "shell": {
+      "n": 1200,
+      "p50_ms": 14.909877,
+      "p95_ms": 44.042279,
+      "max_ms": 285.334348,
+      "over_24hz": 86
+    },
+    "shell_first_tick": 2,
+    "shell_last_tick": 1201,
+    "pending_seat_ticks": 210,
+    "no_path_seat_ticks": 61,
+    "stale_seat_ticks": 424,
+    "plan_events": {
+      "completed": 18,
+      "failed": 0,
+      "suspended": 82
+    },
+    "installs": 1848,
+    "play_fault_lines": 0,
+    "failure": null,
+    "exit": {
+      "code": 0,
+      "wall_seconds": 59.20483511999987
+    }
+  },
+  {
+    "repeat": 2,
+    "budget": 512,
+    "seats": 16,
+    "frames": {
+      "n": 1200,
+      "p50_ms": 14.01821,
+      "p95_ms": 24.255646,
+      "max_ms": 164.140708,
+      "over_24hz": 30
+    },
+    "observed_seats": [
+      16
+    ],
+    "ready_module_seats": [
+      0,
+      1,
+      2,
+      3,
+      4,
+      5,
+      6,
+      7,
+      8,
+      9,
+      10,
+      11,
+      12,
+      13,
+      14,
+      15
+    ],
+    "guest_init_seats": [
+      0,
+      1,
+      2,
+      3,
+      4,
+      5,
+      6,
+      7,
+      8,
+      9,
+      10,
+      11,
+      12,
+      13,
+      14,
+      15
+    ],
+    "shell_only_ticks": [
+      1201
+    ],
+    "frame_only_ticks": [
+      1
+    ],
+    "shell": {
+      "n": 1200,
+      "p50_ms": 9.997213,
+      "p95_ms": 19.244419,
+      "max_ms": 160.02031,
+      "over_24hz": 23
+    },
+    "shell_first_tick": 2,
+    "shell_last_tick": 1201,
+    "pending_seat_ticks": 45,
+    "no_path_seat_ticks": 26,
+    "stale_seat_ticks": 166,
+    "plan_events": {
+      "completed": 9,
+      "failed": 0,
+      "suspended": 23
+    },
+    "installs": 921,
+    "play_fault_lines": 0,
+    "failure": null,
+    "exit": {
+      "code": 0,
+      "wall_seconds": 56.76192447499989
+    }
+  },
+  {
+    "repeat": 2,
+    "budget": 512,
+    "seats": 32,
+    "frames": {
+      "n": 1200,
+      "p50_ms": 27.835928,
+      "p95_ms": 58.839976,
+      "max_ms": 341.208921,
+      "over_24hz": 188
+    },
+    "observed_seats": [
+      32
+    ],
+    "ready_module_seats": [
+      0,
+      1,
+      2,
+      3,
+      4,
+      5,
+      6,
+      7,
+      8,
+      9,
+      10,
+      11,
+      12,
+      13,
+      14,
+      15,
+      16,
+      17,
+      18,
+      19,
+      20,
+      21,
+      22,
+      23,
+      24,
+      25,
+      26,
+      27,
+      28,
+      29,
+      30,
+      31
+    ],
+    "guest_init_seats": [
+      0,
+      1,
+      2,
+      3,
+      4,
+      5,
+      6,
+      7,
+      8,
+      9,
+      10,
+      11,
+      12,
+      13,
+      14,
+      15,
+      16,
+      17,
+      18,
+      19,
+      20,
+      21,
+      22,
+      23,
+      24,
+      25,
+      26,
+      27,
+      28,
+      29,
+      30,
+      31
+    ],
+    "shell_only_ticks": [
+      1201
+    ],
+    "frame_only_ticks": [
+      1
+    ],
+    "shell": {
+      "n": 1200,
+      "p50_ms": 20.572941,
+      "p95_ms": 49.989663,
+      "max_ms": 333.304688,
+      "over_24hz": 71
+    },
+    "shell_first_tick": 2,
+    "shell_last_tick": 1201,
+    "pending_seat_ticks": 87,
+    "no_path_seat_ticks": 42,
+    "stale_seat_ticks": 297,
+    "plan_events": {
+      "completed": 21,
+      "failed": 0,
+      "suspended": 38
+    },
+    "installs": 1762,
+    "play_fault_lines": 0,
+    "failure": null,
+    "exit": {
+      "code": 0,
+      "wall_seconds": 61.05874751700003
+    }
+  }
+]

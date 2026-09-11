@@ -1,0 +1,38 @@
+diff --git a/src/ctf/server.nim b/src/ctf/server.nim
+index c9215da8..0c0c926e 100644
+--- a/src/ctf/server.nim
++++ b/src/ctf/server.nim
+@@ -4277,6 +4277,7 @@ proc runServerLoop*(
+     shellEpisode.closeShellEpisode()
+ 
+   while true:
++    let budgetFrameStarted = getMonoTime()
+     var
+       pendingReplayUri = ""
+       sockets: seq[WebSocket] = @[]
+@@ -5211,8 +5212,15 @@ proc runServerLoop*(
+               velocity: sim.shellVelocity(playerIndex),
+               bodyInputs: bodyInputs,
+               defaultFallbacks: sim.shellFallbacks(bodyInputs.self.pos)))
++          let budgetShellStarted = getMonoTime()
+           let shellTick = shellEpisode.step(
+             frames, uint32(sim.tickCount + 1))
++          let budgetShellNs = (getMonoTime() - budgetShellStarted).inNanoseconds
++          if sim.phase == Playing:
++            echo "BUDGET_SHELL tick=", sim.tickCount + 1, " ns=", budgetShellNs,
++              " pending=", shellTick.nav.pendingPlans,
++              " no_path=", shellTick.nav.noPathSeats.len,
++              " stale=", shellTick.nav.stalePathSeats.len
+           shellSeatsThisTick = shellTick.masks.len
+           shellTiming.addShellTiming(shellTick)
+           retainProductionModuleStatuses(shellTick.moduleStatuses)
+@@ -5857,6 +5865,9 @@ proc runServerLoop*(
+       joinThread(serverThread)
+       break
+ 
++    if sim.phase == Playing:
++      echo "BUDGET_FRAME tick=", sim.tickCount, " ns=",
++        (getMonoTime() - budgetFrameStarted).inNanoseconds
+     let frameAdvance = runFrameLimiter(
+       lastTick,
+       not replayLoaded and config.fastMode,
