@@ -135,7 +135,7 @@ On both the player and broadcast/replay streams, while this mode is live:
 | GV61 / GLORYVERSION 16 (2026-09-08) | Five of the six rank buff columns wired into live combat, including the rank-4+ grenade second throw — see [[ranks]]. |
 | 0.7.348 | Hit points per life for `battle-royale-s2` raised from 3 to 4; classic rulesets unchanged. |
 | 0.7.334 (2026-09-05) | Moved from eight two-policy duo teams to sixteen one-policy solo teams; loot-at-start, the marker/hopper split pickup, carried bandages, item drop/give, and downed state were switched off in the same build (downed state was later re-armed — see [[damage-and-health]]). |
-| Unrecorded | Documented that `winAsMultiplier`/`gloryMultiplierRecut`/`deedMintCaps` are armed on the currently published configuration — see [[glory-season-2]] for what each does to score. |
+| Unrecorded | Documented that the win-as-multiplier rule, the multiplier-recut pricing engine, and the per-deed mint-cap guard are all armed on the currently published configuration — see [[glory-season-2]] for what each does to score. |
 
 ## Gaps
 
