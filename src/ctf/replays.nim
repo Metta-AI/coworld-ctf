@@ -1234,7 +1234,7 @@ proc scanTeamLead(sim: SimServer): seq[int] =
       result.add(total)
   else:
     for team in sim.teams():
-      result.add(sim.teamGlory[team])
+      result.add(gloryReportInt(sim.teamGlory[team]))
 
 proc scanTeamHeat(sim: SimServer): seq[int] =
   ## One HEAT MULTIPLIER value per team, in Team order — PARALLEL to

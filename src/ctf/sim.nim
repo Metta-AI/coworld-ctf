@@ -436,7 +436,7 @@ proc awardDeed*(sim: var SimServer, team: Team, deed: Deed, x, y: int,
   var amount = mintGlory(deed, sim.heatEmbers[team], sitePct, carrying) * times
   if not sim.config.gloryMultiplierRecut:
     # DARK PATH — GLORY v12, byte-for-byte: the additive ledger.
-    sim.teamGlory[team] += amount
+    sim.teamGlory[team] += int64(amount)
   else:
     # ── MULTIPLIER RECUT (v13, armed) ── the pure-product economy.
     # This event contributes exactly ONE element to the per-team (= per-duo
@@ -525,7 +525,7 @@ proc awardDeed*(sim: var SimServer, team: Team, deed: Deed, x, y: int,
     # "glory", the banked league score, the endcard) reports the recut
     # score with zero reader changes. S5: routes through `recutCurrentScore`
     # so `gloryFixedPointScale` has one call site, not three.
-    sim.teamGlory[team] = int(sim.recutCurrentScore(team))
+    sim.teamGlory[team] = sim.recutCurrentScore(team)
   inc sim.deedCounts[deed], times
   sim.deedGloryMass[deed] += amount
   # WIRE-OK "Glory by deed" endcard breakdown (THE WHOLE epic): the same
@@ -608,7 +608,7 @@ proc claimAchievement*(sim: var SimServer, team: Team, tree: Tree, tier: int,
   sim.claimedFirst[key] = true
   if not sim.config.gloryMultiplierRecut:
     # DARK PATH — GLORY v12, byte-for-byte.
-    sim.teamGlory[team] += amount
+    sim.teamGlory[team] += int64(amount)
   else:
     # ── MULTIPLIER RECUT (v13, armed) ── a claim folds RecutTierClass
     # (×1/×1/×2/×2/×4) × the surviving FIRST ×3 into the same single
@@ -654,7 +654,7 @@ proc claimAchievement*(sim: var SimServer, team: Team, tree: Tree, tier: int,
       sim.logGameEvent("GLORY_ACH_MODE_LIT team=" & teamText(team) &
         " tree=" & $tree & " lightCount=" & $lightCount &
         " bonus=" & $bonus)
-    sim.teamGlory[team] = int(sim.recutCurrentScore(team))
+    sim.teamGlory[team] = sim.recutCurrentScore(team)
   inc sim.deedCounts[dAchievement]
   sim.deedGloryMass[dAchievement] += amount
   sim.recordTeamDeed(team, dAchievement, 1, amount)
@@ -6179,7 +6179,7 @@ proc finishGame*(sim: var SimServer, winner: Team, isDraw = false, timeLimitReac
     # MINT cap applies; the armed PRODUCT bound does, so the backstop
     # covers the last fold of the episode too.
     sim.gloryProduct[winner] = sim.recutFoldObserved(winner, winFactor)
-    sim.teamGlory[winner] = int(sim.recutCurrentScore(winner))
+    sim.teamGlory[winner] = sim.recutCurrentScore(winner)
     if sim.gameEventLoggingEnabled:
       sim.logGameEvent(teamText(winner) & " win factor x" & $winFactor)
   if isDraw:
@@ -8150,7 +8150,7 @@ proc recutMintSurvivalCredit(sim: var SimServer, seatIndex: int) =
   let team = sim.players[seatIndex].team
   sim.gloryProduct[team] =
     sim.recutFoldPctObserved(team, RecutSurvivalCreditPct)
-  sim.teamGlory[team] = int(sim.recutCurrentScore(team))
+  sim.teamGlory[team] = sim.recutCurrentScore(team)
   sim.logGameEvent("GLORY_SURVIVAL_CREDIT team=" & teamText(team) &
     " alive_ticks=" & $ticks)
   sim.emitEvent(GloryDeed, source = seatIndex, target = ord(team),

@@ -188,6 +188,23 @@ proc mixHashInt(hash: var uint64, value: int) =
   ## Mixes one signed integer into a deterministic hash.
   hash.mixHash(cast[uint64](int64(value)))
 
+proc mixHashInt(hash: var uint64, value: int64) =
+  ## Mixes one 64-bit signed integer into a deterministic hash.
+  ##
+  ## WASM32 CRASH FIX: the `int` overload above widens to `int64` before
+  ## mixing, so the mixed bytes for any value are `cast[uint64](int64(v))`
+  ## either way — for every value an `int` can hold the two overloads emit
+  ## BYTE-IDENTICAL input to `mixHash`, and on a native build (where `int`
+  ## IS 64-bit) they are the same function over the same domain. The hash
+  ## is therefore unchanged on every platform and every existing recording
+  ## stays valid. What this overload buys is the CALLER: an `int64` field
+  ## (`gloryProduct`, `teamGlory`) no longer has to be narrowed through
+  ## `int(...)` to be hashed, which on wasm32 (`int` = 32 bits) range-checks
+  ## and kills the replay the moment the value exceeds 2^31-1 — exactly
+  ## what `RecutProductCapArmed` (= 2^31, glory.nim) saturates the glory
+  ## product to on any capped episode.
+  hash.mixHash(cast[uint64](value))
+
 proc mixHashBool(hash: var uint64, value: bool) =
   ## Mixes one boolean into a deterministic hash.
   hash.mixHashInt(ord(value))
@@ -513,7 +530,13 @@ proc gameHash*(sim: SimServer): uint64 =
   # stream; the product it feeds is what is causal — see its field comment).
   if sim.config.gloryMultiplierRecut:
     for team in sim.teams():
-      result.mixHashInt(int(sim.gloryProduct[team]))
+      # UNNARROWED (wasm32 fix): `gloryProduct` is `int64` and saturates at
+      # `RecutProductCapArmed` = 2^31, which does NOT fit `int` on wasm32.
+      # The old `int(...)` here range-checked and killed the published
+      # replay viewer on every capped episode. Hash bytes are unchanged:
+      # the `int` overload mixed `cast[uint64](int64(v))`, this mixes
+      # `cast[uint64](v)` on the same `int64` value.
+      result.mixHashInt(sim.gloryProduct[team])
       result.mixHashInt(sim.gloryFfIncidents[team])
   # ALLIANCE P1 (formal-alliances design, 2026-09-02/03, GameVersion 54):
   # the pact registry. Unconditional (not flag-gated) — unlike the recut

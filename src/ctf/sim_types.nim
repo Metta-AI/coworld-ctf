@@ -4683,7 +4683,7 @@ type
     # accounting -- there is no pre-glory BR recording to backfill, so the
     # rig has no BR use case; the golden fixture was re-recorded fresh in
     # the same commit that landed this increment).
-    teamGlory*: array[Team, int]      ## GLORY: the team ledger. Under the
+    teamGlory*: array[Team, int64]    ## GLORY: the team ledger. Under the
                                       ## armed multiplier recut (v13) this
                                       ## carries the DERIVED integer score
                                       ## `recutScore(gloryProduct,
@@ -4694,6 +4694,22 @@ type
                                       ## the recut score with zero reader
                                       ## changes. Dark: exactly the v12
                                       ## sum, byte-identical.
+                                      ## WASM32: `int64`, not `int`. It
+                                      ## carries `recutCurrentScore` (an
+                                      ## `int64`), which with
+                                      ## `gloryFixedPointScale` DARK is the
+                                      ## raw product and so reaches
+                                      ## `RecutProductCapArmed` = 2^31 --
+                                      ## one past `int32.high`. On a native
+                                      ## build `int` IS 64-bit, so this is
+                                      ## a NO-OP there (same width, same
+                                      ## hashed bytes, same wire); on the
+                                      ## wasm32 replay viewer it is the
+                                      ## difference between replaying a
+                                      ## capped episode and a range-check
+                                      ## abort. Structural: it no longer
+                                      ## depends on the manifest's scale
+                                      ## flag being armed to stay in range.
     # ── MULTIPLIER RECUT (GLORY v13) canonical armed state ── written ONLY
     # while `config.gloryMultiplierRecut` is armed (awardDeed/
     # claimAchievement else-branches, sim.nim) and mixed into gameHash ONLY
@@ -5032,6 +5048,24 @@ proc teamEndzoneColor*(team: Team): ColorRGBA =
   of Navy: NavyEndzoneColor
   of Azure: AzureEndzoneColor
   of Peach: PeachEndzoneColor
+
+func gloryReportInt*(value: int64): int {.inline.} =
+  ## Narrows one `int64` glory-ledger value to the plain `int` that the
+  ## REPORT/SCAN types carry (`seq[int]` on the wire scan, the roster's
+  ## banked-score array), SATURATING rather than range-aborting.
+  ##
+  ## On every build that SCORES a game -- native, where Nim's `int` IS
+  ## 64-bit -- both bounds below are `int64.high`/`int64.low`, so this is
+  ## the IDENTITY function: same value, same wire bytes, same banked league
+  ## score, no scoring change whatsoever. It exists for the wasm32 replay
+  ## viewer (`int` = 32 bits), which only DISPLAYS the number and where an
+  ## unchecked narrowing of a ledger that legitimately reaches
+  ## `RecutProductCapArmed` = 2^31 (glory.nim) would abort the replay with
+  ## "value out of range". The canonical `int64` state is what is hashed;
+  ## this clamp never touches it.
+  if value > int64(int.high): int.high
+  elif value < int64(int.low): int.low
+  else: int(value)
 
 # Pure aim-angle math (needed on both sides of the art/gameplay split).
 proc distSq*(ax, ay, bx, by: int): int =

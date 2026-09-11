@@ -1436,3 +1436,58 @@ suite "GV14 win factor: the M_solo/M_duo seam, end to end":
     # gate is now the only 1st-vs-2nd separator (sizing package §2).
     check sim.gloryProduct[Team(1)] mod 24 == 0
     check sim.gloryProduct[Team(1)] < sim.gloryProduct[Team(0)]
+
+suite "gameHash mixes the glory product at FULL 64-bit width (wasm32 fix)":
+  ## THE BLOCKER, 2026-09-11: `RecutProductCapArmed` (glory.nim) saturates
+  ## `sim.gloryProduct` at 2^31 — ONE PAST `int32.high`. `gameHash`
+  ## (sim_state.nim) used to narrow it through `int(...)` before mixing.
+  ## On a native build that is a no-op (`int` IS 64-bit), which is why the
+  ## whole native suite, every recording and every live score were fine and
+  ## nothing here could ever go red. On the SHIPPED wasm32 replay viewer
+  ## (`int` = 32 bits) the same conversion range-checked and killed the
+  ## replay on the first capped tick:
+  ##   advance replay: value out of range: 2147483648 notin
+  ##   -2147483648 .. 2147483647
+  ## The wasm-side red-proof is the fixture gate
+  ## (tests/fixtures/glory-product-cap.bitreplay, run through
+  ## tools/wasm_replay_smoke.cjs by .github/workflows/build.yml) — native
+  ## CANNOT observe that class. What this suite pins instead is the
+  ## SCHEMA the fix depends on: the mix must see all 64 bits, so a value
+  ## that only a 32-bit narrowing would collapse still moves the hash.
+
+  test "two products that collide under a 32-bit narrowing hash differently":
+    let team = Team(0)
+    # 2^31 is exactly what the armed cap saturates to; 2^31 + 2^32 has the
+    # SAME low 32 bits, so any `int32`-narrowing mix would fold them onto
+    # one hash. A 64-bit mix must keep them apart.
+    var atCap = startedGame(recutConfig(br = false), 4)
+    atCap.gloryProduct[team] = RecutProductCapArmed
+    var aliased = startedGame(recutConfig(br = false), 4)
+    aliased.gloryProduct[team] = RecutProductCapArmed + (int64(1) shl 32)
+    check (RecutProductCapArmed and 0xFFFFFFFF'i64) ==
+      ((RecutProductCapArmed + (int64(1) shl 32)) and 0xFFFFFFFF'i64)
+    check atCap.gameHash() != aliased.gameHash()
+
+  test "hashing a capped product does not raise, and the cap is reachable":
+    var sim = startedGame(recutConfig(br = false), 4)
+    sim.gloryProduct[Team(0)] = RecutProductCapArmed
+    # The value the wasm32 viewer choked on, verbatim.
+    check sim.gloryProduct[Team(0)] == 2147483648'i64
+    check sim.gloryProduct[Team(0)] > int64(int32.high)
+    discard sim.gameHash()
+
+  test "the ledger carries the unscaled capped score without narrowing":
+    # `teamGlory` is `int64` for the same reason: with
+    # `gloryFixedPointScale` DARK, `recutCurrentScore` is the RAW product,
+    # so the ledger itself reaches 2^31 and a 32-bit `int` field would
+    # range-abort on assignment in the viewer's own sim.
+    var sim = startedGame(recutConfig(br = false), 4)
+    check not sim.config.gloryFixedPointScale
+    sim.gloryProduct[Team(0)] = RecutProductCapArmed
+    check sim.recutCurrentScore(Team(0)) == RecutProductCapArmed
+    sim.teamGlory[Team(0)] = sim.recutCurrentScore(Team(0))
+    check sim.teamGlory[Team(0)] == 2147483648'i64
+    # The REPORT projection is where the narrowing lives now, and it
+    # saturates instead of aborting. Native (`int` = 64-bit) is identity.
+    check gloryReportInt(sim.teamGlory[Team(0)]) == int(2147483648'i64)
+    check gloryReportInt(int64(int.high)) == int.high
