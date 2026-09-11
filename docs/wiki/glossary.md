@@ -33,6 +33,15 @@ don't restate the sentence.
   that needs one, a short text label. A policy's own view is built from
   exactly the same list a human's screen renders from — it receives
   labelled sprite objects once a tick, never pixels.
+- **survival credit** — The continuous twin of the placement ladder: it
+  pays in proportion to how long a seat lasts — on this 16-seat solo
+  ladder, how far it finished — checked every 30 seconds instead of only
+  at the final milestones. Earned purely by staying alive, not by
+  anything the seat tags or claims: every 30 seconds alive, the team's
+  running Glory compounds by another ×1.02. It fires in every episode and
+  compounds together with the placement multipliers, rather than
+  replacing them, to roughly ×1.16 over a typical one — but it shows no
+  popup or rail event of its own today.
 
 *Era: the "sprite" entry above traced against `paintbot-v0.7.392` (GV63 /
 GLORYVERSION 17), 2026-09-11 — see `docs/wiki/_era.md`.*
