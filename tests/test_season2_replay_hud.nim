@@ -511,3 +511,109 @@ suite "SEASON 2 replay viewer HUD: comms rail redesign (owner 2026-09-10)":
         check not body.contains("commsdock")
         checkpoint(page.label & ": the board fit must stay fixed-constant geometry")
         check body.contains("var LANE_MIN = 300, RAIL_MIN = 240;")
+
+suite "SEASON 2 replay viewer HUD: intent-word clip fix (owner defect, 2026-09-10/11)":
+  ## MEASURED DEFECT (pre-existing, unchanged by #536's chip-clip fix above
+  ## -- a different element): DOM-measured via the same spliced-source +
+  ## synthetic-frame + real-font harness as the chip clip suite, real round
+  ## 4655 roster (league_b8fa9b35-ac22-48cf-a03f-07b397aff1c7): on main AND
+  ## on #536's own head (byte-identical), `.br-cell-intent` clipped its own
+  ## content -- scrollWidth 51 vs clientWidth 47px at a 1440px viewport
+  ## width ("allied push", the vocabulary's own longest word, mid-word-cut
+  ## by the pre-existing CSS ellipsis into "allied pu…"), 18 vs 15px at
+  ## 390px. Root cause: the 30u max-width cap was narrower than "allied
+  ## push" actually renders under the real rajdhani font (needs ~32.3u) --
+  ## never a flex-shrink question; `.br-cell-mname`, the sibling with real
+  ## shrink room, was already down at its own ellipsis floor when this
+  ## happened, same as #536's own root-cause note found for the numeral.
+  ## Fix: 35u closes that gap for every full word above the owner's 390px
+  ## floor (DOM-confirmed: name absorbs the small remaining deficit via its
+  ## own pre-existing shrink+ellipsis, the numeral untouched either way);
+  ## below the floor a plain CSS cap can't help without starving the name
+  ## to an unreadable sliver (DOM-confirmed: a cap-only fix left the name's
+  ## own clientWidth at 3px -- one glyph, not an identity), so the word is
+  ## swapped for a fixed short form (INTENT_SHORT) instead of asking CSS to
+  ## cut it. Verified DOM-measured 0/16 clip on `.br-cell-intent` at both
+  ## 1440 and 390 after this fix (name still ellipses as designed; the
+  ## numeral never clips at either width, before or after) --
+  ## screenshot/DOM verification only, not re-encoded here (this suite pins
+  ## the tokens the fix depends on, same idiom as the chip clip suite).
+  test "the intent caption's own width cap fits the vocabulary's longest full word":
+    checkInBoth "max-width: calc(35 * var(--u));\n  flex: none;\n}"
+
+  test "INTENT_SHORT carries one entry for every intentWordFor() vocabulary word":
+    # The complete, hand-verified vocabulary intentWordFor() can return
+    # (excluding '', which the .dead row hides rather than captions).
+    let vocabulary = ["downed", "resupplying", "carrying", "tagging",
+                       "allied push", "holding", "hunting"]
+    for page in bothPages():
+      let text = page.text
+      let fnStart = text.find("function intentWordFor(p, s, team, tr) {")
+      checkpoint(page.label & ": could not locate intentWordFor()")
+      check fnStart >= 0
+      let fnEnd = text.find("\n  }\n", fnStart)
+      checkpoint(page.label & ": could not find intentWordFor()'s own closing brace")
+      check fnEnd > fnStart
+      if fnStart >= 0 and fnEnd > fnStart:
+        let fnBody = text[fnStart ..< fnEnd]
+        for word in vocabulary:
+          checkpoint(page.label & ": intentWordFor() no longer returns '" & word &
+            "' -- update this suite's vocabulary list to match")
+          check fnBody.contains("'" & word & "'")
+      let mapStart = text.find("var INTENT_SHORT = {", fnEnd)
+      checkpoint(page.label & ": could not locate the INTENT_SHORT map")
+      check mapStart >= 0
+      let mapEnd = text.find("\n  };", mapStart)
+      checkpoint(page.label & ": could not find INTENT_SHORT's own closing brace")
+      check mapEnd > mapStart
+      if mapStart >= 0 and mapEnd > mapStart:
+        let mapBody = text[mapStart ..< mapEnd]
+        for word in vocabulary:
+          checkpoint(page.label & ": INTENT_SHORT is missing an entry for '" & word & "'")
+          check mapBody.contains("'" & word & "'") or mapBody.contains(word & ":")
+
+  test "every short form is shorter than its word, non-empty, and never an ellipsis":
+    # The map's exact values, restated here as plain data so this test
+    # fails the moment either side of the map drifts from the intent.
+    const shortOf = [
+      ("downed", "down"), ("resupplying", "resup"), ("carrying", "carry"),
+      ("tagging", "tag"), ("allied push", "ally"), ("holding", "hold"),
+      ("hunting", "hunt")]
+    for pair in shortOf:
+      let (word, short) = pair
+      checkpoint("'" & short & "' (short form for '" & word & "') must be non-empty")
+      check short.len > 0
+      checkpoint("'" & short & "' must be strictly shorter than '" & word & "'")
+      check short.len < word.len
+      checkpoint("'" & short & "' must never carry an ellipsis")
+      check not short.contains("…")
+    checkInBoth "downed: 'down',"
+    checkInBoth "resupplying: 'resup',"
+    checkInBoth "carrying: 'carry',"
+    checkInBoth "tagging: 'tag',"
+    checkInBoth "'allied push': 'ally',"
+    checkInBoth "holding: 'hold',"
+    checkInBoth "hunting: 'hunt'"
+
+  test "the narrow-word floor is the owner's 390px, same matchMedia idiom this file already uses":
+    # Same pattern as EC_REDUCED_MOTION (prefers-reduced-motion) rather than
+    # overloading boardW's own .tiny threshold (620px -- a board-FIT
+    # concern, see relayout()'s own comment -- not this caption's own
+    # word-fit concern).
+    checkInBoth "var INTENT_NARROW_MQL = window.matchMedia ? window.matchMedia('(max-width: 390px)') : null;"
+    checkInBoth "var narrow = !!(INTENT_NARROW_MQL && INTENT_NARROW_MQL.matches);"
+
+  test "the caption swaps text below the floor; the full word never leaves title/aria":
+    checkInBoth "var shown = (narrow && word) ? (INTENT_SHORT[word] || word) : word;"
+    checkInBoth "intentEl.textContent = shown;"
+    # title/aria stay keyed on `word` (the full vocabulary word), never on
+    # `shown` (the possibly-abbreviated caption) -- restated here as a
+    # guard against a future edit collapsing the two.
+    checkInBoth "var tip = (word === 'downed') ? GLOSSARY.downed : GLOSSARY.intent;"
+    checkInBoth "intentEl.setAttribute('aria-label', word ? (word + ' — ' + tip) : tip);"
+
+  test "the numeral is still never the side that gives -- untouched by this fix":
+    # Same guard the chip clip suite carries for its own fix: this PR
+    # touches `.br-cell-intent` and its render site only.
+    checkInBoth ".br-cell-glory {\n  font-family: var(--pixfont);"
+    checkInBoth "  flex: none;\n  transform-origin: left center;\n}"
