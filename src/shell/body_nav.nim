@@ -45,8 +45,8 @@ const
 
 type
   DangerWorkspace = object
-    visited: seq[uint32]
-    visitGeneration: uint32
+    visited: seq[uint8]
+    visitGeneration: uint8
 
   DangerCandidate* = object
     seatIndex*: int
@@ -55,6 +55,13 @@ type
   DangerInput* = object
     selfXy*: BodyPoint
     candidates*: seq[DangerCandidate]
+
+  DangerGeometry = ref object
+    kernel: seq[float32]
+    perimeter: seq[BodyPoint]
+    radius: int
+    gridWidth, gridHeight: int
+    sightBlocked: seq[bool]
 
   BodyNavSeat* = ref object
     index*: int
@@ -66,9 +73,7 @@ type
     mintRevision*: uint64
     danger*: BodyDangerField
     dangerWorkspace: DangerWorkspace
-    dangerKernel: seq[float32]
-    dangerPerimeter: seq[BodyPoint]
-    dangerRadius: int
+    dangerGeometry: DangerGeometry
     dangerRangePx: int
     selectedDangerSeats: array[MaxDangerSources, int]
     selectedDangerPoints: array[MaxDangerSources, BodyPoint]
@@ -166,11 +171,17 @@ proc initDanger(map: BodyMap): tuple[field: BodyDangerField,
   let size = map.gridWidth * map.gridHeight
   result.field = BodyDangerField(values: newSeq[float32](size),
     gridW: map.gridWidth, gridH: map.gridHeight)
-  result.workspace.visited = newSeq[uint32](size)
+  result.workspace.visited = newSeq[uint8](size)
 
-proc initDangerGeometry(liveGunRangePx: int): tuple[kernel: seq[float32],
-                                 perimeter: seq[BodyPoint], radius: int] =
-  ## Immutable ray geometry shared by all seats; activation-time allocation.
+proc initDangerGeometry(map: BodyMap, liveGunRangePx: int): DangerGeometry =
+  ## One reference owner shares immutable arrays across seats under ORC.
+  new(result)
+  result.gridWidth = map.gridWidth
+  result.gridHeight = map.gridHeight
+  result.sightBlocked = newSeq[bool](map.gridWidth * map.gridHeight)
+  for y in 0 ..< map.gridHeight:
+    for x in 0 ..< map.gridWidth:
+      result.sightBlocked[y * map.gridWidth + x] = map.isWall(cellCenter((x, y)))
   result.radius = max(1, (liveGunRangePx + NavCell - 1) div NavCell)
   let diameter = result.radius * 2 + 1
   result.kernel = newSeq[float32](diameter * diameter)
@@ -217,7 +228,7 @@ proc newBodyNavSystem*(map: BodyMap, seatCount, liveGunRangePx: int,
   result.mintTrace = newSeq[MintVisit](traceCapacity)
   result.dangerTrace = newSeq[DangerRebuild](traceCapacity)
   result.seats = newSeq[BodyNavSeat](seatCount)
-  let dangerGeometry = initDangerGeometry(liveGunRangePx)
+  let dangerGeometry = initDangerGeometry(map, liveGunRangePx)
   for index in 0 ..< seatCount:
     let cache = newBodySeatCache(map)
     let planner = newBodyPlanner(map)
@@ -225,9 +236,7 @@ proc newBodyNavSystem*(map: BodyMap, seatCount, liveGunRangePx: int,
     result.seats[index] = BodyNavSeat(index: index, cache: cache,
       planner: planner, danger: danger.field,
       dangerWorkspace: danger.workspace, dangerTick: 0, active: true,
-      dangerKernel: dangerGeometry.kernel,
-      dangerPerimeter: dangerGeometry.perimeter,
-      dangerRadius: dangerGeometry.radius,
+      dangerGeometry: dangerGeometry,
       dangerRangePx: liveGunRangePx,
       desiredProfile: shellTypes.cpDefault,
       path: newSeq[BodyPoint](planner.workspaceCapacity + 2))
@@ -306,7 +315,7 @@ proc setSeatActive*(system: BodyNavSystem, seat: int, active: bool) =
   system.seats[seat].active = active
 
 proc nextVisitGeneration(seat: BodyNavSeat) =
-  if seat.dangerWorkspace.visitGeneration == high(uint32):
+  if seat.dangerWorkspace.visitGeneration == high(uint8):
     for value in seat.dangerWorkspace.visited.mitems:
       value = 0
     seat.dangerWorkspace.visitGeneration = 1
@@ -330,12 +339,12 @@ proc addVisibleCell(seat: BodyNavSeat, origin: BodyPoint,
   let kernelY = gy - origin.y + kernelRadius
   seat.danger.values[index] += kernel[kernelY * diameter + kernelX]
 
-proc sightCellBlocked(map: BodyMap, x, y: int): bool {.inline.} =
-  if x < 0 or x >= map.gridWidth or y < 0 or y >= map.gridHeight:
+proc sightCellBlocked(geometry: DangerGeometry, x, y: int): bool {.inline.} =
+  if x < 0 or x >= geometry.gridWidth or y < 0 or y >= geometry.gridHeight:
     return true
-  map.isWall(cellCenter((x, y)))
+  geometry.sightBlocked[y * geometry.gridWidth + x]
 
-proc castRay(seat: BodyNavSeat, map: BodyMap, origin: BodyPoint,
+proc castRay(seat: BodyNavSeat, origin: BodyPoint,
              kernel: openArray[float32], kernelRadius,
              targetX, targetY: int) =
   let dx = targetX - origin.x
@@ -348,12 +357,15 @@ proc castRay(seat: BodyNavSeat, map: BodyMap, origin: BodyPoint,
   var y = origin.y
   var ix = 0
   var iy = 0
+  var decision = ny - nx
+  let twiceNx = 2 * nx
+  let twiceNy = 2 * ny
   while ix < nx or iy < ny:
-    let decision = (1 + 2 * ix) * ny - (1 + 2 * iy) * nx
     if decision == 0:
       let sideX = x + stepX
       let sideY = y + stepY
-      if map.sightCellBlocked(sideX, y) or map.sightCellBlocked(x, sideY):
+      if seat.dangerGeometry.sightCellBlocked(sideX, y) or
+          seat.dangerGeometry.sightCellBlocked(x, sideY):
         break
       seat.addVisibleCell(origin, kernel, kernelRadius, sideX, y)
       seat.addVisibleCell(origin, kernel, kernelRadius, x, sideY)
@@ -361,13 +373,16 @@ proc castRay(seat: BodyNavSeat, map: BodyMap, origin: BodyPoint,
       y = sideY
       inc ix
       inc iy
+      decision += twiceNy - twiceNx
     elif decision < 0:
       x += stepX
       inc ix
+      decision += twiceNy
     else:
       y += stepY
       inc iy
-    if map.sightCellBlocked(x, y):
+      decision -= twiceNx
+    if seat.dangerGeometry.sightCellBlocked(x, y):
       break
     seat.addVisibleCell(origin, kernel, kernelRadius, x, y)
 
@@ -380,10 +395,12 @@ proc rebuildDangerFromPoints(seat: BodyNavSeat, map: BodyMap,
   for source in sources:
     let origin = map.cellOf(source)
     seat.nextVisitGeneration()
-    seat.addVisibleCell(origin, seat.dangerKernel, seat.dangerRadius,
+    seat.addVisibleCell(origin, seat.dangerGeometry.kernel,
+      seat.dangerGeometry.radius,
       origin.x, origin.y)
-    for offset in seat.dangerPerimeter:
-      seat.castRay(map, origin, seat.dangerKernel, seat.dangerRadius,
+    for offset in seat.dangerGeometry.perimeter:
+      seat.castRay(origin, seat.dangerGeometry.kernel,
+        seat.dangerGeometry.radius,
         origin.x + offset.x, origin.y + offset.y)
     let closeRange = min(DangerClosePx, seat.dangerRangePx)
     let closeCells = (closeRange + NavCell - 1) div NavCell
