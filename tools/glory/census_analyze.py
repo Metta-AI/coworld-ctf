@@ -9,14 +9,27 @@ Usage:
 import argparse
 import json
 import math
+import os
 import statistics
+import sys
 from collections import Counter, defaultdict
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import catalog_fold  # noqa: E402
 
 CAP = 2 ** 24
 
 # Full Deed enum, verbatim from src/ctf/glory.nim (order matches the enum
 # declaration; dNone and dAchievement excluded -- dAchievement never mints
-# as a glory_deed row, it rides the separate 'achievement' kind).
+# as a glory_deed row, it rides the separate 'achievement' kind) -- the 31
+# named deeds -- PLUS `survivalCredit`, which is NOT a member of that enum
+# and so was silently missing from this census entirely (the table read as
+# a 31-row catalog of a 32-price economy). It is minted by sim.nim's
+# `recutMintSurvivalCredit` as a raw `GloryDeed`-kind event that bypasses
+# `awardDeed`; see catalog_fold.CONTINUOUS_CREDIT_WEAPONS for the full
+# semantics, its HANDED classification, and the measured realized effect.
+# Reporting-only: this list never touches a fold, so adding it changes no
+# reconciled score.
 ALL_DEEDS = [
     "dFirstBlood", "dHonorableKill", "dSprayKill", "dGrenadeKill",
     "dPointBlankKill", "dLongshotKill", "dSplashMultiKill", "dRevengeKill",
@@ -25,7 +38,7 @@ ALL_DEEDS = [
     "dClutchHeal", "dShieldSoak", "dWipe", "dLevelUp",
     "dDuoDown", "dClosingTime", "dLastLight", "dVictory", "dTagBack",
     "dJointAct", "dFinal8", "dFinal4", "dFinal2",
-]
+] + sorted(catalog_fold.CONTINUOUS_CREDIT_WEAPONS)
 
 
 def percentile(sorted_vals, p):
@@ -69,20 +82,25 @@ def main():
             ach_total[w] += c
             ach_eps[w].add(r["episode_id"])
 
-    print("=== Q1: PER-DEED MINT COUNT PER EPISODE (16 seats pooled) ===")
-    print(f"{'deed':<18} {'mints/ep':>10} {'%eps>=1':>9} {'total_mints':>12}")
+    print("=== Q1: PER-DEED MINT COUNT (per EPISODE, 16 seats pooled, AND "
+          "per SEAT-episode) ===")
+    print(f"{'deed':<18} {'mints/ep':>10} {'mints/seat-ep':>14} {'%eps>=1':>9} "
+          f"{'total_mints':>12}")
     dead = []
     for d in ALL_DEEDS:
         total = deed_total.get(d, 0)
-        per_ep = total / n_eps
+        per_ep, per_seat_ep = catalog_fold.deed_rates(total, n_eps, n_seat_eps)
         pct_eps = 100 * len(deed_eps_with_fire.get(d, set())) / n_eps
-        print(f"{d:<18} {per_ep:>10.4f} {pct_eps:>8.2f}% {total:>12d}")
+        print(f"{d:<18} {per_ep:>10.4f} {per_seat_ep:>14.4f} {pct_eps:>8.2f}% "
+              f"{total:>12d}")
         if total == 0:
             dead.append(d)
     print(f"\nDEAD (0 mints across {n_eps} episodes): {dead}")
     print("\n-- achievement trees (separate catalog) --")
     for tree, total in ach_total.most_common():
-        print(f"{tree:<18} {total/n_eps:>10.4f} {100*len(ach_eps[tree])/n_eps:>8.2f}%")
+        per_ep, per_seat_ep = catalog_fold.deed_rates(total, n_eps, n_seat_eps)
+        print(f"{tree:<18} {per_ep:>10.4f} {per_seat_ep:>14.4f} "
+              f"{100*len(ach_eps[tree])/n_eps:>8.2f}%")
     print()
 
     scores = sorted(r["reported"] for r in rows if r["reported"] is not None)
@@ -135,8 +153,10 @@ def main():
     print("=== Q5a: LONGSHOT / ACETAG / WIPE / TAGBACK ===")
     for d in ["dLongshotKill", "dAceTag", "dWipe", "dTagBack"]:
         total = deed_total.get(d, 0)
+        per_ep, per_seat_ep = catalog_fold.deed_rates(total, n_eps, n_seat_eps)
         pct_eps = 100 * len(deed_eps_with_fire.get(d, set())) / n_eps
-        print(f"{d:<16} total={total:<6} per_ep={total/n_eps:.4f}  %eps>=1={pct_eps:.2f}%")
+        print(f"{d:<16} total={total:<6} per_ep={per_ep:.4f}  "
+              f"per_seat_ep={per_seat_ep:.4f}  %eps>=1={pct_eps:.2f}%")
     print()
 
     print("=== Q5b: HEAT RUNG DISTRIBUTION (seat-time share, tick-weighted, full episode) ===")

@@ -70,6 +70,43 @@ HEAT_PAYING_DEEDS = frozenset({
 # glory.nim `RecutPlacementRampDeeds* = {dFinal8, dFinal4, dFinal2}`.
 PLACEMENT_RAMP_DEEDS = frozenset({"dFinal8", "dFinal4", "dFinal2"})
 
+# The placement ramp's CONTINUOUS companion -- the one priced weapon on the
+# armed v3 wire that is not a member of glory.nim's `GloryDeed` enum at all,
+# which is why it is absent from `RECUT_CLASS_TABLE` below by construction
+# rather than by oversight, and why it never appeared in the 31-deed
+# catalog. Catalogued here so the catalog is complete.
+#
+# SEMANTICS, matching the sim exactly (`recutMintSurvivalCredit`,
+# sim.nim:8128-8158): every `RecutSurvivalCreditIntervalTicks` boundary an
+# ALIVE seat's `aliveTicks` crosses -- 720 ticks, 30 s at the engine's 24
+# ticks/s -- it folds `RecutSurvivalCreditPct` (102 = x1.02) into
+# `gloryProduct[team]` through the SAME `recutFoldPct` fixed-point path
+# every other v3 price uses, compounding, and emits a raw
+# `emitEvent(GloryDeed, weapon="survivalCredit", amount=102,
+# content="GLORY_SURVIVAL_CREDIT")` that BYPASSES `awardDeed` -- so it
+# carries no `shiftedClass|heat|carry|stack` sub-factor tuple, unlike every
+# deed that does route through `awardDeed`. Gated on placementRampV3 +
+# gloryMultiplierRecut + winAsMultiplier + brMode (all armed live).
+#
+# THIS IS A RECORD OF THE PRICE, NOT A NEW FOLD INPUT. Because the wire
+# `amount` already IS that percent, `fold_events_v3` has always priced
+# `survivalCredit` correctly with no table entry (it carries its own
+# contribution -- the exact opposite of `achModeLit` below, whose bonus was
+# ALREADY embedded in its paired achievement event and so had to be excluded
+# from the fold). Nothing on the reconciliation path reads the names below;
+# adding them changes no reconciled number.
+#
+# ATTRIBUTION CLASS -- HANDED (`PLACEMENT_BASE`), a CONSIDERED call, not an
+# artifact of the weapon name; do not "fix" it to CONSTANT. Survival credit
+# is not paid to every seat equally the way the CONSTANT floor is: it is
+# paid in proportion to how long you last, and in a 16-solo battle royale
+# "how long you lasted" IS "where you finished", measured continuously. It
+# is the placement ladder's continuous twin -- which is why bundling it with
+# `dFinal8`/`dFinal4`/`dFinal2` in attribution_decompose.py's
+# `V3_PLACEMENT_WEAPONS` (and routing it to `PLACEMENT_BASE` there and in
+# cap_sweep.py) is correct.
+CONTINUOUS_CREDIT_WEAPONS = frozenset({"survivalCredit"})
+
 # sim.nim emits these `GloryDeed`-kind wire events OUTSIDE the
 # awardDeed/claimAchievement fold entirely -- pure informational markers,
 # never folded into `gloryProduct` (see sim.nim ~L357/380 `capHit`,
@@ -142,6 +179,34 @@ RECUT_CLOSING_TIME_WIN_BUMP_V3_PCT = 120
 # GLORY GRADIENT S8 PLACEMENT LADDER B (owner decision, 2026-09-10,
 # CAP-CEILING-S7.md §Placement): moved off S5/S6's 100/100/130.
 RECUT_PLACEMENT_RAMP_PCT = {"dFinal8": 115, "dFinal4": 130, "dFinal2": 160}
+# glory.nim `RecutSurvivalCreditPct*` / `RecutSurvivalCreditIntervalTicks*`
+# (3134 / 3128): the placement ramp's continuous companion price, x1.02 per
+# 720 alive ticks (30 s at 24 ticks/s), compounding. See
+# `CONTINUOUS_CREDIT_WEAPONS` above for the full semantics and the HANDED
+# classification. Recorded, not read by the fold: the wire `amount` already
+# carries this percent.
+#
+# NOMINAL vs REALIZED -- do not quote the nominal as the effect. Nominal is
+# x1.02**n. REALIZED, measured on the live GV18/GameVersion-63 cohort
+# (r4828-r4833, 90 episodes / 1,440 seat-episodes, counterfactual: each
+# seat's product refolded WITH vs WITHOUT its own survivalCredit events):
+# mean x1.0002, median x1.0000, p90 x1.0000, max x1.0612; only 1/1440 seats
+# (0.07%) realize as much as x1.05. Score deciles D1-D9 realize EXACTLY
+# x1.0000; only D10 moves, and its mean is x1.0017.
+#
+# WHY, and it is not rounding: `recutFoldPct` SKIPS any factor in
+# 100 < pct < 200 outright while the unscaled accumulator sits at or below
+# `RecutMinAccumulatorForSmallPct` = 64 (GATE RULING 2 -- glory.nim:3025,
+# 3074-3075; `recut_fold_pct` below is the port), so a pct=102 credit is
+# IDENTICALLY ZERO until a seat has already climbed past ~64 on real deeds
+# -- the dependency sim.nim:8134-8143 names in its own doc comment. 482 of
+# the 492 firing seats in that cohort had every one of their folds skipped.
+# The other half of the gap is a units error worth naming: the ~8
+# firings/EPISODE figure is the total across all 16 seats, so the typical
+# seat draws 0.50 firings and the busiest seat in the cohort drew 5 --
+# 1.02**8.49 was never a per-seat quantity.
+RECUT_SURVIVAL_CREDIT_PCT = 102
+RECUT_SURVIVAL_CREDIT_INTERVAL_TICKS = 720
 HEAT_LADDER_V3_PCT = (100, 500, 1400, 3600)  # rung 0..3
 RECUT_STACK_LADDER_V3_PCT = (100, 500, 750, 1250, 2000, 3250)  # k=1..6+
 CARRIER_HOLD_MULT_PCT = 200
@@ -242,6 +307,24 @@ def recut_win_factor(br_mode: bool, winner_seats: int) -> int:
     if not br_mode:
         return 1
     return RECUT_WIN_FACTOR_BR_SOLO if winner_seats <= 1 else RECUT_WIN_FACTOR_BR
+
+
+def deed_rates(total: int, n_episodes: int, n_seat_episodes: int):
+    """Both mint rates for one deed, ALWAYS returned as a pair: (per
+    EPISODE, per SEAT-EPISODE). Every census table prints both, side by
+    side, and none of them may print only one.
+
+    A per-EPISODE rate pools all 16 seats, so it is ~16x the rate any ONE
+    seat sees. Quoting it as though it were a per-seat quantity is exactly
+    the error that published `survivalCredit` as "roughly x1.16 over a
+    typical episode": 8.49 mints/episode is 0.50 mints/SEAT-episode, and
+    compounding x1.02 8.49 times describes a seat that never existed (the
+    busiest seat in the live GV18 cohort drew 5 credits, and the realized
+    per-seat multiplier is x1.0002 -- see `CONTINUOUS_CREDIT_WEAPONS`).
+    Pinned by `test_catalog_fold.py`'s `test_deed_rates_reports_both`.
+    """
+    return (total / n_episodes if n_episodes else 0.0,
+            total / n_seat_episodes if n_seat_episodes else 0.0)
 
 
 # ── the whole per-seat-episode fold, v2 and v3 ──────────────────────────
