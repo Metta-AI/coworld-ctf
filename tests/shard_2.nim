@@ -51,6 +51,7 @@ import
   test_shell_body_map,
   test_shell_body_ray,
   test_shell_body_danger_exact,
+  test_shell_body_heap_exact,
   test_shell_body_nav,
   test_shell_body_seat,
   test_shell_combat,
