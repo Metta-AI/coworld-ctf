@@ -7,3 +7,8 @@ preserved the implementation, experiments, raw evidence, lessons and restart
 steps. James approved merging this archive while leaving the live runtime
 unchanged. The performance goal and final navigation qualification are
 unfinished. Resume only on a fresh explicit instruction.
+
+On September 11 James explicitly requested integrating useful progress into the
+runtime. The bounded current-planner port is documented in
+[Navigation runtime optimizations](../reports/nav-runtime-benefits-2026-09-11.md).
+It does not qualify or complete the archived routing rewrite.

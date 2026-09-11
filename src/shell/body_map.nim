@@ -138,9 +138,32 @@ proc inBounds*(map: BodyMap, point: BodyPoint): bool =
 proc isWall*(map: BodyMap, point: BodyPoint): bool =
   not map.inBounds(point) or map.wall[map.pixelIndex(point.x, point.y)]
 
+proc roundedRayCoordinate(lower, remainder, steps: int): int {.inline.} =
+  if remainder * 2 > steps or
+      (remainder * 2 == steps and (lower and 1) != 0):
+    lower + 1
+  else:
+    lower
+
+proc advanceRayCoordinate(lower, remainder: var int;
+    delta, steps, advance: int) {.inline.} =
+  if advance == 1:
+    remainder += delta
+    if remainder < 0:
+      remainder += steps
+      dec lower
+    elif remainder >= steps:
+      remainder -= steps
+      inc lower
+  else:
+    let accumulated = remainder.int64 + delta.int64 * advance.int64
+    let whole = floorDiv(accumulated, steps.int64)
+    lower += whole.int
+    remainder = (accumulated - whole * steps.int64).int
+
 proc rayClear*(map: BodyMap, a, b: BodyPoint): bool =
-  ## Pixel ray check for body-side weapon gating. Endpoints outside the map
-  ## are blocked; otherwise any wall pixel sampled along the segment blocks.
+  ## Same nearest-pixel samples and ties-to-even as the floating interpolant.
+  ## abs(delta) <= steps, so one remainder correction advances each axis.
   if not map.inBounds(a) or not map.inBounds(b):
     return false
   let
@@ -149,12 +172,42 @@ proc rayClear*(map: BodyMap, a, b: BodyPoint): bool =
     steps = max(abs(dx), abs(dy))
   if steps == 0:
     return not map.isWall(a)
-  for step in 0 .. steps:
-    let point = (
-      x: pyRound(a.x.float + dx.float * step.float / steps.float),
-      y: pyRound(a.y.float + dy.float * step.float / steps.float))
-    if map.isWall(point):
-      return false
+  # Consecutive samples move at most one pixel per axis. The immutable
+  # Chebyshev clearance therefore bounds how many samples are known clear;
+  # saturation at 255 only shortens a safe jump. The major axis is integral,
+  # and the minor axis retains the exact nearest/ties-even remainder state.
+  if abs(dx) >= abs(dy):
+    var x = a.x
+    var lowerY = a.y
+    var remainderY = 0
+    let stepX = cmp(dx, 0)
+    var sample = 0
+    while sample <= steps:
+      let y = roundedRayCoordinate(lowerY, remainderY, steps)
+      let clearSteps = map.clearance[map.pixelIndex(x, y)].int
+      if clearSteps == 0:
+        return false
+      if clearSteps > steps - sample:
+        return true
+      sample += clearSteps
+      x += stepX * clearSteps
+      advanceRayCoordinate(lowerY, remainderY, dy, steps, clearSteps)
+  else:
+    var y = a.y
+    var lowerX = a.x
+    var remainderX = 0
+    let stepY = cmp(dy, 0)
+    var sample = 0
+    while sample <= steps:
+      let x = roundedRayCoordinate(lowerX, remainderX, steps)
+      let clearSteps = map.clearance[map.pixelIndex(x, y)].int
+      if clearSteps == 0:
+        return false
+      if clearSteps > steps - sample:
+        return true
+      sample += clearSteps
+      y += stepY * clearSteps
+      advanceRayCoordinate(lowerX, remainderX, dx, steps, clearSteps)
   true
 
 proc clearanceAt*(map: BodyMap, point: BodyPoint): int =

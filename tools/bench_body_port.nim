@@ -87,7 +87,7 @@ proc percentile(samples: openArray[int64], fraction: float): int64 =
 proc row(name: string, samples: seq[int64],
          details = newJObject()): JsonNode =
   %*{"name": name, "samples": samples.len,
-    "median_ns": percentile(samples, 0.5),
+    "raw_ns": samples, "median_ns": percentile(samples, 0.5),
     "p95_ns": percentile(samples, 0.95), "details": details}
 
 proc generatedScenario(seed: int): Scenario =
@@ -201,6 +201,25 @@ proc dangerRow(options: Options, scenario: Scenario,
   details["live_gun_range_px"] = %liveRange
   details["danger_fingerprint"] = %($system.seats[0].dangerFingerprint)
   row("port.danger_rebuild_8src_live" & $liveRange, samples, details)
+
+proc rayRow(options: Options, scenario: Scenario): JsonNode =
+  # Fixed mixed directions and lengths; construct inputs outside the timer.
+  var rays: seq[tuple[a, b: BodyPoint]]
+  for index in 0 ..< 4096:
+    let a: BodyPoint = ((index * 137) mod scenario.map.width,
+                       (index * 83) mod scenario.map.height)
+    let b: BodyPoint = ((a.x + 1 + index * 31) mod scenario.map.width,
+                       (a.y + 1 + index * 47) mod scenario.map.height)
+    rays.add((a, b))
+  var clearCount = 0
+  let samples = measure(options.warmups, options.samples, proc() =
+    clearCount = 0
+    for ray in rays:
+      if scenario.map.rayClear(ray.a, ray.b): inc clearCount)
+  let details = scenario.mapDetails
+  details["ray_count"] = %rays.len
+  details["clear_count"] = %clearCount
+  row("port.ray_clear_4096", samples, details)
 
 proc planningGoals(scenario: Scenario): seq[BodyPoint] =
   if scenario.smoke:
@@ -826,6 +845,7 @@ proc runCase(options: Options, scenario: Scenario): seq[JsonNode] =
   of "smoke", "all":
     result.add(options.dangerRow(scenario, 331))
     result.add(options.dangerRow(scenario, 1050))
+    result.add(options.dangerRow(scenario, 1300))
     result.addRows(options.planningRows(scenario))
     result.addRows(options.latencyRows(scenario))
     result.add(options.activationBarrierRow(scenario))
@@ -835,9 +855,11 @@ proc runCase(options: Options, scenario: Scenario): seq[JsonNode] =
     result.add(options.duckRow(scenario))
     result.add(scenario.writeBackRow)
     result.add(scenario.realScorerWriteBackRow)
+  of "ray": result.add(options.rayRow(scenario))
   of "danger":
     result.add(options.dangerRow(scenario, 331))
     result.add(options.dangerRow(scenario, 1050))
+    result.add(options.dangerRow(scenario, 1300))
   of "planning": result.addRows(options.planningRows(scenario))
   of "latency":
     result.addRows(options.latencyRows(scenario))
@@ -853,7 +875,7 @@ proc runCase(options: Options, scenario: Scenario): seq[JsonNode] =
   of "duck": result.add(options.duckRow(scenario))
   else:
     raise newException(ValueError,
-      "cases are smoke, all, danger, planning, latency, view, episode, validator, duck, census")
+      "cases are smoke, all, ray, danger, planning, latency, view, episode, validator, duck, census")
 
 proc gitHead(): string =
   try:
