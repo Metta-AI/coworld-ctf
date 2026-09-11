@@ -1,8 +1,7 @@
-*Verified against [[versions|GV24 / Glory 12]].*
+*Verified against `paintbot-v0.7.397` (GV63 / GLORYVERSION 18), 2026-09-11 — see `docs/wiki/_era.md`.*
 
-**Verified against `GV24 / Glory 12` — the live game is `GV63 / GLORYVERSION 18`; treat details as unconfirmed.**
-
-Every connection to Paintbot's engine is a single WebSocket carrying a
+**This page documents the `control: "input"` wire only — see the scope note
+below the transport table.** Every connection to Paintbot's engine is a single WebSocket carrying a
 compact binary protocol: a handful of fixed message types, each stating its
 own length, concatenated back-to-back with no outer envelope. A
 server-to-client frame places and removes named sprites on one of several
@@ -22,7 +21,7 @@ the same host — nothing multiplexes two roles onto the same socket:
 
 | Path | Carries |
 | --- | --- |
-| `/player` | The fogged, per-seat binary stream a policy or a human connects to — see [[policies]] |
+| `/player` | The fogged, per-seat binary stream a `control: "input"` policy or a human connects to — see [[policies]] and the scope note below |
 | `/global` | The unfogged spectator/broadcast binary stream |
 | `/replay` | A saved match, played back on demand, same binary framing — also the one path whose sprite channel smuggles a Glory line, see below |
 | `/reward` | A separate plaintext ledger — see below, not the binary protocol at all |
@@ -31,6 +30,28 @@ the same host — nothing multiplexes two roles onto the same socket:
 `/reward` carries WebSocket **text** messages instead. **Every multi-byte
 integer field on this page is little-endian** — true for every build, since
 every runnable on the platform targets `linux/amd64` (see [[policies]]).
+
+### Scope: this is the `control: "input"` wire, and it is not what the live ladder speaks
+
+Everything below is the wire an `/player` connection speaks when its seat's
+game config marks it `control: "input"` (the default, zero-value setting —
+`src/ctf/sim_types.nim`'s `scInput`). A seat can instead be marked `control:
+"play"`, in which case its `/player` socket "supplies presence and receives
+its view; it can never supply an actuator mask" (`src/ctf/server.nim:4743`)
+— a structurally different exchange, built from a separate packet set
+entirely (`ClientPacketKind`: `cpkModuleUpload`, `cpkPlayCall`,
+`cpkStatusAck`, `cpkLobbyChatSend`; `ServerPacketKind`: `spkPlayContext`,
+`spkPlayView`, `spkLobbyChatBroadcast` — `src/shell/packets.nim:61-90`),
+none of which is a Sprite, Object or Input message as documented below.
+
+**Every seat in the platform's own published `battle-royale-s2` variant —
+today's only live ladder, see [[modes]] — is configured `control: "play"`**
+(`coworld_manifest_paintbot.json`'s `battle-royale-s2` entry, all 16
+`game_config.slots`). This page's binary protocol remains accurate for a
+human seat that has taken over a cog's controls, and for any seat explicitly
+configured `control: "input"` (today, only a deprecated classic-mode game —
+see [[modes]]) — but a policy submitted to play the live ladder as it is
+configured today does not send or receive any message on this page.
 
 ### Server-to-client: sprite messages
 
@@ -119,12 +140,15 @@ larger reset.
 | `0x85` | Ready | (no fields) |
 | `0x86` | Debug sprite | `length` u32, that many bytes |
 
-**`0x84` is the only message a policy needs to send every tick, and its
-one-byte payload is exactly the eight-bit mask [[action-mask]] documents.**
-Sending `0x84` then the byte `0x24` (36 decimal — Left + A, the same
-combination [[action-mask]] itself works through) moves left while firing. A
-human seat's browser client writes the identical byte for the identical
-mask; nothing about this message distinguishes a human from a policy.
+**`0x84` is the only message a `control: "input"` seat needs to send every
+tick, and its one-byte payload is exactly the eight-bit mask
+[[action-mask]] documents.** Sending `0x84` then the byte `0x24` (36
+decimal — Left + A, the same combination [[action-mask]] itself works
+through) moves left while firing. A human seat's browser client writes the
+identical byte for the identical mask; nothing about this message
+distinguishes a human from a policy on an `input` seat — but a `control:
+"play"` seat's own socket never sends or accepts this message at all (see
+the scope note above).
 
 **On `/player`, `0x81` is how a [[shouts|shout]] actually leaves a socket.**
 The engine applies its own rate limit and length truncation on arrival, so
@@ -190,6 +214,7 @@ gets none of this. See [[glory]] for how that ledger is actually computed.
 
 | Version | Change |
 | --- | --- |
+| 2026-09-11 (wiki, re-trace, GV63 / GLORYVERSION 18) | Added a scope note: this page documents the `control: "input"` protocol only. A seat can instead be configured `control: "play"` — a structurally different exchange (`ModuleUpload`/`PlayCall` in, `PlayContext`/`PlayView` out, `src/shell/packets.nim`) — and every seat in the platform's own published `battle-royale-s2` variant is configured that way today. This page previously did not distinguish the two at all. |
 | Wiki | This page previously claimed no stream ever carries Glory, full stop. That was wrong for a replay connection: `/replay` (and a `/global` connection watching a replay) carries a Glory line inside the *binary* sprite channel, packed into a reserved sprite's label. `/player`, `/reward`, and a live `/global` connection still carry none. See [[glory]]. |
 | Wiki | This page also described `0x81` as how a shout leaves a socket without saying which path that held for. It holds only on `/player`; the identical byte on `/global` and `/replay` is read as a viewer control instead, never a shout. See [[shouts]]. |
 
@@ -208,6 +233,10 @@ gets none of this. See [[glory]] for how that ledger is actually computed.
 - The compressed pixel payload's exact format. Not needed by a policy that
   only reads labels and positions, but undocumented here for the rarer
   consumer that wants the art.
+- The exact `PlayContext`/`PlayView`/`PlayCall` JSON schema a `control:
+  "play"` seat actually reads and writes — confirmed to exist and to be
+  what the live `battle-royale-s2` ladder uses for every seat, not
+  documented here.
 
 ## See also
 
@@ -216,7 +245,10 @@ gets none of this. See [[glory]] for how that ledger is actually computed.
 - [[labels]] — the label vocabulary a policy resolves through the
   Sprite/Object mechanism this page documents
 - [[action-mask]] — the eight bits inside this page's one-byte Input message
-- [[policies]] — how a container gets the URL that connects to `/player`
+- [[policies]] — how a container gets the URL that connects to `/player`,
+  and which `control` setting decides whether it speaks this page's
+  protocol at all
+- [[modes]] — which named variants boot `control: "input"` seats today
 - [[submitting-a-policy]] — implementing this page's protocol end to end
 - [[shouts]] — what a policy's Chat message actually does once it lands
 - [[scoring]] — the ledger the reward channel's `reward` line carries

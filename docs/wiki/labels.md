@@ -1,11 +1,10 @@
-*Verified against [[versions|GV24 / Glory 12]].*
+*Verified against `paintbot-v0.7.397` (GV63 / GLORYVERSION 18), 2026-09-11 — see `docs/wiki/_era.md`.*
 
-**Verified against `GV24 / Glory 12` — the live game is `GV63 / GLORYVERSION 18`; treat details as unconfirmed.**
-
-A label is the string every sprite object carries on the wire, and it is the
-entire observation schema a policy has today: the current control surface
-gives a policy no other API into the simulation, so a policy finds objects by
-label and steers off their positions. The engine delivers a fresh set of
+**This page documents a `control: "input"` seat's label vocabulary — see the
+scope note below.** A label is the string every sprite object carries on that
+seat's wire, and it is the entire observation schema such a seat has: its
+control surface gives a policy no other API into the simulation, so a policy
+finds objects by label and steers off their positions. The engine delivers a fresh set of
 labelled objects **once per tick**, over two genuinely different streams — a
 policy's own point-of-view (**POV**) observation, and the **broadcast board**
 a spectator or replay watches — and the same tick of game state renders a
@@ -16,6 +15,24 @@ name is *heart*, but nothing in the table below is spelled that way — every
 row is the wire name, `flag` included.
 
 ## Rules
+
+### Scope: this vocabulary belongs to `control: "input"` seats
+
+Every label below is emitted on a `/player`, `/global` or `/replay` binary
+stream (see [[wire]]), which is what a seat speaks when its game config
+marks it `control: "input"`. A seat marked `control: "play"` instead
+exchanges a structured `PlayView` message with named JSON-ish fields
+(`hp`, `seat`, `team`, `fresh_tick`, …, `src/shell/view.nim`) — it carries
+none of the strings this page documents, because it carries no sprite
+objects at all. **Every seat in the platform's own published
+`battle-royale-s2` variant — today's only live ladder, see [[modes]] — is
+configured `control: "play"`** (`coworld_manifest_paintbot.json`'s
+`battle-royale-s2` entry, all 16 `game_config.slots`), so a policy built
+against this page's label vocabulary is not reading what that ladder's own
+seats actually send. This page's vocabulary remains accurate for a human
+seat that has taken over a cog's controls, and for any seat explicitly
+configured `control: "input"` — today, a deprecated classic-mode game (see
+[[modes]]).
 
 ### Matching: exact string vs prefix
 
@@ -179,6 +196,7 @@ whether the label exists. See [[ranks]].
 
 | Version | Change |
 | --- | --- |
+| 2026-09-11 (wiki, re-trace, GV63 / GLORYVERSION 18) | Added a scope note: this page's label vocabulary belongs to a `control: "input"` seat. A `control: "play"` seat instead exchanges a structured `PlayView` message (`src/shell/view.nim`) with no sprite labels at all, and every seat in the platform's own published `battle-royale-s2` variant is configured that way today. This page previously called label-based perception "the entire observation schema a policy has today" with no such scoping. |
 | Unrecorded | Documented `kill_feed`, a POV-only elimination entry (tick, eliminating team, eliminated seat) that predates this documentation pass and is unrelated to the broadcast's own on-screen kill feed. |
 | Unrecorded | A later renderer restore reverted the objective's wire labels to `flag`, undoing 0.7.0's rename to `heart`. The fiction has called it a heart throughout; only the wire label moved. |
 | 0.7.5 | Chat packets, previously ignored, began rendering as the shout label `<color> shout <player>: <text>`. |
@@ -200,17 +218,24 @@ whether the label exists. See [[ranks]].
 - Whether `kill_feed` is delivered as an ordinary sprite/label object or by
   some other mechanism on the `/player` stream — see [[wire]] for the
   byte-level protocol this page's labels ride on.
+- The exact `PlayView` schema a `control: "play"` seat receives in place of
+  these labels — confirmed to exist and to be what the live
+  `battle-royale-s2` ladder uses for every seat, not documented field-by-field
+  here.
 
 ## See also
 
 - [[perception]] — the fog-of-war mechanics behind POV gating, and the rules
   this page's table distils into a single reference
 - [[main]] — the portal, and the objective's two-layer name in overview
-- [[baseline-policy]] — which of these labels the canonical policy scans, and
-  by which match rule
+- [[baseline-policy]] — which of these labels the canonical policy scans on
+  a classic `control: "input"` seat, and by which match rule
 - [[conventions]] — the mechanic-and-chrome layering rule this page applies
 - [[combat]] — the shot and windup mechanics behind `shot impact` and
   `fire icon`
+- [[wire]] — the byte-level protocol these labels ride on, and its own
+  `control: "play"` scope note
+- [[modes]] — which named variants boot `control: "input"` seats today
 
 ## Discussion
 

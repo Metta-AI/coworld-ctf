@@ -1,6 +1,4 @@
-*Verified against [[versions|GV24 / Glory 12]].*
-
-**Verified against `GV24 / Glory 12` — the live game is `GV63 / GLORYVERSION 18`; treat details as unconfirmed.**
+*Verified against `paintbot-v0.7.397` (GV63 / GLORYVERSION 18), 2026-09-11 — see `docs/wiki/_era.md`.*
 
 A variant is Paintbot's name for one preset game configuration, selected as
 a whole rather than tuned knob by knob: which team-count ruleset an episode
@@ -41,10 +39,10 @@ A variant bundles several independent choices into one name:
 
 | Name | What it is | Documented here? |
 | --- | --- | --- |
-| `default` | The classic two-team ruleset at this wiki's usual headline size. | Yes — [[capture-the-flag]], [[episode]], [[arena]], and most of this wiki assume this preset by default. |
-| `2v2` | The same classic two-team ruleset, with two independent policies splitting one side's seats rather than one policy per side. | Partially — the ruleset underneath is documented; the seat-splitting pairing mechanism itself is not, see `## Gaps`. |
-| `4ffa` | Named in the live rotation as a four-team ruleset. Not part of the engine version this wiki verifies against. | Yes, as an absence — [[ffa]] states plainly that this ruleset does not exist at GV24, and preserves what is known about the later version that does run it. |
-| `4ffa8` | The same four-team ruleset named `4ffa`, at a different player count. Not part of the engine version this wiki verifies against. | Yes, as an absence — see the `4ffa` row above; [[ffa]] covers both names together. |
+| `default` | The classic two-team ruleset at this wiki's usual headline size. **Deprecated since build 0.7.253** — boots only with `allowDeprecatedModes: true` set on the game config. | Yes — [[capture-the-flag]], [[episode]], [[arena]], and most of this wiki assume this preset by default, but that default is now the deprecated path, not the live one — see the note below the table. |
+| `2v2` | The same classic two-team ruleset, with two independent policies splitting one side's seats rather than one policy per side. Same deprecation as `default`, same override required. | Partially — the ruleset underneath is documented; the seat-splitting pairing mechanism itself is not, see `## Gaps`. |
+| `4ffa` | Named in the live rotation as a four-team ruleset. Not part of the engine version this wiki verifies against, and — now that the engine version does include it — also deprecated, same override as `default`. | Yes, as an absence — [[ffa]] states plainly that this ruleset does not exist at GV24, and preserves what is known about the later version that does run it. |
+| `4ffa8` | The same four-team ruleset named `4ffa`, at a different player count. Not part of the engine version this wiki verifies against; also deprecated. | Yes, as an absence — see the `4ffa` row above; [[ffa]] covers both names together. |
 | Elite Paintbot's hex-territory competition | A distinct ruleset run by a separate league, named on [[elo]] and [[league]] as this league's own territory-based rating system. | No. See [[hex-territory]]. |
 | `battle-royale-s2` | Paintbot (Season 2)'s live ladder variant, and now that league's *only* scheduled variant — no other rotation runs there. **Sixteen solo seats, one policy each, last one standing** — moved off eight two-policy duo teams on 2026-09-05 (build 0.7.334); do not describe this variant as duo pairing, that framing is retired. | Yes — [[battle-royale-s2]] documents the full ruleset (teams, zone, combat, loot, how a round ends). Round/standing scoring is on [[round]] and [[elo]] (round score = sum of an entrant's best 12 episode scores that round, standing = a decaying average of round scores); deed-by-deed Glory pricing is on [[glory-season-2]]. |
 
@@ -58,6 +56,24 @@ The one remaining row, Elite Paintbot's hex-territory competition, still
 points at a red link (`[[hex-territory]]`). That split is deliberate, not
 an oversight — see [[main]]'s own `## Reference` section for the same
 scoping statement made once, portal-wide.
+
+### The non-`battle-royale-s2` rows are deprecated, not just absent from rotation
+
+Every row above except `battle-royale-s2` names a ruleset that now boots
+only with `allowDeprecatedModes: true` set on the game's own config —
+`default`, `2v2`, `4ffa` and `4ffa8` included, whether or not the ruleset
+they name even exists at this wiki's own GV24 baseline. This is a platform
+ruling (James, 2026-09-01), not an engine-version fact: this repo's own
+`coworld_manifest_paintbot.json` carries `game_config.allowDeprecatedModes:
+true` on each of those variants' own entries (`default`, `2v2`, `4ffa`,
+`4ffa8`, plus `1v1`, `ctf-default`, `ctf-1v1`, `paintball` and
+`battle-royale`, none of which this page names), while `battle-royale-s2`'s
+own entry carries no such flag. `README.md`'s own `## Deprecated modes and
+Sprite v1 policies` section states the same thing in prose: "the published
+paintbot manifest now offers only `battle-royale-s2`." **Read "assume this
+preset by default" in the table above as a statement about which ruleset
+[[capture-the-flag]] documents, not about what boots without an explicit
+override today.**
 
 ### Where round.md's rotation sits in this table
 
@@ -75,6 +91,7 @@ subject; see [[round]] for that.
 
 | Version | Change |
 | --- | --- |
+| 2026-09-11 (wiki, re-trace, GV63 / GLORYVERSION 18) | Added the 2026-09-01 platform deprecation ruling: `default`, `2v2`, `4ffa` and `4ffa8` (and five other variants this page does not otherwise name) now boot only with `allowDeprecatedModes: true` on the game config — confirmed in this repo's own `coworld_manifest_paintbot.json`, where each of those variants' entries carries that flag and `battle-royale-s2`'s does not. This page previously presented `default` as simply "this wiki's headline preset" with no such caveat. |
 | 2026-09-09 (wiki) | Deleted the `battle-royale-s2` duo pairing and ground-items sections below this row: both were checked against duo-era episodes (canonical builds up to 0.7.320) and the duo-pairing section is flatly wrong since the solo-seat switch live since round 4003 (build 0.7.334, [[changelog-2026-09-05]]) — there is no duo partner to pair or to give a bandage to. The `battle-royale-s2` table row above was corrected to solo seats and repointed at [[battle-royale-s2]], which now documents the full ruleset. The ground-items facts (marker half / hopper / bandage sprites, loot-economy numbers) are not re-asserted here pending re-verification against the solo-seat spawn logic; re-add them under [[battle-royale-s2]] once re-checked rather than restoring this section as-is. |
 | Unrecorded | Documented `battle-royale-s2`'s ground items: the marker half, hopper, and bandage pickups now render as world sprites, verified live as of round 3871 (canonical build 0.7.320) — previously present in the sim with no board presence at all. |
 | GV24 | Corrected: this page previously named `4ffa` and `4ffa8` as a live team-count ruleset option alongside the classic two-team ruleset, including player-count totals that do not hold at GV24. Both names are real, but the ruleset they name does not exist at GV24 — see [[ffa]]. |
@@ -99,6 +116,10 @@ subject; see [[round]] for that.
 - Campaign's current round rotation and variant mix — not re-verified since
   the split from the former single classic-mode league.
 - Whether any other named variant exists beyond the ones in the table above.
+- Which wire protocol a variant's seats actually speak — a separate axis
+  from the variant name and from `allowDeprecatedModes`, set per seat by a
+  `control` field (`input` vs `play`) in the same game config. Not this
+  page's subject; see [[wire]].
 
 ## See also
 
