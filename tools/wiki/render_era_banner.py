@@ -93,8 +93,11 @@ HEADING_RE = re.compile(r"^#{1,6}\s")
 # not a living reference page, so stamping it "verified against ... the
 # live game is GV63" would misrepresent an immutable historical record as
 # something needing re-verification. reband_live.py checks this before
-# calling reband_text at all.
-DATED_LOG_SLUG_RE = re.compile(r"^changelog(-\d{4}-\d{2}-\d{2})?$")
+# calling reband_text at all. `patch-notes` joins this set for the same
+# reason: it is structurally a changelog (versioned tables, newest first,
+# keyed by build/GV/Glory), not a living reference page a reader checks
+# against the current era.
+DATED_LOG_SLUG_RE = re.compile(r"^(changelog(-\d{4}-\d{2}-\d{2})?|patch-notes)$")
 
 
 def is_dated_log_slug(slug: str) -> bool:
@@ -213,6 +216,24 @@ def reband_text(
                                  touched, regardless of its own stamp
     """
     if slug is not None and is_dated_log_slug(slug):
+        # A page can arrive here already carrying a banner from before it
+        # was exempted (patch-notes.md did, at GV24/Glory12 vs GV63). An
+        # exempt page should never carry one going forward, so strip it on
+        # sight rather than leaving it stuck there forever — this reuses
+        # the same "banner-removed" status and removal shape (banner line
+        # plus the blank line before it) as the current-stamp case below.
+        lines = text.splitlines(keepends=True)
+        stamp_idx = find_stamp_line(lines) if lines else None
+        banner_idx = (
+            find_banner_line(lines, after=stamp_idx) if stamp_idx is not None else None
+        )
+        if banner_idx is not None:
+            new_lines = list(lines)
+            remove_from = banner_idx
+            if banner_idx == stamp_idx + 2 and lines[stamp_idx + 1].strip() == "":
+                remove_from = stamp_idx + 1
+            del new_lines[remove_from : banner_idx + 1]
+            return "".join(new_lines), "banner-removed"
         return text, "exempt-dated-log"
 
     lines = text.splitlines(keepends=True)

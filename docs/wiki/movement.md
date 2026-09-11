@@ -1,6 +1,4 @@
-*Verified against [[versions|GV24 / Glory 12]].*
-
-**Verified against `GV24 / Glory 12` — the live game is `GV63 / GLORYVERSION 18`; treat details as unconfirmed.**
+*Verified against `paintbot-v0.7.397` (GV63 / GLORYVERSION 18), 2026-09-11 — see `docs/wiki/_era.md`.*
 
 A cog moves with continuous acceleration and friction under d-pad input,
 never a per-tick teleport — the engine calls the entity a **Player**,
@@ -74,6 +72,12 @@ proportionally slower too, not only cruising. The tax is waived entirely
 (100%) from rank 5 ("legend") of the per-life ladder. See [[ranks]] for the
 rank ladder and [[arena]] for where the capture zone the carrier is
 running toward actually sits.
+
+## Version history
+
+| Version | Change |
+| --- | --- |
+| GV63 / GLORYVERSION 18 (2026-09-11, wiki) | Re-traced against current source: acceleration (76/tick), friction (144/256 per tick), max speed (704 raw / 66 px/s), stop threshold (8 raw), player-player bounce (40%), wall-slide search (3 px), the 70% heart-carry speed tax and its rank-5 waiver, and the 5 brads/tick aim turn rate all re-checked and unchanged since this page's last stamp. |
 
 ## Gaps
 

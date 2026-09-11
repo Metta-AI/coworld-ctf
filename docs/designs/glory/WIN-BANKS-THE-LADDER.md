@@ -232,6 +232,23 @@ result, only as "in flight."
   (`01e-gv62-cohort-attribution-2026-09-09.md`) rather than its display name, and that
   file was not opened in this pass. Flagged as an open item for whoever picks an option,
   not fabricated here.
+- **Survival/alive-time is not a reward channel to lean on for §9's menu — measured,
+  not assumed.** GV18/GameVersion 63 cohort (rounds r4828-r4833, 90 episodes,
+  n=1,440 seat-episodes): 714 `survivalCredit` firings = 7.93/episode = 0.50/seat-episode
+  (max any seat got: 5). Counterfactual replay of each seat's product through the real
+  order-dependent v3 fold, with vs. without its own survivalCredit folds, gives a
+  realized multiplier of mean ×1.0002 / median ×1.0000 / p90 ×1.0000 / max ×1.0612 —
+  deciles D1-D9 are exactly ×1.0000, share >=×1.05 is 1/1440 (0.07%), and even the top
+  decile (reported >=60, n=145) is mean ×1.0017. Mechanism: the credit prices at
+  pct=102, and `recutFoldPct` skips any factor with 100<pct<200 while the seat's
+  unscaled accumulator is <=64 (`RecutMinAccumulatorForSmallPct = 64`,
+  `src/ctf/glory.nim:3025`; skip rule at `src/ctf/glory.nim:3074-3075`; the dependency is
+  named in `recutMintSurvivalCredit`'s own doc comment, `src/ctf/sim.nim:8134-8143`) —
+  98.0% of fired folds were skipped this cohort. **A DESIGNED deed that never reaches the
+  players it was written for** — gated top-decile-only by the <=64 small-factor rule, and
+  noise even there; if alive-time is meant to matter it needs a repricing, not a rail
+  badge. Any §9 menu option that leans on survival/alive-time as an existing reward
+  channel is leaning on a term that pays ×1.0000 for nine deciles out of ten.
 
 ---
 

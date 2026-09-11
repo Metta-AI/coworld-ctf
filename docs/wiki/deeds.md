@@ -1,8 +1,6 @@
 # Deeds
 
-*Verified against [[versions|GV24 / Glory 12]].*
-
-**Verified against `GV24 / Glory 12` — the live game is `GV63 / GLORYVERSION 18`; treat details as unconfirmed.**
+*Verified against `paintbot-v0.7.397` (GV63 / GLORYVERSION 18), 2026-09-11 — see `docs/wiki/_era.md`.*
 
 A deed is the unit Paintbot's Glory system prices: one category per flavor
 of in-game moment that earns the team a price, from a clean tag to a heart
@@ -125,6 +123,35 @@ word's letters into pixels and places that sprite directly in the outgoing
 wire packet; nothing downstream is told "this pop says TAG" — it is only
 ever shown a small picture that happens to spell it.
 
+### Which of these fire in the live 16-solo ladder
+
+**The triggers above are shared with battle royale; whether each one is ever
+reachable there is a separate question, and roughly half are not.** A
+whole-population measurement of the live 16-solo `battle-royale-s2` ladder
+found 15 of the engine's 31 non-achievement deeds mint zero times across the
+entire sampled population; of the deeds this page's table covers, the
+following never fired: `SPRAYED`, `BOMBED`, `MULTI!`, `CHASE`, `STEAL`,
+`CAPTURE`, `PEEL`, `DENIED!`, `ESCORT`, `ASSIST`, `RESCUE`, and `WIPEOUT`.
+The flag/carrier/escort/assist/rescue group is dead because 16-solo has no
+flag and no teammate to credit; `WIPEOUT` is dead because no two-seat team
+exists to wipe. `SPRAYED`, `BOMBED`, and `MULTI!` reading zero is a
+different, purely behavioural finding — nobody in the sampled population
+landed a spray-can or grenade kill at all, not a structural block.
+
+Of the deeds that do fire: `TAG` and `FIRST!` are near-universal (99%+ of
+episodes); `RANK UP` and shield-soak also fire in most episodes; `LONGSHOT`
+fires in roughly 7 of 10 episodes — real and common, not the rare edge case
+older doctrine once assumed; `POINT-BLANK` in about 1 of 7; `PAYBACK` in
+about 1 of 20; `BOUNTY` (ace tag) and `OWN PAINT` (team kill) are both real
+but rare, each under 2% of episodes. The clutch-heal act itself (`clutch
+patch`) still occurs in nearly 4 of 10 episodes even though it has priced at
+0 Glory since Glory 9.
+
+This measurement predates the current GLORYVERSION 18 build (it was taken
+one economy revision earlier, before the placement-ladder and mint-cap
+changes); those changes retuned prices and caps, not which triggers can
+fire, so nothing about deed reachability itself is expected to have moved.
+
 ### There is no flag-return deed
 
 There is no deed for returning a dropped heart, and this is a deletion, not
@@ -138,11 +165,19 @@ There was no honest act left over to mint a separate deed for.
 
 | Version | Change |
 | --- | --- |
+| Wiki | Added a 16-solo battle-royale reachability note: 15 of 31 non-achievement deeds mint zero times in a whole-population sample, most for structural reasons (no flag, no teammate, no two-seat team); `LONGSHOT` is common (roughly 7 of 10 episodes), not rare. |
 | Unrecorded | Mode-scoped this page's pricing table to the classic (CTF) ladder; Paintbot (Season 2)'s `battle-royale-s2` ladder reprices every deed as a whole-number multiplier instead of a flat Glory/Drama pair — see [[glory-season-2]]. |
 | Wiki | Corrected this page: a deed's Drama number is read only for its sign — positive vs. zero — to gate heat-ladder and carry-multiplier eligibility; the magnitude itself has no further effect anywhere, and no replay-highlight feature reads it. |
 | Glory 10 | Rank-up (`RANK UP`) zeroed to 0 glory / 0 drama — previously 6 glory / 5 drama |
 | Glory 12 | Two new CTF-only deeds promoted from existing engine counters: `ASSIST` (14g/15 drama, `dEscortKill` parity) and `RESCUE` (18g/30 drama, `dRevengeKill` parity). Both stack alongside a kill's priority-chain deed, same as `FIRST!` — see "One kill, one deed" above. Deed count 22 → 24. |
 | Glory 9 | Clutch-heal ("clutch patch") zeroed to 0 glory / 0 drama, retired as currency — previously 25 glory / 30 drama, popping `SAVE` |
+
+## Gaps
+
+- The 16-solo reachability measurement above predates GLORYVERSION 18 by one
+  economy revision (taken at GLORYVERSION 15); it has not been independently
+  re-run on the current build, though nothing in the intervening changes
+  touched which triggers can fire.
 
 ## See also
 

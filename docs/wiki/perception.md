@@ -1,10 +1,9 @@
-*Verified against [[versions|GV24 / Glory 12]].*
+*Verified against `paintbot-v0.7.397` (GV63 / GLORYVERSION 18), 2026-09-11 — see `docs/wiki/_era.md`.*
 
-**Verified against `GV24 / Glory 12` — the live game is `GV63 / GLORYVERSION 18`; treat details as unconfirmed.**
-
-Perception is everything a policy can observe in Paintbot today: a fogged view
+**This page documents a `control: "input"` seat's observation — see the
+scope note below.** Perception on such a seat is a fogged view
 of the arena delivered once per tick as **sprite objects matched by label
-string**. The current control surface gives a policy no other API into the
+string**: that seat's control surface gives a policy no other API into the
 simulation — it finds things by their labels and steers off their positions.
 The terrain is always fully visible, but every moving thing is fogged: you see
 **only yourself** for free, and **teammates are fogged exactly like enemies —
@@ -21,6 +20,23 @@ where you walk.
 | Aim turn rate | 5 brads/tick | — | 256 brads = full turn; ≈7°/tick, ≈2.1 s per turn |
 
 ## Rules
+
+### Scope: this is a `control: "input"` seat's perception
+
+Everything below describes what a `control: "input"` seat's `/player`
+connection observes — the wire [[wire]] documents (Sprite/Object messages,
+resolved to labels via [[labels]]). A seat configured `control: "play"`
+instead perceives through a structured `PlayView` message — named JSON-ish
+fields such as `hp`, `hp_frac`, `aim_brads`, `seat`, `team` and `fresh_tick`
+(`src/shell/view.nim`), not sprite objects matched by label string at all.
+**Every seat in the platform's own published `battle-royale-s2` variant —
+today's only live ladder, see [[modes]] — is configured `control: "play"`**
+(`coworld_manifest_paintbot.json`'s `battle-royale-s2` entry, all 16
+`game_config.slots`), so the fog-and-label perception this page documents is
+not what a policy submitted to that ladder actually receives. It remains
+accurate for a human seat that has taken over a cog's controls, and for any
+seat explicitly configured `control: "input"` — today, a deprecated
+classic-mode game (see [[modes]]).
 
 ### Vision
 
@@ -304,10 +320,22 @@ sprite stays 1× on every stream.
 
 | Version | Change |
 | --- | --- |
+| 2026-09-11 (wiki, re-trace, GV63 / GLORYVERSION 18) | Added a scope note: this page documents a `control: "input"` seat's fog-and-label perception. A `control: "play"` seat instead perceives through a structured `PlayView` message (`src/shell/view.nim`), and every seat in the platform's own published `battle-royale-s2` variant is configured that way today. This page previously stated, unscoped, that label-and-position perception is "everything a policy can observe in Paintbot today." |
 | Wiki | This page previously stated a ×3 wire-coordinate scale applying to every stream, including the player stream. Both halves were wrong: the real scale is ×2, and it applies only to the board streams — a policy's own stream has always been unscaled. See [[wire]]. |
 | GV24 | Gun rotation in **player views** is fuzzed ±≈20°, both teams, self included. Broadcast board unaffected. |
 | GV3 | `aim dot <color>` retired; nothing on the wire carries an aim angle any more |
 | GV14 | Board-stream (`/global`/`/replay`) coordinates and sprite sizes doubled relative to the player stream's plain map pixels; no GameVersion bump accompanied the change at the time. |
+
+## Gaps
+
+- The exact `PlayView` schema a `control: "play"` seat receives — confirmed
+  to exist, to be JSON-shaped with named fields (`hp`, `aim_brads`, `seat`,
+  `team`, `fresh_tick`, …), and to be what the live `battle-royale-s2`
+  ladder uses for every seat, but not documented field-by-field here or on
+  [[wire]].
+- Whether a `PlayView` seat's fog rules (vision cone, bubble, wall-blocking)
+  match this page's `control: "input"` numbers exactly, or differ — not
+  checked in this pass.
 
 ## See also
 
@@ -315,10 +343,13 @@ sprite stays 1× on every stream.
 - [[labels]] — the full label vocabulary as one reference table, with the
   POV-versus-board split called out label by label
 - [[wire]] — the byte-level protocol, including the coordinate split between
-  the player stream and the board streams
+  the player stream and the board streams, and the `control: "play"` scope
+  note this page's own note points back to
 - [[paint-bomb]] — the labels an item page documents
 - [[combat]] — the rotation mechanic that steers vision
-- [[baseline-policy]] — which of these labels the canonical policy reads
+- [[baseline-policy]] — which of these labels the canonical policy reads on
+  a classic `control: "input"` seat
+- [[modes]] — which named variants boot `control: "input"` seats today
 - [[conventions]] — the mechanic-and-chrome layering rule
 
 ## Discussion

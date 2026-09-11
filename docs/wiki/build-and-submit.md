@@ -1,6 +1,4 @@
-*Verified against `coworld` CLI package version resolving to `paintbot-v0.7.372` (GV61 / Glory 16), 2026-09-09.*
-
-**Verified against `GV61 / Glory 16` — the live game is `GV63 / GLORYVERSION 18`; treat details as unconfirmed.**
+*Verified against `paintbot-v0.7.397` (GV63 / GLORYVERSION 18), 2026-09-11 — see `docs/wiki/_era.md`.*
 
 Getting a policy from nothing to a real league entry is five steps: download
 the coworld package, prove it runs locally against the bundled starter
@@ -190,12 +188,19 @@ version, since this surface is newer and more likely to have moved.
 
 | Version | Change |
 | --- | --- |
+| GV63 / GLORYVERSION 18 (2026-09-11, wiki) | Re-stamped against the current era. The two paintbot-specific facts embedded in §2's trap #1 (the map pool a real `battle-royale-s2` run seats players on, and its 4 hit points per life) were cross-checked against current source and sibling pages and still hold. The CLI-behavior traps themselves (`--variant` defaulting to the certification fixture, the `--run` token-parsing trap, the replay-hint bug) were not re-exercised against a fresh `coworld` install this pass — this page's scope is read-only source tracing, not running the CLI — see `## Gaps`. |
 | 2026-09-09 (wiki) | Added §2's "undocumented trap #2": `run-episode`'s own "Inspect replay" hint names `STATIC_REPLAY_VIEWERS.md` (a metta-bundled implementation guide) instead of the usage command already shown above it — root cause confirmed in `cli.py` (JOURNEY_MAP.md J19); the field driving it (`game.replay_viewer`) is a live production dependency for the hosted static bundle and cannot be dropped to fix the hint, so this page carries the workaround instead. Renumbered the `--run` trap to #3. |
 | 2026-09-09 (wiki) | Corrected the sign-in claim in §4: "there is no token or API-key alternative" was misleading — `softmax --help` lists `get-login-url`, `get-token`, `set-token`, `exchange-code` as sibling commands for carrying a credential around after GitHub OAuth. None of them is a non-GitHub sign-in path (GitHub OAuth is still required at least once); the wording now names them instead of denying they exist. Also moved the GitHub-account disclosure to the first line of §4. |
 | New page (2026-09-09) | Written to close the gap [[submitting-a-policy]] flagged as unverified: the platform push step, `coworld upload-policy` and `coworld submit`, now have confirmed `--help` shapes and a documented league ID lookup. Both undocumented CLI traps above (`--variant` defaulting to the certification fixture; `--run` requiring one token per flag, not JSON) were reproduced firsthand against a fresh `coworld` install resolving to `paintbot:0.7.367`. |
 
 ## Gaps
 
+- The three "undocumented trap" CLI behaviors in §2 (variant fallback,
+  `--run` token parsing, the replay-hint bug) were verified against
+  `paintbot-v0.7.372`/GV61 (2026-09-09) and not re-exercised against the
+  current `paintbot-v0.7.397`/GV63 build this pass — re-running the CLI is
+  outside a read-only source-tracing pass. Nothing found this pass
+  contradicts them, but they are unconfirmed at the current build.
 - The exact response shape of `coworld upload-policy` and `coworld submit`
   (what a successful call prints/returns) — not captured here; verified only
   that both accept the arguments above and that a real prior run completed

@@ -1,6 +1,4 @@
-*Verified against GV61 / Glory 16.*
-
-**Verified against `GV61 / Glory 16` — the live game is `GV63 / GLORYVERSION 18`; treat details as unconfirmed.**
+*Verified against `paintbot-v0.7.397` (GV63 / GLORYVERSION 18), 2026-09-11 — see `docs/wiki/_era.md`.*
 
 `battle-royale-s2` is Paintbot (Season 2)'s live ruleset and, today, its
 **only** scheduled variant: sixteen solo seats drop onto one map, a
@@ -58,19 +56,24 @@ the opposite — **a rank-4+ grenade pickup now genuinely yields two throws**.
 Only the rank gun-range bonus stays a permanent no-op. All of it resets to
 zero the instant a cog dies, same as always.
 
-### Downed state — armed, but scoring-neutral for a solo seat
+### Downed state — a second chance, but only inside an active pact
 
 The published configuration arms downed state: a lethal hit downs a player
 into a frozen, non-colliding ghost instead of eliminating them outright, and
-an *upright teammate* standing close for a couple of seconds can tag them
-back in. **On a sixteen-solo-team map this is not a second chance** — a
-solo seat has no teammate to supply the revive, so the instant its one
-seat downs, its team has zero upright players left and the round's
-finalize logic resolves the elimination the same tick. The ghost state is a
-real, briefly-visible wire fact (see `## Labels`), not a gameplay reprieve,
-under the currently published solo-seat configuration. An enemy gun hit on
-a ghost still confirms the elimination immediately; nothing to bleed out
-waits for on a solo team.
+an upright ally standing close for a couple of seconds can tag them back
+in. **A lone, un-pacted solo seat still gets no second chance** — with no
+teammate and no pact ally, its team has zero upright players left the
+instant its one seat downs, and the round's finalize logic resolves the
+elimination the same tick. But a solo seat that currently shares an active
+[[glossary|pact]] with another team is a different case: an upright member
+of that pact-allied team counts as a reviver exactly like a teammate always
+has, and a team's downed seat no longer finalizes automatically while a
+pact ally is still standing — it runs the normal bleed-out-then-revive
+window instead. Reviving a pact ally this way is itself a priced deed — see
+[[glory-season-2]]. The ghost state is a real, briefly-visible wire fact
+(see `## Labels`), not a gameplay reprieve, for anyone with no pact
+currently active. An enemy gun hit on a ghost still confirms the
+elimination immediately; nothing to bleed out waits for outside a pact.
 
 ### Loot
 
@@ -91,7 +94,7 @@ download rather than assuming any of it is permanent.
 | Teams / seats | 16 solo teams, 1 seat each | — | Live-service setting; was 8 duo teams before 2026-09-05 |
 | Hit points per life | 4 | — | Classic ruleset stays at 3; see [[damage-and-health]] |
 | Lives | 1 (no respawn) | — | A death is permanent for the round |
-| Gun range | 1300 px | — | Same figure [[combat]] documents |
+| Gun range | 1050 px | — | Same figure [[combat]] documents |
 | Fire windup | ~0.21 s | 5 | Rank buffs can shorten this — see [[ranks]] |
 | Fire cooldown | 0.5 s | 12 | Rank 4+ shortens this by 25% |
 | Grenades on the map | 22 | — | Live-service setting, not a per-team formula |
@@ -120,17 +123,19 @@ On both the player and broadcast/replay streams, while this mode is live:
 - `zonenext <x0>,<y0> <x1>,<y1>` — the rectangle the current one is
   interpolating toward, so a policy can react before the boundary arrives.
 - A `downed` flag on a player's own self-view and on the omniscient map
-  view while downed state is armed (see Rules above for why it rarely
-  matters on a solo seat).
+  view while downed state is armed (see Rules above for when it matters on
+  a solo seat: only while it currently holds an active pact).
 
 ## Version history
 
 | Version | Change |
 | --- | --- |
+| GV63 / GLORYVERSION 18 (2026-09-11, wiki) | Re-traced against current source: fixed a stale gun range (1300 px → 1050 px, unchanged since GameVersion 34), corrected the downed-state section — a pact ally can revive a downed solo seat and delays its team's finalize, so "no second chance" was only ever true for an un-pacted seat — and dropped a stale Gaps note claiming [[glory-season-2]] still needed its own refresh (it has since been fully re-traced). |
+| GV59 (2026-09-08) | Pact-ally revive armed: an upright member of a team currently pact-allied with a downed seat's team can tag it back in exactly like a teammate always could, and a team's finalize no longer fires automatically while such an ally still stands. Reviving this way, and a hit on a pact ally, both price as their own deeds — see [[glory-season-2]]. |
 | GV61 / GLORYVERSION 16 (2026-09-08) | Five of the six rank buff columns wired into live combat, including the rank-4+ grenade second throw — see [[ranks]]. |
 | 0.7.348 | Hit points per life for `battle-royale-s2` raised from 3 to 4; classic rulesets unchanged. |
 | 0.7.334 (2026-09-05) | Moved from eight two-policy duo teams to sixteen one-policy solo teams; loot-at-start, the marker/hopper split pickup, carried bandages, item drop/give, and downed state were switched off in the same build (downed state was later re-armed — see [[damage-and-health]]). |
-| Unrecorded | Documented that `winAsMultiplier`/`gloryMultiplierRecut`/`deedMintCaps` are armed on the currently published configuration — see [[glory-season-2]] for what each does to score, which is due its own refresh against this same flag state. |
+| Unrecorded | Documented that the win-as-multiplier rule, the multiplier-recut pricing engine, and the per-deed mint-cap guard are all armed on the currently published configuration — see [[glory-season-2]] for what each does to score. |
 
 ## Gaps
 
@@ -140,10 +145,10 @@ On both the player and broadcast/replay streams, while this mode is live:
 - Whether the duo→solo switch (2026-09-05) is a one-way ruling or could
   revert; treat "16 solo teams" as the current live-service state, not a
   permanent engine fact, same caution as the zone schedule above.
-- The full deed-by-deed Glory pricing table for this ruleset needs its own
-  re-verification pass against the currently armed flags — see
-  [[glory-season-2]], which still describes an earlier `winAsMultiplier`
-  rollback as current.
+- Whether a pact forming mid-match ever changes which single team the
+  round credits as the winner, versus only delaying individual
+  eliminations — not traced this pass; see [[glory-season-2]] for the
+  scoring side of a pact.
 - Solo-seat achievement reachability (which of the eight trees can ever
   fire with no teammate) is not covered on [[achievements]] yet.
 

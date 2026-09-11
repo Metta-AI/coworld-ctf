@@ -1,6 +1,4 @@
-*Verified against [[versions|GV24 / Glory 12]].*
-
-**Verified against `GV24 / Glory 12` — the live game is `GV63 / GLORYVERSION 18`; treat details as unconfirmed.**
+*Verified against `paintbot-v0.7.397` (GV63 / GLORYVERSION 18), 2026-09-11 — see `docs/wiki/_era.md`.*
 
 A policy is a **`linux/amd64` Docker image plus a `run` argv** — not wasm, not a
 weights blob, not a source bundle, as the artifact submitted. What runs, or
@@ -18,6 +16,18 @@ version.** A policy built against a different engine than the one it connects
 to still seats, still plays an entire episode, and still produces a scored
 result — with no error, no warning, and no signal anywhere that the result
 carries no meaning. See below for why.
+
+**On today's live ladder, though, a policy is a play-caller, not a per-tick
+controller.** Every seat in the platform's own published `battle-royale-s2`
+variant is configured `control: "play"`, and a seat configured that way
+sends no per-tick action mask at all — it submits an ordered list of named
+play invocations instead, and the engine's own built-in behaviour drives the
+seat between calls. See [[wire]]'s "What a live seat receives and returns"
+for what that seat's context, view, and play calls actually carry. The
+per-tick sprite-in/action-mask-out contract described just above still
+exists — it is what a human seat that has taken over a cog's controls
+speaks, and what any seat explicitly configured `control: "input"` speaks,
+which today means only a deprecated classic-mode game.
 
 ## Rules
 
@@ -55,10 +65,16 @@ docker run --rm --platform linux/amd64 \
   <image> <run argv>
 ```
 
-`<run argv>` is exactly the argv from that artifact record. The baseline
-policy's own packaging matches this shape exactly: a multi-stage `Dockerfile`
-that compiles the baseline's Nim source in a build stage, then copies just
-the binary into a slim final image ending `CMD ["/bin/baseline"]`.
+`<run argv>` is exactly the argv from that artifact record. **The baseline
+policy's own packaging no longer matches a plain two-stage shape.** Since
+commit `bccf812c` (#527, "protocol-adaptive baseline speaks Season 2
+play-calling"), `players/baseline/Dockerfile` compiles a playbook of Season 2
+reference plays in its own build stage first, then copies *both* that
+playbook and the compiled Nim binary into the run stage — still ending
+`CMD ["/bin/baseline"]`, just with more than the binary alongside it. A
+policy that doesn't upload a playbook only needs the minimal two stages
+(compile, then copy the one binary into a slim run stage); the baseline's own
+file is a worked example of the three-stage shape, not the two-stage one.
 
 ### Seating into an episode
 
@@ -67,10 +83,39 @@ The seat protocol is one environment variable. A container that receives
 ends, and exits when the runner stops it — there is no adapter to write and no
 handshake beyond opening the socket. Locally, that URL carries the seat and an
 auth token as query parameters, e.g. `ws://host:2000/player?slot=1&token=…`; one
-running container fills one seat for one [[episode]]. That socket is where the
-sprite-and-action-mask exchange named above happens, once per tick for as long
-as the episode runs — see [[submitting-a-policy]] for an implementation
-walkthrough.
+running container fills one seat for one [[episode]]. That socket is where a
+per-tick exchange happens for as long as the episode runs — but which
+vocabulary rides it is not the same for every seat; see below — and see
+[[submitting-a-policy]] for an implementation walkthrough of the classic
+shape.
+
+### Which wire vocabulary a seated container actually speaks is a per-seat setting, not the policy's choice
+
+Everything above — one env var, one websocket, no adapter, no handshake — is
+true regardless of which protocol the seated container ends up speaking.
+That protocol is set **per seat** by the game config's own `control` field,
+not chosen by the container: `input` (the classic sprite-object-in,
+action-mask-out exchange [[wire]] and [[perception]] document) or `play` (a
+structurally different one — the container sends `ModuleUpload`/`PlayCall`
+packets, the platform sends back `PlayContext`/`PlayView`; see
+`src/shell/packets.nim`'s `ClientPacketKind`/`ServerPacketKind` enums —
+built around uploading and calling named WebAssembly "plays" rather than a
+per-tick button mask).
+
+**Every seat in the platform's own published `battle-royale-s2` variant —
+today's only live ladder — is configured `control: "play"`**
+(`coworld_manifest_paintbot.json`'s `battle-royale-s2` entry, all 16
+`game_config.slots`), and a `play` seat's own socket "supplies presence and
+receives its view; it can never supply an actuator mask"
+(`src/ctf/server.nim:4743`). A policy built only against [[wire]]'s
+sprite/action-mask protocol still connects and still seats — the environment
+variable and the websocket handshake do not change — but it is sent
+`PlayContext`/`PlayView` messages it has no decoder for, and nothing it
+sends back as an action mask is ever read. `policies/starters/` is this
+platform's own reference implementation of the `play` protocol; the classic
+protocol survives only on seats explicitly configured `control: "input"`,
+which today means a deprecated classic-mode game (`allowDeprecatedModes:
+true`; see [[modes]]).
 
 ### No version handshake at connect time
 
@@ -89,6 +134,8 @@ running.
 
 | Version | Change |
 | --- | --- |
+| 2026-09-11 (wiki) | Added a paragraph naming what a policy is on today's live ladder: a play-caller, not a per-tick controller, linking to [[wire]]'s new section on the context/view/play-call exchange. The opening paragraph's "one action-mask byte every tick" line predates that distinction and holds only for a `control: "input"` seat. |
+| 2026-09-11 (wiki, re-trace, GV63 / GLORYVERSION 18) | Two stale claims fixed. (1) The baseline's own `Dockerfile` was described as a plain two-stage build; it has grown a third stage since commit `bccf812c` (#527) that compiles a Season 2 reference-play playbook, now copied into the run stage alongside the binary. (2) This page previously implied every seated container speaks the sprite-object/action-mask exchange described elsewhere on this wiki; that exchange is actually a per-seat `control` setting (`input` vs `play`), and the platform's own published `battle-royale-s2` variant — today's only live ladder — configures every seat `control: "play"`, a structurally different protocol ([[wire]] and [[perception]] document only the `input` side). |
 | Wiki | This page previously said the engine and baseline have no published, pullable image, full stop — true only for building straight from source, and mistaken for the whole picture of how either one reaches a match. Once either ships as part of a coworld version, its image is public, digest-pinned, and needs no credentials to pull. An entrant's own submitted policy is the opposite case, and stays that way: no publicly reachable record for one ever carries a registry address. |
 
 ## Gaps
@@ -101,6 +148,10 @@ running.
 - Whether anything on the platform's own submission path checks a submitted
   image's `GameVersion` before it is ever seated, given that the wire itself
   cannot.
+- The field-by-field JSON schema a `play` seat's container actually reads
+  and writes — [[wire]] now outlines the shape (context, view, play call)
+  and this page's own paragraph above names what a policy is on the live
+  ladder, but neither documents it field by field or byte cap by byte cap.
 
 ## See also
 
@@ -108,6 +159,7 @@ running.
 - [[baseline-policy]] — the one shipped, inspectable policy
 - [[episode]] — what a policy is seated into
 - [[perception]] — what a seated policy actually observes
+- [[modes]] — which variants require `allowDeprecatedModes: true`
 
 ## Discussion
 

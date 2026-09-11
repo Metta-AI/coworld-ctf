@@ -1,8 +1,6 @@
 # Achievements
 
-*Verified against [[versions|GV24 / Glory 12]].*
-
-**Verified against `GV24 / Glory 12` — the live game is `GV63 / GLORYVERSION 18`; treat details as unconfirmed.**
+*Verified against `paintbot-v0.7.397` (GV63 / GLORYVERSION 18), 2026-09-11 — see `docs/wiki/_era.md`.*
 
 An achievement is one of 40 fixed claims — **8 trees, 5 tiers each** — that
 mint [[glory|Glory]] into a team's scoreboard the instant its gate condition
@@ -159,6 +157,59 @@ The count is cumulative for the whole game and survives a teammate's death.
 | III | "Full Kit" | **Tombstoned — zero-claim on this port** (v12, Amendment 1). Needs 4 of 4 kits converted, but `teamConvertedKits` hard-caps at `KitLegsImplemented` (3, no med-kit leg yet); no code path ever sets this tier. Restores when the med leg lands. | "Your team gets real use out of all 4 kits in one game." |
 | IV | "Clean Sheet" | Zero team kills for the whole game — evaluated only at the game's conclusion | "Finish the whole game without a single teammate shooting a teammate." |
 | V | "Victory Lap" | Every implemented kit converted (`kits >= KitLegsImplemented`, 3 today, was 4) AND your team has captured the enemy's heart this game (v12, Amendment 1) | "Use every kit AND capture the enemy's heart in the same game." |
+
+### Which trees fire in the live 16-solo ladder
+
+A whole-population measurement of the live 16-solo `battle-royale-s2` ladder
+found only 5 of these 40 tiers ever minted across the sampled population —
+35 of 40 (87.5%) were dead. The causes are not uniform, and one of them is
+a total gap this page did not previously flag:
+
+- **The Med-kit / supply-drop tree above cannot ever fire, in any mode.**
+  Every one of its 5 tiers gates on a teammate consuming your team's shared
+  supply drop — a mechanic that does not exist anywhere in this codebase's
+  port; the drop was never shipped. This is a different, total kind of gap
+  from the Squad tree's "Full Kit" tombstone above: that one is capped by a
+  kit-count constant a future patch can raise; this tree has no underlying
+  mechanic behind any of its five gate conditions to begin with.
+- **Squad is "team-wide," which cuts both ways in a team of one, and not
+  every tier needs a teammate the same amount.** "Clean Sheet" (IV) mints
+  for every seat, every episode, precisely because a lone seat can never
+  commit a team kill against itself — the negation is vacuously true. Of
+  the three kit legs the "kits converted" count actually checks, two (a
+  grenade kill, a spray-can kill) can be satisfied by the seat's own play,
+  with no teammate needed at all — "Kitted" (I, needs 2 of these) simply
+  never happened to fire in this sample, the same behavioural gap as
+  Spray's and Grenade's own trees above, not a structural block. The third
+  leg checks for a *received* assist, which does require a teammate to
+  land the finishing kill — permanently unreachable solo — which caps
+  "Full Loadout" (II, needs 3) and "Full Kit" (III, needs 4, already
+  tombstoned above) out of reach regardless of what the lone seat does.
+  "Victory Lap" (V) needs that same capped kit count *and* a capture —
+  doubly dead, since a capture also needs the flag this mode does not
+  have.
+- **Carrier's, Defender's, and the teamwork tree's flag- or teammate-gated
+  tiers are dead for the same reason [[deeds]] gives for the matching dead
+  deeds**: 16-solo has no flag to steal or capture, and no teammate to
+  assist, rescue, escort, or volley alongside.
+- **Gun's tiers I, II, III, and V fire; Spray and Grenade did not, in this
+  sample.** That absence is not a structural block — nobody in the sampled
+  population landed a spray-can or grenade kill at all, the same
+  behavioural (not mechanical) finding [[deeds]] makes about those two
+  deeds directly. Gun's tier IV (max rank in one life) also did not fire in
+  this sample; episodes evidently end before any cog reaches it.
+
+Tier I and II claims mint but never move the score, in any tree: their
+factor is ×1, so even where they fire often (Gun's first two tiers do),
+they contribute nothing to a seat's product — see "The Drama column above
+never does anything" above for the parallel case on Drama, and note this is
+a separate fact from that one.
+
+This measurement predates the current GLORYVERSION 18 build by one economy
+revision (taken at GLORYVERSION 15, before a later tier IV/V price retune
+and a new tier-completion bonus for the live ladder); the gate conditions
+measured here are unchanged since, only the payout multipliers moved, so
+reachability itself is not expected to have shifted.
 
 ### Window and threshold values
 

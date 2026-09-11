@@ -1,6 +1,4 @@
-*Verified against [[versions|GV24 / Glory 12]].*
-
-**Verified against `GV24 / Glory 12` — the live game is `GV63 / GLORYVERSION 18`; treat details as unconfirmed.**
+*Verified against `paintbot-v0.7.397` (GV63 / GLORYVERSION 18), 2026-09-11 — see `docs/wiki/_era.md`.*
 
 An episode is one complete match of Paintbot. In the game's classic
 capture-the-flag mode — the ruleset this page documents, see [[modes]] for
@@ -20,8 +18,7 @@ documents different arithmetic once more than two teams are in play.
 | Hit points per life | 3 | — | Full detail on [[damage-and-health]] |
 | Respawn delay | 3.0 s | 72 | At your own home edge |
 | Lobby countdown | 5.0 s | 120 | Runs once the minimum player count is met; cancels and restarts if the roster drops back below it |
-| Time limit | ~3.5 min | 5000 | Extended by the action floor below |
-| Action clock floor | 20.83 s | 500 | A kill or a heart steal guarantees at least this many ticks remain, extending the limit if needed (GV23); this value holds unconditionally and is not a per-mode setting |
+| Time limit | ~3.5 min | 5000 | A fixed draw ceiling — see the note below; not extended by anything that happens during play |
 | Post-game hold | 15.0 s | 360 | The GameOver phase lingers before the lobby resets |
 | Win | +1 | — | Every player on the winning team |
 | Loss (capture or wipe) | −1 | — | Every player on the losing team |
@@ -81,8 +78,14 @@ rather than the episode settling as a mutual-wipe draw.
 heart into your capture zone wins even while your own heart is currently
 stolen — capture has no own-heart-must-be-present precondition.
 
-The time limit, the action-clock floor that can extend it, and the post-game
-hold before the lobby resets are all in `## Stats` above.
+**The clock only ever counts down — nothing during play extends it.** An
+earlier engine build floored the clock at a minimum remaining time after a
+kill or a heart steal, but that floor was removed outright: the time limit
+in `## Stats` above is the exact scheduled draw ceiling, with no in-play
+action able to push it back.
+
+The time limit and the post-game hold before the lobby resets are both in
+`## Stats` above.
 
 ### Scoring
 
@@ -99,7 +102,9 @@ fought to the literal end on the same tick — is scored as a true 0/0.
 
 | Version | Change |
 | --- | --- |
-| GV23 | A kill or a heart steal floors the game clock at ≥500 ticks remaining, extending the time limit if needed |
+| GV63 / GLORYVERSION 18 (2026-09-11, wiki) | Re-traced against current source. Removed the "action clock floor" row and rule — GV41 retired it outright ("no more overtime"): the clock only ever counts down and the time limit is the exact scheduled draw ceiling, so this page's GV23 row was stale for many engine versions. |
+| GV41 | Removed the GV23 action-clock floor outright: a kill or a heart steal no longer floors the remaining clock, and the time limit is a fixed ceiling with no in-play extension. |
+| GV23 | A kill or a heart steal floored the game clock at ≥500 ticks remaining, extending the time limit if needed — retired at GV41, see the row above. |
 | GV21 | A timeout draw began scoring −1 for both sides |
 
 ## Gaps
@@ -109,10 +114,11 @@ fought to the literal end on the same tick — is scored as a true 0/0.
   or accept fewer — the mechanism supports either, set per instance, but no
   live mode's actual minimum has been confirmed.
 - Whether any shipped mode uses a time limit other than the 5000-tick
-  default. The time limit is a genuine per-instance setting, unlike the
-  action floor above, which holds at 500 ticks regardless of mode — but no
-  live mode's actual time-limit value has been confirmed to differ from the
-  default.
+  default — a genuine per-instance setting — has not been confirmed against
+  a live manifest this pass.
+- Whether a configured "grenade-barrage endgame" (noted alongside the GV41
+  clock change in source) ever applies to this classic ruleset, and if so
+  what it does once the clock reaches zero — not traced this pass.
 
 ## See also
 

@@ -1,6 +1,4 @@
-*Verified against [[versions|GV24 / Glory 12]].*
-
-**Verified against `GV24 / Glory 12` — the live game is `GV63 / GLORYVERSION 18`; treat details as unconfirmed.**
+*Verified against `paintbot-v0.7.397` (GV63 / GLORYVERSION 18), 2026-09-11 — see `docs/wiki/_era.md`.*
 
 *The per-life rank ladder, sometimes colloquially called the "glory ladder,"
 is documented at [[ranks]]; this page covers the Glory economy.*
@@ -28,9 +26,9 @@ three reads any of the others.
 | Site multiplier, enemy | 150% | — | |
 | Site multiplier, neutral | 120% | — | Dead code — the only place that picks this percentage never actually passes the "neutral" case, so this step can never be selected |
 | Heat ladder | ×1 / ×2 / ×4 / ×8 | — | Steps climbed by cumulative embers |
-| Heat thresholds | 2 / 5 / 10 embers | — | Cumulative embers needed to reach each step |
+| Heat thresholds | 1 / 2 / 4 embers | — | Cumulative embers needed to reach each step; raised from a 2/5/10 cadence, paired with the wider decay window below |
 | Heat ember gain | +1 ember | — | Credited to the minting team once per drama-eligible deed, after that deed's own heat multiplier is read |
-| Heat decay window | 1.88 s | 45 | Embers drop by 2 (floored at 0) each time this many ticks pass with no drama deed from a team |
+| Heat decay window | 11.25 s | 270 | Embers drop by 2 (floored at 0) each time this many ticks pass with no drama deed from a team; widened from a 1.88 s / 45-tick window |
 | Heat ember cap | 11 embers | — | Ceiling on cumulative embers, just above the ×8 floor |
 | Carrier hold multiplier | ×2 | — | Drama deeds only, while the minting team currently holds the enemy heart |
 | Team-kill penalty price | −60 glory | — | The one negative base; see below for why it skips every multiplier |
@@ -60,17 +58,20 @@ heat, then carry — and a step can be skipped, never reordered:
 3. **Heat.** Only for a deed whose Drama price is positive (a second price
    every deed also carries — see [[deeds]]) does the price then climb the
    heat ladder: ×1, ×2, ×4, or ×8, keyed to the minting team's cumulative
-   embers reaching 2, 5, or 10. **That same deed also feeds the count it just
+   embers reaching 1, 2, or 4. **That same deed also feeds the count it just
    read.** After pricing, the minting team's cumulative embers go up by
    exactly one — one ember per qualifying deed, never scaled by that deed's
    own price — capped at the 11-ember ceiling below. The increment lands
    after this deed's own multiplier is read, so a deed banks heat for the
-   next one in the streak rather than for itself. Heat also cools: after 45
-   ticks (1.88 s) with no such deed from a team, its embers drop by 2,
+   next one in the streak rather than for itself. Heat also cools: after 270
+   ticks (11.25 s) with no such deed from a team, its embers drop by 2,
    floored at zero, and the quiet window restarts — a stalled streak walks
    back down the ladder rather than staying banked at its peak. The
    cumulative count is capped at 11 embers, just above the ×8 floor, so no
-   streak can hoard heat that survives going quiet.
+   streak can hoard heat that survives going quiet. Both the thresholds and
+   the window were widened from a tighter 2/5/10-ember, 45-tick cadence
+   after live measurement found that cadence left `battle-royale-s2` heat
+   almost never climbing past ×1.
 4. **Carry.** Also only for a deed whose Drama price is positive, and only
    while the minting team currently holds the enemy heart: one further ×2.
 
@@ -115,13 +116,13 @@ sitting at 5 cumulative embers and currently holding the enemy heart:
 
 1. **Base.** 12.
 2. **Site.** Enemy ground is 150%: 12 × 1.5 = 18.
-3. **Heat.** 5 embers clears the second threshold, so heat is ×4 (this
-   deed's Drama price only had to clear zero to be eligible at all; its
-   exact value of 30 plays no further part): 18 × 4 = 72.
+3. **Heat.** 5 embers clears all three thresholds (1, 2, 4), so heat is ×8
+   (this deed's Drama price only had to clear zero to be eligible at all;
+   its exact value of 30 plays no further part): 18 × 8 = 144.
 4. **Carry.** The team holds the enemy heart and the deed is drama-eligible,
-   so one further ×2: 72 × 2 = 144.
+   so one further ×2: 144 × 2 = 288.
 
-That single kill mints 144 Glory. Swap in any other deed's base price and
+That single kill mints 288 Glory. Swap in any other deed's base price and
 Drama sign from [[deeds]], or a different site/embers/carry state, and the
 same four steps apply unchanged.
 
@@ -168,7 +169,7 @@ carry multiplier, and every deed's flat Glory/Drama pair on [[deeds]] — is
 the classic (CTF) ladder's pricing.** Paintbot (Season 2)'s live
 `battle-royale-s2` ladder does not run this additive pipeline: it reprices
 every deed and achievement tier as a whole-number multiplier, and an
-episode's Glory is the product of the multipliers a duo earns rather than a
+episode's Glory is the product of the multipliers a team earns rather than a
 sum of priced deeds. See [[glory-season-2]] for that ladder's own pricing map.
 
 One fact carries over unchanged, on either pricing system: the "capture" and
@@ -178,7 +179,7 @@ wins. Battle royale has no flag/heart mechanic to capture or wipe.
 
 **A battle-royale team's Glory total can land below zero — there is no
 floor.** An earlier revision of this section said the multiplier economy's
-per-duo product could not go negative; verified against the live ladder as
+per-team product could not go negative; verified against the live ladder as
 of round 3849 (canonical 0.7.317), that no longer holds: a team's banked
 total can finish negative, and nothing in the live pipeline floors it at
 zero. See [[glory-season-2|Glory (Season 2)]] for the friendly-fire divisor
@@ -187,40 +188,42 @@ and the rest of that ladder's pricing shape.
 **A battle-royale episode's platform score is no longer win-gated: as of
 round 3849 (canonical 0.7.317), every seat banks its own team's Glory
 total, win or lose.** A seat's score is its team's Glory total, unconditionally —
-losing duos bank their real totals onto the ladder, and a bad enough total
-banks negative (no floor, per the correction above). Both seats on a duo
-bank the identical team total, with no split or halving between partners,
-and only a real policy's seat carries that score onto its entrant record; a
-filler partner's seat is paid the same amount internally but never reaches
-any policy's ladder standing. Winning still pays, through the ledger itself
-rather than a gate: a winning team's product carries the ×8 `VICTORY`
-factor (see [[glory-season-2]]) that a losing team's never does. What a team's Glory total *is* remains the armed multiplier economy's running
-product, not a sum of additively-priced deeds. [[round]]'s round score sums
-these per-episode scores — an entrant's best 12 that round (see [[round]]
-for the best-k guard).
+losing teams bank their real totals onto the ladder, and a bad enough total
+banks negative (no floor, per the correction above). Only a real policy's
+seat carries that score onto its entrant record; a filler seat is paid the
+same amount internally but never reaches any policy's ladder standing.
+What a team's Glory total *is* remains the armed multiplier economy's
+running product, not a sum of additively-priced deeds. [[round]]'s round
+score sums these per-episode scores — an entrant's best 12 that round (see
+[[round]] for the best-k guard).
 
-**Round 3871 (canonical build 0.7.320) briefly changed that win payout's
-shape, and the change has since been rolled back.** For rounds 3871
-through 2026-09-04, winning stopped minting the `VICTORY` deed at all — a
-flat, composition-neutral ×4 win factor was folded directly into the
-winning team's product at finalize instead, outside the heat/territory/
-carry pipeline. That factor, composed with the uncapped `TAG BACK` revive
-deed armed the same build and 0.7.319's paint-following zone damage,
-let a duo's fast down-and-revive loop inflate 11 rounds' episode scores
-to 10^13–10^15 before it was caught. **Fixed in a September 2026 build: the flat factor is retired, and the paragraph above — a
-winning team's product carrying the ×8 `VICTORY` factor — is this page's
-current description again, not a historical one.** The 11 affected rounds
-are excluded from standings and from the platform's records. See
-[[glory-season-2|Glory (Season 2)]] for the full mechanism, the incident,
-and the two deeds (`TAG BACK`, `JOINT ACT`) still armed from that build.
+**Winning no longer mints a `VICTORY` deed at all — the `VICTORY` deed is
+permanently retired on this ladder, and stays that way.** As of round 3871
+(canonical build 0.7.320), a win instead folds a flat, composition-neutral
+factor directly into the winning team's product at finalize, outside the
+heat/territory/carry pipeline: it pays no heat, no territory, no carry
+multiplier, and no ally-stack factor, and a losing team never receives it.
+That factor, composed with the uncapped `TAG BACK` revive deed armed the
+same build and 0.7.319's paint-following zone damage, let a fast
+down-and-revive loop inflate 11 rounds' episode scores to 10^13–10^15
+before it was caught. **Fixed 2026-09-04: a durable per-deed mint budget
+and a tightened product ceiling closed the loop, and the flat win factor —
+not `VICTORY` — has stayed the live mechanism ever since; `VICTORY` never
+came back.** The 11 affected rounds are excluded from standings and from
+the platform's records. The factor is also sized by team count: it folds
+×8 for today's sixteen-solo-seat shape, versus ×4 under the retired
+eight-duo shape. See [[glory-season-2|Glory (Season 2)]] for the full
+mechanism, the incident, and the two deeds (`TAG BACK`, `JOINT ACT`) armed
+from that build.
 
 ## Version history
 
 | Version | Change |
 | --- | --- |
-| Unrecorded | The round-3871 flat ×4 win factor retired 2026-09-04 (a September 2026 fix) after a scoring incident: composed with `TAG BACK`'s uncapped revive mint and 0.7.319's paint-following zone damage, it let a duo's fast down-and-revive loop inflate 11 rounds' episode scores to 10^13–10^15. `VICTORY`'s ×8 rung, described in the row below, is what a `battle-royale-s2` win prices again. The 11 affected rounds are excluded from standings and records. See [[glory-season-2|Glory (Season 2)]]. |
-| Unrecorded | Battle royale's win payout changed shape: as of round 3871 (canonical build 0.7.320), a `battle-royale-s2` win no longer mints the `VICTORY` deed described in the row below — it is a flat ×4 factor folded into the winning team's product at finalize instead. See [[glory-season-2|Glory (Season 2)]] for the full mechanism and the two new deeds (`TAG BACK`, `JOINT ACT`) armed in the same build. Rolled back 2026-09-04 — see the row above. |
-| Unrecorded | Win-gating removed from the battle-royale episode scorer, verified live as of round 3849 (canonical 0.7.317): every seat now banks its own team's Glory total win or lose — losing teams bank real scores, and a team's banked total can finish negative (no floor). (The ×8 `VICTORY` factor this row originally described was briefly retired between round 3871 and 2026-09-04 — see the two rows above — and is live again now.) Supersedes both the winners-only claim and the cannot-go-negative correction in earlier revisions of the `Battle royale` section. |
+| GV63 / GLORYVERSION 18 (2026-09-11, wiki) | Re-traced against current source. Fixed the heat ladder's cadence (Stats table and the worked example): thresholds are 1/2/4 cumulative embers and the decay window is 270 ticks (11.25 s), not the 2/5/10-ember, 45-tick cadence this page previously documented — both were widened live to fix `battle-royale-s2` heat measuring almost dead under the old cadence. Also corrected the three rows below and the "Winning" prose above: an earlier revision of this page had the incident's outcome backwards, claiming the 2026-09-04 fix restored the `VICTORY` deed. It did not — `VICTORY` stays permanently retired once the win-as-multiplier flag is armed (it has been, continuously, since before that fix); the flat win factor is what the 2026-09-04 fix kept live, now sized ×8 for today's sixteen-solo-seat shape. |
+| Unrecorded | The round-3871 flat win factor was never reverted to `VICTORY`: after a scoring incident where the factor, composed with `TAG BACK`'s uncapped revive mint and 0.7.319's paint-following zone damage, let a fast down-and-revive loop inflate 11 rounds' episode scores to 10^13–10^15, the 2026-09-04 fix closed the loop with a durable per-deed mint budget and a tightened product ceiling — and kept the flat factor, not `VICTORY`, as the live mechanism. The 11 affected rounds are excluded from standings and records. See [[glory-season-2|Glory (Season 2)]]. |
+| Unrecorded | Battle royale's win payout changed shape: as of round 3871 (canonical build 0.7.320), a `battle-royale-s2` win no longer mints the `VICTORY` deed — it is a flat, composition-neutral factor folded into the winning team's product at finalize instead, and has stayed that way since. See [[glory-season-2|Glory (Season 2)]] for the full mechanism and the two new deeds (`TAG BACK`, `JOINT ACT`) armed in the same build. |
+| Unrecorded | Win-gating removed from the battle-royale episode scorer, verified live as of round 3849 (canonical 0.7.317): every seat now banks its own team's Glory total win or lose — losing teams bank real scores, and a team's banked total can finish negative (no floor). Supersedes both the winners-only claim and the cannot-go-negative correction in earlier revisions of the `Battle royale` section. |
 | Unrecorded | Corrected the `Battle royale` section: the additive mint pipeline documented in `## Rules` above is the classic (CTF) ladder's only. Paintbot (Season 2)'s `battle-royale-s2` ladder runs a separate whole-number multiplier economy (armed Glory 13, live from round 3830) — see [[glory-season-2]]. Removed the now-incorrect claim that a winning battle-royale team's Glory total can finish negative: a floor-divided product of positive integers can reach zero but never negative. |
 | Unrecorded | Updated the [[round]] cross-reference: Paintbot (Season 2)'s round score is now the sum of a round's episode scores rather than its single best episode — a live league-setting change. The per-episode score itself (the winning team's Glory total, credited identically to both duo seats) is unchanged. |
 | Unrecorded | Documented that [[battle-royale-s2|battle royale]] gates off the "capture" and "wipeout" deeds entirely — neither mints in that ruleset — while every other deed mints unchanged; also documented that the team-kill penalty's lack of a floor can leave a winning team with a negative net Glory total. |

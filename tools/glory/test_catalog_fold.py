@@ -217,11 +217,48 @@ def test_catalog_switches_label():
           catalog_fold.CatalogSwitches(placementRampV3=True).label == "v3")
 
 
+def test_deed_rates_reports_both():
+    """Pins BOTH mint rates for one known deed, and pins that every census
+    table still PRINTS both, so the pair can never silently collapse back
+    to a single per-episode number -- the units error that published
+    `survivalCredit` as "roughly x1.16 over a typical episode" when the
+    realized per-seat effect is x1.0002."""
+    print("test_deed_rates_reports_both")
+    # survivalCredit on the live GV18/GameVersion-63 cohort (r4828-r4833):
+    # 714 mints, 90 episodes, 1,440 seat-episodes (16 seats each).
+    per_ep, per_seat_ep = catalog_fold.deed_rates(714, 90, 1440)
+    check("survivalCredit is 7.9333 mints/EPISODE (16 seats pooled)",
+          abs(per_ep - 7.933333) < 1e-4)
+    check("survivalCredit is 0.4958 mints/SEAT-episode",
+          abs(per_seat_ep - 0.495833) < 1e-4)
+    check("the per-episode rate is 16x the per-seat rate (the whole point)",
+          abs(per_ep / per_seat_ep - 16.0) < 1e-9)
+    check("zero episodes does not divide by zero",
+          catalog_fold.deed_rates(0, 0, 0) == (0.0, 0.0))
+
+    # The tables themselves must emit BOTH columns, not just the pair being
+    # computable. Source-level check (these emitters need a full census rows
+    # file to run, which this stdlib-only test deliberately does not carry).
+    here = os.path.dirname(os.path.abspath(__file__))
+    for fname in ("census_analyze.py", "census_achievements_analyze.py"):
+        with open(os.path.join(here, fname)) as f:
+            src = f.read()
+        check(f"{fname} prints a per-SEAT-episode rate column",
+              "mints/seat-ep" in src)
+        check(f"{fname} computes it via catalog_fold.deed_rates",
+              "catalog_fold.deed_rates" in src)
+    with open(os.path.join(here, "census_analyze.py")) as f:
+        src = f.read()
+    check("census_analyze.py Q5a prints per_seat_ep beside per_ep",
+          "per_seat_ep=" in src and "per_ep=" in src)
+
+
 def main():
     test_recut_fold_pct_gate_ruling_2()
     test_recut_fold_cap_saturation()
     test_recut_win_factor()
     test_catalog_switches_label()
+    test_deed_rates_reports_both()
     test_v3_fold_primitive()
     test_v3_fold_via_census_decode()
     test_v2_fold_via_census_decode()

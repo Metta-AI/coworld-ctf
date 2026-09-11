@@ -10,8 +10,13 @@ Usage:
 import argparse
 import json
 import math
+import os
 import statistics
+import sys
 from collections import Counter, defaultdict
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import catalog_fold  # noqa: E402
 
 TREES = [
     "treeGun", "treeSpray", "treeGrenade", "treeShield", "treeMedKit",
@@ -58,17 +63,20 @@ def main():
             if first:
                 first_total[key] += 1
 
-    print("=== Q1: PER-ACHIEVEMENT MINT RATE (8 trees x 5 tiers = 40; 16 seats pooled) ===")
-    print(f"{'tree':<14}{'tier':<6}{'mints/ep':>10}{'%eps>=1':>9}{'total':>8}{'firsts':>8}")
+    print("=== Q1: PER-ACHIEVEMENT MINT RATE (8 trees x 5 tiers = 40; per "
+          "EPISODE, 16 seats pooled, AND per SEAT-episode) ===")
+    print(f"{'tree':<14}{'tier':<6}{'mints/ep':>10}{'mints/seat-ep':>15}"
+          f"{'%eps>=1':>9}{'total':>8}{'firsts':>8}")
     dead = []
     for tree in TREES:
         for tier in range(5):
             key = (tree, tier)
             total = mint_total.get(key, 0)
-            per_ep = total / n_eps
+            per_ep, per_seat_ep = catalog_fold.deed_rates(total, n_eps, n_seat_eps)
             pct = 100 * len(mint_eps.get(key, set())) / n_eps
             firsts = first_total.get(key, 0)
-            print(f"{tree:<14}{TIER_NAMES[tier]:<6}{per_ep:>10.4f}{pct:>8.2f}%{total:>8d}{firsts:>8d}")
+            print(f"{tree:<14}{TIER_NAMES[tier]:<6}{per_ep:>10.4f}"
+                  f"{per_seat_ep:>15.4f}{pct:>8.2f}%{total:>8d}{firsts:>8d}")
             if total == 0:
                 dead.append(f"{tree}.{TIER_NAMES[tier]}")
     print(f"\nZERO-MINT achievements ({len(dead)}/40): {dead}\n")

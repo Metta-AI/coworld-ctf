@@ -1,10 +1,8 @@
-*Verified against [[versions|GV24 / Glory 10]].*
-
-**Verified against `GV24 / Glory 10` — the live game is `GV63 / GLORYVERSION 18`; treat details as unconfirmed.**
+*Verified against `paintbot-v0.7.397` (GV63 / GLORYVERSION 18), 2026-09-11 — see `docs/wiki/_era.md`.*
 
 Hit points and lives are Paintbot's health system: every player carries a
 hit point pool per life — shown on your own HUD as `lives <n>hp x<n>` and
-over every player's head as `hp <n>/3` — and a bullet removes exactly 1 hit
+over every player's head as `hp <n>/<max>` — and a bullet removes exactly 1 hit
 point. The pool is 3 in the classic ruleset this lead documents; see
 `### Hit points per life — variant-dependent` below for the
 `battle-royale-s2` and free-play field value. A life ends at 0 hit points; a
@@ -98,46 +96,66 @@ defenseless, distinct from an ordinary tag-out.
 | Revive result | 1 hp | — | The downed player's hit points on a completed revive |
 
 Any upright teammate who stays within 40 px of a downed teammate for a
-sustained 2.0 s (48 ticks) revives them back to 1 hit point. The bleed-out
-timer is not fixed across a life: it halves each additional time the same
-player goes down, with a floor of 2.0 s (48 ticks) — a player who keeps
-getting downed and revived bleeds out faster each subsequent time, not on
-the same 15.0 s clock every time.
+sustained 2.0 s (48 ticks) revives them back to 1 hit point. **Since a later
+build, an upright member of a team currently sharing an active
+[[glossary|pact]] with the downed player's team qualifies as a reviver
+exactly like a teammate always has** — on a sixteen-solo-seat ladder, where
+no team has a second seat to supply a same-team revive, this pact-ally path
+is the only way a downed seat ever gets tagged back in. Reviving a pact
+ally this way (rather than a same-team partner) prices as its own thing —
+see [[glory-season-2]]. The bleed-out timer is not fixed across a life: it
+halves each additional time the same player goes down, with a floor of
+2.0 s (48 ticks) — a player who keeps getting downed and revived bleeds out
+faster each subsequent time, not on the same 15.0 s clock every time.
 
-**A team is finalized as eliminated the instant every one of its players is
-simultaneously downed.** If no upright teammate is left standing to revive
+**A team is finalized as eliminated once every one of its players is
+simultaneously downed, unless an active pact ally is still standing.** If
+no upright teammate and no upright pact ally is left standing to revive
 anyone, the whole team is finalized as eliminated on that same tick — a
-downed player does not bleed out on the ordinary timer once their entire
-team is down at once; the team-level result resolves immediately rather
-than waiting out the last player's clock.
+downed player does not bleed out on the ordinary timer once neither its own
+team nor any pact ally has an upright player left; the team-level result
+resolves immediately rather than waiting out the last player's clock. A
+team with a live pact ally instead runs the normal bleed-out-then-revive
+window above.
 
 A policy's own observation of the match exposes downed status as a
-`downed` boolean: on its own `self` object, and on a duo partner's row in
-`tracks` — the partner grant exists specifically so a policy can tell a
-teammate is down and worth reviving. A fogged enemy's `tracks` row carries
-the same field, gated by the same visibility as the rest of that row.
+`downed` boolean: on its own `self` object, and on a same-team partner's
+row in `tracks` — the partner grant exists specifically so a policy can
+tell a teammate is down and worth reviving, though it never fires on a
+sixteen-solo-seat ladder, where no team has a second seat. A fogged
+enemy's `tracks` row carries the same field, gated by the same visibility
+as the rest of that row — this is how a policy actually learns a *pact
+ally* (not a same-team partner) is down and worth reviving today, since a
+pact ally is still an "enemy" team on the wire.
 
 ## Labels
 
 | Label | Meaning | Stream |
 | --- | --- | --- |
-| `hp <n>/3` | Overhead health bar, centred on its player's body | Player view and broadcast; fog-gated |
+| `hp <n>/<max>` | Overhead health bar, centred on its player's body | Player view and broadcast; fog-gated |
 | `lives <n>hp x<n>` | Own HUD hit-point and lives readout | Player view |
 | `corpse <color> <side>` | A tagged-out body, in place of the `player` label | Player view (own body) and broadcast |
 
-**The `3` in `hp <n>/3` is a bar segment count, not the hit-point setting**
-— it always draws three segments, and today's default hit-point cap happens
-to also be 3. **The segment count is hard-capped, so `<n>` cannot read past
-3** — a rank-raised hit point ceiling (see [[ranks]]) does not grow the bar
-past three lit segments. A shield carrier's own `lives <n>hp x<n>` reads past
-the base cap instead (`6hp` at full shield), which is how a policy detects its
-own shield without a separate marker. Both quirks are explained in full on
+**`hp <n>/<max>` is a true current/max readout, not a fixed-at-3 bar.** An
+earlier client build hard-capped the overhead bar at three segments, so a
+rank-raised hit point ceiling (see [[ranks]]) could never show past `hp
+<n>/3`; a 2026-08-08 client change replaced that fixed cap with the real
+denominator, so a ranked-up cog's raised ceiling is now visible in the
+label itself — a full-health rank-3+ cog reads `hp 4/4` in the classic
+ruleset this page documents (`hp 5/5` on the live `battle-royale-s2`
+ladder's 4-hp baseline, see [[ranks]]). A shield carrier's own `lives
+<n>hp x<n>` reads past the base cap instead (`6hp` at full shield in the
+classic ruleset documented here; `7hp` on `battle-royale-s2`'s 4-hp
+baseline — see [[ranks]]), which is how a policy detects its own shield
+without a separate marker. Both quirks are explained in full on
 [[perception]].
 
 ## Version history
 
 | Version | Change |
 | --- | --- |
+| GV63 / GLORYVERSION 18 (2026-09-11, wiki) | Re-traced against current source. Corrected the downed-state section: a downed player can now also be revived by an upright *pact ally* (not only a same-team partner), and a team's finalize-as-eliminated check is delayed while a pact ally still stands — both were same-team-only when this page last described them. All bleed-out/revive timings (15.0 s / 360-tick default, 2.0 s / 48-tick floor and revive time, 40 px range, 1 hp revive result) re-checked against source and unchanged. Also corrected the `## Labels` section: this page previously claimed the overhead `hp <n>/3` bar is hard-capped at three segments — a 2026-08-08 client change already replaced that fixed cap with a true current/max readout, matching [[ranks]]'s own correction of the same claim. |
+| GV59 (2026-09-08) | Pact-ally revive armed: an upright member of a team currently pact-allied with a downed seat's team qualifies as a reviver, and a team's finalize no longer requires only its own upright count — a live pact ally's upright status counts too. |
 | 0.7.348 | Hit points per life became variant-dependent: `battle-royale-s2` (Paintbot Season 2) and the free-play field raised the pool from 3 to 4; classic rulesets unchanged at 3. Damage per bullet unchanged. |
 | Unrecorded | Documented the downed-state mechanic as live on Paintbot (Season 2)'s `battle-royale-s2` ladder, with the `downed` wire field it exposes on `self` and `tracks`. Previously documented as shipped but not armed anywhere live. |
 | GV23 | A depleted shield layer breaks outright the instant it empties, instead of persisting as a 0 hp shell |

@@ -1,6 +1,4 @@
-*Verified against [[versions|GV24 / Glory 12]].*
-
-**Verified against `GV24 / Glory 12` — the live game is `GV63 / GLORYVERSION 18`; treat details as unconfirmed.**
+*Verified against `paintbot-v0.7.397` (GV63 / GLORYVERSION 18), 2026-09-11 — see `docs/wiki/_era.md`.*
 
 The paint bomb (**wire label `grenade`**) is a thrown area weapon that removes
 **2 hit points** from every player inside a **52 px** blast — enemies, teammates,
@@ -17,7 +15,7 @@ different layers.
 | --- | --- | --- | --- |
 | Damage | 2 hit points | — | Applied once to every player in radius |
 | Blast radius | 52 px | — | GV17: 40 → 52 |
-| Fuse (release to burst) | 0.42 s | 10 | Fixed always, independent of range or rank — see Rules |
+| Fuse (release to burst) | 0.42 s | 10 | = 2× the gun's configured base fire windup; independent of the THROWER's own rank — see Rules |
 | Charge to full | 1.0 s | 24 | Held C; partial charge scales range |
 | Minimum throw range | 30 px | — | A tap lands inside your own blast radius |
 | Maximum throw range | 247 px | — | One fifth of the map width, at full charge |
@@ -59,11 +57,14 @@ drawn on your own view at the true blast diameter.
 **flies over all obstacles** — walls do not stop it and do not shelter the
 landing point from above. The burst comes a fixed 10 ticks after release whether
 the throw was short or long; long throws simply travel faster. That fuse is
-always 10 ticks, at every rank and every range — it happens to equal 2× the
-base fire windup, but it is a fixed constant of its own, not a live windup
-value, so it never shortens the way a ranked cog's own windup does. The
-reaction window is the same as eating two aimed shots, not a mortar you can
-walk away from.
+computed live as 2× the gun's *configured base* fire windup (5 ticks by
+default, so 10 ticks) — a league that overrides the base gun windup moves the
+grenade fuse with it — but it never reads the THROWER's own ranked windup, so
+a ranked-up cog's shorter gun windup never shortens its own grenade fuse. On
+every currently published ruleset the base windup is the 5-tick default, so
+the fuse is 10 ticks at every rank and every range in practice. The reaction
+window is the same as eating two aimed shots, not a mortar you can walk away
+from.
 
 **Blast.** Every player whose position is within 52 px of the landing point loses
 2 hit points, with **no falloff and no team check**: enemies, teammates, and the
@@ -90,13 +91,17 @@ The landing is loud: a landing you could not see leaves a jittered `grenade
 sound` ring on every living player's observation, exactly like a gunshot impact
 ring. See [[perception]].
 
-**Rank interaction.** Every rank gets exactly one throw per pickup — the throw
-path clears a carried bomb after a single throw, at every rank. The per-life
-rank ladder does set a per-rank grenade-charge value, but nothing in the throw
-path reads it — see [[ranks]]. **That unused value still reaches the
-screen**: the broadcast's own inspector card, opened by selecting a rank-4 or
-rank-5 cog, lists a second grenade charge among that cog's buffs. There is no
-second charge, ever — see [[ranks]] for the full warning on that card.
+**Rank interaction.** From rank 4 ("quickdraw") of the per-life ladder, a
+pickup yields **2 throws instead of 1**: the per-rank grenade-charge value is
+now wired into the pickup and throw paths, so a rank-4 or rank-5 cog can
+throw twice off a single pickup without walking back for a second one — the
+carried-bomb state only clears once every charge from that pickup is spent.
+Ranks 0-3 still get exactly one throw per pickup. **This reverses what this
+page previously said**: an earlier
+build genuinely left that per-rank value unread, so the broadcast's own
+inspector card (opened by selecting a rank-4 or rank-5 cog) showed a second
+grenade charge that did nothing — see [[ranks]] for that history and the
+GLORYVERSION the fix landed in. The card's claim is accurate today.
 
 ## Labels
 
@@ -121,7 +126,9 @@ flies over walls, `grenade air` can be the only warning you get.
 
 | Version | Change |
 | --- | --- |
-| Wiki | Cross-referenced [[ranks]]'s warning that the broadcast's inspector card shows a nonexistent second grenade charge for rank 4 and rank 5. |
+| GV63 / GLORYVERSION 18 (2026-09-11, wiki) | Re-traced against current source. **Reversed this page's own rank-interaction claim**: a rank-4+ pickup now genuinely yields 2 throws (wired as of GLORYVERSION 16, 2026-09-08) — the broadcast inspector card's second-charge claim, previously documented here as false, is accurate today. Also corrected the fuse: it is computed live as 2× the gun's configured base windup, not a standalone fixed constant, though it still never reads the thrower's own ranked windup. Damage, blast radius, charge/range formula, and pickup/respawn numbers all re-checked and unchanged. |
+| GLORYVERSION 16 (2026-09-08) | The per-rank grenade-charge value was wired into the pickup and throw paths: a rank-4+ pickup now yields 2 throws instead of 1. Previously assigned but never read. |
+| Wiki | Cross-referenced [[ranks]]'s warning that the broadcast's inspector card shows a nonexistent second grenade charge for rank 4 and rank 5. **Superseded by the GLORYVERSION 16 fix above — the card's claim is no longer false.** |
 | GV17 | Blast radius 40 → 52 px (+30%) |
 | Unrecorded | Fixed fuse replaced a constant 6 px/tick flight speed, under which a full-range lob hung airborne about 41 ticks |
 

@@ -1,6 +1,4 @@
-*Verified against [[versions|GV24 / Glory 12]].*
-
-**Verified against `GV24 / Glory 12` — the live game is `GV63 / GLORYVERSION 18`; treat details as unconfirmed.**
+*Verified against `paintbot-v0.7.397` (GV63 / GLORYVERSION 18), 2026-09-11 — see `docs/wiki/_era.md`.*
 
 A round is a batch of episodes that a league schedules for one division at
 a time — it is not a turn, a phase, or a single match inside a game. Each
@@ -110,12 +108,18 @@ that pull fades the same way it eventually fades for every other round.
 
 | Version | Change |
 | --- | --- |
+| GV63 / GLORYVERSION 18 (2026-09-11, wiki) | Re-traced against current source and the platform's own dated scoring-era record. The round-level `sum`/best-12 rule and the `rated` standing aggregation (since round 3856) both still check out; no stale digit found this pass. |
 | Unrecorded | Paintbot (Season 2)'s standing aggregation changed from `max` (best round ever) to `rated` (a live-decaying weighted average of round scores), live since round 3856. The round-level `sum`/best-12 rule documented above is unchanged — only the settlement step that turns a round score into a standing changed. See [[elo]] for the full mechanism and what changed for a reader. |
 | Unrecorded | Documented the active best-k guard on top of `sum`: a round score sums an entrant's best-k episode scores (k defaults to the league's minimum episodes-per-entrant, currently 12), not literally every episode. Live but not yet binding at today's episode counts. |
 | Unrecorded | Paintbot (Season 2)'s live round scoring rule changed from `max` to `sum`: a round's score is now the total of its episode scores rather than its single best episode. The standing aggregation is unchanged at `max` (best round). A live league-setting change, not an engine change. |
 
 ## Gaps
 
+- The platform's own dated scoring-era record (`docs/SCORING_ERAS.md`) is
+  verified only through round 4208 (2026-09-06); today's era stamp above is
+  2026-09-11, so a further round-level or standing-level boundary flip in
+  that gap would not yet be reflected here — re-check that document's own
+  freshness before citing an exact round number from this page.
 - The exact live round cadence for Paintbot (classic): a roughly-12-minute
   reading and a roughly-9-minute reading of the same league disagree, and
   neither has been checked against the other's measurement method.
