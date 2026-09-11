@@ -126,6 +126,46 @@ def test_s4b_armed_folds_the_bank_lights_the_jackpot_bonus():
     assert row0["buckets"]["MODE_LIT_CHOSEN"] == pytest.approx(math.log2(4), abs=1e-9)
 
 
+def test_s4b_recorded_armed_does_not_double_fold_the_bonus():
+    # GLORY GRADIENT S8/GV63 regression: real armed play (GameVersion 63+)
+    # bakes the S4b bonus INTO the top-tier claim's own wire `amount`
+    # (sim.nim `claimAchievement` ~L647, `amount = amount * bonus`, BEFORE
+    # the achievement event's own `emitEvent` a few lines later) and ALSO
+    # emits a separate `achModeLit` marker (weapon="achModeLit") at the SAME
+    # tick, carrying the bonus for display/audit only -- it is not a second
+    # independent fold. An earlier version of this function could not tell
+    # this apart from the OLD dark-recording sweep case and folded the
+    # bonus a SECOND time, exactly doubling the score -- caught empirically
+    # on a real GV18 cohort read (r4828-4833): 3/1440 seat-episodes
+    # reconstructed at 2.000x the platform's own reported score, every one
+    # of them carrying a lit top-tier claim.
+    events = [
+        (100, "achievement", 0, "treeGun", 100, 0),
+        (101, "achievement", 0, "treeGun", 100, 1),
+        (102, "achievement", 0, "treeGun", 100, 2),
+        (103, "achievement", 0, "treeGun", 100, 3),
+        # Recorded-armed wire shape: the bonus (4, at lightCount=4) is
+        # ALREADY folded into this claim's own amount (346 * 4 = 1384), and
+        # a paired `achModeLit` marker fires at the identical tick.
+        (104, "achievement", 0, "treeGun", 1384, 4),
+        (104, "glory_deed", 0, "achModeLit", 4, None, "GLORY_ACH_MODE_LIT"),
+    ]
+    with tempfile.TemporaryDirectory() as d:
+        jp = os.path.join(d, "ep.jsonl")
+        write_episode_jsonl(jp, slot_team=["teamA", "teamB"], winner=None,
+                             ticks=200, events=events)
+        rows = cap_sweep.sweep_episode(jp, round_number=4620,
+                                        cap=catalog_fold.RECUT_PRODUCT_CAP_ARMED,
+                                        s4b_armed=True)
+    row0 = rows[0]
+    # Same net product as the dark-recording + hypothetical-arm case above
+    # (1024 * 1384 // 100 == 3543 * 4 == 14172): one fold, not two.
+    assert row0["product"] == 3543 * 4
+    assert row0["reported"] == 13
+    assert row0["capped"] is False
+    assert row0["buckets"]["MODE_LIT_CHOSEN"] == pytest.approx(math.log2(4), abs=1e-2)
+
+
 def test_s4b_bonus_is_a_real_no_op_at_lightcount_0_or_1():
     # A seat that lands ONLY the top tier (no lower tiers banked first)
     # scores IDENTICALLY dark vs armed -- glory.nim's own "no bonus, no
@@ -167,7 +207,12 @@ def test_cap_is_an_arbitrary_parameter_not_just_the_two_real_consts():
 
 
 def test_cap_bits_to_internal():
-    assert cap_sweep.cap_bits_to_internal(14) == catalog_fold.RECUT_PRODUCT_CAP_ARMED
+    # GLORY GRADIENT S8 (#538) moved the armed ceiling from 2^14 reported
+    # (2^24 internal) to 2^21 reported (2^31 internal, CAP-CEILING-S7.md's
+    # sized value) -- this assertion pins the CURRENT armed constant, not
+    # the pre-S8 one; the middle assertion below already covers an
+    # arbitrary cap-bits value independent of whichever is "armed" today.
+    assert cap_sweep.cap_bits_to_internal(21) == catalog_fold.RECUT_PRODUCT_CAP_ARMED
     assert cap_sweep.cap_bits_to_internal(20) == (1 << 20) * catalog_fold.GLORY_SCALE
     assert cap_sweep.cap_bits_to_internal(None) == catalog_fold.RECUT_PRODUCT_CAP_DARK
 
