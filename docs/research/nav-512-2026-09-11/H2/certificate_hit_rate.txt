@@ -1,0 +1,1 @@
+standable_lattice_nodes=281529 edges=2252232 certified=2172408 certified_fraction=0.9645578253039652

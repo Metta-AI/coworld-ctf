@@ -1,0 +1,11 @@
+a*b+c bits=BC90000000000000 (0 => no contraction, 0xBC90000000000000 => fused)
+hypot(3,4) bits=4014000000000000 correctly_rounded=4014000000000000 same
+hypot(7,24) bits=4039000000000000 correctly_rounded=4039000000000000 same
+hypot(12,5) bits=402A000000000000 correctly_rounded=402A000000000000 same
+hypot(1,1) bits=3FF6A09E667F3BCD correctly_rounded=3FF6A09E667F3BCD same
+hypot(4,4) bits=4016A09E667F3BCD correctly_rounded=4016A09E667F3BCD same
+hypot(2851,1033) bits=40A7B0BF50105E32 correctly_rounded=40A7B0BF50105E32 same
+hypot(3194,1696) bits=40AC40B7C74B11F9 correctly_rounded=40AC40B7C74B11F9 same
+hypot(1,3210) bits=40A91400146A8C03 correctly_rounded=40A91400146A8C03 same
+hypot(1712,3210) bits=40AC6C0000000000 correctly_rounded=40AC6C0000000000 same
+hypot(4,0) bits=4010000000000000 correctly_rounded=4010000000000000 same

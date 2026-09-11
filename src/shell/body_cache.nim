@@ -153,7 +153,9 @@ proc beginRouteField*(cache: BodySeatCache, goal: BodyPoint): int =
   slot.building = true
   slot.clearCursor = 0
 
-proc clearRouteCell*(cache: BodySeatCache, slotIndex: int): bool =
+# These hot leaf helpers keep bounds checks but omit their own stack frame.
+# Errors still retain the framed caller; this avoids per-access trace bookkeeping.
+proc clearRouteCell*(cache: BodySeatCache, slotIndex: int): bool {.inline, stackTrace: off.} =
   ## Clear exactly one raster cell. Returns true once the field is clean.
   var slot = addr cache.routeSlots[slotIndex]
   if slot.clearCursor >= slot.distances.len:
@@ -181,11 +183,12 @@ proc routeSlotReady*(cache: BodySeatCache, key: int): bool =
 proc routeSlotReady*(cache: BodySeatCache, goal: BodyPoint): bool =
   cache.routeSlotReady(cache.routeKey(goal))
 
-proc routeDistanceAt*(cache: BodySeatCache, slotIndex, cellIndex: int): float =
+proc routeDistanceAt*(cache: BodySeatCache, slotIndex, cellIndex: int): float {.
+    inline, stackTrace: off.} =
   cache.routeSlots[slotIndex].distances[cellIndex]
 
 proc setRouteDistance*(cache: BodySeatCache, slotIndex, cellIndex: int,
-                       distance: float, hop: uint8) =
+                       distance: float, hop: uint8) {.inline, stackTrace: off.} =
   var slot = addr cache.routeSlots[slotIndex]
   slot.distances[cellIndex] = distance
   slot.hops[cellIndex] = hop

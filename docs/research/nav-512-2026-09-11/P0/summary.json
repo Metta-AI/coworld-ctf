@@ -1,0 +1,412 @@
+{
+  "256": {
+    "computeFovShadowcast*": {
+      "count": 1948,
+      "total_us": 650341.891,
+      "p50_us": 336.938,
+      "p95_us": 578.574,
+      "max_us": 2082.502
+    },
+    "applyFovCone*": {
+      "count": 8550,
+      "total_us": 6303131.837,
+      "p50_us": 745.699,
+      "p95_us": 861.261,
+      "max_us": 2379.728
+    },
+    "refreshPlayerFov*": {
+      "count": 38471,
+      "total_us": 6979156.412,
+      "p50_us": 0.52,
+      "p95_us": 860.511,
+      "max_us": 2925.813
+    },
+    "shell.compile": {
+      "count": 1201,
+      "total_us": 3794.674,
+      "p50_us": 3.0,
+      "p95_us": 4.06,
+      "max_us": 25.961
+    },
+    "shell.lifecycle": {
+      "count": 38432,
+      "total_us": 105959.635,
+      "p50_us": 2.98,
+      "p95_us": 4.7,
+      "max_us": 39.961
+    },
+    "shell.ladder": {
+      "count": 1201,
+      "total_us": 2391314.476,
+      "p50_us": 1837.925,
+      "p95_us": 3678.33,
+      "max_us": 244091.729
+    },
+    "shell.standing": {
+      "count": 1201,
+      "total_us": 120159.086,
+      "p50_us": 98.313,
+      "p95_us": 127.213,
+      "max_us": 358.198
+    },
+    "rebuildScheduledDanger": {
+      "count": 1201,
+      "total_us": 836778.355,
+      "p50_us": 689.177,
+      "p95_us": 1893.667,
+      "max_us": 2111.092
+    },
+    "shell.danger": {
+      "count": 1201,
+      "total_us": 850954.521,
+      "p50_us": 699.667,
+      "p95_us": 1906.347,
+      "max_us": 2124.532
+    },
+    "runPlanningTick": {
+      "count": 1201,
+      "total_us": 7949913.039,
+      "p50_us": 3755.353,
+      "p95_us": 38352.014,
+      "max_us": 42278.833
+    },
+    "shell.planning": {
+      "count": 1201,
+      "total_us": 7950986.541,
+      "p50_us": 3756.003,
+      "p95_us": 38353.224,
+      "max_us": 42280.303
+    },
+    "stepLobby": {
+      "count": 1,
+      "total_us": 4169.984,
+      "p50_us": 4169.984,
+      "p95_us": 4169.984,
+      "max_us": 4169.984
+    },
+    "step": {
+      "count": 1201,
+      "total_us": 211680.453,
+      "p50_us": 153.014,
+      "p95_us": 327.039,
+      "max_us": 4182.324
+    },
+    "buildRewardPacket": {
+      "count": 1201,
+      "total_us": 310932.734,
+      "p50_us": 252.506,
+      "p95_us": 276.077,
+      "max_us": 520.433
+    },
+    "nav.serverFrame": {
+      "count": 1201,
+      "total_us": 31679594.945,
+      "p50_us": 25124.028,
+      "p95_us": 51254.949,
+      "max_us": 292218.025
+    },
+    "body.belief": {
+      "count": 28926,
+      "total_us": 83041.342,
+      "p50_us": 2.64,
+      "p95_us": 4.3,
+      "max_us": 39.011
+    },
+    "shell.default": {
+      "count": 28942,
+      "total_us": 128363.681,
+      "p50_us": 1.0,
+      "p95_us": 1.31,
+      "max_us": 11611.92
+    },
+    "shell.reflex": {
+      "count": 28926,
+      "total_us": 10382960.141,
+      "p50_us": 0.95,
+      "p95_us": 904.862,
+      "max_us": 1139.498
+    },
+    "shell.context": {
+      "count": 28926,
+      "total_us": 513850.043,
+      "p50_us": 16.99,
+      "p95_us": 20.54,
+      "max_us": 57.071
+    },
+    "shell.guard": {
+      "count": 28926,
+      "total_us": 44853.346,
+      "p50_us": 1.48,
+      "p95_us": 2.03,
+      "max_us": 23.541
+    },
+    "invokeInit": {
+      "count": 32,
+      "total_us": 961.903,
+      "p50_us": 28.061,
+      "p95_us": 41.941,
+      "max_us": 63.142
+    },
+    "shell.view": {
+      "count": 16371,
+      "total_us": 1127125.733,
+      "p50_us": 67.652,
+      "p95_us": 91.272,
+      "max_us": 347.688
+    },
+    "invokeStep": {
+      "count": 16371,
+      "total_us": 946300.602,
+      "p50_us": 17.82,
+      "p95_us": 42.861,
+      "max_us": 13220.16
+    },
+    "body.follower": {
+      "count": 28926,
+      "total_us": 22285.112,
+      "p50_us": 0.53,
+      "p95_us": 1.77,
+      "max_us": 28.72
+    },
+    "body.weapon": {
+      "count": 28926,
+      "total_us": 112224.259,
+      "p50_us": 3.88,
+      "p95_us": 9.42,
+      "max_us": 37.711
+    },
+    "nav.astarPlan": {
+      "count": 357,
+      "total_us": 4292301.525,
+      "p50_us": 4479.83,
+      "p95_us": 39948.948,
+      "max_us": 42275.453
+    },
+    "applyInput*": {
+      "count": 38400,
+      "total_us": 129999.651,
+      "p50_us": 0.43,
+      "p95_us": 14.46,
+      "max_us": 130.254
+    },
+    "checkWinCondition*": {
+      "count": 1200,
+      "total_us": 1922.818,
+      "p50_us": 1.491,
+      "p95_us": 1.98,
+      "max_us": 23.91
+    },
+    "nav.fieldMint": {
+      "count": 1118,
+      "total_us": 3627183.396,
+      "p50_us": 160.034,
+      "p95_us": 8137.979,
+      "max_us": 8583.171
+    }
+  },
+  "512": {
+    "computeFovShadowcast*": {
+      "count": 1997,
+      "total_us": 659179.747,
+      "p50_us": 326.928,
+      "p95_us": 578.074,
+      "max_us": 1111.857
+    },
+    "applyFovCone*": {
+      "count": 9810,
+      "total_us": 7112597.134,
+      "p50_us": 734.118,
+      "p95_us": 858.131,
+      "max_us": 2325.118
+    },
+    "refreshPlayerFov*": {
+      "count": 38469,
+      "total_us": 7797703.507,
+      "p50_us": 0.53,
+      "p95_us": 861.461,
+      "max_us": 2326.628
+    },
+    "shell.compile": {
+      "count": 1201,
+      "total_us": 3669.514,
+      "p50_us": 2.881,
+      "p95_us": 4.07,
+      "max_us": 23.781
+    },
+    "shell.lifecycle": {
+      "count": 38432,
+      "total_us": 107037.387,
+      "p50_us": 3.04,
+      "p95_us": 4.84,
+      "max_us": 266.247
+    },
+    "shell.ladder": {
+      "count": 1201,
+      "total_us": 2415490.775,
+      "p50_us": 1806.515,
+      "p95_us": 3800.123,
+      "max_us": 254957.499
+    },
+    "shell.standing": {
+      "count": 1201,
+      "total_us": 120895.046,
+      "p50_us": 100.453,
+      "p95_us": 130.903,
+      "max_us": 201.285
+    },
+    "rebuildScheduledDanger": {
+      "count": 1201,
+      "total_us": 784278.359,
+      "p50_us": 367.319,
+      "p95_us": 1627.3,
+      "max_us": 2135.063
+    },
+    "shell.danger": {
+      "count": 1201,
+      "total_us": 798311.403,
+      "p50_us": 378.919,
+      "p95_us": 1639.0,
+      "max_us": 2147.583
+    },
+    "runPlanningTick": {
+      "count": 1201,
+      "total_us": 10727527.25,
+      "p50_us": 586.685,
+      "p95_us": 37892.505,
+      "max_us": 84700.384
+    },
+    "shell.planning": {
+      "count": 1201,
+      "total_us": 10728618.959,
+      "p50_us": 587.375,
+      "p95_us": 37893.655,
+      "max_us": 84701.784
+    },
+    "stepLobby": {
+      "count": 1,
+      "total_us": 4159.112,
+      "p50_us": 4159.112,
+      "p95_us": 4159.112,
+      "max_us": 4159.112
+    },
+    "step": {
+      "count": 1201,
+      "total_us": 211396.215,
+      "p50_us": 150.214,
+      "p95_us": 365.989,
+      "max_us": 4171.233
+    },
+    "buildRewardPacket": {
+      "count": 1201,
+      "total_us": 317174.165,
+      "p50_us": 257.106,
+      "p95_us": 281.257,
+      "max_us": 766.989
+    },
+    "nav.serverFrame": {
+      "count": 1201,
+      "total_us": 35173707.239,
+      "p50_us": 28279.598,
+      "p95_us": 60040.775,
+      "max_us": 339586.848
+    },
+    "body.belief": {
+      "count": 28661,
+      "total_us": 84148.25,
+      "p50_us": 2.69,
+      "p95_us": 4.38,
+      "max_us": 265.617
+    },
+    "shell.default": {
+      "count": 28677,
+      "total_us": 128535.701,
+      "p50_us": 0.99,
+      "p95_us": 1.26,
+      "max_us": 11606.406
+    },
+    "shell.reflex": {
+      "count": 28661,
+      "total_us": 10268983.3,
+      "p50_us": 0.99,
+      "p95_us": 902.312,
+      "max_us": 1135.928
+    },
+    "shell.context": {
+      "count": 28661,
+      "total_us": 510459.878,
+      "p50_us": 17.04,
+      "p95_us": 20.93,
+      "max_us": 428.28
+    },
+    "shell.guard": {
+      "count": 28661,
+      "total_us": 44576.143,
+      "p50_us": 1.5,
+      "p95_us": 1.97,
+      "max_us": 29.401
+    },
+    "invokeInit": {
+      "count": 32,
+      "total_us": 1019.558,
+      "p50_us": 28.721,
+      "p95_us": 56.451,
+      "max_us": 65.032
+    },
+    "shell.view": {
+      "count": 16186,
+      "total_us": 1111665.645,
+      "p50_us": 67.662,
+      "p95_us": 91.462,
+      "max_us": 325.388
+    },
+    "invokeStep": {
+      "count": 16186,
+      "total_us": 986422.04,
+      "p50_us": 18.19,
+      "p95_us": 48.781,
+      "max_us": 13229.827
+    },
+    "body.follower": {
+      "count": 28661,
+      "total_us": 20751.112,
+      "p50_us": 0.48,
+      "p95_us": 1.68,
+      "max_us": 28.741
+    },
+    "body.weapon": {
+      "count": 28661,
+      "total_us": 103398.108,
+      "p50_us": 3.79,
+      "p95_us": 8.43,
+      "max_us": 61.062
+    },
+    "nav.astarPlan": {
+      "count": 290,
+      "total_us": 5039659.223,
+      "p50_us": 5355.522,
+      "p95_us": 78623.584,
+      "max_us": 84696.424
+    },
+    "nav.fieldMint": {
+      "count": 886,
+      "total_us": 5621281.562,
+      "p50_us": 301.428,
+      "p95_us": 16215.061,
+      "max_us": 17034.832
+    },
+    "applyInput*": {
+      "count": 38400,
+      "total_us": 126943.893,
+      "p50_us": 0.45,
+      "p95_us": 14.191,
+      "max_us": 290.267
+    },
+    "checkWinCondition*": {
+      "count": 1200,
+      "total_us": 2021.537,
+      "p50_us": 1.59,
+      "p95_us": 2.15,
+      "max_us": 21.261
+    }
+  }
+}

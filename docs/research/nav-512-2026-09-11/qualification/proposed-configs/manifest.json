@@ -1,0 +1,62 @@
+[
+  {
+    "name": "map505-s16-edge-r331",
+    "config": "map505-s16-edge-r331.json",
+    "seats": 16,
+    "gun_range": 331,
+    "play": "edge_ride",
+    "hit_points": 3,
+    "map_name": "br-gen-505",
+    "sha256": "48b518fb054334232dc9635152cc0e8344f5fd488d44b6b8da7d7713a67e5562"
+  },
+  {
+    "name": "map5001-s32-edge-r1050",
+    "config": "map5001-s32-edge-r1050.json",
+    "seats": 32,
+    "gun_range": 1050,
+    "play": "edge_ride",
+    "hit_points": 3,
+    "map_name": "br-gen-5001",
+    "sha256": "e43f93c694970784df09baa4909e1a9787442014af679f0b94158b1a27be4499"
+  },
+  {
+    "name": "scale29-s32-edge-r497",
+    "config": "scale29-s32-edge-r497.json",
+    "seats": 32,
+    "gun_range": 497,
+    "play": "edge_ride",
+    "hit_points": 3,
+    "map_name": "br-gen-5120918",
+    "sha256": "6b225bb7b8559fd8a3fae3d645a7c5ce772c39e524fb313d94bcb16cf0fcca7b"
+  },
+  {
+    "name": "map505-s32-moving-r497",
+    "config": "map505-s32-moving-r497.json",
+    "seats": 32,
+    "gun_range": 497,
+    "play": "nav_research_moving",
+    "hit_points": 1000,
+    "map_name": "br-gen-505",
+    "sha256": "0cd0768f3e86544062e67b8f3532770cdf172e07850e70e5b9bd352f49e05a88"
+  },
+  {
+    "name": "map5001-s16-moving-r331",
+    "config": "map5001-s16-moving-r331.json",
+    "seats": 16,
+    "gun_range": 331,
+    "play": "nav_research_moving",
+    "hit_points": 1000,
+    "map_name": "br-gen-5001",
+    "sha256": "acae39ee9cad0d5a01e4f65ad2ddd9579b346ce6a77cf0fd9b6609cf73f483f9"
+  },
+  {
+    "name": "scale29-s32-moving-r1050",
+    "config": "scale29-s32-moving-r1050.json",
+    "seats": 32,
+    "gun_range": 1050,
+    "play": "nav_research_moving",
+    "hit_points": 1000,
+    "map_name": "br-gen-5120918",
+    "sha256": "1a3b6c197dbd8d16e437c73b976f50e6d6ce983976b826b32798fe10c87f29f0"
+  }
+]

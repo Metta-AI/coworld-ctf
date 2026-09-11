@@ -1,0 +1,42 @@
+[
+  {
+    "seed": 5120911,
+    "exit": 1,
+    "log": "generate.log"
+  },
+  {
+    "seed": 5120912,
+    "exit": 1,
+    "log": "generate-5120912.log"
+  },
+  {
+    "seed": 5120913,
+    "exit": 1,
+    "log": "generate-5120913.log"
+  },
+  {
+    "seed": 5120914,
+    "exit": 1,
+    "log": "generate-5120914.log"
+  },
+  {
+    "seed": 5120915,
+    "exit": 1,
+    "log": "generate-5120915.log"
+  },
+  {
+    "seed": 5120916,
+    "exit": 1,
+    "log": "generate-5120916.log"
+  },
+  {
+    "seed": 5120917,
+    "exit": 1,
+    "log": "generate-5120917.log"
+  },
+  {
+    "seed": 5120918,
+    "exit": 0,
+    "log": "generate-5120918.log"
+  }
+]

@@ -1,0 +1,14 @@
+{
+  "256": {
+    "semantic_log_lines_equal": true,
+    "original_lines": 3249,
+    "profile_lines": 3249,
+    "faults": 0
+  },
+  "512": {
+    "semantic_log_lines_equal": true,
+    "original_lines": 3080,
+    "profile_lines": 3080,
+    "faults": 0
+  }
+}

@@ -1,0 +1,8 @@
+{
+  "/original/server-256": "802389df7021bbb0caf12d2795e6e1abafd22824e3a17ff78810cb0aa9630e3f",
+  "/original/presence": "c98e4cabd393a3ce525c7f883677f531c1c810ed9639aab9ca98cea9ffe06532",
+  "/candidate/server-256": "834544f333e0920f486150fa15398d1500ab624abce1a2d5ce66a1b9cf14c97e",
+  "/candidate/server-512": "d5984cb8eb4dab9374520a53d488163c4c71cd3cbad32505ae627a91e45b8e30",
+  "/workspace/ctf/play_sdk/.build/edge_ride.wasm": "52467f15cc9407baa40ca3e94e07ef79bcad9a86320cba9613fe77e5206d878f",
+  "/workspace/ctf/docs/research/nav-512-2026-09-11/qualification/.build/nav_research_moving.wasm": "d51b9cf843125997dd1523ae2db34d18ef2491ec1dca111c4d76d9e963c251e3"
+}

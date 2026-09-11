@@ -1,0 +1,3 @@
+3ce8d61c56c85ce512a7dd5272dbebdcf0cefc5f2db707621767e2680da4ee0f  /Users/jamesboggs/coding/coworlds/coworld-ctf-worktrees/nav-512-peer/docs/research/nav-512-2026-09-11/H2/H2_production.patch
+f2990c33d57783c175f95f41ee1de0d9c33a6c94b9c3d6d4670396955d2dff25  /Users/jamesboggs/coding/coworlds/coworld-ctf-worktrees/nav-512-peer/docs/research/nav-512-2026-09-11/H2/H2.patch
+cdf40dbc73f5fe8ef0c06978d0a679678530fe39c2cb18791b39827131f623c1  src/shell/body_planner.nim

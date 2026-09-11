@@ -137,7 +137,9 @@ proc sample*(field: BodyDangerField, map: BodyMap, point: BodyPoint): float =
   let cell = map.cellOf(point)
   field.values[cell.y * map.gridWidth + cell.x].float
 
-proc nodeLess(a, b: HeapNode): bool =
+# These hot leaf helpers keep bounds checks but omit their own stack frame.
+# Errors still retain the framed caller; this avoids per-access trace bookkeeping.
+proc nodeLess(a, b: HeapNode): bool {.inline, stackTrace: off.} =
   if a.priority != b.priority: a.priority < b.priority
   elif a.cost != b.cost: a.cost < b.cost
   elif a.tie1 != b.tie1: a.tie1 < b.tie1
@@ -147,25 +149,31 @@ proc begin(heap: var FixedHeap) =
   inc heap.generation
   heap.len = 0
 
-proc setPosition(heap: var FixedHeap, item, position: int) =
+proc setPosition(heap: var FixedHeap, item, position: int) {.inline, stackTrace: off.} =
   heap.positions[item] = position
   heap.positionGeneration[item] = heap.generation
 
-proc swapNodes(heap: var FixedHeap, a, b: int) =
-  swap(heap.nodes[a], heap.nodes[b])
-  heap.setPosition(heap.nodes[a].item, a)
-  heap.setPosition(heap.nodes[b].item, b)
+# Both sifts hold the displaced node and move one neighbour per level into
+# the hole, writing the held node (and its position) once at the end. The
+# comparisons, the left-child preference on equal keys, and the final layout
+# are those of the former pairwise-swap sift; only the stores differ.
 
 proc siftUp(heap: var FixedHeap, start: int) =
+  let held = heap.nodes[start]
   var index = start
   while index > 0:
     let parent = (index - 1) div 2
-    if not nodeLess(heap.nodes[index], heap.nodes[parent]):
+    if not nodeLess(held, heap.nodes[parent]):
       break
-    heap.swapNodes(index, parent)
+    heap.nodes[index] = heap.nodes[parent]
+    heap.setPosition(heap.nodes[index].item, index)
     index = parent
+  if index != start:
+    heap.nodes[index] = held
+    heap.setPosition(held.item, index)
 
 proc siftDown(heap: var FixedHeap, start: int) =
+  let held = heap.nodes[start]
   var index = start
   while true:
     let left = index * 2 + 1
@@ -175,10 +183,14 @@ proc siftDown(heap: var FixedHeap, start: int) =
     var child = left
     if right < heap.len and nodeLess(heap.nodes[right], heap.nodes[left]):
       child = right
-    if not nodeLess(heap.nodes[child], heap.nodes[index]):
+    if not nodeLess(heap.nodes[child], held):
       break
-    heap.swapNodes(index, child)
+    heap.nodes[index] = heap.nodes[child]
+    heap.setPosition(heap.nodes[index].item, index)
     index = child
+  if index != start:
+    heap.nodes[index] = held
+    heap.setPosition(held.item, index)
 
 proc pushOrDecrease(heap: var FixedHeap, node: HeapNode) =
   if node.item < 0 or node.item >= heap.positions.len:
@@ -296,10 +308,20 @@ proc pyRound(value: float): int =
   else: lower + 1
 
 proc segmentClear(map: BodyMap, start, goal: BodyPoint): bool =
-  if not map.canStand(start):
+  # clearanceAt is zero out of bounds, so this is exactly canStand(start).
+  let startClearance = map.clearanceAt(start)
+  if startClearance <= PlayerHalf:
     return false
   let dx = goal.x - start.x
   let dy = goal.y - start.y
+  # Certificate: clearance is the exact chessboard distance transform, so
+  # every pixel the scan tests (side pixels included, all within Chebyshev
+  # distance span of start) has clearance above PlayerHalf when start's
+  # exceeds PlayerHalf + span. Saturation at 255 only lowers clearance,
+  # so it can only withhold the certificate, never grant it wrongly.
+  # The transform treats outside pixels as obstacles, so that span is in bounds.
+  if startClearance > PlayerHalf + max(abs(dx), abs(dy)):
+    return true
   let nx = abs(dx)
   let ny = abs(dy)
   let stepX = cmp(dx, 0)

@@ -1,0 +1,128 @@
+[
+  {
+    "case": "scale29",
+    "values": {
+      "parent": {
+        "input": "docs/research/nav-512-2026-09-11/qualification/memory-scale29.json",
+        "width": 3582,
+        "height": 1911,
+        "seats": 32,
+        "planner_capacity": 428288,
+        "hash_capacity": 1048576,
+        "grid_cells": 106386,
+        "per_seat_main_array_payload_bytes": 77924258,
+        "shared_mint_array_payload_bytes": 5957616,
+        "validator_logical_bytes": 27380808,
+        "seat_object_bytes": 1064,
+        "planner_object_bytes": 232,
+        "cache_object_bytes": 12640,
+        "minter_object_bytes": 72,
+        "before": {
+          "VmHWM_bytes": 2285568,
+          "VmRSS_bytes": 2285568
+        },
+        "after_map": {
+          "VmHWM_bytes": 150818816,
+          "VmRSS_bytes": 75898880
+        },
+        "after_nav": {
+          "VmHWM_bytes": 2572619776,
+          "VmRSS_bytes": 2572619776
+        }
+      },
+      "candidate": {
+        "input": "docs/research/nav-512-2026-09-11/qualification/memory-scale29.json",
+        "width": 3582,
+        "height": 1911,
+        "seats": 32,
+        "planner_capacity": 428288,
+        "hash_capacity": 1048576,
+        "grid_cells": 106386,
+        "per_seat_main_array_payload_bytes": 77924258,
+        "shared_mint_array_payload_bytes": 5957616,
+        "validator_logical_bytes": 27380808,
+        "seat_object_bytes": 1064,
+        "planner_object_bytes": 232,
+        "cache_object_bytes": 12640,
+        "minter_object_bytes": 72,
+        "before": {
+          "VmHWM_bytes": 2060288,
+          "VmRSS_bytes": 2060288
+        },
+        "after_map": {
+          "VmHWM_bytes": 150618112,
+          "VmRSS_bytes": 75640832
+        },
+        "after_nav": {
+          "VmHWM_bytes": 2572361728,
+          "VmRSS_bytes": 2572361728
+        }
+      }
+    },
+    "after_nav_rss_delta_bytes": -258048,
+    "logical_equal": true
+  },
+  {
+    "case": "colossal",
+    "values": {
+      "parent": {
+        "input": "tests/fixtures/gen-colossal-4team.bitreplay",
+        "width": 4992,
+        "height": 4992,
+        "seats": 32,
+        "planner_capacity": 1557504,
+        "hash_capacity": 4194304,
+        "grid_cells": 389376,
+        "per_seat_main_array_payload_bytes": 292625728,
+        "shared_mint_array_payload_bytes": 21805056,
+        "validator_logical_bytes": 99680256,
+        "seat_object_bytes": 1064,
+        "planner_object_bytes": 232,
+        "cache_object_bytes": 12640,
+        "minter_object_bytes": 72,
+        "before": {
+          "VmHWM_bytes": 2056192,
+          "VmRSS_bytes": 2056192
+        },
+        "after_map": {
+          "VmHWM_bytes": 554422272,
+          "VmRSS_bytes": 283455488
+        },
+        "after_nav": {
+          "VmHWM_bytes": 9656287232,
+          "VmRSS_bytes": 9656287232
+        }
+      },
+      "candidate": {
+        "input": "tests/fixtures/gen-colossal-4team.bitreplay",
+        "width": 4992,
+        "height": 4992,
+        "seats": 32,
+        "planner_capacity": 1557504,
+        "hash_capacity": 4194304,
+        "grid_cells": 389376,
+        "per_seat_main_array_payload_bytes": 292625728,
+        "shared_mint_array_payload_bytes": 21805056,
+        "validator_logical_bytes": 99680256,
+        "seat_object_bytes": 1064,
+        "planner_object_bytes": 232,
+        "cache_object_bytes": 12640,
+        "minter_object_bytes": 72,
+        "before": {
+          "VmHWM_bytes": 2162688,
+          "VmRSS_bytes": 2162688
+        },
+        "after_map": {
+          "VmHWM_bytes": 554553344,
+          "VmRSS_bytes": 283529216
+        },
+        "after_nav": {
+          "VmHWM_bytes": 9656360960,
+          "VmRSS_bytes": 9656360960
+        }
+      }
+    },
+    "after_nav_rss_delta_bytes": 73728,
+    "logical_equal": true
+  }
+]

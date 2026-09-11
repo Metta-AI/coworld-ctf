@@ -1,0 +1,200 @@
+[
+  {
+    "case": "map505-s16-edge-r331",
+    "parent": {
+      "total_ns": 16758035212,
+      "p50_ns": 12293965,
+      "p95_ns": 22384525,
+      "max_ns": 159025645,
+      "deadline_misses": 3,
+      "semantic_sha256": "03bf28dd47d8ff8e03af61ecf7abc496f6460938f5eefdcc203c2742244aaf13",
+      "pending_seat_ticks": 47,
+      "no_path_seat_ticks": 29,
+      "stale_seat_ticks": 86,
+      "exit": {
+        "code": 0,
+        "wall_seconds": 56.566304111000136
+      }
+    },
+    "candidate": {
+      "total_ns": 15417154037,
+      "p50_ns": 10361847,
+      "p95_ns": 19709329,
+      "max_ns": 139990645,
+      "deadline_misses": 3,
+      "semantic_sha256": "03bf28dd47d8ff8e03af61ecf7abc496f6460938f5eefdcc203c2742244aaf13",
+      "pending_seat_ticks": 47,
+      "no_path_seat_ticks": 29,
+      "stale_seat_ticks": 86,
+      "exit": {
+        "code": 0,
+        "wall_seconds": 56.515403049999804
+      }
+    }
+  },
+  {
+    "case": "map5001-s32-edge-r1050",
+    "parent": {
+      "total_ns": 22924628827,
+      "p50_ns": 17260869,
+      "p95_ns": 37878183,
+      "max_ns": 257108331,
+      "deadline_misses": 57,
+      "semantic_sha256": "21ee38a270f8180e182be553b1fdfeb1a3d06672d9fe665a217af0a068ac3e81",
+      "pending_seat_ticks": 129,
+      "no_path_seat_ticks": 52,
+      "stale_seat_ticks": 217,
+      "exit": {
+        "code": 0,
+        "wall_seconds": 58.41524555599972
+      }
+    },
+    "candidate": {
+      "total_ns": 19029739947,
+      "p50_ns": 15085045,
+      "p95_ns": 24959271,
+      "max_ns": 225801585,
+      "deadline_misses": 5,
+      "semantic_sha256": "21ee38a270f8180e182be553b1fdfeb1a3d06672d9fe665a217af0a068ac3e81",
+      "pending_seat_ticks": 129,
+      "no_path_seat_ticks": 52,
+      "stale_seat_ticks": 217,
+      "exit": {
+        "code": 0,
+        "wall_seconds": 57.76422172100047
+      }
+    }
+  },
+  {
+    "case": "scale29-s32-edge-r497",
+    "parent": {
+      "total_ns": 37377463094,
+      "p50_ns": 26475869,
+      "p95_ns": 54530364,
+      "max_ns": 337367890,
+      "deadline_misses": 332,
+      "semantic_sha256": "3c1ca96a423b0bfeef7fb5e9b069b76b2b5f933e6d165c028df26540cacd25b6",
+      "pending_seat_ticks": 380,
+      "no_path_seat_ticks": 140,
+      "stale_seat_ticks": 424,
+      "exit": {
+        "code": 0,
+        "wall_seconds": 61.92793929599975
+      }
+    },
+    "candidate": {
+      "total_ns": 32316212211,
+      "p50_ns": 23844432,
+      "p95_ns": 43994232,
+      "max_ns": 293354893,
+      "deadline_misses": 140,
+      "semantic_sha256": "3c1ca96a423b0bfeef7fb5e9b069b76b2b5f933e6d165c028df26540cacd25b6",
+      "pending_seat_ticks": 380,
+      "no_path_seat_ticks": 140,
+      "stale_seat_ticks": 424,
+      "exit": {
+        "code": 0,
+        "wall_seconds": 59.62982042600015
+      }
+    }
+  },
+  {
+    "case": "map505-s32-moving-r497",
+    "parent": {
+      "total_ns": 60816615118,
+      "p50_ns": 50800121,
+      "p95_ns": 73482864,
+      "max_ns": 160028480,
+      "deadline_misses": 998,
+      "semantic_sha256": "e91a4dc13d2c6570ec2cc21cecd4c50073327b16ecbf4c376814075d2dfb2ead",
+      "pending_seat_ticks": 19926,
+      "no_path_seat_ticks": 9717,
+      "stale_seat_ticks": 9285,
+      "exit": {
+        "code": 0,
+        "wall_seconds": 68.24751043600008
+      }
+    },
+    "candidate": {
+      "total_ns": 39737638727,
+      "p50_ns": 30150059,
+      "p95_ns": 48300091,
+      "max_ns": 128638679,
+      "deadline_misses": 170,
+      "semantic_sha256": "e91a4dc13d2c6570ec2cc21cecd4c50073327b16ecbf4c376814075d2dfb2ead",
+      "pending_seat_ticks": 19926,
+      "no_path_seat_ticks": 9717,
+      "stale_seat_ticks": 9285,
+      "exit": {
+        "code": 0,
+        "wall_seconds": 58.224300760000006
+      }
+    }
+  },
+  {
+    "case": "map5001-s16-moving-r331",
+    "parent": {
+      "total_ns": 29020162178,
+      "p50_ns": 25564136,
+      "p95_ns": 38577646,
+      "max_ns": 66017181,
+      "deadline_misses": 3,
+      "semantic_sha256": "6db7cd902defb38acbf26b88295fe251f2b4cadb1007c23d1d89807a31ffa8bf",
+      "pending_seat_ticks": 9979,
+      "no_path_seat_ticks": 4840,
+      "stale_seat_ticks": 4745,
+      "exit": {
+        "code": 0,
+        "wall_seconds": 56.31475045500065
+      }
+    },
+    "candidate": {
+      "total_ns": 19494576728,
+      "p50_ns": 15707525,
+      "p95_ns": 26373865,
+      "max_ns": 60415721,
+      "deadline_misses": 1,
+      "semantic_sha256": "6db7cd902defb38acbf26b88295fe251f2b4cadb1007c23d1d89807a31ffa8bf",
+      "pending_seat_ticks": 9979,
+      "no_path_seat_ticks": 4840,
+      "stale_seat_ticks": 4745,
+      "exit": {
+        "code": 0,
+        "wall_seconds": 56.320667015000254
+      }
+    }
+  },
+  {
+    "case": "scale29-s32-moving-r1050",
+    "parent": {
+      "total_ns": 65717614944,
+      "p50_ns": 54280086,
+      "p95_ns": 80260519,
+      "max_ns": 253920298,
+      "deadline_misses": 1057,
+      "semantic_sha256": "b313e21a0309d8085c84710930f272e21713c0a269d20f132ad885bcf50b5dbd",
+      "pending_seat_ticks": 21397,
+      "no_path_seat_ticks": 13733,
+      "stale_seat_ticks": 6360,
+      "exit": {
+        "code": 0,
+        "wall_seconds": 74.56348943100056
+      }
+    },
+    "candidate": {
+      "total_ns": 43109707541,
+      "p50_ns": 34372766,
+      "p95_ns": 53638569,
+      "max_ns": 217069843,
+      "deadline_misses": 275,
+      "semantic_sha256": "b313e21a0309d8085c84710930f272e21713c0a269d20f132ad885bcf50b5dbd",
+      "pending_seat_ticks": 21397,
+      "no_path_seat_ticks": 13733,
+      "stale_seat_ticks": 6360,
+      "exit": {
+        "code": 0,
+        "wall_seconds": 60.9375443279996
+      }
+    }
+  }
+]

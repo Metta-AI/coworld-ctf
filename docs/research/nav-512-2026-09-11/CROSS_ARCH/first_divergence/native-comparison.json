@@ -1,0 +1,29 @@
+{
+  "lines": 51832,
+  "raw_differences": 6,
+  "integer_differences": 0,
+  "first_raw_differences": [
+    [
+      106,
+      "H 102 item=8324 key=3333 pt=484,16 tie=3333,0 pri=40B0186058240AD2 cost=408D2CA612400000 g=408D2CA612400000 hypot_to_target=40A8E5972BB815A4 cr_sqrt_to_target=40A8E5972BB815A4 cost_plus_hypot=40B0186058240AD2 pri_is_cost_plus_hypot",
+      "H 102 item=8324 key=3333 pt=484,16 tie=3333,0 pri=40B0186058240AD2 cost=408D2CA612400000 g=408D2CA612400000 hypot_to_target=40A8E5972BB815A3 cr_sqrt_to_target=40A8E5972BB815A4 cost_plus_hypot=40B0186058240AD2 pri_is_cost_plus_hypot HYPOT_NOT_CR"
+    ],
+    [
+      201,
+      "H 197 item=8353 key=71471 pt=16,356 tie=71471,0 pri=40B01B7BA8E29600 cost=408522F96DC00000 g=408522F96DC00000 hypot_to_target=40AAEE38F6552BFF cr_sqrt_to_target=40AAEE38F6552BFF cost_plus_hypot=40B01B7BA8E29600 pri_is_cost_plus_hypot",
+      "H 197 item=8353 key=71471 pt=16,356 tie=71471,0 pri=40B01B7BA8E29600 cost=408522F96DC00000 g=408522F96DC00000 hypot_to_target=40AAEE38F6552C00 cr_sqrt_to_target=40AAEE38F6552BFF cost_plus_hypot=40B01B7BA8E29600 pri_is_cost_plus_hypot HYPOT_NOT_CR"
+    ],
+    [
+      8747,
+      "H 102 item=8324 key=3333 pt=484,16 tie=3333,0 pri=40B0186058240AD2 cost=408D2CA612400000 g=408D2CA612400000 hypot_to_target=40A8E5972BB815A4 cr_sqrt_to_target=40A8E5972BB815A4 cost_plus_hypot=40B0186058240AD2 pri_is_cost_plus_hypot",
+      "H 102 item=8324 key=3333 pt=484,16 tie=3333,0 pri=40B0186058240AD2 cost=408D2CA612400000 g=408D2CA612400000 hypot_to_target=40A8E5972BB815A3 cr_sqrt_to_target=40A8E5972BB815A4 cost_plus_hypot=40B0186058240AD2 pri_is_cost_plus_hypot HYPOT_NOT_CR"
+    ],
+    [
+      8842,
+      "H 197 item=8353 key=71471 pt=16,356 tie=71471,0 pri=40B01B7BA8E29600 cost=408522F96DC00000 g=408522F96DC00000 hypot_to_target=40AAEE38F6552BFF cr_sqrt_to_target=40AAEE38F6552BFF cost_plus_hypot=40B01B7BA8E29600 pri_is_cost_plus_hypot",
+      "H 197 item=8353 key=71471 pt=16,356 tie=71471,0 pri=40B01B7BA8E29600 cost=408522F96DC00000 g=408522F96DC00000 hypot_to_target=40AAEE38F6552C00 cr_sqrt_to_target=40AAEE38F6552BFF cost_plus_hypot=40B01B7BA8E29600 pri_is_cost_plus_hypot HYPOT_NOT_CR"
+    ]
+  ],
+  "first_integer_differences": [],
+  "native_hypot_not_cr": 6
+}

@@ -113,7 +113,9 @@ proc pyRound(value: float): int =
 
 proc width*(map: BodyMap): int = map.mapWidth
 proc height*(map: BodyMap): int = map.mapHeight
-proc gridWidth*(map: BodyMap): int = map.navWidth
+# Helpers explicitly marked stackTrace: off keep checks but omit their own frame.
+# Errors still retain the framed caller; this avoids per-access trace bookkeeping.
+proc gridWidth*(map: BodyMap): int {.inline, stackTrace: off.} = map.navWidth
 proc gridHeight*(map: BodyMap): int = map.navHeight
 proc groupCount*(map: BodyMap): int = map.groups
 proc componentCount*(map: BodyMap): int = map.components
@@ -131,7 +133,7 @@ proc validatorLogicalBytes*(map: BodyMap): int64 =
   validatorBytesFor(map.mapWidth, map.mapHeight, map.validatorTables.len)
 proc homeFieldCount*(map: BodyMap): int = map.homeFields.len
 
-proc inBounds*(map: BodyMap, point: BodyPoint): bool =
+proc inBounds*(map: BodyMap, point: BodyPoint): bool {.inline, stackTrace: off.} =
   point.x >= 0 and point.x < map.mapWidth and
     point.y >= 0 and point.y < map.mapHeight
 
@@ -210,11 +212,11 @@ proc rayClear*(map: BodyMap, a, b: BodyPoint): bool =
       advanceRayCoordinate(lowerX, remainderX, dx, steps, clearSteps)
   true
 
-proc clearanceAt*(map: BodyMap, point: BodyPoint): int =
+proc clearanceAt*(map: BodyMap, point: BodyPoint): int {.inline, stackTrace: off.} =
   if map.inBounds(point): map.clearance[map.pixelIndex(point.x, point.y)].int
   else: 0
 
-proc canStand*(map: BodyMap, point: BodyPoint): bool =
+proc canStand*(map: BodyMap, point: BodyPoint): bool {.inline, stackTrace: off.} =
   map.inBounds(point) and map.clearanceAt(point) > PlayerHalf
 
 proc componentOf*(map: BodyMap, point: BodyPoint): int =
@@ -224,11 +226,11 @@ proc componentOf*(map: BodyMap, point: BodyPoint): int =
 proc cellCenter*(cell: BodyPoint): BodyPoint =
   (cell.x * NavCell + NavCell div 2, cell.y * NavCell + NavCell div 2)
 
-proc cellOf*(map: BodyMap, point: BodyPoint): BodyPoint =
+proc cellOf*(map: BodyMap, point: BodyPoint): BodyPoint {.inline, stackTrace: off.} =
   (clamp(point.x div NavCell, 0, map.navWidth - 1),
    clamp(point.y div NavCell, 0, map.navHeight - 1))
 
-proc cellWalkable*(map: BodyMap, cell: BodyPoint): bool =
+proc cellWalkable*(map: BodyMap, cell: BodyPoint): bool {.inline, stackTrace: off.} =
   cell.x >= 0 and cell.x < map.navWidth and
     cell.y >= 0 and cell.y < map.navHeight and
     map.walkable[map.gridIndex(cell.x, cell.y)]
@@ -263,6 +265,7 @@ proc atlasPostAt*(map: BodyMap, index: int): BodyAtlasPost =
   map.atlas[index]
 
 proc buildClearance(map: BodyMap, pixelWalkable: openArray[bool]): seq[uint8] =
+  # segmentClear relies on exact chessboard distance with outside pixels blocked.
   result = newSeq[uint8](map.mapWidth * map.mapHeight)
   template neighbor(nx, ny: int): int =
     if nx < 0 or nx >= map.mapWidth or ny < 0 or ny >= map.mapHeight: 0

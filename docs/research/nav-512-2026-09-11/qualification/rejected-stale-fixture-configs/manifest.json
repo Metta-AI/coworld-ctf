@@ -1,0 +1,52 @@
+[
+  {
+    "name": "map301-s16-edge-r331",
+    "config": "map301-s16-edge-r331.json",
+    "seats": 16,
+    "gun_range": 331,
+    "play": "edge_ride",
+    "hit_points": 3,
+    "map_name": "br-gen-301",
+    "sha256": "daab233a834a70e2f1e6c1147d3394b33298a89ac1e0550c03c1cae0f4e15c2c"
+  },
+  {
+    "name": "map14005-s32-edge-r1050",
+    "config": "map14005-s32-edge-r1050.json",
+    "seats": 32,
+    "gun_range": 1050,
+    "play": "edge_ride",
+    "hit_points": 3,
+    "map_name": "br-gen-14005",
+    "sha256": "a02f5b94530bd2a5a4a5c26691e57a3daadabfb24cbd1e995a238876fe7cc234"
+  },
+  {
+    "name": "scale29-s32-edge-r497",
+    "config": "scale29-s32-edge-r497.json",
+    "seats": 32,
+    "gun_range": 497,
+    "play": "edge_ride",
+    "hit_points": 3,
+    "map_name": "br-gen-5120918",
+    "sha256": "6b225bb7b8559fd8a3fae3d645a7c5ce772c39e524fb313d94bcb16cf0fcca7b"
+  },
+  {
+    "name": "map301-s32-moving-r497",
+    "config": "map301-s32-moving-r497.json",
+    "seats": 32,
+    "gun_range": 497,
+    "play": "nav_research_moving",
+    "hit_points": 1000,
+    "map_name": "br-gen-301",
+    "sha256": "48f8493e47f2bf60f7f246927eaf14f6cacab40d80855ea93a81efc392651d9c"
+  },
+  {
+    "name": "map14005-s16-moving-r331",
+    "config": "map14005-s16-moving-r331.json",
+    "seats": 16,
+    "gun_range": 331,
+    "play": "nav_research_moving",
+    "hit_points": 1000,
+    "map_name": "br-gen-14005",
+    "sha256": "95d8c0a84c79fc17bc02a1d8c7fa2cc6616c5ff5bab576c986bd9916e8b857b3"
+  }
+]

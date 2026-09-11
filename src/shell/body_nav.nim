@@ -16,9 +16,10 @@
 ## follower holds a cog still while its plan is pending — so hosted cogs
 ## stood where they spawned until the zone killed them (round 3633,
 ## 0.7.283). Per-seat pooling keeps every single-seat contract byte-
-## identical and lets a full roster plan in parallel; the worst case
-## (32 seats, all planning) is ~8k units, a few milliseconds of a 41 ms
-## tick, and the planning pass is outside the containment body-tick gate.
+## identical and lets a full roster share progress. At 32 seats the pool is
+## 8192 units; its elapsed cost depends on the map and workload. The planning
+## pass is outside the containment body-tick gate, so budget increases require
+## whole-game timing checks (docs/reports/nav-budget-screen-2026-09-11.md).
 
 import std/[hashes, math, options]
 import bitworld/[profile, spriteprotocol]

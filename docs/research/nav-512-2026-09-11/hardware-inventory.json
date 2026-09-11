@@ -1,0 +1,4062 @@
+{
+  "observed_at": "2026-09-11T20:37:41.234877+00:00",
+  "context": "softmax-tournament",
+  "credential_account": "583928386201",
+  "nodes": [
+    {
+      "node": "i-002ef61c662b4b175",
+      "type": "c8i-flex.2xlarge",
+      "pool": "jobs-warm"
+    },
+    {
+      "node": "i-0056334b4ef809e35",
+      "type": "m6a.4xlarge",
+      "pool": "coworld-egress-jobs"
+    },
+    {
+      "node": "i-008b5692e7a9e82c8",
+      "type": "c6a.2xlarge",
+      "pool": "jobs-warm"
+    },
+    {
+      "node": "i-00ac6ba8f0884307e",
+      "type": "c6a.xlarge",
+      "pool": "commissioner-jobs-warm"
+    },
+    {
+      "node": "i-00b707a2b2e03f947",
+      "type": "c6a.4xlarge",
+      "pool": "coworld-egress-jobs"
+    },
+    {
+      "node": "i-00be7fc6d52c41769",
+      "type": "c7i-flex.2xlarge",
+      "pool": "jobs-warm"
+    },
+    {
+      "node": "i-00e7a6c1d10578a20",
+      "type": "c6a.4xlarge",
+      "pool": "coworld-egress-jobs"
+    },
+    {
+      "node": "i-011105cfb02afe1a7",
+      "type": "c6a.4xlarge",
+      "pool": "coworld-egress-jobs"
+    },
+    {
+      "node": "i-012e4643f3c1382de",
+      "type": "c6a.2xlarge",
+      "pool": "jobs-warm"
+    },
+    {
+      "node": "i-01554c08a7541a564",
+      "type": "c7i-flex.2xlarge",
+      "pool": "jobs-warm"
+    },
+    {
+      "node": "i-0161fd765f7f7e417",
+      "type": "c6a.4xlarge",
+      "pool": "coworld-egress-jobs"
+    },
+    {
+      "node": "i-017cdb6f989e69de1",
+      "type": "c6a.4xlarge",
+      "pool": "coworld-egress-jobs"
+    },
+    {
+      "node": "i-01c77d7bfd0ee6aa7",
+      "type": "c6a.xlarge",
+      "pool": "commissioner-jobs-warm"
+    },
+    {
+      "node": "i-01cb2cbb42fa37b32",
+      "type": "c8i-flex.2xlarge",
+      "pool": "jobs-warm"
+    },
+    {
+      "node": "i-01f58892f96faacd8",
+      "type": "c6a.4xlarge",
+      "pool": "coworld-egress-jobs"
+    },
+    {
+      "node": "i-01fb03591ca72c671",
+      "type": "c6a.2xlarge",
+      "pool": "jobs-warm"
+    },
+    {
+      "node": "i-0204d3fd05368ff49",
+      "type": "c6a.2xlarge",
+      "pool": "jobs-warm"
+    },
+    {
+      "node": "i-020ef808ff23fbb48",
+      "type": "c8i-flex.4xlarge",
+      "pool": "coworld-egress-jobs"
+    },
+    {
+      "node": "i-025760f0c42f9e22e",
+      "type": "c6a.4xlarge",
+      "pool": "coworld-egress-jobs"
+    },
+    {
+      "node": "i-0278a97dd9eda4b66",
+      "type": "c8i-flex.2xlarge",
+      "pool": "jobs-warm"
+    },
+    {
+      "node": "i-029f0c6f7a5d96058",
+      "type": "c7i-flex.2xlarge",
+      "pool": "jobs-warm"
+    },
+    {
+      "node": "i-02a5e2f8b65f0cfae",
+      "type": "c6a.4xlarge",
+      "pool": "coworld-egress-jobs"
+    },
+    {
+      "node": "i-02ae586a0876884d8",
+      "type": "c5.2xlarge",
+      "pool": "jobs-warm"
+    },
+    {
+      "node": "i-02cf20db83ff41f6a",
+      "type": "c6a.4xlarge",
+      "pool": "coworld-egress-jobs"
+    },
+    {
+      "node": "i-02d7c727371690e86",
+      "type": "c6a.4xlarge",
+      "pool": "coworld-egress-jobs"
+    },
+    {
+      "node": "i-030d3e1f6a9079dfd",
+      "type": "c6a.2xlarge",
+      "pool": "jobs-warm"
+    },
+    {
+      "node": "i-031266fdf89bc84cd",
+      "type": "c6a.4xlarge",
+      "pool": "coworld-egress-jobs"
+    },
+    {
+      "node": "i-0317242aa7ad4fda0",
+      "type": "c8i-flex.4xlarge",
+      "pool": "coworld-egress-jobs"
+    },
+    {
+      "node": "i-03274b22816dfbe12",
+      "type": "c6a.4xlarge",
+      "pool": "coworld-egress-jobs"
+    },
+    {
+      "node": "i-0328041b0d291639f",
+      "type": "c6a.2xlarge",
+      "pool": "jobs-warm"
+    },
+    {
+      "node": "i-035651f9671ea3f4a",
+      "type": "c6a.2xlarge",
+      "pool": "jobs-warm"
+    },
+    {
+      "node": "i-039355ed9fa93abab",
+      "type": "c6a.2xlarge",
+      "pool": "jobs-warm"
+    },
+    {
+      "node": "i-03cddaca57574b24f",
+      "type": "c6a.xlarge",
+      "pool": "commissioner-jobs-warm"
+    },
+    {
+      "node": "i-03dadfe937418c541",
+      "type": "m6a.4xlarge",
+      "pool": "coworld-egress-jobs"
+    },
+    {
+      "node": "i-03dc5eb9075a97df0",
+      "type": "c8i-flex.4xlarge",
+      "pool": "coworld-egress-jobs"
+    },
+    {
+      "node": "i-040ec2c66986f2a1e",
+      "type": "c6a.4xlarge",
+      "pool": "coworld-egress-jobs"
+    },
+    {
+      "node": "i-04488a1463b2e3027",
+      "type": "c6a.4xlarge",
+      "pool": "coworld-egress-jobs"
+    },
+    {
+      "node": "i-047ecfb83196ca636",
+      "type": "c7i-flex.2xlarge",
+      "pool": "jobs-warm"
+    },
+    {
+      "node": "i-04929b0a9d04e2cd3",
+      "type": "c6a.xlarge",
+      "pool": "commissioner-jobs-warm"
+    },
+    {
+      "node": "i-049cdd7fb5e6c0fce",
+      "type": "c8i-flex.2xlarge",
+      "pool": "jobs-warm"
+    },
+    {
+      "node": "i-04a48eee4b574414d",
+      "type": "c6a.4xlarge",
+      "pool": "coworld-egress-jobs"
+    },
+    {
+      "node": "i-04b4e283111b88360",
+      "type": "c8i-flex.4xlarge",
+      "pool": "coworld-egress-jobs"
+    },
+    {
+      "node": "i-04bcf4a2908de0d43",
+      "type": "c6a.4xlarge",
+      "pool": "coworld-egress-jobs"
+    },
+    {
+      "node": "i-04d5098dcafaed30a",
+      "type": "c6a.2xlarge",
+      "pool": "jobs-warm"
+    },
+    {
+      "node": "i-04d6772cd148adc91",
+      "type": "c7i-flex.2xlarge",
+      "pool": "jobs-warm"
+    },
+    {
+      "node": "i-0528a6b6d3d40dae2",
+      "type": "m5a.2xlarge",
+      "pool": "coworld-egress-jobs"
+    },
+    {
+      "node": "i-05371bccc373b0742",
+      "type": "c8i-flex.4xlarge",
+      "pool": "coworld-egress-jobs"
+    },
+    {
+      "node": "i-0545eeaaa3d14e1aa",
+      "type": "c6a.large",
+      "pool": "general-purpose"
+    },
+    {
+      "node": "i-056d29b4fd05cd9b9",
+      "type": "c6a.2xlarge",
+      "pool": "jobs-warm"
+    },
+    {
+      "node": "i-05b84675a69fb6ce7",
+      "type": "c6a.4xlarge",
+      "pool": "coworld-egress-jobs"
+    },
+    {
+      "node": "i-05c7f68a55aa8078b",
+      "type": "r5a.4xlarge",
+      "pool": "coworld-egress-jobs"
+    },
+    {
+      "node": "i-06500077d07260a1f",
+      "type": "c6a.4xlarge",
+      "pool": "coworld-egress-jobs"
+    },
+    {
+      "node": "i-0670fe04d64a1cdb3",
+      "type": "m5a.2xlarge",
+      "pool": "coworld-egress-jobs"
+    },
+    {
+      "node": "i-06c20d6d25f89afd9",
+      "type": "c6a.2xlarge",
+      "pool": "jobs-warm"
+    },
+    {
+      "node": "i-06df281cb4f58c6d2",
+      "type": "c6a.4xlarge",
+      "pool": "coworld-egress-jobs"
+    },
+    {
+      "node": "i-06ee1a620970f5d1e",
+      "type": "c6a.4xlarge",
+      "pool": "coworld-egress-jobs"
+    },
+    {
+      "node": "i-072f5384facbf4d63",
+      "type": "c8i-flex.4xlarge",
+      "pool": "coworld-egress-jobs"
+    },
+    {
+      "node": "i-0776cf2bdf00fcc40",
+      "type": "c6a.4xlarge",
+      "pool": "coworld-egress-jobs"
+    },
+    {
+      "node": "i-078e46b3ddddf1593",
+      "type": "c5d.2xlarge",
+      "pool": "jobs-warm"
+    },
+    {
+      "node": "i-07b175b94d0157a2a",
+      "type": "c6a.xlarge",
+      "pool": "commissioner-jobs-warm"
+    },
+    {
+      "node": "i-07d2fe67eebf0fffd",
+      "type": "c8i-flex.4xlarge",
+      "pool": "coworld-egress-jobs"
+    },
+    {
+      "node": "i-07d6706099985dc60",
+      "type": "c6a.4xlarge",
+      "pool": "coworld-egress-jobs"
+    },
+    {
+      "node": "i-07f4a8304d96bcdcd",
+      "type": "m8id.2xlarge",
+      "pool": "jobs-warm"
+    },
+    {
+      "node": "i-07f58e63fbf0f1790",
+      "type": "c6a.4xlarge",
+      "pool": "coworld-egress-jobs"
+    },
+    {
+      "node": "i-08033f6f0b10ed086",
+      "type": "r5n.2xlarge",
+      "pool": "jobs-warm"
+    },
+    {
+      "node": "i-08048f7dd976a400d",
+      "type": "c6a.4xlarge",
+      "pool": "coworld-egress-jobs"
+    },
+    {
+      "node": "i-08425f5ab7ba69a42",
+      "type": "c6a.4xlarge",
+      "pool": "coworld-egress-jobs"
+    },
+    {
+      "node": "i-086b94811c8d35468",
+      "type": "c6a.4xlarge",
+      "pool": "coworld-egress-jobs"
+    },
+    {
+      "node": "i-089af6f2bbbee83d9",
+      "type": "c5d.4xlarge",
+      "pool": "coworld-egress-jobs"
+    },
+    {
+      "node": "i-08a4227d0ede6fd65",
+      "type": "c6a.4xlarge",
+      "pool": "coworld-egress-jobs"
+    },
+    {
+      "node": "i-08b448dbdc0e98d49",
+      "type": "c6a.2xlarge",
+      "pool": "jobs-warm"
+    },
+    {
+      "node": "i-08d7b56c2798fbd40",
+      "type": "c6a.xlarge",
+      "pool": "commissioner-jobs-warm"
+    },
+    {
+      "node": "i-08de66eb9a9e82721",
+      "type": "c6a.4xlarge",
+      "pool": "coworld-egress-jobs"
+    },
+    {
+      "node": "i-08e4ddb4aadba6c1e",
+      "type": "r5dn.2xlarge",
+      "pool": "coworld-egress-jobs"
+    },
+    {
+      "node": "i-0918f682ecf76a54f",
+      "type": "c8i-flex.2xlarge",
+      "pool": "jobs-warm"
+    },
+    {
+      "node": "i-091ccd841fee25076",
+      "type": "c8i-flex.2xlarge",
+      "pool": "jobs-warm"
+    },
+    {
+      "node": "i-091ebc9151da8df3c",
+      "type": "c6a.2xlarge",
+      "pool": "jobs-warm"
+    },
+    {
+      "node": "i-093b92d8b1c6c1b02",
+      "type": "c6a.2xlarge",
+      "pool": "jobs-warm"
+    },
+    {
+      "node": "i-0994a28e93cc927e6",
+      "type": "r5n.2xlarge",
+      "pool": "coworld-egress-jobs"
+    },
+    {
+      "node": "i-09af6e47d117320f8",
+      "type": "c6a.4xlarge",
+      "pool": "coworld-egress-jobs"
+    },
+    {
+      "node": "i-09e3b8c687c4e4a6f",
+      "type": "c6a.4xlarge",
+      "pool": "coworld-egress-jobs"
+    },
+    {
+      "node": "i-0a16ad7ba93c36335",
+      "type": "c6a.xlarge",
+      "pool": "commissioner-jobs-warm"
+    },
+    {
+      "node": "i-0a339ed70c8479a5e",
+      "type": "c6a.2xlarge",
+      "pool": "jobs-warm"
+    },
+    {
+      "node": "i-0a531d91f1f5151e3",
+      "type": "c6a.4xlarge",
+      "pool": "coworld-egress-jobs"
+    },
+    {
+      "node": "i-0a5d2af6c849f8b03",
+      "type": "c8i-flex.2xlarge",
+      "pool": "jobs-warm"
+    },
+    {
+      "node": "i-0a5d6cb2e9903675d",
+      "type": "c6a.4xlarge",
+      "pool": "coworld-egress-jobs"
+    },
+    {
+      "node": "i-0a618b5190bc1fd3c",
+      "type": "r5dn.2xlarge",
+      "pool": "coworld-egress-jobs"
+    },
+    {
+      "node": "i-0a8012f8fa53a273a",
+      "type": "c6a.4xlarge",
+      "pool": "coworld-egress-jobs"
+    },
+    {
+      "node": "i-0ac3cedc4326e84db",
+      "type": "c8i-flex.4xlarge",
+      "pool": "coworld-egress-jobs"
+    },
+    {
+      "node": "i-0acdd54fcec6c043d",
+      "type": "c6a.4xlarge",
+      "pool": "coworld-egress-jobs"
+    },
+    {
+      "node": "i-0af1ba8d284b40665",
+      "type": "c7i-flex.2xlarge",
+      "pool": "jobs-warm"
+    },
+    {
+      "node": "i-0b01cfc5eebfb3c49",
+      "type": "c6a.xlarge",
+      "pool": "commissioner-jobs-warm"
+    },
+    {
+      "node": "i-0b26e332f0435588f",
+      "type": "c8i-flex.4xlarge",
+      "pool": "coworld-egress-jobs"
+    },
+    {
+      "node": "i-0b37e83992a95cbbe",
+      "type": "c6a.2xlarge",
+      "pool": "jobs-warm"
+    },
+    {
+      "node": "i-0b42026fc087d7e8d",
+      "type": "c6a.2xlarge",
+      "pool": "jobs-warm"
+    },
+    {
+      "node": "i-0b4228be9f0684929",
+      "type": "c6a.4xlarge",
+      "pool": "coworld-egress-jobs"
+    },
+    {
+      "node": "i-0b7a6451829189ce1",
+      "type": "c6a.4xlarge",
+      "pool": "coworld-egress-jobs"
+    },
+    {
+      "node": "i-0b7b127ace93f9972",
+      "type": "c8i-flex.4xlarge",
+      "pool": "coworld-egress-jobs"
+    },
+    {
+      "node": "i-0b7bddb276c0b1182",
+      "type": "c6a.2xlarge",
+      "pool": "jobs-warm"
+    },
+    {
+      "node": "i-0bed4bd32cd1b0f75",
+      "type": "c6a.4xlarge",
+      "pool": "coworld-egress-jobs"
+    },
+    {
+      "node": "i-0bfdd36eefe51b6f0",
+      "type": "c7i-flex.2xlarge",
+      "pool": "jobs-warm"
+    },
+    {
+      "node": "i-0c0f886fd29f71991",
+      "type": "c6a.4xlarge",
+      "pool": "coworld-egress-jobs"
+    },
+    {
+      "node": "i-0c1a8410a9eb479f3",
+      "type": "c6a.4xlarge",
+      "pool": "coworld-egress-jobs"
+    },
+    {
+      "node": "i-0c2111b08882dcc96",
+      "type": "c6a.4xlarge",
+      "pool": "coworld-egress-jobs"
+    },
+    {
+      "node": "i-0c4a7eb17714e12b4",
+      "type": "c8i-flex.2xlarge",
+      "pool": "jobs-warm"
+    },
+    {
+      "node": "i-0c6384f6361f585dc",
+      "type": "c5a.2xlarge",
+      "pool": "jobs-warm"
+    },
+    {
+      "node": "i-0c76f1238eff09b54",
+      "type": "c6a.4xlarge",
+      "pool": "coworld-egress-jobs"
+    },
+    {
+      "node": "i-0c8c5b74029353f0e",
+      "type": "c6a.4xlarge",
+      "pool": "coworld-egress-jobs"
+    },
+    {
+      "node": "i-0c9967d4b49165fc7",
+      "type": "c6a.4xlarge",
+      "pool": "coworld-egress-jobs"
+    },
+    {
+      "node": "i-0cb78dfb3f707743e",
+      "type": "c6a.4xlarge",
+      "pool": "coworld-egress-jobs"
+    },
+    {
+      "node": "i-0cbe0c2bc58b3640f",
+      "type": "c6a.2xlarge",
+      "pool": "jobs-warm"
+    },
+    {
+      "node": "i-0ce773b4e3b45c0ba",
+      "type": "c6a.2xlarge",
+      "pool": "jobs-warm"
+    },
+    {
+      "node": "i-0d399fc33ded358a0",
+      "type": "c6a.4xlarge",
+      "pool": "coworld-egress-jobs"
+    },
+    {
+      "node": "i-0d4f2f5baf51f1bb5",
+      "type": "m5.2xlarge",
+      "pool": "coworld-egress-jobs"
+    },
+    {
+      "node": "i-0d53660da1108987c",
+      "type": "c6a.2xlarge",
+      "pool": "jobs-warm"
+    },
+    {
+      "node": "i-0d8ce134cb1b2b4b0",
+      "type": "c8i-flex.2xlarge",
+      "pool": "jobs-warm"
+    },
+    {
+      "node": "i-0dadb8fda54f667c8",
+      "type": "c6a.xlarge",
+      "pool": "commissioner-jobs-warm"
+    },
+    {
+      "node": "i-0de99b02f641ac3e3",
+      "type": "c6a.4xlarge",
+      "pool": "coworld-egress-jobs"
+    },
+    {
+      "node": "i-0e3bafa64e5b85359",
+      "type": "c6a.2xlarge",
+      "pool": "jobs-warm"
+    },
+    {
+      "node": "i-0e3ce81acb93004dd",
+      "type": "c6a.2xlarge",
+      "pool": "jobs-warm"
+    },
+    {
+      "node": "i-0e426aa84a1d400f0",
+      "type": "c8i-flex.2xlarge",
+      "pool": "jobs-warm"
+    },
+    {
+      "node": "i-0e4df2d760344aafa",
+      "type": "c8i-flex.4xlarge",
+      "pool": "coworld-egress-jobs"
+    },
+    {
+      "node": "i-0e509a55c49be72d2",
+      "type": "c6a.4xlarge",
+      "pool": "coworld-egress-jobs"
+    },
+    {
+      "node": "i-0e69eb26b1d93ff9d",
+      "type": "c6a.2xlarge",
+      "pool": "jobs-warm"
+    },
+    {
+      "node": "i-0e6e69575caa077be",
+      "type": "m6a.4xlarge",
+      "pool": "coworld-egress-jobs"
+    },
+    {
+      "node": "i-0e9223279f84db1c7",
+      "type": "c8i-flex.2xlarge",
+      "pool": "jobs-warm"
+    },
+    {
+      "node": "i-0ed0dad3d54e6be90",
+      "type": "r5a.2xlarge",
+      "pool": "jobs-warm"
+    },
+    {
+      "node": "i-0effa673fb45c7298",
+      "type": "c6a.4xlarge",
+      "pool": "coworld-egress-jobs"
+    },
+    {
+      "node": "i-0f3cad40a2d1c5bb4",
+      "type": "c7i-flex.2xlarge",
+      "pool": "jobs-warm"
+    },
+    {
+      "node": "i-0f59ad8caa0bfbed7",
+      "type": "c6a.4xlarge",
+      "pool": "coworld-egress-jobs"
+    },
+    {
+      "node": "i-0fa8afd0fefe59bea",
+      "type": "c6a.4xlarge",
+      "pool": "coworld-egress-jobs"
+    },
+    {
+      "node": "i-0fc7ed6d2b028b163",
+      "type": "c6a.xlarge",
+      "pool": "commissioner-jobs-warm"
+    },
+    {
+      "node": "i-0fccd9690007bbdd2",
+      "type": "m7i-flex.2xlarge",
+      "pool": "coworld-egress-jobs"
+    },
+    {
+      "node": "i-0fd9722ef60ff3704",
+      "type": "c7i-flex.2xlarge",
+      "pool": "jobs-warm"
+    }
+  ],
+  "running_games": [
+    {
+      "pod": "coworld-replay-46feec18b01724d8-5978784ff5-zz7ft",
+      "node": "i-0e3bafa64e5b85359",
+      "type": "c6a.2xlarge",
+      "pool": "jobs-warm",
+      "image": "471879937681.dkr.ecr.us-east-1.amazonaws.com/cogames/s5hvylinkg2z4k24wg9xlo8q-7e9c855786da/bitworld-among-them-runner@sha256:143548de6cd78006b8d97472327ae9572fc4ef47e04eca9ba5b652f43af2a082",
+      "resources": {
+        "requests": {
+          "cpu": "2",
+          "memory": "2Gi"
+        }
+      }
+    },
+    {
+      "pod": "coworld-replay-61e26b4ffbaf90df-6dc6b5f48f-sr4lb",
+      "node": "i-06c20d6d25f89afd9",
+      "type": "c6a.2xlarge",
+      "pool": "jobs-warm",
+      "image": "471879937681.dkr.ecr.us-east-1.amazonaws.com/cogames/s5hvylinkg2z4k24wg9xlo8q-7e9c855786da/bitworld-among-them-runner@sha256:6592fb249f660c264533378deb59a7c29c5274af564e3a40dfe4f87a4320efc5",
+      "resources": {}
+    },
+    {
+      "pod": "coworld-replay-714d65ed678f6a12-6fd898cb99-6fz98",
+      "node": "i-002ef61c662b4b175",
+      "type": "c8i-flex.2xlarge",
+      "pool": "jobs-warm",
+      "image": "471879937681.dkr.ecr.us-east-1.amazonaws.com/cogames/s5hvylinkg2z4k24wg9xlo8q-7e9c855786da/bitworld-among-them-runner@sha256:88f019a12cd82b47f8e21efefdbbeca332af34611c15bea3e28498864392ff2e",
+      "resources": {}
+    },
+    {
+      "pod": "coworld-replay-fe317eb98c79fe55-68dfd5df94-4vqcl",
+      "node": "i-08033f6f0b10ed086",
+      "type": "r5n.2xlarge",
+      "pool": "jobs-warm",
+      "image": "471879937681.dkr.ecr.us-east-1.amazonaws.com/cogames/s5hvylinkg2z4k24wg9xlo8q-7e9c855786da/bitworld-among-them-runner@sha256:36f46f57071bc0a5eed0731614eee09b7b71bfdb709d4aa5ac98ec22d7cd6010",
+      "resources": {}
+    },
+    {
+      "pod": "job-00b5bb5f-sv566",
+      "node": "i-08048f7dd976a400d",
+      "type": "c6a.4xlarge",
+      "pool": "coworld-egress-jobs",
+      "image": "471879937681.dkr.ecr.us-east-1.amazonaws.com/cogames/h0835grji1zfy5wakd4i56kn-3939e8b7673b/coworld-battle-royale@sha256:4e09a9ff2ae7eac57bb01826fc0afc3d9f3385576140056741050710d416721b",
+      "resources": {
+        "requests": {
+          "cpu": "1",
+          "memory": "512Mi"
+        }
+      }
+    },
+    {
+      "pod": "job-01570420-fzflf",
+      "node": "i-06ee1a620970f5d1e",
+      "type": "c6a.4xlarge",
+      "pool": "coworld-egress-jobs",
+      "image": "471879937681.dkr.ecr.us-east-1.amazonaws.com/cogames/cy4wau882qr6p2v9z1prudik-bdfe346bc6af/coworld-ctf-game@sha256:30a495ffcde1b71af5e57375989b3ad1e885a85839825325984411ae00f5b259",
+      "resources": {
+        "requests": {
+          "cpu": "1",
+          "memory": "512Mi"
+        }
+      }
+    },
+    {
+      "pod": "job-015d1d92-vq6wz",
+      "node": "i-0c76f1238eff09b54",
+      "type": "c6a.4xlarge",
+      "pool": "coworld-egress-jobs",
+      "image": "471879937681.dkr.ecr.us-east-1.amazonaws.com/cogames/s25q6tn121cx1j3z7ql3ga5d-da1d0964bdd5/polyworld-gota-coworld@sha256:1c6b764685d86e4e1dc85032c9e1022ac220655bbd01cb8a89dc7ea9929df2fb",
+      "resources": {
+        "requests": {
+          "cpu": "1",
+          "memory": "512Mi"
+        }
+      }
+    },
+    {
+      "pod": "job-01aaf059-9nwqf",
+      "node": "i-0effa673fb45c7298",
+      "type": "c6a.4xlarge",
+      "pool": "coworld-egress-jobs",
+      "image": "471879937681.dkr.ecr.us-east-1.amazonaws.com/cogames/s25q6tn121cx1j3z7ql3ga5d-da1d0964bdd5/polyworld-gota-coworld@sha256:1c6b764685d86e4e1dc85032c9e1022ac220655bbd01cb8a89dc7ea9929df2fb",
+      "resources": {
+        "requests": {
+          "cpu": "1",
+          "memory": "512Mi"
+        }
+      }
+    },
+    {
+      "pod": "job-01fc3c75-k274w",
+      "node": "i-0b7a6451829189ce1",
+      "type": "c6a.4xlarge",
+      "pool": "coworld-egress-jobs",
+      "image": "471879937681.dkr.ecr.us-east-1.amazonaws.com/cogames/s25q6tn121cx1j3z7ql3ga5d-da1d0964bdd5/polyworld-gota-coworld@sha256:1c6b764685d86e4e1dc85032c9e1022ac220655bbd01cb8a89dc7ea9929df2fb",
+      "resources": {
+        "requests": {
+          "cpu": "1",
+          "memory": "512Mi"
+        }
+      }
+    },
+    {
+      "pod": "job-022e461b-49bdb",
+      "node": "i-0bed4bd32cd1b0f75",
+      "type": "c6a.4xlarge",
+      "pool": "coworld-egress-jobs",
+      "image": "471879937681.dkr.ecr.us-east-1.amazonaws.com/cogames/h0835grji1zfy5wakd4i56kn-3939e8b7673b/coworld-battle-royale@sha256:4e09a9ff2ae7eac57bb01826fc0afc3d9f3385576140056741050710d416721b",
+      "resources": {
+        "requests": {
+          "cpu": "1",
+          "memory": "512Mi"
+        }
+      }
+    },
+    {
+      "pod": "job-029e4bd2-jxsg8",
+      "node": "i-02cf20db83ff41f6a",
+      "type": "c6a.4xlarge",
+      "pool": "coworld-egress-jobs",
+      "image": "471879937681.dkr.ecr.us-east-1.amazonaws.com/cogames/cy4wau882qr6p2v9z1prudik-bdfe346bc6af/coworld-ctf-game@sha256:30a495ffcde1b71af5e57375989b3ad1e885a85839825325984411ae00f5b259",
+      "resources": {
+        "requests": {
+          "cpu": "1",
+          "memory": "512Mi"
+        }
+      }
+    },
+    {
+      "pod": "job-03650e3a-9vh7x",
+      "node": "i-04488a1463b2e3027",
+      "type": "c6a.4xlarge",
+      "pool": "coworld-egress-jobs",
+      "image": "471879937681.dkr.ecr.us-east-1.amazonaws.com/cogames/h0835grji1zfy5wakd4i56kn-3939e8b7673b/coworld-battle-royale@sha256:4e09a9ff2ae7eac57bb01826fc0afc3d9f3385576140056741050710d416721b",
+      "resources": {
+        "requests": {
+          "cpu": "1",
+          "memory": "512Mi"
+        }
+      }
+    },
+    {
+      "pod": "job-04a504d6-l6cvx",
+      "node": "i-0b26e332f0435588f",
+      "type": "c8i-flex.4xlarge",
+      "pool": "coworld-egress-jobs",
+      "image": "471879937681.dkr.ecr.us-east-1.amazonaws.com/cogames/s25q6tn121cx1j3z7ql3ga5d-da1d0964bdd5/polyworld-gota-coworld@sha256:1c6b764685d86e4e1dc85032c9e1022ac220655bbd01cb8a89dc7ea9929df2fb",
+      "resources": {
+        "requests": {
+          "cpu": "1",
+          "memory": "512Mi"
+        }
+      }
+    },
+    {
+      "pod": "job-04a65e79-vbqcb",
+      "node": "i-02a5e2f8b65f0cfae",
+      "type": "c6a.4xlarge",
+      "pool": "coworld-egress-jobs",
+      "image": "471879937681.dkr.ecr.us-east-1.amazonaws.com/cogames/h0835grji1zfy5wakd4i56kn-3939e8b7673b/coworld-battle-royale@sha256:4e09a9ff2ae7eac57bb01826fc0afc3d9f3385576140056741050710d416721b",
+      "resources": {
+        "requests": {
+          "cpu": "1",
+          "memory": "512Mi"
+        }
+      }
+    },
+    {
+      "pod": "job-060c6789-hg9vn",
+      "node": "i-04b4e283111b88360",
+      "type": "c8i-flex.4xlarge",
+      "pool": "coworld-egress-jobs",
+      "image": "471879937681.dkr.ecr.us-east-1.amazonaws.com/cogames/h0835grji1zfy5wakd4i56kn-3939e8b7673b/coworld-battle-royale@sha256:4e09a9ff2ae7eac57bb01826fc0afc3d9f3385576140056741050710d416721b",
+      "resources": {
+        "requests": {
+          "cpu": "1",
+          "memory": "512Mi"
+        }
+      }
+    },
+    {
+      "pod": "job-06a7611f-sn5jj",
+      "node": "i-0d399fc33ded358a0",
+      "type": "c6a.4xlarge",
+      "pool": "coworld-egress-jobs",
+      "image": "471879937681.dkr.ecr.us-east-1.amazonaws.com/cogames/cy4wau882qr6p2v9z1prudik-bdfe346bc6af/coworld-ctf-game@sha256:af574fe703c6b2ea29c0924f0b4be10d021a76bc7598aa82cc2b623e89911bdf",
+      "resources": {
+        "requests": {
+          "cpu": "1",
+          "memory": "512Mi"
+        }
+      }
+    },
+    {
+      "pod": "job-06b9d658-cxtlv",
+      "node": "i-04488a1463b2e3027",
+      "type": "c6a.4xlarge",
+      "pool": "coworld-egress-jobs",
+      "image": "471879937681.dkr.ecr.us-east-1.amazonaws.com/cogames/h0835grji1zfy5wakd4i56kn-3939e8b7673b/coworld-battle-royale@sha256:4e09a9ff2ae7eac57bb01826fc0afc3d9f3385576140056741050710d416721b",
+      "resources": {
+        "requests": {
+          "cpu": "1",
+          "memory": "512Mi"
+        }
+      }
+    },
+    {
+      "pod": "job-06bb8216-pbh7t",
+      "node": "i-0effa673fb45c7298",
+      "type": "c6a.4xlarge",
+      "pool": "coworld-egress-jobs",
+      "image": "471879937681.dkr.ecr.us-east-1.amazonaws.com/cogames/s25q6tn121cx1j3z7ql3ga5d-da1d0964bdd5/polyworld-gota-coworld@sha256:1c6b764685d86e4e1dc85032c9e1022ac220655bbd01cb8a89dc7ea9929df2fb",
+      "resources": {
+        "requests": {
+          "cpu": "1",
+          "memory": "512Mi"
+        }
+      }
+    },
+    {
+      "pod": "job-0702c0b3-zjkvf",
+      "node": "i-05c7f68a55aa8078b",
+      "type": "r5a.4xlarge",
+      "pool": "coworld-egress-jobs",
+      "image": "471879937681.dkr.ecr.us-east-1.amazonaws.com/cogames/h0835grji1zfy5wakd4i56kn-3939e8b7673b/coworld-battle-royale@sha256:4e09a9ff2ae7eac57bb01826fc0afc3d9f3385576140056741050710d416721b",
+      "resources": {
+        "requests": {
+          "cpu": "1",
+          "memory": "512Mi"
+        }
+      }
+    },
+    {
+      "pod": "job-085b8301-lgh2h",
+      "node": "i-0cb78dfb3f707743e",
+      "type": "c6a.4xlarge",
+      "pool": "coworld-egress-jobs",
+      "image": "471879937681.dkr.ecr.us-east-1.amazonaws.com/cogames/cy4wau882qr6p2v9z1prudik-bdfe346bc6af/coworld-ctf-game@sha256:af574fe703c6b2ea29c0924f0b4be10d021a76bc7598aa82cc2b623e89911bdf",
+      "resources": {
+        "requests": {
+          "cpu": "1",
+          "memory": "512Mi"
+        }
+      }
+    },
+    {
+      "pod": "job-08f23528-kvr8z",
+      "node": "i-0c76f1238eff09b54",
+      "type": "c6a.4xlarge",
+      "pool": "coworld-egress-jobs",
+      "image": "471879937681.dkr.ecr.us-east-1.amazonaws.com/cogames/h0835grji1zfy5wakd4i56kn-3939e8b7673b/coworld-battle-royale@sha256:4e09a9ff2ae7eac57bb01826fc0afc3d9f3385576140056741050710d416721b",
+      "resources": {
+        "requests": {
+          "cpu": "1",
+          "memory": "512Mi"
+        }
+      }
+    },
+    {
+      "pod": "job-0989ff26-xnzr4",
+      "node": "i-089af6f2bbbee83d9",
+      "type": "c5d.4xlarge",
+      "pool": "coworld-egress-jobs",
+      "image": "471879937681.dkr.ecr.us-east-1.amazonaws.com/cogames/s25q6tn121cx1j3z7ql3ga5d-da1d0964bdd5/polyworld-gota-coworld@sha256:1c6b764685d86e4e1dc85032c9e1022ac220655bbd01cb8a89dc7ea9929df2fb",
+      "resources": {
+        "requests": {
+          "cpu": "1",
+          "memory": "512Mi"
+        }
+      }
+    },
+    {
+      "pod": "job-0a272936-d59db",
+      "node": "i-0de99b02f641ac3e3",
+      "type": "c6a.4xlarge",
+      "pool": "coworld-egress-jobs",
+      "image": "471879937681.dkr.ecr.us-east-1.amazonaws.com/cogames/s25q6tn121cx1j3z7ql3ga5d-da1d0964bdd5/polyworld-gota-coworld@sha256:1c6b764685d86e4e1dc85032c9e1022ac220655bbd01cb8a89dc7ea9929df2fb",
+      "resources": {
+        "requests": {
+          "cpu": "1",
+          "memory": "512Mi"
+        }
+      }
+    },
+    {
+      "pod": "job-0ad9f8fa-4lt6k",
+      "node": "i-04a48eee4b574414d",
+      "type": "c6a.4xlarge",
+      "pool": "coworld-egress-jobs",
+      "image": "471879937681.dkr.ecr.us-east-1.amazonaws.com/cogames/h0835grji1zfy5wakd4i56kn-3939e8b7673b/coworld-battle-royale@sha256:4e09a9ff2ae7eac57bb01826fc0afc3d9f3385576140056741050710d416721b",
+      "resources": {
+        "requests": {
+          "cpu": "1",
+          "memory": "512Mi"
+        }
+      }
+    },
+    {
+      "pod": "job-0c9c3ed7-95xll",
+      "node": "i-086b94811c8d35468",
+      "type": "c6a.4xlarge",
+      "pool": "coworld-egress-jobs",
+      "image": "471879937681.dkr.ecr.us-east-1.amazonaws.com/cogames/s25q6tn121cx1j3z7ql3ga5d-da1d0964bdd5/polyworld-gota-coworld@sha256:1c6b764685d86e4e1dc85032c9e1022ac220655bbd01cb8a89dc7ea9929df2fb",
+      "resources": {
+        "requests": {
+          "cpu": "1",
+          "memory": "512Mi"
+        }
+      }
+    },
+    {
+      "pod": "job-0dd481dd-qlx95",
+      "node": "i-0c2111b08882dcc96",
+      "type": "c6a.4xlarge",
+      "pool": "coworld-egress-jobs",
+      "image": "471879937681.dkr.ecr.us-east-1.amazonaws.com/cogames/h0835grji1zfy5wakd4i56kn-3939e8b7673b/coworld-battle-royale@sha256:4e09a9ff2ae7eac57bb01826fc0afc3d9f3385576140056741050710d416721b",
+      "resources": {
+        "requests": {
+          "cpu": "1",
+          "memory": "512Mi"
+        }
+      }
+    },
+    {
+      "pod": "job-0e8fce27-2w2pk",
+      "node": "i-03274b22816dfbe12",
+      "type": "c6a.4xlarge",
+      "pool": "coworld-egress-jobs",
+      "image": "471879937681.dkr.ecr.us-east-1.amazonaws.com/cogames/cy4wau882qr6p2v9z1prudik-bdfe346bc6af/coworld-ctf-game@sha256:af574fe703c6b2ea29c0924f0b4be10d021a76bc7598aa82cc2b623e89911bdf",
+      "resources": {
+        "requests": {
+          "cpu": "1",
+          "memory": "512Mi"
+        }
+      }
+    },
+    {
+      "pod": "job-10aff741-r9llk",
+      "node": "i-06500077d07260a1f",
+      "type": "c6a.4xlarge",
+      "pool": "coworld-egress-jobs",
+      "image": "471879937681.dkr.ecr.us-east-1.amazonaws.com/cogames/cy4wau882qr6p2v9z1prudik-bdfe346bc6af/coworld-ctf-game@sha256:af574fe703c6b2ea29c0924f0b4be10d021a76bc7598aa82cc2b623e89911bdf",
+      "resources": {
+        "requests": {
+          "cpu": "1",
+          "memory": "512Mi"
+        }
+      }
+    },
+    {
+      "pod": "job-10be0157-lbt6s",
+      "node": "i-02cf20db83ff41f6a",
+      "type": "c6a.4xlarge",
+      "pool": "coworld-egress-jobs",
+      "image": "471879937681.dkr.ecr.us-east-1.amazonaws.com/cogames/s25q6tn121cx1j3z7ql3ga5d-da1d0964bdd5/polyworld-gota-coworld@sha256:1c6b764685d86e4e1dc85032c9e1022ac220655bbd01cb8a89dc7ea9929df2fb",
+      "resources": {
+        "requests": {
+          "cpu": "1",
+          "memory": "512Mi"
+        }
+      }
+    },
+    {
+      "pod": "job-117a2c49-n5slk",
+      "node": "i-0c8c5b74029353f0e",
+      "type": "c6a.4xlarge",
+      "pool": "coworld-egress-jobs",
+      "image": "471879937681.dkr.ecr.us-east-1.amazonaws.com/cogames/h0835grji1zfy5wakd4i56kn-3939e8b7673b/coworld-pudgewars@sha256:49a1956f992e7877317c8d13f5850065555e1ecc3e0553ee6699eb67b6f491d0",
+      "resources": {
+        "requests": {
+          "cpu": "1",
+          "memory": "512Mi"
+        }
+      }
+    },
+    {
+      "pod": "job-15ae4fc6-qpbk9",
+      "node": "i-0f59ad8caa0bfbed7",
+      "type": "c6a.4xlarge",
+      "pool": "coworld-egress-jobs",
+      "image": "471879937681.dkr.ecr.us-east-1.amazonaws.com/cogames/s25q6tn121cx1j3z7ql3ga5d-da1d0964bdd5/polyworld-gota-coworld@sha256:1c6b764685d86e4e1dc85032c9e1022ac220655bbd01cb8a89dc7ea9929df2fb",
+      "resources": {
+        "requests": {
+          "cpu": "1",
+          "memory": "512Mi"
+        }
+      }
+    },
+    {
+      "pod": "job-16af60f7-vx2v9",
+      "node": "i-089af6f2bbbee83d9",
+      "type": "c5d.4xlarge",
+      "pool": "coworld-egress-jobs",
+      "image": "471879937681.dkr.ecr.us-east-1.amazonaws.com/cogames/h0835grji1zfy5wakd4i56kn-3939e8b7673b/coworld-battle-royale@sha256:4e09a9ff2ae7eac57bb01826fc0afc3d9f3385576140056741050710d416721b",
+      "resources": {
+        "requests": {
+          "cpu": "1",
+          "memory": "512Mi"
+        }
+      }
+    },
+    {
+      "pod": "job-18451ada-cqrgn",
+      "node": "i-07d6706099985dc60",
+      "type": "c6a.4xlarge",
+      "pool": "coworld-egress-jobs",
+      "image": "471879937681.dkr.ecr.us-east-1.amazonaws.com/cogames/h0835grji1zfy5wakd4i56kn-3939e8b7673b/coworld-battle-royale@sha256:4e09a9ff2ae7eac57bb01826fc0afc3d9f3385576140056741050710d416721b",
+      "resources": {
+        "requests": {
+          "cpu": "1",
+          "memory": "512Mi"
+        }
+      }
+    },
+    {
+      "pod": "job-1a8af9c6-n4kw6",
+      "node": "i-0acdd54fcec6c043d",
+      "type": "c6a.4xlarge",
+      "pool": "coworld-egress-jobs",
+      "image": "471879937681.dkr.ecr.us-east-1.amazonaws.com/cogames/h0835grji1zfy5wakd4i56kn-3939e8b7673b/coworld-pudgewars@sha256:49a1956f992e7877317c8d13f5850065555e1ecc3e0553ee6699eb67b6f491d0",
+      "resources": {
+        "requests": {
+          "cpu": "1",
+          "memory": "512Mi"
+        }
+      }
+    },
+    {
+      "pod": "job-1b5c4808-n74l7",
+      "node": "i-0de99b02f641ac3e3",
+      "type": "c6a.4xlarge",
+      "pool": "coworld-egress-jobs",
+      "image": "471879937681.dkr.ecr.us-east-1.amazonaws.com/cogames/s25q6tn121cx1j3z7ql3ga5d-da1d0964bdd5/polyworld-gota-coworld@sha256:1c6b764685d86e4e1dc85032c9e1022ac220655bbd01cb8a89dc7ea9929df2fb",
+      "resources": {
+        "requests": {
+          "cpu": "1",
+          "memory": "512Mi"
+        }
+      }
+    },
+    {
+      "pod": "job-1c74a269-vlljr",
+      "node": "i-09af6e47d117320f8",
+      "type": "c6a.4xlarge",
+      "pool": "coworld-egress-jobs",
+      "image": "471879937681.dkr.ecr.us-east-1.amazonaws.com/cogames/h0835grji1zfy5wakd4i56kn-3939e8b7673b/coworld-battle-royale@sha256:4e09a9ff2ae7eac57bb01826fc0afc3d9f3385576140056741050710d416721b",
+      "resources": {
+        "requests": {
+          "cpu": "1",
+          "memory": "512Mi"
+        }
+      }
+    },
+    {
+      "pod": "job-1e55e815-8vpwj",
+      "node": "i-00b707a2b2e03f947",
+      "type": "c6a.4xlarge",
+      "pool": "coworld-egress-jobs",
+      "image": "471879937681.dkr.ecr.us-east-1.amazonaws.com/cogames/s25q6tn121cx1j3z7ql3ga5d-da1d0964bdd5/polyworld-gota-coworld@sha256:1c6b764685d86e4e1dc85032c9e1022ac220655bbd01cb8a89dc7ea9929df2fb",
+      "resources": {
+        "requests": {
+          "cpu": "1",
+          "memory": "512Mi"
+        }
+      }
+    },
+    {
+      "pod": "job-1f2865b5-7xp58",
+      "node": "i-0f59ad8caa0bfbed7",
+      "type": "c6a.4xlarge",
+      "pool": "coworld-egress-jobs",
+      "image": "471879937681.dkr.ecr.us-east-1.amazonaws.com/cogames/s25q6tn121cx1j3z7ql3ga5d-da1d0964bdd5/polyworld-gota-coworld@sha256:1c6b764685d86e4e1dc85032c9e1022ac220655bbd01cb8a89dc7ea9929df2fb",
+      "resources": {
+        "requests": {
+          "cpu": "1",
+          "memory": "512Mi"
+        }
+      }
+    },
+    {
+      "pod": "job-1f6aa369-wv5hz",
+      "node": "i-0b7b127ace93f9972",
+      "type": "c8i-flex.4xlarge",
+      "pool": "coworld-egress-jobs",
+      "image": "471879937681.dkr.ecr.us-east-1.amazonaws.com/cogames/s25q6tn121cx1j3z7ql3ga5d-da1d0964bdd5/polyworld-gota-coworld@sha256:1c6b764685d86e4e1dc85032c9e1022ac220655bbd01cb8a89dc7ea9929df2fb",
+      "resources": {
+        "requests": {
+          "cpu": "1",
+          "memory": "512Mi"
+        }
+      }
+    },
+    {
+      "pod": "job-1fb2e973-759wz",
+      "node": "i-02cf20db83ff41f6a",
+      "type": "c6a.4xlarge",
+      "pool": "coworld-egress-jobs",
+      "image": "471879937681.dkr.ecr.us-east-1.amazonaws.com/cogames/cy4wau882qr6p2v9z1prudik-bdfe346bc6af/coworld-ctf-game@sha256:30a495ffcde1b71af5e57375989b3ad1e885a85839825325984411ae00f5b259",
+      "resources": {
+        "requests": {
+          "cpu": "1",
+          "memory": "512Mi"
+        }
+      }
+    },
+    {
+      "pod": "job-2036cb16-5wbkj",
+      "node": "i-0c8c5b74029353f0e",
+      "type": "c6a.4xlarge",
+      "pool": "coworld-egress-jobs",
+      "image": "471879937681.dkr.ecr.us-east-1.amazonaws.com/cogames/h0835grji1zfy5wakd4i56kn-3939e8b7673b/coworld-pudgewars@sha256:49a1956f992e7877317c8d13f5850065555e1ecc3e0553ee6699eb67b6f491d0",
+      "resources": {
+        "requests": {
+          "cpu": "1",
+          "memory": "512Mi"
+        }
+      }
+    },
+    {
+      "pod": "job-20636668-q889f",
+      "node": "i-011105cfb02afe1a7",
+      "type": "c6a.4xlarge",
+      "pool": "coworld-egress-jobs",
+      "image": "471879937681.dkr.ecr.us-east-1.amazonaws.com/cogames/h0835grji1zfy5wakd4i56kn-3939e8b7673b/coworld-battle-royale@sha256:4e09a9ff2ae7eac57bb01826fc0afc3d9f3385576140056741050710d416721b",
+      "resources": {
+        "requests": {
+          "cpu": "1",
+          "memory": "512Mi"
+        }
+      }
+    },
+    {
+      "pod": "job-2204faef-zkxrp",
+      "node": "i-0a531d91f1f5151e3",
+      "type": "c6a.4xlarge",
+      "pool": "coworld-egress-jobs",
+      "image": "471879937681.dkr.ecr.us-east-1.amazonaws.com/cogames/s25q6tn121cx1j3z7ql3ga5d-da1d0964bdd5/polyworld-gota-coworld@sha256:1c6b764685d86e4e1dc85032c9e1022ac220655bbd01cb8a89dc7ea9929df2fb",
+      "resources": {
+        "requests": {
+          "cpu": "1",
+          "memory": "512Mi"
+        }
+      }
+    },
+    {
+      "pod": "job-2448c306-fjhqq",
+      "node": "i-04488a1463b2e3027",
+      "type": "c6a.4xlarge",
+      "pool": "coworld-egress-jobs",
+      "image": "471879937681.dkr.ecr.us-east-1.amazonaws.com/cogames/h0835grji1zfy5wakd4i56kn-3939e8b7673b/coworld-battle-royale@sha256:4e09a9ff2ae7eac57bb01826fc0afc3d9f3385576140056741050710d416721b",
+      "resources": {
+        "requests": {
+          "cpu": "1",
+          "memory": "512Mi"
+        }
+      }
+    },
+    {
+      "pod": "job-24800319-j4hrd",
+      "node": "i-086b94811c8d35468",
+      "type": "c6a.4xlarge",
+      "pool": "coworld-egress-jobs",
+      "image": "471879937681.dkr.ecr.us-east-1.amazonaws.com/cogames/s25q6tn121cx1j3z7ql3ga5d-da1d0964bdd5/polyworld-gota-coworld@sha256:1c6b764685d86e4e1dc85032c9e1022ac220655bbd01cb8a89dc7ea9929df2fb",
+      "resources": {
+        "requests": {
+          "cpu": "1",
+          "memory": "512Mi"
+        }
+      }
+    },
+    {
+      "pod": "job-2480d0d0-wsvgk",
+      "node": "i-0ac3cedc4326e84db",
+      "type": "c8i-flex.4xlarge",
+      "pool": "coworld-egress-jobs",
+      "image": "471879937681.dkr.ecr.us-east-1.amazonaws.com/cogames/h0835grji1zfy5wakd4i56kn-3939e8b7673b/coworld-battle-royale@sha256:4e09a9ff2ae7eac57bb01826fc0afc3d9f3385576140056741050710d416721b",
+      "resources": {
+        "requests": {
+          "cpu": "1",
+          "memory": "512Mi"
+        }
+      }
+    },
+    {
+      "pod": "job-2640077a-gnm5x",
+      "node": "i-08048f7dd976a400d",
+      "type": "c6a.4xlarge",
+      "pool": "coworld-egress-jobs",
+      "image": "471879937681.dkr.ecr.us-east-1.amazonaws.com/cogames/h0835grji1zfy5wakd4i56kn-3939e8b7673b/coworld-battle-royale@sha256:4e09a9ff2ae7eac57bb01826fc0afc3d9f3385576140056741050710d416721b",
+      "resources": {
+        "requests": {
+          "cpu": "1",
+          "memory": "512Mi"
+        }
+      }
+    },
+    {
+      "pod": "job-27ba6786-lp5f7",
+      "node": "i-020ef808ff23fbb48",
+      "type": "c8i-flex.4xlarge",
+      "pool": "coworld-egress-jobs",
+      "image": "471879937681.dkr.ecr.us-east-1.amazonaws.com/cogames/h0835grji1zfy5wakd4i56kn-3939e8b7673b/coworld-battle-royale@sha256:4e09a9ff2ae7eac57bb01826fc0afc3d9f3385576140056741050710d416721b",
+      "resources": {
+        "requests": {
+          "cpu": "1",
+          "memory": "512Mi"
+        }
+      }
+    },
+    {
+      "pod": "job-2a840cf5-df8zq",
+      "node": "i-01f58892f96faacd8",
+      "type": "c6a.4xlarge",
+      "pool": "coworld-egress-jobs",
+      "image": "471879937681.dkr.ecr.us-east-1.amazonaws.com/cogames/h0835grji1zfy5wakd4i56kn-3939e8b7673b/coworld-pudgewars@sha256:49a1956f992e7877317c8d13f5850065555e1ecc3e0553ee6699eb67b6f491d0",
+      "resources": {
+        "requests": {
+          "cpu": "1",
+          "memory": "512Mi"
+        }
+      }
+    },
+    {
+      "pod": "job-2ab0b622-k6p8t",
+      "node": "i-0effa673fb45c7298",
+      "type": "c6a.4xlarge",
+      "pool": "coworld-egress-jobs",
+      "image": "471879937681.dkr.ecr.us-east-1.amazonaws.com/cogames/s25q6tn121cx1j3z7ql3ga5d-da1d0964bdd5/polyworld-gota-coworld@sha256:1c6b764685d86e4e1dc85032c9e1022ac220655bbd01cb8a89dc7ea9929df2fb",
+      "resources": {
+        "requests": {
+          "cpu": "1",
+          "memory": "512Mi"
+        }
+      }
+    },
+    {
+      "pod": "job-2af97a06-wxsl4",
+      "node": "i-040ec2c66986f2a1e",
+      "type": "c6a.4xlarge",
+      "pool": "coworld-egress-jobs",
+      "image": "471879937681.dkr.ecr.us-east-1.amazonaws.com/cogames/h0835grji1zfy5wakd4i56kn-3939e8b7673b/coworld-battle-royale@sha256:4e09a9ff2ae7eac57bb01826fc0afc3d9f3385576140056741050710d416721b",
+      "resources": {
+        "requests": {
+          "cpu": "1",
+          "memory": "512Mi"
+        }
+      }
+    },
+    {
+      "pod": "job-2cfdca4d-lcvh4",
+      "node": "i-0c76f1238eff09b54",
+      "type": "c6a.4xlarge",
+      "pool": "coworld-egress-jobs",
+      "image": "471879937681.dkr.ecr.us-east-1.amazonaws.com/cogames/s25q6tn121cx1j3z7ql3ga5d-da1d0964bdd5/polyworld-gota-coworld@sha256:1c6b764685d86e4e1dc85032c9e1022ac220655bbd01cb8a89dc7ea9929df2fb",
+      "resources": {
+        "requests": {
+          "cpu": "1",
+          "memory": "512Mi"
+        }
+      }
+    },
+    {
+      "pod": "job-2d72ba33-fv9gj",
+      "node": "i-09e3b8c687c4e4a6f",
+      "type": "c6a.4xlarge",
+      "pool": "coworld-egress-jobs",
+      "image": "471879937681.dkr.ecr.us-east-1.amazonaws.com/cogames/h0835grji1zfy5wakd4i56kn-3939e8b7673b/coworld-battle-royale@sha256:4e09a9ff2ae7eac57bb01826fc0afc3d9f3385576140056741050710d416721b",
+      "resources": {
+        "requests": {
+          "cpu": "1",
+          "memory": "512Mi"
+        }
+      }
+    },
+    {
+      "pod": "job-2d9513eb-brdr9",
+      "node": "i-0b7a6451829189ce1",
+      "type": "c6a.4xlarge",
+      "pool": "coworld-egress-jobs",
+      "image": "471879937681.dkr.ecr.us-east-1.amazonaws.com/cogames/s25q6tn121cx1j3z7ql3ga5d-da1d0964bdd5/polyworld-gota-coworld@sha256:1c6b764685d86e4e1dc85032c9e1022ac220655bbd01cb8a89dc7ea9929df2fb",
+      "resources": {
+        "requests": {
+          "cpu": "1",
+          "memory": "512Mi"
+        }
+      }
+    },
+    {
+      "pod": "job-2dfb2e70-7zz7v",
+      "node": "i-04bcf4a2908de0d43",
+      "type": "c6a.4xlarge",
+      "pool": "coworld-egress-jobs",
+      "image": "471879937681.dkr.ecr.us-east-1.amazonaws.com/cogames/h0835grji1zfy5wakd4i56kn-3939e8b7673b/coworld-battle-royale@sha256:4e09a9ff2ae7eac57bb01826fc0afc3d9f3385576140056741050710d416721b",
+      "resources": {
+        "requests": {
+          "cpu": "1",
+          "memory": "512Mi"
+        }
+      }
+    },
+    {
+      "pod": "job-2f3f5988-pc58q",
+      "node": "i-09af6e47d117320f8",
+      "type": "c6a.4xlarge",
+      "pool": "coworld-egress-jobs",
+      "image": "471879937681.dkr.ecr.us-east-1.amazonaws.com/cogames/h0835grji1zfy5wakd4i56kn-3939e8b7673b/coworld-battle-royale@sha256:4e09a9ff2ae7eac57bb01826fc0afc3d9f3385576140056741050710d416721b",
+      "resources": {
+        "requests": {
+          "cpu": "1",
+          "memory": "512Mi"
+        }
+      }
+    },
+    {
+      "pod": "job-313e2b42-pqnb6",
+      "node": "i-086b94811c8d35468",
+      "type": "c6a.4xlarge",
+      "pool": "coworld-egress-jobs",
+      "image": "471879937681.dkr.ecr.us-east-1.amazonaws.com/cogames/s25q6tn121cx1j3z7ql3ga5d-da1d0964bdd5/polyworld-gota-coworld@sha256:1c6b764685d86e4e1dc85032c9e1022ac220655bbd01cb8a89dc7ea9929df2fb",
+      "resources": {
+        "requests": {
+          "cpu": "1",
+          "memory": "512Mi"
+        }
+      }
+    },
+    {
+      "pod": "job-338b7100-vd64d",
+      "node": "i-0317242aa7ad4fda0",
+      "type": "c8i-flex.4xlarge",
+      "pool": "coworld-egress-jobs",
+      "image": "471879937681.dkr.ecr.us-east-1.amazonaws.com/cogames/cy4wau882qr6p2v9z1prudik-bdfe346bc6af/coworld-ctf-game@sha256:30a495ffcde1b71af5e57375989b3ad1e885a85839825325984411ae00f5b259",
+      "resources": {
+        "requests": {
+          "cpu": "1",
+          "memory": "512Mi"
+        }
+      }
+    },
+    {
+      "pod": "job-35ab1dd8-8cbmx",
+      "node": "i-0b7a6451829189ce1",
+      "type": "c6a.4xlarge",
+      "pool": "coworld-egress-jobs",
+      "image": "471879937681.dkr.ecr.us-east-1.amazonaws.com/cogames/s25q6tn121cx1j3z7ql3ga5d-da1d0964bdd5/polyworld-gota-coworld@sha256:1c6b764685d86e4e1dc85032c9e1022ac220655bbd01cb8a89dc7ea9929df2fb",
+      "resources": {
+        "requests": {
+          "cpu": "1",
+          "memory": "512Mi"
+        }
+      }
+    },
+    {
+      "pod": "job-371f2e47-swm96",
+      "node": "i-020ef808ff23fbb48",
+      "type": "c8i-flex.4xlarge",
+      "pool": "coworld-egress-jobs",
+      "image": "471879937681.dkr.ecr.us-east-1.amazonaws.com/cogames/cy4wau882qr6p2v9z1prudik-bdfe346bc6af/coworld-ctf-game@sha256:af574fe703c6b2ea29c0924f0b4be10d021a76bc7598aa82cc2b623e89911bdf",
+      "resources": {
+        "requests": {
+          "cpu": "1",
+          "memory": "512Mi"
+        }
+      }
+    },
+    {
+      "pod": "job-3bf77935-vvhwd",
+      "node": "i-0c2111b08882dcc96",
+      "type": "c6a.4xlarge",
+      "pool": "coworld-egress-jobs",
+      "image": "471879937681.dkr.ecr.us-east-1.amazonaws.com/cogames/h0835grji1zfy5wakd4i56kn-3939e8b7673b/coworld-battle-royale@sha256:4e09a9ff2ae7eac57bb01826fc0afc3d9f3385576140056741050710d416721b",
+      "resources": {
+        "requests": {
+          "cpu": "1",
+          "memory": "512Mi"
+        }
+      }
+    },
+    {
+      "pod": "job-3c8764a5-b796t",
+      "node": "i-0056334b4ef809e35",
+      "type": "m6a.4xlarge",
+      "pool": "coworld-egress-jobs",
+      "image": "471879937681.dkr.ecr.us-east-1.amazonaws.com/cogames/h0835grji1zfy5wakd4i56kn-3939e8b7673b/coworld-battle-royale@sha256:4e09a9ff2ae7eac57bb01826fc0afc3d9f3385576140056741050710d416721b",
+      "resources": {
+        "requests": {
+          "cpu": "1",
+          "memory": "512Mi"
+        }
+      }
+    },
+    {
+      "pod": "job-3d1a741e-dg6v4",
+      "node": "i-0317242aa7ad4fda0",
+      "type": "c8i-flex.4xlarge",
+      "pool": "coworld-egress-jobs",
+      "image": "471879937681.dkr.ecr.us-east-1.amazonaws.com/cogames/h0835grji1zfy5wakd4i56kn-3939e8b7673b/coworld-battle-royale@sha256:4e09a9ff2ae7eac57bb01826fc0afc3d9f3385576140056741050710d416721b",
+      "resources": {
+        "requests": {
+          "cpu": "1",
+          "memory": "512Mi"
+        }
+      }
+    },
+    {
+      "pod": "job-3d487ee6-brfkb",
+      "node": "i-0056334b4ef809e35",
+      "type": "m6a.4xlarge",
+      "pool": "coworld-egress-jobs",
+      "image": "471879937681.dkr.ecr.us-east-1.amazonaws.com/cogames/cy4wau882qr6p2v9z1prudik-bdfe346bc6af/coworld-ctf-game@sha256:30a495ffcde1b71af5e57375989b3ad1e885a85839825325984411ae00f5b259",
+      "resources": {
+        "requests": {
+          "cpu": "1",
+          "memory": "512Mi"
+        }
+      }
+    },
+    {
+      "pod": "job-3dbb3346-mxxl2",
+      "node": "i-02a5e2f8b65f0cfae",
+      "type": "c6a.4xlarge",
+      "pool": "coworld-egress-jobs",
+      "image": "471879937681.dkr.ecr.us-east-1.amazonaws.com/cogames/h0835grji1zfy5wakd4i56kn-3939e8b7673b/coworld-battle-royale@sha256:4e09a9ff2ae7eac57bb01826fc0afc3d9f3385576140056741050710d416721b",
+      "resources": {
+        "requests": {
+          "cpu": "1",
+          "memory": "512Mi"
+        }
+      }
+    },
+    {
+      "pod": "job-3f12a85d-pc2bs",
+      "node": "i-04a48eee4b574414d",
+      "type": "c6a.4xlarge",
+      "pool": "coworld-egress-jobs",
+      "image": "471879937681.dkr.ecr.us-east-1.amazonaws.com/cogames/s25q6tn121cx1j3z7ql3ga5d-da1d0964bdd5/polyworld-gota-coworld@sha256:1c6b764685d86e4e1dc85032c9e1022ac220655bbd01cb8a89dc7ea9929df2fb",
+      "resources": {
+        "requests": {
+          "cpu": "1",
+          "memory": "512Mi"
+        }
+      }
+    },
+    {
+      "pod": "job-3f242422-p6wfj",
+      "node": "i-05c7f68a55aa8078b",
+      "type": "r5a.4xlarge",
+      "pool": "coworld-egress-jobs",
+      "image": "471879937681.dkr.ecr.us-east-1.amazonaws.com/cogames/h0835grji1zfy5wakd4i56kn-3939e8b7673b/coworld-battle-royale@sha256:4e09a9ff2ae7eac57bb01826fc0afc3d9f3385576140056741050710d416721b",
+      "resources": {
+        "requests": {
+          "cpu": "1",
+          "memory": "512Mi"
+        }
+      }
+    },
+    {
+      "pod": "job-428a952a-q6nnv",
+      "node": "i-0c8c5b74029353f0e",
+      "type": "c6a.4xlarge",
+      "pool": "coworld-egress-jobs",
+      "image": "471879937681.dkr.ecr.us-east-1.amazonaws.com/cogames/h0835grji1zfy5wakd4i56kn-3939e8b7673b/coworld-pudgewars@sha256:49a1956f992e7877317c8d13f5850065555e1ecc3e0553ee6699eb67b6f491d0",
+      "resources": {
+        "requests": {
+          "cpu": "1",
+          "memory": "512Mi"
+        }
+      }
+    },
+    {
+      "pod": "job-43a57de0-lfsp6",
+      "node": "i-06df281cb4f58c6d2",
+      "type": "c6a.4xlarge",
+      "pool": "coworld-egress-jobs",
+      "image": "471879937681.dkr.ecr.us-east-1.amazonaws.com/cogames/h0835grji1zfy5wakd4i56kn-3939e8b7673b/coworld-battle-royale@sha256:4e09a9ff2ae7eac57bb01826fc0afc3d9f3385576140056741050710d416721b",
+      "resources": {
+        "requests": {
+          "cpu": "1",
+          "memory": "512Mi"
+        }
+      }
+    },
+    {
+      "pod": "job-4570bef9-2g6jk",
+      "node": "i-086b94811c8d35468",
+      "type": "c6a.4xlarge",
+      "pool": "coworld-egress-jobs",
+      "image": "471879937681.dkr.ecr.us-east-1.amazonaws.com/cogames/s25q6tn121cx1j3z7ql3ga5d-da1d0964bdd5/polyworld-gota-coworld@sha256:1c6b764685d86e4e1dc85032c9e1022ac220655bbd01cb8a89dc7ea9929df2fb",
+      "resources": {
+        "requests": {
+          "cpu": "1",
+          "memory": "512Mi"
+        }
+      }
+    },
+    {
+      "pod": "job-46c454ed-9s7vx",
+      "node": "i-0effa673fb45c7298",
+      "type": "c6a.4xlarge",
+      "pool": "coworld-egress-jobs",
+      "image": "471879937681.dkr.ecr.us-east-1.amazonaws.com/cogames/h0835grji1zfy5wakd4i56kn-3939e8b7673b/coworld-battle-royale@sha256:4e09a9ff2ae7eac57bb01826fc0afc3d9f3385576140056741050710d416721b",
+      "resources": {
+        "requests": {
+          "cpu": "1",
+          "memory": "512Mi"
+        }
+      }
+    },
+    {
+      "pod": "job-47a4750a-kqnnj",
+      "node": "i-08425f5ab7ba69a42",
+      "type": "c6a.4xlarge",
+      "pool": "coworld-egress-jobs",
+      "image": "471879937681.dkr.ecr.us-east-1.amazonaws.com/cogames/s25q6tn121cx1j3z7ql3ga5d-da1d0964bdd5/polyworld-gota-coworld@sha256:1c6b764685d86e4e1dc85032c9e1022ac220655bbd01cb8a89dc7ea9929df2fb",
+      "resources": {
+        "requests": {
+          "cpu": "1",
+          "memory": "512Mi"
+        }
+      }
+    },
+    {
+      "pod": "job-48526ba5-vrmkw",
+      "node": "i-086b94811c8d35468",
+      "type": "c6a.4xlarge",
+      "pool": "coworld-egress-jobs",
+      "image": "471879937681.dkr.ecr.us-east-1.amazonaws.com/cogames/s25q6tn121cx1j3z7ql3ga5d-da1d0964bdd5/polyworld-gota-coworld@sha256:1c6b764685d86e4e1dc85032c9e1022ac220655bbd01cb8a89dc7ea9929df2fb",
+      "resources": {
+        "requests": {
+          "cpu": "1",
+          "memory": "512Mi"
+        }
+      }
+    },
+    {
+      "pod": "job-4862e822-f4jgl",
+      "node": "i-0bed4bd32cd1b0f75",
+      "type": "c6a.4xlarge",
+      "pool": "coworld-egress-jobs",
+      "image": "471879937681.dkr.ecr.us-east-1.amazonaws.com/cogames/h0835grji1zfy5wakd4i56kn-3939e8b7673b/coworld-battle-royale@sha256:4e09a9ff2ae7eac57bb01826fc0afc3d9f3385576140056741050710d416721b",
+      "resources": {
+        "requests": {
+          "cpu": "1",
+          "memory": "512Mi"
+        }
+      }
+    },
+    {
+      "pod": "job-48642493-zvtph",
+      "node": "i-0de99b02f641ac3e3",
+      "type": "c6a.4xlarge",
+      "pool": "coworld-egress-jobs",
+      "image": "471879937681.dkr.ecr.us-east-1.amazonaws.com/cogames/s25q6tn121cx1j3z7ql3ga5d-da1d0964bdd5/polyworld-gota-coworld@sha256:1c6b764685d86e4e1dc85032c9e1022ac220655bbd01cb8a89dc7ea9929df2fb",
+      "resources": {
+        "requests": {
+          "cpu": "1",
+          "memory": "512Mi"
+        }
+      }
+    },
+    {
+      "pod": "job-4a268749-ztkkx",
+      "node": "i-0b4228be9f0684929",
+      "type": "c6a.4xlarge",
+      "pool": "coworld-egress-jobs",
+      "image": "471879937681.dkr.ecr.us-east-1.amazonaws.com/cogames/cy4wau882qr6p2v9z1prudik-bdfe346bc6af/coworld-ctf-game@sha256:30a495ffcde1b71af5e57375989b3ad1e885a85839825325984411ae00f5b259",
+      "resources": {
+        "requests": {
+          "cpu": "1",
+          "memory": "512Mi"
+        }
+      }
+    },
+    {
+      "pod": "job-4bfbaf0d-tnvdb",
+      "node": "i-0317242aa7ad4fda0",
+      "type": "c8i-flex.4xlarge",
+      "pool": "coworld-egress-jobs",
+      "image": "471879937681.dkr.ecr.us-east-1.amazonaws.com/cogames/cy4wau882qr6p2v9z1prudik-bdfe346bc6af/coworld-ctf-game@sha256:30a495ffcde1b71af5e57375989b3ad1e885a85839825325984411ae00f5b259",
+      "resources": {
+        "requests": {
+          "cpu": "1",
+          "memory": "512Mi"
+        }
+      }
+    },
+    {
+      "pod": "job-4dab3f3d-vgffg",
+      "node": "i-00e7a6c1d10578a20",
+      "type": "c6a.4xlarge",
+      "pool": "coworld-egress-jobs",
+      "image": "471879937681.dkr.ecr.us-east-1.amazonaws.com/cogames/cy4wau882qr6p2v9z1prudik-bdfe346bc6af/coworld-ctf-game@sha256:af574fe703c6b2ea29c0924f0b4be10d021a76bc7598aa82cc2b623e89911bdf",
+      "resources": {
+        "requests": {
+          "cpu": "1",
+          "memory": "512Mi"
+        }
+      }
+    },
+    {
+      "pod": "job-4e80903c-sld8l",
+      "node": "i-031266fdf89bc84cd",
+      "type": "c6a.4xlarge",
+      "pool": "coworld-egress-jobs",
+      "image": "471879937681.dkr.ecr.us-east-1.amazonaws.com/cogames/h0835grji1zfy5wakd4i56kn-3939e8b7673b/coworld-battle-royale@sha256:4e09a9ff2ae7eac57bb01826fc0afc3d9f3385576140056741050710d416721b",
+      "resources": {
+        "requests": {
+          "cpu": "1",
+          "memory": "512Mi"
+        }
+      }
+    },
+    {
+      "pod": "job-510252a4-mrspv",
+      "node": "i-05371bccc373b0742",
+      "type": "c8i-flex.4xlarge",
+      "pool": "coworld-egress-jobs",
+      "image": "471879937681.dkr.ecr.us-east-1.amazonaws.com/cogames/cy4wau882qr6p2v9z1prudik-bdfe346bc6af/coworld-ctf-game@sha256:af574fe703c6b2ea29c0924f0b4be10d021a76bc7598aa82cc2b623e89911bdf",
+      "resources": {
+        "requests": {
+          "cpu": "1",
+          "memory": "512Mi"
+        }
+      }
+    },
+    {
+      "pod": "job-5156947a-xxb2b",
+      "node": "i-04bcf4a2908de0d43",
+      "type": "c6a.4xlarge",
+      "pool": "coworld-egress-jobs",
+      "image": "471879937681.dkr.ecr.us-east-1.amazonaws.com/cogames/h0835grji1zfy5wakd4i56kn-3939e8b7673b/coworld-battle-royale@sha256:4e09a9ff2ae7eac57bb01826fc0afc3d9f3385576140056741050710d416721b",
+      "resources": {
+        "requests": {
+          "cpu": "1",
+          "memory": "512Mi"
+        }
+      }
+    },
+    {
+      "pod": "job-51d9a297-hjklf",
+      "node": "i-0161fd765f7f7e417",
+      "type": "c6a.4xlarge",
+      "pool": "coworld-egress-jobs",
+      "image": "471879937681.dkr.ecr.us-east-1.amazonaws.com/cogames/h0835grji1zfy5wakd4i56kn-3939e8b7673b/coworld-battle-royale@sha256:4e09a9ff2ae7eac57bb01826fc0afc3d9f3385576140056741050710d416721b",
+      "resources": {
+        "requests": {
+          "cpu": "1",
+          "memory": "512Mi"
+        }
+      }
+    },
+    {
+      "pod": "job-5211b3ab-pn6m7",
+      "node": "i-0c0f886fd29f71991",
+      "type": "c6a.4xlarge",
+      "pool": "coworld-egress-jobs",
+      "image": "471879937681.dkr.ecr.us-east-1.amazonaws.com/cogames/h0835grji1zfy5wakd4i56kn-3939e8b7673b/coworld-battle-royale@sha256:4e09a9ff2ae7eac57bb01826fc0afc3d9f3385576140056741050710d416721b",
+      "resources": {
+        "requests": {
+          "cpu": "1",
+          "memory": "512Mi"
+        }
+      }
+    },
+    {
+      "pod": "job-52bf138e-rff8j",
+      "node": "i-01f58892f96faacd8",
+      "type": "c6a.4xlarge",
+      "pool": "coworld-egress-jobs",
+      "image": "471879937681.dkr.ecr.us-east-1.amazonaws.com/cogames/h0835grji1zfy5wakd4i56kn-3939e8b7673b/coworld-pudgewars@sha256:49a1956f992e7877317c8d13f5850065555e1ecc3e0553ee6699eb67b6f491d0",
+      "resources": {
+        "requests": {
+          "cpu": "1",
+          "memory": "512Mi"
+        }
+      }
+    },
+    {
+      "pod": "job-52ca6c70-sq88d",
+      "node": "i-08048f7dd976a400d",
+      "type": "c6a.4xlarge",
+      "pool": "coworld-egress-jobs",
+      "image": "471879937681.dkr.ecr.us-east-1.amazonaws.com/cogames/h0835grji1zfy5wakd4i56kn-3939e8b7673b/coworld-battle-royale@sha256:4e09a9ff2ae7eac57bb01826fc0afc3d9f3385576140056741050710d416721b",
+      "resources": {
+        "requests": {
+          "cpu": "1",
+          "memory": "512Mi"
+        }
+      }
+    },
+    {
+      "pod": "job-5483f342-whsbl",
+      "node": "i-0c8c5b74029353f0e",
+      "type": "c6a.4xlarge",
+      "pool": "coworld-egress-jobs",
+      "image": "471879937681.dkr.ecr.us-east-1.amazonaws.com/cogames/s25q6tn121cx1j3z7ql3ga5d-da1d0964bdd5/polyworld-gota-coworld@sha256:1c6b764685d86e4e1dc85032c9e1022ac220655bbd01cb8a89dc7ea9929df2fb",
+      "resources": {
+        "requests": {
+          "cpu": "1",
+          "memory": "512Mi"
+        }
+      }
+    },
+    {
+      "pod": "job-55a66f7a-sg8fm",
+      "node": "i-03dadfe937418c541",
+      "type": "m6a.4xlarge",
+      "pool": "coworld-egress-jobs",
+      "image": "471879937681.dkr.ecr.us-east-1.amazonaws.com/cogames/cy4wau882qr6p2v9z1prudik-bdfe346bc6af/coworld-ctf-game@sha256:af574fe703c6b2ea29c0924f0b4be10d021a76bc7598aa82cc2b623e89911bdf",
+      "resources": {
+        "requests": {
+          "cpu": "1",
+          "memory": "512Mi"
+        }
+      }
+    },
+    {
+      "pod": "job-58e540d0-4mdtn",
+      "node": "i-0de99b02f641ac3e3",
+      "type": "c6a.4xlarge",
+      "pool": "coworld-egress-jobs",
+      "image": "471879937681.dkr.ecr.us-east-1.amazonaws.com/cogames/s25q6tn121cx1j3z7ql3ga5d-da1d0964bdd5/polyworld-gota-coworld@sha256:1c6b764685d86e4e1dc85032c9e1022ac220655bbd01cb8a89dc7ea9929df2fb",
+      "resources": {
+        "requests": {
+          "cpu": "1",
+          "memory": "512Mi"
+        }
+      }
+    },
+    {
+      "pod": "job-59c10c2b-mvks6",
+      "node": "i-0b7a6451829189ce1",
+      "type": "c6a.4xlarge",
+      "pool": "coworld-egress-jobs",
+      "image": "471879937681.dkr.ecr.us-east-1.amazonaws.com/cogames/s25q6tn121cx1j3z7ql3ga5d-da1d0964bdd5/polyworld-gota-coworld@sha256:1c6b764685d86e4e1dc85032c9e1022ac220655bbd01cb8a89dc7ea9929df2fb",
+      "resources": {
+        "requests": {
+          "cpu": "1",
+          "memory": "512Mi"
+        }
+      }
+    },
+    {
+      "pod": "job-5a022d3e-snq2x",
+      "node": "i-020ef808ff23fbb48",
+      "type": "c8i-flex.4xlarge",
+      "pool": "coworld-egress-jobs",
+      "image": "471879937681.dkr.ecr.us-east-1.amazonaws.com/cogames/s25q6tn121cx1j3z7ql3ga5d-da1d0964bdd5/polyworld-gota-coworld@sha256:1c6b764685d86e4e1dc85032c9e1022ac220655bbd01cb8a89dc7ea9929df2fb",
+      "resources": {
+        "requests": {
+          "cpu": "1",
+          "memory": "512Mi"
+        }
+      }
+    },
+    {
+      "pod": "job-5b657344-2p655",
+      "node": "i-08a4227d0ede6fd65",
+      "type": "c6a.4xlarge",
+      "pool": "coworld-egress-jobs",
+      "image": "471879937681.dkr.ecr.us-east-1.amazonaws.com/cogames/h0835grji1zfy5wakd4i56kn-3939e8b7673b/coworld-battle-royale@sha256:4e09a9ff2ae7eac57bb01826fc0afc3d9f3385576140056741050710d416721b",
+      "resources": {
+        "requests": {
+          "cpu": "1",
+          "memory": "512Mi"
+        }
+      }
+    },
+    {
+      "pod": "job-5bdb5559-q4mmf",
+      "node": "i-011105cfb02afe1a7",
+      "type": "c6a.4xlarge",
+      "pool": "coworld-egress-jobs",
+      "image": "471879937681.dkr.ecr.us-east-1.amazonaws.com/cogames/s25q6tn121cx1j3z7ql3ga5d-da1d0964bdd5/polyworld-gota-coworld@sha256:1c6b764685d86e4e1dc85032c9e1022ac220655bbd01cb8a89dc7ea9929df2fb",
+      "resources": {
+        "requests": {
+          "cpu": "1",
+          "memory": "512Mi"
+        }
+      }
+    },
+    {
+      "pod": "job-5bdf35bc-c9zl9",
+      "node": "i-0317242aa7ad4fda0",
+      "type": "c8i-flex.4xlarge",
+      "pool": "coworld-egress-jobs",
+      "image": "471879937681.dkr.ecr.us-east-1.amazonaws.com/cogames/s25q6tn121cx1j3z7ql3ga5d-da1d0964bdd5/polyworld-gota-coworld@sha256:1c6b764685d86e4e1dc85032c9e1022ac220655bbd01cb8a89dc7ea9929df2fb",
+      "resources": {
+        "requests": {
+          "cpu": "1",
+          "memory": "512Mi"
+        }
+      }
+    },
+    {
+      "pod": "job-5c242d8f-r8rvz",
+      "node": "i-086b94811c8d35468",
+      "type": "c6a.4xlarge",
+      "pool": "coworld-egress-jobs",
+      "image": "471879937681.dkr.ecr.us-east-1.amazonaws.com/cogames/s25q6tn121cx1j3z7ql3ga5d-da1d0964bdd5/polyworld-gota-coworld@sha256:1c6b764685d86e4e1dc85032c9e1022ac220655bbd01cb8a89dc7ea9929df2fb",
+      "resources": {
+        "requests": {
+          "cpu": "1",
+          "memory": "512Mi"
+        }
+      }
+    },
+    {
+      "pod": "job-5f87e7eb-glww7",
+      "node": "i-08a4227d0ede6fd65",
+      "type": "c6a.4xlarge",
+      "pool": "coworld-egress-jobs",
+      "image": "471879937681.dkr.ecr.us-east-1.amazonaws.com/cogames/s25q6tn121cx1j3z7ql3ga5d-da1d0964bdd5/polyworld-gota-coworld@sha256:1c6b764685d86e4e1dc85032c9e1022ac220655bbd01cb8a89dc7ea9929df2fb",
+      "resources": {
+        "requests": {
+          "cpu": "1",
+          "memory": "512Mi"
+        }
+      }
+    },
+    {
+      "pod": "job-5fe80c66-d2w82",
+      "node": "i-017cdb6f989e69de1",
+      "type": "c6a.4xlarge",
+      "pool": "coworld-egress-jobs",
+      "image": "471879937681.dkr.ecr.us-east-1.amazonaws.com/cogames/h0835grji1zfy5wakd4i56kn-3939e8b7673b/coworld-pudgewars@sha256:49a1956f992e7877317c8d13f5850065555e1ecc3e0553ee6699eb67b6f491d0",
+      "resources": {
+        "requests": {
+          "cpu": "1",
+          "memory": "512Mi"
+        }
+      }
+    },
+    {
+      "pod": "job-6020bf92-79zcz",
+      "node": "i-0161fd765f7f7e417",
+      "type": "c6a.4xlarge",
+      "pool": "coworld-egress-jobs",
+      "image": "471879937681.dkr.ecr.us-east-1.amazonaws.com/cogames/cy4wau882qr6p2v9z1prudik-bdfe346bc6af/coworld-ctf-game@sha256:30a495ffcde1b71af5e57375989b3ad1e885a85839825325984411ae00f5b259",
+      "resources": {
+        "requests": {
+          "cpu": "1",
+          "memory": "512Mi"
+        }
+      }
+    },
+    {
+      "pod": "job-616d5398-mxdpq",
+      "node": "i-025760f0c42f9e22e",
+      "type": "c6a.4xlarge",
+      "pool": "coworld-egress-jobs",
+      "image": "471879937681.dkr.ecr.us-east-1.amazonaws.com/cogames/h0835grji1zfy5wakd4i56kn-3939e8b7673b/coworld-battle-royale@sha256:4e09a9ff2ae7eac57bb01826fc0afc3d9f3385576140056741050710d416721b",
+      "resources": {
+        "requests": {
+          "cpu": "1",
+          "memory": "512Mi"
+        }
+      }
+    },
+    {
+      "pod": "job-621a0823-x7dcr",
+      "node": "i-08de66eb9a9e82721",
+      "type": "c6a.4xlarge",
+      "pool": "coworld-egress-jobs",
+      "image": "471879937681.dkr.ecr.us-east-1.amazonaws.com/cogames/h0835grji1zfy5wakd4i56kn-3939e8b7673b/coworld-battle-royale@sha256:4e09a9ff2ae7eac57bb01826fc0afc3d9f3385576140056741050710d416721b",
+      "resources": {
+        "requests": {
+          "cpu": "1",
+          "memory": "512Mi"
+        }
+      }
+    },
+    {
+      "pod": "job-6256c993-mbsrd",
+      "node": "i-08425f5ab7ba69a42",
+      "type": "c6a.4xlarge",
+      "pool": "coworld-egress-jobs",
+      "image": "471879937681.dkr.ecr.us-east-1.amazonaws.com/cogames/s25q6tn121cx1j3z7ql3ga5d-da1d0964bdd5/polyworld-gota-coworld@sha256:1c6b764685d86e4e1dc85032c9e1022ac220655bbd01cb8a89dc7ea9929df2fb",
+      "resources": {
+        "requests": {
+          "cpu": "1",
+          "memory": "512Mi"
+        }
+      }
+    },
+    {
+      "pod": "job-633e56c8-hnvd6",
+      "node": "i-0c8c5b74029353f0e",
+      "type": "c6a.4xlarge",
+      "pool": "coworld-egress-jobs",
+      "image": "471879937681.dkr.ecr.us-east-1.amazonaws.com/cogames/h0835grji1zfy5wakd4i56kn-3939e8b7673b/coworld-pudgewars@sha256:49a1956f992e7877317c8d13f5850065555e1ecc3e0553ee6699eb67b6f491d0",
+      "resources": {
+        "requests": {
+          "cpu": "1",
+          "memory": "512Mi"
+        }
+      }
+    },
+    {
+      "pod": "job-651b08a3-2wcrm",
+      "node": "i-040ec2c66986f2a1e",
+      "type": "c6a.4xlarge",
+      "pool": "coworld-egress-jobs",
+      "image": "471879937681.dkr.ecr.us-east-1.amazonaws.com/cogames/s25q6tn121cx1j3z7ql3ga5d-da1d0964bdd5/polyworld-gota-coworld@sha256:1c6b764685d86e4e1dc85032c9e1022ac220655bbd01cb8a89dc7ea9929df2fb",
+      "resources": {
+        "requests": {
+          "cpu": "1",
+          "memory": "512Mi"
+        }
+      }
+    },
+    {
+      "pod": "job-653a82f5-jxkgl",
+      "node": "i-017cdb6f989e69de1",
+      "type": "c6a.4xlarge",
+      "pool": "coworld-egress-jobs",
+      "image": "471879937681.dkr.ecr.us-east-1.amazonaws.com/cogames/h0835grji1zfy5wakd4i56kn-3939e8b7673b/coworld-pudgewars@sha256:49a1956f992e7877317c8d13f5850065555e1ecc3e0553ee6699eb67b6f491d0",
+      "resources": {
+        "requests": {
+          "cpu": "1",
+          "memory": "512Mi"
+        }
+      }
+    },
+    {
+      "pod": "job-663a87d1-l757r",
+      "node": "i-08de66eb9a9e82721",
+      "type": "c6a.4xlarge",
+      "pool": "coworld-egress-jobs",
+      "image": "471879937681.dkr.ecr.us-east-1.amazonaws.com/cogames/h0835grji1zfy5wakd4i56kn-3939e8b7673b/coworld-battle-royale@sha256:4e09a9ff2ae7eac57bb01826fc0afc3d9f3385576140056741050710d416721b",
+      "resources": {
+        "requests": {
+          "cpu": "1",
+          "memory": "512Mi"
+        }
+      }
+    },
+    {
+      "pod": "job-66823b23-5d8j8",
+      "node": "i-00b707a2b2e03f947",
+      "type": "c6a.4xlarge",
+      "pool": "coworld-egress-jobs",
+      "image": "471879937681.dkr.ecr.us-east-1.amazonaws.com/cogames/s25q6tn121cx1j3z7ql3ga5d-da1d0964bdd5/polyworld-gota-coworld@sha256:1c6b764685d86e4e1dc85032c9e1022ac220655bbd01cb8a89dc7ea9929df2fb",
+      "resources": {
+        "requests": {
+          "cpu": "1",
+          "memory": "512Mi"
+        }
+      }
+    },
+    {
+      "pod": "job-6760aca3-f2vdt",
+      "node": "i-06df281cb4f58c6d2",
+      "type": "c6a.4xlarge",
+      "pool": "coworld-egress-jobs",
+      "image": "471879937681.dkr.ecr.us-east-1.amazonaws.com/cogames/h0835grji1zfy5wakd4i56kn-3939e8b7673b/coworld-battle-royale@sha256:4e09a9ff2ae7eac57bb01826fc0afc3d9f3385576140056741050710d416721b",
+      "resources": {
+        "requests": {
+          "cpu": "1",
+          "memory": "512Mi"
+        }
+      }
+    },
+    {
+      "pod": "job-68340d73-984xt",
+      "node": "i-08de66eb9a9e82721",
+      "type": "c6a.4xlarge",
+      "pool": "coworld-egress-jobs",
+      "image": "471879937681.dkr.ecr.us-east-1.amazonaws.com/cogames/s25q6tn121cx1j3z7ql3ga5d-da1d0964bdd5/polyworld-gota-coworld@sha256:1c6b764685d86e4e1dc85032c9e1022ac220655bbd01cb8a89dc7ea9929df2fb",
+      "resources": {
+        "requests": {
+          "cpu": "1",
+          "memory": "512Mi"
+        }
+      }
+    },
+    {
+      "pod": "job-68848ab5-r9sn6",
+      "node": "i-04a48eee4b574414d",
+      "type": "c6a.4xlarge",
+      "pool": "coworld-egress-jobs",
+      "image": "471879937681.dkr.ecr.us-east-1.amazonaws.com/cogames/h0835grji1zfy5wakd4i56kn-3939e8b7673b/coworld-battle-royale@sha256:4e09a9ff2ae7eac57bb01826fc0afc3d9f3385576140056741050710d416721b",
+      "resources": {
+        "requests": {
+          "cpu": "1",
+          "memory": "512Mi"
+        }
+      }
+    },
+    {
+      "pod": "job-69003a71-lhl7p",
+      "node": "i-04a48eee4b574414d",
+      "type": "c6a.4xlarge",
+      "pool": "coworld-egress-jobs",
+      "image": "471879937681.dkr.ecr.us-east-1.amazonaws.com/cogames/s25q6tn121cx1j3z7ql3ga5d-da1d0964bdd5/polyworld-gota-coworld@sha256:1c6b764685d86e4e1dc85032c9e1022ac220655bbd01cb8a89dc7ea9929df2fb",
+      "resources": {
+        "requests": {
+          "cpu": "1",
+          "memory": "512Mi"
+        }
+      }
+    },
+    {
+      "pod": "job-69887c84-djrzh",
+      "node": "i-0fccd9690007bbdd2",
+      "type": "m7i-flex.2xlarge",
+      "pool": "coworld-egress-jobs",
+      "image": "471879937681.dkr.ecr.us-east-1.amazonaws.com/cogames/h0835grji1zfy5wakd4i56kn-3939e8b7673b/coworld-battle-royale@sha256:4e09a9ff2ae7eac57bb01826fc0afc3d9f3385576140056741050710d416721b",
+      "resources": {
+        "requests": {
+          "cpu": "1",
+          "memory": "512Mi"
+        }
+      }
+    },
+    {
+      "pod": "job-69d4e7da-nspnb",
+      "node": "i-0fccd9690007bbdd2",
+      "type": "m7i-flex.2xlarge",
+      "pool": "coworld-egress-jobs",
+      "image": "471879937681.dkr.ecr.us-east-1.amazonaws.com/cogames/cy4wau882qr6p2v9z1prudik-bdfe346bc6af/coworld-ctf-game@sha256:30a495ffcde1b71af5e57375989b3ad1e885a85839825325984411ae00f5b259",
+      "resources": {
+        "requests": {
+          "cpu": "1",
+          "memory": "512Mi"
+        }
+      }
+    },
+    {
+      "pod": "job-6a2f07c4-kbz2v",
+      "node": "i-0cb78dfb3f707743e",
+      "type": "c6a.4xlarge",
+      "pool": "coworld-egress-jobs",
+      "image": "471879937681.dkr.ecr.us-east-1.amazonaws.com/cogames/h0835grji1zfy5wakd4i56kn-3939e8b7673b/coworld-pudgewars@sha256:49a1956f992e7877317c8d13f5850065555e1ecc3e0553ee6699eb67b6f491d0",
+      "resources": {
+        "requests": {
+          "cpu": "1",
+          "memory": "512Mi"
+        }
+      }
+    },
+    {
+      "pod": "job-6aae3438-5xlq4",
+      "node": "i-017cdb6f989e69de1",
+      "type": "c6a.4xlarge",
+      "pool": "coworld-egress-jobs",
+      "image": "471879937681.dkr.ecr.us-east-1.amazonaws.com/cogames/cy4wau882qr6p2v9z1prudik-bdfe346bc6af/cogame-paintbot-game@sha256:660325dd9c999dafc71d6e5e9f88afc4986176ef61234028b06680db5a980507",
+      "resources": {
+        "requests": {
+          "cpu": "3",
+          "memory": "4Gi"
+        }
+      }
+    },
+    {
+      "pod": "job-6aafb16b-b2fms",
+      "node": "i-0e4df2d760344aafa",
+      "type": "c8i-flex.4xlarge",
+      "pool": "coworld-egress-jobs",
+      "image": "471879937681.dkr.ecr.us-east-1.amazonaws.com/cogames/s25q6tn121cx1j3z7ql3ga5d-da1d0964bdd5/polyworld-gota-coworld@sha256:1c6b764685d86e4e1dc85032c9e1022ac220655bbd01cb8a89dc7ea9929df2fb",
+      "resources": {
+        "requests": {
+          "cpu": "1",
+          "memory": "512Mi"
+        }
+      }
+    },
+    {
+      "pod": "job-6ab6b4da-7k7gf",
+      "node": "i-08e4ddb4aadba6c1e",
+      "type": "r5dn.2xlarge",
+      "pool": "coworld-egress-jobs",
+      "image": "471879937681.dkr.ecr.us-east-1.amazonaws.com/cogames/cy4wau882qr6p2v9z1prudik-bdfe346bc6af/paintbot-pw@sha256:4aed865fd26c3e50afea6940442acab976a60c3d46adb58558e980ee74127180",
+      "resources": {
+        "limits": {
+          "cpu": "6",
+          "memory": "12Gi"
+        },
+        "requests": {
+          "cpu": "2",
+          "memory": "2Gi"
+        }
+      }
+    },
+    {
+      "pod": "job-6c3c791b-6wbz9",
+      "node": "i-08a4227d0ede6fd65",
+      "type": "c6a.4xlarge",
+      "pool": "coworld-egress-jobs",
+      "image": "471879937681.dkr.ecr.us-east-1.amazonaws.com/cogames/s25q6tn121cx1j3z7ql3ga5d-da1d0964bdd5/polyworld-gota-coworld@sha256:1c6b764685d86e4e1dc85032c9e1022ac220655bbd01cb8a89dc7ea9929df2fb",
+      "resources": {
+        "requests": {
+          "cpu": "1",
+          "memory": "512Mi"
+        }
+      }
+    },
+    {
+      "pod": "job-72426067-8kmng",
+      "node": "i-0a8012f8fa53a273a",
+      "type": "c6a.4xlarge",
+      "pool": "coworld-egress-jobs",
+      "image": "471879937681.dkr.ecr.us-east-1.amazonaws.com/cogames/h0835grji1zfy5wakd4i56kn-3939e8b7673b/coworld-battle-royale@sha256:4e09a9ff2ae7eac57bb01826fc0afc3d9f3385576140056741050710d416721b",
+      "resources": {
+        "requests": {
+          "cpu": "1",
+          "memory": "512Mi"
+        }
+      }
+    },
+    {
+      "pod": "job-74cd238f-tn4gb",
+      "node": "i-00e7a6c1d10578a20",
+      "type": "c6a.4xlarge",
+      "pool": "coworld-egress-jobs",
+      "image": "471879937681.dkr.ecr.us-east-1.amazonaws.com/cogames/s25q6tn121cx1j3z7ql3ga5d-da1d0964bdd5/polyworld-gota-coworld@sha256:1c6b764685d86e4e1dc85032c9e1022ac220655bbd01cb8a89dc7ea9929df2fb",
+      "resources": {
+        "requests": {
+          "cpu": "1",
+          "memory": "512Mi"
+        }
+      }
+    },
+    {
+      "pod": "job-7542e1ac-96h4l",
+      "node": "i-0e4df2d760344aafa",
+      "type": "c8i-flex.4xlarge",
+      "pool": "coworld-egress-jobs",
+      "image": "471879937681.dkr.ecr.us-east-1.amazonaws.com/cogames/s25q6tn121cx1j3z7ql3ga5d-da1d0964bdd5/polyworld-gota-coworld@sha256:1c6b764685d86e4e1dc85032c9e1022ac220655bbd01cb8a89dc7ea9929df2fb",
+      "resources": {
+        "requests": {
+          "cpu": "1",
+          "memory": "512Mi"
+        }
+      }
+    },
+    {
+      "pod": "job-7630ee5d-f6c7r",
+      "node": "i-031266fdf89bc84cd",
+      "type": "c6a.4xlarge",
+      "pool": "coworld-egress-jobs",
+      "image": "471879937681.dkr.ecr.us-east-1.amazonaws.com/cogames/h0835grji1zfy5wakd4i56kn-3939e8b7673b/coworld-battle-royale@sha256:4e09a9ff2ae7eac57bb01826fc0afc3d9f3385576140056741050710d416721b",
+      "resources": {
+        "requests": {
+          "cpu": "1",
+          "memory": "512Mi"
+        }
+      }
+    },
+    {
+      "pod": "job-78bcf2a3-qpfjz",
+      "node": "i-0effa673fb45c7298",
+      "type": "c6a.4xlarge",
+      "pool": "coworld-egress-jobs",
+      "image": "471879937681.dkr.ecr.us-east-1.amazonaws.com/cogames/h0835grji1zfy5wakd4i56kn-3939e8b7673b/coworld-battle-royale@sha256:4e09a9ff2ae7eac57bb01826fc0afc3d9f3385576140056741050710d416721b",
+      "resources": {
+        "requests": {
+          "cpu": "1",
+          "memory": "512Mi"
+        }
+      }
+    },
+    {
+      "pod": "job-7a368d33-92xjp",
+      "node": "i-0ac3cedc4326e84db",
+      "type": "c8i-flex.4xlarge",
+      "pool": "coworld-egress-jobs",
+      "image": "471879937681.dkr.ecr.us-east-1.amazonaws.com/cogames/h0835grji1zfy5wakd4i56kn-3939e8b7673b/coworld-battle-royale@sha256:4e09a9ff2ae7eac57bb01826fc0afc3d9f3385576140056741050710d416721b",
+      "resources": {
+        "requests": {
+          "cpu": "1",
+          "memory": "512Mi"
+        }
+      }
+    },
+    {
+      "pod": "job-7c92aae2-fg6vn",
+      "node": "i-0a5d6cb2e9903675d",
+      "type": "c6a.4xlarge",
+      "pool": "coworld-egress-jobs",
+      "image": "471879937681.dkr.ecr.us-east-1.amazonaws.com/cogames/s5hvylinkg2z4k24wg9xlo8q-7e9c855786da/coworld-vmangos-coworld-game@sha256:b92fc342898f76d985d0355abb03b5e647acd8b24ed56383b84c7bbc2cd53163",
+      "resources": {
+        "requests": {
+          "cpu": "6",
+          "ephemeral-storage": "15Gi",
+          "memory": "12Gi"
+        }
+      }
+    },
+    {
+      "pod": "job-7fe96bd0-njfk6",
+      "node": "i-09e3b8c687c4e4a6f",
+      "type": "c6a.4xlarge",
+      "pool": "coworld-egress-jobs",
+      "image": "471879937681.dkr.ecr.us-east-1.amazonaws.com/cogames/s25q6tn121cx1j3z7ql3ga5d-da1d0964bdd5/polyworld-gota-coworld@sha256:1c6b764685d86e4e1dc85032c9e1022ac220655bbd01cb8a89dc7ea9929df2fb",
+      "resources": {
+        "requests": {
+          "cpu": "1",
+          "memory": "512Mi"
+        }
+      }
+    },
+    {
+      "pod": "job-8108618e-zfsqq",
+      "node": "i-0a8012f8fa53a273a",
+      "type": "c6a.4xlarge",
+      "pool": "coworld-egress-jobs",
+      "image": "471879937681.dkr.ecr.us-east-1.amazonaws.com/cogames/h0835grji1zfy5wakd4i56kn-3939e8b7673b/coworld-battle-royale@sha256:4e09a9ff2ae7eac57bb01826fc0afc3d9f3385576140056741050710d416721b",
+      "resources": {
+        "requests": {
+          "cpu": "1",
+          "memory": "512Mi"
+        }
+      }
+    },
+    {
+      "pod": "job-84b061fd-tzvh5",
+      "node": "i-0776cf2bdf00fcc40",
+      "type": "c6a.4xlarge",
+      "pool": "coworld-egress-jobs",
+      "image": "471879937681.dkr.ecr.us-east-1.amazonaws.com/cogames/h0835grji1zfy5wakd4i56kn-3939e8b7673b/coworld-battle-royale@sha256:4e09a9ff2ae7eac57bb01826fc0afc3d9f3385576140056741050710d416721b",
+      "resources": {
+        "requests": {
+          "cpu": "1",
+          "memory": "512Mi"
+        }
+      }
+    },
+    {
+      "pod": "job-86f8104a-7vdgh",
+      "node": "i-040ec2c66986f2a1e",
+      "type": "c6a.4xlarge",
+      "pool": "coworld-egress-jobs",
+      "image": "471879937681.dkr.ecr.us-east-1.amazonaws.com/cogames/cy4wau882qr6p2v9z1prudik-bdfe346bc6af/coworld-ctf-game@sha256:af574fe703c6b2ea29c0924f0b4be10d021a76bc7598aa82cc2b623e89911bdf",
+      "resources": {
+        "requests": {
+          "cpu": "1",
+          "memory": "512Mi"
+        }
+      }
+    },
+    {
+      "pod": "job-872a5a6a-5ggjs",
+      "node": "i-0b7a6451829189ce1",
+      "type": "c6a.4xlarge",
+      "pool": "coworld-egress-jobs",
+      "image": "471879937681.dkr.ecr.us-east-1.amazonaws.com/cogames/s25q6tn121cx1j3z7ql3ga5d-da1d0964bdd5/polyworld-gota-coworld@sha256:1c6b764685d86e4e1dc85032c9e1022ac220655bbd01cb8a89dc7ea9929df2fb",
+      "resources": {
+        "requests": {
+          "cpu": "1",
+          "memory": "512Mi"
+        }
+      }
+    },
+    {
+      "pod": "job-8830e151-brpsf",
+      "node": "i-0e4df2d760344aafa",
+      "type": "c8i-flex.4xlarge",
+      "pool": "coworld-egress-jobs",
+      "image": "471879937681.dkr.ecr.us-east-1.amazonaws.com/cogames/h0835grji1zfy5wakd4i56kn-3939e8b7673b/coworld-battle-royale@sha256:4e09a9ff2ae7eac57bb01826fc0afc3d9f3385576140056741050710d416721b",
+      "resources": {
+        "requests": {
+          "cpu": "1",
+          "memory": "512Mi"
+        }
+      }
+    },
+    {
+      "pod": "job-887be6ff-6pkkq",
+      "node": "i-0e509a55c49be72d2",
+      "type": "c6a.4xlarge",
+      "pool": "coworld-egress-jobs",
+      "image": "471879937681.dkr.ecr.us-east-1.amazonaws.com/cogames/h0835grji1zfy5wakd4i56kn-3939e8b7673b/coworld-battle-royale@sha256:4e09a9ff2ae7eac57bb01826fc0afc3d9f3385576140056741050710d416721b",
+      "resources": {
+        "requests": {
+          "cpu": "1",
+          "memory": "512Mi"
+        }
+      }
+    },
+    {
+      "pod": "job-8aa3e7bf-2scf4",
+      "node": "i-0528a6b6d3d40dae2",
+      "type": "m5a.2xlarge",
+      "pool": "coworld-egress-jobs",
+      "image": "471879937681.dkr.ecr.us-east-1.amazonaws.com/cogames/cy4wau882qr6p2v9z1prudik-bdfe346bc6af/coworld-ctf-game@sha256:30a495ffcde1b71af5e57375989b3ad1e885a85839825325984411ae00f5b259",
+      "resources": {
+        "requests": {
+          "cpu": "1",
+          "memory": "512Mi"
+        }
+      }
+    },
+    {
+      "pod": "job-8ae455b4-8d9l7",
+      "node": "i-0b4228be9f0684929",
+      "type": "c6a.4xlarge",
+      "pool": "coworld-egress-jobs",
+      "image": "471879937681.dkr.ecr.us-east-1.amazonaws.com/cogames/cy4wau882qr6p2v9z1prudik-bdfe346bc6af/coworld-ctf-game@sha256:30a495ffcde1b71af5e57375989b3ad1e885a85839825325984411ae00f5b259",
+      "resources": {
+        "requests": {
+          "cpu": "1",
+          "memory": "512Mi"
+        }
+      }
+    },
+    {
+      "pod": "job-8d8dc459-vdh9x",
+      "node": "i-0de99b02f641ac3e3",
+      "type": "c6a.4xlarge",
+      "pool": "coworld-egress-jobs",
+      "image": "471879937681.dkr.ecr.us-east-1.amazonaws.com/cogames/s25q6tn121cx1j3z7ql3ga5d-da1d0964bdd5/polyworld-gota-coworld@sha256:1c6b764685d86e4e1dc85032c9e1022ac220655bbd01cb8a89dc7ea9929df2fb",
+      "resources": {
+        "requests": {
+          "cpu": "1",
+          "memory": "512Mi"
+        }
+      }
+    },
+    {
+      "pod": "job-8df3e446-cpvn5",
+      "node": "i-0a8012f8fa53a273a",
+      "type": "c6a.4xlarge",
+      "pool": "coworld-egress-jobs",
+      "image": "471879937681.dkr.ecr.us-east-1.amazonaws.com/cogames/cy4wau882qr6p2v9z1prudik-bdfe346bc6af/coworld-ctf-game@sha256:af574fe703c6b2ea29c0924f0b4be10d021a76bc7598aa82cc2b623e89911bdf",
+      "resources": {
+        "requests": {
+          "cpu": "1",
+          "memory": "512Mi"
+        }
+      }
+    },
+    {
+      "pod": "job-8f2a85fb-8krj2",
+      "node": "i-0f59ad8caa0bfbed7",
+      "type": "c6a.4xlarge",
+      "pool": "coworld-egress-jobs",
+      "image": "471879937681.dkr.ecr.us-east-1.amazonaws.com/cogames/cy4wau882qr6p2v9z1prudik-bdfe346bc6af/coworld-ctf-game@sha256:30a495ffcde1b71af5e57375989b3ad1e885a85839825325984411ae00f5b259",
+      "resources": {
+        "requests": {
+          "cpu": "1",
+          "memory": "512Mi"
+        }
+      }
+    },
+    {
+      "pod": "job-9012e265-m6wvl",
+      "node": "i-0161fd765f7f7e417",
+      "type": "c6a.4xlarge",
+      "pool": "coworld-egress-jobs",
+      "image": "471879937681.dkr.ecr.us-east-1.amazonaws.com/cogames/cy4wau882qr6p2v9z1prudik-bdfe346bc6af/coworld-ctf-game@sha256:af574fe703c6b2ea29c0924f0b4be10d021a76bc7598aa82cc2b623e89911bdf",
+      "resources": {
+        "requests": {
+          "cpu": "1",
+          "memory": "512Mi"
+        }
+      }
+    },
+    {
+      "pod": "job-906fb5cb-sz9wz",
+      "node": "i-08de66eb9a9e82721",
+      "type": "c6a.4xlarge",
+      "pool": "coworld-egress-jobs",
+      "image": "471879937681.dkr.ecr.us-east-1.amazonaws.com/cogames/s25q6tn121cx1j3z7ql3ga5d-da1d0964bdd5/polyworld-gota-coworld@sha256:1c6b764685d86e4e1dc85032c9e1022ac220655bbd01cb8a89dc7ea9929df2fb",
+      "resources": {
+        "requests": {
+          "cpu": "1",
+          "memory": "512Mi"
+        }
+      }
+    },
+    {
+      "pod": "job-918f6693-6s5qv",
+      "node": "i-011105cfb02afe1a7",
+      "type": "c6a.4xlarge",
+      "pool": "coworld-egress-jobs",
+      "image": "471879937681.dkr.ecr.us-east-1.amazonaws.com/cogames/cy4wau882qr6p2v9z1prudik-bdfe346bc6af/coworld-ctf-game@sha256:30a495ffcde1b71af5e57375989b3ad1e885a85839825325984411ae00f5b259",
+      "resources": {
+        "requests": {
+          "cpu": "1",
+          "memory": "512Mi"
+        }
+      }
+    },
+    {
+      "pod": "job-91ff068e-vtkb7",
+      "node": "i-020ef808ff23fbb48",
+      "type": "c8i-flex.4xlarge",
+      "pool": "coworld-egress-jobs",
+      "image": "471879937681.dkr.ecr.us-east-1.amazonaws.com/cogames/h0835grji1zfy5wakd4i56kn-3939e8b7673b/coworld-battle-royale@sha256:4e09a9ff2ae7eac57bb01826fc0afc3d9f3385576140056741050710d416721b",
+      "resources": {
+        "requests": {
+          "cpu": "1",
+          "memory": "512Mi"
+        }
+      }
+    },
+    {
+      "pod": "job-9227d4da-4nchl",
+      "node": "i-03274b22816dfbe12",
+      "type": "c6a.4xlarge",
+      "pool": "coworld-egress-jobs",
+      "image": "471879937681.dkr.ecr.us-east-1.amazonaws.com/cogames/cy4wau882qr6p2v9z1prudik-bdfe346bc6af/coworld-ctf-game@sha256:af574fe703c6b2ea29c0924f0b4be10d021a76bc7598aa82cc2b623e89911bdf",
+      "resources": {
+        "requests": {
+          "cpu": "1",
+          "memory": "512Mi"
+        }
+      }
+    },
+    {
+      "pod": "job-928840cf-h6jpf",
+      "node": "i-03dc5eb9075a97df0",
+      "type": "c8i-flex.4xlarge",
+      "pool": "coworld-egress-jobs",
+      "image": "471879937681.dkr.ecr.us-east-1.amazonaws.com/cogames/h0835grji1zfy5wakd4i56kn-3939e8b7673b/coworld-pudgewars@sha256:49a1956f992e7877317c8d13f5850065555e1ecc3e0553ee6699eb67b6f491d0",
+      "resources": {
+        "requests": {
+          "cpu": "1",
+          "memory": "512Mi"
+        }
+      }
+    },
+    {
+      "pod": "job-9406b18f-fq5rd",
+      "node": "i-0b7a6451829189ce1",
+      "type": "c6a.4xlarge",
+      "pool": "coworld-egress-jobs",
+      "image": "471879937681.dkr.ecr.us-east-1.amazonaws.com/cogames/s25q6tn121cx1j3z7ql3ga5d-da1d0964bdd5/polyworld-gota-coworld@sha256:1c6b764685d86e4e1dc85032c9e1022ac220655bbd01cb8a89dc7ea9929df2fb",
+      "resources": {
+        "requests": {
+          "cpu": "1",
+          "memory": "512Mi"
+        }
+      }
+    },
+    {
+      "pod": "job-94f0dbfa-jtcbj",
+      "node": "i-08e4ddb4aadba6c1e",
+      "type": "r5dn.2xlarge",
+      "pool": "coworld-egress-jobs",
+      "image": "471879937681.dkr.ecr.us-east-1.amazonaws.com/cogames/cy4wau882qr6p2v9z1prudik-bdfe346bc6af/paintbot-pw@sha256:4aed865fd26c3e50afea6940442acab976a60c3d46adb58558e980ee74127180",
+      "resources": {
+        "limits": {
+          "cpu": "6",
+          "memory": "12Gi"
+        },
+        "requests": {
+          "cpu": "2",
+          "memory": "2Gi"
+        }
+      }
+    },
+    {
+      "pod": "job-96fdb7a9-zr982",
+      "node": "i-0c9967d4b49165fc7",
+      "type": "c6a.4xlarge",
+      "pool": "coworld-egress-jobs",
+      "image": "471879937681.dkr.ecr.us-east-1.amazonaws.com/cogames/s25q6tn121cx1j3z7ql3ga5d-da1d0964bdd5/polyworld-gota-coworld@sha256:1c6b764685d86e4e1dc85032c9e1022ac220655bbd01cb8a89dc7ea9929df2fb",
+      "resources": {
+        "requests": {
+          "cpu": "1",
+          "memory": "512Mi"
+        }
+      }
+    },
+    {
+      "pod": "job-972676b7-rmwp5",
+      "node": "i-02d7c727371690e86",
+      "type": "c6a.4xlarge",
+      "pool": "coworld-egress-jobs",
+      "image": "471879937681.dkr.ecr.us-east-1.amazonaws.com/cogames/h0835grji1zfy5wakd4i56kn-3939e8b7673b/coworld-battle-royale@sha256:4e09a9ff2ae7eac57bb01826fc0afc3d9f3385576140056741050710d416721b",
+      "resources": {
+        "requests": {
+          "cpu": "1",
+          "memory": "512Mi"
+        }
+      }
+    },
+    {
+      "pod": "job-97bf988f-t5rjj",
+      "node": "i-08425f5ab7ba69a42",
+      "type": "c6a.4xlarge",
+      "pool": "coworld-egress-jobs",
+      "image": "471879937681.dkr.ecr.us-east-1.amazonaws.com/cogames/s25q6tn121cx1j3z7ql3ga5d-da1d0964bdd5/polyworld-gota-coworld@sha256:1c6b764685d86e4e1dc85032c9e1022ac220655bbd01cb8a89dc7ea9929df2fb",
+      "resources": {
+        "requests": {
+          "cpu": "1",
+          "memory": "512Mi"
+        }
+      }
+    },
+    {
+      "pod": "job-990975a1-vnjmn",
+      "node": "i-0d399fc33ded358a0",
+      "type": "c6a.4xlarge",
+      "pool": "coworld-egress-jobs",
+      "image": "471879937681.dkr.ecr.us-east-1.amazonaws.com/cogames/h0835grji1zfy5wakd4i56kn-3939e8b7673b/coworld-pudgewars@sha256:49a1956f992e7877317c8d13f5850065555e1ecc3e0553ee6699eb67b6f491d0",
+      "resources": {
+        "requests": {
+          "cpu": "1",
+          "memory": "512Mi"
+        }
+      }
+    },
+    {
+      "pod": "job-998e5edd-f7fvl",
+      "node": "i-05c7f68a55aa8078b",
+      "type": "r5a.4xlarge",
+      "pool": "coworld-egress-jobs",
+      "image": "471879937681.dkr.ecr.us-east-1.amazonaws.com/cogames/h0835grji1zfy5wakd4i56kn-3939e8b7673b/coworld-pudgewars@sha256:49a1956f992e7877317c8d13f5850065555e1ecc3e0553ee6699eb67b6f491d0",
+      "resources": {
+        "requests": {
+          "cpu": "1",
+          "memory": "512Mi"
+        }
+      }
+    },
+    {
+      "pod": "job-9ac83654-875m7",
+      "node": "i-03274b22816dfbe12",
+      "type": "c6a.4xlarge",
+      "pool": "coworld-egress-jobs",
+      "image": "471879937681.dkr.ecr.us-east-1.amazonaws.com/cogames/h0835grji1zfy5wakd4i56kn-3939e8b7673b/coworld-battle-royale@sha256:4e09a9ff2ae7eac57bb01826fc0afc3d9f3385576140056741050710d416721b",
+      "resources": {
+        "requests": {
+          "cpu": "1",
+          "memory": "512Mi"
+        }
+      }
+    },
+    {
+      "pod": "job-9b76b67b-cbfcm",
+      "node": "i-08a4227d0ede6fd65",
+      "type": "c6a.4xlarge",
+      "pool": "coworld-egress-jobs",
+      "image": "471879937681.dkr.ecr.us-east-1.amazonaws.com/cogames/s25q6tn121cx1j3z7ql3ga5d-da1d0964bdd5/polyworld-gota-coworld@sha256:1c6b764685d86e4e1dc85032c9e1022ac220655bbd01cb8a89dc7ea9929df2fb",
+      "resources": {
+        "requests": {
+          "cpu": "1",
+          "memory": "512Mi"
+        }
+      }
+    },
+    {
+      "pod": "job-9baf90d0-wp6bf",
+      "node": "i-00e7a6c1d10578a20",
+      "type": "c6a.4xlarge",
+      "pool": "coworld-egress-jobs",
+      "image": "471879937681.dkr.ecr.us-east-1.amazonaws.com/cogames/s25q6tn121cx1j3z7ql3ga5d-da1d0964bdd5/polyworld-gota-coworld@sha256:1c6b764685d86e4e1dc85032c9e1022ac220655bbd01cb8a89dc7ea9929df2fb",
+      "resources": {
+        "requests": {
+          "cpu": "1",
+          "memory": "512Mi"
+        }
+      }
+    },
+    {
+      "pod": "job-9d7f6661-2jtmx",
+      "node": "i-0317242aa7ad4fda0",
+      "type": "c8i-flex.4xlarge",
+      "pool": "coworld-egress-jobs",
+      "image": "471879937681.dkr.ecr.us-east-1.amazonaws.com/cogames/s25q6tn121cx1j3z7ql3ga5d-da1d0964bdd5/polyworld-gota-coworld@sha256:1c6b764685d86e4e1dc85032c9e1022ac220655bbd01cb8a89dc7ea9929df2fb",
+      "resources": {
+        "requests": {
+          "cpu": "1",
+          "memory": "512Mi"
+        }
+      }
+    },
+    {
+      "pod": "job-9d840da2-rg5xh",
+      "node": "i-086b94811c8d35468",
+      "type": "c6a.4xlarge",
+      "pool": "coworld-egress-jobs",
+      "image": "471879937681.dkr.ecr.us-east-1.amazonaws.com/cogames/s25q6tn121cx1j3z7ql3ga5d-da1d0964bdd5/polyworld-gota-coworld@sha256:1c6b764685d86e4e1dc85032c9e1022ac220655bbd01cb8a89dc7ea9929df2fb",
+      "resources": {
+        "requests": {
+          "cpu": "1",
+          "memory": "512Mi"
+        }
+      }
+    },
+    {
+      "pod": "job-9dd57a65-x7r74",
+      "node": "i-07f58e63fbf0f1790",
+      "type": "c6a.4xlarge",
+      "pool": "coworld-egress-jobs",
+      "image": "471879937681.dkr.ecr.us-east-1.amazonaws.com/cogames/cy4wau882qr6p2v9z1prudik-bdfe346bc6af/paintbot-pw@sha256:4aed865fd26c3e50afea6940442acab976a60c3d46adb58558e980ee74127180",
+      "resources": {
+        "limits": {
+          "cpu": "6",
+          "memory": "12Gi"
+        },
+        "requests": {
+          "cpu": "2",
+          "memory": "2Gi"
+        }
+      }
+    },
+    {
+      "pod": "job-a1202a78-czxdx",
+      "node": "i-0f59ad8caa0bfbed7",
+      "type": "c6a.4xlarge",
+      "pool": "coworld-egress-jobs",
+      "image": "471879937681.dkr.ecr.us-east-1.amazonaws.com/cogames/cy4wau882qr6p2v9z1prudik-bdfe346bc6af/coworld-ctf-game@sha256:30a495ffcde1b71af5e57375989b3ad1e885a85839825325984411ae00f5b259",
+      "resources": {
+        "requests": {
+          "cpu": "1",
+          "memory": "512Mi"
+        }
+      }
+    },
+    {
+      "pod": "job-a35695e3-cff9p",
+      "node": "i-08a4227d0ede6fd65",
+      "type": "c6a.4xlarge",
+      "pool": "coworld-egress-jobs",
+      "image": "471879937681.dkr.ecr.us-east-1.amazonaws.com/cogames/s25q6tn121cx1j3z7ql3ga5d-da1d0964bdd5/polyworld-gota-coworld@sha256:1c6b764685d86e4e1dc85032c9e1022ac220655bbd01cb8a89dc7ea9929df2fb",
+      "resources": {
+        "requests": {
+          "cpu": "1",
+          "memory": "512Mi"
+        }
+      }
+    },
+    {
+      "pod": "job-a365a265-5rr4z",
+      "node": "i-025760f0c42f9e22e",
+      "type": "c6a.4xlarge",
+      "pool": "coworld-egress-jobs",
+      "image": "471879937681.dkr.ecr.us-east-1.amazonaws.com/cogames/h0835grji1zfy5wakd4i56kn-3939e8b7673b/coworld-battle-royale@sha256:4e09a9ff2ae7eac57bb01826fc0afc3d9f3385576140056741050710d416721b",
+      "resources": {
+        "requests": {
+          "cpu": "1",
+          "memory": "512Mi"
+        }
+      }
+    },
+    {
+      "pod": "job-a699d8c3-dbs2f",
+      "node": "i-04488a1463b2e3027",
+      "type": "c6a.4xlarge",
+      "pool": "coworld-egress-jobs",
+      "image": "471879937681.dkr.ecr.us-east-1.amazonaws.com/cogames/h0835grji1zfy5wakd4i56kn-3939e8b7673b/coworld-battle-royale@sha256:4e09a9ff2ae7eac57bb01826fc0afc3d9f3385576140056741050710d416721b",
+      "resources": {
+        "requests": {
+          "cpu": "1",
+          "memory": "512Mi"
+        }
+      }
+    },
+    {
+      "pod": "job-a808b863-nzg4j",
+      "node": "i-06ee1a620970f5d1e",
+      "type": "c6a.4xlarge",
+      "pool": "coworld-egress-jobs",
+      "image": "471879937681.dkr.ecr.us-east-1.amazonaws.com/cogames/h0835grji1zfy5wakd4i56kn-3939e8b7673b/coworld-battle-royale@sha256:4e09a9ff2ae7eac57bb01826fc0afc3d9f3385576140056741050710d416721b",
+      "resources": {
+        "requests": {
+          "cpu": "1",
+          "memory": "512Mi"
+        }
+      }
+    },
+    {
+      "pod": "job-a8e59653-ff84r",
+      "node": "i-04bcf4a2908de0d43",
+      "type": "c6a.4xlarge",
+      "pool": "coworld-egress-jobs",
+      "image": "471879937681.dkr.ecr.us-east-1.amazonaws.com/cogames/h0835grji1zfy5wakd4i56kn-3939e8b7673b/coworld-battle-royale@sha256:4e09a9ff2ae7eac57bb01826fc0afc3d9f3385576140056741050710d416721b",
+      "resources": {
+        "requests": {
+          "cpu": "1",
+          "memory": "512Mi"
+        }
+      }
+    },
+    {
+      "pod": "job-a996a207-nbvf7",
+      "node": "i-0528a6b6d3d40dae2",
+      "type": "m5a.2xlarge",
+      "pool": "coworld-egress-jobs",
+      "image": "471879937681.dkr.ecr.us-east-1.amazonaws.com/cogames/s25q6tn121cx1j3z7ql3ga5d-da1d0964bdd5/polyworld-gota-coworld@sha256:1c6b764685d86e4e1dc85032c9e1022ac220655bbd01cb8a89dc7ea9929df2fb",
+      "resources": {
+        "requests": {
+          "cpu": "1",
+          "memory": "512Mi"
+        }
+      }
+    },
+    {
+      "pod": "job-aa472f08-lm2mq",
+      "node": "i-0c8c5b74029353f0e",
+      "type": "c6a.4xlarge",
+      "pool": "coworld-egress-jobs",
+      "image": "471879937681.dkr.ecr.us-east-1.amazonaws.com/cogames/s25q6tn121cx1j3z7ql3ga5d-da1d0964bdd5/polyworld-gota-coworld@sha256:1c6b764685d86e4e1dc85032c9e1022ac220655bbd01cb8a89dc7ea9929df2fb",
+      "resources": {
+        "requests": {
+          "cpu": "1",
+          "memory": "512Mi"
+        }
+      }
+    },
+    {
+      "pod": "job-ab1140b5-qx55s",
+      "node": "i-03dadfe937418c541",
+      "type": "m6a.4xlarge",
+      "pool": "coworld-egress-jobs",
+      "image": "471879937681.dkr.ecr.us-east-1.amazonaws.com/cogames/s25q6tn121cx1j3z7ql3ga5d-da1d0964bdd5/polyworld-gota-coworld@sha256:1c6b764685d86e4e1dc85032c9e1022ac220655bbd01cb8a89dc7ea9929df2fb",
+      "resources": {
+        "requests": {
+          "cpu": "1",
+          "memory": "512Mi"
+        }
+      }
+    },
+    {
+      "pod": "job-ab8cbd8d-m9s6d",
+      "node": "i-0f59ad8caa0bfbed7",
+      "type": "c6a.4xlarge",
+      "pool": "coworld-egress-jobs",
+      "image": "471879937681.dkr.ecr.us-east-1.amazonaws.com/cogames/h0835grji1zfy5wakd4i56kn-3939e8b7673b/coworld-battle-royale@sha256:4e09a9ff2ae7eac57bb01826fc0afc3d9f3385576140056741050710d416721b",
+      "resources": {
+        "requests": {
+          "cpu": "1",
+          "memory": "512Mi"
+        }
+      }
+    },
+    {
+      "pod": "job-ad836881-srmj5",
+      "node": "i-08a4227d0ede6fd65",
+      "type": "c6a.4xlarge",
+      "pool": "coworld-egress-jobs",
+      "image": "471879937681.dkr.ecr.us-east-1.amazonaws.com/cogames/h0835grji1zfy5wakd4i56kn-3939e8b7673b/coworld-battle-royale@sha256:4e09a9ff2ae7eac57bb01826fc0afc3d9f3385576140056741050710d416721b",
+      "resources": {
+        "requests": {
+          "cpu": "1",
+          "memory": "512Mi"
+        }
+      }
+    },
+    {
+      "pod": "job-ae18f373-mq2td",
+      "node": "i-0a618b5190bc1fd3c",
+      "type": "r5dn.2xlarge",
+      "pool": "coworld-egress-jobs",
+      "image": "471879937681.dkr.ecr.us-east-1.amazonaws.com/cogames/s25q6tn121cx1j3z7ql3ga5d-da1d0964bdd5/polyworld-gota-coworld@sha256:1c6b764685d86e4e1dc85032c9e1022ac220655bbd01cb8a89dc7ea9929df2fb",
+      "resources": {
+        "requests": {
+          "cpu": "1",
+          "memory": "512Mi"
+        }
+      }
+    },
+    {
+      "pod": "job-af147926-95jxr",
+      "node": "i-0effa673fb45c7298",
+      "type": "c6a.4xlarge",
+      "pool": "coworld-egress-jobs",
+      "image": "471879937681.dkr.ecr.us-east-1.amazonaws.com/cogames/h0835grji1zfy5wakd4i56kn-3939e8b7673b/coworld-battle-royale@sha256:4e09a9ff2ae7eac57bb01826fc0afc3d9f3385576140056741050710d416721b",
+      "resources": {
+        "requests": {
+          "cpu": "1",
+          "memory": "512Mi"
+        }
+      }
+    },
+    {
+      "pod": "job-afd477b9-xbhpr",
+      "node": "i-0ac3cedc4326e84db",
+      "type": "c8i-flex.4xlarge",
+      "pool": "coworld-egress-jobs",
+      "image": "471879937681.dkr.ecr.us-east-1.amazonaws.com/cogames/h0835grji1zfy5wakd4i56kn-3939e8b7673b/coworld-battle-royale@sha256:4e09a9ff2ae7eac57bb01826fc0afc3d9f3385576140056741050710d416721b",
+      "resources": {
+        "requests": {
+          "cpu": "1",
+          "memory": "512Mi"
+        }
+      }
+    },
+    {
+      "pod": "job-b019345b-xsntm",
+      "node": "i-06ee1a620970f5d1e",
+      "type": "c6a.4xlarge",
+      "pool": "coworld-egress-jobs",
+      "image": "471879937681.dkr.ecr.us-east-1.amazonaws.com/cogames/h0835grji1zfy5wakd4i56kn-3939e8b7673b/coworld-battle-royale@sha256:4e09a9ff2ae7eac57bb01826fc0afc3d9f3385576140056741050710d416721b",
+      "resources": {
+        "requests": {
+          "cpu": "1",
+          "memory": "512Mi"
+        }
+      }
+    },
+    {
+      "pod": "job-b1678660-vg99c",
+      "node": "i-08a4227d0ede6fd65",
+      "type": "c6a.4xlarge",
+      "pool": "coworld-egress-jobs",
+      "image": "471879937681.dkr.ecr.us-east-1.amazonaws.com/cogames/s25q6tn121cx1j3z7ql3ga5d-da1d0964bdd5/polyworld-gota-coworld@sha256:1c6b764685d86e4e1dc85032c9e1022ac220655bbd01cb8a89dc7ea9929df2fb",
+      "resources": {
+        "requests": {
+          "cpu": "1",
+          "memory": "512Mi"
+        }
+      }
+    },
+    {
+      "pod": "job-b1d5565c-7xs6x",
+      "node": "i-0b7b127ace93f9972",
+      "type": "c8i-flex.4xlarge",
+      "pool": "coworld-egress-jobs",
+      "image": "471879937681.dkr.ecr.us-east-1.amazonaws.com/cogames/cy4wau882qr6p2v9z1prudik-bdfe346bc6af/coworld-ctf-game@sha256:af574fe703c6b2ea29c0924f0b4be10d021a76bc7598aa82cc2b623e89911bdf",
+      "resources": {
+        "requests": {
+          "cpu": "1",
+          "memory": "512Mi"
+        }
+      }
+    },
+    {
+      "pod": "job-b3f98788-dvvxs",
+      "node": "i-011105cfb02afe1a7",
+      "type": "c6a.4xlarge",
+      "pool": "coworld-egress-jobs",
+      "image": "471879937681.dkr.ecr.us-east-1.amazonaws.com/cogames/h0835grji1zfy5wakd4i56kn-3939e8b7673b/coworld-battle-royale@sha256:4e09a9ff2ae7eac57bb01826fc0afc3d9f3385576140056741050710d416721b",
+      "resources": {
+        "requests": {
+          "cpu": "1",
+          "memory": "512Mi"
+        }
+      }
+    },
+    {
+      "pod": "job-b4e055ab-dck5w",
+      "node": "i-08048f7dd976a400d",
+      "type": "c6a.4xlarge",
+      "pool": "coworld-egress-jobs",
+      "image": "471879937681.dkr.ecr.us-east-1.amazonaws.com/cogames/cy4wau882qr6p2v9z1prudik-bdfe346bc6af/coworld-ctf-game@sha256:30a495ffcde1b71af5e57375989b3ad1e885a85839825325984411ae00f5b259",
+      "resources": {
+        "requests": {
+          "cpu": "1",
+          "memory": "512Mi"
+        }
+      }
+    },
+    {
+      "pod": "job-b4e96d17-zpvh2",
+      "node": "i-086b94811c8d35468",
+      "type": "c6a.4xlarge",
+      "pool": "coworld-egress-jobs",
+      "image": "471879937681.dkr.ecr.us-east-1.amazonaws.com/cogames/h0835grji1zfy5wakd4i56kn-3939e8b7673b/coworld-battle-royale@sha256:4e09a9ff2ae7eac57bb01826fc0afc3d9f3385576140056741050710d416721b",
+      "resources": {
+        "requests": {
+          "cpu": "1",
+          "memory": "512Mi"
+        }
+      }
+    },
+    {
+      "pod": "job-b5e77839-4z8rp",
+      "node": "i-0056334b4ef809e35",
+      "type": "m6a.4xlarge",
+      "pool": "coworld-egress-jobs",
+      "image": "471879937681.dkr.ecr.us-east-1.amazonaws.com/cogames/h0835grji1zfy5wakd4i56kn-3939e8b7673b/coworld-battle-royale@sha256:4e09a9ff2ae7eac57bb01826fc0afc3d9f3385576140056741050710d416721b",
+      "resources": {
+        "requests": {
+          "cpu": "1",
+          "memory": "512Mi"
+        }
+      }
+    },
+    {
+      "pod": "job-b90822d7-79zpd",
+      "node": "i-0e6e69575caa077be",
+      "type": "m6a.4xlarge",
+      "pool": "coworld-egress-jobs",
+      "image": "471879937681.dkr.ecr.us-east-1.amazonaws.com/cogames/cy4wau882qr6p2v9z1prudik-bdfe346bc6af/coworld-ctf-game@sha256:af574fe703c6b2ea29c0924f0b4be10d021a76bc7598aa82cc2b623e89911bdf",
+      "resources": {
+        "requests": {
+          "cpu": "1",
+          "memory": "512Mi"
+        }
+      }
+    },
+    {
+      "pod": "job-ba57ea8c-gvrll",
+      "node": "i-0b7b127ace93f9972",
+      "type": "c8i-flex.4xlarge",
+      "pool": "coworld-egress-jobs",
+      "image": "471879937681.dkr.ecr.us-east-1.amazonaws.com/cogames/h0835grji1zfy5wakd4i56kn-3939e8b7673b/coworld-battle-royale@sha256:4e09a9ff2ae7eac57bb01826fc0afc3d9f3385576140056741050710d416721b",
+      "resources": {
+        "requests": {
+          "cpu": "1",
+          "memory": "512Mi"
+        }
+      }
+    },
+    {
+      "pod": "job-bb21bc14-2dr56",
+      "node": "i-08048f7dd976a400d",
+      "type": "c6a.4xlarge",
+      "pool": "coworld-egress-jobs",
+      "image": "471879937681.dkr.ecr.us-east-1.amazonaws.com/cogames/cy4wau882qr6p2v9z1prudik-bdfe346bc6af/coworld-ctf-game@sha256:30a495ffcde1b71af5e57375989b3ad1e885a85839825325984411ae00f5b259",
+      "resources": {
+        "requests": {
+          "cpu": "1",
+          "memory": "512Mi"
+        }
+      }
+    },
+    {
+      "pod": "job-bb26ad5a-6ltgh",
+      "node": "i-08425f5ab7ba69a42",
+      "type": "c6a.4xlarge",
+      "pool": "coworld-egress-jobs",
+      "image": "471879937681.dkr.ecr.us-east-1.amazonaws.com/cogames/h0835grji1zfy5wakd4i56kn-3939e8b7673b/coworld-battle-royale@sha256:4e09a9ff2ae7eac57bb01826fc0afc3d9f3385576140056741050710d416721b",
+      "resources": {
+        "requests": {
+          "cpu": "1",
+          "memory": "512Mi"
+        }
+      }
+    },
+    {
+      "pod": "job-bbd3e54b-54hfg",
+      "node": "i-0a8012f8fa53a273a",
+      "type": "c6a.4xlarge",
+      "pool": "coworld-egress-jobs",
+      "image": "471879937681.dkr.ecr.us-east-1.amazonaws.com/cogames/h0835grji1zfy5wakd4i56kn-3939e8b7673b/coworld-pudgewars@sha256:49a1956f992e7877317c8d13f5850065555e1ecc3e0553ee6699eb67b6f491d0",
+      "resources": {
+        "requests": {
+          "cpu": "1",
+          "memory": "512Mi"
+        }
+      }
+    },
+    {
+      "pod": "job-bc72c76d-8dzbb",
+      "node": "i-02d7c727371690e86",
+      "type": "c6a.4xlarge",
+      "pool": "coworld-egress-jobs",
+      "image": "471879937681.dkr.ecr.us-east-1.amazonaws.com/cogames/h0835grji1zfy5wakd4i56kn-3939e8b7673b/coworld-pudgewars@sha256:49a1956f992e7877317c8d13f5850065555e1ecc3e0553ee6699eb67b6f491d0",
+      "resources": {
+        "requests": {
+          "cpu": "1",
+          "memory": "512Mi"
+        }
+      }
+    },
+    {
+      "pod": "job-bce5ca00-gxnl8",
+      "node": "i-05c7f68a55aa8078b",
+      "type": "r5a.4xlarge",
+      "pool": "coworld-egress-jobs",
+      "image": "471879937681.dkr.ecr.us-east-1.amazonaws.com/cogames/h0835grji1zfy5wakd4i56kn-3939e8b7673b/coworld-battle-royale@sha256:4e09a9ff2ae7eac57bb01826fc0afc3d9f3385576140056741050710d416721b",
+      "resources": {
+        "requests": {
+          "cpu": "1",
+          "memory": "512Mi"
+        }
+      }
+    },
+    {
+      "pod": "job-bde78077-xb9m5",
+      "node": "i-0fccd9690007bbdd2",
+      "type": "m7i-flex.2xlarge",
+      "pool": "coworld-egress-jobs",
+      "image": "471879937681.dkr.ecr.us-east-1.amazonaws.com/cogames/cy4wau882qr6p2v9z1prudik-bdfe346bc6af/coworld-ctf-game@sha256:30a495ffcde1b71af5e57375989b3ad1e885a85839825325984411ae00f5b259",
+      "resources": {
+        "requests": {
+          "cpu": "1",
+          "memory": "512Mi"
+        }
+      }
+    },
+    {
+      "pod": "job-be3cabb0-n9qnv",
+      "node": "i-0acdd54fcec6c043d",
+      "type": "c6a.4xlarge",
+      "pool": "coworld-egress-jobs",
+      "image": "471879937681.dkr.ecr.us-east-1.amazonaws.com/cogames/cy4wau882qr6p2v9z1prudik-bdfe346bc6af/coworld-ctf-game@sha256:af574fe703c6b2ea29c0924f0b4be10d021a76bc7598aa82cc2b623e89911bdf",
+      "resources": {
+        "requests": {
+          "cpu": "1",
+          "memory": "512Mi"
+        }
+      }
+    },
+    {
+      "pod": "job-c136b6b3-m8ssq",
+      "node": "i-00b707a2b2e03f947",
+      "type": "c6a.4xlarge",
+      "pool": "coworld-egress-jobs",
+      "image": "471879937681.dkr.ecr.us-east-1.amazonaws.com/cogames/h0835grji1zfy5wakd4i56kn-3939e8b7673b/coworld-battle-royale@sha256:4e09a9ff2ae7eac57bb01826fc0afc3d9f3385576140056741050710d416721b",
+      "resources": {
+        "requests": {
+          "cpu": "1",
+          "memory": "512Mi"
+        }
+      }
+    },
+    {
+      "pod": "job-c14b3537-hrp4t",
+      "node": "i-04b4e283111b88360",
+      "type": "c8i-flex.4xlarge",
+      "pool": "coworld-egress-jobs",
+      "image": "471879937681.dkr.ecr.us-east-1.amazonaws.com/cogames/cy4wau882qr6p2v9z1prudik-bdfe346bc6af/cogame-paintbot-game@sha256:660325dd9c999dafc71d6e5e9f88afc4986176ef61234028b06680db5a980507",
+      "resources": {
+        "requests": {
+          "cpu": "3",
+          "memory": "4Gi"
+        }
+      }
+    },
+    {
+      "pod": "job-c16e4469-pm8xw",
+      "node": "i-07d6706099985dc60",
+      "type": "c6a.4xlarge",
+      "pool": "coworld-egress-jobs",
+      "image": "471879937681.dkr.ecr.us-east-1.amazonaws.com/cogames/h0835grji1zfy5wakd4i56kn-3939e8b7673b/coworld-battle-royale@sha256:4e09a9ff2ae7eac57bb01826fc0afc3d9f3385576140056741050710d416721b",
+      "resources": {
+        "requests": {
+          "cpu": "1",
+          "memory": "512Mi"
+        }
+      }
+    },
+    {
+      "pod": "job-c175a1c5-4sb24",
+      "node": "i-0e4df2d760344aafa",
+      "type": "c8i-flex.4xlarge",
+      "pool": "coworld-egress-jobs",
+      "image": "471879937681.dkr.ecr.us-east-1.amazonaws.com/cogames/h0835grji1zfy5wakd4i56kn-3939e8b7673b/coworld-pudgewars@sha256:49a1956f992e7877317c8d13f5850065555e1ecc3e0553ee6699eb67b6f491d0",
+      "resources": {
+        "requests": {
+          "cpu": "1",
+          "memory": "512Mi"
+        }
+      }
+    },
+    {
+      "pod": "job-c1910743-zn9x4",
+      "node": "i-0b7a6451829189ce1",
+      "type": "c6a.4xlarge",
+      "pool": "coworld-egress-jobs",
+      "image": "471879937681.dkr.ecr.us-east-1.amazonaws.com/cogames/s25q6tn121cx1j3z7ql3ga5d-da1d0964bdd5/polyworld-gota-coworld@sha256:1c6b764685d86e4e1dc85032c9e1022ac220655bbd01cb8a89dc7ea9929df2fb",
+      "resources": {
+        "requests": {
+          "cpu": "1",
+          "memory": "512Mi"
+        }
+      }
+    },
+    {
+      "pod": "job-c1e4a92e-zxhw9",
+      "node": "i-0fa8afd0fefe59bea",
+      "type": "c6a.4xlarge",
+      "pool": "coworld-egress-jobs",
+      "image": "471879937681.dkr.ecr.us-east-1.amazonaws.com/cogames/cy4wau882qr6p2v9z1prudik-bdfe346bc6af/coworld-ctf-game@sha256:30a495ffcde1b71af5e57375989b3ad1e885a85839825325984411ae00f5b259",
+      "resources": {
+        "requests": {
+          "cpu": "1",
+          "memory": "512Mi"
+        }
+      }
+    },
+    {
+      "pod": "job-c3237374-lc24f",
+      "node": "i-03dc5eb9075a97df0",
+      "type": "c8i-flex.4xlarge",
+      "pool": "coworld-egress-jobs",
+      "image": "471879937681.dkr.ecr.us-east-1.amazonaws.com/cogames/h0835grji1zfy5wakd4i56kn-3939e8b7673b/coworld-battle-royale@sha256:4e09a9ff2ae7eac57bb01826fc0afc3d9f3385576140056741050710d416721b",
+      "resources": {
+        "requests": {
+          "cpu": "1",
+          "memory": "512Mi"
+        }
+      }
+    },
+    {
+      "pod": "job-c3b8bde1-gczqs",
+      "node": "i-04bcf4a2908de0d43",
+      "type": "c6a.4xlarge",
+      "pool": "coworld-egress-jobs",
+      "image": "471879937681.dkr.ecr.us-east-1.amazonaws.com/cogames/h0835grji1zfy5wakd4i56kn-3939e8b7673b/coworld-battle-royale@sha256:4e09a9ff2ae7eac57bb01826fc0afc3d9f3385576140056741050710d416721b",
+      "resources": {
+        "requests": {
+          "cpu": "1",
+          "memory": "512Mi"
+        }
+      }
+    },
+    {
+      "pod": "job-c507c4e5-5bk9v",
+      "node": "i-0effa673fb45c7298",
+      "type": "c6a.4xlarge",
+      "pool": "coworld-egress-jobs",
+      "image": "471879937681.dkr.ecr.us-east-1.amazonaws.com/cogames/s25q6tn121cx1j3z7ql3ga5d-da1d0964bdd5/polyworld-gota-coworld@sha256:1c6b764685d86e4e1dc85032c9e1022ac220655bbd01cb8a89dc7ea9929df2fb",
+      "resources": {
+        "requests": {
+          "cpu": "1",
+          "memory": "512Mi"
+        }
+      }
+    },
+    {
+      "pod": "job-c54b72aa-cn926",
+      "node": "i-072f5384facbf4d63",
+      "type": "c8i-flex.4xlarge",
+      "pool": "coworld-egress-jobs",
+      "image": "471879937681.dkr.ecr.us-east-1.amazonaws.com/cogames/s25q6tn121cx1j3z7ql3ga5d-da1d0964bdd5/polyworld-gota-coworld@sha256:1c6b764685d86e4e1dc85032c9e1022ac220655bbd01cb8a89dc7ea9929df2fb",
+      "resources": {
+        "requests": {
+          "cpu": "1",
+          "memory": "512Mi"
+        }
+      }
+    },
+    {
+      "pod": "job-c62c5374-mmgnx",
+      "node": "i-0c1a8410a9eb479f3",
+      "type": "c6a.4xlarge",
+      "pool": "coworld-egress-jobs",
+      "image": "471879937681.dkr.ecr.us-east-1.amazonaws.com/cogames/h0835grji1zfy5wakd4i56kn-3939e8b7673b/coworld-pudgewars@sha256:49a1956f992e7877317c8d13f5850065555e1ecc3e0553ee6699eb67b6f491d0",
+      "resources": {
+        "requests": {
+          "cpu": "1",
+          "memory": "512Mi"
+        }
+      }
+    },
+    {
+      "pod": "job-c6b64627-ph6dw",
+      "node": "i-03dc5eb9075a97df0",
+      "type": "c8i-flex.4xlarge",
+      "pool": "coworld-egress-jobs",
+      "image": "471879937681.dkr.ecr.us-east-1.amazonaws.com/cogames/cy4wau882qr6p2v9z1prudik-bdfe346bc6af/paintbot-pw@sha256:4aed865fd26c3e50afea6940442acab976a60c3d46adb58558e980ee74127180",
+      "resources": {
+        "limits": {
+          "cpu": "6",
+          "memory": "12Gi"
+        },
+        "requests": {
+          "cpu": "2",
+          "memory": "2Gi"
+        }
+      }
+    },
+    {
+      "pod": "job-c83d35a7-2kq9z",
+      "node": "i-0d399fc33ded358a0",
+      "type": "c6a.4xlarge",
+      "pool": "coworld-egress-jobs",
+      "image": "471879937681.dkr.ecr.us-east-1.amazonaws.com/cogames/h0835grji1zfy5wakd4i56kn-3939e8b7673b/coworld-battle-royale@sha256:4e09a9ff2ae7eac57bb01826fc0afc3d9f3385576140056741050710d416721b",
+      "resources": {
+        "requests": {
+          "cpu": "1",
+          "memory": "512Mi"
+        }
+      }
+    },
+    {
+      "pod": "job-c842a2c0-q9f5l",
+      "node": "i-0b26e332f0435588f",
+      "type": "c8i-flex.4xlarge",
+      "pool": "coworld-egress-jobs",
+      "image": "471879937681.dkr.ecr.us-east-1.amazonaws.com/cogames/h0835grji1zfy5wakd4i56kn-3939e8b7673b/coworld-battle-royale@sha256:4e09a9ff2ae7eac57bb01826fc0afc3d9f3385576140056741050710d416721b",
+      "resources": {
+        "requests": {
+          "cpu": "1",
+          "memory": "512Mi"
+        }
+      }
+    },
+    {
+      "pod": "job-c99ab818-d89tq",
+      "node": "i-0c9967d4b49165fc7",
+      "type": "c6a.4xlarge",
+      "pool": "coworld-egress-jobs",
+      "image": "471879937681.dkr.ecr.us-east-1.amazonaws.com/cogames/h0835grji1zfy5wakd4i56kn-3939e8b7673b/coworld-battle-royale@sha256:4e09a9ff2ae7eac57bb01826fc0afc3d9f3385576140056741050710d416721b",
+      "resources": {
+        "requests": {
+          "cpu": "1",
+          "memory": "512Mi"
+        }
+      }
+    },
+    {
+      "pod": "job-ca9d9a08-zzmlc",
+      "node": "i-05371bccc373b0742",
+      "type": "c8i-flex.4xlarge",
+      "pool": "coworld-egress-jobs",
+      "image": "471879937681.dkr.ecr.us-east-1.amazonaws.com/cogames/cy4wau882qr6p2v9z1prudik-bdfe346bc6af/coworld-ctf-game@sha256:af574fe703c6b2ea29c0924f0b4be10d021a76bc7598aa82cc2b623e89911bdf",
+      "resources": {
+        "requests": {
+          "cpu": "1",
+          "memory": "512Mi"
+        }
+      }
+    },
+    {
+      "pod": "job-cc807130-h24pd",
+      "node": "i-0b4228be9f0684929",
+      "type": "c6a.4xlarge",
+      "pool": "coworld-egress-jobs",
+      "image": "471879937681.dkr.ecr.us-east-1.amazonaws.com/cogames/h0835grji1zfy5wakd4i56kn-3939e8b7673b/coworld-pudgewars@sha256:49a1956f992e7877317c8d13f5850065555e1ecc3e0553ee6699eb67b6f491d0",
+      "resources": {
+        "requests": {
+          "cpu": "1",
+          "memory": "512Mi"
+        }
+      }
+    },
+    {
+      "pod": "job-ce4b7583-tpcpt",
+      "node": "i-0fa8afd0fefe59bea",
+      "type": "c6a.4xlarge",
+      "pool": "coworld-egress-jobs",
+      "image": "471879937681.dkr.ecr.us-east-1.amazonaws.com/cogames/cy4wau882qr6p2v9z1prudik-bdfe346bc6af/coworld-ctf-game@sha256:30a495ffcde1b71af5e57375989b3ad1e885a85839825325984411ae00f5b259",
+      "resources": {
+        "requests": {
+          "cpu": "1",
+          "memory": "512Mi"
+        }
+      }
+    },
+    {
+      "pod": "job-ce695386-4kb5k",
+      "node": "i-0ac3cedc4326e84db",
+      "type": "c8i-flex.4xlarge",
+      "pool": "coworld-egress-jobs",
+      "image": "471879937681.dkr.ecr.us-east-1.amazonaws.com/cogames/cy4wau882qr6p2v9z1prudik-bdfe346bc6af/coworld-ctf-game@sha256:af574fe703c6b2ea29c0924f0b4be10d021a76bc7598aa82cc2b623e89911bdf",
+      "resources": {
+        "requests": {
+          "cpu": "1",
+          "memory": "512Mi"
+        }
+      }
+    },
+    {
+      "pod": "job-ceeb20bc-g48fz",
+      "node": "i-02a5e2f8b65f0cfae",
+      "type": "c6a.4xlarge",
+      "pool": "coworld-egress-jobs",
+      "image": "471879937681.dkr.ecr.us-east-1.amazonaws.com/cogames/cy4wau882qr6p2v9z1prudik-bdfe346bc6af/coworld-ctf-game@sha256:30a495ffcde1b71af5e57375989b3ad1e885a85839825325984411ae00f5b259",
+      "resources": {
+        "requests": {
+          "cpu": "1",
+          "memory": "512Mi"
+        }
+      }
+    },
+    {
+      "pod": "job-cf6d3b23-57kxl",
+      "node": "i-0effa673fb45c7298",
+      "type": "c6a.4xlarge",
+      "pool": "coworld-egress-jobs",
+      "image": "471879937681.dkr.ecr.us-east-1.amazonaws.com/cogames/s25q6tn121cx1j3z7ql3ga5d-da1d0964bdd5/polyworld-gota-coworld@sha256:1c6b764685d86e4e1dc85032c9e1022ac220655bbd01cb8a89dc7ea9929df2fb",
+      "resources": {
+        "requests": {
+          "cpu": "1",
+          "memory": "512Mi"
+        }
+      }
+    },
+    {
+      "pod": "job-d001afe1-jbzdd",
+      "node": "i-07f58e63fbf0f1790",
+      "type": "c6a.4xlarge",
+      "pool": "coworld-egress-jobs",
+      "image": "471879937681.dkr.ecr.us-east-1.amazonaws.com/cogames/s25q6tn121cx1j3z7ql3ga5d-da1d0964bdd5/polyworld-gota-coworld@sha256:1c6b764685d86e4e1dc85032c9e1022ac220655bbd01cb8a89dc7ea9929df2fb",
+      "resources": {
+        "requests": {
+          "cpu": "1",
+          "memory": "512Mi"
+        }
+      }
+    },
+    {
+      "pod": "job-d28b6302-8dzvc",
+      "node": "i-0056334b4ef809e35",
+      "type": "m6a.4xlarge",
+      "pool": "coworld-egress-jobs",
+      "image": "471879937681.dkr.ecr.us-east-1.amazonaws.com/cogames/h0835grji1zfy5wakd4i56kn-3939e8b7673b/coworld-battle-royale@sha256:4e09a9ff2ae7eac57bb01826fc0afc3d9f3385576140056741050710d416721b",
+      "resources": {
+        "requests": {
+          "cpu": "1",
+          "memory": "512Mi"
+        }
+      }
+    },
+    {
+      "pod": "job-d47cae5c-mlp88",
+      "node": "i-0317242aa7ad4fda0",
+      "type": "c8i-flex.4xlarge",
+      "pool": "coworld-egress-jobs",
+      "image": "471879937681.dkr.ecr.us-east-1.amazonaws.com/cogames/s25q6tn121cx1j3z7ql3ga5d-da1d0964bdd5/polyworld-gota-coworld@sha256:1c6b764685d86e4e1dc85032c9e1022ac220655bbd01cb8a89dc7ea9929df2fb",
+      "resources": {
+        "requests": {
+          "cpu": "1",
+          "memory": "512Mi"
+        }
+      }
+    },
+    {
+      "pod": "job-d63b7977-qkmd4",
+      "node": "i-07f58e63fbf0f1790",
+      "type": "c6a.4xlarge",
+      "pool": "coworld-egress-jobs",
+      "image": "471879937681.dkr.ecr.us-east-1.amazonaws.com/cogames/h0835grji1zfy5wakd4i56kn-3939e8b7673b/coworld-pudgewars@sha256:49a1956f992e7877317c8d13f5850065555e1ecc3e0553ee6699eb67b6f491d0",
+      "resources": {
+        "requests": {
+          "cpu": "1",
+          "memory": "512Mi"
+        }
+      }
+    },
+    {
+      "pod": "job-d641c52a-zvgm7",
+      "node": "i-0b7b127ace93f9972",
+      "type": "c8i-flex.4xlarge",
+      "pool": "coworld-egress-jobs",
+      "image": "471879937681.dkr.ecr.us-east-1.amazonaws.com/cogames/cy4wau882qr6p2v9z1prudik-bdfe346bc6af/coworld-ctf-game@sha256:af574fe703c6b2ea29c0924f0b4be10d021a76bc7598aa82cc2b623e89911bdf",
+      "resources": {
+        "requests": {
+          "cpu": "1",
+          "memory": "512Mi"
+        }
+      }
+    },
+    {
+      "pod": "job-d79e0b5d-5psd7",
+      "node": "i-08425f5ab7ba69a42",
+      "type": "c6a.4xlarge",
+      "pool": "coworld-egress-jobs",
+      "image": "471879937681.dkr.ecr.us-east-1.amazonaws.com/cogames/h0835grji1zfy5wakd4i56kn-3939e8b7673b/coworld-pudgewars@sha256:49a1956f992e7877317c8d13f5850065555e1ecc3e0553ee6699eb67b6f491d0",
+      "resources": {
+        "requests": {
+          "cpu": "1",
+          "memory": "512Mi"
+        }
+      }
+    },
+    {
+      "pod": "job-d8bc4a36-78nsz",
+      "node": "i-0b7a6451829189ce1",
+      "type": "c6a.4xlarge",
+      "pool": "coworld-egress-jobs",
+      "image": "471879937681.dkr.ecr.us-east-1.amazonaws.com/cogames/s25q6tn121cx1j3z7ql3ga5d-da1d0964bdd5/polyworld-gota-coworld@sha256:1c6b764685d86e4e1dc85032c9e1022ac220655bbd01cb8a89dc7ea9929df2fb",
+      "resources": {
+        "requests": {
+          "cpu": "1",
+          "memory": "512Mi"
+        }
+      }
+    },
+    {
+      "pod": "job-d9677a61-sxqrr",
+      "node": "i-04b4e283111b88360",
+      "type": "c8i-flex.4xlarge",
+      "pool": "coworld-egress-jobs",
+      "image": "471879937681.dkr.ecr.us-east-1.amazonaws.com/cogames/h0835grji1zfy5wakd4i56kn-3939e8b7673b/coworld-battle-royale@sha256:4e09a9ff2ae7eac57bb01826fc0afc3d9f3385576140056741050710d416721b",
+      "resources": {
+        "requests": {
+          "cpu": "1",
+          "memory": "512Mi"
+        }
+      }
+    },
+    {
+      "pod": "job-dbaab7f2-v6df4",
+      "node": "i-08a4227d0ede6fd65",
+      "type": "c6a.4xlarge",
+      "pool": "coworld-egress-jobs",
+      "image": "471879937681.dkr.ecr.us-east-1.amazonaws.com/cogames/s25q6tn121cx1j3z7ql3ga5d-da1d0964bdd5/polyworld-gota-coworld@sha256:1c6b764685d86e4e1dc85032c9e1022ac220655bbd01cb8a89dc7ea9929df2fb",
+      "resources": {
+        "requests": {
+          "cpu": "1",
+          "memory": "512Mi"
+        }
+      }
+    },
+    {
+      "pod": "job-dec7acce-cgl4j",
+      "node": "i-0d399fc33ded358a0",
+      "type": "c6a.4xlarge",
+      "pool": "coworld-egress-jobs",
+      "image": "471879937681.dkr.ecr.us-east-1.amazonaws.com/cogames/h0835grji1zfy5wakd4i56kn-3939e8b7673b/coworld-pudgewars@sha256:49a1956f992e7877317c8d13f5850065555e1ecc3e0553ee6699eb67b6f491d0",
+      "resources": {
+        "requests": {
+          "cpu": "1",
+          "memory": "512Mi"
+        }
+      }
+    },
+    {
+      "pod": "job-df1350d8-7php6",
+      "node": "i-0de99b02f641ac3e3",
+      "type": "c6a.4xlarge",
+      "pool": "coworld-egress-jobs",
+      "image": "471879937681.dkr.ecr.us-east-1.amazonaws.com/cogames/s25q6tn121cx1j3z7ql3ga5d-da1d0964bdd5/polyworld-gota-coworld@sha256:1c6b764685d86e4e1dc85032c9e1022ac220655bbd01cb8a89dc7ea9929df2fb",
+      "resources": {
+        "requests": {
+          "cpu": "1",
+          "memory": "512Mi"
+        }
+      }
+    },
+    {
+      "pod": "job-e0c6991d-bv7wb",
+      "node": "i-0056334b4ef809e35",
+      "type": "m6a.4xlarge",
+      "pool": "coworld-egress-jobs",
+      "image": "471879937681.dkr.ecr.us-east-1.amazonaws.com/cogames/h0835grji1zfy5wakd4i56kn-3939e8b7673b/coworld-battle-royale@sha256:4e09a9ff2ae7eac57bb01826fc0afc3d9f3385576140056741050710d416721b",
+      "resources": {
+        "requests": {
+          "cpu": "1",
+          "memory": "512Mi"
+        }
+      }
+    },
+    {
+      "pod": "job-e2c363bb-6xl7b",
+      "node": "i-0a8012f8fa53a273a",
+      "type": "c6a.4xlarge",
+      "pool": "coworld-egress-jobs",
+      "image": "471879937681.dkr.ecr.us-east-1.amazonaws.com/cogames/s25q6tn121cx1j3z7ql3ga5d-da1d0964bdd5/polyworld-gota-coworld@sha256:1c6b764685d86e4e1dc85032c9e1022ac220655bbd01cb8a89dc7ea9929df2fb",
+      "resources": {
+        "requests": {
+          "cpu": "1",
+          "memory": "512Mi"
+        }
+      }
+    },
+    {
+      "pod": "job-e3213568-vkblm",
+      "node": "i-0de99b02f641ac3e3",
+      "type": "c6a.4xlarge",
+      "pool": "coworld-egress-jobs",
+      "image": "471879937681.dkr.ecr.us-east-1.amazonaws.com/cogames/cy4wau882qr6p2v9z1prudik-bdfe346bc6af/coworld-ctf-game@sha256:af574fe703c6b2ea29c0924f0b4be10d021a76bc7598aa82cc2b623e89911bdf",
+      "resources": {
+        "requests": {
+          "cpu": "1",
+          "memory": "512Mi"
+        }
+      }
+    },
+    {
+      "pod": "job-e376b6ef-xwzrq",
+      "node": "i-072f5384facbf4d63",
+      "type": "c8i-flex.4xlarge",
+      "pool": "coworld-egress-jobs",
+      "image": "471879937681.dkr.ecr.us-east-1.amazonaws.com/cogames/h0835grji1zfy5wakd4i56kn-3939e8b7673b/coworld-battle-royale@sha256:4e09a9ff2ae7eac57bb01826fc0afc3d9f3385576140056741050710d416721b",
+      "resources": {
+        "requests": {
+          "cpu": "1",
+          "memory": "512Mi"
+        }
+      }
+    },
+    {
+      "pod": "job-e393cf6b-lj2s6",
+      "node": "i-02a5e2f8b65f0cfae",
+      "type": "c6a.4xlarge",
+      "pool": "coworld-egress-jobs",
+      "image": "471879937681.dkr.ecr.us-east-1.amazonaws.com/cogames/cy4wau882qr6p2v9z1prudik-bdfe346bc6af/coworld-ctf-game@sha256:af574fe703c6b2ea29c0924f0b4be10d021a76bc7598aa82cc2b623e89911bdf",
+      "resources": {
+        "requests": {
+          "cpu": "1",
+          "memory": "512Mi"
+        }
+      }
+    },
+    {
+      "pod": "job-e48180a4-nvpz7",
+      "node": "i-040ec2c66986f2a1e",
+      "type": "c6a.4xlarge",
+      "pool": "coworld-egress-jobs",
+      "image": "471879937681.dkr.ecr.us-east-1.amazonaws.com/cogames/s25q6tn121cx1j3z7ql3ga5d-da1d0964bdd5/polyworld-gota-coworld@sha256:1c6b764685d86e4e1dc85032c9e1022ac220655bbd01cb8a89dc7ea9929df2fb",
+      "resources": {
+        "requests": {
+          "cpu": "1",
+          "memory": "512Mi"
+        }
+      }
+    },
+    {
+      "pod": "job-e4bd24c7-zbxns",
+      "node": "i-072f5384facbf4d63",
+      "type": "c8i-flex.4xlarge",
+      "pool": "coworld-egress-jobs",
+      "image": "471879937681.dkr.ecr.us-east-1.amazonaws.com/cogames/cy4wau882qr6p2v9z1prudik-bdfe346bc6af/paintbot-pw@sha256:4aed865fd26c3e50afea6940442acab976a60c3d46adb58558e980ee74127180",
+      "resources": {
+        "limits": {
+          "cpu": "6",
+          "memory": "12Gi"
+        },
+        "requests": {
+          "cpu": "2",
+          "memory": "2Gi"
+        }
+      }
+    },
+    {
+      "pod": "job-e51fee69-vbl2m",
+      "node": "i-086b94811c8d35468",
+      "type": "c6a.4xlarge",
+      "pool": "coworld-egress-jobs",
+      "image": "471879937681.dkr.ecr.us-east-1.amazonaws.com/cogames/s25q6tn121cx1j3z7ql3ga5d-da1d0964bdd5/polyworld-gota-coworld@sha256:1c6b764685d86e4e1dc85032c9e1022ac220655bbd01cb8a89dc7ea9929df2fb",
+      "resources": {
+        "requests": {
+          "cpu": "1",
+          "memory": "512Mi"
+        }
+      }
+    },
+    {
+      "pod": "job-e52d6ec3-qdqdq",
+      "node": "i-03dadfe937418c541",
+      "type": "m6a.4xlarge",
+      "pool": "coworld-egress-jobs",
+      "image": "471879937681.dkr.ecr.us-east-1.amazonaws.com/cogames/cy4wau882qr6p2v9z1prudik-bdfe346bc6af/coworld-ctf-game@sha256:30a495ffcde1b71af5e57375989b3ad1e885a85839825325984411ae00f5b259",
+      "resources": {
+        "requests": {
+          "cpu": "1",
+          "memory": "512Mi"
+        }
+      }
+    },
+    {
+      "pod": "job-e5ae8a39-7slpv",
+      "node": "i-0effa673fb45c7298",
+      "type": "c6a.4xlarge",
+      "pool": "coworld-egress-jobs",
+      "image": "471879937681.dkr.ecr.us-east-1.amazonaws.com/cogames/s25q6tn121cx1j3z7ql3ga5d-da1d0964bdd5/polyworld-gota-coworld@sha256:1c6b764685d86e4e1dc85032c9e1022ac220655bbd01cb8a89dc7ea9929df2fb",
+      "resources": {
+        "requests": {
+          "cpu": "1",
+          "memory": "512Mi"
+        }
+      }
+    },
+    {
+      "pod": "job-e6f123d5-8zjld",
+      "node": "i-089af6f2bbbee83d9",
+      "type": "c5d.4xlarge",
+      "pool": "coworld-egress-jobs",
+      "image": "471879937681.dkr.ecr.us-east-1.amazonaws.com/cogames/h0835grji1zfy5wakd4i56kn-3939e8b7673b/coworld-battle-royale@sha256:4e09a9ff2ae7eac57bb01826fc0afc3d9f3385576140056741050710d416721b",
+      "resources": {
+        "requests": {
+          "cpu": "1",
+          "memory": "512Mi"
+        }
+      }
+    },
+    {
+      "pod": "job-e8a9f1b4-5zmnr",
+      "node": "i-0c76f1238eff09b54",
+      "type": "c6a.4xlarge",
+      "pool": "coworld-egress-jobs",
+      "image": "471879937681.dkr.ecr.us-east-1.amazonaws.com/cogames/h0835grji1zfy5wakd4i56kn-3939e8b7673b/coworld-battle-royale@sha256:4e09a9ff2ae7eac57bb01826fc0afc3d9f3385576140056741050710d416721b",
+      "resources": {
+        "requests": {
+          "cpu": "1",
+          "memory": "512Mi"
+        }
+      }
+    },
+    {
+      "pod": "job-e8d56ed5-ljm22",
+      "node": "i-0f59ad8caa0bfbed7",
+      "type": "c6a.4xlarge",
+      "pool": "coworld-egress-jobs",
+      "image": "471879937681.dkr.ecr.us-east-1.amazonaws.com/cogames/s25q6tn121cx1j3z7ql3ga5d-da1d0964bdd5/polyworld-gota-coworld@sha256:1c6b764685d86e4e1dc85032c9e1022ac220655bbd01cb8a89dc7ea9929df2fb",
+      "resources": {
+        "requests": {
+          "cpu": "1",
+          "memory": "512Mi"
+        }
+      }
+    },
+    {
+      "pod": "job-e9454c73-j8r5t",
+      "node": "i-05371bccc373b0742",
+      "type": "c8i-flex.4xlarge",
+      "pool": "coworld-egress-jobs",
+      "image": "471879937681.dkr.ecr.us-east-1.amazonaws.com/cogames/cy4wau882qr6p2v9z1prudik-bdfe346bc6af/coworld-ctf-game@sha256:30a495ffcde1b71af5e57375989b3ad1e885a85839825325984411ae00f5b259",
+      "resources": {
+        "requests": {
+          "cpu": "1",
+          "memory": "512Mi"
+        }
+      }
+    },
+    {
+      "pod": "job-ebc18a3d-bwxqg",
+      "node": "i-0f59ad8caa0bfbed7",
+      "type": "c6a.4xlarge",
+      "pool": "coworld-egress-jobs",
+      "image": "471879937681.dkr.ecr.us-east-1.amazonaws.com/cogames/s25q6tn121cx1j3z7ql3ga5d-da1d0964bdd5/polyworld-gota-coworld@sha256:1c6b764685d86e4e1dc85032c9e1022ac220655bbd01cb8a89dc7ea9929df2fb",
+      "resources": {
+        "requests": {
+          "cpu": "1",
+          "memory": "512Mi"
+        }
+      }
+    },
+    {
+      "pod": "job-ebd8ccaa-6t2br",
+      "node": "i-0b7a6451829189ce1",
+      "type": "c6a.4xlarge",
+      "pool": "coworld-egress-jobs",
+      "image": "471879937681.dkr.ecr.us-east-1.amazonaws.com/cogames/s25q6tn121cx1j3z7ql3ga5d-da1d0964bdd5/polyworld-gota-coworld@sha256:1c6b764685d86e4e1dc85032c9e1022ac220655bbd01cb8a89dc7ea9929df2fb",
+      "resources": {
+        "requests": {
+          "cpu": "1",
+          "memory": "512Mi"
+        }
+      }
+    },
+    {
+      "pod": "job-ecab78a1-2x8cj",
+      "node": "i-0b7a6451829189ce1",
+      "type": "c6a.4xlarge",
+      "pool": "coworld-egress-jobs",
+      "image": "471879937681.dkr.ecr.us-east-1.amazonaws.com/cogames/s25q6tn121cx1j3z7ql3ga5d-da1d0964bdd5/polyworld-gota-coworld@sha256:1c6b764685d86e4e1dc85032c9e1022ac220655bbd01cb8a89dc7ea9929df2fb",
+      "resources": {
+        "requests": {
+          "cpu": "1",
+          "memory": "512Mi"
+        }
+      }
+    },
+    {
+      "pod": "job-ed967b3a-nmvrf",
+      "node": "i-07d2fe67eebf0fffd",
+      "type": "c8i-flex.4xlarge",
+      "pool": "coworld-egress-jobs",
+      "image": "471879937681.dkr.ecr.us-east-1.amazonaws.com/cogames/s25q6tn121cx1j3z7ql3ga5d-da1d0964bdd5/polyworld-gota-coworld@sha256:1c6b764685d86e4e1dc85032c9e1022ac220655bbd01cb8a89dc7ea9929df2fb",
+      "resources": {
+        "requests": {
+          "cpu": "1",
+          "memory": "512Mi"
+        }
+      }
+    },
+    {
+      "pod": "job-ef28018b-q5xmm",
+      "node": "i-0acdd54fcec6c043d",
+      "type": "c6a.4xlarge",
+      "pool": "coworld-egress-jobs",
+      "image": "471879937681.dkr.ecr.us-east-1.amazonaws.com/cogames/h0835grji1zfy5wakd4i56kn-3939e8b7673b/coworld-battle-royale@sha256:4e09a9ff2ae7eac57bb01826fc0afc3d9f3385576140056741050710d416721b",
+      "resources": {
+        "requests": {
+          "cpu": "1",
+          "memory": "512Mi"
+        }
+      }
+    },
+    {
+      "pod": "job-f1baa7a1-d76fw",
+      "node": "i-0528a6b6d3d40dae2",
+      "type": "m5a.2xlarge",
+      "pool": "coworld-egress-jobs",
+      "image": "471879937681.dkr.ecr.us-east-1.amazonaws.com/cogames/h0835grji1zfy5wakd4i56kn-3939e8b7673b/coworld-pudgewars@sha256:49a1956f992e7877317c8d13f5850065555e1ecc3e0553ee6699eb67b6f491d0",
+      "resources": {
+        "requests": {
+          "cpu": "1",
+          "memory": "512Mi"
+        }
+      }
+    },
+    {
+      "pod": "job-f2389628-xn9hv",
+      "node": "i-09af6e47d117320f8",
+      "type": "c6a.4xlarge",
+      "pool": "coworld-egress-jobs",
+      "image": "471879937681.dkr.ecr.us-east-1.amazonaws.com/cogames/h0835grji1zfy5wakd4i56kn-3939e8b7673b/coworld-battle-royale@sha256:4e09a9ff2ae7eac57bb01826fc0afc3d9f3385576140056741050710d416721b",
+      "resources": {
+        "requests": {
+          "cpu": "1",
+          "memory": "512Mi"
+        }
+      }
+    },
+    {
+      "pod": "job-f258469b-2kvvf",
+      "node": "i-0fa8afd0fefe59bea",
+      "type": "c6a.4xlarge",
+      "pool": "coworld-egress-jobs",
+      "image": "471879937681.dkr.ecr.us-east-1.amazonaws.com/cogames/h0835grji1zfy5wakd4i56kn-3939e8b7673b/coworld-battle-royale@sha256:4e09a9ff2ae7eac57bb01826fc0afc3d9f3385576140056741050710d416721b",
+      "resources": {
+        "requests": {
+          "cpu": "1",
+          "memory": "512Mi"
+        }
+      }
+    },
+    {
+      "pod": "job-f2dc0f0b-4jtxv",
+      "node": "i-086b94811c8d35468",
+      "type": "c6a.4xlarge",
+      "pool": "coworld-egress-jobs",
+      "image": "471879937681.dkr.ecr.us-east-1.amazonaws.com/cogames/s25q6tn121cx1j3z7ql3ga5d-da1d0964bdd5/polyworld-gota-coworld@sha256:1c6b764685d86e4e1dc85032c9e1022ac220655bbd01cb8a89dc7ea9929df2fb",
+      "resources": {
+        "requests": {
+          "cpu": "1",
+          "memory": "512Mi"
+        }
+      }
+    },
+    {
+      "pod": "job-f34bb72c-ctqll",
+      "node": "i-08a4227d0ede6fd65",
+      "type": "c6a.4xlarge",
+      "pool": "coworld-egress-jobs",
+      "image": "471879937681.dkr.ecr.us-east-1.amazonaws.com/cogames/cy4wau882qr6p2v9z1prudik-bdfe346bc6af/coworld-ctf-game@sha256:af574fe703c6b2ea29c0924f0b4be10d021a76bc7598aa82cc2b623e89911bdf",
+      "resources": {
+        "requests": {
+          "cpu": "1",
+          "memory": "512Mi"
+        }
+      }
+    },
+    {
+      "pod": "job-f42f087b-c8lsq",
+      "node": "i-05371bccc373b0742",
+      "type": "c8i-flex.4xlarge",
+      "pool": "coworld-egress-jobs",
+      "image": "471879937681.dkr.ecr.us-east-1.amazonaws.com/cogames/cy4wau882qr6p2v9z1prudik-bdfe346bc6af/coworld-ctf-game@sha256:af574fe703c6b2ea29c0924f0b4be10d021a76bc7598aa82cc2b623e89911bdf",
+      "resources": {
+        "requests": {
+          "cpu": "1",
+          "memory": "512Mi"
+        }
+      }
+    },
+    {
+      "pod": "job-f5da105d-wvwzt",
+      "node": "i-06ee1a620970f5d1e",
+      "type": "c6a.4xlarge",
+      "pool": "coworld-egress-jobs",
+      "image": "471879937681.dkr.ecr.us-east-1.amazonaws.com/cogames/cy4wau882qr6p2v9z1prudik-bdfe346bc6af/paintbot-pw@sha256:4aed865fd26c3e50afea6940442acab976a60c3d46adb58558e980ee74127180",
+      "resources": {
+        "limits": {
+          "cpu": "6",
+          "memory": "12Gi"
+        },
+        "requests": {
+          "cpu": "2",
+          "memory": "2Gi"
+        }
+      }
+    },
+    {
+      "pod": "job-f71578aa-f2klw",
+      "node": "i-03274b22816dfbe12",
+      "type": "c6a.4xlarge",
+      "pool": "coworld-egress-jobs",
+      "image": "471879937681.dkr.ecr.us-east-1.amazonaws.com/cogames/cy4wau882qr6p2v9z1prudik-bdfe346bc6af/coworld-ctf-game@sha256:af574fe703c6b2ea29c0924f0b4be10d021a76bc7598aa82cc2b623e89911bdf",
+      "resources": {
+        "requests": {
+          "cpu": "1",
+          "memory": "512Mi"
+        }
+      }
+    },
+    {
+      "pod": "job-f76cc19a-fs5tk",
+      "node": "i-04a48eee4b574414d",
+      "type": "c6a.4xlarge",
+      "pool": "coworld-egress-jobs",
+      "image": "471879937681.dkr.ecr.us-east-1.amazonaws.com/cogames/cy4wau882qr6p2v9z1prudik-bdfe346bc6af/coworld-ctf-game@sha256:af574fe703c6b2ea29c0924f0b4be10d021a76bc7598aa82cc2b623e89911bdf",
+      "resources": {
+        "requests": {
+          "cpu": "1",
+          "memory": "512Mi"
+        }
+      }
+    },
+    {
+      "pod": "job-f82c5ebf-wkt2l",
+      "node": "i-08e4ddb4aadba6c1e",
+      "type": "r5dn.2xlarge",
+      "pool": "coworld-egress-jobs",
+      "image": "471879937681.dkr.ecr.us-east-1.amazonaws.com/cogames/h0835grji1zfy5wakd4i56kn-3939e8b7673b/coworld-battle-royale@sha256:4e09a9ff2ae7eac57bb01826fc0afc3d9f3385576140056741050710d416721b",
+      "resources": {
+        "requests": {
+          "cpu": "1",
+          "memory": "512Mi"
+        }
+      }
+    },
+    {
+      "pod": "job-f85d4444-b5n57",
+      "node": "i-04b4e283111b88360",
+      "type": "c8i-flex.4xlarge",
+      "pool": "coworld-egress-jobs",
+      "image": "471879937681.dkr.ecr.us-east-1.amazonaws.com/cogames/h0835grji1zfy5wakd4i56kn-3939e8b7673b/coworld-battle-royale@sha256:4e09a9ff2ae7eac57bb01826fc0afc3d9f3385576140056741050710d416721b",
+      "resources": {
+        "requests": {
+          "cpu": "1",
+          "memory": "512Mi"
+        }
+      }
+    },
+    {
+      "pod": "job-f8e14ff6-s6ftv",
+      "node": "i-0b7a6451829189ce1",
+      "type": "c6a.4xlarge",
+      "pool": "coworld-egress-jobs",
+      "image": "471879937681.dkr.ecr.us-east-1.amazonaws.com/cogames/s25q6tn121cx1j3z7ql3ga5d-da1d0964bdd5/polyworld-gota-coworld@sha256:1c6b764685d86e4e1dc85032c9e1022ac220655bbd01cb8a89dc7ea9929df2fb",
+      "resources": {
+        "requests": {
+          "cpu": "1",
+          "memory": "512Mi"
+        }
+      }
+    },
+    {
+      "pod": "job-fad75506-ccdrk",
+      "node": "i-086b94811c8d35468",
+      "type": "c6a.4xlarge",
+      "pool": "coworld-egress-jobs",
+      "image": "471879937681.dkr.ecr.us-east-1.amazonaws.com/cogames/s25q6tn121cx1j3z7ql3ga5d-da1d0964bdd5/polyworld-gota-coworld@sha256:1c6b764685d86e4e1dc85032c9e1022ac220655bbd01cb8a89dc7ea9929df2fb",
+      "resources": {
+        "requests": {
+          "cpu": "1",
+          "memory": "512Mi"
+        }
+      }
+    },
+    {
+      "pod": "job-fc79b314-bvrv6",
+      "node": "i-09e3b8c687c4e4a6f",
+      "type": "c6a.4xlarge",
+      "pool": "coworld-egress-jobs",
+      "image": "471879937681.dkr.ecr.us-east-1.amazonaws.com/cogames/cy4wau882qr6p2v9z1prudik-bdfe346bc6af/coworld-ctf-game@sha256:af574fe703c6b2ea29c0924f0b4be10d021a76bc7598aa82cc2b623e89911bdf",
+      "resources": {
+        "requests": {
+          "cpu": "1",
+          "memory": "512Mi"
+        }
+      }
+    },
+    {
+      "pod": "job-fdea59b6-cclkn",
+      "node": "i-0cb78dfb3f707743e",
+      "type": "c6a.4xlarge",
+      "pool": "coworld-egress-jobs",
+      "image": "471879937681.dkr.ecr.us-east-1.amazonaws.com/cogames/h0835grji1zfy5wakd4i56kn-3939e8b7673b/coworld-pudgewars@sha256:49a1956f992e7877317c8d13f5850065555e1ecc3e0553ee6699eb67b6f491d0",
+      "resources": {
+        "requests": {
+          "cpu": "1",
+          "memory": "512Mi"
+        }
+      }
+    },
+    {
+      "pod": "job-ff04ebc5-zhfp5",
+      "node": "i-0a8012f8fa53a273a",
+      "type": "c6a.4xlarge",
+      "pool": "coworld-egress-jobs",
+      "image": "471879937681.dkr.ecr.us-east-1.amazonaws.com/cogames/h0835grji1zfy5wakd4i56kn-3939e8b7673b/coworld-pudgewars@sha256:49a1956f992e7877317c8d13f5850065555e1ecc3e0553ee6699eb67b6f491d0",
+      "resources": {
+        "requests": {
+          "cpu": "1",
+          "memory": "512Mi"
+        }
+      }
+    },
+    {
+      "pod": "job-ff304429-jhr2j",
+      "node": "i-0c0f886fd29f71991",
+      "type": "c6a.4xlarge",
+      "pool": "coworld-egress-jobs",
+      "image": "471879937681.dkr.ecr.us-east-1.amazonaws.com/cogames/h0835grji1zfy5wakd4i56kn-3939e8b7673b/coworld-battle-royale@sha256:4e09a9ff2ae7eac57bb01826fc0afc3d9f3385576140056741050710d416721b",
+      "resources": {
+        "requests": {
+          "cpu": "1",
+          "memory": "512Mi"
+        }
+      }
+    },
+    {
+      "pod": "job-ff6fffd1-p6fcd",
+      "node": "i-01f58892f96faacd8",
+      "type": "c6a.4xlarge",
+      "pool": "coworld-egress-jobs",
+      "image": "471879937681.dkr.ecr.us-east-1.amazonaws.com/cogames/h0835grji1zfy5wakd4i56kn-3939e8b7673b/coworld-pudgewars@sha256:49a1956f992e7877317c8d13f5850065555e1ecc3e0553ee6699eb67b6f491d0",
+      "resources": {
+        "requests": {
+          "cpu": "1",
+          "memory": "512Mi"
+        }
+      }
+    },
+    {
+      "pod": "league-player-27e478f1062d4374be99-h7tw5",
+      "node": "i-031266fdf89bc84cd",
+      "type": "c6a.4xlarge",
+      "pool": "coworld-egress-jobs",
+      "image": "471879937681.dkr.ecr.us-east-1.amazonaws.com/cogames/s5hvylinkg2z4k24wg9xlo8q-7e9c855786da/coworld-persistent-wow-game@sha256:726ffda781ac3970d3327afe391fb073e1f54a36f1ed450b99825afbbce113a8",
+      "resources": {
+        "requests": {
+          "cpu": "1",
+          "ephemeral-storage": "1Gi",
+          "memory": "1Gi"
+        }
+      }
+    },
+    {
+      "pod": "league-player-42515e38e9294e089475-6qc8v",
+      "node": "i-0994a28e93cc927e6",
+      "type": "r5n.2xlarge",
+      "pool": "coworld-egress-jobs",
+      "image": "471879937681.dkr.ecr.us-east-1.amazonaws.com/cogames/s5hvylinkg2z4k24wg9xlo8q-7e9c855786da/coworld-persistent-wow-game@sha256:726ffda781ac3970d3327afe391fb073e1f54a36f1ed450b99825afbbce113a8",
+      "resources": {
+        "requests": {
+          "cpu": "1",
+          "ephemeral-storage": "1Gi",
+          "memory": "1Gi"
+        }
+      }
+    },
+    {
+      "pod": "league-player-4bd039ff048e4729bace-xw6fg",
+      "node": "i-07d2fe67eebf0fffd",
+      "type": "c8i-flex.4xlarge",
+      "pool": "coworld-egress-jobs",
+      "image": "471879937681.dkr.ecr.us-east-1.amazonaws.com/cogames/s5hvylinkg2z4k24wg9xlo8q-7e9c855786da/coworld-persistent-wow-game@sha256:726ffda781ac3970d3327afe391fb073e1f54a36f1ed450b99825afbbce113a8",
+      "resources": {
+        "requests": {
+          "cpu": "1",
+          "ephemeral-storage": "1Gi",
+          "memory": "1Gi"
+        }
+      }
+    },
+    {
+      "pod": "league-player-50500fc676a54ac0a9f3-rjhnq",
+      "node": "i-0effa673fb45c7298",
+      "type": "c6a.4xlarge",
+      "pool": "coworld-egress-jobs",
+      "image": "471879937681.dkr.ecr.us-east-1.amazonaws.com/cogames/s5hvylinkg2z4k24wg9xlo8q-7e9c855786da/coworld-persistent-wow-game@sha256:726ffda781ac3970d3327afe391fb073e1f54a36f1ed450b99825afbbce113a8",
+      "resources": {
+        "requests": {
+          "cpu": "1",
+          "ephemeral-storage": "1Gi",
+          "memory": "1Gi"
+        }
+      }
+    },
+    {
+      "pod": "league-player-8c97b7c4edac4e0aac34-5nmd7",
+      "node": "i-06df281cb4f58c6d2",
+      "type": "c6a.4xlarge",
+      "pool": "coworld-egress-jobs",
+      "image": "471879937681.dkr.ecr.us-east-1.amazonaws.com/cogames/s5hvylinkg2z4k24wg9xlo8q-7e9c855786da/coworld-persistent-wow-game@sha256:726ffda781ac3970d3327afe391fb073e1f54a36f1ed450b99825afbbce113a8",
+      "resources": {
+        "requests": {
+          "cpu": "1",
+          "ephemeral-storage": "1Gi",
+          "memory": "1Gi"
+        }
+      }
+    },
+    {
+      "pod": "league-player-ebbf6ce75f664bbaa02a-pg9sq",
+      "node": "i-0e4df2d760344aafa",
+      "type": "c8i-flex.4xlarge",
+      "pool": "coworld-egress-jobs",
+      "image": "471879937681.dkr.ecr.us-east-1.amazonaws.com/cogames/s5hvylinkg2z4k24wg9xlo8q-7e9c855786da/coworld-persistent-wow-game@sha256:726ffda781ac3970d3327afe391fb073e1f54a36f1ed450b99825afbbce113a8",
+      "resources": {
+        "requests": {
+          "cpu": "1",
+          "ephemeral-storage": "1Gi",
+          "memory": "1Gi"
+        }
+      }
+    }
+  ]
+}

@@ -1,0 +1,417 @@
+{
+  "rows": [
+    {
+      "variant": "parent",
+      "budget": 256,
+      "repeat": 1,
+      "exit": {
+        "code": 0,
+        "wall_seconds": 59.16095021599995
+      },
+      "total_ns": 31019608546,
+      "p50_ns": 24370296,
+      "p95_ns": 49624014,
+      "max_ns": 292712164,
+      "deadline_misses": 102,
+      "pending_seat_ticks": 210,
+      "no_path_seat_ticks": 61,
+      "stale_seat_ticks": 424,
+      "play_faults": 0,
+      "stage_window_ticks": 1200,
+      "stage_totals_us": {
+        "shell_us": 22092415,
+        "sim_us": 191594,
+        "lifecycle_us": 77564,
+        "default_us": 118112,
+        "reflex_us": 10167455,
+        "context_us": 494072,
+        "view_us": 1098441,
+        "guard_us": 32833,
+        "ladder_us": 2248690,
+        "standing_us": 117738,
+        "belief_us": 71298,
+        "follower_us": 13191,
+        "weapon_us": 104868,
+        "danger_us": 850303,
+        "planning_us": 7864804,
+        "compile_us": 2511
+      },
+      "semantic_sha256": "a2b4288c6291f6840dd30446d66dbbc086e780c7b6440b6e4e9b33ce88aee4ee"
+    },
+    {
+      "variant": "parent",
+      "budget": 256,
+      "repeat": 2,
+      "exit": {
+        "code": 0,
+        "wall_seconds": 59.307830058000036
+      },
+      "total_ns": 31200861378,
+      "p50_ns": 24511062,
+      "p95_ns": 51629552,
+      "max_ns": 293981095,
+      "deadline_misses": 104,
+      "pending_seat_ticks": 210,
+      "no_path_seat_ticks": 61,
+      "stale_seat_ticks": 424,
+      "play_faults": 0,
+      "stage_window_ticks": 1200,
+      "stage_totals_us": {
+        "shell_us": 22256711,
+        "sim_us": 190437,
+        "lifecycle_us": 77253,
+        "default_us": 117980,
+        "reflex_us": 10182244,
+        "context_us": 496614,
+        "view_us": 1121488,
+        "guard_us": 33589,
+        "ladder_us": 2273331,
+        "standing_us": 120023,
+        "belief_us": 70948,
+        "follower_us": 13465,
+        "weapon_us": 104799,
+        "danger_us": 850536,
+        "planning_us": 7984071,
+        "compile_us": 2534
+      },
+      "semantic_sha256": "a2b4288c6291f6840dd30446d66dbbc086e780c7b6440b6e4e9b33ce88aee4ee"
+    },
+    {
+      "variant": "parent",
+      "budget": 256,
+      "repeat": 3,
+      "exit": {
+        "code": 0,
+        "wall_seconds": 59.210156604000076
+      },
+      "total_ns": 31489861126,
+      "p50_ns": 24917054,
+      "p95_ns": 51201883,
+      "max_ns": 293056681,
+      "deadline_misses": 108,
+      "pending_seat_ticks": 210,
+      "no_path_seat_ticks": 61,
+      "stale_seat_ticks": 424,
+      "play_faults": 0,
+      "stage_window_ticks": 1200,
+      "stage_totals_us": {
+        "shell_us": 22497523,
+        "sim_us": 190270,
+        "lifecycle_us": 77508,
+        "default_us": 117590,
+        "reflex_us": 10241168,
+        "context_us": 498903,
+        "view_us": 1105303,
+        "guard_us": 33361,
+        "ladder_us": 2253945,
+        "standing_us": 118795,
+        "belief_us": 71250,
+        "follower_us": 13377,
+        "weapon_us": 104628,
+        "danger_us": 853241,
+        "planning_us": 8182177,
+        "compile_us": 2552
+      },
+      "semantic_sha256": "a2b4288c6291f6840dd30446d66dbbc086e780c7b6440b6e4e9b33ce88aee4ee"
+    },
+    {
+      "variant": "parent",
+      "budget": 512,
+      "repeat": 1,
+      "exit": {
+        "code": 0,
+        "wall_seconds": 58.5573647909996
+      },
+      "total_ns": 31190798182,
+      "p50_ns": 25940484,
+      "p95_ns": 45700383,
+      "max_ns": 301240428,
+      "deadline_misses": 136,
+      "pending_seat_ticks": 87,
+      "no_path_seat_ticks": 42,
+      "stale_seat_ticks": 297,
+      "play_faults": 0,
+      "stage_window_ticks": 1200,
+      "stage_totals_us": {
+        "shell_us": 21463793,
+        "sim_us": 190189,
+        "lifecycle_us": 79955,
+        "default_us": 117218,
+        "reflex_us": 10159728,
+        "context_us": 493685,
+        "view_us": 1077727,
+        "guard_us": 33518,
+        "ladder_us": 2258610,
+        "standing_us": 116625,
+        "belief_us": 70265,
+        "follower_us": 12905,
+        "weapon_us": 95828,
+        "danger_us": 792835,
+        "planning_us": 7300073,
+        "compile_us": 2551
+      },
+      "semantic_sha256": "78d1e38708db1d84cc338902c58d797e8e493059ba8d1f3932c63c8083207c0a"
+    },
+    {
+      "variant": "parent",
+      "budget": 512,
+      "repeat": 2,
+      "exit": {
+        "code": 0,
+        "wall_seconds": 58.55700097499994
+      },
+      "total_ns": 31271323871,
+      "p50_ns": 26006270,
+      "p95_ns": 45654489,
+      "max_ns": 301932456,
+      "deadline_misses": 139,
+      "pending_seat_ticks": 87,
+      "no_path_seat_ticks": 42,
+      "stale_seat_ticks": 297,
+      "play_faults": 0,
+      "stage_window_ticks": 1200,
+      "stage_totals_us": {
+        "shell_us": 21515308,
+        "sim_us": 190076,
+        "lifecycle_us": 76641,
+        "default_us": 117258,
+        "reflex_us": 10209044,
+        "context_us": 493022,
+        "view_us": 1090363,
+        "guard_us": 33049,
+        "ladder_us": 2275005,
+        "standing_us": 116649,
+        "belief_us": 70512,
+        "follower_us": 13099,
+        "weapon_us": 96061,
+        "danger_us": 793227,
+        "planning_us": 7289383,
+        "compile_us": 2596
+      },
+      "semantic_sha256": "78d1e38708db1d84cc338902c58d797e8e493059ba8d1f3932c63c8083207c0a"
+    },
+    {
+      "variant": "parent",
+      "budget": 512,
+      "repeat": 3,
+      "exit": {
+        "code": 0,
+        "wall_seconds": 58.55865170299967
+      },
+      "total_ns": 31348383502,
+      "p50_ns": 26055874,
+      "p95_ns": 45893766,
+      "max_ns": 301732155,
+      "deadline_misses": 139,
+      "pending_seat_ticks": 87,
+      "no_path_seat_ticks": 42,
+      "stale_seat_ticks": 297,
+      "play_faults": 0,
+      "stage_window_ticks": 1200,
+      "stage_totals_us": {
+        "shell_us": 21586210,
+        "sim_us": 192895,
+        "lifecycle_us": 75924,
+        "default_us": 117405,
+        "reflex_us": 10214865,
+        "context_us": 493468,
+        "view_us": 1087500,
+        "guard_us": 34879,
+        "ladder_us": 2287948,
+        "standing_us": 117378,
+        "belief_us": 69779,
+        "follower_us": 12929,
+        "weapon_us": 95133,
+        "danger_us": 796139,
+        "planning_us": 7336983,
+        "compile_us": 2886
+      },
+      "semantic_sha256": "78d1e38708db1d84cc338902c58d797e8e493059ba8d1f3932c63c8083207c0a"
+    },
+    {
+      "variant": "candidate",
+      "budget": 512,
+      "repeat": 1,
+      "exit": {
+        "code": 0,
+        "wall_seconds": 58.006962154000576
+      },
+      "total_ns": 27669553346,
+      "p50_ns": 20959117,
+      "p95_ns": 37657494,
+      "max_ns": 274927856,
+      "deadline_misses": 29,
+      "pending_seat_ticks": 87,
+      "no_path_seat_ticks": 42,
+      "stale_seat_ticks": 297,
+      "play_faults": 0,
+      "stage_window_ticks": 1200,
+      "stage_totals_us": {
+        "shell_us": 17983567,
+        "sim_us": 189652,
+        "lifecycle_us": 75715,
+        "default_us": 110892,
+        "reflex_us": 9776363,
+        "context_us": 492781,
+        "view_us": 1093252,
+        "guard_us": 32572,
+        "ladder_us": 2245749,
+        "standing_us": 117218,
+        "belief_us": 69525,
+        "follower_us": 12672,
+        "weapon_us": 95709,
+        "danger_us": 800278,
+        "planning_us": 4220716,
+        "compile_us": 2613
+      },
+      "semantic_sha256": "78d1e38708db1d84cc338902c58d797e8e493059ba8d1f3932c63c8083207c0a"
+    },
+    {
+      "variant": "candidate",
+      "budget": 512,
+      "repeat": 2,
+      "exit": {
+        "code": 0,
+        "wall_seconds": 57.955512667999756
+      },
+      "total_ns": 27739788808,
+      "p50_ns": 21302054,
+      "p95_ns": 37689406,
+      "max_ns": 275054539,
+      "deadline_misses": 28,
+      "pending_seat_ticks": 87,
+      "no_path_seat_ticks": 42,
+      "stale_seat_ticks": 297,
+      "play_faults": 0,
+      "stage_window_ticks": 1200,
+      "stage_totals_us": {
+        "shell_us": 18064843,
+        "sim_us": 189381,
+        "lifecycle_us": 79625,
+        "default_us": 110630,
+        "reflex_us": 9827085,
+        "context_us": 494946,
+        "view_us": 1097151,
+        "guard_us": 33516,
+        "ladder_us": 2252608,
+        "standing_us": 119221,
+        "belief_us": 70724,
+        "follower_us": 12849,
+        "weapon_us": 95207,
+        "danger_us": 800645,
+        "planning_us": 4235590,
+        "compile_us": 2651
+      },
+      "semantic_sha256": "78d1e38708db1d84cc338902c58d797e8e493059ba8d1f3932c63c8083207c0a"
+    },
+    {
+      "variant": "candidate",
+      "budget": 512,
+      "repeat": 3,
+      "exit": {
+        "code": 0,
+        "wall_seconds": 58.00739005499963
+      },
+      "total_ns": 27686322760,
+      "p50_ns": 20947274,
+      "p95_ns": 37276713,
+      "max_ns": 274674653,
+      "deadline_misses": 25,
+      "pending_seat_ticks": 87,
+      "no_path_seat_ticks": 42,
+      "stale_seat_ticks": 297,
+      "play_faults": 0,
+      "stage_window_ticks": 1200,
+      "stage_totals_us": {
+        "shell_us": 17930988,
+        "sim_us": 190653,
+        "lifecycle_us": 78463,
+        "default_us": 111476,
+        "reflex_us": 9842191,
+        "context_us": 496433,
+        "view_us": 1104537,
+        "guard_us": 33280,
+        "ladder_us": 2257654,
+        "standing_us": 119470,
+        "belief_us": 72171,
+        "follower_us": 13071,
+        "weapon_us": 95992,
+        "danger_us": 810444,
+        "planning_us": 4069563,
+        "compile_us": 2679
+      },
+      "semantic_sha256": "78d1e38708db1d84cc338902c58d797e8e493059ba8d1f3932c63c8083207c0a"
+    }
+  ],
+  "paired": {
+    "256": {
+      "ratios": {
+        "total_ns": [
+          0.8920020155950036,
+          0.8890712494097861,
+          0.8792138729738773
+        ],
+        "p50_ns": [
+          0.8600271822714012,
+          0.8690791937126184,
+          0.8406802024027399
+        ],
+        "p95_ns": [
+          0.7588562666454189,
+          0.729996766193129,
+          0.728034025623628
+        ],
+        "max_ns": [
+          0.9392430169044836,
+          0.9356198193628743,
+          0.9372748372865112
+        ]
+      },
+      "median_ratios": {
+        "total_ns": 0.8890712494097861,
+        "p50_ns": 0.8600271822714012,
+        "p95_ns": 0.729996766193129,
+        "max_ns": 0.9372748372865112
+      },
+      "parent_worst_misses": 108,
+      "candidate_worst_misses": 29
+    },
+    "512": {
+      "ratios": {
+        "total_ns": [
+          0.8871062928414546,
+          0.8870679387425926,
+          0.8831818316320404
+        ],
+        "p50_ns": [
+          0.8079693886976048,
+          0.8191122371643453,
+          0.8039367245942316
+        ],
+        "p95_ns": [
+          0.8240082801931878,
+          0.8255356006722581,
+          0.8122391394072999
+        ],
+        "max_ns": [
+          0.9126525872549882,
+          0.910980365091986,
+          0.9103260903697851
+        ]
+      },
+      "median_ratios": {
+        "total_ns": 0.8870679387425926,
+        "p50_ns": 0.8079693886976048,
+        "p95_ns": 0.8240082801931878,
+        "max_ns": 0.910980365091986
+      },
+      "parent_worst_misses": 139,
+      "candidate_worst_misses": 29
+    }
+  },
+  "semantic_exact": true,
+  "repeat_semantic_exact": true,
+  "intermediate_screen_pass": true,
+  "training_scenario_512_target": true,
+  "qualification": "Training scenario only; no full-game shipping qualification claim."
+}

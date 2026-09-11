@@ -1,0 +1,5 @@
+68bd18a3fe874307a4e52eaecd6e9e8cd609fd5a8232c42a72ab13c62edcc7d1  /Users/jamesboggs/coding/coworlds/coworld-ctf-worktrees/nav-512-peer/docs/research/nav-512-2026-09-11/CROSS_ARCH/fma_probe.nim
+f77b267acbb86814758a310a608275bd7faaa8787f0103687581217a1f532800  /Users/jamesboggs/coding/coworlds/coworld-ctf-worktrees/nav-512-peer/docs/research/nav-512-2026-09-11/CROSS_ARCH/split_digest.nim
+5fabe7f0a4e02727f81128bf8998916c65aec3e149de6e1fcbeae2ab7eba3e55  /Users/jamesboggs/coding/coworlds/coworld-ctf-worktrees/nav-512-peer/docs/research/nav-512-2026-09-11/CROSS_ARCH/local-fma-probe.txt
+b3877ed61e9391931103618709ae637f57b8e18a4bcd826cf488169fce46b784  /Users/jamesboggs/coding/coworlds/coworld-ctf-worktrees/nav-512-peer/docs/research/nav-512-2026-09-11/CROSS_ARCH/local-split-digest.txt
+60e1abc6456ec97053d118e237b4290745ddf138757eb4b80c0968c19756a6ff  /Users/jamesboggs/coding/coworlds/coworld-ctf-worktrees/nav-512-peer/docs/research/nav-512-2026-09-11/CROSS_ARCH/sha256.txt
