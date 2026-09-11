@@ -1,6 +1,4 @@
-*Verified against [[versions|GV24 / Glory 12]].*
-
-**Verified against `GV24 / Glory 12` — the live game is `GV63 / GLORYVERSION 18`; treat details as unconfirmed.**
+*Verified against `paintbot-v0.7.397` (GV63 / GLORYVERSION 18), 2026-09-11 — see `docs/wiki/_era.md`.*
 
 A league is Paintbot's competition container for one game: it groups entrants
 into one or more divisions, schedules rounds of episodes for each division,
