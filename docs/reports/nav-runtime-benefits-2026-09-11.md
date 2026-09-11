@@ -115,3 +115,27 @@ The owned sandbox m5a host was temporarily restarted for these measurements.
 The token broker vends a different AWS account and no sandbox scope; sandbox
 profile access was therefore used for this owned host. Public SSH used the
 previously pinned host key; Tailscale membership was unnecessary.
+
+## Release build prerequisite
+
+The optimization port merged as
+[`a98a0048`, PR 544](https://github.com/Metta-AI/coworld-ctf/pull/544), with all
+PR checks green and matching fetched-main content and stable patch identity.
+Release verification found a pre-existing failure in the
+[scheduled upload](https://github.com/Metta-AI/coworld-ctf/actions/runs/34627333495):
+`curl` could not write `/tmp/wasi-sdk.tar.gz` in the baseline playbook stage.
+Inspecting the exact Nix base digest
+`sha256:4fec24fb63119561ab13232564ec99fe6124a37e65336dbd83c4f700f2ef01a4`
+confirmed absent `/tmp`, `tar`, `gzip` and `/lib64`.
+
+The playbook stage now uses the existing starter-policy recipe's
+`nimlang/nim:2.2.6` base. Only WASM files cross that boundary; the native build
+and runtime retain their matching Nix pins. Creating `/tmp` alone would leave
+archive-tool and WASI SDK loader failures unresolved.
+
+The complete linux/amd64 baseline Docker build passed locally. Its native
+binary starts and reaches the expected required-websocket-URL check; the
+runtime image contains all nine reference WASM modules with valid WASM headers.
+See the baseline README's build section for the ownership of the three stages.
+The owned m5a benchmark instance was confirmed stopped after evidence download;
+this release-build check ran in local Docker and needs no Tailscale access.
