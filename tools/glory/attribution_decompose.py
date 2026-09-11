@@ -94,7 +94,11 @@ BUCKETS = ["RECIPE_BASE", "PLACEMENT_BASE", "OTHER_DEED_BASE", "HEAT",
 # folded into `RECIPE_BASE`, matching the GV61 read's own "on top of
 # attribution_analyze.py's own bucket output" split, but built in natively
 # here per round_number instead of as an external post-process.
-V3_PLACEMENT_WEAPONS = {"dFinal8", "dFinal4", "dFinal2", "survivalCredit"}
+# `survivalCredit` is the placement ladder's CONTINUOUS twin, not a fourth
+# milestone rung -- see catalog_fold.CONTINUOUS_CREDIT_WEAPONS for the
+# catalogued semantics and why its bucket is HANDED, not CONSTANT.
+V3_PLACEMENT_WEAPONS = (frozenset({"dFinal8", "dFinal4", "dFinal2"})
+                         | catalog_fold.CONTINUOUS_CREDIT_WEAPONS)
 V3_RECIPE_WEAPONS = {"dClosingTime"}  # dJointAct handled by era-split below
 
 
@@ -258,12 +262,12 @@ def decompose_episode_v3(jsonl_path, round_number, catalog=catalog_fold.CATALOG_
         # class/heat/carry/stack/territory sub-split.
         content = e.get("content") or ""
         parts = content.split("|")
-        if weapon == "survivalCredit" or len(parts) != 4:
+        if weapon in catalog_fold.CONTINUOUS_CREDIT_WEAPONS or len(parts) != 4:
             # survivalCredit's content is a plain marker string ("GLORY_
             # SURVIVAL_CREDIT"), not a 4-part tuple -- it is the placement
             # ramp's own continuous companion credit (CATALOG-V3-DRAFT.md
             # Sec 4), bucketed PLACEMENT_BASE wholesale, no sub-split.
-            if weapon == "survivalCredit":
+            if weapon in catalog_fold.CONTINUOUS_CREDIT_WEAPONS:
                 buckets[t]["PLACEMENT_BASE"] += contribution_log2
             else:
                 buckets[t]["UNRESOLVED"] += contribution_log2

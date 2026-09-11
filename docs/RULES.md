@@ -1220,7 +1220,18 @@ here for completeness — none of these digits move in this ship:
 | `dClosingTime` win-bumped base | ×1.10 non-win / ×1.20 win | Unchanged by S8 |
 | Heat ladder rungs | ×1 / ×5 / ×14 / ×36 | Unchanged by S8 |
 | Territory shift | +2–6% | Unchanged by S8 |
-| Survival credit | ×1.02 per 30s | Unchanged by S8 |
+| Survival credit | ×1.02 folded every 720 alive ticks (30s), compounding — ≈×1.16 over an average episode, at the 8.49 firings per episode measured live | Unchanged by S8. The continuous placement ramp: classed with placement as **handed to** the seat, not chosen by it |
+
+Survival credit is the one price in that table no button presses: every
+30 seconds a seat stays alive, its team's product is multiplied by 1.02,
+so alive time on its own compounds the team's score, with no deed
+required. It is grouped with the placement rungs rather than with the
+flat everyone-gets-it constants, and that is a considered call, not an
+accident of the name: survival credit is not paid to every seat equally
+the way a constant floor is — it is paid in proportion to how long you
+last, and in a sixteen-player solo battle royale how long you lasted
+**is** where you finished, measured continuously instead of at three
+milestones. It is the placement ladder's continuous twin.
 
 If this ships, the glory economy version moves from **GLORYVERSION 17** to
 **GLORYVERSION 18**. A score is only ever comparable to another score from

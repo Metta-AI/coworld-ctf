@@ -126,6 +126,10 @@ def recut_mode_lit_bonus(light_count: int) -> int:
 # `docs/designs/glory/CATALOG-V3-DRAFT.md` "FREEZE CONDITION 1" mapping,
 # verbatim (module docstring above has the full citation + the two
 # CHOSEN additions this sweep introduces: JOINTACT_CHOSEN, MODE_LIT_CHOSEN).
+# `PLACEMENT_BASE` carries `dFinal8`/`dFinal4`/`dFinal2` AND `survivalCredit`
+# (the placement ladder's continuous twin -- catalog_fold.
+# CONTINUOUS_CREDIT_WEAPONS has the reasoning), so survival credit scores
+# HANDED here, never CHOSEN.
 BUCKET_HANDED = frozenset({"PLACEMENT_BASE", "WIN"})
 BUCKET_CONSTANT = frozenset({"RECIPE_BASE", "ACHIEVEMENTS", "TERRITORY"})
 BUCKET_CHOSEN = frozenset({
@@ -304,8 +308,10 @@ def sweep_episode(jsonl_path: str, round_number: int, cap: int, s4b_armed: bool,
             continue
         content = e.get("content") or ""
         parts = content.split("|")
-        if weapon == "survivalCredit" or len(parts) != 4:
-            if weapon == "survivalCredit":
+        if weapon in catalog_fold.CONTINUOUS_CREDIT_WEAPONS or len(parts) != 4:
+            # The placement ladder's continuous twin -- HANDED, not CONSTANT
+            # (catalog_fold.CONTINUOUS_CREDIT_WEAPONS carries the reasoning).
+            if weapon in catalog_fold.CONTINUOUS_CREDIT_WEAPONS:
                 buckets[t]["PLACEMENT_BASE"] += contribution_log2
             else:
                 buckets[t]["UNRESOLVED"] += contribution_log2

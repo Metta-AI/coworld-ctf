@@ -70,6 +70,43 @@ HEAT_PAYING_DEEDS = frozenset({
 # glory.nim `RecutPlacementRampDeeds* = {dFinal8, dFinal4, dFinal2}`.
 PLACEMENT_RAMP_DEEDS = frozenset({"dFinal8", "dFinal4", "dFinal2"})
 
+# The placement ramp's CONTINUOUS companion -- the one priced weapon on the
+# armed v3 wire that is not a member of glory.nim's `GloryDeed` enum at all,
+# which is why it is absent from `RECUT_CLASS_TABLE` below by construction
+# rather than by oversight, and why it never appeared in the 31-deed
+# catalog. Catalogued here so the catalog is complete.
+#
+# SEMANTICS, matching the sim exactly (`recutMintSurvivalCredit`,
+# sim.nim:8128-8158): every `RecutSurvivalCreditIntervalTicks` boundary an
+# ALIVE seat's `aliveTicks` crosses -- 720 ticks, 30 s at the engine's 24
+# ticks/s -- it folds `RecutSurvivalCreditPct` (102 = x1.02) into
+# `gloryProduct[team]` through the SAME `recutFoldPct` fixed-point path
+# every other v3 price uses, compounding, and emits a raw
+# `emitEvent(GloryDeed, weapon="survivalCredit", amount=102,
+# content="GLORY_SURVIVAL_CREDIT")` that BYPASSES `awardDeed` -- so it
+# carries no `shiftedClass|heat|carry|stack` sub-factor tuple, unlike every
+# deed that does route through `awardDeed`. Gated on placementRampV3 +
+# gloryMultiplierRecut + winAsMultiplier + brMode (all armed live).
+#
+# THIS IS A RECORD OF THE PRICE, NOT A NEW FOLD INPUT. Because the wire
+# `amount` already IS that percent, `fold_events_v3` has always priced
+# `survivalCredit` correctly with no table entry (it carries its own
+# contribution -- the exact opposite of `achModeLit` below, whose bonus was
+# ALREADY embedded in its paired achievement event and so had to be excluded
+# from the fold). Nothing on the reconciliation path reads the names below;
+# adding them changes no reconciled number.
+#
+# ATTRIBUTION CLASS -- HANDED (`PLACEMENT_BASE`), a CONSIDERED call, not an
+# artifact of the weapon name; do not "fix" it to CONSTANT. Survival credit
+# is not paid to every seat equally the way the CONSTANT floor is: it is
+# paid in proportion to how long you last, and in a 16-solo battle royale
+# "how long you lasted" IS "where you finished", measured continuously. It
+# is the placement ladder's continuous twin -- which is why bundling it with
+# `dFinal8`/`dFinal4`/`dFinal2` in attribution_decompose.py's
+# `V3_PLACEMENT_WEAPONS` (and routing it to `PLACEMENT_BASE` there and in
+# cap_sweep.py) is correct.
+CONTINUOUS_CREDIT_WEAPONS = frozenset({"survivalCredit"})
+
 # sim.nim emits these `GloryDeed`-kind wire events OUTSIDE the
 # awardDeed/claimAchievement fold entirely -- pure informational markers,
 # never folded into `gloryProduct` (see sim.nim ~L357/380 `capHit`,
@@ -142,6 +179,15 @@ RECUT_CLOSING_TIME_WIN_BUMP_V3_PCT = 120
 # GLORY GRADIENT S8 PLACEMENT LADDER B (owner decision, 2026-09-10,
 # CAP-CEILING-S7.md §Placement): moved off S5/S6's 100/100/130.
 RECUT_PLACEMENT_RAMP_PCT = {"dFinal8": 115, "dFinal4": 130, "dFinal2": 160}
+# glory.nim `RecutSurvivalCreditPct*` / `RecutSurvivalCreditIntervalTicks*`
+# (3134 / 3128): the placement ramp's continuous companion price, x1.02 per
+# 720 alive ticks (30 s at 24 ticks/s), compounding -- measured live at 8.49
+# firings/episode, ~x1.16 on the team product. See
+# `CONTINUOUS_CREDIT_WEAPONS` above for the full semantics and the HANDED
+# classification. Recorded, not read by the fold: the wire `amount` already
+# carries this percent.
+RECUT_SURVIVAL_CREDIT_PCT = 102
+RECUT_SURVIVAL_CREDIT_INTERVAL_TICKS = 720
 HEAT_LADDER_V3_PCT = (100, 500, 1400, 3600)  # rung 0..3
 RECUT_STACK_LADDER_V3_PCT = (100, 500, 750, 1250, 2000, 3250)  # k=1..6+
 CARRIER_HOLD_MULT_PCT = 200
