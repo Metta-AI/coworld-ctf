@@ -156,9 +156,20 @@ def find_banner_line(lines: list[str], after: int = 0) -> int | None:
 
 
 def reband_text(
-    text: str, era_gv: int, era_glory: int, reband: bool
+    text: str, era_gv: int, era_glory: int, reband: bool, slug: str | None = None
 ) -> tuple[str, str]:
     """Compute the (possibly) re-banded text for one page.
+
+    `slug` is the page's slug (its filename stem, e.g. "changelog-2026-09-04"
+    for docs/wiki/changelog-2026-09-04.md). When given and
+    `is_dated_log_slug(slug)` is true, the text is returned completely
+    untouched — dated, point-in-time log pages are never banner-stamped
+    (see DATED_LOG_SLUG_RE's docstring). This mirrors the check
+    reband_live.py's process_one() makes before ever calling this function,
+    so the two scripts agree on the exemption regardless of call site —
+    this local script previously lacked the check and would incorrectly
+    stamp changelog-YYYY-MM-DD pages that happen to have a parseable
+    "Verified against ..." first line.
 
     Returns (new_text, status), where status is one of:
       'current'               — already correct, nothing to do
@@ -170,7 +181,12 @@ def reband_text(
                                  `reband` is True so it was replaced
       'unparsed'               — no recognizable "Verified against ..."
                                  stamp found near the top; never touched
+      'exempt-dated-log'       — `slug` matches DATED_LOG_SLUG_RE; never
+                                 touched, regardless of its own stamp
     """
+    if slug is not None and is_dated_log_slug(slug):
+        return text, "exempt-dated-log"
+
     lines = text.splitlines(keepends=True)
     if not lines:
         return text, "unparsed"
@@ -213,7 +229,7 @@ def process_page(
     path: Path, era_gv: int, era_glory: int, write: bool, reband: bool
 ) -> str:
     text = path.read_text()
-    new_text, status = reband_text(text, era_gv, era_glory, reband)
+    new_text, status = reband_text(text, era_gv, era_glory, reband, slug=path.stem)
     if write and status in ("stale", "rebanded"):
         path.write_text(new_text)
     return status
@@ -247,6 +263,7 @@ def main() -> int:
         "stale-already-banded": [],
         "rebanded": [],
         "unparsed": [],
+        "exempt-dated-log": [],
     }
 
     pages = sorted(
@@ -278,6 +295,10 @@ def main() -> int:
         f"— {results['rebanded']}"
     )
     print(f"  unparsed (no recognizable stamp, skipped): {len(results['unparsed'])} — {results['unparsed']}")
+    print(
+        f"  exempt (dated changelog log page, never banded): "
+        f"{len(results['exempt-dated-log'])} — {results['exempt-dated-log']}"
+    )
 
     if args.check and (results["stale"] or results["stale-already-banded"] or results["rebanded"]):
         return 1

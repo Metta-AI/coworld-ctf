@@ -212,7 +212,7 @@ def process_one(
     else:
         row["before_banner_era"] = "none"
 
-    new_body, status = reb.reband_text(body, era_gv, era_glory, reband=True)
+    new_body, status = reb.reband_text(body, era_gv, era_glory, reband=True, slug=slug)
     row["status"] = status
     row["final_body"] = new_body  # used by --mirror-missing regardless of apply
 

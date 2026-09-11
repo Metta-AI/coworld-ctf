@@ -236,3 +236,67 @@ def test_is_dated_log_slug():
     assert not reb.is_dated_log_slug("patch-notes")
     assert not reb.is_dated_log_slug("changelog-extra-suffix")
     assert not reb.is_dated_log_slug("glory-season-2")
+
+
+# --- Gap found post-#546 review: reband_text() itself must honor
+# DATED_LOG_SLUG_RE, not just reband_live.py's pre-check, so a bare local
+# `--apply` over the repo (which now mirrors the changelog family) can
+# never stamp a dated log page. -----------------------------------------
+
+# Real shape of docs/wiki/changelog-2026-09-04.md and -05.md: a recognizable
+# single-line stamp, no banner yet, era-stale — exactly the shape that
+# would otherwise be flagged 'stale' and banner-stamped.
+FIXTURE_CHANGELOG_STALE_NO_BANNER = (
+    "*Covers changes that went live 2026-09-04, spanning builds "
+    "0.7.317-0.7.327 (GV24 / Glory 13).*\n"
+    "\n"
+    "Nine things changed for players today.\n"
+)
+
+
+def test_reband_text_exempts_dated_log_slugs_regardless_of_reband_flag():
+    for slug in ("changelog", "changelog-2026-09-04", "changelog-2026-09-05"):
+        for reband in (False, True):
+            new_text, status = reb.reband_text(
+                FIXTURE_CHANGELOG_STALE_NO_BANNER, ERA_GV, ERA_GLORY, reband=reband,
+                slug=slug,
+            )
+            assert status == "exempt-dated-log", (
+                f"slug={slug!r} reband={reband}: expected 'exempt-dated-log', "
+                f"got {status!r}"
+            )
+            assert new_text == FIXTURE_CHANGELOG_STALE_NO_BANNER, (
+                f"slug={slug!r} reband={reband}: text must be byte-identical"
+            )
+
+
+def test_reband_text_without_a_slug_is_unaffected_by_the_exemption():
+    """Calling reband_text with no slug (the direct-fixture style every
+    other test in this file uses) must keep working exactly as before —
+    the exemption only engages when a slug is actually passed."""
+    new_text, status = reb.reband_text(
+        FIXTURE_CHANGELOG_STALE_NO_BANNER, ERA_GV, ERA_GLORY, reband=True
+    )
+    assert status == "stale"
+    assert new_text != FIXTURE_CHANGELOG_STALE_NO_BANNER
+
+
+def test_process_page_apply_leaves_dated_changelog_pages_byte_identical(tmp_path):
+    """The exact scenario the gap would have broken: an --apply pass
+    (write=True) over a repo directory that contains changelog-2026-09-04.md
+    and changelog-2026-09-05.md (as this repo's docs/wiki/ now does, after
+    the #546 mirror) must leave both files completely untouched."""
+    for slug in ("changelog-2026-09-04", "changelog-2026-09-05"):
+        page = tmp_path / f"{slug}.md"
+        page.write_text(FIXTURE_CHANGELOG_STALE_NO_BANNER)
+        before_bytes = page.read_bytes()
+
+        status = reb.process_page(
+            page, ERA_GV, ERA_GLORY, write=True, reband=True
+        )
+
+        assert status == "exempt-dated-log", f"{slug}: got status {status!r}"
+        after_bytes = page.read_bytes()
+        assert after_bytes == before_bytes, (
+            f"{slug}: --apply must leave dated changelog pages byte-identical"
+        )
