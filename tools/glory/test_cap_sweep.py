@@ -1,9 +1,10 @@
 """GLORY GRADIENT S7 — pytest goldens for `cap_sweep.py`.
 
 Two tiers, same convention `test_catalog_fold.py` already documents for
-this directory (no CI step runs ANY `tools/glory` test today -- this file
-is `pytest`-collectible on request, per this program's own S7 brief, not
-wired into a CI job):
+this directory (that file is the one tools/glory test wired into CI, as the
+stdlib-only era tripwire; this one is `pytest`-collectible on request, per
+this program's own S7 brief, and depends on a local-only replay cache, so
+it is not wired into a CI job):
 
 1. **Self-contained unit tests** (always run, no external data, no
    network) -- hand-verified synthetic seat-episodes proving `cap_sweep.py`
