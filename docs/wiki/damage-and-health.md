@@ -1,6 +1,6 @@
 *Verified against [[versions|GV24 / Glory 10]].*
 
-**Verified against `GV24 / Glory 10` — the live game is `GV63 / GLORYVERSION 17`; treat details as unconfirmed.**
+**Verified against `GV24 / Glory 10` — the live game is `GV63 / GLORYVERSION 18`; treat details as unconfirmed.**
 
 Hit points and lives are Paintbot's health system: every player carries a
 hit point pool per life — shown on your own HUD as `lives <n>hp x<n>` and

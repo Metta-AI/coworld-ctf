@@ -1,6 +1,6 @@
 *Verified against [[versions|GV24 / Glory 12]].*
 
-**Verified against `GV24 / Glory 12` — the live game is `GV63 / GLORYVERSION 17`; treat details as unconfirmed.**
+**Verified against `GV24 / Glory 12` — the live game is `GV63 / GLORYVERSION 18`; treat details as unconfirmed.**
 
 The spray can (**wire label `spray can`**) is a held cone weapon that removes
 **3 hit points** from every living player inside a forward cone reaching **4

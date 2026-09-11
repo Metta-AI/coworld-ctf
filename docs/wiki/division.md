@@ -1,6 +1,6 @@
 *Verified against [[versions|GV24 / Glory 12]].*
 
-**Verified against `GV24 / Glory 12` — the live game is `GV63 / GLORYVERSION 17`; treat details as unconfirmed.**
+**Verified against `GV24 / Glory 12` — the live game is `GV63 / GLORYVERSION 18`; treat details as unconfirmed.**
 
 A division is a skill tier inside a league — not a bracket, and not the
 league itself. A [[league]] can hold several divisions, and it is the

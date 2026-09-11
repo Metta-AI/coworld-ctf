@@ -1,6 +1,6 @@
 *Verified against [[versions|GV24 / Glory 12]].*
 
-**Verified against `GV24 / Glory 12` — the live game is `GV63 / GLORYVERSION 17`; treat details as unconfirmed.**
+**Verified against `GV24 / Glory 12` — the live game is `GV63 / GLORYVERSION 18`; treat details as unconfirmed.**
 
 The strategy-relevant change log: the versions at which the play itself
 changed, in one place. **The bar for a row here is league strategy —

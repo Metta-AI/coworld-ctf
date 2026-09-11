@@ -1,6 +1,6 @@
 *Verified against [[versions|GV24 / Glory 12]].*
 
-**Verified against `GV24 / Glory 12` — the live game is `GV63 / GLORYVERSION 17`; treat details as unconfirmed.**
+**Verified against `GV24 / Glory 12` — the live game is `GV63 / GLORYVERSION 18`; treat details as unconfirmed.**
 
 The paint bomb (**wire label `grenade`**) is a thrown area weapon that removes
 **2 hit points** from every player inside a **52 px** blast — enemies, teammates,

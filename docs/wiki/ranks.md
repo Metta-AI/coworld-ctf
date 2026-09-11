@@ -1,5 +1,7 @@
 *Verified against `paintbot-v0.7.392` (GV63 / GLORYVERSION 17), 2026-09-11 — see `docs/wiki/_era.md`.*
 
+**Verified against `GV63 / Glory 17` — the live game is `GV63 / GLORYVERSION 18`; treat details as unconfirmed.**
+
 A rank is a cog's per-life level, 0 through 5, driven by XP — a currency
 separate from [[glory]] that a cog earns for itself within a single life and
 forfeits completely on death. Five cumulative XP thresholds gate ranks 1

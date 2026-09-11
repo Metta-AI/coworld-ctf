@@ -1,6 +1,6 @@
 *Verified against `coworld` CLI package version resolving to `paintbot-v0.7.372` (GV61 / Glory 16), 2026-09-09.*
 
-**Verified against `GV61 / Glory 16` — the live game is `GV63 / GLORYVERSION 17`; treat details as unconfirmed.**
+**Verified against `GV61 / Glory 16` — the live game is `GV63 / GLORYVERSION 18`; treat details as unconfirmed.**
 
 Getting a policy from nothing to a real league entry is five steps: download
 the coworld package, prove it runs locally against the bundled starter
