@@ -1042,7 +1042,7 @@ proc ctfPlayerResultsJson(sim: SimServer): string =
     # reach the platform's league score, independent of win/lose/draw.
     let glory =
       if sim.phase == GameOver and hasTeam:
-        sim.teamGlory[playerTeam]
+        gloryReportInt(sim.teamGlory[playerTeam])
       else:
         0
     namesArr.add(name)
