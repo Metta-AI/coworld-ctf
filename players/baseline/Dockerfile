@@ -1,6 +1,6 @@
 # The baseline policy image.
 #
-# Both stages sit on nix-built bases that this repo defines (caos/nim and
+# The native build and runtime sit on nix-built bases defined here (caos/nim and
 # caos/player-runtime) and CI publishes. YOU DO NOT NEED NIX TO BUILD THIS —
 # `docker build --platform=linux/amd64 -f players/baseline/Dockerfile .` pulls
 # them like any other base. Only regenerating a base needs nix, which is rare
@@ -42,7 +42,7 @@ ARG RUNTIME_IMAGE=ghcr.io/metta-ai/coworld-ctf-runtime:b47ad65d
 # fork of them. Pinned to linux/amd64 like the starters' own Dockerfiles:
 # the official Nim image publishes no arm64 manifest, and wasm is
 # architecture-neutral either way.
-FROM --platform=linux/amd64 ${NIM_IMAGE} AS playbook
+FROM --platform=linux/amd64 nimlang/nim:2.2.6 AS playbook
 ARG WASI_SDK_VERSION=33
 ARG WASI_SDK_RELEASE=33.0
 RUN set -eux; \

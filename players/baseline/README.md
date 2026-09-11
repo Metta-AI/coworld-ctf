@@ -515,7 +515,7 @@ docker build --platform=linux/amd64 \
 other architecture, and the build is arch-native otherwise, so an Apple Silicon
 machine silently produces an arm64 image without it.
 
-Both stages sit on nix-built bases this repo defines (`caos/nim`,
+The native build and runtime stages sit on nix-built bases defined here (`caos/nim`,
 `caos/player-runtime`) and CI publishes to GHCR. **Building the image does not
 need nix** — the bases pull like any other `FROM`. They are tagged by the
 nixpkgs pin they were built from, and the Dockerfile names that tag, because
@@ -524,6 +524,13 @@ absolute `dlopen` path for libcurl, which the nim `libcurl` package loads at
 run time rather than linking). Build base and runtime base must share one pin.
 Getting it wrong fails at startup with `could not load: libcurl.so(|.4)`,
 before the websocket — never silently.
+
+The separate playbook stage uses `nimlang/nim:2.2.6`, matching the starter
+policies, to run the downloaded WASI SDK. Only architecture-neutral `.wasm`
+files cross from that stage into the runtime. The minimal Nix compiler image
+has no `/tmp`, archive tools or conventional ELF loader, so it cannot run that
+SDK recipe unchanged. Keep the native build/runtime pin pairing above; it
+does not apply to the WASM-only playbook stage.
 
 `caos-cli run-tool build-player` compiles on `caos/nim` too, so its binary is
 linked exactly like this one and can be dropped into the runtime stage as-is.
