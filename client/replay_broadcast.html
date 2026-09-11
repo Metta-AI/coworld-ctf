@@ -382,8 +382,8 @@ html, body {
    Hides at .dead (a downed/eliminated row already reads via .br-cell-mname
    dimming; "hunting" on a corpse would be a lie the strip must not tell —
    JS itself returns '' for !p.alive, this is belt-and-suspenders).
-   INTENT CLIP fix (owner defect, 2026-09-10/11 — pre-existing, unchanged by
-   #536's chip-clip fix): DOM-measured under the real rajdhani font, this
+   INTENT CLIP repair (owner defect, 2026-09-10/11 — pre-existing, unchanged
+   by #536's chip-clip fix): DOM-measured under the real rajdhani font, this
    cap was 30u — narrower than "allied push" (the vocabulary's own longest
    word) actually renders at 51px against a 47.37px cap (30u) here, so the
    pre-existing overflow:hidden + ellipsis quietly mid-word-clipped it to
@@ -392,14 +392,15 @@ html, body {
    floor when this happened; #536's flex-shrink on `.br-cell-members` was
    never the side that needed to give more). 35u (measured minimum ~32.3u
    for "allied push" at this font, +~2.7u headroom) is wide enough for
-   every full vocabulary word so this box never needs to ellipsis one —
-   `.br-cell-mname` absorbs the small extra deficit via its own pre-
-   existing shrink+ellipsis, same "never the numeral" order as #536. Below
-   390px (see the intentWordFor call site's INTENT_SHORT map) the word
-   itself is swapped for a fixed short form instead, so this cap is never
-   asked to fit a full word at a hudscale too small for even 35u to help —
-   see the JS-side comment for why a CSS max-width alone can't do that
-   swap. */
+   every full vocabulary word at a roomy viewport, so this box does not
+   need to ellipsis one there — `.br-cell-mname` absorbs the small extra
+   deficit via its own pre-existing shrink+ellipsis, same "never the
+   numeral" order as #536. This cap is the WHOLE of the fix: the rendered
+   caption is ALWAYS intentWordFor()'s own full word, never an abbreviation
+   — the player-facing vocabulary is not ours to shorten. On a very thin
+   viewport (the owner's 390px floor) the full word can still ellipsis
+   here; that is the long-standing behaviour and it stays until the owner
+   rules on the wording itself. */
 .br-cell-intent {
   font-family: var(--pixfont);
   font-size: calc(6 * var(--u));
@@ -3741,37 +3742,6 @@ body[data-noviewpanel] #viewpanel { display: none !important; }
     if (t.own) return 'holding';
     return 'hunting';
   }
-  // INTENT CLIP fix (owner defect, 2026-09-10/11, queued after #536): even
-  // with the CSS cap above widened to fit every full word (35u), a rail
-  // thin enough (<=390px real viewport width, the owner's own floor) can
-  // still leave `.br-cell-intent` less room than "allied push" needs
-  // without starving `.br-cell-mname` down to an unreadable sliver (DOM-
-  // measured: the CSS-only fix alone left the name at a 3px clientWidth at
-  // 390px — one glyph, not an identity). A CSS max-width alone can't swap
-  // TEXT, only clip it, and clipping a word into gibberish ("allied pu…")
-  // is exactly the defect this fix removes — so below the floor the full
-  // word is swapped for a short form from this FIXED map instead of asking
-  // CSS to cut it. One entry per intentWordFor() vocabulary word (asserted
-  // complete by tests/test_season2_replay_hud.nim); never an invented
-  // noun, just each word's own recognizable head. The full word always
-  // stays in title/aria (Law 6, hover/tap is always-on) — only the caption
-  // text itself shortens.
-  var INTENT_SHORT = {
-    downed: 'down',
-    resupplying: 'resup',
-    carrying: 'carry',
-    tagging: 'tag',
-    'allied push': 'ally',
-    holding: 'hold',
-    hunting: 'hunt'
-  };
-  // Same matchMedia idiom this file already uses for prefers-reduced-motion
-  // (EC_REDUCED_MOTION below) rather than overloading boardW's own .tiny
-  // threshold (620px, a board-fit concern — see relayout()'s own comment —
-  // not this caption's own word-fit concern). Read fresh at each render
-  // call (onFrame already fires every tick a live/replay session is open),
-  // so no separate 'change' listener is needed.
-  var INTENT_NARROW_MQL = window.matchMedia ? window.matchMedia('(max-width: 390px)') : null;
 
   // ---- score-bug glory figure AS the multiplier (task 19971077) ----
   // "The multiplier is the exciting thing; the deed is a label" (owner,
@@ -4706,21 +4676,11 @@ body[data-noviewpanel] #viewpanel { display: none !important; }
               var intentEl = row.querySelector('.br-cell-intent');
               if (intentEl) {
                 var word = intentWordFor(p, s, team, tr);
-                // INTENT CLIP fix: below the owner's 390px floor the FULL
-                // word is swapped for its INTENT_SHORT entry (never CSS
-                // ellipsis — see that map's own comment); re-check on every
-                // frame (not just when `word` changes) so a live resize
-                // across the floor swaps the caption without waiting on a
-                // roster change.
-                var narrow = !!(INTENT_NARROW_MQL && INTENT_NARROW_MQL.matches);
-                if (intentEl._word !== word || intentEl._narrow !== narrow) {
-                  var shown = (narrow && word) ? (INTENT_SHORT[word] || word) : word;
-                  intentEl.textContent = shown;
+                if (intentEl._word !== word) {
+                  intentEl.textContent = word;
                   intentEl._word = word;
-                  intentEl._narrow = narrow;
-                  // Hover/tap text is always-on (Law 6) and always names the
-                  // FULL word, never the short form: the downed state gets
-                  // its OWN, more specific sentence (it is one of the
+                  // Hover/tap text is always-on (Law 6): the downed state
+                  // gets its OWN, more specific sentence (it is one of the
                   // intent-word branches, see intentWordFor); every other
                   // word gets the generic "what is this field" sentence.
                   var tip = (word === 'downed') ? GLOSSARY.downed : GLOSSARY.intent;
