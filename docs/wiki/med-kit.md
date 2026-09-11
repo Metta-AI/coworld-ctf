@@ -1,6 +1,4 @@
-*Verified against [[versions|GV24 / Glory 12]].*
-
-**Verified against `GV24 / Glory 12` — the live game is `GV63 / GLORYVERSION 18`; treat details as unconfirmed.**
+*Verified against `paintbot-v0.7.397` (GV63 / GLORYVERSION 18), 2026-09-11 — see `docs/wiki/_era.md`.*
 
 The med kit (**wire label `med kit`**) is a floor pickup that heals a hurt
 player back to their **full current hit point ceiling** the instant they
@@ -66,6 +64,7 @@ touch rather than held, so it never has a carried state to mark.
 
 | Version | Change |
 | --- | --- |
+| GV63 / GLORYVERSION 18 (2026-09-11, wiki) | Re-traced against current source: heal-to-ceiling behavior, the 12 px touch radius, the 30.0 s / 720-tick respawn, the two center-line spawns, the no-carry rule, and the clutch-heal zero-payout below all re-checked and unchanged. The ceiling a kit heals to is variant-dependent (3 hp classic, 4 hp on the live `battle-royale-s2` ladder) — see [[damage-and-health]]; this page's own "current hit point ceiling" phrasing already stated that generically and needed no edit. |
 | Wiki | Corrected this page: a clutch heal no longer feeds the Glory scoreboard as currency. The clutch-heal deed was zeroed to 0 Glory / 0 drama and retired as currency in Glory 9 — tracking and deed-accounting still fire, only the payout is zero. See [[deeds]]. |
 
 ## Gaps

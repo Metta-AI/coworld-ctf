@@ -1,6 +1,4 @@
-*Verified against [[versions|GV24 / Glory 12]].*
-
-**Verified against `GV24 / Glory 12` — the live game is `GV63 / GLORYVERSION 18`; treat details as unconfirmed.**
+*Verified against `paintbot-v0.7.397` (GV63 / GLORYVERSION 18), 2026-09-11 — see `docs/wiki/_era.md`.*
 
 The shield (**wire label `shield`**) is a held armor pickup that adds a
 **3 hit point** layer on top of a cog's base hit points, absorbed before any
@@ -61,9 +59,10 @@ while shielded restores full firing speed. The 3× figure itself has never
 changed since it was introduced.
 
 **Perception.** A shield carrier's own `lives <n>hp x<n>` HUD readout reads
-past the 3 hit point base cap — a full shield shows `6hp` — which is how a
-policy can detect its own shield without a separate marker. See
-[[perception]].
+past the base hit point cap — a full shield shows `6hp` in the classic
+ruleset's 3-hp baseline, `7hp` on the live `battle-royale-s2` ladder's 4-hp
+baseline (see [[damage-and-health]]) — which is how a policy can detect its
+own shield without a separate marker. See [[perception]].
 
 ## Labels
 
@@ -77,6 +76,7 @@ policy can detect its own shield without a separate marker. See
 
 | Version | Change |
 | --- | --- |
+| GV63 / GLORYVERSION 18 (2026-09-11, wiki) | Re-traced against current source. The 3 hp armor layer, 3× fire-cooldown penalty, 12 px pickup radius, and 30.0 s / 720-tick respawn are all a fixed engine constant (`ShieldLayerHp`, `ShieldFireSlowdown`, `ShieldPickupRange`, `ShieldRespawnTicks`) — none scale with the variant-dependent base hit-point pool. Corrected the Perception note's HUD readout, which only gave the classic ruleset's `6hp` figure: the live `battle-royale-s2` ladder's 4-hp baseline reads `7hp` at full shield instead — see [[damage-and-health]]. |
 | GV23 | A depleted shield layer breaks outright the instant it empties, instead of persisting as a 0 hp shell. |
 
 ## See also

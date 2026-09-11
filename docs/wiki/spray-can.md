@@ -1,10 +1,8 @@
-*Verified against [[versions|GV24 / Glory 12]].*
-
-**Verified against `GV24 / Glory 12` — the live game is `GV63 / GLORYVERSION 18`; treat details as unconfirmed.**
+*Verified against `paintbot-v0.7.397` (GV63 / GLORYVERSION 18), 2026-09-11 — see `docs/wiki/_era.md`.*
 
 The spray can (**wire label `spray can`**) is a held cone weapon that removes
-**3 hit points** from every living player inside a forward cone reaching **4
-squares (136 px)**, once per burst — enough to drop a bare cog outright,
+**3 hit points** from every living player inside a forward cone reaching **5
+squares (170 px)**, once per burst — enough to drop a bare cog outright,
 though a shield carrier's extra 3 hit points survive the first touch. A
 single **A** press (action mask bit 32) ignites the cone for a fixed **5
 ticks (0.21 s)**, then locks the weapon out for a **20-tick (0.83 s)**
@@ -18,8 +16,9 @@ the plasma arc before a 0.7.x rename — see Version history.
 | Property | Value | Ticks | Notes |
 | --- | --- | --- | --- |
 | Damage | 3 hit points | — | Once per victim per burst |
-| Cone reach | 136 px | — | 4 squares of 34 px each |
-| Cone max width (at reach) | 68 px | — | 2 squares; widens linearly from the muzzle |
+| Cone reach | 170 px | — | 5 squares of 34 px each (GameVersion 30; was 4 squares/136 px — that figure is now the animation-only plume span, not the damage boundary) |
+| Cone centerline width (at reach) | 85 px | — | 2.5 squares; widens linearly from the muzzle |
+| Target body-radius tolerance | ±17 px | — | Added to the centerline cone at every distance, so a victim is tested as a disc, not a point |
 | Active burst | 0.21 s | 5 | Damages every victim currently inside the cone |
 | Recharge, base | 0.83 s | 20 | Refire cadence = active + recharge = 25 ticks (1.04 s) |
 | Recharge, rank 2+ | 0.5 s | 12 | 60% of base — cadence drops to 17 ticks (0.71 s) |
@@ -28,18 +27,20 @@ the plasma arc before a 0.7.x rename — see Version history.
 | Pickups in arena | 2 | — | One per side column, mirrored left/right |
 | Carried at once | 1 | — | Independent of a carried [[paint-bomb]] |
 
-The cone's half-width grows linearly with distance from the muzzle, reaching
-exactly half the max width at the reach cap — a fixed half-angle the whole
-way out:
+The cone's centerline half-width grows linearly with distance from the
+muzzle, at a fixed slope the whole way out; a victim's own body then adds a
+flat ±17 px of tolerance around that centerline at every distance, so the
+real hit boundary is the centerline half-width plus 17 px, not the bare
+centerline:
 
 ```
-half_width = forward / 4   # px; forward is distance from the muzzle, capped at 136
+half_width = forward / 4 + 17   # px; forward is distance from the muzzle, capped at 170
 ```
 
-**Worked example.** A victim standing 68 px straight ahead of the muzzle (half
-the 136 px reach) sits under a cone whose half-width there is
-`68 / 4 = 17 px` — a 34 px-wide slice at that distance, widening to the full
-68 px width only at the 136 px cap.
+**Worked example.** A victim standing 85 px straight ahead of the muzzle (half
+the 170 px reach) sits under a cone whose half-width there is
+`85 / 4 + 17 = 38.25 px` — a 76.5 px-wide effective slice at that distance,
+widening to a 119 px-wide effective slice only at the 170 px cap.
 
 ## Rules
 
@@ -102,6 +103,8 @@ scanning for `arc` or `plasma` finds nothing today. Write code against
 
 | Version | Change |
 | --- | --- |
+| GV63 / GLORYVERSION 18 (2026-09-11, wiki) | Re-traced against current source. Corrected the cone reach (170 px / 5 squares, not 136 px / 4 squares) and max width (85 px centerline at reach, not 68 px): this page had been describing the animation-only plume span/width, not the damage boundary, which grew to 5 squares at GameVersion 30 specifically so the damage cone would cover the tip of the plume. Also added the ±17 px target body-radius tolerance the hit test adds on top of the centerline cone at every distance — previously undocumented, and the reason the worked example's numbers move. Active burst, recharge, and the rank-2 recharge buff all re-checked and unchanged. |
+| GameVersion 30 | Cone reach grew from 4 squares (136 px) to 5 squares (170 px) so the damage boundary would cover the tip of the drawn plume; a victim's own body also started being tested as a disc (±17 px tolerance around the centerline cone) rather than a bare point. |
 | Wiki | Clarified this weapon never locks aim — the cone samples live aim every tick, the opposite of the gun's locked-at-the-pull model — see [[combat]]. |
 | 0.7.x | Plasma arc renamed to spray can across all five label surfaces (pickup, carrier marker, cone FX, own-HUD/badge weapon token, held-weapon rig art). No GameVersion bump accompanied it. |
 
