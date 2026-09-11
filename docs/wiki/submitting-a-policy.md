@@ -60,13 +60,11 @@ baseline, with nothing platform-side involved.
 
 ## Gaps
 
-- The platform's own submission path is not documented here at all: it has
-  not been exercised, so neither its request shape nor what it returns back
-  is verified.
-- Whether the platform's submission path itself checks a submitted image's
-  engine version before accepting it — the wire protocol itself carries no
-  version field at connect time, see [[policies]], so if a check exists it has
-  to happen before a container is ever started.
+- Whether `coworld submit` rejects a policy built against a stale
+  `GameVersion` — [[build-and-submit]]'s own Gaps section confirms this is
+  untested: [[policies]] establishes there is no version handshake at connect
+  time, but whether the submission step itself checks anything before that
+  point remains unverified.
 - Any review, size limit, or resource-limit step between a push completing and
   a policy becoming seatable in a match.
 - Whether a submitted image is expected to exit at the end of one [[episode]]
