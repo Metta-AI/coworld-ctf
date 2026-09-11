@@ -1,6 +1,4 @@
-*Verified against [[versions|GV24 / Glory 12]].*
-
-**Verified against `GV24 / Glory 12` — the live game is `GV63 / GLORYVERSION 17`; treat details as unconfirmed.**
+*Verified against `paintbot-v0.7.392` (GV63 / GLORYVERSION 17), 2026-09-11 — see `docs/wiki/_era.md`.*
 
 A rank is a cog's per-life level, 0 through 5, driven by XP — a currency
 separate from [[glory]] that a cog earns for itself within a single life and
@@ -13,15 +11,23 @@ chrome name for the ladder's six steps, lowest to highest, is `recruit`,
 
 ## Stats
 
-| Property | Value | Ticks | Notes |
-| --- | --- | --- | --- |
-| XP to reach rank 1 | 9 XP | — | Cumulative from rank 0 |
-| XP to reach rank 2 | 15 XP | — | Cumulative |
-| XP to reach rank 3 | 24 XP | — | Cumulative; also the Ace rank |
-| XP to reach rank 4 | 33 XP | — | Cumulative |
-| XP to reach rank 5 (max) | 48 XP | — | Cumulative; the max rank |
-| Max rank | 5 | — | |
-| Ace rank | 3 | — | See Rules |
+**The XP column below is doubled in the live `battle-royale-s2` ruleset.**
+Battle royale's XP comes almost entirely from damage dealt (healing,
+pickups, and flag actions all pay zero or don't exist without a flag to
+carry), so a single solo tag would otherwise insta-level a cog under the
+unscaled thresholds. Doubling every rung keeps rank 5 an exceptional,
+whole-match haul instead of the default outcome. The "Classic" column is
+the unscaled table; it does not apply to the only ruleset currently live.
+
+| Property | Classic value | Live `battle-royale-s2` value | Ticks | Notes |
+| --- | --- | --- | --- | --- |
+| XP to reach rank 1 | 9 XP | 18 XP | — | Cumulative from rank 0 |
+| XP to reach rank 2 | 15 XP | 30 XP | — | Cumulative |
+| XP to reach rank 3 | 24 XP | 48 XP | — | Cumulative; also the Ace rank |
+| XP to reach rank 4 | 33 XP | 66 XP | — | Cumulative |
+| XP to reach rank 5 (max) | 48 XP | 96 XP | — | Cumulative; the max rank |
+| Max rank | 5 | 5 | — | |
+| Ace rank | 3 | 3 | — | See Rules |
 
 ### Buffs by rank
 
@@ -81,21 +87,27 @@ card was lying as describing a build before 2026-09-08.
 waived** removes the movement penalty a heart carrier normally pays, only at
 rank 5 — see [[movement]].
 
-At rank 3 a cog's hit point ceiling rises by one, but the `hp <n>/3` overhead
-readout does not grow past 3 lit segments to show it — the bar's segment count
-is hard-capped (see [[damage-and-health]]). A carried [[shield]] instead pushes
-a HUD readout past baseline on the separate own-view `lives <n>hp x<n>` label,
-to `6hp`. See [[perception]] for the label.
+At rank 3 a cog's hit point ceiling rises by one, and the overhead `hp <n>/<max>`
+readout shows it directly: the bar reads a cog's own true current and max hit
+points, not a fixed three-segment scale, so a ranked-up cog's higher ceiling is
+visible in the denominator — a full-health Ace-or-higher cog reads `hp 5/5` in
+the live `battle-royale-s2` ruleset (unranked baseline `hp 4/4`; classic's
+unranked baseline is `hp 3/3`). See [[damage-and-health]] for the bar in full.
+A carried [[shield]] instead pushes a separate own-view `lives <n>hp x<n>`
+label past that baseline — `7hp` for an unranked, full-health, fully-shielded
+cog in the live ruleset (`4` base hit points plus a full `3`-hp shield layer);
+classic's equivalent baseline is `6hp`. See [[perception]] for the label.
 
 ## Rules
 
 **Rank resets to zero the instant a cog dies.** The reset fires at the exact
-moment of death and zeroes XP, rank, and every per-life counter tied to it,
-including the supply-drop credit and count below. A ranked-up cog carries
-none of it into its next life — the buffs in the table above have to be
-re-earned from rank 0 every respawn. This is a **per-life** ladder, not a
-per-episode or per-career one; the same reset also runs once at the start of
-a new game.
+moment of death and zeroes XP, rank, and every per-life counter tied to it —
+in the live `battle-royale-s2` ruleset that is XP and rank only, since the
+supply-drop credit and count described below do not exist to reset in this
+build. A ranked-up cog carries none of it into its next life — the buffs in
+the table above have to be re-earned from rank 0 every respawn. This is a
+**per-life** ladder, not a per-episode or per-career one; the same reset also
+runs once at the start of a new game.
 
 **A team's Glory scoreboard is untouched by a rank reset.**
 Ranks and Glory are two separate ledgers on two separate schedules: a rank
@@ -123,21 +135,25 @@ asterisk per rank reached — a celebration that carries no payout. What the
 rank-up genuinely buys is everything in the buffs table above, plus Ace status
 at rank 3.
 
-**Ace rank (3) turns on supply drops.** From rank 3, a cog gets a visual
-ember-plume marker and its team's heart begins producing supply-drop
-pickups — rate-gated to one drop per 20 new XP earned, at least 90 ticks
-(3.75 s) apart, capped at 4 drops per life. A dropped pickup is
-indistinguishable from an ordinary one in a player's own view; see
-[[perception]]. Reaching Ace rank is also the gate for one
-[[achievements|achievement]] tier — see [[achievements]].
+**Ace rank (3) lights the ember-plume marker; the supply drop it was designed
+to unlock does not fire in the live game.** From rank 3, a cog gets a visible
+ember-plume marker any teammate can spot — see [[perception]]. The rest of
+this rule is currently inert in the live `battle-royale-s2` ruleset: its maps
+carry no heart to produce a drop from, and this build never wired the
+supply-drop pickup path in at all. The designed rate — one drop per 20 new
+XP earned, at least 90 ticks (3.75 s) apart, capped at 4 per life, cycling
+med kit, then grenade, then spray can, then shield — describes a rule that
+does not run today. The [[achievements|achievement]] tier gated on sharing a
+supply drop is unreachable for the same reason — see [[achievements]].
 
-**The kit a supply drop produces is not a roll — it is a fixed, deterministic
-cycle.** A cog's first supply drop in a life is always a med kit, the second
-a grenade, the third a spray can, and the fourth — the last one the per-life
-cap allows — a shield. The cycle never wraps back to med kit within a single
-life, because the cap and the cycle length are both four. A policy that
-tracks its own drop count for a cog therefore knows exactly what kit the next
-drop will be before it lands.
+**The kit cycle a supply drop was designed to rotate through is likewise
+inert today** — the same dead rule the paragraph above flags, not a second
+one. As designed (not as shipped): a cog's first supply drop in a life would
+be a med kit, the second a grenade, the third a spray can, and the fourth —
+the last one the per-life cap would allow — a shield, never wrapping back to
+med kit within one life. None of this can be observed in the live
+`battle-royale-s2` ruleset because no supply drop is ever produced to
+demonstrate it.
 
 **Mechanic and chrome, kept separate on purpose.** The thresholds and the six
 buff arrays above are the mechanic: stable, causal, integer values that a
@@ -151,6 +167,7 @@ names are — see [[conventions]] for the general rule.
 
 | Version | Change |
 | --- | --- |
+| Wiki (re-trace, 2026-09-11, GV63 / GLORYVERSION 17) | Re-verified every claim on this page against current source. Grenade charges (below) already re-verified correct, no change needed. Fixed three claims found stale: (1) the XP-to-rank table was the unscaled table only — the live `battle-royale-s2` ruleset doubles every rung, previously unstated; (2) the hp-bar paragraph said the overhead readout is hard-capped at 3 segments and cannot show a rank's hp bonus — a client change (2026-08-08) already replaced that fixed cap with a true current/max readout, unreflected here until now; (3) the "Ace rank turns on supply drops" and kit-cycle paragraphs described a rule that was never wired into this ruleset's build — corrected to state plainly that it does not fire live. |
 | GLORYVERSION 16 (commit `62fa0146`, 2026-09-08) | Grenade charges buff went live: `tryPickupGrenades`/`throwGrenade` now read the rank table instead of ignoring it. A rank-4+ pickup genuinely yields two throws, and the broadcast inspector card's second-grenade line (previously wrong) is now accurate. This page's "genuinely dead code" claim corrected 2026-09-09 — see `docs/wiki/AUDIT.md`. |
 | Wiki | Flagged a rename trap: rank 2's chrome name "marksman" collides with an unrelated achievement tier of the same name on [[achievements]]. |
 | Wiki | Documented that the broadcast's own inspector card shows a second grenade charge for rank 4 and rank 5, read from the same dead value this page already flags — and that the charge does not exist. |

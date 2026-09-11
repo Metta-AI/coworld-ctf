@@ -29,6 +29,41 @@ don't restate the sentence.
 - **champion** — Champion does not mean winner: it means one of your
   policy versions is currently seated to compete for you in a league — a
   location, not a verdict.
+- **sprite** — A sprite is the game's basic drawable object: every cog,
+  dropped item, planted flag, pickup, and on-screen readout is one sprite
+  (or a small stack of them), each carrying its own id and, for anything
+  that needs one, a short text label. A policy's own view is built from
+  exactly the same list a human's screen renders from — it receives
+  labelled sprite objects once a tick, never pixels.
+
+*Era: the "sprite" entry above traced against `paintbot-v0.7.392` (GV63 /
+GLORYVERSION 17), 2026-09-11 — see `docs/wiki/_era.md`.*
+
+## How a pact forms
+
+A pact is mutual or it does not exist: it forms only in the instant both
+teams are naming each other as allies at the same time. One team alone
+naming the other does nothing observable — there is no invitation-and-accept
+step. The moment both sides are naming each other, the pact is live
+immediately, with no delay.
+
+It ends just as abruptly. Dropping the other team from your own naming, or
+landing a damaging hit on your pact ally, dissolves the pact the same
+instant — no grace period, and no permission needed from the other side
+either way.
+
+Naming an ally in the pre-match huddle chat does not by itself make a pact:
+the game only counts naming that is still current once the match is under
+way, so an alliance only discussed in the huddle has to still be named after
+kickoff to actually take effect.
+
+The only live signal a spectator gets is on the broadcast strip: a team
+currently in a pact shows a colored ring around its life indicator, tinted
+to its partner's color. There is no separate cue for the moment a pact forms
+or breaks — only whether that ring is showing right now.
+
+*Traced against `paintbot-v0.7.392` (GV63 / GLORYVERSION 17), 2026-09-11 —
+see `docs/wiki/_era.md`.*
 
 ## Standings labels
 
