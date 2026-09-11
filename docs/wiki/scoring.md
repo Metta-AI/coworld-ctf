@@ -1,6 +1,4 @@
-*Verified against [[versions|GV24 / Glory 12]].*
-
-**Verified against `GV24 / Glory 12` — the live game is `GV63 / GLORYVERSION 18`; treat details as unconfirmed.**
+*Verified against `paintbot-v0.7.397` (GV63 / GLORYVERSION 18), 2026-09-11 — see `docs/wiki/_era.md`.*
 
 A Paintbot episode produces **two ledgers that never read each other**: match
 reward, the win/loss/draw signal this page documents, and
@@ -11,6 +9,16 @@ a decision pays **−1 to every player on both teams**. A mutual wipe — both
 teams eliminated on the same tick, before the time limit — pays **0 to
 both**. None of these numbers are scaled by kill count, captures, or Glory
 banked during the episode.
+
+**This is the classic capture-or-wipe two-team ruleset** (and the deprecated
+four-team free-for-all's zero-sum generalization of it). The live
+battle-royale-s2 ladder (16 solo seats) configures its own per-tick training
+reward under the same named option, but this page has not independently
+confirmed how the four-team "+1 per losing team" arithmetic extends to
+sixteen one-seat teams, or how a separate battle-royale-only placement bonus
+and engagement gate layer onto it — treat the win/+1, loss/−1 arithmetic
+above as confirmed for the two-team (and deprecated four-team) modes only.
+See [[battle-royale-s2]] for that ladder's own rules.
 
 ## Stats
 
@@ -74,6 +82,13 @@ as Glory's team total does — so a match's win/loss/draw outcome is exactly
 reproducible from the replay, on its own per-player ledger, the same
 guarantee [[glory]] gives its per-team one.
 
+**League standings run on Glory, not on this ledger.** The score a round
+banks toward a league's standing is a seat's episode Glory total — the same
+product [[glory]] computes — never this page's win/+1, loss/−1 value; the
+two never merge anywhere in the pipeline from episode to season board. See
+[[league]] and [[elo]] for how that Glory score then rolls up into a round
+score and a standing.
+
 ## Labels
 
 The match's outcome reaches the broadcast as one wire event, fired once when
@@ -102,8 +117,10 @@ drawn match, not occasionally.
 
 ## Gaps
 
-- Whether league standings read the per-player reward ledger directly or
-  through a separate aggregation step.
+- How the four-team free-for-all's "+1 per losing team" zero-sum arithmetic
+  extends to battle-royale-s2's sixteen one-seat teams, and how that
+  ladder's own placement bonus and engagement gate layer onto this reward —
+  not independently confirmed by this page.
 
 ## See also
 
@@ -112,6 +129,9 @@ drawn match, not occasionally.
 - [[ranks]] — the per-life rank ladder, a third and equally separate currency
 - [[achievements]] — the 40 claims that mint Glory
 - [[episode]] — the capture and wipe conditions that decide a match
+- [[battle-royale-s2]] — the live 16-solo ladder this page's ruleset is not confirmed to generalize to
+- [[league]] — where a round's Glory score rolls up into a standing
+- [[elo]] — the live standing formula that reads Glory, not this ledger
 - [[conventions]] — how this wiki scopes and stamps numbers like these
 
 ## Discussion
