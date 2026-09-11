@@ -9,15 +9,27 @@ than the live pair — inserts one additional line right after the stamp:
     **Verified against <old stamp> — the live game is GV<n> / GLORYVERSION
     <n>; treat details as unconfirmed.**
 
-The page's own original stamp line is never edited or removed (Law 2 of
-docs/designs/THE_WHOLE.md: era truth is sourced, never typed — this script
-is the *only* thing that writes the "the live game is ..." sentence, and it
-derives it from docs/wiki/_era.md every run rather than hard-coding it).
-Running this script twice is a no-op the second time: it checks for its own
-sentence before inserting a second copy.
+The page's own original stamp line (what the content was actually
+verified against) is NEVER edited or removed — that would be a claim that
+someone re-verified the content, which this script cannot know (Law 2 of
+docs/designs/THE_WHOLE.md: era truth is sourced, never typed). Only the
+"the live game is ..." clause is written by this script, and it always
+derives both halves of the banner fresh from (1) the page's own untouched
+stamp and (2) docs/wiki/_era.md — never from a cached copy of either.
+
+Two write modes:
+
+- Default (no `--reband`): additive-only, matching the original behavior.
+  Once a banner exists, it is left alone forever even if the era moves on
+  again — reported as `stale-already-banded`.
+- `--reband`: replaces an existing-but-outdated banner's "the live game
+  is ..." clause with the current era, in place. The "Verified against"
+  clause is recomputed from the page's own (untouched) first line every
+  time, so it is byte-identical before and after a reband. A banner that
+  already names the current era is left untouched (idempotent).
 
 Usage:
-    python3 tools/wiki/render_era_banner.py [--wiki-dir docs/wiki] [--check]
+    python3 tools/wiki/render_era_banner.py [--wiki-dir docs/wiki] [--check] [--reband]
 
 --check exits non-zero if any page would change (for CI), without writing.
 """
@@ -38,6 +50,43 @@ GLORY_RE = re.compile(r"GLORY(?:VERSION)?\s*0*(\d+)", re.IGNORECASE)
 NON_PAGE_FILES = {"AUDIT.md", "PUBLISH.md", "RESTRUCTURE-PLAN.md"}
 
 STALE_MARKER = "the live game is"
+
+# A banner line this script itself wrote, in either the plain or reband
+# form. Group 1/2 = the "Verified against" clause (derived from the
+# page's own stamp); group 3/4 = the "live game is" clause (derived from
+# _era.md at write time).
+BANNER_LINE_RE = re.compile(
+    r"^\*\*Verified against `GV(\d+) / Glory (\d+)` — "
+    + re.escape(STALE_MARKER)
+    + r" `GV(\d+) / GLORYVERSION (\d+)`; treat details as unconfirmed\.\*\*\s*$"
+)
+
+# How many lines after the page's own stamp line to scan for an existing
+# banner. The banner is always inserted immediately (blank line + banner)
+# after the stamp line, so 6 lines of slack comfortably covers drift.
+BANNER_SEARCH_WINDOW = 6
+
+# How many leading lines to scan for the page's own stamp line. Most pages
+# open with the stamp on line 0, but some (e.g. the live achievements/deeds
+# pages) open with an H1 title first. A small window lets us find the
+# stamp after a title without risking a false match deep in prose.
+STAMP_SEARCH_WINDOW = 4
+
+HEADING_RE = re.compile(r"^#{1,6}\s")
+
+# Slugs this script never touches: dated, point-in-time log pages. Per
+# docs/wiki/AUDIT.md, the changelog family ("changelog" plus one
+# "changelog-YYYY-MM-DD" per day something shipped) is "not stale by
+# definition" — each entry is a snapshot of what was true on its own date,
+# not a living reference page, so stamping it "verified against ... the
+# live game is GV63" would misrepresent an immutable historical record as
+# something needing re-verification. reband_live.py checks this before
+# calling reband_text at all.
+DATED_LOG_SLUG_RE = re.compile(r"^changelog(-\d{4}-\d{2}-\d{2})?$")
+
+
+def is_dated_log_slug(slug: str) -> bool:
+    return bool(DATED_LOG_SLUG_RE.match(slug))
 
 
 def parse_era(era_path: Path) -> tuple[int, int]:
@@ -64,34 +113,110 @@ def extract_stamp(first_line: str) -> tuple[int, int] | None:
     return int(gv_match.group(1)), int(glory_match.group(1))
 
 
-def process_page(path: Path, era_gv: int, era_glory: int, write: bool) -> str:
-    """Return one of: 'current', 'stale', 'stale-already-banded', 'unparsed'."""
-    lines = path.read_text().splitlines(keepends=True)
-    if not lines:
-        return "unparsed"
-    stamp = extract_stamp(lines[0])
-    if stamp is None:
-        return "unparsed"
-    page_gv, page_glory = stamp
-    if page_gv >= era_gv and page_glory >= era_glory:
-        return "current"
-
-    banner = (
+def build_banner(page_gv: int, page_glory: int, era_gv: int, era_glory: int) -> str:
+    return (
         f"**Verified against `GV{page_gv} / Glory {page_glory}` — "
         f"{STALE_MARKER} `GV{era_gv} / GLORYVERSION {era_glory}`; "
         f"treat details as unconfirmed.**\n"
     )
 
-    already = any(STALE_MARKER in line for line in lines[1:4])
-    if already:
-        return "stale-already-banded"
 
-    if write:
+def find_stamp_line(lines: list[str]) -> int | None:
+    """Return the index of the page's own "Verified against ..." stamp
+    line, or None if it can't be found safely.
+
+    Usually line 0. Some pages open with an H1 title (and/or a blank line)
+    before the stamp; those are skipped over. Any other non-blank,
+    non-heading line encountered before a stamp is found means the page's
+    structure isn't one this script recognizes, so it bails out (returns
+    None) rather than guessing — safer to leave a page unparsed than to
+    band the wrong line.
+    """
+    for i in range(min(STAMP_SEARCH_WINDOW, len(lines))):
+        line = lines[i]
+        if extract_stamp(line) is not None:
+            return i
+        stripped = line.strip()
+        if stripped == "" or HEADING_RE.match(stripped):
+            continue
+        return None
+    return None
+
+
+def find_banner_line(lines: list[str], after: int = 0) -> int | None:
+    """Return the index of an existing banner line in `lines`, or None.
+
+    Scans the BANNER_SEARCH_WINDOW lines immediately after index `after`
+    (the page's own stamp line)."""
+    window = lines[after + 1 : after + 1 + BANNER_SEARCH_WINDOW]
+    for offset, line in enumerate(window, start=after + 1):
+        if BANNER_LINE_RE.match(line.strip()):
+            return offset
+    return None
+
+
+def reband_text(
+    text: str, era_gv: int, era_glory: int, reband: bool
+) -> tuple[str, str]:
+    """Compute the (possibly) re-banded text for one page.
+
+    Returns (new_text, status), where status is one of:
+      'current'               — already correct, nothing to do
+      'stale'                 — no banner existed yet; one was added
+      'stale-already-banded'  — a banner exists and names an old era, but
+                                 `reband` is False so it is left alone
+                                 (legacy/default behavior)
+      'rebanded'               — a banner existed, named an old era, and
+                                 `reband` is True so it was replaced
+      'unparsed'               — no recognizable "Verified against ..."
+                                 stamp found near the top; never touched
+    """
+    lines = text.splitlines(keepends=True)
+    if not lines:
+        return text, "unparsed"
+    stamp_idx = find_stamp_line(lines)
+    if stamp_idx is None:
+        return text, "unparsed"
+    page_gv, page_glory = extract_stamp(lines[stamp_idx])
+
+    banner_idx = find_banner_line(lines, after=stamp_idx)
+
+    if banner_idx is None:
+        if page_gv >= era_gv and page_glory >= era_glory:
+            return text, "current"
+        banner = build_banner(page_gv, page_glory, era_gv, era_glory)
         # Blank line before the banner so it renders as its own paragraph,
-        # distinct from the page's original stamp line above it.
-        new_lines = [lines[0], "\n", banner] + lines[1:]
-        path.write_text("".join(new_lines))
-    return "stale"
+        # distinct from the page's own stamp line above it.
+        new_lines = lines[: stamp_idx + 1] + ["\n", banner] + lines[stamp_idx + 1 :]
+        return "".join(new_lines), "stale"
+
+    m = BANNER_LINE_RE.match(lines[banner_idx].strip())
+    assert m is not None  # find_banner_line only returns matching indices
+    banner_era_gv, banner_era_glory = int(m.group(3)), int(m.group(4))
+    if banner_era_gv >= era_gv and banner_era_glory >= era_glory:
+        return text, "current"
+
+    if not reband:
+        return text, "stale-already-banded"
+
+    # Recompute the banner fresh from the page's own (untouched) stamp and
+    # the current era — the "Verified against" clause is therefore always
+    # byte-identical to what was there before; only "the live game is"
+    # clause changes.
+    new_banner = build_banner(page_gv, page_glory, era_gv, era_glory)
+    new_lines = list(lines)
+    new_lines[banner_idx] = new_banner
+    return "".join(new_lines), "rebanded"
+
+
+def process_page(
+    path: Path, era_gv: int, era_glory: int, write: bool, reband: bool
+) -> str:
+    text = path.read_text()
+    new_text, status = reband_text(text, era_gv, era_glory, reband)
+    if write and status in ("stale", "rebanded"):
+        path.write_text(new_text)
+    return status
 
 
 def main() -> int:
@@ -101,6 +226,14 @@ def main() -> int:
         "--check",
         action="store_true",
         help="report only, exit 1 if any page is stale-but-unbanded",
+    )
+    ap.add_argument(
+        "--reband",
+        action="store_true",
+        help=(
+            "replace an existing-but-outdated banner's 'the live game is' "
+            "clause with the current era, instead of leaving it alone"
+        ),
     )
     args = ap.parse_args()
 
@@ -112,6 +245,7 @@ def main() -> int:
         "current": [],
         "stale": [],
         "stale-already-banded": [],
+        "rebanded": [],
         "unparsed": [],
     }
 
@@ -122,11 +256,12 @@ def main() -> int:
     )
 
     for page in pages:
-        status = process_page(page, era_gv, era_glory, write=not args.check)
+        status = process_page(
+            page, era_gv, era_glory, write=not args.check, reband=args.reband
+        )
         results[status].append(page.name)
 
     total = len(pages)
-    stale_total = len(results["stale"]) + len(results["stale-already-banded"])
     print(f"era: GV{era_gv} / GLORYVERSION {era_glory}  ({era_path})")
     print(f"pages scanned: {total}")
     print(f"  current (no banner needed): {len(results['current'])} — {results['current']}")
@@ -135,12 +270,16 @@ def main() -> int:
         f"{len(results['stale'])} — {results['stale']}"
     )
     print(
-        f"  stale, banner already present: {len(results['stale-already-banded'])} "
-        f"— {results['stale-already-banded']}"
+        f"  stale, banner already present (left alone; pass --reband to update it): "
+        f"{len(results['stale-already-banded'])} — {results['stale-already-banded']}"
+    )
+    print(
+        f"  rebanded (existing banner's era updated): {len(results['rebanded'])} "
+        f"— {results['rebanded']}"
     )
     print(f"  unparsed (no recognizable stamp, skipped): {len(results['unparsed'])} — {results['unparsed']}")
 
-    if args.check and results["stale"]:
+    if args.check and (results["stale"] or results["stale-already-banded"] or results["rebanded"]):
         return 1
     return 0
 
