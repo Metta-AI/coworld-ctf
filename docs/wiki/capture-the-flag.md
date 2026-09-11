@@ -4,7 +4,7 @@
 
 Capture the flag was Paintbot's classic two-team mode: two sides each defended a home heart on the [[arena]] map while racing to steal and carry home the other's. The `Ctf` league that ran it stopped playing on 2026-08-12 and is no longer live; this ruleset retired with it.
 
-The live game is [[battle-royale-s2]]; see [[modes]] for the current variant list and [[glory-season-2]] for how a round scores today.
+Today's mode is [[battle-royale-s2]]; see [[modes]] for the current variant list and [[glory-season-2]] for how a round scores.
 
 ## History
 

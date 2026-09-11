@@ -4,7 +4,7 @@
 
 Arena was the map for Paintbot's classic two-team capture-the-flag mode: a symmetric, walled battlefield (plus its 30%-larger `arena-large` variant) built for the ruleset [[capture-the-flag]] documented. The `Ctf` league that ran it stopped playing on 2026-08-12 and is no longer live; the map retired with it.
 
-The live game is [[battle-royale-s2]]; see [[modes]] for the current variant list and [[glory-season-2]] for how a round scores today.
+Today's mode is [[battle-royale-s2]]; see [[modes]] for the current variant list and [[glory-season-2]] for how a round scores.
 
 ## History
 
