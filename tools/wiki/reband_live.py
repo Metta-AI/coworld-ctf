@@ -23,8 +23,9 @@ For every live page, in slug order:
      the revision_id from step 1 as base_revision_id — fetch-edit-put, not
      a canned diff, per docs/wiki/conventions.md's "merge, don't clobber"
      rule), then GET again and assert the diff between before and after is
-     confined to the banner line(s) (a blank+banner insertion, or a single
-     banner-line replacement) — never any other content. If that assertion
+     confined to the banner line(s) (a blank+banner insertion, a single
+     banner-line replacement, or a blank+banner removal once the page's own
+     stamp is current) — never any other content. If that assertion
      fails, or the PUT itself fails, the banked before-body is PUT back
      immediately and the page is reported as "restored", never left
      half-written.
@@ -216,7 +217,7 @@ def process_one(
     row["status"] = status
     row["final_body"] = new_body  # used by --mirror-missing regardless of apply
 
-    if status not in ("stale", "rebanded"):
+    if status not in ("stale", "rebanded", "banner-removed"):
         row["result"] = "unchanged" if status != "unparsed" else "skipped-unparsed"
         return row
 
