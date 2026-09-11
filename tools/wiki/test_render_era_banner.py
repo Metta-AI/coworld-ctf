@@ -300,3 +300,164 @@ def test_process_page_apply_leaves_dated_changelog_pages_byte_identical(tmp_path
         assert after_bytes == before_bytes, (
             f"{slug}: --apply must leave dated changelog pages byte-identical"
         )
+
+
+# --- Gap found post-#490: a page's own stamp can be brought up to the live
+# era (a content re-trace) while a banner inserted during its stale window
+# is still sitting there. `--check` must fail on this (same severity as
+# `stale`) and `--reband` must remove the now-obsolete banner — mirroring
+# exactly how it was inserted (blank line + banner line right after the
+# stamp) so the page returns byte-for-byte to its pre-banner shape. The
+# page's own stamp is the only trusted signal for this decision; the
+# banner's own "the live game is" clause is deliberately never consulted,
+# so even a hand-tampered clause can't hide a leftover banner. ---------
+
+# New (backtick) stamp form, already current, with a leftover banner whose
+# own clause still names an older era (as it would if the page's stamp was
+# re-traced to GV63 sometime after the banner was written against GV62).
+FIXTURE_CURRENT_NEW_FORM_ORIGINAL = (
+    "*Verified against `paintbot-v0.7.392` (GV63 / GLORYVERSION 17), "
+    "2026-09-11 — see `docs/wiki/_era.md`.*\n"
+    "\n"
+    "Body text unrelated to the banner.\n"
+)
+
+FIXTURE_CURRENT_NEW_FORM_WITH_STALE_BANNER = (
+    "*Verified against `paintbot-v0.7.392` (GV63 / GLORYVERSION 17), "
+    "2026-09-11 — see `docs/wiki/_era.md`.*\n"
+    "\n"
+    "**Verified against `GV63 / Glory 17` — the live game is "
+    "`GV62 / GLORYVERSION 17`; treat details as unconfirmed.**\n"
+    "\n"
+    "Body text unrelated to the banner.\n"
+)
+
+# Old ([[versions|...]]) stamp form, same scenario — confirms both
+# recognized stamp shapes feed the same detection.
+FIXTURE_CURRENT_OLD_FORM_ORIGINAL = (
+    "*Verified against [[versions|GV63 / Glory 17]].*\n"
+    "\n"
+    "Body text unrelated to the banner.\n"
+)
+
+FIXTURE_CURRENT_OLD_FORM_WITH_STALE_BANNER = (
+    "*Verified against [[versions|GV63 / Glory 17]].*\n"
+    "\n"
+    "**Verified against `GV63 / Glory 17` — the live game is "
+    "`GV63 / GLORYVERSION 17`; treat details as unconfirmed.**\n"
+    "\n"
+    "Body text unrelated to the banner.\n"
+)
+
+
+def test_current_stamp_with_stale_banner_check_fails_and_reband_removes_it():
+    """(a) current stamp + stale banner: --check (reband=False) must report
+    'stale-banner' without touching the page; --reband must remove exactly
+    the banner line (and the blank line its insertion added), leaving the
+    page byte-for-byte identical to how it looked before the banner ever
+    existed."""
+    fixture = FIXTURE_CURRENT_NEW_FORM_WITH_STALE_BANNER
+    original = FIXTURE_CURRENT_NEW_FORM_ORIGINAL
+
+    checked_text, checked_status = reb.reband_text(fixture, ERA_GV, ERA_GLORY, reband=False)
+    assert checked_status == "stale-banner"
+    assert checked_text == fixture  # read-only: untouched
+
+    rebanded_text, rebanded_status = reb.reband_text(fixture, ERA_GV, ERA_GLORY, reband=True)
+    assert rebanded_status == "banner-removed"
+    assert rebanded_text == original
+
+
+def test_stale_banner_detection_outranks_the_banners_own_clause():
+    """The banner in the fixture above claims 'the live game is GV62' (an
+    old era) — if that clause were trusted, the page would look like it
+    still needs a reband. It must not be trusted: the page's own stamp
+    (GV63, current) is what decides, so the banner is removed outright
+    rather than rebanded to a new clause."""
+    _, status = reb.reband_text(
+        FIXTURE_CURRENT_NEW_FORM_WITH_STALE_BANNER, ERA_GV, ERA_GLORY, reband=True
+    )
+    assert status == "banner-removed"
+
+
+def test_old_stamp_with_banner_keeps_existing_reband_behavior():
+    """(b) old stamp + banner: unchanged behaviour — the clause is updated
+    (or left alone without --reband) and the banner is kept, never removed,
+    across every stale fixture in the corpus."""
+    for name, fixture in STALE_FIXTURES.items():
+        left_alone_text, left_alone_status = reb.reband_text(
+            fixture, ERA_GV, ERA_GLORY, reband=False
+        )
+        assert left_alone_status == "stale-already-banded", name
+        assert left_alone_text == fixture, name
+
+        rebanded_text, rebanded_status = reb.reband_text(
+            fixture, ERA_GV, ERA_GLORY, reband=True
+        )
+        assert rebanded_status == "rebanded", name
+        assert any(
+            reb.BANNER_LINE_RE.match(line.strip()) for line in rebanded_text.splitlines()
+        ), f"{name}: banner must still be present after reband, not removed"
+
+
+def test_current_stamp_no_banner_is_a_noop_both_modes():
+    """(c) current stamp + no banner: no-op in both --check and --reband
+    modes — nothing to remove, nothing to insert."""
+    for reband in (False, True):
+        new_text, status = reb.reband_text(FIXTURE_CURRENT, ERA_GV, ERA_GLORY, reband=reband)
+        assert status == "current"
+        assert new_text == FIXTURE_CURRENT
+
+
+def test_stale_banner_detection_recognizes_both_stamp_forms():
+    """(d) both the old `[[versions|...]]` form and the new backtick form
+    are recognized as the page's own stamp for this detection."""
+    cases = [
+        ("new-form", FIXTURE_CURRENT_NEW_FORM_WITH_STALE_BANNER, FIXTURE_CURRENT_NEW_FORM_ORIGINAL),
+        ("old-form", FIXTURE_CURRENT_OLD_FORM_WITH_STALE_BANNER, FIXTURE_CURRENT_OLD_FORM_ORIGINAL),
+    ]
+    for name, with_banner, original in cases:
+        checked_text, checked_status = reb.reband_text(with_banner, ERA_GV, ERA_GLORY, reband=False)
+        assert checked_status == "stale-banner", name
+        assert checked_text == with_banner, name
+
+        removed_text, removed_status = reb.reband_text(with_banner, ERA_GV, ERA_GLORY, reband=True)
+        assert removed_status == "banner-removed", name
+        assert removed_text == original, name
+
+
+def test_banner_removal_is_idempotent():
+    """A second reband pass over an already-removed banner must report
+    'current' and change nothing further."""
+    once, once_status = reb.reband_text(
+        FIXTURE_CURRENT_NEW_FORM_WITH_STALE_BANNER, ERA_GV, ERA_GLORY, reband=True
+    )
+    assert once_status == "banner-removed"
+    twice, twice_status = reb.reband_text(once, ERA_GV, ERA_GLORY, reband=True)
+    assert twice_status == "current"
+    assert twice == once
+
+
+def test_process_page_apply_removes_stale_banner_from_current_page(tmp_path):
+    """End-to-end through process_page (write=True, reband=True), matching
+    how the CLI's --reband apply pass touches a real file on disk."""
+    page = tmp_path / "some-page.md"
+    page.write_text(FIXTURE_CURRENT_NEW_FORM_WITH_STALE_BANNER)
+
+    status = reb.process_page(page, ERA_GV, ERA_GLORY, write=True, reband=True)
+
+    assert status == "banner-removed"
+    assert page.read_text() == FIXTURE_CURRENT_NEW_FORM_ORIGINAL
+
+
+def test_process_page_check_does_not_write_on_stale_banner(tmp_path):
+    """process_page must never write in check mode (write=False), even for
+    the new stale-banner case."""
+    page = tmp_path / "some-page.md"
+    page.write_text(FIXTURE_CURRENT_NEW_FORM_WITH_STALE_BANNER)
+    before_bytes = page.read_bytes()
+
+    status = reb.process_page(page, ERA_GV, ERA_GLORY, write=False, reband=False)
+
+    assert status == "stale-banner"
+    assert page.read_bytes() == before_bytes
