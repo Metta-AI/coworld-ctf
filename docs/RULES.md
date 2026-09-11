@@ -1123,7 +1123,7 @@ publishes on `main` today:**
   stamp and the replay header so replay-only audits can name the
   publishing variant without platform access.
 
-The economy version is `GloryVersion = 13` (`glory.nim:273`). It bumps on any
+The economy version is `GloryVersion = 18` (`glory.nim:301`). It bumps on any
 pricing change, and a score compared across versions is not a comparison.
 Entrant-facing guidance on what to do differently under this economy is in
 [`players/baseline/README.md`](../players/baseline/README.md).
@@ -1133,15 +1133,19 @@ Staging variants `battle-royale-s2-lootstart` and `battle-royale-s2-downed`
 exactly one of the two loot flags each, so the S2 flag family can be staged
 or bisected per-flag instead of riding one coupled variant switch.
 
-## Season 2 glory scoring — catalog update (draft, pending sign-off)
+## Season 2 glory scoring — catalog update (GLORYVERSION 16 → 17)
 
-**This section describes a draft change, not a live one.** It is written
-into a pull request the league owner still has to approve before it ships
-to `battle-royale-s2`; nothing below is true of the game you are playing
-today until that happens. It is here so entrants can see, ahead of time,
-exactly what would change about how glory is priced.
+**This section is live.** Every flag it describes is armed on the
+published Season 2 variant `battle-royale-s2` in
+`coworld_manifest_paintbot.json` — `catalogV3Reprice`, `placementRampV3`,
+`brAssistRescueUngated`, `gloryFixedPointScale`, `gloryMultiplierRecut`,
+`winAsMultiplier`, `deedMintCaps`. It shipped as GLORYVERSION 17 and has
+since been superseded by **GLORYVERSION 18** (the S8 section below, and
+the era record in [`docs/wiki/_era.md`](wiki/_era.md)), which repriced the
+finishing rewards again — so where this section and the S8 table disagree
+on a number, the S8 table is today's.
 
-If it ships, here is what is different for every player:
+Here is what it changed for every player:
 
 - **Tags, hot streaks, contested-ground tags, and assisted tags are worth
   more.** The shared multiplier table described above — the one that turns
@@ -1176,24 +1180,27 @@ If it ships, here is what is different for every player:
   tag, a finish, an assist, or a group takedown is worth — never whether
   or how you earn one.
 
-If this ships, the glory economy version moves from **GLORYVERSION 16** to
-**GLORYVERSION 17**. A score is only ever comparable to another score from
-the same GLORYVERSION — a leaderboard should not blend seasons across that
-line. What the two competing predictions say about how much of a typical
-score moves from "how you finished" to "what you actively did" during the
-match — and how far off a first estimate turned out to be from a real
+This ship moved the glory economy version from **GLORYVERSION 16** to
+**GLORYVERSION 17**; the live version today is **GLORYVERSION 18** (S8,
+below). A score is only ever comparable to another score from the same
+GLORYVERSION — a leaderboard should not blend seasons across that line.
+What the two competing predictions said about how much of a typical score
+moves from "how you finished" to "what you actively did" during the match
+— and how far off a first estimate turned out to be from a real
 measurement of games actually played — is exactly the kind of claim this
-project holds itself to double-checking against real games once it ships,
-rather than trusting the first estimate.
+project holds itself to double-checking against real games once it has
+shipped, rather than trusting the first estimate.
 
-## Season 2 glory scoring — GLORY GRADIENT S8 (GLORYVERSION 17 → 18, draft)
+## Season 2 glory scoring — GLORY GRADIENT S8 (GLORYVERSION 17 → 18)
 
-**This section describes a draft change, not a live one**, written into a
-pull request the league owner still has to approve before it ships to
-`battle-royale-s2`. **GLORYVERSION 18 from paintbot-v0.7.397 (S8 merge sha
-1b92ec46); scoring only, not the wire (GameVersion stays 63).** No fixture
-re-record is owed by this ship. Every constant this ship moves — old value
-to new value — is in the table below; nothing not listed here changes.
+**This section is live.** The published Season 2 variant
+`battle-royale-s2` runs **GLORYVERSION 18** from build tag
+**`paintbot-v0.7.397`** (S8 merge sha 1b92ec46), as recorded in
+[`docs/wiki/_era.md`](wiki/_era.md) — the one place these numbers are
+written, and the source of truth for this claim. Scoring only, not the
+wire (GameVersion stays 63), so no fixture re-record was owed. Every
+constant this ship moved — old value to new value — is in the table
+below; nothing not listed here changed.
 
 | Constant | Old | New | Note |
 | --- | --- | --- | --- |
@@ -1252,7 +1259,7 @@ score decile but the top one realizes exactly ×1.0000; the top decile
 realizes ×1.0017. Survival credit is, for now, a shape the economy has
 rather than a number that moves it.
 
-If this ships, the glory economy version moves from **GLORYVERSION 17** to
+This ship moved the glory economy version from **GLORYVERSION 17** to
 **GLORYVERSION 18**. A score is only ever comparable to another score from
 the same GLORYVERSION — a leaderboard should not blend seasons across that
 line.
