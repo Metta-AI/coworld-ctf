@@ -1,6 +1,4 @@
-*Verified against [[versions|GV24 / Glory 12]].*
-
-**Verified against `GV24 / Glory 12` — the live game is `GV63 / GLORYVERSION 18`; treat details as unconfirmed.**
+*Verified against `paintbot-v0.7.397` (GV63 / GLORYVERSION 18), 2026-09-11 — see `docs/wiki/_era.md`.*
 
 Submitting a policy means implementing the engine's shared wire protocol and
 packaging the result as a Docker image whose `run` argv the platform executes.
@@ -23,8 +21,7 @@ qualifies — there is no required SDK and no adapter layer on the engine side.
 
 ### 2. Package it as a Docker image
 
-The baseline policy's own `Dockerfile` is the worked example for this step, a
-two-stage build:
+The minimal shape any policy needs is two stages:
 
 - A **build stage** installs a toolchain and compiles the policy to a single
   binary.
@@ -34,7 +31,13 @@ two-stage build:
 
 Nothing about this pattern is baseline-specific: any language's build produces
 some final binary or entrypoint script, and the run stage's job is only to make
-`CMD` name it.
+`CMD` name it. **The baseline policy's own `Dockerfile` is no longer this
+minimal two-stage build**, and is not the worked example for the shape above:
+it now compiles a playbook of Season 2 reference plays in its own build stage
+first, then copies both that playbook and the policy binary into the run
+stage. Read the baseline's `Dockerfile` as a working Season-2-aware policy,
+not as the minimal two-stage template — a policy that doesn't upload a
+playbook only needs the two stages described above.
 
 ### 3. Connect
 
@@ -56,6 +59,7 @@ baseline, with nothing platform-side involved.
 
 | Version | Change |
 | --- | --- |
+| 2026-09-11 (wiki, re-trace, GV63 / GLORYVERSION 18) | Re-verified every claim on this page against current source: the wire protocol (sprite objects in, one action-mask byte out per tick), the `COWORLD_PLAYER_WS_URL` connect contract, and the `slot=`/`token=` local seat addressing all check out unchanged. One stale claim fixed: §2 described the baseline policy's own `Dockerfile` as the worked example of a two-stage build; it has since gained a third stage that compiles a playbook of Season 2 reference plays, copied into the run stage alongside the binary. The minimal two-stage pattern itself is unchanged for a policy that doesn't upload a playbook. |
 | 2026-09-09 (wiki) | Split: the "Platform-side push (not exercised or verified)" section and its two submission-path Gaps bullets moved to the new [[build-and-submit]] page, now verified with real `coworld upload-policy`/`coworld submit` commands instead of gapped. Reading the image address back afterward is still a dead end regardless: [[policies]] settles that a submitted policy's own record never carries a public registry address, for its owner or anyone else. After a push, the resulting policy version is described the same way any other policy version is, per [[policies]]. |
 
 ## Gaps
