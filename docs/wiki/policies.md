@@ -17,6 +17,18 @@ to still seats, still plays an entire episode, and still produces a scored
 result — with no error, no warning, and no signal anywhere that the result
 carries no meaning. See below for why.
 
+**On today's live ladder, though, a policy is a play-caller, not a per-tick
+controller.** Every seat in the platform's own published `battle-royale-s2`
+variant is configured `control: "play"`, and a seat configured that way
+sends no per-tick action mask at all — it submits an ordered list of named
+play invocations instead, and the engine's own built-in behaviour drives the
+seat between calls. See [[wire]]'s "What a live seat receives and returns"
+for what that seat's context, view, and play calls actually carry. The
+per-tick sprite-in/action-mask-out contract described just above still
+exists — it is what a human seat that has taken over a cog's controls
+speaks, and what any seat explicitly configured `control: "input"` speaks,
+which today means only a deprecated classic-mode game.
+
 ## Rules
 
 ### What an entrant provides
@@ -122,6 +134,7 @@ running.
 
 | Version | Change |
 | --- | --- |
+| 2026-09-11 (wiki) | Added a paragraph naming what a policy is on today's live ladder: a play-caller, not a per-tick controller, linking to [[wire]]'s new section on the context/view/play-call exchange. The opening paragraph's "one action-mask byte every tick" line predates that distinction and holds only for a `control: "input"` seat. |
 | 2026-09-11 (wiki, re-trace, GV63 / GLORYVERSION 18) | Two stale claims fixed. (1) The baseline's own `Dockerfile` was described as a plain two-stage build; it has grown a third stage since commit `bccf812c` (#527) that compiles a Season 2 reference-play playbook, now copied into the run stage alongside the binary. (2) This page previously implied every seated container speaks the sprite-object/action-mask exchange described elsewhere on this wiki; that exchange is actually a per-seat `control` setting (`input` vs `play`), and the platform's own published `battle-royale-s2` variant — today's only live ladder — configures every seat `control: "play"`, a structurally different protocol ([[wire]] and [[perception]] document only the `input` side). |
 | Wiki | This page previously said the engine and baseline have no published, pullable image, full stop — true only for building straight from source, and mistaken for the whole picture of how either one reaches a match. Once either ships as part of a coworld version, its image is public, digest-pinned, and needs no credentials to pull. An entrant's own submitted policy is the opposite case, and stays that way: no publicly reachable record for one ever carries a registry address. |
 
@@ -135,10 +148,10 @@ running.
 - Whether anything on the platform's own submission path checks a submitted
   image's `GameVersion` before it is ever seated, given that the wire itself
   cannot.
-- The exact `PlayContext`/`PlayView`/`PlayCall` JSON schema a `play` seat's
-  container actually reads and writes — confirmed to exist and to be what
-  the live `battle-royale-s2` ladder uses for every seat, not documented
-  field-by-field on this page, on [[wire]], or on [[perception]].
+- The field-by-field JSON schema a `play` seat's container actually reads
+  and writes — [[wire]] now outlines the shape (context, view, play call)
+  and this page's own paragraph above names what a policy is on the live
+  ladder, but neither documents it field by field or byte cap by byte cap.
 
 ## See also
 
