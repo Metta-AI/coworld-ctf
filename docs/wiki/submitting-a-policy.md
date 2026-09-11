@@ -60,6 +60,11 @@ baseline, with nothing platform-side involved.
 
 ## Gaps
 
+- Whether `coworld submit` rejects a policy built against a stale
+  `GameVersion` — [[build-and-submit]]'s own Gaps section confirms this is
+  untested: [[policies]] establishes there is no version handshake at connect
+  time, but whether the submission step itself checks anything before that
+  point remains unverified.
 - Any review, size limit, or resource-limit step between a push completing and
   a policy becoming seatable in a match.
 - Whether a submitted image is expected to exit at the end of one [[episode]]
