@@ -1186,6 +1186,48 @@ measurement of games actually played — is exactly the kind of claim this
 project holds itself to double-checking against real games once it ships,
 rather than trusting the first estimate.
 
+## Season 2 glory scoring — GLORY GRADIENT S8 (GLORYVERSION 17 → 18, draft)
+
+**This section describes a draft change, not a live one**, written into a
+pull request the league owner still has to approve before it ships to
+`battle-royale-s2`. **GLORYVERSION 18 from paintbot-v0.7.39x (S8 merge sha
+— tag filled by the S2 lead at merge); scoring only, not the wire
+(GameVersion stays 63).** No fixture re-record is owed by this ship. Every
+constant this ship moves — old value to new value — is in the table below;
+nothing not listed here changes.
+
+| Constant | Old | New | Note |
+| --- | --- | --- | --- |
+| Mint-cap product ceiling (`RecutProductCapArmed`, live only when `deedMintCaps` is armed) | 16,384 reported | 2,097,152 reported | Sized against the real GV62 cohort; see `CAP-CEILING-S7.md` "Decision" |
+| Achievement Tier IV (Clean Sheet / Sharpshooter, non-first claim) | ×1.05 | ×2.5 | Lead ruling R4 — keeps the five-tier ladder monotonic under the new ceiling |
+| Achievement Tier V non-first claim (Longshot) | ×2.00 | ×3.0 | Lead ruling R5. Tier V **first**-claim stays ×3.46, unchanged, still the top of the ladder (3.46 > 3.0 > 2.5) |
+| `achievementLightableModes` (battle-royale-s2 flagship variant only) | dark (mechanism landed unarmed in #512) | armed — a **tier-completion bonus**, never a "light-up" | Rollback-only switch: flip it false and the mechanism goes dark again, no code change |
+| Placement — `dFinal8` (last-8 finish) | ×1.00 | ×1.15 | Owner decision 2026-09-10, PLACEMENT LADDER B |
+| Placement — `dFinal4` (last-4 finish) | ×1.00 | ×1.30 | Owner decision 2026-09-10, PLACEMENT LADDER B |
+| Placement — `dFinal2` (finalist) | ×1.30 | ×1.60 | Owner decision 2026-09-10, PLACEMENT LADDER B |
+
+All three placement rungs stay strictly below the ≥2× population line the
+gate menu screened candidates against, so this move does not make a
+placement finish "pop" the score the way a top-decile achievement or
+kill-chain claim can — it stays the small, deliberate nudge the S5 ramp
+was designed as, just no longer crushed to a near-zero marginal value for
+`dFinal8`/`dFinal4`.
+
+The table below is never-shown elsewhere in this document and is included
+here for completeness — none of these digits move in this ship:
+
+| Constant | Value | Note |
+| --- | --- | --- |
+| `dClosingTime` win-bumped base | ×1.10 non-win / ×1.20 win | Unchanged by S8 |
+| Heat ladder rungs | ×1 / ×5 / ×14 / ×36 | Unchanged by S8 |
+| Territory shift | +2–6% | Unchanged by S8 |
+| Survival credit | ×1.02 per 30s | Unchanged by S8 |
+
+If this ships, the glory economy version moves from **GLORYVERSION 17** to
+**GLORYVERSION 18**. A score is only ever comparable to another score from
+the same GLORYVERSION — a leaderboard should not blend seasons across that
+line.
+
 ## Engine reward scoring
 
 The published Season 2 variant uses `scoring: "classic"`, with the BR placement

@@ -91,9 +91,11 @@ proc applyShape(sim: var SimServer, team: Team, shape: Shape) =
 proc applyLighting(sim: var SimServer, team: Team, lightCount: int) =
   ## Claims exactly `lightCount` of treeGun's four LOWER tiers (indices
   ## 0..2 are always-fold under v3 -- tier0/1 pct=100 is an exact no-op by
-  ## LAW, tier2 (Bounty) pct=200 always folds; index 3 (Sharpshooter/max
-  ## rank) is pct=105, subject to the floor, claimed last so by then the
-  ## accumulator is already well past it from the >=200 folds above).
+  ## LAW, tier2 (Bounty) pct=200 always folds; index 3 (Sharpshooter, treeGun
+  ## Tier IV max rank) is pct=250 as of GLORY GRADIENT S8 (lead ruling R4,
+  ## was pct=105) -- always folds too now (>=200, no longer floor-gated),
+  ## claimed last so by then the accumulator is already well past it from
+  ## the >=200 folds above).
   ## Order 0,1,2,3 mirrors `satisfiedAchievements`' own tier ordering.
   for t in 0 ..< min(lightCount, AchievementTiers - 1):
     sim.claimAchievement(team, treeGun, t, isFirst = false)
@@ -145,6 +147,34 @@ suite "S4b manifest reachability (armed from the SCHEMA path, not defaultGameCon
     let echoed = parseJson(armed.configJson())
     require echoed.hasKey("achievementLightableModes")
     check echoed["achievementLightableModes"].getBool() == true
+
+  test "GLORY GRADIENT S8 SHIP: the battle-royale-s2 flagship variant's OWN game_config arms it (the manifest-path reachability the schema tests above don't cover)":
+    ## The suites above prove the SCHEMA declares the key and that
+    ## `config.update` honors it -- neither proves the manifest actually
+    ## SETS it anywhere. This is that proof, the same one #504's own
+    ## `catalogV3Reprice` arm never got a codified test for (verified by
+    ## grep at ship time instead) -- S8's own task explicitly asks for it
+    ## here. Reads the published manifest directly, not `config.update`, so
+    ## a future accidental revert of the flagSet block (not the schema)
+    ## fails this test instead of shipping dark.
+    let manifest = parseFile(GameDir / "coworld_manifest_paintbot.json")
+    var flagship: JsonNode = nil
+    for variant in manifest["variants"]:
+      if variant["id"].getStr() == "battle-royale-s2":
+        flagship = variant
+    require flagship != nil
+    let flagSet = flagship["game_config"]
+    require flagSet.hasKey("achievementLightableModes")
+    check flagSet["achievementLightableModes"].getBool() == true
+    # Armed alongside gloryMultiplierRecut (the switch's own "reads only
+    # while gloryMultiplierRecut is armed" precondition) and catalogV3Reprice
+    # (S7's own sizing was measured with both armed together) -- an
+    # achievementLightableModes:true with either of those false would be a
+    # silent no-op on this variant, not the S8 ship this test guards.
+    check flagSet.hasKey("gloryMultiplierRecut") and
+      flagSet["gloryMultiplierRecut"].getBool() == true
+    check flagSet.hasKey("catalogV3Reprice") and
+      flagSet["catalogV3Reprice"].getBool() == true
 
 suite "S4b recutModeLitBonus: the pure ladder (glory.nim, no SimServer needed)":
   test "0 or 1 lower tiers lit -> x1, no bonus (no regression vs today)":
@@ -376,7 +406,7 @@ suite "S4b jackpot gradient: does the top now have intermediate values? (determi
     let armedSorted = toSeq(armedValues).sorted()
     echo &"  S4b gradient (v3 pct): DARK={darkSorted} ({darkSorted.len} distinct)  " &
          &"ARMED={armedSorted} ({armedSorted.len} distinct)"
-    check darkSorted == @[200, 346]
+    check darkSorted == @[300, 346]   # GLORY GRADIENT S8 (lead ruling R5): Tier V non-first 200 -> 300
     check armedSorted.len == 8
     check armedSorted.len > darkSorted.len
 

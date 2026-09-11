@@ -383,11 +383,11 @@ suite "SEASON 2 replay viewer HUD: catalog v3 popup law (owner bug, 2026-09-10)"
     # setup, just the enum + tables (helpers' GameDir cwd-flip is not
     # needed here).
     checkpoint("dFinal8: milestone marker, crushed to a pure no-op under placementRampV3")
-    check RecutPlacementRampPct[dFinal8] == 100
+    check RecutPlacementRampPct[dFinal8] == 115
     checkpoint("dFinal4: same crush, same reasoning")
-    check RecutPlacementRampPct[dFinal4] == 100
+    check RecutPlacementRampPct[dFinal4] == 130
     checkpoint("dFinal2: the one milestone still worth a small nudge, still sub-2x")
-    check RecutPlacementRampPct[dFinal2] == 130
+    check RecutPlacementRampPct[dFinal2] == 160
     checkpoint("dClutchHeal: v9-retired self-heal, priced sub-2x under v3 too")
     check RecutClassTableV3Pct[dClutchHeal] == 180
     checkpoint("dClosingTime: non-win base, sub-2x")

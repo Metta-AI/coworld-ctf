@@ -211,11 +211,13 @@ suite "S5 ruling (c): pact-scope dDuoDown/dWipe (pactScopedWipeDown)":
     check sim.deedCounts[dDuoDown] == 0   # the bigger fact wins precedence
     check sim.events.anyIt(it.kind == GloryDeed and it.weapon == "pactWipe")
 
-suite "S5 placement ramp (placementRampV3, CATALOG-V3-DRAFT.md §4)":
-  test "the ruled percent table: dFinal8/dFinal4 crushed to a no-op, dFinal2 a small x1.30 nudge":
-    check RecutPlacementRampPct[dFinal8] == 100
-    check RecutPlacementRampPct[dFinal4] == 100
-    check RecutPlacementRampPct[dFinal2] == 130
+suite "S5 placement ramp (placementRampV3, CATALOG-V3-DRAFT.md §4, GLORY GRADIENT S8 PLACEMENT LADDER B)":
+  test "PLACEMENT LADDER B (owner decision, 2026-09-10): dFinal8/dFinal4/dFinal2 = x1.15/x1.30/x1.60, strictly increasing":
+    check RecutPlacementRampPct[dFinal8] == 115
+    check RecutPlacementRampPct[dFinal4] == 130
+    check RecutPlacementRampPct[dFinal2] == 160
+    check RecutPlacementRampPct[dFinal8] < RecutPlacementRampPct[dFinal4]
+    check RecutPlacementRampPct[dFinal4] < RecutPlacementRampPct[dFinal2]
 
   test "dark (flag off): dFinal8/dFinal4/dFinal2 still fold RecutClassTable's frozen 2/3/4":
     var sim = startedGame(recutConfig(br = true), seats = 2)
@@ -224,7 +226,15 @@ suite "S5 placement ramp (placementRampV3, CATALOG-V3-DRAFT.md §4)":
     sim.awardDeed(Red, dFinal8, 0, 0)
     check sim.gloryProduct[Red] == int64(RecutSeed) * RecutClassTable[dFinal8]
 
-  test "armed: dFinal8/dFinal4 crush to a no-op; dFinal2 is SKIPPED from a bare seed (GATE RULING 2) but folds a real nudge once the base has grown":
+  test "armed: all three ladder rungs are SKIPPED from a bare seed (GATE RULING 2) but each folds a real, increasing nudge once the base has grown":
+    ## Unlike the pre-S8 ladder (dFinal8/dFinal4 pinned at pct=100, a
+    ## permanent no-op regardless of base size -- see the OLD assertion
+    ## this test superseded), Ladder B's 115/130/160 are all > 100, so
+    ## ALL THREE now route through the SAME GATE RULING 2 floor check
+    ## `recutFoldPct` already applies to any pct in [100,200): skipped
+    ## below the floor, a real fold above it. Nothing about GATE RULING 2
+    ## itself changed -- only which deeds are small enough to be subject
+    ## to it (previously just dFinal2; now all three).
     var config = recutConfig(br = true)
     config.placementRampV3 = true
     config.gloryFixedPointScale = true
@@ -234,23 +244,16 @@ suite "S5 placement ramp (placementRampV3, CATALOG-V3-DRAFT.md §4)":
     let seeded = sim.gloryProduct[Red]
     check seeded == int64(RecutSeed) * GlorySCALE
     sim.awardDeed(Red, dFinal8, 0, 0)
-    check sim.gloryProduct[Red] == seeded   # pct=100: unchanged
+    check sim.gloryProduct[Red] == seeded   # below the floor: SKIPPED
     sim.awardDeed(Red, dFinal4, 0, 0)
-    check sim.gloryProduct[Red] == seeded   # pct=100: unchanged
-    # GATE RULING 2 (coordinator, after this rig's own bare-seed drift
-    # finding): dFinal2's pct=130 is "small" (<x2) and the accumulator is
-    # still at the bare seed (unscaled value 1) -- the fold is SKIPPED,
-    # not applied-then-floored. This is the new, correct behavior; the
-    # earlier version of this test predates GATE RULING 2 and asserted the
-    # OLD (now superseded) claim that a bare-seed fold "worked" via scale
-    # alone -- it did not (see the S5 rig's own 23.08%-at-every-scale
-    # finding), and this test now pins the honest replacement.
+    check sim.gloryProduct[Red] == seeded   # still below the floor: SKIPPED
     sim.awardDeed(Red, dFinal2, 0, 0)
-    check sim.gloryProduct[Red] == seeded   # SKIPPED: still unchanged
+    check sim.gloryProduct[Red] == seeded   # still below the floor: SKIPPED
 
     # Once other (whole-integer) folds have grown the base past the
-    # GATE RULING 2 floor (~64 unscaled), the SAME dFinal2 pct DOES
-    # register as a real nudge -- a fresh sim to isolate the comparison.
+    # GATE RULING 2 floor (~64 unscaled), all three ladder rungs DO
+    # register as real, increasing nudges -- a fresh sim to isolate the
+    # comparison, applying all three in finish order (8 -> 4 -> 2).
     var grown = startedGame(config, seats = 2)
     grown.players[0].team = Red
     grown.players[1].team = Blue
@@ -266,9 +269,18 @@ suite "S5 placement ramp (placementRampV3, CATALOG-V3-DRAFT.md §4)":
     grown.awardDeed(Red, dLastLight, 0, 0)  # x4 -> 256x seed: past the floor
     let base = grown.gloryProduct[Red]
     check base == seeded * 256
-    grown.awardDeed(Red, dFinal2, 0, 0)
-    check grown.gloryProduct[Red] == (base * 130) div 100   # pct=130: real nudge
+    grown.awardDeed(Red, dFinal8, 0, 0)
+    let afterFinal8 = (base * 115) div 100   # pct=115: real nudge
+    check grown.gloryProduct[Red] == afterFinal8
     check grown.gloryProduct[Red] > base
+    grown.awardDeed(Red, dFinal4, 0, 0)
+    let afterFinal4 = (afterFinal8 * 130) div 100   # pct=130: real nudge
+    check grown.gloryProduct[Red] == afterFinal4
+    check grown.gloryProduct[Red] > afterFinal8
+    grown.awardDeed(Red, dFinal2, 0, 0)
+    let afterFinal2 = (afterFinal4 * 160) div 100   # pct=160: real nudge
+    check grown.gloryProduct[Red] == afterFinal2
+    check grown.gloryProduct[Red] > afterFinal4
 
 suite "GATE RULING 1: catalogV3Reprice switch OFF is byte-identical (not merely asserted)":
   test "OFF end-to-end via awardDeed/claimAchievement reproduces the FROZEN contract's own pinned BR superb exactly: 9,437,184":
