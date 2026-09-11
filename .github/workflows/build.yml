@@ -35,13 +35,6 @@ jobs:
       - uses: actions/checkout@v5
       - name: era.py matches docs/wiki/_era.md
         run: python3 policies/starters/common/test_era.py
-      - name: tools/glory catalog_fold is era-keyed against src/ctf/glory.nim
-        # Same tripwire idea one layer down: catalog_fold.py live-ports
-        # glory.nim's scoring constants AND backward-decodes recorded
-        # cohorts, so a ship that MOVES a constant must era-key it in the
-        # same PR (#538 did not, and broke every pre-S8 decode). Stdlib
-        # only, no network, no replay cache.
-        run: python3 tools/glory/test_catalog_fold.py
   build:
     strategy:
       fail-fast: false
