@@ -33,8 +33,11 @@ qualification. No H4 was selected.
 All twelve old-base held-out correctness games passed across six cells, three
 maps and both plays. No old-base held-out performance games were run. Upstream
 then changed scoring code; root merged origin/main 58e6c947 at 46ddc845 and
-rebuilt original 256 and candidate 256/512 binaries. Current-base correctness
-is running before the six training-confirmation and 36 held-out timing games.
+rebuilt original 256 and candidate 256/512 binaries. All twelve current-base correctness games passed. The six training-confirmation
+games also passed: candidate512 versus original256 median paired total time
+was 11.6% lower, p50 15.8% lower, p95 26.2% lower and maximum 6.4% lower;
+worst deadline misses were 31 versus 109. The 36 held-out timing games are
+running; no held-out or fleet acceptance verdict is available yet.
 The frozen [current-main card](current-main/CARD.md) and
 [six-cell protocol](qualification/PROTOCOL.md) give exact gates and run order.
 Binary and guest bytes are pinned in [current-main/assets.json](current-main/assets.json).

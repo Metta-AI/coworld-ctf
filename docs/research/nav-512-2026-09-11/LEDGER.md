@@ -51,3 +51,20 @@ Native same-toolchain full fingerprint equality, three suites and diagnostic pro
 H3 passes stage and training512 target: total0.889071, p500.860027, p950.729997, max0.937275 vs original256, misses29vs108. All pairs improve and exact streams. Raw archive preserved. Proceed to frozen six-cell qualification, no H4. Local shard2 passed799 checks. Native cross-platform probes running (not acceptance timing).
 
 All12 old-base held-out correctness games passed; no old-base held-out performance games run. Root merged currentmain58e6c947 at46ddc845. Accepted review comments are prose/test clarity only. Viewer rebuilt and stampcheck passed. Currentmain native baseline256 and candidate256/512 builds started; current-main/CARD.md frozen for refreshed correctness, six training confirmation games and36 held-outs.
+
+Local source/evidence checkpoint c651dec9 includes H1-H3, unchanged256 default,
+viewer and2301passingcurrentbase checks. All12refreshedcurrentmain correctness
+games passed exactsemanticcomparison acrosssixcases. Sixtrainingconfirmation
+games nowrunning alone onnativehost; then36heldouts iftargetpasses. Fleetcard
+pre-registered, noinstancechange yet.
+
+Current-main six-game training confirmation PASSED: median total0.883893,
+p500.842014, p950.737836, max0.936287; worstmisses31vs109. Allpairsimprove,
+repeatstreams exact. DockerimageID matches P1record, glibc2.36, lscpu available.
+Current/fleet wrappers now use that immutable imageID, sameimagebytes as builds.
+36heldoutperformance games starting; noothernativework overlaps.
+
+Restore audit and independent closure complete: exact guest modules archived,
+H1 sidecar hash added, patch restore links clarified, c651 viewer QA recorded.
+Two held-out repeats completed; third running, no final verdict yet. Merged
+origin/main983880f5: documentation/offline tools only; runtime sources unchanged.

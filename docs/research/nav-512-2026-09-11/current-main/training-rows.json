@@ -1,0 +1,110 @@
+[
+  {
+    "variant": "parent",
+    "budget": 256,
+    "repeat": 1,
+    "total_ns": 31606032022,
+    "p50_ns": 24882711,
+    "p95_ns": 49801473,
+    "max_ns": 292986265,
+    "deadline_misses": 109,
+    "semantic_sha256": "a2b4288c6291f6840dd30446d66dbbc086e780c7b6440b6e4e9b33ce88aee4ee",
+    "pending_seat_ticks": 210,
+    "no_path_seat_ticks": 61,
+    "stale_seat_ticks": 424,
+    "exit": {
+      "code": 0,
+      "wall_seconds": 59.26584162099971
+    }
+  },
+  {
+    "variant": "candidate",
+    "budget": 512,
+    "repeat": 1,
+    "total_ns": 27672341901,
+    "p50_ns": 20945663,
+    "p95_ns": 37544808,
+    "max_ns": 275297307,
+    "deadline_misses": 29,
+    "semantic_sha256": "78d1e38708db1d84cc338902c58d797e8e493059ba8d1f3932c63c8083207c0a",
+    "pending_seat_ticks": 87,
+    "no_path_seat_ticks": 42,
+    "stale_seat_ticks": 297,
+    "exit": {
+      "code": 0,
+      "wall_seconds": 57.96621747400059
+    }
+  },
+  {
+    "variant": "candidate",
+    "budget": 512,
+    "repeat": 2,
+    "total_ns": 27693724789,
+    "p50_ns": 20840450,
+    "p95_ns": 37624788,
+    "max_ns": 275119371,
+    "deadline_misses": 29,
+    "semantic_sha256": "78d1e38708db1d84cc338902c58d797e8e493059ba8d1f3932c63c8083207c0a",
+    "pending_seat_ticks": 87,
+    "no_path_seat_ticks": 42,
+    "stale_seat_ticks": 297,
+    "exit": {
+      "code": 0,
+      "wall_seconds": 57.963076551000995
+    }
+  },
+  {
+    "variant": "parent",
+    "budget": 256,
+    "repeat": 2,
+    "total_ns": 31331552929,
+    "p50_ns": 24750707,
+    "p95_ns": 50993411,
+    "max_ns": 293840758,
+    "deadline_misses": 103,
+    "semantic_sha256": "a2b4288c6291f6840dd30446d66dbbc086e780c7b6440b6e4e9b33ce88aee4ee",
+    "pending_seat_ticks": 210,
+    "no_path_seat_ticks": 61,
+    "stale_seat_ticks": 424,
+    "exit": {
+      "code": 0,
+      "wall_seconds": 59.31661754699962
+    }
+  },
+  {
+    "variant": "parent",
+    "budget": 256,
+    "repeat": 3,
+    "total_ns": 31183572815,
+    "p50_ns": 24472612,
+    "p95_ns": 51289529,
+    "max_ns": 293888943,
+    "deadline_misses": 104,
+    "semantic_sha256": "a2b4288c6291f6840dd30446d66dbbc086e780c7b6440b6e4e9b33ce88aee4ee",
+    "pending_seat_ticks": 210,
+    "no_path_seat_ticks": 61,
+    "stale_seat_ticks": 424,
+    "exit": {
+      "code": 0,
+      "wall_seconds": 59.21723518900035
+    }
+  },
+  {
+    "variant": "candidate",
+    "budget": 512,
+    "repeat": 3,
+    "total_ns": 27842195600,
+    "p50_ns": 20954173,
+    "p95_ns": 37840754,
+    "max_ns": 275155833,
+    "deadline_misses": 31,
+    "semantic_sha256": "78d1e38708db1d84cc338902c58d797e8e493059ba8d1f3932c63c8083207c0a",
+    "pending_seat_ticks": 87,
+    "no_path_seat_ticks": 42,
+    "stale_seat_ticks": 297,
+    "exit": {
+      "code": 0,
+      "wall_seconds": 58.113785838000695
+    }
+  }
+]

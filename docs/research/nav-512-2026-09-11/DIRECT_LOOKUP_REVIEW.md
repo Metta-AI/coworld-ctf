@@ -159,3 +159,11 @@ shape, as `NEXT_EXACT_PLAN.md` section 2 states; this document only
 fixes the shape so the card is short if it is chosen.
 
 PHASE 11 READY
+
+## Root clarification (proposal remains unselected)
+
+The proposed mode flag adds no array allocation, but it can enlarge SearchStore
+through field size/alignment; "zero new bytes" above should read "zero new
+array bytes". Measure sizeof if this proposal is implemented. Constructor
+invariants belong in focused tests unless a real trust boundary requires a
+runtime guard. No direct-lookup implementation was selected after H3 passed.

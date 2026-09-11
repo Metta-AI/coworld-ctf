@@ -18,3 +18,9 @@ Source patches describe intermediate candidate states. The current production
 diff is also directly visible in Git; its source checkpoint retains default256.
 Raw evidence is historical, including failed and superseded experiments, and
 must not be treated as a current qualification verdict.
+
+The two exact guest modules are in `guest-modules.tar.gz`; extract it from
+the repository root to restore their original `.build` paths. Their individual
+hashes remain in `current-main/assets.json`. `current-main/CARD.md` is a frozen
+card: its `production.patch` reference means the copy restored from
+`source-and-profile-text.tar.gz`, as does `current-main/ASSET_PROVENANCE.md`.
