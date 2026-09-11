@@ -309,6 +309,24 @@ def recut_win_factor(br_mode: bool, winner_seats: int) -> int:
     return RECUT_WIN_FACTOR_BR_SOLO if winner_seats <= 1 else RECUT_WIN_FACTOR_BR
 
 
+def deed_rates(total: int, n_episodes: int, n_seat_episodes: int):
+    """Both mint rates for one deed, ALWAYS returned as a pair: (per
+    EPISODE, per SEAT-EPISODE). Every census table prints both, side by
+    side, and none of them may print only one.
+
+    A per-EPISODE rate pools all 16 seats, so it is ~16x the rate any ONE
+    seat sees. Quoting it as though it were a per-seat quantity is exactly
+    the error that published `survivalCredit` as "roughly x1.16 over a
+    typical episode": 8.49 mints/episode is 0.50 mints/SEAT-episode, and
+    compounding x1.02 8.49 times describes a seat that never existed (the
+    busiest seat in the live GV18 cohort drew 5 credits, and the realized
+    per-seat multiplier is x1.0002 -- see `CONTINUOUS_CREDIT_WEAPONS`).
+    Pinned by `test_catalog_fold.py`'s `test_deed_rates_reports_both`.
+    """
+    return (total / n_episodes if n_episodes else 0.0,
+            total / n_seat_episodes if n_seat_episodes else 0.0)
+
+
 # ── the whole per-seat-episode fold, v2 and v3 ──────────────────────────
 
 def fold_events_v2(events, cap: int = RECUT_PRODUCT_CAP_ARMED):

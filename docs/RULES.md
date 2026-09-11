@@ -1220,7 +1220,7 @@ here for completeness — none of these digits move in this ship:
 | `dClosingTime` win-bumped base | ×1.10 non-win / ×1.20 win | Unchanged by S8 |
 | Heat ladder rungs | ×1 / ×5 / ×14 / ×36 | Unchanged by S8 |
 | Territory shift | +2–6% | Unchanged by S8 |
-| Survival credit | ×1.02 folded every 720 alive ticks (30s), compounding. Nominal ×1.02<sup>n</sup>; **realized ×1.0002 mean / ×1.0000 median** per seat, measured on the live GLORYVERSION 18 cohort (r4828–r4833, n=1,440 seat-episodes) | Unchanged by S8. The continuous placement ramp: classed with placement as **handed to** the seat, not chosen by it |
+| Survival credit | ×1.02 folded every 720 alive ticks (30s), compounding — but **skipped entirely while the seat's unscaled accumulator is ≤64** (`RecutMinAccumulatorForSmallPct`, `glory.nim:3025`; the 100<pct<200 rule at `glory.nim:3074-3075`). Nominal ×1.02<sup>n</sup>; **realized ×1.0002 mean / ×1.0000 median** per seat, measured on the live GLORYVERSION 18 cohort (r4828–r4833, n=1,440 seat-episodes) | Unchanged by S8. The continuous placement ramp: classed with placement as **handed to** the seat, not chosen by it |
 
 Survival credit is the one price in that table no button presses: every
 30 seconds a seat stays alive, its team's product is multiplied by 1.02,
@@ -1238,10 +1238,13 @@ figure is not the effect.** Compounding ×1.02 by the roughly eight
 firings an episode sees would suggest ≈×1.16, but that is arithmetic, not
 a measurement, and it is wrong twice over. Those eight firings are spread
 across all sixteen seats — the typical seat gets half of one, and the most
-any seat drew in a full live cohort was five. And a factor between ×1.00
-and ×2.00 is skipped outright, not applied and rounded away, while a
-seat's accumulator still sits at or below 64, so the credit is exactly
-zero until a seat has already climbed well past the floor on real deeds.
+any seat drew in a full live cohort was five. And any factor between ×1.00
+and ×2.00 is **skipped outright — not applied and rounded away** — while
+the seat's unscaled accumulator still sits at or below 64
+(`RecutMinAccumulatorForSmallPct`, `glory.nim:3025`; the 100<pct<200 rule
+at `glory.nim:3074-3075`), so the credit is exactly zero until a seat has
+already climbed well past the floor on real deeds. That gate, not
+rounding, is why the realized number below looks the way it does.
 Measured on the live GLORYVERSION 18 cohort (rounds 4828–4833, 1,440
 seat-episodes): realized ×1.0002 mean, ×1.0000 median, ×1.0612 at the
 very best seat, with 0.07% of seats seeing as much as ×1.05. Every
