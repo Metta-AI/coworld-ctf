@@ -75,15 +75,39 @@ PLACEMENT_RAMP_DEEDS = frozenset({"dFinal8", "dFinal4", "dFinal2"})
 # never folded into `gloryProduct` (see sim.nim ~L357/380 `capHit`,
 # ~L3184/3194 `pactWipe`/`pactDuoDown`). `dTeamKill` is handled separately
 # (it feeds the FF-halving divisor, never a multiplicative fold).
-NON_FOLD_MARKER_WEAPONS = frozenset({"capHit", "pactWipe", "pactDuoDown"})
+#
+# GLORY GRADIENT S8/GV63 FIX (found live: `achievementLightableModes` is
+# armed on this era's flagship manifest for the first time, so `achModeLit`
+# finally appears on real wire data, not just in source) -- `achModeLit` is
+# ALSO a pure marker, not a second independent fold: sim.nim `claimAchievement`
+# (~L640-649) computes `bonus`, folds it into `gloryProduct` via
+# `recutFoldObserved` ONCE, THEN sets `amount = amount * bonus` (the tier's
+# own percent times the whole-integer bonus) BEFORE emitting the paired
+# `achievement`-kind event's own `emitEvent` call a few lines later (~L677) --
+# so the bonus's multiplicative effect is already fully embedded in that
+# achievement event's `amount`. An earlier version of this module treated
+# `achModeLit` as an independent WHOLE-INTEGER fold (`WHOLE_INTEGER_MARKUP_
+# WEAPONS`, now removed) causing a real, empirically-confirmed 2x
+# reconciliation miss whenever the S4b bonus fires (GV18/GameVersion 63
+# live cohort, r4828-4833: 3/1440 seat-episodes off by exactly recon/reported
+# = 2.0, all three carrying an `achModeLit` mint -- see
+# docs/designs/glory/CENSUS-GV18.md). Folding BOTH the marker (x bonus) and
+# the achievement event (x pct*bonus, already including bonus) double-counts
+# the bonus leg. Excluding `achModeLit` from the fold entirely (same
+# treatment as `capHit`/`pactWipe`/`pactDuoDown`) fixes it: only the paired
+# achievement event's already-bonus-inclusive `amount` folds.
+NON_FOLD_MARKER_WEAPONS = frozenset({
+    "capHit", "pactWipe", "pactDuoDown", "achModeLit",
+})
 
-# sim.nim `claimAchievement`'s S4b "bank lights the jackpot" bonus
-# (`achievementLightableModes`, dark on every GV61/GV62 cohort measured so
-# far) folds a WHOLE-INTEGER bonus via `recutFoldObserved` (classic
-# `recutFold`), never `recutFoldPct`, even under catalog v3 -- see sim.nim
-# ~L656-669. Handled explicitly so a future cohort with this switch armed
-# does not silently mis-fold it as a percent.
-WHOLE_INTEGER_MARKUP_WEAPONS = frozenset({"achModeLit"})
+# Kept (now empty) so `fold_events_v3`'s `weapon in WHOLE_INTEGER_MARKUP_
+# WEAPONS` branch and its two other callers (attribution_decompose.py,
+# cap_sweep.py) keep compiling; every former member (`achModeLit`) is now
+# filtered out upstream via `NON_FOLD_MARKER_WEAPONS` before reaching this
+# check at all three call sites, so this branch is currently unreachable
+# dead code, not a live path -- left in place as a documented extension
+# point for a FUTURE whole-integer-under-v3 weapon, should one ever exist.
+WHOLE_INTEGER_MARKUP_WEAPONS = frozenset()
 
 
 # ── v3 pricing tables (glory.nim, verbatim -- attribution_decompose.py's

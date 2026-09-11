@@ -190,6 +190,21 @@ def sweep_episode(jsonl_path: str, round_number: int, cap: int, s4b_armed: bool,
         (e for e in lines if e.get("kind") in ("glory_deed", "achievement")),
         key=lambda e: e.get("tick") or 0,
     )
+    # GLORY GRADIENT S8/GV63: was this SPECIFIC top-tier claim recorded with
+    # `achievementLightableModes` actually armed (so its own wire `amount` is
+    # already bonus-inclusive -- see the fix note below), or is this replay
+    # from an era where the switch was dark (bare tier price on the wire,
+    # this function's `s4b_armed` sweep param existing purely as a
+    # counterfactual on that older data)? sim.nim only ever emits an
+    # `achModeLit` marker at the SAME (target, tick) as its paired
+    # Achievement event, and only when `bonus > 1` -- so its presence at
+    # that exact (target, tick) is ground truth for "this claim's own amount
+    # already includes the bonus", not a guess.
+    lit_claim_ticks = {
+        (e.get("target"), e.get("tick"))
+        for e in events
+        if e.get("kind") == "glory_deed" and e.get("weapon") == "achModeLit"
+    }
     for e in events:
         t = e.get("target")
         if t is None or t < 0 or t >= n:
@@ -217,8 +232,63 @@ def sweep_episode(jsonl_path: str, round_number: int, cap: int, s4b_armed: bool,
         contribution_log2 = (math.log2(after) - math.log2(before)) if contributed else 0.0
 
         if kind == "achievement":
-            if contributed:
-                buckets[t]["ACHIEVEMENTS"] += contribution_log2
+            # GLORY GRADIENT S8/GV63 FIX. Two regimes now exist and must be
+            # told apart, not assumed:
+            #
+            # (a) This claim's replay was recorded with `achievementLightable
+            #     Modes` ACTUALLY armed (real GV18/GameVersion-63+ play, the
+            #     first cohort where this is true) -- sim.nim `claimAchievement`
+            #     (~L627-649) folds the bonus into `gloryProduct` ONCE, THEN
+            #     sets `amount = amount * bonus` BEFORE this same claim's
+            #     `emitEvent(Achievement, ..., amount = amount, ...)` call
+            #     (~L677-681) -- so the wire `amt` we just folded above
+            #     (`after = recut_fold_pct(before, amt, ...)`) is ALREADY
+            #     bonus-inclusive (verified against real wire data: a Tier V
+            #     non-first claim with lightCount=2 reports amt=600 = 300
+            #     (RecutTierClassV3Pct non-first) x 2 (bonus), not 300).
+            #     Folding the bonus a SECOND time here double-counts it --
+            #     confirmed empirically: a real GV18 cohort read (r4828-4833)
+            #     showed exactly 3 seat-episodes whose reconstruction was
+            #     2.000x the platform's reported score, all three carrying a
+            #     lit top-tier claim. Ground truth for "this exact claim was
+            #     recorded armed": sim.nim only emits the `achModeLit` marker
+            #     at the SAME (target, tick) as its paired Achievement event,
+            #     and only when bonus > 1 -- `lit_claim_ticks` membership,
+            #     not a guess.
+            # (b) This claim's replay predates any armed cohort (GV61/GV62,
+            #     `s4b_armed` used purely as this function's own documented
+            #     COUNTERFACTUAL sweep parameter) -- the wire `amt` is bare
+            #     (no bonus folded in at record time, no `achModeLit` marker
+            #     exists at all), so a `s4b_armed=True` sweep must SYNTHESIZE
+            #     the bonus from the seat's own claim order and fold it
+            #     separately, exactly as this function did before this fix --
+            #     preserved unchanged, still exercised by
+            #     `test_s4b_armed_folds_the_bank_lights_the_jackpot_bonus`.
+            recorded_armed = (t, e.get("tick")) in lit_claim_ticks
+            light_count = (len(claimed_lower[t].get(weapon, ()))
+                           if hp == TOP_TIER else 0)
+            if recorded_armed:
+                bonus = recut_mode_lit_bonus(light_count)
+                if contributed and bonus > 1 and amt % bonus == 0:
+                    tier_pct = amt // bonus
+                    predicted_sum = (math.log2(tier_pct / 100) if tier_pct > 100 else 0.0) + math.log2(bonus)
+                    rescale = (contribution_log2 / predicted_sum) if predicted_sum else 0.0
+                    buckets[t]["ACHIEVEMENTS"] += (math.log2(tier_pct / 100) if tier_pct > 100 else 0.0) * rescale
+                    buckets[t]["MODE_LIT_CHOSEN"] += math.log2(bonus) * rescale
+                elif contributed:
+                    buckets[t]["ACHIEVEMENTS"] += contribution_log2
+            else:
+                if contributed:
+                    buckets[t]["ACHIEVEMENTS"] += contribution_log2
+                if s4b_armed and hp == TOP_TIER:
+                    bonus = recut_mode_lit_bonus(light_count)
+                    if bonus > 1:
+                        b_before = product[t]
+                        b_after = catalog_fold.recut_fold(b_before, bonus, cap)
+                        product[t] = b_after
+                        if b_after != b_before:
+                            buckets[t]["MODE_LIT_CHOSEN"] += (
+                                math.log2(b_after) - math.log2(b_before))
             # `sim.claimed[team][key] = true` is set UNCONDITIONALLY at the
             # top of `claimAchievement` (sim.nim ~L598), BEFORE the pricing
             # fold runs -- a tier still counts as "banked" even on a
@@ -226,16 +296,6 @@ def sweep_episode(jsonl_path: str, round_number: int, cap: int, s4b_armed: bool,
             # identity). Track membership regardless of `contributed`.
             if hp is not None and 0 <= hp < TOP_TIER:
                 claimed_lower[t][weapon].add(hp)
-            elif hp == TOP_TIER and s4b_armed:
-                light_count = len(claimed_lower[t].get(weapon, ()))
-                bonus = recut_mode_lit_bonus(light_count)
-                if bonus > 1:
-                    b_before = product[t]
-                    b_after = catalog_fold.recut_fold(b_before, bonus, cap)
-                    product[t] = b_after
-                    if b_after != b_before:
-                        buckets[t]["MODE_LIT_CHOSEN"] += (
-                            math.log2(b_after) - math.log2(b_before))
             continue
 
         # glory_deed, folded for real -- sub-factor decomposition (same
