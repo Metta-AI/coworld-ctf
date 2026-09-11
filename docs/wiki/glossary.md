@@ -33,6 +33,13 @@ don't restate the sentence.
   that needs one, a short text label. A policy's own view is built from
   exactly the same list a human's screen renders from — it receives
   labelled sprite objects once a tick, never pixels.
+- **survival credit** — A living seat's running Glory compounds on its own,
+  with no tag or claim needed: every 30 seconds it stays alive, its team's
+  product folds another ×1.02. That alone compounds to roughly ×1.16 over
+  a typical episode. It rides alongside placement, not in place of it — a
+  seat that survives longer both climbs the placement ladder and banks
+  more of this credit — but it shows no popup or rail event of its own
+  today.
 
 *Era: the "sprite" entry above traced against `paintbot-v0.7.392` (GV63 /
 GLORYVERSION 17), 2026-09-11 — see `docs/wiki/_era.md`.*

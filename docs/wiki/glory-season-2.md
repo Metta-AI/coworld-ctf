@@ -81,6 +81,7 @@ divides the running product instead; see "Friendly fire" below.
 | `FINAL 8` placement | ×1.15 | Raised from ×1.00 ("Ladder B", owner decision 2026-09-10) |
 | `FINAL 4` placement | ×1.30 | Raised from ×1.00 |
 | `FINAL 2` placement | ×1.60 | Raised from ×1.30 |
+| Survival credit | ×1.02 per 30s-alive checkpoint, compounding | Folds automatically for every living seat, regardless of placement — not a milestone itself. Rides alongside the placement rungs above: the longer a seat survives, the more placement rungs it can still reach *and* the more of this credit it accrues along the way. Compounds to roughly ×1.16 over a typical episode (measured mean ~8.5 checkpoints/episode). Never reaches the ×2.00 pop line, and today it shows no popup or rail event of its own — nothing marks the moment a checkpoint lands |
 | BR win factor, this ladder's shape (16 one-seat teams) | ×8.00 | Not a deed — a flat, composition-neutral fold at the episode's finalize step, entirely replacing the retired `VICTORY` deed |
 
 The BR win factor is keyed by the winning team's own seat count: a 1-seat
