@@ -1,6 +1,4 @@
-*Verified against [[versions|GV24 / Glory 12]].*
-
-**Verified against `GV24 / Glory 12` — the live game is `GV63 / GLORYVERSION 18`; treat details as unconfirmed.**
+*Verified against `paintbot-v0.7.397` (GV63 / GLORYVERSION 18), 2026-09-11 — see `docs/wiki/_era.md`.*
 
 The manual of style for the Paintbot wiki. It defines what belongs here, the
 genre test that decides it, the mechanic-and-chrome layering, the version stamp,
@@ -107,23 +105,58 @@ the broadcast stream but never in a player's own observation, for instance —
 say so in bold at the point of use, not in a footnote. See [[perception]] for the
 worked example.
 
+## One word, no synonyms
+
+This wiki, the game's own on-screen chrome, and the platform's other
+surfaces are meant to share one vocabulary rather than each picking their own
+synonym for the same idea. **`Tag` is the confirmed, load-bearing example:
+this wiki uses `tag` for a cog eliminating another, on every page that
+mentions it, never `kill` or `eliminate`** — the same word the game's own
+build history uses ("a tag is a straight elimination this season"). The same
+discipline extends to this wiki's other public-facing words for ordinary
+play concepts; introduce a new word for something already named only to
+correct a real error, never as a stylistic variant of a word already in use.
+[[glossary]] holds the one-sentence definitions for Glory, deed, multiplier,
+pact, heat, downed and standing — quote those sentences verbatim when linking
+to them; do not paraphrase.
+
 ## Version stamps
 
 Numbers change when the engine changes, so every number is scoped to the version
 it is true for. **Stamp to the engine version, never to a calendar date** — a
-date tells a reader nothing about whether the value still holds.
+date tells a reader nothing about whether the value still holds, which is why
+the page stamp below carries a date only as a "when was this checked"
+timestamp, never as the thing a fact is scoped to.
 
-Four forms:
+Five forms:
 
-1. **Page stamp.** One italic line, the very first line of the file, nothing else
-   on it:
+1. **Page stamp.** One italic line, the very first line of the file, nothing
+   else on it:
 
    ```
-   *Verified against GV24 / Glory 10.*
+   *Verified against `paintbot-v0.7.397` (GV63 / GLORYVERSION 18), 2026-09-11 — see `docs/wiki/_era.md`.*
    ```
 
-   `GV<n>` is the engine's game version; `Glory <n>` is the glory-system version.
-   Update both when you re-verify the page, even if nothing changed.
+   Four parts: the exact published **build tag**; the engine's own
+   **GameVersion** (`GV<n>`, abbreviated) and the Glory system's own
+   **GLORYVERSION** (`<n>`, spelled out — the two are easy to confuse in
+   prose precisely because their numbers can differ, so the stamp never
+   abbreviates GLORYVERSION the way it abbreviates GameVersion); the date you
+   checked the page; and a pointer to `docs/wiki/_era.md`, the one place all
+   three live figures are recorded. Update all three numbers when you
+   re-verify the page, even if nothing on it changed — see [[versions]] for
+   what each one means and how GLORYVERSION can move on its own. Every plain
+   reference-page follows this exact form; the changelog family does not —
+   see "Dated logs" below.
+
+   **Do not hand-edit the bold warning line that sometimes appears right
+   after this stamp.** An automated pass compares every page's own stamp
+   against the live figures in `docs/wiki/_era.md` and inserts that one line
+   — never touching the stamp itself — when a page's stamp has fallen
+   behind; it removes the line again once the page is re-verified. Editing or
+   deleting it by hand does nothing except get overwritten on the next pass;
+   the only way to clear it is to actually re-verify the page and update its
+   own stamp.
 
 2. **Value stamp.** When a single value changed in a known version, note it in
    that row's Notes column, old value first:
@@ -146,8 +179,31 @@ Four forms:
 
    ```
    — a live service value, not an engine constant, and it can change
-   independently of the GV/Glory stamp above
+   independently of the build tag / GameVersion / GLORYVERSION stamp above
    ```
+
+   A handful of these live-service values — the standing-decay constant and
+   the season-leg transform, among others — are recorded once, live, in
+   `docs/wiki/_era.md` rather than on any content page. State the *rule* in
+   words on the page that needs it, and link to `docs/wiki/_era.md` for
+   whatever the number currently is; do not copy the literal number onto a
+   second page, where it will go stale the moment the live value moves.
+
+5. **Dated logs are exempt, and the test is structural, not a filename
+   pattern.** The changelog family (`[[changelog]]` and one
+   `changelog-YYYY-MM-DD` page per day something shipped) and
+   [[patch-notes]] are all frozen from the version-mismatch check and the
+   unconfirmed banner, and none of the three opens with the page-stamp form
+   above — a plain italic sentence naming what the log covers is enough. The
+   reason is structural, not the filename: each is a versioned table, newest
+   first, keyed by build tag or GameVersion or GLORYVERSION per row, rather
+   than a living reference page a reader checks against the current era — a
+   log dated to a build that has since receded into the past is not stale,
+   it is simply a record of what was true when its own row was written. A
+   page that looks like a log but is meant to be checked against the live
+   era regardless — because it is a curated reference, not a raw log — still
+   needs the ordinary page stamp and should not be added to this exemption
+   just because it happens to contain a dated table.
 
 If you do not know which version changed a value, write nothing rather than
 guessing.
@@ -419,10 +475,20 @@ Of everything on this page, this is the single most transferable lesson.
    the reachable source, or describe the verification route in words a
    stranger could follow without pointing at anything only you have access
    to.
-4. **Stamp the page** with the GV and Glory version you verified against.
+4. **Stamp the page** with the build tag, GameVersion and GLORYVERSION you
+   verified against — see [Version stamps](#version-stamps).
 5. **Link it from [[main]]** and from every page that should mention it, with
    `[[wikilinks]]`.
 6. **Apply the genre test** to anything that reads like advice.
+
+## Publishing a page
+
+Writing and stamping a page is not the same step as putting it in front of a
+reader. This repository holds the working draft; getting a reviewed draft
+onto the live wiki is a separate, manual step the maintainers do after
+review, not something an edit here does by itself. Nothing in this checklist
+requires knowing that mechanism — a page is done, for the purposes of every
+rule above, once it is written, stamped, linked and genre-tested.
 
 ## Adding an item
 
@@ -478,8 +544,13 @@ one sitting. Treat a version bump as a short checklist, not a single edit:
 - [[main]] — the portal
 - [[perception]] — the label contract and fog rules
 - [[paint-bomb]] — the model stat page
-- [[versions]] — what the GV/Glory stamp means, and how a page can be
-  honestly scoped to a version other than its own stamp
+- [[versions]] — what the stamp's build tag, GameVersion and GLORYVERSION
+  mean, and how a page can be honestly scoped to a version other than its
+  own stamp
+- [[glossary]] — the one-sentence definitions this page's naming rule points
+  to
+- `docs/wiki/_era.md` — the live-ruleset record the page stamp's pointer
+  names
 
 ## Discussion
 

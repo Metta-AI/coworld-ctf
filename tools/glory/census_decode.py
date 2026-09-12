@@ -31,7 +31,12 @@ from collections import Counter, defaultdict
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import catalog_fold  # noqa: E402
 
-CAP = 2 ** 24
+CAP = catalog_fold.RECUT_PRODUCT_CAP_ARMED_S6
+# The v2 (pre-catalog-v3) branch's own ceiling. Identical value (2**24) to
+# the literal that stood here before -- now NAMED as the S6-era constant so
+# a future ship that moves `RecutProductCapArmed` again cannot be read as
+# also moving this one. The v2 catalog only ever ran under GLORYVERSION
+# <= 17, so this branch has exactly one era and needs no lookup.
 
 HEAT_LADDER = [1, 2, 4, 8]
 HEAT_THRESHOLDS = [1, 2, 4]
@@ -123,14 +128,21 @@ def heat_occupancy_for_seat(events_for_seat, episode_ticks):
     return occ
 
 
-def analyze_episode(ep, jsonl_path, catalog="v2"):
+def analyze_episode(ep, jsonl_path, catalog="v2", glory_version=None):
     """`catalog`: "v2" (default -- the ORIGINAL, byte-identical flat-integer
     fold; every pre-existing caller that does not pass `catalog` gets
     EXACTLY the historical behavior, which is how the GV61/GV15
     reconciliation stays a regression gate) or "v3" (GLORYVERSION 17 /
     GameVersion 62+, percent-scaled fixed-point fold -- see
     tools/glory/catalog_fold.py, ported from src/ctf/glory.nim's
-    `recutFoldPct`/`recutScoreScaled`/`recutWinFactor`)."""
+    `recutFoldPct`/`recutScoreScaled`/`recutWinFactor`).
+
+    `glory_version`: the ERA to fold this episode against. Default `None`
+    means DERIVE IT FROM THE EPISODE (`ep["coworld_version"]` ->
+    `catalog_fold.glory_version_for_build`), which is what makes a
+    historical cohort still decode after a ship moves a glory.nim constant
+    -- see catalog_fold.py's "ERA KEYING" header. Pass an int only as an
+    explicit override."""
     with open(jsonl_path) as f:
         lines = [json.loads(l) for l in f]
     summary = next((e for e in lines if e.get("type") == "summary"), None)
@@ -199,7 +211,19 @@ def analyze_episode(ep, jsonl_path, catalog="v2"):
             if amt and amt > 1:
                 product[t] *= amt
 
-    catalog_switches = catalog_fold.CATALOG_V3 if catalog == "v3" else catalog_fold.CATALOG_V2
+    era = glory_version
+    if era is None:
+        try:
+            era = catalog_fold.glory_version_for_build(ep.get("coworld_version"))
+        except ValueError:
+            if catalog == "v3":
+                raise  # a v3 fold's cap/ramp are era-dependent: never guess
+            # The v2 branch below reads neither the era-keyed ceiling nor
+            # the placement ramp (it has its own `CAP`), and the v2 catalog
+            # only ever ran pre-S8 -- so a v2 episode with no usable build
+            # tag (why_one.py's hand-built stub, say) stays decodable.
+            era = catalog_fold.GLORY_VERSION_S6
+    catalog_switches = catalog_fold.catalog_for(catalog, era)
 
     rows = []
     reported_map = {s["position"]: s["score"] for s in ep.get("participant_scores") or []}
@@ -230,7 +254,7 @@ def analyze_episode(ep, jsonl_path, catalog="v2"):
         heat_occ = heat_occupancy_for_seat(sorted(heat_events_per_seat[s]), ticks)
         rows.append(dict(
             episode_id=ep["episode_id"], round_number=ep["round_number"],
-            coworld_version=ep["coworld_version"], slot=s,
+            coworld_version=ep.get("coworld_version"), slot=s,
             reported=reported_map.get(s), recon_final=final,
             win=is_winner, capped=capped_flag,
             deed_counts=dict(deed_counts_per_seat[s]),
@@ -262,9 +286,20 @@ def main():
                           "or 'auto' (per-episode coworld_version lookup "
                           "against --catalog-map)")
     ap.add_argument("--catalog-map",
-                     help="JSON {coworld_version: 'v2'|'v3'}, produced by "
+                     help="JSON {coworld_version: {'label': 'v2'|'v3', "
+                          "'gloryVersion': <int>}}, produced by "
                           "tools/glory/catalog_detect.py; required with "
-                          "--catalog auto")
+                          "--catalog auto. Legacy maps whose values are bare "
+                          "'v2'/'v3' strings still load (the era then comes "
+                          "from each episode's own coworld_version)")
+    ap.add_argument("--glory-version", type=int, default=None,
+                     help="ESCAPE HATCH ONLY. Force every episode to fold "
+                          "against this GLORYVERSION's glory.nim constants "
+                          "(the cap ceiling, the placement ramp). Leave it "
+                          "unset: the era is derived per episode from its "
+                          "own coworld_version / the catalog map, which is "
+                          "what keeps a historical cohort decoding after a "
+                          "ship moves a constant")
     args = ap.parse_args()
     if args.catalog == "auto" and not args.catalog_map:
         ap.error("--catalog auto requires --catalog-map")
@@ -312,16 +347,22 @@ def main():
         jp = jsonl_paths.get(ep["episode_id"])
         if not jp:
             continue
+        episode_era = args.glory_version
         if args.catalog == "auto":
-            episode_catalog = catalog_map.get(ep["coworld_version"])
-            if episode_catalog is None:
+            entry = catalog_map.get(ep["coworld_version"])
+            if entry is None:
                 bad_eps.append((ep["episode_id"],
                                  f"no catalog entry for {ep['coworld_version']}"))
                 continue
+            episode_catalog, map_era = catalog_fold.normalize_catalog_entry(
+                entry, ep["coworld_version"])
+            if episode_era is None:
+                episode_era = map_era
         else:
             episode_catalog = args.catalog
         try:
-            rows, _summary = analyze_episode(ep, jp, catalog=episode_catalog)
+            rows, _summary = analyze_episode(ep, jp, catalog=episode_catalog,
+                                              glory_version=episode_era)
         except Exception as e:  # noqa: BLE001
             bad_eps.append((ep["episode_id"], str(e)))
             continue
