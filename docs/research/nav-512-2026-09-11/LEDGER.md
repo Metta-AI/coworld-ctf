@@ -68,3 +68,33 @@ Restore audit and independent closure complete: exact guest modules archived,
 H1 sidecar hash added, patch restore links clarified, c651 viewer QA recorded.
 Two held-out repeats completed; third running, no final verdict yet. Merged
 origin/main983880f5: documentation/offline tools only; runtime sources unchanged.
+
+All36 current-main m5a held-out performance games PASS; each of18pairs improves
+allfourtimingmetrics. Peer independently reconstructed everyrawrow and verdict.
+Raw54-gamearchive hash a97e0249... savedlocally beforehostchange. Stale ticks
+increase inmovingcells despite moremovement/fewerpendingandno-pathticks; report
+asdiagnostic, notqualitywin. Ownedhost resizedtoc6a.4xlarge, IP3.94.87.23,
+AMD EPYC7R13. Sameimage/binaries. Fleet24-gamecampaign running alone, exec29643.
+
+C6a24games PASS allfourworkload/placement cells, allcross-familybehavior exact.
+Rawarchive399112a7... copiedandverifiedlocally; noDockerprocess remainedbefore
+stop. Ownedhoststopping forIntelc8i-flex qualification, samebinaries/image.
+
+## Research target completed
+
+All 14 registered workload/placement gates passed: 36 m5a held-out games,
+24 c6a games and 24 Intel games. Every one of the 42 paired comparisons
+improved all four frame metrics; worst deadline misses never increased.
+Six training-confirmation and 12 same-budget correctness games also passed.
+Claude independently reproduced all 84 held-out/fleet raw metrics and verdicts.
+Exact cross-family semantic streams held on both selected fleet workloads.
+
+Owned instance i-08b7fb62b50e0740a is confirmed STOPPED; its last type is
+c8i-flex.4xlarge. All 102 current-base games are archived locally with hashes;
+no native job remains. Canonical source is root checkpoint c651dec9 plus later
+documentation and upstream-only merges. Peer production WIP contains H1+H2
+and must not be mistaken for the final H3 candidate.
+
+No default change, remote push, origin/main merge or publication occurred in
+this resumed task. INTEGRATION.md describes future budget-change steps;
+QUALIFICATION.md is the final evidence index.

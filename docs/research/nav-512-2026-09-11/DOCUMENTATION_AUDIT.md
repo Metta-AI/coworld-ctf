@@ -41,3 +41,24 @@ and a viewer QA record identifies c651dec9. New fleet scripts implement the
 unchanged preregistered card; no production source or input changed. Fetched
 origin/main 9f61d669 adds documentation/offline tooling only, with unchanged
 runtime sources. No new broad source test run is warranted for these records.
+
+Pre-follow-up checkpoint audit: current-main/RESULT and fleet/C6A_RESULT now
+record completed passes, with raw archives and independent recomputation.
+QUALIFICATION.md consolidates mechanisms, evidence, diagnostics and limitations;
+Intel remains explicitly pending. The stale-counter review removes unsupported
+per-request and optimality claims. Latest fetched main0a77dcc4 changes viewer,
+docs and offline tooling, with src and nimby.lock unchanged from983880f5.
+
+Final qualification audit: all14 held-out/fleet cells passed (36 m5a games,
+24 c6a and24 Intel), with allframes retained. The six training and12 correctness
+games are separately identified, making102 current-base games. Results, archive
+hashes, hardware provenance, work-unit semantics, diagnostic stack tradeoff,
+counter limitations and future integration steps are documented. No source,
+default, gameplay version or schema changed after c651dec9. Documentation links
+check locally. The latest fetched main remains0a77dcc4 with unchanged runtime
+sources; viewer QA passed after merging it. Final Intel peer review passed and independently reproduced all24 rawgames.
+No new source or broader test run was needed after the documented source checks.
+
+Peer closeout copied and checked: corrected its byte-identical H2 wording
+(the root has an additional proof comment) and expanded the pool multiplier.
+No code change; canonical source and peer WIP remain clearly distinguished.

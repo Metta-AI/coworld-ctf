@@ -1,0 +1,9 @@
+{
+  "id": "i-08b7fb62b50e0740a",
+  "type": "c8i-flex.4xlarge",
+  "state": "running",
+  "az": "us-east-1d",
+  "ip": "44.220.166.109",
+  "image_id": "sha256:5629fc83f513158ea716dde08cb5b065d7765b978107edf70a8cc3a18c29eeef",
+  "recorded_at": "2026-09-12T00:05:28.878275+00:00"
+}

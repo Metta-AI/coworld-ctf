@@ -24,3 +24,10 @@ the repository root to restore their original `.build` paths. Their individual
 hashes remain in `current-main/assets.json`. `current-main/CARD.md` is a frozen
 card: its `production.patch` reference means the copy restored from
 `source-and-profile-text.tar.gz`, as does `current-main/ASSET_PROVENANCE.md`.
+
+Completed qualification archives: `current-main/raw-games.tar.gz` contains
+54 games (12 correctness,6 training,36 held-out); `fleet/c6a-raw.tar.gz` and
+`fleet/c8i-raw.tar.gz` contain24 games each plus host and CPU-lifecycle records.
+Each has an adjacent SHA256 sidecar. Extract into scratch directories; the
+archives preserve the native result-directory names. The 102 current-base
+games are separate from earlier hypothesis screens and superseded diagnostics.

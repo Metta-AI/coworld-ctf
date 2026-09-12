@@ -40,3 +40,23 @@
     expanded to an MCP launch command containing a secret earlier in the run;
     the user was notified and that unused client was stopped. The value is not
     in these artifacts. Credential rotation remains an owner follow-up.
+
+## Qualification and restoration follow-ups
+
+- Keep a separate verdict for each workload and CPU placement. The candidate
+  passed older m5a, AMD c6a and Intel c8i-flex comparisons; fleet timing must
+  still be described as representative testing, not production contention.
+- Preserve exact guest bytes, not just build source and a hash. A local rebuilt
+  edge_ride module differed from the tested native copy; archive the pinned
+  bytes and verify them independently before claiming restoration is complete.
+- Do not divide diagnostic counters without checking their definitions. Stale
+  and no-path are measured before planning, pending afterward, and movement
+  counts direction masks. They are not nested states; aggregate declines do
+  not prove every request finishes sooner or every movement is useful.
+- Distinguish direct observations from structural guarantees: same-budget 512
+  equality was measured on training screens, while held-out exactness used256.
+  Output-preserving mechanisms support the broader expectation, but do not
+  relabel that inference as an experiment that was never run.
+- Tiny helper stack-frame costs can be material in a production Nim build.
+  Preserve global stack traces and bounds checks, record the exact helpers,
+  and acknowledge that nested selected helpers can omit a whole call chain.

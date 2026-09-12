@@ -1,6 +1,8 @@
 # Navigation research: 512 without a whole-game slowdown
 
-Active research, resumed at James's request on September 11. Target: **512
+Research completed after resuming at James's request on September 11.
+The candidate passed every registered timing gate on m5a, c6a and Intel c8i-flex,
+with independent raw-log verification. Target: **512
 pooled planning work units per configured cog per tick**, compared with 256,
 without slower whole-game frames or relaxed route quality, determinism or memory
 limits. Units include connectors, reconstruction and field minting as well as
@@ -36,8 +38,12 @@ then changed scoring code; root merged origin/main 58e6c947 at 46ddc845 and
 rebuilt original 256 and candidate 256/512 binaries. All twelve current-base correctness games passed. The six training-confirmation
 games also passed: candidate512 versus original256 median paired total time
 was 11.6% lower, p50 15.8% lower, p95 26.2% lower and maximum 6.4% lower;
-worst deadline misses were 31 versus 109. The 36 held-out timing games are
-running; no held-out or fleet acceptance verdict is available yet.
+worst deadline misses were 31 versus 109. All36 held-out timing games passed, independently in each of six workloads:
+median paired total time improved6.2–17.9%, p95 improved6.8–37.7%, and all
+maximum-frame metrics improved. Worst deadline misses stayed equal or fell.
+Every individual pair improved all four timing metrics, with exact repeats.
+See [current-main/RESULT.md](current-main/RESULT.md). C6a and Intel c8i-flex qualification both passed in pinned and unpinned
+execution, with independent raw-log verification.
 The frozen [current-main card](current-main/CARD.md) and
 [six-cell protocol](qualification/PROTOCOL.md) give exact gates and run order.
 Binary and guest bytes are pinned in [current-main/assets.json](current-main/assets.json).
@@ -68,8 +74,8 @@ increase is used. These are activation measurements, not peak-gameplay RSS.
   has identical stored state; only recomputed diagnostic inputs differ there.
   The complete internal discrepancy is not yet localized. Same-platform
   original/candidate full-state exactness is independently established.
-- Common production CPU families and unpinned server execution remain to be
-  qualified. [HARDWARE.md](HARDWARE.md) records the fleet and screening host.
+- C6a and Intel c8i-flex passed in pinned and unpinned execution. These
+  are two selected workloads per family, not every policy or contention level. [HARDWARE.md](HARDWARE.md) records the fleet and screening host.
   [P0](P0/RESULT.md) and [P1](P1/RESULT.md) are diagnostic profiles, not timing
   acceptance evidence.
 
@@ -86,3 +92,6 @@ just because the repository ignores *.log.
 
 See [RAW_ARTIFACTS.md](RAW_ARTIFACTS.md) before following older briefs that
 reference unpacked patch, perf or log paths. Their exact bytes are archived.
+
+[QUALIFICATION.md](QUALIFICATION.md) consolidates the mechanisms, measured
+results, work-unit definitions, diagnostic tradeoff and evidence index.

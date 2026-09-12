@@ -1,0 +1,482 @@
+[
+  {
+    "case": "map5001-s32-edge-r1050",
+    "mode": "pinned",
+    "variant": "parent",
+    "budget": 256,
+    "repeat": 1,
+    "total_ns": 7636834595,
+    "p50_ns": 5828936,
+    "p95_ns": 12676049,
+    "max_ns": 77213554,
+    "deadline_misses": 3,
+    "semantic_sha256": "21ee38a270f8180e182be553b1fdfeb1a3d06672d9fe665a217af0a068ac3e81",
+    "pending_seat_ticks": 129,
+    "no_path_seat_ticks": 52,
+    "stale_seat_ticks": 217,
+    "exit": {
+      "code": 0,
+      "wall_seconds": 53.338704617999994
+    }
+  },
+  {
+    "case": "map5001-s32-edge-r1050",
+    "mode": "pinned",
+    "variant": "candidate",
+    "budget": 512,
+    "repeat": 1,
+    "total_ns": 6695784467,
+    "p50_ns": 5433516,
+    "p95_ns": 9266823,
+    "max_ns": 70879162,
+    "deadline_misses": 2,
+    "semantic_sha256": "caa53ccaf900f7da7025c4428a62a5b5c54c2c4053c103717b5d1c5cab838f95",
+    "pending_seat_ticks": 67,
+    "no_path_seat_ticks": 34,
+    "stale_seat_ticks": 185,
+    "exit": {
+      "code": 0,
+      "wall_seconds": 53.228598641000005
+    }
+  },
+  {
+    "case": "scale29-s32-moving-r1050",
+    "mode": "pinned",
+    "variant": "candidate",
+    "budget": 512,
+    "repeat": 1,
+    "total_ns": 18890790776,
+    "p50_ns": 15068142,
+    "p95_ns": 22863707,
+    "max_ns": 73115046,
+    "deadline_misses": 2,
+    "semantic_sha256": "f52ce32480c617cade600f6b9e0d0e8e4a46fddaca7da49270f7764d9d419b62",
+    "pending_seat_ticks": 20489,
+    "no_path_seat_ticks": 10937,
+    "stale_seat_ticks": 8232,
+    "exit": {
+      "code": 0,
+      "wall_seconds": 53.681849967999995
+    }
+  },
+  {
+    "case": "scale29-s32-moving-r1050",
+    "mode": "pinned",
+    "variant": "parent",
+    "budget": 256,
+    "repeat": 1,
+    "total_ns": 21165544717,
+    "p50_ns": 17181778,
+    "p95_ns": 25977341,
+    "max_ns": 78918013,
+    "deadline_misses": 2,
+    "semantic_sha256": "b313e21a0309d8085c84710930f272e21713c0a269d20f132ad885bcf50b5dbd",
+    "pending_seat_ticks": 21397,
+    "no_path_seat_ticks": 13733,
+    "stale_seat_ticks": 6360,
+    "exit": {
+      "code": 0,
+      "wall_seconds": 53.73097174
+    }
+  },
+  {
+    "case": "map5001-s32-edge-r1050",
+    "mode": "unpinned",
+    "variant": "parent",
+    "budget": 256,
+    "repeat": 1,
+    "total_ns": 7653102305,
+    "p50_ns": 5838347,
+    "p95_ns": 12400805,
+    "max_ns": 78742380,
+    "deadline_misses": 3,
+    "semantic_sha256": "21ee38a270f8180e182be553b1fdfeb1a3d06672d9fe665a217af0a068ac3e81",
+    "pending_seat_ticks": 129,
+    "no_path_seat_ticks": 52,
+    "stale_seat_ticks": 217,
+    "exit": {
+      "code": 0,
+      "wall_seconds": 53.287164048999955
+    }
+  },
+  {
+    "case": "map5001-s32-edge-r1050",
+    "mode": "unpinned",
+    "variant": "candidate",
+    "budget": 512,
+    "repeat": 1,
+    "total_ns": 6732941874,
+    "p50_ns": 5469811,
+    "p95_ns": 9295320,
+    "max_ns": 70153029,
+    "deadline_misses": 2,
+    "semantic_sha256": "caa53ccaf900f7da7025c4428a62a5b5c54c2c4053c103717b5d1c5cab838f95",
+    "pending_seat_ticks": 67,
+    "no_path_seat_ticks": 34,
+    "stale_seat_ticks": 185,
+    "exit": {
+      "code": 0,
+      "wall_seconds": 53.22750448300002
+    }
+  },
+  {
+    "case": "scale29-s32-moving-r1050",
+    "mode": "unpinned",
+    "variant": "candidate",
+    "budget": 512,
+    "repeat": 1,
+    "total_ns": 18795727196,
+    "p50_ns": 15055545,
+    "p95_ns": 22660498,
+    "max_ns": 72760833,
+    "deadline_misses": 2,
+    "semantic_sha256": "f52ce32480c617cade600f6b9e0d0e8e4a46fddaca7da49270f7764d9d419b62",
+    "pending_seat_ticks": 20489,
+    "no_path_seat_ticks": 10937,
+    "stale_seat_ticks": 8232,
+    "exit": {
+      "code": 0,
+      "wall_seconds": 53.73115580199999
+    }
+  },
+  {
+    "case": "scale29-s32-moving-r1050",
+    "mode": "unpinned",
+    "variant": "parent",
+    "budget": 256,
+    "repeat": 1,
+    "total_ns": 21051360895,
+    "p50_ns": 17063923,
+    "p95_ns": 25907010,
+    "max_ns": 76846132,
+    "deadline_misses": 2,
+    "semantic_sha256": "b313e21a0309d8085c84710930f272e21713c0a269d20f132ad885bcf50b5dbd",
+    "pending_seat_ticks": 21397,
+    "no_path_seat_ticks": 13733,
+    "stale_seat_ticks": 6360,
+    "exit": {
+      "code": 0,
+      "wall_seconds": 53.67789309200003
+    }
+  },
+  {
+    "case": "map5001-s32-edge-r1050",
+    "mode": "pinned",
+    "variant": "candidate",
+    "budget": 512,
+    "repeat": 2,
+    "total_ns": 6707010138,
+    "p50_ns": 5457662,
+    "p95_ns": 9191209,
+    "max_ns": 71147590,
+    "deadline_misses": 2,
+    "semantic_sha256": "caa53ccaf900f7da7025c4428a62a5b5c54c2c4053c103717b5d1c5cab838f95",
+    "pending_seat_ticks": 67,
+    "no_path_seat_ticks": 34,
+    "stale_seat_ticks": 185,
+    "exit": {
+      "code": 0,
+      "wall_seconds": 53.233487646000015
+    }
+  },
+  {
+    "case": "map5001-s32-edge-r1050",
+    "mode": "pinned",
+    "variant": "parent",
+    "budget": 256,
+    "repeat": 2,
+    "total_ns": 7603839581,
+    "p50_ns": 5804058,
+    "p95_ns": 12405493,
+    "max_ns": 76114975,
+    "deadline_misses": 3,
+    "semantic_sha256": "21ee38a270f8180e182be553b1fdfeb1a3d06672d9fe665a217af0a068ac3e81",
+    "pending_seat_ticks": 129,
+    "no_path_seat_ticks": 52,
+    "stale_seat_ticks": 217,
+    "exit": {
+      "code": 0,
+      "wall_seconds": 53.18156083400004
+    }
+  },
+  {
+    "case": "scale29-s32-moving-r1050",
+    "mode": "pinned",
+    "variant": "parent",
+    "budget": 256,
+    "repeat": 2,
+    "total_ns": 21139592856,
+    "p50_ns": 17135039,
+    "p95_ns": 25922812,
+    "max_ns": 77648853,
+    "deadline_misses": 2,
+    "semantic_sha256": "b313e21a0309d8085c84710930f272e21713c0a269d20f132ad885bcf50b5dbd",
+    "pending_seat_ticks": 21397,
+    "no_path_seat_ticks": 13733,
+    "stale_seat_ticks": 6360,
+    "exit": {
+      "code": 0,
+      "wall_seconds": 53.683362011999975
+    }
+  },
+  {
+    "case": "scale29-s32-moving-r1050",
+    "mode": "pinned",
+    "variant": "candidate",
+    "budget": 512,
+    "repeat": 2,
+    "total_ns": 18877276053,
+    "p50_ns": 15063101,
+    "p95_ns": 22900584,
+    "max_ns": 72673185,
+    "deadline_misses": 2,
+    "semantic_sha256": "f52ce32480c617cade600f6b9e0d0e8e4a46fddaca7da49270f7764d9d419b62",
+    "pending_seat_ticks": 20489,
+    "no_path_seat_ticks": 10937,
+    "stale_seat_ticks": 8232,
+    "exit": {
+      "code": 0,
+      "wall_seconds": 53.63092359500001
+    }
+  },
+  {
+    "case": "map5001-s32-edge-r1050",
+    "mode": "unpinned",
+    "variant": "candidate",
+    "budget": 512,
+    "repeat": 2,
+    "total_ns": 6648405990,
+    "p50_ns": 5363505,
+    "p95_ns": 9175029,
+    "max_ns": 70233296,
+    "deadline_misses": 2,
+    "semantic_sha256": "caa53ccaf900f7da7025c4428a62a5b5c54c2c4053c103717b5d1c5cab838f95",
+    "pending_seat_ticks": 67,
+    "no_path_seat_ticks": 34,
+    "stale_seat_ticks": 185,
+    "exit": {
+      "code": 0,
+      "wall_seconds": 53.227601740999944
+    }
+  },
+  {
+    "case": "map5001-s32-edge-r1050",
+    "mode": "unpinned",
+    "variant": "parent",
+    "budget": 256,
+    "repeat": 2,
+    "total_ns": 7558313745,
+    "p50_ns": 5827558,
+    "p95_ns": 12476564,
+    "max_ns": 75206438,
+    "deadline_misses": 3,
+    "semantic_sha256": "21ee38a270f8180e182be553b1fdfeb1a3d06672d9fe665a217af0a068ac3e81",
+    "pending_seat_ticks": 129,
+    "no_path_seat_ticks": 52,
+    "stale_seat_ticks": 217,
+    "exit": {
+      "code": 0,
+      "wall_seconds": 53.17450155400002
+    }
+  },
+  {
+    "case": "scale29-s32-moving-r1050",
+    "mode": "unpinned",
+    "variant": "parent",
+    "budget": 256,
+    "repeat": 2,
+    "total_ns": 21058488567,
+    "p50_ns": 17075471,
+    "p95_ns": 26186966,
+    "max_ns": 75622681,
+    "deadline_misses": 2,
+    "semantic_sha256": "b313e21a0309d8085c84710930f272e21713c0a269d20f132ad885bcf50b5dbd",
+    "pending_seat_ticks": 21397,
+    "no_path_seat_ticks": 13733,
+    "stale_seat_ticks": 6360,
+    "exit": {
+      "code": 0,
+      "wall_seconds": 53.6259966319999
+    }
+  },
+  {
+    "case": "scale29-s32-moving-r1050",
+    "mode": "unpinned",
+    "variant": "candidate",
+    "budget": 512,
+    "repeat": 2,
+    "total_ns": 18721688098,
+    "p50_ns": 14964874,
+    "p95_ns": 22650576,
+    "max_ns": 72599190,
+    "deadline_misses": 2,
+    "semantic_sha256": "f52ce32480c617cade600f6b9e0d0e8e4a46fddaca7da49270f7764d9d419b62",
+    "pending_seat_ticks": 20489,
+    "no_path_seat_ticks": 10937,
+    "stale_seat_ticks": 8232,
+    "exit": {
+      "code": 0,
+      "wall_seconds": 53.72946640700002
+    }
+  },
+  {
+    "case": "map5001-s32-edge-r1050",
+    "mode": "pinned",
+    "variant": "parent",
+    "budget": 256,
+    "repeat": 3,
+    "total_ns": 7580053008,
+    "p50_ns": 5787515,
+    "p95_ns": 12289645,
+    "max_ns": 75247578,
+    "deadline_misses": 3,
+    "semantic_sha256": "21ee38a270f8180e182be553b1fdfeb1a3d06672d9fe665a217af0a068ac3e81",
+    "pending_seat_ticks": 129,
+    "no_path_seat_ticks": 52,
+    "stale_seat_ticks": 217,
+    "exit": {
+      "code": 0,
+      "wall_seconds": 53.174955864000026
+    }
+  },
+  {
+    "case": "map5001-s32-edge-r1050",
+    "mode": "pinned",
+    "variant": "candidate",
+    "budget": 512,
+    "repeat": 3,
+    "total_ns": 6668964599,
+    "p50_ns": 5372424,
+    "p95_ns": 9181406,
+    "max_ns": 71175626,
+    "deadline_misses": 2,
+    "semantic_sha256": "caa53ccaf900f7da7025c4428a62a5b5c54c2c4053c103717b5d1c5cab838f95",
+    "pending_seat_ticks": 67,
+    "no_path_seat_ticks": 34,
+    "stale_seat_ticks": 185,
+    "exit": {
+      "code": 0,
+      "wall_seconds": 53.22726944400006
+    }
+  },
+  {
+    "case": "scale29-s32-moving-r1050",
+    "mode": "pinned",
+    "variant": "candidate",
+    "budget": 512,
+    "repeat": 3,
+    "total_ns": 18831254833,
+    "p50_ns": 15035472,
+    "p95_ns": 22674987,
+    "max_ns": 72588240,
+    "deadline_misses": 2,
+    "semantic_sha256": "f52ce32480c617cade600f6b9e0d0e8e4a46fddaca7da49270f7764d9d419b62",
+    "pending_seat_ticks": 20489,
+    "no_path_seat_ticks": 10937,
+    "stale_seat_ticks": 8232,
+    "exit": {
+      "code": 0,
+      "wall_seconds": 53.68124206099992
+    }
+  },
+  {
+    "case": "scale29-s32-moving-r1050",
+    "mode": "pinned",
+    "variant": "parent",
+    "budget": 256,
+    "repeat": 3,
+    "total_ns": 21109158683,
+    "p50_ns": 17164088,
+    "p95_ns": 25771223,
+    "max_ns": 77670001,
+    "deadline_misses": 2,
+    "semantic_sha256": "b313e21a0309d8085c84710930f272e21713c0a269d20f132ad885bcf50b5dbd",
+    "pending_seat_ticks": 21397,
+    "no_path_seat_ticks": 13733,
+    "stale_seat_ticks": 6360,
+    "exit": {
+      "code": 0,
+      "wall_seconds": 53.630024391000006
+    }
+  },
+  {
+    "case": "map5001-s32-edge-r1050",
+    "mode": "unpinned",
+    "variant": "parent",
+    "budget": 256,
+    "repeat": 3,
+    "total_ns": 7544140367,
+    "p50_ns": 5803587,
+    "p95_ns": 12321734,
+    "max_ns": 74687667,
+    "deadline_misses": 3,
+    "semantic_sha256": "21ee38a270f8180e182be553b1fdfeb1a3d06672d9fe665a217af0a068ac3e81",
+    "pending_seat_ticks": 129,
+    "no_path_seat_ticks": 52,
+    "stale_seat_ticks": 217,
+    "exit": {
+      "code": 0,
+      "wall_seconds": 53.171982394
+    }
+  },
+  {
+    "case": "map5001-s32-edge-r1050",
+    "mode": "unpinned",
+    "variant": "candidate",
+    "budget": 512,
+    "repeat": 3,
+    "total_ns": 6626381665,
+    "p50_ns": 5392343,
+    "p95_ns": 9146481,
+    "max_ns": 70245936,
+    "deadline_misses": 2,
+    "semantic_sha256": "caa53ccaf900f7da7025c4428a62a5b5c54c2c4053c103717b5d1c5cab838f95",
+    "pending_seat_ticks": 67,
+    "no_path_seat_ticks": 34,
+    "stale_seat_ticks": 185,
+    "exit": {
+      "code": 0,
+      "wall_seconds": 53.227848399000095
+    }
+  },
+  {
+    "case": "scale29-s32-moving-r1050",
+    "mode": "unpinned",
+    "variant": "candidate",
+    "budget": 512,
+    "repeat": 3,
+    "total_ns": 18738166978,
+    "p50_ns": 14975126,
+    "p95_ns": 22706167,
+    "max_ns": 72138712,
+    "deadline_misses": 2,
+    "semantic_sha256": "f52ce32480c617cade600f6b9e0d0e8e4a46fddaca7da49270f7764d9d419b62",
+    "pending_seat_ticks": 20489,
+    "no_path_seat_ticks": 10937,
+    "stale_seat_ticks": 8232,
+    "exit": {
+      "code": 0,
+      "wall_seconds": 53.67185524299998
+    }
+  },
+  {
+    "case": "scale29-s32-moving-r1050",
+    "mode": "unpinned",
+    "variant": "parent",
+    "budget": 256,
+    "repeat": 3,
+    "total_ns": 21060110338,
+    "p50_ns": 17123597,
+    "p95_ns": 25932941,
+    "max_ns": 76548017,
+    "deadline_misses": 2,
+    "semantic_sha256": "b313e21a0309d8085c84710930f272e21713c0a269d20f132ad885bcf50b5dbd",
+    "pending_seat_ticks": 21397,
+    "no_path_seat_ticks": 13733,
+    "stale_seat_ticks": 6360,
+    "exit": {
+      "code": 0,
+      "wall_seconds": 53.622712603999844
+    }
+  }
+]
