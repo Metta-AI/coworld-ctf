@@ -514,3 +514,103 @@ against the pre-fix signature and pass against the fix.
   a single-era window, but no absolute-magnitude or "typical season" claim
   should be read out of it, and this sweep was not re-scoped to a
   single-era subwindow to address it.
+
+## Win-gated extension (2026-09-14)
+
+Owner's new rule: an entrant's per-episode leg is 0 unless that entrant
+**WON** the episode (a draw banks the full leg for everyone); the gate
+applies BEFORE the log, so a gated leg is exactly 0 bits. Replayed here as
+**R2**, alongside **R0** (today: raw, k=0.05) and **R1** (Step A as
+decided: `signed_log2(x) = sign(x)·log2(1+|x|)`, k=0.025) on the identical
+window. Harness extended, not rewritten: `tools/ladder/standing_replay.py`
+gained `signed_log2`/`inverse_transform`, the winner-decode primitives
+(`download_replay`/`decode_episode_summary`/`pull_winner_map`/
+`gate_ledger_by_win`), and generalized bootstrap helpers; all 5 pre-existing
+tests still pass unchanged. Driver scripts:
+`tools/ladder/standing_sweep_reproduction_check.py` and
+`tools/ladder/standing_sweep_win_gated.py`.
+
+**Window, era, winner-field provenance.** The doc's own r4257-r4526 ledger
+predates per-episode winner decodability at this session's build capacity
+(GloryVersion 14/15, no built `extract_events` for that wire GameVersion).
+The win-gate instead uses the largest window this session COULD decode
+winners for: **r4828-r5077, 246 rounds**, coworld_version
+`0.7.397-0.7.406`, **GameVersion 63 / GLORYVERSION 18** throughout (r4828 is
+the first GLORYVERSION-18 round; confirmed the same GameVersion holds past
+this window too, at r5264/`0.7.409`). The platform's `participant_scores`
+never says who WON — only score — so "winner" is read off the replay's own
+`summary` event (`summary["winner"]` team-color, `summary["draw"]` bool,
+`summary["slot_team"]` slot→team; the same field `tools/glory/
+census_decode.py` already reads), decoded with the already-built
+`census_gv63_gv18_build` extractor (matches this window's GameVersion
+exactly). **Cross-check by content, round r4828:** of 15 episodes, the
+declared winner was NOT the top glory scorer in **12/15** — e.g. one
+episode's winner finished glory-rank 3 (score 20) behind the top scorer's
+2,894 — confirming score cannot stand in for winner. Decode yield:
+3,649/3,655 episodes (99.8%); the rest are dropped from both gated and
+ungated counts, never guessed.
+
+**R0/R1 reproduction (on THIS doc's own r4257-r4526 ledger, not the
+win-gate window).** R0: tau 0.954, #1 chg/50 6.92, leader share 0.314, up
+103, down 0 — exact match on every reported digit. R1 (`signed_log2`,
+k=0.025): tau 0.9793 vs this doc's 0.979, chg/50 4.74 exact, leader share
+0.031876 vs 0.0319, up 96 exact — 3-s.f. match. Also confirmed directly:
+this ledger has zero negative legs (0/48,752), so `signed_log2` is
+byte-identical to this doc's plain `log2` here.
+
+**Metrics table, win-gate window (r4828-r5077, 246 rounds).** Bootstrap: 30
+draws, 100-round sliding sub-windows for tau/#1-chg/leader-share (own
+cold-start EMA per window, same method as "Robustness read" above); 30
+draws of the injection point for climb time.
+
+| Rule | k | tau (boot median [p10,p90]) | #1 chg/50 (boot median [p10,p90]) | leader share (boot median [p10,p90]) | climb time, median [p10,p90] (never-frac) | frac legs zeroed | standing scale: median / top, bits (un-logged) |
+| --- | ---: | --- | --- | --- | --- | ---: | --- |
+| R0 today | 0.05 | 0.906 [0.889,0.920] | 7.00 [4.00,10.50] | 0.250 [0.217,0.412] | 7.0 [0,22] (0%) | — | 170,871 / 287,443 (raw, no log) |
+| R1 step A | 0.025 | 0.951 [0.938,0.960] | 4.00 [1.50,6.00] | 0.036 [0.028,0.045] | 50.5 [13,64] (0%) | — | 34.3 (2.11e10) / 40.4 (1.45e12) |
+| R2 win-gate | 0.02 | **0.961 [0.949,0.965]** | **1.00 [0.00,4.50]** | 0.055 [0.034,0.081] | never (100%) ⁽²⁾ | 92.7% | **5.41 (41.6) / 9.95 (988)** |
+| R2 win-gate | 0.025 | 0.948 [0.931,0.959] | 2.50 [0.00,5.00] | 0.081 [0.062,0.115] | never (100%) ⁽²⁾ | 92.7% | 5.38 (40.5) / 10.23 (1,204) |
+| R2 win-gate | 0.03 | 0.937 [0.919,0.946] | 3.50 [0.00,7.00] | 0.096 [0.073,0.131] | never (100%) ⁽²⁾ | 92.7% | 5.33 (39.3) / 10.52 (1,466) |
+| R2 win-gate | 0.035 | 0.920 [0.904,0.934] | 5.50 [0.00,10.50] | 0.107 [0.089,0.140] | never (100%) ⁽²⁾ | 92.7% | 5.37 (40.4) / 10.78 (1,758) |
+| R2 win-gate | 0.05 | 0.885 [0.861,0.900] | 8.25 [5.00,11.00] | 0.145 [0.126,0.179] | never (100%) ⁽²⁾ | 92.7% | 5.33 (39.3) / 11.39 (2,690) |
+
+`⁽²⁾` **Not a real "never" finding — an injection-methodology artifact,
+flagged not hidden.** The doc's `up` test scales a subject's RAW legs by
+1.5x; under the win gate ~93% of that subject's legs are already zero, and
+`1.5 × 0 = 0`, so the injection barely reaches the signal a gated
+round_score is built from. See arming flag (b) below.
+
+**Three top-5 standings, end of window (r5077).** Full top-16 + wins/246r:
+`~/.ctf/knowledge/glory-gradient/01h-win-gated-standing-sweep-2026-09-14.md`.
+
+| Rule | #1 | #2 | #3 | #4 | #5 |
+| --- | --- | --- | --- | --- | --- |
+| R0 today (raw) | relh (226w) | daveey-1 (186w) | Lawrence (210w) | Jordan (290w) | @lessandro (153w) |
+| R1 step A (signed_log2, k=0.025) | Jordan (290w) | softmaxclaudius-t2 (218w) | Andre von Auto (228w) | relh (226w) | Lawrence (210w) |
+| R2 win-gate (signed_log2, k=0.02) | Jordan (290w) | daveey (262w) | soft-codexter-t2 (200w) | Andre von Auto (228w) | softmaxclaudius-t2 (218w) |
+
+R0 ranks almost independently of wins (`relh`, 226 wins, above `daveey`'s
+262); R2 tracks win count far more directly (`daveey` jumps R0-rank-7 to
+R2-rank-2).
+
+**Two arming flags — stated, not resolved:**
+
+- **(a) sum-vs-mean under the log-domain transform is a still-open choice.**
+  `round_scoring_rule: "sum"` is unchanged by this study — under
+  `signed_log2`, summing 12 already-logged legs is equivalent to taking
+  `log2` of the PRODUCT of the 12 underlying raw legs, not their typical
+  size, so a standing that accumulates many rounds of 12-leg sums compounds
+  fast: R1's un-logged top standing above is **~1.4e12**. Whether the round
+  aggregation under a log-domain transform should stay `sum` (compounding,
+  today's behavior) or switch to `mean` (representing a typical leg) is a
+  real design choice this sweep did not make and flags for the arming
+  decision, not this doc.
+- **(b) climb time under the win gate is unmeasured, not slow.** The
+  score-scaling injection this doc uses elsewhere is inert on gated legs
+  (see `⁽²⁾` above). A meaningful read needs either a **win-injection
+  test** (give the subject additional wins, not bigger scores on existing
+  ones) or an **arm-and-watch** of the live setting for one EMA half-life,
+  `ln(2)/0.02 ≈ 35 rounds`, before trusting any climb-time claim under
+  gating.
+
+**k = 0.02 supersedes the 0.025 pick above ONLY under the win gate; the
+0.025 pick stands for the ungated transform.**
