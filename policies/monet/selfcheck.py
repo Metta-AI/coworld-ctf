@@ -4837,6 +4837,247 @@ check("policy.py: TRUCE HONOR docstring names GV59 and the exact "
       "GV59/downFriendly citation not found in policy.py module "
       "docstring")
 
+
+# ── v56: HEAT-WINDOW AGGRESSION LOCK ────────────────────────────────────────
+# Same class of proof as the final-four block above: (1) the standalone
+# predicate/clock helper, (2) apply_phase_clamps firing the clamp on a
+# synthetic entry set for EVERY source tag (None/real-call,
+# final4-reemit, maintenance) -- the exact "for each send path" ask --
+# (3) composition with the final-four clamp via min(), (4) proof the
+# OTHER clamped fields (pressRange/finishRange/engageDist/whenHpBelow/
+# final4's own detourMax value) are untouched, and (5) the real
+# repair_call -> adjust_entries -> apply_phase_clamps path end to end,
+# including a direct maintenance-shaped call using ONLY the persisted
+# pact_state (no context, no kill_feed in that call's own view) --
+# exactly how starter_harness._live_loop's maintenance block invokes it.
+
+check("_update_heat_window: no _my_team stashed yet -- False, never a "
+      "guess (mirrors _final4's missing-data convention)",
+      not policy._update_heat_window({}, {"tick": 1000}))
+check("_update_heat_window: _my_team known but view has no int tick -- "
+      "False",
+      not policy._update_heat_window({"_my_team": "rust"}, {}))
+check("_update_heat_window: a kill_feed row crediting OUR team 100 ticks "
+      "ago (within HEAT_WINDOW_TICKS=270) -- True, and the clock is "
+      "persisted onto pact_state",
+      policy._update_heat_window(
+          (_hw_p1 := {"_my_team": "rust"}),
+          {"tick": 1000, "kill_feed": [
+              {"tick": 900, "killer_team": "rust", "victim_seat": 7}]})
+      and _hw_p1.get("_last_heat_tick") == 900)
+check("_update_heat_window: a kill_feed row crediting a RIVAL team only "
+      "-- False, our own clock is untouched",
+      not policy._update_heat_window(
+          {"_my_team": "rust"},
+          {"tick": 1000, "kill_feed": [
+              {"tick": 999, "killer_team": "plum", "victim_seat": 7}]}))
+check("_update_heat_window: 300 ticks since our last credited kill (past "
+      "HEAT_WINDOW_TICKS=270, matching HeatDecayTicks) -- False",
+      not policy._update_heat_window(
+          {"_my_team": "rust", "_last_heat_tick": 700}, {"tick": 1000}))
+check("_update_heat_window: exactly at the HEAT_WINDOW_TICKS boundary "
+      "(270) -- still True (inclusive)",
+      policy._update_heat_window(
+          {"_my_team": "rust", "_last_heat_tick": 730}, {"tick": 1000}))
+_hw_p2 = {"_my_team": "rust", "_last_heat_tick": 900}
+policy._update_heat_window(
+    _hw_p2, {"tick": 950, "kill_feed": [
+        {"tick": 500, "killer_team": "rust", "victim_seat": 2}]})
+check("_update_heat_window: an OLDER kill re-appearing in a later view's "
+      "kill_feed window never regresses the persisted clock (monotonic "
+      "max, same non-regressing-state discipline as final4_committed)",
+      _hw_p2.get("_last_heat_tick") == 900, str(_hw_p2))
+
+
+def _hw_call():
+    return {"call": {"entries": [
+        {"play": "loot", "entry_id": "arm",
+         "params": {"detourMax": 400, "contested": "avoid"}},
+        {"play": "supply_run", "entry_id": "bank",
+         "params": {"whenHpBelow": 4, "detourMax": 400,
+                    "contested": "avoid"}},
+        {"play": "fire_superiority", "entry_id": "pressbreak",
+         "params": {"pressRange": 220, "finishRange": 140,
+                    "engageDist": 600}},
+    ]}}
+
+
+# (a) direct apply_phase_clamps call, source=None (the real-model-call
+# shape): a fresh in-window kill for our team clamps both plays to
+# HEAT_WINDOW_DETOUR_MAX (100), fires True, logs the plain (no tag/suffix)
+# line -- and leaves the OTHER pins (pressRange/finishRange/engageDist/
+# whenHpBelow) at their ordinary doctrine values, proving this addition
+# touches only the two detourMax fields it claims to.
+_hw_entries_a = _hw_call()["call"]["entries"]
+_hw_pact_a = {"_my_team": "rust"}
+_hw_view_a = {"tick": 1000, "world": {"alive_teams": 8},
+              "kill_feed": [{"tick": 950, "killer_team": "rust",
+                             "victim_seat": 5}]}
+_hw_log_a = _io.StringIO()
+with _contextlib.redirect_stdout(_hw_log_a):
+    _hw_fired_a = policy.apply_phase_clamps(_hw_entries_a, _hw_view_a,
+                                             _hw_pact_a, source=None)
+_hw_a_loot = next(e for e in _hw_entries_a if e["play"] == "loot")
+_hw_a_supply = next(e for e in _hw_entries_a if e["play"] == "supply_run")
+_hw_a_fs = next(e for e in _hw_entries_a if e["play"] == "fire_superiority")
+check("(a) heat-window active (kill 50 ticks ago, alive_teams=8 so "
+      "final4 is NOT active): loot.detourMax clamps 400 -> "
+      "HEAT_WINDOW_DETOUR_MAX (100), fired=True",
+      _hw_fired_a
+      and _hw_a_loot["params"].get("detourMax") == policy.HEAT_WINDOW_DETOUR_MAX
+      == 100, str(_hw_a_loot["params"]))
+check("(a) heat-window active: supply_run.detourMax also clamps 400 -> "
+      "100; whenHpBelow (4, its own independent pin) is untouched",
+      _hw_a_supply["params"].get("detourMax") == 100
+      and _hw_a_supply["params"].get("whenHpBelow") == 4,
+      str(_hw_a_supply["params"]))
+check("(a) heat-window active: fire_superiority.pressRange/finishRange/"
+      "engageDist are UNCHANGED by this lever -- still the ordinary "
+      "default-phase doctrine (220/140/750), not this clamp's business",
+      _hw_a_fs["params"].get("pressRange") == 220
+      and _hw_a_fs["params"].get("finishRange") == 140
+      and _hw_a_fs["params"].get("engageDist") == 750,
+      str(_hw_a_fs["params"]))
+check("(a) heat-window clamp logs the exact "
+      "'[monet] heat-window clamp: <play>.detourMax <old> -> 100' line, "
+      "untagged/no-suffix for a real model call, same convention as "
+      "final4's own untagged line",
+      "[monet] heat-window clamp: loot.detourMax 400 -> 100"
+      in _hw_log_a.getvalue()
+      and "[monet] heat-window clamp: supply_run.detourMax 400 -> 100"
+      in _hw_log_a.getvalue(),
+      repr(_hw_log_a.getvalue()))
+
+# (b) source="final4-reemit" -- the OTHER harness-owned resend tag; the
+# heat-window clamp must carry the SAME " reason=final4-reemit" suffix
+# final4's own clamp lines use, distinguishing it in the log exactly like
+# every other pin apply_phase_clamps owns.
+_hw_entries_b = _hw_call()["call"]["entries"]
+_hw_log_b = _io.StringIO()
+with _contextlib.redirect_stdout(_hw_log_b):
+    policy.apply_phase_clamps(_hw_entries_b, _hw_view_a,
+                              {"_my_team": "rust"}, source="final4-reemit")
+check("(b) heat-window clamp via source=final4-reemit tags the log line "
+      "'reason=final4-reemit', matching final4's own reemit tagging",
+      "heat-window clamp: loot.detourMax 400 -> 100 reason=final4-reemit"
+      in _hw_log_b.getvalue(), repr(_hw_log_b.getvalue()))
+
+# (c) source="maintenance" -- the EXACT send path the WHY brief flags as
+# the historically bypassed one (v50/v51/v52's own maintenance-resend
+# leaks). Called with ONLY a persisted pact_state and a view that has NO
+# kill_feed row this turn (the kill aged out of the wire's own 240-tick
+# kill_feed window) -- proving the clamp survives purely off the
+# persisted `_last_heat_tick` clock, exactly how a real maintenance
+# resend several seconds after the kill would see it.
+_hw_entries_c = _hw_call()["call"]["entries"]
+_hw_pact_c = {"_my_team": "rust", "_last_heat_tick": 950}
+_hw_view_c = {"tick": 1100, "world": {"alive_teams": 8}}  # no kill_feed row
+_hw_log_c = _io.StringIO()
+with _contextlib.redirect_stdout(_hw_log_c):
+    _hw_fired_c = policy.apply_phase_clamps(_hw_entries_c, _hw_view_c,
+                                             _hw_pact_c, source="maintenance")
+_hw_c_loot = next(e for e in _hw_entries_c if e["play"] == "loot")
+check("(c) maintenance resend, 150 ticks after a kill the wire no longer "
+      "even lists in kill_feed: still clamps off the PERSISTED clock -- "
+      "loot.detourMax 400 -> 100, fired=True",
+      _hw_fired_c and _hw_c_loot["params"].get("detourMax") == 100)
+check("(c) maintenance resend logs the distinguishable '(maintenance)' "
+      "tag, same convention as final4's and the v52 pins' own "
+      "maintenance lines",
+      "heat-window clamp (maintenance): loot.detourMax 400 -> 100"
+      in _hw_log_c.getvalue()
+      and "heat-window clamp (maintenance): supply_run.detourMax 400 -> 100"
+      in _hw_log_c.getvalue(),
+      repr(_hw_log_c.getvalue()))
+
+# (d) composition: final4 (alive_teams=4) AND the heat-window lock both
+# active on the SAME call -- both blocks use min() against whatever is
+# already on the entry, so whichever is tighter wins regardless of which
+# block runs first; here HEAT_WINDOW_DETOUR_MAX (100) < FINAL4_DETOUR_MAX
+# (150), so 100 wins, and BOTH log lines still appear (each block still
+# ran and still reports itself).
+_hw_entries_d = _hw_call()["call"]["entries"]
+_hw_view_d = dict(_hw_view_a)
+_hw_view_d["world"] = {"alive_teams": 4}
+_hw_log_d = _io.StringIO()
+with _contextlib.redirect_stdout(_hw_log_d):
+    policy.apply_phase_clamps(_hw_entries_d, _hw_view_d,
+                              {"_my_team": "rust"}, source=None)
+_hw_d_loot = next(e for e in _hw_entries_d if e["play"] == "loot")
+check("(d) final4 AND heat-window both active: loot.detourMax lands on "
+      "the TIGHTER of the two ceilings (100, not 150) via each block's "
+      "own min()",
+      _hw_d_loot["params"].get("detourMax") == 100, str(_hw_d_loot["params"]))
+check("(d) both clamp blocks independently log their own line for the "
+      "same call -- final4's clamp still ran (to 150) before heat-window "
+      "tightened it further to 100",
+      "final4 clamp: loot.detourMax 400 -> 150" in _hw_log_d.getvalue()
+      and "heat-window clamp: loot.detourMax 150 -> 100" in _hw_log_d.getvalue(),
+      repr(_hw_log_d.getvalue()))
+
+# (e) neither predicate active (alive_teams=8, no recent kill for us):
+# detourMax is left exactly as submitted -- proves this lever is a true
+# no-op outside its own trigger, not a standing tightening.
+_hw_entries_e = _hw_call()["call"]["entries"]
+_hw_log_e = _io.StringIO()
+with _contextlib.redirect_stdout(_hw_log_e):
+    _hw_fired_e = policy.apply_phase_clamps(
+        _hw_entries_e, {"tick": 1000, "world": {"alive_teams": 8}},
+        {"_my_team": "rust"}, source=None)
+_hw_e_loot = next(e for e in _hw_entries_e if e["play"] == "loot")
+check("(e) heat-window inactive (no _my_team kill in range) and final4 "
+      "inactive: loot.detourMax stays at the submitted 400, no "
+      "heat-window clamp line logged",
+      _hw_e_loot["params"].get("detourMax") == 400
+      and "heat-window clamp" not in _hw_log_e.getvalue())
+
+# (f) end-to-end through the REAL send path: starter_harness.repair_call
+# (the model-call/reemit shared path) -> adjust_entries -> the _my_team
+# stash at its apply_phase_clamps call site -> apply_phase_clamps itself.
+# No direct call into policy internals here -- this is the same function
+# a real model turn or maybe_final4_reemit's synthetic resend drives.
+_hw_f_context = {"self": {"seat": 3, "duo_partner": 19, "team": "rust"}}
+_hw_f_seat = fake_seat(
+    context=_hw_f_context,
+    view={"tick": 1000, "world": {"alive_teams": 8},
+          "kill_feed": [{"tick": 940, "killer_team": "rust",
+                         "victim_seat": 9}]})
+starter_harness.repair_call(_hw_call(), PERSONA, _hw_f_seat, AVAILABLE)
+_hw_f_loot = next(e for e in _hw_f_seat.wanted_entries if e["play"] == "loot")
+check("(f) end-to-end via repair_call/adjust_entries: a real call's own "
+      "context.self.team + view.kill_feed clamps loot.detourMax to 100, "
+      "and stashes _my_team onto seat.pact_state for later maintenance "
+      "resends to read",
+      _hw_f_loot["params"].get("detourMax") == 100
+      and _hw_f_seat.pact_state.get("_my_team") == "rust",
+      str(_hw_f_loot["params"]) + " " + str(_hw_f_seat.pact_state))
+
+# (g) the maintenance resend itself, driven the way _live_loop actually
+# drives it: NO repair_call/adjust_entries, straight into
+# PERSONA.apply_phase_clamps with seat.pact_state -- reusing the SAME
+# seat from (f), so _my_team and _last_heat_tick are exactly what a real
+# maintenance loop would find already persisted from the opening call,
+# several ticks later, with the kill now aged out of this turn's own
+# kill_feed window entirely.
+_hw_g_entries = _hw_call()["call"]["entries"]
+_hw_g_view = {"tick": 1150, "world": {"alive_teams": 8}}  # kill_feed empty
+_hw_g_log = _io.StringIO()
+with _contextlib.redirect_stdout(_hw_g_log):
+    _hw_g_fired = PERSONA.apply_phase_clamps(
+        _hw_g_entries, _hw_g_view, _hw_f_seat.pact_state, source="maintenance")
+_hw_g_loot = next(e for e in _hw_g_entries if e["play"] == "loot")
+check("(g) send-path enumeration, maintenance resend: reusing (f)'s "
+      "seat.pact_state (no context in scope at all here, exactly like "
+      "_live_loop's real call site), 150 ticks later with an empty "
+      "kill_feed this turn -- still clamps loot.detourMax to 100 off "
+      "the persisted clock alone, fired=True",
+      _hw_g_fired and _hw_g_loot["params"].get("detourMax") == 100,
+      str(_hw_g_loot["params"]))
+check("(g) PERSONA.apply_phase_clamps is wired to policy.apply_phase_clamps "
+      "(same identity check the final4 block already runs -- this new "
+      "clamp lives inside the SAME hook, not a parallel one)",
+      PERSONA.apply_phase_clamps is policy.apply_phase_clamps)
+
 print()
 if failures:
     print(f"SELF-CHECK FAILED: {len(failures)} failing check(s)")

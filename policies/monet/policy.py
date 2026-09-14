@@ -295,6 +295,36 @@ FINAL4_TEAM_THRESHOLD = 4
 # tag either).
 TARGET_LAW_PREFER = ("weakened", "revenge", "bounty", "isolated")
 
+# HEAT-WINDOW AGGRESSION LOCK (v56, cap-decomp n=14 read: 0/14 cap-hitters
+# won their round, 11/14 had no pact -- the driver is the HEAT ladder, and
+# the measured gap is CONDITIONAL FOLLOW-THROUGH: our P(2nd heat-paying
+# deed | 1st, within the decay window) is 14.3% vs 28.6% for the best
+# opponent sampled, while our P(1st) is already at parity. This does not
+# chase more opening kills; it keeps the seat in contact after the FIRST
+# one so a second can land before the ember clock resets.
+#
+# WINDOW: 270 ticks mirrors HeatDecayTicks (src/ctf/glory.nim:1093 pinned
+# by the WHY brief) -- the exact quiet-tick span before heatCool
+# (sim.nim:254-259) subtracts embers. No wire field surfaces the live
+# ember/heat state itself (checked play_view.schema.json in full: no
+# "heat"/"ember" key anywhere), so this is NOT a direct heat-state read --
+# it is a proxy trigger on the nearest observable that pays heat: a KILL
+# credited to our own team. kill_feed (schema $comment: "window 240 ticks,
+# <=32 most recent first") carries killer_team + tick per entry, and
+# EVERY kill deed (including the class-x1 commons four the WHY brief
+# names) has nonzero drama and so pays heat -- so "our team is credited as
+# killer_team in kill_feed" is a sound, source-grounded stand-in for "a
+# heat-paying deed landed," even though it necessarily misses a heat-
+# paying ASSIST that never itself produces a kill_feed row (kill_feed has
+# no assist field -- see RISKS in the ship report).
+HEAT_WINDOW_TICKS = 270
+# Deliberately tighter than FINAL4_DETOUR_MAX (150): the final-four clamp
+# is a standing endgame posture, this is a short, self-clearing lock meant
+# to hold the seat IN CONTACT immediately after a kill, when a wandering
+# detour is most costly. Not the same lever, not the same constant --
+# BINDING CONSTRAINT 4 leaves FINAL4_DETOUR_MAX itself untouched.
+HEAT_WINDOW_DETOUR_MAX = 100
+
 # Awareness digest: a track older than this is a memory, not a threat (the
 # harness's own 10-s freshness/aggressor window). An item further than
 # NEAR_ITEM_PX is a detour, not "near".
@@ -386,10 +416,53 @@ def _final4(view):
             and alive_teams <= FINAL4_TEAM_THRESHOLD)
 
 
+def _update_heat_window(pact_state, view):
+    """Advance/read the heat-window lock's own persisted clock.
+
+    `apply_phase_clamps` never receives `context`, so it cannot itself
+    read `context["self"]["team"]` -- `adjust_entries` stashes it into
+    `pact_state["_my_team"]` before every call into this module (see its
+    own call site) so this function, and therefore every send path
+    (model call, either reemit helper, and the maintenance resend, which
+    calls straight into `apply_phase_clamps` with `seat.pact_state`), sees
+    the same team identity without widening `apply_phase_clamps`'s
+    signature -- the maintenance call site in starter_harness.py is
+    shared infra this lever does not touch.
+
+    kill_feed is a 240-tick trailing window (schema $comment), refreshed
+    far more often than that (the maintenance loop alone polls every
+    MAINTENANCE_SECONDS), so folding each call's fresh rows into a
+    monotonic `_last_heat_tick` in `pact_state` (never regressing) is
+    sufficient to track "most recent tick our team was credited a kill"
+    across the whole episode, not just this one call's window.
+
+    Returns True iff a heat-paying deed by our team landed within
+    HEAT_WINDOW_TICKS of the CURRENT tick (False on any missing/malformed
+    data -- same never-a-guess convention as `_final4`/
+    `_in_marquee_zone_window`).
+    """
+    my_team = pact_state.get("_my_team")
+    tick = view.get("tick")
+    if not isinstance(my_team, str) or not isinstance(tick, (int, float)):
+        return False
+    for kill in view.get("kill_feed") or []:
+        if not isinstance(kill, dict) or kill.get("killer_team") != my_team:
+            continue
+        kill_tick = kill.get("tick")
+        if not isinstance(kill_tick, (int, float)):
+            continue
+        if kill_tick > pact_state.get("_last_heat_tick", -1):
+            pact_state["_last_heat_tick"] = kill_tick
+    last_heat_tick = pact_state.get("_last_heat_tick")
+    return (isinstance(last_heat_tick, (int, float))
+            and 0 <= tick - last_heat_tick <= HEAT_WINDOW_TICKS)
+
+
 def apply_phase_clamps(entries, view, pact_state, source=None):
     """The ONE clamp point for every ENDGAME-DOCTRINE pin this persona owns
     -- fire_superiority.pressRange/finishRange/engageDist, supply_run.
-    whenHpBelow, and the final-four detour ceiling (FINAL4_DETOUR_MAX) --
+    whenHpBelow, the final-four detour ceiling (FINAL4_DETOUR_MAX), and
+    (v56) the heat-window detour ceiling (HEAT_WINDOW_DETOUR_MAX) --
     every entries list
     about to reach the wire must pass through this before it is sent,
     whether it came from a real model call, one of the two harness reemit
@@ -437,6 +510,16 @@ def apply_phase_clamps(entries, view, pact_state, source=None):
     risk, same fix. engageDist is not final4-gated, exactly like pressRange/
     finishRange: it pins to doctrine (750/750) on every entry, every send
     path, unconditionally.
+
+    v56 (HEAT-WINDOW AGGRESSION LOCK, cap-decomp n=14 read): a NEW pin,
+    same GATED_PLAY maintenance-bypass class as the final-four clamp --
+    supply_run/loot detourMax clamped to HEAT_WINDOW_DETOUR_MAX for
+    HEAT_WINDOW_TICKS after our team is credited a kill in kill_feed (see
+    _update_heat_window and the HEAT_WINDOW_TICKS/HEAT_WINDOW_DETOUR_MAX
+    module comment for the full WHY/observable citation). Independent
+    predicate from _final4 -- both can be true at once, and the shared
+    min()-against-current-value clamp on both blocks means whichever is
+    tighter always wins, on every send path, exactly like final-four.
 
     Calling this SAME function from both adjust_entries (after its own
     CONVERSION/ARMAMENT inserts) and from the maintenance resend path
@@ -555,6 +638,35 @@ def apply_phase_clamps(entries, view, pact_state, source=None):
                     PERSONA,
                     f"final4 clamp{tag}: {play}.detourMax {old_detour!r} "
                     f"-> {FINAL4_DETOUR_MAX}{suffix}")
+                fired = True
+            params["detourMax"] = new_detour
+
+    # HEAT-WINDOW AGGRESSION LOCK (v56, see HEAT_WINDOW_TICKS/
+    # HEAT_WINDOW_DETOUR_MAX module comment for the WHY and the source
+    # citations): same shape as the FINAL FOUR clamp just above -- gated
+    # on its own predicate (_update_heat_window, not _final4), same two
+    # plays (supply_run/loot), same min()-against-whatever's-on-the-wire
+    # clamp so it composes correctly with the final-four clamp above
+    # (and with each other on repeated calls) regardless of call order --
+    # never a raw overwrite. Independent of _final4: a heat-paying kill
+    # early in a round (alive_teams > 4) locks the window exactly the same
+    # as one at final four, where both predicates being true just means
+    # both clamps agree (min() already makes the tighter one win).
+    if _update_heat_window(pstate, view):
+        for entry in entries:
+            play = entry.get("play")
+            if play not in ("supply_run", "loot"):
+                continue
+            params = entry.setdefault("params", {})
+            old_detour = params.get("detourMax")
+            new_detour = (min(old_detour, HEAT_WINDOW_DETOUR_MAX)
+                          if isinstance(old_detour, (int, float))
+                          else HEAT_WINDOW_DETOUR_MAX)
+            if old_detour != new_detour:
+                starter_harness._log(
+                    PERSONA,
+                    f"heat-window clamp{tag}: {play}.detourMax {old_detour!r} "
+                    f"-> {HEAT_WINDOW_DETOUR_MAX}{suffix}")
                 fired = True
             params["detourMax"] = new_detour
     return fired
@@ -1259,7 +1371,21 @@ def adjust_entries(entries, context, view):
     # object as `seat.pact_state` (see repair_call); `_synthetic_trigger`
     # tags which harness path is resending (None = real model call,
     # "final4-reemit" = maybe_final4_reemit's synthetic resend).
-    apply_phase_clamps(entries, view, context.setdefault("_pact_state", {}),
+    pstate = context.setdefault("_pact_state", {})
+    # v56 (HEAT-WINDOW LOCK): apply_phase_clamps only ever receives `view`,
+    # never `context` (see its own docstring/_update_heat_window) -- the
+    # maintenance resend call site in starter_harness.py passes it
+    # `seat.pact_state` directly with no context in scope at all. Stash our
+    # own team color (`self_facts` already computed at the top of this
+    # function) into the SAME persisted dict every send path shares, once
+    # per real/reemit call, so it is already there by the time the
+    # maintenance loop's first iteration runs (run() always makes a seed
+    # and an opening repair_call, both through here, before _live_loop's
+    # maintenance block ever executes).
+    my_team = self_facts.get("team")
+    if isinstance(my_team, str):
+        pstate["_my_team"] = my_team
+    apply_phase_clamps(entries, view, pstate,
                        source=context.get("_synthetic_trigger"))
 
     # Stabilize entry_id LAST, after every insert above (CONVERSION,
