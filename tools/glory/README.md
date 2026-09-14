@@ -176,36 +176,43 @@ recoverable from the replay wire by observation, and guessing at it risks
 exactly the kind of confident-wrong attribution this investigation exists
 to avoid.
 
-**Method**: `attribution_decompose.py` reads an extra per-event field this
+**Method (current — `gloryS6AttrInstrument`, a committed compile-time
+define)**: `attribution_decompose.py` reads an extra per-event field this
 population's existing `.jsonl` extractions do NOT have: a
-`"shiftedClass|heatMult|carryMult|stackMult"` breakdown string riding the
-tier-2 `GloryDeed` event's existing (always `""` on the live path, never in
-gameHash) `content` field. Producing it requires one ANALYSIS-ONLY,
-NEVER-SHIPPED, NEVER-MERGED instrumentation line at the exact
-`recutFactor` call site in a **private local copy** of `src/ctf/sim.nim`
-(`awardDeed`, armed non-`dTeamKill` branch) — it stashes the sub-factors
-that already produced `factor` into `content` before the existing
-`emitEvent(GloryDeed, ...)` call. Zero sim/scoring behavior change (the
-score math is untouched; only a debug string is added to an already-inert
-analysis field), and it is never landed in this repo — built at a
-permanent local path exactly like the census's own extractor binaries:
+`"classPct|heatPct|carryPct|stackPct"` breakdown string riding the tier-2
+`GloryDeed` event's existing (always `""` when the define is off, never in
+gameHash — see `sim.nim` `awardDeed`'s own comment on the call site) `content`
+field.
+
+Producing it used to require one ANALYSIS-ONLY, NEVER-SHIPPED, NEVER-MERGED
+instrumentation line hand-patched into a **private local copy** of
+`src/ctf/sim.nim` per era (the recipe this section used to give, below the
+line). That was a real gap: a private diff nobody else can see or re-derive,
+kept alive only by copy-pasting whole private build directories forward
+every GameVersion. **THE RULE NOW: an instrument is a committed define plus
+a committed per-era patch, never a private build dir.** `sim.nim`'s
+`awardDeed` carries the instrumentation itself, permanently, behind
+`when defined(gloryS6AttrInstrument):` — OFF by default (every shard/CI
+build compiles the OFF branch, byte-identical to the pre-instrument call,
+and `content` never enters `gameHash`; see `test_glory_lockstep.nim`'s
+hash-neutrality test). Build an instrumented extractor with:
 
 ```
-cp -R ~/.ctf/pipeline-loop/tools/census_gv59_gv15_build ~/.ctf/pipeline-loop/tools/attr_gv59_build
-cp -R ~/.ctf/pipeline-loop/tools/census_gv60_build      ~/.ctf/pipeline-loop/tools/attr_gv60_build
-# patch src/ctf/sim.nim's awardDeed (armed branch) to compute and stash:
-#   attrShiftedClass = recutShiftedClass(deed, sitePct, sim.config.winAsMultiplier)
-#   attrHeatMult/attrCarryMult/attrStackMult, mirroring recutFactor's own
-#   control flow EXACTLY (a shiftedClass<=1 commons takes NO live-state
-#   factor, matching recutFactor's early return) -- then pass
-#   content = mintNote ("shiftedClass|heat|carry|stack") into the existing
-#   emitEvent(GloryDeed, ...) call.
-cd ~/.ctf/pipeline-loop/tools/attr_gv59_build && nim c -d:release --hints:off -o:bin/extract_events tools/extract_events.nim
-cd ~/.ctf/pipeline-loop/tools/attr_gv60_build && nim c -d:release --hints:off -o:bin/extract_events tools/extract_events.nim
+nim c -d:release --hints:off -d:gloryS6AttrInstrument -o:bin/extract_events tools/extract_events.nim
 ```
 
-Then re-extract the SAME cached `.replay` files (no re-download) with the
-instrumented binaries, and run:
+against whatever era's checkout you need (the define lives at the
+`awardDeed` call site in every commit from this PR forward — no copying a
+build dir per era; check out the era's commit/tag and pass the one flag). The
+armed branch stashes `classPct` (`recutShiftedClass`), `heatPct`
+(`heatMult` when `paysHeat`, else 100), `carryPct` (`CarrierHoldMultPct`
+when carrying a drama deed, else 100) and `stackPct` (`recutStackMult`) —
+the same four sub-factors `recutFactor` folds together — only when
+`gloryMultiplierRecut` is armed, the deed is not `dTeamKill`, and `amount >
+1`; every other mint's `content` stays `""`, matching the OFF shape exactly.
+
+Then re-extract the cached `.replay` files with the instrumented binary, and
+run:
 
 ```
 python3 tools/glory/attribution_decompose.py \

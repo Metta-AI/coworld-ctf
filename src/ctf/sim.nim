@@ -571,10 +571,32 @@ proc awardDeed*(sim: var SimServer, team: Team, deed: Deed, x, y: int,
   # whenever `ord(team) < sim.players.len`. Analysis-only (never gameHash),
   # so this is preserved as-is rather than "fixed" outside this port's
   # mandate -- see this file's port-header note on pricing-vs-plumbing.
-  sim.emitEvent(
-    GloryDeed, source = byIndex, target = ord(team), weapon = $deed,
-    amount = amount, x = float(x), y = float(y)
-  )
+  when defined(gloryS6AttrInstrument):
+    # S6 ANALYSIS-ONLY INSTRUMENTATION (compile-time define, OFF by default,
+    # byte-identical when off -- see tools/glory/README.md). Stashes the
+    # recut sub-factors (classPct|heatPct|carryPct|stackPct) into the
+    # always-"" tier-2 `content` field so an offline extractor can
+    # reconstruct WHY a mint's `amount` came out the way it did, without
+    # touching gloryProduct/teamGlory/the gameHash. This event is already
+    # a no-op unless `collectEvents` is on (emitEvent's own gate); the
+    # define additionally strips the sub-factor recompute out of any
+    # binary built without it.
+    var mintNote = ""
+    if sim.config.gloryMultiplierRecut and deed != dTeamKill and amount > 1:
+      let classPct = recutShiftedClass(deed, sitePct, sim.config.winAsMultiplier)
+      let heatPct = (if paysHeat(deed): heatMult(sim.heatEmbers[team]) else: 100)
+      let carryPct = (if carrying and isDrama(deed): CarrierHoldMultPct else: 100)
+      let stackPct = recutStackMult(stackK)
+      mintNote = $classPct & "|" & $heatPct & "|" & $carryPct & "|" & $stackPct
+    sim.emitEvent(
+      GloryDeed, source = byIndex, target = ord(team), weapon = $deed,
+      amount = amount, x = float(x), y = float(y), content = mintNote
+    )
+  else:
+    sim.emitEvent(
+      GloryDeed, source = byIndex, target = ord(team), weapon = $deed,
+      amount = amount, x = float(x), y = float(y)
+    )
 
 proc teamConvertedKits(sim: SimServer, team: Team): int =
   ## How many of the four kits this team has CONVERTED. GLORY-PORT-TODO:

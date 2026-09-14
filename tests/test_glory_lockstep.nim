@@ -33,7 +33,7 @@
 
 import
   helpers,
-  std/[json, os, unittest],
+  std/[json, os, strutils, unittest],
   ctf/[glory, replays, sim],
   "../tools/extract_events"
 
@@ -120,3 +120,83 @@ suite "glory schedule lockstep (contract §7)":
         elif row{"deed"}.getStr == "dRescue": inc rescueRows
     check assistRows >= 1
     check rescueRows >= 1
+
+suite "S6 attribution instrument (gloryS6AttrInstrument) is hash-neutral":
+  ## `awardDeed` (sim.nim, `when defined(gloryS6AttrInstrument):` around its
+  ## tier-2 GloryDeed emit) is a compile-time define, OFF by default: the
+  ## OFF branch is the byte-for-byte pre-existing `emitEvent(...)` call
+  ## (no `content` argument at all), and every native/wasm shard in CI
+  ## compiles that OFF branch. The ON branch's ONLY difference is that it
+  ## also passes `content = mintNote`, a "classPct|heatPct|carryPct|stackPct"
+  ## string built from the SAME sub-factor helpers `recutFactor` itself
+  ## folds (glory.nim: recutShiftedClass, heatMult, CarrierHoldMultPct,
+  ## recutStackMult) -- see that call site's own comment, "Analysis-only
+  ## (never gameHash)".
+  ##
+  ## `gameHash` (sim_state.nim, `proc gameHash*` starting at line 298) never
+  ## reads `sim.events` or any event's `.content` anywhere in its ~270-line
+  ## body (confirmed by grep, zero hits) -- so no value that field can ever
+  ## hold moves the hash, on principle. This test makes that concrete
+  ## against a REAL recorded fixture rather than trusting the grep alone: it
+  ## replays glory-product-cap.bitreplay (S2 round 4828 -- the exact
+  ## gloryMultiplierRecut=true/deedMintCaps=true/brMode=true recut shape the
+  ## instrument's own guard condition targets) with the tier-2 sink on,
+  ## stuffs a real classPct|heatPct|carryPct|stackPct note -- built with the
+  ## identical glory.nim helpers the define calls -- into every drained
+  ## GloryDeed event's `content` (exactly the field the ON branch writes,
+  ## and the ONLY field the two branches ever disagree on), and checks
+  ## `gameHash` before and after. Equal hash on a real fixture full of real
+  ## recut mints is the ON-vs-OFF neutrality proof: OFF ships no `content`
+  ## at all (an empty string, strictly less information than this test's
+  ## stuffed note), so if a non-empty, realistically-shaped note cannot move
+  ## the hash, neither can OFF's stricter subset.
+  test "stuffing a real classPct|heatPct|carryPct|stackPct note into every GloryDeed event's content leaves gameHash unchanged":
+    let fixturePath = GameDir / "tests" / "fixtures" / "glory-product-cap.bitreplay"
+    let data = loadReplay(fixturePath)
+    var config = defaultGameConfig()
+    config.update(data.configJson)
+    check config.gloryMultiplierRecut  # the shape the instrument's guard reads
+    var sim = initSimServer(config)
+    sim.gameEventLoggingEnabled = false
+    sim.collectEvents = true
+    var replay = initReplayPlayer(data)
+    replay.looping = false
+    replay.mismatchQuit = true
+    while replay.playing:
+      replay.stepReplay(sim)
+    let hashBefore = sim.gameHash()
+
+    var gloryDeedCount, recutNoteCount = 0
+    for i in 0 ..< sim.events.len:
+      if sim.events[i].kind != GloryDeed:
+        continue
+      inc gloryDeedCount
+      # Not every GloryDeed event's `weapon` is a `Deed` name -- `capHit`,
+      # `achModeLit`, `pactWipe`/`pactDuoDown` (sim.nim) are pre-existing
+      # literal-string GloryDeed mints outside `awardDeed`, and the last two
+      # ALREADY carry non-empty `content` today ("GLORY_PACT_WIPE" etc) --
+      # this fixture's own hash-validated recording already proves gameHash
+      # tolerates non-empty content in production, before this instrument
+      # exists. Where `weapon` IS a real deed, reconstruct the ON branch's
+      # exact note with the identical helpers (team 0's live post-replay
+      # heat state; the drained event cannot recover the ORIGINAL minting
+      # team -- `target` is remapped through `eventSlot`, the same
+      # pre-existing quirk this file's port-header note documents -- but
+      # that has no bearing on hash-neutrality, which this note's CONTENT
+      # never touches).
+      try:
+        let deed = parseEnum[Deed](sim.events[i].weapon)
+        let team = Team(0)
+        let sitePct = sim.deedSitePct(team, int(sim.events[i].x), int(sim.events[i].y))
+        let classPct = recutShiftedClass(deed, sitePct, sim.config.winAsMultiplier)
+        let heatPct = (if paysHeat(deed): heatMult(sim.heatEmbers[team]) else: 100)
+        let carryPct = (if isDrama(deed): CarrierHoldMultPct else: 100)
+        let stackPct = recutStackMult(3)
+        sim.events[i].content =
+          $classPct & "|" & $heatPct & "|" & $carryPct & "|" & $stackPct
+        inc recutNoteCount
+      except ValueError:
+        sim.events[i].content = "GLORY_S6_ATTR_INSTRUMENT_TEST_PLACEHOLDER"
+    check gloryDeedCount > 0
+    check recutNoteCount > 0
+    check sim.gameHash() == hashBefore
