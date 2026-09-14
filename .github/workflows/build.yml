@@ -42,6 +42,20 @@ jobs:
         # same PR (#538 did not, and broke every pre-S8 decode). Stdlib
         # only, no network, no replay cache.
         run: python3 tools/glory/test_catalog_fold.py
+      - name: tools/glory S6 gate reproduces the GV62 attribution cache exactly
+        # End-to-end form of the same tripwire, real recorded wire data
+        # instead of synthetic fixtures: re-folds the committed, frozen GV62
+        # attribution cache (tests/fixtures/glory/gv62-attr-cache.tar.zst --
+        # see its own README for the chosen sha/tag/patch) and pins the S6
+        # re-measure exactly (154 capped, top-decile CHOSEN mean 72.26% /
+        # median 78.28%, 5,456/5,456 reconciliation). The other three named
+        # cohorts in this file (GV61/GV62/GV63 plain reconciliation) still
+        # skip here -- they need a private, never-committed replay cache
+        # this runner doesn't have -- only test_s6_harness_proof is
+        # unskipped by the committed fixture. Stdlib only, no network;
+        # `zstd`/`tar` decompress the fixture to a temp dir (ubuntu-latest
+        # ships zstd already, confirmed against the runner-images manifest).
+        run: python3 tools/glory/test_cohort_reconciliation.py
   build:
     strategy:
       fail-fast: false

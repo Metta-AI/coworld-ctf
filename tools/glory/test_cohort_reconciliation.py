@@ -31,20 +31,32 @@ separate open investigation; it is pinned BY NAME below so it cannot
 quietly become two.
 
 DATA. Local-only caches, same convention `test_cap_sweep.py`'s harness-proof
-golden already documents for this directory: each cohort SKIPS (never
-fails) when its cache is absent, so a fresh checkout without the replay
-cache still runs this file clean. No tools/glory test is wired into CI
-except the stdlib-only `test_catalog_fold.py`; this one is a local,
-on-demand gate. Rebuild a missing cohort cache with
-`tools/glory/census_decode.py` (see tools/glory/README.md) -- the GV63 one
-needs an `extract_events` built at a GameVersion-63 commit:
+golden already documents for this directory: the three named COHORTS below
+each SKIP (never fail) when their cache is absent, so a fresh checkout
+without the replay cache still runs this file clean. Rebuild a missing
+cohort cache with `tools/glory/census_decode.py` (see tools/glory/README.md)
+-- the GV63 one needs an `extract_events` built at a GameVersion-63 commit:
   nim c -d:release --hints:off -o:bin/extract_events tools/extract_events.nim
+
+`test_s6_harness_proof` is DIFFERENT: it no longer skips on a fresh
+checkout. It prefers the private, never-committed content-populated GV62
+cache (S6_EPISODES/S6_ATTR_DIR) when present, and otherwise falls back to
+the COMMITTED, reproducible fixture at `tests/fixtures/glory/
+gv62-attr-cache.tar.zst` (see that fixture's own README for the exact
+chosen-sha regeneration recipe: `c90c7418`/`paintbot-v0.7.378`, one
+representative of the byte-identical c90c7418..4fb7af8c equivalence class,
+plus `tools/glory/era-patches/c90c7418.patch`, the recovered
+content-instrumentation). That fallback is what lets this ONE test (not
+the three COHORTS above -- they still need a private cache) run in CI: see
+`.github/workflows/build.yml`'s `era-tripwire` job.
 
 Run: python3 tools/glory/test_cohort_reconciliation.py
 """
 import json
 import os
+import subprocess
 import sys
+import tempfile
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
@@ -77,6 +89,13 @@ COHORTS = (
 S6_EPISODES = f"{DATA}/gv62/gv62_episodes.json"
 S6_ATTR_DIR = os.path.expanduser(
     "~/.ctf/knowledge/glory-gradient/00w-s6-remeasure-raw/attr_replays")
+# The committed, reproducible fallback (see tests/fixtures/glory/README.md):
+# a `zstd`-compressed tar of the SAME two things (gv62_episodes.json +
+# attr_replays/*.jsonl), regenerated from a NAMED commit + a committed
+# patch file rather than the private build dir above. Used only when the
+# private cache (S6_EPISODES/S6_ATTR_DIR) is absent -- always true in CI.
+S6_FIXTURE = os.path.join(HERE, "..", "..", "tests", "fixtures", "glory",
+                           "gv62-attr-cache.tar.zst")
 
 
 def check(name, cond):
@@ -137,24 +156,7 @@ def test_cohort(name, episodes_path, cache_dir, catalog, want_ok, want_n,
     print(f"  [info] {name} spans GLORYVERSION {eras}")
 
 
-def test_s6_harness_proof():
-    """The gate #538 took away: the harness reproducing S6 EXACTLY.
-
-    Kept in this file (not `test_catalog_fold.py`) because it needs the
-    content-populated GV62 attribution cache. Manual equivalent:
-      python3 tools/glory/cap_sweep.py --harness-proof \\
-        --episodes ~/.ctf/knowledge/glory-gradient/data/gv62/gv62_episodes.json \\
-        --jsonl-dir ~/.ctf/knowledge/glory-gradient/00w-s6-remeasure-raw/attr_replays
-    """
-    print("test_s6_harness_proof")
-    if not os.path.exists(S6_EPISODES) or not os.path.isdir(S6_ATTR_DIR):
-        skip("S6 harness proof", "content-populated GV62 attr cache absent")
-        return
-    import cap_sweep  # noqa: E402  (only needed on this path)
-    with open(S6_EPISODES) as f:
-        episodes = json.load(f)
-    rows = cap_sweep.run_cell(episodes, S6_ATTR_DIR,
-                               cap_sweep.cap_bits_to_internal(14), s4b_armed=False)
+def _check_s6_rows(rows, cap_sweep):
     check("S6: 5,456 rows", len(rows) == 5456)
     check("S6: 154 capped", sum(1 for r in rows if r["capped"]) == 154)
     scores = sorted(r["reported"] for r in rows if r["reported"])
@@ -166,6 +168,68 @@ def test_s6_harness_proof():
           abs(stats["chosen_mean"] - 72.26) < 0.01)
     check(f"S6: top-decile CHOSEN median 78.28% (got {stats['chosen_median']:.2f}%)",
           abs(stats["chosen_median"] - 78.28) < 0.01)
+
+
+def test_s6_harness_proof():
+    """The gate #538 took away: the harness reproducing S6 EXACTLY.
+
+    Kept in this file (not `test_catalog_fold.py`) because it needs the
+    content-populated GV62 attribution cache. Two sources, tried in order:
+
+    1. The private, never-committed cache (S6_EPISODES/S6_ATTR_DIR) --
+       fast, no decompression, the local-dev path. Manual equivalent:
+         python3 tools/glory/cap_sweep.py --harness-proof \\
+           --episodes ~/.ctf/knowledge/glory-gradient/data/gv62/gv62_episodes.json \\
+           --jsonl-dir ~/.ctf/knowledge/glory-gradient/00w-s6-remeasure-raw/attr_replays
+
+    2. The COMMITTED, reproducible fixture (S6_FIXTURE --
+       tests/fixtures/glory/gv62-attr-cache.tar.zst, see its own README):
+       decompressed to a temp dir and cleaned up after. This is the path
+       every CI run and every fresh checkout takes -- it is what makes this
+       test run (not skip) in `.github/workflows/build.yml`'s
+       `era-tripwire` job.
+
+    Only skips if NEITHER source is present, which should never happen on
+    a checkout that has this repo's own tests/fixtures/glory/ directory.
+    """
+    print("test_s6_harness_proof")
+    import cap_sweep  # noqa: E402  (only needed on this path)
+
+    if os.path.exists(S6_EPISODES) and os.path.isdir(S6_ATTR_DIR):
+        with open(S6_EPISODES) as f:
+            episodes = json.load(f)
+        rows = cap_sweep.run_cell(episodes, S6_ATTR_DIR,
+                                   cap_sweep.cap_bits_to_internal(14),
+                                   s4b_armed=False)
+        _check_s6_rows(rows, cap_sweep)
+        return
+
+    if not os.path.exists(S6_FIXTURE):
+        skip("S6 harness proof",
+             f"content-populated GV62 attr cache absent (no private cache, "
+             f"no committed fixture at {S6_FIXTURE})")
+        return
+
+    with tempfile.TemporaryDirectory(prefix="gv62-attr-cache-") as tmp:
+        # `zstd -dc | tar -x` rather than `tar --zstd`: works identically
+        # with both GNU tar (this repo's CI, ubuntu-latest) and macOS's
+        # bsdtar (local dev), and only needs `zstd` + `tar` on PATH -- both
+        # already required/verified present (README's own compression note).
+        decompress = subprocess.Popen(["zstd", "-dc", S6_FIXTURE],
+                                       stdout=subprocess.PIPE)
+        subprocess.run(["tar", "-x", "-C", tmp], stdin=decompress.stdout,
+                        check=True)
+        decompress.stdout.close()
+        if decompress.wait() != 0:
+            raise RuntimeError(f"zstd -dc {S6_FIXTURE} failed")
+        episodes_path = os.path.join(tmp, "gv62_episodes.json")
+        attr_dir = os.path.join(tmp, "attr_replays")
+        with open(episodes_path) as f:
+            episodes = json.load(f)
+        rows = cap_sweep.run_cell(episodes, attr_dir,
+                                   cap_sweep.cap_bits_to_internal(14),
+                                   s4b_armed=False)
+        _check_s6_rows(rows, cap_sweep)
 
 
 def main():

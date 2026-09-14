@@ -1,0 +1,70 @@
+# GLORY GRADIENT S6 -- content-populated attribution instrumentation.
+#
+# ANALYSIS-ONLY, NEVER SHIPPED: stashes the v3 percent-scaled sub-factors
+# (classPct-with-territory|heatPct|carryPct|stackPct) into GloryDeed's
+# always-`""` `content` field at the exact `recutFactor`/v3 call site in
+# `awardDeed`. Zero sim/scoring behavior change -- the score math (`amount`,
+# `sim.gloryProduct`) is untouched; only a debug string rides an already-
+# inert analysis field. See `tools/glory/README.md` "S1b addendum" for the
+# GV59/GV60 (pre-v3, `recutFactor`) precedent this mirrors, and
+# `tools/glory/README.md` §S1b for the fixture recipe this patch is part
+# of.
+#
+# Target commit: c90c7418 (paintbot-v0.7.378) -- one representative sha of
+# the c90c7418..4fb7af8c equivalence class (paintbot-v0.7.378..0.7.383,
+# GLORYVERSION 17 / GameVersion 62, catalog v3 ON); `src/ctf/sim.nim`,
+# `src/ctf/glory.nim`, and `src/ctf/sim_types.nim` are byte-identical
+# across the whole class (verified: `git diff c90c7418 4fb7af8c --
+# src/ctf/sim.nim src/ctf/glory.nim src/ctf/sim_types.nim` is empty), so
+# this patch applies unchanged at any sha in the class.
+#
+# Recovered by diffing two private, never-committed local build dirs from
+# an earlier run of this same recipe (targeted at e6807465, one commit
+# before this equivalence class):
+#   diff -u ~/.ctf/pipeline-loop/tools/s6_gv62_build/src/ctf/sim.nim \
+#           ~/.ctf/pipeline-loop/tools/s6_gv62_attr_build/src/ctf/sim.nim
+#
+# Apply at the chosen sha (from a `git archive <sha> | tar -x` checkout,
+# never inside this repo's own worktree):
+#   cd /tmp/cr/build && git apply --check tools/glory/era-patches/c90c7418.patch
+#   cd /tmp/cr/build && git apply tools/glory/era-patches/c90c7418.patch
+#   cd /tmp/cr/build && nim c -d:release --hints:off -o:bin/extract_events tools/extract_events.nim
+#
+--- a/src/ctf/sim.nim
++++ b/src/ctf/sim.nim
+@@ -567,9 +567,34 @@
+   # whenever `ord(team) < sim.players.len`. Analysis-only (never gameHash),
+   # so this is preserved as-is rather than "fixed" outside this port's
+   # mandate -- see this file's port-header note on pricing-vs-plumbing.
++  # S6 ANALYSIS-ONLY INSTRUMENTATION (never committed, never lands in the
++  # shipped repo -- private local copy only): stash the v3 percent-scaled
++  # sub-factors (classPct-with-territory|heatPct|carryPct|stackPct) into
++  # the always-"" `content` field, same idiom as the GV61/S1b recipe but
++  # targeting the CATALOG-V3 call path (recutShiftedClassV3Pct/
++  # heatMultV3Pct/recutStackMultV3Pct/CarrierHoldMultPct) instead of the
++  # pre-v3 recutFactor. Zero sim/scoring behavior change -- read-only.
++  var mintNote = ""
++  block:
++    let rampedDbg = sim.config.placementRampV3 and deed in RecutPlacementRampDeeds
++    let v3Dbg = sim.config.catalogV3Reprice and not rampedDbg and deed != dTeamKill
++    if (rampedDbg or v3Dbg) and amount > 1:
++      let dbgClassPct =
++        if rampedDbg: amount
++        else: recutShiftedClassV3Pct(deed, sitePct, sim.config.winAsMultiplier)
++      let dbgHeatPct =
++        if (not rampedDbg) and paysHeat(deed): heatMultV3Pct(sim.heatEmbers[team])
++        else: 100
++      let dbgCarryPct =
++        if (not rampedDbg) and carrying and isDrama(deed): CarrierHoldMultPct
++        else: 100
++      let dbgStackPct =
++        if rampedDbg: 100
++        else: recutStackMultV3Pct(stackK)
++      mintNote = $dbgClassPct & "|" & $dbgHeatPct & "|" & $dbgCarryPct & "|" & $dbgStackPct
+   sim.emitEvent(
+     GloryDeed, source = byIndex, target = ord(team), weapon = $deed,
+-    amount = amount, x = float(x), y = float(y)
++    amount = amount, x = float(x), y = float(y), content = mintNote
+   )
+
+ proc teamConvertedKits(sim: SimServer, team: Team): int =
