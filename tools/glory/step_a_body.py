@@ -559,6 +559,38 @@ def run_arm_win_gate(out_dir: str, ts_iso: str, ts_file: str) -> int:
     return 0
 
 
+def run_check_deploy() -> int:
+    """--check-deploy: ONE fresh GET /leagues/{league_id}/settings, prints
+    EXACTLY one line, writes NO files (no bank, no body, no report -- unlike
+    every other mode in this script). Built for a shell `until ...; do sleep
+    N; done` poll: exit 0 once `win_gated_legs` is present in the live
+    settings (metta#22988 deployed to the served backend), exit 1 while
+    still absent. No POST/PUT/PATCH/DELETE code path, as everywhere else in
+    this file -- this is a single `sar.fetch_settings` GET call."""
+    token = sar.load_softmax_token()
+    api = sar.Api(token)
+    ts_iso = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    settings_envelope, reason = sar.fetch_settings(api)
+
+    if settings_envelope is None or not isinstance(settings_envelope.get("settings"), dict):
+        print(
+            f"win_gated_legs_present_live=False season_leg_transform=None rated_k=None fetched={ts_iso}"
+        )
+        print(f"(GET failed or unusable envelope: {reason})", file=sys.stderr)
+        return 1
+
+    live_settings = settings_envelope["settings"]
+    win_gate_val, win_gate_present = get_by_path(live_settings, STEP_ARM_WIN_GATE_PATH)
+    transform_val, _ = get_by_path(live_settings, STEP_A_PATH)
+    rated_k_val, _ = get_by_path(live_settings, STEP_B_PATH)
+
+    print(
+        f"win_gated_legs_present_live={win_gate_present} season_leg_transform={transform_val} "
+        f"rated_k={rated_k_val} fetched={ts_iso}"
+    )
+    return 0 if win_gate_present else 1
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument(
@@ -582,7 +614,21 @@ def main() -> int:
             "--dry-run refuses to run."
         ),
     )
+    ap.add_argument(
+        "--check-deploy",
+        action="store_true",
+        help=(
+            "ONE fresh GET, prints exactly one line, writes NO files. Exit 0 once "
+            "ladder.ranking.win_gated_legs is present in the live settings (metta#22988 "
+            "deployed to the served backend), exit 1 while still absent -- for a shell "
+            "`until tools/glory/step_a_body.py --check-deploy; do sleep N; done` poll. "
+            "No POST path, as everywhere else in this script."
+        ),
+    )
     args = ap.parse_args()
+
+    if args.check_deploy:
+        return run_check_deploy()
 
     if args.arm and not args.dry_run:
         print(
