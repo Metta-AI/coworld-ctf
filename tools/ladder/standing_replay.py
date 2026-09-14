@@ -49,11 +49,15 @@ Usage:
 """
 from __future__ import annotations
 
+import concurrent.futures as cf
 import json
+import math
 import os
 import random
 import statistics
+import subprocess
 import sys
+import urllib.request
 from urllib.parse import quote
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -241,6 +245,188 @@ def load_ledger(path=LEDGER_PATH):
 
 
 # --------------------------------------------------------------------------
+# Winner decode (2026-09-14 win-gate extension)
+# --------------------------------------------------------------------------
+#
+# The platform's own `/v2/rounds/{id}/episodes` `participant_scores` never
+# says who WON an episode -- only each seat's glory/product score, which
+# `ctf-r4828-winner-is-not-glory-leader.md`-style evidence below shows is
+# frequently a DIFFERENT seat than the one the game actually declared as
+# having won (Battle Royale S2 is a 16-way FFA: "winner" = last cog
+# standing / the team the replay's own finalize event names, not the
+# highest scorer). The only place that fact is recorded is the replay's own
+# `summary` event (`type: "summary"`) inside the extracted JSONL, decoded
+# with a GameVersion-matched `extract_events` binary -- see
+# `tools/glory/census_decode.py` (`summary.get("winner")`,
+# `summary["slot_team"]`), which this reuses the same field names as, and
+# `tools/glory/README.md`'s "Build a matching extract_events" section for
+# why the extractor must match the episode's own wire GameVersion.
+#
+# Fields observed directly (2026-09-14, GameVersion 63 / GLORYVERSION 18,
+# `census_gv63_gv18_build`'s extractor, round r4828 episode
+# ereq_016c931b-...):
+#   summary["winner"]      -> team-color string ("pink") naming the winning
+#                              team, or falsy if the episode never resolved
+#                              a winner (see `draw` below).
+#   summary["draw"]        -> bool; true means no team won (every entrant
+#                              banks its full leg per this task's R2 rule).
+#   summary["slot_team"]   -> list of team-color strings, index = slot
+#                              (== the API's `participant`/`participant_
+#                              scores` "position" field -- same assumption
+#                              tools/glory/census_decode.py already makes
+#                              and validates via 100% reconciliation).
+#   summary["slot_address"]-> list of player display names, index = slot
+#                              (handy for manual cross-checks; NOT used for
+#                              joining -- the join to `player_id` below uses
+#                              the episode's own `participants` list, same
+#                              as `pull_ledger()`'s existing loop).
+
+WINNER_CACHE_DIR = "/tmp/standing-sweep/winner_cache"
+
+
+def download_replay(url, episode_id, cache_dir):
+    os.makedirs(cache_dir, exist_ok=True)
+    path = os.path.join(cache_dir, f"{episode_id}.replay")
+    if os.path.exists(path) and os.path.getsize(path) > 0:
+        return path
+    with urllib.request.urlopen(url, timeout=90) as r:
+        data = r.read()
+    tmp = path + ".part"
+    with open(tmp, "wb") as f:
+        f.write(data)
+    os.replace(tmp, path)
+    return path
+
+
+def decode_episode_summary(ep, extractor, cache_dir):
+    """Download `ep`'s replay (if not already cached) and run `extractor`
+    over it, returning the decoded `summary` event dict. Raises rather than
+    guessing on any failure (no replay_url, download error, extractor
+    non-zero exit, or a jsonl with no summary event) -- the caller counts
+    and reports these, never silently drops a leg without saying so."""
+    url = ep.get("replay_url")
+    if not url:
+        raise RuntimeError("no replay_url")
+    eid = ep["episode_id"]
+    replay_path = download_replay(url, eid, cache_dir)
+    jsonl_path = os.path.join(cache_dir, f"{eid}.jsonl")
+    if not (os.path.exists(jsonl_path) and os.path.getsize(jsonl_path) > 0):
+        r = subprocess.run([extractor, replay_path, "--out", jsonl_path],
+                            capture_output=True, text=True, timeout=60)
+        if r.returncode != 0:
+            raise RuntimeError((r.stderr or r.stdout or "extract failed").strip())
+    with open(jsonl_path) as f:
+        for line in f:
+            rec = json.loads(line)
+            if rec.get("type") == "summary":
+                return rec
+    raise RuntimeError("no summary event in decoded jsonl")
+
+
+def pull_winner_map(episodes, extractor, cache_dir=WINNER_CACHE_DIR, workers=24,
+                     verbose=True):
+    """`episodes`: flat list of raw episode dicts (as returned by
+    `ctfapi.episodes()` / `_cached_episodes()`), each carrying `episode_id`
+    and `replay_url`. Downloads + decodes all of them concurrently.
+
+    Returns (winner_map: {episode_id: summary_dict}, errors: [(episode_id, err)]).
+    Never guesses a winner for an episode it could not decode -- callers
+    (`gate_ledger_by_win`) drop that episode's legs entirely and count it,
+    rather than defaulting it to gated-zero or gated-full."""
+    os.makedirs(cache_dir, exist_ok=True)
+
+    def worker(ep):
+        try:
+            return ep["episode_id"], decode_episode_summary(ep, extractor, cache_dir), None
+        except Exception as e:  # noqa: BLE001 -- network/subprocess/parse, all reported
+            return ep["episode_id"], None, str(e)
+
+    winner_map, errors = {}, []
+    with cf.ThreadPoolExecutor(max_workers=workers) as ex:
+        futs = [ex.submit(worker, ep) for ep in episodes]
+        done = 0
+        for fut in cf.as_completed(futs):
+            eid, summ, err = fut.result()
+            done += 1
+            if err:
+                errors.append((eid, err))
+            else:
+                winner_map[eid] = summ
+            if verbose and done % 200 == 0:
+                print(f"[winners] {done}/{len(episodes)} decoded "
+                      f"({len(errors)} errors)", file=sys.stderr)
+    if verbose:
+        print(f"[winners] done: {len(winner_map)}/{len(episodes)} decoded, "
+              f"{len(errors)} errors", file=sys.stderr)
+    return winner_map, errors
+
+
+def gate_ledger_by_win(ledger, winner_map):
+    """Build a WIN-GATED copy of `ledger`: for every round, re-walk that
+    round's cached episodes (same source `pull_ledger()` used, so no extra
+    API calls) and replace each entrant's per-episode leg with
+
+        leg          if the entrant's slot's team == the episode's winner
+                     team, OR the episode was a draw (`summary["draw"]`)
+        0.0          otherwise (gated out -- BEFORE any log transform, so
+                     a gated leg is exactly 0 bits under log2/signed_log2)
+
+    Episodes this ledger's round has no decoded winner for (missing from
+    `winner_map`, i.e. a `pull_winner_map` error) are DROPPED from BOTH the
+    gated and ungated leg counts for that round -- never guessed either way.
+    Returns (gated_ledger, stats) where stats = {total_legs, zeroed_legs,
+    dropped_legs, zeroed_frac} aggregated over the whole ledger.
+    """
+    import copy
+    gated = copy.deepcopy(ledger)
+    total = zeroed = dropped = 0
+    for r in gated["rounds"]:
+        eps = _cached_episodes(r["round_id"])
+        new_legs = {}
+        for ep in eps:
+            if ep.get("status") != "completed":
+                continue
+            eid = ep.get("episode_id")
+            summ = winner_map.get(eid)
+            if summ is None:
+                # count the legs this episode WOULD have contributed as
+                # dropped, so the reported fraction is over the same
+                # denominator as `total`.
+                dropped += sum(1 for p in (ep.get("participants") or [])
+                               if not p.get("is_filler"))
+                continue
+            winner_team = summ.get("winner")
+            draw = bool(summ.get("draw"))
+            slot_team = summ.get("slot_team") or []
+            pos_to_player = {}
+            for p in ep.get("participants") or []:
+                if p.get("is_filler"):
+                    continue
+                pos_to_player[p.get("position")] = p.get("player_id")
+            for ps in ep.get("participant_scores") or []:
+                pos = ps.get("position")
+                pid = pos_to_player.get(pos)
+                if pid is None:
+                    continue
+                score = ps.get("score")
+                if score is None:
+                    continue
+                total += 1
+                team = slot_team[pos] if pos is not None and pos < len(slot_team) else None
+                won_or_draw = draw or (bool(winner_team) and team == winner_team)
+                gated_score = score if won_or_draw else 0.0
+                if not won_or_draw:
+                    zeroed += 1
+                new_legs.setdefault(pid, []).append(gated_score)
+        r["legs"] = new_legs
+    stats = {
+        "total_legs": total, "zeroed_legs": zeroed, "dropped_legs": dropped,
+        "zeroed_frac": (zeroed / total) if total else None,
+    }
+    return gated, stats
+
+
+# --------------------------------------------------------------------------
 # Replay
 # --------------------------------------------------------------------------
 
@@ -248,8 +434,34 @@ def _transform(x, kind):
     if kind == "raw":
         return x
     if kind == "log2":
-        import math
         return math.log2(1.0 + max(x, 0.0))
+    if kind == "signed_log2":
+        # 2026-09-14 GLORY GRADIENT win-gate sweep: "Step A as decided" per-leg
+        # transform, sign(x)*log2(1+|x|) -- unlike plain `log2` above (which
+        # clips negatives to 0 via max(x,0.0)), this preserves a negative leg's
+        # sign in log-space instead of discarding it. On this ledger every
+        # observed leg is >=0 (no negative legs decoded in any pulled window),
+        # so signed_log2(x) == log2(x) for x>=0 and the two transforms are
+        # numerically identical here -- that equivalence is exactly what the
+        # R1 reproduction check below is confirming, not assumed.
+        sign = 1.0 if x >= 0 else -1.0
+        return sign * math.log2(1.0 + abs(x))
+    raise ValueError(f"unknown transform {kind}")
+
+
+def inverse_transform(y, kind):
+    """Un-log a displayed standing value back to the raw round-score scale.
+    Only meaningful for the log-domain transforms (the EMA for `log2`/
+    `signed_log2` runs entirely in log2-bits space -- see `_transform` above
+    and `replay()`'s docstring -- so `standing` itself is a bits value; this
+    inverts it for reporting "displayed (bits) vs un-logged" side by side)."""
+    if kind == "raw":
+        return y
+    if kind == "log2":
+        return (2.0 ** y) - 1.0
+    if kind == "signed_log2":
+        sign = 1.0 if y >= 0 else -1.0
+        return sign * ((2.0 ** abs(y)) - 1.0)
     raise ValueError(f"unknown transform {kind}")
 
 
@@ -564,6 +776,89 @@ def responsiveness(rounds, rated_k, clamp_M, top_k, transform, episode_mode,
 
 
 # --------------------------------------------------------------------------
+# Bootstrap (robustness) -- generalized from docs/designs/STANDING_SWEEP.md's
+# "Robustness read" section so the win-gate sweep can reuse the identical
+# method on its own window instead of re-deriving it.
+# --------------------------------------------------------------------------
+
+def _pctile(sorted_vals, p):
+    if not sorted_vals:
+        return None
+    idx = max(0, min(len(sorted_vals) - 1, int(len(sorted_vals) * p) - 1
+                      if p > 0 else 0))
+    return sorted_vals[idx]
+
+
+def bootstrap_stability(rounds, setting, n_draws=30, window=100, seed=0):
+    """Median/p10/p90 of tau_mean, #1 chg/50, leader_best_round_share over
+    `n_draws` sliding `window`-round sub-windows (own cold-start EMA per
+    window, sampled without replacement from every possible start) --
+    identical method to the doc's bootstrap, generalized to any rounds list
+    and setting dict (rated_k/clamp_M/top_k/transform/episode_mode)."""
+    rng = random.Random(seed)
+    n = len(rounds)
+    w = min(window, n)
+    starts = list(range(0, n - w + 1)) or [0]
+    draws = rng.sample(starts, min(n_draws, len(starts)))
+    tau_vals, chg_vals, share_vals = [], [], []
+    for s in draws:
+        sub = rounds[s:s + w]
+        history, contributions = replay_setting(sub, **setting)
+        stab = stability_metrics(history)
+        share = leader_best_round_share(history, contributions,
+                                         rated_k=setting["rated_k"])
+        if stab["tau_mean"] is not None:
+            tau_vals.append(stab["tau_mean"])
+        chg_vals.append(stab["leader_changes_per_50"])
+        if share is not None:
+            share_vals.append(share)
+
+    def summarize(vals):
+        if not vals:
+            return None
+        sv = sorted(vals)
+        return {"median": statistics.median(sv), "p10": _pctile(sv, 0.10),
+                "p90": _pctile(sv, 0.90), "n": len(sv)}
+
+    return {"tau_mean": summarize(tau_vals),
+            "leader_changes_per_50": summarize(chg_vals),
+            "leader_best_round_share": summarize(share_vals),
+            "n_draws": len(draws)}
+
+
+def bootstrap_responsiveness(rounds, setting, subject_pid, scale, target,
+                              from_idx_lo, from_idx_hi, n_draws=30, seed=1,
+                              pass_threshold=None):
+    """Resample the injection point (`from_idx`) uniformly over
+    [from_idx_lo, from_idx_hi] and re-run `responsiveness()` at each draw --
+    same method as the doc's `up`/`down` bootstrap. `pass_threshold`, if
+    given, also reports the fraction of finite draws with value >=
+    pass_threshold (the doc's "PASS (>=103 or never) frac")."""
+    rng = random.Random(seed)
+    candidates = list(range(from_idx_lo, from_idx_hi + 1)) or [from_idx_lo]
+    draws = rng.sample(candidates, min(n_draws, len(candidates)))
+    vals = []
+    for from_idx in draws:
+        v = responsiveness(rounds, setting["rated_k"], setting["clamp_M"],
+                            setting["top_k"], setting["transform"],
+                            setting["episode_mode"], subject_pid, scale,
+                            from_idx, target=target)
+        vals.append(v)
+    finite = sorted(v for v in vals if v is not None)
+    never = len(vals) - len(finite)
+    out = {
+        "median": statistics.median(finite) if finite else None,
+        "p10": _pctile(finite, 0.10), "p90": _pctile(finite, 0.90),
+        "never_frac": (never / len(vals)) if vals else None,
+        "n_draws": len(draws),
+    }
+    if pass_threshold is not None and vals:
+        passes = sum(1 for v in vals if v is None or v >= pass_threshold)
+        out["pass_frac"] = passes / len(vals)
+    return out
+
+
+# --------------------------------------------------------------------------
 # Sweep orchestration
 # --------------------------------------------------------------------------
 
@@ -711,8 +1006,34 @@ def main():
     if cmd == "pull":
         since = int(args[args.index("--since") + 1]) if "--since" in args else 4257
         until = int(args[args.index("--until") + 1]) if "--until" in args else 10**9
+        out = args[args.index("--out") + 1] if "--out" in args else LEDGER_PATH
         ledger = pull_ledger(since, until)
-        save_ledger(ledger)
+        save_ledger(ledger, path=out)
+    elif cmd == "pull-winners":
+        # Decode every episode in `--ledger`'s round window with a
+        # GameVersion-matched `extract_events` binary and write the
+        # episode_id -> summary map used by gate_ledger_by_win(). Episode
+        # metadata comes from the SAME on-disk cache pull_ledger() already
+        # populated (CACHE_DIR) -- no extra /v2/rounds or /v2/.../episodes
+        # calls beyond what `pull` already made for this window.
+        ledger_path = args[args.index("--ledger") + 1] if "--ledger" in args else LEDGER_PATH
+        extractor = args[args.index("--extractor") + 1]
+        out = args[args.index("--out") + 1] if "--out" in args else "/tmp/standing-sweep/winner_map.json"
+        workers = int(args[args.index("--workers") + 1]) if "--workers" in args else 24
+        ledger = load_ledger(ledger_path)
+        all_eps = []
+        for r in ledger["rounds"]:
+            for ep in _cached_episodes(r["round_id"]):
+                if ep.get("status") == "completed":
+                    all_eps.append(ep)
+        print(f"[pull-winners] {len(all_eps)} completed episodes across "
+              f"{len(ledger['rounds'])} rounds", file=sys.stderr)
+        winner_map, errors = pull_winner_map(all_eps, extractor, workers=workers)
+        os.makedirs(os.path.dirname(out) or ".", exist_ok=True)
+        with open(out, "w") as f:
+            json.dump({"winner_map": winner_map, "errors": errors}, f)
+        print(f"[pull-winners] wrote {out}: {len(winner_map)} decoded, "
+              f"{len(errors)} errors", file=sys.stderr)
     elif cmd == "fixture":
         ledger = load_ledger()
         write_fixture(ledger)
