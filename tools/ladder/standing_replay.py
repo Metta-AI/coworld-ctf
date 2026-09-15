@@ -469,7 +469,14 @@ def inverse_transform(y, kind):
 _RANK_POINTS = [25, 18, 15, 12, 10, 8, 6, 4, 2, 1]
 
 
-def _round_score(legs, top_k, transform):
+def _round_score(legs, top_k, transform, agg="sum"):
+    """`agg`: "sum" (default, the served `round_scoring_rule`, unchanged
+    behavior for every existing caller that doesn't pass this) or "mean"
+    (2026-09-15 sum-vs-mean arming-flag close-out, `docs/designs/
+    STANDING_SWEEP.md`'s "Win-gated extension" section, flag (a)): divide
+    the kept legs' summed value by how many were kept, so a log-domain
+    transform's round_score represents a TYPICAL leg's bits rather than the
+    PRODUCT of all of them (sum of logs == log of the product)."""
     if not legs:
         return 0.0
     eff = "raw" if transform == "rank_points" else transform
@@ -478,6 +485,12 @@ def _round_score(legs, top_k, transform):
         kept = vals
     else:
         kept = vals[:top_k]
+    if not kept:
+        return 0.0
+    if agg == "mean":
+        return sum(kept) / len(kept)
+    if agg != "sum":
+        raise ValueError(f"unknown agg {agg}")
     return sum(kept)
 
 
@@ -490,19 +503,19 @@ def _apply_episode_mode(legs, mode, rng):
     raise ValueError(f"episode_mode {mode} handled at round-pairing level")
 
 
-def _round_scores_for_round(r, top_k, transform, episode_mode, rng):
+def _round_scores_for_round(r, top_k, transform, episode_mode, rng, agg="sum"):
     """Per-entrant round score for one round, dispatching the transform.
 
     `rank_points` is NOT a per-leg transform — it re-scores the whole round:
     each entrant's raw sum-of-top-k stands only as the ORDERING key, then
     F1-style points (25/18/15/12/10/8/6/4/2/1, 0 below 10th) replace the
     magnitude entirely. Every other transform (raw, log2) applies per-leg
-    and keeps summing.
+    and keeps summing (or averaging, if `agg="mean"`).
     """
     raw = {}
     for pid, legs in r["legs"].items():
         sampled = _apply_episode_mode(legs, episode_mode, rng)
-        raw[pid] = _round_score(sampled, top_k, transform)
+        raw[pid] = _round_score(sampled, top_k, transform, agg=agg)
     if transform != "rank_points":
         return raw
     order = sorted(raw, key=lambda pid: -raw[pid])
@@ -513,7 +526,7 @@ def _round_scores_for_round(r, top_k, transform, episode_mode, rng):
 
 
 def replay(rounds, rated_k=0.05, clamp_M=150.0, top_k=12, transform="raw",
-           episode_mode="current", seed=0):
+           episode_mode="current", seed=0, agg="sum"):
     """Replay the EMA standing update over `rounds` (sorted by round_number).
 
     Returns (history, contributions) where:
@@ -523,6 +536,8 @@ def replay(rounds, rated_k=0.05, clamp_M=150.0, top_k=12, transform="raw",
 
     `episode_mode="double"` is handled by the caller pre-pairing rounds
     (see `_pair_rounds`) — this function only knows "current" / "half".
+    `agg="sum"` (default, matches every pre-existing call site) or "mean" —
+    see `_round_score`'s docstring.
     """
     rng = random.Random(seed)
     standing = {}
@@ -530,7 +545,7 @@ def replay(rounds, rated_k=0.05, clamp_M=150.0, top_k=12, transform="raw",
     contributions = {}
 
     for r in rounds:
-        round_scores = _round_scores_for_round(r, top_k, transform, episode_mode, rng)
+        round_scores = _round_scores_for_round(r, top_k, transform, episode_mode, rng, agg=agg)
 
         for pid, score in round_scores.items():
             s = standing.get(pid)
@@ -575,14 +590,14 @@ def _pair_rounds(rounds):
 
 
 def replay_setting(rounds, rated_k=0.05, clamp_M=150.0, top_k=12,
-                    transform="raw", episode_mode="current", seed=0):
+                    transform="raw", episode_mode="current", seed=0, agg="sum"):
     """Dispatch 'double' pairing before calling replay()."""
     if episode_mode == "double":
         return replay(_pair_rounds(rounds), rated_k=rated_k, clamp_M=clamp_M,
                        top_k=top_k, transform=transform, episode_mode="current",
-                       seed=seed)
+                       seed=seed, agg=agg)
     return replay(rounds, rated_k=rated_k, clamp_M=clamp_M, top_k=top_k,
-                   transform=transform, episode_mode=episode_mode, seed=seed)
+                   transform=transform, episode_mode=episode_mode, seed=seed, agg=agg)
 
 
 # --------------------------------------------------------------------------
