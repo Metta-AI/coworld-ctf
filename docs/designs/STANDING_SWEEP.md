@@ -614,3 +614,164 @@ R2-rank-2).
 
 **k = 0.02 supersedes the 0.025 pick above ONLY under the win gate; the
 0.025 pick stands for the ungated transform.**
+
+### Flag closure (2026-09-15)
+
+Closes both arming flags above, plus one more configuration (R3) run to
+separate what the gate delivers from what the log delivers, on the
+identical r4828-r5077 window. Harness: `tools/ladder/standing_replay.py`
+gained an `agg="sum"|"mean"` round-score-aggregation parameter (additive,
+default `"sum"`, all 5 pre-existing tests unchanged); three new driver
+scripts, `standing_sweep_win_injection.py`, `standing_sweep_sum_vs_mean.py`,
+`standing_sweep_r3_raw_gate.py`. Read-only throughout — `grep -rn
+"\.post(\|\.put(\|POST\|PUT" tools/ladder/*.py` returns no live-call hits
+(only docstring/comment mentions of the served config).
+
+#### (1) Win-injection (closes flag b)
+
+Two designs, both bootstrapped over 30 (N0, seed) draws, run under R0
+(raw, k=0.05) / R1 (`signed_log2`, k=0.025, ungated) / R2 (`signed_log2`,
+k=0.02, win-gated). Calibration: top-quartile per-episode win rate
+q3=0.0715; median winning raw leg=43; median non-winning raw leg=2.
+
+**Design 1 — synthetic 17th entrant** (cold-starts at N0, wins each of 12
+episodes/round independently at probability p; raw leg = win magnitude on
+a win, loss magnitude on a loss):
+
+| p | Rule | top-5, median [p10,p90] rounds (never-frac) | #1, median [p10,p90] rounds (never-frac) |
+| --- | --- | --- | --- |
+| q3 (0.0715) | R0 | never (100%) | never (100%) |
+| | R1 | never (100%) | never (100%) |
+| | R2 | 0 [0,0] (80%) | 0 [0,0] (80%) |
+| 1.5×q3 (0.1072) | R0 | never (100%) | never (100%) |
+| | R1 | 0 [0,0] (97%) | never (100%) |
+| | R2 | 3 [0,78] (27%) | 0 [0,2] (60%) |
+| 2×q3 (0.1429) | R0 | never (100%) | never (100%) |
+| | R1 | never (100%) | never (100%) |
+| | R2 | **0 [0,62] (0%)** | **0 [0,49] (13%)** |
+
+**Design 2 — uplift a real ~rank-8 subject** (win probability redrawn at
+baseline×{1.5,2} from N0; every real raw leg kept exactly as recorded):
+
+| Uplift | Rule | top-5, median [p10,p90] (never) | #1, median [p10,p90] (never) |
+| --- | --- | --- | --- |
+| 1.5× | R0 | 7 [0,45] (10%) | 49 [0,118] (37%) |
+| | R1 | 0 [0,15] (70%) | 85 [85,85] (97%) |
+| | R2 | never (100%) | never (100%) |
+| 2.0× | R0 | 7 [0,49] (3%) | 45 [0,65] (30%) |
+| | R1 | 0 [0,13] (77%) | 88 [88,88] (97%) |
+| | R2 | 29 [3,166] (87%) | never (100%) |
+
+R0/R1's Design-2 rows are the subject's own real, unmanipulated trajectory
+— the uplift is provably a no-op under ungated rules, since win/loss is
+never read by `_round_score` when the raw legs themselves are unchanged —
+reported only as the contrast point, not re-simulated per multiplier.
+
+**Reading: the gate rewards winning big far more than winning often.**
+Design 1's synthetic entrant (healthy win magnitude, 43 raw ≈5.46 bits/win)
+reaches top-5 in 100% of draws and #1 in 87% at just 2×q3, often on round
+0. Design 2's real subject reaches top-5 in only 13% of draws even at 2×
+its baseline win rate, because its own real per-episode magnitudes (median
+non-winning leg = 2) stay small even on the newly-counted "wins" —
+winning more often at a small magnitude barely compounds.
+
+**Why "round 0" is real, not a bug (platform-confirmed).** A first-round
+entrant's standing is the round's own score, not `k × score`. Platform
+(`~/projects/metta` origin/main,
+`app_backend/src/metta/app_backend/v2/ladders/rankings/score.py`,
+`apply_round`): `if ranking.rounds_played == 0: ranking.standing =
+round_score`. Same rule in this harness,
+`tools/ladder/standing_replay.py:552-562`: `if s is None or s == 0.0:
+clipped = score` then `new_s = clipped if s is None else s + rated_k *
+(clipped - s)`. At 2×q3, expected wins/round = 12×0.1429=1.715, each worth
+`log2(44)≈5.46` bits, so an average FIRST round already scores ≈9.4 bits —
+above rank-5's 6.41 bits and near rank-1's 9.95 (top-16 table, "Win-gated
+extension" above) — a strong debut is an instant top-5 by construction,
+not an injection error.
+
+#### (2) Sum vs mean (closes flag a)
+
+Re-ran R2@k=0.02 with `agg="mean"` (divide the kept legs' summed bits by
+how many were kept) vs today's `agg="sum"`, same window:
+
+| agg | tau | #1 chg/50 | leader share | standing scale: median/top, bits (un-logged) | rank1-5 gap, median bits [p10,p90] |
+| --- | ---: | ---: | ---: | --- | --- |
+| sum (today) | 0.9550 | 1.22 | 0.0519 | 5.41 (41.6) / 9.95 (988) | 3.09 [1.49,4.31] |
+| mean | 0.9551 | 1.22 | 0.0516 | 0.454 (0.37) / 0.837 (0.79) | 0.258 [0.13,0.36] |
+
+Identical ranking (tau/chg/share match to noise). **Why it's forced, not
+coincidental — checked exactly, not assumed:** per-player-round leg counts
+in this window are 9 (13 rows), 10 (78), 11 (147), **12 (1,702), 13
+(2,734)** — `top_k=12` trims the 2,734 thirteen-leg rounds down to 12 by
+dropping the SMALLEST value, which under the gate is essentially always
+one of the zero (lost) legs, so `sum` is unaffected by that trim. For the
+94.9% of player-rounds with exactly 12 or 13→12 kept legs, `mean =
+sum ÷ 12` exactly — a constant divisor, a pure rescale that cannot move
+any ranking-based metric (5.41→0.454 bits is exactly ÷12; the rank1-5 gap
+shrinks by the same ÷12, 3.09→0.258). Only the remaining **5.1% (238/4,674
+player-rounds)** have fewer than 12 legs, where `mean`'s divisor is
+smaller than 12 and could in principle favor that round — the empirical
+tau/#1-chg/leader-share (0.9550→0.9551, 1.22→1.22, 0.0519→0.0516) show
+this minority case doesn't move the ranking either. Multi-win rate (a
+player winning ≥2 episodes in one round, the only case `sum`/`mean` could
+diverge on in kind) is **832/4,674 player-round pairs = 17.8%** — real and
+non-trivial, but doesn't matter here because the denominator is
+overwhelmingly the same constant regardless.
+
+**Decision: KEEP `sum`.** Two wins in one round should read as two wins
+added, not diluted toward a per-episode average; `sum` keeps that
+legible. The compounding concern that motivated flagging this (an
+un-logged standing near 1e12) is **R1-only** (ungated: all 12 real legs
+contribute every round, so summing their logs really does log the
+product) — under the gate, ~11 of 12 legs are already zero most rounds, so
+there is little "product" left for `sum` to compound; switching to `mean`
+here would only shrink the display, not fix a problem that exists
+elsewhere.
+
+#### (3) R3 — win gate on the raw rule (owner's revertibility question)
+
+Today's R0 exactly (raw legs, sum-of-top-12, clip(s/150,s·150) except
+first round, EMA) with the win gate applied to the raw legs and no log
+transform — needs no `season_leg_transform` migration.
+
+| k | clamp | tau | #1 chg/50 | leader share | median/top raw | rank1÷5 ratio, median [p10,p90] |
+| ---: | --- | ---: | ---: | ---: | --- | --- |
+| 0.02 | M=150 | 0.969 | 1.02 | 0.335 | 8,557 / 98,336 | 6.15 [3.67,26.22] |
+| 0.025 | M=150 | 0.968 | 1.02 | 0.361 | 8,912 / 107,240 | 5.86 [2.96,28.66] |
+| 0.05 | M=150 | 0.952 | 4.07 | 0.517 | 8,417 / 134,596 | 6.02 [2.80,23.88] |
+| 0.02 | none | 0.967 | **4.67** | 0.332 | 24,938 / 107,468 | 1.75 [1.18,2.94] |
+| 0.025 | none | 0.967 | 5.49 | 0.368 | 25,598 / 116,536 | 1.75 [1.31,2.95] |
+| 0.05 | none | 0.961 | 7.72 | 0.489 | 18,396 / 142,185 | 2.25 [1.35,5.46] |
+
+Top-5 @ k=0.02, M=150: Jordan (290w, 98,336), Lawrence (210w, 84,563),
+daveey (262w, 46,453), @lessandro-forum-power-user (153w, 31,727),
+softmaxclaudius-t2 (218w, 26,359).
+
+**Finding: the clamp floor binds on 53.5% of eligible round-evaluations**
+(53.4-54.1% across the swept k) — always at exactly `standing/150`
+(floor_ratio_median = 0.006667 = 1/150 identically) — a fully-lost round
+still banks 0.667% of the entrant's prior standing, over half the time it
+happens. Disabling the clamp doesn't touch leader share (0.332 vs 0.335)
+but makes #1 turnover clearly worse (4.67 vs 1.02 chg/50) — the clamp is a
+rank-churn stabilizer here, not a spike suppressor.
+
+**Verdict: the log, not the gate, does the anti-spike work.** R3@k=0.02
+leader share **0.335** sits close to today's ungated baseline (0.314,
+"Current-setting metrics" table above) and **~6.4x worse than R2@k=0.02's
+0.052**. The gate alone actually improves tau/#1-chg slightly over R2
+(0.969/1.02 vs 0.955/1.22) — it does fix rank churn — but single-round
+domination is unresolved without the log transform.
+
+#### Standings-rewrite irreversibility (next to the R2 recommendation)
+
+Arming `season_leg_transform` runs the arm-migration
+(`ladders/season_leg_transform_migration.py`) that rewrites EXISTING
+standings, not just future rounds' inputs. The setting itself reverts by a
+second POST from the pre-arm ("A-pre") snapshot; the rewritten standings
+do **not** — reverting those requires
+`app_backend/scripts/rollback_season_leg_transform_migration.py` with
+production DB access. This is the concrete reason the owner's own pick was
+rehearse-then-arm, not arm-directly. (Relayed for this record; this
+worker's own read-only pass over a local `~/projects/metta` checkout did
+not locate these two paths to independently re-cite file:line — flagged,
+not silently dropped.)
