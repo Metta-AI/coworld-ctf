@@ -222,6 +222,57 @@ def fetch_completed_rounds(api: Api, division_id: str, max_pages: int = 5) -> li
     return completed
 
 
+def run_newest_round(after: str | None) -> int:
+    """--newest-round [--after <UTC ts>]: ONE read-only GET of the division's
+    newest rounds page (no cursor walk, no standings, no settings), prints
+    EXACTLY one line, writes NO files -- same style as
+    step_a_body.py --check-deploy, built for a cheap external poll loop that
+    does not require this process (or any worker) to survive for the full
+    wait window.
+
+    Without --after: reports the newest round seen and exits 0.
+
+    With --after <ts> (UTC, `%Y-%m-%dT%H:%M:%SZ`): exits 0 only if some round
+    in the page whose `created_at` (start-proxy; `started_at` has been
+    observed null on every round to date -- see fetch_completed_rounds'
+    docstring) is strictly after <ts> has reached status=="completed" (the
+    era-boundary condition this whole Step A arm is waiting on); exits 1
+    otherwise (including on a request error, so a poll loop's `until` treats
+    a transient failure as "not yet" rather than crashing the loop)."""
+    try:
+        token = load_softmax_token()
+        api = Api(token)
+        r = api.get("/rounds", params={"division_id": DIVISION_ID, "limit": 100})
+        r.raise_for_status()
+        entries = r.json().get("entries") or []
+    except Exception as e:  # noqa: BLE001 -- deliberately broad: any failure means "not yet"
+        print(f"newest=ERROR error={type(e).__name__}: {e}")
+        return 1
+
+    if not entries:
+        print("newest=NONE created=- completed=- status=-")
+        return 1
+
+    newest = entries[0]
+    print(
+        f"newest={newest.get('id')} created={newest.get('created_at')} "
+        f"completed={newest.get('completed_at') or '-'} status={newest.get('status')}"
+    )
+
+    if not after:
+        return 0
+
+    after_dt = datetime.strptime(after, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=timezone.utc)
+    for e in entries:
+        ca = e.get("created_at")
+        if not ca or e.get("status") != "completed":
+            continue
+        ca_dt = datetime.strptime(ca.split(".")[0] + "Z", "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=timezone.utc)
+        if ca_dt > after_dt:
+            return 0
+    return 1
+
+
 def latest_completed_round(api: Api, division_id: str, max_pages: int = 5) -> dict | None:
     """Highest-round_number entry from fetch_completed_rounds -- the newest
     COMPLETED round within the paged window walked (the newest round in the
@@ -388,7 +439,24 @@ def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--label", default="pre-post-read", help="filename label, e.g. rehearsal / A-pre / A-post")
     ap.add_argument("--out-dir", default=OUT_DIR_DEFAULT)
+    ap.add_argument(
+        "--newest-round",
+        action="store_true",
+        help=(
+            "ONE read-only GET of the division's newest rounds page, prints exactly one line, "
+            "writes NO files -- cheap external poll primitive, see run_newest_round docstring. "
+            "Combine with --after <UTC ts> for the era-boundary exit-code check."
+        ),
+    )
+    ap.add_argument(
+        "--after",
+        default=None,
+        help="UTC ts (%%Y-%%m-%%dT%%H:%%M:%%SZ), only meaningful with --newest-round.",
+    )
     args = ap.parse_args()
+
+    if args.newest_round:
+        return run_newest_round(args.after)
 
     now = datetime.now(timezone.utc)
     ts_iso = now.strftime("%Y-%m-%dT%H:%M:%SZ")
