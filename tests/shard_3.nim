@@ -16,5 +16,6 @@ import
   test_replay,
   test_replay_scan,
   test_shot_exposure,
-  test_sprite_collisions
+  test_sprite_collisions,
+  test_wire_object
 {.warning[UnusedImport]: on.}

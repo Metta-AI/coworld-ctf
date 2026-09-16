@@ -1024,8 +1024,10 @@ type
                                  ## ("" = free); see GlobalViewerState.shoutSlots.
     spriteDefs: seq[SpriteDefinition]
     idStamp: seq[int32]        ## delete sweep: idStamp[id] == idGen marks id
-    idGen: int32               ## live this frame; replaces a per-frame scan
-                               ## of the id seq, quadratic in the object count
+                               ## live this frame; grows to the largest pool
+                               ## id this viewer emits (~40k ids ≈ 160 KB)
+    idGen: int32               ## replaces a per-frame scan of the id seq,
+                               ## quadratic in the object count
 
   ProtocolTextItem = ref object
     spriteId: int
@@ -1649,6 +1651,14 @@ proc insertDefinition(defs: var seq[SpriteDefinition], def: SpriteDefinition) =
   doAssert (i == 0 or defs[i - 1].spriteId < def.spriteId) and
     (i + 1 == defs.len or def.spriteId < defs[i + 1].spriteId),
     "sprite def cache unsorted or duplicate id " & $def.spriteId
+  when not defined(release):
+    # Debug builds prove the whole cache, not just the neighbors: the check
+    # above catches duplicates reliably, but an append that bypassed this
+    # proc entirely only trips it once a later insert happens to land beside
+    # the stray.
+    for k in 1 ..< defs.len:
+      doAssert defs[k - 1].spriteId < defs[k].spriteId,
+        "sprite def cache unsorted at index " & $k
 
 proc addSpriteChanged(
   packet: var seq[uint8],
@@ -6532,7 +6542,11 @@ proc buildSpriteProtocolPlayerUpdates*(
         spriteId = selfSoldierSpriteId(other.skin, rot)
         # The def is immutable per (skin, rot), so only rasterize the outline
         # the first time this viewer needs it — addSpriteChanged would drop a
-        # re-send anyway, after paying for the pixels.
+        # re-send anyway, after paying for the pixels. "Immutable" leans on
+        # the team: the pixels and the label both read other.team, which the
+        # sprite id does NOT encode — it holds only because addPlayer assigns
+        # team once. If mid-episode team switching ever lands, this gate must
+        # compare the label too.
         if nextState.spriteDefs.spriteDefinitionIndex(spriteId) < 0:
           result.addSpriteChanged(
             nextState.spriteDefs,
@@ -7448,6 +7462,9 @@ proc buildSpriteProtocolUpdates*(
       replayMismatchTick
     )
     if not povClearsObjects:
+      # Deliberately still the notin scan: this lens is one spectator, not
+      # 16 seats, and its pool includes addDebugOverlay's payload-derived
+      # ids, which must not size a stamp array.
       for objectId in state.objectIds:
         if objectId notin currentIds:
           result.addDeleteObject(objectId)
