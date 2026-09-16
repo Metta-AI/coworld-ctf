@@ -1,0 +1,320 @@
+[
+  {
+    "path": "impl-latest/p10-canonical-body-nav-gate-b1024.json",
+    "bytes": 1071182,
+    "sha256": "7dacb0bd9bdd6411e07c339f8ab72b8171427ced30000adf83afb4d1cdc481ae",
+    "gzip_bytes": 54881
+  },
+  {
+    "path": "impl-latest/p10-canonical-body-nav-gate.json",
+    "bytes": 1069644,
+    "sha256": "575fe5c043cd70b033b48fe3f538ac6ffa9074d8ac4793ff0cb1c486ac814897",
+    "gzip_bytes": 54844
+  },
+  {
+    "path": "research/A0-m8i/configured.json",
+    "bytes": 7520354,
+    "sha256": "fd246965865ba6af758c5a5f38519902307e00226a5c3a8efdc4b49040d693fe",
+    "gzip_bytes": 475319
+  },
+  {
+    "path": "research/A1-m8i/configured.json",
+    "bytes": 7520919,
+    "sha256": "e9d2607a39dfbb42521994466cb3c13a59887e4fabdfdfa08bb3d29a2f09b80c",
+    "gzip_bytes": 475773
+  },
+  {
+    "path": "research/A2-full-activation-m8i/configured.json",
+    "bytes": 7522041,
+    "sha256": "4d542aad97a88bda4c9f2e2faaf7eeef4a14368fb8c8a4ee1b3192963c51d7d8",
+    "gzip_bytes": 476860
+  },
+  {
+    "path": "research/A3-m8i/configured.json",
+    "bytes": 7523513,
+    "sha256": "b39bd3bb99906643a56aba6e5631bbaa674cf001bc79287a87aa7adf5c822d4c",
+    "gzip_bytes": 476837
+  },
+  {
+    "path": "research/A4-m8i/configured.json",
+    "bytes": 7522513,
+    "sha256": "2e86db34b1933e0c9265e945f67dd73ce8423fcdd3aaf8a49b7777257194a607",
+    "gzip_bytes": 474907
+  },
+  {
+    "path": "research/A6-qualify-m5a/configured-tick.json",
+    "bytes": 7601033,
+    "sha256": "8426b705e81478019b9e0035a88bc932350890a243242961a50f415dbb18f2d6",
+    "gzip_bytes": 445159
+  },
+  {
+    "path": "research/A6-qualify-m8i/configured-tick.json",
+    "bytes": 7521283,
+    "sha256": "d20a2314e0acc7daa3e7bf0822f4cbfa2ca7070b107c151bef17165f0ebb1aa6",
+    "gzip_bytes": 474901
+  },
+  {
+    "path": "research/C0-m5a/docker-quality-activation.json",
+    "bytes": 1053877,
+    "sha256": "844b2ee6ea07b478bfac29217cf5a318762f67475222c5c6762a9171096b54aa",
+    "gzip_bytes": 51933
+  },
+  {
+    "path": "research/C1-repaired-m5a/docker-quality-activation.json",
+    "bytes": 1063521,
+    "sha256": "ee9ece17ec632c97bd33f4f5afc615afb809f6ae3fae6f737d85321fb8e38adf",
+    "gzip_bytes": 52900
+  },
+  {
+    "path": "research/C2-integrated-configured-mac.json",
+    "bytes": 7519192,
+    "sha256": "7093a2ffc4f643270f11236d698ec2c832a4cd0d7aeb1e110dc8d8ee4d385ef9",
+    "gzip_bytes": 441537
+  },
+  {
+    "path": "research/C2-m5a/configured.json",
+    "bytes": 7599155,
+    "sha256": "08786a2500e25dc031c0aeefffce2a7c0c7d3ccea27b15cefa28e1fde4e79f01",
+    "gzip_bytes": 445051
+  },
+  {
+    "path": "research/C3-m5a/candidate-configured-r1.json",
+    "bytes": 7598924,
+    "sha256": "1f53263be43a8bbb4fb7540db5467113ede9caeda50647af8f5e51681a0fb285",
+    "gzip_bytes": 445481
+  },
+  {
+    "path": "research/C3-m5a/candidate-configured-r2.json",
+    "bytes": 7599911,
+    "sha256": "01ba280cf2c3162c4a9732a8d381513becfc40c893956e49ee814b3e3f5fbf90",
+    "gzip_bytes": 445496
+  },
+  {
+    "path": "research/C3-m5a/candidate-configured-r3.json",
+    "bytes": 7598680,
+    "sha256": "5e42b33802f8f241a5ed911a6de5c91866afff79a273f82ab129114a6980a780",
+    "gzip_bytes": 445355
+  },
+  {
+    "path": "research/C3-m5a/parent-configured-r1.json",
+    "bytes": 7600523,
+    "sha256": "ff123697f83fd82f65bdccb349b5538d7b627f8e88834116d058d2701edb97be",
+    "gzip_bytes": 444324
+  },
+  {
+    "path": "research/C3-m5a/parent-configured-r2.json",
+    "bytes": 7599042,
+    "sha256": "569bace91a0022f5edc9c65e19a5d275d3931cf40639b4307f6cef48989512f8",
+    "gzip_bytes": 443527
+  },
+  {
+    "path": "research/C3-m5a/parent-configured-r3.json",
+    "bytes": 7599486,
+    "sha256": "4ae4563875b7f4e24a54725e90fc022be437449e8bedda425369720946f2eaa4",
+    "gzip_bytes": 444105
+  },
+  {
+    "path": "research/C5-v2-m5a/configured-trace.json",
+    "bytes": 25964093,
+    "sha256": "384aec28fd92ed0909dbb160b18780bf59a642bea1316c7cea6a7e1ba8cf4803",
+    "gzip_bytes": 1310151
+  },
+  {
+    "path": "research/C5-v2-m8i/configured-trace.json",
+    "bytes": 25956594,
+    "sha256": "322eed8c74afcc1aac5bd8336a58a693bb7972ffb1b600ab1d78b70f4dec0c3c",
+    "gzip_bytes": 1459147
+  },
+  {
+    "path": "research/C9/full/local-mac/configured.json",
+    "bytes": 7513211,
+    "sha256": "045e21cb46db74ea40bb60d448362e3505f5e82bdb495086a7434a3ee2ece9f8",
+    "gzip_bytes": 428583
+  },
+  {
+    "path": "research/CAP32-m8i/activation.json",
+    "bytes": 1062495,
+    "sha256": "48863477599e9b3d7c4baece27744c2183a30b0bec1375ad0f9eba802109556c",
+    "gzip_bytes": 52952
+  },
+  {
+    "path": "research/CAP32-m8i/configured.json",
+    "bytes": 7524489,
+    "sha256": "d47c30ccde8e2fe81e1f66f9a499c61f657d650a0cf1a393cd616ba70c404cfe",
+    "gzip_bytes": 481053
+  },
+  {
+    "path": "research/D0-m8i/activation.json",
+    "bytes": 1062494,
+    "sha256": "61d7049ec5c1feb4f33e77a28d2ef9b24caa22d40c1f3f6c161961fff558afcc",
+    "gzip_bytes": 52964
+  },
+  {
+    "path": "research/D1-m8i/activation.json",
+    "bytes": 1062494,
+    "sha256": "67080c9091d0e548c24ca8d6341ff0845f554a1998eee7317fdfecdbd8b06a99",
+    "gzip_bytes": 52954
+  },
+  {
+    "path": "research/G1-m8i/configured.json",
+    "bytes": 3929923,
+    "sha256": "32e16c6521bea76269de0350b03a0ab8be865e3e8ac2ea6ea15d02e416085095",
+    "gzip_bytes": 443150
+  },
+  {
+    "path": "research/L1-c6a/quality-activation.json",
+    "bytes": 1052901,
+    "sha256": "ea3e2924d3d17b820a48a03eff45e997bc07564a474d8a0b25ffbb42c6311bcc",
+    "gzip_bytes": 51660
+  },
+  {
+    "path": "research/M0/native-quality-activation.json",
+    "bytes": 1043841,
+    "sha256": "0d46c3e20b96dbc8b6a8dd153b3d0945091ea0779cc312f951bc93caf78b2143",
+    "gzip_bytes": 51416
+  },
+  {
+    "path": "research/M1-m5a/quality-activation.json",
+    "bytes": 1054255,
+    "sha256": "9cf898fece05ee4ca28d02a8ebe5d42860569d716e031f5737c961d999fc1895",
+    "gzip_bytes": 51929
+  },
+  {
+    "path": "research/M2-m8i/configured.json",
+    "bytes": 7523139,
+    "sha256": "a1f4e1d88aa6324215f8ef3ebb66282af14db5850be610ea3918f6002773b969",
+    "gzip_bytes": 477866
+  },
+  {
+    "path": "research/M3-m8i/configured.json",
+    "bytes": 7524998,
+    "sha256": "e64afa2aded64dfcbe979396e71b18c65d785c391554c85f7854fa58161f1156",
+    "gzip_bytes": 479140
+  },
+  {
+    "path": "research/P1-m8i/activation.json",
+    "bytes": 1062494,
+    "sha256": "2ee39d2ac8de563bf5d9311fcd5036e5bc1d66edbc14c375fe7a151ac196b9b6",
+    "gzip_bytes": 52929
+  },
+  {
+    "path": "research/PROFILE/profile-trace.json",
+    "bytes": 25534044,
+    "sha256": "606c6290f7eff60d91761da6278b83ea7812113e25d2cb6c7eb73ca33e9b7dd7",
+    "gzip_bytes": 1450533
+  },
+  {
+    "path": "research/PROFILE_SERVER/server-trace.json",
+    "bytes": 13479170,
+    "sha256": "e42a80592d62c1c795a470e2bedb3bed36485613ffdac63e26b1a06d9b8ff147",
+    "gzip_bytes": 705262
+  },
+  {
+    "path": "research/QUALITY/result.json",
+    "bytes": 1044294,
+    "sha256": "5019fcf51109afa85740bca21b65e1885c298ee567cba8a297f116e8815f55b2",
+    "gzip_bytes": 51619
+  },
+  {
+    "path": "research/R1-m8i/activation.json",
+    "bytes": 1062491,
+    "sha256": "8f21044de669c79496af3feebf90a5dfabe03b703f0c92bbd721862058a44b76",
+    "gzip_bytes": 52810
+  },
+  {
+    "path": "research/R1-m8i/configured.json",
+    "bytes": 7521982,
+    "sha256": "cdc02cff819c92f246805dccf6c7c365c54082b2c08a76a21586a0be836fa040",
+    "gzip_bytes": 477929
+  },
+  {
+    "path": "research/S1-m5a/quality-activation.json",
+    "bytes": 1053841,
+    "sha256": "b1316b88088c637f7663694b8c44086d0f993913b741f6ca9d9545957fb4cb25",
+    "gzip_bytes": 52020
+  },
+  {
+    "path": "research/V1-m5a/configured.json",
+    "bytes": 7603144,
+    "sha256": "1eaa8d55463d0ea6846b1ae502e50786c92052a18c5c37f207059291c545998a",
+    "gzip_bytes": 446643
+  },
+  {
+    "path": "research/V1-rollover-m8i/candidate-r1.json",
+    "bytes": 1090018,
+    "sha256": "bd626287a4364958c1dece3d264cf68bb7752ee250343af01dd9e9564a70fda7",
+    "gzip_bytes": 52026
+  },
+  {
+    "path": "research/V1-rollover-m8i/candidate-r2.json",
+    "bytes": 1090018,
+    "sha256": "80d4c7b18a3ba5dbca3e4809ed10e7d8f0bf47ea3bcf72ed08c8700e0fae77c3",
+    "gzip_bytes": 52143
+  },
+  {
+    "path": "research/V1-rollover-m8i/candidate-r3.json",
+    "bytes": 1090018,
+    "sha256": "2ce61f03267f0e21795f363cff5178f7224efd0196d1c8ed4ef53ca779afd1bf",
+    "gzip_bytes": 52163
+  },
+  {
+    "path": "research/V1-rollover-m8i/parent-r1.json",
+    "bytes": 1094806,
+    "sha256": "6d9bff310a824c1c737bbbc8be51b1e3e1e885653aeb4fda463a0cd2d0b1aafd",
+    "gzip_bytes": 52230
+  },
+  {
+    "path": "research/V1-rollover-m8i/parent-r2.json",
+    "bytes": 1094806,
+    "sha256": "67a06079f083970e937ff7924f6f1b82a6c235d83fd8d40c8f1926ec92fe33cf",
+    "gzip_bytes": 52064
+  },
+  {
+    "path": "research/V1-rollover-m8i/parent-r3.json",
+    "bytes": 1094806,
+    "sha256": "754cddf56cd2cf5ae89535c56239a5aba33771b1f0f50791d9ca0d071f1d913b",
+    "gzip_bytes": 52165
+  },
+  {
+    "path": "research/V1-rollover-mac.json",
+    "bytes": 1090018,
+    "sha256": "8f65e38f351ae5e732a123aa9753deb5c5e0ffb54822edf6c42d695a906da00f",
+    "gzip_bytes": 47856
+  },
+  {
+    "path": "research/W1-m5a/quality-activation.json",
+    "bytes": 1054255,
+    "sha256": "93b6bdac333c2ebee0cbbcfd6e07211dcd85e5ee428651cfe4aa85874b197cf8",
+    "gzip_bytes": 51845
+  },
+  {
+    "path": "research/W2-m5a/quality-activation.json",
+    "bytes": 1063489,
+    "sha256": "88c57b979ad3662c28080d285642900a649a249addf3bf6a89cdf011f98bc58f",
+    "gzip_bytes": 52917
+  },
+  {
+    "path": "research/W6-m8i/activation.json",
+    "bytes": 1062491,
+    "sha256": "4fa5d9aac078d828832ebfab37d566335c38bca79af42f4cae8b45f17cfd3f43",
+    "gzip_bytes": 52863
+  },
+  {
+    "path": "research/W6-m8i/configured.json",
+    "bytes": 7522418,
+    "sha256": "6a0cec0c5a7a1f04cb7f6b62098e519a007ed6e3687f40ec9ea84ffedc4dcf7e",
+    "gzip_bytes": 477423
+  },
+  {
+    "path": "research/W7-m8i/activation.json",
+    "bytes": 1062491,
+    "sha256": "fb242da1289f74581de3f16c622e85a92adb88245b5ec81c31090d7901a51920",
+    "gzip_bytes": 52891
+  },
+  {
+    "path": "research/W7-m8i/configured.json",
+    "bytes": 7522808,
+    "sha256": "64209d7b6e3a7f3f9028431b4742f748bf85b70b7d675292eb3d4ebc7e518dd3",
+    "gzip_bytes": 477183
+  }
+]

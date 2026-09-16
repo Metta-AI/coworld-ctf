@@ -1,0 +1,7 @@
+# A2: build each coarse legality edge once
+
+Parent 3aeb0398 (A1 plus corrected activation verdict and main). Fluffy on native m8i map48 measures coarse legalMoves construction at49.324ms of300.175ms index activation. Apply the A0 undirected-edge symmetry to 8px legalNavMove: four directions and reverse-bit updates. Endpoint walkability and diagonal side-cell checks are symmetric; the restricted unit axis/diagonal pixel segment samples reverse exactly. Keep full public/constructor validation unchanged. No new storage, topology change, gameplay change, budget or cap change.
+
+First focused route-index tests. Native m8i CPU5: independent reference comparison of every coarse bit against all eight legalNavMove calls on all76maps, three interleaved parent/candidate activation pairs restricted to frozen48 pluscolossal, and full candidate3072quality. Accept only exact bits/quality/ledgers and repeated index-construction improvement. Report actual2x/3x activation verdicts; halving a49ms stage may still not close the remaining~30ms gap. Do not add a validator shortcut in this experiment.
+
+Follow-up after targeted pairs: all three candidate map48 ratios pass (1.951–1.964), versus the earlier failure. Before claiming all-map activation, run the same recorded candidate binary through a fresh full65-map activation and11-map configured diagnostic under the corrected verdict. This broadens validation for a retained source candidate; no further code change or threshold change.

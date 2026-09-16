@@ -1,0 +1,3 @@
+configured:3:br-gen-5120
+./tmp/c5/bench-profile --configured-tick --pool-index 3 >  2>   21.63s user 0.30s system 98% cpu 22.183 total
+exit 1

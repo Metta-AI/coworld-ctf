@@ -1,0 +1,90 @@
+diff --git a/src/shell/body_route_index.nim b/src/shell/body_route_index.nim
+index 7066700f..11fce96d 100644
+--- a/src/shell/body_route_index.nim
++++ b/src/shell/body_route_index.nim
+@@ -139,7 +139,16 @@ type
+     targetRef: int32
+     reachedTarget: bool
+ 
++  # Construction-local failed searches; capacity limits admission, not inputs.
++  PixelSearchFailure = object
++    targets: array[64, int32]
++    start, center: BodyPoint
++    targetCount: uint8
++    exactEdges: bool
++
+   PixelSearchScratch = object
++    failures: array[128, PixelSearchFailure]
++    failureCount: int
+     parent: seq[int32]
+     visitedGeneration: seq[uint32]
+     standable: seq[bool]
+@@ -533,7 +542,8 @@ proc initPixelSearchScratch(index: BodyRouteIndex): PixelSearchScratch =
+   result.queue = newSeq[int32](PixelConnectorMaxCells)
+   index.stats.transientPeakBytes = max(index.stats.transientPeakBytes,
+     int64(PixelConnectorMaxCells) *
+-      int64(sizeof(int32) * 3 + sizeof(uint32) * 2 + sizeof(bool)))
++      int64(sizeof(int32) * 3 + sizeof(uint32) * 2 + sizeof(bool)) +
++      int64(sizeof(result.failures) + sizeof(result.failureCount)))
+ 
+ proc beginSearch(scratch: var PixelSearchScratch) =
+   inc scratch.generation
+@@ -566,6 +576,18 @@ proc pixelPathInBox(index: BodyRouteIndex, start, center: BodyPoint,
+   template pointAt(offset: int): BodyPoint =
+     (x: offset mod boxW + x0, y: offset div boxW + y0)
+   scratch.beginSearch()
++  for slot in 0 ..< scratch.failureCount:
++    template failure: untyped = scratch.failures[slot]
++    if failure.start != start or failure.center != center or
++        failure.exactEdges != exactEdges or failure.targetCount.int != targets.len:
++      continue
++    var sameTargets = true
++    for i, target in targets:
++      if failure.targets[i] != target:
++        sameTargets = false
++        break
++    if sameTargets:
++      return
+   for y in y0 .. y1:
+     for x in x0 .. x1:
+       let point: BodyPoint = (x, y)
+@@ -619,6 +641,16 @@ proc pixelPathInBox(index: BodyRouteIndex, start, center: BodyPoint,
+       scratch.queue[tail] = int32(nextLocal)
+       inc tail
+   if reached < 0:
++    if scratch.failureCount < scratch.failures.len and
++        targets.len <= scratch.failures[0].targets.len:
++      template failure: untyped = scratch.failures[scratch.failureCount]
++      failure.start = start
++      failure.center = center
++      failure.exactEdges = exactEdges
++      failure.targetCount = uint8(targets.len)
++      for i, target in targets:
++        failure.targets[i] = target
++      inc scratch.failureCount
+     return
+   var reversed: seq[BodyPoint]
+   var cursor = reached
+@@ -2085,12 +2117,19 @@ proc validateRouteIndex*(index: BodyRouteIndex) =
+     for neighborIndex, delta in NavNeighbors:
+       if (index.legalMoves[cellIndex] and uint8(1 shl neighborIndex)) == 0:
+         continue
+-      let next = (cell.x + delta.x, cell.y + delta.y)
+-      if not index.map.legalNavMove(cell, next):
++      let next: BodyPoint = (cell.x + delta.x, cell.y + delta.y)
++      if next.x < 0 or next.x >= index.map.gridWidth or
++          next.y < 0 or next.y >= index.map.gridHeight:
++        raise newException(BodyMapError,
++          &"body route index map '{index.map.mapLabel}' stores illegal move at {cell}")
++      let nextIndex = index.cellIndex(next)
++      # Every directed bit still needs its reverse. Unit-move geometry is
++      # symmetric, so the lower-index endpoint checks it for the pair.
++      if cellIndex < nextIndex and not index.map.legalNavMove(cell, next):
+         raise newException(BodyMapError,
+           &"body route index map '{index.map.mapLabel}' stores illegal move at {cell}")
+       let reverse = reverseNeighbor(neighborIndex)
+-      if (index.legalMoves[index.cellIndex(next)] and uint8(1 shl reverse)) == 0:
++      if (index.legalMoves[nextIndex] and uint8(1 shl reverse)) == 0:
+         raise newException(BodyMapError,
+           &"body route index map '{index.map.mapLabel}' has asymmetric move at {cell}")
+   var

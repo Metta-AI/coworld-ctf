@@ -1,0 +1,1 @@
+{"abi":1,"class":"controller","doc":"navigate away from the nearest enemy for the opening ticks, then yield","modes":["br"],"name":"scatter","params":{"distance":{"default":320,"integer":true,"kind":"number","max":1200,"min":60},"ticks":{"default":300,"integer":true,"kind":"number","max":2400,"min":24}},"retune":true}

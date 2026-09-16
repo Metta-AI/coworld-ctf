@@ -336,7 +336,7 @@ proc derivedNode(gameMap: CtfMap): JsonNode =
     "pickups": {
       "grenade": pointsNode(gameMap.grenadeSpawnPoints()),
       "shield": pointsNode(gameMap.shieldSpawnPoints()),
-      "plasmaArc": pointsNode(gameMap.plasmaArcSpawnPoints()),
+      "sprayPaint": pointsNode(gameMap.sprayPaintSpawnPoints()),
       "medKitActive": mapPointsNode(gameMap.medKitSpawns),
       "medKitCandidate": mapPointsNode(gameMap.medKitCandidates),
     },

@@ -35,6 +35,16 @@ type
     captures: seq[int]
     carriers: array[Team, int]
     captured: array[Team, bool]
+    hillOwned: bool
+    hillOwner: Team
+    hillTicks: array[Team, int]
+    paintCount: array[Team, int]
+    hillFlipEmitted: int        ## last ANNOUNCED owner (0 = none, ord+1).
+    hillFlipTick: int           ## tick it was announced on; see the throttle.
+    hp: seq[int]                ## per cog, for the `tag` and `heal` deltas.
+    arcTicks: seq[int]          ## per cog, for the `spray` (burst) delta.
+    gameIndex: int
+    startedGame: bool
 
 proc initBroadcastTracker*(): BroadcastTracker =
   ## Returns a fresh, unsynced broadcast tracker.
@@ -51,28 +61,55 @@ proc slotOf(sim: SimServer, index: int): int =
     return sim.players[index].joinOrder
   -1
 
+proc creditedKills(p: Player): int {.inline.} =
+  ## Every kill credited to this player, backstabs included. GV45 split the
+  ## stats (kills = enemies only), but the killfeed diff must still see a
+  ## teammate kill as this player's kill or a backstab loses its attribution.
+  p.kills + p.teamKills
+
 proc snapshot(tracker: var BroadcastTracker, sim: SimServer) =
   ## Copies the current sim state into the tracker without emitting events.
   tracker.alive.setLen(sim.players.len)
   tracker.kills.setLen(sim.players.len)
   tracker.deaths.setLen(sim.players.len)
   tracker.captures.setLen(sim.players.len)
+  tracker.hp.setLen(sim.players.len)
+  tracker.arcTicks.setLen(sim.players.len)
   for i, p in sim.players:
     tracker.alive[i] = p.alive
-    tracker.kills[i] = p.kills
+    tracker.kills[i] = p.creditedKills
     tracker.deaths[i] = p.deaths
     tracker.captures[i] = p.captures
+    tracker.hp[i] = p.hp
+    tracker.arcTicks[i] = p.arcTicksLeft
   for team in sim.teams():
     tracker.carriers[team] = sim.flags[team].carrier
     tracker.captured[team] = sim.flags[team].captured
+  tracker.hillOwned = sim.hillOwned
+  tracker.hillOwner = sim.hillOwner
+  for team in Red .. Blue:
+    tracker.hillTicks[team] = sim.hillTicks[team]
+    tracker.paintCount[team] = sim.paintCount[team]
+  tracker.gameIndex = sim.gameIndex
   tracker.prevTick = sim.tickCount
   tracker.prevPhase = sim.phase
   tracker.initialized = true
+
+proc resetFlipWindow(tracker: var BroadcastTracker, sim: SimServer) =
+  ## The hillflip throttle's own state, which must NOT be refreshed on every
+  ## step (snapshot runs per tick; this window spans HillFlipThrottleTicks of
+  ## them). Set on the first frame and after a seek: the current owner counts
+  ## as already announced — nothing changed on screen — and the next real
+  ## change may fire immediately rather than waiting out a window it never saw.
+  tracker.hillFlipEmitted =
+    if sim.hillOwned: ord(sim.hillOwner) + 1 else: 0
+  tracker.hillFlipTick = -HillFlipThrottleTicks - 1
 
 proc resync*(tracker: var BroadcastTracker, sim: SimServer) =
   ## Snapshots without emitting events, after a seek/loop/skip. The next
   ## `stepEvents` then diffs against this frame, so no phantom beats fire.
   tracker.snapshot(sim)
+  tracker.resetFlipWindow(sim)
 
 proc killerThisStep(
   sim: SimServer,
@@ -85,7 +122,7 @@ proc killerThisStep(
     killerIndex = -1
     killerCount = 0
   for i, p in sim.players:
-    if i < tracker.kills.len and p.kills > tracker.kills[i]:
+    if i < tracker.kills.len and p.creditedKills > tracker.kills[i]:
       inc killerCount
       killerIndex = i
   if killerCount == 1:
@@ -107,6 +144,7 @@ proc stepEvents*(
   ## place scrubber markers and honour per-beat read-holds.
   if not tracker.initialized:
     tracker.snapshot(sim)
+    tracker.resetFlipWindow(sim)
     return
 
   let tick = sim.tickCount
@@ -114,14 +152,103 @@ proc stepEvents*(
   # Phase transitions (and the terminal game-over verdict).
   if sim.phase != tracker.prevPhase:
     events.add(%*{"t": tick, "k": "phase", "phase": ($sim.phase).toLowerAscii})
-    if sim.phase == GameOver:
+    if sim.phase == Playing and sim.config.numAgents > 0:
+      # Paintball: each GAME of the episode announces itself with its
+      # regime, so a spectator is told which half they are watching.
       events.add(%*{
+        "t": tick,
+        "k": "gamestart",
+        "game": sim.gameIndex + 1,
+        "games": max(1, sim.config.maxGames),
+        "regime": regimeText(sim.regime)
+      })
+    if sim.phase == GameOver:
+      var gameOverEvent = %*{
         "t": tick,
         "k": "gameover",
         "winner": teamText(sim.winner),
         "draw": sim.isDraw,
         "tl": sim.timeLimitReached
-      })
+      }
+      if sim.config.numAgents > 0:
+        gameOverEvent["game"] = %(sim.gameIndex + 1)
+      if sim.config.hill:
+        gameOverEvent["hill"] = %*{
+          "red": sim.hillTicks[Red] div TargetFps,
+          "blue": sim.hillTicks[Blue] div TargetFps
+        }
+      events.add(gameOverEvent)
+
+  # NEW (paintball): hill ownership changes, banked-second ticks and the
+  # paint each team laid since the previous step. Derived from state deltas,
+  # so they cost no replay bytes and read identically live and in replay.
+  if sim.config.hill:
+    ## THROTTLED, exactly like the sim's own HillFlip analysis event: at most
+    ## one announcement per HillFlipThrottleTicks, so a rim oscillating on the
+    ## 80% boundary cannot flood the feed or the scrubber (every one of these
+    ## becomes a beat button). Compared against the last ANNOUNCED owner, not
+    ## against last tick's, so a change that lands inside the window is still
+    ## announced on the first tick the window allows instead of being lost.
+    let ownerCode = if sim.hillOwned: ord(sim.hillOwner) + 1 else: 0
+    if ownerCode != tracker.hillFlipEmitted and
+        tick - tracker.hillFlipTick >= HillFlipThrottleTicks:
+      tracker.hillFlipEmitted = ownerCode
+      tracker.hillFlipTick = tick
+      if sim.hillOwned:
+        events.add(%*{
+          "t": tick,
+          "k": "hillflip",
+          "team": teamText(sim.hillOwner),
+          "pct": sim.hillCoveragePct(sim.hillOwner)
+        })
+      else:
+        events.add(%*{"t": tick, "k": "hillflip", "team": "", "pct": 0})
+    for team in Red .. Blue:
+      let banked = sim.hillTicks[team]
+      if banked > tracker.hillTicks[team] and banked mod TargetFps == 0:
+        events.add(%*{
+          "t": tick, "k": "hillhold", "team": teamText(team),
+          "seconds": banked div TargetFps
+        })
+  if sim.config.floorPaint:
+    for team in Red .. Blue:
+      let laid = sim.paintCount[team] - tracker.paintCount[team]
+      if laid > 0:
+        events.add(%*{
+          "t": tick, "k": "paint", "by": teamText(team), "tiles": laid,
+          "hillTiles": sim.hillPaint[team]
+        })
+
+  # NEW (paintball): the three per-cog beats the design note's vocabulary
+  # names and the derived stream was missing. All three are state deltas, so
+  # they cost no replay bytes and read identically live and in replay:
+  #   spray — a burst left the can (arcTicksLeft went 0 -> alive)
+  #   tag   — a cog lost hit points and stayed up (the COMMON case at 3 hp and
+  #           sprayDamage 1, and the one the feed had no row for)
+  #   heal  — a cog gained a hit point standing on its own paint
+  # Squad games only: the classic feed keeps its historical row set.
+  if sim.config.numAgents > 0:
+    for i, p in sim.players:
+      if i < tracker.arcTicks.len and p.arcTicksLeft > 0 and
+          tracker.arcTicks[i] == 0:
+        events.add(%*{
+          "t": tick, "k": "spray", "by": sim.slotOf(i),
+          "byAlias": sim.cogAlias(i), "team": teamText(p.team),
+          "aim": p.arcAimBrads
+        })
+      if i < tracker.hp.len and p.alive and tracker.alive[i]:
+        if p.hp < tracker.hp[i]:
+          events.add(%*{
+            "t": tick, "k": "tag", "victim": sim.slotOf(i),
+            "victimAlias": sim.cogAlias(i), "team": teamText(p.team),
+            "hp": max(0, p.hp), "lost": tracker.hp[i] - p.hp
+          })
+        elif p.hp > tracker.hp[i]:
+          events.add(%*{
+            "t": tick, "k": "heal", "who": sim.slotOf(i),
+            "whoAlias": sim.cogAlias(i), "team": teamText(p.team),
+            "hp": p.hp
+          })
 
   # Kills and respawns, diffed per player like expand_replay.
   let killer = sim.killerThisStep(tracker)
@@ -134,7 +261,7 @@ proc stepEvents*(
   # pileup (>2 kills, or killers != victims) stays honestly ambiguous.
   var killers, victims: seq[int]
   for i, p in sim.players:
-    if i < tracker.kills.len and p.kills > tracker.kills[i]:
+    if i < tracker.kills.len and p.creditedKills > tracker.kills[i]:
       killers.add i
     if i < tracker.deaths.len and p.deaths > tracker.deaths[i]:
       victims.add i
@@ -157,6 +284,20 @@ proc stepEvents*(
         let partner = if victims[0] == i: victims[1] else: victims[0]
         event["trade"] = %sim.slotOf(partner)
       events.add(event)
+      if sim.config.numAgents > 0:
+        # Paintball: nobody dies here — a cog is TAGGED OUT for two
+        # seconds. The scrubber beat and the feed row read that way, and the
+        # beat is coloured by the victim's team so the timeline shows which
+        # squad is losing bodies.
+        events.add(%*{
+          "t": tick,
+          "k": "tagout",
+          "by": (if killer.index >= 0: sim.slotOf(killer.index) else: -1),
+          "victim": sim.slotOf(i),
+          "team": teamText(p.team),
+          "byAlias": (if killer.index >= 0: sim.cogAlias(killer.index) else: ""),
+          "victimAlias": sim.cogAlias(i)
+        })
     elif i < tracker.alive.len and p.alive and not tracker.alive[i]:
       events.add(%*{"t": tick, "k": "respawn", "who": sim.slotOf(i)})
 
@@ -202,7 +343,7 @@ proc stepEvents*(
 
 proc teamPoliciesJson(sim: SimServer, team: Team): JsonNode =
   ## The distinct policy identities seated on one team, in join-slot order.
-  ## One entry per policy — a mixed team (CTF-Doubles: two policies per side)
+  ## One entry per policy — a mixed team (PAINTBALL-Doubles: two policies per side)
   ## lists both, so the client can headline and group the roster by policy
   ## instead of collapsing a mixed team to its color.
   result = newJArray()
@@ -210,27 +351,121 @@ proc teamPoliciesJson(sim: SimServer, team: Team): JsonNode =
   for p in sim.players:
     if p.team != team:
       continue
-    let pol = policyName(p.address)
+    # SPECTATOR SIDE. A squad game's cogs carry anonymous aliases; the real
+    # policy identity of the seat that commands them lives in seatNames and
+    # is what the scorebug headlines.
+    let pol =
+      if sim.config.numAgents > 0 and p.seat <= sim.seatNames.high and
+          sim.seatNames[p.seat].len > 0:
+        policyName(sim.seatNames[p.seat])
+      else:
+        policyName(p.address)
     if pol notin seen:
       seen.add(pol)
       result.add(%pol)
 
+proc pactPartnersJson(sim: SimServer, team: Team): JsonNode =
+  ## THE MIND ON THE STRIP (Phase 2a, THE WHOLE epic, score-bug-is-the-mind
+  ## ruling 2026-09-09): every OTHER team `team` currently holds a live
+  ## mutual pact with, read straight off `sim.pactActive`/`pactMask`
+  ## (sim_state.nim, ALLIANCE P1 -- already hashed and replay-safe, carried
+  ## since GameVersion 54). No new SimServer field, no flatty layout change,
+  ## no GameVersion bump: this exposes a field the engine already computes
+  ## and already replays deterministically, the same "read an existing
+  ## field onto the chrome" move `heat` made just above. Empty on a pact-
+  ## free game, byte-identical in shape to every pre-existing frame.
+  result = newJArray()
+  for other in sim.teams():
+    if other != team and sim.pactActive(team, other):
+      result.add(%teamText(other))
+
+proc teamDeedsJson(sim: SimServer, team: Team): JsonNode =
+  ## GLORY BY DEED (WIRE-OK batch, THE WHOLE epic, GameVersion 62->63): this
+  ## seat's own deed totals -- one entry per distinct deed that fired at
+  ## least once for it, in first-mint order (`sim.teamDeedTally`,
+  ## sim_types.nim: a seq, not a dense per-Deed array -- see
+  ## `TeamDeedTally`'s own doc comment for why). Order is not a wire
+  ## contract; the client sorts by |glory| itself (`teamDeedsText`,
+  ## client/replay_broadcast.html). Written at the exact same mint sites
+  ## (`awardDeed`, `claimAchievement`, sim.nim, via `recordTeamDeed`).
+  ## `deed` is the raw enum name (a stable key, same idiom as the
+  ## achievement feed's own "tree": $claim.tree); `label` is `deedName`'s
+  ## prose -- NOT a stable wire contract per that proc's own doc comment,
+  ## free to reword, but fine as a display string a client renders and
+  ## never parses (same status as the achievement feed's own "name":
+  ## achievementName(...) a few lines below this call site). This is the
+  ## endcard's per-seat "why this Glory" row and the why-row's deed layer
+  ## (PLATFORM_LEGIBILITY_DATA.md, ENDCARD_V1_STANDINGS_DELTA.md); `glory`
+  ## can be negative (a friendly-fire-heavy seat's own dTeamKill entries).
+  result = newJArray()
+  for entry in sim.teamDeedTally[team]:
+    result.add(%*{
+      "deed": $entry.deed,
+      "label": deedName(entry.deed),
+      "count": entry.count,
+      "glory": entry.glory
+    })
+
 proc teamStateJson(sim: SimServer, team: Team): JsonNode =
   ## Returns one team's scorebug state: lives, flag state, carrier, progress.
-  let
-    flag = sim.flags[team]
-    taken = flag.carrier >= 0
+  ## BR N-point spawn subsystem: a flagless map arms no flag, so the
+  ## "flag"/"carrier"/"prog" keys are simply omitted — same schema-safe,
+  ## omit-when-absent idiom as the existing conditional "hcap" key below,
+  ## not a fixed-arity field a client can depend on being present.
+  var
+    tags = 0
+    tagsTaken = 0
+    cogsUp = 0
+  for p in sim.players:
+    if p.team != team:
+      continue
+    tags += p.kills
+    tagsTaken += p.deaths
+    if p.alive:
+      inc cogsUp
   result = %*{
     "lives": sim.teamLivesRemaining(team),
-    "flag": (
+    "policies": sim.teamPoliciesJson(team),
+    # GLORY PORT (increment 2/3): the team ledger, always present
+    # (unconditional game logic, not a mode-gated key). Minimal wire
+    # exposure for this pass: the raw ledger total. The full floating
+    # "+Ng"/RANK UP pop rendering (`gloryPops`/`achievementFeed`) is NOT
+    # wired to the client yet.
+    "glory": sim.teamGlory[team],
+    # HEAT ON THE WIRE: the live multiplier (`heatMult` of `heatEmbers`,
+    # glory.nim -- 1/2/4/8, matching `HeatLadder`) `mintGlory` is already
+    # applying to this team's deeds. Unconditional beside "glory" for the
+    # same reason "glory" is unconditional: it is core game logic, not a
+    # mode-gated feature. Measured: 0 of 512 seat-episodes ever reached the
+    # top rung and the x1 floor holds 99.7%+ of BR seat-time -- a chain this
+    # unexploited was never on the wire for a spectator (or a policy author
+    # reading a replay) to even SEE, let alone play toward.
+    "heat": heatMult(sim.heatEmbers[team]),
+    # THE MIND ON THE STRIP: this team's live pact partners, see
+    # `pactPartnersJson`'s own doc comment just above.
+    "pact": sim.pactPartnersJson(team)
+  }
+  if not sim.gameMap.flagless:
+    let
+      flag = sim.flags[team]
+      taken = flag.carrier >= 0
+    result["flag"] = %(
       if flag.captured: "captured"
       elif taken: "taken"
       else: "home"
-    ),
-    "carrier": (if taken: sim.slotOf(flag.carrier) else: -1),
-    "prog": sim.flagCarryProgress(team),
-    "policies": sim.teamPoliciesJson(team)
-  }
+    )
+    result["carrier"] = %(if taken: sim.slotOf(flag.carrier) else: -1)
+    result["prog"] = %sim.flagCarryProgress(team)
+  if sim.config.hill:
+    # --- paintball scorebug fields (absent on classic wire frames) ---
+    result["hill"] = %sim.hillTicks[team]                ## banked hill TICKS
+    result["held"] = %(sim.hillTicks[team] div TargetFps)  ## banked SECONDS
+    result["cov"] = %sim.hillCoveragePct(team)  ## live hill coverage percent
+    result["own"] = %(sim.hillOwned and sim.hillOwner == team)
+    result["tags"] = %tags
+    result["tagsTaken"] = %tagsTaken
+    result["cogs"] = %cogsUp
+    result["paint"] = %sim.paintCount[team]
   # Per-team handicap for the scorebug badge + its hover breakdown. Present only
   # when the team is actually handicapped, so an unhandicapped team shows no
   # badge. The resolved deltas are computed here (the one place the
@@ -251,12 +486,18 @@ proc teamStateJson(sim: SimServer, team: Team): JsonNode =
 proc rosterJson(sim: SimServer): JsonNode =
   ## Returns the per-player roster array keyed by stable join slot.
   result = newJArray()
-  for p in sim.players:
-    let item = %*{
+  for i, p in sim.players:
+    let spectatorName =
+      if sim.config.numAgents > 0 and p.seat <= sim.seatNames.high and
+          sim.seatNames[p.seat].len > 0:
+        sim.seatNames[p.seat]
+      else:
+        p.address
+    var item = %*{
       "s": p.joinOrder,
       "team": teamText(p.team),
-      "name": p.address,
-      "pol": policyName(p.address),
+      "name": spectatorName,
+      "pol": policyName(spectatorName),
       "col": int(p.color),
       "alive": p.alive,
       "lives": p.lives,
@@ -267,8 +508,24 @@ proc rosterJson(sim: SimServer): JsonNode =
       "cap": p.captures,
       "mk2": p.multiKills2,
       "mk3": p.multiKills3,
-      "tk": p.teamKills
+      "tk": p.teamKills,
+      # GLORY PORT (increment 2/3): this cog's own per-life ladder
+      # position -- NOT yet causal on this increment (no buff reads it,
+      # see sim.nim's own INCREMENT BOUNDARY note), exposed here only so a
+      # seated human's own rank is visible without decoding it from the
+      # deed/level-up event stream.
+      "xp": p.xp,
+      "lvl": p.level
     }
+    if sim.config.numAgents > 0:
+      # Squad-game roster extras (absent on classic wire frames): the cog's
+      # anonymous alias, the seat that commands it, and what it stands on.
+      item["alias"] = %sim.cogAlias(i)
+      item["seat"] = %p.seat
+      item["on"] = %(case p.paintUnder
+        of puOwn: "own"
+        of puEnemy: "enemy"
+        of puNone: "none")
     # This seat's perks, wire-named (PerkNames), present only when it has any
     # — so a perk-free game's roster is byte-identical and the scorebug can
     # group a team's perk badges by policy (every seat of one policy shares
@@ -279,7 +536,77 @@ proc rosterJson(sim: SimServer): JsonNode =
         if perk in p.perks:
           pk.add(%perkText(perk))
       item["pk"] = pk
+    # LOOT(s2): the same downedMode-gated flag `mapEntry`/`selfJson` already
+    # carry (this module, above) — the ONLY roster consumer that reaches the
+    # spectator/replay BOARD (buildStateJson -> buildReplayViewerPacket ->
+    # ctf_replay.nim's wasm decoder, unchanged). The board's rig sprite ids
+    # are shared across every player at the same team/skin/pose, so the
+    # fade cannot be baked into those cached pixels without a whole new
+    # sprite pool; the client instead reads this per-seat flag and dims the
+    # already-drawn rig objects at draw time (client/broadcast_core.js).
+    # Keyed on the gate so a dark game's roster bytes stay untouched.
+    if sim.config.downedMode:
+      item["downed"] = %p.downed
+    # GIVE(s2): the declared handoff channel on the spectator/replay board
+    # roster — same gate-plus-declaration keying as mapEntry/selfJson (this
+    # module, below), so dark AND armed-but-idle roster bytes stay
+    # untouched and the board can draw the progress arc over the giver.
+    if sim.config.giveItem and p.giveDeclItem.len > 0:
+      item["handoff"] = %*{
+        "item": p.giveDeclItem,
+        "progress": p.giveProgress,
+        "needed": GiveChannelTicks
+      }
+    # PERCEPTION(glory-2 §17): per-seat loadout flags on the spectator/
+    # replay roster — the frame-level source dCoverLoot's matrix lanes read
+    # for per-seat time-to-armed. Same single-gate idiom as `downed` above
+    # (own flag, not lootStart): a dark game's roster bytes stay
+    # byte-identical to a build without this field. Consumers derive
+    # armed = hasGun AND hasHopper; no third field is ever emitted.
+    if sim.config.frameLoadoutFlags:
+      item["hasGun"] = %p.hasGun
+      item["hasHopper"] = %p.hasHopper
     result.add(item)
+
+proc gloryPopsJson(sim: SimServer): JsonNode =
+  ## GLORY: the CURRENT cosmetic pop queue (`sim.gloryPops`), for a viewer to
+  ## draw a floating "+Ng"/named-claim sprite at the deed site. Read-only
+  ## exposure of state `awardDeed`/`addGloryPop` already maintain (aged out
+  ## by `pruneAgedFx` every tick, same as `damagePops`/`splatters`) -- never
+  ## gameHash (see `GloryFx`'s own doc comment). `first`/`earnerIndex` ride
+  ## along so a viewer can style a claim differently from a plain deed pop
+  ## and anchor a unit-earned pop to that cog's own sprite instead of the
+  ## site coordinate (client work not yet done -- see `earner`'s own note
+  ## below). `row` rides along too: `addGloryPop`'s own site-collision search
+  ## (sim.nim) already computes it specifically so a renderer can stack
+  ## same-site pops instead of drawing them on top of each other -- visually
+  ## confirmed missing this field renders two legitimately-simultaneous pops
+  ## (e.g. a rank-up beside an unrelated 0..N-glory deed at the same spawn
+  ## point) as illegible mashed text. Wire lifetimes (`gloryFxTicks`/
+  ## `achievementFxTicks`, picked by `label.len > 0` the same way
+  ## `pruneAgedFx`'s own call site does) ride `window.CTF_WIRE`
+  ## (wire_constants.nim) so the client's fade timing can never drift from
+  ## the engine's own aging.
+  result = newJArray()
+  for pop in sim.gloryPops:
+    result.add(%*{
+      "x": pop.x,
+      "y": pop.y,
+      "t": pop.tick,
+      "delay": pop.startDelay,
+      "amt": pop.amount,
+      "team": teamText(pop.team),
+      "lbl": pop.label,
+      "word": pop.word,
+      "first": pop.first,
+      # `earner`: the minting cog's roster index, -1 if site-anchored. Rides
+      # the wire (has done since the pop queue was first exposed) but no
+      # client yet resolves it to a live sprite position -- see this proc's
+      # own doc comment. A pop with `earner >= 0` still renders at its
+      # frozen mint-time (x, y) today, same as a site-anchored one.
+      "earner": pop.earnerIndex,
+      "row": pop.row
+    })
 
 const
   FpColumns = 96              ## raycast columns per first-person frame.
@@ -471,7 +798,14 @@ proc firstPersonJson(sim: SimServer, playerIndex: int): JsonNode =
     # carrier (already drawn as that player, tagged carry), so skip it here.
     # A retired heart (GV32 capture or GV33 dead team) is out of play and
     # never drawn.
+    #
+    # BR N-point spawn subsystem: a flagless map's flags are permanently
+    # `captured` (CtfMap.flagless / resetFlags), so the check below already
+    # self-gates this loop to zero ents — the explicit check here is
+    # defense-in-depth, not load-bearing on its own.
     for team in sim.teams():
+      if sim.gameMap.flagless:
+        break
       if sim.flags[team].carrier >= 0 or sim.flags[team].captured:
         continue
       if not sim.flagVisibleTo(playerIndex, team):
@@ -484,8 +818,22 @@ proc firstPersonJson(sim: SimServer, playerIndex: int): JsonNode =
     for sp in sim.grenadeSpawns: addPickup("grenade", sp)
     for sp in sim.medKitSpawns: addPickup("medkit", sp)
     for sp in sim.shieldSpawns: addPickup("shield", sp)
-    for sp in sim.plasmaArcSpawns: addPickup("spray", sp)
+    for sp in sim.sprayPaintSpawns: addPickup("spray", sp)
     for sp in sim.barrierSpawns: addPickup("barrier", sp)
+    # LOOT(s2): the three loot-rework families — empty seqs (zero entries,
+    # zero bytes) on every dark game, see resetLootCrates/resetBandages.
+    for sp in sim.weaponSpawns: addPickup("gun", sp)
+    for sp in sim.hopperSpawns: addPickup("hopper", sp)
+    for sp in sim.bandageSpawns: addPickup("bandage", sp)
+    # GVNEXT(drop): items spilled to the ground by the drop chord, drawn with
+    # the SAME billboard and the SAME fog rule as the fixed pickups above (a
+    # dropped can looks like a can). Open steal is unreachable blind, so this
+    # surface is what makes the mechanic playable. Always present (a drop is
+    # only in the list while it is really there). Empty seq — zero entries,
+    # zero bytes — on every game that never armed dropItem.
+    for item in sim.droppedItems:
+      addPickup(DroppedItemNames[item.kind],
+                PickupSpawn(x: item.x, y: item.y, present: true))
 
     # --- paintball beams in flight (sim.recentShots; cosmetic, never hashed) ---
     # A hitscan shot has no travelling body, so the board draws it as a COMET: a
@@ -573,9 +921,17 @@ proc firstPersonJson(sim: SimServer, playerIndex: int): JsonNode =
   var carriedItems = newJArray()
   if self.hasGrenade: carriedItems.add(%"grenade")
   if self.hasShield: carriedItems.add(%"shield")
-  if self.hasPlasmaArc: carriedItems.add(%"spray")
+  if self.hasSprayPaint: carriedItems.add(%"spray")
   if self.hasBarrier: carriedItems.add(%"barrier")
-  let selfJson = %*{
+  # LOOT(s2): the looted marker/hopper halves ride the same carried-items
+  # list; keyed on the config gate so a dark game's bytes are untouched
+  # (the fields also read true there, which is exactly not the story).
+  if sim.config.lootStart:
+    if self.hasGun: carriedItems.add(%"gun")
+    if self.hasHopper: carriedItems.add(%"hopper")
+  # bandages > 0 only ever happens under bandagePickups — one entry each.
+  for _ in 0 ..< self.bandages: carriedItems.add(%"bandage")
+  var selfJson = %*{
     "hp": self.hp,
     "lives": self.lives,
     "alive": selfAlive,
@@ -587,6 +943,29 @@ proc firstPersonJson(sim: SimServer, playerIndex: int): JsonNode =
     # the visor paint splat when this advances.
     "paintTick": self.paintHitTick
   }
+  # LOOT(s2): the ghost flag, keyed on the gate so a dark game's HUD JSON
+  # is byte-identical (a downedMode seat's HUD needs to render "you are
+  # down" distinctly from dead — hp is 0 either way).
+  if sim.config.downedMode:
+    selfJson["downed"] = %self.downed
+  # GIVE(s2): the declared handoff channel, keyed on the gate AND an
+  # active declaration — dark bytes untouched, and an armed-but-idle
+  # seat's HUD JSON is also untouched (the progress arc exists only while
+  # a play is declared; the revive arc's own idiom). `needed` rides along
+  # so the client never hardcodes the channel length.
+  if sim.config.giveItem and self.giveDeclItem.len > 0:
+    selfJson["handoff"] = %*{
+      "item": self.giveDeclItem,
+      "progress": self.giveProgress,
+      "needed": GiveChannelTicks
+    }
+  # PERCEPTION(glory-2 §17): same single-gate idiom as `downed` above — a
+  # dark game's HUD JSON stays byte-identical. Separate from `items`
+  # above (that array is the lootStart-gated carried-item list; these are
+  # the explicit named booleans dCoverLoot's matrix lanes read).
+  if sim.config.frameLoadoutFlags:
+    selfJson["hasGun"] = %self.hasGun
+    selfJson["hasHopper"] = %self.hasHopper
 
   # Un-fogged tactical map: EVERY player, both hearts, and all present pickups in
   # world coordinates, plus this seat's position + aim + cone geometry. This is
@@ -598,22 +977,44 @@ proc firstPersonJson(sim: SimServer, playerIndex: int): JsonNode =
     let p = sim.players[j]
     if not p.alive:
       continue
-    mapPlayers.add(%*{
+    var mapEntry = %*{
       "x": p.x + CollisionW div 2,
       "y": p.y + CollisionH div 2,
       "team": teamText(p.team),
       "self": j == playerIndex,
       "carry": p.carryingFlag
-    })
+    }
+    # LOOT(s2): ghosts are alive on the wire (that is what makes them
+    # revivable) — the flag is what lets the map draw them faded. Keyed on
+    # the gate: dark bytes untouched.
+    if sim.config.downedMode:
+      mapEntry["downed"] = %p.downed
+    # GIVE(s2): same gate-plus-declaration keying as selfJson above, so the
+    # spectator board can draw the arc over the giver.
+    if sim.config.giveItem and p.giveDeclItem.len > 0:
+      mapEntry["handoff"] = %*{
+        "item": p.giveDeclItem,
+        "progress": p.giveProgress,
+        "needed": GiveChannelTicks
+      }
+    # PERCEPTION(glory-2 §17): same single-gate idiom as `downed` above.
+    if sim.config.frameLoadoutFlags:
+      mapEntry["hasGun"] = %p.hasGun
+      mapEntry["hasHopper"] = %p.hasHopper
+    mapPlayers.add(mapEntry)
   var mapHearts = newJArray()
-  for team in sim.teams():
-    mapHearts.add(%*{
-      "x": sim.flags[team].x,
-      "y": sim.flags[team].y,
-      "team": teamText(team),
-      "carried": sim.flags[team].carrier >= 0,
-      "captured": sim.flags[team].captured
-    })
+  # BR N-point spawn subsystem: a flagless map arms no flag — the omniscient
+  # map view carries zero heart entries (already a variable-length JSON
+  # array, so an empty list is schema-safe).
+  if not sim.gameMap.flagless:
+    for team in sim.teams():
+      mapHearts.add(%*{
+        "x": sim.flags[team].x,
+        "y": sim.flags[team].y,
+        "team": teamText(team),
+        "carried": sim.flags[team].carrier >= 0,
+        "captured": sim.flags[team].captured
+      })
   var mapItems = newJArray()
   proc addMapItem(kind: string, spawn: PickupSpawn) =
     if spawn.present:
@@ -621,8 +1022,17 @@ proc firstPersonJson(sim: SimServer, playerIndex: int): JsonNode =
   for sp in sim.grenadeSpawns: addMapItem("grenade", sp)
   for sp in sim.medKitSpawns: addMapItem("medkit", sp)
   for sp in sim.shieldSpawns: addMapItem("shield", sp)
-  for sp in sim.plasmaArcSpawns: addMapItem("spray", sp)
+  for sp in sim.sprayPaintSpawns: addMapItem("spray", sp)
   for sp in sim.barrierSpawns: addMapItem("barrier", sp)
+  # LOOT(s2): empty families on a dark game — zero entries, zero bytes.
+  for sp in sim.weaponSpawns: addMapItem("gun", sp)
+  for sp in sim.hopperSpawns: addMapItem("hopper", sp)
+  for sp in sim.bandageSpawns: addMapItem("bandage", sp)
+  # GVNEXT(drop): ground drops join the map-item list on the same terms as
+  # every fixed pickup above; empty on a dark game.
+  for item in sim.droppedItems:
+    addMapItem(DroppedItemNames[item.kind],
+               PickupSpawn(x: item.x, y: item.y, present: true))
 
   let mapJson = %*{
     "w": MapWidth,
@@ -660,14 +1070,29 @@ proc buildStateJson*(
   transportEnabled: bool,
   mismatchTick: int,
   povSlot: int,
-  livesSeries: seq[seq[int]] = @[],
+  leadSeries: seq[seq[int]] = @[],
+  leadMetric: string = "",
+  leadOutTicks: seq[int] = @[],
   startTick: int = 0,
   endHoldSeconds: int = 0,
   includeFpMap: bool = false,
   skipLulls: bool = false,
   fastForwarding: bool = false,
   lullSpans: seq[array[2, int]] = @[],
-  beatEvents: JsonNode = nil
+  beatEvents: JsonNode = nil,
+  achievementBadges: JsonNode = nil,
+  lobbyChat: JsonNode = nil,
+  ballots: JsonNode = nil,
+  mismatchSameBuild: bool = false,
+  # HEAT ON THE WIRE: parallel to `leadSeries` -- same [tick,
+  # valuePerTeam…] change-point shape, same Team order, same one-shot
+  # "sent once, client caches it" contract -- but appended as its own
+  # trailing param (not inserted beside `leadSeries` above) so every
+  # existing POSITIONAL call site of this proc keeps compiling unchanged.
+  # Never merged into `leadSeries` itself: that series is the momentum
+  # lane's own metric (glory for classic, hill for KotH) and must keep
+  # meaning only that.
+  heatSeries: seq[seq[int]] = @[]
 ): string =
   ## Assembles the broadcast chrome frame from the current board state plus the
   ## events accumulated across this playback frame. Board-derived STATE (lives,
@@ -702,8 +1127,70 @@ proc buildStateJson*(
     "pov": povSlot,
     "teams": teams,
     "roster": sim.rosterJson(),
-    "events": (if events.isNil: newJArray() else: events)
+    "events": (if events.isNil: newJArray() else: events),
+    # GLORY: the live cosmetic pop queue, every frame (see `gloryPopsJson`'s
+    # own doc comment) -- unconditional and cheap like `roster`, since the
+    # queue is already bounded by `pruneAgedFx`, not something to gate behind
+    # a "send once" flag the way the full-match `ach`/`lead` chrome is.
+    "pops": sim.gloryPopsJson(),
+    # REALIZED-ECONOMY STAMP (WIRE-OK batch, THE WHOLE epic, GameVersion
+    # 62->63): which glory economy this episode actually armed --
+    # `sim.config.gloryMultiplierRecut` is read straight from config, no
+    # inference. Replaces the client's own `sampleRecutArmed` first-'playing'
+    # -frame sample (client/replay_broadcast.html), which used to be the
+    # ONLY way to tell (no per-episode flag existed on the wire before this
+    # -- see that function's own doc comment) and could stay wrong forever
+    # for a client that only ever sees frames after kickoff. Unconditional,
+    # like "pops"/"glory"/"heat": every frame, not a "send once" flag.
+    "economy": (if sim.config.gloryMultiplierRecut: "recut" else: "classic")
   }
+
+  # Mismatch banner TIER, present only while a mismatch is actually being
+  # shown (mm >= 0) so every clean frame stays byte-identical. true = the
+  # recording and this engine carry the SAME build stamp (build_stamp.nim):
+  # a real determinism break, keep the loud red banner. false = cross-build
+  # drift or nothing provable: the chrome shows the quiet chip instead.
+  if mismatchTick >= 0:
+    state["mmsb"] = %mismatchSameBuild
+
+  # BR mode, for the CHROME. The header bakes CTF identity into itself — a
+  # flag glyph per team, a "Lives" label — and a battle royale has neither.
+  # The chrome cannot infer the mode from the absence of flag keys: absence
+  # is also what a pre-roster frame looks like, and inferring a whole
+  # presentation from a missing key is how a header ends up lying in one
+  # direction or the other. So state it.
+  #
+  # Pinned ONLY when a BR toggle is actually on, matching the omit-when-
+  # default idiom the rest of this frame uses (hcap, pmods, flag keys), so
+  # every classic frame stays byte-identical.
+  if sim.gameMap.flagless or sim.config.brMode:
+    # flagless: no flag/pedestal/heart anywhere on the board.
+    # elim: no respawns, so a lives count is absolute rather than a pool.
+    state["br"] = %*{
+      "flagless": sim.gameMap.flagless,
+      "elim": sim.config.brMode
+    }
+  if sim.config.numAgents > 0:
+    # Squad-game frame extras (absent on classic wire frames): which game of
+    # the episode is playing, under which regime, and the hill headline.
+    state["game"] = %(sim.gameIndex + 1)
+    state["games"] = %max(1, sim.config.maxGames)
+    state["regime"] = %regimeText(sim.regime)
+    state["turnTicks"] = %sim.config.turnTicks
+  if sim.config.hill:
+    state["hillOwner"] = %(if sim.hillOwned: teamText(sim.hillOwner) else: "")
+    state["hillNeed"] = %(sim.config.hillOwnPermille div 10)
+
+  # The commander lines. This is where a spectator SEES the LLM playing: the
+  # directive `note` each seat issued, live and in replay from one source.
+  if sim.feedDirectives.len > 0:
+    var records = newJArray()
+    for record in sim.feedDirectives:
+      try:
+        records.add(parseJson(record))
+      except CatchableError:
+        discard
+    state["directives"] = records
 
   # Resolved perk magnitudes for the scorebug icon tooltips (the sim is the
   # single source of the mods, like the handicap deltas). Fractions are
@@ -737,23 +1224,56 @@ proc buildStateJson*(
       if fp.kind != JNull:
         state["fp"] = fp
 
-  # Full-timeline lives series (sent ONCE per HUD viewer): change-points across
-  # the WHOLE match so the momentum graph draws its full width immediately
+  # Full-timeline lead series (sent ONCE per HUD viewer): change-points across
+  # the WHOLE episode so the momentum graph draws its full width immediately
   # instead of accumulating to the playhead. Team-keyed so any number of teams
-  # graphs: {"teams": [name, …], "pts": [[tick, lives, …], …]} — each point is
-  # the tick followed by one lives count per team, in `teams` order. Absent on
-  # every later frame — the client caches it.
-  if livesSeries.len > 0:
+  # graphs: {"metric": name, "teams": [name, …], "pts": [[tick, value, …], …]}
+  # — each point is the tick followed by one CUMULATIVE value per team, in
+  # `teams` order, and the lane draws one climbing line per team. "metric"
+  # names what those values ARE ("glory" for classic games, "hill" for KotH)
+  # so the band can caption itself rather than hardcode one of the two.
+  # "out" is the tick each team was eliminated on (-1 = survived), so the lane
+  # can stop drawing a dead team as a live competitor: these metrics only
+  # climb, so an eliminated team goes FLAT rather than falling, which reads
+  # identically to a live team that is merely not scoring.
+  # Absent on every later frame — the client caches it.
+  if leadSeries.len > 0:
     var teamNames = newJArray()
     for team in sim.teams():
       teamNames.add(%teamText(team))
     var pts = newJArray()
-    for point in livesSeries:
+    for point in leadSeries:
       var row = newJArray()
       for value in point:
         row.add(%value)
       pts.add(row)
-    state["lead"] = %*{"teams": teamNames, "pts": pts}
+    var outTicks = newJArray()
+    for i in 0 ..< teamNames.len:
+      outTicks.add(%(if i < leadOutTicks.len: leadOutTicks[i] else: -1))
+    state["lead"] = %*{
+      "metric": (if leadMetric.len > 0: leadMetric else: "glory"),
+      "teams": teamNames, "pts": pts, "out": outTicks
+    }
+
+  # HEAT ON THE WIRE: the full-timeline heat-multiplier series, shipped on
+  # the SAME one-shot frame as `lead` above (same team order, same
+  # change-point compaction) but under its own key -- a PARALLEL series, not
+  # a field bolted onto `lead`, so `lead`'s own metric (glory/hill) never
+  # has to share its shape with a second, unrelated number. Self-contained
+  # ({"teams", "pts"}, no "metric"/"out": there is only one heat metric and
+  # elimination timing already rides `lead.out`) so a consumer that only
+  # wants heat need not also parse `lead`.
+  if heatSeries.len > 0:
+    var heatTeamNames = newJArray()
+    for team in sim.teams():
+      heatTeamNames.add(%teamText(team))
+    var heatPts = newJArray()
+    for point in heatSeries:
+      var row = newJArray()
+      for value in point:
+        row.add(%value)
+      heatPts.add(row)
+    state["heat"] = %*{"teams": heatTeamNames, "pts": heatPts}
 
   # Static minimap wall silhouette for the EYES tactical inset, sent ONCE per
   # viewer (like the lead series). Absent on every later frame — the client
@@ -767,6 +1287,29 @@ proc buildStateJson*(
   # immediately instead of collecting them as playback passes each one.
   if not beatEvents.isNil and beatEvents.len > 0:
     state["beats"] = beatEvents
+
+  # The final game's earned achievements with their focus cogs, shipped on the
+  # same lead frame. The client only consults it when the page URL carries
+  # ?achievement=<id> (a badge's watch link): it selects the named cog's POV so
+  # the viewer opens looking at the receiver.
+  if not achievementBadges.isNil and achievementBadges.len > 0:
+    state["ach"] = achievementBadges
+
+  # SEASON 2: the lobby-phase huddle transcript (shell record `0x13`,
+  # RecLobbyChat) and the pre-match ballot (`0x17`, RecVoteReserved),
+  # shipped once on the same lead frame as `ach`/`beats`/`lead` above. Both
+  # are shell-layer records, not sim state -- the caller decodes them once
+  # from the replay's verified `.shell` metadata (see `ctf_replay.nim`) and
+  # passes them here every frame; only the FIRST (lead) frame actually
+  # forwards them into the chrome, same "send once, client caches it"
+  # convention as `achievementBadges`. Absent on a replay that never
+  # recorded either phase (a pre-huddle/pre-vote replay, or the phase
+  # ticked-off in config) -- the client's own "degrade to nothing" is
+  # simply never seeing the key.
+  if not lobbyChat.isNil and lobbyChat.len > 0:
+    state["huddle"] = lobbyChat
+  if not ballots.isNil and ballots.len > 0:
+    state["vote"] = ballots
 
   # Full-timeline lull spans, shipped alongside the lead series on the same
   # first frame: [[firstTick, lastTick], …] quiet stretches the skip-lulls mode
@@ -789,18 +1332,100 @@ proc buildStateJson*(
     for team in sim.teams():
       overTeams[teamText(team)] = %*{
         "lives": sim.teamLivesRemaining(team),
-        "prog": sim.teamFlagProgress(team)
+        # GLORY PORT (increment 2/3): the round's final team ledger, same
+        # key ("glory") teamStateJson already carries live, so an endcard
+        # reader that already displays the live figure needs no new key to
+        # show its final value.
+        "glory": sim.teamGlory[team],
+        # GLORY BY DEED: this seat's own deed totals -- see
+        # `teamDeedsJson`'s own doc comment. Unconditional array (possibly
+        # empty for a seat that never minted anything), same "always
+        # present" idiom as "glory"/"lives" just above, not the
+        # omit-when-absent idiom the flag-only "prog" key below uses.
+        "deeds": sim.teamDeedsJson(team)
       }
+      # BR N-point spawn subsystem: no flag, so no progress to report. Same
+      # omit-when-absent idiom as teamStateJson.
+      if not sim.gameMap.flagless:
+        overTeams[teamText(team)]["prog"] = %sim.teamFlagProgress(team)
+    # BR placement (1-based, 1..16): the end-card's own request for "remaining
+    # teams in placement order" cannot be built client-side past final lives
+    # (every eliminated team ends at 0, an unbroken tie) — brPlacements()
+    # already computes the exact total order finishGame's own BR reward
+    # reads (sim.nim: latest last-death, then kills, then damage, then seat),
+    # is a pure function of already-hashed state, and is deliberately
+    # excluded from gameHash itself (see its own doc comment), so shipping it
+    # here changes nothing about determinism or replay hashing — purely
+    # additive, omit-when-absent like every other BR-only field on this frame.
+    if sim.config.brMode:
+      let placements = sim.brPlacements()
+      for team in sim.teams():
+        overTeams[teamText(team)]["place"] = %placements[team]
     state["over"] = %*{
       "winner": teamText(sim.winner),
       "draw": sim.isDraw,
       "timeLimit": sim.timeLimitReached,
       "teams": overTeams,
       "redLives": sim.teamLivesRemaining(Red),
-      "blueLives": sim.teamLivesRemaining(Blue),
-      "redProg": sim.teamFlagProgress(Red),
-      "blueProg": sim.teamFlagProgress(Blue)
+      "blueLives": sim.teamLivesRemaining(Blue)
     }
+    # GLORY PORT (increment 2/3): the round's achievement feed, in claim order --
+    # "deeds/achievements earned this round" for the endcard, per the
+    # endsplash lane's wire request. Per-player rank/xp already rides the
+    # roster unconditionally (see `rosterJson`'s own "xp"/"lvl" keys), so
+    # this is the one piece that wasn't reachable from an existing key.
+    if sim.achievementFeed.len > 0:
+      var feed = newJArray()
+      for claim in sim.achievementFeed:
+        feed.add(%*{
+          "team": teamText(claim.team),
+          "tree": $claim.tree,
+          "tier": claim.tier,
+          "name": achievementName(claim.tree, claim.tier),
+          "glory": claim.glory,
+          "first": claim.first,
+          "slot": claim.slot
+        })
+      state["over"]["achievements"] = feed
+    # GLORY v12 (contract §3): capture DISTINCTIONS -- "Uphill" and "Fast
+    # Break" moved off the Heart ladder and onto the match record. The
+    # engine still pins `capturedOutnumbered`/`capturedFastBreak` at the
+    # capture site (checkWinCondition); this block just ships the pins so
+    # the endcard can render the distinction line(s). Display only: no
+    # glory, no claim, no heat -- which is why these ride their own key and
+    # not the achievements feed above. Omit-when-absent, like every other
+    # conditional key on this frame. Shape per entry:
+    #   { team, slot (joinOrder, same seat space as the feed's "slot"),
+    #     name, desc }
+    var distinctions = newJArray()
+    for i in 0 ..< sim.players.len:
+      for distinction in CaptureDistinction:
+        let pinned =
+          case distinction
+          of cdUphill: sim.players[i].capturedOutnumbered
+          of cdFastBreak: sim.players[i].capturedFastBreak
+        if pinned:
+          distinctions.add(%*{
+            "team": teamText(sim.players[i].team),
+            "slot": sim.players[i].joinOrder,
+            "name": captureDistinctionName(distinction),
+            "desc": captureDistinctionDescription(distinction)
+          })
+    if distinctions.len > 0:
+      state["over"]["distinctions"] = distinctions
+    if not sim.gameMap.flagless:
+      state["over"]["redProg"] = %sim.teamFlagProgress(Red)
+      state["over"]["blueProg"] = %sim.teamFlagProgress(Blue)
+    if sim.config.numAgents > 0:
+      # Squad-game endcard extras (absent on classic wire frames).
+      state["over"]["endRule"] = %sim.endRule
+      state["over"]["reason"] = %sim.endReason
+      state["over"]["game"] = %(sim.gameIndex + 1)
+      state["over"]["games"] = %max(1, sim.config.maxGames)
+      state["over"]["regime"] = %regimeText(sim.regime)
+    if sim.config.hill:
+      state["over"]["hillRed"] = %(sim.hillTicks[Red] div TargetFps)
+      state["over"]["hillBlue"] = %(sim.hillTicks[Blue] div TargetFps)
     # End-segment hold countdown: whole seconds until a looping replay
     # restarts. Present only during the hold, so the end-card can show a
     # "replaying in N" line without ever inventing a countdown after a seek.

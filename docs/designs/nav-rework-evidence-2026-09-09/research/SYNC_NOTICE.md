@@ -1,0 +1,3 @@
+# Brief write pause for checkpoint consolidation
+
+The completed G0/G1/M1/W1/M2/M3/W2/R1/W6/W7 units are committed in the separate nav-throughput-checkpoints worktree through addaad7a, including current main and per-unit viewer checks. Root is backing up the research worktree's owned pending files, fast-forwarding it to that checkpoint history, and restoring newer research notes with three-way merges. Do not write files or run source reviews until the next PROCEED. D0 incremental decision will be the next ablation after the32 MiB cap update. Acknowledge SYNC PAUSED and wait; no file output is needed.

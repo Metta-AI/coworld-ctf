@@ -1,0 +1,10 @@
+PASS: module evaluates: client/broadcast_core.js
+PASS: module evaluates: replay-viewer/static_replay.js
+PASS: module evaluates: replay-viewer/static_replay_worker.js (+ importScripts of ./wire_constants.js, ./broadcast_core.js)
+PASS: worker importScripts skips only Emscripten glue
+PASS: served bundle matches source: static-replay-viewer/broadcast_core.js
+PASS: served bundle matches source: static-replay-viewer/chrome_common.js
+PASS: served bundle matches source: static-replay-viewer/static_replay.js
+PASS: served bundle matches source: static-replay-viewer/static_replay_worker.js
+PASS: committed wasm GameVersion matches src/ctf/sim_types.nim
+PASS: committed wasm sim-sources stamp matches HEAD

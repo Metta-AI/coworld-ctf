@@ -1,0 +1,16 @@
+{
+  "paintbot_policy": 1,
+  "name": "third-party-jackal",
+  "doc": "Never starts a fight -- swoops in on cogs already worn down by somebody else's paint and finishes the tag.",
+  "traits": { "nerve": 0.5, "greed": 0.4, "patience": 0.6 },
+  "rules": [
+    { "when": true,
+      "score": ["+",
+        ["*", ["get", "intent.is_enemy"],
+              ["*", 60, ["-", 1, ["get", "intent.enemy_hp_frac"]]]],
+        ["*", 10, ["get", "intent.is_medkit"]],
+        ["*", -20, ["get", "intent.exposure"]]
+      ]
+    }
+  ]
+}

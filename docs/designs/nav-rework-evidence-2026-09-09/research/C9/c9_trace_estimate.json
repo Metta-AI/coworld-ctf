@@ -1,0 +1,113 @@
+{
+ "assumption": "first-hit policy; per-map m8i micro medians at 1300 px (evenly spread origins, not per-recorded-origin costs); net = later_hits*(1-list_ratio) - conversions*conversion_increment, in bitmap replays of that map, times that map bitmap ns; episode ticks are sim ticks incl. lobby",
+ "rows": [
+  {
+   "trace": "s2_16_679962",
+   "map": "br-gen-5204",
+   "later_hits": 40,
+   "conversions": 35,
+   "bitmap_ns": 51467.86111111111,
+   "list_ratio": 0.4799574059971622,
+   "conversion_increment": 0.24028442776856976,
+   "net_units": 12.39174878821357,
+   "net_ms_per_episode": 0.6377768055555555,
+   "sim_ticks": 2023
+  },
+  {
+   "trace": "s2_16_679963",
+   "map": "br-gen-5263",
+   "later_hits": 27,
+   "conversions": 21,
+   "bitmap_ns": 38491.638775510204,
+   "list_ratio": 0.4648071993159606,
+   "conversion_increment": 0.236930119411568,
+   "net_units": 9.474673110826135,
+   "net_ms_per_episode": 0.3646956948979591,
+   "sim_ticks": 2151
+  },
+  {
+   "trace": "s2_16_679964",
+   "map": "br-gen-5204",
+   "later_hits": 46,
+   "conversions": 31,
+   "bitmap_ns": 51467.86111111111,
+   "list_ratio": 0.4799574059971622,
+   "conversion_increment": 0.24028442776856976,
+   "net_units": 16.473142063304877,
+   "net_ms_per_episode": 0.8478373877777777,
+   "sim_ticks": 2124
+  },
+  {
+   "trace": "s2_16_679965",
+   "map": "br-gen-5001",
+   "later_hits": 12,
+   "conversions": 17,
+   "bitmap_ns": 43532.8375,
+   "list_ratio": 0.47843802446204603,
+   "conversion_increment": 0.24391012876199486,
+   "net_units": 2.1122715175015347,
+   "net_ms_per_episode": 0.09195317272727271,
+   "sim_ticks": 3277
+  },
+  {
+   "trace": "s2_32_679962",
+   "map": "br-gen-5204",
+   "later_hits": 283,
+   "conversions": 92,
+   "bitmap_ns": 51467.86111111111,
+   "list_ratio": 0.4799574059971622,
+   "conversion_increment": 0.24028442776856976,
+   "net_units": 125.06588674809467,
+   "net_ms_per_episode": 6.436873688888888,
+   "sim_ticks": 2331
+  },
+  {
+   "trace": "s2_32_679963",
+   "map": "br-gen-5263",
+   "later_hits": 216,
+   "conversions": 70,
+   "bitmap_ns": 38491.638775510204,
+   "list_ratio": 0.4648071993159606,
+   "conversion_increment": 0.236930119411568,
+   "net_units": 99.01653658894274,
+   "net_ms_per_episode": 3.811308759183673,
+   "sim_ticks": 2357
+  },
+  {
+   "trace": "s2_32_679964",
+   "map": "br-gen-5204",
+   "later_hits": 198,
+   "conversions": 97,
+   "bitmap_ns": 51467.86111111111,
+   "list_ratio": 0.4799574059971622,
+   "conversion_increment": 0.24028442776856976,
+   "net_units": 79.66084411901062,
+   "net_ms_per_episode": 4.099973261111111,
+   "sim_ticks": 3088
+  },
+  {
+   "trace": "s2_32_679965",
+   "map": "br-gen-5001",
+   "later_hits": 164,
+   "conversions": 84,
+   "bitmap_ns": 43532.8375,
+   "list_ratio": 0.47843802446204603,
+   "conversion_increment": 0.24391012876199486,
+   "net_units": 65.04771317221687,
+   "net_ms_per_episode": 2.8317115272727267,
+   "sim_ticks": 3289
+  },
+  {
+   "trace": "smoke_s2_16_randomized",
+   "map": "br-gen-5001",
+   "later_hits": 15,
+   "conversions": 18,
+   "bitmap_ns": 43532.8375,
+   "list_ratio": 0.47843802446204603,
+   "conversion_increment": 0.24391012876199486,
+   "net_units": 3.4330473153534014,
+   "net_ms_per_episode": 0.1494502909090909,
+   "sim_ticks": 2248
+  }
+ ]
+}

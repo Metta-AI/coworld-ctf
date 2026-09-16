@@ -1,0 +1,5890 @@
+{
+  ".caos-expr": [
+    "100644",
+    "11886051ff9343fea8bdd26cd0215bd6a7a15699"
+  ],
+  ".dockerignore": [
+    "100644",
+    "a326f953c3cb05626ee3e398d097d43be7aa68f7"
+  ],
+  ".github/workflows/build-decoder.yml": [
+    "100644",
+    "b996849f950440970d51397ec340bd96ab8edf24"
+  ],
+  ".github/workflows/build.yml": [
+    "100644",
+    "43be029726dd1994da8cc29a474ad4b154170319"
+  ],
+  ".github/workflows/publish-images.yml": [
+    "100644",
+    "8994a6bfc08b692c6ed83026ace1fe195c990f41"
+  ],
+  ".github/workflows/upload-coworld-paintbot.yml": [
+    "100644",
+    "22e80ad160e250ee64ac6941d45bb64bb3d85723"
+  ],
+  ".gitignore": [
+    "100644",
+    "7b20ea1b1e55f444a2d4ea56f0af1b896b4c6dbc"
+  ],
+  "AGENTS.md": [
+    "100644",
+    "1cfb293fc671be52c6b190057b715c90e9542e19"
+  ],
+  "CODEBASE_AUDIT.md": [
+    "100644",
+    "f2bdc9c9d84f5f06f1b09507a63c5992eb4cdd06"
+  ],
+  "DEPTH_TARGET.md": [
+    "100644",
+    "3b2c7f95bdef0c0ae9b7ffa5285422e0eb06b957"
+  ],
+  "Dockerfile": [
+    "100644",
+    "0e7c275379aeb8deffd2695c981e8c0865432d5e"
+  ],
+  "Dockerfile.replay-viewer": [
+    "100644",
+    "90dc078a2279715de930abf77ee04c90acebe764"
+  ],
+  "LICENSE": [
+    "100644",
+    "dba897e1f3b10bb9f6e223ac584df590b1ca3f38"
+  ],
+  "README.md": [
+    "100644",
+    "ffda043df501c8c40013731e298da377eedc8edd"
+  ],
+  "REPLAY_BRIEF.md": [
+    "100644",
+    "ade0f3bad0b659fce60cafef3a9c3386f2ef48d1"
+  ],
+  "REPLAY_DESIGN.md": [
+    "100644",
+    "9c86511af1f2bc9f01c24ff6a8a92c6fed5e62da"
+  ],
+  "arena/README.md": [
+    "100644",
+    "f6f035749ba57f6fb4475fd1d0149a900936bebd"
+  ],
+  "arena/bindings/game/game.c": [
+    "100644",
+    "949932cf5342dff8751ade0bd49248c7bbbe48eb"
+  ],
+  "arena/bindings/game/game.h": [
+    "100644",
+    "7b47406af1a3f8931a99b0d6be5f6b5bba2dd975"
+  ],
+  "arena/bindings/game/game_component_type.o": [
+    "100644",
+    "5030c7c6fa116f1098dc64d1dd001766f8622556"
+  ],
+  "arena/bindings/player/player.c": [
+    "100644",
+    "26e9d5e3d4963abf730ad9023f1448bf85436acb"
+  ],
+  "arena/bindings/player/player.h": [
+    "100644",
+    "34709aced213aafd6cf346a617fd6b493448f21e"
+  ],
+  "arena/bindings/player/player_component_type.o": [
+    "100644",
+    "fc68f107ec53371521889bcdf3d0b376ee33d48b"
+  ],
+  "arena/build.sh": [
+    "100755",
+    "6cb174e25894ba23e96c127b654922b7586912e3"
+  ],
+  "arena/config.nims": [
+    "100644",
+    "c710ae1e29f618a93815637d3573c2562bf73999"
+  ],
+  "arena/game_component.nim": [
+    "100644",
+    "860fa68a1bbc95f49314dea23242a74e3ffea64e"
+  ],
+  "arena/game_runtime.nim": [
+    "100644",
+    "b655cec91fd57785f97eb11e6754569571ccd68e"
+  ],
+  "arena/player_component.nim": [
+    "100644",
+    "3a5580918667f36c7d8b770f59ec7829a5824542"
+  ],
+  "arena/test.sh": [
+    "100755",
+    "af1f077d7bff32c8779b4ea090c0f4fcf0b069cb"
+  ],
+  "arena/test_components.mjs": [
+    "100644",
+    "2417e35806b4cd4c720a819e10795eb49d7a3fcb"
+  ],
+  "arena/test_host_output.mjs": [
+    "100644",
+    "35739bf38ff09f8ae2130b87f7fcef9bd48aaa5d"
+  ],
+  "arena/wit/softmax-game/world.wit": [
+    "100644",
+    "015724758f3d05ccaa7dafbef539fd1fd38e843f"
+  ],
+  "arena/wit/softmax-player/world.wit": [
+    "100644",
+    "2370ddd7f09dad10fb706e13cdfd0923ea64030a"
+  ],
+  "caos-tools/build-image/.caos-expr": [
+    "100644",
+    "091cccd620c9d3d5968d08a0d929e9b5368e1f83"
+  ],
+  "caos-tools/build-image/DEPS": [
+    "100644",
+    "a3c4dc713c8ebf227a5edf2736c140ec70da0979"
+  ],
+  "caos-tools/build-image/worker.sh": [
+    "100755",
+    "36bfae34dd12f4a5538e9424f4e881aafb983b64"
+  ],
+  "caos-tools/build-player/.caos-expr": [
+    "100644",
+    "ebb419d6eded2ed205dea88136840b541a3487ca"
+  ],
+  "caos-tools/build-player/DEPS": [
+    "100644",
+    "3e4935bfffbf02b1716581e3454c1fafc6c550f6"
+  ],
+  "caos-tools/build-player/worker.sh": [
+    "100755",
+    "1ddb0758cde5893786eed85a0c0d6a2e2420b470"
+  ],
+  "caos-tools/build/.caos-expr": [
+    "100644",
+    "f86355f870231d14a8df40994cc3b960b7f682ad"
+  ],
+  "caos-tools/build/DEPS": [
+    "100644",
+    "3e4935bfffbf02b1716581e3454c1fafc6c550f6"
+  ],
+  "caos-tools/build/worker.sh": [
+    "100755",
+    "0f5332d8f9176cb6aed1ecffe83d02c72a35a97f"
+  ],
+  "caos-tools/lib/common.sh": [
+    "100755",
+    "a57d36aa708e1a45ac2fdac2e1df61cfc53eb972"
+  ],
+  "caos-tools/lib/deps.sh": [
+    "100755",
+    "55489efb0c361cd2aafd9a28e8ac25ec8276999a"
+  ],
+  "caos-tools/lib/run-batch.sh": [
+    "100755",
+    "5a3f7d6ea4364a86e58e25d7bb668bfe31b1af48"
+  ],
+  "caos-tools/test/.caos-expr": [
+    "100644",
+    "704735f4f964a17d05bb3e46b79b1e1ec8357482"
+  ],
+  "caos-tools/test/DEPS": [
+    "100644",
+    "3e4935bfffbf02b1716581e3454c1fafc6c550f6"
+  ],
+  "caos-tools/test/worker.sh": [
+    "100755",
+    "ccd5a73570c211e6aaac502464c837444aea95ab"
+  ],
+  "caos-tools/upload-image/.caos-expr": [
+    "100644",
+    "3ff218f2257366df09ae5a161824ca75d7ed8b25"
+  ],
+  "caos-tools/upload-image/DEPS": [
+    "100644",
+    "2d75d523f30af15938c1435d068c63ca45640eae"
+  ],
+  "caos-tools/upload-image/worker.sh": [
+    "100755",
+    "1ea0075be940c9d43e78aa0c884a3e90a563bf2c"
+  ],
+  "caos/imgtools/.caos-expr": [
+    "100644",
+    "9f771e227cf4eae0a42035c2c9608df99faea477"
+  ],
+  "caos/imgtools/DEPS": [
+    "100644",
+    "2eabf6d74768ec15a5633f1b95f814240a945dbf"
+  ],
+  "caos/imgtools/flake.lock": [
+    "100644",
+    "4e17742b2a61152bcc841205a15e99c80f83ae4b"
+  ],
+  "caos/imgtools/flake.nix": [
+    "100644",
+    "669cfeee7565f23375220473709a321827d3ca6f"
+  ],
+  "caos/imgtools/worker": [
+    "100755",
+    "894a914e537155887247f542e5f6e2228fa57059"
+  ],
+  "caos/nim/.caos-expr": [
+    "100644",
+    "3787ead7a9f854acfec11342a9a53b10646867a2"
+  ],
+  "caos/nim/DEPS": [
+    "100644",
+    "2eabf6d74768ec15a5633f1b95f814240a945dbf"
+  ],
+  "caos/nim/flake.lock": [
+    "100644",
+    "77a0522746bb5f782528f77bb295c682a2623011"
+  ],
+  "caos/nim/flake.nix": [
+    "100644",
+    "dc7f90fd8008b076dfa0897ccf6fbdc81ac7525e"
+  ],
+  "caos/nim/worker": [
+    "100755",
+    "894a914e537155887247f542e5f6e2228fa57059"
+  ],
+  "caos/player-runtime/flake.lock": [
+    "100644",
+    "4e17742b2a61152bcc841205a15e99c80f83ae4b"
+  ],
+  "caos/player-runtime/flake.nix": [
+    "100644",
+    "de17aad7e2544bc24699ce6a36d13ec3cd46a621"
+  ],
+  "client/art/lockerroom/bg.jpg": [
+    "100644",
+    "0ac93757bf17ef349e573b5a3d94b40172420930"
+  ],
+  "client/art/lockerroom/blue_1.webp": [
+    "100644",
+    "4c43b98c5aa6c7d32743e2ec9ea281a96dcc1008"
+  ],
+  "client/art/lockerroom/blue_2.webp": [
+    "100644",
+    "5fae353a018852b35b52b8639259054429db332f"
+  ],
+  "client/art/lockerroom/blue_3.webp": [
+    "100644",
+    "c4309ae404d337cf1c558a1e2bbd3062c1649a4e"
+  ],
+  "client/art/lockerroom/blue_5.webp": [
+    "100644",
+    "493954ec40fc3ac9aa44a821930c866c93806b7b"
+  ],
+  "client/art/lockerroom/blue_6.webp": [
+    "100644",
+    "295fa587f1ff45ffa28daa0994f971264a1b5ccd"
+  ],
+  "client/art/lockerroom/green_1.webp": [
+    "100644",
+    "4c817568aa97f81ce60527147fe2cbc149cfaf25"
+  ],
+  "client/art/lockerroom/green_2.webp": [
+    "100644",
+    "91f0f3c751a22137a9ee87679d110bbe0469c1c8"
+  ],
+  "client/art/lockerroom/green_3.webp": [
+    "100644",
+    "87aa1a4d1040c0233b1e0e9b35cca00c7c3270bb"
+  ],
+  "client/art/lockerroom/green_5.webp": [
+    "100644",
+    "7520dc1fed2d30c1f55cc6503b42ad1ac2ee1336"
+  ],
+  "client/art/lockerroom/green_6.webp": [
+    "100644",
+    "2b41b316ac813a19584b0c9d412b9a9177c8833d"
+  ],
+  "client/art/lockerroom/red_1.webp": [
+    "100644",
+    "b4d39fdfd65fb29480069702215260036ebba5fe"
+  ],
+  "client/art/lockerroom/red_2.webp": [
+    "100644",
+    "161170be35e5025b893484482f3431269f568caf"
+  ],
+  "client/art/lockerroom/red_3.webp": [
+    "100644",
+    "02b8ccd27f60d800bd1a60cba748f04ad581d142"
+  ],
+  "client/art/lockerroom/red_5.webp": [
+    "100644",
+    "9a61802c8a839a25b083f4cae84cb3ce4bb09718"
+  ],
+  "client/art/lockerroom/red_6.webp": [
+    "100644",
+    "5b2f0849e51309abe8d48084867b09b3a6b6bf99"
+  ],
+  "client/art/lockerroom/yellow_1.webp": [
+    "100644",
+    "025d7c9ef43defd99c120f24d37851b252debc6a"
+  ],
+  "client/art/lockerroom/yellow_2.webp": [
+    "100644",
+    "8863413af7a74a9623cb6836694017dde6f6e1ba"
+  ],
+  "client/art/lockerroom/yellow_3.webp": [
+    "100644",
+    "43c2a42ebb001de64a8f00459fc1a38a5c1e3115"
+  ],
+  "client/art/lockerroom/yellow_5.webp": [
+    "100644",
+    "890e447b8600bbd36cdfd34bc3f3e89aaf8fe40b"
+  ],
+  "client/art/lockerroom/yellow_6.webp": [
+    "100644",
+    "87f265a55fbfc6cfa9a3caee8c85eb1bcbba64b1"
+  ],
+  "client/art/walls/wall_h.jpg": [
+    "100644",
+    "0ad1008bacedfe20405e05b862747362cde21c26"
+  ],
+  "client/art/walls/wall_v.jpg": [
+    "100644",
+    "a0f32c5de12d796b94bdb693be3afb1dd1c95272"
+  ],
+  "client/broadcast_core.js": [
+    "100644",
+    "5c57e30295f4f8856855ab5dbd0f11c565b93409"
+  ],
+  "client/chrome_common.js": [
+    "100644",
+    "fd992f3d049110dd9b464c450286c1048199ad91"
+  ],
+  "client/global_plus_pov.html": [
+    "100644",
+    "9a6b294753e774ef6592eabbfd98124c1ccdda13"
+  ],
+  "client/hudharness.html": [
+    "100644",
+    "e4eabcb1a481089c4f3a0718b387104995741606"
+  ],
+  "client/league_replayer.html": [
+    "100644",
+    "5c2a4373c3e9feb3433f41c7f7f3f539b8822e36"
+  ],
+  "client/player_client.html": [
+    "100644",
+    "568d56bebeb33c10561692359a736d0d58457a03"
+  ],
+  "client/player_controls.js": [
+    "100644",
+    "1c140924231cca645b81d470a8b452828e4e6448"
+  ],
+  "client/player_hud.js": [
+    "100644",
+    "53d0474aa7151b242b850ead70823d45bf85f0b3"
+  ],
+  "client/replay_broadcast.html": [
+    "100644",
+    "073706c88c63d6b4ccc02993f03700331102736c"
+  ],
+  "client/takeover.html": [
+    "100644",
+    "d49da68f536173319f32b3b8710ab3a19f155e63"
+  ],
+  "compose.yaml": [
+    "100644",
+    "0641022a2d2cb82ba91bc85179390f1ff1fe5877"
+  ],
+  "config.firstclick.json": [
+    "100644",
+    "fc7c9192c62c93f56c8dd914251d8b1fab87515e"
+  ],
+  "config.freeplay-8v8.json": [
+    "100644",
+    "125dc196db7acbce0313389e7d8c4aebe42d5cad"
+  ],
+  "config.freeplay-assist.json": [
+    "100644",
+    "2f38e7cbf064557b5caab556d2f4dd6661042288"
+  ],
+  "config.freeplay-demo.json": [
+    "100644",
+    "9767b0528348e89f5d84da6704bbcda7fc20e4fd"
+  ],
+  "config.freeplay.json": [
+    "100644",
+    "239ca28a55621c4ff227807734b983fd582ef2d4"
+  ],
+  "config.json": [
+    "100644",
+    "871ffbf9fbb497893cdc6ecc68c459b72740df8e"
+  ],
+  "config.practice.json": [
+    "100644",
+    "e10c46ec641a5364edb379894e95f4a66088a10c"
+  ],
+  "coworld_manifest_br.json": [
+    "100644",
+    "69fb7b02c00fab187b31e9826ba8752a72b0eb1f"
+  ],
+  "coworld_manifest_paintbot.json": [
+    "100644",
+    "7e4132b754011d2141d25aee3638c48bd45fd91d"
+  ],
+  "ctf.nimble": [
+    "100644",
+    "37002ef0e5e2943e0903558dd44b2aa53aa386f6"
+  ],
+  "data/FONT_LICENSE.txt": [
+    "100644",
+    "166330ded5f008158e0f2c2ee2446d6b7ec45778"
+  ],
+  "data/arena_floor.png": [
+    "100644",
+    "2022092c2141d0ece2e638eaea65598671d966b2"
+  ],
+  "data/ascii.aseprite": [
+    "100644",
+    "59624f23ed3404784d3c92cd1b52d1827ae97c4a"
+  ],
+  "data/ascii.png": [
+    "100644",
+    "107c9ed5ef923cb69d7c0380f8c68a4182150f61"
+  ],
+  "data/atlas/abutton.png": [
+    "100644",
+    "268a20f43b3936be3a4eb764bf7775f21303457d"
+  ],
+  "data/atlas/bbutton.png": [
+    "100644",
+    "c9bd95b079d2f8d9bbda902e5987776cde796ebf"
+  ],
+  "data/atlas/button.png": [
+    "100644",
+    "3a5ded1709e6123f13a2d790d181f9992721b94c"
+  ],
+  "data/atlas/dpad.png": [
+    "100644",
+    "be3924561177f1c3600a1d692126e42ab25f8880"
+  ],
+  "data/atlas/nes-pixel.ttf": [
+    "100644",
+    "3d743a19ff338734395f9f372276e53e57b7e14a"
+  ],
+  "data/atlas/shell.png": [
+    "100644",
+    "06426268e34bd5b034f0b275a039ccd2a3d0827e"
+  ],
+  "data/bandage.png": [
+    "100644",
+    "03ead52b1868c1d5cc531e0bbc046b55193df721"
+  ],
+  "data/br_map_pool.json": [
+    "100644",
+    "ffc4df368eca21b8295383a2e8ff062d44413371"
+  ],
+  "data/br_s2_map_pool.json": [
+    "100644",
+    "195b7a883cf293d1a84b50e72880678a6f1542ad"
+  ],
+  "data/crew.aseprite": [
+    "100644",
+    "8a275f4a77c49c0811c67d7bb9b1ac7de150ed27"
+  ],
+  "data/crew.png": [
+    "100644",
+    "6af1a9b19358f93a8e9c22039e81f547ad99e224"
+  ],
+  "data/darkbg.aseprite": [
+    "100644",
+    "2a4e6a86f9974a4e4cd21f4c26165a64316ee5f1"
+  ],
+  "data/font.ttf": [
+    "100644",
+    "d43750bd05c130d36c8e7fbeb06ecd7c5d3c3b17"
+  ],
+  "data/heart_azure.png": [
+    "100644",
+    "ff64af59444c601318d8830bfaa93d2e24d566b4"
+  ],
+  "data/heart_black.png": [
+    "100644",
+    "d642a0531e5e63eaf9b466819a1a51d597896699"
+  ],
+  "data/heart_blue.png": [
+    "100644",
+    "396c16ed364e4f581cb32c7ed188c24d450bb6be"
+  ],
+  "data/heart_green.png": [
+    "100644",
+    "df0f1680deca2b92067db69485566a65a064b2f0"
+  ],
+  "data/heart_ivory.png": [
+    "100644",
+    "5d63310921d9590f6b7ceb4c57698fbdf8b0c915"
+  ],
+  "data/heart_lime.png": [
+    "100644",
+    "a97b0d981667d85ae516f8af98b9a6e450b7f768"
+  ],
+  "data/heart_navy.png": [
+    "100644",
+    "b8da097136b9982f31b6492165c5b5372dab181f"
+  ],
+  "data/heart_orange.png": [
+    "100644",
+    "efead0a66badcec3b5b3be97796ae19caa4f42f3"
+  ],
+  "data/heart_peach.png": [
+    "100644",
+    "042009a39637516e0d24ce30da5134e8b5f7f688"
+  ],
+  "data/heart_pink.png": [
+    "100644",
+    "8bef15477759861ff3cc6a9fdbfff9a2543aa9bc"
+  ],
+  "data/heart_plum.png": [
+    "100644",
+    "79b768ad6071e6a4d88968f2b582f39501a04e47"
+  ],
+  "data/heart_red.png": [
+    "100644",
+    "47ab8869f7f767e236c740e37a767e2c90fa9e14"
+  ],
+  "data/heart_rust.png": [
+    "100644",
+    "ad009a78ce5b25e9a70eceea0a2f9e5f1ec14775"
+  ],
+  "data/heart_silver.png": [
+    "100644",
+    "8c29cab6e2afa4534abffc01e2eb18c4639196f9"
+  ],
+  "data/heart_umber.png": [
+    "100644",
+    "8fdeeb94c3a63c682408242a0f3c107e50d1e3dd"
+  ],
+  "data/heart_yellow.png": [
+    "100644",
+    "0447ead1f9becf39d98a596dc603fd274f2ddcb3"
+  ],
+  "data/hopper.png": [
+    "100644",
+    "28b9890a1948ae41c2a465d7004cc0f220c52d6c"
+  ],
+  "data/marker_half.png": [
+    "100644",
+    "8506c3883b6c345b6355172f737a0bb094b55504"
+  ],
+  "data/medkit.png": [
+    "100644",
+    "d3b9fa7d60f9d1a23db20239255bd9c9e996d667"
+  ],
+  "data/paintbomb.png": [
+    "100644",
+    "34ae71e4386a0f5be6f39cd031b8d08aebfb5e50"
+  ],
+  "data/paintgun.png": [
+    "100644",
+    "69008729a8640513a27e385c7b35caa04d2eb8db"
+  ],
+  "data/paintgun_topdown.png": [
+    "100644",
+    "08d0dec25acaf7374955ce1aa95f238c179c3260"
+  ],
+  "data/pallete.aseprite": [
+    "100644",
+    "f58a968a9d03d35e9d4e1aa4b2530b582849b8d1"
+  ],
+  "data/pallete.png": [
+    "100644",
+    "0151d014d917159d0b61a2dbc91b214c7efedfbb"
+  ],
+  "data/ped_azure.png": [
+    "100644",
+    "f3bcf1a24a7eef5008500014da2b4ff42cae2a80"
+  ],
+  "data/ped_black.png": [
+    "100644",
+    "e6e910b1c669269e8e778daf6dbdc46f77b0ac8f"
+  ],
+  "data/ped_blue.png": [
+    "100644",
+    "363ebee7374a1b614d70b2efa54a9bb9b5f79bbd"
+  ],
+  "data/ped_green.png": [
+    "100644",
+    "b43102edd9c23eba4330b0fe8239f572d1b1b76d"
+  ],
+  "data/ped_ivory.png": [
+    "100644",
+    "213c48a7363ae3be073af52774bcc441f0941ecf"
+  ],
+  "data/ped_lime.png": [
+    "100644",
+    "ad8f708b7dfa6249d0e2453c418f1cabfe59b882"
+  ],
+  "data/ped_navy.png": [
+    "100644",
+    "0c442ddc55be8caa9fd6569e963437691bfc460b"
+  ],
+  "data/ped_orange.png": [
+    "100644",
+    "7a424aa191f8739e8acf6efd6237a25bde1d7b82"
+  ],
+  "data/ped_peach.png": [
+    "100644",
+    "0cdd90b756b7c8b0dd6969338f37c65a74603e57"
+  ],
+  "data/ped_pink.png": [
+    "100644",
+    "f98d32a9d84ec43eacde5d78cdb8280b6bd555a0"
+  ],
+  "data/ped_plum.png": [
+    "100644",
+    "0e2dcabfed2c32a8330990fb78c285b5b31c1ce3"
+  ],
+  "data/ped_red.png": [
+    "100644",
+    "17099ba6ea7707752c218255cc98d20a5c4af9ee"
+  ],
+  "data/ped_rust.png": [
+    "100644",
+    "5b9ef04f3b7804d69d90078910cbe39d2f00fb4e"
+  ],
+  "data/ped_silver.png": [
+    "100644",
+    "f13b5cbfa2eed14b7213bc48621a5dc702455d1c"
+  ],
+  "data/ped_umber.png": [
+    "100644",
+    "0aab32236e43c08c5d962e37a71b28d6667b7a00"
+  ],
+  "data/ped_yellow.png": [
+    "100644",
+    "ea54b0627e47571035513fbfd9b768dda75ac864"
+  ],
+  "data/rig_real/anchors.json": [
+    "100644",
+    "6ce00645cb0601cac2d2274454997565e4ffdb69"
+  ],
+  "data/rig_real/azure/arm_l.png": [
+    "100644",
+    "79c14020920a91e8330a2538c51678737f88d953"
+  ],
+  "data/rig_real/azure/arm_r.png": [
+    "100644",
+    "c6a7302dfbb05258d082a81b3caaca547f76a753"
+  ],
+  "data/rig_real/azure/head.png": [
+    "100644",
+    "b6f7d40419ee799f81b214a65f6ba9af8b13b4c5"
+  ],
+  "data/rig_real/azure/head_crown.png": [
+    "100644",
+    "ae1e334544c7937e3acae3f8706834b90131b9a4"
+  ],
+  "data/rig_real/azure/leg_fl.png": [
+    "100644",
+    "62492b023f0f1773ecbcb5e4643406613c16addd"
+  ],
+  "data/rig_real/azure/leg_fr.png": [
+    "100644",
+    "d1cdd754c2f80ee62da14ac0103385b04d9a3a77"
+  ],
+  "data/rig_real/azure/leg_rear.png": [
+    "100644",
+    "259799da6f032b1adc35a3a08d07ebc1eff46bc4"
+  ],
+  "data/rig_real/azure/wheel_l.png": [
+    "100644",
+    "62e0e9e96665fab9394494752a8d007f5f83e221"
+  ],
+  "data/rig_real/azure/wheel_r.png": [
+    "100644",
+    "5182cc4b9f1f1219f9f959534c1c7fc06eb67cee"
+  ],
+  "data/rig_real/azure/wheel_rear.png": [
+    "100644",
+    "c904df14c2e821d1d955789cec0973ee26bd2e32"
+  ],
+  "data/rig_real/black/arm_l.png": [
+    "100644",
+    "b8a9a40b7055af9c9fdf1c74006f85bd9fce490b"
+  ],
+  "data/rig_real/black/arm_r.png": [
+    "100644",
+    "8282d63f9c501f0c687a0b313ba1a555548760f3"
+  ],
+  "data/rig_real/black/head.png": [
+    "100644",
+    "39c0a3626791afca59358234c9f7ac1657912273"
+  ],
+  "data/rig_real/black/head_crown.png": [
+    "100644",
+    "0cf41a28546ad8d9846b63b0e6084b17e950997c"
+  ],
+  "data/rig_real/black/leg_fl.png": [
+    "100644",
+    "491344a2a1280ad421b93069b1d17d05cb5cc40c"
+  ],
+  "data/rig_real/black/leg_fr.png": [
+    "100644",
+    "6e25c6980303daf5029403dc4a4b20a9b2331caa"
+  ],
+  "data/rig_real/black/leg_rear.png": [
+    "100644",
+    "54f6661c71c953f79741f90000d76c2648d43d19"
+  ],
+  "data/rig_real/black/wheel_l.png": [
+    "100644",
+    "9f9fc216accf43cdf5145e04defd0f7dccd27c93"
+  ],
+  "data/rig_real/black/wheel_r.png": [
+    "100644",
+    "73a532ab56acd0232853448615356332328164f5"
+  ],
+  "data/rig_real/black/wheel_rear.png": [
+    "100644",
+    "3a7f973ca1fc37f4bc1131df4d66f36a67d3afb2"
+  ],
+  "data/rig_real/blue/arm_l.png": [
+    "100644",
+    "a44525b20eff35e47038e02ecb6c7d320d0e3843"
+  ],
+  "data/rig_real/blue/arm_r.png": [
+    "100644",
+    "4d54be4154aba64d26b953f5c87a6e822c073e9e"
+  ],
+  "data/rig_real/blue/head.png": [
+    "100644",
+    "728868c26f176b844a436c8cd40e9d450b46b63b"
+  ],
+  "data/rig_real/blue/head_crown.png": [
+    "100644",
+    "d3228430bc59b51d55de1898f80d8b069c240c1b"
+  ],
+  "data/rig_real/blue/leg_fl.png": [
+    "100644",
+    "9e93679f4c79d4d26b8d6cb83920339ef62ba671"
+  ],
+  "data/rig_real/blue/leg_fr.png": [
+    "100644",
+    "13e78c2310a018fbdfe1c5f00fa120498f8f9553"
+  ],
+  "data/rig_real/blue/leg_rear.png": [
+    "100644",
+    "1945949fc5f3e8fa0ac6707cf37d85bbfc616b50"
+  ],
+  "data/rig_real/blue/wheel_l.png": [
+    "100644",
+    "4688d3dcf3b3687f311c2a783fb300d75ddfe285"
+  ],
+  "data/rig_real/blue/wheel_r.png": [
+    "100644",
+    "130dadc22ee0baf3065ce9ac8fac82a90dce32bf"
+  ],
+  "data/rig_real/blue/wheel_rear.png": [
+    "100644",
+    "3979ed27a5485a22c6e204de7693ea5d6f0e9b8e"
+  ],
+  "data/rig_real/green/arm_l.png": [
+    "100644",
+    "8a5d1d049116f056fae0af377c61505fdf91b4fa"
+  ],
+  "data/rig_real/green/arm_r.png": [
+    "100644",
+    "fa3da59fd81d60be1531824497bfba48cbbf393b"
+  ],
+  "data/rig_real/green/head.png": [
+    "100644",
+    "200ed88cb9a7a3e8b63911813c95d6fe39c32e72"
+  ],
+  "data/rig_real/green/head_crown.png": [
+    "100644",
+    "45d73c20abef695566b9c2c87612ca0e83952d9d"
+  ],
+  "data/rig_real/green/leg_fl.png": [
+    "100644",
+    "c510c108fc7c406adf134a53ae34f442a1e6abd8"
+  ],
+  "data/rig_real/green/leg_fr.png": [
+    "100644",
+    "1b0f50baeb91d18c820d9e0bb15b56b1800c5621"
+  ],
+  "data/rig_real/green/leg_rear.png": [
+    "100644",
+    "061b2cf9a2dc725e5105e5fda6576950f25868c1"
+  ],
+  "data/rig_real/green/wheel_l.png": [
+    "100644",
+    "fe965b48ae0bdfe43c6ee1e9b4d559c847ff8e75"
+  ],
+  "data/rig_real/green/wheel_r.png": [
+    "100644",
+    "aa51aacafa8647d1582788746bf2e4c9f1d04a6f"
+  ],
+  "data/rig_real/green/wheel_rear.png": [
+    "100644",
+    "4b1d5248eeb522be9ccc0f89aae482ecc24d5841"
+  ],
+  "data/rig_real/ivory/arm_l.png": [
+    "100644",
+    "ec189c23069c6b82698d9dcfd433cb6574efcf61"
+  ],
+  "data/rig_real/ivory/arm_r.png": [
+    "100644",
+    "9ffdab75fc0aa4ce46f50be3c85f1515b28c781c"
+  ],
+  "data/rig_real/ivory/head.png": [
+    "100644",
+    "4f346c1288f9da98085efa4c6aa70b67249aee59"
+  ],
+  "data/rig_real/ivory/head_crown.png": [
+    "100644",
+    "b42af2b84a654652775cf7895f0c49093570fefe"
+  ],
+  "data/rig_real/ivory/leg_fl.png": [
+    "100644",
+    "54eac9509da69c8afd291a207e9bf037b37c9f69"
+  ],
+  "data/rig_real/ivory/leg_fr.png": [
+    "100644",
+    "9d8e20c6f575f8cf7067148c2bd0a9f0f39aa5ec"
+  ],
+  "data/rig_real/ivory/leg_rear.png": [
+    "100644",
+    "a17f60cab1afaddd527f536e0db0790f2bd0b273"
+  ],
+  "data/rig_real/ivory/wheel_l.png": [
+    "100644",
+    "0fdd36dda15d571563a6438233139dca21939894"
+  ],
+  "data/rig_real/ivory/wheel_r.png": [
+    "100644",
+    "7e35ad54173367621dfefad573fde57398925565"
+  ],
+  "data/rig_real/ivory/wheel_rear.png": [
+    "100644",
+    "c153915336b83651c3a3639bb88a9b9faf1cff3b"
+  ],
+  "data/rig_real/lime/arm_l.png": [
+    "100644",
+    "57a5ed8f1d80d254e09f0938d792120193861509"
+  ],
+  "data/rig_real/lime/arm_r.png": [
+    "100644",
+    "0ebc45fbb9caa6cc2ce96fdc52adfd85e98c4ff8"
+  ],
+  "data/rig_real/lime/head.png": [
+    "100644",
+    "4067ac0ff2ab4ce65bd904519206d1dcade836a3"
+  ],
+  "data/rig_real/lime/head_crown.png": [
+    "100644",
+    "0c5675c19785e601cc18f0b88819c7299751d68b"
+  ],
+  "data/rig_real/lime/leg_fl.png": [
+    "100644",
+    "4d384966c9c66a17ac7ba38f4e5ccd67efb1d585"
+  ],
+  "data/rig_real/lime/leg_fr.png": [
+    "100644",
+    "0d70d3cb54ca49cb0d2841a4fadd9ac35a6e87b6"
+  ],
+  "data/rig_real/lime/leg_rear.png": [
+    "100644",
+    "b64b090e6a2646e628d9b169af760ba91431ee4a"
+  ],
+  "data/rig_real/lime/wheel_l.png": [
+    "100644",
+    "f0a6a69f55b5e6da04d7d421e65cdc812193022c"
+  ],
+  "data/rig_real/lime/wheel_r.png": [
+    "100644",
+    "c79257e0107b38e5b97ee89555fa572965600d67"
+  ],
+  "data/rig_real/lime/wheel_rear.png": [
+    "100644",
+    "7fb49190bb656b155edcdc5e4d1fa8ef523f400c"
+  ],
+  "data/rig_real/navy/arm_l.png": [
+    "100644",
+    "60bffa3012231aee858a8023adcbc9c811d6416e"
+  ],
+  "data/rig_real/navy/arm_r.png": [
+    "100644",
+    "4b703dc6f00b872700b1ce3828973d0d89e1d732"
+  ],
+  "data/rig_real/navy/head.png": [
+    "100644",
+    "de1d7da5a613316a88d2d1f0054b155fea5a2231"
+  ],
+  "data/rig_real/navy/head_crown.png": [
+    "100644",
+    "4b5243da62e9c8e2892bbeabae6f576952c66da7"
+  ],
+  "data/rig_real/navy/leg_fl.png": [
+    "100644",
+    "3fb54d36b66754430411f5521dde2f8f103476a6"
+  ],
+  "data/rig_real/navy/leg_fr.png": [
+    "100644",
+    "8e65f329f5901033a41b81369671c155ded0509c"
+  ],
+  "data/rig_real/navy/leg_rear.png": [
+    "100644",
+    "5129069c33aa3b4ab8e34ca9a403a0d090be4ada"
+  ],
+  "data/rig_real/navy/wheel_l.png": [
+    "100644",
+    "d02b879203c1225a3189f85f7ad054fb2ed04181"
+  ],
+  "data/rig_real/navy/wheel_r.png": [
+    "100644",
+    "e75adb19538209b5cfaa069affbd9010b46062e3"
+  ],
+  "data/rig_real/navy/wheel_rear.png": [
+    "100644",
+    "6235837d63e7f468d009eb30c51646b37528beea"
+  ],
+  "data/rig_real/orange/arm_l.png": [
+    "100644",
+    "0dde279e97023830fafbff650f3c993206dd887f"
+  ],
+  "data/rig_real/orange/arm_r.png": [
+    "100644",
+    "62804ba6125f1ca80f105b3d8eba20c7bcdcdc1d"
+  ],
+  "data/rig_real/orange/head.png": [
+    "100644",
+    "f73792f944b2ff107a9894e33ef0518945d9d063"
+  ],
+  "data/rig_real/orange/head_crown.png": [
+    "100644",
+    "8507cf7c04bd53c60adec0688a1b4c6a75eb3768"
+  ],
+  "data/rig_real/orange/leg_fl.png": [
+    "100644",
+    "577263b1303a83fac0710f573b5fe263e8648727"
+  ],
+  "data/rig_real/orange/leg_fr.png": [
+    "100644",
+    "ab6eb4ff70a1a6389141b1ec10a0047bb1746d12"
+  ],
+  "data/rig_real/orange/leg_rear.png": [
+    "100644",
+    "bdfda7a317df25f1183114433f467a79dca53e5b"
+  ],
+  "data/rig_real/orange/wheel_l.png": [
+    "100644",
+    "46e13505964d3276b5e516b1ab85aa8bde7a2727"
+  ],
+  "data/rig_real/orange/wheel_r.png": [
+    "100644",
+    "db3524431078a4a2c161ed215835b436c4992653"
+  ],
+  "data/rig_real/orange/wheel_rear.png": [
+    "100644",
+    "0ef0c4c91cc48742228d83b47000109a5c5adfae"
+  ],
+  "data/rig_real/peach/arm_l.png": [
+    "100644",
+    "20d219f5e894933c8ff5224345232e68cc31aa96"
+  ],
+  "data/rig_real/peach/arm_r.png": [
+    "100644",
+    "53f409f0bbb569aa4ca71bc539fde0a7dce0ceba"
+  ],
+  "data/rig_real/peach/head.png": [
+    "100644",
+    "af56688c9faec3f76ae501bc3a6051dc0b8ccc1a"
+  ],
+  "data/rig_real/peach/head_crown.png": [
+    "100644",
+    "eeee9457e4a2202a9485a429209ee0df62be5008"
+  ],
+  "data/rig_real/peach/leg_fl.png": [
+    "100644",
+    "8433c76b14dbee9b6aece345689ad4e0475a2e87"
+  ],
+  "data/rig_real/peach/leg_fr.png": [
+    "100644",
+    "8ddc2c403087b49fb3f63d9274b4b2f7326be077"
+  ],
+  "data/rig_real/peach/leg_rear.png": [
+    "100644",
+    "4dc63ad78832808fd8a77fb5f05058bb0d2ef8eb"
+  ],
+  "data/rig_real/peach/wheel_l.png": [
+    "100644",
+    "10e7239e45fcf3e38651b0428e3a379fcad599f3"
+  ],
+  "data/rig_real/peach/wheel_r.png": [
+    "100644",
+    "1790a4757226020cdf24f3fbd506c45a106f3d83"
+  ],
+  "data/rig_real/peach/wheel_rear.png": [
+    "100644",
+    "a37574d17a8b22db8e98e7e634b50c45b27d1aa1"
+  ],
+  "data/rig_real/pink/arm_l.png": [
+    "100644",
+    "0c45eb1802ee02eb4d9097262efe65300e6b8da7"
+  ],
+  "data/rig_real/pink/arm_r.png": [
+    "100644",
+    "899b6625198d84a07353a7f261189ea4788e6c6d"
+  ],
+  "data/rig_real/pink/head.png": [
+    "100644",
+    "c6fa2f9ee54f8f87d57b94de4d483aa37cdf9879"
+  ],
+  "data/rig_real/pink/head_crown.png": [
+    "100644",
+    "a6ea81c24870f003ebe4e6854d3ac42afa168071"
+  ],
+  "data/rig_real/pink/leg_fl.png": [
+    "100644",
+    "91ffb84f0bfcb030f2addfbc4493aaf87457fa5f"
+  ],
+  "data/rig_real/pink/leg_fr.png": [
+    "100644",
+    "729fbd0cd2cbbb0a9abae5ae50c9dac9eacf8eea"
+  ],
+  "data/rig_real/pink/leg_rear.png": [
+    "100644",
+    "79f92460428859b3f6454e65bbfd3ffa6f5ae106"
+  ],
+  "data/rig_real/pink/wheel_l.png": [
+    "100644",
+    "bd07b176a54f4950b977ae969052441cc6919459"
+  ],
+  "data/rig_real/pink/wheel_r.png": [
+    "100644",
+    "1c9b75f7957abc9dcb33d1b504f34ae235dcd041"
+  ],
+  "data/rig_real/pink/wheel_rear.png": [
+    "100644",
+    "25b9d6b2dcb66b68d9524be306cdea22a3e5fd29"
+  ],
+  "data/rig_real/plum/arm_l.png": [
+    "100644",
+    "4689d67ef8ffb430a2162e50925ba1482fe9afa5"
+  ],
+  "data/rig_real/plum/arm_r.png": [
+    "100644",
+    "b5d0140ebbbb345597e352294649a8abb912ccee"
+  ],
+  "data/rig_real/plum/head.png": [
+    "100644",
+    "c6f29b24291d607532e210a9090be89536e9fd05"
+  ],
+  "data/rig_real/plum/head_crown.png": [
+    "100644",
+    "6e42738dcfd5a85db421c21cbe42486cb85366fe"
+  ],
+  "data/rig_real/plum/leg_fl.png": [
+    "100644",
+    "5067ce9911ea2fb7a17af9ec809b248eb0bdc759"
+  ],
+  "data/rig_real/plum/leg_fr.png": [
+    "100644",
+    "8bf80b6f441d1c1ff626c4cbb33cf4b079ac4349"
+  ],
+  "data/rig_real/plum/leg_rear.png": [
+    "100644",
+    "d13b3e1b2ea285123e76b9d85f1d40ca716afa5a"
+  ],
+  "data/rig_real/plum/wheel_l.png": [
+    "100644",
+    "c00ea781cc9a83edd6479aff673fd9445c6e5509"
+  ],
+  "data/rig_real/plum/wheel_r.png": [
+    "100644",
+    "61905064133893ddc3501f5d519c7e2343c67cc3"
+  ],
+  "data/rig_real/plum/wheel_rear.png": [
+    "100644",
+    "0cae5b8511c6946fdc9565639b281846633a61d1"
+  ],
+  "data/rig_real/red/arm_l.png": [
+    "100644",
+    "784496f2168e3e04a7febc92e198676b6fcad211"
+  ],
+  "data/rig_real/red/arm_r.png": [
+    "100644",
+    "9b97b14eb5a1b92e7575d9eadab4b273cdc90a3e"
+  ],
+  "data/rig_real/red/head.png": [
+    "100644",
+    "5d708d98eaa9f4d4815d671561d5b6b2c849394a"
+  ],
+  "data/rig_real/red/head_crown.png": [
+    "100644",
+    "352b17137f9cafd66609271b12f26ac8620d62cf"
+  ],
+  "data/rig_real/red/leg_fl.png": [
+    "100644",
+    "d244dfd36678c34456e7122f19be8bd8118172fa"
+  ],
+  "data/rig_real/red/leg_fr.png": [
+    "100644",
+    "473e7c0c178fd6a05c5c40616295ffb9b1bca8bf"
+  ],
+  "data/rig_real/red/leg_rear.png": [
+    "100644",
+    "a1998983c90d3e93a14793014ffc7ff1ccf5db81"
+  ],
+  "data/rig_real/red/wheel_l.png": [
+    "100644",
+    "42b145529d870cc3794077a79b4128f7539d7207"
+  ],
+  "data/rig_real/red/wheel_r.png": [
+    "100644",
+    "a5062f2b41242c76b4775173955a53a5e9daf9e0"
+  ],
+  "data/rig_real/red/wheel_rear.png": [
+    "100644",
+    "3c110356756825fd1486948d68167ac50954ff48"
+  ],
+  "data/rig_real/rust/arm_l.png": [
+    "100644",
+    "f1c030be25b81f8170c1c584042bbda78e9ddef0"
+  ],
+  "data/rig_real/rust/arm_r.png": [
+    "100644",
+    "54dc86f725d1350e7a00d6ab2885661fb1ccde82"
+  ],
+  "data/rig_real/rust/head.png": [
+    "100644",
+    "57ab1737af2782dd582df8775fe8a963433fc179"
+  ],
+  "data/rig_real/rust/head_crown.png": [
+    "100644",
+    "77f667b676d36745c9792a64d1ec3c6becced092"
+  ],
+  "data/rig_real/rust/leg_fl.png": [
+    "100644",
+    "677f11ccf5df441725f6e707d1dfb947d4d83d18"
+  ],
+  "data/rig_real/rust/leg_fr.png": [
+    "100644",
+    "0fd415b267fda4f8792a675e9791ef0c2d2c25b0"
+  ],
+  "data/rig_real/rust/leg_rear.png": [
+    "100644",
+    "f875533ae29c79186912ea0b3dec4e04ebd8705d"
+  ],
+  "data/rig_real/rust/wheel_l.png": [
+    "100644",
+    "3097339fbc7a51c6b6abcc60e325bf657b4ad06d"
+  ],
+  "data/rig_real/rust/wheel_r.png": [
+    "100644",
+    "8e45c5a643708dceba2c0a91b4aa9a037a765262"
+  ],
+  "data/rig_real/rust/wheel_rear.png": [
+    "100644",
+    "d0610d6d47326760c6d7b9eab136adb0cc61321f"
+  ],
+  "data/rig_real/silver/arm_l.png": [
+    "100644",
+    "4430af0c4dab10cf657dcfd4d5fe102db682399a"
+  ],
+  "data/rig_real/silver/arm_r.png": [
+    "100644",
+    "f99bc387771d8aa724cb5345afe4b88161af2946"
+  ],
+  "data/rig_real/silver/head.png": [
+    "100644",
+    "538fdc47acebc4d195d7fc7e990461b9b8460d6e"
+  ],
+  "data/rig_real/silver/head_crown.png": [
+    "100644",
+    "0ff307356cb9a15a5b1949975a35add268ef4c6a"
+  ],
+  "data/rig_real/silver/leg_fl.png": [
+    "100644",
+    "2fffc2fbcc8a3f04e3a9a7986e1d3e466edb7cc2"
+  ],
+  "data/rig_real/silver/leg_fr.png": [
+    "100644",
+    "c0178a5d9ca09455683afd19ae45bff5bef3ecbc"
+  ],
+  "data/rig_real/silver/leg_rear.png": [
+    "100644",
+    "0c8a049da4752c15632b3c6b3fc954b53dcbb77a"
+  ],
+  "data/rig_real/silver/wheel_l.png": [
+    "100644",
+    "29e98997db4166544fbdb3bbd3a2b57d914c370a"
+  ],
+  "data/rig_real/silver/wheel_r.png": [
+    "100644",
+    "67149ef26bfab0e82464e7cca50a1ff43a9df117"
+  ],
+  "data/rig_real/silver/wheel_rear.png": [
+    "100644",
+    "07501dc59e7312ab102692644748d600f5322b5c"
+  ],
+  "data/rig_real/umber/arm_l.png": [
+    "100644",
+    "cf3dfbbb67bd334cfe7afd451d13c49afe730060"
+  ],
+  "data/rig_real/umber/arm_r.png": [
+    "100644",
+    "c669c190825c03461da6c7f1c16d7a66ffdaadb2"
+  ],
+  "data/rig_real/umber/head.png": [
+    "100644",
+    "b4be56299e8e2549263bcd1bc6aa8bd1e501a16f"
+  ],
+  "data/rig_real/umber/head_crown.png": [
+    "100644",
+    "e4eab7336b0cc91afbab556ec07017b7808d3910"
+  ],
+  "data/rig_real/umber/leg_fl.png": [
+    "100644",
+    "354158d4f9420a3bfc9a9a10b1eb769b3b1a70f9"
+  ],
+  "data/rig_real/umber/leg_fr.png": [
+    "100644",
+    "82faf6f4f44fa217f3d97c4dc64c2357aaef2680"
+  ],
+  "data/rig_real/umber/leg_rear.png": [
+    "100644",
+    "952a38f1d59949c9945f21d76aba6dfe78cd2374"
+  ],
+  "data/rig_real/umber/wheel_l.png": [
+    "100644",
+    "17c8ec972e7cfc2f83c7ad1afefadff385ed8816"
+  ],
+  "data/rig_real/umber/wheel_r.png": [
+    "100644",
+    "b5b4dbe69e2ef7a12fe1ed2b9776d1e9badd3567"
+  ],
+  "data/rig_real/umber/wheel_rear.png": [
+    "100644",
+    "2863dacc446fc42c946695533fb14762b9199031"
+  ],
+  "data/rig_real/yellow/arm_l.png": [
+    "100644",
+    "7706d432d3aeeed3aa76520b67e3c2ebd27c7ca0"
+  ],
+  "data/rig_real/yellow/arm_r.png": [
+    "100644",
+    "21a8df328a0f283d166115bbd0463acbdef6b5ba"
+  ],
+  "data/rig_real/yellow/head.png": [
+    "100644",
+    "776e399a7ac1af118777a02f947d3f2b71941020"
+  ],
+  "data/rig_real/yellow/head_crown.png": [
+    "100644",
+    "d3151db5dc0ba3e265bfe7159888c55384198068"
+  ],
+  "data/rig_real/yellow/leg_fl.png": [
+    "100644",
+    "20b3ff85e843e3d369b5d199a0bdc0e60c42f3eb"
+  ],
+  "data/rig_real/yellow/leg_fr.png": [
+    "100644",
+    "67b837305e528cb3d62b3b480ee373678a731990"
+  ],
+  "data/rig_real/yellow/leg_rear.png": [
+    "100644",
+    "3f006b10bb7c69123e4c4877a17347f2156a1e00"
+  ],
+  "data/rig_real/yellow/wheel_l.png": [
+    "100644",
+    "7a7b268406dfdf9283ef2e4175e5eb6965d932dd"
+  ],
+  "data/rig_real/yellow/wheel_r.png": [
+    "100644",
+    "8589a38b09d3759298eb2ba8d8817c236cd40f2c"
+  ],
+  "data/rig_real/yellow/wheel_rear.png": [
+    "100644",
+    "46467199f0f88583e56f30ec5a34ee0b43efe50d"
+  ],
+  "data/shield.png": [
+    "100644",
+    "f04edac93a302775cc2bbacaf469678642ccf7c8"
+  ],
+  "data/soldier_azure.png": [
+    "100644",
+    "c4d95be7658a5ac63ababe461cb93fe02a40998b"
+  ],
+  "data/soldier_azure_crown.png": [
+    "100644",
+    "759fb13110bb3c58d19029ef6b0990612385e526"
+  ],
+  "data/soldier_azure_front.png": [
+    "100644",
+    "851566b0e1126ebd1502b447354f5e8c915e5d16"
+  ],
+  "data/soldier_azure_front_gun.png": [
+    "100644",
+    "98b3a20e7007500d4e0bd2f27a45251622603393"
+  ],
+  "data/soldier_black.png": [
+    "100644",
+    "4755fe37968f90392cb635b3286ae080ff0ba15c"
+  ],
+  "data/soldier_black_crown.png": [
+    "100644",
+    "fedbe3dd5681cea05ab98fbe3eed4f6f311a55b9"
+  ],
+  "data/soldier_black_front.png": [
+    "100644",
+    "73e8421c09c5d6956a32f6335bd51fc12ed5644e"
+  ],
+  "data/soldier_black_front_gun.png": [
+    "100644",
+    "d8c58f02ea545d23ddf8b8ed7b96d60f032ac558"
+  ],
+  "data/soldier_blue.png": [
+    "100644",
+    "436dab2b89ebc5062cec38a25ac06121d9e138f6"
+  ],
+  "data/soldier_blue_crown.png": [
+    "100644",
+    "4ca269bc721f1d01f9e689c1bb0497d74e6ae122"
+  ],
+  "data/soldier_blue_front.png": [
+    "100644",
+    "2fdc20f22d8a531861a1a3fa30e93966c31a275c"
+  ],
+  "data/soldier_blue_front_gun.png": [
+    "100644",
+    "642cda3438aa1b8a530d3daf71b2b5e9979e0d58"
+  ],
+  "data/soldier_green.png": [
+    "100644",
+    "795f3d125b4da9da6652c383a9aab82e116fd087"
+  ],
+  "data/soldier_green_crown.png": [
+    "100644",
+    "28b19eb83e06ee94370e21617c93bb80fbc05ea9"
+  ],
+  "data/soldier_green_front.png": [
+    "100644",
+    "410dd51cc6ce93f9204c03202509985911ed6bf3"
+  ],
+  "data/soldier_green_front_gun.png": [
+    "100644",
+    "dfe4337bbde8ea41a870c34195d6b858d70af312"
+  ],
+  "data/soldier_ivory.png": [
+    "100644",
+    "b358005893ccbf084f93e2e8241d3b1059e97ccd"
+  ],
+  "data/soldier_ivory_crown.png": [
+    "100644",
+    "86005e10995787150313a2faec5ecdab2f4e3bca"
+  ],
+  "data/soldier_ivory_front.png": [
+    "100644",
+    "9b095688312f136f7773d0d92b7b9188ae22d654"
+  ],
+  "data/soldier_ivory_front_gun.png": [
+    "100644",
+    "dcec575e47cf2498385ffef63dcfa6df976c442d"
+  ],
+  "data/soldier_lime.png": [
+    "100644",
+    "9b923da5fa1661b6182ef388ffc93e6867758978"
+  ],
+  "data/soldier_lime_crown.png": [
+    "100644",
+    "73305a2b4c8b449d6649441b1f177f9b572283e4"
+  ],
+  "data/soldier_lime_front.png": [
+    "100644",
+    "2c9cce0264e7ad2e3830fa15162fab1e2c4dd57b"
+  ],
+  "data/soldier_lime_front_gun.png": [
+    "100644",
+    "e71f348b00f57178c37cbc9821d39a2bb46d1b6d"
+  ],
+  "data/soldier_navy.png": [
+    "100644",
+    "0ec1a7f49f5af4fa4d62c209dd1cdd93c33a6a9f"
+  ],
+  "data/soldier_navy_crown.png": [
+    "100644",
+    "a5f5c7f1dd35d359f27b3a343f617a57918bdb6a"
+  ],
+  "data/soldier_navy_front.png": [
+    "100644",
+    "ca06ad6a4e0474b1473c2e889e677d0860b9e243"
+  ],
+  "data/soldier_navy_front_gun.png": [
+    "100644",
+    "99fa86b35c2e9df55e595837ab20672d7398ee4b"
+  ],
+  "data/soldier_orange.png": [
+    "100644",
+    "103bd0ec3c9ed61de661b684e717bc8299a6f08e"
+  ],
+  "data/soldier_orange_crown.png": [
+    "100644",
+    "d2549255e6c127d81d5a9fa01e4a5c492020cacf"
+  ],
+  "data/soldier_orange_front.png": [
+    "100644",
+    "03c1baea653b5515d7125da800d6edfd894df0f1"
+  ],
+  "data/soldier_orange_front_gun.png": [
+    "100644",
+    "6bc2518798552066c067b13caad16ec2f74348bd"
+  ],
+  "data/soldier_peach.png": [
+    "100644",
+    "ab1f220d7d1c8166024fe8f63b5ea5272d3a6461"
+  ],
+  "data/soldier_peach_crown.png": [
+    "100644",
+    "29f65218563308f8e9f91673e2bcf22f50ab3aa7"
+  ],
+  "data/soldier_peach_front.png": [
+    "100644",
+    "7dad5dd606d710f57e5ecd3f8b16805dbbc6510f"
+  ],
+  "data/soldier_peach_front_gun.png": [
+    "100644",
+    "e1c1a276112057369bff78c37e5a4fa1381c0c89"
+  ],
+  "data/soldier_pink.png": [
+    "100644",
+    "05be6c91ad020141a23784c30e9387c3885aaf60"
+  ],
+  "data/soldier_pink_crown.png": [
+    "100644",
+    "a8a529946fc80ebab7b5a3c468b8f5b7cd598162"
+  ],
+  "data/soldier_pink_front.png": [
+    "100644",
+    "7fe4dd9b3c094991a8a35b215358f735eb327b1e"
+  ],
+  "data/soldier_pink_front_gun.png": [
+    "100644",
+    "b43c033e1ad29fa49bd2b61572a961d51920db62"
+  ],
+  "data/soldier_plum.png": [
+    "100644",
+    "90e60b1fa034494a39c6be2af6fbc699a2282e75"
+  ],
+  "data/soldier_plum_crown.png": [
+    "100644",
+    "106aa75d9f08e1086078e3a2236bc634f97913b4"
+  ],
+  "data/soldier_plum_front.png": [
+    "100644",
+    "3c308d3be4b0a2971248f23287f61ca257efaff2"
+  ],
+  "data/soldier_plum_front_gun.png": [
+    "100644",
+    "0afdc13884ec7e5b05d09f4f9f1666f3d4a5398c"
+  ],
+  "data/soldier_red.png": [
+    "100644",
+    "c6d6c3a9600ddcf9e88aeb2fbc4e5efe5243691d"
+  ],
+  "data/soldier_red_crown.png": [
+    "100644",
+    "5d823c7aae6de8607705c88bab33b2698337c90b"
+  ],
+  "data/soldier_red_front.png": [
+    "100644",
+    "70f9d4a0dfc95fe1c75bd9d2852ef6b7d4dbe89b"
+  ],
+  "data/soldier_red_front_gun.png": [
+    "100644",
+    "05a8bc0f322513b5b6087b3ff32556735549f560"
+  ],
+  "data/soldier_rust.png": [
+    "100644",
+    "8deadc68cd09547b181fedf7352734a24d2a6dd3"
+  ],
+  "data/soldier_rust_crown.png": [
+    "100644",
+    "4a93fa0bae2446255892d0b2de7f15799f687a33"
+  ],
+  "data/soldier_rust_front.png": [
+    "100644",
+    "7419ed56b4d7c6226ad3a710a69255666460e57d"
+  ],
+  "data/soldier_rust_front_gun.png": [
+    "100644",
+    "33eb30e19cdce348f5b4781277a35cfc247d83e3"
+  ],
+  "data/soldier_silver.png": [
+    "100644",
+    "dad970527e39f3f7d6654af6d880401f9f330788"
+  ],
+  "data/soldier_silver_crown.png": [
+    "100644",
+    "e4e59d50171c66fde044e0c53993c2efe0976aa2"
+  ],
+  "data/soldier_silver_front.png": [
+    "100644",
+    "1da174f9c93656ffa75a33d49f5430c631cc12cd"
+  ],
+  "data/soldier_silver_front_gun.png": [
+    "100644",
+    "697d8e4d21e19aeeccd802913cb98d0736f02b1a"
+  ],
+  "data/soldier_umber.png": [
+    "100644",
+    "5f9fda08ff60b3d22c0f65c51fe53150f59bb8ce"
+  ],
+  "data/soldier_umber_crown.png": [
+    "100644",
+    "c8124f1b15cd72c83ba2bb3e0eb918945dca03a8"
+  ],
+  "data/soldier_umber_front.png": [
+    "100644",
+    "df7c6b1a6d39b228d0e5554264f47176c32bd5bb"
+  ],
+  "data/soldier_umber_front_gun.png": [
+    "100644",
+    "8d0c00030ffec9956b2b0d4010fc34f766f12aaa"
+  ],
+  "data/soldier_yellow.png": [
+    "100644",
+    "216f0e0e1538049db2f3bec410d0235ff84577b4"
+  ],
+  "data/soldier_yellow_crown.png": [
+    "100644",
+    "43c2fd76d0463a32b89eef1cd34f4834c08ecc5e"
+  ],
+  "data/soldier_yellow_front.png": [
+    "100644",
+    "6ec5dd2b3347ca328ff79427e984b74aafb84de9"
+  ],
+  "data/soldier_yellow_front_gun.png": [
+    "100644",
+    "dae3ad6ea1f7b05c30c211b3f378c82ad099711e"
+  ],
+  "data/spraycan.png": [
+    "100644",
+    "c32ad66e0518ed3ea5954df156dd42cedca2ab1d"
+  ],
+  "data/spraycan_held.png": [
+    "100644",
+    "0e040cc5a2a83c3b3920a1f5b8247c6fd140ae51"
+  ],
+  "data/spritesheet.aseprite": [
+    "100644",
+    "a1fc67404664c3c4a4901c52fa1e0bd0c1abb2d3"
+  ],
+  "deprecated_variants_paintbot.json": [
+    "100644",
+    "2003ec62fd4a27c0cc5d853ad09300590773e464"
+  ],
+  "docs/ACTIVE_USERS.md": [
+    "100644",
+    "769ce48b2c0496e2d1e672460d1f4e2b680f2db3"
+  ],
+  "docs/BLACKBARS_DIAGNOSIS.md": [
+    "100644",
+    "ef1133b1ccdf40ab157810f155ab0fb16d5678ad"
+  ],
+  "docs/BLOCKED_DAMAGE_FIELD.md": [
+    "100644",
+    "561b583010ec942e2c7997a9ee6c119767551b7d"
+  ],
+  "docs/ENV_VARIATION.md": [
+    "100644",
+    "194a3f9245d8920547b0765b05e96685c1ad26b5"
+  ],
+  "docs/MAPKIT.md": [
+    "100644",
+    "a54289f4b42107db45a53d8a18053d82bb66fac2"
+  ],
+  "docs/PROTOCOL.md": [
+    "100644",
+    "515330c30f46a21eeb0dd3f42191d8dfb05fa081"
+  ],
+  "docs/RULES.md": [
+    "100644",
+    "f49a92287ca9c7f6af1e16e6edf1273dd19967c9"
+  ],
+  "docs/SCORING_ERAS.md": [
+    "100644",
+    "78c8f10286708ac32c52436e122e04a1d00dacdd"
+  ],
+  "docs/SEAT_TAKEOVER.md": [
+    "100644",
+    "f23e21c4ee6819d29415bde5587598e951f8cb4c"
+  ],
+  "docs/THEATER_IFRAME_PROXY_FIX.md": [
+    "100644",
+    "1bd34bb8068afc3093251c744c429d2c642e9a5d"
+  ],
+  "docs/coordination/agents-notes.md": [
+    "100644",
+    "30b2f6cfe873b0c95b74216440b74c07007212e8"
+  ],
+  "docs/designs/.nav-rework-brief.md": [
+    "100644",
+    "26b08c666980150b76d9a3e1402bd3c6ae3bf3a5"
+  ],
+  "docs/designs/BR_LADDER.md": [
+    "100644",
+    "1017feb561e91964e959dd7728853f017da173fd"
+  ],
+  "docs/designs/BR_PLAYS.md": [
+    "100644",
+    "ccf6de743d1f569f83230a2008c0360867c65145"
+  ],
+  "docs/designs/BR_SEASON2_LANDING_PLAN.md": [
+    "100644",
+    "56947271bf984f4a813cfd9a2a7f690b892cdca8"
+  ],
+  "docs/designs/BUILDER_DOOR.md": [
+    "100644",
+    "ffc302e2591782080c5d3e53d84f6090b70a6596"
+  ],
+  "docs/designs/ENDCARD_V1_STANDINGS_DELTA.md": [
+    "100644",
+    "e3cefa791db5452d68a11184d087bdb14d0908ee"
+  ],
+  "docs/designs/FRONT_DOOR.md": [
+    "100644",
+    "747f2f47e2d40ec36b5e66669047b7ce14903e54"
+  ],
+  "docs/designs/JOURNEY_MAP.md": [
+    "100644",
+    "6737d07ba3f944515bdff449fc57c69bdd45522b"
+  ],
+  "docs/designs/PLATFORM_LEGIBILITY_DATA.md": [
+    "100644",
+    "074b90889182f0975e6acac7c111401bae240219"
+  ],
+  "docs/designs/SHELL_DEMO.md": [
+    "100644",
+    "2fcef1e3de203fa214aad359949cf22d5ff8a41a"
+  ],
+  "docs/designs/STANDING_SWEEP.md": [
+    "100644",
+    "6925d45030a9899f46674af96910590ada191049"
+  ],
+  "docs/designs/STRANGER_WALK.md": [
+    "100644",
+    "359e7ee43572de377e23b4bb74edeeb2f34b93a9"
+  ],
+  "docs/designs/THE_GAME_EXPLAINS_ITSELF.md": [
+    "100644",
+    "5e182881288e3419c4312504f065c570fb8ca1d1"
+  ],
+  "docs/designs/THE_WHOLE.md": [
+    "100644",
+    "d7b5fbf22f9170f0ffc88f094b97ebf309046fd3"
+  ],
+  "docs/designs/WAVE1_DEMO.md": [
+    "100644",
+    "7520fab7b5ebd19be92a626a5c0820cb727073ba"
+  ],
+  "docs/designs/WHY_ONE.md": [
+    "100644",
+    "b0024c0511f6dbbc758bdbe5eecbb7675e759f39"
+  ],
+  "docs/designs/agent-skins.md": [
+    "100644",
+    "396572143e12c376ec00da254c34575eee3438e1"
+  ],
+  "docs/designs/builder-door/01-local-first.md": [
+    "100644",
+    "ec684aee2c225fdad806692fcc107dd9dc262d23"
+  ],
+  "docs/designs/builder-door/02-cli-wizard.md": [
+    "100644",
+    "760a29f8493a811522877b7f0107ad461f7a0a55"
+  ],
+  "docs/designs/builder-door/03-browser-editor.md": [
+    "100644",
+    "405143e0943f47ae6a3304f007e3042c99a1de38"
+  ],
+  "docs/designs/builder-door/04-dx-evidence.md": [
+    "100644",
+    "6701298257510291bcfc61ae2ca9f8b1d3e4a72a"
+  ],
+  "docs/designs/builder-door/05-our-evidence.md": [
+    "100644",
+    "3d6e6a0172604e95b916e972cc36e8d8ac072e6f"
+  ],
+  "docs/designs/expand-replay-reporter.md": [
+    "100644",
+    "22df065905b7b1e88b7004595e09266e74c7fa60"
+  ],
+  "docs/designs/front-door/evidence-doorstep-bug.png": [
+    "100644",
+    "e36e58690b86f488ebba0ce730f38b51c3cca6af"
+  ],
+  "docs/designs/front-door/index.html": [
+    "100644",
+    "0d75dcfc8e913d8264b0f29aa6bf7ddbffd13f8b"
+  ],
+  "docs/designs/front-door/mock-screenshot.png": [
+    "100644",
+    "08df828c8ceeebf8d551080bab31a093019de74c"
+  ],
+  "docs/designs/glory/CAP-CEILING-S7.md": [
+    "100644",
+    "82e26ad9625f5993211fbc5f99c08e144cc08b1c"
+  ],
+  "docs/designs/glory/CATALOG-V3-DRAFT.md": [
+    "100644",
+    "6d0c114a8902257b703c8d38a58f78c08631db82"
+  ],
+  "docs/designs/glory/CENSUS-2026-09-ACHIEVEMENTS.md": [
+    "100644",
+    "852b97849d8fa96462cfd9c47182eea5a5488238"
+  ],
+  "docs/designs/glory/CENSUS-2026-09.md": [
+    "100644",
+    "6d6847140e6fdf66404389b7f735f724ae05a55a"
+  ],
+  "docs/designs/glory/ENDCARD-ITEMIZATION-SPEC.md": [
+    "100644",
+    "90dd32a1f6891c0b91bdfca91c8177880554d638"
+  ],
+  "docs/designs/glory/LIGHTABLE-MODES-S4B.md": [
+    "100644",
+    "b0fc0d105c741298ad6431912ec8b630021fb3d0"
+  ],
+  "docs/designs/glory/PINBALL-ZIPPER.md": [
+    "100644",
+    "af85e1477a8f655db4c174e7e68edf72e4cadd77"
+  ],
+  "docs/designs/glory/RIG-SIMULATION.md": [
+    "100644",
+    "5aacbf421b45469cbafcd4dddf9b2b935bf90dbf"
+  ],
+  "docs/designs/glory/TARGET-DISTRIBUTION.md": [
+    "100644",
+    "156a7d865fafe07826ad3c18e605a1a2b7ebe000"
+  ],
+  "docs/designs/glory/TOP-ATTRIBUTION.md": [
+    "100644",
+    "90264f20777909ba23b568136b271b33208f03b8"
+  ],
+  "docs/designs/journey-map/handoff-metta-cli-2.md": [
+    "100644",
+    "5c5a1b52247868f01ee74bda0b2541ab4900c89b"
+  ],
+  "docs/designs/journey-map/handoff-metta-cli.md": [
+    "100644",
+    "d16bce0dddd7adcc25fda81e9cdcc88b2f07b99b"
+  ],
+  "docs/designs/journey-map/jm-after.md": [
+    "100644",
+    "53ff1892c036309d5a886488bb06c93f7a8e81cc"
+  ],
+  "docs/designs/journey-map/jm-door.md": [
+    "100644",
+    "a59375dbe448f36effcdb72761594483ee5a1249"
+  ],
+  "docs/designs/journey-map/jm-home.md": [
+    "100644",
+    "e33ca9be830b9fc4dd92de51bc84685d2843a1a5"
+  ],
+  "docs/designs/journey-map/jm-links.md": [
+    "100644",
+    "c662ae8ddcfb443943f3689eccaab4d6f77f59d0"
+  ],
+  "docs/designs/journey-map/jm-prior.md": [
+    "100644",
+    "ddf01e7bab69cc06e773d13cf31e11b217912d44"
+  ],
+  "docs/designs/journey-map/shots/jm-after-01.png": [
+    "100644",
+    "ce0ea1d6e8c6662cc43887ed4811776c24ae5ef6"
+  ],
+  "docs/designs/journey-map/shots/jm-door-01-door.jpg": [
+    "100644",
+    "76ac2436702a4801b0c3dd5be9577ac0b57d24fd"
+  ],
+  "docs/designs/journey-map/shots/jm-door-02-signin.png": [
+    "100644",
+    "711a5ad7a9f5c4f0404928c77a382055d864c2d5"
+  ],
+  "docs/designs/journey-map/shots/jm-door-03-wiki.jpg": [
+    "100644",
+    "84615e487e1873f935f7d93b6a88b4ce3b0cbd6e"
+  ],
+  "docs/designs/journey-map/shots/jm-door-04-build-submit.jpg": [
+    "100644",
+    "4450d77ffb9133ee5f8ff0533bbf46810af502ee"
+  ],
+  "docs/designs/journey-map/shots/jm-door-05-human-play.jpg": [
+    "100644",
+    "f1be1c959058baa37143bf59d368247ed20e0ed3"
+  ],
+  "docs/designs/journey-map/shots/jm-door-06-forum.jpg": [
+    "100644",
+    "952e30437ecdc349cda4ff14bd0e5969d67c1b2b"
+  ],
+  "docs/designs/journey-map/shots/jm-door-07-docs-home.png": [
+    "100644",
+    "eacef368924a5cd57503f1fcf119e0a68740f5ad"
+  ],
+  "docs/designs/journey-map/shots/jm-door-08-docs-quickstart.png": [
+    "100644",
+    "4cd465fd9945b7168c12533881be69ba05716bf4"
+  ],
+  "docs/designs/journey-map/shots/jm-door-09-replay-viewer.jpg": [
+    "100644",
+    "cba0079026e0693b64fc1004f0708127e347ced9"
+  ],
+  "docs/designs/journey-map/shots/jm-home-01.jpg": [
+    "100644",
+    "b817bf36179fc501d67633a609f6aae740462cf8"
+  ],
+  "docs/designs/journey-map/shots/jm-home-02.jpg": [
+    "100644",
+    "8efd303754e5b7f82a9031266af06e7afc28f503"
+  ],
+  "docs/designs/journey-map/shots/jm-home-03.jpg": [
+    "100644",
+    "0826490e44a7783b9b0e196baa9097e3615295cc"
+  ],
+  "docs/designs/journey-map/shots/jm-home-04.jpg": [
+    "100644",
+    "19277cdfcf4a061c1a8f65e88489f8c23cefed14"
+  ],
+  "docs/designs/journey-map/shots/jm-home-05.jpg": [
+    "100644",
+    "c606349cfa2850a627222f3628b5877fadeecc13"
+  ],
+  "docs/designs/journey-map/shots/jm-home-06.jpg": [
+    "100644",
+    "85ee465a8ee4bc4606504ba3fc96abe537525043"
+  ],
+  "docs/designs/journey-map/shots/jm-links-01.png": [
+    "100644",
+    "06246f847fac6690192e2983bfd90ce0aae286c1"
+  ],
+  "docs/designs/journey-map/shots/jm-links-02.png": [
+    "100644",
+    "f8d8c7e4e5086c4b5725e5dfeb9d82f44fea3b35"
+  ],
+  "docs/designs/journey-map/shots/jm-links-03.png": [
+    "100644",
+    "f538e59bdb33c4e431515c4e0695704152874db0"
+  ],
+  "docs/designs/journey-map/shots/jm-links-04.png": [
+    "100644",
+    "087c3c4dcba940f353a6370118268c55a7158738"
+  ],
+  "docs/designs/journey-map/shots/jm-links-05.png": [
+    "100644",
+    "7e1804028b5f740ccf2032f17746dee7b665b4e0"
+  ],
+  "docs/designs/journey-map/shots/jm-links-06.png": [
+    "100644",
+    "c9f65348b22ccde3aa2107f5039aeeb4eca9837d"
+  ],
+  "docs/designs/journey-map/shots/jm-links-07.png": [
+    "100644",
+    "23ef21600463743a02c5f2bbcb27b001ee540adc"
+  ],
+  "docs/designs/journey-map/shots/jm-links-08.png": [
+    "100644",
+    "e268fbe1eaaa2f42177f2d79504975cc9b0e8de8"
+  ],
+  "docs/designs/map-editor.md": [
+    "100644",
+    "eb97aeda4aed2fe1187d192cbb9aa6fcb3cc410d"
+  ],
+  "docs/designs/nav-rework-2026-09-04.html": [
+    "100644",
+    "11e7939537ad1e1dd769ea4dc97ec31ea5ada41d"
+  ],
+  "docs/designs/nav-rework-exploration-record-2026-09-09.md": [
+    "100644",
+    "6a34e02575eea5632ec22d114ceb2ba1c719f65e"
+  ],
+  "docs/designs/nav-throughput-notes-2026-09-09.md": [
+    "100644",
+    "1e1ee1fc6ed716be10d0c6f00eaa657a92fe6ee1"
+  ],
+  "docs/designs/nav-throughput-research-handoff-2026-09-09.md": [
+    "100644",
+    "1c602efaffac7ef012787ae5b39affcba0e3276b"
+  ],
+  "docs/designs/play-spatial-knowledge-2026-09-08.md": [
+    "100644",
+    "ca587e629d1a71269bccc5c136fdc1c619e68255"
+  ],
+  "docs/designs/play-view-binary-frame-2026-08-31.md": [
+    "100644",
+    "da3acb1a60f4dbbb2bf3fdc9bc75c0a30308781c"
+  ],
+  "docs/designs/player-identities.md": [
+    "100644",
+    "502745570b339517977a6ae31aa8b7269057d325"
+  ],
+  "docs/designs/prematch-vote-phase-2026-08-31.md": [
+    "100644",
+    "6e649ef35b23a0b0f31c3eb7585bc1dda27a587c"
+  ],
+  "docs/designs/prematch-vote-wire-2026-08-31.md": [
+    "100644",
+    "deabd6669a97164e4ed73eac8242243d4ab21112"
+  ],
+  "docs/designs/reflex-plays-decision-record-2026-09-08.md": [
+    "100644",
+    "0741dd7310e7672710782405903816ecfe7f8d32"
+  ],
+  "docs/designs/s2-mechanics-that-move-the-destination.md": [
+    "100644",
+    "48bc2dcb0958ce624671d97407cb74831e904e6d"
+  ],
+  "docs/designs/season2-cheatsheet.html": [
+    "100644",
+    "49143625826df0dbfbc4fc77543c7f67e57371d2"
+  ],
+  "docs/designs/shell-step-parallelism-2026-09-07.md": [
+    "100644",
+    "27409a36618175c7906beb5e600365903ee82f1f"
+  ],
+  "docs/designs/strategy-play-calling-shell-2026-08-29.html": [
+    "100644",
+    "cf87c7504bcdeb913b6a427a3bdd0dfd9e799af5"
+  ],
+  "docs/designs/strategy-play-calling-shell-2026-08-29.md": [
+    "100644",
+    "c7ab561c614273d03db645b81267a8ade9027f9f"
+  ],
+  "docs/designs/why-one/index.html": [
+    "100644",
+    "215ba3a42b3eefb01e87376eea86b9c1c6fd886f"
+  ],
+  "docs/designs/why-one/screenshot-expanded.png": [
+    "100644",
+    "93312e1b8784f39ee2c0de737efa21616c0428f8"
+  ],
+  "docs/forum/START_HERE.md": [
+    "100644",
+    "ef89e86878efdc7da0982bd31c80ad25d787e14d"
+  ],
+  "docs/ladder/v28-medecon-field-verdict.md": [
+    "100644",
+    "c8a1b2b07ab1b6575c4a57113c1a91c097a9689d"
+  ],
+  "docs/paintball/COMMANDING.md": [
+    "100644",
+    "4d7bbfc1b6e5330a60116b716ea360aff1a5aad8"
+  ],
+  "docs/paintball/PROTOCOL.md": [
+    "100644",
+    "1b79f0ea0aecadb81712a1df7a405bf1c22dbe34"
+  ],
+  "docs/paintball/RULES.md": [
+    "100644",
+    "fede563183ecf5c1a453d8778913917f57c91de5"
+  ],
+  "docs/paintball/plans/2026-08-25-paintball-design.md": [
+    "100644",
+    "1410edadf50a7927562545c3f5054d3587a1a80e"
+  ],
+  "docs/plans/2026-07-29-procgen-terrain-design.md": [
+    "100644",
+    "3fdef7edad0ab7cc044b469b01cc0ad128e49717"
+  ],
+  "docs/plans/2026-07-30-compact-endzone-design.md": [
+    "100644",
+    "4e322773cf02ee1706c7468b835795767bae29f9"
+  ],
+  "docs/plans/2026-07-30-four-team-ctf.md": [
+    "100644",
+    "699bb35b9c73ff9d43007de8e94e2225802c1fea"
+  ],
+  "docs/plans/2026-08-01-paintball-range-and-jitter-design.md": [
+    "100644",
+    "9fbab042646a2298b20cf503dfedecefb022e888"
+  ],
+  "docs/plans/2026-08-01-sim-split.md": [
+    "100644",
+    "6703f335c93cfe995e2fb080503a651c2067cc0d"
+  ],
+  "docs/plans/2026-08-04-vector-obstacles-design.md": [
+    "100644",
+    "e4100693ad869ed7bf01bd1b60c37f432df63fdc"
+  ],
+  "docs/plans/2026-08-05-per-team-handicaps-design.md": [
+    "100644",
+    "78ceaf50f86726eee1a7d4d113c0238eefa86b02"
+  ],
+  "docs/plans/2026-08-05-quad-mirror-4team-design.md": [
+    "100644",
+    "51b498cb31f120b9d04313a76ad6ce56199ce197"
+  ],
+  "docs/plans/2026-08-07-grenade-barrage-design.md": [
+    "100644",
+    "7d1bdbb36ad142b311b9e5ffa0b9f68688c215cd"
+  ],
+  "docs/plans/2026-08-07-paint-puddles-design.md": [
+    "100644",
+    "86e121881fed3021c6aa0776f3b875cc8f8b7960"
+  ],
+  "docs/plans/2026-08-07-team-perks-design.md": [
+    "100644",
+    "d2d3899b6be35bc028ef5bb87e0d2eb4927e0956"
+  ],
+  "docs/plans/2026-08-10-heart-grab-radius-gv42.md": [
+    "100644",
+    "a28107e563b21743bad7baa2e835ff8e8e418276"
+  ],
+  "docs/pool-review.html": [
+    "100644",
+    "93a4b30d189ae6f7d9ed3a0118f12bb7cae9cac8"
+  ],
+  "docs/recon/observatory-permission-model-2026-09-02.md": [
+    "100644",
+    "3fd8400784f625a10ee8d3c20f292cadcadbf9f9"
+  ],
+  "docs/recon/paintbot-s2-policy-shell-2026-08-29.md": [
+    "100644",
+    "7b54bdf3298fddad2bf57e7e2793bc7ba4bb9953"
+  ],
+  "docs/reports/BR_FINAL_MATCH_REPORT.md": [
+    "100644",
+    "69778762ad052542a093257e77ce18ebd15e5738"
+  ],
+  "docs/reports/BR_SHOWMATCH_REPORT.md": [
+    "100644",
+    "0152572d5071ae4d4a144acb408b80a23c528beb"
+  ],
+  "docs/reports/body-lane-gate-report-2026-08-31.md": [
+    "100644",
+    "031e489c41fc0096dd5a9c61cd0aa89e225b93a2"
+  ],
+  "docs/reports/body-measurement-2026-08-30.md": [
+    "100644",
+    "a59a1732776ab72429beb0e6c112455d9848d25f"
+  ],
+  "docs/reports/br-season2-landing-notes-2026-08-30.md": [
+    "100644",
+    "e969bcb4a7b592c2064b0c09b78ef0bc04531bca"
+  ],
+  "docs/reports/item-art-audit-2026-09-03.md": [
+    "100644",
+    "fd3e95b4e9a7c8c3f003083f0e040ac51ac29e14"
+  ],
+  "docs/reports/maxwell-s2-paradigms-2026-08-29.html": [
+    "100644",
+    "32dfb871cca0c414ba1c77b7cb06eb78fd1d863a"
+  ],
+  "docs/reports/maxwell-s2-paradigms-2026-08-29.md": [
+    "100644",
+    "ce741027ddb91b83b7451be65cbec02df62ab638"
+  ],
+  "docs/reports/runtime-spike-2026-08-30.md": [
+    "100644",
+    "9608cac918e7d5cb1bd423a644e8e19a4f046977"
+  ],
+  "docs/reports/s2-cog-body-tick-2026-09-03.html": [
+    "100644",
+    "59d9a825ec020113d04e494977b26aabd6ffcc88"
+  ],
+  "docs/reports/s2-cog-body-tick-2026-09-03.md": [
+    "100644",
+    "4a67bcb01f72b21e87776fb46da8f9c05f2aabdc"
+  ],
+  "docs/reports/s2-permissions-retrospective-2026-09-02-evidence.md": [
+    "100644",
+    "acaa4a73be41ddca9eea417c68c889a5fa92ea31"
+  ],
+  "docs/reports/s2-permissions-retrospective-2026-09-02.md": [
+    "100644",
+    "8c5ba57ecb1c9e9eb9d058ecd116d31ad1774d67"
+  ],
+  "docs/reports/wasm-runtime-embedding-2026-08-30.md": [
+    "100644",
+    "a50fec2079182952d1497918b6ce45ff9efa39ac"
+  ],
+  "docs/wiki/AUDIT.md": [
+    "100644",
+    "61322a67144846069308626438182eaf197756d8"
+  ],
+  "docs/wiki/PUBLISH.md": [
+    "100644",
+    "b74458b8434190a804071c6f0bbaec6b9416d06a"
+  ],
+  "docs/wiki/RESTRUCTURE-PLAN.md": [
+    "100644",
+    "24ad487842ffb07b50ac58ee44b9f0a0c1ec069c"
+  ],
+  "docs/wiki/_era.md": [
+    "100644",
+    "7dec2cf0e983af31ba732c53ba92f9d091fe1148"
+  ],
+  "docs/wiki/battle-royale-s2.md": [
+    "100644",
+    "2f9d386bfd6b6184059cda4faa4c7b16ec32ef9c"
+  ],
+  "docs/wiki/build-and-submit.md": [
+    "100644",
+    "1657bb20b6489ef56b34ed0349d4902865d5f809"
+  ],
+  "docs/wiki/glossary.md": [
+    "100644",
+    "eef8d6be5861c6e538223f1d514d3cbf0572ebf6"
+  ],
+  "docs/wiki/main.md": [
+    "100644",
+    "d343b0f983303d9b587a3b3d5315766595bceda0"
+  ],
+  "docs/wiki/modes.md": [
+    "100644",
+    "031348d64e651570c5b53e148e62690a40c90970"
+  ],
+  "docs/wiki/ranks.md": [
+    "100644",
+    "362a534563926e836ce172fa2404e143ff490220"
+  ],
+  "docs/wiki/submitting-a-policy.md": [
+    "100644",
+    "a396d91c2801914e2aa8da4c3ff8beb834a038c6"
+  ],
+  "docs/wiki/your-first-policy.md": [
+    "100644",
+    "1754d04aa8b82fb461ab864d09e9fab8b4591067"
+  ],
+  "exp/analyze.py": [
+    "100644",
+    "71e5eaa475259cc7607bd06a930c8f6ada951524"
+  ],
+  "exp/battery.py": [
+    "100644",
+    "4040c56451c869a3599cc283a82bbe7aae36e321"
+  ],
+  "exp/build_champion.sh": [
+    "100755",
+    "1b614b6682559791caf011c79e1979adfb71cbb2"
+  ],
+  "exp/preregistration.txt": [
+    "100644",
+    "9aea6cb76b8e30c75e08bc34984b18578fedeec6"
+  ],
+  "exp/results/champ46_selfplay/episodes.jsonl": [
+    "100644",
+    "2c9b293bde13aa758d80c96c3b51c3d5112a27de"
+  ],
+  "exp/results/repo47_selfplay_sidecheck/episodes.jsonl": [
+    "100644",
+    "6152aaeb4c8c7ff99c7b0a0363c8d33f7e86b75b"
+  ],
+  "exp/results/smoke_champ46_vs_stock.jsonl": [
+    "100644",
+    "e7af7c60e6b1c784b1c414055240bf769ef07606"
+  ],
+  "exp/termination.py": [
+    "100644",
+    "e3a9da1965b008611590c35677421ad5ddd6c64d"
+  ],
+  "exp/timeline.py": [
+    "100644",
+    "b57f5e3ab3c67099817f1473ea646cbad318119a"
+  ],
+  "flake.lock": [
+    "100644",
+    "ab866b0d31c19986f95c466ba77f116238d160e6"
+  ],
+  "flake.nix": [
+    "100644",
+    "dd14e0a77cd753782ee9a4c7355d17e47d7ea768"
+  ],
+  "nimby.lock": [
+    "100644",
+    "3daf24dd249315027647c79fde52126e261db2a3"
+  ],
+  "play_sdk/README.md": [
+    "100644",
+    "f085dafefd9ad5a900b5dd5107edec620a651780"
+  ],
+  "play_sdk/examples/hello_play.nim": [
+    "100644",
+    "775bf06df43470684100ced3585200d38bbdc42a"
+  ],
+  "play_sdk/examples/hello_play.nims": [
+    "100644",
+    "ee727fbcf965fdec0f57366fb90b36ce18773134"
+  ],
+  "play_sdk/examples/panicoverride.nim": [
+    "100644",
+    "1c8051317362cafe2433fcec5837ff15e7c2b771"
+  ],
+  "play_sdk/play.nim": [
+    "100644",
+    "9bea444df9813f55b895b10fdbb4e07eda522d51"
+  ],
+  "play_sdk/play.nims": [
+    "100644",
+    "2cbdcb4405b97d25d749f9889fdf439110d3f4d4"
+  ],
+  "play_sdk/play_imports.h": [
+    "100644",
+    "2148abd26ea4c47e2c25a6019cbdd221a672e5d1"
+  ],
+  "play_sdk/reference/bodyguard.nim": [
+    "100644",
+    "ebb05a69859fd0065da20597ad6cbbc6de16fe0e"
+  ],
+  "play_sdk/reference/bodyguard.nims": [
+    "100644",
+    "9599e4f6924cf828d95f99806e530189509ef587"
+  ],
+  "play_sdk/reference/crossfire.nim": [
+    "100644",
+    "2e12be7dbe37a004ace1f4e63ae5352735754fa5"
+  ],
+  "play_sdk/reference/crossfire.nims": [
+    "100644",
+    "61a2246af846556c79fef82436b22e0af5435868"
+  ],
+  "play_sdk/reference/edge_ride.nim": [
+    "100644",
+    "b6eb38e33cc824fa27bbf87bd7dff9a60f7d5120"
+  ],
+  "play_sdk/reference/edge_ride.nims": [
+    "100644",
+    "e4744dce54ec3bd9dcf064198dc0966268f72859"
+  ],
+  "play_sdk/reference/jackal.nim": [
+    "100644",
+    "97f8ea24591d12e19364ea00d1a68ccc3c710d08"
+  ],
+  "play_sdk/reference/jackal.nims": [
+    "100644",
+    "6c02a395cba111c1fe7ee8c932efd597ab559278"
+  ],
+  "play_sdk/reference/loot.nim": [
+    "100644",
+    "ce1edf3a46b558565954e48a0e1eaf92a41d9479"
+  ],
+  "play_sdk/reference/loot.nims": [
+    "100644",
+    "753c91fe5fb330861b059b2faacbdfffc0eea054"
+  ],
+  "play_sdk/reference/pact.nim": [
+    "100644",
+    "71a73350f4d96a4b53357dbf49a3b2a534ecf62c"
+  ],
+  "play_sdk/reference/pact.nims": [
+    "100644",
+    "043e7c09d4cf3b7d0d22e1728561fe9aa4a62912"
+  ],
+  "play_sdk/reference/panicoverride.nim": [
+    "100644",
+    "959aee2cc02c9b131fc68c2d6c82ad662c13677d"
+  ],
+  "play_sdk/reference/scatter.nim": [
+    "100644",
+    "165148f5c669dc527a5cf82f8e32bed01919f105"
+  ],
+  "play_sdk/reference/scatter.nims": [
+    "100644",
+    "af6313a7ad771efad535abf3006e305380c05e87"
+  ],
+  "play_sdk/reference/supply_run.nim": [
+    "100644",
+    "f87a63159e500d5963ff9a2396b33ae69609726c"
+  ],
+  "play_sdk/reference/supply_run.nims": [
+    "100644",
+    "efde96fc6d0003e2d8ff7ee896dd440874790689"
+  ],
+  "play_sdk/reference/target_law.nim": [
+    "100644",
+    "495f761ab541874144655d55b9da56a7a2d11a13"
+  ],
+  "play_sdk/reference/target_law.nims": [
+    "100644",
+    "5fee6762c8a70eaea1efdb2f805b03e9109923af"
+  ],
+  "play_sdk/test_fixtures/context_meter.nim": [
+    "100644",
+    "b610c525a8ff8f7774f35bcfee2183bd87622ea0"
+  ],
+  "play_sdk/test_fixtures/context_meter.nims": [
+    "100644",
+    "4db5d333156d5b8bc424f15cfaa2ee2c2ee0b5ef"
+  ],
+  "play_sdk/test_fixtures/panicoverride.nim": [
+    "100644",
+    "959aee2cc02c9b131fc68c2d6c82ad662c13677d"
+  ],
+  "play_sdk/test_fixtures/view_floor.nim": [
+    "100644",
+    "e3b1c3cf7f042aa853506ec4207428fb84c2af8b"
+  ],
+  "play_sdk/test_fixtures/view_floor.nims": [
+    "100644",
+    "55a3873c794f6f93083048132b718c75f31bd33c"
+  ],
+  "play_sdk/test_fixtures/view_meter.nim": [
+    "100644",
+    "3686e89ef23792cfe4a1cb64b2bfdd413750f2d6"
+  ],
+  "play_sdk/test_fixtures/view_meter.nims": [
+    "100644",
+    "a613ca4d6051a6297ccce808c08ef517ac074281"
+  ],
+  "players/baseline/Dockerfile": [
+    "100644",
+    "ddc72744229c62c9b9f38bc26cae243eb5360c9c"
+  ],
+  "players/baseline/README.md": [
+    "100644",
+    "02e5f9e4dd9c421ea51ac70da6227c34566cbc5a"
+  ],
+  "players/baseline/baseline.nim": [
+    "100644",
+    "ca15a05d788808959fe2705cd51406ca457c3dd9"
+  ],
+  "players/baseline/baseline/artlog.nim": [
+    "100644",
+    "dc9c49fe2380d7e1ba7e374fcd1c3c2a1c32ff54"
+  ],
+  "players/baseline/baseline/protocols.nim": [
+    "100644",
+    "cc098ce5b3aca811b0642df09cbecac9338e342f"
+  ],
+  "players/baseline/baseline/s2play.nim": [
+    "100644",
+    "3c510304b976801281a2f6ff4a248f5a4e55db5c"
+  ],
+  "players/baseline/baseline/s2wire.nim": [
+    "100644",
+    "7fd3d7009837f0fbe41c718cc86b971e6035a777"
+  ],
+  "players/baseline/baseline/taunts.nim": [
+    "100644",
+    "1002ceb6b4aa41f5fe5202265b224042f1982977"
+  ],
+  "players/baseline/config.nims": [
+    "100644",
+    "cd49b79c21a963b85153af809b52c8d2b99d56c3"
+  ],
+  "players/onepage/Dockerfile": [
+    "100644",
+    "1e658a831c2b8c6e36c8815fd1c7f2301700bfba"
+  ],
+  "players/onepage/config.nims": [
+    "100644",
+    "7880aea655de0064cf93a105d315424cac4d0693"
+  ],
+  "players/onepage/onepage.nim": [
+    "100644",
+    "8c98b15ec9c4e8d2c3987383e5d932fee6e3324d"
+  ],
+  "players/onepage/onepage/policy_stub.nim": [
+    "100644",
+    "0f66ffebc9e89267c8c066c046aed28d5dfa6c9a"
+  ],
+  "policies/poc_llm_policy/.gitignore": [
+    "100644",
+    "aec4a4fecc5a119adfa51b1fb0aacd61745e1012"
+  ],
+  "policies/poc_llm_policy/Dockerfile": [
+    "100644",
+    "b9544aa53a953d539a0cfa1472e3a154cf0d5187"
+  ],
+  "policies/poc_llm_policy/README.md": [
+    "100644",
+    "898e8d09a2c735781af756931186bc45c5a21131"
+  ],
+  "policies/poc_llm_policy/brain.py": [
+    "100644",
+    "349fdcdf03d037703edc9e3f53daedc44c24f826"
+  ],
+  "policies/poc_llm_policy/build_playbook.sh": [
+    "100755",
+    "325cf781ec77b9301fe1c7e172adbb0fd2917e58"
+  ],
+  "policies/poc_llm_policy/poc_policy.py": [
+    "100755",
+    "129f72876a6a826484c9fbe689a4aa5be65dbdb2"
+  ],
+  "policies/poc_llm_policy/poc_shell_server.nim": [
+    "100644",
+    "7655473f622282db1d2d08a8ca3fdbbe79f2a7be"
+  ],
+  "policies/poc_llm_policy/run_poc.sh": [
+    "100755",
+    "79aa556f9b100d954430088d889163c945fed0aa"
+  ],
+  "policies/poc_llm_policy/test_brain.py": [
+    "100644",
+    "038776ad51427efd60c192c433206c315c233038"
+  ],
+  "policies/poc_llm_policy/test_summary.py": [
+    "100644",
+    "51011908d90ee01c17ea724d032de898f719fcad"
+  ],
+  "policies/poc_llm_policy/wire.py": [
+    "100644",
+    "a4b9133b7a81871b562d16bb71d6769327652fa2"
+  ],
+  "policies/starters/.python-version": [
+    "100644",
+    "e4fba2183587225f216eeada4c78dfab6b2e65f5"
+  ],
+  "policies/starters/README.md": [
+    "100644",
+    "029ab7bf3d5d6a8296355eac49e041d54445153f"
+  ],
+  "policies/starters/VERSION_LOG.md": [
+    "100644",
+    "3311a6e64bd4a1a5e27a21d7c6d30fb909e4f94d"
+  ],
+  "policies/starters/aggressive/Dockerfile": [
+    "100644",
+    "31ee17b701706804b0e590707a30d63d5f3d0eb3"
+  ],
+  "policies/starters/aggressive/README.md": [
+    "100644",
+    "b0c58411c76c3e2992f70998b04a7eacfd2fc8d2"
+  ],
+  "policies/starters/aggressive/policy.py": [
+    "100755",
+    "de191b0d6ab5ba3be33853fcd007effe85ab7edb"
+  ],
+  "policies/starters/aggressive/system_prompt.md": [
+    "100644",
+    "48a331825ed4de9cb4192866c84b298cdfdc0bc9"
+  ],
+  "policies/starters/cautious/Dockerfile": [
+    "100644",
+    "8f5a7d96e326cdb089af537dffc382b76e1fe864"
+  ],
+  "policies/starters/cautious/README.md": [
+    "100644",
+    "c82a9982819a941f1cf5c63bcea356d6e03570aa"
+  ],
+  "policies/starters/cautious/policy.py": [
+    "100755",
+    "8ef270b0e13c7029651ab9ab59255ce8a24b8194"
+  ],
+  "policies/starters/cautious/system_prompt.md": [
+    "100644",
+    "c40135fb90b79732dd25beb8d7f472e36fd623a8"
+  ],
+  "policies/starters/collaborative/Dockerfile": [
+    "100644",
+    "f9efd748e9644554244ae35c66a3a9f4b6391df1"
+  ],
+  "policies/starters/collaborative/README.md": [
+    "100644",
+    "52eabec25a63cb9544cfb7b6a15362f82cf19f65"
+  ],
+  "policies/starters/collaborative/policy.py": [
+    "100755",
+    "1d5d6f3e5ce3ee545968dfa7b7c191d91bd24e29"
+  ],
+  "policies/starters/collaborative/system_prompt.md": [
+    "100644",
+    "99d7e9621d6eec38f619220b66cd705d89903bdb"
+  ],
+  "policies/starters/common/build_playbook.sh": [
+    "100755",
+    "116c29e12bfaa0128665b73e075d813bff67390a"
+  ],
+  "policies/starters/common/era.py": [
+    "100644",
+    "d8c49329da9b918d4dcfd7b752534ccc5e713fde"
+  ],
+  "policies/starters/common/parse_local_run.py": [
+    "100644",
+    "d18672ea1d07a2d11a2a383518f3e566850963f8"
+  ],
+  "policies/starters/common/plays.py": [
+    "100644",
+    "038c8c21ccdb68048ad8d5199113fb468591132c"
+  ],
+  "policies/starters/common/starter_harness.py": [
+    "100644",
+    "379c0c1c21b366630c6f4c3842516150c1aca3ac"
+  ],
+  "policies/starters/common/starter_knobs.py": [
+    "100644",
+    "32b7f18ef4e89a492f237fb713108252cf8425dc"
+  ],
+  "policies/starters/common/test_era.py": [
+    "100644",
+    "3e5dc6c3804d4bc383444590b458482048c4bcad"
+  ],
+  "policies/starters/compare_local.py": [
+    "100644",
+    "11a22b3a1eb355eada2600f17b71ca7d19db5e4e"
+  ],
+  "policies/starters/pyproject.toml": [
+    "100644",
+    "b3ceebc6699bb7ca3459e734a08f419257ccbc81"
+  ],
+  "policies/starters/run_local.py": [
+    "100644",
+    "5ca816cbfba6ce4343e8deb2c6a91f7cdc96f352"
+  ],
+  "replay-viewer/config.nims": [
+    "100644",
+    "b56d4e16b9d91fe59688e1268931b7e71a28e015"
+  ],
+  "replay-viewer/ctf_replay.nim": [
+    "100644",
+    "63f807a479bb0ac908438a77b154b37377f79091"
+  ],
+  "replay-viewer/loop.html": [
+    "100644",
+    "a759400c12f790cdaa1e62b6a89839df4e8a0784"
+  ],
+  "replay-viewer/static_replay.js": [
+    "100644",
+    "eacd7793cbfe9ddc67b9b44197336cb9b498e69c"
+  ],
+  "replay-viewer/static_replay_worker.js": [
+    "100644",
+    "836d585d424a9028d5fc23b89eb543c3ecdb5ec3"
+  ],
+  "reverify-31337.bitreplay": [
+    "100644",
+    "3690ad1fbe4aadf4217af30b06329e587d012975"
+  ],
+  "reverify-90210.bitreplay": [
+    "100644",
+    "85e0f27dc365c1ad940c35d6601bcb01dfbfbb99"
+  ],
+  "rt/big_a.json": [
+    "100644",
+    "91837c45c8ad5a081e811a14d0d65f7e305a808d"
+  ],
+  "rt/big_b.json": [
+    "100644",
+    "331bfc4b0932894a4b460bf2df4af8da0a4d6447"
+  ],
+  "rt/big_c.json": [
+    "100644",
+    "92e854a0cc0ad4870c6a44450da85b41f3fb4cc8"
+  ],
+  "rt/gateoff.bitreplay": [
+    "100644",
+    "42f9811e9dbc222a2c6a5248602f373b72f2a6eb"
+  ],
+  "rt/keep_a.json": [
+    "100644",
+    "19d6d7570b2beb68967b65f4af53d27f39291f8d"
+  ],
+  "rt/keep_b.json": [
+    "100644",
+    "81839eb4eb58ab53024f31207f3ef7b89b7ba2a7"
+  ],
+  "rt/keep_c.json": [
+    "100644",
+    "638b599f41657f4d3cbe06e6c41d11e8b10cf4a0"
+  ],
+  "rt/live_cfg.json": [
+    "100644",
+    "70ddbc9ba3976b718f392f8625b5611334f82b32"
+  ],
+  "rt/live_page.json": [
+    "100644",
+    "91837c45c8ad5a081e811a14d0d65f7e305a808d"
+  ],
+  "rt/page_a.json": [
+    "100644",
+    "c1b4037b494d1924f7ce7ecaed4c0f182126226a"
+  ],
+  "rt/page_b.json": [
+    "100644",
+    "31fb80a305d381ab2f0bf51330fa8218fe7113ec"
+  ],
+  "rt/page_c.json": [
+    "100644",
+    "a68566bddefd32f7cc8bc8c55590feee726b8192"
+  ],
+  "rt/roundtrip.bitreplay": [
+    "100644",
+    "462f6064acf490254b8929154428ab1bf0a96c61"
+  ],
+  "rt/roundtrip2.bitreplay": [
+    "100644",
+    "908899e779e36740f037342021fa807bc23a2148"
+  ],
+  "rt/roundtrip3.bitreplay": [
+    "100644",
+    "776385fb0e53bfe34ff8b874fd94e0be66600125"
+  ],
+  "rt/roundtrip4.bitreplay": [
+    "100644",
+    "3634111ba6fa948600680352ff2f455eec39eb09"
+  ],
+  "rt/roundtrip5.bitreplay": [
+    "100644",
+    "c24162b27da59d85f9a7ae1d9cd827cd4c575712"
+  ],
+  "rt/roundtrip6.bitreplay": [
+    "100644",
+    "00a6d1006ca0ec90b1abb9081cdeb93d636271ed"
+  ],
+  "rt_episode/episode-1500.bitreplay": [
+    "100644",
+    "64472269a31055ff015cb285c43cadacc9e524d5"
+  ],
+  "rt_episode/episode-final.bitreplay": [
+    "100644",
+    "e37bfbfb82f036d39b9e7a6fbacd88820fee4388"
+  ],
+  "rt_episode/episode-paced.bitreplay": [
+    "100644",
+    "84fc27a22fe7e0bcd6da9fa30b7dce6612da1380"
+  ],
+  "rt_episode/episode-s830.bitreplay": [
+    "100644",
+    "9ac7b3799f46b637fb68bafa6a2fc8aedc8e81f0"
+  ],
+  "rt_episode/episode.bitreplay": [
+    "100644",
+    "e422daeeaf4735ced0f886f1ad4d761d6f1669b4"
+  ],
+  "rt_episode/episode_v2.bitreplay": [
+    "100644",
+    "bf4243976f0dfe74fa28ec7a9396825709334ce0"
+  ],
+  "rt_episode/full-episode.bitreplay": [
+    "100644",
+    "ec25188ba5dfc90396bfef0ec04b768dea922473"
+  ],
+  "rt_episode/roster.json": [
+    "100644",
+    "d0234a8ccdef158590c5ce6d94c8afb9a25814b3"
+  ],
+  "rt_episode/roster_debug.json": [
+    "100644",
+    "977dec59afbc12e8735df54e6bfa25c6e1532e3f"
+  ],
+  "rt_episode/roster_v2.json": [
+    "100644",
+    "296bb9d4117728289c62b9c3bac108f7af84f70d"
+  ],
+  "rt_episode/wrappers/seat00.sh": [
+    "100755",
+    "d27243055c992cabc32f80f1d84ae779bcc69686"
+  ],
+  "rt_episode/wrappers/seat01.sh": [
+    "100755",
+    "d27243055c992cabc32f80f1d84ae779bcc69686"
+  ],
+  "rt_episode/wrappers/seat02.sh": [
+    "100755",
+    "08fda7168caf1609a5ff5905270369fbcbbcac4c"
+  ],
+  "rt_episode/wrappers/seat03.sh": [
+    "100755",
+    "08fda7168caf1609a5ff5905270369fbcbbcac4c"
+  ],
+  "rt_episode/wrappers/seat04.sh": [
+    "100755",
+    "ff66d69b9c6923d6e460cd82413ddaae6e4914de"
+  ],
+  "rt_episode/wrappers/seat05.sh": [
+    "100755",
+    "ff66d69b9c6923d6e460cd82413ddaae6e4914de"
+  ],
+  "rt_episode/wrappers/seat06.sh": [
+    "100755",
+    "308de9973a92f7c009f3c095e257cf8ecf92c9b1"
+  ],
+  "rt_episode/wrappers/seat07.sh": [
+    "100755",
+    "308de9973a92f7c009f3c095e257cf8ecf92c9b1"
+  ],
+  "rt_episode/wrappers/seat08.sh": [
+    "100755",
+    "d006e4bfefeb4991152e7c0be9eaf828fb155a67"
+  ],
+  "rt_episode/wrappers/seat09.sh": [
+    "100755",
+    "d006e4bfefeb4991152e7c0be9eaf828fb155a67"
+  ],
+  "rt_episode/wrappers/seat10.sh": [
+    "100755",
+    "4d30d15e777f9e1f6c9768571548f8e12fee8a19"
+  ],
+  "rt_episode/wrappers/seat11.sh": [
+    "100755",
+    "4d30d15e777f9e1f6c9768571548f8e12fee8a19"
+  ],
+  "rt_episode/wrappers/seat12.sh": [
+    "100755",
+    "d27243055c992cabc32f80f1d84ae779bcc69686"
+  ],
+  "rt_episode/wrappers/seat13.sh": [
+    "100755",
+    "d27243055c992cabc32f80f1d84ae779bcc69686"
+  ],
+  "rt_episode/wrappers/seat14.sh": [
+    "100755",
+    "08fda7168caf1609a5ff5905270369fbcbbcac4c"
+  ],
+  "rt_episode/wrappers/seat15.sh": [
+    "100755",
+    "08fda7168caf1609a5ff5905270369fbcbbcac4c"
+  ],
+  "rt_episode/wrappers/seat16.sh": [
+    "100755",
+    "ff66d69b9c6923d6e460cd82413ddaae6e4914de"
+  ],
+  "rt_episode/wrappers/seat17.sh": [
+    "100755",
+    "ff66d69b9c6923d6e460cd82413ddaae6e4914de"
+  ],
+  "rt_episode/wrappers/seat18.sh": [
+    "100755",
+    "308de9973a92f7c009f3c095e257cf8ecf92c9b1"
+  ],
+  "rt_episode/wrappers/seat19.sh": [
+    "100755",
+    "308de9973a92f7c009f3c095e257cf8ecf92c9b1"
+  ],
+  "rt_episode/wrappers/seat20.sh": [
+    "100755",
+    "d006e4bfefeb4991152e7c0be9eaf828fb155a67"
+  ],
+  "rt_episode/wrappers/seat21.sh": [
+    "100755",
+    "d006e4bfefeb4991152e7c0be9eaf828fb155a67"
+  ],
+  "rt_episode/wrappers/seat22.sh": [
+    "100755",
+    "4d30d15e777f9e1f6c9768571548f8e12fee8a19"
+  ],
+  "rt_episode/wrappers/seat23.sh": [
+    "100755",
+    "4d30d15e777f9e1f6c9768571548f8e12fee8a19"
+  ],
+  "rt_episode/wrappers/seat24.sh": [
+    "100755",
+    "d27243055c992cabc32f80f1d84ae779bcc69686"
+  ],
+  "rt_episode/wrappers/seat25.sh": [
+    "100755",
+    "d27243055c992cabc32f80f1d84ae779bcc69686"
+  ],
+  "rt_episode/wrappers/seat26.sh": [
+    "100755",
+    "08fda7168caf1609a5ff5905270369fbcbbcac4c"
+  ],
+  "rt_episode/wrappers/seat27.sh": [
+    "100755",
+    "08fda7168caf1609a5ff5905270369fbcbbcac4c"
+  ],
+  "rt_episode/wrappers/seat28.sh": [
+    "100755",
+    "ff66d69b9c6923d6e460cd82413ddaae6e4914de"
+  ],
+  "rt_episode/wrappers/seat29.sh": [
+    "100755",
+    "ff66d69b9c6923d6e460cd82413ddaae6e4914de"
+  ],
+  "rt_episode/wrappers/seat30.sh": [
+    "100755",
+    "308de9973a92f7c009f3c095e257cf8ecf92c9b1"
+  ],
+  "rt_episode/wrappers/seat31.sh": [
+    "100755",
+    "308de9973a92f7c009f3c095e257cf8ecf92c9b1"
+  ],
+  "rt_episode/wrappers_debug/seat00.sh": [
+    "100755",
+    "11d8c90802c4daa5746b2e0785c6f00c40b20863"
+  ],
+  "rt_episode/wrappers_debug/seat01.sh": [
+    "100755",
+    "11d8c90802c4daa5746b2e0785c6f00c40b20863"
+  ],
+  "rt_episode/wrappers_debug/seat02.sh": [
+    "100755",
+    "ece7d1039bfae8dc754fe319448b03065a41d56a"
+  ],
+  "rt_episode/wrappers_debug/seat03.sh": [
+    "100755",
+    "ece7d1039bfae8dc754fe319448b03065a41d56a"
+  ],
+  "rt_episode/wrappers_debug/seat04.sh": [
+    "100755",
+    "b8f78205c24b8092d9eaa9dd74e48444402eea6f"
+  ],
+  "rt_episode/wrappers_debug/seat05.sh": [
+    "100755",
+    "b8f78205c24b8092d9eaa9dd74e48444402eea6f"
+  ],
+  "rt_episode/wrappers_debug/seat06.sh": [
+    "100755",
+    "9cf0b50e89b6ac93e41dad092720e49610ab0b21"
+  ],
+  "rt_episode/wrappers_debug/seat07.sh": [
+    "100755",
+    "9cf0b50e89b6ac93e41dad092720e49610ab0b21"
+  ],
+  "rt_episode/wrappers_debug/seat08.sh": [
+    "100755",
+    "0b5bccf4662c831a41ab6f87954c11590ddc0eed"
+  ],
+  "rt_episode/wrappers_debug/seat09.sh": [
+    "100755",
+    "0b5bccf4662c831a41ab6f87954c11590ddc0eed"
+  ],
+  "rt_episode/wrappers_debug/seat10.sh": [
+    "100755",
+    "b306d3377ccbb901b2ae9c81fba3b5ef26f78e06"
+  ],
+  "rt_episode/wrappers_debug/seat11.sh": [
+    "100755",
+    "b306d3377ccbb901b2ae9c81fba3b5ef26f78e06"
+  ],
+  "rt_episode/wrappers_debug/seat12.sh": [
+    "100755",
+    "11d8c90802c4daa5746b2e0785c6f00c40b20863"
+  ],
+  "rt_episode/wrappers_debug/seat13.sh": [
+    "100755",
+    "11d8c90802c4daa5746b2e0785c6f00c40b20863"
+  ],
+  "rt_episode/wrappers_debug/seat14.sh": [
+    "100755",
+    "ece7d1039bfae8dc754fe319448b03065a41d56a"
+  ],
+  "rt_episode/wrappers_debug/seat15.sh": [
+    "100755",
+    "ece7d1039bfae8dc754fe319448b03065a41d56a"
+  ],
+  "rt_episode/wrappers_debug/seat16.sh": [
+    "100755",
+    "b8f78205c24b8092d9eaa9dd74e48444402eea6f"
+  ],
+  "rt_episode/wrappers_debug/seat17.sh": [
+    "100755",
+    "b8f78205c24b8092d9eaa9dd74e48444402eea6f"
+  ],
+  "rt_episode/wrappers_debug/seat18.sh": [
+    "100755",
+    "9cf0b50e89b6ac93e41dad092720e49610ab0b21"
+  ],
+  "rt_episode/wrappers_debug/seat19.sh": [
+    "100755",
+    "9cf0b50e89b6ac93e41dad092720e49610ab0b21"
+  ],
+  "rt_episode/wrappers_debug/seat20.sh": [
+    "100755",
+    "0b5bccf4662c831a41ab6f87954c11590ddc0eed"
+  ],
+  "rt_episode/wrappers_debug/seat21.sh": [
+    "100755",
+    "0b5bccf4662c831a41ab6f87954c11590ddc0eed"
+  ],
+  "rt_episode/wrappers_debug/seat22.sh": [
+    "100755",
+    "b306d3377ccbb901b2ae9c81fba3b5ef26f78e06"
+  ],
+  "rt_episode/wrappers_debug/seat23.sh": [
+    "100755",
+    "b306d3377ccbb901b2ae9c81fba3b5ef26f78e06"
+  ],
+  "rt_episode/wrappers_debug/seat24.sh": [
+    "100755",
+    "11d8c90802c4daa5746b2e0785c6f00c40b20863"
+  ],
+  "rt_episode/wrappers_debug/seat25.sh": [
+    "100755",
+    "11d8c90802c4daa5746b2e0785c6f00c40b20863"
+  ],
+  "rt_episode/wrappers_debug/seat26.sh": [
+    "100755",
+    "ece7d1039bfae8dc754fe319448b03065a41d56a"
+  ],
+  "rt_episode/wrappers_debug/seat27.sh": [
+    "100755",
+    "ece7d1039bfae8dc754fe319448b03065a41d56a"
+  ],
+  "rt_episode/wrappers_debug/seat28.sh": [
+    "100755",
+    "b8f78205c24b8092d9eaa9dd74e48444402eea6f"
+  ],
+  "rt_episode/wrappers_debug/seat29.sh": [
+    "100755",
+    "b8f78205c24b8092d9eaa9dd74e48444402eea6f"
+  ],
+  "rt_episode/wrappers_debug/seat30.sh": [
+    "100755",
+    "9cf0b50e89b6ac93e41dad092720e49610ab0b21"
+  ],
+  "rt_episode/wrappers_debug/seat31.sh": [
+    "100755",
+    "9cf0b50e89b6ac93e41dad092720e49610ab0b21"
+  ],
+  "rt_episode/wrappers_v2/seat00.sh": [
+    "100755",
+    "d27243055c992cabc32f80f1d84ae779bcc69686"
+  ],
+  "rt_episode/wrappers_v2/seat01.sh": [
+    "100755",
+    "08fda7168caf1609a5ff5905270369fbcbbcac4c"
+  ],
+  "rt_episode/wrappers_v2/seat02.sh": [
+    "100755",
+    "ff66d69b9c6923d6e460cd82413ddaae6e4914de"
+  ],
+  "rt_episode/wrappers_v2/seat03.sh": [
+    "100755",
+    "308de9973a92f7c009f3c095e257cf8ecf92c9b1"
+  ],
+  "rt_episode/wrappers_v2/seat04.sh": [
+    "100755",
+    "d006e4bfefeb4991152e7c0be9eaf828fb155a67"
+  ],
+  "rt_episode/wrappers_v2/seat05.sh": [
+    "100755",
+    "4d30d15e777f9e1f6c9768571548f8e12fee8a19"
+  ],
+  "rt_episode/wrappers_v2/seat06.sh": [
+    "100755",
+    "d27243055c992cabc32f80f1d84ae779bcc69686"
+  ],
+  "rt_episode/wrappers_v2/seat07.sh": [
+    "100755",
+    "08fda7168caf1609a5ff5905270369fbcbbcac4c"
+  ],
+  "rt_episode/wrappers_v2/seat08.sh": [
+    "100755",
+    "ff66d69b9c6923d6e460cd82413ddaae6e4914de"
+  ],
+  "rt_episode/wrappers_v2/seat09.sh": [
+    "100755",
+    "308de9973a92f7c009f3c095e257cf8ecf92c9b1"
+  ],
+  "rt_episode/wrappers_v2/seat10.sh": [
+    "100755",
+    "d006e4bfefeb4991152e7c0be9eaf828fb155a67"
+  ],
+  "rt_episode/wrappers_v2/seat11.sh": [
+    "100755",
+    "4d30d15e777f9e1f6c9768571548f8e12fee8a19"
+  ],
+  "rt_episode/wrappers_v2/seat12.sh": [
+    "100755",
+    "d27243055c992cabc32f80f1d84ae779bcc69686"
+  ],
+  "rt_episode/wrappers_v2/seat13.sh": [
+    "100755",
+    "08fda7168caf1609a5ff5905270369fbcbbcac4c"
+  ],
+  "rt_episode/wrappers_v2/seat14.sh": [
+    "100755",
+    "ff66d69b9c6923d6e460cd82413ddaae6e4914de"
+  ],
+  "rt_episode/wrappers_v2/seat15.sh": [
+    "100755",
+    "308de9973a92f7c009f3c095e257cf8ecf92c9b1"
+  ],
+  "rt_episode/wrappers_v2/seat16.sh": [
+    "100755",
+    "d27243055c992cabc32f80f1d84ae779bcc69686"
+  ],
+  "rt_episode/wrappers_v2/seat17.sh": [
+    "100755",
+    "08fda7168caf1609a5ff5905270369fbcbbcac4c"
+  ],
+  "rt_episode/wrappers_v2/seat18.sh": [
+    "100755",
+    "ff66d69b9c6923d6e460cd82413ddaae6e4914de"
+  ],
+  "rt_episode/wrappers_v2/seat19.sh": [
+    "100755",
+    "308de9973a92f7c009f3c095e257cf8ecf92c9b1"
+  ],
+  "rt_episode/wrappers_v2/seat20.sh": [
+    "100755",
+    "d006e4bfefeb4991152e7c0be9eaf828fb155a67"
+  ],
+  "rt_episode/wrappers_v2/seat21.sh": [
+    "100755",
+    "4d30d15e777f9e1f6c9768571548f8e12fee8a19"
+  ],
+  "rt_episode/wrappers_v2/seat22.sh": [
+    "100755",
+    "d27243055c992cabc32f80f1d84ae779bcc69686"
+  ],
+  "rt_episode/wrappers_v2/seat23.sh": [
+    "100755",
+    "08fda7168caf1609a5ff5905270369fbcbbcac4c"
+  ],
+  "rt_episode/wrappers_v2/seat24.sh": [
+    "100755",
+    "ff66d69b9c6923d6e460cd82413ddaae6e4914de"
+  ],
+  "rt_episode/wrappers_v2/seat25.sh": [
+    "100755",
+    "308de9973a92f7c009f3c095e257cf8ecf92c9b1"
+  ],
+  "rt_episode/wrappers_v2/seat26.sh": [
+    "100755",
+    "d006e4bfefeb4991152e7c0be9eaf828fb155a67"
+  ],
+  "rt_episode/wrappers_v2/seat27.sh": [
+    "100755",
+    "4d30d15e777f9e1f6c9768571548f8e12fee8a19"
+  ],
+  "rt_episode/wrappers_v2/seat28.sh": [
+    "100755",
+    "d27243055c992cabc32f80f1d84ae779bcc69686"
+  ],
+  "rt_episode/wrappers_v2/seat29.sh": [
+    "100755",
+    "08fda7168caf1609a5ff5905270369fbcbbcac4c"
+  ],
+  "rt_episode/wrappers_v2/seat30.sh": [
+    "100755",
+    "ff66d69b9c6923d6e460cd82413ddaae6e4914de"
+  ],
+  "rt_episode/wrappers_v2/seat31.sh": [
+    "100755",
+    "308de9973a92f7c009f3c095e257cf8ecf92c9b1"
+  ],
+  "scripts/art/build_cvc_front.py": [
+    "100644",
+    "6bdf6f99c4564fbe82845268570022a4b7ecace7"
+  ],
+  "scripts/art/build_cvc_masters.py": [
+    "100644",
+    "9f224801478cc832c2236c8fd0a82b107691082a"
+  ],
+  "scripts/art/build_cvc_rig.py": [
+    "100644",
+    "0af7522f5ee3861696e7a0dcc701e2c79df0dcec"
+  ],
+  "scripts/art/build_floor.py": [
+    "100644",
+    "65fe696134b259e0e06309cc4372f1a318a44206"
+  ],
+  "scripts/art/build_spraycan.py": [
+    "100644",
+    "17df5dafb2ec17d6edcc06d90571c67ab6619597"
+  ],
+  "scripts/art/build_topdown_gun.py": [
+    "100644",
+    "7cafb4e446f221e952869a6ffc0927d8bdfcfe52"
+  ],
+  "scripts/art/gen_batch.mjs": [
+    "100644",
+    "63bc569ff9a3d3bd82e1798a4bcc0024a359c93b"
+  ],
+  "scripts/art/gen_crew.py": [
+    "100644",
+    "e49f277ff11023f692f1642a6a70647d8cbb0442"
+  ],
+  "scripts/art/isolate_objects.py": [
+    "100644",
+    "3e955c818ecf69190c301ad891d364313f4b8855"
+  ],
+  "scripts/art/knockout-bg.py": [
+    "100644",
+    "af153271ce64d30e144f47ad227fe3d2a67a2510"
+  ],
+  "scripts/art/nb.mjs": [
+    "100644",
+    "25b3eed3a85c94ef42ee831171d6e6922f9af688"
+  ],
+  "scripts/art/nb_edit.mjs": [
+    "100644",
+    "220d536c989e1a117f73c7eec4f702f1b4d50385"
+  ],
+  "scripts/art/nb_wide.mjs": [
+    "100644",
+    "8ca81d28f870fb2a3a0b7992c3bc98fe3cd2fbe0"
+  ],
+  "scripts/art/retint_team_props.py": [
+    "100644",
+    "984172e07be338e9cf2c9f36f48d7eb9e621e67d"
+  ],
+  "scripts/art/rig_preview.py": [
+    "100644",
+    "dd00f4b5125c89f7c29d255966a53e3c496797e3"
+  ],
+  "scripts/art/src_cvc/agent_front.png": [
+    "100644",
+    "bb54e860116e0e1af81162d58363cfa237a1dfb0"
+  ],
+  "scripts/art/src_cvc/agent_front_gun.png": [
+    "100644",
+    "5b8f33a9ba3277da1e0c9a2b2c17d45a35d3aa92"
+  ],
+  "scripts/art/src_cvc/agent_s.png": [
+    "100644",
+    "8d912cd11fd3b47444d506b944861335b40b0611"
+  ],
+  "scripts/art/src_cvc/agent_s_mask.png": [
+    "100644",
+    "83a127177ac08538cf4ce7b147f09b40351fd5c1"
+  ],
+  "scripts/art/src_cvc/paintgun_east.png": [
+    "100644",
+    "51f65e31bf68853bd08a724374a39972a4d7175e"
+  ],
+  "scripts/art/src_cvc/spraycan_held_raw.png": [
+    "100644",
+    "53f5e5c73de875797862bfc7b6584dbf5921bc22"
+  ],
+  "scripts/art/src_cvc/spraycan_raw.png": [
+    "100644",
+    "e6f8e34d8e4522a0eeb3c7020e36c4a3d37d7538"
+  ],
+  "src/ctf.nim": [
+    "100644",
+    "c181de61cd2a11171dac32dc8c6cc7aa9d659b40"
+  ],
+  "src/ctf/arena.nim": [
+    "100644",
+    "b072b7644d50534cfe7b06325f5899e3e21868fe"
+  ],
+  "src/ctf/ballot.nim": [
+    "100644",
+    "fd5c9aa2670030ae89bac1605e475c901e26953e"
+  ],
+  "src/ctf/baselines.nim": [
+    "100644",
+    "b577da9a07be10c24902a494d774eb57e911f4eb"
+  ],
+  "src/ctf/br_map_pool.nim": [
+    "100644",
+    "dca1315c74b30d0d9a6165635cf1290225ca7a87"
+  ],
+  "src/ctf/broadcast.nim": [
+    "100644",
+    "383b6fcdc15a7beeffc770c865278f6de2ff5e47"
+  ],
+  "src/ctf/build_stamp.nim": [
+    "100644",
+    "e7011eb8ffdfcdb94763f175d7d6af616126ee86"
+  ],
+  "src/ctf/control.nim": [
+    "100644",
+    "4a5f5110ca801b5efe562d9651228ca40bcdf991"
+  ],
+  "src/ctf/decide.nim": [
+    "100644",
+    "e1e6676c5a0b0e9eae4b4c108684943f880be0c6"
+  ],
+  "src/ctf/directives.nim": [
+    "100644",
+    "54e6a7db5b66f3624991d3434749d979a71cca4d"
+  ],
+  "src/ctf/events.nim": [
+    "100644",
+    "4c2432643bee88986596581f6590da9afa94025a"
+  ],
+  "src/ctf/global.nim": [
+    "100644",
+    "22d11b56eeb058c837f8b2612a664d8ae8b70d7e"
+  ],
+  "src/ctf/glory.nim": [
+    "100644",
+    "33074821a28916ef6cd2f4b855d282edb031ddbd"
+  ],
+  "src/ctf/labels.nim": [
+    "100644",
+    "19b556cf8a3bb6587a4d7499c8077c6bf78d1d42"
+  ],
+  "src/ctf/llm.nim": [
+    "100644",
+    "8451191231217cf9c0b5a87ce356962da40a99a9"
+  ],
+  "src/ctf/map_art.nim": [
+    "100644",
+    "d25525be2df944d9327062ab58e2e1f6259d36b8"
+  ],
+  "src/ctf/map_pool.nim": [
+    "100644",
+    "f80d81b87d646d36e5a74350243ae071fa5ba74c"
+  ],
+  "src/ctf/mapgen_styles.nim": [
+    "100644",
+    "40abd5654b011dbdb7665be946d3cfac416aca41"
+  ],
+  "src/ctf/mux.nim": [
+    "100644",
+    "5ad7d1af0f23d7ba4bc6ee169d46ff49419ee3dd"
+  ],
+  "src/ctf/paint.nim": [
+    "100644",
+    "217225693fd4f2121d7c0d3ce86baf4c24788a17"
+  ],
+  "src/ctf/policy_page.nim": [
+    "100644",
+    "76650315c92db99798a458bd9678c1ba015acd08"
+  ],
+  "src/ctf/replay_codec.nim": [
+    "100644",
+    "8a492bfd67219d188bd4dbc551acbc3ef0471bd4"
+  ],
+  "src/ctf/replay_runtime.nim": [
+    "100644",
+    "2360136f98ec3fb71fed05bbde208e6091d4911c"
+  ],
+  "src/ctf/replays.nim": [
+    "100644",
+    "1244f44efabc151d8fd8b5734b64b411500a2184"
+  ],
+  "src/ctf/rig_art.nim": [
+    "100644",
+    "0adf8d9b53c29d6140360e6329be1f8c82e5c6b7"
+  ],
+  "src/ctf/roster.nim": [
+    "100644",
+    "d9692a4e01a34412493ce1ec8581ed311b7c2d78"
+  ],
+  "src/ctf/server.nim": [
+    "100644",
+    "e2e67d86e099116274c7cadb2df2cbcaed720e61"
+  ],
+  "src/ctf/sim.nim": [
+    "100644",
+    "54eaabee6abef251edc6008d22537423880a755d"
+  ],
+  "src/ctf/sim_config.nim": [
+    "100644",
+    "90b132318d27c9ecb7a93e6d40c2a9d545318e0b"
+  ],
+  "src/ctf/sim_state.nim": [
+    "100644",
+    "238f0a2364230214688c531e15fd9d9597c660bf"
+  ],
+  "src/ctf/sim_state.nim.orig": [
+    "100644",
+    "241c60e781bf84344ece1c0931273c53a94223c6"
+  ],
+  "src/ctf/sim_types.nim": [
+    "100644",
+    "bf045dd3d51db8c7e11a2d36362eb791647f4034"
+  ],
+  "src/ctf/wire_constants.nim": [
+    "100644",
+    "34aaf396daf7b8873f516c20735dab474220dced"
+  ],
+  "src/ctf/zone_field.nim": [
+    "100644",
+    "c8e9c4d0667634750ffa7554cc4587d757d6d647"
+  ],
+  "src/paintball_player.nim": [
+    "100644",
+    "83c06af2cdcdacdbca48d1a2ae958f0ecd51f1de"
+  ],
+  "src/shell/abi.nim": [
+    "100644",
+    "3c1166e7bbc1d7417e00139616d5754559fb9429"
+  ],
+  "src/shell/binary_view.nim": [
+    "100644",
+    "985957f49ec91fad308d23f376d9f8dc7bd1facd"
+  ],
+  "src/shell/body.nim": [
+    "100644",
+    "1491e22a419088efb1937245f8eb1ced1fb2f957"
+  ],
+  "src/shell/body_cache.nim": [
+    "100644",
+    "14e9685da8ddff10ee027dd3ad61c04bdb3f20d5"
+  ],
+  "src/shell/body_danger.nim": [
+    "100644",
+    "ddbdd1ab267c2fbe0e762bc8fc0e672c217f2225"
+  ],
+  "src/shell/body_hazard.nim": [
+    "100644",
+    "1eeed744778dfaf918dedb89f2fce132a5235f8c"
+  ],
+  "src/shell/body_map.nim": [
+    "100644",
+    "054b0c57889ac418950f274328e86bd4a750110a"
+  ],
+  "src/shell/body_nav.nim": [
+    "100644",
+    "23b148231bbd1a7075810fe63687e1dd2e3502f2"
+  ],
+  "src/shell/body_route_index.nim": [
+    "100644",
+    "aa94d30aea450b3d719d29d46bc8368c06ec1118"
+  ],
+  "src/shell/body_route_query.nim": [
+    "100644",
+    "f7af0f62f142d8e2b6cff5bc0d8ae7dbf4e841a4"
+  ],
+  "src/shell/body_safety_query.nim": [
+    "100644",
+    "4c9a5a7a4e41bd8fba50113a2e901933a99828e4"
+  ],
+  "src/shell/call_validation.nim": [
+    "100644",
+    "dd9f218af48d6bee0932de05b2edf6df0bcd4253"
+  ],
+  "src/shell/canonical.nim": [
+    "100644",
+    "ecd86ca55ace89487e259531b659c3efd2e92b2c"
+  ],
+  "src/shell/canonical_fast.nim": [
+    "100644",
+    "0a081860df6c92b12011812a2417ba25745011b2"
+  ],
+  "src/shell/compile_plane.nim": [
+    "100644",
+    "86a55486abefc86f06f0c36d28286cf51a932917"
+  ],
+  "src/shell/containment.nim": [
+    "100644",
+    "d89c7719683e1758b4e0df0f1a00e93a841551da"
+  ],
+  "src/shell/cover_scorer.nim": [
+    "100644",
+    "e39a0382be52434a30fc47ef8f72130876dcff53"
+  ],
+  "src/shell/default_play.nim": [
+    "100644",
+    "cac5264ce98ed9d26fd744d7ee3ac9c0947661c3"
+  ],
+  "src/shell/dispatch.nim": [
+    "100644",
+    "fe83025809c119a6be3bae78df446d1d480b2660"
+  ],
+  "src/shell/emit_validator.nim": [
+    "100644",
+    "c132ce5c284550d4c1711879282d76cae2f9434d"
+  ],
+  "src/shell/episode.nim": [
+    "100644",
+    "c56dce38fb4ef95d889f4a643acaf034b99e991e"
+  ],
+  "src/shell/guards.nim": [
+    "100644",
+    "472fa4e16a025d76facd774c04828f8983d6e5b0"
+  ],
+  "src/shell/ingress.nim": [
+    "100644",
+    "f52626c2fd950a4d432f7a5379cdcdcccc8b5c4a"
+  ],
+  "src/shell/instance.nim": [
+    "100644",
+    "7d0280c6643706b3a0befe4a862e20844cf6ccda"
+  ],
+  "src/shell/ladder.nim": [
+    "100644",
+    "33e5896b3c6c07f38fa1278e6806b1f8d97a6a6d"
+  ],
+  "src/shell/manifest.nim": [
+    "100644",
+    "1c0aa53099ef6ac07f599485030e8cb7effbed94"
+  ],
+  "src/shell/module_cache.nim": [
+    "100644",
+    "e9cb65934a3bc4be1e2d5f2d508f2359760971a3"
+  ],
+  "src/shell/module_interface.nim": [
+    "100644",
+    "9958ab3a0c0dfa0e37e3887d537d1481934c2eda"
+  ],
+  "src/shell/module_validation.nim": [
+    "100644",
+    "b8ebb4e957c9807c7c07fe29a77a3b5625e61f59"
+  ],
+  "src/shell/outbound.nim": [
+    "100644",
+    "c95a24db8ebf2bc0581df45c675a64f6ef4bff99"
+  ],
+  "src/shell/packets.nim": [
+    "100644",
+    "1ba4d25c772f4b95f0cacf31546def3cad800f44"
+  ],
+  "src/shell/plan_escape.nim": [
+    "100644",
+    "34927d26ab0bd9c40912e8881eaab3a6dfa29622"
+  ],
+  "src/shell/play_harness_core.nim": [
+    "100644",
+    "00d4e7cde6f8cb7badc13cab5e5e006d5f121704"
+  ],
+  "src/shell/playbook_archive.nim": [
+    "100644",
+    "8142a4bb6c72d31bdd985a190aaa9e279fbd5fe7"
+  ],
+  "src/shell/policy_encoding.nim": [
+    "100644",
+    "64e14a1c37d0828c4e91c29254b425e848486622"
+  ],
+  "src/shell/reflexes.nim": [
+    "100644",
+    "a43d0084c6a3b12bad651dce5153a4bf015940f0"
+  ],
+  "src/shell/replacement.nim": [
+    "100644",
+    "91ecf875c8309b27d843e89bb1f9c86d8a857dc2"
+  ],
+  "src/shell/replay_records.nim": [
+    "100644",
+    "5807fb7e2d769d02f29611c2936bb790563cf10a"
+  ],
+  "src/shell/runtime.nim": [
+    "100644",
+    "a5b6e37b99514af705802d99c2b121cc76eb08e9"
+  ],
+  "src/shell/runtime_boot.nim": [
+    "100644",
+    "493511535b8193db06e180f918d5ab9d2b1dad55"
+  ],
+  "src/shell/schemas/README.md": [
+    "100644",
+    "926d2a23dc252228fdf9bdda37de8d4416445a33"
+  ],
+  "src/shell/schemas/combat_policy.schema.json": [
+    "100644",
+    "a44d6bd00925e1ad956ca5a64429e8128995c4d2"
+  ],
+  "src/shell/schemas/control_context.schema.json": [
+    "100644",
+    "7e8fed5dcc47b6eeb0622252b71603cfe3740b14"
+  ],
+  "src/shell/schemas/control_view.schema.json": [
+    "100644",
+    "05572bd5bbd2df59e9783384a29a5d2f470a672b"
+  ],
+  "src/shell/schemas/intent.schema.json": [
+    "100644",
+    "85bc67bedfb4af776efc74d4e4c188fb912a1d42"
+  ],
+  "src/shell/schemas/ladder_call.schema.json": [
+    "100644",
+    "2370432d0dd5351c55f663c8f5d65a1c1be1a425"
+  ],
+  "src/shell/schemas/manifest.schema.json": [
+    "100644",
+    "18000b57b0b76e1952e9647fea43049f1722c5b2"
+  ],
+  "src/shell/schemas/play_context.schema.json": [
+    "100644",
+    "87349377a8019420478c124973bd122dc83e0cd8"
+  ],
+  "src/shell/schemas/play_view.schema.json": [
+    "100644",
+    "b3fa51f0d95bf74b7f35bc15df851d0c79b64478"
+  ],
+  "src/shell/schemas/status_entry.schema.json": [
+    "100644",
+    "9303c60582441781be6fa3581370257e23e051e6"
+  ],
+  "src/shell/schemas/uint64.schema.json": [
+    "100644",
+    "61f3c0cdbf181bbff6baef99a908f11c1e237357"
+  ],
+  "src/shell/seats.nim": [
+    "100644",
+    "e3fb12a02a510c42941f57c47275eb319d2dd9d7"
+  ],
+  "src/shell/standing_order.nim": [
+    "100644",
+    "f90c1d3e3cefa270f5e7b8226ed1a1ac7c6d5018"
+  ],
+  "src/shell/transport.nim": [
+    "100644",
+    "43515c595926d8a3af05256cc2ffb8a8aee45e66"
+  ],
+  "src/shell/types.nim": [
+    "100644",
+    "1f5d4867b3f8f6a5a2e5356344a75d2cd976956f"
+  ],
+  "src/shell/view.nim": [
+    "100644",
+    "1046e65a888245fac5b99a0ca86585dfb7a3710a"
+  ],
+  "src/shell/vote_packets.nim": [
+    "100644",
+    "e9e6c5810e865de3b59897c87b8e440d625819e2"
+  ],
+  "src/shell/wasmtime_c.nim": [
+    "100644",
+    "83a660deb7a48d6a0be75d1b5f78531de8acb2cf"
+  ],
+  "src/shell/wasmtime_shim.h": [
+    "100644",
+    "76c6736ba90faff5ea9171e51cb59f3c2de68372"
+  ],
+  "static-replay-viewer/art/lockerroom/bg.jpg": [
+    "100644",
+    "0ac93757bf17ef349e573b5a3d94b40172420930"
+  ],
+  "static-replay-viewer/art/lockerroom/blue_1.webp": [
+    "100644",
+    "4c43b98c5aa6c7d32743e2ec9ea281a96dcc1008"
+  ],
+  "static-replay-viewer/art/lockerroom/blue_2.webp": [
+    "100644",
+    "5fae353a018852b35b52b8639259054429db332f"
+  ],
+  "static-replay-viewer/art/lockerroom/blue_3.webp": [
+    "100644",
+    "c4309ae404d337cf1c558a1e2bbd3062c1649a4e"
+  ],
+  "static-replay-viewer/art/lockerroom/blue_5.webp": [
+    "100644",
+    "493954ec40fc3ac9aa44a821930c866c93806b7b"
+  ],
+  "static-replay-viewer/art/lockerroom/blue_6.webp": [
+    "100644",
+    "295fa587f1ff45ffa28daa0994f971264a1b5ccd"
+  ],
+  "static-replay-viewer/art/lockerroom/green_1.webp": [
+    "100644",
+    "4c817568aa97f81ce60527147fe2cbc149cfaf25"
+  ],
+  "static-replay-viewer/art/lockerroom/green_2.webp": [
+    "100644",
+    "91f0f3c751a22137a9ee87679d110bbe0469c1c8"
+  ],
+  "static-replay-viewer/art/lockerroom/green_3.webp": [
+    "100644",
+    "87aa1a4d1040c0233b1e0e9b35cca00c7c3270bb"
+  ],
+  "static-replay-viewer/art/lockerroom/green_5.webp": [
+    "100644",
+    "7520dc1fed2d30c1f55cc6503b42ad1ac2ee1336"
+  ],
+  "static-replay-viewer/art/lockerroom/green_6.webp": [
+    "100644",
+    "2b41b316ac813a19584b0c9d412b9a9177c8833d"
+  ],
+  "static-replay-viewer/art/lockerroom/red_1.webp": [
+    "100644",
+    "b4d39fdfd65fb29480069702215260036ebba5fe"
+  ],
+  "static-replay-viewer/art/lockerroom/red_2.webp": [
+    "100644",
+    "161170be35e5025b893484482f3431269f568caf"
+  ],
+  "static-replay-viewer/art/lockerroom/red_3.webp": [
+    "100644",
+    "02b8ccd27f60d800bd1a60cba748f04ad581d142"
+  ],
+  "static-replay-viewer/art/lockerroom/red_5.webp": [
+    "100644",
+    "9a61802c8a839a25b083f4cae84cb3ce4bb09718"
+  ],
+  "static-replay-viewer/art/lockerroom/red_6.webp": [
+    "100644",
+    "5b2f0849e51309abe8d48084867b09b3a6b6bf99"
+  ],
+  "static-replay-viewer/art/lockerroom/yellow_1.webp": [
+    "100644",
+    "025d7c9ef43defd99c120f24d37851b252debc6a"
+  ],
+  "static-replay-viewer/art/lockerroom/yellow_2.webp": [
+    "100644",
+    "8863413af7a74a9623cb6836694017dde6f6e1ba"
+  ],
+  "static-replay-viewer/art/lockerroom/yellow_3.webp": [
+    "100644",
+    "43c2a42ebb001de64a8f00459fc1a38a5c1e3115"
+  ],
+  "static-replay-viewer/art/lockerroom/yellow_5.webp": [
+    "100644",
+    "890e447b8600bbd36cdfd34bc3f3e89aaf8fe40b"
+  ],
+  "static-replay-viewer/art/lockerroom/yellow_6.webp": [
+    "100644",
+    "87f265a55fbfc6cfa9a3caee8c85eb1bcbba64b1"
+  ],
+  "static-replay-viewer/art/walls/wall_h.jpg": [
+    "100644",
+    "0ad1008bacedfe20405e05b862747362cde21c26"
+  ],
+  "static-replay-viewer/art/walls/wall_v.jpg": [
+    "100644",
+    "a0f32c5de12d796b94bdb693be3afb1dd1c95272"
+  ],
+  "static-replay-viewer/broadcast_core.js": [
+    "100644",
+    "5c57e30295f4f8856855ab5dbd0f11c565b93409"
+  ],
+  "static-replay-viewer/chrome_common.js": [
+    "100644",
+    "fd992f3d049110dd9b464c450286c1048199ad91"
+  ],
+  "static-replay-viewer/ctf_replay.data": [
+    "100644",
+    "d4b625a299e3afc1dd1b49d2f5b6fde06860106b"
+  ],
+  "static-replay-viewer/ctf_replay.js": [
+    "100644",
+    "8545aa94055127c72ce8a09d28d079f0fcb20dbb"
+  ],
+  "static-replay-viewer/ctf_replay.wasm": [
+    "100755",
+    "cda15ad4cb7d5f1f511219edc5776a1ece80f93b"
+  ],
+  "static-replay-viewer/font.ttf": [
+    "100644",
+    "d43750bd05c130d36c8e7fbeb06ecd7c5d3c3b17"
+  ],
+  "static-replay-viewer/index.html": [
+    "100644",
+    "d4a2c3a0017bf5cc639fda794e57067cc012b3a1"
+  ],
+  "static-replay-viewer/league.html": [
+    "100644",
+    "7c70366994ee6896fca9397f6c0afc1a2b6a334b"
+  ],
+  "static-replay-viewer/loop.html": [
+    "100644",
+    "a759400c12f790cdaa1e62b6a89839df4e8a0784"
+  ],
+  "static-replay-viewer/soldier_azure_front.png": [
+    "100644",
+    "851566b0e1126ebd1502b447354f5e8c915e5d16"
+  ],
+  "static-replay-viewer/soldier_azure_front_gun.png": [
+    "100644",
+    "98b3a20e7007500d4e0bd2f27a45251622603393"
+  ],
+  "static-replay-viewer/soldier_black_front.png": [
+    "100644",
+    "73e8421c09c5d6956a32f6335bd51fc12ed5644e"
+  ],
+  "static-replay-viewer/soldier_black_front_gun.png": [
+    "100644",
+    "d8c58f02ea545d23ddf8b8ed7b96d60f032ac558"
+  ],
+  "static-replay-viewer/soldier_blue_front.png": [
+    "100644",
+    "2fdc20f22d8a531861a1a3fa30e93966c31a275c"
+  ],
+  "static-replay-viewer/soldier_blue_front_gun.png": [
+    "100644",
+    "642cda3438aa1b8a530d3daf71b2b5e9979e0d58"
+  ],
+  "static-replay-viewer/soldier_green_front.png": [
+    "100644",
+    "410dd51cc6ce93f9204c03202509985911ed6bf3"
+  ],
+  "static-replay-viewer/soldier_green_front_gun.png": [
+    "100644",
+    "dfe4337bbde8ea41a870c34195d6b858d70af312"
+  ],
+  "static-replay-viewer/soldier_ivory_front.png": [
+    "100644",
+    "9b095688312f136f7773d0d92b7b9188ae22d654"
+  ],
+  "static-replay-viewer/soldier_ivory_front_gun.png": [
+    "100644",
+    "dcec575e47cf2498385ffef63dcfa6df976c442d"
+  ],
+  "static-replay-viewer/soldier_lime_front.png": [
+    "100644",
+    "2c9cce0264e7ad2e3830fa15162fab1e2c4dd57b"
+  ],
+  "static-replay-viewer/soldier_lime_front_gun.png": [
+    "100644",
+    "e71f348b00f57178c37cbc9821d39a2bb46d1b6d"
+  ],
+  "static-replay-viewer/soldier_navy_front.png": [
+    "100644",
+    "ca06ad6a4e0474b1473c2e889e677d0860b9e243"
+  ],
+  "static-replay-viewer/soldier_navy_front_gun.png": [
+    "100644",
+    "99fa86b35c2e9df55e595837ab20672d7398ee4b"
+  ],
+  "static-replay-viewer/soldier_orange_front.png": [
+    "100644",
+    "03c1baea653b5515d7125da800d6edfd894df0f1"
+  ],
+  "static-replay-viewer/soldier_orange_front_gun.png": [
+    "100644",
+    "6bc2518798552066c067b13caad16ec2f74348bd"
+  ],
+  "static-replay-viewer/soldier_peach_front.png": [
+    "100644",
+    "7dad5dd606d710f57e5ecd3f8b16805dbbc6510f"
+  ],
+  "static-replay-viewer/soldier_peach_front_gun.png": [
+    "100644",
+    "e1c1a276112057369bff78c37e5a4fa1381c0c89"
+  ],
+  "static-replay-viewer/soldier_pink_front.png": [
+    "100644",
+    "7fe4dd9b3c094991a8a35b215358f735eb327b1e"
+  ],
+  "static-replay-viewer/soldier_pink_front_gun.png": [
+    "100644",
+    "b43c033e1ad29fa49bd2b61572a961d51920db62"
+  ],
+  "static-replay-viewer/soldier_plum_front.png": [
+    "100644",
+    "3c308d3be4b0a2971248f23287f61ca257efaff2"
+  ],
+  "static-replay-viewer/soldier_plum_front_gun.png": [
+    "100644",
+    "0afdc13884ec7e5b05d09f4f9f1666f3d4a5398c"
+  ],
+  "static-replay-viewer/soldier_red_front.png": [
+    "100644",
+    "70f9d4a0dfc95fe1c75bd9d2852ef6b7d4dbe89b"
+  ],
+  "static-replay-viewer/soldier_red_front_gun.png": [
+    "100644",
+    "05a8bc0f322513b5b6087b3ff32556735549f560"
+  ],
+  "static-replay-viewer/soldier_rust_front.png": [
+    "100644",
+    "7419ed56b4d7c6226ad3a710a69255666460e57d"
+  ],
+  "static-replay-viewer/soldier_rust_front_gun.png": [
+    "100644",
+    "33eb30e19cdce348f5b4781277a35cfc247d83e3"
+  ],
+  "static-replay-viewer/soldier_silver_front.png": [
+    "100644",
+    "1da174f9c93656ffa75a33d49f5430c631cc12cd"
+  ],
+  "static-replay-viewer/soldier_silver_front_gun.png": [
+    "100644",
+    "697d8e4d21e19aeeccd802913cb98d0736f02b1a"
+  ],
+  "static-replay-viewer/soldier_umber_front.png": [
+    "100644",
+    "df7c6b1a6d39b228d0e5554264f47176c32bd5bb"
+  ],
+  "static-replay-viewer/soldier_umber_front_gun.png": [
+    "100644",
+    "8d0c00030ffec9956b2b0d4010fc34f766f12aaa"
+  ],
+  "static-replay-viewer/soldier_yellow_front.png": [
+    "100644",
+    "6ec5dd2b3347ca328ff79427e984b74aafb84de9"
+  ],
+  "static-replay-viewer/soldier_yellow_front_gun.png": [
+    "100644",
+    "dae3ad6ea1f7b05c30c211b3f378c82ad099711e"
+  ],
+  "static-replay-viewer/static_replay.js": [
+    "100644",
+    "eacd7793cbfe9ddc67b9b44197336cb9b498e69c"
+  ],
+  "static-replay-viewer/static_replay_worker.js": [
+    "100644",
+    "836d585d424a9028d5fc23b89eb543c3ecdb5ec3"
+  ],
+  "static-replay-viewer/wire_constants.js": [
+    "100644",
+    "7c4e21df1f753546ec2f5f4dd748c416af45a6a8"
+  ],
+  "tests/arena_native_parity.nim": [
+    "100644",
+    "af77ed6cd694cbe8a5197fe4da0c50d67690640b"
+  ],
+  "tests/config.nims": [
+    "100644",
+    "a11920885228a6b999179d08784e41c20b173826"
+  ],
+  "tests/fixtures/br-golden-16team.bitreplay": [
+    "100644",
+    "5585ff8818255bbe3a8074bfcf7ae7e17f50e0dc"
+  ],
+  "tests/fixtures/br-golden-map.json": [
+    "100644",
+    "66fcd090e6e5e729c9b87307543e4ff275f17f39"
+  ],
+  "tests/fixtures/br-match-map-14005.json": [
+    "100644",
+    "956f7a923a0a4f86322eee030fbc9dacf5a64a16"
+  ],
+  "tests/fixtures/br-match-map-r9-301.json": [
+    "100644",
+    "5ac4c809fa388912d0c702f08447f362dcd231fa"
+  ],
+  "tests/fixtures/br-match-showmatch-4242.json": [
+    "100644",
+    "66fcd090e6e5e729c9b87307543e4ff275f17f39"
+  ],
+  "tests/fixtures/br-zonepaint-smoke.bitreplay": [
+    "100644",
+    "d37d4cfe567fc6fcbb583a44fd9c320a109fcbf3"
+  ],
+  "tests/fixtures/capture-seed1.bitreplay": [
+    "100644",
+    "2646e4872067b8c304afdd0387dc6649bb766aee"
+  ],
+  "tests/fixtures/capture-seed1.claims.json": [
+    "100644",
+    "c2c4c80283f42dc7a9ce0d96229c88da36b80ab1"
+  ],
+  "tests/fixtures/draw-nokill.bitreplay": [
+    "100644",
+    "f12bde6fa678605df3dec0ee8b1ab67587687a33"
+  ],
+  "tests/fixtures/gen-colossal-4team.bitreplay": [
+    "100644",
+    "ebd90cd5bd57425b92deb8174ca6b162eea0c3d1"
+  ],
+  "tests/fixtures/gen-small-pits.bitreplay": [
+    "100644",
+    "bb72f29d96eda036c4e05c32788e5cfad0901800"
+  ],
+  "tests/fixtures/map-validation-baseline.tsv": [
+    "100644",
+    "01255e22d5c5c7c36e14abbfc3d5179e26e7c411"
+  ],
+  "tests/fixtures/mirror-poly/carve-v10.1-rot180.json": [
+    "100644",
+    "d0bd750cfeb41bd35a96e0294d4dc83e69a95ee2"
+  ],
+  "tests/fixtures/mirror-poly/mesa-map2-v5.json": [
+    "100644",
+    "371dc94c85c797e92480e673ae06097c42382f13"
+  ],
+  "tests/fixtures/replay_compat/format1-rejected.golden.bin": [
+    "100644",
+    "1176696b26210d834aff62582766ed4bb3b7d9ee"
+  ],
+  "tests/fixtures/replay_compat/format2-legacy.golden.bin": [
+    "100644",
+    "2a56a4c9814db6a6f328380f530fe7ba9ea80a0c"
+  ],
+  "tests/fixtures/seats-numagents16.bitreplay": [
+    "100644",
+    "e97bf07639b990d21bf186ad7fb14f11051d6e91"
+  ],
+  "tests/fixtures/shell/binary-view/README.md": [
+    "100644",
+    "9fc795d2cc47521878a3c7335c24d0b0eea68d43"
+  ],
+  "tests/fixtures/shell/binary-view/context.hex": [
+    "100644",
+    "a07e25fb011ada5da230bacd643775de28af8c91"
+  ],
+  "tests/fixtures/shell/binary-view/real-max.hex": [
+    "100644",
+    "e96efe8803ab5375608e52ce76dde9b747208786"
+  ],
+  "tests/fixtures/shell/binary-view/thin.hex": [
+    "100644",
+    "bca18d99a64fb2537ce1c5ccd2b417dd8cbc5a20"
+  ],
+  "tests/fixtures/shell/body/two-components.json": [
+    "100644",
+    "911851fd68e3db4bbe81f9b65367c73191ac359e"
+  ],
+  "tests/fixtures/shell/combat_policy.golden.json": [
+    "100644",
+    "a3bc27c2e4ba5fecc0d1d90d5829a0d2968bbc98"
+  ],
+  "tests/fixtures/shell/control_context.golden.json": [
+    "100644",
+    "8d7a12fc586754178c72a252927bc4e28272add9"
+  ],
+  "tests/fixtures/shell/control_view.golden.json": [
+    "100644",
+    "9d5068b8bac59dd99672eff12e4c8ab2454af6b3"
+  ],
+  "tests/fixtures/shell/floats.golden.json": [
+    "100644",
+    "85952ab14683afb1401bb7ab0c4518f9376914b4"
+  ],
+  "tests/fixtures/shell/intent.golden.json": [
+    "100644",
+    "ba247a9153128b2c53de49acf6c2e687f5510896"
+  ],
+  "tests/fixtures/shell/intent_handoff.golden.json": [
+    "100644",
+    "1272fc25a75504321539d86e23d830ad0a83877a"
+  ],
+  "tests/fixtures/shell/intent_safe_hold.golden.json": [
+    "100644",
+    "629302fa1e0a061a7a8f939f83272cd0bfd22657"
+  ],
+  "tests/fixtures/shell/ladder_call.golden.json": [
+    "100644",
+    "829803245d4fbd678ce747280e91b593c1a43e00"
+  ],
+  "tests/fixtures/shell/manifest_bodyguard.golden.json": [
+    "100644",
+    "942033bf1812091a84f59b2f7bb734a0117f9a15"
+  ],
+  "tests/fixtures/shell/manifest_crossfire.golden.json": [
+    "100644",
+    "be4c33b701b9046ed1fe2ec7ef5c7b6884f680c8"
+  ],
+  "tests/fixtures/shell/manifest_edge_ride.golden.json": [
+    "100644",
+    "86331cae32fc89ada71bb2648e0abfb8450af762"
+  ],
+  "tests/fixtures/shell/manifest_jackal.golden.json": [
+    "100644",
+    "6a311d4ff03890495342848eec7766a8950e43b7"
+  ],
+  "tests/fixtures/shell/manifest_loot.golden.json": [
+    "100644",
+    "d3b753f702789d9364662908e6d25eb43741dd36"
+  ],
+  "tests/fixtures/shell/manifest_pact.golden.json": [
+    "100644",
+    "a5ca11e181bcb723880f3b16854d5402fd2b401b"
+  ],
+  "tests/fixtures/shell/manifest_scatter.golden.json": [
+    "100644",
+    "d6d6216e694d3eebd01e5c6bf4fa6d0bda8421f4"
+  ],
+  "tests/fixtures/shell/manifest_supply_run.golden.json": [
+    "100644",
+    "20918bcaf129e1cdaa4476c5c863d3117e816505"
+  ],
+  "tests/fixtures/shell/manifest_target_law.golden.json": [
+    "100644",
+    "7c2c5915ede5bdf0a501b87623e4e48dec888d12"
+  ],
+  "tests/fixtures/shell/nav_route_corpus.json": [
+    "100644",
+    "e4a1a3e913189a0e0ecb2a69b254b6285c6a4d39"
+  ],
+  "tests/fixtures/shell/packets/lobby_chat_broadcast.bin": [
+    "100644",
+    "c575becb9c717150b5fa70f09f1f1509f6de31f4"
+  ],
+  "tests/fixtures/shell/packets/lobby_chat_send.bin": [
+    "100644",
+    "511b29f0ab9ac30889de89bd48667d97fa97296c"
+  ],
+  "tests/fixtures/shell/packets/module_upload.bin": [
+    "100644",
+    "bcb97259ec203d093613ead725d61d678c210c3b"
+  ],
+  "tests/fixtures/shell/packets/module_upload_max.bin": [
+    "100644",
+    "5d43ce895897337c6864e64b0a43ca18b841b368"
+  ],
+  "tests/fixtures/shell/packets/play_call.bin": [
+    "100644",
+    "68851e7779a9e8623466cff3688ac2fd9484eb3c"
+  ],
+  "tests/fixtures/shell/packets/play_context.bin": [
+    "100644",
+    "7d3be718ec30ab9eae9dd9e7efed241fe6e42977"
+  ],
+  "tests/fixtures/shell/packets/play_view.bin": [
+    "100644",
+    "1a1d49380fc46b9b012c5e98c8be9e4a935f5af7"
+  ],
+  "tests/fixtures/shell/packets/play_view_control_only.bin": [
+    "100644",
+    "034f96231f534815cfde239154152fa9d28e68f9"
+  ],
+  "tests/fixtures/shell/packets/status_ack.bin": [
+    "100644",
+    "18571022e0564515182299c9a38d4793e5bf80a7"
+  ],
+  "tests/fixtures/shell/play_context.golden.json": [
+    "100644",
+    "76b2a3275491ca05abd96e035c1b8d0e96ea6dd1"
+  ],
+  "tests/fixtures/shell/play_harness/fault.golden.json": [
+    "100644",
+    "699fbe2fff3bc24c18cd173edd33b777c5a550ec"
+  ],
+  "tests/fixtures/shell/play_harness/hello_success.case.json": [
+    "100644",
+    "37d804845295cc1b76cc310c8c94a7bcc8fbc5c7"
+  ],
+  "tests/fixtures/shell/play_harness/hello_success.golden.json": [
+    "100644",
+    "893d6c34b3126774f1a3bb558ddde35bdc3f8a5a"
+  ],
+  "tests/fixtures/shell/play_harness/logs.golden.json": [
+    "100644",
+    "d9750947923c72dc7e572f7866f8f966520d49cf"
+  ],
+  "tests/fixtures/shell/play_harness/normalization.golden.json": [
+    "100644",
+    "a6c8046822d0e559e55cc587d7005782bad7937a"
+  ],
+  "tests/fixtures/shell/play_harness/pact_success.case.json": [
+    "100644",
+    "636e47d9c247913e57f6e7e227bfd245cf46cfe0"
+  ],
+  "tests/fixtures/shell/play_harness/pact_success.golden.json": [
+    "100644",
+    "7800ad30d90dbe02a9344f0771b540c366cef6a9"
+  ],
+  "tests/fixtures/shell/play_harness/rejection.golden.json": [
+    "100644",
+    "b1c7b7491ea438f3646916112256803987d38ce2"
+  ],
+  "tests/fixtures/shell/play_harness/retune.golden.json": [
+    "100644",
+    "1c0dfbcc48f234eb50c2b576eea5aa7b766a632a"
+  ],
+  "tests/fixtures/shell/play_view.golden.json": [
+    "100644",
+    "73747b9885db465f569e873de949210f344ab8d4"
+  ],
+  "tests/fixtures/shell/play_view_absent_optional.golden.json": [
+    "100644",
+    "b7a4530c148518ab6f1966c5e4ab842c541132b5"
+  ],
+  "tests/fixtures/shell/play_view_unknown_fields.golden.json": [
+    "100644",
+    "90cf993718d12ab01c9ce54110cc839af58c5a35"
+  ],
+  "tests/fixtures/shell/replay/annotation-accepted.bin": [
+    "100644",
+    "65b32cf1f388493c00d071b345ed5814dc57c104"
+  ],
+  "tests/fixtures/shell/replay/annotation-clear.bin": [
+    "100644",
+    "d1e4d98e936b7adfc097e95fdd1c12a2ed0cc8ac"
+  ],
+  "tests/fixtures/shell/replay/annotation-fault.bin": [
+    "100644",
+    "34ecc5d7cbb318be218d0fcb8d731daf84b3ba8e"
+  ],
+  "tests/fixtures/shell/replay/annotation-install.bin": [
+    "100644",
+    "0d8e0ab324eda1628faf1e10140895d3c822d28c"
+  ],
+  "tests/fixtures/shell/replay/disconnect.bin": [
+    "100644",
+    "54fdab8179a98f99f710d90628683bf614afcddd"
+  ],
+  "tests/fixtures/shell/replay/kick.bin": [
+    "100644",
+    "bd94665b04c7c7461d3453a9b7e57a0a822f189b"
+  ],
+  "tests/fixtures/shell/replay/lobby-chat.bin": [
+    "100644",
+    "e67c031e93eaaafe7903caa87276d7dda005cfb6"
+  ],
+  "tests/fixtures/shell/replay/manifest.bin": [
+    "100644",
+    "a8419a4900a744600b30d3ecc6dd95168480691e"
+  ],
+  "tests/fixtures/shell/replay/play-call.bin": [
+    "100644",
+    "e7bab07295fe19b1e9d88149c97b620a6d729d1a"
+  ],
+  "tests/fixtures/shell/replay/rebind.bin": [
+    "100644",
+    "6058539c562ab62a22ebf2f9129d2c68b703c24c"
+  ],
+  "tests/fixtures/shell/shell_demo_config.json": [
+    "100644",
+    "938bae8ed941b112a7c93528881ef38eb16e0733"
+  ],
+  "tests/fixtures/shell/status_call_accepted.golden.json": [
+    "100644",
+    "0beab45979e0f29a6f23a1e9e38f7d3c622d2b67"
+  ],
+  "tests/fixtures/shell/status_call_rejected.golden.json": [
+    "100644",
+    "d4a5c2feee602a9220968796bd1a91bf20104339"
+  ],
+  "tests/fixtures/shell/status_module_accepted.golden.json": [
+    "100644",
+    "38e5194c5dde3ac682878a6169fd6bcd1c23477d"
+  ],
+  "tests/fixtures/shell/status_module_ready.golden.json": [
+    "100644",
+    "2d5e892e258b3bd3ea2078cf3cae6d8098a122ea"
+  ],
+  "tests/fixtures/shell/status_module_rejected.golden.json": [
+    "100644",
+    "3804dd32c103963500fabde13cc51dda31ee0864"
+  ],
+  "tests/fixtures/shell/status_play_faulted.golden.json": [
+    "100644",
+    "aed86776a635d84ce3a471547acd6acff090c42c"
+  ],
+  "tests/fixtures/shell/status_retune_refused.golden.json": [
+    "100644",
+    "5e1095fb22fd89d4793c3a06f3e1accf233c80d2"
+  ],
+  "tests/fixtures/shell/wasm/bad_import.wat": [
+    "100644",
+    "97ae331dcd595c3498b10662a5df8d8ee9fc8dfa"
+  ],
+  "tests/fixtures/shell/wasm/manifest_fuel.wat": [
+    "100644",
+    "74e37c0e6a6a525085d125ddf6d0c4302619c2d3"
+  ],
+  "tests/fixtures/shell/wasm/manifest_limiter.wat": [
+    "100644",
+    "40045ef480827da8ee41448898f8e90921ccce82"
+  ],
+  "tests/fixtures/shell/wasm/manifest_oob.wat": [
+    "100644",
+    "382691a41df157af2948c7b5ba664a5c213ee2ff"
+  ],
+  "tests/fixtures/shell/wasm/manifest_spatial.wat": [
+    "100644",
+    "e0ef2260a91655a49d8a6897ade694f6d016cae6"
+  ],
+  "tests/fixtures/shell/wasm/manifest_trap.wat": [
+    "100644",
+    "7d52b3bc416bfa4b5aaf804182ef3daf932669f3"
+  ],
+  "tests/fixtures/shell/wasm/memory_no_max.wat": [
+    "100644",
+    "96772e98df29fa43ce201bdf8301f3b5e72da257"
+  ],
+  "tests/fixtures/shell/wasm/reserved_name.wat": [
+    "100644",
+    "41aaa36567a3b1148bf5e9279254d5003b4b5364"
+  ],
+  "tests/fixtures/shell/wasm/shared_memory.wat": [
+    "100644",
+    "b32e94abd5591974404a08fc4a77684f49887d73"
+  ],
+  "tests/fixtures/shell/wasm/start.wat": [
+    "100644",
+    "f77d669949bd32492308d512606cca9db437f9c4"
+  ],
+  "tests/fixtures/shell/wasm/two_emit.wat": [
+    "100644",
+    "100f51cfea614b8d27e2ebb6be4d65fb6e96c4f0"
+  ],
+  "tests/fixtures/shell/wasm/valid.wat": [
+    "100644",
+    "994de273e4c5e36d06dba8356a787ef8644c65bd"
+  ],
+  "tests/fixtures/shell/wasm/wrong_export_signature.wat": [
+    "100644",
+    "e1e60dc16155a8c3940d002c479ea368f99f7acb"
+  ],
+  "tests/fixtures/shell/wasm/zero_emit.wat": [
+    "100644",
+    "85d705375bb75f0e658a2f574f8a621d6d22337e"
+  ],
+  "tests/fixtures/symnone-demo.json": [
+    "100644",
+    "b666a1bd304cb956c3660782c9d04ed02831559d"
+  ],
+  "tests/fixtures/symnone/symnone-arena-1.art.png": [
+    "100644",
+    "474fc7c24c32f9f9010dba8999912277ccba5c95"
+  ],
+  "tests/fixtures/symnone/symnone-arena-1.debug.png": [
+    "100644",
+    "89c7ee8b1c61d060745a75b115655f2bf0ad48c5"
+  ],
+  "tests/fixtures/symnone/symnone-arena-1.json": [
+    "100644",
+    "4a9f8986e71dd765116c05249c9bc6aaf1072837"
+  ],
+  "tests/fixtures/symnone/symnone-arena-1.manifest.json": [
+    "100644",
+    "b5e8664ca9d49c5d3c49ecc57f7602fc5f081bfc"
+  ],
+  "tests/fixtures/wipe-lives1.bitreplay": [
+    "100644",
+    "a2446dc9f755aec964d7a51e7ffe2332a22f9427"
+  ],
+  "tests/helpers.nim": [
+    "100644",
+    "ac4cb05b77f5e224adf7a112b328cf7b300af7ff"
+  ],
+  "tests/label_manifest.txt": [
+    "100644",
+    "21b0e6febd25a202d259c7a4e3e13ba8b79ceb88"
+  ],
+  "tests/nav_route_corpus_support.nim": [
+    "100644",
+    "66f335f78d019572966c25b6d12686c50e516ad1"
+  ],
+  "tests/pb_helpers.nim": [
+    "100644",
+    "7bb5b4fd982b0d14743b003a54336e59aa416c92"
+  ],
+  "tests/pb_shutdown_server.nim": [
+    "100644",
+    "bea0b9002001d3c0d491f38f8f298c38db40feb5"
+  ],
+  "tests/playwright/first_click_fires.spec.js": [
+    "100644",
+    "78e9dd8d47e1ed716164974d1e6149d989c8b128"
+  ],
+  "tests/raw_websocket_client.nim": [
+    "100644",
+    "a48710a003bf490bc955409a6eae55bb6ba8c536"
+  ],
+  "tests/replays/ctf.bitreplay": [
+    "100644",
+    "11366f28c1094c57a97b5d19f93173387afd67e5"
+  ],
+  "tests/shard_1.nim": [
+    "100644",
+    "191f60d188e6ffa9153432b98936f7d42308fce1"
+  ],
+  "tests/shard_2.nim": [
+    "100644",
+    "41e5410a180c602aaffca9632de178958389f869"
+  ],
+  "tests/shard_3.nim": [
+    "100644",
+    "d96d26d03535cc99b2ecda640d53220371d8b823"
+  ],
+  "tests/shard_4.nim": [
+    "100644",
+    "ab8d16eb2436d9f944b213e9ad534ef4da639090"
+  ],
+  "tests/test_achievements.nim": [
+    "100644",
+    "027fbe78ce3333edc8854b4c88212daefa66ffae"
+  ],
+  "tests/test_agent_skins.nim": [
+    "100644",
+    "833907acc00d2b9fee40a6f91dde87c8a2681610"
+  ],
+  "tests/test_aim_assist.nim": [
+    "100644",
+    "2a27ac4735d502f00d6c90807c9a29c8b0cc3d33"
+  ],
+  "tests/test_alliance_pact.nim": [
+    "100644",
+    "9ab4c7d32e855baa36d686f4f3659c4dafb9ab62"
+  ],
+  "tests/test_artlog.nim": [
+    "100644",
+    "7e7664fdde718e3df7f69abdecb561724cc92d1b"
+  ],
+  "tests/test_barrage.nim": [
+    "100644",
+    "7a4c4fe43bfa48843810c55d7e61256ab3159499"
+  ],
+  "tests/test_barriers.nim": [
+    "100644",
+    "e37eadbc430c7c370511dec52abe1cb61d2fec42"
+  ],
+  "tests/test_baseline_s2.nim": [
+    "100644",
+    "f66a2e1b329fdef0f53adfc8998b307ea47d57f1"
+  ],
+  "tests/test_blocked_damage.nim": [
+    "100644",
+    "46702ce9a758021a454bd5dcee75295c07f5b2a4"
+  ],
+  "tests/test_board_click_select.nim": [
+    "100644",
+    "3930dc0d6026c26c8030469ed7f5f256c461ae3d"
+  ],
+  "tests/test_br_elim.nim": [
+    "100644",
+    "8f1777415a78d2a800fd34cb5a4675acafadcb6b"
+  ],
+  "tests/test_br_golden_e2e.nim": [
+    "100644",
+    "6a98da9254746d5d95d74fda7e7ddc14752fb6bc"
+  ],
+  "tests/test_br_map_pool.nim": [
+    "100644",
+    "40e97835edbb8fa86e94d769db251648dfbdb333"
+  ],
+  "tests/test_br_placement.nim": [
+    "100644",
+    "bf2a0d0ee65b1e27f0064cf3f685f525a77d9f1e"
+  ],
+  "tests/test_br_s2_map_pool.nim": [
+    "100644",
+    "e4c8f46af349327c62f8f6fd67bfbae61eadc961"
+  ],
+  "tests/test_br_s2_solo_map_pool.nim": [
+    "100644",
+    "fd2d37ac39aaf004c5453e59d0e6b7f4d71844c5"
+  ],
+  "tests/test_br_spawn_points.nim": [
+    "100644",
+    "0b28444bc62ff25c939da8bf745dbd0be42bbc6a"
+  ],
+  "tests/test_br_team_bridge.nim": [
+    "100644",
+    "a4688ab0852676325937e13ddbe889326c673fc8"
+  ],
+  "tests/test_broadcast_state.nim": [
+    "100644",
+    "5993857ca0639f582170b26de6e6b3586a0de6e3"
+  ],
+  "tests/test_callout_perception.nim": [
+    "100644",
+    "594269ba999ddd5cbadf47b24603f0984a03f342"
+  ],
+  "tests/test_canonical_fast.nim": [
+    "100644",
+    "0081fc579e4b758ee008d24a539272ed2c52354f"
+  ],
+  "tests/test_cog_drive.nim": [
+    "100644",
+    "0377d19571a6b50b27408630266f22ec28677d4e"
+  ],
+  "tests/test_corpse_label.nim": [
+    "100644",
+    "c7547687f47aaff4c6172bf11a31fb982aa8ca2b"
+  ],
+  "tests/test_cosmetic_fx_wire.nim": [
+    "100644",
+    "1d23c0071f3ddeb7070043d097b0f487bc2973f9"
+  ],
+  "tests/test_ctf_game.nim": [
+    "100644",
+    "b3b017a6c46c7f989f6c873f1a652043e6901950"
+  ],
+  "tests/test_damage_pop.nim": [
+    "100644",
+    "0a4e7f2569b44d97aa87554ac2e9d5105fed8766"
+  ],
+  "tests/test_debug_overlay.nim": [
+    "100644",
+    "339f3a07070c7bdba6552649e6593155cb464cbe"
+  ],
+  "tests/test_dedup_object_placements_perf.nim": [
+    "100644",
+    "0254ab3d97577005daf73e2c95bae7eee1913697"
+  ],
+  "tests/test_defect_probe.nim": [
+    "100644",
+    "2210b2d0d0df31de03813e525cca6e4c79a23063"
+  ],
+  "tests/test_deprecated_modes.nim": [
+    "100644",
+    "b35265958747eac19d0163f98d05dd694059401b"
+  ],
+  "tests/test_direct_aim.nim": [
+    "100644",
+    "92189f8d992630b89597d3bd4e83f32f0bed6e2e"
+  ],
+  "tests/test_drop_item.nim": [
+    "100644",
+    "4e5117176e10cebd1df93a14607a044da5a1cbf7"
+  ],
+  "tests/test_endcard_draw_reason.mjs": [
+    "100644",
+    "fc4269df0ce762a16653fbf7c976bf43aef78d98"
+  ],
+  "tests/test_endzone_shapes.nim": [
+    "100644",
+    "362c03b5f62c28fac0a8bf78bf3e53ba5e4fe0f9"
+  ],
+  "tests/test_extract_events.nim": [
+    "100644",
+    "9ecd81f98037789828e49a386eabe2ec23f84ea7"
+  ],
+  "tests/test_fast_mode.nim": [
+    "100644",
+    "6a3df39d9d5c551ec225803676f485b3b855aa69"
+  ],
+  "tests/test_first_person_pip.nim": [
+    "100644",
+    "8e0067fa3196aca7ac71ec5623660519689efada"
+  ],
+  "tests/test_four_team.nim": [
+    "100644",
+    "11d916efc8e003de2505eac3bad38c88b426e5f4"
+  ],
+  "tests/test_fov.nim": [
+    "100644",
+    "118ead1543483bb213af604342c975ae218d333c"
+  ],
+  "tests/test_frame_loadout.nim": [
+    "100644",
+    "1b68a7376bda0e16d93ec4a8914962d767afafa8"
+  ],
+  "tests/test_fx_pools.nim": [
+    "100644",
+    "37ebdb60a5eb59c003b9c84730de59141d0f90d8"
+  ],
+  "tests/test_give_item.nim": [
+    "100644",
+    "c1c007265faee2dce718f56c348ab1d5ead72d0e"
+  ],
+  "tests/test_global_plus_pov.nim": [
+    "100644",
+    "cf2f8e104cfbd723f4b8a5e8734205c211f7f608"
+  ],
+  "tests/test_glory.nim": [
+    "100644",
+    "2e38aefaff687132a58adb7dd5c86855854d5baf"
+  ],
+  "tests/test_glory_by_deed_endcard.mjs": [
+    "100644",
+    "845d3780d3ebe502e26c514499f635bdcd5aa8da"
+  ],
+  "tests/test_glory_conclusion.nim": [
+    "100644",
+    "e35853dad962717463740966fce676a2d04f9286"
+  ],
+  "tests/test_glory_fx_wire.nim": [
+    "100644",
+    "ad6f5ac25a8b392778b1a817fb044cf9acda7ae3"
+  ],
+  "tests/test_glory_league_score.nim": [
+    "100644",
+    "170f5dcaaf04f59ccd40b5b11aad72d03bcf449d"
+  ],
+  "tests/test_glory_lockstep.nim": [
+    "100644",
+    "0b91de1334266935fe9bf78ee89b503ef58dd0c7"
+  ],
+  "tests/test_glory_percent_scale_headroom.nim": [
+    "100644",
+    "8cfe5007c90f935aafa673980912a208286832be"
+  ],
+  "tests/test_glory_recut.nim": [
+    "100644",
+    "01f0c1106cdf2649eaacbfadd18074f385f4bdec"
+  ],
+  "tests/test_glory_s4b_modes.nim": [
+    "100644",
+    "a171154e5773cc83b1b30f44bda73e51e502c70e"
+  ],
+  "tests/test_glory_s5_rig.nim": [
+    "100644",
+    "d6ae59d882e761c4e782df321c4833d2cfa8cace"
+  ],
+  "tests/test_grenades.nim": [
+    "100644",
+    "005773bd5af02d9f39ed4a1053057d931ea34996"
+  ],
+  "tests/test_gun_jitter.nim": [
+    "100644",
+    "70f89923a30c2b7224748cf59fe0a92cd5c0cc7f"
+  ],
+  "tests/test_gv44_br_rotation.nim": [
+    "100644",
+    "e454625c598093f4521332061fa64685d25dfe59"
+  ],
+  "tests/test_handicaps.nim": [
+    "100644",
+    "fe677f9b5dd4870961f70e26a40ed6c4f1741b1a"
+  ],
+  "tests/test_handoff_declaration.nim": [
+    "100644",
+    "d97844aee8b11c2b707905ce936236573b2a3ded"
+  ],
+  "tests/test_hit_damage.nim": [
+    "100644",
+    "98dc4250c87fc26f86e2826232fa9676e708bad7"
+  ],
+  "tests/test_home_rotation.nim": [
+    "100644",
+    "cb958bd454107e7ad92e0ca063f7f1f6fbdea63b"
+  ],
+  "tests/test_identity_badges.nim": [
+    "100644",
+    "ea224519e65f33d96bfed78060155ef9c2e5a70f"
+  ],
+  "tests/test_identity_privacy.nim": [
+    "100644",
+    "f69b45fcfaf6ccc4cc05e0f9d419c26099e7c633"
+  ],
+  "tests/test_input_buffer.nim": [
+    "100644",
+    "f8fd9c175b1ea61c899c6e21805fb2829a4c9c76"
+  ],
+  "tests/test_item_pool_ingest.nim": [
+    "100644",
+    "5146edc50c6ed895367984cc44ce01db73d66943"
+  ],
+  "tests/test_kill_badges.nim": [
+    "100644",
+    "87e5016cb2e5e278aa2286f7f53a1e600dab488c"
+  ],
+  "tests/test_label_contract.nim": [
+    "100644",
+    "1c998d22e3346cbfbf20a002af72cc9ed314f429"
+  ],
+  "tests/test_live_broadcast_chrome.nim": [
+    "100644",
+    "1822aa377743ecec0a6a9600a010ec512fe6a634"
+  ],
+  "tests/test_live_event_emission.nim": [
+    "100644",
+    "111c617f545594ec0ebd9a5c49b1b9782ab55325"
+  ],
+  "tests/test_lobby_chat.nim": [
+    "100644",
+    "8ade9e26febcbcddaf51561aa81cf19d5197504b"
+  ],
+  "tests/test_lobby_join_timeout.nim": [
+    "100644",
+    "a2b5e53174febdd34a3033d1bab1692b929da75a"
+  ],
+  "tests/test_lobby_reconnect_wedge.nim": [
+    "100644",
+    "51536b966043b42abc1a809d3f834df98266a8da"
+  ],
+  "tests/test_loot_rework.nim": [
+    "100644",
+    "f6df617fc776b56864228922d28a7119439df0f2"
+  ],
+  "tests/test_lull_spans.nim": [
+    "100644",
+    "5b329fba330281c3757723868eed2f3e6b497786"
+  ],
+  "tests/test_manifest_schema.nim": [
+    "100644",
+    "d6223b64ad0a6296e1d79c318fbed5ec9ab303fc"
+  ],
+  "tests/test_map_editor.nim": [
+    "100644",
+    "0e97cb6b6073fe8aa029dd250aef9fe644ccd565"
+  ],
+  "tests/test_map_editor_core.nim": [
+    "100644",
+    "e0c244ab09990635a51137f120bef1dd25004ce0"
+  ],
+  "tests/test_map_export.nim": [
+    "100644",
+    "b6deb95ed607e8ab347b2b3ab19ae8b5aa1f382d"
+  ],
+  "tests/test_map_los.nim": [
+    "100644",
+    "59379bea74cdcfd51e5f305c4d1d6a3109423ac9"
+  ],
+  "tests/test_mapgen.nim": [
+    "100644",
+    "7cca469f485e36a915644a9948e38f9b2b32f29c"
+  ],
+  "tests/test_mapgen_styles.nim": [
+    "100644",
+    "8a18ccbe326f301ab3c8eb8cb434de9ea515e71f"
+  ],
+  "tests/test_match_glory.mjs": [
+    "100644",
+    "dcc9136b98f4a9853377bd5af2c4296e4944f7f1"
+  ],
+  "tests/test_medkits.nim": [
+    "100644",
+    "b75b729af0d996d53831dae20951cce0f7df308c"
+  ],
+  "tests/test_movement_slide.nim": [
+    "100644",
+    "0d9f5a7e9976e3e504c1bd4b30f8be5aa15a36a2"
+  ],
+  "tests/test_pb_br_variant.nim": [
+    "100644",
+    "492a9f0009b98f2912075cf482a01d683284855b"
+  ],
+  "tests/test_pb_buff.nim": [
+    "100644",
+    "6ff423eab5b74f2b690db84d481aa1f1efdf6f87"
+  ],
+  "tests/test_pb_control.nim": [
+    "100644",
+    "03960c3a7bf601fbe6354f876196493f5ed6dd12"
+  ],
+  "tests/test_pb_directives.nim": [
+    "100644",
+    "fc06e78fee6ebaae8d07856d180a1b2fd3342d6e"
+  ],
+  "tests/test_pb_engine.nim": [
+    "100644",
+    "3f35283b06ecbecc83593f9801ce87999deae4c6"
+  ],
+  "tests/test_pb_hill.nim": [
+    "100644",
+    "7dbb5647130c3cd5a144fb859bbc6e84d42e3f5c"
+  ],
+  "tests/test_pb_identity_privacy.nim": [
+    "100644",
+    "c2b05872615101c5dfd82204b8ccf60d10ed791e"
+  ],
+  "tests/test_pb_manifest.nim": [
+    "100644",
+    "52d1b5a0aa0ab1fbf5a6d59da5923113f2534987"
+  ],
+  "tests/test_pb_paint.nim": [
+    "100644",
+    "0c39592ffe1ac4399e8598bbc5c85f807a851ae2"
+  ],
+  "tests/test_pb_perf.nim": [
+    "100644",
+    "a56af7fd0e3449ee0826378b138dea1a59352af8"
+  ],
+  "tests/test_pb_regimes.nim": [
+    "100644",
+    "fcff39068d3d9e809fb2578c0786005c7de92d67"
+  ],
+  "tests/test_pb_replay.nim": [
+    "100644",
+    "cf116469caa62c2e59318a570014a1586f5abe00"
+  ],
+  "tests/test_pb_scoring.nim": [
+    "100644",
+    "2921c692fa5375402e6d823fd3ed019cf056ecc2"
+  ],
+  "tests/test_pb_shouts.nim": [
+    "100644",
+    "ae11949438dfcbc50717ce66aa614fa44863e31e"
+  ],
+  "tests/test_pb_startup.nim": [
+    "100644",
+    "edf3185cf628733a11398c6e99884ad4b3b9cc38"
+  ],
+  "tests/test_pb_viewer.nim": [
+    "100644",
+    "86512ad27494424791f27cf5ec57cd65924f9a00"
+  ],
+  "tests/test_perception_loadout_sdk.nim": [
+    "100644",
+    "9bbc025dd4474f23965262eaed98a1096342e22e"
+  ],
+  "tests/test_perks.nim": [
+    "100644",
+    "2a07520bf67ab69c1b46c36d2b05c7207243f66c"
+  ],
+  "tests/test_play_bodyguard.nim": [
+    "100644",
+    "2df0fb2ac7197fb5e584c3c931178dfd40b81404"
+  ],
+  "tests/test_play_crossfire.nim": [
+    "100644",
+    "b70abac6b693acd0acabb529a87005528e1ffaef"
+  ],
+  "tests/test_play_edge_ride.nim": [
+    "100644",
+    "546b039bc0928d09c909b8122d21df8af637c1fd"
+  ],
+  "tests/test_play_harness.nim": [
+    "100644",
+    "392c88eb9209ca78b771a0a96c2b5da5f579be87"
+  ],
+  "tests/test_play_jackal.nim": [
+    "100644",
+    "9316e51955a177fb97c62de844bcd197e580e84e"
+  ],
+  "tests/test_play_pact.nim": [
+    "100644",
+    "8893a3a6d8769f4bc63f70cdd0db5b0db957299d"
+  ],
+  "tests/test_play_sdk.nim": [
+    "100644",
+    "3d583490c8211798cca1117331896b55d497d54b"
+  ],
+  "tests/test_play_supply_run.nim": [
+    "100644",
+    "14bb017514a5fe2591bd88e411a84ead0d45be65"
+  ],
+  "tests/test_play_target_law.nim": [
+    "100644",
+    "57d8fa52926d9000285f5f22557d10f7276a2a5e"
+  ],
+  "tests/test_player_collision.nim": [
+    "100644",
+    "45451267202867a6a249873587ad0ab168a7e46b"
+  ],
+  "tests/test_player_fog.nim": [
+    "100644",
+    "da2df48fbb3e6a687ac40b4416d3b69e78d39cc0"
+  ],
+  "tests/test_policy_page.nim": [
+    "100644",
+    "873db65cf81849b2ed3bd149dbc65c60f3a9cf28"
+  ],
+  "tests/test_policy_reflash.nim": [
+    "100644",
+    "fbdf146beae471c742fc7bc39b7243f913d19e01"
+  ],
+  "tests/test_puddles.nim": [
+    "100644",
+    "07108268b40b8f3b1bfb4666e58be06c25b4de7d"
+  ],
+  "tests/test_quad_mirror.nim": [
+    "100644",
+    "efe4eaefead571480ac2c875d8e1ab9c79eb7778"
+  ],
+  "tests/test_rasterizer_mirror.nim": [
+    "100644",
+    "0fafebf435577b61dd15f3edca159682022fbc54"
+  ],
+  "tests/test_render_scale.nim": [
+    "100644",
+    "d78c9606e2e8e92a10de6fe6172d5726acd16143"
+  ],
+  "tests/test_replay.nim": [
+    "100644",
+    "a1e8aa298ead2384e7c89e8a505d6f78bda6033d"
+  ],
+  "tests/test_replay_artifact_url.mjs": [
+    "100644",
+    "2258884ddfa53d5a8353a47d015d441c9f2227ef"
+  ],
+  "tests/test_replay_compat.nim": [
+    "100644",
+    "242b2dbb97ed46954c443d5bf4de3127ecf4332b"
+  ],
+  "tests/test_replay_controls.nim": [
+    "100644",
+    "92b81f1eb17c0ed1e661f031573111565a46b31d"
+  ],
+  "tests/test_replay_requests.nim": [
+    "100644",
+    "4fac7f345b4e6f8c8f881753778adcefd7e8549a"
+  ],
+  "tests/test_replay_scan.nim": [
+    "100644",
+    "09ca6ee9a5401fb33e9870ef931d8d0f731fcb37"
+  ],
+  "tests/test_replay_switch_caches.nim": [
+    "100644",
+    "6ba9412b4d29784e46aaeddba5b902fc36a4ff17"
+  ],
+  "tests/test_rich_events.nim": [
+    "100644",
+    "19ef054f63d75a20e7c66f06a4a18d05d0ca2fbd"
+  ],
+  "tests/test_route_honesty.nim": [
+    "100644",
+    "1708e6406b9803745a4c1d9d693579284c36d368"
+  ],
+  "tests/test_scoring_routing.nim": [
+    "100644",
+    "c1ef44ac17957e9a655a7238c1d1196c62a71bcb"
+  ],
+  "tests/test_season2_replay_hud.nim": [
+    "100644",
+    "66197a203862d34aa87ff8c6b7141f3c942db619"
+  ],
+  "tests/test_seat_takeover.nim": [
+    "100644",
+    "2fd10d494dc76e8760163c9fb63e11b831b15840"
+  ],
+  "tests/test_shard_wiring.nim": [
+    "100644",
+    "93a561c9fae4aed752c04b2d9d783e3cb771f10c"
+  ],
+  "tests/test_shell_abi.nim": [
+    "100644",
+    "cb573f2b4c57406e706fa00d973e93fac8512e3b"
+  ],
+  "tests/test_shell_binary_view.nim": [
+    "100644",
+    "673a2e82d86cc34bbeb61759a61b12f19e236d34"
+  ],
+  "tests/test_shell_body_hazard.nim": [
+    "100644",
+    "0e0faf45a7e277627bf1c24ace1a64e24967fe73"
+  ],
+  "tests/test_shell_body_map.nim": [
+    "100644",
+    "185183568b9f1d70c68d05b2b99854b884c6fdb5"
+  ],
+  "tests/test_shell_body_nav_rework.nim": [
+    "100644",
+    "86d564ce22f89a2a14bdb285020fd4a471a8c694"
+  ],
+  "tests/test_shell_body_ray.nim": [
+    "100644",
+    "f7f77a0c69ca5a126d8b097664981379881e27e2"
+  ],
+  "tests/test_shell_body_route_index.nim": [
+    "100644",
+    "c71371a435399d5dd6971c23aa99f80e8148077d"
+  ],
+  "tests/test_shell_body_seat.nim": [
+    "100644",
+    "f74c052b19eadae986c6a56d8a3821abe9353dd7"
+  ],
+  "tests/test_shell_calls.nim": [
+    "100644",
+    "c230f79eb7993ffb7b72379c16b86880df0a9062"
+  ],
+  "tests/test_shell_combat.nim": [
+    "100644",
+    "61081ec60ccbc73e2fe882b482b7e8d03967c589"
+  ],
+  "tests/test_shell_compile_plane.nim": [
+    "100644",
+    "c5c0454a82d3d5f720463c7a7ba97383b4937d7a"
+  ],
+  "tests/test_shell_containment.nim": [
+    "100644",
+    "7e613a1b5161914e8bed4a1647dac8be7fe485f6"
+  ],
+  "tests/test_shell_contracts.nim": [
+    "100644",
+    "3bc3fee564f5271ef5fdd76d03e5837d07a6c94e"
+  ],
+  "tests/test_shell_cover_scorer.nim": [
+    "100644",
+    "2bbfa9a75a6df5cff94ae1cc8d46d090e5d93a69"
+  ],
+  "tests/test_shell_default_play.nim": [
+    "100644",
+    "6cef1dfb744879a0cd422d43ad1c8ab073769054"
+  ],
+  "tests/test_shell_dispatch.nim": [
+    "100644",
+    "b354d734711a15c06966ffa6e82ed5aca5ff1b62"
+  ],
+  "tests/test_shell_effective_order.nim": [
+    "100644",
+    "6473a6bbabb13787f76a6f525f9dd3e387b86e11"
+  ],
+  "tests/test_shell_emit_validator.nim": [
+    "100644",
+    "c4d6a4c3247cfb55f212f59ebdafca5cb050ec68"
+  ],
+  "tests/test_shell_episode.nim": [
+    "100644",
+    "e76fe61991e7588fa272a7cba12ae0002e25b709"
+  ],
+  "tests/test_shell_episode_ladder.nim": [
+    "100644",
+    "d3d93a72941a71432d8807b0282553519d146d7d"
+  ],
+  "tests/test_shell_guards.nim": [
+    "100644",
+    "a9c3008eb13764904755e3c2ebdfb6490a2d8089"
+  ],
+  "tests/test_shell_ladder.nim": [
+    "100644",
+    "ceb766fdee004d16ffca0d34a4583a031c3134fc"
+  ],
+  "tests/test_shell_module_validation.nim": [
+    "100644",
+    "4c28996be4c0902abb855c4ed829f524dd181e3b"
+  ],
+  "tests/test_shell_packets.nim": [
+    "100644",
+    "632d42823848b6d751ad9ddf71f8ead1044c7dc2"
+  ],
+  "tests/test_shell_reflexes.nim": [
+    "100644",
+    "bd7605c220c9ad8e4a53b8a6ca3c75cb65e8f37a"
+  ],
+  "tests/test_shell_replacement.nim": [
+    "100644",
+    "e593fffe6f21fde61e818ba474aa0c7a6239d6c1"
+  ],
+  "tests/test_shell_replay.nim": [
+    "100644",
+    "c105f26b2acace8980bdf2b8af2c4728487b8701"
+  ],
+  "tests/test_shell_runtime.nim": [
+    "100644",
+    "f92851eff8229e595ff5011b488656856745e4bd"
+  ],
+  "tests/test_shell_seats.nim": [
+    "100644",
+    "14fe946d1f2471c0cf8dac02e580f91b55041687"
+  ],
+  "tests/test_shell_server_seam.nim": [
+    "100644",
+    "f8bd6e29f2c7efac315f29e1a79a0f13c31e29fa"
+  ],
+  "tests/test_shell_standing_order.nim": [
+    "100644",
+    "6b21386aa0c2d43fa1c53676972a0b75e7ba2cf6"
+  ],
+  "tests/test_shell_transport.nim": [
+    "100644",
+    "a3edcd7e02e53b82f2f022d0668fb6630d093d1c"
+  ],
+  "tests/test_shell_view.nim": [
+    "100644",
+    "641eeafc5538b3606a172c3ae7ee904291f45ffe"
+  ],
+  "tests/test_shield_bubble.nim": [
+    "100644",
+    "5405f37e36e332bfaf76199aab8fabe256325a64"
+  ],
+  "tests/test_shields.nim": [
+    "100644",
+    "29bee1fd4182d622200530f2d2fda5ad45932cb1"
+  ],
+  "tests/test_shot_accuracy.nim": [
+    "100644",
+    "7d88e07c9db66d4f53e6389d8ce60a92a26dcaa4"
+  ],
+  "tests/test_shot_exposure.nim": [
+    "100644",
+    "429b4e8b50dc1d44bf8c58afeb30a8550393695b"
+  ],
+  "tests/test_shot_feedback.nim": [
+    "100644",
+    "48c990facdf63508d5be65cda63db5fa77100c7e"
+  ],
+  "tests/test_shot_feedback_wire.nim": [
+    "100644",
+    "a71f9d376a5764cca8f68daef2f81ca803181532"
+  ],
+  "tests/test_shouts.nim": [
+    "100644",
+    "3898cf222b83479aea532ac18c96c3a6ab6d5e02"
+  ],
+  "tests/test_sim_config.nim": [
+    "100644",
+    "09eb882b2d1dada1cf9cdf9dce87c19e2560fc46"
+  ],
+  "tests/test_spinning_diamonds.nim": [
+    "100644",
+    "d01d19f1011199795dd10d0234457ad67fa3ba6e"
+  ],
+  "tests/test_spraypaint.nim": [
+    "100644",
+    "08a5d339c661735745e2b1c9713a4c77ad4237e1"
+  ],
+  "tests/test_sprite_collisions.nim": [
+    "100644",
+    "b8908c77e7fff3a5929e2719816e98b97383f8b3"
+  ],
+  "tests/test_squad_shutdown_scoping.nim": [
+    "100644",
+    "b0d20f562164eef258fd80365fa30358c7b05652"
+  ],
+  "tests/test_squad_shutdown_timing.nim": [
+    "100644",
+    "cf12305b3508b8e153c987090db4647c54c9e1b0"
+  ],
+  "tests/test_sym_none.nim": [
+    "100644",
+    "a1c8840dad2473516e809a0c04244ce3fc8c8151"
+  ],
+  "tests/test_team_art.nim": [
+    "100644",
+    "0abe7f90f9da1576fce65784bed0755d80b0511a"
+  ],
+  "tests/test_trade_pair.nim": [
+    "100644",
+    "2a5361ed7a4a9b4249640afd539ab886f808b6b2"
+  ],
+  "tests/test_trenches.nim": [
+    "100644",
+    "43b52d07ca7523ade16e9fe352edf1f47af102e1"
+  ],
+  "tests/test_veteran_mark.nim": [
+    "100644",
+    "edb996121f796cd38e514ad19aae638380013fa5"
+  ],
+  "tests/test_vote_phase.nim": [
+    "100644",
+    "185e8e9dc62e62445127d58c5661a11e2eef6c78"
+  ],
+  "tests/test_weapon_observability.nim": [
+    "100644",
+    "45f4ef78e28f51621811ce77713d33d17d127ede"
+  ],
+  "tests/test_windows.nim": [
+    "100644",
+    "e8e6e73be52127a416f53428f06b652c0c5f9157"
+  ],
+  "tests/test_zero_mint_reachability.nim": [
+    "100644",
+    "c1afb6ac4d7d8c72a94a684ca41d217db6130599"
+  ],
+  "tests/test_zone.nim": [
+    "100644",
+    "c88cbf0fe8a1bd095a4f164db7485d8877118064"
+  ],
+  "tests/tests.nim": [
+    "100644",
+    "28fd92995b7dafa852396d1bb4cb9d79973e800e"
+  ],
+  "tools/aim_repro_probe.nim": [
+    "100644",
+    "6b7f0e3b26e133824714961a50514217c7a26014"
+  ],
+  "tools/badge_aim_probe.nim": [
+    "100644",
+    "e1050283e7d0706b92a8907b9329701843332948"
+  ],
+  "tools/band_probe.nim": [
+    "100644",
+    "66c0c20bfdf5b90799cac3ac043d2914c5e9c25c"
+  ],
+  "tools/barrier_scan.nim": [
+    "100644",
+    "bf50c3b9e993536c23add402ed5ce0b74bd58e19"
+  ],
+  "tools/bench_body.nim": [
+    "100644",
+    "b66d82fe41531217752218367be2140e6bd6ddd9"
+  ],
+  "tools/bench_body_danger_wavefront.nim": [
+    "100644",
+    "93caff9dfd6251f3dc56a56377082a1701d90af3"
+  ],
+  "tools/bench_body_nav_rework.nim": [
+    "100644",
+    "58273ad7231dfd4cf632452fe5fde8ce2eae7c72"
+  ],
+  "tools/bench_body_packed_weights.nim": [
+    "100644",
+    "3b77d2f5bafedd5a2114cc5cd879035de1ef1c74"
+  ],
+  "tools/benchmark_canonical_fast.nim": [
+    "100644",
+    "4f6b0e7d9172416e1ae6b4cd025111d01ca2b74a"
+  ],
+  "tools/benchmark_game.nim": [
+    "100644",
+    "5cbe80ec20d13eaa426bd50b3ff8da39085f4ffe"
+  ],
+  "tools/benchmark_shell_default_play.nim": [
+    "100644",
+    "77e1dbb52120c24c6105b975583914a5c72e5735"
+  ],
+  "tools/blue_probe.nim": [
+    "100644",
+    "d04fbf4db00fc88070e76372560bdf1681ffff52"
+  ],
+  "tools/body_bench/README.md": [
+    "100644",
+    "21556fadc745603823be5cfafd8e201d788f8024"
+  ],
+  "tools/body_bench/body-bench.Dockerfile": [
+    "100644",
+    "9962103467b3a8917192370bc870b7a870e0a398"
+  ],
+  "tools/body_bench/edt_probe.nim": [
+    "100644",
+    "50eb771ac2d1523fcf9e97decc3f0ecbc15a6ef4"
+  ],
+  "tools/body_bench/view_frames.nim": [
+    "100644",
+    "adea43625ddc7cf5d6d0fd2efd3b31d21db73f62"
+  ],
+  "tools/br_episode_batch.sh": [
+    "100755",
+    "696149453763129bdac7b9c2a596a3006d589457"
+  ],
+  "tools/br_outcome_probe.nim": [
+    "100644",
+    "73ba318fd31ed84e7b1b997f55afeb76ca6bc905"
+  ],
+  "tools/br_spec_to_ctf.nim": [
+    "100644",
+    "0ad7a508e2f6ed24f4c62a8f038e6f2ebeeb6670"
+  ],
+  "tools/brmapkit.nim": [
+    "100644",
+    "1cc7c966207856dcafd1cb50a9655dd91d676f9b"
+  ],
+  "tools/build_nav_route_corpus.nim": [
+    "100644",
+    "b370923681bf5b172a24f5889da6cab2e9a4d23c"
+  ],
+  "tools/build_pool_review.py": [
+    "100644",
+    "0b9452a5e39e8b9a90995fbf72a3070a1e65250b"
+  ],
+  "tools/build_profiling_coworld.sh": [
+    "100755",
+    "10df3511d379bbb044adb8a4751209a199e85fcb"
+  ],
+  "tools/build_replay_viewer.sh": [
+    "100755",
+    "2c580cd33de0fa467ff4846129aa9e064224e5d0"
+  ],
+  "tools/carrier_trace.nim": [
+    "100644",
+    "79f0a3b4ac10238299e5321e632ce795ce381beb"
+  ],
+  "tools/check_body_graph_identity.nim": [
+    "100644",
+    "62ace52b676209ce174230dd0a3034e694b2db1b"
+  ],
+  "tools/ci/check_gameversion.sh": [
+    "100755",
+    "626d9523d9fc77862d36df1687689891de80fbba"
+  ],
+  "tools/ci/next_coworld_version.py": [
+    "100644",
+    "fda179098e3dac8d59d78d212fb93790dbfbea67"
+  ],
+  "tools/ci/paintball_policies.json": [
+    "100644",
+    "bdbb69497844c2fe9f3cba95f841b102c60c77fb"
+  ],
+  "tools/ci/test_next_coworld_version.py": [
+    "100644",
+    "987c04c4437e7065a3ed38bd985578dc07eef3a1"
+  ],
+  "tools/demo_level_buffs.nim": [
+    "100644",
+    "459e1188ea516e90b02625301daf91b10ce467ad"
+  ],
+  "tools/diamond_probe.nim": [
+    "100644",
+    "faa5cf6204f12f78980295df47f2a6886ea97d9c"
+  ],
+  "tools/dump_carry_frame.nim": [
+    "100644",
+    "3184be87a3116ae117a8caeffdf616893ebc4c6c"
+  ],
+  "tools/dump_endzone_bake.nim": [
+    "100644",
+    "9be688472973b4436d76d9065a90d59acfa806a4"
+  ],
+  "tools/dump_glory_from_replay.nim": [
+    "100644",
+    "95db6e47c9461ae1dd4dfbde2934979b49e1e95d"
+  ],
+  "tools/dump_map_mask.nim": [
+    "100644",
+    "edc53b810288bee85102f2dfa9e5891b59f502a9"
+  ],
+  "tools/dump_map_specs.nim": [
+    "100644",
+    "99562eaa3bad8107c0771bd15f899a3042c02a7a"
+  ],
+  "tools/dump_rig_preview.nim": [
+    "100644",
+    "e7a7e0490dc2d94c8ae30e708994f27e9a51c8d9"
+  ],
+  "tools/dump_soldier_preview.nim": [
+    "100644",
+    "cc3c066fec04c408e73e67f249813f75f3bc408b"
+  ],
+  "tools/expand_replay.nim": [
+    "100644",
+    "2fdd3d3bc9055a0dec24882cf7926f2a116d6d16"
+  ],
+  "tools/export_trajectories.nim": [
+    "100644",
+    "70c21a7b3acface35ba0ed396802ab743b3c0d07"
+  ],
+  "tools/extract_events.nim": [
+    "100644",
+    "5909955115a217f7ab1f1e204322f42e9c9b3fcf"
+  ],
+  "tools/flash/README.md": [
+    "100644",
+    "039f249e9c8d6bb83d224f84310a9d463b75324b"
+  ],
+  "tools/flash/SCHEMA.md": [
+    "100644",
+    "bfde2b3da76924c9f3ef242ee25b60412f2914ce"
+  ],
+  "tools/flash/flash.nim": [
+    "100644",
+    "b8f8614f77e060cb7736fef1e525c8a7eee4a569"
+  ],
+  "tools/flash/playbook/edge-farmer.json": [
+    "100644",
+    "c1b4037b494d1924f7ce7ecaed4c0f182126226a"
+  ],
+  "tools/flash/playbook/point-blank-control.json": [
+    "100644",
+    "6e94b720d87d642ea98d2065405bc5d8ccf1fa6a"
+  ],
+  "tools/flash/playbook/ring-hugger.json": [
+    "100644",
+    "a68566bddefd32f7cc8bc8c55590feee726b8192"
+  ],
+  "tools/flash/playbook/third-party-jackal.json": [
+    "100644",
+    "c0939c1e6057620c96ad8d257917fc3ed8a549d5"
+  ],
+  "tools/flash/playbook/tight-trade.json": [
+    "100644",
+    "31fb80a305d381ab2f0bf51330fa8218fe7113ec"
+  ],
+  "tools/flash/playbook/wide-intel.json": [
+    "100644",
+    "0167230760cb68e43fd6a4f1daf3aa983378de00"
+  ],
+  "tools/flash/prompt.md": [
+    "100644",
+    "ebbed23f276aafd5b121c7ca5d40295d3b6d0ec7"
+  ],
+  "tools/flash/testdata/broken_unknown_path.json": [
+    "100644",
+    "6baf0db8d43896162fe317d1b0757eb555eeee27"
+  ],
+  "tools/four_team_map_probe.nim": [
+    "100644",
+    "e09dbabb64c81374dd8c999e7719b29ccb4dcdd6"
+  ],
+  "tools/fov_probe.nim": [
+    "100644",
+    "18440d1d803565f90af0f2eeeb1d53699188b66f"
+  ],
+  "tools/frame_size_audit.nim": [
+    "100644",
+    "72b9c99f5ee5b0622450f90adf0ffbce4ef8d8b5"
+  ],
+  "tools/freeplay.sh": [
+    "100755",
+    "44a13da577d0dbad840667ad21baf95630be465d"
+  ],
+  "tools/fx_peak_audit.nim": [
+    "100644",
+    "fb3d37305be314d043029a7a6bba38af41528114"
+  ],
+  "tools/gen_map_pool.nim": [
+    "100644",
+    "f045228707ab5dcd8ad4e4c7a18ee32652152b9f"
+  ],
+  "tools/gen_wire_constants.nim": [
+    "100644",
+    "82877b0e2b0cf90a610755f9e1c99b6ae35d3581"
+  ],
+  "tools/generate_crown_skins.nim": [
+    "100644",
+    "a930c718f140b84593a22db729c10210c3a63117"
+  ],
+  "tools/glory/README.md": [
+    "100644",
+    "2c1888f57d2b9e8afdc33b568dadf2e9c99bddf2"
+  ],
+  "tools/glory/attribution_analyze.py": [
+    "100644",
+    "f9bff3209c08d98191f5ecefaf244e320155dc49"
+  ],
+  "tools/glory/attribution_decompose.py": [
+    "100644",
+    "20b13ce8043166c330a9e8d2fd6a638e83c87256"
+  ],
+  "tools/glory/cap_sweep.py": [
+    "100644",
+    "a1c308010dcfc4bc1d357a0b043c7e5c5377f21c"
+  ],
+  "tools/glory/catalog_detect.py": [
+    "100644",
+    "565e02a03dadaee3bdeb07f4fa8d8f9919a4c3df"
+  ],
+  "tools/glory/catalog_fold.py": [
+    "100644",
+    "4a77fe11b370144d6e3e2715614e6af49efebaed"
+  ],
+  "tools/glory/census_achievements.py": [
+    "100644",
+    "6cdb828c5c0d03cd20bd684b74e710955c435a60"
+  ],
+  "tools/glory/census_achievements_analyze.py": [
+    "100644",
+    "b8dc215d2b16df1cb5662c309cb6432c280acd99"
+  ],
+  "tools/glory/census_analyze.py": [
+    "100644",
+    "1404fd06032290016495083819aca1668343e896"
+  ],
+  "tools/glory/census_decode.py": [
+    "100644",
+    "fca7fd887ad2ebb53167370105e064f6f8c650ca"
+  ],
+  "tools/glory/discover_cohort.py": [
+    "100644",
+    "6084c919ee59474c3208b85042eee759268c54bd"
+  ],
+  "tools/glory/reprice_v3.py": [
+    "100644",
+    "1291cad19aefcad4fabf4e904f71c7b55659e0c6"
+  ],
+  "tools/glory/reprice_v3_baseline_check.py": [
+    "100644",
+    "67f874c02c58320636c71078da013f4f24339e5c"
+  ],
+  "tools/glory/test_cap_sweep.py": [
+    "100644",
+    "cb6afa7a385186ff519361c3b175de55e179ba9c"
+  ],
+  "tools/glory/test_catalog_fold.py": [
+    "100644",
+    "6d7ea623e1d212d45df8681a47068588c1fdf0b0"
+  ],
+  "tools/glory/why_one.py": [
+    "100644",
+    "23da5de431b04fde35941ae79be75ce94ef6f6b0"
+  ],
+  "tools/glowfade_probe.nim": [
+    "100644",
+    "dd7f31e710c57147158ead0f744a99a9a7e08dbc"
+  ],
+  "tools/inspect_replay_scratch.nim": [
+    "100644",
+    "526722e483d9a42b0195f8918cd81643b7136bfe"
+  ],
+  "tools/investigate_body_ray_clearance.nim": [
+    "100644",
+    "e55d8036be71ec9204d6d73b8e5b717e194a932a"
+  ],
+  "tools/jitter_harness.py": [
+    "100644",
+    "d5318fd1fa97bff759e007b0e338bf447ca205e1"
+  ],
+  "tools/ladder/README.md": [
+    "100644",
+    "99b3aa74d8f8bc4a1e35c46467bddcfe165ae48e"
+  ],
+  "tools/ladder/ctfapi.py": [
+    "100644",
+    "dcfb75aaf91b27617b4b9bbdd39ebf4e100e03a7"
+  ],
+  "tools/ladder/dau.py": [
+    "100644",
+    "0e936582f5ba2969d61c8b5d4e91ef3a7d5a8369"
+  ],
+  "tools/ladder/dau_server.py": [
+    "100644",
+    "640a435ff7ea5eceb3ccc78cea50789818f094c4"
+  ],
+  "tools/ladder/encounters.py": [
+    "100644",
+    "0b69dcb30acc78cb7116dc58f4e849350d143935"
+  ],
+  "tools/ladder/gloryscore.py": [
+    "100644",
+    "1f4587417ea8338e700c0cc2c8f1d1f2d83f60a7"
+  ],
+  "tools/ladder/h2h.py": [
+    "100644",
+    "9b2ed3a6b254dba3bce1339b6c01b617ab58b3fa"
+  ],
+  "tools/ladder/heals.py": [
+    "100644",
+    "ed01dd0414eae3da69e99deafe49f978018651cd"
+  ],
+  "tools/ladder/matched.py": [
+    "100644",
+    "60ba06895e4f29cabcbc68dd35484153265c8853"
+  ],
+  "tools/ladder/rounds.py": [
+    "100644",
+    "245463f4b7e851d4aa665a1cc8a724f36853479d"
+  ],
+  "tools/ladder/scout.py": [
+    "100644",
+    "2a31936a1a92f8bdb081f131a92a70968cad90d9"
+  ],
+  "tools/ladder/standing.py": [
+    "100644",
+    "dce74bcb073005eb91759b9efdf88840dbecbef2"
+  ],
+  "tools/ladder/standing_replay.py": [
+    "100644",
+    "9c941537c3507afbc1b07c06dd25fa3dc782d4fa"
+  ],
+  "tools/ladder/standing_sweep_charts.py": [
+    "100644",
+    "ba0ac14fb93fcd306ee31b648ed2bc7558f238c9"
+  ],
+  "tools/ladder/tenures.py": [
+    "100644",
+    "c33a251606e41b705e9d912d80969382423828be"
+  ],
+  "tools/ladder/test_encounters.py": [
+    "100644",
+    "84e2aa179dca0f54b32372b90838138864225cfa"
+  ],
+  "tools/ladder/test_standing_replay.py": [
+    "100644",
+    "97122076752851e3d27c6945655fdb7f89ca14fd"
+  ],
+  "tools/ladder/testdata/encounters_fixture.jsonl": [
+    "100644",
+    "c9f5a9fd4fb25be37d3c14f2b6c7093fad22ee98"
+  ],
+  "tools/ladder/testdata/standing_fixture.json": [
+    "100644",
+    "d4c77371aaa5c72e86cadfcfc70807fedc997c55"
+  ],
+  "tools/loot_art_probe.nim": [
+    "100644",
+    "d05f90518abe46d7f319eee04e79f2442020cc8c"
+  ],
+  "tools/loot_placement_probe.nim": [
+    "100644",
+    "dd3211fe6ccb204d6c422aca0f117c9dca0a60fe"
+  ],
+  "tools/make_vote_demo_fixture.nim": [
+    "100644",
+    "0f33cc33044fb01c3c6899d735f5c47ef9eafcd7"
+  ],
+  "tools/map_editor.nim": [
+    "100644",
+    "18465dd07780495f19acd03bd08694be965a3416"
+  ],
+  "tools/map_editor/editor.css": [
+    "100644",
+    "c55c0c15f21ebecd5e3840904a579a16534f3d2f"
+  ],
+  "tools/map_editor/editor.js": [
+    "100644",
+    "4ca3bcf523946d9572b7655e843b8a0ff67b7afe"
+  ],
+  "tools/map_editor/index.html": [
+    "100644",
+    "7b3a4491b27e7756d27d17ffaaf7e6ef39030cbb"
+  ],
+  "tools/map_render.nim": [
+    "100644",
+    "23210fbdeebc7102d29e9a49a0e562662564fd24"
+  ],
+  "tools/mapgen_defect_probe.nim": [
+    "100644",
+    "1299733a8e94d9f1b089a35fe093da9e7fa85ff4"
+  ],
+  "tools/mapgen_play_gate.py": [
+    "100644",
+    "1c872468aaaa8a542825b77931ec02e23a7c193d"
+  ],
+  "tools/mapkit.nim": [
+    "100644",
+    "0b7fa7696542015b87eddd9b55c5ffd9808cc60f"
+  ],
+  "tools/mock_observatory.html": [
+    "100644",
+    "1b938577dae2311b8172da812b62b2d9d3cb3d47"
+  ],
+  "tools/nade_probe.nim": [
+    "100644",
+    "f80c0e862384615cf842fb3462d0376bcec68862"
+  ],
+  "tools/ops/pbnf-swap": [
+    "100755",
+    "f73b03aa02cacaa3a967343f0ff7de514937df9b"
+  ],
+  "tools/ops/pbnf-swap.diff": [
+    "100644",
+    "a21cdd0fefa4f2f32fdafcec7b876168cb6fd23a"
+  ],
+  "tools/ops/pbnf-swap.orig": [
+    "100755",
+    "229db3a5626c613efef0b85da39a90a606d50c7d"
+  ],
+  "tools/perk_check.nim": [
+    "100644",
+    "43d0f16c11225af51064c370e74d94d4e767a679"
+  ],
+  "tools/planted_heart_probe.nim": [
+    "100644",
+    "9faf8828aa50bd5b8c29bd8a99a6c712fc7b8469"
+  ],
+  "tools/play_harness/README.md": [
+    "100644",
+    "5add995f5b2ae8f14280f8675e419328256dfa65"
+  ],
+  "tools/play_harness/play_harness.nim": [
+    "100644",
+    "11721301108a0242d87e4812be85395016919265"
+  ],
+  "tools/probe_run.nim": [
+    "100644",
+    "83363ec7bb4fd5d3710529898631cdf1fefdabbc"
+  ],
+  "tools/probekit.nim": [
+    "100644",
+    "462fad26bef1177b83da190916a17949610528c3"
+  ],
+  "tools/profile_body_route_index.nim": [
+    "100644",
+    "049564d6e3aa99fcc02a61beacf2a1113d3bbeb0"
+  ],
+  "tools/proxy_harness_binary.py": [
+    "100644",
+    "4b709452f169302f14e8bc7e3f1430c269cb47e3"
+  ],
+  "tools/qa_aspects.cjs": [
+    "100644",
+    "45e2e28566e4c19d869e9bbed9e1d885f48e73cf"
+  ],
+  "tools/qa_band_desync.cjs": [
+    "100644",
+    "68c6cde802cb626f9daf0b8078044b8d4e4b1d58"
+  ],
+  "tools/qa_beat.cjs": [
+    "100644",
+    "2fabcda07d2d0a95999840fbbad38e4d5cc6a1b2"
+  ],
+  "tools/qa_glowfade.cjs": [
+    "100644",
+    "aadd5a2956730021eff421ca1ef876d016f097d8"
+  ],
+  "tools/qa_mock_embed.cjs": [
+    "100644",
+    "4335135d49b4c51a3f218711c0a462a22bcbc637"
+  ],
+  "tools/qa_module_eval.cjs": [
+    "100644",
+    "22eeafd02eb277885d2b49c4d22ae86449a071aa"
+  ],
+  "tools/qa_teamname.cjs": [
+    "100644",
+    "64dcf07bd300fcc624c3b625063d128f38cb7545"
+  ],
+  "tools/qualify_body_route_index.nim": [
+    "100644",
+    "189054a9d40dd33382eb7a04e3c0c5681e44637a"
+  ],
+  "tools/record_all_fixtures.sh": [
+    "100755",
+    "9d32dd4015de0d96fe41af1f89a830c2be1244a1"
+  ],
+  "tools/record_br_demo.sh": [
+    "100755",
+    "694565d96dceed4b7901f61dcbd8f2eac666b4bb"
+  ],
+  "tools/record_br_episode.sh": [
+    "100755",
+    "1325c956c21ff34d99ff842d47e189f199dcf811"
+  ],
+  "tools/record_br_golden.sh": [
+    "100755",
+    "8c22ddb29320db0d4d80bbf04bcfcb090695fb2a"
+  ],
+  "tools/record_br_match.sh": [
+    "100755",
+    "eddafa44b19ed03e4e143cf1653ee15820c0905c"
+  ],
+  "tools/record_br_showmatch.sh": [
+    "100755",
+    "0190ba5cc8a5157355693fc3a0b28e2a6ec86bdd"
+  ],
+  "tools/record_colossal_demo.sh": [
+    "100755",
+    "af805c1b36a296fec6ba6cf6469cbd59fd854dd2"
+  ],
+  "tools/record_doubles_demo.sh": [
+    "100755",
+    "3ef4136a4fb93084a13586e789484a1dd232d5fc"
+  ],
+  "tools/record_fixture.sh": [
+    "100755",
+    "fd2174f111da8740295e1dcff8c8cbe1919addd4"
+  ],
+  "tools/record_fixture_patient.sh": [
+    "100755",
+    "388458419e8046399ecb9cff22a2b94233be4627"
+  ],
+  "tools/record_four_team_demo.sh": [
+    "100755",
+    "b2211d998bfa37aaca063de90893896c8737ea64"
+  ],
+  "tools/record_zone_demo.sh": [
+    "100755",
+    "2c47def43e575233433d6e53d5ad889f7b86e0d8"
+  ],
+  "tools/recut_manifest_edit.py": [
+    "100644",
+    "8c547ce13fa6d32d0aa1e2a53a9e554f7f1f86e0"
+  ],
+  "tools/render_frame.nim": [
+    "100644",
+    "e901e249e2da7f67c4c87d11be4b98630515ef75"
+  ],
+  "tools/render_map_pool.nim": [
+    "100644",
+    "454eab9f8857e6f6703ff0a174cdc9156686c38a"
+  ],
+  "tools/render_replay_movie.nim": [
+    "100644",
+    "b917916a9c8b42162347857f8591f0fba44476c2"
+  ],
+  "tools/render_replay_movie_fast.nim": [
+    "100644",
+    "a20911001d8318aba95adfdad8e945e22e843e86"
+  ],
+  "tools/replay_config_dump.nim": [
+    "100644",
+    "37561133b29e3109bb1ec320b6f04038b4dc04b7"
+  ],
+  "tools/replay_summary.py": [
+    "100644",
+    "ae26ccb00d2f7dda906abf187839c9b132f40d01"
+  ],
+  "tools/rotate_br_pool.sh": [
+    "100755",
+    "765c224ca7d5befbfb8f31896a0426dd87a59977"
+  ],
+  "tools/roundtrip_reflash_match.sh": [
+    "100755",
+    "d224cce714700a577fd98204dcd111daf84574ca"
+  ],
+  "tools/run_body_nav_gate.sh": [
+    "100755",
+    "9cb519537f783b5e97291aa80972b5094f33015e"
+  ],
+  "tools/run_shell_demo.sh": [
+    "100755",
+    "a39aba0363ee7862683a74e1e22b3d4c2d373f81"
+  ],
+  "tools/runtime_spike/README.md": [
+    "100644",
+    "e60262102f5cc94d8157b3687b6a3fd8f60dd66b"
+  ],
+  "tools/runtime_spike/checksums.txt": [
+    "100644",
+    "581c01520fa71458aaeff7f4e3cb43a961f3a380"
+  ],
+  "tools/runtime_spike/fetch_deps.sh": [
+    "100755",
+    "af9549f5fec9134c8bd4ecb35082a1bd596e362b"
+  ],
+  "tools/runtime_spike/hello_config.nims": [
+    "100644",
+    "6b70d3ef44acb3c2afb2da122fda29f5fbb85628"
+  ],
+  "tools/runtime_spike/hello_imports.h": [
+    "100644",
+    "33b735f2e59df82251b3ebb2a2b414e861d0bcd4"
+  ],
+  "tools/runtime_spike/hello_play.nim": [
+    "100644",
+    "d1eeac7dc03bd80c134be5416368afe90cd877b9"
+  ],
+  "tools/runtime_spike/hello_play.nims": [
+    "100644",
+    "9be5b250df6c08b382b4e310ee3b12adcb472979"
+  ],
+  "tools/runtime_spike/run.sh": [
+    "100755",
+    "e9a70fd68bb2226585a69baa787f28b54d50a895"
+  ],
+  "tools/runtime_spike/runtime-spike.Dockerfile": [
+    "100644",
+    "3d39adcdc82dc8d5e71ca667922a83bea2313a91"
+  ],
+  "tools/runtime_spike/runtime_spike.nim": [
+    "100644",
+    "9e9c0f3dab74d5b043684221eebed5f3985efcd3"
+  ],
+  "tools/runtime_spike/tick_models.nim": [
+    "100644",
+    "0c462ed9d52c8f2c594928fd741486f1f78d2e87"
+  ],
+  "tools/runtime_spike/wasm_emitter.nim": [
+    "100644",
+    "2ea1c1f4f70f25dd0a4817c983a23bd4b34e0999"
+  ],
+  "tools/runtime_spike/wasm_fixtures.nim": [
+    "100644",
+    "d314c2ccbb843d8d4fcdce07b69d640e87f430fe"
+  ],
+  "tools/runtime_spike/wasmtime_c.nim": [
+    "100644",
+    "9a408dc82cfcfb3381aa2273e767627d6120c36f"
+  ],
+  "tools/runtime_spike/wasmtime_shim.h": [
+    "100644",
+    "4a88ea005910d0ee065d40eb3f1e9ef68faf3b0e"
+  ],
+  "tools/scan_event_seeds.sh": [
+    "100755",
+    "989dc95146e6c3b72bbea4b2a66a0f73a15200b1"
+  ],
+  "tools/seat_connectivity/README.md": [
+    "100644",
+    "e1b25d092b479214393e61a7bf91e96c04bcc380"
+  ],
+  "tools/seat_connectivity/api.py": [
+    "100644",
+    "6a2d9e603caeac18c508fdfe80cf8eff666d4388"
+  ],
+  "tools/seat_connectivity/checker.py": [
+    "100644",
+    "c919c05b950c18bb26a68d49755df53afd5a6d25"
+  ],
+  "tools/seat_connectivity/classify.py": [
+    "100644",
+    "a6b8de7b25cf38b91b680c50d1d4f12004ce6ee6"
+  ],
+  "tools/seat_connectivity/example_output.txt": [
+    "100644",
+    "a9b7ed2090758034ad0af7f7eb913d47a677b7a7"
+  ],
+  "tools/seat_connectivity/test_classify.py": [
+    "100644",
+    "5c7c26b4c531b37850cbf33e5f335d3d1b6d352f"
+  ],
+  "tools/shell_presence.nim": [
+    "100644",
+    "ad887ad3665e5981ff0554382aa66c6586c370d9"
+  ],
+  "tools/shell_probe.nim": [
+    "100644",
+    "7c205d3949b3e66372396e5bac57606c38c456ff"
+  ],
+  "tools/shout_count.nim": [
+    "100644",
+    "47558c662f549f8c8dfa54d620708932bf4f347f"
+  ],
+  "tools/sim_sources_stamp.sh": [
+    "100755",
+    "e1d3e8ddae6ef1a7da971bc7cea29e242c32ec76"
+  ],
+  "tools/spray_aim_probe.nim": [
+    "100644",
+    "3a073c6ad0d5dbb07a32a354cde4e928f757773c"
+  ],
+  "tools/spray_fp_probe.nim": [
+    "100644",
+    "169ce897c6c560bbb4af59669faaf2e09b2ff8cd"
+  ],
+  "tools/spray_gap_probe.nim": [
+    "100644",
+    "e8cc6721e11f00cb73dcd73ff8325c5c0e805eff"
+  ],
+  "tools/spray_probe.nim": [
+    "100644",
+    "0c03f66cb5ad3373f55a75d93f636b81307394d3"
+  ],
+  "tools/spray_replay_frames.nim": [
+    "100644",
+    "0363c0043beb4faefefbd74d46968bfeee7d1454"
+  ],
+  "tools/stain_probe.nim": [
+    "100644",
+    "ff54a9f6587f1708848252be81b998fa5482f587"
+  ],
+  "tools/static_replay_multiview_bench.html": [
+    "100644",
+    "338b6b4cecbc682ea8fe17c71a90348dafab8a64"
+  ],
+  "tools/stranger_walk/README.md": [
+    "100644",
+    "4b6f1840052d09dec9e4186bf6a5d27502b2fa74"
+  ],
+  "tools/stranger_walk/bg_notify_check.py": [
+    "100755",
+    "f7ea73c339d0c9e29107fa2d2944a76fe8522ea3"
+  ],
+  "tools/stranger_walk/boundary_scan.py": [
+    "100644",
+    "1644f66aec9e48daa08b64d410015aefd364419e"
+  ],
+  "tools/stranger_walk/chain_before_runs.sh": [
+    "100755",
+    "607f21915ff74fe4562c10743e10ca89512dac0c"
+  ],
+  "tools/stranger_walk/check_prompt.py": [
+    "100755",
+    "6c45844a288575c95254077a14d7c21f51eed575"
+  ],
+  "tools/stranger_walk/container/Dockerfile": [
+    "100644",
+    "11e4b4ce61dc7b340a50aa6484ef482f3a84208c"
+  ],
+  "tools/stranger_walk/container/entrypoint.sh": [
+    "100755",
+    "50cab4a64396c703ec26992c1b803f6a10a924e2"
+  ],
+  "tools/stranger_walk/container/mcp_probe.py": [
+    "100644",
+    "9718e320d2bfb27be8b34746a351b286a72e5a78"
+  ],
+  "tools/stranger_walk/container/probe.sh": [
+    "100755",
+    "58f6895f7fe4864eb6661f47b1f6a696714f4888"
+  ],
+  "tools/stranger_walk/credential_scan.py": [
+    "100644",
+    "d5f3430ff3ccbccc2bb7c18c4200fdcc81447322"
+  ],
+  "tools/stranger_walk/isolation_audit.sh": [
+    "100755",
+    "c0f6f278873f16e92f90b5d0bbcca9ddf4fb86a9"
+  ],
+  "tools/stranger_walk/judge.md": [
+    "100644",
+    "588c0591c71a8881e3ed453756c22aa3730f54da"
+  ],
+  "tools/stranger_walk/launch.sh": [
+    "100755",
+    "83f237f20d3af6568977ad2c6eb7461a7f8ffea8"
+  ],
+  "tools/stranger_walk/prompt.md": [
+    "100644",
+    "f6dcfe8103e572f3284441df92db1bdcae57c54d"
+  ],
+  "tools/stranger_walk/resume.sh": [
+    "100755",
+    "af3f12250b2f1aad77991a997822f4acb4b4a644"
+  ],
+  "tools/stranger_walk/run.sh": [
+    "100755",
+    "e79b398c368bba905b52daf622cf13bf3c9d191a"
+  ],
+  "tools/stranger_walk/run_container.sh": [
+    "100755",
+    "4b930d9ce7875a0928085b53ddf87343d25357b1"
+  ],
+  "tools/stranger_walk/score.py": [
+    "100755",
+    "560605c2ce1f6db61b84537068bd27cf72b16cdf"
+  ],
+  "tools/stranger_walk/smoke_prompt.md": [
+    "100644",
+    "81a1926d94e267ff5b6698edc147d0d6f14cf9bf"
+  ],
+  "tools/stranger_walk/test_score.py": [
+    "100644",
+    "bf625da69d6d078a1824f422bd16d55935ed96b5"
+  ],
+  "tools/stuck_analysis.nim": [
+    "100644",
+    "932a7578fc1b13e14bc5692d0f6767e4a2d1c941"
+  ],
+  "tools/symnone_debugpng.nim": [
+    "100644",
+    "39b971563e2596374f1c36fcc757b1bb7f47eb14"
+  ],
+  "tools/symnone_demo_map.nim": [
+    "100644",
+    "2ba199293c93dd6712953cd875bcc5d2d8a0db58"
+  ],
+  "tools/symnone_diag.nim": [
+    "100644",
+    "6b32b6857d57ebd1ac81db582f22e497c21c6163"
+  ],
+  "tools/symnone_navcheck.nim": [
+    "100644",
+    "7f5853ca42658365c8456e15316f1ad8e0ff8f12"
+  ],
+  "tools/taunt_fallback_check.nim": [
+    "100644",
+    "869b1bd8e1e77445bfb7a44ec7bad5c4ceb80920"
+  ],
+  "tools/team16_smoke_probe.nim": [
+    "100644",
+    "9b0e76f953657e1bc3128ed56e7cc6cf2b658389"
+  ],
+  "tools/tint_contact_sheet.py": [
+    "100644",
+    "3a579e3a22715872f6eb9d6d2d14f18d76d431e3"
+  ],
+  "tools/tint_team_art.py": [
+    "100644",
+    "683b1ee28ffcb065233e8cc82089757a27ddcdf7"
+  ],
+  "tools/toolutil.nim": [
+    "100644",
+    "0a55d4318aee61be09f9752853a5a02a2e4ddcf4"
+  ],
+  "tools/tune_baselines.nim": [
+    "100644",
+    "1d0970e04e91775bd932d3719d86b0e90e37583e"
+  ],
+  "tools/verify_br_solo16.nim": [
+    "100644",
+    "8479a51575accc597da05d5b0ea962e2a832beb6"
+  ],
+  "tools/verify_reflash_roundtrip.nim": [
+    "100644",
+    "d51d7287733e188be59c665c4ca9efdc41bfea99"
+  ],
+  "tools/wasm_replay_smoke.cjs": [
+    "100644",
+    "f7475667223e490e668235e4f8f769ad8bd98357"
+  ],
+  "tools/wiki/render_era_banner.py": [
+    "100644",
+    "6eef74c6bedc3b62095387e357bdbcd161830fa5"
+  ],
+  "tools/window_audit.nim": [
+    "100644",
+    "24d03249b71e9904c2674ed2998f3a87844bc20b"
+  ],
+  "tools/worktree_lint.sh": [
+    "100755",
+    "4397ca374c4c4c8f312d9d3328b1e4061452732b"
+  ]
+}

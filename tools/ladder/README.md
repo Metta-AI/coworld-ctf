@@ -1,5 +1,10 @@
 # Ladder assessment tools
 
+> **Historical pre-Season-2 analysis runbook.** It remains useful for archived
+> classic league rounds, but its combat/heal metrics and cogherence-player
+> workflow are not current Season 2 policy guidance. Start current policy work
+> in [`policies/starters/`](../../policies/starters/README.md).
+
 Judge a submitted policy on the LIVE Elo ladder. Run everything with the
 cogherence player's venv, which holds the working login:
 
@@ -17,6 +22,7 @@ cd tools/ladder
 | `h2h.py <first> <last>` | Per-opponent episode W/L/winrate over a round range. |
 | `matched.py <aF> <aL> <bF> <bL> [min_n]` | ⭐ A/B two tenures, matched on opponents present in both. |
 | `heals.py <first> <last> <ver> [n] [--cw V]` | Mechanism metrics (heals, K/D, attrition window) by re-simulating real league replays. |
+| `encounters.py [--events GLOB] [--player P] [--vs OPP]` | Combat-encounter tempo (encounters/min, per-opponent split) straight from cached tier-2 event files — reads scout.py's `~/.ctf/scout/events/*.jsonl`, no fetch of its own. |
 
 ## Three traps this tooling exists to avoid
 

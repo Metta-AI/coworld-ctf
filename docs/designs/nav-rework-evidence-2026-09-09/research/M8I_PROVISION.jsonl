@@ -1,0 +1,4 @@
+{"time": "2026-09-09T23:43:45.200359+00:00", "event": "source_stop_requested", "instance_id": "i-045ddd6df51150967"}
+{"time": "2026-09-09T23:44:15.921925+00:00", "event": "source_stopped", "instance_id": "i-045ddd6df51150967"}
+{"time": "2026-09-09T23:44:17.456530+00:00", "event": "target_launched", "instance_id": "i-0382a6e0a77c014d7", "instance_type": "m8i-flex.4xlarge"}
+{"time": "2026-09-09T23:44:32.985743+00:00", "event": "target_running", "instance_id": "i-0382a6e0a77c014d7", "ip": "54.91.165.255"}

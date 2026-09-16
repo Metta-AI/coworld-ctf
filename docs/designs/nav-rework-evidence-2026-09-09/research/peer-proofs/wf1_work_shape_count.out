@@ -1,0 +1,28 @@
+pool:0 range 331: active_intervals_per_shell mean 3.3 max 7 shells_counted 672
+pool:0 range 331: sources 8 nominal_steps 66500 executed_steps 65739 beyond_cutoff 703 unique_added 23522 wave_cells_scanned 45216 wave_cells_with_active 23522 shells_scanned 672/672
+pool:29 range 331: active_intervals_per_shell mean 3.4 max 8 shells_counted 672
+pool:29 range 331: sources 8 nominal_steps 63710 executed_steps 62950 beyond_cutoff 780 unique_added 23116 wave_cells_scanned 45216 wave_cells_with_active 23116 shells_scanned 672/672
+pool:48 range 331: active_intervals_per_shell mean 3.3 max 6 shells_counted 672
+pool:48 range 331: sources 8 nominal_steps 70177 executed_steps 69374 beyond_cutoff 741 unique_added 25860 wave_cells_scanned 45216 wave_cells_with_active 25860 shells_scanned 672/672
+configured:0 range 331: active_intervals_per_shell mean 3.3 max 9 shells_counted 672
+configured:0 range 331: sources 8 nominal_steps 61735 executed_steps 61002 beyond_cutoff 626 unique_added 21166 wave_cells_scanned 45216 wave_cells_with_active 21166 shells_scanned 672/672
+configured:5 range 331: active_intervals_per_shell mean 2.7 max 6 shells_counted 631
+configured:5 range 331: sources 8 nominal_steps 60667 executed_steps 59971 beyond_cutoff 673 unique_added 21502 wave_cells_scanned 43344 wave_cells_with_active 21502 shells_scanned 631/672
+configured:10 range 331: active_intervals_per_shell mean 3.0 max 7 shells_counted 672
+configured:10 range 331: sources 8 nominal_steps 62215 executed_steps 61498 beyond_cutoff 715 unique_added 22696 wave_cells_scanned 45216 wave_cells_with_active 22696 shells_scanned 672/672
+colossal range 331: active_intervals_per_shell mean 6.6 max 13 shells_counted 672
+colossal range 331: sources 8 nominal_steps 70273 executed_steps 69503 beyond_cutoff 954 unique_added 27325 wave_cells_scanned 45216 wave_cells_with_active 27325 shells_scanned 672/672
+pool:0 range 1300: active_intervals_per_shell mean 2.6 max 8 shells_counted 1669
+pool:0 range 1300: sources 8 nominal_steps 343224 executed_steps 341099 beyond_cutoff 1363 unique_added 54162 wave_cells_scanned 448312 wave_cells_with_active 54162 shells_scanned 1669/2608
+pool:29 range 1300: active_intervals_per_shell mean 3.1 max 9 shells_counted 1760
+pool:29 range 1300: sources 8 nominal_steps 363727 executed_steps 361377 beyond_cutoff 3505 unique_added 68989 wave_cells_scanned 565012 wave_cells_with_active 68989 shells_scanned 1760/2608
+pool:48 range 1300: active_intervals_per_shell mean 2.7 max 8 shells_counted 1582
+pool:48 range 1300: sources 8 nominal_steps 346749 executed_steps 344790 beyond_cutoff 1216 unique_added 52548 wave_cells_scanned 461800 wave_cells_with_active 52548 shells_scanned 1582/2608
+configured:0 range 1300: active_intervals_per_shell mean 2.5 max 9 shells_counted 2608
+configured:0 range 1300: sources 8 nominal_steps 360053 executed_steps 357658 beyond_cutoff 10405 unique_added 74712 wave_cells_scanned 671424 wave_cells_with_active 74712 shells_scanned 2608/2608
+configured:5 range 1300: active_intervals_per_shell mean 3.3 max 9 shells_counted 2045
+configured:5 range 1300: sources 8 nominal_steps 359098 executed_steps 356806 beyond_cutoff 10506 unique_added 74073 wave_cells_scanned 548912 wave_cells_with_active 74073 shells_scanned 2045/2608
+configured:10 range 1300: active_intervals_per_shell mean 2.8 max 7 shells_counted 1917
+configured:10 range 1300: sources 8 nominal_steps 346713 executed_steps 344520 beyond_cutoff 6553 unique_added 65514 wave_cells_scanned 528976 wave_cells_with_active 65514 shells_scanned 1917/2608
+colossal range 1300: active_intervals_per_shell mean 7.3 max 18 shells_counted 2608
+colossal range 1300: sources 8 nominal_steps 545046 executed_steps 541570 beyond_cutoff 37499 unique_added 161080 wave_cells_scanned 671424 wave_cells_with_active 161080 shells_scanned 2608/2608

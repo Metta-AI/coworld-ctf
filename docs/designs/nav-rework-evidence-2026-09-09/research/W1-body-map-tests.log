@@ -1,0 +1,80 @@
+Hint: used config file '/Users/jamesboggs/.nimby/nim/config/nim.cfg' [Conf]
+Hint: used config file '/Users/jamesboggs/.nimby/nim/config/config.nims' [Conf]
+Hint: used config file '/Users/jamesboggs/coding/coworlds/coworld-ctf-worktrees/nav-throughput-research/nim.cfg' [Conf]
+Hint: used config file '/Users/jamesboggs/coding/coworlds/coworld-ctf-worktrees/nav-throughput-research/tests/config.nims' [Conf]
+............................................................................................................................................................................................................................
+/Users/jamesboggs/coding/coworlds/coworld-ctf-worktrees/nav-throughput-research/src/ctf/arena.nim(1373, 5) Hint: 'inside' is declared but not used [XDeclaredButNotUsed]
+/Users/jamesboggs/coding/coworlds/coworld-ctf-worktrees/nav-throughput-research/src/ctf/arena.nim(3702, 6) Hint: 'rectsNode' is declared but not used [XDeclaredButNotUsed]
+/Users/jamesboggs/coding/coworlds/coworld-ctf-worktrees/nav-throughput-research/src/ctf/arena.nim(3707, 6) Hint: 'rectsFromNode' is declared but not used [XDeclaredButNotUsed]
+....
+/Users/jamesboggs/coding/coworlds/coworld-ctf-worktrees/nav-throughput-research/tests/test_shell_body_map.nim(10, 8) Warning: imported and not used: 'test_shell_body_ray' [UnusedImport]
+CC: system/exceptions.nim
+CC: std/private/digitsutils.nim
+CC: std/assertions.nim
+CC: std/private/dragonbox.nim
+CC: std/formatfloat.nim
+CC: system/dollars.nim
+CC: std/syncio.nim
+CC: system.nim
+CC: hashes.nim
+CC: math.nim
+CC: algorithm.nim
+CC: tables.nim
+CC: parseutils.nim
+CC: unicode.nim
+CC: strutils.nim
+CC: streams.nim
+CC: lexbase.nim
+CC: parsejson.nim
+CC: options.nim
+CC: json.nim
+CC: pathnorm.nim
+CC: posix.nim
+CC: std/private/ospaths2.nim
+CC: times.nim
+CC: std/envvars.nim
+CC: std/cmdline.nim
+CC: random.nim
+CC: std/exitprocs.nim
+CC: sets.nim
+CC: strformat.nim
+CC: terminal.nim
+CC: unittest.nim
+CC: jsony.nim
+CC: pixie/fontformats/opentype.nim
+CC: pixie/fileformats/jpeg.nim
+CC: heapqueue.nim
+CC: pixie/fileformats/png.nim
+CC: bitworld/spriteprotocol.nim
+CC: bitworld/pixelfonts.nim
+CC: ctf/sim_types.nim
+CC: ctf/arena.nim
+CC: shell/body_map.nim
+CC: shell/body_cache.nim
+CC: test_shell_body_ray.nim
+CC: test_shell_body_map.nim
+Hint:  [Link]
+Hint: mm: orc; threads: on; opt: speed; options: -d:release
+123639 lines; 2.403s; 342.953MiB peakmem; proj: /Users/jamesboggs/coding/coworlds/coworld-ctf-worktrees/nav-throughput-research/tests/test_shell_body_map.nim; out: /Users/jamesboggs/coding/coworlds/coworld-ctf-worktrees/nav-throughput-research/tests/test_shell_body_map [SuccessX]
+Hint: /Users/jamesboggs/coding/coworlds/coworld-ctf-worktrees/nav-throughput-research/tests/test_shell_body_map [Exec]
+
+[Suite] weapon ray sampling
+  [OK] every small ray agrees for every single blocking pixel
+  [OK] seeded long rays preserve sampled walls in both directions
+
+[Suite] shell body immutable episode map
+  [OK] component-by-component static fields match the pinned stencil golden
+  [OK] exact validator covers sites, walls, edges, radius and components
+  [OK] equal-distance ties choose the row-major pixel
+  [OK] validator winner table is exhaustive against row-major scan on fixture
+  [OK] validator winner table keeps row-major tie rule on constructed large map
+  [OK] ValidatedGoal has no external construction or mutable map escape
+  [OK] flagless 16-group maps build without homes or four-team facts
+  [OK] the committed 16-team BR map builds endzone-free
+  [OK] BR golden validator edge and deepest cases match row-major scan
+  [OK] BR golden validator random sweep samples row-major scan
+  [OK] atlas thinning keeps only the 16px candidate grid
+  [OK] duck cache works on thinned atlas posts
+  [OK] atlas density cap riders use thinned construction
+  [OK] validator byte cap arithmetic is exact
+  [OK] invalid spawn fails the activation build

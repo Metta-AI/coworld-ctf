@@ -158,16 +158,19 @@ suite "broadcast state channel":
       check state["ph"].getStr == "gameover"
       check state.hasKey("over")
       # A capture win is not a draw and not a time-limit tiebreak. The winner
-      # is pinned to the current recording of the fixture (GameVersion 41,
-      # seed 1: Blue captures the red heart, eliminating Red).
+      # is pinned to the current recording of the fixture (GameVersion 63,
+      # seed 1: Red captures the blue heart, eliminating Blue). A seed does
+      # not pin the outcome — the bots are separate processes — so which side
+      # wins is re-pinned on every re-record; the STRUCTURE (a capture ending,
+      # no draw, no time limit) is what the test is actually asserting.
       check state["over"]["draw"].getBool == false
       check state["over"]["timeLimit"].getBool == false
-      check state["over"]["winner"].getStr == "blue"
+      check state["over"]["winner"].getStr == "red"
       # The scorebug axis is lives + flag state, never a kill score.
       check state["teams"]["red"].hasKey("lives")
       # GV32: the captured heart ends the game in the "captured" state.
-      check state["teams"]["red"]["flag"].getStr == "captured"
-      check state["teams"]["blue"]["flag"].getStr in ["home", "taken"]
+      check state["teams"]["blue"]["flag"].getStr == "captured"
+      check state["teams"]["red"]["flag"].getStr in ["home", "taken"]
       # The verdict carries a team-keyed map (any team count) that agrees with
       # the legacy red/blue scalars.
       for team in ["red", "blue"]:
@@ -181,6 +184,97 @@ suite "broadcast state channel":
       for seat in state["roster"]:
         check seat.hasKey("pol")
         check seat["pol"].getStr == policyName(seat["name"].getStr)
+      # SEASON 2: the glory cosmetic-pop queue rides every frame, unlike the
+      # send-once "ach"/"huddle"/"vote" chrome below — an empty match-end
+      # queue still ships an (empty) array, never an absent key.
+      check state.hasKey("pops")
+      check state["pops"].kind == JArray
+      # A replay with no shell records (this fixture predates the huddle/vote
+      # lanes) never sees these keys at all -- the degrade-to-nothing this
+      # panel is built against.
+      check not state.hasKey("huddle")
+      check not state.hasKey("vote")
+      # WIRE-OK BATCH (THE WHOLE epic, GameVersion 62->63): the realized-
+      # economy stamp rides every frame, unconditional like "pops"/"glory".
+      # This classic CTF fixture predates the recut economy and never sets
+      # `gloryMultiplierRecut`, so it stays on the dark v12 ledger.
+      check state.hasKey("economy")
+      check state["economy"].getStr == "classic"
+      # Each seat's own deed breakdown on the verdict block: always present
+      # (an array, possibly empty for a seat that minted nothing), never
+      # omit-when-absent like "prog"/"flag" above -- same idiom as "glory"/
+      # "lives" on the same object. This fixture ends on a real capture, so
+      # the winning side must have minted at least one deed (the capture
+      # itself, at minimum).
+      for team in ["red", "blue"]:
+        check state["over"]["teams"][team].hasKey("deeds")
+        check state["over"]["teams"][team]["deeds"].kind == JArray
+      check state["over"]["teams"]["red"]["deeds"].len >= 1
+      for entry in state["over"]["teams"]["red"]["deeds"]:
+        check entry.hasKey("deed")
+        check entry["label"].getStr.len > 0
+        check entry["count"].getInt >= 1
+    finally:
+      setCurrentDir(previousDir)
+
+  test "SEASON 2: glory pops, huddle transcript and ballot ride the chrome frame when present":
+    let previousDir = getCurrentDir()
+    setCurrentDir(GameDir)
+    try:
+      let data = loadReplay(CaptureFixture)
+      var sim = initFixtureSim(data)
+      # White-box: gloryPops is cosmetic-only (excluded from gameHash, see its
+      # own doc comment), so pushing a fixture entry directly is the same
+      # kind of test setup as `over.achievements`' unconditional endcard
+      # check above -- no real deed needs to fire to prove the WIRE shape.
+      sim.gloryPops.add GloryFx(
+        x: 12, y: 34, tick: 5, amount: 18, team: Red, label: "",
+        word: "TAG", first: false, earnerIndex: -1, startDelay: 0, row: 0)
+      # row: 1 -- a second, site-stacked pop (addGloryPop's own collision
+      # search, sim.nim) at nearly the same site as the one above. A viewer
+      # missing this field draws it directly on top of a neighbour instead
+      # of stacked above it (visually confirmed 2026-08-31: a rank-up pop
+      # overlapping an unrelated deed pop at one spawn point read as
+      # illegible mashed text).
+      sim.gloryPops.add GloryFx(
+        x: 56, y: 78, tick: 5, amount: 240, team: Blue, label: "Marksman",
+        word: "", first: true, earnerIndex: 2, startDelay: 3, row: 1)
+      let lobbyChat = %*[{"seat": 0, "team": "red", "text": "ready?"}]
+      let ballots = %*[{"k": "cast", "seat": 0, "team": "red", "opt": 0}]
+      let state = parseJson(sim.buildStateJson(
+        newJArray(), false, 1, 100, false, true, -1, -1,
+        lobbyChat = lobbyChat, ballots = ballots
+      ))
+      check state["pops"].len == 2
+      let deedPop = state["pops"][0]
+      check deedPop["x"].getInt == 12
+      check deedPop["y"].getInt == 34
+      check deedPop["t"].getInt == 5
+      check deedPop["amt"].getInt == 18
+      check deedPop["team"].getStr == "red"
+      check deedPop["word"].getStr == "TAG"
+      check deedPop["lbl"].getStr == ""
+      check deedPop["row"].getInt == 0
+      let claimPop = state["pops"][1]
+      check claimPop["lbl"].getStr == "Marksman"
+      check claimPop["first"].getBool == true
+      check claimPop["earner"].getInt == 2
+      check claimPop["delay"].getInt == 3
+      # the site-stack depth the sim already computes (addGloryPop's
+      # collision search) so a renderer can stack same-site pops instead of
+      # drawing them on top of each other.
+      check claimPop["row"].getInt == 1
+      # send-once chrome: present and equal to what was passed, when given.
+      check state["huddle"] == lobbyChat
+      check state["vote"] == ballots
+      # ...and absent again when the caller has nothing to send (an empty
+      # array is treated the same as nil — no shell records for this frame).
+      let bare = parseJson(sim.buildStateJson(
+        newJArray(), false, 1, 100, false, true, -1, -1,
+        lobbyChat = newJArray(), ballots = newJArray()
+      ))
+      check not bare.hasKey("huddle")
+      check not bare.hasKey("vote")
     finally:
       setCurrentDir(previousDir)
 
@@ -197,7 +291,7 @@ suite "broadcast state channel":
     check policyName("(3)") == "(3)"               # nothing before it: untouched
     check policyName("") == ""
 
-  test "lives series ships team-keyed change points":
+  test "glory series ships team-keyed change points":
     let previousDir = getCurrentDir()
     setCurrentDir(GameDir)
     try:
@@ -207,24 +301,99 @@ suite "broadcast state channel":
         replay = initReplayPlayer(data)
       replay.mismatchQuit = true
       replay.buildReplayKeyframes(sim)
-      # One lives count per team on every change point, ticks non-decreasing.
-      check replay.livesSeries.len >= 2
+      # One glory value per team on every change point, ticks non-decreasing.
+      check replay.leadSeries.len >= 2
+      check replay.leadMetric == "glory"   # classic game: the lane plots glory
       var lastTick = -1
-      for point in replay.livesSeries:
-        check point.len == 1 + 2  # tick + one lives value per team
+      for point in replay.leadSeries:
+        check point.len == 1 + 2  # tick + one glory value per team
         check point[0] >= lastTick
         lastTick = point[0]
       # The chrome frame publishes it as {teams, pts} in Team order.
       let state = parseJson(sim.buildStateJson(
         newJArray(), false, 1, replay.replayMaxTick(), false, true, -1, -1,
-        replay.livesSeries
+        replay.leadSeries, replay.leadMetric, replay.leadOutTicks
       ))
+      # ELIMINATION TICKS, one per team in the same order. capture-seed1 ends
+      # on Red capturing the blue heart (GV63 recording), which eliminates
+      # Blue -- so Blue has a real tick and Red, still standing, has -1.
+      #
+      # The >0 matters. "No lives banked and nobody up" is also true of the
+      # LOBBY, before anyone has spawned, so latching it directly marks every
+      # team eliminated on tick 1 -- which is what the first cut of this did,
+      # measured as outTicks @[1, 1, 1, ...] across all sixteen teams of the
+      # BR fixture. The latch is gated on having been alive first; this is
+      # the assertion that would have caught it.
+      check replay.leadOutTicks.len == 2
+      let redOut = replay.leadOutTicks[0]
+      let blueOut = replay.leadOutTicks[1]
+      check redOut == -1
+      check blueOut > 1
+      check blueOut <= replay.leadSeries[^1][0]
+      # The band captions itself from this, rather than hardcoding a metric.
+      check state["lead"]["metric"].getStr == "glory"
+      # …and the wire carries them, so the lane can stop drawing a dead team
+      # as a live competitor.
+      check state["lead"]["out"].len == 2
+      check state["lead"]["out"][0].getInt == -1
+      check state["lead"]["out"][1].getInt == blueOut
       check state["lead"]["teams"].len == 2
       check state["lead"]["teams"][0].getStr == "red"
       check state["lead"]["teams"][1].getStr == "blue"
-      check state["lead"]["pts"].len == replay.livesSeries.len
+      check state["lead"]["pts"].len == replay.leadSeries.len
       for row in state["lead"]["pts"]:
         check row.len == 3
+    finally:
+      setCurrentDir(previousDir)
+
+  test "heat rides the wire beside glory: live per-team key + its own parallel series":
+    # HEAT ON THE WIRE: heatMult/heatEmbers exist sim-side (glory.nim/
+    # sim.nim) but were never broadcast -- 0 of 512 seat-episodes ever
+    # reached the top rung and the x1 floor holds 99.7%+ of BR seat-time,
+    # which an invisible mechanic will do. This proves the plumbing: the
+    # live per-team key, and the full-match series parallel to `leadSeries`.
+    let previousDir = getCurrentDir()
+    setCurrentDir(GameDir)
+    try:
+      let data = loadReplay(CaptureFixture)
+      var
+        sim = initFixtureSim(data)
+        replay = initReplayPlayer(data)
+      replay.mismatchQuit = true
+      replay.buildReplayKeyframes(sim)
+      # Same [tick, valuePerTeam…] change-point shape as leadSeries, same
+      # team order -- but its OWN series (heatSeries), never folded into
+      # leadSeries itself.
+      check replay.heatSeries.len >= 1
+      var lastTick = -1
+      for point in replay.heatSeries:
+        check point.len == 1 + 2  # tick + one heat value per team
+        check point[0] >= lastTick
+        lastTick = point[0]
+        for value in point[1 .. ^1]:
+          # HeatLadder = [1, 2, 4, 8]: the multiplier's floor is x1, never
+          # zero -- "no heat" reads as the resting rung, not an absent key.
+          check value in [1, 2, 4, 8]
+      # The chrome frame publishes it as its own {teams, pts} key, parallel
+      # to "lead" -- not merged into it (a hard constraint of this port: the
+      # momentum lane's metric must keep meaning only glory/hill).
+      let state = parseJson(sim.buildStateJson(
+        newJArray(), false, 1, replay.replayMaxTick(), false, true, -1, -1,
+        replay.leadSeries, replay.leadMetric, replay.leadOutTicks,
+        heatSeries = replay.heatSeries
+      ))
+      check state["heat"]["teams"].len == 2
+      check state["heat"]["teams"][0].getStr == "red"
+      check state["heat"]["teams"][1].getStr == "blue"
+      check state["heat"]["pts"].len == replay.heatSeries.len
+      for row in state["heat"]["pts"]:
+        check row.len == 3
+      # Live per-team key: unconditional beside "glory" on EVERY frame (not
+      # gated behind the once-per-viewer lead/heat series above), and its
+      # value is exactly heatMult of the sim's own heatEmbers -- the same
+      # formula mintGlory (glory.nim) already applies to every deed.
+      check state["teams"]["red"]["heat"].getInt == heatMult(sim.heatEmbers[Red])
+      check state["teams"]["blue"]["heat"].getInt == heatMult(sim.heatEmbers[Blue])
     finally:
       setCurrentDir(previousDir)
 
@@ -253,7 +422,7 @@ suite "broadcast state channel":
       let verdicts = replay.beatEvents.elems.filterIt(it["k"].getStr == "gameover")
       check verdicts.len == 1
       check verdicts[0]["draw"].getBool == false
-      check verdicts[0]["winner"].getStr == "blue"
+      check verdicts[0]["winner"].getStr == "red"
       # The chrome frame ships the timeline when (and only when) asked.
       let withBeats = parseJson(sim.buildStateJson(
         newJArray(), false, 1, replay.replayMaxTick(), false, true, -1, -1,

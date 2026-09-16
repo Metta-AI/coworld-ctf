@@ -50,17 +50,22 @@ suite "player fog-of-war protocol":
           message.objectDef.spriteId == 1:
         mapAtOrigin = message.objectDef.x == 0 and message.objectDef.y == 0
     check mapAtOrigin
-    # The fogged enemy is culled; the viewer itself is present.
-    check not messages.hasObject(1000 + game.players[foe].joinOrder)
-    check messages.hasObject(1000 + game.players[viewer].joinOrder)
-    # Both pedestal flags are always present (5009 red, 5010 blue).
-    check messages.hasObject(5009)
-    check messages.hasObject(5010)
+    # The fogged enemy is culled; the viewer itself is present. A human
+    # viewer (spritesOff=false, what buildPlayerMessages defaults to) draws
+    # an alive player as the articulated rig, not the old flat PlayerObjectBase
+    # object — the rig HEAD object (RigHeadObjectBase + joinOrder) is the
+    # per-player id that stands in for "this player is drawn at all".
+    check not messages.hasObject(RigHeadObjectBase + game.players[foe].joinOrder)
+    check messages.hasObject(RigHeadObjectBase + game.players[viewer].joinOrder)
+    # Both pedestal flags are always present (Red's and Blue's own-view
+    # flag markers).
+    check messages.hasObject(SpritePlayerFlagObjectBase + ord(Red))
+    check messages.hasObject(SpritePlayerFlagObjectBase + ord(Blue))
 
     # Turn the viewer around: the enemy enters the cone and appears.
     game.players[viewer].aimBrads = 192
     let turned = game.buildPlayerMessages(viewer, state)
-    check turned.hasObject(1000 + game.players[foe].joinOrder)
+    check turned.hasObject(RigHeadObjectBase + game.players[foe].joinOrder)
 
   test "teammates and a teammate-carried flag fog like enemies":
     var game = initCtfForTest(defaultGameConfig())
@@ -88,15 +93,15 @@ suite "player fog-of-war protocol":
     var state: PlayerViewerState
     # The mate is behind the viewer (aiming north): fogged, flag and all.
     let messages = game.buildPlayerMessages(viewer, state)
-    check not messages.hasObject(1000 + game.players[mate].joinOrder)
-    check not messages.hasObject(5010)
+    check not messages.hasObject(RigHeadObjectBase + game.players[mate].joinOrder)
+    check not messages.hasObject(SpritePlayerFlagObjectBase + ord(Blue))
 
     # Turn around: the mate and its carried flag appear.
     game.players[viewer].aimBrads = 192
     var state2: PlayerViewerState
     let turned = game.buildPlayerMessages(viewer, state2)
-    check turned.hasObject(1000 + game.players[mate].joinOrder)
-    check turned.hasObject(5010)
+    check turned.hasObject(RigHeadObjectBase + game.players[mate].joinOrder)
+    check turned.hasObject(SpritePlayerFlagObjectBase + ord(Blue))
 
   test "only a shot's landing rings for players; tracers are spectator-only":
     var game = initCtfForTest(defaultGameConfig())

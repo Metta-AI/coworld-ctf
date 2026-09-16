@@ -1,0 +1,7 @@
+{"rows":{
+  "ROTATE_TO_RING":{"bias":3.0,"weights":{"world.zone_dist":2.0}},
+  "ENGAGE":{"bias":2.0,"weights":{"self.hp_frac":1.5,"world.nearest_enemy_dist":-0.5}},
+  "FINISH":{"bias":2.5,"weights":{"world.weakest_enemy_hp":-1.0}},
+  "LOOT":{"bias":1.0,"weights":{"world.item_dist":-0.4}},
+  "HEAL":{"bias":0.5,"weights":{"world.medkit_dist":-0.3}}
+}}

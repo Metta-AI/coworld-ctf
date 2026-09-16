@@ -1,0 +1,1689 @@
+/* ============================================================================
+   client/player_hud.js — Paintbot player HUD overlay  (lane: hud)
+   ============================================================================
+
+   OWNERSHIP: this file is wholly owned by the `hud` lane. Nothing else in the
+   client tree should need to change for this to work — see ATTACH below.
+
+   WHAT THIS IS
+   A self-contained overlay that answers, at a glance, the questions Maxwell
+   said the human client leaves unanswered: did I just get a kill, who/what
+   killed me, is my gun ready, where am I on the map, who nearby is a person
+   vs a policy, what's the score, and (mid-fight) how much health do I have
+   left. It draws to its own DOM layer stacked above the game canvas and never
+   intercepts pointer events except on its one clickable toggle tag.
+
+   ATTACH (the "small, documented init hook")
+   Add ONE line to the host page, after its own inline <script> block:
+
+       <script src="player_hud.js"></script>
+
+   That's it — no call required. On load this module:
+     1. Mounts its own overlay DOM (`#phud-root`), independent of any host ID.
+     2. Reads the CURRENT MOUSE POSITION itself (own listener, screen space).
+     3. Reads decoded wire state from exactly TWO host globals: `objects` and
+        `sprites` (see WIRE DEPENDENCY below). Everything else it computes
+        itself by scanning label text — the same technique the host's own
+        findSelfAndAim() already uses, applied more broadly.
+     4. Reads its own map viewport/pan/zoom from the host canvas's *rendered*
+        CSS transform (getComputedStyle), not from any host JS variable — so
+        it stays correct even if the host's camera implementation changes,
+        as long as it keeps using a CSS transform on #c (a stable pattern).
+
+   For a tighter, push-based integration later (optional, not required today):
+       window.PaintbotHUD.update(stateObject)   // see CONTRACT below
+   accepts an explicit per-frame state object shaped like the one this module
+   builds internally, if the host ever wants to hand data over directly
+   instead of being scanned. Both paths render through the same code.
+
+   WIRE DEPENDENCY (the one real coupling — documented, not hidden)
+   `objects` (Map<id, {id,x,y,z,layer,spriteId,dispX,dispY}>) and `sprites`
+   (Map<spriteId, {width,height,pixels,label}>) are top-level `let` bindings
+   declared in player_client.html's inline <script> (as of commit 7a052635,
+   see line ~100). Because classic (non-module) <script> tags in one document
+   share a single global lexical environment for top-level let/const, a
+   *later* classic script — this one — can read those identifiers directly,
+   the same way two <script> blocks in one page always could. This module
+   depends on NOTHING ELSE from that file: no business-logic variable
+   (selfPos, lmb, estAim, isDead, tickCount, the websocket, ...) is read here.
+   Every `typeof` check below is a real safety net, not decoration: if either
+   binding is ever renamed or the file is restructured into a module, this
+   degrades to honest "no data" empty states instead of throwing.
+
+   THE WIRE LABELS THIS MODULE SCANS (all documented in src/ctf/labels.nim —
+   quoted here so the parsing logic has a single citation trail):
+     "self <color> <side>"                    — LabelPrefixSelf
+     "player <color> <side>"                  — LabelPrefixPlayer (alive, other)
+     "corpse <color> <side>"                  — LabelPrefixCorpse (dead)
+     "own aim <brads>"                        — LabelPrefixOwnAim
+     "lives <hp>hp x<lives>"                  — LabelPrefixLives (OWN hp+lives)
+     "kd <kills>/<deaths>"                    — LabelPrefixKd (OWN, human wire only;
+                                                landed 50a13efc, absent on engines
+                                                before it — parsed by prefix, "—"
+                                                until it actually arrives)
+     "hp <lit>/<total>[ shield <n>]"          — LabelPrefixHp (overhead, by proximity)
+     "identity <color> <greekletter>[ shield][ nade] <weapon>" — LabelPrefixIdentity
+     "roster <team> <name> <lives> <kills>/<deaths>" — LabelPrefixRoster
+                                                (8ad1c420): ONE marker per roster
+                                                seat on EVERY player stream, human
+                                                wire only (`not spritesOff`), all
+                                                modes. This is what fills the Tab
+                                                table on the live player page.
+                                                <team> = teamText (single word, all
+                                                16 BR colors); <name> = the same
+                                                anonymous per-team slot identity
+                                                the identity/shout labels use
+                                                (alpha..theta, ranked within team,
+                                                wraps) — NEVER a connection
+                                                address; NOT rendered as-is (in
+                                                16-solo BR every seat is its
+                                                team's slot 0, so that read
+                                                "alpha" x16 on prod) — see
+                                                seatDisplayName. Every field a
+                                                fixed token; no greedy matching
+                                                needed. Absent on engines before
+                                                8ad1c420 — rows then fall back to
+                                                "score " rows / the HTTP roster,
+                                                same as ever.
+     "winner <color>" / "winner draw"         — LabelPrefixWinner: GameOver frames
+                                                only, human wire only. NOT read by
+                                                this module — player_client.html's
+                                                own #matchOver card consumes it.
+     "team score <NAME> <kills>/<deaths>"     — addTeamScoreboard, per team, always sent
+     "score <name> <lives> <kills>/<deaths> color <n>" — addScoreboard, per player
+                                                (50a13efc). OLDER ENGINES: the row is
+                                                "score <name> <lives> color <n>" and is
+                                                suppressed entirely above 4 teams; BOTH
+                                                shapes are parsed (kills/deaths null on
+                                                the old one) so this HUD works against
+                                                the deployed engine AND the next swap.
+                                                ROUTING (server.nim): only /client/global
+                                                builds (board + POV) run addScoreboard —
+                                                the live seated/takeover player stream
+                                                (buildSpriteProtocolPlayerUpdates) never
+                                                carries these rows, so on the live player
+                                                page the Tab table populates only via
+                                                fallbacks/push; rows appear wherever the
+                                                host Maps actually carry them.
+     "fire icon" / "fire icon cooldown"       — LabelFireIcon / LabelFireIconCooldown
+
+   THE CONTRACT — full combat-state family, defined now even where unpopulated
+   (per Maxwell's ask: specify the engine emit work once, not three times).
+   window.PaintbotHUD.update() accepts, and the internal scanner builds, this
+   shape. Every field that has NO current wire source is called out below and
+   renders an honest placeholder ("—" / hidden), never a fabricated value.
+
+     {
+       wireOk: bool,              // objects/sprites Maps reachable at all
+       seated: bool,              // a "self " labeled cog exists this tick
+       dead: bool,                // was seated, self label now absent
+       selfTeam: string|null,     // color word off the self label
+
+       fire: { ready: bool|null },              // RESOLVED — "fire icon(*)" labels
+
+       health: {                                 // RESOLVED — "lives "/"hp " labels
+         hp: number|null, maxHp: number|null, shield: number|null, lives: number|null,
+         source: 'hp-label'|'lives-label'|null   // which label supplied the split
+       },
+
+       combat: {                                 // the family Maxwell asked to reserve
+         kills: number|null,      // RESOLVED — own "kd <k>/<d>" label (LabelPrefixKd,
+                                  //   50a13efc); null (renders "—") until the label
+                                  //   actually arrives, so older engines stay honest
+         deaths: number|null,     // RESOLVED — same label, same tolerance
+         score: null,             // UNRESOLVED — Glory/XP not deployed to the field yet
+         xp: null,                // UNRESOLVED — ditto
+         level: null,             // UNRESOLVED — ditto
+         rank: null,              // UNRESOLVED — one of GLORY_RANKS below, once shipped
+         buffs: []                // UNRESOLVED — always empty until the wire carries any
+       },
+
+       respawn: { ticksRemaining: null },        // UNRESOLVED — CTF only; state exists server-side
+                                                   // but is never sent (HUD_SPEC.md). Render surface
+                                                   // is fix-client3's center-screen transient, not
+                                                   // this module — reserved here for spec completeness.
+
+       map: { w: number, h: number, viewport: {x,y,w,h}|null },  // RESOLVED (own canvas)
+
+       zone: { current: {x0,y0,x1,y1}, next: {x0,y0,x1,y1}, shrinking: bool } | null,
+                                                   // RESOLVED — BR shrink ring, "zone "/"zonenext "
+                                                   // labels, world knowledge, never fog-gated. No
+                                                   // tick-countdown ships with it (see `shrinking`,
+                                                   // a derived qualitative read, never a fake number).
+
+       cogs: [ { x, y, color, side, alive, self, human: bool|null } ],   // RESOLVED (dots);
+                                                                          // human RESOLVED only
+                                                                          // when roster + the
+                                                                          // identity-label greek
+                                                                          // -letter->slot join
+                                                                          // both land (see below)
+
+       variant: 'ctf' | 'br' | 'unknown',        // RESOLVED from live team count on the wire
+       teamScores: [ { team, kills, deaths } ],   // RESOLVED — always sent regardless of team count
+       teamsAlive: null,                          // ROUTED to realcog (teamLivesRemaining(), sim.nim:3198)
+       playerRows: [ { name, team, lives: number|null, kills: number|null,
+                        deaths: number|null, human: bool|null, self: bool } ],
+                                                   // source priority: "roster " markers (the live
+                                                   // player stream's own full roster, 8ad1c420) >
+                                                   // "score " rows (global-backed hosts; old-shape
+                                                   // rows keep kills/deaths null) > the HTTP roster
+                                                   // fallback (names only). On the roster-marker
+                                                   // path `name` is the anonymous slot identity and
+                                                   // `human` stays null (nothing joins an anonymous
+                                                   // row to the HTTP roster's real names — honest
+                                                   // "—", not a guess).
+
+       roster: { resolved: bool, url: string }
+     }
+
+   KNOWN GAPS (told to the orchestrator; repeated here so the code and the
+   report can never drift apart):
+     - combat.kills / combat.deaths: RESOLVED (was the top gap here). The
+       engine now emits the own-stat "kd <kills>/<deaths>" label per tick on
+       the human player stream (LabelPrefixKd, 50a13efc) — real attribution
+       (Player.kills/deaths via roster.nim recordKill/recordDeath), NOT the
+       damage-pop proximity guess this file always refused to dress up as a
+       counter. Read by prefix in scanWire(); the tick-emphasis animation and
+       the scoreboard K/D columns were already built against the reserved
+       field, so the label's arrival lights them with no layout change.
+       Against a pre-50a13efc engine the label never arrives and the rail
+       stays at "—" — tolerance, not fabrication.
+     - combat.score/xp/level/rank/buffs: Glory is not deployed to the field
+       yet. Fields are reserved and always render as an honest placeholder.
+     - BR (>4 teams) playerRows: RESOLVED end to end. 50a13efc lifted the
+       addScoreboard >4-team suppression ("score " rows at every team count,
+       kills/deaths included — /client/global builds only), and 8ad1c420
+       closed the routing gap this file's earlier revision documented: the
+       live player stream now carries its own "roster " marker per seat, so
+       the Tab table fills from real wire data on the live player page in
+       every mode. What remains by design:
+       (a) LEGIBILITY — BR is up to 32 rows; the Tab table caps at
+       BR_MAX_ROWS sorted by kills (own row always kept visible, an
+       explicit "+N more" line for the rest) instead of rendering a wall —
+       see renderScoreboard.
+       (b) SELF on the roster path — roster names are anonymous; the own
+       row resolves via selfTeam when unambiguous (one seat on my team),
+       else via the identity badge nearest the self cog; else no row is
+       highlighted (never a guess).
+       teamsAlive: still reserved (teamLivesRemaining() is end-card only).
+       Placement (sim.brPlacements()) stays END-CARD ONLY; its always-empty
+       column is gone from the BR table. So is the numeric lives column:
+       wire lives = respawns remaining, which reads 0 for every LIVING
+       one-life player — BR renders an ALIVE/SPLAT status column derived
+       from the row's own deaths count instead (see renderScoreboard).
+     - zone (BR shrink ring): RESOLVED TODAY, zero engine work — "zone "/
+       "zonenext " labels are world knowledge on the player stream right now
+       (labels.nim:238-259, global.nim:8692-8693). No tick-countdown value
+       ships with them, so this module derives "shrinking" vs "hold"
+       qualitatively (current rect != next rect) rather than inventing a
+       seconds-remaining number.
+     - cogs[].human: requires BOTH the roster join (person: true/false per
+       slot) AND matching an "identity" label's Greek slot-letter
+       (alpha=0, beta=1, ...) to that slot index — an assumption (documented
+       at GREEK_TO_SLOT below) that has not been checked against a live
+       roster response in this environment. Falls back to `null` (unknown)
+       whenever either half of the join is missing, which is most of the
+       time until a real /api/field shape is confirmed.
+
+   ============================================================================ */
+(function () {
+  'use strict';
+  if (window.PaintbotHUD) return; // idempotent: never double-mount
+
+  // ---------------------------------------------------------------------
+  // Small utilities
+  // ---------------------------------------------------------------------
+  function clamp(v, lo, hi) { return v < lo ? lo : v > hi ? hi : v; }
+  function el(tag, cls) { const e = document.createElement(tag); if (cls) e.className = cls; return e; }
+  function fmtDash(v, suffix) { return (v === null || v === undefined) ? '—' : (v + (suffix || '')); }
+  // OPT-11 (CR-2): render() used to write every textContent/className/style
+  // property unconditionally, every call, at whatever rate the driving loop
+  // ran (previously an uncapped rAF — up to the browser's granted frame
+  // rate). These three helpers make each write conditional on the value
+  // actually changing, keyed into a single `lastRendered` cache object (see
+  // the main-loop section below) — the DOM only gets touched when something
+  // a player would actually see has changed, at any call rate.
+  function setText(node, cache, key, value) {
+    value = String(value);
+    if (cache[key] === value) return false;
+    cache[key] = value;
+    node.textContent = value;
+    return true;
+  }
+  function setClass(node, cache, key, value) {
+    if (cache[key] === value) return false;
+    cache[key] = value;
+    node.className = value;
+    return true;
+  }
+  function setStyleProp(node, cache, key, prop, value) {
+    if (cache[key] === value) return false;
+    cache[key] = value;
+    node.style[prop] = value;
+    return true;
+  }
+  // Fills in every documented CONTRACT field a caller's partial state didn't
+  // set — found necessary by testing, not by inspection: window.PaintbotHUD
+  // .update()'s Object.assign is a SHALLOW merge, so a caller passing e.g.
+  // `combat: {kills, deaths}` (the natural, minimal thing to write) silently
+  // REPLACES the whole combat object and drops `buffs`, which render() then
+  // reads unguarded and throws. buildState()'s own output is already
+  // complete, so this is a no-op on the auto-scan path and a safety net on
+  // the push-API path — one normalization site instead of an `|| []` at
+  // every call site in render().
+  function normalizeState(s) {
+    s = s || {};
+    return {
+      wireOk: !!s.wireOk, seated: !!s.seated, dead: !!s.dead, selfTeam: s.selfTeam || null,
+      fire: Object.assign({ ready: null }, s.fire),
+      health: Object.assign({ hp: null, maxHp: null, shield: null, lives: null }, s.health),
+      combat: Object.assign({ kills: null, deaths: null, score: null, xp: null, level: null, rank: null, buffs: [] }, s.combat),
+      respawn: Object.assign({ ticksRemaining: null }, s.respawn),
+      map: Object.assign({ w: 0, h: 0, viewport: null }, s.map),
+      zone: s.zone || null,
+      cogs: s.cogs || [],
+      variant: s.variant || 'unknown',
+      teamScores: s.teamScores || [],
+      teamsAlive: s.teamsAlive != null ? s.teamsAlive : null,
+      playerRows: s.playerRows || [],
+      roster: Object.assign({ resolved: false, url: roster.url }, s.roster),
+    };
+  }
+
+  // ---------------------------------------------------------------------
+  // Wire access — the ONE coupling, guarded every time it's used.
+  // ---------------------------------------------------------------------
+  function wireObjects() {
+    try { return (typeof objects !== 'undefined' && objects instanceof Map) ? objects : null; }
+    catch (e) { return null; }
+  }
+  function wireSprites() {
+    try { return (typeof sprites !== 'undefined' && sprites instanceof Map) ? sprites : null; }
+    catch (e) { return null; }
+  }
+
+  // ---------------------------------------------------------------------
+  // Label parsers — each cites the exact wire format it decodes.
+  // ---------------------------------------------------------------------
+  // "lives <hp>hp x<lives>" — own top-right HUD text (labels.nim LabelPrefixLives)
+  function parseLivesLabel(label) {
+    const m = /^lives (\d+)hp x(\d+)$/.exec(label);
+    return m ? { hp: +m[1], lives: +m[2] } : null;
+  }
+  // "hp <lit>/<total>[ shield <n>]" — overhead bar, attach by proximity (LabelPrefixHp)
+  function parseHpLabel(label) {
+    const rest = label.slice(3);
+    const bits = rest.split(' shield ');
+    const hpTot = bits[0].split('/');
+    const lit = +hpTot[0], total = +hpTot[1];
+    if (!isFinite(lit) || !isFinite(total)) return null;
+    return { lit, total, shield: bits[1] !== undefined ? +bits[1] : 0 };
+  }
+  // "team score <NAME> <kills>/<deaths>" — always sent on the player stream (addTeamScoreboard)
+  function parseTeamScoreLabel(label) {
+    const rest = label.slice(11); // 'team score '.length
+    const m = /^(\S+) (\d+)\/(\d+)$/.exec(rest);
+    return m ? { team: m[1], kills: +m[2], deaths: +m[3] } : null;
+  }
+  // "kd <kills>/<deaths>" — OWN persistent kill/death readout, human wire only
+  // (labels.nim LabelPrefixKd, landed 50a13efc). Absent on older engines; the
+  // caller keeps null (renders "—") rather than inventing a zero.
+  function parseKdLabel(label) {
+    const m = /^kd (\d+)\/(\d+)$/.exec(label);
+    return m ? { kills: +m[1], deaths: +m[2] } : null;
+  }
+  // "roster <team> <name> <lives> <kills>/<deaths>" — one marker per roster
+  // seat on the live player stream (labels.nim LabelPrefixRoster, 8ad1c420).
+  // Every field is a single fixed token by contract (the emitting commit
+  // rebuilt the shape around that after test_identity_privacy.nim caught a
+  // connection address in the first draft) — so no greedy matching here.
+  function parseRosterLabel(label) {
+    const m = /^roster (\S+) (\S+) (\d+) (\d+)\/(\d+)$/.exec(label);
+    return m ? { team: m[1], name: m[2], lives: +m[3], kills: +m[4], deaths: +m[5] } : null;
+  }
+  // NAME column for a "roster " row. The marker's <name> is the anonymous
+  // PER-TEAM slot letter — global.nim emits
+  // IdentityNames[sim.slotIdentityIndex(joinOrder)], the seat's rank WITHIN
+  // ITS TEAM — by design: labels.nim LabelPrefixRoster withholds the
+  // connection address on purpose and tests/test_identity_privacy.nim fails
+  // any player-frame label that carries one. So in 16-solo BR every team has
+  // exactly one seat, every seat is slot 0, and the column read "alpha"
+  // sixteen times (seen live on prod), the human included. The wire carries
+  // NO per-seat display name to this panel; resolve without inventing one:
+  //   1. self: the ?name= this page itself forwarded onto the socket
+  //      (myIdentity) — the one seat whose real name the client holds.
+  //   2. the HTTP roster (/api/field, the Node proxy's endpoint, shape
+  //      unconfirmed) when it names exactly one seat on this row's team AND
+  //      the wire shows exactly one seat on it (solo BR): an unambiguous
+  //      join by team. Duos stay anonymous (no rank-order assumption).
+  //   3. otherwise the seat's own public identity on THIS wire — the team
+  //      word alone for a one-seat team (that word IS what the seat's
+  //      `self`/`player` labels call it), "<team> <letter>" when the team
+  //      has several seats. Never a bare letter again.
+  // Returns {name, human}: `human` is the HTTP roster's person flag when the
+  // join in (2) landed, else null (renders the honest "—").
+  function seatDisplayName(row, isSelf, rows) {
+    if (isSelf && myIdentity.name) return { name: myIdentity.name, human: true };
+    let teamSeats = 0;
+    for (let i = 0; i < rows.length; i++) if (rows[i].team === row.team) teamSeats++;
+    if (teamSeats === 1 && roster.resolved) {
+      let hit = null, hits = 0;
+      const want = String(row.team).toLowerCase();
+      roster.byName.forEach(function (e) {
+        if (e.team && e.name && String(e.team).toLowerCase() === want) { hit = e; hits++; }
+      });
+      if (hits === 1) return { name: hit.name, human: hit.person };
+    }
+    return { name: teamSeats === 1 ? row.team : row.team + ' ' + row.name, human: null };
+  }
+  // Per-player scoreboard row (addScoreboard), BOTH deployed shapes:
+  //   NEW (50a13efc):  "score <name> <lives> <kills>/<deaths> color <n>"
+  //   OLD (deployed):  "score <name> <lives> color <n>"
+  // New shape is tried first; a new-shape row can never satisfy the old regex
+  // (the "/" blocks `(\d+) color`), and an old-shape row lacks the k/d token,
+  // so the two are mutually exclusive — no misparse window during the engine
+  // swap. kills/deaths come back null on the old shape (renders "—"), never 0.
+  // Name may itself contain spaces; greedy backtracking on `.+` correctly finds
+  // the trailing tokens regardless (mirrors how the label is built).
+  function parseScoreLabel(label) {
+    let m = /^score (.+) (\d+) (\d+)\/(\d+) color (\d+)$/.exec(label);
+    if (m) return { name: m[1], lives: +m[2], kills: +m[3], deaths: +m[4] };
+    m = /^score (.+) (\d+) color (\d+)$/.exec(label);
+    return m ? { name: m[1], lives: +m[2], kills: null, deaths: null } : null;
+  }
+  // "identity <color> <greekletter>[ shield][ nade] <weapon>" (labels.nim labelIdentity)
+  // <name> here is a per-slot GREEK LETTER (alpha..theta), not the player's display
+  // name — see GREEK_TO_SLOT below for how this becomes a roster join key.
+  function parseIdentityLabel(label) {
+    const toks = label.slice(9).split(' '); // 'identity '.length
+    if (toks.length < 3) return null;
+    return { color: toks[0], greek: toks[1], weapon: toks[toks.length - 1] };
+  }
+  const GREEK_TO_SLOT = { alpha: 0, beta: 1, gamma: 2, delta: 3, epsilon: 4, zeta: 5, eta: 6, theta: 7 };
+  // "zone <x0>,<y0> <x1>,<y1>" / "zonenext <x0>,<y0> <x1>,<y1>" — BR shrink-zone
+  // current/target rects, inclusive map pixels, WORLD KNOWLEDGE (never fog-gated),
+  // labels.nim LabelPrefixZone/LabelPrefixZoneNext, emitted whenever the rect moves.
+  // No tick-countdown value ships alongside these — only the two rects — so this
+  // module derives a qualitative "shrinking vs holding" state, never a fabricated
+  // numeric countdown (see the zone status text in render()).
+  function parseZoneLabel(rest) {
+    const m = /^(-?\d+),(-?\d+) (-?\d+),(-?\d+)$/.exec(rest);
+    return m ? { x0: +m[1], y0: +m[2], x1: +m[3], y1: +m[4] } : null;
+  }
+
+  // ---------------------------------------------------------------------
+  // Team color tokens — the 4 CTF words mirror player_client.html's
+  // TEAM_TINT (own copy so this module has zero coupling to that file
+  // beyond the wire Maps). The 12 BR-only words come from the engine's own
+  // team palette (sim_types.nim teamColor indices into the client's 16-
+  // color palette), lifted toward readable luminance where the raw palette
+  // entry would vanish as text on the dark panel (black/umber/navy/plum) —
+  // a display map keyed by the wire's team WORD, never an identity claim.
+  // ---------------------------------------------------------------------
+  const TEAM_COLOR = {
+    red: '#e0523a', blue: '#3f7cc4', green: '#45a85e', yellow: '#ddc531',
+    black: '#8d8d8d', silver: '#c2c3c7', ivory: '#fff1e8', pink: '#ff77a8',
+    umber: '#8a6f5a', rust: '#ab5236', orange: '#ffa300', plum: '#a34a78',
+    lime: '#00e436', navy: '#5a6fb4', azure: '#29adff', peach: '#ffccaa',
+  };
+  function teamColor(word) { return (word && TEAM_COLOR[word]) || '#b7b0a3'; }
+
+  const GLORY_RANKS = ['PRIMER', 'DABBLER', 'SPLATTER', 'DRENCHER', 'ARTIST', 'MAESTRO'];
+
+  // ---------------------------------------------------------------------
+  // Roster join (/api/field) — contract field C. Shape UNCONFIRMED against a
+  // live response; parsed defensively, several plausible shapes accepted.
+  // Configurable so integration never requires editing this file:
+  //   window.PaintbotHUDConfig = { rosterUrl: '...' }
+  // ---------------------------------------------------------------------
+  const roster = {
+    url: (window.PaintbotHUDConfig && window.PaintbotHUDConfig.rosterUrl) || '/api/field',
+    resolved: false,
+    byName: new Map(),
+    bySlot: new Map(),
+    // -ROSTER_POLL_MS (not 0): a plain 0 sentinel meant the very first guard
+    // check ("now - lastFetchAt < ROSTER_POLL_MS") compared a small
+    // just-loaded `now` against 0 and came back true, SKIPPING the first
+    // fetch for a full poll interval — every fresh seat sat at "unknown"
+    // bot/human for 5s before ever asking, not just on a slow roster. Found
+    // by testing, not inspection: the join looked correct reading the code,
+    // wrong the moment a real clock ran it.
+    lastFetchAt: -Infinity,
+    failed: false,
+  };
+  const ROSTER_POLL_MS = 5000;
+  function pollRoster(now) {
+    if (now - roster.lastFetchAt < ROSTER_POLL_MS) return;
+    roster.lastFetchAt = now;
+    fetch(roster.url, { credentials: 'same-origin' })
+      .then(function (r) { return r.ok ? r.json() : Promise.reject(r.status); })
+      .then(function (data) {
+        const rows = Array.isArray(data) ? data
+          : (data.slots || data.players || data.roster || []);
+        const byName = new Map(), bySlot = new Map();
+        for (let i = 0; i < rows.length; i++) {
+          const row = rows[i];
+          if (!row) continue;
+          const name = row.name || row.player_name || row.playerName || null;
+          const slot = (row.slot != null) ? row.slot : (row.seat != null ? row.seat : null);
+          const person = (typeof row.person === 'boolean') ? row.person
+            : (typeof row.human === 'boolean') ? row.human : null;
+          const entry = { name: name, slot: slot, team: row.team || null, person: person };
+          if (name != null) byName.set(String(name).toLowerCase(), entry);
+          if (slot != null) bySlot.set(slot, entry);
+        }
+        roster.byName = byName; roster.bySlot = bySlot;
+        roster.resolved = rows.length > 0;
+        roster.failed = false;
+      })
+      .catch(function () { roster.failed = true; /* stays honestly unresolved */ });
+  }
+
+  // My own identity: read straight off the page URL, independent of the
+  // host script's connection-building logic (?slot=&name= are the params
+  // player_client.html itself forwards onto the socket address).
+  const myIdentity = (function () {
+    try {
+      const u = new URL(location.href);
+      const slotStr = u.searchParams.get('slot');
+      return {
+        slot: slotStr !== null ? +slotStr : null,
+        name: u.searchParams.get('name'),
+      };
+    } catch (e) { return { slot: null, name: null }; }
+  })();
+
+  // ---------------------------------------------------------------------
+  // Wire scan: one pass over objects/sprites -> a raw parsed snapshot.
+  // ---------------------------------------------------------------------
+  function scanWire() {
+    const objs = wireObjects(), sprs = wireSprites();
+    const raw = {
+      wireOk: !!(objs && sprs),
+      self: null, selfTeam: null,
+      fireReady: null,
+      livesLabel: null,
+      hpMarkers: [],       // {x,y,lit,total,shield}
+      identityMarkers: [], // {x,y,color,greek,weapon}
+      cogs: [],            // {x,y,color,side,alive,self}
+      teamScoreRows: [],
+      scoreRows: [],
+      rosterRows: [], // "roster " markers — the live player stream's full roster (8ad1c420)
+      zone: null, zoneNext: null,
+      // Own kills/deaths off the "kd " label (the TODO this slot was reserved
+      // for — landed 50a13efc). Stays null when the label never arrives
+      // (pre-50a13efc engine), which renders as "—", never a fabricated 0.
+      kdSelf: null,
+    };
+    if (!objs || !sprs) return raw;
+    objs.forEach(function (o) {
+      const sp = sprs.get(o.spriteId);
+      if (!sp) return;
+      const label = sp.label;
+      if (!label) return;
+      if (label === 'fire icon') { raw.fireReady = true; return; }
+      if (label === 'fire icon cooldown') { raw.fireReady = false; return; }
+      if (label.indexOf('self ') === 0) {
+        const parts = label.split(' ');
+        const cx = o.x + sp.width / 2, cy = o.y + sp.height / 2;
+        raw.self = { x: cx, y: cy };
+        raw.selfTeam = parts[1] || null;
+        raw.cogs.push({ x: cx, y: cy, color: parts[1] || null, side: parts[2] || null, alive: true, self: true });
+        return;
+      }
+      if (label.indexOf('player ') === 0) {
+        const parts = label.split(' ');
+        raw.cogs.push({
+          x: o.x + sp.width / 2, y: o.y + sp.height / 2,
+          color: parts[1] || null, side: parts[2] || null, alive: true, self: false,
+        });
+        return;
+      }
+      if (label.indexOf('corpse ') === 0) {
+        const parts = label.split(' ');
+        raw.cogs.push({
+          x: o.x + sp.width / 2, y: o.y + sp.height / 2,
+          color: parts[1] || null, side: parts[2] || null, alive: false, self: false,
+        });
+        return;
+      }
+      if (label.indexOf('lives ') === 0) { raw.livesLabel = parseLivesLabel(label); return; }
+      if (label.indexOf('kd ') === 0) { raw.kdSelf = parseKdLabel(label); return; }
+      if (label.indexOf('hp ') === 0) {
+        const hp = parseHpLabel(label);
+        if (hp) raw.hpMarkers.push({ x: o.x, y: o.y, lit: hp.lit, total: hp.total, shield: hp.shield });
+        return;
+      }
+      if (label.indexOf('identity ') === 0) {
+        const idn = parseIdentityLabel(label);
+        if (idn) raw.identityMarkers.push({ x: o.x, y: o.y, color: idn.color, greek: idn.greek, weapon: idn.weapon });
+        return;
+      }
+      if (label.indexOf('team score ') === 0) {
+        const ts = parseTeamScoreLabel(label);
+        if (ts) raw.teamScoreRows.push(ts);
+        return;
+      }
+      if (label.indexOf('roster ') === 0) {
+        const rr = parseRosterLabel(label);
+        if (rr) raw.rosterRows.push(rr);
+        return;
+      }
+      if (label.indexOf('score ') === 0) {
+        const sc = parseScoreLabel(label);
+        if (sc) raw.scoreRows.push(sc); // {name, lives, kills, deaths} — k/d null on old-shape rows
+        return;
+      }
+      if (label.indexOf('zone ') === 0) { raw.zone = parseZoneLabel(label.slice(5)); return; }
+      if (label.indexOf('zonenext ') === 0) { raw.zoneNext = parseZoneLabel(label.slice(9)); return; }
+    });
+    return raw;
+  }
+
+  function nearest(list, x, y, maxDist) {
+    let best = null, bestD = maxDist * maxDist;
+    for (let i = 0; i < list.length; i++) {
+      const it = list[i], dx = it.x - x, dy = it.y - y, d = dx * dx + dy * dy;
+      if (d <= bestD) { bestD = d; best = it; }
+    }
+    return best;
+  }
+
+  // ---------------------------------------------------------------------
+  // Camera readback: the *rendered* CSS transform of the host canvas, not
+  // any host JS variable — robust to the host's camera implementation.
+  // ---------------------------------------------------------------------
+  function readCamera(canvasEl) {
+    try {
+      const t = getComputedStyle(canvasEl).transform;
+      if (!t || t === 'none') return { tx: 0, ty: 0, scale: 1 };
+      const m = new DOMMatrixReadOnly(t);
+      return { tx: m.m41, ty: m.m42, scale: m.m11 || 1 };
+    } catch (e) { return { tx: 0, ty: 0, scale: 1 }; }
+  }
+
+  // ---------------------------------------------------------------------
+  // Build the full documented contract object from a raw wire scan.
+  // ---------------------------------------------------------------------
+  function buildState(raw, canvasEl) {
+    const seated = !!raw.self;
+    // Health: prefer the proximity-matched overhead "hp " marker (carries the
+    // hp/shield split); fall back to the combined self "lives " number.
+    let health = { hp: null, maxHp: null, shield: null, lives: null, source: null };
+    if (seated) {
+      const hpM = nearest(raw.hpMarkers, raw.self.x, raw.self.y, 40);
+      if (hpM) {
+        health.hp = hpM.lit; health.maxHp = hpM.total; health.shield = hpM.shield;
+        health.source = 'hp-label';
+      }
+      if (raw.livesLabel) {
+        health.lives = raw.livesLabel.lives;
+        if (health.hp === null) { health.hp = raw.livesLabel.hp; health.source = 'lives-label'; }
+      }
+    }
+
+    // Map + viewport box, from the canvas's own pixel buffer + rendered transform.
+    let map = { w: 0, h: 0, viewport: null };
+    if (canvasEl && canvasEl.width > 1 && canvasEl.height > 1) {
+      map.w = canvasEl.width; map.h = canvasEl.height;
+      const cam = readCamera(canvasEl);
+      const vx0 = clamp((0 - cam.tx) / cam.scale, 0, map.w);
+      const vy0 = clamp((0 - cam.ty) / cam.scale, 0, map.h);
+      const vx1 = clamp((innerWidth - cam.tx) / cam.scale, 0, map.w);
+      const vy1 = clamp((innerHeight - cam.ty) / cam.scale, 0, map.h);
+      map.viewport = { x: vx0, y: vy0, w: Math.max(0, vx1 - vx0), h: Math.max(0, vy1 - vy0) };
+    }
+
+    // Bot vs human per cog dot: greek-letter identity marker (by proximity) ->
+    // slot index -> roster. Best-effort; null (unknown) whenever any hop misses.
+    const cogs = raw.cogs.map(function (c) {
+      let human = null;
+      if (!c.self && roster.resolved) {
+        const idn = nearest(raw.identityMarkers, c.x, c.y, 30);
+        if (idn && idn.greek in GREEK_TO_SLOT) {
+          const slot = GREEK_TO_SLOT[idn.greek];
+          const entry = roster.bySlot.get(slot);
+          if (entry && typeof entry.person === 'boolean') human = entry.person;
+        }
+      }
+      return { x: c.x, y: c.y, color: c.color, side: c.side, alive: c.alive, self: c.self, human: human };
+    });
+
+    // Variant: teamScoreRows is unconditional on the player stream regardless
+    // of team count, so its length IS the live team count.
+    const teamCount = raw.teamScoreRows.length;
+    const variant = teamCount === 0 ? 'unknown' : (teamCount <= 4 ? 'ctf' : 'br');
+
+    // Player rows, best wire source first:
+    //   1. "roster " markers (8ad1c420) — the live player stream's own full
+    //      roster: team/lives/kills/deaths per seat, anonymous slot names.
+    //   2. "score " rows (50a13efc, global-backed hosts) — display names;
+    //      kills/deaths null when the row is the old deployed shape.
+    //   3. the HTTP roster (names only) — BR's last-resort fallback against
+    //      a pre-50a13efc engine.
+    let playerRows = [];
+    if (raw.rosterRows.length) {
+      // SELF on anonymous rows: unambiguous when my team has exactly one
+      // seat; otherwise the identity badge nearest my own cog names my slot
+      // identity; otherwise no row is marked (honest, never a guess).
+      let selfName = null;
+      if (seated && raw.selfTeam) {
+        const mine = raw.rosterRows.filter(function (r) { return r.team === raw.selfTeam; });
+        if (mine.length === 1) selfName = mine[0].name;
+        else {
+          const idn = nearest(raw.identityMarkers, raw.self.x, raw.self.y, 40);
+          if (idn) selfName = idn.greek;
+        }
+      }
+      playerRows = raw.rosterRows.map(function (row) {
+        const isSelf = row.team === raw.selfTeam && row.name === selfName;
+        // NAME: never the bare slot letter — see seatDisplayName (the
+        // 16-solo "alpha" x16 wall). `human` is null unless that resolver
+        // actually joined the row to a named seat — honest "—" otherwise.
+        const seat = seatDisplayName(row, isSelf, raw.rosterRows);
+        return {
+          name: seat.name, team: row.team, lives: row.lives,
+          kills: row.kills, deaths: row.deaths,
+          human: seat.human,
+          self: isSelf,
+        };
+      });
+    } else if (raw.scoreRows.length) {
+      playerRows = raw.scoreRows.map(function (row) {
+        const rEntry = roster.resolved ? roster.byName.get(row.name.toLowerCase()) : null;
+        return {
+          name: row.name, team: rEntry ? rEntry.team : null, lives: row.lives,
+          kills: row.kills, deaths: row.deaths,
+          human: rEntry ? rEntry.person : null, self: isSelfRow(row.name, rEntry),
+        };
+      });
+    } else if (variant === 'br' && roster.resolved) {
+      roster.byName.forEach(function (rEntry) {
+        playerRows.push({
+          name: rEntry.name, team: rEntry.team, lives: null,
+          kills: null, deaths: null, // nothing per-player on this wire — honest "—"
+          human: rEntry.person, self: isSelfRow(rEntry.name, rEntry),
+        });
+      });
+    }
+
+    // BR zone (shrink ring): world knowledge, never fog-gated, present only
+    // when the match is config-gated into zonePhases (labels.nim
+    // LabelPrefixZone/LabelPrefixZoneNext). No tick-countdown ships with it —
+    // only the two rects — so `shrinking` is a derived qualitative read
+    // (current != next), never a fabricated number of seconds.
+    let zone = null;
+    if (raw.zone) {
+      const eq = raw.zoneNext && raw.zone.x0 === raw.zoneNext.x0 && raw.zone.y0 === raw.zoneNext.y0 &&
+        raw.zone.x1 === raw.zoneNext.x1 && raw.zone.y1 === raw.zoneNext.y1;
+      zone = { current: raw.zone, next: raw.zoneNext, shrinking: raw.zoneNext ? !eq : false };
+    }
+
+    return {
+      wireOk: raw.wireOk,
+      seated: seated,
+      dead: false, // filled in by caller, which tracks the seated->unseated edge over time
+      selfTeam: raw.selfTeam,
+      fire: { ready: raw.fireReady },
+      health: health,
+      combat: {
+        // Own K/D straight off the "kd " label (real attribution, 50a13efc);
+        // null — rendering "—" — whenever the label isn't on the wire.
+        kills: raw.kdSelf ? raw.kdSelf.kills : null,
+        deaths: raw.kdSelf ? raw.kdSelf.deaths : null,
+        score: null, xp: null, level: null, rank: null, buffs: [],
+      },
+      // CTF-only; reserved. HUD_SPEC.md: the respawn ticks-remaining value
+      // exists server-side (Player has the state) but is never sent on the
+      // wire today. The render surface for this is fix-client3's center-
+      // screen "you're down" transient, not this module — reserved here so
+      // the shape is specified once if/when it needs threading through.
+      respawn: { ticksRemaining: null },
+      map: map,
+      zone: zone,
+      cogs: cogs,
+      variant: variant,
+      teamScores: raw.teamScoreRows,
+      teamsAlive: null, // reserved — teamLivesRemaining() (sim.nim:3198) routed for player-stream emission
+      playerRows: playerRows,
+      roster: { resolved: roster.resolved, url: roster.url },
+    };
+  }
+
+  function isSelfRow(name, rEntry) {
+    if (myIdentity.slot != null && rEntry && rEntry.slot != null) return myIdentity.slot === rEntry.slot;
+    if (myIdentity.name && name) return myIdentity.name.toLowerCase() === String(name).toLowerCase();
+    return false;
+  }
+
+  // ---------------------------------------------------------------------
+  // DOM + styling. Tokens pulled from docs/designs/season2-cheatsheet.html
+  // (the established in-house in-game look — this surface is Case A, not
+  // Observatory's cream/serif system, per HUD_SPEC.md §0): --panel
+  // rgba(13,10,6,.55), --line (amber-tinted hairline) rgba(232,163,61,.28),
+  // --paper #f2e8d8 text, --paper-dim #b8ac98 / --ghost #8a7f72 secondary,
+  // --amber #e8a33d reserved for the one emphasis job per zone (never every
+  // label — principles.md "reserve the primary accent"). Word chrome
+  // (eyebrows/headers/toggle) uses the cheat sheet's condensed-sans stack;
+  // numerals and table data stay in the existing in-game monospace face
+  // (player_client.html's own #hud/#feed use it) for legible tabular digits
+  // and player names — a deliberate word-face/number-face split, not a
+  // half-applied font swap. No left-border accent stripes anywhere (the
+  // hard floor this spec calls out by name against player_client.html's own
+  // .wchip) — hairlines run all the way around or not at all.
+  // ---------------------------------------------------------------------
+  // ---------------------------------------------------------------------
+  // HUD scale (Maxwell, live 8/30: "no numbers on the scorecard thing in
+  // the top left (barely readable at that size... maybe give the option
+  // to adjust gui size? in settings if possible)"). Checked first: this
+  // client has NO settings surface anywhere -- no #settings, no options
+  // panel, nothing beyond player_client.html's own bare mute button and
+  // this module's click-to-cycle "standings · tab" toggle. Smallest honest
+  // thing, not a settings system built on spec: one more click-to-cycle
+  // control living right next to that toggle, persisted the same way this
+  // codebase's one real persisted preference already is (cameraStorageKey
+  // in player_client.html -- localStorage, wrapped in try/catch, one key
+  // per preference). Mute itself does NOT persist across reload (checked:
+  // `muted` is a bare in-memory flag) so it is not the idiom to copy for
+  // persistence, only for the button's own "label: value" text shape.
+  //
+  // The root readability bug this also fixes: .phud-num/.phud-eyebrow were
+  // fixed CSS px (15px/10px) with zero relationship to viewport size or
+  // display size -- as the window (or a maximised Retina panel) gets
+  // bigger the arena fills more of the eye while this chrome stays exactly
+  // the same absolute size, so it reads smaller in practice even though
+  // DPR-correct crisp rendering was never the problem. --phud-scale is a
+  // single multiplier threaded through every size-bearing rule below
+  // (never the screen-edge INSETS -- left/top/right/bottom of each panel
+  // stay fixed so the corner anchor never drifts, only the chrome pinned
+  // to it grows) and through the minimap's own JS pixel budget below. The
+  // 'M' step is also the new always-on DEFAULT (index 1, no click
+  // required) -- a good default beats a good control; this makes the
+  // control matter only for players who want MORE or less than that.
+  // ---------------------------------------------------------------------
+  const HUD_SCALE_KEY = 'ctfHudScale';
+  const HUD_SCALE_STEPS = [
+    { label: 'S', value: 0.85 },
+    { label: 'M', value: 1 },
+    { label: 'L', value: 1.2 },
+    { label: 'XL', value: 1.45 },
+  ];
+  const HUD_SCALE_DEFAULT_INDEX = 1; // 'M'
+  function loadHudScaleIndex() {
+    let stored = null;
+    try { stored = localStorage.getItem(HUD_SCALE_KEY); } catch (e) { /* private mode etc. -- fall through to default */ }
+    const idx = stored === null ? NaN : parseInt(stored, 10);
+    return (idx >= 0 && idx < HUD_SCALE_STEPS.length) ? idx : HUD_SCALE_DEFAULT_INDEX;
+  }
+  let hudScaleIndex = loadHudScaleIndex();
+  function hudScaleValue() { return HUD_SCALE_STEPS[hudScaleIndex].value; }
+  function hudScaleLabel() { return HUD_SCALE_STEPS[hudScaleIndex].label; }
+  function applyHudScale() {
+    const root = document.getElementById('phud-root');
+    if (root) root.style.setProperty('--phud-scale', String(hudScaleValue()));
+  }
+  function cycleHudScale(nodes) {
+    hudScaleIndex = (hudScaleIndex + 1) % HUD_SCALE_STEPS.length;
+    try { localStorage.setItem(HUD_SCALE_KEY, String(hudScaleIndex)); } catch (e) { /* stays session-only, never fatal */ }
+    applyHudScale();
+    if (nodes && nodes.scaleToggle) nodes.scaleToggle.textContent = 'hud size: ' + hudScaleLabel().toLowerCase();
+  }
+  // Every scaled length in the CSS template below is built through this
+  // instead of a bare `Npx`, so one custom-property write (initial mount,
+  // or a click on the toggle) moves every dependent rule in lockstep.
+  function S(px) { return 'calc(' + px + 'px * var(--phud-scale,1))'; }
+
+  const F_WORD = "'rajdhani','Avenir Next Condensed','Arial Narrow',sans-serif";
+  const F_NUM = 'ui-monospace,SFMono-Regular,Menlo,monospace';
+  const CSS = '\n'
+    + '#phud-root{position:fixed;inset:0;pointer-events:none;z-index:35;'
+    // A second, independent layer of insurance against bright-paint bleed
+    // (on top of the .82 panel backing above): the same dark drop-shadow
+    // technique player_client.html's own kill feed already uses over the
+    // world canvas ("#feed .fev{text-shadow:0 1px 2px #000,0 0 5px #000a}")
+    // — proven in this exact codebase for legible text over an unpredictable
+    // bright/busy background.
+    + 'font-family:' + F_NUM + ';color:#f2e8d8;text-shadow:0 1px 2px #000,0 0 4px #000c;}\n'
+    // Panel opacity deviates from the cheat sheet's own --panel token (.55):
+    // that value was tuned for a static instructional page over a controlled
+    // dark stage background. This chrome sits over a LIVE painted arena —
+    // the floor is high-chroma team paint, including bright orange/yellow —
+    // and amber-on-.55-translucent-dark risks disappearing over a fresh
+    // light splat (coordinator's flagged concern). .82 keeps the hairline/
+    // token language but gives real backing contrast regardless of what's
+    // painted underneath; verified by screenshot over painted ground, not
+    // assumed.
+    + '.phud-panel{background:rgba(10,8,5,.82);border:1px solid rgba(232,163,61,.28);padding:' + S(7) + ' ' + S(10) + ';}\n'
+    + '.phud-eyebrow{font-family:' + F_WORD + ';font-size:' + S(11) + ';font-weight:700;letter-spacing:.12em;'
+    + 'text-transform:uppercase;color:#b8ac98;white-space:nowrap;}\n'
+    // 15px -> 19px base (Maxwell, live 8/30: "barely readable at that
+    // size"): this is the number the player scans mid-fight, so it carries
+    // the whole readability fix -- the eyebrow above it stays a label, this
+    // is the thing that has to read at a glance. Scaled like everything
+    // else, but its base is the actual fix, not the control.
+    + '.phud-num{font-family:' + F_NUM + ';font-size:' + S(19) + ';font-weight:700;letter-spacing:.2px;font-variant-numeric:tabular-nums;}\n'
+    + '.phud-sub{font-size:' + S(11) + ';color:#b8ac98;letter-spacing:.2px;}\n'
+    + '#phud-rail{position:fixed;left:10px;top:9px;display:flex;gap:' + S(16) + ';}\n'
+    + '#phud-rail .phud-stat{display:flex;flex-direction:column;gap:1px;min-width:' + S(44) + ';}\n'
+    + '#phud-rail .phud-num.tick{animation:phud-tick .42s ease-out;}\n'
+    + '@keyframes phud-tick{0%{transform:scale(1);color:#f2e8d8;}30%{transform:scale(1.28);color:#e8a33d;}100%{transform:scale(1);color:#f2e8d8;}}\n'
+    + '#phud-cond{position:fixed;left:10px;bottom:8px;display:flex;gap:' + S(13) + ';align-items:baseline;}\n'
+    + '#phud-cond .phud-stat{display:flex;flex-direction:column;gap:1px;}\n'
+    + '#phud-cond .phud-hp-low{color:#ff6a52;}\n'
+    // Weapon-ready pip — REDESIGNED off a live field report (Maxwell, playing
+    // BR): "there is a yellow dot near my cursor, but not on it... i already
+    // have a crosshair ON my cursor. and this yellow dot is big enough to
+    // cover any cog on my screen so definitely not for aiming." The prior
+    // build cursor-anchored this at 11px + a 5px glow (bigger under the
+    // .pop feedback), offset from the cursor by a fixed margin — exactly
+    // the shape of that complaint: close enough to the crosshair to read as
+    // a SECOND aim marker, big enough to occlude a cog, and it never sat
+    // where the eye already was (the actual crosshair, drawn by fix-client3
+    // AT the cursor pixel). Fix ships as the design review calls for: this
+    // is a STATUS, not a position, so it moves OFF the cursor entirely and
+    // anchors to a fixed HUD position inside the condition panel (bottom-
+    // left, alongside hp/lives) — nowhere near the reticle, impossible to
+    // mistake for an aim aid — and shrinks to a 7px pip so it can never
+    // occlude a cog even transiently. Filled amber = ready / hollow ring =
+    // cooling (unchanged semantics; the wire is a boolean ready/not-ready,
+    // global.nim:8787 — no numeric remaining-time exists, so still no
+    // progress idiom), plus the short word (READY/COOLING) next to it so
+    // the state reads with zero ambiguity even before the color registers.
+    + '#phud-cooldown{display:inline-block;width:' + S(8) + ';height:' + S(8) + ';margin-right:' + S(6) + ';'
+    + 'vertical-align:middle;border-radius:50%;transition:opacity .12s;}\n'
+    + '#phud-cooldown.ready{background:#e8a33d;box-shadow:0 0 3px #e8a33d90;}\n'
+    + '#phud-cooldown.cooling{background:transparent;border:1.5px solid #8a7f72;}\n'
+    + '#phud-cooldown.pop{animation:phud-pop .22s ease-out;}\n'
+    + '@keyframes phud-pop{0%{transform:scale(1.6);}100%{transform:scale(1);}}\n'
+    // left:50% is a fallback only -- positionTopBar() (see render section
+    // below) overwrites this element's `left` inline every frame it's
+    // shown, biased right of dead-center by just enough to clear
+    // #phud-rail's actual measured width so the two panels can never
+    // overlap at any window size or --phud-scale value (the collision a
+    // prior HUD lane flagged and explicitly left alone at small sizes).
+    + '#phud-top{position:fixed;left:50%;top:9px;transform:translateX(-50%);display:flex;gap:' + S(16) + ';align-items:baseline;white-space:nowrap;}\n'
+    + '#phud-top .t{font-family:' + F_NUM + ';font-size:' + S(16) + ';font-weight:700;letter-spacing:.05em;}\n'
+    + '#phud-top .phud-eyebrow{align-self:center;}\n'
+    // Per-team-color alive chips — Maxwell: "i can't see what colors are
+    // still alive in the header." The BR top bar carried teams-alive/zone
+    // as TEXT only; this adds the at-a-glance row the report asked for.
+    // Filled square = that team's color, still in it; hollow/greyed square
+    // = eliminated — the SAME filled-vs-hollow vocabulary the minimap dots
+    // already use for bot-vs-unknown, reused here for alive-vs-wiped rather
+    // than invented fresh (see renderTopBar/teamAliveChips for the wire
+    // read this is driven by).
+    + '#phud-top .phud-chips{display:inline-flex;gap:3px;align-items:center;align-self:center;}\n'
+    + '#phud-top .phud-chip{width:' + S(10) + ';height:' + S(10) + ';border-radius:2px;flex:none;box-shadow:inset 0 0 0 1px rgba(0,0,0,.55);}\n'
+    + '#phud-top .phud-chip.wiped{background:transparent;opacity:.5;box-shadow:inset 0 0 0 1px rgba(184,172,152,.6);}\n'
+    + '#phud-mini-wrap{position:fixed;right:10px;bottom:10px;display:flex;flex-direction:column;align-items:flex-end;gap:5px;}\n'
+    + '#phud-mini-wrap .phud-eyebrow{padding-right:2px;}\n'
+    // Toolbar row: the "standings · tab" toggle plus the new HUD-size
+    // toggle, side by side -- same corner cluster idiom player_client.html
+    // already uses for its own mute/leave pair, not a second control system.
+    + '#phud-toolbar{display:flex;gap:6px;}\n'
+    // The panel chrome (background/border/padding) lives on a dedicated
+    // #phud-mini-frame wrapper, NOT on the canvas itself. Found by testing
+    // over the real client, not by inspection: a <canvas> is a "replaced
+    // element" with its own intrinsic bitmap size (168x90, set via its
+    // width/height attributes, not CSS) — putting .phud-panel's padding/
+    // border directly on that same element produced a flex-column parent
+    // that shrink-wrapped to a SMALLER box than the canvas actually painted
+    // at, so the real rendered panel spilled ~90px past the intended
+    // right:10px/bottom:10px inset and got clipped by the raw viewport edge
+    // instead. Separating "the box" from "the bitmap" into two elements
+    // fixes the measurement at its root instead of fighting flex sizing.
+    + '#phud-mini-frame{display:inline-block;line-height:0;}\n'
+    // THE crop bug (still reproducing after the 90px-spill fix above, at
+    // Maxwell's own real window size): the host page's OWN top-level
+    // `canvas{...}` rule (player_client.html, scoped to the world canvas #c
+    // — position:absolute;left:0;top:0;transform-origin:0 0) is a bare TYPE
+    // selector, so it matches every <canvas> on the page, including this
+    // one — and because #phud-mini here never declared `position`/`left`/
+    // `top` of its own, those three properties cascade in from the host
+    // rule (an ID selector only wins the properties it actually sets; an
+    // unset property still falls through to a lower-specificity rule that
+    // DOES set it). Confirmed live, not guessed: getComputedStyle(#phud-
+    // mini).position read back "absolute" with left/top "0px" in a harness
+    // built from the real player_client.html markup. The nearest POSITIONED
+    // ancestor is #phud-mini-wrap itself (position:fixed above), so the
+    // canvas rendered as a 168x100 box pinned to *that* element's top-left
+    // corner and — being absolutely positioned — stopped contributing to
+    // #phud-mini-frame's inline-block sizing entirely (frame collapsed to
+    // just its own padding/border). Net effect: the visible bitmap floats
+    // detached from its own chrome and, depending on how wide the rest of
+    // the column (the toggle button/label) happens to be, its right/bottom
+    // edge can land past the viewport edge — silent, size-dependent
+    // cropping, exactly what was reported. Fix: reclaim the 3 properties
+    // explicitly so this element can never again inherit host-page canvas
+    // styling by accident, at any window size.
+    + '#phud-mini{display:block;position:static;left:auto;top:auto;image-rendering:pixelated;}\n'
+    + '#phud-toggle,#phud-scale-toggle{pointer-events:auto;cursor:pointer;font-family:' + F_WORD + ';font-size:' + S(10) + ';font-weight:700;letter-spacing:.1em;'
+    + 'text-transform:uppercase;color:#b8ac98;background:rgba(13,10,6,.55);border:1px solid rgba(232,163,61,.28);padding:' + S(3) + ' ' + S(7) + ';user-select:none;white-space:nowrap;}\n'
+    + '#phud-toggle:hover,#phud-scale-toggle:hover{color:#f2e8d8;}\n'
+    + '#phud-toggle.pinned{color:#e8a33d;border-color:rgba(232,163,61,.55);}\n'
+    // top offset scales alongside #phud-top above it (S(64) not a bare
+    // 64px) so a bigger --phud-scale, which makes #phud-top taller too,
+    // can never push this panel's header up under it.
+    + '#phud-score{position:fixed;left:50%;top:' + S(64) + ';transform:translateX(-50%);min-width:340px;max-width:min(78vw,620px);'
+    + 'max-height:min(60vh,520px);overflow:auto;display:none;}\n'
+    + '#phud-score.open{display:block;}\n'
+    + '#phud-score h2{font-family:' + F_WORD + ';font-size:' + S(13) + ';font-weight:700;letter-spacing:.12em;text-transform:uppercase;color:#b8ac98;margin:0 0 6px;}\n'
+    + '#phud-score table{border-collapse:collapse;width:100%;font-size:' + S(13) + ';}\n'
+    + '#phud-score th{text-align:left;font-family:' + F_WORD + ';font-size:' + S(11) + ';font-weight:700;letter-spacing:.08em;text-transform:uppercase;'
+    + 'color:#b8ac98;border-bottom:1px solid rgba(232,163,61,.28);padding:' + S(3) + ' ' + S(8) + ' ' + S(4) + ' 0;}\n'
+    + '#phud-score td{padding:' + S(4) + ' ' + S(9) + ' ' + S(4) + ' 0;border-bottom:1px solid rgba(232,163,61,.14);white-space:nowrap;}\n'
+    + '#phud-score tr.self td{color:#e8a33d;font-weight:700;}\n'
+    + '#phud-score .phud-dim{color:#b8ac98;}\n'
+    + '#phud-score .phud-splat{color:#ff6a52;font-weight:700;letter-spacing:.06em;}\n'
+    + '#phud-score .phud-empty{color:#8a7f72;font-style:italic;padding:8px 0;}\n'
+    ;
+
+  function mount() {
+    const style = el('style'); style.textContent = CSS; document.head.appendChild(style);
+    const root = el('div'); root.id = 'phud-root';
+    root.innerHTML =
+      '<div id="phud-top" class="phud-panel" style="display:none"></div>' +
+      '<div id="phud-rail" class="phud-panel">' +
+      '<div class="phud-stat"><span class="phud-eyebrow">kills</span><span class="phud-num" id="phud-k">—</span></div>' +
+      '<div class="phud-stat"><span class="phud-eyebrow">deaths</span><span class="phud-num" id="phud-d">—</span></div>' +
+      '<div class="phud-stat"><span class="phud-eyebrow">score</span><span class="phud-num" id="phud-sc">—</span></div>' +
+      '<div class="phud-stat"><span class="phud-eyebrow">rank</span><span class="phud-num" id="phud-rk" style="font-size:11px">—</span></div>' +
+      '</div>' +
+      '<div id="phud-cond" class="phud-panel">' +
+      '<div class="phud-stat"><span class="phud-eyebrow">condition</span><span class="phud-num" id="phud-hp">—</span></div>' +
+      '<div class="phud-stat"><span class="phud-eyebrow">lives</span><span class="phud-num" id="phud-lv">—</span></div>' +
+      // Eyebrow text only ("marker" -- Maxwell's ruling 8/30, real
+      // paintball's own word for the gun): CSS uppercases it to MARKER,
+      // same treatment as every other eyebrow here. The DOM ids
+      // (phud-weapon-text etc.) and the wire fields they read stay exactly
+      // as they were -- this is a chrome label, not a protocol rename.
+      '<div class="phud-stat"><span class="phud-eyebrow">marker</span><span class="phud-num"><span id="phud-cooldown"></span><span id="phud-weapon-text">—</span></span></div>' +
+      '<div class="phud-stat" id="phud-buffwrap" style="display:none"><span class="phud-eyebrow">buffs</span><span class="phud-sub" id="phud-buffs"></span></div>' +
+      '</div>' +
+      '<div id="phud-mini-wrap">' +
+      '<div id="phud-toolbar">' +
+      '<div id="phud-toggle">standings · tab</div>' +
+      '<div id="phud-scale-toggle" title="Click to change HUD text size">hud size: ' + hudScaleLabel().toLowerCase() + '</div>' +
+      '</div>' +
+      '<div><span class="phud-eyebrow" id="phud-mini-label" style="display:block;text-align:right;margin-bottom:3px;">map</span>' +
+      '<div id="phud-mini-frame" class="phud-panel"><canvas id="phud-mini"></canvas></div></div>' +
+      '</div>' +
+      '<div id="phud-score" class="phud-panel"><div id="phud-score-body"></div></div>';
+    document.body.appendChild(root);
+    applyHudScale(); // before first paint -- no flash of the unscaled default
+    return {
+      top: root.querySelector('#phud-top'),
+      rail: root.querySelector('#phud-rail'),
+      k: root.querySelector('#phud-k'), d: root.querySelector('#phud-d'),
+      sc: root.querySelector('#phud-sc'), rk: root.querySelector('#phud-rk'),
+      hp: root.querySelector('#phud-hp'), lv: root.querySelector('#phud-lv'),
+      buffWrap: root.querySelector('#phud-buffwrap'), buffs: root.querySelector('#phud-buffs'),
+      cooldown: root.querySelector('#phud-cooldown'), weaponText: root.querySelector('#phud-weapon-text'),
+      mini: root.querySelector('#phud-mini'),
+      miniLabel: root.querySelector('#phud-mini-label'),
+      toggle: root.querySelector('#phud-toggle'),
+      scaleToggle: root.querySelector('#phud-scale-toggle'),
+      score: root.querySelector('#phud-score'),
+      scoreBody: root.querySelector('#phud-score-body'),
+    };
+  }
+
+  // ---------------------------------------------------------------------
+  // Tab-to-show scoreboard + click-toggle fallback. Never steals Tab while
+  // the chat box (host's #i) is focused.
+  // ---------------------------------------------------------------------
+  let scorePinned = false, scoreHeld = false;
+  function chatFocused() {
+    const a = document.activeElement;
+    return !!a && a.tagName === 'INPUT' && a.id === 'i';
+  }
+  addEventListener('keydown', function (e) {
+    if (e.code !== 'Tab' || chatFocused()) return;
+    e.preventDefault();
+    scoreHeld = true;
+  });
+  addEventListener('keyup', function (e) {
+    if (e.code !== 'Tab') return;
+    scoreHeld = false;
+  });
+  addEventListener('blur', function () { scoreHeld = false; });
+
+  // ---------------------------------------------------------------------
+  // Minimap draw: reuses the host's OWN already-decoded pixel buffer (the
+  // #c canvas) via a scaled drawImage — no duplicate pixel stream requested
+  // from the server. (No literal "factor-3 bake" was found to reuse in this
+  // tree as of 7a052635; the closest prior art is broadcast_core.js's own
+  // drawMinimap, on the unmerged maxwell/br-pixelpipe-perf-clean branch.
+  // This draws its own, independently, off the client's live canvas.)
+  // ---------------------------------------------------------------------
+  // Base budget at --phud-scale 1 ('M'); miniMaxW/H below scale these
+  // alongside every other piece of this module's screen-fixed chrome, so
+  // a player who bumps HUD size gets a bigger minimap too, not just
+  // bigger text next to an unchanged map.
+  const MINIMAP_MAX_W = 168, MINIMAP_MAX_H = 100;
+  function miniMaxW() { return MINIMAP_MAX_W * hudScaleValue(); }
+  function miniMaxH() { return MINIMAP_MAX_H * hudScaleValue(); }
+  // Defense in depth alongside the #phud-mini position fix above (the
+  // actual root cause of the reported crop): clamp the on-screen budget to
+  // whatever room the corner ACTUALLY has at the CURRENT viewport size, so
+  // the panel can never claim more than fits between its own 10px inset and
+  // the edge of the screen, independent of the fixed MINIMAP_MAX_W/H budget
+  // above (which alone assumes the corner always has >=~200x160px of slack
+  // — true at every size this lane tested, kept here for whatever size
+  // wasn't). Numbers below are the wrap's own CSS: MINI_INSET_PX matches
+  // #phud-mini-wrap's right/bottom; MINI_CHROME_W_PX is #phud-mini-frame's
+  // own padding+border (9*2 + 1*2); MINI_CHROME_H_PX is everything stacked
+  // ABOVE the canvas in that same corner — the toggle button, the wrap's
+  // gap, the eyebrow label, and the frame's own padding+border.
+  const MINI_INSET_PX = 10, MINI_CHROME_W_PX = 20, MINI_CHROME_H_PX = 60;
+  function miniChromeW() { return MINI_CHROME_W_PX * hudScaleValue(); }
+  function miniChromeH() { return MINI_CHROME_H_PX * hudScaleValue(); }
+  let lastMiniDrawAt = 0;
+  function drawMinimap(miniCanvas, canvasEl, state) {
+    if (!canvasEl || state.map.w < 2 || state.map.h < 2) { miniCanvas.width = 0; miniCanvas.height = 0; return; }
+    const now = performance.now();
+    if (now - lastMiniDrawAt < 90) return; // throttle, matches the cadence of the prior-art minimap
+    lastMiniDrawAt = now;
+    const boundW = Math.min(miniMaxW(), Math.max(40, innerWidth - MINI_INSET_PX * 2 - miniChromeW()));
+    const boundH = Math.min(miniMaxH(), Math.max(40, innerHeight - MINI_INSET_PX * 2 - miniChromeH()));
+    const scale = Math.min(boundW / state.map.w, boundH / state.map.h);
+    const w = Math.max(1, Math.round(state.map.w * scale)), h = Math.max(1, Math.round(state.map.h * scale));
+    if (miniCanvas.width !== w) miniCanvas.width = w;
+    if (miniCanvas.height !== h) miniCanvas.height = h;
+    const ctx = miniCanvas.getContext('2d');
+    ctx.imageSmoothingEnabled = true;
+    ctx.clearRect(0, 0, w, h);
+    ctx.drawImage(canvasEl, 0, 0, canvasEl.width, canvasEl.height, 0, 0, w, h);
+    ctx.fillStyle = 'rgba(0,0,0,.28)'; ctx.fillRect(0, 0, w, h); // legibility scrim over busy paint
+
+    // BR shrink zone (item B's primary overlay when present — "where is
+    // safe and which way do I move" outranks everything else in a one-life
+    // closing-ring mode). Current ring solid+bright with the outside-zone
+    // area darkened; next (target) ring dashed and dim. Both rects are
+    // world knowledge off the wire (labels.nim LabelPrefixZone/ZoneNext) —
+    // no fabricated countdown, see parseZoneLabel's header comment.
+    if (state.zone && state.zone.current) {
+      const z = state.zone.current;
+      const zx = z.x0 * scale, zy = z.y0 * scale, zw = Math.max(1, (z.x1 - z.x0) * scale), zh = Math.max(1, (z.y1 - z.y0) * scale);
+      const outside = new Path2D();
+      outside.rect(0, 0, w, h);
+      outside.rect(zx, zy, zw, zh);
+      ctx.fillStyle = 'rgba(0,0,0,.4)';
+      ctx.fill(outside, 'evenodd');
+      if (state.zone.next) {
+        const zn = state.zone.next;
+        ctx.save();
+        ctx.setLineDash([2, 2]);
+        ctx.strokeStyle = 'rgba(255,255,255,.55)'; ctx.lineWidth = 1;
+        ctx.strokeRect(zn.x0 * scale + .5, zn.y0 * scale + .5, Math.max(1, (zn.x1 - zn.x0) * scale), Math.max(1, (zn.y1 - zn.y0) * scale));
+        ctx.restore();
+      }
+      ctx.strokeStyle = '#ffec27'; ctx.lineWidth = 1.4;
+      ctx.strokeRect(zx + .5, zy + .5, zw, zh);
+    }
+
+    // Viewport box.
+    if (state.map.viewport) {
+      const vp = state.map.viewport;
+      ctx.strokeStyle = 'rgba(255,255,255,.85)'; ctx.lineWidth = 1;
+      ctx.strokeRect(vp.x * scale + .5, vp.y * scale + .5, Math.max(1, vp.w * scale), Math.max(1, vp.h * scale));
+    }
+
+    // Cog dots. A same-team-colored dot on a floor already painted that
+    // team's color is a real failure mode found by testing (not guessed):
+    // at this minimap scale a plain filled circle can disappear into a
+    // same-hue splat behind it. Every dot gets a thin dark outline first
+    // (regardless of self/bot/human) so it reads as a DOT, not a paint
+    // pixel, before any fill/stroke color decision.
+    for (let i = 0; i < state.cogs.length; i++) {
+      const c = state.cogs[i];
+      const px = c.x * scale, py = c.y * scale;
+      const col = teamColor(c.color);
+      ctx.globalAlpha = c.alive ? 1 : 0.4;
+      if (c.self) {
+        ctx.beginPath(); ctx.arc(px, py, 3.4, 0, Math.PI * 2);
+        ctx.strokeStyle = '#fff'; ctx.lineWidth = 1.2; ctx.stroke();
+      }
+      const r = c.self ? 2.2 : 1.9;
+      ctx.beginPath(); ctx.arc(px, py, r + 0.9, 0, Math.PI * 2);
+      ctx.strokeStyle = 'rgba(10,8,5,.9)'; ctx.lineWidth = 1.4; ctx.stroke();
+      ctx.beginPath(); ctx.arc(px, py, r, 0, Math.PI * 2);
+      if (c.human === false) { // confirmed bot: hollow ring, not filled
+        ctx.strokeStyle = col; ctx.lineWidth = 1; ctx.stroke();
+      } else { // confirmed human, or unresolved (honest default: filled, slightly dimmer when unknown)
+        ctx.fillStyle = col; ctx.globalAlpha *= (c.human === null ? 0.55 : 1); ctx.fill();
+      }
+    }
+    ctx.globalAlpha = 1;
+  }
+
+  // ---------------------------------------------------------------------
+  // Scoreboard render: CTF vs BR variant, per the wire-derived team count.
+  // ---------------------------------------------------------------------
+  // BR visible-row cap. 12 rows ≈ the 16-duo midgame's live half without
+  // approaching the 32-row wall the emitting lane flagged; own row is exempt
+  // from the cap (see below), so "where am I" never scrolls away.
+  const BR_MAX_ROWS = 12;
+  // OPT-11: this only runs while Tab is held/pinned (render() gates the
+  // call on `open`), but a held Tab during a live fight would otherwise
+  // still rebuild the whole table's innerHTML at the loop's full rate even
+  // when nothing in it changed. Cheap signature check first — skip the
+  // rebuild when the underlying rows/scores haven't moved since the table
+  // was last actually painted.
+  let lastScoreboardSig = null;
+  function renderScoreboard(nodes, state) {
+    const sig = JSON.stringify([state.variant, state.teamScores, state.teamsAlive, state.playerRows, state.roster.resolved]);
+    if (sig === lastScoreboardSig) return;
+    lastScoreboardSig = sig;
+    const rows = state.playerRows.slice();
+    // Team score / teams-alive is the always-on TOP-CENTER bar now (see
+    // renderTopBar) — not repeated here, so the hold-Tab panel is purely
+    // the per-player table it's named for.
+    let html = '';
+    if (state.variant === 'ctf') {
+      html += '<h2>ctf · standings</h2>';
+      rows.sort(function (a, b) {
+        if (a.team !== b.team) return (a.team || '').localeCompare(b.team || '');
+        return (b.lives || 0) - (a.lives || 0);
+      });
+      // K/D column lights up row by row as the new-shape "score " rows arrive
+      // (parseScoreLabel); old-shape rows keep an honest "—/—". No layout
+      // change either way — the column was built for this.
+      html += rowsTable(rows, ['name', 'team', 'lives', 'kd', 'who'], function (r) {
+        return '<td>' + escapeHtml(r.name) + '</td>' +
+          '<td style="color:' + teamColor(r.team) + '">' + fmtDash(r.team) + '</td>' +
+          '<td>' + fmtDash(r.lives) + '</td>' +
+          '<td class="phud-dim">' + fmtDash(r.kills) + '/' + fmtDash(r.deaths) + '</td>' +
+          '<td class="phud-dim">' + whoText(r.human) + '</td>';
+      }, rows.length ? null : 'No standings data yet.');
+    } else if (state.variant === 'br') {
+      // Real wire rows (any lives/kills present) get "standings"; the
+      // roster-only fallback keeps calling itself what it is.
+      const haveWireRows = rows.some(function (r) { return r.lives !== null || r.kills !== null; });
+      html += '<h2>br · ' + (haveWireRows ? 'standings' : 'roster') +
+        ' · <span class="phud-dim">teams in match: ' + fmtDash(state.teamScores.length) +
+        ' · teams alive: ' + fmtDash(state.teamsAlive) + '</span></h2>';
+      // 32-row legibility (the emitting lane's flagged handoff): a full BR
+      // roster as a wall of rows is unreadable mid-fight, so sort by kills
+      // (nulls last), then lives, then name, and CAP at BR_MAX_ROWS — with
+      // the own row ALWAYS kept visible (pulled up past the cap behind a
+      // "···" gap marker when it ranks below it) and an explicit "+N more"
+      // footer, so the cut is stated, never silent.
+      rows.sort(function (a, b) {
+        const ak = a.kills === null ? -1 : a.kills, bk = b.kills === null ? -1 : b.kills;
+        if (bk !== ak) return bk - ak;
+        // Alive above eliminated at equal kills (deaths asc, no-data last) —
+        // the wire's own deaths count, not the misleading BR lives number.
+        const ad = a.deaths === null ? 9999 : a.deaths, bd = b.deaths === null ? 9999 : b.deaths;
+        if (ad !== bd) return ad - bd;
+        return String(a.name).localeCompare(String(b.name));
+      });
+      let visible = rows, hidden = 0;
+      if (rows.length > BR_MAX_ROWS) {
+        visible = rows.slice(0, BR_MAX_ROWS);
+        for (let i = BR_MAX_ROWS; i < rows.length; i++) {
+          if (rows[i].self) { // own row below the cap: show top N-1, gap, self
+            visible = rows.slice(0, BR_MAX_ROWS - 1);
+            visible.push({ gap: true }, rows[i]);
+            break;
+          }
+        }
+        hidden = rows.length - visible.filter(function (r) { return !r.gap; }).length;
+      }
+      // placement stays END-CARD ONLY (sim.brPlacements(), never live).
+      // NO numeric lives column in BR: the wire's lives value is RESPAWNS
+      // REMAINING, so in a one-life mode every LIVING player reads 0 — a
+      // column of zeros next to living players says "everyone is dead"
+      // (caught on the first real 16-solo field, coordinator-confirmed).
+      // Status renders instead, derived from the row's own deaths count
+      // under BR's one rule (killPlayer: first death is elimination):
+      // deaths>0 = SPLAT, deaths==0 = ALIVE, no data (HTTP-roster fallback
+      // rows) = an honest em-dash. CTF keeps the numeric column, where the
+      // number is true.
+      html += rowsTable(visible, ['name', 'team', 'status', 'kd', 'who'], function (r) {
+        if (r.gap) return '<td colspan="5" class="phud-dim" style="text-align:center">···</td>';
+        const status = r.deaths === null ? '—' : (r.deaths > 0 ? 'SPLAT' : 'ALIVE');
+        return '<td>' + escapeHtml(r.name) + '</td>' +
+          '<td style="color:' + teamColor(r.team) + '">' + fmtDash(r.team) + '</td>' +
+          '<td class="' + (r.deaths !== null && r.deaths > 0 ? 'phud-splat' : 'phud-dim') + '">' + status + '</td>' +
+          '<td class="phud-dim">' + fmtDash(r.kills) + '/' + fmtDash(r.deaths) + '</td>' +
+          '<td class="phud-dim">' + whoText(r.human) + '</td>';
+      }, rows.length ? null : (state.roster.resolved ? 'No standings data yet.' : 'Roster unavailable — no /api/field response.'));
+      if (hidden > 0) {
+        html += '<div class="phud-sub" style="padding:5px 0 1px">+' + hidden +
+          ' more · sorted by kills · your row always shown</div>';
+      }
+    } else {
+      html += '<div class="phud-empty">No standings data yet.</div>';
+    }
+    nodes.scoreBody.innerHTML = html;
+  }
+  // ---------------------------------------------------------------------
+  // Top-center bar: the mode-selected "what's the match situation" readout
+  // (HUD_SPEC.md Part 2 — team score for CTF, teams-alive + zone status for
+  // BR). Always-on, never gated behind Tab; team count alone (present every
+  // tick) picks the variant the same way buildState() does.
+  //
+  // OPT-11 (CR-2): this used to be `nodes.top.innerHTML = '...'` rebuilt
+  // from scratch on every call — the single biggest contributor to the
+  // measured 975 DOM-mutations/s (a full teardown+rebuild of every team
+  // span/chip, every tick, even when nothing changed). Rewritten to build
+  // the variant's DOM skeleton ONCE (buildTopBarSkeleton, only re-runs on
+  // an actual 'unknown'->'ctf'/'br' transition, which happens at most once
+  // per page load — variant never flips mid-match) and update individual
+  // nodes' textContent/style/class in place afterward, each write gated on
+  // an actual value change. Visible output (text, colors, chip fill/hollow,
+  // ordering) is unchanged — only how it lands in the DOM changed.
+  // ---------------------------------------------------------------------
+  let topBarVariant = null; // 'ctf' | 'br' | null — tracks which skeleton is mounted
+  let topBarEls = null; // variant-specific persistent element refs
+  let topBarTeamOrder = []; // CTF: last painted kills-desc team-key order (skip no-op DOM reorders)
+  let topBarChipEls = new Map(); // BR: team key -> reused <i class="phud-chip"> element
+
+  function buildTopBarSkeleton(nodes, variant) {
+    while (nodes.top.firstChild) nodes.top.removeChild(nodes.top.firstChild);
+    topBarTeamOrder = [];
+    topBarChipEls = new Map();
+    if (variant === 'ctf') {
+      // Eyebrow label (coordinator, live 8/30: Maxwell himself couldn't
+      // identify this strip -- guessed team lives, then a hearts perk --
+      // for a bare "BLUE 110/110" pair. It's tags-made/tags-lost
+      // (parseTeamScoreLabel: kills/deaths), same contract as the BR
+      // branch's own "teams alive"/"zone" eyebrows just below, which this
+      // branch was missing entirely. Provisional word ("team tags") --
+      // paintbot-voice owns the eventual paintball-register vocabulary
+      // pass; not designing around this string.
+      const eyebrow = el('span', 'phud-eyebrow'); eyebrow.textContent = 'team tags';
+      nodes.top.appendChild(eyebrow);
+      topBarEls = { teamNodes: new Map() };
+    } else {
+      const eyebrowAlive = el('span', 'phud-eyebrow'); eyebrowAlive.textContent = 'teams alive';
+      const aliveSpan = el('span', 't');
+      const aliveCountText = document.createTextNode('');
+      const aliveDim = el('span', 'phud-dim');
+      aliveSpan.appendChild(aliveCountText);
+      aliveSpan.appendChild(aliveDim);
+      const chipsSpan = el('span', 'phud-chips');
+      const eyebrowZone = el('span', 'phud-eyebrow'); eyebrowZone.textContent = 'zone';
+      const zoneSpan = el('span', 't');
+      nodes.top.appendChild(eyebrowAlive);
+      nodes.top.appendChild(aliveSpan);
+      nodes.top.appendChild(chipsSpan);
+      nodes.top.appendChild(eyebrowZone);
+      nodes.top.appendChild(zoneSpan);
+      topBarEls = { aliveCountText: aliveCountText, aliveDim: aliveDim, chipsSpan: chipsSpan, zoneSpan: zoneSpan };
+      // Fresh nodes start empty — invalidate the diff cache so the next
+      // render() unconditionally writes real content into them instead of
+      // wrongly matching a stale cached value from a prior build/variant.
+      lastRendered.topAliveText = undefined; lastRendered.topAliveDim = undefined; lastRendered.topZoneWord = undefined;
+    }
+    topBarVariant = variant;
+  }
+
+  function renderTopBarCtf(nodes, state) {
+    const sorted = state.teamScores.slice().sort(function (a, b) { return b.kills - a.kills; });
+    const order = sorted.map(function (t) { return t.team; });
+    sorted.forEach(function (t) {
+      let node = topBarEls.teamNodes.get(t.team);
+      if (!node) {
+        node = el('span', 't');
+        node._dim = el('span', 'phud-dim');
+        node._lastColor = null; node._lastLabel = null;
+        topBarEls.teamNodes.set(t.team, node);
+      }
+      const color = teamColor(t.team.toLowerCase());
+      if (node._lastColor !== color) { node._lastColor = color; node.style.color = color; }
+      const label = t.team + ' ';
+      if (node._lastLabel !== label) {
+        node._lastLabel = label;
+        while (node.firstChild) node.removeChild(node.firstChild);
+        node.appendChild(document.createTextNode(label));
+        node.appendChild(node._dim);
+      }
+      const kd = t.kills + '/' + t.deaths;
+      if (node._dim.textContent !== kd) node._dim.textContent = kd;
+    });
+    // Drop stale team nodes (shouldn't happen mid-match — team list is
+    // fixed once known — kept as a safety net, not a hot path).
+    topBarEls.teamNodes.forEach(function (node, team) {
+      if (order.indexOf(team) === -1) { node.remove(); topBarEls.teamNodes.delete(team); }
+    });
+    // Reorder only when the actual kills-desc rank order changed.
+    if (order.join(',') !== topBarTeamOrder.join(',')) {
+      topBarTeamOrder = order;
+      order.forEach(function (team) { nodes.top.appendChild(topBarEls.teamNodes.get(team)); });
+    }
+  }
+
+  function renderTopBarBr(nodes, state) {
+    const zoneWord = state.zone ? (state.zone.shrinking ? 'SHRINKING' : 'HOLD') : '—';
+    const chips = teamAliveChips(state);
+    const aliveText = fmtDash(chips.aliveCount != null ? chips.aliveCount : state.teamsAlive) + ' ';
+    if (lastRendered.topAliveText !== aliveText) { lastRendered.topAliveText = aliveText; topBarEls.aliveCountText.nodeValue = aliveText; }
+    const dimText = '/ ' + fmtDash(state.teamScores.length);
+    if (lastRendered.topAliveDim !== dimText) { lastRendered.topAliveDim = dimText; topBarEls.aliveDim.textContent = dimText; }
+    if (lastRendered.topZoneWord !== zoneWord) { lastRendered.topZoneWord = zoneWord; topBarEls.zoneSpan.textContent = zoneWord; }
+
+    const seen = new Set();
+    chips.chips.forEach(function (c) {
+      seen.add(c.team);
+      let chip = topBarChipEls.get(c.team);
+      if (!chip) {
+        chip = el('i', 'phud-chip');
+        chip._lastClass = 'phud-chip'; chip._lastBg = null; chip._lastTitle = null;
+        topBarEls.chipsSpan.appendChild(chip);
+        topBarChipEls.set(c.team, chip);
+      }
+      const cls = 'phud-chip' + (c.wiped ? ' wiped' : '');
+      if (chip._lastClass !== cls) { chip._lastClass = cls; chip.className = cls; }
+      if (!c.wiped) {
+        const bg = teamColor(c.key);
+        if (chip._lastBg !== bg) { chip._lastBg = bg; chip.style.background = bg; }
+      } else if (chip._lastBg !== null) {
+        chip._lastBg = null; chip.style.background = '';
+      }
+      const title = c.team + (c.wiped ? ' — eliminated' : '');
+      if (chip._lastTitle !== title) { chip._lastTitle = title; chip.title = title; }
+    });
+    topBarChipEls.forEach(function (chip, team) {
+      if (!seen.has(team)) { chip.remove(); topBarChipEls.delete(team); }
+    });
+  }
+
+  function renderTopBar(nodes, state, railRect) {
+    if (state.variant === 'unknown') {
+      if (lastRendered.topDisplay !== 'none') { lastRendered.topDisplay = 'none'; nodes.top.style.display = 'none'; }
+      return;
+    }
+    if (lastRendered.topDisplay !== '') { lastRendered.topDisplay = ''; nodes.top.style.display = ''; }
+    if (topBarVariant !== state.variant) buildTopBarSkeleton(nodes, state.variant);
+    if (state.variant === 'ctf') renderTopBarCtf(nodes, state);
+    else renderTopBarBr(nodes, state);
+    positionTopBar(nodes, railRect);
+  }
+  // Collision fix (coordinator, live 8/30): a prior HUD lane found this bar
+  // (CTF team score / BR teams-alive) can overlap #phud-rail's kills/
+  // deaths/score/rail readout at small window widths and explicitly left
+  // it alone as out of scope then. In scope now, and a bigger --phud-scale
+  // makes both panels wider, so a static CSS breakpoint would need
+  // retuning per scale step -- measure instead. #phud-top's CSS `left:50%`
+  // sets where its un-translated left edge sits; translateX(-50%) then
+  // shifts it left by exactly half of ITS OWN (already-rendered, so
+  // already-scaled) width, so whatever px `left` we compute here IS the
+  // horizontal CENTER the bar ends up at. Centered on the viewport unless
+  // that would land its left edge inside #phud-rail's actual measured
+  // right edge plus a gutter, in which case it's pushed right just far
+  // enough to clear it -- true at every window size and every scale step,
+  // not tuned per breakpoint.
+  //
+  // OPT-11: `railRect` is now read ONCE at the top of render(), before any
+  // of this frame's writes, and passed in — the read this function used to
+  // do itself landed AFTER several sibling writes already happened this
+  // frame (cd/hp/lv), forcing a synchronous layout flush mid-render every
+  // tick (CR-2's "forced reflow after write"). `nodes.top.offsetWidth`
+  // below is the one read that genuinely must come after this frame's own
+  // top-bar content writes (it needs the bar's freshly-updated width) —
+  // unavoidable, but the actual DOM WRITE (`style.left`) stays gated on the
+  // computed value actually changing, so a static top bar costs one cheap
+  // read and zero mutations per tick instead of one every frame regardless.
+  function positionTopBar(nodes, railRect) {
+    const gutter = 14 * hudScaleValue();
+    const halfTopWidth = nodes.top.offsetWidth / 2;
+    const naturalCenter = innerWidth / 2;
+    const minCenter = railRect.right + gutter + halfTopWidth;
+    const left = Math.max(naturalCenter, minCenter) + 'px';
+    if (lastRendered.topLeft !== left) { lastRendered.topLeft = left; nodes.top.style.left = left; }
+  }
+  // Per-team elimination read, keyed lowercase: "team score <NAME> ..." ships
+  // NAME upper-ascii'd (addTeamScoreboard, global.nim:4327) while the roster
+  // marker's <team> ships the bare lowercase color word (global.nim:4499,
+  // "roster " & teamText(team), no .toUpperAscii) — two casings for the same
+  // identity, confirmed against the engine source rather than assumed, so
+  // both keys get lowercased before the join. Same rule the BR scoreboard's
+  // own SPLAT/ALIVE status column uses (deaths>0 = eliminated, BR's one-life
+  // rule), applied per TEAM instead of per row: a team reads WIPED only once
+  // every seat we have data for reads deaths>0. A team with NO deaths data
+  // at all (old-shape "score " rows, or the HTTP-roster names-only fallback)
+  // stays presumed alive — never a fabricated elimination.
+  function teamAliveStatus(state) {
+    const byTeam = new Map();
+    state.playerRows.forEach(function (r) {
+      if (!r.team) return;
+      const key = String(r.team).toLowerCase();
+      const e = byTeam.get(key) || { anyAlive: false, anyData: false };
+      if (r.deaths !== null) { e.anyData = true; if (r.deaths === 0) e.anyAlive = true; }
+      byTeam.set(key, e);
+    });
+    return byTeam;
+  }
+  // The top-bar chip row itself: one small square per team in the match
+  // (state.teamScores — RESOLVED, always sent regardless of team count, so
+  // its list of teams is reliable even when no per-seat data has arrived
+  // yet). Filled = alive or unknown (honest default); hollow/greyed =
+  // confirmed wiped. aliveCount is a locally-derived DISPLAY read (same
+  // pattern as "shrinking"/"ALIVE"/"SPLAT" elsewhere in this file) — it does
+  // NOT change the reserved state.teamsAlive contract field, which stays
+  // whatever buildState() set it to (null today; real feed once realcog
+  // routes teamLivesRemaining() onto the wire).
+  // Round-boundary guard: BR's own win condition ends a round at exactly
+  // ONE team remaining — the sim never lets play continue to zero, so a
+  // computed 0 here is never a real reading (confirmed live: the SAME
+  // roster read "1 / 16" one tick and "0 / 16" the next, ~450ms later,
+  // with every seat's deaths flipping to >0 in that single tick — the
+  // concluding round's teardown and the next round's fresh roster
+  // crossing on the wire, not an actual all-dead match). Rather than flash
+  // a number the mode cannot produce, hold the last real (non-zero)
+  // reading through that one seam tick; the very next tick's real roster
+  // (this round's last survivor, or the new round's fresh N) overwrites
+  // it immediately, so a hold never goes stale for more than a frame.
+  // OPT-11: returns structured per-team chip data (team/key/wiped) instead
+  // of a pre-joined HTML string — renderTopBarBr updates persistent <i>
+  // elements from this in place rather than rebuilding the chip row's
+  // innerHTML every tick. Same wipe rule, same hold-through-the-zero-seam
+  // behavior as before, just not serialized to a string along the way.
+  let lastGoodAlive = null, lastGoodChips = [];
+  function teamAliveChips(state) {
+    const status = teamAliveStatus(state);
+    const teams = state.teamScores.map(function (t) { return t.team; });
+    if (!teams.length) return { chips: [], aliveCount: null };
+    let aliveCount = 0;
+    const chips = teams.map(function (team) {
+      const key = String(team).toLowerCase();
+      const e = status.get(key);
+      const wiped = !!(e && e.anyData && !e.anyAlive);
+      if (!wiped) aliveCount++;
+      return { team: team, key: key, wiped: wiped };
+    });
+    if (aliveCount === 0) {
+      // Hold the last real reading through the seam tick when we have one.
+      // No held reading yet (e.g. this client attached mid-match right on
+      // a boundary tick, before ever seeing a real count) is the SAME
+      // "don't know yet" case buildState() already renders honestly as a
+      // dash elsewhere — never invent 0 there either, so drop the
+      // all-wiped chip row along with it rather than show hollow chips
+      // next to a dash.
+      if (lastGoodAlive !== null) return { chips: lastGoodChips, aliveCount: lastGoodAlive, held: true };
+      return { chips: [], aliveCount: null };
+    }
+    lastGoodAlive = aliveCount; lastGoodChips = chips;
+    return { chips: chips, aliveCount: aliveCount };
+  }
+  function whoText(human) { return human === true ? 'HUMAN' : human === false ? 'BOT' : '—'; }
+  function escapeHtml(s) { return String(s).replace(/[&<>"]/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]; }); }
+  // Keeps headers visible even with zero rows (an italic placeholder row
+  // inside the table, never a hidden/replaced table) — an empty scoreboard
+  // reads as "not yet", not as broken chrome.
+  function rowsTable(rows, cols, rowFn, emptyMsg) {
+    const headers = { name: 'Name', team: 'Team', lives: 'Lives', status: 'Status', placement: 'Placement', kd: 'K/D', who: '' };
+    let h = '<table><thead><tr>' + cols.map(function (c) { return '<th>' + headers[c] + '</th>'; }).join('') + '</tr></thead><tbody>';
+    if (emptyMsg) {
+      h += '<tr><td colspan="' + cols.length + '" class="phud-empty">' + emptyMsg + '</td></tr>';
+    } else {
+      for (let i = 0; i < rows.length; i++) h += '<tr class="' + (rows[i].self ? 'self' : '') + '">' + rowFn(rows[i]) + '</tr>';
+    }
+    return h + '</tbody></table>';
+  }
+
+  // ---------------------------------------------------------------------
+  // Main loop
+  // ---------------------------------------------------------------------
+  let nodes = null, canvasEl = null;
+  let prevKills = null, prevSeated = false;
+  let cooldownPrevReady = null;
+  // OPT-11 (CR-2): every write in render() now goes through setText/
+  // setClass/setStyleProp gated on this cache instead of writing
+  // unconditionally — see those helpers' own comment up top.
+  let lastRendered = {};
+  // Found by testing (a live tick-animation check came back silently false):
+  // the self-attaching auto-scan loop below and the public update() push API
+  // both write the SAME shared render state (prevKills, cooldownPrevReady,
+  // the DOM nodes themselves) every frame. Harmless today — nothing in the
+  // real client calls update(), so auto-scan is the only writer — but the
+  // instant a host DOES call update(), the two race and produce exactly the
+  // confusing half-applied result this comment is describing. First real
+  // update() call disables auto-scan for the rest of the page's life, so
+  // "push mode" is actually usable rather than a documented trap.
+  let autoScanEnabled = true;
+
+  // OPT-11 (CR-2/CR-5): this used to run off a raw, uncapped
+  // requestAnimationFrame chain — up to whatever rate the browser granted
+  // (44 fps measured under load), rebuilding the scoreboard/top-bar/rail
+  // every single tick regardless of whether the underlying game state (24
+  // ticks/s on the wire) had actually changed. HUD numbers never need to
+  // update faster than a player can read them, so this now drives off a
+  // plain 10-12Hz interval instead — HUD_TICK_MS=90 matches the cadence
+  // drawMinimap already throttled itself to (the "good pattern" CR-5 cited).
+  // The interval is torn down on document.hidden and restarted on
+  // visibilitychange back to visible, so a backgrounded tab pays nothing
+  // (previously: background rAF, throttled by the browser but never zero).
+  const HUD_TICK_MS = 90;
+  let hudTimer = null;
+  function startLoop() {
+    if (hudTimer !== null) return;
+    frame(); // paint immediately on (re)start rather than waiting a full tick
+    hudTimer = setInterval(frame, HUD_TICK_MS);
+  }
+  function stopLoop() {
+    if (hudTimer === null) return;
+    clearInterval(hudTimer);
+    hudTimer = null;
+  }
+  document.addEventListener('visibilitychange', function () {
+    if (document.hidden) stopLoop(); else startLoop();
+  });
+
+  function frame() {
+    if (!autoScanEnabled) return;
+    if (!nodes) return;
+    canvasEl = canvasEl || document.getElementById('c');
+    const now = performance.now();
+    pollRoster(now);
+
+    const raw = scanWire();
+    const state = buildState(raw, canvasEl);
+    state.dead = prevSeated && !state.seated;
+    prevSeated = state.seated;
+    render(normalizeState(state), now); // no-op here (buildState's output is always complete) — see normalizeState's own comment for why this guard exists at all
+  }
+
+  function render(state, now) {
+    // OPT-11 (CR-2): the one layout READ this function needs (the rail's
+    // rendered rect, for centering the top bar) is taken up front, before
+    // any of this frame's writes below — previously positionTopBar() read
+    // it AFTER the cd/hp/lv writes just below had already run, forcing a
+    // synchronous layout flush mid-frame every tick. Reading first means a
+    // clean, unforced read on every tick that didn't just change layout.
+    const railRect = nodes.rail.getBoundingClientRect();
+
+    // A — weapon-ready STATUS, fixed in the condition panel (bottom-left),
+    // never cursor-anchored — see the CSS block's own comment for the field
+    // report this replaced. No seat = nothing to show.
+    const cd = nodes.cooldown;
+    if (!state.seated || state.fire.ready === null) {
+      setStyleProp(cd, lastRendered, 'cdOpacity', 'opacity', '0');
+      setText(nodes.weaponText, lastRendered, 'weaponText', '—');
+    } else {
+      setStyleProp(cd, lastRendered, 'cdOpacity', 'opacity', '1');
+      setClass(cd, lastRendered, 'cdClass', state.fire.ready ? 'ready' : 'cooling');
+      setText(nodes.weaponText, lastRendered, 'weaponText', state.fire.ready ? 'READY' : 'COOLING');
+      if (state.fire.ready && cooldownPrevReady === false) {
+        cd.classList.add('pop'); // it just finished cooling — a real transition, not fabricated progress
+        setTimeout(function () { cd.classList.remove('pop'); }, 240);
+      }
+      cooldownPrevReady = state.fire.ready;
+    }
+
+    // F — own condition (health/lives), typographic, no bar chrome.
+    if (state.seated && (state.health.hp !== null || state.health.lives !== null)) {
+      let hpText = state.health.hp !== null ? state.health.hp + (state.health.maxHp ? '/' + state.health.maxHp : '') + ' hp' : '—';
+      if (state.health.shield) hpText += ' +' + state.health.shield + ' shield';
+      setText(nodes.hp, lastRendered, 'hpText', hpText);
+      setClass(nodes.hp, lastRendered, 'hpClass', 'phud-num' + (state.health.maxHp && state.health.hp <= Math.ceil(state.health.maxHp * 0.34) ? ' phud-hp-low' : ''));
+      setText(nodes.lv, lastRendered, 'lvText', fmtDash(state.health.lives, ' left'));
+    } else {
+      setText(nodes.hp, lastRendered, 'hpText', '—');
+      setClass(nodes.hp, lastRendered, 'hpClass', 'phud-num');
+      setText(nodes.lv, lastRendered, 'lvText', '—');
+    }
+    if (state.combat.buffs.length) {
+      setStyleProp(nodes.buffWrap, lastRendered, 'buffWrapDisplay', 'display', '');
+      setText(nodes.buffs, lastRendered, 'buffsText', state.combat.buffs.join(', '));
+    } else {
+      setStyleProp(nodes.buffWrap, lastRendered, 'buffWrapDisplay', 'display', 'none');
+    }
+
+    // Top-center — always-on match situation (team score / teams-alive+zone).
+    renderTopBar(nodes, state, railRect);
+
+    // E — persistent kills/deaths/score, with a restrained tick on real increment.
+    setStat(nodes.k, 'kText', state.combat.kills, function () { return prevKills !== null && state.combat.kills !== null && state.combat.kills > prevKills; });
+    prevKills = state.combat.kills;
+    setText(nodes.d, lastRendered, 'dText', fmtDash(state.combat.deaths));
+    setText(nodes.sc, lastRendered, 'scText', fmtDash(state.combat.score));
+    setText(nodes.rk, lastRendered, 'rkText', state.combat.rank ? state.combat.rank : '—');
+
+    // B — minimap (+ BR zone label; qualitative, never a fabricated countdown).
+    setText(nodes.miniLabel, lastRendered, 'miniLabelText', state.zone
+      ? 'map · zone ' + (state.zone.shrinking ? 'shrinking' : 'hold')
+      : 'map');
+    drawMinimap(nodes.mini, canvasEl, state);
+
+    // D — scoreboard visibility + content.
+    const open = scoreHeld || scorePinned;
+    if (lastRendered.scoreOpen !== open) {
+      lastRendered.scoreOpen = open;
+      nodes.score.classList.toggle('open', open);
+    }
+    if (open) renderScoreboard(nodes, state);
+  }
+  function setStat(elm, cacheKey, value, didTick) {
+    const tick = didTick();
+    setText(elm, lastRendered, cacheKey, fmtDash(value));
+    if (tick) { elm.classList.remove('tick'); void elm.offsetWidth; elm.classList.add('tick'); }
+  }
+
+  function boot() {
+    nodes = mount();
+    nodes.toggle.addEventListener('click', function () {
+      scorePinned = !scorePinned;
+      nodes.toggle.classList.toggle('pinned', scorePinned);
+    });
+    nodes.scaleToggle.addEventListener('click', function () { cycleHudScale(nodes); });
+    if (!document.hidden) startLoop(); // visibilitychange listener (above) starts it if the tab is backgrounded at boot
+  }
+  if (document.body) boot(); else document.addEventListener('DOMContentLoaded', boot);
+
+  // ---------------------------------------------------------------------
+  // Public API — documented push path for a future tighter integration.
+  // ---------------------------------------------------------------------
+  window.PaintbotHUD = {
+    VERSION: '1.0.0',
+    // Accepts a state object shaped like buildState()'s return value (see
+    // the CONTRACT block up top) and renders it directly, bypassing the
+    // auto-scan. Useful for a host-driven push, or a demo/QA harness.
+    update: function (state) { autoScanEnabled = false; if (nodes) render(normalizeState(state), performance.now()); },
+    attach: function (opts) { if (opts && opts.canvas) canvasEl = opts.canvas; },
+    config: { set rosterUrl(v) { roster.url = v; }, get rosterUrl() { return roster.url; } },
+    GLORY_RANKS: GLORY_RANKS,
+  };
+})();

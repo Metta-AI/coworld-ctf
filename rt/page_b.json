@@ -1,0 +1,25 @@
+{
+  "paintbot_policy": 1,
+  "name": "tight-trade",
+  "doc": "Fights boldly while its partner's still up -- two guns beat one -- but the instant that backup is gone, it drops the trades and plays to keep its own one life.",
+  "traits": { "nerve": 0.6, "greed": 0.3, "patience": 0.4 },
+  "rules": [
+    { "when": ["get", "self.partner_alive"],
+      "score": ["+",
+        ["*", 35, ["get", "intent.is_enemy"]],
+        ["*", -10, ["get", "intent.exposure"]],
+        ["*", 15, ["get", "intent.is_cover"]]
+      ]
+    },
+    { "when": ["not", ["get", "self.partner_alive"]],
+      "score": ["+",
+        ["*", 20, ["get", "intent.is_medkit"]],
+        ["*", 15, ["get", "intent.is_item"]],
+        ["*", 20, ["get", "intent.is_cover"]],
+        ["*", -30, ["get", "intent.exposure"]],
+        ["*", ["get", "intent.is_enemy"],
+              ["*", 25, ["-", 1, ["get", "intent.enemy_hp_frac"]]]]
+      ]
+    }
+  ]
+}

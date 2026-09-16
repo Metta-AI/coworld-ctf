@@ -1,20 +1,86 @@
 ## CI shard 2 of 4. See shard_1.nim for the sharding rules.
+##
+## test_glory landed in 04096969 ("increment 1/3") and was never added to any
+## shard -- glory.nim has since been wired into sim.nim/sim_types.nim for
+## real (increment 2/3, e11cc008/ba256d95), so its 31-test law suite was
+## running dark: `tests/tests.nim` and every CI run compiled and passed
+## without ever executing it. Wired in here (fast shard, cheap pure-func
+## tests, no SimServer). test_zero_mint_reachability is the same shape --
+## a standalone reachability probe of glory.nim's pure killDeed
+## classifier, no SimServer -- so it joins the other glory tests here.
 {.warning[UnusedImport]: off.}
+{.define(shellShardRegressionGate).}
 import
+  test_achievements,
   test_board_click_select,
+  test_callout_perception,
+  test_canonical_fast,
+  test_deprecated_modes,
   test_four_team,
   test_fov,
   test_fx_pools,
+  test_glory,
+  test_glory_conclusion,
   test_gun_jitter,
+  test_item_pool_ingest,
   test_kill_badges,
   test_live_event_emission,
   test_map_los,
   test_mapgen_styles,
   test_medkits,
+  test_pb_br_variant,
+  test_pb_control,
+  test_pb_directives,
+  test_pb_manifest,
+  test_pb_regimes,
+  test_perception_loadout_sdk,
+  test_play_harness,
+  test_play_bodyguard,
+  test_play_crossfire,
+  test_play_edge_ride,
+  test_play_jackal,
+  test_play_pact,
+  test_play_sdk,
+  test_play_supply_run,
+  test_play_target_law,
+  test_policy_page,
   test_render_scale,
+  test_replay_compat,
+  test_shard_wiring,
+  test_shell_binary_view,
+  test_shell_body_map,
+  test_shell_body_ray,
+  test_shell_body_danger_exact,
+  test_shell_body_nav,
+  test_shell_body_seat,
+  test_shell_combat,
+  test_shell_contracts,
+  test_shell_abi,
+  test_shell_compile_plane,
+  test_shell_containment,
+  test_shell_cover_scorer,
+  test_shell_default_play,
+  test_shell_episode_ladder,
+  test_shell_effective_order,
+  test_shell_emit_validator,
+  test_shell_episode,
+  test_shell_server_seam,
+  test_shell_guards,
+  test_shell_calls,
+  test_shell_ladder,
+  test_shell_module_validation,
+  test_shell_packets,
+  test_shell_replacement,
+  test_shell_reflexes,
+  test_shell_runtime,
+  test_shell_standing_order,
+  test_shell_view,
   test_shield_bubble,
   test_shields,
   test_shot_accuracy,
+  test_shot_feedback,
   test_shouts,
-  test_spinning_diamonds
+  test_spinning_diamonds,
+  test_team_art,
+  test_zero_mint_reachability
 {.warning[UnusedImport]: on.}

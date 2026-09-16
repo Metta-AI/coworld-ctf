@@ -45,12 +45,12 @@ proc main() =
 
   placeAt(red, sprayerX, sprayerY)
   sim.players[red].aimBrads = 0
-  sim.players[red].hasPlasmaArc = true
+  sim.players[red].hasSprayPaint = true
   sim.players[red].fireCooldown = 0
   placeAt(blue, sprayerX + 100, sprayerY)
   sim.players[blue].hp = 3
   sim.tryFireArc(red)
-  echo "spray fired: cone flashes=", sim.plasmaArcFlashes.len,
+  echo "spray fired: cone flashes=", sim.sprayPaintFlashes.len,
     " victim hp=", sim.players[blue].hp,
     " victim paintHitTick=", sim.players[blue].paintHitTick,
     " (tick ", sim.tickCount, ")"
@@ -78,11 +78,11 @@ proc main() =
   const
     BurstW = 360
     BurstH = 170
-  let burstCx = sprayerX + PlasmaArcReach div 2
+  let burstCx = sprayerX + SprayPaintReach div 2
 
   # The animation: one frame per FX tick, so the jet's growth is visible.
   var frames: seq[Image]
-  for f in 0 .. PlasmaArcFxTicks:
+  for f in 0 .. SprayPaintFxTicks:
     let board = renderBoard()
     let shot = cropOf(board, burstCx, sprayerY, BurstW, BurstH)
     frames.add shot
@@ -92,7 +92,7 @@ proc main() =
       # Subjects that don't animate, grabbed from the first frame.
       cropOf(board, sprayerX, sprayerY - 20, 130, 130)
         .resize(130 * 3, 130 * 3).writeFile(outDir / "spray-carried.png")
-      let spawn = loadCtfMapMetadata("arena").plasmaArcSpawnPoints()[0]
+      let spawn = loadCtfMapMetadata("arena").sprayPaintSpawnPoints()[0]
       cropOf(board, spawn.x, spawn.y, 120, 120)
         .resize(120 * 3, 120 * 3).writeFile(outDir / "spray-pickup.png")
     inc sim.tickCount            # age the flash by one tick

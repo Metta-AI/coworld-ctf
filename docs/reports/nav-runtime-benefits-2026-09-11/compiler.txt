@@ -1,0 +1,6 @@
+Nim Compiler Version 2.2.4 [Linux: amd64]
+Compiled at 2026-09-09
+Copyright (c) 2006-2025 by Andreas Rumpf
+
+git hash: f7145dd26efeeeb6eeae6fff649db244d81b212d
+active boot switches: -d:release

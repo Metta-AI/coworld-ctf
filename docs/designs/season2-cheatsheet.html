@@ -1,0 +1,476 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Season 2 — Cheat Sheet</title>
+<style>
+@font-face {
+  font-family: 'nes-pixel';
+  src: url(data:font/ttf;base64,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AXr+hgATAXsBev0LAvX+hgATAXsAAPyyA4AAAPyAAAAAAgCAAAACgAQAAAMADwAAAQEBAQEBAQEBAQEBAQEBAQEAAAABAAAA/wAAAP+AAAAAgAAAAQAAAACAAAD/gAAAAAABAAAA/wABgACAAAABgAAAAIAAAP+AAAD+gAAA/4AAAgEAAoACgAQAAAMABwAAAQEBAQEBAQEBAAAAAIAAAACAAAAAgAAAAoABgAAA/oAAAAGAAAD+gAACAAAAgAOABAAAAwAfAAABAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQIAAAD/gAAA/wAAAP+AAAAAgAAA/4AAAACAAAABAAAAAIAAAAEAAAAAgAAA/4AAAACAAAD/gAAA/wAAAP+AAAABgAGAAAD+gP8AAIAAAACAAAABgAAAAIAAAACAAAD/gAAAAIAAAP+AAAD/gAAA/oAAAP+AAAD/gAAAAIAAAP+AAAMAAAAAA4AEAAADAAcAIwAAAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAoAAAP+AAAD+AAAAAIAAAACAAAD/AAAAAQAAAP+AAAAAgAAA/4AAAACAAAABAAAAAYAAAP6AAAABAAAAAIAAAP+AAAD/AAAAAQABAAAA/wABgACAAAD/gP2AAIAAAACAAAABAAAAAIAAAACAAAAAgAAAAIAAAP+AAAD/gAAA/4AAAP+AAAD/AAAA/4AAAP+AAAAACwAAAIADgAQAAAMABwALAA8AEwAXABsAHwAjACcAKwAAAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEAAAAAAIAAAAAAAAAAgAAAAgAAAP+AAAD+gAAAAIAAAACAAAABgAAA/gAAAACAAAAAAAAAAIAAAP6AAAD/gAAAAgAAAACAAAD9AAAAAYAAAAGAAAAAgAAAAIAAgAAA/4AAgACAAAD/gAAAAIAAAP+AAIAAgAAA/4D/AAGAAAD+gAGAAIAAAP+AAIAAgAAA/4AAgACAAAD/gAAAAIAAAP+A/4ABgAAA/oABAACAAAD/gAAAAAMAAACAA4AEAAADAAcAHwAAAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEDAAAAAIAAAP+AAAAAgAAA/QAAAP+AAAAAgAAAAIAAAACAAAABgAAA/wAAAP8AAAABAAAAAIAAAACAAAD/gAAAAIAAgAAA/4ABAAEAAAD/AP8AAIAAAAEAAAAAgAAAAQAAAACAAAD/gAAA/oAAAP8AAAABAAAA/4AAAP+AAAD/gAAAAAEBgAKAAgAEAAADAAABAQEBAYAAAACAAAACgAGAAAD+gAAAAAEBAACAAoAEAAALAAABAQEBAQEBAQEBAQEBgAAA/4AAAACAAAABAAAA/4AAAACAAAAAgACAAAACgAAAAIAAAP+AAAD9gAAA/4AAAAABAQAAgAKABAAACwAAAQEBAQEBAQEBAQEBAQAAAACAAAD/gAAAAQAAAACAAAD/gAAAAIAAgAAAAoAAAACAAAD/gAAA/YAAAP+AAAAAAQAAAIADgAQAACsAAAEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAAAAAACAAAAAgAAA/wAAAAEAAAD/gAAA/4AAAAEAAAAAgAAAAIAAAACAAAABAAAA/4AAAP+AAAABAAAA/wAAAACAAAAAgAAA/wAAAP+AAAD/gAAA/4AAAACAAIAAAACAAAAAgAAAAIAAAACAAAAAgAAAAIAAAP+AAAD/gAAAAIAAAACAAAD/gAAA/4AAAP+AAAD/gAAA/4AAAP+AAAD/gAAAAIAAAACAAAD/gAAA/4AAAAABAIAAgAOABAAACwAAAQEBAQEBAQEBAQEBAYAAAP8AAAABAAAAAQAAAAEAAAD/AAAAAIABgAAAAIAAAAGAAAD+gAAA/4AAAP6AAAAAAQCAAAACAAGAAAcAAAEBAQEBAQEBAIAAAACAAAABAAAA/4AAAAAAAIAAAAEAAAD/AAAA/4AAAAABAIACAAOAAoAAAwAAAQEBAQCAAAADAAAAAgAAgAAA/4AAAAABAQAAgAIAAYAAAwAAAQEBAQEAAAABAAAAAIABAAAA/wAAAAAHAAAAgAOABAAAAwAHAAsADwATABcAGwAAAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQAAAAAAgAAAAAAAAACAAAAAAAAAAIAAAAAAAAAAgAAAAAAAAACAAAAAAAAAAIAAAAAAAAAAgAAAAIAAgAAA/4AAgACAAAD/gACAAIAAAP+AAIAAgAAA/4AAgACAAAD/gACAAIAAAP+AAIAAgAAA/4AAAAACAAAAgAOABAAADQAbAAABAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQAAAP+AAAD/gAAAAIAAAACAAAAAgAAAAQAAAAAAAAD/gAAA/wAAAAGAAAAAgAAAAIAAAP+AAAAAgACAAAAAgAAAAYAAAACAAAD+AAAA/4AAAP+AAIACAAAAAIAAAACAAAD/gAAA/4AAAP6AAAD/gAABAIAAgAOABAAACwAAAQEBAQEBAQEBAQEBAIAAAAEAAAD/gAAAAIAAAAEAAAABAAAAAIAAgAAAAgAAAACAAAAAgAAA/QAAAP+AAAAAAQAAAIADgAQAABsAAAEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEAAAAAAIAAAACAAAABAAAAAIAAAP6AAAD/AAAAAIAAAAKAAAAAgAAA/4AAAP+AAAD/AAAAAgAAAACAAQAAAACAAAAAgAAAAIAAAACAAAD/gAAAAIAAAACAAAD/gAAA/wAAAP+AAAD/gAAA/4AAAP+AAAAAAQAAAIADgAQAABsAAAEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEAgAAA/4AAAAEAAAABgAAA/oAAAACAAAAAgAAA/gAAAAOAAAD/gAAA/4AAAACAAAAAgAAA/4AAAACAAIAAAACAAAD/gAAAAQAAAACAAAAAgAAAAIAAAACAAAD/gAAA/4AAAP+AAAD/gAAA/wAAAP+AAAAAAgAAAIADgAQAAAUAFQAAAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQIAAAD/gAAA/4AAAAEAAAD+AAAAAIAAAACAAAAAgAAAAYAAAACAAAD/gAAAAgABAAAA/4AAAP+A/oABAAAAAQAAAACAAAAAgAAAAIAAAP4AAAD/gAAA/wAAAAABAAAAgAOABAAAEwAAAQEBAQEBAQEBAQEBAQEBAQEBAQEAgAAA/4AAAAEAAAABgAAA/YAAAAMAAAD+AAAAAgAAAACAAAD/gAAAAIAAgAAAAIAAAP+AAAABgAAAAYAAAP+AAAD/gAAA/4AAAP6AAAD/gAAAAAIAAACAA4AEAAADABcAAAEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQKAAAD+gAAA/4AAAP+AAAAAgAAAAIAAAAIAAAD+gAAA/4AAAAIAAAAAgAAA/4AAAAEAAQAAAP8A/4AAgAAAAgAAAACAAAAAgAAA/4AAAP+AAAD/gAAA/4AAAP8AAAD/gAABAAAAgAOABAAAEwAAAQEBAQEBAQEBAQEBAQEBAQEBAQEBAAAAAIAAAACAAAAAgAAA/oAAAP8AAAADgAAA/4AAAP+AAAD/gAAAAIABgAAAAIAAAACAAAAAgAAA/4AAAAEAAAD/AAAA/4AAAP+AAAD+gAAAAAMAAACAA4AEAAADAAcAGwAAAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQKAAAD+gAAAAYAAAP6AAAD/gAAA/4AAAACAAAD/gAAAAIAAAAKAAAAAgAAA/4AAAACAAAD/gAAAAQABAAAA/wABgAEAAAD/AP4AAIAAAAEAAAAAgAAAAQAAAACAAAD/gAAA/wAAAP+AAAD/AAAA/4AAAAACAAAAgAOABAAAAwAXAAABAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQECgAAA/oAAAP+AAAABgAAAAIAAAP4AAAD/gAAAAIAAAAKAAAAAgAAA/4AAAP+AAAACgAEAAAD/AP4AAIAAAACAAAAAgAAAAIAAAAEAAAAAgAAA/4AAAP4AAAD/gAAA/4AAAgEAAIACAAOAAAMABwAAAQEBAQEBAQEBAAAAAQAAAP8AAAABAAAAAIABAAAA/wACAAEAAAD/AAADAQAAAAIAAwAAAwAJAA0AAAEBAQEBAQEBAQEBAQEBAQAAAACAAAAAAAAA/4AAAAEAAAD/AAAAAQAAAAAAAIAAAP+AAIAAgAAAAIAAAP8AAYABAAAA/wAAAQAAAIADgAQAABsAAAEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBgAAA/4AAAP+AAAD/gAAAAIAAAACAAAAAgAAAAgAAAP8AAAD/gAAA/4AAAACAAAAAgAAAAQAAAACAAIAAAACAAAAAgAAAAIAAAACAAAAAgAAAAIAAAP+AAAD/gAAA/4AAAP+AAAD/gAAA/4AAAP+AAAAAAgAAAQADAAOAAAMABwAAAQEBAQEBAQEAAAAAAwAAAP0AAAADAAAAAQAAgAAA/4ACAACAAAD/gAABAIAAgAOABAAAGwAAAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQCAAAAAgAAAAIAAAACAAAD/gAAA/4AAAP+AAAABgAAAAIAAAACAAAAAgAAA/4AAAP+AAAD/gAAAAIAAgAAAAIAAAACAAAAAgAAAAIAAAACAAAAAgAAA/4AAAP+AAAD/gAAA/4AAAP+AAAD/gAAA/4AAAAACAAAAAAOABAAAAwAXAAABAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBgAAAAQAAAP8AAAAAgAAAAIAAAP6AAAD/AAAAAIAAAAKAAAAAgAAA/4AAAP+AAAAAAAEAAAD/AAGAAQAAAACAAAAAgAAA/wAAAAEAAAAAgAAA/4AAAP8AAAD/gAAA/4AAAgAAAIADgAQAAAMAFQAAAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQKAAAD/gAAA/oAAAP+AAAAAgAAAAoAAAACAAAD/gAAA/oAAAAEAAAD+gAAAAQABgAAA/oD/gACAAAACgAAAAIAAAP+AAAD9gAAA/4AAAAKAAAAAgAAA/QAAAAACAAAAgAOABAAABwAXAAABAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQECgAAA/4AAAP+AAAD/gAAA/wAAAACAAAAAgAAAAYAAAACAAAAAgAAA/wAAAP6AAAACAAEAAAAAgAAA/4AAAP8A/oACgAAAAIAAAACAAAD/gAAA/4AAAP2AAAABAAAA/wAAAwAAAIADgAQAAAMABwATAAABAQEBAQEBAQEBAQEBAQEBAQEBAQKAAAD+gAAAAYAAAP6AAAD/AAAAAwAAAACAAAD/gAAAAIAAAP+AAAABAAEAAAD/AAGAAQAAAP8A/gADgAAA/4AAAP8AAAD/gAAA/wAAAP+AAAAAAQAAAIADgAQAABsAAAEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAAAA/4AAAP+AAAAAgAAAAIAAAAIAAAAAgAAA/wAAAP8AAAD/gAAAAIAAAAEAAAABAAAA/4AAAACAAIAAAACAAAABgAAAAIAAAACAAAD/gAAA/4AAAACAAAD/gAAA/oAAAP+AAAAAgAAA/4AAAP+AAAAAAgAAAIADgAQAAAcAEwAAAQEBAQEBAQEBAQEBAQEBAQEBAQECAAAAAIAAAP+AAAD/AAAA/wAAAAKAAAAAgAAAAIAAAP+AAAD/gAAAAQAAgAAAAYAAAACAAAD9gP+AA4AAAP+AAAD/gAAA/oAAAP+AAAD/gAABAAAAgAOABAAACwAAAQEBAQEBAQEBAQEBAAAAAAOAAAD9gAAAAgAAAP4AAAACgAAAAIADgAAA/4AAAP8AAAD/gAAA/wAAAP+AAAAAAQAAAIADgAQAAAkAAAEBAQEBAQEBAQEAAAAAA4AAAP2AAAACAAAA/gAAAACAA4AAAP+AAAD/AAAA/4AAAP6AAAEAAACAA4AEAAAXAAABAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAAAA/4AAAP+AAAAAgAAAAIAAAAKAAAD+AAAA/4AAAACAAAABAAAA/4AAAAGAAAAAgACAAAAAgAAAAYAAAACAAAAAgAAA/4AAAP+AAAD+gAAA/4AAAAEAAAAAgAAA/gAAAAABAAAAgAOABAAACwAAAQEBAQEBAQEBAQEBAAAAAAEAAAABgAAAAQAAAP8AAAD+gAAAAIADgAAA/oAAAAGAAAD8gAAAAYAAAP6AAAAAAQCAAIADgAQAAAsAAAEBAQEBAQEBAQEBAQCAAAABAAAA/wAAAAMAAAD/AAAAAQAAAACAAIAAAAKAAAAAgAAA/4AAAP2AAAD/gAAAAAEAAACAA4AEAAANAAABAQEBAQEBAQEBAQEBAQCAAAD/gAAAAQAAAAGAAAD/AAAAAgAAAP+AAAAAgACAAAABAAAA/wAAAAKAAAAAgAAA/QAAAP+AAAEAAACAA4AEAAAdAAABAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEAAAAAAQAAAACAAAAAgAAAAIAAAAEAAAD/gAAA/4AAAP+AAAAAgAAAAIAAAACAAAD+gAAA/4AAAP+AAAAAgAOAAAD+gAAAAIAAAACAAAAAgAAA/4AAAP+AAAD/gAAA/4AAAP+AAAD/gAAA/4AAAACAAAAAgAAA/wAAAQAAAIADgAQAAAUAAAEBAQEBAQAAAAABAAAAAoAAAACAA4AAAP0AAAD/gAABAAAAgAOABAAAEwAAAQEBAQEBAQEBAQEBAQEBAQEBAQEAAAAAAQAAAACAAAAAgAAAAIAAAAEAAAD/AAAA/4AAAP+AAAD/gAAAAIADgAAA/4AAAP+AAAAAgAAAAIAAAPyAAAABgAAA/4AAAACAAAD+gAAAAAEAAACAA4AEAAATAAABAQEBAQEBAQEBAQEBAQEBAQEBAQAAAAABAAAAAIAAAACAAAAAgAAAAQAAAP8AAAD/gAAA/4AAAP+AAAAAgAOAAAD/gAAA/4AAAP+AAAABgAAA/IAAAACAAAAAgAAAAIAAAP6AAAAAAgAAAIADgAQAAAMADwAAAQEBAQEBAQEBAQEBAQEBAQKAAAD+gAAA/4AAAP+AAAAAgAAAAoAAAACAAAD/gAAAAQACgAAA/YD/gACAAAACgAAAAIAAAP+AAAD9gAAA/4AAAgAAAIADgAQAAAMADQAAAQEBAQEBAQEBAQEBAQECgAAA/oAAAP8AAAADAAAAAIAAAP+AAAD+AAAAAgABgAAA/oD+gAOAAAD/gAAA/oAAAP+AAAD/AAAAAAMAAACAA4AEAAADAAsAGQAAAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEDAAAAAIAAAP6AAAD/gAAAAQAAAP6AAAD/gAAA/4AAAACAAAACgAAAAIAAAP+AAAD/gAAAAIAAgAAA/4AAgACAAAAAgAAAAYAAAP2A/4AAgAAAAoAAAACAAAD/gAAA/gAAAP+AAAD/gAACAAAAgAOABAAABQAXAAABAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQECAAAAAIAAAP6AAAD/AAAAAwAAAACAAAD/AAAAAIAAAACAAAD+gAAA/4AAAP+AAAACAACAAAABAAAA/oD+gAOAAAD/gAAA/oAAAP+AAAD/gAAA/4AAAACAAAAAgAAA/wAAAQAAAIADgAQAABsAAAEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEAgAAA/4AAAAEAAAABgAAA/gAAAP+AAAAAgAAAAgAAAACAAAD/AAAA/wAAAAIAAAAAgAAA/4AAAACAAIAAAACAAAD/gAAAAQAAAACAAAABAAAAAIAAAP+AAAD/gAAAAIAAAP8AAAD/gAAA/wAAAP+AAAAAAQCAAIADgAQAAAcAAAEBAQEBAQEBAYAAAP8AAAADAAAA/wAAAACAAwAAAACAAAD/gAAA/QAAAAABAAAAgAOABAAACwAAAQEBAQEBAQEBAQEBAIAAAP+AAAABAAAAAYAAAAEAAAD/gAAAAIAAgAAAAwAAAP0AAAADAAAA/QAAAP+AAAAAAQAAAIADgAQAABcAAAEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQGAAAD/gAAA/4AAAP+AAAABAAAAAIAAAACAAAAAgAAAAQAAAP+AAAD/gAAA/4AAAACAAIAAAACAAAAAgAAAAgAAAP6AAAD/gAAAAIAAAAGAAAD+AAAA/4AAAP+AAAD/gAAAAAEAAACAA4AEAAATAAABAQEBAQEBAQEBAQEBAQEBAQEBAQAAAAABAAAAAIAAAACAAAAAgAAAAQAAAP8AAAD/gAAA/4AAAP+AAAAAgAOAAAD+gAAAAIAAAP+AAAABgAAA/IAAAACAAAAAgAAA/4AAAP+AAAAAAQAAAIADgAQAACMAAAEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQAAAAAAgAAAAIAAAP+AAAD/gAAAAQAAAACAAAAAgAAAAIAAAAEAAAD/gAAA/4AAAACAAAAAgAAA/wAAAP+AAAD/gAAA/4AAAACAAQAAAACAAAAAgAAAAIAAAAEAAAD/gAAA/4AAAACAAAAAgAAA/wAAAP+AAAD/gAAA/4AAAP8AAAAAgAAAAIAAAP+AAAD/gAAAAAEAgACAA4AEAAAPAAABAQEBAQEBAQEBAQEBAQEBAYAAAP+AAAD/gAAAAQAAAAEAAAABAAAA/4AAAP+AAAAAgAGAAAAAgAAAAYAAAP6AAAABgAAA/oAAAP+AAAD+gAAAAAEAAACAA4AEAAAXAAABAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEAAAAAAIAAAACAAAAAgAAAAIAAAP4AAAADgAAA/4AAAP+AAAD/gAAA/4AAAAIAAAAAgAEAAAAAgAAAAIAAAACAAAAAgAAAAIAAAP8AAAD/gAAA/4AAAP+AAAD/gAAA/4AAAAABAQAAgAKABAAABwAAAQEBAQEBAQEBAAAAAYAAAP+AAAAAgAAAAIADgAAA/4AAAP2AAAD/gAAAAAcAAACAA4AEAAADAAcACwAPABMAFwAbAAABAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAwAAAACAAAD/AAAAAIAAAP8AAAAAgAAA/wAAAACAAAD/AAAAAIAAAP8AAAAAgAAA/wAAAACAAAAAgACAAAD/gACAAIAAAP+AAIAAgAAA/4AAgACAAAD/gACAAIAAAP+AAIAAgAAA/4AAgACAAAD/gAAAAAEBAACAAoAEAAAHAAABAQEBAQEBAQEAAAAAgAAA/4AAAAGAAAAAgACAAAACgAAAAIAAAPyAAAAAAQAAAgADgAQAABcAAAEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQAAAAAAgAAAAIAAAACAAAAAgAAAAIAAAACAAAAAgAAA/wAAAP+AAAD/gAAA/4AAAAIAAIAAAACAAAAAgAAAAIAAAP+AAAD/gAAA/4AAAP+AAAAAgAAAAIAAAP+AAAD/gAAAAAEAAACAA4ABAAADAAABAQEBAAAAAAOAAAAAgACAAAD/gAAAAAIAgAKAAgAEAAADAAkAAAEBAQEBAQEBAQEBgAAAAIAAAP8AAAD/gAAAAQAAAAKAAIAAAP+AAIAAgAAAAIAAAP8AAAAAAgAAAIADgAOAAAcAFwAAAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAoAAAP+AAAD/gAAA/4AAAP8AAAAAgAAAAIAAAAGAAAAAgAAAAIAAAP8AAAD+gAAAAYABAAAAAIAAAP+AAAD/AP8AAgAAAACAAAAAgAAA/4AAAP+AAAD+AAAAAIAAAP+AAAMAAACAA4ADgAADAAcAEwAAAQEBAQEBAQEBAQEBAQEBAQEBAQECgAAA/oAAAAGAAAD+gAAA/wAAAAMAAAAAgAAA/4AAAACAAAD/gAAAAQABAAAA/wABgACAAAD/gP4AAwAAAP+AAAD/gAAA/4AAAP8AAAD/gAAAAAEAAACAA4ADgAATAAABAQEBAQEBAQEBAQEBAQEBAQEBAQCAAAD/gAAAAIAAAAKAAAAAgAAA/wAAAP6AAAABgAAAAQAAAP+AAAAAgACAAAACAAAAAIAAAP+AAAD/gAAAAIAAAP4AAAAAgAAA/4AAAP+AAAAAAgAAAIADgAOAAAMACwAAAQEBAQEBAQEBAQEBAoAAAP6AAAD/AAAAAwAAAACAAAD/gAAAAQACAAAA/gD/gAMAAAD/gAAA/gAAAP+AAAEAAACAA4ADgAALAAABAQEBAQEBAQEBAQEAAAAAA4AAAP2AAAACAAAA/gAAAAKAAAAAgAMAAAD/gAAA/4AAAP+AAAD/AAAA/4AAAAABAAAAgAOAA4AACQAAAQEBAQEBAQEBAQAAAAADgAAA/YAAAAIAAAD+AAAAAIADAAAA/4AAAP8AAAD/gAAA/wAAAQAAAIADgAOAAA8AAAEBAQEBAQEBAQEBAQEBAQEAgAAA/4AAAACAAAACgAAA/gAAAAGAAAD/AAAAAgAAAACAAIAAAAIAAAAAgAAA/4AAAP4AAAAAgAAAAIAAAP6AAAAAAQAAAIADgAOAAAsAAAEBAQEBAQEBAQEBAQAAAAABAAAAAYAAAAEAAAD/AAAA/oAAAACAAwAAAP8AAAABAAAA/QAAAAGAAAD+gAAAAAEBAACAAwADgAALAAABAQEBAQEBAQEBAQEBAAAAAIAAAP+AAAACAAAA/4AAAACAAAAAgACAAAACAAAAAIAAAP+AAAD+AAAA/4AAAAABAAAAgAOAA4AADwAAAQEBAQEBAQEBAQEBAQEBAQCAAAD/gAAAAQAAAAEAAAD/gAAAAgAAAP+AAAD/gAAAAIAAgAAAAIAAAP+AAAACAAAAAIAAAP+AAAD+AAAA/4AAAAACAAAAgAOAA4AABQAXAAABAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQECAAAAAIAAAAEAAAD8gAAAAQAAAACAAAAAgAAAAYAAAP8AAAD/gAAA/4AAAP+AAAAAgAEAAAD/gAAA/4AAAAMAAAD/AAAAAIAAAACAAAD/gAAA/4AAAP8AAAAAgAAA/oAAAQAAAIADgAOAAAUAAAEBAQEBAQAAAAABAAAAAoAAAACAAwAAAP2AAAD/gAABAAAAgAOAA4AAEwAAAQEBAQEBAQEBAQEBAQEBAQEBAQEAAAAAAQAAAACAAAAAgAAAAIAAAAEAAAD/AAAA/4AAAP+AAAD/gAAAAIADAAAA/4AAAP+AAAAAgAAAAIAAAP0AAAABgAAA/4AAAACAAAD+gAAAAAEAAACAA4ADgAATAAABAQEBAQEBAQEBAQEBAQEBAQEBAQAAAAABAAAAAIAAAACAAAAAgAAAAQAAAP8AAAD/gAAA/4AAAP+AAAAAgAMAAAD/gAAA/4AAAP+AAAABgAAA/QAAAACAAAAAgAAAAIAAAP6AAAAAAgAAAIADgAOAAAMADwAAAQEBAQEBAQEBAQEBAQEBAQKAAAD+gAAA/4AAAP+AAAAAgAAAAoAAAACAAAD/gAAAAQACAAAA/gD/gACAAAACAAAAAIAAAP+AAAD+AAAA/4AAAgAAAIADgAOAAAMADQAAAQEBAQEBAQEBAQEBAQECgAAA/oAAAP8AAAADAAAAAIAAAP+AAAD+AAAAAYABgAAA/oD/AAMAAAD/gAAA/oAAAP+AAAD/gAAAAAMAAACAA4ADgAADAAkAFwAAAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAYAAAACAAAAAAAAAAIAAAP6AAAD/gAAA/4AAAACAAAACgAAAAIAAAP+AAAAAgAAAAYAAgAAA/4D/gACAAAABgAAA/gD/gACAAAACAAAAAIAAAP+AAAD+gAAA/4AAAP+AAAAAAgAAAIADgAOAAAMAEwAAAQEBAQEBAQEBAQEBAQEBAQEBAQECgAAA/oAAAP8AAAADAAAAAIAAAP+AAAAAgAAA/wAAAP+AAAD/AAAAAgABAAAA/wD+gAMAAAD/gAAA/wAAAP8AAAD/gAAAAIAAAACAAAD/AAABAAAAgAOAA4AAEwAAAQEBAQEBAQEBAQEBAQEBAQEBAQEAAAAAAoAAAP4AAAD/gAAAAIAAAAKAAAD+AAAAAgAAAACAAAD/gAAAAIAAgAAAAQAAAACAAAAAgAAAAIAAAP+AAAD/gAAA/4AAAP8AAAD/gAAAAAEAgACAA4ADgAAHAAABAQEBAQEBAQGAAAD/AAAAAwAAAP8AAAAAgAKAAAAAgAAA/4AAAP2AAAAAAQAAAIADgAOAAAsAAAEBAQEBAQEBAQEBAQCAAAD/gAAAAQAAAAGAAAABAAAA/4AAAACAAIAAAAKAAAD9gAAAAoAAAP2AAAD/gAAAAAEAAACAA4ADgAAXAAABAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBgAAA/4AAAP+AAAD/gAAAAQAAAACAAAAAgAAAAIAAAAEAAAD/gAAA/4AAAP+AAAAAgACAAAAAgAAAAIAAAAGAAAD+gAAA/4AAAACAAAABgAAA/oAAAP+AAAD/gAAA/4AAAAABAAAAgAOAA4AAEwAAAQEBAQEBAQEBAQEBAQEBAQEBAQEAAAAAAQAAAACAAAAAgAAAAIAAAAEAAAD/AAAA/4AAAP+AAAD/gAAAAIADAAAA/oAAAACAAAD/gAAAAYAAAP0AAAAAgAAAAIAAAP+AAAD/gAAAAAEAAACAA4ADgAAjAAABAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEAAAAAAIAAAACAAAD/gAAA/4AAAAEAAAAAgAAAAIAAAACAAAABAAAA/4AAAP+AAAAAgAAAAIAAAP8AAAD/gAAA/4AAAP+AAAAAgACAAAAAgAAAAQAAAACAAAAAgAAA/4AAAP+AAAAAgAAAAIAAAP+AAAD/gAAA/wAAAP+AAAD/gAAAAIAAAACAAAD/gAAA/4AAAAABAIAAgAOAA4AADwAAAQEBAQEBAQEBAQEBAQEBAQGAAAD/gAAA/4AAAAEAAAABAAAAAQAAAP+AAAD/gAAAAIABAAAAAIAAAAGAAAD+gAAAAYAAAP6AAAD/gAAA/wAAAAABAAAAgAOAA4AAEwAAAQEBAQEBAQEBAQEBAQEBAQEBAQEAAAAAAIAAAAEAAAABAAAA/YAAAAOAAAD/gAAA/wAAAP8AAAACgAAAAIABAAAAAIAAAACAAAAAgAAAAIAAAP8AAAD/gAAA/4AAAP+AAAD/gAAAAAEAgACAAoAEAAATAAABAQEBAQEBAQEBAQEBAQEBAQEBAQGAAAD/gAAA/4AAAACAAAAAgAAAAQAAAP+AAAD/gAAAAIAAAACAAAAAgACAAAABAAAAAIAAAAEAAAAAgAAA/4AAAP8AAAD/gAAA/wAAAP+AAAAAAQEAAIACAAQAAAMAAAEBAQEBAAAAAQAAAACAA4AAAPyAAAAAAQEAAIADAAQAABMAAAEBAQEBAQEBAQEBAQEBAQEBAQEBAQAAAACAAAAAgAAA/4AAAP+AAAABAAAAAIAAAACAAAD/gAAA/4AAAACAAIAAAAEAAAAAgAAAAQAAAACAAAD/gAAA/wAAAP+AAAD/AAAA/4AAAAABAAABAAOAAwAAEwAAAQEBAQEBAQEBAQEBAQEBAQEBAQECAAAA/4AAAP8AAAD/gAAAAIAAAAEAAAAAgAAAAQAAAACAAAD/gAAAAQAAgAAAAIAAAP+AAAABAAAAAIAAAP+AAAD/gAAAAIAAAP8AAAD/gAAAAAIBAAKAAgAEAAAFAAkAAAEBAQEBAQEBAQEBAAAAAIAAAACAAAD/gAAAAIAAAAKAAQAAAP+AAAD/gAEAAIAAAP+AAAAAAgGAAoACgAQAAAMACQAAAQEBAQEBAQEBAQGAAAAAgAAAAAAAAP+AAAABAAAAAoAAgAAA/4AAgACAAAAAgAAA/wAAAAAEAIACgAMABAAABQALAA8AEwAAAQEBAQEBAQEBAQEBAQEBAQEBAQEAgAAAAIAAAACAAAAAgAAAAIAAAACAAAD+AAAAAIAAAAEAAAAAgAAAAoABAAAA/4AAAP+AAAABAAAA/4AAAP+AAQAAgAAA/4AAAACAAAD/gAAEAIACgAMABAAAAwAHAA0AEwAAAQEBAQEBAQEBAQEBAQEBAQEBAQEAgAAAAIAAAAEAAAAAgAAA/oAAAP+AAAABAAAAAQAAAP+AAAABAAAAAoAAgAAA/4AAAACAAAD/gACAAIAAAACAAAD/AAAAAIAAAACAAAD/AAAAADACRgAAAAAAAAAAACgAAAAAAAAAAAABABIAKAAAAAAAAAACAA4AOgAAAAAAAAADABIASAAAAAAAAAAEACIAWgAAAAAAAAAFABYAfAAAAAAAAAAGABAAkgAAAAAAAAAHAFYAogAAAAAAAAAIACwA+AAAAAAAAAAJAAoBJAAAAAAAAAAKAEwBLgAAAAAAAAALAHgBegAAAAAAAAAMAG4B8gAAAAAAAAANACQCYAAAAAAAAAATAFIChAAAAAAAAAEAABgC1gABAAAAAAAAABQC7gABAAAAAAABAAkDAgABAAAAAAACAAcDCwABAAAAAAADAAkDEgABAAAAAAAEABEDGwABAAAAAAAFAAsDLAABAAAAAAAGAAgDNwABAAAAAAAHACsDPwABAAAAAAAIABYDagABAAAAAAAJAAUDgAABAAAAAAAKACUDhQABAAAAAAALADwDqgABAAAAAAAMADcD5gABAAAAAAANABIEHQABAAAAAAATACkELwABAAAAAAEAAAwEWAADAAEECQAAACgEZAADAAEECQABABIEjAADAAEECQACAA4EngADAAEECQADABIErAADAAEECQAEACIEvgADAAEECQAFABYE4AADAAEECQAGABAE9gADAAEECQAHAFYFBgADAAEECQAIACwFXAADAAEECQAJAAoFiAADAAEECQAKAEwFkgADAAEECQALAHgF3gADAAEECQAMAG4GVgADAAEECQANACQGxAADAAEECQATAFIG6AADAAEECQEAABgHOgBDAG8AcAB5AHIAaQBnAGgAdAAgAFIAdQBpAGwAeAAgADIAMAAxADUATgBFAFMAIABQAGkAeABlAGwAUgBlAGcAdQBsAGEAcgBOAEUAUwAgAFAAaQB4AGUAbABOAEUAUwAgAFAAaQB4AGUAbAAgAFIAZQBnAHUAbABhAHIAVgBlAHIAcwBpAG8AbgAgADEALgAwAE4ARQBTAFAAaQB4AGUAbABGAG8AbgB0AFMAdAByAHUAYwB0ACAAaQBzACAAYQAgAHQAcgBhAGQAZQBtAGEAcgBrACAAbwBmACAARgBvAG4AdABTAHQAcgB1AGMAdAAuAGMAbwBtAGgAdAB0AHAAcwA6AC8ALwBmAG8AbgB0AHMAdAByAHUAYwB0AC4AYwBvAG0AUgB1AGkAbAB4IBwATgBFAFMAIABQAGkAeABlAGwgHQAgAHcAYQBzACAAYgB1AGkAbAB0ACAAdwBpAHQAaAAgAEYAbwBuAHQAUwB0AHIAdQBjAHQACgBoAHQAdABwAHMAOgAvAC8AZgBvAG4AdABzAHQAcgB1AGMAdAAuAGMAbwBtAC8AZgBvAG4AdABzAHQAcgB1AGMAdABpAG8AbgBzAC8AcwBoAG8AdwAvADEAMQA5ADgANAA0ADUALwBuAGUAcwBfAHAAaQB4AGUAbABoAHQAdABwAHMAOgAvAC8AZgBvAG4AdABzAHQAcgB1AGMAdAAuAGMAbwBtAC8AZgBvAG4AdABzAHQAcgB1AGMAdABvAHIAcwAvAHMAaABvAHcALwAxADEAOQA3ADcAMAA0AC8AcgB1AGkAbAB4AEYAbwBuAHQAUwB0AHIAdQBjAHQAIABMAGkAYwBlAG4AcwBlAEYAaQB2AGUAIABiAGkAZwAgAHEAdQBhAGMAawBpAG4AZwAgAHoAZQBwAGgAeQByAHMAIABqAG8AbAB0ACAAbQB5ACAAdwBhAHgAIABiAGUAZABBAHcAZwBCAGYAVgAxAGcAVwB3AD0APUNvcHlyaWdodCBSdWlseCAyMDE1TkVTIFBpeGVsUmVndWxhck5FUyBQaXhlbE5FUyBQaXhlbCBSZWd1bGFyVmVyc2lvbiAxLjBORVNQaXhlbEZvbnRTdHJ1Y3QgaXMgYSB0cmFkZW1hcmsgb2YgRm9udFN0cnVjdC5jb21odHRwczovL2ZvbnRzdHJ1Y3QuY29tUnVpbHjSTkVTIFBpeGVs0yB3YXMgYnVpbHQgd2l0aCBGb250U3RydWN0aHR0cHM6Ly9mb250c3RydWN0LmNvbS9mb250c3RydWN0aW9ucy9zaG93LzExOTg0NDUvbmVzX3BpeGVsaHR0cHM6Ly9mb250c3RydWN0LmNvbS9mb250c3RydWN0b3JzL3Nob3cvMTE5NzcwNC9ydWlseEZvbnRTdHJ1Y3QgTGljZW5zZUZpdmUgYmlnIHF1YWNraW5nIHplcGh5cnMgam9sdCBteSB3YXggYmVkQXdnQmZWMWdXdz09AEMAbwBwAHkAcgBpAGcAaAB0ACAAUgB1AGkAbAB4ACAAMgAwADEANQBOAEUAUwAgAFAAaQB4AGUAbABSAGUAZwB1AGwAYQByAE4ARQBTACAAUABpAHgAZQBsAE4ARQBTACAAUABpAHgAZQBsACAAUgBlAGcAdQBsAGEAcgBWAGUAcgBzAGkAbwBuACAAMQAuADAATgBFAFMAUABpAHgAZQBsAEYAbwBuAHQAUwB0AHIAdQBjAHQAIABpAHMAIABhACAAdAByAGEAZABlAG0AYQByAGsAIABvAGYAIABGAG8AbgB0AFMAdAByAHUAYwB0AC4AYwBvAG0AaAB0AHQAcABzADoALwAvAGYAbwBuAHQAcwB0AHIAdQBjAHQALgBjAG8AbQBSAHUAaQBsAHggHABOAEUAUwAgAFAAaQB4AGUAbCAdACAAdwBhAHMAIABiAHUAaQBsAHQAIAB3AGkAdABoACAARgBvAG4AdABTAHQAcgB1AGMAdAAKAGgAdAB0AHAAcwA6AC8ALwBmAG8AbgB0AHMAdAByAHUAYwB0AC4AYwBvAG0ALwBmAG8AbgB0AHMAdAByAHUAYwB0AGkAbwBuAHMALwBzAGgAbwB3AC8AMQAxADkAOAA0ADQANQAvAG4AZQBzAF8AcABpAHgAZQBsAGgAdAB0AHAAcwA6AC8ALwBmAG8AbgB0AHMAdAByAHUAYwB0AC4AYwBvAG0ALwBmAG8AbgB0AHMAdAByAHUAYwB0AG8AcgBzAC8AcwBoAG8AdwAvADEAMQA5ADcANwAwADQALwByAHUAaQBsAHgARgBvAG4AdABTAHQAcgB1AGMAdAAgAEwAaQBjAGUAbgBzAGUARgBpAHYAZQAgAGIAaQBnACAAcQB1AGEAYwBrAGkAbgBnACAAegBlAHAAaAB5AHIAcwAgAGoAbwBsAHQAIABtAHkAIAB3AGEAeAAgAGIAZQBkAEEAdwBnAEIAZgBWADEAZwBXAHcAPQA9AAMAAAAAAAAAZgAzAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABAAAAAA==) format('truetype');
+  font-display: block;
+}
+
+@font-face {
+  font-family: 'rajdhani';
+  src: url('./font.ttf') format('truetype');
+  font-display: swap;
+}
+:root {
+  --stage-lo: #16110d;
+  --stage-hi: #241a12;
+  --paper: #f2e8d8;
+  --paper-dim: #b8ac98;
+  --ghost: #8a7f72;
+  --red: #e0523a;
+  --blue: #3f7cc4;
+  --amber: #e8a33d;
+  --line: rgba(232, 163, 61, 0.28);
+  --panel: rgba(13, 10, 6, 0.55);
+}
+* { box-sizing: border-box; }
+body {
+  margin: 0;
+  background: radial-gradient(120% 90% at 50% 0%, var(--stage-hi), var(--stage-lo) 70%);
+  color: var(--paper);
+  font-family: 'rajdhani', 'Avenir Next Condensed', 'Arial Narrow', sans-serif;
+  font-size: 16px;
+  line-height: 1.35;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  overflow-x: hidden;
+}
+.pix { font-family: 'nes-pixel', monospace; text-transform: none; }
+
+/* the game's own splat sprites, ported out of global.nim (see the script) */
+#splats { position: absolute; top: 0; left: 0; z-index: 0; pointer-events: none;
+          image-rendering: pixelated; image-rendering: crisp-edges; }
+
+.wrap { position: relative; z-index: 1; max-width: 1180px; margin: 0 auto; padding: 34px 22px 46px; }
+
+/* ── title ── */
+.title { text-align: center; margin-bottom: 26px; }
+.title .season { font-size: 12px; color: var(--amber); letter-spacing: 0.2em; margin-bottom: 10px; }
+.title h1 {
+  font-size: 40px; margin: 0; line-height: 1;
+  color: var(--paper);
+  text-shadow: 3px 3px 0 rgba(0,0,0,0.55), -2px 2px 0 rgba(224,82,58,0.35), 2px -2px 0 rgba(63,124,196,0.35);
+}
+.title .tag { margin-top: 12px; font-size: 15px; font-weight: 600; color: var(--paper-dim); letter-spacing: 0.14em; }
+.title .tag b { color: var(--amber); font-weight: 600; }
+
+/* ── panels ── */
+.grid { display: grid; grid-template-columns: 1.05fr 1.35fr 0.95fr; gap: 14px; }
+.panel { background: var(--panel); border: 1px solid var(--line); padding: 12px 14px 10px; }
+.panel h2 {
+  font-size: 12px; margin: 0 0 10px; color: var(--amber);
+  letter-spacing: 0.1em; border-bottom: 1px solid var(--line); padding-bottom: 7px;
+}
+.panel h2 small { color: var(--ghost); font-size: 9px; letter-spacing: 0.06em; }
+.stack { display: flex; flex-direction: column; gap: 14px; }
+
+/* rows: name left, amount right */
+.row { display: flex; align-items: baseline; gap: 8px; padding: 3.5px 0; }
+.row .name { white-space: nowrap; font-weight: 600; }
+.row .q { color: var(--ghost); font-size: 12px; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.row .fill { flex: 1; }
+.row .amt { font-size: 12px; color: var(--amber); white-space: nowrap; }
+.row .amt.neg { color: var(--red); }
+.row .amt.zero { color: var(--ghost); }
+.subhead { font-size: 10px; color: var(--ghost); letter-spacing: 0.16em; margin: 10px 0 3px; }
+.row:first-of-type + .subhead { margin-top: 0; }
+
+/* ranks */
+.rank .name { color: var(--paper); font-size: 11px; }
+.rank .stars { color: var(--amber); font-size: 11px; letter-spacing: 2px; }
+.rank .amt { color: var(--paper-dim); }
+.rankbuff { margin: -2px 0 6px; font-size: 13px; color: var(--paper-dim); font-weight: 500; }
+.foot { margin-top: 9px; padding-top: 7px; border-top: 1px solid var(--line); font-size: 11px; color: var(--ghost); letter-spacing: 0.1em; }
+
+/* deeds: pop words */
+.pop { font-size: 11px; color: var(--paper); text-shadow: 2px 2px 0 rgba(0,0,0,0.7); }
+.pop.neg { color: var(--red); }
+.pop.quiet { color: var(--ghost); text-shadow: none; }
+
+/* achievements */
+.achhead { display: flex; align-items: baseline; justify-content: space-between; gap: 14px; margin: 22px 0 10px; border-bottom: 1px solid var(--line); padding-bottom: 8px; flex-wrap: wrap; }
+.achhead h2 { font-size: 13px; margin: 0; color: var(--amber); letter-spacing: 0.1em; }
+.achhead .prices { font-size: 11px; color: var(--paper-dim); }
+.achhead .prices b { color: var(--amber); font-weight: 600; }
+.trees { display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; }
+.trees.endcard { grid-template-columns: repeat(2, 1fr); max-width: 620px; margin: 0 auto; }
+.tree { background: var(--panel); border: 1px solid var(--line); padding: 10px 12px; }
+.tree h3 { font-size: 10px; margin: 0 0 8px; color: var(--paper); letter-spacing: 0.08em; border-bottom: 1px solid var(--line); padding-bottom: 6px; }
+.tree .row { padding: 2.5px 0; }
+.tree .tier { font-size: 9px; color: var(--amber); width: 30px; flex-shrink: 0; }
+.tree .name { font-size: 14px; }
+.tree .q { font-size: 12px; }
+
+.colo { margin-top: 18px; text-align: center; font-size: 9px; color: var(--ghost); }
+
+@media (max-width: 980px) {
+  .grid { grid-template-columns: 1fr 1fr; }
+  .grid .stack { grid-column: 1 / -1; flex-direction: row; flex-wrap: wrap; }
+  .grid .stack .panel { flex: 1 1 240px; }
+  .trees { grid-template-columns: repeat(2, 1fr); }
+}
+@media (max-width: 620px) {
+  .grid { grid-template-columns: 1fr; }
+  .grid .stack { flex-direction: column; }
+  .grid .stack .panel { flex: 0 0 auto; }
+  .trees { grid-template-columns: 1fr; }
+  .title h1 { font-size: 28px; }
+  .row .q { white-space: normal; }
+}
+</style>
+</head>
+<body>
+
+<canvas id="splats" aria-hidden="true"></canvas>
+
+<div class="wrap">
+
+  <div class="title">
+    <div class="season pix">SEASON 2</div>
+    <h1 class="pix">CHEAT SHEET</h1>
+    <div class="tag">RANKS PAY <b>POWER</b> &nbsp;&middot;&nbsp; DEEDS PAY <b>GLORY</b></div>
+  </div>
+
+  <div class="grid">
+
+    <!-- ── RANK UP ── -->
+    <div class="panel">
+      <h2 class="pix">RANK UP <small>XP &middot; ONE LIFE</small></h2>
+      <div class="row rank"><span class="name pix">PRIMER</span><span class="fill"></span><span class="amt pix">0</span></div>
+      <div class="rankbuff">base kit</div>
+      <div class="row rank"><span class="name pix">DABBLER</span><span class="stars">&#10033;</span><span class="fill"></span><span class="amt pix">9</span></div>
+      <div class="rankbuff">windup 5 &rarr; 4</div>
+      <div class="row rank"><span class="name pix">SPLATTER</span><span class="stars">&#10033;&#10033;</span><span class="fill"></span><span class="amt pix">15</span></div>
+      <div class="rankbuff">spray recharge 20 &rarr; 12</div>
+      <div class="row rank"><span class="name pix">DRENCHER</span><span class="stars">&#10033;&#10033;&#10033;</span><span class="fill"></span><span class="amt pix">24</span></div>
+      <div class="rankbuff">+1 max hp &middot; supply drops on &middot; you = bounty</div>
+      <div class="row rank"><span class="name pix">ARTIST</span><span class="stars">&#10033;&#10033;&#10033;&#10033;</span><span class="fill"></span><span class="amt pix">33</span></div>
+      <div class="rankbuff">cooldown &minus;25% &middot; bombs hold 2</div>
+      <div class="row rank"><span class="name pix">MAESTRO</span><span class="stars">&#10033;&#10033;&#10033;&#10033;&#10033;</span><span class="fill"></span><span class="amt pix">48</span></div>
+      <div class="rankbuff">windup &rarr; 3 &middot; carry at full speed</div>
+      <div class="foot">RESET ON DEATH &middot; +HP IS HEADROOM, NOT A HEAL</div>
+    </div>
+
+    <!-- ── DEEDS ── -->
+    <div class="panel">
+      <h2 class="pix">DEEDS <small>TEAM GLORY</small></h2>
+      <div class="subhead">COMBAT</div>
+      <div class="row"><span class="pop pix">TAG</span><span class="fill"></span><span class="amt pix">+10</span></div>
+      <div class="row"><span class="pop pix">FIRST!</span><span class="q">first tag of the game</span><span class="fill"></span><span class="amt pix">+12</span></div>
+      <div class="row"><span class="pop pix">SPRAYED</span><span class="fill"></span><span class="amt pix">+12</span></div>
+      <div class="row"><span class="pop pix">BOMBED</span><span class="fill"></span><span class="amt pix">+12</span></div>
+      <div class="row"><span class="pop pix">POINT-BLANK</span><span class="q">inside 110 px</span><span class="fill"></span><span class="amt pix">+12</span></div>
+      <div class="row"><span class="pop pix">CHASE</span><span class="q">they were running</span><span class="fill"></span><span class="amt pix">+16</span></div>
+      <div class="row"><span class="pop pix">PAYBACK</span><span class="q">avenge yourself &le;10 s</span><span class="fill"></span><span class="amt pix">+18</span></div>
+      <div class="row"><span class="pop pix">LONGSHOT</span><span class="q">past 700 px</span><span class="fill"></span><span class="amt pix">+30</span></div>
+      <div class="row"><span class="pop pix">MULTI!</span><span class="q">2+ with one blast</span><span class="fill"></span><span class="amt pix">+35</span></div>
+      <div class="row"><span class="pop pix">BOUNTY</span><span class="q">down an ace &#10033;&#10033;&#10033;</span><span class="fill"></span><span class="amt pix">+40</span></div>
+      <div class="row"><span class="pop pix">WIPEOUT</span><span class="q">whole squad splatted</span><span class="fill"></span><span class="amt pix">+400</span></div>
+      <div class="subhead">COLLABORATION</div>
+      <div class="row"><span class="pop pix">ESCORT</span><span class="q">kill while ally carries</span><span class="fill"></span><span class="amt pix">+14</span></div>
+      <div class="row"><span class="pop pix">ASSIST</span><span class="q">last hit before an ally's kill</span><span class="fill"></span><span class="amt pix">+14</span></div>
+      <div class="row"><span class="pop pix">RESCUE</span><span class="q">kill the one who almost got an ally</span><span class="fill"></span><span class="amt pix">+18</span></div>
+      <div class="subhead">THE HEART</div>
+      <div class="row"><span class="pop pix">STEAL</span><span class="fill"></span><span class="amt pix">+40</span></div>
+      <div class="row"><span class="pop pix">PEEL</span><span class="q">kill their carrier</span><span class="fill"></span><span class="amt pix">+90</span></div>
+      <div class="row"><span class="pop pix">DENIED!</span><span class="q">peel at the doorstep</span><span class="fill"></span><span class="amt pix">+120</span></div>
+      <div class="row"><span class="pop pix">CAPTURE</span><span class="fill"></span><span class="amt pix">+250</span></div>
+      <div class="subhead">TEAM</div>
+      <div class="row"><span class="pop quiet pix">SHIELD SOAK</span><span class="q">no pop, no heat</span><span class="fill"></span><span class="amt pix">+4<span class="q">/hp</span></span></div>
+      <div class="row"><span class="pop neg pix">OWN PAINT</span><span class="q">&minus;20 xp too</span><span class="fill"></span><span class="amt pix neg">&minus;60</span></div>
+      <div class="row"><span class="pop quiet pix">RANK UP &#10033;</span><span class="q">stars only</span><span class="fill"></span><span class="amt pix zero">+0</span></div>
+    </div>
+
+    <!-- ── side stack ── -->
+    <div class="stack">
+      <div class="panel">
+        <h2 class="pix">XP <small>YOURS &middot; KILLS PAY 0</small></h2>
+        <div class="row"><span class="name">DAMAGE</span><span class="fill"></span><span class="amt pix">+3<span class="q">/hp</span></span></div>
+        <div class="row"><span class="name">STEAL</span><span class="fill"></span><span class="amt pix">+12</span></div>
+        <div class="row"><span class="name">CAPTURE</span><span class="q">the win is the reward</span><span class="fill"></span><span class="amt pix zero">+0</span></div>
+        <div class="row"><span class="name">PEEL</span><span class="fill"></span><span class="amt pix">+12</span></div>
+        <div class="row"><span class="name">TEAM PAINT</span><span class="fill"></span><span class="amt pix neg">&minus;20</span></div>
+      </div>
+
+      <div class="panel">
+        <h2 class="pix">MULTIPLIERS <small>IN ORDER</small></h2>
+        <div class="row"><span class="name">ENEMY GROUND</span><span class="fill"></span><span class="amt pix">&times;1.5</span></div>
+        <div class="row"><span class="name">HEAT</span><span class="q">1 / 2 / 4 embers</span><span class="fill"></span><span class="amt pix">&times;2 &times;4 &times;8</span></div>
+        <div class="row"><span class="name">CARRYING</span><span class="q">heat deeds only</span><span class="fill"></span><span class="amt pix">&times;2</span></div>
+        <div class="foot">QUIET ~11 S = &minus;2 EMBERS &middot; PENALTIES NEVER MULTIPLY</div>
+      </div>
+
+      <div class="panel">
+        <h2 class="pix">SUPPLY DROP <small>&#10033;&#10033;&#10033;+</small></h2>
+        <div class="row"><span class="name">EVERY 20 XP</span><span class="fill"></span><span class="amt pix">1 DROP</span></div>
+        <div class="row"><span class="q">med kit &rarr; bomb &rarr; spray &rarr; shield</span><span class="fill"></span></div>
+        <div class="foot">MAX 4 / LIFE &middot; EARNED, NEVER FARMED</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── achievements ── -->
+  <div class="achhead">
+    <h2 class="pix">ACHIEVEMENTS <small style="color:var(--ghost); font-size:9px;">ONE CLAIM PER TEAM PER GAME</small></h2>
+    <div class="prices pix">I 9 &middot; II 11 &middot; III 14 &middot; IV 18 &middot; V 23 &nbsp;&mdash;&nbsp; <b>FIRST V &times;3 = 69</b></div>
+  </div>
+  <div class="trees">
+
+    <div class="tree">
+      <h3 class="pix">THE SIDEARM</h3>
+      <div class="row"><span class="tier pix">I</span><span class="name">First Tag</span><span class="fill"></span><span class="q">gun kill</span></div>
+      <div class="row"><span class="tier pix">II</span><span class="name">Marksman</span><span class="fill"></span><span class="q">3 gun kills</span></div>
+      <div class="row"><span class="tier pix">III</span><span class="name">Bounty</span><span class="fill"></span><span class="q">down an ace</span></div>
+      <div class="row"><span class="tier pix">IV</span><span class="name">Sharpshooter</span><span class="fill"></span><span class="q">hit max rank</span></div>
+      <div class="row"><span class="tier pix">V</span><span class="name">Longshot</span><span class="fill"></span><span class="q">kill past 700 px</span></div>
+    </div>
+
+    <div class="tree">
+      <h3 class="pix">THE CAN</h3>
+      <div class="row"><span class="tier pix">I</span><span class="name">First Coat</span><span class="fill"></span><span class="q">spray kill</span></div>
+      <div class="row"><span class="tier pix">II</span><span class="name">Full Coverage</span><span class="fill"></span><span class="q">2 spray kills</span></div>
+      <div class="row"><span class="tier pix">III</span><span class="name">Repainted</span><span class="fill"></span><span class="q">2 kills, one can</span></div>
+      <div class="row"><span class="tier pix">IV</span><span class="name">The Muralist</span><span class="fill"></span><span class="q">3 kills, one can</span></div>
+      <div class="row"><span class="tier pix">V</span><span class="name">Double Splash</span><span class="fill"></span><span class="q">2+ with one cone</span></div>
+    </div>
+
+    <div class="tree">
+      <h3 class="pix">THE BOMB</h3>
+      <div class="row"><span class="tier pix">I</span><span class="name">Delivery</span><span class="fill"></span><span class="q">bomb kill</span></div>
+      <div class="row"><span class="tier pix">II</span><span class="name">Splatterbomb</span><span class="fill"></span><span class="q">2 bomb kills</span></div>
+      <div class="row"><span class="tier pix">III</span><span class="name">Blast Radius</span><span class="fill"></span><span class="q">2+ in one blast</span></div>
+      <div class="row"><span class="tier pix">IV</span><span class="name">Double Blast</span><span class="fill"></span><span class="q">two 2+ blasts</span></div>
+      <div class="row"><span class="tier pix">V</span><span class="name">The Bombardier</span><span class="fill"></span><span class="q">3 bomb kills</span></div>
+    </div>
+
+    <div class="tree">
+      <h3 class="pix">THE BACKUP</h3>
+      <div class="row"><span class="tier pix">I</span><span class="name">Cover Fire</span><span class="fill"></span><span class="q">assist</span></div>
+      <div class="row"><span class="tier pix">II</span><span class="name">Escort Duty</span><span class="fill"></span><span class="q">kill while ally carries</span></div>
+      <div class="row"><span class="tier pix">III</span><span class="name">The Save</span><span class="fill"></span><span class="q">kill ally's attacker</span></div>
+      <div class="row"><span class="tier pix">IV</span><span class="name">Second Wind</span><span class="fill"></span><span class="q">get saved, then kill</span></div>
+      <div class="row"><span class="tier pix">V</span><span class="name">Squad Volley</span><span class="fill"></span><span class="q">3 allies kill fast</span></div>
+    </div>
+
+    <div class="tree">
+      <h3 class="pix">THE PROVIDER</h3>
+      <div class="row"><span class="tier pix">I</span><span class="name">First Delivery</span><span class="fill"></span><span class="q">ally takes your drop</span></div>
+      <div class="row"><span class="tier pix">II</span><span class="name">Clutch Delivery</span><span class="fill"></span><span class="q">it saves a hurt ally</span></div>
+      <div class="row"><span class="tier pix">III</span><span class="name">Regular Route</span><span class="fill"></span><span class="q">3 drops shared</span></div>
+      <div class="row"><span class="tier pix">IV</span><span class="name">Emergency Route</span><span class="fill"></span><span class="q">2 clutch saves</span></div>
+      <div class="row"><span class="tier pix">V</span><span class="name">Supply Chain</span><span class="fill"></span><span class="q">6 drops shared</span></div>
+    </div>
+
+    <div class="tree">
+      <h3 class="pix">THE HEART</h3>
+      <div class="row"><span class="tier pix">I</span><span class="name">Hands On</span><span class="fill"></span><span class="q">contested steal</span></div>
+      <div class="row"><span class="tier pix">II</span><span class="name">Fighting Carry</span><span class="fill"></span><span class="q">kill while carrying</span></div>
+      <div class="row"><span class="tier pix">III</span><span class="name">Double Steal</span><span class="fill"></span><span class="q">2 contested steals</span></div>
+      <div class="row"><span class="tier pix">IV</span><span class="name">Hard Carry</span><span class="fill"></span><span class="q">2 steals + a carry kill</span></div>
+      <div class="row"><span class="tier pix">V</span><span class="name">Delivered</span><span class="fill"></span><span class="q">capture</span></div>
+    </div>
+
+    <div class="tree">
+      <h3 class="pix">THE PEEL</h3>
+      <div class="row"><span class="tier pix">I</span><span class="name">The Peel</span><span class="fill"></span><span class="q">kill the carrier</span></div>
+      <div class="row"><span class="tier pix">II</span><span class="name">Doorstep</span><span class="fill"></span><span class="q">a denial</span></div>
+      <div class="row"><span class="tier pix">III</span><span class="name">Double Peel</span><span class="fill"></span><span class="q">2 carrier kills</span></div>
+      <div class="row"><span class="tier pix">IV</span><span class="name">Turnaround</span><span class="fill"></span><span class="q">peel, then steal</span></div>
+      <div class="row"><span class="tier pix">V</span><span class="name">Lockdown</span><span class="fill"></span><span class="q">2 denials</span></div>
+    </div>
+
+    <div class="tree">
+      <h3 class="pix">THE SQUAD</h3>
+      <div class="row"><span class="tier pix">I</span><span class="name">Kitted</span><span class="fill"></span><span class="q">2 of 3 kits convert</span></div>
+      <div class="row"><span class="tier pix">II</span><span class="name">Full Loadout</span><span class="fill"></span><span class="q">all 3 kits</span></div>
+      <div class="row"><span class="tier pix">III</span><span class="name">Full Kit</span><span class="fill"></span><span class="q">unreachable &mdash; no med kit yet</span></div>
+      <div class="row"><span class="tier pix">IV</span><span class="name">Clean Sheet</span><span class="fill"></span><span class="q">zero team paint</span></div>
+      <div class="row"><span class="tier pix">V</span><span class="name">Victory Lap</span><span class="fill"></span><span class="q">all 3 + a capture</span></div>
+    </div>
+
+  </div>
+
+  <!-- ── endcard distinctions: pinned on the capture, no glory, no claim ── -->
+  <div class="achhead">
+    <h2 class="pix">ENDCARD DISTINCTIONS <small style="color:var(--ghost); font-size:9px;">ON THE CAPTURE ITSELF &middot; NO GLORY &middot; MATCH RECORD ONLY</small></h2>
+  </div>
+  <div class="trees endcard">
+    <div class="tree">
+      <h3 class="pix">UPHILL</h3>
+      <div class="row"><span class="q">capture while your team is outnumbered</span></div>
+    </div>
+    <div class="tree">
+      <h3 class="pix">FAST BREAK</h3>
+      <div class="row"><span class="q">steal &rarr; capture again in 10 s, same life</span></div>
+    </div>
+  </div>
+
+  <div class="colo pix">glory.nim &middot; GLORYVERSION 14</div>
+  <div class="colo pix" style="margin-top:4px;">NOTE (recovered 2026-09-08): re-checked line-by-line against src/ctf/glory.nim GV14. Fixed since the v12 draft &mdash; capture XP tombstoned to 0, HEAT ARM E retuned the ember ladder (was 2/5/10 over a ~2s window, now 1/2/4 over an ~11s window), and Squad's kit tiers now read against the 3 implemented kits (Full Kit/III stays unreachable until the med leg lands). Rank names (PRIMER/DABBLER/SPLATTER/DRENCHER/ARTIST/MAESTRO) were NOT re-synced to glory.nim's current LevelNames (recruit/tagger/marksman/ironhide/quickdraw/legend) &mdash; that is a naming call for the owner, not a data fix.</div>
+
+</div>
+
+<script>
+// ── THE SPLATS ARE THE GAME'S OWN ──────────────────────────────────────────
+// Ported pixel-for-pixel out of src/ctf/global.nim — same integer hash, same
+// droplet offsets, same wobble, same fade stages — so these are the exact
+// shapes the engine stamps on the floor, not an impression of them:
+//
+//   buildHitSparkSprite (21x21, HitSplatCoreR 6.0) — the on-hit paint splat:
+//     a wet glossy core with a hash-perturbed irregular edge, SIX flung
+//     droplets ringed around it, a bright sheen lobe up-left, and a thin dark
+//     contour of the same hue so it pops off a dark floor.
+//   buildSplatterSprite (13x13) — the puddle: a dense blob thinned by a
+//     per-pixel hash dither, sparser as the stage climbs.
+//
+// Recolored to the two team paints, which Maxwell has explicitly sanctioned.
+// The three color transforms are the sprite's own: paint lightens the base so
+// it never muddies, sheen runs near-white, contour is a deep version of the
+// SAME hue (never brown — this is paint, not blood).
+var RED = '#e0523a', BLUE = '#3f7cc4';   // the two team paints (--red / --blue)
+var HIT_SIZE = 21, HIT_CORE_R = 6.0, PUDDLE_SIZE = 13, SPLAT_STAGES = 4;
+var DROPLETS = [[-8,-3,2.4], [7,-6,2.0], [9,4,2.6], [-6,7,2.2], [2,9,1.8], [-9,2,1.7]];
+
+// global.nim's pixel hash, in uint32 (Math.imul keeps the 32-bit wrap honest).
+function hashNoise(x, y) {
+  var n = (Math.imul(x, 374761393) + Math.imul(y, 668265263)) >>> 0;
+  return Math.imul(n ^ (n >>> 13), 1274126177) >>> 0;
+}
+function rgbOf(hex) {
+  var m = /^#?([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})$/i.exec(hex);
+  return { r: parseInt(m[1], 16), g: parseInt(m[2], 16), b: parseInt(m[3], 16) };
+}
+function spriteCanvas(w, h) {
+  var cv = document.createElement('canvas'); cv.width = w; cv.height = h; return cv;
+}
+
+// buildHitSparkSprite
+function buildHitSplat(hex, stage) {
+  var base = rgbOf(hex);
+  var paint = { r: (base.r * 3 + 255) >> 2, g: (base.g * 3 + 255) >> 2, b: (base.b * 3 + 255) >> 2 };
+  var sheenC = { r: (base.r + 765) >> 2, g: (base.g + 765) >> 2, b: (base.b + 765) >> 2 };
+  var edge = { r: (base.r * 2 / 5) | 0, g: (base.g * 2 / 5) | 0, b: (base.b * 2 / 5) | 0 };
+  var c = (HIT_SIZE - 1) / 2;
+  var fade = 1.0 - 0.62 * (stage / (SPLAT_STAGES - 1));
+  var coreR2 = HIT_CORE_R * HIT_CORE_R;
+  var cv = spriteCanvas(HIT_SIZE, HIT_SIZE);
+  var ictx = cv.getContext('2d');
+  var img = ictx.createImageData(HIT_SIZE, HIT_SIZE);
+  for (var y = 0; y < HIT_SIZE; y++) {
+    for (var x = 0; x < HIT_SIZE; x++) {
+      var dx = x - c, dy = y - c, d2 = dx * dx + dy * dy;
+      var noise = hashNoise(x, y);
+      var wobble = ((noise >>> 16) % 7) - 3;              // -3..+3 px
+      var coreEdge = HIT_CORE_R + wobble * 0.5;
+      var inShape = d2 <= coreEdge * coreEdge;
+      var onEdge = d2 > (coreEdge - 1.6) * (coreEdge - 1.6) && inShape;
+      if (!inShape) {
+        for (var k = 0; k < DROPLETS.length; k++) {
+          var ox = DROPLETS[k][0], oy = DROPLETS[k][1], dr = DROPLETS[k][2];
+          var ddx = x - (c + ox), ddy = y - (c + oy), dd2 = ddx * ddx + ddy * ddy;
+          if (dd2 <= dr * dr) { inShape = true; onEdge = dd2 > (dr - 1.0) * (dr - 1.0); break; }
+        }
+      }
+      if (!inShape) continue;
+      var sxr = dx + 2.0, syr = dy + 2.0;
+      var sheen = d2 <= coreR2 && (sxr * sxr + syr * syr) <= 5.2 * 5.2 && ((noise >>> 9) % 5) > 0;
+      var col = onEdge ? edge : (sheen ? sheenC : paint);
+      var i = (y * HIT_SIZE + x) * 4;
+      img.data[i] = col.r; img.data[i + 1] = col.g; img.data[i + 2] = col.b;
+      img.data[i + 3] = Math.max(0, Math.min(255, Math.round(255 * fade)));
+    }
+  }
+  ictx.putImageData(img, 0, 0);
+  return cv;
+}
+
+// buildSplatterSprite — the puddle. Late stages shade darker in-engine; these
+// stay on the bright paint so a decorative puddle never reads as a scab.
+function buildPuddle(hex, stage) {
+  var base = rgbOf(hex);
+  var half = PUDDLE_SIZE >> 1;
+  var cv = spriteCanvas(PUDDLE_SIZE, PUDDLE_SIZE);
+  var ictx = cv.getContext('2d');
+  var img = ictx.createImageData(PUDDLE_SIZE, PUDDLE_SIZE);
+  for (var y = 0; y < PUDDLE_SIZE; y++) {
+    for (var x = 0; x < PUDDLE_SIZE; x++) {
+      var dx = x - half, dy = y - half, d2 = dx * dx + dy * dy;
+      if (d2 > half * half) continue;
+      var noise = hashNoise(x, y);
+      var density = 120 - stage * 25 - d2 * 2;
+      if (((noise >>> 16) % 100) < density) {
+        var i = (y * PUDDLE_SIZE + x) * 4;
+        img.data[i] = base.r; img.data[i + 1] = base.g; img.data[i + 2] = base.b;
+        img.data[i + 3] = 255;
+      }
+    }
+  }
+  ictx.putImageData(img, 0, 0);
+  return cv;
+}
+
+var spriteCache = {};
+function sprite(kind, hex, stage) {
+  var key = kind + hex + stage;
+  if (!spriteCache[key]) {
+    spriteCache[key] = kind === 'hit' ? buildHitSplat(hex, stage) : buildPuddle(hex, stage);
+  }
+  return spriteCache[key];
+}
+
+// Where the paint landed. `px` is the pixel scale (these are 21px and 13px
+// sprites, drawn big with smoothing OFF so they stay crisp game pixels).
+// `rot` is in QUARTER turns only — an arbitrary angle would resample the pixel
+// grid and soften the very thing that makes them read as the game's art.
+var SPOTS = [
+  { x: 0.055, y: 0.045, k: 'hit',    c: RED,  st: 0, px: 15, a: 0.90, rot: 0, flip: false },
+  { x: 0.945, y: 0.075, k: 'hit',    c: BLUE, st: 0, px: 16, a: 0.90, rot: 1, flip: true  },
+  { x: 0.140, y: 0.150, k: 'puddle', c: RED,  st: 1, px: 11, a: 0.55, rot: 2, flip: false },
+  { x: 0.030, y: 0.400, k: 'puddle', c: BLUE, st: 0, px: 13, a: 0.60, rot: 3, flip: false },
+  { x: 0.968, y: 0.500, k: 'hit',    c: RED,  st: 1, px: 12, a: 0.70, rot: 2, flip: false },
+  { x: 0.075, y: 0.760, k: 'hit',    c: RED,  st: 1, px: 13, a: 0.70, rot: 3, flip: true  },
+  { x: 0.930, y: 0.870, k: 'hit',    c: BLUE, st: 1, px: 12, a: 0.70, rot: 0, flip: false },
+  { x: 0.870, y: 0.700, k: 'puddle', c: BLUE, st: 1, px: 10, a: 0.45, rot: 1, flip: false },
+  { x: 0.030, y: 0.992, k: 'puddle', c: RED,  st: 2, px: 12, a: 0.45, rot: 0, flip: true  }
+];
+
+var splatCanvas = document.getElementById('splats');
+function paintSplats() {
+  var W = document.documentElement.clientWidth;
+  var H = Math.max(document.body.scrollHeight, document.documentElement.clientHeight);
+  var dpr = window.devicePixelRatio || 1;
+  splatCanvas.width = Math.round(W * dpr);
+  splatCanvas.height = Math.round(H * dpr);
+  splatCanvas.style.width = W + 'px';
+  splatCanvas.style.height = H + 'px';
+  var ctx = splatCanvas.getContext('2d');
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  ctx.clearRect(0, 0, W, H);
+  ctx.imageSmoothingEnabled = false;
+  // Narrow screens get a smaller pixel scale so a splat never swallows a panel.
+  var k = W < 620 ? 0.55 : (W < 980 ? 0.78 : 1);
+  for (var i = 0; i < SPOTS.length; i++) {
+    var sp = SPOTS[i];
+    var cv = sprite(sp.k, sp.c, sp.st);
+    var s = cv.width * sp.px * k;
+    ctx.save();
+    ctx.globalAlpha = sp.a;
+    ctx.imageSmoothingEnabled = false;
+    ctx.translate(Math.round(sp.x * W), Math.round(sp.y * H));
+    if (sp.rot) ctx.rotate(sp.rot * Math.PI / 2);
+    if (sp.flip) ctx.scale(-1, 1);
+    ctx.drawImage(cv, Math.round(-s / 2), Math.round(-s / 2), Math.round(s), Math.round(s));
+    ctx.restore();
+  }
+}
+paintSplats();
+window.addEventListener('resize', paintSplats);
+document.fonts && document.fonts.ready && document.fonts.ready.then(paintSplats);
+</script>
+</body>
+</html>

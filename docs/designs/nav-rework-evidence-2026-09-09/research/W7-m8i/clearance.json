@@ -1,0 +1,614 @@
+{
+  "schema": "body_ray_clearance_bound",
+  "maps": [
+    {
+      "map": "data/br_s2_map_pool.json:0:br-gen-20049",
+      "pixels": 2752452,
+      "zero_failures": 0,
+      "boundary_failures": 0,
+      "neighbor_failures": 0,
+      "pass": true
+    },
+    {
+      "map": "data/br_s2_map_pool.json:1:br-gen-20184",
+      "pixels": 2752452,
+      "zero_failures": 0,
+      "boundary_failures": 0,
+      "neighbor_failures": 0,
+      "pass": true
+    },
+    {
+      "map": "data/br_s2_map_pool.json:2:br-gen-20708",
+      "pixels": 2752452,
+      "zero_failures": 0,
+      "boundary_failures": 0,
+      "neighbor_failures": 0,
+      "pass": true
+    },
+    {
+      "map": "data/br_s2_map_pool.json:3:br-gen-20798",
+      "pixels": 2752452,
+      "zero_failures": 0,
+      "boundary_failures": 0,
+      "neighbor_failures": 0,
+      "pass": true
+    },
+    {
+      "map": "data/br_s2_map_pool.json:4:br-gen-20822",
+      "pixels": 2752452,
+      "zero_failures": 0,
+      "boundary_failures": 0,
+      "neighbor_failures": 0,
+      "pass": true
+    },
+    {
+      "map": "data/br_s2_map_pool.json:5:br-gen-20894",
+      "pixels": 2752452,
+      "zero_failures": 0,
+      "boundary_failures": 0,
+      "neighbor_failures": 0,
+      "pass": true
+    },
+    {
+      "map": "data/br_s2_map_pool.json:6:br-gen-20930",
+      "pixels": 2752452,
+      "zero_failures": 0,
+      "boundary_failures": 0,
+      "neighbor_failures": 0,
+      "pass": true
+    },
+    {
+      "map": "data/br_s2_map_pool.json:7:br-gen-21170",
+      "pixels": 2752452,
+      "zero_failures": 0,
+      "boundary_failures": 0,
+      "neighbor_failures": 0,
+      "pass": true
+    },
+    {
+      "map": "data/br_s2_map_pool.json:8:br-gen-21378",
+      "pixels": 2752452,
+      "zero_failures": 0,
+      "boundary_failures": 0,
+      "neighbor_failures": 0,
+      "pass": true
+    },
+    {
+      "map": "data/br_s2_map_pool.json:9:br-gen-21450",
+      "pixels": 2752452,
+      "zero_failures": 0,
+      "boundary_failures": 0,
+      "neighbor_failures": 0,
+      "pass": true
+    },
+    {
+      "map": "data/br_s2_map_pool.json:10:br-gen-21686",
+      "pixels": 2752452,
+      "zero_failures": 0,
+      "boundary_failures": 0,
+      "neighbor_failures": 0,
+      "pass": true
+    },
+    {
+      "map": "data/br_s2_map_pool.json:11:br-gen-21704",
+      "pixels": 2752452,
+      "zero_failures": 0,
+      "boundary_failures": 0,
+      "neighbor_failures": 0,
+      "pass": true
+    },
+    {
+      "map": "data/br_s2_map_pool.json:12:br-gen-21849",
+      "pixels": 2752452,
+      "zero_failures": 0,
+      "boundary_failures": 0,
+      "neighbor_failures": 0,
+      "pass": true
+    },
+    {
+      "map": "data/br_s2_map_pool.json:13:br-gen-21884",
+      "pixels": 2752452,
+      "zero_failures": 0,
+      "boundary_failures": 0,
+      "neighbor_failures": 0,
+      "pass": true
+    },
+    {
+      "map": "data/br_s2_map_pool.json:14:br-gen-21944",
+      "pixels": 2752452,
+      "zero_failures": 0,
+      "boundary_failures": 0,
+      "neighbor_failures": 0,
+      "pass": true
+    },
+    {
+      "map": "data/br_s2_map_pool.json:15:br-gen-22010",
+      "pixels": 2752452,
+      "zero_failures": 0,
+      "boundary_failures": 0,
+      "neighbor_failures": 0,
+      "pass": true
+    },
+    {
+      "map": "data/br_s2_map_pool.json:16:br-gen-22178",
+      "pixels": 2752452,
+      "zero_failures": 0,
+      "boundary_failures": 0,
+      "neighbor_failures": 0,
+      "pass": true
+    },
+    {
+      "map": "data/br_s2_map_pool.json:17:br-gen-22338",
+      "pixels": 2752452,
+      "zero_failures": 0,
+      "boundary_failures": 0,
+      "neighbor_failures": 0,
+      "pass": true
+    },
+    {
+      "map": "data/br_s2_map_pool.json:18:br-gen-22358",
+      "pixels": 2752452,
+      "zero_failures": 0,
+      "boundary_failures": 0,
+      "neighbor_failures": 0,
+      "pass": true
+    },
+    {
+      "map": "data/br_s2_map_pool.json:19:br-gen-22436",
+      "pixels": 2752452,
+      "zero_failures": 0,
+      "boundary_failures": 0,
+      "neighbor_failures": 0,
+      "pass": true
+    },
+    {
+      "map": "data/br_s2_map_pool.json:20:br-gen-22446",
+      "pixels": 2752452,
+      "zero_failures": 0,
+      "boundary_failures": 0,
+      "neighbor_failures": 0,
+      "pass": true
+    },
+    {
+      "map": "data/br_s2_map_pool.json:21:br-gen-22508",
+      "pixels": 2752452,
+      "zero_failures": 0,
+      "boundary_failures": 0,
+      "neighbor_failures": 0,
+      "pass": true
+    },
+    {
+      "map": "data/br_s2_map_pool.json:22:br-gen-22527",
+      "pixels": 2752452,
+      "zero_failures": 0,
+      "boundary_failures": 0,
+      "neighbor_failures": 0,
+      "pass": true
+    },
+    {
+      "map": "data/br_s2_map_pool.json:23:br-gen-22548",
+      "pixels": 2752452,
+      "zero_failures": 0,
+      "boundary_failures": 0,
+      "neighbor_failures": 0,
+      "pass": true
+    },
+    {
+      "map": "data/br_s2_map_pool.json:24:br-gen-22574",
+      "pixels": 2752452,
+      "zero_failures": 0,
+      "boundary_failures": 0,
+      "neighbor_failures": 0,
+      "pass": true
+    },
+    {
+      "map": "data/br_s2_map_pool.json:25:br-gen-22650",
+      "pixels": 2752452,
+      "zero_failures": 0,
+      "boundary_failures": 0,
+      "neighbor_failures": 0,
+      "pass": true
+    },
+    {
+      "map": "data/br_s2_map_pool.json:26:br-gen-22772",
+      "pixels": 2752452,
+      "zero_failures": 0,
+      "boundary_failures": 0,
+      "neighbor_failures": 0,
+      "pass": true
+    },
+    {
+      "map": "data/br_s2_map_pool.json:27:br-gen-22850",
+      "pixels": 2752452,
+      "zero_failures": 0,
+      "boundary_failures": 0,
+      "neighbor_failures": 0,
+      "pass": true
+    },
+    {
+      "map": "data/br_s2_map_pool.json:28:br-gen-23168",
+      "pixels": 2752452,
+      "zero_failures": 0,
+      "boundary_failures": 0,
+      "neighbor_failures": 0,
+      "pass": true
+    },
+    {
+      "map": "data/br_s2_map_pool.json:29:br-gen-23312",
+      "pixels": 2752452,
+      "zero_failures": 0,
+      "boundary_failures": 0,
+      "neighbor_failures": 0,
+      "pass": true
+    },
+    {
+      "map": "data/br_s2_map_pool.json:30:br-gen-23355",
+      "pixels": 2752452,
+      "zero_failures": 0,
+      "boundary_failures": 0,
+      "neighbor_failures": 0,
+      "pass": true
+    },
+    {
+      "map": "data/br_s2_map_pool.json:31:br-gen-23424",
+      "pixels": 2752452,
+      "zero_failures": 0,
+      "boundary_failures": 0,
+      "neighbor_failures": 0,
+      "pass": true
+    },
+    {
+      "map": "data/br_s2_map_pool.json:32:br-gen-23457",
+      "pixels": 2752452,
+      "zero_failures": 0,
+      "boundary_failures": 0,
+      "neighbor_failures": 0,
+      "pass": true
+    },
+    {
+      "map": "data/br_s2_map_pool.json:33:br-gen-23479",
+      "pixels": 2752452,
+      "zero_failures": 0,
+      "boundary_failures": 0,
+      "neighbor_failures": 0,
+      "pass": true
+    },
+    {
+      "map": "data/br_s2_map_pool.json:34:br-gen-23546",
+      "pixels": 2752452,
+      "zero_failures": 0,
+      "boundary_failures": 0,
+      "neighbor_failures": 0,
+      "pass": true
+    },
+    {
+      "map": "data/br_s2_map_pool.json:35:br-gen-23660",
+      "pixels": 2752452,
+      "zero_failures": 0,
+      "boundary_failures": 0,
+      "neighbor_failures": 0,
+      "pass": true
+    },
+    {
+      "map": "data/br_s2_map_pool.json:36:br-gen-23691",
+      "pixels": 2752452,
+      "zero_failures": 0,
+      "boundary_failures": 0,
+      "neighbor_failures": 0,
+      "pass": true
+    },
+    {
+      "map": "data/br_s2_map_pool.json:37:br-gen-23712",
+      "pixels": 2752452,
+      "zero_failures": 0,
+      "boundary_failures": 0,
+      "neighbor_failures": 0,
+      "pass": true
+    },
+    {
+      "map": "data/br_s2_map_pool.json:38:br-gen-23732",
+      "pixels": 2752452,
+      "zero_failures": 0,
+      "boundary_failures": 0,
+      "neighbor_failures": 0,
+      "pass": true
+    },
+    {
+      "map": "data/br_s2_map_pool.json:39:br-gen-23829",
+      "pixels": 2752452,
+      "zero_failures": 0,
+      "boundary_failures": 0,
+      "neighbor_failures": 0,
+      "pass": true
+    },
+    {
+      "map": "data/br_s2_map_pool.json:40:br-gen-23894",
+      "pixels": 2752452,
+      "zero_failures": 0,
+      "boundary_failures": 0,
+      "neighbor_failures": 0,
+      "pass": true
+    },
+    {
+      "map": "data/br_s2_map_pool.json:41:br-gen-23942",
+      "pixels": 2752452,
+      "zero_failures": 0,
+      "boundary_failures": 0,
+      "neighbor_failures": 0,
+      "pass": true
+    },
+    {
+      "map": "data/br_s2_map_pool.json:42:br-gen-24008",
+      "pixels": 2752452,
+      "zero_failures": 0,
+      "boundary_failures": 0,
+      "neighbor_failures": 0,
+      "pass": true
+    },
+    {
+      "map": "data/br_s2_map_pool.json:43:br-gen-24030",
+      "pixels": 2752452,
+      "zero_failures": 0,
+      "boundary_failures": 0,
+      "neighbor_failures": 0,
+      "pass": true
+    },
+    {
+      "map": "data/br_s2_map_pool.json:44:br-gen-24248",
+      "pixels": 2752452,
+      "zero_failures": 0,
+      "boundary_failures": 0,
+      "neighbor_failures": 0,
+      "pass": true
+    },
+    {
+      "map": "data/br_s2_map_pool.json:45:br-gen-24288",
+      "pixels": 2752452,
+      "zero_failures": 0,
+      "boundary_failures": 0,
+      "neighbor_failures": 0,
+      "pass": true
+    },
+    {
+      "map": "data/br_s2_map_pool.json:46:br-gen-24540",
+      "pixels": 2752452,
+      "zero_failures": 0,
+      "boundary_failures": 0,
+      "neighbor_failures": 0,
+      "pass": true
+    },
+    {
+      "map": "data/br_s2_map_pool.json:47:br-gen-24632",
+      "pixels": 2752452,
+      "zero_failures": 0,
+      "boundary_failures": 0,
+      "neighbor_failures": 0,
+      "pass": true
+    },
+    {
+      "map": "data/br_s2_map_pool.json:48:br-gen-24678",
+      "pixels": 2752452,
+      "zero_failures": 0,
+      "boundary_failures": 0,
+      "neighbor_failures": 0,
+      "pass": true
+    },
+    {
+      "map": "data/br_s2_map_pool.json:49:br-gen-24962",
+      "pixels": 2752452,
+      "zero_failures": 0,
+      "boundary_failures": 0,
+      "neighbor_failures": 0,
+      "pass": true
+    },
+    {
+      "map": "data/br_s2_map_pool.json:50:br-gen-24968",
+      "pixels": 2752452,
+      "zero_failures": 0,
+      "boundary_failures": 0,
+      "neighbor_failures": 0,
+      "pass": true
+    },
+    {
+      "map": "data/br_s2_map_pool.json:51:br-gen-25118",
+      "pixels": 2752452,
+      "zero_failures": 0,
+      "boundary_failures": 0,
+      "neighbor_failures": 0,
+      "pass": true
+    },
+    {
+      "map": "data/br_s2_map_pool.json:52:br-gen-25268",
+      "pixels": 2752452,
+      "zero_failures": 0,
+      "boundary_failures": 0,
+      "neighbor_failures": 0,
+      "pass": true
+    },
+    {
+      "map": "data/br_s2_map_pool.json:53:br-gen-25466",
+      "pixels": 2752452,
+      "zero_failures": 0,
+      "boundary_failures": 0,
+      "neighbor_failures": 0,
+      "pass": true
+    },
+    {
+      "map": "data/br_s2_map_pool.json:54:br-gen-25706",
+      "pixels": 2752452,
+      "zero_failures": 0,
+      "boundary_failures": 0,
+      "neighbor_failures": 0,
+      "pass": true
+    },
+    {
+      "map": "data/br_s2_map_pool.json:55:br-gen-25748",
+      "pixels": 2752452,
+      "zero_failures": 0,
+      "boundary_failures": 0,
+      "neighbor_failures": 0,
+      "pass": true
+    },
+    {
+      "map": "data/br_s2_map_pool.json:56:br-gen-25898",
+      "pixels": 2752452,
+      "zero_failures": 0,
+      "boundary_failures": 0,
+      "neighbor_failures": 0,
+      "pass": true
+    },
+    {
+      "map": "data/br_s2_map_pool.json:57:br-gen-25952",
+      "pixels": 2752452,
+      "zero_failures": 0,
+      "boundary_failures": 0,
+      "neighbor_failures": 0,
+      "pass": true
+    },
+    {
+      "map": "data/br_s2_map_pool.json:58:br-gen-26151",
+      "pixels": 2752452,
+      "zero_failures": 0,
+      "boundary_failures": 0,
+      "neighbor_failures": 0,
+      "pass": true
+    },
+    {
+      "map": "data/br_s2_map_pool.json:59:br-gen-26174",
+      "pixels": 2752452,
+      "zero_failures": 0,
+      "boundary_failures": 0,
+      "neighbor_failures": 0,
+      "pass": true
+    },
+    {
+      "map": "data/br_s2_map_pool.json:60:br-gen-26258",
+      "pixels": 2752452,
+      "zero_failures": 0,
+      "boundary_failures": 0,
+      "neighbor_failures": 0,
+      "pass": true
+    },
+    {
+      "map": "data/br_s2_map_pool.json:61:br-gen-26340",
+      "pixels": 2752452,
+      "zero_failures": 0,
+      "boundary_failures": 0,
+      "neighbor_failures": 0,
+      "pass": true
+    },
+    {
+      "map": "data/br_s2_map_pool.json:62:br-gen-26474",
+      "pixels": 2752452,
+      "zero_failures": 0,
+      "boundary_failures": 0,
+      "neighbor_failures": 0,
+      "pass": true
+    },
+    {
+      "map": "data/br_s2_map_pool.json:63:br-gen-26528",
+      "pixels": 2752452,
+      "zero_failures": 0,
+      "boundary_failures": 0,
+      "neighbor_failures": 0,
+      "pass": true
+    },
+    {
+      "map": "data/br_map_pool.json:0:br-gen-505",
+      "pixels": 5500443,
+      "zero_failures": 0,
+      "boundary_failures": 0,
+      "neighbor_failures": 0,
+      "pass": true
+    },
+    {
+      "map": "data/br_map_pool.json:1:br-gen-5001",
+      "pixels": 5500443,
+      "zero_failures": 0,
+      "boundary_failures": 0,
+      "neighbor_failures": 0,
+      "pass": true
+    },
+    {
+      "map": "data/br_map_pool.json:2:br-gen-5040",
+      "pixels": 5500443,
+      "zero_failures": 0,
+      "boundary_failures": 0,
+      "neighbor_failures": 0,
+      "pass": true
+    },
+    {
+      "map": "data/br_map_pool.json:3:br-gen-5120",
+      "pixels": 5500443,
+      "zero_failures": 0,
+      "boundary_failures": 0,
+      "neighbor_failures": 0,
+      "pass": true
+    },
+    {
+      "map": "data/br_map_pool.json:4:br-gen-5161",
+      "pixels": 5500443,
+      "zero_failures": 0,
+      "boundary_failures": 0,
+      "neighbor_failures": 0,
+      "pass": true
+    },
+    {
+      "map": "data/br_map_pool.json:5:br-gen-5204",
+      "pixels": 5500443,
+      "zero_failures": 0,
+      "boundary_failures": 0,
+      "neighbor_failures": 0,
+      "pass": true
+    },
+    {
+      "map": "data/br_map_pool.json:6:br-gen-5263",
+      "pixels": 5500443,
+      "zero_failures": 0,
+      "boundary_failures": 0,
+      "neighbor_failures": 0,
+      "pass": true
+    },
+    {
+      "map": "data/br_map_pool.json:7:br-gen-5312",
+      "pixels": 5500443,
+      "zero_failures": 0,
+      "boundary_failures": 0,
+      "neighbor_failures": 0,
+      "pass": true
+    },
+    {
+      "map": "data/br_map_pool.json:8:br-gen-5359",
+      "pixels": 5500443,
+      "zero_failures": 0,
+      "boundary_failures": 0,
+      "neighbor_failures": 0,
+      "pass": true
+    },
+    {
+      "map": "data/br_map_pool.json:9:br-gen-5400",
+      "pixels": 5500443,
+      "zero_failures": 0,
+      "boundary_failures": 0,
+      "neighbor_failures": 0,
+      "pass": true
+    },
+    {
+      "map": "data/br_map_pool.json:10:br-gen-5448",
+      "pixels": 5500443,
+      "zero_failures": 0,
+      "boundary_failures": 0,
+      "neighbor_failures": 0,
+      "pass": true
+    },
+    {
+      "map": "colossal:4242",
+      "pixels": 24920064,
+      "zero_failures": 0,
+      "boundary_failures": 0,
+      "neighbor_failures": 0,
+      "pass": true
+    }
+  ],
+  "pass": true
+}

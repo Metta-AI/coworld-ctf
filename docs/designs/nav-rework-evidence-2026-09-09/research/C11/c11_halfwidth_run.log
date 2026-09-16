@@ -1,0 +1,19 @@
+{
+ "table_entries_checked": 18336,
+ "table_vs_isqrt_mismatches": 0,
+ "max_table_value": 190,
+ "max_construction_decrements_any_R": 190,
+ "membership_cases": 39555,
+ "membership_mismatches": 0,
+ "membership_sha256": "1ec9d38e55e8152150eadda979b107a32bcdf15d405ba942808da442f97dff04",
+ "membership_sha256_equals_isqrt_run": true,
+ "storage": {
+  "halfWidth_uint8_bytes_R190": 191,
+  "halfWidth_fixed_array_bytes": 191,
+  "L_only_table_uint8_bytes_8_subY_49_rows": 392,
+  "full_endpoint_pairs_64_phases_49_rows": 3136,
+  "full_endpoint_int8_values": 6272,
+  "full_endpoint_int8_bytes": 6272,
+  "note": "L ranges 0..190, so the L-only table needs uint8, not int8; endpoints relative to the origin cell lie in -24..24 and fit int8"
+ }
+}

@@ -1,8 +1,14 @@
 # Map Editor Design
 
-A visual editor for CTF / Paintbot maps that reads and writes the existing
+A visual editor for engine `mapSpec` geometry that reads and writes the existing
 `mapSpec` JSON format, with the Nim sim as the single source of truth for all
 geometry, derivation, and validation.
+
+For the active Season 2 mode, author and validate a draw with `brmapkit`, then
+convert it with `tools/br_spec_to_ctf.nim` before opening the resulting
+`mapSpec` here. The seeded CTF generator workflow described below is retained
+for deprecated classic modes and requires `allowDeprecatedModes: true` to boot;
+the editor and shared geometry tooling themselves are not deprecated.
 
 Status: **All three phases implemented.** Inspection, editing, and diagnostics
 all work; every goal below is met. See Rollout at the end for what each phase
@@ -44,9 +50,9 @@ That costs us in three places:
 
 ## Non-goals
 
-- **Placing shields, plasma arcs, or grenades.** These are derived, not stored:
+- **Placing shields, spray cans, or grenades.** These are derived, not stored:
   only Red's point is chosen, and every other team's is its image under the
-  map's own symmetry (`shieldSpawnPoints` / `plasmaArcSpawnPoints`, `sim.nim:44`
+  map's own symmetry (`shieldSpawnPoints` / `sprayPaintSpawnPoints`, `sim.nim:44`
   and `:74`), specifically so no team's pickup sits in terrain the others' do
   not get. Making them placeable is a sim change, not an editor feature.
 - **Editing room labels.** `defaultCtfRooms` re-derives them on load; the spec
@@ -229,7 +235,7 @@ The single hot path: one call per (debounced) edit.
     "pickups": {
       "grenade":   [[50, 50]],
       "shield":    [[50, 494]],
-      "plasmaArc": [[50, 164]],
+      "sprayPaint": [[50, 164]],
       "medKitActive":    [[617, 219]],
       "medKitCandidate": [[617, 219]]
     },

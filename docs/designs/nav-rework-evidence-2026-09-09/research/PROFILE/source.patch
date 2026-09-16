@@ -1,0 +1,23 @@
+diff --git a/tools/bench_body_nav_rework.nim b/tools/bench_body_nav_rework.nim
+index a9c1597..f694ba2 100644
+--- a/tools/bench_body_nav_rework.nim
++++ b/tools/bench_body_nav_rework.nim
+@@ -5,7 +5,7 @@
+ import std/[algorithm, json, math, monotimes, options, os, osproc, strformat,
+   sequtils, strutils, tables, times]
+ import crunchy/[common, sha256]
+-import bitworld/spriteprotocol
++import bitworld/[profile, spriteprotocol]
+ import ../src/ctf/[arena, br_map_pool, sim_types, zone_field]
+ import ../src/shell/[body, body_danger, body_hazard, body_map, body_nav,
+   body_route_index, body_route_query, episode, standing_order]
+@@ -533,7 +533,9 @@ when isMainModule:
+     root["activation"] = runActivationGate(pool, onlyPool)
+     passed = passed and root["activation"]["pass"].getBool()
+   if runTick:
++    startProfileTrace()
+     root["tick"] = runTickGate(corpus, pool)
++    finishProfileTrace()
+     passed = passed and root["tick"]["pass"].getBool()
+   root["pass"] = %passed
+   echo pretty(root)

@@ -1,0 +1,48 @@
+[
+  {
+    "trace": "s2_32_679963.navsrc.txt",
+    "map": "br-gen-5263",
+    "range_px": 1300,
+    "hits": {
+      "sources": 286,
+      "set_bits": 3946998,
+      "zero_kernel_bits": 0,
+      "nonzero_kernel_bits": 3946998,
+      "zero_share": 0.0,
+      "max_zero_per_source": 0,
+      "max_nonzero_per_source": 19208
+    },
+    "misses": {
+      "sources": 244,
+      "set_bits": 2718376,
+      "zero_kernel_bits": 0,
+      "nonzero_kernel_bits": 2718376,
+      "zero_share": 0.0,
+      "max_zero_per_source": 0,
+      "max_nonzero_per_source": 19208
+    }
+  },
+  {
+    "trace": "s2_16_679962.navsrc.txt",
+    "map": "br-gen-5204",
+    "range_px": 1300,
+    "hits": {
+      "sources": 75,
+      "set_bits": 1056492,
+      "zero_kernel_bits": 0,
+      "nonzero_kernel_bits": 1056492,
+      "zero_share": 0.0,
+      "max_zero_per_source": 0,
+      "max_nonzero_per_source": 16981
+    },
+    "misses": {
+      "sources": 121,
+      "set_bits": 1555649,
+      "zero_kernel_bits": 0,
+      "nonzero_kernel_bits": 1555649,
+      "zero_share": 0.0,
+      "max_zero_per_source": 0,
+      "max_nonzero_per_source": 17174
+    }
+  }
+]

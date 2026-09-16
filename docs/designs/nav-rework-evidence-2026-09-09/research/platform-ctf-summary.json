@@ -1,0 +1,13 @@
+{
+  "utc": "2026-09-09T22:11:31.289380+00:00",
+  "running_ctf_count": 33,
+  "instance_counts": {
+    "c6a.4xlarge": 27,
+    "m8i-flex.4xlarge": 1,
+    "c8i-flex.4xlarge": 3,
+    "m5a.4xlarge": 2
+  },
+  "resources": {
+    "{\"requests\": {\"cpu\": \"1\", \"memory\": \"512Mi\"}}": 33
+  }
+}

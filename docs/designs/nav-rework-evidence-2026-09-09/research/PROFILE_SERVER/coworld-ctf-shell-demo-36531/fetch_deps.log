@@ -1,0 +1,4 @@
+verified wasmtime-v48.0.1-aarch64-macos-c-api.tar.xz 9e3c636ed487a41026ff76388c5fa6f3a48ea0968408d033ed4b5e8082c20d69
+verified wasi-sdk-33.0-arm64-macos.tar.gz 85c997a2665ead91673b5bb88b7d0df3fc8900df3bfa244f720d478187bbdc78
+WASMTIME_C_API=/Users/jamesboggs/coding/coworlds/coworld-ctf-worktrees/nav-throughput-research/tools/runtime_spike/.deps/installed/aarch64-macos/wasmtime-c-api
+WASI_SDK_PATH=/Users/jamesboggs/coding/coworlds/coworld-ctf-worktrees/nav-throughput-research/tools/runtime_spike/.deps/installed/aarch64-macos/wasi-sdk

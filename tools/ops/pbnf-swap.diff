@@ -1,0 +1,70 @@
+--- /private/tmp/honest-routes-work/tools/ops/pbnf-swap.orig	2026-08-30 15:24:39
++++ /private/tmp/honest-routes-work/tools/ops/pbnf-swap	2026-08-30 15:25:06
+@@ -166,26 +166,53 @@
+ launchctl kickstart -k "gui/$(id -u)/$LABEL"
+ 
+ # ---- 8. post-swap verify, bounded ~60s --------------------------------------
++# Every check below asserts on REAL CONTENT (a JSON key/value this specific
++# route emits, or a real refusal reason string), never a bare status code or
++# byte count. That discipline exists because of a measured incident: an
++# unmatched path on this server used to answer "200, 10 bytes, CTF server"
++# indistinguishable from a real route's 200 -- this project's OWN deploy
++# ritual was curling a bare /health and treating any 200 as proof of life
++# before that was caught (see the honest-routes lane). A status-only or
++# byte-count-only check here would have the identical blind spot.
+ echo; say "-- post-swap verify (bounded ~60s) --"
+ health_ok=0
+ for i in 1 2 3 4 5 6 7 8; do
+   sleep 5
+   cap=$(curl -s -m 4 "$BASE/capabilities" 2>/dev/null)
+   field=$(curl -s -m 4 "$BASE/api/field" 2>/dev/null)
+-  cap_ok=$(printf '%s' "$cap" | grep -c seatTakeover || true)
++  # "seatTakeover" is a real key /capabilities emits only because it IS the
++  # capabilities route (a 200 catch-all or a 503 "no match on field" body
++  # contains neither); '"up":true' is a real field /api/field emits only
++  # when it is genuinely reporting a live lobby, not just answering 200.
++  cap_ok=$(printf '%s' "$cap" | grep -c '"seatTakeover"' || true)
+   up_ok=$(printf '%s' "$field" | grep -c '"up":true' || true)
+-  say "[$((i*5))s] /capabilities seatTakeover=${cap_ok:-0}  /api/field up=${up_ok:-0}"
++  say "[$((i*5))s] /capabilities has seatTakeover key=${cap_ok:-0}  /api/field up=true=${up_ok:-0}"
+   if [ "${cap_ok:-0}" -ge 1 ] && [ "${up_ok:-0}" -ge 1 ]; then health_ok=1; break; fi
+ done
+ 
+ ws_ok=0
+ if [ "$health_ok" = 1 ]; then
+-  ws_code=$(curl -s -m 5 -o /dev/null -w '%{http_code}' \
++  ws_body=$(mktemp "${TMPDIR:-/tmp}/pbnf-swap-ws.XXXXXX")
++  ws_code=$(curl -s -m 5 -o "$ws_body" -w '%{http_code}' \
+     -H "Connection: Upgrade" -H "Upgrade: websocket" \
+     -H "Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==" -H "Sec-WebSocket-Version: 13" \
+     "$BASE/takeover" 2>/dev/null)
+-  say "WS-upgrade probe on /takeover -> http=$ws_code"
+-  [ -n "$ws_code" ] && [ "$ws_code" != "000" ] && [ "$ws_code" != "200" ] && ws_ok=1
++  ws_reason=$(cat "$ws_body" 2>/dev/null)
++  say "WS-upgrade probe on /takeover -> http=$ws_code body=\"$(printf '%s' "$ws_reason" | head -c 80)\""
++  rm -f "$ws_body"
++  # server.nim's real /takeover branch has exactly two honest outcomes for
++  # this probe: a genuine protocol switch (101), or a genuine refusal with a
++  # real non-empty reason string (403, from respondForbiddenWebSocket).
++  # Anything else -- 200 (the historical catch-all bug), 404 (an
++  # over-narrowed catch-all could do this next), 000 (unreachable), a 403
++  # with an EMPTY body (would mean some other 403 path, not this one) --
++  # means the request never reached the real takeover branch. This used to
++  # accept any code that was merely "not 200 and not 000", which a 404 would
++  # also have slipped past.
++  case "$ws_code" in
++    101) ws_ok=1 ;;
++    403) [ -n "$ws_reason" ] && ws_ok=1 ;;
++  esac
+ fi
+ 
+ growth_ok=0
+@@ -207,7 +234,7 @@
+ 
+ echo
+ if [ "$health_ok" = 1 ] && [ "$ws_ok" = 1 ] && [ "$growth_ok" = 1 ]; then
+-  say "VERIFY: PASS — capabilities/field healthy, /takeover WS-probe answered non-200, sim.log growing with combat lines."
++  say "VERIFY: PASS — /capabilities and /api/field content confirmed real, /takeover answered a genuine 101 or a real refusal reason, sim.log growing with combat lines."
+   exit 0
+ fi
+ 

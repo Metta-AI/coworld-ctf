@@ -1,5 +1,9 @@
 # Paint Puddles — hazard blobs with a 10%/sec damage roll
 
+> **Historical plan.** Preserved unchanged as the dated classic-mode design
+> record. Its old gate/default language is not current Season 2 configuration
+> guidance.
+
 Confirmed design (2026-08-07). Static mapgen-placed paint puddles: standing in
 one gives a 10% chance per full second of occupancy to take 1 damage.
 Config-gated, off by default — no GameVersion bump, no fixture regen.

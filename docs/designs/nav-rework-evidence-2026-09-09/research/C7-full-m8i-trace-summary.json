@@ -1,0 +1,164 @@
+[
+  {
+    "pair": "parent-s2_16_679962-r1.json",
+    "exact": true,
+    "total_ratio": 1.5422380151151158,
+    "p95_ratio": 1.6971322846428416
+  },
+  {
+    "pair": "parent-s2_16_679962-r2.json",
+    "exact": true,
+    "total_ratio": 1.5861199968203086,
+    "p95_ratio": 1.8004443253974507
+  },
+  {
+    "pair": "parent-s2_16_679962-r3.json",
+    "exact": true,
+    "total_ratio": 1.5928067664291963,
+    "p95_ratio": 1.787066662940324
+  },
+  {
+    "pair": "parent-s2_16_679963-r1.json",
+    "exact": true,
+    "total_ratio": 1.5006758819237176,
+    "p95_ratio": 1.8394018877464084
+  },
+  {
+    "pair": "parent-s2_16_679963-r2.json",
+    "exact": true,
+    "total_ratio": 1.522762874045624,
+    "p95_ratio": 1.8373464960590231
+  },
+  {
+    "pair": "parent-s2_16_679963-r3.json",
+    "exact": true,
+    "total_ratio": 1.4793935425297253,
+    "p95_ratio": 1.6969957254053525
+  },
+  {
+    "pair": "parent-s2_16_679964-r1.json",
+    "exact": true,
+    "total_ratio": 1.5286178520798235,
+    "p95_ratio": 1.7871845398174886
+  },
+  {
+    "pair": "parent-s2_16_679964-r2.json",
+    "exact": true,
+    "total_ratio": 1.5975095437294946,
+    "p95_ratio": 1.813279048126609
+  },
+  {
+    "pair": "parent-s2_16_679964-r3.json",
+    "exact": true,
+    "total_ratio": 1.500281692914035,
+    "p95_ratio": 1.6270548965846099
+  },
+  {
+    "pair": "parent-s2_16_679965-r1.json",
+    "exact": true,
+    "total_ratio": 1.5672585259629719,
+    "p95_ratio": 1.7816620249223805
+  },
+  {
+    "pair": "parent-s2_16_679965-r2.json",
+    "exact": true,
+    "total_ratio": 1.6532055501516862,
+    "p95_ratio": 1.9279605899174166
+  },
+  {
+    "pair": "parent-s2_16_679965-r3.json",
+    "exact": true,
+    "total_ratio": 1.61589790502936,
+    "p95_ratio": 1.96208606634901
+  },
+  {
+    "pair": "parent-s2_32_679962-r1.json",
+    "exact": true,
+    "total_ratio": 1.5978156876416687,
+    "p95_ratio": 1.7472622931076913
+  },
+  {
+    "pair": "parent-s2_32_679962-r2.json",
+    "exact": true,
+    "total_ratio": 1.6435300508289639,
+    "p95_ratio": 1.8049373716609798
+  },
+  {
+    "pair": "parent-s2_32_679962-r3.json",
+    "exact": true,
+    "total_ratio": 1.6044637304524076,
+    "p95_ratio": 1.74917088811331
+  },
+  {
+    "pair": "parent-s2_32_679963-r1.json",
+    "exact": true,
+    "total_ratio": 1.4950233796353543,
+    "p95_ratio": 1.7501485209943177
+  },
+  {
+    "pair": "parent-s2_32_679963-r2.json",
+    "exact": true,
+    "total_ratio": 1.5638821817427446,
+    "p95_ratio": 1.834065245792729
+  },
+  {
+    "pair": "parent-s2_32_679963-r3.json",
+    "exact": true,
+    "total_ratio": 1.535988741874226,
+    "p95_ratio": 1.806524620698127
+  },
+  {
+    "pair": "parent-s2_32_679964-r1.json",
+    "exact": true,
+    "total_ratio": 1.636536992958773,
+    "p95_ratio": 1.7732505605133027
+  },
+  {
+    "pair": "parent-s2_32_679964-r2.json",
+    "exact": true,
+    "total_ratio": 1.674023705551667,
+    "p95_ratio": 1.8024988452049187
+  },
+  {
+    "pair": "parent-s2_32_679964-r3.json",
+    "exact": true,
+    "total_ratio": 1.6253275368244902,
+    "p95_ratio": 1.7425458448284257
+  },
+  {
+    "pair": "parent-s2_32_679965-r1.json",
+    "exact": true,
+    "total_ratio": 1.6042927798425985,
+    "p95_ratio": 1.8622658770375757
+  },
+  {
+    "pair": "parent-s2_32_679965-r2.json",
+    "exact": true,
+    "total_ratio": 1.6718743305532047,
+    "p95_ratio": 1.9740204881829395
+  },
+  {
+    "pair": "parent-s2_32_679965-r3.json",
+    "exact": true,
+    "total_ratio": 1.625465120435664,
+    "p95_ratio": 1.9467065758603639
+  },
+  {
+    "pair": "parent-smoke_s2_16_randomized-r1.json",
+    "exact": true,
+    "total_ratio": 1.6144841267191576,
+    "p95_ratio": 1.8481222050085948
+  },
+  {
+    "pair": "parent-smoke_s2_16_randomized-r2.json",
+    "exact": true,
+    "total_ratio": 1.62872447513056,
+    "p95_ratio": 1.8530584867736262
+  },
+  {
+    "pair": "parent-smoke_s2_16_randomized-r3.json",
+    "exact": true,
+    "total_ratio": 1.607681355452806,
+    "p95_ratio": 1.8852925640516534
+  }
+]

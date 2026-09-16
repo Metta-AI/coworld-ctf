@@ -1,0 +1,5 @@
+# A3: inline the existing coarse-move predicate
+
+Parent f9dff753 (A2). Add only the Nim inline pragma to body_map.legalNavMove so index construction and validation can compile its unchanged predicate in their own translation unit. Current Fluffy map48 index costs include49ms coarse construction before A2 and58ms full validation; A2 retains a full-sweep2.0048x failure. This experiment changes compiler visibility, not validation logic, neighbor selection or topology. No new helper, duplicated predicate, unchecked path, memory layout or compiler flag.
+
+The helper has no callers inside body_map.nim; its construction/validation consumers are in body_route_index.nim. The standard existing Nim inline mechanism is the smallest implementation to test. Inspect compilation and run focused route-index tests first. Native m8i CPU5: three interleaved map48/colossal activation pairs, candidatefull3072quality, full65-map activation and configured11-map diagnostic. Require unchanged quality/retained ledgers and repeatable index improvement; record every time failure against the unchanged2x/3x limits. No claim that a pragma guarantees inlining or a speed gain.

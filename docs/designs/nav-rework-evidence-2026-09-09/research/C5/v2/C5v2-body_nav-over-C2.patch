@@ -1,0 +1,117 @@
+--- /Users/jamesboggs/coding/coworlds/coworld-ctf-worktrees/nav-throughput-research/docs/designs/nav-rework-evidence-2026-09-09/research/C5/original/C2-body_nav.nim	2026-09-10 10:35:02
++++ src/shell/body_nav.nim	2026-09-10 10:39:35
+@@ -497,6 +497,14 @@
+     if seat.dangerGeometry.sightCellBlocked(x, y):
+       break
+     seat.addVisibleCell(origin, kernel, kernelRadius, x, y)
++
++template dangerStage(name: string, body: untyped) =
++  ## C5: a Fluffy marker only in ProfileTracePath builds; the bare body
++  ## otherwise, so production control flow is unchanged.
++  when ProfileTracePath.len > 0:
++    profileBlock(name, body)
++  else:
++    body
+ 
+ proc sourceCacheSlot(cache: DangerSourceCache, key: int32): int =
+   ## Slot holding `key`, or -1. Linear scan: 64 compares against one
+@@ -544,8 +552,11 @@
+                              sources: openArray[BodyPoint], tick: int) =
+   ## Stencil's complete from-scratch LOS field. This scheduled rebuild is not
+   ## part of the cold-plan counter; K bounds its server-wide tick burst.
+-  for value in seat.danger.values.mitems:
+-    value = 0
++  ## C5 attribution markers (ProfileTracePath builds only): whole stages, one
++  ## marker per source for the hit replay, miss ray walk and close floor.
++  dangerStage("danger.clear"):
++    for value in seat.danger.values.mitems:
++      value = 0
+   for source in sources:
+     let origin = map.cellOf(source)
+     let cache = seat.dangerSourceCache
+@@ -556,39 +567,43 @@
+       when defined(dangerSourceCacheCounters):
+         inc cache.hits
+       cache.slots[slot].lastUse = cache.clock
+-      seat.replayVisibleCells(origin, slot * cache.words)
++      dangerStage("danger.hit.replay"):
++        seat.replayVisibleCells(origin, slot * cache.words)
+     else:
+       when defined(dangerSourceCacheCounters):
+         inc cache.misses
+-      slot = cache.sourceCacheVictim()
+-      cache.slots[slot] = DangerSourceCacheSlot(key: key, lastUse: cache.clock)
+-      seat.dangerRecordBase = slot * cache.words
+-      for word in 0 ..< cache.words:
+-        cache.bits[seat.dangerRecordBase + word] = 0
+-      seat.nextVisitGeneration()
+-      seat.addVisibleCell(origin, seat.dangerGeometry.kernel, seat.dangerGeometry.radius,
+-        origin.x, origin.y)
+-      for offset in seat.dangerGeometry.perimeter:
+-        seat.castRay(origin, seat.dangerGeometry.kernel, seat.dangerGeometry.radius,
+-          origin.x + offset.x, origin.y + offset.y)
+-    let closeRange = min(DangerClosePx, seat.dangerRangePx)
+-    let closeCells = (closeRange + NavCell - 1) div NavCell
+-    let closeSquared = closeRange * closeRange
+-    for gy in max(0, origin.y - closeCells) ..
+-        min(map.gridHeight - 1, origin.y + closeCells):
+-      for gx in max(0, origin.x - closeCells) ..
+-          min(map.gridWidth - 1, origin.x + closeCells):
+-        let center = cellCenter((gx, gy))
+-        let dx = center.x - source.x
+-        let dy = center.y - source.y
+-        if dx * dx + dy * dy <= closeSquared:
+-          seat.danger.values[gy * map.gridWidth + gx] +=
+-            DangerCloseFloor.float32
+-  seat.danger.maximum = 0
+-  for value in seat.danger.values.mitems:
+-    if DangerLosWeight != 1.0:
+-      value *= DangerLosWeight.float32
+-    seat.danger.maximum = max(seat.danger.maximum, value)
++      dangerStage("danger.miss.rays"):
++        slot = cache.sourceCacheVictim()
++        cache.slots[slot] = DangerSourceCacheSlot(key: key, lastUse: cache.clock)
++        seat.dangerRecordBase = slot * cache.words
++        for word in 0 ..< cache.words:
++          cache.bits[seat.dangerRecordBase + word] = 0
++        seat.nextVisitGeneration()
++        seat.addVisibleCell(origin, seat.dangerGeometry.kernel, seat.dangerGeometry.radius,
++          origin.x, origin.y)
++        for offset in seat.dangerGeometry.perimeter:
++          seat.castRay(origin, seat.dangerGeometry.kernel, seat.dangerGeometry.radius,
++            origin.x + offset.x, origin.y + offset.y)
++    dangerStage("danger.closeFloor"):
++      let closeRange = min(DangerClosePx, seat.dangerRangePx)
++      let closeCells = (closeRange + NavCell - 1) div NavCell
++      let closeSquared = closeRange * closeRange
++      for gy in max(0, origin.y - closeCells) ..
++          min(map.gridHeight - 1, origin.y + closeCells):
++        for gx in max(0, origin.x - closeCells) ..
++            min(map.gridWidth - 1, origin.x + closeCells):
++          let center = cellCenter((gx, gy))
++          let dx = center.x - source.x
++          let dy = center.y - source.y
++          if dx * dx + dy * dy <= closeSquared:
++            seat.danger.values[gy * map.gridWidth + gx] +=
++              DangerCloseFloor.float32
++  dangerStage("danger.scaleMax"):
++    seat.danger.maximum = 0
++    for value in seat.danger.values.mitems:
++      if DangerLosWeight != 1.0:
++        value *= DangerLosWeight.float32
++      seat.danger.maximum = max(seat.danger.maximum, value)
+   seat.dangerTick = tick
+ 
+ proc publishDangerGeneration(system: BodyNavSystem; seat: BodyNavSeat;
+@@ -600,7 +615,10 @@
+     return
+   when defined(bodyNavBreakdown):
+     let started = getMonoTime()
+-  system.mixedGraph.rebuildPackedWeights(seat.danger, system.packedWeightScratch)
++  # C5 v2: the pack alone; the equality compare and generation publication
++  # below stay outside the marker.
++  dangerStage("danger.packWeights"):
++    system.mixedGraph.rebuildPackedWeights(seat.danger, system.packedWeightScratch)
+   when defined(bodyNavBreakdown):
+     system.timing.weightRefreshNanoseconds += timingElapsed(started)
+     inc system.timing.weightRefreshes

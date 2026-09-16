@@ -1,0 +1,5 @@
+# A5 native review and next hypothesis
+
+Read A5-m5a/ and A5-m8i/: both DONE and root retrieved actual traces. Five map48 constructors, isolated A4 plus profiling. Means: index 840.828 vs252.443ms; pockets445.193 vs133.749; coverage274.474 vs82.365; pixelScan164.416 vs48.097; resolvePending103.288 vs32.575; graphJoins96.566 vs29.333; finalPending71.155 vs21.183. Durations nest. These ratios look broadly similar across stages, not a uniquely disastrous pixel-path scaling effect. Verify independently.
+
+Own only A5_NATIVE_REVIEW.md and A6_PROPOSAL.md in root research; source read-only. Analyze the counters and code, propose one minimal exact activation reduction with proof obligations and paired measurements. Do not implement yet. Prefer eliminating proven redundant work with identical graph/quality; no relaxed validation, no narrower corpus, no deleting failed paths on an assumption. Root handles C2 checkpoint and C3 replay arithmetic implementation/timing separately. End A6 PROPOSAL READY and wait for PROCEED.

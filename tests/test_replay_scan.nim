@@ -42,7 +42,11 @@ suite "incremental replay scan":
         sliced.advanceReplayScan(slice)
         inc guard
         doAssert guard < 100_000, "scan never completed"
-      check sliced.livesSeries == reference.livesSeries
+      check sliced.leadSeries == reference.leadSeries
+      # HEAT ON THE WIRE: heatSeries is scanned on the exact same walk as
+      # leadSeries (replays.nim's advanceReplayScan), so slicing must be
+      # just as observationally transparent for it.
+      check sliced.heatSeries == reference.heatSeries
       check $sliced.beatEvents == $reference.beatEvents
       check sliced.lullSpans == reference.lullSpans
       check sliced.keyframeTicks() == reference.keyframeTicks()
@@ -78,6 +82,9 @@ suite "incremental replay scan":
     let earlyChrome = early.chromeOf()
     check not earlyChrome.isNil
     check not earlyChrome.hasKey("lead")
+    # HEAT ON THE WIRE: heatSeries rides the exact same one-shot as lead
+    # (sendLead), so it must be equally absent mid-scan.
+    check not earlyChrome.hasKey("heat")
     check not earlyChrome.hasKey("lulls")
     check not earlyChrome.hasKey("beats")
     check not nextViewer.momentumSent
@@ -89,6 +96,7 @@ suite "incremental replay scan":
       runtime.player, viewer, nextViewer, newJArray())
     let lateChrome = late.chromeOf()
     check lateChrome.hasKey("lead")
+    check lateChrome.hasKey("heat")
     check nextViewer.momentumSent
 
   test "seeking past the scanned prefix lands exactly and survives the scan":
@@ -133,13 +141,39 @@ suite "endzone fade ramp":
       var runtime = initReplayRuntime(
         data, mismatchQuit = true, gameEventLoggingEnabled = false)
       runtime.player.advanceReplayScan(int.high)
-      # The fixture's flag story: seek just past the LAST steal (its carry
-      # runs to the capture, so the fade stays powered down long enough to
-      # observe the whole ramp).
-      var stealTick = -1
+      # The fixture's flag story: seek just past the EARLIEST steal whose
+      # carry has enough RUNWAY (until the next return/capture, or the
+      # recording's own end) to observe the whole ramp uninterrupted --
+      # not blindly "the last steal", which a re-record can leave sitting
+      # right next to the match's own end (this fixture's own GV48
+      # re-record, one attempt: only ~40 ticks before the game ends by
+      # wipe, nowhere near this test's 60-frame window) -- AND earliest,
+      # not merely longest-runway, so this viewer's cold-start catch-up
+      # only ever has to account for ONE team's fade history, not
+      # whatever earlier steals on OTHER teams happened to leave banked
+      # (a later steal picked purely for a large gap can need catch-up
+      # bands for several teams' independent fade states at once).
+      const MinRunwayTicks = 200  ## 70 actually observed (10 + 60 frames)
+                                  ## plus margin.
+      var
+        stealTick = -1
+        pendingStealTick = -1
       for event in runtime.player.beatEvents:
-        if event["k"].getStr() == "steal":
-          stealTick = event["t"].getInt()
+        let
+          kind = event["k"].getStr()
+          tick = event["t"].getInt()
+        if kind == "steal":
+          if pendingStealTick < 0:
+            pendingStealTick = tick
+        elif pendingStealTick >= 0:
+          if stealTick < 0 and tick - pendingStealTick >= MinRunwayTicks:
+            stealTick = pendingStealTick
+          pendingStealTick = -1
+      # A steal with no later beat event at all is bounded by the
+      # RECORDING's own end, not unbounded.
+      if stealTick < 0 and pendingStealTick >= 0 and
+          runtime.player.replayMaxTick() - pendingStealTick >= MinRunwayTicks:
+        stealTick = pendingStealTick
       check stealTick > 0
       runtime.player.seekReplay(runtime.sim, stealTick + 10)
 

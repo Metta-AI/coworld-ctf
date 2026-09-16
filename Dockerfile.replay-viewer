@@ -20,7 +20,13 @@ COPY nimby.lock .
 RUN nimby --global sync nimby.lock
 
 COPY . .
-RUN nim c -d:emscripten replay-viewer/ctf_replay.nim && \
+# Computed by tools/build_replay_viewer.sh (or CI) on the HOST — the build
+# context has no .git to derive it from. Empty means "unstamped": the
+# qa_module_eval.cjs staleness check treats an unstamped committed bundle
+# as stale, so the served bundle can only ever come through the script.
+ARG SIM_SOURCES_STAMP=""
+RUN nim c -d:emscripten -d:ctfSimSourcesStamp="${SIM_SOURCES_STAMP}" \
+    replay-viewer/ctf_replay.nim && \
   nim c -r --hints:off -o:/tmp/gen_wire_constants tools/gen_wire_constants.nim \
     > replay-viewer/dist/wire_constants.js && \
   cp client/broadcast_core.js replay-viewer/dist/broadcast_core.js && \
@@ -35,11 +41,9 @@ RUN nim c -d:emscripten replay-viewer/ctf_replay.nim && \
   sed -e 's|<!-- WIRE_CONSTANTS -->|<script src="./wire_constants.js"></script>|' \
       -e 's|<!-- CHROME_COMMON -->|<script src="./chrome_common.js"></script>|' \
     client/league_replayer.html > replay-viewer/dist/league.html && \
-  cp data/soldier_red_front.png data/soldier_blue_front.png \
-    data/soldier_green_front.png data/soldier_yellow_front.png \
-    data/soldier_red_front_gun.png data/soldier_blue_front_gun.png \
-    data/soldier_green_front_gun.png data/soldier_yellow_front_gun.png \
+  cp data/soldier_*_front.png data/soldier_*_front_gun.png \
     replay-viewer/dist/ && \
+  cp replay-viewer/loop.html replay-viewer/dist/ && \
   mkdir -p replay-viewer/dist/art/walls replay-viewer/dist/art/lockerroom && \
   cp client/art/walls/wall_h.jpg client/art/walls/wall_v.jpg \
     replay-viewer/dist/art/walls/ && \
@@ -66,10 +70,10 @@ RUN nim c -d:emscripten replay-viewer/ctf_replay.nim && \
   test -f replay-viewer/dist/soldier_blue_front.png && \
   test -f replay-viewer/dist/soldier_green_front.png && \
   test -f replay-viewer/dist/soldier_yellow_front.png && \
-  test -f replay-viewer/dist/soldier_red_front_gun.png && \
-  test -f replay-viewer/dist/soldier_blue_front_gun.png && \
-  test -f replay-viewer/dist/soldier_green_front_gun.png && \
-  test -f replay-viewer/dist/soldier_yellow_front_gun.png && \
+  test -f replay-viewer/dist/soldier_plum_front.png && \
+  test -f replay-viewer/dist/soldier_azure_front_gun.png && \
+  test "$(ls replay-viewer/dist/soldier_*_front.png | wc -l)" = "$(ls data/soldier_*_front.png | wc -l)" && \
+  test "$(ls replay-viewer/dist/soldier_*_front_gun.png | wc -l)" = "$(ls data/soldier_*_front_gun.png | wc -l)" && \
   test -f replay-viewer/dist/art/walls/wall_h.jpg && \
   test -f replay-viewer/dist/art/lockerroom/bg.jpg && \
   test -f replay-viewer/dist/art/lockerroom/green_1.webp && \

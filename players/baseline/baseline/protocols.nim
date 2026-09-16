@@ -498,10 +498,38 @@ proc renderSpriteFrame(client: ProtocolClient) =
   ## Renders the retained sprite scene into client-owned buffers.
   client.renderSpriteFrame(client.unpacked, client.packed)
 
+const
+  # Season 2 play-calling opcodes (docs/PROTOCOL.md, "play packets (0xA0 to
+  # 0xB2)"): ModuleUpload, the View broadcast, etc. This baseline only
+  # decodes Sprite v1 (bitworld/spriteprotocol) and never emits or expects
+  # these, so a leading byte in this range is not corruption -- it is a
+  # Season 2 play seat sending its own wire to a client that cannot speak
+  # it. Naming the range here, rather than only in the doc, is what lets
+  # the crash below name its real cause instead of just "malformed".
+  Season2PlayOpcodeMin = 0xA0'u8
+  Season2PlayOpcodeMax = 0xB2'u8
+
+proc malformedPacketMessage(client: ProtocolClient): string =
+  ## Explains a parse failure. `client.packetBytes` is always populated by
+  ## `applySpritePacket` (blobToBytes runs before the parse), even when it
+  ## returns false, so this reads the same bytes that failed to parse.
+  if client.packetBytes.len > 0 and
+     client.packetBytes[0] >= Season2PlayOpcodeMin and
+     client.packetBytes[0] <= Season2PlayOpcodeMax:
+    "Malformed sprite protocol packet: leading byte 0x" &
+      client.packetBytes[0].toHex() &
+      " is a Season 2 play-calling opcode (docs/PROTOCOL.md), not Sprite v1." &
+      " This baseline (players/baseline) speaks only the deprecated" &
+      " direct-input protocol and cannot play a Season 2 seat -- run a" &
+      " starter from policies/starters/ instead (see" &
+      " policies/starters/README.md)."
+  else:
+    "Malformed sprite protocol packet."
+
 proc applyFrame*(client: ProtocolClient, message: string) {.measure.} =
   ## Applies one game-to-player frame without a transport.
   if not client.applySpritePacket(message, false):
-    raise newException(ValueError, "Malformed sprite protocol packet.")
+    raise newException(ValueError, client.malformedPacketMessage())
   client.frameAdvance = 1
 
 proc acceptPlayerMessage(
@@ -514,7 +542,7 @@ proc acceptPlayerMessage(
   case message.kind
   of BinaryMessage:
     if not client.applySpritePacket(message.data, decodePixels):
-      raise newException(ValueError, "Malformed sprite protocol packet.")
+      raise newException(ValueError, client.malformedPacketMessage())
     inc client.spritePending
   of Ping:
     ws.send(message.data, Pong)
@@ -526,12 +554,18 @@ proc receiveLatestFrameInto*(
   ws: WebSocket,
   gui: bool,
   packed,
-  unpacked: var seq[uint8]
+  unpacked: var seq[uint8],
+  preloaded: Option[Message] = none(Message)
 ): bool {.measure.} =
   ## Receives wire data and updates the provided reusable frame buffers.
+  ## `preloaded`, when given, stands in for this call's first message
+  ## instead of blocking on the socket -- for a caller that already peeked
+  ## one message off the wire (protocol detection) and must not drop it.
   client.frameAdvance = 0
   if client.spritePending == 0:
-    let firstMessage = ws.receiveMessage(if gui: 10 else: -1)
+    let firstMessage =
+      if preloaded.isSome: preloaded
+      else: ws.receiveMessage(if gui: 10 else: -1)
     if firstMessage.isNone:
       client.frameBufferLen = 0
       client.framesDropped = 0
@@ -562,10 +596,12 @@ proc receiveLatestFrameInto*(
 proc receiveLatestFrame*(
   client: ProtocolClient,
   ws: WebSocket,
-  gui: bool
+  gui: bool,
+  preloaded: Option[Message] = none(Message)
 ): bool =
   ## Receives wire data and updates the latest client-owned frame buffers.
-  client.receiveLatestFrameInto(ws, gui, client.packed, client.unpacked)
+  client.receiveLatestFrameInto(ws, gui, client.packed, client.unpacked,
+    preloaded)
 
 proc copyLatestFrame*(
   client: ProtocolClient,

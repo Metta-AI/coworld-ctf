@@ -1,0 +1,9 @@
+# C9 full native result: fails m5a changing-source screen
+
+Both runs DONE; both strict3072quality checks pass the frozen pre-H1 hash, with exact27trace pairs and24regime rows perhost. m8i passes all17preregistered per-trace/per-regime median checks. m5a passes all9actualtrace checks and all4repeated-source checks, but fails3changing-source medians: br-gen-5001 ratio1.014002831, br-gen-5263 ratio1.016432214, colossal1.011894742 against1.01limit. br-gen-5204 passes0.996183170. No threshold amendment or adoption.
+
+The actualtrace benefit is retained as evidence: every m5a per-trace median total improves (0.903592–0.986574), while m8i totalsmostlyflat. Repeated-source median ratiosm5a0.614652–0.716692 andm8i0.712295–0.740259 improve. These positives do not turn the changing-source failures into a pass. Fullrawpairs/quality, sourcehashes and exactchecks: C9-full-m8i/, C9-full-m5a/, both-summary.json. Evaluator: summarize_c9_full.py.
+
+Root had prepared an isolated integratedcandidate in nav-deferred-cache at eaa208bd, with normalizedcurrentC2/V1/H1source, preservedref/seqallowances,13focusedcache tests passing and64MiBsharedharnesscap onlyinthat tree. This was preparation, not retention; no integratednativewholebody run, no primarysource/cap change. Keep it frozen while the result is reviewed. Primary remains eaa208bd,C2,32MiBshared/256MiBtotal,B1024provisional.
+
+Peer bounded task: review finalresult and whether any specific mechanismdiagnostic is justified. The changing regime is not known to be allmisses; exacttimingtool notes this. Do not claim a miss-onlycost or relax1.01threshold. Inspect that C9's addVisibleCell is unchanged fromC2 and listLengthusesoldpadding; consider whether first-hitconversioncounts explain the measured difference before inventing a newoptimization. No implementation or nativejob. End C9 FULL REVIEW READY andwait.

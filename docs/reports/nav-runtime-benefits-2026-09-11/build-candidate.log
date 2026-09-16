@@ -1,0 +1,66 @@
+Hint: used config file '/root/.nimby/nim/config/nim.cfg' [Conf]
+Hint: used config file '/root/.nimby/nim/config/config.nims' [Conf]
+Hint: used config file '/workspace/ctf/nim.cfg' [Conf]
+...................................................................................................................................................................................................................................
+/workspace/ctf/src/ctf/arena.nim(1373, 5) Hint: 'inside' is declared but not used [XDeclaredButNotUsed]
+/workspace/ctf/src/ctf/arena.nim(3702, 6) Hint: 'rectsNode' is declared but not used [XDeclaredButNotUsed]
+/workspace/ctf/src/ctf/arena.nim(3707, 6) Hint: 'rectsFromNode' is declared but not used [XDeclaredButNotUsed]
+............
+CC: ../../../root/.nimby/nim/lib/system/exceptions.nim
+CC: ../../../root/.nimby/nim/lib/std/private/digitsutils.nim
+CC: ../../../root/.nimby/nim/lib/std/assertions.nim
+CC: ../../../root/.nimby/nim/lib/std/private/dragonbox.nim
+CC: ../../../root/.nimby/nim/lib/std/formatfloat.nim
+CC: ../../../root/.nimby/nim/lib/system/dollars.nim
+CC: ../../../root/.nimby/nim/lib/std/syncio.nim
+CC: ../../../root/.nimby/nim/lib/system.nim
+CC: ../../../root/.nimby/nim/lib/pure/algorithm.nim
+CC: ../../../root/.nimby/nim/lib/pure/hashes.nim
+CC: ../../../root/.nimby/nim/lib/pure/math.nim
+CC: ../../../root/.nimby/nim/lib/pure/collections/tables.nim
+CC: ../../../root/.nimby/nim/lib/pure/parseutils.nim
+CC: ../../../root/.nimby/nim/lib/pure/unicode.nim
+CC: ../../../root/.nimby/nim/lib/pure/strutils.nim
+CC: ../../../root/.nimby/nim/lib/pure/streams.nim
+CC: ../../../root/.nimby/nim/lib/pure/options.nim
+CC: ../../../root/.nimby/nim/lib/pure/json.nim
+CC: ../../../root/.nimby/nim/lib/posix/posix.nim
+CC: ../../../root/.nimby/nim/lib/pure/times.nim
+CC: ../../../root/.nimby/nim/lib/std/monotimes.nim
+CC: ../../../root/.nimby/nim/lib/pure/pathnorm.nim
+CC: ../../../root/.nimby/nim/lib/std/oserrors.nim
+CC: ../../../root/.nimby/nim/lib/std/private/oscommon.nim
+CC: ../../../root/.nimby/nim/lib/std/private/ospaths2.nim
+CC: ../../../root/.nimby/nim/lib/std/envvars.nim
+CC: ../../../root/.nimby/nim/lib/std/private/osappdirs.nim
+CC: ../../../root/.nimby/nim/lib/std/cmdline.nim
+CC: ../../../root/.nimby/nim/lib/pure/os.nim
+CC: ../../../root/.nimby/nim/lib/pure/strtabs.nim
+CC: ../../../root/.nimby/nim/lib/pure/collections/deques.nim
+CC: ../../../root/.nimby/nim/lib/pure/osproc.nim
+CC: ../../../root/.nimby/pkgs/jsony/src/jsony.nim
+CC: ../../../root/.nimby/pkgs/nimsimd/src/nimsimd/runtimecheck.nim
+CC: ../../../root/.nimby/pkgs/pixie/src/pixie/simd.nim
+CC: ../../../root/.nimby/pkgs/pixie/src/pixie/fontformats/opentype.nim
+CC: ../../../root/.nimby/pkgs/pixie/src/pixie/fileformats/jpeg.nim
+CC: ../../../root/.nimby/nim/lib/pure/collections/heapqueue.nim
+CC: ../../../root/.nimby/pkgs/crunchy/src/crunchy/sha256.nim
+CC: ../../../root/.nimby/pkgs/pixie/src/pixie/fileformats/png.nim
+CC: ../../../root/.nimby/nim/lib/pure/random.nim
+CC: ../../../root/.nimby/pkgs/bitworld/src/bitworld/spriteprotocol.nim
+CC: ../../../root/.nimby/pkgs/bitworld/src/bitworld/pixelfonts.nim
+CC: ../src/ctf/sim_types.nim
+CC: ../src/ctf/arena.nim
+CC: ../src/shell/types.nim
+CC: ../src/shell/body_map.nim
+CC: ../src/shell/body_cache.nim
+CC: ../src/shell/body_planner.nim
+CC: ../src/shell/body_nav.nim
+CC: ../src/shell/canonical.nim
+CC: ../src/shell/canonical_fast.nim
+CC: ../src/shell/policy_encoding.nim
+CC: ../src/shell/view.nim
+CC: bench_body_port.nim
+Hint:  [Link]
+Hint: mm: orc; threads: on; opt: speed; options: -d:release
+119579 lines; 16.088s; 337.297MiB peakmem; proj: /workspace/ctf/tools/bench_body_port.nim; out: /results/candidate [SuccessX]

@@ -1,0 +1,4 @@
+Hint: used config file '/Users/jamesboggs/.nimby/nim/config/nim.cfg' [Conf]
+Hint: used config file '/Users/jamesboggs/.nimby/nim/config/config.nims' [Conf]
+.........................................................................................
+/Users/jamesboggs/coding/coworlds/coworld-ctf-worktrees/nav-early-visited/src/shell/body_route_index.nim(8, 16) Error: cannot open file: bitworld/profile

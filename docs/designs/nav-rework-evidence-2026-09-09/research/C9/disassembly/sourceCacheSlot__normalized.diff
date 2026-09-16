@@ -1,0 +1,12 @@
+--- parent
+
++++ candidate
+
+@@ -31,5 +31,5 @@
+
+ mov    %rax,%rdx
+ shl    $0x4,%rdx
+-cmp    %ebp,0x18(%rbx,%rdx,1)
++cmp    %ebp,0x30(%rbx,%rdx,1)
+ je     <sourceCacheSlot__OOZsrcZshellZbody95nav_uID+0x9e>
+ add    $0x1,%rax

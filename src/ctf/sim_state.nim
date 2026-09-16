@@ -5,7 +5,7 @@
 ## docs/plans/2026-08-01-sim-split.md; re-exported by sim.nim.
 
 import
-  std/[random, strutils],
+  std/[json, random, strutils],
   bitworld/spriteprotocol, pixie,
   sim_types, arena, sim_config
 
@@ -29,25 +29,67 @@ proc lobbyStartSecondsRemaining*(sim: SimServer): int =
     return 0
   max(1, (ticks + TargetFps - 1) div TargetFps)
 
-proc spawnAimBrads*(gameMap: CtfMap, team: Team): int =
+proc spawnAimBrads*(gameMap: CtfMap, team: Team, groupOffset = 0): int =
   ## Returns the spawn/respawn aim angle: toward the map center, so every
   ## team wakes facing the fight. Sides maps keep the classic east/west pair;
   ## corner teams face the diagonal, plus arms face along their arm.
   ##
-  ## The table keys on layout + team only, and that already serves BOTH
+  ## BR N-point spawn subsystem: when the map carries authored spawnPoints
+  ## (the exact condition spawnPosition already gates its own N-point
+  ## placement on), the classic layout table below has nothing useful to say
+  ## — a BR board has no "sides" or "corners", just points scattered around
+  ## the field — so every team is aimed from the CENTROID of its OWN
+  ## assigned spawn-point group toward gameMap.center instead, via
+  ## bradsOfVector (the exact inverse of aimVector). Before this fix every
+  ## non-Red team fell through to the classic sides-map formula regardless
+  ## of layout: a Red-faces-east/everyone-else-faces-west binary, so all 15
+  ## non-Red BR duos woke facing due west no matter where on the ring they
+  ## actually spawned.
+  ##
+  ## `groupOffset` is spawnPosition's own per-episode spawnGroupOffset
+  ## (default 0, i.e. the raw/unrotated group): pass the SAME offset used to
+  ## place this team's players so the computed bearing matches the point
+  ## they actually stand on — spawnGroupOffset rotates WHICH physical group
+  ## each team lands in every episode (so no team owns a ring cell forever),
+  ## and a facing computed from the wrong (unrotated) group would point
+  ## toward center from a ring position this team never actually occupies.
+  ##
+  ## Classic (non-BR) maps never author spawnPoints, so this branch is never
+  ## reached for them and the table below stays byte-identical to the
+  ## pre-BR formula.
+  if gameMap.spawnPoints.len > 0:
+    let
+      teamCount = gameMap.teamCount()
+      perTeam = gameMap.spawnPoints.len div teamCount
+      group = (ord(team) + groupOffset) mod teamCount
+    var sx, sy = 0
+    for i in 0 ..< perTeam:
+      let p = gameMap.spawnPoints[group * perTeam + i]
+      sx += p.x
+      sy += p.y
+    let
+      cx = sx div perTeam
+      cy = sy div perTeam
+    return bradsOfVector(gameMap.center.x - cx, gameMap.center.y - cy)
+  ## The table keys on layout + OCCUPIED SLOT, and that already serves BOTH
   ## 4-team symmetries: the corner aims are exactly the reflections of Red's
   ## south-east (Blue = its x-mirror SW, Green = its y-mirror NE, Yellow =
   ## its rot180 NW), which is what quad-mirror demands, and they equal the
   ## rot90 quarter turns of it too. Plus aims point along each arm either way.
+  ##
+  ## Keyed on `homeSlot`, not on team identity: after a GV44 home rotation the
+  ## aim has to face the center from the pad the team ACTUALLY woke up on, or
+  ## a rotated seat spawns staring into its own back wall.
+  let slot = gameMap.homeSlot(team)
   case gameMap.layout
   of layoutSides:
-    if team == Red:
+    if slot == Red:
       0                        ## east, toward Blue.
     else:
       AimBradsTurn div 2       ## west, toward Red.
   of layoutCorners:
     ## 0 = east, counter-clockwise: SE 224, SW 160, NE 32, NW 96.
-    case team
+    case slot
     of Red:
       AimBradsTurn - AimBradsTurn div 8      ## top-left faces south-east.
     of Blue:
@@ -56,8 +98,11 @@ proc spawnAimBrads*(gameMap: CtfMap, team: Team): int =
       AimBradsTurn div 8                     ## bottom-left faces north-east.
     of Yellow:
       AimBradsTurn div 2 - AimBradsTurn div 8  ## bottom-right faces north-west.
+    else: raiseAssert(
+      "spawnAimBrads: layoutCorners is 4-team only, got " & $team &
+        " — 16-team BR play never uses layoutCorners (BR_MAPGEN.md §6.2).")
   of layoutPlus:
-    case team
+    case slot
     of Red:
       0                        ## west arm faces east.
     of Blue:
@@ -66,12 +111,17 @@ proc spawnAimBrads*(gameMap: CtfMap, team: Team): int =
       3 * AimBradsTurn div 4   ## north arm faces south.
     of Yellow:
       AimBradsTurn div 4       ## south arm faces north.
+    else: raiseAssert(
+      "spawnAimBrads: layoutPlus is 4-team only, got " & $team &
+        " — 16-team BR play never uses layoutPlus (BR_MAPGEN.md §6.2).")
 
-proc spawnFlipH*(gameMap: CtfMap, team: Team): bool =
+proc spawnFlipH*(gameMap: CtfMap, team: Team, groupOffset = 0): bool =
   ## Returns whether a team's sprite spawns horizontally flipped: any spawn
   ## aim with a westward component faces the body left. Exactly `team ==
-  ## Blue` on sides maps.
-  let brads = gameMap.spawnAimBrads(team)
+  ## Blue` on sides maps; on a BR (spawnPoints) map, any team whose own-point
+  ## bearing to center has a westward component. `groupOffset` forwards to
+  ## spawnAimBrads unchanged — see its doc comment.
+  let brads = gameMap.spawnAimBrads(team, groupOffset)
   brads > AimBradsTurn div 4 and brads < 3 * AimBradsTurn div 4
 
 proc teamPaintRgba*(color: uint8): ColorRGBA =
@@ -81,16 +131,14 @@ proc teamPaintRgba*(color: uint8): ColorRGBA =
   ## `Palette[BlueTeamColor]` is a muted lavender (131,118,156) that matches the
   ## blue a viewer sees nowhere else on the board. A non-team color (an
   ## individual player slot) falls back to its palette entry.
-  if color == RedTeamColor:
-    RedEndzoneColor
-  elif color == BlueTeamColor:
-    BlueEndzoneColor
-  elif color == GreenTeamColor:
-    GreenEndzoneColor
-  elif color == YellowTeamColor:
-    YellowEndzoneColor
-  else:
-    Palette[color and 0x0f]
+  ##
+  ## Loops `Team` (was a 4-way `elif` chain on the named *TeamColor consts,
+  ## collapsed per BR_MAPGEN.md §6.2) and reuses the shared
+  ## `teamEndzoneColor`, so this stays correct with no edit as `Team` widens.
+  for team in Team:
+    if color == teamColor(team):
+      return teamEndzoneColor(team)
+  Palette[color and 0x0f]
 
 
 proc playerText*(sim: SimServer, playerIndex: int): string =
@@ -140,6 +188,23 @@ proc mixHashInt(hash: var uint64, value: int) =
   ## Mixes one signed integer into a deterministic hash.
   hash.mixHash(cast[uint64](int64(value)))
 
+proc mixHashInt(hash: var uint64, value: int64) =
+  ## Mixes one 64-bit signed integer into a deterministic hash.
+  ##
+  ## WASM32 CRASH FIX: the `int` overload above widens to `int64` before
+  ## mixing, so the mixed bytes for any value are `cast[uint64](int64(v))`
+  ## either way — for every value an `int` can hold the two overloads emit
+  ## BYTE-IDENTICAL input to `mixHash`, and on a native build (where `int`
+  ## IS 64-bit) they are the same function over the same domain. The hash
+  ## is therefore unchanged on every platform and every existing recording
+  ## stays valid. What this overload buys is the CALLER: an `int64` field
+  ## (`gloryProduct`, `teamGlory`) no longer has to be narrowed through
+  ## `int(...)` to be hashed, which on wasm32 (`int` = 32 bits) range-checks
+  ## and kills the replay the moment the value exceeds 2^31-1 — exactly
+  ## what `RecutProductCapArmed` (= 2^31, glory.nim) saturates the glory
+  ## product to on any capped episode.
+  hash.mixHash(cast[uint64](value))
+
 proc mixHashBool(hash: var uint64, value: bool) =
   ## Mixes one boolean into a deterministic hash.
   hash.mixHashInt(ord(value))
@@ -149,6 +214,86 @@ proc grenadeThrowerSlot*(
   grenade: AirborneGrenade
 ): int {.inline.} =
   grenade.throwerSlot
+
+proc policyPageHash*(page: string): uint64 =
+  ## The content hash of one flashed one-page policy: FNV-1a 64 over the raw
+  ## page bytes, the same mixer gameHash itself is built from.
+  ##
+  ## One function, three readers, on purpose: the sim stamps it at flash
+  ## time, the replay writer puts it in the record, and the replay reader
+  ## re-derives it from the recorded page and refuses a record whose two
+  ## disagree. A second implementation anywhere would be a second chance for
+  ## the live and playback sides to hash the same page differently.
+  result = 14695981039346656037'u64
+  for c in page:
+    result.mixHashInt(ord(c))
+
+# ── ALLIANCE P1: pact registry mutators (formal-alliances design,
+# 2026-09-02/03, GameVersion 54) ── `pactMask` is symmetric by CONTRACT (bit
+# j of row i set iff bit i of row j is set); every writer in the engine goes
+# through registerPact/dissolvePact so that invariant can never drift, and
+# each asserts its own mirror bit immediately after writing it.
+proc pactActive*(sim: SimServer, a, b: Team): bool =
+  ## Whether teams `a` and `b` currently hold a mutual pact. Reads row `a`
+  ## only — the symmetry invariant is what makes that safe; a caller never
+  ## needs to check both rows.
+  (sim.pactMask[a] and (1'u16 shl ord(b))) != 0
+
+proc pactGroupTeams*(sim: SimServer, team: Team): seq[Team] =
+  ## S5 RULING (c) (CATALOG-V3-DRAFT.md, epic 25d9108e): `team` plus every
+  ## team it currently holds a mutual pact with (`pactMask`) -- the
+  ## "opposing pact" ruling (c) retargets the BR `dDuoDown`/`dWipe` mints
+  ## onto (sim.nim, the kill-resolution site). Size 1 = `team` holds no
+  ## active pact, i.e. a lone team is its own group of one, matching
+  ## today's un-pacted 16-solo shape exactly.
+  result = @[team]
+  for t in sim.teams():
+    if t != team and sim.pactActive(team, t):
+      result.add t
+
+proc pactGroupLivingExcluding*(sim: SimServer, group: seq[Team],
+                               excluding: int): int =
+  ## Count of living players across every team in `group`, treating seat
+  ## index `excluding` as already dead regardless of its stored `alive`
+  ## flag. Mirrors the existing dDuoDown solo-team-guard's own pattern
+  ## (sim.nim): at the kill-resolution call site the dying seat's death has
+  ## not been applied to `sim.players` yet, so a caller checking "is the
+  ## victim's team/pact-group now empty" must exclude it explicitly rather
+  ## than trusting `alive`.
+  for i, p in sim.players:
+    if i != excluding and p.alive and p.team in group:
+      inc result
+
+proc registerPact*(sim: var SimServer, a, b: Team) =
+  ## Sets the mutual bit for `a`/`b`. P1's original caller was
+  ## resolveConfiguredPacts (sim.nim, pre-match config seed); GameVersion
+  ## 56 (formal-alliances design, engine registration rewire) adds the
+  ## live one: declarePactPartners (sim.nim), once both teams' currently
+  ## active `pact` play declarations name each other.
+  doAssert a != b, "a team cannot pact with itself"
+  sim.pactMask[a] = sim.pactMask[a] or (1'u16 shl ord(b))
+  sim.pactMask[b] = sim.pactMask[b] or (1'u16 shl ord(a))
+  doAssert sim.pactActive(a, b) and sim.pactActive(b, a),
+    "pactMask symmetry invariant violated on register"
+
+proc dissolvePact*(sim: var SimServer, a, b: Team) =
+  ## Clears the mutual bit for `a`/`b`. Idempotent: dissolving an inactive
+  ## pact is a no-op, not an error (a died seat's row/column clear and an
+  ## ally-damage clear can both legally target the same already-cleared
+  ## pair in one tick).
+  sim.pactMask[a] = sim.pactMask[a] and not (1'u16 shl ord(b))
+  sim.pactMask[b] = sim.pactMask[b] and not (1'u16 shl ord(a))
+  doAssert not sim.pactActive(a, b) and not sim.pactActive(b, a),
+    "pactMask symmetry invariant violated on dissolve"
+
+proc clearPactsFor*(sim: var SimServer, team: Team) =
+  ## Dissolves every pact `team` holds, in both directions — the death hook
+  ## (killPlayer, sim.nim): a dead seat can no longer honor a truce, so its
+  ## whole row AND every partner's mirrored column bit clear together.
+  for other in sim.teams():
+    if other != team and sim.pactActive(team, other):
+      sim.dissolvePact(team, other)
+  doAssert sim.pactMask[team] == 0
 
 proc gameHash*(sim: SimServer): uint64 =
   ## Returns a deterministic hash of gameplay state.
@@ -166,8 +311,26 @@ proc gameHash*(sim: SimServer): uint64 =
   if sim.barrageStartTick >= 0:
     result.mixHashInt(sim.barrageStartTick)
     result.mixHashInt(sim.barrageAccum)
+  # Mixed only when the shrink zone is configured: a zone-free game
+  # contributes nothing here (the barrageStartTick rule), while a configured
+  # one pins its once-drawn center into every replay hash — the rect
+  # trajectory and dps damage are themselves pure functions of this center
+  # plus already-hashed state (tickCount, gameStartTick, player hp/alive),
+  # so nothing else needs mixing in.
+  if sim.config.zonePhases.len > 0:
+    result.mixHashInt(sim.zoneCenter.x)
+    result.mixHashInt(sim.zoneCenter.y)
   result.mixHashBool(sim.isDraw)
-  result.mixHashBool(sim.needsReregister)
+  if sim.config.numAgents == 0:
+    ## In a seat-commanded (paintball) episode `needsReregister` is live-server
+    ## lobby plumbing: resetToLobby raises it and the SERVER lowers it as part
+    ## of re-seating the roster between the episode's games, and re-seating is
+    ## not a recorded event — a replay cannot re-derive the lowering, so the
+    ## flag would break the hash chain on the first tick of game two. It stays
+    ## OUT of the hash there (the puddleTicks rule; the flatty keyframe still
+    ## restores it exactly) and IN the hash for every classic game, where the
+    ## chain has always carried it.
+    result.mixHashBool(sim.needsReregister)
   result.mixHashInt(sim.nextJoinOrder)
   for team in sim.teams():
     result.mixHashInt(sim.flags[team].x)
@@ -198,7 +361,7 @@ proc gameHash*(sim: SimServer): uint64 =
     result.mixHashBool(player.hasGrenade)
     result.mixHashBool(player.hasShield)
     result.mixHashInt(player.shieldHp)
-    result.mixHashBool(player.hasPlasmaArc)
+    result.mixHashBool(player.hasSprayPaint)
     result.mixHashInt(player.arcTicksLeft)
     result.mixHashInt(player.arcAimBrads)
     # A 32-seat board can set bit 31 of the arc-hit mask; converting through
@@ -216,6 +379,66 @@ proc gameHash*(sim: SimServer): uint64 =
     result.mixHashInt(player.kills)
     result.mixHashInt(player.deaths)
     result.mixHashInt(player.captures)
+    # Mixed only when the one-page-policy channel is armed, so a
+    # reflash-off replay's hash trajectory is byte-identical to a build that
+    # never added these fields — the same rule as the
+    # allowCallouts/zonePhases/barrageStartTick guards.
+    #
+    # WHY a strategy page belongs in a GAMEPLAY hash at all: a reflash is a
+    # real, out-of-band input to the episode — the cog plays differently
+    # after it. The recorded button masks alone cannot witness it, so a
+    # replay that lost the reflash record would re-simulate SILENTLY and
+    # attribute the match to a strategy it never ran. Mixing the active
+    # page's content hash and flash count turns that silent lie into a hash
+    # mismatch at the exact tick the page went missing. The CONTENT itself
+    # is not mixed (it is already summarised by policyPageHash, computed
+    # once at flash time) — hashing a multi-KB page on every seat every tick
+    # would be real CPU for no extra discrimination.
+    if sim.config.allowPolicyReflash:
+      result.mixHash(player.policyPageHash)
+      result.mixHashInt(player.policyPageEpoch)
+    # GLORY PORT increment 3/3 (GLORY v11, GameVersion 48): the per-life
+    # ladder and every counter that gates an achievement or a deed's
+    # classification enters the hash for the first time — see each
+    # field's own "CAUSAL (hashed)"/"in gameHash" comment on the `Player`
+    # type (sim_types.nim) for why THIS subset and not the rest (the
+    # analysis-only counters just below it on that type, `lastKilledBy`
+    # through `tookShield`, stay OUT, same as `deedCounts`/`deedGloryMass`/
+    # `gloryPops`/`achievementFeed`/`teamKillRing` do on `SimServer` below).
+    result.mixHashInt(player.xp)
+    result.mixHashInt(player.level)
+    result.mixHashInt(player.grenadeCharges)
+    result.mixHashInt(player.gunKills)
+    result.mixHashInt(player.sprayKills)
+    result.mixHashInt(player.grenadeKills)
+    result.mixHashInt(player.longshotKills)
+    result.mixHashInt(player.soakedHp)
+    result.mixHashInt(player.clutchHeals)
+    result.mixHashInt(player.steals)
+    result.mixHashInt(player.carrierKills)
+    result.mixHashInt(player.denials)
+    result.mixHashInt(player.sprayKillsThisPickup)
+    result.mixHashInt(player.aceKills)
+    result.mixHashInt(player.sprayMultiKills)
+    result.mixHashInt(player.grenadeMultiKills)
+    result.mixHashInt(player.clutchCarryHeals)
+    result.mixHashInt(player.stealTickThisLife)
+    result.mixHashInt(player.clutchHealTick)
+    result.mixHashInt(player.peelTick)
+    result.mixHashInt(player.contestedSteals)
+    result.mixHashInt(player.carryKills)
+    result.mixHashBool(player.secondWind)
+    result.mixHashBool(player.capturedOutnumbered)
+    result.mixHashBool(player.capturedFastBreak)
+    result.mixHashInt(player.lastDamagedBy)
+    result.mixHashInt(player.lastDamagedByTick)
+    result.mixHashInt(player.menacingTick)
+    result.mixHashInt(player.menacingVictim)
+    result.mixHashInt(player.rescuedTick)
+    result.mixHashInt(player.assists)
+    result.mixHashInt(player.rescues)
+    result.mixHashInt(player.escortKills)
+    result.mixHashBool(player.avengedPartner)
   for spawn in sim.grenadeSpawns:
     result.mixHashBool(spawn.present)
     result.mixHashInt(spawn.respawnAt)
@@ -225,7 +448,7 @@ proc gameHash*(sim: SimServer): uint64 =
   for spawn in sim.shieldSpawns:
     result.mixHashBool(spawn.present)
     result.mixHashInt(spawn.respawnAt)
-  for spawn in sim.plasmaArcSpawns:
+  for spawn in sim.sprayPaintSpawns:
     result.mixHashBool(spawn.present)
     result.mixHashInt(spawn.respawnAt)
   result.mixHashInt(sim.airborneGrenades.len)
@@ -237,6 +460,32 @@ proc gameHash*(sim: SimServer): uint64 =
     result.mixHashInt(grenade.launchTick)
     result.mixHashInt(grenade.flightTicks)
     result.mixHashInt(grenade.thrower)
+  # --- paintball state, APPENDED after every existing mix so the ordering of
+  # the inherited fields stays stable. All of it is gameplay state the wasm
+  # viewer re-derives from the recorded masks, so all of it is hashed:
+  # paintOwner (eight tiles at a time as a uint64 word), the hill counters,
+  # and per cog the heal streak and what it is standing on.
+  if sim.config.floorPaint:
+    var word = 0'u64
+    var filled = 0
+    for code in sim.paintOwner:
+      word = (word shl 8) or uint64(code)
+      inc filled
+      if filled == 8:
+        result.mixHash(word)
+        word = 0
+        filled = 0
+    if filled > 0:
+      result.mixHash(word)
+    for team in Red .. Blue:
+      result.mixHashInt(sim.paintCount[team])
+      result.mixHashInt(sim.hillPaint[team])
+      result.mixHashInt(sim.hillTicks[team])
+    result.mixHashInt(ord(sim.hillOwner))
+    result.mixHashBool(sim.hillOwned)
+    for player in sim.players:
+      result.mixHashInt(player.ownPaintTicks)
+      result.mixHashInt(ord(player.paintUnder))
   result.mixHashInt(sim.recentShouts.len)
   for shout in sim.recentShouts:
     for c in shout.address:
@@ -247,6 +496,143 @@ proc gameHash*(sim: SimServer): uint64 =
     result.mixHashInt(shout.tick)
     result.mixHashInt(shout.x)
     result.mixHashInt(shout.y)
+    # Mixed only when the mode is on, so an allowCallouts-off replay's hash
+    # trajectory is byte-identical to a build that never added these fields
+    # — the same rule as the zonePhases/barrageStartTick guards above.
+    if sim.config.allowCallouts:
+      result.mixHashBool(shout.isCallout)
+      result.mixHashInt(shout.calloutId)
+      for c in shout.calloutCell:
+        result.mixHashInt(ord(c))
+  # GLORY PORT increment 3/3 (GLORY v11, GameVersion 48) — the TEAM/GAME
+  # ledger. See each field's own comment on `SimServer` (sim_types.nim) for
+  # why this subset and not the rest: `teamKillRing` (scratch bookkeeping),
+  # `deedCounts`/`deedGloryMass` (audit telemetry) and `gloryPops`/
+  # `achievementFeed` (cosmetic/feed data) all stay OUT, same as before.
+  for team in sim.teams():
+    result.mixHashInt(sim.teamGlory[team])
+    result.mixHashInt(sim.heatEmbers[team])
+    result.mixHashInt(sim.heatLastDeed[team])
+    result.mixHashInt(sim.heatLastDecay[team])
+    for tier in sim.claimed[team]:
+      result.mixHashBool(tier)
+  for tier in sim.claimedFirst:
+    result.mixHashBool(tier)
+  result.mixHashBool(sim.firstBloodDone)
+  for team in sim.teams():
+    result.mixHashBool(sim.squadVolleyDone[team])
+  # MULTIPLIER RECUT (GLORY v13): the canonical armed pair — the running
+  # product and the FF incident count halvings derive from. Mixed ONLY when
+  # the recut is armed, so a dark replay's hash schema and trajectory are
+  # byte-identical to a build without these fields — the same rule as the
+  # allowCallouts/zonePhases/barrageStartTick guards above.
+  # `recutDamageMarks` stays OUT (derived deterministically from the damage
+  # stream; the product it feeds is what is causal — see its field comment).
+  if sim.config.gloryMultiplierRecut:
+    for team in sim.teams():
+      # UNNARROWED (wasm32 fix): `gloryProduct` is `int64` and saturates at
+      # `RecutProductCapArmed` = 2^31, which does NOT fit `int` on wasm32.
+      # The old `int(...)` here range-checked and killed the published
+      # replay viewer on every capped episode. Hash bytes are unchanged:
+      # the `int` overload mixed `cast[uint64](int64(v))`, this mixes
+      # `cast[uint64](v)` on the same `int64` value.
+      result.mixHashInt(sim.gloryProduct[team])
+      result.mixHashInt(sim.gloryFfIncidents[team])
+  # ALLIANCE P1 (formal-alliances design, 2026-09-02/03, GameVersion 54):
+  # the pact registry. Unconditional (not flag-gated) — unlike the recut
+  # pair above, there is no "armed" switch for the registry itself, only
+  # whether any config seeds a pact; an all-zero mask hashes to the same
+  # bytes on every config, seeded or not, so this costs nothing on a game
+  # that never configures `allies`. Dark for SCORING (nothing reads this to
+  # price anything yet) but CAUSAL for REPLAY (a pact forming or dissolving
+  # is a fact about the match a recording must reproduce).
+  for team in sim.teams():
+    result.mixHashInt(int(sim.pactMask[team]))
+  # DROP(s2): the ground-drop state and the per-cog chord counter. Mixed ONLY
+  # when the mechanic is armed, so a dropItem-off replay's hash schema and
+  # trajectory are byte-identical to a build without these fields — the same
+  # rule as the allowCallouts/zonePhases/barrageStartTick guards above. Both
+  # are causal (a dropped item changes who can fire and who gets it; the
+  # counter gates the drop) and both re-derive from the recorded masks on
+  # replay, so hashing them turns a lost mask into a mismatch instead of a
+  # silent divergence.
+  if sim.config.dropItem:
+    result.mixHashInt(sim.droppedItems.len)
+    for item in sim.droppedItems:
+      result.mixHashInt(ord(item.kind))
+      result.mixHashInt(item.x)
+      result.mixHashInt(item.y)
+      result.mixHashInt(item.dropper)
+      result.mixHashInt(item.dropTick)
+    for player in sim.players:
+      result.mixHashInt(player.dropChordTicks)
+      # The latch is as causal as the counter it guards — it decides whether
+      # the NEXT DropChordTicks spills a second item — so it is hashed beside
+      # it. Without this a desynced latch only surfaced a tick late, and
+      # indirectly, as a droppedItems diff.
+      result.mixHashBool(player.dropLatched)
+
+proc applyPolicyPage*(
+  sim: var SimServer,
+  playerIndex: int,
+  page: string
+): bool {.discardable.} =
+  ## Flashes one one-page policy onto one seat, at THIS tick. Returns whether
+  ## the page was accepted; the caller records a replay event for exactly the
+  ## accepted ones (see server.nim, which mirrors the shout drain).
+  ##
+  ## The acceptance rule is deliberately as small as it can be — armed gate,
+  ## real seat, non-empty page under the record's size ceiling — and depends
+  ## on NOTHING that could be in flight: not the phase, not whether the cog
+  ## is alive, not a cooldown. Every extra clause here is another way for the
+  ## live server and playback to reach different verdicts on the same page
+  ## and diverge, and the two flash regimes both need the permissive rule
+  ## anyway: BR re-flashes at an ARBITRARY tick (its cogs have one life, so
+  ## there is no spawn edge to hang it on) and CTF flashes on a respawn edge,
+  ## when the cog is momentarily not alive.
+  ##
+  ## The size refusal is the load-bearing one. A page over the record's
+  ## uint16 length prefix would apply live and then be unwritable to the
+  ## replay — an applied-but-unrecorded input, the single outcome
+  ## determinism cannot survive. Refusing it BEFORE any state moves keeps
+  ## live and playback agreeing that the flash never happened.
+  if not sim.config.allowPolicyReflash:
+    return false
+  if playerIndex < 0 or playerIndex >= sim.players.len:
+    return false
+  if page.len == 0 or page.len > MaxPolicyPageBytes:
+    return false
+  sim.players[playerIndex].policyPage = page
+  sim.players[playerIndex].policyPageHash = policyPageHash(page)
+  sim.players[playerIndex].policyPageTick = sim.tickCount
+  # Every accepted flash bumps the epoch, INCLUDING a re-flash of the page
+  # already loaded: reasserting the current plan is the most common thing an
+  # LLM does, and without the bump that event would leave no trace in the
+  # hash and a lost record for it would replay clean.
+  inc sim.players[playerIndex].policyPageEpoch
+  true
+
+const MaxFeedDirectives* = 8
+  ## How many commander lines the match feed keeps. The feed shows four rows
+  ## at a time and a seek re-hydrates from the keyframe, so a short ring is
+  ## all the client can ever draw.
+
+proc pushFeedDirective*(sim: var SimServer, record: string) =
+  ## Records one `directive` chat record for the broadcast feed. Called from
+  ## the live server as it writes the record AND from the replay's chat
+  ## re-application, so the feed tells the same story either way. Never
+  ## hashed: this is presentation state.
+  if record.len == 0 or record[0] != '{':
+    return
+  try:
+    let node = parseJson(record)
+    if node.kind != JObject or node{"k"}.getStr() != "directive":
+      return
+  except CatchableError:
+    return
+  sim.feedDirectives.add(record)
+  if sim.feedDirectives.len > MaxFeedDirectives:
+    sim.feedDirectives.delete(0)
 
 proc isWalkable*(sim: SimServer, x, y: int): bool =
   if x < 0 or y < 0 or x >= MapWidth or y >= MapHeight:
@@ -278,18 +664,80 @@ proc nearestWalkable*(sim: SimServer, x, y: int): tuple[x, y: int] =
           return (nx, ny)
   (x, y)
 
+proc spawnGroupOffset*(sim: SimServer): int =
+  ## How far to rotate the team -> spawn-group assignment this episode.
+  ##
+  ## Derived from the config seed alone (hashed, so consecutive seeds do not
+  ## give consecutive offsets, which on a 4x4 grid would walk the assignment
+  ## one cell at a time and keep neighbours as neighbours). Pure function of
+  ## the seed: a replay of one seed seats exactly as the recording did.
+  let teamCount = sim.gameMap.teamCount()
+  if teamCount <= 1:
+    return 0
+  var h = uint32(sim.config.seed) * 2654435761'u32
+  h = (h xor (h shr 15)) * 2246822519'u32
+  h = h xor (h shr 13)
+  int(h mod uint32(teamCount))
+
 proc spawnPosition*(sim: SimServer, team: Team, order: int): tuple[x, y: int] =
   ## Returns a deterministic spawn position just inside a team's home edge:
   ## players stagger along the edge, perpendicular to their home axis (down
   ## the side for east/west teams, across for the plus layout's north/south
   ## arms).
+  ##
+  ## BR N-point spawn subsystem: when gameMap.spawnPoints is authored, it
+  ## OVERRIDES this staggered placement entirely — seat (team, order) spawns
+  ## at the team's order-th point, wrapping with `mod` if more seats join
+  ## than points were authored for that team (extra seats re-share points,
+  ## in order, each one SpawnShareStagger px further along y so no two
+  ## bodies start on one pixel -- GV52). teamAnchor/flagHome stay exactly as they are either
+  ## way — spawnPoints never moves the flag pedestal, only where players
+  ## stand.
+  if sim.gameMap.spawnPoints.len > 0:
+    let
+      teamCount = sim.gameMap.teamCount()
+      perTeam = sim.gameMap.spawnPoints.len div teamCount
+      ## Team k does NOT always get spawn group k. A fixed team->position
+      ## binding means one team owns a grid cell for every episode ever
+      ## played on the map, so any positional advantage that cell carries
+      ## (§3.4's ring-bias, or simply better cover) is handed to the same
+      ## team every time, and per-spawn fairness — the measured floor the
+      ## whole BR programme rests on (§2.5, §3.1) — can no longer be
+      ## separated from per-team skill.
+      ##
+      ## Rotating by an episode-derived offset breaks the binding without
+      ## touching determinism: the offset is a pure function of the seed,
+      ## so one seed always replays identically, while consecutive seeds
+      ## deal the groups differently.
+      offset = sim.spawnGroupOffset()
+      group = (ord(team) + offset) mod teamCount
+      p = sim.gameMap.spawnPoints[group * perTeam + (order mod perTeam)]
+      ## GV52: seats that RE-SHARE a point (order >= perTeam -- every BR duo
+      ## on the 16-point, 16-team generator) no longer stand on top of each
+      ## other. Two bodies on one pixel are inside each other's solid band,
+      ## and a shot either fires at a third seat lands on the partner first:
+      ## over 928 league/XP duo pairs on GV51, 18% were both still on the
+      ## spawn pixel 150 ticks in and partners traded fatal gun hits there.
+      ## The k-th sharer stands SpawnShareStagger px along y (alternating
+      ## sides), clear of the first seat's solid span; the
+      ## authored point itself, the rotation, and single-seat maps are
+      ## untouched.
+      share = order div perTeam
+      side = (if share mod 2 == 1: 1 else: -1)
+      stagger = side * ((share + 1) div 2) * SpawnShareStagger
+    return sim.nearestWalkable(p.x, p.y + stagger)
   let
     anchor = sim.gameMap.teamAnchor(team)
     strip = order div 2          ## stagger players down the edge.
     spread = 36
     stepMajor = (strip - 1) * spread
     stepMinor = (if order mod 2 == 0: -6 else: 6)
-    vertical = sim.gameMap.layout != layoutPlus or team in {Red, Blue}
+    ## Which arm the team OCCUPIES this episode, not which one its colour
+    ## implies: the GV44 home rotation moves a team between the plus layout's
+    ## W/E and N/S arms, and a strip that kept its old axis would stagger
+    ## players straight across the arm mouth into the wall.
+    slot = sim.gameMap.homeSlot(team)
+    vertical = sim.gameMap.layout != layoutPlus or slot in {Red, Blue}
     targetX = if vertical: anchor.x + stepMinor else: anchor.x + stepMajor
     targetY = if vertical: anchor.y + stepMajor else: anchor.y + stepMinor
   sim.nearestWalkable(targetX, targetY)
@@ -501,9 +949,27 @@ proc resetFlags*(sim: var SimServer) =
   ## Returns every active team's flag to its home pedestal. Inactive slots
   ## hold an explicit no-carrier state so nothing can misread the array's
   ## zero value (carrier 0 would mean "player 0 carries it").
+  ##
+  ## BR N-point spawn subsystem: a flagless map arms NO flag at all, so an
+  ## active team gets the SAME explicit sentinel as an inactive one instead
+  ## of a real resetFlag — which would call flagHome/teamAnchor to compute a
+  ## pedestal position. Skipping that call is deliberate, not just "don't
+  ## bother": on a symNone map with layoutCorners/layoutPlus on a
+  ## non-square board, teamAnchor's rot90-orbit math for a non-Red team can
+  ## land far outside the board (the defaultCtfRooms crash this subsystem
+  ## already had to fix once), so never computing the position kills that
+  ## cosmetic hazard at the root instead of computing a garbage point
+  ## nothing then draws. carrier=-1 + captured=true is the same "no flag
+  ## active" sentinel every downstream reader (updateFlags,
+  ## checkWinCondition, flagVisibleTo, flagCarryProgress, killPlayer's
+  ## drop-on-death loop, roster's carrier-reindex) already treats as inert —
+  ## captured=true additionally short-circuits checkWinCondition's "heart
+  ## retired" bookkeeping loop before it would otherwise log a spurious
+  ## "heart retired" line for a game that never had one.
   for team in Team:
-    if team in sim.teams():
+    if team in sim.teams() and not sim.gameMap.flagless:
       sim.resetFlag(team)
     else:
-      sim.flags[team] = FlagState(x: 0, y: 0, carrier: -1)
+      sim.flags[team] =
+        FlagState(x: 0, y: 0, carrier: -1, captured: sim.gameMap.flagless)
 

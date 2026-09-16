@@ -113,7 +113,9 @@ proc syncPlayers(
   while track.alive.len < sim.players.len:
     let i = track.alive.len
     track.alive.add(sim.players[i].alive)
-    track.kills.add(sim.players[i].kills)
+    # Diff TOTAL credited kills (kills + teamKills): GV45 keeps backstabs out
+    # of the kill stat, but the timeline must still attribute them.
+    track.kills.add(sim.players[i].kills + sim.players[i].teamKills)
     track.deaths.add(sim.players[i].deaths)
     track.captures.add(sim.players[i].captures)
     track.rewards.add(sim.players[i].reward)
@@ -129,7 +131,8 @@ proc killerThisTick(sim: SimServer, track: TrackState): int =
   result = -1
   var killerCount = 0
   for i, player in sim.players:
-    if i < track.kills.len and player.kills > track.kills[i]:
+    if i < track.kills.len and
+        player.kills + player.teamKills > track.kills[i]:
       inc killerCount
       result = i
   if killerCount > 1:
@@ -157,7 +160,7 @@ proc printKillsAndDeaths(
     elif p.alive and not track.alive[i]:
       events.addPlayerEvent(tick, Respawn, sim, i)
     track.alive[i] = p.alive
-    track.kills[i] = p.kills
+    track.kills[i] = p.kills + p.teamKills
     track.deaths[i] = p.deaths
 
 proc printShots(
@@ -366,8 +369,10 @@ proc jsonRow*(event: ReplayEvent): JsonNode =
   result["key"] = %event.key()
   result["value"] = value
 
-proc eventsAt(timeline: ReplayTimeline, tick: int): seq[ReplayEvent] =
+proc eventsAt*(timeline: ReplayTimeline, tick: int): seq[ReplayEvent] =
   ## Returns timeline events for one tick in their recorded order.
+  ## Exported so a determinism test can pin the condition the CLI printer
+  ## used to swallow: a hash failure on a tick with NO printable events.
   for event in timeline.events:
     if event.tick == tick:
       result.add(event)
@@ -443,15 +448,28 @@ proc expandReplay(path: string) {.used.} =
 
   echo "replay ", path
   for tick in 1 .. timeline.tickCount:
-    let events = timeline.eventsAt(tick)
-    if events.len == 0:
+    let
+      events = timeline.eventsAt(tick)
+      failedHere = timeline.hashFailed and tick == timeline.failTick
+    # The hash verdict prints at its own tick whether or not that tick also
+    # carries printable events. It used to be reported only INSIDE the
+    # events branch, so a divergence landing on an event-free tick was
+    # `continue`d straight past: the tool printed "done" and exited 0 while
+    # the replay was diverging. Every quiet-tick divergence class reads that
+    # way — a lost input record, a dropped policy-page reflash — which is
+    # exactly the set this tool exists to catch.
+    if events.len == 0 and not failedHere:
       continue
     echo "tick ", tick
     for event in events:
       echo event.text()
-    if timeline.hashFailed and tick == timeline.failTick:
+    if failedHere:
       echo "  hash failed"
       fail("hash failed")
+  # ...and a failure the printed range never reached is still a failure.
+  if timeline.hashFailed:
+    echo "hash failed at tick ", timeline.failTick
+    fail("hash failed")
   echo "done"
 
 when isMainModule:

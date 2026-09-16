@@ -1,0 +1,8 @@
+result = src_p0;
+	{
+		if (!src_p0) goto LA3_;
+		nimIncRef(src_p0);
+	}
+LA3_: ;
+	return result;
+}

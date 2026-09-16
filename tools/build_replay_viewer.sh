@@ -1,9 +1,12 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-repo_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+repo_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)"
 if [[ "$#" -ne 1 ]]; then
   echo "usage: $0 /absolute/path/to/static-replay-viewer" >&2
+  echo "  this rm -rf's the output dir mid-run -- do not run" >&2
+  echo "  tests/test_season2_replay_hud.nim or tests/test_pb_manifest.nim" >&2
+  echo "  concurrently against the same checkout (phantom failures)" >&2
   exit 1
 fi
 
@@ -13,6 +16,11 @@ if [[ "${requested_output}" != /* || "$(basename "${requested_output}")" != "sta
   echo "unsafe bundle output: ${requested_output}" >&2
   exit 1
 fi
+
+# `coworld build` pre-creates the bundle's output parent; CI does not, and the
+# containment check below resolves it by cd-ing in. Create it first or every
+# fresh checkout fails here (the ecos 2026-08-23 scar).
+mkdir -p "$(dirname "${requested_output}")"
 
 output_parent="$(cd "$(dirname "${requested_output}")" && pwd -P)"
 output_dir="${output_parent}/static-replay-viewer"
@@ -34,10 +42,19 @@ cleanup() {
 }
 trap cleanup EXIT
 
+# The sim-sources stamp is computed HERE, on the host, because the build
+# context excludes .git (.dockerignore) — the container cannot derive it.
+# It is baked into the wasm (-d:ctfSimSourcesStamp) and exported as
+# ctf_sim_sources_stamp_ptr/len so tools/qa_module_eval.cjs can recompute
+# at HEAD and fail CI when the committed bundle was built from older sim
+# sources — the same-GameVersion drift the GameVersion tripwire cannot see.
+sim_sources_stamp="$("${repo_dir}/tools/sim_sources_stamp.sh")"
+
 build_args=(
   --platform linux/amd64
   --file "${repo_dir}/Dockerfile.replay-viewer"
   --target replay-viewer-builder
+  --build-arg "SIM_SOURCES_STAMP=${sim_sources_stamp}"
   --tag "${image_tag}"
   "${repo_dir}"
 )

@@ -32,7 +32,12 @@ git merge origin/main    # or: git rebase origin/main — bring the branch curre
 
 If `behind` is non-zero, merge/rebase `origin/main` **first**, then start.
 Re-derive version-sensitive work (the `GameVersion` const, replay fixtures)
-against the *updated* code, never the base you happened to check out. When
+against the *updated* code, never the base you happened to check out. Any
+change under `src/*.nim` also changes the sim-sources stamp
+(`tools/sim_sources_stamp.sh`), so rebuild the committed viewer bundle
+(`tools/build_replay_viewer.sh "$PWD/static-replay-viewer"`, a Docker build)
+and commit it with the change — otherwise the `wasm-replay-viewer` CI job
+fails its staleness check and the paintbot upload is skipped. When
 working in a worktree, also confirm you're editing files under that worktree's
 path — not a sibling checkout on an unrelated branch.
 
@@ -136,6 +141,16 @@ instead of blending in.
   `sim.nim` — the gameplay core and step loop.
 - `src/ctf/map_pool.nim` — GENERATED curated terrain-pool seeds; rewrite it
   only via `tools/gen_map_pool.nim`, never by hand.
+- Paintball King of the Hill — a deprecated config-gated squad mode merged
+  back from Metta-AI/cogame-paintball (docs/paintball/: RULES, PROTOCOL,
+  COMMANDING, the design note). Since 0.7.253 live boot requires
+  `allowDeprecatedModes: true`, and the published manifest no longer offers a
+  paintball variant. Mode modules remain in `src/ctf/`: `paint.nim` (paint grid + hill),
+  `control.nim` (directive -> actuator masks), `directives.nim` (the reply
+  schema), `baselines.nim` (holdline/sprayer), `llm.nim` (Bedrock/Anthropic
+  transport), `decide.nim` (the per-turn batch); `src/paintball_player.nim`
+  is the thin seat registrar (`/bin/paintball-player`). Its tests are
+  `tests/test_pb_*.nim` (+ `pb_helpers.nim`), sharded like everything else.
 - `tools/map_render.nim` — the shared map rasterizer behind both
   `render_map_pool.nim` and the map editor. It is a PURE function of a
   `CtfMap`: it must never install a map or read the process-global arena
@@ -146,6 +161,147 @@ instead of blending in.
   are 10-50x slower through the per-pixel map code.
 - Dependencies come from nimby (`nimby --global sync nimby.lock`; the
   Dockerfile is the canonical build recipe).
+
+## Season 2 play-calling shell (supported default)
+
+The authoritative design for Season 2 (language-model policies that upload
+WebAssembly "plays", a game-side body ported from stencil, an embedded
+wasmtime runtime, the play-seat protocol, and the engine-native lobby chat
+phase) is `docs/designs/strategy-play-calling-shell-2026-08-29.md`, with a
+commentable HTML twin beside it. The unratified spatial-knowledge proposal is
+`docs/designs/play-spatial-knowledge-2026-09-08.md`. The body, runtime,
+play-seat protocol,
+durable status path, lobby chat, and format-2 replay records are implemented
+under `src/shell/` and their `src/ctf/` integration points. `season2Shell`
+defaults true; an all-input roster still takes the direct-input path, while an
+explicit false requests a deprecated mode that live boot refuses unless
+`allowDeprecatedModes` is true. Before changing the shell, read the design;
+Appendix H records why its ratified decisions were made. The shared contracts
+are `src/shell/types.nim`, `src/shell/canonical.nim`, `src/shell/schemas/`, and
+the byte goldens in `tests/fixtures/shell/`, pinned by
+`tests/test_shell_contracts.nim` in shard 2. Supporting material includes the
+runtime comparison that picked wasmtime
+(`docs/reports/wasm-runtime-embedding-2026-08-30.md`), the report on the Season
+2 substrate
+(`docs/reports/maxwell-s2-paradigms-2026-08-29.md`), and the branch
+inventory (`docs/recon/paintbot-s2-policy-shell-2026-08-29.md`). New policy
+authors should start in `policies/starters/`; `policies/poc_llm_policy/` is the
+lower-level wire reference. The original dark-landing history is preserved in
+`docs/reports/br-season2-landing-notes-2026-08-30.md`. The server's per-tick
+diagnostic log lines for play seats (`SHELL_INSTALL`, play faults,
+`SHELL_PLAN_BUDGET`, `SHELL_NAV`, `SHELL_COMBAT`) are
+described in `docs/designs/SHELL_DEMO.md` under "Diagnostic log lines".
+The proposed deterministic per-seat worker boundary, rollout gates, and CPU
+envelope are in `docs/designs/shell-step-parallelism-2026-09-07.md`.
+Ratified and proposed decisions for replacing native reflexes with ordinary plays are in [the reflex decision record](docs/designs/reflex-plays-decision-record-2026-09-08.md).
+
+## Build shapes
+
+Two compile shapes are supported, and the toolchain alone selects between
+them:
+
+- **Runtime-linked:** build with `--threads:on` and `WASMTIME_C_API` set. This
+  is the production shape used by CI shards and shipped images; it links the
+  WebAssembly runtime.
+- **Runtime-stub:** build with `WASMTIME_C_API` absent. The full server,
+  including `src/ctf.nim`, must still compile. Play-seat machinery remains
+  present but returns visible `runtimeUnavailable` refusals through the
+  episode's non-runtime overloads and module cache's stub `RuntimeModule`.
+
+The runtime-stub shape keeps tools and development machines without the
+Wasmtime toolchain buildable. It also protects a load-bearing conditional
+import boundary: the P5B4 regression passed locally wherever the runtime
+environment was already present, while the stub shape had silently stopped
+compiling. `season2Shell` is runtime configuration and is orthogonal to these
+compile shapes; do not call them gate-on or gate-off builds.
+
+Any change to the `src/shell` import graph must check both shapes against the
+server entrypoint:
+
+```sh
+# Runtime-linked: set WASMTIME_C_API (and the platform's SDK paths) first.
+nim check -d:noSignalHandler --threads:on src/ctf.nim
+
+# Runtime-stub: explicitly remove WASMTIME_C_API.
+env -u WASMTIME_C_API nim check -d:noSignalHandler --threads:on src/ctf.nim
+```
+
+### Profiling build
+
+Set `-d:ProfileTracePath=<path>` to enable Fluffy tracing and optionally set
+`-d:ProfileTicks=N` (default 100) to dump after N post-lobby ticks. The trace
+is buffered in memory until it is dumped. Markers cover `shell.*` stages,
+`body.*` work, guest `invoke*` calls, danger/planning work, and `sim.step`.
+Fluffy's state is not thread-safe, so markers must stay on the game thread;
+never add them to compile-plane worker paths. When `COWORLD_WORKDIR` is set,
+the completed trace is copied to
+`$COWORLD_WORKDIR/logs/profile-trace.json` for the debug artifact.
+
+Exercise a local profiled server with:
+
+```sh
+SHELL_EXTRA_NIM_FLAGS="-d:ProfileTracePath=$TMPDIR/ctf-trace.json -d:ProfileTicks=240" \
+  tools/run_shell_demo.sh
+```
+
+For Observatory profiling, build the separate `paintbot-profiling` Coworld.
+Its manifest is catalog-visible; keep the experience requests private. Never
+upload these flags under `paintbot` or change a league's version lock.
+The script generates `build/profiling-coworld/template.json` from the current
+`coworld_manifest_paintbot.json`, changing the game name and environment.
+It omits the game-side LLM credential used by deprecated squad variants;
+those variants are not intended to run on this Coworld.
+Season 2 player policy credentials are unaffected.
+
+```sh
+uv venv .venv
+uv pip install --python .venv/bin/python 'coworld[auth]' softmax-cli
+# Check installed versions against current releases before each run.
+uv pip list --python .venv/bin/python --outdated
+PROFILE_TICKS=2400 tools/build_profiling_coworld.sh
+```
+
+The script forwards `GAME_NIM_FLAGS` through Compose, preserving the normal
+Dockerfile flags, and uses `tools/ci/next_coworld_version.py` for the separate
+version sequence (a new name starts at `0.1.0`). It waits for hosted smoke and
+certification and prints the Coworld ID. It registers the existing
+`static-replay-viewer` files through Coworld's upload helper and uses their
+digest, avoiding the CLI's automatic viewer build hook. The viewer files must
+match the checkout's sources, as required by the normal viewer-stamp workflow.
+The template explicitly sets `COWORLD_WORKDIR=/coworld` for the game container;
+the hosted runner only sets it automatically for its own worker and init
+container. The trace starts at `/tmp/profile-trace.json` and the server copies
+it into the debug logs directory;
+writing directly to the copy destination would truncate the trace on Linux.
+
+Before uploading, record the canonical `paintbot` ID/version and read the
+league's `/v2/leagues/{id}/locks` with the elevated header; read them again
+afterward. Snapshot the competition division's standings and active champion
+memberships, joining by player ID to pin the top 16 policy-version UUIDs.
+Use one explicit roster entry per seat: `{"player":{"policy_ref":"<uuid>"},
+"slot":0}` (slots 0–15). Direct Coworld targets cannot use league `top_n`.
+Save an experience-request JSON body with `coworld_id` set to the printed ID,
+`variant_id: "battle-royale-s2"`, `private: true`, `num_episodes: 3`, and that
+`roster`, then run:
+
+```sh
+uv run --python .venv/bin/python coworld --elevated xp-request create request.json --json
+```
+
+Runs bill the signed-in user's credits. After completion, download each
+`GET /api/observatory/v2/episode-requests/{id}/artifacts/debug` with the user's
+Bearer token and `X-Use-Elevated-Privileges: true`. If access is refused, report
+the request and response; do not bypass the route. The ZIP must contain
+`profile-trace.json` with `shell.*`, `body.*`, and `invokeStep` events. Report
+per-name count, p50, p95, and total `dur` (Chrome trace microseconds), separately
+for each episode. Durations include nested stages, so totals overlap; record
+actual tick coverage if an episode ends before the configured profile limit.
+
+Open question, routed to the PM rather than for local implementation: should a
+live play-seat config on a runtime-stub binary refuse at boot, like the
+deprecated-mode gate, instead of serving default-fallback episodes? Today a
+production pod missing the baked runtime degrades visibly per seat but does not
+refuse the game.
 
 ## Interaction radii must be derived from the art (learned 3x on the heart)
 
@@ -299,7 +455,32 @@ load. Design: [docs/plans/2026-08-04-vector-obstacles-design.md](docs/plans/2026
 `tests/fixtures/*.bitreplay` + `tests/replays/ctf.bitreplay` are recorded
 against the CURRENT rules and must be re-recorded on every GameVersion
 bump (`tools/record_fixture.sh`; exact recipes in
-`tests/test_broadcast_state.nim`). Gotchas:
+`tests/test_broadcast_state.nim`).
+
+**ALL NINE, every time — the shards only read six.** `gen-small-pits`,
+`gen-colossal-4team`, and `br-zonepaint-smoke` are read by NO native test;
+only the CI `wasm-replay-viewer` smoke job loads them, so a re-record pass
+that works from the test files alone misses them and CI fails on a job that
+looks unrelated (GV44 shipped exactly this way). The full set and its
+recipes:
+
+| fixture | recipe |
+|---|---|
+| `tests/fixtures/capture-seed1` | `record_fixture.sh <out> 1` |
+| `tests/fixtures/wipe-lives1` | `record_fixture.sh <out> 3 10000 '{"lives":1,"hitPoints":1,"carrierSpeedPct":1}'` |
+| `tests/fixtures/draw-nokill` | `record_fixture.sh <out> 7 1500 '{"hitPoints":1000,"carrierSpeedPct":1,"barrageMaxPerSec":0}'` |
+| `tests/fixtures/seats-numagents16` | `record_fixture.sh <out> 5 1500 '{"num_agents":16}'` — the hosted config shape (a seat count set); guards the `num_agents` echo |
+| `tests/replays/ctf` | `record_fixture.sh <out> 907 10000 '{"lives":9}'` |
+| `tests/fixtures/gen-small-pits` | `record_fixture.sh <out> 4242 1500 '{"mapPath":"gen","mapSeed":4242,"mapSize":"small"}'` |
+| `tests/fixtures/gen-colossal-4team` | `record_colossal_demo.sh <out> 4242 1500 16` |
+| `tests/fixtures/br-golden-16team` | `record_br_golden.sh 4248` (own script, own port; seed 4248 since GV51 — 4242 stopped reaching the shield pool under the parallel-motion collision rule) |
+| `tests/fixtures/br-zonepaint-smoke` | `record_fixture.sh <out> 55221 1500 '{"mapPath":"brpool","teams":8,"brMode":true,"lives":1,"barrageMaxPerSec":0,"slots":[{"team":"red"},{"team":"blue"},{"team":"green"},{"team":"yellow"},{"team":"black"},{"team":"silver"},{"team":"ivory"},{"team":"pink"},{"team":"red"},{"team":"blue"},{"team":"green"},{"team":"yellow"},{"team":"black"},{"team":"silver"},{"team":"ivory"},{"team":"pink"}],"zoneDamageByPaint":true,"zonePhases":[{"z":0.75,"waitTicks":40,"shrinkTicks":80,"dps":2},{"z":0.45,"waitTicks":0,"shrinkTicks":120,"dps":4},{"z":0.15,"waitTicks":0,"shrinkTicks":160,"dps":8}]}'` — the only fixture with zoneDamageByPaint armed (#392 follow-up); the battle-royale-s2 shape (brMode, 8 duo teams, brpool map) with a short 3-phase zone schedule so the FMM arrival field actually mints inside 1500 ticks |
+
+`test_replay`'s "EVERY committed .bitreplay carries the current
+GameVersion" sweeps `tests/` and fails on any straggler, so a miss now
+shows up in the native shards rather than three jobs later. A fixture's
+own recipe is also recoverable from its header — the replay embeds the
+full config JSON it was recorded with. Gotchas:
 
 - Record on an **idle machine** — a CPU-starved speed-16 server drops its
   bots and produces degenerate endings (e.g. no capture).
@@ -328,6 +509,34 @@ bump (`tools/record_fixture.sh`; exact recipes in
   the comment history in `test_extract_events.nim` shows the seed walking
   902 → 905 → 908 → 907, and some of that walking was probably this
   nondeterminism, not the rule changes it was blamed on.
+
+## Operating the prod league (settings, fillers, pause, retire)
+
+Read `docs/recon/observatory-permission-model-2026-09-02.md` before touching league
+state; the Season 2 retrospective (`docs/reports/s2-permissions-retrospective-2026-09-02.md`)
+records what it cost to guess. The short version:
+
+- API base is `https://softmax.com/api/observatory`; `/api/v2/...` returns an HTML 404.
+- James's user token is not a league owner. Send `X-Use-Elevated-Privileges: true`
+  (CLI: `coworld --elevated`) on every league read or write; without it a team
+  member's token is an ordinary user token. A `ply_` session (after
+  `coworld player use`) cannot manage leagues or use `--elevated`.
+- `POST /v2/leagues/{id}/settings` replaces the whole document with no version
+  check and no actor audit: GET, snapshot, modify, POST, read back, and post a
+  one-line intent in `docs/coordination/agents-notes.md` first. Announcing is
+  notification, not a request for approval.
+- The filler list is `POST /v2/leagues/{id}/filler-policies`; pool credits are on
+  `GET /v2/leagues/{id}/owner-status` (an unfunded pool skips rounds silently);
+  retire or re-enable a seeded league with
+  `PATCH /v2/coworld-league-seeds/{lseed_...} {"enabled": ...}`, not a DB write.
+- Disabled and private leagues 404 everywhere by design. `GET /v2/rounds` takes
+  `league_id`; unknown query parameters are dropped silently.
+- Season 2's round scoring rule has changed seven times, four of them with no
+  build bump; a standings or Glory number quoted across one of those boundaries
+  is an artifact, not a result. [docs/SCORING_ERAS.md](docs/SCORING_ERAS.md) is
+  the era table — round, timestamp, canonical build, and what a cross-boundary
+  read gets wrong. Stamp every scoring claim with a round range and a
+  `coworld_version`.
 
 ## Debugging prod league replays (don't drive the Observatory UI)
 

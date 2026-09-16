@@ -1,0 +1,14 @@
+--- /Users/jamesboggs/coding/coworlds/coworld-ctf-worktrees/nav-throughput-research/docs/designs/nav-rework-evidence-2026-09-09/research/C5/v1/snapshot/C5-bench_body_nav_rework.nim	2026-09-10 10:39:19
++++ tools/bench_body_nav_rework.nim	2026-09-10 10:39:35
+@@ -352,6 +352,11 @@
+ 
+ proc tickRow(gameMap: CtfMap, rosterSize: int, scenario: NavGateScenario,
+     start, nearGoal, farGoal: BodyPoint; gunRange: int): JsonNode =
++  # C5 v2: one row marker so a trace can attribute every per-tick stage to
++  # its row and tick index (initial step, warmups, measured samples).
++  when ProfileTracePath.len > 0:
++    measurePush("bench.tickRow:" & $rosterSize & ":" & $scenario)
++    defer: measurePop()
+   let map = newBodyMap(gameMap)
+   let index = newBodyRouteIndex(map)
+   let overlay = newBodyHazardOverlay(index, map.armedSnapshot)

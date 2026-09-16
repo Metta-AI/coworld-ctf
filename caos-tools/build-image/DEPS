@@ -1,0 +1,12 @@
+# This tool's worker image, named by a local deep-deps mount (the path is
+# relative to THIS directory; the root `.caos-expr` deepens the repo).
+#
+# caos/imgtools, NOT caos/nim: this tool assembles an image, it does not compile
+# one. It needs jq and a tar, which the Nim toolchain image deliberately does
+# not carry.
+../../caos/imgtools imgtools
+
+# The policy binary comes from `build-player`, which runs on the Nim image. Its
+# worker script is curried as an ordinary arg, so this tool never needs a Nim
+# toolchain of its own.
+../../caos/nim nim

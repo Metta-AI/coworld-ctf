@@ -1,0 +1,18 @@
+[
+    {
+        "Id": "owned-m5a",
+        "State": "stopped"
+    },
+    {
+        "Id": "owned-m8i",
+        "State": "stopped"
+    },
+    {
+        "Id": "owned-c6a",
+        "State": "stopped"
+    },
+    {
+        "Id": "owned-c8i",
+        "State": "stopped"
+    }
+]

@@ -1,0 +1,86 @@
+[
+  {
+    "trace": "s2_32_679962.navsrc.txt",
+    "map": "br-gen-5204",
+    "diameter": 327,
+    "words_per_entry": 1671,
+    "hits": {
+      "sources": 375,
+      "words": 626625,
+      "full_words": 15231,
+      "set_bits": 5246630,
+      "full_word_bits": 974784,
+      "full_word_bit_share": 0.18579240388592297,
+      "row_spans_per_full_word": 1.0000656555708751,
+      "max_set_bits_per_source": 19732,
+      "min_set_bits_per_source": 3063
+    },
+    "misses": {
+      "sources": 382,
+      "words": 638322,
+      "full_words": 14322,
+      "set_bits": 5193956,
+      "full_word_bits": 916608,
+      "full_word_bit_share": 0.1764758885134953,
+      "row_spans_per_full_word": 1.0008378718056137,
+      "max_set_bits_per_source": 19732,
+      "min_set_bits_per_source": 3063
+    }
+  },
+  {
+    "trace": "s2_32_679963.navsrc.txt",
+    "map": "br-gen-5263",
+    "diameter": 327,
+    "words_per_entry": 1671,
+    "hits": {
+      "sources": 286,
+      "words": 477906,
+      "full_words": 14967,
+      "set_bits": 4180051,
+      "full_word_bits": 957888,
+      "full_word_bit_share": 0.22915701267759653,
+      "row_spans_per_full_word": 1.0,
+      "max_set_bits_per_source": 20187,
+      "min_set_bits_per_source": 758
+    },
+    "misses": {
+      "sources": 244,
+      "words": 407724,
+      "full_words": 9811,
+      "set_bits": 2917274,
+      "full_word_bits": 627904,
+      "full_word_bit_share": 0.21523655302861508,
+      "row_spans_per_full_word": 1.0001019264091326,
+      "max_set_bits_per_source": 20187,
+      "min_set_bits_per_source": 758
+    }
+  },
+  {
+    "trace": "s2_32_679965.navsrc.txt",
+    "map": "br-gen-5001",
+    "diameter": 327,
+    "words_per_entry": 1671,
+    "hits": {
+      "sources": 248,
+      "words": 414408,
+      "full_words": 15075,
+      "set_bits": 3553735,
+      "full_word_bits": 964800,
+      "full_word_bit_share": 0.2714890108575907,
+      "row_spans_per_full_word": 1.0,
+      "max_set_bits_per_source": 22496,
+      "min_set_bits_per_source": 2308
+    },
+    "misses": {
+      "sources": 306,
+      "words": 511326,
+      "full_words": 21381,
+      "set_bits": 4598767,
+      "full_word_bits": 1368384,
+      "full_word_bit_share": 0.2975545401626132,
+      "row_spans_per_full_word": 1.0,
+      "max_set_bits_per_source": 22938,
+      "min_set_bits_per_source": 2308
+    }
+  }
+]

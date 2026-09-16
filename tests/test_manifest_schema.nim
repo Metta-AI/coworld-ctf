@@ -10,6 +10,7 @@ import helpers, std/[json, os, strutils, unittest], ctf/sim
 
 const
   ManifestName = "coworld_manifest_paintbot.json"
+  ArchiveName = "deprecated_variants_paintbot.json"
   PlatformOnlyKeys = ["num_agents"]
   ## Schema keys the game deliberately never reads: documented as consumed by
   ## the platform (ladder seating) in the schema description itself, which
@@ -35,12 +36,19 @@ proc manifestSchema(name: string): JsonNode =
   result = findConfigSchema(parseFile(GameDir / name))
   doAssert result != nil, name & " has no config_schema"
 
+proc schemaDefaults(schema: JsonNode): JsonNode =
+  result = newJObject()
+  for key, prop in schema["properties"]:
+    if prop.hasKey("default"):
+      result[key] = prop["default"]
+
 proc manifestVariant(variantId: string): JsonNode =
-  let manifest = parseFile(GameDir / ManifestName)
-  for variant in manifest["variants"]:
-    if variant["id"].getStr() == variantId:
-      return variant
-  doAssert false, ManifestName & " has no " & variantId & " variant"
+  for name in [ManifestName, ArchiveName]:
+    let manifest = parseFile(GameDir / name)
+    for variant in manifest["variants"]:
+      if variant["id"].getStr() == variantId:
+        return variant
+  doAssert false, "published or archived manifests have no " & variantId & " variant"
 
 # One payload per schema property, each carrying a NON-DEFAULT value for its
 # key (plus companion keys where update()'s cross-field validation demands
@@ -53,6 +61,7 @@ const SampleJson = """{
   "barrageStartSec": {"barrageStartSec": 45},
   "barrageSaturateSec": {"barrageSaturateSec": 45},
   "carrierSpeedPct": {"carrierSpeedPct": 55},
+  "playerBouncePct": {"playerBouncePct": 70},
   "closedRoster": {"closedRoster": true, "minPlayers": 1,
                    "slots": [{"token": "tok1"}],
                    "players": [{"name": "tester"}]},
@@ -85,7 +94,69 @@ const SampleJson = """{
   "teams": {"teams": 4, "mapPath": "gen"},
   "tokens": {"tokens": ["tokA"]},
   "visionBubble": {"visionBubble": 50},
-  "visionConeDeg": {"visionConeDeg": 45}
+  "visionConeDeg": {"visionConeDeg": 45},
+  "num_agents": {"num_agents": 2},
+  "cogsPerTeam": {"cogsPerTeam": 3},
+  "loadout": {"loadout": "paintball"},
+  "floorPaint": {"floorPaint": true},
+  "paintBuff": {"paintBuff": true, "floorPaint": true},
+  "hill": {"hill": true, "floorPaint": true},
+  "paintTile": {"paintTile": 40},
+  "hillRadiusTiles": {"hillRadiusTiles": 3},
+  "hillOwnPermille": {"hillOwnPermille": 700},
+  "hillDecisiveTicks": {"hillDecisiveTicks": 500},
+  "paintSpeedOwnPct": {"paintSpeedOwnPct": 130},
+  "paintSpeedEnemyPct": {"paintSpeedEnemyPct": 70},
+  "paintHealTicks": {"paintHealTicks": 24},
+  "sprayDamage": {"sprayDamage": 2},
+  "regimes": {"regimes": ["visitor"]},
+  "turnTicks": {"turnTicks": 96},
+  "turnBudgetMs": {"turnBudgetMs": 12000},
+  "attempt1Ms": {"attempt1Ms": 5000},
+  "retryMs": {"retryMs": 2000},
+  "turnSpacingMs": {"turnSpacingMs": 4000},
+  "wallClockBudgetSeconds": {"wallClockBudgetSeconds": 600},
+  "model": {"model": "claude-haiku-4-5"},
+  "maxOutputTokens": {"maxOutputTokens": 800},
+  "brMode": {"brMode": true},
+  "season2Shell": {"season2Shell": true},
+  "allowDeprecatedModes": {"allowDeprecatedModes": true},
+  "viewIntervalTicks": {"viewIntervalTicks": 7},
+  "lobbyChatTicks": {"lobbyChatTicks": 600},
+  "playSeatBindTicks": {"playSeatBindTicks": 7201},
+  "zonePhases": {"zonePhases": [{"z": 0.5}]},
+  "zoneCenter": {"zoneCenter": [500, 500]},
+  "lootStart": {"lootStart": true, "brMode": true},
+  "downedMode": {"downedMode": true, "brMode": true},
+  "giveItem": {"giveItem": true, "brMode": true},
+  "dropItem": {"dropItem": true, "brMode": true},
+  "lootSpawnSeedGuns": {"lootSpawnSeedGuns": 3, "lootStart": true, "brMode": true},
+  "lootSpawnSeedHoppers": {"lootSpawnSeedHoppers": 3, "lootStart": true, "brMode": true},
+  "lootSpawnSeedRadius": {"lootSpawnSeedRadius": 48, "lootStart": true, "brMode": true},
+  "zoneDamageByPaint": {"zoneDamageByPaint": true, "zonePhases": [{"z": 0.5}]},
+  "zonePaintDownedBleedPermille": {"zonePaintDownedBleedPermille": 3000, "zoneDamageByPaint": true, "zonePhases": [{"z": 0.5}]},
+  "zoneBlocksRevive": {"zoneBlocksRevive": true, "zoneDamageByPaint": true, "zonePhases": [{"z": 0.5}]},
+  "hopperSiteTrafficPermille": {"hopperSiteTrafficPermille": 750, "lootStart": true, "brMode": true},
+  "bandagePickups": {"bandagePickups": 12, "brMode": true},
+  "medKitCount": {"medKitCount": 0, "brMode": true},
+  "sprayCount": {"sprayCount": 6, "brMode": true},
+  "grenadeCount": {"grenadeCount": 22, "brMode": true},
+  "gloryMultiplierRecut": {"gloryMultiplierRecut": true},
+  "winAsMultiplier": {"winAsMultiplier": true},
+  "deedMintCaps": {"deedMintCaps": true},
+  "achievementLightableModes": {"achievementLightableModes": true},
+  "stampRealizedConfig": {"stampRealizedConfig": true},
+  "frameLoadoutFlags": {"frameLoadoutFlags": true},
+  "brAssistRescueUngated": {"brAssistRescueUngated": true},
+  "pactScopedWipeDown": {"pactScopedWipeDown": true},
+  "placementRampV3": {"placementRampV3": true},
+  "gloryFixedPointScale": {"gloryFixedPointScale": true},
+  "catalogV3Reprice": {"catalogV3Reprice": true},
+  "variantId": {"variantId": "battle-royale-s2"},
+  "allowSeatTakeover": {"allowSeatTakeover": true},
+  "allowDirectAim": {"allowDirectAim": true},
+  "allowAimAssist": {"allowAimAssist": true, "allowDirectAim": true},
+  "allowCallouts": {"allowCallouts": true}
 }"""
 
 suite "league manifest config_schema vs GameConfig":
@@ -99,12 +170,19 @@ suite "league manifest config_schema vs GameConfig":
       let spec = mapSpecJson(generateMapAttempt(
         1, MapGenOverrides(size: "small", windows: -1, pits: -1, pitDensity: -1)))
       s["mapSpec"] = %*{"mapSpec": parseJson(spec)}
+      # Train coupling: permanent negation keeps this non-default across the inversion.
+      s["season2Shell"] = %*{"season2Shell": not defaultGameConfig().season2Shell}
       s
 
   test "every schema property is consumed by config.update":
     for key, _ in schema["properties"]:
       if key in PlatformOnlyKeys:
         continue
+      if key == "allowDeprecatedModes":
+        # Train coupling: lane C owns the GameConfig field. Once that commit
+        # lands, this compile-time exemption disappears and proves consumption.
+        when not compiles(defaultGameConfig().allowDeprecatedModes):
+          continue
       check samples.hasKey(key)  # every schema key needs a payload below
       if not samples.hasKey(key):
         continue
@@ -146,6 +224,20 @@ suite "league manifest config_schema vs GameConfig":
       let description = schema["properties"][key]["description"].getStr
       check "platform" in description
 
+  test "config_schema defaults materialize to engine-classic paintball gate values":
+    let defaults = schemaDefaults(schema)
+    var config = defaultGameConfig()
+    config.update($defaults)
+    check config.cogsPerTeam == defaultGameConfig().cogsPerTeam
+    check config.cogsPerTeam == 1
+    check config.loadout == LoadoutCtf
+    check not config.floorPaint
+    check not config.paintBuff
+    check not config.hill
+    check config.sprayDamage == SprayPaintDamage
+    check config.regimes == @[regimeResident]
+    check not config.squadModeConfigured()
+
   test "the repo's local config.json loads and validates":
     # update() runs the full field validation internally and raises on any
     # rejected value, so a clean call IS the validation.
@@ -156,16 +248,52 @@ suite "league manifest config_schema vs GameConfig":
     let expected = defaultGameConfig().aimTurnRate
     check schema["properties"]["aimTurnRate"]["default"].getInt == expected
     for variant in parseFile(GameDir / ManifestName)["variants"]:
-      check variant["game_config"]["aimTurnRate"].getInt == expected
+      # A variant that omits the key inherits the engine default, which is
+      # exactly the value being pinned (the paintball variant does this).
+      if variant["game_config"].hasKey("aimTurnRate"):
+        check variant["game_config"]["aimTurnRate"].getInt == expected
 
-  test "one manifest preserves Paintbot ids and namespaces CTF ids":
+  test "published manifest leads with Season 2 and archive preserves nine ids":
+    ## UNION, now permanent by owner reversal (2026-09-02): the season2-only
+    ## cleanup this union was staged to finish is reversed now that Season 2
+    ## is established -- "campaign" (1v1/2v2/4ffa) and "elite" (2v2) are
+    ## live leagues again, each carrying allowDeprecatedModes: true so they
+    ## boot (see the deprecated live-mode boot seam suite). Second owner
+    ## correction (2026-09-02): CTF is a fine game mode -- "ctf-default",
+    ## "ctf-1v1", and "default" (CTF in all but name) carry the override
+    ## and boot too, same as their siblings. It is the separate CTF
+    ## *league* (league_key "ctf", enabled: false) that stays retired --
+    ## that is a platform/seed concern, out of scope for this engine-level
+    ## boot gate. The ids below are therefore not a staging step to
+    ## unwind -- they are the shipped shape.
     var variantIds: seq[string]
     for variant in parseFile(GameDir / ManifestName)["variants"]:
       variantIds.add variant["id"].getStr()
+    # RECUT (v13, contract Amendment 2 §1 — per-flag activation): the two
+    # battle-royale-s2-* STAGING variants sit directly behind the flagship
+    # so each S2 flag (lootStart / downedMode) can be staged or bisected on
+    # its own instead of riding one coupled variant switch.
+    check variantIds == @["battle-royale-s2", "battle-royale-s2-lootstart",
+      "battle-royale-s2-downed", "2v2", "4ffa", "4ffa8",
+      "default", "1v1", "ctf-default", "ctf-1v1", "paintball",
+      "battle-royale"]
+    variantIds.setLen(0)
+    for variant in parseFile(GameDir / ArchiveName)["variants"]:
+      variantIds.add variant["id"].getStr()
     check variantIds == @["2v2", "4ffa", "4ffa8", "default", "1v1",
-      "ctf-default", "ctf-1v1"]
+      "ctf-default", "ctf-1v1", "paintball", "battle-royale"]
 
-  test "ctf publishes namespaced default and two-seat custom-lobby variants":
+  test "legacy predicate schema defaults describe the post-train engine":
+    let props = schema["properties"]
+    check not props["brMode"]["default"].getBool()
+    check props["season2Shell"]["default"].getBool()
+    check not props["allowDeprecatedModes"]["default"].getBool()
+    check props["cogsPerTeam"]["default"].getInt() == 1
+    check props["loadout"]["default"].getStr() == "ctf"
+    for key in ["floorPaint", "paintBuff", "hill"]:
+      check not props[key]["default"].getBool()
+
+  test "archive preserves namespaced default and two-seat custom-lobby variants":
     let
       variant = manifestVariant("ctf-1v1")
       defaultVariant = manifestVariant("ctf-default")
@@ -214,15 +342,17 @@ suite "league manifest config_schema vs GameConfig":
       check sim.phase == GameOver
       check sim.winner == Red
 
-  test "paintbot publishes a full-teams 1v1 variant without changing league defaults":
+  test "archive preserves a full-teams 1v1 variant without changing league defaults":
     let
-      manifest = parseFile(GameDir / ManifestName)
       variant = manifestVariant("1v1")
       leagueVariant = manifestVariant("2v2")
-    check manifest["variants"][0]["id"].getStr() == "2v2"
+      manifest = parseFile(GameDir / ManifestName)
     check manifest["certification"]["players"].len == 16
     check manifest["certification"]["game_config"]["players"].len == 16
     check manifest["certification"]["game_config"]["minPlayers"].getInt() == 16
+    check manifest["certification"]["game_config"]["brMode"].getBool()
+    check manifest["certification"]["game_config"]["season2Shell"].getBool()
+    check manifest["certification"]["game_config"]["cogsPerTeam"].getInt() == 1
     block:
       let gameConfig = variant["game_config"]
       check schema["properties"]["tokens"]["minItems"].getInt() == 2
@@ -279,3 +409,55 @@ suite "league manifest config_schema vs GameConfig":
       check sim.winner == Red
       for i, seat in seats:
         check sim.players[seat].reward == (if i mod 2 == 0: 2 else: -2)
+
+suite "gloryMultiplierRecut implies catalog v3 (client percent-wire dependency)":
+  ## The viewer has NO wire field for which glory era is live (PR #537,
+  ## "viewer: enforce the >=2x popup law under catalog v3"): a positive
+  ## recut-armed deed's `amt` is an integer FACTOR under the old table but a
+  ## PERCENT under v3 (src/ctf/sim.nim:522 -- "amount = if ramped or v3: pct
+  ## else: factor"), and client/replay_broadcast.html's `gloryPopFactor`
+  ## (p.amt / 100) can only tell the two apart by trusting that "recut armed"
+  ## (sampleRecutArmed, the client's own era proxy) means "v3 percent scale".
+  ## That trust is sound ONLY because, empirically, TODAY every manifest
+  ## block that arms `gloryMultiplierRecut` also arms `catalogV3Reprice` (the
+  ## switch that actually selects the percent-scaled pricing table) and
+  ## `placementRampV3` (the OTHER path that reports a percent `amount`,
+  ## src/ctf/sim.nim's `ramped` branch) in the same block. This suite pins
+  ## that invariant so a future manifest publish that arms the multiplier
+  ## recut WITHOUT the percent-scale switches (reviving the pre-v3 integer
+  ## factor under an armed recut) fails here LOUD, instead of silently
+  ## mislabelling every popup in production again -- the exact bug the owner
+  ## reported ("what the heck is giving everyone a x100!?").
+  test "every variant (published + archived) that arms gloryMultiplierRecut also arms catalogV3Reprice and placementRampV3":
+    var checkedAny = false
+    for name in [ManifestName, ArchiveName]:
+      let doc = parseFile(GameDir / name)
+      if not doc.hasKey("variants"):
+        continue
+      for variant in doc["variants"]:
+        let gameConfig = variant["game_config"]
+        if gameConfig.hasKey("gloryMultiplierRecut") and
+           gameConfig["gloryMultiplierRecut"].getBool():
+          checkedAny = true
+          let variantId = variant["id"].getStr()
+          checkpoint(name & " variant '" & variantId &
+            "' arms gloryMultiplierRecut -- the client's era proxy " &
+            "(recutArmed) needs catalogV3Reprice armed alongside it too, " &
+            "or gloryPopFactor's p.amt/100 misreads an old-table integer " &
+            "factor as a percent")
+          check gameConfig.hasKey("catalogV3Reprice")
+          check gameConfig["catalogV3Reprice"].getBool()
+          checkpoint(name & " variant '" & variantId &
+            "' arms gloryMultiplierRecut -- placementRampV3 also reports a " &
+            "percent `amount` for dFinal8/dFinal4/dFinal2 (sim.nim's " &
+            "`ramped` branch), so it must stay in lockstep too")
+          check gameConfig.hasKey("placementRampV3")
+          check gameConfig["placementRampV3"].getBool()
+    # If nothing armed gloryMultiplierRecut at all, the client's era proxy
+    # is moot (recutArmed can never observe the percent-scale gap) but that
+    # would ALSO mean this test stopped exercising anything -- fail loud
+    # rather than pass vacuously.
+    checkpoint("expected at least one manifest variant arming " &
+      "gloryMultiplierRecut (battle-royale-s2 today) -- if none do, this " &
+      "test is vacuous and the client's era-proxy comment is stale")
+    check checkedAny

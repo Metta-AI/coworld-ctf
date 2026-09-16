@@ -1,5 +1,9 @@
 # Vector (curved / organic) obstacles — design
 
+> **Historical plan.** Preserved unchanged as the vector-obstacle design record
+> at that checkout. For the current Season 2 BR authoring path, use
+> `docs/MAPKIT.md`.
+
 Add curved, organic-looking obstacles to CTF maps without making line-of-sight
 or navigation any more expensive, and without a new runtime geometry model.
 

@@ -1,15 +1,15 @@
 import
   helpers,
-  std/[json, os, unittest],
+  std/[json, os, strutils, unittest],
   bitworld/spriteprotocol,
-  ctf/[global, replay_runtime, replays, sim]
+  ctf/[broadcast, build_stamp, global, replay_runtime, replays, sim]
 
 const
   # A fresh, drama-complete fixture recorded against the CURRENT gameplay rules
-  # (GameVersion 43, seed 1, tools/record_fixture.sh). This capture-ending
+  # (GameVersion 44, seed 1, tools/record_fixture.sh). This capture-ending
   # fixture exceeds every tick target below and hash-verifies clean end to end.
   # (tests/replays/ctf.bitreplay is the event-substrate fixture:
-  # GameVersion 43, seed 907, lives 9 — see
+  # GameVersion 44, seed 907, lives 9 — see
   # test_extract_events.)
   CtfReplayPath = GameDir / "tests" / "fixtures" / "capture-seed1.bitreplay"
 
@@ -26,6 +26,32 @@ proc initReplaySim(data: ReplayData): SimServer =
     setCurrentDir(previousDir)
 
 suite "ctf replay":
+  test "EVERY committed .bitreplay carries the current GameVersion":
+    ## A GV bump invalidates every recorded fixture, and the codec rejects a
+    ## stale one outright — but the native shards only ever LOAD the handful
+    ## they assert on, so a fixture read exclusively by another CI job (the
+    ## wasm viewer smoke reads tests/fixtures/gen-*.bitreplay, which no test
+    ## here opens) can sit stale until that job fails. This sweeps the repo
+    ## instead of the test's own reading list: a re-record pass that misses
+    ## one now fails HERE, before CI.
+    var checked = 0
+    for path in walkDirRec(GameDir / "tests"):
+      if not path.endsWith(".bitreplay"):
+        continue
+      inc checked
+      ## parseReplayBytes is the codec's own gate — it raises on a stamp
+      ## mismatch, which is exactly the failure being guarded.
+      var loaded = false
+      try:
+        discard parseReplayBytes(readFile(path))
+        loaded = true
+      except CatchableError as error:
+        checkpoint path.extractFilename & ": " & error.msg &
+          " (re-record it: see AGENTS.md 'Replay fixtures')"
+      check loaded
+    ## ...and the sweep itself must not silently find nothing.
+    check checked >= 6
+
   test "shared runtime initializes, advances, controls, and renders replay":
     let
       data = loadReplay(CtfReplayPath)
@@ -258,6 +284,42 @@ suite "ctf replay":
     check reWall == 0
     check reFov == 0
 
+  test "a seat-count config echoes num_agents so playback rebuilds the same game":
+    ## Hosted classic variants set num_agents so the platform can seat
+    ## policies. gameHash, playback's leave handling and resetToLobby all key
+    ## on numAgents, so a recording that drops the key re-simulates a
+    ## structurally different game and fails its hash check at tick 1 — the
+    ## Season 2 league's replays did exactly that. Default-only configs keep
+    ## echoing nothing, so the classic fixtures' headers stay byte-identical.
+    var seated = defaultGameConfig()
+    seated.update("""{"num_agents": 16}""")
+    let echoed = parseJson(seated.configJson())
+    check echoed["num_agents"].getInt() == 16
+    var round = defaultGameConfig()
+    round.update(seated.configJson())
+    check round.numAgents == 16
+    check not parseJson(defaultGameConfig().configJson()).hasKey("num_agents")
+
+  test "the seat-count fixture re-simulates hash-clean":
+    ## tests/fixtures/seats-numagents16.bitreplay is a classic game recorded
+    ## with num_agents: 16 — the hosted league's config shape — and is the
+    ## regression guard for the echo above (recorded before the fix, it
+    ## mismatched at tick 1).
+    let data = loadReplay(
+      GameDir / "tests" / "fixtures" / "seats-numagents16.bitreplay")
+    check parseJson(data.configJson)["num_agents"].getInt() == 16
+    var
+      sim = data.initReplaySim()
+      replay = initReplayPlayer(data)
+    check sim.config.numAgents == 16
+    replay.looping = false
+    replay.mismatchQuit = true
+    while replay.playing:
+      replay.stepReplay(sim)
+    check replay.hashIndex == data.hashes.len
+    check not replay.hashValidationFailed
+    check replay.hashMismatchTick == -1
+
   test "hashes match":
     let data = loadReplay(CtfReplayPath)
     var
@@ -273,3 +335,92 @@ suite "ctf replay":
     check not replay.hashValidationFailed
     check replay.hashMismatchTick == -1
     check sim.tickCount >= int(data.hashes[^1].tick)
+
+suite "engine build stamp (mismatch banner tiers)":
+  ## The mismatch banner has two tiers (src/ctf/build_stamp.nim): a
+  ## SAME-build hash mismatch is a true determinism break and stays a loud
+  ## red banner; a cross-build (or unprovable) mismatch is the expected
+  ## drift of replaying a recording across engine builds and shows as a
+  ## quiet chip. These pin the decision proc, the header carriage, and the
+  ## wire/canvas surfaces that render it.
+
+  test "recordedEngineStamp reads the header key and tolerates everything else":
+    check recordedEngineStamp("") == ""
+    check recordedEngineStamp("{}") == ""
+    check recordedEngineStamp("""{"engineStamp":"abc123"}""") == "abc123"
+    check recordedEngineStamp("""{"lives":3}""") == ""
+    check recordedEngineStamp("not json at all") == ""
+    check recordedEngineStamp("[1,2,3]") == ""
+
+  test "config.update ignores engineStamp (old readers keep loading stamped replays)":
+    ## The stamp rides the header configJson (replay_codec.stampedConfigJson)
+    ## precisely BECAUSE update() reads keys selectively — this is the
+    ## load-bearing backwards-compatibility claim, asserted against the
+    ## source instead of restated in prose.
+    var plain = defaultGameConfig()
+    plain.update("""{"lives":3,"seed":7}""")
+    var stamped = defaultGameConfig()
+    stamped.update("""{"lives":3,"seed":7,"engineStamp":"abc123"}""")
+    check plain.configJson() == stamped.configJson()
+
+  test "same-build is only claimed on two matching non-empty stamps":
+    check isSameEngineBuild("abc", "abc")
+    # Two unknowns prove nothing — the loud banner's claim must never rest
+    # on an absence.
+    check not isSameEngineBuild("", "")
+    check not isSameEngineBuild("abc", "")
+    check not isSameEngineBuild("", "abc")
+    check not isSameEngineBuild("abc", "def")
+
+  test "an unstamped build never claims same-build playback":
+    check ctfSimSourcesStamp.len == 0
+    let data = loadReplay(CtfReplayPath)
+    let replay = initReplayPlayer(data)
+    check not replay.sameEngineBuild
+
+  test "the state frame carries the tier bit only while a mismatch shows":
+    let data = loadReplay(CtfReplayPath)
+    var sim = data.initReplaySim()
+    let clean = parseJson(sim.buildStateJson(
+      newJArray(), false, 1, 100, false, true, -1, -1))
+    check clean["mm"].getInt == -1
+    check not clean.hasKey("mmsb")
+    let drift = parseJson(sim.buildStateJson(
+      newJArray(), false, 1, 100, false, true, 42, -1))
+    check drift["mm"].getInt == 42
+    check drift["mmsb"].getBool == false
+    let broke = parseJson(sim.buildStateJson(
+      newJArray(), false, 1, 100, false, true, 42, -1,
+      mismatchSameBuild = true))
+    check broke["mmsb"].getBool == true
+
+  test "the in-canvas warning tiers its sprite":
+    var game = initReplaySim(loadReplay(CtfReplayPath))
+    proc mismatchLabel(sameBuild: bool): string =
+      var state = initGlobalViewerState()
+      var next: GlobalViewerState
+      let previousDir = getCurrentDir()
+      setCurrentDir(GameDir)
+      try:
+        let packet = game.buildSpriteProtocolUpdates(
+          state,
+          next,
+          @[],
+          replayTick = 100,
+          replayPlaying = true,
+          replaySpeed = 1,
+          replayMaxTick = 1000,
+          replayLooping = false,
+          replayEnabled = true,
+          replayMismatchTick = 7,
+          replayMismatchSameBuild = sameBuild
+        )
+        for message in packet.parseSpritePacket():
+          if message.kind == spkSprite and
+              ("mismatch" in message.sprite.label or
+               "engine build" in message.sprite.label):
+            return message.sprite.label
+      finally:
+        setCurrentDir(previousDir)
+    check mismatchLabel(true) == "hash mismatch at tick 7"
+    check mismatchLabel(false) == "recorded inputs - different engine build"

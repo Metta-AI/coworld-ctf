@@ -1,0 +1,19 @@
+configured:0:br-gen-505
+       26.74 real        26.28 user         0.22 sys
+           542703616  maximum resident set size
+                   0  average shared memory size
+                   0  average unshared data size
+                   0  average unshared stack size
+               54269  page reclaims
+                  39  page faults
+                   0  swaps
+                   0  block input operations
+                   0  block output operations
+                   0  messages sent
+                   0  messages received
+                   0  signals received
+                   7  voluntary context switches
+                6363  involuntary context switches
+        629979688711  instructions retired
+        102571304061  cycles elapsed
+           239895296  peak memory footprint

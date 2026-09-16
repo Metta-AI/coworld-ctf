@@ -20,30 +20,51 @@ is NOT a seat; the league era oracle is rounds / league.game.coworld_id,
 never "the newest registry row" (the fleet once mislabelled 0.7.125/0.7.126
 as live this way).
 
-Registry API facts this code is built on (verified 2026-07-31):
-  - GET /v2/coworlds returns a bare JSON list, newest-first.
-  - `limit` hard-caps at 500 (501 -> HTTP 422); the registry already holds
-    more than 500 rows, so a single page silently under-reads.
-  - `?name=` is IGNORED by the server; filter client-side.
-  - `?offset=` works; page until a short page.
+Registry API facts this code is built on (verified 2026-09-15):
+  - GET /v2/coworlds/summaries returns a bare JSON list, newest-first
+    (created_at desc), with every field this picker needs: id, name, version,
+    and canonical. It deliberately omits the full manifest payload.
+  - `limit` hard-caps at 500 (501 -> HTTP 422); the registry holds more than
+    500 rows, so a single page silently under-reads.
+  - There is no server-side name filter; filter client-side.
+  - Pagination is KEYSET/CURSOR, not offset. `?offset=` / `?page=` / `?skip=`
+    are all SILENTLY IGNORED and re-return page 0. To page, read the
+    `x-next-cursor` RESPONSE HEADER and pass it back as `?cursor=<token>`;
+    the last page omits the header. (The server migrated off `?offset=`
+    between uploads #392 and #393 on 2026-09-03: offset paging then looped
+    on the newest 500 rows forever and tripped the MAX_PAGES guard — an
+    upload-CI outage. Do NOT reintroduce offset paging.)
 """
 
 import json
 import os
 import re
 import sys
+import urllib.parse
 import urllib.request
 
 BASE = os.environ.get("SOFTMAX_API_BASE", "https://softmax.com/api/observatory")
 PAGE_SIZE = 500  # server-side hard cap
-MAX_PAGES = 200  # safety stop; ~100k rows before this trips
+MAX_PAGES = 200  # safety stop; 200 * 500 = 100k rows before this trips
 SEMVER_RE = re.compile(r"^(\d+)\.(\d+)\.(\d+)$")
 
 
 def fetch_all_rows(token):
+    """Walk the whole registry via keyset/cursor paging (see module docstring).
+
+    Follows the `x-next-cursor` response header; terminates when the server
+    omits it (last page) or a short page comes back. MAX_PAGES stays a safety
+    stop against a pathological cursor loop, and we additionally refuse to
+    advance on a cursor that fails to yield any new rows — the guard that
+    would have caught the offset->cursor migration instead of masking it.
+    """
     rows = []
-    for page in range(MAX_PAGES):
-        url = f"{BASE}/v2/coworlds?limit={PAGE_SIZE}&offset={page * PAGE_SIZE}"
+    seen_ids = set()
+    cursor = None
+    for _ in range(MAX_PAGES):
+        url = f"{BASE}/v2/coworlds/summaries?limit={PAGE_SIZE}"
+        if cursor:
+            url += f"&cursor={urllib.parse.quote(cursor, safe='')}"
         req = urllib.request.Request(
             url,
             headers={
@@ -54,13 +75,26 @@ def fetch_all_rows(token):
             },
         )
         with urllib.request.urlopen(req, timeout=60) as resp:
+            cursor = resp.headers.get("x-next-cursor")
             batch = json.load(resp)
         if not isinstance(batch, list):
             raise SystemExit(f"unexpected response shape from {url}: {type(batch)}")
-        rows.extend(batch)
-        if len(batch) < PAGE_SIZE:
+        new = [r for r in batch if r.get("id") not in seen_ids]
+        seen_ids.update(r.get("id") for r in batch)
+        rows.extend(new)
+        # Paging broke (e.g. server ignoring the cursor and re-serving a page):
+        # a full batch that adds nothing new means we are not advancing. Fail
+        # loudly rather than silently loop or under-read.
+        if batch and not new:
+            raise SystemExit(
+                "registry cursor did not advance (page re-served with no new rows); "
+                "the pagination contract likely changed again — refusing to guess"
+            )
+        if len(batch) < PAGE_SIZE or not cursor:
             return rows
-    raise SystemExit(f"registry did not terminate within {MAX_PAGES} pages; refusing to guess")
+    raise SystemExit(
+        f"registry did not terminate within {MAX_PAGES} pages; refusing to guess"
+    )
 
 
 def parse_version(row):
@@ -77,13 +111,13 @@ def parse_version(row):
 def compute_next(rows, name):
     """Return next version string for <name>: highest existing row, patch + 1.
 
-    Hard-fails unless the fetched set contains <name>'s canonical row and the
-    max row is >= it — the guard against a truncated/under-read fetch
-    re-colliding with an existing number.
+    A new name starts at 0.1.0 after the complete registry fetch. Existing names
+    require a canonical row and a max version >= it — the guard against a
+    truncated/under-read fetch re-colliding with an existing number.
     """
     mine = [r for r in rows if r.get("name") == name]
     if not mine:
-        raise SystemExit(f"no rows for coworld {name!r} in {len(rows)} fetched rows")
+        return "0.1.0"
     versions = [(parse_version(r), r) for r in mine]
     max_ver, max_row = max(versions, key=lambda vr: vr[0])
     canonical = [v for v, r in versions if r.get("canonical")]

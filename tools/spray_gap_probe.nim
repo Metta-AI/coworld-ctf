@@ -3,7 +3,7 @@
 ##
 ## Damage side: place a victim at a grid of offsets from the attacker, fire the
 ## can, and read the hp that actually came off (sim.tryFireArc, no mocking).
-## Paint side: the exported FX slot procs (plasmaPulseForward/plasmaPulseRight)
+## Paint side: the exported FX slot procs (spraypaintPulseForward/spraypaintPulseRight)
 ## plus the puff diameter rule, giving the outermost painted pixel.
 ##
 ## Usage (from the repo root): nim r tools/spray_gap_probe.nim
@@ -29,7 +29,7 @@ proc placeAtCenter(player: var Player, x, y: int) =
 proc damages(game: var SimServer, dx, dy: int): bool =
   ## Fires one burst at a victim `dx` forward / `dy` sideways of the attacker
   ## and reports whether any hp actually came off.
-  game.players[0].hasPlasmaArc = true
+  game.players[0].hasSprayPaint = true
   game.players[0].aimBrads = 0
   game.players[0].fireCooldown = 0
   game.players[0].arcTicksLeft = 0
@@ -54,7 +54,7 @@ proc main() =
       lastHit = d
     elif lastHit >= 0:
       echo &"  hp comes off out to {lastHit}px; first miss at {d}px " &
-        &"(PlasmaArcReach = {PlasmaArcReach})"
+        &"(SprayPaintReach = {SprayPaintReach})"
       break
 
   echo "\n=== DAMAGE (real sim): lateral sweep, half-width by distance ==="
@@ -70,28 +70,28 @@ proc main() =
   # against the bare cone. (Adding the body to only one side is the mistake
   # that made this weapon's overdraw look contained when it was not.)
   echo "\n=== PAINT vs CONE: does anything painted escape damage? ==="
-  let slope = float(PlasmaArcMaxWidth) / (2.0 * float(PlasmaArcReach))
+  let slope = float(SprayPaintMaxWidth) / (2.0 * float(SprayPaintReach))
   var
     tip = 0.0
     worstLateral = -1e9
     worstAt = 0.0
-  for stage in 0 ..< PlasmaArcFxStages:
-    for pulse in 0 ..< PlasmaArcFxPulses:
+  for stage in 0 ..< SprayPaintFxStages:
+    for pulse in 0 ..< SprayPaintFxPulses:
       let
-        f = float(plasmaPulseForward(pulse, stage))
-        w = abs(float(plasmaPulseRight(pulse, stage)))
-        r = float(plasmaPulseDiameter(pulse, stage)) / 2
+        f = float(spraypaintPulseForward(pulse, stage))
+        w = abs(float(spraypaintPulseRight(pulse, stage)))
+        r = float(spraypaintPulseDiameter(pulse, stage)) / 2
       tip = max(tip, f + r)
       if (w + r) - slope * f > worstLateral:
         worstLateral = (w + r) - slope * f
         worstAt = f
-  echo &"  forward: paint tip {tip:.1f}px vs cone reach {PlasmaArcReach}px"
-  if tip <= float(PlasmaArcReach):
-    echo &"    CONTAINED with {float(PlasmaArcReach) - tip:.1f}px to spare — " &
+  echo &"  forward: paint tip {tip:.1f}px vs cone reach {SprayPaintReach}px"
+  if tip <= float(SprayPaintReach):
+    echo &"    CONTAINED with {float(SprayPaintReach) - tip:.1f}px to spare — " &
       "nothing the paint engulfs walks away clean"
   else:
-    echo &"    OVERDRAW {tip - float(PlasmaArcReach):.1f}px: a cog centered up to " &
-      &"{tip + float(PlasmaArcBodyRadius):.1f}px out is painted but unhurt"
+    echo &"    OVERDRAW {tip - float(SprayPaintReach):.1f}px: a cog centered up to " &
+      &"{tip + float(SprayPaintBodyRadius):.1f}px out is painted but unhurt"
   echo &"  lateral: worst overdraw {worstLateral:.1f}px (at {int(worstAt)}px forward)"
   if worstLateral > 0:
     echo "    an EDGE GRAZE only: the mist is drawn oversize so its puffs " &

@@ -1,0 +1,7 @@
+Profile trace enabled: /home/ubuntu/nav-throughput-results-20260909/A2-profile/index-trace.json
+Profile ticks: 100
+Trace started
+ trace events: 0
+Trace ended
+ trace events: 60
+Trace written to /home/ubuntu/nav-throughput-results-20260909/A2-profile/index-trace.json

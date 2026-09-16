@@ -1,0 +1,51 @@
+Hint: used config file '/Users/jamesboggs/.nimby/nim/config/nim.cfg' [Conf]
+Hint: used config file '/Users/jamesboggs/.nimby/nim/config/config.nims' [Conf]
+Hint: used config file '/Users/jamesboggs/coding/coworlds/coworld-ctf-worktrees/nav-throughput-research/nim.cfg' [Conf]
+Hint: used config file '/Users/jamesboggs/coding/coworlds/coworld-ctf-worktrees/nav-throughput-research/tests/config.nims' [Conf]
+............................................................................................................................................................................................................................
+/Users/jamesboggs/coding/coworlds/coworld-ctf-worktrees/nav-throughput-research/src/ctf/arena.nim(1373, 5) Hint: 'inside' is declared but not used [XDeclaredButNotUsed]
+/Users/jamesboggs/coding/coworlds/coworld-ctf-worktrees/nav-throughput-research/src/ctf/arena.nim(3702, 6) Hint: 'rectsNode' is declared but not used [XDeclaredButNotUsed]
+/Users/jamesboggs/coding/coworlds/coworld-ctf-worktrees/nav-throughput-research/src/ctf/arena.nim(3707, 6) Hint: 'rectsFromNode' is declared but not used [XDeclaredButNotUsed]
+............
+/Users/jamesboggs/coding/coworlds/coworld-ctf-worktrees/nav-throughput-research/src/shell/body_route_query.nim(3, 24) Warning: imported and not used: 'math' [UnusedImport]
+..
+/Users/jamesboggs/coding/coworlds/coworld-ctf-worktrees/nav-throughput-research/src/shell/body.nim(1299, 6) Hint: 'enemyShootableWithoutPolicy' is declared but not used [XDeclaredButNotUsed]
+.
+CC: std/objectdollar.nim
+CC: system/dollars.nim
+CC: system.nim
+CC: math.nim
+CC: unittest.nim
+CC: shell/body_map.nim
+CC: ctf/zone_field.nim
+CC: shell/body_route_query.nim
+CC: shell/body_nav.nim
+CC: shell/body.nim
+CC: nav_route_corpus_support.nim
+CC: test_shell_body_nav_rework.nim
+Hint:  [Link]
+Hint: mm: orc; threads: on; opt: speed; options: -d:release
+132995 lines; 2.551s; 342.965MiB peakmem; proj: /Users/jamesboggs/coding/coworlds/coworld-ctf-worktrees/nav-throughput-research/tests/test_shell_body_nav_rework.nim; out: /tmp/nav-research-p1-test [SuccessX]
+Hint: /tmp/nav-research-p1-test [Exec]
+
+[Suite] production mixed-grid body navigation
+  [OK] fresh navigation ledger counts the populated safety context
+  [OK] graph ledger includes unused reserved bridge capacity
+body_map.nim(953)        buildValidatorTables
+
+    Unhandled exception: spawn point 0 is not standable [BodyMapError]
+  [FAILED] packed hot dilation preserves borders and tiny positive values
+  [OK] packed danger keeps ties-to-even and range boundaries
+  [OK] literal corpus provenance and independent oracle are frozen
+  [OK] a living valid goal moves on its acceptance tick while route waits
+  [OK] search resumes under an exact pop budget and installs atomically
+  [OK] Dial bucket collisions preserve exact routes and pop counts
+  [OK] one pending slot keeps only the newest request
+  [OK] stable shortest-job-first admission uses seat id as final tie break
+  [OK] danger generation cancels stale in-flight work before another pop
+  [OK] unchanged scheduled danger preserves search but expires installed routes
+  [OK] scheduled danger reordering preserves exact packed costs
+  [OK] packed scratch swaps do not alias another seat
+  [OK] workspace is shared and per-seat route state has fixed layout
+  [OK] arrived endpoints do not report route progress
+Error: execution of an external program failed: '/tmp/nav-research-p1-test'

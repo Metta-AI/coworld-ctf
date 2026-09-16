@@ -1,4 +1,5 @@
 .git
+.venv
 .DS_Store
 nim.cfg
 nimcache
@@ -6,4 +7,5 @@ out
 tmp
 build
 replay-viewer/dist
+docs/designs/nav-rework-evidence-2026-09-09
 *.tmp

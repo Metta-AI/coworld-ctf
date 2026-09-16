@@ -1,0 +1,80 @@
+<!doctype html>
+<!--
+  loop.html — plays ONE local .bitreplay on repeat in the static WASM viewer.
+
+  The bundle's index.html already takes `?replay=<url>` (static_replay.js
+  reads it) and `?t=<tick>`, but it plays once and stops. This page is the
+  thin harness around it for eyeballing a recording you just made: it points
+  the viewer at a replay in the same directory and reloads the frame when the
+  run is over, so a long look at a match needs no clicking.
+
+  Serve the bundle directory and open:
+    python3 -m http.server 21404 --directory <bundle>
+    http://127.0.0.1:21404/loop.html?replay=br-match-1.bitreplay
+
+  Query params (all optional):
+    replay=<name>   file to load, relative to the bundle
+    t=<tick>        seek to this tick — this is how you take a screenshot of
+                    a specific moment (early / mid / late) instead of racing
+                    playback with a timer
+    every=<ms>      restart interval; default 60000
+-->
+<html>
+<head>
+<meta charset="utf-8">
+<title>BR match — looping replay</title>
+<style>
+  html, body {
+    margin: 0; padding: 0; background: #0b0b10; color: #cfd2dc;
+    font: 12px/1.4 ui-monospace, SFMono-Regular, Menlo, monospace;
+    height: 100%; overflow: hidden;
+  }
+  #frame { border: 0; width: 100vw; height: 100vh; display: block; }
+  #hud {
+    position: fixed; right: 8px; top: 8px; z-index: 10;
+    background: rgba(8, 8, 14, 0.72); padding: 5px 9px;
+    border: 1px solid #2a2f3d; border-radius: 4px; pointer-events: none;
+    white-space: pre; opacity: 0.85;
+  }
+</style>
+</head>
+<body>
+<div id="hud">starting…</div>
+<iframe id="frame" title="replay"></iframe>
+<script>
+(function () {
+  var params = new URLSearchParams(location.search);
+  var replayName = params.get('replay') || 'br-match-1.bitreplay';
+  var seekTick = params.get('t');
+  var every = parseInt(params.get('every') || '60000', 10);
+  var hud = document.getElementById('hud');
+  var frame = document.getElementById('frame');
+  var runs = 0;
+
+  function src() {
+    // The replay URL is resolved by the viewer relative to the bundle root,
+    // which is also where this page is served from.
+    var url = './index.html?replay=' + encodeURIComponent('./' + replayName);
+    if (seekTick !== null && seekTick !== '') {
+      url += '&t=' + encodeURIComponent(seekTick);
+    }
+    return url;
+  }
+
+  function run() {
+    runs += 1;
+    hud.textContent = replayName +
+      (seekTick ? '\ntick ' + seekTick : '') +
+      '\nrun ' + runs;
+    frame.src = src();
+  }
+
+  run();
+  // A fixed restart beat rather than an end-of-playback event: the viewer
+  // does not publish one, and polling into the frame would be same-origin
+  // guesswork about internals this page deliberately does not depend on.
+  if (every > 0) setInterval(run, every);
+})();
+</script>
+</body>
+</html>

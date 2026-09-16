@@ -1,0 +1,10 @@
+{
+  "maps": 76,
+  "retained_sequences_per_map": 19,
+  "all_retained_fields_identical": true,
+  "memo_hits": 189,
+  "parent_dequeues": 805625,
+  "candidate_dequeues": 448841,
+  "saved_dequeues": 356784,
+  "retained_memory_unchanged": true
+}

@@ -23,7 +23,7 @@ proc main() =
     sim.players[red].x = MapWidth div 2 - CollisionW div 2
     sim.players[red].y = MapHeight div 2 - CollisionH div 2
     sim.players[red].aimBrads = brads
-    sim.players[red].hasPlasmaArc = true
+    sim.players[red].hasSprayPaint = true
     sim.players[red].fireCooldown = 0
     sim.tryFireArc(red)
 

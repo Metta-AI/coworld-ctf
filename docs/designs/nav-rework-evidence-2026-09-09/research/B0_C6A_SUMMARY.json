@@ -1,0 +1,34 @@
+[
+  {
+    "budget": 1024,
+    "rows": 18,
+    "p95_ms": 2.481313,
+    "max_ms": 2.568848,
+    "headroom_pass": true,
+    "normal_tick_pass": true
+  },
+  {
+    "budget": 2048,
+    "rows": 18,
+    "p95_ms": 3.168633,
+    "max_ms": 3.276519,
+    "headroom_pass": true,
+    "normal_tick_pass": true
+  },
+  {
+    "budget": 3072,
+    "rows": 18,
+    "p95_ms": 3.8205,
+    "max_ms": 3.964618,
+    "headroom_pass": false,
+    "normal_tick_pass": true
+  },
+  {
+    "budget": 4096,
+    "rows": 18,
+    "p95_ms": 4.51464,
+    "max_ms": 4.783795,
+    "headroom_pass": false,
+    "normal_tick_pass": false
+  }
+]

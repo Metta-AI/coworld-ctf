@@ -1,0 +1,83 @@
+[
+  {
+    "trace": "s2_16_679962",
+    "sha256": "3604eb65c23802e283f1fdd180adbb6acb22a288b5c59700f5ef9588371b1a2c",
+    "counts_match": true,
+    "evicted_residencies": 57,
+    "resident_at_trace_end": 64,
+    "observed_zero_hit_evicted": 40,
+    "observed_zero_hit_resident": 46
+  },
+  {
+    "trace": "s2_16_679963",
+    "sha256": "cff4912838021c99b822f7d6237a11b0305e334e95266ce28ccbf46b39e84594",
+    "counts_match": true,
+    "evicted_residencies": 22,
+    "resident_at_trace_end": 64,
+    "observed_zero_hit_evicted": 18,
+    "observed_zero_hit_resident": 47
+  },
+  {
+    "trace": "s2_16_679964",
+    "sha256": "dd702bc10558a8804edf3fdb693c0c620eadc581d8baa3d218f4908e09fc0e1a",
+    "counts_match": true,
+    "evicted_residencies": 48,
+    "resident_at_trace_end": 64,
+    "observed_zero_hit_evicted": 30,
+    "observed_zero_hit_resident": 51
+  },
+  {
+    "trace": "s2_16_679965",
+    "sha256": "5aa8d6b91ce037f1145fe8446c9646df16a0ea6c96a78d48c2f328f6fca273d4",
+    "counts_match": true,
+    "evicted_residencies": 28,
+    "resident_at_trace_end": 64,
+    "observed_zero_hit_evicted": 24,
+    "observed_zero_hit_resident": 51
+  },
+  {
+    "trace": "s2_32_679962",
+    "sha256": "5137a4ff3b0c2445940173ab9067fae60a150465e62016239aaf3061192f0f37",
+    "counts_match": true,
+    "evicted_residencies": 318,
+    "resident_at_trace_end": 64,
+    "observed_zero_hit_evicted": 236,
+    "observed_zero_hit_resident": 54
+  },
+  {
+    "trace": "s2_32_679963",
+    "sha256": "3a3126c0db2d2858e7531c1b27cdf0e52790e176775a4e446e791dbe56cf083f",
+    "counts_match": true,
+    "evicted_residencies": 180,
+    "resident_at_trace_end": 64,
+    "observed_zero_hit_evicted": 125,
+    "observed_zero_hit_resident": 49
+  },
+  {
+    "trace": "s2_32_679964",
+    "sha256": "69f1cb74db4858892ae8a84193b3b9ac8c15b43290cf8f54e83e8b632bfb797c",
+    "counts_match": true,
+    "evicted_residencies": 314,
+    "resident_at_trace_end": 64,
+    "observed_zero_hit_evicted": 228,
+    "observed_zero_hit_resident": 53
+  },
+  {
+    "trace": "s2_32_679965",
+    "sha256": "5276521e3007d51bd3cf747c2fe5fee7e8d76b6ef4476d7b06b4d4acfb2b28f5",
+    "counts_match": true,
+    "evicted_residencies": 242,
+    "resident_at_trace_end": 64,
+    "observed_zero_hit_evicted": 169,
+    "observed_zero_hit_resident": 53
+  },
+  {
+    "trace": "smoke_s2_16_randomized",
+    "sha256": "38bf66553fe2edc30b960fea72501e4cf9a54d06ea7d8fc9e7f1d3c1c586246b",
+    "counts_match": true,
+    "evicted_residencies": 40,
+    "resident_at_trace_end": 64,
+    "observed_zero_hit_evicted": 31,
+    "observed_zero_hit_resident": 55
+  }
+]

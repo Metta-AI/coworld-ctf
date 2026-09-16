@@ -1,0 +1,46 @@
+Hint: used config file '/Users/jamesboggs/.nimby/nim/config/nim.cfg' [Conf]
+Hint: used config file '/Users/jamesboggs/.nimby/nim/config/config.nims' [Conf]
+Hint: used config file '/Users/jamesboggs/coding/coworlds/coworld-ctf-worktrees/nav-throughput-research/nim.cfg' [Conf]
+........................................................................................................................................................................................................................
+/Users/jamesboggs/coding/coworlds/coworld-ctf-worktrees/nav-throughput-research/src/ctf/arena.nim(1373, 5) Hint: 'inside' is declared but not used [XDeclaredButNotUsed]
+/Users/jamesboggs/coding/coworlds/coworld-ctf-worktrees/nav-throughput-research/src/ctf/arena.nim(3702, 6) Hint: 'rectsNode' is declared but not used [XDeclaredButNotUsed]
+/Users/jamesboggs/coding/coworlds/coworld-ctf-worktrees/nav-throughput-research/src/ctf/arena.nim(3707, 6) Hint: 'rectsFromNode' is declared but not used [XDeclaredButNotUsed]
+.......
+/Users/jamesboggs/coding/coworlds/coworld-ctf-worktrees/nav-throughput-research/src/shell/body_route_query.nim(3, 24) Warning: imported and not used: 'math' [UnusedImport]
+CC: system/exceptions.nim
+CC: std/private/digitsutils.nim
+CC: std/assertions.nim
+CC: std/private/dragonbox.nim
+CC: std/formatfloat.nim
+CC: system/dollars.nim
+CC: system.nim
+CC: algorithm.nim
+CC: hashes.nim
+CC: math.nim
+CC: tables.nim
+CC: unicode.nim
+CC: strutils.nim
+CC: json.nim
+CC: posix.nim
+CC: times.nim
+CC: std/monotimes.nim
+CC: heapqueue.nim
+CC: std/cmdline.nim
+CC: pixie/fontformats/opentype.nim
+CC: pixie/fileformats/jpeg.nim
+CC: pixie/fileformats/png.nim
+CC: random.nim
+CC: bitworld/spriteprotocol.nim
+CC: bitworld/pixelfonts.nim
+CC: ../src/ctf/sim_types.nim
+CC: ../src/ctf/arena.nim
+CC: ../src/shell/body_map.nim
+CC: ../src/shell/body_danger.nim
+CC: ../src/ctf/zone_field.nim
+CC: ../src/shell/body_route_query.nim
+CC: bench_body_packed_weights.nim
+Hint:  [Link]
+Hint: mm: orc; threads: on; opt: speed; options: -d:release
+115628 lines; 2.020s; 342.035MiB peakmem; proj: /Users/jamesboggs/coding/coworlds/coworld-ctf-worktrees/nav-throughput-research/tools/bench_body_packed_weights.nim; out: /tmp/nav-research-p1-packer [SuccessX]
+Hint: /tmp/nav-research-p1-packer [Exec]
+{"width":402,"height":215,"calls_per_sample":10,"rows":[{"regime":"zero","samples_ns_per_call":[220908,223570,219795,218666,219400,223891,223737,222866,222420,222504,225945,222641,224712,226762,231745,225200,222687,228345,221754,219800,222579,222300,225875,227400,222037,230612,232370,220604,221716,224087,227108,231275,229216,227608,224654,226879,224879,236808,228504,231395,221270,219433,218091,218995,224962,218791,220095,220633,219054,218075,218358,224916,224995,222650,222429,222808,222150,222195,222966,225179,225904,222470,222187,223391,224283,218554,218654,222125,231112,221437,221104,219450,218416,218666,220141,222504,221133,219316,224487,220204,219479,225466,224925,222212,219575,218737,218133,219012,218158,218370,218520,226262,222912,221362,220958,223304,223820,220275,230433,224120,224762,224520,223758,225479,227383,223591,225325,226970,230808,221516,220154,219475,225850,229020,220954,223441,220091,223208,224516,231366],"p95_ns_per_call":231112,"max_ns_per_call":236808,"checksum":"0"},{"regime":"single","samples_ns_per_call":[231241,232629,225937,223083,223170,219983,215850,222508,221445,221779,230566,225283,222154,219683,219741,221391,219679,222479,224245,222250,223941,219654,223804,222900,224150,224741,224795,227716,224229,221154,226187,223745,224537,227275,220200,225087,222016,219637,223883,225425,223387,217950,223208,223004,220687,223662,222587,228666,224616,222787,224029,221587,223166,226850,221333,219983,218437,229700,223062,235512,231012,224983,220791,218991,215979,216150,218137,225458,223466,230283,227187,224591,230137,229883,225854,225062,230150,230675,230379,228179,220258,224437,220483,219729,220525,222237,218908,224179,220725,220095,220354,220312,219591,220512,225941,220320,219750,221937,218508,218691,220866,221366,223141,223804,218429,220708,219554,220487,220991,221033,226120,227850,225633,225904,224533,222625,224187,223654,222408,223616],"p95_ns_per_call":230379,"max_ns_per_call":235512,"checksum":"599123886044422145"},{"regime":"dense","samples_ns_per_call":[222420,219720,219483,217887,219858,223787,220075,221383,221995,219987,218525,222020,219066,218266,218633,218562,219350,222275,220533,218312,219458,225829,223979,221804,218745,219654,222483,227929,218416,219987,220445,220245,218916,219833,226637,220154,220808,224225,223975,223616,222166,223016,225483,225200,224187,232308,224708,222808,230275,220362,221783,219716,225754,222379,221462,222775,218325,218708,218487,223620,216737,222250,219595,219241,218754,219883,220529,219529,243004,217583,217279,216033,215270,221704,222487,222945,222629,222375,222991,224591,224929,229758,222775,227958,224487,226862,223612,218370,218070,217925,224579,222329,220625,219120,218012,218666,219725,218370,223345,219079,219275,218133,223341,218425,218908,220416,223800,219166,218679,218129,217937,218166,217941,218479,223029,218308,217945,218341,221879,221900],"p95_ns_per_call":226862,"max_ns_per_call":243004,"checksum":"17851687808851110750"}],"acceptance_gate":false}

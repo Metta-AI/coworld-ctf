@@ -1,0 +1,8 @@
+# This directory's image. It is a flake (flake.nix + flake.lock + worker), so
+# the image is the flake-builder applied to the directory itself — the same
+# shape as caos's std/bash and std/merge.
+#
+# The builder is named by a LOCAL deep-deps mount (DEEP-DEPS/flake-builder,
+# declared in ./DEPS), which is the only way it CAN be named: nothing resolves
+# a builtin by an ambient name.
+run --base:@=DEEP-DEPS/flake-builder --in:@=.

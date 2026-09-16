@@ -1,5 +1,18 @@
-## Baseline capture-the-flag bot for Coworld CTF (8v8, classic two-flag,
-## dense-cover arena, FOG-OF-WAR full-map vision).
+## Protocol-adaptive baseline for Coworld CTF: on connection it detects which
+## contract the server speaks (the leading byte of the first unprompted
+## message) and dispatches accordingly, never sending an opcode the other
+## side's contract does not define -- see `runBot` below and
+## `baseline/s2play.nim`'s module doc for the Season 2 half.
+##
+## DEPRECATED-MODE PATH (8v8, classic two-flag, dense-cover arena,
+## FOG-OF-WAR full-map vision). Deprecated since 0.7.253; live use requires
+## `allowDeprecatedModes: true`. Everything below this point through
+## `runBot`'s legacy branch describes ONLY this Sprite v1 direct-input path;
+## a Season 2 `control: "play"` seat instead runs `baseline/s2play.nim`'s
+## gated play-calling loop over the reference plays, which has no button
+## masks, aim brads, or nav grid of its own -- consult that module's doc for
+## what a Season 2 seat actually does. `policies/starters/` remains the
+## place to start a NEW play-calling policy from scratch.
 ##
 ## Speaks the Bitworld Sprite v1 protocol over a websocket. The observation is
 ## the FULL map in map coordinates, but entities are fogged: an enemy (and an
@@ -75,12 +88,14 @@
 ## a short windup), so we stop rotating on the tick we pull.
 
 import
-  std/[algorithm, heapqueue, math, net, os, random, strutils],
+  std/[algorithm, heapqueue, math, net, options, os, random, strutils],
   bitworld/profile, bitworld/spriteprotocol,
   ctf/labels,
   whisky,
   baseline/protocols,
-  baseline/artlog
+  baseline/artlog,
+  baseline/s2play,
+  baseline/s2wire
 
 when defined(taunt):
   import baseline/taunts
@@ -168,20 +183,20 @@ const
   MedKitRespawn = 30 * 24     # a taken kit refills after 30s (sim constant)
   MedKitSeenClear = 55.0      # inside this range an empty spot is truly
                               # empty (bubble vision), not just fogged
-  PlasmaReach = 187.0         # spray cone reach: 5 squares of centerline plus
+  SpraypaintReach = 187.0         # spray cone reach: 5 squares of centerline plus
                               # the sprayed cog's own radius, because the cone
-                              # hits BODIES (sim PlasmaArcReach +
-                              # PlasmaArcBodyRadius, GameVersion 30)
-  PlasmaSlope = 0.25          # centerline cone half-width per px forward: 2
+                              # hits BODIES (sim SprayPaintReach +
+                              # SprayPaintBodyRadius, GameVersion 30)
+  SpraypaintSlope = 0.25          # centerline cone half-width per px forward: 2
                               # squares wide at max reach, atan(1/4) ~ 14
-                              # degrees (sim PlasmaArcMaxWidth / Reach)
-  PlasmaBodyRadius = 17.0     # half a cog, added to the cone's half-width at
-                              # EVERY distance (sim PlasmaArcBodyRadius). It
+                              # degrees (sim SprayPaintMaxWidth / Reach)
+  SpraypaintBodyRadius = 17.0     # half a cog, added to the cone's half-width at
+                              # EVERY distance (sim SprayPaintBodyRadius). It
                               # dominates up close: at 40px out the centerline
                               # cone forgives 10px of miss and the body another
                               # 17, so a point-blank spray is far harder to
                               # whiff than the 14-degree figure suggests.
-  PlasmaDetour = 70.0         # attacker detour budget for a spray can pickup
+  SpraypaintDetour = 70.0         # attacker detour budget for a spray can pickup
   ShieldStealDetour = 480.0   # MidGuard's shield trip: the enemy endzone
                               # shield sits low in their back column
                               # (~215px from the pedestal since the game-v7
@@ -293,6 +308,23 @@ var
     # below run untouched; a bigger count re-deals this bot's color (seats
     # go round the teams, slot mod GameTeams) and swaps the geometry procs
     # onto the endzone-anchored multi-team frame (see deriveMultiFrame).
+    # CLAMPED to 4 (see adoptGameParams) because every OTHER GameTeams
+    # consumer in this file — spawn/kit addressing, the multi-team frame —
+    # was built for a 2-4 team ladder board and was never re-derived for a
+    # 16-team BR free-for-all; RealTeamCount below is the un-clamped twin,
+    # read where that 2-4 assumption does not apply.
+  RealTeamCount = 2
+    # the SAME marker's count, un-clamped. A BR match's 16 duos still only
+    # ever populate a 4-color GameTeams slice of enemy perception
+    # (seenEnemies below) without this: every bot's threat scan looped
+    # `TeamColorNames[0 ..< GameTeams]`, so 12 of BR's 16 colors were never
+    # tracked as a possible enemy by ANYONE, regardless of range or time
+    # spent adjacent. The first recorded BR match's endgame is the tell:
+    # the last two survivors (ivory, pink — both outside the 4-color
+    # slice) sat 599px apart, motionless, for the final 363 ticks; the
+    # close-on-nearest hunt override (its own eligibility gate open the
+    # whole time) never fired because bot.enemies could not contain either
+    # of them for the other, no matter how long the window stayed open.
   EndzoneMarks: seq[tuple[color, shape: string, x0, y0, x1, y1: int]]
     # every team's stated home capture region, from the per-team
     # `endzone <color> <shape> <x0>,<y0> <x1>,<y1>` init markers: the shape
@@ -314,6 +346,31 @@ const TeamColorNames = ["red", "blue", "green", "yellow"]
   ## Wire color tokens in engine seat-deal order: a game's active teams are
   ## always a prefix of this list, and seats go round them (slot mod teams).
 
+const BrRosterColorNames = [
+  "red", "blue", "green", "yellow", "black", "silver", "ivory", "pink",
+  "umber", "rust", "orange", "plum", "lime", "navy", "azure", "peach",
+]
+  ## same order) — widens ANY "which colors are in play" enumeration when
+  ## RealTeamCount says more than TeamColorNames.len teams are actually in
+  ## play (see RealTeamCount above, and rosterColor/rosterColorCount below).
+  ## GameTeams itself, and every OTHER consumer keyed on it, stays clamped
+  ## at 4: this list exists so a scan can reach a color GameTeams was never
+  ## meant to address, not to relitigate what GameTeams bounds.
+
+proc rosterColorCount(): int =
+  ## How many colors are actually in play, for whatever caller is about to
+  ## enumerate "every color this board seats". The BR roster's full width
+  ## on a wide (> 4 team) board, else exactly max(2, GameTeams) — so every
+  ## 2-4 team ladder game is byte-identical to before this proc existed.
+  if RealTeamCount > TeamColorNames.len: RealTeamCount else: max(2, GameTeams)
+
+proc rosterColor(i: int): string =
+  ## The i-th seat-deal color, from whichever roster `rosterColorCount`
+  ## picked. Two enumerations reading `rosterColorCount()`/`rosterColor(i)`
+  ## together always agree on which roster they are walking.
+  if RealTeamCount > TeamColorNames.len: BrRosterColorNames[i]
+  else: TeamColorNames[i]
+
 type
   Team = enum
     Red, Blue
@@ -329,6 +386,9 @@ type
     pos: Vec
     facingRight: bool
     hp: int                   # from the overhead pip bar; 0 = not read
+    level: int                # from the overhead veteran-mark plume;
+                              # 0 = no mark seen (below AceLevel, or fog).
+                              # AceLevel+ means killing them pays dAceTag.
 
   Track = object              # a remembered player
     pos, vel: Vec
@@ -336,6 +396,7 @@ type
     synthetic: bool           # injected from an E-shout, not own eyes
     facingRight: bool
     hp: int                   # last observed hit points; 0 = never read
+    level: int                # last observed veteran level; 0 = never marked
 
   Bot = ref object
     slot: int
@@ -369,6 +430,16 @@ type
     firedLast: bool           # A was set on the previous sent mask
     estAim: int               # dead-reckoned own aim angle in brads
     rotSign: int              # rotation of the last sent mask: +1 B, -1 Select
+    wantDrop: bool            # DROP(s2) SDK seam: set true to emit the
+                              # aim-pair drop chord (ButtonB|ButtonSelect)
+                              # this tick. Held DropChordTicks while carrying
+                              # a droppable, the engine spills one item
+                              # (config.dropItem). The raw mask is a byte so
+                              # any combination is expressible on the wire —
+                              # this field is how a hand-written reference
+                              # policy states the intent. Shipped baseline
+                              # never sets it, so its play/replays are
+                              # byte-identical; a fork flips it to drop.
     wasDead: bool             # respawn resets the aim to the spawn heading
     scanHigh: bool            # scan sweep currently heading to the high end
     lastPos: Vec
@@ -402,14 +473,26 @@ type
     salvoUntil: int           # force-lob window after the charge order
     sweepFlip: bool           # -d:centerScan: which vertical arc is swept
     lastEnemyShout: string    # last enemy shout label already responded to
+    everSawMate: bool         # SOLO(s2): latches true the first time a live
+                              # same-color OTHER player is tracked in
+                              # `mates` this life. `mates` itself is a
+                              # ~5s-memory live snapshot (empties out any
+                              # time a real duo partner is just fogged), so
+                              # it cannot tell "no partner exists" (1-seat
+                              # BR team) from "partner is out of sight right
+                              # now" — this latch can, because a solo seat's
+                              # wire color is never shared by construction
+                              # and so can never set it even once. See the
+                              # `-d:shoutCoord` consumer below, the one
+                              # reader that needs the distinction.
     lastComebackReq: int      # rate limit on comeback generation requests
     wasMateCarry: bool        # edge detector: a fresh steal opens a taunt window
     tripping: bool            # mid-errand to a gear spot: sprint, no fights
     hp: int                   # own hit points, read from the HUD lives label
     kitPos: seq[Vec]          # discovered med kit spots (two, center line)
     kitAbsentAt: seq[int]     # tick a spot was last seen empty; -1 = present
-    plasmaPos: seq[Vec]       # discovered spray can spots (side midpoints)
-    plasmaAbsentAt: seq[int]
+    spraypaintPos: seq[Vec]       # discovered spray can spots (side midpoints)
+    spraypaintAbsentAt: seq[int]
     shieldPos: seq[Vec]       # discovered shield spots (endzone back columns)
     shieldAbsentAt: seq[int]
     everStoleTheirs: bool     # any own/mate carry of the enemy flag this game
@@ -608,10 +691,11 @@ proc findSelf(
       return (alive: true, pos: client.mapPos(o))
 
 proc actorsFor(client: ProtocolClient, color: string): seq[Actor] {.measure.} =
-  ## Visible players of one color in map coordinates plus horizontal facing
-  ## and hit points. The overhead "hp <n>/<max>" pip bar is fog-culled with
-  ## its player, so whenever the player is visible its hp is too: attach the
-  ## nearest pip bar within HpPipRadius.
+  ## Visible players of one color in map coordinates plus horizontal facing,
+  ## hit points, and veteran level. The overhead "hp <n>/<max>" pip bar and
+  ## the "veteran mark <n>" plume are both fog-culled with their player, so
+  ## whenever the player is visible each is too: attach the nearest one
+  ## within HpPipRadius.
   for facingRight in [true, false]:
     let label = labelPlayer(
       color, if facingRight: LabelSideRight else: LabelSideLeft)
@@ -641,6 +725,22 @@ proc actorsFor(client: ProtocolClient, color: string): seq[Actor] {.measure.} =
         best = i
     if best >= 0:
       result[best].hp = hp
+  for (o, label) in client.spriteObjectsWithLabelPrefix(LabelPrefixVeteranMark):
+    # `veteran mark <level>` — the rank plume over a cog at or above
+    # AceLevel (glory.nim): killing them pays dAceTag, so its mere presence
+    # says "bounty." Fog-culled with its cog exactly like the hp bar, so the
+    # same nearest-within-HpPipRadius attach applies.
+    let level = parseInt(label[LabelPrefixVeteranMark.len .. ^1])
+    let p = client.mapPos(o)
+    var best = -1
+    var bestD = HpPipRadius
+    for i in 0 ..< result.len:
+      let d = dist(result[i].pos, p)
+      if d < bestD:
+        bestD = d
+        best = i
+    if best >= 0:
+      result[best].level = level
 
 proc walkableAt(client: ProtocolClient, x, y: int): bool =
   if x < 0 or y < 0 or x >= client.walkabilityWidth or
@@ -904,7 +1004,9 @@ proc adoptGameParams(client: ProtocolClient) =
       let parts = o.label[LabelPrefixGameParams.len .. ^1].split(' ')
       if parts.len == 3:
         try:
-          GameTeams = clamp(parseInt(parts[0]), 2, 4)
+          let n = parseInt(parts[0])
+          GameTeams = clamp(n, 2, 4)
+          RealTeamCount = clamp(n, 2, BrRosterColorNames.len)
         except ValueError:
           discard
       break
@@ -1018,12 +1120,15 @@ proc buildNavGrid(bot: Bot, client: ProtocolClient) {.measure.} =
   # Multi-team boards deal the seats round GameTeams colors (slot mod
   # teams) — the startup red/blue parity guess is wrong for half the seats
   # there, and a wrong color makes every label scan blind (the "statues on
-  # green and yellow" bug). Re-deal the color and the per-team seat role now
+  # green and yellow" bug, and its wide-roster twin: a slot mod GameTeams
+  # guess NEVER lands past yellow on a 16-duo BR board, so those seats never
+  # find their own self marker below and stand still all game — see
+  # rosterColor's doc). Re-deal the color and the per-team seat role now
   # that the team count is stated; the self marker confirms (or corrects)
   # the color on the first alive frame.
   if GameTeams > 2:
     if not bot.colorLocked:
-      bot.myColor = TeamColorNames[bot.slot mod GameTeams]
+      bot.myColor = rosterColor(bot.slot mod rosterColorCount())
     bot.role = roleForSeat(clamp(bot.slot div GameTeams, 0, 7), bot.team)
   bot.deriveMultiFrame()
   artEvent(bot.tick, "game_params",
@@ -1297,10 +1402,13 @@ proc updateTracks(bot: Bot, tracks: var seq[Track], seen: seq[Actor]) =
       tracks[best].synthetic = false
       if a.hp > 0:
         tracks[best].hp = a.hp
+      if a.level > 0:
+        tracks[best].level = a.level
       claimed[best] = true
     else:
       tracks.add(Track(
-        pos: a.pos, lastSeen: bot.tick, facingRight: a.facingRight, hp: a.hp))
+        pos: a.pos, lastSeen: bot.tick, facingRight: a.facingRight,
+        hp: a.hp, level: a.level))
       claimed.add(true)
   var kept: seq[Track]
   for t in tracks:
@@ -1373,13 +1481,14 @@ proc resetTransient(bot: Bot) =
   ## Drops per-game memory between rounds (lobby / game-over interstitials).
   bot.enemies.setLen(0)
   bot.mates.setLen(0)
+  bot.everSawMate = false
   bot.nadeCharge = 0
   bot.mateFixTick = 0
   bot.hp = MaxHp
   for i in 0 ..< bot.kitAbsentAt.len:
     bot.kitAbsentAt[i] = -1              # both kits restock at game start
-  for i in 0 ..< bot.plasmaAbsentAt.len:
-    bot.plasmaAbsentAt[i] = -1
+  for i in 0 ..< bot.spraypaintAbsentAt.len:
+    bot.spraypaintAbsentAt[i] = -1
   for i in 0 ..< bot.shieldAbsentAt.len:
     bot.shieldAbsentAt[i] = -1
   bot.shoutWant = ""
@@ -1504,9 +1613,15 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 {.measure.} =
   # Our wire color: the slot-dealt guess until the self marker — the one
   # sprite only WE ever see — confirms it. Explicit slot configs can deal
   # colors in any order, and a wrong color makes every scan below blind.
+  # rosterColorCount/rosterColor widen this to the full BR roster on a wide
+  # (> 4 team) board — otherwise a seat past yellow could never confirm
+  # (or even guess) its own color, findSelf(myColor) would report "not
+  # alive" every tick regardless of the true wire state, and the seat would
+  # send zero input for the whole match: not a passive bot, an invisible
+  # one to itself.
   if not bot.colorLocked:
-    for i in 0 ..< max(2, GameTeams):
-      let c = TeamColorNames[i]
+    for i in 0 ..< rosterColorCount():
+      let c = rosterColor(i)
       if client.findSelf(c).alive:
         bot.colorLocked = true
         if c != bot.myColor:
@@ -1522,9 +1637,10 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 {.measure.} =
   if GameTeams > 2 and bot.targetColor.len > 0:
     enemyColor = bot.targetColor
   else:
-    for i in 0 ..< max(2, GameTeams):
-      if TeamColorNames[i] != myColor:
-        enemyColor = TeamColorNames[i]
+    for i in 0 ..< rosterColorCount():
+      let c = rosterColor(i)
+      if c != myColor:
+        enemyColor = c
         break
   if not alive:
     # Dead: the view is fully fogged (only our corpse renders) and inputs
@@ -1549,34 +1665,211 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 {.measure.} =
   let statedAim = client.ownAimBrads()
   if statedAim >= 0:
     bot.estAim = statedAim
-  # Plasma arcs and shields share the endzone back columns (inset 50)
+
+  # ---- RING SAFETY OVERRIDE -------------------------------------------
+  # The shrink zone is the only hazard on the board that kills you for
+  # standing still, and it is the mode's clock. A policy that treats it as
+  # one more consideration alongside its objectives will die holding a
+  # perfectly good plan — so this is an OVERRIDE, expressed as an early
+  # return: it preempts every objective below rather than competing with
+  # them. A zone warning that defers to existing commitments is a dead
+  # lever.
+  #
+  # Reads the published `zone <x0>,<y0> <x1>,<y1>` marker (inclusive
+  # corners, map pixels) and nothing else — no new wire contract. The whole
+  # block is gated on that marker being present, so a game without a zone
+  # configured never enters it and is byte-identical to before.
+  block ringSafety:
+    var
+      haveZone = false
+      zx0, zy0, zx1, zy1: int
+    for (o, label) in client.spriteObjectsWithLabelPrefix(LabelPrefixZone):
+      let parts = label[LabelPrefixZone.len .. ^1].split(' ')
+      if parts.len != 2:
+        continue
+      let
+        lo = parts[0].split(',')
+        hi = parts[1].split(',')
+      if lo.len != 2 or hi.len != 2:
+        continue
+      try:
+        zx0 = parseInt(lo[0])
+        zy0 = parseInt(lo[1])
+        zx1 = parseInt(hi[0])
+        zy1 = parseInt(hi[1])
+        haveZone = true
+      except ValueError:
+        discard
+      break
+    if not haveZone:
+      break ringSafety
+    # Aim for a margin INSIDE the edge, not the edge itself: the rect is
+    # still shrinking while we walk to it, so arriving exactly on the
+    # boundary means arriving outside it.
+    const SafeMarginPx = 90
+    let
+      mx = int(me.x)
+      my = int(me.y)
+      outside = mx < zx0 or mx > zx1 or my < zy0 or my > zy1
+      nearEdge =
+        mx < zx0 + SafeMarginPx or mx > zx1 - SafeMarginPx or
+        my < zy0 + SafeMarginPx or my > zy1 - SafeMarginPx
+    if not (outside or nearEdge):
+      break ringSafety
+    # Head for the nearest point that is a full margin inside, clamped so a
+    # rect narrower than two margins still yields its own centre rather
+    # than an inverted target.
+    let
+      loX = min(zx0 + SafeMarginPx, (zx0 + zx1) div 2)
+      hiX = max(zx1 - SafeMarginPx, (zx0 + zx1) div 2)
+      loY = min(zy0 + SafeMarginPx, (zy0 + zy1) div 2)
+      hiY = max(zy1 - SafeMarginPx, (zy0 + zy1) div 2)
+      targetX = clamp(mx, loX, hiX)
+      targetY = clamp(my, loY, hiY)
+      toSafety = vec(float(targetX) - me.x, float(targetY) - me.y)
+    if toSafety.len() < 1.0:
+      break ringSafety
+    when defined(ringProbe):
+      stderr.writeLine("RINGFIRE tick=" & $bot.tick & " outside=" & $outside &
+        " me=" & $mx & "," & $my & " rect=" & $zx0 & "," & $zy0 & " " &
+        $zx1 & "," & $zy1)
+    artFrame(FrameSnap(tick: bot.tick, alive: true,
+      x: mx, y: my, hp: -1,
+      objective: "ring", action: "run", engageDist: -1))
+    return octantBits(toSafety)
+  # ---- end ring safety -------------------------------------------------
+
+  # ---- HUNT ENDGAME OVERRIDE -------------------------------------------
+  # Late in a BR match the paint has done its job (the field is small, or
+  # most duos are gone) and standing around waiting to be found is a worse
+  # bet than closing the distance ourselves. This is ONE PRIORITY BELOW ring
+  # safety: it sits after that block's early return, so any frame the ring
+  # claims never reaches here — safety preempts aggression, never the other
+  # way around. Same commitment-canceling shape as ring safety: an early
+  # return, gated on the zone marker's presence, so a game with no zone
+  # configured (every non-BR ladder match) never enters it and stays
+  # byte-identical to before.
+  block huntEndgame:
+    var
+      haveZone = false
+      zx0, zy0, zx1, zy1: int
+    for (o, label) in client.spriteObjectsWithLabelPrefix(LabelPrefixZone):
+      let parts = label[LabelPrefixZone.len .. ^1].split(' ')
+      if parts.len != 2:
+        continue
+      let
+        lo = parts[0].split(',')
+        hi = parts[1].split(',')
+      if lo.len != 2 or hi.len != 2:
+        continue
+      try:
+        zx0 = parseInt(lo[0])
+        zy0 = parseInt(lo[1])
+        zx1 = parseInt(hi[0])
+        zy1 = parseInt(hi[1])
+        haveZone = true
+      except ValueError:
+        discard
+      break
+    if not haveZone:
+      break huntEndgame
+    # Alive-team readback: no new wire vocabulary, just the scoreboard the
+    # engine already broadcasts every frame regardless of who reads it (see
+    # addTeamScoreboard, "team score <NAME> <kills>/<deaths>" — one chip per
+    # team, win or lose, for the life of the episode). BR duos play one life
+    # per seat (record_br_match.sh pins config lives=1, and brMode forces no
+    # respawns), so a team's own DEATHS field is the tell: two dead seats is
+    # the whole roster gone.
+    const
+      TeamScoreLabelPrefix = "team score "
+      BrTeamSize = 2
+    var aliveTeams = 0
+    when defined(huntProbe):
+      var chipsSeen: seq[string]
+    for (o, label) in client.spriteObjectsWithLabelPrefix(TeamScoreLabelPrefix):
+      when defined(huntProbe):
+        chipsSeen.add(label)
+      let tail = label[TeamScoreLabelPrefix.len .. ^1]
+      let parts = tail.split(' ')
+      if parts.len != 2:
+        continue
+      let kd = parts[1].split('/')
+      if kd.len != 2:
+        continue
+      try:
+        if parseInt(kd[1]) < BrTeamSize:
+          inc aliveTeams
+      except ValueError:
+        discard
+    const
+      EndgameZoneFrac = 0.18    # ~15-20% of board area: the shrunk-ring case
+      EndgameAliveTeams = 4     # few enough duos left to call it an endgame
+    let
+      zoneArea = float(max(0, zx1 - zx0)) * float(max(0, zy1 - zy0))
+      boardArea = float(MapW) * float(MapH)
+      zoneFrac = (if boardArea > 0.0: zoneArea / boardArea else: 1.0)
+    if zoneFrac > EndgameZoneFrac and aliveTeams > EndgameAliveTeams:
+      break huntEndgame
+    # Nearest known/visible enemy: reuse the existing track store (fed every
+    # frame by actorsFor sightings, the same perception the rest of the
+    # policy already trusts for aim and peel decisions) rather than growing
+    # a second perception path. A stale-but-recent track beats idling.
+    var
+      nearest = -1
+      nearestD = Inf
+    for i in 0 ..< bot.enemies.len:
+      let d = dist(bot.enemies[i].pos, me)
+      if d < nearestD:
+        nearestD = d
+        nearest = i
+    if nearest < 0:
+      break huntEndgame
+    let toEnemy = bot.enemies[nearest].pos - me
+    if toEnemy.len() < 1.0:
+      break huntEndgame
+    when defined(huntProbe):
+      stderr.writeLine("HUNTFIRE tick=" & $bot.tick &
+        " aliveTeams=" & $aliveTeams &
+        " zoneFrac=" & $zoneFrac &
+        " me=" & $int(me.x) & "," & $int(me.y) &
+        " target=" & $int(bot.enemies[nearest].pos.x) & "," &
+        $int(bot.enemies[nearest].pos.y) &
+        " d=" & $int(nearestD) &
+        " chips=" & $chipsSeen.len & " [" & chipsSeen.join("|") & "]")
+    artFrame(FrameSnap(tick: bot.tick, alive: true,
+      x: int(me.x), y: int(me.y), hp: -1,
+      objective: "hunt", action: "chase", engageDist: int(nearestD)))
+    return octantBits(toEnemy)
+  # ---- end hunt endgame --------------------------------------------------
+
+  # Spray cans and shields share the endzone back columns (inset 50)
   # but are vertically SEPARATED: spray cans in the top half (quarter height),
   # shields in the bottom half (three-quarter height). Seed the spots up
   # front (they are deterministic; the fog would otherwise hide them until
   # we are already on top of them), then let sightings refine the nudged
   # positions.
-  if bot.plasmaPos.len == 0:
+  if bot.spraypaintPos.len == 0:
     for spot in [vec(50.0, float(MapH div 4)),
                  vec(float(MapW) - 50.0, float(MapH div 4))]:
-      bot.plasmaPos.add(spot)
-      bot.plasmaAbsentAt.add(-1)
+      bot.spraypaintPos.add(spot)
+      bot.spraypaintAbsentAt.add(-1)
     for spot in [vec(50.0, float(3 * MapH div 4)),
                  vec(float(MapW) - 50.0, float(3 * MapH div 4))]:
       bot.shieldPos.add(spot)
       bot.shieldAbsentAt.add(-1)
-  var plasmaSeen, shieldSeen: seq[Vec]
+  var spraypaintSeen, shieldSeen: seq[Vec]
   for o in client.spriteObjectsWithLabel(LabelSprayCan):
-    plasmaSeen.add(client.mapPos(o))
+    spraypaintSeen.add(client.mapPos(o))
   for o in client.spriteObjectsWithLabel(LabelShield):
     shieldSeen.add(client.mapPos(o))
-  trackPickups(bot.plasmaPos, bot.plasmaAbsentAt, plasmaSeen, me, bot.tick)
+  trackPickups(bot.spraypaintPos, bot.spraypaintAbsentAt, spraypaintSeen, me, bot.tick)
   trackPickups(bot.shieldPos, bot.shieldAbsentAt, shieldSeen, me, bot.tick)
   # Own carry state: the carried markers float over their carrier, and a
   # shield carrier's HUD reads 6 hp (the marker is the fallback).
-  var hasPlasma = false
+  var hasSpraypaint = false
   for o in client.spriteObjectsWithLabel(LabelSprayCanCarried):
     if dist(client.mapPos(o), me) <= 30.0:
-      hasPlasma = true
+      hasSpraypaint = true
       break
   var hasShield = bot.hp > MaxHp
   if not hasShield:
@@ -1586,18 +1879,29 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 {.measure.} =
         break
   let
     shotReady = client.spriteObjectsWithLabel(LabelFireIcon).len > 0 and
-      not hasPlasma                      # the spray can replaces the gun; a shield
+      not hasSpraypaint                      # the spray can replaces the gun; a shield
                                          # only slows it (3x cooldown)
     seenMates = client.actorsFor(myColor)
   var seenEnemies: seq[Actor]
   # EVERY other color is a combat threat on a free-for-all board, not just
-  # the flag-raid target — track them all.
-  for i in 0 ..< max(2, GameTeams):
-    let c = TeamColorNames[i]
+  # the flag-raid target — track them all. rosterColorCount/rosterColor
+  # pick the full BR roster when a match actually has more teams than
+  # GameTeams's own 2-4 clamp allows for — a BR duo board — so a color
+  # GameTeams was never meant to address (see its own comment above) still
+  # gets scanned. Any non-BR board keeps enumerating exactly
+  # TeamColorNames[0 ..< GameTeams] as before: RealTeamCount == GameTeams
+  # whenever GameTeams's own clamp never bound anything, i.e. every 2-4
+  # team ladder game, unchanged.
+  for i in 0 ..< rosterColorCount():
+    let c = rosterColor(i)
     if c != myColor:
       seenEnemies.add(client.actorsFor(c))
   bot.updateTracks(bot.enemies, seenEnemies)
   bot.updateTracks(bot.mates, seenMates)
+  if bot.mates.len > 0:
+    bot.everSawMate = true   # SOLO(s2): a real duo mate confirmed at least
+                             # once this life; a 1-seat team can never reach
+                             # this line (nobody else ever wears our color).
   if seenEnemies.len > 0:
     bot.lastEnemySeen = bot.tick
 
@@ -1722,8 +2026,21 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 {.measure.} =
     # shouts — "C<cx> <cy>" is our carrier's own position, "T<cx> <cy>" a
     # fresh fix on the enemy thief running OUR heart. The payload carries the
     # exact quantized position; the bubble's jittered coordinates are ignored.
+    #
+    # SOLO(s2): a 1-seat BR team has no teammate to coordinate with BY
+    # CONSTRUCTION — nobody else ever wires up our color, so `everSawMate`
+    # can never latch there. Gating on `myColor` alone (the pre-fix
+    # behavior) meant every shout in a solo match failed this prefix test,
+    # so the whole intel channel read as permanently empty — ALL shouts
+    # discarded, not just enemy ones. Once no mate has ever been confirmed
+    # this life, widen the scan to any seat's shout: cross-seat is the only
+    # "teammate" a solo seat can ever have. A confirmed real duo mate keeps
+    # the strict same-color gate, byte-identical to before this fix.
     for o in client.spriteObjects():
-      if not o.label.startsWith(labelShoutPrefix(myColor)):
+      if bot.everSawMate:
+        if not o.label.startsWith(labelShoutPrefix(myColor)):
+          continue
+      elif " shout " notin o.label:
         continue
       bot.lastTeamShoutSeen = bot.tick      # spacing signal for peace lines
       let sep = o.label.rfind(": ")
@@ -1916,6 +2233,35 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 {.measure.} =
         bot.carrierVel = t.vel
         break
     bot.carrierSeen = bot.tick
+
+  when defined(dynRole):
+    # ---- DYNAMIC ROLE ARBITRATION ---------------------------------------
+    # The static table fixes 6 attackers / 1 sniper / 1 defender at spawn and
+    # never revisits it. This reallocates the back line every frame against
+    # the ONE piece of team state all eight seats observe IDENTICALLY: our own
+    # pedestal is never fogged, so `ownStolen` is the same boolean for every
+    # seat on the same frame. Every other candidate signal — where our mates
+    # are, how many of us are alive, which flank has gone quiet — is per-seat
+    # under fog and with no team radio, so seats would silently disagree about
+    # the allocation, which is the one thing a role table must never do.
+    #
+    #   heart home   -> the defender is guarding nothing. Send it to the wave
+    #                   (7 attackers); it is recalled the frame the heart moves.
+    #   heart stolen -> the back line is one seat against a live carry. Drop
+    #                   the lane sniper and the third mid onto guard duty
+    #                   (3 guards) until the heart is back on its pedestal.
+    #
+    # Overwatch is only ever REMOVED, never created: its post is picked once
+    # at nav-build (`pickPost`), so a seat promoted into it mid-game would
+    # hold a post it never scanned for.
+    block dynamicRole:
+      let base = roleForSeat(clamp(bot.slot div GameTeams, 0, 7), bot.team)
+      bot.role =
+        if ownStolen:
+          (if base in {Overwatch, MidGuard}: HomeDefender else: base)
+        else:
+          (if base == HomeDefender: MidBottom else: base)
+
   when defined(stolenOverwatchGuards):
     let stolenGuard = bot.role == HomeDefender or bot.role == Overwatch
   else:
@@ -2441,9 +2787,9 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 {.measure.} =
   # is actually in the way, instead of frag-chasing across the map.
   let maxEngage =
     if bot.tripping: 0.0                 # sprinting an errand: no fights
-    elif hasShield and not hasPlasma:    # slow gun (3x cooldown): only fight
+    elif hasShield and not hasSpraypaint:    # slow gun (3x cooldown): only fight
       CarrierFireRange                   # what is point-blank in the way
-    elif hasPlasma: PlasmaReach + 6.0    # cone weapon: only close range matters
+    elif hasSpraypaint: SpraypaintReach + 6.0    # cone weapon: only close range matters
     elif pocketRush: 0.0
     elif iCarry: CarrierFireRange
     elif ownStolen and bot.tick - bot.carrierSeen <= thiefChaseTtl: FireRange
@@ -2680,7 +3026,7 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 {.measure.} =
   # Weapon pickups. SHIELD-THEN-STEAL: the enemy endzone shield sits just
   # behind their pedestal — a rusher near the pocket grabs 6 hp first and
   # steals second (the run home is what kills 3 hp carriers). Defensive
-  # roles never take a shield (it slows the gun 3x). PLASMA ARCS arm the
+  # roles never take a shield (it slows the gun 3x). SPRAY CANS arm the
   # pocket brawlers: attackers detour a little for one on the way in — the
   # pocket duel is close-range, where an instant lethal cone beats any gun.
   bot.tripping = false
@@ -2703,17 +3049,17 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 {.measure.} =
         target = bot.shieldPos[i]
         objMode = "shield_trip"
         break
-  elif not iCarry and not hasPlasma and
+  elif not iCarry and not hasSpraypaint and
       bot.role in {MidTop, MidBottom, MidGuard, FlankTop, FlankBottom} and
       not mateCarry and not pocketRush:
-    # Plasma top-up: cone-armed pocket brawls win close range. Cheap when we
+    # Spraypaint top-up: cone-armed pocket brawls win close range. Cheap when we
     # are already visiting the endzone column (shield chain) or passing by.
-    for i in 0 ..< bot.plasmaPos.len:
-      if not pickupAvailable(bot.plasmaAbsentAt, i, bot.tick):
+    for i in 0 ..< bot.spraypaintPos.len:
+      if not pickupAvailable(bot.spraypaintAbsentAt, i, bot.tick):
         continue
-      if dist(me, bot.plasmaPos[i]) <= PlasmaDetour:
-        target = bot.plasmaPos[i]
-        objMode = "plasma_grab"
+      if dist(me, bot.spraypaintPos[i]) <= SpraypaintDetour:
+        target = bot.spraypaintPos[i]
+        objMode = "spraypaint_grab"
         break
   # Med kit heal detour (hurt bots only; the carrier handles its own detour
   # in the carry branch). Wounded: a short opportunistic detour. Critical
@@ -2844,24 +3190,24 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 {.measure.} =
         bot.nadeCharge = 0           # release this tick = the throw
     holdStill = true
     acted = true
-  elif hasPlasma and engage >= 0:
-    actMode = "plasma"
-    # Plasma cone: ignition is INSTANT (no windup, no aim lock), reaches 4
+  elif hasSpraypaint and engage >= 0:
+    actMode = "spraypaint"
+    # Spraypaint cone: ignition is INSTANT (no windup, no aim lock), reaches 4
     # squares plus a body radius, stays on 5 ticks, and deals 3 hp (lethal to
     # bare cogs) — press A the moment the victim is inside reach and roughly
     # in front.
     desiredAim = bradsOf(aim - me)
     let err = abs(bradsErr(desiredAim, bot.estAim))
     # How far off-axis the cone still catches this target, as an angle: the
-    # half-width is PlasmaSlope * range + a whole body radius, so the angle
+    # half-width is SpraypaintSlope * range + a whole body radius, so the angle
     # the cone forgives OPENS UP as the range closes. A fixed half-angle gate
     # throws away most of a point-blank spray's reach.
-    let plasmaHalfBrads = int(round(
-      arctan((PlasmaSlope * engageD + PlasmaBodyRadius) / max(1.0, engageD)) *
+    let spraypaintHalfBrads = int(round(
+      arctan((SpraypaintSlope * engageD + SpraypaintBodyRadius) / max(1.0, engageD)) *
         float(AimBrads div 2) / PI))
     # Ignite a little early on the angle: the cone stays on 5 ticks and
     # tracks our aim, so the ongoing traverse sweeps it across the target.
-    if engageD <= PlasmaReach - 6.0 and err <= plasmaHalfBrads + 3:
+    if engageD <= SpraypaintReach - 6.0 and err <= spraypaintHalfBrads + 3:
       wantFire = true
       holdStill = true
     else:
@@ -3065,9 +3411,17 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 {.measure.} =
     nadeC = true
   if nadeC:
     mask = mask or ButtonC
+  # DROP(s2): the aim-pair chord OVERRIDES any single rotate this tick — both
+  # bits set is the dead no-op the engine ignores for aim (b != select is
+  # false), so a drop hold and an aim traverse cannot share a tick.
+  if bot.wantDrop:
+    mask = mask or ButtonB or ButtonSelect
   bot.firedLast = (mask and ButtonA) != 0
   bot.rotSign =
-    if (mask and ButtonB) != 0: 1
+    # Both rotate bits = the drop chord: the engine turns the aim by nothing,
+    # so the dead-reckoned estAim must not drift either (rotSign 0).
+    if (mask and ButtonB) != 0 and (mask and ButtonSelect) != 0: 0
+    elif (mask and ButtonB) != 0: 1
     elif (mask and ButtonSelect) != 0: -1
     else: 0
   artFrame(FrameSnap(
@@ -3077,7 +3431,7 @@ proc decide(bot: Bot, client: ProtocolClient): uint8 {.measure.} =
     targetX: int(target.x), targetY: int(target.y),
     iCarry: iCarry, mateCarry: mateCarry, ownStolen: ownStolen,
     sawThief: sawThief, pushOut: pushOut,
-    hasShield: hasShield, hasPlasma: hasPlasma, carryNade: carryingNade,
+    hasShield: hasShield, hasSpraypaint: hasSpraypaint, carryNade: carryingNade,
     nadeCharge: bot.nadeCharge, jinked: jinked, nadeDanger: nadeDanger,
     enemiesVisible: seenEnemies.len,
     engageDist: (if engage >= 0: int(engageD) else: -1),
@@ -3138,6 +3492,28 @@ proc onMessage*(component: var BaselineComponent, message: string): seq[string] 
   component.advancePolicy(component.client.frameAdvance)
   component.policyReplies()
 
+proc peekFirstMessage(ws: WebSocket): Message =
+  ## Blocks for the very first application message the server sends,
+  ## answering any Ping along the way (the transport-level keepalive, never
+  ## a protocol opcode either contract owns). Protocol detection reads this
+  ## message's leading byte before this process sends anything of its own,
+  ## so it works for both contracts without guessing: a Season 2 seat's
+  ## 0xB0 PlayContext arrives unprompted at socket registration
+  ## (docs/designs/strategy-play-calling-shell-2026-08-29.md §4.3), and a
+  ## legacy seat's first Sprite v1 frame arrives on the same server-driven
+  ## schedule the old pre-emptive `spritesOffBlob` send used to race.
+  while true:
+    let msg = ws.receiveMessage(-1)
+    if msg.isNone:
+      continue
+    case msg.get.kind
+    of Ping:
+      ws.send(msg.get.data, Pong)
+    of BinaryMessage, TextMessage:
+      return msg.get
+    of Pong:
+      discard
+
 proc runBot(url: string) =
   ## Connects, then loops frames forever, reconnecting on disconnect.
   let
@@ -3170,53 +3546,71 @@ proc runBot(url: string) =
       # optname 1 is SO_DEBUG: EACCES without CAP_NET_ADMIN, and a silent
       # no-op for Nagle even when privileged).
       ws.socket.setSockOpt(OptNoDelay, true, level = IPPROTO_TCP.cint)
-      # Sprites Off (0x87), sent before anything else so the server strips
-      # pixel payloads from the very first frame. Servers that predate the
-      # packet ignore unknown client messages, so this is safe everywhere.
-      ws.send(spritesOffBlob(), BinaryMessage)
       echo "connected ", endpoint
       everConnected = true
-      client.reset()
-      bot.navBuilt = false
-      bot.resetTransient()
-      component.hasSent = false
-      while true:
-        if not client.receiveLatestFrame(ws, false):
-          continue
-        let advance = max(1, client.frameAdvance)
-        component.advancePolicy(advance)
-        if profileShouldDump(bot.tick):
-          finishProfileTrace()
-        if not client.mapCameraReady:
-          if playing:
-            playing = false
-            artEvent(bot.tick, "game_end")
-          bot.resetTransient()             # lobby / game-over interstitial
-          continue
-        if not playing:
-          playing = true
-          artEvent(bot.tick, "game_start")
-        for reply in component.policyReplies():
-          ws.send(reply, BinaryMessage)
-        # Fixture-only chatter: shout on a slot-staggered ~2s cadence so a
-        # recorded episode carries live shouts to exercise the bubble render.
-        if shoutEnabled and
-            (bot.tick + bot.slot * 5) mod (2 * 24) < advance:
-          let phrase = ShoutVocab[(bot.tick div 48 + bot.slot) mod
-            ShoutVocab.len]
-          ws.send(chatBlob(phrase), BinaryMessage)
-        # Competitive coordination / taunt shouts (compile-gated).
-        when defined(shoutCoord) or defined(taunt):
-          if bot.shoutWant.len > 0:
-            ws.send(chatBlob(bot.shoutWant), BinaryMessage)
-            artEvent(bot.tick, "shout_tx", %*{"text": bot.shoutWant})
-            bot.shoutWant = ""
-        # Done thinking: a fastMode server advances the tick as soon as
-        # every player has sent this; older servers ignore the packet.
-        # Gated OFF by default (see fastReadyEnabled above): only fixture
-        # recording opts in via CTF_BOT_FAST_READY=1.
-        if fastReadyEnabled:
-          ws.send(readyBlob(), BinaryMessage)
+      # Detect the contract before speaking: peek the server's first
+      # message rather than assuming Sprite v1 (see peekFirstMessage).
+      let firstMessage = peekFirstMessage(ws)
+      let isSeason2 = firstMessage.kind == BinaryMessage and
+        isPlayContextOpcode(firstMessage.data)
+      if isSeason2:
+        # Never falls through: runS2Session returns only by raising (socket
+        # closed / malformed packet), caught below exactly like the legacy
+        # branch's own disconnect.
+        runS2Session(ws, slot, firstMessage)
+      else:
+        # Sprites Off (0x87): now that the protocol is confirmed legacy,
+        # not pre-emptively. A server that predates the packet still
+        # ignores unknown client messages, and this bot never decodes
+        # pixels either way (gui=false below), so the only observable
+        # effect of the one-frame delay is one extra pixel-carrying server
+        # frame over the wire — never a difference in what this bot decides
+        # or sends.
+        ws.send(spritesOffBlob(), BinaryMessage)
+        client.reset()
+        bot.navBuilt = false
+        bot.resetTransient()
+        component.hasSent = false
+        var pending = some(firstMessage)
+        while true:
+          let gotFrame = client.receiveLatestFrame(ws, false, pending)
+          pending = none(Message)
+          if not gotFrame:
+            continue
+          let advance = max(1, client.frameAdvance)
+          component.advancePolicy(advance)
+          if profileShouldDump(bot.tick):
+            finishProfileTrace()
+          if not client.mapCameraReady:
+            if playing:
+              playing = false
+              artEvent(bot.tick, "game_end")
+            bot.resetTransient()           # lobby / game-over interstitial
+            continue
+          if not playing:
+            playing = true
+            artEvent(bot.tick, "game_start")
+          for reply in component.policyReplies():
+            ws.send(reply, BinaryMessage)
+          # Fixture-only chatter: shout on a slot-staggered ~2s cadence so a
+          # recorded episode carries live shouts to exercise the bubble render.
+          if shoutEnabled and
+              (bot.tick + bot.slot * 5) mod (2 * 24) < advance:
+            let phrase = ShoutVocab[(bot.tick div 48 + bot.slot) mod
+              ShoutVocab.len]
+            ws.send(chatBlob(phrase), BinaryMessage)
+          # Competitive coordination / taunt shouts (compile-gated).
+          when defined(shoutCoord) or defined(taunt):
+            if bot.shoutWant.len > 0:
+              ws.send(chatBlob(bot.shoutWant), BinaryMessage)
+              artEvent(bot.tick, "shout_tx", %*{"text": bot.shoutWant})
+              bot.shoutWant = ""
+          # Done thinking: a fastMode server advances the tick as soon as
+          # every player has sent this; older servers ignore the packet.
+          # Gated OFF by default (see fastReadyEnabled above): only fixture
+          # recording opts in via CTF_BOT_FAST_READY=1.
+          if fastReadyEnabled:
+            ws.send(readyBlob(), BinaryMessage)
     except Exception as e:
       if everConnected:
         # The game ended and the server went away: exit so the episode

@@ -92,11 +92,21 @@ function run() {
     process.exit(1);
   }
   let packetBytes = 0;
+  let advanced = 0;
   for (let i = 0; i < frameBudget; i++) {
     if (Module._ctf_frame() !== 1) {
+      // ctf_frame returns non-1 for TWO different things: the replay ran
+      // out of frames, and the runtime died. Conflating them made a full-
+      // length budget impossible — every fixture "failed" at its own
+      // natural end — which is part of why the budget stayed at 300 and
+      // the canary never reached the cliff it exists to watch. The runtime
+      // error buffer tells them apart.
+      const err = Module._ctf_error_len();
+      if (!err) break;               // clean end of replay
       console.error('FAIL: ctf_frame died at frame ' + i + '\n' + readRuntimeError());
       process.exit(1);
     }
+    advanced++;
     packetBytes += Module._ctf_packet_len();
   }
   if (Module._ctf_mismatch_tick() !== -1) {
@@ -106,7 +116,7 @@ function run() {
   }
   clearTimeout(watchdog);
   console.log('ok: loaded ' + path.basename(replayPath) + ', advanced ' +
-    frameBudget + ' frames (' + packetBytes + ' packet bytes, heap ' +
+    advanced + ' frames (' + packetBytes + ' packet bytes, heap ' +
     Math.round(Module.HEAPU8.length / 1024 / 1024) + ' MB)');
   process.exit(0);
 }

@@ -1,0 +1,21 @@
+diff --git a/src/shell/body_route_query.nim b/src/shell/body_route_query.nim
+index 142475f8..f7af0f62 100644
+--- a/src/shell/body_route_query.nim
++++ b/src/shell/body_route_query.nim
+@@ -189,6 +189,16 @@ proc findBodyBridge(table: BodyFineLegality; startNode,
+     maxX = min(table.width - 1, max(startX, targetX) + 2)
+     minY = max(0, min(startY, targetY) - 2)
+     maxY = min(table.height - 1, max(startY, targetY) + 2)
++  # For regular anchors this is the same first two-hop path as the BFS:
++  # cardinal hops precede diagonals, and a two-step diagonal is unique.
++  for direction, delta in NavNeighbors:
++    if targetX - startX == 2 * delta.x and targetY - startY == 2 * delta.y:
++      let middle = startNode + delta.y * table.width + delta.x
++      let bit = uint8(1 shl direction)
++      if (table.legal[startNode] and bit) != 0 and
++          (table.legal[middle] and bit) != 0:
++        return @[int32(middle), int32(targetNode)]
++      break
+   var nodes: array[128, int32]
+   var parents: array[128, int16]
+   var head = 0

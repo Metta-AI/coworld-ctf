@@ -1,0 +1,117 @@
+{
+  "index.legalMoves": {
+    "count": 5,
+    "mean_ms": 25.607581,
+    "total_ms": 128.037905
+  },
+  "index.roomLayout": {
+    "count": 5,
+    "mean_ms": 0.8513552,
+    "total_ms": 4.2567759999999994
+  },
+  "index.sides": {
+    "count": 5,
+    "mean_ms": 1.8530084,
+    "total_ms": 9.265042
+  },
+  "index.fieldsAndCountSegments": {
+    "count": 5,
+    "mean_ms": 50.7963622,
+    "total_ms": 253.981811
+  },
+  "index.fillSegmentsAndArcs": {
+    "count": 5,
+    "mean_ms": 1.145453,
+    "total_ms": 5.727264999999999
+  },
+  "index.graphComponents": {
+    "count": 5,
+    "mean_ms": 1.5320748,
+    "total_ms": 7.660374
+  },
+  "index.seedPixelComponents": {
+    "count": 5,
+    "mean_ms": 1.6800582,
+    "total_ms": 8.400291
+  },
+  "index.validatorAnchors": {
+    "count": 5,
+    "mean_ms": 0.703894,
+    "total_ms": 3.51947
+  },
+  "pocket.canonicalMapping": {
+    "count": 5,
+    "mean_ms": 0.800643,
+    "total_ms": 4.003215
+  },
+  "pocket.initialTargetsScratch": {
+    "count": 5,
+    "mean_ms": 0.008865,
+    "total_ms": 0.044325
+  },
+  "pocket.coverage.classify": {
+    "count": 5,
+    "mean_ms": 1.3270922,
+    "total_ms": 6.635461
+  },
+  "pocket.coverage.pixelScan": {
+    "count": 5,
+    "mean_ms": 48.096773,
+    "total_ms": 240.48386499999998
+  },
+  "pocket.coverage.resolvePending": {
+    "count": 5,
+    "mean_ms": 32.574691200000004,
+    "total_ms": 162.873456
+  },
+  "pocket.coverage.sort": {
+    "count": 5,
+    "mean_ms": 0.30497840000000004,
+    "total_ms": 1.5248920000000001
+  },
+  "pocket.coverage": {
+    "count": 5,
+    "mean_ms": 82.36540160000001,
+    "total_ms": 411.82700800000003
+  },
+  "pocket.graphJoins": {
+    "count": 5,
+    "mean_ms": 29.333284999999997,
+    "total_ms": 146.66642499999998
+  },
+  "pocket.finalPending": {
+    "count": 5,
+    "mean_ms": 21.1830274,
+    "total_ms": 105.915137
+  },
+  "pocket.pack": {
+    "count": 5,
+    "mean_ms": 0.006431,
+    "total_ms": 0.032155
+  },
+  "pocket.collapse": {
+    "count": 5,
+    "mean_ms": 0.0475668,
+    "total_ms": 0.237834
+  },
+  "index.pocketConnectors": {
+    "count": 5,
+    "mean_ms": 133.7487206,
+    "total_ms": 668.743603
+  },
+  "index.fineAnchorIndex": {
+    "count": 5,
+    "mean_ms": 0.139192,
+    "total_ms": 0.69596
+  },
+  "index.validate": {
+    "count": 5,
+    "mean_ms": 34.3714582,
+    "total_ms": 171.857291
+  },
+  "index.complete": {
+    "count": 5,
+    "mean_ms": 252.4431204,
+    "total_ms": 1262.215602
+  }
+}

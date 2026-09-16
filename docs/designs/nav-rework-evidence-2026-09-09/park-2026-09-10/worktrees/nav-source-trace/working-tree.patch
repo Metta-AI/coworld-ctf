@@ -1,0 +1,138 @@
+diff --git a/src/shell/body_nav.nim b/src/shell/body_nav.nim
+index 23b148231bbd1a7075810fe63687e1dd2e3502f2..7f81062fb32f817881c8a6e70eb88be1d5b62b44 100644
+--- a/src/shell/body_nav.nim
++++ b/src/shell/body_nav.nim
+@@ -10,6 +10,22 @@ import body_cache, body_danger, body_hazard, body_map, body_route_index,
+   body_route_query, body_safety_query
+ import types as shellTypes
+ 
++when defined(navSourceTrace):
++  # TEMPORARY count-only diagnostic (CACHE_TRACE_PLAN.md). Compiled only with
++  # -d:navSourceTrace; writes NAVSRC lines to stderr. Never timing evidence.
++  import std/strutils
++  var navTraceSysCounter {.threadvar.}: int
++  var navTraceRaySteps {.threadvar.}: int
++
++  proc navTraceLine(text: string) =
++    stderr.writeLine("NAVSRC " & text)
++
++  proc navTraceFnv(values: seq[bool]): string =
++    var h = 0xcbf29ce484222325'u64
++    for value in values:
++      h = (h xor (if value: 1'u64 else: 0'u64)) * 0x100000001b3'u64
++    toHex(h, 16)
++
+ const
+   DangerCadenceK* = 32
+   DangerLosFlatPx = 400
+@@ -110,6 +126,8 @@ type
+     selectedDangerCount: int
+     dangerTick*: int
+     active*: bool
++    when defined(navSourceTrace):
++      traceSysId: int  ## TEMPORARY count-only diagnostic; never in production builds.
+     desiredGoal*: Option[BodyPoint]
+     desiredProfile*: shellTypes.CostProfile
+     desiredMoving*: bool
+@@ -324,6 +342,16 @@ proc newBodyNavSystem*(map: BodyMap, seatCount, liveGunRangePx: int,
+       result.seats[index].dangerGeneration = 1
+       result.mixedGraph.rebuildPackedWeights(
+         result.seats[index].danger, result.seats[index].packedWeights)
++  when defined(navSourceTrace):
++    inc navTraceSysCounter
++    for seat in result.seats:
++      seat.traceSysId = navTraceSysCounter
++    navTraceLine("sys id=" & $navTraceSysCounter &
++      " grid=" & $dangerGeometry.gridWidth & "x" & $dangerGeometry.gridHeight &
++      " range_px=" & $liveGunRangePx & " radius=" & $dangerGeometry.radius &
++      " perimeter=" & $dangerGeometry.perimeter.len &
++      " sight_fnv=" & navTraceFnv(dangerGeometry.sightBlocked) &
++      " seats=" & $seatCount & " map=" & map.name)
+   result.navigationBytes = result.retainedNavigationBytes()
+   if prepareRouteQueries and
+       result.navigationBytes.total > BodyNavigationRetainedCap:
+@@ -352,6 +380,9 @@ proc dangerTraceSnapshot*(system: BodyNavSystem): seq[DangerRebuild] =
+     result[index] = system.dangerTrace[index]
+ 
+ proc setSeatActive*(system: BodyNavSystem, seat: int, active: bool) =
++  when defined(navSourceTrace):
++    navTraceLine("active sys=" & $system.seats[seat].traceSysId &
++      " seat=" & $seat & " active=" & (if active: "1" else: "0"))
+   system.seats[seat].active = active
+ 
+ proc resetNavigationLife*(system: BodyNavSystem, seatIndex: int) =
+@@ -428,6 +459,8 @@ proc castRay(seat: BodyNavSeat, origin: BodyPoint,
+   let decisionY = 2 * nx
+   var decision = ny - nx
+   while ix < nx or iy < ny:
++    when defined(navSourceTrace):
++      inc navTraceRaySteps
+     if decision == 0:
+       let sideX = x + stepX
+       let sideY = y + stepY
+@@ -459,14 +492,23 @@ proc rebuildDangerFromPoints(seat: BodyNavSeat, map: BodyMap,
+   ## part of the cold-plan counter; K bounds its server-wide tick burst.
+   for value in seat.danger.values.mitems:
+     value = 0
+-  for source in sources:
++  when defined(navSourceTrace):
++    var raysLine = "rays sys=" & $seat.traceSysId & " tick=" & $tick &
++      " seat=" & $seat.index & " src="
++  for sourceIndex, source in sources:
+     let origin = map.cellOf(source)
+     seat.nextVisitGeneration()
+     seat.addVisibleCell(origin, seat.dangerGeometry.kernel, seat.dangerGeometry.radius,
+       origin.x, origin.y)
++    when defined(navSourceTrace):
++      navTraceRaySteps = 0
+     for offset in seat.dangerGeometry.perimeter:
+       seat.castRay(origin, seat.dangerGeometry.kernel, seat.dangerGeometry.radius,
+         origin.x + offset.x, origin.y + offset.y)
++    when defined(navSourceTrace):
++      if sourceIndex > 0:
++        raysLine.add ","
++      raysLine.add($origin.x & ":" & $origin.y & ":" & $navTraceRaySteps)
+     let closeRange = min(DangerClosePx, seat.dangerRangePx)
+     let closeCells = (closeRange + NavCell - 1) div NavCell
+     let closeSquared = closeRange * closeRange
+@@ -486,6 +528,8 @@ proc rebuildDangerFromPoints(seat: BodyNavSeat, map: BodyMap,
+       value *= DangerLosWeight.float32
+     seat.danger.maximum = max(seat.danger.maximum, value)
+   seat.dangerTick = tick
++  when defined(navSourceTrace):
++    navTraceLine(raysLine)
+ 
+ proc publishDangerGeneration(system: BodyNavSystem; seat: BodyNavSeat;
+     force = false) =
+@@ -577,6 +621,9 @@ proc initializeDanger*(system: BodyNavSystem,
+   if sourcesBySeat.len != system.seats.len:
+     raise newException(ValueError, "danger source rows must match seat count")
+   for index, seat in system.seats:
++    when defined(navSourceTrace):
++      navTraceLine("init sys=" & $seat.traceSysId & " seat=" & $index &
++        " tick=" & $activationTick)
+     seat.rebuildDanger(system.map, sourcesBySeat[index], activationTick)
+     system.publishDangerGeneration(seat, force = true)
+ 
+@@ -603,6 +650,21 @@ proc rebuildScheduledDanger*(system: BodyNavSystem, tick: int,
+       for source in 0 ..< seat.selectedDangerCount:
+         if seat.selectedDangerPoints[source] != previousPoints[source]:
+           changed = true
++      when defined(navSourceTrace):
++        var schedLine = "sched sys=" & $seat.traceSysId & " tick=" & $tick &
++          " seat=" & $index & " changed=" & (if changed: "1" else: "0") &
++          " n=" & $seat.selectedDangerCount & " cells="
++        var ptsText = ""
++        for source in 0 ..< seat.selectedDangerCount:
++          let point = seat.selectedDangerPoints[source]
++          let cell = system.map.cellOf(point)
++          if source > 0:
++            schedLine.add ","
++            ptsText.add ","
++          schedLine.add($cell.x & ":" & $cell.y)
++          ptsText.add($point.x & ":" & $point.y & ":" &
++            $seat.selectedDangerSeats[source])
++        navTraceLine(schedLine & " pts=" & ptsText)
+       if changed:
+         seat.rebuildSelectedDanger(system.map, tick)
+         system.publishDangerGeneration(seat)

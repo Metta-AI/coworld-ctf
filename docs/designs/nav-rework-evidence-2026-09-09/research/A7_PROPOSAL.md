@@ -1,0 +1,9 @@
+# A7 proposal: skip already-enqueued pixel neighbors before legality reads
+
+Research basis: Boost Graph BFS uses discovery state to enqueue only undiscovered vertices (https://www.boost.org/doc/libs/latest/libs/graph/doc/html/graph/algorithms/traversal/breadth_first_search.html). Existing pixelPathInBox already implements FIFO BFS with marking on enqueue; no library replacement or dependency is appropriate for moving one existing predicate in this private Nim loop.
+
+Observation: pixelPathInBox currently checks standability (and exact diagonal side cells) before rejecting a neighbor whose visitedGeneration already equals the current generation. Such a neighbor can never enqueue or change its parent again. The skipped reads are pure against immutable terrain. Moving the existing visited check immediately after in-box nextLocal computation should preserve queue order, target tie-breaking, parents and reconstructed paths. On lazy A6 it also avoids generation-cache lookups on repeat neighbors; initializing fewer lazy scratch entries is unobservable.
+
+Proposed four-way diagnostic ablation: eager A4, eager+early-visited, lazy A6, lazy+early-visited. No production changes until peer review. Reuse A6 crafted/rollover/173424-search chain and76-index identity tools, focused index tests, and instrumented counts. Root-owned separate experiment tree; peer currently owns C7 only. Native three interleaved sets on map48, same CPU5; preregister >=5% index-time reduction on both m8i and m5a and no exactness difference before integration consideration. No extra memory, queues, ordering rules, timing gates or gameplay changes.
+
+Open review: confirm the early rejection cannot suppress any observable side effect, including diagnostic-only counters being intentionally different; decide whether the5% threshold is worthwhile given remaining activation deficit.

@@ -61,6 +61,7 @@ suite "debug overlays":
       inputMask = 0'u8
       pressedMask = 0'u8
       chatText = ""
+      policyPage = ""
       debugPacket: seq[uint8] = @[]
     debugPacket.addClearObjects()
     state.applyPlayerViewerMessage(
@@ -69,7 +70,8 @@ suite "debug overlays":
         blobFromSpriteMask(ButtonA),
       inputMask,
       pressedMask,
-      chatText
+      chatText,
+      policyPage
     )
 
     check state.pendingDebugSprites == @[debugPacket]

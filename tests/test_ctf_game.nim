@@ -513,6 +513,26 @@ suite "ctf game":
       sim.step(noInput, noInput)
     check sim.recentShots.len == 0
 
+  test "an fx stamped ahead of tickCount (a stale rewind artifact) is pruned, not kept forever":
+    ## FX PRUNE FIX (harness task f4d7de6e): pruneAgedFx's un-gated
+    ## `sim.tickCount - fx.tickField` goes NEGATIVE for an entry whose
+    ## tickField sits ahead of the current tick (only possible from a tick
+    ## count that moved backward under it, e.g. a replay seek/rewind —
+    ## no live producer ever schedules an fx ahead of its own creation
+    ## tick). `negative < life` is true for any `life > 0`, so pre-fix such
+    ## an entry survived every future prune pass forever, no matter how
+    ## many ticks elapsed. A handful of ticks is enough to prove the fix:
+    ## the entry is dropped outright, not merely aged like a normal one.
+    var sim = twoTeamGame()
+    sim.recentShots.add ShotFx(
+      x0: 1, y0: 1, x1: 2, y1: 2,
+      firedTick: sim.tickCount + 5000, color: 1, hit: false)
+    check sim.recentShots.len == 1
+    let noInput = newSeq[InputState](sim.players.len)
+    for _ in 0 ..< 3:
+      sim.step(noInput, noInput)
+    check sim.recentShots.len == 0
+
   test "a kill leaves a splatter that skips the hash and fades out":
     var sim = twoTeamGame()
     let cx = sim.gameMap.center.x
@@ -735,6 +755,80 @@ suite "ctf game":
     let none = newSeq[InputState](0)
     sim.step(none, none)
     check sim.phase == Lobby
+
+  test "kd survives a respawn: neither the killer's nor the victim's count resets":
+    var sim = twoTeamGame()
+    let cx = sim.gameMap.center.x
+    let cy = sim.gameMap.center.y
+    sim.players[0].x = cx
+    sim.players[0].y = cy
+    sim.players[0].aimBrads = 0
+    sim.players[1].x = cx + 6
+    sim.players[1].y = cy
+    sim.players[1].hp = 1
+    sim.players[1].lives = 3 # a spare life, so this death is a respawn.
+
+    sim.tryFire(0)
+
+    check not sim.players[1].alive
+    check sim.players[0].kills == 1
+    check sim.players[1].deaths == 1
+    check sim.matchKillsDeaths(0).kills == 1
+    check sim.matchKillsDeaths(1).deaths == 1
+
+    # killPlayer/respawnPlayers never touch either counter, on the victim OR
+    # the killer, so Maxwell's literal complaint ("k/d shouldn't reset when
+    # you die") was never true engine-side — this locks it in so it stays
+    # that way.
+    sim.players[1].respawnTimer = 1
+    let none = newSeq[InputState](sim.players.len)
+    sim.step(none, none)
+
+    check sim.players[1].alive
+    check sim.players[0].kills == 1
+    check sim.players[1].deaths == 1
+    check sim.matchKillsDeaths(0).kills == 1
+    check sim.matchKillsDeaths(1).deaths == 1
+
+  test "kd is match-scoped: matchKillsDeaths survives the round boundary that zeroes Player.kills/deaths":
+    var sim = twoTeamGame()
+    sim.recordKillCredit(0, 1)
+    sim.recordDeath(1)
+    check sim.players[0].kills == 1
+    check sim.players[1].deaths == 1
+    check sim.matchKillsDeaths(0).kills == 1
+    check sim.matchKillsDeaths(1).deaths == 1
+
+    # startGame is the round-boundary reset (sim.nim): a fresh round within
+    # the same match zeroes the per-round Player counters — correct, since
+    # they feed gameHash and per-round reward math — but must not touch the
+    # match-scoped account tally the kd/roster HUD labels read.
+    sim.startGame()
+    check sim.players[0].kills == 0
+    check sim.players[1].deaths == 0
+    check sim.matchKillsDeaths(0).kills == 1
+    check sim.matchKillsDeaths(1).deaths == 1
+
+  test "kd persists across a full resetToLobby + rejoin, BR's actual round cycle":
+    var sim = twoTeamGame()
+    sim.recordKillCredit(0, 1)
+    sim.recordDeath(1)
+
+    sim.resetToLobby()
+    check sim.players.len == 0
+
+    # Same addresses rejoin for the next round: a brand-new Player struct
+    # each time, so its kills/deaths start at the Nim default (0)...
+    discard sim.addPlayer("red0")
+    discard sim.addPlayer("blue0")
+    sim.startGame()
+    check sim.players[0].kills == 0
+    check sim.players[1].deaths == 0
+    # ...but the SAME RewardAccount (looked up by address, never wiped by
+    # resetToLobby) carries the match-scoped total forward across the round
+    # boundary.
+    check sim.matchKillsDeaths(0).kills == 1
+    check sim.matchKillsDeaths(1).deaths == 1
 
   test "a time-limit game is a lose-lose draw for both sides":
     var sim = twoTeamGame()

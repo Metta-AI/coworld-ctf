@@ -2,7 +2,8 @@ import
   std/[json, os, sysrand],
   bitworld/runtime,
   ctf/sim,
-  ctf/server
+  ctf/server,
+  shell/runtime_boot
 
 const LegacyFixedSeed = 0xA6019
   ## The old compiled-in default seed. Hosted variant configs historically
@@ -51,17 +52,32 @@ proc limitText(value: int): string =
   else:
     "infinite"
 
+proc slotControlCounts(config: GameConfig): (int, int, int) =
+  ## Counts play/input configured slots plus unconfigured slots for startup
+  ## visibility. `none` is not a SlotControl enum arm; it is the empty roster
+  ## tail up to MaxPlayers.
+  for slot in config.slots:
+    case slot.control
+    of scPlay:
+      inc result[0]
+    of scInput:
+      inc result[1]
+  result[2] = max(0, MaxPlayers - config.slots.len)
+
 proc echoStartupConfig(
   config: GameConfig,
   runtimeConfig: RuntimeConfig
 ) =
   ## Prints the effective startup config without token secrets.
+  let (playSlots, inputSlots, noneSlots) = config.slotControlCounts()
   echo "CTF config: host=", runtimeConfig.host,
     " port=", runtimeConfig.port,
     " seed=", config.seed,
     " speed=", config.speed, "x",
+    " season2Shell=", config.season2Shell,
     " minPlayers=", config.minPlayers,
     " slots=", config.slots.len,
+    " slotControls=play:", playSlots, "/input:", inputSlots, "/none:", noneSlots,
     " maxTicks=", config.maxTicks.limitText(),
     " maxGames=", config.maxGames.limitText(),
     " map=", config.mapPath
@@ -98,6 +114,10 @@ when isMainModule:
       path
     else:
       ""
+
+  if loadReplayPath.len == 0:
+    config.checkDeprecatedMode()
+    config.checkPlayRuntimeAvailable()
 
   echo "starting ctf on ", runtimeConfig.host, ":", runtimeConfig.port
   runServerLoop(

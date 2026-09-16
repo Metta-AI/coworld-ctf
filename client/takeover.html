@@ -1,0 +1,165 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Free Play — suiting up</title>
+<style>
+  :root {
+    --paper: #f7f4ef;
+    --ink: #211e1a;
+    --ink-soft: #6b645b;
+    --hairline: #ddd6ca;
+    --live: #2f6b46;
+    --pending: #9a5b1d;
+  }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; }
+  body {
+    margin: 0;
+    background: var(--paper);
+    color: var(--ink);
+    font: 15px/1.45 ui-sans-serif, "Helvetica Neue", Helvetica, Arial, sans-serif;
+    display: flex;
+    flex-direction: column;
+  }
+  header { padding: 18px 24px 14px; }
+  .kicker {
+    font-size: 11px;
+    letter-spacing: .16em;
+    text-transform: uppercase;
+    color: var(--ink-soft);
+  }
+  h1 {
+    margin: 2px 0 0;
+    font-size: 27px;
+    font-weight: 620;
+    letter-spacing: -.012em;
+  }
+  h1 .seat { color: var(--ink-soft); font-weight: 400; }
+  #status {
+    margin-top: 7px;
+    font-size: 15px;
+    display: flex;
+    align-items: baseline;
+    gap: 9px;
+  }
+  #state {
+    font-weight: 640;
+    letter-spacing: .05em;
+    text-transform: uppercase;
+    font-size: 12px;
+  }
+  #state.pending { color: var(--pending); }
+  #state.driving { color: var(--live); }
+  #detail { color: var(--ink-soft); }
+  #field {
+    flex: 1;
+    border: 0;
+    border-top: 1px solid var(--hairline);
+    width: 100%;
+    background: var(--paper);
+  }
+  footer {
+    padding: 9px 24px 13px;
+    font-size: 12.5px;
+    color: var(--ink-soft);
+    border-top: 1px solid var(--hairline);
+  }
+  kbd {
+    font: inherit;
+    font-weight: 600;
+    color: var(--ink);
+  }
+</style>
+<header>
+  <div class="kicker">Free Play</div>
+  <h1><span id="who">Guest</span> <span class="seat">· seat <span id="seatno">–</span></span></h1>
+  <div id="status">
+    <span id="state" class="pending">Suiting up</span>
+    <span id="detail">Waiting for the server…</span>
+  </div>
+</header>
+<iframe id="field" title="the field"></iframe>
+<footer id="controls"><kbd>&larr; &uarr; &darr; &rarr;</kbd> move · <kbd>Z</kbd> fire · <kbd>X</kbd> / <kbd>Space</kbd> turn — the same eight buttons the policy was pressing.</footer>
+<script>
+const q = new URLSearchParams(location.search);
+const seat = q.get("slot") || "0";
+const token = q.get("token") || "";
+const name = q.get("name") || "Guest";
+document.getElementById("who").textContent = name;
+document.getElementById("seatno").textContent = seat;
+
+// Capability DETECTION, not a build flag: one bundle is served to a league
+// server and a play server, so what this connection may ask for is read off
+// the server rather than compiled in. Asking for something a league server
+// does not advertise is REFUSED at the upgrade, so we only ask when told.
+async function capabilities() {
+  try {
+    const r = await fetch("/capabilities", {cache: "no-store"});
+    return await r.json();
+  } catch (e) {
+    return {seatTakeover: false, directAim: false};
+  }
+}
+
+function connect(caps) {
+  let ws = (location.protocol === "https:" ? "wss:" : "ws:") +
+    "//" + location.host + "/takeover";
+  if (caps.directAim) {
+    ws += "?directAim=1";
+    document.getElementById("controls").innerHTML =
+      '<kbd>&larr; &uarr; &darr; &rarr;</kbd> move \u00b7 <kbd>Z</kbd> fire ' +
+      '\u00b7 <b>the turret points wherever your cursor is</b> \u2014 the same ' +
+      'eight buttons the policy was pressing, aimed by hand.';
+  }
+  // player=1 is not optional. The stock client infers "I am a player, capture
+  // keys" from its socket path being /player; a takeover socket lands on
+  // /takeover, so without this the field renders and the keyboard does nothing.
+  document.getElementById("field").src =
+    "/client/player?player=1&address=" + encodeURIComponent(ws) +
+    "&slot=" + encodeURIComponent(seat) +
+    "&token=" + encodeURIComponent(token) +
+    "&name=" + encodeURIComponent(name);
+}
+capabilities().then(connect);
+
+const stateEl = document.getElementById("state");
+const detailEl = document.getElementById("detail");
+async function poll() {
+  try {
+    const r = await fetch("/takeover/status", {cache: "no-store"});
+    const j = await r.json();
+    // Matched on the seat we ASKED for, not the one we hold: a pending
+    // takeover migrates to whichever cog stands up soonest, so the seat number
+    // under us can change before we ever drive it.
+    const mine = (j.seats || []).find(
+      s => String(s.requestedSeat) === String(seat));
+    if (mine) { document.getElementById("seatno").textContent = mine.seat; }
+    if (!mine) {
+      stateEl.className = "pending";
+      stateEl.textContent = "Suiting up";
+      detailEl.textContent = "Connecting to seat " + seat + "…";
+    } else if (mine.state === "driving") {
+      stateEl.className = "driving";
+      stateEl.textContent = "You’re driving";
+      detailEl.textContent = "Seat " + mine.seat + " is yours — cog " +
+        mine.cog + " on the field." +
+        (mine.directAim
+          ? (mine.aimBrads >= 0
+              ? "  Aim: pointing (" + mine.aimBrads + " brad)."
+              : "  Aim: pointing — move your cursor.")
+          : "");
+    } else {
+      stateEl.className = "pending";
+      stateEl.textContent = "Suiting up";
+      detailEl.textContent = mine.cog < 0
+        ? "Your cog is between matches — you take the field at its next spawn."
+        : (mine.cogAlive
+            ? "The policy is finishing this life. You take over at its next spawn."
+            : "Your cog is down — you take the field at its next spawn.");
+    }
+  } catch (e) {
+    detailEl.textContent = "Lost the server.";
+  }
+}
+poll();
+setInterval(poll, 500);
+</script>

@@ -1,0 +1,22 @@
+Wed Sep  9 23:47:45 UTC 2026
+ 23:47:45 up 3 min,  0 users,  load average: 1.28, 0.38, 0.14
+    PID %CPU COMMAND
+      1  0.8 systemd
+    676  0.2 snapd
+     22  0.1 migration/1
+     28  0.1 migration/2
+     34  0.1 migration/3
+     40  0.1 migration/4
+     46  0.1 migration/5
+     52  0.1 migration/6
+     58  0.1 migration/7
+     64  0.1 migration/8
+     70  0.1 migration/9
+     76  0.1 migration/10
+     82  0.1 migration/11
+     88  0.1 migration/12
+     94  0.1 migration/13
+    100  0.1 migration/14
+    106  0.1 migration/15
+    278  0.1 systemd-journal
+   1443  0.1 amazon-ssm-agen

@@ -186,8 +186,16 @@ suite "fog-of-war vision":
     game.players[0].alive = false
     game.players[1].x = cx
     game.players[1].y = 550
-    # Death does not lift the fog: everything is masked until respawn —
-    # even a target standing right where the viewer died.
+    # Death does not lift the fog generally: another player elsewhere on the
+    # board stays masked until respawn, even one standing on the same north-
+    # south line the viewer used to aim down.
     check not game.playerVisibleTo(0, 1)
-    check not game.fovVisibleAt(0, cx, cy)
+    check not game.fovVisibleAt(0, cx, 550)
     check game.playerVisibleTo(0, 0)
+    # BUG A (sim.nim's fovVisibleAt): the one deliberate exception to "dead
+    # viewers have no eyes" is the dead cog's OWN last position — exactly
+    # where killPlayer leaves x/y, unmoved until respawn. Without this, the
+    # fatal hit's own kill pop (added at that same point three lines before
+    # killPlayer sets alive=false) would be fogged from the one viewer it
+    # exists to tell — every death, for the whole respawn wait.
+    check game.fovVisibleAt(0, cx, cy)

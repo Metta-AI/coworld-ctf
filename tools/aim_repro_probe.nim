@@ -31,6 +31,9 @@ proc key(kind: SimEventKind): string =
   of SprayUse: "spray_use"
   of Pickup: "item_pickup"
   of ShoutEvent: "shout"
+  of GloryDeed: "glory_deed"
+  of Achievement: "achievement"
+  of LevelUp: "level_up"
 
 let params = commandLineParams()
 if params.len < 2:

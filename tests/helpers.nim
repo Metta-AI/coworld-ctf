@@ -128,15 +128,19 @@ proc buildGlobalMessages*(
 proc buildPlayerMessages*(
   sim: var SimServer,
   playerIndex: int,
-  state: var PlayerViewerState
+  state: var PlayerViewerState,
+  spritesOff = false
 ): seq[SpritePacketMessage] =
   ## Builds and parses one sprite player packet, from the game directory.
+  ## `spritesOff` mirrors the real wire distinction: a scripted/policy
+  ## viewer opts into Sprites Off (0x87) and gets the bot-only sprites
+  ## (e.g. the walkability map); a human viewer never sets it.
   var nextState: PlayerViewerState
   let previousDir = getCurrentDir()
   setCurrentDir(GameDir)
   try:
     result = sim.buildSpriteProtocolPlayerUpdates(
-      playerIndex, state, nextState).parseSpritePacket()
+      playerIndex, state, nextState, spritesOff).parseSpritePacket()
   finally:
     setCurrentDir(previousDir)
   state = nextState

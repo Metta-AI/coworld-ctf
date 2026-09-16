@@ -1,0 +1,552 @@
+## Phase P3-10: deterministic ladder driver ordering and quotas.
+
+import std/[json, options, sequtils, strutils, tables, unittest]
+
+import ../src/ctf/sim_types
+import ../src/shell/[body, body_map, default_play, standing_order, call_validation, canonical, emit_validator,
+  guards, instance, ladder, manifest, policy_encoding, types, episode]
+
+type
+  FakeBook = ref object
+    initCounts: Table[string, int]
+    stepCounts: Table[string, int]
+    retuneCounts: Table[string, int]
+    closeCounts: Table[string, int]
+    trace: seq[string]
+    silentControllers: seq[string]
+    faultInits: seq[string]
+    faultControllers: seq[string]
+    retuneRefusers: seq[string]
+
+proc newBook(silentControllers: seq[string] = @[];
+             faultInits: seq[string] = @[];
+             faultControllers: seq[string] = @[];
+             retuneRefusers: seq[string] = @[]): FakeBook =
+  FakeBook(initCounts: initTable[string, int](),
+    stepCounts: initTable[string, int](),
+    retuneCounts: initTable[string, int](),
+    closeCounts: initTable[string, int](),
+    silentControllers: silentControllers,
+    faultInits: faultInits,
+    faultControllers: faultControllers,
+    retuneRefusers: retuneRefusers)
+
+proc canonical(text: string): string =
+  canonicalJson(parseJson(text))
+
+proc manifestFor(name: string; playClass = "controller";
+                 params = "{}"; retune = false): PlayManifest =
+  parseManifest(canonical("""
+    {"abi":1,"class":"$1","modes":["br"],"name":"$2","params":$3,"retune":$4}
+  """ % [playClass, name, params, $retune]), retune)
+
+proc hashFor(name: string): string =
+  repeat(name[0], 64)
+
+proc controllerIntent(name: string): Intent =
+  Intent(kind: ikHold, arriveRadius: 0.0, reason: name)
+
+proc overlayPolicy(name: string): CombatPolicy =
+  case name
+  of "law":
+    CombatPolicy(noShoot: ProtectedSet(seats: @[SeatRef(9)]),
+      prefer: @[ptWeakened], holdFire: true)
+  of "pact":
+    CombatPolicy(noShoot: ProtectedSet(seats: @[SeatRef(2), SeatRef(9)]),
+      protect: ProtectedSet(teams: {Navy}),
+      prefer: @[ptWeakened, ptIsolated])
+  else:
+    CombatPolicy(holdFire: true)
+
+proc incKey(table: var Table[string, int], key: string) =
+  table[key] = table.getOrDefault(key, 0) + 1
+
+proc fakeGuest(book: FakeBook; entryName: string;
+               emitClass: EmitClass): LadderGuest =
+  new(result)
+  result.runInit = proc(paramsBytes, contextBytes: string): LadderInvocationResult =
+    discard paramsBytes
+    discard contextBytes
+    book.initCounts.incKey(entryName)
+    result.logs.add ShellLogRecord(level: 1, bytes: entryName & ":init")
+    if entryName in book.faultInits:
+      result.faulted = true
+      result.reason = "init fault"
+      return
+  result.runStep = proc(viewBytes: string; tick: uint32; selfPos: BodyPoint): LadderInvocationResult =
+    discard viewBytes
+    discard tick
+    book.stepCounts.incKey(entryName)
+    book.trace.add(entryName)
+    result.logs.add ShellLogRecord(level: 2, bytes: entryName & ":step")
+    if entryName in book.faultControllers:
+      result.faulted = true
+      result.reason = "fake fault"
+      return
+    if emitClass == ecController:
+      if entryName notin book.silentControllers:
+        result.emission.intent = some(controllerIntent(entryName))
+        result.emission.canonicalBytes = canonicalIntent(result.emission.intent.get)
+    else:
+      result.emission.policy = some(overlayPolicy(entryName))
+      result.emission.canonicalBytes =
+        canonicalCombatPolicy(result.emission.policy.get)
+  result.runRetune = proc(oldParamsBytes, newParamsBytes: string): LadderInvocationResult =
+    discard oldParamsBytes
+    discard newParamsBytes
+    book.retuneCounts.incKey(entryName)
+    result.logs.add ShellLogRecord(level: 3, bytes: entryName & ":retune")
+    if entryName in book.retuneRefusers:
+      result.refused = true
+      result.reason = "retune refused"
+      return
+  result.close = proc() =
+    book.closeCounts.incKey(entryName)
+
+proc binding(book: FakeBook; name: string; playClass = "controller";
+             params = "{}"; retune = false): LadderBinding =
+  result.manifest = manifestFor(name, playClass, params, retune)
+  result.hash = hashFor(name)
+  result.ready = true
+  result.makeGuest = proc(seatIndex: int; entry: ValidatedCallEntry,
+                          emitClass: EmitClass): LadderGuest =
+    discard seatIndex
+    fakeGuest(book, entry.entryId, emitClass)
+
+proc registry(): PathRegistry =
+  newPathRegistry([
+    ("a", pkBool),
+    ("b", pkBool),
+    ("c", pkBool),
+  ])
+
+proc ctx(a = true; b = true; c = true): IntentContext =
+  let bools = {"a": a, "b": b, "c": c}.toTable
+  IntentContext(
+    resolveNumber: proc(path: string): float = 0.0,
+    resolveBool: proc(path: string): bool = bools.getOrDefault(path, false))
+
+proc input(a = true; b = true; c = true; alive = true;
+           viewSource: LadderViewSource = nil): LadderSeatInput =
+  result = LadderSeatInput(alive: alive, contextBytes: "{}",
+    guardContext: ctx(a, b, c),
+    defaultSource: proc(seatIndex: int; tick: uint32):
+        tuple[intent: Intent, goal: Option[ValidatedGoal]] =
+      (Intent(kind: ikHold, arriveRadius: 0.0, reason: "default"), none(ValidatedGoal)))
+  if viewSource == nil:
+    result.viewSource = proc(seatIndex: int; tick: uint32): string =
+      discard seatIndex
+      discard tick
+      "{}"
+  else:
+    result.viewSource = viewSource
+
+proc accept(driver: LadderDriver; bytes: string;
+            bindings: openArray[LadderBinding];
+            proposalId = 1'u64): LadderCallResult =
+  driver.acceptCall(0, proposalId, 7, 10, canonical(bytes), bindings, ctx())
+
+suite "shell ladder":
+  test "grenade guard selects escape only while a covering grenade exists":
+    let book = newBook()
+    let bindings = @[binding(book, "escape"), binding(book, "base")]
+    let driver = newLadderDriver(1, ShellPathRegistry)
+    defer: driver.close()
+    check driver.accept("""{"plays":[
+      {"entry_id":"escape","play":"escape","when":["get","world.grenade_threat"]},
+      {"entry_id":"base","play":"base"}]}""", bindings).accepted
+    let body = activateSeatBody(newBodyMap(newSeqWith(96 * 96, true),
+      96, 96, 1, @[(32, 32)]), 0, 331)
+    var viewCalls = 0
+    for tick in 1'u32 .. 3'u32:
+      var inputs = BodyTickInputs(self: BodySelfState(pos: (32, 32), alive: true))
+      if tick == 2:
+        inputs.hazards.grenades.add BodyGrenadeHazard(eventId: 1,
+          coversSelf: true, ticksToBlast: 3)
+      body.updateBelief(inputs, tick)
+      var row = input(viewSource = proc(seatIndex: int; tick: uint32): string =
+        inc viewCalls
+        "{}")
+      row.guardContext = playGuardContext(body,
+        brDefaultFacts(body, tick, BrDefaultFallbacks()), true, false)
+      let output = driver.tick([row], tick, bindings)
+      check output.seats[0].intent.reason == (if tick == 2: "escape" else: "base")
+      check output.stepCount == 1
+      check book.stepCounts.getOrDefault("escape") == (if tick >= 2: 1 else: 0)
+      check book.stepCounts.getOrDefault("base") == (if tick == 3: 2 else: 1)
+      check viewCalls == tick.int
+
+  test "default producer runs once only after usable base selection":
+    for mode in ["native", "controller", "absent", "ineligible", "silent", "faulted", "dead"]:
+      let book = newBook(
+        silentControllers = if mode == "silent": @["base"] else: @[],
+        faultControllers = if mode == "faulted": @["base"] else: @[])
+      let bindings = @[binding(book, "law", "overlay"), binding(book, "base")]
+      let driver = newLadderDriver(1, registry())
+      defer: driver.close()
+      if mode != "absent":
+        check driver.accept("""{"plays":[
+          {"entry_id":"law","play":"law"},
+          {"entry_id":"base","play":"base","when":["get","a"]}]}""",
+          bindings).accepted
+      var row = input(a = mode != "ineligible", alive = mode != "dead")
+      let body = activateSeatBody(newBodyMap(newSeqWith(96 * 96, true),
+        96, 96, 1, @[(32, 32)]), 0, 331)
+      var defaultCalls = 0
+      var coverCalls = 0
+      row.defaultSource = proc(seatIndex: int; tick: uint32):
+          tuple[intent: Intent, goal: Option[ValidatedGoal]] =
+        check seatIndex == 0
+        check tick in 1'u32 .. 2'u32
+        inc defaultCalls
+        let facts = brDefaultFacts(body, tick, BrDefaultFallbacks(
+          ticksToNextShrink: BrRotateLeadTicks + 1))
+        let decision = computeBrDefault(facts, proc(): Option[ValidatedGoal] =
+          inc coverCalls
+          body.defaultCoverGoal(tick))
+        (decision.intent, decision.goal)
+      if mode == "native":
+        row.nativeBase = some(LadderNativeBase(intent: controllerIntent("reflex"),
+          provenance: Provenance(base: ProvenanceBase(kind: pbReflex,
+            reflexName: "reflex"))))
+      for tick in 1'u32 .. 2'u32:
+        defaultCalls = 0
+        coverCalls = 0
+        body.updateBelief(BodyTickInputs(self: BodySelfState(pos: (32, 32),
+          alive: true), visibleTracks: @[BodyTrackUpdate(seat: 1,
+            team: Blue, pos: (64, 32), tick: tick)]), tick)
+        let output = driver.tick([row], tick, bindings).seats[0]
+        let expected = if mode in ["native", "controller", "dead"]: 0 else: 1
+        check defaultCalls == expected
+        check coverCalls == expected
+        if expected == 1:
+          check output.usedDefault
+          check output.intent.reason == "default:hold"
+          if mode != "absent":
+            check output.intent.combat.holdFire
+            check output.provenance.overlays.len == 1
+        echo "LAZY_DEFAULT mode=", mode, " tick=", tick,
+          " producer_calls=", defaultCalls, " scorer_calls=", coverCalls
+
+  test "the shell is the zero-entry default case of the ladder driver":
+    let book = newBook()
+    let driver = newLadderDriver(1, registry())
+    defer: driver.close()
+    let tick = driver.tick([input()], 1, @[binding(book, "base")])
+    check tick.initCount == 0
+    check tick.stepCount == 0
+    check tick.seats[0].callNumber == 0
+    check tick.seats[0].usedDefault
+    check tick.seats[0].intent.reason == "default"
+
+  test "first passing controller is selected top-down":
+    let book = newBook()
+    let bindings = @[binding(book, "alpha"), binding(book, "beta")]
+    let driver = newLadderDriver(1, registry())
+    defer: driver.close()
+    let call = driver.accept("""
+      {"plays":[
+        {"entry_id":"alpha","play":"alpha","when":["get","a"]},
+        {"entry_id":"beta","play":"beta","when":["get","b"]}]}
+    """, bindings)
+    check call.accepted
+    let first = driver.tick([input(a = false, b = true)], 1, bindings)
+    check first.seats[0].initialized == @["beta"]
+    check first.seats[0].selectedEntryId == "beta"
+    check first.seats[0].intent.reason == "beta"
+    let second = driver.tick([input(a = true, b = true)], 2, bindings)
+    check second.seats[0].initialized == @["alpha"]
+    check second.seats[0].selectedEntryId == "alpha"
+    check second.seats[0].intent.reason == "alpha"
+
+  test "two overlays fold in ladder order over the controller":
+    let book = newBook()
+    let bindings = @[
+      binding(book, "law", "overlay"),
+      binding(book, "pact", "overlay"),
+      binding(book, "base")]
+    let driver = newLadderDriver(1, registry())
+    defer: driver.close()
+    check driver.accept("""
+      {"plays":[
+        {"entry_id":"law","play":"law"},
+        {"entry_id":"pact","play":"pact"},
+        {"entry_id":"base","play":"base"}]}
+    """, bindings).accepted
+    discard driver.tick([input()], 1, bindings)
+    discard driver.tick([input()], 2, bindings)
+    let output = driver.tick([input()], 3, bindings)
+    check output.stepCount == MaxStepsPerSeatPerTick
+    check output.seats[0].stepped == @["law", "pact", "base"]
+    check output.seats[0].intent.reason == "base"
+    check output.seats[0].intent.combat.holdFire
+    check output.seats[0].intent.combat.noShoot.seats == @[
+      SeatRef(9), SeatRef(2)]
+    check output.seats[0].intent.combat.protect.teams == {Navy}
+    check output.seats[0].intent.combat.prefer == @[ptWeakened, ptIsolated]
+    check output.seats[0].provenance.overlays.len == 2
+
+  test "silent selected controller falls back to the native default":
+    let book = newBook(silentControllers = @["alpha"])
+    let bindings = @[binding(book, "alpha")]
+    let driver = newLadderDriver(1, registry())
+    defer: driver.close()
+    check driver.accept("""
+      {"plays":[{"entry_id":"alpha","play":"alpha"}]}
+    """, bindings).accepted
+    let output = driver.tick([input()], 1, bindings)
+    check output.seats[0].selectedEntryId == "alpha"
+    check output.seats[0].usedDefault
+    check output.seats[0].intent.reason == "default"
+
+  test "faulted controller falls through to the next initialized controller":
+    let book = newBook()
+    let bindings = @[binding(book, "alpha"), binding(book, "beta")]
+    let driver = newLadderDriver(1, registry())
+    defer: driver.close()
+    check driver.accept("""
+      {"plays":[
+        {"entry_id":"alpha","play":"alpha","when":["get","a"]},
+        {"entry_id":"beta","play":"beta"}]}
+    """, bindings).accepted
+    discard driver.tick([input()], 1, bindings)
+    discard driver.tick([input(a = false)], 2, bindings)
+    book.faultControllers.add "alpha"
+    var viewBuilds = 0
+    let output = driver.tick([input(viewSource =
+      proc(seatIndex: int; tick: uint32): string =
+        discard seatIndex
+        discard tick
+        inc viewBuilds
+        "{}")], 3, bindings)
+    check output.seats[0].stepped == @["alpha", "beta"]
+    check viewBuilds == 1
+    check output.seats[0].statuses.len == 1
+    check output.seats[0].statuses[0].status.kind == skPlayFaulted
+    check output.seats[0].selectedEntryId == "beta"
+    check output.seats[0].intent.reason == "beta"
+
+  test "logs carry phase, seat, and entry identity through terminal paths":
+    let initBook = newBook(faultInits = @["init_fail"])
+    let initBindings = @[binding(initBook, "init_fail")]
+    let initDriver = newLadderDriver(1, registry())
+    defer: initDriver.close()
+    check initDriver.accept(
+      """{"plays":[{"entry_id":"init_fail","play":"init_fail"}]}""",
+      initBindings).accepted
+    let initOutput = initDriver.tick([input()], 1, initBindings)
+    check initOutput.seats[0].logs == @[LadderLogRecord(
+      phase: ivInit, seat: 0, entryId: "init_fail", level: 1,
+      bytes: "init_fail:init")]
+    check initOutput.seats[0].statuses[0].status.kind == skPlayFaulted
+
+    let stepBook = newBook()
+    let stepBindings = @[binding(stepBook, "step_fail")]
+    let stepDriver = newLadderDriver(1, registry())
+    defer: stepDriver.close()
+    check stepDriver.accept(
+      """{"plays":[{"entry_id":"step_fail","play":"step_fail"}]}""",
+      stepBindings).accepted
+    let first = stepDriver.tick([input()], 1, stepBindings)
+    check first.seats[0].logs.mapIt(it.phase) == @[ivInit, ivStep]
+    stepBook.faultControllers.add "step_fail"
+    let stepOutput = stepDriver.tick([input()], 2, stepBindings)
+    check stepOutput.seats[0].logs == @[LadderLogRecord(
+      phase: ivStep, seat: 0, entryId: "step_fail", level: 2,
+      bytes: "step_fail:step")]
+    check stepOutput.seats[0].statuses[0].status.kind == skPlayFaulted
+
+    let retuneBook = newBook(retuneRefusers = @["retune_fail"])
+    let retuneBindings = @[binding(retuneBook, "retune_fail", params =
+      "{\"n\":{\"integer\":true,\"kind\":\"number\",\"max\":10,\"min\":0}}",
+      retune = true)]
+    let retuneDriver = newLadderDriver(1, registry())
+    defer: retuneDriver.close()
+    check retuneDriver.accept(
+      """{"plays":[{"entry_id":"retune_fail","params":{"n":1},"play":"retune_fail"}]}""",
+      retuneBindings).accepted
+    discard retuneDriver.tick([input()], 1, retuneBindings)
+    check retuneDriver.accept(
+      """{"plays":[{"entry_id":"retune_fail","params":{"n":2},"play":"retune_fail","retune":true}]}""",
+      retuneBindings, proposalId = 2).accepted
+    let retuneOutput = retuneDriver.tick([input()], 2, retuneBindings)
+    check retuneOutput.seats[0].logs == @[LadderLogRecord(
+      phase: ivRetune, seat: 0, entryId: "retune_fail", level: 3,
+      bytes: "retune_fail:retune")]
+    check retuneOutput.seats[0].statuses[0].status.kind == skRetuneRefused
+
+  test "guard flaps remove and restore overlay contribution without reinit":
+    let book = newBook()
+    let bindings = @[binding(book, "law", "overlay"), binding(book, "base")]
+    let driver = newLadderDriver(1, registry())
+    defer: driver.close()
+    check driver.accept("""
+      {"plays":[
+        {"entry_id":"law","play":"law","when":["get","a"]},
+        {"entry_id":"base","play":"base"}]}
+    """, bindings).accepted
+    discard driver.tick([input(a = true)], 1, bindings)
+    discard driver.tick([input(a = true)], 2, bindings)
+    let off = driver.tick([input(a = false)], 3, bindings)
+    check off.seats[0].intent.combat.noShoot.seats.len == 0
+    let on = driver.tick([input(a = true)], 4, bindings)
+    check on.seats[0].initialized.len == 0
+    check book.initCounts["law"] == 1
+    check on.seats[0].intent.combat.noShoot.seats == @[SeatRef(9)]
+
+  test "init quotas grant every eligible seat before second grants":
+    let book = newBook()
+    let bindings = @[
+      binding(book, "law", "overlay"),
+      binding(book, "pact", "overlay"),
+      binding(book, "base")]
+    let driver = newLadderDriver(32, registry())
+    defer: driver.close()
+    for seat in 0 ..< 32:
+      check driver.acceptCall(seat, uint64(seat + 1), 7, 1,
+        canonical("""
+          {"plays":[
+            {"entry_id":"law","play":"law"},
+            {"entry_id":"pact","play":"pact"},
+            {"entry_id":"base","play":"base"}]}
+        """), bindings, ctx()).accepted
+    var
+      buildCounts: seq[int]
+      totalBuilds = 0
+    for tick in 1'u32 .. 2'u32:
+      var tickBuilds = 0
+      let source: LadderViewSource =
+        proc(seatIndex: int; viewTick: uint32): string =
+          discard seatIndex
+          discard viewTick
+          inc tickBuilds
+          "{}"
+      let output = driver.tick(newSeqWith(32, input(viewSource = source)),
+        tick, bindings)
+      check output.initCount == MaxInitsPerTick
+      buildCounts.add tickBuilds
+      totalBuilds += tickBuilds
+      for seat in 0 ..< 32:
+        let expected =
+          if (tick == 1 and seat < MaxInitsPerTick) or
+              (tick == 2 and seat >= MaxInitsPerTick):
+            @["law"]
+          else:
+            newSeq[string]()
+        check output.seats[seat].initialized == expected
+    check buildCounts == @[16, 32]
+    check totalBuilds == 48
+    echo "LAZY_VIEW_INIT_RAMP build_counts=", buildCounts,
+      " total_builds=", totalBuilds
+    let third = driver.tick(newSeqWith(32, input()), 3, bindings)
+    for seat in 0 ..< 32:
+      check third.seats[seat].initialized ==
+        (if seat < MaxInitsPerTick: @["pact"] else: newSeq[string]())
+
+  test "one seat initializes three active entries in ladder order":
+    let book = newBook()
+    let bindings = @[
+      binding(book, "law", "overlay"),
+      binding(book, "pact", "overlay"),
+      binding(book, "base")]
+    let driver = newLadderDriver(1, registry())
+    defer: driver.close()
+    check driver.accept("""
+      {"plays":[
+        {"entry_id":"law","play":"law"},
+        {"entry_id":"pact","play":"pact"},
+        {"entry_id":"base","play":"base"}]}
+    """, bindings).accepted
+    let output = driver.tick([input()], 1, bindings)
+    check output.initCount == MaxInitsPerSeatPerTick
+    check output.seats[0].initialized == @["law", "pact", "base"]
+    check output.seats[0].stepped == @["law", "pact", "base"]
+
+  test "failed initialization consumes the seat grant and retries next tick":
+    let book = newBook()
+    let bindings = @[
+      binding(book, "law", "overlay"),
+      binding(book, "pact", "overlay"),
+      binding(book, "base")]
+    let driver = newLadderDriver(1, registry())
+    defer: driver.close()
+    check driver.accept("""
+      {"plays":[
+        {"entry_id":"law","play":"law"},
+        {"entry_id":"pact","play":"pact"},
+        {"entry_id":"base","play":"base"}]}
+    """, bindings).accepted
+    let failed = driver.tick([input()], 1, newSeq[LadderBinding]())
+    check failed.initCount == 1
+    check failed.seats[0].initialized.len == 0
+    check book.initCounts.len == 0
+    let retried = driver.tick([input()], 2, bindings)
+    check retried.initCount == MaxInitsPerSeatPerTick
+    check retried.seats[0].initialized == @["law", "pact", "base"]
+
+  test "retunes share the init quota and clear old output until stepped":
+    let book = newBook()
+    let bindings = @[binding(book, "base", params =
+      "{\"n\":{\"integer\":true,\"kind\":\"number\",\"max\":10,\"min\":0}}",
+      retune = true)]
+    let driver = newLadderDriver(2, registry())
+    defer: driver.close()
+    for seat in 0 ..< 2:
+      check driver.acceptCall(seat, uint64(seat + 1), 7, 1,
+        canonical("""{"plays":[{"entry_id":"base","params":{"n":1},"play":"base"}]}"""),
+        bindings, ctx()).accepted
+    discard driver.tick(newSeqWith(2, input()), 1, bindings)
+    book.silentControllers.add "base"
+    check driver.acceptCall(0, 100, 8, 2,
+      canonical("""{"plays":[{"entry_id":"base","params":{"n":2},"play":"base","retune":true}]}"""),
+      bindings, ctx()).accepted
+    check driver.acceptCall(1, 101, 8, 2,
+      canonical("""{"plays":[{"entry_id":"base","params":{"n":2},"play":"base","retune":true}]}"""),
+      bindings, ctx()).accepted
+    let retuned = driver.tick(newSeqWith(2, input()), 2, bindings)
+    check retuned.initCount == 2
+    check retuned.seats[0].retuned == @[
+      LadderEntryIdentity(entryId: "base", play: "base")]
+    check retuned.seats[1].retuned == @[
+      LadderEntryIdentity(entryId: "base", play: "base")]
+    check retuned.seats[0].usedDefault
+    check retuned.seats[0].intent.reason == "default"
+    check retuned.seats[1].usedDefault
+    check retuned.seats[1].intent.reason == "default"
+    check book.retuneCounts["base"] == 2
+
+  test "full 32-seat shape is capped at exactly 96 guest steps":
+    let book = newBook()
+    let bindings = @[
+      binding(book, "law", "overlay"),
+      binding(book, "pact", "overlay"),
+      binding(book, "base")]
+    let driver = newLadderDriver(32, registry())
+    defer: driver.close()
+    for seat in 0 ..< 32:
+      check driver.acceptCall(seat, uint64(seat + 1), 7, 1,
+        canonical("""
+          {"plays":[
+            {"entry_id":"law","play":"law"},
+            {"entry_id":"pact","play":"pact"},
+            {"entry_id":"base","play":"base"}]}
+        """), bindings, ctx()).accepted
+    for tick in 1'u32 .. 6'u32:
+      let output = driver.tick(newSeqWith(32, input()), tick, bindings)
+      check output.initCount == MaxInitsPerTick
+    var viewBuilds = 0
+    let source: LadderViewSource =
+      proc(seatIndex: int; tick: uint32): string =
+        discard seatIndex
+        discard tick
+        inc viewBuilds
+        "{}"
+    let full = driver.tick(newSeqWith(32, input(viewSource = source)), 7,
+      bindings)
+    check full.initCount == 0
+    check full.stepCount == MaxPlayers * MaxStepsPerSeatPerTick
+    check viewBuilds == MaxPlayers
+    echo "LAZY_VIEW_FULL_SHAPE builds=", viewBuilds,
+      " steps=", full.stepCount
+    for seat in full.seats:
+      check seat.stepCount == MaxStepsPerSeatPerTick

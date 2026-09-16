@@ -9,12 +9,14 @@ proc testQuickPressRelease() =
     downMask = 0'u8
     pressedMask = 0'u8
     chatText = ""
+    policyPage = ""
 
   state.applyPlayerViewerMessage(
     blobFromSpriteMask(ButtonA) & blobFromSpriteMask(0),
     downMask,
     pressedMask,
-    chatText
+    chatText,
+    policyPage
   )
 
   doAssert downMask == 0'u8
@@ -27,12 +29,14 @@ proc testHeldRepeat() =
     downMask = ButtonA
     pressedMask = 0'u8
     chatText = ""
+    policyPage = ""
 
   state.applyPlayerViewerMessage(
     blobFromSpriteMask(ButtonA),
     downMask,
     pressedMask,
-    chatText
+    chatText,
+    policyPage
   )
 
   doAssert downMask == ButtonA
@@ -45,12 +49,14 @@ proc testHeldRetap() =
     downMask = ButtonA
     pressedMask = 0'u8
     chatText = ""
+    policyPage = ""
 
   state.applyPlayerViewerMessage(
     blobFromSpriteMask(0) & blobFromSpriteMask(ButtonA),
     downMask,
     pressedMask,
-    chatText
+    chatText,
+    policyPage
   )
 
   doAssert downMask == ButtonA

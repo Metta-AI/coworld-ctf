@@ -1,5 +1,9 @@
 # Procedural Terrain Design (2026-07-29)
 
+> **Historical plan.** Preserved unchanged as the design/landing record for
+> deprecated classic terrain; it is not current Season 2 game or policy
+> guidance. Current BR map authoring starts in `docs/MAPKIT.md`.
+
 Confirmed with daveey. Replaces the two hand-authored arenas as the canonical
 map source with a seeded generator + curated pool.
 

@@ -10,6 +10,7 @@ CFG=$(mktemp /tmp/ctf-four-team-demo-cfg-$$-XXXXXX)
 python3 - "$CFG" "$LAYOUT" "$SEED" "$MAXTICKS" <<'PY'
 import json, sys
 cfg = json.load(open("config.json"))
+cfg["allowDeprecatedModes"] = True  # classic recorder: legacy-mode boot override (SEAM-DEPRECATION.md)
 cfg["seed"] = int(sys.argv[3])
 cfg["maxTicks"] = int(sys.argv[4])
 cfg["speed"] = 16

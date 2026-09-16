@@ -29,11 +29,11 @@ proc landGrenade(sim: var SimServer) =
     sim.step(input, input)
 
 # The left capture column is protected floor — never walled — so these tests
-# anchor the actors there for guaranteed line of sight (like test_plasma_arc).
+# anchor the actors there for guaranteed line of sight (like test_spraypaint).
 # A template, not a `let`: MapHeight is a process `var`, and in a combined
 # test binary an earlier module may leave a different (e.g. giant generated)
 # map installed at this module's import time — the anchor must read the
-# height AFTER badgeGame installs the default arena. Same as test_plasma_arc.
+# height AFTER badgeGame installs the default arena. Same as test_spraypaint.
 const ClearX = 60
 template ClearY(): int = MapHeight div 2
 
@@ -57,7 +57,9 @@ suite "kill badges":
     check game.players[0].multiKills3 == 0
     check game.players[0].teamKills == 0
 
-  test "a grenade blast killing three (one a teammate) mints a triple and a backstab":
+  test "a grenade blast killing three (one a teammate) mints a double and a backstab":
+    # GV45: the teammate lands in teamKills, not kills — so the cluster honor
+    # counts the two ENEMY kills (a double), never the backstab.
     var game = badgeGame(2, 2)
     game.players[0].aimBrads = 0
     game.players[0].hasGrenade = true
@@ -68,14 +70,24 @@ suite "kill badges":
       game.players[i].hp = GrenadeDamage
     game.chargeAndThrow(0, 1)
     game.landGrenade()
-    check game.players[0].kills == 3
-    check game.players[0].multiKills3 == 1
-    check game.players[0].multiKills2 == 0   # the triple is not also a double
+    check game.players[0].kills == 2
+    check game.players[0].multiKills3 == 0
+    check game.players[0].multiKills2 == 1
     check game.players[0].teamKills == 1     # red1 was in the blast
+    # GV47: the same blast splits its DAMAGE the same way. All three victims
+    # stood in one blast, so each took the identical hp — two enemies' worth
+    # on hitDamage, one teammate's on teamHitDamage — and the thrower's own
+    # hp loss (it survived the tap) lands on neither.
+    let account = game.rewardAccountForPlayer(0)
+    check account >= 0
+    check game.rewardAccounts[account].teamHitDamage > 0
+    check game.rewardAccounts[account].hitDamage ==
+      2 * game.rewardAccounts[account].teamHitDamage
+    check game.players[0].hp < GrenadeDamage + 1   # self-damaged, uncredited
 
   test "one spray burst killing two enemies mints one double":
     var game = badgeGame(1, 2)
-    game.players[0].hasPlasmaArc = true
+    game.players[0].hasSprayPaint = true
     game.players[0].aimBrads = 0
     game.players[0].placeAtCenter(ClearX, ClearY)
     let
@@ -93,7 +105,7 @@ suite "kill badges":
 
   test "one spray burst killing three upgrades the double to a triple":
     var game = badgeGame(1, 3)
-    game.players[0].hasPlasmaArc = true
+    game.players[0].hasSprayPaint = true
     game.players[0].aimBrads = 0
     game.players[0].placeAtCenter(ClearX, ClearY)
     let

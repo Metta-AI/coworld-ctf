@@ -1,0 +1,4 @@
+# The flake-builder that turns this directory's flake into an image. Path is
+# relative to this directory; caos-std/ is where the root .caos-expr mounts
+# caos's std tree.
+../../caos-std/flake-builder flake-builder

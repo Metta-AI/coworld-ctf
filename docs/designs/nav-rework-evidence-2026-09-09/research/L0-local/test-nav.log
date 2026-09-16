@@ -1,0 +1,86 @@
+Hint: used config file '/Users/jamesboggs/.nimby/nim/config/nim.cfg' [Conf]
+Hint: used config file '/Users/jamesboggs/.nimby/nim/config/config.nims' [Conf]
+Hint: used config file '/Users/jamesboggs/coding/coworlds/coworld-ctf-worktrees/nav-throughput-research/nim.cfg' [Conf]
+Hint: used config file '/Users/jamesboggs/coding/coworlds/coworld-ctf-worktrees/nav-throughput-research/tests/config.nims' [Conf]
+............................................................................................................................................................................................................................
+/Users/jamesboggs/coding/coworlds/coworld-ctf-worktrees/nav-throughput-research/src/ctf/arena.nim(1373, 5) Hint: 'inside' is declared but not used [XDeclaredButNotUsed]
+/Users/jamesboggs/coding/coworlds/coworld-ctf-worktrees/nav-throughput-research/src/ctf/arena.nim(3702, 6) Hint: 'rectsNode' is declared but not used [XDeclaredButNotUsed]
+/Users/jamesboggs/coding/coworlds/coworld-ctf-worktrees/nav-throughput-research/src/ctf/arena.nim(3707, 6) Hint: 'rectsFromNode' is declared but not used [XDeclaredButNotUsed]
+..............
+/Users/jamesboggs/coding/coworlds/coworld-ctf-worktrees/nav-throughput-research/src/shell/body.nim(1299, 6) Hint: 'enemyShootableWithoutPolicy' is declared but not used [XDeclaredButNotUsed]
+.
+CC: system/exceptions.nim
+CC: std/private/digitsutils.nim
+CC: std/assertions.nim
+CC: std/private/dragonbox.nim
+CC: std/private/schubfach.nim
+CC: std/formatfloat.nim
+CC: std/objectdollar.nim
+CC: system/dollars.nim
+CC: std/syncio.nim
+CC: system.nim
+CC: hashes.nim
+CC: math.nim
+CC: algorithm.nim
+CC: tables.nim
+CC: parseutils.nim
+CC: unicode.nim
+CC: strutils.nim
+CC: streams.nim
+CC: lexbase.nim
+CC: parsejson.nim
+CC: options.nim
+CC: json.nim
+CC: std/exitprocs.nim
+CC: posix.nim
+CC: times.nim
+CC: sets.nim
+CC: std/envvars.nim
+CC: std/cmdline.nim
+CC: strformat.nim
+CC: terminal.nim
+CC: unittest.nim
+CC: pixie/fontformats/opentype.nim
+CC: pixie/fileformats/jpeg.nim
+CC: heapqueue.nim
+CC: crunchy/common.nim
+CC: crunchy/sha256.nim
+CC: pixie/fileformats/png.nim
+CC: supersnappy/internal.nim
+CC: bitworld/spriteprotocol.nim
+CC: jsony.nim
+CC: std/monotimes.nim
+CC: random.nim
+CC: bitworld/pixelfonts.nim
+CC: ctf/sim_types.nim
+CC: ctf/arena.nim
+CC: shell/types.nim
+CC: shell/body_map.nim
+CC: shell/body_cache.nim
+CC: shell/body_danger.nim
+CC: ctf/zone_field.nim
+CC: shell/body_route_index.nim
+CC: shell/body_hazard.nim
+CC: shell/body_route_query.nim
+CC: shell/body_safety_query.nim
+CC: shell/body_nav.nim
+CC: shell/body.nim
+CC: nav_route_corpus_support.nim
+CC: test_shell_body_nav_rework.nim
+Hint:  [Link]
+Hint: mm: orc; threads: on; opt: speed; options: -d:release
+132779 lines; 3.034s; 342.922MiB peakmem; proj: /Users/jamesboggs/coding/coworlds/coworld-ctf-worktrees/nav-throughput-research/tests/test_shell_body_nav_rework.nim; out: /tmp/nav-l0-tests [SuccessX]
+Hint: /tmp/nav-l0-tests [Exec]
+
+[Suite] production mixed-grid body navigation
+  [OK] literal corpus provenance and independent oracle are frozen
+  [OK] a living valid goal moves on its acceptance tick while route waits
+  [OK] search resumes under an exact pop budget and installs atomically
+  [OK] Dial bucket collisions preserve exact routes and pop counts
+  [OK] one pending slot keeps only the newest request
+  [OK] stable shortest-job-first admission uses seat id as final tie break
+  [OK] danger generation cancels stale in-flight work before another pop
+  [OK] unchanged scheduled danger preserves search but expires installed routes
+  [OK] scheduled danger changes on removal return and source reordering
+  [OK] workspace is shared and per-seat route state has fixed layout
+  [OK] arrived endpoints do not report route progress

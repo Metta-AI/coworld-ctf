@@ -1,0 +1,5 @@
+tick roster=16 scenario=first_goals
+tick roster=16 scenario=moving_goals
+tick roster=16 scenario=stuck_replans
+tick roster=32 scenario=first_goals
+tick roster=32 scenario=moving_goals

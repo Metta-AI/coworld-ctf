@@ -1,0 +1,242 @@
+[
+  {
+    "repeat": 1,
+    "map": "br-gen-5204",
+    "range_px": 1300,
+    "regime": "changing_sources",
+    "different_fields": [
+      "samples_ns"
+    ],
+    "total_ratio": 1.928995950951362
+  },
+  {
+    "repeat": 1,
+    "map": "br-gen-5204",
+    "range_px": 1300,
+    "regime": "repeated_sources",
+    "different_fields": [
+      "samples_ns"
+    ],
+    "total_ratio": 0.7517234029781394
+  },
+  {
+    "repeat": 1,
+    "map": "br-gen-5263",
+    "range_px": 1300,
+    "regime": "changing_sources",
+    "different_fields": [
+      "samples_ns"
+    ],
+    "total_ratio": 1.943158634876451
+  },
+  {
+    "repeat": 1,
+    "map": "br-gen-5263",
+    "range_px": 1300,
+    "regime": "repeated_sources",
+    "different_fields": [
+      "samples_ns"
+    ],
+    "total_ratio": 0.7320993032665717
+  },
+  {
+    "repeat": 1,
+    "map": "br-gen-5001",
+    "range_px": 1300,
+    "regime": "changing_sources",
+    "different_fields": [
+      "samples_ns"
+    ],
+    "total_ratio": 1.9520259881400213
+  },
+  {
+    "repeat": 1,
+    "map": "br-gen-5001",
+    "range_px": 1300,
+    "regime": "repeated_sources",
+    "different_fields": [
+      "samples_ns"
+    ],
+    "total_ratio": 0.7047304286419714
+  },
+  {
+    "repeat": 1,
+    "map": "colossal",
+    "range_px": 1300,
+    "regime": "changing_sources",
+    "different_fields": [
+      "samples_ns"
+    ],
+    "total_ratio": 1.8105799259521171
+  },
+  {
+    "repeat": 1,
+    "map": "colossal",
+    "range_px": 1300,
+    "regime": "repeated_sources",
+    "different_fields": [
+      "samples_ns"
+    ],
+    "total_ratio": 0.6905301850269701
+  },
+  {
+    "repeat": 2,
+    "map": "br-gen-5204",
+    "range_px": 1300,
+    "regime": "changing_sources",
+    "different_fields": [
+      "samples_ns"
+    ],
+    "total_ratio": 1.8857473342462254
+  },
+  {
+    "repeat": 2,
+    "map": "br-gen-5204",
+    "range_px": 1300,
+    "regime": "repeated_sources",
+    "different_fields": [
+      "samples_ns"
+    ],
+    "total_ratio": 0.7172455626639185
+  },
+  {
+    "repeat": 2,
+    "map": "br-gen-5263",
+    "range_px": 1300,
+    "regime": "changing_sources",
+    "different_fields": [
+      "samples_ns"
+    ],
+    "total_ratio": 1.8860127446838717
+  },
+  {
+    "repeat": 2,
+    "map": "br-gen-5263",
+    "range_px": 1300,
+    "regime": "repeated_sources",
+    "different_fields": [
+      "samples_ns"
+    ],
+    "total_ratio": 0.7185489451722438
+  },
+  {
+    "repeat": 2,
+    "map": "br-gen-5001",
+    "range_px": 1300,
+    "regime": "changing_sources",
+    "different_fields": [
+      "samples_ns"
+    ],
+    "total_ratio": 1.9019794102933094
+  },
+  {
+    "repeat": 2,
+    "map": "br-gen-5001",
+    "range_px": 1300,
+    "regime": "repeated_sources",
+    "different_fields": [
+      "samples_ns"
+    ],
+    "total_ratio": 0.6828601655354765
+  },
+  {
+    "repeat": 2,
+    "map": "colossal",
+    "range_px": 1300,
+    "regime": "changing_sources",
+    "different_fields": [
+      "samples_ns"
+    ],
+    "total_ratio": 1.9086728114380491
+  },
+  {
+    "repeat": 2,
+    "map": "colossal",
+    "range_px": 1300,
+    "regime": "repeated_sources",
+    "different_fields": [
+      "samples_ns"
+    ],
+    "total_ratio": 0.700626353854579
+  },
+  {
+    "repeat": 3,
+    "map": "br-gen-5204",
+    "range_px": 1300,
+    "regime": "changing_sources",
+    "different_fields": [
+      "samples_ns"
+    ],
+    "total_ratio": 1.9725149894575205
+  },
+  {
+    "repeat": 3,
+    "map": "br-gen-5204",
+    "range_px": 1300,
+    "regime": "repeated_sources",
+    "different_fields": [
+      "samples_ns"
+    ],
+    "total_ratio": 0.7744263270107155
+  },
+  {
+    "repeat": 3,
+    "map": "br-gen-5263",
+    "range_px": 1300,
+    "regime": "changing_sources",
+    "different_fields": [
+      "samples_ns"
+    ],
+    "total_ratio": 1.8773752022855614
+  },
+  {
+    "repeat": 3,
+    "map": "br-gen-5263",
+    "range_px": 1300,
+    "regime": "repeated_sources",
+    "different_fields": [
+      "samples_ns"
+    ],
+    "total_ratio": 0.7576676385030419
+  },
+  {
+    "repeat": 3,
+    "map": "br-gen-5001",
+    "range_px": 1300,
+    "regime": "changing_sources",
+    "different_fields": [
+      "samples_ns"
+    ],
+    "total_ratio": 1.9055499417951824
+  },
+  {
+    "repeat": 3,
+    "map": "br-gen-5001",
+    "range_px": 1300,
+    "regime": "repeated_sources",
+    "different_fields": [
+      "samples_ns"
+    ],
+    "total_ratio": 0.7251438980580606
+  },
+  {
+    "repeat": 3,
+    "map": "colossal",
+    "range_px": 1300,
+    "regime": "changing_sources",
+    "different_fields": [
+      "samples_ns"
+    ],
+    "total_ratio": 1.874357559385689
+  },
+  {
+    "repeat": 3,
+    "map": "colossal",
+    "range_px": 1300,
+    "regime": "repeated_sources",
+    "different_fields": [
+      "samples_ns"
+    ],
+    "total_ratio": 0.738028201460995
+  }
+]

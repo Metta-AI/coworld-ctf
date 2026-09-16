@@ -468,13 +468,10 @@ proc emberThroughCracks(base, ember: ColorRGBA, strength: float): ColorRGBA =
   let a = strength * crack * crack * EndzoneCrackGlow.float
   overTint(base, rgba(ember.r, ember.g, ember.b, uint8(clamp(a, 0.0, 255.0))))
 
-proc teamEndzoneColor(team: Team): ColorRGBA =
-  ## Returns the floor-glow ember color for one team's endzone.
-  case team
-  of Red: RedEndzoneColor
-  of Blue: BlueEndzoneColor
-  of Green: GreenEndzoneColor
-  of Yellow: YellowEndzoneColor
+## `teamEndzoneColor*` (the floor-glow ember color for one team's endzone)
+## now lives in sim_types.nim — this module used to declare its own copy;
+## collapsed per BR_MAPGEN.md §6.2 so widening `Team` means one edit, not
+## three.
 
 type EndzoneTint = object
   ## One team's precomputed endzone paint job: its capture-zone box, ember
@@ -681,7 +678,14 @@ proc renderArenaRgbaPair*(
       tileBlock[y * tileW + x] =
         tileSampleF(floorTex, (float(x) + 0.5) / float(scale), fy)
   let
-    tints = endzoneTints(gameMap)
+    ## BR N-point spawn subsystem: mirror loadMapLayers' identical gate
+    ## (below, same comment in full) — a flagless map has no capture
+    ## geometry to paint, and an empty tints list makes endzoneColorAt a
+    ## pure passthrough, so this is enough on its own without touching the
+    ## per-pixel loop below at all.
+    tints =
+      if gameMap.flagless: newSeq[EndzoneTint]()
+      else: endzoneTints(gameMap)
     playLo = ArenaBorder
     playHi = w - 1 - ArenaBorder
     playLoY = ArenaBorder
@@ -733,42 +737,51 @@ proc renderArenaRgbaPair*(
       put(result.cold, i * 4, coldColor)
   # Pedestals: pixie still resizes the painted masters, but the composite onto
   # the board is a manual straight-alpha src-over into the byte buffers.
-  for team in gameMap.teams():
-    let
-      home = gameMap.flagHome(team)
-      full = pedSprs[team]
-      size = PedestalCoverSize * scale
-      scaled = full.resize(size, size)
-      dimmed = scaled.pedestalDimmed()
-      px0 = home.x * scale - size div 2
-      py0 = home.y * scale - size div 2
-    for sy in 0 ..< size:
-      let dy = py0 + sy
-      if dy < 0 or dy >= oh:
-        continue
-      for sx in 0 ..< size:
-        let dx = px0 + sx
-        if dx < 0 or dx >= ow:
+  #
+  # BR N-point spawn subsystem: a flagless map arms no flag, so there is no
+  # pedestal to composite — skip the whole pass rather than stamping one at
+  # flagHome/teamAnchor, which teamAnchor's layoutSides fallback collapses to
+  # ONE point for every non-Red team (the same collapse loadMapLayers' twin
+  # gate below avoids): every BR match's board texture would otherwise show
+  # 15 pedestals stacked on Red's single anchor pixel. Mirrors loadMapLayers'
+  # `if not gameMap.flagless:` gate exactly.
+  if not gameMap.flagless:
+    for team in gameMap.teams():
+      let
+        home = gameMap.flagHome(team)
+        full = pedSprs[team]
+        size = PedestalCoverSize * scale
+        scaled = full.resize(size, size)
+        dimmed = scaled.pedestalDimmed()
+        px0 = home.x * scale - size div 2
+        py0 = home.y * scale - size div 2
+      for sy in 0 ..< size:
+        let dy = py0 + sy
+        if dy < 0 or dy >= oh:
           continue
-        let
-          litPx = scaled.data[sy * size + sx].rgba
-          dimPx = dimmed.data[sy * size + sx].rgba
-          offset = (dy * ow + dx) * 4
-        template blend(buf: seq[uint8], src: ColorRGBA) =
-          if src.a == 255'u8:
-            buf[offset] = src.r
-            buf[offset + 1] = src.g
-            buf[offset + 2] = src.b
-          elif src.a > 0'u8:
-            let a = src.a.int
-            buf[offset] =
-              uint8((src.r.int * a + buf[offset].int * (255 - a)) div 255)
-            buf[offset + 1] =
-              uint8((src.g.int * a + buf[offset + 1].int * (255 - a)) div 255)
-            buf[offset + 2] =
-              uint8((src.b.int * a + buf[offset + 2].int * (255 - a)) div 255)
-        blend(result.hot, litPx)
-        blend(result.cold, dimPx)
+        for sx in 0 ..< size:
+          let dx = px0 + sx
+          if dx < 0 or dx >= ow:
+            continue
+          let
+            litPx = scaled.data[sy * size + sx].rgba
+            dimPx = dimmed.data[sy * size + sx].rgba
+            offset = (dy * ow + dx) * 4
+          template blend(buf: seq[uint8], src: ColorRGBA) =
+            if src.a == 255'u8:
+              buf[offset] = src.r
+              buf[offset + 1] = src.g
+              buf[offset + 2] = src.b
+            elif src.a > 0'u8:
+              let a = src.a.int
+              buf[offset] =
+                uint8((src.r.int * a + buf[offset].int * (255 - a)) div 255)
+              buf[offset + 1] =
+                uint8((src.g.int * a + buf[offset + 1].int * (255 - a)) div 255)
+              buf[offset + 2] =
+                uint8((src.b.int * a + buf[offset + 2].int * (255 - a)) div 255)
+          blend(result.hot, litPx)
+          blend(result.cold, dimPx)
 
 proc loadMapLayers*(gameMap: CtfMap, withEndzoneGlow = true):
     tuple[mapImage, walkImage, wallImage: Image] =
@@ -856,8 +869,14 @@ proc loadMapLayers*(gameMap: CtfMap, withEndzoneGlow = true):
   ## The capture endzones: the exact score-columns from checkWinConditions'
   ## captureZoneXRange (Red's inclusive right threshold, Blue's inclusive left),
   ## painted into the FLOOR below so a carrier can read where to run.
+  ##
+  ## BR N-point spawn subsystem: a flagless map has no capture geometry to
+  ## paint (gameMap.flagless's doc comment already skips the COLLISION carve
+  ## for the same reason) — an empty tints list makes endzoneColorAt a pure
+  ## passthrough (falls straight to `base` with no match), so this is enough
+  ## on its own without touching the per-pixel loop below at all.
   let
-    tints = endzoneTints(gameMap)
+    tints = if gameMap.flagless: newSeq[EndzoneTint]() else: endzoneTints(gameMap)
     playLo = ArenaBorder                     # inner playfield edges: the glow
     playHi = w - 1 - ArenaBorder             # anchors home, fades to the line.
     playLoY = ArenaBorder
@@ -905,12 +924,19 @@ proc loadMapLayers*(gameMap: CtfMap, withEndzoneGlow = true):
   ## disc (see pedestalDimmed) so the broadcast crossfade dims the disc along with
   ## the floor glow when the heart is gone — otherwise a hot==cold pedestal never
   ## fades. The RGB/hot map (withEndzoneGlow) keeps the pedestal at full light.
-  for team in gameMap.teams():
-    let
-      home = gameMap.flagHome(team)
-      full = pedSprs[team]
-      spr = if withEndzoneGlow: full else: full.pedestalDimmed()
-    blitCover(result.mapImage, spr, home.x, home.y, PedestalCoverSize)
+  ##
+  ## BR N-point spawn subsystem: a flagless map arms no flag, so there is no
+  ## pedestal to carve — skip the blit entirely rather than stamping one at
+  ## flagHome/teamAnchor, which (on a symNone map with layoutCorners/Plus on
+  ## a non-square board) can land far outside the board for a non-Red team
+  ## (the same rot90-orbit hazard resetFlags avoids for the same reason).
+  if not gameMap.flagless:
+    for team in gameMap.teams():
+      let
+        home = gameMap.flagHome(team)
+        full = pedSprs[team]
+        spr = if withEndzoneGlow: full else: full.pedestalDimmed()
+      blitCover(result.mapImage, spr, home.x, home.y, PedestalCoverSize)
 
 proc coldEndzoneMapRgba*(gameMap: CtfMap): seq[uint8] =
   ## Builds the map RGBA with the endzone crack-glow and capture line OMITTED —

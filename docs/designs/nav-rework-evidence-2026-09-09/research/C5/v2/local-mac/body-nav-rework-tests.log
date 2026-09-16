@@ -1,0 +1,18 @@
+
+[Suite] production mixed-grid body navigation
+  [OK] fresh navigation ledger counts the populated safety context
+  [OK] graph ledger includes unused reserved bridge capacity
+  [OK] packed hot dilation preserves borders and tiny positive values
+  [OK] packed danger keeps ties-to-even and range boundaries
+  [OK] literal corpus provenance and independent oracle are frozen
+  [OK] a living valid goal moves on its acceptance tick while route waits
+  [OK] search resumes under an exact pop budget and installs atomically
+  [OK] Dial bucket collisions preserve exact routes and pop counts
+  [OK] one pending slot keeps only the newest request
+  [OK] stable shortest-job-first admission uses seat id as final tie break
+  [OK] danger generation cancels stale in-flight work before another pop
+  [OK] unchanged scheduled danger preserves search but expires installed routes
+  [OK] scheduled danger reordering preserves exact packed costs
+  [OK] packed scratch swaps do not alias another seat
+  [OK] workspace is shared and per-seat route state has fixed layout
+  [OK] arrived endpoints do not report route progress

@@ -1,0 +1,392 @@
+[
+  {
+    "map": "published:00:br-gen-20049",
+    "colossal": false,
+    "shared_upper_bound": 15798799,
+    "total": 33034575
+  },
+  {
+    "map": "published:01:br-gen-20184",
+    "colossal": false,
+    "shared_upper_bound": 15869683,
+    "total": 33105459
+  },
+  {
+    "map": "published:02:br-gen-20708",
+    "colossal": false,
+    "shared_upper_bound": 15806411,
+    "total": 33042187
+  },
+  {
+    "map": "published:03:br-gen-20798",
+    "colossal": false,
+    "shared_upper_bound": 15824335,
+    "total": 33060111
+  },
+  {
+    "map": "published:04:br-gen-20822",
+    "colossal": false,
+    "shared_upper_bound": 15881839,
+    "total": 33117615
+  },
+  {
+    "map": "published:05:br-gen-20894",
+    "colossal": false,
+    "shared_upper_bound": 15790151,
+    "total": 33025927
+  },
+  {
+    "map": "published:06:br-gen-20930",
+    "colossal": false,
+    "shared_upper_bound": 15735899,
+    "total": 32971675
+  },
+  {
+    "map": "published:07:br-gen-21170",
+    "colossal": false,
+    "shared_upper_bound": 15831439,
+    "total": 33067215
+  },
+  {
+    "map": "published:08:br-gen-21378",
+    "colossal": false,
+    "shared_upper_bound": 15906995,
+    "total": 33142771
+  },
+  {
+    "map": "published:09:br-gen-21450",
+    "colossal": false,
+    "shared_upper_bound": 15923143,
+    "total": 33158919
+  },
+  {
+    "map": "published:10:br-gen-21686",
+    "colossal": false,
+    "shared_upper_bound": 15867087,
+    "total": 33102863
+  },
+  {
+    "map": "published:11:br-gen-21704",
+    "colossal": false,
+    "shared_upper_bound": 15878383,
+    "total": 33114159
+  },
+  {
+    "map": "published:12:br-gen-21849",
+    "colossal": false,
+    "shared_upper_bound": 15855435,
+    "total": 33091211
+  },
+  {
+    "map": "published:13:br-gen-21884",
+    "colossal": false,
+    "shared_upper_bound": 15841539,
+    "total": 33077315
+  },
+  {
+    "map": "published:14:br-gen-21944",
+    "colossal": false,
+    "shared_upper_bound": 15853351,
+    "total": 33089127
+  },
+  {
+    "map": "published:15:br-gen-22010",
+    "colossal": false,
+    "shared_upper_bound": 15898543,
+    "total": 33134319
+  },
+  {
+    "map": "published:16:br-gen-22178",
+    "colossal": false,
+    "shared_upper_bound": 15745311,
+    "total": 32981087
+  },
+  {
+    "map": "published:17:br-gen-22338",
+    "colossal": false,
+    "shared_upper_bound": 15831107,
+    "total": 33066883
+  },
+  {
+    "map": "published:18:br-gen-22358",
+    "colossal": false,
+    "shared_upper_bound": 15837947,
+    "total": 33073723
+  },
+  {
+    "map": "published:19:br-gen-22436",
+    "colossal": false,
+    "shared_upper_bound": 15832583,
+    "total": 33068359
+  },
+  {
+    "map": "published:20:br-gen-22446",
+    "colossal": false,
+    "shared_upper_bound": 15907191,
+    "total": 33142967
+  },
+  {
+    "map": "published:21:br-gen-22508",
+    "colossal": false,
+    "shared_upper_bound": 15849307,
+    "total": 33085083
+  },
+  {
+    "map": "published:22:br-gen-22527",
+    "colossal": false,
+    "shared_upper_bound": 15730679,
+    "total": 32966455
+  },
+  {
+    "map": "published:23:br-gen-22548",
+    "colossal": false,
+    "shared_upper_bound": 15846419,
+    "total": 33082195
+  },
+  {
+    "map": "published:24:br-gen-22574",
+    "colossal": false,
+    "shared_upper_bound": 15869575,
+    "total": 33105351
+  },
+  {
+    "map": "published:25:br-gen-22650",
+    "colossal": false,
+    "shared_upper_bound": 15842359,
+    "total": 33078135
+  },
+  {
+    "map": "published:26:br-gen-22772",
+    "colossal": false,
+    "shared_upper_bound": 15816251,
+    "total": 33052027
+  },
+  {
+    "map": "published:27:br-gen-22850",
+    "colossal": false,
+    "shared_upper_bound": 15862919,
+    "total": 33098695
+  },
+  {
+    "map": "published:28:br-gen-23168",
+    "colossal": false,
+    "shared_upper_bound": 15810695,
+    "total": 33046471
+  },
+  {
+    "map": "published:29:br-gen-23312",
+    "colossal": false,
+    "shared_upper_bound": 15938095,
+    "total": 33173871
+  },
+  {
+    "map": "published:30:br-gen-23355",
+    "colossal": false,
+    "shared_upper_bound": 15810303,
+    "total": 33046079
+  },
+  {
+    "map": "published:31:br-gen-23424",
+    "colossal": false,
+    "shared_upper_bound": 15838515,
+    "total": 33074291
+  },
+  {
+    "map": "published:32:br-gen-23457",
+    "colossal": false,
+    "shared_upper_bound": 15856707,
+    "total": 33092483
+  },
+  {
+    "map": "published:33:br-gen-23479",
+    "colossal": false,
+    "shared_upper_bound": 15770087,
+    "total": 33005863
+  },
+  {
+    "map": "published:34:br-gen-23546",
+    "colossal": false,
+    "shared_upper_bound": 15849703,
+    "total": 33085479
+  },
+  {
+    "map": "published:35:br-gen-23660",
+    "colossal": false,
+    "shared_upper_bound": 15814503,
+    "total": 33050279
+  },
+  {
+    "map": "published:36:br-gen-23691",
+    "colossal": false,
+    "shared_upper_bound": 15732503,
+    "total": 32968279
+  },
+  {
+    "map": "published:37:br-gen-23712",
+    "colossal": false,
+    "shared_upper_bound": 15879599,
+    "total": 33115375
+  },
+  {
+    "map": "published:38:br-gen-23732",
+    "colossal": false,
+    "shared_upper_bound": 15884227,
+    "total": 33120003
+  },
+  {
+    "map": "published:39:br-gen-23829",
+    "colossal": false,
+    "shared_upper_bound": 15838015,
+    "total": 33073791
+  },
+  {
+    "map": "published:40:br-gen-23894",
+    "colossal": false,
+    "shared_upper_bound": 15751739,
+    "total": 32987515
+  },
+  {
+    "map": "published:41:br-gen-23942",
+    "colossal": false,
+    "shared_upper_bound": 15793027,
+    "total": 33028803
+  },
+  {
+    "map": "published:42:br-gen-24008",
+    "colossal": false,
+    "shared_upper_bound": 15770711,
+    "total": 33006487
+  },
+  {
+    "map": "published:43:br-gen-24030",
+    "colossal": false,
+    "shared_upper_bound": 15871879,
+    "total": 33107655
+  },
+  {
+    "map": "published:44:br-gen-24248",
+    "colossal": false,
+    "shared_upper_bound": 15849639,
+    "total": 33085415
+  },
+  {
+    "map": "published:45:br-gen-24288",
+    "colossal": false,
+    "shared_upper_bound": 15920851,
+    "total": 33156627
+  },
+  {
+    "map": "published:46:br-gen-24540",
+    "colossal": false,
+    "shared_upper_bound": 15752259,
+    "total": 32988035
+  },
+  {
+    "map": "published:47:br-gen-24632",
+    "colossal": false,
+    "shared_upper_bound": 15888543,
+    "total": 33124319
+  },
+  {
+    "map": "published:48:br-gen-24678",
+    "colossal": false,
+    "shared_upper_bound": 15751443,
+    "total": 32987219
+  },
+  {
+    "map": "published:49:br-gen-24962",
+    "colossal": false,
+    "shared_upper_bound": 15914535,
+    "total": 33150311
+  },
+  {
+    "map": "published:50:br-gen-24968",
+    "colossal": false,
+    "shared_upper_bound": 15814991,
+    "total": 33050767
+  },
+  {
+    "map": "published:51:br-gen-25118",
+    "colossal": false,
+    "shared_upper_bound": 15855403,
+    "total": 33091179
+  },
+  {
+    "map": "published:52:br-gen-25268",
+    "colossal": false,
+    "shared_upper_bound": 15856019,
+    "total": 33091795
+  },
+  {
+    "map": "published:53:br-gen-25466",
+    "colossal": false,
+    "shared_upper_bound": 15868143,
+    "total": 33103919
+  },
+  {
+    "map": "published:54:br-gen-25706",
+    "colossal": false,
+    "shared_upper_bound": 15900887,
+    "total": 33136663
+  },
+  {
+    "map": "published:55:br-gen-25748",
+    "colossal": false,
+    "shared_upper_bound": 15807367,
+    "total": 33043143
+  },
+  {
+    "map": "published:56:br-gen-25898",
+    "colossal": false,
+    "shared_upper_bound": 15883919,
+    "total": 33119695
+  },
+  {
+    "map": "published:57:br-gen-25952",
+    "colossal": false,
+    "shared_upper_bound": 15841927,
+    "total": 33077703
+  },
+  {
+    "map": "published:58:br-gen-26151",
+    "colossal": false,
+    "shared_upper_bound": 15778971,
+    "total": 33014747
+  },
+  {
+    "map": "published:59:br-gen-26174",
+    "colossal": false,
+    "shared_upper_bound": 15767947,
+    "total": 33003723
+  },
+  {
+    "map": "published:60:br-gen-26258",
+    "colossal": false,
+    "shared_upper_bound": 15801527,
+    "total": 33037303
+  },
+  {
+    "map": "published:61:br-gen-26340",
+    "colossal": false,
+    "shared_upper_bound": 15747915,
+    "total": 32983691
+  },
+  {
+    "map": "published:62:br-gen-26474",
+    "colossal": false,
+    "shared_upper_bound": 15875203,
+    "total": 33110979
+  },
+  {
+    "map": "published:63:br-gen-26528",
+    "colossal": false,
+    "shared_upper_bound": 15783411,
+    "total": 33019187
+  },
+  {
+    "map": "size:colossal",
+    "colossal": true,
+    "shared_upper_bound": 132979292,
+    "total": 261140828
+  }
+]

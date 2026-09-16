@@ -53,7 +53,7 @@ suite "floating damage numbers":
     check labels.anyIt(it.startsWith("damage pop blue -1 stage 0"))
     check "hit flash stage 0" in labels
 
-  test "a fatal shot adds a KO kill marker beside the -1 pop":
+  test "a fatal shot adds a SPLAT kill marker beside the -1 pop":
     var game = initCtfForTest(defaultGameConfig())
     let
       shooter = game.addPlayer("red0")
@@ -78,12 +78,12 @@ suite "floating damage numbers":
 
     game.tryFire(shooter)
     check not game.players[target].alive
-    # The fatal hit leaves both the "-1" pop and the "KO" kill marker.
+    # The fatal hit leaves both the "-1" pop and the "SPLAT" kill marker.
     check game.damagePops.len == 2
     check game.damagePops.anyIt(it.kill)
     let labels = game.mapLabels()
     check labels.anyIt(it.startsWith("damage pop blue -1 stage 0"))
-    check labels.anyIt(it.startsWith("damage pop blue KO stage 0"))
+    check labels.anyIt(it.startsWith("damage pop blue SPLAT stage 0"))
 
   test "the pop is cosmetic: it never enters the game hash":
     var a = initCtfForTest(defaultGameConfig())
@@ -145,7 +145,7 @@ suite "floating damage numbers":
     check game.damagePops.len == 0
 
   test "spray and trench-grenade amounts show their real value, not clamped to -2":
-    # Spray deals PlasmaArcDamage=3 and a trench-trapped grenade deals
+    # Spray deals SprayPaintDamage=3 and a trench-trapped grenade deals
     # GrenadeTrenchDamage=6; both exceed the historical 2-hp cap and must not
     # be clamped down to "-2" in the displayed label.
     var game = initCtfForTest(defaultGameConfig())

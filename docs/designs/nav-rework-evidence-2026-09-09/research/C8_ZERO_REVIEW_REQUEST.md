@@ -1,0 +1,11 @@
+# C8 review before a larger cache representation
+
+Root noticed attenuation returns0 beyond min(DangerLosRangePx,liveGunRangePx), with DangerLosRangePx=1050, while initDangerGeometry and recorded bitmaps extend to live1300px. addVisibleCell currently records zero-weight cells and later replays +=0. C6's crafted test explicitly noticed those zeros but the runtime loop still pays for them.
+
+After C6 V2 NATIVE READY, read C7_ROOT_REVIEW.md to correct obsolete memory and Roaring conclusions. BEFORE implementing the C7 list micro, review/count a smaller exact alternative: keep visited stamping and ray traversal unchanged, but omit a cell from the cache bitmap when kernel[kernelIndex]==0, and omit its zero add. Per rebuild the raster starts at positive zero, kernel/floor values are nonnegative finite, and source count is bounded, so adding positive0 should leave every float bit unchanged; verify signed-zero/finite invariants rather than assuming them. Do not shorten rays or change their endpoints/sampling (that is a different algorithm).
+
+Count set bits with kernel value0 versus nonzero on all nine real traces and configuredmap3. Preserve per-source hit classification using sequential LRU or the verified original-dataset limitation. This is a read-only screen first. A positive count could justify a two-line runtime change and reduce all later cache representation costs. Reference: scipy.sparse.csr_matrix.eliminate_zeros documents established explicit-zero removal, but it does not prove our floating-point contract; the local proof must do that.
+
+For C7 sizing, a nonzero-only list could be bounded by the attenuation square instead of the larger ray box: offsets with hypot(dx,dy)*8<=1050 have |dx|,|dy|<=131, so263^2=69,169cells is a conservative square bound (verify rounding edge cases and actual constants).32slots*8bytes*69,169=17,707,264bytes. Do not accept this bound until independently proven against real kernel construction and all supported range cases. The existing ray geometry itself still grows with live range; don't add a hidden config limit or claim arbitrary positive ranges fit all caps.
+
+Own C8_ZERO_REVIEW.md and count artifacts only. No production source change yet. C7 micro implementation pauses pending this simpler-option review; its paper/memory corrections should still be made. End C8 REVIEW READY and wait.

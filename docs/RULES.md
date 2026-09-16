@@ -1,8 +1,15 @@
-# Coworld CTF — Game Rules
+# Paintbot Classic (Coworld CTF) — Game Rules
 
-Coworld CTF is a two-team capture-the-heart shooter for the Coworld platform. Two
+> **Deprecated since 0.7.253.** This remains the accurate rules reference for
+> classic modes, which boot only with `allowDeprecatedModes: true`; it is not
+> the active Season 2 ruleset. See [`designs/BR_PLAYS.md`](designs/BR_PLAYS.md)
+> and the normative sections of the
+> [`Season 2 play-calling design`](designs/strategy-play-calling-shell-2026-08-29.md).
+
+Paintbot's classic mode ("Coworld CTF") is a two-team capture-the-heart tag game
+for the Coworld platform. Two
 teams start on opposite edges of a symmetric arena, each with its own heart on a
-home pedestal. Players move, take cover behind obstacles, and shoot. Steal the
+home pedestal. Players move, take cover behind obstacles, and tag each other out. Steal the
 enemy heart and carry it home — or eliminate the enemy team — to win. Vision is
 fog-of-war: the map is always visible, but enemies only appear inside your
 forward vision cone or your small omnidirectional bubble.
@@ -92,7 +99,7 @@ tasks, voting) with teams, guns, hearts, and fog-of-war vision.
   closed to movement and fire, but both teams can watch the center corridor
   through the glass.
 - **Trenches** — walkable dug-pit squares — are a **config-gated terrain
-  feature**: the default arena has none; generated maps (below) place them
+  feature**: the classic arena has none; classic generated maps (below) place them
   procedurally, steered by `mapPits` / `mapPitDensity`. See the Trenches
   section for their rules.
 - **Paint puddles** — damage-over-time floor hazards — are a **config-gated
@@ -113,9 +120,10 @@ tasks, voting) with teams, guns, hearts, and fog-of-war vision.
   a 2-team board; obstacle sizes never scale, bigger fields draw more
   cover columns instead), obstacle columns, glass placements, center
   feature, endzone archetype, and med-kit pair per map. The exact geometry
-  is pinned into the match config/replay as `mapSpec`. The default league
-  map remains the hand-tuned arena described above; leagues opt in through
-  their own config.
+  is pinned into the match config/replay as `mapSpec`. These generators and
+  the hand-tuned arena are retained for explicitly enabled deprecated modes;
+  Season 2 uses the authored 16-team BR `mapSpec` described in
+  [`MAPKIT.md`](MAPKIT.md).
 - **Compact endzones** are one of those draws. Half of generated 2-team maps
   keep the classic home column; the rest pull the base **well off its home
   edge** and wrap it in a **disc or square endzone** (`mapEndzone`:
@@ -157,10 +165,10 @@ tasks, voting) with teams, guns, hearts, and fog-of-war vision.
   **random spot inside their own endzone** (GameVersion 25) — the respawn
   point cannot be camped.
 
-## Four-team mode (config-gated)
+## Deprecated four-team mode
 
-The default game is the classic 2-team arena above; nothing changes unless a
-config opts in. With `"teams": 4` (and `"mapPath": "gen"`), the game seats
+This is a deprecated classic variant, not the published game. With
+`allowDeprecatedModes: true`, `"teams": 4`, and `"mapPath": "gen"`, it seats
 FOUR teams — **Red, Blue, Green, Yellow** — in a free-for-all on a generated
 square map:
 
@@ -228,7 +236,17 @@ square map:
 - The aim is **decoupled from movement**. Hold **B** to rotate the aim
   **counter-clockwise**, hold **Select** to rotate **clockwise**, at
   `aimTurnRate` brads per tick (default 5 ≈ 7°/tick; a full turn takes ~2.1s).
-  Holding both rotate buttons cancels out. The d-pad **never** touches the aim.
+  Holding both rotate buttons cancels out **for the aim** — but see the
+  warning below: on a `dropItem` game that combination is the **drop chord**.
+  The d-pad **never** touches the aim.
+
+> **Holding B+Select is no longer inert.** It cancels the aim traverse on
+> every game, as it always has, but where `dropItem` is armed (the
+> `battle-royale-s2` variant) holding both for `DropChordTicks` (10 ≈ 0.4 s)
+> **drops one carried item to the ground**. Authors who used the both-bits
+> combination as a "hold my aim still" idiom must stop: on an armed variant it
+> sheds the spray can (and then nothing more — the drop latches until the
+> chord is released). To hold an aim, emit **neither** rotate bit.
 - The aim drives everything directional: the **gun** fires along it, the
   **vision cone** centers on it, and the sprite flip follows it (you face left
   while aiming left-ish).
@@ -236,7 +254,7 @@ square map:
   Blue → west).
 - A player's **facing** is shown by the soldier sprite itself: the held gun
   sweeps to the aim angle (the sprite reports a coarse `right`/`left` side in
-  its label), and — for anyone you can see — the direction they can shoot is
+  its label), and — for anyone you can see — the direction they can tag is
   exactly the lane their body faces. There is no longer a separate floating
   aim-dot indicator; the vision cone and the swept gun convey aim.
 
@@ -275,7 +293,7 @@ always drawn — but moving entities are fogged:
   Every shot leaves every living player one brief hollow **impact ring**
   (label `shot impact`) near where it landed, for ~0.5s, regardless of line
   of sight. **Firing itself is silent**: the muzzle emits no signal, so
-  pulling the trigger never reveals the shooter's neighborhood — only where
+  pulling the trigger never reveals the tagger's neighborhood — only where
   the paint lands. The ring is randomly (but deterministically, per shot)
   offset by up to ~20px, so it tells you something was hit *roughly there*
   — never the exact spot, the shot's line, or which team.
@@ -323,16 +341,22 @@ always drawn — but moving entities are fogged:
   target at long range is doubly hard.
 - **Cover is partial, not binary.** A target's body is sampled across its
   silhouette: only the part of the body that is both inside the bullet
-  corridor AND visible from the shooter can be hit. A corner-hugger showing
+  corridor AND visible from the tagger can be hit. A corner-hugger showing
   a sliver is exactly as hittable as that sliver — no more (fully hidden
   body parts cannot be tagged through the wall), and no less (the poking
   shoulder is fair game even when the body's center is safely covered).
   More exposure means more aim angles connect.
 - **Friendly fire is ON.** A shot hits the first valid target regardless of team,
-  so firing into a cluster of teammates can kill your own escort.
+  so firing into a cluster of teammates can kill your own escort. A teammate
+  kill is counted as a **team kill** (GV45) — its own stat in the metrics,
+  results, and endscreen — and never inflates the killer's kill count,
+  multi-kill honors, or kill sprees. The hit points a shot removes are split
+  the same way (GV47): hp taken off an enemy accumulates as **hit damage**,
+  hp taken off a teammate as **team hit damage**, and hurting yourself
+  counts as neither.
 - **Same-tick shots resolve simultaneously.** Every trigger pulled on the same
   tick picks its target against the same snapshot before any kill applies: a
-  mutual face-off duel kills both shooters, and neither team gains an
+  mutual face-off duel kills both taggers, and neither team gains an
   input-processing-order advantage.
 
 ### Shot micro (frame data)
@@ -368,7 +392,7 @@ What that means in practice:
   corridor sampled against the target's ~12px-wide silhouette — near-misses
   connect; precision beyond the corridor width buys nothing.
 - **Respawners are live immediately.** There is no spawn protection: a
-  freshly respawned player can shoot and be shot (and blocks bullets) from
+  freshly respawned player can tag and be tagged (and blocks bullets) from
   their first tick.
 
 ## Grenades
@@ -538,7 +562,7 @@ What that means in practice:
   slowdown by taking the maximum, never the product.
 - **70% of gun shots that would hit an occupant fly straight over
   instead**: the occupant is below grade, so the bullet misses, deals no
-  damage, counts as a miss for the shooter, and **carries on down the ray**
+  damage, counts as a miss for the tagger, and **carries on down the ray**
   — it can land on an exposed body behind the trench, or on the far wall.
   The duck is rolled per crossed occupant on the deterministic sim RNG.
 - **Shots fired from inside the same trench are never ducked** — the
@@ -695,7 +719,7 @@ What that means in practice:
   The touch radius (`FlagPickupRange` = 34px) covers the **drawn heart**, which is
   60px across on a 96px pedestal disc, so any spot where heart pixels are under
   your feet takes it. Your own heart cannot be interacted with by your own team.
-  While carrying you move **slower** but can **still shoot**.
+  While carrying you move **slower** but can **still tag**.
 - If the carrier is killed (or disconnects), the heart **returns instantly to its
   own pedestal**. A heart is never left loose on the ground: it is either carried
   or sitting on its pedestal.
@@ -753,15 +777,510 @@ limit).
   until the barrage latches). Shells only land within `depth` map pixels of
   some edge.
 
-## Scoring
+## Season 2 battle-royale elimination ruleset
 
-Scoring is **sparse and win-only**:
+The published `battle-royale-s2` configuration sets `brMode: true`: no
+respawns, last team standing wins. The engine-level `false` fallback preserves
+the deprecated direct-input simulation and is not the published mode.
+
+- **No respawns.** A death is permanent — `lives`/`respawnTicks` are never
+  consulted for a re-entry: whatever they're set to, one death is out for
+  the rest of the round. Mechanically this reuses the "captured team is
+  permanently out" contract the classic 4-team mode already has (its
+  players' lives are forced to 0), so the same HUD, roster, and gameHash
+  paths that already render a permanently-out player render a BR death
+  correctly with no client changes.
+- **Winning: last team standing.** The round ends the instant at most one
+  team has a living player — the survivor wins; a simultaneous final wipe
+  is a **draw**. This is the SAME wipe check classic and 4-team play already
+  use (generic over however many teams the map seats), just the only way a
+  BR round can end.
+- **Flags never end or score it.** Captures/hearts are inert in this mode:
+  a capture can never eliminate a team or end the round, however a map
+  configures its flags. (A BR map is expected to run flagless — no hearts
+  to fight over at all — but this holds even if it doesn't.)
+- **Timeout resolves by tiebreak, not an automatic draw.** If the clock
+  runs out with more than one team still standing, the round is decided:
+  the team with the most **living players** wins; a tie there breaks on
+  total **damage dealt**; a tie on both is a draw. (Classic and 4-team play
+  still resolve a timeout as the unconditional lose-lose scoreless draw
+  described under Winning above — this tiebreak is BR-only.)
+- **Environmental deaths count too.** A death from any source — combat, the
+  shrink-zone hazard, the grenade barrage — goes through the same
+  no-respawn path; the mode doesn't care how a team lost its last player.
+
+## Season 2 battle-royale shrink zone
+
+The published `battle-royale-s2` configuration supplies a six-phase closing
+rectangle. The engine accepts an empty `zonePhases` list for mechanics tests
+and custom configurations; empty means no rectangle, damage, or markers.
+
+- **The zone is a rectangle of the map's own aspect ratio**, scaled by a
+  scalar `z` about a CENTER drawn once per game from the deterministic sim
+  RNG — never a fixed map-center circle. The draw is uniform over positions
+  where the smallest (final-phase) rect fits fully on-board with a margin;
+  earlier, larger phases derived from that same center may extend slightly
+  past the map edge for an off-center draw, exactly like a real battle-royale
+  circle that is not always dead-center at the drop.
+- **The schedule is a list of phases**, each `{z, waitTicks, shrinkTicks,
+  dps}`: `z` (0..1, exclusive of 0) is the target scale; the rect holds its
+  PREVIOUS size for `waitTicks`, then linearly interpolates into the target
+  over `shrinkTicks` (0 snaps instantly once the wait ends). Phase 0's
+  "previous" size is the implicit full field (`z = 1.0`) — a hold at full
+  size before the first real shrink is authored as phase 0's own
+  `waitTicks`, not a degenerate `z = 1.0` entry (which is always rejected:
+  see below). `z` must fall STRICTLY across phases, including against that
+  implicit 1.0, so the pressure never eases mid-match.
+- **Standing outside the current rect for a full second (24 ticks,
+  continuous — the same cadence as a paint puddle's damage roll) deals that
+  phase's `dps` hit points, exactly** — through the shield layer first, like
+  every other source of damage. Unlike a puddle's percentage roll this is
+  deterministic: `dps` is an authored rate, not a chance, so there is no RNG
+  draw. Stepping back inside (or dying) restarts the second. Once every
+  configured phase has resolved, the rect holds at the last phase's target
+  and `dps` forever. A lethal tick is an **environmental death** (no kill
+  credit; the log reads "caught outside the zone").
+- **Observability**: the live rect is stated every frame on both streams as
+  two invisible markers, `zone <x0>,<y0> <x1>,<y1>` (the current rect) and
+  `zonenext <x0>,<y0> <x1>,<y1>` (the rect the current one is interpolating
+  toward, so a policy can pre-rotate before the boundary arrives) —
+  inclusive map-pixel corners, present from the first tick whenever the mode
+  is on. A minimal cosmetic band (four flat bars) traces the current rect's
+  border on both streams too, so the boundary is visible without parsing the
+  markers; the fuller paint-tide/stormfront treatment is a later pass.
+- **Config validation**: `z` must be a number greater than 0 and at most 1
+  per phase, and must fall strictly across the whole schedule (including the
+  implicit phase-0 value of 1.0); `waitTicks`/`shrinkTicks`/`dps` must not be
+  negative; at most 8 phases.
+
+## Season 2 battle-royale loot options
+
+Seven independent BR mechanisms remain available as explicit configuration
+options. Their neutral engine values preserve replay compatibility: omitted
+keys add no pickup family or hash input. `lootStart`, `downedMode`,
+`giveItem` and the spawn-loot-seeding knobs below require `brMode: true`;
+the published `battle-royale-s2` configuration arms the first two
+(`coworld_manifest_paintbot.json`'s `battle-royale-s2` variant), at their
+ruled default timing constants (`downedBleedOutTicks` 360, `downedReviveTicks`
+48, `downedEscalation` on). `giveItem` ships dark and arms only on explicit
+go (its activation additionally needs the play shell's HANDOFF vocabulary —
+see the flag's own bullet).
+
+- **Hit points per BR variant** — no new flag: the existing `hitPoints`
+  config is live under `brMode` (proved end-to-end by
+  `tests/test_loot_rework.nim`). A 4-hp or 5-hp BR variant is a one-key
+  manifest edit; the published Season 2 variant pins 3.
+- **`medKitCount`** (int, default `-1`): caps the placed med kits. `-1` =
+  the map's own full set (the pre-existing path bit-for-bit), `0` = none —
+  the bandages-instead-of-kits test arm — `N` = the map's first N points.
+- **`bandagePickups`** (int, default `0`): places N bandage pickups at the
+  map's med-kit points (actives then candidates, cycling). A bandage is
+  CARRIED (up to 3, `BandageCarryCap`) and self-applies +1 hp after 3
+  calm seconds (`BandageApplyTicks` without taking damage); the calm clock
+  restarts per application, so a stack heals one point per quiet spell.
+  Taken bandage spawns refill on the med-kit cadence. Analysis stream:
+  `item_pickup` with item `bandage`; `heal` with weapon `bandage`,
+  amount 1.
+- **`sprayCount`** (int, default `-1`, owner directive 2026-09-05): caps the
+  placed spray cans, the same "-1 = the map's own full set, N = the map's
+  first N points" rule `medKitCount` uses (deterministic, not reseeded per
+  episode). A cap can only shrink the placed set. The published Season 2
+  variant pins `6` (pre-pivot objbalance analysis, rec B: sprays were the
+  map's 2nd-most-common item and the intended rarest).
+- **`grenadeCount`** (int, default `-1`, owner directive 2026-09-05): a
+  TARGET count, not a cap. `-1` keeps the map's own authored/formula set,
+  byte-identical; `0..N` (an authored count) caps down like `sprayCount`;
+  past the authored count it INJECTS extra copies, cycling back through the
+  same authored sites ring-offset off their anchor (the overflow idiom
+  `bandagePickups` already uses against its own RETREAT anchors). The
+  published Season 2 variant pins `22` (same rec-B analysis: grenades were
+  the map's scarcest disposable and the intended most common). BR-only —
+  the classic 2/4-team per-team formula ignores the knob.
+- **`lootStart`** (bool, default off, brMode only): everyone spawns
+  UNARMED. The gun is two lootable halves — the **marker** (`hasGun`) and
+  the **hopper**, its ammo (`hasHopper`) — placed as one-shot crates (a
+  crate arms exactly one cog and never refills). A cog needs BOTH to fire;
+  the spray can stays its own weapon with its own pickup. Crate points: a
+  map may author `weaponSpawns`/`hopperSpawns` in its spec (optional keys,
+  pinned only when present); otherwise markers land on the map's grenade
+  pickup points and hoppers on its med-kit points (never the spray-can
+  points — a co-located can would disable the looter's gun). Analysis
+  stream: `item_pickup` with items `gun` / `hopper`. Broadcast item lists
+  and the first-person carried-items HUD carry `gun`/`hopper` tokens while
+  armed.
+- **`downedMode`** (bool, default off, brMode only) — the ruled
+  ghost-tag-revive shape: a lethal hit DOWNS instead of kills. The victim
+  becomes a **ghost of itself** — frozen in place, non-colliding (upright
+  cogs walk through it), unable to fire, loot, shout, or be hurt by
+  hazards — and stays `alive` on the wire (that is what makes it
+  revivable). An upright teammate standing within `DownedTagRange` (40 px)
+  for `downedReviveTicks` (default 48 = 2 s) **tags it back in at 1 hp**;
+  the channel resets the tick the tag breaks, and the reviver's exposure
+  IS the cost. An enemy **gun** hit splats the ghost — immediate confirmed
+  elimination (spray, grenades, puddles, the zone and the barrage never
+  confirm). An untagged ghost **bleeds out** after
+  `downedBleedOutTicks` (default 360 = 15 s), halved per successive down
+  while `downedEscalation` (default on when armed) holds, floored at 2 s —
+  **no hard down-cap**, per the genre ruling. A team with no upright cog
+  left fades out at once (nobody could ever tag them back), which is what
+  ends the round. Kill credit lands at the DOWN (the weapon site's
+  existing credit — the down is the combat achievement); the permanent
+  death is a separate, later `death` row. Analysis stream: `downed`
+  (source = victim, target = downer, amount = the victim's down count) and
+  `revived` (source = tagger, target = revived, amount = channel ticks) —
+  two appended event kinds, tail ordinals, archived replays unaffected.
+  Broadcast: the first-person self HUD and the omniscient map players
+  carry a `downed` flag while the mode is armed.
+- **`giveItem`** (bool, default off, brMode only) — **play-called item
+  exchange**: a seat that has DECLARED a handoff (`declareHandoff`, the
+  engine seam for the play shell's HANDOFF play) and then HOLDS
+  `GiveItemRange` (= `DownedTagRange`, 40 px) adjacency to its duo partner
+  for `GiveChannelTicks` (= `DownedReviveTicksDefault`, 48 = 2 s)
+  transfers the declared item — **marker** (`gun`), **hopper**, or
+  **bandage** — to that partner. Both channel constants DERIVE from the
+  revive channel's own (owner spec: mirror the revive channel). The
+  channel is interruptible by construction: it resets to zero the tick any
+  condition breaks (range, either side downed/dead, the giver no longer
+  holding the item, the recipient unable to take it — marker/hopper are
+  binary, bandages cap at `BandageCarryCap`); the declaration itself
+  stands until completion or the giver's death/down. **No declaration, no
+  transfer** — proximity alone never moves an item, so an endgame cover
+  huddle trades nothing (owner ruling 2026-09-02: no auto-share; guns,
+  hoppers and bandages alike move by play or death-drop only). Analysis
+  stream: `item_give` (source = actor, target = recipient, `item`,
+  amount = channel ticks) — one appended event kind, tail ordinal,
+  archived replays unaffected; every row is by construction a play-called
+  act (dHandoff's intent-clean predicate). Broadcast: a declared giver's
+  self HUD, omniscient map entry and board roster row carry a `handoff`
+  {item, progress, needed} object while armed (the progress-arc feed);
+  idle and dark bytes are untouched.
+- **`dropItem`** (bool, default off, brMode only) — **button-chord item
+  drop**: holding the **aim-pair chord** (B *and* Select together — the
+  combination the engine has always ignored for aim, since it turns only on
+  `b != select`, so no archived replay ever used it) for `DropChordTicks`
+  (10 ≈ 0.4 s) **while carrying a droppable** spills the highest-priority
+  carried item to the ground. Priority is **spray can → marker → hopper →
+  grenade → barrier → bandage**; marker and hopper are droppable only under
+  `lootStart` (off it they sit at a constant `true` and are not real
+  inventory), and the spray can is not droppable under the paintball loadout
+  (there is nowhere to pick another up). The drop **latches**: one hold is
+  exactly one item however long it is held, re-arming only when the chord
+  breaks. Dropping a **spray can clears `hasSprayPaint`, which hands the gun
+  back** (`canFire`'s guard) — the only exit from the spray lock, and the one
+  thing `giveItem` cannot do. A dropped item is an **open** pickup: anyone in
+  `DroppedPickupRange` may take it (no team gate — Minecraft-style), except
+  the dropper itself for `DropperRegrabTicks` (24 = 1 s) so a drop is not
+  vacuumed straight back up. Drops never respawn, are capped at
+  `MaxDroppedItems` (64, oldest evaporates), and expire after
+  `DroppedItemTtlTicks` (60 s) unclaimed. **Coexists with `giveItem`** — drop
+  is the free/flexible path, the handoff still guarantees partner delivery.
+  Human seat: **Q**. Play shell: the standing `drop` order. Emits the
+  `item_drop` event (source = dropper, item, x/y) and an `item_pickup` when
+  claimed; dropped items render with their family's existing ground art and
+  are fog-gated like every fixed pickup.
+
+- **`lootSpawnSeedGuns`** / **`lootSpawnSeedHoppers`** (int, default `0`,
+  brMode + `lootStart` only) / **`lootSpawnSeedRadius`** (int, default `0`,
+  read only while either count above is positive) — **spawn-area loot
+  seeding** (owner-approved starter fix 2026-09-03, verbatim: "i like the
+  idea of filling spawn areas with guns and hoppers so they accidentally
+  grab it anyway"): the field's policies mostly do not route toward loot
+  (78.8% of measured BR downs were zone/environmental, from unarmed cogs),
+  so rather than teach every playbook to path to a crate, these ADD N
+  marker and M hopper crates within `lootSpawnSeedRadius` px of EVERY spawn
+  cluster (one cluster per team; a BR duo's two seats already land within
+  `SpawnShareStagger`, 24 px, of each other around one shared spawn point)
+  ON TOP of `resetLootCrates`'s own placement — the map's authored pool or
+  its grenade/med-kit fallback, which is untouched. Additive only: the
+  existing global scatter is never rewritten. Each candidate resolves
+  through `nearestWalkable`'s expanding-ring search, the same guarantee
+  every other pickup family uses, so a seeded crate can never land inside a
+  wall or an unreachable pocket. Pure integer 8-compass-direction geometry
+  (no floats/host libm — replay-determinism, same rule as arena.nim's
+  DiamondCos table), never touches `sim.rng`, so arming it cannot perturb
+  any other rng-consuming draw and re-simulating one seed always seeds the
+  same crates at the same pixels. Both seeded families stay one-shot, same
+  as the base crates (see `resetLootCrates`'s own note). LOOT ECONOMY NOTE
+  (flagged, not solved): arming this raises the total gun/hopper count on
+  the field — weigh that against fight pacing during the feel-pass.
+  generate --scale N.N` (default 2.6, the doctrine giant — omitting the
+  flag draws bit-identically to before) generates the field at another
+  scale through the same doctrine gates, and the BR variant pins whichever
+  full spec it certifies. `gunRange` re-derives from the scaled field; the
+  duo spawn pocket deliberately does not scale.
+
+## Season 2 glory scoring (GLORY v13 multiplier economy)
+
+Glory is the **league score**, not a side ledger. Since the glory-as-league-
+score pass, `scores[slot]` in the episode results carries the seat's own team
+glory total rather than the RL training reward (`roster.nim:920-941`); the
+training reward still exists untouched on its own per-tick channel
+(`player.reward`), and "Engine reward scoring" below describes that channel,
+not this one.
+
+**The win gate is gone.** `playerWon` no longer gates the banked score
+(`roster.nim:1028-1048`): every seat reports its own team's ledger — win, lose
+or draw — including a negative total for a friendly-fire-heavy duo. The one
+gate left is `sim.phase == GameOver`, so an episode that never concludes still
+banks 0 for everyone. `win[]` is still gated on `playerWon`, unchanged. Nothing
+gates the drop behind a config flag, so it holds on every variant, armed or
+dark.
+
+The pure-multiplier economy itself (frozen 2026-09-02 contract) is per-flag.
+Each key below is its OWN manifest `game_config` key, independently settable —
+never coupled to `lootStart`/`downedMode`, to a variant switch, or to each
+other (per-flag activation, recut contract Amendment 2 §1). All three recut
+flags default off (`sim_config.nim:130`, `:133`, `:137`), so merging is not
+arming: arming is an explicit, separate manifest publish. **What `coworld_manifest_paintbot.json`
+publishes on `main` today:**
+
+| variant | `gloryMultiplierRecut` | `deedMintCaps` | `winAsMultiplier` |
+| --- | --- | --- | --- |
+| `battle-royale-s2` (the S2 flagship) | on | on | off |
+| every other variant | off | off | off |
+
+- **`gloryMultiplierRecut`** (bool, default off, BOTH modes; ARMED on
+  `battle-royale-s2`): no base points — episode glory = seed(1)
+  (`glory.nim:2330`) × the product of integer act multipliers
+  (`RecutClassTable` `glory.nim:2335-2384`, `RecutTierClass` `:2386` = tiers
+  I–V at ×1/×1/×2/×2/×4), the whole product then divided per friendly-fire
+  step. One event contributes exactly one integer factor, composed in
+  `recutFactor` (`glory.nim:2592-2613`) as class × heat × carry × ally-stack:
+  - **Territory shifts the RUNG, not the score**: a deed on enemy ground climbs
+    one integer rung, ×2→×3 … ×8→×9 (`glory.nim:2572-2591`). Only classes
+    already at 2 or above shift (`:2589-2590`); ×1 commons never shift on any
+    ground. Ground ownership is nearest-home-pedestal Voronoi
+    (`sim.nim:239-242`), and `SiteMultNeutralPct` (`glory.nim:954`) is
+    unreachable — `deedSitePct` passes `ownerIsNone = false` unconditionally.
+  - **Fibonacci teammates-in-context stack** ×1,2,3,5,8,13 for k = 1…6, clamped
+    both ends (`glory.nim:2393`, applied `:2564-2570`). `k` counts distinct cogs
+    on the victim's open damage incident within `AssistWindowTicks` = 120
+    (`glory.nim:1520`, counted in `sim.nim:2564-2607`); in BR that includes cogs
+    of OTHER duos co-engaged on the same victim, never the victim's own duo.
+    **Kill sites only** — `awardDeed` defaults `stackK` to 1 (`sim.nim:330`) and
+    `sim.nim:2790-2792` is the sole call site passing a real one, so captures,
+    steals, wipes and achievement claims take no stack.
+  - **Heat and carry** fold per event under their existing gates: heat
+    ×1/×2/×4/×8 by rung (`glory.nim:855`) at 2/5/10 embers (`:866`), never for
+    achievements (`:2135-2138`); carry ×2 on drama deeds while holding an enemy
+    heart (`glory.nim:976`), which never lights on a flagless BR map — the
+    carrier scan finds nobody (`sim.nim:368-373`).
+  - **Friendly fire is an uncapped compounding DIVISION**, not a class: BR ÷2
+    per incident, CTF ÷2 per two incidents (`glory.nim:2629-2637`), applied at
+    `:2654-2663` with the int report flooring the division.
+  - **First-claim ×3 on the top tier only**: `AchievementFirstMultPct`
+    (`glory.nim:1658`) survives as an integer factor, but `sim.nim:520` gates it
+    on `tier == AchievementTiers - 1`.
+  - ×1 commons still mint, pop and count toward K/D, Elo and the achievement
+    gates — they carry no score weight, and no live-state multiplier can attach
+    to them (`glory.nim:2606-2607`).
+  - BR-only marquee deeds mint only under this flag: `dDuoDown` ×2
+    (`glory.nim:2368`), `dClosingTime` ×2 (`:2369`), `dLastLight` ×4 (`:2373`),
+    `dVictory` ×8 (`:2374`).
+  - Off: every number prices exactly as GLORY v12, fixtures byte-identical.
+- **`winAsMultiplier`** (bool, default off; **off on `battle-royale-s2`
+  today** — reads only under an armed recut): retires the `dVictory` deed for a
+  deterministic, composition-neutral BR win factor of ×4
+  (`glory.nim:2666` `RecutWinFactorBR`, applied `:2677-2683`) folded into the
+  canonical product at finalize — it pays no heat, no territory, no carry, no
+  stack, and never routes through `recutFactor`. Also bumps the `dClosingTime`
+  base rung 2→3 (`glory.nim:2583-2588`) and prices two further deeds,
+  `dTagBack` ×2 and `dJointAct` ×2 (`glory.nim:2382-2383`), which mint only
+  under this flag (`sim.nim:7790-7792`). The CTF win factor is deferred to
+  CTF-arming; `recutWinFactor` returns ×1 there. **With the flag off, as it is
+  today, the win pays as the `dVictory` ×8 deed** (`sim.nim:5683-5686`) and
+  `dTagBack`/`dJointAct` are not priced at all.
+  **`dJointAct` is alliance-only (GloryVersion 15, owner ruling 2026-09-08):**
+  a contributing seat mints only if it shares an ACTIVE formal pact
+  (`pactActive`, `sim_state.nim:219`) with at least one OTHER contributing
+  team on the same 120-tick damage incident (`recutJointActOnDamage`,
+  `sim.nim:2762`); unallied multi-team co-fire on one victim now mints
+  nothing. `dTagBack` was checked and needed no change: its cross-team
+  revive already requires `pactActive` as a precondition (`sim.nim:8068-8070`,
+  ALLIANCE P1 2026-09-07), so it could never mint off a non-pact cross-team
+  revive.
+- **`deedMintCaps`** (bool, default off; **ARMED on `battle-royale-s2`** —
+  reads only under an armed recut): a per-episode, per-duo mint budget for
+  every deed whose repeat count is not bounded by a scarce contested resource
+  (`RecutMintCapTable`, `glory.nim:2436-2539`; applied `sim.nim:411-441`). The
+  first `cap` mints fold their factor normally; every occurrence after that
+  folds 1 and scores nothing — a flat budget, not diminishing rungs. Only the
+  SCORE is bounded: the deed still mints, pops, counts, climbs heat and reaches
+  the wire, so no achievement gate or analysis counter moves. Budgets:
+  `dTagBack` 3 (`glory.nim:2522`), `dJointAct` 6 (`:2530`), `dDuoDown` 4
+  (`:2510`), `dShieldSoak` 3 (`:2500`); every other row is 0 = uncapped. The
+  flag also drops the product saturation bound from the 2^62 int64 overflow
+  guard (`glory.nim:2404`) to 2^26 = 67,108,864 (`:2420`) — a defense-in-depth
+  backstop that should never bind, and an episode reporting exactly that number
+  is a clamped one.
+- **`stampRealizedConfig`** (bool, default off): at episode finalize the
+  engine emits the realized-config stamp — `{stampVersion, realizedBuild
+  {gameVersion, gloryVersion, engineStamp}, variantId, flagSet}` (flagSet
+  = the S2 dark-flag family as sorted `key=value` pairs, false values
+  included) — into the events summary row and the episode log.
+  Observability only; independent of every other flag.
+- **`variantId`** (string, default empty): self-label echoed into the
+  stamp and the replay header so replay-only audits can name the
+  publishing variant without platform access.
+
+The economy version is `GloryVersion = 18` (`glory.nim:301`). It bumps on any
+pricing change, and a score compared across versions is not a comparison.
+Entrant-facing guidance on what to do differently under this economy is in
+[`players/baseline/README.md`](../players/baseline/README.md).
+
+Staging variants `battle-royale-s2-lootstart` and `battle-royale-s2-downed`
+(published behind the flagship in `coworld_manifest_paintbot.json`) carry
+exactly one of the two loot flags each, so the S2 flag family can be staged
+or bisected per-flag instead of riding one coupled variant switch.
+
+## Season 2 glory scoring — catalog update (GLORYVERSION 16 → 17)
+
+**This section is live.** Every flag it describes is armed on the
+published Season 2 variant `battle-royale-s2` in
+`coworld_manifest_paintbot.json` — `catalogV3Reprice`, `placementRampV3`,
+`brAssistRescueUngated`, `gloryFixedPointScale`, `gloryMultiplierRecut`,
+`winAsMultiplier`, `deedMintCaps`. It shipped as GLORYVERSION 17 and has
+since been superseded by **GLORYVERSION 18** (the S8 section below, and
+the era record in [`docs/wiki/_era.md`](wiki/_era.md)), which repriced the
+finishing rewards again — so where this section and the S8 table disagree
+on a number, the S8 table is today's.
+
+Here is what it changed for every player:
+
+- **Tags, hot streaks, contested-ground tags, and assisted tags are worth
+  more.** The shared multiplier table described above — the one that turns
+  a tag into a glory number — gets repriced upward across most of its rows.
+  How you earn glory is unchanged (you still have to tag, hold ground,
+  chain a hot streak, or fight alongside teammates); only what each of
+  those is worth on the scoreboard moves.
+- **Finishing rewards are repriced, and survival now trickles in
+  continuously.** The bonus for finishing among the last 8, last 4, or the
+  final 2 teams changes value, and — new — a team that is still alive earns
+  a small, steadily-growing survival bonus the whole time it survives, not
+  only at those three finish lines. Two players eliminated before the
+  final 8, one much later than the other, will now score differently for
+  it; before this change they scored identically (nothing) until the first
+  finish line.
+- **Assists and rescues count in battle royale.** Tagging a teammate back
+  in or covering their revive already scored points in capture-the-flag;
+  this closes the gap so the same actions score in battle royale too —
+  previously they were worth nothing there.
+- **Allied group takedowns are credited correctly.** When you are formally
+  allied with another team and a kill takes down, or completely wipes out,
+  an entire allied GROUP of enemy teams — not just the one team you tagged
+  — the game now recognizes and credits the group bonus. Before this
+  change, that exact situation could be silently scored as an ordinary
+  single tag instead, worth less than what actually happened on the field.
+- **A few small bonuses stop rounding away to zero.** Some multiplier steps
+  are smaller than a whole extra multiple and used to disappear entirely
+  when combined with certain other bonuses; they now register as the
+  small partial bonus they were always meant to be.
+- **Nothing about tagging, movement, spray, grenades, hearts, or the win
+  conditions above changes.** This only changes how many glory points a
+  tag, a finish, an assist, or a group takedown is worth — never whether
+  or how you earn one.
+
+This ship moved the glory economy version from **GLORYVERSION 16** to
+**GLORYVERSION 17**; the live version today is **GLORYVERSION 18** (S8,
+below). A score is only ever comparable to another score from the same
+GLORYVERSION — a leaderboard should not blend seasons across that line.
+What the two competing predictions said about how much of a typical score
+moves from "how you finished" to "what you actively did" during the match
+— and how far off a first estimate turned out to be from a real
+measurement of games actually played — is exactly the kind of claim this
+project holds itself to double-checking against real games once it has
+shipped, rather than trusting the first estimate.
+
+## Season 2 glory scoring — GLORY GRADIENT S8 (GLORYVERSION 17 → 18)
+
+**This section is live.** The published Season 2 variant
+`battle-royale-s2` runs **GLORYVERSION 18** from build tag
+**`paintbot-v0.7.397`** (S8 merge sha 1b92ec46), as recorded in
+[`docs/wiki/_era.md`](wiki/_era.md) — the one place these numbers are
+written, and the source of truth for this claim. Scoring only, not the
+wire (GameVersion stays 63), so no fixture re-record was owed. Every
+constant this ship moved — old value to new value — is in the table
+below; nothing not listed here changed.
+
+| Constant | Old | New | Note |
+| --- | --- | --- | --- |
+| Mint-cap product ceiling (`RecutProductCapArmed`, live only when `deedMintCaps` is armed) | 16,384 reported | 2,097,152 reported | Sized against the real GV62 cohort; see `CAP-CEILING-S7.md` "Decision" |
+| Achievement Tier IV (Clean Sheet / Sharpshooter, non-first claim) | ×1.05 | ×2.5 | Lead ruling R4 — keeps the five-tier ladder monotonic under the new ceiling |
+| Achievement Tier V non-first claim (Longshot) | ×2.00 | ×3.0 | Lead ruling R5. Tier V **first**-claim stays ×3.46, unchanged, still the top of the ladder (3.46 > 3.0 > 2.5) |
+| `achievementLightableModes` (battle-royale-s2 flagship variant only) | dark (mechanism landed unarmed in #512) | armed — a **tier-completion bonus**, never a "light-up" | Rollback-only switch: flip it false and the mechanism goes dark again, no code change |
+| Placement — `dFinal8` (last-8 finish) | ×1.00 | ×1.15 | Owner decision 2026-09-10, PLACEMENT LADDER B |
+| Placement — `dFinal4` (last-4 finish) | ×1.00 | ×1.30 | Owner decision 2026-09-10, PLACEMENT LADDER B |
+| Placement — `dFinal2` (finalist) | ×1.30 | ×1.60 | Owner decision 2026-09-10, PLACEMENT LADDER B |
+
+All three placement rungs stay strictly below the ≥2× population line the
+gate menu screened candidates against, so this move does not make a
+placement finish "pop" the score the way a top-decile achievement or
+kill-chain claim can — it stays the small, deliberate nudge the S5 ramp
+was designed as, just no longer crushed to a near-zero marginal value for
+`dFinal8`/`dFinal4`.
+
+The table below is never-shown elsewhere in this document and is included
+here for completeness — none of these digits move in this ship:
+
+| Constant | Value | Note |
+| --- | --- | --- |
+| `dClosingTime` win-bumped base | ×1.10 non-win / ×1.20 win | Unchanged by S8 |
+| Heat ladder rungs | ×1 / ×5 / ×14 / ×36 | Unchanged by S8 |
+| Territory shift | +2–6% | Unchanged by S8 |
+| Survival credit | ×1.02 folded every 720 alive ticks (30s), compounding — but **skipped entirely while the seat's unscaled accumulator is ≤64** (`RecutMinAccumulatorForSmallPct`, `glory.nim:3025`; the 100<pct<200 rule at `glory.nim:3074-3075`). Nominal ×1.02<sup>n</sup>; **realized ×1.0002 mean / ×1.0000 median** per seat, measured on the live GLORYVERSION 18 cohort (r4828–r4833, n=1,440 seat-episodes) | Unchanged by S8. The continuous placement ramp: classed with placement as **handed to** the seat, not chosen by it |
+
+Survival credit is the one price in that table no button presses: every
+30 seconds a seat stays alive, its team's product is multiplied by 1.02,
+so alive time on its own compounds the team's score, with no deed
+required. It is grouped with the placement rungs rather than with the
+flat everyone-gets-it constants, and that is a considered call, not an
+accident of the name: survival credit is not paid to every seat equally
+the way a constant floor is — it is paid in proportion to how long you
+last, and in a sixteen-player solo battle royale how long you lasted
+**is** where you finished, measured continuously instead of at three
+milestones. It is the placement ladder's continuous twin.
+
+**What it is actually worth today is close to nothing, and the nominal
+figure is not the effect.** Compounding ×1.02 by the roughly eight
+firings an episode sees would suggest ≈×1.16, but that is arithmetic, not
+a measurement, and it is wrong twice over. Those eight firings are spread
+across all sixteen seats — the typical seat gets half of one, and the most
+any seat drew in a full live cohort was five. And any factor between ×1.00
+and ×2.00 is **skipped outright — not applied and rounded away** — while
+the seat's unscaled accumulator still sits at or below 64
+(`RecutMinAccumulatorForSmallPct`, `glory.nim:3025`; the 100<pct<200 rule
+at `glory.nim:3074-3075`), so the credit is exactly zero until a seat has
+already climbed well past the floor on real deeds. That gate, not
+rounding, is why the realized number below looks the way it does.
+Measured on the live GLORYVERSION 18 cohort (rounds 4828–4833, 1,440
+seat-episodes): realized ×1.0002 mean, ×1.0000 median, ×1.0612 at the
+very best seat, with 0.07% of seats seeing as much as ×1.05. Every
+score decile but the top one realizes exactly ×1.0000; the top decile
+realizes ×1.0017. Survival credit is, for now, a shape the economy has
+rather than a number that moves it.
+
+This ship moved the glory economy version from **GLORYVERSION 17** to
+**GLORYVERSION 18**. A score is only ever comparable to another score from
+the same GLORYVERSION — a leaderboard should not blend seasons across that
+line.
+
+## Engine reward scoring
+
+The published Season 2 variant uses `scoring: "classic"`, with the BR placement
+bonus and engagement gate described in [`ENV_VARIATION.md`](ENV_VARIATION.md).
+This is the RL training reward on `player.reward`, delivered per tick over
+`buildRewardPacket` — a **different channel** from the banked league score,
+which carries glory (see "Season 2 glory scoring" above, and
+`roster.nim:920-941`). The rule below is sparse and win-only; the league score
+is not, and has not been since the win gate was dropped. The deprecated classic
+modes use:
 
 - **Decisive round** (capture or wipe): every winner scores **+1**, every
   loser scores **-1**. (Four-team free-for-all generalizes this zero-sum:
   the winning team scores +1 per losing team — see "Four-team mode".)
-- **`scoring: "pot"`** (config-gated; the default `"classic"` is the rule
-  above) replaces the payout with an ante: **every team contributes one
+- **`scoring: "pot"`** (an archived-mode option; `"classic"` is the engine
+  default and the published Season 2 choice) replaces the payout with an ante:
+  **every team contributes one
   point and the winning team takes the whole pot**, the losing teams
   splitting the forfeit evenly. Two teams pay **+2 / -2**; four teams pay
   **+4** to the winner and **-1** to each of the three losers. Draws are
@@ -771,9 +1290,11 @@ Scoring is **sparse and win-only**:
 - **Mutual-wipe draw** (both teams eliminated on the same tick): 0 for both
   sides — both at least fought to a decision.
 
-Kills, deaths, heart pickups, carry time, and captures are still **recorded** in
-the episode results for leaderboards and analysis — they just do not award
-points. This keeps the training objective tied purely to winning.
+Kills, team kills (kept as separate stats since GV45), hit damage and team
+hit damage (split the same way since GV47), deaths, heart pickups, carry time,
+and captures are still **recorded** in the episode results for leaderboards
+and analysis — they just do not award points. This keeps the training
+objective tied purely to winning.
 
 ## Controls
 
@@ -784,13 +1305,15 @@ points. This keeps the training objective tied purely to winning.
 | B | Rotate aim counter-clockwise (browser client: X or K) |
 | Select | Rotate aim clockwise (browser client: Space or L) |
 | C | Hold to charge a grenade throw, release to throw (browser client: C) |
+| B + Select | **Drop chord** — hold both for `DropChordTicks` (10 ≈ 0.4 s) while carrying something to drop one item (browser client: **Q**). Requires `dropItem`; inert otherwise |
 | Chat packet | Shout, max 10 chars (browser client: Enter to type) |
 
 ---
 
-## Tuning defaults (configurable)
+## Deprecated classic tuning defaults
 
-These are starting values, exposed in the game config and tuned in self-play.
+These are the retained classic engine defaults, exposed in game config. They
+are not the published `battle-royale-s2` values.
 
 | Parameter | Proposed default | Notes |
 | --- | --- | --- |
@@ -807,15 +1330,15 @@ These are starting values, exposed in the game config and tuned in self-play.
 | Aim turn rate (`aimTurnRate`) | 5 brads/tick | Rotation speed while B/Select is held (~7°/tick; full turn ~2.1s) |
 | Vision cone (`visionConeDeg`) | ±60° | Fog-of-war forward vision half-angle; reaches 1.5× gun range (1575px stock), walls block |
 | Vision bubble (`visionBubble`) | 90px | Omnidirectional close-range vision regardless of aim |
-| Spray cone reach (`PlasmaArcReach`) | 170px (5 squares) | Forward cone reach along the centerline; one square = one 34px cog body |
-| Spray cone max width (`PlasmaArcMaxWidth`) | 85px (2.5 squares) | Centerline cone width at max reach; widens linearly (half-angle atan(1/4) ≈ 14°) |
-| Drawn plume span (`PlasmaArcFxReach` / `PlasmaArcFxMaxWidth`) | 136px / 68px | Art geometry the mist puffs are placed and sized against — deliberately shorter than the cone, because the puffs are drawn oversize and spill past it |
-| Spray body radius (`PlasmaArcBodyRadius`) | 17px (half a cog) | The victim is a disc, not a point: added to the cone's reach and to its half-width at every distance |
-| Spray damage (`PlasmaArcDamage`) | 3 hp | One touch per victim per burst; lethal to a bare cog, survivable by a shield carrier |
-| Spray active window (`PlasmaArcActiveTicks`) | 5 ticks | The sprayed cone stays on, tracking its owner's position and aim |
-| Spray can reset (`PlasmaArcResetTicks`) | 20 ticks | Repressurize after the cone shuts off (one burst per 25 ticks) |
+| Spray cone reach (`SprayPaintReach`) | 170px (5 squares) | Forward cone reach along the centerline; one square = one 34px cog body |
+| Spray cone max width (`SprayPaintMaxWidth`) | 85px (2.5 squares) | Centerline cone width at max reach; widens linearly (half-angle atan(1/4) ≈ 14°) |
+| Drawn plume span (`SprayPaintFxReach` / `SprayPaintFxMaxWidth`) | 136px / 68px | Art geometry the mist puffs are placed and sized against — deliberately shorter than the cone, because the puffs are drawn oversize and spill past it |
+| Spray body radius (`SprayPaintBodyRadius`) | 17px (half a cog) | The victim is a disc, not a point: added to the cone's reach and to its half-width at every distance |
+| Spray damage (`SprayPaintDamage`) | 3 hp | One touch per victim per burst; lethal to a bare cog, survivable by a shield carrier |
+| Spray active window (`SprayPaintActiveTicks`) | 5 ticks | The sprayed cone stays on, tracking its owner's position and aim |
+| Spray can reset (`SprayPaintResetTicks`) | 20 ticks | Repressurize after the cone shuts off (one burst per 25 ticks) |
 | Spray can respawn | 30s | Taken pickups refill after this interval |
-| Paint puff lifetime (`PlasmaArcFxTicks`) | 4 ticks | Cosmetic fade of each per-tick cone snapshot |
+| Paint puff lifetime (`SprayPaintFxTicks`) | 4 ticks | Cosmetic fade of each per-tick cone snapshot |
 | Heart auto-return | instant | A heart snaps back to its own pedestal the moment its carrier dies |
 | Trench size (`TrenchSize`) | 56px | Side of the walkable center trench pit |
 | Trench speed divisor (`TrenchSpeedDivisor`) | 5 | Climbing out (motion away from the pit center while inside) is 1/5 speed; entering and crossing are full speed |
@@ -837,6 +1360,9 @@ These are starting values, exposed in the game config and tuned in self-play.
 | Barrage start rate (`barrageStartPerSec`) | 4/s | Launch rate at the latch, along the map edges |
 | Barrage start (`barrageStartSec`) | 30s | Clock seconds remaining that latch the barrage (4:30 elapsed on the 5:00 clock); it only escalates once latched |
 | Barrage saturation (`barrageSaturateSec`) | 30s | Seconds from latch to full saturation — whole board at max rate, landing exactly at 5:00 with the defaults |
+| Shrink zone schedule (`zonePhases`) | [] (engine fallback) | Battle-royale closing rectangle: a list of `{z, waitTicks, shrinkTicks, dps}` phases; the published Season 2 variant supplies six phases |
+| Shrink zone damage cadence | 24 ticks (1s) | Same per-second cadence as a paint puddle's roll, but deterministic — `dps` applies directly, no chance |
+| Shrink zone phase cap | 8 | Hard ceiling on `zonePhases` entries |
 | Map size | 1235×659 (default) | Varies by map class; the actual size and team count are stated in the `game teams <count> map <width>x<height>` init marker |
 
 Engine tick rate is **24 ticks/sec** (inherited from Crewrift); all
@@ -866,7 +1392,10 @@ instead of assuming the classic 1235x659 two-team arena.
 marker per team labeled `endzone <color> <shape> <x0>,<y0> <x1>,<y1>`: the
 team's home capture region stated outright. `<x0>,<y0>` / `<x1>,<y1>` are the
 INCLUSIVE top-left and bottom-right corners of the zone's bounding box in map
-pixels, and `<shape>` says how the zone fills that box:
+pixels, and `<shape>` says how the zone fills that box. A **flagless** map
+(the BR N-point spawn subsystem) has no capture region to state and emits
+NONE of these markers at all — nor any flag/pedestal/heart sprite or object,
+anywhere in the wire protocol.
 
 | Shape | Where | Zone membership |
 |-------|-------|-----------------|
@@ -956,6 +1485,18 @@ generated-map feature (no map has any by default); a map without puddles
 emits zero markers, not an empty-box one. The marker pool holds 64 — the
 `mapPuddles` cap.
 
+**So is the battle-royale shrink zone.** Unlike every marker above, this pair
+is NOT stated once at t=0 — the zone moves, so both are re-stated EVERY
+frame the mode is on. Two invisible 1x1 markers, `zone <x0>,<y0> <x1>,<y1>`
+(the current rect) and `zonenext <x0>,<y0> <x1>,<y1>` (the rect it is
+interpolating toward), same INCLUSIVE-corner tail contract as the trench and
+puddle markers. Corners may legitimately sit outside the map's own
+`[0, width) x [0, height)` range during an early (large) phase — compare your
+own position against them directly rather than assuming they are on-board.
+When `zonePhases` is empty, a game emits neither marker. The published Season 2
+variant supplies a non-empty schedule; see "Season 2 battle-royale shrink
+zone" above for the full rule.
+
 **So is your own aim.** Every player frame carries an invisible 1x1 HUD
 marker labeled `own aim <brads>`: your turret angle as of the rendered tick,
 in brads (256 per turn, 0 = east, counter-clockwise). Match the prefix `own aim `
@@ -963,6 +1504,44 @@ and parse the tail as an integer. Before this marker a policy had to dead-reckon
 open-loop from its rotate inputs; the marker caps that drift at one frame
 gap (integrate held rotation between frames, resync on each frame — see
 docs/PROTOCOL.md).
+
+**Your own kill/death count is on the wire too — but only for a human.** The
+player stream carries `kd <kills>/<deaths>`, your own `Player.kills`/
+`Player.deaths` (real attribution, already mixed into the deterministic
+gameHash) restated as a HUD label, the same "/" convention the per-team
+`team score` chip below uses. Unlike every other marker in this section,
+`kd ` is **not** sent to a Sprites Off (0x87) viewer — the wire condition
+every scripted/policy connection opts into — so a policy reads no such
+label today and its byte stream is unaffected by this marker's existence;
+only a human `/client/player` connection receives it. The per-player
+scoreboard picker on the global/spectator stream (`score <name> <lives>
+<kills>/<deaths> color <n>`, the clickable top-left pick-list) carries the
+same two numbers per roster row, at every team count including BR's 16
+teams / 32 seats — that suppression above 4 teams was a deliberate
+legibility choice, now lifted so BR gets live per-player rows too.
+
+**The WHOLE roster's lives/kills/deaths are on the player stream too, not
+just your own.** A human `/client/player` connection never sees the
+global/spectator stream above, so it cannot read that stream's `score `
+rows — a second socket just to read a scoreboard would double the client's
+heaviest stream, so instead every connected player's own stream restates
+the whole roster: one marker per seat, `roster <team> <name> <lives>
+<kills>/<deaths>`. `<name>` here is the anonymous per-team slot identity (`alpha`, `beta`, ...
+— the same `IdentityNames` a shout or an `identity` badge uses, see
+"Shouts" above), never the raw connection address `score`'s row carries —
+a player frame is read by that policy's rivals, and this codebase's test
+suite polices exactly that leak (`tests/test_identity_privacy.nim`). Same
+human-only gating as `kd `.
+
+**The result is stated once the game is over.** While `phase == GameOver`
+(the interstitial frames between the final tick and the next lobby) a human
+player stream carries one more invisible 1x1 marker, `winner <color>` — the
+single-word team token, the same one your own `self <color> <side>` label
+carries, so compare with plain equality — or `winner draw` when the game
+concluded with no winner. It is absent for the whole Playing phase and gone
+again at the next lobby; before it existed the wire named no winner at all
+(the interstitial title is a rendered text sprite, chrome rather than
+contract). Same human-only gating as `kd ` and `roster `.
 
 The full wire
 contract, including the CTF input-protocol extensions, is in
@@ -1014,21 +1593,21 @@ Spray cans add the labels documented in the Spray can section; their
 pickup and carrier markers are fog-gated like other floor and overhead item
 markers.
 
-**The cone weapon is a SPRAY CAN (renamed from "plasma arc").** It is the same
+**The cone weapon is a SPRAY CAN (renamed from "spray can").** It is the same
 weapon with the same numbers — only the art and the names changed, so this is a
 pure vocabulary break for label-scanning policies. Rename in five places:
 
 | Surface | Was | Now |
 | --- | --- | --- |
-| Pickup sprite label | `plasma arc` | `spray can` |
-| Carrier marker label | `plasma arc carried` | `spray can carried` |
-| Cone FX label | `plasma arc pulse` | `spray paint puff` |
+| Pickup sprite label | `spray can` | `spray can` |
+| Carrier marker label | `spray can carried` | `spray can carried` |
+| Cone FX label | `spray can pulse` | `spray paint puff` |
 | Own-HUD + badge weapon token | `weapon arc`, `identity … arc` | `weapon spray`, `identity … spray` |
 | Held-weapon art on a carrier | `cog gun <color>` | `cog spray can <color>` |
 
 Analysis events (`tools/extract_events.nim`) likewise carry `weapon: "spray"`
-instead of `"plasma"`, and the broadcast item token is `spray`. The internal
-`PlasmaArc*` identifiers and `hasPlasmaArc` field keep their names (as the
+instead of `"spraypaint"`, and the broadcast item token is `spray`. The internal
+`SprayPaint*` identifiers and `hasSprayPaint` field keep their names (as the
 `flag`→`heart` rename kept `sim.flags`), so `gameHash` and replays are
 unaffected — no GameVersion bump.
 
@@ -1093,6 +1672,20 @@ labeled `identity <color> <name>` (`alpha`..`theta` — see Teams & spawns).
 Like the `hp <hp>/<maxHp>` bar, the badge is a distinct object centered on its
 player's body: attach it by proximity. It is fog-gated with its player and disappears on
 death.
+
+**Veteran mark (GameVersion 60):** a living player at or above `AceLevel`
+(the Season 2 glory level where killing them pays the `dAceTag` bounty —
+see Season 2 glory scoring) carries an overhead rank-plume object labeled
+`veteran mark <level>`. Like the `hp <hp>/<maxHp>` bar, it carries no player
+identity of its own — it is a distinct object positioned over its player:
+attach it by proximity, exactly like the hp bar. It is fog-gated with its
+player (the same rule as the shield- and barrier-carried markers: it can
+never name a level for an enemy the viewer could not otherwise see) and is
+**absent** below `AceLevel` — absence is the "not a bounty yet" signal, the
+same idiom the shield-carried marker uses for "no shield". Before this
+label existed, `dAceTag` had no perception: a policy could see a
+level-3+ enemy's inflated hp bar (the `LevelBonusHp` denominator) but had
+no way to tell WHY it was inflated, or which enemy was worth the bounty.
 
 ---
 

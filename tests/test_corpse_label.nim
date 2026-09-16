@@ -2,7 +2,7 @@ import
   helpers,
   std/[sequtils, strutils, tables, unittest],
   bitworld/spriteprotocol,
-  ctf/sim
+  ctf/[global, sim]
 
 proc spriteIdLabels(messages: openArray[SpritePacketMessage]): Table[int, string] =
   for m in messages:
@@ -46,7 +46,7 @@ suite "corpse observation labels":
     check not label.startsWith("player ")
     check not label.startsWith("self ")
 
-  test "a live player still reads as `player <color> <side>`":
+  test "a live player still reads as `player <color>` (the real rig head)":
     var game = initCtfForTest(defaultGameConfig())
     let
       viewer = game.addPlayer("red0")
@@ -64,8 +64,15 @@ suite "corpse observation labels":
     game.players[foe].x = cx
     game.players[foe].y = cy - 40
 
+    # A human viewer (playerMessages defaults spritesOff=false) now draws an
+    # alive enemy as the articulated rig (addCogRigObjects) instead of the
+    # old flat PlayerObjectBase sprite — the same rig the board has always
+    # drawn. The HEAD segment carries the "player <color>" label (board's
+    # existing, unchanged convention; no <side> tail — the head's 16-step
+    # aim already conveys facing far more precisely than a left/right coarse
+    # bucket).
     let
       messages = game.playerMessages(viewer)
-      foeObject = 1000 + game.players[foe].joinOrder
-      label = messages.objectLabel(foeObject)
-    check label.startsWith("player blue ")
+      foeHeadObject = RigHeadObjectBase + game.players[foe].joinOrder
+      label = messages.objectLabel(foeHeadObject)
+    check label == "player blue"

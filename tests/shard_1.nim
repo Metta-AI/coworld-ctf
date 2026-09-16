@@ -4,6 +4,11 @@
 ## is also part of the full local run).
 {.warning[UnusedImport]: off.}
 import
+  test_baseline_s2,
+  test_br_elim,
+  test_br_placement,
+  test_br_team_bridge,
+  test_client_strip,
   test_cog_drive,
   test_ctf_game,
   test_damage_pop,
@@ -12,16 +17,31 @@ import
   test_lobby_join_timeout,
   test_manifest_schema,
   test_map_editor,
+  test_sim_config,
   test_map_editor_core,
   test_sym_none,
   test_rasterizer_mirror,
-  test_plasma_arc,
+  test_spraypaint,
   test_replay_requests,
+  test_seat_takeover,
+  test_direct_aim,
+  test_aim_assist,
+  test_veteran_mark,
   # test_replay_switch_caches hot-switches the process-wide board render
   # caches onto other maps, but no longer has to run last: it restores the
   # default arena and invalidates the caches at module end, and the endzone
   # caches self-heal on a map size mismatch (both pinned by its own tests).
   test_replay_switch_caches,
   test_rich_events,
-  test_trade_pair
+  test_route_honesty,
+  test_trade_pair,
+  test_pb_buff,
+  test_pb_hill,
+  test_pb_paint,
+  test_pb_scoring,
+  test_scoring_routing,
+  test_glory_league_score,
+  test_glory_percent_scale_headroom,
+  test_glory_s5_rig,
+  test_glory_s4b_modes
 {.warning[UnusedImport]: on.}

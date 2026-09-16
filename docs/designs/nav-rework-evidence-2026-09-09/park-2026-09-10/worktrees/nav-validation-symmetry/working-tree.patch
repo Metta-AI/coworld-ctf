@@ -1,0 +1,395 @@
+diff --git a/src/shell/body_route_index.nim b/src/shell/body_route_index.nim
+index 7066700ffe397a0c005a0fe6025b2e1512c4125b..49e3c2b56d5a78446ca99033cc385852b40affeb 100644
+--- a/src/shell/body_route_index.nim
++++ b/src/shell/body_route_index.nim
+@@ -5,8 +5,40 @@
+ ## this data in body_route_query.nim; they never build a source field.
+ 
+ import std/[algorithm, math, strformat]
++import bitworld/profile
+ import body_map
+ 
++# A5 attribution markers: compiled only with -d:ProfileTracePath; otherwise the
++# template is the bare body and the counters do not exist. Whole stages only.
++template indexStage(name: string, body: untyped) =
++  when ProfileTracePath.len > 0:
++    profileBlock(name, body)
++  else:
++    body
++
++# A6 screen (isolated tree only): how pixelPathInBox learns box standability.
++#   eager  = parent: fill the whole box once per search (default)
++#   direct = no fill; every read calls map.canStand
++#   lazy   = no fill; generation-stamped first-read memo in the scratch
++const PixelStandabilityArm* {.strdefine.} = "eager"
++static:
++  doAssert PixelStandabilityArm in ["eager", "direct", "lazy"],
++    "PixelStandabilityArm must be eager, direct or lazy"
++
++when defined(pixelStandabilityCounters):
++  type PixelStandabilityCounters* = object
++    searches*, exactEdgeSearches*, invalidStartReturns*: int
++    boxPixels*, eagerFills*, readRequests*, canStandEvaluations*: int
++  var pixelStandability*: PixelStandabilityCounters
++
++when ProfileTracePath.len > 0:
++  type PocketProfileCounters* = object
++    coverageCells*, pixelScanCells*, secondaryCells*: int
++    scannedPixels*, deferredSecondary*, coverageUnresolved*: int
++    coveragePending*, resolvePasses*, resolveSeeds*: int
++    joinCandidates*, joinPaths*, finalPending*, paths*, pocketPoints*: int
++  var pocketProfile*: PocketProfileCounters
++
+ const
+   PortalAnchorRingCells* = 4
+   PortalCrossingBoxCells* = 4
+@@ -143,6 +175,8 @@ type
+     parent: seq[int32]
+     visitedGeneration: seq[uint32]
+     standable: seq[bool]
++    when PixelStandabilityArm == "lazy":
++      standableGeneration: seq[uint32]
+     targetGeneration: seq[uint32]
+     targetRef: seq[int32]
+     queue: seq[int32]
+@@ -531,9 +565,13 @@ proc initPixelSearchScratch(index: BodyRouteIndex): PixelSearchScratch =
+   result.targetGeneration = newSeq[uint32](PixelConnectorMaxCells)
+   result.targetRef = newSeq[int32](PixelConnectorMaxCells)
+   result.queue = newSeq[int32](PixelConnectorMaxCells)
++  when PixelStandabilityArm == "lazy":
++    result.standableGeneration = newSeq[uint32](PixelConnectorMaxCells)
++  const generationArrays = if PixelStandabilityArm == "lazy": 3 else: 2
+   index.stats.transientPeakBytes = max(index.stats.transientPeakBytes,
+     int64(PixelConnectorMaxCells) *
+-      int64(sizeof(int32) * 3 + sizeof(uint32) * 2 + sizeof(bool)))
++      int64(sizeof(int32) * 3 + sizeof(uint32) * generationArrays +
++        sizeof(bool)))
+ 
+ proc beginSearch(scratch: var PixelSearchScratch) =
+   inc scratch.generation
+@@ -542,6 +580,9 @@ proc beginSearch(scratch: var PixelSearchScratch) =
+       marker = 0
+     for marker in scratch.targetGeneration.mitems:
+       marker = 0
++    when PixelStandabilityArm == "lazy":
++      for marker in scratch.standableGeneration.mitems:
++        marker = 0
+     scratch.generation = 1
+ 
+ proc pixelPathInBox(index: BodyRouteIndex, start, center: BodyPoint,
+@@ -558,18 +599,46 @@ proc pixelPathInBox(index: BodyRouteIndex, start, center: BodyPoint,
+     raise newException(BodyMapError,
+       &"body route index map '{index.map.mapLabel}' pixel connector exceeds " &
+       &"the {PixelConnectorMaxCells}-pixel search cap")
++  when defined(pixelStandabilityCounters):
++    inc pixelStandability.searches
++    if exactEdges: inc pixelStandability.exactEdgeSearches
++    pixelStandability.boxPixels += boxW * boxH
+   if start.x < x0 or start.x > x1 or start.y < y0 or start.y > y1 or
+       not index.map.canStand(start):
++    when defined(pixelStandabilityCounters):
++      inc pixelStandability.invalidStartReturns
+     return
+   template local(point: BodyPoint): int =
+     (point.y - y0) * boxW + point.x - x0
+   template pointAt(offset: int): BodyPoint =
+     (x: offset mod boxW + x0, y: offset div boxW + y0)
+   scratch.beginSearch()
+-  for y in y0 .. y1:
+-    for x in x0 .. x1:
+-      let point: BodyPoint = (x, y)
+-      scratch.standable[local(point)] = index.map.canStand(point)
++  when PixelStandabilityArm == "eager":
++    for y in y0 .. y1:
++      for x in x0 .. x1:
++        let point: BodyPoint = (x, y)
++        scratch.standable[local(point)] = index.map.canStand(point)
++    when defined(pixelStandabilityCounters):
++      pixelStandability.eagerFills += boxW * boxH
++      pixelStandability.canStandEvaluations += boxW * boxH
++  # Box standability read, identical value in every arm: canStand(point) for
++  # the same in-box point. Only when/how the byte is fetched differs.
++  template standableAt(localIndex: int, point: BodyPoint): bool =
++    when defined(pixelStandabilityCounters):
++      inc pixelStandability.readRequests
++    when PixelStandabilityArm == "eager":
++      scratch.standable[localIndex]
++    elif PixelStandabilityArm == "direct":
++      when defined(pixelStandabilityCounters):
++        inc pixelStandability.canStandEvaluations
++      index.map.canStand(point)
++    else:
++      if scratch.standableGeneration[localIndex] != scratch.generation:
++        scratch.standableGeneration[localIndex] = scratch.generation
++        scratch.standable[localIndex] = index.map.canStand(point)
++        when defined(pixelStandabilityCounters):
++          inc pixelStandability.canStandEvaluations
++      scratch.standable[localIndex]
+   for target in targets:
+     let point = index.routePoint(target)
+     if point.x < x0 or point.x > x1 or point.y < y0 or point.y > y1:
+@@ -603,14 +672,14 @@ proc pixelPathInBox(index: BodyRouteIndex, start, center: BodyPoint,
+       if next.x < x0 or next.x > x1 or next.y < y0 or next.y > y1:
+         continue
+       let nextLocal = local(next)
+-      if not scratch.standable[nextLocal]:
++      if not standableAt(nextLocal, next):
+         continue
+       if exactEdges and delta.x != 0 and delta.y != 0:
+         let
+           sideX: BodyPoint = (current.x + delta.x, current.y)
+           sideY: BodyPoint = (current.x, current.y + delta.y)
+-        if not scratch.standable[local(sideX)] or
+-            not scratch.standable[local(sideY)]:
++        if not standableAt(local(sideX), sideX) or
++            not standableAt(local(sideY), sideY):
+           continue
+       if scratch.visitedGeneration[nextLocal] == scratch.generation:
+         continue
+@@ -1519,6 +1588,9 @@ proc resolvePocketPending(index: BodyRouteIndex,
+     var
+       nextUnresolved = newSeqOfCap[PendingPocketPoint](unresolved.len)
+       passAdded = 0
++    when ProfileTracePath.len > 0:
++      inc pocketProfile.resolvePasses
++      pocketProfile.resolveSeeds += unresolved.len
+     for pendingPoint in unresolved:
+       case index.resolvePocketSeed(pendingPoint.point, validatorComponent,
+           canonicalByPixel, canonicalByGraph, paths, fineTargets,
+@@ -1556,7 +1628,8 @@ proc buildPocketCoverage(index: BodyRouteIndex,
+     secondaryCell = newSeq[bool](index.stats.navCells)
+     deferredSecondary: seq[PendingPocketPoint]
+     unresolved: seq[PendingPocketPoint]
+-  for cellIndex in 0 ..< index.stats.navCells:
++  indexStage("pocket.coverage.classify"):
++   for cellIndex in 0 ..< index.stats.navCells:
+     let
+       cell = index.cellPoint(cellIndex)
+       center = cellCenter(cell)
+@@ -1586,9 +1659,16 @@ proc buildPocketCoverage(index: BodyRouteIndex,
+     needsPixelScan[cellIndex] =
+       (includeSecondary or sourceGraph == 0 or sourceGraph == targetGraph) and
+       (sourceGraph != targetGraph or needsBoundaryProof)
++  when ProfileTracePath.len > 0:
++    pocketProfile.coverageCells += index.stats.navCells
++    for flag in needsPixelScan:
++      if flag: inc pocketProfile.pixelScanCells
++    for flag in secondaryCell:
++      if flag: inc pocketProfile.secondaryCells
+   index.stats.transientPeakBytes = max(index.stats.transientPeakBytes,
+     int64(needsPixelScan.len * sizeof(bool)))
+-  for coarseY in 0 ..< index.map.gridHeight:
++  indexStage("pocket.coverage.pixelScan"):
++   for coarseY in 0 ..< index.map.gridHeight:
+     let
+       y0 = coarseY * NavCell
+       y1 = min(index.map.height, y0 + NavCell) - 1
+@@ -1603,6 +1683,8 @@ proc buildPocketCoverage(index: BodyRouteIndex,
+           x1 = min(index.map.width, x0 + NavCell) - 1
+         for x in x0 .. x1:
+           let point: BodyPoint = (x, y)
++          when ProfileTracePath.len > 0:
++            inc pocketProfile.scannedPixels
+           if not needsPixelScan[coarseIndex]:
+             if index.map.canStand(point):
+               deferredSecondary.add PendingPocketPoint(
+@@ -1616,30 +1698,45 @@ proc buildPocketCoverage(index: BodyRouteIndex,
+           of psUnresolved:
+             unresolved.add PendingPocketPoint(point: point,
+               nextPath: int32(paths.len))
+-  unresolved = index.resolvePocketPending(move(unresolved),
+-    validatorComponent, canonicalByPixel, canonicalByGraph, failOnStall,
+-    paths, fineTargets, pixelScratch)
++  when ProfileTracePath.len > 0:
++    pocketProfile.deferredSecondary += deferredSecondary.len
++    pocketProfile.coverageUnresolved += unresolved.len
++  indexStage("pocket.coverage.resolvePending"):
++    unresolved = index.resolvePocketPending(move(unresolved),
++      validatorComponent, canonicalByPixel, canonicalByGraph, failOnStall,
++      paths, fineTargets, pixelScratch)
+   result = move(deferredSecondary)
+   result.add unresolved
+-  result.sort(proc(a, b: PendingPocketPoint): int =
+-    result = cmp(a.point.y, b.point.y)
+-    if result == 0:
+-      result = cmp(a.point.x, b.point.x))
++  when ProfileTracePath.len > 0:
++    pocketProfile.coveragePending += result.len
++  indexStage("pocket.coverage.sort"):
++    result.sort(proc(a, b: PendingPocketPoint): int =
++      result = cmp(a.point.y, b.point.y)
++      if result == 0:
++        result = cmp(a.point.x, b.point.x))
+ 
+ proc buildPocketConnectors(index: BodyRouteIndex) =
+   if index.stats.graphComponents == 0:
+     return
+-  let canonical = index.canonicalGraphMapping()
++  var canonical: tuple[byPixel, byGraph: seq[uint16]]
+   var validatorComponent = newSeq[bool](index.map.componentCount + 1)
+-  for validator in 0 ..< index.map.validatorTableCount:
+-    validatorComponent[index.map.validatorComponentAt(validator)] = true
++  indexStage("pocket.canonicalMapping"):
++    canonical = index.canonicalGraphMapping()
++    for validator in 0 ..< index.map.validatorTableCount:
++      validatorComponent[index.map.validatorComponentAt(validator)] = true
+   var
+     paths: seq[CrossingPath]
++    fineTargets: seq[FineTarget]
++    pixelScratch: PixelSearchScratch
++    pending: seq[PendingPocketPoint]
++  indexStage("pocket.initialTargetsScratch"):
+     fineTargets = index.initialFineTargets(canonical.byGraph)
+     pixelScratch = index.initPixelSearchScratch()
++  indexStage("pocket.coverage"):
+     pending = index.buildPocketCoverage(validatorComponent, canonical.byPixel,
+       canonical.byGraph, false, false, paths, fineTargets, pixelScratch)
+-  for sourceGraphIndex in 1 ..< canonical.byGraph.len:
++  indexStage("pocket.graphJoins"):
++   for sourceGraphIndex in 1 ..< canonical.byGraph.len:
+     let
+       sourceGraph = uint16(sourceGraphIndex)
+       targetGraph = canonical.byGraph[sourceGraphIndex]
+@@ -1651,6 +1748,8 @@ proc buildPocketConnectors(index: BodyRouteIndex) =
+         cell = index.map.cellOf(point)
+       if index.cellComponent[index.cellIndex(cell)] != sourceGraph:
+         continue
++      when ProfileTracePath.len > 0:
++        inc pocketProfile.joinCandidates
+       let path = index.pixelPocketPath(point, paths, fineTargets,
+         targetGraph, pixelScratch)
+       if path.cells.len == 0 or
+@@ -1671,30 +1770,40 @@ proc buildPocketConnectors(index: BodyRouteIndex) =
+             kind: ftkPocket)
+       index.anchorPocketCells(path, canonical.byGraph)
+       index.joinPocketGraph(sourceGraph, targetGraph)
++      when ProfileTracePath.len > 0:
++        inc pocketProfile.joinPaths
+       break
+-  discard index.resolvePocketPending(move(pending), validatorComponent,
+-    canonical.byPixel, canonical.byGraph, true, paths, fineTargets,
+-    pixelScratch)
++  when ProfileTracePath.len > 0:
++    pocketProfile.finalPending += pending.len
++  indexStage("pocket.finalPending"):
++    discard index.resolvePocketPending(move(pending), validatorComponent,
++      canonical.byPixel, canonical.byGraph, true, paths, fineTargets,
++      pixelScratch)
+   var pointCount = 0
+-  for path in paths:
+-    pointCount += path.cells.len
+-  index.pockets = newSeq[BodyPocketConnector](paths.len)
+-  index.pocketCells = newSeq[int32](pointCount)
+-  var cursor = 0
+-  for pathIndex, path in paths:
+-    for pointRef in path.cells:
+-      index.pocketCells[cursor] = pointRef
+-      inc cursor
+-      if pointRef < 0:
+-        inc index.stats.finePoints
+-    index.pockets[pathIndex] = BodyPocketConnector(
+-      sourcePoint: path.cells[0], targetCell: path.cells[^1],
+-      pointStart: int32(cursor - path.cells.len),
+-      pointLen: uint16(path.cells.len),
+-      staticLengthQ4: index.pathLengthQ4(path.cells))
+-  index.stats.pocketConnectors = paths.len
+-  index.stats.finePointBytes = index.stats.finePoints * sizeof(int32)
+-  index.collapseGraphComponents(canonical.byGraph)
++  indexStage("pocket.pack"):
++    for path in paths:
++      pointCount += path.cells.len
++    index.pockets = newSeq[BodyPocketConnector](paths.len)
++    index.pocketCells = newSeq[int32](pointCount)
++    var cursor = 0
++    for pathIndex, path in paths:
++      for pointRef in path.cells:
++        index.pocketCells[cursor] = pointRef
++        inc cursor
++        if pointRef < 0:
++          inc index.stats.finePoints
++      index.pockets[pathIndex] = BodyPocketConnector(
++        sourcePoint: path.cells[0], targetCell: path.cells[^1],
++        pointStart: int32(cursor - path.cells.len),
++        pointLen: uint16(path.cells.len),
++        staticLengthQ4: index.pathLengthQ4(path.cells))
++    index.stats.pocketConnectors = paths.len
++    index.stats.finePointBytes = index.stats.finePoints * sizeof(int32)
++  when ProfileTracePath.len > 0:
++    pocketProfile.paths += paths.len
++    pocketProfile.pocketPoints += pointCount
++  indexStage("pocket.collapse"):
++    index.collapseGraphComponents(canonical.byGraph)
+ 
+ proc buildFineAnchorIndex(index: BodyRouteIndex) =
+   var pairs: seq[FineAnchorPair]
+@@ -2085,12 +2194,19 @@ proc validateRouteIndex*(index: BodyRouteIndex) =
+     for neighborIndex, delta in NavNeighbors:
+       if (index.legalMoves[cellIndex] and uint8(1 shl neighborIndex)) == 0:
+         continue
+-      let next = (cell.x + delta.x, cell.y + delta.y)
+-      if not index.map.legalNavMove(cell, next):
++      let next: BodyPoint = (cell.x + delta.x, cell.y + delta.y)
++      if next.x < 0 or next.x >= index.map.gridWidth or
++          next.y < 0 or next.y >= index.map.gridHeight:
++        raise newException(BodyMapError,
++          &"body route index map '{index.map.mapLabel}' stores illegal move at {cell}")
++      let nextIndex = index.cellIndex(next)
++      # Every directed bit still needs its reverse. Unit-move geometry is
++      # symmetric, so the lower-index endpoint checks it for the pair.
++      if cellIndex < nextIndex and not index.map.legalNavMove(cell, next):
+         raise newException(BodyMapError,
+           &"body route index map '{index.map.mapLabel}' stores illegal move at {cell}")
+       let reverse = reverseNeighbor(neighborIndex)
+-      if (index.legalMoves[index.cellIndex(next)] and uint8(1 shl reverse)) == 0:
++      if (index.legalMoves[nextIndex] and uint8(1 shl reverse)) == 0:
+         raise newException(BodyMapError,
+           &"body route index map '{index.map.mapLabel}' has asymmetric move at {cell}")
+   var
+diff --git a/tools/profile_body_route_index.nim b/tools/profile_body_route_index.nim
+index 049564d6e3aa99fcc02a61beacf2a1113d3bbeb0..7122058d1b63586574dd75abb4671b3c9b0e2e48 100644
+--- a/tools/profile_body_route_index.nim
++++ b/tools/profile_body_route_index.nim
+@@ -40,11 +40,41 @@ proc profileIndex(map: BodyMap): BodyRouteIndex =
+   profileBlock("index.validate"):
+     result.validateRouteIndex()
+ 
++import std/[os, strutils]
++# A5: optional args <pool-index> <repeats>; defaults keep the A2 recipe (48, 5).
++let poolIndex = if paramCount() >= 1: parseInt(paramStr(1)) else: 48
++let repeats = if paramCount() >= 2: parseInt(paramStr(2)) else: 5
+ let pool = loadBrS2PoolRaw()
+-let map = newBodyMap(mapFromSpecJson($pool[48]["spec"]))
++let map = newBodyMap(mapFromSpecJson($pool[poolIndex]["spec"]))
+ startProfileTrace()
+-for repeat in 0 ..< 5:
++for repeat in 0 ..< repeats:
+   profileBlock("index.complete"):
+     let index = profileIndex(map)
+     doAssert index.stats.navCells == map.gridWidth * map.gridHeight
+ finishProfileTrace()
++when defined(pixelStandabilityCounters):
++  echo %*{"arm": PixelStandabilityArm, "pixel_standability_total": %*{
++    "searches": pixelStandability.searches,
++    "exact_edge_searches": pixelStandability.exactEdgeSearches,
++    "invalid_start_returns": pixelStandability.invalidStartReturns,
++    "box_pixels": pixelStandability.boxPixels,
++    "eager_fills": pixelStandability.eagerFills,
++    "read_requests": pixelStandability.readRequests,
++    "canstand_evaluations": pixelStandability.canStandEvaluations}}
++# A5 pocket counters, summed over all repeats (divide by repeats per build).
++echo %*{"pool_index": poolIndex, "map": map.name, "repeats": repeats,
++  "grid": [map.gridWidth, map.gridHeight],
++  "pocket_counters_total": %*{
++    "coverage_cells": pocketProfile.coverageCells,
++    "pixel_scan_cells": pocketProfile.pixelScanCells,
++    "secondary_cells": pocketProfile.secondaryCells,
++    "scanned_pixels": pocketProfile.scannedPixels,
++    "deferred_secondary": pocketProfile.deferredSecondary,
++    "coverage_unresolved_before_resolve": pocketProfile.coverageUnresolved,
++    "coverage_pending_out": pocketProfile.coveragePending,
++    "resolve_passes": pocketProfile.resolvePasses,
++    "resolve_seeds": pocketProfile.resolveSeeds,
++    "join_candidates": pocketProfile.joinCandidates,
++    "join_paths": pocketProfile.joinPaths,
++    "final_pending_in": pocketProfile.finalPending,
++    "paths": pocketProfile.paths, "pocket_points": pocketProfile.pocketPoints}}

@@ -1,9 +1,9 @@
 import std/[os, json, sets, tables], ../src/ctf/sim, toolutil
 
-# Grenade/plasma forensics: every throw (thrower/launch/landing), blast damage
+# Grenade/spraypaint forensics: every throw (thrower/launch/landing), blast damage
 # attribution (hp drops within radius at landing tick), enemy CLUSTERS
 # (2+ same-team players within 110px), per-player grenade possession time,
-# and plasma arc firings. JSON out.
+# and spray can firings. JSON out.
 
 let path = commandLineParams()[0].absolutePath()
 chdirGameDir()

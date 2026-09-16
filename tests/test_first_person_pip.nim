@@ -292,7 +292,7 @@ suite "first-person picture-in-picture":
     # The EYES-PiP visor splat keys off self.paintTick. EVERY weapon in this game
     # throws paint, so all of them stamp it: a gun hit must advance it, and so
     # must a spray-can burst (an aerosol of paint in the face paints the visor —
-    # the earlier "plasma arc" reskin was the bloodless one that did not).
+    # the earlier "spray can" reskin was the bloodless one that did not).
     let clearX = 60
     let clearY = MapHeight div 2
 
@@ -324,7 +324,7 @@ suite "first-person picture-in-picture":
 
     # A SPRAY-CAN burst hurts AND paints → paintTick stamps forward again.
     inc game.tickCount                                   # so "now" differs from paintedAt
-    game.players[red].hasPlasmaArc = true
+    game.players[red].hasSprayPaint = true
     game.players[red].aimBrads = 0
     game.players[red].fireCooldown = 0                   # clear the gun-shot cooldown
     game.players[red].placeAtCenter(clearX, clearY)

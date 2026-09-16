@@ -1,0 +1,8 @@
+# seg_probe (scratch seg_probe.nim: room-bounded Dijkstra per (room,portal) over legal 8px moves; arm64 release, commit fad3029f, 2026-09-04). NOTE: "pool:N" = legacy map_pool.nim entry; "size:colossal" = generateCtfMap(4242, size=colossal, 2 teams), 6422x3427.
+label rooms chokes portalRoomMismatch dijkstras fieldCells maxRoomCells pairs pairsUnreachableInRoom segments segmentCells avgSegCells maxChainCells bodyMapMs indexBuildMs
+pool:1         107  369   5   738   1695732  12846  4374   113  4261   224822  52  147  499   231
+pool:2         51   241   0   482   1958462  15350  3979   39   3940   256077  64  202  497   283
+pool:5         43   212   4   424   1278175  18885  2601   119  2482   105692  42  213  479   189
+pool:12        23   113   1   226   811402   8520   1872   45   1827   107110  58  146  211   108
+pool:0         11   30    0   60    111251   3743   224    6    218    8433    38  79   62    15
+size:colossal  302  1237  12  2474  9507875  70041  13730  684  13046  763627  58  436  2263  2245

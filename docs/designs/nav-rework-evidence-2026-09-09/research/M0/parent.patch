@@ -1,0 +1,41 @@
+diff --git a/tests/test_shell_body_nav_rework.nim b/tests/test_shell_body_nav_rework.nim
+index 1a39fa2..efad116 100644
+--- a/tests/test_shell_body_nav_rework.nim
++++ b/tests/test_shell_body_nav_rework.nim
+@@ -128,6 +128,36 @@ suite "production mixed-grid body navigation":
+     check nav.seats[0].installedRoute.revision == 1
+     check nav.seats[0].installedRoute.pointCount == route.pointCount
+ 
++  test "Dial bucket collisions preserve exact routes and pop counts":
++    let
++      map = openMap()
++      graph = newBodyMixedGraph(map)
++      request = BodyRouteSearchRequest(start: (16, 48), goal: (160, 48),
++        profile: shellTypes.cpDefault, blockedCell: -1,
++        requestGeneration: 1, dangerGeneration: 1)
++    var danger = BodyDangerField(values: newSeq[float32](
++      map.gridWidth * map.gridHeight), gridW: map.gridWidth,
++      gridH: map.gridHeight)
++    for cell in 0 ..< danger.values.len:
++      danger.values[cell] = float32(cell mod 7) / 7.0'f32
++    var
++      weights: seq[int16]
++      expected: BodyRouteBuild
++    graph.rebuildPackedWeights(danger, weights)
++    for bucketCount in [262_144, 131_072, 2]:
++      let workspace = newBodyRouteWorkspace(graph, bucketCount)
++      var
++        job: BodyRouteSearchJob
++      job.beginBodyRouteSearch(graph, workspace, weights, request)
++      while not job.complete:
++        discard job.spendBodyRoutePops(graph, workspace, weights, nil, 1)
++      let route = job.finishBodyRouteSearch(graph, workspace)
++      check route.ok
++      if bucketCount == 262_144:
++        expected = route
++      else:
++        check route == expected
++
+   test "one pending slot keeps only the newest request":
+     let
+       map = openMap()

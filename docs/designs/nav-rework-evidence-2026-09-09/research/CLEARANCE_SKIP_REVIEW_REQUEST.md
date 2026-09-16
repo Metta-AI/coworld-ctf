@@ -1,0 +1,11 @@
+# Review a higher-payoff ray alternative using existing clearance
+
+Root found body_map.buildClearance already computes a saturated (255) eight-neighbor/chessboard wall-distance transform, treating outside-map neighbors as zero. Please verify whether this is a conservative lower bound on the Chebyshev distance to any wall for every map.
+
+Proposed W7, not implemented: at exact ray sample index i, read existing clearance at the same nearest/ties-even pixel. Zero means blocked. Positive d permits advancing to sample i+d, because each discrete sample changes either coordinate by at most one and every skipped sample is within Chebyshev distance <d. If the remaining endpoint is closer than d samples, it is covered by the same empty square. Compute the sample coordinates at the new index with exact integer numerator/denominator (int64 intermediates), preserving W1's tie convention; no new table, cache, or predicate. This may remove most pixel visits rather than shaving per-visit checks.
+
+Primary research: Hart, Sphere Tracing (https://graphics.stanford.edu/courses/cs348b-20-spring-content/uploads/hart.pdf), safe steps from distance bounds; SciPy's official chessboard-distance reference (https://docs.scipy.org/doc/scipy/reference/generated/scipy.ndimage.distance_transform_cdt.html). We can reuse the existing transform, so a production dependency is unnecessary. This is a discrete Chebyshev adaptation, not a claim that continuous sphere tracing proves the discrete sampler by itself.
+
+Please independently attack the proof: saturation, map boundary, diagonal steps, nearest-even half ties, endpoint handling, integer width on wasm and long maps, potential stale/mutable clearance, and zero-length rays. Write CLEARANCE_SKIP_REVIEW.md with go/revise and focused tests needed. No source edits. End CLEARANCE SKIP REVIEW READY and wait. Bridge encoding review received and appreciated; implementation remains pending until throughput experiments finish and checkpoint backlog is closed.
+
+W6 major-axis specialization (body_map current) passed existing 262144+20000 differential rays; running m5a timing and m8i full quality. It is a separate exact baseline, not W7. Root owns source; peer documents only.

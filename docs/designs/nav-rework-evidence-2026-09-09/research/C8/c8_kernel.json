@@ -1,0 +1,54 @@
+[
+  {
+    "range_px": 331,
+    "radius_cells": 42,
+    "box_cells": 7225,
+    "nonzero_kernel_cells": 5385,
+    "max_abs_offset_nonzero": 41,
+    "square_bound_cells": 6889,
+    "predicted_max_abs_offset": 41,
+    "min_nonzero_value": 1.0,
+    "negative_values": 0,
+    "nonfinite_values": 0,
+    "perimeter_offsets": 236
+  },
+  {
+    "range_px": 1050,
+    "radius_cells": 132,
+    "box_cells": 70225,
+    "nonzero_kernel_cells": 54173,
+    "max_abs_offset_nonzero": 131,
+    "square_bound_cells": 69169,
+    "predicted_max_abs_offset": 131,
+    "min_nonzero_value": 0.6000292897224426,
+    "negative_values": 0,
+    "nonfinite_values": 0,
+    "perimeter_offsets": 748
+  },
+  {
+    "range_px": 1300,
+    "radius_cells": 163,
+    "box_cells": 106929,
+    "nonzero_kernel_cells": 54173,
+    "max_abs_offset_nonzero": 131,
+    "square_bound_cells": 69169,
+    "predicted_max_abs_offset": 131,
+    "min_nonzero_value": 0.6000292897224426,
+    "negative_values": 0,
+    "nonfinite_values": 0,
+    "perimeter_offsets": 924
+  },
+  {
+    "range_px": 1600,
+    "radius_cells": 200,
+    "box_cells": 160801,
+    "nonzero_kernel_cells": 54173,
+    "max_abs_offset_nonzero": 131,
+    "square_bound_cells": 69169,
+    "predicted_max_abs_offset": 131,
+    "min_nonzero_value": 0.6000292897224426,
+    "negative_values": 0,
+    "nonfinite_values": 0,
+    "perimeter_offsets": 1132
+  }
+]

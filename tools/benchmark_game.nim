@@ -1,5 +1,5 @@
 ## Benchmark: wall-clock time to complete one full game in the 4-team /
-## 32-bot shape (the hosted 4ffa8 variant: four teams of eight on a giant
+## 32-bot shape (the archived 4ffa8 variant: four teams of eight on a giant
 ## generated map). Starts bin/ctf-server plus 32 baseline bots as plain
 ## local processes (no Docker), waits for the game to finish, and reports
 ## startup time, game time, ticks, and ticks/second.

@@ -1,0 +1,193 @@
+--- parent
+
++++ candidate
+
+@@ -9,18 +9,18 @@
+
+ mov    %rdx,%rbx
+ sub    $0x148,%rsp
+ mov    $0xffffffffffffffd0,%r15
++mov    %r8,0x30(%rsp)
++xor    %r8d,%r8d
+ mov    %rsi,0x8(%rsp)
+ mov    %rcx,0x28(%rsp)
+-mov    %r8,0x30(%rsp)
+ mov    %fs:0x28,%rax
+ mov    %rax,0x138(%rsp)
+ lea    RIP(%rip),%rax
+ movq   $0x0,0xb0(%rsp)
++mov    %r8w,0xc0(%rsp)
+ mov    %rax,0xa8(%rsp)
+ lea    RIP(%rip),%rax
+ mov    %rax,0xb8(%rsp)
+-xor    %eax,%eax
+-mov    %ax,0xc0(%rsp)
+ mov    %fs:(%r15),%rdx
+ test   %rdx,%rdx
+ je     <LOCAL>
+@@ -37,6 +37,7 @@
+
+ test   %r12,%r12
+ jg     <LOCAL>
+ jmp    <LOCAL>
++nopw   0x0(%rax,%rax,1)
+ cmp    %rbp,%r12
+ je     <LOCAL>
+ mov    0x10(%r13),%rsi
+@@ -67,6 +68,7 @@
+
+ pop    %r14
+ pop    %r15
+ ret    
++nopl   0x0(%rax,%rax,1)
+ call   <callDepthLimitReached__system_uID>
+ jmp    <LOCAL>
+ nopw   0x0(%rax,%rax,1)
+@@ -121,14 +123,14 @@
+
+ ja     <LOCAL>
+ mov    0x98(%rsp),%rbx
+ lea    RIP(%rip),%rax
++xor    %edi,%edi
+ mov    %ebp,%ecx
+-addq   $0x1,0x418(%rbx)
++addq   $0x1,0x430(%rbx)
+ mov    %rax,0x108(%rsp)
+ lea    RIP(%rip),%rax
+ mov    %rax,0x118(%rsp)
+-xor    %eax,%eax
+ movq   $0x0,0x110(%rsp)
+-mov    %ax,0x120(%rsp)
++mov    %di,0x120(%rsp)
+ mov    %fs:(%r15),%rdx
+ test   %rdx,%rdx
+ je     <LOCAL>
+@@ -151,7 +153,7 @@
+
+ nopl   0x0(%rax,%rax,1)
+ mov    %r14,%rax
+ shl    $0x4,%rax
+-cmp    0x18(%rbx,%rax,1),%ecx
++cmp    0x30(%rbx,%rax,1),%ecx
+ je     <LOCAL>
+ add    $0x1,%r14
+ cmp    $0x40,%r14
+@@ -168,19 +170,20 @@
+
+ cmp    $0x3f,%rdi
+ ja     <LOCAL>
+ mov    %rdi,%rax
+-mov    0x418(%rbx),%rdx
++mov    0x430(%rbx),%rdx
+ xor    %r14d,%r14d
+ shl    $0x4,%rax
+ add    %rbx,%rax
+-mov    %ebp,0x18(%rax)
+-mov    %rdx,0x20(%rax)
++mov    %ebp,0x30(%rax)
++movl   $0xffffffff,0x34(%rax)
++mov    %rdx,0x38(%rax)
+ imul   (%rbx),%rdi
+ seto   %r14b
+ jo     <LOCAL>
+ mov    %rdi,0x60(%r13)
+ xor    %eax,%eax
+ jmp    <LOCAL>
+-nopl   (%rax)
++nopl   0x0(%rax)
+ mov    %rax,%rdi
+ add    0x60(%r13),%rdi
+ jo     <LOCAL>
+@@ -208,12 +211,12 @@
+
+ mov    %rdi,0xd8(%rsp)
+ lea    RIP(%rip),%rdi
+ mov    %rdi,0xe8(%rsp)
++lea    0x8(%rax),%rsi
+ test   %rax,%rax
+-lea    0x8(%rax),%rsi
+ movq   $0x0,0xe0(%rsp)
+ cmovne %rsi,%rax
+-xor    %ebp,%ebp
+-mov    %bp,0xf0(%rsp)
++xor    %esi,%esi
++mov    %si,0xf0(%rsp)
+ mov    %fs:(%r15),%rdi
+ test   %rdi,%rdi
+ je     <LOCAL>
+@@ -350,8 +353,8 @@
+
+ cmovne %rdx,%rcx
+ mov    0x58(%rsp),%rdx
+ call   <castRay__OOZsrcZshellZbody95nav_uID>
+-pop    %r10
+ pop    %r11
++pop    %rax
+ mov    0x20(%rsp),%rax
+ cmpb   $0x0,%fs:(%rax)
+ jne    <LOCAL>
+@@ -376,7 +379,7 @@
+
+ call   <raiseIndexError2>
+ mov    %fs:(%r15),%rdx
+ jmp    <LOCAL>
+-nopl   0x0(%rax)
++nopl   0x0(%rax,%rax,1)
+ sub    $0x1,%rsi
+ mov    %rbp,%rdi
+ call   <raiseIndexError2>
+@@ -392,17 +395,17 @@
+
+ mov    %rdx,%fs:(%r15)
+ test   %sil,%sil
+ jne    <LOCAL>
+-mov    0x418(%rbx),%rdx
+-mov    %r14,%rax
+-mov    %r14,%rcx
+-shl    $0x4,%rax
+-mov    %rdx,0x20(%rax,%rbx,1)
+-imul   (%rbx),%rcx
+-jo     <LOCAL>
++add    %rbx,%rax
++mov    0x430(%rbx),%rdx
++mov    0x34(%rax),%r9d
++mov    %rdx,0x38(%rax)
++test   %r9d,%r9d
++jns    <LOCAL>
+ mov    0x10(%rsp),%rsi
+ mov    0x18(%rsp),%rdx
++mov    %r14,%rcx
+ mov    %r13,%rdi
+-call   <replayVisibleCells__OOZsrcZshellZbody95nav_uID>
++call   <materializeVisibleCells__OOZsrcZshellZbody95nav_uID>
+ mov    0x20(%rsp),%rax
+ cmpb   $0x0,%fs:(%rax)
+ jne    <LOCAL>
+@@ -500,9 +503,9 @@
+
+ cmp    %rax,%rdi
+ jge    <LOCAL>
+ mov    0x58(%rsp),%rax
+-xor    %r9d,%r9d
++xor    %r10d,%r10d
+ movq   $0x0,0x110(%rsp)
+-mov    %r9w,0x120(%rsp)
++mov    %r10w,0x120(%rsp)
+ mov    0x18(%rax),%rsi
+ lea    RIP(%rip),%rax
+ mov    %rax,0x108(%rsp)
+@@ -535,6 +538,13 @@
+
+ jno    <LOCAL>
+ call   <raiseOverflow>
+ mov    %fs:(%r15),%rdx
++jmp    <LOCAL>
++mov    %r14,%rsi
++mov    %r13,%rdi
++call   <replayListEntries__OOZsrcZshellZbody95nav_uID>
++mov    0x20(%rsp),%rax
++cmpb   $0x0,%fs:(%rax)
++je     <LOCAL>
+ jmp    <LOCAL>
+ mov    %rdi,0x88(%rsp)
+ mov    %rsi,0x80(%rsp)

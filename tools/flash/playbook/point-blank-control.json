@@ -1,0 +1,14 @@
+{
+  "paintbot_policy": 1,
+  "name": "point-blank-control",
+  "doc": "Always pushes for the closest, loudest firefight regardless of the shrink or the odds -- a deliberately WRONG-for-BR control card, kept to prove the other five actually beat it.",
+  "traits": { "nerve": 0.95, "greed": 0.1, "patience": 0.05 },
+  "rules": [
+    { "when": true,
+      "score": ["+",
+        ["*", 45, ["get", "intent.is_enemy"]],
+        ["*", -0.5, ["get", "intent.dist"]]
+      ]
+    }
+  ]
+}

@@ -1,0 +1,3 @@
+# M1 documentation audit
+
+Reviewed the private DangerGeometry owner and retained-memory changes, generated C before/after evidence, focused tests, both server compile results, paired timing and full quality/activation artifacts. No public rules, config or wire contracts change. M1_REPORT and GEOMETRY_ACCOUNTING_CORRECTION document the actual reference sharing and the previous undercount; affected historical reports retain their raw evidence and append the correction. Capacity and hazard-context omissions are explicitly left to M2/M3, not described as fixed here. Final design/HTML and Phase10/11 acceptance remain outstanding. Rebuild the committed viewer for this source stamp before committing.

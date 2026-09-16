@@ -11,8 +11,9 @@ type
     player*: ReplayPlayer
     tracker*: BroadcastTracker
 
-proc initReplayRuntime*(
+proc initReplayRuntimeWithPlayer(
   data: ReplayData,
+  replayPlayer: sink ReplayPlayer,
   mismatchQuit: bool,
   gameEventLoggingEnabled = true
 ): InitializedReplay =
@@ -21,7 +22,7 @@ proc initReplayRuntime*(
   result.config.update(data.configJson)
   result.sim = initSimServer(result.config)
   result.sim.gameEventLoggingEnabled = gameEventLoggingEnabled
-  result.player = initReplayPlayer(data)
+  result.player = move(replayPlayer)
   result.player.mismatchQuit = mismatchQuit
   # The whole-match precompute walk (seek keyframes, momentum series, story
   # beats, lull spans) used to run synchronously HERE — seconds of black
@@ -47,6 +48,22 @@ proc initReplayRuntime*(
   result.player.seekReplay(result.sim, result.player.replayStartTick())
   result.player.playing = true
   result.tracker = initBroadcastTracker()
+
+proc initReplayRuntime*(
+  data: ReplayData,
+  mismatchQuit: bool,
+  gameEventLoggingEnabled = true
+): InitializedReplay =
+  initReplayRuntimeWithPlayer(
+    data, initReplayPlayer(data), mismatchQuit, gameEventLoggingEnabled)
+
+proc initReplayRuntime*(
+  data: CtfReplayData,
+  mismatchQuit: bool,
+  gameEventLoggingEnabled = true
+): InitializedReplay =
+  initReplayRuntimeWithPlayer(
+    data.replay, initReplayPlayer(data), mismatchQuit, gameEventLoggingEnabled)
 
 proc advanceReplayFrame*(
   replay: var ReplayPlayer,
@@ -80,12 +97,80 @@ proc advanceReplayFrame*(
   )
   result = events
 
+proc buildLiveViewerPacket*(
+  sim: var SimServer,
+  state: GlobalViewerState,
+  nextState: var GlobalViewerState,
+  overlays: openArray[DebugOverlay],
+  tick, maxTick, speed: int,
+  playing, looping: bool,
+  events: JsonNode
+): seq[uint8] =
+  ## Builds the live board + chrome packet for one global-viewer socket.
+  ##
+  ## stakes #7/#9: the broadcast chrome sprite (teams-alive bar, roster,
+  ## kill-feed events, end-card) used to ride ONLY buildReplayViewerPacket
+  ## above -- a live match's global viewers got the bare board via
+  ## buildSpriteProtocolUpdates and nothing else, because every field
+  ## buildStateJson needed past "board state" (playing/speed/maxTick/
+  ## looping/POV) was read off a ReplayPlayer that only exists once a match
+  ## is recorded and reloaded as a file. Every one of THOSE fields is also
+  ## already computed for the live board packet at this same call site
+  ## (server.nim's live send loop) -- this mirrors buildReplayViewerPacket's
+  ## chrome-sprite append using those same live values, not new ones.
+  ##
+  ## What is deliberately NOT here, and why: the lead/momentum series, lull
+  ## spans, beat markers and achievement badges are all products of a
+  ## FULL-MATCH precompute scan (initReplayScan) that only makes sense once
+  ## the whole match is already recorded -- a live match cannot know its own
+  ## future. Passing empty/nil for those is an honest omission (the client
+  ## already treats them as "absent this frame, cached from an earlier one"),
+  ## not a fabricated value. mismatchTick stays -1 unconditionally: a live
+  ## sim is never loaded from a recorded file, so it never has a hash to
+  ## mismatch against, ended or not.
+  ##
+  ## transportEnabled, however, is NOT "false for the whole live-viewing
+  ## window" -- it is `sim.phase == GameOver`. Once the win condition fires,
+  ## sim.step's `of GameOver:` branch (sim.nim) returns immediately after
+  ## `dec sim.gameOverTimer` every tick -- no movement, combat, or roster
+  ## change runs again until gameOverTimer expires and resetToLobby() fires.
+  ## The board is frozen for that whole held window (the same window the
+  ## client's endcard hold displays), which is exactly the "episode has
+  ## ended" state buildReplayViewerPacket already always reports as
+  ## transportEnabled=true. A game still in Lobby or Playing keeps this
+  ## false, matching the original "a live stream has no scrubber to seek"
+  ## reasoning for the case where it actually applies.
+  let transportEnabled = sim.phase == GameOver
+  result = sim.buildSpriteProtocolUpdates(
+    state, nextState, overlays, tick, playing, speed, maxTick, looping,
+    transportEnabled, -1
+  )
+  if result.len == 0:
+    return
+  let sendFpMap = not state.fpMapSent
+  result.addSprite(
+    BroadcastChromeSpriteId,
+    1,
+    1,
+    [0'u8, 0, 0, 0],
+    sim.buildStateJson(
+      events, playing, speed, maxTick, looping, transportEnabled, -1,
+      nextState.selectedJoinOrder,
+      startTick = sim.gameStartTick,
+      includeFpMap = sendFpMap
+    )
+  )
+  if sendFpMap:
+    nextState.fpMapSent = true
+
 proc buildReplayViewerPacket*(
   sim: var SimServer,
   replay: ReplayPlayer,
   state: GlobalViewerState,
   nextState: var GlobalViewerState,
-  events: JsonNode
+  events: JsonNode,
+  lobbyChat: JsonNode = nil,
+  ballots: JsonNode = nil
 ): seq[uint8] =
   ## Builds the shared replay board and chrome packet for one viewer.
   result = sim.buildSpriteProtocolUpdates(
@@ -98,7 +183,8 @@ proc buildReplayViewerPacket*(
     replay.replayMaxTick(),
     replay.looping,
     true,
-    replay.hashMismatchTick
+    replay.hashMismatchTick,
+    replay.sameEngineBuild
   )
   if result.len == 0:
     return
@@ -124,7 +210,9 @@ proc buildReplayViewerPacket*(
       true,
       replay.hashMismatchTick,
       nextState.selectedJoinOrder,
-      if sendLead: replay.livesSeries else: @[],
+      if sendLead: replay.leadSeries else: @[],
+      if sendLead: replay.leadMetric else: "",
+      if sendLead: replay.leadOutTicks else: @[],
       replay.replayStartTick(),
       replay.endHoldSecondsLeft(),
       sendFpMap,
@@ -132,7 +220,24 @@ proc buildReplayViewerPacket*(
       replay.skipLulls and replay.playing and
         replay.isLullTick(sim.tickCount),
       if sendLead: replay.lullSpans else: @[],
-      if sendLead: replay.beatEvents else: nil
+      if sendLead: replay.beatEvents else: nil,
+      if sendLead: replay.achievementBadges else: nil,
+      # SEASON 2: huddle transcript + ballot, decoded once by the host from
+      # the replay's `.shell` metadata (see `ctf_replay.nim`) and forwarded
+      # here as plain params -- `ReplayPlayer` itself carries no shell
+      # fields, unlike `achievementBadges` above, so there is nothing to
+      # thread through `initReplayRuntime`/the native server's own replay
+      # path. `nil` on a host that never decoded shell records (the
+      # zero-arg default), same "absent means never sent" contract as every
+      # other lead-frame field.
+      if sendLead: lobbyChat else: nil,
+      if sendLead: ballots else: nil,
+      mismatchSameBuild = replay.sameEngineBuild,
+      # HEAT ON THE WIRE: rides the exact same one-shot as leadSeries above
+      # (sendLead), not a second flag -- there is no scenario where the
+      # momentum series is ready and the parallel heat series is not; both
+      # come off the same precompute walk (replays.nim's advanceReplayScan).
+      heatSeries = (if sendLead: replay.heatSeries else: @[])
     )
   )
   if sendLead:

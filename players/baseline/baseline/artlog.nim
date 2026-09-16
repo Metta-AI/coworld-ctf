@@ -64,7 +64,7 @@ type
     action*: string           # turret/act branch, e.g. "fire"
     targetX*, targetY*: int   # movement target, map px
     iCarry*, mateCarry*, ownStolen*, sawThief*, pushOut*: bool
-    hasShield*, hasPlasma*, carryNade*: bool
+    hasShield*, hasSpraypaint*, carryNade*: bool
     nadeCharge*: int
     jinked*: bool             # stuck-detector burst fired this frame
     nadeDanger*: bool
@@ -187,7 +187,7 @@ proc sample(snap: FrameSnap) =
   if snap.mateCarry: flags.add("mateCarry")
   if snap.ownStolen: flags.add("ownStolen")
   if snap.hasShield: flags.add("shield")
-  if snap.hasPlasma: flags.add("plasma")
+  if snap.hasSpraypaint: flags.add("spraypaint")
   if snap.carryNade: flags.add("nade")
   if snap.pushOut: flags.add("pushOut")
   if flags.len > 0:
@@ -213,8 +213,8 @@ proc artFrame*(snap: FrameSnap) =
       edge(snap.pushOut, p.pushOut, snap.tick, "push_out", "")
       edge(snap.hasShield, p.hasShield, snap.tick,
         "pickup_shield", "shield_lost", at)
-      edge(snap.hasPlasma, p.hasPlasma, snap.tick,
-        "pickup_plasma", "plasma_spent", at)
+      edge(snap.hasSpraypaint, p.hasSpraypaint, snap.tick,
+        "pickup_spraypaint", "spraypaint_spent", at)
       edge(snap.carryNade, p.carryNade, snap.tick,
         "pickup_nade", "nade_thrown", at)
       edge(snap.nadeDanger, p.nadeDanger, snap.tick, "nade_flee", "", at)

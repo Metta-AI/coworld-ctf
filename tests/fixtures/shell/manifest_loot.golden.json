@@ -1,0 +1,1 @@
+{"abi":1,"class":"controller","doc":"fetch the nearest reachable pickup of any kind while no enemy is tracked","modes":["br"],"name":"loot","params":{"contested":{"default":"avoid","kind":"enum","of":["avoid","race"]},"detourMax":{"default":400,"integer":true,"kind":"number","max":4096,"min":0},"medkits":{"default":false,"kind":"bool"}},"retune":true}

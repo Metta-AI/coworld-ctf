@@ -1,0 +1,74 @@
+## ray
+124634 lines; 2.232s; 339.59MiB peakmem; proj: /Users/jamesboggs/coding/coworlds/coworld-ctf-worktrees/nav-runtime-benefits/tests/test_shell_body_ray.nim; out: /tmp/nav-runtime-ray [SuccessX]
+  [OK] every small ray agrees for every single blocking pixel
+  [OK] seeded long rays preserve sampled walls in both directions
+  [OK] clearance jumps preserve walls, borders and saturated distances
+
+## danger
+126805 lines; 1.688s; 339.02MiB peakmem; proj: /Users/jamesboggs/coding/coworlds/coworld-ctf-worktrees/nav-runtime-benefits/tests/test_shell_body_danger_exact.nim; out: /tmp/nav-runtime-danger [SuccessX]
+  [OK] ranges, partial cells, walls and off-map sources preserve float bits
+  [OK] varying sources remain exact through repeated byte-stamp rollovers
+
+## nav
+127533 lines; 3.475s; 341.906MiB peakmem; proj: /Users/jamesboggs/coding/coworlds/coworld-ctf-worktrees/nav-runtime-benefits/tests/test_shell_body_nav.nim; out: /tmp/nav-runtime-nav [SuccessX]
+  [OK] fresh cover selector caps eight by distance and stable seat
+  [OK] route and duck caches are bounded, pinned, LRU, and non-minting
+  [OK] peekRouteDistance snaps an unwalkable query cell like stencil
+  [OK] field minter publishes the reference route raster
+  [OK] field minter suspension is chunk-independent
+  [OK] cold and warm path planning are deterministic on a unique corridor
+  [OK] danger_schedule_k32_fixed_seed
+  [OK] danger_range_cap_boundary reads the live gun range
+  [OK] start endpoint resolution and equal endpoint match stencil
+  [OK] charged suspension is chunk-independent and replacement is atomic
+  [OK] near-goal cold plan completes in one tick on giant map
+  [OK] mint work cannot delay plan completion
+  [OK] cold-plan budget pools one slice per configured seat
+  [OK] plan budget events report suspensions and the visits to clear them
+  [OK] a cancelled plan is re-requested instead of following the stale path
+  [OK] prewarm and budgeted plan drain produce the same plans
+  [OK] plans-only prewarm preserves queued mints for ordinary play drain
+  [OK] mint lifecycle cancels, preserves, and skips at the right boundaries
+  [OK] cold_plan_budget_256_round_robin
+  [OK] prewarmed activation has no playing-tick cold work until new intent
+  [OK] follower corridor, octants, and stuck state match stencil
+
+## map
+125239 lines; 2.412s; 339.398MiB peakmem; proj: /Users/jamesboggs/coding/coworlds/coworld-ctf-worktrees/nav-runtime-benefits/tests/test_shell_body_map.nim; out: /tmp/nav-runtime-map [SuccessX]
+  [OK] component-by-component static fields match the pinned stencil golden
+  [OK] exact validator covers sites, walls, edges, radius and components
+  [OK] equal-distance ties choose the row-major pixel
+  [OK] validator winner table is exhaustive against row-major scan on fixture
+  [OK] validator winner table keeps row-major tie rule on constructed large map
+  [OK] ValidatedGoal has no external construction or mutable map escape
+  [OK] flagless 16-group maps build without homes or four-team facts
+  [OK] the committed 16-team BR map builds endzone-free
+  [OK] BR golden validator edge and deepest cases match row-major scan
+  [OK] BR golden validator random sweep samples row-major scan
+  [OK] atlas thinning keeps only the 16px candidate grid
+  [OK] duck cache works on thinned atlas posts
+  [OK] atlas density cap riders use thinned construction
+  [OK] validator byte cap arithmetic is exact
+  [OK] invalid spawn fails the activation build
+
+## wiring
+72363 lines; 0.630s; 92.812MiB peakmem; proj: /Users/jamesboggs/coding/coworlds/coworld-ctf-worktrees/nav-runtime-benefits/tests/test_shard_wiring.nim; out: /tmp/nav-runtime-wiring [SuccessX]
+  [OK] every test file on disk is imported by a shard
+
+## linked
+180648 lines; 3.823s; 537.258MiB peakmem; proj: /Users/jamesboggs/coding/coworlds/coworld-ctf-worktrees/nav-runtime-benefits/src/ctf.nim; out: unknownOutput [SuccessX]
+
+## stub
+174592 lines; 3.623s; 537.254MiB peakmem; proj: /Users/jamesboggs/coding/coworlds/coworld-ctf-worktrees/nav-runtime-benefits/src/ctf.nim; out: unknownOutput [SuccessX]
+
+## viewer-qa
+PASS: module evaluates: client/broadcast_core.js
+PASS: module evaluates: replay-viewer/static_replay.js
+PASS: module evaluates: replay-viewer/static_replay_worker.js (+ importScripts of ./wire_constants.js, ./broadcast_core.js)
+PASS: worker importScripts skips only Emscripten glue
+PASS: served bundle matches source: static-replay-viewer/broadcast_core.js
+PASS: served bundle matches source: static-replay-viewer/chrome_common.js
+PASS: served bundle matches source: static-replay-viewer/static_replay.js
+PASS: served bundle matches source: static-replay-viewer/static_replay_worker.js
+PASS: committed wasm GameVersion matches src/ctf/sim_types.nim
+PASS: committed wasm sim-sources stamp matches HEAD

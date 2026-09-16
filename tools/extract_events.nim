@@ -17,7 +17,7 @@
 ##     slots x { i16 x, i16 y, u8 aim, u8 hp, u8 lives, u8 flags, u8 fw, u8 wb }
 ##     teams x { i16 x, i16 y, i8 carrier }
 ##   flags bits: 1 alive, 2 carryingFlag, 4 hasShield, 8 hasGrenade,
-##               16 hasPlasmaArc, 32 shieldHp>0, 64 spray cone active
+##               16 hasSprayPaint, 32 shieldHp>0, 64 spray cone active
 ##   fw = fireWindup; wb = windupBrads, meaningful only where fw > 0 (a full
 ##   0..255 brad value, so there is no free sentinel for "not armed").
 ## Seats are written by joinOrder, so column `s` is the same seat for the whole
@@ -197,7 +197,7 @@ proc appendFrame*(buffer: var string, sim: SimServer, slotCount: int) =
     if player.carryingFlag: flags = flags or 2
     if player.hasShield: flags = flags or 4
     if player.hasGrenade: flags = flags or 8
-    if player.hasPlasmaArc: flags = flags or 16
+    if player.hasSprayPaint: flags = flags or 16
     if player.shieldHp > 0: flags = flags or 32
     if player.arcTicksLeft > 0: flags = flags or 64
     buffer.addI16(player.x)

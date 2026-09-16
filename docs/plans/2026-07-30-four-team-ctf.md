@@ -1,5 +1,9 @@
 # Four-team CTF (red / blue / green / yellow)
 
+> **Historical plan.** Four-team CTF is deprecated since 0.7.253 and live boot
+> requires `allowDeprecatedModes: true`. The implementation snapshot below is
+> preserved unchanged, not presented as the active game.
+
 STATUS: implemented on this branch. Design points that moved during the
 build (with daveey, 2026-07-29/30) — where this plan and the code disagree,
 the CODE is what shipped:

@@ -1,0 +1,488 @@
+{
+  "cacheVersion": "D20240927T193831",
+  "outputFile": "/home/ubuntu/nav-throughput-results-20260909/A6-qualify/bench",
+  "outputLastModificationTime": "",
+  "compile": [
+    [
+      "/home/ubuntu/nav-throughput-results-20260909/A6-qualify/cache/@psystem@sexceptions.nim.c",
+      "gcc -c  -w -fmax-errors=3 -fno-strict-aliasing -pthread -I/home/ubuntu/coworld-nav-wavefront-20260909/src/shell -I/home/ubuntu/coworld-nav-throughput-20260909/tools/runtime_spike/.deps/installed/x86_64-linux/wasmtime-c-api/include -O3 -fno-ident -fno-math-errno   -I/home/ubuntu/.nimby/nim-2.2.6/lib -I/home/ubuntu/coworld-nav-wavefront-20260909/tools -o /home/ubuntu/nav-throughput-results-20260909/A6-qualify/cache/@psystem@sexceptions.nim.c.o /home/ubuntu/nav-throughput-results-20260909/A6-qualify/cache/@psystem@sexceptions.nim.c"
+    ],
+    [
+      "/home/ubuntu/nav-throughput-results-20260909/A6-qualify/cache/@pstd@sprivate@sthreadtypes.nim.c",
+      "gcc -c  -w -fmax-errors=3 -fno-strict-aliasing -pthread -I/home/ubuntu/coworld-nav-wavefront-20260909/src/shell -I/home/ubuntu/coworld-nav-throughput-20260909/tools/runtime_spike/.deps/installed/x86_64-linux/wasmtime-c-api/include -O3 -fno-ident -fno-math-errno   -I/home/ubuntu/.nimby/nim-2.2.6/lib -I/home/ubuntu/coworld-nav-wavefront-20260909/tools -o /home/ubuntu/nav-throughput-results-20260909/A6-qualify/cache/@pstd@sprivate@sthreadtypes.nim.c.o /home/ubuntu/nav-throughput-results-20260909/A6-qualify/cache/@pstd@sprivate@sthreadtypes.nim.c"
+    ],
+    [
+      "/home/ubuntu/nav-throughput-results-20260909/A6-qualify/cache/@pstd@sprivate@sdigitsutils.nim.c",
+      "gcc -c  -w -fmax-errors=3 -fno-strict-aliasing -pthread -I/home/ubuntu/coworld-nav-wavefront-20260909/src/shell -I/home/ubuntu/coworld-nav-throughput-20260909/tools/runtime_spike/.deps/installed/x86_64-linux/wasmtime-c-api/include -O3 -fno-ident -fno-math-errno   -I/home/ubuntu/.nimby/nim-2.2.6/lib -I/home/ubuntu/coworld-nav-wavefront-20260909/tools -o /home/ubuntu/nav-throughput-results-20260909/A6-qualify/cache/@pstd@sprivate@sdigitsutils.nim.c.o /home/ubuntu/nav-throughput-results-20260909/A6-qualify/cache/@pstd@sprivate@sdigitsutils.nim.c"
+    ],
+    [
+      "/home/ubuntu/nav-throughput-results-20260909/A6-qualify/cache/@pstd@sassertions.nim.c",
+      "gcc -c  -w -fmax-errors=3 -fno-strict-aliasing -pthread -I/home/ubuntu/coworld-nav-wavefront-20260909/src/shell -I/home/ubuntu/coworld-nav-throughput-20260909/tools/runtime_spike/.deps/installed/x86_64-linux/wasmtime-c-api/include -O3 -fno-ident -fno-math-errno   -I/home/ubuntu/.nimby/nim-2.2.6/lib -I/home/ubuntu/coworld-nav-wavefront-20260909/tools -o /home/ubuntu/nav-throughput-results-20260909/A6-qualify/cache/@pstd@sassertions.nim.c.o /home/ubuntu/nav-throughput-results-20260909/A6-qualify/cache/@pstd@sassertions.nim.c"
+    ],
+    [
+      "/home/ubuntu/nav-throughput-results-20260909/A6-qualify/cache/@psystem@siterators.nim.c",
+      "gcc -c  -w -fmax-errors=3 -fno-strict-aliasing -pthread -I/home/ubuntu/coworld-nav-wavefront-20260909/src/shell -I/home/ubuntu/coworld-nav-throughput-20260909/tools/runtime_spike/.deps/installed/x86_64-linux/wasmtime-c-api/include -O3 -fno-ident -fno-math-errno   -I/home/ubuntu/.nimby/nim-2.2.6/lib -I/home/ubuntu/coworld-nav-wavefront-20260909/tools -o /home/ubuntu/nav-throughput-results-20260909/A6-qualify/cache/@psystem@siterators.nim.c.o /home/ubuntu/nav-throughput-results-20260909/A6-qualify/cache/@psystem@siterators.nim.c"
+    ],
+    [
+      "/home/ubuntu/nav-throughput-results-20260909/A6-qualify/cache/@pstd@sprivate@sdragonbox.nim.c",
+      "gcc -c  -w -fmax-errors=3 -fno-strict-aliasing -pthread -I/home/ubuntu/coworld-nav-wavefront-20260909/src/shell -I/home/ubuntu/coworld-nav-throughput-20260909/tools/runtime_spike/.deps/installed/x86_64-linux/wasmtime-c-api/include -O3 -fno-ident -fno-math-errno   -I/home/ubuntu/.nimby/nim-2.2.6/lib -I/home/ubuntu/coworld-nav-wavefront-20260909/tools -o /home/ubuntu/nav-throughput-results-20260909/A6-qualify/cache/@pstd@sprivate@sdragonbox.nim.c.o /home/ubuntu/nav-throughput-results-20260909/A6-qualify/cache/@pstd@sprivate@sdragonbox.nim.c"
+    ],
+    [
+      "/home/ubuntu/nav-throughput-results-20260909/A6-qualify/cache/@pstd@sformatfloat.nim.c",
+      "gcc -c  -w -fmax-errors=3 -fno-strict-aliasing -pthread -I/home/ubuntu/coworld-nav-wavefront-20260909/src/shell -I/home/ubuntu/coworld-nav-throughput-20260909/tools/runtime_spike/.deps/installed/x86_64-linux/wasmtime-c-api/include -O3 -fno-ident -fno-math-errno   -I/home/ubuntu/.nimby/nim-2.2.6/lib -I/home/ubuntu/coworld-nav-wavefront-20260909/tools -o /home/ubuntu/nav-throughput-results-20260909/A6-qualify/cache/@pstd@sformatfloat.nim.c.o /home/ubuntu/nav-throughput-results-20260909/A6-qualify/cache/@pstd@sformatfloat.nim.c"
+    ],
+    [
+      "/home/ubuntu/nav-throughput-results-20260909/A6-qualify/cache/@psystem@sdollars.nim.c",
+      "gcc -c  -w -fmax-errors=3 -fno-strict-aliasing -pthread -I/home/ubuntu/coworld-nav-wavefront-20260909/src/shell -I/home/ubuntu/coworld-nav-throughput-20260909/tools/runtime_spike/.deps/installed/x86_64-linux/wasmtime-c-api/include -O3 -fno-ident -fno-math-errno   -I/home/ubuntu/.nimby/nim-2.2.6/lib -I/home/ubuntu/coworld-nav-wavefront-20260909/tools -o /home/ubuntu/nav-throughput-results-20260909/A6-qualify/cache/@psystem@sdollars.nim.c.o /home/ubuntu/nav-throughput-results-20260909/A6-qualify/cache/@psystem@sdollars.nim.c"
+    ],
+    [
+      "/home/ubuntu/nav-throughput-results-20260909/A6-qualify/cache/@pstd@stypedthreads.nim.c",
+      "gcc -c  -w -fmax-errors=3 -fno-strict-aliasing -pthread -I/home/ubuntu/coworld-nav-wavefront-20260909/src/shell -I/home/ubuntu/coworld-nav-throughput-20260909/tools/runtime_spike/.deps/installed/x86_64-linux/wasmtime-c-api/include -O3 -fno-ident -fno-math-errno   -I/home/ubuntu/.nimby/nim-2.2.6/lib -I/home/ubuntu/coworld-nav-wavefront-20260909/tools -o /home/ubuntu/nav-throughput-results-20260909/A6-qualify/cache/@pstd@stypedthreads.nim.c.o /home/ubuntu/nav-throughput-results-20260909/A6-qualify/cache/@pstd@stypedthreads.nim.c"
+    ],
+    [
+      "/home/ubuntu/nav-throughput-results-20260909/A6-qualify/cache/@pstd@ssyncio.nim.c",
+      "gcc -c  -w -fmax-errors=3 -fno-strict-aliasing -pthread -I/home/ubuntu/coworld-nav-wavefront-20260909/src/shell -I/home/ubuntu/coworld-nav-throughput-20260909/tools/runtime_spike/.deps/installed/x86_64-linux/wasmtime-c-api/include -O3 -fno-ident -fno-math-errno   -I/home/ubuntu/.nimby/nim-2.2.6/lib -I/home/ubuntu/coworld-nav-wavefront-20260909/tools -o /home/ubuntu/nav-throughput-results-20260909/A6-qualify/cache/@pstd@ssyncio.nim.c.o /home/ubuntu/nav-throughput-results-20260909/A6-qualify/cache/@pstd@ssyncio.nim.c"
+    ],
+    [
+      "/home/ubuntu/nav-throughput-results-20260909/A6-qualify/cache/@psystem.nim.c",
+      "gcc -c  -w -fmax-errors=3 -fno-strict-aliasing -pthread -I/home/ubuntu/coworld-nav-wavefront-20260909/src/shell -I/home/ubuntu/coworld-nav-throughput-20260909/tools/runtime_spike/.deps/installed/x86_64-linux/wasmtime-c-api/include -O3 -fno-ident -fno-math-errno   -I/home/ubuntu/.nimby/nim-2.2.6/lib -I/home/ubuntu/coworld-nav-wavefront-20260909/tools -o /home/ubuntu/nav-throughput-results-20260909/A6-qualify/cache/@psystem.nim.c.o /home/ubuntu/nav-throughput-results-20260909/A6-qualify/cache/@psystem.nim.c"
+    ],
+    [
+      "/home/ubuntu/nav-throughput-results-20260909/A6-qualify/cache/@palgorithm.nim.c",
+      "gcc -c  -w -fmax-errors=3 -fno-strict-aliasing -pthread -I/home/ubuntu/coworld-nav-wavefront-20260909/src/shell -I/home/ubuntu/coworld-nav-throughput-20260909/tools/runtime_spike/.deps/installed/x86_64-linux/wasmtime-c-api/include -O3 -fno-ident -fno-math-errno   -I/home/ubuntu/.nimby/nim-2.2.6/lib -I/home/ubuntu/coworld-nav-wavefront-20260909/tools -o /home/ubuntu/nav-throughput-results-20260909/A6-qualify/cache/@palgorithm.nim.c.o /home/ubuntu/nav-throughput-results-20260909/A6-qualify/cache/@palgorithm.nim.c"
+    ],
+    [
+      "/home/ubuntu/nav-throughput-results-20260909/A6-qualify/cache/@phashes.nim.c",
+      "gcc -c  -w -fmax-errors=3 -fno-strict-aliasing -pthread -I/home/ubuntu/coworld-nav-wavefront-20260909/src/shell -I/home/ubuntu/coworld-nav-throughput-20260909/tools/runtime_spike/.deps/installed/x86_64-linux/wasmtime-c-api/include -O3 -fno-ident -fno-math-errno   -I/home/ubuntu/.nimby/nim-2.2.6/lib -I/home/ubuntu/coworld-nav-wavefront-20260909/tools -o /home/ubuntu/nav-throughput-results-20260909/A6-qualify/cache/@phashes.nim.c.o /home/ubuntu/nav-throughput-results-20260909/A6-qualify/cache/@phashes.nim.c"
+    ],
+    [
+      "/home/ubuntu/nav-throughput-results-20260909/A6-qualify/cache/@pmath.nim.c",
+      "gcc -c  -w -fmax-errors=3 -fno-strict-aliasing -pthread -I/home/ubuntu/coworld-nav-wavefront-20260909/src/shell -I/home/ubuntu/coworld-nav-throughput-20260909/tools/runtime_spike/.deps/installed/x86_64-linux/wasmtime-c-api/include -O3 -fno-ident -fno-math-errno   -I/home/ubuntu/.nimby/nim-2.2.6/lib -I/home/ubuntu/coworld-nav-wavefront-20260909/tools -o /home/ubuntu/nav-throughput-results-20260909/A6-qualify/cache/@pmath.nim.c.o /home/ubuntu/nav-throughput-results-20260909/A6-qualify/cache/@pmath.nim.c"
+    ],
+    [
+      "/home/ubuntu/nav-throughput-results-20260909/A6-qualify/cache/@ptables.nim.c",
+      "gcc -c  -w -fmax-errors=3 -fno-strict-aliasing -pthread -I/home/ubuntu/coworld-nav-wavefront-20260909/src/shell -I/home/ubuntu/coworld-nav-throughput-20260909/tools/runtime_spike/.deps/installed/x86_64-linux/wasmtime-c-api/include -O3 -fno-ident -fno-math-errno   -I/home/ubuntu/.nimby/nim-2.2.6/lib -I/home/ubuntu/coworld-nav-wavefront-20260909/tools -o /home/ubuntu/nav-throughput-results-20260909/A6-qualify/cache/@ptables.nim.c.o /home/ubuntu/nav-throughput-results-20260909/A6-qualify/cache/@ptables.nim.c"
+    ],
+    [
+      "/home/ubuntu/nav-throughput-results-20260909/A6-qualify/cache/@pparseutils.nim.c",
+      "gcc -c  -w -fmax-errors=3 -fno-strict-aliasing -pthread -I/home/ubuntu/coworld-nav-wavefront-20260909/src/shell -I/home/ubuntu/coworld-nav-throughput-20260909/tools/runtime_spike/.deps/installed/x86_64-linux/wasmtime-c-api/include -O3 -fno-ident -fno-math-errno   -I/home/ubuntu/.nimby/nim-2.2.6/lib -I/home/ubuntu/coworld-nav-wavefront-20260909/tools -o /home/ubuntu/nav-throughput-results-20260909/A6-qualify/cache/@pparseutils.nim.c.o /home/ubuntu/nav-throughput-results-20260909/A6-qualify/cache/@pparseutils.nim.c"
+    ],
+    [
+      "/home/ubuntu/nav-throughput-results-20260909/A6-qualify/cache/@punicode.nim.c",
+      "gcc -c  -w -fmax-errors=3 -fno-strict-aliasing -pthread -I/home/ubuntu/coworld-nav-wavefront-20260909/src/shell -I/home/ubuntu/coworld-nav-throughput-20260909/tools/runtime_spike/.deps/installed/x86_64-linux/wasmtime-c-api/include -O3 -fno-ident -fno-math-errno   -I/home/ubuntu/.nimby/nim-2.2.6/lib -I/home/ubuntu/coworld-nav-wavefront-20260909/tools -o /home/ubuntu/nav-throughput-results-20260909/A6-qualify/cache/@punicode.nim.c.o /home/ubuntu/nav-throughput-results-20260909/A6-qualify/cache/@punicode.nim.c"
+    ],
+    [
+      "/home/ubuntu/nav-throughput-results-20260909/A6-qualify/cache/@pstrutils.nim.c",
+      "gcc -c  -w -fmax-errors=3 -fno-strict-aliasing -pthread -I/home/ubuntu/coworld-nav-wavefront-20260909/src/shell -I/home/ubuntu/coworld-nav-throughput-20260909/tools/runtime_spike/.deps/installed/x86_64-linux/wasmtime-c-api/include -O3 -fno-ident -fno-math-errno   -I/home/ubuntu/.nimby/nim-2.2.6/lib -I/home/ubuntu/coworld-nav-wavefront-20260909/tools -o /home/ubuntu/nav-throughput-results-20260909/A6-qualify/cache/@pstrutils.nim.c.o /home/ubuntu/nav-throughput-results-20260909/A6-qualify/cache/@pstrutils.nim.c"
+    ],
+    [
+      "/home/ubuntu/nav-throughput-results-20260909/A6-qualify/cache/@pstreams.nim.c",
+      "gcc -c  -w -fmax-errors=3 -fno-strict-aliasing -pthread -I/home/ubuntu/coworld-nav-wavefront-20260909/src/shell -I/home/ubuntu/coworld-nav-throughput-20260909/tools/runtime_spike/.deps/installed/x86_64-linux/wasmtime-c-api/include -O3 -fno-ident -fno-math-errno   -I/home/ubuntu/.nimby/nim-2.2.6/lib -I/home/ubuntu/coworld-nav-wavefront-20260909/tools -o /home/ubuntu/nav-throughput-results-20260909/A6-qualify/cache/@pstreams.nim.c.o /home/ubuntu/nav-throughput-results-20260909/A6-qualify/cache/@pstreams.nim.c"
+    ],
+    [
+      "/home/ubuntu/nav-throughput-results-20260909/A6-qualify/cache/@plexbase.nim.c",
+      "gcc -c  -w -fmax-errors=3 -fno-strict-aliasing -pthread -I/home/ubuntu/coworld-nav-wavefront-20260909/src/shell -I/home/ubuntu/coworld-nav-throughput-20260909/tools/runtime_spike/.deps/installed/x86_64-linux/wasmtime-c-api/include -O3 -fno-ident -fno-math-errno   -I/home/ubuntu/.nimby/nim-2.2.6/lib -I/home/ubuntu/coworld-nav-wavefront-20260909/tools -o /home/ubuntu/nav-throughput-results-20260909/A6-qualify/cache/@plexbase.nim.c.o /home/ubuntu/nav-throughput-results-20260909/A6-qualify/cache/@plexbase.nim.c"
+    ],
+    [
+      "/home/ubuntu/nav-throughput-results-20260909/A6-qualify/cache/@pparsejson.nim.c",
+      "gcc -c  -w -fmax-errors=3 -fno-strict-aliasing -pthread -I/home/ubuntu/coworld-nav-wavefront-20260909/src/shell -I/home/ubuntu/coworld-nav-throughput-20260909/tools/runtime_spike/.deps/installed/x86_64-linux/wasmtime-c-api/include -O3 -fno-ident -fno-math-errno   -I/home/ubuntu/.nimby/nim-2.2.6/lib -I/home/ubuntu/coworld-nav-wavefront-20260909/tools -o /home/ubuntu/nav-throughput-results-20260909/A6-qualify/cache/@pparsejson.nim.c.o /home/ubuntu/nav-throughput-results-20260909/A6-qualify/cache/@pparsejson.nim.c"
+    ],
+    [
+      "/home/ubuntu/nav-throughput-results-20260909/A6-qualify/cache/@poptions.nim.c",
+      "gcc -c  -w -fmax-errors=3 -fno-strict-aliasing -pthread -I/home/ubuntu/coworld-nav-wavefront-20260909/src/shell -I/home/ubuntu/coworld-nav-throughput-20260909/tools/runtime_spike/.deps/installed/x86_64-linux/wasmtime-c-api/include -O3 -fno-ident -fno-math-errno   -I/home/ubuntu/.nimby/nim-2.2.6/lib -I/home/ubuntu/coworld-nav-wavefront-20260909/tools -o /home/ubuntu/nav-throughput-results-20260909/A6-qualify/cache/@poptions.nim.c.o /home/ubuntu/nav-throughput-results-20260909/A6-qualify/cache/@poptions.nim.c"
+    ],
+    [
+      "/home/ubuntu/nav-throughput-results-20260909/A6-qualify/cache/@pjson.nim.c",
+      "gcc -c  -w -fmax-errors=3 -fno-strict-aliasing -pthread -I/home/ubuntu/coworld-nav-wavefront-20260909/src/shell -I/home/ubuntu/coworld-nav-throughput-20260909/tools/runtime_spike/.deps/installed/x86_64-linux/wasmtime-c-api/include -O3 -fno-ident -fno-math-errno   -I/home/ubuntu/.nimby/nim-2.2.6/lib -I/home/ubuntu/coworld-nav-wavefront-20260909/tools -o /home/ubuntu/nav-throughput-results-20260909/A6-qualify/cache/@pjson.nim.c.o /home/ubuntu/nav-throughput-results-20260909/A6-qualify/cache/@pjson.nim.c"
+    ],
+    [
+      "/home/ubuntu/nav-throughput-results-20260909/A6-qualify/cache/@pposix.nim.c",
+      "gcc -c  -w -fmax-errors=3 -fno-strict-aliasing -pthread -I/home/ubuntu/coworld-nav-wavefront-20260909/src/shell -I/home/ubuntu/coworld-nav-throughput-20260909/tools/runtime_spike/.deps/installed/x86_64-linux/wasmtime-c-api/include -O3 -fno-ident -fno-math-errno   -I/home/ubuntu/.nimby/nim-2.2.6/lib -I/home/ubuntu/coworld-nav-wavefront-20260909/tools -o /home/ubuntu/nav-throughput-results-20260909/A6-qualify/cache/@pposix.nim.c.o /home/ubuntu/nav-throughput-results-20260909/A6-qualify/cache/@pposix.nim.c"
+    ],
+    [
+      "/home/ubuntu/nav-throughput-results-20260909/A6-qualify/cache/@ptimes.nim.c",
+      "gcc -c  -w -fmax-errors=3 -fno-strict-aliasing -pthread -I/home/ubuntu/coworld-nav-wavefront-20260909/src/shell -I/home/ubuntu/coworld-nav-throughput-20260909/tools/runtime_spike/.deps/installed/x86_64-linux/wasmtime-c-api/include -O3 -fno-ident -fno-math-errno   -I/home/ubuntu/.nimby/nim-2.2.6/lib -I/home/ubuntu/coworld-nav-wavefront-20260909/tools -o /home/ubuntu/nav-throughput-results-20260909/A6-qualify/cache/@ptimes.nim.c.o /home/ubuntu/nav-throughput-results-20260909/A6-qualify/cache/@ptimes.nim.c"
+    ],
+    [
+      "/home/ubuntu/nav-throughput-results-20260909/A6-qualify/cache/@pstd@smonotimes.nim.c",
+      "gcc -c  -w -fmax-errors=3 -fno-strict-aliasing -pthread -I/home/ubuntu/coworld-nav-wavefront-20260909/src/shell -I/home/ubuntu/coworld-nav-throughput-20260909/tools/runtime_spike/.deps/installed/x86_64-linux/wasmtime-c-api/include -O3 -fno-ident -fno-math-errno   -I/home/ubuntu/.nimby/nim-2.2.6/lib -I/home/ubuntu/coworld-nav-wavefront-20260909/tools -o /home/ubuntu/nav-throughput-results-20260909/A6-qualify/cache/@pstd@smonotimes.nim.c.o /home/ubuntu/nav-throughput-results-20260909/A6-qualify/cache/@pstd@smonotimes.nim.c"
+    ],
+    [
+      "/home/ubuntu/nav-throughput-results-20260909/A6-qualify/cache/@pstd@soserrors.nim.c",
+      "gcc -c  -w -fmax-errors=3 -fno-strict-aliasing -pthread -I/home/ubuntu/coworld-nav-wavefront-20260909/src/shell -I/home/ubuntu/coworld-nav-throughput-20260909/tools/runtime_spike/.deps/installed/x86_64-linux/wasmtime-c-api/include -O3 -fno-ident -fno-math-errno   -I/home/ubuntu/.nimby/nim-2.2.6/lib -I/home/ubuntu/coworld-nav-wavefront-20260909/tools -o /home/ubuntu/nav-throughput-results-20260909/A6-qualify/cache/@pstd@soserrors.nim.c.o /home/ubuntu/nav-throughput-results-20260909/A6-qualify/cache/@pstd@soserrors.nim.c"
+    ],
+    [
+      "/home/ubuntu/nav-throughput-results-20260909/A6-qualify/cache/@pstd@sprivate@soscommon.nim.c",
+      "gcc -c  -w -fmax-errors=3 -fno-strict-aliasing -pthread -I/home/ubuntu/coworld-nav-wavefront-20260909/src/shell -I/home/ubuntu/coworld-nav-throughput-20260909/tools/runtime_spike/.deps/installed/x86_64-linux/wasmtime-c-api/include -O3 -fno-ident -fno-math-errno   -I/home/ubuntu/.nimby/nim-2.2.6/lib -I/home/ubuntu/coworld-nav-wavefront-20260909/tools -o /home/ubuntu/nav-throughput-results-20260909/A6-qualify/cache/@pstd@sprivate@soscommon.nim.c.o /home/ubuntu/nav-throughput-results-20260909/A6-qualify/cache/@pstd@sprivate@soscommon.nim.c"
+    ],
+    [
+      "/home/ubuntu/nav-throughput-results-20260909/A6-qualify/cache/@pstd@sprivate@sospaths2.nim.c",
+      "gcc -c  -w -fmax-errors=3 -fno-strict-aliasing -pthread -I/home/ubuntu/coworld-nav-wavefront-20260909/src/shell -I/home/ubuntu/coworld-nav-throughput-20260909/tools/runtime_spike/.deps/installed/x86_64-linux/wasmtime-c-api/include -O3 -fno-ident -fno-math-errno   -I/home/ubuntu/.nimby/nim-2.2.6/lib -I/home/ubuntu/coworld-nav-wavefront-20260909/tools -o /home/ubuntu/nav-throughput-results-20260909/A6-qualify/cache/@pstd@sprivate@sospaths2.nim.c.o /home/ubuntu/nav-throughput-results-20260909/A6-qualify/cache/@pstd@sprivate@sospaths2.nim.c"
+    ],
+    [
+      "/home/ubuntu/nav-throughput-results-20260909/A6-qualify/cache/@pstd@senvvars.nim.c",
+      "gcc -c  -w -fmax-errors=3 -fno-strict-aliasing -pthread -I/home/ubuntu/coworld-nav-wavefront-20260909/src/shell -I/home/ubuntu/coworld-nav-throughput-20260909/tools/runtime_spike/.deps/installed/x86_64-linux/wasmtime-c-api/include -O3 -fno-ident -fno-math-errno   -I/home/ubuntu/.nimby/nim-2.2.6/lib -I/home/ubuntu/coworld-nav-wavefront-20260909/tools -o /home/ubuntu/nav-throughput-results-20260909/A6-qualify/cache/@pstd@senvvars.nim.c.o /home/ubuntu/nav-throughput-results-20260909/A6-qualify/cache/@pstd@senvvars.nim.c"
+    ],
+    [
+      "/home/ubuntu/nav-throughput-results-20260909/A6-qualify/cache/@pstd@scmdline.nim.c",
+      "gcc -c  -w -fmax-errors=3 -fno-strict-aliasing -pthread -I/home/ubuntu/coworld-nav-wavefront-20260909/src/shell -I/home/ubuntu/coworld-nav-throughput-20260909/tools/runtime_spike/.deps/installed/x86_64-linux/wasmtime-c-api/include -O3 -fno-ident -fno-math-errno   -I/home/ubuntu/.nimby/nim-2.2.6/lib -I/home/ubuntu/coworld-nav-wavefront-20260909/tools -o /home/ubuntu/nav-throughput-results-20260909/A6-qualify/cache/@pstd@scmdline.nim.c.o /home/ubuntu/nav-throughput-results-20260909/A6-qualify/cache/@pstd@scmdline.nim.c"
+    ],
+    [
+      "/home/ubuntu/nav-throughput-results-20260909/A6-qualify/cache/@pos.nim.c",
+      "gcc -c  -w -fmax-errors=3 -fno-strict-aliasing -pthread -I/home/ubuntu/coworld-nav-wavefront-20260909/src/shell -I/home/ubuntu/coworld-nav-throughput-20260909/tools/runtime_spike/.deps/installed/x86_64-linux/wasmtime-c-api/include -O3 -fno-ident -fno-math-errno   -I/home/ubuntu/.nimby/nim-2.2.6/lib -I/home/ubuntu/coworld-nav-wavefront-20260909/tools -o /home/ubuntu/nav-throughput-results-20260909/A6-qualify/cache/@pos.nim.c.o /home/ubuntu/nav-throughput-results-20260909/A6-qualify/cache/@pos.nim.c"
+    ],
+    [
+      "/home/ubuntu/nav-throughput-results-20260909/A6-qualify/cache/@pstrtabs.nim.c",
+      "gcc -c  -w -fmax-errors=3 -fno-strict-aliasing -pthread -I/home/ubuntu/coworld-nav-wavefront-20260909/src/shell -I/home/ubuntu/coworld-nav-throughput-20260909/tools/runtime_spike/.deps/installed/x86_64-linux/wasmtime-c-api/include -O3 -fno-ident -fno-math-errno   -I/home/ubuntu/.nimby/nim-2.2.6/lib -I/home/ubuntu/coworld-nav-wavefront-20260909/tools -o /home/ubuntu/nav-throughput-results-20260909/A6-qualify/cache/@pstrtabs.nim.c.o /home/ubuntu/nav-throughput-results-20260909/A6-qualify/cache/@pstrtabs.nim.c"
+    ],
+    [
+      "/home/ubuntu/nav-throughput-results-20260909/A6-qualify/cache/@pdeques.nim.c",
+      "gcc -c  -w -fmax-errors=3 -fno-strict-aliasing -pthread -I/home/ubuntu/coworld-nav-wavefront-20260909/src/shell -I/home/ubuntu/coworld-nav-throughput-20260909/tools/runtime_spike/.deps/installed/x86_64-linux/wasmtime-c-api/include -O3 -fno-ident -fno-math-errno   -I/home/ubuntu/.nimby/nim-2.2.6/lib -I/home/ubuntu/coworld-nav-wavefront-20260909/tools -o /home/ubuntu/nav-throughput-results-20260909/A6-qualify/cache/@pdeques.nim.c.o /home/ubuntu/nav-throughput-results-20260909/A6-qualify/cache/@pdeques.nim.c"
+    ],
+    [
+      "/home/ubuntu/nav-throughput-results-20260909/A6-qualify/cache/@posproc.nim.c",
+      "gcc -c  -w -fmax-errors=3 -fno-strict-aliasing -pthread -I/home/ubuntu/coworld-nav-wavefront-20260909/src/shell -I/home/ubuntu/coworld-nav-throughput-20260909/tools/runtime_spike/.deps/installed/x86_64-linux/wasmtime-c-api/include -O3 -fno-ident -fno-math-errno   -I/home/ubuntu/.nimby/nim-2.2.6/lib -I/home/ubuntu/coworld-nav-wavefront-20260909/tools -o /home/ubuntu/nav-throughput-results-20260909/A6-qualify/cache/@posproc.nim.c.o /home/ubuntu/nav-throughput-results-20260909/A6-qualify/cache/@posproc.nim.c"
+    ],
+    [
+      "/home/ubuntu/nav-throughput-results-20260909/A6-qualify/cache/@pstrformat.nim.c",
+      "gcc -c  -w -fmax-errors=3 -fno-strict-aliasing -pthread -I/home/ubuntu/coworld-nav-wavefront-20260909/src/shell -I/home/ubuntu/coworld-nav-throughput-20260909/tools/runtime_spike/.deps/installed/x86_64-linux/wasmtime-c-api/include -O3 -fno-ident -fno-math-errno   -I/home/ubuntu/.nimby/nim-2.2.6/lib -I/home/ubuntu/coworld-nav-wavefront-20260909/tools -o /home/ubuntu/nav-throughput-results-20260909/A6-qualify/cache/@pstrformat.nim.c.o /home/ubuntu/nav-throughput-results-20260909/A6-qualify/cache/@pstrformat.nim.c"
+    ],
+    [
+      "/home/ubuntu/nav-throughput-results-20260909/A6-qualify/cache/@pcrunchy@scommon.nim.c",
+      "gcc -c  -w -fmax-errors=3 -fno-strict-aliasing -pthread -I/home/ubuntu/coworld-nav-wavefront-20260909/src/shell -I/home/ubuntu/coworld-nav-throughput-20260909/tools/runtime_spike/.deps/installed/x86_64-linux/wasmtime-c-api/include -O3 -fno-ident -fno-math-errno   -I/home/ubuntu/.nimby/nim-2.2.6/lib -I/home/ubuntu/coworld-nav-wavefront-20260909/tools -o /home/ubuntu/nav-throughput-results-20260909/A6-qualify/cache/@pcrunchy@scommon.nim.c.o /home/ubuntu/nav-throughput-results-20260909/A6-qualify/cache/@pcrunchy@scommon.nim.c"
+    ],
+    [
+      "/home/ubuntu/nav-throughput-results-20260909/A6-qualify/cache/@pcrunchy@ssha256_simd.nim.c",
+      "gcc -c  -w -fmax-errors=3 -fno-strict-aliasing -pthread -I/home/ubuntu/coworld-nav-wavefront-20260909/src/shell -I/home/ubuntu/coworld-nav-throughput-20260909/tools/runtime_spike/.deps/installed/x86_64-linux/wasmtime-c-api/include -O3 -fno-ident -fno-math-errno  -msse4.1 -msha  -I/home/ubuntu/.nimby/nim-2.2.6/lib -I/home/ubuntu/coworld-nav-wavefront-20260909/tools -o /home/ubuntu/nav-throughput-results-20260909/A6-qualify/cache/@pcrunchy@ssha256_simd.nim.c.o /home/ubuntu/nav-throughput-results-20260909/A6-qualify/cache/@pcrunchy@ssha256_simd.nim.c"
+    ],
+    [
+      "/home/ubuntu/nav-throughput-results-20260909/A6-qualify/cache/@pnimsimd@sruntimecheck.nim.c",
+      "gcc -c  -w -fmax-errors=3 -fno-strict-aliasing -pthread -I/home/ubuntu/coworld-nav-wavefront-20260909/src/shell -I/home/ubuntu/coworld-nav-throughput-20260909/tools/runtime_spike/.deps/installed/x86_64-linux/wasmtime-c-api/include -O3 -fno-ident -fno-math-errno   -I/home/ubuntu/.nimby/nim-2.2.6/lib -I/home/ubuntu/coworld-nav-wavefront-20260909/tools -o /home/ubuntu/nav-throughput-results-20260909/A6-qualify/cache/@pnimsimd@sruntimecheck.nim.c.o /home/ubuntu/nav-throughput-results-20260909/A6-qualify/cache/@pnimsimd@sruntimecheck.nim.c"
+    ],
+    [
+      "/home/ubuntu/nav-throughput-results-20260909/A6-qualify/cache/@pcrunchy@ssha256.nim.c",
+      "gcc -c  -w -fmax-errors=3 -fno-strict-aliasing -pthread -I/home/ubuntu/coworld-nav-wavefront-20260909/src/shell -I/home/ubuntu/coworld-nav-throughput-20260909/tools/runtime_spike/.deps/installed/x86_64-linux/wasmtime-c-api/include -O3 -fno-ident -fno-math-errno   -I/home/ubuntu/.nimby/nim-2.2.6/lib -I/home/ubuntu/coworld-nav-wavefront-20260909/tools -o /home/ubuntu/nav-throughput-results-20260909/A6-qualify/cache/@pcrunchy@ssha256.nim.c.o /home/ubuntu/nav-throughput-results-20260909/A6-qualify/cache/@pcrunchy@ssha256.nim.c"
+    ],
+    [
+      "/home/ubuntu/nav-throughput-results-20260909/A6-qualify/cache/@pbitworld@sprofile.nim.c",
+      "gcc -c  -w -fmax-errors=3 -fno-strict-aliasing -pthread -I/home/ubuntu/coworld-nav-wavefront-20260909/src/shell -I/home/ubuntu/coworld-nav-throughput-20260909/tools/runtime_spike/.deps/installed/x86_64-linux/wasmtime-c-api/include -O3 -fno-ident -fno-math-errno   -I/home/ubuntu/.nimby/nim-2.2.6/lib -I/home/ubuntu/coworld-nav-wavefront-20260909/tools -o /home/ubuntu/nav-throughput-results-20260909/A6-qualify/cache/@pbitworld@sprofile.nim.c.o /home/ubuntu/nav-throughput-results-20260909/A6-qualify/cache/@pbitworld@sprofile.nim.c"
+    ],
+    [
+      "/home/ubuntu/nav-throughput-results-20260909/A6-qualify/cache/@ppixie@ssimd.nim.c",
+      "gcc -c  -w -fmax-errors=3 -fno-strict-aliasing -pthread -I/home/ubuntu/coworld-nav-wavefront-20260909/src/shell -I/home/ubuntu/coworld-nav-throughput-20260909/tools/runtime_spike/.deps/installed/x86_64-linux/wasmtime-c-api/include -O3 -fno-ident -fno-math-errno   -I/home/ubuntu/.nimby/nim-2.2.6/lib -I/home/ubuntu/coworld-nav-wavefront-20260909/tools -o /home/ubuntu/nav-throughput-results-20260909/A6-qualify/cache/@ppixie@ssimd.nim.c.o /home/ubuntu/nav-throughput-results-20260909/A6-qualify/cache/@ppixie@ssimd.nim.c"
+    ],
+    [
+      "/home/ubuntu/nav-throughput-results-20260909/A6-qualify/cache/@psets.nim.c",
+      "gcc -c  -w -fmax-errors=3 -fno-strict-aliasing -pthread -I/home/ubuntu/coworld-nav-wavefront-20260909/src/shell -I/home/ubuntu/coworld-nav-throughput-20260909/tools/runtime_spike/.deps/installed/x86_64-linux/wasmtime-c-api/include -O3 -fno-ident -fno-math-errno   -I/home/ubuntu/.nimby/nim-2.2.6/lib -I/home/ubuntu/coworld-nav-wavefront-20260909/tools -o /home/ubuntu/nav-throughput-results-20260909/A6-qualify/cache/@psets.nim.c.o /home/ubuntu/nav-throughput-results-20260909/A6-qualify/cache/@psets.nim.c"
+    ],
+    [
+      "/home/ubuntu/nav-throughput-results-20260909/A6-qualify/cache/@ppixie@sfontformats@sopentype.nim.c",
+      "gcc -c  -w -fmax-errors=3 -fno-strict-aliasing -pthread -I/home/ubuntu/coworld-nav-wavefront-20260909/src/shell -I/home/ubuntu/coworld-nav-throughput-20260909/tools/runtime_spike/.deps/installed/x86_64-linux/wasmtime-c-api/include -O3 -fno-ident -fno-math-errno   -I/home/ubuntu/.nimby/nim-2.2.6/lib -I/home/ubuntu/coworld-nav-wavefront-20260909/tools -o /home/ubuntu/nav-throughput-results-20260909/A6-qualify/cache/@ppixie@sfontformats@sopentype.nim.c.o /home/ubuntu/nav-throughput-results-20260909/A6-qualify/cache/@ppixie@sfontformats@sopentype.nim.c"
+    ],
+    [
+      "/home/ubuntu/nav-throughput-results-20260909/A6-qualify/cache/@ppixie@sfileformats@sjpeg.nim.c",
+      "gcc -c  -w -fmax-errors=3 -fno-strict-aliasing -pthread -I/home/ubuntu/coworld-nav-wavefront-20260909/src/shell -I/home/ubuntu/coworld-nav-throughput-20260909/tools/runtime_spike/.deps/installed/x86_64-linux/wasmtime-c-api/include -O3 -fno-ident -fno-math-errno   -I/home/ubuntu/.nimby/nim-2.2.6/lib -I/home/ubuntu/coworld-nav-wavefront-20260909/tools -o /home/ubuntu/nav-throughput-results-20260909/A6-qualify/cache/@ppixie@sfileformats@sjpeg.nim.c.o /home/ubuntu/nav-throughput-results-20260909/A6-qualify/cache/@ppixie@sfileformats@sjpeg.nim.c"
+    ],
+    [
+      "/home/ubuntu/nav-throughput-results-20260909/A6-qualify/cache/@pheapqueue.nim.c",
+      "gcc -c  -w -fmax-errors=3 -fno-strict-aliasing -pthread -I/home/ubuntu/coworld-nav-wavefront-20260909/src/shell -I/home/ubuntu/coworld-nav-throughput-20260909/tools/runtime_spike/.deps/installed/x86_64-linux/wasmtime-c-api/include -O3 -fno-ident -fno-math-errno   -I/home/ubuntu/.nimby/nim-2.2.6/lib -I/home/ubuntu/coworld-nav-wavefront-20260909/tools -o /home/ubuntu/nav-throughput-results-20260909/A6-qualify/cache/@pheapqueue.nim.c.o /home/ubuntu/nav-throughput-results-20260909/A6-qualify/cache/@pheapqueue.nim.c"
+    ],
+    [
+      "/home/ubuntu/nav-throughput-results-20260909/A6-qualify/cache/@ppixie@sfileformats@spng.nim.c",
+      "gcc -c  -w -fmax-errors=3 -fno-strict-aliasing -pthread -I/home/ubuntu/coworld-nav-wavefront-20260909/src/shell -I/home/ubuntu/coworld-nav-throughput-20260909/tools/runtime_spike/.deps/installed/x86_64-linux/wasmtime-c-api/include -O3 -fno-ident -fno-math-errno   -I/home/ubuntu/.nimby/nim-2.2.6/lib -I/home/ubuntu/coworld-nav-wavefront-20260909/tools -o /home/ubuntu/nav-throughput-results-20260909/A6-qualify/cache/@ppixie@sfileformats@spng.nim.c.o /home/ubuntu/nav-throughput-results-20260909/A6-qualify/cache/@ppixie@sfileformats@spng.nim.c"
+    ],
+    [
+      "/home/ubuntu/nav-throughput-results-20260909/A6-qualify/cache/@psupersnappy@sinternal.nim.c",
+      "gcc -c  -w -fmax-errors=3 -fno-strict-aliasing -pthread -I/home/ubuntu/coworld-nav-wavefront-20260909/src/shell -I/home/ubuntu/coworld-nav-throughput-20260909/tools/runtime_spike/.deps/installed/x86_64-linux/wasmtime-c-api/include -O3 -fno-ident -fno-math-errno   -I/home/ubuntu/.nimby/nim-2.2.6/lib -I/home/ubuntu/coworld-nav-wavefront-20260909/tools -o /home/ubuntu/nav-throughput-results-20260909/A6-qualify/cache/@psupersnappy@sinternal.nim.c.o /home/ubuntu/nav-throughput-results-20260909/A6-qualify/cache/@psupersnappy@sinternal.nim.c"
+    ],
+    [
+      "/home/ubuntu/nav-throughput-results-20260909/A6-qualify/cache/@pbitworld@sspriteprotocol.nim.c",
+      "gcc -c  -w -fmax-errors=3 -fno-strict-aliasing -pthread -I/home/ubuntu/coworld-nav-wavefront-20260909/src/shell -I/home/ubuntu/coworld-nav-throughput-20260909/tools/runtime_spike/.deps/installed/x86_64-linux/wasmtime-c-api/include -O3 -fno-ident -fno-math-errno   -I/home/ubuntu/.nimby/nim-2.2.6/lib -I/home/ubuntu/coworld-nav-wavefront-20260909/tools -o /home/ubuntu/nav-throughput-results-20260909/A6-qualify/cache/@pbitworld@sspriteprotocol.nim.c.o /home/ubuntu/nav-throughput-results-20260909/A6-qualify/cache/@pbitworld@sspriteprotocol.nim.c"
+    ],
+    [
+      "/home/ubuntu/nav-throughput-results-20260909/A6-qualify/cache/@pjsony.nim.c",
+      "gcc -c  -w -fmax-errors=3 -fno-strict-aliasing -pthread -I/home/ubuntu/coworld-nav-wavefront-20260909/src/shell -I/home/ubuntu/coworld-nav-throughput-20260909/tools/runtime_spike/.deps/installed/x86_64-linux/wasmtime-c-api/include -O3 -fno-ident -fno-math-errno   -I/home/ubuntu/.nimby/nim-2.2.6/lib -I/home/ubuntu/coworld-nav-wavefront-20260909/tools -o /home/ubuntu/nav-throughput-results-20260909/A6-qualify/cache/@pjsony.nim.c.o /home/ubuntu/nav-throughput-results-20260909/A6-qualify/cache/@pjsony.nim.c"
+    ],
+    [
+      "/home/ubuntu/nav-throughput-results-20260909/A6-qualify/cache/@prandom.nim.c",
+      "gcc -c  -w -fmax-errors=3 -fno-strict-aliasing -pthread -I/home/ubuntu/coworld-nav-wavefront-20260909/src/shell -I/home/ubuntu/coworld-nav-throughput-20260909/tools/runtime_spike/.deps/installed/x86_64-linux/wasmtime-c-api/include -O3 -fno-ident -fno-math-errno   -I/home/ubuntu/.nimby/nim-2.2.6/lib -I/home/ubuntu/coworld-nav-wavefront-20260909/tools -o /home/ubuntu/nav-throughput-results-20260909/A6-qualify/cache/@prandom.nim.c.o /home/ubuntu/nav-throughput-results-20260909/A6-qualify/cache/@prandom.nim.c"
+    ],
+    [
+      "/home/ubuntu/nav-throughput-results-20260909/A6-qualify/cache/@pbitworld@spixelfonts.nim.c",
+      "gcc -c  -w -fmax-errors=3 -fno-strict-aliasing -pthread -I/home/ubuntu/coworld-nav-wavefront-20260909/src/shell -I/home/ubuntu/coworld-nav-throughput-20260909/tools/runtime_spike/.deps/installed/x86_64-linux/wasmtime-c-api/include -O3 -fno-ident -fno-math-errno   -I/home/ubuntu/.nimby/nim-2.2.6/lib -I/home/ubuntu/coworld-nav-wavefront-20260909/tools -o /home/ubuntu/nav-throughput-results-20260909/A6-qualify/cache/@pbitworld@spixelfonts.nim.c.o /home/ubuntu/nav-throughput-results-20260909/A6-qualify/cache/@pbitworld@spixelfonts.nim.c"
+    ],
+    [
+      "/home/ubuntu/nav-throughput-results-20260909/A6-qualify/cache/@m..@ssrc@sctf@ssim_types.nim.c",
+      "gcc -c  -w -fmax-errors=3 -fno-strict-aliasing -pthread -I/home/ubuntu/coworld-nav-wavefront-20260909/src/shell -I/home/ubuntu/coworld-nav-throughput-20260909/tools/runtime_spike/.deps/installed/x86_64-linux/wasmtime-c-api/include -O3 -fno-ident -fno-math-errno   -I/home/ubuntu/.nimby/nim-2.2.6/lib -I/home/ubuntu/coworld-nav-wavefront-20260909/tools -o /home/ubuntu/nav-throughput-results-20260909/A6-qualify/cache/@m..@ssrc@sctf@ssim_types.nim.c.o /home/ubuntu/nav-throughput-results-20260909/A6-qualify/cache/@m..@ssrc@sctf@ssim_types.nim.c"
+    ],
+    [
+      "/home/ubuntu/nav-throughput-results-20260909/A6-qualify/cache/@m..@ssrc@sctf@sarena.nim.c",
+      "gcc -c  -w -fmax-errors=3 -fno-strict-aliasing -pthread -I/home/ubuntu/coworld-nav-wavefront-20260909/src/shell -I/home/ubuntu/coworld-nav-throughput-20260909/tools/runtime_spike/.deps/installed/x86_64-linux/wasmtime-c-api/include -O3 -fno-ident -fno-math-errno   -I/home/ubuntu/.nimby/nim-2.2.6/lib -I/home/ubuntu/coworld-nav-wavefront-20260909/tools -o /home/ubuntu/nav-throughput-results-20260909/A6-qualify/cache/@m..@ssrc@sctf@sarena.nim.c.o /home/ubuntu/nav-throughput-results-20260909/A6-qualify/cache/@m..@ssrc@sctf@sarena.nim.c"
+    ],
+    [
+      "/home/ubuntu/nav-throughput-results-20260909/A6-qualify/cache/@m..@ssrc@sctf@sbr_map_pool.nim.c",
+      "gcc -c  -w -fmax-errors=3 -fno-strict-aliasing -pthread -I/home/ubuntu/coworld-nav-wavefront-20260909/src/shell -I/home/ubuntu/coworld-nav-throughput-20260909/tools/runtime_spike/.deps/installed/x86_64-linux/wasmtime-c-api/include -O3 -fno-ident -fno-math-errno   -I/home/ubuntu/.nimby/nim-2.2.6/lib -I/home/ubuntu/coworld-nav-wavefront-20260909/tools -o /home/ubuntu/nav-throughput-results-20260909/A6-qualify/cache/@m..@ssrc@sctf@sbr_map_pool.nim.c.o /home/ubuntu/nav-throughput-results-20260909/A6-qualify/cache/@m..@ssrc@sctf@sbr_map_pool.nim.c"
+    ],
+    [
+      "/home/ubuntu/nav-throughput-results-20260909/A6-qualify/cache/@m..@ssrc@sctf@szone_field.nim.c",
+      "gcc -c  -w -fmax-errors=3 -fno-strict-aliasing -pthread -I/home/ubuntu/coworld-nav-wavefront-20260909/src/shell -I/home/ubuntu/coworld-nav-throughput-20260909/tools/runtime_spike/.deps/installed/x86_64-linux/wasmtime-c-api/include -O3 -fno-ident -fno-math-errno   -I/home/ubuntu/.nimby/nim-2.2.6/lib -I/home/ubuntu/coworld-nav-wavefront-20260909/tools -o /home/ubuntu/nav-throughput-results-20260909/A6-qualify/cache/@m..@ssrc@sctf@szone_field.nim.c.o /home/ubuntu/nav-throughput-results-20260909/A6-qualify/cache/@m..@ssrc@sctf@szone_field.nim.c"
+    ],
+    [
+      "/home/ubuntu/nav-throughput-results-20260909/A6-qualify/cache/@m..@ssrc@sshell@stypes.nim.c",
+      "gcc -c  -w -fmax-errors=3 -fno-strict-aliasing -pthread -I/home/ubuntu/coworld-nav-wavefront-20260909/src/shell -I/home/ubuntu/coworld-nav-throughput-20260909/tools/runtime_spike/.deps/installed/x86_64-linux/wasmtime-c-api/include -O3 -fno-ident -fno-math-errno   -I/home/ubuntu/.nimby/nim-2.2.6/lib -I/home/ubuntu/coworld-nav-wavefront-20260909/tools -o /home/ubuntu/nav-throughput-results-20260909/A6-qualify/cache/@m..@ssrc@sshell@stypes.nim.c.o /home/ubuntu/nav-throughput-results-20260909/A6-qualify/cache/@m..@ssrc@sshell@stypes.nim.c"
+    ],
+    [
+      "/home/ubuntu/nav-throughput-results-20260909/A6-qualify/cache/@m..@ssrc@sshell@sbody_map.nim.c",
+      "gcc -c  -w -fmax-errors=3 -fno-strict-aliasing -pthread -I/home/ubuntu/coworld-nav-wavefront-20260909/src/shell -I/home/ubuntu/coworld-nav-throughput-20260909/tools/runtime_spike/.deps/installed/x86_64-linux/wasmtime-c-api/include -O3 -fno-ident -fno-math-errno   -I/home/ubuntu/.nimby/nim-2.2.6/lib -I/home/ubuntu/coworld-nav-wavefront-20260909/tools -o /home/ubuntu/nav-throughput-results-20260909/A6-qualify/cache/@m..@ssrc@sshell@sbody_map.nim.c.o /home/ubuntu/nav-throughput-results-20260909/A6-qualify/cache/@m..@ssrc@sshell@sbody_map.nim.c"
+    ],
+    [
+      "/home/ubuntu/nav-throughput-results-20260909/A6-qualify/cache/@m..@ssrc@sshell@sbody_cache.nim.c",
+      "gcc -c  -w -fmax-errors=3 -fno-strict-aliasing -pthread -I/home/ubuntu/coworld-nav-wavefront-20260909/src/shell -I/home/ubuntu/coworld-nav-throughput-20260909/tools/runtime_spike/.deps/installed/x86_64-linux/wasmtime-c-api/include -O3 -fno-ident -fno-math-errno   -I/home/ubuntu/.nimby/nim-2.2.6/lib -I/home/ubuntu/coworld-nav-wavefront-20260909/tools -o /home/ubuntu/nav-throughput-results-20260909/A6-qualify/cache/@m..@ssrc@sshell@sbody_cache.nim.c.o /home/ubuntu/nav-throughput-results-20260909/A6-qualify/cache/@m..@ssrc@sshell@sbody_cache.nim.c"
+    ],
+    [
+      "/home/ubuntu/nav-throughput-results-20260909/A6-qualify/cache/@m..@ssrc@sshell@sbody_danger.nim.c",
+      "gcc -c  -w -fmax-errors=3 -fno-strict-aliasing -pthread -I/home/ubuntu/coworld-nav-wavefront-20260909/src/shell -I/home/ubuntu/coworld-nav-throughput-20260909/tools/runtime_spike/.deps/installed/x86_64-linux/wasmtime-c-api/include -O3 -fno-ident -fno-math-errno   -I/home/ubuntu/.nimby/nim-2.2.6/lib -I/home/ubuntu/coworld-nav-wavefront-20260909/tools -o /home/ubuntu/nav-throughput-results-20260909/A6-qualify/cache/@m..@ssrc@sshell@sbody_danger.nim.c.o /home/ubuntu/nav-throughput-results-20260909/A6-qualify/cache/@m..@ssrc@sshell@sbody_danger.nim.c"
+    ],
+    [
+      "/home/ubuntu/nav-throughput-results-20260909/A6-qualify/cache/@m..@ssrc@sshell@sbody_route_index.nim.c",
+      "gcc -c  -w -fmax-errors=3 -fno-strict-aliasing -pthread -I/home/ubuntu/coworld-nav-wavefront-20260909/src/shell -I/home/ubuntu/coworld-nav-throughput-20260909/tools/runtime_spike/.deps/installed/x86_64-linux/wasmtime-c-api/include -O3 -fno-ident -fno-math-errno   -I/home/ubuntu/.nimby/nim-2.2.6/lib -I/home/ubuntu/coworld-nav-wavefront-20260909/tools -o /home/ubuntu/nav-throughput-results-20260909/A6-qualify/cache/@m..@ssrc@sshell@sbody_route_index.nim.c.o /home/ubuntu/nav-throughput-results-20260909/A6-qualify/cache/@m..@ssrc@sshell@sbody_route_index.nim.c"
+    ],
+    [
+      "/home/ubuntu/nav-throughput-results-20260909/A6-qualify/cache/@m..@ssrc@sshell@sbody_hazard.nim.c",
+      "gcc -c  -w -fmax-errors=3 -fno-strict-aliasing -pthread -I/home/ubuntu/coworld-nav-wavefront-20260909/src/shell -I/home/ubuntu/coworld-nav-throughput-20260909/tools/runtime_spike/.deps/installed/x86_64-linux/wasmtime-c-api/include -O3 -fno-ident -fno-math-errno   -I/home/ubuntu/.nimby/nim-2.2.6/lib -I/home/ubuntu/coworld-nav-wavefront-20260909/tools -o /home/ubuntu/nav-throughput-results-20260909/A6-qualify/cache/@m..@ssrc@sshell@sbody_hazard.nim.c.o /home/ubuntu/nav-throughput-results-20260909/A6-qualify/cache/@m..@ssrc@sshell@sbody_hazard.nim.c"
+    ],
+    [
+      "/home/ubuntu/nav-throughput-results-20260909/A6-qualify/cache/@m..@ssrc@sshell@sbody_route_query.nim.c",
+      "gcc -c  -w -fmax-errors=3 -fno-strict-aliasing -pthread -I/home/ubuntu/coworld-nav-wavefront-20260909/src/shell -I/home/ubuntu/coworld-nav-throughput-20260909/tools/runtime_spike/.deps/installed/x86_64-linux/wasmtime-c-api/include -O3 -fno-ident -fno-math-errno   -I/home/ubuntu/.nimby/nim-2.2.6/lib -I/home/ubuntu/coworld-nav-wavefront-20260909/tools -o /home/ubuntu/nav-throughput-results-20260909/A6-qualify/cache/@m..@ssrc@sshell@sbody_route_query.nim.c.o /home/ubuntu/nav-throughput-results-20260909/A6-qualify/cache/@m..@ssrc@sshell@sbody_route_query.nim.c"
+    ],
+    [
+      "/home/ubuntu/nav-throughput-results-20260909/A6-qualify/cache/@m..@ssrc@sshell@sbody_safety_query.nim.c",
+      "gcc -c  -w -fmax-errors=3 -fno-strict-aliasing -pthread -I/home/ubuntu/coworld-nav-wavefront-20260909/src/shell -I/home/ubuntu/coworld-nav-throughput-20260909/tools/runtime_spike/.deps/installed/x86_64-linux/wasmtime-c-api/include -O3 -fno-ident -fno-math-errno   -I/home/ubuntu/.nimby/nim-2.2.6/lib -I/home/ubuntu/coworld-nav-wavefront-20260909/tools -o /home/ubuntu/nav-throughput-results-20260909/A6-qualify/cache/@m..@ssrc@sshell@sbody_safety_query.nim.c.o /home/ubuntu/nav-throughput-results-20260909/A6-qualify/cache/@m..@ssrc@sshell@sbody_safety_query.nim.c"
+    ],
+    [
+      "/home/ubuntu/nav-throughput-results-20260909/A6-qualify/cache/@m..@ssrc@sshell@sbody_nav.nim.c",
+      "gcc -c  -w -fmax-errors=3 -fno-strict-aliasing -pthread -I/home/ubuntu/coworld-nav-wavefront-20260909/src/shell -I/home/ubuntu/coworld-nav-throughput-20260909/tools/runtime_spike/.deps/installed/x86_64-linux/wasmtime-c-api/include -O3 -fno-ident -fno-math-errno   -I/home/ubuntu/.nimby/nim-2.2.6/lib -I/home/ubuntu/coworld-nav-wavefront-20260909/tools -o /home/ubuntu/nav-throughput-results-20260909/A6-qualify/cache/@m..@ssrc@sshell@sbody_nav.nim.c.o /home/ubuntu/nav-throughput-results-20260909/A6-qualify/cache/@m..@ssrc@sshell@sbody_nav.nim.c"
+    ],
+    [
+      "/home/ubuntu/nav-throughput-results-20260909/A6-qualify/cache/@m..@ssrc@sshell@scover_scorer.nim.c",
+      "gcc -c  -w -fmax-errors=3 -fno-strict-aliasing -pthread -I/home/ubuntu/coworld-nav-wavefront-20260909/src/shell -I/home/ubuntu/coworld-nav-throughput-20260909/tools/runtime_spike/.deps/installed/x86_64-linux/wasmtime-c-api/include -O3 -fno-ident -fno-math-errno   -I/home/ubuntu/.nimby/nim-2.2.6/lib -I/home/ubuntu/coworld-nav-wavefront-20260909/tools -o /home/ubuntu/nav-throughput-results-20260909/A6-qualify/cache/@m..@ssrc@sshell@scover_scorer.nim.c.o /home/ubuntu/nav-throughput-results-20260909/A6-qualify/cache/@m..@ssrc@sshell@scover_scorer.nim.c"
+    ],
+    [
+      "/home/ubuntu/nav-throughput-results-20260909/A6-qualify/cache/@m..@ssrc@sshell@sbody.nim.c",
+      "gcc -c  -w -fmax-errors=3 -fno-strict-aliasing -pthread -I/home/ubuntu/coworld-nav-wavefront-20260909/src/shell -I/home/ubuntu/coworld-nav-throughput-20260909/tools/runtime_spike/.deps/installed/x86_64-linux/wasmtime-c-api/include -O3 -fno-ident -fno-math-errno   -I/home/ubuntu/.nimby/nim-2.2.6/lib -I/home/ubuntu/coworld-nav-wavefront-20260909/tools -o /home/ubuntu/nav-throughput-results-20260909/A6-qualify/cache/@m..@ssrc@sshell@sbody.nim.c.o /home/ubuntu/nav-throughput-results-20260909/A6-qualify/cache/@m..@ssrc@sshell@sbody.nim.c"
+    ],
+    [
+      "/home/ubuntu/nav-throughput-results-20260909/A6-qualify/cache/@m..@ssrc@sshell@splan_escape.nim.c",
+      "gcc -c  -w -fmax-errors=3 -fno-strict-aliasing -pthread -I/home/ubuntu/coworld-nav-wavefront-20260909/src/shell -I/home/ubuntu/coworld-nav-throughput-20260909/tools/runtime_spike/.deps/installed/x86_64-linux/wasmtime-c-api/include -O3 -fno-ident -fno-math-errno   -I/home/ubuntu/.nimby/nim-2.2.6/lib -I/home/ubuntu/coworld-nav-wavefront-20260909/tools -o /home/ubuntu/nav-throughput-results-20260909/A6-qualify/cache/@m..@ssrc@sshell@splan_escape.nim.c.o /home/ubuntu/nav-throughput-results-20260909/A6-qualify/cache/@m..@ssrc@sshell@splan_escape.nim.c"
+    ],
+    [
+      "/home/ubuntu/nav-throughput-results-20260909/A6-qualify/cache/@m..@ssrc@sshell@sdefault_play.nim.c",
+      "gcc -c  -w -fmax-errors=3 -fno-strict-aliasing -pthread -I/home/ubuntu/coworld-nav-wavefront-20260909/src/shell -I/home/ubuntu/coworld-nav-throughput-20260909/tools/runtime_spike/.deps/installed/x86_64-linux/wasmtime-c-api/include -O3 -fno-ident -fno-math-errno   -I/home/ubuntu/.nimby/nim-2.2.6/lib -I/home/ubuntu/coworld-nav-wavefront-20260909/tools -o /home/ubuntu/nav-throughput-results-20260909/A6-qualify/cache/@m..@ssrc@sshell@sdefault_play.nim.c.o /home/ubuntu/nav-throughput-results-20260909/A6-qualify/cache/@m..@ssrc@sshell@sdefault_play.nim.c"
+    ],
+    [
+      "/home/ubuntu/nav-throughput-results-20260909/A6-qualify/cache/@m..@ssrc@sshell@scanonical.nim.c",
+      "gcc -c  -w -fmax-errors=3 -fno-strict-aliasing -pthread -I/home/ubuntu/coworld-nav-wavefront-20260909/src/shell -I/home/ubuntu/coworld-nav-throughput-20260909/tools/runtime_spike/.deps/installed/x86_64-linux/wasmtime-c-api/include -O3 -fno-ident -fno-math-errno   -I/home/ubuntu/.nimby/nim-2.2.6/lib -I/home/ubuntu/coworld-nav-wavefront-20260909/tools -o /home/ubuntu/nav-throughput-results-20260909/A6-qualify/cache/@m..@ssrc@sshell@scanonical.nim.c.o /home/ubuntu/nav-throughput-results-20260909/A6-qualify/cache/@m..@ssrc@sshell@scanonical.nim.c"
+    ],
+    [
+      "/home/ubuntu/nav-throughput-results-20260909/A6-qualify/cache/@m..@ssrc@sshell@scanonical_fast.nim.c",
+      "gcc -c  -w -fmax-errors=3 -fno-strict-aliasing -pthread -I/home/ubuntu/coworld-nav-wavefront-20260909/src/shell -I/home/ubuntu/coworld-nav-throughput-20260909/tools/runtime_spike/.deps/installed/x86_64-linux/wasmtime-c-api/include -O3 -fno-ident -fno-math-errno   -I/home/ubuntu/.nimby/nim-2.2.6/lib -I/home/ubuntu/coworld-nav-wavefront-20260909/tools -o /home/ubuntu/nav-throughput-results-20260909/A6-qualify/cache/@m..@ssrc@sshell@scanonical_fast.nim.c.o /home/ubuntu/nav-throughput-results-20260909/A6-qualify/cache/@m..@ssrc@sshell@scanonical_fast.nim.c"
+    ],
+    [
+      "/home/ubuntu/nav-throughput-results-20260909/A6-qualify/cache/@m..@ssrc@sshell@spolicy_encoding.nim.c",
+      "gcc -c  -w -fmax-errors=3 -fno-strict-aliasing -pthread -I/home/ubuntu/coworld-nav-wavefront-20260909/src/shell -I/home/ubuntu/coworld-nav-throughput-20260909/tools/runtime_spike/.deps/installed/x86_64-linux/wasmtime-c-api/include -O3 -fno-ident -fno-math-errno   -I/home/ubuntu/.nimby/nim-2.2.6/lib -I/home/ubuntu/coworld-nav-wavefront-20260909/tools -o /home/ubuntu/nav-throughput-results-20260909/A6-qualify/cache/@m..@ssrc@sshell@spolicy_encoding.nim.c.o /home/ubuntu/nav-throughput-results-20260909/A6-qualify/cache/@m..@ssrc@sshell@spolicy_encoding.nim.c"
+    ],
+    [
+      "/home/ubuntu/nav-throughput-results-20260909/A6-qualify/cache/@m..@ssrc@sshell@sstanding_order.nim.c",
+      "gcc -c  -w -fmax-errors=3 -fno-strict-aliasing -pthread -I/home/ubuntu/coworld-nav-wavefront-20260909/src/shell -I/home/ubuntu/coworld-nav-throughput-20260909/tools/runtime_spike/.deps/installed/x86_64-linux/wasmtime-c-api/include -O3 -fno-ident -fno-math-errno   -I/home/ubuntu/.nimby/nim-2.2.6/lib -I/home/ubuntu/coworld-nav-wavefront-20260909/tools -o /home/ubuntu/nav-throughput-results-20260909/A6-qualify/cache/@m..@ssrc@sshell@sstanding_order.nim.c.o /home/ubuntu/nav-throughput-results-20260909/A6-qualify/cache/@m..@ssrc@sshell@sstanding_order.nim.c"
+    ],
+    [
+      "/home/ubuntu/nav-throughput-results-20260909/A6-qualify/cache/@m..@ssrc@sshell@sreflexes.nim.c",
+      "gcc -c  -w -fmax-errors=3 -fno-strict-aliasing -pthread -I/home/ubuntu/coworld-nav-wavefront-20260909/src/shell -I/home/ubuntu/coworld-nav-throughput-20260909/tools/runtime_spike/.deps/installed/x86_64-linux/wasmtime-c-api/include -O3 -fno-ident -fno-math-errno   -I/home/ubuntu/.nimby/nim-2.2.6/lib -I/home/ubuntu/coworld-nav-wavefront-20260909/tools -o /home/ubuntu/nav-throughput-results-20260909/A6-qualify/cache/@m..@ssrc@sshell@sreflexes.nim.c.o /home/ubuntu/nav-throughput-results-20260909/A6-qualify/cache/@m..@ssrc@sshell@sreflexes.nim.c"
+    ],
+    [
+      "/home/ubuntu/nav-throughput-results-20260909/A6-qualify/cache/@m..@ssrc@sshell@smanifest.nim.c",
+      "gcc -c  -w -fmax-errors=3 -fno-strict-aliasing -pthread -I/home/ubuntu/coworld-nav-wavefront-20260909/src/shell -I/home/ubuntu/coworld-nav-throughput-20260909/tools/runtime_spike/.deps/installed/x86_64-linux/wasmtime-c-api/include -O3 -fno-ident -fno-math-errno   -I/home/ubuntu/.nimby/nim-2.2.6/lib -I/home/ubuntu/coworld-nav-wavefront-20260909/tools -o /home/ubuntu/nav-throughput-results-20260909/A6-qualify/cache/@m..@ssrc@sshell@smanifest.nim.c.o /home/ubuntu/nav-throughput-results-20260909/A6-qualify/cache/@m..@ssrc@sshell@smanifest.nim.c"
+    ],
+    [
+      "/home/ubuntu/nav-throughput-results-20260909/A6-qualify/cache/@m..@ssrc@sshell@swasmtime_c.nim.c",
+      "gcc -c  -w -fmax-errors=3 -fno-strict-aliasing -pthread -I/home/ubuntu/coworld-nav-wavefront-20260909/src/shell -I/home/ubuntu/coworld-nav-throughput-20260909/tools/runtime_spike/.deps/installed/x86_64-linux/wasmtime-c-api/include -O3 -fno-ident -fno-math-errno   -I/home/ubuntu/.nimby/nim-2.2.6/lib -I/home/ubuntu/coworld-nav-wavefront-20260909/tools -o /home/ubuntu/nav-throughput-results-20260909/A6-qualify/cache/@m..@ssrc@sshell@swasmtime_c.nim.c.o /home/ubuntu/nav-throughput-results-20260909/A6-qualify/cache/@m..@ssrc@sshell@swasmtime_c.nim.c"
+    ],
+    [
+      "/home/ubuntu/nav-throughput-results-20260909/A6-qualify/cache/@m..@ssrc@sshell@sruntime.nim.c",
+      "gcc -c  -w -fmax-errors=3 -fno-strict-aliasing -pthread -I/home/ubuntu/coworld-nav-wavefront-20260909/src/shell -I/home/ubuntu/coworld-nav-throughput-20260909/tools/runtime_spike/.deps/installed/x86_64-linux/wasmtime-c-api/include -O3 -fno-ident -fno-math-errno   -I/home/ubuntu/.nimby/nim-2.2.6/lib -I/home/ubuntu/coworld-nav-wavefront-20260909/tools -o /home/ubuntu/nav-throughput-results-20260909/A6-qualify/cache/@m..@ssrc@sshell@sruntime.nim.c.o /home/ubuntu/nav-throughput-results-20260909/A6-qualify/cache/@m..@ssrc@sshell@sruntime.nim.c"
+    ],
+    [
+      "/home/ubuntu/nav-throughput-results-20260909/A6-qualify/cache/@m..@ssrc@sshell@smodule_cache.nim.c",
+      "gcc -c  -w -fmax-errors=3 -fno-strict-aliasing -pthread -I/home/ubuntu/coworld-nav-wavefront-20260909/src/shell -I/home/ubuntu/coworld-nav-throughput-20260909/tools/runtime_spike/.deps/installed/x86_64-linux/wasmtime-c-api/include -O3 -fno-ident -fno-math-errno   -I/home/ubuntu/.nimby/nim-2.2.6/lib -I/home/ubuntu/coworld-nav-wavefront-20260909/tools -o /home/ubuntu/nav-throughput-results-20260909/A6-qualify/cache/@m..@ssrc@sshell@smodule_cache.nim.c.o /home/ubuntu/nav-throughput-results-20260909/A6-qualify/cache/@m..@ssrc@sshell@smodule_cache.nim.c"
+    ],
+    [
+      "/home/ubuntu/nav-throughput-results-20260909/A6-qualify/cache/@m..@ssrc@sshell@sview.nim.c",
+      "gcc -c  -w -fmax-errors=3 -fno-strict-aliasing -pthread -I/home/ubuntu/coworld-nav-wavefront-20260909/src/shell -I/home/ubuntu/coworld-nav-throughput-20260909/tools/runtime_spike/.deps/installed/x86_64-linux/wasmtime-c-api/include -O3 -fno-ident -fno-math-errno   -I/home/ubuntu/.nimby/nim-2.2.6/lib -I/home/ubuntu/coworld-nav-wavefront-20260909/tools -o /home/ubuntu/nav-throughput-results-20260909/A6-qualify/cache/@m..@ssrc@sshell@sview.nim.c.o /home/ubuntu/nav-throughput-results-20260909/A6-qualify/cache/@m..@ssrc@sshell@sview.nim.c"
+    ],
+    [
+      "/home/ubuntu/nav-throughput-results-20260909/A6-qualify/cache/@m..@ssrc@sshell@sbinary_view.nim.c",
+      "gcc -c  -w -fmax-errors=3 -fno-strict-aliasing -pthread -I/home/ubuntu/coworld-nav-wavefront-20260909/src/shell -I/home/ubuntu/coworld-nav-throughput-20260909/tools/runtime_spike/.deps/installed/x86_64-linux/wasmtime-c-api/include -O3 -fno-ident -fno-math-errno   -I/home/ubuntu/.nimby/nim-2.2.6/lib -I/home/ubuntu/coworld-nav-wavefront-20260909/tools -o /home/ubuntu/nav-throughput-results-20260909/A6-qualify/cache/@m..@ssrc@sshell@sbinary_view.nim.c.o /home/ubuntu/nav-throughput-results-20260909/A6-qualify/cache/@m..@ssrc@sshell@sbinary_view.nim.c"
+    ],
+    [
+      "/home/ubuntu/nav-throughput-results-20260909/A6-qualify/cache/@m..@ssrc@sctf@spolicy_page.nim.c",
+      "gcc -c  -w -fmax-errors=3 -fno-strict-aliasing -pthread -I/home/ubuntu/coworld-nav-wavefront-20260909/src/shell -I/home/ubuntu/coworld-nav-throughput-20260909/tools/runtime_spike/.deps/installed/x86_64-linux/wasmtime-c-api/include -O3 -fno-ident -fno-math-errno   -I/home/ubuntu/.nimby/nim-2.2.6/lib -I/home/ubuntu/coworld-nav-wavefront-20260909/tools -o /home/ubuntu/nav-throughput-results-20260909/A6-qualify/cache/@m..@ssrc@sctf@spolicy_page.nim.c.o /home/ubuntu/nav-throughput-results-20260909/A6-qualify/cache/@m..@ssrc@sctf@spolicy_page.nim.c"
+    ],
+    [
+      "/home/ubuntu/nav-throughput-results-20260909/A6-qualify/cache/@m..@ssrc@sshell@sabi.nim.c",
+      "gcc -c  -w -fmax-errors=3 -fno-strict-aliasing -pthread -I/home/ubuntu/coworld-nav-wavefront-20260909/src/shell -I/home/ubuntu/coworld-nav-throughput-20260909/tools/runtime_spike/.deps/installed/x86_64-linux/wasmtime-c-api/include -O3 -fno-ident -fno-math-errno   -I/home/ubuntu/.nimby/nim-2.2.6/lib -I/home/ubuntu/coworld-nav-wavefront-20260909/tools -o /home/ubuntu/nav-throughput-results-20260909/A6-qualify/cache/@m..@ssrc@sshell@sabi.nim.c.o /home/ubuntu/nav-throughput-results-20260909/A6-qualify/cache/@m..@ssrc@sshell@sabi.nim.c"
+    ],
+    [
+      "/home/ubuntu/nav-throughput-results-20260909/A6-qualify/cache/@m..@ssrc@sshell@semit_validator.nim.c",
+      "gcc -c  -w -fmax-errors=3 -fno-strict-aliasing -pthread -I/home/ubuntu/coworld-nav-wavefront-20260909/src/shell -I/home/ubuntu/coworld-nav-throughput-20260909/tools/runtime_spike/.deps/installed/x86_64-linux/wasmtime-c-api/include -O3 -fno-ident -fno-math-errno   -I/home/ubuntu/.nimby/nim-2.2.6/lib -I/home/ubuntu/coworld-nav-wavefront-20260909/tools -o /home/ubuntu/nav-throughput-results-20260909/A6-qualify/cache/@m..@ssrc@sshell@semit_validator.nim.c.o /home/ubuntu/nav-throughput-results-20260909/A6-qualify/cache/@m..@ssrc@sshell@semit_validator.nim.c"
+    ],
+    [
+      "/home/ubuntu/nav-throughput-results-20260909/A6-qualify/cache/@m..@ssrc@sshell@sguards.nim.c",
+      "gcc -c  -w -fmax-errors=3 -fno-strict-aliasing -pthread -I/home/ubuntu/coworld-nav-wavefront-20260909/src/shell -I/home/ubuntu/coworld-nav-throughput-20260909/tools/runtime_spike/.deps/installed/x86_64-linux/wasmtime-c-api/include -O3 -fno-ident -fno-math-errno   -I/home/ubuntu/.nimby/nim-2.2.6/lib -I/home/ubuntu/coworld-nav-wavefront-20260909/tools -o /home/ubuntu/nav-throughput-results-20260909/A6-qualify/cache/@m..@ssrc@sshell@sguards.nim.c.o /home/ubuntu/nav-throughput-results-20260909/A6-qualify/cache/@m..@ssrc@sshell@sguards.nim.c"
+    ],
+    [
+      "/home/ubuntu/nav-throughput-results-20260909/A6-qualify/cache/@m..@ssrc@sshell@smodule_interface.nim.c",
+      "gcc -c  -w -fmax-errors=3 -fno-strict-aliasing -pthread -I/home/ubuntu/coworld-nav-wavefront-20260909/src/shell -I/home/ubuntu/coworld-nav-throughput-20260909/tools/runtime_spike/.deps/installed/x86_64-linux/wasmtime-c-api/include -O3 -fno-ident -fno-math-errno   -I/home/ubuntu/.nimby/nim-2.2.6/lib -I/home/ubuntu/coworld-nav-wavefront-20260909/tools -o /home/ubuntu/nav-throughput-results-20260909/A6-qualify/cache/@m..@ssrc@sshell@smodule_interface.nim.c.o /home/ubuntu/nav-throughput-results-20260909/A6-qualify/cache/@m..@ssrc@sshell@smodule_interface.nim.c"
+    ],
+    [
+      "/home/ubuntu/nav-throughput-results-20260909/A6-qualify/cache/@m..@ssrc@sshell@smodule_validation.nim.c",
+      "gcc -c  -w -fmax-errors=3 -fno-strict-aliasing -pthread -I/home/ubuntu/coworld-nav-wavefront-20260909/src/shell -I/home/ubuntu/coworld-nav-throughput-20260909/tools/runtime_spike/.deps/installed/x86_64-linux/wasmtime-c-api/include -O3 -fno-ident -fno-math-errno   -I/home/ubuntu/.nimby/nim-2.2.6/lib -I/home/ubuntu/coworld-nav-wavefront-20260909/tools -o /home/ubuntu/nav-throughput-results-20260909/A6-qualify/cache/@m..@ssrc@sshell@smodule_validation.nim.c.o /home/ubuntu/nav-throughput-results-20260909/A6-qualify/cache/@m..@ssrc@sshell@smodule_validation.nim.c"
+    ],
+    [
+      "/home/ubuntu/nav-throughput-results-20260909/A6-qualify/cache/@m..@ssrc@sshell@scompile_plane.nim.c",
+      "gcc -c  -w -fmax-errors=3 -fno-strict-aliasing -pthread -I/home/ubuntu/coworld-nav-wavefront-20260909/src/shell -I/home/ubuntu/coworld-nav-throughput-20260909/tools/runtime_spike/.deps/installed/x86_64-linux/wasmtime-c-api/include -O3 -fno-ident -fno-math-errno   -I/home/ubuntu/.nimby/nim-2.2.6/lib -I/home/ubuntu/coworld-nav-wavefront-20260909/tools -o /home/ubuntu/nav-throughput-results-20260909/A6-qualify/cache/@m..@ssrc@sshell@scompile_plane.nim.c.o /home/ubuntu/nav-throughput-results-20260909/A6-qualify/cache/@m..@ssrc@sshell@scompile_plane.nim.c"
+    ],
+    [
+      "/home/ubuntu/nav-throughput-results-20260909/A6-qualify/cache/@m..@ssrc@sshell@sinstance.nim.c",
+      "gcc -c  -w -fmax-errors=3 -fno-strict-aliasing -pthread -I/home/ubuntu/coworld-nav-wavefront-20260909/src/shell -I/home/ubuntu/coworld-nav-throughput-20260909/tools/runtime_spike/.deps/installed/x86_64-linux/wasmtime-c-api/include -O3 -fno-ident -fno-math-errno   -I/home/ubuntu/.nimby/nim-2.2.6/lib -I/home/ubuntu/coworld-nav-wavefront-20260909/tools -o /home/ubuntu/nav-throughput-results-20260909/A6-qualify/cache/@m..@ssrc@sshell@sinstance.nim.c.o /home/ubuntu/nav-throughput-results-20260909/A6-qualify/cache/@m..@ssrc@sshell@sinstance.nim.c"
+    ],
+    [
+      "/home/ubuntu/nav-throughput-results-20260909/A6-qualify/cache/@m..@ssrc@sshell@sladder.nim.c",
+      "gcc -c  -w -fmax-errors=3 -fno-strict-aliasing -pthread -I/home/ubuntu/coworld-nav-wavefront-20260909/src/shell -I/home/ubuntu/coworld-nav-throughput-20260909/tools/runtime_spike/.deps/installed/x86_64-linux/wasmtime-c-api/include -O3 -fno-ident -fno-math-errno   -I/home/ubuntu/.nimby/nim-2.2.6/lib -I/home/ubuntu/coworld-nav-wavefront-20260909/tools -o /home/ubuntu/nav-throughput-results-20260909/A6-qualify/cache/@m..@ssrc@sshell@sladder.nim.c.o /home/ubuntu/nav-throughput-results-20260909/A6-qualify/cache/@m..@ssrc@sshell@sladder.nim.c"
+    ],
+    [
+      "/home/ubuntu/nav-throughput-results-20260909/A6-qualify/cache/@m..@ssrc@sshell@sepisode.nim.c",
+      "gcc -c  -w -fmax-errors=3 -fno-strict-aliasing -pthread -I/home/ubuntu/coworld-nav-wavefront-20260909/src/shell -I/home/ubuntu/coworld-nav-throughput-20260909/tools/runtime_spike/.deps/installed/x86_64-linux/wasmtime-c-api/include -O3 -fno-ident -fno-math-errno   -I/home/ubuntu/.nimby/nim-2.2.6/lib -I/home/ubuntu/coworld-nav-wavefront-20260909/tools -o /home/ubuntu/nav-throughput-results-20260909/A6-qualify/cache/@m..@ssrc@sshell@sepisode.nim.c.o /home/ubuntu/nav-throughput-results-20260909/A6-qualify/cache/@m..@ssrc@sshell@sepisode.nim.c"
+    ],
+    [
+      "/home/ubuntu/nav-throughput-results-20260909/A6-qualify/cache/@m..@stests@snav_route_corpus_support.nim.c",
+      "gcc -c  -w -fmax-errors=3 -fno-strict-aliasing -pthread -I/home/ubuntu/coworld-nav-wavefront-20260909/src/shell -I/home/ubuntu/coworld-nav-throughput-20260909/tools/runtime_spike/.deps/installed/x86_64-linux/wasmtime-c-api/include -O3 -fno-ident -fno-math-errno   -I/home/ubuntu/.nimby/nim-2.2.6/lib -I/home/ubuntu/coworld-nav-wavefront-20260909/tools -o /home/ubuntu/nav-throughput-results-20260909/A6-qualify/cache/@m..@stests@snav_route_corpus_support.nim.c.o /home/ubuntu/nav-throughput-results-20260909/A6-qualify/cache/@m..@stests@snav_route_corpus_support.nim.c"
+    ],
+    [
+      "/home/ubuntu/nav-throughput-results-20260909/A6-qualify/cache/@mbuild_nav_route_corpus.nim.c",
+      "gcc -c  -w -fmax-errors=3 -fno-strict-aliasing -pthread -I/home/ubuntu/coworld-nav-wavefront-20260909/src/shell -I/home/ubuntu/coworld-nav-throughput-20260909/tools/runtime_spike/.deps/installed/x86_64-linux/wasmtime-c-api/include -O3 -fno-ident -fno-math-errno   -I/home/ubuntu/.nimby/nim-2.2.6/lib -I/home/ubuntu/coworld-nav-wavefront-20260909/tools -o /home/ubuntu/nav-throughput-results-20260909/A6-qualify/cache/@mbuild_nav_route_corpus.nim.c.o /home/ubuntu/nav-throughput-results-20260909/A6-qualify/cache/@mbuild_nav_route_corpus.nim.c"
+    ],
+    [
+      "/home/ubuntu/nav-throughput-results-20260909/A6-qualify/cache/@mbench_body_nav_rework.nim.c",
+      "gcc -c  -w -fmax-errors=3 -fno-strict-aliasing -pthread -I/home/ubuntu/coworld-nav-wavefront-20260909/src/shell -I/home/ubuntu/coworld-nav-throughput-20260909/tools/runtime_spike/.deps/installed/x86_64-linux/wasmtime-c-api/include -O3 -fno-ident -fno-math-errno   -I/home/ubuntu/.nimby/nim-2.2.6/lib -I/home/ubuntu/coworld-nav-wavefront-20260909/tools -o /home/ubuntu/nav-throughput-results-20260909/A6-qualify/cache/@mbench_body_nav_rework.nim.c.o /home/ubuntu/nav-throughput-results-20260909/A6-qualify/cache/@mbench_body_nav_rework.nim.c"
+    ]
+  ],
+  "link": [
+    "/home/ubuntu/nav-throughput-results-20260909/A6-qualify/cache/@psystem@sexceptions.nim.c.o",
+    "/home/ubuntu/nav-throughput-results-20260909/A6-qualify/cache/@pstd@sprivate@sthreadtypes.nim.c.o",
+    "/home/ubuntu/nav-throughput-results-20260909/A6-qualify/cache/@pstd@sprivate@sdigitsutils.nim.c.o",
+    "/home/ubuntu/nav-throughput-results-20260909/A6-qualify/cache/@pstd@sassertions.nim.c.o",
+    "/home/ubuntu/nav-throughput-results-20260909/A6-qualify/cache/@psystem@siterators.nim.c.o",
+    "/home/ubuntu/nav-throughput-results-20260909/A6-qualify/cache/@pstd@sprivate@sdragonbox.nim.c.o",
+    "/home/ubuntu/nav-throughput-results-20260909/A6-qualify/cache/@pstd@sformatfloat.nim.c.o",
+    "/home/ubuntu/nav-throughput-results-20260909/A6-qualify/cache/@psystem@sdollars.nim.c.o",
+    "/home/ubuntu/nav-throughput-results-20260909/A6-qualify/cache/@pstd@stypedthreads.nim.c.o",
+    "/home/ubuntu/nav-throughput-results-20260909/A6-qualify/cache/@pstd@ssyncio.nim.c.o",
+    "/home/ubuntu/nav-throughput-results-20260909/A6-qualify/cache/@psystem.nim.c.o",
+    "/home/ubuntu/nav-throughput-results-20260909/A6-qualify/cache/@palgorithm.nim.c.o",
+    "/home/ubuntu/nav-throughput-results-20260909/A6-qualify/cache/@phashes.nim.c.o",
+    "/home/ubuntu/nav-throughput-results-20260909/A6-qualify/cache/@pmath.nim.c.o",
+    "/home/ubuntu/nav-throughput-results-20260909/A6-qualify/cache/@ptables.nim.c.o",
+    "/home/ubuntu/nav-throughput-results-20260909/A6-qualify/cache/@pparseutils.nim.c.o",
+    "/home/ubuntu/nav-throughput-results-20260909/A6-qualify/cache/@punicode.nim.c.o",
+    "/home/ubuntu/nav-throughput-results-20260909/A6-qualify/cache/@pstrutils.nim.c.o",
+    "/home/ubuntu/nav-throughput-results-20260909/A6-qualify/cache/@pstreams.nim.c.o",
+    "/home/ubuntu/nav-throughput-results-20260909/A6-qualify/cache/@plexbase.nim.c.o",
+    "/home/ubuntu/nav-throughput-results-20260909/A6-qualify/cache/@pparsejson.nim.c.o",
+    "/home/ubuntu/nav-throughput-results-20260909/A6-qualify/cache/@poptions.nim.c.o",
+    "/home/ubuntu/nav-throughput-results-20260909/A6-qualify/cache/@pjson.nim.c.o",
+    "/home/ubuntu/nav-throughput-results-20260909/A6-qualify/cache/@pposix.nim.c.o",
+    "/home/ubuntu/nav-throughput-results-20260909/A6-qualify/cache/@ptimes.nim.c.o",
+    "/home/ubuntu/nav-throughput-results-20260909/A6-qualify/cache/@pstd@smonotimes.nim.c.o",
+    "/home/ubuntu/nav-throughput-results-20260909/A6-qualify/cache/@pstd@soserrors.nim.c.o",
+    "/home/ubuntu/nav-throughput-results-20260909/A6-qualify/cache/@pstd@sprivate@soscommon.nim.c.o",
+    "/home/ubuntu/nav-throughput-results-20260909/A6-qualify/cache/@pstd@sprivate@sospaths2.nim.c.o",
+    "/home/ubuntu/nav-throughput-results-20260909/A6-qualify/cache/@pstd@senvvars.nim.c.o",
+    "/home/ubuntu/nav-throughput-results-20260909/A6-qualify/cache/@pstd@scmdline.nim.c.o",
+    "/home/ubuntu/nav-throughput-results-20260909/A6-qualify/cache/@pos.nim.c.o",
+    "/home/ubuntu/nav-throughput-results-20260909/A6-qualify/cache/@pstrtabs.nim.c.o",
+    "/home/ubuntu/nav-throughput-results-20260909/A6-qualify/cache/@pdeques.nim.c.o",
+    "/home/ubuntu/nav-throughput-results-20260909/A6-qualify/cache/@posproc.nim.c.o",
+    "/home/ubuntu/nav-throughput-results-20260909/A6-qualify/cache/@pstrformat.nim.c.o",
+    "/home/ubuntu/nav-throughput-results-20260909/A6-qualify/cache/@pcrunchy@scommon.nim.c.o",
+    "/home/ubuntu/nav-throughput-results-20260909/A6-qualify/cache/@pcrunchy@ssha256_simd.nim.c.o",
+    "/home/ubuntu/nav-throughput-results-20260909/A6-qualify/cache/@pnimsimd@sruntimecheck.nim.c.o",
+    "/home/ubuntu/nav-throughput-results-20260909/A6-qualify/cache/@pcrunchy@ssha256.nim.c.o",
+    "/home/ubuntu/nav-throughput-results-20260909/A6-qualify/cache/@pbitworld@sprofile.nim.c.o",
+    "/home/ubuntu/nav-throughput-results-20260909/A6-qualify/cache/@ppixie@ssimd.nim.c.o",
+    "/home/ubuntu/nav-throughput-results-20260909/A6-qualify/cache/@psets.nim.c.o",
+    "/home/ubuntu/nav-throughput-results-20260909/A6-qualify/cache/@ppixie@sfontformats@sopentype.nim.c.o",
+    "/home/ubuntu/nav-throughput-results-20260909/A6-qualify/cache/@ppixie@sfileformats@sjpeg.nim.c.o",
+    "/home/ubuntu/nav-throughput-results-20260909/A6-qualify/cache/@pheapqueue.nim.c.o",
+    "/home/ubuntu/nav-throughput-results-20260909/A6-qualify/cache/@ppixie@sfileformats@spng.nim.c.o",
+    "/home/ubuntu/nav-throughput-results-20260909/A6-qualify/cache/@psupersnappy@sinternal.nim.c.o",
+    "/home/ubuntu/nav-throughput-results-20260909/A6-qualify/cache/@pbitworld@sspriteprotocol.nim.c.o",
+    "/home/ubuntu/nav-throughput-results-20260909/A6-qualify/cache/@pjsony.nim.c.o",
+    "/home/ubuntu/nav-throughput-results-20260909/A6-qualify/cache/@prandom.nim.c.o",
+    "/home/ubuntu/nav-throughput-results-20260909/A6-qualify/cache/@pbitworld@spixelfonts.nim.c.o",
+    "/home/ubuntu/nav-throughput-results-20260909/A6-qualify/cache/@m..@ssrc@sctf@ssim_types.nim.c.o",
+    "/home/ubuntu/nav-throughput-results-20260909/A6-qualify/cache/@m..@ssrc@sctf@sarena.nim.c.o",
+    "/home/ubuntu/nav-throughput-results-20260909/A6-qualify/cache/@m..@ssrc@sctf@sbr_map_pool.nim.c.o",
+    "/home/ubuntu/nav-throughput-results-20260909/A6-qualify/cache/@m..@ssrc@sctf@szone_field.nim.c.o",
+    "/home/ubuntu/nav-throughput-results-20260909/A6-qualify/cache/@m..@ssrc@sshell@stypes.nim.c.o",
+    "/home/ubuntu/nav-throughput-results-20260909/A6-qualify/cache/@m..@ssrc@sshell@sbody_map.nim.c.o",
+    "/home/ubuntu/nav-throughput-results-20260909/A6-qualify/cache/@m..@ssrc@sshell@sbody_cache.nim.c.o",
+    "/home/ubuntu/nav-throughput-results-20260909/A6-qualify/cache/@m..@ssrc@sshell@sbody_danger.nim.c.o",
+    "/home/ubuntu/nav-throughput-results-20260909/A6-qualify/cache/@m..@ssrc@sshell@sbody_route_index.nim.c.o",
+    "/home/ubuntu/nav-throughput-results-20260909/A6-qualify/cache/@m..@ssrc@sshell@sbody_hazard.nim.c.o",
+    "/home/ubuntu/nav-throughput-results-20260909/A6-qualify/cache/@m..@ssrc@sshell@sbody_route_query.nim.c.o",
+    "/home/ubuntu/nav-throughput-results-20260909/A6-qualify/cache/@m..@ssrc@sshell@sbody_safety_query.nim.c.o",
+    "/home/ubuntu/nav-throughput-results-20260909/A6-qualify/cache/@m..@ssrc@sshell@sbody_nav.nim.c.o",
+    "/home/ubuntu/nav-throughput-results-20260909/A6-qualify/cache/@m..@ssrc@sshell@scover_scorer.nim.c.o",
+    "/home/ubuntu/nav-throughput-results-20260909/A6-qualify/cache/@m..@ssrc@sshell@sbody.nim.c.o",
+    "/home/ubuntu/nav-throughput-results-20260909/A6-qualify/cache/@m..@ssrc@sshell@splan_escape.nim.c.o",
+    "/home/ubuntu/nav-throughput-results-20260909/A6-qualify/cache/@m..@ssrc@sshell@sdefault_play.nim.c.o",
+    "/home/ubuntu/nav-throughput-results-20260909/A6-qualify/cache/@m..@ssrc@sshell@scanonical.nim.c.o",
+    "/home/ubuntu/nav-throughput-results-20260909/A6-qualify/cache/@m..@ssrc@sshell@scanonical_fast.nim.c.o",
+    "/home/ubuntu/nav-throughput-results-20260909/A6-qualify/cache/@m..@ssrc@sshell@spolicy_encoding.nim.c.o",
+    "/home/ubuntu/nav-throughput-results-20260909/A6-qualify/cache/@m..@ssrc@sshell@sstanding_order.nim.c.o",
+    "/home/ubuntu/nav-throughput-results-20260909/A6-qualify/cache/@m..@ssrc@sshell@sreflexes.nim.c.o",
+    "/home/ubuntu/nav-throughput-results-20260909/A6-qualify/cache/@m..@ssrc@sshell@smanifest.nim.c.o",
+    "/home/ubuntu/nav-throughput-results-20260909/A6-qualify/cache/@m..@ssrc@sshell@swasmtime_c.nim.c.o",
+    "/home/ubuntu/nav-throughput-results-20260909/A6-qualify/cache/@m..@ssrc@sshell@sruntime.nim.c.o",
+    "/home/ubuntu/nav-throughput-results-20260909/A6-qualify/cache/@m..@ssrc@sshell@smodule_cache.nim.c.o",
+    "/home/ubuntu/nav-throughput-results-20260909/A6-qualify/cache/@m..@ssrc@sshell@sview.nim.c.o",
+    "/home/ubuntu/nav-throughput-results-20260909/A6-qualify/cache/@m..@ssrc@sshell@sbinary_view.nim.c.o",
+    "/home/ubuntu/nav-throughput-results-20260909/A6-qualify/cache/@m..@ssrc@sctf@spolicy_page.nim.c.o",
+    "/home/ubuntu/nav-throughput-results-20260909/A6-qualify/cache/@m..@ssrc@sshell@sabi.nim.c.o",
+    "/home/ubuntu/nav-throughput-results-20260909/A6-qualify/cache/@m..@ssrc@sshell@semit_validator.nim.c.o",
+    "/home/ubuntu/nav-throughput-results-20260909/A6-qualify/cache/@m..@ssrc@sshell@sguards.nim.c.o",
+    "/home/ubuntu/nav-throughput-results-20260909/A6-qualify/cache/@m..@ssrc@sshell@smodule_interface.nim.c.o",
+    "/home/ubuntu/nav-throughput-results-20260909/A6-qualify/cache/@m..@ssrc@sshell@smodule_validation.nim.c.o",
+    "/home/ubuntu/nav-throughput-results-20260909/A6-qualify/cache/@m..@ssrc@sshell@scompile_plane.nim.c.o",
+    "/home/ubuntu/nav-throughput-results-20260909/A6-qualify/cache/@m..@ssrc@sshell@sinstance.nim.c.o",
+    "/home/ubuntu/nav-throughput-results-20260909/A6-qualify/cache/@m..@ssrc@sshell@sladder.nim.c.o",
+    "/home/ubuntu/nav-throughput-results-20260909/A6-qualify/cache/@m..@ssrc@sshell@sepisode.nim.c.o",
+    "/home/ubuntu/nav-throughput-results-20260909/A6-qualify/cache/@m..@stests@snav_route_corpus_support.nim.c.o",
+    "/home/ubuntu/nav-throughput-results-20260909/A6-qualify/cache/@mbuild_nav_route_corpus.nim.c.o",
+    "/home/ubuntu/nav-throughput-results-20260909/A6-qualify/cache/@mbench_body_nav_rework.nim.c.o"
+  ],
+  "linkcmd": "gcc   -o /home/ubuntu/nav-throughput-results-20260909/A6-qualify/bench /home/ubuntu/nav-throughput-results-20260909/A6-qualify/cache/@psystem@sexceptions.nim.c.o /home/ubuntu/nav-throughput-results-20260909/A6-qualify/cache/@pstd@sprivate@sthreadtypes.nim.c.o /home/ubuntu/nav-throughput-results-20260909/A6-qualify/cache/@pstd@sprivate@sdigitsutils.nim.c.o /home/ubuntu/nav-throughput-results-20260909/A6-qualify/cache/@pstd@sassertions.nim.c.o /home/ubuntu/nav-throughput-results-20260909/A6-qualify/cache/@psystem@siterators.nim.c.o /home/ubuntu/nav-throughput-results-20260909/A6-qualify/cache/@pstd@sprivate@sdragonbox.nim.c.o /home/ubuntu/nav-throughput-results-20260909/A6-qualify/cache/@pstd@sformatfloat.nim.c.o /home/ubuntu/nav-throughput-results-20260909/A6-qualify/cache/@psystem@sdollars.nim.c.o /home/ubuntu/nav-throughput-results-20260909/A6-qualify/cache/@pstd@stypedthreads.nim.c.o /home/ubuntu/nav-throughput-results-20260909/A6-qualify/cache/@pstd@ssyncio.nim.c.o /home/ubuntu/nav-throughput-results-20260909/A6-qualify/cache/@psystem.nim.c.o /home/ubuntu/nav-throughput-results-20260909/A6-qualify/cache/@palgorithm.nim.c.o /home/ubuntu/nav-throughput-results-20260909/A6-qualify/cache/@phashes.nim.c.o /home/ubuntu/nav-throughput-results-20260909/A6-qualify/cache/@pmath.nim.c.o /home/ubuntu/nav-throughput-results-20260909/A6-qualify/cache/@ptables.nim.c.o /home/ubuntu/nav-throughput-results-20260909/A6-qualify/cache/@pparseutils.nim.c.o /home/ubuntu/nav-throughput-results-20260909/A6-qualify/cache/@punicode.nim.c.o /home/ubuntu/nav-throughput-results-20260909/A6-qualify/cache/@pstrutils.nim.c.o /home/ubuntu/nav-throughput-results-20260909/A6-qualify/cache/@pstreams.nim.c.o /home/ubuntu/nav-throughput-results-20260909/A6-qualify/cache/@plexbase.nim.c.o /home/ubuntu/nav-throughput-results-20260909/A6-qualify/cache/@pparsejson.nim.c.o /home/ubuntu/nav-throughput-results-20260909/A6-qualify/cache/@poptions.nim.c.o /home/ubuntu/nav-throughput-results-20260909/A6-qualify/cache/@pjson.nim.c.o /home/ubuntu/nav-throughput-results-20260909/A6-qualify/cache/@pposix.nim.c.o /home/ubuntu/nav-throughput-results-20260909/A6-qualify/cache/@ptimes.nim.c.o /home/ubuntu/nav-throughput-results-20260909/A6-qualify/cache/@pstd@smonotimes.nim.c.o /home/ubuntu/nav-throughput-results-20260909/A6-qualify/cache/@pstd@soserrors.nim.c.o /home/ubuntu/nav-throughput-results-20260909/A6-qualify/cache/@pstd@sprivate@soscommon.nim.c.o /home/ubuntu/nav-throughput-results-20260909/A6-qualify/cache/@pstd@sprivate@sospaths2.nim.c.o /home/ubuntu/nav-throughput-results-20260909/A6-qualify/cache/@pstd@senvvars.nim.c.o /home/ubuntu/nav-throughput-results-20260909/A6-qualify/cache/@pstd@scmdline.nim.c.o /home/ubuntu/nav-throughput-results-20260909/A6-qualify/cache/@pos.nim.c.o /home/ubuntu/nav-throughput-results-20260909/A6-qualify/cache/@pstrtabs.nim.c.o /home/ubuntu/nav-throughput-results-20260909/A6-qualify/cache/@pdeques.nim.c.o /home/ubuntu/nav-throughput-results-20260909/A6-qualify/cache/@posproc.nim.c.o /home/ubuntu/nav-throughput-results-20260909/A6-qualify/cache/@pstrformat.nim.c.o /home/ubuntu/nav-throughput-results-20260909/A6-qualify/cache/@pcrunchy@scommon.nim.c.o /home/ubuntu/nav-throughput-results-20260909/A6-qualify/cache/@pcrunchy@ssha256_simd.nim.c.o /home/ubuntu/nav-throughput-results-20260909/A6-qualify/cache/@pnimsimd@sruntimecheck.nim.c.o /home/ubuntu/nav-throughput-results-20260909/A6-qualify/cache/@pcrunchy@ssha256.nim.c.o /home/ubuntu/nav-throughput-results-20260909/A6-qualify/cache/@pbitworld@sprofile.nim.c.o /home/ubuntu/nav-throughput-results-20260909/A6-qualify/cache/@ppixie@ssimd.nim.c.o /home/ubuntu/nav-throughput-results-20260909/A6-qualify/cache/@psets.nim.c.o /home/ubuntu/nav-throughput-results-20260909/A6-qualify/cache/@ppixie@sfontformats@sopentype.nim.c.o /home/ubuntu/nav-throughput-results-20260909/A6-qualify/cache/@ppixie@sfileformats@sjpeg.nim.c.o /home/ubuntu/nav-throughput-results-20260909/A6-qualify/cache/@pheapqueue.nim.c.o /home/ubuntu/nav-throughput-results-20260909/A6-qualify/cache/@ppixie@sfileformats@spng.nim.c.o /home/ubuntu/nav-throughput-results-20260909/A6-qualify/cache/@psupersnappy@sinternal.nim.c.o /home/ubuntu/nav-throughput-results-20260909/A6-qualify/cache/@pbitworld@sspriteprotocol.nim.c.o /home/ubuntu/nav-throughput-results-20260909/A6-qualify/cache/@pjsony.nim.c.o /home/ubuntu/nav-throughput-results-20260909/A6-qualify/cache/@prandom.nim.c.o /home/ubuntu/nav-throughput-results-20260909/A6-qualify/cache/@pbitworld@spixelfonts.nim.c.o /home/ubuntu/nav-throughput-results-20260909/A6-qualify/cache/@m..@ssrc@sctf@ssim_types.nim.c.o /home/ubuntu/nav-throughput-results-20260909/A6-qualify/cache/@m..@ssrc@sctf@sarena.nim.c.o /home/ubuntu/nav-throughput-results-20260909/A6-qualify/cache/@m..@ssrc@sctf@sbr_map_pool.nim.c.o /home/ubuntu/nav-throughput-results-20260909/A6-qualify/cache/@m..@ssrc@sctf@szone_field.nim.c.o /home/ubuntu/nav-throughput-results-20260909/A6-qualify/cache/@m..@ssrc@sshell@stypes.nim.c.o /home/ubuntu/nav-throughput-results-20260909/A6-qualify/cache/@m..@ssrc@sshell@sbody_map.nim.c.o /home/ubuntu/nav-throughput-results-20260909/A6-qualify/cache/@m..@ssrc@sshell@sbody_cache.nim.c.o /home/ubuntu/nav-throughput-results-20260909/A6-qualify/cache/@m..@ssrc@sshell@sbody_danger.nim.c.o /home/ubuntu/nav-throughput-results-20260909/A6-qualify/cache/@m..@ssrc@sshell@sbody_route_index.nim.c.o /home/ubuntu/nav-throughput-results-20260909/A6-qualify/cache/@m..@ssrc@sshell@sbody_hazard.nim.c.o /home/ubuntu/nav-throughput-results-20260909/A6-qualify/cache/@m..@ssrc@sshell@sbody_route_query.nim.c.o /home/ubuntu/nav-throughput-results-20260909/A6-qualify/cache/@m..@ssrc@sshell@sbody_safety_query.nim.c.o /home/ubuntu/nav-throughput-results-20260909/A6-qualify/cache/@m..@ssrc@sshell@sbody_nav.nim.c.o /home/ubuntu/nav-throughput-results-20260909/A6-qualify/cache/@m..@ssrc@sshell@scover_scorer.nim.c.o /home/ubuntu/nav-throughput-results-20260909/A6-qualify/cache/@m..@ssrc@sshell@sbody.nim.c.o /home/ubuntu/nav-throughput-results-20260909/A6-qualify/cache/@m..@ssrc@sshell@splan_escape.nim.c.o /home/ubuntu/nav-throughput-results-20260909/A6-qualify/cache/@m..@ssrc@sshell@sdefault_play.nim.c.o /home/ubuntu/nav-throughput-results-20260909/A6-qualify/cache/@m..@ssrc@sshell@scanonical.nim.c.o /home/ubuntu/nav-throughput-results-20260909/A6-qualify/cache/@m..@ssrc@sshell@scanonical_fast.nim.c.o /home/ubuntu/nav-throughput-results-20260909/A6-qualify/cache/@m..@ssrc@sshell@spolicy_encoding.nim.c.o /home/ubuntu/nav-throughput-results-20260909/A6-qualify/cache/@m..@ssrc@sshell@sstanding_order.nim.c.o /home/ubuntu/nav-throughput-results-20260909/A6-qualify/cache/@m..@ssrc@sshell@sreflexes.nim.c.o /home/ubuntu/nav-throughput-results-20260909/A6-qualify/cache/@m..@ssrc@sshell@smanifest.nim.c.o /home/ubuntu/nav-throughput-results-20260909/A6-qualify/cache/@m..@ssrc@sshell@swasmtime_c.nim.c.o /home/ubuntu/nav-throughput-results-20260909/A6-qualify/cache/@m..@ssrc@sshell@sruntime.nim.c.o /home/ubuntu/nav-throughput-results-20260909/A6-qualify/cache/@m..@ssrc@sshell@smodule_cache.nim.c.o /home/ubuntu/nav-throughput-results-20260909/A6-qualify/cache/@m..@ssrc@sshell@sview.nim.c.o /home/ubuntu/nav-throughput-results-20260909/A6-qualify/cache/@m..@ssrc@sshell@sbinary_view.nim.c.o /home/ubuntu/nav-throughput-results-20260909/A6-qualify/cache/@m..@ssrc@sctf@spolicy_page.nim.c.o /home/ubuntu/nav-throughput-results-20260909/A6-qualify/cache/@m..@ssrc@sshell@sabi.nim.c.o /home/ubuntu/nav-throughput-results-20260909/A6-qualify/cache/@m..@ssrc@sshell@semit_validator.nim.c.o /home/ubuntu/nav-throughput-results-20260909/A6-qualify/cache/@m..@ssrc@sshell@sguards.nim.c.o /home/ubuntu/nav-throughput-results-20260909/A6-qualify/cache/@m..@ssrc@sshell@smodule_interface.nim.c.o /home/ubuntu/nav-throughput-results-20260909/A6-qualify/cache/@m..@ssrc@sshell@smodule_validation.nim.c.o /home/ubuntu/nav-throughput-results-20260909/A6-qualify/cache/@m..@ssrc@sshell@scompile_plane.nim.c.o /home/ubuntu/nav-throughput-results-20260909/A6-qualify/cache/@m..@ssrc@sshell@sinstance.nim.c.o /home/ubuntu/nav-throughput-results-20260909/A6-qualify/cache/@m..@ssrc@sshell@sladder.nim.c.o /home/ubuntu/nav-throughput-results-20260909/A6-qualify/cache/@m..@ssrc@sshell@sepisode.nim.c.o /home/ubuntu/nav-throughput-results-20260909/A6-qualify/cache/@m..@stests@snav_route_corpus_support.nim.c.o /home/ubuntu/nav-throughput-results-20260909/A6-qualify/cache/@mbuild_nav_route_corpus.nim.c.o /home/ubuntu/nav-throughput-results-20260909/A6-qualify/cache/@mbench_body_nav_rework.nim.c.o  -pthread -pthread -lm -lm -lrt -L/home/ubuntu/coworld-nav-throughput-20260909/tools/runtime_spike/.deps/installed/x86_64-linux/wasmtime-c-api/lib -lwasmtime -Wl,-rpath,/home/ubuntu/coworld-nav-throughput-20260909/tools/runtime_spike/.deps/installed/x86_64-linux/wasmtime-c-api/lib   -ldl",
+  "extraCmds": [],
+  "configFiles": [
+    "/home/ubuntu/.nimby/nim-2.2.6/config/nim.cfg",
+    "/home/ubuntu/.nimby/nim-2.2.6/config/config.nims",
+    "/home/ubuntu/coworld-nav-wavefront-20260909/nim.cfg"
+  ],
+  "stdinInput": false,
+  "projectIsCmd": false,
+  "cmdInput": "",
+  "currentDir": "/home/ubuntu/coworld-nav-wavefront-20260909",
+  "cmdline": "",
+  "depfiles": [],
+  "nimexe": ""
+}

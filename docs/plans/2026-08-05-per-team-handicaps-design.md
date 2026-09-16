@@ -1,5 +1,8 @@
 # Per-team handicaps
 
+> **Historical plan.** Preserved unchanged as a deprecated classic-mode tuning
+> design; it is not current Season 2 game or policy guidance.
+
 ## Goal
 
 Let each team carry a single **handicap** scalar in `0.0 .. 1.0` that weakens

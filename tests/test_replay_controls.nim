@@ -144,33 +144,43 @@ suite "replay controls":
     check next.replayCommands.len == 0
     check next.replaySeekTick == -1
 
-  test "hash mismatch warning is shown in the top center layer":
+  test "hash mismatch warning is shown in the top center layer, tiered":
+    ## Two tiers (src/ctf/build_stamp.nim): without a proven same-build
+    ## stamp the warning is the quiet cross-build chip; with one it is the
+    ## loud determinism-break banner. Both live in the same top-center slot.
     var game = initCrewriftForTest(defaultGameConfig())
-    var state = initGlobalViewerState()
-    var next: GlobalViewerState
 
-    let packet = game.buildSpriteProtocolUpdates(
-      state,
-      next,
-      @[],
-      replayTick = 1208,
-      replayPlaying = true,
-      replaySpeed = 1,
-      replayMaxTick = 2000,
-      replayLooping = false,
-      replayEnabled = true,
-      replayMismatchTick = 1208
-    )
-    var
-      foundSprite = false
-      foundObject = false
-    for message in packet.parseSpritePacket():
-      if message.kind == spkSprite and
-          message.sprite.label == "hash mismatch at tick 1208":
-        foundSprite = true
-      if message.kind == spkObject and
-          message.objectDef.layer == ReplayMismatchLayerId:
-        foundObject = true
+    proc mismatchPacket(sameBuild: bool): seq[uint8] =
+      var state = initGlobalViewerState()
+      var next: GlobalViewerState
+      game.buildSpriteProtocolUpdates(
+        state,
+        next,
+        @[],
+        replayTick = 1208,
+        replayPlaying = true,
+        replaySpeed = 1,
+        replayMaxTick = 2000,
+        replayLooping = false,
+        replayEnabled = true,
+        replayMismatchTick = 1208,
+        replayMismatchSameBuild = sameBuild
+      )
 
-    check foundSprite
-    check foundObject
+    for (sameBuild, expectedLabel) in [
+      (false, "recorded inputs - different engine build"),
+      (true, "hash mismatch at tick 1208")
+    ]:
+      var
+        foundSprite = false
+        foundObject = false
+      for message in mismatchPacket(sameBuild).parseSpritePacket():
+        if message.kind == spkSprite and
+            message.sprite.label == expectedLabel:
+          foundSprite = true
+        if message.kind == spkObject and
+            message.objectDef.layer == ReplayMismatchLayerId:
+          foundObject = true
+      checkpoint "sameBuild=" & $sameBuild
+      check foundSprite
+      check foundObject

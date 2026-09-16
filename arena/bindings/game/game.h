@@ -26,14 +26,7 @@ typedef struct softmax_game_types_seat_message_t {
   game_list_u8_t   payload;
 } softmax_game_types_seat_message_t;
 
-typedef struct {
-  softmax_game_types_seat_message_t *ptr;
-  size_t len;
-} softmax_game_types_list_seat_message_t;
-
 typedef struct softmax_game_types_step_output_t {
-  // Messages to deliver, host-fanned-out per seat.
-  softmax_game_types_list_seat_message_t   messages;
   // True once; the host then calls finish().
   bool   done;
 } softmax_game_types_step_output_t;
@@ -62,13 +55,16 @@ typedef struct {
   } val;
 } game_result_step_output_string_t;
 
-// Imported Functions from `softmax:game/output@0.1.0`
+// Imported Functions from `softmax:game/output@0.2.0`
+// Deliver one game frame. One callback per seat keeps large Sprite frames
+// inside Wasmtime's per-hostcall guest-to-host allocation budget.
+extern void softmax_game_output_message(uint32_t seat, game_list_u8_t *payload);
 // Final results.json bytes. Emit exactly once, from finish().
 extern void softmax_game_output_results(game_list_u8_t *body);
 // Append replay bytes; the host streams them to S3.
 extern void softmax_game_output_replay_append(game_list_u8_t *chunk);
 
-// Imported Functions from `softmax:game/log@0.1.0`
+// Imported Functions from `softmax:game/log@0.2.0`
 extern void softmax_game_log_line(game_string_t *level, game_string_t *msg);
 
 // Exported Functions from `game`
@@ -82,13 +78,7 @@ void game_list_u8_free(game_list_u8_t *ptr);
 
 void softmax_game_types_seat_message_free(softmax_game_types_seat_message_t *ptr);
 
-void softmax_game_types_list_seat_message_free(softmax_game_types_list_seat_message_t *ptr);
-
-void softmax_game_types_step_output_free(softmax_game_types_step_output_t *ptr);
-
 void game_seat_message_free(game_seat_message_t *ptr);
-
-void game_step_output_free(game_step_output_t *ptr);
 
 void game_result_void_string_free(game_result_void_string_t *ptr);
 

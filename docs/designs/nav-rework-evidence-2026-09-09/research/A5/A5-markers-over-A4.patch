@@ -1,0 +1,206 @@
+diff --git a/docs/designs/nav-rework-evidence-2026-09-09/research/A5/baseline/A4-body_route_index.nim b/src/shell/body_route_index.nim
+index 1ce6e748..f144f1e0 100644
+--- a/docs/designs/nav-rework-evidence-2026-09-09/research/A5/baseline/A4-body_route_index.nim
++++ b/src/shell/body_route_index.nim
+@@ -5,8 +5,25 @@
+ ## this data in body_route_query.nim; they never build a source field.
+ 
+ import std/[algorithm, math, strformat]
++import bitworld/profile
+ import body_map
+ 
++# A5 attribution markers: compiled only with -d:ProfileTracePath; otherwise the
++# template is the bare body and the counters do not exist. Whole stages only.
++template indexStage(name: string, body: untyped) =
++  when ProfileTracePath.len > 0:
++    profileBlock(name, body)
++  else:
++    body
++
++when ProfileTracePath.len > 0:
++  type PocketProfileCounters* = object
++    coverageCells*, pixelScanCells*, secondaryCells*: int
++    scannedPixels*, deferredSecondary*, coverageUnresolved*: int
++    coveragePending*, resolvePasses*, resolveSeeds*: int
++    joinCandidates*, joinPaths*, finalPending*, paths*, pocketPoints*: int
++  var pocketProfile*: PocketProfileCounters
++
+ const
+   PortalAnchorRingCells* = 4
+   PortalCrossingBoxCells* = 4
+@@ -1519,6 +1536,9 @@ proc resolvePocketPending(index: BodyRouteIndex,
+     var
+       nextUnresolved = newSeqOfCap[PendingPocketPoint](unresolved.len)
+       passAdded = 0
++    when ProfileTracePath.len > 0:
++      inc pocketProfile.resolvePasses
++      pocketProfile.resolveSeeds += unresolved.len
+     for pendingPoint in unresolved:
+       case index.resolvePocketSeed(pendingPoint.point, validatorComponent,
+           canonicalByPixel, canonicalByGraph, paths, fineTargets,
+@@ -1556,7 +1576,8 @@ proc buildPocketCoverage(index: BodyRouteIndex,
+     secondaryCell = newSeq[bool](index.stats.navCells)
+     deferredSecondary: seq[PendingPocketPoint]
+     unresolved: seq[PendingPocketPoint]
+-  for cellIndex in 0 ..< index.stats.navCells:
++  indexStage("pocket.coverage.classify"):
++   for cellIndex in 0 ..< index.stats.navCells:
+     let
+       cell = index.cellPoint(cellIndex)
+       center = cellCenter(cell)
+@@ -1586,9 +1607,16 @@ proc buildPocketCoverage(index: BodyRouteIndex,
+     needsPixelScan[cellIndex] =
+       (includeSecondary or sourceGraph == 0 or sourceGraph == targetGraph) and
+       (sourceGraph != targetGraph or needsBoundaryProof)
++  when ProfileTracePath.len > 0:
++    pocketProfile.coverageCells += index.stats.navCells
++    for flag in needsPixelScan:
++      if flag: inc pocketProfile.pixelScanCells
++    for flag in secondaryCell:
++      if flag: inc pocketProfile.secondaryCells
+   index.stats.transientPeakBytes = max(index.stats.transientPeakBytes,
+     int64(needsPixelScan.len * sizeof(bool)))
+-  for coarseY in 0 ..< index.map.gridHeight:
++  indexStage("pocket.coverage.pixelScan"):
++   for coarseY in 0 ..< index.map.gridHeight:
+     let
+       y0 = coarseY * NavCell
+       y1 = min(index.map.height, y0 + NavCell) - 1
+@@ -1603,6 +1631,8 @@ proc buildPocketCoverage(index: BodyRouteIndex,
+           x1 = min(index.map.width, x0 + NavCell) - 1
+         for x in x0 .. x1:
+           let point: BodyPoint = (x, y)
++          when ProfileTracePath.len > 0:
++            inc pocketProfile.scannedPixels
+           if not needsPixelScan[coarseIndex]:
+             if index.map.canStand(point):
+               deferredSecondary.add PendingPocketPoint(
+@@ -1616,30 +1646,45 @@ proc buildPocketCoverage(index: BodyRouteIndex,
+           of psUnresolved:
+             unresolved.add PendingPocketPoint(point: point,
+               nextPath: int32(paths.len))
+-  unresolved = index.resolvePocketPending(move(unresolved),
+-    validatorComponent, canonicalByPixel, canonicalByGraph, failOnStall,
+-    paths, fineTargets, pixelScratch)
++  when ProfileTracePath.len > 0:
++    pocketProfile.deferredSecondary += deferredSecondary.len
++    pocketProfile.coverageUnresolved += unresolved.len
++  indexStage("pocket.coverage.resolvePending"):
++    unresolved = index.resolvePocketPending(move(unresolved),
++      validatorComponent, canonicalByPixel, canonicalByGraph, failOnStall,
++      paths, fineTargets, pixelScratch)
+   result = move(deferredSecondary)
+   result.add unresolved
+-  result.sort(proc(a, b: PendingPocketPoint): int =
+-    result = cmp(a.point.y, b.point.y)
+-    if result == 0:
+-      result = cmp(a.point.x, b.point.x))
++  when ProfileTracePath.len > 0:
++    pocketProfile.coveragePending += result.len
++  indexStage("pocket.coverage.sort"):
++    result.sort(proc(a, b: PendingPocketPoint): int =
++      result = cmp(a.point.y, b.point.y)
++      if result == 0:
++        result = cmp(a.point.x, b.point.x))
+ 
+ proc buildPocketConnectors(index: BodyRouteIndex) =
+   if index.stats.graphComponents == 0:
+     return
+-  let canonical = index.canonicalGraphMapping()
++  var canonical: tuple[byPixel, byGraph: seq[uint16]]
+   var validatorComponent = newSeq[bool](index.map.componentCount + 1)
+-  for validator in 0 ..< index.map.validatorTableCount:
+-    validatorComponent[index.map.validatorComponentAt(validator)] = true
++  indexStage("pocket.canonicalMapping"):
++    canonical = index.canonicalGraphMapping()
++    for validator in 0 ..< index.map.validatorTableCount:
++      validatorComponent[index.map.validatorComponentAt(validator)] = true
+   var
+     paths: seq[CrossingPath]
++    fineTargets: seq[FineTarget]
++    pixelScratch: PixelSearchScratch
++    pending: seq[PendingPocketPoint]
++  indexStage("pocket.initialTargetsScratch"):
+     fineTargets = index.initialFineTargets(canonical.byGraph)
+     pixelScratch = index.initPixelSearchScratch()
++  indexStage("pocket.coverage"):
+     pending = index.buildPocketCoverage(validatorComponent, canonical.byPixel,
+       canonical.byGraph, false, false, paths, fineTargets, pixelScratch)
+-  for sourceGraphIndex in 1 ..< canonical.byGraph.len:
++  indexStage("pocket.graphJoins"):
++   for sourceGraphIndex in 1 ..< canonical.byGraph.len:
+     let
+       sourceGraph = uint16(sourceGraphIndex)
+       targetGraph = canonical.byGraph[sourceGraphIndex]
+@@ -1651,6 +1696,8 @@ proc buildPocketConnectors(index: BodyRouteIndex) =
+         cell = index.map.cellOf(point)
+       if index.cellComponent[index.cellIndex(cell)] != sourceGraph:
+         continue
++      when ProfileTracePath.len > 0:
++        inc pocketProfile.joinCandidates
+       let path = index.pixelPocketPath(point, paths, fineTargets,
+         targetGraph, pixelScratch)
+       if path.cells.len == 0 or
+@@ -1671,30 +1718,40 @@ proc buildPocketConnectors(index: BodyRouteIndex) =
+             kind: ftkPocket)
+       index.anchorPocketCells(path, canonical.byGraph)
+       index.joinPocketGraph(sourceGraph, targetGraph)
++      when ProfileTracePath.len > 0:
++        inc pocketProfile.joinPaths
+       break
+-  discard index.resolvePocketPending(move(pending), validatorComponent,
+-    canonical.byPixel, canonical.byGraph, true, paths, fineTargets,
+-    pixelScratch)
++  when ProfileTracePath.len > 0:
++    pocketProfile.finalPending += pending.len
++  indexStage("pocket.finalPending"):
++    discard index.resolvePocketPending(move(pending), validatorComponent,
++      canonical.byPixel, canonical.byGraph, true, paths, fineTargets,
++      pixelScratch)
+   var pointCount = 0
+-  for path in paths:
+-    pointCount += path.cells.len
+-  index.pockets = newSeq[BodyPocketConnector](paths.len)
+-  index.pocketCells = newSeq[int32](pointCount)
+-  var cursor = 0
+-  for pathIndex, path in paths:
+-    for pointRef in path.cells:
+-      index.pocketCells[cursor] = pointRef
+-      inc cursor
+-      if pointRef < 0:
+-        inc index.stats.finePoints
+-    index.pockets[pathIndex] = BodyPocketConnector(
+-      sourcePoint: path.cells[0], targetCell: path.cells[^1],
+-      pointStart: int32(cursor - path.cells.len),
+-      pointLen: uint16(path.cells.len),
+-      staticLengthQ4: index.pathLengthQ4(path.cells))
+-  index.stats.pocketConnectors = paths.len
+-  index.stats.finePointBytes = index.stats.finePoints * sizeof(int32)
+-  index.collapseGraphComponents(canonical.byGraph)
++  indexStage("pocket.pack"):
++    for path in paths:
++      pointCount += path.cells.len
++    index.pockets = newSeq[BodyPocketConnector](paths.len)
++    index.pocketCells = newSeq[int32](pointCount)
++    var cursor = 0
++    for pathIndex, path in paths:
++      for pointRef in path.cells:
++        index.pocketCells[cursor] = pointRef
++        inc cursor
++        if pointRef < 0:
++          inc index.stats.finePoints
++      index.pockets[pathIndex] = BodyPocketConnector(
++        sourcePoint: path.cells[0], targetCell: path.cells[^1],
++        pointStart: int32(cursor - path.cells.len),
++        pointLen: uint16(path.cells.len),
++        staticLengthQ4: index.pathLengthQ4(path.cells))
++    index.stats.pocketConnectors = paths.len
++    index.stats.finePointBytes = index.stats.finePoints * sizeof(int32)
++  when ProfileTracePath.len > 0:
++    pocketProfile.paths += paths.len
++    pocketProfile.pocketPoints += pointCount
++  indexStage("pocket.collapse"):
++    index.collapseGraphComponents(canonical.byGraph)
+ 
+ proc buildFineAnchorIndex(index: BodyRouteIndex) =
+   var pairs: seq[FineAnchorPair]

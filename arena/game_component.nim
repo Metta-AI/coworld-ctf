@@ -33,11 +33,12 @@ type
     len: csize_t
 
   GameStepOutput {.importc: "game_step_output_t", header: "bindings/game/game.h", bycopy.} = object
-    messages: GameSeatMessages
     done: bool
 
 proc outputResults(body: ptr GameBytes) {.
   importc: "softmax_game_output_results", header: "bindings/game/game.h".}
+proc outputMessage(seat: uint32, payload: ptr GameBytes) {.
+  importc: "softmax_game_output_message", header: "bindings/game/game.h".}
 proc outputReplay(chunk: ptr GameBytes) {.
   importc: "softmax_game_output_replay_append", header: "bindings/game/game.h".}
 proc logLine(level, message: ptr GameString) {.
@@ -114,20 +115,11 @@ proc exportsGameStep(
       payload: toString(actionData[i].payload.data, actionData[i].payload.len)
     ))
   let stepOutput = arenaGame.step(messages)
-  output[].messages.len = csize_t(stepOutput.messages.len)
-  output[].messages.data = nil
-  if stepOutput.messages.len > 0:
-    output[].messages.data = cast[ptr GameSeatMessage](
-      alloc(stepOutput.messages.len * sizeof(GameSeatMessage))
-    )
-    let outputData = cast[ptr UncheckedArray[GameSeatMessage]](output[].messages.data)
-    for i, message in stepOutput.messages:
-      outputData[i].seat = uint32(message.seat)
-      outputData[i].payload.len = csize_t(message.payload.len)
-      outputData[i].payload.data = nil
-      if message.payload.len > 0:
-        outputData[i].payload.data = cast[ptr uint8](alloc(message.payload.len))
-        copyMem(outputData[i].payload.data, message.payload[0].unsafeAddr, message.payload.len)
+  for message in stepOutput.messages:
+    var payload = GameBytes(len: csize_t(message.payload.len))
+    if message.payload.len > 0:
+      payload.data = cast[ptr uint8](message.payload[0].unsafeAddr)
+    outputMessage(uint32(message.seat), payload.addr)
   output[].done = stepOutput.done
   emitReplay()
   clearError(error)

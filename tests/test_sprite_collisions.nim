@@ -25,7 +25,7 @@ import
 
 proc fullFeatureGame(withCrown = true, crownOnly = false): SimServer =
   ## A game exercising every sprite family at once: a viewer, a visible
-  ## enemy, teammates carrying shield / grenade / plasma arc, floor pickups
+  ## enemy, teammates carrying shield / grenade / spray can, floor pickups
   ## untouched, and combat FX.
   var config = defaultGameConfig()
   if withCrown:
@@ -51,13 +51,13 @@ proc fullFeatureGame(withCrown = true, crownOnly = false): SimServer =
   result.players[1].y = cy
   result.players[1].hasShield = true
   # Red teammates just behind the viewer, in its vision bubble, carrying
-  # the grenade and the plasma arc so those markers render too.
+  # the grenade and the spray can so those markers render too.
   result.players[2].x = cx - 90
   result.players[2].y = cy - 20
   result.players[2].hasGrenade = true
   result.players[4].x = cx - 90
   result.players[4].y = cy + 20
-  result.players[4].hasPlasmaArc = true
+  result.players[4].hasSprayPaint = true
 
 proc conflicts(messages: openArray[SpritePacketMessage]): seq[string] =
   ## Ids defined twice with different labels WITHIN one packet.
@@ -136,9 +136,10 @@ suite "sprite id collisions":
     check game.buildGlobalMessages(gstate).conflicts() == newSeq[string]()
 
   test "a 4-team frame defines no colliding sprite ids":
-    # The widened pools (soldier/corpse/selected strides, rig blocks, flag
-    # 700..703, carry hearts 600..663, endzone fades 4100..4131) all get
-    # exercised by a full 4-team frame with green/yellow seated.
+    # The widened pools (soldier/corpse/selected strides, rig blocks, flags,
+    # carry hearts, endzone fades — see the BoardSpritePools audit in
+    # global.nim for their current bases) all get exercised by a full
+    # 4-team frame with green/yellow seated.
     var config = defaultGameConfig()
     config.teams = 4
     config.mapPath = "gen"
@@ -164,6 +165,13 @@ suite "sprite id collisions":
     # Every label the baseline bot exact-match scans for. A missing entry
     # means either a silent rename or a sprite-id clobber — both blind every
     # scripted bot in the league while nothing else fails.
+    #
+    # Sprites Off (spritesOff=true) is the real wire condition every scripted
+    # league bot connects under (server.nim sets it from the 0x87 opt-in) —
+    # it's what gates the walkability map (LabelWalkabilityMap): a human
+    # viewer never sets it and never receives that sprite (it's policy-only
+    # navigation data, never read by client JS), so this test must ask for
+    # the bot's actual view rather than the human default.
     var game = fullFeatureGame()
     var pstate: PlayerViewerState
     var defs: Table[int, string]
@@ -174,7 +182,7 @@ suite "sprite id collisions":
       (game.players[0].x, game.players[0].y),
       (game.grenadeSpawns[0].x, game.grenadeSpawns[0].y),
       (game.shieldSpawns[0].x, game.shieldSpawns[0].y),
-      (game.plasmaArcSpawns[0].x, game.plasmaArcSpawns[0].y),
+      (game.sprayPaintSpawns[0].x, game.sprayPaintSpawns[0].y),
       (game.medKitSpawns[0].x, game.medKitSpawns[0].y),
     ]
     for stop in stops:
@@ -182,9 +190,9 @@ suite "sprite id collisions":
       game.players[0].x = stop[0] + 40
       game.players[0].y = stop[1]
       game.players[0].aimBrads = 128    # aim west, spawn in the cone
-      defs.applyDefs(game.buildPlayerMessages(0, pstate))
+      defs.applyDefs(game.buildPlayerMessages(0, pstate, spritesOff = true))
       game.step(none, none)
-      defs.applyDefs(game.buildPlayerMessages(0, pstate))
+      defs.applyDefs(game.buildPlayerMessages(0, pstate, spritesOff = true))
     var labels = initHashSet[string]()
     var prefixes = initHashSet[string]()
     for label in defs.values:

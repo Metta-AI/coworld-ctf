@@ -1,0 +1,5 @@
+Hint: used config file '/Users/jamesboggs/.nimby/nim/config/nim.cfg' [Conf]
+Hint: used config file '/Users/jamesboggs/.nimby/nim/config/config.nims' [Conf]
+Hint: used config file '/Users/jamesboggs/coding/coworlds/coworld-ctf-worktrees/nav-throughput-checkpoints/tests/config.nims' [Conf]
+.......................................................................................................................................
+/Users/jamesboggs/coding/coworlds/coworld-ctf-worktrees/nav-throughput-checkpoints/tests/test_shell_body_nav_rework.nim(4, 16) Error: cannot open file: bitworld/spriteprotocol

@@ -1,0 +1,103 @@
+{
+  "note": "Nested durations overlap. Separate profiled six-scenario run at B1024; not acceptance timing.",
+  "rows": [
+    {
+      "name": "shell.danger",
+      "count": 756,
+      "p50_us": 1368.568,
+      "p95_us": 1407.752,
+      "total_us": 784809.563
+    },
+    {
+      "name": "rebuildScheduledDanger",
+      "count": 756,
+      "p50_us": 1358.812,
+      "p95_us": 1396.294,
+      "total_us": 777906.08
+    },
+    {
+      "name": "shell.planning",
+      "count": 756,
+      "p50_us": 629.756,
+      "p95_us": 788.045,
+      "total_us": 490514.094
+    },
+    {
+      "name": "body.weapon",
+      "count": 18144,
+      "p50_us": 6.36,
+      "p95_us": 8.134,
+      "total_us": 120094.223
+    },
+    {
+      "name": "body.follower",
+      "count": 18144,
+      "p50_us": 2.372,
+      "p95_us": 5.027,
+      "total_us": 51544.681
+    },
+    {
+      "name": "shell.standing",
+      "count": 756,
+      "p50_us": 57.93,
+      "p95_us": 71.921,
+      "total_us": 35780.724
+    },
+    {
+      "name": "shell.lifecycle",
+      "count": 18144,
+      "p50_us": 1.49,
+      "p95_us": 2.308,
+      "total_us": 29117.537
+    },
+    {
+      "name": "shell.default",
+      "count": 36288,
+      "p50_us": 0.686,
+      "p95_us": 0.955,
+      "total_us": 25686.79
+    },
+    {
+      "name": "body.belief",
+      "count": 18144,
+      "p50_us": 1.183,
+      "p95_us": 1.73,
+      "total_us": 22826.806
+    },
+    {
+      "name": "shell.ladder",
+      "count": 756,
+      "p50_us": 27.743,
+      "p95_us": 30.717,
+      "total_us": 16996.375
+    },
+    {
+      "name": "shell.guard",
+      "count": 18144,
+      "p50_us": 0.725,
+      "p95_us": 0.968,
+      "total_us": 13881.136
+    },
+    {
+      "name": "shell.reflex",
+      "count": 18144,
+      "p50_us": 0.482,
+      "p95_us": 0.664,
+      "total_us": 9541.26
+    },
+    {
+      "name": "shell.context",
+      "count": 18144,
+      "p50_us": 0.26,
+      "p95_us": 0.322,
+      "total_us": 4859.522
+    },
+    {
+      "name": "shell.compile",
+      "count": 756,
+      "p50_us": 0.39,
+      "p95_us": 0.638,
+      "total_us": 336.388
+    }
+  ]
+}

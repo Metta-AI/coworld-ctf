@@ -1,0 +1,79 @@
+diff --git a/src/shell/body_nav.nim b/src/shell/body_nav.nim
+index 23b14823..b896e2e3 100644
+--- a/src/shell/body_nav.nim
++++ b/src/shell/body_nav.nim
+@@ -389,9 +389,8 @@ proc nextVisitGeneration(seat: BodyNavSeat) =
+   else:
+     inc seat.dangerWorkspace.visitGeneration
+ 
+-proc addVisibleCell(seat: BodyNavSeat, origin: BodyPoint,
+-                    kernel: openArray[float32], kernelRadius,
+-                    gx, gy: int) {.inline.} =
++proc addVisibleCell(seat: BodyNavSeat, kernel: openArray[float32],
++                    kernelIndex, gx, gy: int) {.inline.} =
+   if gx < 0 or gx >= seat.danger.gridW or
+       gy < 0 or gy >= seat.danger.gridH:
+     return
+@@ -401,10 +400,7 @@ proc addVisibleCell(seat: BodyNavSeat, origin: BodyPoint,
+     return
+   seat.dangerWorkspace.visited[index] =
+     seat.dangerWorkspace.visitGeneration
+-  let diameter = kernelRadius * 2 + 1
+-  let kernelX = gx - origin.x + kernelRadius
+-  let kernelY = gy - origin.y + kernelRadius
+-  seat.danger.values[index] += kernel[kernelY * diameter + kernelX]
++  seat.danger.values[index] += kernel[kernelIndex]
+ 
+ proc sightCellBlocked(geometry: DangerGeometry, x, y: int): bool {.inline.} =
+   if x < 0 or x >= geometry.gridWidth or y < 0 or y >= geometry.gridHeight:
+@@ -427,6 +423,9 @@ proc castRay(seat: BodyNavSeat, origin: BodyPoint,
+   let decisionX = 2 * ny
+   let decisionY = 2 * nx
+   var decision = ny - nx
++  let diameter = kernelRadius * 2 + 1
++  let kernelStepY = stepY * diameter
++  var kernelIndex = kernelRadius * diameter + kernelRadius
+   while ix < nx or iy < ny:
+     if decision == 0:
+       let sideX = x + stepX
+@@ -434,24 +433,27 @@ proc castRay(seat: BodyNavSeat, origin: BodyPoint,
+       if seat.dangerGeometry.sightCellBlocked(sideX, y) or
+           seat.dangerGeometry.sightCellBlocked(x, sideY):
+         break
+-      seat.addVisibleCell(origin, kernel, kernelRadius, sideX, y)
+-      seat.addVisibleCell(origin, kernel, kernelRadius, x, sideY)
++      seat.addVisibleCell(kernel, kernelIndex + stepX, sideX, y)
++      seat.addVisibleCell(kernel, kernelIndex + kernelStepY, x, sideY)
+       x = sideX
+       y = sideY
+       inc ix
+       inc iy
+       decision += decisionX - decisionY
++      kernelIndex += stepX + kernelStepY
+     elif decision < 0:
+       x += stepX
+       inc ix
+       decision += decisionX
++      kernelIndex += stepX
+     else:
+       y += stepY
+       inc iy
+       decision -= decisionY
++      kernelIndex += kernelStepY
+     if seat.dangerGeometry.sightCellBlocked(x, y):
+       break
+-    seat.addVisibleCell(origin, kernel, kernelRadius, x, y)
++    seat.addVisibleCell(kernel, kernelIndex, x, y)
+ 
+ proc rebuildDangerFromPoints(seat: BodyNavSeat, map: BodyMap,
+                              sources: openArray[BodyPoint], tick: int) =
+@@ -462,7 +464,8 @@ proc rebuildDangerFromPoints(seat: BodyNavSeat, map: BodyMap,
+   for source in sources:
+     let origin = map.cellOf(source)
+     seat.nextVisitGeneration()
+-    seat.addVisibleCell(origin, seat.dangerGeometry.kernel, seat.dangerGeometry.radius,
++    let radius = seat.dangerGeometry.radius
++    seat.addVisibleCell(seat.dangerGeometry.kernel, radius * (radius * 2 + 1) + radius,
+       origin.x, origin.y)
+     for offset in seat.dangerGeometry.perimeter:
+       seat.castRay(origin, seat.dangerGeometry.kernel, seat.dangerGeometry.radius,

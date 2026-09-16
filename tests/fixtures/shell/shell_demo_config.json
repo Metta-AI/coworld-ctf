@@ -1,0 +1,71 @@
+{
+  "_comment": "Shell demo timings: zonePhases deliberately compress practice's match-length BR schedule so the flood is visible during a watched demo.",
+  "season2Shell": true,
+  "viewIntervalTicks": 6,
+  "lobbyChatTicks": 0,
+  "playSeatBindTicks": 7200,
+  "maxGames": 0,
+  "maxTicks": 0,
+  "startWaitTicks": 0,
+  "speed": 1,
+  "fastMode": false,
+  "demoPlay": {
+    "modulePath": "play_sdk/.build/edge_ride.wasm",
+    "playName": "edge_ride",
+    "params": {"coverBias": 0.8, "enterLead": 120, "margin": 220},
+    "seats": [0, 1, 2, 3, 4, 5, 6, 7],
+    "uploadIdBase": 10000,
+    "proposalIdBase": 20000,
+    "originGeneration": 1
+  },
+  "slots": [
+    {"control": "play"}, {"control": "play"},
+    {"control": "play"}, {"control": "play"},
+    {"control": "play"}, {"control": "play"},
+    {"control": "play"}, {"control": "play"},
+    {"control": "play"}, {"control": "play"},
+    {"control": "play"}, {"control": "play"},
+    {"control": "play"}, {"control": "play"},
+    {"control": "play"}, {"control": "play"},
+    {"control": "play"}, {"control": "play"},
+    {"control": "play"}, {"control": "play"},
+    {"control": "play"}, {"control": "play"},
+    {"control": "play"}, {"control": "play"},
+    {"control": "play"}, {"control": "play"},
+    {"control": "play"}, {"control": "play"},
+    {"control": "play"}, {"control": "play"},
+    {"control": "play"}, {"control": "play"}
+  ],
+  "zonePhases": [
+    {
+      "z": 0.75,
+      "waitTicks": 480,
+      "shrinkTicks": 360,
+      "dps": 0
+    },
+    {
+      "z": 0.55,
+      "waitTicks": 360,
+      "shrinkTicks": 360,
+      "dps": 2
+    },
+    {
+      "z": 0.4,
+      "waitTicks": 300,
+      "shrinkTicks": 300,
+      "dps": 4
+    },
+    {
+      "z": 0.28,
+      "waitTicks": 240,
+      "shrinkTicks": 240,
+      "dps": 8
+    },
+    {
+      "z": 0.17,
+      "waitTicks": 180,
+      "shrinkTicks": 180,
+      "dps": 12
+    }
+  ]
+}

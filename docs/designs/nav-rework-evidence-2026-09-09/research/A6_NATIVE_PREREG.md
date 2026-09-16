@@ -1,0 +1,5 @@
+# A6 native three-arm screen
+
+The initial eager-fill hypothesis is falsified by the measured counters: only 457 searches reach pixelPathInBox, not 6,167, and the 1.93 million eager evaluations are fewer than the 6.30 million BFS reads. Direct triples evaluations; lazy reduces them to 0.85 million with a stamp check per read. No arm is accepted from Mac timing.
+
+Close the native question with three interleaved sets of five map48 constructors on m8i CPU5, orders eager/direct/lazy, lazy/direct/eager, direct/eager/lazy. Use frozen materialized A6 snapshots over A4, A5 Fluffy stage markers, release/useMalloc/noSignalHandler, and no pixelStandabilityCounters define in timed binaries (per-read instrumentation would confound the arms). Each trace stays separate. Prediction: no useful lazy improvement; direct may lose. Keep all stage distributions and exact source/executable hashes. This is a small activation screen, not full 76-map qualification or whole-body acceptance. Only a material native improvement would justify more fleet/quality work.

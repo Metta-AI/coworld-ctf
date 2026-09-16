@@ -7,6 +7,20 @@
 
 # Ignore hidden files, but not the license or github files.
 .*
+!.caos-expr
+!DEPS
+
+# Secrets. Already covered by the `.*` above — spelled out anyway because that
+# coverage is incidental, and the cost of someone adding a `!` rule that
+# happens to re-include this directory is a committed API token. caos reads
+# .caos-secrets/<name> for `value=` and the `reader=` lines that say which
+# worker may see it (caos SPEC, "Secrets"); the values must never reach git,
+# and caos separately refuses to `caos put` a new file containing one.
+.caos-secrets/
+# The worker images' /worker trampolines — extensionless, and caos only ever
+# sees git-tracked files, so an ignored worker is an invisible failure.
+!caos/nim/worker
+!caos/imgtools/worker
 !.github/
 !.github/**
 !.gitignore
@@ -22,6 +36,12 @@ nimcache
 out/
 tmp/
 build/
+# ...but NOT the `build` tool. A tool is a DIRECTORY under caos-tools/ (caos
+# SPEC, "Tools"), and caos — like nix — only ever sees git-tracked files, so
+# the generic `build/` above would make this tool silently invisible rather
+# than broken. Re-including the directory is what lets git descend into it;
+# a `!caos-tools/build/**` alone cannot, an excluded parent is never walked.
+!caos-tools/build/
 replay-viewer/dist/
 __pycache__/
 *.pyc
@@ -59,3 +79,20 @@ pool-preview/
 data/replays/
 barrier-demo.bitreplay
 perks-2v2-demo.bitreplay
+br-match-1.bitreplay
+br-final-match.bitreplay
+br-match-2-huntfix.bitreplay
+br-showmatch.bitreplay
+br-showmatch2.bitreplay
+br-paint3-match.bitreplay
+fresh-paint-match.bitreplay
+my-paint-verify.bitreplay
+
+# The mount point .caos-expr splices caos's std/ into. Never committed — the
+# loader REFUSES to overwrite an entry that is already there.
+/caos-std/
+/static-replay-viewer/
+br-paint4-match.bitreplay
+
+# Private champion source, copied in by exp/build_champion.sh. Never commit.
+exp/champion/

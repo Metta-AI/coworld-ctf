@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Turn the generated spray-paint-can illustrations into the game masters for the
-cone weapon (renamed from "plasma arc" — this is paintball, the short-range
+cone weapon (renamed from "spray can" — this is paintball, the short-range
 weapon sprays paint).
 
 The can joins the painted bold-outline item family (heart gem, med kit, shield,

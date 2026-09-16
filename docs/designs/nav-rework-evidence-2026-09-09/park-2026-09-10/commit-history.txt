@@ -1,0 +1,1315 @@
+commit f289a8eeefc6fd1f0997435b29b55103da8d3776
+Author:     James Boggs <james@softmax.com>
+AuthorDate: Fri Sep 4 17:28:04 2026 -0700
+Commit:     James Boggs <james@softmax.com>
+CommitDate: Fri Sep 4 17:28:04 2026 -0700
+
+    test: freeze shared-navigation route corpus
+
+commit 7f589dc24df12aa4c5d4a72d32be34a25725e7cd
+Author:     James Boggs <james@softmax.com>
+AuthorDate: Fri Sep 4 17:28:21 2026 -0700
+Commit:     James Boggs <james@softmax.com>
+CommitDate: Fri Sep 4 17:28:21 2026 -0700
+
+    test: pin shared-navigation liveness failures
+
+commit 7e1364c0af8f549b9daa9a3258ff84e4e7a3abd5
+Author:     James Boggs <james@softmax.com>
+AuthorDate: Fri Sep 4 17:40:12 2026 -0700
+Commit:     James Boggs <james@softmax.com>
+CommitDate: Fri Sep 4 17:40:12 2026 -0700
+
+    test: compact shared-navigation route corpus
+
+commit 24b05e1d32964bfc81ce075b9ec1df4c88d8dda3
+Author:     James Boggs <james@softmax.com>
+AuthorDate: Fri Sep 4 17:45:32 2026 -0700
+Commit:     James Boggs <james@softmax.com>
+CommitDate: Fri Sep 4 17:45:32 2026 -0700
+
+    shell: centralize body navigation legality
+
+commit e8a7b75a407982768e9f1030f9c26bfc5e756658
+Author:     James Boggs <james@softmax.com>
+AuthorDate: Fri Sep 4 18:00:32 2026 -0700
+Commit:     James Boggs <james@softmax.com>
+CommitDate: Fri Sep 4 18:00:32 2026 -0700
+
+    shell: add shared body route index
+
+commit 585ea565a486cfbcb72b9c02b754fe7b5c8b90c5
+Author:     James Boggs <james@softmax.com>
+AuthorDate: Fri Sep 4 18:33:26 2026 -0700
+Commit:     James Boggs <james@softmax.com>
+CommitDate: Fri Sep 4 18:33:26 2026 -0700
+
+    shell: qualify fine route-index coverage
+
+commit ebb0c525cc6b2baf9f311de5a8dde00d319a04a4
+Author:     James Boggs <james@softmax.com>
+AuthorDate: Fri Sep 4 18:38:34 2026 -0700
+Commit:     James Boggs <james@softmax.com>
+CommitDate: Fri Sep 4 18:38:34 2026 -0700
+
+    shell: derive portals from coarse room boundaries
+
+commit db22311b6c41d2a46a44ebd13df2c7f45e8e7de7
+Author:     James Boggs <james@softmax.com>
+AuthorDate: Fri Sep 4 19:51:16 2026 -0700
+Commit:     James Boggs <james@softmax.com>
+CommitDate: Fri Sep 4 19:51:16 2026 -0700
+
+    shell: scope route coverage to validator components
+
+commit dcd14d134d79338e24a648ab21c145474f0e6a71
+Merge: db22311b f374a18b
+Author:     James Boggs <james@softmax.com>
+AuthorDate: Mon Sep 7 23:28:03 2026 -0700
+Commit:     James Boggs <james@softmax.com>
+CommitDate: Mon Sep 7 23:28:03 2026 -0700
+
+    Merge remote-tracking branch 'origin/main' into james/s2-nav-rework
+
+commit 71e2d2d11553a9d48408d2ac563055d3b30a8a1f
+Author:     James Boggs <james@softmax.com>
+AuthorDate: Tue Sep 8 00:49:31 2026 -0700
+Commit:     James Boggs <james@softmax.com>
+CommitDate: Tue Sep 8 00:49:31 2026 -0700
+
+    shell: connect pixel-grid route pockets
+
+commit fd224c2cd896f946750ee11dacd2da0b2665cda7
+Author:     James Boggs <james@softmax.com>
+AuthorDate: Tue Sep 8 01:46:00 2026 -0700
+Commit:     James Boggs <james@softmax.com>
+CommitDate: Tue Sep 8 01:46:00 2026 -0700
+
+    shell: add bounded hierarchical route queries
+
+commit 0722e0b829e9945219483eafb6fcef4d27ba8b07
+Author:     James Boggs <james@softmax.com>
+AuthorDate: Tue Sep 8 01:48:08 2026 -0700
+Commit:     James Boggs <james@softmax.com>
+CommitDate: Tue Sep 8 01:48:08 2026 -0700
+
+    test: wire hierarchical route suites into CI
+
+commit d39655b5f8754a3ffffc0e8ebac277a680771f32
+Author:     James Boggs <james@softmax.com>
+AuthorDate: Tue Sep 8 02:06:07 2026 -0700
+Commit:     James Boggs <james@softmax.com>
+CommitDate: Tue Sep 8 02:06:07 2026 -0700
+
+    test: prove bounded route cap fallback
+
+commit 6b6e3b69f00b58e1a29ebc6d8fb8bb4ee627d110
+Author:     James Boggs <james@softmax.com>
+AuthorDate: Tue Sep 8 02:09:08 2026 -0700
+Commit:     James Boggs <james@softmax.com>
+CommitDate: Tue Sep 8 02:09:08 2026 -0700
+
+    test: cover route query order independence
+
+commit eaa2046aca492715f628fb262176941142fa1812
+Author:     James Boggs <james@softmax.com>
+AuthorDate: Tue Sep 8 03:00:18 2026 -0700
+Commit:     James Boggs <james@softmax.com>
+CommitDate: Tue Sep 8 03:00:18 2026 -0700
+
+    shell: avoid unused route query activation
+
+commit 9a9a77a7ed3b26d2f31a16fde1d11c4279ba232f
+Author:     James Boggs <james@softmax.com>
+AuthorDate: Tue Sep 8 03:43:08 2026 -0700
+Commit:     James Boggs <james@softmax.com>
+CommitDate: Tue Sep 8 03:43:08 2026 -0700
+
+    shell: install immutable zone hazard overlay
+
+commit 5e6b21593f6d4aa31b4ddc3c51ad57ec9968ea90
+Author:     James Boggs <james@softmax.com>
+AuthorDate: Tue Sep 8 03:43:41 2026 -0700
+Commit:     James Boggs <james@softmax.com>
+CommitDate: Tue Sep 8 03:43:41 2026 -0700
+
+    shell: price route danger and zone arrival
+
+commit eb3515e15a3b1ded14193ca4d4b3a95a7f4cd6a5
+Author:     James Boggs <james@softmax.com>
+AuthorDate: Tue Sep 8 04:08:55 2026 -0700
+Commit:     James Boggs <james@softmax.com>
+CommitDate: Tue Sep 8 04:08:55 2026 -0700
+
+    shell: restore zone hazard layer boundary
+
+commit 64be5b20531d1cad383bf8be46349b555736bdcd
+Author:     James Boggs <james@softmax.com>
+AuthorDate: Tue Sep 8 05:10:18 2026 -0700
+Commit:     James Boggs <james@softmax.com>
+CommitDate: Tue Sep 8 05:10:18 2026 -0700
+
+    shell: publish bounded zone safety hints
+
+commit c008ec82ef9949e00e6cef2fdd2e1a6f9af0f2f2
+Author:     James Boggs <james@softmax.com>
+AuthorDate: Tue Sep 8 05:26:54 2026 -0700
+Commit:     James Boggs <james@softmax.com>
+CommitDate: Tue Sep 8 05:26:54 2026 -0700
+
+    shell: keep dark safety scratch lazy
+
+commit c9823bce78670d353991299af6c76e52d00dda82
+Author:     James Boggs <james@softmax.com>
+AuthorDate: Tue Sep 8 06:18:47 2026 -0700
+Commit:     James Boggs <james@softmax.com>
+CommitDate: Tue Sep 8 06:18:47 2026 -0700
+
+    shell: reuse route scratch for safety hints
+
+commit fc989898a0d5f7327d632f04f91f8e9ac159dc1d
+Author:     James Boggs <james@softmax.com>
+AuthorDate: Tue Sep 8 06:34:55 2026 -0700
+Commit:     James Boggs <james@softmax.com>
+CommitDate: Tue Sep 8 06:34:55 2026 -0700
+
+    shell: preserve legacy navigation code layout
+
+commit 73a60cc6885ff7cdc660a98ff74494c4cbedcd1a
+Author:     James Boggs <james@softmax.com>
+AuthorDate: Tue Sep 8 07:28:50 2026 -0700
+Commit:     James Boggs <james@softmax.com>
+CommitDate: Tue Sep 8 07:28:50 2026 -0700
+
+    shell: coalesce semantic navigation targets
+
+commit 3693f744b0f907d267d494009cc71c68960ee52b
+Merge: 73a60cc6 a3ca2fba
+Author:     James Boggs <james@softmax.com>
+AuthorDate: Tue Sep 8 08:09:17 2026 -0700
+Commit:     James Boggs <james@softmax.com>
+CommitDate: Tue Sep 8 08:09:17 2026 -0700
+
+    Merge remote-tracking branch 'origin/main' into james/s2-nav-rework
+    
+    # Conflicts:
+    #       src/ctf/server.nim
+    #       src/shell/body.nim
+    #       src/shell/episode.nim
+    #       src/shell/finisher.nim
+    #       tests/test_shell_body_seat.nim
+    #       tests/test_shell_emit_validator.nim
+    #       tests/test_shell_episode.nim
+    #       tests/test_shell_server_seam.nim
+
+commit dba865de05392f2ad76cf8b62d7300954117ca1f
+Author:     James Boggs <james@softmax.com>
+AuthorDate: Tue Sep 8 08:09:28 2026 -0700
+Commit:     James Boggs <james@softmax.com>
+CommitDate: Tue Sep 8 08:09:28 2026 -0700
+
+    test: align semantic intent with shell encoder
+
+commit 4a658fbbe09d37a3a337dd4dc3b2a2ae882dab05
+Merge: dba865de c68c5d9c
+Author:     James Boggs <james@softmax.com>
+AuthorDate: Tue Sep 8 09:46:54 2026 -0700
+Commit:     James Boggs <james@softmax.com>
+CommitDate: Tue Sep 8 09:46:54 2026 -0700
+
+    Merge remote-tracking branch 'origin/main' into james/s2-nav-rework
+
+commit 2d6715da5b14553881bc243a3ea6beddff23ebd9
+Author:     James Boggs <james@softmax.com>
+AuthorDate: Tue Sep 8 09:47:15 2026 -0700
+Commit:     James Boggs <james@softmax.com>
+CommitDate: Tue Sep 8 09:47:15 2026 -0700
+
+    shell: move play seats on bounded routes
+
+commit 2eb1f2786fc4b8b0108d622ca16a3f0c4f554ac6
+Merge: 2d6715da c3f7781b
+Author:     James Boggs <james@softmax.com>
+AuthorDate: Tue Sep 8 09:49:39 2026 -0700
+Commit:     James Boggs <james@softmax.com>
+CommitDate: Tue Sep 8 09:49:39 2026 -0700
+
+    Merge remote-tracking branch 'origin/main' into james/s2-nav-rework
+
+commit 2c46b6ac5986183c05627ef16907f37cdd486717
+Author:     James Boggs <james@softmax.com>
+AuthorDate: Tue Sep 8 09:49:49 2026 -0700
+Commit:     James Boggs <james@softmax.com>
+CommitDate: Tue Sep 8 09:49:49 2026 -0700
+
+    test: follow produced masks in shell danger probe
+
+commit 6dfcffda33c2816573a08561ed259dac87f31ef8
+Merge: 2c46b6ac dbd80a34
+Author:     James Boggs <james@softmax.com>
+AuthorDate: Tue Sep 8 11:27:15 2026 -0700
+Commit:     James Boggs <james@softmax.com>
+CommitDate: Tue Sep 8 11:27:15 2026 -0700
+
+    Merge remote-tracking branch 'origin/main' into james/s2-nav-rework
+    
+    # Conflicts:
+    #       src/shell/body.nim
+    #       tests/test_shell_body_seat.nim
+
+commit 635727c866afb036f5b2da35c7a3b49ce5d56cc9
+Author:     James Boggs <james@softmax.com>
+AuthorDate: Tue Sep 8 11:30:55 2026 -0700
+Commit:     James Boggs <james@softmax.com>
+CommitDate: Tue Sep 8 11:30:55 2026 -0700
+
+    fix: keep shell zone time at zero in lobby
+
+commit dafe63a734d9a9d9566d37e827d769441279b385
+Author:     James Boggs <james@softmax.com>
+AuthorDate: Tue Sep 8 11:42:39 2026 -0700
+Commit:     James Boggs <james@softmax.com>
+CommitDate: Tue Sep 8 11:42:39 2026 -0700
+
+    test: close bounded navigation regression matrix
+
+commit 629e1c52124d86e673b0747601fb24fc636bf131
+Merge: dafe63a7 3620ab6e
+Author:     James Boggs <james@softmax.com>
+AuthorDate: Tue Sep 8 12:11:21 2026 -0700
+Commit:     James Boggs <james@softmax.com>
+CommitDate: Tue Sep 8 12:11:21 2026 -0700
+
+    Merge remote-tracking branch 'origin/main' into james/s2-nav-rework
+
+commit 2ab9238e0517cbef6acc1e989b41b6ee6347d916
+Merge: 629e1c52 20a3d01b
+Author:     James Boggs <james@softmax.com>
+AuthorDate: Tue Sep 8 14:07:38 2026 -0700
+Commit:     James Boggs <james@softmax.com>
+CommitDate: Tue Sep 8 14:07:38 2026 -0700
+
+    Merge remote-tracking branch 'origin/main' into james/s2-nav-rework
+
+commit 9dce21b6bd76921306b4df94f19acb02993a91b1
+Author:     James Boggs <james@softmax.com>
+AuthorDate: Tue Sep 8 14:08:29 2026 -0700
+Commit:     James Boggs <james@softmax.com>
+CommitDate: Tue Sep 8 14:08:29 2026 -0700
+
+    test: add canonical body navigation qualification gate
+
+commit b24d8d8dfcb82534cc28dbda0d44f580f1248862
+Author:     James Boggs <james@softmax.com>
+AuthorDate: Tue Sep 8 14:31:26 2026 -0700
+Commit:     James Boggs <james@softmax.com>
+CommitDate: Tue Sep 8 14:31:26 2026 -0700
+
+    fix: make navigation RSS probe portable
+
+commit 9103c72e161e2e517cce6e940621d48baa78058b
+Merge: b24d8d8d 94fcba51
+Author:     James Boggs <james@softmax.com>
+AuthorDate: Tue Sep 8 15:58:27 2026 -0700
+Commit:     James Boggs <james@softmax.com>
+CommitDate: Tue Sep 8 15:58:27 2026 -0700
+
+    Merge remote-tracking branch 'origin/main' into james/s2-nav-rework
+
+commit 0b1c495f07609083ba7ec8f05d436d33c04c9df6
+Author:     James Boggs <james@softmax.com>
+AuthorDate: Tue Sep 8 16:10:33 2026 -0700
+Commit:     James Boggs <james@softmax.com>
+CommitDate: Tue Sep 8 16:10:33 2026 -0700
+
+    test: instrument phase 9 route investigation
+
+commit c43b97dd88ba18bfda7cdce42bcd03c77d5e6b17
+Author:     James Boggs <james@softmax.com>
+AuthorDate: Tue Sep 8 16:31:34 2026 -0700
+Commit:     James Boggs <james@softmax.com>
+CommitDate: Tue Sep 8 16:31:34 2026 -0700
+
+    fix: preserve immutable route predecessors
+
+commit f3f77693c8d6221c13b0858e56b1e147d6c681fd
+Author:     James Boggs <james@softmax.com>
+AuthorDate: Tue Sep 8 16:43:45 2026 -0700
+Commit:     James Boggs <james@softmax.com>
+CommitDate: Tue Sep 8 16:43:45 2026 -0700
+
+    experiment: measure corridor weighted route refinement
+
+commit 0c267361f58e4efe53f1911166acbc6ec6124603
+Author:     James Boggs <james@softmax.com>
+AuthorDate: Tue Sep 8 16:57:02 2026 -0700
+Commit:     James Boggs <james@softmax.com>
+CommitDate: Tue Sep 8 16:57:02 2026 -0700
+
+    experiment: measure bounded global weighted routes
+
+commit 79c831ba6a1e60ea467b3d3050891b8470933865
+Author:     James Boggs <james@softmax.com>
+AuthorDate: Tue Sep 8 17:07:02 2026 -0700
+Commit:     James Boggs <james@softmax.com>
+CommitDate: Tue Sep 8 17:07:02 2026 -0700
+
+    experiment: attach global routes through endpoint rings
+
+commit 0820d764e74aaa96aae120e5a2324e3a17c93f1a
+Merge: 79c831ba e46657fc
+Author:     James Boggs <james@softmax.com>
+AuthorDate: Tue Sep 8 17:18:47 2026 -0700
+Commit:     James Boggs <james@softmax.com>
+CommitDate: Tue Sep 8 17:18:47 2026 -0700
+
+    Merge remote-tracking branch 'origin/main' into james/s2-nav-rework
+
+commit b7710621ee8ccfe14c3037ee98b2e65b9ee105cb
+Author:     James Boggs <james@softmax.com>
+AuthorDate: Tue Sep 8 17:20:35 2026 -0700
+Commit:     James Boggs <james@softmax.com>
+CommitDate: Tue Sep 8 17:20:35 2026 -0700
+
+    build: refresh replay viewer after nav investigation
+
+commit 9271407fb8d664055703bdb95583cc7d501266e8
+Merge: b7710621 3f5168a7
+Author:     James Boggs <james@softmax.com>
+AuthorDate: Tue Sep 8 17:43:23 2026 -0700
+Commit:     James Boggs <james@softmax.com>
+CommitDate: Tue Sep 8 17:43:23 2026 -0700
+
+    Merge remote-tracking branch 'origin/main' into james/s2-nav-rework
+    
+    # Conflicts:
+    #       static-replay-viewer/ctf_replay.wasm
+
+commit fcc58a7555d4ec727ad6e15678f02ea79d451c1b
+Author:     James Boggs <james@softmax.com>
+AuthorDate: Tue Sep 8 17:43:36 2026 -0700
+Commit:     James Boggs <james@softmax.com>
+CommitDate: Tue Sep 8 17:43:36 2026 -0700
+
+    experiment: measure four-pixel navigation resolution
+
+commit 8541ac94bf6f38ba7f8ebc3c695b17a0c439b46a
+Author:     James Boggs <james@softmax.com>
+AuthorDate: Tue Sep 8 17:49:17 2026 -0700
+Commit:     James Boggs <james@softmax.com>
+CommitDate: Tue Sep 8 17:49:17 2026 -0700
+
+    experiment: measure mixed wall-resolution search
+
+commit 61590874e6410c2ea2f12be9324063b4f4d273ca
+Author:     James Boggs <james@softmax.com>
+AuthorDate: Tue Sep 8 18:04:07 2026 -0700
+Commit:     James Boggs <james@softmax.com>
+CommitDate: Tue Sep 8 18:04:07 2026 -0700
+
+    experiment: profile weighted search pop cost
+
+commit 93ce132bc396c89cfb407a72fd06e3aa56a90797
+Merge: 61590874 eb9fbeea
+Author:     James Boggs <james@softmax.com>
+AuthorDate: Tue Sep 8 18:04:25 2026 -0700
+Commit:     James Boggs <james@softmax.com>
+CommitDate: Tue Sep 8 18:04:25 2026 -0700
+
+    Merge remote-tracking branch 'origin/main' into james/s2-nav-rework
+
+commit 5935030e84921a401e603beb604fe8fed36d2d41
+Author:     James Boggs <james@softmax.com>
+AuthorDate: Tue Sep 8 18:26:09 2026 -0700
+Commit:     James Boggs <james@softmax.com>
+CommitDate: Tue Sep 8 18:26:09 2026 -0700
+
+    experiment: measure danger-adaptive navigation resolution
+
+commit 7a7a25d45a4fa191dade87ff62df0e8d1ea73673
+Author:     James Boggs <james@softmax.com>
+AuthorDate: Tue Sep 8 18:37:23 2026 -0700
+Commit:     James Boggs <james@softmax.com>
+CommitDate: Tue Sep 8 18:37:23 2026 -0700
+
+    experiment: precompute four-pixel legality
+
+commit 82db259035097c3fd3235af640c8bfb5cb1c4058
+Author:     James Boggs <james@softmax.com>
+AuthorDate: Tue Sep 8 18:49:06 2026 -0700
+Commit:     James Boggs <james@softmax.com>
+CommitDate: Tue Sep 8 18:49:06 2026 -0700
+
+    experiment: profile dense four-pixel search
+
+commit 106eaee391375437bd643278e7a3be9151dd0e09
+Merge: 82db2590 99d0685d
+Author:     James Boggs <james@softmax.com>
+AuthorDate: Tue Sep 8 19:18:10 2026 -0700
+Commit:     James Boggs <james@softmax.com>
+CommitDate: Tue Sep 8 19:18:10 2026 -0700
+
+    Merge remote-tracking branch 'origin/main' into james/s2-nav-rework
+
+commit 2b38d4270625fabc77b68a82c0ab0f07422c2950
+Author:     James Boggs <james@softmax.com>
+AuthorDate: Tue Sep 8 19:18:18 2026 -0700
+Commit:     James Boggs <james@softmax.com>
+CommitDate: Tue Sep 8 19:18:18 2026 -0700
+
+    experiment: combine danger and wall-band navigation
+
+commit bf77c71094f186276ff44c59c553d045e7cf64c7
+Author:     James Boggs <james@softmax.com>
+AuthorDate: Tue Sep 8 19:25:39 2026 -0700
+Commit:     James Boggs <james@softmax.com>
+CommitDate: Tue Sep 8 19:25:39 2026 -0700
+
+    experiment: measure per-tick route query budgets
+
+commit e4f18ed6ed842e60017204e8788769d422d62585
+Merge: bf77c710 61b6ab79
+Author:     James Boggs <james@softmax.com>
+AuthorDate: Tue Sep 8 19:51:02 2026 -0700
+Commit:     James Boggs <james@softmax.com>
+CommitDate: Tue Sep 8 19:51:02 2026 -0700
+
+    Merge remote-tracking branch 'origin/main' into james/s2-nav-rework
+    
+    # Conflicts:
+    #       static-replay-viewer/ctf_replay.wasm
+
+commit 0df8851a074b3754a2adbb8fd94d7d83a0b6c9eb
+Merge: e4f18ed6 17509ef6
+Author:     James Boggs <james@softmax.com>
+AuthorDate: Tue Sep 8 20:12:54 2026 -0700
+Commit:     James Boggs <james@softmax.com>
+CommitDate: Tue Sep 8 20:12:54 2026 -0700
+
+    Merge remote-tracking branch 'origin/main' into james/s2-nav-rework
+    
+    # Conflicts:
+    #       static-replay-viewer/ctf_replay.wasm
+
+commit 93fada398fde182d0208ab7b237c906ef8d1e955
+Author:     James Boggs <james@softmax.com>
+AuthorDate: Tue Sep 8 20:13:03 2026 -0700
+Commit:     James Boggs <james@softmax.com>
+CommitDate: Tue Sep 8 20:13:03 2026 -0700
+
+    experiment: measure ALT navigation heuristics
+
+commit 9b6ca3be2451a7fc194555bdc59bd4adb5662d78
+Author:     James Boggs <james@softmax.com>
+AuthorDate: Tue Sep 8 20:21:03 2026 -0700
+Commit:     James Boggs <james@softmax.com>
+CommitDate: Tue Sep 8 20:21:03 2026 -0700
+
+    experiment: profile exact Dial navigation queue
+
+commit 197133f4f9f8cbf84a30b0509ea7ec1f26d24bf1
+Author:     James Boggs <james@softmax.com>
+AuthorDate: Tue Sep 8 20:32:56 2026 -0700
+Commit:     James Boggs <james@softmax.com>
+CommitDate: Tue Sep 8 20:32:56 2026 -0700
+
+    experiment: measure resumable navigation scheduling
+
+commit 8491b14b54104179e1333d9179f70adb297cc162
+Author:     James Boggs <james@softmax.com>
+AuthorDate: Tue Sep 8 20:38:39 2026 -0700
+Commit:     James Boggs <james@softmax.com>
+CommitDate: Tue Sep 8 20:38:39 2026 -0700
+
+    experiment: qualify combined navigation throughput
+
+commit bb46134435e8ca9e71a57cd90243f2901545cf6e
+Merge: 8491b14b ff55e9e2
+Author:     James Boggs <james@softmax.com>
+AuthorDate: Tue Sep 8 20:58:02 2026 -0700
+Commit:     James Boggs <james@softmax.com>
+CommitDate: Tue Sep 8 20:58:02 2026 -0700
+
+    Merge remote-tracking branch 'origin/main' into james/s2-nav-rework
+
+commit 2db4f21aad955f453e771fee42b9a7f0e101ab34
+Author:     James Boggs <james@softmax.com>
+AuthorDate: Tue Sep 8 21:11:56 2026 -0700
+Commit:     James Boggs <james@softmax.com>
+CommitDate: Tue Sep 8 21:11:56 2026 -0700
+
+    experiment: measure navigation tail admission
+
+commit 6ebff3a6570f071359b2ec1a636741e4d3274f98
+Author:     James Boggs <james@softmax.com>
+AuthorDate: Tue Sep 8 21:19:47 2026 -0700
+Commit:     James Boggs <james@softmax.com>
+CommitDate: Tue Sep 8 21:19:47 2026 -0700
+
+    experiment: measure navigation loop and warm starts
+
+commit 825b3c3a6be960da118a3b9ed0aa9f07537750c6
+Merge: 6ebff3a6 29af1ad0
+Author:     James Boggs <james@softmax.com>
+AuthorDate: Tue Sep 8 21:20:03 2026 -0700
+Commit:     James Boggs <james@softmax.com>
+CommitDate: Tue Sep 8 21:20:03 2026 -0700
+
+    Merge remote-tracking branch 'origin/main' into james/s2-nav-rework
+
+commit e82d40f95a533d21c28b993ceb51afdc706027fd
+Author:     James Boggs <james@softmax.com>
+AuthorDate: Tue Sep 8 21:25:07 2026 -0700
+Commit:     James Boggs <james@softmax.com>
+CommitDate: Tue Sep 8 21:25:07 2026 -0700
+
+    experiment: measure pending-steering gameplay cost
+
+commit 824d876daabb8bb92981799311fe9597e4bb28b6
+Author:     James Boggs <james@softmax.com>
+AuthorDate: Tue Sep 8 21:39:31 2026 -0700
+Commit:     James Boggs <james@softmax.com>
+CommitDate: Tue Sep 8 21:39:31 2026 -0700
+
+    experiment: make colossal navigation fit concrete
+
+commit 4b477e27834131e46dd3f3415b34929e9f9a2f10
+Author:     James Boggs <james@softmax.com>
+AuthorDate: Tue Sep 8 21:45:37 2026 -0700
+Commit:     James Boggs <james@softmax.com>
+CommitDate: Tue Sep 8 21:45:37 2026 -0700
+
+    experiment: measure bounded navigation workspaces
+
+commit bf4bae4c50515a9665245b9a716c5a9ef9d85fea
+Author:     James Boggs <james@softmax.com>
+AuthorDate: Tue Sep 8 21:47:16 2026 -0700
+Commit:     James Boggs <james@softmax.com>
+CommitDate: Tue Sep 8 21:47:16 2026 -0700
+
+    experiment: combine SJF with raised navigation budget
+
+commit f35319cefd8e8dff7e70a82078ccd31f92b6d790
+Author:     James Boggs <james@softmax.com>
+AuthorDate: Tue Sep 8 22:12:34 2026 -0700
+Commit:     James Boggs <james@softmax.com>
+CommitDate: Tue Sep 8 22:12:34 2026 -0700
+
+    experiment: measure navigation neighbor prefetch
+
+commit e7cda62bbfd5739a7d1dbe4f961ec8688a1ee404
+Merge: f35319ce 62fa0146
+Author:     James Boggs <james@softmax.com>
+AuthorDate: Tue Sep 8 22:34:03 2026 -0700
+Commit:     James Boggs <james@softmax.com>
+CommitDate: Tue Sep 8 22:34:03 2026 -0700
+
+    Merge remote-tracking branch 'origin/main' into james/s2-nav-rework
+    
+    # Conflicts:
+    #       static-replay-viewer/ctf_replay.wasm
+
+commit 2906751bff6cccd3ee7fbe4351208f6a7e7db0cf
+Author:     James Boggs <james@softmax.com>
+AuthorDate: Tue Sep 8 23:32:44 2026 -0700
+Commit:     James Boggs <james@softmax.com>
+CommitDate: Tue Sep 8 23:32:44 2026 -0700
+
+    experiment: measure Phase 10 navigation budgets
+
+commit ddb3a99009ec9a1e4c19f1be34df2acf4127ea57
+Merge: 2906751b 41230869
+Author:     James Boggs <james@softmax.com>
+AuthorDate: Wed Sep 9 09:37:06 2026 -0700
+Commit:     James Boggs <james@softmax.com>
+CommitDate: Wed Sep 9 09:37:06 2026 -0700
+
+    Merge remote-tracking branch 'origin/main' into james/s2-nav-rework
+    
+    # Conflicts:
+    #       static-replay-viewer/ctf_replay.wasm
+
+commit 9cb715267eee1bdd66cb9d7983a1a5f7d8859564
+Merge: ddb3a990 e6807465
+Author:     James Boggs <james@softmax.com>
+AuthorDate: Wed Sep 9 10:35:07 2026 -0700
+Commit:     James Boggs <james@softmax.com>
+CommitDate: Wed Sep 9 10:35:07 2026 -0700
+
+    Merge remote-tracking branch 'origin/main' into james/s2-nav-rework
+    
+    # Conflicts:
+    #       static-replay-viewer/ctf_replay.wasm
+
+commit 7fa6dafb7f9ecdb0be0834aaaf85efc5b8e48b15
+Author:     James Boggs <james@softmax.com>
+AuthorDate: Wed Sep 9 10:38:06 2026 -0700
+Commit:     James Boggs <james@softmax.com>
+CommitDate: Wed Sep 9 10:38:06 2026 -0700
+
+    Replace body routes with resumable mixed-grid search
+
+commit 937ea830ac8610b997e02fc8f8e880dceef061e8
+Author:     James Boggs <james@softmax.com>
+AuthorDate: Wed Sep 9 11:09:44 2026 -0700
+Commit:     James Boggs <james@softmax.com>
+CommitDate: Wed Sep 9 11:09:44 2026 -0700
+
+    Qualify mixed-grid navigation and retire experiments
+
+commit cc59b0f857239b667e40b181439893b1f0906305
+Author:     James Boggs <james@softmax.com>
+AuthorDate: Wed Sep 9 11:11:12 2026 -0700
+Commit:     James Boggs <james@softmax.com>
+CommitDate: Wed Sep 9 11:11:12 2026 -0700
+
+    Claim GV63 for mixed-grid body routes
+
+commit d935bbacd0feacacaee34067b5de79dcd2c60b08
+Author:     James Boggs <james@softmax.com>
+AuthorDate: Wed Sep 9 11:19:32 2026 -0700
+Commit:     James Boggs <james@softmax.com>
+CommitDate: Wed Sep 9 11:19:32 2026 -0700
+
+    Re-record GV63 fixtures and replay viewer
+
+commit 9733c9e486aef092dd96e77adb88a0a1634bf28e
+Author:     James Boggs <james@softmax.com>
+AuthorDate: Wed Sep 9 11:23:41 2026 -0700
+Commit:     James Boggs <james@softmax.com>
+CommitDate: Wed Sep 9 11:23:41 2026 -0700
+
+    Restore linked runtime math import
+
+commit c43f5cfdbf34bb30cf45bc4e0d5e49e1dc6ba01a
+Author:     James Boggs <james@softmax.com>
+AuthorDate: Wed Sep 9 11:34:44 2026 -0700
+Commit:     James Boggs <james@softmax.com>
+CommitDate: Wed Sep 9 11:34:44 2026 -0700
+
+    Bound production route search at 1024 pops
+
+commit e8879fc70ba2f11c3d35d04ed318f976a14062ab
+Merge: c43f5cfd c90c7418
+Author:     James Boggs <james@softmax.com>
+AuthorDate: Wed Sep 9 11:36:22 2026 -0700
+Commit:     James Boggs <james@softmax.com>
+CommitDate: Wed Sep 9 11:36:22 2026 -0700
+
+    Merge remote-tracking branch 'origin/main' into james/s2-nav-rework
+    
+    # Conflicts:
+    #       static-replay-viewer/ctf_replay.wasm
+
+commit 880697af26250c1b3ef5184011533862b576cffd
+Merge: e8879fc7 31cf1116
+Author:     James Boggs <james@softmax.com>
+AuthorDate: Wed Sep 9 12:18:02 2026 -0700
+Commit:     James Boggs <james@softmax.com>
+CommitDate: Wed Sep 9 12:18:02 2026 -0700
+
+    Merge remote-tracking branch 'origin/main' into james/s2-nav-rework
+
+commit 868794497de1426b820df2037f50b9f182e1ac40
+Author:     James Boggs <james@softmax.com>
+AuthorDate: Wed Sep 9 12:18:27 2026 -0700
+Commit:     James Boggs <james@softmax.com>
+CommitDate: Wed Sep 9 12:18:27 2026 -0700
+
+    Adapt duck-cache test after route-cache deletion
+
+commit 7d37468228c9faccd3926ec10871c33afb2e3f58
+Author:     James Boggs <james@softmax.com>
+AuthorDate: Wed Sep 9 12:40:58 2026 -0700
+Commit:     James Boggs <james@softmax.com>
+CommitDate: Wed Sep 9 12:40:58 2026 -0700
+
+    Finish GV63 navigation fixture qualification
+
+commit 72deee576eedbb8666e7e1a63cae3ba84527def3
+Merge: 7d374682 34ad7f3e
+Author:     James Boggs <james@softmax.com>
+AuthorDate: Wed Sep 9 14:52:29 2026 -0700
+Commit:     James Boggs <james@softmax.com>
+CommitDate: Wed Sep 9 14:52:29 2026 -0700
+
+    Merge remote-tracking branch 'origin/main' into james/s2-nav-rework
+
+commit 6491035992e80f8d337ed6d0911c8e3c9bad8447
+Author:     James Boggs <james@softmax.com>
+AuthorDate: Wed Sep 9 15:00:00 2026 -0700
+Commit:     James Boggs <james@softmax.com>
+CommitDate: Wed Sep 9 15:00:00 2026 -0700
+
+    wip: instrument x86 navigation overhead
+    
+    Split instrumentation of the tick harness (search vs per-request overhead vs
+    steering vs rest-of-body) and related body/nav counters, checkpointed at
+    stand-down; not a shipped change.
+    
+    Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>
+    Claude-Session: https://claude.ai/code/session_01H4Tq8mKE8YCb7mvENxWfct
+
+commit 4fb82dc7e65a3f1a5557cf7ee11695aff8a99f67
+Author:     James Boggs <james@softmax.com>
+AuthorDate: Wed Sep 9 15:00:00 2026 -0700
+Commit:     James Boggs <james@softmax.com>
+CommitDate: Wed Sep 9 15:00:22 2026 -0700
+
+    docs: nav rework design, exploration record, throughput notes, handoff and text evidence
+    
+    Design doc (Ink & Print, commentable) with its source brief; the exploration
+    record of the eleven phases and the P9B campaign with per-experiment outcomes;
+    real-hardware (EC2) findings and the devbox benchmark recipe; the handoff for
+    the Codex+Claude throughput research phase; evidence copies trimmed to text
+    (binaries and files over 1 MB dropped; raw gate JSONs kept); the uncommitted
+    nav-census bench patch and the session's original tick report as evidence.
+    Transcript: session_01H4Tq8mKE8YCb7mvENxWfct.
+    
+    Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>
+    Claude-Session: https://claude.ai/code/session_01H4Tq8mKE8YCb7mvENxWfct
+
+commit d7be647dc02f372a6cfb4444020dc65b31a56824
+Author:     James Boggs <james@softmax.com>
+AuthorDate: Wed Sep 9 15:02:44 2026 -0700
+Commit:     James Boggs <james@softmax.com>
+CommitDate: Wed Sep 9 15:02:44 2026 -0700
+
+    docs: handoff carries the unfinished Phase 10 work and the moving-goal harness confound correction
+    
+    Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>
+    Claude-Session: https://claude.ai/code/session_01H4Tq8mKE8YCb7mvENxWfct
+
+commit 20234cc7f38aecc75dfc8a6e1ac4889cd40a2b57
+Merge: d7be647d 3ca508a7
+Author:     James Boggs <james@softmax.com>
+AuthorDate: Wed Sep 9 15:06:20 2026 -0700
+Commit:     James Boggs <james@softmax.com>
+CommitDate: Wed Sep 9 15:06:20 2026 -0700
+
+    Merge branch 'main' of https://github.com/Metta-AI/coworld-ctf into james/s2-nav-rework
+
+commit 8265f53a5545e70180eb101f420587af7c5df3f1
+Author:     James Boggs <james@softmax.com>
+AuthorDate: Wed Sep 9 15:54:33 2026 -0700
+Commit:     James Boggs <james@softmax.com>
+CommitDate: Wed Sep 9 15:54:33 2026 -0700
+
+    Measure production navigation baselines and close shared-memory gap
+    
+    B0: corrected Xeon/c6a/m5a timing and retained completion failures. I0: no consistent instrumentation-removal speedup. M0: halve the default exact Dial ring; preserve corpus routes and bring all pool shared totals below 16 MiB. Add completion-latency and pool-memory checks, retain raw evidence, and rebuild the viewer. Phase 10/11 remain incomplete; no fleet budget selected.
+
+commit c5f39376c78db02f2b727ea8e139035f87bb048c
+Author:     James Boggs <james@softmax.com>
+AuthorDate: Wed Sep 9 16:05:21 2026 -0700
+Commit:     James Boggs <james@softmax.com>
+CommitDate: Wed Sep 9 16:05:21 2026 -0700
+
+    Experiment L0: retain searches for unchanged ordered danger sources
+    
+    L0 failed qualification: c6a timing improves modestly, m5a still fails, and far waves publish only three seats before the cap. Keep the negative result and exact-input mechanism for L1 follow-up. Focused tests and rebuilt viewer stamp pass; final GameVersion, fixtures and full acceptance remain pending.
+
+commit 1aeffbd23921f3395b9a0f5be9c97119a3fe3423
+Merge: c5f39376 e0a789af
+Author:     James Boggs <james@softmax.com>
+AuthorDate: Wed Sep 9 16:05:29 2026 -0700
+Commit:     James Boggs <james@softmax.com>
+CommitDate: Wed Sep 9 16:05:29 2026 -0700
+
+    Merge remote-tracking branch 'origin/main' into james/nav-throughput-research
+
+commit 9329699d04f96c2e08dc587cb5d00fb0413b9cec
+Merge: 1aeffbd2 316679f6
+Author:     James Boggs <james@softmax.com>
+AuthorDate: Wed Sep 9 16:39:05 2026 -0700
+Commit:     James Boggs <james@softmax.com>
+CommitDate: Wed Sep 9 16:39:05 2026 -0700
+
+    Merge remote-tracking branch 'origin/main' into james/nav-throughput-research
+
+commit d88fe68d418d80ce5a9667f4e1be9b1309fb1cfd
+Author:     James Boggs <james@softmax.com>
+AuthorDate: Wed Sep 9 16:39:20 2026 -0700
+Commit:     James Boggs <james@softmax.com>
+CommitDate: Wed Sep 9 16:39:20 2026 -0700
+
+    Experiment L1: preserve searches for identical packed danger
+    
+    Scoreboard: exact identity removes false cancellation; corpus and memory pass. Far-wave completion target still fails and no throughput gain is claimed. Retain production-family evidence and actual-server Fluffy trace.
+
+commit d5967c826705624c2b2d2b16a9a926daa5e8be0d
+Merge: d88fe68d 5edb2bce
+Author:     James Boggs <james@softmax.com>
+AuthorDate: Wed Sep 9 16:46:44 2026 -0700
+Commit:     James Boggs <james@softmax.com>
+CommitDate: Wed Sep 9 16:46:44 2026 -0700
+
+    Merge remote-tracking branch 'origin/main' into james/nav-throughput-research
+
+commit 29cf46f3b68e16cc7847d24a181d1208e4911830
+Author:     James Boggs <james@softmax.com>
+AuthorDate: Wed Sep 9 16:52:15 2026 -0700
+Commit:     James Boggs <james@softmax.com>
+CommitDate: Wed Sep 9 16:52:15 2026 -0700
+
+    Experiment S1: avoid floor call for positive packed danger
+    
+    Scoreboard: m5a weight refresh improves 2.30%; whole-body gate still fails. Full corpus, pop arrays and memory ledger unchanged. Record c8i/m8i baselines and the configured-range/map coverage gap.
+
+commit 71a6174565de373b0dba7227b2f2c2e0282e79d5
+Merge: 29cf46f3 b1e7cd9d
+Author:     James Boggs <james@softmax.com>
+AuthorDate: Wed Sep 9 17:29:47 2026 -0700
+Commit:     James Boggs <james@softmax.com>
+CommitDate: Wed Sep 9 17:29:47 2026 -0700
+
+    Merge remote-tracking branch 'origin/main' into james/nav-throughput-research
+
+commit bed15e11c9aed81564238e69982b7d9e9cfa9e41
+Author:     James Boggs <james@softmax.com>
+AuthorDate: Wed Sep 9 17:47:27 2026 -0700
+Commit:     James Boggs <james@softmax.com>
+CommitDate: Wed Sep 9 17:47:27 2026 -0700
+
+    Measure configured weapon range in navigation tick harness
+    
+    G0 scoreboard: m5a worst p95/max 5.691996/5.807979 ms at 331 px versus 13.982918/15.593524 ms at 1300 px. Three paired runs expose a workload gap; no optimization or qualification claim. Preserve raw logs including their original whitespace.
+
+commit 9e4971f1df225b4082a001f26339de2c8b174733
+Author:     James Boggs <james@softmax.com>
+AuthorDate: Wed Sep 9 17:49:24 2026 -0700
+Commit:     James Boggs <james@softmax.com>
+CommitDate: Wed Sep 9 17:49:24 2026 -0700
+
+    Measure the configured Season 2 map pool
+    
+    G1 scoreboard: all eleven configured maps fail timing and shared memory; worst p95/max 15.015300/15.193815 ms. Keep the frozen quality corpus and all limits unchanged. Include reviewed harness lifetime and provenance fixes; raw screen predates those fixes.
+
+commit 5a6c496386f5dc3de5a6d57b8d33bf058a75f28b
+Author:     James Boggs <james@softmax.com>
+AuthorDate: Wed Sep 9 17:55:37 2026 -0700
+Commit:     James Boggs <james@softmax.com>
+CommitDate: Wed Sep 9 17:55:37 2026 -0700
+
+    Share immutable danger geometry across navigation seats
+    
+    M1 scoreboard: remove ORC sequence duplication; full 3072-case quality and both server compile shapes pass. Three m5a pairs show no substantial body-time gain. Correct historical ownership undercounts, retain capacity/context caveats, and rebuild the viewer for this source stamp.
+
+commit da13e2c7349b29430f5023c1ae61c45d00d3f775
+Author:     James Boggs <james@softmax.com>
+AuthorDate: Wed Sep 9 18:26:35 2026 -0700
+Commit:     James Boggs <james@softmax.com>
+CommitDate: Wed Sep 9 18:26:35 2026 -0700
+
+    Use exact integer sampling for weapon rays
+    
+    W1 scoreboard: m5a configured-range worst p95/max 13.820488/15.464153 -> 11.448389/12.762947 ms. Differential rays, all paired masks and pops, and full corpus pass. Rebuild viewer; retain the failed whole-body tick gate.
+
+commit 35787aae76d1cfc6b8302b3e7f6c08d38f103ba7
+Merge: da13e2c7 dad26cc1
+Author:     James Boggs <james@softmax.com>
+AuthorDate: Wed Sep 9 18:37:59 2026 -0700
+Commit:     James Boggs <james@softmax.com>
+CommitDate: Wed Sep 9 18:37:59 2026 -0700
+
+    Merge origin/main replay updates and rebuild the viewer
+
+commit c8fdd11e349b3d485978c1426b633ca186611afa
+Merge: 35787aae b645aa69
+Author:     James Boggs <james@softmax.com>
+AuthorDate: Wed Sep 9 18:45:23 2026 -0700
+Commit:     James Boggs <james@softmax.com>
+CommitDate: Wed Sep 9 18:45:23 2026 -0700
+
+    Merge remote-tracking branch 'origin/main' into james/nav-throughput-checkpoints
+
+commit d9962a8de2c019b1bd3ae0ed984c3d1b75922e06
+Author:     James Boggs <james@softmax.com>
+AuthorDate: Wed Sep 9 18:46:18 2026 -0700
+Commit:     James Boggs <james@softmax.com>
+CommitDate: Wed Sep 9 18:46:18 2026 -0700
+
+    Count allocated sequence capacity in navigation memory
+    
+    M2 scoreboard: original 65-map capacity checks pass; configured maps exceed the historical 16 MiB shared cap. Preserve measured failures and pending context-accounting caveat. Focused tests pass after sanctioned nimby sync; viewer rebuilt after syncing main.
+
+commit f261aecabc5dc101ea6c0c8fa4ebc2eaec17eab3
+Author:     James Boggs <james@softmax.com>
+AuthorDate: Wed Sep 9 18:52:30 2026 -0700
+Commit:     James Boggs <james@softmax.com>
+CommitDate: Wed Sep 9 18:52:30 2026 -0700
+
+    Account for the installed navigation safety context
+    
+    M3 scoreboard: include armed hazard overlay and refreshed safe cache in activation and capacity totals. Original 65-map memory gate passes; preserve configured-map failures against the historical cap and record the later user allowance separately. Rebuild and verify viewer.
+
+commit f54337650b9f0b9329d95b546e5890b6f5a50c1f
+Author:     James Boggs <james@softmax.com>
+AuthorDate: Wed Sep 9 18:54:58 2026 -0700
+Commit:     James Boggs <james@softmax.com>
+CommitDate: Wed Sep 9 18:54:58 2026 -0700
+
+    Use direct checked wall reads inside weapon rays
+    
+    W2 scoreboard: Worst m5a p95/max11.543802/12.864276 ->10.375292/10.534817ms; all masks/pops and full corpus unchanged. Viewer rebuilt and verified; no final qualification claim.
+
+commit ae5658fc28516cbd8f514e8c20f15ca9e353fa14
+Author:     James Boggs <james@softmax.com>
+AuthorDate: Wed Sep 9 18:55:32 2026 -0700
+Commit:     James Boggs <james@softmax.com>
+CommitDate: Wed Sep 9 18:55:32 2026 -0700
+
+    Precompute the exact danger sight predicate
+    
+    R1 scoreboard: Worst m5a1300px p95/max10.367423/10.601260 ->7.984246/8.777049ms; all masks/pops and corpus unchanged. Count shared table memory. Viewer rebuilt and verified; no final qualification claim.
+
+commit e5791746e88afb8e86553f3a4b2ce3d292a4f689
+Author:     James Boggs <james@softmax.com>
+AuthorDate: Wed Sep 9 18:56:07 2026 -0700
+Commit:     James Boggs <james@softmax.com>
+CommitDate: Wed Sep 9 18:56:07 2026 -0700
+
+    Specialize weapon rays by their major axis
+    
+    W6 scoreboard: Worst m5a p95/max8.201069/8.788592 ->5.960683/6.704114ms; all masks/pops and full corpus unchanged. Viewer rebuilt and verified; no final qualification claim.
+
+commit addaad7a3a85213d28c3f99e99a4331ff198e2e2
+Author:     James Boggs <james@softmax.com>
+AuthorDate: Wed Sep 9 18:56:42 2026 -0700
+Commit:     James Boggs <james@softmax.com>
+CommitDate: Wed Sep 9 18:56:42 2026 -0700
+
+    Skip provably clear samples in weapon rays
+    
+    W7 scoreboard: Weapon p95 improves3.206897->0.638566ms; worst body p95 does not improve. All masks/pops and corpus unchanged; clearance invariants pass261581865 pixels. Preserve failed verifier attempt. Viewer rebuilt and verified; no final qualification claim.
+
+commit a5980388ff5bb3a6acda63ed7b1c14944d511521
+Merge: addaad7a 23e17ecd
+Author:     James Boggs <james@softmax.com>
+AuthorDate: Wed Sep 9 19:15:45 2026 -0700
+Commit:     James Boggs <james@softmax.com>
+CommitDate: Wed Sep 9 19:15:45 2026 -0700
+
+    Merge remote-tracking branch 'origin/main' into james/nav-throughput-research
+
+commit a875b16f1769d4d96fcbcd55b92cc9a564e16591
+Author:     James Boggs <james@softmax.com>
+AuthorDate: Wed Sep 9 19:16:02 2026 -0700
+Commit:     James Boggs <james@softmax.com>
+CommitDate: Wed Sep 9 19:16:02 2026 -0700
+
+    research(nav): qualify authorized 32 MiB shared cap
+    
+    CAP32: all 76 maps pass memory; 3072-case quality unchanged. Configured tick timing and inherited activation ratios remain failed. Preserve historical 16 MiB results.
+
+commit 8fe2cbad1e47957474fa10621bc533a45b81b2d9
+Author:     James Boggs <james@softmax.com>
+AuthorDate: Wed Sep 9 19:18:14 2026 -0700
+Commit:     James Boggs <james@softmax.com>
+CommitDate: Wed Sep 9 19:18:14 2026 -0700
+
+    perf(nav): update danger ray decisions incrementally
+    
+    D0a: m5a worst p95 5.948740 to 5.838907 ms across three pairs; exact masks, pops, full corpus and retained ledgers. Tick gate still fails. Include rebuilt viewer and review evidence.
+
+commit 490a96be6481383bf37a329d158a00858fc36302
+Author:     James Boggs <james@softmax.com>
+AuthorDate: Wed Sep 9 19:24:42 2026 -0700
+Commit:     James Boggs <james@softmax.com>
+CommitDate: Wed Sep 9 19:24:42 2026 -0700
+
+    research(nav): reject incremental kernel index
+    
+    D1: m5a p95 regresses 5.839953 to 5.936474 ms; exact masks, pops, quality and memory. Restore D0a and retain candidate plus negative results.
+
+commit 09ae472172aa833d17e30de0653b7ea31715af78
+Author:     James Boggs <james@softmax.com>
+AuthorDate: Wed Sep 9 19:39:24 2026 -0700
+Commit:     James Boggs <james@softmax.com>
+CommitDate: Wed Sep 9 19:39:24 2026 -0700
+
+    perf(nav): stream packed danger dilation
+    
+    P1: m5a worst p95 5.828086 to 5.242172 ms; weight p95 1.092082 to 0.423183 ms. Exact masks, pops, corpus and memory; no sparse diagnostic regression. Tick gate still fails.
+
+commit 067a4af2e992ee2e52b57c76a26487ccdcf80cf3
+Merge: 09ae4721 3c127d1c
+Author:     James Boggs <james@softmax.com>
+AuthorDate: Wed Sep 9 19:44:33 2026 -0700
+Commit:     James Boggs <james@softmax.com>
+CommitDate: Wed Sep 9 19:44:33 2026 -0700
+
+    Merge origin/main wire update into navigation research
+    
+    Reserve GV65 above main63 and remote64; rebuild viewer and check both server shapes. Incoming nine fixtures are main63 artifacts, pending final-budget rerecording. No final qualification claim.
+
+commit 609d70264430015e3e35c843bd90d384ee03c650
+Author:     James Boggs <james@softmax.com>
+AuthorDate: Wed Sep 9 19:56:40 2026 -0700
+Commit:     James Boggs <james@softmax.com>
+CommitDate: Wed Sep 9 19:56:40 2026 -0700
+
+    docs(nav): preserve proofs and next experiment plans
+    
+    Record memory ruling, exact wavefront and activation hypotheses, proof provenance, fresh native worktrees and outstanding qualification. No production changes.
+
+commit 782af86788366c29007246add91ff665acb7e079
+Author:     James Boggs <james@softmax.com>
+AuthorDate: Wed Sep 9 19:56:52 2026 -0700
+Commit:     James Boggs <james@softmax.com>
+CommitDate: Wed Sep 9 19:56:52 2026 -0700
+
+    docs(nav): retain activation proof stdout
+
+commit 7872d616c3de177eba0376c014f7cd2fdbebb3b2
+Merge: 782af867 cf416937
+Author:     James Boggs <james@softmax.com>
+AuthorDate: Wed Sep 9 20:12:06 2026 -0700
+Commit:     James Boggs <james@softmax.com>
+CommitDate: Wed Sep 9 20:12:06 2026 -0700
+
+    Merge remote-tracking branch 'origin/main' into james/nav-throughput-research
+
+commit 1d8d164405b42fe4f64a4674e702b4aec08f05c1
+Author:     James Boggs <james@softmax.com>
+AuthorDate: Wed Sep 9 20:13:49 2026 -0700
+Commit:     James Boggs <james@softmax.com>
+CommitDate: Wed Sep 9 20:13:49 2026 -0700
+
+    research(WF0): reject slower exact danger wavefront screen
+
+commit a3ab087f5049d0a528fddb55d6e088976c258284
+Merge: 1d8d1644 f789a2f7
+Author:     James Boggs <james@softmax.com>
+AuthorDate: Wed Sep 9 20:15:06 2026 -0700
+Commit:     James Boggs <james@softmax.com>
+CommitDate: Wed Sep 9 20:15:06 2026 -0700
+
+    Merge remote-tracking branch 'origin/main' into james/nav-throughput-research
+
+commit 872e5499c0161dd669ef0c0769a3ec3c5862e031
+Author:     James Boggs <james@softmax.com>
+AuthorDate: Wed Sep 9 20:16:17 2026 -0700
+Commit:     James Boggs <james@softmax.com>
+CommitDate: Wed Sep 9 20:16:17 2026 -0700
+
+    perf(A0): build symmetric fine legality edges once
+
+commit 82af58bf35e9b75ae30e14594587557280f507d0
+Merge: 872e5499 25a8cc30
+Author:     James Boggs <james@softmax.com>
+AuthorDate: Wed Sep 9 20:24:29 2026 -0700
+Commit:     James Boggs <james@softmax.com>
+CommitDate: Wed Sep 9 20:24:29 2026 -0700
+
+    Merge remote-tracking branch 'origin/main' into james/nav-throughput-research
+
+commit bd03d7786db5506bf3ae22ccc9375ba12374fe69
+Author:     James Boggs <james@softmax.com>
+AuthorDate: Wed Sep 9 20:25:41 2026 -0700
+Commit:     James Boggs <james@softmax.com>
+CommitDate: Wed Sep 9 20:25:41 2026 -0700
+
+    fix(nav gate): enforce the activation time requirement
+
+commit aa3f7f79cfbb0532d2d8b5a3775241ed9c5dce8c
+Author:     James Boggs <james@softmax.com>
+AuthorDate: Wed Sep 9 20:32:38 2026 -0700
+Commit:     James Boggs <james@softmax.com>
+CommitDate: Wed Sep 9 20:32:38 2026 -0700
+
+    perf(A1): shortcut exact two-edge anchor bridges
+
+commit 4838d0619ec2c3dcae4f4ad13aa84e40aa03f629
+Author:     James Boggs <james@softmax.com>
+AuthorDate: Wed Sep 9 20:36:12 2026 -0700
+Commit:     James Boggs <james@softmax.com>
+CommitDate: Wed Sep 9 20:36:12 2026 -0700
+
+    research: close wavefront direction and profile remaining activation cost
+
+commit 3aeb03982fdd6e2ee0c7d78441cdde9acadae487
+Merge: 4838d061 2714c3be
+Author:     James Boggs <james@softmax.com>
+AuthorDate: Wed Sep 9 20:37:03 2026 -0700
+Commit:     James Boggs <james@softmax.com>
+CommitDate: Wed Sep 9 20:37:03 2026 -0700
+
+    Merge remote-tracking branch 'origin/main' into james/nav-throughput-research
+
+commit 6ab8026cf0803f4e900d2a2dbc780006b814b54e
+Merge: 3aeb0398 2bb289f8
+Author:     James Boggs <james@softmax.com>
+AuthorDate: Wed Sep 9 20:46:02 2026 -0700
+Commit:     James Boggs <james@softmax.com>
+CommitDate: Wed Sep 9 20:46:02 2026 -0700
+
+    Merge remote-tracking branch 'origin/main' into james/nav-throughput-research
+
+commit 9c5627b21d3f39b4a7dbc8721585b123bbd388c4
+Author:     James Boggs <james@softmax.com>
+AuthorDate: Wed Sep 9 20:46:17 2026 -0700
+Commit:     James Boggs <james@softmax.com>
+CommitDate: Wed Sep 9 20:46:17 2026 -0700
+
+    research(C1): verify current production build timing and quality
+
+commit f9dff753eb7caac375616ddc7a6ada202f34c449
+Author:     James Boggs <james@softmax.com>
+AuthorDate: Wed Sep 9 20:57:27 2026 -0700
+Commit:     James Boggs <james@softmax.com>
+CommitDate: Wed Sep 9 20:57:27 2026 -0700
+
+    perf(A2): build symmetric coarse legality edges once
+
+commit 666cdb9de457af8e69c7e5d1c703a5fcc81fc697
+Author:     James Boggs <james@softmax.com>
+AuthorDate: Thu Sep 10 09:28:43 2026 -0700
+Commit:     James Boggs <james@softmax.com>
+CommitDate: Thu Sep 10 09:28:43 2026 -0700
+
+    research(A3): reject inline predicate after native comparison
+
+commit 2a2fdf207c0a0dd8556dbf9cbf9be63bf480f481
+Author:     James Boggs <james@softmax.com>
+AuthorDate: Thu Sep 10 09:29:50 2026 -0700
+Commit:     James Boggs <james@softmax.com>
+CommitDate: Thu Sep 10 09:29:50 2026 -0700
+
+    research(H1): record native work gain and censored latency tradeoff
+
+commit d66f693ab63d46e2c85bc2a9caf7ef4fcea48159
+Author:     James Boggs <james@softmax.com>
+AuthorDate: Thu Sep 10 09:40:51 2026 -0700
+Commit:     James Boggs <james@softmax.com>
+CommitDate: Thu Sep 10 09:40:51 2026 -0700
+
+    research(C2): verify real source reuse and preregister isolated cache
+
+commit eaee80fab4dd1c7604ab89ba658ec0b2d2cd9af3
+Author:     James Boggs <james@softmax.com>
+AuthorDate: Thu Sep 10 09:52:09 2026 -0700
+Commit:     James Boggs <james@softmax.com>
+CommitDate: Thu Sep 10 09:52:09 2026 -0700
+
+    perf(V1): narrow exact danger visit stamps and verify rollover
+
+commit 0b860a11a265d658e2ce4620c9a30ebfc9bdca4f
+Author:     James Boggs <james@softmax.com>
+AuthorDate: Thu Sep 10 10:00:23 2026 -0700
+Commit:     James Boggs <james@softmax.com>
+CommitDate: Thu Sep 10 10:00:23 2026 -0700
+
+    perf(A4): validate symmetric coarse geometry once per edge
+
+commit ff64a2246f58721ebd2e86dc3a0fe83fdbac9e53
+Author:     James Boggs <james@softmax.com>
+AuthorDate: Thu Sep 10 10:03:59 2026 -0700
+Commit:     James Boggs <james@softmax.com>
+CommitDate: Thu Sep 10 10:03:59 2026 -0700
+
+    perf(H1): retain full octile bound for exact goal nodes
+
+commit b971d89852e38e992dfb0d557f4d18ad87d4a35d
+Author:     James Boggs <james@softmax.com>
+AuthorDate: Thu Sep 10 10:25:06 2026 -0700
+Commit:     James Boggs <james@softmax.com>
+CommitDate: Thu Sep 10 10:25:06 2026 -0700
+
+    Cache shared danger visibility; preserve configured timing failures
+    
+    C2: all 27 native real-trace pairs improve total/p95 with exact rasters; m5a short B1024 rows fit headroom but configured maps remain 0/11. Changing-source diagnostic regresses up to 1.08%. Integrated cache/nav tests, full H1 corpus, both server shapes, viewer and 76 memory ledgers pass; final fleet qualification remains open.
+
+commit 8d965a994ef0352e0a3ff1ec996ca1795e3745d1
+Author:     James Boggs <james@softmax.com>
+AuthorDate: Thu Sep 10 10:32:21 2026 -0700
+Commit:     James Boggs <james@softmax.com>
+CommitDate: Thu Sep 10 10:32:21 2026 -0700
+
+    Update navigation memory and qualification guidance
+
+commit 63d2020db47a0fb1d6a4dce54159cbaeaea4a4de
+Author:     James Boggs <james@softmax.com>
+AuthorDate: Thu Sep 10 10:37:30 2026 -0700
+Commit:     James Boggs <james@softmax.com>
+CommitDate: Thu Sep 10 10:37:30 2026 -0700
+
+    Reject full-raster caching after real trace reuse screen
+    
+    C4: capacity-8 exact ordered-source reuse reaches only 2.20–7.31% on nine traces, below the preregistered 20% threshold everywhere. No production or memory-cap change.
+
+commit 138683ecd7ae50994edc183c6b6834d8708fc4ec
+Author:     James Boggs <james@softmax.com>
+AuthorDate: Thu Sep 10 10:43:32 2026 -0700
+Commit:     James Boggs <james@softmax.com>
+CommitDate: Thu Sep 10 10:43:32 2026 -0700
+
+    Profile activation and screen exact standability alternatives
+    
+    A5: pocket work scales similarly across native m5a/m8i. A6: direct reads lose 11–12%; lazy standability improves m8i construction 3.45–4.12% with full quality and 76 activation/memory passes. Retained ledgers unchanged. m5a follow-up pending; no production index change.
+
+commit f9e51de84fdc59a6f5d0e27ac930cf5b5cc8bdc4
+Author:     James Boggs <james@softmax.com>
+AuthorDate: Thu Sep 10 10:54:19 2026 -0700
+Commit:     James Boggs <james@softmax.com>
+CommitDate: Thu Sep 10 10:54:19 2026 -0700
+
+    Key the raster reuse screen only by source pixels
+    
+    The original count model retained NAVSRC seat IDs in its key. Correcting to ordered x:y pairs leaves all 36 result rows unchanged; preserve the original model/output and the negative conclusion. Documentation audit records the correction and unchanged scope.
+
+commit 98c7188787552088db129464c702be3e41065712
+Author:     James Boggs <james@softmax.com>
+AuthorDate: Thu Sep 10 11:20:54 2026 -0700
+Commit:     James Boggs <james@softmax.com>
+CommitDate: Thu Sep 10 11:20:54 2026 -0700
+
+    Reject row-cursor and full-word replay after native comparisons
+
+commit 7fe0c3a3ec4a2d414bb67eb411ed66a285bec641
+Author:     James Boggs <james@softmax.com>
+AuthorDate: Thu Sep 10 11:27:21 2026 -0700
+Commit:     James Boggs <james@softmax.com>
+CommitDate: Thu Sep 10 11:27:21 2026 -0700
+
+    Record native activation limits and reject zero-weight bitmap omission
+
+commit e10b6f111e231c04d9a3f915061e49ee0d8f4834
+Author:     James Boggs <james@softmax.com>
+AuthorDate: Thu Sep 10 11:45:24 2026 -0700
+Commit:     James Boggs <james@softmax.com>
+CommitDate: Thu Sep 10 11:45:24 2026 -0700
+
+    Measure list replay gains and close the early-visited speed screen
+
+commit eaa208bd7111c3cd75aaea9cbf2d0850caff0ba6
+Author:     James Boggs <james@softmax.com>
+AuthorDate: Thu Sep 10 12:18:27 2026 -0700
+Commit:     James Boggs <james@softmax.com>
+CommitDate: Thu Sep 10 12:18:27 2026 -0700
+
+    Reject eager list cache and measure deferred conversion cost
+
+commit 3594b628af2b77bd95a0034a762510915e68898d
+Author:     James Boggs <james@softmax.com>
+AuthorDate: Thu Sep 10 12:56:35 2026 -0700
+Commit:     James Boggs <james@softmax.com>
+CommitDate: Thu Sep 10 12:56:35 2026 -0700
+
+    Record deferred-cache screen failure and pixel-search recurrence
+
+commit f6d906de3de611b8ce42fe7574c6ecef81d29e53
+Author:     James Boggs <james@softmax.com>
+AuthorDate: Thu Sep 10 13:19:47 2026 -0700
+Commit:     James Boggs <james@softmax.com>
+CommitDate: Thu Sep 10 13:19:47 2026 -0700
+
+    Record failed-search memo screen and cache diagnostic evidence
+
+commit f6f1e965cfcb0d9399b790014e38c66ce1f371a1
+Author:     James Boggs <james@softmax.com>
+AuthorDate: Thu Sep 10 13:55:29 2026 -0700
+Commit:     James Boggs <james@softmax.com>
+CommitDate: Thu Sep 10 13:55:29 2026 -0700
+
+    Screen grouped SIMD danger replay on both native hosts

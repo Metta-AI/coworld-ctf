@@ -1,0 +1,7 @@
+# C6 microbench sampling correction before native use
+
+Root reviewed bench_danger_replay.nim. It currently takes the first64standable stride-selected origins in raster order, so the retained sample is concentrated near the top edge of each map. That is not representative of the full map count screen or configured source locations. Preserve the v1 tool/local results, then change only sampling to distribute at most64fixed origins across the entire list of valid stride-selected cells (for example evenly spaced indices including both ends). All selection remains outside timing. Record the selected pixel/cell coordinates in JSON, so native parent/candidate input equality is directly checkable. No source optimization or threshold change. Native has not launched yet.
+
+The full-word implementation and crafted nonzero-kernel reference test look sound. Keep the existing C2 sparse loop unchanged. The C6 count diagnostic preclassifies a whole rebuild: root independently checked ordered LRU on all nine traces and found zero classification differences for this dataset (C6_COUNT_ROOT_CHECK.md), but don't reuse that shortcut for arbitrary new inputs. C4 also retained seatId in its first key; the corrected ordered-pixel model leaves all36rows unchanged and preserves the original mistake.
+
+After revised C6 MICRO READY, read C7_RESEARCH_REQUEST.md for a read-only research review; no C7 implementation authorized. Root will run frozen C6 native micro/trace comparisons independently. Preserve C6 source snapshots before any later source ownership change.

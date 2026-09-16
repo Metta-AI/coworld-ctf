@@ -1,0 +1,5 @@
+Nimby 0.2.3
+Using global packages directory.
+No Nimby workspace found.
+Refusing to create one inside package or Git checkout: /home/ubuntu/coworld-nav-wavefront-20260909
+Run `nimby create` in the directory you want as the workspace.

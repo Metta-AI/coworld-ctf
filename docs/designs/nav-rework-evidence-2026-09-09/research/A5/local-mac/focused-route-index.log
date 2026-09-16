@@ -1,0 +1,9 @@
+
+[Suite] immutable shared body route index
+  [OK] canonical legality matches the old planner predicate
+  [OK] index validates and is deterministic
+  [OK] edge width and named activation failures fail closed
+  [OK] fine crossing fallback stays sparse and decodes to coarse sampling
+  [OK] portal sides come from their own coarse room anchors
+  [OK] coverage excludes islands that cannot contain a validated endpoint
+  [OK] pixel pocket connectors cover every validator endpoint

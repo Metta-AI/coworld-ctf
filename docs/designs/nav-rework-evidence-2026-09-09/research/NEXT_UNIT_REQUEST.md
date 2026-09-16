@@ -1,0 +1,7 @@
+# Close A8 evidence and rank next throughput unit
+
+Documents only. No source changes, native jobs, external memory updates, or implementation.
+
+First correct your A8 source review: the initial paths.log is an intentionally retained failed compile. build-paths-v2.log is successful and paths.json has been compared against A7/local/eager-arms-v2.json by root: cases and real_map48 equal exactly,173424searches,12mode-sensitive cases,chain4D841154B18CFF53. Independently verify that comparison. Both native trees and nav-deferred-cache are restored clean. Also remove the claim that three close pairs prove this is not noise-limited: the observed decision is negative, but a0.0314percentage-point shortfall against5% is not statistically resolved by these pairs. This does not reopen the registered screen.
+
+Then write NEXT_THROUGHPUT_UNIT_PLAN.md: rank at most three distinct next mechanisms for the unresolved m5a whole-body configured-tick failure using existing Fluffy, exact-source traces, retained C2/V1/H1 and negative C3/C6/C7/C8/C9/A8 evidence. Prefer a counts/code-reading diagnostic that could reject a mechanism before implementation. Do not re-propose a rejected candidate or simply resample it, and do not let construction-only gains substitute for whole-body throughput. State what evidence each hypothesis lacks and a measurable pre-implementation stopping rule. Check existing registry so this does not duplicate old experiments. No new code or jobs. End NEXT THROUGHPUT PLAN READY and wait for explicit implementation authorization.

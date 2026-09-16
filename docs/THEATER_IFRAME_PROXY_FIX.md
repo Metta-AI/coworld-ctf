@@ -1,5 +1,9 @@
 # Theater mode: allow the same-origin board iframe (proxy header fix)
 
+> **Historical incident record.** This captures the replay-session proxy state
+> at the time of the investigation; verify current deployment headers before
+> acting on it. It is not current game or policy guidance.
+
 **For:** whoever owns the Observatory session-proxy / CDN in front of CTF replay sessions.
 **Symptom:** In **theater mode** the walled-pit chrome renders, but the center shows
 Chrome's grey **"This content is blocked. Contact the site owner to fix the issue."**

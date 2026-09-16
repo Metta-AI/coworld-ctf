@@ -1,0 +1,164 @@
+[
+  {
+    "file": "parent-trace-s2_16_679962-r1.json",
+    "exact": true,
+    "total_ratio": 1.0088673399376504,
+    "p95_ratio": 1.0031099159441788
+  },
+  {
+    "file": "parent-trace-s2_16_679962-r2.json",
+    "exact": true,
+    "total_ratio": 1.0067191755232074,
+    "p95_ratio": 1.0258216789657553
+  },
+  {
+    "file": "parent-trace-s2_16_679962-r3.json",
+    "exact": true,
+    "total_ratio": 1.0128424993348168,
+    "p95_ratio": 1.0538627658445439
+  },
+  {
+    "file": "parent-trace-s2_16_679963-r1.json",
+    "exact": true,
+    "total_ratio": 1.0034205681340518,
+    "p95_ratio": 1.0362391291514437
+  },
+  {
+    "file": "parent-trace-s2_16_679963-r2.json",
+    "exact": true,
+    "total_ratio": 1.0011629171210557,
+    "p95_ratio": 1.059874895936684
+  },
+  {
+    "file": "parent-trace-s2_16_679963-r3.json",
+    "exact": true,
+    "total_ratio": 1.0036234455277318,
+    "p95_ratio": 0.9811079550620643
+  },
+  {
+    "file": "parent-trace-s2_16_679964-r1.json",
+    "exact": true,
+    "total_ratio": 1.0085966969356923,
+    "p95_ratio": 1.0288091447686603
+  },
+  {
+    "file": "parent-trace-s2_16_679964-r2.json",
+    "exact": true,
+    "total_ratio": 1.010641918772384,
+    "p95_ratio": 1.0108509432774433
+  },
+  {
+    "file": "parent-trace-s2_16_679964-r3.json",
+    "exact": true,
+    "total_ratio": 1.0107573638208942,
+    "p95_ratio": 1.0474212447789475
+  },
+  {
+    "file": "parent-trace-s2_16_679965-r1.json",
+    "exact": true,
+    "total_ratio": 1.0153130888220094,
+    "p95_ratio": 1.028611772944911
+  },
+  {
+    "file": "parent-trace-s2_16_679965-r2.json",
+    "exact": true,
+    "total_ratio": 1.0119246678470026,
+    "p95_ratio": 1.0194833640022871
+  },
+  {
+    "file": "parent-trace-s2_16_679965-r3.json",
+    "exact": true,
+    "total_ratio": 1.0103934582091714,
+    "p95_ratio": 1.0130828943993258
+  },
+  {
+    "file": "parent-trace-s2_32_679962-r1.json",
+    "exact": true,
+    "total_ratio": 1.0079766405382637,
+    "p95_ratio": 1.002205576385109
+  },
+  {
+    "file": "parent-trace-s2_32_679962-r2.json",
+    "exact": true,
+    "total_ratio": 1.0046315746045866,
+    "p95_ratio": 1.0338106135542795
+  },
+  {
+    "file": "parent-trace-s2_32_679962-r3.json",
+    "exact": true,
+    "total_ratio": 1.010078725468913,
+    "p95_ratio": 0.9984745274161175
+  },
+  {
+    "file": "parent-trace-s2_32_679963-r1.json",
+    "exact": true,
+    "total_ratio": 1.0086735973479521,
+    "p95_ratio": 1.0219356339224135
+  },
+  {
+    "file": "parent-trace-s2_32_679963-r2.json",
+    "exact": true,
+    "total_ratio": 1.0012087921944433,
+    "p95_ratio": 0.9974249517447135
+  },
+  {
+    "file": "parent-trace-s2_32_679963-r3.json",
+    "exact": true,
+    "total_ratio": 1.0047377941627331,
+    "p95_ratio": 1.0088709338585964
+  },
+  {
+    "file": "parent-trace-s2_32_679964-r1.json",
+    "exact": true,
+    "total_ratio": 1.0125881834981068,
+    "p95_ratio": 1.0306144925712033
+  },
+  {
+    "file": "parent-trace-s2_32_679964-r2.json",
+    "exact": true,
+    "total_ratio": 1.0087593444561596,
+    "p95_ratio": 1.0660173923866219
+  },
+  {
+    "file": "parent-trace-s2_32_679964-r3.json",
+    "exact": true,
+    "total_ratio": 1.010989063490962,
+    "p95_ratio": 1.0468295641663454
+  },
+  {
+    "file": "parent-trace-s2_32_679965-r1.json",
+    "exact": true,
+    "total_ratio": 1.0074471821416506,
+    "p95_ratio": 1.0290955385311047
+  },
+  {
+    "file": "parent-trace-s2_32_679965-r2.json",
+    "exact": true,
+    "total_ratio": 1.0040036578572082,
+    "p95_ratio": 1.000606573331251
+  },
+  {
+    "file": "parent-trace-s2_32_679965-r3.json",
+    "exact": true,
+    "total_ratio": 1.0073665508355059,
+    "p95_ratio": 1.0295078547682681
+  },
+  {
+    "file": "parent-trace-smoke_s2_16_randomized-r1.json",
+    "exact": true,
+    "total_ratio": 1.0070972757786156,
+    "p95_ratio": 1.020609199588971
+  },
+  {
+    "file": "parent-trace-smoke_s2_16_randomized-r2.json",
+    "exact": true,
+    "total_ratio": 1.0138492273467135,
+    "p95_ratio": 1.0471360688273907
+  },
+  {
+    "file": "parent-trace-smoke_s2_16_randomized-r3.json",
+    "exact": true,
+    "total_ratio": 1.00462488486814,
+    "p95_ratio": 1.039400970070187
+  }
+]

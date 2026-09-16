@@ -1,5 +1,9 @@
 # Design: expand_replay reporter
 
+> **Historical pre-implementation design.** This records an unshipped reporter
+> proposal and its then-open platform questions; it is not the current
+> `expand_replay` CLI contract or Season 2 policy guidance.
+
 **Status:** design / pre-implementation
 **Goal:** a minimal reporter that wraps `tools/expand_replay.nim` so a completed
 Crewrift episode produces a structured event report, conformant with the

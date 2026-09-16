@@ -1,0 +1,3 @@
+# PROCEED after consolidation
+
+Primary branch fast-forwarded to addaad7a, newer notes restored with backups preserved. CAP32 now changes only harness shared cap to32MiB; m8i fresh qualification running. D0a preregistered and implemented in src/shell/body_nav.nim, root owns code. Please independently review the actual castRay diff against D0-parent-body_nav.nim and write D0_CODE_REVIEW.md; no source edits. Verify recurrence and all visit/check ordering, integer bounds under actual supported configuration. Do not subtract danger and weight percentiles (they describe different samples). Later ablations remain separate.

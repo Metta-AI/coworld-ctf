@@ -1,0 +1,16 @@
+[
+  {
+    "map": "br-gen-5120",
+    "range_px": 331,
+    "stride": 3,
+    "sample": {
+      "sources": 22513,
+      "set_bits": 71260512,
+      "zero_kernel_bits": 2443936,
+      "nonzero_kernel_bits": 68816576,
+      "zero_share": 0.03429579624687513,
+      "max_zero_per_source": 243,
+      "max_nonzero_per_source": 5165
+    }
+  }
+]

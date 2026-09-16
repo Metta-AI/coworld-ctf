@@ -116,7 +116,7 @@ suite "identity badges":
     check "identity red alpha gun" notin labels
     game.players[viewer].hasShield = false
     game.players[viewer].hasGrenade = false
-    game.players[viewer].hasPlasmaArc = true
+    game.players[viewer].hasSprayPaint = true
     labels = game.playerMessages(viewer).presentLabels()
     check "identity red alpha spray" in labels
 

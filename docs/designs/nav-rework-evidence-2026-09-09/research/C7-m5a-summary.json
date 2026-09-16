@@ -1,0 +1,80 @@
+[
+  {
+    "map": "br-gen-5120",
+    "range_px": 331,
+    "origins": 44,
+    "all_exact": true,
+    "c2_bitmap_ns": 39975.428409090906,
+    "c8_bitmap_ns": 38707.40909090909,
+    "c2_list_ns": 19489.923863636363,
+    "c8_list_ns": 19536.913636363635,
+    "list_over_c2": 0.48754759209044807,
+    "list_over_c8": 0.504733178872262,
+    "pass_20pct": true
+  },
+  {
+    "map": "br-gen-5120",
+    "range_px": 1300,
+    "origins": 44,
+    "all_exact": true,
+    "c2_bitmap_ns": 137086.10454545455,
+    "c8_bitmap_ns": 126905.21590909091,
+    "c2_list_ns": 60714.32840909091,
+    "c8_list_ns": 60861.75227272727,
+    "list_over_c2": 0.44289192263800486,
+    "list_over_c8": 0.4795843247004587,
+    "pass_20pct": true
+  },
+  {
+    "map": "br-gen-5204",
+    "range_px": 331,
+    "origins": 45,
+    "all_exact": true,
+    "c2_bitmap_ns": 44453.66333333333,
+    "c8_bitmap_ns": 42900.29111111111,
+    "c2_list_ns": 21453.217777777776,
+    "c8_list_ns": 21641.97888888889,
+    "list_over_c2": 0.48259729725561673,
+    "list_over_c8": 0.5044716091281639,
+    "pass_20pct": true
+  },
+  {
+    "map": "br-gen-5204",
+    "range_px": 1300,
+    "origins": 45,
+    "all_exact": true,
+    "c2_bitmap_ns": 163950.15444444446,
+    "c8_bitmap_ns": 151849.53555555554,
+    "c2_list_ns": 73015.22444444445,
+    "c8_list_ns": 72875.99777777778,
+    "list_over_c2": 0.44535014127837325,
+    "list_over_c8": 0.4799224278899123,
+    "pass_20pct": true
+  },
+  {
+    "map": "br-gen-5263",
+    "range_px": 331,
+    "origins": 49,
+    "all_exact": true,
+    "c2_bitmap_ns": 36560.26836734694,
+    "c8_bitmap_ns": 35364.81122448979,
+    "c2_list_ns": 17840.878571428573,
+    "c8_list_ns": 17779.26632653061,
+    "list_over_c2": 0.4879854379669377,
+    "list_over_c8": 0.5027389009281248,
+    "pass_20pct": true
+  },
+  {
+    "map": "br-gen-5263",
+    "range_px": 1300,
+    "origins": 49,
+    "all_exact": true,
+    "c2_bitmap_ns": 121817.78673469387,
+    "c8_bitmap_ns": 111365.5693877551,
+    "c2_list_ns": 53009.73673469388,
+    "c8_list_ns": 52746.41428571429,
+    "list_over_c2": 0.43515596659249295,
+    "list_over_c8": 0.4736330499246195,
+    "pass_20pct": true
+  }
+]

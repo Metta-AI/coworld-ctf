@@ -1,0 +1,16 @@
+{
+  "paintbot_policy": 1,
+  "name": "ring-hugger",
+  "doc": "Rotates into the safe paint early and hugs whatever cover it finds along the way -- never the last one moving, never caught in the open.",
+  "traits": { "nerve": 0.3, "greed": 0.3, "patience": 0.3 },
+  "rules": [
+    { "when": true,
+      "score": ["+",
+        ["*", 25, ["get", "intent.is_ring_safe"]],
+        ["*", 15, ["get", "intent.is_cover"]],
+        ["*", -20, ["get", "intent.exposure"]],
+        ["*", 10, ["get", "intent.is_enemy"]]
+      ]
+    }
+  ]
+}

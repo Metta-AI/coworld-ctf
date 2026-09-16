@@ -1,0 +1,85 @@
+Hint: used config file '/root/.nimby/nim/config/nim.cfg' [Conf]
+Hint: used config file '/root/.nimby/nim/config/config.nims' [Conf]
+Hint: used config file '/workspace/ctf/nim.cfg' [Conf]
+Hint: used config file '/workspace/ctf/tests/config.nims' [Conf]
+....................................................................................................................................................................................................................................
+/workspace/ctf/src/ctf/arena.nim(1373, 5) Hint: 'inside' is declared but not used [XDeclaredButNotUsed]
+/workspace/ctf/src/ctf/arena.nim(3702, 6) Hint: 'rectsNode' is declared but not used [XDeclaredButNotUsed]
+/workspace/ctf/src/ctf/arena.nim(3707, 6) Hint: 'rectsFromNode' is declared but not used [XDeclaredButNotUsed]
+......
+CC: ../../../root/.nimby/nim/lib/system/exceptions.nim
+CC: ../../../root/.nimby/nim/lib/std/private/digitsutils.nim
+CC: ../../../root/.nimby/nim/lib/std/assertions.nim
+CC: ../../../root/.nimby/nim/lib/std/private/dragonbox.nim
+CC: ../../../root/.nimby/nim/lib/std/private/schubfach.nim
+CC: ../../../root/.nimby/nim/lib/std/formatfloat.nim
+CC: ../../../root/.nimby/nim/lib/std/objectdollar.nim
+CC: ../../../root/.nimby/nim/lib/system/dollars.nim
+CC: ../../../root/.nimby/nim/lib/std/syncio.nim
+CC: ../../../root/.nimby/nim/lib/system.nim
+CC: ../../../root/.nimby/nim/lib/pure/algorithm.nim
+CC: ../../../root/.nimby/nim/lib/pure/hashes.nim
+CC: ../../../root/.nimby/nim/lib/pure/math.nim
+CC: ../../../root/.nimby/nim/lib/pure/collections/tables.nim
+CC: ../../../root/.nimby/nim/lib/pure/parseutils.nim
+CC: ../../../root/.nimby/nim/lib/pure/unicode.nim
+CC: ../../../root/.nimby/nim/lib/pure/strutils.nim
+CC: ../../../root/.nimby/nim/lib/pure/streams.nim
+CC: ../../../root/.nimby/nim/lib/pure/lexbase.nim
+CC: ../../../root/.nimby/nim/lib/pure/parsejson.nim
+CC: ../../../root/.nimby/nim/lib/pure/options.nim
+CC: ../../../root/.nimby/nim/lib/pure/json.nim
+CC: ../../../root/.nimby/nim/lib/std/exitprocs.nim
+CC: ../../../root/.nimby/nim/lib/pure/times.nim
+CC: ../../../root/.nimby/nim/lib/pure/collections/sets.nim
+CC: ../../../root/.nimby/nim/lib/std/envvars.nim
+CC: ../../../root/.nimby/nim/lib/std/cmdline.nim
+CC: ../../../root/.nimby/nim/lib/pure/strformat.nim
+CC: ../../../root/.nimby/nim/lib/pure/terminal.nim
+CC: ../../../root/.nimby/nim/lib/pure/unittest.nim
+CC: ../../../root/.nimby/pkgs/nimsimd/src/nimsimd/runtimecheck.nim
+CC: ../../../root/.nimby/pkgs/pixie/src/pixie/simd.nim
+CC: ../../../root/.nimby/pkgs/pixie/src/pixie/fontformats/opentype.nim
+CC: ../../../root/.nimby/pkgs/pixie/src/pixie/fileformats/jpeg.nim
+CC: ../../../root/.nimby/nim/lib/pure/collections/heapqueue.nim
+CC: ../../../root/.nimby/pkgs/crunchy/src/crunchy/sha256.nim
+CC: ../../../root/.nimby/pkgs/pixie/src/pixie/fileformats/png.nim
+CC: ../../../root/.nimby/pkgs/bitworld/src/bitworld/spriteprotocol.nim
+CC: ../../../root/.nimby/pkgs/jsony/src/jsony.nim
+CC: ../../../root/.nimby/nim/lib/pure/random.nim
+CC: ../../../root/.nimby/pkgs/bitworld/src/bitworld/pixelfonts.nim
+CC: ../src/ctf/sim_types.nim
+CC: ../src/ctf/arena.nim
+CC: ../src/shell/body_map.nim
+CC: ../src/shell/body_cache.nim
+CC: ../src/shell/body_planner.nim
+CC: ../src/shell/body_nav.nim
+CC: test_shell_body_nav.nim
+Hint:  [Link]
+Hint: mm: orc; threads: on; opt: speed; options: -d:release
+127722 lines; 26.562s; 337.766MiB peakmem; proj: /workspace/ctf/tests/test_shell_body_nav.nim; out: /results/test_shell_body_nav [SuccessX]
+Hint: /results/test_shell_body_nav [Exec]
+
+[Suite] shell body seat navigation
+COVER_THREAT_CAP count=8 seats=[9, 8, 7, 6, 5, 4, 0, 1] permuted_equal=true
+  [OK] fresh cover selector caps eight by distance and stable seat
+  [OK] route and duck caches are bounded, pinned, LRU, and non-minting
+  [OK] peekRouteDistance snaps an unwalkable query cell like stencil
+  [OK] field minter publishes the reference route raster
+  [OK] field minter suspension is chunk-independent
+  [OK] cold and warm path planning are deterministic on a unique corridor
+  [OK] danger_schedule_k32_fixed_seed
+  [OK] danger_range_cap_boundary reads the live gun range
+  [OK] start endpoint resolution and equal endpoint match stencil
+  [OK] charged suspension is chunk-independent and replacement is atomic
+  [OK] near-goal cold plan completes in one tick on giant map
+  [OK] mint work cannot delay plan completion
+  [OK] cold-plan budget pools one slice per configured seat
+  [OK] plan budget events report suspensions and the visits to clear them
+  [OK] a cancelled plan is re-requested instead of following the stale path
+  [OK] prewarm and budgeted plan drain produce the same plans
+  [OK] plans-only prewarm preserves queued mints for ordinary play drain
+  [OK] mint lifecycle cancels, preserves, and skips at the right boundaries
+  [OK] cold_plan_budget_256_round_robin
+  [OK] prewarmed activation has no playing-tick cold work until new intent
+  [OK] follower corridor, octants, and stuck state match stencil

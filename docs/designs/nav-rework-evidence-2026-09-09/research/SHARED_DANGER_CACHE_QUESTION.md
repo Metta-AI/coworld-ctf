@@ -1,0 +1,7 @@
+# Additional hypothesis for joint ranking
+
+Before committing further effort to wavefronts, consider exact shared reuse of an individual source's LOS contribution across seats. Immutable map and range mean the LOS set and kernel depend on quantized source cell only; the close floor still depends on exact pixel position and must be applied separately in source order. Multiple seats can select the same opponents. M1 shares geometry, but rebuildDangerFromPoints still raycasts every selected source for every rebuilding seat.
+
+A bounded shared cache of sparse visible node indices (kernel can be read by relative offset) could avoid repeated rays. This is a concrete reuse case, not a speculative general cache. It must have deterministic lookup/replacement independent of clocks, preserve per-source addition order, count capacities in the shared ledger, and obey the unchanged colossal total cap. The user's up-to-4x allowance leaves room to measure a larger non-colossal cap if needed; currently selected cap remains 32 MiB.
+
+We must NOT accept a win only on the synthetic harness's repeated eight sources. A screen needs shared-source, disjoint-source, moving quantized-cell and adversarial eviction cases, plus source-sharing observations from a realistic 16/32-seat input trace. Is this structurally more promising and simpler than active wavefronts? Check prior notes for an earlier rejection before endorsing it. Please append a brief ranking to WF1_PROPOSAL.md after A1 source review; do not implement production changes yet.

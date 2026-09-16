@@ -1,0 +1,5 @@
+# A4 independent review request after C2 handoff
+
+A4 now passes all76m8iactivation ratios; fullquality unchanged. Isolated candidate: /Users/jamesboggs/coding/coworlds/coworld-ctf-worktrees/nav-validation-symmetry. Read validateRouteIndex diff and tools/check_body_index_validation.nim. Lower-index endpoint validates geometry after explicit targetbounds checks; both directedbits stillvalidate reversepresence. Unit8pxlegalNavMove symmetry alreadyprovenA2; no other validation changes. Diagnostic1,152directedtoggles+1,012pairedadditions matchesoriginal fullcoarsevalidator on2,164cases. Native map48index275->251ms,ratios1.890–1.908; full76time/memorypassonm8i. m5aactivationstillneedsseparateconfirmation (V1/A2m5amap48=2.412x).
+
+Please check equivalentaccept/reject for bounds, pairgeometry, asymmetricbits, corners and canonicaldirection. No sourceedits. WriteA4_CODE_REVIEW.md inroot evidence. Nativef9dff753sourcecandidate isisolatedfromV1/C2/H1. Rootmayintegrateafterreview; finalcombinedqualificationstillrequired.

@@ -1,0 +1,7 @@
+{"rows":{
+  "ROTATE_TO_RING":{"bias":0.5,"weights":{"world.zone_dist":0.2}},
+  "ENGAGE":{"bias":0.2},
+  "AVOID_FIGHT":{"bias":4.0,"weights":{"self.hp_frac":-2.0,"world.enemy_count":1.0}},
+  "HEAL":{"bias":3.0,"weights":{"world.medkit_dist":-1.0}},
+  "PEEL":{"bias":1.5,"weights":{"partner.in_combat":2.0}}
+}}

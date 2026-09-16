@@ -1,0 +1,12 @@
+{
+  "head": "1aeffbd23921f3395b9a0f5be9c97119a3fe3423",
+  "arch": "arm64",
+  "cpu": "Apple M4 Pro",
+  "nim": "Nim Compiler Version 2.2.6 [MacOSX: arm64]\nCompiled at 2026-03-23\nCopyright (c) 2006-2025 by Andreas Rumpf\n\ngit hash: ab00c56904e3126ad826bb520d243513a139436a\nactive boot switches: -d:release\n",
+  "flags": "--threads:on -d:release -d:noSignalHandler -d:ProfileTracePath=<research>/PROFILE_SERVER/server-trace.json -d:ProfileTicks=240",
+  "source_hashes": {
+    "src/shell/body_nav.nim": "5c43e2d85edbeed771eaf4000354070f4c75ae5a282b47c743aa0dea4134e002",
+    "src/shell/body_route_query.nim": "5b27763d2114cb3aa0403f97edb363522c40008fea40227be6da3dc7f25d5d68",
+    "tools/run_shell_demo.sh": "c0f9dced8cee0e78abd8c801e76c534d552577c8a1ee725c63f7506eeccdc4c6"
+  }
+}

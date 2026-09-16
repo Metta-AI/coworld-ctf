@@ -1,0 +1,66 @@
+Hint: used config file '/Users/jamesboggs/.nimby/nim/config/nim.cfg' [Conf]
+Hint: used config file '/Users/jamesboggs/.nimby/nim/config/config.nims' [Conf]
+Hint: used config file '/Users/jamesboggs/coding/coworlds/coworld-ctf-worktrees/nav-throughput-research/nim.cfg' [Conf]
+Hint: used config file '/Users/jamesboggs/coding/coworlds/coworld-ctf-worktrees/nav-throughput-research/tests/config.nims' [Conf]
+............................................................................................................................................................................................................................
+/Users/jamesboggs/coding/coworlds/coworld-ctf-worktrees/nav-throughput-research/src/ctf/arena.nim(1373, 5) Hint: 'inside' is declared but not used [XDeclaredButNotUsed]
+/Users/jamesboggs/coding/coworlds/coworld-ctf-worktrees/nav-throughput-research/src/ctf/arena.nim(3702, 6) Hint: 'rectsNode' is declared but not used [XDeclaredButNotUsed]
+/Users/jamesboggs/coding/coworlds/coworld-ctf-worktrees/nav-throughput-research/src/ctf/arena.nim(3707, 6) Hint: 'rectsFromNode' is declared but not used [XDeclaredButNotUsed]
+....
+CC: system/exceptions.nim
+CC: std/private/digitsutils.nim
+CC: std/assertions.nim
+CC: std/private/dragonbox.nim
+CC: std/formatfloat.nim
+CC: system/dollars.nim
+CC: std/syncio.nim
+CC: system.nim
+CC: hashes.nim
+CC: math.nim
+CC: algorithm.nim
+CC: tables.nim
+CC: parseutils.nim
+CC: unicode.nim
+CC: strutils.nim
+CC: streams.nim
+CC: lexbase.nim
+CC: parsejson.nim
+CC: json.nim
+CC: sets.nim
+CC: std/exitprocs.nim
+CC: posix.nim
+CC: times.nim
+CC: std/envvars.nim
+CC: std/cmdline.nim
+CC: strformat.nim
+CC: terminal.nim
+CC: unittest.nim
+CC: deques.nim
+CC: jsony.nim
+CC: pixie/fontformats/opentype.nim
+CC: pixie/fileformats/jpeg.nim
+CC: heapqueue.nim
+CC: pixie/fileformats/png.nim
+CC: random.nim
+CC: bitworld/spriteprotocol.nim
+CC: bitworld/pixelfonts.nim
+CC: ctf/sim_types.nim
+CC: ctf/map_pool.nim
+CC: ctf/arena.nim
+CC: ctf/br_map_pool.nim
+CC: shell/body_map.nim
+CC: shell/body_route_index.nim
+CC: test_shell_body_route_index.nim
+Hint:  [Link]
+Hint: mm: orc; threads: on; opt: speed; options: -d:release
+125994 lines; 3.117s; 342.988MiB peakmem; proj: /Users/jamesboggs/coding/coworlds/coworld-ctf-worktrees/nav-throughput-research/tests/test_shell_body_route_index.nim; out: /Users/jamesboggs/coding/coworlds/coworld-ctf-worktrees/nav-throughput-research/tests/test_shell_body_route_index [SuccessX]
+Hint: /Users/jamesboggs/coding/coworlds/coworld-ctf-worktrees/nav-throughput-research/tests/test_shell_body_route_index [Exec]
+
+[Suite] immutable shared body route index
+  [OK] canonical legality matches the old planner predicate
+  [OK] index validates and is deterministic
+  [OK] edge width and named activation failures fail closed
+  [OK] fine crossing fallback stays sparse and decodes to coarse sampling
+  [OK] portal sides come from their own coarse room anchors
+  [OK] coverage excludes islands that cannot contain a validated endpoint
+  [OK] pixel pocket connectors cover every validator endpoint

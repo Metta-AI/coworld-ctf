@@ -1,0 +1,71 @@
+[
+  {
+    "worktree": "/Users/jamesboggs/coding/coworlds/coworld-ctf-worktrees/nav-deferred-cache",
+    "base": "eaa208bd7111c3cd75aaea9cbf2d0850caff0ba6",
+    "untracked_archived": [
+      "tools/bench_c10_replay.nim",
+      "tools/c10_replay.nim",
+      "tools/check_a8_memo_counts.nim",
+      "tools/check_a8_pixel_paths.nim",
+      "tools/check_c10_full_replay.nim",
+      "tools/check_c10_replay.nim",
+      "tools/check_const_mask_address.nim",
+      "tools/check_index_full_identity.nim",
+      "tools/check_pixel_failure_memo.nim",
+      "tools/count_danger_simd_groups.nim"
+    ]
+  },
+  {
+    "worktree": "/Users/jamesboggs/coding/coworlds/coworld-ctf-worktrees/nav-early-visited",
+    "base": "f9dff753eb7caac375616ddc7a6ada202f34c449",
+    "untracked_archived": [
+      "tools/check_body_route_index_identity.nim",
+      "tools/check_pixel_search_arms.nim"
+    ]
+  },
+  {
+    "worktree": "/Users/jamesboggs/coding/coworlds/coworld-ctf-worktrees/nav-heuristic-screen",
+    "base": "1598713cea3040f255e47c885959bc96c4eb031b",
+    "untracked_archived": []
+  },
+  {
+    "worktree": "/Users/jamesboggs/coding/coworlds/coworld-ctf-worktrees/nav-source-cache",
+    "base": "f9dff753eb7caac375616ddc7a6ada202f34c449",
+    "untracked_archived": [
+      "src/shell/body_nav_source_trace_replay.nim",
+      "tests/test_shell_body_danger_source_cache.nim",
+      "tools/bench_body_danger_cache_counts.nim",
+      "tools/bench_danger_lazy_list.nim",
+      "tools/bench_danger_list_replay.nim",
+      "tools/bench_danger_regimes.nim",
+      "tools/bench_danger_replay.nim",
+      "tools/check_danger_fullword_replay.nim",
+      "tools/check_danger_lazy_list_state.nim",
+      "tools/check_danger_list_capture.nim",
+      "tools/replay_danger_source_trace.nim"
+    ]
+  },
+  {
+    "worktree": "/Users/jamesboggs/coding/coworlds/coworld-ctf-worktrees/nav-source-trace",
+    "base": "3aeb03982fdd6e2ee0c7d78441cdde9acadae487",
+    "untracked_archived": [
+      "tools/nav_source_trace_batch.sh",
+      "tools/nav_source_trace_extra.sh",
+      "tools/nav_source_trace_run.sh"
+    ]
+  },
+  {
+    "worktree": "/Users/jamesboggs/coding/coworlds/coworld-ctf-worktrees/nav-validation-symmetry",
+    "base": "f9dff753eb7caac375616ddc7a6ada202f34c449",
+    "untracked_archived": [
+      "tools/check_body_index_validation.nim",
+      "tools/check_body_route_index_identity.nim",
+      "tools/check_pixel_search_arms.nim"
+    ]
+  },
+  {
+    "worktree": "/Users/jamesboggs/coding/coworlds/coworld-ctf-worktrees/nav-throughput-checkpoints",
+    "base": "addaad7a3a85213d28c3f99e99a4331ff198e2e2",
+    "untracked_archived": []
+  }
+]

@@ -1,0 +1,3 @@
+{"pool":48,"map":"br-gen-24678","grid":[283,151],"crossings":53,"segment_cells":17906,"segment_fine_points":15,"initial_fine_targets":15,"graph_components":1,"pocket_connectors":11,"pocket_fine_points":46}
+{"pool":0,"map":"br-gen-20049","grid":[283,151],"crossings":51,"segment_cells":25813,"segment_fine_points":7,"initial_fine_targets":7,"graph_components":1,"pocket_connectors":2,"pocket_fine_points":13}
+{"pool":10,"map":"br-gen-21686","grid":[283,151],"crossings":58,"segment_cells":26305,"segment_fine_points":0,"initial_fine_targets":0,"graph_components":1,"pocket_connectors":8,"pocket_fine_points":17}

@@ -17,7 +17,7 @@ const
   ShoutCap = MaxPlayers             # ShoutMaxCount
   DamagePopCap = MaxPlayers         # DamagePopMaxCount
   SplatterCap = MaxPlayers * 2      # SplatterMaxCount
-  PlasmaFlashCap = MaxPlayers       # PlasmaArcMaxFlashes
+  SpraypaintFlashCap = MaxPlayers       # SprayPaintMaxFlashes
 
 let path = commandLineParams()[0]
 let gameDir = currentSourcePath().parentDir().parentDir()
@@ -40,7 +40,7 @@ var peaks: array[8, tuple[name: string, cap, peak, peakTick: int]] = [
   ("shouts", ShoutCap, 0, -1),
   ("damage pops", DamagePopCap, 0, -1),
   ("splatters", SplatterCap, 0, -1),
-  ("plasma arc flashes", PlasmaFlashCap, 0, -1),
+  ("spray can flashes", SpraypaintFlashCap, 0, -1),
 ]
 
 proc bump(slot: var tuple[name: string, cap, peak, peakTick: int], n, tick: int) =
@@ -58,7 +58,7 @@ while replay.playing:
   bump(peaks[4], game.recentShouts.len, t)
   bump(peaks[5], game.damagePops.len, t)
   bump(peaks[6], game.splatters.len, t)
-  bump(peaks[7], game.plasmaArcFlashes.len, t)
+  bump(peaks[7], game.sprayPaintFlashes.len, t)
 
 var dropped = false
 for slot in peaks:

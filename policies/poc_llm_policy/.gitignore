@@ -1,0 +1,5 @@
+# Built by build_playbook.sh at image build (and by run_poc.sh locally).
+playbook/
+# Local convenience venv for the harness; the image installs its own.
+.venv/
+__pycache__/

@@ -28,6 +28,18 @@ proc clientDataDir*(): string =
   else:
     bitworldClient.clientDir() / "data"
 
+## TEAM ART IS COMPLETE FOR ALL 16 TEAMS (BR integration, 2026-08-24).
+## A `teamArtOrFallback` helper used to stand here and silently substitute
+## Red's art for any missing per-team file, so a widened `Team` enum could
+## boot before the tint pipeline existed. The tint lane landed all 12 BR
+## identities (soldier + crown + heart + pedestal + a 10-segment rig dir
+## each), so every path below resolves for every team and the fallback can
+## only ever hide a REGRESSION now — a renamed or dropped asset would read
+## as "Red plays in Red" instead of failing. Deleted deliberately: a
+## missing file is now a loud readImage error, and
+## tests/test_team_art.nim asserts the whole 16 x 4 matrix exists so the
+## failure lands in CI rather than in a match.
+
 proc spriteSheetPath(): string =
   ## Returns the sprite sheet aseprite path.
   gameDir() / SpriteSheetAsepritePath
@@ -154,6 +166,34 @@ proc loadShieldSprite*(size: int): seq[uint8] =
   ## keeps the outline crisp on the floor.
   loadRgbaSprite("data/shield.png", size, alphaCutoff = 128'u8)
 
+proc loadBandageSprite*(size: int): seq[uint8] =
+  ## LOOT(s2) ground art (item-completeness epic 1ef4f9d6, T2): the carryable
+  ## +1hp pickup (config.bandagePickups), a rolled gauze bandage with a red
+  ## cross, in the same bold-outline painted style as the med kit it sits
+  ## beside on the map. Hard alpha edge keeps the outline crisp on the floor.
+  loadRgbaSprite("data/bandage.png", size, alphaCutoff = 128'u8)
+
+proc loadMarkerHalfSprite*(size: int): seq[uint8] =
+  ## LOOT(s2) ground art (item-completeness epic 1ef4f9d6, T2): the ground
+  ## marker pickup (config.lootStart, sim.weaponSpawns) — the marker itself,
+  ## top-down, muzzle-and-grip silhouette in matte gunmetal, its round
+  ## feed-neck port empty (no hopper mounted) — same bold-outline painted
+  ## style as every other neutral pickup. Owner ruling 2026-09-03: the
+  ## ground item IS the marker half, not a container/crate around it. Hard
+  ## alpha edge keeps the outline crisp on the floor.
+  loadRgbaSprite("data/marker_half.png", size, alphaCutoff = 128'u8)
+
+proc loadHopperSprite*(size: int): seq[uint8] =
+  ## LOOT(s2) ground art (item-completeness epic 1ef4f9d6, T2): the ground
+  ## hopper pickup (config.lootStart, sim.hopperSpawns) — a standalone
+  ## top-down paintball hopper (translucent dome overflowing with rainbow
+  ## paintballs, open feed-neck ring on the bottom), same bold-outline
+  ## painted style as the marker half so the two read as distinct at a
+  ## glance. Owner ruling 2026-09-03: the ground item IS the hopper, not a
+  ## container/crate around it. Hard alpha edge keeps the outline crisp on
+  ## the floor.
+  loadRgbaSprite("data/hopper.png", size, alphaCutoff = 128'u8)
+
 proc loadPaintBombSprite*(size: int): seq[uint8] =
   ## The thrown grenade, a kid-friendly dungeon-crawler alchemical paint-bomb orb
   ## (cork-stopped rune bottle of swirling paint — NO fuse). Used for the corner
@@ -163,7 +203,7 @@ proc loadPaintBombSprite*(size: int): seq[uint8] =
 proc loadSprayCanSprite*(size: int): seq[uint8] =
   ## The side-column cone weapon: a chunky aerosol spray-paint can, in the same
   ## bold-outline painted style as the med kit, shield, and paint bomb (this is
-  ## paintball — the short-range weapon sprays paint, it does not fire plasma).
+  ## paintball — the short-range weapon sprays paint, it does not fire spraypaint).
   ## Used for the floor pickup and the carried marker. Hard alpha edge keeps the
   ## ink outline crisp on the floor instead of feathering into a halo.
   loadRgbaSprite("data/spraycan.png", size, alphaCutoff = 128'u8)
@@ -177,20 +217,22 @@ proc loadSprayCanSprite*(size: int): seq[uint8] =
 ## with its barrel on the aim ray, and body + gun pre-rotate TOGETHER around
 ## the body center — the cog spins with its gun, so east aim (rot 0) shows the
 ## master exactly as drawn and tracers always line up with the muzzle.
-const SoldierMasterPaths: array[Skin, array[Team, string]] = [
-  DefaultSkin: [
-    Red: "data/soldier_red.png",
-    Blue: "data/soldier_blue.png",
-    Green: "data/soldier_green.png",
-    Yellow: "data/soldier_yellow.png"
-  ],
-  CrownSkin: [
-    Red: "data/soldier_red_crown.png",
-    Blue: "data/soldier_blue_crown.png",
-    Green: "data/soldier_green_crown.png",
-    Yellow: "data/soldier_yellow_crown.png"
-  ]
-]
+func soldierMasterPath(skin: Skin, team: Team): string =
+  ## `data/soldier_<team>[_crown].png`. Was a hand-written 4-entry literal
+  ## per skin; computed now so widening `Team` (BR_MAPGEN.md §6.2) needs no
+  ## edit here — Red/Blue/Green/Yellow resolve to their historical byte-
+  ## identical paths, the 12 new teams get the same naming CONVENTION (the
+  ## files landed from the tint pipeline, and tests/test_team_art.nim keeps
+  ## the whole matrix present).
+  "data/soldier_" & teamText(team) & (if skin == CrownSkin: "_crown" else: "") &
+    ".png"
+
+const SoldierMasterPaths: array[Skin, array[Team, string]] = block:
+  var paths: array[Skin, array[Team, string]]
+  for skin in Skin:
+    for team in Team:
+      paths[skin][team] = soldierMasterPath(skin, team)
+  paths
 
 var
   soldierMasters: array[Skin, array[Team, Image]]
@@ -240,7 +282,8 @@ proc measureSoldierBody(skin: Skin, team: Team, master: Image) =
 proc ensureSoldierLoaded(skin: Skin, team: Team) =
   if soldierLoaded[skin][team]:
     return
-  let master = readImage(gameDir() / SoldierMasterPaths[skin][team])
+  let path = SoldierMasterPaths[skin][team]
+  let master = readImage(gameDir() / path)
   soldierMasters[skin][team] = master
   measureSoldierBody(skin, team, master)
   soldierLoaded[skin][team] = true
@@ -445,7 +488,7 @@ proc rigSegIsWheel*(seg: RigSeg): bool =
 proc ensureRigLoaded(team: Team) =
   if rigLoaded[team]:
     return
-  let dir = gameDir() / "data/rig_real" / teamText(team)
+  let dir = gameDir() / ("data/rig_real" / teamText(team))
   for seg in RigSeg:
     rigSegImg[team][seg] = readImage(dir / rigSegPath(seg) & ".png")
   rigHeadImg[DefaultSkin][team] = rigSegImg[team][rsHead]

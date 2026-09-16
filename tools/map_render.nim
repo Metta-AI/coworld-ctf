@@ -20,7 +20,7 @@ const
   KitIdleColor = rgba(120, 100, 80, 255)
   GrenadeColor = rgba(235, 145, 35, 255)
   ShieldColor = rgba(70, 120, 225, 255)
-  PlasmaArcColor = rgba(180, 70, 210, 255)
+  SprayPaintColor = rgba(180, 70, 210, 255)
   TrenchColor = rgba(120, 96, 62, 255)
   TrenchRimColor = rgba(88, 66, 38, 255)
   PuddleColor = rgba(168, 58, 196, 255)
@@ -41,11 +41,11 @@ type
     overlayReachability
 
   PickupKind* = enum
-    ## Nominal pickup targets the renderer can mark. Shields, plasma arcs and
+    ## Nominal pickup targets the renderer can mark. Shields, spray cans and
     ## med kits may be nudged later by SimServer.nearestWalkable at game start.
     pickupGrenade
     pickupShield
-    pickupPlasmaArc
+    pickupSprayPaint
     pickupMedKitActive
     pickupMedKitCandidate
 
@@ -64,7 +64,7 @@ type
 const AllPickupKinds* = {
   pickupGrenade,
   pickupShield,
-  pickupPlasmaArc,
+  pickupSprayPaint,
   pickupMedKitActive,
   pickupMedKitCandidate,
 }
@@ -375,9 +375,9 @@ proc renderMap*(
     if pickupShield in options.pickupKinds:
       for point in gameMap.shieldSpawnPoints():
         result.image.drawPickupMarker(point, 6, scale, ShieldColor)
-    if pickupPlasmaArc in options.pickupKinds:
-      for point in gameMap.plasmaArcSpawnPoints():
-        result.image.drawPickupMarker(point, 6, scale, PlasmaArcColor)
+    if pickupSprayPaint in options.pickupKinds:
+      for point in gameMap.sprayPaintSpawnPoints():
+        result.image.drawPickupMarker(point, 6, scale, SprayPaintColor)
 
 proc renderMap*(
   gameMap: CtfMap,

@@ -92,3 +92,28 @@ suite "med kits":
     sim1.tryPickupMedKits(0)
     sim2.players[0].hp = 1
     check sim1.gameHash != sim2.gameHash
+
+  test "resetMedKits gates on ANY authored pool (finding 5): a single authored point wins over the classic 2-point formula":
+    ## The three sibling families (resetShields/resetSprayPaints/
+    ## resetGrenades) all prefer ANY non-empty map-authored pool over their
+    ## formula fallback; resetMedKits used to require >= 2, silently
+    ## ignoring a map that deliberately authored exactly one point. Directly
+    ## exercises resetMedKits (not just startGame's one-shot call at init)
+    ## so a single authored point is unambiguously distinguished from "the
+    ## map authored nothing".
+    var sim = twoTeamGame()
+    sim.gameMap.medKitSpawns = @[MapPoint(x: 300, y: 300)]
+    sim.resetMedKits()
+    check sim.medKitSpawns.len == 1
+    check sim.medKitSpawns[0].x == 300
+    check sim.medKitSpawns[0].y == 300
+
+  test "resetMedKits: an empty pool still falls back to the classic 2-point formula (byte-identical)":
+    var sim = twoTeamGame()
+    sim.gameMap.medKitSpawns = @[]
+    sim.resetMedKits()
+    check sim.medKitSpawns.len == 2
+    check sim.medKitSpawns[0].x == MapWidth div 2
+    check sim.medKitSpawns[0].y == MapHeight div 3
+    check sim.medKitSpawns[1].x == MapWidth div 2
+    check sim.medKitSpawns[1].y == 2 * MapHeight div 3

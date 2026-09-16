@@ -1,0 +1,27 @@
+diff --git a/src/shell/body_route_index.nim b/src/shell/body_route_index.nim
+index 7066700f..1ce6e748 100644
+--- a/src/shell/body_route_index.nim
++++ b/src/shell/body_route_index.nim
+@@ -2085,12 +2085,19 @@ proc validateRouteIndex*(index: BodyRouteIndex) =
+     for neighborIndex, delta in NavNeighbors:
+       if (index.legalMoves[cellIndex] and uint8(1 shl neighborIndex)) == 0:
+         continue
+-      let next = (cell.x + delta.x, cell.y + delta.y)
+-      if not index.map.legalNavMove(cell, next):
++      let next: BodyPoint = (cell.x + delta.x, cell.y + delta.y)
++      if next.x < 0 or next.x >= index.map.gridWidth or
++          next.y < 0 or next.y >= index.map.gridHeight:
++        raise newException(BodyMapError,
++          &"body route index map '{index.map.mapLabel}' stores illegal move at {cell}")
++      let nextIndex = index.cellIndex(next)
++      # Every directed bit still needs its reverse. Unit-move geometry is
++      # symmetric, so the lower-index endpoint checks it for the pair.
++      if cellIndex < nextIndex and not index.map.legalNavMove(cell, next):
+         raise newException(BodyMapError,
+           &"body route index map '{index.map.mapLabel}' stores illegal move at {cell}")
+       let reverse = reverseNeighbor(neighborIndex)
+-      if (index.legalMoves[index.cellIndex(next)] and uint8(1 shl reverse)) == 0:
++      if (index.legalMoves[nextIndex] and uint8(1 shl reverse)) == 0:
+         raise newException(BodyMapError,
+           &"body route index map '{index.map.mapLabel}' has asymmetric move at {cell}")
+   var

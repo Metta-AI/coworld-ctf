@@ -1,5 +1,9 @@
 # Tier-2 `blocked` field — damage a shield absorbed (for James / engine review)
 
+> **Historical implementation record.** This captures the event-schema change
+> at the cited checkout; it is not current game-mode or policy guidance. The
+> body below is preserved unchanged.
+
 **What / why.** The Observatory Logs *Healing* tab wants to show "damage blocked"
 beside "HP recovered" and "HP lost" — the third defensive lever. That was NOT
 derivable from the old event schema (no shield/carrier field; `hit` events keep

@@ -49,7 +49,7 @@ proc main() =
     # Center on whichever cog is mid-burst (else any can carrier).
     var cx, cy = -1
     for p in sim.players:
-      if p.arcTicksLeft > 0 or p.hasPlasmaArc:
+      if p.arcTicksLeft > 0 or p.hasSprayPaint:
         cx = p.x + CollisionW div 2
         cy = p.y + CollisionH div 2
         if p.arcTicksLeft > 0: break

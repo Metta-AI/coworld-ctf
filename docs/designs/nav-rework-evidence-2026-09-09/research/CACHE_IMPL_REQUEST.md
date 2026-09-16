@@ -1,0 +1,14 @@
+# C2 implementation request: isolated source visibility cache
+
+Root accepts the bitmap/LRU64 hypothesis for an isolated ablation. Own only /Users/jamesboggs/coding/coworlds/coworld-ctf-worktrees/nav-source-cache, branch james/nav-source-cache, frozen f9dff753 (A2, no V1/H1/A3). Root has created the tree; inspect AGENTS, sync nimby0.1.26 as needed. You may implement source, focused tests and exactness/trace-replay diagnostic tools there and run local correctness checks. No remote host work, no source edits in root or trace trees, no commits yet. Root owns native timing and final adoption. Update C2_PREREG/report in that tree before building.
+
+Corrections to design before implementation:
+- 331px radius42 =>85^2bits=>113words=>904bytes, not912. Calculate actual capacities including slot objects/reference pointers/allocator allowances/scratch before saying32MiBfits.
+- On LRU64, inserting65origins then re-requesting first evicts second; second is then a MISS, not a hit. Use an independent sequence model for eviction tests.
+- No defensive geometry-pointer compare or replay bounds check when ownership/key invariant guarantees it. Prove the invariant in tests. Pointer identity must not select routes.
+- Consider filling the selected eviction slot bitmap directly on a miss rather than extra scratch+copy; one source is built serially and no consumer can observe a partially filled slot. Preserve single shared ownership and no ORC sequence payload copies. Do not make existing immutable DangerGeometry silently mutable; keep a separately named system-shared ref cache available to seat-level rebuild as needed.
+- Keep exact source order and per-source floor interleaving. Source-level bit traversal may change cell order only. Test float bytes and packed weights; old fullqualityhash must match.
+- Trace contains selected ordered cells, not necessarily self pixels or full candidates. Public rebuild re-sorts candidates and may not reproduce original order. For exact LRUtrace replay, feed ordered recorded points into the actual selected-source production seam via a diagnostic include if needed, clearly labeling that seam. Also cover public rebuild in focused tests. Do not pretend fabricated selfpositions preserve original selection.
+- No production fallback flags/cache toggles merely for tests. A diagnostic define or include can expose counters/reference uncached path, with no production branch cost.
+
+Preregister and measure miss-only, repeated-hit, and real-trace regimes separately; static repeated synthetic sources must not alone justifyadoption. Cache memory is shared, bounded64; no map-sized per-seat data. Geometry/range lifetime and referenceownership exact. Kernelzero additions matter if signedzero/floatordering: reference bit proof handles this. Do not claim speed before native evidence. Stop with source patch, evidence and code/test instructions for root review.

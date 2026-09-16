@@ -9,6 +9,53 @@ on:
     branches: [ main ]
   workflow_dispatch:
 jobs:
+  # Fast, isolated job: it doesn't touch the matrix build/test shards or the
+  # wasm replay-viewer build below, so a GameVersion collision fails CI in
+  # seconds without slowing either of them down. See
+  # tools/ci/check_gameversion.sh for what it actually compares — not the
+  # number (a colliding branch and its base can both read e.g. "42") but the
+  # rule headline the number is attached to.
+  gameversion-tripwire:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - name: GameVersion is not a number the base already spent
+        run: |
+          git fetch --no-tags --depth=1 origin '${{ github.base_ref }}'
+          tools/ci/check_gameversion.sh FETCH_HEAD
+  # Another fast, isolated job, same shape as gameversion-tripwire above:
+  # policies/starters/common/era.py mirrors docs/wiki/_era.md (it can't
+  # parse that file at import time -- see era.py's own docstring for why)
+  # so the two are free to drift silently unless something checks them on
+  # every PR. test_era.py is that check.
+  era-tripwire:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - name: era.py matches docs/wiki/_era.md
+        run: python3 policies/starters/common/test_era.py
+      - name: tools/glory catalog_fold is era-keyed against src/ctf/glory.nim
+        # Same tripwire idea one layer down: catalog_fold.py live-ports
+        # glory.nim's scoring constants AND backward-decodes recorded
+        # cohorts, so a ship that MOVES a constant must era-key it in the
+        # same PR (#538 did not, and broke every pre-S8 decode). Stdlib
+        # only, no network, no replay cache.
+        run: python3 tools/glory/test_catalog_fold.py
+      - name: tools/glory S6 gate reproduces the GV62 attribution cache exactly
+        # End-to-end form of the same tripwire, real recorded wire data
+        # instead of synthetic fixtures: re-folds the committed, frozen GV62
+        # attribution cache (tests/fixtures/glory/gv62-attr-cache.tar.zst --
+        # see its own README for the chosen sha/tag/patch) and pins the S6
+        # re-measure exactly (154 capped, top-decile CHOSEN mean 72.26% /
+        # median 78.28%, 5,456/5,456 reconciliation). The other three named
+        # cohorts in this file (GV61/GV62/GV63 plain reconciliation) still
+        # skip here -- they need a private, never-committed replay cache
+        # this runner doesn't have -- only test_s6_harness_proof is
+        # unskipped by the committed fixture. Stdlib only, no network;
+        # `zstd`/`tar` decompress the fixture to a temp dir (ubuntu-latest
+        # ships zstd already, confirmed against the runner-images manifest).
+        run: python3 tools/glory/test_cohort_reconciliation.py
   build:
     strategy:
       fail-fast: false
@@ -17,9 +64,27 @@ jobs:
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v5
+      - name: Hash-first #replay= parse
+        run: node --test tests/test_replay_artifact_url.mjs
+      - name: Endcard draw-reason header selection
+        run: node --test tests/test_endcard_draw_reason.mjs
       - if: runner.os == 'Linux'
-        run: sudo apt-get update && sudo apt-get install -y libudev-dev libevdev-dev
+        run: sudo apt-get update && sudo apt-get install -y libudev-dev libevdev-dev libpcre3
       - uses: treeform/setup-nim-action@v6
+        with:
+          # pin: 2.2.12 (2026-09-09) shifted hello_play fuel by 467 units > 200 tolerance; see test_play_harness.nim:188
+          nim-version: '2.2.10'
+      - name: Pin nimby 0.1.26
+        # The setup action's nim tarball bundles whatever nimby was current when
+        # the release asset was (re)built; it drifted 0.1.26 -> 0.2.1 under the
+        # same tag on 2026-08-23 and 0.2.1 refuses `sync -g` inside a git
+        # checkout, turning main red with zero repo changes. Pin the same
+        # version the Dockerfile already pins (Dockerfile:15) so CI and the
+        # image builds agree, on purpose, forever.
+        run: |
+          curl -sSL -o "$HOME/.nimby/nim/bin/nimby"             https://github.com/treeform/nimby/releases/download/0.1.26/nimby-Linux-X64
+          chmod +x "$HOME/.nimby/nim/bin/nimby"
+          nimby --version
       - run: nimby sync nimby.lock -g
       # Reuse compiled C objects across runs: the release build of the deps
       # (pixie et al.) dominates the compile step and rarely changes. The key
@@ -31,11 +96,85 @@ jobs:
           key: nimcache-${{ runner.os }}-${{ hashFiles('nimby.lock') }}-${{ github.sha }}
           restore-keys: |
             nimcache-${{ runner.os }}-${{ hashFiles('nimby.lock') }}-
-      - run: nim check src/ctf.nim
+      - name: Cache runtime toolchain archives
+        uses: actions/cache@v4
+        with:
+          path: tools/runtime_spike/.deps/archives
+          key: runtime-toolchain-${{ runner.os }}-${{ hashFiles('tools/runtime_spike/checksums.txt') }}
+      - name: Provision pinned Wasmtime C API
+        run: |
+          wasmtime_root="$(
+            tools/runtime_spike/fetch_deps.sh |
+              sed -n 's/^WASMTIME_C_API=//p'
+          )"
+          test -f "$wasmtime_root/include/wasmtime.h"
+          test -f "$wasmtime_root/lib/libwasmtime.so"
+          echo "WASMTIME_C_API=$wasmtime_root" >> "$GITHUB_ENV"
+          echo "LD_LIBRARY_PATH=$wasmtime_root/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}" >> "$GITHUB_ENV"
+      # src/shell/runtime.nim {.error.}s at compile time without these two
+      # flags (the epoch ticker needs --threads:on; the crash-diagnosing
+      # noSignalHandler mode is a hard production requirement, not a CI
+      # nicety -- see runtime.nim's own comment). That used to be reachable
+      # only from the handful of test files that import the runtime
+      # directly, so only shard 2 carried the flags below. Since
+      # af8158f5 (2026-08-31 21:16:54Z, "the episode runs the ladder")
+      # server.nim -> shell/episode -> shell/module_cache -> shell/runtime,
+      # and server.nim is part of src/ctf.nim's own import graph -- every
+      # shard, and `nim check` itself, now needs both flags to compile at
+      # all. Verified by bisect: `nim check` (no flags) is clean at
+      # 1485e5fe, the commit immediately before af8158f5's ancestry; the
+      # {.error.} only fires from af8158f5 onward.
+      #
+      # af8158f5 is the compile break, and ONLY the compile break -- it is
+      # NOT why CI first went red. Bisected against the actual run logs:
+      # CI was last green at f752d325 (2026-08-31 14:19Z) and first red at
+      # 1485e5fe (2026-08-31 15:53Z, PR #320 "land-field-to-main"), five and
+      # a half hours before af8158f5 landed. That first break was
+      # `wasm-replay-viewer` bundle staleness (a stale served
+      # broadcast_core.js) -- the `build` job itself was still green at
+      # that commit. Separately, two tests this PR still carries as failing
+      # -- test_play_harness.nim and test_play_pact.nim -- are BRAND NEW
+      # (added ~19:49Z, after #320, before af8158f5) and have never once
+      # run green in CI: their goldens were evidently recorded on a
+      # non-Linux dev box, and the one wasi-sdk/Nim-compiled fixture in
+      # each (as opposed to the WAT-literal ones, which are unaffected)
+      # drifts by a few fuel units / faults on tight margin when rebuilt on
+      # ubuntu-latest -- see those files' own comments. af8158f5's compile
+      # break landed on top of both and MASKED them (job died at `nim
+      # check` before either test could run), which is why this PR's own
+      # CI run surfaced all three at once.
+      - run: nim check -d:noSignalHandler --threads:on src/ctf.nim
+      # See AGENTS.md "Build shapes": the full server must compile without Wasmtime.
+      - name: nim check (runtime-stub shape)
+        env:
+          WASMTIME_C_API: ""
+        run: nim check -d:noSignalHandler --threads:on src/ctf.nim
+      # -d:useMalloc routes Nim's own allocator through the system allocator
+      # instead of Nim's thread-local free-list allocator. This is not a
+      # style choice: guzba/mummy (the pinned WebSocket server both the
+      # production binary and test_shell_transport.nim's real-socket tests
+      # run) segfaults on Linux -- confirmed against vanilla upstream mummy
+      # 0.4.7 with zero of our code involved -- when a server that has
+      # cycled enough real WebSocket connections is cleanly torn down
+      # (server.close(), which joins its threads and frees its Nim-GC'd
+      # state): the crash is inside Nim's OWN allocator
+      # (alloc.nim -> rawDealloc -> addToSharedFreeList), consistent with
+      # its shared, non-atomic free-list bookkeeping being corrupted by
+      # concurrent alloc/dealloc across mummy's worker threads and its
+      # event-loop thread. -d:useMalloc reliably avoided it across 60+
+      # stress runs in a Linux container built from this same repo's own
+      # Dockerfile. The Dockerfile ALREADY builds the production ctf/
+      # paintball-player binaries with -d:useMalloc (see its NimFlags ARG);
+      # this only makes the test build match production instead of
+      # exercising a riskier allocator config production never ships.
       - name: Compile test shards (release)
+        # WASMTIME_C_API is job-wide, so every shard that reaches episode.nim
+        # imports the wasmtime runtime — not just shard 2. Same flags as
+        # `nim check` above.
         run: |
           for i in 1 2 3 4; do
-            nim c -d:release --hints:off -o:shard_$i tests/shard_$i.nim &
+            nim c -d:release --hints:off -d:noSignalHandler --threads:on \
+              -d:useMalloc -o:shard_$i tests/shard_$i.nim &
             eval "pid_$i=\$!"
           done
           fail=0
@@ -74,6 +213,7 @@ jobs:
       - name: Build the static replay viewer bundle
         run: |
           docker build --file Dockerfile.replay-viewer \
+            --build-arg SIM_SOURCES_STAMP="$(tools/sim_sources_stamp.sh)" \
             --target replay-viewer-builder --tag ctf-replay-viewer-ci .
           id=$(docker create ctf-replay-viewer-ci)
           docker cp "$id":/workspace/ctf/replay-viewer/dist replay-viewer/dist
@@ -83,18 +223,89 @@ jobs:
       # failed band must self-heal from its retained compressed payload.
       - name: Client band decode-failure regression
         run: node tools/qa_band_desync.cjs
+      # Every hand-written viewer module must EVALUATE, not merely parse: a
+      # temporal-dead-zone reference is valid syntax and killed the served
+      # viewer outright on 2026-08-25. Also asserts the checked-in
+      # static-replay-viewer/ bundle is not stale against its sources --
+      # including, as of 2026-09-01, the COMPILED ctf_replay.wasm's own
+      # reported GameVersion against src/ctf/sim_types.nim: THE FLIP
+      # (GameVersion 48 -> 50) shipped with this whole file green because
+      # the byte-diff checks above only cover hand-written JS and cannot see
+      # into a compiled binary, so a two-version-stale wasm went unnoticed
+      # until every hosted replay failed to load.
+      - name: Viewer module-evaluation + bundle-staleness check
+        run: node tools/qa_module_eval.cjs
       - name: Smoke-run fixture replays in the wasm bundle
         # gen-colossal-4team is the address-space canary: a 4992x4992 board
         # only fits wasm32 because oversize boards emit at 1x (see
         # MaxSupersampledMapPixels). Re-record on GameVersion bumps with:
         #   tools/record_colossal_demo.sh <out> 4242 1500 16
+        #
+        # FRAME BUDGET RAISED 300 -> 6000 (2026-08-26). The canary was
+        # calibrated to stop just SHORT of the failure it exists to catch:
+        # at frame 300 the colossal fixture sits at 1723.6 MB of wasm32's
+        # 2048 MB — 84% consumed — and reported "ok", while it aborts with
+        # ABORTING_MALLOC by frame ~375. A gate that green-lights at 84% of
+        # a hard ceiling is measuring the warm-up, not the cliff. The
+        # footprint is a steady state reached over THOUSANDS of frames (see
+        # MaxSupersampledMapPixels' own derivation), so only a full-episode
+        # run can see the plateau, and the plateau is the thing that either
+        # fits or does not.
+        #
+        # COLOSSAL IS A TRACKED KNOWN FAILURE, not a softened gate (board
+        # task b2295cf0). gen-colossal-4team is 4992x4992 = 24.9 M px, which
+        # was already above the OLD supersample bound and therefore already
+        # emitting at 1x — so neither the old cap nor the current one
+        # touches it. Measured: it aborts with ABORTING_MALLOC at ~frame 375
+        # of its own 1500-tick fixture. That board has NEVER been playable
+        # to the end; the 300-frame budget simply never looked far enough to
+        # notice. It runs full-length here and its result is REPORTED, but
+        # it does not gate, because gating on it would block every unrelated
+        # change on a defect that predates all of them.
+        #
+        # Every class that has ever actually played DOES gate, at full
+        # length: ctf.bitreplay and gen-small-pits both complete 6000 frames
+        # (467 MB and 343 MB measured), so a regression in either is caught.
+        #
+        # br-zonepaint-smoke.bitreplay (#392 follow-up, 2026-09-04): the
+        # FMM zone arrival field (zoneDamageByPaint + zonePhases, the
+        # battle-royale-s2 shrink mechanic) had NEVER been in a
+        # native-vs-wasm hash comparison until this fixture — every prior
+        # fixture here recorded with zoneDamageByPaint off. Recorded via
+        # tools/record_fixture.sh (recipe in AGENTS.md's fixture table);
+        # config echo confirmed brMode/teams=8/zoneDamageByPaint=true/
+        # zonePhases.len=3. First run: PASS, no divergence observed.
+        #
+        # glory-product-cap.bitreplay (wasm32 gameHash width fix, 2026-09-11):
+        # the S8 GLORY PRODUCT CAP class. `RecutProductCapArmed` (glory.nim)
+        # saturates `sim.gloryProduct` at 2^31, which is ONE PAST
+        # `int32.high` -- and `gameHash` narrowed it through `int(...)`
+        # before mixing. Native `int` is 64-bit so every native test and
+        # every live recording was fine; the shipped wasm32 viewer
+        # range-checked and killed the replay with
+        #   advance replay: value out of range: 2147483648 notin
+        #   -2147483648 .. 2147483647
+        # at the first capped tick. This fixture IS the real hosted episode
+        # that surfaced it (S2 round 4828, episode a020a01a, seat 11 banked
+        # 2,097,152 = cap/GlorySCALE) -- NOT a synthetic recut -- so the
+        # gate watches the exact shape prod produced. Verified RED on the
+        # published paintbot-v0.7.397 bundle (died at frame 61 of 2595) and
+        # GREEN after the fix. Supplied by the league, not
+        # tools/record_fixture.sh: it is the platform's own .replay bytes,
+        # which is the same container `ctf_load_replay` takes.
         run: |
           fail=0
           for replay in tests/replays/ctf.bitreplay \
               tests/fixtures/gen-small-pits.bitreplay \
-              tests/fixtures/gen-colossal-4team.bitreplay; do
+              tests/fixtures/br-zonepaint-smoke.bitreplay \
+              tests/fixtures/glory-product-cap.bitreplay; do
             echo "::group::$replay"
-            node tools/wasm_replay_smoke.cjs replay-viewer/dist "$replay" 300 || fail=1
+            node tools/wasm_replay_smoke.cjs replay-viewer/dist "$replay" 6000 || fail=1
             echo "::endgroup::"
           done
+          echo "::group::gen-colossal-4team (KNOWN FAILURE, board task b2295cf0)"
+          node tools/wasm_replay_smoke.cjs replay-viewer/dist \
+            tests/fixtures/gen-colossal-4team.bitreplay 6000 \
+            || echo "KNOWN FAILURE (b2295cf0): colossal 24.9 Mpx OOMs at ~frame 375 at 1x — pre-existing, never playable to the end"
+          echo "::endgroup::"
           exit $fail
