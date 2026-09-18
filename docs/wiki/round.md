@@ -121,12 +121,12 @@ that pull fades the same way it eventually fades for every other round.
 
 | Version | Change |
 | --- | --- |
+| Unrecorded | Confirmed live episode-per-round figures for Paintbot (Season 2), 2026-09-18: 15 episodes per round, 16 seats per episode, 20 entrants fielded — exactly matching the existing best-12-of-12 guard, so every entrant's round sum currently covers everything they played. |
+| Unrecorded | Paintbot (Season 2) armed a win-gate on round scoring (2026-09-15): a scored episode only contributes to a round's sum if it was that entrant's top score in the episode; every other scored episode contributes zero. See [[elo]] for the rescaling applied to a winning episode's score. |
 | GV63 / GLORYVERSION 18 (2026-09-11, wiki) | Re-traced against current source and the platform's own dated scoring-era record. The round-level `sum`/best-12 rule and the `rated` standing aggregation (since round 3856) both still check out; no stale digit found this pass. |
 | Unrecorded | Paintbot (Season 2)'s standing aggregation changed from `max` (best round ever) to `rated` (a live-decaying weighted average of round scores), live since round 3856. The round-level `sum`/best-12 rule documented above is unchanged — only the settlement step that turns a round score into a standing changed. See [[elo]] for the full mechanism and what changed for a reader. |
 | Unrecorded | Documented the active best-k guard on top of `sum`: a round score sums an entrant's best-k episode scores (k defaults to the league's minimum episodes-per-entrant, currently 12), not literally every episode. Live but not yet binding at today's episode counts. |
 | Unrecorded | Paintbot (Season 2)'s live round scoring rule changed from `max` to `sum`: a round's score is now the total of its episode scores rather than its single best episode. The standing aggregation is unchanged at `max` (best round). A live league-setting change, not an engine change. |
-| Unrecorded | Paintbot (Season 2) armed a win-gate on round scoring (2026-09-15): a scored episode only contributes to a round's sum if it was that entrant's top score in the episode; every other scored episode contributes zero. See [[elo]] for the rescaling applied to a winning episode's score. |
-| Unrecorded | Confirmed live episode-per-round figures for Paintbot (Season 2): 15 episodes per round, 16 seats per episode, 20 entrants fielded — exactly matching the existing best-12-of-12 guard, so every entrant's round sum currently covers everything they played. |
 
 ## Gaps
 
