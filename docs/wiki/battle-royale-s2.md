@@ -87,6 +87,18 @@ configuration file, and each has shipped armed on this ladder before and
 been switched off again live. Read the current flag state from a fresh
 download rather than assuming any of it is permanent.
 
+### One top score decides the ladder's leg — not who's still standing
+
+The last-team-standing / timeout tiebreak above decides how an episode
+itself ends, but it is not the same test the ladder uses to decide
+whether that episode pays anything toward a round. For that, the
+platform compares every scored seat's episode score and only the top
+score (or a tied set of top scores) banks anything at all — see
+[[round]] and [[elo]] for what a banked score actually contributes and
+how it rescales. In practice the two usually agree, since surviving to
+the end carries a large scoring bonus of its own (see [[glory-season-2]]),
+but the ladder's rule is score, not survival.
+
 ## Stats
 
 | Property | Value | Ticks | Notes |

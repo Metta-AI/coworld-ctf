@@ -38,7 +38,7 @@ above:
 
 | League | Episodes per round | Notes |
 | --- | --- | --- |
-| Paintbot (Season 2) | No fixed count | Every round's variant is `battle-royale-s2` — see [[modes]]; total count scales with entrants fielded, at least 12 episodes per entrant — see `## Gaps` |
+| Paintbot (Season 2) | No fixed count | Every round's variant is `battle-royale-s2` — see [[modes]]; confirmed live as of 2026-09-18: 15 episodes per round, 16 seats per episode, 20 entrants fielded, so every entrant appears in 12 of the round's 15 episodes (the best-12-of-12 guard above is therefore an exact sum of everything that entrant played, not a filtered subset) |
 | Elite Paintbot | 50 | — |
 | Paintarena | No fixed count | At least 8 episodes per entrant; opponents chosen by rating-neighbour pairing rather than a round-robin |
 
@@ -84,6 +84,19 @@ episodes per entrant and there is no maximum above it, so the current
 agreement is a coincidence of scheduling rather than a guarantee. Treat it
 as the rule, with a currently-equivalent result, not as a plain sum. The
 dated boundaries are on [[patch-notes]].
+
+**Since 2026-09-15, not every scored episode contributes to the sum
+above.** A scored episode only adds to an entrant's round total if that
+entrant's score was the top score (or tied for it) among the episode's
+other scored seats — every other scored episode that round contributes
+zero to the sum, the same zero regardless of how close it was. What a
+winning episode contributes is also not its raw score but a rescaled
+version of it (see [[elo]] for the exact rescaling and what it does to
+the numbers). Exactly one episode-worth of top score is available per
+episode (or a shared one, on a tie), so a 15-episode round field-wide
+hands out 15 such wins across however many entrants are fielded that
+round.
+
 Where a league's ladder is active, that round score is what its standing
 comparison uses — see [[elo]] for the pairwise update itself and for what
 stands in for it where it is switched off, and [[scoring]] for what a score
@@ -112,6 +125,8 @@ that pull fades the same way it eventually fades for every other round.
 | Unrecorded | Paintbot (Season 2)'s standing aggregation changed from `max` (best round ever) to `rated` (a live-decaying weighted average of round scores), live since round 3856. The round-level `sum`/best-12 rule documented above is unchanged — only the settlement step that turns a round score into a standing changed. See [[elo]] for the full mechanism and what changed for a reader. |
 | Unrecorded | Documented the active best-k guard on top of `sum`: a round score sums an entrant's best-k episode scores (k defaults to the league's minimum episodes-per-entrant, currently 12), not literally every episode. Live but not yet binding at today's episode counts. |
 | Unrecorded | Paintbot (Season 2)'s live round scoring rule changed from `max` to `sum`: a round's score is now the total of its episode scores rather than its single best episode. The standing aggregation is unchanged at `max` (best round). A live league-setting change, not an engine change. |
+| Unrecorded | Paintbot (Season 2) armed a win-gate on round scoring (2026-09-15): a scored episode only contributes to a round's sum if it was that entrant's top score in the episode; every other scored episode contributes zero. See [[elo]] for the rescaling applied to a winning episode's score. |
+| Unrecorded | Confirmed live episode-per-round figures for Paintbot (Season 2): 15 episodes per round, 16 seats per episode, 20 entrants fielded — exactly matching the existing best-12-of-12 guard, so every entrant's round sum currently covers everything they played. |
 
 ## Gaps
 
@@ -128,6 +143,9 @@ that pull fades the same way it eventually fades for every other round.
 - Whether every paintbot-family league's round scoring rule and standing
   aggregation match Paintbot (Season 2)'s `sum`/`rated`, or each league sets
   its own independently — confirmed live only for Paintbot (Season 2).
+- (Resolved for Paintbot (Season 2), see [[elo]]): round cadence is ~10
+  minutes after a new submission, slowing to ~30 minutes after 60 minutes
+  with no new submission.
 
 ## See also
 

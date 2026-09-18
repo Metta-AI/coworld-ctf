@@ -53,7 +53,8 @@ broken stretch is excluded now exactly the way it was excluded then.
 
 The weighted average above runs on its own factor, separate from the Elo
 K-factor elsewhere on this page — the live service calls it `rated_k`, and
-Paintbot (Season 2) currently runs it at **0.05** — confirmed directly
+Paintbot (Season 2) currently runs it at **0.02** (retuned down from
+0.05, live since 2026-09-15T21:15Z) — confirmed directly
 against the league's own live ladder configuration, not merely inferred
 from the settling-time math below. Each time an entrant's
 round is scored, their standing moves toward that round's score by 5% of
@@ -64,10 +65,14 @@ standing = standing + rated_k × (round_score − standing)
 ```
 
 Applied once per round an entrant plays, this is what produces "current
-form": at Paintbot (Season 2)'s live round cadence — a new round roughly
-every 10 minutes, confirmed live — a `rated_k` of 0.05 washes out about
-half of any one round's weight after roughly a dozen rounds scored, which
-on the wall clock lands around two hours. A single spectacular round still
+form": a `rated_k` of 0.02 washes out
+about half of any one round's weight after roughly 35 rounds scored.
+Paintbot (Season 2)'s round cadence is itself not fixed: a new round
+starts roughly every 10 minutes while a policy has been submitted in the
+last 60 minutes, and roughly every 30 minutes once nothing new has been
+submitted for that long (a fresh submission wakes it back to 10) — so 35
+rounds lands around 6 hours of wall clock during an active stretch, and
+considerably longer overnight when the ladder is idle. A single spectacular round still
 moves the number, but it keeps moving afterward, decaying back toward
 whatever an entrant does next, rather than freezing in place as a
 permanent high-water mark the way `max` aggregation used to. Standing
@@ -91,6 +96,29 @@ exists in the same configuration schema but is confirmed **off**
 (`"none"`) for Paintbot (Season 2) today. If it were switched on it would
 change how a round's raw score maps to the `round_score` this section's
 formula blends, not the 5% blend itself.
+
+### A leg only banks on a win — everything else is zero
+
+Live since 2026-09-15, on top of the blend above: an entrant's episode
+score only counts toward that round at all if it was the top score (or
+tied for it) among the episode's other scored seats that round — a loss
+counts as a zero for that leg, the same zero whether it lost by a hair or
+by the whole board. What a winning leg actually banks is not its raw
+score but a signed, sign-preserving log-base-2 rescaling of it: doubling
+the raw score of a leg you already won only adds one point to what it
+banks, while turning a leg from a loss into a win adds that leg's entire
+banked value — winning more often moves the round score far more than
+scoring bigger within the wins you already have.
+
+### What the board shows is not what you're ranked by
+
+Standing is tracked, and ranked, in the same log space the paragraph
+above banks legs in — but the number shown on the leaderboard is
+converted back out of log space for readability before it's displayed.
+Because of that conversion, a gap between two displayed numbers reads as
+multiplicative even though the underlying ranking value the platform
+actually compares is additive: a small move in true standing can look
+like a large jump (or drop) in the number on the board.
 
 ## Stats
 
@@ -186,6 +214,9 @@ textbook defaults, but one is not the other.
   Paintbot (Season 2), changes anything about the clamp or the 5% blend
   themselves, or only the round score fed into them — not exercised live
   by this league today, so not directly observable.
+- Whether the log-base-2 rescaling and win-gate above also apply to any
+  paintbot-family league besides Paintbot (Season 2) — confirmed live only
+  for Paintbot (Season 2) in this pass.
 
 ## Version history
 
@@ -196,6 +227,8 @@ textbook defaults, but one is not the other.
 | Unrecorded | The Paintbot (Season 2) cross-reference updated: a round score sums an entrant's best 12 episode scores that round (the best-k guard on `sum` — see [[round]]), not every episode played. |
 | Unrecorded | Paintbot (Season 2)'s live round scoring rule changed from `max` to `sum` — the live values above updated to match; the standing aggregation (best round) is unchanged. |
 | Unrecorded | The classic-mode "Paintbot" league split into two separate leagues: Campaign (territory board, no Elo) and Paintbot (Season 2), whose live ladder was found running a direct score-standing algorithm rather than Elo — see the new section above. |
+| Unrecorded | Paintbot (Season 2)'s `rated_k` retuned 0.05 → 0.02, and a win-gate plus a signed log-base-2 rescaling of the round score both armed, live from 2026-09-15T21:15Z — see the new sections above. |
+| Unrecorded | From round #5519 (2026-09-17), the round score under the new rescaling above is a true sum of an entrant's scored legs; rounds #5393–#5518 divided that sum by the number of legs instead, so standings from the two windows are not directly comparable. |
 
 ## See also
 
