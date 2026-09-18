@@ -325,6 +325,44 @@ HEAT_WINDOW_TICKS = 270
 # BINDING CONSTRAINT 4 leaves FINAL4_DETOUR_MAX itself untouched.
 HEAT_WINDOW_DETOUR_MAX = 100
 
+# OPENING HUNTER (v57, pre-registered lever, owner brief §8 2026-09-18,
+# WIN ANATOMY replay read n=33 wins/25 losses SUM-era): the opening CALL is
+# byte-identical in wins and losses -- pact + target_law + scatter -- but
+# winners then run Monet's own winning recipe (one early weighted-class
+# kill that lights heat, then the multiplied second) while our losses
+# NEVER reach heat rung 1 (0/25). scatter's own manifest brief says
+# plainly what it does: walk away from the nearest tracked enemy (or
+# toward zone centre with nothing tracked) for the opening ticks -- an
+# EVASIVE posture, the opposite of the press this lineage needs to ever
+# reach the HEAT ladder's first rung. This is ONE lever, isolated: while
+# the match is still inside the opening window and our team has not yet
+# banked a kill, swap the play, not the numbers -- fire_superiority's own
+# pins (FIRE_SUPERIORITY_PRESS_RANGE/FINISH_RANGE/ENGAGE_DIST, unchanged
+# by this block) still decide press/finish/engage, so the read isolates
+# the play swap alone.
+#
+# WINDOW: 1500 ticks (62.5s at 24 ticks/s) is a generous read of "the
+# opening" against the win-anatomy sample's death-tick medians (1421 wins /
+# 1347 losses) -- long enough to cover the first engagement window measured
+# there without reaching into the mid-match. PRIMARY metric (pre-registered
+# BEFORE this build): per-episode P(win), baseline 4.91% (33/672,
+# r5519-r5581); KEEP if >= 6.5%, ROLL BACK if < 4.0% or a guardrail trips
+# (see the owner brief for the full guardrail list -- shots/1000 alive
+# ticks, P(>=1 kill), weighted-class kills/ep, P(heat rung>=1)).
+#
+# KILL LATCH, not a recurring window (unlike HEAT_WINDOW_TICKS above): "our
+# team has landed no kill yet in this episode" is a ONE-TIME gate -- once
+# true, permanently false for the rest of the match, even though kill_feed
+# itself is only a 240-tick trailing window (schema $comment) that would
+# otherwise let a kill scroll back out of view. See _update_opening_hunter,
+# which persists the fact onto pact_state (the SAME dict _update_heat_window
+# shares) exactly once, and never clears it.
+#
+# OPENING_HUNTER is a plain kill switch: flip to False to fall back to
+# byte-identical v56 behaviour without removing this block.
+OPENING_TICKS = 1500
+OPENING_HUNTER = True
+
 # Awareness digest: a track older than this is a memory, not a threat (the
 # harness's own 10-s freshness/aggressor window). An item further than
 # NEAR_ITEM_PX is a detour, not "near".
@@ -458,6 +496,40 @@ def _update_heat_window(pact_state, view):
             and 0 <= tick - last_heat_tick <= HEAT_WINDOW_TICKS)
 
 
+def _update_opening_hunter(pact_state, view):
+    """Advance/read the OPENING HUNTER lever's own persisted latch.
+
+    Same plumbing as `_update_heat_window` (same `pact_state["_my_team"]`
+    stash, same never-a-guess convention: missing/malformed `_my_team` or
+    a non-numeric `tick` reads False, never a guess) but a DIFFERENT
+    predicate shape -- this is a ONE-TIME LATCH, not a recurring window.
+    kill_feed is only a 240-tick trailing view (schema $comment), so a
+    kill credited to our team early in the match would otherwise scroll
+    back out of sight long before OPENING_TICKS (1500) elapses; persisting
+    `_first_kill_tick` onto `pact_state` the first time such a row is ever
+    seen, and never clearing it, is what keeps "our team has landed no
+    kill yet" true for the rest of the episode once it goes false -- it
+    never flips back on.
+
+    Returns True iff `OPENING_TICKS` has not yet elapsed AND our team has
+    never been credited a kill in `kill_feed` across any call this episode.
+    """
+    my_team = pact_state.get("_my_team")
+    tick = view.get("tick")
+    if not isinstance(my_team, str) or not isinstance(tick, (int, float)):
+        return False
+    if pact_state.get("_first_kill_tick") is None:
+        for kill in view.get("kill_feed") or []:
+            if not isinstance(kill, dict) or kill.get("killer_team") != my_team:
+                continue
+            kill_tick = kill.get("tick")
+            if not isinstance(kill_tick, (int, float)):
+                continue
+            pact_state["_first_kill_tick"] = kill_tick
+            break
+    return pact_state.get("_first_kill_tick") is None and tick < OPENING_TICKS
+
+
 def apply_phase_clamps(entries, view, pact_state, source=None):
     """The ONE clamp point for every ENDGAME-DOCTRINE pin this persona owns
     -- fire_superiority.pressRange/finishRange/engageDist, supply_run.
@@ -521,6 +593,16 @@ def apply_phase_clamps(entries, view, pact_state, source=None):
     min()-against-current-value clamp on both blocks means whichever is
     tighter always wins, on every send path, exactly like final-four.
 
+    v57 (OPENING HUNTER, pre-registered owner brief §8): a different SHAPE
+    of pin -- the others above overwrite a param on an entry the model (or
+    a stale ladder) already proposed; this one rewrites which PLAYS are on
+    the list, on the same list every send path shares (see
+    _update_opening_hunter and the OPENING_TICKS/OPENING_HUNTER module
+    comment). It runs first, before the FIRE_SUPERIORITY WIRE FIX loop
+    just below, so any fire_superiority entry it installs is pinned to the
+    exact same doctrine numbers as one the model named itself -- one
+    mechanism, not two copies of pressRange/finishRange/engageDist.
+
     Calling this SAME function from both adjust_entries (after its own
     CONVERSION/ARMAMENT inserts) and from the maintenance resend path
     closes all these gaps with one implementation instead of separate
@@ -557,6 +639,36 @@ def apply_phase_clamps(entries, view, pact_state, source=None):
     else:
         tag, suffix = "", ""
     fired = False
+
+    # OPENING HUNTER (v57, see OPENING_TICKS/OPENING_HUNTER module comment
+    # for the full WHY/citations): while the opening window is live and our
+    # team has landed no kill yet this episode (_update_opening_hunter, a
+    # one-time latch, not a recurring window like the heat-window lock
+    # below), strip every scatter entry and guarantee a fire_superiority
+    # entry is on the list -- runs BEFORE the FIRE_SUPERIORITY WIRE FIX loop
+    # just below so a freshly-installed entry gets the SAME doctrine params
+    # (pressRange/finishRange/engageDist) as any model-authored one, one
+    # mechanism, never a second copy of those numbers. This block changes
+    # WHICH play is on the ladder, never fire_superiority's own numbers --
+    # the read isolates the play swap, same discipline as every other pin
+    # in this function.
+    if OPENING_HUNTER and _update_opening_hunter(pstate, view):
+        before_count = len(entries)
+        entries[:] = [e for e in entries if e.get("play") != "scatter"]
+        stripped = before_count - len(entries)
+        if stripped:
+            starter_harness._log(
+                PERSONA,
+                f"opening-hunter clamp{tag}: scatter stripped "
+                f"({stripped} {'entry' if stripped == 1 else 'entries'}){suffix}")
+            fired = True
+        if not any(e.get("play") == "fire_superiority" for e in entries):
+            entries.append({"play": "fire_superiority",
+                            "entry_id": "opening_hunter", "params": {}})
+            starter_harness._log(
+                PERSONA,
+                f"opening-hunter clamp{tag}: fire_superiority installed{suffix}")
+            fired = True
 
     # FIRE_SUPERIORITY WIRE FIX (v44, moved here v52 -- see module docstring
     # above FIRE_SUPERIORITY_PRESS_RANGE/FIRE_SUPERIORITY_FINISH_RANGE):

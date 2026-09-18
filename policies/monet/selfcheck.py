@@ -5078,6 +5078,263 @@ check("(g) PERSONA.apply_phase_clamps is wired to policy.apply_phase_clamps "
       "clamp lives inside the SAME hook, not a parallel one)",
       PERSONA.apply_phase_clamps is policy.apply_phase_clamps)
 
+
+# ── v57: OPENING HUNTER ──────────────────────────────────────────────────
+# Owner brief §8, pre-registered before this build. Same class of proof as
+# the heat-window block above: (1) the standalone predicate/latch helper
+# (a ONE-TIME latch, not a recurring window -- see _update_opening_hunter's
+# own docstring), (2) apply_phase_clamps firing the clamp for representative
+# source tags, (3) the FOUR fixtures named in the pre-registered contract
+# by number, (4) proof this lever swaps the PLAY, never fire_superiority's
+# own doctrine numbers or the other entries on the ladder, and (5) the real
+# repair_call -> adjust_entries send path end to end.
+
+check("_update_opening_hunter: no _my_team stashed yet -- False, never a "
+      "guess (mirrors _update_heat_window's own missing-data convention)",
+      not policy._update_opening_hunter({}, {"tick": 300}))
+check("_update_opening_hunter: _my_team known but view has no numeric "
+      "tick -- False",
+      not policy._update_opening_hunter({"_my_team": "rust"}, {}))
+check("_update_opening_hunter: inside the window, no kill yet -- True",
+      policy._update_opening_hunter(
+          {"_my_team": "rust"}, {"tick": 300, "kill_feed": []}))
+check("_update_opening_hunter: at OPENING_TICKS (1500) exactly, no kill "
+      "-- False (half-open window, tick < OPENING_TICKS)",
+      not policy._update_opening_hunter(
+          {"_my_team": "rust"}, {"tick": 1500, "kill_feed": []}))
+check("_update_opening_hunter: one tick before OPENING_TICKS, no kill -- "
+      "still True",
+      policy._update_opening_hunter(
+          {"_my_team": "rust"}, {"tick": 1499, "kill_feed": []}))
+_oh_p1 = {"_my_team": "rust"}
+check("_update_opening_hunter: a kill_feed row crediting OUR team latches "
+      "_first_kill_tick onto pact_state and returns False, same call",
+      not policy._update_opening_hunter(
+          _oh_p1, {"tick": 300, "kill_feed": [
+              {"tick": 250, "killer_team": "rust", "victim_seat": 7}]})
+      and _oh_p1.get("_first_kill_tick") == 250)
+check("_update_opening_hunter: a kill_feed row crediting a RIVAL team "
+      "never latches -- still True inside the window",
+      policy._update_opening_hunter(
+          {"_my_team": "rust"}, {"tick": 300, "kill_feed": [
+              {"tick": 250, "killer_team": "plum", "victim_seat": 7}]}))
+check("_update_opening_hunter: PERMANENT latch -- a kill 950 ticks ago "
+      "that has long since scrolled out of kill_feed's own 240-tick "
+      "trailing window still reads False off the persisted "
+      "_first_kill_tick alone, unlike the heat-window lock's recurring "
+      "clock",
+      not policy._update_opening_hunter(
+          {"_my_team": "rust", "_first_kill_tick": 50},
+          {"tick": 1000, "kill_feed": []}))
+
+
+def _oh_entries():
+    return [
+        {"play": "pact", "entry_id": "truce",
+         "params": {"partners": ["seat:19"], "protect": True}},
+        {"play": "target_law", "entry_id": "law",
+         "params": {"prefer": ["weakened", "revenge"]}},
+        {"play": "scatter", "entry_id": "flee",
+         "params": {"distance": 320, "ticks": 300}},
+    ]
+
+
+def _oh_entries_with_fs():
+    return [
+        {"play": "pact", "entry_id": "truce",
+         "params": {"partners": ["seat:19"]}},
+        {"play": "scatter", "entry_id": "flee",
+         "params": {"distance": 320, "ticks": 300}},
+        {"play": "fire_superiority", "entry_id": "pressbreak",
+         "params": {"pressRange": 220, "finishRange": 140,
+                    "engageDist": 600}},
+    ]
+
+
+# (i) THE FIRST PRE-REGISTERED FIXTURE: opening call with pact +
+# target_law + scatter at tick 300, no kills yet -- scatter stripped,
+# fire_superiority installed, the other two entries carried through
+# byte-identical (this lever owns neither).
+_oh_i_entries = _oh_entries()
+_oh_i_pact = {"_my_team": "rust"}
+_oh_i_view = {"tick": 300, "world": {"alive_teams": 16}, "kill_feed": []}
+_oh_i_log = _io.StringIO()
+with _contextlib.redirect_stdout(_oh_i_log):
+    _oh_i_fired = policy.apply_phase_clamps(_oh_i_entries, _oh_i_view,
+                                            _oh_i_pact, source=None)
+_oh_i_plays = [e["play"] for e in _oh_i_entries]
+check("(i) opening hunter: tick 300, no kill yet -- scatter stripped from "
+      "the committed ladder, fire_superiority installed, fired=True",
+      _oh_i_fired and "scatter" not in _oh_i_plays
+      and "fire_superiority" in _oh_i_plays, str(_oh_i_plays))
+_oh_i_pact_entry = next(e for e in _oh_i_entries if e["play"] == "pact")
+_oh_i_law_entry = next(e for e in _oh_i_entries if e["play"] == "target_law")
+check("(i) opening hunter: the pact and target_law entries this lever "
+      "does not own carry through byte-identical",
+      _oh_i_pact_entry["params"] == {"partners": ["seat:19"], "protect": True}
+      and _oh_i_law_entry["params"] == {"prefer": ["weakened", "revenge"]},
+      str(_oh_i_entries))
+_oh_i_fs = next(e for e in _oh_i_entries if e["play"] == "fire_superiority")
+check("(i) opening hunter: the installed fire_superiority entry carries "
+      "the SAME doctrine params every other fire_superiority entry gets "
+      "via the (unmodified) FIRE_SUPERIORITY WIRE FIX loop -- pressRange "
+      "220, finishRange 140 (default phase), engageDist 750 -- this lever "
+      "swaps the play, never the numbers",
+      _oh_i_fs["params"].get("pressRange") == 220
+      and _oh_i_fs["params"].get("finishRange") == 140
+      and _oh_i_fs["params"].get("engageDist") == 750, str(_oh_i_fs["params"]))
+check("(i) opening hunter clamp logs both the scatter-strip and the "
+      "fire_superiority-install lines, untagged/no-suffix for a real "
+      "model call, same convention as every other pin's plain line",
+      "opening-hunter clamp: scatter stripped (1 entry)" in _oh_i_log.getvalue()
+      and "opening-hunter clamp: fire_superiority installed"
+      in _oh_i_log.getvalue(), repr(_oh_i_log.getvalue()))
+
+# (ii) THE SECOND PRE-REGISTERED FIXTURE: same call, same tick 300, but
+# kill_feed now shows a kill credited to our own team at tick 250 --
+# untouched: the latch is already permanently false, this block never
+# fires, and nothing it owns is logged.
+_oh_ii_entries = _oh_entries()
+_oh_ii_pact = {"_my_team": "rust"}
+_oh_ii_view = {"tick": 300, "world": {"alive_teams": 16},
+              "kill_feed": [{"tick": 250, "killer_team": "rust",
+                            "victim_seat": 9}]}
+_oh_ii_log = _io.StringIO()
+with _contextlib.redirect_stdout(_oh_ii_log):
+    _oh_ii_fired = policy.apply_phase_clamps(_oh_ii_entries, _oh_ii_view,
+                                             _oh_ii_pact, source=None)
+_oh_ii_plays = [e["play"] for e in _oh_ii_entries]
+check("(ii) opening hunter: same tick 300, but our team already banked a "
+      "kill at tick 250 -- scatter stays, no fire_superiority installed, "
+      "this block never fires, no opening-hunter line logged",
+      not _oh_ii_fired and _oh_ii_plays == ["pact", "target_law", "scatter"]
+      and "opening-hunter clamp" not in _oh_ii_log.getvalue(),
+      str(_oh_ii_plays))
+
+# (iii) THE THIRD PRE-REGISTERED FIXTURE: tick 1600 (past OPENING_TICKS=
+# 1500), no kills -- untouched, byte-identical to v56.
+_oh_iii_entries = _oh_entries()
+_oh_iii_pact = {"_my_team": "rust"}
+_oh_iii_view = {"tick": 1600, "world": {"alive_teams": 16}, "kill_feed": []}
+_oh_iii_log = _io.StringIO()
+with _contextlib.redirect_stdout(_oh_iii_log):
+    _oh_iii_fired = policy.apply_phase_clamps(_oh_iii_entries, _oh_iii_view,
+                                              _oh_iii_pact, source=None)
+_oh_iii_plays = [e["play"] for e in _oh_iii_entries]
+check("(iii) opening hunter: tick 1600, no kills -- untouched, byte-"
+      "identical to v56 (no opening-hunter line logged)",
+      not _oh_iii_fired and _oh_iii_plays == ["pact", "target_law", "scatter"]
+      and "opening-hunter clamp" not in _oh_iii_log.getvalue(),
+      str(_oh_iii_plays))
+
+# (iv) THE FOURTH PRE-REGISTERED FIXTURE: fire_superiority already present
+# AND scatter present, tick 100 -- scatter stripped, fire_superiority NOT
+# duplicated, and its pre-existing params still get pinned to doctrine by
+# the ordinary (unmodified) FIRE_SUPERIORITY WIRE FIX loop.
+_oh_iv_entries = _oh_entries_with_fs()
+_oh_iv_pact = {"_my_team": "rust"}
+_oh_iv_view = {"tick": 100, "world": {"alive_teams": 16}, "kill_feed": []}
+_oh_iv_log = _io.StringIO()
+with _contextlib.redirect_stdout(_oh_iv_log):
+    _oh_iv_fired = policy.apply_phase_clamps(_oh_iv_entries, _oh_iv_view,
+                                             _oh_iv_pact, source=None)
+_oh_iv_fs_entries = [e for e in _oh_iv_entries
+                     if e["play"] == "fire_superiority"]
+_oh_iv_plays = [e["play"] for e in _oh_iv_entries]
+check("(iv) opening hunter: fire_superiority already present + scatter "
+      "present, tick 100 -- scatter stripped, fire_superiority NOT "
+      "duplicated (exactly one entry survives)",
+      _oh_iv_fired and "scatter" not in _oh_iv_plays
+      and len(_oh_iv_fs_entries) == 1, str(_oh_iv_plays))
+check("(iv) opening hunter: the pre-existing fire_superiority entry's "
+      "engageDist still gets pinned to doctrine (600 -> 750) by the "
+      "ordinary FIRE_SUPERIORITY WIRE FIX loop, untouched by this block",
+      _oh_iv_fs_entries[0]["params"].get("engageDist") == 750,
+      str(_oh_iv_fs_entries[0]["params"]))
+check("(iv) opening hunter clamp logs only the scatter-strip line here "
+      "(no fire_superiority-install line -- one already existed, never "
+      "duplicated)",
+      "opening-hunter clamp: scatter stripped (1 entry)" in _oh_iv_log.getvalue()
+      and "opening-hunter clamp: fire_superiority installed"
+      not in _oh_iv_log.getvalue(), repr(_oh_iv_log.getvalue()))
+
+# Source-tag coverage: the SAME tag/suffix convention every other pin in
+# this function uses.
+_oh_b_entries = _oh_entries()
+_oh_b_log = _io.StringIO()
+with _contextlib.redirect_stdout(_oh_b_log):
+    policy.apply_phase_clamps(
+        _oh_b_entries, {"tick": 300, "world": {"alive_teams": 16},
+                       "kill_feed": []},
+        {"_my_team": "rust"}, source="final4-reemit")
+check("opening hunter via source=final4-reemit tags both log lines "
+      "'reason=final4-reemit', matching every other pin's reemit tagging",
+      "opening-hunter clamp: scatter stripped (1 entry) reason=final4-reemit"
+      in _oh_b_log.getvalue()
+      and "opening-hunter clamp: fire_superiority installed "
+      "reason=final4-reemit" in _oh_b_log.getvalue(),
+      repr(_oh_b_log.getvalue()))
+
+_oh_c_entries = _oh_entries()
+_oh_c_log = _io.StringIO()
+with _contextlib.redirect_stdout(_oh_c_log):
+    _oh_c_fired = policy.apply_phase_clamps(
+        _oh_c_entries, {"tick": 300, "world": {"alive_teams": 16}},
+        {"_my_team": "rust"}, source="maintenance")
+_oh_c_plays = [e["play"] for e in _oh_c_entries]
+check("opening hunter via source=maintenance (the historically bypassed "
+      "path, per the final4/heat-window HISTORY notes): fires the same "
+      "way off a view with NO kill_feed key at all, tags the "
+      "'(maintenance)' log line",
+      _oh_c_fired and "scatter" not in _oh_c_plays
+      and "opening-hunter clamp (maintenance): scatter stripped (1 entry)"
+      in _oh_c_log.getvalue()
+      and "opening-hunter clamp (maintenance): fire_superiority installed"
+      in _oh_c_log.getvalue(), repr(_oh_c_log.getvalue()))
+
+# End-to-end through the REAL send path: starter_harness.repair_call (the
+# model-call/reemit shared path) -> adjust_entries -> the _my_team stash
+# at its apply_phase_clamps call site -> apply_phase_clamps itself.
+_oh_e2e_context = {"self": {"seat": 3, "duo_partner": 19, "team": "rust"}}
+_oh_e2e_seat = fake_seat(
+    context=_oh_e2e_context,
+    view={"tick": 300, "world": {"alive_teams": 16}, "kill_feed": []})
+starter_harness.repair_call(
+    {"call": {"entries": _oh_entries()}}, PERSONA, _oh_e2e_seat, AVAILABLE)
+_oh_e2e_plays = [e["play"] for e in _oh_e2e_seat.wanted_entries]
+check("opening hunter end-to-end via repair_call/adjust_entries: a real "
+      "call's own context.self.team + view (tick 300, no kills) strips "
+      "scatter and installs fire_superiority on seat.wanted_entries, and "
+      "stashes _my_team onto seat.pact_state for later maintenance resends",
+      "scatter" not in _oh_e2e_plays and "fire_superiority" in _oh_e2e_plays
+      and _oh_e2e_seat.pact_state.get("_my_team") == "rust",
+      str(_oh_e2e_plays))
+
+# Kill switch: OPENING_HUNTER=False falls back to byte-identical v56
+# behaviour without removing this block.
+_oh_off_entries = _oh_entries()
+_oh_off_prev = policy.OPENING_HUNTER
+policy.OPENING_HUNTER = False
+try:
+    _oh_off_fired = policy.apply_phase_clamps(
+        _oh_off_entries, {"tick": 300, "world": {"alive_teams": 16},
+                         "kill_feed": []},
+        {"_my_team": "rust"}, source=None)
+finally:
+    policy.OPENING_HUNTER = _oh_off_prev
+_oh_off_plays = [e["play"] for e in _oh_off_entries]
+check("OPENING_HUNTER=False is a plain kill switch: the same "
+      "predicate-true call now leaves scatter in place and never "
+      "installs fire_superiority",
+      not _oh_off_fired and _oh_off_plays == ["pact", "target_law", "scatter"],
+      str(_oh_off_plays))
+
+check("PERSONA.apply_phase_clamps is wired to policy.apply_phase_clamps "
+      "(same identity check every other pin's block already runs -- the "
+      "opening-hunter clamp lives inside the SAME hook, not a parallel "
+      "one)",
+      PERSONA.apply_phase_clamps is policy.apply_phase_clamps)
+
 print()
 if failures:
     print(f"SELF-CHECK FAILED: {len(failures)} failing check(s)")
