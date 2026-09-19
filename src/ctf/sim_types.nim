@@ -4158,6 +4158,28 @@ type
                 ## "barrier" | "bandage", x/y = the drop cell. The item then
                 ## sits as an open, no-respawn DroppedItem until someone walks
                 ## it up (a separate Pickup row).
+    # ── GLORY FINAL (Observatory Logs "Glory" tab substrate) ── appended,
+    # never inserted, per this enum's own positional discipline: archived
+    # replays encoding the ordinals above keep them unchanged; this is a
+    # new tail entry.
+    GloryFinal  ## One per seated team, emitted once from `finishGame`
+                ## (sim.nim) at the exact same site the "win factor xN" log
+                ## line is written, so both read the same numbers. target =
+                ## ord(team). winFactor = the win factor folded into that
+                ## team's product (1 if none applied — a non-winner, a draw,
+                ## or winAsMultiplier/gloryMultiplierRecut dark). ffHalvings
+                ## = friendly-fire halving count (recutFfHalvings). amount,
+                ## hp, blocked, weapon, item, x, y, content, damages: n/a.
+                ## productPreCap/productCapped = `sim.gloryProduct[team]`
+                ## immediately before/after the finalize-time win-factor
+                ## fold, stringified (the field can hold up to 2^62 —
+                ## `RecutProductCap` — well past float64/JS safe-integer
+                ## range, so it is never carried as a JSON number). Equal
+                ## for every team the fold did not touch (no finalize-time
+                ## change, so "before" and "after" are the same settled
+                ## product). capBound = true iff THIS fold saturated at
+                ## `recutProductCap` (recutCapHit) — false for every
+                ## non-winner and for a winner whose fold did not clamp.
 
   EventDamage* = object
     ## One victim damaged by a primary impact/use event.
@@ -4198,6 +4220,50 @@ type
     item*: string              ## pickup item name, "" = n/a.
     content*: string           ## sanitized shout content, "" = n/a.
     damages*: seq[EventDamage] ## victims damaged by this impact/use.
+    # ── GLORY BY DEED / GLORY FINAL sub-factor fields ── appended, never
+    # inserted, per this struct's own positional discipline (matches the
+    # enum-tail rule above). `SimEvent` is never part of a replay's flatty
+    # keyframe (it is produced/drained in-process to the tier-2 sink and
+    # JSONL only — see `SimServer.events`'s own comment), so this is a pure
+    # additive schema change: no GameVersion bump, no fixture recut.
+    heatMult*: int             ## GloryDeed events MINTED THROUGH `awardDeed`
+                               ## (weapon = $deed) only: the live heat
+                               ## multiplier actually folded into this mint's
+                               ## `amount` (glory.nim `heatMult`, read at the
+                               ## same post-mint ember count the S6
+                               ## instrument above uses) — 1 when the deed
+                               ## does not pay heat (paysHeat) or heat had
+                               ## not climbed yet. Cheap (a 3-rung table
+                               ## lookup), so unlike the S6 note this is not
+                               ## compile-time gated. 0 on every other
+                               ## GloryDeed (the "capHit"/"achModeLit"/
+                               ## "pactWipe"/"pactDuoDown"/"survivalCredit"
+                               ## literal-weapon notifications, which are not
+                               ## a real mint and have no factor to report)
+                               ## and on every non-GloryDeed kind (n/a).
+    stackTier*: int            ## Same scope as `heatMult` (GloryDeed events
+                               ## minted through `awardDeed` only): the
+                               ## ally-stack multiplier folded into this mint
+                               ## (glory.nim `recutStackMult(stackK)`). 1 (no
+                               ## context) on every dark-economy mint, since
+                               ## `stackK` itself stays 1 unless
+                               ## `gloryMultiplierRecut` is armed (see the
+                               ## kill-site call). 0 on every other GloryDeed
+                               ## and on every non-GloryDeed kind (n/a).
+    winFactor*: int            ## GloryFinal only: see that kind's own
+                               ## comment. 0 on every other kind (n/a).
+    ffHalvings*: int           ## GloryFinal only: see that kind's own
+                               ## comment. 0 on every other kind (n/a; also
+                               ## the legitimate "no friendly fire" value
+                               ## for GloryFinal itself — disambiguate by
+                               ## `kind`, same convention `amount`/`blocked`
+                               ## already use).
+    productPreCap*: string     ## GloryFinal only: see that kind's own
+                               ## comment. "" on every other kind (n/a).
+    productCapped*: string     ## GloryFinal only: see that kind's own
+                               ## comment. "" on every other kind (n/a).
+    capBound*: bool            ## GloryFinal only: see that kind's own
+                               ## comment. false on every other kind (n/a).
 
   LobbyChatRejectReason* = enum
     ## §9.2's admission outcomes for one `LobbyChat` (0xA3) send, in the

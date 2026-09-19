@@ -44,6 +44,7 @@ proc key*(kind: SimEventKind): string =
   of Revived: "revived"
   of ItemGive: "item_give"
   of ItemDrop: "item_drop"
+  of GloryFinal: "glory_final"
 
 proc jsonRow*(event: SimEvent): JsonNode =
   ## Returns one JSON-lines row for a tier-2 sim event.
@@ -63,6 +64,18 @@ proc jsonRow*(event: SimEvent): JsonNode =
   result["distance"] = %event.distance
   result["item"] = %event.item
   result["content"] = %event.content
+  # GloryDeed sub-factors + GloryFinal fields (see SimEvent's own doc
+  # comments for which kind populates which; every other kind reports the
+  # neutral n/a value). The product fields are already `string` on
+  # `SimEvent` -- `RecutProductCap` = 2^62, well past float64/JS
+  # safe-integer range, so they are never round-tripped as a JSON number.
+  result["heat_mult"] = %event.heatMult
+  result["stack_tier"] = %event.stackTier
+  result["win_factor"] = %event.winFactor
+  result["ff_halvings"] = %event.ffHalvings
+  result["product_pre_cap"] = %event.productPreCap
+  result["product_capped"] = %event.productCapped
+  result["cap_bound"] = %event.capBound
   result["damages"] = newJArray()
   for damage in event.damages:
     result["damages"].add(%*{

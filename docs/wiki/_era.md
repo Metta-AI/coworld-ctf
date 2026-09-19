@@ -20,7 +20,7 @@ match — `policies/starters/common/test_era.py` (wired into CI as the
 `era-tripwire` job) asserts the two agree, so forgetting fails the PR
 rather than drifting silently.
 
-- **Date recorded:** 2026-09-11
+- **Date recorded:** 2026-09-18
 - **Live variant:** `battle-royale-s2`
 - **Build tag:** `paintbot-v0.7.397`
 - **GameVersion:** 63
@@ -29,13 +29,23 @@ rather than drifting silently.
   cap ceiling 2^21, achievement Tiers IV/V retuned, tier-completion bonus
   armed, PLACEMENT LADDER B; scoring only, GameVersion unchanged.
 - **Standing rule:** Standing is a decaying average (an EMA, aggregation
-  mode `rated`) of your recent rounds' scores, `rated_k` 0.05 — not a
-  running total and not your single best round.
-- **Season leg transform:** `none` (not armed). The Glory lane is arming a
-  `signed_log2` transform with `rated_k` retuned to 0.025 as of today's
-  date above — treat that as in-flight, not yet the live rule, and re-read
-  this file rather than trusting a cached copy of this sentence before
-  citing either number.
+  mode `rated`) of your recent rounds' scores, `rated_k` **0.02** (retuned
+  down from 0.05, live since 2026-09-15) — not a running total and not
+  your single best round. At this `rated_k`, a round's weight washes out
+  by half after roughly 35 rounds scored.
+- **Season leg transform:** live and armed since 2026-09-15: a round leg
+  only banks if that seat's score was the top score (or tied for it) among
+  the episode's scored seats — a loss banks zero regardless of margin —
+  and what a won leg banks is a signed, sign-preserving log-base-2
+  rescaling of the raw score, not the raw score itself. Doubling a raw
+  score only adds one point to the banked leg; winning an episode you
+  would otherwise have lost adds that whole banked amount. A round's score
+  is the sum of an entrant's (up to 12) scored legs.
+- **Round-score aggregation fix:** from round #5519 (2026-09-17) the
+  round score above is a true sum of the scored legs; rounds before that
+  date (back to the 2026-09-15 arm) silently divided the sum by the
+  number of legs instead — standings from the two windows are not on the
+  same scale.
 
 ## Why this file, not a wiki page
 

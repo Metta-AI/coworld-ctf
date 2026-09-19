@@ -878,7 +878,14 @@ proc emitEvent*(
   content = "",
   damages: seq[EventDamage] = @[],
   sourceSlot = -1,
-  targetSlot = -1
+  targetSlot = -1,
+  heatMult = 0,
+  stackTier = 0,
+  winFactor = 0,
+  ffHalvings = 0,
+  productPreCap = "",
+  productCapped = "",
+  capBound = false
 ) {.inline.} =
   ## Appends one tier-2 analysis event (see SimEvent); a no-op unless
   ## collectEvents is on, so live servers pay nothing. `source` and `target`
@@ -901,7 +908,14 @@ proc emitEvent*(
     distance: distance,
     item: item,
     content: content,
-    damages: damages
+    damages: damages,
+    heatMult: heatMult,
+    stackTier: stackTier,
+    winFactor: winFactor,
+    ffHalvings: ffHalvings,
+    productPreCap: productPreCap,
+    productCapped: productCapped,
+    capBound: capBound
   )
 
 proc emitPhaseChange*(sim: var SimServer, newPhase: GamePhase) {.inline.} =

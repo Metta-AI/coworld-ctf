@@ -43,5 +43,6 @@ import
   test_glory_league_score,
   test_glory_percent_scale_headroom,
   test_glory_s5_rig,
-  test_glory_s4b_modes
+  test_glory_s4b_modes,
+  test_glory_final_event
 {.warning[UnusedImport]: on.}

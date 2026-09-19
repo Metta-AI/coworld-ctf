@@ -571,6 +571,20 @@ proc awardDeed*(sim: var SimServer, team: Team, deed: Deed, x, y: int,
   # whenever `ord(team) < sim.players.len`. Analysis-only (never gameHash),
   # so this is preserved as-is rather than "fixed" outside this port's
   # mandate -- see this file's port-header note on pricing-vs-plumbing.
+  #
+  # Per-deed heat multiplier / ally-stack tier: cheap in a NORMAL build (a
+  # 3-rung table lookup and a 6-entry Fibonacci lookup, both `{.inline.}` --
+  # see glory.nim `heatMult`/`recutStackMult`), unlike the S6 instrument
+  # below (its cost is the STRING build, gated behind both the compile-time
+  # define and `amount > 1`). Same read timing as the S6 note a few lines
+  # down (post heat-increment, above) so a build with the define on and one
+  # without agree on this value. Neutral (1, `recutFactor`'s own no-effect
+  # convention -- NOT the S6 note's 100-based percent convention) when the
+  # deed does not pay heat, or (stack) on every dark-economy mint, since the
+  # kill site only ever raises `stackK` above 1 while `gloryMultiplierRecut`
+  # is armed (sim.nim's own `stackK` call-site comment).
+  let heatMultVal = if paysHeat(deed): heatMult(sim.heatEmbers[team]) else: 1
+  let stackTierVal = recutStackMult(stackK)
   when defined(gloryS6AttrInstrument):
     # S6 ANALYSIS-ONLY INSTRUMENTATION (compile-time define, OFF by default,
     # byte-identical when off -- see tools/glory/README.md). Stashes the
@@ -590,12 +604,14 @@ proc awardDeed*(sim: var SimServer, team: Team, deed: Deed, x, y: int,
       mintNote = $classPct & "|" & $heatPct & "|" & $carryPct & "|" & $stackPct
     sim.emitEvent(
       GloryDeed, source = byIndex, target = ord(team), weapon = $deed,
-      amount = amount, x = float(x), y = float(y), content = mintNote
+      amount = amount, x = float(x), y = float(y), content = mintNote,
+      heatMult = heatMultVal, stackTier = stackTierVal
     )
   else:
     sim.emitEvent(
       GloryDeed, source = byIndex, target = ord(team), weapon = $deed,
-      amount = amount, x = float(x), y = float(y)
+      amount = amount, x = float(x), y = float(y),
+      heatMult = heatMultVal, stackTier = stackTierVal
     )
 
 proc teamConvertedKits(sim: SimServer, team: Team): int =
@@ -6223,6 +6239,17 @@ proc finishGame*(sim: var SimServer, winner: Team, isDraw = false, timeLimitReac
   # is final-correct the moment it folds (products commute — the ceiling
   # arithmetic is identical either side of the sweep). Decisive games
   # only — a draw crowns nobody, exactly like the deed it replaces.
+  # GLORY FINAL (Observatory Logs "Glory" tab substrate, tier-2 only —
+  # excluded from gameHash like every SimEvent): defaults every team reads
+  # unless the win-factor fold below overwrites them for the winner. `not
+  # armed` / a draw / a non-winner all resolve here — win factor 1 (`the
+  # win factor applied, 1 if none` — deliverable's own words), no
+  # finalize-time fold, so pre-cap and capped both read the team's own
+  # already-settled product.
+  var winnerHadFold = false
+  var winnerWinFactor = 1
+  var winnerCapBound = false
+  var winnerProductPreCap, winnerProductCapped: int64
   if sim.config.gloryMultiplierRecut and sim.config.winAsMultiplier and
       sim.config.brMode and not isDraw:
     # v14 TEAM-SIZE SEAM: seats on the winning team, dead or alive — the
@@ -6237,10 +6264,47 @@ proc finishGame*(sim: var SimServer, winner: Team, isDraw = false, timeLimitReac
     # Once per episode by construction (one finalize, one winner) — no
     # MINT cap applies; the armed PRODUCT bound does, so the backstop
     # covers the last fold of the episode too.
+    #
+    # GLORY FINAL: `productPreCap`/`productCapped` below are read straight
+    # off `sim.gloryProduct[winner]` around the SAME `recutFoldObserved`
+    # call this line already made before this PR — `recutFoldObserved`
+    # itself computes and compares this exact `before`/`after` pair
+    # internally (recutCapHit) to fire GLORY_CAP_HIT; this is a read-only
+    # duplicate of that same state for the event, not a second fold.
+    winnerProductPreCap = sim.gloryProduct[winner]
     sim.gloryProduct[winner] = sim.recutFoldObserved(winner, winFactor)
+    winnerProductCapped = sim.gloryProduct[winner]
+    winnerCapBound = recutCapHit(winnerProductPreCap, winnerProductCapped,
+                                 recutProductCap(sim.config.deedMintCaps))
     sim.teamGlory[winner] = sim.recutCurrentScore(winner)
+    winnerHadFold = true
+    winnerWinFactor = winFactor
     if sim.gameEventLoggingEnabled:
       sim.logGameEvent(teamText(winner) & " win factor x" & $winFactor)
+  # One event per seated team, emitted here (same site, same numbers) so
+  # the Logs "Glory" tab never has to estimate a value this stream can
+  # carry directly. `recutFfHalvings` and `sim.gloryProduct[team]` are
+  # well-defined in every mode — `resetGloryLedger` unconditionally seeds
+  # `gloryProduct` at RecutSeed (1, or GlorySCALE when fixed-point scaling
+  # is armed) even on a dark/classic game (that proc's own comment), so a
+  # non-recut game reports its (unfolded, unchanging) seed rather than a
+  # zero-looking placeholder.
+  for team in sim.teams():
+    let isWinnerFold = winnerHadFold and team == winner
+    let productPreCap =
+      if isWinnerFold: winnerProductPreCap else: sim.gloryProduct[team]
+    let productCapped =
+      if isWinnerFold: winnerProductCapped else: sim.gloryProduct[team]
+    sim.emitEvent(
+      GloryFinal,
+      target = ord(team),
+      winFactor = (if isWinnerFold: winnerWinFactor else: 1),
+      ffHalvings = recutFfHalvings(sim.gloryFfIncidents[team],
+                                   sim.config.brMode),
+      productPreCap = $productPreCap,
+      productCapped = $productCapped,
+      capBound = isWinnerFold and winnerCapBound
+    )
   if isDraw:
     if timeLimitReached:
       # A time-limit draw is a lose-lose: every player on both teams takes
