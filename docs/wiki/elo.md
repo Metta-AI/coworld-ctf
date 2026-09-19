@@ -89,6 +89,10 @@ currently runs it live, confirmed directly against the league's own
 configuration, at a multiple of **150** — which bounds the largest possible
 single-round move to **3.98×** the standing going in (`1 + rated_k ×
 (150 − 1)`), rather than letting an outlier round through unbounded.
+Under the log-scale scoring live since 2026-09-15, that bound sits far above
+any real round score — a round scores tens of points while the bound is
+hundreds — so in practice the clamp does not bite; the 3.98× figure is the
+ceiling on a single round's pull, not a typical move.
 
 A separate, more aggressive rescaling of round scores before they ever
 reach the blend above — a signed, sign-preserving log-style transform —
@@ -224,6 +228,7 @@ textbook defaults, but one is not the other.
 
 | Version | Change |
 | --- | --- |
+| Unrecorded | Clarified that the standing clamp does not bind under the log-scale scoring live since 2026-09-15. |
 | Unrecorded | From round #5519 (2026-09-17), the round score under the new rescaling below is a true sum of an entrant's scored legs; rounds #5393–#5518 divided that sum by the number of legs instead, so standings from the two windows are not directly comparable. |
 | Unrecorded | Paintbot (Season 2)'s `rated_k` retuned 0.05 → 0.02, and a win-gate plus a signed log-base-2 rescaling of the round score both armed, live from 2026-09-15T21:15Z — see the new sections above. |
 | Wiki | Added the standing clamp (150), the season-leg transform (`none`), and initial standing (0) — all confirmed live against Paintbot (Season 2)'s own configuration; corrected an internal inconsistency where this page still described standing as "sorted, maximized" alongside the rated-EMA section below; noted the 12-episode round-score sum is a no-op in the live 16-solo battle-royale ladder, where an entrant plays one leg per round. |
