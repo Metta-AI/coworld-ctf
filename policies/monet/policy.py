@@ -363,6 +363,34 @@ HEAT_WINDOW_DETOUR_MAX = 100
 OPENING_TICKS = 1500
 OPENING_HUNTER = True
 
+# HEAT-WINDOW HUNTER (v58, pre-registered lever, owner brief §23
+# 2026-09-20, card 242c7af8/epic 3e44d582): OPENING_HUNTER above only
+# holds the press until our team's FIRST kill of the episode -- after
+# that it never fires again, even while heat is still lit, and the seat
+# falls back to jackal-loiter on every later contact. The measured gap
+# is CONDITIONAL FOLLOW-THROUGH: our P(2nd heat-paying deed | 1st,
+# within the 270-tick decay window) is 28.1% vs the leader's ~37%, while
+# our P(1st) is already near parity. This lever re-arms the SAME
+# play-swap (strip scatter, force fire_superiority; doctrine numbers
+# untouched) for HEAT_WINDOW_TICKS after EVERY kill our team is
+# credited, not just the first -- reusing the exact recurring clock
+# `_update_heat_window` already tracks for the v56 AGGRESSION LOCK
+# detourMax pin below, not a second window or a new constant.
+#
+# PRIMARY metric (pre-registered BEFORE this build): per-episode
+# P(win), baseline 6.87% [5.48,8.57] vs v57 (late third 5.36%). KEEP if
+# >= 8.0% or CI floor > 6.5%; ROLL BACK if < 5.0% or a guardrail trips
+# (death tick median, tracebacks, wire clamp/window agreement -- see the
+# owner brief for the full list).
+#
+# HEAT_HUNTER is a plain kill switch, same convention as OPENING_HUNTER:
+# flip to False to fall back to byte-identical v57 behaviour (opening
+# latch only, no re-arm after later kills) without removing this block.
+# It gates ONLY the play-swap use of the heat-window clock below; the
+# v56 AGGRESSION LOCK's own detourMax pin stays keyed on the raw
+# predicate, unconditional on this switch -- see apply_phase_clamps.
+HEAT_HUNTER = True
+
 # Awareness digest: a track older than this is a memory, not a threat (the
 # harness's own 10-s freshness/aggressor window). An item further than
 # NEAR_ITEM_PX is a detour, not "near".
@@ -603,6 +631,23 @@ def apply_phase_clamps(entries, view, pact_state, source=None):
     exact same doctrine numbers as one the model named itself -- one
     mechanism, not two copies of pressRange/finishRange/engageDist.
 
+    v58 (HEAT-WINDOW HUNTER, pre-registered owner brief §23): the SAME
+    play-swap block as v57, now re-armed by a SECOND, independent
+    predicate -- the recurring HEAT_WINDOW_TICKS clock `_update_heat_window`
+    already tracks for the AGGRESSION LOCK detourMax pin further down (see
+    HEAT_HUNTER module comment). That clock's own state-mutating call
+    (`pact_state["_last_heat_tick"]`) runs exactly ONCE per
+    apply_phase_clamps call, cached as `heat_window_state`, so the two
+    consumers -- this play-swap block and the AGGRESSION LOCK block --
+    always agree on whether the window is open on this call. HEAT_HUNTER
+    gates only the play-swap use; the AGGRESSION LOCK's own detourMax pin
+    stays keyed on the raw `heat_window_state`, unconditional on this
+    switch, exactly as it was before this lever existed. The opening
+    latch and the heat window cannot both be true on the same call (a
+    kill permanently trips the opening latch false, and only a kill can
+    make the heat window true), so the log tag below is an if/elif in
+    substance even though it reads as a single ternary.
+
     Calling this SAME function from both adjust_entries (after its own
     CONVERSION/ARMAMENT inserts) and from the maintenance resend path
     closes all these gaps with one implementation instead of separate
@@ -640,34 +685,44 @@ def apply_phase_clamps(entries, view, pact_state, source=None):
         tag, suffix = "", ""
     fired = False
 
-    # OPENING HUNTER (v57, see OPENING_TICKS/OPENING_HUNTER module comment
-    # for the full WHY/citations): while the opening window is live and our
-    # team has landed no kill yet this episode (_update_opening_hunter, a
-    # one-time latch, not a recurring window like the heat-window lock
-    # below), strip every scatter entry and guarantee a fire_superiority
-    # entry is on the list -- runs BEFORE the FIRE_SUPERIORITY WIRE FIX loop
-    # just below so a freshly-installed entry gets the SAME doctrine params
-    # (pressRange/finishRange/engageDist) as any model-authored one, one
-    # mechanism, never a second copy of those numbers. This block changes
-    # WHICH play is on the ladder, never fire_superiority's own numbers --
-    # the read isolates the play swap, same discipline as every other pin
-    # in this function.
-    if OPENING_HUNTER and _update_opening_hunter(pstate, view):
+    # OPENING/HEAT-WINDOW HUNTER (v57 opening latch + v58 heat-window
+    # re-arm, see OPENING_TICKS/OPENING_HUNTER and HEAT_HUNTER module
+    # comments for the full WHY/citations): while EITHER the opening
+    # window is live and our team has landed no kill yet this episode
+    # (_update_opening_hunter, a one-time latch), OR a heat-paying kill
+    # by our team landed within HEAT_WINDOW_TICKS of now (the SAME
+    # recurring clock the AGGRESSION LOCK block below reads -- evaluated
+    # ONCE here, cached in `heat_window_state`, and reused down there so
+    # both blocks always agree), strip every scatter entry and guarantee
+    # a fire_superiority entry is on the list -- runs BEFORE the
+    # FIRE_SUPERIORITY WIRE FIX loop just below so a freshly-installed
+    # entry gets the SAME doctrine params (pressRange/finishRange/
+    # engageDist) as any model-authored one, one mechanism, never a
+    # second copy of those numbers. This block changes WHICH play is on
+    # the ladder, never fire_superiority's own numbers -- the read
+    # isolates the play swap, same discipline as every other pin in this
+    # function. HEAT_HUNTER gates only this use of the clock; see the
+    # AGGRESSION LOCK block below for the unconditional v56 use.
+    heat_window_state = _update_heat_window(pstate, view)
+    opening_active = OPENING_HUNTER and _update_opening_hunter(pstate, view)
+    heat_hunter_active = HEAT_HUNTER and heat_window_state
+    if opening_active or heat_hunter_active:
+        window_tag = "opening" if opening_active else "heat"
         before_count = len(entries)
         entries[:] = [e for e in entries if e.get("play") != "scatter"]
         stripped = before_count - len(entries)
         if stripped:
             starter_harness._log(
                 PERSONA,
-                f"opening-hunter clamp{tag}: scatter stripped "
+                f"{window_tag}-hunter clamp{tag}: scatter stripped "
                 f"({stripped} {'entry' if stripped == 1 else 'entries'}){suffix}")
             fired = True
         if not any(e.get("play") == "fire_superiority" for e in entries):
             entries.append({"play": "fire_superiority",
-                            "entry_id": "opening_hunter", "params": {}})
+                            "entry_id": f"{window_tag}_hunter", "params": {}})
             starter_harness._log(
                 PERSONA,
-                f"opening-hunter clamp{tag}: fire_superiority installed{suffix}")
+                f"{window_tag}-hunter clamp{tag}: fire_superiority installed{suffix}")
             fired = True
 
     # FIRE_SUPERIORITY WIRE FIX (v44, moved here v52 -- see module docstring
@@ -756,15 +811,19 @@ def apply_phase_clamps(entries, view, pact_state, source=None):
     # HEAT-WINDOW AGGRESSION LOCK (v56, see HEAT_WINDOW_TICKS/
     # HEAT_WINDOW_DETOUR_MAX module comment for the WHY and the source
     # citations): same shape as the FINAL FOUR clamp just above -- gated
-    # on its own predicate (_update_heat_window, not _final4), same two
-    # plays (supply_run/loot), same min()-against-whatever's-on-the-wire
-    # clamp so it composes correctly with the final-four clamp above
-    # (and with each other on repeated calls) regardless of call order --
-    # never a raw overwrite. Independent of _final4: a heat-paying kill
-    # early in a round (alive_teams > 4) locks the window exactly the same
-    # as one at final four, where both predicates being true just means
-    # both clamps agree (min() already makes the tighter one win).
-    if _update_heat_window(pstate, view):
+    # on its own predicate (`heat_window_state`, computed once above by
+    # the OPENING/HEAT-WINDOW HUNTER block -- not a second call into
+    # _update_heat_window, and not _final4), same two plays (supply_run/
+    # loot), same min()-against-whatever's-on-the-wire clamp so it
+    # composes correctly with the final-four clamp above (and with each
+    # other on repeated calls) regardless of call order -- never a raw
+    # overwrite. Independent of _final4: a heat-paying kill early in a
+    # round (alive_teams > 4) locks the window exactly the same as one at
+    # final four, where both predicates being true just means both clamps
+    # agree (min() already makes the tighter one win). Unconditional on
+    # HEAT_HUNTER (v58's kill switch) -- that switch only gates the
+    # play-swap use of this same clock above, never this pin.
+    if heat_window_state:
         for entry in entries:
             play = entry.get("play")
             if play not in ("supply_run", "loot"):

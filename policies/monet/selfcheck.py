@@ -5190,10 +5190,15 @@ check("(i) opening hunter clamp logs both the scatter-strip and the "
       and "opening-hunter clamp: fire_superiority installed"
       in _oh_i_log.getvalue(), repr(_oh_i_log.getvalue()))
 
-# (ii) THE SECOND PRE-REGISTERED FIXTURE: same call, same tick 300, but
-# kill_feed now shows a kill credited to our own team at tick 250 --
-# untouched: the latch is already permanently false, this block never
-# fires, and nothing it owns is logged.
+# (ii) THE SECOND PRE-REGISTERED FIXTURE (v57 shape, v58 behaviour):
+# same call, same tick 300, but kill_feed now shows a kill credited to
+# our own team at tick 250 -- the OPENING latch is permanently false
+# (a kill has landed), but under v58 the HEAT-WINDOW re-arm now takes
+# over: the kill is only 50 ticks ago (<= HEAT_WINDOW_TICKS=270), so
+# this block fires again, tagged 'heat' this time, not 'opening'. See
+# the dedicated v58 HEAT-WINDOW HUNTER fixture block below for the full
+# pre-registered (ii)-(vi) coverage at the owner brief's own tick
+# values (2000/1900, 2000/1600, 2000/1900-enemy, 800/700).
 _oh_ii_entries = _oh_entries()
 _oh_ii_pact = {"_my_team": "rust"}
 _oh_ii_view = {"tick": 300, "world": {"alive_teams": 16},
@@ -5205,9 +5210,13 @@ with _contextlib.redirect_stdout(_oh_ii_log):
                                              _oh_ii_pact, source=None)
 _oh_ii_plays = [e["play"] for e in _oh_ii_entries]
 check("(ii) opening hunter: same tick 300, but our team already banked a "
-      "kill at tick 250 -- scatter stays, no fire_superiority installed, "
-      "this block never fires, no opening-hunter line logged",
-      not _oh_ii_fired and _oh_ii_plays == ["pact", "target_law", "scatter"]
+      "kill at tick 250 -- v58: the opening latch is tripped, but the "
+      "50-tick-old kill re-arms the HEAT window instead -- scatter "
+      "stripped, fire_superiority installed, tagged 'heat' not 'opening'",
+      _oh_ii_fired and "scatter" not in _oh_ii_plays
+      and "fire_superiority" in _oh_ii_plays
+      and "heat-hunter clamp: scatter stripped (1 entry)"
+      in _oh_ii_log.getvalue()
       and "opening-hunter clamp" not in _oh_ii_log.getvalue(),
       str(_oh_ii_plays))
 
@@ -5328,6 +5337,172 @@ check("OPENING_HUNTER=False is a plain kill switch: the same "
       "installs fire_superiority",
       not _oh_off_fired and _oh_off_plays == ["pact", "target_law", "scatter"],
       str(_oh_off_plays))
+
+# ============================================================
+# v58 HEAT-WINDOW HUNTER -- pre-registered fixtures (owner brief §23,
+# card 242c7af8/epic 3e44d582). Fixture (i) [tick 300, no kills --
+# opening window fires, untouched by this lever] is already covered by
+# the (i) fixture above; (ii) below is also covered above at tick
+# 300/250 -- these repeat it at the owner brief's own tick 2000/1900
+# values, then (iii)-(vi) cover the new re-arm boundary, the
+# enemy-kill guard, opening+heat overlap, and the kill switch.
+# ============================================================
+
+# (ii) tick 2000, our team's kill at tick 1900 (100 ticks ago, inside
+# HEAT_WINDOW_TICKS=270) -- heat window fires: scatter stripped,
+# fire_superiority installed, tagged 'heat'.
+_hh_ii_entries = _oh_entries()
+_hh_ii_pact = {"_my_team": "rust"}
+_hh_ii_view = {"tick": 2000, "world": {"alive_teams": 16},
+              "kill_feed": [{"tick": 1900, "killer_team": "rust",
+                            "victim_seat": 9}]}
+_hh_ii_log = _io.StringIO()
+with _contextlib.redirect_stdout(_hh_ii_log):
+    _hh_ii_fired = policy.apply_phase_clamps(_hh_ii_entries, _hh_ii_view,
+                                             _hh_ii_pact, source=None)
+_hh_ii_plays = [e["play"] for e in _hh_ii_entries]
+check("(ii) heat-window hunter: tick 2000, our kill at 1900 (100 ticks "
+      "ago) -- scatter stripped, fire_superiority installed, fired=True",
+      _hh_ii_fired and "scatter" not in _hh_ii_plays
+      and "fire_superiority" in _hh_ii_plays, str(_hh_ii_plays))
+check("(ii) heat-window hunter clamp logs the 'heat' tag, not 'opening' "
+      "-- the opening latch is already tripped by this same kill",
+      "heat-hunter clamp: scatter stripped (1 entry)"
+      in _hh_ii_log.getvalue()
+      and "heat-hunter clamp: fire_superiority installed"
+      in _hh_ii_log.getvalue()
+      and "opening-hunter clamp" not in _hh_ii_log.getvalue(),
+      repr(_hh_ii_log.getvalue()))
+
+# (iii) tick 2000, our kill at tick 1600 (400 ticks ago, > 270) --
+# outside the heat window and long past OPENING_TICKS -- untouched,
+# byte-identical to v57.
+_hh_iii_entries = _oh_entries()
+_hh_iii_pact = {"_my_team": "rust"}
+_hh_iii_view = {"tick": 2000, "world": {"alive_teams": 16},
+               "kill_feed": [{"tick": 1600, "killer_team": "rust",
+                             "victim_seat": 9}]}
+_hh_iii_log = _io.StringIO()
+with _contextlib.redirect_stdout(_hh_iii_log):
+    _hh_iii_fired = policy.apply_phase_clamps(_hh_iii_entries, _hh_iii_view,
+                                              _hh_iii_pact, source=None)
+_hh_iii_plays = [e["play"] for e in _hh_iii_entries]
+check("(iii) heat-window hunter: tick 2000, our kill 400 ticks ago "
+      "(> HEAT_WINDOW_TICKS=270) -- untouched, no clamp line logged",
+      not _hh_iii_fired
+      and _hh_iii_plays == ["pact", "target_law", "scatter"]
+      and "hunter clamp" not in _hh_iii_log.getvalue(),
+      str(_hh_iii_plays))
+
+# (iv) tick 2000, an ENEMY team's kill at tick 1900 only -- our own
+# team has never been credited a kill -- untouched (neither window
+# reads an enemy kill as ours).
+_hh_iv_entries = _oh_entries()
+_hh_iv_pact = {"_my_team": "rust"}
+_hh_iv_view = {"tick": 2000, "world": {"alive_teams": 16},
+              "kill_feed": [{"tick": 1900, "killer_team": "steel",
+                            "victim_seat": 9}]}
+_hh_iv_log = _io.StringIO()
+with _contextlib.redirect_stdout(_hh_iv_log):
+    _hh_iv_fired = policy.apply_phase_clamps(_hh_iv_entries, _hh_iv_view,
+                                             _hh_iv_pact, source=None)
+_hh_iv_plays = [e["play"] for e in _hh_iv_entries]
+check("(iv) heat-window hunter: tick 2000, an ENEMY kill at 1900 only "
+      "-- neither the opening latch nor the heat window ever reads a "
+      "rival's kill as ours -- untouched",
+      not _hh_iv_fired
+      and _hh_iv_plays == ["pact", "target_law", "scatter"]
+      and "hunter clamp" not in _hh_iv_log.getvalue(),
+      str(_hh_iv_plays))
+
+# (v) tick 800, our kill at tick 700 (100 ticks ago) -- the opening
+# latch is already tripped (a kill landed before OPENING_TICKS=1500
+# elapsed), but the heat window re-arms the SAME play-swap, and the
+# v56 AGGRESSION LOCK's detourMax pin ALSO fires off the identical
+# cached `heat_window_state` on this same call -- proving both
+# consumers of the one evaluation agree.
+_hh_v_entries = _oh_entries() + [
+    {"play": "loot", "entry_id": "arm",
+     "params": {"detourMax": 400, "contested": "avoid"}},
+]
+_hh_v_pact = {"_my_team": "rust"}
+_hh_v_view = {"tick": 800, "world": {"alive_teams": 16},
+             "kill_feed": [{"tick": 700, "killer_team": "rust",
+                           "victim_seat": 9}]}
+_hh_v_log = _io.StringIO()
+with _contextlib.redirect_stdout(_hh_v_log):
+    _hh_v_fired = policy.apply_phase_clamps(_hh_v_entries, _hh_v_view,
+                                            _hh_v_pact, source=None)
+_hh_v_plays = [e["play"] for e in _hh_v_entries]
+_hh_v_loot = next(e for e in _hh_v_entries if e["play"] == "loot")
+check("(v) heat-window hunter: tick 800, our kill at 700 (opening latch "
+      "already tripped) -- heat window fires the play-swap: scatter "
+      "stripped, fire_superiority installed, tagged 'heat'",
+      _hh_v_fired and "scatter" not in _hh_v_plays
+      and "fire_superiority" in _hh_v_plays
+      and "heat-hunter clamp: scatter stripped (1 entry)"
+      in _hh_v_log.getvalue(),
+      str(_hh_v_plays))
+check("(v) heat-window hunter: the SAME call's v56 AGGRESSION LOCK "
+      "detourMax pin also fires off the identical cached "
+      "heat_window_state -- loot.detourMax clamps 400 -> "
+      "HEAT_WINDOW_DETOUR_MAX (100)",
+      _hh_v_loot["params"].get("detourMax") == policy.HEAT_WINDOW_DETOUR_MAX
+      == 100
+      and "heat-window clamp: loot.detourMax 400 -> 100"
+      in _hh_v_log.getvalue(),
+      str(_hh_v_loot["params"]))
+
+# (vi) HEAT_HUNTER=False: the (ii) scenario above (tick 2000, our kill
+# at 1900) becomes untouched -- a plain kill switch, same convention as
+# OPENING_HUNTER.
+_hh_vi_entries = _oh_entries()
+_hh_vi_prev = policy.HEAT_HUNTER
+policy.HEAT_HUNTER = False
+try:
+    _hh_vi_log = _io.StringIO()
+    with _contextlib.redirect_stdout(_hh_vi_log):
+        _hh_vi_fired = policy.apply_phase_clamps(
+            _hh_vi_entries,
+            {"tick": 2000, "world": {"alive_teams": 16},
+             "kill_feed": [{"tick": 1900, "killer_team": "rust",
+                           "victim_seat": 9}]},
+            {"_my_team": "rust"}, source=None)
+finally:
+    policy.HEAT_HUNTER = _hh_vi_prev
+_hh_vi_plays = [e["play"] for e in _hh_vi_entries]
+check("(vi) HEAT_HUNTER=False is a plain kill switch: the (ii) scenario "
+      "(tick 2000, our kill at 1900) now leaves scatter in place and "
+      "installs no fire_superiority, no hunter clamp line logged",
+      not _hh_vi_fired
+      and _hh_vi_plays == ["pact", "target_law", "scatter"]
+      and "hunter clamp" not in _hh_vi_log.getvalue(),
+      str(_hh_vi_plays))
+
+# (vi cont'd) HEAT_HUNTER=False does NOT gate the v56 AGGRESSION LOCK's
+# own detourMax pin -- that clamp stays keyed on the raw heat-window
+# clock, unconditional on this switch, exactly as pre-registered.
+_hh_vi2_entries = [
+    {"play": "loot", "entry_id": "arm",
+     "params": {"detourMax": 400, "contested": "avoid"}},
+]
+_hh_vi2_prev = policy.HEAT_HUNTER
+policy.HEAT_HUNTER = False
+try:
+    _hh_vi2_fired = policy.apply_phase_clamps(
+        _hh_vi2_entries,
+        {"tick": 2000, "world": {"alive_teams": 16},
+         "kill_feed": [{"tick": 1900, "killer_team": "rust",
+                       "victim_seat": 9}]},
+        {"_my_team": "rust"}, source=None)
+finally:
+    policy.HEAT_HUNTER = _hh_vi2_prev
+_hh_vi2_loot = next(e for e in _hh_vi2_entries if e["play"] == "loot")
+check("(vi cont'd) HEAT_HUNTER=False leaves the v56 AGGRESSION LOCK "
+      "detourMax pin untouched -- it stays live off the raw "
+      "heat_window_state, independent of this kill switch",
+      _hh_vi2_loot["params"].get("detourMax") == 100,
+      str(_hh_vi2_loot["params"]))
 
 check("PERSONA.apply_phase_clamps is wired to policy.apply_phase_clamps "
       "(same identity check every other pin's block already runs -- the "
