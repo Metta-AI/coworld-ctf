@@ -4,6 +4,54 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Paintbot — Broadcast Replay</title>
+<script>
+// ?bg=<hex6> (six hex digits, no '#'): softmax.com hands us its own page
+// background here so the arena reads as the picture and the HUD/rails/
+// transport sit on the SAME colour, instead of this file's stock warm-brown
+// letterbox (owner: "the gui is just on the page background and there is a
+// video"). Flat, not the usual --stage-hi/--stage-lo gradient pair, on
+// purpose — two different browns would still read as a letterbox seam.
+// Anything that isn't exactly six hex digits is ignored and the stock look
+// is untouched. Runs before the <style> block below even parses
+// (documentElement already exists once the parser reaches <head>), so
+// there is no brown flash — and an inline style always outranks a
+// stylesheet rule for the same custom property regardless of source
+// order, so this still wins over the :root declarations further down.
+//
+// What actually shows through in the default (non-embed) layout: relayout()
+// now sets body.sidelanes unconditionally, and body.sidelanes #scorebug /
+// body.sidelanes #commsdock both set background:none (higher specificity
+// than the plain #scorebug/#commsdock rules below) — so in that layout the
+// flat colour behind them is the BODY's own --letterbox, not --stage-lo/hi
+// on those elements directly. The --stage-lo/--stage-hi retint below still
+// matters for #stage/#transport (always) and for #scorebug/#commsdock on
+// the ?embed=1 path (body.sidelanes is not exclusive with body[data-embed],
+// so both can be true, but the League Replayer shell hides its own
+// transport/scorebug chrome in that mode — see body[data-embed] rules).
+// --wash-hi/--wash-lo and their -huddle pairs retint the ONE #commsdock
+// wash that is actually reachable through body.sidelanes' background:none
+// (body.commswide.act-huddle #commsdock, which outranks it — see its own
+// comment). --stage-vignette retints #lockerroom's loading-screen corner
+// stop the same way. Arena-INTERNAL overlays (.phase-stage's vote/huddle
+// acts, #endcard) are deliberately NOT retinted here — their dark washes
+// are part of the picture playing inside the arena, not page-visible
+// letterbox chrome, so they keep the stock look at every ?bg= value.
+try {
+  var BG = new URLSearchParams(location.search).get('bg');
+  if (BG && /^[0-9a-f]{6}$/i.test(BG)) {
+    var bgR = parseInt(BG.slice(0, 2), 16), bgG = parseInt(BG.slice(2, 4), 16), bgB = parseInt(BG.slice(4, 6), 16);
+    var rootStyle = document.documentElement.style;
+    rootStyle.setProperty('--letterbox', '#' + BG);
+    rootStyle.setProperty('--stage-lo', '#' + BG);
+    rootStyle.setProperty('--stage-hi', '#' + BG);
+    rootStyle.setProperty('--stage-vignette', '#' + BG);
+    rootStyle.setProperty('--wash-hi', 'rgba(' + bgR + ', ' + bgG + ', ' + bgB + ', 0.55)');
+    rootStyle.setProperty('--wash-lo', 'rgba(' + bgR + ', ' + bgG + ', ' + bgB + ', 0.35)');
+    rootStyle.setProperty('--wash-hi-huddle', 'rgba(' + bgR + ', ' + bgG + ', ' + bgB + ', 0.9)');
+    rootStyle.setProperty('--wash-lo-huddle', 'rgba(' + bgR + ', ' + bgG + ', ' + bgB + ', 0.8)');
+  }
+} catch (e) {}
+</script>
 <style>
 /* ============================================================
    Ink & Print — warm CRT-phosphor arena broadcast.
@@ -25,8 +73,18 @@
 }
 
 :root {
+  /* ?bg=<hex6> overrides both of these to the SAME flat hex (see the <head>
+     script) — a gradient of two page-matching browns would still read as a
+     seam, so the arena backdrop goes flat and only the canvas on top of it
+     reads as the picture. */
   --stage-lo: #16110d;
   --stage-hi: #241a12;
+  /* --stage-lo's ORIGINAL value, pinned, for the two spots that read it as
+     TEXT colour against --amber rather than as a backdrop (.feed-row .badge,
+     .chip.on). ?bg=<hex6> repoints --stage-lo to the embedder's colour, which
+     a light bg would turn into unreadable near-white-on-amber text; those
+     two legibility uses stay locked to the stock warm-dark ink instead. */
+  --ink-on-amber: #16110d;
   --paper: #f2e8d8;
   --paper-dim: #b8ac98;
   --ink: #2a1f16;
@@ -52,8 +110,11 @@ html, body {
   overflow: hidden;
   /* The letterbox around the composition — warm near-black, NEVER pure #000.
      The Observatory embed hands us an arbitrary box; the fixed-aspect stage is
-     centered inside it and this warm tone fills whatever is left over. */
-  background: #120d09;
+     centered inside it and this warm tone fills whatever is left over.
+     ?bg=<hex6> (see the <head> script above) sets --letterbox to the
+     embedding page's own colour instead; absent or invalid, --letterbox is
+     never set and this falls back to the stock #120d09 byte-for-byte. */
+  background: var(--letterbox, #120d09);
   color: var(--paper);
   font-family: var(--finefont);
   -webkit-font-smoothing: antialiased;
@@ -1284,7 +1345,10 @@ html, body {
   flex: 1 1 auto;
   align-self: stretch;
   padding: calc(14 * var(--u)) calc(14 * var(--u)) calc(10 * var(--u));
-  background: linear-gradient(180deg, rgba(36, 26, 18, 0.55), rgba(22, 15, 9, 0.35));
+  /* --wash-hi/--wash-lo (?bg=<hex6>, <head> script) retint this to the page
+     colour instead of the stock browns; unset by default so this stays
+     byte-identical without the param. */
+  background: linear-gradient(180deg, var(--wash-hi, rgba(36, 26, 18, 0.55)), var(--wash-lo, rgba(22, 15, 9, 0.35)));
   position: relative;
 }
 body.commswide #commsdock { display: flex; }
@@ -1344,7 +1408,17 @@ body.commswide #viewport { justify-content: flex-end; }
 body.commswide.act-huddle #board,
 body.commswide.act-huddle #lightpool { filter: brightness(0.45) saturate(0.7); }
 body.commswide.act-huddle #commsdock {
-  background: linear-gradient(180deg, rgba(36, 26, 18, 0.9), rgba(22, 15, 9, 0.8));
+  /* Outranks body.sidelanes #commsdock's background:none (higher
+     specificity), so — unlike the plain #commsdock/#scorebug rules, which
+     only paint anything on the ?embed=1 path once body.sidelanes wins —
+     this is the one wash that actually reaches the page in the ordinary,
+     always-sidelanes layout too (see the <head> script's ?bg= comment for
+     the full contract). --wash-hi-huddle/--wash-lo-huddle (?bg=<hex6>)
+     retint it the same way as the base wash above. Compare .phase-stage's
+     vote/huddle-act washes and #endcard's reveal wash: those stay stock at
+     every ?bg= value on purpose — they're arena-internal (part of the
+     picture), not page-visible letterbox chrome. */
+  background: linear-gradient(180deg, var(--wash-hi-huddle, rgba(36, 26, 18, 0.9)), var(--wash-lo-huddle, rgba(22, 15, 9, 0.8)));
 }
 
 /* ---------- 1d. SIDE-LANE HUD (owner spec 2026-09-02; SUPERSEDED 2026-09-09
@@ -1616,7 +1690,9 @@ body.sidelanes.tiny #scorebug .br-cell {
   letter-spacing: 0.1em;
   text-transform: uppercase;
   padding: calc(1 * var(--u)) calc(4 * var(--u));
-  color: var(--stage-lo);
+  /* TEXT on --amber, not a backdrop — pinned to --ink-on-amber so ?bg=<hex6>
+     (which repoints --stage-lo) never turns this unreadable. */
+  color: var(--ink-on-amber);
   background: var(--amber);
 }
 .feed-row .badge.tk { background: var(--red); color: var(--paper); }
@@ -2119,7 +2195,8 @@ body.sidelanes.tiny #scorebug .br-cell {
   cursor: pointer;
   line-height: 1;
 }
-.chip.on { color: var(--stage-lo); background: var(--amber); }
+/* TEXT on --amber, not a backdrop — see --ink-on-amber's declaration above. */
+.chip.on { color: var(--ink-on-amber); background: var(--amber); }
 .tick-clock {
   font-family: var(--pixfont);
   font-size: calc(9 * var(--u));
@@ -2789,7 +2866,11 @@ body.sidelanes.tiny #scorebug .br-cell {
   z-index: 25;
   overflow: hidden;
   font-family: var(--pixfont);
-  background: radial-gradient(120% 95% at 50% 30%, var(--stage-hi) 0%, var(--stage-lo) 55%, #100b07 100%);
+  /* --stage-vignette (?bg=<hex6>, <head> script) retints this corner stop
+     with the two lamp-lit stops above; unset by default so this stays
+     byte-identical without the param — without it, a flat page bg would
+     still fade to stock near-black at the corners during load. */
+  background: radial-gradient(120% 95% at 50% 30%, var(--stage-hi) 0%, var(--stage-lo) 55%, var(--stage-vignette, #100b07) 100%);
   opacity: 1;
   transition: opacity 600ms ease;
 }
@@ -3499,6 +3580,12 @@ body[data-noviewpanel] #viewpanel { display: none !important; }
       }, 650);
     }, wait);
   }
+
+  // ?bg=<hex6>: the embedding page's own background colour, so the arena reads
+  // as the picture and the HUD/rails/transport sit on the page instead of this
+  // file's stock warm-brown letterbox. Parsed and applied by the tiny inline
+  // script at the very top of <head> — before this script, before the
+  // stylesheet — to avoid a brown flash; see it for the full contract.
 
   // ---- embed mode (League Replayer) ----------------------------------------
   // When loaded inside the League Replayer shell (?embed=1), this client renders
