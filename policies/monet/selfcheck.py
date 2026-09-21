@@ -5510,6 +5510,205 @@ check("PERSONA.apply_phase_clamps is wired to policy.apply_phase_clamps "
       "one)",
       PERSONA.apply_phase_clamps is policy.apply_phase_clamps)
 
+# ============================================================
+# v59 RETURN FIRE -- pre-registered fixtures (owner brief §30 2026-09-21,
+# FIRST-FIGHT ANATOMY read, handoff §29). Same class of proof as v57/v58
+# above: (1) the standalone latch helper, (2) the harness-side gate change
+# (starter_harness.gate_open's hold_vs_gun branch + the persona flag), and
+# (3) the FIVE fixtures named in the pre-registered contract by number.
+# ============================================================
+
+check("policy.py sets starter_harness.HOLD_VS_GUN_AGGRESSOR_GATE=True at "
+      "import time -- the Monet-only opt-in this lever needs (every other "
+      "persona never imports policy.py and keeps the module default)",
+      starter_harness.HOLD_VS_GUN_AGGRESSOR_GATE is True)
+
+check("_update_return_fire: view has no numeric tick -- False, never a "
+      "guess (same convention as _update_heat_window/_update_opening_hunter)",
+      not policy._update_return_fire({}, {}))
+check("_update_return_fire: an aggressor row 10 ticks old (tick 890, now "
+      "900) -- True",
+      policy._update_return_fire(
+          {}, {"tick": 900, "aggressors": [{"tick": 890, "dir_brads": 64,
+                                            "seat": 11}]}))
+check("_update_return_fire: an ANONYMOUS aggressor row (no seat, schema "
+      "$comment: omitted when the shooter was not visible) still counts "
+      "-- tick+dir_brads alone is enough",
+      policy._update_return_fire(
+          {}, {"tick": 900, "aggressors": [{"tick": 895, "dir_brads": 200}]}))
+_rf_persist = {}
+policy._update_return_fire(
+    _rf_persist, {"tick": 900, "aggressors": [{"tick": 890, "dir_brads": 64}]})
+check("_update_return_fire: persists the freshest aggressor tick onto "
+      "pact_state['_last_hit_tick'] (same monotonic-latch shape as "
+      "_update_heat_window's _last_heat_tick)",
+      _rf_persist.get("_last_hit_tick") == 890, str(_rf_persist))
+policy._update_return_fire(
+    _rf_persist, {"tick": 950, "aggressors": [{"tick": 500, "dir_brads": 1}]})
+check("_update_return_fire: a STALE row arriving on a later call never "
+      "regresses the persisted clock (890 stays 890, not overwritten by "
+      "the older 500)",
+      _rf_persist.get("_last_hit_tick") == 890, str(_rf_persist))
+check("_update_return_fire: an aggressor 200 ticks old vs RETURN_FIRE_TICKS "
+      "=120 -- False (outside the forced-entry window)",
+      not policy._update_return_fire(
+          {}, {"tick": 2000, "aggressors": [{"tick": 1800, "dir_brads": 5}]})
+      and policy.RETURN_FIRE_TICKS == 120)
+
+# Harness-side gate mechanism, in isolation from policy.py: an aggressor-hot
+# fact with NO track can only open hold_vs_gun's gate when
+# HOLD_VS_GUN_AGGRESSOR_GATE is True, and the original track-distance branch
+# is untouched either way.
+_rfg_prev = starter_harness.HOLD_VS_GUN_AGGRESSOR_GATE
+try:
+    starter_harness.HOLD_VS_GUN_AGGRESSOR_GATE = True
+    _rfg_on_open = starter_harness.gate_open(
+        {"play": "hold_vs_gun", "params": {}},
+        {"in_zone": True, "nearest_enemy": None, "aggressor_hot": True})
+    _rfg_on_no_agg = starter_harness.gate_open(
+        {"play": "hold_vs_gun", "params": {}},
+        {"in_zone": True, "nearest_enemy": None, "aggressor_hot": False})
+    starter_harness.HOLD_VS_GUN_AGGRESSOR_GATE = False
+    _rfg_off_open = starter_harness.gate_open(
+        {"play": "hold_vs_gun", "params": {}},
+        {"in_zone": True, "nearest_enemy": None, "aggressor_hot": True})
+    _rfg_off_track = starter_harness.gate_open(
+        {"play": "hold_vs_gun", "params": {}},
+        {"in_zone": True, "nearest_enemy": 300, "aggressor_hot": False})
+finally:
+    starter_harness.HOLD_VS_GUN_AGGRESSOR_GATE = _rfg_prev
+check("gate_open(hold_vs_gun): aggressor_hot + no track opens the gate "
+      "ONLY when HOLD_VS_GUN_AGGRESSOR_GATE is True",
+      _rfg_on_open and not _rfg_off_open)
+check("gate_open(hold_vs_gun): no aggressor + no track stays closed even "
+      "with the flag on (nothing to return fire at)",
+      not _rfg_on_no_agg)
+check("gate_open(hold_vs_gun): the ORIGINAL track-distance branch is "
+      "untouched -- opens on a fresh nearby track with the flag OFF, "
+      "exactly like v58",
+      _rfg_off_track)
+
+
+def _rf_entries():
+    return [
+        {"play": "pact", "entry_id": "truce",
+         "params": {"partners": ["seat:19"], "protect": True}},
+        {"play": "target_law", "entry_id": "law",
+         "params": {"prefer": ["weakened", "revenge"]}},
+        {"play": "scatter", "entry_id": "flee",
+         "params": {"distance": 320, "ticks": 300}},
+    ]
+
+
+# (i) THE FIRST PRE-REGISTERED FIXTURE: under fire (aggressor present), no
+# tracks, tick 2000 (past OPENING_TICKS, no kill yet -- opening/heat both
+# inactive, isolating this lever alone) -- a hold_vs_gun return-fire entry
+# must be committed, and logged.
+_rf_i_entries = _rf_entries()
+_rf_i_pact = {"_my_team": "rust"}
+_rf_i_view = {"tick": 2000, "world": {"alive_teams": 16}, "kill_feed": [],
+              "aggressors": [{"tick": 1990, "dir_brads": 64, "seat": 11}]}
+_rf_i_log = _io.StringIO()
+with _contextlib.redirect_stdout(_rf_i_log):
+    _rf_i_fired = policy.apply_phase_clamps(_rf_i_entries, _rf_i_view,
+                                            _rf_i_pact, source=None)
+_rf_i_plays = [e["play"] for e in _rf_i_entries]
+check("(i) return fire: under fire (aggressor hit 10 ticks ago), no "
+      "tracks -- hold_vs_gun committed, fired=True",
+      _rf_i_fired and "hold_vs_gun" in _rf_i_plays, str(_rf_i_plays))
+check("(i) return fire clamp logs the install line",
+      "return-fire clamp: hold_vs_gun installed" in _rf_i_log.getvalue(),
+      repr(_rf_i_log.getvalue()))
+
+# (ii) under fire AND a live track -- unchanged from v58: fire_superiority
+# (already on the ladder, via its own normal gate) stays, no duplicate
+# hold_vs_gun is ever added.
+_rf_ii_entries = _oh_entries_with_fs()
+_rf_ii_pact = {"_my_team": "rust"}
+_rf_ii_view = {"tick": 2000, "world": {"alive_teams": 16}, "kill_feed": [],
+               "aggressors": [{"tick": 1990, "dir_brads": 64, "seat": 5}],
+               "tracks": [{"seat": 5, "team": "steel", "pos": [100, 100],
+                          "fresh_tick": 1995}]}
+_rf_ii_log = _io.StringIO()
+with _contextlib.redirect_stdout(_rf_ii_log):
+    policy.apply_phase_clamps(_rf_ii_entries, _rf_ii_view, _rf_ii_pact,
+                              source=None)
+_rf_ii_plays = [e["play"] for e in _rf_ii_entries]
+check("(ii) return fire: under fire AND a live track -- fire_superiority "
+      "(its own normal gate, already on the ladder) survives untouched, "
+      "no hold_vs_gun ever added -- byte-identical to v58",
+      "hold_vs_gun" not in _rf_ii_plays
+      and _rf_ii_plays.count("fire_superiority") == 1
+      and "return-fire clamp" not in _rf_ii_log.getvalue(),
+      str(_rf_ii_plays))
+
+# (iii) no aggressors, no tracks -- untouched.
+_rf_iii_entries = _rf_entries()
+_rf_iii_view = {"tick": 2000, "world": {"alive_teams": 16}, "kill_feed": []}
+_rf_iii_log = _io.StringIO()
+with _contextlib.redirect_stdout(_rf_iii_log):
+    _rf_iii_fired = policy.apply_phase_clamps(
+        _rf_iii_entries, _rf_iii_view, {"_my_team": "rust"}, source=None)
+_rf_iii_plays = [e["play"] for e in _rf_iii_entries]
+check("(iii) return fire: no aggressors, no tracks -- untouched, "
+      "byte-identical to v58",
+      not _rf_iii_fired
+      and _rf_iii_plays == ["pact", "target_law", "scatter"]
+      and "return-fire clamp" not in _rf_iii_log.getvalue(),
+      str(_rf_iii_plays))
+
+# (iv) aggressor seen 200 ticks ago, RETURN_FIRE_TICKS=120 -- untouched.
+_rf_iv_entries = _rf_entries()
+_rf_iv_view = {"tick": 2000, "world": {"alive_teams": 16}, "kill_feed": [],
+              "aggressors": [{"tick": 1800, "dir_brads": 5}]}
+_rf_iv_log = _io.StringIO()
+with _contextlib.redirect_stdout(_rf_iv_log):
+    _rf_iv_fired = policy.apply_phase_clamps(
+        _rf_iv_entries, _rf_iv_view, {"_my_team": "rust"}, source=None)
+_rf_iv_plays = [e["play"] for e in _rf_iv_entries]
+check("(iv) return fire: aggressor seen 200 ticks ago (> "
+      "RETURN_FIRE_TICKS=120) -- untouched",
+      not _rf_iv_fired
+      and _rf_iv_plays == ["pact", "target_law", "scatter"]
+      and "return-fire clamp" not in _rf_iv_log.getvalue(),
+      str(_rf_iv_plays))
+
+# (v) RETURN_FIRE=False -- the (i) scenario above becomes untouched, a
+# plain kill switch, same convention as OPENING_HUNTER/HEAT_HUNTER.
+_rf_v_entries = _rf_entries()
+_rf_v_prev = policy.RETURN_FIRE
+policy.RETURN_FIRE = False
+try:
+    _rf_v_log = _io.StringIO()
+    with _contextlib.redirect_stdout(_rf_v_log):
+        _rf_v_fired = policy.apply_phase_clamps(
+            _rf_v_entries, _rf_i_view, {"_my_team": "rust"}, source=None)
+finally:
+    policy.RETURN_FIRE = _rf_v_prev
+_rf_v_plays = [e["play"] for e in _rf_v_entries]
+check("(v) RETURN_FIRE=False is a plain kill switch: the (i) scenario "
+      "(under fire, no tracks) now leaves the ladder untouched, no "
+      "hold_vs_gun installed, no clamp line logged",
+      not _rf_v_fired
+      and _rf_v_plays == ["pact", "target_law", "scatter"]
+      and "return-fire clamp" not in _rf_v_log.getvalue(),
+      str(_rf_v_plays))
+
+# End-to-end through the REAL send path, same shape as the opening-hunter
+# e2e check above: repair_call -> adjust_entries -> apply_phase_clamps.
+_rf_e2e_context = {"self": {"seat": 3, "duo_partner": 19, "team": "rust"}}
+_rf_e2e_seat = fake_seat(
+    context=_rf_e2e_context,
+    view={"tick": 2000, "world": {"alive_teams": 16}, "kill_feed": [],
+          "aggressors": [{"tick": 1990, "dir_brads": 64, "seat": 11}]})
+starter_harness.repair_call(
+    {"call": {"entries": _rf_entries()}}, PERSONA, _rf_e2e_seat, AVAILABLE)
+_rf_e2e_plays = [e["play"] for e in _rf_e2e_seat.wanted_entries]
+check("return fire end-to-end via repair_call/adjust_entries: a real "
+      "call's own context + view (under fire, no tracks) installs "
+      "hold_vs_gun on seat.wanted_entries",
+      "hold_vs_gun" in _rf_e2e_plays, str(_rf_e2e_plays))
+
 print()
 if failures:
     print(f"SELF-CHECK FAILED: {len(failures)} failing check(s)")

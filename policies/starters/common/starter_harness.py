@@ -686,6 +686,21 @@ MAX_HP_FALLBACK = 6  # a full seat; refined from the live view when we have one
 TRACK_FRESH_TICKS = 240  # a track older than this no longer counts as "seen"
 LOOT_CLEAR_PX = 500      # loot only with no fresh enemy track closer than this
 PARTNER_COMBAT_PX = 200  # an enemy this close to the partner = they are in a fight
+# `aggressors` rows are pre-windowed to 120 ticks server-side (schema
+# $comment, src/shell/schemas/play_view.schema.json) -- this mirrors that
+# same window rather than inventing a second number, so "hot" here means
+# exactly what the wire itself still considers live evidence.
+AGGRESSOR_FRESH_TICKS = 120
+
+# v59 RETURN FIRE (Monet-only lever, owner brief §30 2026-09-21): default
+# OFF so every persona except the one that explicitly opts in keeps reading
+# hold_vs_gun's gate exactly as it always has (track-distance only).
+# policies/monet/policy.py flips this to True at import time (module-level
+# assignment on `starter_harness`, the same pattern `PERSONA` already
+# relies on for `_log` -- see gate_open's hold_vs_gun branch below); the
+# aggressive/cautious/collaborative starters never import monet/policy.py,
+# so this stays False for them regardless of what Monet does at runtime.
+HOLD_VS_GUN_AGGRESSOR_GATE = False
 
 
 def _max_hp(view: dict) -> float:
@@ -768,6 +783,16 @@ def _view_facts(view: dict, context: dict, kill_feed: list) -> dict:
     ticks_to_shrink = (zone.get("ticks_to_shrink")
                        if isinstance(zone.get("ticks_to_shrink"), int)
                        else None)
+    # v59 RETURN FIRE: an aggressor row carries a bearing (dir_brads), never
+    # a position (play_view.schema.json `aggressors`), so it can never feed
+    # `enemies`/`nearest_enemy` above -- those are track-distance facts.
+    # This is a separate, position-free "we are under fire right now" fact
+    # for hold_vs_gun's gate (see HOLD_VS_GUN_AGGRESSOR_GATE); cheap to
+    # compute for every persona, only ever ACTED on behind that flag.
+    aggressor_hot = any(
+        isinstance(a, dict) and isinstance(a.get("tick"), int)
+        and 0 <= tick - a["tick"] <= AGGRESSOR_FRESH_TICKS
+        for a in (view or {}).get("aggressors", []))
     return dict(
         pos=pos, hp_frac=me.get("hp_frac"), enemies=enemies, items=items,
         nearest_enemy=nearest_enemy, in_zone=in_zone,
@@ -776,6 +801,7 @@ def _view_facts(view: dict, context: dict, kill_feed: list) -> dict:
         partner_track_fresh=partner_track_fresh,
         partner_in_combat=partner_in_combat,
         self_downed=self_downed, partner_downed=partner_downed,
+        aggressor_hot=aggressor_hot,
         partner_dist=(_dist(pos, partner_track["pos"])
                       if pos is not None and partner_track is not None else None),
     )
@@ -894,9 +920,20 @@ def gate_open(entry: dict, facts: dict) -> bool:
         engage = params.get(
             "engageDist",
             plays.PLAYS["hold_vs_gun"]["params"]["engageDist"]["default"])
-        return (facts.get("in_zone", True)
+        if (facts.get("in_zone", True)
                 and facts["nearest_enemy"] is not None
-                and facts["nearest_enemy"] <= engage)
+                and facts["nearest_enemy"] <= engage):
+            return True
+        # v59 RETURN FIRE (persona-scoped, HOLD_VS_GUN_AGGRESSOR_GATE):
+        # an untracked attacker never satisfies the track-distance test
+        # above (aggressor rows carry no position), but hold_vs_gun's own
+        # wasm already reads aggressor bearing directly and needs nothing
+        # else (hold_vs_gun.nim play_step, aggressor scan ~line 314-321) --
+        # so a fresh aggressor row alone also opens the gate for the one
+        # persona that opts in.
+        return bool(HOLD_VS_GUN_AGGRESSOR_GATE
+                    and facts.get("in_zone", True)
+                    and facts.get("aggressor_hot"))
     if play == "fire_superiority":
         # Press-vs-break needs guns to count: any fresh enemy track, inside
         # the zone (same reasoning as hold_vs_gun).

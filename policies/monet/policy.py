@@ -44,6 +44,14 @@ sys.path.insert(0, str(_HERE.parent / "starters" / "common"))
 import starter_harness  # noqa: E402
 from starter_harness import Persona  # noqa: E402
 
+# v59 RETURN FIRE (owner brief §30 2026-09-21): opt Monet, and only Monet,
+# into hold_vs_gun's aggressor-only gate (starter_harness.gate_open) --
+# module-level assignment on the shared `starter_harness` module, same
+# scoping pattern `PERSONA` already relies on for `_log`. The three starter
+# personas (aggressive/cautious/collaborative) never import this module, so
+# their copy of the flag stays at starter_harness's own default (False).
+starter_harness.HOLD_VS_GUN_AGGRESSOR_GATE = True
+
 # Duo fields pair seat k with k+teamCount and team is k % teamCount; see
 # _neighbor_duo below for how teamCount is now derived (OBSERVED per call,
 # never a fixed divisor -- the field has flipped shape seven times in 72
@@ -391,6 +399,74 @@ OPENING_HUNTER = True
 # predicate, unconditional on this switch -- see apply_phase_clamps.
 HEAT_HUNTER = True
 
+# RETURN FIRE (v59, pre-registered lever, owner brief §30 2026-09-21, from
+# the FIRST-FIGHT ANATOMY read, handoff §29, n=1,171 seat-episode rows):
+# OPENING_HUNTER/HEAT_HUNTER above both press once a live enemy TRACK is in
+# view -- fire_superiority's own gate needs one (starter_harness.gate_open,
+# `facts["enemies"]`). The measured gap sits one step earlier: when the
+# ENEMY fires first, we land the first tag only 8.9% [5.4,14.4] of the time
+# (14/157) vs 15.9% [12.5,20.2] pooled for the three measured leaders
+# (55/345, p=0.034) -- under fire first we stalemate (33.8%) or die (38.9%)
+# instead. Cause on the wire: an attacker who has hit us but never entered
+# our tracked-enemy list leaves fire_superiority's gate closed (it has
+# nothing to press toward) and jackal ("join only when cheap") driving,
+# so the seat eats hits with no return posture at all.
+#
+# SCHEMA EVIDENCE (src/shell/schemas/play_view.schema.json): `aggressors`
+# (lines ~266-290) is victim-private hit feedback against SELF, window 120
+# ticks, <=16 rows, each `{tick, dir_brads, seat?}` -- `seat` omitted when
+# the shooter was not visible at the moment of the hit, and there is NO
+# position field at all, ever (bearing only). `tracks` (lines ~173-226,
+# what fire_superiority.nim and hold_vs_gun's OWN track-distance branch
+# both read) requires `{seat, team, pos, fresh_tick}` -- a real 2D point.
+# So an aggressor row can never be turned into a synthetic track entry:
+# fire_superiority.nim's press/break arithmetic (policies/monet/plays/
+# fire_superiority.nim `play_step`) needs `track.pos` for every distSq/
+# projectFrom call and never reads `decoded.aggressors` at all -- forcing
+# its harness gate open with no real point would just hand it nothing to
+# navigate toward (`theirGuns == 0` immediately holds). Mechanism (A) from
+# the owner brief is DEAD on the wire for this reason and was not used.
+#
+# MECHANISM CHOSEN (B): hold_vs_gun (policies/monet/plays/hold_vs_gun.nim)
+# is Monet's OTHER custom controller, built for exactly this degraded case
+# -- its own header says so directly: "Aggressor rows carry a bearing, not
+# a position (SdkAggressor.dirBrads) ... under fire the play stands its
+# ground facing the threat (body-side owns facing/fire) and will only
+# reposition to cover that keeps a sightline on the gun; it never
+# navigates directly away from the freshest aggressor bearing" (never
+# turn-your-back doctrine, ported from Picasso). Its `play_step` reads
+# `decoded.aggressors` directly (hold_vs_gun.nim ~lines 309-330) and needs
+# no track at all. The one gap: hold_vs_gun's own HARNESS gate
+# (starter_harness.gate_open) was ALSO track-distance-only
+# (`facts["nearest_enemy"] <= engageDist`), so forcing it into `entries`
+# alone would still get it stripped by layer_ladder with no track in view
+# -- closed by HOLD_VS_GUN_AGGRESSOR_GATE (persona-scoped harness change,
+# see the import-time flag above and gate_open's hold_vs_gun branch).
+#
+# RETURN_FIRE_TICKS: how long the forced hold_vs_gun entry persists in
+# `entries` after the LAST incoming hit (see _update_return_fire, same
+# monotonic-latch shape as _update_heat_window). 120 mirrors the wire's
+# own `aggressors` window (schema $comment: "window 120 ticks") -- the
+# harness gate (AGGRESSOR_FRESH_TICKS, starter_harness.py) uses the exact
+# same number so the two windows never disagree about whether we are
+# still "under fire."
+#
+# MUTUAL EXCLUSION with fire_superiority (fixture ii): the trigger below
+# only inserts hold_vs_gun when fire_superiority's OWN gate
+# (`starter_harness.gate_open`) would NOT open on this call -- i.e. no
+# live track. When a track IS in view, fire_superiority (via OPENING_
+# HUNTER/HEAT_HUNTER or the model's own choice) already owns the
+# engagement and hold_vs_gun is never inserted, so the wire is unchanged
+# from v58 whenever a track exists. engageDist/pressRange/finishRange, the
+# opening/heat hunter blocks, and the detour clamps are all untouched by
+# this lever.
+#
+# RETURN_FIRE is a plain kill switch, same convention as OPENING_HUNTER/
+# HEAT_HUNTER: flip to False to fall back to byte-identical v58 behaviour
+# without removing this block (see apply_phase_clamps).
+RETURN_FIRE_TICKS = 120
+RETURN_FIRE = True
+
 # Awareness digest: a track older than this is a memory, not a threat (the
 # harness's own 10-s freshness/aggressor window). An item further than
 # NEAR_ITEM_PX is a detour, not "near".
@@ -558,6 +634,42 @@ def _update_opening_hunter(pact_state, view):
     return pact_state.get("_first_kill_tick") is None and tick < OPENING_TICKS
 
 
+def _update_return_fire(pact_state, view):
+    """Advance/read the v59 RETURN FIRE lever's own persisted clock.
+
+    Unlike `_update_heat_window`/`_update_opening_hunter`, this needs no
+    `pact_state["_my_team"]` stash -- `aggressors` rows are already
+    victim-private (play_view.schema.json $comment: "hit feedback against
+    SELF"), scoped to us by the engine before we ever see them, so there is
+    no killer-team filter to apply.
+
+    Persists the freshest `tick` seen across any aggressor row into
+    `pact_state["_last_hit_tick"]` (monotonic, never regresses), the same
+    shape as `_update_heat_window`'s `_last_heat_tick` -- so "we are under
+    fire" stays true for RETURN_FIRE_TICKS after the LAST incoming hit even
+    on a call whose own `view["aggressors"]` has already aged that specific
+    row out of the wire's own 120-tick window.
+
+    Returns True iff an aggressor tick landed within RETURN_FIRE_TICKS of
+    the current tick (False on any missing/malformed data, same
+    never-a-guess convention as the other _update_* helpers here).
+    """
+    tick = view.get("tick")
+    if not isinstance(tick, (int, float)):
+        return False
+    for row in view.get("aggressors") or []:
+        if not isinstance(row, dict):
+            continue
+        row_tick = row.get("tick")
+        if not isinstance(row_tick, (int, float)):
+            continue
+        if row_tick > pact_state.get("_last_hit_tick", -1):
+            pact_state["_last_hit_tick"] = row_tick
+    last_hit_tick = pact_state.get("_last_hit_tick")
+    return (isinstance(last_hit_tick, (int, float))
+            and 0 <= tick - last_hit_tick <= RETURN_FIRE_TICKS)
+
+
 def apply_phase_clamps(entries, view, pact_state, source=None):
     """The ONE clamp point for every ENDGAME-DOCTRINE pin this persona owns
     -- fire_superiority.pressRange/finishRange/engageDist, supply_run.
@@ -648,6 +760,19 @@ def apply_phase_clamps(entries, view, pact_state, source=None):
     make the heat window true), so the log tag below is an if/elif in
     substance even though it reads as a single ternary.
 
+    v59 (RETURN FIRE, pre-registered owner brief §30): a DIFFERENT play
+    (hold_vs_gun, not fire_superiority) for a case neither v57 nor v58
+    reaches -- an attacker who has hit us but never entered a live track,
+    so fire_superiority's own gate stays closed no matter how many times
+    this function forces it onto the list. See RETURN_FIRE_TICKS/
+    RETURN_FIRE and _update_return_fire for the full WHY, schema evidence,
+    and why mechanism (A) (opening fire_superiority's own gate on aggressor
+    data) is dead on the wire. Independent clock from `_last_heat_tick`
+    (`pact_state["_last_hit_tick"]`); independent trigger from the opening/
+    heat-hunter block above (aggressor-hit, not kill-credit); mutually
+    exclusive with fire_superiority by construction, not by a shared flag,
+    since it only ever fires when fire_superiority's gate is closed.
+
     Calling this SAME function from both adjust_entries (after its own
     CONVERSION/ARMAMENT inserts) and from the maintenance resend path
     closes all these gaps with one implementation instead of separate
@@ -723,6 +848,34 @@ def apply_phase_clamps(entries, view, pact_state, source=None):
             starter_harness._log(
                 PERSONA,
                 f"{window_tag}-hunter clamp{tag}: fire_superiority installed{suffix}")
+            fired = True
+
+    # RETURN FIRE (v59, see the module-level RETURN_FIRE_TICKS/RETURN_FIRE
+    # comment for the full WHY, schema citations, and why fire_superiority
+    # itself cannot take this case): while we are under fire (a fresh
+    # aggressor row landed within RETURN_FIRE_TICKS -- _update_return_fire,
+    # a recurring monotonic clock, same shape as _update_heat_window) AND
+    # no live track currently opens fire_superiority's own gate
+    # (starter_harness.gate_open, evaluated fresh from THIS call's view --
+    # an untracked attacker by definition cannot open it, since its
+    # aggressor row carries no position), guarantee a hold_vs_gun entry is
+    # on the list. Mutually exclusive with fire_superiority by construction
+    # (fixture ii): whenever a track IS in view, fire_superiority's gate
+    # opens and this block never fires, so the wire is byte-identical to
+    # v58 whenever a track exists.
+    return_fire_active = RETURN_FIRE and _update_return_fire(pstate, view)
+    if return_fire_active:
+        facts_for_gate = starter_harness._view_facts(
+            view, {"self": {"team": pstate.get("_my_team")}}, [])
+        fire_superiority_open = starter_harness.gate_open(
+            {"play": "fire_superiority", "params": {}}, facts_for_gate)
+        if not fire_superiority_open and not any(
+                e.get("play") == "hold_vs_gun" for e in entries):
+            entries.append({"play": "hold_vs_gun",
+                            "entry_id": "return_fire", "params": {}})
+            starter_harness._log(
+                PERSONA,
+                f"return-fire clamp{tag}: hold_vs_gun installed{suffix}")
             fired = True
 
     # FIRE_SUPERIORITY WIRE FIX (v44, moved here v52 -- see module docstring
