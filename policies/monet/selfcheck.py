@@ -2691,8 +2691,13 @@ check("(b) maintenance resend outside final4: loot.detourMax stays at "
       not _f4m_fired_b and _f4m_b_loot["params"].get("detourMax") == 400,
       str(_f4m_b_loot["params"]))
 check("(b) maintenance resend outside final4: no clamp line logged, no "
-      "phase line either",
-      _f4m_log_b.getvalue() == "", repr(_f4m_log_b.getvalue()))
+      "phase line either -- only the v59.1 unconditional [diag] line "
+      "(every apply_phase_clamps call emits exactly one, clamp-fired or "
+      "not)",
+      "clamp" not in _f4m_log_b.getvalue()
+      and "final4:" not in _f4m_log_b.getvalue()
+      and _f4m_log_b.getvalue().count("[diag]") == 1,
+      repr(_f4m_log_b.getvalue()))
 
 # (d) enumerate every wire-send path in starter_harness and prove each one
 # actually reaches policy.apply_phase_clamps -- monkeypatch the module-
@@ -5708,6 +5713,80 @@ check("return fire end-to-end via repair_call/adjust_entries: a real "
       "call's own context + view (under fire, no tracks) installs "
       "hold_vs_gun on seat.wanted_entries",
       "hold_vs_gun" in _rf_e2e_plays, str(_rf_e2e_plays))
+
+# v59.1 DIAGNOSTIC (owner brief 2026-09-21 EOD, aggressor-wire-audit §34):
+# ONE unconditional [diag] line per apply_phase_clamps call, with every
+# field the brief named -- tick, src, aggr_n/aggr_age, fs_open, enemies_n/
+# track_age, nearest_px, hp, plays -- read from the SAME facts/gate this
+# function already computes for RETURN FIRE (hoisted to the top of the
+# function, unconditional, pure/no side effects; see the module docstring
+# there). Scenario: one aggressor row (age 50), one fresh enemy track
+# (age 10, 30px away) that ALSO opens fire_superiority's own gate, so
+# RETURN FIRE's own block never fires (fire_superiority_open=True) --
+# proves the diag line is independent of whether any clamp in this
+# function actually did anything on this call.
+_diag_entries = [{"play": "pact", "entry_id": "p", "params": {}},
+                 {"play": "target_law", "entry_id": "t", "params": {}},
+                 {"play": "jackal", "entry_id": "j", "params": {}}]
+_diag_view = {
+    "tick": 5000,
+    "world": {"alive_teams": 16},
+    "kill_feed": [],
+    "self": {"pos": [100.0, 100.0], "hp": 3, "hp_frac": 0.5},
+    "tracks": [{"seat": 9, "team": "blue", "pos": [130.0, 100.0],
+                "fresh_tick": 4990}],
+    "aggressors": [{"tick": 4950, "dir_brads": 10}],
+}
+_diag_log = _io.StringIO()
+with _contextlib.redirect_stdout(_diag_log):
+    _diag_fired = PERSONA.apply_phase_clamps(
+        _diag_entries, _diag_view, {"_my_team": "rust"}, source=None)
+_diag_lines = [ln for ln in _diag_log.getvalue().splitlines()
+              if "[diag]" in ln]
+
+# Same line, source="maintenance" -- the OTHER send path (ladder-
+# maintenance resend, starter_harness.py ~line 1998) -- confirms `src=`
+# reflects the caller, and that a call with NO aggressor/track/hp data
+# renders every field honestly as None rather than guessing 0.
+_diag_m_entries = [{"play": "loot", "entry_id": "l", "params": {}}]
+_diag_m_view = {"tick": 42, "world": {"alive_teams": 16}, "kill_feed": [],
+                "self": {"hp_frac": None}}
+_diag_m_log = _io.StringIO()
+with _contextlib.redirect_stdout(_diag_m_log):
+    PERSONA.apply_phase_clamps(
+        _diag_m_entries, _diag_m_view, {}, source="maintenance")
+_diag_m_lines = [ln for ln in _diag_m_log.getvalue().splitlines()
+                if "[diag]" in ln]
+
+check("v59.1 diagnostic: exactly one [diag] line per call with every "
+      "named field -- populated (tick/src=call/aggr_n/aggr_age/fs_open/"
+      "enemies_n/track_age/nearest_px/hp/plays, unfired call) on the "
+      "model-call path, and honestly-None (never a guessed 0) with "
+      "src=maintenance on the ladder-maintenance resend path",
+      not _diag_fired
+      and len(_diag_lines) == 1
+      and "tick=5000" in _diag_lines[0]
+      and "src=call" in _diag_lines[0]
+      and "aggr_n=1" in _diag_lines[0]
+      and "aggr_age=50" in _diag_lines[0]
+      and "fs_open=True" in _diag_lines[0]
+      and "enemies_n=1" in _diag_lines[0]
+      and "track_age=10" in _diag_lines[0]
+      and "nearest_px=30" in _diag_lines[0]
+      and "hp=0.5" in _diag_lines[0]
+      and "plays=pact,target_law,jackal" in _diag_lines[0]
+      and len(_diag_m_lines) == 1
+      and "tick=42" in _diag_m_lines[0]
+      and "src=maintenance" in _diag_m_lines[0]
+      and "aggr_n=0" in _diag_m_lines[0]
+      and "aggr_age=None" in _diag_m_lines[0]
+      and "fs_open=False" in _diag_m_lines[0]
+      and "enemies_n=0" in _diag_m_lines[0]
+      and "track_age=None" in _diag_m_lines[0]
+      and "nearest_px=None" in _diag_m_lines[0]
+      and "hp=None" in _diag_m_lines[0]
+      and "plays=loot" in _diag_m_lines[0],
+      repr(_diag_lines) + " | " + repr(_diag_m_lines))
 
 print()
 if failures:

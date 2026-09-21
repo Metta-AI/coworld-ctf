@@ -810,6 +810,22 @@ def apply_phase_clamps(entries, view, pact_state, source=None):
         tag, suffix = "", ""
     fired = False
 
+    # v59.1 DIAGNOSTIC (owner brief 2026-09-21 EOD, aggressor-wire-audit
+    # §34): hoisted the RETURN FIRE block's own `facts`/gate computation up
+    # here, UNCONDITIONAL, so it runs on every call regardless of whether
+    # RETURN FIRE (or anything else in this function) actually fires --
+    # both starter_harness._view_facts and gate_open are pure reads with no
+    # side effects, so evaluating them on every call is behaviour-neutral;
+    # the RETURN FIRE block below now reuses these same two values instead
+    # of recomputing them, one implementation, not two. This is what feeds
+    # the one unconditional `[diag]` line emitted at the end of this
+    # function, below.
+    tick = (view or {}).get("tick", 0) or 0
+    facts = starter_harness._view_facts(
+        view, {"self": {"team": pstate.get("_my_team")}}, [])
+    fire_superiority_open = starter_harness.gate_open(
+        {"play": "fire_superiority", "params": {}}, facts)
+
     # OPENING/HEAT-WINDOW HUNTER (v57 opening latch + v58 heat-window
     # re-arm, see OPENING_TICKS/OPENING_HUNTER and HEAT_HUNTER module
     # comments for the full WHY/citations): while EITHER the opening
@@ -865,10 +881,10 @@ def apply_phase_clamps(entries, view, pact_state, source=None):
     # v58 whenever a track exists.
     return_fire_active = RETURN_FIRE and _update_return_fire(pstate, view)
     if return_fire_active:
-        facts_for_gate = starter_harness._view_facts(
-            view, {"self": {"team": pstate.get("_my_team")}}, [])
-        fire_superiority_open = starter_harness.gate_open(
-            {"play": "fire_superiority", "params": {}}, facts_for_gate)
+        # `facts`/`fire_superiority_open` are the SAME values computed once,
+        # unconditionally, above (v59.1 DIAGNOSTIC) -- reused here rather
+        # than recomputed, so there is exactly one call to _view_facts/
+        # gate_open per apply_phase_clamps call, not two.
         if not fire_superiority_open and not any(
                 e.get("play") == "hold_vs_gun" for e in entries):
             entries.append({"play": "hold_vs_gun",
@@ -993,6 +1009,50 @@ def apply_phase_clamps(entries, view, pact_state, source=None):
                     f"-> {HEAT_WINDOW_DETOUR_MAX}{suffix}")
                 fired = True
             params["detourMax"] = new_detour
+
+    # v59.1 DIAGNOSTIC (owner brief 2026-09-21 EOD): ONE unconditional line
+    # per call, independent of whether ANY clamp above fired -- the
+    # aggressor-wire audit (handoff §34) found the return-fire clamp
+    # 0/12 on the live wire with no "aggressor" token in any log, and the
+    # clamp lines above only log on an actual insert/strip, so there was no
+    # way to see WHY (stale/no track vs. no aggressor at all vs. gate
+    # already open) without this. Same logger/style as the clamp lines;
+    # read-only, no new constant, no flow change. `aggr_n`/`aggr_age` come
+    # from the raw view (facts has no raw aggressor list, only the derived
+    # aggressor_hot bool the RETURN FIRE gate reads); `track_age` is the
+    # freshest fresh_tick among `facts["enemies"]`, same set the RETURN
+    # FIRE/opening/heat blocks above already read. `plays` is the entries
+    # list as it stands at this point -- the last mutation site in this
+    # function, so it is the fullest ladder any wire send path (real call,
+    # reemit, or maintenance-resend-on-already-gated-entries) has seen by
+    # the time it reaches us.
+    aggressors = (view or {}).get("aggressors", []) or []
+    aggr_ticks = [a["tick"] for a in aggressors
+                  if isinstance(a, dict) and isinstance(a.get("tick"), int)]
+    aggr_age = (tick - max(aggr_ticks)) if aggr_ticks else None
+    enemy_ticks = [e["fresh_tick"] for e in facts["enemies"]
+                   if isinstance(e.get("fresh_tick"), int)]
+    track_age = (tick - max(enemy_ticks)) if enemy_ticks else None
+    nearest_px = facts["nearest_enemy"]
+    if isinstance(nearest_px, (int, float)):
+        nearest_px = round(nearest_px)
+    hp = facts["hp_frac"]
+    if isinstance(hp, (int, float)):
+        hp = round(hp, 2)
+    # `plays` is the one unbounded field (wire.MAX_LADDER_ENTRIES=16, and
+    # this function sees entries BEFORE that cap on the adjust_entries
+    # path) -- clip it so a full ladder can never push the line past the
+    # ~200-char budget the rest of the fields already fit comfortably
+    # inside.
+    plays_str = ",".join(e.get("play") for e in entries)
+    if len(plays_str) > 60:
+        plays_str = plays_str[:57] + "..."
+    starter_harness._log(
+        PERSONA,
+        f"[diag] tick={tick} src={source or 'call'} aggr_n={len(aggressors)} "
+        f"aggr_age={aggr_age} fs_open={fire_superiority_open} "
+        f"enemies_n={len(facts['enemies'])} track_age={track_age} "
+        f"nearest_px={nearest_px} hp={hp} plays={plays_str}")
     return fired
 
 
