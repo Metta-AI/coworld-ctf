@@ -21,6 +21,8 @@ const
 var
   params: ScatterParams
   firstTick: int32 = -1
+  escapeDx, escapeDy: int32
+  escapeVectorValid = false
   lastX, lastY: int32
   lastValid = false
 
@@ -79,12 +81,14 @@ proc play_init*(paramsPtr, paramsLen, ctxPtr, ctxLen: int32): int32 {.
   discard ctxLen
   resetArena()
   firstTick = -1
+  escapeVectorValid = false
   loadParams(paramsPtr, paramsLen, true)
 
 proc play_step*(viewPtr, viewLen: int32): int32 {.exportc, cdecl.} =
   let rawView = view(viewPtr, viewLen)
   var decoded: JackalView
-  if not readJackalBinaryViewInto(rawView, decoded) or not decoded.valid:
+  if not readJackalBinaryViewInto(rawView, decoded, stUnknown,
+      1300, -1, false) or not decoded.valid:
     return 1
   if not decoded.tickPresent or not decoded.self.pos.present:
     resetArena()
@@ -95,11 +99,22 @@ proc play_step*(viewPtr, viewLen: int32): int32 {.exportc, cdecl.} =
     # Opening over: emit nothing, yield to the rungs below.
     resetArena()
     return 0
-  let target = if decoded.candidateFound:
-      decoded.clampToZone(decoded.self.pos.projectFrom(decoded.candidate.pos,
-        params.distance))
-    else:
-      decoded.clampToZone(decoded.towardZoneCentre())
+  if not escapeVectorValid:
+    let initialTarget = if decoded.candidateFound:
+        decoded.self.pos.projectFrom(decoded.candidate.pos, params.distance)
+      else:
+        decoded.towardZoneCentre()
+    escapeDx = initialTarget.x - decoded.self.pos.x
+    escapeDy = initialTarget.y - decoded.self.pos.y
+    escapeVectorValid = escapeDx != 0 or escapeDy != 0
+  if not escapeVectorValid:
+    resetArena()
+    return 0
+  let mirror = SdkPoint(present: true,
+    x: decoded.self.pos.x - escapeDx,
+    y: decoded.self.pos.y - escapeDy)
+  let target = decoded.clampToZone(
+    decoded.self.pos.projectFrom(mirror, params.distance))
   let goal = nearestReachable(target.x, target.y)
   if not goal.ok:
     resetArena()
