@@ -1686,11 +1686,11 @@ body.sidelanes #scorebug .br-cell .br-cell-members { flex-shrink: 1; }
       (flame, glory numeral) don't need, and .br-cell-mname drops its old
       58u cap to actually use that room, ellipsizing at the true edge
       instead of a smaller hardcoded one. .br-cell-glory drops from 15u to
-      12u and gets a min-width so short and long numbers still both read as
-      one right-aligned column (the wrap's own margin-left:10u + the row's
-      shared width already puts every wrap's RIGHT edge at the same x; the
-      min-width keeps the NUMERAL's own box, not just the wrap, honest
-      about that column). Band-to-band gap (between the two 8-cell
+      12u and right-aligns inside .br-cell-glory-wrap's own FIXED 52u
+      flex-basis (see the GLORY COLUMN ALIGNMENT comment a few rules below
+      for why that slot, not a min-width on the numeral itself, is what
+      actually keeps every row's numeral on one right edge). Band-to-band
+      gap (between the two 8-cell
       .br-cellband halves) matches the intra-band row gap so the 16 rows
       read as one continuous ledger, per the design spec — #scorebug's own
       gap (used for clock-col/plates-l/plates-r spacing) is 3u in br-mode
@@ -1718,7 +1718,12 @@ body.sidelanes #scorebug.br-mode .br-rail-head {
 body.sidelanes #scorebug .br-cellband { gap: calc(3 * var(--u)); }
 body.sidelanes #scorebug .br-cell {
   gap: calc(6 * var(--u));
-  height: calc(19 * var(--u));
+  /* min-height, not height: a solo seat (one .br-cell-member row) sizes to
+     exactly this floor either way, but a duo seat's .br-cell-members is a
+     COLUMN of two .br-cell-member rows (~18-21u tall together) -- a fixed
+     height with #lane-l's own overflow:hidden would clip the second
+     member's row into the next cell instead of growing the cell to fit. */
+  min-height: calc(19 * var(--u));
 }
 body.sidelanes #scorebug .br-cell .br-cell-members { flex: 1 1 auto; min-width: 0; }
 body.sidelanes #scorebug .br-cell-mname { flex: 1 1 auto; min-width: 0; max-width: none; }
@@ -1753,6 +1758,13 @@ body.sidelanes #scorebug .br-cell-glory {
   text-align: right;
   width: 100%;
   font-size: calc(12 * var(--u));
+  /* The base rule (~L540) pivots multpulse's scale(1.16) from the LEFT --
+     correct there, where the numeral itself sits at the plate's left edge.
+     Here it right-aligns inside a fixed 52u slot instead, so a left pivot
+     would visibly shift the digits ~52u leftward mid-pulse; re-anchor to
+     the edge the text actually hugs. Scoped to the side-lane rail only --
+     the classic top-band plate is untouched. */
+  transform-origin: right center;
 }
 body.sidelanes.tiny #scorebug .br-cellband {
   flex-direction: row;
@@ -1763,6 +1775,15 @@ body.sidelanes.tiny #scorebug .br-cell {
   width: calc(50% - (2 * var(--u)));
   max-width: none;
 }
+/* The 2-column .tiny cells (~100-120px each at the 240px rail floor, see
+   the BR RAIL FIT comment above) have nowhere near the room the 52u glory
+   slot / 56u intent cap assume — at that width the fixed-width numeral
+   alone would eat most of a cell, leaving the name a sliver. Shrink both:
+   34u is still enough for "×9,999" (this tier's realistic ceiling — the
+   123,456-scale stress case is a wide-rail concern, not a 2-up mini-cell
+   one), and a 30u intent cap frees the rest back to the name. */
+body.sidelanes.tiny #scorebug .br-cell .br-cell-glory-wrap { flex-basis: calc(34 * var(--u)); }
+body.sidelanes.tiny #scorebug .br-cell-intent { max-width: calc(30 * var(--u)); }
 
 /* ---------- 2. KILL FEED ---------- */
 #killfeed {
