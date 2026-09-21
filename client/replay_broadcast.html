@@ -3,20 +3,35 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="color-scheme" content="dark">
 <title>Paintbot — Broadcast Replay</title>
 <script>
-// ?bg=<hex6> (six hex digits, no '#'): softmax.com hands us its own page
-// background here so the arena reads as the picture and the HUD/rails/
-// transport sit on the SAME colour, instead of this file's stock warm-brown
-// letterbox (owner: "the gui is just on the page background and there is a
-// video"). Flat, not the usual --stage-hi/--stage-lo gradient pair, on
-// purpose — two different browns would still read as a letterbox seam.
-// Anything that isn't exactly six hex digits is ignored and the stock look
+// ?bg=<hex6> (six hex digits, no '#') OR ?bg=transparent: softmax.com hands
+// us its own page background here so the arena reads as the picture and the
+// HUD/rails/transport sit on the SAME colour (or, for `transparent`, sit on
+// nothing at all — the embedding page shows straight through), instead of
+// this file's stock warm-brown letterbox (owner: "the gui is just on the
+// page background and there is a video"). Flat, not the usual
+// --stage-hi/--stage-lo gradient pair, on purpose — two different browns
+// would still read as a letterbox seam. Anything that isn't exactly six hex
+// digits or the literal string "transparent" is ignored and the stock look
 // is untouched. Runs before the <style> block below even parses
 // (documentElement already exists once the parser reaches <head>), so
 // there is no brown flash — and an inline style always outranks a
 // stylesheet rule for the same custom property regardless of source
 // order, so this still wins over the :root declarations further down.
+//
+// `transparent`: sets every one of the same custom properties the hex path
+// sets, to the literal keyword `transparent`, so #stage/#transport/
+// #scorebug/#commsdock all show the embedding page straight through. Both
+// branches additionally set colorScheme = "dark" (belt-and-suspenders with
+// the <meta name="color-scheme"> tag above and the :root rule below): this
+// viewer is ALWAYS dark, and Chrome/Firefox paint an opaque backdrop behind
+// a cross-origin iframe whose declared colour scheme differs from its
+// embedder's — so on a dark embedding page (softmax.com), an iframe that
+// never declares itself dark gets that opaque backdrop and `transparent`
+// silently fails to look transparent. Declaring dark explicitly is what
+// makes the transparency actually show.
 //
 // What actually shows through in the default (non-embed) layout: relayout()
 // now sets body.sidelanes unconditionally, and body.sidelanes #scorebug /
@@ -38,9 +53,19 @@
 // letterbox chrome, so they keep the stock look at every ?bg= value.
 try {
   var BG = new URLSearchParams(location.search).get('bg');
-  if (BG && /^[0-9a-f]{6}$/i.test(BG)) {
+  var rootStyle = document.documentElement.style;
+  if (BG === 'transparent') {
+    rootStyle.setProperty('--letterbox', 'transparent');
+    rootStyle.setProperty('--stage-lo', 'transparent');
+    rootStyle.setProperty('--stage-hi', 'transparent');
+    rootStyle.setProperty('--stage-vignette', 'transparent');
+    rootStyle.setProperty('--wash-hi', 'transparent');
+    rootStyle.setProperty('--wash-lo', 'transparent');
+    rootStyle.setProperty('--wash-hi-huddle', 'transparent');
+    rootStyle.setProperty('--wash-lo-huddle', 'transparent');
+    rootStyle.colorScheme = 'dark';
+  } else if (BG && /^[0-9a-f]{6}$/i.test(BG)) {
     var bgR = parseInt(BG.slice(0, 2), 16), bgG = parseInt(BG.slice(2, 4), 16), bgB = parseInt(BG.slice(4, 6), 16);
-    var rootStyle = document.documentElement.style;
     rootStyle.setProperty('--letterbox', '#' + BG);
     rootStyle.setProperty('--stage-lo', '#' + BG);
     rootStyle.setProperty('--stage-hi', '#' + BG);
@@ -49,6 +74,7 @@ try {
     rootStyle.setProperty('--wash-lo', 'rgba(' + bgR + ', ' + bgG + ', ' + bgB + ', 0.35)');
     rootStyle.setProperty('--wash-hi-huddle', 'rgba(' + bgR + ', ' + bgG + ', ' + bgB + ', 0.9)');
     rootStyle.setProperty('--wash-lo-huddle', 'rgba(' + bgR + ', ' + bgG + ', ' + bgB + ', 0.8)');
+    rootStyle.colorScheme = 'dark';
   }
 } catch (e) {}
 </script>
@@ -73,6 +99,11 @@ try {
 }
 
 :root {
+  /* The viewer is ALWAYS dark (never a light theme) — declared explicitly so
+     a cross-origin iframe embedding this on a light OR dark page never gets
+     an engine-painted opaque backdrop behind ?bg=transparent (see the <head>
+     script's ?bg= comment above for the full contract). */
+  color-scheme: dark;
   /* ?bg=<hex6> overrides both of these to the SAME flat hex (see the <head>
      script) — a gradient of two page-matching browns would still read as a
      seam, so the arena backdrop goes flat and only the canvas on top of it
@@ -1631,6 +1662,98 @@ body.sidelanes #scorebug .br-cell .br-cell-glory-wrap { margin-left: calc(10 * v
    was never reachable. This is the ONLY property changed: give the
    name+swatch stack somewhere to go before the numeral ever has to. */
 body.sidelanes #scorebug .br-cell .br-cell-members { flex-shrink: 1; }
+
+/* COMPACT RAIL LEDGER (owner 2026-09-21: "the left rail needs to be
+   slightly redesigned to be more compact anyway so there is room for the
+   feeds"). Measured on prod at the 1044x785 softmax.com embed: 16 rows at
+   the pre-existing ~35px each + a ~50px clock left only ~130px for comms —
+   one message. Nothing here touches cellsHtml()'s markup (the classic
+   layout, ?embed=1 chrome and .tiny both stay byte-identical there); this
+   restyles the SAME DOM the BR RAIL FIT block above already re-flows.
+   1. CLOCK: left-aligned with the rows below it (was centered in the rail's
+      full width) and shrunk — 30u/8.5u down to 22u/7.5u — so the whole
+      block reads closer to 40px than the old ~50-60px.
+   2. HEADER: one "Field / Glory" eyebrow line, in the same 5.5u label
+      style .br-cell-glory-label used to repeat on every one of the 16
+      rows (Law 6 still holds — the noun now names the column once instead
+      of 16 times). #scorebug.br-mode is toggled by ensureScorebug's
+      existing `many` branch (JS above); .br-rail-head has no effect
+      outside it or outside the side-lane rail.
+   3. ROWS: one line each (life · name · intent · flame · glory), not the
+      old life+name+intent stack topped by a separate stacked GLORY
+      label+numeral. .br-cell-members now flex-grows (was flex-shrink:1
+      only) so the name fills whatever room the fixed-width neighbours
+      (flame, glory numeral) don't need, and .br-cell-mname drops its old
+      58u cap to actually use that room, ellipsizing at the true edge
+      instead of a smaller hardcoded one. .br-cell-glory drops from 15u to
+      12u and gets a min-width so short and long numbers still both read as
+      one right-aligned column (the wrap's own margin-left:10u + the row's
+      shared width already puts every wrap's RIGHT edge at the same x; the
+      min-width keeps the NUMERAL's own box, not just the wrap, honest
+      about that column). Band-to-band gap (between the two 8-cell
+      .br-cellband halves) matches the intra-band row gap so the 16 rows
+      read as one continuous ledger, per the design spec — #scorebug's own
+      gap (used for clock-col/plates-l/plates-r spacing) is 3u in br-mode
+      instead of the classic layout's 12u; the header's own margin-top puts
+      the clock's original breathing room back just above the header line. */
+body.sidelanes #scorebug .clock-col { align-items: flex-start; }
+body.sidelanes #scorebug .clock { align-items: flex-start; }
+body.sidelanes #scorebug .clock .time { font-size: calc(22 * var(--u)); }
+body.sidelanes #scorebug .clock .caption { font-size: calc(7.5 * var(--u)); }
+body.sidelanes #scorebug.br-mode { gap: calc(3 * var(--u)); }
+.br-rail-head { display: none; }
+body.sidelanes #scorebug.br-mode .br-rail-head {
+  display: flex;
+  order: -1;
+  align-items: baseline;
+  justify-content: space-between;
+  margin-top: calc(6 * var(--u));
+  padding-right: 4px;
+  font-family: var(--finefont);
+  font-size: calc(5.5 * var(--u));
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--paper-dim);
+}
+body.sidelanes #scorebug .br-cellband { gap: calc(3 * var(--u)); }
+body.sidelanes #scorebug .br-cell {
+  gap: calc(6 * var(--u));
+  height: calc(19 * var(--u));
+}
+body.sidelanes #scorebug .br-cell .br-cell-members { flex: 1 1 auto; min-width: 0; }
+body.sidelanes #scorebug .br-cell-mname { flex: 1 1 auto; min-width: 0; max-width: none; }
+body.sidelanes #scorebug .br-cell-intent { flex: 0 1 auto; max-width: calc(56 * var(--u)); }
+body.sidelanes #scorebug .br-cell-glory-label { display: none; }
+/* GLORY COLUMN ALIGNMENT (owner hard gate, 2026-09-21: "make sure the glory
+   scores are all aligned in one column, not scattered" — every one of the
+   16 rows' numerals shares the same right edge, regardless of name/intent
+   length). A content-sized numeral would only pin the RIGHT edge by riding
+   .br-cell-members's flex-grow to absorb whatever's left — this goes
+   further: .br-cell-glory-wrap gets a FIXED flex-basis (no grow, no
+   shrink), so it is a real fixed-width SLOT, not a shrink-to-fit box. That
+   makes .br-cell-members's own computed width constant across every row too
+   (row width minus the flame's fixed width minus this fixed slot minus the
+   two constant gaps — nothing left to vary), so a long name can never push
+   the glory column, structurally, not just "usually." CORRECTION (owner,
+   same day, looking at the rendered rail): an earlier draft here also gave
+   the "×" sign its OWN fixed sub-column so it would land at a fixed x — but
+   that reads as sixteen identical glyphs with a ragged gap before each
+   number ("×      5" next to "×123,456"), not as a ledger. Reverted: the
+   whole "×N" run is now ONE right-aligned string inside the fixed 52u slot,
+   tabular-nums keeping digit widths uniform — short and long numbers both
+   end on the same edge, which is the only alignment a numbers column
+   actually needs. The slot is sized for "×123,456" at this font with
+   headroom. */
+body.sidelanes #scorebug .br-cell .br-cell-glory-wrap {
+  flex: 0 0 calc(52 * var(--u));
+  margin-left: 0;
+  align-items: stretch;
+}
+body.sidelanes #scorebug .br-cell-glory {
+  text-align: right;
+  width: 100%;
+  font-size: calc(12 * var(--u));
+}
 body.sidelanes.tiny #scorebug .br-cellband {
   flex-direction: row;
   flex-wrap: wrap;
@@ -3129,6 +3252,24 @@ body[data-noviewpanel] #viewpanel { display: none !important; }
       </div>
 
       <div class="plates" id="plates-r"></div>
+
+      <!-- COMPACT RAIL LEDGER (owner 2026-09-21: "the left rail needs to be
+           slightly redesigned to be more compact... so there is room for the
+           feeds"). BR-mode-only header row: "Field" names the roster column,
+           "Glory" replaces the per-row .br-cell-glory-label that used to
+           repeat the same noun on all 16 rows (Law 6 is still satisfied —
+           the noun now appears once here instead of 16 times below). Hidden
+           by default; shown only for #scorebug.br-mode (toggled by
+           ensureScorebug alongside its existing `many` branch) inside the
+           side-lane rail. Lives LAST in the DOM but reads FIRST, right under
+           the clock — `order:-1` in the body.sidelanes #scorebug.br-mode
+           rule below — so this addition never disturbs plates-l/plates-r's
+           own DOM order, which JS elsewhere does not depend on either, but
+           there is no reason to reshuffle existing nodes for a decoration. -->
+      <div class="br-rail-head" id="br-rail-head">
+        <span>Field</span>
+        <span>Glory</span>
+      </div>
     </div>
 
     <!-- View controls: zoom the board with buttons/slider/keys/pinch (never a
@@ -3877,7 +4018,13 @@ body[data-noviewpanel] #viewpanel { display: none !important; }
       return;
     }
     // Group thousands so an exponential product stays readable ("×2,304"),
-    // not the fixed-precision ×N of a bounded combo ladder.
+    // not the fixed-precision ×N of a bounded combo ladder. GLORY COLUMN
+    // ALIGNMENT (owner 2026-09-21): an earlier draft split this into
+    // .glory-mult-sign/-num spans so the "×" could sit at a fixed x
+    // independent of the digits — reverted after looking at the rendered
+    // rail (a fixed sign column reads as a ragged gap before short numbers,
+    // not a ledger). Plain text again; the side-lane rail CSS right-aligns
+    // the whole "×N" run as one string inside a fixed-width slot instead.
     el.textContent = '×' + gv.toLocaleString('en-US');
     if (el._glossKind !== 'multiplier') {
       el.title = GLOSSARY.multiplier;
@@ -4465,6 +4612,12 @@ body[data-noviewpanel] #viewpanel { display: none !important; }
     var sides = [$('plates-l'), $('plates-r')];
     // Many teams: mark the bar so CSS can compact the chips (see .plates.many).
     var many = teams.length > 4;
+    // COMPACT RAIL LEDGER: a scorebug-level hook (not a cellsHtml() markup
+    // change — that stays byte-identical) so the side-lane CSS can show the
+    // "Field / Glory" column header and hide the per-row .br-cell-glory-label
+    // only for the 16-cell BR ledger, never for the classic 2-4 plate layout.
+    var scorebugEl = $('scorebug');
+    if (scorebugEl) scorebugEl.classList.toggle('br-mode', many);
     sides[0].innerHTML = '';
     sides[1].innerHTML = '';
     // THREE OR FOUR teams put TWO plates in each side track, so every plate
