@@ -5714,6 +5714,181 @@ check("return fire end-to-end via repair_call/adjust_entries: a real "
       "hold_vs_gun on seat.wanted_entries",
       "hold_vs_gun" in _rf_e2e_plays, str(_rf_e2e_plays))
 
+check("v60 constants exist exactly as pre-registered (owner brief §37): "
+      "RETURN_FIRE_RANGE kill switch True, RANGE_RETURN_PRESS 500",
+      policy.RETURN_FIRE_RANGE is True and policy.RANGE_RETURN_PRESS == 500)
+
+
+def _rfr_entries_with_fs():
+    """Same shape as _oh_entries_with_fs, but fire_superiority's params
+    already match doctrine exactly (pressRange 220/finishRange 140/
+    engageDist 750, phase=default) -- isolates the RETURN FIRE FROM RANGE
+    lever alone: the FIRE_SUPERIORITY WIRE FIX loop a few lines below in
+    apply_phase_clamps never has anything of its own to clamp/log here."""
+    return [
+        {"play": "pact", "entry_id": "truce",
+         "params": {"partners": ["seat:19"]}},
+        {"play": "scatter", "entry_id": "flee",
+         "params": {"distance": 320, "ticks": 300}},
+        {"play": "fire_superiority", "entry_id": "pressbreak",
+         "params": {"pressRange": 220, "finishRange": 140,
+                    "engageDist": 750}},
+    ]
+
+
+# (i) THE v60 PRE-REGISTERED FIXTURE (owner brief §37): under fire, a live
+# track opens fire_superiority's OWN gate (fs_open=True, the mirror-image
+# of the v59 (i) fixture above), and the nearest tracked enemy sits at
+# 600px -- beyond fire_superiority's own pressRange (220). hold_vs_gun
+# must be installed AHEAD of fire_superiority (mechanism (A) -- see the
+# module-level RETURN_FIRE_RANGE comment for why hold_vs_gun.nim, unlike
+# fire_superiority.nim, never closes distance under fire), logged, at
+# entries[0] specifically (not merely present -- ORDER is the lever).
+_rfr_i_entries = _rfr_entries_with_fs()
+_rfr_i_pact = {"_my_team": "rust"}
+_rfr_i_view = {
+    "tick": 2000, "world": {"alive_teams": 16}, "kill_feed": [],
+    "self": {"pos": [0, 0]},
+    "aggressors": [{"tick": 1990, "dir_brads": 64, "seat": 5}],
+    "tracks": [{"seat": 5, "team": "steel", "pos": [600, 0],
+               "fresh_tick": 1995}],
+}
+_rfr_i_log = _io.StringIO()
+with _contextlib.redirect_stdout(_rfr_i_log):
+    _rfr_i_fired = policy.apply_phase_clamps(_rfr_i_entries, _rfr_i_view,
+                                             _rfr_i_pact, source=None)
+_rfr_i_plays = [e["play"] for e in _rfr_i_entries]
+check("(i) return-fire-range: under fire, fs open, nearest 600px (> "
+      "pressRange 220) -- hold_vs_gun installed AHEAD of fire_superiority, "
+      "fired=True",
+      _rfr_i_fired and _rfr_i_plays[0] == "hold_vs_gun"
+      and "fire_superiority" in _rfr_i_plays, str(_rfr_i_plays))
+check("(i) return-fire-range clamp logs the ahead-install line",
+      "return-fire-range clamp: hold_vs_gun ahead" in _rfr_i_log.getvalue(),
+      repr(_rfr_i_log.getvalue()))
+
+# (ii) under fire, fs open, nearest 150px (<= pressRange 220) -- untouched,
+# v59.1 behaviour: fire_superiority's own press logic owns this range, no
+# hold_vs_gun override.
+_rfr_ii_entries = _rfr_entries_with_fs()
+_rfr_ii_pact = {"_my_team": "rust"}
+_rfr_ii_view = {
+    "tick": 2000, "world": {"alive_teams": 16}, "kill_feed": [],
+    "self": {"pos": [0, 0]},
+    "aggressors": [{"tick": 1990, "dir_brads": 64, "seat": 5}],
+    "tracks": [{"seat": 5, "team": "steel", "pos": [150, 0],
+               "fresh_tick": 1995}],
+}
+_rfr_ii_log = _io.StringIO()
+with _contextlib.redirect_stdout(_rfr_ii_log):
+    _rfr_ii_fired = policy.apply_phase_clamps(_rfr_ii_entries, _rfr_ii_view,
+                                              _rfr_ii_pact, source=None)
+_rfr_ii_plays = [e["play"] for e in _rfr_ii_entries]
+check("(ii) return-fire-range: under fire, fs open, nearest 150px (<= "
+      "pressRange 220) -- untouched, byte-identical to v59.1",
+      not _rfr_ii_fired
+      and _rfr_ii_plays == ["pact", "scatter", "fire_superiority"]
+      and "return-fire-range clamp" not in _rfr_ii_log.getvalue(),
+      str(_rfr_ii_plays))
+
+# (iii) under fire, fs CLOSED (no track at all) -- v59's own return-fire
+# lever (hold_vs_gun appended, entry_id "return_fire") fires exactly as
+# before; the v60 block never engages (short-circuits on
+# fire_superiority_open=False) and never double-installs.
+_rfr_iii_entries = _rf_entries()
+_rfr_iii_pact = {"_my_team": "rust"}
+_rfr_iii_view = {"tick": 2000, "world": {"alive_teams": 16}, "kill_feed": [],
+                 "aggressors": [{"tick": 1990, "dir_brads": 64, "seat": 11}]}
+_rfr_iii_log = _io.StringIO()
+with _contextlib.redirect_stdout(_rfr_iii_log):
+    _rfr_iii_fired = policy.apply_phase_clamps(
+        _rfr_iii_entries, _rfr_iii_view, _rfr_iii_pact, source=None)
+_rfr_iii_hold = [e for e in _rfr_iii_entries if e.get("play") == "hold_vs_gun"]
+check("(iii) return-fire-range: under fire, fs closed -- v59's own "
+      "return-fire (hold_vs_gun, entry_id=return_fire) unchanged, no "
+      "second install, no -range log",
+      _rfr_iii_fired and len(_rfr_iii_hold) == 1
+      and _rfr_iii_hold[0].get("entry_id") == "return_fire"
+      and "return-fire clamp: hold_vs_gun installed" in _rfr_iii_log.getvalue()
+      and "return-fire-range clamp" not in _rfr_iii_log.getvalue(),
+      str(_rfr_iii_entries))
+
+# (iv) NOT under fire (no aggressor rows at all), fs open, nearest 600px --
+# untouched: return_fire_active itself is False, so the v60 predicate
+# short-circuits before ever reading nearest_enemy.
+_rfr_iv_entries = _rfr_entries_with_fs()
+_rfr_iv_pact = {"_my_team": "rust"}
+_rfr_iv_view = {
+    "tick": 2000, "world": {"alive_teams": 16}, "kill_feed": [],
+    "self": {"pos": [0, 0]},
+    "tracks": [{"seat": 5, "team": "steel", "pos": [600, 0],
+               "fresh_tick": 1995}],
+}
+_rfr_iv_log = _io.StringIO()
+with _contextlib.redirect_stdout(_rfr_iv_log):
+    _rfr_iv_fired = policy.apply_phase_clamps(_rfr_iv_entries, _rfr_iv_view,
+                                              _rfr_iv_pact, source=None)
+_rfr_iv_plays = [e["play"] for e in _rfr_iv_entries]
+check("(iv) return-fire-range: not under fire, fs open, nearest 600px -- "
+      "untouched (no aggressor -> return_fire_active itself is False)",
+      not _rfr_iv_fired
+      and _rfr_iv_plays == ["pact", "scatter", "fire_superiority"]
+      and "return-fire" not in _rfr_iv_log.getvalue(),
+      str(_rfr_iv_plays))
+
+# (v) RETURN_FIRE_RANGE=False -- the (i) scenario above becomes untouched,
+# a plain kill switch, same convention as RETURN_FIRE/OPENING_HUNTER/
+# HEAT_HUNTER.
+_rfr_v_entries = _rfr_entries_with_fs()
+_rfr_v_prev = policy.RETURN_FIRE_RANGE
+policy.RETURN_FIRE_RANGE = False
+try:
+    _rfr_v_log = _io.StringIO()
+    with _contextlib.redirect_stdout(_rfr_v_log):
+        _rfr_v_fired = policy.apply_phase_clamps(
+            _rfr_v_entries, _rfr_i_view, {"_my_team": "rust"}, source=None)
+finally:
+    policy.RETURN_FIRE_RANGE = _rfr_v_prev
+_rfr_v_plays = [e["play"] for e in _rfr_v_entries]
+check("(v) RETURN_FIRE_RANGE=False is a plain kill switch: the (i) "
+      "scenario (under fire, fs open, nearest 600px) now leaves the "
+      "ladder untouched, no hold_vs_gun installed, no -range clamp logged",
+      not _rfr_v_fired
+      and _rfr_v_plays == ["pact", "scatter", "fire_superiority"]
+      and "return-fire-range clamp" not in _rfr_v_log.getvalue(),
+      str(_rfr_v_plays))
+
+# End-to-end through the REAL send path AND the real gate/build pipeline
+# (repair_call -> adjust_entries -> apply_phase_clamps -> gate_and_build ->
+# layer_ladder -> build_call): proves "gated bucket order is entries input
+# order" (starter_harness.layer_ladder, verified by direct read) holds all
+# the way to the actual wire ladder, not just inside apply_phase_clamps in
+# isolation -- hold_vs_gun must precede fire_superiority in the FINAL
+# built entries repair_call returns.
+_rfr_e2e_context = {"self": {"seat": 3, "duo_partner": 19, "team": "rust"}}
+_rfr_e2e_seat = fake_seat(
+    context=_rfr_e2e_context,
+    view={"tick": 2000, "world": {"alive_teams": 16}, "kill_feed": [],
+          "self": {"pos": [0, 0]},
+          "aggressors": [{"tick": 1990, "dir_brads": 64, "seat": 5}],
+          "tracks": [{"seat": 5, "team": "steel", "pos": [600, 0],
+                     "fresh_tick": 1995}]})
+_rfr_e2e_payload, _rfr_e2e_final = starter_harness.repair_call(
+    {"call": {"entries": [
+        {"play": "target_law", "entry_id": "law", "params": {}},
+        {"play": "fire_superiority", "entry_id": "pressbreak",
+         "params": {"pressRange": 220, "finishRange": 140,
+                    "engageDist": 750}},
+    ]}}, PERSONA, _rfr_e2e_seat, AVAILABLE)
+_rfr_e2e_plays = [e["play"] for e in _rfr_e2e_final]
+check("return-fire-range end-to-end via repair_call/adjust_entries/"
+      "gate_and_build/layer_ladder/build_call: hold_vs_gun lands on the "
+      "ACTUAL WIRE ladder ahead of fire_superiority",
+      "hold_vs_gun" in _rfr_e2e_plays and "fire_superiority" in _rfr_e2e_plays
+      and _rfr_e2e_plays.index("hold_vs_gun")
+      < _rfr_e2e_plays.index("fire_superiority"),
+      str(_rfr_e2e_plays))
+
 # v59.1 DIAGNOSTIC (owner brief 2026-09-21 EOD, aggressor-wire-audit §34):
 # ONE unconditional [diag] line per apply_phase_clamps call, with every
 # field the brief named -- tick, src, aggr_n/aggr_age, fs_open, enemies_n/
@@ -5760,9 +5935,12 @@ _diag_m_lines = [ln for ln in _diag_m_log.getvalue().splitlines()
 
 check("v59.1 diagnostic: exactly one [diag] line per call with every "
       "named field -- populated (tick/src=call/aggr_n/aggr_age/fs_open/"
-      "enemies_n/track_age/nearest_px/hp/plays, unfired call) on the "
+      "rfr/enemies_n/track_age/nearest_px/hp/plays, unfired call) on the "
       "model-call path, and honestly-None (never a guessed 0) with "
-      "src=maintenance on the ladder-maintenance resend path",
+      "src=maintenance on the ladder-maintenance resend path. rfr=0 in "
+      "both: the first call's nearest track (30px) is inside "
+      "pressRange (220), and the maintenance call has no aggressor at "
+      "all -- neither qualifies as v60's RETURN FIRE FROM RANGE.",
       not _diag_fired
       and len(_diag_lines) == 1
       and "tick=5000" in _diag_lines[0]
@@ -5770,6 +5948,7 @@ check("v59.1 diagnostic: exactly one [diag] line per call with every "
       and "aggr_n=1" in _diag_lines[0]
       and "aggr_age=50" in _diag_lines[0]
       and "fs_open=True" in _diag_lines[0]
+      and "rfr=0" in _diag_lines[0]
       and "enemies_n=1" in _diag_lines[0]
       and "track_age=10" in _diag_lines[0]
       and "nearest_px=30" in _diag_lines[0]
@@ -5781,6 +5960,7 @@ check("v59.1 diagnostic: exactly one [diag] line per call with every "
       and "aggr_n=0" in _diag_m_lines[0]
       and "aggr_age=None" in _diag_m_lines[0]
       and "fs_open=False" in _diag_m_lines[0]
+      and "rfr=0" in _diag_m_lines[0]
       and "enemies_n=0" in _diag_m_lines[0]
       and "track_age=None" in _diag_m_lines[0]
       and "nearest_px=None" in _diag_m_lines[0]

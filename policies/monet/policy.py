@@ -467,6 +467,55 @@ HEAT_HUNTER = True
 RETURN_FIRE_TICKS = 120
 RETURN_FIRE = True
 
+# RETURN FIRE FROM RANGE (v60, pre-registered lever, owner brief §37
+# 2026-09-21, from UNDER-FIRE DIAG READ handoff §36, n=24 eps / 839 [diag]
+# lines): the block above only ever fires when fire_superiority's OWN gate
+# is CLOSED (no live track). But 67.1% of under-fire states with the gate
+# OPEN (a live track exists) still never return fire, because the nearest
+# tracked enemy sits beyond fire_superiority's own pressRange (220px):
+# P(fire within 120t) is 22.8% at <=220px vs 2.5% at 220-750px -- read
+# `fire_superiority.nim play_step`: `if bestDistSq <= sq(band): return
+# emitHoldIfChanged()` is the ONLY path that holds/fires; outside band it
+# always emits a Navigate("press") goal instead, so the body never gets to
+# finish the engagement from where we already stand while taking hits.
+#
+# MECHANISM CHOSEN (A), not (B): `hold_vs_gun.nim play_step` has no
+# equivalent close-in step anywhere in it -- every branch (hot/aggressor,
+# not-hot/tracked-enemy-shadow, calm fallback) resolves to
+# emitHoldIfChanged() or a facing/cover move that explicitly never
+# advances toward the enemy (`movesAwayFromGun`/`advancesAcrossOpen` both
+# forbid it). That is its whole design ("never turn your back on a live
+# gun," ported from Picasso) -- it returns fire from wherever we already
+# stand, at ANY range, by construction. So this block installs hold_vs_gun
+# AHEAD of fire_superiority rather than raising fire_superiority's own
+# pressRange (mechanism (B), unused -- RANGE_RETURN_PRESS is kept defined
+# per the pre-registered lever spec but the pin loop below never reads it).
+# hold_vs_gun's own harness gate is already open here (this predicate
+# REQUIRES a live track, i.e. fire_superiority_open True, so
+# starter_harness.gate_open's ordinary track-distance branch for
+# hold_vs_gun opens on its own engageDist, and/or the v59 aggressor-gate
+# OR-clause is already open too, since we are under fire) -- nothing new
+# needed on the harness side.
+#
+# ORDERING: starter_harness.layer_ladder's `gated` bucket is built by
+# scanning `entries` ONCE, in order, appending whichever gated play's own
+# gate_open() is True -- so `entries` INPUT ORDER is exactly the final
+# wire ladder order among gated plays (verified by reading layer_ladder
+# directly, not assumed). Unlike the RETURN_FIRE block above -- where
+# fire_superiority_open is guaranteed False whenever it fires, so ordering
+# never mattered -- this predicate requires fire_superiority_open True,
+# meaning BOTH gates can be open on the same call. So this block always
+# INSERTS hold_vs_gun at entries[0] (never appends) to guarantee it
+# precedes every fire_superiority entry already on the list, however it
+# got there (model call, opening/heat-hunter install, or a prior turn's
+# own return-fire-range call).
+#
+# RETURN_FIRE_RANGE is a plain kill switch, same convention as
+# RETURN_FIRE/OPENING_HUNTER/HEAT_HUNTER: flip to False to fall back to
+# byte-identical v59.1 behaviour without removing this block.
+RETURN_FIRE_RANGE = True
+RANGE_RETURN_PRESS = 500
+
 # Awareness digest: a track older than this is a memory, not a threat (the
 # harness's own 10-s freshness/aggressor window). An item further than
 # NEAR_ITEM_PX is a detour, not "near".
@@ -825,6 +874,12 @@ def apply_phase_clamps(entries, view, pact_state, source=None):
         view, {"self": {"team": pstate.get("_my_team")}}, [])
     fire_superiority_open = starter_harness.gate_open(
         {"play": "fire_superiority", "params": {}}, facts)
+    # v60: hoisted up from the FIRE_SUPERIORITY WIRE FIX loop below (same
+    # discipline as the v59.1 hoist above) so the RETURN FIRE FROM RANGE
+    # block can read the current phase's own pressRange doctrine instead
+    # of a second, possibly-drifting copy of "220" -- one computation, one
+    # doctrine table, reused by both the gate below and the pin loop.
+    phase = "endgame" if _in_marquee_zone_window(view) else "default"
 
     # OPENING/HEAT-WINDOW HUNTER (v57 opening latch + v58 heat-window
     # re-arm, see OPENING_TICKS/OPENING_HUNTER and HEAT_HUNTER module
@@ -894,6 +949,31 @@ def apply_phase_clamps(entries, view, pact_state, source=None):
                 f"return-fire clamp{tag}: hold_vs_gun installed{suffix}")
             fired = True
 
+    # RETURN FIRE FROM RANGE (v60, see the module-level RETURN_FIRE_RANGE/
+    # RANGE_RETURN_PRESS comment above for the full WHY, code evidence, and
+    # why mechanism (A) not (B)): the mirror-image case of the block just
+    # above -- while under fire (`return_fire_active`, the SAME
+    # RETURN_FIRE_TICKS clock, reused rather than recomputed) AND
+    # fire_superiority's OWN gate IS open (a live track exists) AND the
+    # nearest tracked enemy sits beyond fire_superiority's own pressRange
+    # for this phase, guarantee hold_vs_gun is on the ladder AHEAD of any
+    # fire_superiority entry (INSERT at entries[0], never append -- see the
+    # ORDERING note above). For fs_open=False this predicate is always
+    # False (short-circuits on fire_superiority_open), so v59/v59.1's own
+    # RETURN FIRE block above owns that case exactly as it always has.
+    return_fire_range_active = bool(
+        RETURN_FIRE_RANGE and return_fire_active and fire_superiority_open
+        and isinstance(facts["nearest_enemy"], (int, float))
+        and facts["nearest_enemy"] > FIRE_SUPERIORITY_PRESS_RANGE[phase])
+    if return_fire_range_active:
+        if not any(e.get("play") == "hold_vs_gun" for e in entries):
+            entries.insert(0, {"play": "hold_vs_gun",
+                               "entry_id": "return_fire_range", "params": {}})
+            starter_harness._log(
+                PERSONA,
+                f"return-fire-range clamp{tag}: hold_vs_gun ahead{suffix}")
+            fired = True
+
     # FIRE_SUPERIORITY WIRE FIX (v44, moved here v52 -- see module docstring
     # above FIRE_SUPERIORITY_PRESS_RANGE/FIRE_SUPERIORITY_FINISH_RANGE):
     # pin all three levers to the doctrine value for the CURRENT
@@ -907,8 +987,8 @@ def apply_phase_clamps(entries, view, pact_state, source=None):
     # GV17 economy engagement-volume fix) is ALSO flat across both phase
     # buckets (750/750) -- same "always pinned" shape as pressRange, added
     # to this SAME loop rather than a new one so it shares the identical
-    # clamp/log/maintenance-bypass-closing mechanism.
-    phase = "endgame" if _in_marquee_zone_window(view) else "default"
+    # clamp/log/maintenance-bypass-closing mechanism. `phase` itself is
+    # computed once, above (v60 hoist), and reused here.
     for entry in entries:
         if entry.get("play") != "fire_superiority":
             continue
@@ -1025,7 +1105,9 @@ def apply_phase_clamps(entries, view, pact_state, source=None):
     # list as it stands at this point -- the last mutation site in this
     # function, so it is the fullest ladder any wire send path (real call,
     # reemit, or maintenance-resend-on-already-gated-entries) has seen by
-    # the time it reaches us.
+    # the time it reaches us. `rfr` (v60) is `return_fire_range_active`
+    # itself, 1/0 rather than True/False so a grep/count over raw log text
+    # never has to special-case Python bool spelling.
     aggressors = (view or {}).get("aggressors", []) or []
     aggr_ticks = [a["tick"] for a in aggressors
                   if isinstance(a, dict) and isinstance(a.get("tick"), int)]
@@ -1051,6 +1133,7 @@ def apply_phase_clamps(entries, view, pact_state, source=None):
         PERSONA,
         f"[diag] tick={tick} src={source or 'call'} aggr_n={len(aggressors)} "
         f"aggr_age={aggr_age} fs_open={fire_superiority_open} "
+        f"rfr={int(return_fire_range_active)} "
         f"enemies_n={len(facts['enemies'])} track_age={track_age} "
         f"nearest_px={nearest_px} hp={hp} plays={plays_str}")
     return fired
