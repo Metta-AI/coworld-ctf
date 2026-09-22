@@ -443,7 +443,8 @@ OPENING_HUNTER = True
 # It gates ONLY the play-swap use of the heat-window clock below; the
 # v56 AGGRESSION LOCK's own detourMax pin stays keyed on the raw
 # predicate, unconditional on this switch -- see apply_phase_clamps.
-HEAT_HUNTER = True
+# v61: a2fa8551 base behaviour; later levers off pending a powered read.
+HEAT_HUNTER = False
 
 # RETURN FIRE (v59, pre-registered lever, owner brief §30 2026-09-21, from
 # the FIRST-FIGHT ANATOMY read, handoff §29, n=1,171 seat-episode rows):
@@ -510,8 +511,9 @@ HEAT_HUNTER = True
 # RETURN_FIRE is a plain kill switch, same convention as OPENING_HUNTER/
 # HEAT_HUNTER: flip to False to fall back to byte-identical v58 behaviour
 # without removing this block (see apply_phase_clamps).
+# v61: a2fa8551 base behaviour; later levers off pending a powered read.
 RETURN_FIRE_TICKS = 120
-RETURN_FIRE = True
+RETURN_FIRE = False
 
 # RETURN FIRE FROM RANGE (v60, pre-registered lever, owner brief §37
 # 2026-09-21, from UNDER-FIRE DIAG READ handoff §36, n=24 eps / 839 [diag]
@@ -559,7 +561,8 @@ RETURN_FIRE = True
 # RETURN_FIRE_RANGE is a plain kill switch, same convention as
 # RETURN_FIRE/OPENING_HUNTER/HEAT_HUNTER: flip to False to fall back to
 # byte-identical v59.1 behaviour without removing this block.
-RETURN_FIRE_RANGE = True
+# v61: a2fa8551 base behaviour; later levers off pending a powered read.
+RETURN_FIRE_RANGE = False
 RANGE_RETURN_PRESS = 500
 
 # FOUR DIGITS lane (W1, plan-4digits.md lever 2, 2026-09-22): three

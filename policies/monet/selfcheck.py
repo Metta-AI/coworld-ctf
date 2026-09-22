@@ -5355,9 +5355,18 @@ _oh_ii_view = {"tick": 300, "world": {"alive_teams": 16},
               "kill_feed": [{"tick": 250, "killer_team": "rust",
                             "victim_seat": 9}]}
 _oh_ii_log = _io.StringIO()
-with _contextlib.redirect_stdout(_oh_ii_log):
-    _oh_ii_fired = policy.apply_phase_clamps(_oh_ii_entries, _oh_ii_view,
-                                             _oh_ii_pact, source=None)
+# v61: HEAT_HUNTER default is now False (D9) -- this fixture tests the
+# HEAT_HUNTER/OPENING_HUNTER *interaction* mechanism, so it arms
+# HEAT_HUNTER=True for its own scope, same convention as every other
+# explicit-arm/restore block in this file.
+_oh_ii_hh_prev = policy.HEAT_HUNTER
+policy.HEAT_HUNTER = True
+try:
+    with _contextlib.redirect_stdout(_oh_ii_log):
+        _oh_ii_fired = policy.apply_phase_clamps(_oh_ii_entries, _oh_ii_view,
+                                                 _oh_ii_pact, source=None)
+finally:
+    policy.HEAT_HUNTER = _oh_ii_hh_prev
 _oh_ii_plays = [e["play"] for e in _oh_ii_entries]
 check("(ii) opening hunter: same tick 300, but our team already banked a "
       "kill at tick 250 -- v58: the opening latch is tripped, but the "
@@ -5509,9 +5518,17 @@ _hh_ii_view = {"tick": 2000, "world": {"alive_teams": 16},
               "kill_feed": [{"tick": 1900, "killer_team": "rust",
                             "victim_seat": 9}]}
 _hh_ii_log = _io.StringIO()
-with _contextlib.redirect_stdout(_hh_ii_log):
-    _hh_ii_fired = policy.apply_phase_clamps(_hh_ii_entries, _hh_ii_view,
-                                             _hh_ii_pact, source=None)
+# v61: HEAT_HUNTER default is now False (D9) -- arm it for this fixture's
+# own scope so the mechanism itself (proven correct, just off by default
+# pending a powered read) still gets exercised.
+_hh_ii_hh_prev = policy.HEAT_HUNTER
+policy.HEAT_HUNTER = True
+try:
+    with _contextlib.redirect_stdout(_hh_ii_log):
+        _hh_ii_fired = policy.apply_phase_clamps(_hh_ii_entries, _hh_ii_view,
+                                                 _hh_ii_pact, source=None)
+finally:
+    policy.HEAT_HUNTER = _hh_ii_hh_prev
 _hh_ii_plays = [e["play"] for e in _hh_ii_entries]
 check("(ii) heat-window hunter: tick 2000, our kill at 1900 (100 ticks "
       "ago) -- scatter stripped, fire_superiority installed, fired=True",
@@ -5582,9 +5599,16 @@ _hh_v_view = {"tick": 800, "world": {"alive_teams": 16},
              "kill_feed": [{"tick": 700, "killer_team": "rust",
                            "victim_seat": 9}]}
 _hh_v_log = _io.StringIO()
-with _contextlib.redirect_stdout(_hh_v_log):
-    _hh_v_fired = policy.apply_phase_clamps(_hh_v_entries, _hh_v_view,
-                                            _hh_v_pact, source=None)
+# v61: HEAT_HUNTER default is now False (D9) -- arm it for this fixture's
+# own scope, same as the (ii) fixture above.
+_hh_v_hh_prev = policy.HEAT_HUNTER
+policy.HEAT_HUNTER = True
+try:
+    with _contextlib.redirect_stdout(_hh_v_log):
+        _hh_v_fired = policy.apply_phase_clamps(_hh_v_entries, _hh_v_view,
+                                                _hh_v_pact, source=None)
+finally:
+    policy.HEAT_HUNTER = _hh_v_hh_prev
 _hh_v_plays = [e["play"] for e in _hh_v_entries]
 _hh_v_loot = next(e for e in _hh_v_entries if e["play"] == "loot")
 check("(v) heat-window hunter: tick 800, our kill at 700 (opening latch "
@@ -5761,9 +5785,17 @@ _rf_i_pact = {"_my_team": "rust"}
 _rf_i_view = {"tick": 2000, "world": {"alive_teams": 16}, "kill_feed": [],
               "aggressors": [{"tick": 1990, "dir_brads": 64, "seat": 11}]}
 _rf_i_log = _io.StringIO()
-with _contextlib.redirect_stdout(_rf_i_log):
-    _rf_i_fired = policy.apply_phase_clamps(_rf_i_entries, _rf_i_view,
-                                            _rf_i_pact, source=None)
+# v61: RETURN_FIRE default is now False (D9) -- arm it for this fixture's
+# own scope so the mechanism itself (still correct, just off by default
+# pending a powered read) is still exercised.
+_rf_i_prev = policy.RETURN_FIRE
+policy.RETURN_FIRE = True
+try:
+    with _contextlib.redirect_stdout(_rf_i_log):
+        _rf_i_fired = policy.apply_phase_clamps(_rf_i_entries, _rf_i_view,
+                                                _rf_i_pact, source=None)
+finally:
+    policy.RETURN_FIRE = _rf_i_prev
 _rf_i_plays = [e["play"] for e in _rf_i_entries]
 check("(i) return fire: under fire (aggressor hit 10 ticks ago), no "
       "tracks -- hold_vs_gun committed, fired=True",
@@ -5848,22 +5880,35 @@ check("(v) RETURN_FIRE=False is a plain kill switch: the (i) scenario "
 
 # End-to-end through the REAL send path, same shape as the opening-hunter
 # e2e check above: repair_call -> adjust_entries -> apply_phase_clamps.
+# v61: RETURN_FIRE default is now False (D9) -- arm it for this fixture's
+# own scope, same as the (i) fixture above.
 _rf_e2e_context = {"self": {"seat": 3, "duo_partner": 19, "team": "rust"}}
 _rf_e2e_seat = fake_seat(
     context=_rf_e2e_context,
     view={"tick": 2000, "world": {"alive_teams": 16}, "kill_feed": [],
           "aggressors": [{"tick": 1990, "dir_brads": 64, "seat": 11}]})
-starter_harness.repair_call(
-    {"call": {"entries": _rf_entries()}}, PERSONA, _rf_e2e_seat, AVAILABLE)
+_rf_e2e_prev = policy.RETURN_FIRE
+policy.RETURN_FIRE = True
+try:
+    starter_harness.repair_call(
+        {"call": {"entries": _rf_entries()}}, PERSONA, _rf_e2e_seat,
+        AVAILABLE)
+finally:
+    policy.RETURN_FIRE = _rf_e2e_prev
 _rf_e2e_plays = [e["play"] for e in _rf_e2e_seat.wanted_entries]
 check("return fire end-to-end via repair_call/adjust_entries: a real "
       "call's own context + view (under fire, no tracks) installs "
       "hold_vs_gun on seat.wanted_entries",
       "hold_vs_gun" in _rf_e2e_plays, str(_rf_e2e_plays))
 
-check("v60 constants exist exactly as pre-registered (owner brief §37): "
-      "RETURN_FIRE_RANGE kill switch True, RANGE_RETURN_PRESS 500",
-      policy.RETURN_FIRE_RANGE is True and policy.RANGE_RETURN_PRESS == 500)
+check("v61 constants exist exactly as pre-registered (D9): HEAT_HUNTER, "
+      "RETURN_FIRE, RETURN_FIRE_RANGE all False (a2fa8551 base behaviour, "
+      "levers off pending a powered read); OPENING_HUNTER stays True; "
+      "RANGE_RETURN_PRESS untouched at 500",
+      policy.HEAT_HUNTER is False and policy.RETURN_FIRE is False
+      and policy.RETURN_FIRE_RANGE is False
+      and policy.OPENING_HUNTER is True
+      and policy.RANGE_RETURN_PRESS == 500)
 
 
 def _rfr_entries_with_fs():
@@ -5901,9 +5946,24 @@ _rfr_i_view = {
                "fresh_tick": 1995}],
 }
 _rfr_i_log = _io.StringIO()
-with _contextlib.redirect_stdout(_rfr_i_log):
-    _rfr_i_fired = policy.apply_phase_clamps(_rfr_i_entries, _rfr_i_view,
-                                             _rfr_i_pact, source=None)
+# v61: RETURN_FIRE_RANGE default is now False (D9) -- arm it for this
+# fixture's own scope so the mechanism itself (still correct, just off by
+# default pending a powered read) is still exercised. Also arm RETURN_FIRE
+# (also False by default now): return_fire_active (this block's own
+# "under fire" signal, apply_phase_clamps ~line 1216) is itself gated by
+# `RETURN_FIRE and _update_return_fire(...)`, so RETURN_FIRE_RANGE alone
+# can never fire without it -- a real code dependency, not a test artifact.
+_rfr_i_prev = policy.RETURN_FIRE_RANGE
+_rfr_i_rf_prev = policy.RETURN_FIRE
+policy.RETURN_FIRE_RANGE = True
+policy.RETURN_FIRE = True
+try:
+    with _contextlib.redirect_stdout(_rfr_i_log):
+        _rfr_i_fired = policy.apply_phase_clamps(_rfr_i_entries, _rfr_i_view,
+                                                 _rfr_i_pact, source=None)
+finally:
+    policy.RETURN_FIRE_RANGE = _rfr_i_prev
+    policy.RETURN_FIRE = _rfr_i_rf_prev
 _rfr_i_plays = [e["play"] for e in _rfr_i_entries]
 check("(i) return-fire-range: under fire, fs open, nearest 600px (> "
       "pressRange 220) -- hold_vs_gun installed AHEAD of fire_superiority, "
@@ -5947,9 +6007,18 @@ _rfr_iii_pact = {"_my_team": "rust"}
 _rfr_iii_view = {"tick": 2000, "world": {"alive_teams": 16}, "kill_feed": [],
                  "aggressors": [{"tick": 1990, "dir_brads": 64, "seat": 11}]}
 _rfr_iii_log = _io.StringIO()
-with _contextlib.redirect_stdout(_rfr_iii_log):
-    _rfr_iii_fired = policy.apply_phase_clamps(
-        _rfr_iii_entries, _rfr_iii_view, _rfr_iii_pact, source=None)
+# v61: RETURN_FIRE default is now False (D9) -- this fixture exercises
+# v59's OWN return-fire lever as its control case, so arm RETURN_FIRE=True
+# for its own scope (RETURN_FIRE_RANGE stays at whatever the module
+# default is; this fs-closed scenario short-circuits it regardless).
+_rfr_iii_rf_prev = policy.RETURN_FIRE
+policy.RETURN_FIRE = True
+try:
+    with _contextlib.redirect_stdout(_rfr_iii_log):
+        _rfr_iii_fired = policy.apply_phase_clamps(
+            _rfr_iii_entries, _rfr_iii_view, _rfr_iii_pact, source=None)
+finally:
+    policy.RETURN_FIRE = _rfr_iii_rf_prev
 _rfr_iii_hold = [e for e in _rfr_iii_entries if e.get("play") == "hold_vs_gun"]
 check("(iii) return-fire-range: under fire, fs closed -- v59's own "
       "return-fire (hold_vs_gun, entry_id=return_fire) unchanged, no "
@@ -6020,13 +6089,24 @@ _rfr_e2e_seat = fake_seat(
           "aggressors": [{"tick": 1990, "dir_brads": 64, "seat": 5}],
           "tracks": [{"seat": 5, "team": "steel", "pos": [600, 0],
                      "fresh_tick": 1995}]})
-_rfr_e2e_payload, _rfr_e2e_final = starter_harness.repair_call(
-    {"call": {"entries": [
-        {"play": "target_law", "entry_id": "law", "params": {}},
-        {"play": "fire_superiority", "entry_id": "pressbreak",
-         "params": {"pressRange": 220, "finishRange": 140,
-                    "engageDist": 750}},
-    ]}}, PERSONA, _rfr_e2e_seat, AVAILABLE)
+# v61: RETURN_FIRE_RANGE default is now False (D9) -- arm it for this
+# fixture's own scope, same as the (i) fixture above. Also arm RETURN_FIRE
+# (see the (i) fixture's comment for why RETURN_FIRE_RANGE needs it too).
+_rfr_e2e_prev = policy.RETURN_FIRE_RANGE
+_rfr_e2e_rf_prev = policy.RETURN_FIRE
+policy.RETURN_FIRE_RANGE = True
+policy.RETURN_FIRE = True
+try:
+    _rfr_e2e_payload, _rfr_e2e_final = starter_harness.repair_call(
+        {"call": {"entries": [
+            {"play": "target_law", "entry_id": "law", "params": {}},
+            {"play": "fire_superiority", "entry_id": "pressbreak",
+             "params": {"pressRange": 220, "finishRange": 140,
+                        "engageDist": 750}},
+        ]}}, PERSONA, _rfr_e2e_seat, AVAILABLE)
+finally:
+    policy.RETURN_FIRE_RANGE = _rfr_e2e_prev
+    policy.RETURN_FIRE = _rfr_e2e_rf_prev
 _rfr_e2e_plays = [e["play"] for e in _rfr_e2e_final]
 check("return-fire-range end-to-end via repair_call/adjust_entries/"
       "gate_and_build/layer_ladder/build_call: hold_vs_gun lands on the "
