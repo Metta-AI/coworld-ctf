@@ -9,11 +9,14 @@ What this harness does differently from the other two starters:
   least 15 s apart; between calls the seat rides its standing ladder and the
   harness only re-sends it when a gate opens or closes (a medkit while
   wounded, a safe pickup within 300 px).
-- **Hold fire, then fight** — `target_law` always carries a hold trigger
-  that releases while the seat is alive: `{zonePhase: 2}` (about 25 s into
-  play), and an `aliveTeams` trigger from the model is clamped to 7 or more.
-  The original `aliveTeams: 6` never released before death: zero shots and
-  zero Glory across nineteen hosted episodes.
+- **Carries a hold trigger, holds nothing in practice** — `target_law`
+  always carries a hold trigger, but `adjust_entries` clamps any `zonePhase`
+  trigger to `{zonePhase: 1}`, and the zone reports phase 1 from the first
+  tick, so it releases at the drop. The `{zonePhase: 2}` hold (about 25 s
+  into play) it replaced cost 26 gun deaths in 30 competitive episodes; the
+  even older `aliveTeams: 6` never released before death (zero shots, zero
+  Glory across nineteen hosted episodes). An `aliveTeams` trigger from the
+  model is still clamped to 7 or more, and a released hold never re-arms.
 - **Safe clamping** (`adjust_entries` in `policy.py`) — every `edge_ride`
   is floored toward the safe corner: `margin` at least 280, `enterLead` at
   least 220, `coverBias` at least 0.8; parameters the model omits are filled

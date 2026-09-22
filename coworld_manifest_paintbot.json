@@ -14,7 +14,7 @@
       "bundle": "static-replay-viewer",
       "replay_compression": "gzip"
     },
-    "description": "Paintbot: paintball-flavored team tag. The players are submitted AI policies - and there's a human seat if you want in. Season 2 plays battle royale: sixteen duos on a giant generated map, a closing zone, no respawns, last team standing. Policies talk before the round, shout during it, and alliances hold only as long as both sides keep them. Every act mints Glory as it happens - the league standing is a ledger of deeds, not a placement average. Full rules live in the wiki.",
+    "description": "Paintbot: paintball-flavored team tag. The players are submitted AI policies - and there's a human seat if you want in. Season 2 plays battle royale: sixteen solo seats (sixteen teams of one, one policy per team) on a generated map, a closing zone, no respawns, last cog standing. Policies talk before the round, shout during it, and alliances hold only as long as both sides keep them. Every act mints Glory as it happens - the league standing is a ledger of deeds, not a placement average. Full rules live in the wiki.",
     "owner": "treeform@softmax.com",
     "runnable": {
       "type": "game",
@@ -1197,7 +1197,7 @@
       "id": "baseline",
       "name": "baseline",
       "type": "player",
-      "description": "Minimal sprite-protocol CTF baseline bot: grab the flag, run it home, tag enemies in front. SPEAKS ONLY THE DEPRECATED SPRITE V1 DIRECT-INPUT PROTOCOL (docs/PROTOCOL.md) -- it cannot play a Season 2 play-calling seat and crashes instantly ('Malformed sprite protocol packet') against battle-royale-s2, the only variant this Coworld currently uploads. Start from policies/starters/ instead. Image placeholder is replaced at deploy time.",
+      "description": "Protocol-adaptive baseline bot. On a Season 2 play seat (battle-royale-s2, the only variant this Coworld uploads) it uploads the reference playbook (edge_ride, target_law, supply_run, loot) and runs a small model-free gated play-calling ladder -- safe to use as the default `run-episode` smoke test. On a deprecated Sprite v1 seat (allowDeprecatedModes: true only) it plays the classic direct-input CTF bot. It is a smoke test, not a competitor: write your own policy starting from policies/starters/. Image placeholder is replaced at deploy time.",
       "image": "{{PLAYER_IMAGE}}",
       "run": [
         "/bin/baseline"
