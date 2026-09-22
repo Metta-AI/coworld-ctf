@@ -189,17 +189,25 @@ jobs:
         # failed; the version was promoted six minutes later). So poll: the
         # version must appear promptly, and then it gets up to fifteen
         # minutes to become canonical before this counts as a failure.
+        env:
+          SOFTMAX_TOKEN: ${{ secrets.SOFTMAX_TOKEN }}
         run: |
           set -euo pipefail
           python3 - "${{ steps.version.outputs.version }}" <<'EOF'
-          import json, subprocess, sys, time
+          import os, sys, time
+          # Registry read goes straight to /v2/coworlds/summaries via the
+          # same cursor-paging helper the version picker uses: the pinned
+          # coworld CLI's `list` still sends `?offset=`, which the registry
+          # rejects with 422 since it moved to keyset paging (this step died
+          # on exactly that in run 35683395463 after a successful publish).
+          sys.path.insert(0, "coworld-ctf/tools/ci")
+          from next_coworld_version import fetch_all_rows
           expected = sys.argv[1]
+          token = os.environ["SOFTMAX_TOKEN"]
           deadline = time.monotonic() + 15 * 60
           poll_seconds = 30
           while True:
-              rows = json.loads(subprocess.check_output([
-                  "uvx", "--from", "coworld[auth]==0.1.43", "coworld", "list",
-                  "--json", "--limit", "500"]))
+              rows = fetch_all_rows(token)
               match = [r for r in rows
                        if r.get("name") == "paintbot" and r.get("version") == expected]
               if match and match[0].get("canonical"):
