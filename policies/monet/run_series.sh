@@ -51,6 +51,7 @@ SEED="${SEEDS[$IDX]}"
 PERSONAS=(monet aggressive cautious collaborative)
 
 FIRE_DIR="${MONET_FIRE_DIR:-/tmp/monet-fire}"
+BASE_CONFIG="${BASE_CONFIG:-$REPO_ROOT/config.practice.json}"
 SERVER_BIN="$FIRE_DIR/ctf-server"
 PLAYBOOK_DIR="$FIRE_DIR/playbook"
 VENV_PY="$FIRE_DIR/venv/bin/python3"
@@ -90,7 +91,8 @@ mkdir -p "$SEED_DIR"
 
 PORT="${PORT:-$((21850 + IDX))}"
 
-echo "seed_index=$IDX seed=$SEED port=$PORT fire_dir=$FIRE_DIR" | tee "$SEED_DIR/meta.txt"
+echo "seed_index=$IDX seed=$SEED port=$PORT fire_dir=$FIRE_DIR base_config=$BASE_CONFIG" \
+  | tee "$SEED_DIR/meta.txt"
 
 # --- team -> persona rotation map (also consumed by aggregate_series.py) ---
 python3 - "$IDX" "$SEED_DIR/persona_map.json" <<'PY'
@@ -101,20 +103,27 @@ m = {str(t): personas[(t + idx) % 4] for t in range(16)}
 json.dump(m, open(sys.argv[2], "w"), indent=1)
 PY
 
-# --- per-episode config: config.practice.json + season2Shell play-seat
+# --- per-episode config: config.practice.json (or BASE_CONFIG, e.g. an
+# EVAL_MAPSPEC swap for the FOUR DIGITS tick-share instrument -- see
+# policies/monet/eval_mapspec_r5733.json) + season2Shell play-seat
 # transforms (same shape the prior live-fire run used) + this seed +
 # maxGames=1 (clean self-exit + replay write on GameOver, no log-watching
 # needed) + player names carrying the persona identity for readable logs.
 CONFIG_PATH="$SEED_DIR/config.json"
-python3 - "$REPO_ROOT/config.practice.json" "$CONFIG_PATH" "$SEED" \
+python3 - "$BASE_CONFIG" "$CONFIG_PATH" "$SEED" \
          "$SEED_DIR/persona_map.json" <<'PY'
-import json, sys
+import json, os, sys
 base_path, out_path, seed, persona_map_path = sys.argv[1:5]
 config = json.load(open(base_path))
 config["season2Shell"] = True
 config["viewIntervalTicks"] = 6
-config["lobbyChatTicks"] = 4320
-config["playSeatBindTicks"] = 14400
+# LOBBY_CHAT_TICKS/PLAY_SEAT_BIND_TICKS: env-overridable (default unchanged,
+# 4320/14400) so a contended local box (many concurrent agents -> a few
+# ticks/sec instead of the ~20-30/sec this cadence assumes) can shorten the
+# pre-match lobby to fit inside CAP -- see CAP below, same env-override
+# convention as MONET_FIRE_DIR/PORT/OUT_ROOT already in this file.
+config["lobbyChatTicks"] = int(os.environ.get("LOBBY_CHAT_TICKS", 4320))
+config["playSeatBindTicks"] = int(os.environ.get("PLAY_SEAT_BIND_TICKS", 14400))
 config["seed"] = int(seed)
 config["maxGames"] = 1
 for slot in config["slots"]:
@@ -189,8 +198,10 @@ echo "${SEAT_PIDS[@]}" > "$SEED_DIR/seat_pids.txt"
 echo "launched 32 policy seats"
 
 # --- wait for the server to self-exit (maxGames=1 -> quitAfterFrame on
-# GameOver, writes the replay, then quits) -- hard cap 12 min. ---
-CAP=720
+# GameOver, writes the replay, then quits) -- hard cap 12 min, env-
+# overridable (RUN_CAP_SECONDS, default unchanged) for a contended local
+# box where sim ticks/sec is well below what this cadence assumes. ---
+CAP="${RUN_CAP_SECONDS:-720}"
 START=$SECONDS
 while kill -0 "$SERVER_PID" 2>/dev/null; do
   if [ $((SECONDS - START)) -ge $CAP ]; then

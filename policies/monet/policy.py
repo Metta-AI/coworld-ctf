@@ -516,6 +516,52 @@ RETURN_FIRE = True
 RETURN_FIRE_RANGE = True
 RANGE_RETURN_PRESS = 500
 
+# FOUR DIGITS lane (W1, plan-4digits.md lever 2, 2026-09-22): three
+# ring_walker/proactive-recenter variants, each a plain kill switch in the
+# SAME convention as RETURN_FIRE/OPENING_HUNTER/HEAT_HUNTER above -- default
+# OFF (byte-identical to v60/control), armed one at a time IN CODE (never
+# via container env, per house rule) for the local tick-share instrument
+# read (src/shell/ladder.nim -d:tickShareProbe). Ceiling story (plan-
+# architect, 22:50Z): the server-native zone-escape reflex
+# (ladder.nim stepSeat's nativeBase.isSome branch) owns ~78% of ticks,
+# armed whenever `zoneTicksUntilOutside(selfPos) <= 72`
+# (ReflexZoneTriggerTicks, src/shell/reflexes.nim:22) -- ring_walker's OWN
+# gate (starter_harness.gate_open, ~888-906) already tries to walk back
+# 240 ticks ahead of the shrink (leadTicks doctrine below), so the fix
+# tried here is not "make ring_walker fire more" but "make it land further
+# from the 72-tick hazard line once it does fire" (inset) or fire earlier
+# (leadTicks) or fire on a wider, Monet-only proactive trigger that does
+# not touch the shared starter_harness.py gate predicate at all (every
+# other persona reuses that file; keeping the experiment out of it is the
+# whole point of implementing these as apply_phase_clamps pins instead of
+# a starter_harness.py edit).
+#
+# RING_LEAD_WIDE: pins every ring_walker entry's leadTicks doctrine value
+# UP from the canned-turn default (240) to RING_LEAD_WIDE_TICKS, so the
+# anti-corner walk starts noticeably earlier relative to the shrink clock.
+RING_LEAD_WIDE = False
+RING_LEAD_WIDE_TICKS = 400          # max legal is 720 (ring_walker manifest)
+
+# RING_INSET_WIDE: pins every ring_walker entry's inset doctrine value UP
+# from 64 to RING_INSET_WIDE_PX, so the walk-to point sits further inside
+# the next rect (more buffer against the 72-tick native trigger once
+# ring_walker's own walk lands).
+RING_INSET_WIDE = False
+RING_INSET_WIDE_PX = 160            # max legal is 256 (ring_walker manifest)
+
+# PROACTIVE_RECENTER: a Monet-only widened trigger, independent of the
+# other two -- while ticks_to_shrink is inside PROACTIVE_RECENTER_TICKS
+# (deliberately wider than any leadTicks doctrine above) AND we are not
+# already inside the next rect, boost BOTH inset and leadTicks to the
+# PROACTIVE_RECENTER_* values for that window only, same clamp-and-log
+# shape as the HEAT_WINDOW/FINAL_FOUR pins elsewhere in this function --
+# implemented here (apply_phase_clamps), not in starter_harness.py's
+# shared gate_open, so aggressive/cautious/collaborative are untouched.
+PROACTIVE_RECENTER = False
+PROACTIVE_RECENTER_TICKS = 480
+PROACTIVE_RECENTER_LEAD = 480
+PROACTIVE_RECENTER_INSET = 200
+
 # Awareness digest: a track older than this is a memory, not a threat (the
 # harness's own 10-s freshness/aggressor window). An item further than
 # NEAR_ITEM_PX is a detour, not "near".
@@ -1006,6 +1052,72 @@ def apply_phase_clamps(entries, view, pact_state, source=None):
                     f"phase={phase}{suffix}")
                 fired = True
             params[field] = doctrine
+
+    # FOUR DIGITS lane (W1, 2026-09-22): RING_LEAD_WIDE / RING_INSET_WIDE
+    # doctrine pins, same clamp/log mechanism as the loop just above --
+    # default False (both), so with neither armed this loop is a no-op and
+    # the wire stays byte-identical to control (inset=64/leadTicks=240,
+    # the canned-turn literals). Armed one at a time for the local
+    # tick-share instrument's variant reads; never both variants at once
+    # (that would conflate two levers in one read).
+    if RING_LEAD_WIDE or RING_INSET_WIDE:
+        for entry in entries:
+            if entry.get("play") != "ring_walker":
+                continue
+            params = entry.setdefault("params", {})
+            if RING_LEAD_WIDE:
+                old = params.get("leadTicks")
+                if old != RING_LEAD_WIDE_TICKS:
+                    starter_harness._log(
+                        PERSONA,
+                        f"clamp ring_walker.leadTicks{tag} {old!r}->"
+                        f"{RING_LEAD_WIDE_TICKS}{suffix}")
+                    fired = True
+                params["leadTicks"] = RING_LEAD_WIDE_TICKS
+            if RING_INSET_WIDE:
+                old = params.get("inset")
+                if old != RING_INSET_WIDE_PX:
+                    starter_harness._log(
+                        PERSONA,
+                        f"clamp ring_walker.inset{tag} {old!r}->"
+                        f"{RING_INSET_WIDE_PX}{suffix}")
+                    fired = True
+                params["inset"] = RING_INSET_WIDE_PX
+
+    # FOUR DIGITS lane (W1, 2026-09-22): PROACTIVE_RECENTER -- a wider,
+    # Monet-only proactive-recenter trigger. Reuses `facts`/`phase` already
+    # computed unconditionally above (v59.1/v60 hoists); condition mirrors
+    # gate_open's own ring_walker predicate (starter_harness.py ~895-906)
+    # but with a WIDER window (PROACTIVE_RECENTER_TICKS, doctrine-larger
+    # than any leadTicks value above) so the boost can arm before
+    # ring_walker's own gate would otherwise open on the doctrine leadTicks
+    # value. Boosts inset+leadTicks together for that window only; default
+    # False, so with PROACTIVE_RECENTER unset this block never runs and the
+    # wire stays byte-identical to control.
+    if PROACTIVE_RECENTER:
+        ticks_to_shrink = facts.get("ticks_to_shrink")
+        proactive_open = bool(
+            not facts.get("in_next_zone", True)
+            and ticks_to_shrink is not None
+            and ticks_to_shrink < PROACTIVE_RECENTER_TICKS)
+        if proactive_open:
+            for entry in entries:
+                if entry.get("play") != "ring_walker":
+                    continue
+                params = entry.setdefault("params", {})
+                old_lead = params.get("leadTicks")
+                old_inset = params.get("inset")
+                if (old_lead != PROACTIVE_RECENTER_LEAD
+                        or old_inset != PROACTIVE_RECENTER_INSET):
+                    starter_harness._log(
+                        PERSONA,
+                        f"proactive-recenter clamp{tag}: ring_walker "
+                        f"leadTicks {old_lead!r}->{PROACTIVE_RECENTER_LEAD} "
+                        f"inset {old_inset!r}->{PROACTIVE_RECENTER_INSET} "
+                        f"tts={ticks_to_shrink}{suffix}")
+                    fired = True
+                params["leadTicks"] = PROACTIVE_RECENTER_LEAD
+                params["inset"] = PROACTIVE_RECENTER_INSET
 
     # SUPPLY_RUN whenHpBelow re-anchor (moved here v52, same fix class as
     # above -- see SUPPLY_DEFAULTS's own note): pin to doctrine on every

@@ -274,6 +274,25 @@ proc firstLightSocketViewBytes*(episode: FirstLightEpisode; seatIndex: int;
     discard tick
     "{}"
 
+proc probeViewFor*(episode: FirstLightEpisode; seatIndex: int;
+                    tick: uint32): string =
+  ## FOUR DIGITS lane instrument only (plan-4digits.md lever 2+4,
+  ## 2026-09-22): feeds `LadderSeatInput.probeViewJson` (src/shell/
+  ## ladder.nim), which the `-d:tickShareProbe` probe in ladder.nim's
+  ## stepSeat parses for zone/track facts. Deliberately calls the SOCKET's
+  ## JSON copy (`firstLightSocketViewBytes`), never the GUEST's PV1 binary
+  ## frame `firstLightViewBytes` returns -- the probe needs the same JSON
+  ## shape starter_harness.py's `_view_facts` parses, not aligned-load
+  ## binary fields. Always "" outside a `-d:tickShareProbe` build, so the
+  ## extra per-tick view-JSON build this performs (recomputing the same
+  ## view the socket would send, once per seat per tick, whether or not
+  ## this tick is actually a view-refresh tick) never runs in the shipped
+  ## server.
+  when defined(tickShareProbe):
+    episode.firstLightSocketViewBytes(seatIndex, tick)
+  else:
+    ""
+
 proc initFirstLightEpisode*(season2Shell, brMode: bool,
     controls: openArray[SlotControl],
     map: BodyMap = nil,
@@ -1122,7 +1141,8 @@ proc step*(episode: var FirstLightEpisode,
           guardContext: playGuardContext(state.body, facts),
           defaultIntent: finished.intent,
           defaultGoal: decision.goal,
-          nativeBase: reflexDecision.nativeBase)
+          nativeBase: reflexDecision.nativeBase,
+          probeViewJson: probeViewFor(episode, seat, tick))
 
       let ladderOutput = episode.ladder.tick(inputs, tick, episode.bindings)
       for row in ladderOutput.seats:
