@@ -1216,7 +1216,31 @@ def apply_phase_clamps(entries, view, pact_state, source=None):
         # order). This is the guarantee a live model turn omitting
         # ring_walker entirely (the peer brief's field read: "Monet calls
         # no zone/ring play at all") cannot defeat.
-        if not any(e.get("play") == "ring_walker" for e in entries):
+        #
+        # source != "maintenance" ONLY: `entries` on the maintenance path
+        # (starter_harness._live_loop, ~line 1988) is ALREADY the
+        # POST-gate wire ladder (`gate_and_build`'s own `gate_open()` ran
+        # first) -- ring_walker being absent there most of the time is
+        # NOT the gap this guards; it is ring_walker's OWN gate
+        # (`not in_next_zone and ticks_to_shrink < leadTicks`) correctly
+        # saying "nothing to walk right now". Inserting unconditionally
+        # on THAT path would make ring_walker win first-match over
+        # jackal on literally every maintenance tick (~every 2s, the
+        # large majority of a ~25000-tick episode) regardless of its own
+        # gate -- caught empirically: a first treatment run showed 4863
+        # insert events across 6 seeds/48 seats, an order of magnitude
+        # more than the handful of real model/canned calls per episode,
+        # which starves jackal's own play_step (afterKill/bothWeakened
+        # join logic) of ever running while ring_walker holds. On the
+        # CALL path (source is None or "final4-reemit", both via
+        # `repair_call`->`adjust_entries`, called BEFORE `gate_and_build`
+        # -- see repair_call's own body), `entries` is still the PRE-gate
+        # wanted ladder, so inserting here only makes ring_walker a
+        # CANDIDATE that the real `gate_open()` still filters honestly a
+        # moment later in `layer_ladder` -- that is the actual "a live
+        # model call cannot drop it" guarantee, and it is safe.
+        if source != "maintenance" and not any(
+                e.get("play") == "ring_walker" for e in entries):
             insert_at = (max(engage_positions) + 1) if engage_positions else len(entries)
             entries.insert(insert_at, {"play": "ring_walker",
                                        "entry_id": "ring", "params": {}})
