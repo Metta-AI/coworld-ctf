@@ -303,10 +303,14 @@ PLAYS = {
     # policies/monet/plays/fire_superiority.nim by the monet Dockerfile).
     # Picasso's SEAL lever #9, press-vs-break. Spec transcribed from the
     # play's own wasm-carried manifest.
+    # v61 (FOUR DIGITS lane): breakDeficit default 2->4
+    # (RaisedBreakDeficit/NOFIREPERSIST in fire_superiority.nim) -- keep
+    # this transcription honest with the compiled manifest or the system
+    # prompt tells the model a stale default.
     "fire_superiority": {
         "class": "controller",
         "params": {
-            "breakDeficit": {"kind": "int", "min": 1, "max": 8, "default": 2},
+            "breakDeficit": {"kind": "int", "min": 1, "max": 8, "default": 4},
             "coverMax": {"kind": "int", "min": 0, "max": 600, "default": 260},
             "engageDist": {"kind": "int", "min": 100, "max": 1200,
                            "default": 600},
@@ -333,7 +337,7 @@ PLAYS = {
             "bearing. Even or no contact: holds at cover. Call it on a "
             "guarded rung (enemy contact guard); a draw pays nobody, so "
             "finish winning fights. Params:\n"
-            "     - breakDeficit: integer 1..8, default 2. Enemy-gun margin "
+            "     - breakDeficit: integer 1..8, default 4. Enemy-gun margin "
             "that forces the break.\n"
             "     - coverMax: integer 0..600, default 260. Maximum px to a "
             "cover point; 0 = never reposition.\n"

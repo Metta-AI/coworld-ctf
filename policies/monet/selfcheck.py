@@ -1894,19 +1894,23 @@ for i, turn in enumerate(PERSONA.canned_turns, start=1):
           isinstance(fr, int) and isinstance(pr, int) and fr < pr,
           f"finishRange {fr} pressRange {pr}")
 
-# ── v10 aggression decision, pinned so a future edit cannot silently flip
-# it: breakDeficit stays PARKED (negative sign under either glory rule --
-# a self tag-out forfeits the rest of the episode's minting whether a loss
-# banks zero or banks its own sum); woundedPct/earshot are RE-ARMED (they
+# ── v10 aggression decision (breakDeficit was PARKED at 2), SUPERSEDED by
+# v61 (FOUR DIGITS lane, fire persistence): every canned turn's
+# fire_superiority entry now carries breakDeficit=4, matching
+# fire_superiority.nim's own raised default (RaisedBreakDeficit), paired
+# with the Nim-side no-break WINDOW that only suppresses BREAK after a
+# landed tag on a still-alive, still-tracked target -- see the policy.py
+# module comment beside each of the three wire pins for the full v10->v61
+# WHY. woundedPct/earshot stay RE-ARMED, same reasoning as before (they
 # only move press-vs-hold or where we loiter, never hold-vs-break on a
-# fight we are losing, so the win-probability downside they carry is small
-# under either rule, and Amendment 6 makes the upside larger). ───────────
+# fight we are losing). ─────────────────────────────────────────────────
 for i, turn in enumerate(PERSONA.canned_turns, start=1):
     fs = next((e for e in turn["call"]["entries"]
                if e.get("play") == "fire_superiority"), None)
     if fs is not None:
-        check(f"turn {i}: breakDeficit stays PARKED at 2 (v10 decision)",
-              fs["params"].get("breakDeficit") == 2, str(fs["params"]))
+        check(f"turn {i}: breakDeficit raised to 4 (v61 fire persistence, "
+              "supersedes the v10 PARKED-at-2 decision)",
+              fs["params"].get("breakDeficit") == 4, str(fs["params"]))
     jk = next((e for e in turn["call"]["entries"]
                if e.get("play") == "jackal"), None)
     if jk is not None:
@@ -2221,8 +2225,10 @@ check("endgame: numeric superiority still presses regardless of wounded",
       fs_superior(2, 1, 0, _endgame_wp), f"woundedPct={_endgame_wp}")
 check("endgame: still BREAKS off when actually outgunned by breakDeficit "
       "(woundedPct never touches the break threshold -- not a license to "
-      "brawl outgunned)",
-      fs_inferior(1, 3, _endgame_bd) and not fs_superior(1, 3, 0, _endgame_wp),
+      "brawl outgunned; scenario is parametric on the live breakDeficit "
+      "-- v61 raised it 2->4, so a fixed '1v3' no longer qualifies)",
+      fs_inferior(1, 1 + _endgame_bd, _endgame_bd)
+      and not fs_superior(1, 1 + _endgame_bd, 0, _endgame_wp),
       f"breakDeficit={_endgame_bd} woundedPct={_endgame_wp}")
 check("endgame: a tie is never classified as outgunned",
       not fs_inferior(1, 1, _endgame_bd)
@@ -3052,9 +3058,9 @@ if consolidation_fs is not None:
           not fs_superior(1, 1, 0, _cons_wp)
           and not fs_superior(2, 2, 0, _cons_wp),
           f"turn2 woundedPct={_cons_wp}")
-    check("turn 2: breakDeficit stays PARKED at 2 (same as every other "
-          "turn -- this build never trades away win probability)",
-          consolidation_fs["params"].get("breakDeficit") == 2,
+    check("turn 2: breakDeficit raised to 4 (same as every other turn -- "
+          "v61 fire persistence, see the mid-turn entry's v10->v61 note)",
+          consolidation_fs["params"].get("breakDeficit") == 4,
           str(consolidation_fs["params"]))
 if consolidation_jk is not None:
     # v16 ALLY-STACK FIX RETIRES this pin's afterKill claim (2026-09-06,
@@ -5967,6 +5973,135 @@ check("v59.1 diagnostic: exactly one [diag] line per call with every "
       and "hp=None" in _diag_m_lines[0]
       and "plays=loot" in _diag_m_lines[0],
       repr(_diag_lines) + " | " + repr(_diag_m_lines))
+
+# ============================================================
+# v61 FOUR DIGITS LANE -- fire persistence (lever A, fire_superiority.nim,
+# Nim-only: breakDeficit default + the no-break window and dkClose bounded
+# movement bias have no Python-visible surface beyond the wire params
+# already exercised above and are verified by the local rig's A/B +
+# wire-verify grep, not here), close-on-enemy bias (lever B, same Nim-only
+# caveat), isolated-first opening prefer (lever C, this module's own
+# apply_phase_clamps -- fully exercisable here).
+
+# (a) tick inside the opening window, no team kill yet: a target_law entry
+# carrying the untouched house default gets reordered to
+# ISOLATED_FIRST_PREFER.
+_v61a_entries = [{"play": "target_law", "entry_id": "law",
+                  "params": {"prefer": list(policy.TARGET_LAW_PREFER)}}]
+_v61a_fired = policy.apply_phase_clamps(
+    _v61a_entries, {"tick": 300, "world": {"alive_teams": 16},
+                     "kill_feed": []},
+    {"_my_team": "rust"}, source=None)
+_v61a_law = next(e for e in _v61a_entries if e["play"] == "target_law")
+check("v61 lever C: opening window (tick 300, no kill) reorders a "
+      "house-default target_law.prefer to ISOLATED_FIRST_PREFER",
+      _v61a_fired
+      and _v61a_law["params"]["prefer"] == list(policy.ISOLATED_FIRST_PREFER),
+      str(_v61a_law["params"]))
+
+# (b) tick past OPENING_TICKS: the SAME cached entries object (now
+# carrying ISOLATED_FIRST_PREFER from (a), simulating a maintenance resend
+# of the prior call's wanted_entries) reverts to TARGET_LAW_PREFER.
+_v61b_fired = policy.apply_phase_clamps(
+    _v61a_entries, {"tick": policy.OPENING_TICKS + 100,
+                     "world": {"alive_teams": 16}, "kill_feed": []},
+    {"_my_team": "rust"}, source=None)
+check("v61 lever C: past OPENING_TICKS, the same entry reverts to "
+      "TARGET_LAW_PREFER (order-only, byte-identical to pre-v61 once the "
+      "opening ends)",
+      _v61b_fired
+      and _v61a_law["params"]["prefer"] == list(policy.TARGET_LAW_PREFER),
+      str(_v61a_law["params"]))
+
+# (c) opening window, but our team already banked a kill in kill_feed:
+# opening_window is a ONE-TIME latch (_update_opening_hunter), so a
+# house-default entry stays untouched even inside OPENING_TICKS.
+_v61c_entries = [{"play": "target_law", "entry_id": "law",
+                  "params": {"prefer": list(policy.TARGET_LAW_PREFER)}}]
+_v61c_fired = policy.apply_phase_clamps(
+    _v61c_entries, {"tick": 300, "world": {"alive_teams": 16},
+                     "kill_feed": [{"tick": 250, "killer_team": "rust"}]},
+    {"_my_team": "rust"}, source=None)
+_v61c_law = next(e for e in _v61c_entries if e["play"] == "target_law")
+check("v61 lever C: opening window but our team already has a kill_feed "
+      "credit -- no reorder (the one-time latch OPENING_HUNTER's own "
+      "block above already reads; `fired` itself is NOT asserted here -- "
+      "this scenario's kill also satisfies the independent v58 HEAT "
+      "WINDOW clock, which legitimately fires its own fire_superiority "
+      "install on the same call)",
+      _v61c_law["params"]["prefer"] == list(policy.TARGET_LAW_PREFER),
+      str(_v61c_law["params"]))
+
+# (d) a target_law entry carrying a DELIBERATE non-default order (model-
+# authored, or any other caller) is left untouched even inside the
+# opening window -- the regression this lever must never cause: bulldozing
+# a caller's own explicit choice back to a 4-tag list it never asked for.
+_v61d_custom = ["isolated", "weakened"]
+_v61d_entries = [{"play": "target_law", "entry_id": "law",
+                  "params": {"prefer": list(_v61d_custom)}}]
+_v61d_fired = policy.apply_phase_clamps(
+    _v61d_entries, {"tick": 300, "world": {"alive_teams": 16},
+                     "kill_feed": []},
+    {"_my_team": "rust"}, source=None)
+_v61d_law = next(e for e in _v61d_entries if e["play"] == "target_law")
+check("v61 lever C: a caller-chosen non-default target_law.prefer is "
+      "left untouched, even during the opening window (`fired` is NOT "
+      "asserted here -- OPENING_HUNTER's own play-swap block legitimately "
+      "fires on this same tick<OPENING_TICKS/no-kill call)",
+      _v61d_law["params"]["prefer"] == _v61d_custom,
+      str(_v61d_law["params"]))
+
+# (e) NOOPENPREFER=True is a plain kill switch, same convention as
+# OPENING_HUNTER/HEAT_HUNTER/RETURN_FIRE: falls back to byte-identical
+# TARGET_LAW_PREFER ordering in the opening too.
+_v61e_entries = [{"play": "target_law", "entry_id": "law",
+                  "params": {"prefer": list(policy.TARGET_LAW_PREFER)}}]
+_v61e_prev = policy.NOOPENPREFER
+policy.NOOPENPREFER = True
+try:
+    _v61e_fired = policy.apply_phase_clamps(
+        _v61e_entries, {"tick": 300, "world": {"alive_teams": 16},
+                         "kill_feed": []},
+        {"_my_team": "rust"}, source=None)
+finally:
+    policy.NOOPENPREFER = _v61e_prev
+_v61e_law = next(e for e in _v61e_entries if e["play"] == "target_law")
+check("v61 lever C: NOOPENPREFER=True is a plain kill switch -- the same "
+      "opening-window call now leaves target_law.prefer at the house "
+      "default (`fired` is NOT asserted here -- OPENING_HUNTER's own "
+      "play-swap block, a SEPARATE kill switch, still legitimately fires "
+      "on this same call)",
+      _v61e_law["params"]["prefer"] == list(policy.TARGET_LAW_PREFER),
+      str(_v61e_law["params"]))
+
+# (f) end-to-end via repair_call/adjust_entries: the REAL "opening" canned
+# turn (canned_turns[0], byte-identical list(TARGET_LAW_PREFER) literal)
+# lands ISOLATED_FIRST_PREFER on the actual wire when the opening window
+# is live.
+_v61f_seat = fake_seat(
+    context={"self": {"team": "rust"}},
+    view={"tick": 300, "world": {"alive_teams": 16}, "kill_feed": []})
+_v61f_decision = json.loads(json.dumps(PERSONA.canned_turns[0]))
+starter_harness.repair_call(_v61f_decision, PERSONA, _v61f_seat, AVAILABLE)
+_v61f_law = next(e for e in _v61f_seat.wanted_entries
+                  if e["play"] == "target_law")
+check("v61 lever C end-to-end: the real opening canned turn's own "
+      "target_law entry lands ISOLATED_FIRST_PREFER on seat.wanted_entries "
+      "when tick<OPENING_TICKS and no team kill yet",
+      _v61f_law["params"]["prefer"] == list(policy.ISOLATED_FIRST_PREFER),
+      str(_v61f_law["params"]))
+
+# v61 lever A (fire persistence): every canned turn's fire_superiority
+# breakDeficit is asserted ==4 earlier in this file (the v10->v61
+# supersession block); the plays.py registry transcription is checked
+# here so the SYSTEM PROMPT text the model reads cannot silently drift
+# from the wasm-carried manifest default this lever raised.
+check("v61 lever A: plays.py's fire_superiority.breakDeficit registry "
+      "default matches the raised wasm manifest default (4) -- keeps the "
+      "system-prompt-facing transcription honest",
+      plays.PLAYS["fire_superiority"]["params"]["breakDeficit"]["default"]
+      == 4,
+      str(plays.PLAYS["fire_superiority"]["params"]["breakDeficit"]))
 
 print()
 if failures:

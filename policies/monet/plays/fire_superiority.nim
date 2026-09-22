@@ -78,8 +78,46 @@
 import ../../../play_sdk/play
 
 const
-  ManifestBytes =
+  # v61 FOUR DIGITS lane (branch four-digits/w2-v61-persist, base 2161b880
+  # v60): lever A opt-outs. Both are plain compile-time constants, DEFAULT
+  # ON (false = lever armed) -- never read from a container env var, per
+  # the owner's never-arm-a-lever-via-env ruling. Flip to true and rebuild
+  # to fall back to byte-identical v60 press/break arithmetic; nothing
+  # else in this file changes shape.
+  NOFIREPERSIST = false
+    ## v61 lever A: no-break window + raised breakDeficit (commit through
+    ## the kill instead of handing a fight to one lost exchange). Jordan
+    ## fires 3.38 shots per 1k alive ticks vs our 2.44 with flat
+    ## return-fire latency (18 vs 19 ticks median) -- jordan-decode-
+    ## tables.md; the gap is staying IN the fight once it starts, not
+    ## reacting faster to start one.
+  NOCLOSEBIAS = false
+    ## v61 lever B: bounded close-on-enemy movement bias when guns are
+    ## matched and a live target sits beyond pressRange. Jordan closes on
+    ## a tracked enemy 65.2% of moving samples vs our 58.3%
+    ## (jordan-decode-tables.md).
+
+  RaisedBreakDeficit = 4'i32     ## v61 lever A: was 2 (see DefaultBreakDeficit)
+  DefaultBreakDeficit = 2'i32    ## v60 value, kept for the NOFIREPERSIST fallback
+  EffectiveBreakDeficitDefault: int32 =
+    (if NOFIREPERSIST: DefaultBreakDeficit else: RaisedBreakDeficit)
+
+  FirePersistTicks = 240'i32
+    ## v61 lever A: no-break window after a landed tag on a still-tracked,
+    ## still-alive enemy inside engageDist.
+
+  MaxTrackedSeats = 32'i32  ## matches sim_types.MaxPlayers (seat id space)
+
+  # ManifestBytes carries EffectiveBreakDeficitDefault as its literal
+  # "breakDeficit" default -- two full strings, selected at compile time,
+  # rather than string-building the JSON (this SDK's emitRaw wants a
+  # static[string], and a literal is the least surprising way to keep
+  # that true here).
+  ManifestBytesV60 =
     "{\"abi\":1,\"class\":\"controller\",\"doc\":\"press-vs-break: count the guns you can see -- press a winning fight to a range band, break off only when truly outgunned\",\"modes\":[\"br\"],\"name\":\"fire_superiority\",\"params\":{\"breakDeficit\":{\"default\":2,\"integer\":true,\"kind\":\"number\",\"max\":8,\"min\":1},\"coverMax\":{\"default\":260,\"integer\":true,\"kind\":\"number\",\"max\":600,\"min\":0},\"engageDist\":{\"default\":600,\"integer\":true,\"kind\":\"number\",\"max\":1200,\"min\":100},\"finishRange\":{\"default\":140,\"integer\":true,\"kind\":\"number\",\"max\":260,\"min\":40},\"pressRange\":{\"default\":220,\"integer\":true,\"kind\":\"number\",\"max\":500,\"min\":60},\"woundedPct\":{\"default\":50,\"integer\":true,\"kind\":\"number\",\"max\":100,\"min\":0}},\"retune\":true}"
+  ManifestBytesV61 =
+    "{\"abi\":1,\"class\":\"controller\",\"doc\":\"press-vs-break: count the guns you can see -- press a winning fight to a range band, break off only when truly outgunned\",\"modes\":[\"br\"],\"name\":\"fire_superiority\",\"params\":{\"breakDeficit\":{\"default\":4,\"integer\":true,\"kind\":\"number\",\"max\":8,\"min\":1},\"coverMax\":{\"default\":260,\"integer\":true,\"kind\":\"number\",\"max\":600,\"min\":0},\"engageDist\":{\"default\":600,\"integer\":true,\"kind\":\"number\",\"max\":1200,\"min\":100},\"finishRange\":{\"default\":140,\"integer\":true,\"kind\":\"number\",\"max\":260,\"min\":40},\"pressRange\":{\"default\":220,\"integer\":true,\"kind\":\"number\",\"max\":500,\"min\":60},\"woundedPct\":{\"default\":50,\"integer\":true,\"kind\":\"number\",\"max\":100,\"min\":0}},\"retune\":true}"
+  ManifestBytes = (when NOFIREPERSIST: ManifestBytesV60 else: ManifestBytesV61)
 
   # src/shell/cover_scorer.nim's half-sector slope thresholds (16 sectors).
   SlopeScale = 1_000_000'i64
@@ -107,6 +145,7 @@ type
     dkPress
     dkCover
     dkZone
+    dkClose  ## v61 lever B: bounded close-on-enemy step (see play_step)
 
   FsParams = object
     valid: bool
@@ -124,6 +163,11 @@ var
   partnerSeat: int32
   lastKind: DecisionKind
   lastX, lastY: int32
+  # v61 lever A state (episode-scoped; reset in play_init, never in
+  # play_retune -- a retune is a doctrine-param change, not a new fight).
+  lastSeenHp: array[MaxTrackedSeats, int32]  ## -1 = never observed
+  persistSeat: int32
+  persistUntilTick: int32
 
 proc play_manifest*() {.exportc, cdecl.} =
   discard emitRaw(ManifestBytes)
@@ -224,8 +268,9 @@ proc keyIs(buf: ptr UncheckedArray[byte]; start, length: int32;
 proc readParams(dataPtr, dataLen: int32): FsParams =
   ## Strict reader over the canonical params bytes; missing keys keep the
   ## manifest defaults, anything undeclared or out of range is invalid.
-  result = FsParams(valid: true, breakDeficit: 2, coverMax: 260,
-    engageDist: 600, finishRange: 140, pressRange: 220, woundedPct: 50)
+  result = FsParams(valid: true, breakDeficit: EffectiveBreakDeficitDefault,
+    coverMax: 260, engageDist: 600, finishRange: 140, pressRange: 220,
+    woundedPct: 50)
   if dataLen <= 0:
     return
   let buf = cast[ptr UncheckedArray[byte]](dataPtr)
@@ -296,11 +341,12 @@ proc remember(kind: DecisionKind; x = 0'i32; y = 0'i32) =
   lastX = x
   lastY = y
 
-proc emitHoldIfChanged(): int32 =
+proc emitHoldIfChanged(
+    reason: static[string] = "fire_superiority:hold"): int32 =
   if sameDecision(dkHold):
     resetArena()
     return 0
-  let code = emitHoldController("fire_superiority:hold")
+  let code = emitHoldController(reason)
   if code < 0:
     return code
   remember(dkHold)
@@ -347,6 +393,12 @@ proc play_init*(paramsPtr, paramsLen, ctxPtr, ctxLen: int32): int32 {.
     exportc, cdecl.} =
   resetArena()
   loadContext(ctxPtr, ctxLen)
+  # v61 lever A: fresh episode, fresh persist memory -- a hp drop observed
+  # in a PRIOR episode must never arm this one's no-break window.
+  for i in 0 ..< MaxTrackedSeats:
+    lastSeenHp[i] = -1'i32
+  persistSeat = -1'i32
+  persistUntilTick = -1'i32
   loadParams(paramsPtr, paramsLen, true)
 
 const ZoneInsetPx = 64'i32
@@ -412,6 +464,7 @@ proc play_step*(viewPtr, viewLen: int32): int32 {.exportc, cdecl.} =
   var candCount = 0'i32
   var candPos: array[MaxCandidates, SdkPoint]
   var candHp: array[MaxCandidates, int32]
+  var candSeat: array[MaxCandidates, int32]  ## v61 lever A: persist lookup
   for index in 0 ..< decoded.trackCount:
     let track = decoded.tracks[index]
     if not track.pos.present:
@@ -441,6 +494,19 @@ proc play_step*(viewPtr, viewLen: int32): int32 {.exportc, cdecl.} =
     let hpKnown = track.hpPresent
     if hpKnown and track.hp <= WoundedHpMax:
       inc wounded
+    if not NOFIREPERSIST and track.seatPresent and decoded.tickPresent:
+      # v61 lever A: a fresh, in-range enemy's known hp just dropped since
+      # we last saw them -- a fog-honest proxy for "we (or our duo)
+      # landed a tag on them" (this play has no direct hit-confirm signal;
+      # same fog-honesty convention the "our guns"/"their guns" counts
+      # above already use). Arms the no-break window read below.
+      let seat = track.seat
+      if seat >= 0 and seat < MaxTrackedSeats:
+        if hpKnown and lastSeenHp[seat] >= 0 and track.hp < lastSeenHp[seat]:
+          persistSeat = seat
+          persistUntilTick = decoded.tick + FirePersistTicks
+        if hpKnown:
+          lastSeenHp[seat] = track.hp
     if not nearestFound or d < nearestDistSq:
       nearestFound = true
       nearest = track.pos
@@ -448,6 +514,7 @@ proc play_step*(viewPtr, viewLen: int32): int32 {.exportc, cdecl.} =
     if candCount < MaxCandidates:
       candPos[candCount] = track.pos
       candHp[candCount] = if hpKnown: track.hp else: high(int32)
+      candSeat[candCount] = if track.seatPresent: track.seat else: -1'i32
       inc candCount
 
   if theirGuns == 0:
@@ -457,7 +524,24 @@ proc play_step*(viewPtr, viewLen: int32): int32 {.exportc, cdecl.} =
   let ourGuns = 1'i32 + (if partnerFresh: 1'i32 else: 0'i32)
   let superior = ourGuns > theirGuns or
     (ourGuns >= theirGuns and wounded * 100 >= params.woundedPct * theirGuns)
-  let inferior = theirGuns - ourGuns >= params.breakDeficit
+  let baseInferior = theirGuns - ourGuns >= params.breakDeficit
+
+  # v61 lever A: no-break window -- if we tagged persistSeat within the
+  # last FirePersistTicks AND that seat is STILL a live, fresh, in-range
+  # candidate THIS tick (membership in candCount already requires that --
+  # the loop above only adds fresh, in-engageDist enemy tracks to it),
+  # suppress BREAK regardless of baseInferior: commit through the kill
+  # instead of handing a winnable fight to one lost exchange. Expires the
+  # moment persistSeat dies, loses track, ages out of engageDist, or the
+  # window itself elapses -- no separate "target died" signal needed.
+  var persistHolds = false
+  if not NOFIREPERSIST and persistSeat >= 0 and decoded.tickPresent and
+      decoded.tick <= persistUntilTick:
+    for i in 0 ..< candCount:
+      if candSeat[i] == persistSeat:
+        persistHolds = true
+        break
+  let inferior = baseInferior and not persistHolds
 
   if superior:
     # Choose which live enemy to press, among candCount options, by the
@@ -542,7 +626,62 @@ proc play_step*(viewPtr, viewLen: int32): int32 {.exportc, cdecl.} =
           return emitGoal(dkCover, goal, "fire_superiority:break")
     return emitHoldIfChanged()
 
+  # v61 lever A wire signature: baseInferior was true but persistHolds
+  # suppressed it -- we would have broken off; the no-break window kept
+  # us in the fight instead. Tagged distinctly below
+  # ("fire_superiority:persist"/"fire_superiority:persist-hold") so a
+  # read can tell the lever fired, same discipline as every clamp tag
+  # elsewhere in this codebase.
+  let heldByPersist = baseInferior and persistHolds
+
+  # v61 lever B (close-on-enemy movement bias, opt-out NOCLOSEBIAS): guns
+  # matched (not superior, not held off by BREAK) and a live target is
+  # still farther than our own pressRange -- Jordan closes on a tracked
+  # enemy 65.2% of moving samples vs our 58.3% (jordan-decode-tables.md).
+  # Bounded to the SAME pressRange band the PRESS branch above already
+  # presses to (never past it -- never the point-blank band a live,
+  # undamaged gun can punish, see the file header's press-target
+  # doctrine) and gated off whenever the persist window is already
+  # driving this tick (heldByPersist keeps the original "hold at cover,
+  # face the bearing" shape so the two levers never fight over the same
+  # tick). Only fires while the server's own native zone-escape reflex is
+  # judged not about to preempt us: zoneTargets() above already proved
+  # self is inside the CURRENT zone rect, so the one remaining
+  # reflex-arming risk is the NEXT rect (reflexes.nim
+  # zoneActive/ReflexZoneTriggerTicks=72 -- server-internal state, not on
+  # our wire; self already inside `next`, or no `next` data at all, is
+  # the nearest honest proxy for "nothing to arm toward").
+  if not NOCLOSEBIAS and not heldByPersist and nearestFound and
+      nearestDistSq > sq(params.pressRange):
+    let nextZone = decoded.world.zone.next
+    let reflexSafe = not nextZone.present or
+      (decoded.self.pos.x >= minI(nextZone.x1, nextZone.x2) and
+       decoded.self.pos.x <= maxI(nextZone.x1, nextZone.x2) and
+       decoded.self.pos.y >= minI(nextZone.y1, nextZone.y2) and
+       decoded.self.pos.y <= maxI(nextZone.y1, nextZone.y2))
+    if reflexSafe:
+      let stand = projectFrom(nearest, decoded.self.pos, params.pressRange)
+      let goal = nearestReachable(stand.x, stand.y)
+      if goal.ok:
+        return emitGoal(dkClose, goal, "fire_superiority:close")
+
   # Even: hold at cover -- no advancing across open toward the enemy.
+  # Also reached whenever v61 lever A's no-break window suppressed what
+  # would otherwise have been a BREAK (heldByPersist) -- tagged distinctly
+  # below so a read can tell the lever fired.
+  if heldByPersist:
+    if params.coverMax > 0:
+      let bearing = sectorTo(decoded.self.pos, nearest) * 16
+      let goal = nearestCover(decoded.self.pos.x, decoded.self.pos.y,
+        params.coverMax, bearing)
+      if goal.ok:
+        let goalPoint = SdkPoint(present: true, x: goal.x, y: goal.y)
+        let closes = distSq(goalPoint, nearest) < nearestDistSq
+        if not (closes and sectorGap(sectorTo(decoded.self.pos, goalPoint),
+            sectorTo(decoded.self.pos, nearest)) <= 1):
+          return emitGoal(dkCover, goal, "fire_superiority:persist")
+    return emitHoldIfChanged("fire_superiority:persist-hold")
+
   if params.coverMax > 0:
     let bearing = sectorTo(decoded.self.pos, nearest) * 16
     let goal = nearestCover(decoded.self.pos.x, decoded.self.pos.y,

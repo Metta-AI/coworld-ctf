@@ -303,6 +303,52 @@ FINAL4_TEAM_THRESHOLD = 4
 # tag either).
 TARGET_LAW_PREFER = ("weakened", "revenge", "bounty", "isolated")
 
+# ISOLATED-FIRST OPENING PREFER (v61 lever C, FOUR DIGITS lane, branch
+# four-digits/w2-v61-persist, pre-registered 2026-09-22): TARGET_LAW_PREFER
+# above optimizes CHAIN SPEED once a fight is already live -- every token
+# but "isolated" (weakened/revenge/bounty) requires a fight already in
+# progress, so in the OPENING, before any of our tags have landed, it is a
+# coin-flip among candidates none of which can carry those tags yet.
+# jordan-decode-tables.md: Jordan's first-blood rate is 8.33% (12/144) vs
+# our 4.86% (7/144) -- the gap this lever targets is P(1st paying tag), a
+# DIFFERENT metric from the conditional-chain-length gap TARGET_LAW_PREFER's
+# own ordering already addresses (see that constant's comment above), so
+# this reorders WHO we pick first without touching who we pick once a
+# fight is running.
+#
+# PHASE WINDOW: reuses OPENING_HUNTER's (v57) own proven predicate --
+# tick < OPENING_TICKS AND our team has landed no kill yet this episode --
+# via the SAME persisted latch (_update_opening_hunter,
+# pact_state["_first_kill_tick"]), not a second copy of it. That predicate
+# is read in `apply_phase_clamps`, the ONE clamp point every wire send
+# shares (model call, either reemit helper, or a maintenance resend --
+# see that function's own docstring), the exact place the v57/v58/v59/v60
+# phase-scoped constants above already prove out this wire precedence: a
+# clamp written there overrides whatever a canned_turns literal, a
+# model-authored call, or a stale cached ladder proposed, on every path,
+# not just the one that happened to run first. So the five
+# `list(TARGET_LAW_PREFER)` literals below (opening/consolidation/mid/
+# endgame canned turns plus the law_never fallback-creation branch) are
+# left untouched as their own byte-identical seed values -- this lever
+# does not edit them -- because the clamp in apply_phase_clamps rewrites
+# every target_law entry's `prefer` field on its way to the wire
+# regardless of which literal produced it, the same mechanism that already
+# pins fire_superiority's pressRange/finishRange/engageDist over a model's
+# or a canned turn's own proposed value.
+#
+# emit_validator.nim:146-184 (parseCombatPolicy's "prefer" case) checks
+# membership/no-dup/count<=4 only -- order is never validated, so this
+# reorder is schema-legal by construction, the same wire-precedence fact
+# the module comment above TARGET_LAW_PREFER already established.
+#
+# NOOPENPREFER is a plain kill switch, same convention as OPENING_HUNTER/
+# HEAT_HUNTER/RETURN_FIRE/RETURN_FIRE_RANGE: set True to fall back to
+# byte-identical TARGET_LAW_PREFER ordering in the opening too, without
+# removing this block. Never read from a container env var (owner ruling
+# on arming levers) -- a plain module constant only.
+NOOPENPREFER = False
+ISOLATED_FIRST_PREFER = ("isolated", "weakened", "revenge", "bounty")
+
 # HEAT-WINDOW AGGRESSION LOCK (v56, cap-decomp n=14 read: 0/14 cap-hitters
 # won their round, 11/14 had no pact -- the driver is the HEAT ladder, and
 # the measured gap is CONDITIONAL FOLLOW-THROUGH: our P(2nd heat-paying
@@ -822,6 +868,17 @@ def apply_phase_clamps(entries, view, pact_state, source=None):
     exclusive with fire_superiority by construction, not by a shared flag,
     since it only ever fires when fire_superiority's gate is closed.
 
+    v61 (ISOLATED-FIRST OPENING PREFER, FOUR DIGITS lane, pre-registered
+    2026-09-22): a param pin, same class as the FIRE_SUPERIORITY WIRE FIX
+    loop below, but on target_law's `prefer` instead of fire_superiority's
+    range fields -- reuses opening_window (this call's OPENING_HUNTER
+    predicate) under its own kill switch (NOOPENPREFER) so every
+    target_law entry on the list converges on ISOLATED_FIRST_PREFER while
+    the opening is live and TARGET_LAW_PREFER once it ends, regardless of
+    which canned_turns literal or model call proposed a different order.
+    See the module-level ISOLATED_FIRST_PREFER/NOOPENPREFER comment above
+    TARGET_LAW_PREFER for the full WHY.
+
     Calling this SAME function from both adjust_entries (after its own
     CONVERSION/ARMAMENT inserts) and from the maintenance resend path
     closes all these gaps with one implementation instead of separate
@@ -900,8 +957,14 @@ def apply_phase_clamps(entries, view, pact_state, source=None):
     # function. HEAT_HUNTER gates only this use of the clock; see the
     # AGGRESSION LOCK block below for the unconditional v56 use.
     heat_window_state = _update_heat_window(pstate, view)
-    opening_active = OPENING_HUNTER and _update_opening_hunter(pstate, view)
+    opening_window = _update_opening_hunter(pstate, view)
+    opening_active = OPENING_HUNTER and opening_window
     heat_hunter_active = HEAT_HUNTER and heat_window_state
+    # v61 lever C: isolated-first opening prefer shares OPENING_HUNTER's
+    # own predicate (opening_window) but its OWN kill switch
+    # (NOOPENPREFER) -- flipping OPENING_HUNTER off (the play-swap lever)
+    # must not silently disable this one too, and vice versa.
+    isolated_first_active = (not NOOPENPREFER) and opening_window
     if opening_active or heat_hunter_active:
         window_tag = "opening" if opening_active else "heat"
         before_count = len(entries)
@@ -920,6 +983,57 @@ def apply_phase_clamps(entries, view, pact_state, source=None):
                 PERSONA,
                 f"{window_tag}-hunter clamp{tag}: fire_superiority installed{suffix}")
             fired = True
+
+    # ISOLATED-FIRST OPENING PREFER (v61 lever C, see the module-level
+    # ISOLATED_FIRST_PREFER/NOOPENPREFER comment above TARGET_LAW_PREFER
+    # for the full WHY): every target_law entry carrying the CANONICAL
+    # house order verbatim -- whichever canned_turns literal produced it
+    # (all five emit `list(TARGET_LAW_PREFER)` unmodified), or the
+    # law_never fallback-creation branch above (same literal), or a
+    # maintenance resend of either -- gets reordered to
+    # ISOLATED_FIRST_PREFER while isolated_first_active, and back to
+    # TARGET_LAW_PREFER once the opening window ends or our team banks a
+    # kill (opening_window is the SAME one-time latch the OPENING/
+    # HEAT-WINDOW HUNTER block above reads, so both always agree on
+    # whether the opening is still live on this call). Deliberately NARROW
+    # -- unlike the FIRE_SUPERIORITY WIRE FIX loop below, which always pins
+    # pressRange/finishRange/engageDist regardless of the incoming value,
+    # this only touches a `prefer` that is missing or byte-identical to
+    # the untouched house default: a model call (or a test fixture) that
+    # deliberately submitted its OWN subset/order -- schema-legal per
+    # emit_validator.nim:146-184 (membership/no-dup/count<=4, never a
+    # specific set or order) -- is left alone, never bulldozed back to a
+    # 4-tag list it never asked for.
+    prefer_doctrine = (ISOLATED_FIRST_PREFER if isolated_first_active
+                        else TARGET_LAW_PREFER)
+    house_default = list(TARGET_LAW_PREFER)
+    ours_default = list(ISOLATED_FIRST_PREFER)
+    for entry in entries:
+        if entry.get("play") != "target_law":
+            continue
+        params = entry.setdefault("params", {})
+        old = params.get("prefer")
+        if old != house_default and old != ours_default:
+            # Missing, or a deliberate non-default/non-ours order
+            # (model-authored or a test/diagnostic fixture) -- not ours to
+            # touch. `old == ours_default` matters for a REVERT: a
+            # maintenance resend replays the SAME cached
+            # `seat.wanted_entries` object a prior call already reordered
+            # to ISOLATED_FIRST_PREFER (repair_call's own docstring: the
+            # wanted ladder is what maintenance re-derives from), so once
+            # the opening window closes mid-episode this needs to still
+            # match and flip back to TARGET_LAW_PREFER -- checking only
+            # `== house_default` would silently skip that entry forever
+            # once it had been touched once.
+            continue
+        new = list(prefer_doctrine)
+        if old != new:
+            starter_harness._log(
+                PERSONA,
+                f"clamp target_law.prefer{tag} {old!r}->{new!r} "
+                f"opening={isolated_first_active}{suffix}")
+            fired = True
+        params["prefer"] = new
 
     # RETURN FIRE (v59, see the module-level RETURN_FIRE_TICKS/RETURN_FIRE
     # comment for the full WHY, schema citations, and why fire_superiority
@@ -2276,7 +2390,18 @@ PERSONA = Persona(
                  # written literal matches doctrine, same as pressRange/
                  # finishRange -- apply_phase_clamps repins this every send
                  # regardless, but the source stays honest.
-                 "params": {"breakDeficit": 2, "coverMax": 260,
+                 # v61 (FOUR DIGITS lane, fire persistence): breakDeficit
+                 # 2->4, matching fire_superiority.nim's own raised default
+                 # (RaisedBreakDeficit). Supersedes the v10 "STAYS PARKED"
+                 # ruling below -- that ruling weighed an unconditional,
+                 # blanket "keep fighting while outgunned"; v61 pairs this
+                 # wire bump with the Nim-side no-break WINDOW (only
+                 # suppresses BREAK for FirePersistTicks after we land a
+                 # tag on a target still alive and tracked inside
+                 # engageDist, never an unconditional license to brawl), so
+                 # the negative-EV case v10 flagged (tag out with nothing to
+                 # show for it) is the one case this lever does NOT reach.
+                 "params": {"breakDeficit": 4, "coverMax": 260,
                             "engageDist": 750, "finishRange": 140,
                             "pressRange": 220, "woundedPct": 50}},
                 {"play": "hold_vs_gun", "entry_id": "holdgun",
@@ -2414,7 +2539,22 @@ PERSONA = Persona(
                  # engageDist 600->750 (v53, FIRE_SUPERIORITY_ENGAGE_DIST):
                  # see the constant's own comment for the GV17 economy
                  # engagement-volume rationale.
-                 "params": {"breakDeficit": 2, "coverMax": 260,
+                 # v61 (FOUR DIGITS lane, fire persistence, FIRST occurrence
+                 # of this wire pin -- consolidation carries the same
+                 # rationale, see that entry): breakDeficit 2->4. This
+                 # SUPERSEDES the v10 ruling directly above -- v10 weighed
+                 # an unconditional deficit bump ("keep fighting while
+                 # outgunned" full stop); v61 pairs the bump with a
+                 # Nim-side no-break WINDOW that only suppresses BREAK for
+                 # FirePersistTicks (~240 ticks) after landing a tag on a
+                 # target still alive and still tracked inside engageDist
+                 # (fire_superiority.nim persistHolds), so the exact
+                 # negative-EV shape v10 flagged -- tag out for nothing --
+                 # is the one case this lever is built NOT to reach; Jordan
+                 # fires 3.38 shots/1k alive ticks vs our 2.44
+                 # (jordan-decode-tables.md) by staying in fights we
+                 # already started, not by brawling into new ones.
+                 "params": {"breakDeficit": 4, "coverMax": 260,
                             "engageDist": 750, "finishRange": 140,
                             "pressRange": 220, "woundedPct": 50}},
                 {"play": "hold_vs_gun", "entry_id": "holdgun",
@@ -2516,7 +2656,12 @@ PERSONA = Persona(
                  # see the constant's own comment for the GV17 economy
                  # engagement-volume rationale; flat 750 in endgame too,
                  # same as default -- this lever is not phase-split.
-                 "params": {"breakDeficit": 2, "coverMax": 200,
+                 # v61 (FOUR DIGITS lane, fire persistence): breakDeficit
+                 # 2->4, same supersession of the v10/mid-turn "PARKED"
+                 # ruling as the other two occurrences (see the mid-turn
+                 # entry's v61 comment for the full WHY) -- paired with the
+                 # Nim-side no-break window, not an unconditional bump.
+                 "params": {"breakDeficit": 4, "coverMax": 200,
                             "engageDist": 750, "finishRange": 120,
                             "pressRange": 220, "woundedPct": 0}},
                 {"play": "crossfire", "entry_id": "shape",
