@@ -562,6 +562,168 @@ RETURN_FIRE = True
 RETURN_FIRE_RANGE = True
 RANGE_RETURN_PRESS = 500
 
+# FOUR DIGITS lane (W1, plan-4digits.md lever 2, 2026-09-22): three
+# ring_walker/proactive-recenter variants, each a plain kill switch in the
+# SAME convention as RETURN_FIRE/OPENING_HUNTER/HEAT_HUNTER above -- default
+# OFF (byte-identical to v60/control), armed one at a time IN CODE (never
+# via container env, per house rule) for the local tick-share instrument
+# read (src/shell/ladder.nim -d:tickShareProbe). Ceiling story (plan-
+# architect, 22:50Z): the server-native zone-escape reflex
+# (ladder.nim stepSeat's nativeBase.isSome branch) owns ~78% of ticks,
+# armed whenever `zoneTicksUntilOutside(selfPos) <= 72`
+# (ReflexZoneTriggerTicks, src/shell/reflexes.nim:22) -- ring_walker's OWN
+# gate (starter_harness.gate_open, ~888-906) already tries to walk back
+# 240 ticks ahead of the shrink (leadTicks doctrine below), so the fix
+# tried here is not "make ring_walker fire more" but "make it land further
+# from the 72-tick hazard line once it does fire" (inset) or fire earlier
+# (leadTicks) or fire on a wider, Monet-only proactive trigger that does
+# not touch the shared starter_harness.py gate predicate at all (every
+# other persona reuses that file; keeping the experiment out of it is the
+# whole point of implementing these as apply_phase_clamps pins instead of
+# a starter_harness.py edit).
+#
+# RING_LEAD_WIDE: pins every ring_walker entry's leadTicks doctrine value
+# UP from the canned-turn default (240) to RING_LEAD_WIDE_TICKS, so the
+# anti-corner walk starts noticeably earlier relative to the shrink clock.
+RING_LEAD_WIDE = False
+RING_LEAD_WIDE_TICKS = 400          # max legal is 720 (ring_walker manifest)
+
+# RING_INSET_WIDE: pins every ring_walker entry's inset doctrine value UP
+# from 64 to RING_INSET_WIDE_PX, so the walk-to point sits further inside
+# the next rect (more buffer against the 72-tick native trigger once
+# ring_walker's own walk lands).
+RING_INSET_WIDE = False
+RING_INSET_WIDE_PX = 160            # max legal is 256 (ring_walker manifest)
+
+# PROACTIVE_RECENTER: a Monet-only widened trigger, independent of the
+# other two -- while ticks_to_shrink is inside PROACTIVE_RECENTER_TICKS
+# (deliberately wider than any leadTicks doctrine above) AND we are not
+# already inside the next rect, boost BOTH inset and leadTicks to the
+# PROACTIVE_RECENTER_* values for that window only, same clamp-and-log
+# shape as the HEAT_WINDOW/FINAL_FOUR pins elsewhere in this function --
+# implemented here (apply_phase_clamps), not in starter_harness.py's
+# shared gate_open, so aggressive/cautious/collaborative are untouched.
+# DEFAULT FLIPPED TRUE (W3, RING CONTROL lane, 2026-09-22): W1's own local
+# read (4 seeds, eval_mapspec_r5733.json) showed this ALONE cuts native
+# (server zone-escape reflex) tick share 41.95%->35.4% overall (mid
+# -8.2pp, endgame -7.2pp) with no collapse toward map center -- folded in
+# as this lever's default rather than left as a separate opt-in, gated by
+# the SAME NORINGCONTROL kill switch below (see its own comment) so one
+# flag turns off the whole ring-control lever, this included.
+PROACTIVE_RECENTER = True
+PROACTIVE_RECENTER_TICKS = 480
+PROACTIVE_RECENTER_LEAD = 480
+PROACTIVE_RECENTER_INSET = 200
+
+# RING CONTROL (W3, FOUR DIGITS lane, 2026-09-22): make ring_walker a
+# first-class, ALWAYS-ON lever instead of a flat-parameter play that
+# happens to sit in every canned turn. Facts this is built on (read
+# directly off this branch's code, not the brief's paraphrase):
+#   * ring_walker IS already an entry in all four of Monet's canned turns
+#     (policy.py canned_turns, entry_id "ring") -- so on the LOCAL canned-
+#     brain instrument (run_series.sh, no model credentials) it was never
+#     "missing from the wire" in the way the peer brief's live-field read
+#     described. What IS true on both paths: its two params (inset,
+#     leadTicks) sat FLAT at the same literal (64, 240) in every phase,
+#     never scheduled: no Monet mechanism re-asserts its PRESENCE if a
+#     live model call (which does NOT run through canned_turns at all --
+#     see PersonaCannedBrain vs a real brain) simply omits the entry, the
+#     way apply_phase_clamps already guarantees fire_superiority/
+#     hold_vs_gun/supply_run are never silently dropped by a model turn.
+#   * The engine's native zone-escape reflex (ladder.nim stepSeat,
+#     `input.nativeBase.isSome`) is checked BEFORE the controller loop and
+#     overrides it OUTRIGHT whenever armed (`zoneTicksUntilOutside(self)
+#     <= 72`, ReflexZoneTriggerTicks) -- no play on the wire, however
+#     ordered, can act during that window. ring_walker's own gate
+#     (starter_harness.gate_open) opens at `ticks_to_shrink < leadTicks`,
+#     so leadTicks IS the runway available before that hard override; a
+#     flat 240 gives only 168 ticks (240-72) of controller-loop time to
+#     reach the next rect before native takes over regardless.
+#   * jackal is Monet's `base_play` (starter_harness.layer_ladder,
+#     `elif play == base_play: base.append(entry)` -- checked BEFORE the
+#     GATED_PLAYS branch, so jackal is unconditionally "live" every tick,
+#     gate_open bypassed entirely) -- on any tick where no GATED_PLAYS
+#     entry's own gate is open (ring_walker's included), jackal just HOLDS
+#     (SPAWN_HOLD_PLAYS) with nothing to chase. Between shrinks, absent a
+#     live threat, Monet does not proactively reposition at all.
+#   * Jordan (jordan-ctf-candidate:v164, pv 6c500d28, unchanged since
+#     9/11) runs a DIFFERENT play for this, `edge_ride` (margin/enterLead/
+#     coverBias), phase-scheduled: wide in the opening, tightening at his
+#     tick-760 recall, staying tight but more conservative (coverBias 0.9)
+#     from his tick-1500 recall on (mechanism/schedule read from his own
+#     public recipe file, adapted -- not copied verbatim, no public
+#     citation per house rule). We do NOT wire edge_ride: it is not in
+#     GATED_PLAYS, so an entry for it would land in `layer_ladder`'s
+#     `base` list, and `base.sort(key=lambda e: e.get("play") !=
+#     base_play)` always sorts jackal (base_play) first regardless of
+#     entries order -- an edge_ride base entry could never outrank an IDLE
+#     jackal hold without either changing Monet's base_play (a much
+#     larger, previously-measured-against change: "jackal IS monet's
+#     patience", see base_play= below) or editing starter_harness.py's
+#     shared GATED_PLAYS/gate_open (which every other persona reuses).
+#     ring_walker is ALREADY a GATED_PLAYS member, so whenever its own
+#     gate is open it lands in `gated`, which `layer_ladder`'s own
+#     `return overlays + gated + base` ALWAYS places ahead of `base` --
+#     "above jackal" with no shared-file edit, structurally, already.
+#     margin/enterLead map onto ring_walker's inset/leadTicks (same
+#     physical concepts: how deep inside the safe boundary to sit, how
+#     many ticks before the shrink to start reacting), proportionally
+#     rescaled from edge_ride's ranges ([40,600]px / [0,600]ticks) onto
+#     ring_walker's own manifest bounds ([16,256]px / [24,720]ticks) --
+#     his literal numbers (420/320, 240/160) are out of range for our
+#     play and would be silently REJECTED whole-call by ring_walker.nim's
+#     own strict reader (readParams marks the entire params blob invalid
+#     outside [16,256]/[24,720], not just clamps it). coverBias has NO
+#     ring_walker equivalent -- ring_walker.nim's walkTargets always tries
+#     a fixed, ~50%-center-biased point before the raw clamped one; there
+#     is no tunable knob. Approximated here by pushing `inset` toward its
+#     own max in the late-phase entry (a deeper stance is the same
+#     DIRECTION his coverBias 0.9 asks for -- more conservative, more
+#     central -- not a literal port of his parameter).
+#   * Ordering: reordered ring_walker's canned-turn position (and its
+#     apply_phase_clamps insert-if-missing slot) to come AFTER
+#     fire_superiority/hold_vs_gun so a live engagement still wins
+#     first-match when a fresh track is inside engage range -- previously
+#     ring_walker sat BEFORE them, which would have pulled a seat OFF an
+#     already-open fight the instant the shrink clock also qualified.
+NORINGCONTROL = False  # opt-out kill switch (never armed via container
+                       # env, per house rule) -- flip True to fall back to
+                       # byte-identical pre-lever behaviour: flat
+                       # inset=64/leadTicks=240 every phase, no insert-if-
+                       # missing, no reorder, PROACTIVE_RECENTER off too.
+
+# Schedule boundaries mirror Jordan's own two recall ticks (760, 1500).
+# Values are ring_walker-unit translations of his margin/enterLead numbers
+# (see the block comment above for the exact scaling and the coverBias
+# non-equivalence) -- NOT literal copies.
+RING_CONTROL_PHASE_TICKS = (760, 1500)
+RING_CONTROL_SCHEDULE = {
+    # opening: margin 420, enterLead 320 (his OPENING_CALL)
+    "opening": {"leadTicks": 384, "inset": 179},
+    # mid (tick 760-1499): margin 240, enterLead 160 (his tick-760 recall)
+    "mid": {"leadTicks": 192, "inset": 102},
+    # late (tick >=1500): SAME margin/enterLead as mid in his own recipe
+    # (only coverBias moves, 0.5->0.9) -- inset pushed toward its own max
+    # as the stand-in for that extra caution; leadTicks unchanged from mid.
+    "late": {"leadTicks": 192, "inset": 230},
+}
+
+
+def _ring_control_phase(tick):
+    """Opening / mid / late per RING_CONTROL_PHASE_TICKS -- tick is match
+    progress (wall-clock ticks since kickoff), NOT ticks-to-shrink; a
+    different axis from ring_walker's own gate (which reacts to the zone
+    clock). Non-numeric/missing tick reads "opening" (the safe, widest
+    doctrine), never a guess toward the narrower late posture."""
+    if not isinstance(tick, (int, float)):
+        return "opening"
+    t760, t1500 = RING_CONTROL_PHASE_TICKS
+    if tick < t760:
+        return "opening"
+    if tick < t1500:
+        return "mid"
+    return "late"
+
 # Awareness digest: a track older than this is a memory, not a threat (the
 # harness's own 10-s freshness/aggressor window). An item further than
 # NEAR_ITEM_PX is a detour, not "near".
@@ -1120,6 +1282,152 @@ def apply_phase_clamps(entries, view, pact_state, source=None):
                     f"phase={phase}{suffix}")
                 fired = True
             params[field] = doctrine
+
+    # RING CONTROL (W3, FOUR DIGITS lane, 2026-09-22): make ring_walker's
+    # wire presence, ladder position, and params a guaranteed, phase-
+    # scheduled doctrine instead of whatever a model turn happened to
+    # submit (or omit). See the module-level NORINGCONTROL/
+    # RING_CONTROL_SCHEDULE comment above for the full WHY, the
+    # edge_ride-vs-ring_walker decision, and the margin/enterLead->
+    # inset/leadTicks mapping. Disabled in one flag (NORINGCONTROL) for a
+    # clean rollback to pre-lever behaviour (this block becomes a no-op;
+    # the canned-turn literals' own ring_walker ENTRY still exists and
+    # still sits after the engage plays -- that reorder is a structural
+    # correctness fix, not part of what NORINGCONTROL rolls back).
+    if not NORINGCONTROL:
+        ring_phase = _ring_control_phase(tick)
+        ring_doctrine = RING_CONTROL_SCHEDULE[ring_phase]
+        engage_positions = [i for i, e in enumerate(entries)
+                           if e.get("play") in ("fire_superiority",
+                                                 "hold_vs_gun")]
+        ring_positions = [i for i, e in enumerate(entries)
+                         if e.get("play") == "ring_walker"]
+        # Reorder: a ring_walker entry sitting AT OR BEFORE the last
+        # engage entry must move below it -- layer_ladder's `gated`
+        # bucket preserves `entries`' own input order among
+        # simultaneously-open gates (first-match-wins at the engine), so
+        # this is what actually makes "a live fight still takes
+        # precedence when a fresh track is inside engage range" true on
+        # the wire, not just in doctrine prose.
+        if (engage_positions and ring_positions
+                and min(ring_positions) <= max(engage_positions)):
+            moved = [entries.pop(i) for i in sorted(ring_positions, reverse=True)]
+            insert_at = max(i for i, e in enumerate(entries)
+                           if e.get("play") in ("fire_superiority",
+                                                 "hold_vs_gun")) + 1
+            for offset, moved_entry in enumerate(reversed(moved)):
+                entries.insert(insert_at + offset, moved_entry)
+            starter_harness._log(
+                PERSONA,
+                f"ring_control clamp{tag}: ring_walker reordered below "
+                f"engage plays (was index {ring_positions}){suffix}")
+            fired = True
+        # Insert-if-missing: guarantee an entry exists, positioned right
+        # after the last engage entry (or at the end if none is present
+        # -- still ahead of jackal: jackal is Monet's base_play, always
+        # lands in `base`, and `layer_ladder` returns `overlays + gated +
+        # base`, so `base` is behind `gated` regardless of `entries`
+        # order). This is the guarantee a live model turn omitting
+        # ring_walker entirely (the peer brief's field read: "Monet calls
+        # no zone/ring play at all") cannot defeat.
+        if not any(e.get("play") == "ring_walker" for e in entries):
+            insert_at = (max(engage_positions) + 1) if engage_positions else len(entries)
+            entries.insert(insert_at, {"play": "ring_walker",
+                                       "entry_id": "ring", "params": {}})
+            starter_harness._log(
+                PERSONA,
+                f"ring_control clamp{tag}: ring_walker installed "
+                f"phase={ring_phase} tick={tick}{suffix}")
+            fired = True
+        # Phase-scheduled doctrine pin: every ring_walker entry now on the
+        # list (freshly inserted above, or one already there) gets the
+        # current phase's inset/leadTicks, same unconditional-pin
+        # discipline as fire_superiority's pressRange/finishRange/
+        # engageDist above -- a model-submitted value is always
+        # overwritten, never merely defaulted.
+        for entry in entries:
+            if entry.get("play") != "ring_walker":
+                continue
+            params = entry.setdefault("params", {})
+            old_lead = params.get("leadTicks")
+            old_inset = params.get("inset")
+            new_lead = ring_doctrine["leadTicks"]
+            new_inset = ring_doctrine["inset"]
+            if old_lead != new_lead or old_inset != new_inset:
+                starter_harness._log(
+                    PERSONA,
+                    f"ring_control clamp{tag}: ring_walker leadTicks "
+                    f"{old_lead!r}->{new_lead} inset {old_inset!r}->"
+                    f"{new_inset} phase={ring_phase} tick={tick}{suffix}")
+                fired = True
+            params["leadTicks"] = new_lead
+            params["inset"] = new_inset
+
+    # FOUR DIGITS lane (W1, 2026-09-22): RING_LEAD_WIDE / RING_INSET_WIDE
+    # doctrine pins, same clamp/log mechanism as the loop just above --
+    # default False (both), so with neither armed this loop is a no-op and
+    # the wire stays byte-identical to control (inset=64/leadTicks=240,
+    # the canned-turn literals). Armed one at a time for the local
+    # tick-share instrument's variant reads; never both variants at once
+    # (that would conflate two levers in one read).
+    if RING_LEAD_WIDE or RING_INSET_WIDE:
+        for entry in entries:
+            if entry.get("play") != "ring_walker":
+                continue
+            params = entry.setdefault("params", {})
+            if RING_LEAD_WIDE:
+                old = params.get("leadTicks")
+                if old != RING_LEAD_WIDE_TICKS:
+                    starter_harness._log(
+                        PERSONA,
+                        f"clamp ring_walker.leadTicks{tag} {old!r}->"
+                        f"{RING_LEAD_WIDE_TICKS}{suffix}")
+                    fired = True
+                params["leadTicks"] = RING_LEAD_WIDE_TICKS
+            if RING_INSET_WIDE:
+                old = params.get("inset")
+                if old != RING_INSET_WIDE_PX:
+                    starter_harness._log(
+                        PERSONA,
+                        f"clamp ring_walker.inset{tag} {old!r}->"
+                        f"{RING_INSET_WIDE_PX}{suffix}")
+                    fired = True
+                params["inset"] = RING_INSET_WIDE_PX
+
+    # FOUR DIGITS lane (W1, 2026-09-22): PROACTIVE_RECENTER -- a wider,
+    # Monet-only proactive-recenter trigger. Reuses `facts`/`phase` already
+    # computed unconditionally above (v59.1/v60 hoists); condition mirrors
+    # gate_open's own ring_walker predicate (starter_harness.py ~895-906)
+    # but with a WIDER window (PROACTIVE_RECENTER_TICKS, doctrine-larger
+    # than any leadTicks value above) so the boost can arm before
+    # ring_walker's own gate would otherwise open on the doctrine leadTicks
+    # value. Boosts inset+leadTicks together for that window only; default
+    # False, so with PROACTIVE_RECENTER unset this block never runs and the
+    # wire stays byte-identical to control.
+    if PROACTIVE_RECENTER and not NORINGCONTROL:
+        ticks_to_shrink = facts.get("ticks_to_shrink")
+        proactive_open = bool(
+            not facts.get("in_next_zone", True)
+            and ticks_to_shrink is not None
+            and ticks_to_shrink < PROACTIVE_RECENTER_TICKS)
+        if proactive_open:
+            for entry in entries:
+                if entry.get("play") != "ring_walker":
+                    continue
+                params = entry.setdefault("params", {})
+                old_lead = params.get("leadTicks")
+                old_inset = params.get("inset")
+                if (old_lead != PROACTIVE_RECENTER_LEAD
+                        or old_inset != PROACTIVE_RECENTER_INSET):
+                    starter_harness._log(
+                        PERSONA,
+                        f"proactive-recenter clamp{tag}: ring_walker "
+                        f"leadTicks {old_lead!r}->{PROACTIVE_RECENTER_LEAD} "
+                        f"inset {old_inset!r}->{PROACTIVE_RECENTER_INSET} "
+                        f"tts={ticks_to_shrink}{suffix}")
+                    fired = True
+                params["leadTicks"] = PROACTIVE_RECENTER_LEAD
+                params["inset"] = PROACTIVE_RECENTER_INSET
 
     # SUPPLY_RUN whenHpBelow re-anchor (moved here v52, same fix class as
     # above -- see SUPPLY_DEFAULTS's own note): pin to doctrine on every
@@ -2306,8 +2614,6 @@ PERSONA = Persona(
                             "protect": False, "onBetrayal": "returnFire"}},
                 {"play": "target_law", "entry_id": "law",
                  "params": {"prefer": list(TARGET_LAW_PREFER)}},
-                {"play": "ring_walker", "entry_id": "ring",
-                 "params": {"inset": 64, "leadTicks": 240}},
                 {"play": "medic", "entry_id": "pickup",
                  # zoneReach 220->0 (zoneBlocksRevive armed 0.7.323): the
                  # dip this budget paid for walks into exactly the band
@@ -2316,6 +2622,15 @@ PERSONA = Persona(
                 {"play": "hold_vs_gun", "entry_id": "holdgun",
                  "params": {"calmTicks": 48, "coverMax": 260,
                             "engageDist": 500}},
+                {"play": "ring_walker", "entry_id": "ring",
+                 # RING CONTROL (W3, 2026-09-22): moved BELOW the engage
+                 # plays (was above) -- apply_phase_clamps' own reorder
+                 # pin enforces this on every send path regardless, but
+                 # the source stays honest, same convention as the
+                 # doctrine literals elsewhere in this file. Params are
+                 # the "opening" doctrine (RING_CONTROL_SCHEDULE) --
+                 # apply_phase_clamps repins them every send too.
+                 "params": {"inset": 179, "leadTicks": 384}},
                 {"play": "bodyguard", "entry_id": "spring",
                  # peelHp RAISED (v10) 2->3: shield the ward at half of a
                  # 6-hp seat, not just the last quarter -- the duo-shared
@@ -2372,8 +2687,6 @@ PERSONA = Persona(
                             "protect": False, "onBetrayal": "returnFire"}},
                 {"play": "target_law", "entry_id": "law",
                  "params": {"prefer": list(TARGET_LAW_PREFER)}},
-                {"play": "ring_walker", "entry_id": "ring",
-                 "params": {"inset": 64, "leadTicks": 240}},
                 {"play": "medic", "entry_id": "pickup",
                  # zoneReach 220->0 (zoneBlocksRevive armed 0.7.323): the
                  # dip this budget paid for walks into exactly the band
@@ -2407,6 +2720,13 @@ PERSONA = Persona(
                 {"play": "hold_vs_gun", "entry_id": "holdgun",
                  "params": {"calmTicks": 48, "coverMax": 260,
                             "engageDist": 500}},
+                {"play": "ring_walker", "entry_id": "ring",
+                 # RING CONTROL (W3, 2026-09-22): moved BELOW the engage
+                 # plays -- see the opening turn's ring_walker entry for
+                 # the full note. Params are the "mid" doctrine
+                 # (RING_CONTROL_SCHEDULE); apply_phase_clamps repins
+                 # every send regardless.
+                 "params": {"inset": 102, "leadTicks": 192}},
                 {"play": "bodyguard", "entry_id": "shield-close",
                  # COMBAT-CLOSE band (measured revive protocol, 28 leader
                  # tag-backs): revives succeed when the duo is ALREADY
@@ -2518,8 +2838,6 @@ PERSONA = Persona(
                             "protect": False, "onBetrayal": "returnFire"}},
                 {"play": "target_law", "entry_id": "law",
                  "params": {"prefer": list(TARGET_LAW_PREFER)}},
-                {"play": "ring_walker", "entry_id": "ring",
-                 "params": {"inset": 64, "leadTicks": 240}},
                 {"play": "medic", "entry_id": "pickup",
                  # zoneReach 220->0 (zoneBlocksRevive armed 0.7.323): the
                  # dip this budget paid for walks into exactly the band
@@ -2560,6 +2878,13 @@ PERSONA = Persona(
                 {"play": "hold_vs_gun", "entry_id": "holdgun",
                  "params": {"calmTicks": 48, "coverMax": 260,
                             "engageDist": 500}},
+                {"play": "ring_walker", "entry_id": "ring",
+                 # RING CONTROL (W3, 2026-09-22): moved BELOW the engage
+                 # plays -- see the opening turn's ring_walker entry for
+                 # the full note. Params are the "mid" doctrine
+                 # (RING_CONTROL_SCHEDULE); apply_phase_clamps repins
+                 # every send regardless.
+                 "params": {"inset": 102, "leadTicks": 192}},
                 {"play": "bodyguard", "entry_id": "shield-close",
                  # COMBAT-CLOSE band: same rationale and [40,120] band as
                  # the consolidation turn's shield-close entry above --
@@ -2609,8 +2934,6 @@ PERSONA = Persona(
             "call": {"entries": [
                 {"play": "target_law", "entry_id": "law",
                  "params": {"prefer": list(TARGET_LAW_PREFER)}},
-                {"play": "ring_walker", "entry_id": "ring",
-                 "params": {"inset": 64, "leadTicks": 240}},
                 {"play": "medic", "entry_id": "pickup",
                  # zoneReach 160->0. The v10 note below is SUPERSEDED, not
                  # deleted, because its conclusion still holds and its
@@ -2664,6 +2987,13 @@ PERSONA = Persona(
                  "params": {"breakDeficit": 4, "coverMax": 200,
                             "engageDist": 750, "finishRange": 120,
                             "pressRange": 220, "woundedPct": 0}},
+                {"play": "ring_walker", "entry_id": "ring",
+                 # RING CONTROL (W3, 2026-09-22): moved BELOW
+                 # fire_superiority -- see the opening turn's ring_walker
+                 # entry for the full note. Params are the "late" doctrine
+                 # (RING_CONTROL_SCHEDULE); apply_phase_clamps repins
+                 # every send regardless.
+                 "params": {"inset": 230, "leadTicks": 192}},
                 {"play": "crossfire", "entry_id": "shape",
                  "params": {"spacing": [120, 280], "minAngle": 36}},
                 {"play": "supply_run", "entry_id": "bank",

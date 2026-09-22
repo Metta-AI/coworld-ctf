@@ -53,6 +53,31 @@ def check(label: str, ok: bool, detail: str = "") -> None:
         failures.append(label)
 
 
+def _seed_ring(entries: list, tick) -> list:
+    """RING CONTROL (W3, FOUR DIGITS lane, 2026-09-22): pre-seed a
+    correctly-scheduled, correctly-positioned ring_walker entry so
+    policy.apply_phase_clamps's RING CONTROL block (which now runs on
+    EVERY call, same as every other unconditional pin in that function)
+    is a total no-op for a fixture that is testing something else
+    entirely -- same purpose as this file's own `_oh_entries()`-style
+    scaffolding, just for the one lever that now touches every call
+    regardless of scenario. Mirrors apply_phase_clamps's own
+    insert-if-missing position rule (after the last engage entry, else
+    at the end) and its own phase-schedule pin (RING_CONTROL_SCHEDULE
+    keyed by `_ring_control_phase(tick)`) exactly, so a fixture built
+    with this helper sees `fired=False` and no new log line from ring
+    control, leaving the fixture free to test its own lever in
+    isolation. Mutates and returns `entries`."""
+    ring_phase = policy._ring_control_phase(tick)
+    params = dict(policy.RING_CONTROL_SCHEDULE[ring_phase])
+    engage = [i for i, e in enumerate(entries)
+             if e.get("play") in ("fire_superiority", "hold_vs_gun")]
+    insert_at = (max(engage) + 1) if engage else len(entries)
+    entries.insert(insert_at, {"play": "ring_walker", "entry_id": "ring",
+                               "params": params})
+    return entries
+
+
 # ── prompt assembly ───────────────────────────────────────────────────────
 unknown_notes = set(PERSONA.play_notes) - set(plays.PLAYS)
 check("play_notes only name real plays", not unknown_notes, str(unknown_notes))
@@ -342,14 +367,28 @@ check("gate medic CLOSED: partner already dead",
       not starter_harness.gate_open(MEDIC, facts(
           partner_track=dict(GHOST), partner_downed=True, partner_dead=True)))
 
+RING_CONTROL_ENGAGE_PLAYS = ("fire_superiority", "hold_vs_gun")
+
 for _i, _t in enumerate(PERSONA.canned_turns, start=1):
     _order = [e["play"] for e in _t["call"]["entries"]]
     _fights = [j for j, p in enumerate(_order)
                if p in ("fire_superiority", "hold_vs_gun", "jackal",
                         "crossfire")]
-    check(f"turn {_i}: medic rides directly below ring_walker, above fights",
-          _order.index("medic") == _order.index("ring_walker") + 1
-          and (not _fights or _order.index("medic") < min(_fights)),
+    check(f"turn {_i}: medic rides above every fight rung",
+          not _fights or _order.index("medic") < min(_fights),
+          str(_order))
+    # RING CONTROL (W3, FOUR DIGITS lane, 2026-09-22): ring_walker was
+    # reordered BELOW the engage plays (fire_superiority/hold_vs_gun) --
+    # was above them, which would have pulled a seat OFF an already-open
+    # fight the instant the shrink clock also qualified. See policy.py's
+    # apply_phase_clamps RING CONTROL block for the live-wire enforcement
+    # of this same ordering on every send path (not just the canned
+    # literal asserted here).
+    _engage = [j for j, p in enumerate(_order)
+              if p in RING_CONTROL_ENGAGE_PLAYS]
+    check(f"turn {_i}: ring_walker present, sorted below engage plays",
+          "ring_walker" in _order
+          and (not _engage or _order.index("ring_walker") > max(_engage)),
           str(_order))
 
 # Downed partner on the grant row: medic gates onto the wire ladder.
@@ -566,23 +605,123 @@ check("layer_ladder mid turn, quiet + already in the [100,150] band: "
       "neither bodyguard rung on the wire (nothing to do)",
       quiet_inband_bg == [], str(quiet_inband_bg))
 
-# Outside the NEXT rect with the shrink close: ring_walker leads the ladder.
+# Outside the NEXT rect with the shrink close, and NO live threat:
+# ring_walker leads the ladder (no engage gate is open to outrank it).
 RING_VIEW = {
     "tick": 1000,
     "self": {"pos": [500, 500], "hp_frac": 1.0},
     "world": {"zone": {"current": [0, 0, 2000, 2000],
                        "next": [900, 900, 600, 600], "phase": 2,
                        "ticks_to_shrink": 100}},
-    "tracks": [ENEMY],
+    "tracks": [],
 }
 ring = [e["play"] for e in starter_harness.layer_ladder(
     TURN3, RING_VIEW, FAKE_CONTEXT, [], base_play=PERSONA.base_play)]
 controllers = [p for p in ring
                if plays.PLAYS[p]["class"] == "controller"]
-check("layer_ladder outside next rect: ring_walker on the ladder",
+check("layer_ladder outside next rect, no threat: ring_walker on the ladder",
       "ring_walker" in ring, str(ring))
-check("layer_ladder outside next rect: ring_walker is the FIRST controller",
+check("layer_ladder outside next rect, no threat: ring_walker is the "
+      "FIRST controller",
       bool(controllers) and controllers[0] == "ring_walker", str(ring))
+
+# RING CONTROL (W3, FOUR DIGITS lane, 2026-09-22): the SAME ring-imminent
+# scenario, but now with a fresh enemy inside engage range -- a live fight
+# must still take precedence over ring repositioning (the whole point of
+# reordering ring_walker below fire_superiority/hold_vs_gun in the canned
+# turns, see the turn-order check above). ENEMY sits 200px from self,
+# inside hold_vs_gun's default engageDist (500) and fire_superiority's
+# "any enemy" gate.
+RING_VIEW_UNDER_FIRE = dict(RING_VIEW, tracks=[ENEMY])
+ring_uf = [e["play"] for e in starter_harness.layer_ladder(
+    TURN3, RING_VIEW_UNDER_FIRE, FAKE_CONTEXT, [], base_play=PERSONA.base_play)]
+controllers_uf = [p for p in ring_uf
+                 if plays.PLAYS[p]["class"] == "controller"]
+check("layer_ladder outside next rect, enemy in engage range: an engage "
+      "play (not ring_walker) is the FIRST controller",
+      bool(controllers_uf)
+      and controllers_uf[0] in ("fire_superiority", "hold_vs_gun"),
+      str(ring_uf))
+check("layer_ladder outside next rect, enemy in engage range: ring_walker "
+      "still on the ladder (it did not get dropped, only outranked)",
+      "ring_walker" in ring_uf, str(ring_uf))
+
+# ── RING CONTROL (W3, FOUR DIGITS lane, 2026-09-22): apply_phase_clamps'
+# insert-if-missing / reorder / phase-schedule mechanism, unit-tested
+# directly (not just via the canned-turn literals, which a live model call
+# never goes through -- this is the guarantee that DOES cover a live call).
+def _rc_entries(with_ring_before_engage=None):
+    """A minimal entries list: pact/target_law overlays, fire_superiority +
+    hold_vs_gun (the engage plays), jackal. `with_ring_before_engage=True`
+    inserts an out-of-position ring_walker BEFORE the engage plays (the
+    old, wrong order); False inserts a properly-positioned one after;
+    None omits ring_walker entirely (the live-model-call gap case)."""
+    e = [{"play": "pact", "entry_id": "truce", "params": {"partners": []}},
+         {"play": "target_law", "entry_id": "law", "params": {}}]
+    if with_ring_before_engage:
+        e.append({"play": "ring_walker", "entry_id": "ring",
+                  "params": {"inset": 64, "leadTicks": 240}})
+    e.append({"play": "fire_superiority", "entry_id": "pressbreak",
+              "params": {}})
+    e.append({"play": "hold_vs_gun", "entry_id": "holdgun", "params": {}})
+    if with_ring_before_engage is False:
+        e.append({"play": "ring_walker", "entry_id": "ring",
+                  "params": {"inset": 64, "leadTicks": 240}})
+    e.append({"play": "jackal", "entry_id": "third", "params": {}})
+    return e
+
+
+def _rc_ring(entries):
+    matches = [e for e in entries if e.get("play") == "ring_walker"]
+    return matches[0] if matches else None
+
+
+check("RING CONTROL insert-if-missing: apply_phase_clamps installs "
+      "ring_walker when a (simulated) model turn omitted it entirely",
+      (lambda es: (
+          policy.apply_phase_clamps(es, {"tick": 100}, {}),
+          _rc_ring(es) is not None)[-1])(_rc_entries(None)))
+
+check("RING CONTROL reorder: an out-of-position ring_walker (before the "
+      "engage plays) is moved below them by apply_phase_clamps",
+      (lambda es: (
+          policy.apply_phase_clamps(es, {"tick": 100}, {}),
+          [e["play"] for e in es].index("ring_walker")
+          > [e["play"] for e in es].index("hold_vs_gun"))[-1])(
+              _rc_entries(True)))
+
+for _phase_name, _tick, _expect in (
+        ("opening", 0, policy.RING_CONTROL_SCHEDULE["opening"]),
+        ("opening/mid boundary - 1", 759, policy.RING_CONTROL_SCHEDULE["opening"]),
+        ("mid", 760, policy.RING_CONTROL_SCHEDULE["mid"]),
+        ("mid/late boundary - 1", 1499, policy.RING_CONTROL_SCHEDULE["mid"]),
+        ("late", 1500, policy.RING_CONTROL_SCHEDULE["late"]),
+        ("late, deep into the match", 20000, policy.RING_CONTROL_SCHEDULE["late"])):
+    _es = _rc_entries(False)
+    policy.apply_phase_clamps(_es, {"tick": _tick}, {})
+    _ring = _rc_ring(_es)
+    check(f"RING CONTROL schedule at tick={_tick} ({_phase_name}): "
+          f"leadTicks/inset match RING_CONTROL_SCHEDULE",
+          _ring is not None
+          and _ring["params"]["leadTicks"] == _expect["leadTicks"]
+          and _ring["params"]["inset"] == _expect["inset"],
+          str(_ring))
+
+# NORINGCONTROL opt-out: flip True, confirm the whole mechanism goes
+# silent (no insert, entries unchanged), then restore False -- module
+# state is global, so every check after this one depends on restoring it.
+_noring_es = _rc_entries(None)
+_noring_before = json.dumps(_noring_es)
+policy.NORINGCONTROL = True
+try:
+    policy.apply_phase_clamps(_noring_es, {"tick": 900}, {})
+    check("RING CONTROL opt-out (NORINGCONTROL=True): no ring_walker "
+          "entry is installed",
+          _rc_ring(_noring_es) is None, str(_noring_es))
+finally:
+    policy.NORINGCONTROL = False
+check("RING CONTROL default is ON (NORINGCONTROL restored to False)",
+      policy.NORINGCONTROL is False)
 
 # ── anti-stack formation floors ───────────────────────────────────────────
 stack_seat = fake_seat()
@@ -2686,7 +2825,7 @@ check("(a) BREAK PROOF: with no phase-clamp hook wired to the persona "
 # (b) maintenance resend OUTSIDE final4 (alive_teams=8): untouched -- no
 # clamp, no log line, entries pass through exactly as gated.
 _f4m_view_b = {"world": {"alive_teams": 8}, "self": {"alive": True}}
-_f4m_entries_b = _f4m_stale_entries()
+_f4m_entries_b = _seed_ring(_f4m_stale_entries(), _f4m_view_b.get("tick", 0))
 _f4m_log_b = _io.StringIO()
 with _contextlib.redirect_stdout(_f4m_log_b):
     _f4m_fired_b = PERSONA.apply_phase_clamps(
@@ -5233,7 +5372,7 @@ check("(ii) opening hunter: same tick 300, but our team already banked a "
 
 # (iii) THE THIRD PRE-REGISTERED FIXTURE: tick 1600 (past OPENING_TICKS=
 # 1500), no kills -- untouched, byte-identical to v56.
-_oh_iii_entries = _oh_entries()
+_oh_iii_entries = _seed_ring(_oh_entries(), 1600)
 _oh_iii_pact = {"_my_team": "rust"}
 _oh_iii_view = {"tick": 1600, "world": {"alive_teams": 16}, "kill_feed": []}
 _oh_iii_log = _io.StringIO()
@@ -5243,7 +5382,8 @@ with _contextlib.redirect_stdout(_oh_iii_log):
 _oh_iii_plays = [e["play"] for e in _oh_iii_entries]
 check("(iii) opening hunter: tick 1600, no kills -- untouched, byte-"
       "identical to v56 (no opening-hunter line logged)",
-      not _oh_iii_fired and _oh_iii_plays == ["pact", "target_law", "scatter"]
+      not _oh_iii_fired
+      and _oh_iii_plays == ["pact", "target_law", "scatter", "ring_walker"]
       and "opening-hunter clamp" not in _oh_iii_log.getvalue(),
       str(_oh_iii_plays))
 
@@ -5332,7 +5472,7 @@ check("opening hunter end-to-end via repair_call/adjust_entries: a real "
 
 # Kill switch: OPENING_HUNTER=False falls back to byte-identical v56
 # behaviour without removing this block.
-_oh_off_entries = _oh_entries()
+_oh_off_entries = _seed_ring(_oh_entries(), 300)
 _oh_off_prev = policy.OPENING_HUNTER
 policy.OPENING_HUNTER = False
 try:
@@ -5346,7 +5486,8 @@ _oh_off_plays = [e["play"] for e in _oh_off_entries]
 check("OPENING_HUNTER=False is a plain kill switch: the same "
       "predicate-true call now leaves scatter in place and never "
       "installs fire_superiority",
-      not _oh_off_fired and _oh_off_plays == ["pact", "target_law", "scatter"],
+      not _oh_off_fired
+      and _oh_off_plays == ["pact", "target_law", "scatter", "ring_walker"],
       str(_oh_off_plays))
 
 # ============================================================
@@ -5388,7 +5529,7 @@ check("(ii) heat-window hunter clamp logs the 'heat' tag, not 'opening' "
 # (iii) tick 2000, our kill at tick 1600 (400 ticks ago, > 270) --
 # outside the heat window and long past OPENING_TICKS -- untouched,
 # byte-identical to v57.
-_hh_iii_entries = _oh_entries()
+_hh_iii_entries = _seed_ring(_oh_entries(), 2000)
 _hh_iii_pact = {"_my_team": "rust"}
 _hh_iii_view = {"tick": 2000, "world": {"alive_teams": 16},
                "kill_feed": [{"tick": 1600, "killer_team": "rust",
@@ -5401,14 +5542,14 @@ _hh_iii_plays = [e["play"] for e in _hh_iii_entries]
 check("(iii) heat-window hunter: tick 2000, our kill 400 ticks ago "
       "(> HEAT_WINDOW_TICKS=270) -- untouched, no clamp line logged",
       not _hh_iii_fired
-      and _hh_iii_plays == ["pact", "target_law", "scatter"]
+      and _hh_iii_plays == ["pact", "target_law", "scatter", "ring_walker"]
       and "hunter clamp" not in _hh_iii_log.getvalue(),
       str(_hh_iii_plays))
 
 # (iv) tick 2000, an ENEMY team's kill at tick 1900 only -- our own
 # team has never been credited a kill -- untouched (neither window
 # reads an enemy kill as ours).
-_hh_iv_entries = _oh_entries()
+_hh_iv_entries = _seed_ring(_oh_entries(), 2000)
 _hh_iv_pact = {"_my_team": "rust"}
 _hh_iv_view = {"tick": 2000, "world": {"alive_teams": 16},
               "kill_feed": [{"tick": 1900, "killer_team": "steel",
@@ -5422,7 +5563,7 @@ check("(iv) heat-window hunter: tick 2000, an ENEMY kill at 1900 only "
       "-- neither the opening latch nor the heat window ever reads a "
       "rival's kill as ours -- untouched",
       not _hh_iv_fired
-      and _hh_iv_plays == ["pact", "target_law", "scatter"]
+      and _hh_iv_plays == ["pact", "target_law", "scatter", "ring_walker"]
       and "hunter clamp" not in _hh_iv_log.getvalue(),
       str(_hh_iv_plays))
 
@@ -5467,7 +5608,7 @@ check("(v) heat-window hunter: the SAME call's v56 AGGRESSION LOCK "
 # (vi) HEAT_HUNTER=False: the (ii) scenario above (tick 2000, our kill
 # at 1900) becomes untouched -- a plain kill switch, same convention as
 # OPENING_HUNTER.
-_hh_vi_entries = _oh_entries()
+_hh_vi_entries = _seed_ring(_oh_entries(), 2000)
 _hh_vi_prev = policy.HEAT_HUNTER
 policy.HEAT_HUNTER = False
 try:
@@ -5486,7 +5627,7 @@ check("(vi) HEAT_HUNTER=False is a plain kill switch: the (ii) scenario "
       "(tick 2000, our kill at 1900) now leaves scatter in place and "
       "installs no fire_superiority, no hunter clamp line logged",
       not _hh_vi_fired
-      and _hh_vi_plays == ["pact", "target_law", "scatter"]
+      and _hh_vi_plays == ["pact", "target_law", "scatter", "ring_walker"]
       and "hunter clamp" not in _hh_vi_log.getvalue(),
       str(_hh_vi_plays))
 
@@ -5654,7 +5795,7 @@ check("(ii) return fire: under fire AND a live track -- fire_superiority "
       str(_rf_ii_plays))
 
 # (iii) no aggressors, no tracks -- untouched.
-_rf_iii_entries = _rf_entries()
+_rf_iii_entries = _seed_ring(_rf_entries(), 2000)
 _rf_iii_view = {"tick": 2000, "world": {"alive_teams": 16}, "kill_feed": []}
 _rf_iii_log = _io.StringIO()
 with _contextlib.redirect_stdout(_rf_iii_log):
@@ -5664,12 +5805,12 @@ _rf_iii_plays = [e["play"] for e in _rf_iii_entries]
 check("(iii) return fire: no aggressors, no tracks -- untouched, "
       "byte-identical to v58",
       not _rf_iii_fired
-      and _rf_iii_plays == ["pact", "target_law", "scatter"]
+      and _rf_iii_plays == ["pact", "target_law", "scatter", "ring_walker"]
       and "return-fire clamp" not in _rf_iii_log.getvalue(),
       str(_rf_iii_plays))
 
 # (iv) aggressor seen 200 ticks ago, RETURN_FIRE_TICKS=120 -- untouched.
-_rf_iv_entries = _rf_entries()
+_rf_iv_entries = _seed_ring(_rf_entries(), 2000)
 _rf_iv_view = {"tick": 2000, "world": {"alive_teams": 16}, "kill_feed": [],
               "aggressors": [{"tick": 1800, "dir_brads": 5}]}
 _rf_iv_log = _io.StringIO()
@@ -5680,13 +5821,13 @@ _rf_iv_plays = [e["play"] for e in _rf_iv_entries]
 check("(iv) return fire: aggressor seen 200 ticks ago (> "
       "RETURN_FIRE_TICKS=120) -- untouched",
       not _rf_iv_fired
-      and _rf_iv_plays == ["pact", "target_law", "scatter"]
+      and _rf_iv_plays == ["pact", "target_law", "scatter", "ring_walker"]
       and "return-fire clamp" not in _rf_iv_log.getvalue(),
       str(_rf_iv_plays))
 
 # (v) RETURN_FIRE=False -- the (i) scenario above becomes untouched, a
 # plain kill switch, same convention as OPENING_HUNTER/HEAT_HUNTER.
-_rf_v_entries = _rf_entries()
+_rf_v_entries = _seed_ring(_rf_entries(), _rf_i_view.get("tick", 0))
 _rf_v_prev = policy.RETURN_FIRE
 policy.RETURN_FIRE = False
 try:
@@ -5701,7 +5842,7 @@ check("(v) RETURN_FIRE=False is a plain kill switch: the (i) scenario "
       "(under fire, no tracks) now leaves the ladder untouched, no "
       "hold_vs_gun installed, no clamp line logged",
       not _rf_v_fired
-      and _rf_v_plays == ["pact", "target_law", "scatter"]
+      and _rf_v_plays == ["pact", "target_law", "scatter", "ring_walker"]
       and "return-fire clamp" not in _rf_v_log.getvalue(),
       str(_rf_v_plays))
 
@@ -5776,7 +5917,7 @@ check("(i) return-fire-range clamp logs the ahead-install line",
 # (ii) under fire, fs open, nearest 150px (<= pressRange 220) -- untouched,
 # v59.1 behaviour: fire_superiority's own press logic owns this range, no
 # hold_vs_gun override.
-_rfr_ii_entries = _rfr_entries_with_fs()
+_rfr_ii_entries = _seed_ring(_rfr_entries_with_fs(), 2000)
 _rfr_ii_pact = {"_my_team": "rust"}
 _rfr_ii_view = {
     "tick": 2000, "world": {"alive_teams": 16}, "kill_feed": [],
@@ -5793,7 +5934,7 @@ _rfr_ii_plays = [e["play"] for e in _rfr_ii_entries]
 check("(ii) return-fire-range: under fire, fs open, nearest 150px (<= "
       "pressRange 220) -- untouched, byte-identical to v59.1",
       not _rfr_ii_fired
-      and _rfr_ii_plays == ["pact", "scatter", "fire_superiority"]
+      and _rfr_ii_plays == ["pact", "scatter", "fire_superiority", "ring_walker"]
       and "return-fire-range clamp" not in _rfr_ii_log.getvalue(),
       str(_rfr_ii_plays))
 
@@ -5822,7 +5963,7 @@ check("(iii) return-fire-range: under fire, fs closed -- v59's own "
 # (iv) NOT under fire (no aggressor rows at all), fs open, nearest 600px --
 # untouched: return_fire_active itself is False, so the v60 predicate
 # short-circuits before ever reading nearest_enemy.
-_rfr_iv_entries = _rfr_entries_with_fs()
+_rfr_iv_entries = _seed_ring(_rfr_entries_with_fs(), 2000)
 _rfr_iv_pact = {"_my_team": "rust"}
 _rfr_iv_view = {
     "tick": 2000, "world": {"alive_teams": 16}, "kill_feed": [],
@@ -5838,14 +5979,14 @@ _rfr_iv_plays = [e["play"] for e in _rfr_iv_entries]
 check("(iv) return-fire-range: not under fire, fs open, nearest 600px -- "
       "untouched (no aggressor -> return_fire_active itself is False)",
       not _rfr_iv_fired
-      and _rfr_iv_plays == ["pact", "scatter", "fire_superiority"]
+      and _rfr_iv_plays == ["pact", "scatter", "fire_superiority", "ring_walker"]
       and "return-fire" not in _rfr_iv_log.getvalue(),
       str(_rfr_iv_plays))
 
 # (v) RETURN_FIRE_RANGE=False -- the (i) scenario above becomes untouched,
 # a plain kill switch, same convention as RETURN_FIRE/OPENING_HUNTER/
 # HEAT_HUNTER.
-_rfr_v_entries = _rfr_entries_with_fs()
+_rfr_v_entries = _seed_ring(_rfr_entries_with_fs(), _rfr_i_view.get("tick", 0))
 _rfr_v_prev = policy.RETURN_FIRE_RANGE
 policy.RETURN_FIRE_RANGE = False
 try:
@@ -5860,7 +6001,7 @@ check("(v) RETURN_FIRE_RANGE=False is a plain kill switch: the (i) "
       "scenario (under fire, fs open, nearest 600px) now leaves the "
       "ladder untouched, no hold_vs_gun installed, no -range clamp logged",
       not _rfr_v_fired
-      and _rfr_v_plays == ["pact", "scatter", "fire_superiority"]
+      and _rfr_v_plays == ["pact", "scatter", "fire_superiority", "ring_walker"]
       and "return-fire-range clamp" not in _rfr_v_log.getvalue(),
       str(_rfr_v_plays))
 
@@ -5906,9 +6047,10 @@ check("return-fire-range end-to-end via repair_call/adjust_entries/"
 # RETURN FIRE's own block never fires (fire_superiority_open=True) --
 # proves the diag line is independent of whether any clamp in this
 # function actually did anything on this call.
-_diag_entries = [{"play": "pact", "entry_id": "p", "params": {}},
-                 {"play": "target_law", "entry_id": "t", "params": {}},
-                 {"play": "jackal", "entry_id": "j", "params": {}}]
+_diag_entries = _seed_ring([
+    {"play": "pact", "entry_id": "p", "params": {}},
+    {"play": "target_law", "entry_id": "t", "params": {}},
+    {"play": "jackal", "entry_id": "j", "params": {}}], 5000)
 _diag_view = {
     "tick": 5000,
     "world": {"alive_teams": 16},
@@ -5929,7 +6071,8 @@ _diag_lines = [ln for ln in _diag_log.getvalue().splitlines()
 # maintenance resend, starter_harness.py ~line 1998) -- confirms `src=`
 # reflects the caller, and that a call with NO aggressor/track/hp data
 # renders every field honestly as None rather than guessing 0.
-_diag_m_entries = [{"play": "loot", "entry_id": "l", "params": {}}]
+_diag_m_entries = _seed_ring(
+    [{"play": "loot", "entry_id": "l", "params": {}}], 42)
 _diag_m_view = {"tick": 42, "world": {"alive_teams": 16}, "kill_feed": [],
                 "self": {"hp_frac": None}}
 _diag_m_log = _io.StringIO()

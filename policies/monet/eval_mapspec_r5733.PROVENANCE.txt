@@ -1,0 +1,35 @@
+FOUR DIGITS lane, W1 tick-share instrument, 2026-09-22.
+
+eval_mapspec_r5733.json = config.practice.json with `mapSpec` replaced by the
+byte-exact mapSpec recorded in a REAL hosted S2 replay's own config header
+(never a locally generated/synthetic map).
+
+Source round: r5733 (round_id round_484134e4-21de-41d5-b1ef-0e29aec1bbd4),
+league_b8fa9b35-ac22-48cf-a03f-07b397aff1c7 (S2), status completed,
+created_at 2026-09-22T14:33:43.952573Z. Chosen because it is the most recent
+completed round inside the assigned range r5721-r5733 (the ladder stalled on
+the $50/day budget after r5733 -- see ~/.ctf/handoff/2026-09-22-four-digits-lane.md).
+
+Source episode: episode_id 2c6fb554-3f12-40b4-adb8-ad6cb5ef34fd, replay
+https://softmax-public.s3.amazonaws.com/replays/993cb98e-497a-48c6-ae59-cbca8f086231.replay
+(public S3, no auth), coworld_id cow_ae4a5418-550d-4cdb-9b7c-7c743491007c,
+coworld_version 0.1.2, recorded engine GameVersion 63.
+
+Extraction: gunzip the downloaded .replay, then read ONLY the fixed replay
+header prefix (magic "COWLDCTF", u16 formatVersion, gameName string,
+gameVersion string, u64, configJson string -- src/ctf/replay_codec.nim
+readHeader ~465-489) and pull configJson.mapSpec. Deliberately does NOT call
+replays.loadReplay/parseReplayBytes: this worktree's source pins
+ReplayCompatibleGameVersions=["52"] (src/ctf/sim_types.nim) while the
+platform is on GV63, so the strict decoder refuses the file outright even
+though the HEADER FRAME (and mapSpec's JSON shape) has not changed across
+that span. Tool: tools/w1_dump_replay_mapspec.nim (scratch, not wired into
+any harness). Result: mapSpec.name="br-gen-5448", genSeed=5448,
+3211x1713, flagRing=70, gunRange=331, layout=sides, endzone=column --
+plausible/well-formed BR geometry, same shape as the prior br-gen-4242
+practice default.
+
+Everything else in eval_mapspec_r5733.json is byte-identical to
+config.practice.json (teams, slots, barrage/fire tuning, seed placeholder
+later overwritten per-seed by run_series.sh). Use via:
+  BASE_CONFIG=policies/monet/eval_mapspec_r5733.json policies/monet/run_series.sh <idx> [OUT_ROOT]

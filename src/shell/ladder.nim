@@ -5,6 +5,8 @@
 ## packet decoding, hashing, validation, compilation, or module-cache work.
 
 import std/options
+when defined(tickShareProbe):
+  import std/[json, math, strutils]
 
 import crunchy/[common, sha256]
 
@@ -61,6 +63,14 @@ type
     defaultIntent*: Intent
     defaultGoal*: Option[ValidatedGoal]
     nativeBase*: Option[LadderNativeBase]
+    probeViewJson*: string
+      ## FOUR DIGITS lane instrument only: the SOCKET's JSON view copy
+      ## (episode.firstLightSocketViewBytes), never the GUEST's PV1 binary
+      ## frame `viewBytes` above is. Always "" outside `-d:tickShareProbe`
+      ## builds (see episode.nim's probeViewFor) -- one extra string field,
+      ## zero behavior change, cheapest way to keep this diagnostic-only
+      ## without a conditional field shape on a struct two call sites
+      ## construct by full object literal.
 
   LadderStatus* = object
     seat*: int
@@ -568,6 +578,117 @@ proc livePassingController(seat: LadderSeat, ctx: IntentContext;
       return index
   -1
 
+## FOUR DIGITS lane, tick-share + track-presence instrument (plan-4digits.md
+## levers 2+4, 2026-09-22). Compile-time gated (`-d:tickShareProbe`) so the
+## default/shipped server binary is byte-for-byte unchanged -- this is a
+## diagnostic-only probe, never armed via container env per house rule.
+##
+## Emits one `[tickshare]` line per sampled (seat, tick) to stdout, which
+## run_series.sh already captures into `$SEED_DIR/server.log`. Answers,
+## per alive tick: (a) did this tick take the native zone-escape reflex
+## branch (`input.nativeBase.isSome`, ladder.nim stepSeat ~line 600) instead
+## of the controller loop; (b) within controller-loop ticks, is there a
+## fresh enemy track inside fire_superiority's own engageDist (mirrors
+## fire_superiority.nim:415-438's own freshness/engageDist test exactly:
+## FreshGunTicks=60, engageDist=750 -- both duplicated here as named
+## constants rather than imported, since this module cannot see a WASM
+## play's internals); (c) which phase bucket the tick falls in (opening
+## tick<1500 per the plan; mid/endgame split at tick<6000/>=6000 is this
+## instrument's own convention -- the plan did not pin an endgame
+## threshold); (d) distance to the current zone rect's center and to its
+## nearest edge (negative distEdge = outside the rect, by that many px).
+##
+## ALLY EXCLUSION for (b): `view.nim`'s playViewFor appends every
+## fog-visible ENEMY track first (body.tracks[], already same-team-excluded
+## by src/ctf/server.nim firstLightBodyInputs's visibleTracks seam), THEN
+## appends the duo partner's separate unconditional grant row last, only
+## when present (view.nim ~1017-1023). This probe has no cheap access to
+## self/partner seat identity at this layer, so it excludes the LAST
+## element of `tracks` from the engageDist scan whenever the array is
+## non-empty. When a partner grant row is present this is exactly correct;
+## when it is absent (partner dead/never bound) this drops one real enemy
+## candidate from the scan, a conservative (undercounting, never inflating)
+## bias -- documented, not hidden.
+when defined(tickShareProbe):
+  const
+    TickShareProbeStride = 4'u32   ## sample every Nth tick: cuts log volume
+                                    ## ~4x; tick-share is a proportion, so a
+                                    ## stride does not bias the estimate.
+    TickShareEngageDist = 750.0    ## FIRE_SUPERIORITY_ENGAGE_DIST, policy.py:246
+    TickShareFreshTicks = 60'i64   ## FreshGunTicks, fire_superiority.nim:91
+    TickShareOpeningEnd = 1500'u32 ## plan-4digits.md's own opening boundary
+    TickShareMidEnd = 6000'u32     ## this instrument's mid/endgame split
+
+  proc tickSharePhase(tick: uint32): string =
+    if tick < TickShareOpeningEnd: "opening"
+    elif tick < TickShareMidEnd: "mid"
+    else: "endgame"
+
+  proc tickShareProbeTick(seatIndex: int; input: LadderSeatInput;
+                           tick: uint32; nativeFired: bool) =
+    if tick mod TickShareProbeStride != 0:
+      return
+    var distCenter = -1.0
+    var distEdge = -1.0
+    var trackHit = -1  # -1 = n/a (native tick, or zone/track unreadable)
+    try:
+      if input.probeViewJson.len == 0:
+        return
+      let node = parseJson(input.probeViewJson)
+      let px = input.selfPos.x.float
+      let py = input.selfPos.y.float
+      let world = node{"world"}
+      if world != nil:
+        let zone = world{"zone"}
+        if zone != nil and zone.kind == JObject:
+          let rect = zone{"current"}
+          if rect != nil and rect.kind == JArray and rect.len == 4:
+            let rx = rect[0].getFloat()
+            let ry = rect[1].getFloat()
+            let rw = rect[2].getFloat()
+            let rh = rect[3].getFloat()
+            let cx = rx + rw / 2.0
+            let cy = ry + rh / 2.0
+            distCenter = sqrt((px - cx) * (px - cx) + (py - cy) * (py - cy))
+            let insideX = px >= rx and px <= rx + rw
+            let insideY = py >= ry and py <= ry + rh
+            if insideX and insideY:
+              distEdge = min(min(px - rx, rx + rw - px),
+                              min(py - ry, ry + rh - py))
+            else:
+              let dx = max(max(rx - px, px - (rx + rw)), 0.0)
+              let dy = max(max(ry - py, py - (ry + rh)), 0.0)
+              distEdge = -sqrt(dx * dx + dy * dy)
+      if not nativeFired:
+        let tracksNode = node{"tracks"}
+        if tracksNode != nil and tracksNode.kind == JArray and
+            tracksNode.len > 0:
+          trackHit = 0
+          # exclude the trailing partner grant row -- see module note above.
+          for i in 0 ..< tracksNode.len - 1:
+            let t = tracksNode[i]
+            if t.kind != JObject: continue
+            let posN = t{"pos"}
+            if posN == nil or posN.kind != JArray or posN.len != 2: continue
+            let ftick = t{"fresh_tick"}
+            if ftick == nil or ftick.kind != JInt: continue
+            let age = tick.int64 - ftick.getInt()
+            if age > TickShareFreshTicks: continue
+            let tx = posN[0].getFloat()
+            let ty = posN[1].getFloat()
+            let d = sqrt((px - tx) * (px - tx) + (py - ty) * (py - ty))
+            if d <= TickShareEngageDist:
+              trackHit = 1
+              break
+    except CatchableError:
+      discard
+    echo "[tickshare] seat=", seatIndex, " tick=", tick,
+         " phase=", tickSharePhase(tick),
+         " native=", (if nativeFired: 1 else: 0),
+         " trackHit=", trackHit,
+         " distCenter=", distCenter.formatFloat(ffDecimal, 1),
+         " distEdge=", distEdge.formatFloat(ffDecimal, 1)
+
 proc stepSeat(driver: LadderDriver; seatIndex: int; input: LadderSeatInput;
               tick: uint32; output: var LadderSeatTick) =
   output.seat = seatIndex
@@ -643,6 +764,8 @@ proc stepSeat(driver: LadderDriver; seatIndex: int; input: LadderSeatInput;
 
   output.intent = base
   output.provenance = provenance
+  when defined(tickShareProbe):
+    tickShareProbeTick(seatIndex, input, tick, input.nativeBase.isSome)
 
 proc tick*(driver: LadderDriver; inputs: openArray[LadderSeatInput];
            tick: uint32;
