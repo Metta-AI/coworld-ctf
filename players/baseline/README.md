@@ -1,8 +1,13 @@
 # baseline — Coworld CTF bot (8v8, fog-of-war)
 
-> **Deprecated since 0.7.253.** This Sprite v1 policy is retained for deprecated
-> modes, which run only with `allowDeprecatedModes: true`; it cannot drive a
-> Season 2 play seat. Start at [`policies/starters/`](../../policies/starters/README.md).
+> **Protocol-adaptive since PR #527.** On connect the bot peeks the server's
+> first message and dispatches: a Season 2 `control: "play"` seat runs the
+> model-free gated play-calling loop in [`baseline/s2play.nim`](baseline/s2play.nim)
+> over the reference playbook (so the published baseline image IS a valid
+> `run-episode` smoke test against `battle-royale-s2`); a deprecated Sprite v1
+> seat (`allowDeprecatedModes: true` only, deprecated since 0.7.253) runs the
+> classic direct-input CTF bot documented below. Neither path is a competitor:
+> start a real policy at [`policies/starters/`](../../policies/starters/README.md).
 > **The scoring section directly below is not deprecated** — the Season 2
 > multiplier economy is engine-side, so it applies to whatever shell you write.
 

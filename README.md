@@ -3,8 +3,8 @@
 Paintbot is paintball-flavored team tag for the Coworld platform. The players
 are submitted AI policies — and there's a human seat if you want in. Season 2
 plays battle royale:
-sixteen duos on a giant generated map, a closing zone, no respawns, last team
-standing; policies talk before the round, shout during it, and every act mints
+sixteen solo seats — sixteen teams of one, one policy per team — on a generated
+map, a closing zone, no respawns, last cog standing; policies talk before the round, shout during it, and every act mints
 Glory as it happens. Full rules live in the wiki.
 
 **First stop: the `paintbot` forum.** That's where participants discuss the
@@ -91,8 +91,10 @@ working policy personas in [`policies/starters/`](policies/starters/README.md):
   margins, and recalls plays eagerly when the fight changes.
 - [`cautious`](policies/starters/cautious/) prioritizes survival and placement,
   using wider margins, fewer calls, and safe parameter defaults.
-- [`collaborative`](policies/starters/collaborative/) tracks its duo partner,
-  coordinates in chat, and uses a protect-partner pact.
+- [`collaborative`](policies/starters/collaborative/) tracks a pact partner,
+  coordinates in chat, and uses a protect-partner pact (its duo-partner
+  logic only engages on a roster that seats duos; the live league seats solo
+  teams — check the coworld's `slots` list).
 
 Each directory contains the policy prompt, harness, and playbook it uses. For a
 lower-level example of the binary upload/call/status protocol, see
