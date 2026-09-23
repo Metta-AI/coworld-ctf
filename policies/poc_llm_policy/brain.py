@@ -89,6 +89,36 @@ OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions"
 
 ANTHROPIC_BEDROCK_VERSION = "bedrock-2023-05-31"
 
+PROMPT_CACHE_ENABLED = True
+"""FOUR DIGITS lane, W6 cost lever 1 (2026-09-23), opt-out.
+
+The ~17.7KB/~4.4k-token SYSTEM_PROMPT is resent byte-identical on every one
+of the 3-5 real model calls/episode (policy.py's opening/consolidation/mid/
+endgame turns). Anthropic prompt caching prices a cache HIT at ~1/10th a
+normal input token (and a cache WRITE at ~1.25x) once the same prefix is
+seen again inside its TTL, so a match's 2nd-5th calls should read the system
+block from cache instead of paying full input price for it again.
+
+Marks the system block with ``cache_control: {"type": "ephemeral"}`` in the
+OpenAI-compatible request `OpenAiChatBrain` sends (both the hosted-sidecar
+and dev-OpenRouter paths -- they are the same client class, see the class
+docstring). This is OpenRouter's documented passthrough shape for Anthropic
+models on their `/chat/completions` route: a message's ``content`` becomes a
+list of block dicts and the block to cache carries ``cache_control`` --
+mirrors Anthropic's own Messages API block shape.
+
+UNVERIFIED against the hosted PLATFORM sidecar specifically: this repo's
+local metta checkout (~/projects/metta) predates the OpenAI-compatible/
+OpenRouter routing brain.py's other comments describe (zero hits for
+"openrouter" or "chat/completions" anywhere in app_backend), so there is no
+local source to confirm the sidecar forwards `cache_control` untouched
+rather than stripping it as an unknown field. If the response's `usage`
+carries no `cache_read_input_tokens`/`cache_creation_input_tokens` (see the
+log line in `OpenAiChatBrain.decide`), that is the signal the marker was
+dropped somewhere upstream -- set this False to revert to the pre-cache
+request shape byte for byte.
+"""
+
 DEFAULT_MODEL = "qwen/qwen3-30b-a3b-instruct-2507"
 """The last-resort default: a cheap, capable open-weights model with JSON mode.
 
@@ -211,6 +241,30 @@ class CannedBrain:
         }
 
 
+def _log_cache_usage(usage: dict, label: str) -> None:
+    """PROMPT_CACHE_ENABLED's proof-it-fired log line.
+
+    Checks every field name a passthrough of Anthropic's own usage shape or
+    OpenRouter's normalization of it might use -- the exact key has not been
+    confirmed live (see PROMPT_CACHE_ENABLED's docstring), so this looks for
+    all of them rather than guessing one.
+    """
+    created = usage.get("cache_creation_input_tokens")
+    read = usage.get("cache_read_input_tokens")
+    if created is None and read is None:
+        details = usage.get("prompt_tokens_details")
+        if isinstance(details, dict):
+            read = details.get("cached_tokens")
+    if created is None and read is None:
+        print(f"[poc] prompt cache: no cache_* usage field in the response "
+              f"({label}); usage={usage!r} -- marker may have been dropped "
+              f"upstream, or this backend/response doesn't report it",
+              flush=True)
+    else:
+        print(f"[poc] prompt cache: cache_creation_input_tokens={created} "
+              f"cache_read_input_tokens={read} ({label})", flush=True)
+
+
 class OpenAiChatBrain:
     """One JSON-mode chat completion, OpenAI-compatible.
 
@@ -253,13 +307,26 @@ class OpenAiChatBrain:
         return headers
 
     def decide(self, summary: str) -> dict:
+        if PROMPT_CACHE_ENABLED:
+            # A content-block list with a cache_control marker on the block,
+            # not a plain string -- see PROMPT_CACHE_ENABLED's docstring.
+            system_content = [{
+                "type": "text",
+                "text": SYSTEM_PROMPT,
+                "cache_control": {"type": "ephemeral"},
+            }]
+            print(f"[poc] prompt cache: cache_control marker set on the "
+                  f"{len(SYSTEM_PROMPT)}-byte system block ({self.name})",
+                  flush=True)
+        else:
+            system_content = SYSTEM_PROMPT
         body = json.dumps({
             "model": self.model,
             "response_format": {"type": "json_object"},
             "temperature": 0.4,
             "max_tokens": 600,
             "messages": [
-                {"role": "system", "content": SYSTEM_PROMPT},
+                {"role": "system", "content": system_content},
                 {"role": "user", "content": summary},
             ],
         }).encode("utf-8")
@@ -293,6 +360,8 @@ class OpenAiChatBrain:
             raise BrainError("stayed rate limited")
 
         self.calls += 1
+        if PROMPT_CACHE_ENABLED:
+            _log_cache_usage(payload.get("usage") or {}, self.name)
         try:
             content = payload["choices"][0]["message"]["content"]
         except (KeyError, IndexError) as error:

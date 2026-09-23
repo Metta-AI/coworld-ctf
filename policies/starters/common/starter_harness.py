@@ -1928,6 +1928,32 @@ def _triggers(before: dict, now: dict) -> list[str]:
     return reasons
 
 
+SKIP_PERIODIC_RECALLS = False
+"""FOUR DIGITS lane, W6 cost lever 2 (CALL DIET, 2026-09-23), opt-out --
+default OFF, ships only after a live read.
+
+``_live_loop`` re-calls the model on a STATE trigger (``_triggers``/
+``_priority_triggers``: hp drop, zone-phase change, partner lost/downed,
+shot at, a new kill) OR, when none of those fired, unconditionally once
+``periodic_seconds`` has elapsed ("periodic check (... s since your last
+call)") -- pure housekeeping so a quiet seat still revisits its ladder, not
+a response to anything that changed. That periodic branch is the one call
+type this harness makes for a reason OTHER than a state change, which makes
+it the safest call to cut for cost without touching the state-driven
+triggers that other levers might want to preserve.
+
+Left False (unchanged behaviour) because dropping it changes MATCH-CADENCE
+play, not just wire shape: a quiet seat's ladder goes stale for longer
+between calls, which policy.py's own unconditional clamps (RING CONTROL,
+the opening/heat-window TARGET_LAW_PREFER assignment, FIRE_SUPERIORITY
+range settings -- all "runs on EVERY call" per their own comments) may or
+may not offset. No empirical diff across seeds backs this yet -- doing that
+needs a LIVE rig read (real model calls, which this lane's read-only pass
+did not make): compare emitted-ladder diffs with periodic calls in vs
+skipped, same seeds, same opponents. Set True only after that read.
+"""
+
+
 MAINTENANCE_SECONDS = 2.0
 
 
@@ -2060,6 +2086,19 @@ def _live_loop(persona: Persona, seat: StarterSeat, engine,
             continue
         reasons = _triggers(before, now)
         if not reasons and elapsed >= periodic:
+            if SKIP_PERIODIC_RECALLS:
+                _log(persona, f"call diet: skipped a periodic-only recall "
+                              f"({int(elapsed)} s since your last call, no "
+                              f"state trigger); SKIP_PERIODIC_RECALLS=True")
+                # `now` already carries no diff vs `before` (that's why
+                # `reasons` is empty here) -- re-baseline to it so the next
+                # window's _triggers/_priority_triggers comparison starts
+                # clean, and push last_call_at out so this branch doesn't
+                # re-fire (and re-log) every loop tick until state actually
+                # moves or another full `periodic` interval passes.
+                before = now
+                last_call_at = time.monotonic()
+                continue
             reasons = [f"periodic check ({int(elapsed)} s since your last call)"]
         if not reasons:
             continue

@@ -324,3 +324,91 @@ with env(**{**CLEAN,
 
 stubborn_server.shutdown()
 print("prose-reply corrective retry: OK")
+
+# ── 8. Prompt caching (W6, FOUR DIGITS lane, 2026-09-23) ──────────────────
+# PROMPT_CACHE_ENABLED marks the system block with cache_control and logs
+# the response's cache usage. Contract under test: (a) ON sends a
+# content-block list with cache_control ephemeral on the system message and
+# logs BOTH the "marker set" line and the usage line; (b) OFF sends the
+# pre-lever plain-string system content and logs neither; (c) the DECISION
+# itself (the emitted ladder) is byte-identical between ON and OFF for the
+# same server reply -- caching changes the wire request/usage logging only,
+# never what the policy plays.
+CACHE_DECISION = ('{"chat": "cache test", "call": {"entries": '
+                   '[{"play": "edge_ride", "entry_id": "ride"}]}}')
+
+
+class CacheUsageServer(BaseHTTPRequestHandler):
+    hits = 0
+    last_request: dict = {}
+    usage = {"prompt_tokens": 4600, "completion_tokens": 40,
+             "cache_creation_input_tokens": 4412, "cache_read_input_tokens": 0}
+
+    def do_POST(self):
+        cls = type(self)
+        cls.hits += 1
+        request = json.loads(
+            self.rfile.read(int(self.headers.get("Content-Length", 0))))
+        cls.last_request = request
+        body = json.dumps({
+            "choices": [{"message": {"content": CACHE_DECISION}}],
+            "usage": dict(cls.usage),
+        }).encode("utf-8")
+        self.send_response(200)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
+    def log_message(self, *args):
+        pass
+
+
+cache_server = HTTPServer(("127.0.0.1", 0), CacheUsageServer)
+threading.Thread(target=cache_server.serve_forever, daemon=True).start()
+cache_endpoint = f"http://127.0.0.1:{cache_server.server_port}"
+
+# (a) ON (the module default): cache_control on a content-block system
+# message, and both log lines fire with the fixture's usage numbers.
+assert brain.PROMPT_CACHE_ENABLED is True, (
+    "PROMPT_CACHE_ENABLED default changed; this test and the lever's own "
+    "opt-out contract assume ON is the shipped default")
+with env(**{**CLEAN, "AWS_ENDPOINT_URL_BEDROCK_RUNTIME": cache_endpoint,
+            "BEDROCK_MODEL": INJECTED}):
+    engine, why = brain.build_brain(False, brain.DEFAULT_MODEL)
+    log = io.StringIO()
+    with contextlib.redirect_stdout(log):
+        on_decision = engine.decide("lobby, before the drop")
+    system_msg = CacheUsageServer.last_request["messages"][0]
+    assert system_msg["role"] == "system", system_msg
+    assert isinstance(system_msg["content"], list), system_msg["content"]
+    assert system_msg["content"][0]["cache_control"] == {"type": "ephemeral"}, \
+        system_msg["content"]
+    assert system_msg["content"][0]["text"] == brain.SYSTEM_PROMPT
+    logged = log.getvalue()
+    assert "prompt cache: cache_control marker set" in logged, logged
+    assert ("cache_creation_input_tokens=4412" in logged
+            and "cache_read_input_tokens=0" in logged), logged
+    assert entries_of(on_decision)[0]["entry_id"] == "ride", on_decision
+
+# (b) OFF: plain-string system content, no cache logging at all, same
+# decision content as (a) -- the lever never changes play.
+CacheUsageServer.hits = 0
+with env(**{**CLEAN, "AWS_ENDPOINT_URL_BEDROCK_RUNTIME": cache_endpoint,
+            "BEDROCK_MODEL": INJECTED}):
+    brain.PROMPT_CACHE_ENABLED = False
+    try:
+        engine, why = brain.build_brain(False, brain.DEFAULT_MODEL)
+        log = io.StringIO()
+        with contextlib.redirect_stdout(log):
+            off_decision = engine.decide("lobby, before the drop")
+    finally:
+        brain.PROMPT_CACHE_ENABLED = True
+    system_msg = CacheUsageServer.last_request["messages"][0]
+    assert system_msg["content"] == brain.SYSTEM_PROMPT, system_msg["content"]
+    logged = log.getvalue()
+    assert "prompt cache" not in logged, logged
+    assert off_decision == on_decision, (on_decision, off_decision)
+
+cache_server.shutdown()
+print("prompt caching (opt-out, log line, decision unchanged): OK")
