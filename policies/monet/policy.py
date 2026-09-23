@@ -655,11 +655,29 @@ RING_CONTROL_SCHEDULE = {
     # opening: margin 420, enterLead 320 (his OPENING_CALL)
     "opening": {"leadTicks": 384, "inset": 179},
     # mid (tick 760-1499): margin 240, enterLead 160 (his tick-760 recall)
-    "mid": {"leadTicks": 192, "inset": 102},
-    # late (tick >=1500): SAME margin/enterLead as mid in his own recipe
-    # (only coverBias moves, 0.5->0.9) -- inset pushed toward its own max
-    # as the stand-in for that extra caution; leadTicks unchanged from mid.
-    "late": {"leadTicks": 192, "inset": 230},
+    # -- leadTicks does NOT drop to the enterLead-scaled 192 his numbers
+    # would give: measured (2nd rig read, 2026-09-22, 6 seeds, the
+    # mechanism-bug already fixed) that 192 REGRESSES native share vs
+    # the pre-lever flat 240 baseline (mid 50.65%->51.51%, endgame
+    # 14.01%->22.08%) -- ring_walker's `leadTicks` gates WHETHER the
+    # controller-loop play fires at all (`ticks_to_shrink < leadTicks`
+    # in starter_harness.gate_open), unlike edge_ride's enterLead, which
+    # only tunes HOW early an always-eligible base controller starts
+    # riding. Narrowing our own gate's own window directly hands MORE of
+    # the pre-shrink tail to the engine's fixed 72-tick native override
+    # (ReflexZoneTriggerTicks) -- worse the SMALLER leadTicks is relative
+    # to that fixed floor, which is why endgame (already the tightest
+    # zone) regressed hardest. Kept ABOVE the 240 baseline in every
+    # phase; inset still narrows (safe -- it only changes WHERE the walk
+    # lands once armed, never WHETHER it arms).
+    "mid": {"leadTicks": 280, "inset": 102},
+    # late (tick >=1500): endgame needs the MOST runway, not the least --
+    # same reasoning as mid, widened further since the 72-tick native
+    # floor is a bigger fraction of a smaller endgame zone's travel
+    # distances. inset pushed toward its own max as the closest available
+    # stand-in for his coverBias 0.9 (see the module comment -- no
+    # ring_walker equivalent exists).
+    "late": {"leadTicks": 320, "inset": 230},
 }
 
 
@@ -2625,7 +2643,7 @@ PERSONA = Persona(
                  # the full note. Params are the "mid" doctrine
                  # (RING_CONTROL_SCHEDULE); apply_phase_clamps repins
                  # every send regardless.
-                 "params": {"inset": 102, "leadTicks": 192}},
+                 "params": {"inset": 102, "leadTicks": 280}},
                 {"play": "bodyguard", "entry_id": "shield-close",
                  # COMBAT-CLOSE band (measured revive protocol, 28 leader
                  # tag-backs): revives succeed when the duo is ALREADY
@@ -2768,7 +2786,7 @@ PERSONA = Persona(
                  # the full note. Params are the "mid" doctrine
                  # (RING_CONTROL_SCHEDULE); apply_phase_clamps repins
                  # every send regardless.
-                 "params": {"inset": 102, "leadTicks": 192}},
+                 "params": {"inset": 102, "leadTicks": 280}},
                 {"play": "bodyguard", "entry_id": "shield-close",
                  # COMBAT-CLOSE band: same rationale and [40,120] band as
                  # the consolidation turn's shield-close entry above --
@@ -2872,7 +2890,7 @@ PERSONA = Persona(
                  # entry for the full note. Params are the "late" doctrine
                  # (RING_CONTROL_SCHEDULE); apply_phase_clamps repins
                  # every send regardless.
-                 "params": {"inset": 230, "leadTicks": 192}},
+                 "params": {"inset": 230, "leadTicks": 320}},
                 {"play": "crossfire", "entry_id": "shape",
                  "params": {"spacing": [120, 280], "minAngle": 36}},
                 {"play": "supply_run", "entry_id": "bank",
