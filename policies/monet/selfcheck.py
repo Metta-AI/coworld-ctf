@@ -682,6 +682,24 @@ check("RING CONTROL insert-if-missing: apply_phase_clamps installs "
           policy.apply_phase_clamps(es, {"tick": 100}, {}),
           _rc_ring(es) is not None)[-1])(_rc_entries(None)))
 
+# REGRESSION (caught empirically in the first treatment rig, 2026-09-22:
+# 4863 insert events across 6 seeds/48 seats -- an order of magnitude more
+# than the handful of real calls per episode): source="maintenance" means
+# `entries` is ALREADY the POST-gate wire ladder (starter_harness._live_loop
+# calls `gate_and_build` -- which runs the REAL `gate_open()` -- BEFORE
+# handing the result to apply_phase_clamps, see its own module docstring).
+# ring_walker missing there is its own gate correctly saying "nothing to
+# walk", not the live-model-omission gap this lever guards against --
+# inserting unconditionally would make ring_walker win first-match over
+# jackal on every maintenance tick all match, starving jackal's own
+# play_step. Must NOT insert on this path.
+check("RING CONTROL insert-if-missing does NOT fire on the maintenance "
+      "path (entries there are already post-gate; a missing ring_walker "
+      "there is its own gate correctly closed, not a gap to patch)",
+      (lambda es: (
+          policy.apply_phase_clamps(es, {"tick": 100}, {}, source="maintenance"),
+          _rc_ring(es) is None)[-1])(_rc_entries(None)))
+
 check("RING CONTROL reorder: an out-of-position ring_walker (before the "
       "engage plays) is moved below them by apply_phase_clamps",
       (lambda es: (
