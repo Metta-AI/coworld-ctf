@@ -374,16 +374,33 @@ FS_WHEN_GUARD_VARIANTS = {
     "v3_tight_zone_hp": FS_WHEN_GUARD_V3_TIGHT_ZONE_HP,
 }
 
-# DEFAULT (W12 rig recommendation, see this branch's handoff report for the
-# table): "v2_tight_zone". V1 alone already clears every rig target (fs
-# share, ring_walker+jackal combined share, kills/seat, death tick) with no
-# measured downside vs V0; V2 additionally guarantees ring_walker gets the
-# seat back on every out-of-zone tick regardless of enemy range, which is
-# the exact "seat back when a fight is not actually on" case this build was
-# asked to close, at the same rig-measured cost as V1. Flip this string
+# DEFAULT (W12 rig recommendation, 3 seeds/variant, eval_mapspec_r5733,
+# aggregate_tickshare.py's passing-controller share -- see this branch's
+# handoff report for the full table): "v1_tight500", NOT "v2_tight_zone" --
+# the zone term was the pre-rig hypothesis but the MEASURED numbers argue
+# against it. Overall passing share: v0 fs=52.4% rw+jk=2.29% native=32.7%;
+# v1 fs=44.5% rw+jk=2.66% native=35.9%; v2 fs=48.5% rw+jk=1.43% native=
+# 37.5%. Restricted to ticks with a confirmed live track (trackHit==1,
+# "after first contact"): v0 rw+jk=0.00%, v1=1.07%, v2=0.63%. On every
+# measured axis v1 beats v2: higher rw+jk (both instruments), lower native
+# share regression vs v0 (+3.2pp vs +4.7pp), and v1 alone already improves
+# kills/seat (1.42->2.25 mean) and median death tick (1356->2652) over v0
+# with no downside. Likely why: FIGHT PIN (v62) ranks fire_superiority
+# ABOVE ring_walker on the wire (asserted in selfcheck.py), so ticks fs
+# yields go first to whatever OTHER guarded engage play sits between them
+# (hold_vs_gun measured at 15-22% of contact ticks in this rig) before
+# ring_walker ever sees them -- adding world.in_zone to the guard does not
+# change that ordering, it only changes WHEN fs itself yields, so it
+# redistributed share toward native/hold_vs_gun rather than ring_walker.
+# NONE of the three variants clear the ≥10% rw+jk-after-contact target on
+# this rig (v1's 1.07% is the closest) -- that gap looks like a ladder-
+# ORDERING question (fire_superiority vs ring_walker priority), not a
+# guard-tightness question, and reordering FIGHT PIN's own priority is out
+# of this build's scope (v62's ordering is deliberate, asserted by its own
+# selfcheck). Flagging for a follow-up, not fixing here. Flip this string
 # (never a container env var, matching NOFSWHEN's own house rule) to
-# rollback to "v0_750" or try "v1_tight500"/"v3_tight_zone_hp".
-FS_WHEN_GUARD_VARIANT = "v2_tight_zone"
+# rollback to "v0_750" or try "v2_tight_zone"/"v3_tight_zone_hp".
+FS_WHEN_GUARD_VARIANT = "v1_tight500"
 
 FS_WHEN_GUARD = FS_WHEN_GUARD_VARIANTS[FS_WHEN_GUARD_VARIANT]
 # Every downstream consumer (the three canned-turn literals, and the
