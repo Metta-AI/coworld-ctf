@@ -854,7 +854,23 @@ proc play_step*(viewPtr, viewLen: int32): int32 {.exportc, cdecl.} =
 
   if theirGuns == 0:
     # No live contact: the ladder guard normally keeps us from owning this.
-    return emitHoldIfChanged()
+    # PERCEPTION DIAG (coordinator, post-v68): every fire lever in this file
+    # (v66's and v68's alike) sits behind a fresh tracked candidate -- on the
+    # LOCAL rig that gate is open almost always (starters engage at point-
+    # blank range), so a rig read cannot see whether it is ALSO open on the
+    # hosted field, where a shot can land from outside our own FOV cone with
+    # zero live track (confirmed: src/ctf/server.nim's firstLightBodyInputs,
+    # the live body-input builder, populates visibleTracks only via
+    # playerVisibleTo -- FOV-gated -- and never sets aggressorEvents at all,
+    # so this play has no track-independent signal that we are even under
+    # fire). Tagging this branch distinctly (instead of the untagged default
+    # hold every other zero-contact tick already used) gives a hosted replay
+    # read a wire-visible onset marker for "we have zero live tracks this
+    # tick" to pair against the SAME replay's ground-truth frame positions
+    # (W17/W19's own decoder already recovers true nearest-enemy distance
+    # from frame data) -- the gap between "true distance <=500" and "this
+    # tag fired" is exactly the FOV/perception hole, measurable only hosted.
+    return emitHoldIfChanged("fire_superiority:diag_notrack")
 
   # v68 lever (2) FAST SHOT: arm this tick's idle-aim hint toward `nearest`
   # (the same track already driving the BREAK branch's cover bearing below)
@@ -1002,6 +1018,31 @@ proc play_step*(viewPtr, viewLen: int32): int32 {.exportc, cdecl.} =
       if inPress:
         return emitHoldIfChanged("fire_superiority:press")
       return emitHoldIfChanged("fire_superiority:rangefire")
+
+  # v68 lever (4) HITBACK, NO-TRACK FALLBACK (coordinator, post-v68): we
+  # took damage but have no live track at all -- the branch below (and every
+  # other fire lever in this file) is structurally inert here, which is
+  # exactly the hosted-vs-rig gap flagged above (diag_notrack). The ONE
+  # track-independent signal the wire schema declares for this is
+  # `aggressors` (play_view.schema.json: tick, dir_brads, optional seat --
+  # "victim-private hit feedback against SELF... shooter identity only if
+  # visible at that moment, else anonymous-with-direction", play_sdk/
+  # play.nim's SdkView.aggressorCount/aggressors already decode it). VERIFIED
+  # DEAD on the server build actually running today: src/ctf/server.nim's
+  # firstLightBodyInputs (~line 3658, the live per-tick body-input builder)
+  # never sets BodyTickInputs.aggressorEvents, so src/shell/body.nim's
+  # aggressorEvents (~line 245) -- and this view field with it -- is always
+  # empty on the field right now; that is a one-line gap in the SERVER, out
+  # of a policy play's reach (this file's scope is
+  # policies/monet/plays/fire_superiority.nim only). Wired up anyway,
+  # opt-out NOHITBACK (same lever): turn to face the most recent aggressor's
+  # bearing the instant that channel is live server-side, at zero cost today
+  # since aggressorCount reads 0 either way -- "say so plainly" per the
+  # coordinator's own ask, not a claim this changes hosted behavior yet.
+  if hitbackHolds and not nearestFound and decoded.aggressorCount > 0 and
+      decoded.aggressors[0].dirPresent:
+    currentAimHint = clampI(decoded.aggressors[0].dirBrads, 0, 255)
+    return emitHoldIfChanged("fire_superiority:hitback_blind")
 
   # v68 lever (4) TOOK-DAMAGE / HITBACK: unconditional press toward
   # `nearest`, bypassing superior/inferior exactly like PRESS FIRE/RANGE
