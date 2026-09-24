@@ -97,6 +97,42 @@ const
     ## a tracked enemy 65.2% of moving samples vs our 58.3%
     ## (jordan-decode-tables.md).
 
+  NOPRESSFIRE = false
+    ## v66 FOUR DIGITS lane (branch four-digits/v66-press) lever (1) PRESS
+    ## FIRE. W14's press-range read (420 paired hosted episodes,
+    ## ~/.ctf/handoff/2026-09-24-w14-press-range-analysis.md): we fire
+    ## ZERO shots in 60-69% of our own <=220px engagements (v63 60.5%,
+    ## a2fa8551 61.8%, v60 69.1%) vs 43.4% for episode winners, while hit
+    ## rate on the shots we DO take is AT PARITY (85.8% vs 82.5%) -- a
+    ## commitment gap, not an aim gap. Bypasses the `superior`/
+    ## `baseInferior` gating below (play_step ~546/~616: PRESS only when
+    ## we out-count or out-wound them, BREAK on breakDeficit alone) for
+    ## any live tracked enemy already inside pressRange: fire now instead
+    ## of first winning the gun-count argument.
+  NOPRESSCOMMIT = false
+    ## v66 lever (2) PRESS COMMIT. Extends lever A's FirePersistTicks
+    ## no-break WINDOW (persistSeat/persistUntilTick above, 240 ticks,
+    ## engageDist-wide) to UNCONDITIONAL, scoped to a hit landed WITH the
+    ## target inside pressRange specifically: no retreat/cover intent
+    ## (the `inferior` BREAK branch ~616, the heldByPersist cover branch
+    ## ~672, the final cover fallback ~685) until the target is confirmed
+    ## dead, its track goes stale for more than CommitLostTicks, or our
+    ## own hp fraction drops below CommitHpFloorScaled. W14: kill|fired
+    ## 51.1% vs winners' 73.2%, died|fired 43.2% vs 22.0%, shots/engagement
+    ## 2.40 vs 3.13 despite our engagements running LONGER -- we get
+    ## yielded off a trade before it's decided, not out-aimed in it.
+  NOCLOSEIN = false
+    ## v66 lever (3) CLOSE INTO PRESS. Lever B's close-on-enemy bias (see
+    ## NOCLOSEBIAS above) stops at pressRange; against a confirmed lone
+    ## target (exactly one live track within CloseInLoneRangePx, the same
+    ## <=500px "1v1" definition W14's read used) with our own hp at or
+    ## above theirs (same integer hitPoints scale WoundedHpMax already
+    ## uses -- track.hp carries no hpFrac the way self.hp does), close to
+    ## CloseInStandPx instead of stopping at pressRange so entries into
+    ## the press band actually happen (W14: ~0.6 entries/episode on every
+    ## build measured, ours vs winners' 0.80). Never against 2+ tracked
+    ## enemies.
+
   RaisedBreakDeficit = 4'i32     ## v61 lever A: was 2 (see DefaultBreakDeficit)
   DefaultBreakDeficit = 2'i32    ## v60 value, kept for the NOFIREPERSIST fallback
   EffectiveBreakDeficitDefault: int32 =
@@ -105,6 +141,16 @@ const
   FirePersistTicks = 240'i32
     ## v61 lever A: no-break window after a landed tag on a still-tracked,
     ## still-alive enemy inside engageDist.
+
+  CommitLostTicks = 60'i32
+    ## v66 lever (2): grace window after commitSeat's track goes stale
+    ## (or drops from view entirely) before PRESS COMMIT releases it.
+  CommitHpFloorScaled = 300_000'i32
+    ## v66 lever (2): self.hpFracScaled (float64 hp fraction * 1_000_000,
+    ## see play_sdk's f64ScaledAt) floor -- 30% -- below which PRESS
+    ## COMMIT releases the seat even with the target still tracked.
+  CloseInLoneRangePx = 500'i32   ## v66 lever (3): "1v1" definition.
+  CloseInStandPx = 150'i32       ## v66 lever (3): closer than pressRange.
 
   MaxTrackedSeats = 32'i32  ## matches sim_types.MaxPlayers (seat id space)
 
@@ -146,6 +192,7 @@ type
     dkCover
     dkZone
     dkClose  ## v61 lever B: bounded close-on-enemy step (see play_step)
+    dkCommit ## v66 lever (2): press toward a committed target (see play_step)
 
   FsParams = object
     valid: bool
@@ -168,6 +215,15 @@ var
   lastSeenHp: array[MaxTrackedSeats, int32]  ## -1 = never observed
   persistSeat: int32
   persistUntilTick: int32
+  # v66 lever (2) PRESS COMMIT state (episode-scoped; reset in play_init,
+  # never in play_retune, same discipline as lever A's persist* vars above
+  # -- fully independent bookkeeping from lever A's so NOFIREPERSIST and
+  # NOPRESSCOMMIT stay orthogonal, per the house "no opt-out silently
+  # disables another" rule (see NOFSWHEN's own comment in policy.py)).
+  lastSeenHpCommit: array[MaxTrackedSeats, int32]  ## -1 = never observed
+  commitSeat: int32
+  commitLastSeenTick: int32
+  commitLastPos: SdkPoint
 
 proc play_manifest*() {.exportc, cdecl.} =
   discard emitRaw(ManifestBytes)
@@ -397,8 +453,12 @@ proc play_init*(paramsPtr, paramsLen, ctxPtr, ctxLen: int32): int32 {.
   # in a PRIOR episode must never arm this one's no-break window.
   for i in 0 ..< MaxTrackedSeats:
     lastSeenHp[i] = -1'i32
+    lastSeenHpCommit[i] = -1'i32  ## v66 lever (2): same discipline
   persistSeat = -1'i32
   persistUntilTick = -1'i32
+  commitSeat = -1'i32            ## v66 lever (2)
+  commitLastSeenTick = -1'i32
+  commitLastPos = SdkPoint(present: false, x: 0, y: 0)
   loadParams(paramsPtr, paramsLen, true)
 
 const ZoneInsetPx = 64'i32
@@ -507,6 +567,32 @@ proc play_step*(viewPtr, viewLen: int32): int32 {.exportc, cdecl.} =
           persistUntilTick = decoded.tick + FirePersistTicks
         if hpKnown:
           lastSeenHp[seat] = track.hp
+    if not NOPRESSCOMMIT and track.seatPresent and decoded.tickPresent:
+      # v66 lever (2): same fog-honest hp-drop proxy as lever A above, but
+      # independent bookkeeping (lastSeenHpCommit, not lastSeenHp) and
+      # scoped to a hit landed WITH the target inside pressRange -- lever
+      # A's window is engageDist-wide and time-boxed; this one is
+      # unconditional-in-band (see commitHolds below) and needs its own
+      # arm signal. Also keeps commitSeat's last-seen tick/position fresh
+      # on every sighting (not just the hit tick), and clears it outright
+      # once the target's hp reads <=0 (confirmed dead, not just lost).
+      let seat = track.seat
+      if seat >= 0 and seat < MaxTrackedSeats:
+        let hpDropped = hpKnown and lastSeenHpCommit[seat] >= 0 and
+          track.hp < lastSeenHpCommit[seat]
+        if hpDropped and d <= sq(params.pressRange):
+          commitSeat = seat
+          commitLastSeenTick = decoded.tick
+          commitLastPos = track.pos
+        elif seat == commitSeat:
+          if hpKnown and track.hp <= 0:
+            commitSeat = -1'i32
+            commitLastSeenTick = -1'i32
+          else:
+            commitLastSeenTick = decoded.tick
+            commitLastPos = track.pos
+        if hpKnown:
+          lastSeenHpCommit[seat] = track.hp
     if not nearestFound or d < nearestDistSq:
       nearestFound = true
       nearest = track.pos
@@ -542,6 +628,62 @@ proc play_step*(viewPtr, viewLen: int32): int32 {.exportc, cdecl.} =
         persistHolds = true
         break
   let inferior = baseInferior and not persistHolds
+
+  # v66 lever (2) PRESS COMMIT (opt-out NOPRESSCOMMIT): unconditional --
+  # ignores breakDeficit/baseInferior entirely (unlike lever A's
+  # persistHolds above, which only suppresses BREAK while baseInferior
+  # would otherwise fire) -- true whenever a hit we landed inside
+  # pressRange is still fresh (CommitLostTicks grace since commitSeat was
+  # last sighted, tracked in the loop above) and our own hp hasn't
+  # confirmed-dropped below CommitHpFloorScaled. Self hp unknown
+  # (hpFracPresent false) is treated as "not yet confirmed low" -- keep
+  # holding, matching this file's existing fog-honest convention of never
+  # breaking off on an absence of evidence. Consumed below, both right
+  # after this gate (in place of `superior`'s multi-target selection when
+  # that doesn't apply) and again after it (in place of `inferior`'s
+  # BREAK) -- see the two new branches.
+  let commitHolds = not NOPRESSCOMMIT and commitSeat >= 0 and
+    decoded.tickPresent and
+    decoded.tick - commitLastSeenTick <= CommitLostTicks and
+    not (decoded.self.hpFracPresent and
+         decoded.self.hpFracScaled < CommitHpFloorScaled)
+
+  # v66 lever (1) PRESS FIRE (opt-out NOPRESSFIRE): a live tracked enemy
+  # is already inside pressRange -- we have a shot by the same fog-honest
+  # freshness proxy the candidate loop above already uses to populate
+  # candPos/candHp (no LOS primitive is exposed to a policy, see the file
+  # header). Bypasses the `superior` gate right below (only PRESSes when
+  # we out-count or out-wound them) and the `inferior` BREAK branch further
+  # down (theirGuns/ourGuns deficit alone can send us to cover even with a
+  # live target already this close) for this band specifically: fire now
+  # instead of first winning the gun-count argument. Target = nearest
+  # candidate inside the band, or a lower-hp one if it sits within 20%
+  # of the nearest one's distance (1.44 = 1.2^2 applied to distSq) --
+  # never chase a farther kill past a closer live gun.
+  if not NOPRESSFIRE and nearestFound and nearestDistSq <= sq(params.pressRange):
+    var pfIdx = -1'i32
+    var pfDistSq = high(int64)
+    for i in 0 ..< candCount:
+      let d = distSq(decoded.self.pos, candPos[i])
+      if d <= sq(params.pressRange) and d < pfDistSq:
+        pfIdx = i
+        pfDistSq = d
+    if pfIdx >= 0:
+      let distCeil = (pfDistSq * 36'i64) div 25'i64
+      for i in 0 ..< candCount:
+        let d = distSq(decoded.self.pos, candPos[i])
+        if d <= sq(params.pressRange) and d <= distCeil and
+            candHp[i] < candHp[pfIdx]:
+          pfIdx = i
+      let band = if candHp[pfIdx] <= WoundedHpMax: params.finishRange
+                 else: params.pressRange
+      if distSq(decoded.self.pos, candPos[pfIdx]) <= sq(band):
+        return emitHoldIfChanged("fire_superiority:press")
+      let stand = projectFrom(candPos[pfIdx], decoded.self.pos, band)
+      let goal = nearestReachable(stand.x, stand.y)
+      if goal.ok:
+        return emitGoal(dkPress, goal, "fire_superiority:press")
+      return emitHoldIfChanged("fire_superiority:press")
 
   if superior:
     # Choose which live enemy to press, among candCount options, by the
@@ -613,6 +755,38 @@ proc play_step*(viewPtr, viewLen: int32): int32 {.exportc, cdecl.} =
       return emitHoldIfChanged()
     return emitGoal(dkPress, goal, "fire_superiority:press")
 
+  # v66 lever (2) PRESS COMMIT continued: still committed to a target we
+  # already hit inside press range (commitHolds, computed above), but
+  # neither lever (1) (the tracked target has since moved back outside
+  # pressRange, so that bypass didn't trigger) nor `superior` applied this
+  # tick. Press the committed target directly instead of falling through
+  # to `inferior`'s BREAK right below, or either of the cover fallbacks
+  # further down (heldByPersist's cover-facing branch, the final "even"
+  # cover branch) -- no retreat/cover intent while committed, per the
+  # lever's own doctrine. Uses commitSeat's CURRENT candidate position
+  # when still tracked this tick, else its last-seen position (fresh
+  # within the CommitLostTicks grace commitHolds already checked).
+  if commitHolds:
+    var commitPos = commitLastPos
+    var commitHp = high(int32)
+    var haveCommitPos = commitLastPos.present
+    for i in 0 ..< candCount:
+      if candSeat[i] == commitSeat:
+        commitPos = candPos[i]
+        commitHp = candHp[i]
+        haveCommitPos = true
+        break
+    if haveCommitPos:
+      let band = if commitHp <= WoundedHpMax: params.finishRange
+                 else: params.pressRange
+      if distSq(decoded.self.pos, commitPos) <= sq(band):
+        return emitHoldIfChanged("fire_superiority:commit")
+      let stand = projectFrom(commitPos, decoded.self.pos, band)
+      let goal = nearestReachable(stand.x, stand.y)
+      if goal.ok:
+        return emitGoal(dkCommit, goal, "fire_superiority:commit")
+    return emitHoldIfChanged("fire_superiority:commit")
+
   if inferior:
     # BREAK to facing cover; never navigate through the enemy bearing.
     if params.coverMax > 0:
@@ -660,9 +834,36 @@ proc play_step*(viewPtr, viewLen: int32): int32 {.exportc, cdecl.} =
        decoded.self.pos.y >= minI(nextZone.y1, nextZone.y2) and
        decoded.self.pos.y <= maxI(nextZone.y1, nextZone.y2))
     if reflexSafe:
-      let stand = projectFrom(nearest, decoded.self.pos, params.pressRange)
+      # v66 lever (3) CLOSE INTO PRESS (opt-out NOCLOSEIN): against a
+      # confirmed lone target -- exactly one live tracked candidate within
+      # CloseInLoneRangePx (500px, the same "1v1" definition W14's read
+      # used) -- with our own hp at or above theirs on the shared integer
+      # hitPoints scale (self.hp/track.hp; no hpFrac on a track, so this
+      # is a proxy, not a true percentage -- same convention WoundedHpMax
+      # already uses elsewhere in this file), close past the v61 lever B
+      # stop above to CloseInStandPx instead: entries into the press band
+      # sit at ~0.6/episode on every build measured (W14), 0.15 below
+      # winners' 0.80. Never against 2+ tracked enemies -- loneCount must
+      # be exactly 1.
+      var standDist = params.pressRange
+      var closedIn = false
+      if not NOCLOSEIN:
+        var loneCount = 0'i32
+        var loneIdx = -1'i32
+        for i in 0 ..< candCount:
+          if distSq(decoded.self.pos, candPos[i]) <= sq(CloseInLoneRangePx):
+            inc loneCount
+            loneIdx = i
+        if loneCount == 1 and decoded.self.hpPresent and
+            candHp[loneIdx] != high(int32) and
+            decoded.self.hp >= candHp[loneIdx]:
+          standDist = CloseInStandPx
+          closedIn = true
+      let stand = projectFrom(nearest, decoded.self.pos, standDist)
       let goal = nearestReachable(stand.x, stand.y)
       if goal.ok:
+        if closedIn:
+          return emitGoal(dkClose, goal, "fire_superiority:close_in")
         return emitGoal(dkClose, goal, "fire_superiority:close")
 
   # Even: hold at cover -- no advancing across open toward the enemy.
