@@ -133,6 +133,116 @@ const
     ## build measured, ours vs winners' 0.80). Never against 2+ tracked
     ## enemies.
 
+  NORANGEFIRE = false
+    ## v68 FOUR DIGITS lane (branch four-digits/v68-range) lever (1) RANGE
+    ## FIRE. W17's approach(<=500px)->entry(<=220px) funnel
+    ## (~/.ctf/handoff/2026-09-24-w17-entry-analysis.md, 1,119 paired
+    ## hosted episodes) found the gap ONE LEVEL ABOVE press range:
+    ## P(entry|approach) is at parity (38.0% us vs 36.8% winners), but
+    ## non-entry approaches resolve very differently -- winners kill their
+    ## target at range before we ever reach press range 44.6% of the time
+    ## vs our 27.1%, and WE die first 40.3% vs their 33.2%. That is what
+    ## shortens our alive-time (814 vs 1,012 ticks/ep) and, mechanically,
+    ## our approaches/episode. Widens v66's own PRESS FIRE gate (below,
+    ## play_step, was `nearestDistSq <= sq(params.pressRange)`) from
+    ## pressRange (220, tunable 60-500) to the fixed RangeFireBandPx (500,
+    ## W17's own "approach" definition) -- identical candidate selection
+    ## (nearest, or lower-hp within 20% of nearest) and identical
+    ## stand/finish-band arithmetic (still params.pressRange/finishRange --
+    ## this widens WHO we press toward, never how close we stop). A target
+    ## already inside the original pressRange keeps the `fire_superiority:
+    ## press` tag (v66's own, unchanged meaning; NORANGEFIRE alone reverts
+    ## the gate to pressRange, matching v66 byte-for-byte here); the 220-500
+    ## extension is tagged `fire_superiority:rangefire` so a wire read can
+    ## tell the two sub-bands apart.
+  NOFASTSHOT = false
+    ## v68 lever (2) FAST SHOT. W17: inside press-range entries where we DO
+    ## fire, our own median ticks from entry to first shot is 50 vs winners'
+    ## 24 (hit rate at parity, so this is latency, not aim) -- a ~2x
+    ## hesitation gap inside the fired population, on top of the separate
+    ## zero-shot silence problem W14 found. Root cause (read against
+    ## src/shell/body.nim's seatTick/gunActuationMask and the finisher):
+    ## combat aim/fire is engine-autonomous once a tracked enemy is
+    ## "shootable" (in the ~1050px weapon range, LOS clear), but that
+    ## shootability itself rides the seat's OWN facing (src/ctf/sim.nim's
+    ## applyFovCone is centered on aimBrads) -- and outside combat this
+    ## play has never told the body where to look: the Intent field that
+    ## exists for exactly this (`idle_aim_center_brads`, intent.schema.json,
+    ## "the idle-aim center... the body requires it") has never been set by
+    ## any play in this repo (grepped), so the finisher always stamps its
+    ## hard-coded default of 0 (src/ctf/server.nim) regardless of where the
+    ## enemy actually is. The aim then has to rotate the FULL delta from
+    ## brads=0 once combat finally acquires a target -- bounded by the
+    ## engine's own AimTurnRate per tick (src/shell/body.nim), a real floor
+    ## this play cannot beat, but it CAN stop paying rotation for a wrong
+    ## starting direction. Fix: whenever a live enemy is tracked (nearest,
+    ## the same read the BREAK branch already turns into a cover bearing),
+    ## point idle_aim_center_brads at them (sectorTo(...)*16 -- the exact
+    ## same 16-way brads-space bearing this file already computes for
+    ## nearestCover) instead of leaving it unset. Combat's own aim takes
+    ## over completely once a target is actually acquired (needsIdleAim
+    ## flips false in seatTick), so this can only ever shrink the
+    ## rotation window, never fight the engine's own aim once armed. No
+    ## exported play_sdk helper emits this field (checked); emitted here via
+    ## a small local canonical-intent writer (emitIntentWithAim below) built
+    ## only from play_sdk's already-exported emitRaw(bytes), so play_sdk
+    ## itself stays untouched. Tag `fire_superiority:fastshot` marks the
+    ## first tick we commit to a newly-tracked seat (not the one we were
+    ## last pressing) -- the exact tick the hint had the most rotation to
+    ## save; steady-state ticks against the same target keep press/rangefire
+    ## as before.
+  NORANGECOMMIT = false
+    ## v68 lever (3) RANGE COMMIT (optional per the task; cheap, additive).
+    ## v66's own PRESS COMMIT (NOPRESSCOMMIT above) is untouched -- this is
+    ## a SEPARATE, narrower no-break rule for a hit landed in the NEW
+    ## 220-500px sub-band specifically: same fog-honest hp-drop arm signal,
+    ## independent bookkeeping (lastSeenHpRange, not lastSeenHp/
+    ## lastSeenHpCommit), but a different release condition -- "do not
+    ## break off while the target is alive, tracked, and our HP >= theirs"
+    ## (task's own wording), not PRESS COMMIT's unconditional-in-band hold
+    ## to a 30% hp floor. Composes as a THIRD term suppressing `inferior`
+    ## alongside lever A's persistHolds, so it only ever prevents a BREAK
+    ## the other levers would not already have prevented; never forces a
+    ## press the way PRESS FIRE/PRESS COMMIT do. Tag `fire_superiority:
+    ## rangecommit` (cover branch) / `fire_superiority:rangecommit-hold`
+    ## (stationary fallback), mirroring lever A's persist/persist-hold pair.
+  NOHITBACK = false
+    ## v68 lever (4) TOOK-DAMAGE / HITBACK (coordinator update, W19:
+    ## ~/.ctf/handoff/2026-09-24-w19-ranged-fight-analysis.md, 4,921 vs
+    ## 1,658 ranged (220-500px) exchanges). Two confirmed gaps one level
+    ## BELOW W17: (a) who fires first -- us 28.6% vs winners 51.6%, i.e.
+    ## winners open the exchange far more often than we do (RANGE FIRE/FAST
+    ## SHOT above already target this: firing on acquisition anywhere
+    ## <=500px, aim pre-pointed at the target, rather than waiting to close
+    ## or waiting to be shot at first); (b) return-fire persistence -- when
+    ## we ARE fired upon first, win-rate is 39.6% (us) vs 57.6% (winners),
+    ## and in exchanges we LOSE we fire a median of 0 more shots after the
+    ## first hit taken (winners: 1) despite surviving LONGER afterward (96
+    ## vs 78 ticks) -- we have the time and do not spend it; flinch
+    ## (retreat-dominant in the 40 ticks after a hit) is 26.3% vs 21.5%.
+    ## This lever targets (b): a confirmed drop in OUR OWN hp (self.hp, the
+    ## same integer scale WoundedHpMax/CLOSE-IN already use -- fog-honest,
+    ## this play has no aggressor-identity/bearing signal at all, see the
+    ## file header, so the fire-back target is the same `nearest` tracked
+    ## enemy every other branch here already uses for its bearing) arms an
+    ## unconditional press toward `nearest` (bypassing superior/inferior,
+    ## same precedent as PRESS FIRE/RANGE FIRE) AND suppresses BREAK
+    ## (bypassing it, same precedent as persistHolds/rangeCommitHolds) for
+    ## HitbackTicks, released early only once self hp fraction confirms
+    ## below CommitHpFloorScaled (30%, PRESS COMMIT's own floor) -- "no
+    ## retreat intent... unless HP < 30%" per the coordinator's own wording.
+    ## Tag `fire_superiority:hitback`. RANGE FIRE already covers most
+    ## post-hit ticks within 500px (same shape as v66's PRESS COMMIT vs
+    ## PRESS FIRE precedent: the cheaper, earlier bypass usually reaches a
+    ## tick first), so this branch's own tag mostly surfaces for the
+    ## 500-600px residual and whenever RANGE FIRE's own gate does not apply
+    ## this tick -- still architecturally live throughout HitbackTicks.
+
+  RangeFireBandPx = 500'i32
+    ## v68 levers (1)/(3): the engage-band ceiling, fixed (not the tunable
+    ## params.pressRange) -- W17's own <=500px "approach" definition.
+  HitbackTicks = 120'i32  ## v68 lever (4): no-retreat/press window post-hit.
+
   RaisedBreakDeficit = 4'i32     ## v61 lever A: was 2 (see DefaultBreakDeficit)
   DefaultBreakDeficit = 2'i32    ## v60 value, kept for the NOFIREPERSIST fallback
   EffectiveBreakDeficitDefault: int32 =
@@ -224,6 +334,30 @@ var
   commitSeat: int32
   commitLastSeenTick: int32
   commitLastPos: SdkPoint
+  # v68 lever (3) RANGE COMMIT state -- same discipline, independent
+  # bookkeeping from lever (2)'s commit* vars above (NOPRESSCOMMIT and
+  # NORANGECOMMIT stay orthogonal).
+  lastSeenHpRange: array[MaxTrackedSeats, int32]  ## -1 = never observed
+  rangeCommitSeat: int32
+  rangeCommitLastSeenTick: int32
+  rangeCommitLastHp: int32  ## high(int32) = unknown
+  # v68 lever (2) FAST SHOT: which seat we last committed the PRESS
+  # FIRE/RANGE FIRE bypass to, episode-scoped so re-engaging a target we
+  # only just lost keeps counting as the SAME engagement -- reset in
+  # play_init only.
+  lastFastShotSeat: int32
+  # v68 lever (2): this TICK's idle-aim hint (see play_step), a plain
+  # per-tick scratch value, not episode state -- reset unconditionally at
+  # the top of every play_step, before the zone-escape early return, so a
+  # stale hint from a prior tick's engagement can never leak into an
+  # unrelated emission. -1 = no hint (falls back to play_sdk's own
+  # emitHoldController/emitNavigateController, byte-identical to pre-v68).
+  currentAimHint: int32
+  # v68 lever (4) TOOK-DAMAGE / HITBACK state (episode-scoped; reset in
+  # play_init, never in play_retune, same discipline as every other lever's
+  # own state in this file).
+  lastSelfHp: int32       ## -1 = never observed
+  hitbackUntilTick: int32
 
 proc play_manifest*() {.exportc, cdecl.} =
   discard emitRaw(ManifestBytes)
@@ -389,6 +523,77 @@ proc readParams(dataPtr, dataLen: int32): FsParams =
   inc pos
   if pos != dataLen: result.valid = false
 
+# v68 lever (2) FAST SHOT: a small LOCAL canonical-intent writer, built only
+# from play_sdk's already-exported emitRaw(bytes: openArray[byte]) -- the
+# convenience wrappers emitHoldController/emitNavigateController (play_sdk/
+# play.nim) have no idle_aim_center_brads parameter, and their own internal
+# byte buffer (emitBuffer/appendByte/appendInt/clearEmitBuffer) is module-
+# private, so play_sdk itself stays untouched (per the task's own scope).
+# Field order/shape matches intent.schema.json and emit_validator.nim's
+# parseIntent (a name-keyed `case key of ...` reader over CanonicalReader --
+# object key ORDER is not semantically required for acceptance, but this
+# still emits the schema's documented byte-wise-ascending order:
+# arrive_radius, idle_aim_center_brads, kind, point, reason, schema, v).
+const IntentBufferBytes = 192'i32  ## generous headroom over any point/reason/brads
+var
+  intentBuf: array[IntentBufferBytes, byte]
+  intentLen: int32
+
+proc iClear() {.inline.} =
+  intentLen = 0
+
+proc iByte(value: byte) {.inline.} =
+  if intentLen < IntentBufferBytes:
+    intentBuf[intentLen] = value
+    inc intentLen
+
+template iLiteral(text: static[string]) =
+  for ch in text:
+    iByte(byte(ord(ch)))
+
+proc iInt(value: int32) =
+  if value == 0:
+    iByte(byte(ord('0')))
+    return
+  var digits: array[12, byte]
+  var remaining = value
+  var count = 0
+  if remaining < 0:
+    iByte(byte(ord('-')))
+    remaining = -remaining
+  while remaining > 0:
+    digits[count] = byte(ord('0') + remaining mod 10)
+    remaining = remaining div 10
+    inc count
+  while count > 0:
+    dec count
+    iByte(digits[count])
+
+proc emitIntentWithAim(hasGoal: bool; gx, gy: int32;
+                        arriveRadius: static[string]; aimBrads: int32;
+                        reason: static[string]): int32 =
+  ## Only called with aimBrads in 0..255 (sectorTo(...)*16, see play_step) --
+  ## callers never pass a raw/unclamped value in here.
+  iClear()
+  iLiteral("{\"arrive_radius\":")
+  iLiteral(arriveRadius)
+  iLiteral(",\"idle_aim_center_brads\":")
+  iInt(aimBrads)
+  if hasGoal:
+    iLiteral(",\"kind\":\"navigate_to\",\"point\":[")
+    iInt(gx)
+    iByte(byte(ord(',')))
+    iInt(gy)
+    iByte(byte(ord(']')))
+  else:
+    iLiteral(",\"kind\":\"hold\"")
+  when reason.len > 0:
+    iLiteral(",\"reason\":\"")
+    iLiteral(reason)
+    iByte(byte(ord('"')))
+  iLiteral(",\"schema\":\"intent\",\"v\":1}")
+  emitRaw(intentBuf.toOpenArray(0, intentLen - 1))
+
 proc sameDecision(kind: DecisionKind; x = 0'i32; y = 0'i32): bool =
   lastKind == kind and (kind == dkHold or (lastX == x and lastY == y))
 
@@ -402,7 +607,11 @@ proc emitHoldIfChanged(
   if sameDecision(dkHold):
     resetArena()
     return 0
-  let code = emitHoldController(reason)
+  let code =
+    if currentAimHint >= 0:
+      emitIntentWithAim(false, 0'i32, 0'i32, "0.0", currentAimHint, reason)
+    else:
+      emitHoldController(reason)
   if code < 0:
     return code
   remember(dkHold)
@@ -414,7 +623,11 @@ proc emitGoal(kind: DecisionKind; goal: ValidatedGoal;
   if sameDecision(kind, goal.x, goal.y):
     resetArena()
     return 0
-  let code = emitNavigateController(goal, "24.0", reason)
+  let code =
+    if currentAimHint >= 0:
+      emitIntentWithAim(true, goal.x, goal.y, "24.0", currentAimHint, reason)
+    else:
+      emitNavigateController(goal, "24.0", reason)
   if code < 0:
     return code
   remember(kind, goal.x, goal.y)
@@ -454,11 +667,19 @@ proc play_init*(paramsPtr, paramsLen, ctxPtr, ctxLen: int32): int32 {.
   for i in 0 ..< MaxTrackedSeats:
     lastSeenHp[i] = -1'i32
     lastSeenHpCommit[i] = -1'i32  ## v66 lever (2): same discipline
+    lastSeenHpRange[i] = -1'i32   ## v68 lever (3): same discipline
   persistSeat = -1'i32
   persistUntilTick = -1'i32
   commitSeat = -1'i32            ## v66 lever (2)
   commitLastSeenTick = -1'i32
   commitLastPos = SdkPoint(present: false, x: 0, y: 0)
+  rangeCommitSeat = -1'i32       ## v68 lever (3)
+  rangeCommitLastSeenTick = -1'i32
+  rangeCommitLastHp = high(int32)
+  lastFastShotSeat = -1'i32      ## v68 lever (2)
+  currentAimHint = -1'i32        ## v68 lever (2)
+  lastSelfHp = -1'i32             ## v68 lever (4)
+  hitbackUntilTick = -1'i32
   loadParams(paramsPtr, paramsLen, true)
 
 const ZoneInsetPx = 64'i32
@@ -496,6 +717,7 @@ proc play_step*(viewPtr, viewLen: int32): int32 {.exportc, cdecl.} =
   var decoded: SdkView
   if not readBinaryViewInto(view(viewPtr, viewLen), decoded):
     return 1
+  currentAimHint = -1'i32  ## v68 lever (2): reset every tick, before any emit
   if not decoded.self.pos.present or
       (decoded.self.alivePresent and not decoded.self.alive):
     return emitHoldIfChanged()
@@ -593,6 +815,33 @@ proc play_step*(viewPtr, viewLen: int32): int32 {.exportc, cdecl.} =
             commitLastPos = track.pos
         if hpKnown:
           lastSeenHpCommit[seat] = track.hp
+    if not NORANGECOMMIT and track.seatPresent and decoded.tickPresent:
+      # v68 lever (3): same fog-honest hp-drop arm signal as PRESS COMMIT
+      # above, but scoped to the NEW 220-500px sub-band specifically (a hit
+      # already inside pressRange keeps arming PRESS COMMIT above,
+      # untouched) and independent bookkeeping (lastSeenHpRange). Tracks
+      # the target's own hp (rangeCommitLastHp), not just a position --
+      # rangeCommitHolds below compares it against self.hp directly.
+      let seat = track.seat
+      if seat >= 0 and seat < MaxTrackedSeats:
+        let hpDropped = hpKnown and lastSeenHpRange[seat] >= 0 and
+          track.hp < lastSeenHpRange[seat]
+        if hpDropped and d > sq(params.pressRange) and
+            d <= sq(RangeFireBandPx):
+          rangeCommitSeat = seat
+          rangeCommitLastSeenTick = decoded.tick
+          if hpKnown:
+            rangeCommitLastHp = track.hp
+        elif seat == rangeCommitSeat:
+          if hpKnown and track.hp <= 0:
+            rangeCommitSeat = -1'i32
+            rangeCommitLastSeenTick = -1'i32
+          else:
+            rangeCommitLastSeenTick = decoded.tick
+            if hpKnown:
+              rangeCommitLastHp = track.hp
+        if hpKnown:
+          lastSeenHpRange[seat] = track.hp
     if not nearestFound or d < nearestDistSq:
       nearestFound = true
       nearest = track.pos
@@ -606,6 +855,22 @@ proc play_step*(viewPtr, viewLen: int32): int32 {.exportc, cdecl.} =
   if theirGuns == 0:
     # No live contact: the ladder guard normally keeps us from owning this.
     return emitHoldIfChanged()
+
+  # v68 lever (2) FAST SHOT: arm this tick's idle-aim hint toward `nearest`
+  # (the same track already driving the BREAK branch's cover bearing below)
+  # -- see NOFASTSHOT's own comment for why. Every emitGoal/emitHoldIfChanged
+  # call from here on picks this up automatically (see their own bodies);
+  # nothing below this line needs to thread it through by hand.
+  if not NOFASTSHOT:
+    currentAimHint = sectorTo(decoded.self.pos, nearest) * 16
+
+  # v68 lever (4) TOOK-DAMAGE / HITBACK: arm on a CONFIRMED drop in our own
+  # hp since we last evaluated it -- same fog-honest hp-drop convention as
+  # every enemy-hp-drop proxy in this file, mirrored onto self.hp instead.
+  if not NOHITBACK and decoded.self.hpPresent and decoded.tickPresent:
+    if lastSelfHp >= 0 and decoded.self.hp < lastSelfHp:
+      hitbackUntilTick = decoded.tick + HitbackTicks
+    lastSelfHp = decoded.self.hp
 
   let ourGuns = 1'i32 + (if partnerFresh: 1'i32 else: 0'i32)
   let superior = ourGuns > theirGuns or
@@ -627,7 +892,30 @@ proc play_step*(viewPtr, viewLen: int32): int32 {.exportc, cdecl.} =
       if candSeat[i] == persistSeat:
         persistHolds = true
         break
-  let inferior = baseInferior and not persistHolds
+
+  # v68 lever (3) RANGE COMMIT (opt-out NORANGECOMMIT): "do not break off
+  # while the target is alive, tracked, and our HP >= theirs" (task's own
+  # wording) for a hit landed in the 220-500px sub-band (rangeCommitSeat,
+  # armed in the loop above). Only ever suppresses BREAK, same shape as
+  # lever A's persistHolds -- composes as a third term below, never forces
+  # a press the way PRESS FIRE/PRESS COMMIT do.
+  let rangeCommitHolds = not NORANGECOMMIT and rangeCommitSeat >= 0 and
+    decoded.tickPresent and
+    decoded.tick - rangeCommitLastSeenTick <= CommitLostTicks and
+    decoded.self.hpPresent and rangeCommitLastHp != high(int32) and
+    decoded.self.hp >= rangeCommitLastHp
+
+  # v68 lever (4) HITBACK: "no retreat intent... unless HP < 30%" -- released
+  # early only once self hp fraction CONFIRMS below CommitHpFloorScaled;
+  # unknown hp fraction is treated as "not yet confirmed low" (same
+  # fog-honest convention commitHolds above already uses).
+  let hitbackHolds = not NOHITBACK and decoded.tickPresent and
+    decoded.tick <= hitbackUntilTick and
+    not (decoded.self.hpFracPresent and
+         decoded.self.hpFracScaled < CommitHpFloorScaled)
+
+  let inferior = baseInferior and not persistHolds and not rangeCommitHolds and
+    not hitbackHolds
 
   # v66 lever (2) PRESS COMMIT (opt-out NOPRESSCOMMIT): unconditional --
   # ignores breakDeficit/baseInferior entirely (unlike lever A's
@@ -648,8 +936,9 @@ proc play_step*(viewPtr, viewLen: int32): int32 {.exportc, cdecl.} =
     not (decoded.self.hpFracPresent and
          decoded.self.hpFracScaled < CommitHpFloorScaled)
 
-  # v66 lever (1) PRESS FIRE (opt-out NOPRESSFIRE): a live tracked enemy
-  # is already inside pressRange -- we have a shot by the same fog-honest
+  # v66 lever (1) PRESS FIRE (opt-out NOPRESSFIRE) widened by v68 lever (1)
+  # RANGE FIRE (opt-out NORANGEFIRE): a live tracked enemy is already
+  # inside the fire-gate band -- we have a shot by the same fog-honest
   # freshness proxy the candidate loop above already uses to populate
   # candPos/candHp (no LOS primitive is exposed to a policy, see the file
   # header). Bypasses the `superior` gate right below (only PRESSes when
@@ -659,31 +948,85 @@ proc play_step*(viewPtr, viewLen: int32): int32 {.exportc, cdecl.} =
   # instead of first winning the gun-count argument. Target = nearest
   # candidate inside the band, or a lower-hp one if it sits within 20%
   # of the nearest one's distance (1.44 = 1.2^2 applied to distSq) --
-  # never chase a farther kill past a closer live gun.
-  if not NOPRESSFIRE and nearestFound and nearestDistSq <= sq(params.pressRange):
+  # never chase a farther kill past a closer live gun. NORANGEFIRE alone
+  # reverts fireGateBandSq to pressRange, matching v66 byte-for-byte here
+  # (inPress is then always true -- `rangefire` can never be tagged).
+  let fireGateBandSq =
+    if NORANGEFIRE: sq(params.pressRange) else: sq(RangeFireBandPx)
+  if not NOPRESSFIRE and nearestFound and nearestDistSq <= fireGateBandSq:
     var pfIdx = -1'i32
     var pfDistSq = high(int64)
     for i in 0 ..< candCount:
       let d = distSq(decoded.self.pos, candPos[i])
-      if d <= sq(params.pressRange) and d < pfDistSq:
+      if d <= fireGateBandSq and d < pfDistSq:
         pfIdx = i
         pfDistSq = d
     if pfIdx >= 0:
       let distCeil = (pfDistSq * 36'i64) div 25'i64
       for i in 0 ..< candCount:
         let d = distSq(decoded.self.pos, candPos[i])
-        if d <= sq(params.pressRange) and d <= distCeil and
+        if d <= fireGateBandSq and d <= distCeil and
             candHp[i] < candHp[pfIdx]:
           pfIdx = i
       let band = if candHp[pfIdx] <= WoundedHpMax: params.finishRange
                  else: params.pressRange
-      if distSq(decoded.self.pos, candPos[pfIdx]) <= sq(band):
-        return emitHoldIfChanged("fire_superiority:press")
+      let chosenDistSq = distSq(decoded.self.pos, candPos[pfIdx])
+      let inPress = chosenDistSq <= sq(params.pressRange)
+      # v68 lever (2) FAST SHOT: the first tick we commit PRESS FIRE/RANGE
+      # FIRE to a seat we were NOT already pressing is a new engagement --
+      # tag it distinctly (fire_superiority:fastshot) instead of press/
+      # rangefire, exactly the tick the aim hint (armed above) had the most
+      # rotation to save. NOFASTSHOT alone keeps every tick on press/
+      # rangefire, matching v68-minus-lever-2 exactly.
+      let chosenSeat = candSeat[pfIdx]
+      let freshContact = not NOFASTSHOT and chosenSeat >= 0 and
+        chosenSeat != lastFastShotSeat
+      if freshContact:
+        lastFastShotSeat = chosenSeat
+      if chosenDistSq <= sq(band):
+        if freshContact:
+          return emitHoldIfChanged("fire_superiority:fastshot")
+        if inPress:
+          return emitHoldIfChanged("fire_superiority:press")
+        return emitHoldIfChanged("fire_superiority:rangefire")
       let stand = projectFrom(candPos[pfIdx], decoded.self.pos, band)
       let goal = nearestReachable(stand.x, stand.y)
       if goal.ok:
-        return emitGoal(dkPress, goal, "fire_superiority:press")
-      return emitHoldIfChanged("fire_superiority:press")
+        if freshContact:
+          return emitGoal(dkPress, goal, "fire_superiority:fastshot")
+        if inPress:
+          return emitGoal(dkPress, goal, "fire_superiority:press")
+        return emitGoal(dkPress, goal, "fire_superiority:rangefire")
+      if freshContact:
+        return emitHoldIfChanged("fire_superiority:fastshot")
+      if inPress:
+        return emitHoldIfChanged("fire_superiority:press")
+      return emitHoldIfChanged("fire_superiority:rangefire")
+
+  # v68 lever (4) TOOK-DAMAGE / HITBACK: unconditional press toward
+  # `nearest`, bypassing superior/inferior exactly like PRESS FIRE/RANGE
+  # FIRE above. RANGE FIRE's own gate (<=500px) already returned above for
+  # most hitback ticks (same precedent as v66's PRESS COMMIT residual branch
+  # vs PRESS FIRE) -- this is the residual: the 500-600px sub-band, or any
+  # tick RANGE FIRE's own gate did not reach this time.
+  if hitbackHolds and nearestFound:
+    var hbIdx = -1'i32
+    var hbDistSq = high(int64)
+    for i in 0 ..< candCount:
+      let d = distSq(decoded.self.pos, candPos[i])
+      if d < hbDistSq:
+        hbIdx = i
+        hbDistSq = d
+    if hbIdx >= 0:
+      let band = if candHp[hbIdx] <= WoundedHpMax: params.finishRange
+                 else: params.pressRange
+      if hbDistSq <= sq(band):
+        return emitHoldIfChanged("fire_superiority:hitback")
+      let stand = projectFrom(candPos[hbIdx], decoded.self.pos, band)
+      let goal = nearestReachable(stand.x, stand.y)
+      if goal.ok:
+        return emitGoal(dkPress, goal, "fire_superiority:hitback")
+      return emitHoldIfChanged("fire_superiority:hitback")
 
   if superior:
     # Choose which live enemy to press, among candCount options, by the
@@ -808,6 +1151,13 @@ proc play_step*(viewPtr, viewLen: int32): int32 {.exportc, cdecl.} =
   # elsewhere in this codebase.
   let heldByPersist = baseInferior and persistHolds
 
+  # v68 lever (3) wire signature: baseInferior was true, persistHolds did
+  # NOT already cover it (heldByPersist keeps its own exact pre-v68
+  # semantics above), and rangeCommitHolds did -- tagged distinctly
+  # (`fire_superiority:rangecommit`/`fire_superiority:rangecommit-hold`)
+  # below, mirroring heldByPersist's own persist/persist-hold pair.
+  let heldByRangeCommit = baseInferior and not persistHolds and rangeCommitHolds
+
   # v61 lever B (close-on-enemy movement bias, opt-out NOCLOSEBIAS): guns
   # matched (not superior, not held off by BREAK) and a live target is
   # still farther than our own pressRange -- Jordan closes on a tracked
@@ -825,8 +1175,8 @@ proc play_step*(viewPtr, viewLen: int32): int32 {.exportc, cdecl.} =
   # zoneActive/ReflexZoneTriggerTicks=72 -- server-internal state, not on
   # our wire; self already inside `next`, or no `next` data at all, is
   # the nearest honest proxy for "nothing to arm toward").
-  if not NOCLOSEBIAS and not heldByPersist and nearestFound and
-      nearestDistSq > sq(params.pressRange):
+  if not NOCLOSEBIAS and not heldByPersist and not heldByRangeCommit and
+      nearestFound and nearestDistSq > sq(params.pressRange):
     let nextZone = decoded.world.zone.next
     let reflexSafe = not nextZone.present or
       (decoded.self.pos.x >= minI(nextZone.x1, nextZone.x2) and
@@ -882,6 +1232,22 @@ proc play_step*(viewPtr, viewLen: int32): int32 {.exportc, cdecl.} =
             sectorTo(decoded.self.pos, nearest)) <= 1):
           return emitGoal(dkCover, goal, "fire_superiority:persist")
     return emitHoldIfChanged("fire_superiority:persist-hold")
+
+  # v68 lever (3): same shape as the heldByPersist branch just above, for
+  # the case where RANGE COMMIT (not lever A's persist window) is the one
+  # suppressing what would otherwise have been a BREAK this tick.
+  if heldByRangeCommit:
+    if params.coverMax > 0:
+      let bearing = sectorTo(decoded.self.pos, nearest) * 16
+      let goal = nearestCover(decoded.self.pos.x, decoded.self.pos.y,
+        params.coverMax, bearing)
+      if goal.ok:
+        let goalPoint = SdkPoint(present: true, x: goal.x, y: goal.y)
+        let closes = distSq(goalPoint, nearest) < nearestDistSq
+        if not (closes and sectorGap(sectorTo(decoded.self.pos, goalPoint),
+            sectorTo(decoded.self.pos, nearest)) <= 1):
+          return emitGoal(dkCover, goal, "fire_superiority:rangecommit")
+    return emitHoldIfChanged("fire_superiority:rangecommit-hold")
 
   if params.coverMax > 0:
     let bearing = sectorTo(decoded.self.pos, nearest) * 16
