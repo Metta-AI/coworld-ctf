@@ -949,6 +949,91 @@ def _ring_control_phase(tick):
     return "late"
 
 
+# RING WHEN GUARD (W16, FOUR DIGITS lane v67, 2026-09-24): the same
+# treatment fire_superiority got in v63 (see FS_WHEN_GUARD's own module
+# comment for the mechanism this reuses verbatim) -- opting a play into
+# starter_harness.KEEP_WHEN_PLAYS makes layer_ladder trust an entry's
+# `when` clause instead of re-running its OWN gate_open() snapshot, on
+# every send path INCLUDING maintenance. RING CONTROL above already
+# guarantees a ring_walker entry exists on the call path; once that entry
+# also carries `when` and "ring_walker" is in KEEP_WHEN_PLAYS, it rides
+# every subsequent maintenance resend unconditionally too (layer_ladder's
+# `keep_when` bypass is checked inside the SAME function gate_and_build
+# calls on the maintenance path, not just the call path -- confirmed by
+# reading gate_and_build/_live_loop directly, not assumed), and the
+# ENGINE's own per-tick guardPasses (ladder.nim:377-382, over
+# src/shell/episode.nim:526-596 playGuardContext) decides moment-to-moment
+# whether it actually steps -- not the harness's own ~2s-cadence
+# client-side snapshot. Measured need (W13 FINAL, this same rig): whenever
+# fire_superiority yields, ring_walker is absent from the sent ladder most
+# ticks (its own harness gate_open is a ~2s snapshot on client facts), and
+# supply_run/native pick up the idle ticks instead.
+#
+# GUARD DERIVATION -- REJECTED the literal ["or", ["not",["get",
+# "world.in_zone"]], ["<=",["get","world.zone_dist"],<lead px>]] shape a
+# naive port of ring_walker's own two-part harness gate (`not in_zone OR
+# (not in_next_zone AND ticks_to_shrink<leadTicks)`) suggests. Read against
+# src/shell/episode.nim:569-570 (`zoneDist = if hasZone:
+# rectEdgeDistancePx(...) else: 0.0`; `inZone = zoneDist <= 0.0`) and the
+# registry's own sentinel comment (src/ctf/policy_page.nim:188, "0 if
+# inside"), world.zone_dist is PINNED TO 0 the instant in_zone is true --
+# so the second OR-term (`zone_dist <= lead`) is TRUE for ANY lead>=0
+# whenever in_zone is true, and the whole OR collapses to an unconditional
+# True. That is not a tightened guard, it is exactly the "unguarded/
+# always-true entry" monopolization risk the W9 finding (and this module's
+# own FIGHT PIN safety comment, below) warns an always-true guard creates.
+# No in-vocabulary substitute exists either: playGuardContext (episode.
+# nim:526-596) only ever reads `facts.currentZone` for zone_dist --
+# `facts.nextZone` exists on BrDefaultFacts (src/shell/default_play.nim:24)
+# but is never threaded into playGuardContext, and there is no tick-count
+# term at all (ticks_to_shrink is a harness-side-only fact, not in
+# DefaultPaths) -- the ANTICIPATORY half of ring_walker's own harness gate
+# cannot be mirrored at the engine level with the fixed guard vocabulary;
+# only the REACTIVE half (not in_zone) can.
+#
+# GUARD ADOPTED: `not in_zone` alone -- the reactive half of ring_walker's
+# own harness gate, using the one zone term that is both engine-evaluable
+# and non-degenerate. SAFE by construction, not just by inspection:
+# ring_walker.nim's own play_step (policies/monet/plays/ring_walker.nim:
+# 181-209) computes `outsideCurrent` from the IDENTICAL physical fact
+# (self position vs the CURRENT zone rect) the engine's world.in_zone is
+# computed from -- so whenever this guard is true, `outsideCurrent` is
+# necessarily also true in the wasm's own view, `outsideCurrent or
+# nextPressure` is true, and play_step takes the walk branch (a genuine
+# emitNavigateController decision), never its emitHoldIfChanged() "nothing
+# to walk" branch (ring_walker.nim:186-198, own comment: "Inside the
+# schedule: nothing to walk"). A guard that is true only when the wasm
+# provably has a real walk to make cannot produce the sticky-hold
+# monopolization an always-true (or merely loose) guard risks (instance.
+# nim lastAccepted: a live entry that has EVER emitted stays the passing
+# controller until faulted or replaced -- see the FIGHT PIN safety note
+# below for the full citation of that mechanic).
+RING_WHEN_GUARD = ["not", ["get", "world.in_zone"]]
+
+NORINGWHEN = False  # opt-out kill switch (never armed via container env,
+                    # per house rule) -- orthogonal to NORINGCONTROL/
+                    # NOFSWHEN/NOFIGHTPIN; flipping this one alone must not
+                    # silently disable any of the others. Flip True to fall
+                    # back to byte-identical pre-lever behaviour:
+                    # ring_walker carries no `when`, starter_harness.
+                    # KEEP_WHEN_PLAYS never gains "ring_walker", and its
+                    # python-side gate_open send-time snapshot governs wire
+                    # presence exactly as before this lever existed (RING
+                    # CONTROL's own presence/ordering guarantee, and its
+                    # own NORINGCONTROL switch, are unaffected either way).
+if not NORINGWHEN:
+    # Opt into starter_harness's KEEP_WHEN_PLAYS (see that module's own
+    # comment on the set, and FS_WHEN_GUARD's identical opt-in above): a
+    # shared, Monet-set module attribute -- a no-op for any other
+    # persona's process, which never imports this module. Confirmed this
+    # is the only place any persona populates the set today besides
+    # FS_WHEN_GUARD's own "fire_superiority" add a few hundred lines up --
+    # the set itself (starter_harness.KEEP_WHEN_PLAYS) stays the shared
+    # empty default for every persona that never imports policies/monet/
+    # policy.py.
+    starter_harness.KEEP_WHEN_PLAYS.add("ring_walker")
+
+
 # FIGHT PIN / FS PRESENCE (v62, FOUR DIGITS lane, 2026-09-23): guarantee
 # fire_superiority is present and correctly ordered ahead of ring_walker on
 # the CALL path (a real model call, or either reemit helper) -- the same
@@ -1886,6 +1971,39 @@ def apply_phase_clamps(entries, view, pact_state, source=None):
                 fired = True
             params["leadTicks"] = new_lead
             params["inset"] = new_inset
+
+    # RING WHEN GUARD -- pin only (W16, FOUR DIGITS lane v67, 2026-09-24):
+    # see the module-level RING_WHEN_GUARD/NORINGWHEN comment for the full
+    # WHY and the guard-derivation rejection. Deliberately NOT another
+    # insert-if-missing -- RING CONTROL just above already owns candidate
+    # presence/ordering on both the call path (its own insert-if-missing)
+    # and, via that entry's `when` plus KEEP_WHEN_PLAYS membership, the
+    # maintenance path too (layer_ladder's `keep_when` bypass runs inside
+    # gate_and_build on that path exactly as it does on the call path --
+    # confirmed by reading gate_and_build/_live_loop directly). This block
+    # is a PIN ONLY, same "every ring_walker entry already on the list,
+    # every send path including maintenance" discipline as FS_WHEN_GUARD's
+    # own pin loop: whatever put the entry there -- RING CONTROL's insert,
+    # a canned turn, a model call, or a maintenance resend carrying a
+    # stale/missing value -- gets the same guard expression, so `when` is
+    # never the one field this doctrine forgets to re-assert on any path.
+    # Independent of NORINGCONTROL: this loop only touches entries already
+    # present (from ANY source, RING CONTROL included or not), so it stays
+    # live even if NORINGCONTROL is flipped True to disable that other
+    # lever's own insert/reorder/schedule behaviour.
+    if not NORINGWHEN:
+        for entry in entries:
+            if entry.get("play") != "ring_walker":
+                continue
+            old_when = entry.get("when")
+            if old_when != RING_WHEN_GUARD:
+                starter_harness._log(
+                    PERSONA,
+                    f"ring_control clamp{tag}: ring_walker when="
+                    f"{'set' if old_when is None else 'changed'} "
+                    f"phase={phase} tick={tick}{suffix}")
+                fired = True
+            entry["when"] = RING_WHEN_GUARD
 
     # FOUR DIGITS lane (W1, 2026-09-22): RING_LEAD_WIDE / RING_INSET_WIDE
     # doctrine pins, same clamp/log mechanism as the loop just above --
@@ -3153,6 +3271,12 @@ PERSONA = Persona(
                  # elsewhere in this file. Params are the "opening"
                  # doctrine (RING_CONTROL_SCHEDULE) -- apply_phase_
                  # clamps repins them every send too.
+                 # W16 FOUR DIGITS v67: `when` (see the module-level
+                 # RING_WHEN_GUARD comment) is written here to match
+                 # doctrine for source honesty -- apply_phase_clamps'
+                 # own ring-when-guard pin loop repins it on every send
+                 # regardless.
+                 "when": RING_WHEN_GUARD,
                  "params": {"inset": 179, "leadTicks": 384}},
                 {"play": "hold_vs_gun", "entry_id": "holdgun",
                  # v65 ORDER (FOUR DIGITS lane, 2026-09-24): moved BELOW
@@ -3264,6 +3388,10 @@ PERSONA = Persona(
                  # ring_walker entry for the full note. Params are the
                  # "mid" doctrine (RING_CONTROL_SCHEDULE); apply_phase_
                  # clamps repins every send regardless.
+                 # W16 FOUR DIGITS v67: `when` (see the module-level
+                 # RING_WHEN_GUARD comment) written here for source
+                 # honesty; apply_phase_clamps' own pin loop repins it.
+                 "when": RING_WHEN_GUARD,
                  "params": {"inset": 102, "leadTicks": 280}},
                 {"play": "hold_vs_gun", "entry_id": "holdgun",
                  # v65 ORDER (FOUR DIGITS lane, 2026-09-24): moved BELOW
@@ -3432,6 +3560,10 @@ PERSONA = Persona(
                  # ring_walker entry for the full note. Params are the
                  # "mid" doctrine (RING_CONTROL_SCHEDULE); apply_phase_
                  # clamps repins every send regardless.
+                 # W16 FOUR DIGITS v67: `when` (see the module-level
+                 # RING_WHEN_GUARD comment) written here for source
+                 # honesty; apply_phase_clamps' own pin loop repins it.
+                 "when": RING_WHEN_GUARD,
                  "params": {"inset": 102, "leadTicks": 280}},
                 {"play": "hold_vs_gun", "entry_id": "holdgun",
                  # v65 ORDER (FOUR DIGITS lane, 2026-09-24): moved BELOW
@@ -3553,6 +3685,10 @@ PERSONA = Persona(
                  # entry for the full note. Params are the "late" doctrine
                  # (RING_CONTROL_SCHEDULE); apply_phase_clamps repins
                  # every send regardless.
+                 # W16 FOUR DIGITS v67: `when` (see the module-level
+                 # RING_WHEN_GUARD comment) written here for source
+                 # honesty; apply_phase_clamps' own pin loop repins it.
+                 "when": RING_WHEN_GUARD,
                  "params": {"inset": 230, "leadTicks": 320}},
                 {"play": "crossfire", "entry_id": "shape",
                  "params": {"spacing": [120, 280], "minAngle": 36}},
