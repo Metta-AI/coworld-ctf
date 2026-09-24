@@ -245,6 +245,24 @@ FIRE_SUPERIORITY_FINISH_RANGE = {"default": 140, "endgame": 120}
 # economy) is a different lever, left alone (one lever at a time).
 FIRE_SUPERIORITY_ENGAGE_DIST = {"default": 750, "endgame": 750}
 
+# FIRE_SUPERIORITY BREAK_DEFICIT WIRE FIX (v62, FOUR DIGITS lane,
+# 2026-09-23): the fourth field folded into the SAME per-entry pin loop as
+# PRESS_RANGE/FINISH_RANGE/ENGAGE_DIST above (search "breakDeficit (v62" in
+# apply_phase_clamps). W2 (four-digits/w2-v61-persist, 480530f9) raised
+# fire_superiority.nim's OWN manifest/readParams default 2->4
+# (RaisedBreakDeficit) and updated the 3 canned_turns literals that used to
+# pin an explicit 2. The turn-wire read (2026-09-23,
+# ~/.ctf/handoff/2026-09-23-xp-turn-wire.md) found this ALREADY correct on
+# 100% of hosted fs-present sent calls (0/422 wrong) -- so this pin is a
+# belt-and-suspenders addition, not a fix for an observed leak: it closes
+# the same GATED_PLAY maintenance-bypass class PIN_BYPASS_AUDIT (v52)
+# fixed for pressRange/finishRange/engageDist so a future drift back to 2
+# (a stale cached ladder, a model turn that copies an old value) still
+# cannot silently reach the wire. Flat 4 in both phase buckets, same shape
+# as PRESS_RANGE/ENGAGE_DIST above (not phase-split; kept as a dict for the
+# same future-proofing reason those two are).
+FIRE_SUPERIORITY_BREAK_DEFICIT = {"default": 4, "endgame": 4}
+
 # FINAL FOUR (F4) DETOUR CEILING (F4 initiative, /tmp/monet_f4_0909/
 # F4_INITIATIVE.md, pooled v45+v46 n=202 GV15-era episodes): once caught
 # first at F4, Monet dies inside 5s 88.9% of the time vs 16.7% when it fires
@@ -745,6 +763,75 @@ def _ring_control_phase(tick):
         return "mid"
     return "late"
 
+
+# FIGHT PIN / FS PRESENCE (v62, FOUR DIGITS lane, 2026-09-23): guarantee
+# fire_superiority is present and correctly ordered ahead of ring_walker on
+# the CALL path (a real model call, or either reemit helper) -- the same
+# class of fix RING CONTROL (W3, just above) made for ring_walker's
+# presence -- see this module's own apply_phase_clamps block (search
+# "FIGHT PIN" there) for the mechanism.
+#
+# WHY, ROUND 1 (xp-behaviour-liveness, 2026-09-23, ~/.ctf/handoff/2026-09-
+# 23-xp-behaviour-liveness.md): a paired hosted XP read (60 episodes, v61
+# vs v60, same 14-champion opponent pool per episode) found v61's
+# toward-enemy share and shots-after-own-hit BOTH pinned at v60's own
+# baseline despite W5's rig read (byte-identical wasm) showing the same
+# levers firing hundreds of times against the rig's canned opening. D17's
+# hypothesis: live model turns and maintenance resends of a cached ladder
+# can omit fire_superiority (or resend stale params) in a way no
+# canned-turn-only rig read could ever see.
+#
+# WHY, ROUND 2 (xp-turn-wire, 2026-09-23, ~/.ctf/handoff/2026-09-23-xp-
+# turn-wire.md): READ THE HOSTED WIRE DIRECTLY and REFUTED the param half
+# of D17 -- breakDeficit is 4 on 100% of hosted fs-present sent calls
+# (0/422 wrong), and lever A/B (NOFIREPERSIST/NOCLOSEBIAS) are compile-time
+# Nim consts a model turn cannot touch at all. The REAL finding: fire_
+# superiority is the sent/active controller only ~21% of tick-time in BOTH
+# v61 and v60 (identical) -- it is a GATED_PLAY that only enters the ladder
+# when starter_harness.gate_open sees a trackable enemy, and that is rare
+# relative to how often an enemy is merely nearby (~67% of alive time
+# within 500px) -- so the levers act on a fifth of the match and cannot
+# show up in an aggregate read either way. This is a PRESENCE gap, not a
+# param-correctness gap.
+#
+# WHY THIS BUILD IS SCOPED TO THE CALL PATH ONLY (safety check, this same
+# session, before any wasm change): an earlier draft tried to guarantee
+# presence on EVERY send path, including maintenance resends, "never
+# dropped." Read against src/shell/ladder.nim (stepSeat ~692-763,
+# livePassingController ~572-579) and src/shell/instance.nim (invokeStep
+# ~499-522), that shape is UNSAFE, not merely redundant: the engine has no
+# per-tick "this live entry has nothing to do, try the next one" fallback
+# -- only a FAULTED entry causes it to advance past; a live entry counts as
+# "passing" the moment it has EVER emitted anything, and
+# fire_superiority.nim:520-522's own "no live contact" branch
+# (`return emitHoldIfChanged()`) IS a real emitted decision, not a yield.
+# That decision is sticky (instance.nim `lastAccepted` never reverts to
+# none short of a fault or a fresh `play_init`) for as long as the entry is
+# never dropped from the ladder -- so "always present, ranked above
+# jackal/ring_walker" would monopolize the seat the first time it ever
+# emits anything and never let jackal or ring_walker act again for the
+# rest of the match. The engine's real per-tick dynamic-yield mechanism is
+# a wire-level `when` guard (ladder.nim `guardPasses`, ~377-382, evaluated
+# fresh every tick via IntentContext) -- but starter_harness.layer_ladder
+# unconditionally strips `when` (`entry.pop("when", None)`) before sending,
+# so this lever cannot reach it without editing policies/starters/common/
+# (shared, off-limits for this lane; see this build's own report for the
+# file:line a sibling worker would need to build that fix on shared code).
+# Scoped to the CALL path only, below, which carries none of that risk:
+# `entries` there is still the PRE-gate wanted ladder, so inserting
+# fire_superiority only makes it a CANDIDATE that the real gate_open()
+# still filters honestly a moment later in layer_ladder -- the exact same
+# safe argument RING CONTROL's own insert-if-missing already relies on.
+#
+# Independent kill switch: NOFIGHTPIN is its own opt-out, separate from
+# NORINGCONTROL (ring_walker's own lever) and separate from
+# NOFIREPERSIST/NOCLOSEBIAS (compile-time Nim consts inside
+# fire_superiority.nim itself, unreachable from policy.py) -- flipping any
+# one of the three must not silently disable the others, same
+# orthogonality convention as OPENING_HUNTER vs NOOPENPREFER above. Default
+# False (lever armed); never armed via a container env var, per house rule.
+NOFIGHTPIN = False
+
 # Awareness digest: a track older than this is a memory, not a threat (the
 # harness's own 10-s freshness/aggressor window). An item further than
 # NEAR_ITEM_PX is a detour, not "near".
@@ -1062,6 +1149,24 @@ def apply_phase_clamps(entries, view, pact_state, source=None):
     See the module-level ISOLATED_FIRST_PREFER/NOOPENPREFER comment above
     TARGET_LAW_PREFER for the full WHY.
 
+    v62 (FIGHT PIN / FS PRESENCE, FOUR DIGITS lane, 2026-09-23): closes the
+    SAME class of gap PIN_BYPASS_AUDIT (v52) closed for pressRange/
+    finishRange/engageDist, but one level up -- those three (plus, as of
+    this version, breakDeficit, folded into that same loop) only ever
+    pinned params on a fire_superiority entry that already made it onto
+    the list; nothing guaranteed the entry itself was there, or that it
+    out-ranked ring_walker, on a live model turn or a reemit. Scoped to the
+    CALL path only (source != "maintenance" -- a real model call, pre-call,
+    kickoff-reemit, or final4-reemit, all of which route through
+    adjust_entries) -- NOT the maintenance resend path, unlike every other
+    clamp in this function -- after a safety check found that guaranteeing
+    presence on every path would be unsafe at the engine level (see the
+    module-level NOFIGHTPIN comment for the full read-the-source WHY). Runs
+    right after RETURN
+    FIRE FROM RANGE and before the FIRE_SUPERIORITY WIRE FIX loop (own
+    kill switch NOFIGHTPIN) so a freshly-installed entry gets that loop's
+    pressRange/finishRange/engageDist/breakDeficit doctrine for free.
+
     Calling this SAME function from both adjust_entries (after its own
     CONVERSION/ARMAMENT inserts) and from the maintenance resend path
     closes all these gaps with one implementation instead of separate
@@ -1271,6 +1376,98 @@ def apply_phase_clamps(entries, view, pact_state, source=None):
                 f"return-fire-range clamp{tag}: hold_vs_gun ahead{suffix}")
             fired = True
 
+    # FIGHT PIN / FS PRESENCE (v62, FOUR DIGITS lane, 2026-09-23): guarantee
+    # fire_superiority is PRESENT and correctly ordered ahead of ring_walker
+    # on the CALL path (a real model call, or either reemit helper) -- the
+    # same class of gap RING CONTROL (W3) closed for ring_walker's presence.
+    # See the module-level NOFIGHTPIN comment above for the full WHY
+    # (xp-behaviour-liveness D17) and a SAFETY CORRECTION this v62 build
+    # made to its own original brief: an EARLIER draft of this lever tried
+    # to guarantee presence on EVERY send path including maintenance
+    # resends, "never dropped." Read against src/shell/ladder.nim
+    # (stepSeat/livePassingController) and src/shell/instance.nim
+    # (invokeStep's sticky `lastAccepted`), that shape is UNSAFE: the engine
+    # has no per-tick "this live entry has nothing to do, try the next one"
+    # fallback -- only a FAULTED entry causes it to advance past; a live
+    # entry that simply has no target still counts as "passing" the moment
+    # it has EVER emitted anything (fire_superiority.nim:520-522's own
+    # "no live contact" branch calls `emitHoldIfChanged()`, a REAL decision,
+    # not a yield), and that decision is sticky (instance.nim `lastAccepted`
+    # never reverts to none short of a fault or a fresh `play_init`) for as
+    # long as the entry is never dropped from the ladder. An entry that is
+    # NEVER dropped therefore never gets a fresh instance either -- so
+    # "always present, ranked above jackal/ring_walker" would monopolize the
+    # seat the FIRST time it ever emits anything and never let jackal or
+    # ring_walker act again for the rest of the match. The engine's real
+    # per-tick dynamic-yield mechanism is a wire-level `when` guard
+    # (`ladder.nim` `guardPasses`, evaluated fresh every tick) -- but
+    # `starter_harness.layer_ladder` unconditionally strips `when`
+    # (`entry.pop("when", None)`) before sending, so this lever cannot reach
+    # it without editing policies/starters/common/ (shared, off-limits for
+    # this lane). Scoped down to the CALL path only, below, which carries
+    # none of that risk (see its own comment).
+    if not NOFIGHTPIN:
+        # Insert-if-missing: source != "maintenance" ONLY -- EXACTLY RING
+        # CONTROL's own discipline (see that block's comment below for the
+        # full argument, and note its own exclusion is what actually
+        # produces its 60/60-hosted-episode presence figure: an "at least
+        # once per episode" measure driven by the ~4 model calls + 2 reemit
+        # helpers per episode, not by every maintenance tick). entries on
+        # the maintenance path is ALREADY the post-gate wire ladder
+        # (gate_and_build's gate_open() already ran), so an absent
+        # fire_superiority there most of the time is that gate correctly
+        # saying "no live track right now," not the gap this guards -- and,
+        # per the safety note above, unconditionally re-adding it there
+        # would mean it is never dropped and therefore never reinitialized.
+        # On the CALL path (source != "maintenance" -- a real model call,
+        # pre-call, kickoff-reemit, or final4-reemit, all of which route
+        # through adjust_entries), entries is
+        # still the PRE-gate wanted ladder, so inserting here only makes
+        # fire_superiority a CANDIDATE that the real gate_open()
+        # (facts["enemies"] non-empty, in zone) still filters honestly a
+        # moment later in layer_ladder -- the same safe argument RING
+        # CONTROL's own insert-if-missing relies on.
+        if source != "maintenance" and not any(
+                e.get("play") == "fire_superiority" for e in entries):
+            existing_ring = [i for i, e in enumerate(entries)
+                             if e.get("play") == "ring_walker"]
+            insert_at = min(existing_ring) if existing_ring else len(entries)
+            entries.insert(insert_at, {"play": "fire_superiority",
+                                       "entry_id": "fight_pin", "params": {}})
+            starter_harness._log(
+                PERSONA,
+                f"clamp fight_pin{tag}: fire_superiority installed "
+                f"phase={phase} tick={tick}{suffix}")
+            fired = True
+        # Reorder: any fire_superiority entry sitting AT OR AFTER a
+        # ring_walker entry must move above it -- layer_ladder's `gated`
+        # bucket preserves `entries`' own input order among simultaneously
+        # open gates (first-match-wins at the engine, the same fact RING
+        # CONTROL's own reorder below relies on), so this is what actually
+        # keeps "a live fight still wins over a zone-repositioning walk"
+        # true on the wire, on every source (including maintenance, where
+        # an already-present fire_superiority entry can still be misordered
+        # by a stale cached ladder) -- reordering an EXISTING entry carries
+        # none of the presence/monopolization risk discussed above, only
+        # insert-if-missing does, so this half is unconditional on source.
+        fs_positions = [i for i, e in enumerate(entries)
+                        if e.get("play") == "fire_superiority"]
+        ring_positions = [i for i, e in enumerate(entries)
+                          if e.get("play") == "ring_walker"]
+        if (fs_positions and ring_positions
+                and max(fs_positions) >= min(ring_positions)):
+            moved = [entries.pop(i) for i in sorted(fs_positions, reverse=True)]
+            ring_positions = [i for i, e in enumerate(entries)
+                              if e.get("play") == "ring_walker"]
+            insert_at = min(ring_positions)
+            for offset, moved_entry in enumerate(reversed(moved)):
+                entries.insert(insert_at + offset, moved_entry)
+            starter_harness._log(
+                PERSONA,
+                f"clamp fight_pin{tag}: fire_superiority reordered above "
+                f"ring_walker (was index {fs_positions}){suffix}")
+            fired = True
+
     # FIRE_SUPERIORITY WIRE FIX (v44, moved here v52 -- see module docstring
     # above FIRE_SUPERIORITY_PRESS_RANGE/FIRE_SUPERIORITY_FINISH_RANGE):
     # pin all three levers to the doctrine value for the CURRENT
@@ -1286,6 +1483,16 @@ def apply_phase_clamps(entries, view, pact_state, source=None):
     # to this SAME loop rather than a new one so it shares the identical
     # clamp/log/maintenance-bypass-closing mechanism. `phase` itself is
     # computed once, above (v60 hoist), and reused here.
+    #
+    # breakDeficit (v62, FOUR DIGITS lane, belt-and-suspenders): the
+    # turn-wire read (2026-09-23, ~/.ctf/handoff/2026-09-23-xp-turn-wire.md)
+    # found breakDeficit already correct on 100% of hosted fs-present sent
+    # calls (0/422 wrong) -- W2's canned-turn literal bump (2->4) and the
+    # Nim-side manifest default bump already close this in practice. Added
+    # to the SAME per-entry loop as a cheap, unconditional pin anyway (one
+    # more field, not a new mechanism) so a future drift back to 2 -- a
+    # stale cached ladder, a model turn that copies an old value -- cannot
+    # silently reach the wire either.
     for entry in entries:
         if entry.get("play") != "fire_superiority":
             continue
@@ -1293,7 +1500,8 @@ def apply_phase_clamps(entries, view, pact_state, source=None):
         for field, doctrine_by_phase in (
                 ("pressRange", FIRE_SUPERIORITY_PRESS_RANGE),
                 ("finishRange", FIRE_SUPERIORITY_FINISH_RANGE),
-                ("engageDist", FIRE_SUPERIORITY_ENGAGE_DIST)):
+                ("engageDist", FIRE_SUPERIORITY_ENGAGE_DIST),
+                ("breakDeficit", FIRE_SUPERIORITY_BREAK_DEFICIT)):
             doctrine = doctrine_by_phase[phase]
             old = params.get(field)
             if old != doctrine:

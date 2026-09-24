@@ -2227,14 +2227,18 @@ for _phase, _view in _PRESS_PHASE_VIEWS.items():
           str(_jk["params"]))
 
 # Negative: the new clamp owns exactly pressRange/finishRange/engageDist/
-# whenHpBelow and must never touch a sibling field on the same entry, the
-# same way the jackal clamp above never touches exitAfter.
+# breakDeficit/whenHpBelow and must never touch a sibling field on the same
+# entry, the same way the jackal clamp above never touches exitAfter.
 #
 # v53 UPDATE: engageDist joins pressRange/finishRange as an owned field
 # (FIRE_SUPERIORITY_ENGAGE_DIST) -- a submitted 512 is no longer left
-# alone, it commits to doctrine (750) like the other two. woundedPct/
-# breakDeficit/coverMax remain the untouched siblings that prove the
-# clamp is scoped, not a blanket overwrite of every field.
+# alone, it commits to doctrine (750) like the other two.
+#
+# v62 UPDATE: breakDeficit joins the SAME owned-field loop (folded in, not
+# a separate mechanism -- see FIRE_SUPERIORITY_BREAK_DEFICIT's own module
+# comment) -- a submitted 6 is no longer left alone either, it commits to
+# doctrine (4). woundedPct/coverMax remain the untouched siblings that
+# prove the clamp is scoped, not a blanket overwrite of every field.
 _owned_call = {"call": {"entries": [
     {"play": "fire_superiority", "entry_id": "pressbreak",
      "params": {"pressRange": 220, "finishRange": 140, "woundedPct": 77,
@@ -2246,11 +2250,10 @@ _seat = fake_seat()
 starter_harness.repair_call(_owned_call, PERSONA, _seat, AVAILABLE)
 _owned_fs = next(e for e in _seat.wanted_entries if e["play"] == "fire_superiority")
 _owned_sr = next(e for e in _seat.wanted_entries if e["play"] == "supply_run")
-check("fire_superiority clamp leaves woundedPct/breakDeficit/coverMax "
-      "exactly as submitted -- it owns pressRange/finishRange/engageDist "
+check("fire_superiority clamp leaves woundedPct/coverMax exactly as "
+      "submitted -- it owns pressRange/finishRange/engageDist/breakDeficit "
       "only",
       _owned_fs["params"].get("woundedPct") == 77
-      and _owned_fs["params"].get("breakDeficit") == 6
       and _owned_fs["params"].get("coverMax") == 111,
       str(_owned_fs["params"]))
 check("(v53) fire_superiority clamp commits engageDist 512 -> doctrine "
@@ -2258,6 +2261,12 @@ check("(v53) fire_superiority clamp commits engageDist 512 -> doctrine "
       "model-submitted value is never left alone",
       _owned_fs["params"].get("engageDist")
       == policy.FIRE_SUPERIORITY_ENGAGE_DIST["default"] == 750,
+      str(_owned_fs["params"]))
+check("(v62) fire_superiority clamp commits breakDeficit 6 -> doctrine 4, "
+      "same ownership class as pressRange/finishRange/engageDist -- a "
+      "model-submitted value is never left alone",
+      _owned_fs["params"].get("breakDeficit")
+      == policy.FIRE_SUPERIORITY_BREAK_DEFICIT["default"] == 4,
       str(_owned_fs["params"]))
 check("supply_run clamp leaves detourMax/contested exactly as submitted "
       "-- it owns whenHpBelow only",
@@ -3153,14 +3162,28 @@ check("marquee zone gate is a no-op on the endgame turn (already 0 by "
       "the existing endgame fix)",
       _fs["params"].get("woundedPct") == 0, str(_fs["params"]))
 
+# v62 FIGHT PIN note: as of this lever, the CALL path (which this opening
+# canned turn goes through) DOES now guarantee a fire_superiority entry
+# exists -- that is FIGHT PIN's own job, not the marquee zone gate's. Toggle
+# NOFIGHTPIN off for the duration of this one check so it keeps isolating
+# what it always tested: the marquee zone gate (the woundedPct override
+# under `_in_marquee_zone_window`) itself never invents an entry -- only
+# FIGHT PIN does, and only on its own account. Same save/restore pattern as
+# every other module-flag toggle in this file (see NORINGCONTROL above).
 _seat = fake_seat(view=_final_view)
-starter_harness.repair_call(PERSONA.canned_turns[0], PERSONA, _seat,
-                             AVAILABLE)
-check("marquee zone gate never INVENTS a fire_superiority entry on a turn "
-      "that did not call one (opening turn)",
-      not any(e["play"] == "fire_superiority"
-              for e in _seat.wanted_entries),
-      str([e["play"] for e in _seat.wanted_entries]))
+_marquee_invent_fightpin_prev = policy.NOFIGHTPIN
+policy.NOFIGHTPIN = True
+try:
+    starter_harness.repair_call(PERSONA.canned_turns[0], PERSONA, _seat,
+                                 AVAILABLE)
+    check("marquee zone gate never INVENTS a fire_superiority entry on a turn "
+          "that did not call one (opening turn, FIGHT PIN disabled to "
+          "isolate the marquee lever)",
+          not any(e["play"] == "fire_superiority"
+                  for e in _seat.wanted_entries),
+          str([e["play"] for e in _seat.wanted_entries]))
+finally:
+    policy.NOFIGHTPIN = _marquee_invent_fightpin_prev
 
 # ── T22 era-gate catch: PAYBACK's self-avenge framing ("whoever tagged
 # YOU") describes `avengesKiller` (src/ctf/glory.nim killDeed), which the
@@ -5399,16 +5422,28 @@ check("(ii) opening hunter: same tick 300, but our team already banked a "
 
 # (iii) THE THIRD PRE-REGISTERED FIXTURE: tick 1600 (past OPENING_TICKS=
 # 1500), no kills -- untouched, byte-identical to v56.
+# v62 FIGHT PIN note: this scenario has no fire_superiority entry and no
+# ring_walker gate reason to install one via THAT lever, but FIGHT PIN's
+# own call-path insert-if-missing would otherwise add one regardless of
+# whatever the opening hunter itself decides -- toggle NOFIGHTPIN off for
+# this check so it keeps isolating the opening-hunter lever alone, same
+# convention as the marquee-zone-gate check above.
 _oh_iii_entries = _seed_ring(_oh_entries(), 1600)
 _oh_iii_pact = {"_my_team": "rust"}
 _oh_iii_view = {"tick": 1600, "world": {"alive_teams": 16}, "kill_feed": []}
 _oh_iii_log = _io.StringIO()
-with _contextlib.redirect_stdout(_oh_iii_log):
-    _oh_iii_fired = policy.apply_phase_clamps(_oh_iii_entries, _oh_iii_view,
-                                              _oh_iii_pact, source=None)
+_oh_iii_fightpin_prev = policy.NOFIGHTPIN
+policy.NOFIGHTPIN = True
+try:
+    with _contextlib.redirect_stdout(_oh_iii_log):
+        _oh_iii_fired = policy.apply_phase_clamps(_oh_iii_entries, _oh_iii_view,
+                                                  _oh_iii_pact, source=None)
+finally:
+    policy.NOFIGHTPIN = _oh_iii_fightpin_prev
 _oh_iii_plays = [e["play"] for e in _oh_iii_entries]
 check("(iii) opening hunter: tick 1600, no kills -- untouched, byte-"
-      "identical to v56 (no opening-hunter line logged)",
+      "identical to v56 (no opening-hunter line logged, FIGHT PIN disabled "
+      "to isolate this lever)",
       not _oh_iii_fired
       and _oh_iii_plays == ["pact", "target_law", "scatter", "ring_walker"]
       and "opening-hunter clamp" not in _oh_iii_log.getvalue(),
@@ -5501,7 +5536,9 @@ check("opening hunter end-to-end via repair_call/adjust_entries: a real "
 # behaviour without removing this block.
 _oh_off_entries = _seed_ring(_oh_entries(), 300)
 _oh_off_prev = policy.OPENING_HUNTER
+_oh_off_fightpin_prev = policy.NOFIGHTPIN
 policy.OPENING_HUNTER = False
+policy.NOFIGHTPIN = True  # isolate from FIGHT PIN's own call-path insert
 try:
     _oh_off_fired = policy.apply_phase_clamps(
         _oh_off_entries, {"tick": 300, "world": {"alive_teams": 16},
@@ -5509,10 +5546,12 @@ try:
         {"_my_team": "rust"}, source=None)
 finally:
     policy.OPENING_HUNTER = _oh_off_prev
+    policy.NOFIGHTPIN = _oh_off_fightpin_prev
 _oh_off_plays = [e["play"] for e in _oh_off_entries]
 check("OPENING_HUNTER=False is a plain kill switch: the same "
       "predicate-true call now leaves scatter in place and never "
-      "installs fire_superiority",
+      "installs fire_superiority (FIGHT PIN disabled to isolate this "
+      "lever)",
       not _oh_off_fired
       and _oh_off_plays == ["pact", "target_law", "scatter", "ring_walker"],
       str(_oh_off_plays))
@@ -5570,12 +5609,18 @@ _hh_iii_view = {"tick": 2000, "world": {"alive_teams": 16},
                "kill_feed": [{"tick": 1600, "killer_team": "rust",
                              "victim_seat": 9}]}
 _hh_iii_log = _io.StringIO()
-with _contextlib.redirect_stdout(_hh_iii_log):
-    _hh_iii_fired = policy.apply_phase_clamps(_hh_iii_entries, _hh_iii_view,
-                                              _hh_iii_pact, source=None)
+_hh_iii_fightpin_prev = policy.NOFIGHTPIN
+policy.NOFIGHTPIN = True  # isolate from FIGHT PIN's own call-path insert
+try:
+    with _contextlib.redirect_stdout(_hh_iii_log):
+        _hh_iii_fired = policy.apply_phase_clamps(_hh_iii_entries, _hh_iii_view,
+                                                  _hh_iii_pact, source=None)
+finally:
+    policy.NOFIGHTPIN = _hh_iii_fightpin_prev
 _hh_iii_plays = [e["play"] for e in _hh_iii_entries]
 check("(iii) heat-window hunter: tick 2000, our kill 400 ticks ago "
-      "(> HEAT_WINDOW_TICKS=270) -- untouched, no clamp line logged",
+      "(> HEAT_WINDOW_TICKS=270) -- untouched, no clamp line logged "
+      "(FIGHT PIN disabled to isolate this lever)",
       not _hh_iii_fired
       and _hh_iii_plays == ["pact", "target_law", "scatter", "ring_walker"]
       and "hunter clamp" not in _hh_iii_log.getvalue(),
@@ -5590,13 +5635,19 @@ _hh_iv_view = {"tick": 2000, "world": {"alive_teams": 16},
               "kill_feed": [{"tick": 1900, "killer_team": "steel",
                             "victim_seat": 9}]}
 _hh_iv_log = _io.StringIO()
-with _contextlib.redirect_stdout(_hh_iv_log):
-    _hh_iv_fired = policy.apply_phase_clamps(_hh_iv_entries, _hh_iv_view,
-                                             _hh_iv_pact, source=None)
+_hh_iv_fightpin_prev = policy.NOFIGHTPIN
+policy.NOFIGHTPIN = True  # isolate from FIGHT PIN's own call-path insert
+try:
+    with _contextlib.redirect_stdout(_hh_iv_log):
+        _hh_iv_fired = policy.apply_phase_clamps(_hh_iv_entries, _hh_iv_view,
+                                                 _hh_iv_pact, source=None)
+finally:
+    policy.NOFIGHTPIN = _hh_iv_fightpin_prev
 _hh_iv_plays = [e["play"] for e in _hh_iv_entries]
 check("(iv) heat-window hunter: tick 2000, an ENEMY kill at 1900 only "
       "-- neither the opening latch nor the heat window ever reads a "
-      "rival's kill as ours -- untouched",
+      "rival's kill as ours -- untouched (FIGHT PIN disabled to isolate "
+      "this lever)",
       not _hh_iv_fired
       and _hh_iv_plays == ["pact", "target_law", "scatter", "ring_walker"]
       and "hunter clamp" not in _hh_iv_log.getvalue(),
@@ -5652,7 +5703,9 @@ check("(v) heat-window hunter: the SAME call's v56 AGGRESSION LOCK "
 # OPENING_HUNTER.
 _hh_vi_entries = _seed_ring(_oh_entries(), 2000)
 _hh_vi_prev = policy.HEAT_HUNTER
+_hh_vi_fightpin_prev = policy.NOFIGHTPIN
 policy.HEAT_HUNTER = False
+policy.NOFIGHTPIN = True  # isolate from FIGHT PIN's own call-path insert
 try:
     _hh_vi_log = _io.StringIO()
     with _contextlib.redirect_stdout(_hh_vi_log):
@@ -5664,10 +5717,12 @@ try:
             {"_my_team": "rust"}, source=None)
 finally:
     policy.HEAT_HUNTER = _hh_vi_prev
+    policy.NOFIGHTPIN = _hh_vi_fightpin_prev
 _hh_vi_plays = [e["play"] for e in _hh_vi_entries]
 check("(vi) HEAT_HUNTER=False is a plain kill switch: the (ii) scenario "
       "(tick 2000, our kill at 1900) now leaves scatter in place and "
-      "installs no fire_superiority, no hunter clamp line logged",
+      "installs no fire_superiority, no hunter clamp line logged (FIGHT "
+      "PIN disabled to isolate this lever)",
       not _hh_vi_fired
       and _hh_vi_plays == ["pact", "target_law", "scatter", "ring_walker"]
       and "hunter clamp" not in _hh_vi_log.getvalue(),
@@ -5844,16 +5899,25 @@ check("(ii) return fire: under fire AND a live track -- fire_superiority "
       and "return-fire clamp" not in _rf_ii_log.getvalue(),
       str(_rf_ii_plays))
 
-# (iii) no aggressors, no tracks -- untouched.
+# (iii) no aggressors, no tracks -- untouched. FIGHT PIN's own call-path
+# insert-if-missing would otherwise add a fire_superiority entry here
+# regardless of return-fire's own predicate -- disabled for the duration
+# to isolate this lever, same convention as the opening/heat-hunter checks
+# above.
 _rf_iii_entries = _seed_ring(_rf_entries(), 2000)
 _rf_iii_view = {"tick": 2000, "world": {"alive_teams": 16}, "kill_feed": []}
 _rf_iii_log = _io.StringIO()
-with _contextlib.redirect_stdout(_rf_iii_log):
-    _rf_iii_fired = policy.apply_phase_clamps(
-        _rf_iii_entries, _rf_iii_view, {"_my_team": "rust"}, source=None)
+_rf_iii_fightpin_prev = policy.NOFIGHTPIN
+policy.NOFIGHTPIN = True
+try:
+    with _contextlib.redirect_stdout(_rf_iii_log):
+        _rf_iii_fired = policy.apply_phase_clamps(
+            _rf_iii_entries, _rf_iii_view, {"_my_team": "rust"}, source=None)
+finally:
+    policy.NOFIGHTPIN = _rf_iii_fightpin_prev
 _rf_iii_plays = [e["play"] for e in _rf_iii_entries]
 check("(iii) return fire: no aggressors, no tracks -- untouched, "
-      "byte-identical to v58",
+      "byte-identical to v58 (FIGHT PIN disabled to isolate this lever)",
       not _rf_iii_fired
       and _rf_iii_plays == ["pact", "target_law", "scatter", "ring_walker"]
       and "return-fire clamp" not in _rf_iii_log.getvalue(),
@@ -5864,12 +5928,18 @@ _rf_iv_entries = _seed_ring(_rf_entries(), 2000)
 _rf_iv_view = {"tick": 2000, "world": {"alive_teams": 16}, "kill_feed": [],
               "aggressors": [{"tick": 1800, "dir_brads": 5}]}
 _rf_iv_log = _io.StringIO()
-with _contextlib.redirect_stdout(_rf_iv_log):
-    _rf_iv_fired = policy.apply_phase_clamps(
-        _rf_iv_entries, _rf_iv_view, {"_my_team": "rust"}, source=None)
+_rf_iv_fightpin_prev = policy.NOFIGHTPIN
+policy.NOFIGHTPIN = True
+try:
+    with _contextlib.redirect_stdout(_rf_iv_log):
+        _rf_iv_fired = policy.apply_phase_clamps(
+            _rf_iv_entries, _rf_iv_view, {"_my_team": "rust"}, source=None)
+finally:
+    policy.NOFIGHTPIN = _rf_iv_fightpin_prev
 _rf_iv_plays = [e["play"] for e in _rf_iv_entries]
 check("(iv) return fire: aggressor seen 200 ticks ago (> "
-      "RETURN_FIRE_TICKS=120) -- untouched",
+      "RETURN_FIRE_TICKS=120) -- untouched (FIGHT PIN disabled to "
+      "isolate this lever)",
       not _rf_iv_fired
       and _rf_iv_plays == ["pact", "target_law", "scatter", "ring_walker"]
       and "return-fire clamp" not in _rf_iv_log.getvalue(),
@@ -5879,7 +5949,9 @@ check("(iv) return fire: aggressor seen 200 ticks ago (> "
 # plain kill switch, same convention as OPENING_HUNTER/HEAT_HUNTER.
 _rf_v_entries = _seed_ring(_rf_entries(), _rf_i_view.get("tick", 0))
 _rf_v_prev = policy.RETURN_FIRE
+_rf_v_fightpin_prev = policy.NOFIGHTPIN
 policy.RETURN_FIRE = False
+policy.NOFIGHTPIN = True
 try:
     _rf_v_log = _io.StringIO()
     with _contextlib.redirect_stdout(_rf_v_log):
@@ -5887,10 +5959,12 @@ try:
             _rf_v_entries, _rf_i_view, {"_my_team": "rust"}, source=None)
 finally:
     policy.RETURN_FIRE = _rf_v_prev
+    policy.NOFIGHTPIN = _rf_v_fightpin_prev
 _rf_v_plays = [e["play"] for e in _rf_v_entries]
 check("(v) RETURN_FIRE=False is a plain kill switch: the (i) scenario "
       "(under fire, no tracks) now leaves the ladder untouched, no "
-      "hold_vs_gun installed, no clamp line logged",
+      "hold_vs_gun installed, no clamp line logged (FIGHT PIN disabled "
+      "to isolate this lever)",
       not _rf_v_fired
       and _rf_v_plays == ["pact", "target_law", "scatter", "ring_walker"]
       and "return-fire clamp" not in _rf_v_log.getvalue(),
@@ -5932,9 +6006,13 @@ check("v61 constants exist exactly as pre-registered (D9): HEAT_HUNTER, "
 def _rfr_entries_with_fs():
     """Same shape as _oh_entries_with_fs, but fire_superiority's params
     already match doctrine exactly (pressRange 220/finishRange 140/
-    engageDist 750, phase=default) -- isolates the RETURN FIRE FROM RANGE
-    lever alone: the FIRE_SUPERIORITY WIRE FIX loop a few lines below in
-    apply_phase_clamps never has anything of its own to clamp/log here."""
+    engageDist 750/breakDeficit 4, phase=default) -- isolates the RETURN
+    FIRE FROM RANGE lever alone: the FIRE_SUPERIORITY WIRE FIX loop a few
+    lines below in apply_phase_clamps never has anything of its own to
+    clamp/log here. breakDeficit added v62 (FOUR DIGITS lane) when that
+    loop grew a fourth owned field -- without it here, every "untouched"
+    fixture below would spuriously see fired=True from the breakDeficit
+    pin alone, unrelated to whatever THIS fixture is testing."""
     return [
         {"play": "pact", "entry_id": "truce",
          "params": {"partners": ["seat:19"]}},
@@ -5942,7 +6020,7 @@ def _rfr_entries_with_fs():
          "params": {"distance": 320, "ticks": 300}},
         {"play": "fire_superiority", "entry_id": "pressbreak",
          "params": {"pressRange": 220, "finishRange": 140,
-                    "engageDist": 750}},
+                    "engageDist": 750, "breakDeficit": 4}},
     ]
 
 
@@ -6145,10 +6223,22 @@ check("return-fire-range end-to-end via repair_call/adjust_entries/"
 # RETURN FIRE's own block never fires (fire_superiority_open=True) --
 # proves the diag line is independent of whether any clamp in this
 # function actually did anything on this call.
+# v62 FIGHT PIN note: this scenario's track data makes fire_superiority's
+# own gate genuinely open (fs_open=True below) -- FIGHT PIN would legitimately
+# install a fire_superiority entry here on a real call, which is correct
+# behaviour, not a bug, but would make `_diag_fired` True and defeat this
+# check's own "not _diag_fired" assertion, which is about the [diag] line
+# mechanism, not FIGHT PIN. Pre-seed a correctly-doctrined entry (matching
+# apply_phase_clamps's own pin exactly, same technique as
+# _rfr_entries_with_fs above) so FIGHT PIN has nothing left to install or
+# pin here either.
 _diag_entries = _seed_ring([
     {"play": "pact", "entry_id": "p", "params": {}},
     {"play": "target_law", "entry_id": "t", "params": {}},
-    {"play": "jackal", "entry_id": "j", "params": {}}], 5000)
+    {"play": "jackal", "entry_id": "j", "params": {}},
+    {"play": "fire_superiority", "entry_id": "pressbreak",
+     "params": {"pressRange": 220, "finishRange": 140, "engageDist": 750,
+                "breakDeficit": 4}}], 5000)
 _diag_view = {
     "tick": 5000,
     "world": {"alive_teams": 16},
@@ -6343,6 +6433,182 @@ check("v61 lever A: plays.py's fire_superiority.breakDeficit registry "
       plays.PLAYS["fire_superiority"]["params"]["breakDeficit"]["default"]
       == 4,
       str(plays.PLAYS["fire_superiority"]["params"]["breakDeficit"]))
+
+# ============================================================
+# v62 FIGHT PIN / FS PRESENCE -- FOUR DIGITS lane, 2026-09-23. Scoped to
+# the CALL path only (source != "maintenance") after a safety check found
+# guaranteeing presence on every send path (including maintenance) would
+# be unsafe at the engine level -- see the module-level NOFIGHTPIN comment
+# in policy.py for the full read-the-source WHY. Covers: (a) a synthetic
+# MODEL turn whose ladder omits fire_superiority gets it restored,
+# positioned before ring_walker; (b) the SAME scenario via
+# source="maintenance" is left untouched (the mechanism this build
+# deliberately does NOT extend there); (c) a model turn that carries
+# fire_superiority AFTER an existing ring_walker entry gets it reordered
+# above; (d) NOFIGHTPIN=True disables both (a) and (c); (e) end-to-end via
+# repair_call, the real model-call/reemit send path, restoring the entry
+# with breakDeficit=4 already pinned by the (unchanged) WIRE FIX loop.
+
+# (a) model-style call (source=None), fire_superiority entirely absent,
+# ring_walker present -- gets installed BEFORE ring_walker (insert_at =
+# the first existing ring_walker index).
+_fp_a_entries = [
+    {"play": "pact", "entry_id": "truce", "params": {"partners": ["seat:19"]}},
+    {"play": "ring_walker", "entry_id": "ring", "params": {}},
+]
+_fp_a_log = _io.StringIO()
+with _contextlib.redirect_stdout(_fp_a_log):
+    _fp_a_fired = policy.apply_phase_clamps(
+        _fp_a_entries, {"tick": 2000, "world": {"alive_teams": 16},
+                        "kill_feed": []},
+        {"_my_team": "rust"}, source=None)
+_fp_a_plays = [e["play"] for e in _fp_a_entries]
+check("v62 FIGHT PIN (a): a model-style call omitting fire_superiority "
+      "gets it restored, positioned BEFORE the existing ring_walker entry",
+      _fp_a_fired and _fp_a_plays == ["pact", "fire_superiority", "ring_walker"]
+      and "clamp fight_pin" in _fp_a_log.getvalue()
+      and "fire_superiority installed" in _fp_a_log.getvalue(),
+      str(_fp_a_plays) + " | " + repr(_fp_a_log.getvalue()))
+
+# (b) the SAME scenario via source="maintenance" -- left untouched. This is
+# the scoping decision itself, not an oversight: entries on the maintenance
+# path is already the POST-gate wire ladder (gate_and_build's gate_open()
+# already ran), so re-adding fire_superiority unconditionally there would
+# mean it is never dropped when the real gate closes, and therefore never
+# reinitialized -- see the module-level NOFIGHTPIN comment for the full
+# engine-level safety argument.
+_fp_b_entries = [
+    {"play": "pact", "entry_id": "truce", "params": {"partners": ["seat:19"]}},
+    {"play": "ring_walker", "entry_id": "ring", "params": {}},
+]
+_fp_b_log = _io.StringIO()
+with _contextlib.redirect_stdout(_fp_b_log):
+    _fp_b_fired = policy.apply_phase_clamps(
+        _fp_b_entries, {"tick": 2000, "world": {"alive_teams": 16},
+                        "kill_feed": []},
+        {"_my_team": "rust"}, source="maintenance")
+_fp_b_plays = [e["play"] for e in _fp_b_entries]
+# NOTE: `_fp_b_fired` is NOT asserted False here -- RING CONTROL's own
+# unconditional phase-schedule pin legitimately fires on this same call
+# (the seeded ring_walker entry's params start empty, so leadTicks/inset
+# get pinned regardless of source) -- a separate, correct mechanism this
+# fixture is not testing. The claim under test is narrower: fire_
+# superiority specifically stays absent, and FIGHT PIN's own log
+# signature never appears.
+check("v62 FIGHT PIN (b): the IDENTICAL scenario via source=\"maintenance\" "
+      "leaves fire_superiority absent -- the deliberate CALL-path-only "
+      "scope, not extended to maintenance resends",
+      _fp_b_plays == ["pact", "ring_walker"]
+      and "fight_pin" not in _fp_b_log.getvalue(),
+      str(_fp_b_plays) + " | " + repr(_fp_b_log.getvalue()))
+
+# (c) fire_superiority present but AFTER an existing ring_walker entry --
+# gets reordered above it. Params already match doctrine so only the
+# reorder fires here, isolating it from the (unrelated) WIRE FIX loop.
+_fp_c_entries = [
+    {"play": "pact", "entry_id": "truce", "params": {"partners": ["seat:19"]}},
+    {"play": "ring_walker", "entry_id": "ring", "params": {}},
+    {"play": "fire_superiority", "entry_id": "pressbreak",
+     "params": {"pressRange": 220, "finishRange": 140, "engageDist": 750,
+                "breakDeficit": 4}},
+]
+_fp_c_log = _io.StringIO()
+with _contextlib.redirect_stdout(_fp_c_log):
+    _fp_c_fired = policy.apply_phase_clamps(
+        _fp_c_entries, {"tick": 2000, "world": {"alive_teams": 16},
+                        "kill_feed": []},
+        {"_my_team": "rust"}, source=None)
+_fp_c_plays = [e["play"] for e in _fp_c_entries]
+check("v62 FIGHT PIN (c): fire_superiority sitting AFTER an existing "
+      "ring_walker entry is reordered to precede it",
+      _fp_c_fired and _fp_c_plays == ["pact", "fire_superiority", "ring_walker"]
+      and "clamp fight_pin" in _fp_c_log.getvalue()
+      and "reordered above ring_walker" in _fp_c_log.getvalue(),
+      str(_fp_c_plays) + " | " + repr(_fp_c_log.getvalue()))
+
+# (d) NOFIGHTPIN=True is a plain kill switch: both the (a) insert and the
+# (c) reorder scenarios become no-ops, same convention as every other
+# opt-out in this file. The reorder half (d2) ALSO disables NORINGCONTROL
+# for its own scope -- RING CONTROL owns an independent reorder (ring_
+# walker moved below any existing engage entry) that would otherwise
+# achieve the same end position on its own and mask whether FIGHT PIN's
+# OWN reorder is really the one gated by NOFIGHTPIN.
+_fp_d_prev = policy.NOFIGHTPIN
+policy.NOFIGHTPIN = True
+try:
+    _fp_d1_entries = [
+        {"play": "pact", "entry_id": "truce", "params": {"partners": ["seat:19"]}},
+        {"play": "ring_walker", "entry_id": "ring", "params": {}},
+    ]
+    _fp_d1_fired = policy.apply_phase_clamps(
+        _fp_d1_entries, {"tick": 2000, "world": {"alive_teams": 16},
+                         "kill_feed": []},
+        {"_my_team": "rust"}, source=None)
+finally:
+    policy.NOFIGHTPIN = _fp_d_prev
+_fp_d2_noring_prev = policy.NORINGCONTROL
+policy.NOFIGHTPIN = True
+policy.NORINGCONTROL = True
+try:
+    _fp_d2_entries = [
+        {"play": "pact", "entry_id": "truce", "params": {"partners": ["seat:19"]}},
+        {"play": "ring_walker", "entry_id": "ring", "params": {}},
+        {"play": "fire_superiority", "entry_id": "pressbreak",
+         "params": {"pressRange": 220, "finishRange": 140, "engageDist": 750,
+                    "breakDeficit": 4}},
+    ]
+    _fp_d2_fired = policy.apply_phase_clamps(
+        _fp_d2_entries, {"tick": 2000, "world": {"alive_teams": 16},
+                         "kill_feed": []},
+        {"_my_team": "rust"}, source=None)
+finally:
+    policy.NOFIGHTPIN = _fp_d_prev
+    policy.NORINGCONTROL = _fp_d2_noring_prev
+# NOTE: `_fp_d1_fired` is NOT asserted False -- RING CONTROL's own
+# unconditional phase-schedule pin on the seeded ring_walker's empty
+# params legitimately fires here too (same note as (b) above); the claim
+# under test is that fire_superiority specifically was never installed.
+check("v62 FIGHT PIN (d): NOFIGHTPIN=True disables the insert -- fire_"
+      "superiority stays absent",
+      [e["play"] for e in _fp_d1_entries] == ["pact", "ring_walker"],
+      str([e["play"] for e in _fp_d1_entries]))
+check("v62 FIGHT PIN (d): NOFIGHTPIN=True (and NORINGCONTROL=True, to "
+      "isolate from that lever's own independent reorder) disables the "
+      "FIGHT PIN reorder -- fire_superiority stays AFTER ring_walker, "
+      "byte-identical to pre-v62",
+      not _fp_d2_fired
+      and [e["play"] for e in _fp_d2_entries]
+      == ["pact", "ring_walker", "fire_superiority"],
+      str([e["play"] for e in _fp_d2_entries]))
+check("v62 FIGHT PIN default is ON (NOFIGHTPIN restored to False)",
+      policy.NOFIGHTPIN is False)
+
+# (e) end-to-end via repair_call (the real model-call/reemit send path,
+# same shape as the opening-hunter/ring-control e2e checks above): a
+# synthetic MODEL-authored call omitting fire_superiority entirely reaches
+# seat.wanted_entries WITH it present, positioned before ring_walker, and
+# with breakDeficit already pinned to doctrine (4) by the unchanged WIRE
+# FIX loop -- proving the two mechanisms compose on the real wire path,
+# not just in a hand-built apply_phase_clamps call.
+_fp_e_seat = fake_seat(
+    context={"self": {"seat": 3, "duo_partner": 19, "team": "rust"}},
+    view={"tick": 2000, "world": {"alive_teams": 16}, "kill_feed": []})
+starter_harness.repair_call(
+    {"call": {"entries": [
+        {"play": "pact", "entry_id": "truce", "params": {"partners": ["seat:19"]}},
+        {"play": "ring_walker", "entry_id": "ring", "params": {}},
+    ]}}, PERSONA, _fp_e_seat, AVAILABLE)
+_fp_e_plays = [e["play"] for e in _fp_e_seat.wanted_entries]
+_fp_e_fs = next((e for e in _fp_e_seat.wanted_entries
+                 if e["play"] == "fire_superiority"), None)
+check("v62 FIGHT PIN (e) end-to-end: a real model-authored call omitting "
+      "fire_superiority reaches seat.wanted_entries with it restored, "
+      "before ring_walker, breakDeficit already pinned to doctrine (4) "
+      "by the ordinary WIRE FIX loop",
+      _fp_e_fs is not None
+      and _fp_e_plays.index("fire_superiority") < _fp_e_plays.index("ring_walker")
+      and _fp_e_fs["params"].get("breakDeficit") == 4,
+      str(_fp_e_plays) + " | " + str(_fp_e_fs["params"] if _fp_e_fs else None))
 
 print()
 if failures:
