@@ -3198,9 +3198,10 @@ body.sidelanes.tiny #scorebug .br-cell-intent { max-width: calc(30 * var(--u)); 
    SUPERSEDED 2026-09-09 (owner: "left rail is the design i want" / "always"):
    #scorebug is NO LONGER hidden here. The glory ledger (team plates, clock,
    lives, hunting chips) now docks into the board's own left rail at every
-   window shape, embed included (relayout()'s sideLanes is unconditional) —
-   it is the single source of truth. The shell's OWN top-band scorebug (the
-   duplicate "ported 1:1 from the broadcast replay" one) was removed in
+   window shape, embed included (relayout()'s sideLanes is unconditional
+   except under the explicit ?chrome=off opt-out below) — it is the single
+   source of truth. The shell's OWN top-band scorebug (the duplicate
+   "ported 1:1 from the broadcast replay" one) was removed in
    league_replayer.html so the two HUDs never compete for the same top strip.
    We still hide the chrome the shell re-draws (transport) and the ambient
    light-pool/grain/status, and let the board fill the embed box.
@@ -3210,6 +3211,36 @@ body[data-embed] #lightpool,
 body[data-embed] #grain,
 body[data-embed] #status { display: none !important; }
 body[data-embed] #board { top: 0; height: 100%; }
+
+/* ============================================================
+   CHROME OFF (?chrome=off) — REPLAY-CONTRACT §3a: "the board, and
+   nothing else". Explicit opt-IN only; the param absent is the owner
+   ruling and is completely untouched — the left rail stays the default
+   HUD everywhere. Hides every HUD surface: both pillarbox rails (and
+   whatever relayout() has docked into them — #scorebug, #commsdock,
+   #viewpanel, #killfeed — listed again here directly so this rule does
+   not depend on dock state), #chrome wholesale (transport, kill feed,
+   the flag-event banner lane/lower-third, end card, vote/huddle
+   overlays, view controls, POV badge, hash-mismatch warning — every
+   overlay lives inside #chrome), and the ambient light-pool/grain/status.
+   relayout() also stops reserving rail width for the board (sideLanes
+   false skips the tier-1 railMin subtraction) so the board takes the
+   WHOLE box, not the box minus a hidden rail. #lockerroom (the pre-load
+   loading state) is a SIBLING of #chrome, never a descendant — see its
+   own DOM comment — so it stays visible exactly as before while loading.
+   ============================================================ */
+body[data-chrome="off"] #lane-l,
+body[data-chrome="off"] #lane-r,
+body[data-chrome="off"] #scorebug,
+body[data-chrome="off"] #commsdock,
+body[data-chrome="off"] #transport,
+body[data-chrome="off"] #chrome,
+body[data-chrome="off"] #viewpanel,
+body[data-chrome="off"] #killfeed,
+body[data-chrome="off"] #lightpool,
+body[data-chrome="off"] #grain,
+body[data-chrome="off"] #status { display: none !important; }
+body[data-chrome="off"] #board { top: 0; height: 100%; }
 
 /* Opt-OUT of the #viewpanel overlay (zoom bar + minimap) by param only:
    ?viewpanel=0 sets body[data-noviewpanel]. Defaults are unchanged everywhere
@@ -3762,6 +3793,18 @@ body[data-noviewpanel] #viewpanel { display: none !important; }
   var EMBED = false;
   try { EMBED = new URLSearchParams(location.search).get('embed') === '1'; } catch (e) {}
   if (EMBED) document.body.setAttribute('data-embed', '1');
+
+  // ?chrome=off (REPLAY-CONTRACT §3a): "the board, and nothing else" — no
+  // scorebug/roster, no comms feed, no transport, no timeline/speed, no
+  // kill feed/lower-third/end card, no ambient overlays. Explicit opt-IN
+  // only; param absent leaves the owner-ruled default (left rail HUD)
+  // completely untouched. data-chrome="off" drives the CSS block beside
+  // body[data-embed] above; relayout() below reads CHROME_OFF to stop
+  // reserving rail width so the board fits the WHOLE box at its own
+  // aspect. Independent of EMBED — either, neither, or both may be set.
+  var CHROME_OFF = false;
+  try { CHROME_OFF = new URLSearchParams(location.search).get('chrome') === 'off'; } catch (e) {}
+  if (CHROME_OFF) document.body.setAttribute('data-chrome', 'off');
 
   // ?viewpanel=0 hides the #viewpanel overlay (zoom bar + minimap). This is an
   // explicit opt-OUT only — the default (param absent) is unchanged for every
@@ -8853,7 +8896,9 @@ body[data-noviewpanel] #viewpanel { display: none !important; }
     var tinyBox = boxW < 480;
     var railMin = tinyBox ? Math.max(80, Math.round(boxW * 0.32)) : RAIL_MIN;
     var boardFloor = tinyBox ? Math.max(120, Math.round(boxW * 0.45)) : 320;
-    var sideLanes = true;
+    // ?chrome=off (REPLAY-CONTRACT §3a) turns the rail off entirely — the
+    // default (param absent) leaves sideLanes true, unchanged from before.
+    var sideLanes = !CHROME_OFF;
     if (document.body.classList.contains('sidelanes') !== sideLanes ||
         document.body.classList.contains('sidelanes-both') !== (sideLanes && lanesBoth)) {
       document.body.classList.toggle('sidelanes', sideLanes);
@@ -8862,7 +8907,12 @@ body[data-noviewpanel] #viewpanel { display: none !important; }
     }
     // Tier 1 fits the board into the box MINUS the reserved rail; tier 2
     // fits the full box (both rails then split the leftover evenly).
-    var fitBoxW = lanesBoth ? boxW : Math.max(boardFloor, boxW - railMin);
+    // Under CHROME_OFF, sideLanes is false and there is no rail at all —
+    // skip the reservation so the board gets the WHOLE box (same formula
+    // as tier 2, for a different reason). The default path (sideLanes
+    // true) is untouched: this reduces to the original
+    // `lanesBoth ? boxW : Math.max(boardFloor, boxW - railMin)`.
+    var fitBoxW = (!sideLanes || lanesBoth) ? boxW : Math.max(boardFloor, boxW - railMin);
     for (var pass = 0; pass < 4; pass++) {
       var prevTop = topBand, prevBand = band;
       var availH = Math.max(1, boxH - topBand - band);
@@ -8887,9 +8937,10 @@ body[data-noviewpanel] #viewpanel { display: none !important; }
       // RAIL FIT, owner follow-up 2026-09-09: splits the 16-cell roster
       // column into two below this size, see the CSS comment).
       document.body.classList.toggle('tiny', boardW <= 620);
-      // The scorebug is always docked in the left rail now (sideLanes is
-      // unconditional) — the top band never reserves space, so the board
-      // gets the whole frame height back at every window shape.
+      // The scorebug is always docked in the left rail by default now
+      // (sideLanes is unconditional except under ?chrome=off) — the top
+      // band never reserves space, so the board gets the whole frame
+      // height back at every window shape.
       topBand = 0;
       band = transport ? transport.offsetHeight : 0;
       root.style.setProperty('--topband', topBand + 'px');
@@ -8907,7 +8958,7 @@ body[data-noviewpanel] #viewpanel { display: none !important; }
     // the lobby never spoke (owner spec) — the dock opens regardless of comms,
     // the .cd-empty state names the silence, and the rail counts as the WIDE
     // comms presentation (chip/panel stay put) whatever its exact width.
-    var commsWide = !EMBED &&
+    var commsWide = !CHROME_OFF && !EMBED &&
       (sideLanes || (COMMS_AVAILABLE && (boxW - stageW) >= 280));
     document.body.classList.toggle('commswide', commsWide);
     if (lastState) renderPhaseOverlays(lastState);

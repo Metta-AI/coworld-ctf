@@ -219,7 +219,10 @@ suite "SEASON 2 replay viewer HUD: side-lane docking (letterbox rails)":
     # and is no longer gated by embed mode either. Tier 1 (left rail) is
     # now unconditional (owner: "always") — no aspect/cost gate remains.
     checkInBoth "var lanesBoth = (boxW - fit0) >= 2 * LANE_MIN;"
-    checkInBoth "var sideLanes = true;"
+    # sideLanes is now conditional ONLY on the explicit ?chrome=off opt-out
+    # (REPLAY-CONTRACT §3a, "chrome=off: the board and nothing else" suite
+    # below) — every other window shape / mode still gets sideLanes = true.
+    checkInBoth "var sideLanes = !CHROME_OFF;"
     checkInBoth "dockLanes(sideLanes, sideLanes && lanesBoth);"
 
   test "the rail shrinks rather than disappearing below ~480px wide":
@@ -251,6 +254,52 @@ suite "SEASON 2 replay viewer HUD: side-lane docking (letterbox rails)":
     checkInBoth "(sideLanes || (COMMS_AVAILABLE && (boxW - stageW) >= 280));"
     checkInBoth "cd-empty"
     checkInBoth "#commsFeed:empty + .cd-empty { display: block; }"
+
+suite "chrome=off: the board and nothing else":
+  ## REPLAY-CONTRACT §3a (agent-plugins/ux/skills/ux.replay/REPLAY_CONTRACT.md):
+  ## ?chrome=off strips every HUD surface — scorebug/roster, comms feed,
+  ## transport, timeline/speed, kill feed, lower-third/end card, ambient
+  ## overlays — and gives the board the whole box minus its own aspect
+  ## letterbox. Explicit opt-IN only: the DEFAULT layout (param absent) is
+  ## an owner ruling and is untouched by this feature — see the "side-lane
+  ## docking" suite above, whose `var sideLanes = !CHROME_OFF;` assertion
+  ## already pins that the unconditional case is unaffected.
+  test "the param is parsed next to embed and sets data-chrome":
+    checkInBoth "var CHROME_OFF = false;"
+    checkInBoth "CHROME_OFF = new URLSearchParams(location.search).get('chrome') === 'off';"
+    checkInBoth "document.body.setAttribute('data-chrome', 'off');"
+
+  test "the CSS block hides every chrome surface and lets the board fill the box":
+    checkInBoth "body[data-chrome=\"off\"] #lane-l,"
+    checkInBoth "body[data-chrome=\"off\"] #lane-r,"
+    checkInBoth "body[data-chrome=\"off\"] #scorebug,"
+    checkInBoth "body[data-chrome=\"off\"] #commsdock,"
+    checkInBoth "body[data-chrome=\"off\"] #transport,"
+    checkInBoth "body[data-chrome=\"off\"] #chrome,"
+    checkInBoth "body[data-chrome=\"off\"] #viewpanel,"
+    checkInBoth "body[data-chrome=\"off\"] #killfeed,"
+    checkInBoth "body[data-chrome=\"off\"] #lightpool,"
+    checkInBoth "body[data-chrome=\"off\"] #grain,"
+    checkInBoth "body[data-chrome=\"off\"] #status { display: none !important; }"
+    checkInBoth "body[data-chrome=\"off\"] #board { top: 0; height: 100%; }"
+
+  test "the rail width reservation is skipped so the board gets the whole box":
+    # Same fitBoxW line the default-path test above pins via `sideLanes`;
+    # here we pin the literal so a future edit can't silently drop the
+    # `!sideLanes ||` escape hatch that CHROME_OFF depends on.
+    checkInBoth "var fitBoxW = (!sideLanes || lanesBoth) ? boxW : Math.max(boardFloor, boxW - railMin);"
+    checkInBoth "var commsWide = !CHROME_OFF && !EMBED &&"
+
+  test "#lockerroom (the loading state) is not inside #chrome, so loading still shows":
+    for page in bothPages():
+      checkpoint(page.label & ": #lockerroom must not be nested inside #chrome")
+      let chromeOpen = page.text.find("<div id=\"chrome\">")
+      let chromeClose = page.text.find("<div id=\"status\">", chromeOpen)
+      check chromeOpen >= 0
+      check chromeClose > chromeOpen
+      let lockerroomIdx = page.text.find("id=\"lockerroom\"")
+      check lockerroomIdx >= 0
+      check lockerroomIdx < chromeOpen
 
 suite "SEASON 2 replay viewer HUD: left rail is the default (owner 2026-09-09)":
   ## "the left rail is the design i want" / "always" / "just make left rail
