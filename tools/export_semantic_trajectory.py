@@ -8,6 +8,7 @@ alone cannot establish which call the game executed.
 from __future__ import annotations
 
 import argparse
+from collections import Counter
 import hashlib
 import json
 import os
@@ -29,9 +30,27 @@ def export(
         char not in "0123456789abcdef" for char in source_revision
     ):
         raise ValueError("Episode, policy, and pinned 40-character source revision are required")
-    rows = [json.loads(line) for line in trace_path.read_text().splitlines()]
+    events = [json.loads(line) for line in trace_path.read_text().splitlines()]
+    rows = [event for event in events if event["event_type"] == "play_call_attempt"]
+    status_events = [event for event in events if event["event_type"] == "play_call_status"]
+    if len(rows) + len(status_events) != len(events):
+        raise ValueError("Unknown private journal event type")
     if not rows:
         raise ValueError("Private play-seat journal has no call attempts")
+    statuses = {}
+    for event in status_events:
+        key = (event["seat"], event["proposal_id"])
+        if key in statuses:
+            raise ValueError("Duplicate play-call status")
+        statuses[key] = event["status"]
+    for row in rows:
+        key = (row["seat"], row["proposal_id"])
+        if key in statuses:
+            if row["status"] is not None:
+                raise ValueError("Duplicate inline and journaled play-call status")
+            row["status"] = statuses.pop(key)
+    if statuses:
+        raise ValueError("Play-call status has no intent")
     replay = json.loads(calls_path.read_text())
     if replay["manifest_verified"] is not True:
         raise ValueError("Season 2 replay manifest did not verify")
@@ -49,6 +68,9 @@ def export(
     replay_calls = {call["call_number"]: call for call in replay["calls"] if call["seat"] == seat}
     if len(replay_calls) != sum(call["seat"] == seat for call in replay["calls"]):
         raise ValueError("Duplicate replay call number for seat")
+    known_calls = {int(row["status"]["epoch"]) for row in rows
+                   if row["status"] is not None and row["status"]["kind"] == "call_accepted"}
+    statusless_ladders = Counter(row["submitted_call_json"] for row in rows if row["status"] is None)
     seen_proposals = set()
     joined_calls = set()
     decisions = []
@@ -81,6 +103,22 @@ def export(
                 raise ValueError("Rejected call status names another proposal")
         elif status is not None:
             raise ValueError("Unexpected play-call status kind")
+        elif statusless_ladders[row["submitted_call_json"]] == 1:
+            candidates = [call for number, call in replay_calls.items()
+                          if number not in known_calls and number not in joined_calls
+                          and call["ladder_json"] == row["submitted_call_json"]]
+            if len(candidates) == 1:
+                call = candidates[0]
+                call_number = call["call_number"]
+                joined_calls.add(call_number)
+                executed = {
+                    "call_number": call_number,
+                    "ladder": row["submitted_call"],
+                    "entries": call["entries"],
+                    "record_sha256": call["record_sha256"],
+                    "replay_time_ms": call["replay_time_ms"],
+                    "status_source": "verified_replay",
+                }
         decision_id = f"seat:{seat}:proposal:{proposal_id}"
         origin = row["origin"]
         attempt_id = f"{decision_id}:player"
@@ -90,7 +128,7 @@ def export(
                 "attempt_id": f"{decision_id}:model",
                 "policy": row["model"],
                 "origin": "model",
-                "response": {"request": row["model_request"], "text": row["model_response_text"]},
+                "response": row["model_response_text"],
                 "parsed_action": None,
                 "accepted": False,
                 "rejection_reason": row["model_error"],
@@ -99,18 +137,13 @@ def export(
             "attempt_id": attempt_id,
             "policy": row["model"] if origin == "model" else policy_revision,
             "origin": "model" if origin == "model" else "fallback" if origin == "fallback" else "teacher",
-            "response": (
-                {"request": row["model_request"], "text": row["model_response_text"],
-                 "parsed": row["parsed_response"]}
-                if origin == "model"
-                else row["parsed_response"]
-            ),
+            "response": row["model_response_text"] if origin == "model" else row["parsed_response"],
             "parsed_action": row["submitted_call"],
             "accepted": executed is not None,
             "rejection_reason": status["reason"] if status is not None and executed is None else None,
         })
         action_status = (
-            "missing" if status is None else "rejected" if executed is None else
+            "missing" if executed is None and status is None else "rejected" if executed is None else
             "fallback" if origin == "fallback" else "accepted"
         )
         decisions.append({
@@ -125,7 +158,8 @@ def export(
             "source_revision": source_revision,
             "seat": str(seat),
             "visibility": "private",
-            "observation": {"context": row["context"], "view": row["view"], "tick": row["view_tick"]},
+            "observation": {"context": row["context"], "view": row["view"], "tick": row["view_tick"],
+                            "model_request": row["model_request"], "parsed_response": row["parsed_response"]},
             "prompt": row["prompt"],
             "attempts": attempts,
             "selected_attempt_id": attempt_id if executed is not None else None,
@@ -137,6 +171,10 @@ def export(
         })
     if joined_calls != set(replay_calls):
         raise ValueError("Replay contains accepted seat calls absent from private journal")
+    executed_numbers = [decision["executed_action"]["call_number"] for decision in decisions
+                        if decision["executed_action"] is not None]
+    if executed_numbers != sorted(executed_numbers):
+        raise ValueError("Replay call order differs from private journal")
     complete = {
         "schema_version": "1",
         "episode": {

@@ -171,7 +171,8 @@ logs land in `<output dir>/logs/policy_agent_N.log` and the replay in
 
 Set `POC_DECISION_TRACE` to a new path in a policy container to retain its
 private play-call decisions. The journal is created with mode `0600` and
-refuses an existing path. Each JSONL row contains the last seat-visible
+refuses an existing path. Each call intent is flushed before sending to the
+server; a separate status row follows when a reply arrives. Intent rows contain the last seat-visible
 `PlayContext` and `PlayView`, the exact model request and raw text when a
 model was called, the parsed answer, the repaired canonical ladder sent to
 the server, and the server's accepted or rejected status. Pre-calls and
@@ -187,7 +188,9 @@ Then run `python tools/export_semantic_trajectory.py --trace /path/to/seat.jsonl
 /path/to/results.json --output /path/to/complete.jsonl --episode-id MATCH-SEAT
 --source-revision COMMIT_SHA --policy-revision POLICY_VERSION` (on one line).
 The exporter checks the replay digest, verified manifest, exact submitted
-ladder bytes, call numbers, and final results. Its `CompleteEpisode` JSONL is
+ladder bytes, call numbers, and final results. It resolves a call without a
+status only when one replay call uniquely matches its canonical ladder.
+Its `CompleteEpisode` JSONL is
 private (`0600`), as it can contain prompts and seat-only observations.
 
 ## Traps a policy author will hit

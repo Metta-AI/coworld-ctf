@@ -885,7 +885,7 @@ def _log(persona: Persona, message: str) -> None:
 def _record_call(trace, seat: StarterSeat, label: str, payload: bytes,
                  outcome: dict | None, prompt: str | None = None,
                  summary: str | None = None, decision: dict | None = None,
-                 engine=None) -> None:
+                 engine=None, proposal_id: int | None = None) -> None:
     if trace is None:
         return
     primary = engine.primary if isinstance(engine, brain.ResilientBrain) else None
@@ -910,10 +910,25 @@ def _record_call(trace, seat: StarterSeat, label: str, payload: bytes,
         "parsed_response": decision,
         "submitted_call": json.loads(payload),
         "submitted_call_json": payload.decode("utf-8"),
-        "proposal_id": seat.next_proposal_id - 1,
+        "proposal_id": seat.next_proposal_id - 1 if proposal_id is None else proposal_id,
         "status": outcome,
     }, separators=(",", ":"), ensure_ascii=False) + "\n")
     trace.flush()
+
+
+def _call_and_record(seat: StarterSeat, payload: bytes, label: str, trace,
+                     prompt: str | None = None, summary: str | None = None,
+                     decision: dict | None = None, engine=None):
+    proposal_id = seat.next_proposal_id
+    _record_call(trace, seat, label, payload, None,
+                 prompt, summary, decision, engine, proposal_id)
+    outcome = seat.call(payload, label)
+    if trace is not None and outcome is not None:
+        trace.write(json.dumps({"event_type": "play_call_status", "seat": seat.slot,
+                                "proposal_id": proposal_id, "status": outcome},
+                               separators=(",", ":")) + "\n")
+        trace.flush()
+    return outcome
 
 
 def _send_coordination(persona: Persona, seat: StarterSeat, turn: int,
@@ -1048,8 +1063,7 @@ def run(persona: Persona, args) -> int:
         payload, pre_entries = repair_call(seed, persona, seat, available)
         _log(persona, "pre-call ladder: "
                       + ", ".join(e.get("play", "?") for e in pre_entries))
-        opening = seat.call(payload, "pre-call")
-        _record_call(trace, seat, "pre-call", payload, opening)
+        opening = _call_and_record(seat, payload, "pre-call", trace)
         if opening is None or opening["kind"] != "call_accepted":
             failures.append("pre-call was not accepted")
 
@@ -1078,9 +1092,8 @@ def run(persona: Persona, args) -> int:
         _send_coordination(persona, seat, turn=1, await_echo=True)
 
         payload, _ = repair_call(decision, persona, seat, available)
-        opening = seat.call(payload, "opening call")
-        _record_call(trace, seat, "opening call", payload, opening,
-                     prompt, summary, decision, engine)
+        opening = _call_and_record(seat, payload, "opening call", trace,
+                                   prompt, summary, decision, engine)
         if opening is None or opening["kind"] != "call_accepted":
             failures.append("opening call was not accepted")
 
@@ -1203,9 +1216,7 @@ def _live_loop(persona: Persona, seat: StarterSeat, engine, prompt: str,
                 after_ids = [e.get("entry_id") for e in gated_entries]
                 _log(persona, f"ladder maintenance at tick {view.get('tick')}: "
                               f"{before_ids} -> {after_ids}")
-                outcome = seat.call(gated_payload, "maintenance")
-                _record_call(trace, seat, "maintenance", gated_payload,
-                             outcome)
+                outcome = _call_and_record(seat, gated_payload, "maintenance", trace)
                 if outcome is not None and outcome["kind"] == "call_accepted":
                     payload = gated_payload
                     maintained += 1
@@ -1240,9 +1251,8 @@ def _live_loop(persona: Persona, seat: StarterSeat, engine, prompt: str,
             _log(persona, f"(mid-match, not sent) chat: {chat!r}")
 
         payload, _ = repair_call(decision, persona, seat, available)
-        recall = seat.call(payload, f"re-call {turn - 1}")
-        _record_call(trace, seat, f"re-call {turn - 1}", payload, recall,
-                     prompt, summary, decision, engine)
+        recall = _call_and_record(seat, payload, f"re-call {turn - 1}", trace,
+                                  prompt, summary, decision, engine)
         if recall is None or recall["kind"] != "call_accepted":
             failures.append(f"re-call {turn - 1} was not accepted")
         calls += 1

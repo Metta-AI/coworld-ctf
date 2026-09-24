@@ -87,6 +87,22 @@ class DecisionTraceTests(unittest.TestCase):
         self.assertIsNone(rows[1]["model_request"])
         self.assertIsNone(rows[1]["model_error"])
 
+    def test_call_intent_survives_socket_close_before_status(self):
+        seat = self.seat()
+        out = io.StringIO()
+
+        def close_after_send(payload, label):
+            seat.next_proposal_id += 1
+            raise ConnectionError("closed before status")
+
+        seat.call = close_after_send
+        with self.assertRaisesRegex(ConnectionError, "closed before status"):
+            harness._call_and_record(seat, b'{"plays":[]}', "closing call", out)
+        row = json.loads(out.getvalue())
+        self.assertEqual(row["event_type"], "play_call_attempt")
+        self.assertEqual(row["proposal_id"], 8)
+        self.assertIsNone(row["status"])
+
 
 if __name__ == "__main__":
     unittest.main()
