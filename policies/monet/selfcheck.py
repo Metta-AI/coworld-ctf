@@ -384,8 +384,6 @@ check("gate medic CLOSED: partner already dead",
       not starter_harness.gate_open(MEDIC, facts(
           partner_track=dict(GHOST), partner_downed=True, partner_dead=True)))
 
-RING_CONTROL_ENGAGE_PLAYS = ("fire_superiority", "hold_vs_gun")
-
 for _i, _t in enumerate(PERSONA.canned_turns, start=1):
     _order = [e["play"] for e in _t["call"]["entries"]]
     _fights = [j for j, p in enumerate(_order)
@@ -394,18 +392,28 @@ for _i, _t in enumerate(PERSONA.canned_turns, start=1):
     check(f"turn {_i}: medic rides above every fight rung",
           not _fights or _order.index("medic") < min(_fights),
           str(_order))
-    # RING CONTROL (W3, FOUR DIGITS lane, 2026-09-22): ring_walker was
-    # reordered BELOW the engage plays (fire_superiority/hold_vs_gun) --
-    # was above them, which would have pulled a seat OFF an already-open
-    # fight the instant the shrink clock also qualified. See policy.py's
-    # apply_phase_clamps RING CONTROL block for the live-wire enforcement
-    # of this same ordering on every send path (not just the canned
-    # literal asserted here).
-    _engage = [j for j, p in enumerate(_order)
-              if p in RING_CONTROL_ENGAGE_PLAYS]
-    check(f"turn {_i}: ring_walker present, sorted below engage plays",
+    # RING CONTROL (W3, FOUR DIGITS lane, 2026-09-22) + v65 ORDER (FOUR
+    # DIGITS lane, 2026-09-24): ring_walker sits BELOW fire_superiority (a
+    # live fight with a track still wins the seat, W3's invariant) but
+    # ABOVE hold_vs_gun -- v62's FIGHT PIN only ever reordered fire_
+    # superiority above ring_walker; RING CONTROL's own reorder used to
+    # lump hold_vs_gun into the SAME "engage" tier as fire_superiority, so
+    # ticks fire_superiority's engine `when` guard yielded (no live track)
+    # went first to hold_vs_gun's own unguarded calm-fallback branch (rig
+    # read, ~/.ctf/handoff/2026-09-22-four-digits-lane.md "W12 FINAL":
+    # hold_vs_gun 15-22% of contact ticks, ring_walker+jackal only 1.07%,
+    # target >=10%) before ring_walker ever got a look. See policy.py's
+    # apply_phase_clamps RING CONTROL block (fs-only reorder anchor) and
+    # its new hold-vs-gun-below-ring-walker pin for the live-wire
+    # enforcement of this ordering on every send path, not just the
+    # canned literal asserted here.
+    _fs_idx = [j for j, p in enumerate(_order) if p == "fire_superiority"]
+    _hg_idx = [j for j, p in enumerate(_order) if p == "hold_vs_gun"]
+    check(f"turn {_i}: ring_walker present, below fire_superiority (if "
+          f"any), above hold_vs_gun (if any)",
           "ring_walker" in _order
-          and (not _engage or _order.index("ring_walker") > max(_engage)),
+          and (not _fs_idx or _order.index("ring_walker") > max(_fs_idx))
+          and (not _hg_idx or _order.index("ring_walker") < min(_hg_idx)),
           str(_order))
 
 # Downed partner on the grant row: medic gates onto the wire ladder.
@@ -686,9 +694,10 @@ check("layer_ladder outside next rect, enemy in engage range: ring_walker "
 def _rc_entries(with_ring_before_engage=None):
     """A minimal entries list: pact/target_law overlays, fire_superiority +
     hold_vs_gun (the engage plays), jackal. `with_ring_before_engage=True`
-    inserts an out-of-position ring_walker BEFORE the engage plays (the
-    old, wrong order); False inserts a properly-positioned one after;
-    None omits ring_walker entirely (the live-model-call gap case)."""
+    inserts an out-of-position ring_walker BEFORE fire_superiority (the
+    old, wrong order); False inserts one AFTER hold_vs_gun (the pre-v65
+    "correct" order -- now ALSO wrong, v65 wants it BETWEEN the two); None
+    omits ring_walker entirely (the live-model-call gap case)."""
     e = [{"play": "pact", "entry_id": "truce", "params": {"partners": []}},
          {"play": "target_law", "entry_id": "law", "params": {}}]
     if with_ring_before_engage:
@@ -709,11 +718,30 @@ def _rc_ring(entries):
     return matches[0] if matches else None
 
 
+def _rc_between_fs_and_holdgun(entries):
+    """True iff fire_superiority < ring_walker < hold_vs_gun in list order
+    -- the v65 target position (see the RING CONTROL block's comment for
+    the full WHY: FIGHT PIN keeps fs above ring_walker, a NEW pin keeps
+    ring_walker above hold_vs_gun, so ticks fs yields go to ring_walker
+    before hold_vs_gun's own unguarded calm-fallback branch ever sees
+    them)."""
+    plays = [e["play"] for e in entries]
+    return (plays.index("fire_superiority") < plays.index("ring_walker")
+            < plays.index("hold_vs_gun"))
+
+
 check("RING CONTROL insert-if-missing: apply_phase_clamps installs "
       "ring_walker when a (simulated) model turn omitted it entirely",
       (lambda es: (
           policy.apply_phase_clamps(es, {"tick": 100}, {}),
           _rc_ring(es) is not None)[-1])(_rc_entries(None)))
+
+check("RING CONTROL insert-if-missing (v65 ORDER): a freshly-installed "
+      "ring_walker lands BETWEEN fire_superiority and hold_vs_gun, not "
+      "after both",
+      (lambda es: (
+          policy.apply_phase_clamps(es, {"tick": 100}, {}),
+          _rc_between_fs_and_holdgun(es))[-1])(_rc_entries(None)))
 
 # REGRESSION (caught empirically in the first treatment rig, 2026-09-22:
 # 4863 insert events across 6 seeds/48 seats -- an order of magnitude more
@@ -733,13 +761,20 @@ check("RING CONTROL insert-if-missing does NOT fire on the maintenance "
           policy.apply_phase_clamps(es, {"tick": 100}, {}, source="maintenance"),
           _rc_ring(es) is None)[-1])(_rc_entries(None)))
 
-check("RING CONTROL reorder: an out-of-position ring_walker (before the "
-      "engage plays) is moved below them by apply_phase_clamps",
+check("RING CONTROL reorder (v65 ORDER): a ring_walker sitting BEFORE "
+      "fire_superiority is moved to sit BETWEEN fire_superiority and "
+      "hold_vs_gun by apply_phase_clamps",
       (lambda es: (
           policy.apply_phase_clamps(es, {"tick": 100}, {}),
-          [e["play"] for e in es].index("ring_walker")
-          > [e["play"] for e in es].index("hold_vs_gun"))[-1])(
-              _rc_entries(True)))
+          _rc_between_fs_and_holdgun(es))[-1])(_rc_entries(True)))
+
+check("RING CONTROL reorder (v65 ORDER): a ring_walker sitting AFTER "
+      "hold_vs_gun (the pre-v65 'correct' order) is moved back ABOVE it "
+      "by the new hold-vs-gun-below-ring-walker pin, landing BETWEEN "
+      "fire_superiority and hold_vs_gun",
+      (lambda es: (
+          policy.apply_phase_clamps(es, {"tick": 100}, {}),
+          _rc_between_fs_and_holdgun(es))[-1])(_rc_entries(False)))
 
 for _phase_name, _tick, _expect in (
         ("opening", 0, policy.RING_CONTROL_SCHEDULE["opening"]),
@@ -769,6 +804,24 @@ try:
     check("RING CONTROL opt-out (NORINGCONTROL=True): no ring_walker "
           "entry is installed",
           _rc_ring(_noring_es) is None, str(_noring_es))
+finally:
+    policy.NORINGCONTROL = False
+
+# NORINGCONTROL opt-out (v65 ORDER, FOUR DIGITS lane, 2026-09-24): the NEW
+# hold-vs-gun-below-ring-walker pin is nested in the SAME `if not
+# NORINGCONTROL:` block as the rest of RING CONTROL (not a separate lever),
+# so it must also go silent -- a ring_walker sitting AFTER hold_vs_gun (the
+# pre-v65 order) stays there, unreordered, while the opt-out is armed.
+_noring_holdgun_es = _rc_entries(False)
+policy.NORINGCONTROL = True
+try:
+    policy.apply_phase_clamps(_noring_holdgun_es, {"tick": 900}, {})
+    check("RING CONTROL opt-out (NORINGCONTROL=True): the v65 hold_vs_gun-"
+          "below-ring_walker pin also goes silent (order unchanged, "
+          "hold_vs_gun still ahead of ring_walker)",
+          [e["play"] for e in _noring_holdgun_es].index("hold_vs_gun")
+          < [e["play"] for e in _noring_holdgun_es].index("ring_walker"),
+          str([e["play"] for e in _noring_holdgun_es]))
 finally:
     policy.NORINGCONTROL = False
 check("RING CONTROL default is ON (NORINGCONTROL restored to False)",

@@ -400,6 +400,24 @@ FS_WHEN_GUARD_VARIANTS = {
 # selfcheck). Flagging for a follow-up, not fixing here. Flip this string
 # (never a container env var, matching NOFSWHEN's own house rule) to
 # rollback to "v0_750" or try "v2_tight_zone"/"v3_tight_zone_hp".
+#
+# v65 ORDER FOLLOW-UP (FOUR DIGITS lane, 2026-09-24): the ladder-ORDERING
+# fix flagged above landed here, NOT as a rename of FIGHT PIN's own
+# fs-vs-ring_walker priority (unchanged -- a live fight with a track still
+# beats ring_walker, per W3's invariant) but as RING CONTROL's own reorder
+# scope: ring_walker used to reorder below BOTH fire_superiority AND
+# hold_vs_gun (treating them as one "engage" tier); it now reorders below
+# fire_superiority ONLY, and a new, separate pin holds hold_vs_gun below
+# ring_walker on every send path. Considered (and rejected) giving
+# hold_vs_gun the SAME `when` guard as fire_superiority: hold_vs_gun's
+# whole job (mechanism (B), see the module-level RETURN FIRE comment) is
+# returning fire from an aggressor BEARING with no track at all, and the
+# engine's guard vocabulary (playGuardContext) has no aggressor-freshness
+# term to express that precondition -- FS_WHEN_GUARD reused verbatim would
+# gate hold_vs_gun on a TRACK existing, defeating the no-track case it
+# exists to cover. A reorder changes nothing about whether hold_vs_gun
+# fires, only which controller wins the seat first when both are
+# candidates.
 FS_WHEN_GUARD_VARIANT = "v1_tight500"
 
 FS_WHEN_GUARD = FS_WHEN_GUARD_VARIANTS[FS_WHEN_GUARD_VARIANT]
@@ -1719,14 +1737,36 @@ def apply_phase_clamps(entries, view, pact_state, source=None):
     if not NORINGCONTROL:
         ring_phase = _ring_control_phase(tick)
         ring_doctrine = RING_CONTROL_SCHEDULE[ring_phase]
+        # v65 ORDER (FOUR DIGITS lane, 2026-09-24, ~/.ctf/handoff/
+        # 2026-09-22-four-digits-lane.md "W12 FINAL"): `engage_positions`
+        # used to include hold_vs_gun alongside fire_superiority, so
+        # ring_walker was reordered below BOTH -- but v62's FIGHT PIN only
+        # ever reorders fire_superiority above ring_walker, never
+        # hold_vs_gun, so on the rig (v64, 3 seeds, eval_mapspec_r5733)
+        # every tick fire_superiority's engine `when` guard yielded (no
+        # live track) went first to hold_vs_gun's own unguarded calm-
+        # fallback branch (15-22% of contact ticks) -- ring_walker never
+        # got a look (rw+jk after contact 1.07%, target >=10%). Scoped to
+        # fire_superiority ONLY here: ring_walker now reorders to sit
+        # right after fire_superiority (still below a live fight) but
+        # ahead of hold_vs_gun. The mirror pin just below (HOLD_VS_GUN
+        # BELOW RING_WALKER) is what keeps hold_vs_gun's own position
+        # honest relative to ring_walker on every path -- a reorder, not a
+        # matching `when` guard, because hold_vs_gun's whole job (see the
+        # module-level RETURN FIRE / mechanism (B) comment) is returning
+        # fire from an aggressor BEARING with NO track at all, and the
+        # engine's guard vocabulary (playGuardContext: world.enemy_count/
+        # nearest_enemy_dist/in_zone/zone_dist, self.hp_frac, intent.*,
+        # partner.*) has no aggressor-freshness term -- reusing
+        # FS_WHEN_GUARD verbatim on hold_vs_gun would gate it on a TRACK
+        # existing, exactly the case it exists to cover when one does not.
         engage_positions = [i for i, e in enumerate(entries)
-                           if e.get("play") in ("fire_superiority",
-                                                 "hold_vs_gun")]
+                           if e.get("play") == "fire_superiority"]
         ring_positions = [i for i, e in enumerate(entries)
                          if e.get("play") == "ring_walker"]
         # Reorder: a ring_walker entry sitting AT OR BEFORE the last
-        # engage entry must move below it -- layer_ladder's `gated`
-        # bucket preserves `entries`' own input order among
+        # fire_superiority entry must move below it -- layer_ladder's
+        # `gated` bucket preserves `entries`' own input order among
         # simultaneously-open gates (first-match-wins at the engine), so
         # this is what actually makes "a live fight still takes
         # precedence when a fresh track is inside engage range" true on
@@ -1735,14 +1775,41 @@ def apply_phase_clamps(entries, view, pact_state, source=None):
                 and min(ring_positions) <= max(engage_positions)):
             moved = [entries.pop(i) for i in sorted(ring_positions, reverse=True)]
             insert_at = max(i for i, e in enumerate(entries)
-                           if e.get("play") in ("fire_superiority",
-                                                 "hold_vs_gun")) + 1
+                           if e.get("play") == "fire_superiority") + 1
             for offset, moved_entry in enumerate(reversed(moved)):
                 entries.insert(insert_at + offset, moved_entry)
             starter_harness._log(
                 PERSONA,
                 f"ring_control clamp{tag}: ring_walker reordered below "
-                f"engage plays (was index {ring_positions}){suffix}")
+                f"fire_superiority (was index {ring_positions}){suffix}")
+            fired = True
+
+        # HOLD_VS_GUN BELOW RING_WALKER (v65, FOUR DIGITS lane,
+        # 2026-09-24): the other half of the same fix -- any hold_vs_gun
+        # entry sitting AT OR BEFORE a ring_walker entry must move below
+        # it, same layer_ladder input-order argument as every other
+        # reorder pin in this function. Unconditional on source (like
+        # FIGHT PIN's own fs-above-ring reorder): this only ever reorders
+        # EXISTING entries, never inserts one, so it carries none of the
+        # maintenance-path monopolization risk that gates the insert-if-
+        # missing rung below to source != "maintenance".
+        holdgun_positions = [i for i, e in enumerate(entries)
+                             if e.get("play") == "hold_vs_gun"]
+        ring_positions_now = [i for i, e in enumerate(entries)
+                              if e.get("play") == "ring_walker"]
+        if (holdgun_positions and ring_positions_now
+                and min(holdgun_positions) <= max(ring_positions_now)):
+            moved = [entries.pop(i)
+                     for i in sorted(holdgun_positions, reverse=True)]
+            ring_positions_now = [i for i, e in enumerate(entries)
+                                  if e.get("play") == "ring_walker"]
+            insert_at = max(ring_positions_now) + 1
+            for offset, moved_entry in enumerate(reversed(moved)):
+                entries.insert(insert_at + offset, moved_entry)
+            starter_harness._log(
+                PERSONA,
+                f"ring_control clamp{tag}: hold_vs_gun reordered below "
+                f"ring_walker (was index {holdgun_positions}){suffix}")
             fired = True
         # Insert-if-missing: guarantee an entry exists, positioned right
         # after the last engage entry (or at the end if none is present
@@ -1777,7 +1844,18 @@ def apply_phase_clamps(entries, view, pact_state, source=None):
         # model call cannot drop it" guarantee, and it is safe.
         if source != "maintenance" and not any(
                 e.get("play") == "ring_walker" for e in entries):
-            insert_at = (max(engage_positions) + 1) if engage_positions else len(entries)
+            # v65 ORDER: still after fire_superiority (if any), but now
+            # also BEFORE hold_vs_gun (if any and no fire_superiority is
+            # present to anchor on -- e.g. the opening canned turn, which
+            # carries hold_vs_gun with no fire_superiority entry at all)
+            # rather than defaulting to end-of-list, which used to land
+            # ring_walker AFTER hold_vs_gun in exactly that case.
+            if engage_positions:
+                insert_at = max(engage_positions) + 1
+            else:
+                _holdgun_only = [i for i, e in enumerate(entries)
+                                 if e.get("play") == "hold_vs_gun"]
+                insert_at = min(_holdgun_only) if _holdgun_only else len(entries)
             entries.insert(insert_at, {"play": "ring_walker",
                                        "entry_id": "ring", "params": {}})
             starter_harness._log(
@@ -3065,18 +3143,29 @@ PERSONA = Persona(
                  # dip this budget paid for walks into exactly the band
                  # where the revive channel silently cannot advance.
                  "params": {"abortHpFloor": 1, "zoneReach": 0}},
+                {"play": "ring_walker", "entry_id": "ring",
+                 # RING CONTROL (W3, 2026-09-22) + v65 ORDER (FOUR
+                 # DIGITS lane, 2026-09-24): moved BELOW fire_superiority
+                 # but ABOVE hold_vs_gun (was above both) --
+                 # apply_phase_clamps' own reorder pins enforce this on
+                 # every send path regardless, but the source stays
+                 # honest, same convention as the doctrine literals
+                 # elsewhere in this file. Params are the "opening"
+                 # doctrine (RING_CONTROL_SCHEDULE) -- apply_phase_
+                 # clamps repins them every send too.
+                 "params": {"inset": 179, "leadTicks": 384}},
                 {"play": "hold_vs_gun", "entry_id": "holdgun",
+                 # v65 ORDER (FOUR DIGITS lane, 2026-09-24): moved BELOW
+                 # ring_walker -- see the module-level FS_WHEN_GUARD
+                 # comment's "W12 FINAL"/v65 note and apply_phase_
+                 # clamps' own hold-vs-gun-below-ring-walker reorder pin
+                 # (the mirror of FIGHT PIN's fs-above-ring reorder) for
+                 # the full WHY, including why this is a reorder and not
+                 # a matching `when` guard: hold_vs_gun's whole job is
+                 # firing back with NO track, which the guard vocabulary
+                 # cannot express without breaking that case.
                  "params": {"calmTicks": 48, "coverMax": 260,
                             "engageDist": 500}},
-                {"play": "ring_walker", "entry_id": "ring",
-                 # RING CONTROL (W3, 2026-09-22): moved BELOW the engage
-                 # plays (was above) -- apply_phase_clamps' own reorder
-                 # pin enforces this on every send path regardless, but
-                 # the source stays honest, same convention as the
-                 # doctrine literals elsewhere in this file. Params are
-                 # the "opening" doctrine (RING_CONTROL_SCHEDULE) --
-                 # apply_phase_clamps repins them every send too.
-                 "params": {"inset": 179, "leadTicks": 384}},
                 {"play": "bodyguard", "entry_id": "spring",
                  # peelHp RAISED (v10) 2->3: shield the ward at half of a
                  # 6-hp seat, not just the last quarter -- the duo-shared
@@ -3168,16 +3257,21 @@ PERSONA = Persona(
                  "params": {"breakDeficit": 4, "coverMax": 260,
                             "engageDist": 750, "finishRange": 140,
                             "pressRange": 220, "woundedPct": 50}},
+                {"play": "ring_walker", "entry_id": "ring",
+                 # RING CONTROL (W3, 2026-09-22) + v65 ORDER (FOUR
+                 # DIGITS lane, 2026-09-24): moved BELOW fire_superiority
+                 # but ABOVE hold_vs_gun -- see the opening turn's
+                 # ring_walker entry for the full note. Params are the
+                 # "mid" doctrine (RING_CONTROL_SCHEDULE); apply_phase_
+                 # clamps repins every send regardless.
+                 "params": {"inset": 102, "leadTicks": 280}},
                 {"play": "hold_vs_gun", "entry_id": "holdgun",
+                 # v65 ORDER (FOUR DIGITS lane, 2026-09-24): moved BELOW
+                 # ring_walker -- see the opening turn's hold_vs_gun
+                 # entry for the full note and apply_phase_clamps' own
+                 # reorder pin.
                  "params": {"calmTicks": 48, "coverMax": 260,
                             "engageDist": 500}},
-                {"play": "ring_walker", "entry_id": "ring",
-                 # RING CONTROL (W3, 2026-09-22): moved BELOW the engage
-                 # plays -- see the opening turn's ring_walker entry for
-                 # the full note. Params are the "mid" doctrine
-                 # (RING_CONTROL_SCHEDULE); apply_phase_clamps repins
-                 # every send regardless.
-                 "params": {"inset": 102, "leadTicks": 280}},
                 {"play": "bodyguard", "entry_id": "shield-close",
                  # COMBAT-CLOSE band (measured revive protocol, 28 leader
                  # tag-backs): revives succeed when the duo is ALREADY
@@ -3331,16 +3425,21 @@ PERSONA = Persona(
                  "params": {"breakDeficit": 4, "coverMax": 260,
                             "engageDist": 750, "finishRange": 140,
                             "pressRange": 220, "woundedPct": 50}},
+                {"play": "ring_walker", "entry_id": "ring",
+                 # RING CONTROL (W3, 2026-09-22) + v65 ORDER (FOUR
+                 # DIGITS lane, 2026-09-24): moved BELOW fire_superiority
+                 # but ABOVE hold_vs_gun -- see the opening turn's
+                 # ring_walker entry for the full note. Params are the
+                 # "mid" doctrine (RING_CONTROL_SCHEDULE); apply_phase_
+                 # clamps repins every send regardless.
+                 "params": {"inset": 102, "leadTicks": 280}},
                 {"play": "hold_vs_gun", "entry_id": "holdgun",
+                 # v65 ORDER (FOUR DIGITS lane, 2026-09-24): moved BELOW
+                 # ring_walker -- see the opening turn's hold_vs_gun
+                 # entry for the full note and apply_phase_clamps' own
+                 # reorder pin.
                  "params": {"calmTicks": 48, "coverMax": 260,
                             "engageDist": 500}},
-                {"play": "ring_walker", "entry_id": "ring",
-                 # RING CONTROL (W3, 2026-09-22): moved BELOW the engage
-                 # plays -- see the opening turn's ring_walker entry for
-                 # the full note. Params are the "mid" doctrine
-                 # (RING_CONTROL_SCHEDULE); apply_phase_clamps repins
-                 # every send regardless.
-                 "params": {"inset": 102, "leadTicks": 280}},
                 {"play": "bodyguard", "entry_id": "shield-close",
                  # COMBAT-CLOSE band: same rationale and [40,120] band as
                  # the consolidation turn's shield-close entry above --
