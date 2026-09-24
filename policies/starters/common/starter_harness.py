@@ -176,6 +176,8 @@ class StarterSeat(poc_policy.PlaySeat):
     def __init__(self, connection, slot: int) -> None:
         super().__init__(connection, slot)
         self.view: dict = {}
+        self.context_payload: str | None = None
+        self.view_payload: str | None = None
         self.kill_feed: list[dict] = []
         self._kills_seen: set = set()
         #: the model's full ladder before gating (see layer_ladder)
@@ -183,6 +185,8 @@ class StarterSeat(poc_policy.PlaySeat):
 
     def _file(self, packet: dict) -> None:
         super()._file(packet)
+        if packet["kind"] == "play_context":
+            self.context_payload = packet["context"]
         if packet["kind"] != "play_view":
             return
         try:
@@ -192,6 +196,7 @@ class StarterSeat(poc_policy.PlaySeat):
         if not isinstance(view, dict):
             return
         self.view = view
+        self.view_payload = packet["view"]
         for kill in view.get("kill_feed", []):
             if not isinstance(kill, dict):
                 continue
@@ -877,6 +882,40 @@ def _log(persona: Persona, message: str) -> None:
     print(f"[{persona.name}] {message}", flush=True)
 
 
+def _record_call(trace, seat: StarterSeat, label: str, payload: bytes,
+                 outcome: dict | None, prompt: str | None = None,
+                 summary: str | None = None, decision: dict | None = None,
+                 engine=None) -> None:
+    if trace is None:
+        return
+    primary = engine.primary if isinstance(engine, brain.ResilientBrain) else None
+    model_attempted = primary is not None and engine.last_attempted_model
+    model_answered = model_attempted and engine.error is None
+    trace.write(json.dumps({
+        "schema_version": 1,
+        "event_type": "play_call_attempt",
+        "game": "coworld-ctf",
+        "seat": seat.slot,
+        "view_tick": seat.last_view_tick,
+        "context": json.loads(seat.context_payload) if seat.context_payload is not None else None,
+        "view": json.loads(seat.view_payload) if seat.view_payload is not None else None,
+        "label": label,
+        "origin": "model" if model_answered else "fallback" if decision is not None else "scripted",
+        "model": primary.model if model_attempted else None,
+        "model_request": primary.last_request if model_attempted else None,
+        "model_response_text": primary.last_raw_response if model_attempted else None,
+        "model_error": str(engine.error) if model_attempted and engine.error is not None else None,
+        "prompt": ([{"role": "system", "content": prompt}, {"role": "user", "content": summary}]
+                   if prompt is not None and summary is not None else None),
+        "parsed_response": decision,
+        "submitted_call": json.loads(payload),
+        "submitted_call_json": payload.decode("utf-8"),
+        "proposal_id": seat.next_proposal_id - 1,
+        "status": outcome,
+    }, separators=(",", ":"), ensure_ascii=False) + "\n")
+    trace.flush()
+
+
 def _send_coordination(persona: Persona, seat: StarterSeat, turn: int,
                        await_echo: bool) -> None:
     """Send the persona's extra coordination line, spaced past the chat rate
@@ -969,8 +1008,14 @@ def run(persona: Persona, args) -> int:
            f"?slot={args.slot}&token={args.token}")
     _log(persona, f"connecting to {url}")
 
+    trace_path = os.environ.get("POC_DECISION_TRACE")
+    if trace_path:
+        descriptor = os.open(trace_path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+        trace_context = os.fdopen(descriptor, "w", encoding="utf-8")
+    else:
+        trace_context = contextlib.nullcontext(None)
     failures: list[str] = []
-    with _connect_with_retry(persona, url, args) as ws:
+    with trace_context as trace, _connect_with_retry(persona, url, args) as ws:
         seat = StarterSeat(ws, args.slot)
         seat.base_play = (None if os.environ.get("POC_NO_BASE_PLAY") == "1"
                           else persona.base_play)
@@ -1004,6 +1049,7 @@ def run(persona: Persona, args) -> int:
         _log(persona, "pre-call ladder: "
                       + ", ".join(e.get("play", "?") for e in pre_entries))
         opening = seat.call(payload, "pre-call")
+        _record_call(trace, seat, "pre-call", payload, opening)
         if opening is None or opening["kind"] != "call_accepted":
             failures.append("pre-call was not accepted")
 
@@ -1033,12 +1079,14 @@ def run(persona: Persona, args) -> int:
 
         payload, _ = repair_call(decision, persona, seat, available)
         opening = seat.call(payload, "opening call")
+        _record_call(trace, seat, "opening call", payload, opening,
+                     prompt, summary, decision, engine)
         if opening is None or opening["kind"] != "call_accepted":
             failures.append("opening call was not accepted")
 
         try:
             _live_loop(persona, seat, engine, prompt, available, payload,
-                       args, failures)
+                       args, failures, trace)
         except ConnectionClosed as closed:
             # The server closes every play socket when the match ends; that
             # is the normal way out of the loop, not a transport failure.
@@ -1110,7 +1158,7 @@ def _entries_of(payload: bytes) -> list:
 
 def _live_loop(persona: Persona, seat: StarterSeat, engine, prompt: str,
                available: list[str], payload: bytes, args,
-               failures: list[str]) -> None:
+               failures: list[str], trace=None) -> None:
     """Stay in the match. Pump the socket, watch the view, and re-call the
     model when something changed -- spaced at least ``recall_seconds`` apart,
     at most ``max_calls`` per match, and unconditionally every
@@ -1156,6 +1204,8 @@ def _live_loop(persona: Persona, seat: StarterSeat, engine, prompt: str,
                 _log(persona, f"ladder maintenance at tick {view.get('tick')}: "
                               f"{before_ids} -> {after_ids}")
                 outcome = seat.call(gated_payload, "maintenance")
+                _record_call(trace, seat, "maintenance", gated_payload,
+                             outcome)
                 if outcome is not None and outcome["kind"] == "call_accepted":
                     payload = gated_payload
                     maintained += 1
@@ -1191,6 +1241,8 @@ def _live_loop(persona: Persona, seat: StarterSeat, engine, prompt: str,
 
         payload, _ = repair_call(decision, persona, seat, available)
         recall = seat.call(payload, f"re-call {turn - 1}")
+        _record_call(trace, seat, f"re-call {turn - 1}", payload, recall,
+                     prompt, summary, decision, engine)
         if recall is None or recall["kind"] != "call_accepted":
             failures.append(f"re-call {turn - 1} was not accepted")
         calls += 1

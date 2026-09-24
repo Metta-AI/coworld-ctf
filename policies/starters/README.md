@@ -169,6 +169,27 @@ player command (`/bin/baseline`) and every seat fails to start. The per-seat
 logs land in `<output dir>/logs/policy_agent_N.log` and the replay in
 `<output dir>/replay`.
 
+Set `POC_DECISION_TRACE` to a new path in a policy container to retain its
+private play-call decisions. The journal is created with mode `0600` and
+refuses an existing path. Each JSONL row contains the last seat-visible
+`PlayContext` and `PlayView`, the exact model request and raw text when a
+model was called, the parsed answer, the repaired canonical ladder sent to
+the server, and the server's accepted or rejected status. Pre-calls and
+maintenance calls are marked scripted. A failed model attempt is retained
+beside the canned fallback that followed it. Keep this journal private and
+join accepted calls to the game replay and final results before using them
+as training labels or outcome evidence.
+
+For a finished local Season 2 match, decode the game's replay with
+`nim r tools/export_play_call_records.nim /path/to/game.bitreplay > /path/to/calls.json`.
+Then run `python tools/export_semantic_trajectory.py --trace /path/to/seat.jsonl
+--replay /path/to/game.bitreplay --calls /path/to/calls.json --results
+/path/to/results.json --output /path/to/complete.jsonl --episode-id MATCH-SEAT
+--source-revision COMMIT_SHA --policy-revision POLICY_VERSION` (on one line).
+The exporter checks the replay digest, verified manifest, exact submitted
+ladder bytes, call numbers, and final results. Its `CompleteEpisode` JSONL is
+private (`0600`), as it can contain prompts and seat-only observations.
+
 ## Traps a policy author will hit
 
 Beyond the list in `../poc_llm_policy/README.md` ("Where the docs and schemas

@@ -253,6 +253,8 @@ class OpenAiChatBrain:
                 {"role": "user", "content": summary},
             ],
         }).encode("utf-8")
+        self.last_request = json.loads(body)
+        self.last_raw_response = None
 
         for attempt in (0, 1):
             request = urllib.request.Request(
@@ -287,6 +289,7 @@ class OpenAiChatBrain:
             content = payload["choices"][0]["message"]["content"]
         except (KeyError, IndexError) as error:
             raise BrainError(f"unexpected completion response: {payload}") from error
+        self.last_raw_response = content
         try:
             return parse_model_json(content)
         except ValueError as error:
@@ -364,6 +367,8 @@ class BedrockInvokeBrain:
                 {"role": "assistant", "content": "{"},
             ],
         }).encode("utf-8")
+        self.last_request = json.loads(body)
+        self.last_raw_response = None
         request = urllib.request.Request(
             self.url, data=body,
             headers={"Content-Type": "application/json",
@@ -386,6 +391,7 @@ class BedrockInvokeBrain:
         except (KeyError, TypeError) as error:
             raise BrainError(f"unexpected InvokeModel response: {payload}") from error
         text = "{" + text
+        self.last_raw_response = text
         try:
             return parse_model_json(text)
         except ValueError as error:
@@ -412,6 +418,7 @@ class ResilientBrain:
         self.primary = primary
         self.fallback = fallback if fallback is not None else CannedBrain()
         self.error: Exception | None = None
+        self.last_attempted_model = False
 
     @property
     def name(self) -> str:
@@ -426,7 +433,9 @@ class ResilientBrain:
         return getattr(self.primary, "calls", 0)
 
     def decide(self, summary: str) -> dict:
+        self.last_attempted_model = False
         if self.error is None:
+            self.last_attempted_model = True
             try:
                 return self.primary.decide(summary)
             except Exception as error:  # noqa: BLE001 -- ANY model failure
