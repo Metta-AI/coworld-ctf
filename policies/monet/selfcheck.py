@@ -81,14 +81,13 @@ def _seed_ring(entries: list, tick) -> list:
     engage = [i for i, e in enumerate(entries)
              if e.get("play") in ("fire_superiority", "hold_vs_gun")]
     insert_at = (max(engage) + 1) if engage else len(entries)
-    # RING WHEN GUARD (W16, v67): also pre-seed `when` = the doctrine
-    # guard, mirroring apply_phase_clamps's own when-pin loop, so THAT
-    # lever is also a no-op against a fixture built with this helper --
-    # same "neutralize every lever this fixture isn't testing" contract
-    # the rest of this helper already keeps for RING CONTROL's own
-    # insert/reorder/schedule pins.
+    # No `when` pre-seeded here: W16 v67's RING WHEN GUARD pin loop is
+    # gated on `not NORINGWHEN`, and NORINGWHEN defaults True (rig-proven
+    # dead guard -- see policy.py's module-level RING_WHEN_GUARD "RIG
+    # RESULT" comment), so that pin loop is a no-op by default already --
+    # nothing for this helper to neutralize against it in the default
+    # configuration.
     entries.insert(insert_at, {"play": "ring_walker", "entry_id": "ring",
-                               "when": policy.RING_WHEN_GUARD,
                                "params": params})
     return entries
 
@@ -114,10 +113,11 @@ for i, turn in enumerate(PERSONA.canned_turns, start=1):
     check(f"{label}: chat under the model cap", len(chat) < 200,
           f"{len(chat)} chars")
     check(f"{label}: no dead `when` keys in the canned call "
-          "(fire_superiority and ring_walker excepted -- W11 v63 / W16 "
-          "v67, they carry a real one)",
+          "(fire_superiority excepted -- W11 v63, it carries a real one; "
+          "ring_walker's own W16 v67 guard defaults OFF -- see policy.py's "
+          "RING_WHEN_GUARD RIG RESULT comment -- so it carries none here)",
           all("when" not in e for e in turn["call"]["entries"]
-              if e.get("play") not in ("fire_superiority", "ring_walker")))
+              if e.get("play") != "fire_superiority"))
 
     submitted = [e["play"] for e in turn["call"]["entries"]]
     seat = fake_seat()
@@ -144,10 +144,9 @@ for i, turn in enumerate(PERSONA.canned_turns, start=1):
     check(f"{label}: payload under cap", len(payload) <= 4096,
           f"{len(payload)} bytes")
     check(f"{label}: wire ladder carries `when` on exactly the "
-          "fire_superiority and ring_walker entries, never on anything "
-          "else",
-          all(("when" in e) == (e.get("play") in
-                                 ("fire_superiority", "ring_walker"))
+          "fire_superiority entries, never on anything else (ring_walker "
+          "included -- its own W16 v67 guard defaults OFF)",
+          all(("when" in e) == (e.get("play") == "fire_superiority")
               for e in wire_entries),
           str([(e.get("play"), "when" in e) for e in wire_entries]))
     fs_wire = [e for e in wire_entries if e.get("play") == "fire_superiority"]
@@ -155,11 +154,6 @@ for i, turn in enumerate(PERSONA.canned_turns, start=1):
           "(when present)",
           all(e.get("when") == policy.FS_WHEN_GUARD for e in fs_wire),
           str([e.get("when") for e in fs_wire]))
-    rw_wire = [e for e in wire_entries if e.get("play") == "ring_walker"]
-    check(f"{label}: ring_walker's wire `when` is the doctrine guard "
-          "(when present)",
-          all(e.get("when") == policy.RING_WHEN_GUARD for e in rw_wire),
-          str([e.get("when") for e in rw_wire]))
     # `retune: true` is what lets src/shell/replacement.nim adopt/warm-
     # reconfigure a rung that is already running (matched by entry_id +
     # play + module hash) instead of the harness's every single call --
@@ -6669,13 +6663,11 @@ try:
     _fp_d2_entries = [
         {"play": "pact", "entry_id": "truce", "params": {"partners": ["seat:19"]}},
         {"play": "ring_walker", "entry_id": "ring",
-         # W16 v67: "when" pre-seeded to the doctrine guard too, same
-         # "nothing left to pin" technique as fire_superiority's entry
-         # below -- otherwise apply_phase_clamps' own ring-when-guard pin
-         # loop (RING_WHEN_GUARD, a SEPARATE mechanism from RING CONTROL/
-         # NORINGCONTROL under test here, and independent of it by design)
-         # sets it for the first time on this call and trips `_fp_d2_fired`.
-         "when": policy.RING_WHEN_GUARD,
+         # No `when` to pre-seed here: W16 v67's ring-when-guard pin loop
+         # is gated on `not NORINGWHEN`, and NORINGWHEN defaults True
+         # (rig-proven dead guard -- see policy.py's module-level
+         # RING_WHEN_GUARD "RIG RESULT" comment), so that loop is already
+         # a no-op in the default configuration under test here.
          "params": {}},
         {"play": "fire_superiority", "entry_id": "pressbreak",
          # W11 v63: "when" pre-seeded to the doctrine guard too, same
@@ -6919,16 +6911,27 @@ check("FS WHEN GUARD VARIANT: a REEMIT send (source='final4-reemit') "
       str(_wg_fs(_wgv_reemit_entries).get("when")))
 
 # ── RING WHEN GUARD (W16, FOUR DIGITS lane v67, 2026-09-24): the same
-# treatment as FS WHEN GUARD just above, for ring_walker. Presence and
-# ordering ON THE CALL PATH are RING CONTROL's job (W3, tested above,
-# untouched by this lever) -- this section is scoped to what v67 adds:
-# does every ring_walker entry already on the list get RING_WHEN_GUARD
-# attached, does that entry then actually reach the wire via
-# starter_harness.KEEP_WHEN_PLAYS (bypassing layer_ladder's gate_open
-# snapshot -- the ~2s-cadence harness read W13 FINAL measured leaving
-# ring_walker off the sent ladder most ticks), does v65's own fs-above-
-# ring_walker-above-jackal order survive that bypass, and does NORINGWHEN
-# cleanly disable all of it. ─────────────────────────────────────────────
+# MECHANISM as FS WHEN GUARD just above, for ring_walker -- but DEFAULTED
+# OFF (NORINGWHEN=True): a 3-seed/arm rig (control=v66-press vs this
+# branch, eval_mapspec_r5733.json) measured ring_walker's engine-guard
+# passing share at 0.00% (9740 samples) vs 2.30% for the OLD gate_open-only
+# mechanism in control (7425 samples), and native share went UP
+# (32.04%->33.64%), not down. Root cause proven from source, not just
+# inferred from the rig (see policy.py's module-level RING_WHEN_GUARD "RIG
+# RESULT" comment): `not in_zone` is a strict SUBSET of the engine's own
+# native zone-escape trigger (ladder.nim:747's `if input.nativeBase.isSome`
+# skips the ENTIRE controller loop outright whenever armed; reflexes.nim's
+# `zoneActive` is unconditionally true the instant a seat is outside the
+# current zone, per `zoneTicksUntilOutside` returning exactly 0 there) --
+# so there is no tick on which this guard is true AND ring_walker's own
+# controller-loop guard ever actually gets evaluated. This section tests
+# BOTH states: (a) the SHIPPED default (NORINGWHEN=True, everything below
+# is a no-op, byte-identical to pre-lever v66 behaviour) and (b) the
+# MECHANISM still works correctly when armed (temporarily flips
+# NORINGWHEN=False, same assertions FS WHEN GUARD's own section makes for
+# its sibling, then restores True) -- so a future worker who adds a
+# next-zone/ticks-to-shrink guard term and re-arms this lever inherits a
+# proven-correct mechanism, not an unverified one. ────────────────────────
 def _rwg_entries(when=None):
     """A minimal entries list carrying one ring_walker entry, with the
     given `when` value (or no `when` key at all if None) -- same shape as
@@ -6945,120 +6948,130 @@ def _rwg_rw(entries):
     return matches[0] if matches else None
 
 
-check("KEEP_WHEN_PLAYS wiring: ring_walker is registered by this module "
-      "at import time (NORINGWHEN default False)",
-      "ring_walker" in starter_harness.KEEP_WHEN_PLAYS)
+# (a) SHIPPED DEFAULT (NORINGWHEN=True): no flip needed, this IS the
+# resting module state -- byte-identical to pre-v67 (and pre-v63-style
+# `when` handling) behaviour for ring_walker.
+check("KEEP_WHEN_PLAYS wiring: ring_walker is NOT registered by this "
+      "module by default (NORINGWHEN defaults True -- rig-proven dead "
+      "guard, see policy.py's RING_WHEN_GUARD RIG RESULT comment)",
+      "ring_walker" not in starter_harness.KEEP_WHEN_PLAYS)
 
-check("RING WHEN GUARD pin: a ring_walker entry with no `when` gets "
-      "RING_WHEN_GUARD attached, on every send path including "
-      "maintenance",
+check("RING WHEN GUARD pin is a no-op by default (NORINGWHEN=True): a "
+      "ring_walker entry with no `when` still has none after "
+      "apply_phase_clamps, on every send path including maintenance",
       (lambda es: (
           policy.apply_phase_clamps(es, {"tick": 100}, {}, source="maintenance"),
-          _rwg_rw(es).get("when") == policy.RING_WHEN_GUARD)[-1])(
+          _rwg_rw(es).get("when") is None)[-1])(
               _rwg_entries()))
 
-check("RING WHEN GUARD pin: a ring_walker entry with a STALE `when` "
-      "gets it overwritten back to RING_WHEN_GUARD (model turns never "
-      "win this pin, same discipline as leadTicks/inset above)",
-      (lambda es: (
-          policy.apply_phase_clamps(es, {"tick": 100}, {}),
-          _rwg_rw(es).get("when") == policy.RING_WHEN_GUARD)[-1])(
-              _rwg_entries(when=["get", "partner.alive"])))
+_rwg_default_wire = starter_harness.layer_ladder(
+    _rwg_entries(when=policy.RING_WHEN_GUARD), _wg_empty_view, FAKE_CONTEXT)
+check("RING WHEN GUARD default end-to-end: a ring_walker entry carrying "
+      "RING_WHEN_GUARD does NOT reach layer_ladder's output when its own "
+      "gate_open reads False (zero enemy tracks, no zone marker) -- "
+      "NORINGWHEN=True means KEEP_WHEN_PLAYS never gained ring_walker, so "
+      "the pre-v67 gate_open-only behaviour governs unchanged",
+      _rwg_rw(_rwg_default_wire) is None, str(_rwg_default_wire))
 
-# End-to-end through layer_ladder: the pin alone is not the guarantee -- it
-# must also survive the strip and reach the wire. Reuses FS WHEN GUARD's
-# own `_wg_empty_view` (no zone marker, zero tracks): ring_walker's OWN
-# client-side gate_open (starter_harness.gate_open, play=="ring_walker")
-# reads `not facts.get("in_zone", True)` (defaults True when no zone
-# marker -- False here) OR `(not in_next_zone AND ...)` (also False, same
-# default) -- i.e. FALSE on this exact view, so this proves KEEP_WHEN_PLAYS,
-# not an accidentally-open gate_open, is what keeps the entry on the wire.
-_rwg_ladder_entries = _rwg_entries(when=policy.RING_WHEN_GUARD)
-_rwg_wire = starter_harness.layer_ladder(
-    _rwg_ladder_entries, _wg_empty_view, FAKE_CONTEXT)
-check("RING WHEN GUARD end-to-end: a ring_walker entry carrying "
-      "RING_WHEN_GUARD reaches layer_ladder's output even with ZERO "
-      "enemy tracks and no zone marker in view (own gate_open would read "
-      "False; KEEP_WHEN_PLAYS bypasses that snapshot, the ENGINE's "
-      "per-tick guard is what actually gates it now)",
-      _rwg_rw(_rwg_wire) is not None
-      and _rwg_rw(_rwg_wire).get("when") == policy.RING_WHEN_GUARD,
-      str(_rwg_wire))
-
-# Order: v65's fs-above-ring_walker-above-jackal must survive the bypass --
-# both fire_superiority and ring_walker carry a `when` and are
-# KEEP_WHEN_PLAYS members, so BOTH skip gate_open here (same zero-track,
-# no-zone view neither's own gate would open); layer_ladder's own
-# first-match input-order rule is what must still hold them apart.
-_rwg_order_entries = [
-    {"play": "fire_superiority", "entry_id": "pressbreak", "params": {},
-     "when": policy.FS_WHEN_GUARD},
-    {"play": "ring_walker", "entry_id": "ring", "params": {},
-     "when": policy.RING_WHEN_GUARD},
-]
-_rwg_order_wire = starter_harness.layer_ladder(
-    _rwg_order_entries, _wg_empty_view, FAKE_CONTEXT, base_play="jackal")
-check("RING WHEN GUARD order: with neither's own gate_open able to open "
-      "(zero tracks, no zone marker), the keep_when-bypassed "
-      "fire_superiority and ring_walker entries both reach the wire in "
-      "v65's order (fs above ring_walker), jackal trailing as the "
-      "always-on base",
-      [e.get("play") for e in _rwg_order_wire]
-      == ["fire_superiority", "ring_walker", "jackal"],
-      str([e.get("play") for e in _rwg_order_wire]))
-
-# NORINGWHEN opt-out: flip True, confirm the when-pin goes silent AND
-# KEEP_WHEN_PLAYS loses ring_walker (so layer_ladder falls back to
-# gate_open exactly like every other GATED_PLAYS member, and the SAME
-# empty-view entry above is now dropped from the wire) -- module state is
-# global, restored in `finally` like NOFSWHEN/NOFIGHTPIN/NORINGCONTROL
-# above; every check after this one depends on that restore actually
-# running.
-_norw_es = _rwg_entries()
-policy.NORINGWHEN = True
-starter_harness.KEEP_WHEN_PLAYS.discard("ring_walker")
+# (b) MECHANISM, ARMED (NORINGWHEN temporarily flipped False): the same
+# pin / end-to-end / order / model / reemit assertions FS WHEN GUARD makes
+# for its sibling, proving the underlying bypass mechanism is correct and
+# ready for a future re-arm -- module state is global, restored in
+# `finally`; every check after this block depends on that restore
+# actually running.
+_rwg_prev = policy.NORINGWHEN
+policy.NORINGWHEN = False
+starter_harness.KEEP_WHEN_PLAYS.add("ring_walker")
 try:
-    policy.apply_phase_clamps(_norw_es, {"tick": 900}, {})
-    check("RING WHEN GUARD opt-out (NORINGWHEN=True): no `when` is "
-          "attached and KEEP_WHEN_PLAYS stays clear",
-          _rwg_rw(_norw_es).get("when") is None
-          and "ring_walker" not in starter_harness.KEEP_WHEN_PLAYS,
-          str(_norw_es))
-    _norw_wire = starter_harness.layer_ladder(
-        _rwg_entries(when=policy.RING_WHEN_GUARD), _wg_empty_view,
-        FAKE_CONTEXT)
-    check("RING WHEN GUARD opt-out (NORINGWHEN=True): the SAME "
-          "empty-view entry that reached the wire above is dropped "
-          "again (back to pre-v67 gate_open-only behaviour)",
-          _rwg_rw(_norw_wire) is None, str(_norw_wire))
+    check("RING WHEN GUARD pin (armed): a ring_walker entry with no "
+          "`when` gets RING_WHEN_GUARD attached, on every send path "
+          "including maintenance",
+          (lambda es: (
+              policy.apply_phase_clamps(es, {"tick": 100}, {}, source="maintenance"),
+              _rwg_rw(es).get("when") == policy.RING_WHEN_GUARD)[-1])(
+                  _rwg_entries()))
+
+    check("RING WHEN GUARD pin (armed): a ring_walker entry with a "
+          "STALE `when` gets it overwritten back to RING_WHEN_GUARD "
+          "(model turns never win this pin, same discipline as "
+          "leadTicks/inset above)",
+          (lambda es: (
+              policy.apply_phase_clamps(es, {"tick": 100}, {}),
+              _rwg_rw(es).get("when") == policy.RING_WHEN_GUARD)[-1])(
+                  _rwg_entries(when=["get", "partner.alive"])))
+
+    # End-to-end through layer_ladder: the pin alone is not the guarantee
+    # -- it must also survive the strip and reach the wire. Reuses FS
+    # WHEN GUARD's own `_wg_empty_view` (no zone marker, zero tracks):
+    # ring_walker's OWN client-side gate_open (starter_harness.gate_open,
+    # play=="ring_walker") reads `not facts.get("in_zone", True)`
+    # (defaults True when no zone marker -- False here) OR `(not
+    # in_next_zone AND ...)` (also False, same default) -- i.e. FALSE on
+    # this exact view, so this proves KEEP_WHEN_PLAYS, not an
+    # accidentally-open gate_open, is what keeps the entry on the wire
+    # when armed.
+    _rwg_ladder_entries = _rwg_entries(when=policy.RING_WHEN_GUARD)
+    _rwg_wire = starter_harness.layer_ladder(
+        _rwg_ladder_entries, _wg_empty_view, FAKE_CONTEXT)
+    check("RING WHEN GUARD end-to-end (armed): a ring_walker entry "
+          "carrying RING_WHEN_GUARD reaches layer_ladder's output even "
+          "with ZERO enemy tracks and no zone marker in view (own "
+          "gate_open would read False; KEEP_WHEN_PLAYS bypasses that "
+          "snapshot when armed)",
+          _rwg_rw(_rwg_wire) is not None
+          and _rwg_rw(_rwg_wire).get("when") == policy.RING_WHEN_GUARD,
+          str(_rwg_wire))
+
+    # Order: v65's fs-above-ring_walker-above-jackal must survive the
+    # bypass -- both fire_superiority and ring_walker carry a `when` and
+    # are KEEP_WHEN_PLAYS members when armed, so BOTH skip gate_open here
+    # (same zero-track, no-zone view neither's own gate would open);
+    # layer_ladder's own first-match input-order rule is what must still
+    # hold them apart.
+    _rwg_order_entries = [
+        {"play": "fire_superiority", "entry_id": "pressbreak", "params": {},
+         "when": policy.FS_WHEN_GUARD},
+        {"play": "ring_walker", "entry_id": "ring", "params": {},
+         "when": policy.RING_WHEN_GUARD},
+    ]
+    _rwg_order_wire = starter_harness.layer_ladder(
+        _rwg_order_entries, _wg_empty_view, FAKE_CONTEXT, base_play="jackal")
+    check("RING WHEN GUARD order (armed): with neither's own gate_open "
+          "able to open (zero tracks, no zone marker), the "
+          "keep_when-bypassed fire_superiority and ring_walker entries "
+          "both reach the wire in v65's order (fs above ring_walker), "
+          "jackal trailing as the always-on base",
+          [e.get("play") for e in _rwg_order_wire]
+          == ["fire_superiority", "ring_walker", "jackal"],
+          str([e.get("play") for e in _rwg_order_wire]))
+
+    # Model-turn and reemit sends, spelled out explicitly (maintenance is
+    # already covered just above): apply_phase_clamps's ring-when-guard
+    # pin loop is unconditional on `source` when armed, named directly
+    # here rather than relying on that being implicit (same discipline as
+    # the FS WHEN GUARD VARIANT model/reemit checks above).
+    _rwgm_model_entries = _rwg_entries(when=["get", "partner.alive"])  # stale
+    policy.apply_phase_clamps(_rwgm_model_entries, {"tick": 100}, {}, source=None)
+    check("RING WHEN GUARD (armed): a real MODEL turn (source=None) "
+          "gets RING_WHEN_GUARD, overwriting a stale `when`",
+          _rwg_rw(_rwgm_model_entries).get("when") == policy.RING_WHEN_GUARD,
+          str(_rwg_rw(_rwgm_model_entries).get("when")))
+
+    _rwgm_reemit_entries = _rwg_entries()  # no `when` at all
+    policy.apply_phase_clamps(_rwgm_reemit_entries, {"tick": 100}, {},
+                               source="final4-reemit")
+    check("RING WHEN GUARD (armed): a REEMIT send (source='final4-reemit') "
+          "gets RING_WHEN_GUARD attached",
+          _rwg_rw(_rwgm_reemit_entries).get("when") == policy.RING_WHEN_GUARD,
+          str(_rwg_rw(_rwgm_reemit_entries).get("when")))
 finally:
-    policy.NORINGWHEN = False
-    starter_harness.KEEP_WHEN_PLAYS.add("ring_walker")
-check("RING WHEN GUARD default is ON (NORINGWHEN restored to False, "
-      "KEEP_WHEN_PLAYS restored)",
-      policy.NORINGWHEN is False
-      and "ring_walker" in starter_harness.KEEP_WHEN_PLAYS)
-
-# Model-turn and reemit sends, spelled out explicitly (maintenance and the
-# canned-turn wire path are already covered above/in the per-turn loop):
-# apply_phase_clamps's ring-when-guard pin loop is unconditional on
-# `source`, named directly here rather than relying on that being
-# implicit (same discipline as the FS WHEN GUARD VARIANT model/reemit
-# checks above).
-_rwgm_model_entries = _rwg_entries(when=["get", "partner.alive"])  # stale
-policy.apply_phase_clamps(_rwgm_model_entries, {"tick": 100}, {}, source=None)
-check("RING WHEN GUARD: a real MODEL turn (source=None) gets "
-      "RING_WHEN_GUARD, overwriting a stale `when`",
-      _rwg_rw(_rwgm_model_entries).get("when") == policy.RING_WHEN_GUARD,
-      str(_rwg_rw(_rwgm_model_entries).get("when")))
-
-_rwgm_reemit_entries = _rwg_entries()  # no `when` at all
-policy.apply_phase_clamps(_rwgm_reemit_entries, {"tick": 100}, {},
-                           source="final4-reemit")
-check("RING WHEN GUARD: a REEMIT send (source='final4-reemit') gets "
-      "RING_WHEN_GUARD attached",
-      _rwg_rw(_rwgm_reemit_entries).get("when") == policy.RING_WHEN_GUARD,
-      str(_rwg_rw(_rwgm_reemit_entries).get("when")))
+    policy.NORINGWHEN = _rwg_prev
+    starter_harness.KEEP_WHEN_PLAYS.discard("ring_walker")
+check("RING WHEN GUARD default is OFF (NORINGWHEN restored to True, "
+      "KEEP_WHEN_PLAYS does not carry ring_walker) -- this is the "
+      "SHIPPED state",
+      policy.NORINGWHEN is True
+      and "ring_walker" not in starter_harness.KEEP_WHEN_PLAYS)
 
 print()
 if failures:
