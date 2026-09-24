@@ -950,13 +950,39 @@ GATED_PLAYS = ("supply_run", "loot", "bodyguard", "jackal", "crossfire",
 # to discard every gated controller the model asked for. See gate_and_build.
 SPAWN_HOLD_PLAYS = ("jackal", "bodyguard")
 
+# KEEP_WHEN_PLAYS (W11, FOUR DIGITS lane v63, 2026-09-23/24): every ladder
+# entry's `when` field is stripped below by default -- gate_open's own
+# send-time snapshot (facts computed once, at the moment this ladder is
+# built) is every play's ONLY hand-off mechanism today, which is exactly
+# why a GATED_PLAY whose facts flip between sends can only ever be the
+# passing controller for however long its own gate happened to read open
+# at the moment it was last sent (measured: fire_superiority ~21% of
+# tick-time, ctf-fire-superiority-is-the-passing-controller-only-a-fifth-
+# of-the-match). A play NAME in this set is the opt-in exception: for an
+# entry of that play that already carries a `when` (non-None), the strip
+# is skipped AND GATED_PLAYS' own gate_open() snapshot is bypassed in
+# `layer_ladder` below in favour of the engine's real per-tick hand-off
+# (ladder.nim:377-382 guardPasses, evaluated fresh every tick from
+# episode.nim:526-596 playGuardContext -- see src/ctf/policy_page.nim
+# DefaultPaths for the guard vocabulary). Empty by default: a no-op for
+# every persona and every play unless a persona's own module adds its
+# play's name here at import time (see policies/monet/policy.py's
+# fire_superiority/NOFSWHEN lever, the only current member) -- so default
+# behaviour for every entry whose play never opts in, and for every
+# persona that never touches this set, is byte-identical to before this
+# existed. See test_starter_harness.py for the no-op proof.
+KEEP_WHEN_PLAYS: set[str] = set()
+
 
 def layer_ladder(entries: list, view: dict, context: dict | None = None,
                  kill_feed: list | None = None,
                  base_play: str | None = "edge_ride") -> list:
     """The ladder to actually send: overlays first (they all fold), then the
     gated controllers whose gate is open right now, then the unguarded
-    controllers (edge_ride) as the always-on base. Never emits `when`."""
+    controllers (edge_ride) as the always-on base. Never emits `when`,
+    except for a play in KEEP_WHEN_PLAYS whose entry already carries one --
+    that play's own gate_open() snapshot is skipped too, trusting the
+    engine's per-tick guard instead (see KEEP_WHEN_PLAYS above)."""
     facts = _view_facts(view or {}, context or {}, kill_feed or [])
     facts["max_hp"] = _max_hp(view or {})
     overlays, gated, base = [], [], []
@@ -965,13 +991,15 @@ def layer_ladder(entries: list, view: dict, context: dict | None = None,
         if play not in plays.PLAYS:
             continue
         entry = dict(entry)
-        entry.pop("when", None)
+        keep_when = play in KEEP_WHEN_PLAYS and entry.get("when") is not None
+        if not keep_when:
+            entry.pop("when", None)
         if plays.PLAYS[play]["class"] == "overlay":
             overlays.append(entry)
         elif play == base_play:
             base.append(entry)  # the persona's always-on rung, never gated
         elif play in GATED_PLAYS:
-            if gate_open(entry, facts):
+            if keep_when or gate_open(entry, facts):
                 gated.append(entry)
         elif base_play is None:
             continue  # experiment: no base controller, the engine default drives
@@ -1141,10 +1169,18 @@ def build_call(decision: dict, available: list[str]) -> tuple[bytes, list]:
         }
         if params:
             entry["params"] = params
-        # `when` is deliberately NOT forwarded: the harness gates rungs
-        # itself (layer_ladder) so a gate flip also re-sends the ladder, and
-        # so a starter on a pre-0.7.290 image (guards evaluated on zeros)
-        # cannot regress.
+        # `when` is forwarded ONLY for a play in KEEP_WHEN_PLAYS (W11, FOUR
+        # DIGITS lane v63, 2026-09-23/24 -- see that set's own module-level
+        # comment). Every other play keeps the pre-v63 behaviour exactly:
+        # `when` is deliberately NOT forwarded, because the harness gates
+        # rungs itself (layer_ladder) so a gate flip also re-sends the
+        # ladder, and so a starter on a pre-0.7.290 image (guards evaluated
+        # on zeros) cannot regress. A play that opts into KEEP_WHEN_PLAYS is
+        # accepting that same pre-0.7.290 risk in exchange for the engine's
+        # real per-tick hand-off (see policies/monet/policy.py's
+        # FS_WHEN_GUARD/NOFSWHEN comment for that trade-off's own citation).
+        if play in KEEP_WHEN_PLAYS and raw.get("when") is not None:
+            entry["when"] = raw["when"]
         entries.append(entry)
         if len(entries) >= wire.MAX_LADDER_ENTRIES:
             truncated = len(raw_entries) - (index + 1)

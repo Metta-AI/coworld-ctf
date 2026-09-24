@@ -263,6 +263,74 @@ FIRE_SUPERIORITY_ENGAGE_DIST = {"default": 750, "endgame": 750}
 # same future-proofing reason those two are).
 FIRE_SUPERIORITY_BREAK_DEFICIT = {"default": 4, "endgame": 4}
 
+# FIRE_SUPERIORITY WHEN GUARD (W11, FOUR DIGITS lane v63, 2026-09-23/24,
+# ctf-fire-superiority-is-the-passing-controller-only-a-fifth-of-the-match):
+# the STRUCTURAL fix v62's own NOFIGHTPIN comment deferred to a sibling
+# worker -- "the engine's real per-tick dynamic-yield mechanism is a
+# wire-level `when` guard ... but starter_harness.layer_ladder
+# unconditionally strips `when` ... so this lever cannot reach it without
+# editing policies/starters/common/ (shared, off-limits for this lane)."
+# This lever edits that shared file (see starter_harness.KEEP_WHEN_PLAYS,
+# a mutable opt-in set that module now exposes for exactly this) and pairs
+# it with a `when` value here. v62's FIGHT PIN block above already solved
+# CANDIDATE presence (fire_superiority reliably lands in the PRE-gate
+# `entries`, ranked above ring_walker, on the call path) -- this lever is
+# what lets that candidate survive layer_ladder's send-time gate_open
+# snapshot AT ALL: a fire_superiority entry carrying `when` and opted into
+# KEEP_WHEN_PLAYS bypasses that snapshot entirely in layer_ladder, landing
+# on the WIRE unconditionally, while the ENGINE's own per-tick guard
+# (ladder.nim:377-382 guardPasses, evaluated fresh every tick from
+# src/shell/episode.nim:526-596 playGuardContext -- NOT
+# players/onepage/onepage.nim, a different consumer of the same
+# policy_page.nim expression VM serving the unrelated LLM one-page-policy
+# path) decides whether it actually STEPS this tick. This is what makes
+# fire_superiority's WIRE presence (not just its wanted-ladder candidacy)
+# stop tracking the ~21% send-time snapshot and start tracking the ~67%
+# any-enemy-in-view figure instead, without the monopolization risk
+# NOFIGHTPIN's own comment correctly flagged for an all-sources INSERT
+# (this lever changes nothing about insertion -- FIGHT PIN still owns
+# that, still call-path-only -- only about whether an entry ALREADY on
+# the list, from any source including a maintenance resend, keeps its
+# `when` and is trusted by the engine to yield on its own).
+#
+# playGuardContext's `world.nearest_enemy_dist` (px to the nearest track
+# this seat's own body-level memory holds; -1 sentinel if none --
+# src/ctf/policy_page.nim DefaultPaths) is the closest available proxy for
+# fire_superiority.nim's own internal "their guns" gate
+# (fire_superiority.nim:415-438: a fresh track within engageDist) -- not
+# byte-identical (the engine's own track memory carries no exposed
+# per-tick freshness predicate the way the wasm's internal FreshGunTicks=60
+# window does), but `world.enemy_count > 0` is an exact presence check
+# (episode.nim increments it once per non-ally track, unconditionally) and
+# `<= FIRE_SUPERIORITY_ENGAGE_DIST` reuses the SAME doctrine number the
+# WIRE FIX loop below already pins onto the entry's own params -- one
+# doctrine value, two consumers, never drifts apart.
+FS_WHEN_GUARD = ["and",
+                 [">", ["get", "world.enemy_count"], 0],
+                 ["<=", ["get", "world.nearest_enemy_dist"],
+                  FIRE_SUPERIORITY_ENGAGE_DIST["default"]]]
+
+NOFSWHEN = False  # opt-out kill switch (never armed via container env, per
+                  # house rule, orthogonal to NOFIGHTPIN/NORINGCONTROL/
+                  # NOFIREPERSIST/NOCLOSEBIAS -- flipping this one alone
+                  # must not silently disable any of the others) -- flip
+                  # True to fall back to byte-identical pre-lever
+                  # behaviour: fire_superiority carries no `when`,
+                  # starter_harness.KEEP_WHEN_PLAYS never gains
+                  # "fire_superiority", and its python-side gate_open
+                  # send-time snapshot governs wire presence exactly as
+                  # before this lever existed (FIGHT PIN's own candidacy
+                  # guarantee is unaffected either way).
+if not NOFSWHEN:
+    # Opt into starter_harness's KEEP_WHEN_PLAYS (see that module's own
+    # comment on the set): a fire_superiority entry that carries `when`
+    # keeps it through layer_ladder's strip AND skips gate_open's own
+    # snapshot there, in favour of the engine's per-tick guard above. A
+    # shared, Monet-set module attribute -- same pattern as
+    # HOLD_VS_GUN_AGGRESSOR_GATE above -- so this is a no-op for any other
+    # persona's process, which never imports this module.
+    starter_harness.KEEP_WHEN_PLAYS.add("fire_superiority")
+
 # FINAL FOUR (F4) DETOUR CEILING (F4 initiative, /tmp/monet_f4_0909/
 # F4_INITIATIVE.md, pooled v45+v46 n=202 GV15-era episodes): once caught
 # first at F4, Monet dies inside 5s 88.9% of the time vs 16.7% when it fires
@@ -1511,6 +1579,32 @@ def apply_phase_clamps(entries, view, pact_state, source=None):
                     f"phase={phase}{suffix}")
                 fired = True
             params[field] = doctrine
+
+    # FIRE_SUPERIORITY WHEN GUARD -- pin only (W11, FOUR DIGITS lane v63,
+    # 2026-09-23/24): see the module-level FS_WHEN_GUARD/NOFSWHEN comment
+    # for the full WHY. Deliberately NOT another insert-if-missing -- FIGHT
+    # PIN just above already owns candidate presence/ordering on the call
+    # path (that mechanism, and its own NOFIGHTPIN kill switch, are
+    # untouched by this lever). This is a PIN only, same "every fire_
+    # superiority entry already on the list, every send path including
+    # maintenance" discipline as the pressRange/finishRange/engageDist/
+    # breakDeficit loop just above: whatever put the entry there --
+    # FIGHT PIN's insert, a canned turn, a model call, or a maintenance
+    # resend carrying a stale/missing value -- gets the SAME guard
+    # expression, so `when` is never the one field this doctrine forgets to
+    # re-assert on any path.
+    if not NOFSWHEN:
+        for entry in entries:
+            if entry.get("play") != "fire_superiority":
+                continue
+            old_when = entry.get("when")
+            if old_when != FS_WHEN_GUARD:
+                starter_harness._log(
+                    PERSONA,
+                    f"clamp fire_superiority.when{tag} "
+                    f"{'set' if old_when is None else 'changed'}{suffix}")
+                fired = True
+            entry["when"] = FS_WHEN_GUARD
 
     # RING CONTROL (W3, FOUR DIGITS lane, 2026-09-22): make ring_walker's
     # wire presence, ladder position, and params a guaranteed, phase-
@@ -2946,6 +3040,11 @@ PERSONA = Persona(
                  # where the revive channel silently cannot advance.
                  "params": {"abortHpFloor": 1, "zoneReach": 0}},
                 {"play": "fire_superiority", "entry_id": "pressbreak",
+                 # W11 FOUR DIGITS v63: `when` (see the module-level
+                 # FS_WHEN_GUARD comment) is written here to match doctrine
+                 # for source honesty -- apply_phase_clamps' when-pin loop
+                 # repins it on every send regardless.
+                 "when": FS_WHEN_GUARD,
                  # v11 EARLY CREDIT STACK: same cautious params as the mid
                  # turn (see that entry's comment for the breakDeficit/
                  # woundedPct rationale) -- deliberately NOT copying
@@ -3097,6 +3196,11 @@ PERSONA = Persona(
                  # where the revive channel silently cannot advance.
                  "params": {"abortHpFloor": 1, "zoneReach": 0}},
                 {"play": "fire_superiority", "entry_id": "pressbreak",
+                 # W11 FOUR DIGITS v63: `when` (see the module-level
+                 # FS_WHEN_GUARD comment) is written here to match doctrine
+                 # for source honesty -- apply_phase_clamps' when-pin loop
+                 # repins it on every send regardless.
+                 "when": FS_WHEN_GUARD,
                  # v10: breakDeficit STAYS PARKED at 2 -- "keep fighting
                  # while outgunned" trades win probability for size, and a
                  # self tag-out forfeits the rest of THIS episode's minting
@@ -3199,6 +3303,11 @@ PERSONA = Persona(
                  # in all four turns. It is no longer a ranking call.
                  "params": {"abortHpFloor": 1, "zoneReach": 0}},
                 {"play": "fire_superiority", "entry_id": "pressbreak",
+                 # W11 FOUR DIGITS v63: `when` (see the module-level
+                 # FS_WHEN_GUARD comment) is written here to match doctrine
+                 # for source honesty -- apply_phase_clamps' when-pin loop
+                 # repins it on every send regardless.
+                 "when": FS_WHEN_GUARD,
                  # v10 AMENDMENT (owner field report 2026-09-02): woundedPct
                  # ZEROED 25->0 for the ENDGAME TURN ONLY -- kills the exact
                  # standoff the owner watched happen live: a tied, fully-

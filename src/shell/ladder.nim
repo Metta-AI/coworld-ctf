@@ -579,9 +579,11 @@ proc livePassingController(seat: LadderSeat, ctx: IntentContext;
   -1
 
 ## FOUR DIGITS lane, tick-share + track-presence instrument (plan-4digits.md
-## levers 2+4, 2026-09-22). Compile-time gated (`-d:tickShareProbe`) so the
-## default/shipped server binary is byte-for-byte unchanged -- this is a
-## diagnostic-only probe, never armed via container env per house rule.
+## levers 2+4, 2026-09-22; extended W11 v63, 2026-09-23/24, with a
+## `controller=` field -- see (e) below). Compile-time gated
+## (`-d:tickShareProbe`) so the default/shipped server binary is
+## byte-for-byte unchanged -- this is a diagnostic-only probe, never armed
+## via container env per house rule.
 ##
 ## Emits one `[tickshare]` line per sampled (seat, tick) to stdout, which
 ## run_series.sh already captures into `$SEED_DIR/server.log`. Answers,
@@ -596,7 +598,17 @@ proc livePassingController(seat: LadderSeat, ctx: IntentContext;
 ## tick<1500 per the plan; mid/endgame split at tick<6000/>=6000 is this
 ## instrument's own convention -- the plan did not pin an endgame
 ## threshold); (d) distance to the current zone rect's center and to its
-## nearest edge (negative distEdge = outside the rect, by that many px).
+## nearest edge (negative distEdge = outside the rect, by that many px);
+## (e, W11 v63) the PASSING CONTROLLER NAME this tick -- "native" for the
+## zone-escape reflex, a play name (e.g. "fire_superiority") for whichever
+## ladder entry `livePassingController` actually selected via
+## `entry.guardPasses` this tick (tracked at the exact same assignment
+## site as `output.selectedEntryId`, so it is a direct observation of the
+## real per-tick guard-gated hand-off, not a re-derivation), or "none"
+## when no live entry's guard passes at all. This is what lets a reader
+## compute, per seat-episode, each controller's ACTUAL passing share
+## (not just whether its own gate looked open) -- see
+## policies/monet/aggregate_tickshare.py.
 ##
 ## ALLY EXCLUSION for (b): `view.nim`'s playViewFor appends every
 ## fog-visible ENEMY track first (body.tracks[], already same-team-excluded
@@ -625,7 +637,8 @@ when defined(tickShareProbe):
     else: "endgame"
 
   proc tickShareProbeTick(seatIndex: int; input: LadderSeatInput;
-                           tick: uint32; nativeFired: bool) =
+                           tick: uint32; nativeFired: bool;
+                           controllerPlay: string) =
     if tick mod TickShareProbeStride != 0:
       return
     var distCenter = -1.0
@@ -685,6 +698,7 @@ when defined(tickShareProbe):
     echo "[tickshare] seat=", seatIndex, " tick=", tick,
          " phase=", tickSharePhase(tick),
          " native=", (if nativeFired: 1 else: 0),
+         " controller=", (if controllerPlay.len == 0: "none" else: controllerPlay),
          " trackHit=", trackHit,
          " distCenter=", distCenter.formatFloat(ffDecimal, 1),
          " distEdge=", distEdge.formatFloat(ffDecimal, 1)
@@ -718,6 +732,18 @@ proc stepSeat(driver: LadderDriver; seatIndex: int; input: LadderSeatInput;
   var base = input.defaultIntent
   output.goal = input.defaultGoal
   var provenance = Provenance(base: ProvenanceBase(kind: pbDefault))
+  when defined(tickShareProbe):
+    ## W11, FOUR DIGITS lane v63, 2026-09-23/24: the PASSING CONTROLLER
+    ## NAME for this tick -- "native" for the native zone-escape reflex,
+    ## the play name (e.g. "fire_superiority") for whichever ladder entry
+    ## `livePassingController` actually selected (tracked at the SAME
+    ## assignment site as `output.selectedEntryId` below, so it reflects
+    ## the real per-tick guard-gated selection, not a re-derivation), or
+    ## "" (logged as "none") when no live entry's guard passes at all this
+    ## tick. This is the direct per-tick observation of guardPasses
+    ## actually yielding between controllers -- the mechanism the FOUR
+    ## DIGITS v63 `when` guard lever depends on.
+    var probeControllerPlay = ""
   if input.nativeBase.isSome:
     let native = input.nativeBase.get
     base = native.intent
@@ -726,6 +752,8 @@ proc stepSeat(driver: LadderDriver; seatIndex: int; input: LadderSeatInput;
     output.contributingEpoch = max(output.contributingEpoch,
       native.contributingEpoch)
     output.usedDefault = false
+    when defined(tickShareProbe):
+      probeControllerPlay = "native"
   else:
     var controllerIndex = driver.seats[seatIndex].livePassingController(
       input.guardContext)
@@ -733,6 +761,9 @@ proc stepSeat(driver: LadderDriver; seatIndex: int; input: LadderSeatInput;
       while controllerIndex >= 0:
         output.selectedEntryId =
           driver.seats[seatIndex].entries[controllerIndex].call.entryId
+        when defined(tickShareProbe):
+          probeControllerPlay =
+            driver.seats[seatIndex].entries[controllerIndex].call.play
         driver.stepEntry(seatIndex, controllerIndex, input, tick, output)
         let controller = driver.seats[seatIndex].entries[controllerIndex]
         if controller.state == pisLive and controller.cachedIntent.isSome:
@@ -765,7 +796,8 @@ proc stepSeat(driver: LadderDriver; seatIndex: int; input: LadderSeatInput;
   output.intent = base
   output.provenance = provenance
   when defined(tickShareProbe):
-    tickShareProbeTick(seatIndex, input, tick, input.nativeBase.isSome)
+    tickShareProbeTick(seatIndex, input, tick, input.nativeBase.isSome,
+                        probeControllerPlay)
 
 proc tick*(driver: LadderDriver; inputs: openArray[LadderSeatInput];
            tick: uint32;

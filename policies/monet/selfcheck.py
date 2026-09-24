@@ -6,8 +6,15 @@ Drives every canned turn through the harness's OWN repair path
 via ``layer_ladder``) against the full manifest, and asserts the structural
 clamps hold: truce honor, fire discipline, conversion, anti-stack, and the
 gate behavior of monet's two custom plays. Guards (`when`) are never sent
-since the layer_ladder harness -- gating is asserted here instead, on the
-client, where it now lives. Run from anywhere:
+for any play EXCEPT fire_superiority (W11, FOUR DIGITS lane v63,
+2026-09-23/24) -- see policy.py's module-level FS_WHEN_GUARD/NOFSWHEN
+comment and starter_harness.py's KEEP_WHEN_PLAYS comment: fire_superiority
+opts into carrying its own per-tick engine guard onto the wire instead of
+relying solely on this module's client-side gate_open snapshot (v62's
+FIGHT PIN lever, unaffected by this, still separately guarantees it is a
+CANDIDATE on the call path in the first place). Every other play's gating
+is still asserted here, on the client, where it always lived. Run from
+anywhere:
 
     python3 policies/monet/selfcheck.py
 """
@@ -98,8 +105,10 @@ for i, turn in enumerate(PERSONA.canned_turns, start=1):
     chat = turn.get("chat", "")
     check(f"{label}: chat under the model cap", len(chat) < 200,
           f"{len(chat)} chars")
-    check(f"{label}: no dead `when` keys in the canned call",
-          all("when" not in e for e in turn["call"]["entries"]))
+    check(f"{label}: no dead `when` keys in the canned call "
+          "(fire_superiority excepted -- W11 v63, it carries a real one)",
+          all("when" not in e for e in turn["call"]["entries"]
+              if e.get("play") != "fire_superiority"))
 
     submitted = [e["play"] for e in turn["call"]["entries"]]
     seat = fake_seat()
@@ -125,8 +134,16 @@ for i, turn in enumerate(PERSONA.canned_turns, start=1):
           str(wanted))
     check(f"{label}: payload under cap", len(payload) <= 4096,
           f"{len(payload)} bytes")
-    check(f"{label}: wire ladder carries no `when`",
-          all("when" not in e for e in wire_entries))
+    check(f"{label}: wire ladder carries `when` on exactly the "
+          "fire_superiority entries, never on anything else",
+          all(("when" in e) == (e.get("play") == "fire_superiority")
+              for e in wire_entries),
+          str([(e.get("play"), "when" in e) for e in wire_entries]))
+    fs_wire = [e for e in wire_entries if e.get("play") == "fire_superiority"]
+    check(f"{label}: fire_superiority's wire `when` is the doctrine guard "
+          "(when present)",
+          all(e.get("when") == policy.FS_WHEN_GUARD for e in fs_wire),
+          str([e.get("when") for e in fs_wire]))
     # `retune: true` is what lets src/shell/replacement.nim adopt/warm-
     # reconfigure a rung that is already running (matched by entry_id +
     # play + module hash) instead of the harness's every single call --
@@ -551,8 +568,14 @@ check("layer_ladder turn 3 + near enemy: hold_vs_gun on the ladder",
       "hold_vs_gun" in near, str(near))
 check("layer_ladder turn 3 + near enemy: fire_superiority on the ladder",
       "fire_superiority" in near, str(near))
-check("layer_ladder turn 3, no enemies: neither custom play",
-      "hold_vs_gun" not in calm and "fire_superiority" not in calm, str(calm))
+check("layer_ladder turn 3, no enemies: hold_vs_gun absent (its own "
+      "gate_open snapshot, untouched by this lever)",
+      "hold_vs_gun" not in calm, str(calm))
+check("layer_ladder turn 3, no enemies: fire_superiority PRESENT anyway "
+      "(W11 v63: KEEP_WHEN_PLAYS bypasses gate_open here -- the engine's "
+      "own per-tick `when` guard, not this python-side snapshot, is what "
+      "actually gates it now; see FS_WHEN_GUARD/NOFSWHEN)",
+      "fire_superiority" in calm, str(calm))
 check("layer_ladder turn 3, no enemies: base jackal present",
       "jackal" in calm, str(calm))
 check("monet base_play is jackal", PERSONA.base_play == "jackal",
@@ -621,9 +644,19 @@ controllers = [p for p in ring
                if plays.PLAYS[p]["class"] == "controller"]
 check("layer_ladder outside next rect, no threat: ring_walker on the ladder",
       "ring_walker" in ring, str(ring))
-check("layer_ladder outside next rect, no threat: ring_walker is the "
-      "FIRST controller",
-      bool(controllers) and controllers[0] == "ring_walker", str(ring))
+# W11 v63: fire_superiority is now unconditionally on the wire (KEEP_WHEN_
+# PLAYS bypasses gate_open), ranked ahead of ring_walker -- same relative
+# order as when a real fight is live (the check just below), since TURN3's
+# own literal already lists it first and RING CONTROL's reorder never
+# moves it behind. Whether it is actually LIVE this tick (RING_VIEW has
+# zero tracks) is now the ENGINE's own per-tick `when`-guard call at
+# runtime (guardPasses reads False -> the engine falls through to the next
+# entry, ring_walker) -- not something this python-side ladder ORDER can
+# observe or prove; see FS_WHEN_GUARD/NOFSWHEN and the rig read for that.
+check("layer_ladder outside next rect, no threat: fire_superiority is the "
+      "FIRST controller in LADDER ORDER (unconditional presence; the "
+      "engine's `when` guard, not python order, decides liveness)",
+      bool(controllers) and controllers[0] == "fire_superiority", str(ring))
 
 # RING CONTROL (W3, FOUR DIGITS lane, 2026-09-22): the SAME ring-imminent
 # scenario, but now with a fresh enemy inside engage range -- a live fight
@@ -6088,8 +6121,12 @@ with _contextlib.redirect_stdout(_rfr_ii_log):
                                               _rfr_ii_pact, source=None)
 _rfr_ii_plays = [e["play"] for e in _rfr_ii_entries]
 check("(ii) return-fire-range: under fire, fs open, nearest 150px (<= "
-      "pressRange 220) -- untouched, byte-identical to v59.1",
-      not _rfr_ii_fired
+      "pressRange 220) -- the return-fire-range mechanism ITSELF is "
+      "untouched (no -range log line, plays byte-identical to v59.1); "
+      "overall `fired` is now True regardless, from W11 v63's own "
+      "when-pin loop setting `when` on this call's fire_superiority entry "
+      "for the first time (a separate mechanism, see FS_WHEN_GUARD)",
+      _rfr_ii_fired
       and _rfr_ii_plays == ["pact", "scatter", "fire_superiority", "ring_walker"]
       and "return-fire-range clamp" not in _rfr_ii_log.getvalue(),
       str(_rfr_ii_plays))
@@ -6142,8 +6179,10 @@ with _contextlib.redirect_stdout(_rfr_iv_log):
                                               _rfr_iv_pact, source=None)
 _rfr_iv_plays = [e["play"] for e in _rfr_iv_entries]
 check("(iv) return-fire-range: not under fire, fs open, nearest 600px -- "
-      "untouched (no aggressor -> return_fire_active itself is False)",
-      not _rfr_iv_fired
+      "return-fire ITSELF is untouched (no aggressor -> return_fire_active "
+      "is False, no return-fire log line); overall `fired` is now True "
+      "regardless, from W11 v63's own when-pin loop (see (ii) above)",
+      _rfr_iv_fired
       and _rfr_iv_plays == ["pact", "scatter", "fire_superiority", "ring_walker"]
       and "return-fire" not in _rfr_iv_log.getvalue(),
       str(_rfr_iv_plays))
@@ -6163,9 +6202,11 @@ finally:
     policy.RETURN_FIRE_RANGE = _rfr_v_prev
 _rfr_v_plays = [e["play"] for e in _rfr_v_entries]
 check("(v) RETURN_FIRE_RANGE=False is a plain kill switch: the (i) "
-      "scenario (under fire, fs open, nearest 600px) now leaves the "
-      "ladder untouched, no hold_vs_gun installed, no -range clamp logged",
-      not _rfr_v_fired
+      "scenario (under fire, fs open, nearest 600px) now leaves "
+      "RETURN_FIRE_RANGE itself untouched, no hold_vs_gun installed, no "
+      "-range clamp logged; overall `fired` is now True regardless, from "
+      "W11 v63's own when-pin loop (see (ii) above)",
+      _rfr_v_fired
       and _rfr_v_plays == ["pact", "scatter", "fire_superiority", "ring_walker"]
       and "return-fire-range clamp" not in _rfr_v_log.getvalue(),
       str(_rfr_v_plays))
@@ -6237,6 +6278,12 @@ _diag_entries = _seed_ring([
     {"play": "target_law", "entry_id": "t", "params": {}},
     {"play": "jackal", "entry_id": "j", "params": {}},
     {"play": "fire_superiority", "entry_id": "pressbreak",
+     # W11 v63: "when" pre-seeded to the doctrine guard too, same
+     # "nothing left to pin" technique as the params above -- otherwise
+     # apply_phase_clamps' own when-pin loop (FS_WHEN_GUARD) sets it for
+     # the first time on this call and trips `_diag_fired`, which this
+     # test isn't about.
+     "when": policy.FS_WHEN_GUARD,
      "params": {"pressRange": 220, "finishRange": 140, "engageDist": 750,
                 "breakDeficit": 4}}], 5000)
 _diag_view = {
@@ -6554,6 +6601,12 @@ try:
         {"play": "pact", "entry_id": "truce", "params": {"partners": ["seat:19"]}},
         {"play": "ring_walker", "entry_id": "ring", "params": {}},
         {"play": "fire_superiority", "entry_id": "pressbreak",
+         # W11 v63: "when" pre-seeded to the doctrine guard too, same
+         # "nothing left to pin" technique as the params -- otherwise
+         # apply_phase_clamps' own when-pin loop (FS_WHEN_GUARD, a
+         # SEPARATE mechanism from FIGHT PIN/NOFIGHTPIN under test here)
+         # sets it for the first time on this call and trips `_fp_d2_fired`.
+         "when": policy.FS_WHEN_GUARD,
          "params": {"pressRange": 220, "finishRange": 140, "engageDist": 750,
                     "breakDeficit": 4}},
     ]
@@ -6609,6 +6662,97 @@ check("v62 FIGHT PIN (e) end-to-end: a real model-authored call omitting "
       and _fp_e_plays.index("fire_superiority") < _fp_e_plays.index("ring_walker")
       and _fp_e_fs["params"].get("breakDeficit") == 4,
       str(_fp_e_plays) + " | " + str(_fp_e_fs["params"] if _fp_e_fs else None))
+
+# ── FIRE_SUPERIORITY WHEN GUARD (W11, FOUR DIGITS lane v63, 2026-09-23/24):
+# apply_phase_clamps' when-PIN mechanism, unit-tested directly. Presence
+# and ordering are v62 FIGHT PIN's job (tested above, untouched by this
+# lever) -- this section is scoped to the ONE thing v63 adds: does every
+# fire_superiority entry already on the list get FS_WHEN_GUARD attached,
+# does that entry then actually reach the wire via starter_harness.
+# KEEP_WHEN_PLAYS (bypassing layer_ladder's gate_open snapshot), and does
+# NOFSWHEN cleanly disable both. ─────────────────────────────────────────
+def _wg_entries(when=None):
+    """A minimal entries list carrying one fire_superiority entry, with
+    the given `when` value (or no `when` key at all if None)."""
+    fs = {"play": "fire_superiority", "entry_id": "pressbreak", "params": {}}
+    if when is not None:
+        fs["when"] = when
+    return [{"play": "pact", "entry_id": "truce", "params": {"partners": []}},
+            fs, {"play": "jackal", "entry_id": "third", "params": {}}]
+
+
+def _wg_fs(entries):
+    matches = [e for e in entries if e.get("play") == "fire_superiority"]
+    return matches[0] if matches else None
+
+
+check("KEEP_WHEN_PLAYS wiring: fire_superiority is registered by this "
+      "module at import time (NOFSWHEN default False)",
+      "fire_superiority" in starter_harness.KEEP_WHEN_PLAYS)
+
+check("FS WHEN GUARD pin: a fire_superiority entry with no `when` gets "
+      "FS_WHEN_GUARD attached, on every send path including maintenance",
+      (lambda es: (
+          policy.apply_phase_clamps(es, {"tick": 100}, {}, source="maintenance"),
+          _wg_fs(es).get("when") == policy.FS_WHEN_GUARD)[-1])(_wg_entries()))
+
+check("FS WHEN GUARD pin: a fire_superiority entry with a STALE `when` "
+      "gets it overwritten back to FS_WHEN_GUARD (model turns never win "
+      "this pin, same discipline as pressRange/finishRange/engageDist/"
+      "breakDeficit)",
+      (lambda es: (
+          policy.apply_phase_clamps(es, {"tick": 100}, {}),
+          _wg_fs(es).get("when") == policy.FS_WHEN_GUARD)[-1])(
+              _wg_entries(when=["get", "partner.alive"])))
+
+# End-to-end through layer_ladder: the pin alone is not the guarantee --
+# it must also survive the strip and reach the wire. A view with zero
+# enemy tracks proves KEEP_WHEN_PLAYS, not an accidentally-open gate_open,
+# is what keeps it there (same control-case discipline as
+# test_starter_harness.py's own unit tests for this bypass).
+_wg_empty_view = {"tick": 100, "self": {"pos": [0, 0], "hp_frac": 1.0},
+                  "tracks": [], "items": [], "aggressors": []}
+_wg_ladder_entries = _wg_entries(when=policy.FS_WHEN_GUARD)
+_wg_wire = starter_harness.layer_ladder(
+    _wg_ladder_entries, _wg_empty_view, FAKE_CONTEXT)
+check("FS WHEN GUARD end-to-end: a fire_superiority entry carrying "
+      "FS_WHEN_GUARD reaches layer_ladder's output even with ZERO enemy "
+      "tracks in view (KEEP_WHEN_PLAYS bypasses gate_open's own "
+      "send-time snapshot; the ENGINE's per-tick guard is what actually "
+      "gates it now)",
+      _wg_fs(_wg_wire) is not None
+      and _wg_fs(_wg_wire).get("when") == policy.FS_WHEN_GUARD,
+      str(_wg_wire))
+
+# NOFSWHEN opt-out: flip True, confirm the when-pin goes silent AND
+# KEEP_WHEN_PLAYS loses fire_superiority (so layer_ladder falls back to
+# gate_open exactly like every other GATED_PLAYS member, and the SAME
+# empty-view entry above is now dropped from the wire) -- module state is
+# global, restored in `finally` like NOFIGHTPIN/NORINGCONTROL above; every
+# check after this one depends on that restore actually running.
+_nofs_es = _wg_entries()
+policy.NOFSWHEN = True
+starter_harness.KEEP_WHEN_PLAYS.discard("fire_superiority")
+try:
+    policy.apply_phase_clamps(_nofs_es, {"tick": 900}, {})
+    check("FS WHEN GUARD opt-out (NOFSWHEN=True): no `when` is attached "
+          "and KEEP_WHEN_PLAYS stays clear",
+          _wg_fs(_nofs_es).get("when") is None
+          and "fire_superiority" not in starter_harness.KEEP_WHEN_PLAYS,
+          str(_nofs_es))
+    _nofs_wire = starter_harness.layer_ladder(
+        _wg_entries(when=policy.FS_WHEN_GUARD), _wg_empty_view, FAKE_CONTEXT)
+    check("FS WHEN GUARD opt-out (NOFSWHEN=True): the SAME empty-view "
+          "entry that reached the wire above is dropped again (back to "
+          "pre-v63 gate_open-only behaviour)",
+          _wg_fs(_nofs_wire) is None, str(_nofs_wire))
+finally:
+    policy.NOFSWHEN = False
+    starter_harness.KEEP_WHEN_PLAYS.add("fire_superiority")
+check("FS WHEN GUARD default is ON (NOFSWHEN restored to False, "
+      "KEEP_WHEN_PLAYS restored)",
+      policy.NOFSWHEN is False
+      and "fire_superiority" in starter_harness.KEEP_WHEN_PLAYS)
 
 print()
 if failures:
