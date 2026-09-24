@@ -301,14 +301,96 @@ FIRE_SUPERIORITY_BREAK_DEFICIT = {"default": 4, "endgame": 4}
 # byte-identical (the engine's own track memory carries no exposed
 # per-tick freshness predicate the way the wasm's internal FreshGunTicks=60
 # window does), but `world.enemy_count > 0` is an exact presence check
-# (episode.nim increments it once per non-ally track, unconditionally) and
-# `<= FIRE_SUPERIORITY_ENGAGE_DIST` reuses the SAME doctrine number the
-# WIRE FIX loop below already pins onto the entry's own params -- one
-# doctrine value, two consumers, never drifts apart.
-FS_WHEN_GUARD = ["and",
-                 [">", ["get", "world.enemy_count"], 0],
-                 ["<=", ["get", "world.nearest_enemy_dist"],
-                  FIRE_SUPERIORITY_ENGAGE_DIST["default"]]]
+# (episode.nim increments it once per non-ally track, unconditionally).
+#
+# GUARD VARIANTS (W12, FOUR DIGITS lane v64, 2026-09-24, ~/.ctf/handoff/
+# 2026-09-22-four-digits-lane.md "W11 FINAL"/D25): the rig proved v63's own
+# guard (v0 below, <=750 = FIRE_SUPERIORITY_ENGAGE_DIST, the params clamp
+# the WIRE FIX loop pins onto the entry) raised fire_superiority's passing
+# share 21%->49-67%, but ring_walker/jackal got ~0 ticks in 2 of 3 seeds:
+# not a lockout (172 ticks/seed where fs had no track and another
+# controller stepped) but genuine contention -- fs wins first-match
+# whenever ANY track sits within 750px, which is wider than the wasm's own
+# engage band. Two tighter variants, both cheap under GuardDepthMax=4 /
+# GuardNodeMax=64 (src/shell/types.nim:461-462) and both built from paths
+# already in src/ctf/policy_page.nim's DefaultPaths (world.in_zone is
+# pkBool, so `["get","world.in_zone"]` is a legal bare AND-term -- see
+# policy_page.nim:594/616-624 -- no comparison wrapper needed):
+#   V1 "tight": engageDist 750->500. 500 is NOT FIRE_SUPERIORITY_ENGAGE_DIST
+#     (that constant, and the params clamp it feeds, are untouched by this
+#     lever) -- it is hold_vs_gun.nim's own engageDist default
+#     (policies/monet/plays/hold_vs_gun.nim:117, "{...engageDist":{"default":
+#     500...) -- the wasm's actual stand-and-fight engage band, tighter
+#     than fire_superiority's own 600 default and much tighter than the
+#     750 doctrine clamp. Closing the guard to the band the wasm itself
+#     fights at should shed the widest, weakest tail of contention.
+#   V2 "tight+zone": V1 AND `world.in_zone` -- fs never holds the seat
+#     while outside the CURRENT zone rect, so ring_walker (whose whole job
+#     is getting back inside before the native 72-tick hazard reflex fires,
+#     src/shell/episode.nim) gets first claim on the seat out-of-zone, and
+#     fs still owns it the instant a fight is on AND we're already safe.
+#   V3 "tight+zone+hp": V2 AND `self.hp_frac > FS_WHEN_GUARD_HP_FLOOR` --
+#     cheap (one more AND term, well under both caps) so included per the
+#     brief's "only if cheap" -- yields the seat below the floor so a
+#     downed-adjacent seat doesn't stand and trade instead of disengaging.
+#     Not the recommended default (see FS_WHEN_GUARD_VARIANT below): no rig
+#     evidence yet that low-hp standoffs are a real loss driver here, and
+#     it is one more term than the rig table was built to distinguish.
+FS_WHEN_GUARD_DIST_TIGHT = 500  # hold_vs_gun.nim's own engageDist default,
+                                # NOT FIRE_SUPERIORITY_ENGAGE_DIST (stays 750
+                                # for the params clamp below, untouched).
+FS_WHEN_GUARD_HP_FLOOR = 0.25   # V3 only; a bare guess, not yet rig-tuned.
+
+FS_WHEN_GUARD_V0_750 = ["and",
+                        [">", ["get", "world.enemy_count"], 0],
+                        ["<=", ["get", "world.nearest_enemy_dist"],
+                         FIRE_SUPERIORITY_ENGAGE_DIST["default"]]]
+# v63 as-shipped, kept byte-identical for the rig's own A/B baseline and as
+# an instant rollback target via FS_WHEN_GUARD_VARIANT below.
+
+FS_WHEN_GUARD_V1_TIGHT500 = ["and",
+                             [">", ["get", "world.enemy_count"], 0],
+                             ["<=", ["get", "world.nearest_enemy_dist"],
+                              FS_WHEN_GUARD_DIST_TIGHT]]
+
+FS_WHEN_GUARD_V2_TIGHT_ZONE = ["and",
+                               [">", ["get", "world.enemy_count"], 0],
+                               ["<=", ["get", "world.nearest_enemy_dist"],
+                                FS_WHEN_GUARD_DIST_TIGHT],
+                               ["get", "world.in_zone"]]
+
+FS_WHEN_GUARD_V3_TIGHT_ZONE_HP = ["and",
+                                  [">", ["get", "world.enemy_count"], 0],
+                                  ["<=", ["get", "world.nearest_enemy_dist"],
+                                   FS_WHEN_GUARD_DIST_TIGHT],
+                                  ["get", "world.in_zone"],
+                                  [">", ["get", "self.hp_frac"],
+                                   FS_WHEN_GUARD_HP_FLOOR]]
+
+FS_WHEN_GUARD_VARIANTS = {
+    "v0_750": FS_WHEN_GUARD_V0_750,
+    "v1_tight500": FS_WHEN_GUARD_V1_TIGHT500,
+    "v2_tight_zone": FS_WHEN_GUARD_V2_TIGHT_ZONE,
+    "v3_tight_zone_hp": FS_WHEN_GUARD_V3_TIGHT_ZONE_HP,
+}
+
+# DEFAULT (W12 rig recommendation, see this branch's handoff report for the
+# table): "v2_tight_zone". V1 alone already clears every rig target (fs
+# share, ring_walker+jackal combined share, kills/seat, death tick) with no
+# measured downside vs V0; V2 additionally guarantees ring_walker gets the
+# seat back on every out-of-zone tick regardless of enemy range, which is
+# the exact "seat back when a fight is not actually on" case this build was
+# asked to close, at the same rig-measured cost as V1. Flip this string
+# (never a container env var, matching NOFSWHEN's own house rule) to
+# rollback to "v0_750" or try "v1_tight500"/"v3_tight_zone_hp".
+FS_WHEN_GUARD_VARIANT = "v2_tight_zone"
+
+FS_WHEN_GUARD = FS_WHEN_GUARD_VARIANTS[FS_WHEN_GUARD_VARIANT]
+# Every downstream consumer (the three canned-turn literals, and the
+# apply_phase_clamps when-pin loop below that repins it on every model/
+# reemit/maintenance send) reads `FS_WHEN_GUARD` itself, never a variant
+# constant directly -- so selecting a variant here is the ONLY edit needed
+# to change what ships; nothing else in this file names a variant by name.
 
 NOFSWHEN = False  # opt-out kill switch (never armed via container env, per
                   # house rule, orthogonal to NOFIGHTPIN/NORINGCONTROL/

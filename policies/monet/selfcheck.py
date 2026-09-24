@@ -6754,6 +6754,93 @@ check("FS WHEN GUARD default is ON (NOFSWHEN restored to False, "
       policy.NOFSWHEN is False
       and "fire_superiority" in starter_harness.KEEP_WHEN_PLAYS)
 
+# ── FIRE_SUPERIORITY WHEN GUARD VARIANTS (W12, FOUR DIGITS lane v64,
+# 2026-09-24, ~/.ctf/handoff/2026-09-22-four-digits-lane.md "W11 FINAL"/
+# D25): v63's own guard (v0_750) raised fire_superiority's passing share
+# but left ring_walker/jackal with ~0 ticks in 2/3 rig seeds -- contention,
+# not a lockout. This section is scoped to the ONE thing v64 adds: a
+# FS_WHEN_GUARD_VARIANT selector over a registry of guard expressions, and
+# the guarantee that FS_WHEN_GUARD (the value every canned turn literal,
+# and apply_phase_clamps's own when-pin loop, actually reads) is always
+# exactly the selected variant's expression -- never a stale copy. ───────
+check("FS WHEN GUARD VARIANTS: registry has exactly the four documented "
+      "variants (v0_750 rollback target, v1_tight500, v2_tight_zone, "
+      "v3_tight_zone_hp)",
+      set(policy.FS_WHEN_GUARD_VARIANTS) == {
+          "v0_750", "v1_tight500", "v2_tight_zone", "v3_tight_zone_hp"},
+      str(sorted(policy.FS_WHEN_GUARD_VARIANTS)))
+
+check("FS WHEN GUARD VARIANTS: v0_750 is byte-identical to the pre-v64 "
+      "(v63) guard -- <=FIRE_SUPERIORITY_ENGAGE_DIST (750), the rig's own "
+      "A/B baseline and rollback target",
+      policy.FS_WHEN_GUARD_VARIANTS["v0_750"] == [
+          "and", [">", ["get", "world.enemy_count"], 0],
+          ["<=", ["get", "world.nearest_enemy_dist"],
+           policy.FIRE_SUPERIORITY_ENGAGE_DIST["default"]]],
+      str(policy.FS_WHEN_GUARD_VARIANTS["v0_750"]))
+
+check("FS WHEN GUARD VARIANTS: v1_tight500 tightens the distance band to "
+      "500 (hold_vs_gun.nim's own engageDist default) -- NOT "
+      "FIRE_SUPERIORITY_ENGAGE_DIST, which stays 750 for the params clamp",
+      policy.FS_WHEN_GUARD_VARIANTS["v1_tight500"] == [
+          "and", [">", ["get", "world.enemy_count"], 0],
+          ["<=", ["get", "world.nearest_enemy_dist"], 500]]
+      and policy.FS_WHEN_GUARD_DIST_TIGHT == 500
+      and policy.FIRE_SUPERIORITY_ENGAGE_DIST["default"] == 750,
+      str(policy.FS_WHEN_GUARD_VARIANTS["v1_tight500"]))
+
+check("FS WHEN GUARD VARIANTS: v2_tight_zone is v1_tight500 with exactly "
+      "one more AND-term, a bare `[\"get\",\"world.in_zone\"]` (pkBool -- "
+      "a legal bare AND-term per policy_page.nim, no comparison wrapper "
+      "needed), so ring_walker gets the seat on every out-of-zone tick",
+      policy.FS_WHEN_GUARD_VARIANTS["v2_tight_zone"]
+      == policy.FS_WHEN_GUARD_VARIANTS["v1_tight500"]
+      + [["get", "world.in_zone"]],
+      str(policy.FS_WHEN_GUARD_VARIANTS["v2_tight_zone"]))
+
+check("FS WHEN GUARD VARIANTS: v3_tight_zone_hp is v2_tight_zone with "
+      "exactly one more AND-term, an hp_frac floor",
+      policy.FS_WHEN_GUARD_VARIANTS["v3_tight_zone_hp"]
+      == policy.FS_WHEN_GUARD_VARIANTS["v2_tight_zone"]
+      + [[">", ["get", "self.hp_frac"], policy.FS_WHEN_GUARD_HP_FLOOR]],
+      str(policy.FS_WHEN_GUARD_VARIANTS["v3_tight_zone_hp"]))
+
+check("FS WHEN GUARD VARIANT selector: FS_WHEN_GUARD_VARIANT names a real "
+      "key in the registry",
+      policy.FS_WHEN_GUARD_VARIANT in policy.FS_WHEN_GUARD_VARIANTS,
+      policy.FS_WHEN_GUARD_VARIANT)
+
+check("FS WHEN GUARD VARIANT selector: FS_WHEN_GUARD (what every "
+      "consumer -- canned turns, apply_phase_clamps's when-pin loop -- "
+      "actually reads) is EXACTLY the selected variant's expression, "
+      "never a stale copy from a prior edit",
+      policy.FS_WHEN_GUARD
+      == policy.FS_WHEN_GUARD_VARIANTS[policy.FS_WHEN_GUARD_VARIANT],
+      f"selected={policy.FS_WHEN_GUARD_VARIANT} "
+      f"FS_WHEN_GUARD={policy.FS_WHEN_GUARD}")
+
+# Model-turn and reemit sends, spelled out explicitly (maintenance and the
+# canned-turn wire path are already covered above/in the per-turn loop):
+# apply_phase_clamps's when-pin loop is unconditional on `source`, but the
+# variant selector is new enough this run to warrant naming both paths
+# directly rather than relying on that being implicit.
+_wgv_model_entries = _wg_entries(when=["get", "partner.alive"])  # stale
+policy.apply_phase_clamps(_wgv_model_entries, {"tick": 100}, {}, source=None)
+check("FS WHEN GUARD VARIANT: a real MODEL turn (source=None) gets the "
+      "selected variant's guard, overwriting a stale `when`",
+      _wg_fs(_wgv_model_entries).get("when")
+      == policy.FS_WHEN_GUARD_VARIANTS[policy.FS_WHEN_GUARD_VARIANT],
+      str(_wg_fs(_wgv_model_entries).get("when")))
+
+_wgv_reemit_entries = _wg_entries()  # no `when` at all
+policy.apply_phase_clamps(_wgv_reemit_entries, {"tick": 100}, {},
+                           source="final4-reemit")
+check("FS WHEN GUARD VARIANT: a REEMIT send (source='final4-reemit') "
+      "gets the selected variant's guard attached",
+      _wg_fs(_wgv_reemit_entries).get("when")
+      == policy.FS_WHEN_GUARD_VARIANTS[policy.FS_WHEN_GUARD_VARIANT],
+      str(_wg_fs(_wgv_reemit_entries).get("when")))
+
 print()
 if failures:
     print(f"SELF-CHECK FAILED: {len(failures)} failing check(s)")
