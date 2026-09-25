@@ -72,9 +72,8 @@ jobs:
       #
       # So: always target main's HEAD rather than the SHA that happened to
       # trigger this run, and gate on the two things that actually matter —
-      # HEAD's tests are green, and HEAD is not already published. Any
-      # trigger (workflow_run, the hourly sweep, a manual dispatch) then
-      # converges on the same answer, and re-runs are harmless.
+      # HEAD's tests are green, and game-package inputs changed since the
+      # last published tag. Manual dispatch can publish the same tree again.
       - name: Resolve the publish target
         id: freshness
         working-directory: coworld-ctf
@@ -96,6 +95,30 @@ jobs:
             echo "::notice::main HEAD $head is already published as ${existing#paintbot-v}; nothing to do."
             echo "stale=1" >> "$GITHUB_OUTPUT"
             exit 0
+          fi
+
+          # Starter and proof tools do not change the uploaded game or
+          # bundled player. The baseline image copies build_playbook.sh, so
+          # edits to that file still require a release. Compare with the last
+          # published tag so the hourly sweep retains unpublished game edits.
+          published=$(git tag --merged "$head" --list 'paintbot-v*' --sort=-version:refname | sed -n '1p')
+          if [ -n "$published" ] && [ "${{ github.event_name }}" != "workflow_dispatch" ]; then
+            git diff --name-only -z "$published" "$head" > "$RUNNER_TEMP/paintbot-release-paths"
+            game_changed=0
+            while IFS= read -r -d '' path; do
+              case "$path" in
+                policies/starters/common/build_playbook.sh) game_changed=1; break ;;
+                policies/poc_llm_policy/brain.py|policies/starters/*) ;;
+                tools/export_play_call_records.nim|tools/export_semantic_trajectory.py|tools/test_export_semantic_trajectory.py) ;;
+                .github/workflows/build.yml|.github/workflows/upload-coworld-paintbot.yml) ;;
+                *) game_changed=1; break ;;
+              esac
+            done < "$RUNNER_TEMP/paintbot-release-paths"
+            if [ "$game_changed" = 0 ]; then
+              echo "::notice::Skipping upload: only standalone player and export code changed since $published."
+              echo "stale=1" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
           fi
 
           # GREEN? The workflow_run path used to get this for free by building
