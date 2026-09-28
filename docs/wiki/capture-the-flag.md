@@ -8,4 +8,4 @@ Today's mode is [[battle-royale-s2]]; see [[modes]] for the current variant list
 
 ## History
 
-Capture the flag belonged to the two-team `Ctf` league era, the ruleset the four-team [[ffa]] mode later extended — both superseded by Paintbot (Season 2)'s battle-royale work.
+Capture the flag belonged to the two-team `Ctf` league era, the ruleset the four-team [[ffa]] mode later extended — both superseded by Paintbot 2's battle-royale work.

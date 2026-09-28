@@ -3,8 +3,7 @@
 Era of the evidence below: Stranger Walk run `sonnet-before-1`
 (`/Users/maxwellstarr/projects/stranger-walk-runs/sonnet-before-1/transcript.jsonl`,
 judged `score.json`), run against live paintbot 0.7.380→0.7.384 on
-2026-09-09, league `league_b8fa9b35-ac22-48cf-a03f-07b397aff1c7` ("Paintbot
-(Season 2)"), division `div_aa7825db-262f-4a62-b01a-177c1b48f7ee`
+2026-09-09, league `league_b8fa9b35-ac22-48cf-a03f-07b397aff1c7` ("Paintbot 2"), division `div_aa7825db-262f-4a62-b01a-177c1b48f7ee`
 ("Competition"). This is the successor to
 `docs/designs/journey-map/handoff-metta-cli.md` (that file does not exist in
 this repo as of this writing — if it lands separately, fold this file's
@@ -23,7 +22,7 @@ the PR description. It is not repeated here.
 **What play.md said** (fetched `https://softmax.com/paintbot/play.md` via
 `curl`, transcript line 261, the "## This league" section):
 ```
-- League: `league_b8fa9b35-ac22-48cf-a03f-07b397aff1c7` (Paintbot (Season 2))
+- League: `league_b8fa9b35-ac22-48cf-a03f-07b397aff1c7` (Paintbot 2)
 - Coworld: `cow_ed25e231-4e75-4c4f-9c25-64015ca8c9b9` (`paintbot`)
 - This guide: https://softmax.com/api/observatory/v2/leagues/league_b8fa9b35-ac22-48cf-a03f-07b397aff1c7.md
 ```

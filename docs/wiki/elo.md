@@ -10,26 +10,25 @@ settings — each league can switch its ladder on or off, choose which
 algorithm it runs, and tune its own K-factor and initial rating
 independently of the code defaults below. The flagship classic-mode league
 that once ran this way has since split into two leagues: **Campaign**, a
-territory-style board with no Elo ladder at all, and **Paintbot (Season
-2)**, whose ladder runs the score-standing algorithm below, not Elo — see
+territory-style board with no Elo ladder at all, and **Paintbot 2**, whose ladder runs the score-standing algorithm below, not Elo — see
 [[league]].
 
 ### The score-standing algorithm (not Elo)
 
-**Paintbot (Season 2)'s live ladder does not run the pairwise Elo update
+**Paintbot 2's live ladder does not run the pairwise Elo update
 below at all.** It ranks entrants directly by score — no opponent-relative
 rating, no expected-result calculation — but "ranks by score" is not the
 same as "ranks by your best-ever score": see "What your standing means
 now" immediately below for how a round's score actually becomes a
 standing today. What that score is, and how it rolls episodes up into a
-round, is a per-league setting — see [[round]] for Paintbot (Season 2)'s
+round, is a per-league setting — see [[round]] for Paintbot 2's
 live values (round score = sum of an entrant's best 12 episode scores that
 round; for the live 16-solo battle-royale ladder, where each entrant plays
 exactly one episode leg per round, that reduces to a no-op — the round
 score is simply that leg's own episode Glory, win or lose).
 
 **What your standing means now, and why the number moved.** As of round
-3856, Paintbot (Season 2) stopped ranking entrants by their single best
+3856, Paintbot 2 stopped ranking entrants by their single best
 round ever and started ranking them by their **current form**: a
 live-updating weighted average of recent round scores that leans heavily
 on the last couple of hours of play and lets older rounds fade. Nothing
@@ -53,7 +52,7 @@ broken stretch is excluded now exactly the way it was excluded then.
 
 The weighted average above runs on its own factor, separate from the Elo
 K-factor elsewhere on this page — the live service calls it `rated_k`, and
-Paintbot (Season 2) currently runs it at **0.02** (retuned down from
+Paintbot 2 currently runs it at **0.02** (retuned down from
 0.05, live since 2026-09-15T21:15Z) — confirmed directly
 against the league's own live ladder configuration, not merely inferred
 from the settling-time math below. Each time an entrant's
@@ -67,7 +66,7 @@ standing = standing + rated_k × (round_score − standing)
 Applied once per round an entrant plays, this is what produces "current
 form": a `rated_k` of 0.02 washes out
 about half of any one round's weight after roughly 35 rounds scored.
-Paintbot (Season 2)'s round cadence is itself not fixed: a new round
+Paintbot 2's round cadence is itself not fixed: a new round
 starts roughly every 10 minutes while a policy has been submitted in the
 last 60 minutes, and roughly every 30 minutes once nothing new has been
 submitted for that long (a fresh submission wakes it back to 10) — so 35
@@ -84,7 +83,7 @@ The blend above is not applied to a round's raw score unmodified: the live
 service can winsorize a round score against the standing it is about to
 update, before the 2% blend runs, so that one extreme round cannot move an
 entrant's standing by more than a bounded multiple in a single step. This
-clamp is a per-league setting, off by default (unset); Paintbot (Season 2)
+clamp is a per-league setting, off by default (unset); Paintbot 2
 currently runs it live, confirmed directly against the league's own
 configuration, at a multiple of **150** — which bounds the largest possible
 single-round move to **3.98×** the standing going in (`1 + rated_k ×
@@ -97,7 +96,7 @@ ceiling on a single round's pull, not a typical move.
 A separate, more aggressive rescaling of round scores before they ever
 reach the blend above — a signed, sign-preserving log-style transform —
 exists in the same configuration schema but is confirmed **off**
-(`"none"`) for Paintbot (Season 2) today. If it were switched on it would
+(`"none"`) for Paintbot 2 today. If it were switched on it would
 change how a round's raw score maps to the `round_score` this section's
 formula blends, not the 2% blend itself.
 
@@ -131,11 +130,11 @@ like a large jump (or drop) in the number on the board.
 | Rating divisor | 400 | — | Standard logistic Elo divisor |
 | Code default K-factor | 32 | — | Applies unless a league's own configuration overrides it |
 | Code default initial rating | 1500 | — | Every new entrant starts here unless a league overrides it |
-| Paintbot (Season 2) `rated_k` | 0.02 | — | A live-service value, not an engine constant; confirmed directly against the league's own configuration. Retuned 0.05 → 0.02, live since 2026-09-15T21:15Z |
-| Paintbot (Season 2) round-score rule | Sum of best 12 episode scores | — | A live-service value; reduces to a no-op in the live 16-solo battle-royale ladder, where an entrant plays exactly one leg per round |
-| Paintbot (Season 2) standing clamp multiple | 150 | — | A live-service value; bounds one round's move to 3.98× the standing going in |
-| Paintbot (Season 2) season-leg transform | Win-gated signed log-base-2 | — | A live-service value; armed since 2026-09-15, replacing `none` — see the sections above |
-| Paintbot (Season 2) initial standing | 0 | — | A live-service value; every entrant starts here before their first scored round |
+| Paintbot 2 `rated_k` | 0.02 | — | A live-service value, not an engine constant; confirmed directly against the league's own configuration. Retuned 0.05 → 0.02, live since 2026-09-15T21:15Z |
+| Paintbot 2 round-score rule | Sum of best 12 episode scores | — | A live-service value; reduces to a no-op in the live 16-solo battle-royale ladder, where an entrant plays exactly one leg per round |
+| Paintbot 2 standing clamp multiple | 150 | — | A live-service value; bounds one round's move to 3.98× the standing going in |
+| Paintbot 2 season-leg transform | Win-gated signed log-base-2 | — | A live-service value; armed since 2026-09-15, replacing `none` — see the sections above |
+| Paintbot 2 initial standing | 0 | — | A live-service value; every entrant starts here before their first scored round |
 
 ## Rules
 
@@ -180,7 +179,7 @@ Within the Paintbot family: **Paintarena** runs the ladder described above.
 mode — runs its episodes on a scheduled round cadence but with no Elo ladder
 at all; what drives its live leaderboard is a territory-style campaign score
 instead, a different scoring concept entirely; see [[league]] and [[round]].
-**Paintbot (Season 2)** also does not run this pairwise algorithm — see
+**Paintbot 2** also does not run this pairwise algorithm — see
 the score-standing section above. **Ctf**, a league that once shared
 Paintbot's coworld and rules, stopped playing entirely on 2026-08-12 and no
 longer runs rounds, so whatever its ladder configuration says currently has
@@ -202,11 +201,10 @@ textbook defaults, but one is not the other.
   leaderboard is actually computed — out of scope for this page. No
   [[campaign]] page exists yet to answer this; it is not something a reader
   can currently follow this link to.
-- Whether any other Paintbot-family league besides Paintbot (Season 2) uses
+- Whether any other Paintbot-family league besides Paintbot 2 uses
   the score-standing algorithm instead of Elo — confirmed live only for
-  Paintbot (Season 2) and Paintarena (Elo) in this pass.
-- `rated_k`'s value (0.02, retuned from 0.05 on 2026-09-15) and Paintbot
-  (Season 2)'s exact aggregation settings (`sum_top_k` 12,
+  Paintbot 2 and Paintarena (Elo) in this pass.
+- `rated_k`'s value (0.02, retuned from 0.05 on 2026-09-15) and Paintbot 2's exact aggregation settings (`sum_top_k` 12,
   `round_scoring_rule` "sum", `standing_aggregation` "rated", the standing
   clamp multiple 150, the season-leg transform now armed — win-gated
   signed log2, replacing "none" — and the initial standing 0) are now
@@ -217,12 +215,12 @@ textbook defaults, but one is not the other.
   read of the platform's own update-step source, which lives in a separate
   service this wiki does not track.
 - Whether the signed-log-style season-leg transform, now armed for
-  Paintbot (Season 2), changes anything about the clamp or the 2% blend
+  Paintbot 2, changes anything about the clamp or the 2% blend
   themselves, or only the round score fed into them before either runs —
   not independently confirmed in this pass which of the two it is.
 - Whether the log-base-2 rescaling and win-gate above also apply to any
-  paintbot-family league besides Paintbot (Season 2) — confirmed live only
-  for Paintbot (Season 2) in this pass.
+  paintbot-family league besides Paintbot 2 — confirmed live only
+  for Paintbot 2 in this pass.
 
 ## Version history
 
@@ -230,12 +228,12 @@ textbook defaults, but one is not the other.
 | --- | --- |
 | Unrecorded | Clarified that the standing clamp does not bind under the log-scale scoring live since 2026-09-15. |
 | Unrecorded | From round #5519 (2026-09-17), the round score under the new rescaling below is a true sum of an entrant's scored legs; rounds #5393–#5518 divided that sum by the number of legs instead, so standings from the two windows are not directly comparable. |
-| Unrecorded | Paintbot (Season 2)'s `rated_k` retuned 0.05 → 0.02, and a win-gate plus a signed log-base-2 rescaling of the round score both armed, live from 2026-09-15T21:15Z — see the new sections above. |
-| Wiki | Added the standing clamp (150), the season-leg transform (`none`), and initial standing (0) — all confirmed live against Paintbot (Season 2)'s own configuration; corrected an internal inconsistency where this page still described standing as "sorted, maximized" alongside the rated-EMA section below; noted the 12-episode round-score sum is a no-op in the live 16-solo battle-royale ladder, where an entrant plays one leg per round. |
-| Unrecorded | Paintbot (Season 2)'s standing aggregation changed from `max` (best round ever) to `rated`, live since round 3856: an entrant's standing is now a live-decaying weighted average of their round scores (`rated_k` 0.05), not their single all-time-high round. The full round history was replayed through the new formula; `rounds_played` was not reset. See the new sections above. |
-| Unrecorded | The Paintbot (Season 2) cross-reference updated: a round score sums an entrant's best 12 episode scores that round (the best-k guard on `sum` — see [[round]]), not every episode played. |
-| Unrecorded | Paintbot (Season 2)'s live round scoring rule changed from `max` to `sum` — the live values above updated to match; the standing aggregation (best round) is unchanged. |
-| Unrecorded | The classic-mode "Paintbot" league split into two separate leagues: Campaign (territory board, no Elo) and Paintbot (Season 2), whose live ladder was found running a direct score-standing algorithm rather than Elo — see the new section above. |
+| Unrecorded | Paintbot 2's `rated_k` retuned 0.05 → 0.02, and a win-gate plus a signed log-base-2 rescaling of the round score both armed, live from 2026-09-15T21:15Z — see the new sections above. |
+| Wiki | Added the standing clamp (150), the season-leg transform (`none`), and initial standing (0) — all confirmed live against Paintbot 2's own configuration; corrected an internal inconsistency where this page still described standing as "sorted, maximized" alongside the rated-EMA section below; noted the 12-episode round-score sum is a no-op in the live 16-solo battle-royale ladder, where an entrant plays one leg per round. |
+| Unrecorded | Paintbot 2's standing aggregation changed from `max` (best round ever) to `rated`, live since round 3856: an entrant's standing is now a live-decaying weighted average of their round scores (`rated_k` 0.05), not their single all-time-high round. The full round history was replayed through the new formula; `rounds_played` was not reset. See the new sections above. |
+| Unrecorded | The Paintbot 2 cross-reference updated: a round score sums an entrant's best 12 episode scores that round (the best-k guard on `sum` — see [[round]]), not every episode played. |
+| Unrecorded | Paintbot 2's live round scoring rule changed from `max` to `sum` — the live values above updated to match; the standing aggregation (best round) is unchanged. |
+| Unrecorded | The classic-mode "Paintbot" league split into two separate leagues: Campaign (territory board, no Elo) and Paintbot 2, whose live ladder was found running a direct score-standing algorithm rather than Elo — see the new section above. |
 
 ## See also
 
@@ -243,7 +241,7 @@ textbook defaults, but one is not the other.
 - [[round]] — the unit Elo scores against
 - [[league]] — where a ladder's configuration lives
 - [[episode]] — the match a round's score is built from
-- [[glory]] — what the score actually is for Paintbot (Season 2)'s live rated ladder
+- [[glory]] — what the score actually is for Paintbot 2's live rated ladder
 - [[scoring]] — a different, separate per-player ledger this ladder does not read
 
 ## Discussion

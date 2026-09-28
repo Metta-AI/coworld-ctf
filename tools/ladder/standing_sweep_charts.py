@@ -105,7 +105,7 @@ def chart_a(results):
     ax.set_ylabel("Mean Kendall tau, consecutive-round top-16\n"
                   "(higher = more stable)", color=TEXT_PRIMARY)
     ax.set_title("Standing stability vs. responsiveness by setting\n"
-                 "Paintbot S2, r4257–r4524 (253 rounds, post-winAsMultiplier era)",
+                 "Paintbot 2, r4257–r4524 (253 rounds, post-winAsMultiplier era)",
                  color=TEXT_PRIMARY, fontsize=11)
     ax.tick_params(colors=TEXT_SECONDARY)
     for spine in ("top", "right"):

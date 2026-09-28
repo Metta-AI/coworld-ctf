@@ -11,7 +11,7 @@ rate retune — see `ctf-k-retune-cannot-bound-a-ratings-spike.md`). The lever t
 actually works is compressing the round-score magnitude itself before it enters
 the average. Below is the measurement behind that call.
 
-Everything here is **read-only** against the live Paintbot Season 2 league — no
+Everything here is **read-only** against the live Paintbot 2 league — no
 settings were changed, no backfill was run.
 
 ## The update rule being replayed
@@ -41,8 +41,7 @@ version bump does not reset the EMA.
 (`ScoreRankingConfig`) implement a *different* scheme — `standing_aggregation:
 Literal["ewma","mean","max"]` with `half_life_hours` (wall-clock **hours**, not
 rounds) — and grep for `rated_k` / `rated_clamp_multiple` / `sum_top_k` inside
-`app_backend/` returns zero hits. Whatever backend build actually serves Paintbot
-S2 is ahead of, or diverged from, that local source tree. The formula above is
+`app_backend/` returns zero hits. Whatever backend build actually serves Paintbot 2 is ahead of, or diverged from, that local source tree. The formula above is
 instead the live served config (fetched read-only, above), independently
 corroborated by `ctf-standing-is-an-ema-not-a-max.md`'s regression fit (16 live
 rows, ~1e-4% average error) and `ctf-rated-clamp-sizing-post-gv57.md`'s clamp
@@ -52,7 +51,7 @@ task's own fallback instruction.
 ## The ledger
 
 `tools/ladder/standing_replay.py pull --since 4257` — 253 completed rounds,
-r4257–r4526, division `Competition` (Paintbot Season 2), pulled 2026-09-08/09.
+r4257–r4526, division `Competition` (Paintbot 2), pulled 2026-09-08/09.
 r4257 is the winAsMultiplier arm (the GV57 placement-ladder/win-factor economy
 going live — `ctf-winasmultiplier-flips-at-gv57.md`); every round in this window
 postdates that boundary. **242/253 rounds (r4257–4513) run on GloryVersion 14

@@ -1,6 +1,6 @@
 # Season 2 scoring eras
 
-Paintbot (Season 2) has changed how a round score is computed **ten times**
+Paintbot 2 has changed how a round score is computed **ten times**
 since 2026-09-02 — seven inside the verified window the era table below covers
 (through r4208), and three more that merged after it — the GV58 friendly-fire
 change (#384) and the winAsMultiplier arming (#436) both went live at r4257
@@ -16,7 +16,7 @@ switch builds on a clean hour, two boundaries below are pure scorer-side config
 that no build number records at all, and two rounds sat on the older build after
 their change had already merged.
 
-Scope: league `Paintbot (Season 2)`, division `Competition`
+Scope: league `Paintbot 2`, division `Competition`
 (`div_aa7825db-262f-4a62-b01a-177c1b48f7ee`). Round numbers are that division's
 `round_number`; times are each round's `completed_at` in UTC. Everything below
 was read from `/v2/rounds/{id}` (`result_metadata`) and `/v2/rounds/{id}/episodes`

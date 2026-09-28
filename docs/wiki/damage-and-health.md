@@ -61,23 +61,23 @@ tagged out resets the ladder, and the raised ceiling with it, to zero. See
 
 **This split post-dates this page's own `GV24` stamp.** The lead and the
 Stats table above document the classic ruleset's pool. `battle-royale-s2` —
-the only variant Paintbot (Season 2) currently schedules — and the
+the only variant Paintbot 2 currently schedules — and the
 free-play human field both run a larger pool. Damage per bullet is
 unchanged in every ruleset: still exactly 1 hp per hit.
 
 | Ruleset | Hit points per life |
 | --- | --- |
 | Classic (`default`, `2v2`) | 3 |
-| `battle-royale-s2` (Paintbot Season 2 ladder) | 4 |
+| `battle-royale-s2` (Paintbot 2 ladder) | 4 |
 | Free-play human field | 4 |
 
-### Downed state — live on the Paintbot (Season 2) battle-royale ladder
+### Downed state — live on the Paintbot 2 battle-royale ladder
 
 **This mechanic post-dates this page's own `GV24` stamp — it was checked
 directly against the live engine (`GV52` at the time of this check), not
 re-verified against the rest of this page.** It exists in the shipped
 engine source and is armed in the `battle-royale-s2` variant's live
-configuration — the only variant Paintbot (Season 2) currently schedules
+configuration — the only variant Paintbot 2 currently schedules
 (see [[modes]], [[round]]) — so it is live on every episode that league
 runs today. No other Paintbot-family league arms it. Everything below
 describes the mechanic as it behaves once armed, not the default
@@ -156,8 +156,8 @@ without a separate marker. Both quirks are explained in full on
 | --- | --- |
 | GV63 / GLORYVERSION 18 (2026-09-11, wiki) | Re-traced against current source. Corrected the downed-state section: a downed player can now also be revived by an upright *pact ally* (not only a same-team partner), and a team's finalize-as-eliminated check is delayed while a pact ally still stands — both were same-team-only when this page last described them. All bleed-out/revive timings (15.0 s / 360-tick default, 2.0 s / 48-tick floor and revive time, 40 px range, 1 hp revive result) re-checked against source and unchanged. Also corrected the `## Labels` section: this page previously claimed the overhead `hp <n>/3` bar is hard-capped at three segments — a 2026-08-08 client change already replaced that fixed cap with a true current/max readout, matching [[ranks]]'s own correction of the same claim. |
 | GV59 (2026-09-08) | Pact-ally revive armed: an upright member of a team currently pact-allied with a downed seat's team qualifies as a reviver, and a team's finalize no longer requires only its own upright count — a live pact ally's upright status counts too. |
-| 0.7.348 | Hit points per life became variant-dependent: `battle-royale-s2` (Paintbot Season 2) and the free-play field raised the pool from 3 to 4; classic rulesets unchanged at 3. Damage per bullet unchanged. |
-| Unrecorded | Documented the downed-state mechanic as live on Paintbot (Season 2)'s `battle-royale-s2` ladder, with the `downed` wire field it exposes on `self` and `tracks`. Previously documented as shipped but not armed anywhere live. |
+| 0.7.348 | Hit points per life became variant-dependent: `battle-royale-s2` (Paintbot 2) and the free-play field raised the pool from 3 to 4; classic rulesets unchanged at 3. Damage per bullet unchanged. |
+| Unrecorded | Documented the downed-state mechanic as live on Paintbot 2's `battle-royale-s2` ladder, with the `downed` wire field it exposes on `self` and `tracks`. Previously documented as shipped but not armed anywhere live. |
 | GV23 | A depleted shield layer breaks outright the instant it empties, instead of persisting as a 0 hp shell |
 
 ## Gaps
@@ -167,7 +167,7 @@ without a separate marker. Both quirks are explained in full on
   exposes them as tuning parameters, not hard constants.
 - Which GameVersion introduced the downed-state mechanic — confirmed to
   exist in the shipped engine, not dated here.
-- Whether any Paintbot-family league besides Paintbot (Season 2) arms
+- Whether any Paintbot-family league besides Paintbot 2 arms
   downed state — confirmed live only for `battle-royale-s2`, as of a
   live-canonical-coworld manifest check; this should be re-checked before
   assuming it holds elsewhere.

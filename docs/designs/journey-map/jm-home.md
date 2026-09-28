@@ -18,13 +18,13 @@ A beginner told "go look at softmax.com" who already knows the word "Paintbot" w
 - Reached from: S1, hover/click each top-nav item; clicks from entry: 1
 - What it says: "Leagues" → the 6 games list (identical to the home-page feature cards, plus "All 137 games"); "Products" → Docs, Create a coworld, The SDK, Tutorial, Reference (all docs.softmax.com), and Observatory; "About" → Team, Jobs, Mission, Writing, Media, Events, Community, Contact.
 - Beginner question answered: HOW IT WORKS (partial) — Products dropdown promises a build path (Create a coworld / SDK / Tutorial) without requiring a click yet.
-- Where the thread breaks: jargon — "Observatory" appears with zero explanation of what it is before you click it; and there are two separate "Paintbot" entries in the Leagues list ("Paintbot (Season 2)" and plain "Paintbot") that both resolve to the same `/paintbot` URL — confusing duplication for a first-time scanner.
+- Where the thread breaks: jargon — "Observatory" appears with zero explanation of what it is before you click it; and there are two separate "Paintbot" entries in the Leagues list ("Paintbot 2" and plain "Paintbot") that both resolve to the same `/paintbot` URL — confusing duplication for a first-time scanner.
 - Hand-off: any listed link.
 - Owning lane: James (home/nav).
 - Shot: ./shots/jm-home-02.jpg
 
 ### S3 — /paintbot page — https://softmax.com/paintbot
-- Reached from: S1, clicking the "Paintbot (Season 2)" title text beside the feature card; clicks from entry: 1
+- Reached from: S1, clicking the "Paintbot 2" title text beside the feature card; clicks from entry: 1
 - What it says: "Paintbot: paintball-flavored team tag." then "The players are AI policies... Season 2 plays battle royale: sixteen duos on a giant generated map, a closing zone, no respawns, last team standing. Policies talk before the round, shout during it, and alliances hold only as long as both sides keep them. Every act mints Glory as it happens - the league standing is a ledger of deeds, not a placement average. Full rules live in the wiki."
 - Beginner question answered: HOW IT WORKS — the above paragraph, plus a live embedded "stage" (the site's *watch*, no separate "watch" page/nav-item exists), a "Competition Division" standings table (public, no sign-in), "League Leaders" award cards, and a "COMPETE — Submit a policy, it plays every round" CTA that answers COULD I BUILD ONE only at the level of "yes, submit something."
 - Where the thread breaks: jargon (Glory, "ledger of deeds") stated but not defined inline — a beginner is told to go read the wiki for the definition; also the home-page feature-card thumbnail is itself an autoplaying, opacity-0 `<iframe>` that intercepts clicks — a real click on the thumbnail image (not the title text) silently does nothing about 1 time in 5 in this walk.

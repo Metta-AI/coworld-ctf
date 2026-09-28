@@ -181,7 +181,7 @@ beside the canned fallback that followed it. Keep this journal private and
 join accepted calls to the game replay and final results before using them
 as training labels or outcome evidence.
 
-For a finished local Season 2 match, decode the game's replay with
+For a finished local Paintbot 2 match, decode the game's replay with
 `nim r tools/export_play_call_records.nim /path/to/game.bitreplay > /path/to/calls.json`.
 Then run `python tools/export_semantic_trajectory.py --trace /path/to/seat.jsonl
 --replay /path/to/game.bitreplay --calls /path/to/calls.json --results

@@ -8,7 +8,7 @@ that every deed and every achievement claim adds to through a single mint
 point. The mint pipeline can multiply a deed's price up to ×8 for heat and a
 further ×2 for holding the enemy heart, stacked on top of a 100%/150%
 home/enemy site split — see [[deeds]] for what each deed is worth on its
-own. **This pipeline is the classic (CTF) ladder's.** Paintbot (Season 2)'s
+own. **This pipeline is the classic (CTF) ladder's.** Paintbot 2's
 `battle-royale-s2` ladder does not run it — see the `Battle royale` section
 below and [[glory-season-2]]. The total is causal rather than cosmetic, entering the replay's
 determinism hash, and it accumulates for the whole episode rather than
@@ -166,7 +166,7 @@ separate ledgers with no code path between them.
 
 **Everything in `## Rules` above — the site gradient, the heat ladder, the
 carry multiplier, and every deed's flat Glory/Drama pair on [[deeds]] — is
-the classic (CTF) ladder's pricing.** Paintbot (Season 2)'s live
+the classic (CTF) ladder's pricing.** Paintbot 2's live
 `battle-royale-s2` ladder does not run this additive pipeline: it reprices
 every deed and achievement tier as a whole-number multiplier, and an
 episode's Glory is the product of the multipliers a team earns rather than a
@@ -224,8 +224,8 @@ from that build.
 | Unrecorded | The round-3871 flat win factor was never reverted to `VICTORY`: after a scoring incident where the factor, composed with `TAG BACK`'s uncapped revive mint and 0.7.319's paint-following zone damage, let a fast down-and-revive loop inflate 11 rounds' episode scores to 10^13–10^15, the 2026-09-04 fix closed the loop with a durable per-deed mint budget and a tightened product ceiling — and kept the flat factor, not `VICTORY`, as the live mechanism. The 11 affected rounds are excluded from standings and records. See [[glory-season-2|Glory (Season 2)]]. |
 | Unrecorded | Battle royale's win payout changed shape: as of round 3871 (canonical build 0.7.320), a `battle-royale-s2` win no longer mints the `VICTORY` deed — it is a flat, composition-neutral factor folded into the winning team's product at finalize instead, and has stayed that way since. See [[glory-season-2|Glory (Season 2)]] for the full mechanism and the two new deeds (`TAG BACK`, `JOINT ACT`) armed in the same build. |
 | Unrecorded | Win-gating removed from the battle-royale episode scorer, verified live as of round 3849 (canonical 0.7.317): every seat now banks its own team's Glory total win or lose — losing teams bank real scores, and a team's banked total can finish negative (no floor). Supersedes both the winners-only claim and the cannot-go-negative correction in earlier revisions of the `Battle royale` section. |
-| Unrecorded | Corrected the `Battle royale` section: the additive mint pipeline documented in `## Rules` above is the classic (CTF) ladder's only. Paintbot (Season 2)'s `battle-royale-s2` ladder runs a separate whole-number multiplier economy (armed Glory 13, live from round 3830) — see [[glory-season-2]]. Removed the now-incorrect claim that a winning battle-royale team's Glory total can finish negative: a floor-divided product of positive integers can reach zero but never negative. |
-| Unrecorded | Updated the [[round]] cross-reference: Paintbot (Season 2)'s round score is now the sum of a round's episode scores rather than its single best episode — a live league-setting change. The per-episode score itself (the winning team's Glory total, credited identically to both duo seats) is unchanged. |
+| Unrecorded | Corrected the `Battle royale` section: the additive mint pipeline documented in `## Rules` above is the classic (CTF) ladder's only. Paintbot 2's `battle-royale-s2` ladder runs a separate whole-number multiplier economy (armed Glory 13, live from round 3830) — see [[glory-season-2]]. Removed the now-incorrect claim that a winning battle-royale team's Glory total can finish negative: a floor-divided product of positive integers can reach zero but never negative. |
+| Unrecorded | Updated the [[round]] cross-reference: Paintbot 2's round score is now the sum of a round's episode scores rather than its single best episode — a live league-setting change. The per-episode score itself (the winning team's Glory total, credited identically to both duo seats) is unchanged. |
 | Unrecorded | Documented that [[battle-royale-s2|battle royale]] gates off the "capture" and "wipeout" deeds entirely — neither mints in that ruleset — while every other deed mints unchanged; also documented that the team-kill penalty's lack of a floor can leave a winning team with a negative net Glory total. |
 | Unrecorded | Traced the scorer directly: a battle-royale episode's platform score is the winning team's Glory total, credited identically to every seat on that team (including a duo's filler partner internally, though only a real policy's seat carries it onto the ladder). Closed the prior gap about whether Glory feeds the score at all. |
 | Wiki | Documented the mint pipeline's flooring rule: site, carry, and the achievement path's site and first-claim steps each truncate to a whole number the instant they apply, rather than the total being rounded once at the end. |
