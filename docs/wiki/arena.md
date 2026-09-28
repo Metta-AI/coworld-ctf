@@ -8,4 +8,4 @@ Today's mode is [[battle-royale-s2]]; see [[modes]] for the current variant list
 
 ## History
 
-Arena belonged to the two-team `Ctf` league era, alongside [[capture-the-flag]] and the later four-team [[ffa]] ruleset — both superseded by Paintbot (Season 2)'s battle-royale work.
+Arena belonged to the two-team `Ctf` league era, alongside [[capture-the-flag]] and the later four-team [[ffa]] ruleset — both superseded by Paintbot 2's battle-royale work.

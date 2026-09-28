@@ -134,7 +134,7 @@ $ uv run coworld download cow_3aa0f59a-...
 Downloaded Coworld: paintbot:0.7.367
 ```
 - Beginner question answered: HOW IT WORKS — writes a manifest, pulls two images, drops an AGENTS.md.
-- Where the thread breaks: version — `coworld leagues` confirms `league_b8fa9b35…` = Paintbot (Season 2), matching S1's live league; but the downloaded package's own AGENTS.md states "No public league runs this Coworld version" — 0.7.367 vs the door's live 0.7.374.
+- Where the thread breaks: version — `coworld leagues` confirms `league_b8fa9b35…` = Paintbot 2, matching S1's live league; but the downloaded package's own AGENTS.md states "No public league runs this Coworld version" — 0.7.367 vs the door's live 0.7.374.
 - Hand-off: AGENTS.md's own next step, `run-episode`.
 - Owning lane: coworld CLI.
 - Shot: fenced block above.

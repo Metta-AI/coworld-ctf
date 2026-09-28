@@ -1,6 +1,6 @@
 *Verified against `paintbot-v0.7.397` (GV63 / GLORYVERSION 18), 2026-09-11 — see `docs/wiki/_era.md`.*
 
-On the Paintbot (Season 2) league's `battle-royale-s2` ladder (see
+On the Paintbot 2 league's `battle-royale-s2` ladder (see
 [[modes]]), Glory prices deeds and achievements by multiplication, not
 addition: every deed and every achievement claim folds a **factor** into a
 single running **product** for the episode, starting from a seed of **1**.
@@ -323,7 +323,7 @@ has simply stayed on since 2026-09-04 without needing a further flip.
 | Unrecorded (GLORYVERSION 14 era) | Rolled back 2026-09-04 (commit `d595f300`): the flat win factor armed round 3871 is retired and re-armed with a durable per-deed mint budget and a tightened product ceiling, closing the `TAG BACK` revive-loop incident described in "Winning" above. The win factor, `TAG BACK`, and `JOINT ACT` have stayed armed ever since. |
 | Unrecorded | Winning `battle-royale-s2` stopped minting the `VICTORY` deed, verified live as of round 3871 (canonical build 0.7.320): the win became a flat, composition-neutral factor folded into the product at finalize, outside the heat/territory/carry pipeline entirely. Two deeds armed in the same build: `TAG BACK` and `JOINT ACT`. |
 | Unrecorded | The win gate on episode banking removed, verified live as of round 3849 (canonical 0.7.317): every seat banks its own team's running product win or lose — losing teams bank real scores, negative totals are possible (no floor). |
-| Glory 13 (0.7.310+) | The pure-multiplier pricing table armed live on Paintbot (Season 2)'s `battle-royale-s2` ladder, beginning round 3830 — a live-service arming, not a change to the engine's own default (every other ladder keeps running [[glory]]'s additive pricing). |
+| Glory 13 (0.7.310+) | The pure-multiplier pricing table armed live on Paintbot 2's `battle-royale-s2` ladder, beginning round 3830 — a live-service arming, not a change to the engine's own default (every other ladder keeps running [[glory]]'s additive pricing). |
 
 ## Gaps
 

@@ -54,7 +54,7 @@ def chart_a(results):
     ax.set_ylabel("Mean Kendall tau, consecutive-round top-16\n(higher = more stable)",
                   color=TEXT_PRIMARY)
     ax.set_title("Win-gate sweep: stability vs. leader spike-dependence\n"
-                 f"Paintbot S2, r{results['window']['since']}–r{results['window']['until']} "
+                 f"Paintbot 2, r{results['window']['since']}–r{results['window']['until']} "
                  f"({results['window']['n_rounds']} rounds, GameVersion 63 / GLORYVERSION 18)",
                  color=TEXT_PRIMARY, fontsize=10.5)
     ax.tick_params(colors=TEXT_SECONDARY)

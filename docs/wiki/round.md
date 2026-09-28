@@ -38,7 +38,7 @@ above:
 
 | League | Episodes per round | Notes |
 | --- | --- | --- |
-| Paintbot (Season 2) | No fixed count | Every round's variant is `battle-royale-s2` — see [[modes]]; confirmed live as of 2026-09-18: 15 episodes per round, 16 seats per episode, 20 entrants fielded, so every entrant appears in 12 of the round's 15 episodes (the best-12-of-12 guard above is therefore an exact sum of everything that entrant played, not a filtered subset) |
+| Paintbot 2 | No fixed count | Every round's variant is `battle-royale-s2` — see [[modes]]; confirmed live as of 2026-09-18: 15 episodes per round, 16 seats per episode, 20 entrants fielded, so every entrant appears in 12 of the round's 15 episodes (the best-12-of-12 guard above is therefore an exact sum of everything that entrant played, not a filtered subset) |
 | Elite Paintbot | 50 | — |
 | Paintarena | No fixed count | At least 8 episodes per entrant; opponents chosen by rating-neighbour pairing rather than a round-robin |
 
@@ -50,11 +50,11 @@ not an engine constant.
 
 Rounds begin around the clock on every paintbot-family ladder league,
 whether or not anyone is watching — a live scheduling cadence, not an engine
-constant. Historically (before the current split into separate Season 2 and
+constant. Historically (before the current split into separate Paintbot 2 and
 Campaign leagues), one reading of the flagship classic-mode league's cadence
 put a new round roughly every 12 minutes, a separate reading roughly every 9
 minutes, and the two were never reconciled; current per-league cadence for
-Paintbot (Season 2) and Campaign has not been re-measured — see `## Gaps`.
+Paintbot 2 and Campaign has not been re-measured — see `## Gaps`.
 
 ### Scoring and aggregation
 
@@ -63,7 +63,7 @@ round score by a **round scoring rule** — a live per-league setting, not a
 fixed platform formula, and it can change at any time independently of the
 GV/Glory stamp above. The code default rule is `mean` (a round's score is
 the average of that round's episode scores), but a league can override it.
-**Paintbot (Season 2)'s live ladder currently overrides it to `sum`: a
+**Paintbot 2's live ladder currently overrides it to `sum`: a
 round's score is the total of its episode scores, every episode that round
 added together — not an average, and not a single best.**
 
@@ -106,7 +106,7 @@ only summarised.
 
 **A division's overall standing rolls its rounds up by a second, separate
 live setting, and it does not have to match the round-level rule above.**
-Paintbot (Season 2)'s round level runs `sum`; its standing level runs
+Paintbot 2's round level runs `sum`; its standing level runs
 `rated`, live since round 3856 — a live-decaying weighted average of an
 entrant's round scores rather than a running total or a single all-time
 best. An entrant's round score (the sum of their best-12 episode scores
@@ -121,12 +121,12 @@ that pull fades the same way it eventually fades for every other round.
 
 | Version | Change |
 | --- | --- |
-| Unrecorded | Confirmed live episode-per-round figures for Paintbot (Season 2), 2026-09-18: 15 episodes per round, 16 seats per episode, 20 entrants fielded — exactly matching the existing best-12-of-12 guard, so every entrant's round sum currently covers everything they played. |
-| Unrecorded | Paintbot (Season 2) armed a win-gate on round scoring (2026-09-15): a scored episode only contributes to a round's sum if it was that entrant's top score in the episode; every other scored episode contributes zero. See [[elo]] for the rescaling applied to a winning episode's score. |
+| Unrecorded | Confirmed live episode-per-round figures for Paintbot 2, 2026-09-18: 15 episodes per round, 16 seats per episode, 20 entrants fielded — exactly matching the existing best-12-of-12 guard, so every entrant's round sum currently covers everything they played. |
+| Unrecorded | Paintbot 2 armed a win-gate on round scoring (2026-09-15): a scored episode only contributes to a round's sum if it was that entrant's top score in the episode; every other scored episode contributes zero. See [[elo]] for the rescaling applied to a winning episode's score. |
 | GV63 / GLORYVERSION 18 (2026-09-11, wiki) | Re-traced against current source and the platform's own dated scoring-era record. The round-level `sum`/best-12 rule and the `rated` standing aggregation (since round 3856) both still check out; no stale digit found this pass. |
-| Unrecorded | Paintbot (Season 2)'s standing aggregation changed from `max` (best round ever) to `rated` (a live-decaying weighted average of round scores), live since round 3856. The round-level `sum`/best-12 rule documented above is unchanged — only the settlement step that turns a round score into a standing changed. See [[elo]] for the full mechanism and what changed for a reader. |
+| Unrecorded | Paintbot 2's standing aggregation changed from `max` (best round ever) to `rated` (a live-decaying weighted average of round scores), live since round 3856. The round-level `sum`/best-12 rule documented above is unchanged — only the settlement step that turns a round score into a standing changed. See [[elo]] for the full mechanism and what changed for a reader. |
 | Unrecorded | Documented the active best-k guard on top of `sum`: a round score sums an entrant's best-k episode scores (k defaults to the league's minimum episodes-per-entrant, currently 12), not literally every episode. Live but not yet binding at today's episode counts. |
-| Unrecorded | Paintbot (Season 2)'s live round scoring rule changed from `max` to `sum`: a round's score is now the total of its episode scores rather than its single best episode. The standing aggregation is unchanged at `max` (best round). A live league-setting change, not an engine change. |
+| Unrecorded | Paintbot 2's live round scoring rule changed from `max` to `sum`: a round's score is now the total of its episode scores rather than its single best episode. The standing aggregation is unchanged at `max` (best round). A live league-setting change, not an engine change. |
 
 ## Gaps
 
@@ -141,9 +141,9 @@ that pull fades the same way it eventually fades for every other round.
 - Whether other paintbot-family leagues run the same round cadence observed
   on Paintbot (classic), or each runs its own schedule — not confirmed.
 - Whether every paintbot-family league's round scoring rule and standing
-  aggregation match Paintbot (Season 2)'s `sum`/`rated`, or each league sets
-  its own independently — confirmed live only for Paintbot (Season 2).
-- (Resolved for Paintbot (Season 2), see [[elo]]): round cadence is ~10
+  aggregation match Paintbot 2's `sum`/`rated`, or each league sets
+  its own independently — confirmed live only for Paintbot 2.
+- (Resolved for Paintbot 2, see [[elo]]): round cadence is ~10
   minutes after a new submission, slowing to ~30 minutes after 60 minutes
   with no new submission.
 

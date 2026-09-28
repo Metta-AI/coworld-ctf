@@ -1,6 +1,6 @@
 *Verified against `paintbot-v0.7.397` (GV63 / GLORYVERSION 18), 2026-09-11 — see `docs/wiki/_era.md`.*
 
-`battle-royale-s2` is Paintbot (Season 2)'s live ruleset and, today, its
+`battle-royale-s2` is Paintbot 2's live ruleset and, today, its
 **only** scheduled variant: sixteen solo seats drop onto one map, a
 rectangular zone closes in on a timer, there are no respawns, and the round
 ends the instant one seat is left standing. This page documents that
@@ -16,7 +16,7 @@ episodes played against it. Deed-by-deed Glory pricing lives on
 
 Every seat is its own team — sixteen teams of one, not eight two-policy
 duos. **This is a live-service setting, not an engine constant, and it has
-changed before**: Season 2 launched as eight duo teams and moved to sixteen
+changed before**: Paintbot 2 launched as eight duo teams and moved to sixteen
 solo teams on 2026-09-05 (build 0.7.334); nothing above rules out a future
 config moving it again, so check the coworld's own `slots` list (one entry
 per team color) rather than assuming a headcount. A death is permanent —

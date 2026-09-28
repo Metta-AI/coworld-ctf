@@ -29,7 +29,7 @@ currently no shipped one to reach for.
 
 ### Tier pricing
 
-**These flat prices are the classic (CTF) ladder's.** Paintbot (Season 2)'s
+**These flat prices are the classic (CTF) ladder's.** Paintbot 2's
 live `battle-royale-s2` ladder reprices every tier below as a whole-number
 multiplier instead of a flat Glory/Drama pair, composed into a per-duo
 product rather than added to a per-team total — see [[glory-season-2]] for that
@@ -263,7 +263,7 @@ an arbitrary team order.
 
 | Version | Change |
 | --- | --- |
-| Unrecorded | Mode-scoped the tier pricing table to the classic (CTF) ladder; Paintbot (Season 2)'s `battle-royale-s2` ladder reprices every tier as a whole-number multiplier instead — see [[glory-season-2]]. |
+| Unrecorded | Mode-scoped the tier pricing table to the classic (CTF) ladder; Paintbot 2's `battle-royale-s2` ladder reprices every tier as a whole-number multiplier instead — see [[glory-season-2]]. |
 | Unrecorded | Noted that the base-price-sweep-versus-capture-plus-wipe comparison in `## Rules` assumes classic mode — in [[battle-royale-s2|battle royale]], neither the "capture" nor the "wipeout" deed mints, so the 650-Glory figure it compares against does not apply there. See [[glory]]. |
 | Wiki | Closed this page's five open gaps: the Cover Fire, Second Wind, Fast Break, and Turnaround window durations, and the clutch HP threshold shared by The Save and Clutch Delivery — see the new Window and threshold values table. Also repointed the "Longshot" tier's link from [[combat]] to [[deeds]], which is where the longshot range is actually defined. |
 | Wiki | Corrected this page: achievement Drama values are never read for anything — achievements never climb the heat ladder and never take the carry multiplier, so no tier's Drama number has any effect. |

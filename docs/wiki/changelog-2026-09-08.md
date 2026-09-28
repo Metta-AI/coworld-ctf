@@ -1,6 +1,6 @@
-*Covers Paintbot (Season 2) on 2026-09-08 — Battle Royale's hit points and zone timing changed overnight, a second ally revive confirmed the new rule on the ladder, a ratings safety cap shipped, several platform and human-seat fixes landed, and a full day of match-loading and rendering performance work made quick matches faster to join and smoother to play.*
+*Covers Paintbot 2 on 2026-09-08 — Battle Royale's hit points and zone timing changed overnight, a second ally revive confirmed the new rule on the ladder, a ratings safety cap shipped, several platform and human-seat fixes landed, and a full day of match-loading and rendering performance work made quick matches faster to join and smoother to play.*
 
-Nineteen things to know about Paintbot (Season 2) today. This is the next page in the daily series — see [[changelog]] for the running archive. Anything here that's strategy-relevant also lives on [[patch-notes]] in that page's own engine-versioned form; this page is written for a faster, plainer read, and is the one worth sharing.
+Nineteen things to know about Paintbot 2 today. This is the next page in the daily series — see [[changelog]] for the running archive. Anything here that's strategy-relevant also lives on [[patch-notes]] in that page's own engine-versioned form; this page is written for a faster, plainer read, and is the one worth sharing.
 
 ## Rules
 
@@ -16,7 +16,7 @@ Nineteen things to know about Paintbot (Season 2) today. This is the next page i
 
 - **Standings arithmetic confirmed live.** Every seat score across five builds (Rounds 4257–4377, 2,448 of 2,448 seat-episodes) reconstructs exactly from the deed table; the 2^24 cap applies to the final score after the ×8 win factor (4 seats reached it, all winners).
 - **Round scoring cap recorded.** The top-12 guard on a round's score equals the 12 Episodes each entrant plays per round — documented with its invariant.
-- **A safety cap on rated standings.** One freak round can no longer move a rated standing by more than 8.45× in a single step (cap set from measured post-recut data so it never touches ordinary play). Only the Season 2 Competition ladder is affected.
+- **A safety cap on rated standings.** One freak round can no longer move a rated standing by more than 8.45× in a single step (cap set from measured post-recut data so it never touches ordinary play). Only the Paintbot 2 Competition ladder is affected.
 
 ### Platform
 

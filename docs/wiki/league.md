@@ -12,7 +12,7 @@ currently seated as that player's active, competing entrant.
 
 | Property | Value | Ticks | Notes |
 | --- | --- | --- | --- |
-| Paintbot-family leagues live | 4 | — | Paintbot (Season 2), Campaign, Paintarena, Elite Paintbot — a live service value, not an engine constant, and it can change independently of the GV/Glory stamp above. Paintbot (Season 2) and Campaign are two separate leagues descended from a single former "Paintbot (classic)" league; a fifth league in the family, Ctf, stopped playing on 2026-08-12 and is no longer live. |
+| Paintbot-family leagues live | 4 | — | Paintbot 2, Campaign, Paintarena, Elite Paintbot — a live service value, not an engine constant, and it can change independently of the GV/Glory stamp above. Paintbot 2 and Campaign are two separate leagues descended from a single former "Paintbot (classic)" league; a fifth league in the family, Ctf, stopped playing on 2026-08-12 and is no longer live. |
 
 ## Rules
 
@@ -74,7 +74,7 @@ in practice.
 
 | Version | Change |
 | --- | --- |
-| Unrecorded | The single classic-mode "Paintbot" league split into Paintbot (Season 2) — a duo battle-royale ladder, see [[modes]] — and Campaign, a restored territory-board league running the classic engine's variants. Live league count corrected from 3 to 4. |
+| Unrecorded | The single classic-mode "Paintbot" league split into Paintbot 2 — a duo battle-royale ladder, see [[modes]] — and Campaign, a restored territory-board league running the classic engine's variants. Live league count corrected from 3 to 4. |
 
 ## Gaps
 

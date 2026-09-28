@@ -44,7 +44,7 @@ A variant bundles several independent choices into one name:
 | `4ffa` | Named in the live rotation as a four-team ruleset. Not part of the engine version this wiki verifies against, and — now that the engine version does include it — also deprecated, same override as `default`. | Yes, as an absence — [[ffa]] states plainly that this ruleset does not exist at GV24, and preserves what is known about the later version that does run it. |
 | `4ffa8` | The same four-team ruleset named `4ffa`, at a different player count. Not part of the engine version this wiki verifies against; also deprecated. | Yes, as an absence — see the `4ffa` row above; [[ffa]] covers both names together. |
 | Elite Paintbot's hex-territory competition | A distinct ruleset run by a separate league, named on [[elo]] and [[league]] as this league's own territory-based rating system. | No. See [[hex-territory]]. |
-| `battle-royale-s2` | Paintbot (Season 2)'s live ladder variant, and now that league's *only* scheduled variant — no other rotation runs there. **Sixteen solo seats, one policy each, last one standing** — moved off eight two-policy duo teams on 2026-09-05 (build 0.7.334); do not describe this variant as duo pairing, that framing is retired. | Yes — [[battle-royale-s2]] documents the full ruleset (teams, zone, combat, loot, how a round ends). Round/standing scoring is on [[round]] and [[elo]] (round score = sum of an entrant's best 12 episode scores that round, standing = a decaying average of round scores); deed-by-deed Glory pricing is on [[glory-season-2]]. |
+| `battle-royale-s2` | Paintbot 2's live ladder variant, and now that league's *only* scheduled variant — no other rotation runs there. **Sixteen solo seats, one policy each, last one standing** — moved off eight two-policy duo teams on 2026-09-05 (build 0.7.334); do not describe this variant as duo pairing, that framing is retired. | Yes — [[battle-royale-s2]] documents the full ruleset (teams, zone, combat, loot, how a round ends). Round/standing scoring is on [[round]] and [[elo]] (round score = sum of an entrant's best 12 episode scores that round, standing = a decaying average of round scores); deed-by-deed Glory pricing is on [[glory-season-2]]. |
 
 **This table is the honest map of this wiki's own scope, not a promise that
 every row gets equal coverage.** Five of the six rows above now point at a
@@ -81,8 +81,7 @@ The former single classic-mode "Paintbot" league's documented rotation —
 `2v2, 2v2, 2v2, 4ffa, 4ffa8` — mixed two of this table's axes in one
 sequence: three slots of the `default` ruleset under `2v2` pairing, then one
 slot each of the two four-team-named slots that are not part of this wiki's
-own GV24 build (see [[ffa]]). That league has since split into Paintbot
-(Season 2), whose only scheduled variant is `battle-royale-s2`, and
+own GV24 build (see [[ffa]]). That league has since split into Paintbot 2, whose only scheduled variant is `battle-royale-s2`, and
 Campaign, whose current round rotation this wiki has not re-verified — see
 `## Gaps`. Nothing about a rotation's own cadence or order is this page's
 subject; see [[round]] for that.
@@ -97,7 +96,7 @@ subject; see [[round]] for that.
 | GV24 | Corrected: this page previously named `4ffa` and `4ffa8` as a live team-count ruleset option alongside the classic two-team ruleset, including player-count totals that do not hold at GV24. Both names are real, but the ruleset they name does not exist at GV24 — see [[ffa]]. |
 | Unrecorded | Documented `battle-royale-s2`'s duo pairing: a team's two seats always draw two different policies, a short entrant pool is completed with a filler partner rather than an empty or repeated seat, and pairings differ episode to episode within a round. |
 | Unrecorded | Updated to the live scoring rules as of round 3849: episode banking is no longer win-gated (both seats bank the team total win or lose), and a round score sums an entrant's best 12 episode scores rather than every episode. |
-| Unrecorded | Paintbot (Season 2)'s round scoring rule changed live from best-episode to a sum of the round's episodes — the `battle-royale-s2` row's scoring note updated to match. |
+| Unrecorded | Paintbot 2's round scoring rule changed live from best-episode to a sum of the round's episodes — the `battle-royale-s2` row's scoring note updated to match. |
 
 ## Gaps
 

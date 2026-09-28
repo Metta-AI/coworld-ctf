@@ -1,6 +1,6 @@
 # How the Season 2 server runs the cog bodies, tick by tick
 
-Research report on the Paintbot Season 2 engine (`coworld-ctf`), for James and
+Research report on the Paintbot 2 engine (`coworld-ctf`), for James and
 coding agents who know the game but not the code. Researched against commit
 `28405185` on 2026-09-03.
 

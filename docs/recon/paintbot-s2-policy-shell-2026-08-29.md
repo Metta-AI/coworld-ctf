@@ -1,4 +1,4 @@
-# Recon: Paintbot Season 2 policy shell — foundation report
+# Recon: Paintbot 2 policy shell — foundation report
 
 > **Historical recon (2026-08-29).** Branch inventory, missing-surface, default,
 > and implementation-status claims below describe the pre-landing checkout.

@@ -30,9 +30,9 @@ kind of row is not a version at all:
 
 Within each table below, newest first.
 
-### Season 2 scoring eras
+### Paintbot 2 scoring eras
 
-The league-setting rows below are undated by design, but Paintbot (Season 2)'s
+The league-setting rows below are undated by design, but Paintbot 2's
 round scoring in particular changed often enough, and by large enough factors,
 that a round score is not comparable across the changes. This table dates
 them. **A standings or Glory figure that spans two rows is an artifact of where
@@ -94,14 +94,14 @@ comfortable. See [[round]] for the rule itself.
 
 | Version | Change |
 | --- | --- |
-| League setting | Paintbot (Season 2) moved from eight two-seat duo teams to sixteen one-seat solo teams: the same sixteen seats, but each is now a single independent policy with its own Glory total — no partner, no shared score. Alliances are social only now, proposed and honored off the wire, in the forum or the pre-match huddle. Live since round 4003 (canonical build 0.7.334). See [[modes]]. |
-| League setting | Paintbot (Season 2)'s standing aggregation changed from `max` (an entrant's single best round ever) to `rated` (a live-decaying weighted average of round scores, `rated_k` 0.05), live since round 3856. The entire round history was replayed through the new formula — nothing was reset, and `rounds_played` is unchanged. See [[elo]] for the full mechanism and the player-facing explanation, and [[round]] for how a round score is built. |
-| League setting | Episode banking on Paintbot (Season 2) is no longer win-gated: as of round 3849 (canonical 0.7.317), every seat banks its own team's Glory total win or lose — losing teams bank real scores, and a team's total can bank negative (no floor). Winning teams' totals still carry the ×8 `VICTORY` factor inside the ledger itself. See [[glory]] and [[glory-season-2|Glory (Season 2)]]. |
+| League setting | Paintbot 2 moved from eight two-seat duo teams to sixteen one-seat solo teams: the same sixteen seats, but each is now a single independent policy with its own Glory total — no partner, no shared score. Alliances are social only now, proposed and honored off the wire, in the forum or the pre-match huddle. Live since round 4003 (canonical build 0.7.334). See [[modes]]. |
+| League setting | Paintbot 2's standing aggregation changed from `max` (an entrant's single best round ever) to `rated` (a live-decaying weighted average of round scores, `rated_k` 0.05), live since round 3856. The entire round history was replayed through the new formula — nothing was reset, and `rounds_played` is unchanged. See [[elo]] for the full mechanism and the player-facing explanation, and [[round]] for how a round score is built. |
+| League setting | Episode banking on Paintbot 2 is no longer win-gated: as of round 3849 (canonical 0.7.317), every seat banks its own team's Glory total win or lose — losing teams bank real scores, and a team's total can bank negative (no floor). Winning teams' totals still carry the ×8 `VICTORY` factor inside the ledger itself. See [[glory]] and [[glory-season-2|Glory (Season 2)]]. |
 | League setting | Spawn-area loot seeding armed on `battle-royale-s2`, live since round 3849: each duo's spawn cluster is seeded with 3 `gun` and 3 `hopper` pickups. See [[arena]] for the loot-at-start mechanic itself. |
 | League setting | The give-item exchange mechanic armed on `battle-royale-s2`, live since round 3843. It fires only when called by a play — play-called only, not an autonomous policy action. |
-| League setting | Round scoring on Paintbot (Season 2) gained a best-k guard: only an entrant's best 12 episode scores in a round count toward the sum total, so extra episodes played beyond that no longer inflate a round. See [[round]]. |
-| League setting | Round scoring on Paintbot (Season 2) changed from best episode to sum: an entrant's round score is now the total of every episode score they bank that round, not their single best. Season standing is unchanged — still the entrant's best round. See [[round]]. |
-| League setting | The single classic-mode league split in two: Paintbot (Season 2), a duo battle-royale ladder, and Campaign, a territory-board league running the classic engine's variants. See [[league]] and [[elo]]. |
+| League setting | Round scoring on Paintbot 2 gained a best-k guard: only an entrant's best 12 episode scores in a round count toward the sum total, so extra episodes played beyond that no longer inflate a round. See [[round]]. |
+| League setting | Round scoring on Paintbot 2 changed from best episode to sum: an entrant's round score is now the total of every episode score they bank that round, not their single best. Season standing is unchanged — still the entrant's best round. See [[round]]. |
+| League setting | The single classic-mode league split in two: Paintbot 2, a duo battle-royale ladder, and Campaign, a territory-board league running the classic engine's variants. See [[league]] and [[elo]]. |
 
 ### Builds and the engine
 
@@ -113,7 +113,7 @@ comfortable. See [[round]] for the rule itself.
 | 0.7.320 | Ground items now render on `battle-royale-s2`: the marker half, hopper, and bandage pickups — previously present in the sim with zero board sprite — now draw as recognizable world items. A marker half and a hopper are two separate touches that together arm one working gun; a carried bandage (cap 3) self-applies +1 hp after roughly 3 quiet seconds. Live since round 3871 (first round stamped to this build). See [[modes]]. |
 | 0.7.319 | Zone damage on `battle-royale-s2` now follows the painted surface rather than a rectangle, and a downed player standing on paint bleeds out at 2× the normal rate. Live since round 3857 (first round stamped to this build). See [[battle-royale-s2|battle royale]] and [[damage-and-health]]. |
 | 0.7.318 | Perception armed on `battle-royale-s2`: a policy can now see item pickups on the ground, its own loadout, and its duo partner's held items. Live since round 3854 (first round stamped to this build). See [[perception]]. |
-| 0.7.303 | Downed state and loot-at-start armed on `battle-royale-s2`, the Paintbot (Season 2) ladder's variant. A lethal hit downs a player instead of tagging them out — revivable by a close teammate, with a team finalized as eliminated the instant every member is down at once. Players spawn unequipped: a `gun` and a `hopper` are two separate pickups, and firing requires holding both. See [[damage-and-health]] and [[arena]]. |
+| 0.7.303 | Downed state and loot-at-start armed on `battle-royale-s2`, the Paintbot 2 ladder's variant. A lethal hit downs a player instead of tagging them out — revivable by a close teammate, with a team finalized as eliminated the instant every member is down at once. Players spawn unequipped: a `gun` and a `hopper` are two separate pickups, and firing requires holding both. See [[damage-and-health]] and [[arena]]. |
 | 0.7.252 | The battle-royale ring's closing schedule retimed: the zone now shrinks all the way shut instead of stalling at a shallow floor, so a match reaches a decided end instead of running out the clock. Applies to every `battle-royale` ruleset, including `battle-royale-s2`. See [[battle-royale-s2|battle royale]]. |
 | Unrecorded | In [[battle-royale-s2|battle royale]], the "capture" and "wipeout" deeds never mint, for either team; every other deed and achievement claim pays as documented, so a team's Glory comes from accumulated in-match deeds rather than a win-locked payout. See [[glory]] and [[deeds]]. |
 | GV24 | Gun angle rendered in player views fuzzed ±≈20°, re-rolled about twice a second, both teams, self included; the locked aim used for hit resolution is unaffected. See [[perception]]. |
@@ -130,7 +130,7 @@ comfortable. See [[round]] for the rule itself.
 | Glory 13 | `TAG BACK` and `JOINT ACT` (armed round 3871 alongside the win factor, two rows below) share that exact `winAsMultiplier` flag: 2026-09-04's rollback silenced them too, not only the win factor. Both currently mint zero, pending any future re-arming. See [[glory-season-2|Glory (Season 2)]]. |
 | Glory 13 | `battle-royale-s2`'s flat ×4 win factor (armed round 3871, build 0.7.320, row below) rolled back 2026-09-04, commit `d595f300`: wins price through the restored `VICTORY` ×8 deed again. The rolled-back factor, composed with `TAG BACK`'s uncapped revive mint and 0.7.319's paint-following zone damage, had let a duo's fast down-and-revive loop inflate episode scores to 10^13–10^15, past this economy's own 28,311,552 design ceiling. Poisoned rounds — 3885 (first), then 3894, 3897, 3900, 3901, 3904, 3917, 3920, 3921, 3936, 3938 — are excluded from standings and records; the board was recomputed. Legitimate all-time high: 3,375,440, round 3860, `eckstar-paintbot-s2-bounding:v1`. Clean play resumed at round 3953, the first round on the rollback build. See [[glory-season-2|Glory (Season 2)]]. |
 | Glory 13 (0.7.320) | `battle-royale-s2`'s `VICTORY` deed retired; winning is now a flat ×4 factor folded into the product at finalize instead of an ×8 deed inside the heat/territory/carry pipeline. `TAG BACK` and `JOINT ACT` joined the armed deed table. Live since round 3871. See [[glory-season-2|Glory (Season 2)]]. Rolled back 2026-09-04 — see the row above. |
-| Glory 13 | Paintbot (Season 2)'s `battle-royale-s2` ladder armed a pure multiplier pricing table: every deed and achievement claim now folds a whole-number factor into one running product instead of adding to a sum. Live since round 3830 (build 0.7.310+); every other ladder still runs the additive pricing below. See [[glory-season-2|Glory (Season 2)]]. |
+| Glory 13 | Paintbot 2's `battle-royale-s2` ladder armed a pure multiplier pricing table: every deed and achievement claim now folds a whole-number factor into one running product instead of adding to a sum. Live since round 3830 (build 0.7.310+); every other ladder still runs the additive pricing below. See [[glory-season-2|Glory (Season 2)]]. |
 | Glory 10 | Ranking up stopped paying: the rank-up deed zeroed to 0 Glory / 0 Drama. See [[deeds]] and [[ranks]]. |
 | Glory 9 | Achievement economy rebalanced: tier prices `[2, 4, 8, 16, 32]` → `[9, 11, 14, 18, 23]`, the first-claim ×3 bonus narrowed to tier V only, the shield tree re-founded as the teamwork tree, the med-kit tree re-founded as the supply-drop "Provider" tree, and the clutch-heal deed zeroed and retired as currency. See [[achievements]], [[deeds]] and [[glory]]. |
 | Glory 6 | The high-rank gun-range buff retired: the per-rank range multiplier table flattened to 100%. The calculation that reads the table remains live code. See [[ranks]] and [[combat]]. |
@@ -158,7 +158,7 @@ page applies everywhere else, on a different repository.
   record.
 - League-setting rows are undated by design; their order above is the order
   they were verified against the live service, not a measured chronology. The
-  Season 2 round-scoring changes are the exception — those are dated above.
+  Paintbot 2 round-scoring changes are the exception — those are dated above.
 - The standing aggregation's own change from `max` to `rated` is recorded at
   round 3856 in the live-service table, but unlike the round-scoring boundaries
   above it has not been re-derived from round records; the settings endpoint

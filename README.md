@@ -1,7 +1,7 @@
 # Paintbot — AI Paintball (the Coworld CTF engine)
 
 Paintbot is paintball-flavored team tag for the Coworld platform. The players
-are submitted AI policies — and there's a human seat if you want in. Season 2
+are submitted AI policies — and there's a human seat if you want in. Paintbot 2
 plays battle royale:
 sixteen solo seats — sixteen teams of one, one policy per team — on a generated
 map, a closing zone, no respawns, last cog standing; policies talk before the round, shout during it, and every act mints
@@ -21,7 +21,7 @@ Crewrift's continuous 2D movement, line-of-sight, Sprite v1 protocol, websocket
 server, and replay infrastructure, and replaces the social-deduction game layer
 (roles, tasks, voting) with teams, guns, flags, and fog-of-war vision.
 
-The **authoritative Season 2 rules surface** is
+The **authoritative Paintbot 2 rules surface** is
 [`docs/designs/BR_PLAYS.md`](docs/designs/BR_PLAYS.md), together with the
 normative protocol, runtime, and lifecycle sections of
 [`docs/designs/strategy-play-calling-shell-2026-08-29.md`](docs/designs/strategy-play-calling-shell-2026-08-29.md).
@@ -29,7 +29,7 @@ The summary below is just an orientation; [`docs/RULES.md`](docs/RULES.md) is
 the retained rules reference for deprecated classic modes.
 
 The normal publishing workflow uses the `paintbot` Coworld manifest. Its sole
-published variant is `battle-royale-s2`, the Season 2 play-calling game; the former
+published variant is `battle-royale-s2`, the Paintbot 2 play-calling game; the former
 classic, CTF, paintball, and first-generation battle-royale variants are archived
 as described below.
 
@@ -81,9 +81,9 @@ discrepancy in the platform's own documented scoring ceiling in the process,
 ahead of the maintainers' own tooling. Read it, ask questions, and post what
 you find, including anything that looks broken.
 
-## Start with a Season 2 policy
+## Start with a Paintbot 2 policy
 
-Season 2 policies upload WebAssembly plays, call them by name while the engine
+Paintbot 2 policies upload WebAssembly plays, call them by name while the engine
 drives the cog, and participate in the lobby chat. Start from one of the three
 working policy personas in [`policies/starters/`](policies/starters/README.md):
 
@@ -101,7 +101,7 @@ lower-level example of the binary upload/call/status protocol, see
 [`policies/poc_llm_policy/`](policies/poc_llm_policy/README.md); it is a wire
 reference, not the recommended policy template.
 
-## Run Season 2 locally
+## Run Paintbot 2 locally
 
 Install Nim and sync the lock file. We recommend
 [Nimby](https://github.com/treeform/nimby).
@@ -329,7 +329,7 @@ seeks.
 
 ## Inspect and edit maps
 
-Season 2 maps are authored with `tools/brmapkit.nim` and converted into the
+Paintbot 2 maps are authored with `tools/brmapkit.nim` and converted into the
 engine's `mapSpec`; see [`docs/MAPKIT.md`](docs/MAPKIT.md) for that workflow.
 To inspect the converted geometry interactively, run the map editor:
 
@@ -337,7 +337,7 @@ To inspect the converted geometry interactively, run the map editor:
 nim c --threads:on --mm:orc -r tools/map_editor.nim 8099
 ```
 
-Then open <http://localhost:8099>. It loads a pasted Season 2 map spec as well as
+Then open <http://localhost:8099>. It loads a pasted Paintbot 2 map spec as well as
 retained classic pool entries and generator seeds, renders them through the real
 game geometry, and reports the play-quality validators live — cover budget, open
 sightlines, corridor connectivity, and endzone access. Failures are **locatable**:
@@ -347,7 +347,7 @@ sentence.
 
 The editor's half/quadrant generator and its curated pool are deprecated-classic
 authoring surfaces; using those outputs in a live match requires
-`allowDeprecatedModes: true`. Season 2 BR draws should be changed in `brmapkit`,
+`allowDeprecatedModes: true`. Paintbot 2 BR draws should be changed in `brmapkit`,
 converted, and then pasted into the editor for inspection.
 
 For a static, zoomable historical view of the deprecated classic pool, open

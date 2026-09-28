@@ -22,7 +22,7 @@ Two producers exist:
   container path, `commissioners.py:577` `build_recent_rounds`) DO populate it
   — they embed round history when the commissioner publishes its own
   leaderboard snapshot.
-- **Platform ladder leagues** — S2 Paintbot's own league, confirmed running
+- **Platform ladder leagues** — Paintbot 2's own league, confirmed running
   `standing_aggregation: "rated"` (`ladders/config.py:460`) — go through
   `ScoreRankingAlgorithm.leaderboard()`
   (`app_backend/src/metta/app_backend/v2/ladders/rankings/score.py:212-228`).

@@ -4,7 +4,7 @@ Scripts used to produce the census findings, landed in this repo at
 [`docs/designs/glory/CENSUS-2026-09.md`](../../docs/designs/glory/CENSUS-2026-09.md)
 (lane ledger copy: `~/.ctf/knowledge/glory-gradient/01-census-2026-09-08.md`)
 (era: GloryVersion 15, coworld_version 0.7.361-0.7.367, rounds r4515-r4539 on
-the Paintbot Season 2 ladder). Read-only against the live API; these scripts
+the Paintbot 2 ladder). Read-only against the live API; these scripts
 never touch sim/scoring code.
 
 ## TRAP: a 0/N reconciliation means you dropped achievement events, not that the extractor is broken

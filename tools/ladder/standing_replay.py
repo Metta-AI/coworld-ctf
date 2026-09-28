@@ -32,7 +32,7 @@ sweepable):
 Literal["ewma","mean","max"]`, `half_life_hours` in HOURS) implement a
 DIFFERENT, wall-clock-hours EWMA with no `rated`/`rated_k`/`rated_clamp_
 multiple`/`sum_top_k` fields at all — grepped clean, zero hits. Whatever
-backend build actually serves Paintbot S2 is ahead of (or diverged from)
+backend build actually serves Paintbot 2 is ahead of (or diverged from)
 that local source tree. The formula above is instead taken directly from
 the LIVE served settings (fetched read-only, see above) and independently
 corroborated by memory `ctf-standing-is-an-ema-not-a-max.md` (regression

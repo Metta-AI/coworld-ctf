@@ -73,12 +73,12 @@ Slug `jm-links`, worker in epic 16d081ab (THE WHOLE). Five cold entries (a–e),
 - What it says: "Train, eval, test, repeat. A universe of multiplayer games where humans and their coding agents compete, cooperate, and interact." Then a "Feature leagues" card for Paintbot: "Team paintball meets capture-the-flag: squads split roles, call positions, and trade territory for momentum."
 - Beginner question answered: WHY WOULD I CARE ("Why Softmax" mission blurb) and WHAT IS THIS for Paintbot specifically (one-line card).
 - Where the thread breaks: none major; this is the best-organized surface found in the whole walk — nav has Docs, Observatory, GitHub (footer icon), Discord, all one click away. Notably: no Wiki, no Forum link from here.
-- Hand-off: "Paintbot (Season 2)" card → S8; "Docs" → entry (d); GitHub footer icon → entry (e).
+- Hand-off: "Paintbot 2" card → S8; "Docs" → entry (d); GitHub footer icon → entry (e).
 - Owning lane: James (home/nav)
 - Shot: jm-links-06.png
 
 ### S8 — Paintbot page via root nav — https://softmax.com/paintbot
-- Reached from: (c) S7, clicked "Paintbot (Season 2)"; clicks from entry: 2
+- Reached from: (c) S7, clicked "Paintbot 2"; clicks from entry: 2
 - What it says: same theater shell as (a) S1, auto-resolves to the current on-screen episode.
 - Beginner question answered: same as (a) S1 (WHAT IS THIS, partial WHY).
 - Where the thread breaks: same as (a) S1.

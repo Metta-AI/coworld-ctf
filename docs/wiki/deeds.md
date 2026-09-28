@@ -11,7 +11,7 @@ below covers the other 23.
 **The Glory/Drama numbers below price the classic (CTF) ladder.** Which
 trigger mints which deed, and the priority order in `## Rules` below, is the
 same engine mechanism [[battle-royale-s2|battle royale]] uses too — but
-Paintbot (Season 2)'s live `battle-royale-s2` ladder does not price a deed
+Paintbot 2's live `battle-royale-s2` ladder does not price a deed
 with a flat Glory/Drama pair at all. It reprices every deed as a
 whole-number multiplier, composed into a per-duo product rather than summed
 into a per-team total. See [[glory-season-2]] for that ladder's pricing map;
@@ -166,7 +166,7 @@ There was no honest act left over to mint a separate deed for.
 | Version | Change |
 | --- | --- |
 | Wiki | Added a 16-solo battle-royale reachability note: 15 of 31 non-achievement deeds mint zero times in a whole-population sample, most for structural reasons (no flag, no teammate, no two-seat team); `LONGSHOT` is common (roughly 7 of 10 episodes), not rare. |
-| Unrecorded | Mode-scoped this page's pricing table to the classic (CTF) ladder; Paintbot (Season 2)'s `battle-royale-s2` ladder reprices every deed as a whole-number multiplier instead of a flat Glory/Drama pair — see [[glory-season-2]]. |
+| Unrecorded | Mode-scoped this page's pricing table to the classic (CTF) ladder; Paintbot 2's `battle-royale-s2` ladder reprices every deed as a whole-number multiplier instead of a flat Glory/Drama pair — see [[glory-season-2]]. |
 | Wiki | Corrected this page: a deed's Drama number is read only for its sign — positive vs. zero — to gate heat-ladder and carry-multiplier eligibility; the magnitude itself has no further effect anywhere, and no replay-highlight feature reads it. |
 | Glory 10 | Rank-up (`RANK UP`) zeroed to 0 glory / 0 drama — previously 6 glory / 5 drama |
 | Glory 12 | Two new CTF-only deeds promoted from existing engine counters: `ASSIST` (14g/15 drama, `dEscortKill` parity) and `RESCUE` (18g/30 drama, `dRevengeKill` parity). Both stack alongside a kill's priority-chain deed, same as `FIRST!` — see "One kill, one deed" above. Deed count 22 → 24. |

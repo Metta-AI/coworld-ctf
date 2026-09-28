@@ -129,7 +129,7 @@ def main():
     p.add_argument("--rounds", type=int, default=40,
                     help="how many of the most recent rounds to scan (default 40)")
     p.add_argument("--division", default=api.PAINTBOT_DIV,
-                    help="division id to scan (default: Paintbot S2 Competition)")
+                    help="division id to scan (default: Paintbot 2 Competition)")
     args = p.parse_args()
 
     rows, engine_builds = scan(args.entrant, args.rounds, args.division)

@@ -10,7 +10,7 @@ test added at `tests/test_zero_mint_reachability.nim`.
 
 GloryVersion 15, coworld_version 0.7.361-0.7.367 (GameVersion 59 for
 0.7.361-0.7.364, 60 for 0.7.365-0.7.367 — same scoring economy, see the
-census), Paintbot Season 2 BR ladder, rounds r4515-r4539, **305 episodes,
+census), Paintbot 2 BR ladder, rounds r4515-r4539, **305 episodes,
 4,880 seat-episodes, top-decile threshold p90=576 (of `reported`), n=509**.
 `GloryVersion` moved to 16 on origin/main via PR #477 but was NOT live on
 any build as of this population — this is still the PRE-#477 baseline.

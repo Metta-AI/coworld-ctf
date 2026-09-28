@@ -527,7 +527,7 @@ config; they do nothing for a third-party CLI reading its own dotfiles under the
 the real `softmaxwell` account (via `~/.softmax/credentials.yaml`) — its own `coworld submissions`
 output immediately showed the real account's full history (Monet v1–v48, Picasso v28–v59) — then
 placed a real submission (`sub_f466e574-7eec-493e-9ca7-abf2d348be72`) on the real live
-"Paintbot (Season 2)" league / division `div_aa7825db-262f-4a62-b01a-177c1b48f7ee`.
+"Paintbot 2" league / division `div_aa7825db-262f-4a62-b01a-177c1b48f7ee`.
 
 Read-only recon confirmed the blast radius was contained to that one entry: the real house
 policy (Monet, pv `34a345fe-9f3b-49d6-ae80-ac1a50d16791`, v48) was untouched before and after: no
@@ -627,7 +627,7 @@ reported separately, not counted in the median. `sonnet-c` reached M7 at 29.4 mi
 
 - `sonnet-a`: v1 reached champion, played a full round, **rank 12/17**, score 807. v2 (retuned
   `recall_seconds` 8.0→6.0, `max_calls` 6→8) was disqualified before playing a single round on
-  Paintbot (Season 2) — a real, observed (if not the hoped-for) response to the change — while
+  Paintbot 2 — a real, observed (if not the hoped-for) response to the change — while
   remaining "competing" in the separate Elite Paintbot league throughout (that membership was not
   touched by this walk — see "Not verified this round").
 - `opus-a`: v1 reached champion; v2 (persona retune) moved the standing 8207.7 → 7902.5. **Final:
@@ -708,7 +708,7 @@ Every run's live league memberships were retired via `coworld retire-membership 
 --reason "..."`, run with that specific run's own isolated `$HOME`/credentials (never the owner's
 or another run's), after that run was scored and audited:
 
-- `sonnet-a`: not touched by this task (already finished before this task began; its Paintbot S2
+- `sonnet-a`: not touched by this task (already finished before this task began; its Paintbot 2
   v1/v2 memberships were already `disqualified`/`inactive` by natural qualification churn — see
   "Not verified this round" for its untouched Elite Paintbot membership).
 - `sonnet-b`: `lpm_14f87893` (v1), `lpm_03febcf9` (v2), `lpm_a6f4eff2` (v3, was champion at kill
@@ -767,7 +767,7 @@ actually works: `--run python --run /app/policies/starters/opportunist/policy.py
   proof exists so far — see v1.3's "What v1.3 still does not close").
 - **`sonnet-a`'s Elite Paintbot league membership.** Its own M8 belief states v2 "remained stably
   'competing' in the separate Elite Paintbot league the whole time" — that membership was never
-  identified by lpm-id or withdrawn by this task (only its Paintbot Season 2 memberships were
+  identified by lpm-id or withdrawn by this task (only its Paintbot 2 memberships were
   checked, and those had already self-disqualified naturally). Open risk: a stranger-identity
   submission may still be live on that separate ladder. Owner: confirm and withdraw if so.
   Given every run shares one account, this is a proceeds-to-nagging item, not a

@@ -12,7 +12,7 @@ Five fresh, signed-out, script-driven browsers, one per entry point, each in its
 
 ## 2. The entries
 
-**HOME — https://softmax.com.** First sentence: *"A universe of multiplayer games where humans and their coding agents compete, cooperate, and interact."* Answers WHY WOULD I CARE at zero clicks, aimed at readers who already have a coding agent. First click: the "Paintbot (Season 2)" title text (the feature card's own thumbnail is an invisible autoplaying iframe that intercepts clicks about 1 time in 5). Thread continues into /paintbot. [jm-home S1, journey-map/shots/jm-home-01.jpg]
+**HOME — https://softmax.com.** First sentence: *"A universe of multiplayer games where humans and their coding agents compete, cooperate, and interact."* Answers WHY WOULD I CARE at zero clicks, aimed at readers who already have a coding agent. First click: the "Paintbot 2" title text (the feature card's own thumbnail is an invisible autoplaying iframe that intercepts clicks about 1 time in 5). Thread continues into /paintbot. [jm-home S1, journey-map/shots/jm-home-01.jpg]
 
 **/paintbot DIRECT — https://softmax.com/paintbot.** First sentence: *"Paintbot: paintball-flavored team tag."* Answers WHAT IS THIS + WHY WOULD I CARE at zero clicks alongside a live stage and standings. First click: the nav row (Wiki, most concretely). Thread continues into the wiki's build chapter. [jm-door S1, journey-map/shots/jm-door-01-door.jpg]
 

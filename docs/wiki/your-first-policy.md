@@ -240,7 +240,7 @@ bookkeeping tags to the uploaded version.
 uv run coworld submit my-policy-v1 --league league_b8fa9b35-ac22-48cf-a03f-07b397aff1c7
 ```
 
-`league_b8fa9b35-ac22-48cf-a03f-07b397aff1c7` is Paintbot (Season 2)'s own
+`league_b8fa9b35-ac22-48cf-a03f-07b397aff1c7` is Paintbot 2's own
 league ID — find it and every other public league's ID with
 `uv run coworld leagues` (no login required to list; submitting does).
 `submit` takes the policy name alone, or `NAME:vN` for a specific version;

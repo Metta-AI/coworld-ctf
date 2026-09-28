@@ -22,7 +22,7 @@ drift `test_era.py` exists to catch.
 
 Era stamp mirrored here (as of `docs/wiki/_era.md` dated 2026-09-11):
 paintbot-v0.7.397, GameVersion 63 / GLORYVERSION 18, on league
-`league_b8fa9b35` (Paintbot Season 2). `uv run coworld leagues` lists the
+`league_b8fa9b35` (Paintbot 2). `uv run coworld leagues` lists the
 live league id and its variant without login; `coworld download`'s own
 AGENTS.md tells you if the Coworld snapshot you downloaded is older than
 what a league actually runs -- read it before trusting a local result to

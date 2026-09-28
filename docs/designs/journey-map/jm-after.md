@@ -114,7 +114,7 @@ milestones) but the surfaces touched and defects hit are real and cited by trans
 - What it says: `coworld submit` gave the same terse pending/status-page response as v1; the site gave no
   A/B comparison view.
 - Beginner question answered: HOW DO I GET BETTER (attempted, failed) — v2 was **disqualified from
-  Paintbot (Season 2) before playing any round**, while staying stably "competing" in the unrelated Elite
+  Paintbot 2 before playing any round**, while staying stably "competing" in the unrelated Elite
   Paintbot league `[1271]`. The stranger correctly diagnosed via CLI that the disqualification traced to
   an *unrelated* round-execution failure (a different seat's lobby-join timeout), not its own change
   `[1141]` — meaning the one real "did my tweak help" experiment in this walk returned **no signal at
