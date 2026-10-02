@@ -8,7 +8,7 @@ from the S2-lead task brief — no client/bundle code changes ship with it.
 Era stamp: repo at `main 641fe908` (GameVersion 61 / GLORYVERSION 16). All API
 probes below were run live against the platform on 2026-09-09 and logged to
 `/tmp/endcard-v1/*.log`. League: `league_b8fa9b35-ac22-48cf-a03f-07b397aff1c7`
-(Paintbot S2), division `div_aa7825db-262f-4a62-b01a-177c1b48f7ee` (Competition).
+(Paintbot 2), division `div_aa7825db-262f-4a62-b01a-177c1b48f7ee` (Competition).
 
 ## Verdict: NOT buildable now — not even live-only
 

@@ -23,7 +23,6 @@ from next_coworld_version import compute_next, fetch_all_rows
 rows = fetch_all_rows(os.environ["SOFTMAX_TOKEN"])
 template = json.loads(Path("coworld_manifest_paintbot.json").read_text())
 template["game"]["name"] = "paintbot-profiling"
-del template["game"]["runnable"]["env"]["ANTHROPIC_API_KEY_URI"]
 template["game"]["runnable"]["env"]["COWORLD_WORKDIR"] = "/coworld"
 with CoworldUploadClient.from_login(server_url="https://softmax.com/api") as client:
     # Register the existing viewer using the same helper as upload-coworld.

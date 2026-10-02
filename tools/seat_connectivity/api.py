@@ -21,7 +21,7 @@ import urllib.request
 
 BASE = "https://softmax.com/api/observatory"
 
-# Paintbot Season 2 (the live league this checker targets by default).
+# Paintbot 2 (the live league this checker targets by default).
 # league/div ids are STABLE per tools/ladder/ctfapi.py + repo memory; a
 # division id, never a league id, is what actually filters server-side
 # (see TRAP 1 below), so that is the one exposed as an override.

@@ -9,7 +9,7 @@ agents planning the Season 2 policy shell. The 2026-08-30 update adds section 0,
 which is a plain-language primer on every component plus Maxwell's overnight
 commits (his `BR_PLAYS.md` plays document and the page-language unification),
 and corrects the body wherever those commits made it stale. The report covers
-the paradigms in Maxwell's Paintbot Season 2 work: the onepage scored-intent
+the paradigms in Maxwell's Paintbot 2 work: the onepage scored-intent
 policies, the policy-page VM, the reflash wire, and pre-round chat and page
 delivery. It explains how they fit the game loop and what it would take to
 adapt `stencil` into the shell.

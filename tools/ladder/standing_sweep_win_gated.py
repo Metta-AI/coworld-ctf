@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """GLORY GRADIENT win-gate sweep driver (2026-09-14).
 
-Owner ask: replay the Paintbot S2 ladder under three rules on the SAME
+Owner ask: replay the Paintbot 2 ladder under three rules on the SAME
 window and produce ranked standings tables -- see
 ~/.ctf/knowledge/glory-gradient/01h-win-gated-standing-sweep-2026-09-14.md
 for the write-up this script's output feeds.

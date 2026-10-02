@@ -81,7 +81,7 @@ that has moved):**
    any future round, regardless of which option below ships.
 2. **`season_leg_transform` is confirmed live-armed as `"none"`** for the one `rated`
    league (read above) — the log2 transform exists in code but is not turned on for
-   Paintbot S2 today.
+   Paintbot 2 today.
 3. **The platform already has a `round_scoring_rule = "win"` enum value, wired
    end-to-end** (`commissioner_schema.py:47-53` `ScoringRule`; `round_lifecycle.py:2668-2677`).
    Today it replaces a policy's round score with its **win rate** (`wins / episodes_played`)

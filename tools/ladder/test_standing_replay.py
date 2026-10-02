@@ -5,7 +5,7 @@ Run: python3 -m pytest tools/ladder/test_standing_replay.py -q
 (or directly: python3 tools/ladder/test_standing_replay.py)
 
 `testdata/standing_fixture.json` is the first 15 rounds (r4257-r4271) of the
-real Paintbot S2 ledger pulled 2026-09-08 (`standing_replay.py pull --since
+real Paintbot 2 ledger pulled 2026-09-08 (`standing_replay.py pull --since
 4257`, cached via /v2/rounds + /v2/rounds/{id}/episodes). The golden values
 below were produced by replaying that exact fixture under the CURRENT served
 config (rated_k=0.05, rated_clamp_multiple=150, sum_top_k=12, raw transform)

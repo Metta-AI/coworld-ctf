@@ -8,7 +8,7 @@ Companion to `s2-permissions-retrospective-2026-09-02.md`. Raw per-session findi
 
 ## Scope note (read first)
 
-All six assigned sessions are the **Paintbot Season 2 play-calling-shell design work**, not the league changeover:
+All six assigned sessions are the **Paintbot 2 play-calling-shell design work**, not the league changeover:
 
 | Session | Rows | Window (UTC) | What it actually is |
 |---|---|---|---|

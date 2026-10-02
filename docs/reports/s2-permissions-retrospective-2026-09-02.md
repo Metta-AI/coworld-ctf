@@ -1,6 +1,6 @@
 # Season 2 changeover: league permissions retrospective
 
-Date: 2026-09-02. Scope: the Paintbot Season 2 cut-over on the Softmax Observatory platform,
+Date: 2026-09-02. Scope: the Paintbot 2 cut-over on the Softmax Observatory platform,
 2026-08-31 through 2026-09-02, as executed by James's agents (Claude Code PM session, Codex
 lanes, the starter-policy loop) and Maxwell's orchestrator ("testing grounds 5").
 

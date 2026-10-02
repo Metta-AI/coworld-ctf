@@ -42,7 +42,7 @@ script does not perform any login itself and does not depend on any
 internal tooling to obtain one.
 
 Optional: `--division <div_id>` to point at a division other than the
-default (Paintbot Season 2 Competition).
+default (Paintbot 2 Competition).
 
 ## The four documented API traps this script encodes (do not rediscover them)
 
@@ -88,7 +88,7 @@ but real and worth naming so nobody re-pays for them):
 ## Real run
 
 Run live 2026-09-07 against our own entrant (`softmaxwell`) over the 30 most
-recent Paintbot Season 2 Competition rounds at the time (rounds 4345-4374,
+recent Paintbot 2 Competition rounds at the time (rounds 4345-4374,
 engine builds 0.7.345/0.7.346/0.7.347). Full transcript in
 [`example_output.txt`](example_output.txt) (374 lines); excerpt:
 
