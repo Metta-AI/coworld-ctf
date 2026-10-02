@@ -166,7 +166,7 @@ class OpenAiChatBrain:
     This single class serves BOTH the production and dev paths, because they
     speak the same protocol:
 
-    * hosted -- ``POST $COWORLD_LLM_ENDPOINT/v1/chat/completions``
+    * hosted -- ``POST $AWS_ENDPOINT_URL_BEDROCK_RUNTIME/v1/chat/completions``
       with **no** ``Authorization`` header. The sidecar holds the real
       credential and attributes the call to this pod's own player slot.
     * dev    -- ``POST https://openrouter.ai/api/v1/chat/completions`` with your
@@ -212,6 +212,8 @@ class OpenAiChatBrain:
                 {"role": "user", "content": summary},
             ],
         }).encode("utf-8")
+        self.last_request = json.loads(body)
+        self.last_raw_response = None
 
         for attempt in (0, 1):
             request = urllib.request.Request(
@@ -246,6 +248,7 @@ class OpenAiChatBrain:
             content = payload["choices"][0]["message"]["content"]
         except (KeyError, IndexError) as error:
             raise BrainError(f"unexpected completion response: {payload}") from error
+        self.last_raw_response = content
         try:
             return parse_model_json(content)
         except ValueError as error:
@@ -302,6 +305,7 @@ class ResilientBrain:
         self.primary = primary
         self.fallback = fallback if fallback is not None else CannedBrain()
         self.error: Exception | None = None
+        self.last_attempted_model = False
 
     @property
     def name(self) -> str:
@@ -316,7 +320,9 @@ class ResilientBrain:
         return getattr(self.primary, "calls", 0)
 
     def decide(self, summary: str) -> dict:
+        self.last_attempted_model = False
         if self.error is None:
+            self.last_attempted_model = True
             try:
                 return self.primary.decide(summary)
             except Exception as error:  # noqa: BLE001 -- ANY model failure

@@ -1,6 +1,7 @@
 ## CI shard 4 of 4. See shard_1.nim for the sharding rules.
 {.warning[UnusedImport]: off.}
 import
+  test_hosted_llm,
   test_agent_skins,
   test_alliance_pact,
   test_barrage,
